@@ -98,7 +98,7 @@ A complete WordPress/WooCommerce plugin providing dynamic pricing, stock managem
 
 ### Database Schema
 - **wp_digitalogic_logs** - Activity logging table
-- **Options**: digitalogic_dollar_price, digitalogic_yuan_price, digitalogic_update_date
+- **Options**: dollar_price, yuan_price, update_date
 - **Product Meta**: _digitalogic_dynamic_pricing, _digitalogic_currency_type, etc.
 
 ## API Endpoints

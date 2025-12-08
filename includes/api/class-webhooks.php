@@ -26,8 +26,8 @@ class Digitalogic_Webhooks {
         add_action('woocommerce_new_product', array($this, 'product_created'), 10, 1);
         
         // Hook into currency updates
-        add_action('update_option_digitalogic_dollar_price', array($this, 'currency_updated'), 10, 3);
-        add_action('update_option_digitalogic_yuan_price', array($this, 'currency_updated'), 10, 3);
+        add_action('update_option_dollar_price', array($this, 'currency_updated'), 10, 3);
+        add_action('update_option_yuan_price', array($this, 'currency_updated'), 10, 3);
         
         // Add settings page
         add_action('admin_init', array($this, 'register_settings'));

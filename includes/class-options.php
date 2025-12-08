@@ -30,7 +30,7 @@ class Digitalogic_Options {
      * @return float
      */
     public function get_dollar_price() {
-        return (float) get_option('digitalogic_dollar_price', 0);
+        return (float) get_option('dollar_price', 0);
     }
     
     /**
@@ -40,7 +40,7 @@ class Digitalogic_Options {
      * @return bool
      */
     public function set_dollar_price($price) {
-        $result = update_option('digitalogic_dollar_price', (float) $price);
+        $result = update_option('dollar_price', (float) $price);
         $this->update_date();
         
         // Log the change
@@ -62,7 +62,7 @@ class Digitalogic_Options {
      * @return float
      */
     public function get_yuan_price() {
-        return (float) get_option('digitalogic_yuan_price', 0);
+        return (float) get_option('yuan_price', 0);
     }
     
     /**
@@ -72,7 +72,7 @@ class Digitalogic_Options {
      * @return bool
      */
     public function set_yuan_price($price) {
-        $result = update_option('digitalogic_yuan_price', (float) $price);
+        $result = update_option('yuan_price', (float) $price);
         $this->update_date();
         
         // Log the change
@@ -94,7 +94,7 @@ class Digitalogic_Options {
      * @return string YYMMDD format
      */
     public function get_update_date() {
-        return get_option('digitalogic_update_date', date('ymd'));
+        return get_option('update_date', date('ymd'));
     }
     
     /**
@@ -103,7 +103,7 @@ class Digitalogic_Options {
      * @return bool
      */
     private function update_date() {
-        return update_option('digitalogic_update_date', date('ymd'));
+        return update_option('update_date', date('ymd'));
     }
     
     /**

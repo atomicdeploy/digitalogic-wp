@@ -96,7 +96,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Database
 - Created `wp_digitalogic_logs` table for activity logging
-- Added options: `digitalogic_dollar_price`, `digitalogic_yuan_price`, `digitalogic_update_date`
+- Added options: `dollar_price`, `yuan_price`, `update_date`
 - Added product meta keys: `_digitalogic_dynamic_pricing`, `_digitalogic_currency_type`, `_digitalogic_base_price`, `_digitalogic_markup`, `_digitalogic_markup_type`
 
 ## [Unreleased]

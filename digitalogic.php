@@ -225,14 +225,14 @@ final class Digitalogic {
      * Set default options
      */
     private function set_default_options() {
-        if (get_option('digitalogic_dollar_price') === false) {
-            add_option('digitalogic_dollar_price', '0');
+        if (get_option('dollar_price') === false) {
+            add_option('dollar_price', '0');
         }
-        if (get_option('digitalogic_yuan_price') === false) {
-            add_option('digitalogic_yuan_price', '0');
+        if (get_option('yuan_price') === false) {
+            add_option('yuan_price', '0');
         }
-        if (get_option('digitalogic_update_date') === false) {
-            add_option('digitalogic_update_date', date('ymd'));
+        if (get_option('update_date') === false) {
+            add_option('update_date', date('ymd'));
         }
     }
     

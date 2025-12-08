@@ -270,9 +270,9 @@ CREATE TABLE wp_digitalogic_logs (
 
 ### Options
 
-- `digitalogic_dollar_price` - USD exchange rate
-- `digitalogic_yuan_price` - CNY exchange rate
-- `digitalogic_update_date` - Last update date (YYMMDD format)
+- `dollar_price` - USD exchange rate
+- `yuan_price` - CNY exchange rate
+- `update_date` - Last update date (YYMMDD format)
 
 ### Product Meta Keys
 
