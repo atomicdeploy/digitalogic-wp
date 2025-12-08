@@ -22,7 +22,9 @@ $wc_version = defined('WC_VERSION') ? WC_VERSION : 'N/A';
 // Plugin status
 $dollar_price = $options->get_dollar_price();
 $yuan_price = $options->get_yuan_price();
-$update_date = $options->get_update_date();
+$update_date = $options->get_update_date_formatted();
+$update_date_raw = $options->get_update_date(); // Keep raw format for debug info
+
 
 // Server info
 $server_software = $_SERVER['SERVER_SOFTWARE'] ?? 'Unknown';
@@ -170,7 +172,7 @@ $wc_features['Plugin Compatible'] = $hpos_status['plugin_compatible'] ? 'Yes' : 
                 </tr>
                 <tr>
                     <td><strong><?php _e('Last Update Date (update_date)', 'digitalogic'); ?></strong></td>
-                    <td><?php echo esc_html($update_date); ?></td>
+                    <td><?php echo esc_html($update_date); ?> <small>(<?php echo esc_html($update_date_raw); ?>)</small></td>
                 </tr>
             </tbody>
         </table>

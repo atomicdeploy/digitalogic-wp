@@ -98,6 +98,58 @@ class Digitalogic_Options {
     }
     
     /**
+     * Get formatted update date for display
+     * Supports Persian dates via parsidate plugin if available
+     * 
+     * @param string $format Date format (default: 'Y/m/d')
+     * @return string Formatted date
+     */
+    public function get_update_date_formatted($format = 'Y/m/d') {
+        $update_date_raw = $this->get_update_date();
+        
+        // Convert YYMMDD to a full date string
+        // Assuming 20XX century for YY
+        if (strlen($update_date_raw) === 6) {
+            $year = '20' . substr($update_date_raw, 0, 2);
+            $month = substr($update_date_raw, 2, 2);
+            $day = substr($update_date_raw, 4, 2);
+            $date_string = $year . '-' . $month . '-' . $day;
+        } else {
+            // Fallback to today's date if format is wrong
+            $date_string = date('Y-m-d');
+        }
+        
+        // Check if Persian (Jalali) date conversion is available
+        if (function_exists('parsidate') && get_locale() === 'fa_IR') {
+            return parsidate($format, strtotime($date_string));
+        } else {
+            return date_i18n($format, strtotime($date_string));
+        }
+    }
+    
+    /**
+     * Helper function to format any date with Persian support
+     * Can be used throughout the plugin for consistent date formatting
+     * 
+     * @param int|string $timestamp Unix timestamp or date string
+     * @param string $format Date format (default: 'Y/m/d')
+     * @return string Formatted date
+     */
+    public static function format_date($timestamp, $format = 'Y/m/d') {
+        // Convert string to timestamp if needed
+        if (!is_numeric($timestamp)) {
+            $timestamp = strtotime($timestamp);
+        }
+        
+        // Check if Persian (Jalali) date conversion is available
+        if (function_exists('parsidate') && get_locale() === 'fa_IR') {
+            return parsidate($format, $timestamp);
+        } else {
+            return date_i18n($format, $timestamp);
+        }
+    }
+    
+    /**
      * Update the last modified date to today
      * 
      * @return bool

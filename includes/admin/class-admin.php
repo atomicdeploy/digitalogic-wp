@@ -147,7 +147,7 @@ class Digitalogic_Admin {
         
         $dollar_price = $options->get_dollar_price();
         $yuan_price = $options->get_yuan_price();
-        $update_date = $options->get_update_date();
+        $update_date = $options->get_update_date_formatted();
         $product_count = $manager->get_product_count();
         
         include DIGITALOGIC_PLUGIN_DIR . 'includes/admin/views/dashboard.php';
@@ -188,7 +188,7 @@ class Digitalogic_Admin {
         
         $dollar_price = $options->get_dollar_price();
         $yuan_price = $options->get_yuan_price();
-        $update_date = $options->get_update_date();
+        $update_date = $options->get_update_date_formatted();
         
         include DIGITALOGIC_PLUGIN_DIR . 'includes/admin/views/currency.php';
     }

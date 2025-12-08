@@ -18,6 +18,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Status & Diagnostics page with system information and HPOS status
 - Global `get_field()` and `update_field()` functions for ACF-style compatibility
 - Option synchronization hooks to ensure `get_option()` and `get_field()` always return the same values
+- Persian date formatting support via parsidate plugin integration
+- Helper functions for consistent date formatting throughout the plugin
+- Automatic Persian (Jalali) calendar support when locale is fa_IR
 
 ### Changed
 - **BREAKING**: Currency options now use `digitalogic_` prefix for consistency
@@ -28,6 +31,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Both `get_field('yuan_price', 'option')` and `get_option('digitalogic_yuan_price')` now return the same value
 - Both `update_field()` and `update_option()` now synchronize automatically
 - Updated product meta data handling to use WooCommerce CRUD methods
+- Date formatting now supports Persian calendar via parsidate plugin
+- Update date display now shows formatted date based on user's language
 - Replaced direct `get_post_meta`/`update_post_meta` calls with `$product->get_meta()`/`$product->update_meta_data()`
 - Updated bulk price recalculation to use WooCommerce product queries
 - Improved import/export functions to be HPOS-compatible
