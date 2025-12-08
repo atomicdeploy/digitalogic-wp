@@ -225,14 +225,34 @@ final class Digitalogic {
      * Set default options
      */
     private function set_default_options() {
-        if (get_option('dollar_price') === false) {
-            add_option('dollar_price', '0');
+        // Initialize options with digitalogic_ prefix for consistency
+        if (get_option('digitalogic_dollar_price') === false) {
+            add_option('digitalogic_dollar_price', '0');
         }
-        if (get_option('yuan_price') === false) {
-            add_option('yuan_price', '0');
+        if (get_option('digitalogic_yuan_price') === false) {
+            add_option('digitalogic_yuan_price', '0');
         }
-        if (get_option('update_date') === false) {
-            add_option('update_date', date('ymd'));
+        if (get_option('digitalogic_update_date') === false) {
+            add_option('digitalogic_update_date', date('ymd'));
+        }
+        
+        // Migration: Move old unprefixed options to new prefixed ones if they exist
+        $old_dollar = get_option('dollar_price');
+        if ($old_dollar !== false && get_option('digitalogic_dollar_price') === '0') {
+            update_option('digitalogic_dollar_price', $old_dollar);
+            delete_option('dollar_price');
+        }
+        
+        $old_yuan = get_option('yuan_price');
+        if ($old_yuan !== false && get_option('digitalogic_yuan_price') === '0') {
+            update_option('digitalogic_yuan_price', $old_yuan);
+            delete_option('yuan_price');
+        }
+        
+        $old_date = get_option('update_date');
+        if ($old_date !== false) {
+            update_option('digitalogic_update_date', $old_date);
+            delete_option('update_date');
         }
     }
     

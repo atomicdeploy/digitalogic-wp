@@ -15,12 +15,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - WooCommerce High-Performance Order Storage (HPOS) compatibility
 - Full support for WooCommerce 8.2+ custom order tables
 - Declaration of HPOS compatibility via FeaturesUtil
+- Status & Diagnostics page with system information and HPOS status
+- Global `get_field()` and `update_field()` functions for ACF-style compatibility
+- Option synchronization hooks to ensure `get_option()` and `get_field()` always return the same values
 
 ### Changed
+- **BREAKING**: Currency options now use `digitalogic_` prefix for consistency
+  - `dollar_price` → `digitalogic_dollar_price`
+  - `yuan_price` → `digitalogic_yuan_price`
+  - `update_date` → `digitalogic_update_date`
+- Automatic migration of old unprefixed options to new prefixed ones
+- Both `get_field('yuan_price', 'option')` and `get_option('digitalogic_yuan_price')` now return the same value
+- Both `update_field()` and `update_option()` now synchronize automatically
 - Updated product meta data handling to use WooCommerce CRUD methods
 - Replaced direct `get_post_meta`/`update_post_meta` calls with `$product->get_meta()`/`$product->update_meta_data()`
 - Updated bulk price recalculation to use WooCommerce product queries
 - Improved import/export functions to be HPOS-compatible
+- Fixed Persian brand name spelling: "دیجیتالوجیک" → "دیجیتالاجیک"
+- Disabled dark mode to force light mode for consistent UI
+- Enhanced plugin page with action links and row meta links
+- Fixed WP-CLI command registration to prevent "can't have subcommands" error
 
 ## [1.0.0] - 2024-12-08
 
