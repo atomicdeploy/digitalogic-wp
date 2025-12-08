@@ -39,7 +39,9 @@ jobs:
       
     - name: Run PHPCS
       run: |
-        vendor/bin/phpcs --standard=WordPress --extensions=php --ignore=vendor/ . || true
+        # Run PHPCS with report for now (not blocking build in initial release)
+        # TODO: Remove '|| true' after addressing all coding standards issues
+        vendor/bin/phpcs --standard=WordPress --extensions=php --ignore=vendor/ --report=summary . || true
         
   test:
     name: PHP ${{ matrix.php-versions }} Test

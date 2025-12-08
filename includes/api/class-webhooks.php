@@ -112,7 +112,7 @@ class Digitalogic_Webhooks {
                 continue;
             }
             
-            wp_remote_post($url, array(
+            $response = wp_remote_post($url, array(
                 'headers' => array(
                     'Content-Type' => 'application/json',
                     'X-Digitalogic-Signature' => $signature,
@@ -122,6 +122,18 @@ class Digitalogic_Webhooks {
                 'timeout' => 10,
                 'blocking' => false // Non-blocking to avoid slowing down operations
             ));
+            
+            // Log failed webhook attempts for debugging
+            if (is_wp_error($response)) {
+                Digitalogic_Logger::instance()->log(
+                    'webhook_failed',
+                    'webhook',
+                    null,
+                    null,
+                    json_encode(array('url' => $url, 'error' => $response->get_error_message())),
+                    'Webhook delivery failed'
+                );
+            }
         }
     }
     

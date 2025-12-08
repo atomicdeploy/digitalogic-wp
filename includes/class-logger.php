@@ -150,14 +150,20 @@ class Digitalogic_Logger {
             if (array_key_exists($key, $_SERVER) === true) {
                 foreach (explode(',', $_SERVER[$key]) as $ip) {
                     $ip = trim($ip);
-                    if (filter_var($ip, FILTER_VALIDATE_IP) !== false) {
+                    // Validate IP and exclude private/reserved ranges for security
+                    if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) !== false) {
                         return $ip;
+                    }
+                    // Fallback: accept any valid IP if no public IP found
+                    if (filter_var($ip, FILTER_VALIDATE_IP) !== false) {
+                        $fallback_ip = $ip;
                     }
                 }
             }
         }
         
-        return '0.0.0.0';
+        // Return fallback IP or default
+        return isset($fallback_ip) ? $fallback_ip : '0.0.0.0';
     }
     
     /**

@@ -327,11 +327,12 @@
         });
     }
     
-    // Auto-refresh (polling) every 30 seconds
+    // Auto-refresh (polling) every 60 seconds to reduce server load
+    // For more real-time updates, consider implementing WebSockets or Server-Sent Events
     setInterval(function() {
         if (productsTable && $('#products-table').is(':visible')) {
             productsTable.ajax.reload(null, false); // false = don't reset paging
         }
-    }, 30000);
+    }, 60000); // Increased to 60 seconds
     
 })(jQuery);
