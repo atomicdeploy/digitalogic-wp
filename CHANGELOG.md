@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Custom Digitalogic branding icon integrated throughout the plugin
+- Square (1:1) SVG icon for WordPress admin menu
+- Monochrome version for dashicons compatibility
+- Icon assets added to repository for documentation and branding
 - WooCommerce High-Performance Order Storage (HPOS) compatibility
 - Full support for WooCommerce 8.2+ custom order tables
 - Declaration of HPOS compatibility via FeaturesUtil

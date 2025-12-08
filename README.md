@@ -1,6 +1,10 @@
-# Digitalogic WooCommerce Extension
+<div align="center">
+  <img src="assets/images/icon.svg" alt="Digitalogic Logo" width="200" height="200">
+  <h1>Digitalogic WooCommerce Extension</h1>
+  <p>A comprehensive WordPress/WooCommerce plugin for dynamic pricing, stock management, and POS integration, specifically designed for Digitalogic electronic components shop.</p>
+</div>
 
-A comprehensive WordPress/WooCommerce plugin for dynamic pricing, stock management, and POS integration, specifically designed for Digitalogic electronic components shop.
+---
 
 ## Features
 
