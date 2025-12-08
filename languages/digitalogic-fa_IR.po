@@ -211,3 +211,129 @@ msgstr "فایل یافت نشد"
 
 msgid "Invalid JSON file"
 msgstr "فایل JSON نامعتبر"
+
+# Plugin action links
+msgid "Dashboard"
+msgstr "پیشخوان"
+
+msgid "Documentation"
+msgstr "مستندات"
+
+msgid "API & Status"
+msgstr "وضعیت API"
+
+msgid "Support"
+msgstr "پشتیبانی"
+
+# Status page
+msgid "Status & Diagnostics"
+msgstr "وضعیت و تشخیص"
+
+msgid "Status"
+msgstr "وضعیت"
+
+msgid "System information and plugin diagnostics for troubleshooting and support."
+msgstr "اطلاعات سیستم و تشخیص افزونه برای رفع مشکل و پشتیبانی."
+
+msgid "WordPress Environment"
+msgstr "محیط وردپرس"
+
+msgid "WordPress Version"
+msgstr "نسخه وردپرس"
+
+msgid "WooCommerce Version"
+msgstr "نسخه ووکامرس"
+
+msgid "Site URL"
+msgstr "آدرس سایت"
+
+msgid "Home URL"
+msgstr "آدرس خانه"
+
+msgid "Language"
+msgstr "زبان"
+
+msgid "Timezone"
+msgstr "منطقه زمانی"
+
+msgid "Server Environment"
+msgstr "محیط سرور"
+
+msgid "Server Software"
+msgstr "نرم‌افزار سرور"
+
+msgid "PHP Version"
+msgstr "نسخه PHP"
+
+msgid "MySQL Version"
+msgstr "نسخه MySQL"
+
+msgid "Max Upload Size"
+msgstr "حداکثر اندازه آپلود"
+
+msgid "Max Post Size"
+msgstr "حداکثر اندازه پست"
+
+msgid "Memory Limit"
+msgstr "محدودیت حافظه"
+
+msgid "Max Execution Time"
+msgstr "حداکثر زمان اجرا"
+
+msgid "Plugin Information"
+msgstr "اطلاعات افزونه"
+
+msgid "Plugin Version"
+msgstr "نسخه افزونه"
+
+msgid "Plugin Path"
+msgstr "مسیر افزونه"
+
+msgid "Total Products"
+msgstr "تعداد کل محصولات"
+
+msgid "entries"
+msgstr "ورودی"
+
+msgid "Currency Settings"
+msgstr "تنظیمات ارز"
+
+msgid "USD Price (dollar_price)"
+msgstr "قیمت دلار (dollar_price)"
+
+msgid "CNY Price (yuan_price)"
+msgstr "قیمت یوان (yuan_price)"
+
+msgid "Last Update Date (update_date)"
+msgstr "تاریخ آخرین به‌روزرسانی (update_date)"
+
+msgid "WooCommerce HPOS Status"
+msgstr "وضعیت HPOS ووکامرس"
+
+msgid "This plugin is fully compatible with WooCommerce High-Performance Order Storage (HPOS). All operations use WooCommerce CRUD methods for maximum compatibility."
+msgstr "این افزونه کاملاً با سیستم ذخیره‌سازی سفارشات با کارایی بالای ووکامرس (HPOS) سازگار است. تمام عملیات از روش‌های CRUD ووکامرس برای حداکثر سازگاری استفاده می‌کنند."
+
+msgid "HPOS is available but not currently enabled. The plugin works with both traditional and HPOS storage modes."
+msgstr "HPOS موجود است اما در حال حاضر فعال نیست. این افزونه با هر دو حالت ذخیره‌سازی سنتی و HPOS کار می‌کند."
+
+msgid "REST API Endpoints"
+msgstr "نقاط پایانی REST API"
+
+msgid "Available REST API endpoints:"
+msgstr "نقاط پایانی REST API موجود:"
+
+msgid "WP-CLI Commands"
+msgstr "دستورات WP-CLI"
+
+msgid "Available WP-CLI commands:"
+msgstr "دستورات WP-CLI موجود:"
+
+msgid "Debug Information"
+msgstr "اطلاعات اشکال‌زدایی"
+
+msgid "Copy this information when requesting support:"
+msgstr "هنگام درخواست پشتیبانی این اطلاعات را کپی کنید:"
+
+# Plugin description (for plugins.php page)
+msgid "Custom dynamic pricing, stock manager, and POS integration for Digitalogic electronic components shop. Supports bulk operations, import/export, and external API integration."
+msgstr "قیمت‌گذاری پویای سفارشی، مدیریت موجودی و یکپارچگی POS برای فروشگاه قطعات الکترونیکی دیجیتالوجیک. پشتیبانی از عملیات دسته‌جمعی، ورود/خروج اطلاعات و یکپارچگی API خارجی."

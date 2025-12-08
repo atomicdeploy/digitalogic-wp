@@ -84,6 +84,15 @@ class Digitalogic_Admin {
             'digitalogic-logs',
             array($this, 'render_logs_page')
         );
+        
+        add_submenu_page(
+            'digitalogic',
+            __('Status & Diagnostics', 'digitalogic'),
+            __('Status', 'digitalogic'),
+            'manage_woocommerce',
+            'digitalogic-status',
+            array($this, 'render_status_page')
+        );
     }
     
     /**
@@ -196,6 +205,13 @@ class Digitalogic_Admin {
      */
     public function render_logs_page() {
         include DIGITALOGIC_PLUGIN_DIR . 'includes/admin/views/logs.php';
+    }
+    
+    /**
+     * Render status & diagnostics page
+     */
+    public function render_status_page() {
+        include DIGITALOGIC_PLUGIN_DIR . 'includes/admin/views/status.php';
     }
     
     /**

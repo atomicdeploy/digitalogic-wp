@@ -64,6 +64,10 @@ final class Digitalogic {
         
         add_action('plugins_loaded', array($this, 'init'), 0);
         add_action('init', array($this, 'load_textdomain'));
+        
+        // Plugin action links
+        add_filter('plugin_action_links_' . DIGITALOGIC_PLUGIN_BASENAME, array($this, 'plugin_action_links'));
+        add_filter('plugin_row_meta', array($this, 'plugin_row_meta'), 10, 2);
     }
     
     /**
@@ -241,6 +245,43 @@ final class Digitalogic {
             <p><?php _e('Digitalogic requires WooCommerce to be installed and activated.', 'digitalogic'); ?></p>
         </div>
         <?php
+    }
+    
+    /**
+     * Add plugin action links on Plugins page
+     * 
+     * @param array $links Existing links
+     * @return array Modified links
+     */
+    public function plugin_action_links($links) {
+        $custom_links = array(
+            'settings' => '<a href="' . esc_url(admin_url('admin.php?page=digitalogic')) . '">' . __('Dashboard', 'digitalogic') . '</a>',
+            'currency' => '<a href="' . esc_url(admin_url('admin.php?page=digitalogic-currency')) . '">' . __('Currency', 'digitalogic') . '</a>',
+            'products' => '<a href="' . esc_url(admin_url('admin.php?page=digitalogic-products')) . '">' . __('Products', 'digitalogic') . '</a>',
+        );
+        
+        return array_merge($custom_links, $links);
+    }
+    
+    /**
+     * Add plugin row meta links on Plugins page
+     * 
+     * @param array $links Existing row meta
+     * @param string $file Plugin file
+     * @return array Modified row meta
+     */
+    public function plugin_row_meta($links, $file) {
+        if ($file === DIGITALOGIC_PLUGIN_BASENAME) {
+            $row_meta = array(
+                'docs' => '<a href="https://github.com/atomicdeploy/digitalogic-wp#readme" target="_blank">' . __('Documentation', 'digitalogic') . '</a>',
+                'api' => '<a href="' . esc_url(admin_url('admin.php?page=digitalogic-status')) . '">' . __('API & Status', 'digitalogic') . '</a>',
+                'support' => '<a href="https://github.com/atomicdeploy/digitalogic-wp/issues" target="_blank">' . __('Support', 'digitalogic') . '</a>',
+            );
+            
+            $links = array_merge($links, $row_meta);
+        }
+        
+        return $links;
     }
 }
 

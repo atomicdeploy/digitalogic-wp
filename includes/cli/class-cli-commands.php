@@ -356,7 +356,7 @@ class Digitalogic_CLI_Commands {
 }
 
 // Register commands
-WP_CLI::add_command('digitalogic currency', array('Digitalogic_CLI_Commands', 'currency_get'));
+// Note: Don't register 'digitalogic currency' alone as it conflicts with subcommands
 WP_CLI::add_command('digitalogic currency get', array('Digitalogic_CLI_Commands', 'currency_get'));
 WP_CLI::add_command('digitalogic currency update', array('Digitalogic_CLI_Commands', 'currency_update'));
 WP_CLI::add_command('digitalogic products list', array('Digitalogic_CLI_Commands', 'products_list'));

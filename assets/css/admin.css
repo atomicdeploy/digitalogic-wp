@@ -149,7 +149,8 @@ body.rtl .digitalogic-stats {
     direction: rtl;
 }
 
-/* Dark Mode Support */
+/* Dark Mode Support - Commented out for now, forcing light mode only */
+/*
 @media (prefers-color-scheme: dark) {
     .stat-box {
         background: #1e1e1e;
@@ -186,6 +187,7 @@ body.rtl .digitalogic-stats {
         color: #f0f0f1;
     }
 }
+*/
 
 /* Loading State */
 .digitalogic-loading {
