@@ -159,6 +159,7 @@
                 },
                 error: function(xhr, error, thrown) {
                     console.error('AJAX error:', error, thrown);
+                    alert(digitalogic.i18n.error + ': ' + thrown);
                 }
             },
             columns: [
