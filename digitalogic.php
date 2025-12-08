@@ -62,6 +62,9 @@ final class Digitalogic {
         register_activation_hook(__FILE__, array($this, 'activate'));
         register_deactivation_hook(__FILE__, array($this, 'deactivate'));
         
+        // Declare HPOS compatibility before WooCommerce initializes
+        add_action('before_woocommerce_init', array($this, 'declare_hpos_compatibility'));
+        
         add_action('plugins_loaded', array($this, 'init'), 0);
         add_action('init', array($this, 'load_textdomain'));
         
@@ -107,9 +110,6 @@ final class Digitalogic {
             return;
         }
         
-        // Declare HPOS compatibility
-        $this->declare_hpos_compatibility();
-        
         // Initialize components
         Digitalogic_Options::instance();
         Digitalogic_Logger::instance();
@@ -129,8 +129,13 @@ final class Digitalogic {
     
     /**
      * Declare HPOS compatibility
+     * 
+     * This must be called on the 'before_woocommerce_init' hook to properly
+     * declare compatibility with WooCommerce High-Performance Order Storage (HPOS).
+     * 
+     * @link https://developer.woocommerce.com/docs/features/high-performance-order-storage/recipe-book/
      */
-    private function declare_hpos_compatibility() {
+    public function declare_hpos_compatibility() {
         if (class_exists('\Automattic\WooCommerce\Utilities\FeaturesUtil')) {
             \Automattic\WooCommerce\Utilities\FeaturesUtil::declare_compatibility('custom_order_tables', __FILE__, true);
         }
