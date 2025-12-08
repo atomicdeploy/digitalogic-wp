@@ -1,0 +1,63 @@
+name: Deploy to WordPress
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
+
+permissions:
+  contents: write
+
+jobs:
+  deploy:
+    name: Deploy Plugin
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup PHP
+      uses: shivammathur/setup-php@v2
+      with:
+        php-version: '8.2'
+        tools: composer:v2
+        
+    - name: Install dependencies
+      run: composer install --no-dev --prefer-dist --no-progress --optimize-autoloader
+      
+    - name: Create deployment package
+      run: |
+        mkdir -p deploy
+        rsync -av --exclude='.git*' --exclude='node_modules' --exclude='tests' --exclude='build' --exclude='deploy' --exclude='.github' . deploy/digitalogic
+        cd deploy
+        zip -r digitalogic-wp-${{ github.ref_name }}.zip digitalogic
+        
+    - name: Upload release asset
+      if: github.event_name == 'release'
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ github.event.release.upload_url }}
+        asset_path: ./deploy/digitalogic-wp-${{ github.ref_name }}.zip
+        asset_name: digitalogic-wp-${{ github.ref_name }}.zip
+        asset_content_type: application/zip
+        
+    - name: Upload artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: deployment-package
+        path: deploy/digitalogic-wp-*.zip
+        retention-days: 90

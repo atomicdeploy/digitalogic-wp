@@ -1,0 +1,267 @@
+/**
+ * Digitalogic Admin Styles
+ */
+
+/* Dashboard Stats */
+.digitalogic-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 20px;
+    margin: 30px 0;
+}
+
+.stat-box {
+    background: #fff;
+    border: 1px solid #ccd0d4;
+    border-radius: 4px;
+    padding: 20px;
+    text-align: center;
+    box-shadow: 0 1px 1px rgba(0,0,0,.04);
+    display: block;
+    text-decoration: none;
+}
+
+.stat-box.clickable {
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.stat-box.clickable:hover {
+    box-shadow: 0 2px 8px rgba(0,0,0,.15);
+    border-color: #2271b1;
+    transform: translateY(-2px);
+}
+
+.stat-box.clickable:active {
+    transform: translateY(0);
+}
+
+.stat-box h3 {
+    margin: 0 0 10px 0;
+    font-size: 14px;
+    color: #646970;
+    font-weight: 600;
+}
+
+.stat-number {
+    font-size: 32px;
+    font-weight: 700;
+    color: #2271b1;
+    margin: 0;
+}
+
+.digitalogic-quick-links ul {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    list-style: none;
+    padding: 0;
+    margin: 20px 0;
+}
+
+.digitalogic-quick-links li {
+    margin: 0;
+}
+
+/* Products Page */
+.digitalogic-toolbar {
+    margin: 20px 0;
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+#product-search {
+    flex: 1;
+    min-width: 250px;
+    padding: 8px 12px;
+    border: 1px solid #8c8f94;
+    border-radius: 4px;
+}
+
+/* DataTables Customization */
+.dataTables_wrapper {
+    margin-top: 20px;
+}
+
+table.dataTable {
+    border-collapse: collapse;
+    width: 100% !important;
+}
+
+table.dataTable thead th {
+    background: #f0f0f1;
+    font-weight: 600;
+    padding: 12px 10px;
+    border-bottom: 2px solid #c3c4c7;
+}
+
+table.dataTable tbody td {
+    padding: 10px;
+    border-bottom: 1px solid #c3c4c7;
+}
+
+table.dataTable tbody tr:hover {
+    background-color: #f6f7f7;
+}
+
+table.dataTable input[type="text"],
+table.dataTable input[type="number"] {
+    width: 100%;
+    padding: 4px 8px;
+    border: 1px solid #8c8f94;
+    border-radius: 3px;
+}
+
+table.dataTable img {
+    max-width: 50px;
+    height: auto;
+    border-radius: 3px;
+}
+
+/* Import/Export */
+.digitalogic-section {
+    background: #fff;
+    border: 1px solid #c3c4c7;
+    padding: 20px;
+    margin: 20px 0;
+    border-radius: 4px;
+}
+
+.digitalogic-section h2 {
+    margin-top: 0;
+}
+
+#export-result,
+#import-result {
+    padding: 10px;
+    border-radius: 4px;
+}
+
+#export-result.success,
+#import-result.success {
+    background: #d7f0d7;
+    border: 1px solid #46b450;
+    color: #006400;
+}
+
+#export-result.error,
+#import-result.error {
+    background: #f8d7da;
+    border: 1px solid #dc3232;
+    color: #721c24;
+}
+
+/* RTL Support */
+body.rtl .digitalogic-toolbar {
+    direction: rtl;
+}
+
+body.rtl table.dataTable {
+    direction: rtl;
+}
+
+body.rtl .digitalogic-stats {
+    direction: rtl;
+}
+
+/* Dark Mode Support - Commented out for now, forcing light mode only */
+/*
+@media (prefers-color-scheme: dark) {
+    .stat-box {
+        background: #1e1e1e;
+        border-color: #3c3c3c;
+    }
+    
+    .stat-box h3 {
+        color: #b4b9be;
+    }
+    
+    .stat-number {
+        color: #72aee6;
+    }
+    
+    table.dataTable thead th {
+        background: #1e1e1e;
+        color: #f0f0f1;
+        border-bottom-color: #3c3c3c;
+    }
+    
+    table.dataTable tbody td {
+        background: #1e1e1e;
+        color: #f0f0f1;
+        border-bottom-color: #3c3c3c;
+    }
+    
+    table.dataTable tbody tr:hover {
+        background-color: #2c2c2c;
+    }
+    
+    .digitalogic-section {
+        background: #1e1e1e;
+        border-color: #3c3c3c;
+        color: #f0f0f1;
+    }
+}
+*/
+
+/* Loading State */
+.digitalogic-loading {
+    position: relative;
+    opacity: 0.6;
+    pointer-events: none;
+}
+
+.digitalogic-loading::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 30px;
+    height: 30px;
+    margin: -15px 0 0 -15px;
+    border: 3px solid #f3f3f3;
+    border-top: 3px solid #2271b1;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* Responsive */
+@media (max-width: 782px) {
+    .digitalogic-stats {
+        grid-template-columns: 1fr;
+    }
+    
+    .digitalogic-toolbar {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    
+    #product-search {
+        width: 100%;
+    }
+}
+
+/* Accessibility */
+.digitalogic-toolbar button:focus,
+table.dataTable input:focus {
+    outline: 2px solid #2271b1;
+    outline-offset: 2px;
+}
+
+/* Table actions */
+.digitalogic-actions {
+    display: flex;
+    gap: 5px;
+}
+
+.digitalogic-actions button {
+    padding: 4px 8px;
+    font-size: 12px;
+}

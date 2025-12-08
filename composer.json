@@ -1,0 +1,46 @@
+{
+  "name": "digitalogic/digitalogic-wp",
+  "description": "WordPress/WooCommerce plugin for dynamic pricing, stock management, and POS integration for Digitalogic electronic components shop",
+  "type": "wordpress-plugin",
+  "keywords": [
+    "wordpress",
+    "woocommerce",
+    "plugin",
+    "dynamic-pricing",
+    "stock-management",
+    "e-commerce"
+  ],
+  "license": "GPL-2.0-or-later",
+  "authors": [
+    {
+      "name": "Digitalogic Team"
+    }
+  ],
+  "require": {
+    "php": ">=8.0"
+  },
+  "require-dev": {
+    "phpunit/phpunit": "^9.5",
+    "wp-coding-standards/wpcs": "^3.0",
+    "phpcompatibility/phpcompatibility-wp": "^2.1",
+    "dealerdirect/phpcodesniffer-composer-installer": "^1.0"
+  },
+  "autoload": {
+    "classmap": [
+      "includes/"
+    ]
+  },
+  "scripts": {
+    "test": "phpunit",
+    "phpcs": "phpcs --standard=WordPress --extensions=php .",
+    "phpcbf": "phpcbf --standard=WordPress --extensions=php .",
+    "lint": [
+      "@phpcs"
+    ]
+  },
+  "config": {
+    "allow-plugins": {
+      "dealerdirect/phpcodesniffer-composer-installer": true
+    }
+  }
+}

@@ -1,0 +1,50 @@
+<div class="wrap digitalogic-currency">
+    <h1><?php _e('Currency Settings', 'digitalogic'); ?></h1>
+    
+    <form method="post" action="">
+        <?php wp_nonce_field('digitalogic_currency_update'); ?>
+        
+        <table class="form-table">
+            <tr>
+                <th scope="row">
+                    <label for="dollar_price"><?php _e('USD Price (in local currency)', 'digitalogic'); ?></label>
+                </th>
+                <td>
+                    <input type="number" step="0.01" name="dollar_price" id="dollar_price" value="<?php echo esc_attr($dollar_price); ?>" class="regular-text">
+                    <p class="description"><?php _e('The exchange rate for 1 USD in your local currency', 'digitalogic'); ?></p>
+                </td>
+            </tr>
+            
+            <tr>
+                <th scope="row">
+                    <label for="yuan_price"><?php _e('CNY/Yuan Price (in local currency)', 'digitalogic'); ?></label>
+                </th>
+                <td>
+                    <input type="number" step="0.01" name="yuan_price" id="yuan_price" value="<?php echo esc_attr($yuan_price); ?>" class="regular-text">
+                    <p class="description"><?php _e('The exchange rate for 1 CNY in your local currency', 'digitalogic'); ?></p>
+                </td>
+            </tr>
+            
+            <tr>
+                <th scope="row">
+                    <label for="recalculate_prices"><?php _e('Recalculate Prices', 'digitalogic'); ?></label>
+                </th>
+                <td>
+                    <input type="checkbox" name="recalculate_prices" id="recalculate_prices" value="1">
+                    <label for="recalculate_prices"><?php _e('Update all products with dynamic pricing after saving', 'digitalogic'); ?></label>
+                </td>
+            </tr>
+            
+            <tr>
+                <th scope="row">
+                    <?php _e('Last Update', 'digitalogic'); ?>
+                </th>
+                <td>
+                    <strong><?php echo esc_html($update_date); ?></strong>
+                </td>
+            </tr>
+        </table>
+        
+        <?php submit_button(__('Update Currency Rates', 'digitalogic')); ?>
+    </form>
+</div>
