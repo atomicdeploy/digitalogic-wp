@@ -17,11 +17,11 @@ msgstr ""
 
 #: digitalogic.php
 msgid "Digitalogic requires WooCommerce to be installed and activated."
-msgstr "دیجیتالوجیک نیاز به نصب و فعال بودن ووکامرس دارد."
+msgstr "دیجیتالاجیک نیاز به نصب و فعال بودن ووکامرس دارد."
 
 #: includes/admin/class-admin.php
 msgid "Digitalogic"
-msgstr "دیجیتالوجیک"
+msgstr "دیجیتالاجیک"
 
 msgid "Products"
 msgstr "محصولات"
@@ -64,7 +64,7 @@ msgstr "نرخ ارزها به‌روزرسانی شد"
 
 #: includes/admin/views/dashboard.php
 msgid "Digitalogic Dashboard"
-msgstr "داشبورد دیجیتالوجیک"
+msgstr "داشبورد دیجیتالاجیک"
 
 msgid "Total Products"
 msgstr "تعداد کل محصولات"
@@ -336,4 +336,4 @@ msgstr "هنگام درخواست پشتیبانی این اطلاعات را ک
 
 # Plugin description (for plugins.php page)
 msgid "Custom dynamic pricing, stock manager, and POS integration for Digitalogic electronic components shop. Supports bulk operations, import/export, and external API integration."
-msgstr "قیمت‌گذاری پویای سفارشی، مدیریت موجودی و یکپارچگی POS برای فروشگاه قطعات الکترونیکی دیجیتالوجیک. پشتیبانی از عملیات دسته‌جمعی، ورود/خروج اطلاعات و یکپارچگی API خارجی."
+msgstr "قیمت‌گذاری پویای سفارشی، مدیریت موجودی و یکپارچگی POS برای فروشگاه قطعات الکترونیکی دیجیتالاجیک. پشتیبانی از عملیات دسته‌جمعی، ورود/خروج اطلاعات و یکپارچگی API خارجی."
