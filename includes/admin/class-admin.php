@@ -1,0 +1,369 @@
+<?php
+/**
+ * Admin Class
+ * 
+ * Handles admin interface and pages
+ */
+
+if (!defined('ABSPATH')) {
+    exit;
+}
+
+class Digitalogic_Admin {
+    
+    private static $instance = null;
+    
+    public static function instance() {
+        if (is_null(self::$instance)) {
+            self::$instance = new self();
+        }
+        return self::$instance;
+    }
+    
+    private function __construct() {
+        add_action('admin_menu', array($this, 'add_menu'));
+        add_action('admin_enqueue_scripts', array($this, 'enqueue_scripts'));
+        add_action('wp_ajax_digitalogic_get_products', array($this, 'ajax_get_products'));
+        add_action('wp_ajax_digitalogic_update_product', array($this, 'ajax_update_product'));
+        add_action('wp_ajax_digitalogic_bulk_update', array($this, 'ajax_bulk_update'));
+        add_action('wp_ajax_digitalogic_update_currency', array($this, 'ajax_update_currency'));
+        add_action('wp_ajax_digitalogic_export', array($this, 'ajax_export'));
+        add_action('wp_ajax_digitalogic_import', array($this, 'ajax_import'));
+        add_action('wp_ajax_digitalogic_get_logs', array($this, 'ajax_get_logs'));
+    }
+    
+    /**
+     * Add admin menu
+     */
+    public function add_menu() {
+        add_menu_page(
+            __('Digitalogic', 'digitalogic'),
+            __('Digitalogic', 'digitalogic'),
+            'manage_woocommerce',
+            'digitalogic',
+            array($this, 'render_dashboard'),
+            'dashicons-chart-line',
+            56
+        );
+        
+        add_submenu_page(
+            'digitalogic',
+            __('Products', 'digitalogic'),
+            __('Products', 'digitalogic'),
+            'manage_woocommerce',
+            'digitalogic-products',
+            array($this, 'render_products_page')
+        );
+        
+        add_submenu_page(
+            'digitalogic',
+            __('Currency Settings', 'digitalogic'),
+            __('Currency', 'digitalogic'),
+            'manage_woocommerce',
+            'digitalogic-currency',
+            array($this, 'render_currency_page')
+        );
+        
+        add_submenu_page(
+            'digitalogic',
+            __('Import/Export', 'digitalogic'),
+            __('Import/Export', 'digitalogic'),
+            'manage_woocommerce',
+            'digitalogic-import-export',
+            array($this, 'render_import_export_page')
+        );
+        
+        add_submenu_page(
+            'digitalogic',
+            __('Activity Logs', 'digitalogic'),
+            __('Logs', 'digitalogic'),
+            'manage_woocommerce',
+            'digitalogic-logs',
+            array($this, 'render_logs_page')
+        );
+    }
+    
+    /**
+     * Enqueue admin scripts and styles
+     */
+    public function enqueue_scripts($hook) {
+        if (strpos($hook, 'digitalogic') === false) {
+            return;
+        }
+        
+        // DataTables
+        wp_enqueue_style('datatables', 'https://cdn.datatables.net/1.13.7/css/jquery.dataTables.min.css', array(), '1.13.7');
+        wp_enqueue_script('datatables', 'https://cdn.datatables.net/1.13.7/js/jquery.dataTables.min.js', array('jquery'), '1.13.7', true);
+        
+        // Plugin styles
+        wp_enqueue_style('digitalogic-admin', DIGITALOGIC_PLUGIN_URL . 'assets/css/admin.css', array(), DIGITALOGIC_VERSION);
+        
+        // Plugin scripts
+        wp_enqueue_script('digitalogic-admin', DIGITALOGIC_PLUGIN_URL . 'assets/js/admin.js', array('jquery', 'datatables'), DIGITALOGIC_VERSION, true);
+        
+        // Localize script
+        wp_localize_script('digitalogic-admin', 'digitalogic', array(
+            'ajax_url' => admin_url('admin-ajax.php'),
+            'nonce' => wp_create_nonce('digitalogic_nonce'),
+            'i18n' => array(
+                'confirm_bulk_update' => __('Are you sure you want to update these products?', 'digitalogic'),
+                'success' => __('Success', 'digitalogic'),
+                'error' => __('Error', 'digitalogic'),
+                'loading' => __('Loading...', 'digitalogic'),
+            )
+        ));
+    }
+    
+    /**
+     * Render dashboard page
+     */
+    public function render_dashboard() {
+        $options = Digitalogic_Options::instance();
+        $manager = Digitalogic_Product_Manager::instance();
+        
+        $dollar_price = $options->get_dollar_price();
+        $yuan_price = $options->get_yuan_price();
+        $update_date = $options->get_update_date();
+        $product_count = $manager->get_product_count();
+        
+        include DIGITALOGIC_PLUGIN_DIR . 'includes/admin/views/dashboard.php';
+    }
+    
+    /**
+     * Render products page
+     */
+    public function render_products_page() {
+        include DIGITALOGIC_PLUGIN_DIR . 'includes/admin/views/products.php';
+    }
+    
+    /**
+     * Render currency page
+     */
+    public function render_currency_page() {
+        $options = Digitalogic_Options::instance();
+        
+        if (isset($_POST['submit']) && check_admin_referer('digitalogic_currency_update')) {
+            $dollar_price = floatval($_POST['dollar_price']);
+            $yuan_price = floatval($_POST['yuan_price']);
+            
+            $options->set_dollar_price($dollar_price);
+            $options->set_yuan_price($yuan_price);
+            
+            // Recalculate dynamic prices
+            if (isset($_POST['recalculate_prices'])) {
+                $pricing = Digitalogic_Pricing::instance();
+                $results = $pricing->bulk_recalculate_prices();
+                
+                echo '<div class="notice notice-success"><p>' . 
+                    sprintf(__('Updated %d products successfully', 'digitalogic'), $results['success']) . 
+                    '</p></div>';
+            } else {
+                echo '<div class="notice notice-success"><p>' . __('Currency rates updated', 'digitalogic') . '</p></div>';
+            }
+        }
+        
+        $dollar_price = $options->get_dollar_price();
+        $yuan_price = $options->get_yuan_price();
+        $update_date = $options->get_update_date();
+        
+        include DIGITALOGIC_PLUGIN_DIR . 'includes/admin/views/currency.php';
+    }
+    
+    /**
+     * Render import/export page
+     */
+    public function render_import_export_page() {
+        include DIGITALOGIC_PLUGIN_DIR . 'includes/admin/views/import-export.php';
+    }
+    
+    /**
+     * Render logs page
+     */
+    public function render_logs_page() {
+        include DIGITALOGIC_PLUGIN_DIR . 'includes/admin/views/logs.php';
+    }
+    
+    /**
+     * AJAX: Get products
+     */
+    public function ajax_get_products() {
+        check_ajax_referer('digitalogic_nonce', 'nonce');
+        
+        if (!current_user_can('manage_woocommerce')) {
+            wp_send_json_error('Unauthorized');
+        }
+        
+        $page = isset($_POST['page']) ? intval($_POST['page']) : 1;
+        $limit = isset($_POST['limit']) ? intval($_POST['limit']) : 50;
+        $search = isset($_POST['search']) ? sanitize_text_field($_POST['search']) : '';
+        
+        $manager = Digitalogic_Product_Manager::instance();
+        $products = $manager->get_products(array(
+            'page' => $page,
+            'limit' => $limit,
+            'search' => $search
+        ));
+        
+        $total = $manager->get_product_count();
+        
+        wp_send_json_success(array(
+            'products' => $products,
+            'total' => $total
+        ));
+    }
+    
+    /**
+     * AJAX: Update product
+     */
+    public function ajax_update_product() {
+        check_ajax_referer('digitalogic_nonce', 'nonce');
+        
+        if (!current_user_can('manage_woocommerce')) {
+            wp_send_json_error('Unauthorized');
+        }
+        
+        $product_id = isset($_POST['product_id']) ? intval($_POST['product_id']) : 0;
+        $data = isset($_POST['data']) ? $_POST['data'] : array();
+        
+        $manager = Digitalogic_Product_Manager::instance();
+        $result = $manager->update_product($product_id, $data);
+        
+        if (is_wp_error($result)) {
+            wp_send_json_error($result->get_error_message());
+        }
+        
+        wp_send_json_success('Product updated');
+    }
+    
+    /**
+     * AJAX: Bulk update
+     */
+    public function ajax_bulk_update() {
+        check_ajax_referer('digitalogic_nonce', 'nonce');
+        
+        if (!current_user_can('manage_woocommerce')) {
+            wp_send_json_error('Unauthorized');
+        }
+        
+        $updates = isset($_POST['updates']) ? $_POST['updates'] : array();
+        
+        $manager = Digitalogic_Product_Manager::instance();
+        $results = $manager->bulk_update($updates);
+        
+        wp_send_json_success($results);
+    }
+    
+    /**
+     * AJAX: Update currency
+     */
+    public function ajax_update_currency() {
+        check_ajax_referer('digitalogic_nonce', 'nonce');
+        
+        if (!current_user_can('manage_woocommerce')) {
+            wp_send_json_error('Unauthorized');
+        }
+        
+        $dollar_price = isset($_POST['dollar_price']) ? floatval($_POST['dollar_price']) : 0;
+        $yuan_price = isset($_POST['yuan_price']) ? floatval($_POST['yuan_price']) : 0;
+        
+        $options = Digitalogic_Options::instance();
+        $options->set_dollar_price($dollar_price);
+        $options->set_yuan_price($yuan_price);
+        
+        wp_send_json_success('Currency updated');
+    }
+    
+    /**
+     * AJAX: Export
+     */
+    public function ajax_export() {
+        check_ajax_referer('digitalogic_nonce', 'nonce');
+        
+        if (!current_user_can('manage_woocommerce')) {
+            wp_send_json_error('Unauthorized');
+        }
+        
+        $format = isset($_POST['format']) ? sanitize_text_field($_POST['format']) : 'csv';
+        $product_ids = isset($_POST['product_ids']) ? array_map('intval', $_POST['product_ids']) : array();
+        
+        $import_export = Digitalogic_Import_Export::instance();
+        
+        if ($format === 'json') {
+            $filepath = $import_export->export_json($product_ids);
+        } else {
+            $filepath = $import_export->export_csv($product_ids);
+        }
+        
+        $upload_dir = wp_upload_dir();
+        $file_url = str_replace($upload_dir['basedir'], $upload_dir['baseurl'], $filepath);
+        
+        wp_send_json_success(array(
+            'url' => $file_url,
+            'filepath' => $filepath
+        ));
+    }
+    
+    /**
+     * AJAX: Import
+     */
+    public function ajax_import() {
+        check_ajax_referer('digitalogic_nonce', 'nonce');
+        
+        if (!current_user_can('manage_woocommerce')) {
+            wp_send_json_error('Unauthorized');
+        }
+        
+        if (!isset($_FILES['file'])) {
+            wp_send_json_error('No file uploaded');
+        }
+        
+        $file = $_FILES['file'];
+        $upload = wp_handle_upload($file, array('test_form' => false));
+        
+        if (isset($upload['error'])) {
+            wp_send_json_error($upload['error']);
+        }
+        
+        $filepath = $upload['file'];
+        $import_export = Digitalogic_Import_Export::instance();
+        
+        $extension = pathinfo($filepath, PATHINFO_EXTENSION);
+        
+        if ($extension === 'json') {
+            $results = $import_export->import_json($filepath);
+        } else {
+            $results = $import_export->import_csv($filepath);
+        }
+        
+        if (is_wp_error($results)) {
+            wp_send_json_error($results->get_error_message());
+        }
+        
+        wp_send_json_success($results);
+    }
+    
+    /**
+     * AJAX: Get logs
+     */
+    public function ajax_get_logs() {
+        check_ajax_referer('digitalogic_nonce', 'nonce');
+        
+        if (!current_user_can('manage_woocommerce')) {
+            wp_send_json_error('Unauthorized');
+        }
+        
+        $page = isset($_POST['page']) ? intval($_POST['page']) : 1;
+        $limit = isset($_POST['limit']) ? intval($_POST['limit']) : 50;
+        $offset = ($page - 1) * $limit;
+        
+        $logger = Digitalogic_Logger::instance();
+        $logs = $logger->get_logs(array(
+            'limit' => $limit,
+            'offset' => $offset
+        ));
+        
+        wp_send_json_success(array(
+            'logs' => $logs
+        ));
+    }
+}

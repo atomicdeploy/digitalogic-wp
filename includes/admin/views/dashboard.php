@@ -1,0 +1,35 @@
+<div class="wrap digitalogic-dashboard">
+    <h1><?php _e('Digitalogic Dashboard', 'digitalogic'); ?></h1>
+    
+    <div class="digitalogic-stats">
+        <div class="stat-box">
+            <h3><?php _e('Total Products', 'digitalogic'); ?></h3>
+            <p class="stat-number"><?php echo number_format($product_count); ?></p>
+        </div>
+        
+        <div class="stat-box">
+            <h3><?php _e('USD Price', 'digitalogic'); ?></h3>
+            <p class="stat-number"><?php echo number_format($dollar_price, 2); ?></p>
+        </div>
+        
+        <div class="stat-box">
+            <h3><?php _e('CNY Price', 'digitalogic'); ?></h3>
+            <p class="stat-number"><?php echo number_format($yuan_price, 2); ?></p>
+        </div>
+        
+        <div class="stat-box">
+            <h3><?php _e('Last Update', 'digitalogic'); ?></h3>
+            <p class="stat-number"><?php echo esc_html($update_date); ?></p>
+        </div>
+    </div>
+    
+    <div class="digitalogic-quick-links">
+        <h2><?php _e('Quick Links', 'digitalogic'); ?></h2>
+        <ul>
+            <li><a href="<?php echo admin_url('admin.php?page=digitalogic-products'); ?>" class="button button-primary"><?php _e('Manage Products', 'digitalogic'); ?></a></li>
+            <li><a href="<?php echo admin_url('admin.php?page=digitalogic-currency'); ?>" class="button"><?php _e('Update Currency Rates', 'digitalogic'); ?></a></li>
+            <li><a href="<?php echo admin_url('admin.php?page=digitalogic-import-export'); ?>" class="button"><?php _e('Import/Export', 'digitalogic'); ?></a></li>
+            <li><a href="<?php echo admin_url('admin.php?page=digitalogic-logs'); ?>" class="button"><?php _e('View Logs', 'digitalogic'); ?></a></li>
+        </ul>
+    </div>
+</div>
