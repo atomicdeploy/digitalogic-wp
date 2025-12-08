@@ -103,6 +103,9 @@ final class Digitalogic {
             return;
         }
         
+        // Declare HPOS compatibility
+        $this->declare_hpos_compatibility();
+        
         // Initialize components
         Digitalogic_Options::instance();
         Digitalogic_Logger::instance();
@@ -118,6 +121,15 @@ final class Digitalogic {
         Digitalogic_Webhooks::instance();
         
         do_action('digitalogic_init');
+    }
+    
+    /**
+     * Declare HPOS compatibility
+     */
+    private function declare_hpos_compatibility() {
+        if (class_exists('\Automattic\WooCommerce\Utilities\FeaturesUtil')) {
+            \Automattic\WooCommerce\Utilities\FeaturesUtil::declare_compatibility('custom_order_tables', __FILE__, true);
+        }
     }
     
     /**

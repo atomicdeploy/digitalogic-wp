@@ -82,25 +82,30 @@ class Digitalogic_Import_Export {
         }
         
         // Write data
-        foreach ($products as $product) {
+        foreach ($products as $product_data) {
+            $product = wc_get_product($product_data['id']);
+            if (!$product) {
+                continue;
+            }
+            
             $row = array(
-                $product['id'],
-                $product['name'],
-                $product['sku'],
-                $product['type'],
-                $product['regular_price'],
-                $product['sale_price'],
-                $product['stock_quantity'],
-                $product['stock_status'],
-                $product['weight'],
-                $product['length'],
-                $product['width'],
-                $product['height'],
-                get_post_meta($product['id'], '_digitalogic_dynamic_pricing', true),
-                get_post_meta($product['id'], '_digitalogic_currency_type', true),
-                get_post_meta($product['id'], '_digitalogic_base_price', true),
-                get_post_meta($product['id'], '_digitalogic_markup', true),
-                get_post_meta($product['id'], '_digitalogic_markup_type', true),
+                $product_data['id'],
+                $product_data['name'],
+                $product_data['sku'],
+                $product_data['type'],
+                $product_data['regular_price'],
+                $product_data['sale_price'],
+                $product_data['stock_quantity'],
+                $product_data['stock_status'],
+                $product_data['weight'],
+                $product_data['length'],
+                $product_data['width'],
+                $product_data['height'],
+                $product->get_meta('_digitalogic_dynamic_pricing', true),
+                $product->get_meta('_digitalogic_currency_type', true),
+                $product->get_meta('_digitalogic_base_price', true),
+                $product->get_meta('_digitalogic_markup', true),
+                $product->get_meta('_digitalogic_markup_type', true),
             );
             
             fputcsv($file, $row);
@@ -144,14 +149,17 @@ class Digitalogic_Import_Export {
         }
         
         // Add dynamic pricing metadata
-        foreach ($products as &$product) {
-            $product['dynamic_pricing'] = array(
-                'enabled' => get_post_meta($product['id'], '_digitalogic_dynamic_pricing', true),
-                'currency_type' => get_post_meta($product['id'], '_digitalogic_currency_type', true),
-                'base_price' => get_post_meta($product['id'], '_digitalogic_base_price', true),
-                'markup' => get_post_meta($product['id'], '_digitalogic_markup', true),
-                'markup_type' => get_post_meta($product['id'], '_digitalogic_markup_type', true),
-            );
+        foreach ($products as &$product_data) {
+            $product = wc_get_product($product_data['id']);
+            if ($product) {
+                $product_data['dynamic_pricing'] = array(
+                    'enabled' => $product->get_meta('_digitalogic_dynamic_pricing', true),
+                    'currency_type' => $product->get_meta('_digitalogic_currency_type', true),
+                    'base_price' => $product->get_meta('_digitalogic_base_price', true),
+                    'markup' => $product->get_meta('_digitalogic_markup', true),
+                    'markup_type' => $product->get_meta('_digitalogic_markup_type', true),
+                );
+            }
         }
         
         file_put_contents($filepath, json_encode($products, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
@@ -218,13 +226,17 @@ class Digitalogic_Import_Export {
             } else {
                 $results['success']++;
                 
-                // Update dynamic pricing if set
+                // Update dynamic pricing if set using WooCommerce methods (HPOS compatible)
                 if (!empty($data['Dynamic Pricing']) && $data['Dynamic Pricing'] === 'yes') {
-                    update_post_meta($product_id, '_digitalogic_dynamic_pricing', 'yes');
-                    update_post_meta($product_id, '_digitalogic_currency_type', $data['Currency Type']);
-                    update_post_meta($product_id, '_digitalogic_base_price', $data['Base Price']);
-                    update_post_meta($product_id, '_digitalogic_markup', $data['Markup']);
-                    update_post_meta($product_id, '_digitalogic_markup_type', $data['Markup Type']);
+                    $product = wc_get_product($product_id);
+                    if ($product) {
+                        $product->update_meta_data('_digitalogic_dynamic_pricing', 'yes');
+                        $product->update_meta_data('_digitalogic_currency_type', $data['Currency Type']);
+                        $product->update_meta_data('_digitalogic_base_price', $data['Base Price']);
+                        $product->update_meta_data('_digitalogic_markup', $data['Markup']);
+                        $product->update_meta_data('_digitalogic_markup_type', $data['Markup Type']);
+                        $product->save();
+                    }
                 }
             }
         }
@@ -277,15 +289,19 @@ class Digitalogic_Import_Export {
             } else {
                 $results['success']++;
                 
-                // Update dynamic pricing if present
+                // Update dynamic pricing if present using WooCommerce methods (HPOS compatible)
                 if (isset($product_data['dynamic_pricing'])) {
                     $dp = $product_data['dynamic_pricing'];
                     if (!empty($dp['enabled']) && $dp['enabled'] === 'yes') {
-                        update_post_meta($product_id, '_digitalogic_dynamic_pricing', 'yes');
-                        update_post_meta($product_id, '_digitalogic_currency_type', $dp['currency_type']);
-                        update_post_meta($product_id, '_digitalogic_base_price', $dp['base_price']);
-                        update_post_meta($product_id, '_digitalogic_markup', $dp['markup']);
-                        update_post_meta($product_id, '_digitalogic_markup_type', $dp['markup_type']);
+                        $product = wc_get_product($product_id);
+                        if ($product) {
+                            $product->update_meta_data('_digitalogic_dynamic_pricing', 'yes');
+                            $product->update_meta_data('_digitalogic_currency_type', $dp['currency_type']);
+                            $product->update_meta_data('_digitalogic_base_price', $dp['base_price']);
+                            $product->update_meta_data('_digitalogic_markup', $dp['markup']);
+                            $product->update_meta_data('_digitalogic_markup_type', $dp['markup_type']);
+                            $product->save();
+                        }
                     }
                 }
             }

@@ -5,6 +5,19 @@ All notable changes to the Digitalogic WordPress Plugin will be documented in th
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- WooCommerce High-Performance Order Storage (HPOS) compatibility
+- Full support for WooCommerce 8.2+ custom order tables
+- Declaration of HPOS compatibility via FeaturesUtil
+
+### Changed
+- Updated product meta data handling to use WooCommerce CRUD methods
+- Replaced direct `get_post_meta`/`update_post_meta` calls with `$product->get_meta()`/`$product->update_meta_data()`
+- Updated bulk price recalculation to use WooCommerce product queries
+- Improved import/export functions to be HPOS-compatible
+
 ## [1.0.0] - 2024-12-08
 
 ### Added
@@ -12,7 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Multi-currency support (USD and CNY exchange rates)
 - Dynamic pricing engine with markup support
 - Interactive product management with DataTables
-- Real-time AJAX updates with 30-second polling
+- Real-time AJAX updates with 60-second polling
 - Bulk product update capabilities
 - REST API endpoints for external integrations
   - Products CRUD operations

@@ -54,11 +54,17 @@ A comprehensive WordPress/WooCommerce plugin for dynamic pricing, stock manageme
 - Responsive design
 - Persian (primary) and English (secondary) i18n support
 
+### ⚡ WooCommerce HPOS Compatible
+- Full support for High-Performance Order Storage (HPOS)
+- Compatible with WooCommerce 8.2+ custom order tables
+- Uses WooCommerce CRUD methods for optimal performance
+- Works seamlessly with both traditional and HPOS storage
+
 ## Requirements
 
 - PHP 8.0 or higher
 - WordPress 6.0 or higher
-- WooCommerce 7.0 or higher
+- WooCommerce 7.0 or higher (8.2+ recommended for HPOS)
 - MySQL 5.7 or higher
 
 ## Installation

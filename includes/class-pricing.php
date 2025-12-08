@@ -35,21 +35,21 @@ class Digitalogic_Pricing {
      */
     public function calculate_dynamic_price($price, $product) {
         // Check if dynamic pricing is enabled for this product
-        $enable_dynamic = get_post_meta($product->get_id(), '_digitalogic_dynamic_pricing', true);
+        $enable_dynamic = $product->get_meta('_digitalogic_dynamic_pricing', true);
         
         if ($enable_dynamic !== 'yes') {
             return $price;
         }
         
         // Get currency type
-        $currency_type = get_post_meta($product->get_id(), '_digitalogic_currency_type', true);
+        $currency_type = $product->get_meta('_digitalogic_currency_type', true);
         
         if (empty($currency_type)) {
             return $price;
         }
         
         // Get base price in foreign currency
-        $base_price = get_post_meta($product->get_id(), '_digitalogic_base_price', true);
+        $base_price = $product->get_meta('_digitalogic_base_price', true);
         
         if (empty($base_price)) {
             return $price;
@@ -77,9 +77,9 @@ class Digitalogic_Pricing {
         $calculated_price = $base_price * $rate;
         
         // Apply markup if set
-        $markup = get_post_meta($product->get_id(), '_digitalogic_markup', true);
+        $markup = $product->get_meta('_digitalogic_markup', true);
         if (!empty($markup)) {
-            $markup_type = get_post_meta($product->get_id(), '_digitalogic_markup_type', true);
+            $markup_type = $product->get_meta('_digitalogic_markup_type', true);
             
             if ($markup_type === 'percentage') {
                 $calculated_price = $calculated_price * (1 + ($markup / 100));
@@ -108,12 +108,12 @@ class Digitalogic_Pricing {
             return false;
         }
         
-        // Save dynamic pricing meta
-        update_post_meta($product_id, '_digitalogic_dynamic_pricing', 'yes');
-        update_post_meta($product_id, '_digitalogic_currency_type', $currency_type);
-        update_post_meta($product_id, '_digitalogic_base_price', $base_price);
-        update_post_meta($product_id, '_digitalogic_markup', $markup);
-        update_post_meta($product_id, '_digitalogic_markup_type', $markup_type);
+        // Save dynamic pricing meta using WooCommerce methods (HPOS compatible)
+        $product->update_meta_data('_digitalogic_dynamic_pricing', 'yes');
+        $product->update_meta_data('_digitalogic_currency_type', $currency_type);
+        $product->update_meta_data('_digitalogic_base_price', $base_price);
+        $product->update_meta_data('_digitalogic_markup', $markup);
+        $product->update_meta_data('_digitalogic_markup_type', $markup_type);
         
         // Calculate and update the actual price
         $options = Digitalogic_Options::instance();
@@ -156,14 +156,20 @@ class Digitalogic_Pricing {
      * @return array Results
      */
     public function bulk_recalculate_prices() {
-        global $wpdb;
-        
-        // Get all products with dynamic pricing enabled
-        $product_ids = $wpdb->get_col(
-            "SELECT post_id FROM {$wpdb->postmeta} 
-            WHERE meta_key = '_digitalogic_dynamic_pricing' 
-            AND meta_value = 'yes'"
+        // Get all products with dynamic pricing enabled using WooCommerce query
+        $args = array(
+            'limit' => -1,
+            'return' => 'ids',
+            'meta_query' => array(
+                array(
+                    'key' => '_digitalogic_dynamic_pricing',
+                    'value' => 'yes',
+                    'compare' => '='
+                )
+            )
         );
+        
+        $product_ids = wc_get_products($args);
         
         $results = array(
             'success' => 0,
@@ -172,10 +178,17 @@ class Digitalogic_Pricing {
         );
         
         foreach ($product_ids as $product_id) {
-            $currency_type = get_post_meta($product_id, '_digitalogic_currency_type', true);
-            $base_price = get_post_meta($product_id, '_digitalogic_base_price', true);
-            $markup = get_post_meta($product_id, '_digitalogic_markup', true);
-            $markup_type = get_post_meta($product_id, '_digitalogic_markup_type', true);
+            $product = wc_get_product($product_id);
+            
+            if (!$product) {
+                $results['failed']++;
+                continue;
+            }
+            
+            $currency_type = $product->get_meta('_digitalogic_currency_type', true);
+            $base_price = $product->get_meta('_digitalogic_base_price', true);
+            $markup = $product->get_meta('_digitalogic_markup', true);
+            $markup_type = $product->get_meta('_digitalogic_markup_type', true);
             
             if ($this->set_dynamic_pricing($product_id, $currency_type, $base_price, $markup, $markup_type)) {
                 $results['success']++;
