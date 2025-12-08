@@ -223,36 +223,40 @@ final class Digitalogic {
     
     /**
      * Set default options
+     * 
+     * Note: Options are stored WITHOUT digitalogic_ prefix to ensure ACF compatibility
+     * and allow sharing with other plugins. This is intentional.
      */
     private function set_default_options() {
-        // Initialize options with digitalogic_ prefix for consistency
-        if (get_option('digitalogic_dollar_price') === false) {
-            add_option('digitalogic_dollar_price', '0');
+        // Initialize options WITHOUT prefix (for ACF compatibility)
+        if (get_option('dollar_price') === false) {
+            add_option('dollar_price', '0');
         }
-        if (get_option('digitalogic_yuan_price') === false) {
-            add_option('digitalogic_yuan_price', '0');
+        if (get_option('yuan_price') === false) {
+            add_option('yuan_price', '0');
         }
-        if (get_option('digitalogic_update_date') === false) {
-            add_option('digitalogic_update_date', date('ymd'));
-        }
-        
-        // Migration: Move old unprefixed options to new prefixed ones if they exist
-        $old_dollar = get_option('dollar_price');
-        if ($old_dollar !== false && get_option('digitalogic_dollar_price') === '0') {
-            update_option('digitalogic_dollar_price', $old_dollar);
-            delete_option('dollar_price');
+        if (get_option('update_date') === false) {
+            add_option('update_date', date('ymd'));
         }
         
-        $old_yuan = get_option('yuan_price');
-        if ($old_yuan !== false && get_option('digitalogic_yuan_price') === '0') {
-            update_option('digitalogic_yuan_price', $old_yuan);
-            delete_option('yuan_price');
+        // Reverse migration: Move incorrectly prefixed options back to unprefixed
+        // (This fixes a previous mistake where digitalogic_ prefix was added)
+        $prefixed_dollar = get_option('digitalogic_dollar_price');
+        if ($prefixed_dollar !== false) {
+            update_option('dollar_price', $prefixed_dollar);
+            delete_option('digitalogic_dollar_price');
         }
         
-        $old_date = get_option('update_date');
-        if ($old_date !== false) {
-            update_option('digitalogic_update_date', $old_date);
-            delete_option('update_date');
+        $prefixed_yuan = get_option('digitalogic_yuan_price');
+        if ($prefixed_yuan !== false) {
+            update_option('yuan_price', $prefixed_yuan);
+            delete_option('digitalogic_yuan_price');
+        }
+        
+        $prefixed_date = get_option('digitalogic_update_date');
+        if ($prefixed_date !== false) {
+            update_option('update_date', $prefixed_date);
+            delete_option('digitalogic_update_date');
         }
     }
     
