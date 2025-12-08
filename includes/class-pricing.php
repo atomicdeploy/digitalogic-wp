@@ -126,10 +126,14 @@ class Digitalogic_Pricing {
                 $rate = $options->get_yuan_price();
                 break;
             default:
+                // Save meta data even if rate calculation fails
+                $product->save();
                 return false;
         }
         
         if ($rate <= 0) {
+            // Save meta data even if rate is invalid
+            $product->save();
             return false;
         }
         
@@ -142,6 +146,7 @@ class Digitalogic_Pricing {
         }
         
         $product->set_regular_price($calculated_price);
+        // Save all product changes (meta data + price)
         $product->save();
         
         // Update product lookup tables
@@ -153,10 +158,14 @@ class Digitalogic_Pricing {
     /**
      * Bulk update prices based on new currency rates
      * 
+     * Note: For large catalogs, consider using WP-CLI command or paginating this operation
+     * 
      * @return array Results
      */
     public function bulk_recalculate_prices() {
         // Get all products with dynamic pricing enabled using WooCommerce query
+        // Note: Using limit -1 fetches all products. For large catalogs (>1000 products),
+        // consider using the WP-CLI command which can handle timeouts better
         $args = array(
             'limit' => -1,
             'return' => 'ids',
@@ -177,6 +186,7 @@ class Digitalogic_Pricing {
             'total' => count($product_ids)
         );
         
+        // Process products one by one to avoid memory issues
         foreach ($product_ids as $product_id) {
             $product = wc_get_product($product_id);
             
@@ -195,6 +205,9 @@ class Digitalogic_Pricing {
             } else {
                 $results['failed']++;
             }
+            
+            // Free memory after each product
+            unset($product);
         }
         
         // Log the bulk update
