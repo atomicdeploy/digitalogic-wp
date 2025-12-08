@@ -26,8 +26,14 @@ msgstr "دیجیتالاجیک"
 msgid "Products"
 msgstr "محصولات"
 
+msgid "Product List"
+msgstr "لیست محصولات"
+
 msgid "Currency Settings"
 msgstr "تنظیمات ارز"
+
+msgid "Price Settings"
+msgstr "تنظیمات قیمت"
 
 msgid "Currency"
 msgstr "ارز"
@@ -63,6 +69,9 @@ msgid "Currency rates updated"
 msgstr "نرخ ارزها به‌روزرسانی شد"
 
 #: includes/admin/views/dashboard.php
+msgid "Reports"
+msgstr "گزارش‌ها"
+
 msgid "Digitalogic Dashboard"
 msgstr "داشبورد دیجیتالاجیک"
 

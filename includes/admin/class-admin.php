@@ -40,44 +40,44 @@ class Digitalogic_Admin {
         $icon_svg = $this->get_menu_icon();
         
         add_menu_page(
-            __('Digitalogic', 'digitalogic'),
+            __('Reports', 'digitalogic'),
             __('Digitalogic', 'digitalogic'),
             'manage_woocommerce',
-            'digitalogic',
+            'reports',
             array($this, 'render_dashboard'),
             $icon_svg,
             56
         );
         
         add_submenu_page(
-            'digitalogic',
-            __('Products', 'digitalogic'),
+            'reports',
+            __('Product List', 'digitalogic'),
             __('Products', 'digitalogic'),
             'manage_woocommerce',
-            'digitalogic-products',
+            'product-list',
             array($this, 'render_products_page')
         );
         
         add_submenu_page(
-            'digitalogic',
-            __('Currency Settings', 'digitalogic'),
+            'reports',
+            __('Price Settings', 'digitalogic'),
             __('Currency', 'digitalogic'),
             'manage_woocommerce',
-            'digitalogic-currency',
+            'price-settings',
             array($this, 'render_currency_page')
         );
         
         add_submenu_page(
-            'digitalogic',
+            'reports',
             __('Import/Export', 'digitalogic'),
             __('Import/Export', 'digitalogic'),
             'manage_woocommerce',
-            'digitalogic-import-export',
+            'import-export',
             array($this, 'render_import_export_page')
         );
         
         add_submenu_page(
-            'digitalogic',
+            'reports',
             __('Activity Logs', 'digitalogic'),
             __('Logs', 'digitalogic'),
             'manage_woocommerce',
@@ -86,7 +86,7 @@ class Digitalogic_Admin {
         );
         
         add_submenu_page(
-            'digitalogic',
+            'reports',
             __('Status & Diagnostics', 'digitalogic'),
             __('Status', 'digitalogic'),
             'manage_woocommerce',
