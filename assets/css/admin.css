@@ -17,6 +17,23 @@
     padding: 20px;
     text-align: center;
     box-shadow: 0 1px 1px rgba(0,0,0,.04);
+    display: block;
+    text-decoration: none;
+}
+
+.stat-box.clickable {
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.stat-box.clickable:hover {
+    box-shadow: 0 2px 8px rgba(0,0,0,.15);
+    border-color: #2271b1;
+    transform: translateY(-2px);
+}
+
+.stat-box.clickable:active {
+    transform: translateY(0);
 }
 
 .stat-box h3 {

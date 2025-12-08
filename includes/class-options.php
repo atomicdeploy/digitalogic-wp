@@ -206,70 +206,125 @@ class Digitalogic_Options {
 /**
  * Add WordPress option filters to ensure get_option() and get_field() are always synchronized
  * ACF stores options with 'options_' prefix, so we need to redirect get_option() calls
+ * 
+ * This ensures that when ANY code calls get_option('dollar_price'), it gets the value
+ * from ACF storage (options_dollar_price), maintaining bidirectional synchronization.
  */
 
-// Redirect get_option('dollar_price') to ACF storage (options_dollar_price)
-add_filter('pre_option_dollar_price', function($pre_option) {
-    $acf_value = get_option('options_dollar_price', false);
-    if ($acf_value !== false) {
-        return $acf_value;
-    }
-    return $pre_option;
-}, 10, 1);
+// Redirect get_option('dollar_price') to use our plugin methods
+add_filter('pre_option_dollar_price', function($pre_option, $option, $default) {
+    // Use our plugin method which handles ACF storage properly
+    $options = Digitalogic_Options::instance();
+    return $options->get_dollar_price();
+}, 10, 3);
 
-// Redirect get_option('yuan_price') to ACF storage (options_yuan_price)
-add_filter('pre_option_yuan_price', function($pre_option) {
-    $acf_value = get_option('options_yuan_price', false);
-    if ($acf_value !== false) {
-        return $acf_value;
-    }
-    return $pre_option;
-}, 10, 1);
+// Redirect get_option('yuan_price') to use our plugin methods
+add_filter('pre_option_yuan_price', function($pre_option, $option, $default) {
+    // Use our plugin method which handles ACF storage properly
+    $options = Digitalogic_Options::instance();
+    return $options->get_yuan_price();
+}, 10, 3);
 
-// Redirect get_option('update_date') to ACF storage (options_update_date)
-add_filter('pre_option_update_date', function($pre_option) {
-    $acf_value = get_option('options_update_date', false);
-    if ($acf_value !== false) {
-        return $acf_value;
-    }
-    return $pre_option;
-}, 10, 1);
+// Redirect get_option('update_date') to use our plugin methods
+add_filter('pre_option_update_date', function($pre_option, $option, $default) {
+    // Use our plugin method which handles ACF storage properly
+    $options = Digitalogic_Options::instance();
+    return $options->get_update_date();
+}, 10, 3);
 
 /**
  * Hook into update_option to synchronize when options are updated directly
- * When someone calls update_option('dollar_price', $value), also update ACF storage
+ * When someone calls update_option('dollar_price', $value), redirect to our methods
+ * to ensure proper synchronization with ACF storage and logging.
  */
 add_action('update_option_dollar_price', function($old_value, $value, $option) {
-    // Synchronize to ACF storage (options_ prefix)
-    update_option('options_dollar_price', $value);
+    // Prevent infinite loop by checking if we're already in our method
+    static $updating = false;
+    if ($updating) {
+        return;
+    }
+    $updating = true;
+    
+    // Use our plugin method which handles ACF sync and logging
+    $options = Digitalogic_Options::instance();
+    $options->set_dollar_price($value);
+    
+    $updating = false;
 }, 10, 3);
 
 add_action('update_option_yuan_price', function($old_value, $value, $option) {
-    // Synchronize to ACF storage (options_ prefix)
-    update_option('options_yuan_price', $value);
+    // Prevent infinite loop by checking if we're already in our method
+    static $updating = false;
+    if ($updating) {
+        return;
+    }
+    $updating = true;
+    
+    // Use our plugin method which handles ACF sync and logging
+    $options = Digitalogic_Options::instance();
+    $options->set_yuan_price($value);
+    
+    $updating = false;
 }, 10, 3);
 
 add_action('update_option_update_date', function($old_value, $value, $option) {
     // Synchronize to ACF storage (options_ prefix)
+    // Don't use plugin method here to avoid recursion
+    static $updating = false;
+    if ($updating) {
+        return;
+    }
+    $updating = true;
+    
     update_option('options_update_date', $value);
+    
+    $updating = false;
 }, 10, 3);
 
 /**
  * Hook into add_option to synchronize when options are added directly
+ * This ensures even the first-time creation of these options goes through our methods.
  */
 add_action('add_option_dollar_price', function($option, $value) {
+    // Prevent infinite loop
+    static $adding = false;
+    if ($adding) {
+        return;
+    }
+    $adding = true;
+    
     // Synchronize to ACF storage (options_ prefix)
     update_option('options_dollar_price', $value);
+    
+    $adding = false;
 }, 10, 2);
 
 add_action('add_option_yuan_price', function($option, $value) {
+    // Prevent infinite loop
+    static $adding = false;
+    if ($adding) {
+        return;
+    }
+    $adding = true;
+    
     // Synchronize to ACF storage (options_ prefix)
     update_option('options_yuan_price', $value);
+    
+    $adding = false;
 }, 10, 2);
 
 add_action('add_option_update_date', function($option, $value) {
+    // Prevent infinite loop
+    static $adding = false;
+    if ($adding) {
+        return;
+    }
+    $adding = true;
+    
     // Synchronize to ACF storage (options_ prefix)
     update_option('options_update_date', $value);
+    
+    $adding = false;
 }, 10, 2);
 
 /**
