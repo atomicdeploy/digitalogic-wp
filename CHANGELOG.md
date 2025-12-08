@@ -8,6 +8,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Complete ACF function hooks** for total bidirectional synchronization
+  - Hook into ACF's `acf/update_value` filter to sync back to direct options
+  - Hook into ACF's `acf/load_value` filter to ensure consistency
+  - Even direct ACF function calls now trigger synchronization
+- **Fallback ACF-compatible functions** when ACF is not installed
+  - Provides `get_field()` function if ACF not present
+  - Provides `update_field()` function if ACF not present
+  - Plugin now works standalone without ACF dependency
+- **ACF availability detection** with `is_acf_available()` method
+- **Clickable dashboard stat boxes** with hover effects and navigation
+  - Total Products box links to Products page
+  - USD/CNY Price boxes link to Currency page
+  - Last Update box links to Currency page
+  - Smooth hover animations with shadow elevation
+- **Enhanced option hooks** to use plugin methods for complete control
+  - All `get_option()` calls redirect to plugin methods
+  - All `update_option()` calls redirect to plugin methods with logging
+- **Infinite loop prevention** in all synchronization hooks
+- **Activity logging** for all option updates, even when using direct WordPress functions
 - Custom Digitalogic branding icon integrated throughout the plugin
 - Square (1:1) SVG icon for WordPress admin menu
 - Monochrome version for dashicons compatibility
@@ -23,6 +42,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Automatic Persian (Jalali) calendar support when locale is fa_IR
 
 ### Changed
+- **Plugin now works both WITH and WITHOUT ACF installed**
+  - Checks ACF availability on initialization
+  - All get/set methods adapt based on ACF presence
+  - Graceful degradation when ACF not available
+  - Full functionality maintained in both scenarios
 - **CORRECTED**: Full synchronization between `get_option()` and `get_field()`
   - ACF stores options with `options_` prefix (e.g., `options_dollar_price`)
   - Added filters to redirect `get_option('dollar_price')` to `get_option('options_dollar_price')`
