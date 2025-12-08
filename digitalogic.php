@@ -224,11 +224,22 @@ final class Digitalogic {
     /**
      * Set default options
      * 
-     * Note: Options are stored WITHOUT digitalogic_ prefix to ensure ACF compatibility
-     * and allow sharing with other plugins. This is intentional.
+     * Note: Options are synchronized with ACF storage (options_ prefix)
+     * Both get_option('dollar_price') and get_field('dollar_price', 'option') access the same data
      */
     private function set_default_options() {
-        // Initialize options WITHOUT prefix (for ACF compatibility)
+        // Initialize ACF storage (options_ prefix) - this is where ACF stores option fields
+        if (get_option('options_dollar_price') === false) {
+            add_option('options_dollar_price', '0');
+        }
+        if (get_option('options_yuan_price') === false) {
+            add_option('options_yuan_price', '0');
+        }
+        if (get_option('options_update_date') === false) {
+            add_option('options_update_date', date('ymd'));
+        }
+        
+        // Also initialize direct options for backward compatibility
         if (get_option('dollar_price') === false) {
             add_option('dollar_price', '0');
         }
@@ -239,24 +250,37 @@ final class Digitalogic {
             add_option('update_date', date('ymd'));
         }
         
-        // Reverse migration: Move incorrectly prefixed options back to unprefixed
-        // (This fixes a previous mistake where digitalogic_ prefix was added)
+        // Migration: Move old prefixed options to ACF storage
         $prefixed_dollar = get_option('digitalogic_dollar_price');
         if ($prefixed_dollar !== false) {
+            update_option('options_dollar_price', $prefixed_dollar);
             update_option('dollar_price', $prefixed_dollar);
             delete_option('digitalogic_dollar_price');
         }
         
         $prefixed_yuan = get_option('digitalogic_yuan_price');
         if ($prefixed_yuan !== false) {
+            update_option('options_yuan_price', $prefixed_yuan);
             update_option('yuan_price', $prefixed_yuan);
             delete_option('digitalogic_yuan_price');
         }
         
         $prefixed_date = get_option('digitalogic_update_date');
         if ($prefixed_date !== false) {
+            update_option('options_update_date', $prefixed_date);
             update_option('update_date', $prefixed_date);
             delete_option('digitalogic_update_date');
+        }
+        
+        // Sync: If direct options exist but ACF storage doesn't, copy to ACF storage
+        if (get_option('options_dollar_price') === '0' && get_option('dollar_price') !== '0') {
+            update_option('options_dollar_price', get_option('dollar_price'));
+        }
+        if (get_option('options_yuan_price') === '0' && get_option('yuan_price') !== '0') {
+            update_option('options_yuan_price', get_option('yuan_price'));
+        }
+        if (get_option('update_date') !== false) {
+            update_option('options_update_date', get_option('update_date'));
         }
     }
     

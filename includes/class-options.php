@@ -26,21 +26,36 @@ class Digitalogic_Options {
     
     /**
      * Get dollar price in local currency
+     * Reads from ACF storage (options_dollar_price) for consistency
      * 
      * @return float
      */
     public function get_dollar_price() {
+        // Try ACF storage first (options_ prefix)
+        $value = get_option('options_dollar_price', false);
+        if ($value !== false) {
+            return (float) $value;
+        }
+        // Fallback to direct option
         return (float) get_option('dollar_price', 0);
     }
     
     /**
      * Set dollar price in local currency
+     * Updates both ACF storage and direct option for full compatibility
      * 
      * @param float $price
      * @return bool
      */
     public function set_dollar_price($price) {
-        $result = update_option('dollar_price', (float) $price);
+        $price = (float) $price;
+        
+        // Update ACF storage (options_ prefix)
+        update_option('options_dollar_price', $price);
+        
+        // Also update direct option for backward compatibility
+        $result = update_option('dollar_price', $price);
+        
         $this->update_date();
         
         // Log the change
@@ -58,21 +73,36 @@ class Digitalogic_Options {
     
     /**
      * Get yuan/CNY price in local currency
+     * Reads from ACF storage (options_yuan_price) for consistency
      * 
      * @return float
      */
     public function get_yuan_price() {
+        // Try ACF storage first (options_ prefix)
+        $value = get_option('options_yuan_price', false);
+        if ($value !== false) {
+            return (float) $value;
+        }
+        // Fallback to direct option
         return (float) get_option('yuan_price', 0);
     }
     
     /**
      * Set yuan/CNY price in local currency
+     * Updates both ACF storage and direct option for full compatibility
      * 
      * @param float $price
      * @return bool
      */
     public function set_yuan_price($price) {
-        $result = update_option('yuan_price', (float) $price);
+        $price = (float) $price;
+        
+        // Update ACF storage (options_ prefix)
+        update_option('options_yuan_price', $price);
+        
+        // Also update direct option for backward compatibility
+        $result = update_option('yuan_price', $price);
+        
         $this->update_date();
         
         // Log the change
@@ -90,10 +120,17 @@ class Digitalogic_Options {
     
     /**
      * Get last update date
+     * Reads from ACF storage (options_update_date) for consistency
      * 
      * @return string YYMMDD format
      */
     public function get_update_date() {
+        // Try ACF storage first (options_ prefix)
+        $value = get_option('options_update_date', false);
+        if ($value !== false) {
+            return $value;
+        }
+        // Fallback to direct option
         return get_option('update_date', date('ymd'));
     }
     
@@ -151,13 +188,89 @@ class Digitalogic_Options {
     
     /**
      * Update the last modified date to today
+     * Updates both ACF storage and direct option for full compatibility
      * 
      * @return bool
      */
     private function update_date() {
-        return update_option('update_date', date('ymd'));
+        $date = date('ymd');
+        
+        // Update ACF storage (options_ prefix)
+        update_option('options_update_date', $date);
+        
+        // Also update direct option for backward compatibility
+        return update_option('update_date', $date);
     }
 }
+
+/**
+ * Add WordPress option filters to ensure get_option() and get_field() are always synchronized
+ * ACF stores options with 'options_' prefix, so we need to redirect get_option() calls
+ */
+
+// Redirect get_option('dollar_price') to ACF storage (options_dollar_price)
+add_filter('pre_option_dollar_price', function($pre_option) {
+    $acf_value = get_option('options_dollar_price', false);
+    if ($acf_value !== false) {
+        return $acf_value;
+    }
+    return $pre_option;
+}, 10, 1);
+
+// Redirect get_option('yuan_price') to ACF storage (options_yuan_price)
+add_filter('pre_option_yuan_price', function($pre_option) {
+    $acf_value = get_option('options_yuan_price', false);
+    if ($acf_value !== false) {
+        return $acf_value;
+    }
+    return $pre_option;
+}, 10, 1);
+
+// Redirect get_option('update_date') to ACF storage (options_update_date)
+add_filter('pre_option_update_date', function($pre_option) {
+    $acf_value = get_option('options_update_date', false);
+    if ($acf_value !== false) {
+        return $acf_value;
+    }
+    return $pre_option;
+}, 10, 1);
+
+/**
+ * Hook into update_option to synchronize when options are updated directly
+ * When someone calls update_option('dollar_price', $value), also update ACF storage
+ */
+add_action('update_option_dollar_price', function($old_value, $value, $option) {
+    // Synchronize to ACF storage (options_ prefix)
+    update_option('options_dollar_price', $value);
+}, 10, 3);
+
+add_action('update_option_yuan_price', function($old_value, $value, $option) {
+    // Synchronize to ACF storage (options_ prefix)
+    update_option('options_yuan_price', $value);
+}, 10, 3);
+
+add_action('update_option_update_date', function($old_value, $value, $option) {
+    // Synchronize to ACF storage (options_ prefix)
+    update_option('options_update_date', $value);
+}, 10, 3);
+
+/**
+ * Hook into add_option to synchronize when options are added directly
+ */
+add_action('add_option_dollar_price', function($option, $value) {
+    // Synchronize to ACF storage (options_ prefix)
+    update_option('options_dollar_price', $value);
+}, 10, 2);
+
+add_action('add_option_yuan_price', function($option, $value) {
+    // Synchronize to ACF storage (options_ prefix)
+    update_option('options_yuan_price', $value);
+}, 10, 2);
+
+add_action('add_option_update_date', function($option, $value) {
+    // Synchronize to ACF storage (options_ prefix)
+    update_option('options_update_date', $value);
+}, 10, 2);
 
 /**
  * Note: This plugin stores options without prefix (dollar_price, yuan_price, update_date)

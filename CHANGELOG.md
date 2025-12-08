@@ -23,11 +23,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Automatic Persian (Jalali) calendar support when locale is fa_IR
 
 ### Changed
-- **CORRECTED**: Currency options use unprefixed names for ACF compatibility
-  - Options stored as: `dollar_price`, `yuan_price`, `update_date` (NO prefix)
-  - This ensures shared field storage with ACF and other plugins
-  - Both `get_option('dollar_price')` and `get_field('dollar_price', 'option')` access the same underlying WordPress option
-- Automatic reverse migration: removes incorrect `digitalogic_` prefix from previous versions
+- **CORRECTED**: Full synchronization between `get_option()` and `get_field()`
+  - ACF stores options with `options_` prefix (e.g., `options_dollar_price`)
+  - Added filters to redirect `get_option('dollar_price')` to `get_option('options_dollar_price')`
+  - Both `get_option('dollar_price')` and `get_field('dollar_price', 'option')` now return the SAME value
+  - All write operations (`update_option`, `add_option`) synchronize to both storages
+  - Automatic bidirectional synchronization ensures consistency
+- Automatic migration: removes incorrect `digitalogic_` prefix and syncs with ACF storage
 - True field sharing with ACF when installed
 - Updated product meta data handling to use WooCommerce CRUD methods
 - Date formatting now supports Persian calendar via parsidate plugin
