@@ -133,6 +133,30 @@ final class Digitalogic {
     }
     
     /**
+     * Check HPOS compatibility status (for debugging)
+     * 
+     * @return array Status information
+     */
+    public function get_hpos_status() {
+        $status = array(
+            'hpos_enabled' => false,
+            'plugin_compatible' => false,
+            'using_custom_tables' => false
+        );
+        
+        if (class_exists('\Automattic\WooCommerce\Utilities\OrderUtil')) {
+            $status['hpos_enabled'] = \Automattic\WooCommerce\Utilities\OrderUtil::custom_orders_table_usage_is_enabled();
+            $status['using_custom_tables'] = $status['hpos_enabled'];
+        }
+        
+        if (class_exists('\Automattic\WooCommerce\Utilities\FeaturesUtil')) {
+            $status['plugin_compatible'] = true;
+        }
+        
+        return $status;
+    }
+    
+    /**
      * Load plugin textdomain
      */
     public function load_textdomain() {

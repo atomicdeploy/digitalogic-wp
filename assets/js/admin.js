@@ -39,7 +39,16 @@
                     };
                 },
                 dataSrc: function(json) {
-                    return json.data.products;
+                    // Handle WordPress AJAX response format
+                    if (json.success && json.data && json.data.products) {
+                        return json.data.products;
+                    }
+                    console.error('Invalid response format:', json);
+                    return [];
+                },
+                error: function(xhr, error, thrown) {
+                    console.error('AJAX error:', error, thrown);
+                    alert(digitalogic.i18n.error + ': ' + thrown);
                 }
             },
             columns: [
@@ -141,7 +150,15 @@
                     };
                 },
                 dataSrc: function(json) {
-                    return json.data.logs;
+                    // Handle WordPress AJAX response format
+                    if (json.success && json.data && json.data.logs) {
+                        return json.data.logs;
+                    }
+                    console.error('Invalid response format:', json);
+                    return [];
+                },
+                error: function(xhr, error, thrown) {
+                    console.error('AJAX error:', error, thrown);
                 }
             },
             columns: [
