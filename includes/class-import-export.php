@@ -25,6 +25,71 @@ class Digitalogic_Import_Export {
     }
     
     /**
+     * Update dynamic pricing metadata for a product
+     * 
+     * @param int $product_id Product ID
+     * @param array $data Data containing dynamic pricing information
+     * @return void
+     */
+    private function update_dynamic_pricing($product_id, $data) {
+        // Check if dynamic pricing is enabled (CSV/Excel format)
+        $enabled = false;
+        $pricing_data = array();
+        
+        if (!empty($data['Dynamic Pricing']) && $data['Dynamic Pricing'] === 'yes') {
+            $enabled = true;
+            $pricing_data = array(
+                'Currency Type' => isset($data['Currency Type']) ? $data['Currency Type'] : '',
+                'Base Price' => isset($data['Base Price']) ? $data['Base Price'] : '',
+                'Markup' => isset($data['Markup']) ? $data['Markup'] : '',
+                'Markup Type' => isset($data['Markup Type']) ? $data['Markup Type'] : '',
+            );
+        } 
+        // Check for JSON format (nested structure)
+        elseif (isset($data['dynamic_pricing'])) {
+            $dp = $data['dynamic_pricing'];
+            if (!empty($dp['enabled']) && $dp['enabled'] === 'yes') {
+                $enabled = true;
+                $pricing_data = array(
+                    'Currency Type' => isset($dp['currency_type']) ? $dp['currency_type'] : '',
+                    'Base Price' => isset($dp['base_price']) ? $dp['base_price'] : '',
+                    'Markup' => isset($dp['markup']) ? $dp['markup'] : '',
+                    'Markup Type' => isset($dp['markup_type']) ? $dp['markup_type'] : '',
+                );
+            }
+        }
+        
+        if (!$enabled) {
+            return;
+        }
+        
+        $product = wc_get_product($product_id);
+        if (!$product) {
+            return;
+        }
+        
+        $product->update_meta_data('_digitalogic_dynamic_pricing', 'yes');
+        
+        if (!empty($pricing_data['Currency Type'])) {
+            $product->update_meta_data('_digitalogic_currency_type', $pricing_data['Currency Type']);
+        }
+        
+        if (!empty($pricing_data['Base Price'])) {
+            $product->update_meta_data('_digitalogic_base_price', $pricing_data['Base Price']);
+        }
+        
+        if (!empty($pricing_data['Markup'])) {
+            $product->update_meta_data('_digitalogic_markup', $pricing_data['Markup']);
+        }
+        
+        if (!empty($pricing_data['Markup Type'])) {
+            $product->update_meta_data('_digitalogic_markup_type', $pricing_data['Markup Type']);
+        }
+        
+        $product->save();
+    }
+    
+    /**
      * Export products to CSV
      * 
      * @param array $product_ids
@@ -215,7 +280,7 @@ class Digitalogic_Import_Export {
             
             // Remove empty values
             $update_data = array_filter($update_data, function($value) {
-                return $value !== '';
+                return $value !== '' && $value !== null;
             });
             
             $result = $manager->update_product($product_id, $update_data);
@@ -226,18 +291,8 @@ class Digitalogic_Import_Export {
             } else {
                 $results['success']++;
                 
-                // Update dynamic pricing if set using WooCommerce methods (HPOS compatible)
-                if (!empty($data['Dynamic Pricing']) && $data['Dynamic Pricing'] === 'yes') {
-                    $product = wc_get_product($product_id);
-                    if ($product) {
-                        $product->update_meta_data('_digitalogic_dynamic_pricing', 'yes');
-                        $product->update_meta_data('_digitalogic_currency_type', $data['Currency Type']);
-                        $product->update_meta_data('_digitalogic_base_price', $data['Base Price']);
-                        $product->update_meta_data('_digitalogic_markup', $data['Markup']);
-                        $product->update_meta_data('_digitalogic_markup_type', $data['Markup Type']);
-                        $product->save();
-                    }
-                }
+                // Update dynamic pricing using helper method
+                $this->update_dynamic_pricing($product_id, $data);
             }
         }
         
@@ -289,24 +344,289 @@ class Digitalogic_Import_Export {
             } else {
                 $results['success']++;
                 
-                // Update dynamic pricing if present using WooCommerce methods (HPOS compatible)
-                if (isset($product_data['dynamic_pricing'])) {
-                    $dp = $product_data['dynamic_pricing'];
-                    if (!empty($dp['enabled']) && $dp['enabled'] === 'yes') {
-                        $product = wc_get_product($product_id);
-                        if ($product) {
-                            $product->update_meta_data('_digitalogic_dynamic_pricing', 'yes');
-                            $product->update_meta_data('_digitalogic_currency_type', $dp['currency_type']);
-                            $product->update_meta_data('_digitalogic_base_price', $dp['base_price']);
-                            $product->update_meta_data('_digitalogic_markup', $dp['markup']);
-                            $product->update_meta_data('_digitalogic_markup_type', $dp['markup_type']);
-                            $product->save();
-                        }
-                    }
-                }
+                // Update dynamic pricing using helper method
+                $this->update_dynamic_pricing($product_id, $product_data);
             }
         }
         
         return $results;
+    }
+    
+    /**
+     * Export products to Excel with custom template
+     * 
+     * @param array $product_ids
+     * @return string File path
+     */
+    public function export_excel($product_ids = array()) {
+        if (!class_exists('\PhpOffice\PhpSpreadsheet\Spreadsheet')) {
+            return new WP_Error('library_missing', __('PhpSpreadsheet library not found', 'digitalogic'));
+        }
+        
+        $upload_dir = wp_upload_dir();
+        $export_dir = $upload_dir['basedir'] . '/digitalogic-exports';
+        
+        if (!file_exists($export_dir)) {
+            wp_mkdir_p($export_dir);
+        }
+        
+        $filename = 'products-export-' . date('Y-m-d-His') . '.xlsx';
+        $filepath = $export_dir . '/' . $filename;
+        
+        // Create new Spreadsheet object
+        $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
+        $sheet = $spreadsheet->getActiveSheet();
+        
+        // Set custom template properties
+        $spreadsheet->getProperties()
+            ->setCreator('Digitalogic WooCommerce Extension')
+            ->setTitle('Product Export')
+            ->setSubject('Product Data')
+            ->setDescription('Product export from Digitalogic WooCommerce Extension')
+            ->setCategory('Products');
+        
+        // Custom template styling
+        $sheet->setTitle('Products');
+        
+        // Headers with custom styling
+        $headers = array(
+            'ID',
+            'Name',
+            'SKU',
+            'Type',
+            'Regular Price',
+            'Sale Price',
+            'Stock Quantity',
+            'Stock Status',
+            'Weight',
+            'Length',
+            'Width',
+            'Height',
+            'Dynamic Pricing',
+            'Currency Type',
+            'Base Price',
+            'Markup',
+            'Markup Type'
+        );
+        
+        $num_columns = count($headers);
+        // Note: This calculation works for up to 26 columns (A-Z).
+        // For more columns, PhpSpreadsheet's Coordinate::stringFromColumnIndex() should be used.
+        $last_column = chr(64 + $num_columns); // A=65, so 64+1=A, 64+17=Q
+        
+        // Set headers
+        $col = 'A';
+        foreach ($headers as $header) {
+            $sheet->setCellValue($col . '1', $header);
+            $col++;
+        }
+        
+        // Style header row
+        $headerStyle = $sheet->getStyle('A1:' . $last_column . '1');
+        $headerStyle->getFont()->setBold(true)->setSize(12);
+        $headerStyle->getFill()
+            ->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID)
+            ->getStartColor()->setRGB('4472C4');
+        $headerStyle->getFont()->getColor()->setRGB('FFFFFF');
+        $headerStyle->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
+        
+        // Set column widths
+        $sheet->getColumnDimension('A')->setWidth(10);
+        $sheet->getColumnDimension('B')->setWidth(40);
+        $sheet->getColumnDimension('C')->setWidth(15);
+        $sheet->getColumnDimension('D')->setWidth(12);
+        $sheet->getColumnDimension('E')->setWidth(15);
+        $sheet->getColumnDimension('F')->setWidth(15);
+        $sheet->getColumnDimension('G')->setWidth(15);
+        $sheet->getColumnDimension('H')->setWidth(15);
+        $sheet->getColumnDimension('I')->setWidth(12);
+        $sheet->getColumnDimension('J')->setWidth(12);
+        $sheet->getColumnDimension('K')->setWidth(12);
+        $sheet->getColumnDimension('L')->setWidth(12);
+        $sheet->getColumnDimension('M')->setWidth(18);
+        $sheet->getColumnDimension('N')->setWidth(15);
+        $sheet->getColumnDimension('O')->setWidth(15);
+        $sheet->getColumnDimension('P')->setWidth(12);
+        $sheet->getColumnDimension('Q')->setWidth(15);
+        
+        // Get products
+        $manager = Digitalogic_Product_Manager::instance();
+        
+        if (empty($product_ids)) {
+            $products = $manager->get_products(array('limit' => -1));
+        } else {
+            $products = array();
+            foreach ($product_ids as $id) {
+                $product = $manager->get_product($id);
+                if ($product) {
+                    $products[] = $product;
+                }
+            }
+        }
+        
+        // Write data
+        $row = 2;
+        foreach ($products as $product_data) {
+            $product = wc_get_product($product_data['id']);
+            if (!$product) {
+                continue;
+            }
+            
+            $sheet->setCellValue('A' . $row, $product_data['id']);
+            $sheet->setCellValue('B' . $row, $product_data['name']);
+            $sheet->setCellValue('C' . $row, $product_data['sku']);
+            $sheet->setCellValue('D' . $row, $product_data['type']);
+            $sheet->setCellValue('E' . $row, $product_data['regular_price']);
+            $sheet->setCellValue('F' . $row, $product_data['sale_price']);
+            $sheet->setCellValue('G' . $row, $product_data['stock_quantity']);
+            $sheet->setCellValue('H' . $row, $product_data['stock_status']);
+            $sheet->setCellValue('I' . $row, $product_data['weight']);
+            $sheet->setCellValue('J' . $row, $product_data['length']);
+            $sheet->setCellValue('K' . $row, $product_data['width']);
+            $sheet->setCellValue('L' . $row, $product_data['height']);
+            $sheet->setCellValue('M' . $row, $product->get_meta('_digitalogic_dynamic_pricing', true));
+            $sheet->setCellValue('N' . $row, $product->get_meta('_digitalogic_currency_type', true));
+            $sheet->setCellValue('O' . $row, $product->get_meta('_digitalogic_base_price', true));
+            $sheet->setCellValue('P' . $row, $product->get_meta('_digitalogic_markup', true));
+            $sheet->setCellValue('Q' . $row, $product->get_meta('_digitalogic_markup_type', true));
+            
+            // Apply alternating row colors
+            if ($row % 2 == 0) {
+                $sheet->getStyle('A' . $row . ':' . $last_column . $row)->getFill()
+                    ->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID)
+                    ->getStartColor()->setRGB('F2F2F2');
+            }
+            
+            $row++;
+        }
+        
+        // Add borders to all cells with data
+        $lastRow = $row - 1;
+        $sheet->getStyle('A1:' . $last_column . $lastRow)->getBorders()->getAllBorders()
+            ->setBorderStyle(\PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN)
+            ->getColor()->setRGB('000000');
+        
+        // Freeze header row
+        $sheet->freezePane('A2');
+        
+        // Add filters to header row
+        $sheet->setAutoFilter('A1:' . $last_column . '1');
+        
+        // Write file
+        $writer = new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($spreadsheet);
+        $writer->save($filepath);
+        
+        return $filepath;
+    }
+    
+    /**
+     * Import products from Excel
+     * 
+     * @param string $filepath
+     * @return array Results
+     */
+    public function import_excel($filepath) {
+        if (!file_exists($filepath)) {
+            return new WP_Error('file_not_found', __('File not found', 'digitalogic'));
+        }
+        
+        if (!class_exists('\PhpOffice\PhpSpreadsheet\IOFactory')) {
+            return new WP_Error('library_missing', __('PhpSpreadsheet library not found', 'digitalogic'));
+        }
+        
+        try {
+            $spreadsheet = \PhpOffice\PhpSpreadsheet\IOFactory::load($filepath);
+            $sheet = $spreadsheet->getActiveSheet();
+            $data = $sheet->toArray();
+            
+            $results = array(
+                'success' => 0,
+                'failed' => 0,
+                'errors' => array()
+            );
+            
+            if (empty($data)) {
+                return new WP_Error('empty_file', __('Excel file is empty', 'digitalogic'));
+            }
+            
+            // First row is headers
+            $headers = array_shift($data);
+            
+            $manager = Digitalogic_Product_Manager::instance();
+            
+            $current_row_num = 2; // Start at 2 because row 1 is headers
+            foreach ($data as $row) {
+                if (empty($row[0])) {
+                    $current_row_num++;
+                    continue; // Skip empty rows
+                }
+                
+                // Validate row has same number of columns as headers
+                if (count($headers) !== count($row)) {
+                    $results['failed']++;
+                    $results['errors'][] = sprintf('Row %d has %d columns but expected %d', $current_row_num, count($row), count($headers));
+                    $current_row_num++;
+                    continue;
+                }
+                
+                $row_data = array_combine($headers, $row);
+                
+                // Additional safety check (should never happen due to earlier validation)
+                if ($row_data === false) {
+                    $results['failed']++;
+                    $results['errors'][] = sprintf('Row %d: Failed to parse data', $current_row_num);
+                    $current_row_num++;
+                    continue;
+                }
+                
+                if (empty($row_data['ID'])) {
+                    $results['failed']++;
+                    $results['errors'][] = sprintf('Row %d: Missing product ID', $current_row_num);
+                    $current_row_num++;
+                    continue;
+                }
+                
+                $product_id = intval($row_data['ID']);
+                
+                $update_data = array(
+                    'name' => $row_data['Name'],
+                    'sku' => $row_data['SKU'],
+                    'regular_price' => $row_data['Regular Price'],
+                    'sale_price' => $row_data['Sale Price'],
+                    'stock_quantity' => $row_data['Stock Quantity'],
+                    'stock_status' => $row_data['Stock Status'],
+                    'weight' => $row_data['Weight'],
+                    'length' => $row_data['Length'],
+                    'width' => $row_data['Width'],
+                    'height' => $row_data['Height'],
+                );
+                
+                // Remove empty values
+                $update_data = array_filter($update_data, function($value) {
+                    return $value !== '' && $value !== null;
+                });
+                
+                $result = $manager->update_product($product_id, $update_data);
+                
+                if (is_wp_error($result)) {
+                    $results['failed']++;
+                    $results['errors'][] = sprintf('Row %d: %s', $current_row_num, $result->get_error_message());
+                } else {
+                    $results['success']++;
+                    
+                    // Update dynamic pricing using helper method
+                    $this->update_dynamic_pricing($product_id, $row_data);
+                }
+                
+                $current_row_num++;
+            }
+            
+            return $results;
+            
+        } catch (\PhpOffice\PhpSpreadsheet\Reader\Exception $e) {
+            return new WP_Error('read_error', sprintf(__('Error reading Excel file: %s', 'digitalogic'), $e->getMessage()));
+        } catch (Exception $e) {
+            return new WP_Error('import_error', sprintf(__('Error importing Excel file: %s', 'digitalogic'), $e->getMessage()));
+        }
     }
 }

@@ -40,17 +40,17 @@ class Digitalogic_Admin {
         $icon_svg = $this->get_menu_icon();
         
         add_menu_page(
-            __('Reports', 'digitalogic'),
+            __('Dashboard', 'digitalogic'),
             __('Digitalogic', 'digitalogic'),
             'manage_woocommerce',
-            'reports',
+            'digitalogic',
             array($this, 'render_dashboard'),
             $icon_svg,
             56
         );
         
         add_submenu_page(
-            'reports',
+            'digitalogic',
             __('Product List', 'digitalogic'),
             __('Products', 'digitalogic'),
             'manage_woocommerce',
@@ -59,7 +59,7 @@ class Digitalogic_Admin {
         );
         
         add_submenu_page(
-            'reports',
+            'digitalogic',
             __('Price Settings', 'digitalogic'),
             __('Currency', 'digitalogic'),
             'manage_woocommerce',
@@ -68,7 +68,7 @@ class Digitalogic_Admin {
         );
         
         add_submenu_page(
-            'reports',
+            'digitalogic',
             __('Import/Export', 'digitalogic'),
             __('Import/Export', 'digitalogic'),
             'manage_woocommerce',
@@ -77,7 +77,7 @@ class Digitalogic_Admin {
         );
         
         add_submenu_page(
-            'reports',
+            'digitalogic',
             __('Activity Logs', 'digitalogic'),
             __('Logs', 'digitalogic'),
             'manage_woocommerce',
@@ -86,7 +86,7 @@ class Digitalogic_Admin {
         );
         
         add_submenu_page(
-            'reports',
+            'digitalogic',
             __('Status & Diagnostics', 'digitalogic'),
             __('Status', 'digitalogic'),
             'manage_woocommerce',
@@ -96,13 +96,39 @@ class Digitalogic_Admin {
     }
     
     /**
+     * Fallback SVG icon
+     */
+    private function get_fallback_svg() {
+        return '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"></svg>';
+    }
+    
+    /**
      * Get menu icon as data URL
      * 
      * @return string Base64-encoded SVG data URL
      */
     private function get_menu_icon() {
-        // Monochrome SVG for WordPress admin menu (optimized for 20x20px)
-        $svg = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 552.72 552.72"><g transform="translate(0, 38.65)"><path d="M115.2,235.05c1.84,9.53-6.46,17.83-15.99,15.99-5.35-1.03-9.63-5.31-10.66-10.66-1.84-9.53,6.46-17.83,15.99-15.99,5.35,1.03,9.63,5.31,10.66,10.66ZM133.9,226.4c-4.2-14.94-22.62-24.86-38.15-22.33-7.77,1.26-14.81,5.64-19.83,11.76s-8,14.01-8,21.89,2.98,15.76,8,21.89,12.06,10.5,19.83,11.76c15.53,2.53,33.95-7.39,38.15-22.33h113.2v-22.64h-113.2ZM65.98,135.84c-4.2-14.94-22.62-24.86-38.15-22.33-7.77,1.26-14.81,5.64-19.83,11.76-5.01,6.13-8,14.01-8,21.89s2.98,15.76,8,21.89c5.01,6.13,12.06,10.5,19.83,11.76,15.53,2.53,33.95-7.39,38.15-22.33h58.7l45.28,45.28h77.14v-22.64h-67.76l-45.28-45.28s-68.08,0-68.08,0ZM36.63,314.95c-9.53-1.84-17.83,6.46-15.99,15.99,1.03,5.35,5.31,9.63,10.66,10.66,9.53,1.84,17.83-6.46,15.99-15.99-1.03-5.35-5.31-9.63-10.66-10.66ZM36.63,133.83c-9.53-1.84-17.83,6.46-15.99,15.99,1.03,5.35,5.31,9.63,10.66,10.66,9.53,1.84,17.83-6.46,15.99-15.99-1.03-5.35-5.31-9.63-10.66-10.66ZM65.98,339.59h68.08l45.28-45.28h67.76v-22.64h-77.14l-45.28,45.28h-58.7c-4.2-14.94-22.62-24.86-38.15-22.33-7.77,1.26-14.81,5.64-19.83,11.76C2.99,312.51,0,320.39,0,328.27s2.98,15.76,8,21.89c5.01,6.13,12.06,10.5,19.83,11.76,15.53,2.53,33.95-7.39,38.15-22.33h0ZM308.22,244.51v38.49h13.58v-38.49h38.49v-13.58h-38.49v-38.49h-13.58v38.49h-38.49v13.58h38.49ZM201.81,419.97c-4.92,11.42-19.61,18.01-31.8,15.12-12.2-2.88-21.91-15.23-21.91-27.57s9.71-24.69,21.91-27.57,26.88,3.69,31.8,15.11h90.54c35.29.79,76.88-14.16,106.78-41.77,29.89-27.61,48.08-67.89,50.09-103.13h-55.74c-2.29,22.22-14.5,46.95-33.62,63.86-19.13,16.91-45.16,26.01-67.49,25.56h-45.28v-22.64h-58.38l-45.28,45.28h-54.82v113.2h226.4c28.02-.08,58.12-4.83,87.5-16.69,29.38-11.86,58.03-30.83,81.01-53.63,45.96-45.59,69.2-106.5,69.2-167.4s-23.25-121.81-69.2-167.4c-22.98-22.8-51.63-41.77-81.01-53.63C373.14,4.83,343.03.08,315.01,0H88.62v113.2h54.82l45.28,45.28h58.38v-22.64h45.28c22.33-.45,48.37,8.65,67.49,25.56,19.13,16.91,31.34,41.65,33.62,63.86h55.74c-2.01-35.24-20.2-75.52-50.08-103.13-29.89-27.61-71.48-42.55-106.77-41.77h-90.56c-4.92,11.42-19.61,18-31.8,15.12-12.2-2.88-21.91-15.23-21.91-27.57s9.71-24.69,21.91-27.57c12.2-2.88,26.88,3.69,31.8,15.12h90.56c47.24-.43,95.12,19.6,128.87,53.38,33.75,33.79,53.38,81.33,53.38,128.87s-19.63,95.09-53.39,128.87c-33.76,33.78-81.64,53.82-128.88,53.38h-90.55Z" fill="#a7aaad" fill-rule="evenodd"/></g></svg>';
+        // Read SVG file instead of hardcoding it
+        $svg_file = DIGITALOGIC_PLUGIN_DIR . 'assets/images/icon-mono.svg';
+        
+        // Validate that the file path is within the plugin directory
+        $real_svg_file = realpath($svg_file);
+        $real_plugin_dir = realpath(DIGITALOGIC_PLUGIN_DIR);
+        
+        if ($real_svg_file && $real_plugin_dir && strpos($real_svg_file, $real_plugin_dir) === 0) {
+            $svg = file_get_contents($real_svg_file);
+            
+            // Check if file was successfully read
+            if ($svg === false) {
+                // Log error and use fallback SVG
+                error_log('Digitalogic: Unable to read menu icon file: ' . $svg_file);
+                $svg = $this->get_fallback_svg();
+            }
+        } else {
+            // Log error and use fallback SVG
+            error_log('Digitalogic: Menu icon file not found or invalid path: ' . $svg_file);
+            $svg = $this->get_fallback_svg();
+        }
         
         return 'data:image/svg+xml;base64,' . base64_encode($svg);
     }
@@ -112,16 +138,7 @@ class Digitalogic_Admin {
      */
     public function enqueue_scripts($hook) {
         // Check if we're on any of our admin pages
-        $valid_hooks = array(
-            'toplevel_page_reports',
-            'digitalogic_page_product-list',
-            'digitalogic_page_price-settings',
-            'digitalogic_page_import-export',
-            'digitalogic_page_digitalogic-logs',
-            'digitalogic_page_digitalogic-status'
-        );
-        
-        if (!in_array($hook, $valid_hooks)) {
+        if (strpos($hook, 'digitalogic') === false) {
             return;
         }
         
@@ -337,8 +354,14 @@ class Digitalogic_Admin {
         
         if ($format === 'json') {
             $filepath = $import_export->export_json($product_ids);
+        } elseif ($format === 'excel') {
+            $filepath = $import_export->export_excel($product_ids);
         } else {
             $filepath = $import_export->export_csv($product_ids);
+        }
+        
+        if (is_wp_error($filepath)) {
+            wp_send_json_error($filepath->get_error_message());
         }
         
         $upload_dir = wp_upload_dir();
@@ -378,6 +401,8 @@ class Digitalogic_Admin {
         
         if ($extension === 'json') {
             $results = $import_export->import_json($filepath);
+        } elseif ($extension === 'xlsx' || $extension === 'xls') {
+            $results = $import_export->import_excel($filepath);
         } else {
             $results = $import_export->import_csv($filepath);
         }

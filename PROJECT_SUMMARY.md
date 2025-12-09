@@ -55,6 +55,7 @@ A complete WordPress/WooCommerce plugin providing dynamic pricing, stock managem
 ### 7. Import/Export
 - CSV format support
 - JSON format support
+- Excel format support (XLSX) with custom branded template
 - Bulk operations (thousands of products)
 - Dynamic pricing metadata included
 
@@ -174,7 +175,6 @@ wp digitalogic logs --limit=50 --action=update_product
 - RTL/LTR support
 
 ## Future Enhancements (Planned)
-- Excel import/export with PhpSpreadsheet
 - Advanced pricing rules
 - Additional currency support
 - Accounting software integration

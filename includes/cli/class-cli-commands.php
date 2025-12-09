@@ -224,6 +224,7 @@ class Digitalogic_CLI_Commands {
      * 
      *     wp digitalogic export --format=csv
      *     wp digitalogic export --format=json --output=/path/to/products.json
+     *     wp digitalogic export --format=excel --output=/path/to/products.xlsx
      * 
      * @when after_wp_load
      */
@@ -234,8 +235,14 @@ class Digitalogic_CLI_Commands {
         
         if ($format === 'json') {
             $filepath = $import_export->export_json();
+        } elseif ($format === 'excel') {
+            $filepath = $import_export->export_excel();
         } else {
             $filepath = $import_export->export_csv();
+        }
+        
+        if (is_wp_error($filepath)) {
+            WP_CLI::error($filepath->get_error_message());
         }
         
         if (isset($assoc_args['output'])) {
@@ -256,12 +263,13 @@ class Digitalogic_CLI_Commands {
      * ## OPTIONS
      * 
      * <file>
-     * : Input file path (CSV or JSON)
+     * : Input file path (CSV, JSON, or Excel)
      * 
      * ## EXAMPLES
      * 
      *     wp digitalogic import /path/to/products.csv
      *     wp digitalogic import /path/to/products.json
+     *     wp digitalogic import /path/to/products.xlsx
      * 
      * @when after_wp_load
      */
@@ -280,6 +288,8 @@ class Digitalogic_CLI_Commands {
         
         if ($extension === 'json') {
             $results = $import_export->import_json($filepath);
+        } elseif ($extension === 'xlsx' || $extension === 'xls') {
+            $results = $import_export->import_excel($filepath);
         } else {
             $results = $import_export->import_csv($filepath);
         }
