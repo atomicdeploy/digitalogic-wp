@@ -110,10 +110,17 @@ class Digitalogic_Product_Manager {
      * Format product data for output
      * 
      * @param WC_Product $product
+     * @param int $depth Current recursion depth
      * @return array
      */
-    private function format_product_data($product) {
+    private function format_product_data($product, $depth = 0) {
         if (!$product || !is_a($product, 'WC_Product')) {
+            return array();
+        }
+        
+        // Prevent deep recursion (max 2 levels)
+        if ($depth > 2) {
+            error_log('Digitalogic: Maximum recursion depth reached for product #' . $product->get_id());
             return array();
         }
         
@@ -138,13 +145,21 @@ class Digitalogic_Product_Manager {
                 'image' => wp_get_attachment_url($product->get_image_id()),
             );
             
-            // Add variation data if variable product
-            if ($product->is_type('variable')) {
+            // Add variation data if variable product (only at first level)
+            if ($depth === 0 && $product->is_type('variable')) {
                 $data['variations'] = array();
-                foreach ($product->get_children() as $variation_id) {
+                $children = $product->get_children();
+                
+                // Limit to 100 variations to prevent performance issues
+                if (count($children) > 100) {
+                    error_log('Digitalogic: Product #' . $product->get_id() . ' has more than 100 variations, limiting output');
+                    $children = array_slice($children, 0, 100);
+                }
+                
+                foreach ($children as $variation_id) {
                     $variation = wc_get_product($variation_id);
                     if ($variation) {
-                        $data['variations'][] = $this->format_product_data($variation);
+                        $data['variations'][] = $this->format_product_data($variation, $depth + 1);
                     }
                 }
             }
