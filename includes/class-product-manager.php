@@ -67,14 +67,27 @@ class Digitalogic_Product_Manager {
             $query_args['category'] = $args['category'];
         }
         
-        $products = wc_get_products($query_args);
-        $results = array();
-        
-        foreach ($products as $product) {
-            $results[] = $this->format_product_data($product);
+        try {
+            $products = wc_get_products($query_args);
+            
+            if (!is_array($products)) {
+                error_log('Digitalogic: wc_get_products returned non-array value');
+                return array();
+            }
+            
+            $results = array();
+            
+            foreach ($products as $product) {
+                if ($product && is_a($product, 'WC_Product')) {
+                    $results[] = $this->format_product_data($product);
+                }
+            }
+            
+            return $results;
+        } catch (Exception $e) {
+            error_log('Digitalogic: Error in get_products - ' . $e->getMessage());
+            return array();
         }
-        
-        return $results;
     }
     
     /**
@@ -100,38 +113,47 @@ class Digitalogic_Product_Manager {
      * @return array
      */
     private function format_product_data($product) {
-        $data = array(
-            'id' => $product->get_id(),
-            'name' => $product->get_name(),
-            'sku' => $product->get_sku(),
-            'type' => $product->get_type(),
-            'status' => $product->get_status(),
-            'regular_price' => $product->get_regular_price(),
-            'sale_price' => $product->get_sale_price(),
-            'price' => $product->get_price(),
-            'stock_quantity' => $product->get_stock_quantity(),
-            'stock_status' => $product->get_stock_status(),
-            'manage_stock' => $product->get_manage_stock(),
-            'weight' => $product->get_weight(),
-            'length' => $product->get_length(),
-            'width' => $product->get_width(),
-            'height' => $product->get_height(),
-            'permalink' => $product->get_permalink(),
-            'image' => wp_get_attachment_url($product->get_image_id()),
-        );
-        
-        // Add variation data if variable product
-        if ($product->is_type('variable')) {
-            $data['variations'] = array();
-            foreach ($product->get_children() as $variation_id) {
-                $variation = wc_get_product($variation_id);
-                if ($variation) {
-                    $data['variations'][] = $this->format_product_data($variation);
-                }
-            }
+        if (!$product || !is_a($product, 'WC_Product')) {
+            return array();
         }
         
-        return $data;
+        try {
+            $data = array(
+                'id' => $product->get_id(),
+                'name' => $product->get_name(),
+                'sku' => $product->get_sku(),
+                'type' => $product->get_type(),
+                'status' => $product->get_status(),
+                'regular_price' => $product->get_regular_price(),
+                'sale_price' => $product->get_sale_price(),
+                'price' => $product->get_price(),
+                'stock_quantity' => $product->get_stock_quantity(),
+                'stock_status' => $product->get_stock_status(),
+                'manage_stock' => $product->get_manage_stock(),
+                'weight' => $product->get_weight(),
+                'length' => $product->get_length(),
+                'width' => $product->get_width(),
+                'height' => $product->get_height(),
+                'permalink' => $product->get_permalink(),
+                'image' => wp_get_attachment_url($product->get_image_id()),
+            );
+            
+            // Add variation data if variable product
+            if ($product->is_type('variable')) {
+                $data['variations'] = array();
+                foreach ($product->get_children() as $variation_id) {
+                    $variation = wc_get_product($variation_id);
+                    if ($variation) {
+                        $data['variations'][] = $this->format_product_data($variation);
+                    }
+                }
+            }
+            
+            return $data;
+        } catch (Exception $e) {
+            error_log('Digitalogic: Error formatting product data for product #' . $product->get_id() . ' - ' . $e->getMessage());
+            return array();
+        }
     }
     
     /**
@@ -270,8 +292,18 @@ class Digitalogic_Product_Manager {
             'limit' => -1,
         );
         
-        $products = wc_get_products($query_args);
-        
-        return count($products);
+        try {
+            $products = wc_get_products($query_args);
+            
+            if (!is_array($products)) {
+                error_log('Digitalogic: wc_get_products returned non-array value in get_product_count');
+                return 0;
+            }
+            
+            return count($products);
+        } catch (Exception $e) {
+            error_log('Digitalogic: Error in get_product_count - ' . $e->getMessage());
+            return 0;
+        }
     }
 }
