@@ -111,7 +111,8 @@ class Digitalogic_Admin {
      * Enqueue admin scripts and styles
      */
     public function enqueue_scripts($hook) {
-        if (strpos($hook, 'digitalogic') === false) {
+        // Check if we're on any of our admin pages
+        if (strpos($hook, 'reports') === false && strpos($hook, 'digitalogic') === false) {
             return;
         }
         
