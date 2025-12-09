@@ -41,6 +41,13 @@ class Digitalogic_Product_Manager {
             'search' => '',
             'sku' => '',
             'category' => array(),
+            'stock_status' => '',
+            'price_min' => null,
+            'price_max' => null,
+            'stock_min' => null,
+            'stock_max' => null,
+            'weight_min' => null,
+            'weight_max' => null,
         );
         
         $args = wp_parse_args($args, $defaults);
@@ -48,23 +55,41 @@ class Digitalogic_Product_Manager {
         $query_args = array(
             'limit' => $args['limit'],
             'page' => $args['page'],
-            'status' => $args['status'],
-            'type' => $args['type'],
             'orderby' => $args['orderby'],
             'order' => $args['order'],
             'return' => 'objects',
         );
         
+        // Status filter
+        if (!empty($args['status'])) {
+            $query_args['status'] = $args['status'];
+        }
+        
+        // Type filter
+        if (!empty($args['type'])) {
+            $query_args['type'] = $args['type'];
+        } else {
+            $query_args['type'] = array('simple', 'variable');
+        }
+        
+        // Search
         if (!empty($args['search'])) {
             $query_args['s'] = $args['search'];
         }
         
+        // SKU filter
         if (!empty($args['sku'])) {
             $query_args['sku'] = $args['sku'];
         }
         
+        // Category filter
         if (!empty($args['category'])) {
             $query_args['category'] = $args['category'];
+        }
+        
+        // Stock status filter
+        if (!empty($args['stock_status'])) {
+            $query_args['stock_status'] = $args['stock_status'];
         }
         
         try {
@@ -79,7 +104,12 @@ class Digitalogic_Product_Manager {
             
             foreach ($products as $product) {
                 if ($product && is_a($product, 'WC_Product')) {
-                    $results[] = $this->format_product_data($product);
+                    $product_data = $this->format_product_data($product);
+                    
+                    // Apply additional filters that WooCommerce query doesn't support natively
+                    if ($this->matches_filters($product_data, $args)) {
+                        $results[] = $product_data;
+                    }
                 }
             }
             
@@ -88,6 +118,62 @@ class Digitalogic_Product_Manager {
             error_log('Digitalogic: Error in get_products - ' . $e->getMessage());
             return array();
         }
+    }
+    
+    /**
+     * Check if product matches additional filters
+     * 
+     * @param array $product_data Product data array
+     * @param array $filters Filter arguments
+     * @return bool
+     */
+    private function matches_filters($product_data, $filters) {
+        // Price filters
+        if ($filters['price_min'] !== null && $filters['price_min'] !== '') {
+            $price = floatval($product_data['regular_price']);
+            if ($price < floatval($filters['price_min'])) {
+                return false;
+            }
+        }
+        
+        if ($filters['price_max'] !== null && $filters['price_max'] !== '') {
+            $price = floatval($product_data['regular_price']);
+            if ($price > floatval($filters['price_max'])) {
+                return false;
+            }
+        }
+        
+        // Stock quantity filters
+        if ($filters['stock_min'] !== null && $filters['stock_min'] !== '') {
+            $stock = intval($product_data['stock_quantity']);
+            if ($stock < intval($filters['stock_min'])) {
+                return false;
+            }
+        }
+        
+        if ($filters['stock_max'] !== null && $filters['stock_max'] !== '') {
+            $stock = intval($product_data['stock_quantity']);
+            if ($stock > intval($filters['stock_max'])) {
+                return false;
+            }
+        }
+        
+        // Weight filters
+        if ($filters['weight_min'] !== null && $filters['weight_min'] !== '') {
+            $weight = floatval($product_data['weight']);
+            if ($weight < floatval($filters['weight_min'])) {
+                return false;
+            }
+        }
+        
+        if ($filters['weight_max'] !== null && $filters['weight_max'] !== '') {
+            $weight = floatval($product_data['weight']);
+            if ($weight > floatval($filters['weight_max'])) {
+                return false;
+            }
+        }
+        
+        return true;
     }
     
     /**

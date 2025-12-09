@@ -80,6 +80,124 @@
     border-radius: 4px;
 }
 
+/* Filter Section */
+.digitalogic-filters {
+    background: #fff;
+    border: 1px solid #c3c4c7;
+    padding: 15px;
+    margin: 20px 0;
+    border-radius: 4px;
+}
+
+.digitalogic-filters h3 {
+    margin: 0 0 15px 0;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.filter-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 15px;
+}
+
+.filter-field {
+    display: flex;
+    flex-direction: column;
+}
+
+.filter-field label {
+    font-size: 12px;
+    font-weight: 600;
+    margin-bottom: 5px;
+    color: #1e1e1e;
+}
+
+.filter-field input,
+.filter-field select {
+    padding: 6px 10px;
+    border: 1px solid #8c8f94;
+    border-radius: 3px;
+    font-size: 13px;
+}
+
+.filter-actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 15px;
+}
+
+/* Edit/View Mode Toggle */
+.mode-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    background: #f0f0f1;
+    border: 1px solid #c3c4c7;
+    border-radius: 4px;
+    cursor: pointer;
+    user-select: none;
+}
+
+.mode-toggle:hover {
+    background: #e5e5e5;
+}
+
+.mode-toggle input[type="checkbox"] {
+    margin: 0;
+    cursor: pointer;
+}
+
+.mode-toggle-label {
+    font-weight: 600;
+    font-size: 13px;
+}
+
+/* View Mode Styles */
+.view-mode table.dataTable input[type="text"],
+.view-mode table.dataTable input[type="number"] {
+    border: 1px solid transparent;
+    background: transparent;
+}
+
+.view-mode table.dataTable input[type="text"]:focus,
+.view-mode table.dataTable input[type="number"]:focus {
+    outline: none;
+}
+
+.view-mode table.dataTable input.changed {
+    border-color: transparent;
+    background-color: transparent;
+}
+
+/* Auto-save indicator */
+.auto-save-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 8px;
+    font-size: 12px;
+    border-radius: 3px;
+    background: #f0f0f1;
+    color: #646970;
+}
+
+.auto-save-indicator.saving {
+    background: #fffbf0;
+    color: #f0b849;
+}
+
+.auto-save-indicator.saved {
+    background: #d7f0d7;
+    color: #46b450;
+}
+
+.auto-save-indicator.error {
+    background: #f8d7da;
+    color: #dc3232;
+}
+
 /* DataTables Customization */
 .dataTables_wrapper {
     margin-top: 20px;
@@ -90,11 +208,19 @@ table.dataTable {
     width: 100% !important;
 }
 
-table.dataTable thead th {
+table.dataTable thead th,
+table.dataTable tfoot th {
     background: #f0f0f1;
     font-weight: 600;
     padding: 12px 10px;
     border-bottom: 2px solid #c3c4c7;
+    white-space: nowrap;
+}
+
+table.dataTable thead th {
+    position: sticky;
+    top: 0;
+    z-index: 10;
 }
 
 table.dataTable tbody td {
@@ -112,6 +238,18 @@ table.dataTable input[type="number"] {
     padding: 4px 8px;
     border: 1px solid #8c8f94;
     border-radius: 3px;
+}
+
+/* Force LTR direction for numerical fields */
+table.dataTable input[type="number"],
+table.dataTable input[data-field="sku"],
+table.dataTable input.numeric-field,
+.digitalogic-section input[type="number"],
+.digitalogic-toolbar input[type="number"],
+.digitalogic-currency input[type="number"],
+.form-table input[type="number"] {
+    direction: ltr !important;
+    text-align: left;
 }
 
 table.dataTable input.changed {
