@@ -297,8 +297,21 @@ The plugin supports i18n with POT file included:
 To add translations:
 1. Use POEdit or similar tool
 2. Open `languages/digitalogic.pot`
-3. Create `.po` and `.mo` files for your language
-4. Place in `languages/` directory
+3. Create `.po` files for your language
+4. Place `.po` files in `languages/` directory
+
+**Note:** `.mo` (Machine Object) files are automatically built during CI/CD deployment from `.po` (Portable Object) source files. They are not committed to the repository.
+
+To manually build `.mo` files for local development:
+```bash
+# Install WP-CLI if not already installed
+curl -O https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar
+chmod +x wp-cli.phar
+sudo mv wp-cli.phar /usr/local/bin/wp
+
+# Build .mo files from .po files
+wp i18n make-mo languages/
+```
 
 ## Security
 
