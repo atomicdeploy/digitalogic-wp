@@ -82,27 +82,27 @@
 			</div>
 			<div class="filter-field">
 				<label for="filter-price-min"><?php _e( 'Min Price', 'digitalogic' ); ?></label>
-				<input type="number" id="filter-price-min" class="filter-input" placeholder="0" step="0.01" min="0">
+				<input type="number" id="filter-price-min" class="filter-input" placeholder="<?php _e( 'Minimum price', 'digitalogic' ); ?>" step="0.01" min="0">
 			</div>
 			<div class="filter-field">
 				<label for="filter-price-max"><?php _e( 'Max Price', 'digitalogic' ); ?></label>
-				<input type="number" id="filter-price-max" class="filter-input" placeholder="999999" step="0.01" min="0">
+				<input type="number" id="filter-price-max" class="filter-input" placeholder="<?php _e( 'Maximum price', 'digitalogic' ); ?>" step="0.01" min="0">
 			</div>
 			<div class="filter-field">
 				<label for="filter-stock-min"><?php _e( 'Min Stock', 'digitalogic' ); ?></label>
-				<input type="number" id="filter-stock-min" class="filter-input" placeholder="0" step="1" min="0">
+				<input type="number" id="filter-stock-min" class="filter-input" placeholder="<?php _e( 'Minimum stock', 'digitalogic' ); ?>" step="1" min="0">
 			</div>
 			<div class="filter-field">
 				<label for="filter-stock-max"><?php _e( 'Max Stock', 'digitalogic' ); ?></label>
-				<input type="number" id="filter-stock-max" class="filter-input" placeholder="9999" step="1" min="0">
+				<input type="number" id="filter-stock-max" class="filter-input" placeholder="<?php _e( 'Maximum stock', 'digitalogic' ); ?>" step="1" min="0">
 			</div>
 			<div class="filter-field">
 				<label for="filter-weight-min"><?php _e( 'Min Weight', 'digitalogic' ); ?></label>
-				<input type="number" id="filter-weight-min" class="filter-input" placeholder="0" step="0.01" min="0">
+				<input type="number" id="filter-weight-min" class="filter-input" placeholder="<?php _e( 'Minimum weight', 'digitalogic' ); ?>" step="0.01" min="0">
 			</div>
 			<div class="filter-field">
 				<label for="filter-weight-max"><?php _e( 'Max Weight', 'digitalogic' ); ?></label>
-				<input type="number" id="filter-weight-max" class="filter-input" placeholder="9999" step="0.01" min="0">
+				<input type="number" id="filter-weight-max" class="filter-input" placeholder="<?php _e( 'Maximum weight', 'digitalogic' ); ?>" step="0.01" min="0">
 			</div>
 		</div>
 		<div class="filter-actions">

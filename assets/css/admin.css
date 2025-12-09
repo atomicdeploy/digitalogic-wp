@@ -159,7 +159,11 @@
 .view-mode table.dataTable input[type="number"] {
     border: 1px solid transparent;
     background: transparent;
-    pointer-events: none;
+}
+
+.view-mode table.dataTable input[type="text"]:focus,
+.view-mode table.dataTable input[type="number"]:focus {
+    outline: none;
 }
 
 .view-mode table.dataTable input.changed {

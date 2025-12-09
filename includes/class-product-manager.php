@@ -63,15 +63,13 @@ class Digitalogic_Product_Manager {
         // Status filter
         if (!empty($args['status'])) {
             $query_args['status'] = $args['status'];
-        } else {
-            $query_args['status'] = $args['status'];
         }
         
         // Type filter
         if (!empty($args['type'])) {
             $query_args['type'] = $args['type'];
         } else {
-            $query_args['type'] = $defaults['type'];
+            $query_args['type'] = array('simple', 'variable');
         }
         
         // Search

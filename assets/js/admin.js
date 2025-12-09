@@ -505,9 +505,11 @@
             if (editModeEnabled) {
                 $('.digitalogic-products').removeClass('view-mode');
                 $('.mode-toggle-label').eq(0).text('Edit Mode');
+                $('#products-table .product-field').prop('readonly', false);
             } else {
                 $('.digitalogic-products').addClass('view-mode');
                 $('.mode-toggle-label').eq(0).text('View Mode');
+                $('#products-table .product-field').prop('readonly', true);
             }
         });
         
@@ -517,6 +519,10 @@
             if (autoSaveEnabled && Object.keys(changedProducts).length > 0) {
                 if (confirm('Enable auto-save and save all pending changes?')) {
                     $('#bulk-update-btn').click();
+                } else {
+                    // User cancelled - disable auto-save
+                    autoSaveEnabled = false;
+                    $(this).prop('checked', false);
                 }
             }
         });
