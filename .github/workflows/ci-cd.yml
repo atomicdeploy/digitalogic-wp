@@ -128,13 +128,13 @@ jobs:
         
     - name: Build translation files
       run: |
-        # Install WP-CLI i18n command
-        wp package install wp-cli/i18n-command --allow-root || true
-        # Build .mo files from .po files
-        if [ -f "languages/digitalogic-fa_IR.po" ]; then
+        # Build .mo files from .po files (i18n command is included in WP-CLI 2.5+)
+        if [ -n "$(find languages/ -name '*.po' -type f 2>/dev/null)" ]; then
           wp i18n make-mo languages/ --allow-root
           echo "Translation files built successfully"
           ls -la languages/
+        else
+          echo "No .po files found to build"
         fi
       
     - name: Create plugin archive
