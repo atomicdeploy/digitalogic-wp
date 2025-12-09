@@ -128,7 +128,7 @@ find . -name "*.php" -not -path "./vendor/*" -exec php -l {} \;
 
 ### 3. Documentation Review
 All changes are documented in:
-- `HPOS-FIX-SUMMARY.md` - Complete fix summary
+- `docs/archive/HPOS-FIX-SUMMARY.md` - Complete fix summary
 - `docs/HPOS-COMPATIBILITY.md` - Implementation guide
 - `docs/HPOS-VISUAL-GUIDE.txt` - Visual comparison
 
