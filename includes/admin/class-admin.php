@@ -112,7 +112,7 @@ class Digitalogic_Admin {
      */
     public function enqueue_scripts($hook) {
         // Check if we're on any of our admin pages
-        if (strpos($hook, 'reports') === false && strpos($hook, 'digitalogic') === false) {
+        if (strpos($hook, 'reports_page_') === false && $hook !== 'toplevel_page_reports') {
             return;
         }
         
