@@ -241,7 +241,9 @@ table.dataTable input[type="number"],
 table.dataTable input[data-field="sku"],
 table.dataTable input.numeric-field,
 .digitalogic-section input[type="number"],
-.digitalogic-toolbar input[type="number"] {
+.digitalogic-toolbar input[type="number"],
+.digitalogic-currency input[type="number"],
+.form-table input[type="number"] {
     direction: ltr !important;
     text-align: left;
 }
