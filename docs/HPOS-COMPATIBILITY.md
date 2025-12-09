@@ -21,13 +21,21 @@ WooCommerce HPOS (High-Performance Order Storage) is a feature introduced in Woo
 
 **File:** `digitalogic.php`
 
+The plugin declares HPOS compatibility on the `before_woocommerce_init` hook as required by WooCommerce:
+
 ```php
-private function declare_hpos_compatibility() {
+// In init_hooks() method
+add_action('before_woocommerce_init', array($this, 'declare_hpos_compatibility'));
+
+// Declaration method
+public function declare_hpos_compatibility() {
     if (class_exists('\Automattic\WooCommerce\Utilities\FeaturesUtil')) {
         \Automattic\WooCommerce\Utilities\FeaturesUtil::declare_compatibility('custom_order_tables', __FILE__, true);
     }
 }
 ```
+
+**Important:** The declaration MUST happen on the `before_woocommerce_init` hook. This is a requirement from the [WooCommerce HPOS Recipe Book](https://developer.woocommerce.com/docs/features/high-performance-order-storage/recipe-book/).
 
 This declares to WooCommerce that our plugin is compatible with custom order tables.
 

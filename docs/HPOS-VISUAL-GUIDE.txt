@@ -1,0 +1,117 @@
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                     HPOS COMPATIBILITY FIX - VISUAL GUIDE                    ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ BEFORE: Incorrect Implementation                                             │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+   WooCommerce Admin → Settings → Advanced → Features
+
+   ┌────────────────────────────────────────────────────────────────┐
+   │ High-Performance Order Storage (HPOS)                          │
+   ├────────────────────────────────────────────────────────────────┤
+   │                                                                │
+   │ ⚠️  WARNING: Some plugins may not be fully compatible         │
+   │                                                                │
+   │ Incompatible Plugins:                                         │
+   │ ┌──────────────────────────────────────────────────────────┐ │
+   │ │ ❌ Digitalogic WooCommerce Extension v1.0.0              │ │
+   │ │    Compatibility not properly declared                   │ │
+   │ │    May cause issues with HPOS                            │ │
+   │ └──────────────────────────────────────────────────────────┘ │
+   │                                                                │
+   │ [ ] Enable High-Performance Order Storage                     │
+   │     (Some plugins need updates)                               │
+   │                                                                │
+   └────────────────────────────────────────────────────────────────┘
+
+   Code Issue:
+   ┌────────────────────────────────────────────────────────────────┐
+   │ ❌ Declared in plugins_loaded hook (TOO LATE)                 │
+   │                                                                │
+   │ add_action('plugins_loaded', array($this, 'init'), 0);       │
+   │                                                                │
+   │ public function init() {                                      │
+   │     $this->declare_hpos_compatibility(); // ❌ TOO LATE      │
+   │ }                                                             │
+   └────────────────────────────────────────────────────────────────┘
+
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ AFTER: Correct Implementation                                                │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+   WooCommerce Admin → Settings → Advanced → Features
+
+   ┌────────────────────────────────────────────────────────────────┐
+   │ High-Performance Order Storage (HPOS)                          │
+   ├────────────────────────────────────────────────────────────────┤
+   │                                                                │
+   │ ✅ All active plugins are compatible!                         │
+   │                                                                │
+   │ Compatible Plugins:                                           │
+   │ ┌──────────────────────────────────────────────────────────┐ │
+   │ │ ✅ Digitalogic WooCommerce Extension v1.0.0              │ │
+   │ │    HPOS Compatible                                       │ │
+   │ │    Uses WooCommerce CRUD methods                         │ │
+   │ └──────────────────────────────────────────────────────────┘ │
+   │                                                                │
+   │ [✓] Enable High-Performance Order Storage                     │
+   │     (Recommended for better performance)                      │
+   │                                                                │
+   │ [ Save Changes ]                                              │
+   │                                                                │
+   └────────────────────────────────────────────────────────────────┘
+
+   Code Fix:
+   ┌────────────────────────────────────────────────────────────────┐
+   │ ✅ Declared on before_woocommerce_init hook (CORRECT)         │
+   │                                                                │
+   │ // In init_hooks() - called during plugin initialization     │
+   │ add_action('before_woocommerce_init',                        │
+   │     array($this, 'declare_hpos_compatibility'));             │
+   │                                                                │
+   │ public function declare_hpos_compatibility() {               │
+   │     if (class_exists('\Automattic\WooCommerce\...')) {       │
+   │         \Automattic\WooCommerce\Utilities\                   │
+   │             FeaturesUtil::declare_compatibility(              │
+   │                 'custom_order_tables', __FILE__, true);      │
+   │     }                                                         │
+   │ }                                                             │
+   └────────────────────────────────────────────────────────────────┘
+
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                            KEY CHANGES MADE                                  ║
+╠══════════════════════════════════════════════════════════════════════════════╣
+║                                                                              ║
+║  1. ✅ Hook Changed: before_woocommerce_init (was: plugins_loaded)          ║
+║                                                                              ║
+║  2. ✅ Method Visibility: Changed to public (was: private)                  ║
+║                                                                              ║
+║  3. ✅ Execution Order: Runs BEFORE WooCommerce initializes                 ║
+║                                                                              ║
+║  4. ✅ Documentation: Added link to WooCommerce HPOS Recipe Book            ║
+║                                                                              ║
+║  5. ✅ Already Using: WooCommerce CRUD methods (no changes needed)          ║
+║                                                                              ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                        COMPLIANCE CHECKLIST                                  ║
+╠══════════════════════════════════════════════════════════════════════════════╣
+║                                                                              ║
+║  ✅ Compatibility declared on before_woocommerce_init hook                  ║
+║  ✅ Uses FeaturesUtil::declare_compatibility()                              ║
+║  ✅ Declares 'custom_order_tables' compatibility                            ║
+║  ✅ Uses wc_get_product() for product retrieval                             ║
+║  ✅ Uses $product->get_meta() for reading metadata                          ║
+║  ✅ Uses $product->update_meta_data() for writing metadata                  ║
+║  ✅ Calls $product->save() after updates                                    ║
+║  ✅ No direct wp_posts/wp_postmeta queries                                  ║
+║  ✅ No get_post_meta/update_post_meta calls                                 ║
+║  ✅ Uses wc_get_products() for bulk operations                              ║
+║                                                                              ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
