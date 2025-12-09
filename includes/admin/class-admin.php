@@ -40,17 +40,17 @@ class Digitalogic_Admin {
         $icon_svg = $this->get_menu_icon();
         
         add_menu_page(
-            __('Reports', 'digitalogic'),
+            __('Dashboard', 'digitalogic'),
             __('Digitalogic', 'digitalogic'),
             'manage_woocommerce',
-            'reports',
+            'digitalogic',
             array($this, 'render_dashboard'),
             $icon_svg,
             56
         );
         
         add_submenu_page(
-            'reports',
+            'digitalogic',
             __('Product List', 'digitalogic'),
             __('Products', 'digitalogic'),
             'manage_woocommerce',
@@ -59,7 +59,7 @@ class Digitalogic_Admin {
         );
         
         add_submenu_page(
-            'reports',
+            'digitalogic',
             __('Price Settings', 'digitalogic'),
             __('Currency', 'digitalogic'),
             'manage_woocommerce',
@@ -68,7 +68,7 @@ class Digitalogic_Admin {
         );
         
         add_submenu_page(
-            'reports',
+            'digitalogic',
             __('Import/Export', 'digitalogic'),
             __('Import/Export', 'digitalogic'),
             'manage_woocommerce',
@@ -77,7 +77,7 @@ class Digitalogic_Admin {
         );
         
         add_submenu_page(
-            'reports',
+            'digitalogic',
             __('Activity Logs', 'digitalogic'),
             __('Logs', 'digitalogic'),
             'manage_woocommerce',
@@ -86,7 +86,7 @@ class Digitalogic_Admin {
         );
         
         add_submenu_page(
-            'reports',
+            'digitalogic',
             __('Status & Diagnostics', 'digitalogic'),
             __('Status', 'digitalogic'),
             'manage_woocommerce',
@@ -137,6 +137,7 @@ class Digitalogic_Admin {
      * Enqueue admin scripts and styles
      */
     public function enqueue_scripts($hook) {
+        // Check if we're on any of our admin pages
         if (strpos($hook, 'digitalogic') === false) {
             return;
         }

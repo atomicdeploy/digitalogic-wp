@@ -308,7 +308,7 @@ final class Digitalogic {
      */
     public function plugin_action_links($links) {
         $custom_links = array(
-            'settings' => '<a href="' . esc_url(admin_url('admin.php?page=reports')) . '">' . __('Dashboard', 'digitalogic') . '</a>',
+            'settings' => '<a href="' . esc_url(admin_url('admin.php?page=digitalogic')) . '">' . __('Dashboard', 'digitalogic') . '</a>',
             'currency' => '<a href="' . esc_url(admin_url('admin.php?page=price-settings')) . '">' . __('Currency', 'digitalogic') . '</a>',
             'products' => '<a href="' . esc_url(admin_url('admin.php?page=product-list')) . '">' . __('Products', 'digitalogic') . '</a>',
         );
