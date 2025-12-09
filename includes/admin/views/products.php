@@ -1,7 +1,7 @@
 <div class="wrap digitalogic-products">
 	<h1><?php _e( 'Product Management', 'digitalogic' ); ?></h1>
 	
-	<?php if ( defined( 'DIGITALOGIC_DEBUG' ) && DIGITALOGIC_DEBUG ) : ?>
+	<?php if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) : ?>
 	<div class="notice notice-info" id="digitalogic-debug-info">
 		<p><strong>Debug Info:</strong></p>
 		<ul>
