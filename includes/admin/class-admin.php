@@ -20,6 +20,8 @@ class Digitalogic_Admin {
         return self::$instance;
     }
     
+    private $page_hooks = array();
+    
     private function __construct() {
         add_action('admin_menu', array($this, 'add_menu'));
         add_action('admin_enqueue_scripts', array($this, 'enqueue_scripts'));
@@ -39,7 +41,7 @@ class Digitalogic_Admin {
         // Get the custom icon
         $icon_svg = $this->get_menu_icon();
         
-        add_menu_page(
+        $this->page_hooks[] = add_menu_page(
             __('Dashboard', 'digitalogic'),
             __('Digitalogic', 'digitalogic'),
             'manage_woocommerce',
@@ -49,7 +51,7 @@ class Digitalogic_Admin {
             56
         );
         
-        add_submenu_page(
+        $this->page_hooks[] = add_submenu_page(
             'digitalogic',
             __('Product List', 'digitalogic'),
             __('Products', 'digitalogic'),
@@ -58,7 +60,7 @@ class Digitalogic_Admin {
             array($this, 'render_products_page')
         );
         
-        add_submenu_page(
+        $this->page_hooks[] = add_submenu_page(
             'digitalogic',
             __('Price Settings', 'digitalogic'),
             __('Currency', 'digitalogic'),
@@ -67,7 +69,7 @@ class Digitalogic_Admin {
             array($this, 'render_currency_page')
         );
         
-        add_submenu_page(
+        $this->page_hooks[] = add_submenu_page(
             'digitalogic',
             __('Import/Export', 'digitalogic'),
             __('Import/Export', 'digitalogic'),
@@ -76,7 +78,7 @@ class Digitalogic_Admin {
             array($this, 'render_import_export_page')
         );
         
-        add_submenu_page(
+        $this->page_hooks[] = add_submenu_page(
             'digitalogic',
             __('Activity Logs', 'digitalogic'),
             __('Logs', 'digitalogic'),
@@ -85,7 +87,7 @@ class Digitalogic_Admin {
             array($this, 'render_logs_page')
         );
         
-        add_submenu_page(
+        $this->page_hooks[] = add_submenu_page(
             'digitalogic',
             __('Status & Diagnostics', 'digitalogic'),
             __('Status', 'digitalogic'),
@@ -138,7 +140,8 @@ class Digitalogic_Admin {
      */
     public function enqueue_scripts($hook) {
         // Check if we're on any of our admin pages
-        if (strpos($hook, 'digitalogic') === false) {
+        // Use the registered page hooks from add_menu() and add_submenu_page()
+        if (!in_array($hook, $this->page_hooks) && strpos($hook, 'digitalogic') === false) {
             return;
         }
         
@@ -184,6 +187,19 @@ class Digitalogic_Admin {
      * Render products page
      */
     public function render_products_page() {
+        // Check if WooCommerce is active
+        if (!class_exists('WooCommerce')) {
+            ?>
+            <div class="wrap">
+                <h1><?php _e('Product Management', 'digitalogic'); ?></h1>
+                <div class="notice notice-error">
+                    <p><?php _e('WooCommerce must be installed and activated to use this feature.', 'digitalogic'); ?></p>
+                </div>
+            </div>
+            <?php
+            return;
+        }
+        
         include DIGITALOGIC_PLUGIN_DIR . 'includes/admin/views/products.php';
     }
     

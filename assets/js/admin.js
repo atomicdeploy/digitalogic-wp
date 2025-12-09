@@ -5,6 +5,9 @@
 (function($) {
     'use strict';
     
+    // Log that admin.js has loaded
+    console.info('Digitalogic admin.js loaded successfully');
+    
     var productsTable;
     var logsTable;
     var changedProducts = {};
