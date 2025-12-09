@@ -44,12 +44,14 @@
                 url: digitalogic.ajax_url,
                 type: 'POST',
                 data: function(d) {
+                    // Handle both object and string formats for search
+                    var searchValue = (typeof d.search === 'object' && d.search !== null) ? d.search.value : (d.search || '');
                     return {
                         action: 'digitalogic_get_products',
                         nonce: digitalogic.nonce,
                         page: Math.floor(d.start / d.length) + 1,
                         limit: d.length,
-                        search: d.search.value
+                        search: searchValue
                     };
                 },
                 dataSrc: function(json) {
