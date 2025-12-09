@@ -106,9 +106,17 @@ class Digitalogic_Admin {
         
         if (file_exists($svg_file)) {
             $svg = file_get_contents($svg_file);
+            
+            // Check if file was successfully read
+            if ($svg === false) {
+                // Log error and use empty SVG as fallback
+                error_log('Digitalogic: Unable to read menu icon file: ' . $svg_file);
+                $svg = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"></svg>';
+            }
         } else {
-            // Fallback to empty string if file doesn't exist
-            $svg = '';
+            // Log error and use empty SVG as fallback
+            error_log('Digitalogic: Menu icon file not found: ' . $svg_file);
+            $svg = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"></svg>';
         }
         
         return 'data:image/svg+xml;base64,' . base64_encode($svg);
