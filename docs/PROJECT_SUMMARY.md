@@ -165,8 +165,9 @@ wp digitalogic logs --limit=50 --action=update_product
 3. **docs/INSTALLATION.md** - Installation guide
 4. **docs/EXAMPLES.md** - Usage examples
 5. **docs/CONTRIBUTING.md** - Contribution guidelines
-6. **CHANGELOG.md** - Version history
-7. **LICENSE** - GPL v2 license
+6. **docs/TESTING-GUIDE.md** - Testing guide
+7. **CHANGELOG.md** - Version history
+8. **LICENSE** - GPL v2 license
 
 ## Internationalization
 - POT template file included
@@ -216,7 +217,11 @@ digitalogic-wp/
 │   ├── API.md
 │   ├── INSTALLATION.md
 │   ├── EXAMPLES.md
-│   └── CONTRIBUTING.md
+│   ├── CONTRIBUTING.md
+│   ├── TESTING-GUIDE.md
+│   ├── PROJECT_SUMMARY.md
+│   └── archive/
+│       └── HPOS-FIX-SUMMARY.md
 ├── .github/workflows/
 │   ├── ci-cd.yml
 │   └── deploy.yml
