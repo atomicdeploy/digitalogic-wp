@@ -30,7 +30,7 @@ msgid "Product List"
 msgstr "لیست محصولات"
 
 msgid "Currency Settings"
-msgstr "تنظیمات ارز"
+msgstr "تنظیمات نرخ ارز"
 
 msgid "Price Settings"
 msgstr "تنظیمات قیمت"
@@ -141,16 +141,16 @@ msgstr "عملیات"
 
 #: includes/admin/views/currency.php
 msgid "USD Price (in local currency)"
-msgstr "قیمت دلار (به ریال)"
+msgstr "قیمت دلار (به تومان)"
 
 msgid "The exchange rate for 1 USD in your local currency"
-msgstr "نرخ تبدیل ۱ دلار آمریکا به ریال"
+msgstr "نرخ تبدیل ۱ دلار آمریکا به تومان"
 
 msgid "CNY/Yuan Price (in local currency)"
-msgstr "قیمت یوان (به ریال)"
+msgstr "قیمت یوان (به تومان)"
 
 msgid "The exchange rate for 1 CNY in your local currency"
-msgstr "نرخ تبدیل ۱ یوان چین به ریال"
+msgstr "نرخ تبدیل ۱ یوان چین به تومان"
 
 msgid "Recalculate Prices"
 msgstr "محاسبه مجدد قیمت‌ها"
@@ -305,7 +305,7 @@ msgid "entries"
 msgstr "ورودی"
 
 msgid "Currency Settings"
-msgstr "تنظیمات ارز"
+msgstr "تنظیمات نرخ ارز"
 
 msgid "USD Price (dollar_price)"
 msgstr "قیمت دلار (dollar_price)"
