@@ -232,6 +232,7 @@ class Digitalogic_Admin {
         $dollar_price = $options->get_dollar_price();
         $yuan_price = $options->get_yuan_price();
         $update_date = $options->get_update_date_formatted();
+        $update_date_relative = $options->get_update_date_relative();
         
         include DIGITALOGIC_PLUGIN_DIR . 'includes/admin/views/currency.php';
     }

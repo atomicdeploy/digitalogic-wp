@@ -281,6 +281,42 @@ class Digitalogic_Options {
     }
     
     /**
+     * Get relative time for update date (e.g., "today", "2 days ago")
+     * 
+     * @return string Relative time string
+     */
+    public function get_update_date_relative() {
+        $update_date_raw = $this->get_update_date();
+        
+        // Convert YYMMDD to a full date string
+        // Assuming 20XX century for YY
+        if (strlen($update_date_raw) === 6) {
+            $year = '20' . substr($update_date_raw, 0, 2);
+            $month = substr($update_date_raw, 2, 2);
+            $day = substr($update_date_raw, 4, 2);
+            $date_string = $year . '-' . $month . '-' . $day;
+        } else {
+            // Fallback to today's date if format is wrong
+            $date_string = date('Y-m-d');
+        }
+        
+        $update_timestamp = strtotime($date_string);
+        $today = strtotime(date('Y-m-d'));
+        
+        // Calculate difference in days
+        $diff_seconds = $today - $update_timestamp;
+        $diff_days = floor($diff_seconds / (60 * 60 * 24));
+        
+        if ($diff_days === 0) {
+            return __('today', 'digitalogic');
+        } elseif ($diff_days === 1) {
+            return __('1 day ago', 'digitalogic');
+        } else {
+            return sprintf(__('%d days ago', 'digitalogic'), $diff_days);
+        }
+    }
+    
+    /**
      * Helper function to format any date with Persian support
      * Can be used throughout the plugin for consistent date formatting
      * 

@@ -40,7 +40,7 @@
                     <?php _e('Last Update', 'digitalogic'); ?>
                 </th>
                 <td>
-                    <strong><?php echo esc_html($update_date); ?></strong>
+                    <strong id="update_date"><?php echo esc_html($update_date_relative); ?></strong>
                 </td>
             </tr>
         </table>
