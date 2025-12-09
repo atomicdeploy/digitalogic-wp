@@ -96,6 +96,13 @@ class Digitalogic_Admin {
     }
     
     /**
+     * Fallback SVG icon
+     */
+    private function get_fallback_svg() {
+        return '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"></svg>';
+    }
+    
+    /**
      * Get menu icon as data URL
      * 
      * @return string Base64-encoded SVG data URL
@@ -104,19 +111,23 @@ class Digitalogic_Admin {
         // Read SVG file instead of hardcoding it
         $svg_file = DIGITALOGIC_PLUGIN_DIR . 'assets/images/icon-mono.svg';
         
-        if (file_exists($svg_file)) {
-            $svg = file_get_contents($svg_file);
+        // Validate that the file path is within the plugin directory
+        $real_svg_file = realpath($svg_file);
+        $real_plugin_dir = realpath(DIGITALOGIC_PLUGIN_DIR);
+        
+        if ($real_svg_file && $real_plugin_dir && strpos($real_svg_file, $real_plugin_dir) === 0) {
+            $svg = file_get_contents($real_svg_file);
             
             // Check if file was successfully read
             if ($svg === false) {
-                // Log error and use empty SVG as fallback
+                // Log error and use fallback SVG
                 error_log('Digitalogic: Unable to read menu icon file: ' . $svg_file);
-                $svg = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"></svg>';
+                $svg = $this->get_fallback_svg();
             }
         } else {
-            // Log error and use empty SVG as fallback
-            error_log('Digitalogic: Menu icon file not found: ' . $svg_file);
-            $svg = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"></svg>';
+            // Log error and use fallback SVG
+            error_log('Digitalogic: Menu icon file not found or invalid path: ' . $svg_file);
+            $svg = $this->get_fallback_svg();
         }
         
         return 'data:image/svg+xml;base64,' . base64_encode($svg);
