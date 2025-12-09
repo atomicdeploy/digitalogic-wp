@@ -11,6 +11,9 @@
     var productsTable;
     var logsTable;
     var changedProducts = {};
+    var autoSaveEnabled = false;
+    var editModeEnabled = true;
+    var activeFilters = {};
     
     $(document).ready(function() {
         initProductsTable();
@@ -43,19 +46,38 @@
         productsTable = $('#products-table').DataTable({
             processing: true,
             serverSide: false,
+            scrollX: true,
+            scrollCollapse: true,
+            fixedHeader: true,
             ajax: {
                 url: digitalogic.ajax_url,
                 type: 'POST',
                 data: function(d) {
                     // Handle both object and string formats for search
                     var searchValue = (typeof d.search === 'object' && d.search !== null) ? d.search.value : (d.search || '');
-                    return {
+                    
+                    // Build request with filters
+                    var requestData = {
                         action: 'digitalogic_get_products',
                         nonce: digitalogic.nonce,
                         page: Math.floor(d.start / d.length) + 1,
                         limit: d.length,
                         search: searchValue
                     };
+                    
+                    // Add active filters
+                    if (activeFilters.sku) requestData.sku = activeFilters.sku;
+                    if (activeFilters.type) requestData.type = activeFilters.type;
+                    if (activeFilters.status) requestData.status = activeFilters.status;
+                    if (activeFilters.stock_status) requestData.stock_status = activeFilters.stock_status;
+                    if (activeFilters.price_min) requestData.price_min = activeFilters.price_min;
+                    if (activeFilters.price_max) requestData.price_max = activeFilters.price_max;
+                    if (activeFilters.stock_min) requestData.stock_min = activeFilters.stock_min;
+                    if (activeFilters.stock_max) requestData.stock_max = activeFilters.stock_max;
+                    if (activeFilters.weight_min) requestData.weight_min = activeFilters.weight_min;
+                    if (activeFilters.weight_max) requestData.weight_max = activeFilters.weight_max;
+                    
+                    return requestData;
                 },
                 dataSrc: function(json) {
                     console.log('Products AJAX response:', json);
@@ -100,29 +122,34 @@
                     }
                 },
                 { data: 'name' },
-                { data: 'sku' },
+                { 
+                    data: 'sku',
+                    render: function(data, type, row) {
+                        return '<span style="direction: ltr; display: inline-block;">' + (data || '') + '</span>';
+                    }
+                },
                 {
                     data: 'regular_price',
                     render: function(data, type, row) {
-                        return '<input type="number" class="product-field" data-id="' + row.id + '" data-field="regular_price" value="' + (data || '') + '" step="0.01">';
+                        return '<input type="number" class="product-field numeric-field" data-id="' + row.id + '" data-field="regular_price" value="' + (data || '') + '" step="0.01">';
                     }
                 },
                 {
                     data: 'sale_price',
                     render: function(data, type, row) {
-                        return '<input type="number" class="product-field" data-id="' + row.id + '" data-field="sale_price" value="' + (data || '') + '" step="0.01">';
+                        return '<input type="number" class="product-field numeric-field" data-id="' + row.id + '" data-field="sale_price" value="' + (data || '') + '" step="0.01">';
                     }
                 },
                 {
                     data: 'stock_quantity',
                     render: function(data, type, row) {
-                        return '<input type="number" class="product-field" data-id="' + row.id + '" data-field="stock_quantity" value="' + (data || '') + '" step="1">';
+                        return '<input type="number" class="product-field numeric-field" data-id="' + row.id + '" data-field="stock_quantity" value="' + (data || '') + '" step="1">';
                     }
                 },
                 {
                     data: 'weight',
                     render: function(data, type, row) {
-                        return '<input type="number" class="product-field" data-id="' + row.id + '" data-field="weight" value="' + (data || '') + '" step="0.01">';
+                        return '<input type="number" class="product-field numeric-field" data-id="' + row.id + '" data-field="weight" value="' + (data || '') + '" step="0.01">';
                     }
                 },
                 {
@@ -156,6 +183,61 @@
             
             changedProducts[productId][fieldName] = value;
             $field.addClass('changed');
+            
+            // Auto-save if enabled
+            if (autoSaveEnabled) {
+                autoSaveField(productId, fieldName, value, $field);
+            }
+        });
+    }
+    
+    /**
+     * Auto-save a single field
+     */
+    function autoSaveField(productId, fieldName, value, $field) {
+        var $indicator = $('#auto-save-status');
+        $indicator.removeClass('saved error').addClass('saving').show();
+        $('#auto-save-text').text('Saving...');
+        
+        var updates = {};
+        updates[productId] = {};
+        updates[productId][fieldName] = value;
+        
+        $.ajax({
+            url: digitalogic.ajax_url,
+            type: 'POST',
+            data: {
+                action: 'digitalogic_bulk_update',
+                nonce: digitalogic.nonce,
+                updates: updates
+            },
+            success: function(response) {
+                if (response.success) {
+                    $field.removeClass('changed');
+                    delete changedProducts[productId][fieldName];
+                    if (Object.keys(changedProducts[productId]).length === 0) {
+                        delete changedProducts[productId];
+                    }
+                    $indicator.removeClass('saving').addClass('saved');
+                    $('#auto-save-text').text('Saved');
+                    setTimeout(function() {
+                        $indicator.fadeOut();
+                    }, 2000);
+                } else {
+                    $indicator.removeClass('saving').addClass('error');
+                    $('#auto-save-text').text('Error: ' + response.data);
+                    setTimeout(function() {
+                        $indicator.fadeOut();
+                    }, 3000);
+                }
+            },
+            error: function() {
+                $indicator.removeClass('saving').addClass('error');
+                $('#auto-save-text').text('Error saving');
+                setTimeout(function() {
+                    $indicator.fadeOut();
+                }, 3000);
+            }
         });
     }
     
@@ -374,6 +456,69 @@
         $('#products-table').on('click', '.view-product', function() {
             var productId = $(this).data('id');
             window.open('/wp-admin/post.php?post=' + productId + '&action=edit', '_blank');
+        });
+        
+        // Toggle filters
+        $('#toggle-filters').on('click', function() {
+            var $filters = $('#product-filters');
+            if ($filters.is(':visible')) {
+                $filters.slideUp();
+                $(this).text('Show Filters');
+            } else {
+                $filters.slideDown();
+                $(this).text('Hide Filters');
+            }
+        });
+        
+        // Apply filters
+        $('#apply-filters').on('click', function() {
+            activeFilters = {
+                sku: $('#filter-sku').val(),
+                type: $('#filter-type').val(),
+                status: $('#filter-status').val(),
+                stock_status: $('#filter-stock-status').val(),
+                price_min: $('#filter-price-min').val(),
+                price_max: $('#filter-price-max').val(),
+                stock_min: $('#filter-stock-min').val(),
+                stock_max: $('#filter-stock-max').val(),
+                weight_min: $('#filter-weight-min').val(),
+                weight_max: $('#filter-weight-max').val()
+            };
+            
+            if (productsTable) {
+                productsTable.ajax.reload();
+            }
+        });
+        
+        // Clear filters
+        $('#clear-filters').on('click', function() {
+            $('.filter-input').val('');
+            activeFilters = {};
+            if (productsTable) {
+                productsTable.ajax.reload();
+            }
+        });
+        
+        // Edit mode toggle
+        $('#edit-mode-toggle').on('change', function() {
+            editModeEnabled = $(this).prop('checked');
+            if (editModeEnabled) {
+                $('.digitalogic-products').removeClass('view-mode');
+                $('.mode-toggle-label').eq(0).text('Edit Mode');
+            } else {
+                $('.digitalogic-products').addClass('view-mode');
+                $('.mode-toggle-label').eq(0).text('View Mode');
+            }
+        });
+        
+        // Auto-save toggle
+        $('#auto-save-toggle').on('change', function() {
+            autoSaveEnabled = $(this).prop('checked');
+            if (autoSaveEnabled && Object.keys(changedProducts).length > 0) {
+                if (confirm('Enable auto-save and save all pending changes?')) {
+                    $('#bulk-update-btn').click();
+                }
+            }
         });
     }
     
