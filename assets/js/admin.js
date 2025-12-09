@@ -375,9 +375,13 @@
     // Auto-refresh (polling) every 60 seconds to reduce server load
     // For more real-time updates, consider implementing WebSockets or Server-Sent Events
     setInterval(function() {
-        if (productsTable && $('#products-table').is(':visible')) {
-            productsTable.ajax.reload(null, false); // false = don't reset paging
+        if (productsTable && typeof productsTable.ajax !== 'undefined' && $('#products-table').is(':visible')) {
+            try {
+                productsTable.ajax.reload(null, false); // false = don't reset paging
+            } catch (e) {
+                console.error('Error during auto-refresh:', e);
+            }
         }
-    }, 60000); // Increased to 60 seconds
+    }, 60000); // 60 seconds
     
 })(jQuery);

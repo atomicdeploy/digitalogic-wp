@@ -114,6 +114,11 @@ table.dataTable input[type="number"] {
     border-radius: 3px;
 }
 
+table.dataTable input.changed {
+    border-color: #f0b849;
+    background-color: #fffbf0;
+}
+
 table.dataTable img {
     max-width: 50px;
     height: auto;
