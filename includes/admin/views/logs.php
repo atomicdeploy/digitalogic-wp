@@ -43,7 +43,7 @@
 
 <script type="text/javascript">
 jQuery(document).ready(function($) {
-    // Initialize postboxes
-    postboxes.add_postbox_toggles('digitalogic');
+    // Initialize postboxes with unique page identifier
+    postboxes.add_postbox_toggles('digitalogic_logs');
 });
 </script>
