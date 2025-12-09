@@ -194,6 +194,19 @@ class Digitalogic_Admin {
      * Render products page
      */
     public function render_products_page() {
+        // Check if WooCommerce is active
+        if (!class_exists('WooCommerce')) {
+            ?>
+            <div class="wrap">
+                <h1><?php _e('Product Management', 'digitalogic'); ?></h1>
+                <div class="notice notice-error">
+                    <p><?php _e('WooCommerce must be installed and activated to use this feature.', 'digitalogic'); ?></p>
+                </div>
+            </div>
+            <?php
+            return;
+        }
+        
         include DIGITALOGIC_PLUGIN_DIR . 'includes/admin/views/products.php';
     }
     
