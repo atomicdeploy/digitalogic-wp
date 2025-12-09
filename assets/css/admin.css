@@ -64,19 +64,11 @@
 }
 
 /* Postbox customizations for Digitalogic */
-.digitalogic-dashboard .postbox,
-.digitalogic-currency .postbox,
-.digitalogic-products .postbox,
-.digitalogic-import-export .postbox,
-.digitalogic-logs .postbox {
+.digitalogic-currency .postbox {
     margin-bottom: 20px;
 }
 
-.digitalogic-dashboard .inside,
-.digitalogic-currency .inside,
-.digitalogic-products .inside,
-.digitalogic-import-export .inside,
-.digitalogic-logs .inside {
+.digitalogic-currency .inside {
     margin: 0;
     padding: 12px;
 }
@@ -143,35 +135,19 @@ table.dataTable img {
     border-radius: 3px;
 }
 
-/* Import/Export Help Text */
-.postbox .inside h4 {
-    margin-top: 0;
-    margin-bottom: 10px;
-    font-size: 14px;
-}
-
-.postbox .inside ul {
-    margin-top: 0;
-}
-
-.postbox .inside ul li {
-    margin-bottom: 5px;
-}
-
-/* Status page tables */
-.postbox .inside table.widefat {
-    border: none;
-}
-
-.postbox .inside table.widefat td {
-    padding: 10px;
-}
-
-.postbox .inside table.widefat td:first-child {
-    width: 40%;
-}
-
 /* Import/Export */
+.digitalogic-section {
+    background: #fff;
+    border: 1px solid #c3c4c7;
+    padding: 20px;
+    margin: 20px 0;
+    border-radius: 4px;
+}
+
+.digitalogic-section h2 {
+    margin-top: 0;
+}
+
 #export-result,
 #import-result {
     padding: 10px;
@@ -278,15 +254,6 @@ body.rtl .digitalogic-stats {
     
     #product-search {
         width: 100%;
-    }
-    
-    /* Adjust postbox layout for mobile */
-    #poststuff #post-body.columns-2 {
-        margin-right: 0;
-    }
-    
-    #poststuff #post-body {
-        margin: 0;
     }
 }
 
