@@ -25,6 +25,71 @@ class Digitalogic_Import_Export {
     }
     
     /**
+     * Update dynamic pricing metadata for a product
+     * 
+     * @param int $product_id Product ID
+     * @param array $data Data containing dynamic pricing information
+     * @return void
+     */
+    private function update_dynamic_pricing($product_id, $data) {
+        // Check if dynamic pricing is enabled (CSV/Excel format)
+        $enabled = false;
+        $pricing_data = array();
+        
+        if (!empty($data['Dynamic Pricing']) && $data['Dynamic Pricing'] === 'yes') {
+            $enabled = true;
+            $pricing_data = array(
+                'Currency Type' => isset($data['Currency Type']) ? $data['Currency Type'] : '',
+                'Base Price' => isset($data['Base Price']) ? $data['Base Price'] : '',
+                'Markup' => isset($data['Markup']) ? $data['Markup'] : '',
+                'Markup Type' => isset($data['Markup Type']) ? $data['Markup Type'] : '',
+            );
+        } 
+        // Check for JSON format (nested structure)
+        elseif (isset($data['dynamic_pricing'])) {
+            $dp = $data['dynamic_pricing'];
+            if (!empty($dp['enabled']) && $dp['enabled'] === 'yes') {
+                $enabled = true;
+                $pricing_data = array(
+                    'Currency Type' => isset($dp['currency_type']) ? $dp['currency_type'] : '',
+                    'Base Price' => isset($dp['base_price']) ? $dp['base_price'] : '',
+                    'Markup' => isset($dp['markup']) ? $dp['markup'] : '',
+                    'Markup Type' => isset($dp['markup_type']) ? $dp['markup_type'] : '',
+                );
+            }
+        }
+        
+        if (!$enabled) {
+            return;
+        }
+        
+        $product = wc_get_product($product_id);
+        if (!$product) {
+            return;
+        }
+        
+        $product->update_meta_data('_digitalogic_dynamic_pricing', 'yes');
+        
+        if (!empty($pricing_data['Currency Type'])) {
+            $product->update_meta_data('_digitalogic_currency_type', $pricing_data['Currency Type']);
+        }
+        
+        if (!empty($pricing_data['Base Price'])) {
+            $product->update_meta_data('_digitalogic_base_price', $pricing_data['Base Price']);
+        }
+        
+        if (!empty($pricing_data['Markup'])) {
+            $product->update_meta_data('_digitalogic_markup', $pricing_data['Markup']);
+        }
+        
+        if (!empty($pricing_data['Markup Type'])) {
+            $product->update_meta_data('_digitalogic_markup_type', $pricing_data['Markup Type']);
+        }
+        
+        $product->save();
+    }
+    
+    /**
      * Export products to CSV
      * 
      * @param array $product_ids
@@ -215,7 +280,7 @@ class Digitalogic_Import_Export {
             
             // Remove empty values
             $update_data = array_filter($update_data, function($value) {
-                return $value !== '';
+                return $value !== '' && $value !== null;
             });
             
             $result = $manager->update_product($product_id, $update_data);
@@ -226,18 +291,8 @@ class Digitalogic_Import_Export {
             } else {
                 $results['success']++;
                 
-                // Update dynamic pricing if set using WooCommerce methods (HPOS compatible)
-                if (!empty($data['Dynamic Pricing']) && $data['Dynamic Pricing'] === 'yes') {
-                    $product = wc_get_product($product_id);
-                    if ($product) {
-                        $product->update_meta_data('_digitalogic_dynamic_pricing', 'yes');
-                        $product->update_meta_data('_digitalogic_currency_type', $data['Currency Type']);
-                        $product->update_meta_data('_digitalogic_base_price', $data['Base Price']);
-                        $product->update_meta_data('_digitalogic_markup', $data['Markup']);
-                        $product->update_meta_data('_digitalogic_markup_type', $data['Markup Type']);
-                        $product->save();
-                    }
-                }
+                // Update dynamic pricing using helper method
+                $this->update_dynamic_pricing($product_id, $data);
             }
         }
         
@@ -289,21 +344,8 @@ class Digitalogic_Import_Export {
             } else {
                 $results['success']++;
                 
-                // Update dynamic pricing if present using WooCommerce methods (HPOS compatible)
-                if (isset($product_data['dynamic_pricing'])) {
-                    $dp = $product_data['dynamic_pricing'];
-                    if (!empty($dp['enabled']) && $dp['enabled'] === 'yes') {
-                        $product = wc_get_product($product_id);
-                        if ($product) {
-                            $product->update_meta_data('_digitalogic_dynamic_pricing', 'yes');
-                            $product->update_meta_data('_digitalogic_currency_type', $dp['currency_type']);
-                            $product->update_meta_data('_digitalogic_base_price', $dp['base_price']);
-                            $product->update_meta_data('_digitalogic_markup', $dp['markup']);
-                            $product->update_meta_data('_digitalogic_markup_type', $dp['markup_type']);
-                            $product->save();
-                        }
-                    }
-                }
+                // Update dynamic pricing using helper method
+                $this->update_dynamic_pricing($product_id, $product_data);
             }
         }
         
@@ -512,6 +554,13 @@ class Digitalogic_Import_Export {
                     continue; // Skip empty rows
                 }
                 
+                // Validate row has same number of columns as headers
+                if (count($headers) !== count($row)) {
+                    $results['failed']++;
+                    $results['errors'][] = sprintf('Row has %d columns but expected %d', count($row), count($headers));
+                    continue;
+                }
+                
                 $row_data = array_combine($headers, $row);
                 
                 if (empty($row_data['ID'])) {
@@ -548,18 +597,8 @@ class Digitalogic_Import_Export {
                 } else {
                     $results['success']++;
                     
-                    // Update dynamic pricing if set using WooCommerce methods (HPOS compatible)
-                    if (!empty($row_data['Dynamic Pricing']) && $row_data['Dynamic Pricing'] === 'yes') {
-                        $product = wc_get_product($product_id);
-                        if ($product) {
-                            $product->update_meta_data('_digitalogic_dynamic_pricing', 'yes');
-                            $product->update_meta_data('_digitalogic_currency_type', $row_data['Currency Type']);
-                            $product->update_meta_data('_digitalogic_base_price', $row_data['Base Price']);
-                            $product->update_meta_data('_digitalogic_markup', $row_data['Markup']);
-                            $product->update_meta_data('_digitalogic_markup_type', $row_data['Markup Type']);
-                            $product->save();
-                        }
-                    }
+                    // Update dynamic pricing using helper method
+                    $this->update_dynamic_pricing($product_id, $row_data);
                 }
             }
             
