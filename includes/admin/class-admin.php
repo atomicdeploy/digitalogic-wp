@@ -145,6 +145,9 @@ class Digitalogic_Admin {
             return;
         }
         
+        // WordPress postbox scripts for collapsible boxes
+        wp_enqueue_script('postbox');
+        
         // DataTables - Local files
         wp_enqueue_style('datatables', DIGITALOGIC_PLUGIN_URL . 'assets/vendor/datatables/jquery.dataTables.min.css', array(), '1.13.7');
         wp_enqueue_script('datatables', DIGITALOGIC_PLUGIN_URL . 'assets/vendor/datatables/jquery.dataTables.min.js', array('jquery'), '1.13.7', true);
@@ -153,7 +156,7 @@ class Digitalogic_Admin {
         wp_enqueue_style('digitalogic-admin', DIGITALOGIC_PLUGIN_URL . 'assets/css/admin.css', array(), DIGITALOGIC_VERSION);
         
         // Plugin scripts
-        wp_enqueue_script('digitalogic-admin', DIGITALOGIC_PLUGIN_URL . 'assets/js/admin.js', array('jquery', 'datatables'), DIGITALOGIC_VERSION, true);
+        wp_enqueue_script('digitalogic-admin', DIGITALOGIC_PLUGIN_URL . 'assets/js/admin.js', array('jquery', 'datatables', 'postbox'), DIGITALOGIC_VERSION, true);
         
         // Localize script
         wp_localize_script('digitalogic-admin', 'digitalogic', array(
