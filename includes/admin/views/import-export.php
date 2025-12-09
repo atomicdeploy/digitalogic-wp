@@ -4,7 +4,7 @@
     <div class="digitalogic-section">
         <h2><?php _e('Export Products', 'digitalogic'); ?></h2>
         
-        <p><?php _e('Export your products to CSV or JSON format', 'digitalogic'); ?></p>
+        <p><?php _e('Export your products to CSV, JSON, or Excel format', 'digitalogic'); ?></p>
         
         <form id="export-form">
             <table class="form-table">
@@ -16,7 +16,9 @@
                         <select name="export_format" id="export_format">
                             <option value="csv"><?php _e('CSV', 'digitalogic'); ?></option>
                             <option value="json"><?php _e('JSON', 'digitalogic'); ?></option>
+                            <option value="excel"><?php _e('Excel (XLSX)', 'digitalogic'); ?></option>
                         </select>
+                        <p class="description"><?php _e('Excel format uses a custom branded template with styling', 'digitalogic'); ?></p>
                     </td>
                 </tr>
             </table>
@@ -32,7 +34,7 @@
     <div class="digitalogic-section">
         <h2><?php _e('Import Products', 'digitalogic'); ?></h2>
         
-        <p><?php _e('Import products from CSV or JSON file', 'digitalogic'); ?></p>
+        <p><?php _e('Import products from CSV, JSON, or Excel file', 'digitalogic'); ?></p>
         
         <form id="import-form" enctype="multipart/form-data">
             <table class="form-table">
@@ -41,8 +43,8 @@
                         <label for="import_file"><?php _e('File', 'digitalogic'); ?></label>
                     </th>
                     <td>
-                        <input type="file" name="import_file" id="import_file" accept=".csv,.json">
-                        <p class="description"><?php _e('Select a CSV or JSON file to import', 'digitalogic'); ?></p>
+                        <input type="file" name="import_file" id="import_file" accept=".csv,.json,.xlsx,.xls">
+                        <p class="description"><?php _e('Select a CSV, JSON, or Excel file to import', 'digitalogic'); ?></p>
                     </td>
                 </tr>
             </table>

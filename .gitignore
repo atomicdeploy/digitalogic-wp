@@ -8,9 +8,6 @@
 /vendor/
 /node_modules/
 
-# Composer
-composer.lock
-
 # Build files
 /build/
 /dist/

@@ -254,8 +254,17 @@ class Digitalogic_REST_API {
         
         if ($format === 'csv') {
             $filepath = $import_export->export_csv($product_ids);
+        } elseif ($format === 'excel') {
+            $filepath = $import_export->export_excel($product_ids);
         } else {
             $filepath = $import_export->export_json($product_ids);
+        }
+        
+        if (is_wp_error($filepath)) {
+            return new WP_REST_Response(array(
+                'success' => false,
+                'message' => $filepath->get_error_message()
+            ), 500);
         }
         
         $upload_dir = wp_upload_dir();

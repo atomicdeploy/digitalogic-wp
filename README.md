@@ -24,7 +24,7 @@
 ### 🔄 Import/Export
 - CSV import/export
 - JSON import/export
-- Excel support (via PhpSpreadsheet - can be added)
+- Excel import/export with custom branded template (XLSX format via PhpSpreadsheet)
 - Bulk operations for thousands of products
 
 ### 🌐 REST API
@@ -160,7 +160,9 @@ curl -X POST https://yoursite.com/wp-json/digitalogic/v1/products/batch \
 - `POST /wp-json/digitalogic/v1/pricing/recalculate` - Recalculate all prices
 
 #### Export
-- `GET /wp-json/digitalogic/v1/export?format=csv` - Export products
+- `GET /wp-json/digitalogic/v1/export?format=csv` - Export products as CSV
+- `GET /wp-json/digitalogic/v1/export?format=json` - Export products as JSON
+- `GET /wp-json/digitalogic/v1/export?format=excel` - Export products as Excel (XLSX) with custom template
 
 ### Authentication
 
@@ -204,7 +206,11 @@ wp digitalogic products update 123 --price=99.99 --stock=50
 
 # Import/Export
 wp digitalogic export --format=csv --output=/path/to/export.csv
+wp digitalogic export --format=json --output=/path/to/export.json
+wp digitalogic export --format=excel --output=/path/to/export.xlsx
 wp digitalogic import /path/to/products.csv
+wp digitalogic import /path/to/products.json
+wp digitalogic import /path/to/products.xlsx
 
 # Logs
 wp digitalogic logs --limit=50 --action=update_product
@@ -326,7 +332,7 @@ Developed for Digitalogic electronic components shop.
 - REST API endpoints
 - Webhooks integration
 - WP-CLI commands
-- Import/Export (CSV, JSON)
+- Import/Export (CSV, JSON, Excel with custom template)
 - Activity logging
 - Light/dark mode support
 - RTL/LTR support
