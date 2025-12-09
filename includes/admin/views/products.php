@@ -1,7 +1,7 @@
 <div class="wrap digitalogic-products">
 	<h1><?php _e( 'Product Management', 'digitalogic' ); ?></h1>
 	
-	<?php if ( WP_DEBUG ) : ?>
+	<?php if ( defined( 'DIGITALOGIC_DEBUG' ) && DIGITALOGIC_DEBUG ) : ?>
 	<div class="notice notice-info" id="digitalogic-debug-info">
 		<p><strong>Debug Info:</strong></p>
 		<ul>
@@ -13,13 +13,17 @@
 			<li>Digitalogic JS: <span id="digitalogic-js">Checking...</span></li>
 		</ul>
 	</div>
-	<script>
+	<?php
+	// Add inline script with nonce for debug info
+	$inline_script = "
 		jQuery(document).ready(function($) {
 			$('#jquery-version').text(typeof $ !== 'undefined' ? 'Loaded (v' + $.fn.jquery + ')' : 'Not loaded');
 			$('#datatables-version').text(typeof $.fn.DataTable !== 'undefined' ? 'Loaded (v' + $.fn.dataTable.version + ')' : 'Not loaded');
 			$('#digitalogic-js').text(typeof digitalogic !== 'undefined' ? 'Loaded' : 'Not loaded');
 		});
-	</script>
+	";
+	wp_add_inline_script( 'digitalogic-admin', $inline_script );
+	?>
 	<?php endif; ?>
 	
 	<div class="digitalogic-toolbar">
