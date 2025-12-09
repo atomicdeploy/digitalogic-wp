@@ -409,6 +409,9 @@ class Digitalogic_Import_Export {
             'Markup Type'
         );
         
+        $num_columns = count($headers);
+        $last_column = chr(64 + $num_columns); // A=65, so 64+1=A, 64+17=Q
+        
         // Set headers
         $col = 'A';
         foreach ($headers as $header) {
@@ -417,7 +420,7 @@ class Digitalogic_Import_Export {
         }
         
         // Style header row
-        $headerStyle = $sheet->getStyle('A1:Q1');
+        $headerStyle = $sheet->getStyle('A1:' . $last_column . '1');
         $headerStyle->getFont()->setBold(true)->setSize(12);
         $headerStyle->getFill()
             ->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID)
@@ -487,7 +490,7 @@ class Digitalogic_Import_Export {
             
             // Apply alternating row colors
             if ($row % 2 == 0) {
-                $sheet->getStyle('A' . $row . ':Q' . $row)->getFill()
+                $sheet->getStyle('A' . $row . ':' . $last_column . $row)->getFill()
                     ->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID)
                     ->getStartColor()->setRGB('F2F2F2');
             }
@@ -497,7 +500,7 @@ class Digitalogic_Import_Export {
         
         // Add borders to all cells with data
         $lastRow = $row - 1;
-        $sheet->getStyle('A1:Q' . $lastRow)->getBorders()->getAllBorders()
+        $sheet->getStyle('A1:' . $last_column . $lastRow)->getBorders()->getAllBorders()
             ->setBorderStyle(\PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN)
             ->getColor()->setRGB('000000');
         
@@ -505,7 +508,7 @@ class Digitalogic_Import_Export {
         $sheet->freezePane('A2');
         
         // Add filters to header row
-        $sheet->setAutoFilter('A1:Q1');
+        $sheet->setAutoFilter('A1:' . $last_column . '1');
         
         // Write file
         $writer = new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($spreadsheet);
@@ -549,15 +552,18 @@ class Digitalogic_Import_Export {
             
             $manager = Digitalogic_Product_Manager::instance();
             
+            $current_row_num = 2; // Start at 2 because row 1 is headers
             foreach ($data as $row) {
                 if (empty($row[0])) {
+                    $current_row_num++;
                     continue; // Skip empty rows
                 }
                 
                 // Validate row has same number of columns as headers
                 if (count($headers) !== count($row)) {
                     $results['failed']++;
-                    $results['errors'][] = sprintf('Row has %d columns but expected %d', count($row), count($headers));
+                    $results['errors'][] = sprintf('Row %d has %d columns but expected %d', $current_row_num, count($row), count($headers));
+                    $current_row_num++;
                     continue;
                 }
                 
@@ -565,7 +571,8 @@ class Digitalogic_Import_Export {
                 
                 if (empty($row_data['ID'])) {
                     $results['failed']++;
-                    $results['errors'][] = 'Missing product ID';
+                    $results['errors'][] = sprintf('Row %d: Missing product ID', $current_row_num);
+                    $current_row_num++;
                     continue;
                 }
                 
@@ -593,13 +600,15 @@ class Digitalogic_Import_Export {
                 
                 if (is_wp_error($result)) {
                     $results['failed']++;
-                    $results['errors'][] = $result->get_error_message();
+                    $results['errors'][] = sprintf('Row %d: %s', $current_row_num, $result->get_error_message());
                 } else {
                     $results['success']++;
                     
                     // Update dynamic pricing using helper method
                     $this->update_dynamic_pricing($product_id, $row_data);
                 }
+                
+                $current_row_num++;
             }
             
             return $results;
