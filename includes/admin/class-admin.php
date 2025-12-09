@@ -137,8 +137,18 @@ class Digitalogic_Admin {
      * Enqueue admin scripts and styles
      */
     public function enqueue_scripts($hook) {
+        // List of our admin page hooks
+        $digitalogic_pages = array(
+            'toplevel_page_digitalogic',
+            'digitalogic_page_product-list',
+            'digitalogic_page_price-settings',
+            'digitalogic_page_import-export',
+            'digitalogic_page_digitalogic-logs',
+            'digitalogic_page_digitalogic-status',
+        );
+        
         // Check if we're on any of our admin pages
-        if (strpos($hook, 'digitalogic') === false) {
+        if (!in_array($hook, $digitalogic_pages) && strpos($hook, 'digitalogic') === false) {
             return;
         }
         
