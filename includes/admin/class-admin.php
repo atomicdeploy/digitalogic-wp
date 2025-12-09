@@ -321,8 +321,14 @@ class Digitalogic_Admin {
         
         if ($format === 'json') {
             $filepath = $import_export->export_json($product_ids);
+        } elseif ($format === 'excel') {
+            $filepath = $import_export->export_excel($product_ids);
         } else {
             $filepath = $import_export->export_csv($product_ids);
+        }
+        
+        if (is_wp_error($filepath)) {
+            wp_send_json_error($filepath->get_error_message());
         }
         
         $upload_dir = wp_upload_dir();
@@ -362,6 +368,8 @@ class Digitalogic_Admin {
         
         if ($extension === 'json') {
             $results = $import_export->import_json($filepath);
+        } elseif ($extension === 'xlsx' || $extension === 'xls') {
+            $results = $import_export->import_excel($filepath);
         } else {
             $results = $import_export->import_csv($filepath);
         }
