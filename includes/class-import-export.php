@@ -410,6 +410,8 @@ class Digitalogic_Import_Export {
         );
         
         $num_columns = count($headers);
+        // Note: This calculation works for up to 26 columns (A-Z).
+        // For more columns, PhpSpreadsheet's Coordinate::stringFromColumnIndex() should be used.
         $last_column = chr(64 + $num_columns); // A=65, so 64+1=A, 64+17=Q
         
         // Set headers
@@ -568,6 +570,14 @@ class Digitalogic_Import_Export {
                 }
                 
                 $row_data = array_combine($headers, $row);
+                
+                // Additional safety check (should never happen due to earlier validation)
+                if ($row_data === false) {
+                    $results['failed']++;
+                    $results['errors'][] = sprintf('Row %d: Failed to parse data', $current_row_num);
+                    $current_row_num++;
+                    continue;
+                }
                 
                 if (empty($row_data['ID'])) {
                     $results['failed']++;
