@@ -67,14 +67,27 @@ class Digitalogic_Product_Manager {
             $query_args['category'] = $args['category'];
         }
         
-        $products = wc_get_products($query_args);
-        $results = array();
-        
-        foreach ($products as $product) {
-            $results[] = $this->format_product_data($product);
+        try {
+            $products = wc_get_products($query_args);
+            
+            if (!is_array($products)) {
+                error_log('Digitalogic: wc_get_products returned non-array value');
+                return array();
+            }
+            
+            $results = array();
+            
+            foreach ($products as $product) {
+                if ($product && is_a($product, 'WC_Product')) {
+                    $results[] = $this->format_product_data($product);
+                }
+            }
+            
+            return $results;
+        } catch (Exception $e) {
+            error_log('Digitalogic: Error in get_products - ' . $e->getMessage());
+            return array();
         }
-        
-        return $results;
     }
     
     /**
@@ -97,41 +110,65 @@ class Digitalogic_Product_Manager {
      * Format product data for output
      * 
      * @param WC_Product $product
+     * @param int $depth Current recursion depth
      * @return array
      */
-    private function format_product_data($product) {
-        $data = array(
-            'id' => $product->get_id(),
-            'name' => $product->get_name(),
-            'sku' => $product->get_sku(),
-            'type' => $product->get_type(),
-            'status' => $product->get_status(),
-            'regular_price' => $product->get_regular_price(),
-            'sale_price' => $product->get_sale_price(),
-            'price' => $product->get_price(),
-            'stock_quantity' => $product->get_stock_quantity(),
-            'stock_status' => $product->get_stock_status(),
-            'manage_stock' => $product->get_manage_stock(),
-            'weight' => $product->get_weight(),
-            'length' => $product->get_length(),
-            'width' => $product->get_width(),
-            'height' => $product->get_height(),
-            'permalink' => $product->get_permalink(),
-            'image' => wp_get_attachment_url($product->get_image_id()),
-        );
-        
-        // Add variation data if variable product
-        if ($product->is_type('variable')) {
-            $data['variations'] = array();
-            foreach ($product->get_children() as $variation_id) {
-                $variation = wc_get_product($variation_id);
-                if ($variation) {
-                    $data['variations'][] = $this->format_product_data($variation);
-                }
-            }
+    private function format_product_data($product, $depth = 0) {
+        if (!$product || !is_a($product, 'WC_Product')) {
+            return array();
         }
         
-        return $data;
+        // Prevent deep recursion (max 2 levels)
+        if ($depth > 2) {
+            error_log('Digitalogic: Maximum recursion depth reached for product #' . $product->get_id());
+            return array();
+        }
+        
+        try {
+            $data = array(
+                'id' => $product->get_id(),
+                'name' => $product->get_name(),
+                'sku' => $product->get_sku(),
+                'type' => $product->get_type(),
+                'status' => $product->get_status(),
+                'regular_price' => $product->get_regular_price(),
+                'sale_price' => $product->get_sale_price(),
+                'price' => $product->get_price(),
+                'stock_quantity' => $product->get_stock_quantity(),
+                'stock_status' => $product->get_stock_status(),
+                'manage_stock' => $product->get_manage_stock(),
+                'weight' => $product->get_weight(),
+                'length' => $product->get_length(),
+                'width' => $product->get_width(),
+                'height' => $product->get_height(),
+                'permalink' => $product->get_permalink(),
+                'image' => wp_get_attachment_url($product->get_image_id()),
+            );
+            
+            // Add variation data if variable product (only at first level)
+            if ($depth === 0 && $product->is_type('variable')) {
+                $data['variations'] = array();
+                $children = $product->get_children();
+                
+                // Limit to 100 variations to prevent performance issues
+                if (count($children) > 100) {
+                    error_log('Digitalogic: Product #' . $product->get_id() . ' has more than 100 variations, limiting output');
+                    $children = array_slice($children, 0, 100);
+                }
+                
+                foreach ($children as $variation_id) {
+                    $variation = wc_get_product($variation_id);
+                    if ($variation) {
+                        $data['variations'][] = $this->format_product_data($variation, $depth + 1);
+                    }
+                }
+            }
+            
+            return $data;
+        } catch (Exception $e) {
+            error_log('Digitalogic: Error formatting product data for product #' . $product->get_id() . ' - ' . $e->getMessage());
+            return array();
+        }
     }
     
     /**
@@ -270,8 +307,18 @@ class Digitalogic_Product_Manager {
             'limit' => -1,
         );
         
-        $products = wc_get_products($query_args);
-        
-        return count($products);
+        try {
+            $products = wc_get_products($query_args);
+            
+            if (!is_array($products)) {
+                error_log('Digitalogic: wc_get_products returned non-array value in get_product_count');
+                return 0;
+            }
+            
+            return count($products);
+        } catch (Exception $e) {
+            error_log('Digitalogic: Error in get_product_count - ' . $e->getMessage());
+            return 0;
+        }
     }
 }

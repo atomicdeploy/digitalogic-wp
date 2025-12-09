@@ -142,9 +142,9 @@ class Digitalogic_Admin {
             return;
         }
         
-        // DataTables
-        wp_enqueue_style('datatables', 'https://cdn.datatables.net/1.13.7/css/jquery.dataTables.min.css', array(), '1.13.7');
-        wp_enqueue_script('datatables', 'https://cdn.datatables.net/1.13.7/js/jquery.dataTables.min.js', array('jquery'), '1.13.7', true);
+        // DataTables - Local files
+        wp_enqueue_style('datatables', DIGITALOGIC_PLUGIN_URL . 'assets/vendor/datatables/jquery.dataTables.min.css', array(), '1.13.7');
+        wp_enqueue_script('datatables', DIGITALOGIC_PLUGIN_URL . 'assets/vendor/datatables/jquery.dataTables.min.js', array('jquery'), '1.13.7', true);
         
         // Plugin styles
         wp_enqueue_style('digitalogic-admin', DIGITALOGIC_PLUGIN_URL . 'assets/css/admin.css', array(), DIGITALOGIC_VERSION);
@@ -245,29 +245,35 @@ class Digitalogic_Admin {
      * AJAX: Get products
      */
     public function ajax_get_products() {
-        check_ajax_referer('digitalogic_nonce', 'nonce');
-        
-        if (!current_user_can('manage_woocommerce')) {
-            wp_send_json_error('Unauthorized');
+        try {
+            check_ajax_referer('digitalogic_nonce', 'nonce');
+            
+            if (!current_user_can('manage_woocommerce')) {
+                wp_send_json_error('Unauthorized');
+                return;
+            }
+            
+            $page = isset($_POST['page']) ? intval($_POST['page']) : 1;
+            $limit = isset($_POST['limit']) ? intval($_POST['limit']) : 50;
+            $search = isset($_POST['search']) ? sanitize_text_field($_POST['search']) : '';
+            
+            $manager = Digitalogic_Product_Manager::instance();
+            $products = $manager->get_products(array(
+                'page' => $page,
+                'limit' => $limit,
+                'search' => $search
+            ));
+            
+            $total = $manager->get_product_count();
+            
+            wp_send_json_success(array(
+                'products' => $products,
+                'total' => $total
+            ));
+        } catch (Exception $e) {
+            error_log('Digitalogic: Error fetching products - ' . $e->getMessage());
+            wp_send_json_error('Error loading products: ' . $e->getMessage());
         }
-        
-        $page = isset($_POST['page']) ? intval($_POST['page']) : 1;
-        $limit = isset($_POST['limit']) ? intval($_POST['limit']) : 50;
-        $search = isset($_POST['search']) ? sanitize_text_field($_POST['search']) : '';
-        
-        $manager = Digitalogic_Product_Manager::instance();
-        $products = $manager->get_products(array(
-            'page' => $page,
-            'limit' => $limit,
-            'search' => $search
-        ));
-        
-        $total = $manager->get_product_count();
-        
-        wp_send_json_success(array(
-            'products' => $products,
-            'total' => $total
-        ));
     }
     
     /**

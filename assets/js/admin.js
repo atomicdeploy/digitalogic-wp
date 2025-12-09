@@ -23,6 +23,20 @@
             return;
         }
         
+        // Check if DataTables library is loaded
+        if (typeof $.fn.DataTable === 'undefined') {
+            console.error('DataTables library not loaded');
+            alert('Error: DataTables library failed to load. Please refresh the page.');
+            return;
+        }
+        
+        // Check if digitalogic object is available
+        if (typeof digitalogic === 'undefined') {
+            console.error('Digitalogic configuration not loaded');
+            alert('Error: Configuration not loaded. Please refresh the page.');
+            return;
+        }
+        
         productsTable = $('#products-table').DataTable({
             processing: true,
             serverSide: false,
@@ -39,15 +53,28 @@
                     };
                 },
                 dataSrc: function(json) {
+                    console.log('Products AJAX response:', json);
+                    
                     // Handle WordPress AJAX response format
                     if (json.success && json.data && json.data.products) {
                         return json.data.products;
                     }
+                    
+                    // Log error for debugging
                     console.error('Invalid response format:', json);
+                    
+                    // Show user-friendly error message
+                    if (json.data && typeof json.data === 'string') {
+                        alert('Error loading products: ' + json.data);
+                    } else {
+                        alert('Error loading products. Please check console for details.');
+                    }
+                    
                     return [];
                 },
                 error: function(xhr, error, thrown) {
                     console.error('AJAX error:', error, thrown);
+                    console.error('Response:', xhr.responseText);
                     alert(digitalogic.i18n.error + ': ' + thrown);
                 }
             },
@@ -348,9 +375,13 @@
     // Auto-refresh (polling) every 60 seconds to reduce server load
     // For more real-time updates, consider implementing WebSockets or Server-Sent Events
     setInterval(function() {
-        if (productsTable && $('#products-table').is(':visible')) {
-            productsTable.ajax.reload(null, false); // false = don't reset paging
+        if (productsTable && typeof productsTable.ajax !== 'undefined' && $('#products-table').is(':visible')) {
+            try {
+                productsTable.ajax.reload(null, false); // false = don't reset paging
+            } catch (e) {
+                console.error('Error during auto-refresh:', e);
+            }
         }
-    }, 60000); // Increased to 60 seconds
+    }, 60000); // 60 seconds
     
 })(jQuery);
