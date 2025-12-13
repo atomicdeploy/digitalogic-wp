@@ -76,6 +76,9 @@ final class Digitalogic {
         // Plugin action links
         add_filter('plugin_action_links_' . DIGITALOGIC_PLUGIN_BASENAME, array($this, 'plugin_action_links'));
         add_filter('plugin_row_meta', array($this, 'plugin_row_meta'), 10, 2);
+        
+        // Change currency symbol from Rial to Toman for IRR
+        add_filter('woocommerce_currency_symbol', array($this, 'change_currency_symbol'), 10, 2);
     }
     
     /**
@@ -292,6 +295,20 @@ final class Digitalogic {
         if (get_option('update_date') !== false) {
             update_option('options_update_date', get_option('update_date'));
         }
+    }
+    
+    /**
+     * Change currency symbol from Rial to Toman for Iranian Rial
+     * 
+     * @param string $currency_symbol The currency symbol
+     * @param string $currency The currency code
+     * @return string Modified currency symbol
+     */
+    public function change_currency_symbol($currency_symbol, $currency) {
+        if ($currency === 'IRR') {
+            return 'تومان';
+        }
+        return $currency_symbol;
     }
     
     /**

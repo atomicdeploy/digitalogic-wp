@@ -9,12 +9,12 @@
         
         <a href="<?php echo admin_url('admin.php?page=price-settings'); ?>" class="stat-box clickable">
             <h3><?php _e('USD Price', 'digitalogic'); ?></h3>
-            <p class="stat-number"><?php echo number_format($dollar_price, 2); ?></p>
+            <p class="stat-number"><?php echo number_format($dollar_price, 0); ?></p>
         </a>
         
         <a href="<?php echo admin_url('admin.php?page=price-settings'); ?>" class="stat-box clickable">
             <h3><?php _e('CNY Price', 'digitalogic'); ?></h3>
-            <p class="stat-number"><?php echo number_format($yuan_price, 2); ?></p>
+            <p class="stat-number"><?php echo number_format($yuan_price, 0); ?></p>
         </a>
         
         <a href="<?php echo admin_url('admin.php?page=price-settings'); ?>" class="stat-box clickable">
