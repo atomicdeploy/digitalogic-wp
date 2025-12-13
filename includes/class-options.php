@@ -359,9 +359,9 @@ class Digitalogic_Options {
         
         // Convert to Persian digits if locale is Persian
         if (get_locale() === 'fa_IR') {
-            // Persian/Farsi digit mapping
-            $persian_digits = array('۰', '۱', '۲', '۳', '۴', '۵', '۶', '۷', '۸', '۹');
-            $english_digits = array('0', '1', '2', '3', '4', '5', '6', '7', '8', '9');
+            // Persian/Farsi digit mapping (static to avoid recreating on each call)
+            static $persian_digits = array('۰', '۱', '۲', '۳', '۴', '۵', '۶', '۷', '۸', '۹');
+            static $english_digits = array('0', '1', '2', '3', '4', '5', '6', '7', '8', '9');
             
             $formatted = str_replace($english_digits, $persian_digits, $formatted);
         }
