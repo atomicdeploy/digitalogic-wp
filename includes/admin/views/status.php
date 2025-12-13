@@ -164,11 +164,11 @@ $wc_features['Plugin Compatible'] = $hpos_status['plugin_compatible'] ? 'Yes' : 
             <tbody>
                 <tr>
                     <td><strong><?php _e('USD Price (dollar_price)', 'digitalogic'); ?></strong></td>
-                    <td><?php echo esc_html(number_format_i18n($dollar_price, 2)); ?></td>
+                    <td><?php echo esc_html(number_format_i18n($dollar_price, 0)); ?></td>
                 </tr>
                 <tr>
                     <td><strong><?php _e('CNY Price (yuan_price)', 'digitalogic'); ?></strong></td>
-                    <td><?php echo esc_html(number_format_i18n($yuan_price, 2)); ?></td>
+                    <td><?php echo esc_html(number_format_i18n($yuan_price, 0)); ?></td>
                 </tr>
                 <tr>
                     <td><strong><?php _e('Last Update Date (update_date)', 'digitalogic'); ?></strong></td>
