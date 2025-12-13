@@ -222,7 +222,7 @@ class Digitalogic_Admin {
     public function render_currency_page() {
         $options = Digitalogic_Options::instance();
         
-        if (isset($_POST['submit']) && check_admin_referer('digitalogic_currency_update')) {
+        if ((isset($_POST['submit']) || isset($_POST['publish'])) && check_admin_referer('digitalogic_currency_update')) {
             $dollar_price = floatval($_POST['dollar_price']);
             $yuan_price = floatval($_POST['yuan_price']);
             
