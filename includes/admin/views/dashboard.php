@@ -1,5 +1,5 @@
 <div class="wrap digitalogic-dashboard">
-    <h1><?php _e('Reports', 'digitalogic'); ?></h1>
+    <h1><?php _e('Dashboard', 'digitalogic'); ?></h1>
     
     <div class="digitalogic-stats">
         <a href="<?php echo admin_url('admin.php?page=product-list'); ?>" class="stat-box clickable">

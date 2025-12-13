@@ -51,6 +51,16 @@ class Digitalogic_Admin {
             56
         );
         
+        // Add explicit Dashboard submenu to override the auto-generated one
+        $this->page_hooks[] = add_submenu_page(
+            'digitalogic',
+            __('Dashboard', 'digitalogic'),
+            __('Dashboard', 'digitalogic'),
+            'manage_woocommerce',
+            'digitalogic',
+            array($this, 'render_dashboard')
+        );
+        
         $this->page_hooks[] = add_submenu_page(
             'digitalogic',
             __('Product List', 'digitalogic'),

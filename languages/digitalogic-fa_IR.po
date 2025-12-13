@@ -69,8 +69,8 @@ msgid "Currency rates updated"
 msgstr "نرخ ارزها به‌روزرسانی شد"
 
 #: includes/admin/views/dashboard.php
-msgid "Reports"
-msgstr "گزارش‌ها"
+msgid "Dashboard"
+msgstr "داشبورد"
 
 msgid "Digitalogic Dashboard"
 msgstr "داشبورد دیجیتالاجیک"
