@@ -100,17 +100,48 @@ Update currency exchange rates:
 **Admin Interface:**
 Navigate to Digitalogic → Currency Settings
 
+The currency settings page displays:
+- Your WooCommerce base currency (e.g., IRR, USD, CNY)
+- USD exchange rate (for converting USD prices to local currency)
+- CNY exchange rate (for converting CNY prices to local currency)
+- Last update date
+
+**Important:** The plugin monitors WooCommerce's currency setting and logs any changes. The exchange rates are used for dynamic pricing when products are priced in USD or CNY but your store uses a different base currency.
+
 **WP-CLI:**
 ```bash
+# Get current currency rates and WooCommerce currency
+wp digitalogic currency get
+
+# Update exchange rates
 wp digitalogic currency update --usd=42000 --cny=6000 --recalculate
 ```
 
 **REST API:**
 ```bash
+# Get currency information (including WooCommerce currency)
+curl https://yoursite.com/wp-json/digitalogic/v1/currency
+
+# Update exchange rates
 curl -X POST https://yoursite.com/wp-json/digitalogic/v1/currency \
   -H "Content-Type: application/json" \
   -d '{"dollar_price": 42000, "yuan_price": 6000}'
 ```
+
+### Integration with WooCommerce Currency
+
+The plugin is fully integrated with WooCommerce's currency settings:
+
+1. **Currency Monitoring**: The plugin monitors changes to WooCommerce's base currency setting
+2. **Status Display**: All admin pages show the current WooCommerce currency
+3. **Smart Warnings**: If WooCommerce currency is USD or CNY, the plugin warns that exchange rates may not be needed
+4. **Audit Trail**: Currency changes are logged in the activity log
+5. **API Integration**: All API endpoints include WooCommerce currency information
+
+**Synchronization:**
+- WordPress options (dollar_price, yuan_price) ↔ ACF fields (get_field/update_field)
+- WooCommerce currency changes are monitored and logged
+- All systems stay in sync automatically
 
 ### Product Management
 
