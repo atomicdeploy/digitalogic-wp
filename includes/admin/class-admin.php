@@ -243,6 +243,7 @@ class Digitalogic_Admin {
         $yuan_price = $options->get_yuan_price();
         $update_date = $options->get_update_date_formatted();
         $update_date_relative = $options->get_update_date_relative();
+        $currency_status = $options->get_currency_status();
         
         include DIGITALOGIC_PLUGIN_DIR . 'includes/admin/views/currency.php';
     }

@@ -163,6 +163,15 @@ $wc_features['Plugin Compatible'] = $hpos_status['plugin_compatible'] ? 'Yes' : 
         <table class="widefat striped">
             <tbody>
                 <tr>
+                    <td><strong><?php _e('WooCommerce Base Currency', 'digitalogic'); ?></strong></td>
+                    <td>
+                        <?php 
+                        $currency_status = $options->get_currency_status();
+                        echo esc_html($currency_status['woocommerce_currency']) . ' (' . esc_html($currency_status['woocommerce_symbol']) . ')';
+                        ?>
+                    </td>
+                </tr>
+                <tr>
                     <td><strong><?php _e('USD Price (dollar_price)', 'digitalogic'); ?></strong></td>
                     <td><?php echo esc_html(number_format_i18n($dollar_price, 2)); ?></td>
                 </tr>
@@ -173,6 +182,18 @@ $wc_features['Plugin Compatible'] = $hpos_status['plugin_compatible'] ? 'Yes' : 
                 <tr>
                     <td><strong><?php _e('Last Update Date (update_date)', 'digitalogic'); ?></strong></td>
                     <td><?php echo esc_html($update_date); ?> <small>(<?php echo esc_html($update_date_raw); ?>)</small></td>
+                </tr>
+                <tr>
+                    <td><strong><?php _e('Currency Integration Status', 'digitalogic'); ?></strong></td>
+                    <td>
+                        <?php if ($currency_status['is_usd']) : ?>
+                            <span style="color: orange;">⚠ <?php _e('WooCommerce is using USD - USD exchange rate may not be needed', 'digitalogic'); ?></span>
+                        <?php elseif ($currency_status['is_cny']) : ?>
+                            <span style="color: orange;">⚠ <?php _e('WooCommerce is using CNY - CNY exchange rate may not be needed', 'digitalogic'); ?></span>
+                        <?php else : ?>
+                            <span style="color: green;">✓ <?php _e('Exchange rates configured for WooCommerce currency', 'digitalogic'); ?></span>
+                        <?php endif; ?>
+                    </td>
                 </tr>
             </tbody>
         </table>

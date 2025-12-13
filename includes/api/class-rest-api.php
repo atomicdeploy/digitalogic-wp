@@ -203,7 +203,10 @@ class Digitalogic_REST_API {
             'data' => array(
                 'dollar_price' => $options->get_dollar_price(),
                 'yuan_price' => $options->get_yuan_price(),
-                'update_date' => $options->get_update_date()
+                'update_date' => $options->get_update_date(),
+                'woocommerce_currency' => $options->get_woocommerce_currency(),
+                'woocommerce_symbol' => $options->get_woocommerce_currency_symbol(),
+                'currency_status' => $options->get_currency_status()
             )
         ), 200);
     }
