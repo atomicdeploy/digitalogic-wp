@@ -222,9 +222,11 @@ class Digitalogic_Admin {
         if (isset($_POST['submit']) && check_admin_referer('digitalogic_currency_update')) {
             $dollar_price = floatval($_POST['dollar_price']);
             $yuan_price = floatval($_POST['yuan_price']);
+            $use_toman = isset($_POST['use_toman']) ? true : false;
             
             $options->set_dollar_price($dollar_price);
             $options->set_yuan_price($yuan_price);
+            $options->set_use_toman($use_toman);
             
             // Recalculate dynamic prices
             if (isset($_POST['recalculate_prices'])) {
@@ -241,6 +243,7 @@ class Digitalogic_Admin {
         
         $dollar_price = $options->get_dollar_price();
         $yuan_price = $options->get_yuan_price();
+        $use_toman = $options->get_use_toman();
         $update_date = $options->get_update_date_formatted();
         $update_date_relative = $options->get_update_date_relative();
         

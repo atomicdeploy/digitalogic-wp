@@ -251,6 +251,9 @@ final class Digitalogic {
         if (get_option('options_update_date') === false) {
             add_option('options_update_date', date('ymd'));
         }
+        if (get_option('options_use_toman') === false) {
+            add_option('options_use_toman', false);
+        }
         
         // Also initialize direct options for backward compatibility
         if (get_option('dollar_price') === false) {
@@ -261,6 +264,9 @@ final class Digitalogic {
         }
         if (get_option('update_date') === false) {
             add_option('update_date', date('ymd'));
+        }
+        if (get_option('use_toman') === false) {
+            add_option('use_toman', false);
         }
         
         // Migration: Move old prefixed options to ACF storage
@@ -299,6 +305,7 @@ final class Digitalogic {
     
     /**
      * Change currency symbol from Rial to Toman for Iranian Rial
+     * Only applies if the "Use Toman" setting is enabled
      * 
      * @param string $currency_symbol The currency symbol
      * @param string $currency The currency code
@@ -306,7 +313,10 @@ final class Digitalogic {
      */
     public function change_currency_symbol($currency_symbol, $currency) {
         if ($currency === 'IRR') {
-            return 'تومان';
+            $options = Digitalogic_Options::instance();
+            if ($options->get_use_toman()) {
+                return 'تومان';
+            }
         }
         return $currency_symbol;
     }
