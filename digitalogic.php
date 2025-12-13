@@ -248,10 +248,10 @@ final class Digitalogic {
         if (get_option('options_yuan_price') === false) {
             add_option('options_yuan_price', '0');
         }
-        if (get_option('options_update_date') === false) {
+        if (false === get_option('options_update_date', false)) {
             add_option('options_update_date', date('ymd'));
         }
-        if (get_option('options_use_toman') === false) {
+        if (false === get_option('options_use_toman', null)) {
             add_option('options_use_toman', false);
         }
         
@@ -265,7 +265,7 @@ final class Digitalogic {
         if (get_option('update_date') === false) {
             add_option('update_date', date('ymd'));
         }
-        if (get_option('use_toman') === false) {
+        if (false === get_option('use_toman', null)) {
             add_option('use_toman', false);
         }
         
