@@ -77,6 +77,8 @@ class Digitalogic_Options {
             update_option('yuan_price', $value);
         } elseif ($field_name === 'update_date' || $field_name === 'options_update_date') {
             update_option('update_date', $value);
+        } elseif ($field_name === 'use_toman' || $field_name === 'options_use_toman') {
+            update_option('use_toman', $value);
         }
         
         unset($updating[$field_name]);
@@ -111,6 +113,8 @@ class Digitalogic_Options {
             return $stored !== 0 ? $stored : $value;
         } elseif ($field_name === 'update_date' || $field_name === 'options_update_date') {
             return $this->get_update_date();
+        } elseif ($field_name === 'use_toman' || $field_name === 'options_use_toman') {
+            return $this->get_use_toman();
         }
         
         return $value;
