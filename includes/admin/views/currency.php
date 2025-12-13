@@ -37,16 +37,6 @@
             
             <tr>
                 <th scope="row">
-                    <label for="use_toman"><?php _e('Use Toman Currency Symbol', 'digitalogic'); ?></label>
-                </th>
-                <td>
-                    <input type="checkbox" name="use_toman" id="use_toman" value="1" <?php checked($use_toman, true); ?>>
-                    <label for="use_toman"><?php _e('Display "تومان" instead of "ریال" for Iranian Rial (IRR) currency', 'digitalogic'); ?></label>
-                </td>
-            </tr>
-            
-            <tr>
-                <th scope="row">
                     <?php _e('Last Update', 'digitalogic'); ?>
                 </th>
                 <td>

@@ -147,11 +147,11 @@ $wc_features['Plugin Compatible'] = $hpos_status['plugin_compatible'] ? 'Yes' : 
                 </tr>
                 <tr>
                     <td><strong><?php _e('Total Products', 'digitalogic'); ?></strong></td>
-                    <td><?php echo esc_html(number_format_i18n($product_count)); ?></td>
+                    <td><?php echo esc_html(Digitalogic_Options::format_number($product_count)); ?></td>
                 </tr>
                 <tr>
                     <td><strong><?php _e('Activity Logs', 'digitalogic'); ?></strong></td>
-                    <td><?php echo esc_html(number_format_i18n($logs_count)); ?> <?php _e('entries', 'digitalogic'); ?></td>
+                    <td><?php echo esc_html(Digitalogic_Options::format_number($logs_count)); ?> <?php _e('entries', 'digitalogic'); ?></td>
                 </tr>
             </tbody>
         </table>
@@ -164,11 +164,11 @@ $wc_features['Plugin Compatible'] = $hpos_status['plugin_compatible'] ? 'Yes' : 
             <tbody>
                 <tr>
                     <td><strong><?php _e('USD Price (dollar_price)', 'digitalogic'); ?></strong></td>
-                    <td><?php echo esc_html(number_format_i18n($dollar_price, 0)); ?></td>
+                    <td><?php echo esc_html(Digitalogic_Options::format_number($dollar_price)); ?></td>
                 </tr>
                 <tr>
                     <td><strong><?php _e('CNY Price (yuan_price)', 'digitalogic'); ?></strong></td>
-                    <td><?php echo esc_html(number_format_i18n($yuan_price, 0)); ?></td>
+                    <td><?php echo esc_html(Digitalogic_Options::format_number($yuan_price)); ?></td>
                 </tr>
                 <tr>
                     <td><strong><?php _e('Last Update Date (update_date)', 'digitalogic'); ?></strong></td>

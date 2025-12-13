@@ -237,6 +237,16 @@ msgstr "وضعیت API"
 msgid "Support"
 msgstr "پشتیبانی"
 
+# Settings page
+msgid "Settings"
+msgstr "تنظیمات"
+
+msgid "Save Settings"
+msgstr "ذخیره تنظیمات"
+
+msgid "Settings saved"
+msgstr "تنظیمات ذخیره شد"
+
 # Status page
 msgid "Status & Diagnostics"
 msgstr "وضعیت و تشخیص"

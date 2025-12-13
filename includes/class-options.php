@@ -347,6 +347,29 @@ class Digitalogic_Options {
     }
     
     /**
+     * Format number with thousands separator and Persian digits if locale is Persian
+     * 
+     * @param float|int $number The number to format
+     * @param int $decimals Number of decimal points (default: 0)
+     * @return string Formatted number
+     */
+    public static function format_number($number, $decimals = 0) {
+        // Format number with thousands separator
+        $formatted = number_format_i18n($number, $decimals);
+        
+        // Convert to Persian digits if locale is Persian
+        if (get_locale() === 'fa_IR') {
+            // Persian/Farsi digit mapping
+            $persian_digits = array('۰', '۱', '۲', '۳', '۴', '۵', '۶', '۷', '۸', '۹');
+            $english_digits = array('0', '1', '2', '3', '4', '5', '6', '7', '8', '9');
+            
+            $formatted = str_replace($english_digits, $persian_digits, $formatted);
+        }
+        
+        return $formatted;
+    }
+    
+    /**
      * Update the last modified date to today
      * Updates both ACF storage (if available) and direct option for full compatibility
      * Works with or without ACF
