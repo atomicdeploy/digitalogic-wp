@@ -51,6 +51,16 @@ class Digitalogic_Admin {
             56
         );
         
+        // Add explicit Dashboard submenu to override the auto-generated one
+        $this->page_hooks[] = add_submenu_page(
+            'digitalogic',
+            __('Dashboard', 'digitalogic'),
+            __('Dashboard', 'digitalogic'),
+            'manage_woocommerce',
+            'digitalogic',
+            array($this, 'render_dashboard')
+        );
+        
         $this->page_hooks[] = add_submenu_page(
             'digitalogic',
             __('Product List', 'digitalogic'),
@@ -235,6 +245,7 @@ class Digitalogic_Admin {
         $dollar_price = $options->get_dollar_price();
         $yuan_price = $options->get_yuan_price();
         $update_date = $options->get_update_date_formatted();
+        $update_date_relative = $options->get_update_date_relative();
         
         include DIGITALOGIC_PLUGIN_DIR . 'includes/admin/views/currency.php';
     }

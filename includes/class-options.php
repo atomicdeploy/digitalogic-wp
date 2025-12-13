@@ -251,6 +251,26 @@ class Digitalogic_Options {
     }
     
     /**
+     * Parse the stored YYMMDD date format to Y-m-d string
+     * 
+     * @param string $date_raw Date in YYMMDD format
+     * @return string Date in Y-m-d format
+     */
+    private function parse_update_date($date_raw) {
+        // Convert YYMMDD to a full date string
+        // Assuming 20XX century for YY
+        if (strlen($date_raw) === 6) {
+            $year = '20' . substr($date_raw, 0, 2);
+            $month = substr($date_raw, 2, 2);
+            $day = substr($date_raw, 4, 2);
+            return $year . '-' . $month . '-' . $day;
+        } else {
+            // Fallback to today's date if format is wrong
+            return date('Y-m-d');
+        }
+    }
+    
+    /**
      * Get formatted update date for display
      * Supports Persian dates via parsidate plugin if available
      * 
@@ -259,24 +279,44 @@ class Digitalogic_Options {
      */
     public function get_update_date_formatted($format = 'Y/m/d') {
         $update_date_raw = $this->get_update_date();
-        
-        // Convert YYMMDD to a full date string
-        // Assuming 20XX century for YY
-        if (strlen($update_date_raw) === 6) {
-            $year = '20' . substr($update_date_raw, 0, 2);
-            $month = substr($update_date_raw, 2, 2);
-            $day = substr($update_date_raw, 4, 2);
-            $date_string = $year . '-' . $month . '-' . $day;
-        } else {
-            // Fallback to today's date if format is wrong
-            $date_string = date('Y-m-d');
-        }
+        $date_string = $this->parse_update_date($update_date_raw);
         
         // Check if Persian (Jalali) date conversion is available
         if (function_exists('parsidate') && get_locale() === 'fa_IR') {
             return parsidate($format, strtotime($date_string));
         } else {
             return date_i18n($format, strtotime($date_string));
+        }
+    }
+    
+    /**
+     * Get relative time for update date (e.g., "today", "2 days ago")
+     * 
+     * @return string Relative time string
+     */
+    public function get_update_date_relative() {
+        $update_date_raw = $this->get_update_date();
+        $date_string = $this->parse_update_date($update_date_raw);
+        
+        $update_timestamp = strtotime($date_string);
+        $today = strtotime(date('Y-m-d'));
+        
+        // Calculate difference in days
+        $seconds_per_day = 86400; // 24 * 60 * 60
+        $diff_seconds = $today - $update_timestamp;
+        $diff_days = (int) floor($diff_seconds / $seconds_per_day);
+        
+        // Handle future dates (negative difference)
+        if ($diff_days < 0) {
+            return __('today', 'digitalogic');
+        }
+        
+        if ($diff_days === 0) {
+            return __('today', 'digitalogic');
+        } elseif ($diff_days === 1) {
+            return __('1 day ago', 'digitalogic');
+        } else {
+            return sprintf(__('%d days ago', 'digitalogic'), $diff_days);
         }
     }
     

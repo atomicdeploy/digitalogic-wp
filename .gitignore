@@ -52,3 +52,6 @@ phpunit.xml
 
 # Exports
 /wp-content/uploads/digitalogic-exports/
+
+# Translation files - .mo files are built during deployment
+languages/*.mo

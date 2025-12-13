@@ -37,6 +37,24 @@ jobs:
     - name: Install dependencies
       run: composer install --no-dev --prefer-dist --no-progress --optimize-autoloader
       
+    - name: Install WP-CLI
+      run: |
+        curl -O https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar
+        chmod +x wp-cli.phar
+        sudo mv wp-cli.phar /usr/local/bin/wp
+        wp --info
+        
+    - name: Build translation files
+      run: |
+        # Build .mo files from .po files (i18n command is included in WP-CLI 2.5+)
+        if [ -n "$(find languages/ -name '*.po' -type f 2>/dev/null)" ]; then
+          wp i18n make-mo languages/ --allow-root
+          echo "Translation files built successfully"
+          ls -la languages/
+        else
+          echo "No .po files found to build"
+        fi
+      
     - name: Create deployment package
       run: |
         mkdir -p deploy
