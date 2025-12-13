@@ -222,9 +222,6 @@ msgid "Invalid JSON file"
 msgstr "فایل JSON نامعتبر"
 
 # Plugin action links
-msgid "Dashboard"
-msgstr "پیشخوان"
-
 msgid "Documentation"
 msgstr "مستندات"
 
