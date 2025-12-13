@@ -41,7 +41,7 @@ if ($product_id > 0) {
                     </th>
                     <td>
                         <input type="text" id="product_id" name="product_id" value="<?php echo esc_attr($product_id); ?>" class="regular-text">
-                        <p class="description"><?php _e('Enter a product ID to view its metadata', 'digitalogic'); ?></p>
+                        <p class="description"><?php _e('Enter a product ID to view its metadata and check for inconsistencies', 'digitalogic'); ?></p>
                     </td>
                 </tr>
             </table>
@@ -170,10 +170,6 @@ if ($product_id > 0) {
             <textarea readonly style="width: 100%; height: 300px; font-family: monospace; font-size: 12px;"><?php echo esc_textarea(json_encode($metadata, JSON_PRETTY_PRINT)); ?></textarea>
         </div>
         
-    <?php elseif ($product_id > 0) : ?>
-        <div class="notice notice-info">
-            <p><?php _e('Enter a product ID above and click "Load Product Data" to view metadata.', 'digitalogic'); ?></p>
-        </div>
     <?php endif; ?>
 </div>
 

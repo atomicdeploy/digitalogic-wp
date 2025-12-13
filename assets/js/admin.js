@@ -111,9 +111,7 @@
                     data: 'min_price',
                     className: 'dt-ltr',
                     render: function(data, type, row) {
-                        if (type === 'display') {
-                            return '<input type="number" class="product-field" data-id="' + row.id + '" data-field="min_price" value="' + (data || '') + '" step="0.01" dir="ltr">';
-                        }
+                        // Display only - min_price is calculated from lookup table
                         return data || '';
                     }
                 },
@@ -121,9 +119,7 @@
                     data: 'max_price',
                     className: 'dt-ltr',
                     render: function(data, type, row) {
-                        if (type === 'display') {
-                            return '<input type="number" class="product-field" data-id="' + row.id + '" data-field="max_price" value="' + (data || '') + '" step="0.01" dir="ltr">';
-                        }
+                        // Display only - max_price is calculated from lookup table
                         return data || '';
                     }
                 },

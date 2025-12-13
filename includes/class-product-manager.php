@@ -180,7 +180,7 @@ class Digitalogic_Product_Manager {
                 $data['max_price'] = $lookup_data['max_price'];
                 // Use lookup table stock data as it's the authoritative source
                 if (isset($lookup_data['stock_quantity'])) {
-                    $data['stock_quantity'] = $lookup_data['stock_quantity'];
+                    $data['stock_quantity'] = (int) $lookup_data['stock_quantity'];
                 }
                 if (isset($lookup_data['stock_status'])) {
                     $data['stock_status'] = $lookup_data['stock_status'];
@@ -493,7 +493,7 @@ class Digitalogic_Product_Manager {
         
         // Check stock quantity consistency
         if (isset($postmeta['_stock']) && isset($lookup_data['stock_quantity'])) {
-            if ($postmeta['_stock'] != $lookup_data['stock_quantity']) {
+            if ($postmeta['_stock'] !== $lookup_data['stock_quantity']) {
                 $inconsistencies[] = sprintf(
                     'Stock quantity mismatch: postmeta="%s", lookup="%s"',
                     $postmeta['_stock'],

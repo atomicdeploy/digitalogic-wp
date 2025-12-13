@@ -231,11 +231,18 @@ $wc_features['Plugin Compatible'] = $hpos_status['plugin_compatible'] ? 'Yes' : 
             <li><code>wp digitalogic currency get</code></li>
             <li><code>wp digitalogic currency update --usd=42000 --cny=6000</code></li>
             <li><code>wp digitalogic products list --limit=20</code></li>
-            <li><code>wp digitalogic products update 123 --price=99.99</code></li>
+            <li><code>wp digitalogic products get --id=123</code> or <code>--sku=113004012</code></li>
+            <li><code>wp digitalogic products metadata --id=123</code> or <code>--sku=113004012</code></li>
+            <li><code>wp digitalogic products update --id=123 --price=99.99</code></li>
             <li><code>wp digitalogic export --format=csv</code></li>
             <li><code>wp digitalogic import /path/to/products.csv</code></li>
             <li><code>wp digitalogic logs --limit=50</code></li>
         </ul>
+        <p>
+            <a href="<?php echo esc_url(admin_url('admin.php?page=product-debug')); ?>" class="button">
+                <?php _e('Product Data Debug Tool', 'digitalogic'); ?>
+            </a>
+        </p>
     </div>
     
     <!-- Debug Information -->
