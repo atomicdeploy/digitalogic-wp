@@ -6,7 +6,7 @@ This is a WordPress/WooCommerce plugin providing dynamic pricing, stock manageme
 
 ## Technology Stack
 
-- **Language**: PHP 8.0+ (currently targeting PHP 8.3)
+- **Language**: PHP 8.3+ (minimum required version)
 - **Framework**: WordPress 6.0+, WooCommerce 7.0+ (HPOS compatible)
 - **Dependencies**: PhpSpreadsheet for Excel operations
 - **Database**: MySQL 5.7+
@@ -253,7 +253,7 @@ wp digitalogic import products.csv
 ## Resources
 
 - [WordPress Coding Standards](https://developer.wordpress.org/coding-standards/wordpress-coding-standards/)
-- [WooCommerce CRUD](https://github.com/woocommerce/woocommerce/wiki/CRUD-Objects)
+- [WooCommerce CRUD Objects](https://woocommerce.com/document/woocommerce-crud-objects/)
 - [WP-CLI Documentation](https://developer.wordpress.org/cli/commands/)
 - [REST API Handbook](https://developer.wordpress.org/rest-api/)
 
