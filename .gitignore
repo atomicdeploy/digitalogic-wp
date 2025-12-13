@@ -41,8 +41,10 @@ ehthumbs.db
 Thumbs.db
 
 # Test
-/tests/
+# phpunit.xml - exclude local phpunit config
 phpunit.xml
+# /tests/ - commented out to allow manual test scripts
+# Note: Manual test scripts should be committed, but automated test results should not
 
 # Temporary files
 *.tmp
