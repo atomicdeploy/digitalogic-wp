@@ -40,10 +40,10 @@
 				<th><?php _e( 'Image', 'digitalogic' ); ?></th>
 				<th><?php _e( 'Name', 'digitalogic' ); ?></th>
 				<th><?php _e( 'SKU', 'digitalogic' ); ?></th>
-				<th><?php _e( 'Regular Price', 'digitalogic' ); ?></th>
-				<th><?php _e( 'Sale Price', 'digitalogic' ); ?></th>
-				<th><?php _e( 'Stock', 'digitalogic' ); ?></th>
-				<th><?php _e( 'Weight', 'digitalogic' ); ?></th>
+				<th><?php _e( 'Min Price', 'digitalogic' ); ?></th>
+				<th><?php _e( 'Max Price', 'digitalogic' ); ?></th>
+				<th><?php _e( 'Stock Qty', 'digitalogic' ); ?></th>
+				<th><?php _e( 'Stock Status', 'digitalogic' ); ?></th>
 				<th><?php _e( 'Actions', 'digitalogic' ); ?></th>
 			</tr>
 		</thead>

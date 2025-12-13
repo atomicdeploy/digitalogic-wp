@@ -41,9 +41,33 @@ class Digitalogic_REST_API {
             'permission_callback' => array($this, 'check_permission')
         ));
         
+        register_rest_route('digitalogic/v1', '/products/sku/(?P<sku>[^/]+)', array(
+            'methods' => 'GET',
+            'callback' => array($this, 'get_product_by_sku'),
+            'permission_callback' => array($this, 'check_permission')
+        ));
+        
         register_rest_route('digitalogic/v1', '/products/(?P<id>\d+)', array(
             'methods' => 'PUT',
             'callback' => array($this, 'update_product'),
+            'permission_callback' => array($this, 'check_permission')
+        ));
+        
+        register_rest_route('digitalogic/v1', '/products/sku/(?P<sku>[^/]+)', array(
+            'methods' => 'PUT',
+            'callback' => array($this, 'update_product_by_sku'),
+            'permission_callback' => array($this, 'check_permission')
+        ));
+        
+        register_rest_route('digitalogic/v1', '/products/(?P<id>\d+)/metadata', array(
+            'methods' => 'GET',
+            'callback' => array($this, 'get_product_metadata'),
+            'permission_callback' => array($this, 'check_permission')
+        ));
+        
+        register_rest_route('digitalogic/v1', '/products/sku/(?P<sku>[^/]+)/metadata', array(
+            'methods' => 'GET',
+            'callback' => array($this, 'get_product_metadata_by_sku'),
             'permission_callback' => array($this, 'check_permission')
         ));
         
@@ -148,6 +172,72 @@ class Digitalogic_REST_API {
     }
     
     /**
+     * GET /products/sku/{sku}
+     */
+    public function get_product_by_sku(WP_REST_Request $request) {
+        $sku = $request['sku'];
+        
+        $manager = Digitalogic_Product_Manager::instance();
+        $product = $manager->get_product_by_sku($sku);
+        
+        if (!$product) {
+            return new WP_REST_Response(array(
+                'success' => false,
+                'message' => 'Product not found'
+            ), 404);
+        }
+        
+        return new WP_REST_Response(array(
+            'success' => true,
+            'data' => $product
+        ), 200);
+    }
+    
+    /**
+     * GET /products/{id}/metadata
+     */
+    public function get_product_metadata(WP_REST_Request $request) {
+        $product_id = $request['id'];
+        
+        $manager = Digitalogic_Product_Manager::instance();
+        $metadata = $manager->get_product_metadata($product_id);
+        
+        if (is_wp_error($metadata)) {
+            return new WP_REST_Response(array(
+                'success' => false,
+                'message' => $metadata->get_error_message()
+            ), 404);
+        }
+        
+        return new WP_REST_Response(array(
+            'success' => true,
+            'data' => $metadata
+        ), 200);
+    }
+    
+    /**
+     * GET /products/sku/{sku}/metadata
+     */
+    public function get_product_metadata_by_sku(WP_REST_Request $request) {
+        $sku = $request['sku'];
+        
+        $manager = Digitalogic_Product_Manager::instance();
+        $metadata = $manager->get_product_metadata(null, $sku);
+        
+        if (is_wp_error($metadata)) {
+            return new WP_REST_Response(array(
+                'success' => false,
+                'message' => $metadata->get_error_message()
+            ), 404);
+        }
+        
+        return new WP_REST_Response(array(
+            'success' => true,
+            'data' => $metadata
+        ), 200);
+    }
+    
+    /**
      * PUT /products/{id}
      */
     public function update_product(WP_REST_Request $request) {
@@ -156,6 +246,29 @@ class Digitalogic_REST_API {
         
         $manager = Digitalogic_Product_Manager::instance();
         $result = $manager->update_product($product_id, $data);
+        
+        if (is_wp_error($result)) {
+            return new WP_REST_Response(array(
+                'success' => false,
+                'message' => $result->get_error_message()
+            ), 400);
+        }
+        
+        return new WP_REST_Response(array(
+            'success' => true,
+            'message' => 'Product updated successfully'
+        ), 200);
+    }
+    
+    /**
+     * PUT /products/sku/{sku}
+     */
+    public function update_product_by_sku(WP_REST_Request $request) {
+        $sku = $request['sku'];
+        $data = $request->get_json_params();
+        
+        $manager = Digitalogic_Product_Manager::instance();
+        $result = $manager->update_product(null, $data, $sku);
         
         if (is_wp_error($result)) {
             return new WP_REST_Response(array(

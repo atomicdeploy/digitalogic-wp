@@ -107,6 +107,22 @@ class Digitalogic_Product_Manager {
     }
     
     /**
+     * Get single product by SKU
+     * 
+     * @param string $sku Product SKU
+     * @return array|null
+     */
+    public function get_product_by_sku($sku) {
+        $product_id = wc_get_product_id_by_sku($sku);
+        
+        if (!$product_id) {
+            return null;
+        }
+        
+        return $this->get_product($product_id);
+    }
+    
+    /**
      * Format product data for output
      * 
      * @param WC_Product $product
@@ -125,8 +141,21 @@ class Digitalogic_Product_Manager {
         }
         
         try {
+            global $wpdb;
+            $product_id = $product->get_id();
+            
+            // Get data from wp_wc_product_meta_lookup for accurate pricing and stock info
+            $lookup_table = $wpdb->prefix . 'wc_product_meta_lookup';
+            $lookup_data = $wpdb->get_row(
+                $wpdb->prepare(
+                    "SELECT min_price, max_price, stock_quantity, stock_status FROM {$lookup_table} WHERE product_id = %d",
+                    $product_id
+                ),
+                ARRAY_A
+            );
+            
             $data = array(
-                'id' => $product->get_id(),
+                'id' => $product_id,
                 'name' => $product->get_name(),
                 'sku' => $product->get_sku(),
                 'type' => $product->get_type(),
@@ -144,6 +173,23 @@ class Digitalogic_Product_Manager {
                 'permalink' => $product->get_permalink(),
                 'image' => wp_get_attachment_url($product->get_image_id()),
             );
+            
+            // Add min_price and max_price from lookup table if available
+            if ($lookup_data) {
+                $data['min_price'] = $lookup_data['min_price'];
+                $data['max_price'] = $lookup_data['max_price'];
+                // Use lookup table stock data as it's the authoritative source
+                if (isset($lookup_data['stock_quantity'])) {
+                    $data['stock_quantity'] = $lookup_data['stock_quantity'];
+                }
+                if (isset($lookup_data['stock_status'])) {
+                    $data['stock_status'] = $lookup_data['stock_status'];
+                }
+            } else {
+                // Fallback to calculated values
+                $data['min_price'] = $product->get_price();
+                $data['max_price'] = $product->get_price();
+            }
             
             // Add variation data if variable product (only at first level)
             if ($depth === 0 && $product->is_type('variable')) {
@@ -174,11 +220,20 @@ class Digitalogic_Product_Manager {
     /**
      * Update single product
      * 
-     * @param int $product_id
+     * @param int $product_id Product ID
      * @param array $data
+     * @param string $sku Product SKU (optional, for lookups by SKU)
      * @return bool|WP_Error
      */
-    public function update_product($product_id, $data) {
+    public function update_product($product_id, $data, $sku = null) {
+        // If SKU is provided, get product ID from SKU
+        if ($sku !== null) {
+            $product_id = wc_get_product_id_by_sku($sku);
+            if (!$product_id) {
+                return new WP_Error('product_not_found', __('Product not found', 'digitalogic'));
+            }
+        }
+        
         $product = wc_get_product($product_id);
         
         if (!$product) {
@@ -320,5 +375,155 @@ class Digitalogic_Product_Manager {
             error_log('Digitalogic: Error in get_product_count - ' . $e->getMessage());
             return 0;
         }
+    }
+    
+    /**
+     * Get product metadata from both wp_postmeta and wp_wc_product_meta_lookup
+     * 
+     * @param int $product_id Product ID
+     * @param string $sku Product SKU (optional, for lookups by SKU)
+     * @return array|WP_Error
+     */
+    public function get_product_metadata($product_id, $sku = null) {
+        global $wpdb;
+        
+        // If SKU is provided, get product ID from SKU
+        if ($sku !== null) {
+            $product_id = wc_get_product_id_by_sku($sku);
+            if (!$product_id) {
+                return new WP_Error('product_not_found', 'Product not found');
+            }
+        }
+        
+        $product = wc_get_product($product_id);
+        if (!$product) {
+            return new WP_Error('product_not_found', 'Product not found');
+        }
+        
+        $metadata = array(
+            'product_id' => $product_id,
+            'sku' => $product->get_sku(),
+            'name' => $product->get_name(),
+            'type' => $product->get_type(),
+        );
+        
+        // Get data from wp_wc_product_meta_lookup
+        $lookup_table = $wpdb->prefix . 'wc_product_meta_lookup';
+        $lookup_data = $wpdb->get_row(
+            $wpdb->prepare(
+                "SELECT * FROM {$lookup_table} WHERE product_id = %d",
+                $product_id
+            ),
+            ARRAY_A
+        );
+        
+        $metadata['lookup_table'] = $lookup_data ?: array();
+        
+        // Get relevant meta from wp_postmeta
+        $meta_keys = array(
+            '_sku',
+            '_regular_price',
+            '_sale_price',
+            '_price',
+            '_stock',
+            '_stock_status',
+            '_manage_stock',
+            '_backorders',
+            '_sold_individually',
+            'total_sales',
+            '_tax_status',
+            '_tax_class',
+        );
+        
+        $postmeta = array();
+        foreach ($meta_keys as $key) {
+            $value = get_post_meta($product_id, $key, true);
+            if ($value !== '') {
+                $postmeta[$key] = $value;
+            }
+        }
+        
+        $metadata['postmeta'] = $postmeta;
+        
+        // Check for inconsistencies
+        $metadata['inconsistencies'] = $this->check_metadata_inconsistencies($product_id, $lookup_data, $postmeta);
+        
+        return $metadata;
+    }
+    
+    /**
+     * Check for inconsistencies between wp_postmeta and wp_wc_product_meta_lookup
+     * 
+     * @param int $product_id Product ID
+     * @param array $lookup_data Data from wp_wc_product_meta_lookup
+     * @param array $postmeta Data from wp_postmeta
+     * @return array List of inconsistencies
+     */
+    private function check_metadata_inconsistencies($product_id, $lookup_data, $postmeta) {
+        $inconsistencies = array();
+        
+        if (!$lookup_data) {
+            $inconsistencies[] = 'Product not found in wp_wc_product_meta_lookup table';
+            return $inconsistencies;
+        }
+        
+        // Check SKU consistency
+        if (isset($postmeta['_sku']) && isset($lookup_data['sku'])) {
+            if ($postmeta['_sku'] !== $lookup_data['sku']) {
+                $inconsistencies[] = sprintf(
+                    'SKU mismatch: postmeta="%s", lookup="%s"',
+                    $postmeta['_sku'],
+                    $lookup_data['sku']
+                );
+            }
+        }
+        
+        // Check price consistency
+        if (isset($postmeta['_price']) && isset($lookup_data['min_price'])) {
+            $price_meta = floatval($postmeta['_price']);
+            $price_lookup = floatval($lookup_data['min_price']);
+            if (abs($price_meta - $price_lookup) > 0.01) {
+                $inconsistencies[] = sprintf(
+                    'Price mismatch: postmeta="%s", lookup min_price="%s"',
+                    $price_meta,
+                    $price_lookup
+                );
+            }
+        }
+        
+        // Check stock quantity consistency
+        if (isset($postmeta['_stock']) && isset($lookup_data['stock_quantity'])) {
+            if ($postmeta['_stock'] != $lookup_data['stock_quantity']) {
+                $inconsistencies[] = sprintf(
+                    'Stock quantity mismatch: postmeta="%s", lookup="%s"',
+                    $postmeta['_stock'],
+                    $lookup_data['stock_quantity']
+                );
+            }
+        }
+        
+        // Check stock status consistency
+        if (isset($postmeta['_stock_status']) && isset($lookup_data['stock_status'])) {
+            if ($postmeta['_stock_status'] !== $lookup_data['stock_status']) {
+                $inconsistencies[] = sprintf(
+                    'Stock status mismatch: postmeta="%s", lookup="%s"',
+                    $postmeta['_stock_status'],
+                    $lookup_data['stock_status']
+                );
+            }
+        }
+        
+        // Check tax status consistency
+        if (isset($postmeta['_tax_status']) && isset($lookup_data['tax_status'])) {
+            if ($postmeta['_tax_status'] !== $lookup_data['tax_status']) {
+                $inconsistencies[] = sprintf(
+                    'Tax status mismatch: postmeta="%s", lookup="%s"',
+                    $postmeta['_tax_status'],
+                    $lookup_data['tax_status']
+                );
+            }
+        }
+        
+        return $inconsistencies;
     }
 }

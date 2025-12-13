@@ -91,7 +91,10 @@
                         return '<input type="checkbox" class="product-checkbox" data-id="' + row.id + '">';
                     }
                 },
-                { data: 'id' },
+                { 
+                    data: 'id',
+                    className: 'dt-ltr'
+                },
                 {
                     data: 'image',
                     orderable: false,
@@ -100,29 +103,50 @@
                     }
                 },
                 { data: 'name' },
-                { data: 'sku' },
+                { 
+                    data: 'sku',
+                    className: 'dt-ltr'
+                },
                 {
-                    data: 'regular_price',
+                    data: 'min_price',
+                    className: 'dt-ltr',
                     render: function(data, type, row) {
-                        return '<input type="number" class="product-field" data-id="' + row.id + '" data-field="regular_price" value="' + (data || '') + '" step="0.01">';
+                        if (type === 'display') {
+                            return '<input type="number" class="product-field" data-id="' + row.id + '" data-field="min_price" value="' + (data || '') + '" step="0.01" dir="ltr">';
+                        }
+                        return data || '';
                     }
                 },
                 {
-                    data: 'sale_price',
+                    data: 'max_price',
+                    className: 'dt-ltr',
                     render: function(data, type, row) {
-                        return '<input type="number" class="product-field" data-id="' + row.id + '" data-field="sale_price" value="' + (data || '') + '" step="0.01">';
+                        if (type === 'display') {
+                            return '<input type="number" class="product-field" data-id="' + row.id + '" data-field="max_price" value="' + (data || '') + '" step="0.01" dir="ltr">';
+                        }
+                        return data || '';
                     }
                 },
                 {
                     data: 'stock_quantity',
+                    className: 'dt-ltr',
                     render: function(data, type, row) {
-                        return '<input type="number" class="product-field" data-id="' + row.id + '" data-field="stock_quantity" value="' + (data || '') + '" step="1">';
+                        if (type === 'display') {
+                            return '<input type="number" class="product-field" data-id="' + row.id + '" data-field="stock_quantity" value="' + (data || '') + '" step="1" dir="ltr">';
+                        }
+                        return data || '';
                     }
                 },
                 {
-                    data: 'weight',
+                    data: 'stock_status',
                     render: function(data, type, row) {
-                        return '<input type="number" class="product-field" data-id="' + row.id + '" data-field="weight" value="' + (data || '') + '" step="0.01">';
+                        if (type === 'display') {
+                            var options = '<option value="instock"' + (data === 'instock' ? ' selected' : '') + '>In Stock</option>' +
+                                         '<option value="outofstock"' + (data === 'outofstock' ? ' selected' : '') + '>Out of Stock</option>' +
+                                         '<option value="onbackorder"' + (data === 'onbackorder' ? ' selected' : '') + '>On Backorder</option>';
+                            return '<select class="product-field" data-id="' + row.id + '" data-field="stock_status">' + options + '</select>';
+                        }
+                        return data || '';
                     }
                 },
                 {
