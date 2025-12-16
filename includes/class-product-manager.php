@@ -34,8 +34,8 @@ class Digitalogic_Product_Manager {
         $defaults = array(
             'limit' => 50,
             'page' => 1,
-            'status' => 'publish',
-            'type' => array('simple', 'variable'),
+            'status' => 'any',
+            'type' => array('simple', 'variable', 'variation'),
             'orderby' => 'date',
             'order' => 'DESC',
             'search' => '',
@@ -294,8 +294,8 @@ class Digitalogic_Product_Manager {
      */
     public function get_product_count($args = array()) {
         $defaults = array(
-            'status' => 'publish',
-            'type' => array('simple', 'variable'),
+            'status' => 'any',
+            'type' => array('simple', 'variable', 'variation'),
         );
         
         $args = wp_parse_args($args, $defaults);
