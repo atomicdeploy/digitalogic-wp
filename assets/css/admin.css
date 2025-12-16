@@ -85,6 +85,35 @@
     margin-top: 20px;
 }
 
+/* Fix DataTables length selector styling */
+.dataTables_length select {
+    padding: 4px 24px 4px 8px;
+    border: 1px solid #8c8f94;
+    border-radius: 3px;
+    background-color: #fff;
+    background-image: url('data:image/svg+xml;charset=US-ASCII,%3Csvg%20width%3D%2220%22%20height%3D%2220%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Cpath%20d%3D%22M5%206l5%205%205-5%202%201-7%207-7-7%202-1z%22%20fill%3D%22%23555%22%2F%3E%3C%2Fsvg%3E');
+    background-repeat: no-repeat;
+    background-position: right 4px center;
+    background-size: 16px 16px;
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    cursor: pointer;
+    min-width: 60px;
+}
+
+.dataTables_length select:focus {
+    border-color: #2271b1;
+    outline: 2px solid #2271b1;
+    outline-offset: 0;
+}
+
+/* RTL support for length selector */
+body.rtl .dataTables_length select {
+    padding: 4px 8px 4px 24px;
+    background-position: left 4px center;
+}
+
 table.dataTable {
     border-collapse: collapse;
     width: 100% !important;

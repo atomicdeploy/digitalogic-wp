@@ -296,6 +296,7 @@ class Digitalogic_Product_Manager {
         $defaults = array(
             'status' => 'publish',
             'type' => array('simple', 'variable'),
+            'search' => '',
         );
         
         $args = wp_parse_args($args, $defaults);
@@ -306,6 +307,11 @@ class Digitalogic_Product_Manager {
             'return' => 'ids',
             'limit' => -1,
         );
+        
+        // Add search filter if provided
+        if (!empty($args['search'])) {
+            $query_args['s'] = $args['search'];
+        }
         
         try {
             $products = wc_get_products($query_args);
