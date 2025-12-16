@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **WordPress Admin Bar integration** with quicklinks menu
+  - Parent menu item with Digitalogic branding
+  - Quicklinks to Dashboard, Products, Currency, Import/Export, Logs, and Status pages
+  - Proper Dashicons for each menu item (dashboard, products, money-alt, database-import, list-view, info)
+  - Capability checks to ensure only authorized users see the menu
+  - Works on both front-end and back-end when admin bar is displayed
+  - Custom CSS styling for admin bar menu items
 - **Complete ACF function hooks** for total bidirectional synchronization
   - Hook into ACF's `acf/update_value` filter to sync back to direct options
   - Hook into ACF's `acf/load_value` filter to ensure consistency
