@@ -285,17 +285,30 @@ class Digitalogic_Admin {
             $search = isset($_POST['search']) ? sanitize_text_field($_POST['search']) : '';
             
             $manager = Digitalogic_Product_Manager::instance();
+            
+            // Get products for current page
             $products = $manager->get_products(array(
                 'page' => $page,
                 'limit' => $limit,
                 'search' => $search
             ));
             
+            // Get total count (without filters)
             $total = $manager->get_product_count();
             
+            // Get filtered count (with search filter if applicable)
+            $filtered_count = $total;
+            if (!empty($search)) {
+                $filtered_count = $manager->get_product_count(array(
+                    'search' => $search
+                ));
+            }
+            
+            // Return DataTables server-side format
             wp_send_json_success(array(
                 'products' => $products,
-                'total' => $total
+                'recordsTotal' => $total,
+                'recordsFiltered' => $filtered_count
             ));
         } catch (Exception $e) {
             error_log('Digitalogic: Error fetching products - ' . $e->getMessage());
