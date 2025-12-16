@@ -280,8 +280,8 @@ class Digitalogic_Admin {
             return;
         }
         
-        // Enqueue admin styles for admin bar
-        wp_enqueue_style('digitalogic-admin-bar', DIGITALOGIC_PLUGIN_URL . 'assets/css/admin.css', array(), DIGITALOGIC_VERSION);
+        // Enqueue separate admin bar styles (lighter than full admin.css)
+        wp_enqueue_style('digitalogic-admin-bar', DIGITALOGIC_PLUGIN_URL . 'assets/css/admin-bar.css', array(), DIGITALOGIC_VERSION);
     }
     
     /**
