@@ -270,3 +270,43 @@ table.dataTable input:focus {
     padding: 4px 8px;
     font-size: 12px;
 }
+
+/* Admin Bar Menu Styles */
+#wpadminbar #wp-admin-bar-digitalogic .ab-icon:before {
+    content: '\f111';
+    top: 2px;
+}
+
+#wpadminbar #wp-admin-bar-digitalogic .ab-label {
+    margin-left: 5px;
+}
+
+#wpadminbar .digitalogic-admin-bar-icon {
+    width: 20px;
+    height: 20px;
+    margin-top: 6px;
+}
+
+#wpadminbar #wp-admin-bar-digitalogic .ab-item .dashicons {
+    font-size: 16px;
+    width: 16px;
+    height: 16px;
+    margin-right: 5px;
+}
+
+#wpadminbar #wp-admin-bar-digitalogic > .ab-item .ab-icon {
+    width: 20px;
+    height: 20px;
+    font-size: 20px;
+}
+
+/* Admin bar submenu items */
+#wpadminbar #wp-admin-bar-digitalogic .ab-submenu .ab-item {
+    height: auto;
+    padding: 0;
+}
+
+#wpadminbar #wp-admin-bar-digitalogic .ab-submenu .ab-item span {
+    display: inline-block;
+    vertical-align: middle;
+}
