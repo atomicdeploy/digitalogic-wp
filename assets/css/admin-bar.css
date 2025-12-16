@@ -5,11 +5,6 @@
  */
 
 /* Admin Bar Menu Styles */
-#wpadminbar #wp-admin-bar-digitalogic .ab-icon:before {
-    content: '\f111';
-    top: 2px;
-}
-
 #wpadminbar #wp-admin-bar-digitalogic .ab-label {
     margin-left: 5px;
 }

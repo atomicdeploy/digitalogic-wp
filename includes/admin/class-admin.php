@@ -124,7 +124,7 @@ class Digitalogic_Admin {
         // Add parent menu item
         $wp_admin_bar->add_node(array(
             'id'    => 'digitalogic',
-            'title' => '<span class="ab-icon dashicons-before dashicons-admin-generic"></span><span class="ab-label">' . __('Digitalogic', 'digitalogic') . '</span>',
+            'title' => '<span class="ab-icon dashicons-before dashicons-cart"></span><span class="ab-label">' . __('Digitalogic', 'digitalogic') . '</span>',
             'href'  => admin_url('admin.php?page=digitalogic'),
             'meta'  => array(
                 'title' => __('Digitalogic', 'digitalogic'),

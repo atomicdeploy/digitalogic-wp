@@ -8,9 +8,10 @@ The Digitalogic plugin now includes a WordPress admin bar integration that provi
 
 ### Parent Menu Item
 - **Label**: "Digitalogic"
-- **Icon**: `dashicons-admin-generic` (gear icon)
+- **Icon**: `dashicons-cart` (shopping cart icon)
 - **Link**: Dashboard page
 - **Visibility**: Only for users with `manage_woocommerce` capability
+- **Rationale**: Cart icon represents WooCommerce integration and e-commerce focus
 
 ### Submenu Items (Quicklinks)
 
