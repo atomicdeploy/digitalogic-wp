@@ -150,7 +150,13 @@
             language: {
                 processing: digitalogic.i18n.loading,
                 search: '',
-                searchPlaceholder: 'Search products...'
+                searchPlaceholder: 'Search products...',
+                lengthMenu: digitalogic.i18n.show + ' _MENU_ ' + digitalogic.i18n.entries,
+                info: digitalogic.i18n.showing + ' _START_ ' + digitalogic.i18n.to + ' _END_ ' + digitalogic.i18n.of + ' _TOTAL_ ' + digitalogic.i18n.entries_text,
+                infoEmpty: digitalogic.i18n.showing + ' 0 ' + digitalogic.i18n.to + ' 0 ' + digitalogic.i18n.of + ' 0 ' + digitalogic.i18n.entries_text,
+                infoFiltered: digitalogic.i18n.filtered,
+                emptyTable: digitalogic.i18n.no_data,
+                zeroRecords: digitalogic.i18n.no_records
             }
         });
         

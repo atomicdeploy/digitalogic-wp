@@ -174,6 +174,16 @@ class Digitalogic_Admin {
                 'success' => __('Success', 'digitalogic'),
                 'error' => __('Error', 'digitalogic'),
                 'loading' => __('Loading...', 'digitalogic'),
+                'show' => __('Show', 'digitalogic'),
+                'entries' => __('entries', 'digitalogic'),
+                'search' => __('Search:', 'digitalogic'),
+                'no_data' => __('No data available in table', 'digitalogic'),
+                'showing' => __('Showing', 'digitalogic'),
+                'to' => __('to', 'digitalogic'),
+                'of' => __('of', 'digitalogic'),
+                'entries_text' => __('entries', 'digitalogic'),
+                'no_records' => __('No matching records found', 'digitalogic'),
+                'filtered' => __('(filtered from _MAX_ total entries)', 'digitalogic'),
             )
         ));
     }
