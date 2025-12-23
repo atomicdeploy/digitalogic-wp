@@ -270,3 +270,18 @@ table.dataTable input:focus {
     padding: 4px 8px;
     font-size: 12px;
 }
+
+/* LTR direction for numeric fields in DataTables */
+.dt-ltr,
+.dt-ltr input,
+.dt-ltr select {
+    direction: ltr !important;
+    text-align: left !important;
+}
+
+/* Ensure numeric inputs are LTR */
+#products-table input[type="number"],
+#products-table .dt-ltr {
+    direction: ltr;
+    text-align: left;
+}

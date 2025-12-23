@@ -32,6 +32,7 @@ class Digitalogic_Admin {
         add_action('wp_ajax_digitalogic_export', array($this, 'ajax_export'));
         add_action('wp_ajax_digitalogic_import', array($this, 'ajax_import'));
         add_action('wp_ajax_digitalogic_get_logs', array($this, 'ajax_get_logs'));
+        add_action('wp_ajax_digitalogic_regenerate_lookup', array($this, 'ajax_regenerate_lookup'));
     }
     
     /**
@@ -104,6 +105,15 @@ class Digitalogic_Admin {
             'manage_woocommerce',
             'digitalogic-status',
             array($this, 'render_status_page')
+        );
+        
+        $this->page_hooks[] = add_submenu_page(
+            'digitalogic',
+            __('Product Data Debug', 'digitalogic'),
+            __('Product Debug', 'digitalogic'),
+            'manage_woocommerce',
+            'product-debug',
+            array($this, 'render_product_debug_page')
         );
     }
     
@@ -266,6 +276,13 @@ class Digitalogic_Admin {
      */
     public function render_status_page() {
         include DIGITALOGIC_PLUGIN_DIR . 'includes/admin/views/status.php';
+    }
+    
+    /**
+     * Render product debug page
+     */
+    public function render_product_debug_page() {
+        include DIGITALOGIC_PLUGIN_DIR . 'includes/admin/views/product-debug.php';
     }
     
     /**
@@ -464,5 +481,27 @@ class Digitalogic_Admin {
         wp_send_json_success(array(
             'logs' => $logs
         ));
+    }
+    
+    /**
+     * AJAX: Regenerate lookup table for a product
+     */
+    public function ajax_regenerate_lookup() {
+        check_ajax_referer('digitalogic_nonce', 'nonce');
+        
+        if (!current_user_can('manage_woocommerce')) {
+            wp_send_json_error('Unauthorized');
+        }
+        
+        $product_id = isset($_POST['product_id']) ? intval($_POST['product_id']) : 0;
+        
+        if (!$product_id) {
+            wp_send_json_error('Invalid product ID');
+        }
+        
+        // Regenerate the lookup table for this product
+        wc_update_product_lookup_tables($product_id);
+        
+        wp_send_json_success('Lookup table regenerated');
     }
 }
