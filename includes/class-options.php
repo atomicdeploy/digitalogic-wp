@@ -77,6 +77,8 @@ class Digitalogic_Options {
             update_option('yuan_price', $value);
         } elseif ($field_name === 'update_date' || $field_name === 'options_update_date') {
             update_option('update_date', $value);
+        } elseif ($field_name === 'use_toman' || $field_name === 'options_use_toman') {
+            update_option('use_toman', $value);
         }
         
         unset($updating[$field_name]);
@@ -111,6 +113,8 @@ class Digitalogic_Options {
             return $stored !== 0 ? $stored : $value;
         } elseif ($field_name === 'update_date' || $field_name === 'options_update_date') {
             return $this->get_update_date();
+        } elseif ($field_name === 'use_toman' || $field_name === 'options_use_toman') {
+            return $this->get_use_toman();
         }
         
         return $value;
@@ -343,6 +347,29 @@ class Digitalogic_Options {
     }
     
     /**
+     * Format number with thousands separator and Persian digits if locale is Persian
+     * 
+     * @param float|int $number The number to format
+     * @param int $decimals Number of decimal points (default: 0)
+     * @return string Formatted number
+     */
+    public static function format_number($number, $decimals = 0) {
+        // Format number with thousands separator
+        $formatted = number_format_i18n($number, $decimals);
+        
+        // Convert to Persian digits if locale is Persian
+        if (get_locale() === 'fa_IR') {
+            // Persian/Farsi digit mapping (static to avoid recreating on each call)
+            static $persian_digits = array('۰', '۱', '۲', '۳', '۴', '۵', '۶', '۷', '۸', '۹');
+            static $english_digits = array('0', '1', '2', '3', '4', '5', '6', '7', '8', '9');
+            
+            $formatted = str_replace($english_digits, $persian_digits, $formatted);
+        }
+        
+        return $formatted;
+    }
+    
+    /**
      * Update the last modified date to today
      * Updates both ACF storage (if available) and direct option for full compatibility
      * Works with or without ACF
@@ -359,6 +386,44 @@ class Digitalogic_Options {
         
         // Always update direct option (works with or without ACF)
         return update_option('update_date', $date);
+    }
+    
+    /**
+     * Get use Toman setting
+     * Determines whether to display "تومان" instead of "ریال" for IRR currency
+     * 
+     * @return bool
+     */
+    public function get_use_toman() {
+        // Try ACF storage first if ACF is available (options_ prefix)
+        if ($this->acf_available) {
+            $value = get_option('options_use_toman', false);
+            if ($value !== false) {
+                return (bool) $value;
+            }
+        }
+        
+        // Fallback to direct option (works without ACF)
+        return (bool) get_option('use_toman', false);
+    }
+    
+    /**
+     * Set use Toman setting
+     * Controls whether to display "تومان" instead of "ریال" for IRR currency
+     * 
+     * @param bool $use_toman
+     * @return bool
+     */
+    public function set_use_toman($use_toman) {
+        $use_toman = (bool) $use_toman;
+        
+        // Update ACF storage if ACF is available (options_ prefix)
+        if ($this->acf_available) {
+            update_option('options_use_toman', $use_toman);
+        }
+        
+        // Always update direct option (works with or without ACF)
+        return update_option('use_toman', $use_toman);
     }
 }
 
@@ -389,6 +454,13 @@ add_filter('pre_option_update_date', function($pre_option, $option, $default) {
     // Use our plugin method which handles ACF storage properly
     $options = Digitalogic_Options::instance();
     return $options->get_update_date();
+}, 10, 3);
+
+// Redirect get_option('use_toman') to use our plugin methods
+add_filter('pre_option_use_toman', function($pre_option, $option, $default) {
+    // Use our plugin method which handles ACF storage properly
+    $options = Digitalogic_Options::instance();
+    return $options->get_use_toman();
 }, 10, 3);
 
 /**
@@ -440,6 +512,19 @@ add_action('update_option_update_date', function($old_value, $value, $option) {
     $updating = false;
 }, 10, 3);
 
+add_action('update_option_use_toman', function($old_value, $value, $option) {
+    // Synchronize to ACF storage (options_ prefix)
+    static $updating = false;
+    if ($updating) {
+        return;
+    }
+    $updating = true;
+    
+    update_option('options_use_toman', $value);
+    
+    $updating = false;
+}, 10, 3);
+
 /**
  * Hook into add_option to synchronize when options are added directly
  * This ensures even the first-time creation of these options goes through our methods.
@@ -482,6 +567,20 @@ add_action('add_option_update_date', function($option, $value) {
     
     // Synchronize to ACF storage (options_ prefix)
     update_option('options_update_date', $value);
+    
+    $adding = false;
+}, 10, 2);
+
+add_action('add_option_use_toman', function($option, $value) {
+    // Prevent infinite loop
+    static $adding = false;
+    if ($adding) {
+        return;
+    }
+    $adding = true;
+    
+    // Synchronize to ACF storage (options_ prefix)
+    update_option('options_use_toman', $value);
     
     $adding = false;
 }, 10, 2);
@@ -534,6 +633,8 @@ if (!function_exists('get_field')) {
             return $options->get_yuan_price();
         } elseif ($selector === 'update_date') {
             return $options->get_update_date();
+        } elseif ($selector === 'use_toman') {
+            return $options->get_use_toman();
         }
         
         // For other fields, try direct option access
@@ -567,6 +668,8 @@ if (!function_exists('update_field')) {
         } elseif ($selector === 'update_date') {
             update_option('options_update_date', $value);
             return update_option('update_date', $value);
+        } elseif ($selector === 'use_toman') {
+            return $options->set_use_toman($value);
         }
         
         // For other fields, use direct option update

@@ -76,6 +76,9 @@ final class Digitalogic {
         // Plugin action links
         add_filter('plugin_action_links_' . DIGITALOGIC_PLUGIN_BASENAME, array($this, 'plugin_action_links'));
         add_filter('plugin_row_meta', array($this, 'plugin_row_meta'), 10, 2);
+        
+        // Change currency symbol from Rial to Toman for IRR
+        add_filter('woocommerce_currency_symbol', array($this, 'change_currency_symbol'), 10, 2);
     }
     
     /**
@@ -245,8 +248,11 @@ final class Digitalogic {
         if (get_option('options_yuan_price') === false) {
             add_option('options_yuan_price', '0');
         }
-        if (get_option('options_update_date') === false) {
+        if (false === get_option('options_update_date', false)) {
             add_option('options_update_date', date('ymd'));
+        }
+        if (false === get_option('options_use_toman', null)) {
+            add_option('options_use_toman', false);
         }
         
         // Also initialize direct options for backward compatibility
@@ -258,6 +264,9 @@ final class Digitalogic {
         }
         if (get_option('update_date') === false) {
             add_option('update_date', date('ymd'));
+        }
+        if (false === get_option('use_toman', null)) {
+            add_option('use_toman', false);
         }
         
         // Migration: Move old prefixed options to ACF storage
@@ -292,6 +301,24 @@ final class Digitalogic {
         if (get_option('update_date') !== false) {
             update_option('options_update_date', get_option('update_date'));
         }
+    }
+    
+    /**
+     * Change currency symbol from Rial to Toman for Iranian Rial
+     * Only applies if the "Use Toman" setting is enabled
+     * 
+     * @param string $currency_symbol The currency symbol
+     * @param string $currency The currency code
+     * @return string Modified currency symbol
+     */
+    public function change_currency_symbol($currency_symbol, $currency) {
+        if ($currency === 'IRR') {
+            $options = Digitalogic_Options::instance();
+            if ($options->get_use_toman()) {
+                return 'تومان';
+            }
+        }
+        return $currency_symbol;
     }
     
     /**

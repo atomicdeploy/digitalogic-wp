@@ -158,6 +158,12 @@ msgstr "محاسبه مجدد قیمت‌ها"
 msgid "Update all products with dynamic pricing after saving"
 msgstr "به‌روزرسانی تمام محصولات با قیمت‌گذاری پویا پس از ذخیره"
 
+msgid "Use Toman Currency Symbol"
+msgstr "استفاده از نماد تومان"
+
+msgid "Display \"تومان\" instead of \"ریال\" for Iranian Rial (IRR) currency"
+msgstr "نمایش \"تومان\" به جای \"ریال\" برای ارز ریال ایران (IRR)"
+
 #: includes/admin/views/import-export.php
 msgid "Import/Export Products"
 msgstr "ورود/خروج محصولات"
@@ -230,6 +236,16 @@ msgstr "وضعیت API"
 
 msgid "Support"
 msgstr "پشتیبانی"
+
+# Settings page
+msgid "Settings"
+msgstr "تنظیمات"
+
+msgid "Save Settings"
+msgstr "ذخیره تنظیمات"
+
+msgid "Settings saved"
+msgstr "تنظیمات ذخیره شد"
 
 # Status page
 msgid "Status & Diagnostics"

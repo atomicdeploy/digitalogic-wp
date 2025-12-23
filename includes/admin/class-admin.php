@@ -105,6 +105,15 @@ class Digitalogic_Admin {
             'digitalogic-status',
             array($this, 'render_status_page')
         );
+        
+        $this->page_hooks[] = add_submenu_page(
+            'digitalogic',
+            __('Settings', 'digitalogic'),
+            __('Settings', 'digitalogic'),
+            'manage_woocommerce',
+            'digitalogic-settings',
+            array($this, 'render_settings_page')
+        );
     }
     
     /**
@@ -266,6 +275,25 @@ class Digitalogic_Admin {
      */
     public function render_status_page() {
         include DIGITALOGIC_PLUGIN_DIR . 'includes/admin/views/status.php';
+    }
+    
+    /**
+     * Render settings page
+     */
+    public function render_settings_page() {
+        $options = Digitalogic_Options::instance();
+        
+        if (isset($_POST['submit']) && check_admin_referer('digitalogic_settings_update')) {
+            $use_toman = isset($_POST['use_toman']) ? true : false;
+            
+            $options->set_use_toman($use_toman);
+            
+            echo '<div class="notice notice-success"><p>' . __('Settings saved', 'digitalogic') . '</p></div>';
+        }
+        
+        $use_toman = $options->get_use_toman();
+        
+        include DIGITALOGIC_PLUGIN_DIR . 'includes/admin/views/settings.php';
     }
     
     /**
