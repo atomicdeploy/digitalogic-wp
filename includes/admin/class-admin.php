@@ -284,12 +284,56 @@ class Digitalogic_Admin {
             $limit = isset($_POST['limit']) ? intval($_POST['limit']) : 50;
             $search = isset($_POST['search']) ? sanitize_text_field($_POST['search']) : '';
             
-            $manager = Digitalogic_Product_Manager::instance();
-            $products = $manager->get_products(array(
+            // Build filter arguments
+            $args = array(
                 'page' => $page,
                 'limit' => $limit,
                 'search' => $search
-            ));
+            );
+            
+            // Add filters
+            if (!empty($_POST['sku'])) {
+                $args['sku'] = sanitize_text_field($_POST['sku']);
+            }
+            
+            if (!empty($_POST['type'])) {
+                $args['type'] = sanitize_text_field($_POST['type']);
+            }
+            
+            if (!empty($_POST['status'])) {
+                $args['status'] = sanitize_text_field($_POST['status']);
+            }
+            
+            if (!empty($_POST['stock_status'])) {
+                $args['stock_status'] = sanitize_text_field($_POST['stock_status']);
+            }
+            
+            if (isset($_POST['price_min']) && $_POST['price_min'] !== '') {
+                $args['price_min'] = floatval($_POST['price_min']);
+            }
+            
+            if (isset($_POST['price_max']) && $_POST['price_max'] !== '') {
+                $args['price_max'] = floatval($_POST['price_max']);
+            }
+            
+            if (isset($_POST['stock_min']) && $_POST['stock_min'] !== '') {
+                $args['stock_min'] = intval($_POST['stock_min']);
+            }
+            
+            if (isset($_POST['stock_max']) && $_POST['stock_max'] !== '') {
+                $args['stock_max'] = intval($_POST['stock_max']);
+            }
+            
+            if (isset($_POST['weight_min']) && $_POST['weight_min'] !== '') {
+                $args['weight_min'] = floatval($_POST['weight_min']);
+            }
+            
+            if (isset($_POST['weight_max']) && $_POST['weight_max'] !== '') {
+                $args['weight_max'] = floatval($_POST['weight_max']);
+            }
+            
+            $manager = Digitalogic_Product_Manager::instance();
+            $products = $manager->get_products($args);
             
             $total = $manager->get_product_count();
             
