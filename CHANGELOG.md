@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **WooCommerce currency integration and monitoring**
+  - Hook to monitor WooCommerce currency setting changes
+  - Display WooCommerce base currency in Currency Settings page
+  - Display currency integration status on Status & Diagnostics page
+  - Include WooCommerce currency in REST API `/currency` endpoint
+  - Show WooCommerce currency in WP-CLI `currency get` command
+  - Smart warnings when WooCommerce uses USD or CNY as base currency
+  - Automatic logging of WooCommerce currency changes to activity log
+  - New `digitalogic_woocommerce_currency_changed` action hook
+  - Helper methods: `get_woocommerce_currency()`, `get_woocommerce_currency_symbol()`, `get_currency_status()`
+  - Comprehensive currency synchronization documentation (docs/CURRENCY-SYNC.md)
 - **Complete ACF function hooks** for total bidirectional synchronization
   - Hook into ACF's `acf/update_value` filter to sync back to direct options
   - Hook into ACF's `acf/load_value` filter to ensure consistency

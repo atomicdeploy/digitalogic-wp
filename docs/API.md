@@ -93,6 +93,29 @@ curl -u key:secret "https://yoursite.com/wp-json/digitalogic/v1/products?page=1&
 
 **GET** `/currency`
 
+**Example Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "dollar_price": 42500,
+    "yuan_price": 6100,
+    "update_date": "241213",
+    "woocommerce_currency": "IRR",
+    "woocommerce_symbol": "﷼",
+    "currency_status": {
+      "woocommerce_currency": "IRR",
+      "woocommerce_symbol": "﷼",
+      "dollar_rate": 42500,
+      "yuan_rate": 6100,
+      "is_usd": false,
+      "is_cny": false,
+      "needs_exchange_rates": true
+    }
+  }
+}
+```
+
 ### Update Currency Rates
 
 **POST** `/currency`
@@ -104,6 +127,8 @@ curl -u key:secret "https://yoursite.com/wp-json/digitalogic/v1/products?page=1&
   "yuan_price": 6100
 }
 ```
+
+**Note:** The plugin automatically syncs with WordPress options and ACF fields. WooCommerce currency setting is monitored separately and changes are logged.
 
 ---
 

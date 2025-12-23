@@ -31,6 +31,18 @@ class Digitalogic_Options {
         if ($this->acf_available) {
             $this->setup_acf_hooks();
         }
+        
+        // Hook into WooCommerce currency changes
+        $this->setup_woocommerce_hooks();
+    }
+    
+    /**
+     * Setup hooks for WooCommerce currency integration
+     * Monitors WooCommerce currency setting changes
+     */
+    private function setup_woocommerce_hooks() {
+        // Hook into WooCommerce currency option updates
+        add_action('update_option_woocommerce_currency', array($this, 'on_woocommerce_currency_change'), 10, 3);
     }
     
     /**
@@ -43,6 +55,29 @@ class Digitalogic_Options {
         
         // Hook into ACF's get value to ensure consistency
         add_filter('acf/load_value', array($this, 'acf_load_value_hook'), 10, 3);
+    }
+    
+    /**
+     * Handle WooCommerce currency changes
+     * Log when WooCommerce currency changes for audit trail
+     * 
+     * @param mixed $old_value The old currency code
+     * @param mixed $value The new currency code
+     * @param string $option The option name
+     */
+    public function on_woocommerce_currency_change($old_value, $value, $option) {
+        // Log the currency change
+        Digitalogic_Logger::instance()->log(
+            'woocommerce_currency_change',
+            'option',
+            null,
+            $old_value,
+            $value,
+            sprintf('WooCommerce currency changed from %s to %s', $old_value, $value)
+        );
+        
+        // Trigger action for other plugins/code to hook into
+        do_action('digitalogic_woocommerce_currency_changed', $old_value, $value);
     }
     
     /**
@@ -359,6 +394,51 @@ class Digitalogic_Options {
         
         // Always update direct option (works with or without ACF)
         return update_option('update_date', $date);
+    }
+    
+    /**
+     * Get WooCommerce base currency
+     * 
+     * @return string Currency code (e.g., 'USD', 'IRR', 'CNY')
+     */
+    public function get_woocommerce_currency() {
+        if (function_exists('get_woocommerce_currency')) {
+            return get_woocommerce_currency();
+        }
+        return get_option('woocommerce_currency', 'USD');
+    }
+    
+    /**
+     * Get WooCommerce currency symbol
+     * 
+     * @return string Currency symbol
+     */
+    public function get_woocommerce_currency_symbol() {
+        if (function_exists('get_woocommerce_currency_symbol')) {
+            return get_woocommerce_currency_symbol();
+        }
+        return '';
+    }
+    
+    /**
+     * Check if WooCommerce currency matches one of our exchange rate currencies
+     * This helps identify potential configuration issues
+     * 
+     * @return array Status information
+     */
+    public function get_currency_status() {
+        $wc_currency = $this->get_woocommerce_currency();
+        $status = array(
+            'woocommerce_currency' => $wc_currency,
+            'woocommerce_symbol' => $this->get_woocommerce_currency_symbol(),
+            'dollar_rate' => $this->get_dollar_price(),
+            'yuan_rate' => $this->get_yuan_price(),
+            'is_usd' => ($wc_currency === 'USD'),
+            'is_cny' => ($wc_currency === 'CNY'),
+            'needs_exchange_rates' => !in_array($wc_currency, array('USD', 'CNY')),
+        );
+        
+        return $status;
     }
 }
 

@@ -1,6 +1,36 @@
 <div class="wrap digitalogic-currency">
     <h1><?php _e('Currency Settings', 'digitalogic'); ?></h1>
     
+    <!-- WooCommerce Currency Status -->
+    <div class="notice notice-info" style="margin: 20px 0; padding: 12px;">
+        <h3 style="margin-top: 0;"><?php _e('WooCommerce Currency Status', 'digitalogic'); ?></h3>
+        <p>
+            <strong><?php _e('Base Currency:', 'digitalogic'); ?></strong> 
+            <?php echo esc_html($currency_status['woocommerce_currency']); ?> 
+            (<?php echo esc_html($currency_status['woocommerce_symbol']); ?>)
+            <br>
+            <small style="color: #666;">
+                <?php 
+                if ($currency_status['is_usd']) {
+                    _e('Your WooCommerce store is using USD as the base currency. The USD exchange rate below may not be needed for pricing.', 'digitalogic');
+                } elseif ($currency_status['is_cny']) {
+                    _e('Your WooCommerce store is using CNY as the base currency. The CNY exchange rate below may not be needed for pricing.', 'digitalogic');
+                } else {
+                    printf(
+                        __('Your WooCommerce store uses %s. The exchange rates below are used to convert USD and CNY prices to your base currency.', 'digitalogic'),
+                        esc_html($currency_status['woocommerce_currency'])
+                    );
+                }
+                ?>
+            </small>
+        </p>
+        <p style="margin-bottom: 0;">
+            <a href="<?php echo esc_url(admin_url('admin.php?page=wc-settings')); ?>" class="button button-small">
+                <?php _e('WooCommerce Settings', 'digitalogic'); ?>
+            </a>
+        </p>
+    </div>
+    
     <form method="post" action="">
         <?php wp_nonce_field('digitalogic_currency_update'); ?>
         

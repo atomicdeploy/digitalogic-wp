@@ -29,11 +29,20 @@ class Digitalogic_CLI_Commands {
      */
     public function currency_get($args, $assoc_args) {
         $options = Digitalogic_Options::instance();
+        $status = $options->get_currency_status();
         
         WP_CLI::line('Currency Rates:');
         WP_CLI::line('USD: ' . $options->get_dollar_price());
         WP_CLI::line('CNY: ' . $options->get_yuan_price());
         WP_CLI::line('Last Update: ' . $options->get_update_date());
+        WP_CLI::line('');
+        WP_CLI::line('WooCommerce Currency:');
+        WP_CLI::line('Base Currency: ' . $status['woocommerce_currency'] . ' (' . $status['woocommerce_symbol'] . ')');
+        if ($status['is_usd']) {
+            WP_CLI::warning('WooCommerce is using USD as base currency');
+        } elseif ($status['is_cny']) {
+            WP_CLI::warning('WooCommerce is using CNY as base currency');
+        }
     }
     
     /**
