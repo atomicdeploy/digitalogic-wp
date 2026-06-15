@@ -19,7 +19,8 @@
 - Bulk product updates via elegant admin interface
 - Real-time AJAX updates with polling
 - Inline editing of prices, stock, and dimensions
-- Support for simple and variable products
+- Support for simple, variable, and variation products
+- Includes all product statuses (published, draft, pending, etc.)
 
 ### 🔄 Import/Export
 - CSV import/export
