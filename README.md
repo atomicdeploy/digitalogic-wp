@@ -57,6 +57,7 @@
 - Light/dark mode support
 - RTL/LTR language support
 - Responsive design
+- WordPress Admin Bar integration with quicklinks to all plugin pages
 - Persian (primary) and English (secondary) i18n support
 
 ### ⚡ WooCommerce HPOS Compatible

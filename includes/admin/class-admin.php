@@ -24,7 +24,10 @@ class Digitalogic_Admin {
     
     private function __construct() {
         add_action('admin_menu', array($this, 'add_menu'));
+        add_action('admin_bar_menu', array($this, 'add_admin_bar_menu'), 100);
         add_action('admin_enqueue_scripts', array($this, 'enqueue_scripts'));
+        add_action('wp_enqueue_scripts', array($this, 'enqueue_admin_bar_styles'));
+        add_action('admin_enqueue_scripts', array($this, 'enqueue_admin_bar_styles'));
         add_action('wp_ajax_digitalogic_get_products', array($this, 'ajax_get_products'));
         add_action('wp_ajax_digitalogic_update_product', array($this, 'ajax_update_product'));
         add_action('wp_ajax_digitalogic_bulk_update', array($this, 'ajax_bulk_update'));
@@ -108,6 +111,94 @@ class Digitalogic_Admin {
     }
     
     /**
+     * Add admin bar menu
+     * 
+     * @param WP_Admin_Bar $wp_admin_bar WordPress admin bar object
+     */
+    public function add_admin_bar_menu($wp_admin_bar) {
+        // Check if user has permission
+        if (!current_user_can('manage_woocommerce')) {
+            return;
+        }
+        
+        // Add parent menu item
+        $wp_admin_bar->add_node(array(
+            'id'    => 'digitalogic',
+            'title' => '<span class="ab-icon dashicons-before dashicons-cart"></span><span class="ab-label">' . __('Digitalogic', 'digitalogic') . '</span>',
+            'href'  => admin_url('admin.php?page=digitalogic'),
+            'meta'  => array(
+                'title' => __('Digitalogic', 'digitalogic'),
+            ),
+        ));
+        
+        // Add Dashboard submenu
+        $wp_admin_bar->add_node(array(
+            'id'     => 'digitalogic-dashboard',
+            'parent' => 'digitalogic',
+            'title'  => '<span class="dashicons dashicons-dashboard"></span> ' . __('Dashboard', 'digitalogic'),
+            'href'   => admin_url('admin.php?page=digitalogic'),
+            'meta'   => array(
+                'title' => __('Dashboard', 'digitalogic'),
+            ),
+        ));
+        
+        // Add Products submenu
+        $wp_admin_bar->add_node(array(
+            'id'     => 'digitalogic-products',
+            'parent' => 'digitalogic',
+            'title'  => '<span class="dashicons dashicons-products"></span> ' . __('Products', 'digitalogic'),
+            'href'   => admin_url('admin.php?page=product-list'),
+            'meta'   => array(
+                'title' => __('Product List', 'digitalogic'),
+            ),
+        ));
+        
+        // Add Currency submenu
+        $wp_admin_bar->add_node(array(
+            'id'     => 'digitalogic-currency',
+            'parent' => 'digitalogic',
+            'title'  => '<span class="dashicons dashicons-money-alt"></span> ' . __('Currency', 'digitalogic'),
+            'href'   => admin_url('admin.php?page=price-settings'),
+            'meta'   => array(
+                'title' => __('Price Settings', 'digitalogic'),
+            ),
+        ));
+        
+        // Add Import/Export submenu
+        $wp_admin_bar->add_node(array(
+            'id'     => 'digitalogic-import-export',
+            'parent' => 'digitalogic',
+            'title'  => '<span class="dashicons dashicons-database-import"></span> ' . __('Import/Export', 'digitalogic'),
+            'href'   => admin_url('admin.php?page=import-export'),
+            'meta'   => array(
+                'title' => __('Import/Export', 'digitalogic'),
+            ),
+        ));
+        
+        // Add Logs submenu
+        $wp_admin_bar->add_node(array(
+            'id'     => 'digitalogic-logs',
+            'parent' => 'digitalogic',
+            'title'  => '<span class="dashicons dashicons-list-view"></span> ' . __('Logs', 'digitalogic'),
+            'href'   => admin_url('admin.php?page=digitalogic-logs'),
+            'meta'   => array(
+                'title' => __('Activity Logs', 'digitalogic'),
+            ),
+        ));
+        
+        // Add Status submenu
+        $wp_admin_bar->add_node(array(
+            'id'     => 'digitalogic-status',
+            'parent' => 'digitalogic',
+            'title'  => '<span class="dashicons dashicons-info"></span> ' . __('Status', 'digitalogic'),
+            'href'   => admin_url('admin.php?page=digitalogic-status'),
+            'meta'   => array(
+                'title' => __('Status & Diagnostics', 'digitalogic'),
+            ),
+        ));
+    }
+    
+    /**
      * Fallback SVG icon
      */
     private function get_fallback_svg() {
@@ -176,6 +267,21 @@ class Digitalogic_Admin {
                 'loading' => __('Loading...', 'digitalogic'),
             )
         ));
+    }
+    
+    /**
+     * Enqueue admin bar styles
+     * 
+     * Enqueues styles for the admin bar menu on both front-end and back-end
+     */
+    public function enqueue_admin_bar_styles() {
+        // Only enqueue if admin bar is showing and user has permission
+        if (!is_admin_bar_showing() || !current_user_can('manage_woocommerce')) {
+            return;
+        }
+        
+        // Enqueue separate admin bar styles (lighter than full admin.css)
+        wp_enqueue_style('digitalogic-admin-bar', DIGITALOGIC_PLUGIN_URL . 'assets/css/admin-bar.css', array(), DIGITALOGIC_VERSION);
     }
     
     /**
