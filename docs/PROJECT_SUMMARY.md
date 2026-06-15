@@ -71,6 +71,8 @@ A complete WordPress/WooCommerce plugin providing dynamic pricing, stock managem
 - Currency settings page
 - Import/Export page
 - Activity logs viewer
+- Status & Diagnostics page
+- WordPress Admin Bar integration with quicklinks
 - Light/dark mode support
 - RTL/LTR language support
 
