@@ -11,12 +11,138 @@
     var productsTable;
     var logsTable;
     var changedProducts = {};
+    var websocket;
+    var websocketReady = false;
+    var websocketConnecting = false;
+    var websocketRequests = {};
+    var websocketRequestId = 0;
     
     $(document).ready(function() {
+        connectWebSocket();
         initProductsTable();
         initLogsTable();
         initEventHandlers();
     });
+
+    /**
+     * Connect to the Digitalogic WebSocket server when configured.
+     */
+    function connectWebSocket() {
+        if (
+            typeof digitalogic === 'undefined' ||
+            !digitalogic.websocket ||
+            !digitalogic.websocket.enabled ||
+            !digitalogic.websocket.url ||
+            websocketConnecting ||
+            websocketReady
+        ) {
+            return;
+        }
+
+        if (typeof window.WebSocket === 'undefined') {
+            return;
+        }
+
+        websocketConnecting = true;
+        var separator = digitalogic.websocket.url.indexOf('?') === -1 ? '?' : '&';
+        var url = digitalogic.websocket.url + separator + 'nonce=' + encodeURIComponent(digitalogic.websocket.nonce);
+
+        try {
+            websocket = new WebSocket(url);
+        } catch (e) {
+            websocketConnecting = false;
+            return;
+        }
+
+        websocket.onopen = function() {
+            websocketReady = true;
+            websocketConnecting = false;
+        };
+
+        websocket.onmessage = function(event) {
+            var response;
+            try {
+                response = JSON.parse(event.data);
+            } catch (e) {
+                return;
+            }
+
+            if (!response.id || !websocketRequests[response.id]) {
+                return;
+            }
+
+            var pending = websocketRequests[response.id];
+            delete websocketRequests[response.id];
+            clearTimeout(pending.timeout);
+
+            if (response.success) {
+                pending.deferred.resolve({
+                    success: true,
+                    data: response.data
+                });
+            } else {
+                pending.deferred.reject(response.error || {message: digitalogic.i18n.error});
+            }
+        };
+
+        websocket.onclose = function() {
+            websocketReady = false;
+            websocketConnecting = false;
+            rejectWebSocketRequests();
+            setTimeout(connectWebSocket, digitalogic.websocket.reconnect_interval || 3000);
+        };
+
+        websocket.onerror = function() {
+            websocketReady = false;
+            websocketConnecting = false;
+        };
+    }
+
+    function rejectWebSocketRequests() {
+        Object.keys(websocketRequests).forEach(function(id) {
+            websocketRequests[id].deferred.reject({message: 'WebSocket disconnected'});
+            clearTimeout(websocketRequests[id].timeout);
+            delete websocketRequests[id];
+        });
+    }
+
+    /**
+     * Run a Digitalogic command over WebSocket, falling back to admin-ajax.
+     */
+    function digitalogicRequest(action, data) {
+        data = data || {};
+
+        if (websocketReady && websocket && websocket.readyState === WebSocket.OPEN) {
+            var deferred = $.Deferred();
+            var id = 'req_' + (++websocketRequestId);
+            websocketRequests[id] = {
+                deferred: deferred,
+                timeout: setTimeout(function() {
+                    if (websocketRequests[id]) {
+                        websocketRequests[id].deferred.reject({message: 'WebSocket request timed out'});
+                        delete websocketRequests[id];
+                    }
+                }, (digitalogic.websocket && digitalogic.websocket.request_timeout) || 15000)
+            };
+
+            websocket.send(JSON.stringify({
+                id: id,
+                command: action,
+                data: data
+            }));
+
+            return deferred.promise();
+        }
+
+        return $.ajax({
+            url: digitalogic.ajax_url,
+            type: 'POST',
+            data: $.extend({
+                action: action,
+                nonce: digitalogic.nonce
+            }, data)
+        });
+    }
     
     /**
      * Initialize products DataTable
@@ -43,45 +169,29 @@
         productsTable = $('#products-table').DataTable({
             processing: true,
             serverSide: false,
-            ajax: {
-                url: digitalogic.ajax_url,
-                type: 'POST',
-                data: function(d) {
-                    // Handle both object and string formats for search
-                    var searchValue = (typeof d.search === 'object' && d.search !== null) ? d.search.value : (d.search || '');
-                    return {
-                        action: 'digitalogic_get_products',
-                        nonce: digitalogic.nonce,
-                        page: Math.floor(d.start / d.length) + 1,
-                        limit: d.length,
-                        search: searchValue
-                    };
-                },
-                dataSrc: function(json) {
-                    console.log('Products AJAX response:', json);
-                    
-                    // Handle WordPress AJAX response format
+            ajax: function(d, callback) {
+                var searchValue = (typeof d.search === 'object' && d.search !== null) ? d.search.value : (d.search || '');
+                digitalogicRequest('digitalogic_get_products', {
+                    page: Math.floor(d.start / d.length) + 1,
+                    limit: d.length,
+                    search: searchValue
+                }).done(function(json) {
                     if (json.success && json.data && json.data.products) {
-                        return json.data.products;
+                        callback({data: json.data.products});
+                        return;
                     }
-                    
-                    // Log error for debugging
+
                     console.error('Invalid response format:', json);
-                    
-                    // Show user-friendly error message
                     if (json.data && typeof json.data === 'string') {
                         alert('Error loading products: ' + json.data);
                     } else {
                         alert('Error loading products. Please check console for details.');
                     }
-                    
-                    return [];
-                },
-                error: function(xhr, error, thrown) {
-                    console.error('AJAX error:', error, thrown);
-                    console.error('Response:', xhr.responseText);
-                    alert(digitalogic.i18n.error + ': ' + thrown);
-                }
+                    callback({data: []});
+                }).fail(function(error) {
+                    console.error('Digitalogic request error:', error);
+                    callback({data: []});
+                });
             },
             columns: [
                 {
@@ -170,29 +280,22 @@
         logsTable = $('#logs-table').DataTable({
             processing: true,
             serverSide: false,
-            ajax: {
-                url: digitalogic.ajax_url,
-                type: 'POST',
-                data: function(d) {
-                    return {
-                        action: 'digitalogic_get_logs',
-                        nonce: digitalogic.nonce,
-                        page: Math.floor(d.start / d.length) + 1,
-                        limit: d.length
-                    };
-                },
-                dataSrc: function(json) {
-                    // Handle WordPress AJAX response format
+            ajax: function(d, callback) {
+                digitalogicRequest('digitalogic_get_logs', {
+                    page: Math.floor(d.start / d.length) + 1,
+                    limit: d.length
+                }).done(function(json) {
                     if (json.success && json.data && json.data.logs) {
-                        return json.data.logs;
+                        callback({data: json.data.logs});
+                        return;
                     }
+
                     console.error('Invalid response format:', json);
-                    return [];
-                },
-                error: function(xhr, error, thrown) {
-                    console.error('AJAX error:', error, thrown);
-                    alert(digitalogic.i18n.error + ': ' + thrown);
-                }
+                    callback({data: []});
+                }).fail(function(error) {
+                    console.error('Digitalogic request error:', error);
+                    callback({data: []});
+                });
             },
             columns: [
                 { data: 'id' },
@@ -256,32 +359,23 @@
             var $btn = $(this);
             $btn.prop('disabled', true).text('Saving...');
             
-            $.ajax({
-                url: digitalogic.ajax_url,
-                type: 'POST',
-                data: {
-                    action: 'digitalogic_bulk_update',
-                    nonce: digitalogic.nonce,
-                    updates: changedProducts
-                },
-                success: function(response) {
-                    if (response.success) {
-                        alert(digitalogic.i18n.success + ': ' + response.data.success + ' products updated');
-                        changedProducts = {};
-                        $('.product-field').removeClass('changed');
-                        if (productsTable) {
-                            productsTable.ajax.reload();
-                        }
-                    } else {
-                        alert(digitalogic.i18n.error + ': ' + response.data);
+            digitalogicRequest('digitalogic_bulk_update', {
+                updates: changedProducts
+            }).done(function(response) {
+                if (response.success) {
+                    alert(digitalogic.i18n.success + ': ' + response.data.success + ' products updated');
+                    changedProducts = {};
+                    $('.product-field').removeClass('changed');
+                    if (productsTable) {
+                        productsTable.ajax.reload();
                     }
-                },
-                error: function() {
-                    alert(digitalogic.i18n.error);
-                },
-                complete: function() {
-                    $btn.prop('disabled', false).text('Save Changes');
+                } else {
+                    alert(digitalogic.i18n.error + ': ' + response.data);
                 }
+            }).fail(function() {
+                alert(digitalogic.i18n.error);
+            }).always(function() {
+                $btn.prop('disabled', false).text('Save Changes');
             });
         });
         
@@ -294,30 +388,21 @@
             $btn.prop('disabled', true).text('Exporting...');
             $result.removeClass('success error').text('');
             
-            $.ajax({
-                url: digitalogic.ajax_url,
-                type: 'POST',
-                data: {
-                    action: 'digitalogic_export',
-                    nonce: digitalogic.nonce,
-                    format: format,
-                    product_ids: []
-                },
-                success: function(response) {
-                    if (response.success) {
-                        $result.addClass('success').html(
-                            'Export completed! <a href="' + response.data.url + '" download>Download file</a>'
-                        );
-                    } else {
-                        $result.addClass('error').text('Export failed: ' + response.data);
-                    }
-                },
-                error: function() {
-                    $result.addClass('error').text('Export failed');
-                },
-                complete: function() {
-                    $btn.prop('disabled', false).text('Export All Products');
+            digitalogicRequest('digitalogic_export', {
+                format: format,
+                product_ids: []
+            }).done(function(response) {
+                if (response.success) {
+                    $result.addClass('success').html(
+                        'Export completed! <a href="' + response.data.url + '" download>Download file</a>'
+                    );
+                } else {
+                    $result.addClass('error').text('Export failed: ' + response.data);
                 }
+            }).fail(function() {
+                $result.addClass('error').text('Export failed');
+            }).always(function() {
+                $btn.prop('disabled', false).text('Export All Products');
             });
         });
         
