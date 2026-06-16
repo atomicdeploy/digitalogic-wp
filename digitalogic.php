@@ -99,6 +99,7 @@ final class Digitalogic {
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-laravel-bridge.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-smsir-integration.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-comment-guard.php';
+        require_once DIGITALOGIC_PLUGIN_DIR . 'includes/panel/class-panel.php';
 
         // Admin includes
         if (is_admin()) {
@@ -135,6 +136,7 @@ final class Digitalogic {
         Digitalogic_Command_Dispatcher::instance();
         Digitalogic_WebSocket::instance();
         Digitalogic_Laravel_Bridge::instance();
+        Digitalogic_Panel::instance();
         Digitalogic_Comment_Guard::instance();
 
         if (is_admin()) {

@@ -108,8 +108,8 @@ class Digitalogic_Admin {
 
         $this->page_hooks[] = add_submenu_page(
             'digitalogic',
-            __('Laravel Panel', 'digitalogic'),
-            __('Laravel Panel', 'digitalogic'),
+            $this->panel_label(),
+            $this->panel_label(),
             'manage_woocommerce',
             'digitalogic-panel',
             array($this, 'render_panel_page')
@@ -121,6 +121,10 @@ class Digitalogic_Admin {
      */
     private function get_fallback_svg() {
         return '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"></svg>';
+    }
+
+    private function panel_label() {
+        return is_rtl() ? 'پنل' : __('Panel', 'digitalogic');
     }
     
     /**
@@ -178,12 +182,14 @@ class Digitalogic_Admin {
         wp_localize_script('digitalogic-admin', 'digitalogic', array(
             'ajax_url' => admin_url('admin-ajax.php'),
             'nonce' => wp_create_nonce('digitalogic_nonce'),
+            'panel_url' => Digitalogic_Laravel_Bridge::instance()->get_panel_url(),
             'websocket' => Digitalogic_WebSocket::instance()->get_client_config(),
             'i18n' => array(
                 'confirm_bulk_update' => __('Are you sure you want to update these products?', 'digitalogic'),
                 'success' => __('Success', 'digitalogic'),
                 'error' => __('Error', 'digitalogic'),
                 'loading' => __('Loading...', 'digitalogic'),
+                'view_product' => __('View', 'digitalogic'),
             )
         ));
     }
@@ -279,7 +285,7 @@ class Digitalogic_Admin {
     }
 
     /**
-     * Render Laravel panel launch page.
+     * Render panel launch page.
      */
     public function render_panel_page() {
         $bridge = Digitalogic_Laravel_Bridge::instance();

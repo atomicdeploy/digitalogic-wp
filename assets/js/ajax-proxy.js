@@ -24,7 +24,8 @@
 
         socketConnecting = true;
         var separator = config.url.indexOf('?') === -1 ? '?' : '&';
-        var url = config.url + separator + 'nonce=' + encodeURIComponent(config.nonce);
+        var authParam = config.token ? 'token=' + encodeURIComponent(config.token) : 'nonce=' + encodeURIComponent(config.nonce);
+        var url = config.url + separator + authParam;
 
         try {
             socket = new window.WebSocket(url);
@@ -235,6 +236,8 @@
         });
 
         socketRequest.done(function(data) {
+            data = normalizeAjaxResponse(data);
+
             if (settings.success) {
                 settings.success.call(settings.context || settings, data, 'success', jqxhr);
             }
@@ -247,6 +250,25 @@
 
         return jqxhr;
     };
+
+    function normalizeAjaxResponse(data) {
+        if (
+            data &&
+            typeof data === 'object' &&
+            Object.prototype.hasOwnProperty.call(data, 'success') &&
+            (
+                Object.prototype.hasOwnProperty.call(data, 'data') ||
+                Object.prototype.hasOwnProperty.call(data, 'message')
+            )
+        ) {
+            return data;
+        }
+
+        return {
+            success: true,
+            data: data
+        };
+    }
 
     window.digitalogicWebSocketRequest = request;
     connect();

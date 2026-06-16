@@ -45,7 +45,8 @@
 
         websocketConnecting = true;
         var separator = digitalogic.websocket.url.indexOf('?') === -1 ? '?' : '&';
-        var url = digitalogic.websocket.url + separator + 'nonce=' + encodeURIComponent(digitalogic.websocket.nonce);
+        var authParam = digitalogic.websocket.token ? 'token=' + encodeURIComponent(digitalogic.websocket.token) : 'nonce=' + encodeURIComponent(digitalogic.websocket.nonce);
+        var url = digitalogic.websocket.url + separator + authParam;
 
         try {
             websocket = new WebSocket(url);
@@ -239,8 +240,9 @@
                     data: null,
                     orderable: false,
                     render: function(data, type, row) {
+                        var panelUrl = (digitalogic.panel_url || '/panell/').replace(/\/+$/, '') + '/products/' + encodeURIComponent(row.id);
                         return '<div class="digitalogic-actions">' +
-                            '<button type="button" class="button button-small view-product" data-id="' + row.id + '">View</button>' +
+                            '<a class="button button-small view-product" href="' + panelUrl + '" target="_blank" rel="noopener" data-id="' + row.id + '">' + digitalogic.i18n.view_product + '</a>' +
                             '</div>';
                     }
                 }
@@ -457,8 +459,13 @@
         
         // View product
         $('#products-table').on('click', '.view-product', function() {
+            if (this.tagName && this.tagName.toLowerCase() === 'a') {
+                return;
+            }
+
             var productId = $(this).data('id');
-            window.open('/wp-admin/post.php?post=' + productId + '&action=edit', '_blank');
+            var baseUrl = digitalogic.panel_url || '/panell/';
+            window.open(baseUrl.replace(/\/+$/, '') + '/products/' + encodeURIComponent(productId), '_blank', 'noopener');
         });
     }
     

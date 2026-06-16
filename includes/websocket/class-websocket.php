@@ -9,6 +9,9 @@ if (!defined('ABSPATH')) {
 
 class Digitalogic_WebSocket {
 
+    private const CLIENT_TOKEN_PREFIX = 'digitalogic_ws_client_';
+    private const CLIENT_TOKEN_TTL = 3600;
+
     private static $instance = null;
 
     public static function instance() {
@@ -49,6 +52,7 @@ class Digitalogic_WebSocket {
             'enabled' => (bool) apply_filters('digitalogic_websocket_enabled', true),
             'url' => $default_url,
             'nonce' => wp_create_nonce('digitalogic_ws'),
+            'token' => current_user_can('manage_woocommerce') ? self::create_client_token(get_current_user_id()) : '',
             'reconnect_interval' => 3000,
             'request_timeout' => 15000,
             'ajax_proxy_enabled' => (bool) apply_filters('digitalogic_websocket_ajax_proxy_enabled', true),
@@ -87,5 +91,27 @@ class Digitalogic_WebSocket {
         }
 
         return $token;
+    }
+
+    public static function create_client_token($user_id) {
+        $token = wp_generate_password(48, false, false);
+        set_transient(self::CLIENT_TOKEN_PREFIX . md5($token), array(
+            'user_id' => (int) $user_id,
+            'expires_at' => time() + self::CLIENT_TOKEN_TTL,
+        ), self::CLIENT_TOKEN_TTL);
+
+        return $token;
+    }
+
+    public static function validate_client_token($token) {
+        $data = get_transient(self::CLIENT_TOKEN_PREFIX . md5((string) $token));
+        if (!is_array($data) || empty($data['user_id'])) {
+            return 0;
+        }
+
+        $user_id = (int) $data['user_id'];
+        wp_set_current_user($user_id);
+
+        return current_user_can('manage_woocommerce') ? $user_id : 0;
     }
 }

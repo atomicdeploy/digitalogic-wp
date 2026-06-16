@@ -30,7 +30,7 @@
             <li><a href="<?php echo admin_url('admin.php?page=price-settings'); ?>" class="button"><?php _e('Update Currency Rates', 'digitalogic'); ?></a></li>
             <li><a href="<?php echo admin_url('admin.php?page=import-export'); ?>" class="button"><?php _e('Import/Export', 'digitalogic'); ?></a></li>
             <li><a href="<?php echo admin_url('admin.php?page=digitalogic-logs'); ?>" class="button"><?php _e('View Logs', 'digitalogic'); ?></a></li>
-            <li><a href="<?php echo esc_url(Digitalogic_Laravel_Bridge::instance()->get_launch_url()); ?>" class="button button-primary"><?php _e('Open Laravel Panel', 'digitalogic'); ?></a></li>
+            <li><a href="<?php echo esc_url(Digitalogic_Laravel_Bridge::instance()->get_launch_url()); ?>" class="button button-primary" target="_blank" rel="noopener"><?php echo esc_html(is_rtl() ? 'باز کردن پنل' : __('Open Panel', 'digitalogic')); ?></a></li>
         </ul>
     </div>
 </div>

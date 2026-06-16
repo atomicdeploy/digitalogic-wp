@@ -15,6 +15,13 @@ class Digitalogic_WebSocket_Auth {
             return self::system_user_id();
         }
 
+        if ($token !== '') {
+            $user_id = Digitalogic_WebSocket::validate_client_token($token);
+            if ($user_id) {
+                return $user_id;
+            }
+        }
+
         $cookie_header = isset($headers['cookie']) ? $headers['cookie'] : '';
         if ($cookie_header === '') {
             return 0;

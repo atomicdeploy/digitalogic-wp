@@ -247,16 +247,19 @@ Panel endpoints:
 - `POST /commands`
 - `POST /session/consume`
 - `GET /theme`
+- `GET /laravel/status`
+- `POST /laravel/request`
 
 The `/commands` endpoint can call Digitalogic commands, custom
 `digitalogic_command_handlers`, or registered `wp_ajax_{action}` callbacks. Use
 this for WordPress/Laravel interoperability when the Laravel panel needs to
 trigger the same server-side behavior that the WordPress admin already uses.
 
-WordPress admins can enter the Laravel panel from **Digitalogic > Laravel Panel**.
-The launch URL creates a short-lived, one-time handoff code and redirects to:
+WordPress admins can enter the panel from **Digitalogic > Panel**. The launch
+URL creates a short-lived, one-time handoff code and redirects to the configured
+panel URL. By default, the temporary route is:
 
-`https://panel.digitalogic.ir/auth/wordpress?code=...`
+`https://digitalogic.ir/panell/?code=...`
 
 Laravel consumes that code with the bridge token:
 ```php

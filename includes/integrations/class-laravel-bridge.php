@@ -11,6 +11,7 @@ class Digitalogic_Laravel_Bridge {
 
     private const TOKEN_OPTION = 'digitalogic_laravel_panel_token';
     private const PANEL_URL_OPTION = 'digitalogic_laravel_panel_url';
+    private const LOCAL_APP_PATH_OPTION = 'digitalogic_laravel_app_path';
     private const HANDOFF_PREFIX = 'digitalogic_panel_handoff_';
     private const HANDOFF_TTL = 120;
 
@@ -67,6 +68,18 @@ class Digitalogic_Laravel_Bridge {
             'methods' => 'GET',
             'permission_callback' => array($this, 'authorize_request'),
             'callback' => array($this, 'get_theme'),
+        ));
+
+        register_rest_route('digitalogic-panel/v1', '/laravel/status', array(
+            'methods' => 'GET',
+            'permission_callback' => array($this, 'authorize_request'),
+            'callback' => array($this, 'get_laravel_status'),
+        ));
+
+        register_rest_route('digitalogic-panel/v1', '/laravel/request', array(
+            'methods' => 'POST',
+            'permission_callback' => array($this, 'authorize_request'),
+            'callback' => array($this, 'run_laravel_request'),
         ));
     }
 
@@ -133,7 +146,7 @@ class Digitalogic_Laravel_Bridge {
         $return_to = isset($_GET['return_to']) ? esc_url_raw(wp_unslash($_GET['return_to'])) : '';
         $code = $this->create_session_handoff(get_current_user_id(), $return_to);
 
-        wp_redirect($this->get_panel_url('/auth/wordpress', array(
+        wp_redirect($this->get_panel_auth_url(array(
             'code' => $code,
             'return_to' => $return_to,
         )));
@@ -187,6 +200,37 @@ class Digitalogic_Laravel_Bridge {
         return rest_ensure_response(array(
             'success' => true,
             'data' => $this->theme_payload(),
+        ));
+    }
+
+    public function get_laravel_status() {
+        return rest_ensure_response(array(
+            'success' => true,
+            'data' => $this->local_laravel_status(),
+        ));
+    }
+
+    public function run_laravel_request(WP_REST_Request $request) {
+        $body = (array) $request->get_json_params();
+        $path = isset($body['path']) ? (string) $body['path'] : '/';
+        $method = isset($body['method']) ? (string) $body['method'] : 'GET';
+        $payload = isset($body['data']) && is_array($body['data']) ? $body['data'] : array();
+
+        $result = $this->call_local_laravel($path, $method, $payload);
+        if (is_wp_error($result)) {
+            $error_data = $result->get_error_data();
+            $status = is_array($error_data) && isset($error_data['status']) ? (int) $error_data['status'] : 503;
+
+            return new WP_REST_Response(array(
+                'success' => false,
+                'message' => $result->get_error_message(),
+                'code' => $result->get_error_code(),
+            ), $status);
+        }
+
+        return rest_ensure_response(array(
+            'success' => true,
+            'data' => $result,
         ));
     }
 
@@ -290,12 +334,60 @@ class Digitalogic_Laravel_Bridge {
     }
 
     public function get_panel_url($path = '', $args = array()) {
-        $base = (string) get_option(self::PANEL_URL_OPTION, 'https://panel.digitalogic.ir');
+        $base = (string) get_option(self::PANEL_URL_OPTION, home_url('/panell/'));
         $base = untrailingslashit(apply_filters('digitalogic_laravel_panel_url', $base));
         $path = '/' . ltrim((string) $path, '/');
         $url = $base . ($path === '/' ? '' : $path);
 
         return $args ? add_query_arg(array_filter($args), $url) : $url;
+    }
+
+    public function get_panel_auth_url($args = array()) {
+        $panel_url = $this->get_panel_url();
+        $panel_host = wp_parse_url($panel_url, PHP_URL_HOST);
+        $home_host = wp_parse_url(home_url(), PHP_URL_HOST);
+
+        if ($panel_host && $home_host && strtolower($panel_host) === strtolower($home_host)) {
+            return add_query_arg(array_filter($args), trailingslashit($panel_url));
+        }
+
+        return $this->get_panel_url('/auth/wordpress', $args);
+    }
+
+    public function call_local_laravel($path, $method = 'GET', $payload = array()) {
+        $app = $this->boot_local_laravel();
+        if (is_wp_error($app)) {
+            return $app;
+        }
+
+        if (!class_exists('\\Illuminate\\Http\\Request')) {
+            return new WP_Error('digitalogic_laravel_request_missing', __('Laravel HTTP request class is not available.', 'digitalogic'), array('status' => 503));
+        }
+
+        $path = '/' . ltrim((string) $path, '/');
+        $method = strtoupper((string) $method);
+        $request = \Illuminate\Http\Request::create($path, $method, $payload);
+        $request->headers->set('X-WordPress-User-ID', (string) get_current_user_id());
+        $request->headers->set('X-WordPress-User-Login', (string) wp_get_current_user()->user_login);
+
+        $kernel_class = '\\Illuminate\\Contracts\\Http\\Kernel';
+        if (!method_exists($app, 'make') || !interface_exists($kernel_class)) {
+            return new WP_Error('digitalogic_laravel_kernel_missing', __('Laravel HTTP kernel is not available.', 'digitalogic'), array('status' => 503));
+        }
+
+        $kernel = $app->make($kernel_class);
+        $response = $kernel->handle($request);
+        $content = method_exists($response, 'getContent') ? $response->getContent() : '';
+        $decoded = json_decode((string) $content, true);
+
+        if (method_exists($kernel, 'terminate')) {
+            $kernel->terminate($request, $response);
+        }
+
+        return array(
+            'status' => method_exists($response, 'getStatusCode') ? $response->getStatusCode() : 200,
+            'body' => json_last_error() === JSON_ERROR_NONE ? $decoded : $content,
+        );
     }
 
     public function get_launch_url($return_to = '') {
@@ -320,5 +412,32 @@ class Digitalogic_Laravel_Bridge {
         update_option(self::TOKEN_OPTION, $token, false);
 
         return $token;
+    }
+
+    private function local_laravel_status() {
+        $path = $this->get_local_laravel_path();
+
+        return array(
+            'configured' => $path !== '',
+            'path' => $path,
+            'available' => $path !== '' && file_exists($path . '/bootstrap/app.php'),
+        );
+    }
+
+    private function boot_local_laravel() {
+        $status = $this->local_laravel_status();
+        if (!$status['available']) {
+            return new WP_Error('digitalogic_laravel_unavailable', __('No local Laravel app is configured for direct loading.', 'digitalogic'), array('status' => 503));
+        }
+
+        return require $status['path'] . '/bootstrap/app.php';
+    }
+
+    private function get_local_laravel_path() {
+        $path = (string) get_option(self::LOCAL_APP_PATH_OPTION, '');
+        $path = (string) apply_filters('digitalogic_laravel_app_path', $path);
+        $path = untrailingslashit($path);
+
+        return $path !== '' ? $path : '';
     }
 }
