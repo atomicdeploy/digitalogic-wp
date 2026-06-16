@@ -169,17 +169,41 @@
         
         productsTable = $('#products-table').DataTable({
             processing: true,
-            serverSide: false,
-            ajax: function(d, callback) {
-                var searchValue = (typeof d.search === 'object' && d.search !== null) ? d.search.value : (d.search || '');
-                digitalogicRequest('digitalogic_get_products', {
-                    page: Math.floor(d.start / d.length) + 1,
-                    limit: d.length,
-                    search: searchValue
-                }).done(function(json) {
-                    if (json.success && json.data && json.data.products) {
-                        callback({data: json.data.products});
-                        return;
+            serverSide: true,
+            ajax: {
+                url: digitalogic.ajax_url,
+                type: 'POST',
+                data: function(d) {
+                    // Handle both object and string formats for search
+                    var searchValue = (typeof d.search === 'object' && d.search !== null) ? d.search.value : (d.search || '');
+                    
+                    // Ensure d.start and d.length are valid numbers to prevent NaN
+                    var start = (typeof d.start === 'number' && !isNaN(d.start)) ? d.start : 0;
+                    var length = (typeof d.length === 'number' && !isNaN(d.length) && d.length > 0) ? d.length : 50;
+                    
+                    return {
+                        action: 'digitalogic_get_products',
+                        nonce: digitalogic.nonce,
+                        page: Math.floor(start / length) + 1,
+                        limit: length,
+                        search: searchValue
+                    };
+                },
+                dataSrc: function(json) {
+                    console.log('Products AJAX response:', json);
+                    
+                    // Handle WordPress AJAX response format for server-side DataTables
+                    if (json.success && json.data) {
+                        var total = json.data.recordsTotal || json.data.total || 0;
+                        var filtered = json.data.recordsFiltered || total;
+
+                        // Update DataTables pagination info
+                        json.recordsTotal = total;
+                        json.recordsFiltered = filtered;
+                        
+                        if (json.data.products) {
+                            return json.data.products;
+                        }
                     }
 
                     console.error('Invalid response format:', json);
@@ -188,11 +212,12 @@
                     } else {
                         alert('Error loading products. Please check console for details.');
                     }
-                    callback({data: []});
-                }).fail(function(error) {
-                    console.error('Digitalogic request error:', error);
-                    callback({data: []});
-                });
+                    return [];
+                },
+                error: function(xhr, error, thrown) {
+                    console.error('Digitalogic request error:', error, thrown);
+                    alert(digitalogic.i18n.error + ': ' + thrown);
+                }
             },
             columns: [
                 {
@@ -251,7 +276,13 @@
             language: {
                 processing: digitalogic.i18n.loading,
                 search: '',
-                searchPlaceholder: 'Search products...'
+                searchPlaceholder: 'Search products...',
+                lengthMenu: digitalogic.i18n.show + ' _MENU_ ' + digitalogic.i18n.entries,
+                info: digitalogic.i18n.showing + ' _START_ ' + digitalogic.i18n.to + ' _END_ ' + digitalogic.i18n.of + ' _TOTAL_ ' + digitalogic.i18n.entries_text,
+                infoEmpty: digitalogic.i18n.showing + ' 0 ' + digitalogic.i18n.to + ' 0 ' + digitalogic.i18n.of + ' 0 ' + digitalogic.i18n.entries_text,
+                infoFiltered: digitalogic.i18n.filtered,
+                emptyTable: digitalogic.i18n.no_data,
+                zeroRecords: digitalogic.i18n.no_records
             }
         });
         

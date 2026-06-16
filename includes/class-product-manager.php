@@ -307,6 +307,11 @@ class Digitalogic_Product_Manager {
             'limit' => -1,
         );
         
+        // Add search filter if provided
+        if (!empty($args['search'])) {
+            $query_args['s'] = $args['search'];
+        }
+        
         try {
             $products = wc_get_products($query_args);
             
