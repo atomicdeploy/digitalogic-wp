@@ -25,19 +25,39 @@ cd /var/www/wp
 wp digitalogic websocket serve --host=127.0.0.1 --port=8090 --allow-root
 ```
 
-Run it under `systemd` or Supervisor in production. Keep it bound to `127.0.0.1` and expose it through Nginx at `/wordpress-ws`.
+Run it under `systemd` or Supervisor in production. Keep it bound to `127.0.0.1` and expose it through Apache at `/wordpress-ws`.
 
-## Nginx
+## Apache
 
-```nginx
-location /wordpress-ws {
-    proxy_pass http://127.0.0.1:8090;
-    proxy_http_version 1.1;
-    proxy_set_header Upgrade $http_upgrade;
-    proxy_set_header Connection "Upgrade";
-    proxy_set_header Host $host;
-    proxy_set_header Cookie $http_cookie;
-}
+```apache
+ProxyPass /wordpress-ws ws://127.0.0.1:8090/
+ProxyPassReverse /wordpress-ws ws://127.0.0.1:8090/
+```
+
+Systemd service:
+
+```ini
+[Unit]
+Description=Digitalogic WordPress WebSocket command server
+After=network.target mariadb.service apache2.service
+
+[Service]
+Type=simple
+WorkingDirectory=/var/www/wp
+ExecStart=/usr/local/bin/wp digitalogic websocket serve --host=127.0.0.1 --port=8090 --allow-root
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+`websocat` verification:
+
+```bash
+token="$(wp digitalogic websocket token --allow-root)"
+printf '%s\n' '{"id":"1","command":"digitalogic_get_products","data":{"limit":1}}' \
+  | websocat "wss://digitalogic.ir/wordpress-ws?token=${token}"
 ```
 
 ## External Plugin Commands

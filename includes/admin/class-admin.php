@@ -105,6 +105,15 @@ class Digitalogic_Admin {
             'digitalogic-status',
             array($this, 'render_status_page')
         );
+
+        $this->page_hooks[] = add_submenu_page(
+            'digitalogic',
+            __('Laravel Panel', 'digitalogic'),
+            __('Laravel Panel', 'digitalogic'),
+            'manage_woocommerce',
+            'digitalogic-panel',
+            array($this, 'render_panel_page')
+        );
     }
     
     /**
@@ -267,6 +276,17 @@ class Digitalogic_Admin {
      */
     public function render_status_page() {
         include DIGITALOGIC_PLUGIN_DIR . 'includes/admin/views/status.php';
+    }
+
+    /**
+     * Render Laravel panel launch page.
+     */
+    public function render_panel_page() {
+        $bridge = Digitalogic_Laravel_Bridge::instance();
+        $panel_url = $bridge->get_panel_url();
+        $launch_url = $bridge->get_launch_url();
+
+        include DIGITALOGIC_PLUGIN_DIR . 'includes/admin/views/panel.php';
     }
     
     /**

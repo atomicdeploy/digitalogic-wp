@@ -63,6 +63,44 @@
     margin: 0;
 }
 
+.digitalogic-panel-card {
+    max-width: 760px;
+    background: #fff;
+    border: 1px solid #c3c4c7;
+    border-radius: 6px;
+    padding: 24px;
+    margin-top: 20px;
+    box-shadow: 0 1px 1px rgba(0,0,0,.04);
+}
+
+.digitalogic-panel-card h2 {
+    margin-top: 0;
+}
+
+.digitalogic-panel-actions {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    flex-wrap: wrap;
+    margin: 24px 0;
+}
+
+.digitalogic-panel-meta {
+    display: grid;
+    grid-template-columns: 140px minmax(0, 1fr);
+    gap: 10px 16px;
+    margin: 0;
+}
+
+.digitalogic-panel-meta dt {
+    font-weight: 600;
+    color: #50575e;
+}
+
+.digitalogic-panel-meta dd {
+    margin: 0;
+}
+
 /* Products Page */
 .digitalogic-toolbar {
     margin: 20px 0;

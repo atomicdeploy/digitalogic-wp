@@ -164,16 +164,26 @@ Run the WebSocket server with WP-CLI:
 wp digitalogic websocket serve --host=127.0.0.1 --port=8090 --allow-root
 ```
 
-Recommended Nginx proxy:
-```nginx
-location /wordpress-ws {
-    proxy_pass http://127.0.0.1:8090;
-    proxy_http_version 1.1;
-    proxy_set_header Upgrade $http_upgrade;
-    proxy_set_header Connection "Upgrade";
-    proxy_set_header Host $host;
-    proxy_set_header Cookie $http_cookie;
-}
+Apache proxy used on Digitalogic:
+```apache
+ProxyPass /wordpress-ws ws://127.0.0.1:8090/
+ProxyPassReverse /wordpress-ws ws://127.0.0.1:8090/
+```
+
+Production service:
+```ini
+[Service]
+WorkingDirectory=/var/www/wp
+ExecStart=/usr/local/bin/wp digitalogic websocket serve --host=127.0.0.1 --port=8090 --allow-root
+Restart=always
+RestartSec=5
+```
+
+Smoke test with `websocat`:
+```bash
+token="$(wp digitalogic websocket token --allow-root)"
+printf '%s\n' '{"id":"1","command":"digitalogic_get_products","data":{"limit":1}}' \
+  | websocat "wss://digitalogic.ir/wordpress-ws?token=${token}"
 ```
 
 Other plugins can add commands:
@@ -235,8 +245,28 @@ Panel endpoints:
 - `GET /products/{id}`
 - `PATCH /products/{id}`
 - `POST /commands`
+- `POST /session/consume`
+- `GET /theme`
 
 The `/commands` endpoint can call Digitalogic commands, custom
 `digitalogic_command_handlers`, or registered `wp_ajax_{action}` callbacks. Use
 this for WordPress/Laravel interoperability when the Laravel panel needs to
 trigger the same server-side behavior that the WordPress admin already uses.
+
+WordPress admins can enter the Laravel panel from **Digitalogic > Laravel Panel**.
+The launch URL creates a short-lived, one-time handoff code and redirects to:
+
+`https://panel.digitalogic.ir/auth/wordpress?code=...`
+
+Laravel consumes that code with the bridge token:
+```php
+$session = Http::withHeaders([
+    'X-Digitalogic-Panel-Token' => config('services.digitalogic.token'),
+])->post($base . '/session/consume', [
+    'code' => $request->query('code'),
+])->json();
+```
+
+The `GET /theme` endpoint exposes the shared Digitalogic visual identity,
+including logo URLs, direction, locale, color tokens, and the `/digitalogic-ui/`
+asset base.

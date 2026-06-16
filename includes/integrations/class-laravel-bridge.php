@@ -10,6 +10,9 @@ if (!defined('ABSPATH')) {
 class Digitalogic_Laravel_Bridge {
 
     private const TOKEN_OPTION = 'digitalogic_laravel_panel_token';
+    private const PANEL_URL_OPTION = 'digitalogic_laravel_panel_url';
+    private const HANDOFF_PREFIX = 'digitalogic_panel_handoff_';
+    private const HANDOFF_TTL = 120;
 
     private static $instance = null;
 
@@ -23,6 +26,7 @@ class Digitalogic_Laravel_Bridge {
 
     private function __construct() {
         add_action('rest_api_init', array($this, 'register_routes'));
+        add_action('admin_post_digitalogic_laravel_panel_launch', array($this, 'handle_panel_launch'));
     }
 
     public function register_routes() {
@@ -48,6 +52,21 @@ class Digitalogic_Laravel_Bridge {
             'methods' => 'POST',
             'permission_callback' => array($this, 'authorize_request'),
             'callback' => array($this, 'run_command'),
+        ));
+
+        register_rest_route('digitalogic-panel/v1', '/session/consume', array(
+            'methods' => 'POST',
+            'permission_callback' => array($this, 'authorize_request'),
+            'callback' => array($this, 'consume_session_handoff'),
+            'args' => array(
+                'code' => array('required' => true),
+            ),
+        ));
+
+        register_rest_route('digitalogic-panel/v1', '/theme', array(
+            'methods' => 'GET',
+            'permission_callback' => array($this, 'authorize_request'),
+            'callback' => array($this, 'get_theme'),
         ));
     }
 
@@ -100,6 +119,77 @@ class Digitalogic_Laravel_Bridge {
         return $this->rest_response(Digitalogic_Command_Dispatcher::instance()->execute($command, $data, 'laravel'));
     }
 
+    public function handle_panel_launch() {
+        check_admin_referer('digitalogic_laravel_panel_launch');
+
+        if (!current_user_can('manage_woocommerce')) {
+            wp_die(
+                esc_html__('You are not allowed to open the Digitalogic panel.', 'digitalogic'),
+                esc_html__('Forbidden', 'digitalogic'),
+                array('response' => 403)
+            );
+        }
+
+        $return_to = isset($_GET['return_to']) ? esc_url_raw(wp_unslash($_GET['return_to'])) : '';
+        $code = $this->create_session_handoff(get_current_user_id(), $return_to);
+
+        wp_redirect($this->get_panel_url('/auth/wordpress', array(
+            'code' => $code,
+            'return_to' => $return_to,
+        )));
+        exit;
+    }
+
+    public function consume_session_handoff(WP_REST_Request $request) {
+        $code = (string) $request->get_param('code');
+        $key = $this->handoff_key($code);
+        $handoff = get_transient($key);
+
+        if (!is_array($handoff)) {
+            return new WP_REST_Response(array(
+                'success' => false,
+                'message' => 'Invalid or expired WordPress session handoff.',
+            ), 401);
+        }
+
+        delete_transient($key);
+
+        $user = get_user_by('id', (int) $handoff['user_id']);
+        if (!$user) {
+            return new WP_REST_Response(array(
+                'success' => false,
+                'message' => 'WordPress user no longer exists.',
+            ), 404);
+        }
+
+        wp_set_current_user($user->ID);
+
+        return rest_ensure_response(array(
+            'success' => true,
+            'data' => array(
+                'user' => $this->format_user($user),
+                'return_to' => $handoff['return_to'],
+                'issued_at' => $handoff['issued_at'],
+                'expires_at' => $handoff['expires_at'],
+                'wordpress' => array(
+                    'site_url' => site_url(),
+                    'home_url' => home_url(),
+                    'cookie_domain' => defined('COOKIE_DOMAIN') ? COOKIE_DOMAIN : '',
+                    'logged_in_cookie' => defined('LOGGED_IN_COOKIE') ? LOGGED_IN_COOKIE : '',
+                    'secure_auth_cookie' => defined('SECURE_AUTH_COOKIE') ? SECURE_AUTH_COOKIE : '',
+                ),
+                'theme' => $this->theme_payload(),
+            ),
+        ));
+    }
+
+    public function get_theme() {
+        return rest_ensure_response(array(
+            'success' => true,
+            'data' => $this->theme_payload(),
+        ));
+    }
+
     private function rest_response($result) {
         if (is_wp_error($result)) {
             $status = 400;
@@ -135,6 +225,84 @@ class Digitalogic_Laravel_Bridge {
         }
 
         return false;
+    }
+
+    private function create_session_handoff($user_id, $return_to = '') {
+        $code = wp_generate_password(48, false, false);
+        $now = time();
+        $user = get_user_by('id', (int) $user_id);
+
+        set_transient($this->handoff_key($code), array(
+            'user_id' => (int) $user_id,
+            'user_login' => $user ? $user->user_login : '',
+            'return_to' => $return_to,
+            'issued_at' => gmdate('c', $now),
+            'expires_at' => gmdate('c', $now + self::HANDOFF_TTL),
+        ), self::HANDOFF_TTL);
+
+        return $code;
+    }
+
+    private function handoff_key($code) {
+        return self::HANDOFF_PREFIX . md5((string) $code);
+    }
+
+    private function format_user(WP_User $user) {
+        return array(
+            'id' => $user->ID,
+            'login' => $user->user_login,
+            'email' => $user->user_email,
+            'display_name' => $user->display_name,
+            'roles' => array_values((array) $user->roles),
+            'capabilities' => array(
+                'manage_woocommerce' => user_can($user, 'manage_woocommerce'),
+                'manage_options' => user_can($user, 'manage_options'),
+                'edit_users' => user_can($user, 'edit_users'),
+                'list_users' => user_can($user, 'list_users'),
+            ),
+        );
+    }
+
+    private function theme_payload() {
+        $site_icon = get_site_icon_url(192);
+        $logo_id = get_theme_mod('custom_logo');
+        $logo_url = $logo_id ? wp_get_attachment_image_url($logo_id, 'full') : '';
+
+        return apply_filters('digitalogic_laravel_panel_theme', array(
+            'name' => 'Digitalogic',
+            'direction' => is_rtl() ? 'rtl' : 'ltr',
+            'locale' => get_locale(),
+            'site_name' => wp_specialchars_decode(get_bloginfo('name'), ENT_QUOTES),
+            'logo_url' => $logo_url ?: $site_icon,
+            'site_icon_url' => $site_icon,
+            'shared_ui_base_url' => home_url('/digitalogic-ui/'),
+            'colors' => array(
+                'primary' => '#2271b1',
+                'surface' => '#ffffff',
+                'surface_muted' => '#f6f7f7',
+                'border' => '#c3c4c7',
+                'text' => '#1d2327',
+                'success' => '#46b450',
+                'warning' => '#f0b849',
+                'danger' => '#dc3232',
+            ),
+        ));
+    }
+
+    public function get_panel_url($path = '', $args = array()) {
+        $base = (string) get_option(self::PANEL_URL_OPTION, 'https://panel.digitalogic.ir');
+        $base = untrailingslashit(apply_filters('digitalogic_laravel_panel_url', $base));
+        $path = '/' . ltrim((string) $path, '/');
+        $url = $base . ($path === '/' ? '' : $path);
+
+        return $args ? add_query_arg(array_filter($args), $url) : $url;
+    }
+
+    public function get_launch_url($return_to = '') {
+        return wp_nonce_url(add_query_arg(array(
+            'action' => 'digitalogic_laravel_panel_launch',
+            'return_to' => $return_to,
+        ), admin_url('admin-post.php')), 'digitalogic_laravel_panel_launch');
     }
 
     public static function get_token() {
