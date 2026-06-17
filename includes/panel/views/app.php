@@ -12,6 +12,7 @@ if (!defined('ABSPATH')) {
 $config = Digitalogic_Panel::instance()->client_config();
 $lang = strpos($config['locale'], 'fa') === 0 ? 'fa' : 'en';
 $dir = $config['i18n'][$lang]['dir'];
+$logo_url = !empty($config['theme']['logo_url']) ? $config['theme']['logo_url'] : '';
 ?><!doctype html>
 <html <?php language_attributes(); ?> dir="<?php echo esc_attr($dir); ?>">
 <head>
@@ -24,7 +25,13 @@ $dir = $config['i18n'][$lang]['dir'];
 <body class="digitalogic-panel-body">
     <div id="digitalogic-panel" data-path="<?php echo esc_attr($panel_path); ?>">
         <div class="dlp-boot">
-            <div class="dlp-boot-mark">D</div>
+            <div class="dlp-boot-mark">
+                <?php if ($logo_url) : ?>
+                    <img src="<?php echo esc_url($logo_url); ?>" alt="<?php echo esc_attr(get_bloginfo('name')); ?>">
+                <?php else : ?>
+                    <span>D</span>
+                <?php endif; ?>
+            </div>
             <div><?php esc_html_e('Loading...', 'digitalogic'); ?></div>
         </div>
     </div>
@@ -32,8 +39,11 @@ $dir = $config['i18n'][$lang]['dir'];
         <div class="dlp-layout" v-cloak>
             <aside class="dlp-sidebar">
                 <div class="dlp-brand">
-                    <div class="dlp-logo-mark">D</div>
-                    <div>
+                    <div class="dlp-logo-mark">
+                        <img v-if="configTheme && configTheme.logo_url" :src="configTheme.logo_url" :alt="(configTheme && configTheme.site_name) || 'Digitalogic'">
+                        <span v-else>D</span>
+                    </div>
+                    <div class="dlp-brand-copy">
                         <div class="dlp-brand-title">Digitalogic</div>
                         <div class="dlp-brand-subtitle">{{ (configTheme && configTheme.site_name) || 'Panel' }}</div>
                     </div>
@@ -42,13 +52,14 @@ $dir = $config['i18n'][$lang]['dir'];
                     <div class="dlp-avatar"><span class="dashicons dashicons-admin-users"></span></div>
                     <div>
                         <strong>{{ user.display_name || user.login }}</strong>
-                        <div class="dlp-muted">{{ user.login }} · {{ user.email }}</div>
+                        <div class="dlp-muted">{{ user.login }} &middot; {{ user.email }}</div>
                     </div>
                 </div>
                 <nav class="dlp-nav">
                     <button :class="{'is-active': currentPage === 'dashboard'}" @click="navigate('/')"><span class="dlp-nav-label"><span class="dashicons dashicons-dashboard"></span>{{ t.dashboard }}</span></button>
                     <button :class="{'is-active': currentPage === 'products'}" @click="navigate('/products')"><span class="dlp-nav-label"><span class="dashicons dashicons-products"></span>{{ t.products }}</span></button>
                     <button :class="{'is-active': currentPage === 'users'}" @click="navigate('/users')"><span class="dlp-nav-label"><span class="dashicons dashicons-admin-users"></span>{{ t.users }}</span></button>
+                    <button :class="{'is-active': currentPage === 'reports'}" @click="navigate('/reports')"><span class="dlp-nav-label"><span class="dashicons dashicons-chart-bar"></span>{{ t.reports }}</span></button>
                     <button :class="{'is-active': currentPage === 'cli'}" @click="navigate('/cli')"><span class="dlp-nav-label"><span class="dashicons dashicons-editor-code"></span>{{ t.cli }}</span></button>
                     <button :class="{'is-active': currentPage === 'sync'}" @click="navigate('/sync')"><span class="dlp-nav-label"><span class="dashicons dashicons-update"></span>{{ t.sync }}</span></button>
                     <button :class="{'is-active': currentPage === 'settings'}" @click="navigate('/settings')"><span class="dlp-nav-label"><span class="dashicons dashicons-admin-settings"></span>{{ t.settings }}</span></button>
@@ -61,17 +72,18 @@ $dir = $config['i18n'][$lang]['dir'];
                         <div class="dlp-muted">{{ t.signedInAs }} {{ user.display_name || user.login }}</div>
                     </div>
                     <div class="dlp-actions">
-                        <span class="dlp-pill" :class="transport === 'websocket' ? 'is-ok' : 'is-warn'"><span class="dashicons dashicons-randomize"></span>{{ transport === 'websocket' ? t.connected : t.fallback }}</span>
+                        <span class="dlp-pill" :class="transport === 'websocket' ? 'is-ok' : 'is-warn'"><span class="dlp-status-dot" aria-hidden="true"></span>{{ transport === 'websocket' ? t.connected : t.fallback }}</span>
                         <select class="dlp-select" v-model="lang" :aria-label="t.language"><option value="fa">فارسی</option><option value="en">English</option></select>
                         <select class="dlp-select" v-model="theme"><option value="system">{{ t.system }}</option><option value="light">{{ t.light }}</option><option value="dark">{{ t.dark }}</option></select>
-                        <a class="dlp-button" href="/wp-admin/">{{ t.openWordPress }}</a>
+                        <select class="dlp-select" v-model="styleMode" :aria-label="t.panelStyle"><option value="modern">{{ t.modernStyle }}</option><option value="classic">{{ t.classicStyle }}</option></select>
+                        <a class="dlp-button" href="/wp-admin/"><span class="dashicons dashicons-admin-home"></span>{{ t.openWordPress }}</a>
                     </div>
                 </header>
                 <div v-if="error" class="dlp-error">{{ error }}</div>
 
                 <section v-if="currentPage === 'dashboard'">
                     <div class="dlp-grid">
-                        <article v-for="card in dashboardCards" :key="card.key" class="dlp-card" draggable="true" :class="{'is-dragging': draggedCard === card.key}" @dragstart="startDrag(card.key)" @dragover.prevent @drop="dropCard(card.key)">
+                        <article v-for="card in dashboardCards" :key="card.key" class="dlp-card" draggable="true" :class="{'is-dragging': draggedCard === card.key}" @dragstart="startDrag(card.key)" @dragend="endDrag" @dragover.prevent @drop="dropCard(card.key)">
                             <div class="dlp-card-head">
                                 <span class="dlp-card-label"><span :class="icon(card.icon)"></span> {{ card.label }}</span>
                                 <span class="dlp-card-menu">
@@ -87,6 +99,13 @@ $dir = $config['i18n'][$lang]['dir'];
                         </article>
                     </div>
                     <div class="dlp-panel">
+                        <div class="dlp-panel-head"><strong>{{ t.currency }}</strong><button class="dlp-button dlp-primary" :disabled="saving" @click="saveCurrency"><span class="dashicons dashicons-saved"></span>{{ t.save }}</button></div>
+                        <div class="dlp-field-grid dlp-currency-editor">
+                            <label class="dlp-currency-row"><span>USD</span><input class="dlp-input" data-currency-field="dollar_price" inputmode="decimal" v-model="currencyDraft.dollar_price"><strong>{{ formatMoney(currencyDraft.dollar_price) }}</strong></label>
+                            <label class="dlp-currency-row"><span>CNY</span><input class="dlp-input" data-currency-field="yuan_price" inputmode="decimal" v-model="currencyDraft.yuan_price"><strong>{{ formatMoney(currencyDraft.yuan_price) }}</strong></label>
+                        </div>
+                    </div>
+                    <div class="dlp-panel">
                         <div class="dlp-panel-head"><strong>{{ t.recentActivity }}</strong><button class="dlp-button" @click="loadSummary"><span class="dashicons dashicons-update"></span> {{ t.refresh }}</button></div>
                         <div class="dlp-table-wrap" v-if="summary && summary.logs && summary.logs.length">
                             <table class="dlp-table"><tbody><tr v-for="log in summary.logs" :key="log.id"><td>{{ log.action }}</td><td>{{ log.object_type }}</td><td>{{ log.created_at }}</td></tr></tbody></table>
@@ -94,8 +113,14 @@ $dir = $config['i18n'][$lang]['dir'];
                         <div v-else class="dlp-empty">{{ t.noRows }}</div>
                     </div>
                     <div class="dlp-panel">
-                        <div class="dlp-panel-head"><strong>{{ t.missingFeatures }}</strong></div>
-                        <div class="dlp-empty">{{ t.missingText }}</div>
+                        <div class="dlp-panel-head"><strong>{{ t.reports }}</strong><button class="dlp-button" @click="navigate('/reports')"><span class="dashicons dashicons-visibility"></span>{{ t.view }}</button></div>
+                        <div class="dlp-report-grid">
+                            <button class="dlp-report-card" v-for="section in migrationSections" :key="section.key" @click="navigate(section.route)">
+                                <span :class="icon(section.icon)"></span>
+                                <strong>{{ section.title }}</strong>
+                                <span>{{ section.body }}</span>
+                            </button>
+                        </div>
                     </div>
                 </section>
 
@@ -124,16 +149,17 @@ $dir = $config['i18n'][$lang]['dir'];
                     </div>
                     <div class="dlp-panel" v-else>
                         <div class="dlp-table-wrap"><table class="dlp-table"><thead><tr><th>ID</th><th>{{ t.products }}</th><th>{{ t.sku }}</th><th>{{ t.regularPrice }}</th><th>{{ t.salePrice }}</th><th>{{ t.stock }}</th><th>{{ t.actions }}</th></tr></thead><tbody>
-                            <tr v-for="product in filteredProducts" :key="product.id"><td>{{ product.id }}</td><td><div class="dlp-product-cell"><img v-if="product.image" :src="product.image" alt=""><span>{{ product.name }}</span></div></td><td>{{ product.sku || '-' }}</td><td><input class="dlp-input" :value="product.regular_price" @input="editProduct(product, 'regular_price', $event.target.value)"></td><td><input class="dlp-input" :value="product.sale_price" @input="editProduct(product, 'sale_price', $event.target.value)"></td><td><input class="dlp-input" :value="product.stock_quantity" @input="editProduct(product, 'stock_quantity', $event.target.value)"></td><td><button class="dlp-button" @click="navigate('/products/' + product.id)"><span class="dashicons dashicons-visibility"></span> {{ t.view }}</button><button class="dlp-button dlp-primary" :disabled="saving" @click="saveProduct(product)">{{ t.save }}</button></td></tr>
+                            <tr v-for="product in filteredProducts" :key="product.id" :class="{'is-edited': rowEdited(product)}"><td>{{ product.id }}</td><td><div class="dlp-product-cell"><img v-if="product.image" :src="product.image" alt=""><span class="dlp-editable-cell" tabindex="0" @click="startCellEdit(product, 'name')" @focus="startCellEdit(product, 'name')" v-if="!isCellEditing(product, 'name')">{{ cellValue(product, 'name') }}</span><input v-else class="dlp-cell-input" :data-cell-key="product.id + ':name'" :value="product.name" @input="editProduct(product, 'name', $event.target.value)" @keydown.enter.prevent="finishCellEdit" @keydown.esc.prevent="finishCellEdit" @blur="finishCellEdit"></div></td><td><span class="dlp-editable-cell" tabindex="0" @click="startCellEdit(product, 'sku')" @focus="startCellEdit(product, 'sku')" v-if="!isCellEditing(product, 'sku')">{{ cellValue(product, 'sku') }}</span><input v-else class="dlp-cell-input" :data-cell-key="product.id + ':sku'" :value="product.sku" @input="editProduct(product, 'sku', $event.target.value)" @keydown.enter.prevent="finishCellEdit" @keydown.esc.prevent="finishCellEdit" @blur="finishCellEdit"></td><td><span class="dlp-editable-cell" tabindex="0" @click="startCellEdit(product, 'regular_price')" @focus="startCellEdit(product, 'regular_price')" v-if="!isCellEditing(product, 'regular_price')">{{ cellValue(product, 'regular_price') }}</span><input v-else class="dlp-cell-input" :data-cell-key="product.id + ':regular_price'" inputmode="decimal" :value="product.regular_price" @input="editProduct(product, 'regular_price', $event.target.value)" @keydown.enter.prevent="finishCellEdit" @keydown.esc.prevent="finishCellEdit" @blur="finishCellEdit"></td><td><span class="dlp-editable-cell" tabindex="0" @click="startCellEdit(product, 'sale_price')" @focus="startCellEdit(product, 'sale_price')" v-if="!isCellEditing(product, 'sale_price')">{{ cellValue(product, 'sale_price') }}</span><input v-else class="dlp-cell-input" :data-cell-key="product.id + ':sale_price'" inputmode="decimal" :value="product.sale_price" @input="editProduct(product, 'sale_price', $event.target.value)" @keydown.enter.prevent="finishCellEdit" @keydown.esc.prevent="finishCellEdit" @blur="finishCellEdit"></td><td><span class="dlp-editable-cell" tabindex="0" @click="startCellEdit(product, 'stock_quantity')" @focus="startCellEdit(product, 'stock_quantity')" v-if="!isCellEditing(product, 'stock_quantity')">{{ cellValue(product, 'stock_quantity') }}</span><input v-else class="dlp-cell-input" :data-cell-key="product.id + ':stock_quantity'" inputmode="numeric" :value="product.stock_quantity" @input="editProduct(product, 'stock_quantity', $event.target.value)" @keydown.enter.prevent="finishCellEdit" @keydown.esc.prevent="finishCellEdit" @blur="finishCellEdit"></td><td><span class="dlp-cell-actions"><button class="dlp-button" @click="navigate('/products/' + product.id)"><span class="dashicons dashicons-visibility"></span> {{ t.view }}</button><button class="dlp-button dlp-primary" :disabled="saving || !rowEdited(product)" @click="saveProduct(product)">{{ t.save }}</button></span></td></tr>
                             <tr v-if="!filteredProducts.length"><td colspan="7" class="dlp-empty">{{ loading ? t.loading : t.noRows }}</td></tr>
                         </tbody></table></div>
                     </div>
                 </section>
 
                 <section v-if="currentPage === 'users'" class="dlp-panel"><div class="dlp-table-wrap"><table class="dlp-table"><thead><tr><th>ID</th><th>{{ t.users }}</th><th>Email</th><th>Role</th></tr></thead><tbody><tr v-for="item in users" :key="item.id"><td>{{ item.id }}</td><td>{{ item.display_name }}</td><td>{{ item.email }}</td><td>{{ roleText(item.roles) }}</td></tr></tbody></table></div></section>
+                <section v-if="currentPage === 'reports'" class="dlp-panel"><div class="dlp-panel-head"><strong>{{ t.reports }}</strong><button class="dlp-button" @click="loadSummary"><span class="dashicons dashicons-update"></span>{{ t.refresh }}</button></div><div class="dlp-report-grid"><button class="dlp-report-card" v-for="section in migrationSections" :key="section.key" @click="navigate(section.route)"><span :class="icon(section.icon)"></span><strong>{{ section.title }}</strong><span>{{ section.body }}</span></button></div></section>
                 <section v-if="currentPage === 'cli'" class="dlp-panel"><div class="dlp-panel-head"><strong>{{ t.commandUsage }}</strong></div><div class="dlp-field-grid"><div class="dlp-field" v-for="(command, key) in commands" :key="key"><span>{{ key }}</span><code class="dlp-code">{{ command }}</code><button class="dlp-button" @click="copy(command)"><span class="dashicons dashicons-clipboard"></span> {{ t.copy }}</button></div></div></section>
                 <section v-if="currentPage === 'sync'" class="dlp-panel"><div class="dlp-panel-head"><strong>{{ t.patrisSync }}</strong></div><div class="dlp-field-grid"><div class="dlp-field"><span>Repository</span><code class="dlp-code">{{ patris.project }}</code></div><div class="dlp-field"><span>Mode</span><code class="dlp-code">{{ patris.mode }}</code></div><div class="dlp-field"><span>Suggested watcher</span><code class="dlp-code">{{ patris.suggested_bridge }}</code></div></div></section>
-                <section v-if="currentPage === 'settings'" class="dlp-panel"><div class="dlp-panel-head"><strong>{{ t.panelSettings }}</strong></div><div class="dlp-field-grid"><label class="dlp-field"><span>{{ t.language }}</span><select class="dlp-select" v-model="lang"><option value="fa">فارسی</option><option value="en">English</option></select></label><label class="dlp-field"><span>{{ t.transport }}</span><input class="dlp-input" :value="transport" readonly></label><label class="dlp-field"><span>Theme</span><select class="dlp-select" v-model="theme"><option value="system">{{ t.system }}</option><option value="light">{{ t.light }}</option><option value="dark">{{ t.dark }}</option></select></label></div></section>
+                <section v-if="currentPage === 'settings'" class="dlp-panel"><div class="dlp-panel-head"><strong>{{ t.panelSettings }}</strong></div><div class="dlp-field-grid"><label class="dlp-field"><span>{{ t.language }}</span><select class="dlp-select" v-model="lang"><option value="fa">فارسی</option><option value="en">English</option></select></label><label class="dlp-field"><span>{{ t.transport }}</span><input class="dlp-input" :value="transport" readonly></label><label class="dlp-field"><span>Theme</span><select class="dlp-select" v-model="theme"><option value="system">{{ t.system }}</option><option value="light">{{ t.light }}</option><option value="dark">{{ t.dark }}</option></select></label><label class="dlp-field"><span>{{ t.panelStyle }}</span><select class="dlp-select" v-model="styleMode"><option value="modern">{{ t.modernStyle }}</option><option value="classic">{{ t.classicStyle }}</option></select></label></div></section>
             </main>
         </div>
     </script>

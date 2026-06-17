@@ -16,6 +16,14 @@
     var websocketConnecting = false;
     var websocketRequests = {};
     var websocketRequestId = 0;
+
+    function escapeHtml(value) {
+        return $('<div>').text(value === null || typeof value === 'undefined' || value === '' ? '-' : value).html();
+    }
+
+    function editableCell(row, field, value, inputType, step) {
+        return '<button type="button" class="digitalogic-editable-cell" data-id="' + row.id + '" data-field="' + field + '" data-type="' + (inputType || 'text') + '" data-step="' + (step || '') + '">' + escapeHtml(value) + '</button>';
+    }
     
     $(document).ready(function() {
         connectWebSocket();
@@ -240,25 +248,25 @@
                 {
                     data: 'regular_price',
                     render: function(data, type, row) {
-                        return '<input type="number" class="product-field" data-id="' + row.id + '" data-field="regular_price" value="' + (data || '') + '" step="0.01">';
+                        return editableCell(row, 'regular_price', data, 'number', '0.01');
                     }
                 },
                 {
                     data: 'sale_price',
                     render: function(data, type, row) {
-                        return '<input type="number" class="product-field" data-id="' + row.id + '" data-field="sale_price" value="' + (data || '') + '" step="0.01">';
+                        return editableCell(row, 'sale_price', data, 'number', '0.01');
                     }
                 },
                 {
                     data: 'stock_quantity',
                     render: function(data, type, row) {
-                        return '<input type="number" class="product-field" data-id="' + row.id + '" data-field="stock_quantity" value="' + (data || '') + '" step="1">';
+                        return editableCell(row, 'stock_quantity', data, 'number', '1');
                     }
                 },
                 {
                     data: 'weight',
                     render: function(data, type, row) {
-                        return '<input type="number" class="product-field" data-id="' + row.id + '" data-field="weight" value="' + (data || '') + '" step="0.01">';
+                        return editableCell(row, 'weight', data, 'number', '0.01');
                     }
                 },
                 {
@@ -299,6 +307,46 @@
             
             changedProducts[productId][fieldName] = value;
             $field.addClass('changed');
+        });
+
+        $('#products-table').on('click keydown', '.digitalogic-editable-cell', function(event) {
+            if (event.type === 'keydown' && event.key !== 'Enter' && event.key !== 'F2') {
+                return;
+            }
+
+            event.preventDefault();
+            var $cell = $(this);
+            var value = $cell.text() === '-' ? '' : $cell.text();
+            var type = $cell.data('type') || 'text';
+            var step = $cell.data('step') || '';
+            var $input = $('<input>')
+                .attr('type', type)
+                .attr('step', step)
+                .attr('data-id', $cell.data('id'))
+                .attr('data-field', $cell.data('field'))
+                .addClass('product-field digitalogic-cell-input')
+                .val(value);
+
+            $cell.replaceWith($input);
+            $input.trigger('focus').trigger('select');
+        });
+
+        $('#products-table').on('blur keydown', '.digitalogic-cell-input', function(event) {
+            if (event.type === 'keydown' && event.key !== 'Enter' && event.key !== 'Escape') {
+                return;
+            }
+
+            var $input = $(this);
+            if (event.key === 'Escape') {
+                productsTable.ajax.reload(null, false);
+                return;
+            }
+
+            $input.trigger('change');
+            var value = $input.val();
+            var row = {id: $input.data('id')};
+            var $display = $(editableCell(row, $input.data('field'), value, $input.attr('type'), $input.attr('step'))).addClass('changed');
+            $input.replaceWith($display);
         });
     }
     
@@ -367,15 +415,11 @@
         });
         
         // Product search
-        var searchTimeout;
         $('#product-search').on('keyup', function() {
-            clearTimeout(searchTimeout);
             var searchTerm = $(this).val();
-            searchTimeout = setTimeout(function() {
-                if (productsTable) {
-                    productsTable.search(searchTerm).draw();
-                }
-            }, 500);
+            if (productsTable) {
+                productsTable.search(searchTerm).draw();
+            }
         });
         
         // Bulk update

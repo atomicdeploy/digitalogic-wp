@@ -29,11 +29,10 @@
 .stat-box.clickable:hover {
     box-shadow: 0 2px 8px rgba(0,0,0,.15);
     border-color: #2271b1;
-    transform: translateY(-2px);
 }
 
 .stat-box.clickable:active {
-    transform: translateY(0);
+    box-shadow: 0 1px 1px rgba(0,0,0,.04);
 }
 
 .stat-box h3 {
@@ -179,6 +178,32 @@ table.dataTable input[type="number"] {
     padding: 4px 8px;
     border: 1px solid #8c8f94;
     border-radius: 3px;
+}
+
+.digitalogic-editable-cell {
+    width: 100%;
+    min-height: 30px;
+    padding: 4px 7px;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    background: transparent;
+    color: #1d2327;
+    cursor: text;
+    font: inherit;
+    text-align: inherit;
+}
+
+.digitalogic-editable-cell:hover,
+.digitalogic-editable-cell:focus {
+    border-color: #2271b1;
+    background: #f6f7f7;
+    outline: none;
+}
+
+.digitalogic-cell-input.changed,
+.digitalogic-editable-cell.changed {
+    border-color: #dba617;
+    background: #fff8e5;
 }
 
 table.dataTable input.changed {

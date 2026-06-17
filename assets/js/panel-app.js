@@ -127,6 +127,12 @@
         return window.localStorage.getItem(key) || fallback;
     }
 
+    function storedTheme() {
+        return window.localStorage.getItem('digitalogic_panel_theme') ||
+            window.localStorage.getItem('digitalogic-admin-theme') ||
+            'system';
+    }
+
     function normalizePath(pathname) {
         var base = new URL(config.panel_url || '/panel/', window.location.origin).pathname.replace(/\/+$/, '');
         var path = pathname.indexOf(base) === 0 ? pathname.slice(base.length) : pathname;
@@ -137,9 +143,47 @@
     function applyTheme(theme) {
         if (theme === 'light' || theme === 'dark') {
             document.documentElement.setAttribute('data-dlp-theme', theme);
+            document.body.setAttribute('data-dlp-theme', theme);
         } else {
+            var inherited = window.localStorage.getItem('digitalogic-admin-theme');
+            if (inherited === 'light' || inherited === 'dark') {
+                document.documentElement.setAttribute('data-dlp-theme', inherited);
+                document.body.setAttribute('data-dlp-theme', inherited);
+                return;
+            }
+
             document.documentElement.removeAttribute('data-dlp-theme');
+            document.body.removeAttribute('data-dlp-theme');
         }
+    }
+
+    function applyStyleMode(styleMode) {
+        document.documentElement.setAttribute('data-dlp-style', styleMode === 'classic' ? 'classic' : 'modern');
+    }
+
+    function enableRipples() {
+        document.addEventListener('pointerdown', function(event) {
+            var target = event.target.closest('button, .dlp-button, .dlp-icon-button, .dlp-menu-button, .dlp-nav button, a.dlp-button');
+            if (!target || target.disabled) {
+                return;
+            }
+
+            target.classList.add('dlp-ripple-host');
+
+            var circle = document.createElement('span');
+            var rect = target.getBoundingClientRect();
+            var size = Math.max(rect.width, rect.height) * 1.35;
+            circle.className = 'dlp-ripple-circle';
+            circle.style.width = size + 'px';
+            circle.style.height = size + 'px';
+            circle.style.left = (event.clientX - rect.left) + 'px';
+            circle.style.top = (event.clientY - rect.top) + 'px';
+            target.appendChild(circle);
+
+            window.setTimeout(function() {
+                circle.remove();
+            }, 650);
+        });
     }
 
     var transport = createTransport();
@@ -148,7 +192,8 @@
         data: function() {
             return {
                 lang: stored('digitalogic_panel_language', (config.locale || '').indexOf('fa') === 0 ? 'fa' : 'en'),
-                theme: stored('digitalogic_panel_theme', 'system'),
+                theme: storedTheme(),
+                styleMode: stored('digitalogic_panel_style', 'modern'),
                 route: normalizePath(window.location.pathname),
                 loading: false,
                 saving: false,
@@ -159,6 +204,8 @@
                 selectedProduct: null,
                 search: '',
                 edits: {},
+                editingCell: null,
+                currencyDraft: {dollar_price: '', yuan_price: ''},
                 transport: 'ajax',
                 openMenu: '',
                 draggedCard: '',
@@ -178,6 +225,7 @@
             currentPage: function() {
                 if (this.route.indexOf('/products') === 0) return 'products';
                 if (this.route.indexOf('/users') === 0) return 'users';
+                if (this.route.indexOf('/reports') === 0) return 'reports';
                 if (this.route.indexOf('/cli') === 0) return 'cli';
                 if (this.route.indexOf('/sync') === 0) return 'sync';
                 if (this.route.indexOf('/settings') === 0) return 'settings';
@@ -209,6 +257,16 @@
             },
             patris: function() {
                 return (this.summary && this.summary.patris) || {};
+            },
+            migrationSections: function() {
+                return [
+                    {key: 'price-reports', icon: 'dashicons-chart-area', title: this.t.priceReports, body: this.t.priceReportsText, route: '/products'},
+                    {key: 'sync-prices', icon: 'dashicons-update', title: this.t.priceSync, body: this.t.priceSyncText, route: '/sync'},
+                    {key: 'image-audit', icon: 'dashicons-format-image', title: this.t.imageAudit, body: this.t.imageAuditText, route: '/reports'},
+                    {key: 'customer-report', icon: 'dashicons-groups', title: this.t.customerReports, body: this.t.customerReportsText, route: '/users'},
+                    {key: 'currency-shipping', icon: 'dashicons-admin-tools', title: this.t.currencyShipping, body: this.t.currencyShippingText, route: '/settings'},
+                    {key: 'excel-export', icon: 'dashicons-media-spreadsheet', title: this.t.excelExports, body: this.t.excelExportsText, route: '/cli'}
+                ];
             }
         },
         watch: {
@@ -221,6 +279,10 @@
                 window.localStorage.setItem('digitalogic_panel_theme', value);
                 applyTheme(value);
             },
+            styleMode: function(value) {
+                window.localStorage.setItem('digitalogic_panel_style', value);
+                applyStyleMode(value);
+            },
             route: function() {
                 this.loadRoute();
             }
@@ -229,10 +291,15 @@
             document.documentElement.dir = this.t.dir || 'ltr';
             document.documentElement.lang = this.lang === 'fa' ? 'fa-IR' : 'en';
             applyTheme(this.theme);
+            applyStyleMode(this.styleMode);
+            enableRipples();
             this.loadRoute();
             var self = this;
             window.addEventListener('popstate', function() {
                 self.route = normalizePath(window.location.pathname);
+            });
+            window.addEventListener('dragend', function() {
+                self.endDrag();
             });
             window.setInterval(function() {
                 self.transport = transport.isReady() ? 'websocket' : 'ajax';
@@ -266,6 +333,7 @@
                 var self = this;
                 return self.run('digitalogic_panel_summary').then(function(data) {
                     self.summary = data;
+                    self.resetCurrencyDraft();
                 }).catch(function(error) {
                     self.error = error.message || self.t.error;
                 });
@@ -305,6 +373,30 @@
                 this.edits[product.id][field] = value;
                 product[field] = value;
             },
+            startCellEdit: function(product, field) {
+                var key = product.id + ':' + field;
+                this.editingCell = key;
+                this.$nextTick(function() {
+                    var input = document.querySelector('[data-cell-key="' + key + '"]');
+                    if (input) {
+                        input.focus();
+                        input.select();
+                    }
+                });
+            },
+            isCellEditing: function(product, field) {
+                return this.editingCell === product.id + ':' + field;
+            },
+            finishCellEdit: function() {
+                this.editingCell = null;
+            },
+            cellValue: function(product, field) {
+                var value = product[field];
+                return value === null || typeof value === 'undefined' || value === '' ? '-' : value;
+            },
+            rowEdited: function(product) {
+                return !!(this.edits[product.id] && Object.keys(this.edits[product.id]).length);
+            },
             saveProduct: function(product) {
                 var self = this;
                 var data = self.edits[product.id] || {};
@@ -325,11 +417,17 @@
             dropCard: function(key) {
                 var from = this.cardOrder.indexOf(this.draggedCard);
                 var to = this.cardOrder.indexOf(key);
-                if (from < 0 || to < 0 || from === to) return;
+                if (from < 0 || to < 0 || from === to) {
+                    this.endDrag();
+                    return;
+                }
                 var cards = this.cardOrder.slice();
                 cards.splice(to, 0, cards.splice(from, 1)[0]);
                 this.cardOrder = cards;
                 window.localStorage.setItem('digitalogic_panel_cards', JSON.stringify(cards));
+                this.endDrag();
+            },
+            endDrag: function() {
                 this.draggedCard = '';
             },
             toggleMenu: function(key) {
@@ -337,8 +435,44 @@
             },
             cardAction: function(card, action) {
                 this.openMenu = '';
-                if (action === 'edit') this.navigate(card.key === 'products' ? '/products' : '/settings');
+                if (action === 'edit') {
+                    if (card.key === 'products') this.navigate('/products');
+                    else if (card.key === 'usd' || card.key === 'cny') this.focusCurrency(card.key);
+                    else this.navigate('/settings');
+                }
                 if (action === 'refresh') this.loadSummary();
+            },
+            resetCurrencyDraft: function() {
+                var currency = (this.summary && this.summary.currency) || {};
+                this.currencyDraft = {
+                    dollar_price: currency.dollar_price || '',
+                    yuan_price: currency.yuan_price || ''
+                };
+            },
+            focusCurrency: function(key) {
+                var self = this;
+                this.$nextTick(function() {
+                    var selector = key === 'cny' ? '[data-currency-field="yuan_price"]' : '[data-currency-field="dollar_price"]';
+                    var input = document.querySelector(selector);
+                    if (input) {
+                        input.focus();
+                        input.select();
+                    }
+                });
+            },
+            saveCurrency: function() {
+                var self = this;
+                self.saving = true;
+                self.run('digitalogic_update_currency', {
+                    dollar_price: self.currencyDraft.dollar_price,
+                    yuan_price: self.currencyDraft.yuan_price
+                }).then(function() {
+                    return self.loadSummary();
+                }).catch(function(error) {
+                    self.error = error.message || self.t.error;
+                }).finally(function() {
+                    self.saving = false;
+                });
             },
             copy: function(value) {
                 if (navigator.clipboard) navigator.clipboard.writeText(value);
