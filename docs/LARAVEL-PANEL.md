@@ -8,14 +8,14 @@ The reserved `panel.digitalogic.ir` host is not used by default. Until the
 standalone platform rewrite is ready, the live panel route is:
 
 ```text
-https://digitalogic.ir/panell/
+https://digitalogic.ir/panel/
 ```
 
 ## Authentication Flow
 
 1. WordPress verifies the current admin session and capability.
 2. WordPress creates a one-time handoff code valid for 120 seconds.
-3. WordPress redirects to `/panell/?code=...` for the in-site panel, or to an
+3. WordPress redirects to `/panel/?code=...` for the in-site panel, or to an
    external `/auth/wordpress` route only when a different panel URL is
    configured deliberately.
 4. Laravel consumes the code with `POST /wp-json/digitalogic-panel/v1/session/consume`.
@@ -68,9 +68,9 @@ pricing, inventory, users, logs, and panel-only workflows.
 
 ## Vue Panel Transport
 
-The temporary `/panell/` panel is a Vue.js SPA with Persian/English labels,
+The temporary `/panel/` panel is a Vue.js SPA with Persian/English labels,
 RTL/LTR support, system/light/dark theme modes, and history-based routing for
-paths such as `/panell/products/11307`.
+paths such as `/panel/products/11307`.
 
 It sends commands to `/wordpress-ws` first. If the socket is unavailable, it
 falls back to authenticated `admin-ajax.php` through the same command dispatcher.

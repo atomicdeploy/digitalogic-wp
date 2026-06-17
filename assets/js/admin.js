@@ -265,7 +265,7 @@
                     data: null,
                     orderable: false,
                     render: function(data, type, row) {
-                        var panelUrl = (digitalogic.panel_url || '/panell/').replace(/\/+$/, '') + '/products/' + encodeURIComponent(row.id);
+                        var panelUrl = (digitalogic.panel_url || '/panel/').replace(/\/+$/, '') + '/products/' + encodeURIComponent(row.id);
                         return '<div class="digitalogic-actions">' +
                             '<a class="button button-small view-product" href="' + panelUrl + '" target="_blank" rel="noopener" data-id="' + row.id + '">' + digitalogic.i18n.view_product + '</a>' +
                             '</div>';
@@ -495,7 +495,7 @@
             }
 
             var productId = $(this).data('id');
-            var baseUrl = digitalogic.panel_url || '/panell/';
+            var baseUrl = digitalogic.panel_url || '/panel/';
             window.open(baseUrl.replace(/\/+$/, '') + '/products/' + encodeURIComponent(productId), '_blank', 'noopener');
         });
     }

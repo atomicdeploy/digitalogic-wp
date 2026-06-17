@@ -10,7 +10,7 @@ if (!defined('ABSPATH')) {
 $labels = is_rtl() ? array(
     'title' => 'پنل',
     'heading' => 'باز کردن پنل عملیاتی دیجیتالاجیک',
-    'description' => 'این پنل با ورود فعلی وردپرس شما کار می کند و در یک زبانه جدا باز می شود. مسیر موقت /panell/ است تا با vhost های رزروشده تداخل نداشته باشد.',
+    'description' => 'این پنل با ورود فعلی وردپرس شما کار می کند و در یک زبانه جدا باز می شود. مسیر موقت /panel/ است تا با vhost های رزروشده تداخل نداشته باشد.',
     'open' => 'باز کردن پنل',
     'direct' => 'باز کردن مستقیم آدرس پنل',
     'panel_url' => 'آدرس پنل',
@@ -19,7 +19,7 @@ $labels = is_rtl() ? array(
 ) : array(
     'title' => __('Panel', 'digitalogic'),
     'heading' => __('Open the Digitalogic operations panel', 'digitalogic'),
-    'description' => __('The panel uses your current WordPress login and opens in a separate tab. The temporary in-site route is /panell/ so it does not interfere with reserved platform vhosts.', 'digitalogic'),
+    'description' => __('The panel uses your current WordPress login and opens in a separate tab. The temporary in-site route is /panel/ so it does not interfere with reserved platform vhosts.', 'digitalogic'),
     'open' => __('Open Panel', 'digitalogic'),
     'direct' => __('Open panel URL directly', 'digitalogic'),
     'panel_url' => __('Panel URL', 'digitalogic'),

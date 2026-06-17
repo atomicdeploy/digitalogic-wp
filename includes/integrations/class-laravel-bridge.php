@@ -334,7 +334,7 @@ class Digitalogic_Laravel_Bridge {
     }
 
     public function get_panel_url($path = '', $args = array()) {
-        $base = (string) get_option(self::PANEL_URL_OPTION, home_url('/panell/'));
+        $base = (string) get_option(self::PANEL_URL_OPTION, home_url('/panel/'));
         $base = untrailingslashit(apply_filters('digitalogic_laravel_panel_url', $base));
         $path = '/' . ltrim((string) $path, '/');
         $url = $base . ($path === '/' ? '' : $path);

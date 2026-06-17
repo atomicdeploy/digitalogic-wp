@@ -259,7 +259,7 @@ WordPress admins can enter the panel from **Digitalogic > Panel**. The launch
 URL creates a short-lived, one-time handoff code and redirects to the configured
 panel URL. By default, the temporary route is:
 
-`https://digitalogic.ir/panell/?code=...`
+`https://digitalogic.ir/panel/?code=...`
 
 Laravel consumes that code with the bridge token:
 ```php

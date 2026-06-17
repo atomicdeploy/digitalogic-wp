@@ -1,6 +1,6 @@
 <?php
 /**
- * In-site Vue panel served from /panell while the standalone Laravel panel is prepared.
+ * In-site Vue panel served from /panel while the standalone Laravel panel is prepared.
  */
 
 if (!defined('ABSPATH')) {
@@ -11,8 +11,9 @@ class Digitalogic_Panel {
 
     private const QUERY_VAR = 'digitalogic_panel';
     private const PATH_VAR = 'digitalogic_panel_path';
+    private const LEGACY_VAR = 'digitalogic_panel_legacy';
     private const REWRITE_VERSION_OPTION = 'digitalogic_panel_rewrite_version';
-    private const REWRITE_VERSION = '20260616-panell';
+    private const REWRITE_VERSION = '20260617-panel';
 
     private static $instance = null;
 
@@ -27,14 +28,17 @@ class Digitalogic_Panel {
     private function __construct() {
         add_action('init', array($this, 'register_route'));
         add_filter('query_vars', array($this, 'register_query_vars'));
+        add_filter('redirect_canonical', array($this, 'redirect_legacy_canonical'), 10, 2);
         add_action('template_redirect', array($this, 'render'));
         add_filter('digitalogic_command_handlers', array($this, 'register_commands'), 10, 2);
         add_action('wp_ajax_digitalogic_panel_command', array($this, 'ajax_command'));
     }
 
     public function register_route() {
-        add_rewrite_rule('^panell/?$', 'index.php?' . self::QUERY_VAR . '=1', 'top');
-        add_rewrite_rule('^panell/(.+)/?$', 'index.php?' . self::QUERY_VAR . '=1&' . self::PATH_VAR . '=$matches[1]', 'top');
+        add_rewrite_rule('^panel/?$', 'index.php?' . self::QUERY_VAR . '=1', 'top');
+        add_rewrite_rule('^panel/(.+)/?$', 'index.php?' . self::QUERY_VAR . '=1&' . self::PATH_VAR . '=$matches[1]', 'top');
+        add_rewrite_rule('^panell/?$', 'index.php?' . self::QUERY_VAR . '=1&' . self::LEGACY_VAR . '=1', 'top');
+        add_rewrite_rule('^panell/(.+)/?$', 'index.php?' . self::QUERY_VAR . '=1&' . self::LEGACY_VAR . '=1&' . self::PATH_VAR . '=$matches[1]', 'top');
 
         if (get_option(self::REWRITE_VERSION_OPTION) !== self::REWRITE_VERSION) {
             flush_rewrite_rules(false);
@@ -45,13 +49,38 @@ class Digitalogic_Panel {
     public function register_query_vars($vars) {
         $vars[] = self::QUERY_VAR;
         $vars[] = self::PATH_VAR;
+        $vars[] = self::LEGACY_VAR;
 
         return $vars;
+    }
+
+    public function redirect_legacy_canonical($redirect_url, $requested_url) {
+        $path = wp_parse_url($requested_url, PHP_URL_PATH);
+
+        if (!is_string($path) || !preg_match('#^/panell(?:/|$)#', $path)) {
+            return $redirect_url;
+        }
+
+        $legacy_path = trim(substr($path, strlen('/panell')), '/');
+        $target = home_url('/panel/' . ($legacy_path ? $legacy_path . '/' : ''));
+        $query = wp_parse_url($requested_url, PHP_URL_QUERY);
+
+        if ($query) {
+            $target .= '?' . $query;
+        }
+
+        return $target;
     }
 
     public function render() {
         if (!get_query_var(self::QUERY_VAR)) {
             return;
+        }
+
+        $panel_path = trim((string) get_query_var(self::PATH_VAR), '/');
+        if (get_query_var(self::LEGACY_VAR)) {
+            wp_safe_redirect(home_url('/panel/' . ($panel_path ? $panel_path . '/' : '')), 301);
+            exit;
         }
 
         if (!is_user_logged_in()) {
@@ -70,16 +99,19 @@ class Digitalogic_Panel {
         nocache_headers();
         status_header(200);
 
-        $panel_path = trim((string) get_query_var(self::PATH_VAR), '/');
         include DIGITALOGIC_PLUGIN_DIR . 'includes/panel/views/app.php';
         exit;
     }
 
     public function enqueue_assets() {
         wp_enqueue_style(
+            'dashicons'
+        );
+
+        wp_enqueue_style(
             'digitalogic-panel',
             DIGITALOGIC_PLUGIN_URL . 'assets/css/panel.css',
-            array(),
+            array('dashicons'),
             DIGITALOGIC_VERSION
         );
 
@@ -109,11 +141,13 @@ class Digitalogic_Panel {
             'ajax_url' => admin_url('admin-ajax.php'),
             'nonce' => wp_create_nonce('digitalogic_nonce'),
             'panel_url' => trailingslashit(Digitalogic_Laravel_Bridge::instance()->get_panel_url()),
+            'legacy_panel_url' => home_url('/panell/'),
             'initial_path' => '/' . trim((string) get_query_var(self::PATH_VAR), '/'),
             'locale' => determine_locale(),
             'direction' => is_rtl() ? 'rtl' : 'ltr',
             'user' => array(
                 'id' => $user->ID,
+                'login' => $user->user_login,
                 'display_name' => $user->display_name,
                 'email' => $user->user_email,
                 'roles' => array_values((array) $user->roles),
@@ -168,6 +202,17 @@ class Digitalogic_Panel {
                 'yuan_price' => $options->get_yuan_price(),
                 'updated_at' => $options->get_update_date_formatted(),
             ),
+            'cli' => array(
+                'websocket' => 'wp digitalogic websocket serve --host=127.0.0.1 --port=8090 --allow-root',
+                'websocket_token' => 'wp digitalogic websocket token --allow-root',
+                'panel_token' => 'wp digitalogic panel token --allow-root',
+                'panel_rotate' => 'wp digitalogic panel token --rotate --allow-root',
+            ),
+            'patris' => array(
+                'project' => 'atomicdeploy/patris-export',
+                'mode' => 'REST and WebSocket watcher for Patris Paradox DB exports',
+                'suggested_bridge' => 'patris-export serve kala.db -a 127.0.0.1:8080 --debounce 0s',
+            ),
             'logs' => Digitalogic_Logger::instance()->get_logs(array('limit' => 6)),
             'websocket' => array(
                 'enabled' => true,
@@ -214,6 +259,8 @@ class Digitalogic_Panel {
             'products' => 'Products',
             'users' => 'Users',
             'settings' => 'Settings',
+            'cli' => 'WP-CLI',
+            'sync' => 'Sync',
             'openWordPress' => 'WordPress admin',
             'search' => 'Search products',
             'refresh' => 'Refresh',
@@ -222,6 +269,14 @@ class Digitalogic_Panel {
             'loading' => 'Loading',
             'connected' => 'WebSocket connected',
             'fallback' => 'AJAX fallback',
+            'actions' => 'Actions',
+            'edit' => 'Edit',
+            'reorder' => 'Reorder',
+            'copied' => 'Copied',
+            'copy' => 'Copy',
+            'commandUsage' => 'Command usage',
+            'patrisSync' => 'Patris sync',
+            'missingFeatures' => 'Missing features',
             'dark' => 'Dark',
             'light' => 'Light',
             'system' => 'System',
@@ -239,6 +294,7 @@ class Digitalogic_Panel {
             'signedInAs' => 'Signed in as',
             'noRows' => 'No records found',
             'error' => 'Something went wrong. Please try again.',
+            'missingText' => 'Still missing: bulk import/export UX, full order/customer management, Patris field mapping UI, granular role editing, audit-log filtering, and conflict-resolution workflows.',
         );
     }
 
@@ -249,6 +305,8 @@ class Digitalogic_Panel {
             'products' => 'محصولات',
             'users' => 'کاربران',
             'settings' => 'تنظیمات',
+            'cli' => 'WP-CLI',
+            'sync' => 'همگام سازی',
             'openWordPress' => 'مدیریت وردپرس',
             'search' => 'جستجوی محصولات',
             'refresh' => 'تازه سازی',
@@ -257,6 +315,14 @@ class Digitalogic_Panel {
             'loading' => 'در حال بارگذاری',
             'connected' => 'وب سوکت متصل است',
             'fallback' => 'جایگزین AJAX',
+            'actions' => 'عملیات',
+            'edit' => 'ویرایش',
+            'reorder' => 'چینش',
+            'copied' => 'کپی شد',
+            'copy' => 'کپی',
+            'commandUsage' => 'راهنمای دستورها',
+            'patrisSync' => 'همگام سازی پاتریس',
+            'missingFeatures' => 'بخش های باقی مانده',
             'dark' => 'تیره',
             'light' => 'روشن',
             'system' => 'خودکار',
@@ -274,6 +340,7 @@ class Digitalogic_Panel {
             'signedInAs' => 'ورود با',
             'noRows' => 'رکوردی پیدا نشد',
             'error' => 'مشکلی پیش آمد. دوباره تلاش کنید.',
+            'missingText' => 'هنوز باقی مانده: رابط کامل ورود/خروج گروهی، مدیریت سفارش و مشتری، نگاشت فیلدهای پاتریس، ویرایش دقیق نقش ها، فیلتر گزارش ها، و روند حل تداخل همگام سازی.',
         );
     }
 }

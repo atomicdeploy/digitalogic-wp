@@ -85,7 +85,7 @@ class Digitalogic_Command_Dispatcher {
 
     public function get_products($payload) {
         $page = isset($payload['page']) ? max(1, intval($payload['page'])) : 1;
-        $limit = isset($payload['limit']) ? max(1, min(200, intval($payload['limit']))) : 50;
+        $limit = isset($payload['limit']) ? max(1, min(1000, intval($payload['limit']))) : 50;
         $search = isset($payload['search']) ? sanitize_text_field(wp_unslash($payload['search'])) : '';
         $sku = isset($payload['sku']) ? sanitize_text_field(wp_unslash($payload['sku'])) : '';
 
