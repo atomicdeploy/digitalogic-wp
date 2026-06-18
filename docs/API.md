@@ -29,7 +29,7 @@ Query Parameters:
 - `page` (int): Page number (default: 1)
 - `limit` (int): Results per page (default: 50, max: 100)
 - `search` (string): Search term
-- `sku` (string): Filter by SKU
+- `sku` (string): Filter by product code
 
 **Example Request:**
 ```bash

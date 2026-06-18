@@ -142,6 +142,7 @@ class Digitalogic_Product_Manager {
                 'width' => $product->get_width(),
                 'height' => $product->get_height(),
                 'permalink' => $product->get_permalink(),
+                'edit_url' => get_edit_post_link($product->get_id(), 'raw'),
                 'image' => wp_get_attachment_url($product->get_image_id()),
             );
             
@@ -251,6 +252,8 @@ class Digitalogic_Product_Manager {
                 json_encode($data),
                 'Updated product: ' . $product->get_name()
             );
+
+            do_action('digitalogic_product_updated', $product_id, $data);
             
             return true;
             
@@ -310,6 +313,10 @@ class Digitalogic_Product_Manager {
         // Add search filter if provided
         if (!empty($args['search'])) {
             $query_args['s'] = $args['search'];
+        }
+
+        if (!empty($args['sku'])) {
+            $query_args['sku'] = $args['sku'];
         }
         
         try {

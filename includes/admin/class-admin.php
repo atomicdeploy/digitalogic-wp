@@ -28,6 +28,7 @@ class Digitalogic_Admin {
         add_action('admin_enqueue_scripts', array($this, 'enqueue_scripts'));
         add_action('wp_enqueue_scripts', array($this, 'enqueue_admin_bar_styles'));
         add_action('admin_enqueue_scripts', array($this, 'enqueue_admin_bar_styles'));
+        add_action('admin_footer', array($this, 'remove_unwanted_admin_notices'), 1000);
         add_action('wp_ajax_digitalogic_get_products', array($this, 'ajax_get_products'));
         add_action('wp_ajax_digitalogic_update_product', array($this, 'ajax_update_product'));
         add_action('wp_ajax_digitalogic_bulk_update', array($this, 'ajax_bulk_update'));
@@ -35,6 +36,30 @@ class Digitalogic_Admin {
         add_action('wp_ajax_digitalogic_export', array($this, 'ajax_export'));
         add_action('wp_ajax_digitalogic_import', array($this, 'ajax_import'));
         add_action('wp_ajax_digitalogic_get_logs', array($this, 'ajax_get_logs'));
+    }
+
+    /**
+     * Remove noisy third-party notices that are not actionable for site editors.
+     */
+    public function remove_unwanted_admin_notices() {
+        if (!current_user_can('manage_options')) {
+            return;
+        }
+        ?>
+        <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            document.querySelectorAll('.notice, .updated, .error, .woocommerce-message, .woocommerce-warning').forEach(function(notice) {
+                var text = notice.textContent || '';
+                if (
+                    text.indexOf('Zero Spam Enhanced Protection') !== -1 &&
+                    text.indexOf('missing a valid license key') !== -1
+                ) {
+                    notice.remove();
+                }
+            });
+        });
+        </script>
+        <?php
     }
     
     /**
@@ -133,7 +158,7 @@ class Digitalogic_Admin {
         // Add parent menu item
         $wp_admin_bar->add_node(array(
             'id'    => 'digitalogic',
-            'title' => '<span class="ab-icon dashicons-before dashicons-cart"></span><span class="ab-label">' . __('Digitalogic', 'digitalogic') . '</span>',
+            'title' => '<span class="ab-icon dashicons dashicons-cart"></span><span class="ab-label">' . __('Digitalogic', 'digitalogic') . '</span>',
             'href'  => admin_url('admin.php?page=digitalogic'),
             'meta'  => array(
                 'title' => __('Digitalogic', 'digitalogic'),
@@ -203,6 +228,18 @@ class Digitalogic_Admin {
             'href'   => admin_url('admin.php?page=digitalogic-status'),
             'meta'   => array(
                 'title' => __('Status & Diagnostics', 'digitalogic'),
+            ),
+        ));
+
+        $wp_admin_bar->add_node(array(
+            'id'     => 'digitalogic-panel',
+            'parent' => 'digitalogic',
+            'title'  => '<span class="dashicons dashicons-external"></span> ' . $this->panel_label(),
+            'href'   => Digitalogic_Laravel_Bridge::instance()->get_launch_url(),
+            'meta'   => array(
+                'title'  => $this->panel_label(),
+                'target' => '_blank',
+                'rel'    => 'noopener',
             ),
         ));
     }
@@ -280,7 +317,9 @@ class Digitalogic_Admin {
                 'success' => __('Success', 'digitalogic'),
                 'error' => __('Error', 'digitalogic'),
                 'loading' => __('Loading...', 'digitalogic'),
-                'view_product' => __('View', 'digitalogic'),
+                'view_product' => is_rtl() ? 'نمایش' : __('View', 'digitalogic'),
+                'edit_product' => is_rtl() ? 'ویرایش' : __('Edit', 'digitalogic'),
+                'search_products' => is_rtl() ? 'جستجوی محصولات...' : __('Search products...', 'digitalogic'),
                 'show' => __('Show', 'digitalogic'),
                 'entries' => __('entries', 'digitalogic'),
                 'search' => __('Search:', 'digitalogic'),

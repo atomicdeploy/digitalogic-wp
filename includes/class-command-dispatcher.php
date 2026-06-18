@@ -96,10 +96,14 @@ class Digitalogic_Command_Dispatcher {
             'search' => $search,
             'sku' => $sku,
         );
+        $total = $manager->get_product_count();
+        $filtered = ($search || $sku) ? $manager->get_product_count($args) : $total;
 
         return array(
             'products' => $manager->get_products($args),
-            'total' => $manager->get_product_count(),
+            'total' => $total,
+            'recordsTotal' => $total,
+            'recordsFiltered' => $filtered,
         );
     }
 
@@ -381,7 +385,8 @@ class Digitalogic_Command_Dispatcher {
             } elseif ($key === 'manage_stock') {
                 $sanitized[$key] = filter_var($value, FILTER_VALIDATE_BOOLEAN);
             } else {
-                $sanitized[$key] = is_numeric($value) ? $value : sanitize_text_field((string) $value);
+                $numeric_value = is_string($value) ? str_replace(array(',', '٬', '،', ' '), '', $value) : $value;
+                $sanitized[$key] = is_numeric($numeric_value) ? $numeric_value : sanitize_text_field((string) $value);
             }
         }
 

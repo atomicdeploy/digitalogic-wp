@@ -246,12 +246,24 @@ body.digitalogic-panel-body::after {
 
 .dlp-avatar {
     justify-content: center;
+    align-items: center;
+    display: flex;
+    flex: 0 0 42px;
+    min-width: 42px;
     width: 42px;
     height: 42px;
     border-radius: 16px;
     background: linear-gradient(135deg, var(--dlp-accent), var(--dlp-accent-strong));
     color: #ffffff;
     box-shadow: 0 18px 30px color-mix(in srgb, var(--dlp-accent-soft) 78%, transparent);
+}
+
+.dlp-avatar .dashicons {
+    display: block;
+    width: 20px;
+    height: 20px;
+    font-size: 20px;
+    line-height: 20px;
 }
 
 .dlp-nav {
@@ -319,25 +331,47 @@ a.dlp-button:focus {
 
 .dlp-topbar {
     justify-content: space-between;
-    gap: 18px;
-    padding: 18px;
+    align-items: center;
+    gap: 14px;
+    min-height: 64px;
+    max-height: 86px;
+    padding: 10px 14px;
     border: 1px solid var(--dlp-border);
-    border-radius: 18px;
-    background: var(--dlp-panel-raised);
+    border-radius: 14px;
+    background: color-mix(in srgb, var(--dlp-panel) 92%, var(--dlp-bg-strong));
     box-shadow: var(--dlp-shadow);
+    overflow: hidden;
 }
 
 .dlp-title {
-    margin: 0 0 8px;
+    margin: 0 0 4px;
     color: var(--dlp-heading);
-    font-size: clamp(24px, 2.6vw, 34px);
-    line-height: 1.05;
+    font-size: 24px;
+    line-height: 1.12;
 }
 
 .dlp-actions,
 .dlp-toolbar {
     gap: 10px;
     flex-wrap: wrap;
+}
+
+.dlp-topbar .dlp-actions {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: thin;
+}
+
+.dlp-topbar .dlp-button,
+.dlp-topbar .dlp-select,
+.dlp-topbar .dlp-pill {
+    height: 38px;
+    min-height: 38px;
+    flex: 0 0 auto;
+}
+
+.dlp-topbar .dlp-button {
+    padding-inline: 12px;
 }
 
 .dlp-pill {
@@ -374,17 +408,18 @@ a.dlp-button:focus {
 .dlp-select {
     appearance: none;
     cursor: pointer;
-    background-image: linear-gradient(45deg, transparent 50%, var(--dlp-text-soft) 50%), linear-gradient(135deg, var(--dlp-text-soft) 50%, transparent 50%);
-    padding-inline-end: 36px;
-    background-position: calc(100% - 18px) calc(50% - 2px), calc(100% - 12px) calc(50% - 2px);
-    background-size: 6px 6px, 6px 6px;
+    background-color: var(--dlp-panel);
+    background-image: url("data:image/svg+xml,%3Csvg width='20' height='20' viewBox='0 0 20 20' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M5 7.5L10 12.5L15 7.5' stroke='%235f7587' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    padding-inline: 14px 38px;
+    background-position: right 12px center;
+    background-size: 18px 18px;
     background-repeat: no-repeat;
     min-width: 138px;
 }
 
 [dir="rtl"] .dlp-select {
-    padding-inline: 16px 36px;
-    background-position: 18px calc(50% - 2px), 12px calc(50% - 2px);
+    padding-inline: 38px 14px;
+    background-position: left 12px center;
 }
 
 .dlp-input:focus,
@@ -409,8 +444,9 @@ a.dlp-button:focus {
 .dlp-panel {
     border: 1px solid var(--dlp-border);
     border-radius: 16px;
-    background: var(--dlp-panel-raised);
+    background: color-mix(in srgb, var(--dlp-panel) 94%, var(--dlp-bg-strong));
     box-shadow: var(--dlp-shadow-soft);
+    backdrop-filter: none;
 }
 
 .dlp-card {
@@ -424,7 +460,13 @@ a.dlp-button:focus {
 .dlp-card-head,
 .dlp-panel-head {
     justify-content: space-between;
+    align-items: center;
     gap: 12px;
+}
+
+.dlp-panel-head .dlp-button {
+    height: 38px;
+    min-height: 38px;
 }
 
 .dlp-card-value {
@@ -436,6 +478,58 @@ a.dlp-button:focus {
 
 .dlp-card-menu {
     position: relative;
+}
+
+.dlp-card-tools {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.dlp-drag-handle {
+    width: 28px;
+    height: 38px;
+    display: inline-grid;
+    place-items: center;
+    color: var(--dlp-text-soft);
+    cursor: grab;
+}
+
+.dlp-drag-handle::before {
+    content: "⣿";
+    font-size: 18px;
+    line-height: 1;
+}
+
+.dlp-card-value-button {
+    width: 100%;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    cursor: text;
+    font: inherit;
+    font-weight: inherit;
+    text-align: start;
+}
+
+.dlp-card-value-button:hover,
+.dlp-card-value-button:focus {
+    outline: none;
+    text-decoration: none;
+}
+
+.dlp-card-input {
+    width: 100%;
+    box-sizing: border-box;
+    min-height: 40px;
+    border: 1px solid var(--dlp-border-strong);
+    border-radius: 10px;
+    background: var(--dlp-input-bg);
+    color: var(--dlp-heading);
+    font: inherit;
+    font-weight: inherit;
+    padding: 4px 8px;
 }
 
 .dlp-menu {
@@ -474,6 +568,23 @@ a.dlp-button:focus {
     background: color-mix(in srgb, var(--dlp-accent-soft) 58%, transparent);
 }
 
+.dlp-column-panel {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 18px 16px;
+    border-bottom: 1px solid var(--dlp-border);
+    background: color-mix(in srgb, var(--dlp-panel-soft) 84%, transparent);
+}
+
+.dlp-column-panel label,
+.dlp-field label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
 .dlp-panel {
     overflow: hidden;
 }
@@ -493,6 +604,7 @@ a.dlp-button:focus {
     width: 100%;
     min-width: 880px;
     border-collapse: collapse;
+    table-layout: fixed;
 }
 
 .dlp-table th,
@@ -501,14 +613,21 @@ a.dlp-button:focus {
     border-bottom: 1px solid var(--dlp-border);
     text-align: start;
     vertical-align: middle;
+    overflow: hidden;
+}
+
+.dlp-table td:last-child,
+.dlp-table th:last-child {
+    overflow: visible;
 }
 
 .dlp-table th {
+    position: relative;
     color: var(--dlp-heading);
     font-size: 12px;
     font-weight: 700;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
+    letter-spacing: 0;
+    text-transform: none;
 }
 
 .dlp-table tbody tr:hover {
@@ -521,11 +640,17 @@ a.dlp-button:focus {
 
 .dlp-editable-cell {
     display: block;
-    min-height: 30px;
+    box-sizing: border-box;
+    width: 100%;
+    height: 32px;
+    min-height: 32px;
     padding: 5px 7px;
     border: 1px solid transparent;
     border-radius: 8px;
     cursor: text;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .dlp-editable-cell:hover,
@@ -536,20 +661,93 @@ a.dlp-button:focus {
 }
 
 .dlp-cell-input {
+    display: block;
+    box-sizing: border-box;
     width: 100%;
-    min-height: 30px;
+    height: 32px;
+    min-height: 32px;
     padding: 4px 7px;
     border: 1px solid var(--dlp-border-strong);
     border-radius: 8px;
     background: var(--dlp-input-bg);
     color: var(--dlp-text);
     font: inherit;
+    line-height: 1.2;
 }
 
 .dlp-cell-actions {
     display: inline-flex;
+    align-items: center;
     gap: 6px;
     white-space: nowrap;
+}
+
+.dlp-icon-button,
+.dlp-menu-button {
+    justify-content: center;
+    width: 38px;
+    min-width: 38px;
+    height: 38px;
+    min-height: 38px;
+    padding: 0;
+    flex: 0 0 38px;
+}
+
+.dlp-icon-button .dashicons,
+.dlp-menu-button .dashicons {
+    width: 18px;
+    height: 18px;
+    font-size: 18px;
+    line-height: 18px;
+}
+
+.dlp-th-button {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    width: 100%;
+    min-height: 30px;
+    padding: 0 8px;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+    font: inherit;
+    font-weight: inherit;
+    text-align: start;
+}
+
+.dlp-col-resizer {
+    position: absolute;
+    inset-block: 0;
+    inset-inline-end: 0;
+    width: 8px;
+    cursor: col-resize;
+    z-index: 2;
+}
+
+.dlp-col-resizer:hover {
+    background: color-mix(in srgb, var(--dlp-accent) 28%, transparent);
+}
+
+.dlp-row-menu-wrap {
+    position: relative;
+    display: inline-flex;
+}
+
+.dlp-save-state {
+    min-width: 44px;
+    color: var(--dlp-text-soft);
+    font-size: 11px;
+}
+
+.dlp-save-state.is-saved {
+    color: var(--dlp-success);
+}
+
+.dlp-save-state.is-error {
+    color: var(--dlp-danger);
 }
 
 .dlp-status-dot {
@@ -629,22 +827,43 @@ a.dlp-button:focus {
 }
 
 html[data-dlp-style="classic"] body.digitalogic-panel-body {
-    --dlp-bg: #f0f0f1;
+    --dlp-bg: #eef2f6;
     --dlp-bg-strong: #ffffff;
     --dlp-panel: #ffffff;
-    --dlp-panel-soft: #f6f7f7;
+    --dlp-panel-soft: #f7f9fb;
     --dlp-panel-raised: #ffffff;
-    --dlp-border: #c3c4c7;
-    --dlp-border-strong: #2271b1;
-    --dlp-text: #1d2327;
-    --dlp-text-soft: #646970;
-    --dlp-heading: #1d2327;
-    --dlp-accent: #2271b1;
-    --dlp-accent-strong: #135e96;
-    --dlp-accent-soft: rgba(34, 113, 177, 0.1);
-    --dlp-shadow: 0 1px 1px rgba(0,0,0,.04);
-    --dlp-shadow-soft: 0 1px 1px rgba(0,0,0,.04);
+    --dlp-border: #d6dde6;
+    --dlp-border-strong: #0f766e;
+    --dlp-text: #15202b;
+    --dlp-text-soft: #687586;
+    --dlp-heading: #15202b;
+    --dlp-accent: #0f766e;
+    --dlp-accent-strong: #115e59;
+    --dlp-accent-soft: rgba(15, 118, 110, .14);
+    --dlp-warning: #b7791f;
+    --dlp-shadow: 0 18px 50px rgba(18, 32, 45, .12);
+    --dlp-shadow-soft: 0 12px 24px rgba(18, 32, 45, .08);
     background: var(--dlp-bg);
+}
+
+html[data-dlp-style="classic"][data-dlp-theme="dark"] body.digitalogic-panel-body,
+html[data-dlp-style="classic"] body.digitalogic-panel-body[data-dlp-theme="dark"] {
+    --dlp-bg: #151515;
+    --dlp-bg-strong: #20201e;
+    --dlp-panel: #20201e;
+    --dlp-panel-soft: #292927;
+    --dlp-panel-raised: #20201e;
+    --dlp-border: #41413d;
+    --dlp-border-strong: #2dd4bf;
+    --dlp-text: #f4f1ea;
+    --dlp-text-soft: #b9b4a9;
+    --dlp-heading: #f4f1ea;
+    --dlp-accent: #2dd4bf;
+    --dlp-accent-strong: #5eead4;
+    --dlp-accent-soft: rgba(45, 212, 191, .14);
+    --dlp-warning: #f6c453;
+    --dlp-shadow: 0 18px 50px rgba(0, 0, 0, .34);
+    --dlp-shadow-soft: 0 12px 24px rgba(0, 0, 0, .22);
 }
 
 html[data-dlp-style="classic"] .dlp-layout {
@@ -772,23 +991,36 @@ html[data-dlp-style="classic"] .dlp-input {
     }
 
     .dlp-sidebar,
-    .dlp-topbar,
     .dlp-card,
     .dlp-panel {
         border-radius: 22px;
     }
 
-    .dlp-topbar,
+    .dlp-topbar {
+        padding: 10px 12px;
+        border-radius: 14px;
+        max-height: none;
+        align-items: flex-start;
+    }
+
     .dlp-sidebar {
         padding: 18px;
     }
 
-    .dlp-actions,
+    .dlp-topbar .dlp-actions {
+        width: 100%;
+        flex-wrap: nowrap;
+        overflow-x: auto;
+    }
+
+    .dlp-topbar .dlp-actions > * {
+        width: auto;
+    }
+
     .dlp-toolbar {
         align-items: stretch;
     }
 
-    .dlp-actions > *,
     .dlp-toolbar > * {
         width: 100%;
     }
@@ -800,6 +1032,6 @@ html[data-dlp-style="classic"] .dlp-input {
     }
 
     .dlp-title {
-        font-size: 28px;
+        font-size: 22px;
     }
 }

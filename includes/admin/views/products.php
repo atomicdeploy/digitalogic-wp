@@ -28,8 +28,6 @@
 	
 	<div class="digitalogic-toolbar">
 		<input type="text" id="product-search" placeholder="<?php _e( 'Search products...', 'digitalogic' ); ?>">
-		<button type="button" id="refresh-products" class="button"><?php _e( 'Refresh', 'digitalogic' ); ?></button>
-		<button type="button" id="bulk-update-btn" class="button button-primary"><?php _e( 'Save Changes', 'digitalogic' ); ?></button>
 	</div>
 	
 	<table id="products-table" class="display" style="width:100%">
@@ -39,7 +37,7 @@
 				<th><?php _e( 'ID', 'digitalogic' ); ?></th>
 				<th><?php _e( 'Image', 'digitalogic' ); ?></th>
 				<th><?php _e( 'Name', 'digitalogic' ); ?></th>
-				<th><?php _e( 'SKU', 'digitalogic' ); ?></th>
+				<th><?php echo esc_html( is_rtl() ? 'کد کالا' : __( 'Product Code', 'digitalogic' ) ); ?></th>
 				<th><?php _e( 'Regular Price', 'digitalogic' ); ?></th>
 				<th><?php _e( 'Sale Price', 'digitalogic' ); ?></th>
 				<th><?php _e( 'Stock', 'digitalogic' ); ?></th>

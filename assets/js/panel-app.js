@@ -14,6 +14,7 @@
         var connecting = false;
         var requestId = 0;
         var pending = {};
+        var eventListeners = [];
 
         function connect() {
             var ws = config.websocket || {};
@@ -39,14 +40,17 @@
                     return;
                 }
 
-                if (!response.id || !pending[response.id]) {
+                if (response.id && pending[response.id]) {
+                    var item = pending[response.id];
+                    delete pending[response.id];
+                    clearTimeout(item.timeout);
+                    response.success ? item.resolve(response.data) : item.reject(response.error || {message: 'WebSocket failed'});
                     return;
                 }
 
-                var item = pending[response.id];
-                delete pending[response.id];
-                clearTimeout(item.timeout);
-                response.success ? item.resolve(response.data) : item.reject(response.error || {message: 'WebSocket failed'});
+                eventListeners.forEach(function(listener) {
+                    listener(response);
+                });
             };
 
             socket.onclose = function() {
@@ -119,12 +123,23 @@
             request: request,
             isReady: function() {
                 return ready;
+            },
+            onEvent: function(listener) {
+                eventListeners.push(listener);
             }
         };
     }
 
     function stored(key, fallback) {
         return window.localStorage.getItem(key) || fallback;
+    }
+
+    function storedJson(key, fallback) {
+        try {
+            return JSON.parse(window.localStorage.getItem(key) || JSON.stringify(fallback));
+        } catch (e) {
+            return fallback;
+        }
     }
 
     function storedTheme() {
@@ -144,45 +159,74 @@
         if (theme === 'light' || theme === 'dark') {
             document.documentElement.setAttribute('data-dlp-theme', theme);
             document.body.setAttribute('data-dlp-theme', theme);
-        } else {
-            var inherited = window.localStorage.getItem('digitalogic-admin-theme');
-            if (inherited === 'light' || inherited === 'dark') {
-                document.documentElement.setAttribute('data-dlp-theme', inherited);
-                document.body.setAttribute('data-dlp-theme', inherited);
-                return;
-            }
-
-            document.documentElement.removeAttribute('data-dlp-theme');
-            document.body.removeAttribute('data-dlp-theme');
+            return;
         }
+
+        var inherited = window.localStorage.getItem('digitalogic-admin-theme');
+        if (inherited === 'light' || inherited === 'dark') {
+            document.documentElement.setAttribute('data-dlp-theme', inherited);
+            document.body.setAttribute('data-dlp-theme', inherited);
+            return;
+        }
+
+        document.documentElement.removeAttribute('data-dlp-theme');
+        document.body.removeAttribute('data-dlp-theme');
     }
 
     function applyStyleMode(styleMode) {
         document.documentElement.setAttribute('data-dlp-style', styleMode === 'classic' ? 'classic' : 'modern');
     }
 
-    function enableRipples() {
-        document.addEventListener('pointerdown', function(event) {
-            var target = event.target.closest('button, .dlp-button, .dlp-icon-button, .dlp-menu-button, .dlp-nav button, a.dlp-button');
-            if (!target || target.disabled) {
-                return;
+    function defaultProductColumns() {
+        return [
+            {key: 'id', label: 'ID', field: 'id', width: 76, visible: true, sortable: true, editable: false},
+            {key: 'name', labelKey: 'products', field: 'name', width: 260, visible: true, sortable: true, editable: true},
+            {key: 'sku', labelKey: 'sku', field: 'sku', width: 140, visible: true, sortable: true, editable: true},
+            {key: 'regular_price', labelKey: 'regularPrice', field: 'regular_price', width: 132, visible: true, sortable: true, editable: true, numeric: true},
+            {key: 'sale_price', labelKey: 'salePrice', field: 'sale_price', width: 132, visible: true, sortable: true, editable: true, numeric: true},
+            {key: 'stock_quantity', labelKey: 'stock', field: 'stock_quantity', width: 104, visible: true, sortable: true, editable: true, numeric: true},
+            {key: 'status', labelKey: 'status', field: 'status', width: 108, visible: true, sortable: true, editable: false}
+        ];
+    }
+
+    function defaultUserColumns() {
+        return [
+            {key: 'id', label: 'ID', field: 'id', width: 76, visible: true, sortable: true, editable: false},
+            {key: 'display_name', labelKey: 'displayName', field: 'display_name', width: 220, visible: true, sortable: true, editable: true},
+            {key: 'email', label: 'Email', field: 'email', width: 260, visible: true, sortable: true, editable: true},
+            {key: 'roles', labelKey: 'role', field: 'roles', width: 180, visible: true, sortable: true, editable: false}
+        ];
+    }
+
+    function mergeColumns(saved, defaults) {
+        var map = {};
+        defaults.forEach(function(column) {
+            map[column.key] = Object.assign({}, column);
+        });
+
+        (Array.isArray(saved) ? saved : []).forEach(function(column) {
+            if (column && map[column.key]) {
+                map[column.key] = Object.assign(map[column.key], {
+                    width: Math.max(72, parseInt(column.width, 10) || map[column.key].width),
+                    visible: column.visible !== false
+                });
             }
+        });
 
-            target.classList.add('dlp-ripple-host');
+        var order = (Array.isArray(saved) ? saved : []).map(function(column) {
+            return column && column.key;
+        }).filter(function(key) {
+            return key && map[key];
+        });
 
-            var circle = document.createElement('span');
-            var rect = target.getBoundingClientRect();
-            var size = Math.max(rect.width, rect.height) * 1.35;
-            circle.className = 'dlp-ripple-circle';
-            circle.style.width = size + 'px';
-            circle.style.height = size + 'px';
-            circle.style.left = (event.clientX - rect.left) + 'px';
-            circle.style.top = (event.clientY - rect.top) + 'px';
-            target.appendChild(circle);
+        defaults.forEach(function(column) {
+            if (order.indexOf(column.key) === -1) {
+                order.push(column.key);
+            }
+        });
 
-            window.setTimeout(function() {
-                circle.remove();
-            }, 650);
+        return order.map(function(key) {
+            return map[key];
         });
     }
 
@@ -198,18 +242,36 @@
                 loading: false,
                 saving: false,
                 error: '',
+                notice: '',
                 summary: null,
+                settings: null,
                 products: [],
                 users: [],
                 selectedProduct: null,
                 search: '',
+                userSearch: '',
                 edits: {},
+                userEdits: {},
                 editingCell: null,
                 currencyDraft: {dollar_price: '', yuan_price: ''},
                 transport: 'ajax',
                 openMenu: '',
+                openRowMenu: '',
+                columnMenuOpen: false,
+                selectedProducts: {},
+                selectedUsers: {},
                 draggedCard: '',
-                cardOrder: JSON.parse(stored('digitalogic_panel_cards', '["products","usd","cny","transport"]'))
+                draggedColumn: '',
+                sortState: storedJson('digitalogic_panel_product_sorts', []),
+                userSortState: storedJson('digitalogic_panel_user_sorts', []),
+                productColumns: mergeColumns(storedJson('digitalogic_panel_product_columns', []), defaultProductColumns()),
+                userColumns: mergeColumns(storedJson('digitalogic_panel_user_columns', []), defaultUserColumns()),
+                cardOrder: storedJson('digitalogic_panel_cards', ['products', 'usd', 'cny']).filter(function(key) { return key !== 'transport'; }),
+                saveTimers: {},
+                userSaveTimers: {},
+                saveState: {},
+                lastEventId: 0,
+                eventTimer: null
             };
         },
         computed: {
@@ -235,20 +297,32 @@
                 var match = this.route.match(/^\/products\/(\d+)/);
                 return match ? parseInt(match[1], 10) : 0;
             },
+            visibleProductColumns: function() {
+                return this.productColumns.filter(function(column) { return column.visible !== false; });
+            },
+            visibleUserColumns: function() {
+                return this.userColumns.filter(function(column) { return column.visible !== false; });
+            },
             filteredProducts: function() {
                 var term = this.search.trim().toLowerCase();
-                if (!term) return this.products;
-                return this.products.filter(function(product) {
+                var rows = !term ? this.products.slice() : this.products.filter(function(product) {
                     return [product.id, product.name, product.sku, product.type, product.status].join(' ').toLowerCase().indexOf(term) !== -1;
                 });
+                return this.applySorts(rows, this.sortState);
+            },
+            filteredUsers: function() {
+                var term = this.userSearch.trim().toLowerCase();
+                var rows = !term ? this.users.slice() : this.users.filter(function(user) {
+                    return [user.id, user.display_name, user.login, user.email, (user.roles || []).join(' ')].join(' ').toLowerCase().indexOf(term) !== -1;
+                });
+                return this.applySorts(rows, this.userSortState);
             },
             dashboardCards: function() {
                 var currency = (this.summary && this.summary.currency) || {};
                 var map = {
-                    products: {key: 'products', label: this.t.totalProducts, value: this.formatNumber(this.summary && this.summary.products), icon: 'dashicons-products'},
-                    usd: {key: 'usd', label: 'USD', value: this.formatMoney(currency.dollar_price), icon: 'dashicons-money-alt'},
-                    cny: {key: 'cny', label: 'CNY', value: this.formatMoney(currency.yuan_price), icon: 'dashicons-money-alt'},
-                    transport: {key: 'transport', label: this.t.transport, value: this.transport, icon: 'dashicons-randomize'}
+                    products: {key: 'products', label: this.t.totalProducts, value: this.formatNumber(this.summary && this.summary.products), icon: 'dashicons-products', editable: false},
+                    usd: {key: 'usd', label: 'USD', value: this.formatMoney(currency.dollar_price), field: 'dollar_price', icon: 'dashicons-money-alt', editable: true},
+                    cny: {key: 'cny', label: 'CNY', value: this.formatMoney(currency.yuan_price), field: 'yuan_price', icon: 'dashicons-money-alt', editable: true}
                 };
                 return this.cardOrder.map(function(key) { return map[key]; }).filter(Boolean);
             },
@@ -267,6 +341,20 @@
                     {key: 'currency-shipping', icon: 'dashicons-admin-tools', title: this.t.currencyShipping, body: this.t.currencyShippingText, route: '/settings'},
                     {key: 'excel-export', icon: 'dashicons-media-spreadsheet', title: this.t.excelExports, body: this.t.excelExportsText, route: '/cli'}
                 ];
+            },
+            allProductsSelected: {
+                get: function() {
+                    return this.filteredProducts.length > 0 && this.filteredProducts.every(function(product) {
+                        return !!this.selectedProducts[product.id];
+                    }, this);
+                },
+                set: function(value) {
+                    var selected = Object.assign({}, this.selectedProducts);
+                    this.filteredProducts.forEach(function(product) {
+                        value ? selected[product.id] = true : delete selected[product.id];
+                    });
+                    this.selectedProducts = selected;
+                }
             }
         },
         watch: {
@@ -285,6 +373,18 @@
             },
             route: function() {
                 this.loadRoute();
+            },
+            productColumns: {
+                deep: true,
+                handler: function(value) {
+                    window.localStorage.setItem('digitalogic_panel_product_columns', JSON.stringify(value));
+                }
+            },
+            userColumns: {
+                deep: true,
+                handler: function(value) {
+                    window.localStorage.setItem('digitalogic_panel_user_columns', JSON.stringify(value));
+                }
             }
         },
         mounted: function() {
@@ -292,20 +392,34 @@
             document.documentElement.lang = this.lang === 'fa' ? 'fa-IR' : 'en';
             applyTheme(this.theme);
             applyStyleMode(this.styleMode);
-            enableRipples();
             this.loadRoute();
-            var self = this;
-            window.addEventListener('popstate', function() {
-                self.route = normalizePath(window.location.pathname);
-            });
-            window.addEventListener('dragend', function() {
-                self.endDrag();
-            });
-            window.setInterval(function() {
-                self.transport = transport.isReady() ? 'websocket' : 'ajax';
-            }, 400);
+            this.bindGlobalEvents();
+        },
+        beforeUnmount: function() {
+            if (this.eventTimer) {
+                window.clearInterval(this.eventTimer);
+            }
         },
         methods: {
+            bindGlobalEvents: function() {
+                var self = this;
+                window.addEventListener('popstate', function() {
+                    self.route = normalizePath(window.location.pathname);
+                });
+                window.addEventListener('dragend', function() {
+                    self.endDrag();
+                    self.draggedColumn = '';
+                });
+                window.setInterval(function() {
+                    self.transport = transport.isReady() ? 'websocket' : 'ajax';
+                }, 400);
+                transport.onEvent(function(event) {
+                    self.handleTransportEvent(event);
+                });
+                this.eventTimer = window.setInterval(function() {
+                    self.fetchEvents();
+                }, 5000);
+            },
             icon: function(name) {
                 return 'dashicons ' + name;
             },
@@ -320,9 +434,10 @@
             },
             loadRoute: function() {
                 this.error = '';
-                if (!this.summary || ['dashboard', 'cli', 'sync', 'settings'].indexOf(this.currentPage) !== -1) {
+                if (!this.summary || ['dashboard', 'cli', 'sync', 'settings', 'reports'].indexOf(this.currentPage) !== -1) {
                     this.loadSummary();
                 }
+                if (this.currentPage === 'settings') this.loadSettings();
                 if (this.currentPage === 'products') {
                     this.loadProducts();
                     this.productRouteId ? this.loadProduct(this.productRouteId) : (this.selectedProduct = null);
@@ -334,6 +449,14 @@
                 return self.run('digitalogic_panel_summary').then(function(data) {
                     self.summary = data;
                     self.resetCurrencyDraft();
+                }).catch(function(error) {
+                    self.error = error.message || self.t.error;
+                });
+            },
+            loadSettings: function() {
+                var self = this;
+                return self.run('digitalogic_panel_settings').then(function(data) {
+                    self.settings = data;
                 }).catch(function(error) {
                     self.error = error.message || self.t.error;
                 });
@@ -368,13 +491,64 @@
                     self.loading = false;
                 });
             },
-            editProduct: function(product, field, value) {
-                if (!this.edits[product.id]) this.edits[product.id] = {};
-                this.edits[product.id][field] = value;
-                product[field] = value;
+            fetchEvents: function() {
+                var self = this;
+                if (!transport.isReady()) {
+                    return;
+                }
+                this.run('digitalogic_panel_events', {since: this.lastEventId}).then(function(data) {
+                    (data.events || []).forEach(function(event) {
+                        self.lastEventId = Math.max(self.lastEventId, Number(event.id || 0));
+                        self.handlePanelEvent(event.name || event.event, event.data || {});
+                    });
+                }).catch(function() {});
             },
-            startCellEdit: function(product, field) {
-                var key = product.id + ':' + field;
+            handleTransportEvent: function(event) {
+                if (event && event.event && event.event !== 'connected' && event.event !== 'response') {
+                    this.handlePanelEvent(event.name || event.event, event.data || {});
+                }
+            },
+            handlePanelEvent: function(name) {
+                if (!name) return;
+                if (name.indexOf('product') !== -1 && this.currentPage === 'products') this.loadProducts();
+                if (name.indexOf('currency') !== -1) this.loadSummary();
+                if (name.indexOf('user') !== -1 && this.currentPage === 'users') this.loadUsers();
+            },
+            normalizeDigits: function(value) {
+                return String(value || '').replace(/[\u06F0-\u06F9\u0660-\u0669]/g, function(digit) {
+                    var code = digit.charCodeAt(0);
+                    return String(code >= 0x06F0 ? code - 0x06F0 : code - 0x0660);
+                });
+            },
+            normalizeNumber: function(value) {
+                var cleaned = this.normalizeDigits(value)
+                    .replace(/[\u066C\u060C,\s]/g, '')
+                    .replace(/[^0-9.]/g, '');
+                var parts = cleaned.split('.');
+                if (parts.length > 2) {
+                    cleaned = parts.shift() + '.' + parts.join('');
+                }
+                return cleaned;
+            },
+            formatInputNumber: function(value) {
+                var raw = this.normalizeNumber(value);
+                if (raw === '') return '';
+                var parts = raw.split('.');
+                parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+                return parts.join('.');
+            },
+            formatColumnValue: function(row, column) {
+                var value = row[column.field];
+                if (Array.isArray(value)) return value.join(', ');
+                if (value === null || typeof value === 'undefined' || value === '') return '-';
+                return column.numeric ? this.formatInputNumber(value) : value;
+            },
+            inputValue: function(row, column) {
+                return column.numeric ? this.formatInputNumber(row[column.field]) : (row[column.field] || '');
+            },
+            startCellEdit: function(kind, row, column) {
+                if (!column.editable) return;
+                var key = kind + ':' + row.id + ':' + column.field;
                 this.editingCell = key;
                 this.$nextTick(function() {
                     var input = document.querySelector('[data-cell-key="' + key + '"]');
@@ -384,32 +558,95 @@
                     }
                 });
             },
-            isCellEditing: function(product, field) {
-                return this.editingCell === product.id + ':' + field;
+            isCellEditing: function(kind, row, column) {
+                return this.editingCell === kind + ':' + row.id + ':' + column.field;
             },
-            finishCellEdit: function() {
+            onCellInput: function(kind, row, column, event) {
+                var value = event.target.value;
+                if (column.numeric) {
+                    var raw = this.normalizeNumber(value);
+                    event.target.value = this.formatInputNumber(raw);
+                    value = raw;
+                }
+                kind === 'user' ? this.editUser(row, column.field, value) : this.editProduct(row, column.field, value);
+            },
+            finishCellEdit: function(kind, row) {
+                if (kind === 'user') this.flushUserSave(row);
+                else this.flushProductSave(row);
                 this.editingCell = null;
             },
-            cellValue: function(product, field) {
-                var value = product[field];
-                return value === null || typeof value === 'undefined' || value === '' ? '-' : value;
+            editProduct: function(product, field, value) {
+                if (!this.edits[product.id]) this.edits[product.id] = {};
+                this.edits[product.id][field] = value;
+                product[field] = value;
+                this.scheduleProductSave(product);
+            },
+            editUser: function(user, field, value) {
+                if (!this.userEdits[user.id]) this.userEdits[user.id] = {};
+                this.userEdits[user.id][field] = value;
+                user[field] = value;
+                this.scheduleUserSave(user);
+            },
+            scheduleProductSave: function(product) {
+                var self = this;
+                window.clearTimeout(this.saveTimers[product.id]);
+                this.saveTimers[product.id] = window.setTimeout(function() {
+                    self.saveProduct(product);
+                }, 800);
+            },
+            scheduleUserSave: function(user) {
+                var self = this;
+                window.clearTimeout(this.userSaveTimers[user.id]);
+                this.userSaveTimers[user.id] = window.setTimeout(function() {
+                    self.saveUser(user);
+                }, 800);
+            },
+            flushProductSave: function(product) {
+                window.clearTimeout(this.saveTimers[product.id]);
+                return this.saveProduct(product);
+            },
+            flushUserSave: function(user) {
+                window.clearTimeout(this.userSaveTimers[user.id]);
+                return this.saveUser(user);
             },
             rowEdited: function(product) {
                 return !!(this.edits[product.id] && Object.keys(this.edits[product.id]).length);
             },
+            userEdited: function(user) {
+                return !!(this.userEdits[user.id] && Object.keys(this.userEdits[user.id]).length);
+            },
             saveProduct: function(product) {
                 var self = this;
                 var data = self.edits[product.id] || {};
-                if (!Object.keys(data).length) return;
-                self.saving = true;
-                self.run('digitalogic_update_product', {product_id: product.id, data: data}).then(function() {
+                if (!Object.keys(data).length) return Promise.resolve();
+                self.saveState['product:' + product.id] = 'saving';
+                return self.run('digitalogic_update_product', {product_id: product.id, data: data}).then(function() {
                     delete self.edits[product.id];
+                    self.saveState['product:' + product.id] = 'saved';
+                    window.setTimeout(function() { delete self.saveState['product:' + product.id]; }, 1400);
                     if (self.selectedProduct && self.selectedProduct.id === product.id) self.loadProduct(product.id);
                 }).catch(function(error) {
+                    self.saveState['product:' + product.id] = 'error';
                     self.error = error.message || self.t.error;
-                }).finally(function() {
-                    self.saving = false;
                 });
+            },
+            saveUser: function(user) {
+                var self = this;
+                var data = self.userEdits[user.id] || {};
+                if (!Object.keys(data).length) return Promise.resolve();
+                self.saveState['user:' + user.id] = 'saving';
+                return self.run('digitalogic_panel_update_user', {user_id: user.id, data: data}).then(function(response) {
+                    delete self.userEdits[user.id];
+                    self.saveState['user:' + user.id] = 'saved';
+                    Object.assign(user, response.user || {});
+                    window.setTimeout(function() { delete self.saveState['user:' + user.id]; }, 1400);
+                }).catch(function(error) {
+                    self.saveState['user:' + user.id] = 'error';
+                    self.error = error.message || self.t.error;
+                });
+            },
+            saveStatus: function(kind, id) {
+                return this.saveState[kind + ':' + id] || '';
             },
             startDrag: function(key) {
                 this.draggedCard = key;
@@ -430,17 +667,118 @@
             endDrag: function() {
                 this.draggedCard = '';
             },
+            startColumnDrag: function(key) {
+                this.draggedColumn = key;
+            },
+            dropColumn: function(kind, key) {
+                var list = kind === 'user' ? this.userColumns : this.productColumns;
+                var from = list.findIndex(function(column) { return column.key === this.draggedColumn; }, this);
+                var to = list.findIndex(function(column) { return column.key === key; });
+                if (from < 0 || to < 0 || from === to) {
+                    this.draggedColumn = '';
+                    return;
+                }
+                var next = list.slice();
+                next.splice(to, 0, next.splice(from, 1)[0]);
+                kind === 'user' ? (this.userColumns = next) : (this.productColumns = next);
+                this.draggedColumn = '';
+            },
+            startColumnResize: function(kind, column, event) {
+                var self = this;
+                var startX = event.clientX;
+                var startWidth = column.width;
+                event.preventDefault();
+                function move(moveEvent) {
+                    column.width = Math.max(72, startWidth + (moveEvent.clientX - startX));
+                }
+                function up() {
+                    document.removeEventListener('mousemove', move);
+                    document.removeEventListener('mouseup', up);
+                    kind === 'user'
+                        ? window.localStorage.setItem('digitalogic_panel_user_columns', JSON.stringify(self.userColumns))
+                        : window.localStorage.setItem('digitalogic_panel_product_columns', JSON.stringify(self.productColumns));
+                }
+                document.addEventListener('mousemove', move);
+                document.addEventListener('mouseup', up);
+            },
+            toggleColumn: function(kind, column) {
+                column.visible = column.visible === false;
+                if (kind === 'user') this.userColumns = this.userColumns.slice();
+                else this.productColumns = this.productColumns.slice();
+            },
+            resetColumns: function(kind) {
+                if (kind === 'user') this.userColumns = defaultUserColumns();
+                else this.productColumns = defaultProductColumns();
+            },
+            cycleSort: function(kind, column, event) {
+                if (!column.sortable) return;
+                var state = (kind === 'user' ? this.userSortState : this.sortState).slice();
+                var item = state.find(function(sort) { return sort.key === column.key; });
+                if (!event.shiftKey) state = item ? [item] : [];
+                item = state.find(function(sort) { return sort.key === column.key; });
+                if (!item) state.push({key: column.key, field: column.field, direction: 'asc'});
+                else if (item.direction === 'asc') item.direction = 'desc';
+                else state = state.filter(function(sort) { return sort.key !== column.key; });
+                if (kind === 'user') {
+                    this.userSortState = state;
+                    window.localStorage.setItem('digitalogic_panel_user_sorts', JSON.stringify(state));
+                } else {
+                    this.sortState = state;
+                    window.localStorage.setItem('digitalogic_panel_product_sorts', JSON.stringify(state));
+                }
+            },
+            sortLabel: function(kind, column) {
+                var state = kind === 'user' ? this.userSortState : this.sortState;
+                var index = state.findIndex(function(sort) { return sort.key === column.key; });
+                if (index < 0) return '';
+                return (state[index].direction === 'asc' ? '↑' : '↓') + (state.length > 1 ? String(index + 1) : '');
+            },
+            applySorts: function(rows, sorts) {
+                if (!sorts || !sorts.length) return rows;
+                return rows.slice().sort(function(a, b) {
+                    for (var i = 0; i < sorts.length; i++) {
+                        var sort = sorts[i];
+                        var av = Array.isArray(a[sort.field]) ? a[sort.field].join(', ') : a[sort.field];
+                        var bv = Array.isArray(b[sort.field]) ? b[sort.field].join(', ') : b[sort.field];
+                        var result = String(av || '').localeCompare(String(bv || ''), undefined, {numeric: true, sensitivity: 'base'});
+                        if (result !== 0) return sort.direction === 'desc' ? -result : result;
+                    }
+                    return 0;
+                });
+            },
             toggleMenu: function(key) {
                 this.openMenu = this.openMenu === key ? '' : key;
             },
+            toggleRowMenu: function(kind, id) {
+                var key = kind + ':' + id;
+                this.openRowMenu = this.openRowMenu === key ? '' : key;
+            },
             cardAction: function(card, action) {
                 this.openMenu = '';
-                if (action === 'edit') {
-                    if (card.key === 'products') this.navigate('/products');
-                    else if (card.key === 'usd' || card.key === 'cny') this.focusCurrency(card.key);
-                    else this.navigate('/settings');
-                }
-                if (action === 'refresh') this.loadSummary();
+                if (action === 'edit' && card.editable) this.startCardEdit(card);
+                if (action === 'products') this.navigate('/products');
+            },
+            startCardEdit: function(card) {
+                if (!card.editable) return;
+                this.editingCell = 'card:' + card.key;
+                this.$nextTick(function() {
+                    var input = document.querySelector('[data-card-key="' + card.key + '"]');
+                    if (input) {
+                        input.focus();
+                        input.select();
+                    }
+                });
+            },
+            isCardEditing: function(card) {
+                return this.editingCell === 'card:' + card.key;
+            },
+            onCurrencyInput: function(field, event) {
+                var raw = this.normalizeNumber(event.target.value);
+                event.target.value = this.formatInputNumber(raw);
+                this.currencyDraft[field] = raw;
+            },
+            saveCurrencyField: function() {
+                return this.saveCurrency();
             },
             resetCurrencyDraft: function() {
                 var currency = (this.summary && this.summary.currency) || {};
@@ -449,24 +787,14 @@
                     yuan_price: currency.yuan_price || ''
                 };
             },
-            focusCurrency: function(key) {
-                var self = this;
-                this.$nextTick(function() {
-                    var selector = key === 'cny' ? '[data-currency-field="yuan_price"]' : '[data-currency-field="dollar_price"]';
-                    var input = document.querySelector(selector);
-                    if (input) {
-                        input.focus();
-                        input.select();
-                    }
-                });
-            },
             saveCurrency: function() {
                 var self = this;
                 self.saving = true;
-                self.run('digitalogic_update_currency', {
-                    dollar_price: self.currencyDraft.dollar_price,
-                    yuan_price: self.currencyDraft.yuan_price
+                return self.run('digitalogic_update_currency', {
+                    dollar_price: self.normalizeNumber(self.currencyDraft.dollar_price),
+                    yuan_price: self.normalizeNumber(self.currencyDraft.yuan_price)
                 }).then(function() {
+                    self.editingCell = null;
                     return self.loadSummary();
                 }).catch(function(error) {
                     self.error = error.message || self.t.error;
@@ -474,14 +802,20 @@
                     self.saving = false;
                 });
             },
+            viewProduct: function(product) {
+                window.open(product.permalink || ('/?p=' + product.id), '_blank', 'noopener');
+            },
+            editProductPage: function(product) {
+                window.open(product.edit_url || ('/wp-admin/post.php?post=' + encodeURIComponent(product.id) + '&action=edit'), '_blank', 'noopener');
+            },
             copy: function(value) {
                 if (navigator.clipboard) navigator.clipboard.writeText(value);
             },
             formatNumber: function(value) {
-                return new Intl.NumberFormat(this.lang === 'fa' ? 'fa-IR' : 'en-US').format(Number(value || 0));
+                return new Intl.NumberFormat(this.lang === 'fa' ? 'fa-IR' : 'en-US').format(Number(this.normalizeNumber(value) || 0));
             },
             formatMoney: function(value) {
-                return new Intl.NumberFormat(this.lang === 'fa' ? 'fa-IR' : 'en-US', {maximumFractionDigits: 0}).format(Number(value || 0));
+                return new Intl.NumberFormat(this.lang === 'fa' ? 'fa-IR' : 'en-US', {maximumFractionDigits: 0}).format(Number(this.normalizeNumber(value) || 0));
             },
             roleText: function(roles) {
                 return (roles || []).join(', ') || '-';

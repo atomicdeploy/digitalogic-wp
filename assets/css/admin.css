@@ -362,3 +362,65 @@ table.dataTable input:focus {
     padding: 4px 8px;
     font-size: 12px;
 }
+
+/* Digitalogic admin polish */
+.digitalogic-quick-links a.button,
+.digitalogic-quick-links a.button.button-primary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    height: 36px;
+    min-height: 36px;
+    padding: 0 14px;
+    line-height: 1.2;
+    text-decoration: none;
+}
+
+.digitalogic-cell-input,
+.digitalogic-editable-cell {
+    box-sizing: border-box;
+    height: 32px;
+    min-height: 32px;
+}
+
+.digitalogic-cell-input.is-saving,
+.digitalogic-editable-cell.is-saving {
+    border-color: #72aee6;
+    background: #f0f6fc;
+}
+
+.digitalogic-cell-input.is-saved,
+.digitalogic-editable-cell.is-saved {
+    border-color: #00a32a;
+    background: #edfaef;
+}
+
+.digitalogic-cell-input.is-error,
+.digitalogic-editable-cell.is-error {
+    border-color: #d63638;
+    background: #fcf0f1;
+}
+
+body.wp-admin #major-publishing-actions,
+body.wp-admin .wrap > form .form-table > tbody > tr > td.acf-label,
+body.wp-admin .wrap > form .form-table > tbody > tr > th {
+    border-color: #d6dde6;
+    background: #f7f9fb;
+    color: #15202b;
+}
+
+body.wp-admin #major-publishing-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 12px;
+    border-top: 1px solid #d6dde6;
+}
+
+body.wp-admin .wrap > form .form-table > tbody > tr > td.acf-label,
+body.wp-admin .wrap > form .form-table > tbody > tr > th {
+    padding: 14px 16px;
+    font-weight: 600;
+}

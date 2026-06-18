@@ -133,13 +133,13 @@ class Digitalogic_CLI_Commands {
             $items[] = array(
                 'ID' => $product['id'],
                 'Name' => $product['name'],
-                'SKU' => $product['sku'],
+                'Product Code' => $product['sku'],
                 'Price' => $product['price'],
                 'Stock' => $product['stock_quantity']
             );
         }
         
-        WP_CLI\Utils\format_items($format, $items, array('ID', 'Name', 'SKU', 'Price', 'Stock'));
+        WP_CLI\Utils\format_items($format, $items, array('ID', 'Name', 'Product Code', 'Price', 'Stock'));
     }
     
     /**
@@ -160,7 +160,7 @@ class Digitalogic_CLI_Commands {
      * : Stock quantity
      * 
      * [--sku=<sku>]
-     * : Product SKU
+     * : Product code
      * 
      * ## EXAMPLES
      * 

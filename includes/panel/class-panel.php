@@ -14,6 +14,7 @@ class Digitalogic_Panel {
     private const LEGACY_VAR = 'digitalogic_panel_legacy';
     private const REWRITE_VERSION_OPTION = 'digitalogic_panel_rewrite_version';
     private const REWRITE_VERSION = '20260617-panel';
+    private const EVENT_OPTION = 'digitalogic_panel_events';
 
     private static $instance = null;
 
@@ -32,6 +33,12 @@ class Digitalogic_Panel {
         add_action('template_redirect', array($this, 'render'));
         add_filter('digitalogic_command_handlers', array($this, 'register_commands'), 10, 2);
         add_action('wp_ajax_digitalogic_panel_command', array($this, 'ajax_command'));
+        add_action('digitalogic_product_updated', array($this, 'record_product_event'), 20, 1);
+        add_action('woocommerce_update_product', array($this, 'record_product_event'), 20, 1);
+        add_action('woocommerce_update_product_variation', array($this, 'record_product_event'), 20, 1);
+        add_action('updated_option', array($this, 'record_option_event'), 20, 3);
+        add_action('user_register', array($this, 'record_user_event'), 20, 1);
+        add_action('profile_update', array($this, 'record_user_event'), 20, 1);
     }
 
     public function register_route() {
@@ -169,6 +176,9 @@ class Digitalogic_Panel {
     public function register_commands($commands, $transport) {
         $commands['digitalogic_panel_summary'] = array($this, 'summary_command');
         $commands['digitalogic_panel_users'] = array($this, 'users_command');
+        $commands['digitalogic_panel_update_user'] = array($this, 'update_user_command');
+        $commands['digitalogic_panel_settings'] = array($this, 'settings_command');
+        $commands['digitalogic_panel_events'] = array($this, 'events_command');
 
         return $commands;
     }
@@ -218,6 +228,45 @@ class Digitalogic_Panel {
                 'enabled' => true,
                 'path' => '/wordpress-ws',
             ),
+            'bridge' => array(
+                'panel_url' => Digitalogic_Laravel_Bridge::instance()->get_panel_url(),
+                'rest_url' => rest_url('digitalogic-panel/v1/'),
+                'wordpress_loaded' => true,
+                'laravel_bootstrap' => file_exists(DIGITALOGIC_PLUGIN_DIR . 'laravel/bootstrap/app.php'),
+            ),
+        );
+    }
+
+    public function settings_command() {
+        $options = Digitalogic_Options::instance();
+        $ws = Digitalogic_WebSocket::instance()->get_client_config();
+
+        return array(
+            'currency' => array(
+                'dollar_price' => $options->get_dollar_price(),
+                'yuan_price' => $options->get_yuan_price(),
+                'updated_at' => $options->get_update_date_formatted(),
+            ),
+            'urls' => array(
+                'panel' => Digitalogic_Laravel_Bridge::instance()->get_panel_url(),
+                'legacy_panel' => home_url('/panell/'),
+                'admin' => admin_url(),
+                'ajax' => admin_url('admin-ajax.php'),
+                'rest' => rest_url('digitalogic/v1/'),
+                'bridge_rest' => rest_url('digitalogic-panel/v1/'),
+            ),
+            'websocket' => array(
+                'enabled' => !empty($ws['enabled']),
+                'url' => isset($ws['url']) ? $ws['url'] : '',
+                'path' => '/wordpress-ws',
+                'ajax_proxy_enabled' => !empty($ws['ajax_proxy_enabled']),
+            ),
+            'bridge' => array(
+                'wordpress_bootstrap' => ABSPATH,
+                'laravel_bootstrap' => file_exists(DIGITALOGIC_PLUGIN_DIR . 'laravel/bootstrap/app.php'),
+                'theme_shared' => true,
+                'patris_project' => 'atomicdeploy/patris-export',
+            ),
         );
     }
 
@@ -234,14 +283,108 @@ class Digitalogic_Panel {
 
         return array(
             'users' => array_map(function($user) {
-                return array(
-                    'id' => $user->ID,
-                    'login' => $user->user_login,
-                    'email' => $user->user_email,
-                    'display_name' => $user->display_name,
-                    'roles' => array_values((array) $user->roles),
-                );
+                return $this->format_user($user);
             }, $users),
+        );
+    }
+
+    public function update_user_command($payload) {
+        if (!current_user_can('edit_users')) {
+            return new WP_Error('digitalogic_user_update_forbidden', __('You are not allowed to edit users.', 'digitalogic'), array('status' => 403));
+        }
+
+        $user_id = isset($payload['user_id']) ? absint($payload['user_id']) : 0;
+        $data = isset($payload['data']) && is_array($payload['data']) ? $payload['data'] : array();
+        $user = $user_id ? get_userdata($user_id) : false;
+
+        if (!$user) {
+            return new WP_Error('digitalogic_user_not_found', __('User not found.', 'digitalogic'), array('status' => 404));
+        }
+
+        $update = array('ID' => $user_id);
+        if (array_key_exists('display_name', $data)) {
+            $update['display_name'] = sanitize_text_field(wp_unslash($data['display_name']));
+        }
+        if (array_key_exists('email', $data)) {
+            $email = sanitize_email(wp_unslash($data['email']));
+            if (!$email || !is_email($email)) {
+                return new WP_Error('digitalogic_invalid_email', __('Invalid email address.', 'digitalogic'), array('status' => 400));
+            }
+            $update['user_email'] = $email;
+        }
+
+        if (count($update) > 1) {
+            $result = wp_update_user($update);
+            if (is_wp_error($result)) {
+                return $result;
+            }
+        }
+
+        if (isset($data['role']) && current_user_can('promote_users')) {
+            $role = sanitize_key(wp_unslash($data['role']));
+            $roles = wp_roles();
+            if ($role && isset($roles->roles[$role])) {
+                $editable_user = new WP_User($user_id);
+                $editable_user->set_role($role);
+            }
+        }
+
+        self::record_event('user.updated', array('id' => $user_id));
+
+        return array('user' => $this->format_user(get_userdata($user_id)));
+    }
+
+    public function events_command($payload) {
+        $since = isset($payload['since']) ? absint($payload['since']) : 0;
+        $events = get_option(self::EVENT_OPTION, array());
+        $events = is_array($events) ? $events : array();
+
+        return array(
+            'events' => array_values(array_filter($events, function($event) use ($since) {
+                return isset($event['id']) && absint($event['id']) > $since;
+            })),
+        );
+    }
+
+    public function record_product_event($product_id) {
+        self::record_event('product.updated', array('id' => absint($product_id)));
+    }
+
+    public function record_user_event($user_id) {
+        self::record_event('user.updated', array('id' => absint($user_id)));
+    }
+
+    public function record_option_event($option, $old_value, $value) {
+        if (in_array($option, array('dollar_price', 'yuan_price', 'digitalogic_dollar_price', 'digitalogic_yuan_price'), true)) {
+            self::record_event('currency.updated', array('option' => $option));
+        }
+    }
+
+    public static function record_event($event, $data = array()) {
+        $events = get_option(self::EVENT_OPTION, array());
+        $events = is_array($events) ? $events : array();
+        $events[] = array(
+            'id' => (int) round(microtime(true) * 1000),
+            'event' => sanitize_key(str_replace('.', '_', $event)),
+            'name' => sanitize_text_field($event),
+            'data' => is_array($data) ? $data : array(),
+            'time' => current_time('mysql'),
+        );
+
+        if (count($events) > 200) {
+            $events = array_slice($events, -200);
+        }
+
+        update_option(self::EVENT_OPTION, $events, false);
+    }
+
+    private function format_user($user) {
+        return array(
+            'id' => $user->ID,
+            'login' => $user->user_login,
+            'email' => $user->user_email,
+            'display_name' => $user->display_name,
+            'roles' => array_values((array) $user->roles),
         );
     }
 
@@ -281,6 +424,19 @@ class Digitalogic_Panel {
             'modernStyle' => 'Modern',
             'classicStyle' => 'Classic',
             'persian' => 'Persian',
+            'columns' => 'Columns',
+            'resetColumns' => 'Reset columns',
+            'selectAll' => 'Select all',
+            'selectRow' => 'Select row',
+            'searchUsers' => 'Search users',
+            'displayName' => 'Display name',
+            'role' => 'Role',
+            'interfaceSettings' => 'Interface',
+            'tableSettings' => 'Tables',
+            'productTable' => 'Product table',
+            'userTable' => 'User table',
+            'bridgeSettings' => 'WordPress / Laravel bridge',
+            'autosave' => 'Autosave',
             'priceReports' => 'Product price reports',
             'priceReportsText' => 'Migrated from the old products report: highlights missing prices, dual currency/local prices, and site/catalog differences.',
             'priceSync' => 'Price synchronization',
@@ -304,7 +460,7 @@ class Digitalogic_Panel {
             'stock' => 'Stock',
             'regularPrice' => 'Regular price',
             'salePrice' => 'Sale price',
-            'sku' => 'SKU',
+            'sku' => 'Product code',
             'status' => 'Status',
             'panelSettings' => 'Panel settings',
             'transport' => 'Transport',
@@ -343,6 +499,19 @@ class Digitalogic_Panel {
             'modernStyle' => 'مدرن',
             'classicStyle' => 'کلاسیک',
             'persian' => 'فارسی',
+            'columns' => 'ستون ها',
+            'resetColumns' => 'بازنشانی ستون ها',
+            'selectAll' => 'انتخاب همه',
+            'selectRow' => 'انتخاب ردیف',
+            'searchUsers' => 'جستجوی کاربران',
+            'displayName' => 'نام نمایشی',
+            'role' => 'نقش',
+            'interfaceSettings' => 'ظاهر و تجربه کاربری',
+            'tableSettings' => 'تنظیمات جدول ها',
+            'productTable' => 'جدول محصولات',
+            'userTable' => 'جدول کاربران',
+            'bridgeSettings' => 'پل وردپرس / لاراول',
+            'autosave' => 'ذخیره خودکار',
             'priceReports' => 'گزارش قیمت محصولات',
             'priceReportsText' => 'مهاجرت از گزارش محصولات قدیمی: قیمت های خالی، قیمت همزمان ارزی/ریالی، و اختلاف سایت و کاتالوگ را نشان می دهد.',
             'priceSync' => 'همگام سازی قیمت',
@@ -366,7 +535,7 @@ class Digitalogic_Panel {
             'stock' => 'موجودی',
             'regularPrice' => 'قیمت عادی',
             'salePrice' => 'قیمت فروش',
-            'sku' => 'شناسه کالا',
+            'sku' => 'کد کالا',
             'status' => 'وضعیت',
             'panelSettings' => 'تنظیمات پنل',
             'transport' => 'ارتباط',

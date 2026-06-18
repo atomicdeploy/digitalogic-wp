@@ -159,7 +159,14 @@ final class Digitalogic {
      */
     public function declare_hpos_compatibility() {
         if (class_exists('\Automattic\WooCommerce\Utilities\FeaturesUtil')) {
-            \Automattic\WooCommerce\Utilities\FeaturesUtil::declare_compatibility('custom_order_tables', __FILE__, true);
+            foreach (array('custom_order_tables', 'cart_checkout_blocks') as $feature_id) {
+                \Automattic\WooCommerce\Utilities\FeaturesUtil::declare_compatibility($feature_id, __FILE__, true);
+            }
+
+            $wp_parsidate_file = WP_PLUGIN_DIR . '/wp-parsidate/wp-parsidate.php';
+            if (file_exists($wp_parsidate_file)) {
+                \Automattic\WooCommerce\Utilities\FeaturesUtil::declare_compatibility('custom_order_tables', $wp_parsidate_file, true);
+            }
         }
     }
 
