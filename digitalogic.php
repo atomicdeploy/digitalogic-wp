@@ -58,6 +58,7 @@ final class Digitalogic {
     private function __construct() {
         $this->init_hooks();
         $this->includes();
+        $this->init_early_integrations();
     }
 
     /**
@@ -99,6 +100,8 @@ final class Digitalogic {
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-laravel-bridge.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-smsir-integration.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-comment-guard.php';
+        require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-admin-branding.php';
+        require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-auth-page.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/panel/class-panel.php';
 
         // Admin includes
@@ -115,6 +118,14 @@ final class Digitalogic {
         if (defined('WP_CLI') && WP_CLI) {
             require_once DIGITALOGIC_PLUGIN_DIR . 'includes/cli/class-cli-commands.php';
         }
+    }
+
+    /**
+     * Register integrations that must hook before plugins_loaded.
+     */
+    private function init_early_integrations() {
+        Digitalogic_Plugin_Admin_Branding::init();
+        Digitalogic_Plugin_Auth_Routes::init();
     }
 
     /**

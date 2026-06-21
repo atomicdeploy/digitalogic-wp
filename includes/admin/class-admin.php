@@ -136,6 +136,15 @@ class Digitalogic_Admin {
 
         $this->page_hooks[] = add_submenu_page(
             'digitalogic',
+            __('UI Settings', 'digitalogic'),
+            __('UI Settings', 'digitalogic'),
+            'manage_options',
+            'digitalogic-ui-settings',
+            array($this, 'render_ui_settings_page')
+        );
+
+        $this->page_hooks[] = add_submenu_page(
+            'digitalogic',
             $this->panel_label(),
             $this->panel_label(),
             'manage_woocommerce',
@@ -437,6 +446,25 @@ class Digitalogic_Admin {
      */
     public function render_status_page() {
         include DIGITALOGIC_PLUGIN_DIR . 'includes/admin/views/status.php';
+    }
+
+    /**
+     * Render custom UI settings page.
+     */
+    public function render_ui_settings_page() {
+        if (!current_user_can('manage_options')) {
+            wp_die(esc_html__('You do not have permission to access this page.', 'digitalogic'));
+        }
+
+        if (isset($_POST['digitalogic_ui_settings_submit']) && check_admin_referer('digitalogic_ui_settings')) {
+            $enabled = isset($_POST['digitalogic_custom_ui_enabled']) ? 'yes' : 'no';
+            update_option(Digitalogic_Plugin_Admin_Branding::OPTION_ENABLED, $enabled);
+
+            echo '<div class="notice notice-success"><p>' . esc_html__('UI settings saved.', 'digitalogic') . '</p></div>';
+        }
+
+        $custom_ui_enabled = Digitalogic_Plugin_Admin_Branding::is_enabled();
+        include DIGITALOGIC_PLUGIN_DIR . 'includes/admin/views/ui-settings.php';
     }
 
     /**
