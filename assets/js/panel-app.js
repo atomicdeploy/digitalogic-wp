@@ -148,6 +148,10 @@
             'system';
     }
 
+    function normalizeStyleMode(value) {
+        return value === 'classic' || value === 'default' ? 'default' : 'modern';
+    }
+
     function normalizePath(pathname) {
         var base = new URL(config.panel_url || '/panel/', window.location.origin).pathname.replace(/\/+$/, '');
         var path = pathname.indexOf(base) === 0 ? pathname.slice(base.length) : pathname;
@@ -174,18 +178,19 @@
     }
 
     function applyStyleMode(styleMode) {
-        document.documentElement.setAttribute('data-dlp-style', styleMode === 'classic' ? 'classic' : 'modern');
+        document.documentElement.setAttribute('data-dlp-style', normalizeStyleMode(styleMode));
     }
 
     function defaultProductColumns() {
         return [
-            {key: 'id', label: 'ID', field: 'id', width: 76, visible: true, sortable: true, editable: false},
-            {key: 'name', labelKey: 'products', field: 'name', width: 260, visible: true, sortable: true, editable: true},
-            {key: 'sku', labelKey: 'sku', field: 'sku', width: 140, visible: true, sortable: true, editable: true},
-            {key: 'regular_price', labelKey: 'regularPrice', field: 'regular_price', width: 132, visible: true, sortable: true, editable: true, numeric: true},
-            {key: 'sale_price', labelKey: 'salePrice', field: 'sale_price', width: 132, visible: true, sortable: true, editable: true, numeric: true},
-            {key: 'stock_quantity', labelKey: 'stock', field: 'stock_quantity', width: 104, visible: true, sortable: true, editable: true, numeric: true},
-            {key: 'status', labelKey: 'status', field: 'status', width: 108, visible: true, sortable: true, editable: false}
+            {key: 'id', label: 'ID', field: 'id', width: 76, visible: true, sortable: true, editable: false, mono: true, filter: 'text'},
+            {key: 'name', labelKey: 'productTitle', field: 'name', width: 300, visible: true, sortable: true, editable: true, filter: 'text'},
+            {key: 'sku', labelKey: 'sku', field: 'sku', width: 140, visible: true, sortable: true, editable: true, mono: true, filter: 'text'},
+            {key: 'regular_price', labelKey: 'regularPrice', field: 'regular_price', width: 132, visible: true, sortable: true, editable: true, numeric: true, filter: 'numeric'},
+            {key: 'sale_price', labelKey: 'salePrice', field: 'sale_price', width: 132, visible: true, sortable: true, editable: true, numeric: true, filter: 'numeric'},
+            {key: 'stock_quantity', labelKey: 'stock', field: 'stock_quantity', width: 104, visible: true, sortable: true, editable: true, numeric: true, filter: 'numeric'},
+            {key: 'stock_status', labelKey: 'availability', field: 'stock_status', width: 132, visible: true, sortable: true, editable: true, type: 'select', filter: 'select'},
+            {key: 'status', labelKey: 'status', field: 'status', width: 118, visible: true, sortable: true, editable: true, type: 'select', filter: 'select'}
         ];
     }
 
@@ -235,9 +240,10 @@
     Vue.createApp({
         data: function() {
             return {
+                config: config,
                 lang: stored('digitalogic_panel_language', (config.locale || '').indexOf('fa') === 0 ? 'fa' : 'en'),
                 theme: storedTheme(),
-                styleMode: stored('digitalogic_panel_style', 'modern'),
+                styleMode: normalizeStyleMode(stored('digitalogic_panel_style', 'modern')),
                 route: normalizePath(window.location.pathname),
                 loading: false,
                 saving: false,
@@ -258,8 +264,11 @@
                 openMenu: '',
                 openRowMenu: '',
                 columnMenuOpen: false,
+                productFilters: storedJson('digitalogic_panel_product_filters', {}),
+                columnContext: null,
                 selectedProducts: {},
                 selectedUsers: {},
+                productDialogOpen: false,
                 draggedCard: '',
                 draggedColumn: '',
                 sortState: storedJson('digitalogic_panel_product_sorts', []),
@@ -303,11 +312,66 @@
             visibleUserColumns: function() {
                 return this.userColumns.filter(function(column) { return column.visible !== false; });
             },
+            productStatusOptions: function() {
+                return [
+                    {value: 'publish', label: this.t.publish},
+                    {value: 'draft', label: this.t.draft},
+                    {value: 'pending', label: this.t.pending},
+                    {value: 'private', label: this.t.private}
+                ];
+            },
+            stockStatusOptions: function() {
+                return [
+                    {value: 'instock', label: this.t.instock},
+                    {value: 'outofstock', label: this.t.outofstock},
+                    {value: 'onbackorder', label: this.t.onbackorder}
+                ];
+            },
+            themeOptions: function() {
+                var modes = [
+                    {theme: 'system', label: this.t.system, icon: 'dashicons-desktop'},
+                    {theme: 'light', label: this.t.light, icon: 'dashicons-lightbulb'},
+                    {theme: 'dark', label: this.t.dark, icon: 'dashicons-hidden'}
+                ];
+                var styles = [
+                    {style: 'modern', label: this.t.modernStyle, icon: 'dashicons-art'},
+                    {style: 'default', label: this.t.defaultStyle, icon: 'dashicons-admin-appearance'}
+                ];
+                var options = [];
+                styles.forEach(function(style) {
+                    modes.forEach(function(mode) {
+                        options.push({
+                            value: style.style + ':' + mode.theme,
+                            style: style.style,
+                            theme: mode.theme,
+                            icon: style.style === 'default' ? style.icon : mode.icon,
+                            label: style.label + ' · ' + mode.label
+                        });
+                    });
+                });
+                return options;
+            },
+            activeThemeOption: function() {
+                var value = normalizeStyleMode(this.styleMode) + ':' + this.theme;
+                return this.themeOptions.find(function(option) {
+                    return option.value === value;
+                }) || this.themeOptions[0] || {label: '', icon: 'dashicons-admin-appearance'};
+            },
+            columnContextStyle: function() {
+                if (!this.columnContext) return {};
+                return {
+                    left: this.columnContext.x + 'px',
+                    top: this.columnContext.y + 'px'
+                };
+            },
             filteredProducts: function() {
                 var term = this.search.trim().toLowerCase();
                 var rows = !term ? this.products.slice() : this.products.filter(function(product) {
-                    return [product.id, product.name, product.sku, product.type, product.status].join(' ').toLowerCase().indexOf(term) !== -1;
+                    return [product.id, product.name, product.part_number, product.sku, product.type, product.status, product.stock_status].join(' ').toLowerCase().indexOf(term) !== -1;
                 });
+                rows = rows.filter(function(product) {
+                    return this.productMatchesFilters(product);
+                }, this);
                 return this.applySorts(rows, this.sortState);
             },
             filteredUsers: function() {
@@ -368,8 +432,15 @@
                 applyTheme(value);
             },
             styleMode: function(value) {
-                window.localStorage.setItem('digitalogic_panel_style', value);
-                applyStyleMode(value);
+                var normalized = normalizeStyleMode(value);
+                window.localStorage.setItem('digitalogic_panel_style', normalized);
+                applyStyleMode(normalized);
+            },
+            productFilters: {
+                deep: true,
+                handler: function(value) {
+                    window.localStorage.setItem('digitalogic_panel_product_filters', JSON.stringify(value || {}));
+                }
             },
             route: function() {
                 this.loadRoute();
@@ -405,6 +476,25 @@
                 var self = this;
                 window.addEventListener('popstate', function() {
                     self.route = normalizePath(window.location.pathname);
+                });
+                window.addEventListener('click', function(event) {
+                    if (!event.target.closest('.dlp-column-context') && !event.target.closest('.dlp-theme-picker')) {
+                        self.columnContext = null;
+                        if (self.openMenu === 'theme' || self.openMenu === 'settings-theme') self.openMenu = '';
+                    }
+                });
+                window.addEventListener('keydown', function(event) {
+                    if (event.key === 'Escape') {
+                        self.columnContext = null;
+                        self.openMenu = '';
+                        self.openRowMenu = '';
+                        self.productDialogOpen = false;
+                    }
+                    if (event.key === 'F2' && self.currentPage === 'products') {
+                        event.preventDefault();
+                        var search = document.querySelector('.dlp-search');
+                        if (search) search.focus();
+                    }
                 });
                 window.addEventListener('dragend', function() {
                     self.endDrag();
@@ -530,6 +620,41 @@
                 }
                 return cleaned;
             },
+            caretForRawPosition: function(formatted, rawPosition) {
+                if (rawPosition <= 0) return 0;
+                var count = 0;
+                for (var i = 0; i < formatted.length; i++) {
+                    if (/[0-9.]/.test(formatted.charAt(i))) {
+                        count++;
+                    }
+                    if (count >= rawPosition) {
+                        return i + 1;
+                    }
+                }
+                return formatted.length;
+            },
+            formatNumericEvent: function(event) {
+                var input = event.target;
+                var selectionStart = typeof input.selectionStart === 'number' ? input.selectionStart : String(input.value || '').length;
+                var rawBeforeCaret = this.normalizeNumber(String(input.value || '').slice(0, selectionStart)).length;
+                var raw = this.normalizeNumber(input.value);
+                var formatted = this.formatInputNumber(raw);
+                var caret = this.caretForRawPosition(formatted, rawBeforeCaret);
+                input.value = formatted;
+                if (typeof input.setSelectionRange === 'function') {
+                    var restoreCaret = function() {
+                        if (document.activeElement === input) {
+                            input.setSelectionRange(caret, caret);
+                        }
+                    };
+                    restoreCaret();
+                    window.requestAnimationFrame(restoreCaret);
+                    this.$nextTick(function() {
+                        window.requestAnimationFrame(restoreCaret);
+                    });
+                }
+                return raw;
+            },
             formatInputNumber: function(value) {
                 var raw = this.normalizeNumber(value);
                 if (raw === '') return '';
@@ -541,6 +666,8 @@
                 var value = row[column.field];
                 if (Array.isArray(value)) return value.join(', ');
                 if (value === null || typeof value === 'undefined' || value === '') return '-';
+                if (column.field === 'status') return this.statusLabel(value);
+                if (column.field === 'stock_status') return this.stockStatusLabel(value);
                 return column.numeric ? this.formatInputNumber(value) : value;
             },
             inputValue: function(row, column) {
@@ -554,7 +681,9 @@
                     var input = document.querySelector('[data-cell-key="' + key + '"]');
                     if (input) {
                         input.focus();
-                        input.select();
+                        if (typeof input.select === 'function') {
+                            input.select();
+                        }
                     }
                 });
             },
@@ -564,9 +693,7 @@
             onCellInput: function(kind, row, column, event) {
                 var value = event.target.value;
                 if (column.numeric) {
-                    var raw = this.normalizeNumber(value);
-                    event.target.value = this.formatInputNumber(raw);
-                    value = raw;
+                    value = this.formatNumericEvent(event);
                 }
                 kind === 'user' ? this.editUser(row, column.field, value) : this.editProduct(row, column.field, value);
             },
@@ -687,9 +814,12 @@
                 var self = this;
                 var startX = event.clientX;
                 var startWidth = column.width;
+                var isRtl = (document.documentElement.dir || '').toLowerCase() === 'rtl' ||
+                    window.getComputedStyle(document.documentElement).direction === 'rtl';
                 event.preventDefault();
                 function move(moveEvent) {
-                    column.width = Math.max(72, startWidth + (moveEvent.clientX - startX));
+                    var delta = isRtl ? startX - moveEvent.clientX : moveEvent.clientX - startX;
+                    column.width = Math.max(72, startWidth + delta);
                 }
                 function up() {
                     document.removeEventListener('mousemove', move);
@@ -749,6 +879,12 @@
             toggleMenu: function(key) {
                 this.openMenu = this.openMenu === key ? '' : key;
             },
+            setThemeChoice: function(option) {
+                if (!option) return;
+                this.styleMode = normalizeStyleMode(option.style);
+                this.theme = option.theme;
+                this.openMenu = '';
+            },
             toggleRowMenu: function(kind, id) {
                 var key = kind + ':' + id;
                 this.openRowMenu = this.openRowMenu === key ? '' : key;
@@ -765,7 +901,9 @@
                     var input = document.querySelector('[data-card-key="' + card.key + '"]');
                     if (input) {
                         input.focus();
-                        input.select();
+                        if (typeof input.select === 'function') {
+                            input.select();
+                        }
                     }
                 });
             },
@@ -773,8 +911,7 @@
                 return this.editingCell === 'card:' + card.key;
             },
             onCurrencyInput: function(field, event) {
-                var raw = this.normalizeNumber(event.target.value);
-                event.target.value = this.formatInputNumber(raw);
+                var raw = this.formatNumericEvent(event);
                 this.currencyDraft[field] = raw;
             },
             saveCurrencyField: function() {
@@ -805,6 +942,32 @@
             viewProduct: function(product) {
                 window.open(product.permalink || ('/?p=' + product.id), '_blank', 'noopener');
             },
+            handleProductEditClick: function(product, event) {
+                if (event) event.preventDefault();
+                if (event && event.altKey) {
+                    this.editProductPage(product);
+                    return;
+                }
+                if (event && (event.ctrlKey || event.metaKey)) {
+                    this.navigate('/products/' + product.id);
+                    return;
+                }
+                if (event && event.shiftKey) {
+                    this.openProductDialog(product);
+                    return;
+                }
+                this.openProductPanel(product);
+            },
+            openProductPanel: function(product) {
+                this.selectedProduct = product;
+                this.productDialogOpen = false;
+                this.loadProduct(product.id);
+            },
+            openProductDialog: function(product) {
+                this.selectedProduct = product;
+                this.productDialogOpen = true;
+                this.loadProduct(product.id);
+            },
             editProductPage: function(product) {
                 window.open(product.edit_url || ('/wp-admin/post.php?post=' + encodeURIComponent(product.id) + '&action=edit'), '_blank', 'noopener');
             },
@@ -819,6 +982,128 @@
             },
             roleText: function(roles) {
                 return (roles || []).join(', ') || '-';
+            },
+            statusLabel: function(value) {
+                var option = this.productStatusOptions.find(function(item) {
+                    return item.value === value;
+                });
+                return option ? option.label : (value || '-');
+            },
+            stockStatusLabel: function(value) {
+                var option = this.stockStatusOptions.find(function(item) {
+                    return item.value === value;
+                });
+                return option ? option.label : (value || '-');
+            },
+            columnOptions: function(column) {
+                if (column.field === 'status') return this.productStatusOptions;
+                if (column.field === 'stock_status') return this.stockStatusOptions;
+                return [];
+            },
+            cellClass: function(column) {
+                return {
+                    'dlp-cell-mono': !!column.mono,
+                    'dlp-cell-numeric': !!column.numeric,
+                    'dlp-cell-title': column.field === 'name'
+                };
+            },
+            isProductSelected: function(product) {
+                return !!this.selectedProducts[product.id];
+            },
+            setProductFilter: function(key, value) {
+                var next = Object.assign({}, this.productFilters);
+                if (value === '' || value === null || typeof value === 'undefined') {
+                    delete next[key];
+                } else {
+                    next[key] = value;
+                }
+                this.productFilters = next;
+            },
+            setRangeFilter: function(key, bound, event) {
+                var raw = this.formatNumericEvent(event);
+                var current = typeof this.productFilters[key] === 'object' && this.productFilters[key] !== null
+                    ? Object.assign({}, this.productFilters[key])
+                    : {};
+                if (raw === '') {
+                    delete current[bound];
+                } else {
+                    current[bound] = raw;
+                }
+                var next = Object.assign({}, this.productFilters);
+                if (!current.min && !current.max) delete next[key];
+                else next[key] = current;
+                this.productFilters = next;
+            },
+            rangeFilterValue: function(key, bound) {
+                var filter = this.productFilters[key];
+                return filter && typeof filter === 'object' && filter[bound] ? this.formatInputNumber(filter[bound]) : '';
+            },
+            clearProductFilters: function() {
+                this.productFilters = {};
+            },
+            productMatchesFilters: function(product) {
+                var filters = this.productFilters || {};
+                return Object.keys(filters).every(function(key) {
+                    var column = this.productColumns.find(function(item) {
+                        return item.key === key;
+                    });
+                    if (!column) return true;
+                    var filter = filters[key];
+                    var value = product[column.field];
+                    if (column.filter === 'numeric') {
+                        var number = Number(this.normalizeNumber(value));
+                        if (filter.min && number < Number(this.normalizeNumber(filter.min))) return false;
+                        if (filter.max && number > Number(this.normalizeNumber(filter.max))) return false;
+                        return true;
+                    }
+                    if (column.filter === 'select') {
+                        return !filter || String(value || '') === String(filter);
+                    }
+                    var haystack = String(column.field === 'status' ? this.statusLabel(value) : value || '').toLowerCase();
+                    return haystack.indexOf(String(filter || '').toLowerCase()) !== -1;
+                }, this);
+            },
+            openColumnContext: function(kind, column, event) {
+                this.columnContext = {
+                    kind: kind,
+                    columnKey: column.key,
+                    x: event.clientX,
+                    y: event.clientY
+                };
+            },
+            contextColumn: function() {
+                if (!this.columnContext) return null;
+                var list = this.columnContext.kind === 'user' ? this.userColumns : this.productColumns;
+                return list.find(function(column) {
+                    return column.key === this.columnContext.columnKey;
+                }, this);
+            },
+            contextSort: function(direction) {
+                var column = this.contextColumn();
+                if (!column) return;
+                var sort = {key: column.key, field: column.field, direction: direction};
+                if (this.columnContext.kind === 'user') {
+                    this.userSortState = [sort];
+                    window.localStorage.setItem('digitalogic_panel_user_sorts', JSON.stringify(this.userSortState));
+                } else {
+                    this.sortState = [sort];
+                    window.localStorage.setItem('digitalogic_panel_product_sorts', JSON.stringify(this.sortState));
+                }
+                this.columnContext = null;
+            },
+            hideContextColumn: function() {
+                var column = this.contextColumn();
+                if (!column) return;
+                this.toggleColumn(this.columnContext.kind, column);
+                this.columnContext = null;
+            },
+            clearContextFilter: function() {
+                if (!this.columnContext || this.columnContext.kind !== 'product') {
+                    this.columnContext = null;
+                    return;
+                }
+                this.setProductFilter(this.columnContext.columnKey, '');
+                this.columnContext = null;
             }
         },
         template: document.getElementById('digitalogic-panel-template').innerHTML

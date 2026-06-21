@@ -74,9 +74,19 @@ $logo_url = !empty($config['theme']['logo_url']) ? $config['theme']['logo_url'] 
                     <div class="dlp-actions">
                         <span class="dlp-pill dlp-transport" :class="transport === 'websocket' ? 'is-ok' : 'is-warn'"><span class="dlp-status-dot" aria-hidden="true"></span>{{ transport === 'websocket' ? t.connected : t.fallback }}</span>
                         <select class="dlp-select" v-model="lang" :aria-label="t.language"><option value="fa">فارسی</option><option value="en">English</option></select>
-                        <select class="dlp-select" v-model="theme"><option value="system">{{ t.system }}</option><option value="light">{{ t.light }}</option><option value="dark">{{ t.dark }}</option></select>
-                        <select class="dlp-select" v-model="styleMode" :aria-label="t.panelStyle"><option value="modern">{{ t.modernStyle }}</option><option value="classic">{{ t.classicStyle }}</option></select>
+                        <div class="dlp-theme-picker">
+                            <button class="dlp-button dlp-theme-trigger" @click="toggleMenu('theme')" :aria-label="t.themeAppearance">
+                                <span :class="icon(activeThemeOption.icon)"></span>{{ activeThemeOption.label }}
+                            </button>
+                            <span class="dlp-menu dlp-theme-menu" v-if="openMenu === 'theme'">
+                                <button v-for="option in themeOptions" :key="option.value" @click="setThemeChoice(option)">
+                                    <span :class="icon(option.icon)"></span>
+                                    <span>{{ option.label }}</span>
+                                </button>
+                            </span>
+                        </div>
                         <a class="dlp-button" href="/wp-admin/" target="_blank" rel="noopener"><span class="dashicons dashicons-admin-home"></span>{{ t.openWordPress }}</a>
+                        <a class="dlp-icon-button" :href="config.logout_url" :aria-label="t.logout" :title="t.logout"><span class="dashicons dashicons-migrate"></span></a>
                     </div>
                 </header>
                 <div v-if="error" class="dlp-error">{{ error }}</div>
@@ -98,7 +108,7 @@ $logo_url = !empty($config['theme']['logo_url']) ? $config['theme']['logo_url'] 
                             </div>
                             <div class="dlp-card-value">
                                 <button v-if="!isCardEditing(card)" class="dlp-card-value-button" @click="startCardEdit(card)">{{ card.value }}</button>
-                                <input v-else class="dlp-card-input" :data-card-key="card.key" :value="formatInputNumber(currencyDraft[card.field])" @input="onCurrencyInput(card.field, $event)" @blur="saveCurrencyField" @keydown.enter.prevent="saveCurrencyField" @keydown.esc.prevent="editingCell = null">
+                                <input v-else class="dlp-card-input dlp-numeric" dir="ltr" inputmode="decimal" data-numeric="true" :data-card-key="card.key" :value="formatInputNumber(currencyDraft[card.field])" @input="onCurrencyInput(card.field, $event)" @blur="saveCurrencyField" @keydown.enter.prevent="saveCurrencyField" @keydown.esc.prevent="editingCell = null">
                             </div>
                         </article>
                     </div>
@@ -131,23 +141,33 @@ $logo_url = !empty($config['theme']['logo_url']) ? $config['theme']['logo_url'] 
                         <label v-for="column in productColumns" :key="column.key"><input type="checkbox" :checked="column.visible !== false" @change="toggleColumn('product', column)"> {{ column.labelKey ? t[column.labelKey] : column.label }}</label>
                         <button class="dlp-button" @click="resetColumns('product')">{{ t.resetColumns }}</button>
                     </div>
-                    <div class="dlp-detail" v-if="selectedProduct">
+                    <div class="dlp-detail dlp-pinned-editor" v-if="selectedProduct">
                         <div class="dlp-panel">
-                            <div class="dlp-panel-head"><strong>{{ selectedProduct.name }}</strong><button class="dlp-icon-button" @click="navigate('/products')"><span class="dashicons dashicons-no-alt"></span></button></div>
+                            <div class="dlp-panel-head">
+                                <strong>{{ selectedProduct.name }}</strong>
+                                <span class="dlp-cell-actions">
+                                    <button class="dlp-icon-button" @click="openProductDialog(selectedProduct)" :aria-label="t.edit"><span class="dashicons dashicons-editor-expand"></span></button>
+                                    <button class="dlp-icon-button" @click="navigate('/products')"><span class="dashicons dashicons-no-alt"></span></button>
+                                </span>
+                            </div>
                             <div class="dlp-field-grid">
+                                <label class="dlp-field"><span>{{ t.productTitle }}</span><input class="dlp-input" :value="selectedProduct.name" @input="editProduct(selectedProduct, 'name', $event.target.value)"></label>
+                                <label class="dlp-field"><span>{{ t.partNumber }}</span><input class="dlp-input dlp-code-input" dir="ltr" :value="selectedProduct.part_number || ''" readonly></label>
                                 <label class="dlp-field"><span>{{ t.sku }}</span><input class="dlp-input" :value="selectedProduct.sku" @input="editProduct(selectedProduct, 'sku', $event.target.value)"></label>
-                                <label class="dlp-field"><span>{{ t.regularPrice }}</span><input class="dlp-input" :value="formatInputNumber(selectedProduct.regular_price)" @input="onCellInput('product', selectedProduct, {field: 'regular_price', numeric: true}, $event)"></label>
-                                <label class="dlp-field"><span>{{ t.salePrice }}</span><input class="dlp-input" :value="formatInputNumber(selectedProduct.sale_price)" @input="onCellInput('product', selectedProduct, {field: 'sale_price', numeric: true}, $event)"></label>
-                                <label class="dlp-field"><span>{{ t.stock }}</span><input class="dlp-input" :value="formatInputNumber(selectedProduct.stock_quantity)" @input="onCellInput('product', selectedProduct, {field: 'stock_quantity', numeric: true}, $event)"></label>
+                                <label class="dlp-field"><span>{{ t.status }}</span><select class="dlp-select" :value="selectedProduct.status" @change="onCellInput('product', selectedProduct, {field: 'status'}, $event)"><option v-for="option in productStatusOptions" :value="option.value">{{ option.label }}</option></select></label>
+                                <label class="dlp-field"><span>{{ t.availability }}</span><select class="dlp-select" :value="selectedProduct.stock_status" @change="onCellInput('product', selectedProduct, {field: 'stock_status'}, $event)"><option v-for="option in stockStatusOptions" :value="option.value">{{ option.label }}</option></select></label>
+                                <label class="dlp-field"><span>{{ t.regularPrice }}</span><input class="dlp-input dlp-numeric" dir="ltr" inputmode="decimal" data-numeric="true" :value="formatInputNumber(selectedProduct.regular_price)" @input="onCellInput('product', selectedProduct, {field: 'regular_price', numeric: true}, $event)"></label>
+                                <label class="dlp-field"><span>{{ t.salePrice }}</span><input class="dlp-input dlp-numeric" dir="ltr" inputmode="decimal" data-numeric="true" :value="formatInputNumber(selectedProduct.sale_price)" @input="onCellInput('product', selectedProduct, {field: 'sale_price', numeric: true}, $event)"></label>
+                                <label class="dlp-field"><span>{{ t.stock }}</span><input class="dlp-input dlp-numeric" dir="ltr" inputmode="numeric" data-numeric="true" :value="formatInputNumber(selectedProduct.stock_quantity)" @input="onCellInput('product', selectedProduct, {field: 'stock_quantity', numeric: true}, $event)"></label>
                             </div>
                         </div>
                         <aside class="dlp-card">
                             <img v-if="selectedProduct.image" class="dlp-detail-image" :src="selectedProduct.image" alt="">
-                            <p><strong>{{ t.status }}</strong><br>{{ selectedProduct.status }}</p>
-                            <p><strong>{{ t.sku }}</strong><br>{{ selectedProduct.sku || '-' }}</p>
+                            <p><strong>{{ t.status }}</strong><br>{{ statusLabel(selectedProduct.status) }}</p>
+                            <p><strong>{{ t.sku }}</strong><br><span class="dlp-mono">{{ selectedProduct.sku || '-' }}</span></p>
                         </aside>
                     </div>
-                    <div class="dlp-panel" v-else>
+                    <div class="dlp-panel">
                         <div class="dlp-table-wrap">
                             <table class="dlp-table dlp-data-grid">
                                 <colgroup>
@@ -157,30 +177,54 @@ $logo_url = !empty($config['theme']['logo_url']) ? $config['theme']['logo_url'] 
                                 </colgroup>
                                 <thead>
                                     <tr>
-                                        <th><input type="checkbox" v-model="allProductsSelected" :aria-label="t.selectAll"></th>
-                                        <th v-for="column in visibleProductColumns" :key="column.key" draggable="true" @dragstart="startColumnDrag(column.key)" @dragover.prevent @drop="dropColumn('product', column.key)">
+                                        <th><label class="dlp-check"><input type="checkbox" v-model="allProductsSelected" :aria-label="t.selectAll"><span></span></label></th>
+                                        <th v-for="column in visibleProductColumns" :key="column.key" draggable="true" @contextmenu.prevent="openColumnContext('product', column, $event)" @dragstart="startColumnDrag(column.key)" @dragover.prevent @drop="dropColumn('product', column.key)">
                                             <button class="dlp-th-button" @click="cycleSort('product', column, $event)">{{ column.labelKey ? t[column.labelKey] : column.label }} <span>{{ sortLabel('product', column) }}</span></button>
                                             <span class="dlp-col-resizer" @mousedown="startColumnResize('product', column, $event)"></span>
                                         </th>
                                         <th>{{ t.actions }}</th>
                                     </tr>
+                                    <tr class="dlp-filter-row">
+                                        <th></th>
+                                        <th v-for="column in visibleProductColumns" :key="'filter-' + column.key">
+                                            <template v-if="column.filter === 'select'">
+                                                <select class="dlp-filter-control" :value="productFilters[column.key] || ''" @change="setProductFilter(column.key, $event.target.value)">
+                                                    <option value="">{{ t.all }}</option>
+                                                    <option v-for="option in columnOptions(column)" :value="option.value">{{ option.label }}</option>
+                                                </select>
+                                            </template>
+                                            <template v-else-if="column.filter === 'numeric'">
+                                                <span class="dlp-range-filter">
+                                                    <input class="dlp-filter-control dlp-numeric" dir="ltr" inputmode="decimal" data-numeric="true" :placeholder="t.min" :value="rangeFilterValue(column.key, 'min')" @input="setRangeFilter(column.key, 'min', $event)">
+                                                    <input class="dlp-filter-control dlp-numeric" dir="ltr" inputmode="decimal" data-numeric="true" :placeholder="t.max" :value="rangeFilterValue(column.key, 'max')" @input="setRangeFilter(column.key, 'max', $event)">
+                                                </span>
+                                            </template>
+                                            <input v-else class="dlp-filter-control" :value="productFilters[column.key] || ''" @input="setProductFilter(column.key, $event.target.value)" :placeholder="t.filter">
+                                        </th>
+                                        <th><button class="dlp-icon-button" @click="clearProductFilters" :aria-label="t.clear"><span class="dashicons dashicons-dismiss"></span></button></th>
+                                    </tr>
                                 </thead>
                                 <tbody>
-                                    <tr v-for="product in filteredProducts" :key="product.id" :class="{'is-edited': rowEdited(product)}">
-                                        <td><input type="checkbox" v-model="selectedProducts[product.id]" :aria-label="t.selectRow"></td>
-                                        <td v-for="column in visibleProductColumns" :key="column.key">
-                                            <span v-if="!isCellEditing('product', product, column)" class="dlp-editable-cell" tabindex="0" @click="startCellEdit('product', product, column)" @focus="startCellEdit('product', product, column)">{{ formatColumnValue(product, column) }}</span>
-                                            <input v-else class="dlp-cell-input" :data-cell-key="'product:' + product.id + ':' + column.field" :value="inputValue(product, column)" @input="onCellInput('product', product, column, $event)" @keydown.enter.prevent="finishCellEdit('product', product)" @keydown.esc.prevent="editingCell = null" @blur="finishCellEdit('product', product)">
+                                    <tr v-for="product in filteredProducts" :key="product.id" :class="{'is-edited': rowEdited(product), 'is-selected': isProductSelected(product)}">
+                                        <td><label class="dlp-check"><input type="checkbox" v-model="selectedProducts[product.id]" :aria-label="t.selectRow"><span></span></label></td>
+                                        <td v-for="column in visibleProductColumns" :key="column.key" :class="cellClass(column)">
+                                            <span v-if="!isCellEditing('product', product, column)" class="dlp-editable-cell" tabindex="0" @click="startCellEdit('product', product, column)" @focus="startCellEdit('product', product, column)">
+                                                <template v-if="column.field === 'name'"><span class="dlp-title-cell">{{ product.name }}<span v-if="product.part_number" class="dlp-part-number">{{ product.part_number }}</span></span></template>
+                                                <template v-else>{{ formatColumnValue(product, column) }}</template>
+                                            </span>
+                                            <select v-else-if="column.type === 'select'" class="dlp-cell-input dlp-cell-select" :data-cell-key="'product:' + product.id + ':' + column.field" :value="product[column.field]" @change="onCellInput('product', product, column, $event)" @keydown.esc.prevent="editingCell = null" @blur="finishCellEdit('product', product)">
+                                                <option v-for="option in columnOptions(column)" :value="option.value">{{ option.label }}</option>
+                                            </select>
+                                            <input v-else class="dlp-cell-input" :class="{'dlp-numeric': column.numeric}" :dir="column.numeric ? 'ltr' : null" :inputmode="column.numeric ? 'decimal' : null" :data-numeric="column.numeric ? 'true' : null" :data-cell-key="'product:' + product.id + ':' + column.field" :value="inputValue(product, column)" @input="onCellInput('product', product, column, $event)" @keydown.enter.prevent="finishCellEdit('product', product)" @keydown.esc.prevent="editingCell = null" @blur="finishCellEdit('product', product)">
                                         </td>
                                         <td>
                                             <span class="dlp-cell-actions">
                                                 <button class="dlp-icon-button" @click="viewProduct(product)" :aria-label="t.view"><span class="dashicons dashicons-visibility"></span></button>
-                                                <button class="dlp-icon-button" @click="editProductPage(product)" :aria-label="t.edit"><span class="dashicons dashicons-edit"></span></button>
+                                                <button class="dlp-icon-button" @click="handleProductEditClick(product, $event)" :aria-label="t.edit" :title="t.editShortcutTitle"><span class="dashicons dashicons-edit"></span></button>
                                                 <span class="dlp-row-menu-wrap">
                                                     <button class="dlp-icon-button" @click="toggleRowMenu('product', product.id)" :aria-label="t.actions"><span class="dashicons dashicons-ellipsis"></span></button>
                                                     <span class="dlp-menu" v-if="openRowMenu === 'product:' + product.id">
                                                         <button @click="viewProduct(product)"><span class="dashicons dashicons-visibility"></span>{{ t.view }}</button>
-                                                        <button @click="editProductPage(product)"><span class="dashicons dashicons-edit"></span>{{ t.edit }}</button>
                                                         <button @click="copy(product.sku || product.id)"><span class="dashicons dashicons-clipboard"></span>{{ t.copy }}</button>
                                                     </span>
                                                 </span>
@@ -192,6 +236,28 @@ $logo_url = !empty($config['theme']['logo_url']) ? $config['theme']['logo_url'] 
                                 </tbody>
                             </table>
                         </div>
+                    </div>
+                    <div class="dlp-column-context" v-if="columnContext" :style="columnContextStyle">
+                        <button @click="contextSort('asc')"><span class="dashicons dashicons-arrow-up-alt"></span>{{ t.sortAsc }}</button>
+                        <button @click="contextSort('desc')"><span class="dashicons dashicons-arrow-down-alt"></span>{{ t.sortDesc }}</button>
+                        <button @click="hideContextColumn"><span class="dashicons dashicons-hidden"></span>{{ t.hideColumn }}</button>
+                        <button @click="clearContextFilter"><span class="dashicons dashicons-dismiss"></span>{{ t.clear }}</button>
+                    </div>
+                    <div class="dlp-dialog-backdrop" v-if="productDialogOpen && selectedProduct" @click.self="productDialogOpen = false">
+                        <section class="dlp-dialog">
+                            <div class="dlp-panel-head">
+                                <strong>{{ selectedProduct.name }}</strong>
+                                <button class="dlp-icon-button" @click="productDialogOpen = false"><span class="dashicons dashicons-no-alt"></span></button>
+                            </div>
+                            <div class="dlp-field-grid">
+                                <label class="dlp-field"><span>{{ t.productTitle }}</span><input class="dlp-input" :value="selectedProduct.name" @input="editProduct(selectedProduct, 'name', $event.target.value)"></label>
+                                <label class="dlp-field"><span>{{ t.sku }}</span><input class="dlp-input" :value="selectedProduct.sku" @input="editProduct(selectedProduct, 'sku', $event.target.value)"></label>
+                                <label class="dlp-field"><span>{{ t.status }}</span><select class="dlp-select" :value="selectedProduct.status" @change="onCellInput('product', selectedProduct, {field: 'status'}, $event)"><option v-for="option in productStatusOptions" :value="option.value">{{ option.label }}</option></select></label>
+                                <label class="dlp-field"><span>{{ t.availability }}</span><select class="dlp-select" :value="selectedProduct.stock_status" @change="onCellInput('product', selectedProduct, {field: 'stock_status'}, $event)"><option v-for="option in stockStatusOptions" :value="option.value">{{ option.label }}</option></select></label>
+                                <label class="dlp-field"><span>{{ t.regularPrice }}</span><input class="dlp-input dlp-numeric" dir="ltr" inputmode="decimal" data-numeric="true" :value="formatInputNumber(selectedProduct.regular_price)" @input="onCellInput('product', selectedProduct, {field: 'regular_price', numeric: true}, $event)"></label>
+                                <label class="dlp-field"><span>{{ t.salePrice }}</span><input class="dlp-input dlp-numeric" dir="ltr" inputmode="decimal" data-numeric="true" :value="formatInputNumber(selectedProduct.sale_price)" @input="onCellInput('product', selectedProduct, {field: 'sale_price', numeric: true}, $event)"></label>
+                            </div>
+                        </section>
                     </div>
                 </section>
 
@@ -232,16 +298,15 @@ $logo_url = !empty($config['theme']['logo_url']) ? $config['theme']['logo_url'] 
                         <div class="dlp-panel-head"><strong>{{ t.interfaceSettings }}</strong></div>
                         <div class="dlp-field-grid">
                             <label class="dlp-field"><span>{{ t.language }}</span><select class="dlp-select" v-model="lang"><option value="fa">فارسی</option><option value="en">English</option></select></label>
-                            <label class="dlp-field"><span>Theme</span><select class="dlp-select" v-model="theme"><option value="system">{{ t.system }}</option><option value="light">{{ t.light }}</option><option value="dark">{{ t.dark }}</option></select></label>
-                            <label class="dlp-field"><span>{{ t.panelStyle }}</span><select class="dlp-select" v-model="styleMode"><option value="modern">{{ t.modernStyle }}</option><option value="classic">{{ t.classicStyle }}</option></select></label>
+                            <div class="dlp-field"><span>{{ t.themeAppearance }}</span><div class="dlp-theme-picker is-field"><button class="dlp-button dlp-theme-trigger" @click="toggleMenu('settings-theme')"><span :class="icon(activeThemeOption.icon)"></span>{{ activeThemeOption.label }}</button><span class="dlp-menu dlp-theme-menu" v-if="openMenu === 'settings-theme'"><button v-for="option in themeOptions" :key="option.value" @click="setThemeChoice(option)"><span :class="icon(option.icon)"></span><span>{{ option.label }}</span></button></span></div></div>
                             <label class="dlp-field"><span>{{ t.transport }}</span><input class="dlp-input" :value="transport" readonly></label>
                         </div>
                     </div>
                     <div class="dlp-panel">
                         <div class="dlp-panel-head"><strong>{{ t.currency }}</strong><button class="dlp-button dlp-primary" :disabled="saving" @click="saveCurrency"><span class="dashicons dashicons-saved"></span>{{ t.save }}</button></div>
                         <div class="dlp-field-grid">
-                            <label class="dlp-field"><span>USD</span><input class="dlp-input" :value="formatInputNumber(currencyDraft.dollar_price)" @input="onCurrencyInput('dollar_price', $event)"></label>
-                            <label class="dlp-field"><span>CNY</span><input class="dlp-input" :value="formatInputNumber(currencyDraft.yuan_price)" @input="onCurrencyInput('yuan_price', $event)"></label>
+                            <label class="dlp-field"><span>USD</span><input class="dlp-input dlp-numeric" dir="ltr" inputmode="decimal" data-numeric="true" :value="formatInputNumber(currencyDraft.dollar_price)" @input="onCurrencyInput('dollar_price', $event)"></label>
+                            <label class="dlp-field"><span>CNY</span><input class="dlp-input dlp-numeric" dir="ltr" inputmode="decimal" data-numeric="true" :value="formatInputNumber(currencyDraft.yuan_price)" @input="onCurrencyInput('yuan_price', $event)"></label>
                         </div>
                     </div>
                     <div class="dlp-panel">

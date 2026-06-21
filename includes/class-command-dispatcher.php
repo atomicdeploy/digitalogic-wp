@@ -362,6 +362,7 @@ class Digitalogic_Command_Dispatcher {
         $allowed = array(
             'name',
             'sku',
+            'status',
             'regular_price',
             'sale_price',
             'stock_quantity',
@@ -380,8 +381,14 @@ class Digitalogic_Command_Dispatcher {
             }
 
             $value = is_string($data[$key]) ? wp_unslash($data[$key]) : $data[$key];
-            if (in_array($key, array('name', 'sku', 'stock_status'), true)) {
+            if (in_array($key, array('name', 'sku'), true)) {
                 $sanitized[$key] = sanitize_text_field($value);
+            } elseif ($key === 'status') {
+                $status = sanitize_key($value);
+                $sanitized[$key] = in_array($status, array('publish', 'draft', 'pending', 'private'), true) ? $status : 'draft';
+            } elseif ($key === 'stock_status') {
+                $stock_status = sanitize_key($value);
+                $sanitized[$key] = in_array($stock_status, array('instock', 'outofstock', 'onbackorder'), true) ? $stock_status : 'instock';
             } elseif ($key === 'manage_stock') {
                 $sanitized[$key] = filter_var($value, FILTER_VALIDATE_BOOLEAN);
             } else {
