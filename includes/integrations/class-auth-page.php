@@ -10,6 +10,7 @@ if (!defined('ABSPATH')) {
 final class Digitalogic_Plugin_Auth_Routes {
     private const AUTH_PAGE_ID = 10512;
     private const DEFAULT_COUNTRY_CODE = '98';
+    private const CANONICAL_LOGIN_PATH = '/login/';
 
     public static function init(): void {
         static $booted = false;
@@ -21,6 +22,7 @@ final class Digitalogic_Plugin_Auth_Routes {
         $booted = true;
 
         add_action('template_redirect', [self::class, 'redirect_legacy_login_page'], 1);
+        add_action('login_form_login', [self::class, 'render_digits_login'], 1);
         add_action('login_form_register', [self::class, 'render_digits_register'], 1);
         add_filter('register_url', [self::class, 'register_url'], 9999);
         add_filter('lostpassword_url', [self::class, 'lostpassword_url'], 9999, 2);
@@ -33,8 +35,43 @@ final class Digitalogic_Plugin_Auth_Routes {
             return;
         }
 
+        if (self::is_canonical_login_request()) {
+            return;
+        }
+
         $redirect_to = isset($_GET['redirect_to']) ? esc_url_raw(wp_unslash($_GET['redirect_to'])) : '';
         wp_safe_redirect(self::login_url(wp_login_url($redirect_to), $redirect_to, false), 301);
+        exit;
+    }
+
+    public static function render_digits_login(): void {
+        if (isset($_SERVER['REQUEST_METHOD']) && strtoupper((string) $_SERVER['REQUEST_METHOD']) !== 'GET') {
+            return;
+        }
+
+        if (!function_exists('df_digits_form_login')) {
+            return;
+        }
+
+        $redirect_to = isset($_REQUEST['redirect_to']) ? esc_url_raw(wp_unslash($_REQUEST['redirect_to'])) : '';
+
+        login_header(__('Log In'), '', null);
+
+        echo '<div class="dg-digits-login-shell">';
+        echo df_digits_form_login(); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+        echo '</div>';
+
+        echo '<p id="nav">';
+        echo '<a href="' . esc_url(self::register_url(wp_registration_url())) . '">';
+        echo esc_html__('ثبت نام', 'digitalogic');
+        echo '</a>';
+        echo '<span class="dg-nav-separator" aria-hidden="true">/</span>';
+        echo '<a href="' . esc_url(self::lostpassword_url(wp_lostpassword_url(), $redirect_to)) . '">';
+        echo esc_html__('بازیابی رمز عبور', 'digitalogic');
+        echo '</a>';
+        echo '</p>';
+
+        login_footer('user_login');
         exit;
     }
 
@@ -56,7 +93,7 @@ final class Digitalogic_Plugin_Auth_Routes {
         echo '</div>';
         echo '<p id="nav">';
         echo '<a href="' . esc_url(self::login_url(wp_login_url($redirect_to), $redirect_to, false)) . '">';
-        esc_html_e('Log in', 'digitalogic');
+        echo esc_html__('ورود', 'digitalogic');
         echo '</a>';
         echo '</p>';
 
@@ -65,7 +102,7 @@ final class Digitalogic_Plugin_Auth_Routes {
     }
 
     public static function register_url(string $url): string {
-        return add_query_arg('action', 'register', site_url('wp-login.php', 'login'));
+        return add_query_arg('action', 'register', self::canonical_login_url());
     }
 
     public static function lostpassword_url(string $url, string $redirect = ''): string {
@@ -75,7 +112,7 @@ final class Digitalogic_Plugin_Auth_Routes {
             $args['redirect_to'] = $redirect;
         }
 
-        return add_query_arg($args, wp_login_url());
+        return add_query_arg($args, self::canonical_login_url());
     }
 
     public static function login_url(string $login_url, string $redirect = '', bool $force_reauth = false): string {
@@ -89,7 +126,7 @@ final class Digitalogic_Plugin_Auth_Routes {
             $args['reauth'] = '1';
         }
 
-        return add_query_arg($args, site_url('wp-login.php', 'login'));
+        return add_query_arg($args, self::canonical_login_url());
     }
 
     public static function authenticate_phone_user($user, $username, $password) {
@@ -174,7 +211,7 @@ final class Digitalogic_Plugin_Auth_Routes {
     }
 
     private static function normalize_phone(string $phone, string $country_code): string {
-        $digits = preg_replace('/\D+/', '', $phone) ?? '';
+        $digits = preg_replace('/\D+/', '', self::normalize_digits($phone)) ?? '';
 
         if ($digits === '') {
             return '';
@@ -193,5 +230,42 @@ final class Digitalogic_Plugin_Auth_Routes {
         }
 
         return $digits;
+    }
+
+    private static function canonical_login_url(): string {
+        return home_url(self::CANONICAL_LOGIN_PATH);
+    }
+
+    private static function is_canonical_login_request(): bool {
+        $path = isset($_SERVER['REQUEST_URI'])
+            ? (string) wp_parse_url((string) wp_unslash($_SERVER['REQUEST_URI']), PHP_URL_PATH)
+            : '';
+
+        return untrailingslashit($path) === untrailingslashit(self::CANONICAL_LOGIN_PATH);
+    }
+
+    private static function normalize_digits(string $value): string {
+        return strtr($value, [
+            '۰' => '0',
+            '۱' => '1',
+            '۲' => '2',
+            '۳' => '3',
+            '۴' => '4',
+            '۵' => '5',
+            '۶' => '6',
+            '۷' => '7',
+            '۸' => '8',
+            '۹' => '9',
+            '٠' => '0',
+            '١' => '1',
+            '٢' => '2',
+            '٣' => '3',
+            '٤' => '4',
+            '٥' => '5',
+            '٦' => '6',
+            '٧' => '7',
+            '٨' => '8',
+            '٩' => '9',
+        ]);
     }
 }

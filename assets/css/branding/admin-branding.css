@@ -168,33 +168,128 @@ body.login #resetpassform {
     backdrop-filter: blur(18px);
 }
 
+body.login.login-action-login #login,
 body.login.login-action-register #login {
-    width: min(560px, calc(100vw - 32px));
+    width: min(720px, calc(100vw - 32px));
 }
 
+body.login .dg-digits-login-shell,
 body.login .dg-digits-register-shell {
     margin: 0;
 }
 
+body.login .dg-digits-login-shell :is(.digits-form_page, .digits-form_container, .digits2_box),
 body.login .dg-digits-register-shell :is(.digits-form_page, .digits-form_container, .digits2_box) {
     width: 100%;
     max-width: 100%;
 }
 
+body.login .dg-digits-login-shell :is(.digits-form_container, .digits-form_page),
 body.login .dg-digits-register-shell :is(.digits-form_container, .digits-form_page) {
     border-radius: 24px;
-    background: transparent;
+    background: transparent !important;
 }
 
+body.login .dg-digits-login-shell :is(.digits-form_heading, .digits-form_body, .digits-form_footer),
 body.login .dg-digits-register-shell :is(.digits-form_heading, .digits-form_body, .digits-form_footer) {
     font-family: var(--dg-font);
 }
 
+body.login .dg-digits-login-shell .digits-form_tab-bar,
 body.login .dg-digits-register-shell .digits-form_tab-bar {
+    display: flex;
+    gap: 4px;
+    padding: 4px;
     border-radius: 16px;
-    background: color-mix(in srgb, var(--dg-panel-soft) 86%, transparent);
+    background: color-mix(in srgb, var(--dg-panel-soft) 86%, transparent) !important;
 }
 
+body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) :is(.digits-form_wrapper, .digits_modal_box, .digits2_box) {
+    border: 1px solid var(--dg-border) !important;
+    border-radius: 30px !important;
+    background: var(--dg-panel-raised) !important;
+    box-shadow: var(--dg-shadow) !important;
+    backdrop-filter: blur(18px);
+}
+
+body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .digits-form_heading {
+    margin-block-end: 22px !important;
+    color: var(--dg-heading) !important;
+}
+
+body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .digits-form_heading_text {
+    color: var(--dg-heading) !important;
+    font-size: clamp(28px, 5vw, 36px) !important;
+    font-weight: 800 !important;
+}
+
+body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .digits-form_tab-item {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 1 1 0;
+    min-height: 38px;
+    padding-inline: 12px;
+    border-radius: 12px;
+    color: var(--dg-text-soft) !important;
+    font-weight: 700;
+    transition: color 0.18s ease, background 0.18s ease, box-shadow 0.18s ease;
+}
+
+body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .digits-form_tab-item.digits-tab_active {
+    background: var(--dg-panel-strong) !important;
+    color: var(--dg-accent-strong) !important;
+    box-shadow: var(--dg-shadow-soft);
+}
+
+body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) :is(.digits-form_input_row, .digits-form_input) {
+    border-color: var(--dg-border) !important;
+    border-radius: 16px !important;
+    color: var(--dg-text) !important;
+}
+
+body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .digits-form_input_row {
+    min-height: 54px !important;
+    margin-block: 10px !important;
+    padding-inline: 12px !important;
+    background: var(--dg-input-bg) !important;
+}
+
+body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .digits-form_input input {
+    min-height: 44px !important;
+    margin: 0 !important;
+    border: 0 !important;
+    background: transparent !important;
+    color: var(--dg-text) !important;
+    box-shadow: none !important;
+    font-family: var(--dg-font) !important;
+}
+
+body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .digits-form_input input::placeholder {
+    color: color-mix(in srgb, var(--dg-text-soft) 56%, transparent) !important;
+}
+
+body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .digits-form_countrycode {
+    color: var(--dg-accent-strong) !important;
+    font-weight: 800;
+}
+
+body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) :is(.digits-form_button, .digits-form_submit-btn) {
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 52px !important;
+    border: 0 !important;
+    background: linear-gradient(135deg, var(--dg-accent) 0%, var(--dg-accent-strong) 100%) !important;
+    color: #fff !important;
+    font-family: var(--dg-font) !important;
+    font-size: 15px !important;
+    font-weight: 800 !important;
+    box-shadow: 0 18px 36px color-mix(in srgb, var(--dg-accent-strong) 34%, transparent) !important;
+}
+
+body.login .dg-digits-login-shell :is(.digits-form_button, .digits-form_submit-btn),
 body.login .dg-digits-register-shell :is(.digits-form_button, .digits-form_submit-btn) {
     border-radius: 16px;
 }
@@ -294,6 +389,19 @@ body.wp-admin textarea:focus {
     background: var(--dg-panel-strong);
 }
 
+body.login input:-webkit-autofill,
+body.login input:-webkit-autofill:hover,
+body.login input:-webkit-autofill:focus,
+body.wp-admin input:-webkit-autofill,
+body.wp-admin input:-webkit-autofill:hover,
+body.wp-admin input:-webkit-autofill:focus {
+    -webkit-text-fill-color: var(--dg-text);
+    caret-color: var(--dg-text);
+    border-color: var(--dg-border-strong);
+    box-shadow: 0 0 0 1000px color-mix(in srgb, var(--dg-input-bg) 94%, var(--dg-accent-soft)) inset;
+    transition: background-color 9999s ease-in-out 0s;
+}
+
 input[type="checkbox"],
 input[type="radio"] {
     accent-color: var(--dg-accent-strong);
@@ -333,6 +441,32 @@ body.login #wp-submit:disabled {
     background: color-mix(in srgb, var(--dg-panel-strong) 82%, #d7e6f2);
     box-shadow: none;
     color: color-mix(in srgb, var(--dg-text-soft) 78%, #ffffff);
+}
+
+body.login.dg-login-submitting,
+body.login.dg-login-submitting * {
+    cursor: wait !important;
+}
+
+body.login :is(#wp-submit, .button-primary, .digits-form_submit-btn, .digits-form_button, .digits-social-btn).is-loading {
+    background-image:
+        repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.2) 0 10px, rgba(255, 255, 255, 0.06) 10px 20px),
+        linear-gradient(135deg, var(--dg-accent) 0%, var(--dg-accent-strong) 100%) !important;
+    background-size: 44px 44px, auto;
+    color: #fff !important;
+    cursor: wait !important;
+    animation: dg-loading-stripes 0.8s linear infinite;
+}
+
+body.login :is(#wp-submit, .button-primary, .digits-form_submit-btn, .digits-form_button, .digits-social-btn).is-loading::after {
+    content: "";
+    display: inline-block;
+    inline-size: 18px;
+    block-size: 18px;
+    border: 2px solid rgba(255, 255, 255, 0.42);
+    border-block-start-color: #fff;
+    border-radius: 999px;
+    animation: dg-fuji-spin 0.72s linear infinite;
 }
 
 body.login .button,
@@ -664,7 +798,8 @@ body.wp-admin .widefat tbody tr:hover th {
 
 body.wp-admin .plugins .active td,
 body.wp-admin .plugins .active th {
-    background: color-mix(in srgb, var(--dg-success-soft) 72%, var(--dg-panel));
+    border-inline-start: 3px solid var(--dg-accent);
+    background: color-mix(in srgb, var(--dg-accent-soft) 38%, var(--dg-panel));
 }
 
 .dg-dashboard-grid {
@@ -819,17 +954,93 @@ body.login form label {
     font-weight: 700;
 }
 
+body.login .dg-login-label-icon {
+    color: var(--dg-accent-strong);
+    font-size: 18px;
+    line-height: 1;
+}
+
+body.login .dg-login-identity-control {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 58px;
+    padding: 4px 6px;
+    border: 1px solid var(--dg-border);
+    border-radius: 18px;
+    background: var(--dg-input-bg);
+    box-shadow: var(--dg-shadow-soft);
+    transition: border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+}
+
+body.login .dg-login-identity-control:focus-within {
+    border-color: var(--dg-border-strong);
+    background: var(--dg-panel-strong);
+    box-shadow: 0 0 0 4px var(--dg-accent-soft);
+}
+
+body.login .dg-login-identity-control .input {
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 48px;
+    padding-inline: 12px;
+    border: 0 !important;
+    border-radius: 14px;
+    background: transparent !important;
+    box-shadow: none !important;
+}
+
+body.login .dg-login-identity-adornment {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    flex: 0 0 auto;
+    min-height: 40px;
+    padding-inline: 10px;
+    border: 1px solid var(--dg-border);
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--dg-panel-soft) 84%, transparent);
+    color: var(--dg-text-soft);
+    font-size: 12px;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+body.login .dg-login-identity-control[data-dg-identity="phone"] .dg-login-identity-adornment {
+    color: var(--dg-accent-strong);
+    background:
+        linear-gradient(180deg, #239f40 0 31%, #ffffff 31% 69%, #da0000 69% 100%);
+    box-shadow: inset 0 0 0 999px rgba(255, 255, 255, 0.76);
+}
+
+[data-dg-theme="dark"] body.login .dg-login-identity-control[data-dg-identity="phone"] .dg-login-identity-adornment {
+    box-shadow: inset 0 0 0 999px rgba(8, 17, 28, 0.62);
+}
+
 body.login .input,
 body.login input[type="text"],
 body.login input[type="password"] {
     padding-inline: 16px;
-    line-height: 1.4;
+    margin-block: 0 !important;
+    margin-inline: 0 !important;
+    line-height: 1.45 !important;
+}
+
+body.login form .input,
+body.login form input[type="text"],
+body.login form input[type="password"],
+body.login form input[type="email"],
+body.login form input[type="tel"] {
+    margin-block: 0 !important;
+    margin-inline: 0 !important;
 }
 
 body.login .wp-pwd {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
+    display: flex;
     align-items: center;
+    gap: 8px;
+    direction: ltr;
     min-height: 58px;
     padding: 4px 6px;
     border: 1px solid var(--dg-border);
@@ -846,14 +1057,17 @@ body.login .wp-pwd:focus-within {
 }
 
 body.login .wp-pwd .input {
-    grid-column: 1;
-    grid-row: 1;
+    order: 1;
+    flex: 1 1 auto;
+    min-width: 0;
     min-height: 48px;
     padding-inline: 12px;
     border: 0 !important;
     border-radius: 14px;
     background: transparent !important;
     box-shadow: none !important;
+    direction: ltr;
+    text-align: start;
 }
 
 body.login .button,
@@ -882,10 +1096,8 @@ body.login .button-primary {
 }
 
 body.login .button.wp-hide-pw {
-    grid-column: 2;
-    grid-row: 1;
-    justify-self: end;
-    align-self: center;
+    order: 2;
+    flex: 0 0 42px;
     position: static !important;
     inset: auto !important;
     margin: 0;
@@ -948,7 +1160,6 @@ body.login #rememberme {
 }
 
 body.login #rememberme::before,
-body.login #rememberme:checked::before,
 body.login #rememberme::after,
 body.login #rememberme:checked::after {
     content: none !important;
@@ -958,15 +1169,22 @@ body.login #rememberme:checked::after {
     height: 0 !important;
 }
 
+body.login #rememberme:checked::before {
+    content: "\f147" !important;
+    display: block !important;
+    width: auto !important;
+    height: auto !important;
+    margin: 0 !important;
+    color: #fff;
+    font-family: dashicons;
+    font-size: 18px;
+    line-height: 1;
+}
+
 body.login #rememberme:checked {
     border-color: transparent;
     background-color: var(--dg-accent);
-    background-image:
-        url("data:image/svg+xml,%3Csvg%20viewBox%3D%270%200%2016%2016%27%20xmlns%3D%27http%3A//www.w3.org/2000/svg%27%3E%3Cpath%20d%3D%27M6.35%2011.55%202.9%208.1%204.15%206.85%206.35%209.05%2011.85%203.55%2013.1%204.8z%27%20fill%3D%27white%27/%3E%3C/svg%3E"),
-        linear-gradient(135deg, var(--dg-accent), var(--dg-accent-strong)) !important;
-    background-position: center !important;
-    background-repeat: no-repeat !important;
-    background-size: 14px 14px, cover !important;
+    background-image: linear-gradient(135deg, var(--dg-accent), var(--dg-accent-strong)) !important;
 }
 
 body.login .language-switcher {
@@ -983,7 +1201,8 @@ body.login #language-switcher.dg-language-form {
     justify-content: center;
     gap: 12px;
     flex-wrap: wrap;
-    margin: 0;
+    margin-block: 0 !important;
+    margin-inline: 0 !important;
     padding: 0;
     border: 0;
     border-radius: 0;
@@ -1108,6 +1327,16 @@ body.login .privacy-policy-page-link {
     margin-top: 18px;
 }
 
+body.login #nav {
+    direction: rtl;
+}
+
+body.login #nav .dg-nav-separator {
+    display: inline-block;
+    margin-inline: 8px;
+    color: var(--dg-text-soft);
+}
+
 body.wp-admin #adminmenu #toplevel_page_digitalogic .wp-menu-image img {
     transition: filter 0.18s ease, opacity 0.18s ease;
 }
@@ -1204,6 +1433,18 @@ body.wp-admin .digitalogic-panel-page .button-hero {
     to {
         transform: translate(-50%, -50%) scale(3.5);
         opacity: 0;
+    }
+}
+
+@keyframes dg-loading-stripes {
+    to {
+        background-position: 44px 0, 0 0;
+    }
+}
+
+@keyframes dg-fuji-spin {
+    to {
+        transform: rotate(360deg);
     }
 }
 

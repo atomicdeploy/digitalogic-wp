@@ -12,7 +12,35 @@
             .replace(/'/g, '&#039;');
     }
 
+    function getLabel(key, fallback) {
+        var value = config.labels && config.labels[key];
+
+        if (typeof value !== 'string' || !value || /[ØÙÛÚ]/.test(value)) {
+            return fallback;
+        }
+
+        return value;
+    }
+
+    function readStoredTheme() {
+        try {
+            return window.localStorage ? window.localStorage.getItem(storageKey) : null;
+        } catch (error) {
+            return null;
+        }
+    }
+
     function currentTheme() {
+        var stored = readStoredTheme();
+
+        if (stored === 'light' || stored === 'dark') {
+            return stored;
+        }
+
+        if (document.body && document.body.classList.contains('login')) {
+            return 'light';
+        }
+
         var attr = root.getAttribute('data-dg-theme');
         if (attr === 'light' || attr === 'dark') {
             return attr;
@@ -40,7 +68,7 @@
             try {
                 window.localStorage.setItem(storageKey, value);
             } catch (error) {
-                // Ignore storage failures.
+                // Storage can be blocked in private browsing; the UI should still work.
             }
         }
 
@@ -58,11 +86,11 @@
 
     function syncToggleLabels(theme) {
         var nextLabel = theme === 'dark'
-            ? (config.labels && config.labels.toggleToLight) || 'تغییر به حالت روشن'
-            : (config.labels && config.labels.toggleToDark) || 'تغییر به حالت تیره';
+            ? getLabel('toggleToLight', 'تغییر به حالت روشن')
+            : getLabel('toggleToDark', 'تغییر به حالت تیره');
         var buttonLabel = theme === 'dark'
-            ? (config.labels && config.labels.light) || 'روشن'
-            : (config.labels && config.labels.dark) || 'تیره';
+            ? getLabel('light', 'روشن')
+            : getLabel('dark', 'تیره');
 
         document.querySelectorAll('[data-dg-theme-toggle-label]').forEach(function (node) {
             node.textContent = nextLabel;
@@ -75,7 +103,7 @@
     }
 
     function showToast(message, tone) {
-        if (!message) {
+        if (!message || !document.body) {
             return;
         }
 
@@ -100,6 +128,10 @@
     }
 
     function observeInlineMessages() {
+        if (!document.body) {
+            return;
+        }
+
         var seen = new Set();
 
         function relayText(node) {
@@ -126,11 +158,7 @@
     }
 
     function injectLoginToggle() {
-        if (!document.body || !document.body.classList.contains('login')) {
-            return;
-        }
-
-        if (document.querySelector('[data-dg-theme-toggle-button]')) {
+        if (!document.body || !document.body.classList.contains('login') || document.querySelector('[data-dg-theme-toggle-button]')) {
             return;
         }
 
@@ -201,7 +229,7 @@
             var text = selected ? selected.text : 'فارسی';
             trigger.innerHTML = '<span class="dashicons dashicons-translation" aria-hidden="true"></span>' +
                 '<span class="dg-select-text">' + escapeHtml(text) + '</span>' +
-                '<span class="dashicons dashicons-arrow-down-alt2" aria-hidden="true"></span>';
+                '<span class="dashicons dashicons-arrow-up-alt2" aria-hidden="true"></span>';
 
             menu.querySelectorAll('.dg-language-option').forEach(function (option) {
                 var active = option.getAttribute('data-value') === select.value;
@@ -238,7 +266,7 @@
         applyButton.type = 'button';
         applyButton.className = 'button dg-language-apply';
         applyButton.innerHTML = '<span class="dashicons dashicons-update" aria-hidden="true"></span>' +
-            '<span>' + escapeHtml((config.labels && config.labels.applyLanguage) || 'تغییر') + '</span>';
+            '<span>' + escapeHtml(getLabel('applyLanguage', 'تغییر')) + '</span>';
         applyButton.addEventListener('click', function () {
             if (typeof form.requestSubmit === 'function') {
                 form.requestSubmit();
@@ -269,6 +297,188 @@
         syncSelection();
     }
 
+    function normalizeDigits(value) {
+        var source = '۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩';
+        var target = '01234567890123456789';
+
+        return String(value || '').replace(/[۰-۹٠-٩]/g, function (digit) {
+            return target.charAt(source.indexOf(digit));
+        });
+    }
+
+    function classifyIdentity(value) {
+        var normalized = normalizeDigits(value).trim();
+        var numeric = normalized.replace(/[^\d+]/g, '');
+        var digits = numeric.replace(/\D/g, '');
+
+        if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)) {
+            return 'email';
+        }
+
+        if (/^(?:\+?98|0098|0)?9\d{9}$/.test(digits.length > 0 && numeric.indexOf('+') !== -1 ? numeric : digits)) {
+            return 'phone';
+        }
+
+        if (/^(?:98|0098|0)?9\d{9}$/.test(digits)) {
+            return 'phone';
+        }
+
+        return 'username';
+    }
+
+    function normalizePhoneOnBlur(input) {
+        var type = classifyIdentity(input.value);
+        if (type !== 'phone') {
+            return;
+        }
+
+        var digits = normalizeDigits(input.value).replace(/\D/g, '');
+        if (digits.indexOf('0098') === 0) {
+            digits = digits.slice(2);
+        }
+        if (digits.indexOf('98') === 0 && digits.length > 10) {
+            digits = digits.slice(2);
+        }
+        if (digits.indexOf('0') === 0 && digits.length === 11) {
+            digits = digits.slice(1);
+        }
+
+        if (/^9\d{9}$/.test(digits)) {
+            input.value = '0' + digits;
+        }
+    }
+
+    function enhanceIdentityField(input) {
+        if (!input || input.dataset.dgIdentityReady === 'true') {
+            return;
+        }
+
+        input.dataset.dgIdentityReady = 'true';
+        input.setAttribute('autocomplete', 'username');
+        input.setAttribute('dir', 'auto');
+
+        var wrapper = document.createElement('span');
+        wrapper.className = 'dg-login-identity-control';
+        input.parentNode.insertBefore(wrapper, input);
+        wrapper.appendChild(input);
+
+        var adornment = document.createElement('span');
+        adornment.className = 'dg-login-identity-adornment';
+        adornment.setAttribute('aria-live', 'polite');
+        wrapper.appendChild(adornment);
+
+        function syncIdentity() {
+            var original = input.value;
+            var normalized = normalizeDigits(original);
+            if (original !== normalized) {
+                var start = input.selectionStart;
+                var end = input.selectionEnd;
+                input.value = normalized;
+                try {
+                    input.setSelectionRange(start, end);
+                } catch (error) {
+                    // Some input types do not support selection APIs.
+                }
+            }
+
+            var type = classifyIdentity(input.value);
+            var meta = {
+                phone: {
+                    icon: 'dashicons-smartphone',
+                    text: 'IR +98',
+                    label: getLabel('phoneIdentity', 'موبایل ایران'),
+                    inputMode: 'tel',
+                    autocomplete: 'tel'
+                },
+                email: {
+                    icon: 'dashicons-email-alt2',
+                    text: getLabel('emailIdentity', 'ایمیل'),
+                    label: getLabel('emailIdentity', 'ایمیل'),
+                    inputMode: 'email',
+                    autocomplete: 'email'
+                },
+                username: {
+                    icon: 'dashicons-admin-users',
+                    text: getLabel('usernameIdentity', 'نام کاربری'),
+                    label: getLabel('usernameIdentity', 'نام کاربری'),
+                    inputMode: 'text',
+                    autocomplete: 'username'
+                }
+            }[type];
+
+            input.dataset.dgIdentity = type;
+            wrapper.dataset.dgIdentity = type;
+            input.setAttribute('inputmode', meta.inputMode);
+            input.setAttribute('autocomplete', meta.autocomplete);
+            adornment.innerHTML = '<span class="dashicons ' + meta.icon + '" aria-hidden="true"></span>' +
+                '<span class="dg-login-identity-text">' + escapeHtml(meta.text) + '</span>';
+            adornment.setAttribute('aria-label', meta.label);
+        }
+
+        input.addEventListener('input', syncIdentity);
+        input.addEventListener('blur', function () {
+            normalizePhoneOnBlur(input);
+            syncIdentity();
+        });
+        syncIdentity();
+    }
+
+    function setLabel(label, text, icon) {
+        if (!label || label.dataset.dgLabelReady === 'true') {
+            return;
+        }
+
+        label.dataset.dgLabelReady = 'true';
+        label.classList.add('dg-login-label');
+        label.innerHTML = '<span class="dashicons ' + icon + ' dg-login-label-icon" aria-hidden="true"></span>' +
+            '<span>' + escapeHtml(text) + '</span>';
+    }
+
+    function enhanceLoginLabels() {
+        setLabel(
+            document.querySelector('label[for="user_login"]'),
+            getLabel('usernameEmailPhone', 'نام کاربری، ایمیل یا شماره موبایل'),
+            'dashicons-id'
+        );
+        setLabel(
+            document.querySelector('label[for="user_pass"]'),
+            getLabel('password', 'رمز عبور'),
+            'dashicons-lock'
+        );
+    }
+
+    function capturePasswordSelection(input) {
+        var wasActive = document.activeElement === input;
+        var start = null;
+        var end = null;
+        var direction = null;
+
+        try {
+            start = input.selectionStart;
+            end = input.selectionEnd;
+            direction = input.selectionDirection;
+        } catch (error) {
+            start = null;
+            end = null;
+        }
+
+        return function restoreSelection() {
+            if (!wasActive) {
+                return;
+            }
+
+            input.focus({ preventScroll: true });
+
+            if (typeof start === 'number' && typeof end === 'number') {
+                try {
+                    input.setSelectionRange(start, end, direction || 'none');
+                } catch (error) {
+                    // Password managers and browsers can temporarily block selection restoration.
+                }
+            }
+        };
+    }
+
     function syncPasswordToggle() {
         if (!document.body || !document.body.classList.contains('login')) {
             return;
@@ -289,6 +499,89 @@
         button.innerHTML = '<span class="dashicons ' + icon + '" aria-hidden="true"></span>';
     }
 
+    function bindPasswordToggle() {
+        var visibilityButton = document.querySelector('.wp-hide-pw');
+        var password = document.querySelector('#user_pass');
+        var restoreSelection = null;
+
+        if (!visibilityButton || !password || visibilityButton.dataset.dgPasswordReady === 'true') {
+            return;
+        }
+
+        visibilityButton.dataset.dgPasswordReady = 'true';
+        visibilityButton.addEventListener('mousedown', function (event) {
+            restoreSelection = capturePasswordSelection(password);
+            event.preventDefault();
+        });
+        visibilityButton.addEventListener('touchstart', function () {
+            restoreSelection = capturePasswordSelection(password);
+        }, { passive: true });
+        visibilityButton.addEventListener('click', function () {
+            var restore = restoreSelection || capturePasswordSelection(password);
+            window.setTimeout(function () {
+                syncPasswordToggle();
+                restore();
+                restoreSelection = null;
+            }, 0);
+        });
+        syncPasswordToggle();
+    }
+
+    function markLoading(button, disable) {
+        if (!button || button.dataset.dgLoading === 'true') {
+            return;
+        }
+
+        button.dataset.dgLoading = 'true';
+        button.classList.add('is-loading');
+        button.setAttribute('aria-busy', 'true');
+        document.body.classList.add('dg-login-submitting');
+
+        if (disable) {
+            button.disabled = true;
+        }
+    }
+
+    function clearLoading() {
+        document.body.classList.remove('dg-login-submitting');
+        document.querySelectorAll('[data-dg-loading="true"]').forEach(function (button) {
+            button.dataset.dgLoading = 'false';
+            button.classList.remove('is-loading');
+            button.removeAttribute('aria-busy');
+            if (button.matches('#wp-submit')) {
+                button.disabled = false;
+            }
+        });
+    }
+
+    function bindLoadingStates() {
+        document.addEventListener('submit', function (event) {
+            var form = event.target;
+            if (!form || !form.matches('#loginform, #lostpasswordform, #registerform, .digits-form_page form, form.digits-form')) {
+                return;
+            }
+
+            var button = form.querySelector('#wp-submit, [type="submit"], .digits-form_submit-btn');
+            markLoading(button, form.matches('#loginform'));
+        }, true);
+
+        document.addEventListener('click', function (event) {
+            var button = event.target.closest('.digits-form_submit-btn, .digits-form_button, .digits-social-btn');
+            if (!button) {
+                return;
+            }
+
+            markLoading(button, false);
+        });
+
+        window.addEventListener('pageshow', clearLoading);
+
+        if (window.jQuery) {
+            window.jQuery(document).ajaxComplete(clearLoading);
+            window.jQuery(document).ajaxError(clearLoading);
+        }
+    }
+
     function bindLoginValidation() {
         if (!document.body || !document.body.classList.contains('login')) {
             return;
@@ -297,8 +590,10 @@
         var form = document.querySelector('#loginform');
         var username = document.querySelector('#user_login');
         var password = document.querySelector('#user_pass');
-        var visibilityButton = document.querySelector('.wp-hide-pw');
-        var usernameLabel = document.querySelector('label[for="user_login"]');
+
+        enhanceLoginLabels();
+        enhanceIdentityField(username);
+        bindPasswordToggle();
 
         if (!form || !username || !password) {
             return;
@@ -307,56 +602,39 @@
         form.setAttribute('novalidate', 'novalidate');
         username.placeholder = '0912... / name@example.com / username';
 
-        if (usernameLabel) {
-            usernameLabel.textContent = 'نام کاربری، ایمیل یا شماره موبایل';
-        }
-
-        if (visibilityButton) {
-            visibilityButton.addEventListener('mousedown', function (event) {
-                event.preventDefault();
-            });
-            visibilityButton.addEventListener('click', function () {
-                window.setTimeout(function () {
-                    syncPasswordToggle();
-                    password.focus({ preventScroll: true });
-                }, 0);
-            });
-            syncPasswordToggle();
-        }
-
         form.addEventListener('submit', function (event) {
             if (!String(username.value || '').trim()) {
                 event.preventDefault();
-                showToast((config.labels && config.labels.requiredUsername) || 'نام کاربری، ایمیل یا شماره موبایل را وارد کنید.', 'warning');
+                showToast(getLabel('requiredUsername', 'نام کاربری، ایمیل یا شماره موبایل را وارد کنید.'), 'warning');
                 username.focus();
                 return;
             }
 
             if (!String(password.value || '').trim()) {
                 event.preventDefault();
-                showToast((config.labels && config.labels.requiredPassword) || 'رمز عبور را وارد کنید.', 'warning');
+                showToast(getLabel('requiredPassword', 'رمز عبور را وارد کنید.'), 'warning');
                 password.focus();
                 return;
             }
 
             if (window.WFLSVars && window.WFLSVars.useCAPTCHA === '1' && !document.querySelector('iframe[title="reCAPTCHA"]')) {
-                showToast((config.labels && config.labels.recaptchaUnavailable) || 'محافظت ورود هنوز کامل بارگذاری نشده است.', 'warning');
+                showToast(getLabel('recaptchaUnavailable', 'محافظت ورود هنوز کامل بارگذاری نشده است. چند لحظه دیگر دوباره تلاش کنید.'), 'warning');
             }
         });
     }
 
     function bindErrorHandling() {
         window.addEventListener('error', function () {
-            showToast((config.labels && config.labels.runtimeError) || 'یک خطای غیرمنتظره در صفحه رخ داد.', 'warning');
+            showToast(getLabel('runtimeError', 'یک خطای غیرمنتظره در صفحه رخ داد. صفحه را تازه‌سازی کنید و دوباره ادامه دهید.'), 'warning');
         });
 
         window.addEventListener('unhandledrejection', function () {
-            showToast((config.labels && config.labels.runtimeError) || 'یک خطای غیرمنتظره در صفحه رخ داد.', 'warning');
+            showToast(getLabel('runtimeError', 'یک خطای غیرمنتظره در صفحه رخ داد. صفحه را تازه‌سازی کنید و دوباره ادامه دهید.'), 'warning');
         });
 
         if (window.jQuery) {
             window.jQuery(document).ajaxError(function () {
-                showToast((config.labels && config.labels.requestError) || 'یک درخواست پس زمینه با خطا روبه رو شد.', 'error');
+                showToast(getLabel('requestError', 'درخواست با خطا روبه‌رو شد. دوباره تلاش کنید یا صفحه را تازه‌سازی کنید.'), 'error');
             });
         }
     }
@@ -398,6 +676,7 @@
         injectLoginToggle();
         buildLanguageSwitcher();
         bindLoginValidation();
+        bindLoadingStates();
         observeInlineMessages();
         bindErrorHandling();
         enableRipples();
