@@ -29,11 +29,10 @@
 .stat-box.clickable:hover {
     box-shadow: 0 2px 8px rgba(0,0,0,.15);
     border-color: #2271b1;
-    transform: translateY(-2px);
 }
 
 .stat-box.clickable:active {
-    transform: translateY(0);
+    box-shadow: 0 1px 1px rgba(0,0,0,.04);
 }
 
 .stat-box h3 {
@@ -60,6 +59,44 @@
 }
 
 .digitalogic-quick-links li {
+    margin: 0;
+}
+
+.digitalogic-panel-card {
+    max-width: 760px;
+    background: #fff;
+    border: 1px solid #c3c4c7;
+    border-radius: 6px;
+    padding: 24px;
+    margin-top: 20px;
+    box-shadow: 0 1px 1px rgba(0,0,0,.04);
+}
+
+.digitalogic-panel-card h2 {
+    margin-top: 0;
+}
+
+.digitalogic-panel-actions {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    flex-wrap: wrap;
+    margin: 24px 0;
+}
+
+.digitalogic-panel-meta {
+    display: grid;
+    grid-template-columns: 140px minmax(0, 1fr);
+    gap: 10px 16px;
+    margin: 0;
+}
+
+.digitalogic-panel-meta dt {
+    font-weight: 600;
+    color: #50575e;
+}
+
+.digitalogic-panel-meta dd {
     margin: 0;
 }
 
@@ -141,6 +178,32 @@ table.dataTable input[type="number"] {
     padding: 4px 8px;
     border: 1px solid #8c8f94;
     border-radius: 3px;
+}
+
+.digitalogic-editable-cell {
+    width: 100%;
+    min-height: 30px;
+    padding: 4px 7px;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    background: transparent;
+    color: #1d2327;
+    cursor: text;
+    font: inherit;
+    text-align: inherit;
+}
+
+.digitalogic-editable-cell:hover,
+.digitalogic-editable-cell:focus {
+    border-color: #2271b1;
+    background: #f6f7f7;
+    outline: none;
+}
+
+.digitalogic-cell-input.changed,
+.digitalogic-editable-cell.changed {
+    border-color: #dba617;
+    background: #fff8e5;
 }
 
 table.dataTable input.changed {
@@ -298,4 +361,66 @@ table.dataTable input:focus {
 .digitalogic-actions button {
     padding: 4px 8px;
     font-size: 12px;
+}
+
+/* Digitalogic admin polish */
+.digitalogic-quick-links a.button,
+.digitalogic-quick-links a.button.button-primary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    height: 36px;
+    min-height: 36px;
+    padding: 0 14px;
+    line-height: 1.2;
+    text-decoration: none;
+}
+
+.digitalogic-cell-input,
+.digitalogic-editable-cell {
+    box-sizing: border-box;
+    height: 32px;
+    min-height: 32px;
+}
+
+.digitalogic-cell-input.is-saving,
+.digitalogic-editable-cell.is-saving {
+    border-color: #72aee6;
+    background: #f0f6fc;
+}
+
+.digitalogic-cell-input.is-saved,
+.digitalogic-editable-cell.is-saved {
+    border-color: #00a32a;
+    background: #edfaef;
+}
+
+.digitalogic-cell-input.is-error,
+.digitalogic-editable-cell.is-error {
+    border-color: #d63638;
+    background: #fcf0f1;
+}
+
+body.wp-admin #major-publishing-actions,
+body.wp-admin .wrap > form .form-table > tbody > tr > td.acf-label,
+body.wp-admin .wrap > form .form-table > tbody > tr > th {
+    border-color: #d6dde6;
+    background: #f7f9fb;
+    color: #15202b;
+}
+
+body.wp-admin #major-publishing-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 12px;
+    border-top: 1px solid #d6dde6;
+}
+
+body.wp-admin .wrap > form .form-table > tbody > tr > td.acf-label,
+body.wp-admin .wrap > form .form-table > tbody > tr > th {
+    padding: 14px 16px;
+    font-weight: 600;
 }

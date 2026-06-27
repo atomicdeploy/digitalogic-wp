@@ -128,6 +128,7 @@ class Digitalogic_Product_Manager {
             $data = array(
                 'id' => $product->get_id(),
                 'name' => $product->get_name(),
+                'part_number' => $this->get_part_number($product),
                 'sku' => $product->get_sku(),
                 'type' => $product->get_type(),
                 'status' => $product->get_status(),
@@ -142,6 +143,7 @@ class Digitalogic_Product_Manager {
                 'width' => $product->get_width(),
                 'height' => $product->get_height(),
                 'permalink' => $product->get_permalink(),
+                'edit_url' => $this->get_edit_url($product),
                 'image' => wp_get_attachment_url($product->get_image_id()),
             );
             
@@ -170,6 +172,33 @@ class Digitalogic_Product_Manager {
             return array();
         }
     }
+
+    private function get_edit_url($product) {
+        $edit_id = $product->is_type('variation') && $product->get_parent_id()
+            ? $product->get_parent_id()
+            : $product->get_id();
+
+        return get_edit_post_link($edit_id, 'raw');
+    }
+
+    private function get_part_number($product) {
+        $part_number = '';
+
+        if ($product->is_type('variation')) {
+            $part_number = $product->get_attribute('pa_model');
+            if (!$part_number) {
+                $part_number = $product->get_meta('attribute_pa_model', true);
+            }
+        } else {
+            $part_number = $product->get_attribute('pa_model');
+        }
+
+        if (is_string($part_number) && $part_number !== '') {
+            return wc_clean(wp_strip_all_tags($part_number));
+        }
+
+        return '';
+    }
     
     /**
      * Update single product
@@ -195,6 +224,13 @@ class Digitalogic_Product_Manager {
             
             if (isset($data['sku'])) {
                 $product->set_sku($data['sku']);
+            }
+
+            if (isset($data['status'])) {
+                $allowed_statuses = array('publish', 'draft', 'pending', 'private');
+                if (in_array($data['status'], $allowed_statuses, true)) {
+                    $product->set_status($data['status']);
+                }
             }
             
             // Update pricing
@@ -251,6 +287,8 @@ class Digitalogic_Product_Manager {
                 json_encode($data),
                 'Updated product: ' . $product->get_name()
             );
+
+            do_action('digitalogic_product_updated', $product_id, $data);
             
             return true;
             
@@ -310,6 +348,10 @@ class Digitalogic_Product_Manager {
         // Add search filter if provided
         if (!empty($args['search'])) {
             $query_args['s'] = $args['search'];
+        }
+
+        if (!empty($args['sku'])) {
+            $query_args['sku'] = $args['sku'];
         }
         
         try {

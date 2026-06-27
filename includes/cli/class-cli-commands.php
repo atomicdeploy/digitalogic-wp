@@ -133,13 +133,13 @@ class Digitalogic_CLI_Commands {
             $items[] = array(
                 'ID' => $product['id'],
                 'Name' => $product['name'],
-                'SKU' => $product['sku'],
+                'Product Code' => $product['sku'],
                 'Price' => $product['price'],
                 'Stock' => $product['stock_quantity']
             );
         }
         
-        WP_CLI\Utils\format_items($format, $items, array('ID', 'Name', 'SKU', 'Price', 'Stock'));
+        WP_CLI\Utils\format_items($format, $items, array('ID', 'Name', 'Product Code', 'Price', 'Stock'));
     }
     
     /**
@@ -160,7 +160,7 @@ class Digitalogic_CLI_Commands {
      * : Stock quantity
      * 
      * [--sku=<sku>]
-     * : Product SKU
+     * : Product code
      * 
      * ## EXAMPLES
      * 
@@ -363,6 +363,69 @@ class Digitalogic_CLI_Commands {
         
         WP_CLI\Utils\format_items($format, $items, array('ID', 'User', 'Action', 'Object', 'Date'));
     }
+
+    /**
+     * Run the Digitalogic WebSocket command server.
+     *
+     * ## OPTIONS
+     *
+     * [--host=<host>]
+     * : Host/IP to bind.
+     * ---
+     * default: 127.0.0.1
+     * ---
+     *
+     * [--port=<port>]
+     * : Port to listen on.
+     * ---
+     * default: 8090
+     * ---
+     *
+     * ## EXAMPLES
+     *
+     *     wp digitalogic websocket serve --host=127.0.0.1 --port=8090
+     *
+     * @when after_wp_load
+     */
+    public function websocket_serve($args, $assoc_args) {
+        $host = isset($assoc_args['host']) ? (string) $assoc_args['host'] : '127.0.0.1';
+        $port = isset($assoc_args['port']) ? intval($assoc_args['port']) : 8090;
+
+        try {
+            $server = new Digitalogic_WebSocket_Server();
+            $server->run($host, $port);
+        } catch (Exception $e) {
+            WP_CLI::error($e->getMessage());
+        }
+    }
+
+    /**
+     * Show the server-to-server WebSocket token.
+     *
+     * @when after_wp_load
+     */
+    public function websocket_token() {
+        WP_CLI::line(Digitalogic_WebSocket::get_server_token());
+    }
+
+    /**
+     * Show or rotate the Laravel panel bridge token.
+     *
+     * ## OPTIONS
+     *
+     * [--rotate]
+     * : Rotate the token before printing it.
+     *
+     * @when after_wp_load
+     */
+    public function panel_token($args, $assoc_args) {
+        if (isset($assoc_args['rotate'])) {
+            WP_CLI::line(Digitalogic_Laravel_Bridge::rotate_token());
+            return;
+        }
+
+        WP_CLI::line(Digitalogic_Laravel_Bridge::get_token());
+    }
 }
 
 // Register commands
@@ -374,3 +437,6 @@ WP_CLI::add_command('digitalogic products update', array('Digitalogic_CLI_Comman
 WP_CLI::add_command('digitalogic export', array('Digitalogic_CLI_Commands', 'export'));
 WP_CLI::add_command('digitalogic import', array('Digitalogic_CLI_Commands', 'import'));
 WP_CLI::add_command('digitalogic logs', array('Digitalogic_CLI_Commands', 'logs'));
+WP_CLI::add_command('digitalogic websocket serve', array('Digitalogic_CLI_Commands', 'websocket_serve'));
+WP_CLI::add_command('digitalogic websocket token', array('Digitalogic_CLI_Commands', 'websocket_token'));
+WP_CLI::add_command('digitalogic panel token', array('Digitalogic_CLI_Commands', 'panel_token'));

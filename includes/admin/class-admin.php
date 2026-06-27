@@ -28,6 +28,7 @@ class Digitalogic_Admin {
         add_action('admin_enqueue_scripts', array($this, 'enqueue_scripts'));
         add_action('wp_enqueue_scripts', array($this, 'enqueue_admin_bar_styles'));
         add_action('admin_enqueue_scripts', array($this, 'enqueue_admin_bar_styles'));
+        add_action('admin_footer', array($this, 'remove_unwanted_admin_notices'), 1000);
         add_action('wp_ajax_digitalogic_get_products', array($this, 'ajax_get_products'));
         add_action('wp_ajax_digitalogic_update_product', array($this, 'ajax_update_product'));
         add_action('wp_ajax_digitalogic_bulk_update', array($this, 'ajax_bulk_update'));
@@ -35,6 +36,30 @@ class Digitalogic_Admin {
         add_action('wp_ajax_digitalogic_export', array($this, 'ajax_export'));
         add_action('wp_ajax_digitalogic_import', array($this, 'ajax_import'));
         add_action('wp_ajax_digitalogic_get_logs', array($this, 'ajax_get_logs'));
+    }
+
+    /**
+     * Remove noisy third-party notices that are not actionable for site editors.
+     */
+    public function remove_unwanted_admin_notices() {
+        if (!current_user_can('manage_options')) {
+            return;
+        }
+        ?>
+        <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            document.querySelectorAll('.notice, .updated, .error, .woocommerce-message, .woocommerce-warning').forEach(function(notice) {
+                var text = notice.textContent || '';
+                if (
+                    text.indexOf('Zero Spam Enhanced Protection') !== -1 &&
+                    text.indexOf('missing a valid license key') !== -1
+                ) {
+                    notice.remove();
+                }
+            });
+        });
+        </script>
+        <?php
     }
     
     /**
@@ -108,6 +133,24 @@ class Digitalogic_Admin {
             'digitalogic-status',
             array($this, 'render_status_page')
         );
+
+        $this->page_hooks[] = add_submenu_page(
+            'digitalogic',
+            __('UI Settings', 'digitalogic'),
+            __('UI Settings', 'digitalogic'),
+            'manage_options',
+            'digitalogic-ui-settings',
+            array($this, 'render_ui_settings_page')
+        );
+
+        $this->page_hooks[] = add_submenu_page(
+            'digitalogic',
+            $this->panel_label(),
+            $this->panel_label(),
+            'manage_woocommerce',
+            'digitalogic-panel',
+            array($this, 'render_panel_page')
+        );
     }
     
     /**
@@ -124,7 +167,7 @@ class Digitalogic_Admin {
         // Add parent menu item
         $wp_admin_bar->add_node(array(
             'id'    => 'digitalogic',
-            'title' => '<span class="ab-icon dashicons-before dashicons-cart"></span><span class="ab-label">' . __('Digitalogic', 'digitalogic') . '</span>',
+            'title' => '<span class="ab-icon dashicons dashicons-cart"></span><span class="ab-label">' . __('Digitalogic', 'digitalogic') . '</span>',
             'href'  => admin_url('admin.php?page=digitalogic'),
             'meta'  => array(
                 'title' => __('Digitalogic', 'digitalogic'),
@@ -196,6 +239,18 @@ class Digitalogic_Admin {
                 'title' => __('Status & Diagnostics', 'digitalogic'),
             ),
         ));
+
+        $wp_admin_bar->add_node(array(
+            'id'     => 'digitalogic-panel',
+            'parent' => 'digitalogic',
+            'title'  => '<span class="dashicons dashicons-external"></span> ' . $this->panel_label(),
+            'href'   => Digitalogic_Laravel_Bridge::instance()->get_launch_url(),
+            'meta'   => array(
+                'title'  => $this->panel_label(),
+                'target' => '_blank',
+                'rel'    => 'noopener',
+            ),
+        ));
     }
     
     /**
@@ -203,6 +258,10 @@ class Digitalogic_Admin {
      */
     private function get_fallback_svg() {
         return '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"></svg>';
+    }
+
+    private function panel_label() {
+        return is_rtl() ? 'پنل' : __('Panel', 'digitalogic');
     }
     
     /**
@@ -260,11 +319,16 @@ class Digitalogic_Admin {
         wp_localize_script('digitalogic-admin', 'digitalogic', array(
             'ajax_url' => admin_url('admin-ajax.php'),
             'nonce' => wp_create_nonce('digitalogic_nonce'),
+            'panel_url' => Digitalogic_Laravel_Bridge::instance()->get_panel_url(),
+            'websocket' => Digitalogic_WebSocket::instance()->get_client_config(),
             'i18n' => array(
                 'confirm_bulk_update' => __('Are you sure you want to update these products?', 'digitalogic'),
                 'success' => __('Success', 'digitalogic'),
                 'error' => __('Error', 'digitalogic'),
                 'loading' => __('Loading...', 'digitalogic'),
+                'view_product' => is_rtl() ? 'نمایش' : __('View', 'digitalogic'),
+                'edit_product' => is_rtl() ? 'ویرایش' : __('Edit', 'digitalogic'),
+                'search_products' => is_rtl() ? 'جستجوی محصولات...' : __('Search products...', 'digitalogic'),
                 'show' => __('Show', 'digitalogic'),
                 'entries' => __('entries', 'digitalogic'),
                 'search' => __('Search:', 'digitalogic'),
@@ -383,6 +447,36 @@ class Digitalogic_Admin {
     public function render_status_page() {
         include DIGITALOGIC_PLUGIN_DIR . 'includes/admin/views/status.php';
     }
+
+    /**
+     * Render custom UI settings page.
+     */
+    public function render_ui_settings_page() {
+        if (!current_user_can('manage_options')) {
+            wp_die(esc_html__('You do not have permission to access this page.', 'digitalogic'));
+        }
+
+        if (isset($_POST['digitalogic_ui_settings_submit']) && check_admin_referer('digitalogic_ui_settings')) {
+            $enabled = isset($_POST['digitalogic_custom_ui_enabled']) ? 'yes' : 'no';
+            update_option(Digitalogic_Plugin_Admin_Branding::OPTION_ENABLED, $enabled);
+
+            echo '<div class="notice notice-success"><p>' . esc_html__('UI settings saved.', 'digitalogic') . '</p></div>';
+        }
+
+        $custom_ui_enabled = Digitalogic_Plugin_Admin_Branding::is_enabled();
+        include DIGITALOGIC_PLUGIN_DIR . 'includes/admin/views/ui-settings.php';
+    }
+
+    /**
+     * Render panel launch page.
+     */
+    public function render_panel_page() {
+        $bridge = Digitalogic_Laravel_Bridge::instance();
+        $panel_url = $bridge->get_panel_url();
+        $launch_url = $bridge->get_launch_url();
+
+        include DIGITALOGIC_PLUGIN_DIR . 'includes/admin/views/panel.php';
+    }
     
     /**
      * AJAX: Get products
@@ -423,6 +517,7 @@ class Digitalogic_Admin {
             // Return DataTables server-side format
             wp_send_json_success(array(
                 'products' => $products,
+                'total' => $total,
                 'recordsTotal' => $total,
                 'recordsFiltered' => $filtered_count
             ));
@@ -436,97 +531,28 @@ class Digitalogic_Admin {
      * AJAX: Update product
      */
     public function ajax_update_product() {
-        check_ajax_referer('digitalogic_nonce', 'nonce');
-        
-        if (!current_user_can('manage_woocommerce')) {
-            wp_send_json_error('Unauthorized');
-        }
-        
-        $product_id = isset($_POST['product_id']) ? intval($_POST['product_id']) : 0;
-        $data = isset($_POST['data']) ? $_POST['data'] : array();
-        
-        $manager = Digitalogic_Product_Manager::instance();
-        $result = $manager->update_product($product_id, $data);
-        
-        if (is_wp_error($result)) {
-            wp_send_json_error($result->get_error_message());
-        }
-        
-        wp_send_json_success('Product updated');
+        $this->send_command_response('digitalogic_update_product', $_POST);
     }
     
     /**
      * AJAX: Bulk update
      */
     public function ajax_bulk_update() {
-        check_ajax_referer('digitalogic_nonce', 'nonce');
-        
-        if (!current_user_can('manage_woocommerce')) {
-            wp_send_json_error('Unauthorized');
-        }
-        
-        $updates = isset($_POST['updates']) ? $_POST['updates'] : array();
-        
-        $manager = Digitalogic_Product_Manager::instance();
-        $results = $manager->bulk_update($updates);
-        
-        wp_send_json_success($results);
+        $this->send_command_response('digitalogic_bulk_update', $_POST);
     }
     
     /**
      * AJAX: Update currency
      */
     public function ajax_update_currency() {
-        check_ajax_referer('digitalogic_nonce', 'nonce');
-        
-        if (!current_user_can('manage_woocommerce')) {
-            wp_send_json_error('Unauthorized');
-        }
-        
-        $dollar_price = isset($_POST['dollar_price']) ? floatval($_POST['dollar_price']) : 0;
-        $yuan_price = isset($_POST['yuan_price']) ? floatval($_POST['yuan_price']) : 0;
-        
-        $options = Digitalogic_Options::instance();
-        $options->set_dollar_price($dollar_price);
-        $options->set_yuan_price($yuan_price);
-        
-        wp_send_json_success('Currency updated');
+        $this->send_command_response('digitalogic_update_currency', $_POST);
     }
     
     /**
      * AJAX: Export
      */
     public function ajax_export() {
-        check_ajax_referer('digitalogic_nonce', 'nonce');
-        
-        if (!current_user_can('manage_woocommerce')) {
-            wp_send_json_error('Unauthorized');
-        }
-        
-        $format = isset($_POST['format']) ? sanitize_text_field($_POST['format']) : 'csv';
-        $product_ids = isset($_POST['product_ids']) ? array_map('intval', $_POST['product_ids']) : array();
-        
-        $import_export = Digitalogic_Import_Export::instance();
-        
-        if ($format === 'json') {
-            $filepath = $import_export->export_json($product_ids);
-        } elseif ($format === 'excel') {
-            $filepath = $import_export->export_excel($product_ids);
-        } else {
-            $filepath = $import_export->export_csv($product_ids);
-        }
-        
-        if (is_wp_error($filepath)) {
-            wp_send_json_error($filepath->get_error_message());
-        }
-        
-        $upload_dir = wp_upload_dir();
-        $file_url = str_replace($upload_dir['basedir'], $upload_dir['baseurl'], $filepath);
-        
-        wp_send_json_success(array(
-            'url' => $file_url,
-            'filepath' => $filepath
-        ));
+        $this->send_command_response('digitalogic_export', $_POST);
     }
     
     /**
@@ -574,24 +600,23 @@ class Digitalogic_Admin {
      * AJAX: Get logs
      */
     public function ajax_get_logs() {
+        $this->send_command_response('digitalogic_get_logs', $_POST);
+    }
+
+    /**
+     * Send an AJAX response from the shared command dispatcher.
+     */
+    private function send_command_response($command, $payload) {
         check_ajax_referer('digitalogic_nonce', 'nonce');
-        
-        if (!current_user_can('manage_woocommerce')) {
-            wp_send_json_error('Unauthorized');
+
+        $payload = is_array($payload) ? wp_unslash($payload) : array();
+        unset($payload['action'], $payload['nonce']);
+
+        $result = Digitalogic_Command_Dispatcher::instance()->execute($command, $payload, 'ajax');
+        if (is_wp_error($result)) {
+            wp_send_json_error($result->get_error_message());
         }
-        
-        $page = isset($_POST['page']) ? intval($_POST['page']) : 1;
-        $limit = isset($_POST['limit']) ? intval($_POST['limit']) : 50;
-        $offset = ($page - 1) * $limit;
-        
-        $logger = Digitalogic_Logger::instance();
-        $logs = $logger->get_logs(array(
-            'limit' => $limit,
-            'offset' => $offset
-        ));
-        
-        wp_send_json_success(array(
-            'logs' => $logs
-        ));
+
+        wp_send_json_success($result);
     }
 }
