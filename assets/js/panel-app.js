@@ -649,8 +649,10 @@
                     };
                     restoreCaret();
                     window.requestAnimationFrame(restoreCaret);
+                    window.setTimeout(restoreCaret, 0);
                     this.$nextTick(function() {
                         window.requestAnimationFrame(restoreCaret);
+                        window.setTimeout(restoreCaret, 0);
                     });
                 }
                 return raw;
