@@ -102,6 +102,7 @@ final class Digitalogic {
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-comment-guard.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-admin-branding.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-auth-page.php';
+        require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-desktop-app.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/panel/class-panel.php';
 
         // Admin includes
@@ -126,6 +127,7 @@ final class Digitalogic {
     private function init_early_integrations() {
         Digitalogic_Plugin_Admin_Branding::init();
         Digitalogic_Plugin_Auth_Routes::init();
+        Digitalogic_Desktop_App::init();
     }
 
     /**
