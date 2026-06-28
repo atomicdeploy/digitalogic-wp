@@ -1,0 +1,75 @@
+html[data-digitalogic-desktop="1"],
+html.digitalogic-desktop-webview {
+    --dld-accent: #00b3eb;
+    --dld-accent-strong: #0168cd;
+    --dld-text: #143047;
+    --dld-soft: #637b8f;
+}
+
+body.digitalogic-desktop-login {
+    min-height: 100vh;
+    background:
+        linear-gradient(135deg, rgba(0, 179, 235, .12), rgba(1, 104, 205, .08)),
+        #eef5fb !important;
+    font-family: "Segoe UI Variable", "Segoe UI", Tahoma, sans-serif;
+}
+
+body.digitalogic-desktop-login #login {
+    width: min(410px, calc(100vw - 40px));
+    padding-top: 6vh;
+}
+
+body.digitalogic-desktop-login h1 a {
+    width: 148px;
+    height: 98px;
+    background-image: url("https://meet.digitalogic.ir/images/watermark.svg?v=2026062715") !important;
+    background-position: center;
+    background-size: contain;
+}
+
+body.digitalogic-desktop-login form {
+    border: 1px solid rgba(1, 104, 205, .16);
+    border-radius: 18px;
+    box-shadow: 0 24px 56px rgba(18, 52, 78, .14);
+}
+
+body.digitalogic-desktop-login .button-primary {
+    min-height: 38px;
+    border: 0;
+    border-radius: 8px;
+    background: linear-gradient(135deg, var(--dld-accent), var(--dld-accent-strong));
+}
+
+.digitalogic-desktop-login-message {
+    margin: 0 0 16px;
+    padding: 12px 14px;
+    border: 1px solid rgba(1, 104, 205, .16);
+    border-radius: 12px;
+    background: rgba(255, 255, 255, .78);
+    color: var(--dld-text);
+    box-shadow: 0 12px 28px rgba(18, 52, 78, .08);
+}
+
+html.digitalogic-desktop-webview .dlp-layout {
+    min-height: 100vh;
+}
+
+html.digitalogic-desktop-webview .dlp-sidebar {
+    top: 12px;
+    height: calc(100vh - 24px);
+}
+
+html.digitalogic-desktop-dragging body::after {
+    content: "Drop files into Digitalogic";
+    position: fixed;
+    inset: 18px;
+    z-index: 999999;
+    display: grid;
+    place-items: center;
+    border: 2px dashed rgba(0, 179, 235, .72);
+    border-radius: 16px;
+    background: rgba(238, 245, 251, .88);
+    color: var(--dld-text);
+    font: 700 18px "Segoe UI", sans-serif;
+    pointer-events: none;
+}
