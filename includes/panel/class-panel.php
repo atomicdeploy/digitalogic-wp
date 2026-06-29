@@ -33,12 +33,16 @@ class Digitalogic_Panel {
         add_action('template_redirect', array($this, 'render'));
         add_filter('digitalogic_command_handlers', array($this, 'register_commands'), 10, 2);
         add_action('wp_ajax_digitalogic_panel_command', array($this, 'ajax_command'));
+        add_action('wp_ajax_digitalogic_panel_product_image', array($this, 'ajax_product_image'));
         add_action('digitalogic_product_updated', array($this, 'record_product_event'), 20, 1);
         add_action('woocommerce_update_product', array($this, 'record_product_event'), 20, 1);
         add_action('woocommerce_update_product_variation', array($this, 'record_product_event'), 20, 1);
         add_action('updated_option', array($this, 'record_option_event'), 20, 3);
         add_action('user_register', array($this, 'record_user_event'), 20, 1);
         add_action('profile_update', array($this, 'record_user_event'), 20, 1);
+        add_filter('posts_search', array($this, 'extend_product_search'), 10, 2);
+        add_action('wp_footer', array($this, 'hide_wp_armour_honeypot_notice'), 1000);
+        add_action('admin_footer', array($this, 'hide_wp_armour_honeypot_notice'), 1000);
     }
 
     public function register_route() {
@@ -124,9 +128,9 @@ class Digitalogic_Panel {
 
         wp_enqueue_script(
             'vue',
-            'https://unpkg.com/vue@3/dist/vue.global.prod.js',
+            DIGITALOGIC_PLUGIN_URL . 'assets/vendor/vue/vue.global.prod.js',
             array(),
-            '3',
+            filemtime(DIGITALOGIC_PLUGIN_DIR . 'assets/vendor/vue/vue.global.prod.js') ?: '3',
             true
         );
 
@@ -164,6 +168,7 @@ class Digitalogic_Panel {
                 'name' => 'Digitalogic',
                 'site_name' => wp_specialchars_decode(get_bloginfo('name'), ENT_QUOTES),
                 'logo_url' => $this->logo_url(),
+                'logo_icon_url' => DIGITALOGIC_PLUGIN_URL . 'assets/images/icon.svg',
                 'shared_ui_base_url' => home_url('/digitalogic-ui/'),
             )),
             'websocket' => Digitalogic_WebSocket::instance()->get_client_config(),
@@ -178,6 +183,9 @@ class Digitalogic_Panel {
         $commands['digitalogic_panel_summary'] = array($this, 'summary_command');
         $commands['digitalogic_panel_users'] = array($this, 'users_command');
         $commands['digitalogic_panel_update_user'] = array($this, 'update_user_command');
+        $commands['digitalogic_panel_create_user'] = array($this, 'create_user_command');
+        $commands['digitalogic_panel_delete_user'] = array($this, 'delete_user_command');
+        $commands['digitalogic_panel_user_orders'] = array($this, 'user_orders_command');
         $commands['digitalogic_panel_settings'] = array($this, 'settings_command');
         $commands['digitalogic_panel_events'] = array($this, 'events_command');
 
@@ -203,6 +211,53 @@ class Digitalogic_Panel {
         wp_send_json_success($result);
     }
 
+    public function ajax_product_image() {
+        check_ajax_referer('digitalogic_nonce', 'nonce');
+
+        $product_id = isset($_POST['product_id']) ? absint($_POST['product_id']) : 0;
+        if (!$product_id || empty($_FILES['image'])) {
+            wp_send_json_error(__('Product and image are required.', 'digitalogic'), 400);
+        }
+
+        $product = wc_get_product($product_id);
+        if (!$product) {
+            wp_send_json_error(__('Product not found.', 'digitalogic'), 404);
+        }
+
+        $target_product_id = $product->is_type('variation') && $product->get_parent_id()
+            ? absint($product->get_parent_id())
+            : $product_id;
+
+        if (!current_user_can('edit_post', $target_product_id) || !current_user_can('upload_files')) {
+            wp_send_json_error(__('You are not allowed to update this image.', 'digitalogic'), 403);
+        }
+
+        if (!function_exists('media_handle_upload')) {
+            require_once ABSPATH . 'wp-admin/includes/file.php';
+            require_once ABSPATH . 'wp-admin/includes/media.php';
+            require_once ABSPATH . 'wp-admin/includes/image.php';
+        }
+
+        $attachment_id = media_handle_upload('image', $target_product_id);
+        if (is_wp_error($attachment_id)) {
+            wp_send_json_error($attachment_id->get_error_message(), 400);
+        }
+
+        $target_product = wc_get_product($target_product_id);
+        if (!$target_product) {
+            wp_send_json_error(__('Product not found.', 'digitalogic'), 404);
+        }
+
+        $target_product->set_image_id($attachment_id);
+        $target_product->save();
+        do_action('digitalogic_product_updated', $target_product_id, array('image_id' => $attachment_id));
+
+        wp_send_json_success(array(
+            'attachment_id' => $attachment_id,
+            'product' => Digitalogic_Product_Manager::instance()->get_product($product_id),
+        ));
+    }
+
     public function summary_command() {
         $options = Digitalogic_Options::instance();
 
@@ -218,6 +273,7 @@ class Digitalogic_Panel {
                 'websocket_token' => 'wp digitalogic websocket token --allow-root',
                 'panel_token' => 'wp digitalogic panel token --allow-root',
                 'panel_rotate' => 'wp digitalogic panel token --rotate --allow-root',
+                'panel_broadcast' => 'wp digitalogic panel broadcast --message="Hello panel" --level=success --allow-root',
             ),
             'patris' => array(
                 'project' => 'atomicdeploy/patris-export',
@@ -225,6 +281,7 @@ class Digitalogic_Panel {
                 'suggested_bridge' => 'patris-export serve kala.db -a 127.0.0.1:8080 --debounce 0s',
             ),
             'logs' => Digitalogic_Logger::instance()->get_logs(array('limit' => 6)),
+            'categories' => Digitalogic_Product_Manager::instance()->get_product_categories(),
             'websocket' => array(
                 'enabled' => true,
                 'path' => '/wordpress-ws',
@@ -277,7 +334,7 @@ class Digitalogic_Panel {
         }
 
         $users = get_users(array(
-            'number' => 50,
+            'number' => 200,
             'orderby' => 'registered',
             'order' => 'DESC',
         ));
@@ -303,6 +360,9 @@ class Digitalogic_Panel {
         }
 
         $update = array('ID' => $user_id);
+        if (array_key_exists('login', $data) && empty($user->user_login)) {
+            $update['user_login'] = sanitize_user(wp_unslash($data['login']), true);
+        }
         if (array_key_exists('display_name', $data)) {
             $update['display_name'] = sanitize_text_field(wp_unslash($data['display_name']));
         }
@@ -335,16 +395,121 @@ class Digitalogic_Panel {
         return array('user' => $this->format_user(get_userdata($user_id)));
     }
 
+    public function create_user_command($payload) {
+        if (!current_user_can('create_users')) {
+            return new WP_Error('digitalogic_user_create_forbidden', __('You are not allowed to create users.', 'digitalogic'), array('status' => 403));
+        }
+
+        $data = isset($payload['data']) && is_array($payload['data']) ? $payload['data'] : array();
+        $email = isset($data['email']) ? sanitize_email(wp_unslash($data['email'])) : '';
+        $login = isset($data['login']) ? sanitize_user(wp_unslash($data['login']), true) : '';
+
+        if (!$email || !is_email($email)) {
+            return new WP_Error('digitalogic_invalid_email', __('Invalid email address.', 'digitalogic'), array('status' => 400));
+        }
+
+        if (!$login) {
+            $login = sanitize_user(current(explode('@', $email)), true);
+        }
+
+        if (username_exists($login) || email_exists($email)) {
+            return new WP_Error('digitalogic_user_exists', __('A user with this login or email already exists.', 'digitalogic'), array('status' => 409));
+        }
+
+        $role = isset($data['role']) ? sanitize_key(wp_unslash($data['role'])) : 'customer';
+        $roles = wp_roles();
+        if (!$role || !isset($roles->roles[$role]) || !current_user_can('promote_users')) {
+            $role = 'customer';
+        }
+
+        $user_id = wp_insert_user(array(
+            'user_login' => $login,
+            'user_email' => $email,
+            'display_name' => isset($data['display_name']) ? sanitize_text_field(wp_unslash($data['display_name'])) : $login,
+            'user_pass' => wp_generate_password(20, true, true),
+            'role' => $role,
+        ));
+
+        if (is_wp_error($user_id)) {
+            return $user_id;
+        }
+
+        self::record_event('user.created', array('id' => $user_id));
+
+        return array('user' => $this->format_user(get_userdata($user_id)));
+    }
+
+    public function delete_user_command($payload) {
+        if (!current_user_can('delete_users')) {
+            return new WP_Error('digitalogic_user_delete_forbidden', __('You are not allowed to delete users.', 'digitalogic'), array('status' => 403));
+        }
+
+        $user_id = isset($payload['user_id']) ? absint($payload['user_id']) : 0;
+        if (!$user_id || $user_id === get_current_user_id()) {
+            return new WP_Error('digitalogic_invalid_user_delete', __('This user cannot be deleted from the panel.', 'digitalogic'), array('status' => 400));
+        }
+
+        if (!get_userdata($user_id)) {
+            return new WP_Error('digitalogic_user_not_found', __('User not found.', 'digitalogic'), array('status' => 404));
+        }
+
+        require_once ABSPATH . 'wp-admin/includes/user.php';
+        $deleted = wp_delete_user($user_id, get_current_user_id());
+        if (!$deleted) {
+            return new WP_Error('digitalogic_user_delete_failed', __('User deletion failed.', 'digitalogic'), array('status' => 500));
+        }
+
+        self::record_event('user.deleted', array('id' => $user_id));
+
+        return array('deleted' => true);
+    }
+
+    public function user_orders_command($payload) {
+        if (!current_user_can('list_users') || !function_exists('wc_get_orders')) {
+            return array('orders' => array());
+        }
+
+        $user_id = isset($payload['user_id']) ? absint($payload['user_id']) : 0;
+        if (!$user_id) {
+            return new WP_Error('digitalogic_invalid_user', __('User ID is required.', 'digitalogic'), array('status' => 400));
+        }
+
+        $orders = wc_get_orders(array(
+            'customer_id' => $user_id,
+            'limit' => 20,
+            'orderby' => 'date',
+            'order' => 'DESC',
+            'return' => 'objects',
+        ));
+
+        return array(
+            'orders' => array_map(function($order) {
+                return array(
+                    'id' => $order->get_id(),
+                    'status' => wc_get_order_status_name($order->get_status()),
+                    'total' => $order->get_total(),
+                    'currency' => $order->get_currency(),
+                    'date_created' => $order->get_date_created() ? $order->get_date_created()->date_i18n('Y-m-d H:i:s') : '',
+                    'edit_url' => admin_url('post.php?post=' . $order->get_id() . '&action=edit'),
+                );
+            }, is_array($orders) ? $orders : array()),
+        );
+    }
+
     public function events_command($payload) {
         $since = isset($payload['since']) ? absint($payload['since']) : 0;
+        return array(
+            'events' => self::get_events_since($since),
+        );
+    }
+
+    public static function get_events_since($since = 0) {
         $events = get_option(self::EVENT_OPTION, array());
         $events = is_array($events) ? $events : array();
 
-        return array(
-            'events' => array_values(array_filter($events, function($event) use ($since) {
+        return array_values(array_filter($events, function($event) use ($since) {
                 return isset($event['id']) && absint($event['id']) > $since;
-            })),
-        );
+        }));
     }
 
     public function record_product_event($product_id) {
@@ -379,6 +544,30 @@ class Digitalogic_Panel {
         update_option(self::EVENT_OPTION, $events, false);
     }
 
+    public static function broadcast_panel_message($data = array()) {
+        $data = is_array($data) ? $data : array('message' => (string) $data);
+        if (empty($data['message']) && empty($data['title'])) {
+            $data['message'] = __('Panel notification', 'digitalogic');
+        }
+
+        self::record_event('panel.toast', $data);
+
+        if (class_exists('Redis')) {
+            try {
+                $redis = new Redis();
+                $redis->connect('127.0.0.1', 6379, 0.2);
+                $redis->publish('digitalogic_panel_events', wp_json_encode(array(
+                    'event' => 'panel.toast',
+                    'data' => $data,
+                    'time' => current_time('mysql'),
+                )));
+                $redis->close();
+            } catch (Throwable $e) {
+                // The option-backed event queue remains the reliable fallback.
+            }
+        }
+    }
+
     private function format_user($user) {
         return array(
             'id' => $user->ID,
@@ -386,7 +575,102 @@ class Digitalogic_Panel {
             'email' => $user->user_email,
             'display_name' => $user->display_name,
             'roles' => array_values((array) $user->roles),
+            'registered' => $user->user_registered,
+            'edit_url' => get_edit_user_link($user->ID),
         );
+    }
+
+    public function extend_product_search($search, $query) {
+        if (!$query instanceof WP_Query || !$query->is_search()) {
+            return $search;
+        }
+
+        $term = trim((string) $query->get('s'));
+        if ($term === '') {
+            return $search;
+        }
+
+        $post_type = $query->get('post_type');
+        $is_product_search = empty($post_type) || $post_type === 'product' || (is_array($post_type) && in_array('product', $post_type, true));
+        if (!$is_product_search) {
+            return $search;
+        }
+
+        global $wpdb;
+        $like = '%' . $wpdb->esc_like($term) . '%';
+        $search_body = preg_replace('/^\s*AND\s*/', '', (string) $search);
+
+        $meta_clause = $wpdb->prepare(
+            "{$wpdb->posts}.ID IN (
+                SELECT post_id FROM {$wpdb->postmeta}
+                WHERE meta_key IN ('_sku', '_product_attributes', 'attribute_pa_model')
+                AND meta_value LIKE %s
+            )",
+            $like
+        );
+
+        $variation_clause = $wpdb->prepare(
+            "{$wpdb->posts}.ID IN (
+                SELECT DISTINCT variations.post_parent
+                FROM {$wpdb->posts} variations
+                INNER JOIN {$wpdb->postmeta} variation_meta ON variations.ID = variation_meta.post_id
+                WHERE variations.post_type = 'product_variation'
+                AND variations.post_parent > 0
+                AND variation_meta.meta_key IN ('_sku', 'attribute_pa_model')
+                AND variation_meta.meta_value LIKE %s
+            )",
+            $like
+        );
+
+        $taxonomy_clause = $wpdb->prepare(
+            "{$wpdb->posts}.ID IN (
+                SELECT object_id
+                FROM {$wpdb->term_relationships} relationships
+                INNER JOIN {$wpdb->term_taxonomy} taxonomy ON relationships.term_taxonomy_id = taxonomy.term_taxonomy_id
+                INNER JOIN {$wpdb->terms} terms ON taxonomy.term_id = terms.term_id
+                WHERE taxonomy.taxonomy IN ('pa_model', 'product_cat')
+                AND (terms.name LIKE %s OR terms.slug LIKE %s)
+            )",
+            $like,
+            $like
+        );
+
+        if ($search_body === '') {
+            return ' AND (' . $meta_clause . ' OR ' . $variation_clause . ' OR ' . $taxonomy_clause . ')';
+        }
+
+        return ' AND (' . $search_body . ' OR ' . $meta_clause . ' OR ' . $variation_clause . ' OR ' . $taxonomy_clause . ')';
+    }
+
+    public function hide_wp_armour_honeypot_notice() {
+        ?>
+        <style>
+        .wpa-test-msg,
+        .wp-armour-honeypot-notice,
+        .wp-armour-admin-visible,
+        .wpae-test-msg {
+            display: none !important;
+        }
+        </style>
+        <script>
+        (function() {
+            var phrases = ['WP Armour', 'honeypot trap enabled'];
+            function hideNoise() {
+                document.querySelectorAll('body *').forEach(function(node) {
+                    var text = node.textContent || '';
+                    if (phrases.every(function(phrase) { return text.indexOf(phrase) !== -1; }) && node.children.length < 8) {
+                        node.style.display = 'none';
+                    }
+                });
+            }
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', hideNoise);
+            } else {
+                hideNoise();
+            }
+        })();
+        </script>
+        <?php
     }
 
     private function logo_url() {
@@ -416,6 +700,8 @@ class Digitalogic_Panel {
             'fallback' => 'AJAX fallback',
             'actions' => 'Actions',
             'edit' => 'Edit',
+            'editWooCommerce' => 'Edit in WooCommerce',
+            'modalEdit' => 'Dialog edit',
             'reorder' => 'Reorder',
             'copied' => 'Copied',
             'copy' => 'Copy',
@@ -441,6 +727,9 @@ class Digitalogic_Panel {
             'logout' => 'Sign out',
             'productTitle' => 'Product title',
             'partNumber' => 'Part Number',
+            'categories' => 'Categories',
+            'totalSales' => 'Total sales',
+            'revisions' => 'Revisions',
             'availability' => 'Availability',
             'publish' => 'Published',
             'draft' => 'Draft',
@@ -489,12 +778,69 @@ class Digitalogic_Panel {
             'signedInAs' => 'Signed in as',
             'noRows' => 'No records found',
             'error' => 'Something went wrong. Please try again.',
+            'collapseSidebar' => 'Collapse sidebar',
+            'expandSidebar' => 'Expand sidebar',
+            'setProductImage' => 'Set product image',
+            'imageUpdated' => 'Product image updated',
+            'imageOnly' => 'Please choose an image file.',
+            'update_currency' => 'Currency update',
+            'update_product' => 'Product update',
+            'product' => 'Product',
+            'currency' => 'Currency',
+            'user' => 'User',
+            'withImage' => 'Has image',
+            'withoutImage' => 'Missing image',
+            'bulkActions' => 'Bulk actions',
+            'publishSelected' => 'Publish selected',
+            'draftSelected' => 'Move selected to draft',
+            'markInStock' => 'Mark in stock',
+            'markOutOfStock' => 'Mark out of stock',
+            'exportSelected' => 'Export selected',
+            'pinEditor' => 'Pin editor',
+            'unpinEditor' => 'Unpin editor',
+            'openToolbox' => 'Open in toolbox',
+            'createUser' => 'Create user',
+            'deleteSelected' => 'Delete selected',
+            'delete' => 'Delete',
+            'username' => 'Username',
+            'purchaseHistory' => 'Purchase history',
+            'confirmDeleteUser' => 'Delete this user?',
+            'customer' => 'Customer',
+            'subscriber' => 'Subscriber',
+            'shopManager' => 'Shop manager',
+            'administrator' => 'Administrator',
         );
     }
 
     private function translations_fa() {
         return array(
             'dir' => 'rtl',
+            'update_currency' => 'به روزرسانی ارز',
+            'update_product' => 'به روزرسانی کالا',
+            'product' => 'کالا',
+            'currency' => 'ارز',
+            'user' => 'کاربر',
+            'withImage' => 'دارای تصویر',
+            'withoutImage' => 'بدون تصویر',
+            'bulkActions' => 'عملیات گروهی',
+            'publishSelected' => 'انتشار انتخاب شده ها',
+            'draftSelected' => 'انتقال به پیش نویس',
+            'markInStock' => 'موجود کردن',
+            'markOutOfStock' => 'ناموجود کردن',
+            'exportSelected' => 'خروجی انتخاب شده ها',
+            'pinEditor' => 'سنجاق کردن ویرایشگر',
+            'unpinEditor' => 'برداشتن سنجاق',
+            'openToolbox' => 'باز کردن در جعبه ابزار',
+            'createUser' => 'ایجاد کاربر',
+            'deleteSelected' => 'حذف انتخاب شده ها',
+            'delete' => 'حذف',
+            'username' => 'نام کاربری',
+            'purchaseHistory' => 'سوابق خرید',
+            'confirmDeleteUser' => 'این کاربر حذف شود؟',
+            'customer' => 'مشتری',
+            'subscriber' => 'مشترک',
+            'shopManager' => 'مدیر فروشگاه',
+            'administrator' => 'مدیرکل',
             'dashboard' => 'پیشخوان',
             'products' => 'محصولات',
             'users' => 'کاربران',
@@ -512,6 +858,8 @@ class Digitalogic_Panel {
             'fallback' => 'جایگزین AJAX',
             'actions' => 'عملیات',
             'edit' => 'ویرایش',
+            'editWooCommerce' => 'ویرایش در ووکامرس',
+            'modalEdit' => 'ویرایش پنجره ای',
             'reorder' => 'چینش',
             'copied' => 'کپی شد',
             'copy' => 'کپی',
@@ -537,6 +885,9 @@ class Digitalogic_Panel {
             'logout' => 'خروج',
             'productTitle' => 'عنوان کالا',
             'partNumber' => 'Part Number',
+            'categories' => 'دسته بندی ها',
+            'totalSales' => 'فروش کل',
+            'revisions' => 'بازبینی ها',
             'availability' => 'وضعیت موجودی',
             'publish' => 'منتشر شده',
             'draft' => 'پیش نویس',
@@ -585,6 +936,11 @@ class Digitalogic_Panel {
             'signedInAs' => 'ورود با',
             'noRows' => 'رکوردی پیدا نشد',
             'error' => 'مشکلی پیش آمد. دوباره تلاش کنید.',
+            'collapseSidebar' => 'جمع کردن نوار کناری',
+            'expandSidebar' => 'باز کردن نوار کناری',
+            'setProductImage' => 'انتخاب تصویر محصول',
+            'imageUpdated' => 'تصویر محصول به روز شد',
+            'imageOnly' => 'لطفا یک فایل تصویر انتخاب کنید.',
         );
     }
 }
