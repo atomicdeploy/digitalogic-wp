@@ -28,4 +28,11 @@
     window.addEventListener('digitalogic-desktop-files', function(event) {
         announceFiles(event.detail || []);
     });
+
+    window.addEventListener('digitalogic:panel-preferences', function(event) {
+        if (!event.detail) {
+            return;
+        }
+        document.documentElement.setAttribute('data-digitalogic-theme', event.detail.theme || 'system');
+    });
 })(window, document);

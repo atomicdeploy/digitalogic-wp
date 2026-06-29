@@ -8,15 +8,14 @@ html.digitalogic-desktop-webview {
 
 body.digitalogic-desktop-login {
     min-height: 100vh;
-    background:
-        linear-gradient(135deg, rgba(0, 179, 235, .12), rgba(1, 104, 205, .08)),
-        #eef5fb !important;
+    background: transparent !important;
     font-family: "Segoe UI Variable", "Segoe UI", Tahoma, sans-serif;
 }
 
 body.digitalogic-desktop-login #login {
-    width: min(410px, calc(100vw - 40px));
-    padding-top: 6vh;
+    width: min(540px, calc(100vw - 44px));
+    max-width: 540px;
+    padding-top: 4vh;
 }
 
 body.digitalogic-desktop-login h1 a {
@@ -31,6 +30,15 @@ body.digitalogic-desktop-login form {
     border: 1px solid rgba(1, 104, 205, .16);
     border-radius: 18px;
     box-shadow: 0 24px 56px rgba(18, 52, 78, .14);
+    padding: 30px;
+}
+
+body.digitalogic-desktop-login form .input,
+body.digitalogic-desktop-login input[type="text"],
+body.digitalogic-desktop-login input[type="password"] {
+    min-height: 46px;
+    border-radius: 9px;
+    font-size: 16px;
 }
 
 body.digitalogic-desktop-login .button-primary {
