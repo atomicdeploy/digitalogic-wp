@@ -1,3 +1,19 @@
+@font-face {
+    font-family: "YekanBakh";
+    src: url("https://meet.digitalogic.ir/fonts/YekanBakh-Regular.woff2") format("woff2");
+    font-weight: 400;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: "YekanBakh";
+    src: url("https://meet.digitalogic.ir/fonts/YekanBakh-Bold.woff2") format("woff2");
+    font-weight: 700;
+    font-style: normal;
+    font-display: swap;
+}
+
 html[data-digitalogic-desktop="1"],
 html.digitalogic-desktop-webview {
     --dld-accent: #00b3eb;
@@ -65,6 +81,25 @@ html.digitalogic-desktop-webview .dlp-layout {
 html.digitalogic-desktop-webview .dlp-sidebar {
     top: 12px;
     height: calc(100vh - 24px);
+}
+
+html.digitalogic-desktop-webview .dlp-menu,
+html.digitalogic-desktop-webview .dlp-column-context {
+    font-family: "YekanBakh", "DigitalogicFanum", "IRANSans", "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+}
+
+html.digitalogic-desktop-webview .dlp-menu button,
+html.digitalogic-desktop-webview .dlp-column-context button {
+    gap: 8px;
+}
+
+html.digitalogic-desktop-webview .dlp-menu .dashicons,
+html.digitalogic-desktop-webview .dlp-column-context .dashicons {
+    width: 20px;
+    height: 20px;
+    color: var(--dlp-accent-strong, var(--dld-accent-strong));
+    font-size: 18px;
+    line-height: 1;
 }
 
 html.digitalogic-desktop-dragging body::after {
