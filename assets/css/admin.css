@@ -63,6 +63,60 @@
     margin: 0;
 }
 
+/* Postbox customizations for Digitalogic */
+.digitalogic-currency .postbox {
+    margin-bottom: 20px;
+}
+
+.digitalogic-currency .inside {
+    margin: 0;
+    padding: 12px;
+}
+
+/* Currency page specific styles */
+.digitalogic-currency #major-publishing-actions {
+    padding: 10px;
+    background: #f6f7f7;
+    border-top: 1px solid #dcdcde;
+}
+
+.digitalogic-currency #publishing-action {
+    text-align: right;
+    float: right;
+    line-height: 23px;
+}
+
+.digitalogic-currency #publishing-action .spinner {
+    float: left;
+}
+
+.digitalogic-currency .misc-pub-section {
+    padding: 10px 10px 10px 12px;
+}
+
+.digitalogic-currency #postbox-container-1 {
+    float: right;
+    margin-right: -300px;
+    width: 280px;
+}
+
+.digitalogic-currency #postbox-container-2 {
+    margin-right: 300px;
+}
+
+/* Responsive adjustments for currency page */
+@media screen and (max-width: 850px) {
+    .digitalogic-currency #postbox-container-1 {
+        margin-right: 0;
+        width: 100%;
+    }
+    
+    .digitalogic-currency #postbox-container-2 {
+        margin-right: 0;
+    }
+}
+
+
 /* Products Page */
 .digitalogic-toolbar {
     margin: 20px 0;
