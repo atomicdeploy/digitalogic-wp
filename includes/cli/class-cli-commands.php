@@ -143,12 +143,162 @@ class Digitalogic_CLI_Commands {
     }
     
     /**
+     * Get product information
+     * 
+     * ## OPTIONS
+     * 
+     * [--id=<product_id>]
+     * : Product ID
+     * 
+     * [--sku=<sku>]
+     * : Product SKU
+     * 
+     * [--format=<format>]
+     * : Output format
+     * ---
+     * default: table
+     * options:
+     *   - table
+     *   - json
+     * ---
+     * 
+     * ## EXAMPLES
+     * 
+     *     wp digitalogic products get --id=123
+     *     wp digitalogic products get --sku=113004012
+     *     wp digitalogic products get --id=123 --format=json
+     * 
+     * @when after_wp_load
+     */
+    public function products_get($args, $assoc_args) {
+        $manager = Digitalogic_Product_Manager::instance();
+        $product = null;
+        
+        if (isset($assoc_args['id'])) {
+            $product = $manager->get_product(intval($assoc_args['id']));
+        } elseif (isset($assoc_args['sku'])) {
+            $product = $manager->get_product_by_sku($assoc_args['sku']);
+        } else {
+            WP_CLI::error('Please specify either --id or --sku');
+        }
+        
+        if (!$product) {
+            WP_CLI::error('Product not found');
+        }
+        
+        $format = isset($assoc_args['format']) ? $assoc_args['format'] : 'table';
+        
+        if ($format === 'json') {
+            WP_CLI::line(json_encode($product, JSON_PRETTY_PRINT));
+        } else {
+            WP_CLI::line('Product Information:');
+            WP_CLI::line('');
+            WP_CLI::line('ID: ' . $product['id']);
+            WP_CLI::line('Name: ' . $product['name']);
+            WP_CLI::line('SKU: ' . $product['sku']);
+            WP_CLI::line('Type: ' . $product['type']);
+            WP_CLI::line('Status: ' . $product['status']);
+            WP_CLI::line('Regular Price: ' . $product['regular_price']);
+            WP_CLI::line('Sale Price: ' . $product['sale_price']);
+            WP_CLI::line('Price: ' . $product['price']);
+            WP_CLI::line('Stock Quantity: ' . $product['stock_quantity']);
+            WP_CLI::line('Stock Status: ' . $product['stock_status']);
+            WP_CLI::line('Manage Stock: ' . ($product['manage_stock'] ? 'Yes' : 'No'));
+        }
+    }
+    
+    /**
+     * Get product metadata
+     * 
+     * ## OPTIONS
+     * 
+     * [--id=<product_id>]
+     * : Product ID
+     * 
+     * [--sku=<sku>]
+     * : Product SKU
+     * 
+     * [--format=<format>]
+     * : Output format
+     * ---
+     * default: table
+     * options:
+     *   - table
+     *   - json
+     * ---
+     * 
+     * ## EXAMPLES
+     * 
+     *     wp digitalogic products metadata --id=123
+     *     wp digitalogic products metadata --sku=113004012
+     *     wp digitalogic products metadata --id=123 --format=json
+     * 
+     * @when after_wp_load
+     */
+    public function products_metadata($args, $assoc_args) {
+        $manager = Digitalogic_Product_Manager::instance();
+        $metadata = null;
+        
+        if (isset($assoc_args['id'])) {
+            $metadata = $manager->get_product_metadata(intval($assoc_args['id']));
+        } elseif (isset($assoc_args['sku'])) {
+            $metadata = $manager->get_product_metadata(null, $assoc_args['sku']);
+        } else {
+            WP_CLI::error('Please specify either --id or --sku');
+        }
+        
+        if (is_wp_error($metadata)) {
+            WP_CLI::error($metadata->get_error_message());
+        }
+        
+        $format = isset($assoc_args['format']) ? $assoc_args['format'] : 'table';
+        
+        if ($format === 'json') {
+            WP_CLI::line(json_encode($metadata, JSON_PRETTY_PRINT));
+        } else {
+            WP_CLI::line('Product Metadata for Product #' . $metadata['product_id'] . ' (SKU: ' . $metadata['sku'] . ')');
+            WP_CLI::line('');
+            
+            // Display lookup table data
+            if (!empty($metadata['lookup_table'])) {
+                WP_CLI::line('=== WooCommerce Product Meta Lookup ===');
+                foreach ($metadata['lookup_table'] as $key => $value) {
+                    WP_CLI::line(str_pad($key, 25) . ' ' . $value);
+                }
+                WP_CLI::line('');
+            }
+            
+            // Display postmeta data
+            if (!empty($metadata['postmeta'])) {
+                WP_CLI::line('=== Product Meta (wp_postmeta) ===');
+                foreach ($metadata['postmeta'] as $key => $value) {
+                    WP_CLI::line(str_pad($key, 25) . ' ' . $value);
+                }
+                WP_CLI::line('');
+            }
+            
+            // Display inconsistencies
+            if (!empty($metadata['inconsistencies'])) {
+                WP_CLI::warning('Inconsistencies detected:');
+                foreach ($metadata['inconsistencies'] as $inconsistency) {
+                    WP_CLI::line('  - ' . $inconsistency);
+                }
+            } else {
+                WP_CLI::success('No inconsistencies detected between tables');
+            }
+        }
+    }
+    
+    /**
      * Update a product
      * 
      * ## OPTIONS
      * 
-     * <id>
+     * [--id=<product_id>]
      * : Product ID
+     * 
+     * [--sku=<sku>]
+     * : Product SKU (for lookup)
      * 
      * [--price=<price>]
      * : Regular price
@@ -159,17 +309,30 @@ class Digitalogic_CLI_Commands {
      * [--stock=<quantity>]
      * : Stock quantity
      * 
-     * [--sku=<sku>]
-     * : Product SKU
+     * [--set-sku=<sku>]
+     * : Set new SKU for the product
      * 
      * ## EXAMPLES
      * 
-     *     wp digitalogic products update 123 --price=99.99 --stock=50
+     *     wp digitalogic products update --id=123 --price=99.99 --stock=50
+     *     wp digitalogic products update --sku=113004012 --price=250000
+     *     wp digitalogic products update --id=123 --set-sku=NEW-SKU-123
      * 
      * @when after_wp_load
      */
     public function products_update($args, $assoc_args) {
-        $product_id = intval($args[0]);
+        $manager = Digitalogic_Product_Manager::instance();
+        
+        $product_id = null;
+        $lookup_sku = null;
+        
+        if (isset($assoc_args['id'])) {
+            $product_id = intval($assoc_args['id']);
+        } elseif (isset($assoc_args['sku'])) {
+            $lookup_sku = $assoc_args['sku'];
+        } else {
+            WP_CLI::error('Please specify either --id or --sku');
+        }
         
         $data = array();
         
@@ -185,19 +348,23 @@ class Digitalogic_CLI_Commands {
             $data['stock_quantity'] = intval($assoc_args['stock']);
         }
         
-        if (isset($assoc_args['sku'])) {
-            $data['sku'] = $assoc_args['sku'];
+        if (isset($assoc_args['set-sku'])) {
+            $data['sku'] = $assoc_args['set-sku'];
         }
         
         if (empty($data)) {
             WP_CLI::error('No update data provided');
         }
         
-        $manager = Digitalogic_Product_Manager::instance();
-        $result = $manager->update_product($product_id, $data);
+        $result = $manager->update_product($product_id, $data, $lookup_sku);
         
         if (is_wp_error($result)) {
             WP_CLI::error($result->get_error_message());
+        }
+        
+        // Get the actual product ID for the success message
+        if ($lookup_sku !== null) {
+            $product_id = wc_get_product_id_by_sku($lookup_sku);
         }
         
         WP_CLI::success('Product #' . $product_id . ' updated');
@@ -370,6 +537,8 @@ class Digitalogic_CLI_Commands {
 WP_CLI::add_command('digitalogic currency get', array('Digitalogic_CLI_Commands', 'currency_get'));
 WP_CLI::add_command('digitalogic currency update', array('Digitalogic_CLI_Commands', 'currency_update'));
 WP_CLI::add_command('digitalogic products list', array('Digitalogic_CLI_Commands', 'products_list'));
+WP_CLI::add_command('digitalogic products get', array('Digitalogic_CLI_Commands', 'products_get'));
+WP_CLI::add_command('digitalogic products metadata', array('Digitalogic_CLI_Commands', 'products_metadata'));
 WP_CLI::add_command('digitalogic products update', array('Digitalogic_CLI_Commands', 'products_update'));
 WP_CLI::add_command('digitalogic export', array('Digitalogic_CLI_Commands', 'export'));
 WP_CLI::add_command('digitalogic import', array('Digitalogic_CLI_Commands', 'import'));
