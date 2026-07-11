@@ -33,7 +33,6 @@ class Digitalogic_Panel {
         add_action('template_redirect', array($this, 'render'));
         add_filter('digitalogic_command_handlers', array($this, 'register_commands'), 10, 2);
         add_action('wp_ajax_digitalogic_panel_command', array($this, 'ajax_command'));
-        add_action('wp_ajax_digitalogic_panel_product_image', array($this, 'ajax_product_image'));
         add_action('digitalogic_product_updated', array($this, 'record_product_event'), 20, 1);
         add_action('woocommerce_update_product', array($this, 'record_product_event'), 20, 1);
         add_action('woocommerce_update_product_variation', array($this, 'record_product_event'), 20, 1);
@@ -157,6 +156,9 @@ class Digitalogic_Panel {
             'initial_path' => '/' . trim((string) get_query_var(self::PATH_VAR), '/'),
             'locale' => determine_locale(),
             'direction' => is_rtl() ? 'rtl' : 'ltr',
+            'theme_mode' => $this->current_theme_mode(),
+            'admin_color' => $this->current_admin_color(),
+            'theme_storage_key' => 'digitalogic-admin-theme',
             'user' => array(
                 'id' => $user->ID,
                 'login' => $user->user_login,
@@ -188,6 +190,7 @@ class Digitalogic_Panel {
         $commands['digitalogic_panel_user_orders'] = array($this, 'user_orders_command');
         $commands['digitalogic_panel_settings'] = array($this, 'settings_command');
         $commands['digitalogic_panel_events'] = array($this, 'events_command');
+        $commands['digitalogic_panel_set_theme'] = array($this, 'set_theme_command');
 
         return $commands;
     }
@@ -211,53 +214,6 @@ class Digitalogic_Panel {
         wp_send_json_success($result);
     }
 
-    public function ajax_product_image() {
-        check_ajax_referer('digitalogic_nonce', 'nonce');
-
-        $product_id = isset($_POST['product_id']) ? absint($_POST['product_id']) : 0;
-        if (!$product_id || empty($_FILES['image'])) {
-            wp_send_json_error(__('Product and image are required.', 'digitalogic'), 400);
-        }
-
-        $product = wc_get_product($product_id);
-        if (!$product) {
-            wp_send_json_error(__('Product not found.', 'digitalogic'), 404);
-        }
-
-        $target_product_id = $product->is_type('variation') && $product->get_parent_id()
-            ? absint($product->get_parent_id())
-            : $product_id;
-
-        if (!current_user_can('edit_post', $target_product_id) || !current_user_can('upload_files')) {
-            wp_send_json_error(__('You are not allowed to update this image.', 'digitalogic'), 403);
-        }
-
-        if (!function_exists('media_handle_upload')) {
-            require_once ABSPATH . 'wp-admin/includes/file.php';
-            require_once ABSPATH . 'wp-admin/includes/media.php';
-            require_once ABSPATH . 'wp-admin/includes/image.php';
-        }
-
-        $attachment_id = media_handle_upload('image', $target_product_id);
-        if (is_wp_error($attachment_id)) {
-            wp_send_json_error($attachment_id->get_error_message(), 400);
-        }
-
-        $target_product = wc_get_product($target_product_id);
-        if (!$target_product) {
-            wp_send_json_error(__('Product not found.', 'digitalogic'), 404);
-        }
-
-        $target_product->set_image_id($attachment_id);
-        $target_product->save();
-        do_action('digitalogic_product_updated', $target_product_id, array('image_id' => $attachment_id));
-
-        wp_send_json_success(array(
-            'attachment_id' => $attachment_id,
-            'product' => Digitalogic_Product_Manager::instance()->get_product($product_id),
-        ));
-    }
-
     public function summary_command() {
         $options = Digitalogic_Options::instance();
 
@@ -270,16 +226,19 @@ class Digitalogic_Panel {
             ),
             'cli' => array(
                 'websocket' => 'wp digitalogic websocket serve --host=127.0.0.1 --port=8090 --allow-root',
-                'websocket_token' => 'wp digitalogic websocket token --allow-root',
-                'panel_token' => 'wp digitalogic panel token --allow-root',
-                'panel_rotate' => 'wp digitalogic panel token --rotate --allow-root',
-                'panel_broadcast' => 'wp digitalogic panel broadcast --message="Hello panel" --level=success --allow-root',
-            ),
-            'patris' => array(
-                'project' => 'atomicdeploy/patris-export',
-                'mode' => 'REST and WebSocket watcher for Patris Paradox DB exports',
-                'suggested_bridge' => 'patris-export serve kala.db -a 127.0.0.1:8080 --debounce 0s',
-            ),
+            'websocket_token' => 'wp digitalogic websocket token --allow-root',
+            'panel_token' => 'wp digitalogic panel token --allow-root',
+            'panel_rotate' => 'wp digitalogic panel token --rotate --allow-root',
+            'panel_broadcast' => 'wp digitalogic panel broadcast --message="Hello panel" --level=success --allow-root',
+            'patris_sync' => 'wp digitalogic patris sync --allow-root',
+            'patris_report' => 'wp digitalogic patris report --format=table --allow-root',
+            'patris_token' => 'wp digitalogic patris token --allow-root',
+        ),
+        'patris' => array(
+            'project' => 'Digitalogic normalized Patris API',
+            'mode' => 'Pull scheduled/manual feed or authenticated push payload into WooCommerce',
+            'suggested_bridge' => 'POST /wp-json/digitalogic/v1/patris/push or configure a pull URL in Patris Reports',
+        ),
             'logs' => Digitalogic_Logger::instance()->get_logs(array('limit' => 6)),
             'categories' => Digitalogic_Product_Manager::instance()->get_product_categories(),
             'websocket' => array(
@@ -323,8 +282,39 @@ class Digitalogic_Panel {
                 'wordpress_bootstrap' => ABSPATH,
                 'laravel_bootstrap' => file_exists(DIGITALOGIC_PLUGIN_DIR . 'laravel/bootstrap/app.php'),
                 'theme_shared' => true,
-                'patris_project' => 'atomicdeploy/patris-export',
+                'theme_mode' => $this->current_theme_mode(),
+                'admin_color' => $this->current_admin_color(),
+                'patris_project' => 'Digitalogic normalized Patris API',
             ),
+            'patris_feed' => class_exists('Digitalogic_Patris_Feed') ? array(
+                'settings' => Digitalogic_Patris_Feed::instance()->get_settings(),
+                'push_token' => Digitalogic_Patris_Feed::instance()->get_push_token(),
+            ) : array(),
+        );
+    }
+
+    public function set_theme_command($payload) {
+        if (!is_user_logged_in()) {
+            return new WP_Error('digitalogic_panel_theme_login_required', __('You must be logged in to change the theme.', 'digitalogic'), array('status' => 401));
+        }
+
+        $theme = isset($payload['theme']) ? sanitize_key(wp_unslash($payload['theme'])) : '';
+
+        if (class_exists('Digitalogic_Plugin_Admin_Branding')) {
+            $result = Digitalogic_Plugin_Admin_Branding::set_user_theme(get_current_user_id(), $theme);
+            return is_wp_error($result) ? $result : $result;
+        }
+
+        if ($theme !== 'light' && $theme !== 'dark') {
+            return new WP_Error('digitalogic_panel_theme_invalid', __('Choose either light or dark mode.', 'digitalogic'), array('status' => 400));
+        }
+
+        $admin_color = $theme === 'dark' ? 'digitalogic-dark' : 'digitalogic-light';
+        update_user_option(get_current_user_id(), 'admin_color', $admin_color, true);
+
+        return array(
+            'theme' => $theme,
+            'admin_color' => $admin_color,
         );
     }
 
@@ -680,6 +670,23 @@ class Digitalogic_Panel {
         return $logo_url ?: get_site_icon_url(192);
     }
 
+    private function current_admin_color() {
+        if (class_exists('Digitalogic_Plugin_Admin_Branding')) {
+            return Digitalogic_Plugin_Admin_Branding::current_user_admin_color();
+        }
+
+        $color = get_user_option('admin_color', get_current_user_id());
+        return is_string($color) && $color !== '' ? $color : 'digitalogic-light';
+    }
+
+    private function current_theme_mode() {
+        if (class_exists('Digitalogic_Plugin_Admin_Branding')) {
+            return Digitalogic_Plugin_Admin_Branding::current_user_theme();
+        }
+
+        return $this->current_admin_color() === 'digitalogic-dark' ? 'dark' : 'light';
+    }
+
     private function translations_en() {
         return array(
             'dir' => 'ltr',
@@ -760,6 +767,17 @@ class Digitalogic_Panel {
             'currencyShippingText' => 'Inline currency editing is active; shipping method pricing is mapped for the next bridge command.',
             'excelExports' => 'Excel exports',
             'excelExportsText' => 'Existing Digitalogic CSV, JSON, and Excel export commands are surfaced through the panel and WP-CLI.',
+            'problemRows' => 'Problem rows',
+            'patrisProducts' => 'Patris/API products',
+            'foreignPrice' => 'Foreign price',
+            'weight' => 'Weight',
+            'finalPrice' => 'Final price',
+            'patrisCurrency' => 'Feed currency',
+            'patrisForeignPrice' => 'Feed foreign price',
+            'patrisWeight' => 'Feed weight',
+            'patrisFinalPrice' => 'Feed final price',
+            'patrisLocation' => 'Feed location',
+            'patrisUpdatedAt' => 'Feed updated',
             'missingFeatures' => 'Missing features',
             'dark' => 'Dark',
             'light' => 'Light',
@@ -778,11 +796,6 @@ class Digitalogic_Panel {
             'signedInAs' => 'Signed in as',
             'noRows' => 'No records found',
             'error' => 'Something went wrong. Please try again.',
-            'collapseSidebar' => 'Collapse sidebar',
-            'expandSidebar' => 'Expand sidebar',
-            'setProductImage' => 'Set product image',
-            'imageUpdated' => 'Product image updated',
-            'imageOnly' => 'Please choose an image file.',
             'update_currency' => 'Currency update',
             'update_product' => 'Product update',
             'product' => 'Product',
@@ -791,6 +804,7 @@ class Digitalogic_Panel {
             'withImage' => 'Has image',
             'withoutImage' => 'Missing image',
             'bulkActions' => 'Bulk actions',
+            'compactTableMode' => 'Compact table',
             'publishSelected' => 'Publish selected',
             'draftSelected' => 'Move selected to draft',
             'markInStock' => 'Mark in stock',
@@ -823,6 +837,7 @@ class Digitalogic_Panel {
             'withImage' => 'دارای تصویر',
             'withoutImage' => 'بدون تصویر',
             'bulkActions' => 'عملیات گروهی',
+            'compactTableMode' => 'حالت فشرده جدول',
             'publishSelected' => 'انتشار انتخاب شده ها',
             'draftSelected' => 'انتقال به پیش نویس',
             'markInStock' => 'موجود کردن',
@@ -918,6 +933,17 @@ class Digitalogic_Panel {
             'currencyShippingText' => 'ویرایش ارز داخل پنل فعال است؛ قیمت روش های حمل برای دستور بعدی پل آماده شده است.',
             'excelExports' => 'خروجی اکسل',
             'excelExportsText' => 'دستورهای موجود CSV، JSON و Excel دیجیتالاجیک در پنل و WP-CLI در دسترس هستند.',
+            'problemRows' => 'ردیف های مشکل دار',
+            'patrisProducts' => 'محصولات Patris/API',
+            'foreignPrice' => 'قیمت ارزی',
+            'weight' => 'وزن',
+            'finalPrice' => 'قیمت نهایی',
+            'patrisCurrency' => 'ارز API',
+            'patrisForeignPrice' => 'قیمت ارزی API',
+            'patrisWeight' => 'وزن API',
+            'patrisFinalPrice' => 'قیمت نهایی API',
+            'patrisLocation' => 'محل API',
+            'patrisUpdatedAt' => 'به روزرسانی API',
             'missingFeatures' => 'بخش های باقی مانده',
             'dark' => 'تیره',
             'light' => 'روشن',
@@ -936,11 +962,6 @@ class Digitalogic_Panel {
             'signedInAs' => 'ورود با',
             'noRows' => 'رکوردی پیدا نشد',
             'error' => 'مشکلی پیش آمد. دوباره تلاش کنید.',
-            'collapseSidebar' => 'جمع کردن نوار کناری',
-            'expandSidebar' => 'باز کردن نوار کناری',
-            'setProductImage' => 'انتخاب تصویر محصول',
-            'imageUpdated' => 'تصویر محصول به روز شد',
-            'imageOnly' => 'لطفا یک فایل تصویر انتخاب کنید.',
         );
     }
 }

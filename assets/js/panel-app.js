@@ -3,6 +3,8 @@
 
     var config = window.digitalogicPanel || {};
     var Vue = window.Vue;
+    var adminThemeStorageKey = config.theme_storage_key || 'digitalogic-admin-theme';
+    var panelThemeStorageKey = 'digitalogic_panel_theme';
 
     if (!Vue || !document.getElementById('digitalogic-panel')) {
         return;
@@ -143,9 +145,26 @@
     }
 
     function storedTheme() {
-        return window.localStorage.getItem('digitalogic_panel_theme') ||
-            window.localStorage.getItem('digitalogic-admin-theme') ||
-            'system';
+        if (config.theme_mode === 'light' || config.theme_mode === 'dark') {
+            return config.theme_mode;
+        }
+
+        return readBroadcastTheme() || 'light';
+    }
+
+    function readBroadcastTheme() {
+        var adminTheme = window.localStorage.getItem(adminThemeStorageKey);
+        var panelTheme = window.localStorage.getItem(panelThemeStorageKey);
+
+        if (adminTheme === 'light' || adminTheme === 'dark') {
+            return adminTheme;
+        }
+
+        if (panelTheme === 'light' || panelTheme === 'dark') {
+            return panelTheme;
+        }
+
+        return '';
     }
 
     function normalizeStyleMode(value) {
@@ -166,15 +185,17 @@
             return;
         }
 
-        var inherited = window.localStorage.getItem('digitalogic-admin-theme');
-        if (inherited === 'light' || inherited === 'dark') {
-            document.documentElement.setAttribute('data-dlp-theme', inherited);
-            document.body.setAttribute('data-dlp-theme', inherited);
+        applyTheme('light');
+    }
+
+    function broadcastTheme(theme) {
+        if (theme !== 'light' && theme !== 'dark') {
             return;
         }
 
-        document.documentElement.removeAttribute('data-dlp-theme');
-        document.body.removeAttribute('data-dlp-theme');
+        window.localStorage.setItem(adminThemeStorageKey, theme);
+        window.localStorage.setItem(panelThemeStorageKey, theme);
+        window.localStorage.setItem(adminThemeStorageKey + ':updated', String(Date.now()));
     }
 
     function applyStyleMode(styleMode) {
@@ -188,6 +209,12 @@
             {key: 'sku', labelKey: 'sku', field: 'sku', width: 140, visible: true, sortable: true, editable: true, mono: true, filter: 'text', icon: 'dashicons-editor-code', priority: 1},
             {key: 'regular_price', labelKey: 'regularPrice', field: 'regular_price', width: 132, visible: true, sortable: true, editable: true, numeric: true, filter: 'numeric', icon: 'dashicons-money-alt', priority: 2},
             {key: 'sale_price', labelKey: 'salePrice', field: 'sale_price', width: 132, visible: true, sortable: true, editable: true, numeric: true, filter: 'numeric', icon: 'dashicons-tickets-alt', priority: 3},
+            {key: 'patris_foreign_currency', labelKey: 'patrisCurrency', field: 'patris_foreign_currency', width: 106, visible: true, sortable: true, editable: true, filter: 'text', icon: 'dashicons-money-alt', priority: 3},
+            {key: 'patris_foreign_price', labelKey: 'patrisForeignPrice', field: 'patris_foreign_price', width: 138, visible: true, sortable: true, editable: true, numeric: true, filter: 'numeric', icon: 'dashicons-chart-line', priority: 3},
+            {key: 'patris_weight_grams', labelKey: 'patrisWeight', field: 'patris_weight_grams', width: 118, visible: true, sortable: true, editable: true, numeric: true, filter: 'numeric', icon: 'dashicons-image-filter', priority: 3},
+            {key: 'patris_final_price', labelKey: 'patrisFinalPrice', field: 'patris_final_price', width: 138, visible: true, sortable: true, editable: true, numeric: true, filter: 'numeric', icon: 'dashicons-yes-alt', priority: 3},
+            {key: 'patris_location', labelKey: 'patrisLocation', field: 'patris_location', width: 132, visible: false, sortable: true, editable: true, filter: 'text', icon: 'dashicons-location-alt', priority: 3},
+            {key: 'patris_updated_at', labelKey: 'patrisUpdatedAt', field: 'patris_updated_at', width: 158, visible: false, sortable: true, editable: false, filter: 'text', icon: 'dashicons-clock', priority: 3},
             {key: 'stock_quantity', labelKey: 'stock', field: 'stock_quantity', width: 104, visible: true, sortable: true, editable: true, numeric: true, filter: 'numeric', icon: 'dashicons-archive', priority: 2},
             {key: 'stock_status', labelKey: 'availability', field: 'stock_status', width: 132, visible: true, sortable: true, editable: true, type: 'select', filter: 'select', icon: 'dashicons-yes-alt', priority: 2},
             {key: 'status', labelKey: 'status', field: 'status', width: 118, visible: true, sortable: true, editable: true, type: 'select', filter: 'select', icon: 'dashicons-visibility', priority: 2}
@@ -251,6 +278,7 @@
                 notice: '',
                 summary: null,
                 settings: null,
+                reports: null,
                 products: [],
                 users: [],
                 selectedProduct: null,
@@ -271,6 +299,7 @@
                 columnMenuOpen: false,
                 productFilters: storedJson('digitalogic_panel_product_filters', {}),
                 imageFilter: stored('digitalogic_panel_image_filter', 'all'),
+                compactTable: stored('digitalogic_panel_compact_table', '0') === '1',
                 columnContext: null,
                 selectedProducts: {},
                 selectedUsers: {},
@@ -279,10 +308,7 @@
                 userEditorMode: 'view',
                 userOrders: [],
                 userOrderLoading: false,
-                sidebarCollapsed: stored('digitalogic_panel_sidebar_collapsed', '0') === '1',
                 pinnedEditorPinned: stored('digitalogic_panel_pinned_editor', '1') !== '0',
-                imageUploadProduct: null,
-                imageUploading: 0,
                 draggedCard: '',
                 draggedColumn: '',
                 resizingColumn: '',
@@ -372,7 +398,6 @@
             },
             themeOptions: function() {
                 var modes = [
-                    {theme: 'system', label: this.t.system, icon: 'dashicons-desktop'},
                     {theme: 'light', label: this.t.light, icon: 'dashicons-lightbulb'},
                     {theme: 'dark', label: this.t.dark, icon: 'dashicons-hidden'}
                 ];
@@ -502,24 +527,23 @@
                 window.localStorage.setItem('digitalogic_panel_language', value);
                 document.documentElement.dir = this.t.dir || 'ltr';
                 document.documentElement.lang = value === 'fa' ? 'fa-IR' : 'en';
-                this.emitPreferences();
             },
             theme: function(value) {
-                window.localStorage.setItem('digitalogic_panel_theme', value);
                 applyTheme(value);
-                this.emitPreferences();
             },
             styleMode: function(value) {
                 var normalized = normalizeStyleMode(value);
                 window.localStorage.setItem('digitalogic_panel_style', normalized);
                 applyStyleMode(normalized);
-                this.emitPreferences();
             },
             productFilters: {
                 deep: true,
                 handler: function(value) {
                     window.localStorage.setItem('digitalogic_panel_product_filters', JSON.stringify(value || {}));
                 }
+            },
+            compactTable: function(value) {
+                window.localStorage.setItem('digitalogic_panel_compact_table', value ? '1' : '0');
             },
             route: function() {
                 this.loadRoute();
@@ -542,7 +566,6 @@
             document.documentElement.lang = this.lang === 'fa' ? 'fa-IR' : 'en';
             applyTheme(this.theme);
             applyStyleMode(this.styleMode);
-            this.emitPreferences();
             this.loadRoute();
             this.bindGlobalEvents();
         },
@@ -556,6 +579,19 @@
                 var self = this;
                 window.addEventListener('popstate', function() {
                     self.route = normalizePath(window.location.pathname);
+                });
+                window.addEventListener('storage', function(event) {
+                    if (event.key !== adminThemeStorageKey && event.key !== panelThemeStorageKey) {
+                        return;
+                    }
+
+                    var nextTheme = readBroadcastTheme() || storedTheme();
+                    if (nextTheme !== self.theme) {
+                        self.theme = nextTheme;
+                        return;
+                    }
+
+                    applyTheme(nextTheme);
                 });
                 window.addEventListener('click', function(event) {
                     if (!event.target.closest('.dlp-column-context') && !event.target.closest('.dlp-theme-picker') && !event.target.closest('.dlp-row-menu-wrap') && !event.target.closest('.dlp-custom-select')) {
@@ -576,23 +612,17 @@
                         self.productDialogOpen = false;
                         self.userDialogOpen = false;
                     }
-                    if (event.key === 'F2' && (self.currentPage === 'products' || self.currentPage === 'users')) {
+                    if (event.key === 'F2' && self.currentPage === 'products') {
                         event.preventDefault();
-                        var search = document.querySelector(self.currentPage === 'users' ? '.dlp-user-search' : '.dlp-search');
-                        if (search) search.focus();
+                        var search = document.querySelector('.dlp-search');
+                        if (search) {
+                            search.focus();
+                            search.scrollIntoView({block: 'nearest', inline: 'nearest'});
+                        }
                     }
-                    if ((self.currentPage === 'products' || self.currentPage === 'users') && !editableTarget && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
+                    if (self.currentPage === 'products' && !editableTarget && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
                         event.preventDefault();
-                        self.moveTableSelection(self.currentPage === 'users' ? 'user' : 'product', event.key === 'ArrowDown' ? 1 : -1);
-                    }
-                });
-                window.addEventListener('digitalogic:desktop-preferences', function(event) {
-                    var prefs = event.detail || {};
-                    if (prefs.lang && prefs.lang !== self.lang) {
-                        self.lang = prefs.lang.indexOf('fa') === 0 ? 'fa' : 'en';
-                    }
-                    if (prefs.theme && prefs.theme !== self.theme) {
-                        self.theme = prefs.theme;
+                        self.moveProductSelection(event.key === 'ArrowDown' ? 1 : -1);
                     }
                 });
                 window.addEventListener('message', function(event) {
@@ -620,25 +650,6 @@
             icon: function(name) {
                 return 'dashicons ' + name;
             },
-            emitPreferences: function() {
-                var theme = this.theme || 'system';
-                var effective = theme;
-                if (effective !== 'light' && effective !== 'dark') {
-                    effective = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-                }
-                window.dispatchEvent(new CustomEvent('digitalogic:panel-preferences', {
-                    detail: {
-                        theme: theme,
-                        effectiveTheme: effective,
-                        lang: this.lang,
-                        dir: this.t.dir || 'ltr'
-                    }
-                }));
-            },
-            toggleSidebar: function() {
-                this.sidebarCollapsed = !this.sidebarCollapsed;
-                window.localStorage.setItem('digitalogic_panel_sidebar_collapsed', this.sidebarCollapsed ? '1' : '0');
-            },
             navigate: function(path) {
                 var nextUrl = (config.panel_url || '/panel/').replace(/\/+$/, '') + (path || '/');
                 window.history.pushState({}, '', nextUrl);
@@ -654,6 +665,7 @@
                     this.loadSummary();
                 }
                 if (this.currentPage === 'settings') this.loadSettings();
+                if (this.currentPage === 'reports') this.loadReports();
                 if (this.currentPage === 'products') {
                     this.loadProducts();
                     this.productRouteId ? this.loadProduct(this.productRouteId) : (this.selectedProduct = null);
@@ -675,6 +687,17 @@
                     self.settings = data;
                 }).catch(function(error) {
                     self.error = error.message || self.t.error;
+                });
+            },
+            loadReports: function() {
+                var self = this;
+                self.loading = true;
+                return self.run('digitalogic_get_reports', {}).then(function(data) {
+                    self.reports = data;
+                }).catch(function(error) {
+                    self.error = error.message || self.t.error;
+                }).finally(function() {
+                    self.loading = false;
                 });
             },
             loadProducts: function() {
@@ -850,8 +873,6 @@
                 this.editingCell = key;
                 if (kind === 'product') {
                     this.selectProductRow(row);
-                } else if (kind === 'user') {
-                    this.openUserPanel(row);
                 }
                 this.$nextTick(function() {
                     var input = document.querySelector('[data-cell-key="' + key + '"]');
@@ -878,11 +899,11 @@
                 else this.flushProductSave(row);
                 this.editingCell = null;
             },
-            onGridCellKeydown: function(event, kind, row, column) {
+            onGridCellKeydown: function(event, product, column) {
                 var editKeys = ['Enter', 'F2'];
                 if (editKeys.indexOf(event.key) !== -1) {
                     event.preventDefault();
-                    this.startCellEdit(kind, row, column);
+                    this.startCellEdit('product', product, column);
                     return;
                 }
                 if (['ArrowRight', 'ArrowLeft', 'ArrowUp', 'ArrowDown'].indexOf(event.key) === -1) {
@@ -890,10 +911,9 @@
                 }
 
                 event.preventDefault();
-                event.stopPropagation();
-                var rows = this.rowsForKind(kind);
-                var columns = this.columnsForKind(kind);
-                var rowIndex = rows.findIndex(function(item) { return Number(item.id) === Number(row.id); });
+                var rows = this.filteredProducts;
+                var columns = this.visibleProductColumns;
+                var rowIndex = rows.findIndex(function(item) { return Number(item.id) === Number(product.id); });
                 var columnIndex = columns.findIndex(function(item) { return item.key === column.key; });
 
                 if (event.key === 'ArrowUp') rowIndex = Math.max(0, rowIndex - 1);
@@ -905,44 +925,29 @@
                 var nextColumn = columns[columnIndex];
                 if (!nextRow || !nextColumn) return;
 
-                this.selectTableRow(kind, nextRow);
-                this.focusTableCell(kind, nextRow, nextColumn);
+                this.$nextTick(function() {
+                    var next = document.querySelector('[data-grid-row="' + nextRow.id + '"][data-grid-col="' + nextColumn.key + '"]');
+                    if (next) next.focus();
+                });
+                this.selectProductRow(nextRow);
             },
-            rowsForKind: function(kind) {
-                return kind === 'user' ? this.filteredUsers : this.filteredProducts;
-            },
-            columnsForKind: function(kind) {
-                return kind === 'user' ? this.visibleUserColumns : this.visibleProductColumns;
-            },
-            selectTableRow: function(kind, row) {
-                if (kind === 'user') this.openUserPanel(row);
-                else this.selectProductRow(row);
-            },
-            moveTableSelection: function(kind, delta) {
-                var rows = this.rowsForKind(kind);
+            moveProductSelection: function(delta) {
+                var rows = this.filteredProducts;
                 if (!rows.length) return;
-                var current = kind === 'user' ? this.selectedUser : this.selectedProduct;
-                var currentId = current && current.id ? Number(current.id) : Number(rows[0].id);
+                var currentId = this.selectedProduct && this.selectedProduct.id ? Number(this.selectedProduct.id) : Number(rows[0].id);
                 var index = rows.findIndex(function(item) {
                     return Number(item.id) === currentId;
                 });
                 if (index < 0) index = 0;
                 index = Math.max(0, Math.min(rows.length - 1, index + delta));
-                this.selectTableRow(kind, rows[index]);
-                this.focusTableCell(kind, rows[index], this.columnsForKind(kind)[0]);
-            },
-            moveProductSelection: function(delta) {
-                this.moveTableSelection('product', delta);
+                this.openProductPanel(rows[index], {preserveScroll: true});
+                this.focusProductCell(rows[index], this.visibleProductColumns[0]);
             },
             focusProductCell: function(product, column) {
-                this.focusTableCell('product', product, column);
-            },
-            focusTableCell: function(kind, row, column) {
-                if (!row || !column) return;
-                var selector = '[data-grid-kind="' + kind + '"][data-grid-row="' + row.id + '"][data-grid-col="' + column.key + '"]';
+                if (!product || !column) return;
                 this.$nextTick(function() {
-                    var next = document.querySelector(selector);
-                    if (next) next.focus({preventScroll: false});
+                    var next = document.querySelector('[data-grid-row="' + product.id + '"][data-grid-col="' + column.key + '"]');
+                    if (next) next.focus({preventScroll: true});
                 });
             },
             editProduct: function(product, field, value) {
@@ -1085,6 +1090,28 @@
                 document.addEventListener('mousemove', move);
                 document.addEventListener('mouseup', up);
             },
+            autoResizeColumn: function(kind, column) {
+                if (!column) return;
+                var table = document.querySelector('[data-grid-kind="' + kind + '"]');
+                if (!table) return;
+                var max = 72;
+                var header = table.querySelector('th[data-column-key="' + column.key + '"] .dlp-th-label');
+                if (header) {
+                    max = Math.max(max, header.scrollWidth + 58);
+                }
+                table.querySelectorAll('tbody td[data-column-key="' + column.key + '"]').forEach(function(cell) {
+                    var target = cell.querySelector('.dlp-editable-cell, .dlp-cell-input, .dlp-cell-edit-shell') || cell;
+                    max = Math.max(max, target.scrollWidth + 28);
+                });
+                column.width = Math.max(72, Math.min(620, Math.ceil(max)));
+                if (kind === 'user') {
+                    this.userColumns = this.userColumns.slice();
+                    window.localStorage.setItem('digitalogic_panel_user_columns', JSON.stringify(this.userColumns));
+                } else {
+                    this.productColumns = this.productColumns.slice();
+                    window.localStorage.setItem('digitalogic_panel_product_columns', JSON.stringify(this.productColumns));
+                }
+            },
             toggleColumn: function(kind, column) {
                 column.visible = column.visible === false;
                 if (kind === 'user') this.userColumns = this.userColumns.slice();
@@ -1136,8 +1163,24 @@
             setThemeChoice: function(option) {
                 if (!option) return;
                 this.styleMode = normalizeStyleMode(option.style);
-                this.theme = option.theme;
+                this.theme = option.theme === 'dark' ? 'dark' : 'light';
                 this.openMenu = '';
+                this.saveThemeChoice(this.theme);
+            },
+            saveThemeChoice: function(theme) {
+                var self = this;
+                var value = theme === 'dark' ? 'dark' : 'light';
+
+                broadcastTheme(value);
+
+                return this.run('digitalogic_panel_set_theme', {theme: value}).then(function(response) {
+                    if (response && response.theme) {
+                        config.theme_mode = response.theme;
+                        config.admin_color = response.admin_color || config.admin_color;
+                    }
+                }).catch(function(error) {
+                    self.error = error.message || self.t.error;
+                });
             },
             toggleRowMenu: function(kind, id, event) {
                 if (event) {
@@ -1283,11 +1326,25 @@
                 this.openProductPanel(product);
             },
             openProductPanel: function(product) {
-                this.selectedProduct = product;
-                this.pinnedEditorPinned = true;
-                window.localStorage.setItem('digitalogic_panel_pinned_editor', '1');
-                this.productDialogOpen = false;
-                this.loadProduct(product.id);
+                var options = arguments.length > 1 && arguments[1] ? arguments[1] : {};
+                var self = this;
+                var open = function() {
+                    self.selectedProduct = product;
+                    self.pinnedEditorPinned = true;
+                    window.localStorage.setItem('digitalogic_panel_pinned_editor', '1');
+                    self.productDialogOpen = false;
+                    self.loadProduct(product.id);
+                };
+                if (options.preserveScroll) {
+                    this.withProductScrollAnchor(product, open, !!options.reveal);
+                } else {
+                    open();
+                    if (options.reveal) {
+                        this.$nextTick(function() {
+                            self.revealProductEditor();
+                        });
+                    }
+                }
             },
             openProductDialog: function(product) {
                 this.selectedProduct = product;
@@ -1298,8 +1355,11 @@
                 window.open(product.edit_url || ('/wp-admin/post.php?post=' + encodeURIComponent(product.id) + '&action=edit'), '_blank', 'noopener');
             },
             togglePinnedEditor: function() {
-                this.pinnedEditorPinned = !this.pinnedEditorPinned;
-                window.localStorage.setItem('digitalogic_panel_pinned_editor', this.pinnedEditorPinned ? '1' : '0');
+                var self = this;
+                this.withProductScrollAnchor(this.selectedProduct, function() {
+                    self.pinnedEditorPinned = !self.pinnedEditorPinned;
+                    window.localStorage.setItem('digitalogic_panel_pinned_editor', self.pinnedEditorPinned ? '1' : '0');
+                }, false);
             },
             openProductToolbox: function(product) {
                 if (!product || !product.id) return;
@@ -1314,7 +1374,32 @@
             selectProductRow: function(product) {
                 if (!product || !product.id) return;
                 if (!this.selectedProduct || Number(this.selectedProduct.id) !== Number(product.id)) {
-                    this.openProductPanel(product);
+                    this.openProductPanel(product, {preserveScroll: true});
+                }
+            },
+            productRowElement: function(product) {
+                if (!product || !product.id) return null;
+                return document.querySelector('[data-product-row="' + product.id + '"]');
+            },
+            withProductScrollAnchor: function(product, callback, reveal) {
+                var row = this.productRowElement(product);
+                var before = row ? row.getBoundingClientRect().top : null;
+                callback();
+                this.$nextTick(function() {
+                    var nextRow = this.productRowElement(product);
+                    if (nextRow && before !== null) {
+                        var after = nextRow.getBoundingClientRect().top;
+                        window.scrollBy(0, after - before);
+                    }
+                    if (reveal) {
+                        this.revealProductEditor();
+                    }
+                }.bind(this));
+            },
+            revealProductEditor: function() {
+                var editor = document.querySelector('.dlp-pinned-editor');
+                if (editor) {
+                    editor.scrollIntoView({block: 'start', inline: 'nearest', behavior: 'smooth'});
                 }
             },
             openProductRowContext: function(product, event) {
@@ -1520,60 +1605,6 @@
                 this.imageFilter = value || 'all';
                 window.localStorage.setItem('digitalogic_panel_image_filter', this.imageFilter);
                 this.openMenu = '';
-            },
-            chooseProductImage: function(product) {
-                if (!product || !product.id || !this.$refs.productImageInput) return;
-                this.imageUploadProduct = product;
-                this.$refs.productImageInput.value = '';
-                this.$refs.productImageInput.click();
-            },
-            onProductImagePicked: function(event) {
-                var file = event.target && event.target.files && event.target.files[0];
-                if (!file || !this.imageUploadProduct) return;
-                this.uploadProductImage(this.imageUploadProduct, file);
-            },
-            dropProductImage: function(product, event) {
-                var file = event.dataTransfer && event.dataTransfer.files && event.dataTransfer.files[0];
-                if (!file) return;
-                this.uploadProductImage(product, file);
-            },
-            uploadProductImage: function(product, file) {
-                if (!product || !product.id || !file) return Promise.resolve();
-                if (file.type && file.type.indexOf('image/') !== 0) {
-                    this.error = this.t.imageOnly || 'Please choose an image file.';
-                    return Promise.resolve();
-                }
-                var self = this;
-                var body = new FormData();
-                body.append('action', 'digitalogic_panel_product_image');
-                body.append('nonce', config.nonce || '');
-                body.append('product_id', product.id);
-                body.append('image', file);
-                this.imageUploading = product.id;
-                return window.fetch(config.ajax_url, {
-                    method: 'POST',
-                    credentials: 'same-origin',
-                    body: body
-                }).then(function(response) {
-                    return response.json();
-                }).then(function(json) {
-                    if (!json || !json.success) {
-                        throw new Error((json && json.data) || self.t.error);
-                    }
-                    var updated = json.data && json.data.product;
-                    if (updated) {
-                        Object.assign(product, updated);
-                        if (self.selectedProduct && Number(self.selectedProduct.id) === Number(product.id)) {
-                            Object.assign(self.selectedProduct, updated);
-                        }
-                    }
-                    self.addToast({message: self.t.imageUpdated || 'Product image updated', level: 'success'});
-                }).catch(function(error) {
-                    self.error = error.message || self.t.error;
-                }).finally(function() {
-                    self.imageUploading = 0;
-                    self.imageUploadProduct = null;
-                });
             },
             applyBulkAction: function(action) {
                 var ids = this.selectedProductIds;

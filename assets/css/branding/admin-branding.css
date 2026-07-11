@@ -8,6 +8,10 @@
     --dg-panel-strong: #ffffff;
     --dg-panel-soft: #f6fbff;
     --dg-panel-raised: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(244, 249, 255, 0.92));
+    --dg-login-shell-bg:
+        radial-gradient(circle at 96% 6%, rgba(15, 167, 235, 0.2), transparent 34%),
+        radial-gradient(circle at 10% 88%, rgba(17, 105, 216, 0.14), transparent 30%),
+        linear-gradient(145deg, rgba(255, 255, 255, 0.82), rgba(229, 246, 255, 0.72));
     --dg-border: rgba(19, 79, 128, 0.12);
     --dg-border-strong: rgba(1, 104, 205, 0.34);
     --dg-text: #163248;
@@ -40,6 +44,10 @@
     --dg-panel-strong: #121d2c;
     --dg-panel-soft: #162235;
     --dg-panel-raised: linear-gradient(180deg, rgba(18, 28, 42, 0.94), rgba(10, 16, 26, 0.92));
+    --dg-login-shell-bg:
+        radial-gradient(circle at 96% 6%, rgba(0, 179, 235, 0.18), transparent 34%),
+        radial-gradient(circle at 10% 88%, rgba(1, 104, 205, 0.18), transparent 30%),
+        linear-gradient(145deg, rgba(18, 28, 42, 0.88), rgba(8, 16, 28, 0.82));
     --dg-border: rgba(120, 171, 210, 0.18);
     --dg-border-strong: rgba(0, 179, 235, 0.34);
     --dg-text: #ebf5fd;
@@ -155,6 +163,18 @@ body.login div#login h1 a {
     filter: drop-shadow(0 14px 30px rgba(0, 0, 0, 0.12));
 }
 
+body.login div#login h1 a:focus:not(:focus-visible) {
+    outline: 0;
+    box-shadow: none;
+}
+
+body.login div#login h1 a:focus-visible {
+    outline: 3px solid var(--dg-accent-strong);
+    outline-offset: 8px;
+    border-radius: 18px;
+    box-shadow: 0 0 0 5px var(--dg-accent-soft);
+}
+
 body.login #loginform,
 body.login #registerform,
 body.login #lostpasswordform,
@@ -168,14 +188,272 @@ body.login #resetpassform {
     backdrop-filter: blur(18px);
 }
 
-body.login.login-action-login #login,
+body.login.login-action-login #login {
+    box-sizing: border-box;
+    width: min(980px, calc(100vw - 32px)) !important;
+    max-width: 980px !important;
+}
+
 body.login.login-action-register #login {
-    width: min(720px, calc(100vw - 32px));
+    box-sizing: border-box;
+    width: min(720px, calc(100vw - 32px)) !important;
+    max-width: 720px !important;
+}
+
+body.login .digitalogic-desktop-login-message {
+    display: none !important;
 }
 
 body.login .dg-digits-login-shell,
 body.login .dg-digits-register-shell {
     margin: 0;
+}
+
+body.login .dg-digits-register-shell {
+    padding: 30px;
+    border: 1px solid var(--dg-border);
+    border-radius: 34px;
+    background: var(--dg-login-shell-bg);
+    box-shadow: var(--dg-shadow);
+    backdrop-filter: blur(18px);
+}
+
+body.login .dg-digits-login-shell {
+    display: grid;
+    grid-template-columns: minmax(260px, 0.9fr) minmax(0, 1.1fr);
+    gap: 28px;
+    align-items: stretch;
+    padding: 28px;
+    border: 1px solid var(--dg-border);
+    border-radius: 34px;
+    background: var(--dg-login-shell-bg);
+    box-shadow: var(--dg-shadow);
+    backdrop-filter: blur(18px);
+}
+
+body.login .dg-digits-login-shell > style {
+    display: none !important;
+}
+
+body.login .dg-digits-login-shell::before {
+    content: "";
+    min-height: 430px;
+    border-radius: 28px;
+    background:
+        url("../../images/branding/login-hero.png"),
+        radial-gradient(circle at 22% 18%, rgba(255, 255, 255, 0.82), transparent 30%),
+        radial-gradient(circle at 80% 86%, color-mix(in srgb, var(--dg-accent) 22%, transparent), transparent 34%),
+        linear-gradient(135deg, color-mix(in srgb, var(--dg-panel-strong) 72%, var(--dg-accent-soft)), color-mix(in srgb, var(--dg-accent) 16%, var(--dg-panel-soft)));
+    background-position: center, center, center, center;
+    background-repeat: no-repeat;
+    background-size: min(94%, 440px) auto, cover, cover, cover;
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--dg-border) 70%, transparent), var(--dg-shadow-soft);
+}
+
+body.login .dg-digits-login-shell.dg-has-hero-carousel::before {
+    content: none;
+}
+
+body.login .dg-login-hero-carousel {
+    position: relative;
+    min-height: 430px;
+    overflow: hidden;
+    border-radius: 28px;
+    background:
+        radial-gradient(circle at 22% 18%, rgba(255, 255, 255, 0.82), transparent 30%),
+        radial-gradient(circle at 80% 86%, color-mix(in srgb, var(--dg-accent) 22%, transparent), transparent 34%),
+        linear-gradient(135deg, color-mix(in srgb, var(--dg-panel-strong) 72%, var(--dg-accent-soft)), color-mix(in srgb, var(--dg-accent) 16%, var(--dg-panel-soft)));
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--dg-border) 70%, transparent), var(--dg-shadow-soft);
+    isolation: isolate;
+    cursor: grab;
+    touch-action: pan-y;
+    user-select: none;
+    contain: paint;
+    --dg-drag-progress: 0;
+}
+
+body.login .dg-login-hero-carousel.is-dragging {
+    cursor: grabbing;
+}
+
+body.login .dg-login-hero-carousel::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    pointer-events: none;
+    background:
+        linear-gradient(120deg, transparent 12%, color-mix(in srgb, #fff 16%, transparent) 38%, transparent 58%),
+        radial-gradient(circle at 22% 12%, color-mix(in srgb, #fff 20%, transparent), transparent 24%),
+        linear-gradient(180deg, transparent 58%, color-mix(in srgb, var(--dg-bg) 16%, transparent));
+    opacity: calc(0.42 + (var(--dg-drag-progress, 0) * 0.18));
+    mix-blend-mode: soft-light;
+    transform: translate3d(calc(var(--dg-drag, 0px) * -0.035), 0, 0);
+    transition: opacity 0.42s ease, transform 0.82s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+[data-dg-theme="dark"] body.login .dg-login-hero-carousel {
+    background:
+        radial-gradient(circle at 18% 12%, rgba(111, 218, 255, 0.18), transparent 30%),
+        radial-gradient(circle at 86% 82%, rgba(1, 104, 205, 0.28), transparent 36%),
+        linear-gradient(145deg, rgba(8, 19, 34, 0.94), rgba(13, 31, 51, 0.9));
+}
+
+body.login .dg-hero-track {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    display: flex;
+    inline-size: 100%;
+    block-size: 100%;
+    transform: translate3d(calc((var(--dg-track-index, 1) * -100%) + var(--dg-drag, 0px)), 0, 0);
+    transition: transform 0.82s cubic-bezier(0.16, 1, 0.3, 1);
+    will-change: transform;
+}
+
+body.login .dg-login-hero-carousel.is-dragging .dg-hero-track,
+body.login .dg-login-hero-carousel.is-jump-reset .dg-hero-track {
+    transition: none;
+}
+
+body.login .dg-hero-slide {
+    position: relative;
+    flex: 0 0 100%;
+    inline-size: 100%;
+    block-size: 100%;
+    background-image: url("../../images/branding/login-hero.png");
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: min(94%, 440px) auto;
+    opacity: 1;
+    transform: none;
+    animation: none;
+    filter: drop-shadow(0 28px 42px color-mix(in srgb, var(--dg-bg) 20%, transparent)) saturate(1.04);
+    transition: filter 0.82s cubic-bezier(0.16, 1, 0.3, 1), transform 0.82s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+body.login .dg-login-hero-carousel.is-dragging .dg-hero-slide {
+    transform: scale(calc(1 - (var(--dg-drag-progress, 0) * 0.012)));
+    filter: drop-shadow(0 22px 34px color-mix(in srgb, var(--dg-bg) 16%, transparent)) saturate(1.08);
+}
+
+body.login .dg-hero-slide--two {
+    background-position: 46% 50%;
+    animation-delay: 6s;
+}
+
+body.login .dg-hero-slide--three {
+    background-position: 54% 48%;
+    animation-delay: 12s;
+}
+
+body.login .dg-hero-glow {
+    position: absolute;
+    inset: 12% 8% auto auto;
+    width: 46%;
+    height: 34%;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--dg-accent) 18%, transparent);
+    filter: blur(24px);
+    opacity: 0.8;
+    z-index: 0;
+}
+
+body.login .dg-hero-dots {
+    position: absolute;
+    inset-inline: 0;
+    inset-block-end: 18px;
+    z-index: 3;
+    display: flex;
+    justify-content: center;
+    gap: 8px;
+}
+
+body.login .dg-hero-dots button {
+    width: 8px;
+    height: 8px;
+    padding: 0;
+    border: 0;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--dg-accent-strong) 54%, transparent);
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--dg-panel-strong) 46%, transparent);
+    cursor: pointer;
+    transition: width 0.32s cubic-bezier(0.16, 1, 0.3, 1), transform 0.24s ease, background 0.24s ease, box-shadow 0.24s ease;
+}
+
+body.login .dg-login-hero-carousel[data-dg-slide="0"] .dg-hero-dots button:nth-child(1),
+body.login .dg-login-hero-carousel[data-dg-slide="1"] .dg-hero-dots button:nth-child(2),
+body.login .dg-login-hero-carousel[data-dg-slide="2"] .dg-hero-dots button:nth-child(3),
+body.login .dg-hero-dots button:hover,
+body.login .dg-hero-dots button:focus-visible {
+    width: 24px;
+    transform: scale(1.45);
+    background: var(--dg-accent-strong);
+    box-shadow: 0 0 0 5px color-mix(in srgb, var(--dg-panel-strong) 58%, transparent);
+}
+
+[data-dg-theme="dark"] body.login .dg-digits-login-shell::before {
+    background:
+        url("../../images/branding/login-hero.png"),
+        radial-gradient(circle at 18% 12%, rgba(111, 218, 255, 0.18), transparent 30%),
+        radial-gradient(circle at 86% 82%, rgba(1, 104, 205, 0.28), transparent 36%),
+        linear-gradient(145deg, rgba(8, 19, 34, 0.94), rgba(13, 31, 51, 0.9));
+    background-position: center, center, center, center;
+    background-repeat: no-repeat;
+    background-size: min(94%, 440px) auto, cover, cover, cover;
+}
+
+body.login .dg-digits-login-shell > :not(style) {
+    min-width: 0;
+}
+
+body.login .dg-digits-register-shell .digits-form_heading {
+    text-align: center;
+}
+
+body.login .dg-digits-register-shell .digits_signup_form_step,
+body.login .dg-digits-register-shell .digits-form_body_wrapper {
+    display: grid;
+    gap: 2px;
+}
+
+body.login .dg-digits-register-shell :is(#dig_cs_name, #dig_cs_lastname, #dig_cs_username, #dig_cs_email, #dig_cs_password, .digits-form_input_row:has(input[name="phone"]))::before {
+    content: "\f110";
+}
+
+body.login .dg-digits-register-shell #dig_cs_lastname::before {
+    content: "\f336";
+}
+
+body.login .dg-digits-register-shell #dig_cs_username::before {
+    content: "\f110";
+}
+
+body.login .dg-digits-register-shell #dig_cs_email::before {
+    content: "\f465";
+}
+
+body.login .dg-digits-register-shell .digits-form_input_row:has(input[name="phone"])::before {
+    content: "\f470";
+}
+
+body.login .dg-digits-register-shell #dig_cs_password::before {
+    content: "\f160";
+}
+
+body.login .dg-digits-register-shell :is(#dig_cs_name, #dig_cs_lastname, #dig_cs_username, #dig_cs_email, #dig_cs_password, .digits-form_input_row:has(input[name="phone"])) input {
+    padding-inline-start: 46px !important;
+}
+
+@media (min-width: 720px) {
+    body.login .dg-digits-register-shell .digits_signup_form_step {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        column-gap: 14px;
+    }
+
+    body.login .dg-digits-register-shell :is(#dig_cs_username, #dig_cs_email, #dig_cs_password, .digits-form_input_row:has(input[name="phone"]), .digits-form_submit-btn, .digits-form_button) {
+        grid-column: 1 / -1;
+    }
 }
 
 body.login .dg-digits-login-shell :is(.digits-form_page, .digits-form_container, .digits2_box),
@@ -210,6 +488,45 @@ body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) :is(.digits-fo
     background: var(--dg-panel-raised) !important;
     box-shadow: var(--dg-shadow) !important;
     backdrop-filter: blur(18px);
+}
+
+body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) :is(form, .digits_form_index_section, .digits_secure_modal_box, .digits_ui, .digits-form_container, .digits-form_page, .digits-form_wrapper, .digits_modal_box, .digits2_box, .digits-form_login, .digits-form_body, .digits-form_body_wrapper, .digits-form_tab_wrapper, .digits-form_tab_container, .digits-form_tab_body, .digits_signup_form_step, .digits-form_footer) {
+    border: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    backdrop-filter: none !important;
+    overflow: visible !important;
+}
+
+body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) :is(form, .digits_form_index_section, .digits-form_wrapper, .digits_modal_box, .digits2_box) {
+    padding: 0 !important;
+    margin: 0 !important;
+}
+
+body.login .dg-digits-login-shell form.digits_form_index_section,
+body.login .dg-digits-register-shell form.digits_form_index_section,
+body.login .dg-digits-login-shell.login form {
+    border: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+}
+
+body.login .dg-digits-login-shell .digits-form_tabs,
+body.login .dg-digits-login-shell .digits-form_tab-bar {
+    display: none !important;
+}
+
+body.login .dg-digits-login-shell.dg-digits-auto-identity .digits-form_tab_body:not(.digits-tab_active),
+body.login .dg-digits-login-shell.dg-digits-auto-identity .digits-form_tab_body[hidden] {
+    display: none !important;
+}
+
+body.login .dg-digits-login-shell.dg-digits-auto-identity .digits-form_tab_body.digits-tab_active {
+    display: block !important;
+}
+
+body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) :is(.digits_captcha_row, .dg_min_capt, .digits_reg_logincaptcha, .dig_captcha) {
+    display: none !important;
 }
 
 body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .digits-form_heading {
@@ -249,14 +566,15 @@ body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) :is(.digits-fo
 }
 
 body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .digits-form_input_row {
-    min-height: 54px !important;
-    margin-block: 10px !important;
-    padding-inline: 12px !important;
+    position: relative;
+    min-height: 58px !important;
+    margin-block: 11px !important;
+    padding-inline: 14px !important;
     background: var(--dg-input-bg) !important;
 }
 
 body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .digits-form_input input {
-    min-height: 44px !important;
+    min-height: 48px !important;
     margin: 0 !important;
     border: 0 !important;
     background: transparent !important;
@@ -265,33 +583,406 @@ body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .digits-form_i
     font-family: var(--dg-font) !important;
 }
 
+body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .digits-form_input input.digits_login_remember_me {
+    min-height: 22px !important;
+}
+
+body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .digits-form_input_row::before {
+    position: absolute;
+    inset-block-start: 50%;
+    inset-inline-start: 17px;
+    z-index: 2;
+    color: var(--dg-accent-strong);
+    font-family: dashicons;
+    font-size: 20px;
+    line-height: 1;
+    transform: translateY(-50%);
+    pointer-events: none;
+}
+
+body.login .dg-digits-login-shell .digits-mobile_wrapper::before {
+    content: "\f110";
+}
+
+body.login .dg-digits-login-shell[data-dg-identity="email"] .digits-mobile_wrapper::before,
+body.login .dg-digits-login-shell[data-dg-identity="email"] .digits-form_tab_body.digits-tab_active .digits-form_input_row::before {
+    content: "\f465";
+}
+
+body.login .dg-digits-login-shell[data-dg-identity="phone"] .digits-mobile_wrapper::before {
+    content: "\f470";
+}
+
+body.login .dg-digits-login-shell[data-dg-identity="username"] .digits-mobile_wrapper::before {
+    content: "\f110";
+}
+
+body.login .dg-digits-login-shell.dg-digits-auto-identity:not([data-dg-identity="phone"]) .digits-form_countrycode {
+    display: none !important;
+}
+
+body.login .dg-digits-login-shell.dg-digits-auto-identity .digits-mobile_wrapper {
+    direction: ltr;
+}
+
+body.login .dg-digits-login-shell.dg-digits-auto-identity:not([data-dg-identity="phone"]) .mobile_field {
+    padding-inline-start: 46px !important;
+    padding-inline-end: 16px !important;
+    direction: ltr;
+    text-align: left !important;
+}
+
+body.login .dg-digits-login-shell.dg-digits-auto-identity[data-dg-identity="email"] .digits-form_tab_body.digits-tab_active .digits-form_input_row {
+    direction: ltr;
+}
+
+body.login .dg-digits-login-shell.dg-digits-auto-identity[data-dg-identity="email"] input[name="digits_email"] {
+    padding-inline-start: 46px !important;
+    padding-inline-end: 16px !important;
+    direction: ltr;
+    text-align: left !important;
+}
+
+body.login .dg-digits-login-shell.dg-digits-auto-identity[data-dg-identity="phone"] .mobile_field {
+    padding-inline: 12px !important;
+    padding-left: 12px !important;
+    padding-right: 12px !important;
+}
+
 body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .digits-form_input input::placeholder {
     color: color-mix(in srgb, var(--dg-text-soft) 56%, transparent) !important;
 }
 
 body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .digits-form_countrycode {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
     color: var(--dg-accent-strong) !important;
     font-weight: 800;
 }
 
-body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) :is(.digits-form_button, .digits-form_submit-btn) {
+body.login .dg-digits-login-shell.dg-digits-auto-identity[data-dg-identity="phone"] .digits-mobile_wrapper {
+    display: flex !important;
+    align-items: center !important;
+    gap: 10px !important;
+    width: 100% !important;
+    direction: ltr;
+}
+
+body.login .dg-digits-login-shell.dg-digits-auto-identity[data-dg-identity="phone"] .digits-mobile_wrapper::before {
+    content: none;
+}
+
+body.login .dg-digits-login-shell.dg-digits-auto-identity[data-dg-identity="phone"] .digits-form_countrycode {
+    position: static !important;
+    z-index: 60;
+    flex: 0 0 auto;
+    min-width: 104px;
+    min-height: 40px;
+    justify-content: center;
+    padding-inline: 10px;
+    border: 0 !important;
+    border-inline-end: 1px solid var(--dg-border) !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+}
+
+body.login .dg-digits-login-shell.dg-digits-auto-identity[data-dg-identity="phone"] .digits-form_countrycode input {
+    width: 42px !important;
+    min-width: 0 !important;
+    min-height: 0 !important;
+    height: auto !important;
+    padding: 0 !important;
+    line-height: 1 !important;
+    text-align: left !important;
+}
+
+body.login .dg-country-code-control {
+    position: relative;
+    z-index: 60;
+    gap: 6px;
+}
+
+body.login .dg-country-flag,
+body.login .dg-country-option-flag {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 20px;
+    overflow: hidden;
+    border-radius: 5px;
+    background: var(--dg-flag) center / cover no-repeat;
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--dg-border) 70%, transparent);
+    line-height: 1;
+}
+
+body.login .dg-country-trigger {
+    display: inline-grid;
+    place-items: center;
+    width: 26px;
+    height: 30px;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 9px;
+    background: transparent;
+    color: var(--dg-text-soft);
+    cursor: pointer;
+}
+
+body.login .dg-country-trigger:hover,
+body.login .dg-country-code-control.is-open .dg-country-trigger {
+    color: var(--dg-accent-strong);
+    background: var(--dg-accent-soft);
+}
+
+body.login .dg-country-trigger .dashicons {
+    width: 16px;
+    height: 16px;
+    font-size: 16px;
+    line-height: 1;
+}
+
+body.login .dg-country-menu {
+    position: absolute;
+    inset-block-start: calc(100% + 10px);
+    inset-inline-start: 0;
+    z-index: 99999;
+    display: grid;
+    min-width: 260px;
+    max-height: 260px;
+    padding: 8px;
+    overflow: auto;
+    border: 1px solid var(--dg-border);
+    border-radius: 18px;
+    background: var(--dg-panel-strong);
+    box-shadow: var(--dg-shadow);
+    opacity: 0;
+    transform: translateY(-6px) scale(0.98);
+    transform-origin: top left;
+    pointer-events: none;
+    transition: opacity 0.16s ease, transform 0.16s ease;
+}
+
+body.login .dg-country-code-control.is-open .dg-country-menu {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    pointer-events: auto;
+}
+
+body.login .dg-country-option {
+    display: grid;
+    grid-template-columns: 34px 58px minmax(0, 1fr);
+    align-items: center;
+    gap: 8px;
+    min-height: 40px;
+    padding: 8px 10px;
+    border: 0;
+    border-radius: 12px;
+    background: transparent;
+    color: var(--dg-text);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+body.login .dg-country-option:hover,
+body.login .dg-country-option.is-active {
+    background: var(--dg-accent-soft);
+    color: var(--dg-heading);
+}
+
+body.login .dg-country-option-code {
+    direction: ltr;
+    font-weight: 800;
+}
+
+body.login .dg-country-option-name {
+    overflow: hidden;
+    color: var(--dg-text-soft);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+body.login .dg-digits-login-shell.dg-digits-auto-identity[data-dg-identity="phone"] .digits-mobile_wrapper > .digits-form_input:not(.digits-form_countrycode) {
+    flex: 1 1 auto !important;
+    min-width: 0 !important;
+    width: auto !important;
+}
+
+body.login .dg-digits-login-shell.dg-digits-auto-identity[data-dg-identity="phone"] .mobile_field {
+    flex: 1 1 auto;
+    min-width: 0;
+    width: 100% !important;
+    box-sizing: border-box;
+    direction: ltr;
+    text-align: left !important;
+}
+
+body.login .dg-digits-login-shell.dg-digits-auto-identity .digits-form_countrycode::before {
+    content: none;
+    display: none;
+}
+
+body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) :is(.digits-form_button, .digits-form_submit, .digits-form_submit-btn) {
     display: inline-flex !important;
     align-items: center;
     justify-content: center;
     gap: 8px;
-    min-height: 52px !important;
+    min-height: 56px !important;
     border: 0 !important;
     background: linear-gradient(135deg, var(--dg-accent) 0%, var(--dg-accent-strong) 100%) !important;
     color: #fff !important;
     font-family: var(--dg-font) !important;
-    font-size: 15px !important;
+    font-size: 16px !important;
     font-weight: 800 !important;
     box-shadow: 0 18px 36px color-mix(in srgb, var(--dg-accent-strong) 34%, transparent) !important;
+    overflow: hidden;
+    isolation: isolate;
 }
 
-body.login .dg-digits-login-shell :is(.digits-form_button, .digits-form_submit-btn),
-body.login .dg-digits-register-shell :is(.digits-form_button, .digits-form_submit-btn) {
+body.login .dg-digits-login-shell :is(.digits-form_button, .digits-form_submit, .digits-form_submit-btn),
+body.login .dg-digits-register-shell :is(.digits-form_button, .digits-form_submit, .digits-form_submit-btn) {
+    border-radius: 18px;
+}
+
+body.rtl.login :is(.dg-digits-login-shell, .dg-digits-register-shell) :is(.digits-form_button, .digits-form_submit, .digits-form_submit-btn),
+html[dir="rtl"] body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) :is(.digits-form_button, .digits-form_submit, .digits-form_submit-btn) {
+    direction: rtl;
+}
+
+body:not(.rtl).login :is(.dg-digits-login-shell, .dg-digits-register-shell) :is(.digits-form_button, .digits-form_submit, .digits-form_submit-btn) {
+    direction: ltr;
+}
+
+body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .digits-form_button-text,
+body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) :is(.digits-form_button, .digits-form_submit, .digits-form_submit-btn) > span:not(.digits-form_button_ic) {
+    order: 1;
+}
+
+body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .digits-form_button_ic {
+    order: 2;
+    display: inline-grid !important;
+    place-items: center;
+    inline-size: 20px;
+    block-size: 20px;
+    flex: 0 0 20px;
+    transform: none !important;
+    transition: opacity 0.16s ease, color 0.16s ease;
+}
+
+body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .digits-form_button_ic::before {
+    content: "\f345";
+    display: inline-block;
+    font-family: dashicons;
+    font-size: 18px;
+    line-height: 1;
+    transform: none;
+}
+
+body.rtl.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .digits-form_button_ic::before,
+html[dir="rtl"] body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .digits-form_button_ic::before {
+    content: "\f341";
+    transform: none;
+}
+
+body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) :is(.digits-form_button, .digits-form_submit, .digits-form_submit-btn):hover .digits-form_button_ic {
+    transform: none !important;
+}
+
+body.login .dg-username-password-step {
+    width: 100%;
+}
+
+body.login .dg-username-login-summary {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-block: 2px 14px;
+    padding: 12px 14px;
+    border: 1px solid var(--dg-border);
     border-radius: 16px;
+    background: color-mix(in srgb, var(--dg-accent-soft) 54%, transparent);
+    color: var(--dg-heading);
+    font-weight: 800;
+}
+
+body.login .dg-username-login-summary .dashicons {
+    color: var(--dg-accent-strong);
+}
+
+body.login .dg-username-password-row {
+    display: flex !important;
+    align-items: center;
+    gap: 10px;
+    padding-inline-start: 46px !important;
+    padding-inline-end: 8px !important;
+}
+
+body.login .dg-username-password-row::before {
+    content: none;
+}
+
+body.login .dg-username-password-row .dg-digits-row-icon {
+    order: 0;
+    position: absolute;
+    inset-inline-start: 17px;
+    color: var(--dg-accent-strong);
+}
+
+body.login .dg-username-password-input {
+    order: 1;
+    flex: 1 1 auto;
+    min-width: 0;
+    width: 100%;
+    min-height: 48px;
+    margin: 0 !important;
+    border: 0 !important;
+    background: transparent !important;
+    color: var(--dg-text) !important;
+    box-shadow: none !important;
+    font-family: var(--dg-font) !important;
+    font-size: 17px !important;
+}
+
+body.login .dg-username-password-row .button.wp-hide-pw {
+    order: 2;
+    flex: 0 0 42px;
+}
+
+body.login .dg-username-login-actions {
+    display: grid;
+    grid-template-columns: minmax(120px, 0.38fr) minmax(0, 1fr);
+    gap: 12px;
+    margin-top: 14px;
+}
+
+body.login .dg-username-login-back {
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 56px !important;
+    border-radius: 18px !important;
+    border-color: var(--dg-border) !important;
+    background: var(--dg-panel) !important;
+    color: var(--dg-text) !important;
+    font-family: var(--dg-font) !important;
+    font-weight: 800 !important;
+}
+
+body.login .dg-username-login-submit {
+    width: 100%;
+}
+
+body.login .dg-digits-login-shell form.dg-username-step-active :is(.digits-form_rememberme, .digits-social-logins-box, .digits-form_button:not(.dg-username-login-submit), .digits-form_submit:not(.dg-username-login-submit), .digits-form_submit-btn:not(.dg-username-login-submit)) {
+    display: none !important;
+}
+
+body.login .dg-digits-login-shell form.dg-username-step-active .dg-username-password-step .digits-form_button {
+    display: inline-flex !important;
 }
 
 .dg-login-alert,
@@ -371,6 +1062,13 @@ body.wp-admin textarea {
     min-height: 120px;
 }
 
+body.login :is(input[type="password"], input.dg-password-visible, #user_pass, .dg-username-password-input) {
+    direction: ltr !important;
+    text-align: left !important;
+    font-family: ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace !important;
+    font-variant-numeric: tabular-nums;
+}
+
 body.login form .input:focus,
 body.login input[type="text"]:focus,
 body.login input[type="password"]:focus,
@@ -448,17 +1146,42 @@ body.login.dg-login-submitting * {
     cursor: wait !important;
 }
 
-body.login :is(#wp-submit, .button-primary, .digits-form_submit-btn, .digits-form_button, .digits-social-btn).is-loading {
-    background-image:
-        repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.2) 0 10px, rgba(255, 255, 255, 0.06) 10px 20px),
-        linear-gradient(135deg, var(--dg-accent) 0%, var(--dg-accent-strong) 100%) !important;
-    background-size: 44px 44px, auto;
+body.login :is(#wp-submit, .button-primary, .digits-form_submit-btn, .digits-form_submit, .digits-form_button, .digits-social-btn).is-loading {
+    position: relative;
+    overflow: hidden !important;
+    background-image: linear-gradient(135deg, var(--dg-accent) 0%, var(--dg-accent-strong) 100%) !important;
     color: #fff !important;
     cursor: wait !important;
-    animation: dg-loading-stripes 0.8s linear infinite;
+    animation: none !important;
+    opacity: 1 !important;
+    isolation: isolate;
 }
 
-body.login :is(#wp-submit, .button-primary, .digits-form_submit-btn, .digits-form_button, .digits-social-btn).is-loading::after {
+body.login :is(#wp-submit, .button-primary, .digits-form_submit-btn, .digits-form_submit, .digits-form_button, .digits-social-btn).is-loading:disabled {
+    background-image: linear-gradient(135deg, var(--dg-accent) 0%, var(--dg-accent-strong) 100%) !important;
+    color: #fff !important;
+    filter: none !important;
+}
+
+body.login :is(#wp-submit, .button-primary, .digits-form_submit-btn, .digits-form_submit, .digits-form_button, .digits-social-btn).is-loading::before {
+    content: "";
+    position: absolute;
+    inset: -45% -20%;
+    z-index: 0;
+    display: block;
+    background: repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.24) 0 10px, rgba(255, 255, 255, 0.06) 10px 20px);
+    animation: dg-loading-stripes-ltr 0.82s linear infinite !important;
+    pointer-events: none;
+    visibility: visible !important;
+    will-change: transform;
+}
+
+body.rtl.login :is(#wp-submit, .button-primary, .digits-form_submit-btn, .digits-form_submit, .digits-form_button, .digits-social-btn).is-loading::before,
+html[dir="rtl"] body.login :is(#wp-submit, .button-primary, .digits-form_submit-btn, .digits-form_submit, .digits-form_button, .digits-social-btn).is-loading::before {
+    animation-name: dg-loading-stripes-rtl !important;
+}
+
+body.login :is(#wp-submit, .button-primary, .digits-form_submit-btn, .digits-form_submit, .digits-form_button, .digits-social-btn).is-loading::after {
     content: "";
     display: inline-block;
     inline-size: 18px;
@@ -467,6 +1190,57 @@ body.login :is(#wp-submit, .button-primary, .digits-form_submit-btn, .digits-for
     border-block-start-color: #fff;
     border-radius: 999px;
     animation: dg-fuji-spin 0.72s linear infinite;
+    position: relative;
+    z-index: 1;
+}
+
+body.login :is(.digits-form_submit-btn, .digits-form_submit, .digits-form_button).is-loading .digits-form_button_ic {
+    display: none !important;
+    inline-size: 0;
+    flex-basis: 0;
+    margin: 0;
+    opacity: 0;
+    visibility: hidden;
+}
+
+body.login :is(.digits-form_submit-btn, .digits-form_submit, .digits-form_button).is-loading .digits-form_button_ic::before,
+body.login :is(.digits-form_submit-btn, .digits-form_submit, .digits-form_button).is-loading .digits-form_button_ic::after,
+body.login :is(.digits-form_submit-btn, .digits-form_submit, .digits-form_button).is-loading :is(.dig_load, .digits-spinner, .spinner) {
+    content: "" !important;
+    display: none !important;
+    opacity: 0 !important;
+    visibility: hidden !important;
+}
+
+body.login :is(#wp-submit, .button-primary, .digits-form_submit-btn, .digits-form_submit, .digits-form_button, .digits-social-btn).is-loading > * {
+    position: relative;
+    z-index: 1;
+}
+
+body.login form.dg-form-pending {
+    position: relative;
+}
+
+body.login form.dg-form-pending::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 8;
+    border-radius: inherit;
+    background: transparent;
+    cursor: wait;
+}
+
+body.login form.dg-form-pending :is(input, select, textarea, button) {
+    cursor: wait !important;
+}
+
+body.login form.dg-form-pending :is(input, select, textarea, button):not(.is-loading) {
+    pointer-events: none !important;
+}
+
+body.login form.dg-form-pending :is(input, select, textarea) {
+    opacity: 0.72;
 }
 
 body.login .button,
@@ -518,7 +1292,7 @@ body.login p.submit {
 body.login .digits-social-logins-box {
     margin-top: 24px;
     padding-top: 22px;
-    border-top: 1px solid var(--dg-border);
+    border-top: 0;
 }
 
 body.login .digits-use_social-logins {
@@ -532,7 +1306,7 @@ body.login .digits-use_social-logins span {
     align-items: center;
     gap: 12px;
     margin: 0;
-    padding: 0;
+    padding: 0 12px;
     background: transparent !important;
     color: var(--dg-text-soft);
     font-size: 13px;
@@ -551,9 +1325,9 @@ body.login .digits-social-btn {
     align-items: center;
     justify-content: space-between;
     gap: 12px;
-    min-height: 46px;
+    min-height: 56px;
     height: auto !important;
-    padding: 9px 14px !important;
+    padding: 12px 18px !important;
     border: 1px solid var(--dg-border);
     border-radius: 18px;
     background: var(--dg-panel);
@@ -572,7 +1346,7 @@ body.login .digits-social-btn:hover {
 
 body.login .digits-social-text {
     color: inherit;
-    font-size: 16px;
+    font-size: 16.5px;
     font-weight: 700;
 }
 
@@ -649,6 +1423,27 @@ body.wp-admin div.error {
     border-inline-start-color: var(--dg-danger);
 }
 
+body.login .dg-digits-inline-message,
+body.login :is(.digits-form_message, .digits-form_error, .digits_error, .digits_notice, .dig_error, .dig_notice, .dig_popmessage) {
+    margin-block: 0 16px;
+    padding: 12px 14px;
+    border: 1px solid var(--dg-border);
+    border-inline-start: 4px solid var(--dg-danger);
+    border-radius: 16px;
+    background: color-mix(in srgb, var(--dg-danger-soft) 52%, var(--dg-panel));
+    color: var(--dg-text);
+    font-family: var(--dg-font);
+    font-size: 13px;
+    line-height: 1.75;
+    box-shadow: var(--dg-shadow-soft);
+}
+
+body.login .dg-digits-inline-message--success,
+body.login .digits-form_message:not(.digits-form_error) {
+    border-inline-start-color: var(--dg-accent);
+    background: color-mix(in srgb, var(--dg-accent-soft) 58%, var(--dg-panel));
+}
+
 body.login .message,
 body.wp-admin .notice.notice-success,
 body.wp-admin div.updated {
@@ -684,6 +1479,21 @@ body.wp-admin #wpadminbar > #wp-toolbar span.noticon {
     color: var(--dg-text);
 }
 
+body.wp-admin #wpadminbar .dashicons,
+body.wp-admin .dashicons,
+body.login .dashicons,
+body.wp-admin .dashicons-before::before,
+body.login .dashicons-before::before {
+    font-family: dashicons !important;
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    font-size: 20px;
+    line-height: 1;
+    text-align: center;
+    vertical-align: middle;
+}
+
 body.wp-admin #wp-admin-bar-digitalogic-brand > .ab-item,
 body.wp-admin #wp-admin-bar-digitalogic-brand > a.ab-item {
     padding-inline-start: 10px;
@@ -696,12 +1506,29 @@ body.wp-admin #wp-admin-bar-digitalogic-brand > a.ab-item {
     font-weight: 700;
 }
 
-.dg-brand-node__mark {
-    width: 12px;
-    height: 12px;
-    border-radius: 999px;
-    background: linear-gradient(135deg, var(--dg-accent) 0%, var(--dg-accent-strong) 100%);
-    box-shadow: 0 0 0 4px var(--dg-accent-soft);
+.dg-brand-node__icon {
+    color: var(--dg-accent-strong);
+}
+
+body.wp-admin #wpadminbar #wp-admin-bar-digitalogic-theme-toggle > .ab-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    min-width: 38px;
+    padding-inline: 10px;
+}
+
+.dg-adminbar-theme-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+}
+
+.dg-adminbar-theme-toggle .dashicons {
+    width: 18px;
+    height: 18px;
+    font-size: 18px;
+    color: var(--dg-accent-strong);
 }
 
 body.wp-admin #adminmenuwrap,
@@ -1144,22 +1971,105 @@ body.login .forgetmenot label {
     font-weight: 500;
 }
 
-body.login #rememberme {
-    appearance: none;
-    -webkit-appearance: none;
-    display: inline-grid;
-    place-items: center;
-    width: 22px;
-    height: 22px;
-    margin: 0;
-    border: 1px solid var(--dg-border);
-    border-radius: 8px;
-    background: var(--dg-input-bg);
-    box-shadow: var(--dg-shadow-soft);
-    cursor: pointer;
+body.login .dg-digits-login-shell .digits-form_rememberme {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: flex-start !important;
+    min-height: auto !important;
+    height: auto !important;
+    margin-block: 4px 14px !important;
+    padding: 0 !important;
+    border: 0 !important;
+    background: transparent !important;
+    overflow: visible !important;
 }
 
-body.login #rememberme::before,
+body.login .dg-digits-login-shell .digits-form_rememberme::before {
+    content: none;
+}
+
+body.login .dg-digits-login-shell .digits-form_rememberme .dig_input_wrapper::before,
+body.login .dg-digits-login-shell .digits-form_rememberme .dig_input_wrapper::after,
+body.login .dg-digits-login-shell .digits-form_input_row .digits-field-type_tac .dig_input_wrapper::before,
+body.login .dg-digits-login-shell .digits-form_input_row .digits-field-type_tac .dig_input_wrapper::after,
+html[dir="rtl"] body.login .dg-digits-login-shell .digits-form_input_row .digits-field-type_tac .dig_input_wrapper::before,
+html[dir="rtl"] body.login .dg-digits-login-shell .digits-form_input_row .digits-field-type_tac .dig_input_wrapper::after {
+    content: none !important;
+    display: none !important;
+    opacity: 0 !important;
+    visibility: hidden !important;
+}
+
+body.login .dg-digits-login-shell .digits-form_rememberme :is(.digits-form_input, .dig_opt_mult_con, .dig_opt_mult, label, .dig_input_wrapper) {
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 10px;
+    width: auto !important;
+    min-height: 0 !important;
+    height: auto !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    background: transparent !important;
+    color: var(--dg-text) !important;
+    line-height: 1.35 !important;
+    overflow: visible !important;
+}
+
+body.login .dg-digits-login-shell .digits-form_rememberme .digits_login_remember_me,
+body.login #rememberme {
+    appearance: none !important;
+    -webkit-appearance: none !important;
+    display: inline-grid !important;
+    place-items: center;
+    visibility: visible !important;
+    opacity: 1 !important;
+    inline-size: 22px;
+    block-size: 22px;
+    width: 22px !important;
+    height: 22px !important;
+    min-width: 22px !important;
+    min-height: 22px !important;
+    max-width: 22px !important;
+    max-height: 22px !important;
+    flex: 0 0 22px;
+    margin: 0 !important;
+    padding: 0 !important;
+    line-height: 1 !important;
+    border: 1px solid var(--dg-border) !important;
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--dg-panel-soft) 72%, transparent) !important;
+    box-shadow: inset 0 1px 0 color-mix(in srgb, #ffffff 10%, transparent), var(--dg-shadow-soft) !important;
+    cursor: pointer;
+    transform: scale(1);
+    vertical-align: middle;
+    transition: background-color 0.18s ease, background-image 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+body.login .dg-digits-login-shell .digits-form_rememberme .digits_login_remember_me:active,
+body.login #rememberme:active {
+    transform: scale(0.92);
+}
+
+body.login .dg-digits-login-shell .digits-form_rememberme .digits_login_remember_me::before,
+body.login #rememberme::before {
+    content: "" !important;
+    display: block !important;
+    width: 6px !important;
+    height: 11px !important;
+    margin: -1px 0 0 !important;
+    border: solid #fff !important;
+    border-width: 0 2px 2px 0 !important;
+    visibility: visible !important;
+    opacity: 0;
+    transform: rotate(45deg) scale(0.62);
+    transform-origin: center;
+    transition: opacity 0.16s ease, transform 0.18s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+body.login .dg-digits-login-shell .digits-form_rememberme .digits_login_remember_me::after,
+body.login .dg-digits-login-shell .digits-form_rememberme .digits_login_remember_me:checked::after,
 body.login #rememberme::after,
 body.login #rememberme:checked::after {
     content: none !important;
@@ -1169,22 +2079,40 @@ body.login #rememberme:checked::after {
     height: 0 !important;
 }
 
+body.login .dg-digits-login-shell .digits-form_rememberme .digits_login_remember_me:checked::before,
 body.login #rememberme:checked::before {
-    content: "\f147" !important;
-    display: block !important;
-    width: auto !important;
-    height: auto !important;
-    margin: 0 !important;
-    color: #fff;
-    font-family: dashicons;
-    font-size: 18px;
-    line-height: 1;
+    opacity: 1;
+    transform: rotate(45deg) scale(1);
 }
 
+body.login .dg-digits-login-shell .digits-form_rememberme .digits_login_remember_me:checked,
 body.login #rememberme:checked {
-    border-color: transparent;
+    border-color: transparent !important;
     background-color: var(--dg-accent);
-    background-image: linear-gradient(135deg, var(--dg-accent), var(--dg-accent-strong)) !important;
+    background-image:
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath fill='none' stroke='%23fff' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round' d='M5 10.4l3.2 3.2L15.4 6.5'/%3E%3C/svg%3E"),
+        linear-gradient(135deg, var(--dg-accent), var(--dg-accent-strong)) !important;
+    background-position: center, center !important;
+    background-repeat: no-repeat, no-repeat !important;
+    background-size: 15px 15px, 100% 100% !important;
+    box-shadow: 0 10px 24px color-mix(in srgb, var(--dg-accent-strong) 28%, transparent);
+    transform: scale(1.06);
+}
+
+body.login :is(input[type="password"], input.dg-password-visible, #user_pass, .dg-username-password-input)::placeholder {
+    font-family: var(--dg-placeholder-font, var(--dg-font)) !important;
+    color: color-mix(in srgb, var(--dg-text-soft) 58%, transparent) !important;
+    font-variant-numeric: normal !important;
+    letter-spacing: 0 !important;
+}
+
+body.login .dg-digits-login-shell .digits-form_rememberme .dig_input_wrapper > div {
+    margin: 0 !important;
+    padding: 0 !important;
+    color: var(--dg-text);
+    font-size: 14.5px;
+    font-weight: 600;
+    line-height: 1.35 !important;
 }
 
 body.login .language-switcher {
@@ -1211,6 +2139,10 @@ body.login #language-switcher.dg-language-form {
     backdrop-filter: none;
 }
 
+body.login #language-switcher.dg-language-form :is(input[type="submit"], button[type="submit"], .dg-language-apply) {
+    display: none !important;
+}
+
 .dg-visually-hidden {
     position: absolute !important;
     width: 1px !important;
@@ -1221,6 +2153,10 @@ body.login #language-switcher.dg-language-form {
     clip: rect(0, 0, 0, 0) !important;
     white-space: nowrap !important;
     border: 0 !important;
+}
+
+body.login .dg-digits-login-shell .altEmail_container[hidden] {
+    display: none !important;
 }
 
 .dg-theme-toggle-button,
@@ -1416,7 +2352,8 @@ body.wp-admin .digitalogic-panel-page .button-hero {
 }
 
 .dg-ripple-host {
-    overflow: hidden;
+    position: relative;
+    overflow: hidden !important;
 }
 
 .dg-ripple-circle {
@@ -1436,9 +2373,23 @@ body.wp-admin .digitalogic-panel-page .button-hero {
     }
 }
 
-@keyframes dg-loading-stripes {
+@keyframes dg-loading-stripes-ltr {
+    from {
+        transform: translateX(-36px);
+    }
+
     to {
-        background-position: 44px 0, 0 0;
+        transform: translateX(36px);
+    }
+}
+
+@keyframes dg-loading-stripes-rtl {
+    from {
+        transform: translateX(36px);
+    }
+
+    to {
+        transform: translateX(-36px);
     }
 }
 
@@ -1450,8 +2401,31 @@ body.wp-admin .digitalogic-panel-page .button-hero {
 
 @media (max-width: 782px) {
     body.login #login {
-        width: 100%;
+        width: min(100%, calc(100vw - 24px)) !important;
+        max-width: calc(100vw - 24px) !important;
         padding-top: 18px;
+    }
+
+    body.login .dg-digits-login-shell {
+        grid-template-columns: 1fr;
+        gap: 18px;
+        padding: 18px;
+        border-radius: 24px;
+    }
+
+    body.login .dg-digits-login-shell::before {
+        min-height: 220px;
+        border-radius: 20px;
+        background-size: min(78%, 280px) auto, cover, cover, cover;
+    }
+
+    body.login .dg-login-hero-carousel {
+        min-height: 220px;
+        border-radius: 20px;
+    }
+
+    body.login .dg-hero-slide {
+        background-size: min(78%, 280px) auto;
     }
 
     body.login #loginform,
