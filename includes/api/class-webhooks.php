@@ -1,8 +1,9 @@
 <?php
 /**
  * Webhooks Class
- * 
- * Handles webhook notifications for product and currency updates
+ *
+ * Handles outbound webhook notifications for operational, auth, product,
+ * order, and pricing events.
  */
 
 if (!defined('ABSPATH')) {
@@ -21,9 +22,23 @@ class Digitalogic_Webhooks {
     }
     
     private function __construct() {
+        // Authentication and user events
+        add_action('wp_login', array($this, 'login_succeeded'), 10, 2);
+        add_action('wp_login_failed', array($this, 'login_failed'), 10, 1);
+        add_action('user_register', array($this, 'user_registered'), 10, 1);
+        add_action('profile_update', array($this, 'user_updated'), 10, 3);
+
         // Hook into product updates
         add_action('woocommerce_update_product', array($this, 'product_updated'), 10, 1);
         add_action('woocommerce_new_product', array($this, 'product_created'), 10, 1);
+        add_action('before_delete_post', array($this, 'product_deleted'), 10, 2);
+        add_action('woocommerce_product_set_stock', array($this, 'product_stock_changed'), 10, 1);
+        add_action('woocommerce_variation_set_stock', array($this, 'product_stock_changed'), 10, 1);
+
+        // Hook into order updates
+        add_action('woocommerce_new_order', array($this, 'order_created'), 10, 2);
+        add_action('woocommerce_update_order', array($this, 'order_updated'), 10, 1);
+        add_action('woocommerce_order_status_changed', array($this, 'order_status_changed'), 10, 4);
         
         // Hook into currency updates
         add_action('update_option_dollar_price', array($this, 'currency_updated'), 10, 3);
@@ -31,14 +46,138 @@ class Digitalogic_Webhooks {
         
         // Add settings page
         add_action('admin_init', array($this, 'register_settings'));
+        add_action('rest_api_init', array($this, 'register_routes'));
     }
     
     /**
      * Register webhook settings
      */
     public function register_settings() {
-        register_setting('digitalogic_webhooks', 'digitalogic_webhook_urls');
-        register_setting('digitalogic_webhooks', 'digitalogic_webhook_secret');
+        register_setting('digitalogic_webhooks', 'digitalogic_webhook_urls', array(
+            'sanitize_callback' => array($this, 'sanitize_webhook_urls'),
+        ));
+        register_setting('digitalogic_webhooks', 'digitalogic_webhook_secret', array(
+            'sanitize_callback' => 'sanitize_text_field',
+        ));
+    }
+
+    /**
+     * Register operational webhook endpoints.
+     */
+    public function register_routes() {
+        register_rest_route('digitalogic/v1', '/webhooks/test', array(
+            'methods' => 'POST',
+            'callback' => array($this, 'rest_test_webhook'),
+            'permission_callback' => array($this, 'check_test_permission'),
+        ));
+    }
+
+    /**
+     * Sanitize webhook URL option from textarea or JSON/array input.
+     */
+    public function sanitize_webhook_urls($value) {
+        if (is_string($value)) {
+            $value = array_filter(array_map('trim', preg_split('/[\r\n,]+/', $value)));
+        }
+
+        if (!is_array($value)) {
+            return array();
+        }
+
+        $urls = array();
+        foreach ($value as $url) {
+            $url = esc_url_raw(trim((string) $url));
+            if (!empty($url) && wp_http_validate_url($url)) {
+                $urls[] = $url;
+            }
+        }
+
+        return array_values(array_unique($urls));
+    }
+
+    /**
+     * Check permission for sending a test event.
+     */
+    public function check_test_permission(WP_REST_Request $request) {
+        if (current_user_can('manage_woocommerce')) {
+            return true;
+        }
+
+        $secret = get_option('digitalogic_webhook_secret', '');
+        $provided = $request->get_header('x-digitalogic-secret');
+
+        return !empty($secret) && !empty($provided) && hash_equals($secret, $provided);
+    }
+
+    /**
+     * POST /webhooks/test
+     */
+    public function rest_test_webhook(WP_REST_Request $request) {
+        $data = $request->get_json_params();
+        if (!is_array($data)) {
+            $data = array();
+        }
+
+        $this->trigger_webhook('webhook.test', array(
+            'message' => isset($data['message']) ? sanitize_text_field($data['message']) : 'Digitalogic webhook test',
+            'requested_by' => get_current_user_id(),
+        ), true);
+
+        return new WP_REST_Response(array(
+            'success' => true,
+            'message' => 'Webhook test event queued',
+        ), 200);
+    }
+
+    /**
+     * Successful WordPress login webhook.
+     */
+    public function login_succeeded($user_login, $user) {
+        $this->trigger_webhook('auth.login.succeeded', array(
+            'user' => $this->format_user($user),
+            'login' => $user_login,
+            'request' => $this->request_context(),
+        ));
+    }
+
+    /**
+     * Failed WordPress login webhook and fail2ban syslog signal.
+     */
+    public function login_failed($username) {
+        $ip = $this->client_ip();
+        $safe_username = sanitize_user($username, true);
+
+        if (!empty($ip)) {
+            openlog('wordpress', LOG_PID, LOG_AUTH);
+            syslog(LOG_NOTICE, sprintf('Authentication failure for %s from %s', $safe_username ?: 'unknown', $ip));
+            closelog();
+        }
+
+        $this->trigger_webhook('auth.login.failed', array(
+            'login' => $safe_username,
+            'request' => $this->request_context(),
+        ));
+    }
+
+    /**
+     * New user webhook.
+     */
+    public function user_registered($user_id) {
+        $this->trigger_webhook('user.created', array(
+            'user' => $this->format_user(get_user_by('id', $user_id)),
+            'request' => $this->request_context(),
+        ));
+    }
+
+    /**
+     * User profile update webhook.
+     */
+    public function user_updated($user_id, $old_user_data, $userdata) {
+        $this->trigger_webhook('user.updated', array(
+            'user' => $this->format_user(get_user_by('id', $user_id)),
+            'old_roles' => is_object($old_user_data) ? $old_user_data->roles : array(),
+            'request' => $this->request_context(),
+        ));
     }
     
     /**
@@ -64,6 +203,65 @@ class Digitalogic_Webhooks {
             $this->trigger_webhook('product.created', $product);
         }
     }
+
+    /**
+     * Product deleted webhook.
+     */
+    public function product_deleted($post_id, $post) {
+        if (!is_object($post) || !in_array($post->post_type, array('product', 'product_variation'), true)) {
+            return;
+        }
+
+        $this->trigger_webhook('product.deleted', array(
+            'id' => (int) $post_id,
+            'type' => $post->post_type,
+            'title' => get_the_title($post_id),
+            'sku' => get_post_meta($post_id, '_sku', true),
+            'request' => $this->request_context(),
+        ));
+    }
+
+    /**
+     * Product stock webhook.
+     */
+    public function product_stock_changed($product) {
+        if (!is_object($product) || !method_exists($product, 'get_id')) {
+            return;
+        }
+
+        $this->trigger_webhook('product.stock.changed', array(
+            'id' => $product->get_id(),
+            'sku' => $product->get_sku(),
+            'stock_quantity' => $product->get_stock_quantity(),
+            'stock_status' => $product->get_stock_status(),
+            'request' => $this->request_context(),
+        ));
+    }
+
+    /**
+     * Order created webhook.
+     */
+    public function order_created($order_id, $order = null) {
+        $this->trigger_webhook('order.created', $this->format_order($order ?: wc_get_order($order_id)));
+    }
+
+    /**
+     * Order updated webhook.
+     */
+    public function order_updated($order_id) {
+        $this->trigger_webhook('order.updated', $this->format_order(wc_get_order($order_id)));
+    }
+
+    /**
+     * Order status changed webhook.
+     */
+    public function order_status_changed($order_id, $old_status, $new_status, $order) {
+        $data = $this->format_order($order ?: wc_get_order($order_id));
+        $data['old_status'] = $old_status;
+        $data['new_status'] = $new_status;
+
+        $this->trigger_webhook('order.status.changed', $data);
+    }
     
     /**
      * Currency updated webhook
@@ -84,7 +282,7 @@ class Digitalogic_Webhooks {
     /**
      * Trigger webhook
      */
-    private function trigger_webhook($event, $data) {
+    private function trigger_webhook($event, $data, $blocking = false) {
         $webhook_urls = get_option('digitalogic_webhook_urls', array());
         
         if (empty($webhook_urls)) {
@@ -100,8 +298,13 @@ class Digitalogic_Webhooks {
         
         $payload = array(
             'event' => $event,
+            'event_id' => wp_generate_uuid4(),
             'timestamp' => time(),
-            'data' => $data
+            'site' => array(
+                'name' => get_bloginfo('name'),
+                'url' => home_url(),
+            ),
+            'data' => $data,
         );
         
         $payload_json = json_encode($payload);
@@ -120,7 +323,7 @@ class Digitalogic_Webhooks {
                 ),
                 'body' => $payload_json,
                 'timeout' => 10,
-                'blocking' => false // Non-blocking to avoid slowing down operations
+                'blocking' => (bool) $blocking
             ));
             
             // Log failed webhook attempts for debugging
@@ -159,5 +362,99 @@ class Digitalogic_Webhooks {
      */
     public function manual_trigger($event, $data) {
         $this->trigger_webhook($event, $data);
+    }
+
+    /**
+     * Format a WordPress user without secrets.
+     */
+    private function format_user($user) {
+        if (!$user instanceof WP_User) {
+            return null;
+        }
+
+        return array(
+            'id' => (int) $user->ID,
+            'login' => $user->user_login,
+            'email' => $user->user_email,
+            'display_name' => $user->display_name,
+            'roles' => $user->roles,
+        );
+    }
+
+    /**
+     * Format a WooCommerce order without sensitive payment data.
+     */
+    private function format_order($order) {
+        if (!is_object($order) || !method_exists($order, 'get_id')) {
+            return array();
+        }
+
+        $items = array();
+        foreach ($order->get_items() as $item) {
+            $product = $item->get_product();
+            $items[] = array(
+                'product_id' => $item->get_product_id(),
+                'variation_id' => $item->get_variation_id(),
+                'name' => $item->get_name(),
+                'quantity' => $item->get_quantity(),
+                'sku' => $product ? $product->get_sku() : '',
+                'total' => $item->get_total(),
+            );
+        }
+
+        return array(
+            'id' => $order->get_id(),
+            'number' => $order->get_order_number(),
+            'status' => $order->get_status(),
+            'total' => $order->get_total(),
+            'currency' => $order->get_currency(),
+            'payment_method' => $order->get_payment_method(),
+            'billing_email' => $order->get_billing_email(),
+            'billing_phone' => $order->get_billing_phone(),
+            'created_at' => $order->get_date_created() ? $order->get_date_created()->date('c') : null,
+            'updated_at' => $order->get_date_modified() ? $order->get_date_modified()->date('c') : null,
+            'items' => $items,
+            'request' => $this->request_context(),
+        );
+    }
+
+    /**
+     * Current request metadata.
+     */
+    private function request_context() {
+        return array(
+            'ip' => $this->client_ip(),
+            'user_agent' => isset($_SERVER['HTTP_USER_AGENT']) ? sanitize_text_field(wp_unslash($_SERVER['HTTP_USER_AGENT'])) : '',
+            'uri' => isset($_SERVER['REQUEST_URI']) ? esc_url_raw(wp_unslash($_SERVER['REQUEST_URI'])) : '',
+            'method' => isset($_SERVER['REQUEST_METHOD']) ? sanitize_text_field(wp_unslash($_SERVER['REQUEST_METHOD'])) : '',
+        );
+    }
+
+    /**
+     * Best-effort client IP discovery.
+     */
+    private function client_ip() {
+        $headers = array(
+            'HTTP_CF_CONNECTING_IP',
+            'HTTP_X_REAL_IP',
+            'HTTP_X_FORWARDED_FOR',
+            'REMOTE_ADDR',
+        );
+
+        foreach ($headers as $header) {
+            if (empty($_SERVER[$header])) {
+                continue;
+            }
+
+            $value = sanitize_text_field(wp_unslash($_SERVER[$header]));
+            $parts = array_map('trim', explode(',', $value));
+            foreach ($parts as $part) {
+                if (filter_var($part, FILTER_VALIDATE_IP)) {
+                    return $part;
+                }
+            }
+        }
+
+        return '';
     }
 }

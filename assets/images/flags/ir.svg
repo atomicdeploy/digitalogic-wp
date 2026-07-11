@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 24" role="img" aria-label="Iran flag">
+  <rect width="36" height="8" fill="#239f40"/>
+  <rect y="8" width="36" height="8" fill="#fff"/>
+  <rect y="16" width="36" height="8" fill="#da0000"/>
+  <path fill="#da0000" d="M18 7.2c1.55 1.25 2.35 2.86 2.35 4.8S19.55 15.55 18 16.8c-1.55-1.25-2.35-2.86-2.35-4.8S16.45 8.45 18 7.2Zm0 2.1c-.6.78-.9 1.68-.9 2.7s.3 1.92.9 2.7c.6-.78.9-1.68.9-2.7s-.3-1.92-.9-2.7Z"/>
+</svg>

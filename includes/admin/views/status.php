@@ -16,6 +16,8 @@ $options = Digitalogic_Options::instance();
 // WordPress info
 $wp_version = get_bloginfo('version');
 $php_version = phpversion();
+$min_php_version = defined('DIGITALOGIC_MIN_PHP_VERSION') ? DIGITALOGIC_MIN_PHP_VERSION : '8.2';
+$php_supported = version_compare(PHP_VERSION, $min_php_version, '>=');
 $mysql_version = $wpdb->db_version();
 $wc_version = defined('WC_VERSION') ? WC_VERSION : 'N/A';
 
@@ -106,7 +108,18 @@ $wc_features['Plugin Compatible'] = $hpos_status['plugin_compatible'] ? 'Yes' : 
                 </tr>
                 <tr>
                     <td><strong><?php _e('PHP Version', 'digitalogic'); ?></strong></td>
-                    <td><?php echo esc_html($php_version); ?></td>
+                    <td>
+                        <?php echo esc_html($php_version); ?>
+                        <?php if ($php_supported) : ?>
+                            <span style="color: green;">✓ <?php echo esc_html(sprintf(__('Supported (minimum %s)', 'digitalogic'), $min_php_version)); ?></span>
+                        <?php else : ?>
+                            <span style="color: red;">✗ <?php echo esc_html(sprintf(__('Unsupported (minimum %s)', 'digitalogic'), $min_php_version)); ?></span>
+                        <?php endif; ?>
+                    </td>
+                </tr>
+                <tr>
+                    <td><strong><?php _e('Minimum PHP', 'digitalogic'); ?></strong></td>
+                    <td><?php echo esc_html($min_php_version); ?></td>
                 </tr>
                 <tr>
                     <td><strong><?php _e('MySQL Version', 'digitalogic'); ?></strong></td>
@@ -252,6 +265,8 @@ WordPress Version: <?php echo $wp_version; ?>
 WooCommerce Version: <?php echo $wc_version; ?>
 
 PHP Version: <?php echo $php_version; ?>
+
+Minimum PHP: <?php echo $min_php_version; ?>
 
 MySQL Version: <?php echo $mysql_version; ?>
 

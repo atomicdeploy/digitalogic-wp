@@ -10,6 +10,10 @@ if (!defined('ABSPATH')) {
 class Digitalogic_WebSocket_Server {
 
     private $clients = array();
+    private $redis_socket = null;
+    private $redis_buffer = '';
+    private $redis_next_connect_at = 0;
+    private $redis_channel = 'digitalogic_panel_events';
 
     public function run($host = '127.0.0.1', $port = 8090) {
         $server = stream_socket_server('tcp://' . $host . ':' . $port, $errno, $errstr);
@@ -22,8 +26,15 @@ class Digitalogic_WebSocket_Server {
             WP_CLI::success('Digitalogic WebSocket server listening on ' . $host . ':' . $port);
         }
 
+        $this->connect_redis_subscriber();
+
         while (true) {
+            $this->maybe_connect_redis_subscriber();
+
             $read = array($server);
+            if (is_resource($this->redis_socket)) {
+                $read[] = $this->redis_socket;
+            }
             foreach ($this->clients as $client) {
                 $read[] = $client['socket'];
             }
@@ -35,6 +46,11 @@ class Digitalogic_WebSocket_Server {
             }
 
             foreach ($read as $socket) {
+                if (is_resource($this->redis_socket) && $socket === $this->redis_socket) {
+                    $this->read_redis_events();
+                    continue;
+                }
+
                 if ($socket === $server) {
                     $this->accept($server);
                     continue;
@@ -67,6 +83,7 @@ class Digitalogic_WebSocket_Server {
             'headers' => '',
             'buffer' => '',
             'user_id' => 0,
+            'last_event_id' => class_exists('Digitalogic_Panel') ? Digitalogic_Panel::get_latest_event_id() : (int) round(microtime(true) * 1000),
         );
     }
 
@@ -104,8 +121,9 @@ class Digitalogic_WebSocket_Server {
         $this->send_json($id, array(
             'event' => 'connected',
             'success' => true,
-            'data' => array('user_id' => $user_id),
+            'data' => array('user_id' => max(0, $user_id)),
         ));
+        $this->send_missed_panel_events($id);
     }
 
     private function read($id) {
@@ -158,7 +176,26 @@ class Digitalogic_WebSocket_Server {
             return;
         }
 
-        wp_set_current_user($this->clients[$id]['user_id']);
+        wp_set_current_user(max(0, (int) $this->clients[$id]['user_id']));
+        if ($command === 'digitalogic_panel_events' && class_exists('Digitalogic_Panel')) {
+            if (!current_user_can('manage_woocommerce')) {
+                $this->send_error($id, $request_id, 'digitalogic_unauthorized', __('Unauthorized', 'digitalogic'));
+                return;
+            }
+
+            $since = isset($data['since']) ? absint($data['since']) : 0;
+            $this->send_json($id, array(
+                'id' => $request_id,
+                'event' => 'response',
+                'command' => $command,
+                'success' => true,
+                'data' => array(
+                    'events' => Digitalogic_Panel::get_events_since($since),
+                ),
+            ));
+            return;
+        }
+
         $result = Digitalogic_Command_Dispatcher::instance()->execute($command, $data, 'websocket');
         if (is_wp_error($result)) {
             $this->send_error($id, $request_id, $result->get_error_code(), $result->get_error_message());
@@ -188,6 +225,246 @@ class Digitalogic_WebSocket_Server {
 
     private function send_json($id, $payload) {
         $this->send_frame($id, wp_json_encode($payload), 1);
+    }
+
+    private function send_missed_panel_events($client_id = null) {
+        if (!class_exists('Digitalogic_Panel')) {
+            return;
+        }
+
+        foreach ($this->clients as $id => $client) {
+            if ($client_id !== null && (int) $client_id !== (int) $id) {
+                continue;
+            }
+
+            if (empty($client['handshake'])) {
+                continue;
+            }
+
+            $last_id = isset($client['last_event_id']) ? absint($client['last_event_id']) : 0;
+            $events = Digitalogic_Panel::get_events_since($last_id);
+            foreach ($events as $event) {
+                $this->send_panel_event($id, $event);
+            }
+        }
+    }
+
+    private function broadcast_panel_event($event) {
+        if (!is_array($event)) {
+            return;
+        }
+
+        foreach ($this->clients as $id => $client) {
+            if (empty($client['handshake'])) {
+                continue;
+            }
+
+            $this->send_panel_event($id, $event);
+        }
+    }
+
+    private function send_panel_event($id, $event) {
+        if (!isset($this->clients[$id]) || !is_array($event)) {
+            return;
+        }
+
+        $event_id = isset($event['id']) ? absint($event['id']) : 0;
+        if ($event_id && isset($this->clients[$id]['last_event_id']) && $event_id <= absint($this->clients[$id]['last_event_id'])) {
+            return;
+        }
+
+        if ($event_id) {
+            $this->clients[$id]['last_event_id'] = max(absint($this->clients[$id]['last_event_id']), $event_id);
+        }
+
+        $this->send_json($id, array(
+            'event' => isset($event['name']) ? $event['name'] : (isset($event['event']) ? $event['event'] : 'panel.event'),
+            'name' => isset($event['name']) ? $event['name'] : '',
+            'success' => true,
+            'data' => isset($event['data']) && is_array($event['data']) ? $event['data'] : array(),
+            'time' => isset($event['time']) ? $event['time'] : '',
+            'id' => $event_id,
+        ));
+    }
+
+    private function maybe_connect_redis_subscriber() {
+        if (is_resource($this->redis_socket) || microtime(true) < $this->redis_next_connect_at) {
+            return;
+        }
+
+        $this->connect_redis_subscriber();
+    }
+
+    private function connect_redis_subscriber() {
+        $this->close_redis_subscriber();
+
+        $config = class_exists('Digitalogic_Panel') ? Digitalogic_Panel::get_redis_config() : array();
+        $host = isset($config['host']) ? (string) $config['host'] : '127.0.0.1';
+        $port = isset($config['port']) ? (int) $config['port'] : 6379;
+        $timeout = isset($config['timeout']) ? (float) $config['timeout'] : 0.2;
+        $password = isset($config['password']) ? (string) $config['password'] : '';
+        $database = array_key_exists('database', $config) && $config['database'] !== null ? (int) $config['database'] : null;
+        $this->redis_channel = !empty($config['channel']) ? (string) $config['channel'] : 'digitalogic_panel_events';
+
+        $socket = @stream_socket_client('tcp://' . $host . ':' . $port, $errno, $errstr, $timeout);
+        if (!is_resource($socket)) {
+            $this->redis_next_connect_at = microtime(true) + 5;
+            if (defined('WP_CLI') && WP_CLI) {
+                WP_CLI::warning('Digitalogic WebSocket Redis subscriber unavailable: ' . $errstr);
+            }
+            return;
+        }
+
+        stream_set_blocking($socket, false);
+        $this->redis_socket = $socket;
+        $this->redis_buffer = '';
+        $this->redis_next_connect_at = 0;
+
+        if ($password !== '') {
+            @fwrite($this->redis_socket, $this->redis_encode_command(array('AUTH', $password)));
+        }
+
+        if ($database !== null) {
+            @fwrite($this->redis_socket, $this->redis_encode_command(array('SELECT', (string) $database)));
+        }
+
+        @fwrite($this->redis_socket, $this->redis_encode_command(array('SUBSCRIBE', $this->redis_channel)));
+        $this->send_missed_panel_events();
+
+        if (defined('WP_CLI') && WP_CLI) {
+            WP_CLI::log('Digitalogic WebSocket subscribed to Redis channel ' . $this->redis_channel . '.');
+        }
+    }
+
+    private function close_redis_subscriber() {
+        if (is_resource($this->redis_socket)) {
+            @fclose($this->redis_socket);
+        }
+
+        $this->redis_socket = null;
+        $this->redis_buffer = '';
+    }
+
+    private function read_redis_events() {
+        if (!is_resource($this->redis_socket)) {
+            return;
+        }
+
+        $chunk = @fread($this->redis_socket, 8192);
+        if ($chunk === '' || $chunk === false) {
+            if (feof($this->redis_socket)) {
+                $this->close_redis_subscriber();
+                $this->redis_next_connect_at = microtime(true) + 1;
+            }
+            return;
+        }
+
+        $this->redis_buffer .= $chunk;
+        while ($this->redis_buffer !== '') {
+            list($complete, $reply) = $this->pop_redis_reply();
+            if (!$complete) {
+                break;
+            }
+
+            $this->handle_redis_reply($reply);
+        }
+    }
+
+    private function handle_redis_reply($reply) {
+        if (!is_array($reply) || empty($reply[0])) {
+            return;
+        }
+
+        $type = strtolower((string) $reply[0]);
+        if ($type !== 'message' || count($reply) < 3 || (string) $reply[1] !== $this->redis_channel) {
+            return;
+        }
+
+        $event = json_decode((string) $reply[2], true);
+        if (!is_array($event)) {
+            return;
+        }
+
+        $this->broadcast_panel_event($event);
+    }
+
+    private function pop_redis_reply() {
+        $offset = 0;
+        $complete = true;
+        $reply = $this->parse_redis_value($this->redis_buffer, $offset, $complete);
+
+        if (!$complete) {
+            return array(false, null);
+        }
+
+        $this->redis_buffer = substr($this->redis_buffer, $offset);
+
+        return array(true, $reply);
+    }
+
+    private function parse_redis_value($buffer, &$offset, &$complete) {
+        if ($offset >= strlen($buffer)) {
+            $complete = false;
+            return null;
+        }
+
+        $type = $buffer[$offset];
+        $offset++;
+        $line_end = strpos($buffer, "\r\n", $offset);
+        if ($line_end === false) {
+            $complete = false;
+            return null;
+        }
+
+        $line = substr($buffer, $offset, $line_end - $offset);
+        $offset = $line_end + 2;
+
+        if ($type === '+' || $type === '-' || $type === ':') {
+            return $line;
+        }
+
+        if ($type === '$') {
+            $length = (int) $line;
+            if ($length < 0) {
+                return null;
+            }
+
+            if (strlen($buffer) < $offset + $length + 2) {
+                $complete = false;
+                return null;
+            }
+
+            $value = substr($buffer, $offset, $length);
+            $offset += $length + 2;
+
+            return $value;
+        }
+
+        if ($type === '*') {
+            $count = (int) $line;
+            $items = array();
+            for ($i = 0; $i < $count; $i++) {
+                $items[] = $this->parse_redis_value($buffer, $offset, $complete);
+                if (!$complete) {
+                    return null;
+                }
+            }
+
+            return $items;
+        }
+
+        return null;
+    }
+
+    private function redis_encode_command($parts) {
+        $command = '*' . count($parts) . "\r\n";
+
+        foreach ($parts as $part) {
+            $part = (string) $part;
+            $command .= '$' . strlen($part) . "\r\n" . $part . "\r\n";
+        }
+
+        return $command;
     }
 
     private function send_frame($id, $payload, $opcode = 1) {

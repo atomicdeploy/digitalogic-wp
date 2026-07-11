@@ -80,6 +80,10 @@ class Digitalogic_Command_Dispatcher {
             'digitalogic_get_currency' => array($this, 'get_currency'),
             'digitalogic_export' => array($this, 'export'),
             'digitalogic_get_logs' => array($this, 'get_logs'),
+            'digitalogic_get_reports' => array($this, 'get_reports'),
+            'digitalogic_sync_patris' => array($this, 'sync_patris'),
+            'digitalogic_import_patris_payload' => array($this, 'import_patris_payload'),
+            'digitalogic_update_patris_settings' => array($this, 'update_patris_settings'),
         );
     }
 
@@ -138,7 +142,10 @@ class Digitalogic_Command_Dispatcher {
             return $result;
         }
 
-        return __('Product updated', 'digitalogic');
+        return array(
+            'message' => __('Product updated', 'digitalogic'),
+            'product' => Digitalogic_Product_Manager::instance()->get_product($product_id),
+        );
     }
 
     public function bulk_update($payload) {
@@ -221,6 +228,25 @@ class Digitalogic_Command_Dispatcher {
                 'limit' => $limit,
                 'offset' => $offset,
             )),
+        );
+    }
+
+    public function get_reports($payload) {
+        return Digitalogic_Report_Engine::instance()->get_report(is_array($payload) ? $payload : array());
+    }
+
+    public function sync_patris($payload) {
+        return Digitalogic_Patris_Feed::instance()->pull_sync();
+    }
+
+    public function import_patris_payload($payload) {
+        return Digitalogic_Patris_Feed::instance()->import_payload($payload, 'command');
+    }
+
+    public function update_patris_settings($payload) {
+        return array(
+            'settings' => Digitalogic_Patris_Feed::instance()->update_settings($payload),
+            'push_token' => Digitalogic_Patris_Feed::instance()->get_push_token(),
         );
     }
 
@@ -372,6 +398,14 @@ class Digitalogic_Command_Dispatcher {
             'length',
             'width',
             'height',
+            'category_ids',
+            'patris_foreign_currency',
+            'patris_foreign_price',
+            'patris_weight_grams',
+            'patris_total_stock',
+            'patris_minimum_stock',
+            'patris_location',
+            'patris_final_price',
         );
 
         $sanitized = array();
@@ -383,6 +417,8 @@ class Digitalogic_Command_Dispatcher {
             $value = is_string($data[$key]) ? wp_unslash($data[$key]) : $data[$key];
             if (in_array($key, array('name', 'sku'), true)) {
                 $sanitized[$key] = sanitize_text_field($value);
+            } elseif ($key === 'category_ids') {
+                $sanitized[$key] = is_array($value) ? array_values(array_filter(array_map('absint', $value))) : array();
             } elseif ($key === 'status') {
                 $status = sanitize_key($value);
                 $sanitized[$key] = in_array($status, array('publish', 'draft', 'pending', 'private'), true) ? $status : 'draft';

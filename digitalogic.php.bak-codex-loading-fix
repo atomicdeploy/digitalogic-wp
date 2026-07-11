@@ -9,7 +9,7 @@
  * Text Domain: digitalogic
  * Domain Path: /languages
  * Requires at least: 6.0
- * Requires PHP: 8.2
+ * Requires PHP: 8.0
  * WC requires at least: 7.0
  * WC tested up to: 8.5
  * License: GPL v2 or later
@@ -23,32 +23,9 @@ if (!defined('ABSPATH')) {
 
 // Define plugin constants
 define('DIGITALOGIC_VERSION', '1.0.0');
-define('DIGITALOGIC_MIN_PHP_VERSION', '8.2');
 define('DIGITALOGIC_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('DIGITALOGIC_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('DIGITALOGIC_PLUGIN_BASENAME', plugin_basename(__FILE__));
-
-if (version_compare(PHP_VERSION, DIGITALOGIC_MIN_PHP_VERSION, '<')) {
-    add_action('admin_notices', 'digitalogic_php_version_notice');
-
-    return;
-}
-
-function digitalogic_php_version_notice() {
-    ?>
-    <div class="notice notice-error">
-        <p>
-            <?php
-            printf(
-                esc_html__('Digitalogic requires PHP %1$s or newer. The current server is running PHP %2$s. Please upgrade PHP to a supported release before activating Digitalogic.', 'digitalogic'),
-                esc_html(DIGITALOGIC_MIN_PHP_VERSION),
-                esc_html(PHP_VERSION)
-            );
-            ?>
-        </p>
-    </div>
-    <?php
-}
 
 // Load Composer autoloader
 if (file_exists(DIGITALOGIC_PLUGIN_DIR . 'vendor/autoload.php')) {
@@ -112,8 +89,6 @@ final class Digitalogic {
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-product-manager.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-pricing.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-import-export.php';
-        require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-patris-feed.php';
-        require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-report-engine.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-command-dispatcher.php';
 
         // WebSocket support
@@ -126,9 +101,7 @@ final class Digitalogic {
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-smsir-integration.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-comment-guard.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-admin-branding.php';
-        require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-label-overrides.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-auth-page.php';
-        require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-desktop-app.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-frontend-search.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/panel/class-panel.php';
 
@@ -152,11 +125,8 @@ final class Digitalogic {
      * Register integrations that must hook before plugins_loaded.
      */
     private function init_early_integrations() {
-        Digitalogic_Label_Overrides::init();
         Digitalogic_Plugin_Admin_Branding::init();
         Digitalogic_Plugin_Auth_Routes::init();
-        Digitalogic_Desktop_App::init();
-        Digitalogic_Frontend_Search::instance();
     }
 
     /**
@@ -175,13 +145,12 @@ final class Digitalogic {
         Digitalogic_Product_Manager::instance();
         Digitalogic_Pricing::instance();
         Digitalogic_Import_Export::instance();
-        Digitalogic_Patris_Feed::instance();
-        Digitalogic_Report_Engine::instance();
         Digitalogic_Command_Dispatcher::instance();
         Digitalogic_WebSocket::instance();
         Digitalogic_Laravel_Bridge::instance();
         Digitalogic_Panel::instance();
         Digitalogic_Comment_Guard::instance();
+        Digitalogic_Frontend_Search::instance();
 
         if (is_admin()) {
             Digitalogic_Admin::instance();
@@ -359,24 +328,6 @@ final class Digitalogic {
         }
         if (get_option('update_date') !== false) {
             update_option('options_update_date', get_option('update_date'));
-        }
-
-        if (get_option('digitalogic_patris_feed_settings') === false) {
-            add_option('digitalogic_patris_feed_settings', array(
-                'api_url' => '',
-                'api_token' => '',
-                'selected_warehouses' => array(),
-                'shipping_methods' => array(),
-                'legacy_url_replacements' => array(),
-                'image_quality_thresholds' => array(
-                    'very_low' => 180,
-                    'low' => 250,
-                    'review' => 350,
-                    'soft_review' => 450,
-                ),
-                'stale_after_hours' => 48,
-                'sync_interval' => '',
-            ), '', 'no');
         }
     }
 

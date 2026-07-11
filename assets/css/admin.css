@@ -424,3 +424,142 @@ body.wp-admin .wrap > form .form-table > tbody > tr > th {
     padding: 14px 16px;
     font-weight: 600;
 }
+
+/* Patris/API migrated reports */
+.digitalogic-report-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1.7fr) minmax(280px, .8fr);
+    gap: 16px;
+    align-items: start;
+}
+
+.digitalogic-inline-form {
+    margin-top: -10px;
+}
+
+.digitalogic-push-box {
+    display: grid;
+    gap: 8px;
+    margin-top: 16px;
+    padding: 12px;
+    border: 1px solid #d6dde6;
+    border-radius: 6px;
+    background: #f7f9fb;
+}
+
+.digitalogic-push-box code {
+    display: block;
+    padding: 8px;
+    overflow: auto;
+    background: #fff;
+}
+
+.digitalogic-report-stats {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 10px;
+}
+
+.digitalogic-report-stats span {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 12px;
+    border: 1px solid #d6dde6;
+    border-radius: 6px;
+    background: #f7f9fb;
+}
+
+.digitalogic-report-stats strong {
+    color: #1169d8;
+    font-size: 20px;
+}
+
+.digitalogic-report-category {
+    margin: 10px 0;
+    border: 1px solid #d6dde6;
+    border-radius: 6px;
+    background: #fff;
+    overflow: hidden;
+}
+
+.digitalogic-report-category summary {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 44px;
+    padding: 0 12px;
+    cursor: pointer;
+    background: #f7f9fb;
+}
+
+.digitalogic-report-category summary span:last-child {
+    margin-inline-start: auto;
+    min-width: 42px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: #fff;
+    text-align: center;
+    font-weight: 700;
+}
+
+.digitalogic-report-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 999px;
+    background: #72aee6;
+    box-shadow: 0 0 0 3px rgba(114,174,230,.18);
+}
+
+.digitalogic-report-category.is-danger .digitalogic-report-dot {
+    background: #d63638;
+    box-shadow: 0 0 0 3px rgba(214,54,56,.16);
+}
+
+.digitalogic-report-category.is-warning .digitalogic-report-dot {
+    background: #dba617;
+    box-shadow: 0 0 0 3px rgba(219,166,23,.18);
+}
+
+.digitalogic-report-category.is-info .digitalogic-report-dot {
+    background: #2271b1;
+    box-shadow: 0 0 0 3px rgba(34,113,177,.16);
+}
+
+.digitalogic-report-table-wrap {
+    overflow: auto;
+}
+
+.digitalogic-report-table {
+    min-width: 980px;
+}
+
+.digitalogic-report-table th,
+.digitalogic-report-table td {
+    white-space: nowrap;
+    vertical-align: middle;
+}
+
+.digitalogic-report-table td:nth-child(2),
+.digitalogic-report-table td:nth-child(3) {
+    white-space: normal;
+    min-width: 180px;
+}
+
+.digitalogic-num {
+    direction: ltr;
+    text-align: left;
+    font-variant-numeric: tabular-nums;
+}
+
+.digitalogic-report-empty {
+    margin: 0;
+    padding: 14px;
+    color: #646970;
+}
+
+@media (max-width: 960px) {
+    .digitalogic-report-layout {
+        grid-template-columns: 1fr;
+    }
+}

@@ -36,6 +36,9 @@ class Digitalogic_Admin {
         add_action('wp_ajax_digitalogic_export', array($this, 'ajax_export'));
         add_action('wp_ajax_digitalogic_import', array($this, 'ajax_import'));
         add_action('wp_ajax_digitalogic_get_logs', array($this, 'ajax_get_logs'));
+        add_action('wp_ajax_digitalogic_get_reports', array($this, 'ajax_get_reports'));
+        add_action('wp_ajax_digitalogic_sync_patris', array($this, 'ajax_sync_patris'));
+        add_action('wp_ajax_digitalogic_update_patris_settings', array($this, 'ajax_update_patris_settings'));
     }
 
     /**
@@ -123,6 +126,15 @@ class Digitalogic_Admin {
             'manage_woocommerce',
             'digitalogic-logs',
             array($this, 'render_logs_page')
+        );
+
+        $this->page_hooks[] = add_submenu_page(
+            'digitalogic',
+            __('Patris Reports', 'digitalogic'),
+            __('Patris Reports', 'digitalogic'),
+            'manage_woocommerce',
+            'digitalogic-patris-reports',
+            array($this, 'render_patris_reports_page')
         );
         
         $this->page_hooks[] = add_submenu_page(
@@ -226,6 +238,16 @@ class Digitalogic_Admin {
             'href'   => admin_url('admin.php?page=digitalogic-logs'),
             'meta'   => array(
                 'title' => __('Activity Logs', 'digitalogic'),
+            ),
+        ));
+
+        $wp_admin_bar->add_node(array(
+            'id'     => 'digitalogic-patris-reports',
+            'parent' => 'digitalogic',
+            'title'  => '<span class="dashicons dashicons-chart-bar"></span> ' . __('Patris Reports', 'digitalogic'),
+            'href'   => admin_url('admin.php?page=digitalogic-patris-reports'),
+            'meta'   => array(
+                'title' => __('Patris Reports', 'digitalogic'),
             ),
         ));
         
@@ -440,6 +462,34 @@ class Digitalogic_Admin {
     public function render_logs_page() {
         include DIGITALOGIC_PLUGIN_DIR . 'includes/admin/views/logs.php';
     }
+
+    public function render_patris_reports_page() {
+        $feed = Digitalogic_Patris_Feed::instance();
+        $notice = '';
+
+        if (isset($_POST['digitalogic_patris_settings_submit']) && check_admin_referer('digitalogic_patris_settings')) {
+            $feed->update_settings(array(
+                'api_url' => isset($_POST['api_url']) ? wp_unslash($_POST['api_url']) : '',
+                'api_token' => isset($_POST['api_token']) ? wp_unslash($_POST['api_token']) : '',
+                'selected_warehouses' => isset($_POST['selected_warehouses']) ? wp_unslash($_POST['selected_warehouses']) : '',
+                'shipping_methods' => isset($_POST['shipping_methods']) ? wp_unslash($_POST['shipping_methods']) : '',
+                'stale_after_hours' => isset($_POST['stale_after_hours']) ? absint($_POST['stale_after_hours']) : 48,
+                'sync_interval' => isset($_POST['sync_interval']) ? sanitize_key(wp_unslash($_POST['sync_interval'])) : '',
+            ));
+            $notice = __('Patris report settings saved.', 'digitalogic');
+        }
+
+        if (isset($_POST['digitalogic_patris_sync_submit']) && check_admin_referer('digitalogic_patris_sync')) {
+            $result = $feed->pull_sync();
+            $notice = is_wp_error($result) ? $result->get_error_message() : __('Patris feed synchronized.', 'digitalogic');
+        }
+
+        $settings = $feed->get_settings();
+        $push_token = $feed->get_push_token();
+        $report = Digitalogic_Report_Engine::instance()->get_report();
+
+        include DIGITALOGIC_PLUGIN_DIR . 'includes/admin/views/patris-reports.php';
+    }
     
     /**
      * Render status & diagnostics page
@@ -601,6 +651,18 @@ class Digitalogic_Admin {
      */
     public function ajax_get_logs() {
         $this->send_command_response('digitalogic_get_logs', $_POST);
+    }
+
+    public function ajax_get_reports() {
+        $this->send_command_response('digitalogic_get_reports', $_POST);
+    }
+
+    public function ajax_sync_patris() {
+        $this->send_command_response('digitalogic_sync_patris', $_POST);
+    }
+
+    public function ajax_update_patris_settings() {
+        $this->send_command_response('digitalogic_update_patris_settings', $_POST);
     }
 
     /**
