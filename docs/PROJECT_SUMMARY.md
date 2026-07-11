@@ -135,7 +135,7 @@ wp digitalogic logs --limit=50 --action=update_product
 ```
 
 ## System Requirements
-- PHP 8.0+
+- PHP 8.2+
 - WordPress 6.0+
 - WooCommerce 7.0+
 - MySQL 5.7+
@@ -145,7 +145,7 @@ wp digitalogic logs --limit=50 --action=update_product
 ### GitHub Actions Workflows
 1. **CI/CD Pipeline** (ci-cd.yml)
    - Code quality checks (PHPCS)
-   - PHP 8.0, 8.1, 8.2, 8.3 testing
+   - PHP 8.2, 8.3, 8.4, 8.5 testing
    - Security checks
    - Build artifact creation
 

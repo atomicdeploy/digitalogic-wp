@@ -22,12 +22,15 @@ final class Digitalogic_Plugin_Auth_Routes {
         $booted = true;
 
         add_action('template_redirect', [self::class, 'redirect_legacy_login_page'], 1);
+        add_action('login_init', [self::class, 'redirect_wp_login_to_canonical'], 0);
         add_action('login_form_login', [self::class, 'render_digits_login'], 1);
         add_action('login_form_register', [self::class, 'render_digits_register'], 1);
+        add_action('wp_login_failed', [self::class, 'redirect_failed_login'], 99);
         add_filter('register_url', [self::class, 'register_url'], 9999);
         add_filter('lostpassword_url', [self::class, 'lostpassword_url'], 9999, 2);
         add_filter('login_url', [self::class, 'login_url'], 9999, 3);
         add_filter('authenticate', [self::class, 'authenticate_phone_user'], 30, 3);
+        add_filter('wordfence_ls_require_captcha', [self::class, 'bypass_wordfence_captcha_for_digits'], 20);
     }
 
     public static function redirect_legacy_login_page(): void {
@@ -44,6 +47,43 @@ final class Digitalogic_Plugin_Auth_Routes {
         exit;
     }
 
+    public static function redirect_wp_login_to_canonical(): void {
+        if (!isset($_SERVER['REQUEST_URI']) || !isset($_SERVER['REQUEST_METHOD'])) {
+            return;
+        }
+
+        $method = strtoupper((string) $_SERVER['REQUEST_METHOD']);
+        if ($method !== 'GET' && $method !== 'HEAD') {
+            return;
+        }
+
+        $path = (string) wp_parse_url((string) wp_unslash($_SERVER['REQUEST_URI']), PHP_URL_PATH);
+        if (basename($path) !== 'wp-login.php') {
+            return;
+        }
+
+        $action = isset($_GET['action']) ? sanitize_key(wp_unslash($_GET['action'])) : 'login';
+        $allowed_actions = ['login', 'register', 'lostpassword', 'rp', 'resetpass'];
+
+        if (!in_array($action, $allowed_actions, true)) {
+            return;
+        }
+
+        $args = [];
+        foreach (['action', 'redirect_to', 'reauth', 'wp_lang', 'login'] as $key) {
+            if (isset($_GET[$key]) && $_GET[$key] !== '') {
+                $args[$key] = sanitize_text_field(wp_unslash($_GET[$key]));
+            }
+        }
+
+        if (($args['action'] ?? '') === 'login') {
+            unset($args['action']);
+        }
+
+        wp_safe_redirect(add_query_arg($args, self::canonical_login_url()), 302);
+        exit;
+    }
+
     public static function render_digits_login(): void {
         if (isset($_SERVER['REQUEST_METHOD']) && strtoupper((string) $_SERVER['REQUEST_METHOD']) !== 'GET') {
             return;
@@ -57,8 +97,14 @@ final class Digitalogic_Plugin_Auth_Routes {
 
         login_header(__('Log In'), '', null);
 
+        if (isset($_GET['login']) && sanitize_key(wp_unslash($_GET['login'])) === 'failed') {
+            echo '<div id="login_error" class="notice notice-error"><p>';
+            echo esc_html(self::failed_login_message());
+            echo '</p></div>';
+        }
+
         echo '<div class="dg-digits-login-shell">';
-        echo df_digits_form_login(); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+        echo self::digits_login_form_html($redirect_to); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
         echo '</div>';
 
         echo '<p id="nav">';
@@ -73,6 +119,61 @@ final class Digitalogic_Plugin_Auth_Routes {
 
         login_footer('user_login');
         exit;
+    }
+
+    public static function redirect_failed_login(string $username): void {
+        if (wp_doing_ajax()) {
+            return;
+        }
+
+        $redirect_to = isset($_REQUEST['redirect_to']) ? esc_url_raw(wp_unslash($_REQUEST['redirect_to'])) : '';
+        $args = ['login' => 'failed'];
+
+        if ($redirect_to !== '') {
+            $args['redirect_to'] = $redirect_to;
+        }
+
+        if (isset($_REQUEST['wp_lang']) && $_REQUEST['wp_lang'] !== '') {
+            $args['wp_lang'] = sanitize_text_field(wp_unslash($_REQUEST['wp_lang']));
+        }
+
+        wp_safe_redirect(add_query_arg($args, self::canonical_login_url()), 302);
+        exit;
+    }
+
+    private static function digits_login_form_html(string $redirect_to): string {
+        if (function_exists('digits_render_new_form')) {
+            $details = [
+                'page_type' => 'login',
+                'login_title' => __('Log In'),
+                'login_details' => [
+                    'dig_login_email' => 1,
+                    'dig_login_mobilenumber' => 1,
+                    'dig_login_username' => 1,
+                    'dig_login_captcha' => '0',
+                ],
+            ];
+
+            if ($redirect_to !== '') {
+                $details['login_redirect'] = $redirect_to;
+            }
+
+            try {
+                ob_start();
+                digits_render_new_form($details);
+                $html = trim((string) ob_get_clean());
+
+                if ($html !== '') {
+                    return $html;
+                }
+            } catch (Throwable $error) {
+                if (ob_get_level() > 0) {
+                    ob_end_clean();
+                }
+            }
+        }
+
+        return (string) df_digits_form_login();
     }
 
     public static function render_digits_register(): void {
@@ -161,6 +262,20 @@ final class Digitalogic_Plugin_Auth_Routes {
         return $phone_user;
     }
 
+    public static function bypass_wordfence_captcha_for_digits($required) {
+        if (!wp_doing_ajax()) {
+            return $required;
+        }
+
+        $action = isset($_REQUEST['action']) ? sanitize_key(wp_unslash($_REQUEST['action'])) : '';
+
+        if (str_starts_with($action, 'digits_')) {
+            return false;
+        }
+
+        return $required;
+    }
+
     private static function is_legacy_login_page(): bool {
         if (is_admin() || wp_doing_ajax()) {
             return false;
@@ -234,6 +349,16 @@ final class Digitalogic_Plugin_Auth_Routes {
 
     private static function canonical_login_url(): string {
         return home_url(self::CANONICAL_LOGIN_PATH);
+    }
+
+    private static function failed_login_message(): string {
+        $locale = strtolower(determine_locale());
+
+        if (str_starts_with($locale, 'fa')) {
+            return 'نام کاربری، ایمیل، شماره موبایل یا رمز عبور نادرست است.';
+        }
+
+        return 'The username, email, phone number, or password is incorrect.';
     }
 
     private static function is_canonical_login_request(): bool {

@@ -125,8 +125,17 @@ class Digitalogic_Product_Manager {
         }
         
         try {
+            $public_product = $this->get_public_product($product);
+            $public_product = $public_product ?: $product;
+            $image_url = wp_get_attachment_url($product->get_image_id());
+            if (!$image_url && $public_product->get_id() !== $product->get_id()) {
+                $image_url = wp_get_attachment_url($public_product->get_image_id());
+            }
+
             $data = array(
                 'id' => $product->get_id(),
+                'parent_id' => $product->get_parent_id(),
+                'edit_product_id' => $this->get_edit_product_id($product),
                 'name' => $product->get_name(),
                 'part_number' => $this->get_part_number($product),
                 'sku' => $product->get_sku(),
@@ -142,9 +151,31 @@ class Digitalogic_Product_Manager {
                 'length' => $product->get_length(),
                 'width' => $product->get_width(),
                 'height' => $product->get_height(),
-                'permalink' => $product->get_permalink(),
+                'permalink' => $public_product->get_permalink(),
+                'canonical_url' => $public_product->get_permalink(),
                 'edit_url' => $this->get_edit_url($product),
-                'image' => wp_get_attachment_url($product->get_image_id()),
+                'image' => $image_url,
+                'gallery_images' => $this->get_gallery_images($public_product),
+                'category_ids' => $public_product->get_category_ids(),
+                'categories' => $this->get_categories($public_product),
+                'total_sales' => $public_product->get_total_sales(),
+                'date_modified' => $product->get_date_modified() ? $product->get_date_modified()->date_i18n('Y-m-d H:i') : '',
+                'revision_count' => count(wp_get_post_revisions($public_product->get_id())),
+                'patris_product_code' => $product->get_meta('_digitalogic_patris_product_code', true),
+                'patris_name' => $product->get_meta('_digitalogic_patris_name', true),
+                'patris_serial' => $product->get_meta('_digitalogic_patris_serial', true),
+                'patris_unit' => $product->get_meta('_digitalogic_patris_unit', true),
+                'patris_foreign_currency' => $product->get_meta('_digitalogic_patris_foreign_currency', true),
+                'patris_foreign_price' => $product->get_meta('_digitalogic_patris_foreign_price', true),
+                'patris_weight_grams' => $product->get_meta('_digitalogic_patris_weight_grams', true),
+                'patris_total_stock' => $product->get_meta('_digitalogic_patris_total_stock', true),
+                'patris_minimum_stock' => $product->get_meta('_digitalogic_patris_minimum_stock', true),
+                'patris_warehouse_stock' => $this->decode_json_meta($product->get_meta('_digitalogic_patris_warehouse_stock', true)),
+                'patris_location' => $product->get_meta('_digitalogic_patris_location', true),
+                'patris_final_price' => $product->get_meta('_digitalogic_patris_final_price', true),
+                'patris_price_status' => $product->get_meta('_digitalogic_patris_price_status', true),
+                'patris_updated_at' => $product->get_meta('_digitalogic_patris_updated_at', true),
+                'patris_flags' => $this->decode_json_meta($product->get_meta('_digitalogic_patris_flags', true)),
             );
             
             // Add variation data if variable product (only at first level)
@@ -174,11 +205,30 @@ class Digitalogic_Product_Manager {
     }
 
     private function get_edit_url($product) {
-        $edit_id = $product->is_type('variation') && $product->get_parent_id()
-            ? $product->get_parent_id()
-            : $product->get_id();
+        return admin_url('post.php?post=' . $this->get_edit_product_id($product) . '&action=edit');
+    }
 
-        return get_edit_post_link($edit_id, 'raw');
+    private function get_edit_product_id($product) {
+        if ($this->is_variation_product($product) && $product->get_parent_id()) {
+            return $product->get_parent_id();
+        }
+
+        return $product->get_id();
+    }
+
+    private function get_public_product($product) {
+        if ($this->is_variation_product($product) && $product->get_parent_id()) {
+            $parent = wc_get_product($product->get_parent_id());
+            if ($parent) {
+                return $parent;
+            }
+        }
+
+        return $product;
+    }
+
+    private function is_variation_product($product) {
+        return $product && ($product->is_type('variation') || get_post_type($product->get_id()) === 'product_variation');
     }
 
     private function get_part_number($product) {
@@ -198,6 +248,73 @@ class Digitalogic_Product_Manager {
         }
 
         return '';
+    }
+
+    private function get_categories($product) {
+        $categories = array();
+
+        foreach ($product->get_category_ids() as $category_id) {
+            $term = get_term($category_id, 'product_cat');
+            if ($term && !is_wp_error($term)) {
+                $categories[] = array(
+                    'id' => (int) $term->term_id,
+                    'name' => $term->name,
+                    'slug' => $term->slug,
+                );
+            }
+        }
+
+        return $categories;
+    }
+
+    private function get_gallery_images($product) {
+        $images = array();
+
+        foreach ($product->get_gallery_image_ids() as $image_id) {
+            $url = wp_get_attachment_image_url($image_id, 'thumbnail');
+            if ($url) {
+                $images[] = array(
+                    'id' => (int) $image_id,
+                    'url' => $url,
+                );
+            }
+        }
+
+        return $images;
+    }
+
+    private function decode_json_meta($value) {
+        if (is_array($value)) {
+            return $value;
+        }
+
+        if (!is_string($value) || $value === '') {
+            return array();
+        }
+
+        $decoded = json_decode($value, true);
+        return is_array($decoded) ? $decoded : array();
+    }
+
+    public function get_product_categories() {
+        $terms = get_terms(array(
+            'taxonomy' => 'product_cat',
+            'hide_empty' => false,
+            'number' => 300,
+        ));
+
+        if (is_wp_error($terms) || !is_array($terms)) {
+            return array();
+        }
+
+        return array_map(function($term) {
+            return array(
+                'id' => (int) $term->term_id,
+                'name' => $term->name,
+                'slug' => $term->slug,
+                'parent' => (int) $term->parent,
+            );
+        }, $terms);
     }
     
     /**
@@ -271,6 +388,12 @@ class Digitalogic_Product_Manager {
             if (isset($data['height'])) {
                 $product->set_height($data['height']);
             }
+
+            if (isset($data['category_ids']) && is_array($data['category_ids'])) {
+                $product->set_category_ids(array_values(array_filter(array_map('absint', $data['category_ids']))));
+            }
+
+            $this->update_patris_meta($product, $data);
             
             // Save product
             $product->save();
@@ -366,6 +489,27 @@ class Digitalogic_Product_Manager {
         } catch (Exception $e) {
             error_log('Digitalogic: Error in get_product_count - ' . $e->getMessage());
             return 0;
+        }
+    }
+
+    private function update_patris_meta($product, $data) {
+        $meta_map = array(
+            'patris_foreign_currency' => '_digitalogic_patris_foreign_currency',
+            'patris_foreign_price' => '_digitalogic_patris_foreign_price',
+            'patris_weight_grams' => '_digitalogic_patris_weight_grams',
+            'patris_total_stock' => '_digitalogic_patris_total_stock',
+            'patris_minimum_stock' => '_digitalogic_patris_minimum_stock',
+            'patris_location' => '_digitalogic_patris_location',
+            'patris_final_price' => '_digitalogic_patris_final_price',
+        );
+
+        foreach ($meta_map as $field => $meta_key) {
+            if (!array_key_exists($field, $data)) {
+                continue;
+            }
+
+            $value = is_string($data[$field]) ? sanitize_text_field(wp_unslash($data[$field])) : $data[$field];
+            $product->update_meta_data($meta_key, $value);
         }
     }
 }

@@ -365,6 +365,95 @@ class Digitalogic_CLI_Commands {
     }
 
     /**
+     * Pull the normalized Patris/API feed into WooCommerce.
+     *
+     * ## EXAMPLES
+     *
+     *     wp digitalogic patris sync
+     *
+     * @when after_wp_load
+     */
+    public function patris_sync($args, $assoc_args) {
+        if (!class_exists('Digitalogic_Patris_Feed')) {
+            WP_CLI::error('Patris feed service is not available.');
+        }
+
+        $result = Digitalogic_Patris_Feed::instance()->pull_sync();
+        if (is_wp_error($result)) {
+            WP_CLI::error($result->get_error_message());
+        }
+
+        WP_CLI::success(sprintf(
+            'Patris sync complete: %d products imported, %d products updated, %d missing in WooCommerce, %d customers imported.',
+            isset($result['total']) ? (int) $result['total'] : 0,
+            isset($result['updated']) ? (int) $result['updated'] : 0,
+            isset($result['missing_in_woocommerce']) ? (int) $result['missing_in_woocommerce'] : 0,
+            isset($result['customers_imported']) ? (int) $result['customers_imported'] : 0
+        ));
+    }
+
+    /**
+     * Show the current Patris/WooCommerce report summary.
+     *
+     * ## OPTIONS
+     *
+     * [--format=<format>]
+     * : Output format.
+     * ---
+     * default: table
+     * options:
+     *   - table
+     *   - json
+     *   - csv
+     * ---
+     *
+     * ## EXAMPLES
+     *
+     *     wp digitalogic patris report
+     *     wp digitalogic patris report --format=json
+     *
+     * @when after_wp_load
+     */
+    public function patris_report($args, $assoc_args) {
+        if (!class_exists('Digitalogic_Report_Engine')) {
+            WP_CLI::error('Report engine is not available.');
+        }
+
+        $format = isset($assoc_args['format']) ? sanitize_key((string) $assoc_args['format']) : 'table';
+        $report = Digitalogic_Report_Engine::instance()->get_report();
+
+        if ($format === 'json') {
+            WP_CLI::line(wp_json_encode($report, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+            return;
+        }
+
+        $items = array();
+        foreach ($report['categories'] as $category) {
+            $items[] = array(
+                'Key' => $category['key'],
+                'Title' => $category['title'],
+                'Severity' => $category['severity'],
+                'Count' => $category['count'],
+            );
+        }
+
+        WP_CLI\Utils\format_items($format, $items, array('Key', 'Title', 'Severity', 'Count'));
+    }
+
+    /**
+     * Show the Patris/API push token.
+     *
+     * @when after_wp_load
+     */
+    public function patris_token() {
+        if (!class_exists('Digitalogic_Patris_Feed')) {
+            WP_CLI::error('Patris feed service is not available.');
+        }
+
+        WP_CLI::line(Digitalogic_Patris_Feed::instance()->get_push_token());
+    }
+
+    /**
      * Run the Digitalogic WebSocket command server.
      *
      * ## OPTIONS
@@ -426,6 +515,50 @@ class Digitalogic_CLI_Commands {
 
         WP_CLI::line(Digitalogic_Laravel_Bridge::get_token());
     }
+
+    /**
+     * Broadcast a JSON toast/event message to open Digitalogic panels.
+     *
+     * ## OPTIONS
+     *
+     * [<json>]
+     * : JSON object, for example '{"message":"Prices refreshed","level":"success"}'.
+     *
+     * [--message=<message>]
+     * : Message text when not passing JSON.
+     *
+     * [--level=<level>]
+     * : info, success, warning, or danger.
+     *
+     * ## EXAMPLES
+     *
+     *     wp digitalogic panel broadcast '{"message":"Sync finished","level":"success"}'
+     *     wp digitalogic panel broadcast --message="Currency updated" --level=success
+     *
+     * @when after_wp_load
+     */
+    public function panel_broadcast($args, $assoc_args) {
+        $payload = array();
+
+        if (!empty($args[0])) {
+            $decoded = json_decode((string) $args[0], true);
+            if (!is_array($decoded)) {
+                WP_CLI::error('The JSON argument must be an object.');
+            }
+            $payload = $decoded;
+        }
+
+        if (isset($assoc_args['message'])) {
+            $payload['message'] = (string) $assoc_args['message'];
+        }
+
+        if (isset($assoc_args['level'])) {
+            $payload['level'] = sanitize_key((string) $assoc_args['level']);
+        }
+
+        Digitalogic_Panel::broadcast_panel_message($payload);
+        WP_CLI::success('Panel broadcast queued.');
+    }
 }
 
 // Register commands
@@ -437,6 +570,10 @@ WP_CLI::add_command('digitalogic products update', array('Digitalogic_CLI_Comman
 WP_CLI::add_command('digitalogic export', array('Digitalogic_CLI_Commands', 'export'));
 WP_CLI::add_command('digitalogic import', array('Digitalogic_CLI_Commands', 'import'));
 WP_CLI::add_command('digitalogic logs', array('Digitalogic_CLI_Commands', 'logs'));
+WP_CLI::add_command('digitalogic patris sync', array('Digitalogic_CLI_Commands', 'patris_sync'));
+WP_CLI::add_command('digitalogic patris report', array('Digitalogic_CLI_Commands', 'patris_report'));
+WP_CLI::add_command('digitalogic patris token', array('Digitalogic_CLI_Commands', 'patris_token'));
 WP_CLI::add_command('digitalogic websocket serve', array('Digitalogic_CLI_Commands', 'websocket_serve'));
 WP_CLI::add_command('digitalogic websocket token', array('Digitalogic_CLI_Commands', 'websocket_token'));
 WP_CLI::add_command('digitalogic panel token', array('Digitalogic_CLI_Commands', 'panel_token'));
+WP_CLI::add_command('digitalogic panel broadcast', array('Digitalogic_CLI_Commands', 'panel_broadcast'));

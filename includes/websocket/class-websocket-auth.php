@@ -20,6 +20,17 @@ class Digitalogic_WebSocket_Auth {
             if ($user_id) {
                 return $user_id;
             }
+
+            if (Digitalogic_WebSocket::validate_public_token($token)) {
+                wp_set_current_user(0);
+                return -1;
+            }
+        }
+
+        $nonce = isset($query['nonce']) ? (string) $query['nonce'] : '';
+        wp_set_current_user(0);
+        if ($nonce && wp_verify_nonce($nonce, 'digitalogic_ws_public')) {
+            return -1;
         }
 
         $cookie_header = isset($headers['cookie']) ? $headers['cookie'] : '';
@@ -38,7 +49,6 @@ class Digitalogic_WebSocket_Auth {
         }
 
         wp_set_current_user($user_id);
-        $nonce = isset($query['nonce']) ? (string) $query['nonce'] : '';
         if (!$nonce || !wp_verify_nonce($nonce, 'digitalogic_ws')) {
             return 0;
         }

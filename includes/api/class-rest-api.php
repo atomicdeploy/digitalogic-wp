@@ -79,6 +79,24 @@ class Digitalogic_REST_API {
             'callback' => array($this, 'export_products'),
             'permission_callback' => array($this, 'check_permission')
         ));
+
+        register_rest_route('digitalogic/v1', '/reports', array(
+            'methods' => 'GET',
+            'callback' => array($this, 'get_reports'),
+            'permission_callback' => array($this, 'check_permission')
+        ));
+
+        register_rest_route('digitalogic/v1', '/patris/sync', array(
+            'methods' => 'POST',
+            'callback' => array($this, 'sync_patris'),
+            'permission_callback' => array($this, 'check_permission')
+        ));
+
+        register_rest_route('digitalogic/v1', '/patris/push', array(
+            'methods' => 'POST',
+            'callback' => array($this, 'push_patris'),
+            'permission_callback' => array($this, 'check_patris_push_permission')
+        ));
     }
     
     /**
@@ -97,6 +115,10 @@ class Digitalogic_REST_API {
         }
         
         return false;
+    }
+
+    public function check_patris_push_permission(WP_REST_Request $request) {
+        return Digitalogic_Patris_Feed::instance()->verify_push_request($request);
     }
     
     /**
@@ -276,6 +298,44 @@ class Digitalogic_REST_API {
                 'url' => $file_url,
                 'format' => $format
             )
+        ), 200);
+    }
+
+    public function get_reports(WP_REST_Request $request) {
+        return new WP_REST_Response(array(
+            'success' => true,
+            'data' => Digitalogic_Report_Engine::instance()->get_report($request->get_params())
+        ), 200);
+    }
+
+    public function sync_patris(WP_REST_Request $request) {
+        $result = Digitalogic_Patris_Feed::instance()->pull_sync();
+        if (is_wp_error($result)) {
+            return new WP_REST_Response(array(
+                'success' => false,
+                'message' => $result->get_error_message()
+            ), 400);
+        }
+
+        return new WP_REST_Response(array(
+            'success' => true,
+            'data' => $result
+        ), 200);
+    }
+
+    public function push_patris(WP_REST_Request $request) {
+        $payload = $request->get_json_params();
+        $result = Digitalogic_Patris_Feed::instance()->import_payload(is_array($payload) ? $payload : array(), 'push');
+        if (is_wp_error($result)) {
+            return new WP_REST_Response(array(
+                'success' => false,
+                'message' => $result->get_error_message()
+            ), 400);
+        }
+
+        return new WP_REST_Response(array(
+            'success' => true,
+            'data' => $result
         ), 200);
     }
 }

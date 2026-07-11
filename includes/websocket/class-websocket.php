@@ -11,6 +11,8 @@ class Digitalogic_WebSocket {
 
     private const CLIENT_TOKEN_PREFIX = 'digitalogic_ws_client_';
     private const CLIENT_TOKEN_TTL = 3600;
+    private const PUBLIC_TOKEN_PREFIX = 'digitalogic_ws_public_';
+    private const PUBLIC_TOKEN_TTL = 900;
 
     private static $instance = null;
 
@@ -64,6 +66,21 @@ class Digitalogic_WebSocket {
         ));
     }
 
+    public function get_public_client_config() {
+        $host = isset($_SERVER['HTTP_HOST']) ? sanitize_text_field(wp_unslash($_SERVER['HTTP_HOST'])) : wp_parse_url(home_url(), PHP_URL_HOST);
+        $scheme = is_ssl() ? 'wss' : 'ws';
+        $default_url = $scheme . '://' . $host . '/wordpress-ws';
+
+        return apply_filters('digitalogic_websocket_public_client_config', array(
+            'enabled' => (bool) apply_filters('digitalogic_websocket_public_enabled', true),
+            'url' => $default_url,
+            'nonce' => wp_create_nonce('digitalogic_ws_public'),
+            'token' => self::create_public_token(),
+            'reconnect_interval' => 3000,
+            'request_timeout' => 8000,
+        ));
+    }
+
     public function enqueue_admin_proxy() {
         if (!current_user_can('manage_woocommerce')) {
             return;
@@ -113,5 +130,20 @@ class Digitalogic_WebSocket {
         wp_set_current_user($user_id);
 
         return current_user_can('manage_woocommerce') ? $user_id : 0;
+    }
+
+    public static function create_public_token() {
+        $token = wp_generate_password(40, false, false);
+        set_transient(self::PUBLIC_TOKEN_PREFIX . md5($token), array(
+            'expires_at' => time() + self::PUBLIC_TOKEN_TTL,
+        ), self::PUBLIC_TOKEN_TTL);
+
+        return $token;
+    }
+
+    public static function validate_public_token($token) {
+        $data = get_transient(self::PUBLIC_TOKEN_PREFIX . md5((string) $token));
+
+        return is_array($data) && !empty($data['expires_at']) && (int) $data['expires_at'] >= time();
     }
 }

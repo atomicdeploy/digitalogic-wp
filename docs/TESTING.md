@@ -6,7 +6,7 @@ This guide helps you test the plugin installation and verify all features are wo
 
 - WordPress 6.0 or higher
 - WooCommerce 7.0 or higher (8.2+ recommended)
-- PHP 8.0 or higher
+- PHP 8.2 or higher
 - WP-CLI installed (optional, for CLI testing)
 
 ## Installation Testing
@@ -382,7 +382,7 @@ If any issues are found:
 1. Check debug.log: `wp-content/debug.log`
 2. Check browser console (F12)
 3. Verify WooCommerce version: >= 7.0
-4. Verify PHP version: >= 8.0
+4. Verify PHP version: >= 8.2
 5. Check HPOS status in WooCommerce settings
 
 For more help, see:
