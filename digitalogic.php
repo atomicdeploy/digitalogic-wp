@@ -36,12 +36,12 @@ if (file_exists(DIGITALOGIC_PLUGIN_DIR . 'vendor/autoload.php')) {
  * Main Digitalogic Plugin Class
  */
 final class Digitalogic {
-    
+
     /**
      * The single instance of the class
      */
     private static $instance = null;
-    
+
     /**
      * Main Digitalogic Instance
      */
@@ -51,33 +51,34 @@ final class Digitalogic {
         }
         return self::$instance;
     }
-    
+
     /**
      * Constructor
      */
     private function __construct() {
         $this->init_hooks();
         $this->includes();
+        $this->init_early_integrations();
     }
-    
+
     /**
      * Hook into actions and filters
      */
     private function init_hooks() {
         register_activation_hook(__FILE__, array($this, 'activate'));
         register_deactivation_hook(__FILE__, array($this, 'deactivate'));
-        
+
         // Declare HPOS compatibility before WooCommerce initializes
         add_action('before_woocommerce_init', array($this, 'declare_hpos_compatibility'));
-        
+
         add_action('plugins_loaded', array($this, 'init'), 0);
         add_action('init', array($this, 'load_textdomain'));
-        
+
         // Plugin action links
         add_filter('plugin_action_links_' . DIGITALOGIC_PLUGIN_BASENAME, array($this, 'plugin_action_links'));
         add_filter('plugin_row_meta', array($this, 'plugin_row_meta'), 10, 2);
     }
-    
+
     /**
      * Include required core files
      */
@@ -88,23 +89,49 @@ final class Digitalogic {
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-product-manager.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-pricing.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-import-export.php';
-        
+        require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-command-dispatcher.php';
+
+        // WebSocket support
+        require_once DIGITALOGIC_PLUGIN_DIR . 'includes/websocket/class-websocket.php';
+        require_once DIGITALOGIC_PLUGIN_DIR . 'includes/websocket/class-websocket-auth.php';
+        require_once DIGITALOGIC_PLUGIN_DIR . 'includes/websocket/class-websocket-server.php';
+
+        // External panel and migrated site integrations
+        require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-laravel-bridge.php';
+        require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-smsir-integration.php';
+        require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-comment-guard.php';
+        require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-admin-branding.php';
+        require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-label-overrides.php';
+        require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-auth-page.php';
+        require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-desktop-app.php';
+        require_once DIGITALOGIC_PLUGIN_DIR . 'includes/panel/class-panel.php';
+
         // Admin includes
         if (is_admin()) {
             require_once DIGITALOGIC_PLUGIN_DIR . 'includes/admin/class-admin.php';
             require_once DIGITALOGIC_PLUGIN_DIR . 'includes/admin/class-product-table.php';
         }
-        
+
         // API includes
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/api/class-rest-api.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/api/class-webhooks.php';
-        
+
         // WP-CLI
         if (defined('WP_CLI') && WP_CLI) {
             require_once DIGITALOGIC_PLUGIN_DIR . 'includes/cli/class-cli-commands.php';
         }
     }
-    
+
+    /**
+     * Register integrations that must hook before plugins_loaded.
+     */
+    private function init_early_integrations() {
+        Digitalogic_Label_Overrides::init();
+        Digitalogic_Plugin_Admin_Branding::init();
+        Digitalogic_Plugin_Auth_Routes::init();
+        Digitalogic_Desktop_App::init();
+    }
+
     /**
      * Initialize plugin
      */
@@ -114,41 +141,53 @@ final class Digitalogic {
             add_action('admin_notices', array($this, 'woocommerce_missing_notice'));
             return;
         }
-        
+
         // Initialize components
         Digitalogic_Options::instance();
         Digitalogic_Logger::instance();
         Digitalogic_Product_Manager::instance();
         Digitalogic_Pricing::instance();
         Digitalogic_Import_Export::instance();
-        
+        Digitalogic_Command_Dispatcher::instance();
+        Digitalogic_WebSocket::instance();
+        Digitalogic_Laravel_Bridge::instance();
+        Digitalogic_Panel::instance();
+        Digitalogic_Comment_Guard::instance();
+
         if (is_admin()) {
             Digitalogic_Admin::instance();
         }
-        
+
         Digitalogic_REST_API::instance();
         Digitalogic_Webhooks::instance();
-        
+
         do_action('digitalogic_init');
     }
-    
+
     /**
      * Declare HPOS compatibility
-     * 
+     *
      * This must be called on the 'before_woocommerce_init' hook to properly
      * declare compatibility with WooCommerce High-Performance Order Storage (HPOS).
-     * 
+     *
      * @link https://developer.woocommerce.com/docs/features/high-performance-order-storage/recipe-book/
      */
     public function declare_hpos_compatibility() {
         if (class_exists('\Automattic\WooCommerce\Utilities\FeaturesUtil')) {
-            \Automattic\WooCommerce\Utilities\FeaturesUtil::declare_compatibility('custom_order_tables', __FILE__, true);
+            foreach (array('custom_order_tables', 'cart_checkout_blocks') as $feature_id) {
+                \Automattic\WooCommerce\Utilities\FeaturesUtil::declare_compatibility($feature_id, __FILE__, true);
+            }
+
+            $wp_parsidate_file = WP_PLUGIN_DIR . '/wp-parsidate/wp-parsidate.php';
+            if (file_exists($wp_parsidate_file)) {
+                \Automattic\WooCommerce\Utilities\FeaturesUtil::declare_compatibility('custom_order_tables', $wp_parsidate_file, true);
+            }
         }
     }
-    
+
     /**
      * Check HPOS compatibility status (for debugging)
-     * 
+     *
      * @return array Status information
      */
     public function get_hpos_status() {
@@ -157,58 +196,58 @@ final class Digitalogic {
             'plugin_compatible' => false,
             'using_custom_tables' => false
         );
-        
+
         if (class_exists('\Automattic\WooCommerce\Utilities\OrderUtil')) {
             $status['hpos_enabled'] = \Automattic\WooCommerce\Utilities\OrderUtil::custom_orders_table_usage_is_enabled();
             $status['using_custom_tables'] = $status['hpos_enabled'];
         }
-        
+
         if (class_exists('\Automattic\WooCommerce\Utilities\FeaturesUtil')) {
             $status['plugin_compatible'] = true;
         }
-        
+
         return $status;
     }
-    
+
     /**
      * Load plugin textdomain
      */
     public function load_textdomain() {
         load_plugin_textdomain('digitalogic', false, dirname(DIGITALOGIC_PLUGIN_BASENAME) . '/languages');
     }
-    
+
     /**
      * Plugin activation
      */
     public function activate() {
         // Create database tables
         $this->create_tables();
-        
+
         // Set default options
         $this->set_default_options();
-        
+
         // Flush rewrite rules
         flush_rewrite_rules();
     }
-    
+
     /**
      * Plugin deactivation
      */
     public function deactivate() {
         flush_rewrite_rules();
     }
-    
+
     /**
      * Create custom database tables
      */
     private function create_tables() {
         global $wpdb;
-        
+
         $charset_collate = $wpdb->get_charset_collate();
-        
+
         // Activity log table
         $table_name = $wpdb->prefix . 'digitalogic_logs';
-        
+
         $sql = "CREATE TABLE IF NOT EXISTS $table_name (
             id bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT,
             user_id bigint(20) UNSIGNED NOT NULL,
@@ -226,14 +265,14 @@ final class Digitalogic {
             KEY object_type (object_type),
             KEY created_at (created_at)
         ) $charset_collate;";
-        
+
         require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
         dbDelta($sql);
     }
-    
+
     /**
      * Set default options
-     * 
+     *
      * Note: Options are synchronized with ACF storage (options_ prefix)
      * Both get_option('dollar_price') and get_field('dollar_price', 'option') access the same data
      */
@@ -248,7 +287,7 @@ final class Digitalogic {
         if (get_option('options_update_date') === false) {
             add_option('options_update_date', date('ymd'));
         }
-        
+
         // Also initialize direct options for backward compatibility
         if (get_option('dollar_price') === false) {
             add_option('dollar_price', '0');
@@ -259,7 +298,7 @@ final class Digitalogic {
         if (get_option('update_date') === false) {
             add_option('update_date', date('ymd'));
         }
-        
+
         // Migration: Move old prefixed options to ACF storage
         $prefixed_dollar = get_option('digitalogic_dollar_price');
         if ($prefixed_dollar !== false) {
@@ -267,21 +306,21 @@ final class Digitalogic {
             update_option('dollar_price', $prefixed_dollar);
             delete_option('digitalogic_dollar_price');
         }
-        
+
         $prefixed_yuan = get_option('digitalogic_yuan_price');
         if ($prefixed_yuan !== false) {
             update_option('options_yuan_price', $prefixed_yuan);
             update_option('yuan_price', $prefixed_yuan);
             delete_option('digitalogic_yuan_price');
         }
-        
+
         $prefixed_date = get_option('digitalogic_update_date');
         if ($prefixed_date !== false) {
             update_option('options_update_date', $prefixed_date);
             update_option('update_date', $prefixed_date);
             delete_option('digitalogic_update_date');
         }
-        
+
         // Sync: If direct options exist but ACF storage doesn't, copy to ACF storage
         if (get_option('options_dollar_price') === '0' && get_option('dollar_price') !== '0') {
             update_option('options_dollar_price', get_option('dollar_price'));
@@ -293,7 +332,7 @@ final class Digitalogic {
             update_option('options_update_date', get_option('update_date'));
         }
     }
-    
+
     /**
      * WooCommerce missing notice
      */
@@ -304,10 +343,10 @@ final class Digitalogic {
         </div>
         <?php
     }
-    
+
     /**
      * Add plugin action links on Plugins page
-     * 
+     *
      * @param array $links Existing links
      * @return array Modified links
      */
@@ -317,13 +356,13 @@ final class Digitalogic {
             'currency' => '<a href="' . esc_url(admin_url('admin.php?page=price-settings')) . '">' . __('Currency', 'digitalogic') . '</a>',
             'products' => '<a href="' . esc_url(admin_url('admin.php?page=product-list')) . '">' . __('Products', 'digitalogic') . '</a>',
         );
-        
+
         return array_merge($custom_links, $links);
     }
-    
+
     /**
      * Add plugin row meta links on Plugins page
-     * 
+     *
      * @param array $links Existing row meta
      * @param string $file Plugin file
      * @return array Modified row meta
@@ -335,10 +374,10 @@ final class Digitalogic {
                 'api' => '<a href="' . esc_url(admin_url('admin.php?page=digitalogic-status')) . '">' . __('API & Status', 'digitalogic') . '</a>',
                 'support' => '<a href="https://github.com/atomicdeploy/digitalogic-wp/issues" target="_blank">' . __('Support', 'digitalogic') . '</a>',
             );
-            
+
             $links = array_merge($links, $row_meta);
         }
-        
+
         return $links;
     }
 }

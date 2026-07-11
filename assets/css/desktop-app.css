@@ -1,0 +1,118 @@
+@font-face {
+    font-family: "YekanBakh";
+    src: url("https://meet.digitalogic.ir/fonts/YekanBakh-Regular.woff2") format("woff2");
+    font-weight: 400;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: "YekanBakh";
+    src: url("https://meet.digitalogic.ir/fonts/YekanBakh-Bold.woff2") format("woff2");
+    font-weight: 700;
+    font-style: normal;
+    font-display: swap;
+}
+
+html[data-digitalogic-desktop="1"],
+html.digitalogic-desktop-webview {
+    --dld-accent: #00b3eb;
+    --dld-accent-strong: #0168cd;
+    --dld-text: #143047;
+    --dld-soft: #637b8f;
+}
+
+body.digitalogic-desktop-login {
+    min-height: 100vh;
+    background: transparent !important;
+    font-family: "Segoe UI Variable", "Segoe UI", Tahoma, sans-serif;
+}
+
+body.digitalogic-desktop-login #login {
+    width: min(540px, calc(100vw - 44px));
+    max-width: 540px;
+    padding-top: 4vh;
+}
+
+body.digitalogic-desktop-login h1 a {
+    width: 148px;
+    height: 98px;
+    background-image: url("https://meet.digitalogic.ir/images/watermark.svg?v=2026062715") !important;
+    background-position: center;
+    background-size: contain;
+}
+
+body.digitalogic-desktop-login form {
+    border: 1px solid rgba(1, 104, 205, .16);
+    border-radius: 18px;
+    box-shadow: 0 24px 56px rgba(18, 52, 78, .14);
+    padding: 30px;
+}
+
+body.digitalogic-desktop-login form .input,
+body.digitalogic-desktop-login input[type="text"],
+body.digitalogic-desktop-login input[type="password"] {
+    min-height: 46px;
+    border-radius: 9px;
+    font-size: 16px;
+}
+
+body.digitalogic-desktop-login .button-primary {
+    min-height: 38px;
+    border: 0;
+    border-radius: 8px;
+    background: linear-gradient(135deg, var(--dld-accent), var(--dld-accent-strong));
+}
+
+.digitalogic-desktop-login-message {
+    margin: 0 0 16px;
+    padding: 12px 14px;
+    border: 1px solid rgba(1, 104, 205, .16);
+    border-radius: 12px;
+    background: rgba(255, 255, 255, .78);
+    color: var(--dld-text);
+    box-shadow: 0 12px 28px rgba(18, 52, 78, .08);
+}
+
+html.digitalogic-desktop-webview .dlp-layout {
+    min-height: 100vh;
+}
+
+html.digitalogic-desktop-webview .dlp-sidebar {
+    top: 12px;
+    height: calc(100vh - 24px);
+}
+
+html.digitalogic-desktop-webview .dlp-menu,
+html.digitalogic-desktop-webview .dlp-column-context {
+    font-family: "YekanBakh", "DigitalogicFanum", "IRANSans", "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+}
+
+html.digitalogic-desktop-webview .dlp-menu button,
+html.digitalogic-desktop-webview .dlp-column-context button {
+    gap: 8px;
+}
+
+html.digitalogic-desktop-webview .dlp-menu .dashicons,
+html.digitalogic-desktop-webview .dlp-column-context .dashicons {
+    width: 20px;
+    height: 20px;
+    color: var(--dlp-accent-strong, var(--dld-accent-strong));
+    font-size: 18px;
+    line-height: 1;
+}
+
+html.digitalogic-desktop-dragging body::after {
+    content: "Drop files into Digitalogic";
+    position: fixed;
+    inset: 18px;
+    z-index: 999999;
+    display: grid;
+    place-items: center;
+    border: 2px dashed rgba(0, 179, 235, .72);
+    border-radius: 16px;
+    background: rgba(238, 245, 251, .88);
+    color: var(--dld-text);
+    font: 700 18px "Segoe UI", sans-serif;
+    pointer-events: none;
+}

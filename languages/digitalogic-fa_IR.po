@@ -122,7 +122,7 @@ msgid "Name"
 msgstr "نام"
 
 msgid "SKU"
-msgstr "کد محصول"
+msgstr "کد کالا"
 
 msgid "Regular Price"
 msgstr "قیمت عادی"

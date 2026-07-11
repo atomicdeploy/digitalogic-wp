@@ -1,0 +1,2459 @@
+:root,
+[data-dg-theme="light"] {
+    --dg-logo-current: var(--dg-logo-light);
+    --dg-bg: #eef5fb;
+    --dg-bg-strong: #ffffff;
+    --dg-bg-soft: rgba(255, 255, 255, 0.84);
+    --dg-panel: rgba(255, 255, 255, 0.82);
+    --dg-panel-strong: #ffffff;
+    --dg-panel-soft: #f6fbff;
+    --dg-panel-raised: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(244, 249, 255, 0.92));
+    --dg-login-shell-bg:
+        radial-gradient(circle at 96% 6%, rgba(15, 167, 235, 0.2), transparent 34%),
+        radial-gradient(circle at 10% 88%, rgba(17, 105, 216, 0.14), transparent 30%),
+        linear-gradient(145deg, rgba(255, 255, 255, 0.82), rgba(229, 246, 255, 0.72));
+    --dg-border: rgba(19, 79, 128, 0.12);
+    --dg-border-strong: rgba(1, 104, 205, 0.34);
+    --dg-text: #163248;
+    --dg-text-soft: #5f7587;
+    --dg-heading: #0f2940;
+    --dg-accent: #0fa7eb;
+    --dg-accent-strong: #1169d8;
+    --dg-accent-soft: rgba(15, 167, 235, 0.14);
+    --dg-success: #0ea76b;
+    --dg-success-soft: rgba(14, 167, 107, 0.14);
+    --dg-warning: #d79b08;
+    --dg-warning-soft: rgba(215, 155, 8, 0.14);
+    --dg-danger: #d94f5c;
+    --dg-danger-soft: rgba(217, 79, 92, 0.14);
+    --dg-info-soft: rgba(17, 105, 216, 0.12);
+    --dg-overlay-a: rgba(15, 167, 235, 0.18);
+    --dg-overlay-b: rgba(17, 105, 216, 0.16);
+    --dg-shadow: 0 24px 56px rgba(18, 52, 78, 0.12);
+    --dg-shadow-soft: 0 10px 26px rgba(18, 52, 78, 0.08);
+    --dg-input-bg: rgba(246, 251, 255, 0.92);
+    --dg-table-alt: rgba(241, 248, 255, 0.72);
+}
+
+[data-dg-theme="dark"] {
+    --dg-logo-current: var(--dg-logo-dark);
+    --dg-bg: #091420;
+    --dg-bg-strong: #101a28;
+    --dg-bg-soft: rgba(11, 19, 31, 0.88);
+    --dg-panel: rgba(14, 23, 36, 0.82);
+    --dg-panel-strong: #121d2c;
+    --dg-panel-soft: #162235;
+    --dg-panel-raised: linear-gradient(180deg, rgba(18, 28, 42, 0.94), rgba(10, 16, 26, 0.92));
+    --dg-login-shell-bg:
+        radial-gradient(circle at 96% 6%, rgba(0, 179, 235, 0.18), transparent 34%),
+        radial-gradient(circle at 10% 88%, rgba(1, 104, 205, 0.18), transparent 30%),
+        linear-gradient(145deg, rgba(18, 28, 42, 0.88), rgba(8, 16, 28, 0.82));
+    --dg-border: rgba(120, 171, 210, 0.18);
+    --dg-border-strong: rgba(0, 179, 235, 0.34);
+    --dg-text: #ebf5fd;
+    --dg-text-soft: #9cb1c2;
+    --dg-heading: #f8fbff;
+    --dg-accent: #00b3eb;
+    --dg-accent-strong: #0168cd;
+    --dg-accent-soft: rgba(0, 179, 235, 0.16);
+    --dg-success: #0fd48c;
+    --dg-success-soft: rgba(15, 212, 140, 0.14);
+    --dg-warning: #ffbe3b;
+    --dg-warning-soft: rgba(255, 190, 59, 0.14);
+    --dg-danger: #ff7a8d;
+    --dg-danger-soft: rgba(255, 122, 141, 0.16);
+    --dg-info-soft: rgba(1, 104, 205, 0.18);
+    --dg-overlay-a: rgba(0, 179, 235, 0.24);
+    --dg-overlay-b: rgba(1, 104, 205, 0.18);
+    --dg-shadow: 0 28px 80px rgba(3, 10, 18, 0.44);
+    --dg-shadow-soft: 0 12px 30px rgba(0, 0, 0, 0.2);
+    --dg-input-bg: rgba(255, 255, 255, 0.04);
+    --dg-table-alt: rgba(255, 255, 255, 0.03);
+}
+
+html,
+body.login,
+body.wp-admin {
+    font-family: var(--dg-font);
+    color: var(--dg-text);
+}
+
+body.login {
+    min-height: 100dvh;
+    height: auto !important;
+    min-height: 100vh;
+    background:
+        radial-gradient(circle at top right, var(--dg-overlay-a), transparent 28%),
+        radial-gradient(circle at 12% 18%, var(--dg-overlay-b), transparent 24%),
+        linear-gradient(135deg, var(--dg-bg) 0%, color-mix(in srgb, var(--dg-bg) 82%, #163248) 50%, var(--dg-bg-strong) 100%);
+    background-attachment: fixed;
+    background-repeat: no-repeat;
+    background-size: cover;
+    overflow-x: hidden;
+}
+
+body.login::before,
+body.login::after,
+body.wp-admin::before {
+    content: "";
+    position: fixed;
+    inset: auto;
+    border-radius: 999px;
+    pointer-events: none;
+    filter: blur(22px);
+    opacity: 0.9;
+    z-index: 0;
+}
+
+body.login::before {
+    width: 240px;
+    height: 240px;
+    top: 72px;
+    right: 8vw;
+    background: var(--dg-overlay-a);
+}
+
+body.login::after {
+    width: 220px;
+    height: 220px;
+    bottom: 72px;
+    left: 7vw;
+    background: var(--dg-overlay-b);
+}
+
+body.wp-admin {
+    color-scheme: light;
+    background:
+        radial-gradient(circle at top right, var(--dg-overlay-a), transparent 18%),
+        linear-gradient(180deg, var(--dg-bg) 0%, color-mix(in srgb, var(--dg-bg) 84%, #ffffff) 100%);
+}
+
+[data-dg-theme="dark"] body.wp-admin {
+    color-scheme: dark;
+}
+
+body.wp-admin::before {
+    width: 320px;
+    height: 320px;
+    top: 90px;
+    right: 4vw;
+    background: var(--dg-overlay-a);
+}
+
+body.login #login {
+    position: relative;
+    z-index: 1;
+    width: min(100%, 460px);
+    padding: 28px 0 18px;
+}
+
+body.login div#login h1 {
+    margin-bottom: 22px;
+}
+
+body.login div#login h1 a {
+    width: 100%;
+    max-width: 310px;
+    height: 90px;
+    margin: 0 auto;
+    background-image: var(--dg-logo-current) !important;
+    background-position: center;
+    background-repeat: no-repeat;
+    background-size: contain;
+    filter: drop-shadow(0 14px 30px rgba(0, 0, 0, 0.12));
+}
+
+body.login div#login h1 a:focus:not(:focus-visible) {
+    outline: 0;
+    box-shadow: none;
+}
+
+body.login div#login h1 a:focus-visible {
+    outline: 3px solid var(--dg-accent-strong);
+    outline-offset: 8px;
+    border-radius: 18px;
+    box-shadow: 0 0 0 5px var(--dg-accent-soft);
+}
+
+body.login #loginform,
+body.login #registerform,
+body.login #lostpasswordform,
+body.login #resetpassform {
+    margin-top: 0;
+    padding: 30px 30px 24px;
+    border: 1px solid var(--dg-border);
+    border-radius: 30px;
+    background: var(--dg-panel-raised);
+    box-shadow: var(--dg-shadow);
+    backdrop-filter: blur(18px);
+}
+
+body.login.login-action-login #login {
+    box-sizing: border-box;
+    width: min(980px, calc(100vw - 32px)) !important;
+    max-width: 980px !important;
+}
+
+body.login.login-action-register #login {
+    box-sizing: border-box;
+    width: min(720px, calc(100vw - 32px)) !important;
+    max-width: 720px !important;
+}
+
+body.login .digitalogic-desktop-login-message {
+    display: none !important;
+}
+
+body.login .dg-digits-login-shell,
+body.login .dg-digits-register-shell {
+    margin: 0;
+}
+
+body.login .dg-digits-register-shell {
+    padding: 30px;
+    border: 1px solid var(--dg-border);
+    border-radius: 34px;
+    background: var(--dg-login-shell-bg);
+    box-shadow: var(--dg-shadow);
+    backdrop-filter: blur(18px);
+}
+
+body.login .dg-digits-login-shell {
+    display: grid;
+    grid-template-columns: minmax(260px, 0.9fr) minmax(0, 1.1fr);
+    gap: 28px;
+    align-items: stretch;
+    padding: 28px;
+    border: 1px solid var(--dg-border);
+    border-radius: 34px;
+    background: var(--dg-login-shell-bg);
+    box-shadow: var(--dg-shadow);
+    backdrop-filter: blur(18px);
+}
+
+body.login .dg-digits-login-shell > style {
+    display: none !important;
+}
+
+body.login .dg-digits-login-shell::before {
+    content: "";
+    min-height: 430px;
+    border-radius: 28px;
+    background:
+        url("../../images/branding/login-hero.png"),
+        radial-gradient(circle at 22% 18%, rgba(255, 255, 255, 0.82), transparent 30%),
+        radial-gradient(circle at 80% 86%, color-mix(in srgb, var(--dg-accent) 22%, transparent), transparent 34%),
+        linear-gradient(135deg, color-mix(in srgb, var(--dg-panel-strong) 72%, var(--dg-accent-soft)), color-mix(in srgb, var(--dg-accent) 16%, var(--dg-panel-soft)));
+    background-position: center, center, center, center;
+    background-repeat: no-repeat;
+    background-size: min(94%, 440px) auto, cover, cover, cover;
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--dg-border) 70%, transparent), var(--dg-shadow-soft);
+}
+
+body.login .dg-digits-login-shell.dg-has-hero-carousel::before {
+    content: none;
+}
+
+body.login .dg-login-hero-carousel {
+    position: relative;
+    min-height: 430px;
+    overflow: hidden;
+    border-radius: 28px;
+    background:
+        radial-gradient(circle at 22% 18%, rgba(255, 255, 255, 0.82), transparent 30%),
+        radial-gradient(circle at 80% 86%, color-mix(in srgb, var(--dg-accent) 22%, transparent), transparent 34%),
+        linear-gradient(135deg, color-mix(in srgb, var(--dg-panel-strong) 72%, var(--dg-accent-soft)), color-mix(in srgb, var(--dg-accent) 16%, var(--dg-panel-soft)));
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--dg-border) 70%, transparent), var(--dg-shadow-soft);
+    isolation: isolate;
+    cursor: grab;
+    touch-action: pan-y;
+    user-select: none;
+    contain: paint;
+    --dg-drag-progress: 0;
+}
+
+body.login .dg-login-hero-carousel.is-dragging {
+    cursor: grabbing;
+}
+
+body.login .dg-login-hero-carousel::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    pointer-events: none;
+    background:
+        linear-gradient(120deg, transparent 12%, color-mix(in srgb, #fff 16%, transparent) 38%, transparent 58%),
+        radial-gradient(circle at 22% 12%, color-mix(in srgb, #fff 20%, transparent), transparent 24%),
+        linear-gradient(180deg, transparent 58%, color-mix(in srgb, var(--dg-bg) 16%, transparent));
+    opacity: calc(0.42 + (var(--dg-drag-progress, 0) * 0.18));
+    mix-blend-mode: soft-light;
+    transform: translate3d(calc(var(--dg-drag, 0px) * -0.035), 0, 0);
+    transition: opacity 0.42s ease, transform 0.82s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+[data-dg-theme="dark"] body.login .dg-login-hero-carousel {
+    background:
+        radial-gradient(circle at 18% 12%, rgba(111, 218, 255, 0.18), transparent 30%),
+        radial-gradient(circle at 86% 82%, rgba(1, 104, 205, 0.28), transparent 36%),
+        linear-gradient(145deg, rgba(8, 19, 34, 0.94), rgba(13, 31, 51, 0.9));
+}
+
+body.login .dg-hero-track {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    display: flex;
+    inline-size: 100%;
+    block-size: 100%;
+    transform: translate3d(calc((var(--dg-track-index, 1) * -100%) + var(--dg-drag, 0px)), 0, 0);
+    transition: transform 0.82s cubic-bezier(0.16, 1, 0.3, 1);
+    will-change: transform;
+}
+
+body.login .dg-login-hero-carousel.is-dragging .dg-hero-track,
+body.login .dg-login-hero-carousel.is-jump-reset .dg-hero-track {
+    transition: none;
+}
+
+body.login .dg-hero-slide {
+    position: relative;
+    flex: 0 0 100%;
+    inline-size: 100%;
+    block-size: 100%;
+    background-image: url("../../images/branding/login-hero.png");
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: min(94%, 440px) auto;
+    opacity: 1;
+    transform: none;
+    animation: none;
+    filter: drop-shadow(0 28px 42px color-mix(in srgb, var(--dg-bg) 20%, transparent)) saturate(1.04);
+    transition: filter 0.82s cubic-bezier(0.16, 1, 0.3, 1), transform 0.82s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+body.login .dg-login-hero-carousel.is-dragging .dg-hero-slide {
+    transform: scale(calc(1 - (var(--dg-drag-progress, 0) * 0.012)));
+    filter: drop-shadow(0 22px 34px color-mix(in srgb, var(--dg-bg) 16%, transparent)) saturate(1.08);
+}
+
+body.login .dg-hero-slide--two {
+    background-position: 46% 50%;
+    animation-delay: 6s;
+}
+
+body.login .dg-hero-slide--three {
+    background-position: 54% 48%;
+    animation-delay: 12s;
+}
+
+body.login .dg-hero-glow {
+    position: absolute;
+    inset: 12% 8% auto auto;
+    width: 46%;
+    height: 34%;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--dg-accent) 18%, transparent);
+    filter: blur(24px);
+    opacity: 0.8;
+    z-index: 0;
+}
+
+body.login .dg-hero-dots {
+    position: absolute;
+    inset-inline: 0;
+    inset-block-end: 18px;
+    z-index: 3;
+    display: flex;
+    justify-content: center;
+    gap: 8px;
+}
+
+body.login .dg-hero-dots button {
+    width: 8px;
+    height: 8px;
+    padding: 0;
+    border: 0;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--dg-accent-strong) 54%, transparent);
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--dg-panel-strong) 46%, transparent);
+    cursor: pointer;
+    transition: width 0.32s cubic-bezier(0.16, 1, 0.3, 1), transform 0.24s ease, background 0.24s ease, box-shadow 0.24s ease;
+}
+
+body.login .dg-login-hero-carousel[data-dg-slide="0"] .dg-hero-dots button:nth-child(1),
+body.login .dg-login-hero-carousel[data-dg-slide="1"] .dg-hero-dots button:nth-child(2),
+body.login .dg-login-hero-carousel[data-dg-slide="2"] .dg-hero-dots button:nth-child(3),
+body.login .dg-hero-dots button:hover,
+body.login .dg-hero-dots button:focus-visible {
+    width: 24px;
+    transform: scale(1.45);
+    background: var(--dg-accent-strong);
+    box-shadow: 0 0 0 5px color-mix(in srgb, var(--dg-panel-strong) 58%, transparent);
+}
+
+[data-dg-theme="dark"] body.login .dg-digits-login-shell::before {
+    background:
+        url("../../images/branding/login-hero.png"),
+        radial-gradient(circle at 18% 12%, rgba(111, 218, 255, 0.18), transparent 30%),
+        radial-gradient(circle at 86% 82%, rgba(1, 104, 205, 0.28), transparent 36%),
+        linear-gradient(145deg, rgba(8, 19, 34, 0.94), rgba(13, 31, 51, 0.9));
+    background-position: center, center, center, center;
+    background-repeat: no-repeat;
+    background-size: min(94%, 440px) auto, cover, cover, cover;
+}
+
+body.login .dg-digits-login-shell > :not(style) {
+    min-width: 0;
+}
+
+body.login .dg-digits-register-shell .digits-form_heading {
+    text-align: center;
+}
+
+body.login .dg-digits-register-shell .digits_signup_form_step,
+body.login .dg-digits-register-shell .digits-form_body_wrapper {
+    display: grid;
+    gap: 2px;
+}
+
+body.login .dg-digits-register-shell :is(#dig_cs_name, #dig_cs_lastname, #dig_cs_username, #dig_cs_email, #dig_cs_password, .digits-form_input_row:has(input[name="phone"]))::before {
+    content: "\f110";
+}
+
+body.login .dg-digits-register-shell #dig_cs_lastname::before {
+    content: "\f336";
+}
+
+body.login .dg-digits-register-shell #dig_cs_username::before {
+    content: "\f110";
+}
+
+body.login .dg-digits-register-shell #dig_cs_email::before {
+    content: "\f465";
+}
+
+body.login .dg-digits-register-shell .digits-form_input_row:has(input[name="phone"])::before {
+    content: "\f470";
+}
+
+body.login .dg-digits-register-shell #dig_cs_password::before {
+    content: "\f160";
+}
+
+body.login .dg-digits-register-shell :is(#dig_cs_name, #dig_cs_lastname, #dig_cs_username, #dig_cs_email, #dig_cs_password, .digits-form_input_row:has(input[name="phone"])) input {
+    padding-inline-start: 46px !important;
+}
+
+@media (min-width: 720px) {
+    body.login .dg-digits-register-shell .digits_signup_form_step {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        column-gap: 14px;
+    }
+
+    body.login .dg-digits-register-shell :is(#dig_cs_username, #dig_cs_email, #dig_cs_password, .digits-form_input_row:has(input[name="phone"]), .digits-form_submit-btn, .digits-form_button) {
+        grid-column: 1 / -1;
+    }
+}
+
+body.login .dg-digits-login-shell :is(.digits-form_page, .digits-form_container, .digits2_box),
+body.login .dg-digits-register-shell :is(.digits-form_page, .digits-form_container, .digits2_box) {
+    width: 100%;
+    max-width: 100%;
+}
+
+body.login .dg-digits-login-shell :is(.digits-form_container, .digits-form_page),
+body.login .dg-digits-register-shell :is(.digits-form_container, .digits-form_page) {
+    border-radius: 24px;
+    background: transparent !important;
+}
+
+body.login .dg-digits-login-shell :is(.digits-form_heading, .digits-form_body, .digits-form_footer),
+body.login .dg-digits-register-shell :is(.digits-form_heading, .digits-form_body, .digits-form_footer) {
+    font-family: var(--dg-font);
+}
+
+body.login .dg-digits-login-shell .digits-form_tab-bar,
+body.login .dg-digits-register-shell .digits-form_tab-bar {
+    display: flex;
+    gap: 4px;
+    padding: 4px;
+    border-radius: 16px;
+    background: color-mix(in srgb, var(--dg-panel-soft) 86%, transparent) !important;
+}
+
+body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) :is(.digits-form_wrapper, .digits_modal_box, .digits2_box) {
+    border: 1px solid var(--dg-border) !important;
+    border-radius: 30px !important;
+    background: var(--dg-panel-raised) !important;
+    box-shadow: var(--dg-shadow) !important;
+    backdrop-filter: blur(18px);
+}
+
+body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) :is(form, .digits_form_index_section, .digits_secure_modal_box, .digits_ui, .digits-form_container, .digits-form_page, .digits-form_wrapper, .digits_modal_box, .digits2_box, .digits-form_login, .digits-form_body, .digits-form_body_wrapper, .digits-form_tab_wrapper, .digits-form_tab_container, .digits-form_tab_body, .digits_signup_form_step, .digits-form_footer) {
+    border: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    backdrop-filter: none !important;
+    overflow: visible !important;
+}
+
+body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) :is(form, .digits_form_index_section, .digits-form_wrapper, .digits_modal_box, .digits2_box) {
+    padding: 0 !important;
+    margin: 0 !important;
+}
+
+body.login .dg-digits-login-shell form.digits_form_index_section,
+body.login .dg-digits-register-shell form.digits_form_index_section,
+body.login .dg-digits-login-shell.login form {
+    border: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+}
+
+body.login .dg-digits-login-shell .digits-form_tabs,
+body.login .dg-digits-login-shell .digits-form_tab-bar {
+    display: none !important;
+}
+
+body.login .dg-digits-login-shell.dg-digits-auto-identity .digits-form_tab_body:not(.digits-tab_active),
+body.login .dg-digits-login-shell.dg-digits-auto-identity .digits-form_tab_body[hidden] {
+    display: none !important;
+}
+
+body.login .dg-digits-login-shell.dg-digits-auto-identity .digits-form_tab_body.digits-tab_active {
+    display: block !important;
+}
+
+body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) :is(.digits_captcha_row, .dg_min_capt, .digits_reg_logincaptcha, .dig_captcha) {
+    display: none !important;
+}
+
+body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .digits-form_heading {
+    margin-block-end: 22px !important;
+    color: var(--dg-heading) !important;
+}
+
+body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .digits-form_heading_text {
+    color: var(--dg-heading) !important;
+    font-size: clamp(28px, 5vw, 36px) !important;
+    font-weight: 800 !important;
+}
+
+body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .digits-form_tab-item {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 1 1 0;
+    min-height: 38px;
+    padding-inline: 12px;
+    border-radius: 12px;
+    color: var(--dg-text-soft) !important;
+    font-weight: 700;
+    transition: color 0.18s ease, background 0.18s ease, box-shadow 0.18s ease;
+}
+
+body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .digits-form_tab-item.digits-tab_active {
+    background: var(--dg-panel-strong) !important;
+    color: var(--dg-accent-strong) !important;
+    box-shadow: var(--dg-shadow-soft);
+}
+
+body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) :is(.digits-form_input_row, .digits-form_input) {
+    border-color: var(--dg-border) !important;
+    border-radius: 16px !important;
+    color: var(--dg-text) !important;
+}
+
+body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .digits-form_input_row {
+    position: relative;
+    min-height: 58px !important;
+    margin-block: 11px !important;
+    padding-inline: 14px !important;
+    background: var(--dg-input-bg) !important;
+}
+
+body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .digits-form_input input {
+    min-height: 48px !important;
+    margin: 0 !important;
+    border: 0 !important;
+    background: transparent !important;
+    color: var(--dg-text) !important;
+    box-shadow: none !important;
+    font-family: var(--dg-font) !important;
+}
+
+body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .digits-form_input input.digits_login_remember_me {
+    min-height: 22px !important;
+}
+
+body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .digits-form_input_row::before {
+    position: absolute;
+    inset-block-start: 50%;
+    inset-inline-start: 17px;
+    z-index: 2;
+    color: var(--dg-accent-strong);
+    font-family: dashicons;
+    font-size: 20px;
+    line-height: 1;
+    transform: translateY(-50%);
+    pointer-events: none;
+}
+
+body.login .dg-digits-login-shell .digits-mobile_wrapper::before {
+    content: "\f110";
+}
+
+body.login .dg-digits-login-shell[data-dg-identity="email"] .digits-mobile_wrapper::before,
+body.login .dg-digits-login-shell[data-dg-identity="email"] .digits-form_tab_body.digits-tab_active .digits-form_input_row::before {
+    content: "\f465";
+}
+
+body.login .dg-digits-login-shell[data-dg-identity="phone"] .digits-mobile_wrapper::before {
+    content: "\f470";
+}
+
+body.login .dg-digits-login-shell[data-dg-identity="username"] .digits-mobile_wrapper::before {
+    content: "\f110";
+}
+
+body.login .dg-digits-login-shell.dg-digits-auto-identity:not([data-dg-identity="phone"]) .digits-form_countrycode {
+    display: none !important;
+}
+
+body.login .dg-digits-login-shell.dg-digits-auto-identity .digits-mobile_wrapper {
+    direction: ltr;
+}
+
+body.login .dg-digits-login-shell.dg-digits-auto-identity:not([data-dg-identity="phone"]) .mobile_field {
+    padding-inline-start: 46px !important;
+    padding-inline-end: 16px !important;
+    direction: ltr;
+    text-align: left !important;
+}
+
+body.login .dg-digits-login-shell.dg-digits-auto-identity[data-dg-identity="email"] .digits-form_tab_body.digits-tab_active .digits-form_input_row {
+    direction: ltr;
+}
+
+body.login .dg-digits-login-shell.dg-digits-auto-identity[data-dg-identity="email"] input[name="digits_email"] {
+    padding-inline-start: 46px !important;
+    padding-inline-end: 16px !important;
+    direction: ltr;
+    text-align: left !important;
+}
+
+body.login .dg-digits-login-shell.dg-digits-auto-identity[data-dg-identity="phone"] .mobile_field {
+    padding-inline: 12px !important;
+    padding-left: 12px !important;
+    padding-right: 12px !important;
+}
+
+body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .digits-form_input input::placeholder {
+    color: color-mix(in srgb, var(--dg-text-soft) 56%, transparent) !important;
+}
+
+body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .digits-form_countrycode {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--dg-accent-strong) !important;
+    font-weight: 800;
+}
+
+body.login .dg-digits-login-shell.dg-digits-auto-identity[data-dg-identity="phone"] .digits-mobile_wrapper {
+    display: flex !important;
+    align-items: center !important;
+    gap: 10px !important;
+    width: 100% !important;
+    direction: ltr;
+}
+
+body.login .dg-digits-login-shell.dg-digits-auto-identity[data-dg-identity="phone"] .digits-mobile_wrapper::before {
+    content: none;
+}
+
+body.login .dg-digits-login-shell.dg-digits-auto-identity[data-dg-identity="phone"] .digits-form_countrycode {
+    position: static !important;
+    z-index: 60;
+    flex: 0 0 auto;
+    min-width: 104px;
+    min-height: 40px;
+    justify-content: center;
+    padding-inline: 10px;
+    border: 0 !important;
+    border-inline-end: 1px solid var(--dg-border) !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+}
+
+body.login .dg-digits-login-shell.dg-digits-auto-identity[data-dg-identity="phone"] .digits-form_countrycode input {
+    width: 42px !important;
+    min-width: 0 !important;
+    min-height: 0 !important;
+    height: auto !important;
+    padding: 0 !important;
+    line-height: 1 !important;
+    text-align: left !important;
+}
+
+body.login .dg-country-code-control {
+    position: relative;
+    z-index: 60;
+    gap: 6px;
+}
+
+body.login .dg-country-flag,
+body.login .dg-country-option-flag {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 20px;
+    overflow: hidden;
+    border-radius: 5px;
+    background: var(--dg-flag) center / cover no-repeat;
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--dg-border) 70%, transparent);
+    line-height: 1;
+}
+
+body.login .dg-country-trigger {
+    display: inline-grid;
+    place-items: center;
+    width: 26px;
+    height: 30px;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 9px;
+    background: transparent;
+    color: var(--dg-text-soft);
+    cursor: pointer;
+}
+
+body.login .dg-country-trigger:hover,
+body.login .dg-country-code-control.is-open .dg-country-trigger {
+    color: var(--dg-accent-strong);
+    background: var(--dg-accent-soft);
+}
+
+body.login .dg-country-trigger .dashicons {
+    width: 16px;
+    height: 16px;
+    font-size: 16px;
+    line-height: 1;
+}
+
+body.login .dg-country-menu {
+    position: absolute;
+    inset-block-start: calc(100% + 10px);
+    inset-inline-start: 0;
+    z-index: 99999;
+    display: grid;
+    min-width: 260px;
+    max-height: 260px;
+    padding: 8px;
+    overflow: auto;
+    border: 1px solid var(--dg-border);
+    border-radius: 18px;
+    background: var(--dg-panel-strong);
+    box-shadow: var(--dg-shadow);
+    opacity: 0;
+    transform: translateY(-6px) scale(0.98);
+    transform-origin: top left;
+    pointer-events: none;
+    transition: opacity 0.16s ease, transform 0.16s ease;
+}
+
+body.login .dg-country-code-control.is-open .dg-country-menu {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    pointer-events: auto;
+}
+
+body.login .dg-country-option {
+    display: grid;
+    grid-template-columns: 34px 58px minmax(0, 1fr);
+    align-items: center;
+    gap: 8px;
+    min-height: 40px;
+    padding: 8px 10px;
+    border: 0;
+    border-radius: 12px;
+    background: transparent;
+    color: var(--dg-text);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+body.login .dg-country-option:hover,
+body.login .dg-country-option.is-active {
+    background: var(--dg-accent-soft);
+    color: var(--dg-heading);
+}
+
+body.login .dg-country-option-code {
+    direction: ltr;
+    font-weight: 800;
+}
+
+body.login .dg-country-option-name {
+    overflow: hidden;
+    color: var(--dg-text-soft);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+body.login .dg-digits-login-shell.dg-digits-auto-identity[data-dg-identity="phone"] .digits-mobile_wrapper > .digits-form_input:not(.digits-form_countrycode) {
+    flex: 1 1 auto !important;
+    min-width: 0 !important;
+    width: auto !important;
+}
+
+body.login .dg-digits-login-shell.dg-digits-auto-identity[data-dg-identity="phone"] .mobile_field {
+    flex: 1 1 auto;
+    min-width: 0;
+    width: 100% !important;
+    box-sizing: border-box;
+    direction: ltr;
+    text-align: left !important;
+}
+
+body.login .dg-digits-login-shell.dg-digits-auto-identity .digits-form_countrycode::before {
+    content: none;
+    display: none;
+}
+
+body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) :is(.digits-form_button, .digits-form_submit, .digits-form_submit-btn) {
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 56px !important;
+    border: 0 !important;
+    background: linear-gradient(135deg, var(--dg-accent) 0%, var(--dg-accent-strong) 100%) !important;
+    color: #fff !important;
+    font-family: var(--dg-font) !important;
+    font-size: 16px !important;
+    font-weight: 800 !important;
+    box-shadow: 0 18px 36px color-mix(in srgb, var(--dg-accent-strong) 34%, transparent) !important;
+    overflow: hidden;
+    isolation: isolate;
+}
+
+body.login .dg-digits-login-shell :is(.digits-form_button, .digits-form_submit, .digits-form_submit-btn),
+body.login .dg-digits-register-shell :is(.digits-form_button, .digits-form_submit, .digits-form_submit-btn) {
+    border-radius: 18px;
+}
+
+body.rtl.login :is(.dg-digits-login-shell, .dg-digits-register-shell) :is(.digits-form_button, .digits-form_submit, .digits-form_submit-btn),
+html[dir="rtl"] body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) :is(.digits-form_button, .digits-form_submit, .digits-form_submit-btn) {
+    direction: rtl;
+}
+
+body:not(.rtl).login :is(.dg-digits-login-shell, .dg-digits-register-shell) :is(.digits-form_button, .digits-form_submit, .digits-form_submit-btn) {
+    direction: ltr;
+}
+
+body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .digits-form_button-text,
+body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) :is(.digits-form_button, .digits-form_submit, .digits-form_submit-btn) > span:not(.digits-form_button_ic) {
+    order: 1;
+}
+
+body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .digits-form_button_ic {
+    order: 2;
+    display: inline-grid !important;
+    place-items: center;
+    inline-size: 20px;
+    block-size: 20px;
+    flex: 0 0 20px;
+    transform: none !important;
+    transition: opacity 0.16s ease, color 0.16s ease;
+}
+
+body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .digits-form_button_ic::before {
+    content: "\f345";
+    display: inline-block;
+    font-family: dashicons;
+    font-size: 18px;
+    line-height: 1;
+    transform: none;
+}
+
+body.rtl.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .digits-form_button_ic::before,
+html[dir="rtl"] body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .digits-form_button_ic::before {
+    content: "\f341";
+    transform: none;
+}
+
+body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) :is(.digits-form_button, .digits-form_submit, .digits-form_submit-btn):hover .digits-form_button_ic {
+    transform: none !important;
+}
+
+body.login .dg-username-password-step {
+    width: 100%;
+}
+
+body.login .dg-username-login-summary {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-block: 2px 14px;
+    padding: 12px 14px;
+    border: 1px solid var(--dg-border);
+    border-radius: 16px;
+    background: color-mix(in srgb, var(--dg-accent-soft) 54%, transparent);
+    color: var(--dg-heading);
+    font-weight: 800;
+}
+
+body.login .dg-username-login-summary .dashicons {
+    color: var(--dg-accent-strong);
+}
+
+body.login .dg-username-password-row {
+    display: flex !important;
+    align-items: center;
+    gap: 10px;
+    padding-inline-start: 46px !important;
+    padding-inline-end: 8px !important;
+}
+
+body.login .dg-username-password-row::before {
+    content: none;
+}
+
+body.login .dg-username-password-row .dg-digits-row-icon {
+    order: 0;
+    position: absolute;
+    inset-inline-start: 17px;
+    color: var(--dg-accent-strong);
+}
+
+body.login .dg-username-password-input {
+    order: 1;
+    flex: 1 1 auto;
+    min-width: 0;
+    width: 100%;
+    min-height: 48px;
+    margin: 0 !important;
+    border: 0 !important;
+    background: transparent !important;
+    color: var(--dg-text) !important;
+    box-shadow: none !important;
+    font-family: var(--dg-font) !important;
+    font-size: 17px !important;
+}
+
+body.login .dg-username-password-row .button.wp-hide-pw {
+    order: 2;
+    flex: 0 0 42px;
+}
+
+body.login .dg-username-login-actions {
+    display: grid;
+    grid-template-columns: minmax(120px, 0.38fr) minmax(0, 1fr);
+    gap: 12px;
+    margin-top: 14px;
+}
+
+body.login .dg-username-login-back {
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 56px !important;
+    border-radius: 18px !important;
+    border-color: var(--dg-border) !important;
+    background: var(--dg-panel) !important;
+    color: var(--dg-text) !important;
+    font-family: var(--dg-font) !important;
+    font-weight: 800 !important;
+}
+
+body.login .dg-username-login-submit {
+    width: 100%;
+}
+
+body.login .dg-digits-login-shell form.dg-username-step-active :is(.digits-form_rememberme, .digits-social-logins-box, .digits-form_button:not(.dg-username-login-submit), .digits-form_submit:not(.dg-username-login-submit), .digits-form_submit-btn:not(.dg-username-login-submit)) {
+    display: none !important;
+}
+
+body.login .dg-digits-login-shell form.dg-username-step-active .dg-username-password-step .digits-form_button {
+    display: inline-flex !important;
+}
+
+.dg-login-alert,
+body.wp-admin .dg-dashboard-card,
+.dg-toast {
+    border: 1px solid var(--dg-border);
+    border-radius: 20px;
+    background: var(--dg-panel-raised);
+    box-shadow: var(--dg-shadow-soft);
+}
+
+.dg-login-alert {
+    margin: 0 0 18px;
+    padding: 16px 18px;
+}
+
+.dg-login-alert__title {
+    margin-bottom: 8px;
+    color: var(--dg-heading);
+    font-size: 14px;
+    font-weight: 700;
+}
+
+.dg-login-alert__body p {
+    margin: 0 0 8px;
+    color: var(--dg-text-soft);
+    font-size: 13px;
+    line-height: 1.65;
+}
+
+.dg-login-alert__body p:last-child {
+    margin-bottom: 0;
+}
+
+[data-dg-alert="info"] {
+    border-color: var(--dg-border-strong);
+    background: linear-gradient(180deg, color-mix(in srgb, var(--dg-panel-strong) 88%, #ffffff), var(--dg-panel-soft));
+}
+
+body.login label,
+body.login .language-switcher label,
+body.wp-admin .wrap,
+body.wp-admin .wrap p,
+body.wp-admin .wrap li,
+body.wp-admin .notice p,
+body.wp-admin .description,
+body.wp-admin .tablenav,
+body.wp-admin .search-box label,
+body.wp-admin .form-wrap p {
+    color: var(--dg-text-soft);
+}
+
+body.login form .input,
+body.login input[type="text"],
+body.login input[type="password"],
+body.login select,
+body.wp-admin input[type="text"],
+body.wp-admin input[type="search"],
+body.wp-admin input[type="password"],
+body.wp-admin input[type="email"],
+body.wp-admin input[type="number"],
+body.wp-admin input[type="url"],
+body.wp-admin input[type="tel"],
+body.wp-admin select,
+body.wp-admin textarea {
+    min-height: 50px;
+    border: 1px solid var(--dg-border);
+    border-radius: 16px;
+    background: var(--dg-input-bg);
+    color: var(--dg-text);
+    box-shadow: none;
+    transition: border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease, transform 0.18s ease;
+}
+
+body.login textarea,
+body.wp-admin textarea {
+    min-height: 120px;
+}
+
+body.login :is(input[type="password"], input.dg-password-visible, #user_pass, .dg-username-password-input) {
+    direction: ltr !important;
+    text-align: left !important;
+    font-family: ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace !important;
+    font-variant-numeric: tabular-nums;
+}
+
+body.login form .input:focus,
+body.login input[type="text"]:focus,
+body.login input[type="password"]:focus,
+body.login select:focus,
+body.wp-admin input[type="text"]:focus,
+body.wp-admin input[type="search"]:focus,
+body.wp-admin input[type="password"]:focus,
+body.wp-admin input[type="email"]:focus,
+body.wp-admin input[type="number"]:focus,
+body.wp-admin input[type="url"]:focus,
+body.wp-admin input[type="tel"]:focus,
+body.wp-admin select:focus,
+body.wp-admin textarea:focus {
+    border-color: var(--dg-border-strong);
+    box-shadow: 0 0 0 4px var(--dg-accent-soft);
+    background: var(--dg-panel-strong);
+}
+
+body.login input:-webkit-autofill,
+body.login input:-webkit-autofill:hover,
+body.login input:-webkit-autofill:focus,
+body.wp-admin input:-webkit-autofill,
+body.wp-admin input:-webkit-autofill:hover,
+body.wp-admin input:-webkit-autofill:focus {
+    -webkit-text-fill-color: var(--dg-text);
+    caret-color: var(--dg-text);
+    border-color: var(--dg-border-strong);
+    box-shadow: 0 0 0 1000px color-mix(in srgb, var(--dg-input-bg) 94%, var(--dg-accent-soft)) inset;
+    transition: background-color 9999s ease-in-out 0s;
+}
+
+input[type="checkbox"],
+input[type="radio"] {
+    accent-color: var(--dg-accent-strong);
+}
+
+body.login .button-primary,
+body.login #wp-submit,
+body.login .button.button-large,
+body.wp-admin .button-primary,
+body.wp-admin .button.button-primary {
+    min-height: 48px;
+    border: 0;
+    border-radius: 16px;
+    background: linear-gradient(135deg, var(--dg-accent) 0%, var(--dg-accent-strong) 100%);
+    color: #fff;
+    font-weight: 700;
+    box-shadow: 0 18px 36px color-mix(in srgb, var(--dg-accent-strong) 34%, transparent);
+    transition: transform 0.16s ease, box-shadow 0.16s ease, opacity 0.16s ease, filter 0.16s ease;
+}
+
+body.login .button-primary,
+body.login #wp-submit {
+    width: 100%;
+}
+
+body.login .button-primary:hover,
+body.login #wp-submit:hover,
+body.login .button.button-large:hover,
+body.wp-admin .button-primary:hover,
+body.wp-admin .button.button-primary:hover {
+    transform: translateY(-1px);
+    filter: saturate(1.06);
+}
+
+body.login .button-primary:disabled,
+body.login #wp-submit:disabled {
+    background: color-mix(in srgb, var(--dg-panel-strong) 82%, #d7e6f2);
+    box-shadow: none;
+    color: color-mix(in srgb, var(--dg-text-soft) 78%, #ffffff);
+}
+
+body.login.dg-login-submitting,
+body.login.dg-login-submitting * {
+    cursor: wait !important;
+}
+
+body.login :is(#wp-submit, .button-primary, .digits-form_submit-btn, .digits-form_submit, .digits-form_button, .digits-social-btn).is-loading {
+    position: relative;
+    overflow: hidden !important;
+    background-image: linear-gradient(135deg, var(--dg-accent) 0%, var(--dg-accent-strong) 100%) !important;
+    color: #fff !important;
+    cursor: wait !important;
+    animation: none !important;
+    opacity: 1 !important;
+    isolation: isolate;
+}
+
+body.login :is(#wp-submit, .button-primary, .digits-form_submit-btn, .digits-form_submit, .digits-form_button, .digits-social-btn).is-loading:disabled {
+    background-image: linear-gradient(135deg, var(--dg-accent) 0%, var(--dg-accent-strong) 100%) !important;
+    color: #fff !important;
+    filter: none !important;
+}
+
+body.login :is(#wp-submit, .button-primary, .digits-form_submit-btn, .digits-form_submit, .digits-form_button, .digits-social-btn).is-loading::before {
+    content: "";
+    position: absolute;
+    inset: -45% -20%;
+    z-index: 0;
+    display: block;
+    background: repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.24) 0 10px, rgba(255, 255, 255, 0.06) 10px 20px);
+    animation: dg-loading-stripes-ltr 0.82s linear infinite !important;
+    pointer-events: none;
+    visibility: visible !important;
+    will-change: transform;
+}
+
+body.rtl.login :is(#wp-submit, .button-primary, .digits-form_submit-btn, .digits-form_submit, .digits-form_button, .digits-social-btn).is-loading::before,
+html[dir="rtl"] body.login :is(#wp-submit, .button-primary, .digits-form_submit-btn, .digits-form_submit, .digits-form_button, .digits-social-btn).is-loading::before {
+    animation-name: dg-loading-stripes-rtl !important;
+}
+
+body.login :is(#wp-submit, .button-primary, .digits-form_submit-btn, .digits-form_submit, .digits-form_button, .digits-social-btn).is-loading::after {
+    content: "";
+    display: inline-block;
+    inline-size: 18px;
+    block-size: 18px;
+    border: 2px solid rgba(255, 255, 255, 0.42);
+    border-block-start-color: #fff;
+    border-radius: 999px;
+    animation: dg-fuji-spin 0.72s linear infinite;
+    position: relative;
+    z-index: 1;
+}
+
+body.login :is(.digits-form_submit-btn, .digits-form_submit, .digits-form_button).is-loading .digits-form_button_ic {
+    display: none !important;
+    inline-size: 0;
+    flex-basis: 0;
+    margin: 0;
+    opacity: 0;
+    visibility: hidden;
+}
+
+body.login :is(.digits-form_submit-btn, .digits-form_submit, .digits-form_button).is-loading .digits-form_button_ic::before,
+body.login :is(.digits-form_submit-btn, .digits-form_submit, .digits-form_button).is-loading .digits-form_button_ic::after,
+body.login :is(.digits-form_submit-btn, .digits-form_submit, .digits-form_button).is-loading :is(.dig_load, .digits-spinner, .spinner) {
+    content: "" !important;
+    display: none !important;
+    opacity: 0 !important;
+    visibility: hidden !important;
+}
+
+body.login :is(#wp-submit, .button-primary, .digits-form_submit-btn, .digits-form_submit, .digits-form_button, .digits-social-btn).is-loading > * {
+    position: relative;
+    z-index: 1;
+}
+
+body.login form.dg-form-pending {
+    position: relative;
+}
+
+body.login form.dg-form-pending::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 8;
+    border-radius: inherit;
+    background: transparent;
+    cursor: wait;
+}
+
+body.login form.dg-form-pending :is(input, select, textarea, button) {
+    cursor: wait !important;
+}
+
+body.login form.dg-form-pending :is(input, select, textarea, button):not(.is-loading) {
+    pointer-events: none !important;
+}
+
+body.login form.dg-form-pending :is(input, select, textarea) {
+    opacity: 0.72;
+}
+
+body.login .button,
+body.wp-admin .button,
+body.wp-admin .page-title-action,
+body.wp-admin .button-secondary {
+    border: 1px solid var(--dg-border);
+    border-radius: 14px;
+    background: var(--dg-panel);
+    color: var(--dg-text);
+    box-shadow: none;
+}
+
+body.login .button:hover,
+body.wp-admin .button:hover,
+body.wp-admin .page-title-action:hover,
+body.wp-admin .button-secondary:hover {
+    background: var(--dg-panel-strong);
+    color: var(--dg-heading);
+}
+
+body.login .button.wp-hide-pw {
+    min-height: 0;
+    border: 0;
+    background: transparent;
+    color: var(--dg-text-soft);
+}
+
+body.login .forgetmenot {
+    float: none;
+    display: flex;
+    justify-content: flex-start;
+    margin: 14px 0 16px;
+}
+
+body.login p.submit {
+    clear: both;
+    padding: 0;
+    margin: 0;
+}
+
+.dg-field-hint {
+    margin-top: 8px;
+    color: var(--dg-text-soft);
+    font-size: 12px;
+    line-height: 1.55;
+}
+
+body.login .digits-social-logins-box {
+    margin-top: 24px;
+    padding-top: 22px;
+    border-top: 0;
+}
+
+body.login .digits-use_social-logins {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 16px;
+}
+
+body.login .digits-use_social-logins span {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    margin: 0;
+    padding: 0 12px;
+    background: transparent !important;
+    color: var(--dg-text-soft);
+    font-size: 13px;
+}
+
+body.login .digits-use_social-logins span::before,
+body.login .digits-use_social-logins span::after {
+    content: "";
+    width: 42px;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--dg-border-strong), transparent);
+}
+
+body.login .digits-social-btn {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    min-height: 56px;
+    height: auto !important;
+    padding: 12px 18px !important;
+    border: 1px solid var(--dg-border);
+    border-radius: 18px;
+    background: var(--dg-panel);
+    color: var(--dg-text);
+    font-size: 16px;
+    line-height: 1.35;
+    box-shadow: var(--dg-shadow-soft);
+    transition: transform 0.16s ease, background 0.16s ease, border-color 0.16s ease;
+}
+
+body.login .digits-social-btn:hover {
+    transform: translateY(-1px);
+    border-color: var(--dg-border-strong);
+    background: var(--dg-panel-strong);
+}
+
+body.login .digits-social-text {
+    color: inherit;
+    font-size: 16.5px;
+    font-weight: 700;
+}
+
+body.login .language-switcher {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    margin-top: 12px;
+}
+
+.dg-theme-toggle-button {
+    min-width: 78px;
+    min-height: 42px;
+    border: 1px solid var(--dg-border);
+    border-radius: 999px;
+    background: var(--dg-panel);
+    color: var(--dg-text);
+    cursor: pointer;
+    box-shadow: var(--dg-shadow-soft);
+}
+
+body.login #nav,
+body.login #backtoblog,
+body.login .language-switcher {
+    text-align: center;
+}
+
+body.login #nav a,
+body.login #backtoblog a,
+body.login .privacy-policy-page-link a,
+body.login a,
+body.wp-admin a {
+    color: var(--dg-accent-strong);
+}
+
+body.login #nav a:hover,
+body.login #backtoblog a:hover,
+body.login a:hover,
+body.wp-admin a:hover,
+body.wp-admin a:focus {
+    color: var(--dg-accent);
+}
+
+body.login .message,
+body.login #login_error,
+body.login .notice,
+body.wp-admin .notice,
+body.wp-admin div.updated,
+body.wp-admin div.error,
+body.wp-admin .update-nag,
+body.wp-admin .card,
+body.wp-admin .postbox,
+body.wp-admin .stuffbox,
+body.wp-admin .welcome-panel,
+body.wp-admin .plugin-card,
+body.wp-admin .theme-browser .theme,
+body.wp-admin .wp-filter,
+body.wp-admin .components-card,
+body.wp-admin .health-check-card,
+body.wp-admin .health-check-accordion-panel,
+body.wp-admin #screen-meta {
+    border: 1px solid var(--dg-border);
+    border-inline-start-width: 4px;
+    border-radius: 20px;
+    background: var(--dg-panel-raised);
+    box-shadow: var(--dg-shadow-soft);
+    color: var(--dg-text);
+}
+
+body.login #login_error,
+body.wp-admin .notice.notice-error,
+body.wp-admin div.error {
+    border-inline-start-color: var(--dg-danger);
+}
+
+body.login .dg-digits-inline-message,
+body.login :is(.digits-form_message, .digits-form_error, .digits_error, .digits_notice, .dig_error, .dig_notice, .dig_popmessage) {
+    margin-block: 0 16px;
+    padding: 12px 14px;
+    border: 1px solid var(--dg-border);
+    border-inline-start: 4px solid var(--dg-danger);
+    border-radius: 16px;
+    background: color-mix(in srgb, var(--dg-danger-soft) 52%, var(--dg-panel));
+    color: var(--dg-text);
+    font-family: var(--dg-font);
+    font-size: 13px;
+    line-height: 1.75;
+    box-shadow: var(--dg-shadow-soft);
+}
+
+body.login .dg-digits-inline-message--success,
+body.login .digits-form_message:not(.digits-form_error) {
+    border-inline-start-color: var(--dg-accent);
+    background: color-mix(in srgb, var(--dg-accent-soft) 58%, var(--dg-panel));
+}
+
+body.login .message,
+body.wp-admin .notice.notice-success,
+body.wp-admin div.updated {
+    border-inline-start-color: var(--dg-success);
+}
+
+body.wp-admin .notice.notice-warning,
+body.wp-admin .update-nag {
+    border-inline-start-color: var(--dg-warning);
+}
+
+body.wp-admin .notice.notice-info {
+    border-inline-start-color: var(--dg-accent-strong);
+}
+
+body.wp-admin #wpwrap,
+body.wp-admin #wpcontent,
+body.wp-admin #wpbody,
+body.wp-admin #wpbody-content {
+    background: transparent;
+}
+
+body.wp-admin #wpadminbar {
+    background: color-mix(in srgb, var(--dg-bg-strong) 88%, transparent);
+    backdrop-filter: blur(18px);
+    border-bottom: 1px solid var(--dg-border);
+}
+
+body.wp-admin #wpadminbar .ab-item,
+body.wp-admin #wpadminbar a.ab-item,
+body.wp-admin #wpadminbar > #wp-toolbar span.ab-label,
+body.wp-admin #wpadminbar > #wp-toolbar span.noticon {
+    color: var(--dg-text);
+}
+
+body.wp-admin #wpadminbar .dashicons,
+body.wp-admin .dashicons,
+body.login .dashicons,
+body.wp-admin .dashicons-before::before,
+body.login .dashicons-before::before {
+    font-family: dashicons !important;
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    font-size: 20px;
+    line-height: 1;
+    text-align: center;
+    vertical-align: middle;
+}
+
+body.wp-admin #wp-admin-bar-digitalogic-brand > .ab-item,
+body.wp-admin #wp-admin-bar-digitalogic-brand > a.ab-item {
+    padding-inline-start: 10px;
+}
+
+.dg-brand-node {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 700;
+}
+
+.dg-brand-node__icon {
+    color: var(--dg-accent-strong);
+}
+
+body.wp-admin #wpadminbar #wp-admin-bar-digitalogic-theme-toggle > .ab-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    min-width: 38px;
+    padding-inline: 10px;
+}
+
+.dg-adminbar-theme-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+}
+
+.dg-adminbar-theme-toggle .dashicons {
+    width: 18px;
+    height: 18px;
+    font-size: 18px;
+    color: var(--dg-accent-strong);
+}
+
+body.wp-admin #adminmenuwrap,
+body.wp-admin #adminmenuback,
+body.wp-admin #adminmenu,
+body.wp-admin #adminmenu .wp-submenu,
+body.wp-admin #adminmenu .wp-has-current-submenu .wp-submenu,
+body.wp-admin #adminmenu .wp-not-current-submenu:hover .wp-submenu {
+    background: color-mix(in srgb, var(--dg-bg-strong) 92%, transparent);
+}
+
+body.wp-admin #adminmenu {
+    padding-top: 14px;
+}
+
+body.wp-admin #adminmenu a,
+body.wp-admin #adminmenu div.wp-menu-image:before,
+body.wp-admin #collapse-menu {
+    color: var(--dg-text-soft);
+}
+
+body.wp-admin #adminmenu li.menu-top:hover,
+body.wp-admin #adminmenu li.opensub > a.menu-top,
+body.wp-admin #adminmenu li > a.menu-top:focus {
+    background: var(--dg-accent-soft);
+    color: var(--dg-heading);
+}
+
+body.wp-admin #adminmenu li.current a.menu-top,
+body.wp-admin #adminmenu li.wp-has-current-submenu a.wp-has-current-submenu {
+    background: linear-gradient(135deg, color-mix(in srgb, var(--dg-accent) 16%, transparent), color-mix(in srgb, var(--dg-accent-strong) 20%, transparent));
+    color: var(--dg-heading);
+}
+
+body.wp-admin #adminmenu .wp-submenu a {
+    color: var(--dg-text-soft);
+}
+
+body.wp-admin #adminmenu .wp-submenu a:hover,
+body.wp-admin #adminmenu .wp-submenu a:focus,
+body.wp-admin #adminmenu .wp-submenu li.current a {
+    color: var(--dg-heading);
+}
+
+body.wp-admin .wrap h1,
+body.wp-admin .wrap h2,
+body.wp-admin .wrap h3,
+body.wp-admin .plugins .plugin-title strong,
+body.wp-admin .postbox .hndle,
+body.wp-admin .card h2,
+body.wp-admin .welcome-panel h2 {
+    color: var(--dg-heading);
+}
+
+body.wp-admin .widefat,
+body.wp-admin .wp-list-table,
+body.wp-admin table.form-table,
+body.wp-admin .plugins tbody {
+    background: var(--dg-panel);
+    color: var(--dg-text);
+    border-color: var(--dg-border);
+}
+
+body.wp-admin .striped > tbody > :nth-child(odd),
+body.wp-admin .alternating > tbody > :nth-child(odd),
+body.wp-admin .alternate {
+    background: var(--dg-table-alt);
+}
+
+body.wp-admin .widefat thead th,
+body.wp-admin .widefat tfoot th,
+body.wp-admin .wp-list-table thead th,
+body.wp-admin .wp-list-table tfoot th {
+    background: var(--dg-panel-soft);
+    color: var(--dg-heading);
+    border-color: var(--dg-border);
+}
+
+body.wp-admin .widefat td,
+body.wp-admin .widefat th,
+body.wp-admin .wp-list-table td,
+body.wp-admin .wp-list-table th,
+body.wp-admin .form-table th,
+body.wp-admin .form-table td {
+    border-color: var(--dg-border);
+}
+
+body.wp-admin .wp-list-table tr:hover td,
+body.wp-admin .wp-list-table tr:hover th,
+body.wp-admin .widefat tbody tr:hover td,
+body.wp-admin .widefat tbody tr:hover th {
+    background: color-mix(in srgb, var(--dg-accent-soft) 60%, var(--dg-panel-strong));
+}
+
+body.wp-admin .plugins .active td,
+body.wp-admin .plugins .active th {
+    border-inline-start: 3px solid var(--dg-accent);
+    background: color-mix(in srgb, var(--dg-accent-soft) 38%, var(--dg-panel));
+}
+
+.dg-dashboard-grid {
+    display: grid;
+    gap: 18px;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    margin: 6px 0 4px;
+}
+
+.dg-dashboard-card {
+    padding: 20px;
+}
+
+.dg-dashboard-card__eyebrow {
+    margin-bottom: 10px;
+    color: var(--dg-text-soft);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.dg-dashboard-card h3 {
+    margin: 0 0 10px;
+    color: var(--dg-heading);
+    font-size: 18px;
+}
+
+.dg-dashboard-card p {
+    margin: 0 0 12px;
+    line-height: 1.7;
+}
+
+.dg-dashboard-actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.dg-dashboard-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+    padding: 8px 12px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.dg-dashboard-pill--success {
+    background: var(--dg-success-soft);
+    color: var(--dg-success);
+}
+
+.dg-dashboard-pill--warning {
+    background: var(--dg-warning-soft);
+    color: var(--dg-warning);
+}
+
+.dg-dashboard-pill--info {
+    background: var(--dg-info-soft);
+    color: var(--dg-accent-strong);
+}
+
+.dg-dashboard-pill--muted {
+    background: color-mix(in srgb, var(--dg-text-soft) 12%, transparent);
+    color: var(--dg-text-soft);
+}
+
+.dg-toast-stack {
+    position: fixed;
+    inset-inline-end: 20px;
+    bottom: 20px;
+    z-index: 999999;
+    display: grid;
+    gap: 10px;
+    width: min(360px, calc(100vw - 30px));
+}
+
+.dg-toast {
+    padding: 14px 16px;
+    color: var(--dg-text);
+    line-height: 1.55;
+    transition: opacity 0.22s ease, transform 0.22s ease;
+}
+
+.dg-toast--warning {
+    border-inline-start: 4px solid var(--dg-warning);
+}
+
+.dg-toast--error {
+    border-inline-start: 4px solid var(--dg-danger);
+}
+
+.dg-toast.is-leaving {
+    opacity: 0;
+    transform: translateY(6px);
+}
+
+body.wp-admin #wpfooter {
+    color: var(--dg-text-soft);
+}
+
+body.wp-admin #wp-admin-bar-wp-logo {
+    display: none;
+}
+
+html,
+body.login,
+body.wp-admin {
+    background-color: var(--dg-bg);
+}
+
+body.login {
+    background-repeat: no-repeat;
+    background-attachment: fixed;
+}
+
+body.login :where(input, textarea, select, button, label, p, a),
+body.wp-admin :where(h1, h2, h3, h4, h5, h6, label, button, input, select, textarea, .wrap, #adminmenu, #wpadminbar, .notice, .form-table, .tablenav) {
+    font-family: var(--dg-font);
+}
+
+body.rtl h1,
+body.rtl h2,
+body.rtl h3,
+body.rtl h4,
+body.rtl h5,
+body.rtl h6,
+body.rtl .wrap h1,
+body.rtl .wrap h2,
+body.rtl .wrap h3,
+body.rtl .wrap h4,
+body.rtl .wrap h5,
+body.rtl .wrap h6 {
+    font-family: var(--dg-font) !important;
+}
+
+body.login form > p,
+body.login form > .user-pass-wrap {
+    margin-bottom: 18px;
+}
+
+body.login form label {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+    color: var(--dg-heading);
+    font-size: 14px;
+    font-weight: 700;
+}
+
+body.login .dg-login-label-icon {
+    color: var(--dg-accent-strong);
+    font-size: 18px;
+    line-height: 1;
+}
+
+body.login .dg-login-identity-control {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 58px;
+    padding: 4px 6px;
+    border: 1px solid var(--dg-border);
+    border-radius: 18px;
+    background: var(--dg-input-bg);
+    box-shadow: var(--dg-shadow-soft);
+    transition: border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+}
+
+body.login .dg-login-identity-control:focus-within {
+    border-color: var(--dg-border-strong);
+    background: var(--dg-panel-strong);
+    box-shadow: 0 0 0 4px var(--dg-accent-soft);
+}
+
+body.login .dg-login-identity-control .input {
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 48px;
+    padding-inline: 12px;
+    border: 0 !important;
+    border-radius: 14px;
+    background: transparent !important;
+    box-shadow: none !important;
+}
+
+body.login .dg-login-identity-adornment {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    flex: 0 0 auto;
+    min-height: 40px;
+    padding-inline: 10px;
+    border: 1px solid var(--dg-border);
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--dg-panel-soft) 84%, transparent);
+    color: var(--dg-text-soft);
+    font-size: 12px;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+body.login .dg-login-identity-control[data-dg-identity="phone"] .dg-login-identity-adornment {
+    color: var(--dg-accent-strong);
+    background:
+        linear-gradient(180deg, #239f40 0 31%, #ffffff 31% 69%, #da0000 69% 100%);
+    box-shadow: inset 0 0 0 999px rgba(255, 255, 255, 0.76);
+}
+
+[data-dg-theme="dark"] body.login .dg-login-identity-control[data-dg-identity="phone"] .dg-login-identity-adornment {
+    box-shadow: inset 0 0 0 999px rgba(8, 17, 28, 0.62);
+}
+
+body.login .input,
+body.login input[type="text"],
+body.login input[type="password"] {
+    padding-inline: 16px;
+    margin-block: 0 !important;
+    margin-inline: 0 !important;
+    line-height: 1.45 !important;
+}
+
+body.login form .input,
+body.login form input[type="text"],
+body.login form input[type="password"],
+body.login form input[type="email"],
+body.login form input[type="tel"] {
+    margin-block: 0 !important;
+    margin-inline: 0 !important;
+}
+
+body.login .wp-pwd {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    direction: ltr;
+    min-height: 58px;
+    padding: 4px 6px;
+    border: 1px solid var(--dg-border);
+    border-radius: 18px;
+    background: var(--dg-input-bg);
+    box-shadow: var(--dg-shadow-soft);
+    transition: border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+}
+
+body.login .wp-pwd:focus-within {
+    border-color: var(--dg-border-strong);
+    background: var(--dg-panel-strong);
+    box-shadow: 0 0 0 4px var(--dg-accent-soft);
+}
+
+body.login .wp-pwd .input {
+    order: 1;
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 48px;
+    padding-inline: 12px;
+    border: 0 !important;
+    border-radius: 14px;
+    background: transparent !important;
+    box-shadow: none !important;
+    direction: ltr;
+    text-align: start;
+}
+
+body.login .button,
+body.login .button-primary,
+body.login #wp-submit,
+body.wp-admin .button,
+body.wp-admin .button-primary,
+body.wp-admin .button-secondary,
+body.wp-admin .page-title-action {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding-inline: 18px;
+    line-height: 1.2;
+    vertical-align: middle;
+    overflow: hidden;
+    isolation: isolate;
+}
+
+body.login #wp-submit,
+body.login .button-primary {
+    min-height: 52px;
+    padding-inline: 22px;
+}
+
+body.login .button.wp-hide-pw {
+    order: 2;
+    flex: 0 0 42px;
+    position: static !important;
+    inset: auto !important;
+    margin: 0;
+    min-width: 42px;
+    width: 42px;
+    height: 42px;
+    padding: 0;
+    border: 1px solid var(--dg-border);
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--dg-panel-soft) 84%, transparent);
+    color: var(--dg-text-soft);
+    transform: none !important;
+}
+
+body.login .button.wp-hide-pw:hover,
+body.login .button.wp-hide-pw:focus,
+body.login .button.wp-hide-pw:active,
+body.login .button.wp-hide-pw.is-visible {
+    transform: none !important;
+}
+
+body.login .button.wp-hide-pw:hover,
+body.login .button.wp-hide-pw.is-visible {
+    color: var(--dg-accent-strong);
+    background: var(--dg-accent-soft);
+}
+
+body.login .button.wp-hide-pw .dashicons {
+    font-size: 18px;
+    width: 18px;
+    height: 18px;
+}
+
+body.login .forgetmenot {
+    justify-content: flex-start;
+    align-items: center;
+    gap: 12px;
+    margin: 0 0 18px;
+}
+
+body.login .forgetmenot label {
+    margin: 0;
+    color: var(--dg-text);
+    font-weight: 500;
+}
+
+body.login .dg-digits-login-shell .digits-form_rememberme {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: flex-start !important;
+    min-height: auto !important;
+    height: auto !important;
+    margin-block: 4px 14px !important;
+    padding: 0 !important;
+    border: 0 !important;
+    background: transparent !important;
+    overflow: visible !important;
+}
+
+body.login .dg-digits-login-shell .digits-form_rememberme::before {
+    content: none;
+}
+
+body.login .dg-digits-login-shell .digits-form_rememberme .dig_input_wrapper::before,
+body.login .dg-digits-login-shell .digits-form_rememberme .dig_input_wrapper::after,
+body.login .dg-digits-login-shell .digits-form_input_row .digits-field-type_tac .dig_input_wrapper::before,
+body.login .dg-digits-login-shell .digits-form_input_row .digits-field-type_tac .dig_input_wrapper::after,
+html[dir="rtl"] body.login .dg-digits-login-shell .digits-form_input_row .digits-field-type_tac .dig_input_wrapper::before,
+html[dir="rtl"] body.login .dg-digits-login-shell .digits-form_input_row .digits-field-type_tac .dig_input_wrapper::after {
+    content: none !important;
+    display: none !important;
+    opacity: 0 !important;
+    visibility: hidden !important;
+}
+
+body.login .dg-digits-login-shell .digits-form_rememberme :is(.digits-form_input, .dig_opt_mult_con, .dig_opt_mult, label, .dig_input_wrapper) {
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 10px;
+    width: auto !important;
+    min-height: 0 !important;
+    height: auto !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    background: transparent !important;
+    color: var(--dg-text) !important;
+    line-height: 1.35 !important;
+    overflow: visible !important;
+}
+
+body.login .dg-digits-login-shell .digits-form_rememberme .digits_login_remember_me,
+body.login #rememberme {
+    appearance: none !important;
+    -webkit-appearance: none !important;
+    display: inline-grid !important;
+    place-items: center;
+    visibility: visible !important;
+    opacity: 1 !important;
+    inline-size: 22px;
+    block-size: 22px;
+    width: 22px !important;
+    height: 22px !important;
+    min-width: 22px !important;
+    min-height: 22px !important;
+    max-width: 22px !important;
+    max-height: 22px !important;
+    flex: 0 0 22px;
+    margin: 0 !important;
+    padding: 0 !important;
+    line-height: 1 !important;
+    border: 1px solid var(--dg-border) !important;
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--dg-panel-soft) 72%, transparent) !important;
+    box-shadow: inset 0 1px 0 color-mix(in srgb, #ffffff 10%, transparent), var(--dg-shadow-soft) !important;
+    cursor: pointer;
+    transform: scale(1);
+    vertical-align: middle;
+    transition: background-color 0.18s ease, background-image 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+body.login .dg-digits-login-shell .digits-form_rememberme .digits_login_remember_me:active,
+body.login #rememberme:active {
+    transform: scale(0.92);
+}
+
+body.login .dg-digits-login-shell .digits-form_rememberme .digits_login_remember_me::before,
+body.login #rememberme::before {
+    content: "" !important;
+    display: block !important;
+    width: 6px !important;
+    height: 11px !important;
+    margin: -1px 0 0 !important;
+    border: solid #fff !important;
+    border-width: 0 2px 2px 0 !important;
+    visibility: visible !important;
+    opacity: 0;
+    transform: rotate(45deg) scale(0.62);
+    transform-origin: center;
+    transition: opacity 0.16s ease, transform 0.18s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+body.login .dg-digits-login-shell .digits-form_rememberme .digits_login_remember_me::after,
+body.login .dg-digits-login-shell .digits-form_rememberme .digits_login_remember_me:checked::after,
+body.login #rememberme::after,
+body.login #rememberme:checked::after {
+    content: none !important;
+    display: none !important;
+    margin: 0 !important;
+    width: 0 !important;
+    height: 0 !important;
+}
+
+body.login .dg-digits-login-shell .digits-form_rememberme .digits_login_remember_me:checked::before,
+body.login #rememberme:checked::before {
+    opacity: 1;
+    transform: rotate(45deg) scale(1);
+}
+
+body.login .dg-digits-login-shell .digits-form_rememberme .digits_login_remember_me:checked,
+body.login #rememberme:checked {
+    border-color: transparent !important;
+    background-color: var(--dg-accent);
+    background-image:
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath fill='none' stroke='%23fff' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round' d='M5 10.4l3.2 3.2L15.4 6.5'/%3E%3C/svg%3E"),
+        linear-gradient(135deg, var(--dg-accent), var(--dg-accent-strong)) !important;
+    background-position: center, center !important;
+    background-repeat: no-repeat, no-repeat !important;
+    background-size: 15px 15px, 100% 100% !important;
+    box-shadow: 0 10px 24px color-mix(in srgb, var(--dg-accent-strong) 28%, transparent);
+    transform: scale(1.06);
+}
+
+body.login :is(input[type="password"], input.dg-password-visible, #user_pass, .dg-username-password-input)::placeholder {
+    font-family: var(--dg-placeholder-font, var(--dg-font)) !important;
+    color: color-mix(in srgb, var(--dg-text-soft) 58%, transparent) !important;
+    font-variant-numeric: normal !important;
+    letter-spacing: 0 !important;
+}
+
+body.login .dg-digits-login-shell .digits-form_rememberme .dig_input_wrapper > div {
+    margin: 0 !important;
+    padding: 0 !important;
+    color: var(--dg-text);
+    font-size: 14.5px;
+    font-weight: 600;
+    line-height: 1.35 !important;
+}
+
+body.login .language-switcher {
+    margin-top: 18px;
+}
+
+body.login p.forgetmenot {
+    margin: 0 0 18px !important;
+}
+
+body.login #language-switcher.dg-language-form {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-block: 0 !important;
+    margin-inline: 0 !important;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    backdrop-filter: none;
+}
+
+body.login #language-switcher.dg-language-form :is(input[type="submit"], button[type="submit"], .dg-language-apply) {
+    display: none !important;
+}
+
+.dg-visually-hidden {
+    position: absolute !important;
+    width: 1px !important;
+    height: 1px !important;
+    padding: 0 !important;
+    margin: -1px !important;
+    overflow: hidden !important;
+    clip: rect(0, 0, 0, 0) !important;
+    white-space: nowrap !important;
+    border: 0 !important;
+}
+
+body.login .dg-digits-login-shell .altEmail_container[hidden] {
+    display: none !important;
+}
+
+.dg-theme-toggle-button,
+.dg-language-trigger,
+.dg-language-apply {
+    min-height: 48px;
+    padding-inline: 16px;
+}
+
+.dg-theme-toggle-button,
+.dg-auth-theme-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+}
+
+.dg-theme-toggle-button .dashicons,
+.dg-auth-theme-toggle .dashicons,
+.dg-language-trigger .dashicons,
+.dg-language-apply .dashicons {
+    font-size: 18px;
+    width: 18px;
+    height: 18px;
+}
+
+.dg-language-picker {
+    position: relative;
+    min-width: min(280px, calc(100vw - 70px));
+}
+
+.dg-language-trigger {
+    width: 100%;
+    justify-content: space-between;
+}
+
+.dg-language-trigger .dg-select-text {
+    flex: 1 1 auto;
+    text-align: center;
+}
+
+.dg-language-menu {
+    position: absolute;
+    inset-inline: 0;
+    inset-block-start: auto;
+    inset-block-end: calc(100% + 10px);
+    z-index: 30;
+    display: grid;
+    gap: 8px;
+    padding: 10px;
+    border: 1px solid var(--dg-border);
+    border-radius: 18px;
+    background: var(--dg-panel-raised);
+    box-shadow: var(--dg-shadow);
+    backdrop-filter: blur(20px);
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(8px) scale(0.98);
+    transform-origin: bottom center;
+    transition: opacity 0.18s ease, transform 0.18s ease, visibility 0.18s ease;
+    visibility: hidden;
+}
+
+.dg-language-picker.is-open .dg-language-menu {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateY(0) scale(1);
+    visibility: visible;
+}
+
+body.login.wp-core-ui .button .dashicons,
+body.login.wp-core-ui .button-primary .dashicons,
+body.login.wp-core-ui .button-secondary .dashicons {
+    line-height: 1 !important;
+    vertical-align: middle;
+}
+
+.dg-language-option {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    min-height: 44px;
+    padding: 0 14px;
+    border: 1px solid transparent;
+    border-radius: 14px;
+    background: transparent;
+    color: var(--dg-text);
+    font: inherit;
+    cursor: pointer;
+    text-align: start;
+}
+
+.dg-language-option:hover,
+.dg-language-option.is-active {
+    border-color: var(--dg-border-strong);
+    background: color-mix(in srgb, var(--dg-accent-soft) 62%, transparent);
+    color: var(--dg-heading);
+}
+
+body.login #nav,
+body.login #backtoblog,
+body.login .privacy-policy-page-link {
+    margin-top: 18px;
+}
+
+body.login #nav {
+    direction: rtl;
+}
+
+body.login #nav .dg-nav-separator {
+    display: inline-block;
+    margin-inline: 8px;
+    color: var(--dg-text-soft);
+}
+
+body.wp-admin #adminmenu #toplevel_page_digitalogic .wp-menu-image img {
+    transition: filter 0.18s ease, opacity 0.18s ease;
+}
+
+[data-dg-theme="light"] body.wp-admin #adminmenu #toplevel_page_digitalogic .wp-menu-image img {
+    filter: brightness(0) saturate(100%);
+    opacity: 0.8;
+}
+
+[data-dg-theme="dark"] body.wp-admin #adminmenu #toplevel_page_digitalogic .wp-menu-image img {
+    filter: brightness(0) invert(1);
+    opacity: 0.92;
+}
+
+body.wp-admin .digitalogic-panel-card,
+body.wp-admin .digitalogic-section,
+body.wp-admin .stat-box {
+    border: 1px solid var(--dg-border);
+    border-radius: 24px;
+    background: var(--dg-panel-raised);
+    box-shadow: var(--dg-shadow-soft);
+}
+
+body.wp-admin .stat-box {
+    padding: 24px 20px;
+}
+
+body.wp-admin .stat-box h3,
+body.wp-admin .digitalogic-panel-meta dt,
+body.wp-admin .digitalogic-section h2 {
+    color: var(--dg-heading);
+}
+
+body.wp-admin .stat-number {
+    color: var(--dg-accent-strong);
+}
+
+body.wp-admin .digitalogic-toolbar,
+body.wp-admin .digitalogic-panel-actions {
+    gap: 12px;
+}
+
+body.wp-admin #product-search,
+body.wp-admin .dataTables_length select,
+body.wp-admin table.dataTable input[type="text"],
+body.wp-admin table.dataTable input[type="number"] {
+    min-height: 48px;
+    border-radius: 16px;
+    border-color: var(--dg-border);
+    background: var(--dg-input-bg);
+    color: var(--dg-text);
+}
+
+body.wp-admin .dataTables_length select {
+    padding-inline: 16px 38px;
+    background-position: right 12px center;
+}
+
+body.wp-admin table.dataTable thead th {
+    background: var(--dg-panel-soft);
+    color: var(--dg-heading);
+    border-bottom-color: var(--dg-border);
+}
+
+body.wp-admin table.dataTable tbody td {
+    border-bottom-color: var(--dg-border);
+}
+
+body.wp-admin table.dataTable tbody tr:hover {
+    background: color-mix(in srgb, var(--dg-accent-soft) 60%, transparent);
+}
+
+body.wp-admin .digitalogic-panel-page .button-hero {
+    min-height: 54px;
+    padding-inline: 22px;
+    border-radius: 18px;
+}
+
+.dg-ripple-host {
+    position: relative;
+    overflow: hidden !important;
+}
+
+.dg-ripple-circle {
+    position: absolute;
+    border-radius: 999px;
+    background: color-mix(in srgb, #ffffff 34%, var(--dg-accent) 16%);
+    transform: translate(-50%, -50%) scale(0);
+    pointer-events: none;
+    opacity: 0.6;
+    animation: dg-ripple 0.64s ease-out forwards;
+}
+
+@keyframes dg-ripple {
+    to {
+        transform: translate(-50%, -50%) scale(3.5);
+        opacity: 0;
+    }
+}
+
+@keyframes dg-loading-stripes-ltr {
+    from {
+        transform: translateX(-36px);
+    }
+
+    to {
+        transform: translateX(36px);
+    }
+}
+
+@keyframes dg-loading-stripes-rtl {
+    from {
+        transform: translateX(36px);
+    }
+
+    to {
+        transform: translateX(-36px);
+    }
+}
+
+@keyframes dg-fuji-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@media (max-width: 782px) {
+    body.login #login {
+        width: min(100%, calc(100vw - 24px)) !important;
+        max-width: calc(100vw - 24px) !important;
+        padding-top: 18px;
+    }
+
+    body.login .dg-digits-login-shell {
+        grid-template-columns: 1fr;
+        gap: 18px;
+        padding: 18px;
+        border-radius: 24px;
+    }
+
+    body.login .dg-digits-login-shell::before {
+        min-height: 220px;
+        border-radius: 20px;
+        background-size: min(78%, 280px) auto, cover, cover, cover;
+    }
+
+    body.login .dg-login-hero-carousel {
+        min-height: 220px;
+        border-radius: 20px;
+    }
+
+    body.login .dg-hero-slide {
+        background-size: min(78%, 280px) auto;
+    }
+
+    body.login #loginform,
+    body.login #registerform,
+    body.login #lostpasswordform,
+    body.login #resetpassform {
+        padding: 24px 18px 22px;
+        border-radius: 22px;
+    }
+
+    body.login #language-switcher.dg-language-form {
+        align-items: stretch;
+    }
+
+    .dg-language-picker {
+        min-width: 100%;
+    }
+
+    .dg-theme-toggle-button,
+    .dg-language-apply {
+        width: 100%;
+    }
+
+    .dg-dashboard-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .dg-dashboard-actions {
+        flex-direction: column;
+    }
+}
