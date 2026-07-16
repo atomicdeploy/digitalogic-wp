@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Optional signed `patris.product_sync.applied` observer summaries through the existing webhook fan-out, without exposing product payloads or affecting direct sync outcomes.
 - Bounded product-sync deferred reconciliation state and administrator WP-CLI status/retry commands, separating terminal missing/ambiguous Codes from transient HTTP/database retries.
 - Canonical nullable global default percentage markup with exact decimal storage, REST/command/admin controls, catalog revisioning, and result-aware delivery events.
 - **WordPress Admin Bar integration** with quicklinks menu
