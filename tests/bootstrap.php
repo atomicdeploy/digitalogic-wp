@@ -29,6 +29,7 @@ $GLOBALS['digitalogic_test_remote_posts'] = array();
 $GLOBALS['digitalogic_test_remote_post_results'] = array();
 $GLOBALS['digitalogic_test_wc_products'] = array();
 $GLOBALS['digitalogic_test_wc_product_saves'] = array();
+$GLOBALS['digitalogic_test_wc_currency'] = 'IRT';
 
 class WP_Error {
     private $code;
@@ -58,11 +59,13 @@ class WP_REST_Request implements ArrayAccess {
     private $params;
     private $json;
     private $headers;
+    private $body;
 
-    public function __construct($params = array(), $json = array(), $headers = array()) {
+    public function __construct($params = array(), $json = array(), $headers = array(), $body = null) {
         $this->params = is_array($params) ? $params : array();
         $this->json = is_array($json) ? $json : array();
         $this->headers = array_change_key_case(is_array($headers) ? $headers : array(), CASE_LOWER);
+        $this->body = is_string($body) ? $body : json_encode($this->json);
     }
 
     public function get_params() {
@@ -81,6 +84,10 @@ class WP_REST_Request implements ArrayAccess {
     public function get_header($key) {
         $key = strtolower((string) $key);
         return isset($this->headers[$key]) ? $this->headers[$key] : '';
+    }
+
+    public function get_body() {
+        return $this->body;
     }
 
     public function offsetExists($offset): bool {
@@ -941,7 +948,9 @@ function wc_get_product($product_id) {
 }
 
 function get_woocommerce_currency() {
-    return 'IRT';
+    return isset($GLOBALS['digitalogic_test_wc_currency'])
+        ? (string) $GLOBALS['digitalogic_test_wc_currency']
+        : 'IRT';
 }
 
 function wc_get_weight($weight, $to_unit, $from_unit = '') {
@@ -1043,6 +1052,7 @@ $GLOBALS['wpdb'] = new Digitalogic_Test_WPDB();
 require_once dirname(__DIR__) . '/includes/class-unit-converter.php';
 require_once dirname(__DIR__) . '/includes/class-product-identifier-resolver.php';
 require_once dirname(__DIR__) . '/includes/class-patris-feed.php';
+require_once dirname(__DIR__) . '/includes/class-product-sync-receiver.php';
 require_once dirname(__DIR__) . '/includes/class-import-freight-service.php';
 require_once dirname(__DIR__) . '/includes/class-command-dispatcher.php';
 require_once dirname(__DIR__) . '/includes/api/class-rest-api.php';

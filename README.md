@@ -171,6 +171,14 @@ curl -X POST https://yoursite.com/wp-json/digitalogic/v1/products/batch \
 Import freight is distinct from customer delivery and WooCommerce checkout
 shipping. See [Import Freight Integration Contract](docs/IMPORT-FREIGHT-API.md).
 
+#### Patris Product Sync v1
+- `POST /wp-json/digitalogic/v1/patris/product-sync` - Accept a verified, transformed-only snapshot or delta
+- `POST /wp-json/digitalogic/v1/patris/push` - Legacy feed route; not safe for v1 deltas
+
+The v1 receiver verifies record, source, and event hashes; merges deltas;
+deduplicates event IDs; and treats deleted Codes as receiver-state tombstones,
+never WooCommerce deletions. See [Patris Product Sync v1](docs/PATRIS-PRODUCT-SYNC-V1.md).
+
 #### Export
 - `GET /wp-json/digitalogic/v1/export?format=csv` - Export products as CSV
 - `GET /wp-json/digitalogic/v1/export?format=json` - Export products as JSON
@@ -348,6 +356,11 @@ GPL v2 or later. See LICENSE file for details.
 Developed for Digitalogic electronic components shop.
 
 ## Changelog
+
+### 1.2.0
+- Added the authenticated, transformed-only `digitalogic.product-sync` v1 receiver with deterministic integrity and ordering checks.
+- Added snapshot/delta merging, bounded replay protection, quarantine preservation, and non-destructive Code tombstones.
+- Reused the exact Code/SKU resolver and normalized Patris WooCommerce writer without changing the legacy feed route.
 
 ### 1.1.0
 - Added the canonical supplier import-freight catalog, Code/SKU assignments, landed-price contract, and Patris integration API.

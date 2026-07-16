@@ -73,6 +73,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Enhanced plugin page with action links and row meta links
 - Fixed WP-CLI command registration to prevent "can't have subcommands" error
 
+## [1.2.0] - 2026-07-16
+
+### Added
+- Dedicated authenticated `digitalogic.product-sync` v1 REST receiver, kept separate from the legacy Patris push route.
+- Strict typed envelope validation, recursive raw-field rejection, Go-compatible record/source/event hash verification, and duplicate-key-safe JSON decoding.
+- Ordered per-source snapshots, update merging, bounded event replay protection, quarantine preservation, and deletion-only tombstones that never delete WooCommerce products.
+- Receiver contract and staged rollout documentation.
+
+### Changed
+- The normalized Patris WooCommerce writer is shared by legacy and v1 ingestion so Code resolution, weight, stock, price, and metadata behavior stay aligned.
+
 ## [1.1.0] - 2026-07-16
 
 ### Added
