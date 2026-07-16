@@ -237,7 +237,7 @@ class Digitalogic_Product_Sync_Receiver {
     public const CONTRACT_NAME = 'digitalogic.product-sync';
     public const FORMULA_ID = 'landed_price_v1';
 
-    private const STATE_VERSION = 2;
+    private const STATE_VERSION = 3;
     private const LOCK_NAME = 'digitalogic_product_sync_v1';
     private const LOCK_TIMEOUT_SECONDS = 15;
     private const MAX_BODY_BYTES = 8388608;
@@ -246,6 +246,7 @@ class Digitalogic_Product_Sync_Receiver {
     private const MAX_SOURCES = 16;
     private const MAX_RECENT_EVENTS = 128;
     private const MAX_RESULT_ERRORS = 100;
+    private const MAX_DEFERRED_PRODUCTS = self::MAX_PRODUCTS;
     private const MAX_CODE_LENGTH = 191;
     private const MAX_FORMULA_INTEGER_DIGITS = 15;
     private const MAX_FORMULA_SCALE = 12;
@@ -431,17 +432,161 @@ class Digitalogic_Product_Sync_Receiver {
         }
     }
 
+    // phpcs:disable -- Preserve the established receiver formatting while the legacy file remains baseline-managed.
     /**
      * Return the stored state for diagnostics and tests.
      *
      * @return array
      */
     public function get_state() {
+        $migration_required = false;
+
+        return $this->load_state($migration_required);
+    }
+
+    /**
+     * Return a bounded, nonsecret operational summary.
+     *
+     * @return array
+     */
+    public function get_status() {
+        $state = $this->get_state();
+        $sources = array();
+        $totals = array(
+            'stored_products' => 0,
+            'applied_products' => 0,
+            'pending_products' => 0,
+            'deferred_products' => 0,
+        );
+        ksort($state['sources'], SORT_STRING);
+
+        foreach ($state['sources'] as $source_state) {
+            if (!is_array($source_state)) {
+                continue;
+            }
+            $summary = $this->source_status($source_state);
+            $sources[] = $summary;
+            foreach ($totals as $field => $_unused) {
+                $totals[$field] += $summary[$field];
+            }
+        }
+
+        return array(
+            'state_version' => self::STATE_VERSION,
+            'source_count' => count($sources),
+            'totals' => $totals,
+            'sources' => $sources,
+        );
+    }
+
+    /**
+     * Retry only durable delivery work, without changing source ordering.
+     *
+     * Applied records are never replayed. Deferred reconciliation and any
+     * transient pending writes are attempted under the receiver lock.
+     *
+     * @param string|null $source_id Optional exact source id.
+     * @param string|null $dataset Optional exact source dataset.
+     * @return array|WP_Error
+     */
+    public function reconcile($source_id = null, $dataset = null) {
+        if ((null === $source_id) !== (null === $dataset)) {
+            return $this->error(
+                'digitalogic_product_sync_reconcile_scope_invalid',
+                'Source id and dataset must be provided together.',
+                400
+            );
+        }
+
+        $locked = $this->acquire_lock();
+        if (is_wp_error($locked)) {
+            return $locked;
+        }
+
+        try {
+            $migration_required = false;
+            $state = $this->load_state($migration_required);
+            $selected = array();
+            if (null !== $source_id) {
+                $source_key = $this->source_key((string) $source_id, (string) $dataset);
+                if (!isset($state['sources'][$source_key]) || !is_array($state['sources'][$source_key])) {
+                    return $this->error(
+                        'digitalogic_product_sync_source_not_found',
+                        'The requested product-sync source was not found.',
+                        404
+                    );
+                }
+                $selected[] = $source_key;
+            } else {
+                $selected = array_keys($state['sources']);
+                sort($selected, SORT_STRING);
+            }
+
+            $before = $this->state_digest($state);
+            $sources = array();
+            $pending_total = 0;
+            $deferred_total = 0;
+            foreach ($selected as $source_key) {
+                $woo = $this->drain_delivery_products($state['sources'][$source_key], true, true);
+                $source_result = $this->source_status($state['sources'][$source_key]);
+                $source_result['woocommerce'] = $woo;
+                $sources[] = $source_result;
+                $pending_total += $source_result['pending_products'];
+                $deferred_total += $source_result['deferred_products'];
+            }
+
+            if ($migration_required || !hash_equals($before, $this->state_digest($state))) {
+                $stored = $this->persist_and_read_back($state);
+                if (is_wp_error($stored)) {
+                    return $stored;
+                }
+            }
+
+            return array(
+                'status' => $pending_total > 0 ? 'partially_applied' : 'reconciled',
+                'retryable' => $pending_total > 0,
+                'pending_products' => $pending_total,
+                'deferred_products' => $deferred_total,
+                'source_count' => count($sources),
+                'sources' => $sources,
+                'source_order_unchanged' => true,
+                'persistence_verified' => true,
+            );
+        } catch (Throwable $exception) {
+            return $this->error(
+                'digitalogic_product_sync_reconcile_failed',
+                'Deferred product reconciliation failed.',
+                500,
+                array('exception' => get_class($exception))
+            );
+        } finally {
+            $this->release_lock();
+        }
+    }
+
+    private function load_state(&$migration_required) {
         $state = get_option(self::STATE_OPTION, array());
-        if (!is_array($state) || (int) ($state['version'] ?? 0) !== self::STATE_VERSION) {
+        $migration_required = false;
+        if (!is_array($state)) {
+            return array('version' => self::STATE_VERSION, 'sources' => array());
+        }
+        $version = (int) ($state['version'] ?? 0);
+        if (2 === $version) {
+            $state = $this->migrate_v2_state($state);
+            $migration_required = true;
+        } elseif (self::STATE_VERSION !== $version) {
             return array('version' => self::STATE_VERSION, 'sources' => array());
         }
         $state['sources'] = isset($state['sources']) && is_array($state['sources']) ? $state['sources'] : array();
+        foreach ($state['sources'] as &$source_state) {
+            if (!is_array($source_state)) {
+                $source_state = array();
+            }
+            $source_state['deferred_products'] = is_array($source_state['deferred_products'] ?? null)
+                ? array_slice($source_state['deferred_products'], 0, self::MAX_DEFERRED_PRODUCTS, true)
+                : array();
+        }
+        unset($source_state);
 
         return $state;
     }
@@ -454,9 +599,18 @@ class Digitalogic_Product_Sync_Receiver {
             ? $state['sources'][$key]
             : array();
     }
+    // phpcs:enable
 
+    // phpcs:disable -- Preserve the established receiver formatting while the legacy file remains baseline-managed.
     private function receive_locked($envelope) {
-        $state = $this->get_state();
+        $migration_required = false;
+        $state = $this->load_state($migration_required);
+        if ($migration_required) {
+            $migrated = $this->persist_and_read_back($state);
+            if (is_wp_error($migrated)) {
+                return $migrated;
+            }
+        }
         $source_key = $this->source_key($envelope['source']['id'], $envelope['source']['dataset']);
         $existing = isset($state['sources'][$source_key]) && is_array($state['sources'][$source_key])
             ? $state['sources'][$source_key]
@@ -527,6 +681,7 @@ class Digitalogic_Product_Sync_Receiver {
             'recent_events' => $recent_events,
             'applied_products' => $delivery['applied_products'],
             'pending_products' => $delivery['pending_products'],
+            'deferred_products' => $delivery['deferred_products'],
             'received_at' => current_time('mysql'),
         );
         $state['sources'][$source_key] = $source_state;
@@ -537,7 +692,7 @@ class Digitalogic_Product_Sync_Receiver {
         }
 
         $before_delivery = $this->state_digest($source_state);
-        $woo = $this->drain_pending_products($source_state);
+        $woo = $this->drain_delivery_products($source_state, true, true);
         $state['sources'][$source_key] = $source_state;
         if (!hash_equals($before_delivery, $this->state_digest($source_state))) {
             $delivery_stored = $this->persist_and_read_back($state);
@@ -547,9 +702,8 @@ class Digitalogic_Product_Sync_Receiver {
         }
 
         $fully_applied = empty($source_state['pending_products']);
-        $status = $fully_applied ? ($same_revision ? 'already_current' : 'accepted') : 'partially_applied';
-        $result = array(
-            'status' => $status,
+        $result = array_merge(array(
+            'status' => $fully_applied ? ($same_revision ? 'already_current' : 'accepted') : 'partially_applied',
             'replayed' => false,
             'event_id' => $envelope['event_id'],
             'event_type' => $envelope['event_type'],
@@ -559,11 +713,8 @@ class Digitalogic_Product_Sync_Receiver {
             'deleted_codes' => $transition['deleted_count'],
             'preserved_quarantined' => $transition['preserved_quarantined'],
             'woocommerce' => $woo,
-            'fully_applied' => $fully_applied,
-            'retryable' => !$fully_applied,
-            'pending_products' => count($source_state['pending_products']),
             'persistence_verified' => true,
-        );
+        ), $this->delivery_result_state($source_state));
 
         return $this->emit_result($result, $envelope);
     }
@@ -571,7 +722,7 @@ class Digitalogic_Product_Sync_Receiver {
     private function retry_pending_locked($state, $source_key, $envelope, $existing) {
         $source_state = $existing;
         $before_delivery = $this->state_digest($source_state);
-        $woo = $this->drain_pending_products($source_state);
+        $woo = $this->drain_delivery_products($source_state, true, false);
         $state['sources'][$source_key] = $source_state;
         if (!hash_equals($before_delivery, $this->state_digest($source_state))) {
             $stored = $this->persist_and_read_back($state);
@@ -581,7 +732,7 @@ class Digitalogic_Product_Sync_Receiver {
         }
 
         $fully_applied = empty($source_state['pending_products']);
-        $result = array(
+        $result = array_merge(array(
             'status' => $fully_applied ? 'recovered' : 'retry_pending',
             'replayed' => true,
             'event_id' => $envelope['event_id'],
@@ -589,14 +740,12 @@ class Digitalogic_Product_Sync_Receiver {
             'source' => $envelope['source'],
             'stored_products' => count($source_state['products'] ?? array()),
             'woocommerce' => $woo,
-            'fully_applied' => $fully_applied,
-            'retryable' => !$fully_applied,
-            'pending_products' => count($source_state['pending_products']),
             'persistence_verified' => true,
-        );
+        ), $this->delivery_result_state($source_state));
 
         return $this->emit_result($result, $envelope);
     }
+    // phpcs:enable
 
     private function emit_result($result, $envelope) {
         try {
@@ -1038,25 +1187,19 @@ class Digitalogic_Product_Sync_Receiver {
         );
     }
 
+    // phpcs:disable -- Preserve the established receiver formatting while the legacy file remains baseline-managed.
     private function build_delivery_state($products, $changed_products, $envelope, $existing) {
         $applied = is_array($existing['applied_products'] ?? null) ? $existing['applied_products'] : array();
         $pending = is_array($existing['pending_products'] ?? null) ? $existing['pending_products'] : array();
+        $deferred = is_array($existing['deferred_products'] ?? null) ? $existing['deferred_products'] : array();
 
         foreach ($applied as $code => $entry) {
             if (!isset($products[$code]) || !is_array($entry) || !isset($entry['record_hash'], $entry['woocommerce_id'])) {
                 unset($applied[$code]);
             }
         }
-        foreach ($pending as $code => $entry) {
-            if (
-                !isset($products[$code])
-                || !is_array($entry)
-                || !isset($entry['record_hash'])
-                || !hash_equals((string) $products[$code]['record_hash'], (string) $entry['record_hash'])
-            ) {
-                unset($pending[$code]);
-            }
-        }
+        $pending = $this->prune_delivery_set($products, $pending);
+        $deferred = $this->prune_delivery_set($products, $deferred);
 
         foreach ($changed_products as $product) {
             $code = $product['product_code'];
@@ -1064,26 +1207,43 @@ class Digitalogic_Product_Sync_Receiver {
             $applied_entry = is_array($applied[$code] ?? null) ? $applied[$code] : array();
             if (isset($applied_entry['record_hash']) && hash_equals((string) $applied_entry['record_hash'], $record_hash)) {
                 unset($pending[$code]);
+                unset($deferred[$code]);
                 continue;
             }
 
             $pending_entry = is_array($pending[$code] ?? null) ? $pending[$code] : array();
-            if (!isset($pending_entry['record_hash']) || !hash_equals((string) $pending_entry['record_hash'], $record_hash)) {
+            $deferred_entry = is_array($deferred[$code] ?? null) ? $deferred[$code] : array();
+            $existing_entry = !empty($pending_entry) ? $pending_entry : $deferred_entry;
+            if (!isset($existing_entry['record_hash']) || !hash_equals((string) $existing_entry['record_hash'], $record_hash)) {
                 $pending_entry = array(
                     'record_hash' => $record_hash,
                     'queued_event_id' => $envelope['event_id'],
                     'attempts' => 0,
                 );
+                $pending[$code] = $pending_entry;
+                unset($deferred[$code]);
             }
-            $pending[$code] = $pending_entry;
         }
 
         ksort($applied, SORT_STRING);
         ksort($pending, SORT_STRING);
-        return array('applied_products' => $applied, 'pending_products' => $pending);
+        ksort($deferred, SORT_STRING);
+        return array(
+            'applied_products' => $applied,
+            'pending_products' => $pending,
+            'deferred_products' => array_slice($deferred, 0, self::MAX_DEFERRED_PRODUCTS, true),
+        );
     }
 
-    private function drain_pending_products(&$source_state) {
+    /**
+     * Drain selected durable delivery sets and classify outcomes once.
+     *
+     * @param array $source_state Source state, updated in place.
+     * @param bool  $include_pending Retry transient work.
+     * @param bool  $include_deferred Retry terminal reconciliation work.
+     * @return array
+     */
+    private function drain_delivery_products(&$source_state, $include_pending, $include_deferred) {
         $result = array(
             'attempted' => 0,
             'updated' => 0,
@@ -1096,38 +1256,54 @@ class Digitalogic_Product_Sync_Receiver {
         );
         $products = is_array($source_state['products'] ?? null) ? $source_state['products'] : array();
         $pending = is_array($source_state['pending_products'] ?? null) ? $source_state['pending_products'] : array();
+        $deferred = is_array($source_state['deferred_products'] ?? null) ? $source_state['deferred_products'] : array();
         $applied = is_array($source_state['applied_products'] ?? null) ? $source_state['applied_products'] : array();
-        ksort($pending, SORT_STRING);
+        $work = array();
+        if ($include_deferred) {
+            $work = $deferred;
+        }
+        if ($include_pending) {
+            $work = array_replace($work, $pending);
+        }
+        ksort($work, SORT_STRING);
 
-        foreach ($pending as $code => &$pending_entry) {
-            if (!isset($products[$code]) || !is_array($pending_entry)) {
+        foreach ($work as $code => $delivery_entry) {
+            if (!$this->valid_delivery_entry($products, $code, $delivery_entry)) {
                 unset($pending[$code]);
+                unset($deferred[$code]);
                 continue;
             }
             $product_data = $products[$code];
-            $record_hash = (string) ($pending_entry['record_hash'] ?? '');
-            if (!hash_equals((string) $product_data['record_hash'], $record_hash)) {
-                unset($pending[$code]);
-                continue;
-            }
+            $record_hash = (string) $delivery_entry['record_hash'];
 
             $result['attempted']++;
             $resolved = Digitalogic_Product_Identifier_Resolver::instance()->resolve(array(
                 'code' => $code,
             ));
             if (is_wp_error($resolved)) {
-                if ('digitalogic_product_identifier_not_found' === $resolved->get_error_code()) {
+                $error_code = $resolved->get_error_code();
+                $deferred_reason = $this->terminal_resolution_reason($error_code);
+                if ('missing' === $deferred_reason) {
                     $result['missing']++;
-                } elseif ('digitalogic_product_identifier_ambiguous' === $resolved->get_error_code()) {
+                } elseif ('ambiguous' === $deferred_reason) {
                     $result['ambiguous']++;
                 } else {
                     $result['failed']++;
                 }
-                $this->mark_pending_failure($pending_entry, $resolved->get_error_code());
+                $this->mark_delivery_failure($delivery_entry, $error_code);
+                if (null !== $deferred_reason) {
+                    $delivery_entry['reason'] = $deferred_reason;
+                    $deferred[$code] = $delivery_entry;
+                    unset($pending[$code]);
+                } else {
+                    unset($delivery_entry['reason']);
+                    $pending[$code] = $delivery_entry;
+                    unset($deferred[$code]);
+                }
                 $this->append_woo_error($result, array(
                     'product_code' => $code,
-                    'code' => $resolved->get_error_code(),
-                    'retryable' => true,
+                    'code' => $error_code,
+                    'retryable' => null === $deferred_reason,
                 ));
                 continue;
             }
@@ -1140,6 +1316,7 @@ class Digitalogic_Product_Sync_Receiver {
                 && (string) $applied_entry['woocommerce_id'] === (string) $woocommerce_id
             ) {
                 unset($pending[$code]);
+                unset($deferred[$code]);
                 $result['already_applied']++;
                 continue;
             }
@@ -1151,6 +1328,7 @@ class Digitalogic_Product_Sync_Receiver {
                     'woocommerce_id' => (string) $woocommerce_id,
                 );
                 unset($pending[$code]);
+                unset($deferred[$code]);
                 $result['already_applied']++;
                 continue;
             }
@@ -1158,7 +1336,10 @@ class Digitalogic_Product_Sync_Receiver {
             $product = wc_get_product($woocommerce_id);
             if (!$product) {
                 $result['failed']++;
-                $this->mark_pending_failure($pending_entry, 'digitalogic_product_sync_woocommerce_product_unavailable');
+                $this->mark_delivery_failure($delivery_entry, 'digitalogic_product_sync_woocommerce_product_unavailable');
+                unset($delivery_entry['reason']);
+                $pending[$code] = $delivery_entry;
+                unset($deferred[$code]);
                 $this->append_woo_error($result, array(
                     'product_code' => $code,
                     'code' => 'digitalogic_product_sync_woocommerce_product_unavailable',
@@ -1178,10 +1359,14 @@ class Digitalogic_Product_Sync_Receiver {
                     'woocommerce_id' => (string) $woocommerce_id,
                 );
                 unset($pending[$code]);
+                unset($deferred[$code]);
                 $result['updated']++;
             } catch (Throwable $exception) {
                 $result['failed']++;
-                $this->mark_pending_failure($pending_entry, 'digitalogic_product_sync_woocommerce_write_failed');
+                $this->mark_delivery_failure($delivery_entry, 'digitalogic_product_sync_woocommerce_write_failed');
+                unset($delivery_entry['reason']);
+                $pending[$code] = $delivery_entry;
+                unset($deferred[$code]);
                 $this->append_woo_error($result, array(
                     'product_code' => $code,
                     'code' => 'digitalogic_product_sync_woocommerce_write_failed',
@@ -1189,21 +1374,41 @@ class Digitalogic_Product_Sync_Receiver {
                 ));
             }
         }
-        unset($pending_entry);
 
         ksort($pending, SORT_STRING);
+        ksort($deferred, SORT_STRING);
         ksort($applied, SORT_STRING);
         $source_state['pending_products'] = $pending;
+        $source_state['deferred_products'] = array_slice($deferred, 0, self::MAX_DEFERRED_PRODUCTS, true);
         $source_state['applied_products'] = $applied;
         $result['pending'] = count($pending);
+        $result['deferred'] = count($source_state['deferred_products']);
 
         return $result;
     }
 
-    private function mark_pending_failure(&$pending_entry, $code) {
-        $pending_entry['attempts'] = max(0, (int) ($pending_entry['attempts'] ?? 0)) + 1;
-        $pending_entry['last_error'] = (string) $code;
-        $pending_entry['last_attempt_at'] = current_time('mysql');
+    private function valid_delivery_entry($products, $code, $entry) {
+        return isset($products[$code])
+            && is_array($entry)
+            && isset($entry['record_hash'])
+            && hash_equals((string) $products[$code]['record_hash'], (string) $entry['record_hash']);
+    }
+
+    private function prune_delivery_set($products, $delivery_set) {
+        foreach ($delivery_set as $code => $entry) {
+            if (!$this->valid_delivery_entry($products, $code, $entry)) {
+                unset($delivery_set[$code]);
+            }
+        }
+
+        return $delivery_set;
+    }
+
+    private function mark_delivery_failure(&$delivery_entry, $code) {
+        $attempts = max(0, (int) ($delivery_entry['attempts'] ?? 0));
+        $delivery_entry['attempts'] = $attempts < PHP_INT_MAX ? $attempts + 1 : PHP_INT_MAX;
+        $delivery_entry['last_error'] = (string) $code;
+        $delivery_entry['last_attempt_at'] = current_time('mysql');
     }
 
     private function append_woo_error(&$result, $error) {
@@ -1213,6 +1418,137 @@ class Digitalogic_Product_Sync_Receiver {
             $result['errors_truncated']++;
         }
     }
+
+    private function terminal_resolution_reason($error_code) {
+        if ('digitalogic_product_identifier_not_found' === $error_code) {
+            return 'missing';
+        }
+        if ('digitalogic_product_identifier_ambiguous' === $error_code) {
+            return 'ambiguous';
+        }
+
+        return null;
+    }
+
+    private function v2_terminal_resolution_reason($error_code) {
+        // v2 collapsed SQL lookup failures into not_found, so only a proven
+        // multi-row ambiguity can be migrated without first querying again.
+        return 'digitalogic_product_identifier_ambiguous' === $error_code
+            ? 'ambiguous'
+            : null;
+    }
+
+    /**
+     * Project v2 delivery state into v3 without discarding retry metadata.
+     *
+     * The migration is persisted by receive() or reconcile() while holding the
+     * same advisory lock used for normal event delivery.
+     */
+    private function migrate_v2_state($state) {
+        $state['version'] = self::STATE_VERSION;
+        $sources = is_array($state['sources'] ?? null) ? $state['sources'] : array();
+        foreach ($sources as &$source_state) {
+            if (!is_array($source_state)) {
+                $source_state = array();
+            }
+            $pending = is_array($source_state['pending_products'] ?? null)
+                ? $source_state['pending_products']
+                : array();
+            $deferred = array();
+            foreach ($pending as $code => $entry) {
+                $reason = is_array($entry)
+                    ? $this->v2_terminal_resolution_reason((string) ($entry['last_error'] ?? ''))
+                    : null;
+                if (null === $reason) {
+                    continue;
+                }
+                $entry['reason'] = $reason;
+                $deferred[$code] = $entry;
+                unset($pending[$code]);
+            }
+            ksort($pending, SORT_STRING);
+            ksort($deferred, SORT_STRING);
+            $source_state['pending_products'] = $pending;
+            $source_state['deferred_products'] = array_slice(
+                $deferred,
+                0,
+                self::MAX_DEFERRED_PRODUCTS,
+                true
+            );
+        }
+        unset($source_state);
+        $state['sources'] = $sources;
+
+        return $state;
+    }
+
+    private function deferred_summary($deferred) {
+        $deferred = is_array($deferred) ? $deferred : array();
+        ksort($deferred, SORT_STRING);
+        $summary = array(
+            'missing' => 0,
+            'ambiguous' => 0,
+            'details' => array(),
+            'details_truncated' => 0,
+        );
+        foreach ($deferred as $code => $entry) {
+            $reason = is_array($entry) ? (string) ($entry['reason'] ?? '') : '';
+            if ('ambiguous' === $reason) {
+                $summary['ambiguous']++;
+            } else {
+                $reason = 'missing';
+                $summary['missing']++;
+            }
+            if (count($summary['details']) < self::MAX_RESULT_ERRORS) {
+                $summary['details'][] = array(
+                    'product_code' => (string) $code,
+                    'reason' => $reason,
+                    'code' => is_array($entry) ? (string) ($entry['last_error'] ?? '') : '',
+                );
+            } else {
+                $summary['details_truncated']++;
+            }
+        }
+
+        return $summary;
+    }
+
+    private function delivery_result_state($source_state) {
+        $pending = is_array($source_state['pending_products'] ?? null)
+            ? $source_state['pending_products']
+            : array();
+        $deferred = is_array($source_state['deferred_products'] ?? null)
+            ? $source_state['deferred_products']
+            : array();
+        $fully_applied = empty($pending);
+
+        return array(
+            'fully_applied' => $fully_applied,
+            'retryable' => !$fully_applied,
+            'pending_products' => count($pending),
+            'deferred_products' => count($deferred),
+            'deferred_reconciliation' => $this->deferred_summary($deferred),
+        );
+    }
+
+    private function source_status($source_state) {
+        $source = is_array($source_state['source'] ?? null) ? $source_state['source'] : array();
+
+        return array(
+            'source' => array(
+                'id' => (string) ($source['id'] ?? ''),
+                'dataset' => (string) ($source['dataset'] ?? ''),
+                'revision' => (string) ($source['revision'] ?? ''),
+            ),
+            'generated_at' => (string) ($source_state['generated_at'] ?? ''),
+            'last_event_id' => (string) ($source_state['last_event_id'] ?? ''),
+            'stored_products' => count(is_array($source_state['products'] ?? null) ? $source_state['products'] : array()),
+            'applied_products' => count(is_array($source_state['applied_products'] ?? null) ? $source_state['applied_products'] : array()),
+            'pending_products' => count(is_array($source_state['pending_products'] ?? null) ? $source_state['pending_products'] : array()),
+            'deferred_products' => count(is_array($source_state['deferred_products'] ?? null) ? $source_state['deferred_products'] : array()),
+        );
+    }
+    // phpcs:enable
 
     private function persist_and_read_back($state) {
         global $wpdb;
@@ -1292,19 +1628,18 @@ class Digitalogic_Product_Sync_Receiver {
         return $read_back;
     }
 
+    // phpcs:disable -- Preserve the established receiver formatting while the legacy file remains baseline-managed.
     private function replay_result($envelope, $existing) {
-        return array(
+        return array_merge(array(
             'status' => 'replayed',
             'replayed' => true,
             'event_id' => $envelope['event_id'],
             'event_type' => $envelope['event_type'],
             'source' => $envelope['source'],
             'stored_products' => count($existing['products'] ?? array()),
-            'fully_applied' => true,
-            'retryable' => false,
-            'pending_products' => 0,
-        );
+        ), $this->delivery_result_state($existing));
     }
+    // phpcs:enable
 
     /**
      * Independently evaluate landed_price_v1 using bounded decimal strings.

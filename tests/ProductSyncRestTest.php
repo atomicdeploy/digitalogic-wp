@@ -152,22 +152,26 @@ final class ProductSyncRestTest extends TestCase {
         $this->assertSame('digitalogic_product_sync_currency_unsupported', $response->get_data()['code']);
     }
 
-    public function test_partial_and_identical_retry_responses_are_intentionally_http_200(): void {
+    public function test_deferred_and_identical_replay_responses_are_terminal_http_200(): void {
         $body = file_get_contents(__DIR__ . '/fixtures/patris-product-sync-v1-golden.json');
         $payload = json_decode($body, true, 512, JSON_THROW_ON_ERROR);
         $headers = array('X-Digitalogic-Product-Sync-Secret' => 'receiver-secret');
         $request = new WP_REST_Request(array(), $payload, $headers, $body);
 
-        $partial = Digitalogic_REST_API::instance()->receive_patris_product_sync($request);
-        $this->assertSame(200, $partial->get_status());
-        $this->assertSame('partially_applied', $partial->get_data()['data']['status']);
-        $this->assertTrue($partial->get_data()['data']['retryable']);
+        $accepted = Digitalogic_REST_API::instance()->receive_patris_product_sync($request);
+        $this->assertSame(200, $accepted->get_status());
+        $this->assertSame('accepted', $accepted->get_data()['data']['status']);
+        $this->assertFalse($accepted->get_data()['data']['retryable']);
+        $this->assertSame(0, $accepted->get_data()['data']['pending_products']);
+        $this->assertSame(2, $accepted->get_data()['data']['deferred_products']);
+        $this->assertIsInt($accepted->get_data()['data']['deferred_products']);
 
         $retry = Digitalogic_REST_API::instance()->receive_patris_product_sync($request);
         $this->assertSame(200, $retry->get_status());
-        $this->assertSame('retry_pending', $retry->get_data()['data']['status']);
+        $this->assertSame('replayed', $retry->get_data()['data']['status']);
         $this->assertTrue($retry->get_data()['data']['replayed']);
-        $this->assertTrue($retry->get_data()['data']['retryable']);
+        $this->assertFalse($retry->get_data()['data']['retryable']);
+        $this->assertSame(2, $retry->get_data()['data']['deferred_products']);
     }
 
     private function emptySnapshot() {

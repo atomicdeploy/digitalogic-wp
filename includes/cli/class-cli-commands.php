@@ -618,7 +618,7 @@ class Digitalogic_CLI_Commands {
 	 * @return void
 	 */
 	public function pricing_input_credential_create() {
-		if ( ! $this->require_pricing_credential_admin() ) {
+		if ( ! $this->require_administrator() ) {
 			return;
 		}
 
@@ -639,7 +639,7 @@ class Digitalogic_CLI_Commands {
 	 * @return void
 	 */
 	public function pricing_input_credential_rotate() {
-		if ( ! $this->require_pricing_credential_admin() ) {
+		if ( ! $this->require_administrator() ) {
 			return;
 		}
 
@@ -660,7 +660,7 @@ class Digitalogic_CLI_Commands {
 	 * @return void
 	 */
 	public function pricing_input_credential_revoke() {
-		if ( ! $this->require_pricing_credential_admin() ) {
+		if ( ! $this->require_administrator() ) {
 			return;
 		}
 
@@ -685,7 +685,7 @@ class Digitalogic_CLI_Commands {
 	 * @return void
 	 */
 	public function pricing_input_credential_status() {
-		if ( ! $this->require_pricing_credential_admin() ) {
+		if ( ! $this->require_administrator() ) {
 			return;
 		}
 
@@ -704,11 +704,71 @@ class Digitalogic_CLI_Commands {
 	}
 
 	/**
-	 * Require an explicit administrator user for credential lifecycle commands.
+	 * Show nonsecret product-sync delivery and reconciliation counts.
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     wp digitalogic product-sync status
+	 *
+	 * @when after_wp_load
+	 *
+	 * @return void
+	 */
+	public function product_sync_status() {
+		WP_CLI::line(
+			wp_json_encode(
+				Digitalogic_Product_Sync_Receiver::instance()->get_status(),
+				JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+			)
+		);
+	}
+
+	/**
+	 * Retry deferred and transient product-sync work without changing ordering.
+	 *
+	 * ## OPTIONS
+	 *
+	 * [--source-id=<id>]
+	 * : Exact source id. Must be paired with --dataset.
+	 *
+	 * [--dataset=<dataset>]
+	 * : Exact source dataset. Must be paired with --source-id.
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     wp digitalogic product-sync reconcile --user=<administrator>
+	 *     wp digitalogic product-sync reconcile --source-id=patris-office --dataset=kala.db --user=<administrator>
+	 *
+	 * @when after_wp_load
+	 *
+	 * @param array $args Positional arguments (unused).
+	 * @param array $assoc_args Named command arguments.
+	 * @return void
+	 */
+	public function product_sync_reconcile( $args, $assoc_args ) {
+		if ( ! $this->require_administrator() ) {
+			return;
+		}
+
+		$source_id = isset( $assoc_args['source-id'] ) ? (string) $assoc_args['source-id'] : null;
+		$dataset   = isset( $assoc_args['dataset'] ) ? (string) $assoc_args['dataset'] : null;
+		$result    = Digitalogic_Product_Sync_Receiver::instance()->reconcile( $source_id, $dataset );
+		if ( is_wp_error( $result ) ) {
+			WP_CLI::error( $result->get_error_message() );
+			return;
+		}
+
+		WP_CLI::line(
+			wp_json_encode( $result, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES )
+		);
+	}
+
+	/**
+	 * Require an explicit administrator user for mutating operational commands.
 	 *
 	 * @return bool
 	 */
-	private function require_pricing_credential_admin() {
+	private function require_administrator() {
 		if ( current_user_can( 'manage_options' ) ) {
 			return true;
 		}
@@ -770,4 +830,12 @@ WP_CLI::add_command(
 WP_CLI::add_command(
 	'digitalogic pricing-input-credential status',
 	array( 'Digitalogic_CLI_Commands', 'pricing_input_credential_status' )
+);
+WP_CLI::add_command(
+	'digitalogic product-sync status',
+	array( 'Digitalogic_CLI_Commands', 'product_sync_status' )
+);
+WP_CLI::add_command(
+	'digitalogic product-sync reconcile',
+	array( 'Digitalogic_CLI_Commands', 'product_sync_reconcile' )
 );
