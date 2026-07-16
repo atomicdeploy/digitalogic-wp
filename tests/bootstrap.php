@@ -84,7 +84,7 @@ class WP_REST_Request implements ArrayAccess {
 
     public function get_header($key) {
         $key = strtolower((string) $key);
-        return isset($this->headers[$key]) ? $this->headers[$key] : '';
+        return isset($this->headers[$key]) ? $this->headers[$key] : null;
     }
 
     public function get_body() {
