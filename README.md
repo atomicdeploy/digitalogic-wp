@@ -77,7 +77,7 @@
 
 ### Via WordPress Admin
 
-1. Download the latest release from GitHub
+1. Download the stable [`digitalogic-wp.zip`](https://github.com/atomicdeploy/digitalogic-wp/releases/latest/download/digitalogic-wp.zip) asset from the latest GitHub release
 2. Go to WordPress Admin → Plugins → Add New → Upload Plugin
 3. Upload the zip file and activate
 
@@ -89,7 +89,7 @@ wp plugin install /path/to/digitalogic-wp.zip --activate
 
 ### Manual Installation
 
-1. Extract the plugin to `wp-content/plugins/digitalogic`
+1. Extract the plugin to `wp-content/plugins/digitalogic-wp`
 2. Run `composer install --no-dev` in the plugin directory
 3. Activate via WordPress Admin → Plugins
 
@@ -276,7 +276,7 @@ composer phpcbf
 
 The project includes CI/CD workflows:
 - `ci-cd.yml` - Runs on push/PR (linting, testing, building)
-- `deploy.yml` - Deployment workflow for releases
+- `package-release.yml` - Audited deterministic package workflow and GitHub release publication
 
 ## Database Schema
 
@@ -327,7 +327,7 @@ To add translations:
 3. Create `.po` files for your language
 4. Place `.po` files in `languages/` directory
 
-**Note:** `.mo` (Machine Object) files are automatically built during CI/CD deployment from `.po` (Portable Object) source files. They are not committed to the repository.
+**Note:** `.mo` (Machine Object) files are automatically built during CI/CD packaging from `.po` (Portable Object) source files. They are not committed to the repository.
 
 To manually build `.mo` files for local development:
 ```bash

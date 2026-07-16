@@ -1,0 +1,184 @@
+name: Package and publish WordPress plugin
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify release source
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      COMPOSER_ROOT_VERSION: dev-main
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, xml, ctype, json, tokenizer, mysqli
+          coverage: none
+          tools: composer:2.10.2
+
+      - name: Validate Composer metadata
+        run: composer validate --strict
+
+      - name: Install development dependencies
+        run: composer install --prefer-dist --no-progress --no-interaction
+
+      - name: Audit locked dependencies
+        run: composer audit --locked
+
+      - name: Check PHP syntax
+        run: find . -name '*.php' -not -path './vendor/*' -print0 | xargs -0 -n1 php -l
+
+      - name: Check panel JavaScript syntax
+        run: node --check assets/js/panel-app.js
+
+      - name: Run PHPUnit tests
+        run: composer test
+
+      - name: Enforce WordPress coding-standard baseline
+        run: bash scripts/check-phpcs-baseline.sh
+
+      - name: Reject public backup artifacts
+        run: bash scripts/check-public-tree.sh
+
+  package:
+    name: Build verified plugin package
+    needs: verify
+    runs-on: ubuntu-latest
+    outputs:
+      archive_name: ${{ steps.metadata.outputs.archive_name }}
+      stable_archive_name: ${{ steps.metadata.outputs.stable_archive_name }}
+      checksum_name: ${{ steps.metadata.outputs.checksum_name }}
+      artifact_name: ${{ steps.metadata.outputs.artifact_name }}
+    env:
+      COMPOSER_ROOT_VERSION: dev-main
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          tools: composer:2.10.2, wp-cli:2.12.0
+        env:
+          fail-fast: true
+
+      - name: Validate Composer metadata
+        run: composer validate --strict
+
+      - name: Install production dependencies
+        run: composer install --no-dev --prefer-dist --no-progress --optimize-autoloader --no-interaction
+
+      - name: Audit production dependencies
+        run: composer audit --locked --no-dev
+
+      - name: Build translation files
+        shell: bash
+        run: |
+          set -euo pipefail
+          if find languages -type f -name '*.po' -print -quit 2>/dev/null | grep -q .; then
+            wp i18n make-mo languages/ --allow-root
+          else
+            echo 'No .po files found to build.'
+          fi
+
+      - name: Reject public backup artifacts
+        run: bash scripts/check-public-tree.sh
+
+      - name: Resolve package metadata
+        id: metadata
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          label="${RELEASE_TAG:-${GITHUB_SHA:0:12}}"
+          label="$(printf '%s' "$label" | tr -c 'A-Za-z0-9._-' '-')"
+          label="${label#-}"
+          label="${label%-}"
+          if [[ -z "$label" ]]; then
+            echo 'Unable to derive a safe package label.' >&2
+            exit 1
+          fi
+          {
+            echo "archive_name=digitalogic-wp-${label}.zip"
+            echo 'stable_archive_name=digitalogic-wp.zip'
+            echo 'checksum_name=SHA256SUMS'
+            echo "artifact_name=digitalogic-wp-${label}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build deterministic plugin archive
+        shell: bash
+        env:
+          ARCHIVE_NAME: ${{ steps.metadata.outputs.archive_name }}
+          STABLE_ARCHIVE_NAME: ${{ steps.metadata.outputs.stable_archive_name }}
+          CHECKSUM_NAME: ${{ steps.metadata.outputs.checksum_name }}
+        run: |
+          set -euo pipefail
+          SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"
+          export SOURCE_DATE_EPOCH
+          bash scripts/build-plugin-package.sh "build/${ARCHIVE_NAME}"
+          install -m 0644 "build/${ARCHIVE_NAME}" "build/${STABLE_ARCHIVE_NAME}"
+          (
+            cd build
+            sha256sum "${ARCHIVE_NAME}" "${STABLE_ARCHIVE_NAME}" > "${CHECKSUM_NAME}"
+            cat "${CHECKSUM_NAME}"
+          )
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.metadata.outputs.artifact_name }}
+          path: |
+            build/${{ steps.metadata.outputs.archive_name }}
+            build/${{ steps.metadata.outputs.stable_archive_name }}
+            build/${{ steps.metadata.outputs.checksum_name }}
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+
+  publish_release:
+    name: Publish GitHub release asset
+    if: github.event_name == 'release'
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download verified package
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.package.outputs.artifact_name }}
+          path: release-package
+
+      - name: Upload package to GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          ARCHIVE_NAME: ${{ needs.package.outputs.archive_name }}
+          STABLE_ARCHIVE_NAME: ${{ needs.package.outputs.stable_archive_name }}
+          CHECKSUM_NAME: ${{ needs.package.outputs.checksum_name }}
+        run: |
+          set -euo pipefail
+          gh release upload "$RELEASE_TAG" \
+            "release-package/${ARCHIVE_NAME}" \
+            "release-package/${STABLE_ARCHIVE_NAME}" \
+            "release-package/${CHECKSUM_NAME}" \
+            --clobber \
+            --repo "$GITHUB_REPOSITORY"

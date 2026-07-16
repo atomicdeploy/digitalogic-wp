@@ -43,10 +43,7 @@ jobs:
       run: composer install --prefer-dist --no-progress --no-suggest
       
     - name: Run PHPCS
-      run: |
-        # Run PHPCS with report for now (not blocking build in initial release)
-        # TODO: Remove '|| true' after addressing all coding standards issues
-        vendor/bin/phpcs --standard=WordPress --extensions=php --ignore=vendor/ --report=summary . || true
+      run: bash scripts/check-phpcs-baseline.sh
         
   test:
     name: PHP ${{ matrix.php-versions }} Test
@@ -105,33 +102,37 @@ jobs:
       run: composer audit --locked
       
   build:
-    name: Build Plugin
+    name: Build Plugin Package
     runs-on: ubuntu-latest
-    needs: [lint, test]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [lint, test, security]
+    if: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main') }}
     permissions:
       contents: read
+    env:
+      COMPOSER_ROOT_VERSION: dev-main
     
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
+      with:
+        # Tests above use GitHub's synthetic merge commit. Package the exact
+        # reviewed head so its commit epoch and checksum are reproducible.
+        ref: ${{ github.event.pull_request.head.sha || github.sha }}
       
     - name: Setup PHP
       uses: shivammathur/setup-php@v2
       with:
         php-version: '8.3'
-        tools: composer:v2
+        tools: composer:2.10.2, wp-cli:2.12.0
+      env:
+        fail-fast: true
         
     - name: Install production dependencies
-      run: composer install --no-dev --prefer-dist --no-progress --optimize-autoloader
+      run: composer install --no-dev --prefer-dist --no-progress --optimize-autoloader --no-interaction
+
+    - name: Audit production dependencies
+      run: composer audit --locked --no-dev
       
-    - name: Install WP-CLI
-      run: |
-        curl -O https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar
-        chmod +x wp-cli.phar
-        sudo mv wp-cli.phar /usr/local/bin/wp
-        wp --info
-        
     - name: Build translation files
       run: |
         # Build .mo files from .po files (i18n command is included in WP-CLI 2.5+)
@@ -146,16 +147,23 @@ jobs:
     - name: Reject public backup artifacts
       run: bash scripts/check-public-tree.sh
 
-    - name: Create plugin archive
+    - name: Build and verify deterministic plugin archive
       run: |
-        mkdir -p build
-        rsync -av --exclude='.git*' --exclude='node_modules' --exclude='tests' --exclude='build' --exclude='.github' --exclude='*.bak*' --exclude='*.backup*' --exclude='*.old*' --exclude='*.orig*' --exclude='*.save*' --exclude='*~' . build/digitalogic
-        cd build
-        zip -r digitalogic-wp.zip digitalogic
+        SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"
+        export SOURCE_DATE_EPOCH
+        bash scripts/build-plugin-package.sh build/digitalogic-wp.zip
+        (
+          cd build
+          sha256sum digitalogic-wp.zip | tee digitalogic-wp.zip.sha256
+        )
         
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
         name: digitalogic-wp-plugin
-        path: build/digitalogic-wp.zip
+        path: |
+          build/digitalogic-wp.zip
+          build/digitalogic-wp.zip.sha256
+        if-no-files-found: error
+        compression-level: 0
         retention-days: 30
