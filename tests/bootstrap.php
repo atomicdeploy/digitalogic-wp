@@ -8,11 +8,9 @@ define('ABSPATH', __DIR__ . '/');
 $GLOBALS['digitalogic_test_capabilities'] = array();
 $GLOBALS['digitalogic_test_filters'] = array();
 $GLOBALS['digitalogic_test_routes'] = array();
-$GLOBALS['digitalogic_test_rest_url'] = 'https://example.test/wp-json/';
+$GLOBALS['digitalogic_test_rest_prefix'] = 'wp-json';
 $GLOBALS['digitalogic_test_rest_url_calls'] = 0;
-$GLOBALS['digitalogic_test_rest_url_depth'] = 0;
-$GLOBALS['digitalogic_test_rest_url_nested_filter'] = false;
-$GLOBALS['digitalogic_test_rest_url_nested_results'] = array();
+$GLOBALS['digitalogic_test_current_user_can_calls'] = 0;
 
 class WP_REST_Request {
 }
@@ -41,6 +39,8 @@ function add_action($hook_name, $callback, $priority = 10, $accepted_args = 1) {
 }
 
 function current_user_can($capability) {
+    $GLOBALS['digitalogic_test_current_user_can_calls']++;
+
     return !empty($GLOBALS['digitalogic_test_capabilities'][$capability]);
 }
 
@@ -83,36 +83,14 @@ function register_rest_route($namespace, $route, $args = array(), $override = fa
     return true;
 }
 
-function wp_unslash($value) {
-    return $value;
-}
-
-function wp_parse_url($url, $component = -1) {
-    return parse_url($url, $component);
+function rest_get_url_prefix() {
+    return $GLOBALS['digitalogic_test_rest_prefix'];
 }
 
 function rest_url($path = '') {
     $GLOBALS['digitalogic_test_rest_url_calls']++;
-    $GLOBALS['digitalogic_test_rest_url_depth']++;
 
-    if ($GLOBALS['digitalogic_test_rest_url_depth'] > 1) {
-        throw new RuntimeException('REST URL resolution re-entered the WooCommerce authentication filter.');
-    }
-
-    $base = $GLOBALS['digitalogic_test_rest_url'];
-
-    try {
-        if (!empty($GLOBALS['digitalogic_test_rest_url_nested_filter'])) {
-            $GLOBALS['digitalogic_test_rest_url_nested_results'][] = apply_filters(
-                'woocommerce_rest_is_request_to_rest_api',
-                false
-            );
-        }
-
-        return rtrim($base, '/') . '/' . ltrim($path, '/');
-    } finally {
-        $GLOBALS['digitalogic_test_rest_url_depth']--;
-    }
+    throw new RuntimeException('The WooCommerce route matcher must not call rest_url().');
 }
 
 require_once dirname(__DIR__) . '/includes/api/class-rest-api.php';

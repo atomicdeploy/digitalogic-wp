@@ -12,24 +12,6 @@ if (!defined('ABSPATH')) {
 class Digitalogic_REST_API {
     
     private static $instance = null;
-
-    /**
-     * REST path used for exact Digitalogic namespace matching.
-     *
-     * This is resolved before the WooCommerce authentication filter is
-     * registered so the filter never calls rest_url() while WordPress is
-     * resolving the current user.
-     *
-     * @var string|null
-     */
-    private $woocommerce_auth_api_path = null;
-
-    /**
-     * Whether this installation routes REST requests through rest_route.
-     *
-     * @var bool
-     */
-    private $woocommerce_auth_uses_rest_route = false;
     
     public static function instance() {
         if (is_null(self::$instance)) {
@@ -40,43 +22,10 @@ class Digitalogic_REST_API {
     
     private function __construct() {
         add_action('rest_api_init', array($this, 'register_routes'));
-
-        $this->prepare_woocommerce_rest_authentication();
-
         add_filter(
             'woocommerce_rest_is_request_to_rest_api',
             array($this, 'allow_woocommerce_rest_authentication')
         );
-    }
-
-    /**
-     * Resolve immutable route-matcher state before registering the Woo filter.
-     *
-     * WooCommerce can run its REST authentication check while resolving the
-     * current user. Calling rest_url() from that filter can therefore re-enter
-     * current-user resolution through other plugins. Resolve the installation
-     * path once, before our filter exists, and keep the callback side-effect
-     * free.
-     *
-     * @return void
-     */
-    private function prepare_woocommerce_rest_authentication() {
-        $api_url = rest_url('digitalogic/v1');
-        $api_path = wp_parse_url($api_url, PHP_URL_PATH);
-
-        if (!is_string($api_path)) {
-            return;
-        }
-
-        $this->woocommerce_auth_api_path = rtrim($api_path, '/');
-
-        $api_query = wp_parse_url($api_url, PHP_URL_QUERY);
-        if (!is_string($api_query) || '' === $api_query) {
-            return;
-        }
-
-        parse_str($api_query, $api_query_params);
-        $this->woocommerce_auth_uses_rest_route = isset($api_query_params['rest_route']);
     }
 
     /**
@@ -99,54 +48,135 @@ class Digitalogic_REST_API {
             return false;
         }
 
-        $request_uri = wp_unslash($_SERVER['REQUEST_URI']);
-        $request_path = wp_parse_url($request_uri, PHP_URL_PATH);
-
-        if ($this->woocommerce_auth_uses_rest_route) {
-            if (!is_string($request_path) || !is_string($this->woocommerce_auth_api_path)) {
-                return false;
-            }
-
-            if (rtrim($request_path, '/') !== $this->woocommerce_auth_api_path) {
-                return false;
-            }
-
-            return $this->query_targets_digitalogic_namespace($request_uri);
+        $request_uri = (string) $_SERVER['REQUEST_URI'];
+        $request_path = parse_url($request_uri, PHP_URL_PATH);
+        if (!is_string($request_path)) {
+            return false;
         }
 
-        if (is_string($request_path) && !empty($this->woocommerce_auth_api_path)) {
-            if (
-                $request_path === $this->woocommerce_auth_api_path
-                || str_starts_with($request_path, $this->woocommerce_auth_api_path . '/')
-            ) {
-                return true;
-            }
+        $query_match = $this->query_targets_digitalogic_namespace($request_uri);
+        if (null !== $query_match) {
+            return $query_match && $this->request_path_targets_front_controller($request_path);
         }
 
-        return false;
+        return $this->request_path_targets_digitalogic_namespace($request_path);
     }
 
     /**
      * Check a rest_route query parameter against the Digitalogic namespace.
      *
      * @param string $request_uri Current request URI.
-     * @return bool
+     * @return bool|null True or false when rest_route is present; null otherwise.
      */
     private function query_targets_digitalogic_namespace($request_uri) {
-
-        $request_query = wp_parse_url($request_uri, PHP_URL_QUERY);
+        $request_query = parse_url($request_uri, PHP_URL_QUERY);
         if (!is_string($request_query) || '' === $request_query) {
-            return false;
+            return null;
         }
 
         parse_str($request_query, $query_params);
-        if (!isset($query_params['rest_route']) || !is_string($query_params['rest_route'])) {
+        if (!array_key_exists('rest_route', $query_params)) {
+            return null;
+        }
+
+        if (!is_string($query_params['rest_route'])) {
             return false;
         }
 
         $route = '/' . trim($query_params['rest_route'], '/');
 
         return '/digitalogic/v1' === $route || str_starts_with($route, '/digitalogic/v1/');
+    }
+
+    /**
+     * Match a pretty-permalink REST request without generating a REST URL.
+     *
+     * @param string $request_path Current request path.
+     * @return bool
+     */
+    private function request_path_targets_digitalogic_namespace($request_path) {
+        $rest_prefix = rest_get_url_prefix();
+        if (!is_string($rest_prefix) || '' === trim($rest_prefix, '/')) {
+            return false;
+        }
+
+        $api_path = $this->normalize_request_path(
+            $this->get_wordpress_base_path()
+            . '/'
+            . trim($rest_prefix, '/')
+            . '/digitalogic/v1'
+        );
+        $request_path = $this->normalize_request_path($request_path);
+
+        return $request_path === $api_path || str_starts_with($request_path, $api_path . '/');
+    }
+
+    /**
+     * Ensure query-style REST requests target this WordPress front controller.
+     *
+     * @param string $request_path Current request path.
+     * @return bool
+     */
+    private function request_path_targets_front_controller($request_path) {
+        $request_path = $this->normalize_request_path($request_path);
+        $base_path = $this->get_wordpress_base_path();
+        $base_path = '' === $base_path ? '/' : $base_path;
+
+        if ($request_path === $base_path) {
+            return true;
+        }
+
+        $script_path = $this->get_wordpress_script_path();
+
+        return null !== $script_path && $request_path === $script_path;
+    }
+
+    /**
+     * Resolve the URL path of the active WordPress front controller.
+     *
+     * @return string|null
+     */
+    private function get_wordpress_script_path() {
+        if (empty($_SERVER['SCRIPT_NAME']) || !is_string($_SERVER['SCRIPT_NAME'])) {
+            return null;
+        }
+
+        $script_path = parse_url($_SERVER['SCRIPT_NAME'], PHP_URL_PATH);
+        if (!is_string($script_path) || '' === $script_path) {
+            return null;
+        }
+
+        return $this->normalize_request_path($script_path);
+    }
+
+    /**
+     * Resolve the install subdirectory from the front-controller path.
+     *
+     * @return string Empty for a root installation.
+     */
+    private function get_wordpress_base_path() {
+        $script_path = $this->get_wordpress_script_path();
+        if (null === $script_path) {
+            return '';
+        }
+
+        $base_path = str_replace('\\', '/', dirname($script_path));
+
+        return '/' === $base_path || '.' === $base_path
+            ? ''
+            : $this->normalize_request_path($base_path);
+    }
+
+    /**
+     * Normalize a URL path for exact, segment-boundary comparisons.
+     *
+     * @param string $path URL path.
+     * @return string
+     */
+    private function normalize_request_path($path) {
+        $path = '/' . trim($path, '/');
+
+        return '/' === $path ? '/' : rtrim($path, '/');
     }
     
     /**
