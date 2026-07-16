@@ -47,6 +47,11 @@ phpunit.xml
 # Temporary files
 *.tmp
 *.bak
+*.bak*
+*.backup*
+*.old*
+*.orig*
+*.save*
 *.swp
 *~
 

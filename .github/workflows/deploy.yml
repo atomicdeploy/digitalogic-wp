@@ -55,10 +55,13 @@ jobs:
           echo "No .po files found to build"
         fi
       
+    - name: Reject public backup artifacts
+      run: bash scripts/check-public-tree.sh
+
     - name: Create deployment package
       run: |
         mkdir -p deploy
-        rsync -av --exclude='.git*' --exclude='node_modules' --exclude='tests' --exclude='build' --exclude='deploy' --exclude='.github' . deploy/digitalogic
+        rsync -av --exclude='.git*' --exclude='node_modules' --exclude='tests' --exclude='build' --exclude='deploy' --exclude='.github' --exclude='*.bak*' --exclude='*.backup*' --exclude='*.old*' --exclude='*.orig*' --exclude='*.save*' --exclude='*~' . deploy/digitalogic
         cd deploy
         zip -r digitalogic-wp-${{ github.ref_name }}.zip digitalogic
         

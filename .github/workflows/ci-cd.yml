@@ -137,10 +137,13 @@ jobs:
           echo "No .po files found to build"
         fi
       
+    - name: Reject public backup artifacts
+      run: bash scripts/check-public-tree.sh
+
     - name: Create plugin archive
       run: |
         mkdir -p build
-        rsync -av --exclude='.git*' --exclude='node_modules' --exclude='tests' --exclude='build' --exclude='.github' . build/digitalogic
+        rsync -av --exclude='.git*' --exclude='node_modules' --exclude='tests' --exclude='build' --exclude='.github' --exclude='*.bak*' --exclude='*.backup*' --exclude='*.old*' --exclude='*.orig*' --exclude='*.save*' --exclude='*~' . build/digitalogic
         cd build
         zip -r digitalogic-wp.zip digitalogic
         

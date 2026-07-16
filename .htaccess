@@ -1,0 +1,12 @@
+<IfModule mod_authz_core.c>
+    <FilesMatch "(?i)(\.(bak|backup|old|orig|save)([-._].*)?|~)$">
+        Require all denied
+    </FilesMatch>
+</IfModule>
+
+<IfModule !mod_authz_core.c>
+    <FilesMatch "(?i)(\.(bak|backup|old|orig|save)([-._].*)?|~)$">
+        Order allow,deny
+        Deny from all
+    </FilesMatch>
+</IfModule>
