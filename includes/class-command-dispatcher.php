@@ -100,27 +100,7 @@ class Digitalogic_Command_Dispatcher {
     }
 
     public function get_products($payload) {
-        $page = isset($payload['page']) ? max(1, intval($payload['page'])) : 1;
-        $limit = isset($payload['limit']) ? max(1, min(1000, intval($payload['limit']))) : 50;
-        $search = isset($payload['search']) ? sanitize_text_field(wp_unslash($payload['search'])) : '';
-        $sku = isset($payload['sku']) ? sanitize_text_field(wp_unslash($payload['sku'])) : '';
-
-        $manager = Digitalogic_Product_Manager::instance();
-        $args = array(
-            'page' => $page,
-            'limit' => $limit,
-            'search' => $search,
-            'sku' => $sku,
-        );
-        $total = $manager->get_product_count();
-        $filtered = ($search || $sku) ? $manager->get_product_count($args) : $total;
-
-        return array(
-            'products' => $manager->get_products($args),
-            'total' => $total,
-            'recordsTotal' => $total,
-            'recordsFiltered' => $filtered,
-        );
+        return Digitalogic_Product_Manager::instance()->query_products($payload);
     }
 
     public function get_product($payload) {

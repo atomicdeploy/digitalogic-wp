@@ -1,17 +1,19 @@
 <?php
 /**
  * Product Manager Class
- * 
+ *
  * Handles bulk product operations and management
  */
 
-if (!defined('ABSPATH')) {
-    exit;
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
 }
 
 class Digitalogic_Product_Manager {
     
     private static $instance = null;
+
+    private $unfiltered_count = null;
     
     public static function instance() {
         if (is_null(self::$instance)) {
@@ -21,75 +23,211 @@ class Digitalogic_Product_Manager {
     }
     
     private function __construct() {
-        // Constructor
+        add_filter('posts_clauses', array($this, 'apply_product_query_clauses'), 20, 2);
     }
-    
+
     /**
-     * Get products with filters
-     * 
-     * @param array $args Query arguments
-     * @return array
-     */
-    public function get_products($args = array()) {
-        $defaults = array(
-            'limit' => 50,
-            'page' => 1,
-            'status' => 'any',
-            'type' => array('simple', 'variable', 'variation'),
-            'orderby' => 'date',
-            'order' => 'DESC',
-            'search' => '',
-            'sku' => '',
-            'category' => array(),
-        );
-        
-        $args = wp_parse_args($args, $defaults);
-        
-        $query_args = array(
-            'limit' => $args['limit'],
-            'page' => $args['page'],
-            'status' => $args['status'],
-            'type' => $args['type'],
-            'orderby' => $args['orderby'],
-            'order' => $args['order'],
-            'return' => 'objects',
-        );
-        
-        if (!empty($args['search'])) {
-            $query_args['s'] = $args['search'];
-        }
-        
-        if (!empty($args['sku'])) {
-            $query_args['sku'] = $args['sku'];
-        }
-        
-        if (!empty($args['category'])) {
-            $query_args['category'] = $args['category'];
-        }
-        
-        try {
-            $products = wc_get_products($query_args);
-            
-            if (!is_array($products)) {
-                error_log('Digitalogic: wc_get_products returned non-array value');
-                return array();
-            }
-            
-            $results = array();
-            
-            foreach ($products as $product) {
-                if ($product && is_a($product, 'WC_Product')) {
-                    $results[] = $this->format_product_data($product);
-                }
-            }
-            
-            return $results;
-        } catch (Exception $e) {
-            error_log('Digitalogic: Error in get_products - ' . $e->getMessage());
-            return array();
-        }
-    }
-    
+	 * Apply scoped image and meta-sort clauses to canonical list queries.
+	 *
+	 * @param array    $clauses WP_Query SQL clauses.
+	 * @param WP_Query $query Current query.
+	 * @return array
+	 */
+	public function apply_product_query_clauses( $clauses, $query ) {
+		if ( ! $query instanceof WP_Query ) {
+			return $clauses;
+		}
+
+		global $wpdb;
+		$part_number = (string) $query->get( 'digitalogic_product_part_number_filter' );
+		if ( $part_number !== '' ) {
+			$like              = '%' . $wpdb->esc_like( $part_number ) . '%';
+			$clauses['where'] .= $wpdb->prepare(
+				" AND (
+                    EXISTS (
+                        SELECT 1 FROM {$wpdb->postmeta} digitalogic_part_number_meta
+                        WHERE digitalogic_part_number_meta.post_id = {$wpdb->posts}.ID
+                        AND digitalogic_part_number_meta.meta_key = 'attribute_pa_model'
+                        AND digitalogic_part_number_meta.meta_value LIKE %s
+                    )
+                    OR EXISTS (
+                        SELECT 1 FROM {$wpdb->postmeta} digitalogic_attribute_meta
+                        WHERE digitalogic_attribute_meta.post_id = {$wpdb->posts}.ID
+                        AND digitalogic_attribute_meta.meta_key = '_product_attributes'
+                        AND digitalogic_attribute_meta.meta_value LIKE %s
+                    )
+                    OR EXISTS (
+                        SELECT 1
+                        FROM {$wpdb->term_relationships} digitalogic_part_number_relationship
+                        INNER JOIN {$wpdb->term_taxonomy} digitalogic_part_number_taxonomy
+                            ON digitalogic_part_number_taxonomy.term_taxonomy_id = digitalogic_part_number_relationship.term_taxonomy_id
+                        INNER JOIN {$wpdb->terms} digitalogic_part_number_term
+                            ON digitalogic_part_number_term.term_id = digitalogic_part_number_taxonomy.term_id
+                        WHERE digitalogic_part_number_relationship.object_id = {$wpdb->posts}.ID
+                        AND digitalogic_part_number_taxonomy.taxonomy = 'pa_model'
+                        AND (
+                            digitalogic_part_number_term.name LIKE %s
+                            OR digitalogic_part_number_term.slug LIKE %s
+                        )
+                    )
+                )",
+				$like,
+				$like,
+				$like,
+				$like
+			);
+		}
+
+		$image_filter = (string) $query->get( 'digitalogic_product_image_filter' );
+		if ( $image_filter === 'with' || $image_filter === 'without' ) {
+			$thumbnail_exists  = "EXISTS (
+                SELECT 1 FROM {$wpdb->postmeta} digitalogic_image_meta
+                WHERE digitalogic_image_meta.post_id = {$wpdb->posts}.ID
+                AND digitalogic_image_meta.meta_key = '_thumbnail_id'
+                AND digitalogic_image_meta.meta_value NOT IN ('', '0')
+            ) OR (
+                {$wpdb->posts}.post_type = 'product_variation'
+                AND EXISTS (
+                    SELECT 1 FROM {$wpdb->postmeta} digitalogic_parent_image_meta
+                    WHERE digitalogic_parent_image_meta.post_id = {$wpdb->posts}.post_parent
+                    AND digitalogic_parent_image_meta.meta_key = '_thumbnail_id'
+                    AND digitalogic_parent_image_meta.meta_value NOT IN ('', '0')
+                )
+            )";
+			$clauses['where'] .= $image_filter === 'with'
+				? " AND ({$thumbnail_exists})"
+				: " AND NOT ({$thumbnail_exists})";
+		}
+
+		$meta_key = (string) $query->get( 'digitalogic_product_sort_meta' );
+		$allowed  = array(
+			'_sku',
+			'_regular_price',
+			'_sale_price',
+			'_stock',
+			'_weight',
+			'_digitalogic_patris_foreign_price',
+			'_digitalogic_patris_weight_grams',
+			'_digitalogic_patris_final_price',
+			'_digitalogic_patris_updated_at',
+		);
+		if ( ! in_array( $meta_key, $allowed, true ) ) {
+			return $clauses;
+		}
+
+		$alias            = 'digitalogic_product_sort_meta';
+		$clauses['join'] .= $wpdb->prepare(
+			" LEFT JOIN {$wpdb->postmeta} {$alias} ON ({$wpdb->posts}.ID = {$alias}.post_id AND {$alias}.meta_key = %s)",
+			$meta_key
+		);
+
+		$post_group = "{$wpdb->posts}.ID";
+		if ( trim( (string) $clauses['groupby'] ) === '' ) {
+			$clauses['groupby'] = $post_group;
+		} elseif ( strpos( $clauses['groupby'], $post_group ) === false ) {
+			$clauses['groupby'] .= ', ' . $post_group;
+		}
+
+		$direction          = strtoupper( (string) $query->get( 'digitalogic_product_sort_direction' ) ) === 'ASC' ? 'ASC' : 'DESC';
+		$value              = $query->get( 'digitalogic_product_sort_numeric' )
+			? "CAST({$alias}.meta_value AS DECIMAL(24,8))"
+			: "{$alias}.meta_value";
+		$clauses['orderby'] = "CASE WHEN MAX({$alias}.meta_id) IS NULL THEN 1 ELSE 0 END ASC, MAX({$value}) {$direction}, {$post_group} {$direction}";
+
+		return $clauses;
+	}
+
+	/**
+	 * Get products with filters
+	 *
+	 * @param array $args Query arguments
+	 * @return array
+	 */
+	public function get_products( $args = array() ) {
+		if ( empty( $args['sorts'] ) && isset( $args['orderby'] ) ) {
+			$legacy_orderby = strtolower( (string) $args['orderby'] );
+			$legacy_field   = in_array( $legacy_orderby, array( 'id', 'name', 'title' ), true )
+				? ( $legacy_orderby === 'title' ? 'name' : $legacy_orderby )
+				: '';
+			if ( $legacy_field !== '' ) {
+				$args['sorts'] = array(
+					array(
+						'field'     => $legacy_field,
+						'direction' => isset( $args['order'] ) && strtoupper( (string) $args['order'] ) === 'ASC' ? 'asc' : 'desc',
+					),
+				);
+			}
+		}
+
+		if ( isset( $args['limit'] ) && -1 === intval( $args['limit'] ) ) {
+			$products            = array();
+			$batch_args          = $args;
+			$batch_args['limit'] = 100;
+			$batch_args['page']  = 1;
+
+			do {
+				$result   = $this->query_products( $batch_args );
+				$products = array_merge( $products, $result['products'] );
+				++$batch_args['page'];
+			} while (
+				! empty( $result['products'] )
+				&& $batch_args['page'] <= $result['pages']
+			);
+
+			return $products;
+		}
+
+		$result = $this->query_products( $args );
+
+		return $result['products'];
+	}
+
+	/**
+	 * Execute the canonical, pre-pagination product-list query.
+	 *
+	 * The ID query and the optional unfiltered count are constant in number.
+	 * Product, meta, taxonomy, parent, and image caches are primed in bulk before
+	 * rows are formatted, so the result does not issue a lookup per table row.
+	 *
+	 * @param array $args Query arguments from any supported transport.
+	 * @return array
+	 */
+	public function query_products( $args = array() ) {
+		$normalized = Digitalogic_Product_Query::normalize_args( $args );
+
+		try {
+			$query       = new WP_Query( Digitalogic_Product_Query::build_wp_query_args( $normalized ) );
+			$product_ids = array_values( array_filter( array_map( 'absint', (array) $query->posts ) ) );
+			$filtered    = max( 0, (int) $query->found_posts );
+			$products    = $this->format_product_list( $product_ids );
+			$total       = Digitalogic_Product_Query::has_active_filters( $normalized )
+				? $this->get_unfiltered_product_count()
+				: $filtered;
+
+			return array(
+				'products'        => $products,
+				'total'           => $total,
+				'recordsTotal'    => $total,
+				'recordsFiltered' => $filtered,
+				'page'            => $normalized['page'],
+				'limit'           => $normalized['limit'],
+				'pages'           => $normalized['limit'] > 0 ? (int) ceil( $filtered / $normalized['limit'] ) : 0,
+			);
+		} catch ( Throwable $e ) {
+			error_log( 'Digitalogic: Error in query_products - ' . $e->getMessage() );
+
+			return array(
+				'products'        => array(),
+				'total'           => 0,
+				'recordsTotal'    => 0,
+				'recordsFiltered' => 0,
+				'page'            => $normalized['page'],
+				'limit'           => $normalized['limit'],
+				'pages'           => 0,
+			);
+		}
+	}
+
     /**
      * Get single product by ID
      * 
@@ -110,10 +248,11 @@ class Digitalogic_Product_Manager {
      * Format product data for output
      * 
      * @param WC_Product $product
-     * @param int $depth Current recursion depth
+     * @param int  $depth Current recursion depth.
+     * @param bool $list_context Whether this row is for the paginated list.
      * @return array
      */
-    private function format_product_data($product, $depth = 0) {
+    private function format_product_data($product, $depth = 0, $list_context = false) {
         if (!$product || !is_a($product, 'WC_Product')) {
             return array();
         }
@@ -155,12 +294,12 @@ class Digitalogic_Product_Manager {
                 'canonical_url' => $public_product->get_permalink(),
                 'edit_url' => $this->get_edit_url($product),
                 'image' => $image_url,
-                'gallery_images' => $this->get_gallery_images($public_product),
+                'gallery_images' => $list_context ? array() : $this->get_gallery_images($public_product),
                 'category_ids' => $public_product->get_category_ids(),
                 'categories' => $this->get_categories($public_product),
                 'total_sales' => $public_product->get_total_sales(),
                 'date_modified' => $product->get_date_modified() ? $product->get_date_modified()->date_i18n('Y-m-d H:i') : '',
-                'revision_count' => count(wp_get_post_revisions($public_product->get_id())),
+                'revision_count' => $list_context ? null : count(wp_get_post_revisions($public_product->get_id())),
                 'patris_product_code' => $product->get_meta('_digitalogic_patris_product_code', true),
                 'patris_name' => $product->get_meta('_digitalogic_patris_name', true),
                 'patris_serial' => $product->get_meta('_digitalogic_patris_serial', true),
@@ -179,7 +318,7 @@ class Digitalogic_Product_Manager {
             );
             
             // Add variation data if variable product (only at first level)
-            if ($depth === 0 && $product->is_type('variable')) {
+            if (!$list_context && $depth === 0 && $product->is_type('variable')) {
                 $data['variations'] = array();
                 $children = $product->get_children();
                 
@@ -201,6 +340,58 @@ class Digitalogic_Product_Manager {
         } catch (Exception $e) {
             error_log('Digitalogic: Error formatting product data for product #' . $product->get_id() . ' - ' . $e->getMessage());
             return array();
+        }
+    }
+
+    private function format_product_list($product_ids) {
+        if (!$product_ids) {
+            return array();
+        }
+
+        $this->prime_post_caches($product_ids, true);
+        $products = array();
+        $related_ids = array();
+
+        foreach ($product_ids as $product_id) {
+            $product = wc_get_product($product_id);
+            if (!$product || !is_a($product, 'WC_Product')) {
+                continue;
+            }
+
+            $products[] = $product;
+            $parent_id = absint($product->get_parent_id());
+            $image_id = absint($product->get_image_id());
+            if ($parent_id) {
+                $related_ids[] = $parent_id;
+            }
+            if ($image_id) {
+                $related_ids[] = $image_id;
+            }
+        }
+
+        if ($related_ids) {
+            $this->prime_post_caches(array_values(array_unique($related_ids)), true);
+        }
+
+        return array_values(array_map(function($product) {
+            return $this->format_product_data($product, 0, true);
+        }, $products));
+    }
+
+    private function prime_post_caches($post_ids, $terms) {
+        $post_ids = array_values(array_filter(array_map('absint', (array) $post_ids)));
+        if (!$post_ids) {
+            return;
+        }
+
+        if (function_exists('_prime_post_caches')) {
+            _prime_post_caches($post_ids, (bool) $terms, true);
+            return;
+        }
+
+        update_meta_cache('post', $post_ids);
+        if ($terms) {
+            update_object_term_cache($post_ids, array('product', 'product_variation'));
         }
     }
 
@@ -451,42 +642,21 @@ class Digitalogic_Product_Manager {
      * @return int
      */
     public function get_product_count($args = array()) {
-        $defaults = array(
-            'status' => 'any',
-            'type' => array('simple', 'variable', 'variation'),
-        );
-        
-        $args = wp_parse_args($args, $defaults);
-        
-        $query_args = array(
-            'status' => $args['status'],
-            'type' => $args['type'],
-            'return' => 'ids',
-            'limit' => -1,
-        );
-        
-        // Add search filter if provided
-        if (!empty($args['search'])) {
-            $query_args['s'] = $args['search'];
-        }
-
-        if (!empty($args['sku'])) {
-            $query_args['sku'] = $args['sku'];
-        }
-        
         try {
-            $products = wc_get_products($query_args);
-            
-            if (!is_array($products)) {
-                error_log('Digitalogic: wc_get_products returned non-array value in get_product_count');
-                return 0;
-            }
-            
-            return count($products);
-        } catch (Exception $e) {
+            $query = new WP_Query(Digitalogic_Product_Query::build_wp_query_args($args, true));
+            return max(0, (int) $query->found_posts);
+        } catch (Throwable $e) {
             error_log('Digitalogic: Error in get_product_count - ' . $e->getMessage());
             return 0;
         }
+    }
+
+    private function get_unfiltered_product_count() {
+        if ($this->unfiltered_count === null) {
+            $this->unfiltered_count = $this->get_product_count();
+        }
+
+        return $this->unfiltered_count;
     }
 
     private function update_patris_meta($product, $data) {

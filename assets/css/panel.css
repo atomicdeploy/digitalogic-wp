@@ -793,6 +793,37 @@ a.dlp-button:focus {
     box-shadow: 0 10px 28px color-mix(in srgb, var(--dlp-bg) 42%, transparent), inset 0 -1px 0 var(--dlp-border);
 }
 
+.dlp-mode-toggle.is-editing {
+    border-color: color-mix(in srgb, var(--dlp-accent) 58%, var(--dlp-border));
+    background: var(--dlp-accent-soft);
+    color: var(--dlp-accent-strong);
+}
+
+.dlp-inline-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    min-height: 36px;
+    padding-inline: 10px;
+    border: 1px solid var(--dlp-border);
+    border-radius: 10px;
+    background: var(--dlp-panel-soft);
+    color: var(--dlp-text);
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.dlp-inline-toggle input {
+    margin: 0;
+}
+
+.dlp-inline-toggle.is-disabled,
+.dlp-button:disabled,
+.dlp-menu button:disabled {
+    cursor: not-allowed;
+    opacity: 0.52;
+}
+
 .dlp-products-section .dlp-table-wrap {
     max-height: calc(100vh - 220px);
     overflow: auto;
@@ -995,9 +1026,41 @@ a.dlp-button:focus {
 .dlp-table .dlp-cell-numeric .dlp-editable-cell,
 .dlp-table .dlp-cell-numeric .dlp-cell-input {
     direction: ltr;
-    text-align: right;
+    text-align: left;
     font-family: var(--dlp-code-font);
     font-variant-numeric: tabular-nums;
+}
+
+.dlp-data-grid.is-view-mode .dlp-editable-cell,
+.dlp-data-grid.is-view-mode .dlp-select-cell {
+    cursor: default;
+}
+
+.dlp-data-grid.is-view-mode .dlp-editable-cell:hover,
+.dlp-data-grid.is-view-mode .dlp-editable-cell:focus {
+    border-color: transparent;
+    background: transparent;
+    box-shadow: none;
+}
+
+.dlp-pagination {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 14px;
+}
+
+.dlp-page-button {
+    min-width: 38px;
+    justify-content: center;
+}
+
+.dlp-page-button.is-current {
+    border-color: var(--dlp-accent);
+    background: var(--dlp-accent-soft);
+    color: var(--dlp-accent-strong);
 }
 
 .dlp-cell-select {

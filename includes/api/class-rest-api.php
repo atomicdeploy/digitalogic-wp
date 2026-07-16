@@ -459,24 +459,17 @@ class Digitalogic_REST_API {
      */
     public function get_products(WP_REST_Request $request) {
         $params = $request->get_params();
-        
-        $args = array(
-            'page' => isset($params['page']) ? intval($params['page']) : 1,
-            'limit' => isset($params['limit']) ? intval($params['limit']) : 50,
-            'search' => isset($params['search']) ? sanitize_text_field($params['search']) : '',
-            'sku' => isset($params['sku']) ? sanitize_text_field($params['sku']) : '',
-        );
-        
-        $manager = Digitalogic_Product_Manager::instance();
-        $products = $manager->get_products($args);
-        $total = $manager->get_product_count();
-        
+        $result = Digitalogic_Product_Manager::instance()->query_products($params);
+
         return new WP_REST_Response(array(
             'success' => true,
-            'data' => $products,
-            'total' => $total,
-            'page' => $args['page'],
-            'limit' => $args['limit']
+            'data' => $result['products'],
+            'total' => $result['total'],
+            'recordsTotal' => $result['recordsTotal'],
+            'recordsFiltered' => $result['recordsFiltered'],
+            'page' => $result['page'],
+            'limit' => $result['limit'],
+            'pages' => $result['pages'],
         ), 200);
     }
     

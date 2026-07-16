@@ -989,6 +989,8 @@ class Digitalogic_Options {
 class Digitalogic_Product_Manager {
     private static $instance;
 
+    public $query_requests = array();
+
     public static function instance() {
         if (!self::$instance) {
             self::$instance = new self();
@@ -998,6 +1000,23 @@ class Digitalogic_Product_Manager {
 
     public function get_products($args = array()) {
         return array();
+    }
+
+    public function query_products($args = array()) {
+        $this->query_requests[] = $args;
+        if (isset($GLOBALS['digitalogic_test_product_query_result'])) {
+            return $GLOBALS['digitalogic_test_product_query_result'];
+        }
+
+        return array(
+            'products' => array(),
+            'total' => 0,
+            'recordsTotal' => 0,
+            'recordsFiltered' => 0,
+            'page' => 1,
+            'limit' => 50,
+            'pages' => 0,
+        );
     }
 }
 
@@ -1203,6 +1222,7 @@ $GLOBALS['wpdb'] = new Digitalogic_Test_WPDB();
 require_once dirname(__DIR__) . '/includes/class-unit-converter.php';
 require_once dirname(__DIR__) . '/includes/class-digitalogic-woocommerce-currency-status.php';
 require_once dirname(__DIR__) . '/includes/class-product-identifier-resolver.php';
+require_once dirname(__DIR__) . '/includes/class-digitalogic-product-query.php';
 require_once dirname(__DIR__) . '/includes/class-digitalogic-pricing-input-credential.php'; // phpcs:ignore
 require_once dirname(__DIR__) . '/includes/class-patris-feed.php';
 require_once dirname(__DIR__) . '/includes/class-product-sync-receiver.php';

@@ -148,9 +148,17 @@ class Digitalogic_Panel {
         );
 
         wp_enqueue_script(
+            'digitalogic-product-query',
+            DIGITALOGIC_PLUGIN_URL . 'assets/js/product-query.js',
+            array(),
+            filemtime(DIGITALOGIC_PLUGIN_DIR . 'assets/js/product-query.js') ?: DIGITALOGIC_VERSION,
+            true
+        );
+
+        wp_enqueue_script(
             'digitalogic-panel',
             DIGITALOGIC_PLUGIN_URL . 'assets/js/panel-app.js',
-            array('vue'),
+            array('vue', 'digitalogic-product-query'),
             filemtime(DIGITALOGIC_PLUGIN_DIR . 'assets/js/panel-app.js') ?: DIGITALOGIC_VERSION,
             true
         );
@@ -1083,6 +1091,12 @@ class Digitalogic_Panel {
             'logout' => 'Sign out',
             'productTitle' => 'Product title',
             'partNumber' => 'Part Number',
+            'productType' => 'Product type',
+            'simpleProduct' => 'Simple',
+            'variableProduct' => 'Variable',
+            'productVariation' => 'Variation',
+            'groupedProduct' => 'Grouped',
+            'externalProduct' => 'External',
             'categories' => 'Categories',
             'totalSales' => 'Total sales',
             'revisions' => 'Revisions',
@@ -1104,6 +1118,12 @@ class Digitalogic_Panel {
             'userTable' => 'User table',
             'bridgeSettings' => 'WordPress / Laravel bridge',
             'autosave' => 'Autosave',
+            'viewMode' => 'View mode',
+            'editMode' => 'Edit mode',
+            'savePending' => 'Save pending changes',
+            'pagination' => 'Product pages',
+            'previous' => 'Previous',
+            'next' => 'Next',
             'priceReports' => 'Product price reports',
             'priceReportsText' => 'Migrated from the old products report: highlights missing prices, dual currency/local prices, and site/catalog differences.',
             'priceSync' => 'Price synchronization',
@@ -1249,6 +1269,12 @@ class Digitalogic_Panel {
             'logout' => 'خروج',
             'productTitle' => 'عنوان کالا',
             'partNumber' => 'Part Number',
+            'productType' => 'نوع کالا',
+            'simpleProduct' => 'ساده',
+            'variableProduct' => 'متغیر',
+            'productVariation' => 'تنوع',
+            'groupedProduct' => 'گروهی',
+            'externalProduct' => 'خارجی',
             'categories' => 'دسته بندی ها',
             'totalSales' => 'فروش کل',
             'revisions' => 'بازبینی ها',
@@ -1270,6 +1296,12 @@ class Digitalogic_Panel {
             'userTable' => 'جدول کاربران',
             'bridgeSettings' => 'پل وردپرس / لاراول',
             'autosave' => 'ذخیره خودکار',
+            'viewMode' => 'حالت نمایش',
+            'editMode' => 'حالت ویرایش',
+            'savePending' => 'ذخیره تغییرات در انتظار',
+            'pagination' => 'صفحه‌های محصولات',
+            'previous' => 'قبلی',
+            'next' => 'بعدی',
             'priceReports' => 'گزارش قیمت محصولات',
             'priceReportsText' => 'مهاجرت از گزارش محصولات قدیمی: قیمت های خالی، قیمت همزمان ارزی/ریالی، و اختلاف سایت و کاتالوگ را نشان می دهد.',
             'priceSync' => 'همگام سازی قیمت',
