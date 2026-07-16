@@ -73,6 +73,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Enhanced plugin page with action links and row meta links
 - Fixed WP-CLI command registration to prevent "can't have subcommands" error
 
+## [1.1.0] - 2026-07-16
+
+### Added
+- Canonical supplier import-freight catalog, immutable method IDs, legacy ACF migration, and exact product/variation assignment APIs.
+- Shared exact product identifier resolver with WooCommerce ID, SKU, and Patris Code precedence.
+- `landed_price_v1` integration catalog and percentage-markup contract for Patris Export.
+- Result-aware durable panel queue, Redis/WebSocket, and multi-destination webhook delivery reporting.
+
+### Changed
+- Patris gram weights are converted into the configured WooCommerce store weight unit.
+- Import-freight writes use verified InnoDB transactions, authoritative rollback, cache invalidation, and compare-and-swap legacy reconciliation.
+
 ## [1.0.0] - 2024-12-08
 
 ### Added

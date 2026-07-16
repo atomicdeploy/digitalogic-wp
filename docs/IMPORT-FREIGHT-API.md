@@ -1,0 +1,173 @@
+# Import Freight Integration Contract
+
+Digitalogic import freight methods describe how inventory is brought from a
+supplier to Digitalogic. They are not WooCommerce shipping zones, checkout
+rates, or customer delivery methods.
+
+## Canonical methods and migration
+
+The first migration reads the existing ACF option values and creates immutable
+IDs:
+
+| Legacy ACF value | Canonical ID | Default live rate |
+| --- | --- | ---: |
+| `express` | `air_express` | 85 CNY/kg |
+| `aerial` | `air_freight` | 80 CNY/kg |
+| `marine` | `sea_freight` | 50 CNY/kg |
+
+Existing product values in `shipping_method` are copied to
+`_digitalogic_import_freight_method_id`. The `_shipping_method` ACF field-key
+reference is preserved. Canonical assignments continue to mirror a compatible
+legacy value so existing ACF screens remain usable.
+
+The ACF radio choices are populated from the canonical catalog. The three
+legacy methods keep their existing `express`, `aerial`, and `marine` values;
+custom methods use their canonical ID as the radio value. Disabled choices
+remain visible for existing products but cannot be selected for a new
+assignment. The three legacy-seeded methods are disable-only so those field
+values and historical assignments cannot be orphaned.
+
+The old free-form `shipping_methods` member of
+`digitalogic_patris_feed_settings` is deprecated and ignored.
+
+## REST endpoints
+
+All routes require an authenticated identity with the plugin's read or write
+integration permission (normally `manage_woocommerce`). WooCommerce REST API
+keys may provide that identity.
+
+- `GET /wp-json/digitalogic/v1/integration/catalog`
+- `GET|POST /wp-json/digitalogic/v1/import-freight-methods`
+- `GET|PUT|DELETE /wp-json/digitalogic/v1/import-freight-methods/{id}`
+- `GET|PUT /wp-json/digitalogic/v1/products/by-code/{code}/import-pricing`
+- `POST /wp-json/digitalogic/v1/products/import-pricing/batch`
+
+Method IDs are immutable. An assigned method returns HTTP 409 when deleted; it
+may be disabled with `{"enabled": false}` and existing assignments remain
+readable. Disabled methods cannot be assigned to new products, while replaying
+the same disabled assignment is an allowed idempotent no-op. Custom IDs cannot
+use the legacy ACF values `express`, `aerial`, or `marine`.
+
+Product assignment uses the shared exact identifier resolver. Its deterministic
+precedence is an explicitly supplied WooCommerce product/variation ID, exact
+`_sku`, then exact `_digitalogic_patris_product_code`; the legacy `{code}` route
+uses exact SKU before exact Patris Code. Identifiers remain strings, so a code
+such as `00123` is never coerced to an integer. Missing and same-source duplicate
+identifiers fail without a write; names are never used for automatic matching.
+Trash and auto-draft records are excluded.
+
+Example assignment:
+
+```json
+{
+  "import_freight_method_id": "air_express"
+}
+```
+
+The method field is required on assignment commands. An explicitly empty or
+`null` method ID clears the assignment; omitting the field is an error. A batch is preflighted and
+does not change any product when one of its rows is invalid:
+
+```json
+{
+  "assignments": [
+    {"code": "113007045", "import_freight_method_id": "air_express"},
+    {"code": "113007046", "import_freight_method_id": "sea_freight"}
+  ]
+}
+```
+
+Single and batch responses include `changed`; batch responses also include
+`updated` and `unchanged`. Retrying an identical assignment is a no-op and does
+not publish a duplicate domain event. A batch also rejects two different codes
+that resolve to the same product, such as its SKU and Patris Code.
+
+Catalog and assignment mutations are serialized with one site-scoped database
+advisory lock. Every option and post-meta write is verified by exact readback.
+Multi-key and multi-row writes use an InnoDB database transaction, so a failed
+write is restored by the authoritative database `ROLLBACK` and emits no domain
+event. The application performs no post-rollback snapshot rewrites that could
+overwrite a newer writer. Touched caches are invalidated after rollback, and a
+failed `ROLLBACK` query is returned as a storage error. Migration is stamped
+only after the catalog and every legacy assignment have been verified.
+
+Transactional reads and writes bypass the shared WordPress/Redis object cache.
+Touched caches and compatibility hooks are invalidated/dispatched only after
+commit, and are invalidated after rollback as well. Post-write legacy ACF/option
+hooks reconcile with uncached `FOR UPDATE` reads and compare-and-swap behavior,
+so a stale hook never restores over a newer writer.
+
+Committed method and assignment changes use independent, result-aware delivery
+channels for the durable panel queue, Redis/WebSocket publication, and every
+configured outbound webhook. Each channel must explicitly confirm success;
+void results, queue/Redis failures, webhook transport/non-2xx failures, and
+exceptions become machine-readable `delivery_warnings`. Every channel and every
+webhook destination is attempted even when an earlier one fails. The stable
+WordPress domain actions are still emitted for compatibility after result-aware
+channels run. A committed mutation remains successful, while no-op retries do
+not emit another event. An empty webhook destination list is an intentionally
+disabled, confirmed-success channel.
+
+## Catalog and formula
+
+The read-only integration catalog contains the CNY-to-local (currently IRT)
+rate, effective currency date, selected Patris warehouses, enabled/disabled
+method records, and a deterministic revision. Consumers can cache by revision.
+`currency.cny_to_local` is the currency-neutral rate. The compatibility field
+`currency.cny_to_irt` is populated only when the WooCommerce local currency is
+IRT. `currency.effective_date` is ISO `YYYY-MM-DD`; the original compact value
+is retained as `source_effective_date` with format `ymd`.
+
+`landed_price_v1` is:
+
+```text
+((weight_g * freight_cny_per_kg / 1000) + foreign_price_cny)
+  * (1 + profit_percent / 100)
+  * cny_to_irt
+```
+
+The method schema reserves validated fields for minimum charge, actual versus
+volumetric billable weight, volumetric divisor, transit-day bounds, metadata,
+and tiered rates. Version 1 exposes these fields but does not silently apply a
+reserved rule to the formula.
+
+Patris payloads express product weight in grams. When a feed updates a
+WooCommerce product, Digitalogic converts that positive finite gram value with
+`wc_get_weight()` into the configured `woocommerce_weight_unit` (for example,
+`240 g` remains `240` in a gram store and becomes `0.24` in a kilogram store).
+The original gram value remains available in Patris metadata for formula input.
+
+Feed ingestion uses the same shared generic Code/SKU resolver as freight
+assignment. A Patris-Code-only product can therefore be updated, while an exact
+SKU wins over a different product carrying the same Patris Code. Not-found rows
+are counted as `missing_in_woocommerce`; ambiguous or invalid identifiers are
+counted as failed with non-sensitive errors and never write a product. Every
+valid normalized upstream row is still retained in the feed snapshot for
+reporting and later reconciliation, including missing or ambiguous rows.
+
+Product assignment reads expose the markup mapping used by the formula:
+
+```json
+{
+  "markup": {
+    "type": "percentage",
+    "value": 12.5,
+    "profit_percent": 12.5,
+    "warning": null
+  },
+  "profit_percent": 12.5,
+  "pricing_warnings": []
+}
+```
+
+Only a numeric `percentage` markup maps to `profit_percent`. A `fixed`, missing,
+or unsupported markup returns `profit_percent: null` and a machine-readable
+warning; `landed_price_v1` never silently treats a fixed amount as a percent.
+
+Administrators can manage methods and assign products by exact Patris Code/SKU
+on the existing Patris Reports screen. This UI and all integration routes are
+for supplier import freight only and do not read or mutate WooCommerce customer
+delivery methods.
+
+The same `Digitalogic_Import_Freight_Service` backs REST and the shared command
+dispatcher used by AJAX/WebSocket transports.

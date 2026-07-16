@@ -11,6 +11,13 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
+if (!class_exists('Digitalogic_Unit_Converter')) {
+    require_once __DIR__ . '/class-unit-converter.php';
+}
+if (!class_exists('Digitalogic_Product_Identifier_Resolver')) {
+    require_once __DIR__ . '/class-product-identifier-resolver.php';
+}
+
 class Digitalogic_Patris_Feed {
 
     private const SETTINGS_OPTION = 'digitalogic_patris_feed_settings';
@@ -37,11 +44,10 @@ class Digitalogic_Patris_Feed {
         $settings = get_option(self::SETTINGS_OPTION, array());
         $settings = is_array($settings) ? $settings : array();
 
-        return wp_parse_args($settings, array(
+        $settings = wp_parse_args($settings, array(
             'api_url' => '',
             'api_token' => '',
             'selected_warehouses' => array(),
-            'shipping_methods' => array(),
             'legacy_url_replacements' => array(),
             'image_quality_thresholds' => array(
                 'very_low' => 180,
@@ -52,19 +58,21 @@ class Digitalogic_Patris_Feed {
             'stale_after_hours' => 48,
             'sync_interval' => '',
         ));
+
+        unset($settings['shipping_methods']);
+        return $settings;
     }
 
     public function update_settings($settings) {
         $current = $this->get_settings();
         $next = is_array($settings) ? $settings : array();
 
+        // Import freight is now managed by Digitalogic_Import_Freight_Service.
+        // Never revive the former unvalidated, free-form shipping_methods blob.
+        unset($current['shipping_methods'], $next['shipping_methods']);
+
         if (isset($next['selected_warehouses']) && is_string($next['selected_warehouses'])) {
             $next['selected_warehouses'] = array_filter(array_map('trim', explode(',', $next['selected_warehouses'])));
-        }
-
-        if (isset($next['shipping_methods']) && is_string($next['shipping_methods'])) {
-            $decoded = json_decode($next['shipping_methods'], true);
-            $next['shipping_methods'] = is_array($decoded) ? $decoded : array();
         }
 
         if (isset($next['legacy_url_replacements']) && is_string($next['legacy_url_replacements'])) {
@@ -93,9 +101,6 @@ class Digitalogic_Patris_Feed {
         }
         if (isset($settings['selected_warehouses'])) {
             $clean['selected_warehouses'] = array_values(array_filter(array_map('sanitize_text_field', (array) $settings['selected_warehouses'])));
-        }
-        if (isset($settings['shipping_methods'])) {
-            $clean['shipping_methods'] = $this->sanitize_assoc_array($settings['shipping_methods']);
         }
         if (isset($settings['legacy_url_replacements'])) {
             $clean['legacy_url_replacements'] = $this->sanitize_assoc_array($settings['legacy_url_replacements']);
@@ -218,13 +223,27 @@ class Digitalogic_Patris_Feed {
             }
 
             $results['total']++;
+            // Keep the complete normalized upstream snapshot for reporting and
+            // reconciliation even when no unique WooCommerce target exists.
+            // Resolution failures below must never turn into product writes.
             $normalized_products[$product_data['product_code']] = $product_data;
 
-            $product_id = wc_get_product_id_by_sku($product_data['product_code']);
-            if (!$product_id) {
-                $results['missing_in_woocommerce']++;
+            $resolved = Digitalogic_Product_Identifier_Resolver::instance()->resolve(array(
+                'code' => $product_data['product_code'],
+            ));
+            if (is_wp_error($resolved)) {
+                if ('digitalogic_product_identifier_not_found' === $resolved->get_error_code()) {
+                    $results['missing_in_woocommerce']++;
+                } else {
+                    $results['failed']++;
+                    $results['errors'][] = 'digitalogic_product_identifier_ambiguous' === $resolved->get_error_code()
+                        ? __('Skipped product because its exact Code/SKU is ambiguous.', 'digitalogic')
+                        : __('Skipped product because its Code/SKU could not be resolved.', 'digitalogic');
+                }
                 continue;
             }
+
+            $product_id = (int) $resolved['woocommerce_id'];
 
             $product = wc_get_product($product_id);
             if (!$product) {
@@ -378,8 +397,9 @@ class Digitalogic_Patris_Feed {
         $product->update_meta_data('_digitalogic_patris_flags', wp_json_encode($data['flags']));
         $product->update_meta_data('_digitalogic_patris_last_feed', wp_json_encode($data['raw'], JSON_UNESCAPED_UNICODE));
 
-        if ($data['weight_grams'] !== null && $data['weight_grams'] > 0) {
-            $product->set_weight((string) ($data['weight_grams'] / 1000));
+        $store_weight = Digitalogic_Unit_Converter::grams_to_store_weight($data['weight_grams']);
+        if (!is_null($store_weight)) {
+            $product->set_weight((string) $store_weight);
         }
 
         if ($data['total_stock'] !== null) {

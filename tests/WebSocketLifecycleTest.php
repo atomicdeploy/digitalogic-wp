@@ -11,9 +11,15 @@ final class WebSocketLifecycleTest extends TestCase {
         $GLOBALS['digitalogic_test_options'] = array();
         $GLOBALS['digitalogic_test_filters'] = array();
         $GLOBALS['digitalogic_test_actions'] = array();
+        $GLOBALS['digitalogic_test_action_callbacks'] = array();
+        $GLOBALS['digitalogic_test_posts'] = array();
         $GLOBALS['digitalogic_test_update_failures'] = array();
+        $GLOBALS['digitalogic_test_meta_update_failures'] = array();
+        $GLOBALS['digitalogic_test_meta_delete_failures'] = array();
+        $GLOBALS['digitalogic_test_transaction_failures'] = array();
         $GLOBALS['digitalogic_test_cache_deletes'] = array();
         $GLOBALS['wpdb'] = new Digitalogic_Test_WPDB();
+        $_POST = array();
         WP_CLI::$errors = array();
         WP_CLI::$warnings = array();
         WP_CLI::$logs = array();

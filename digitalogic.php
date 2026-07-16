@@ -3,7 +3,7 @@
  * Plugin Name: Digitalogic WooCommerce Extension
  * Plugin URI: https://github.com/atomicdeploy/digitalogic-wp
  * Description: Custom dynamic pricing, stock manager, and POS integration for Digitalogic electronic components shop. Supports bulk operations, import/export, and external API integration.
- * Version: 1.0.0
+ * Version: 1.1.0
  * Author: Digitalogic
  * Author URI: https://digitalogic.ir
  * Text Domain: digitalogic
@@ -22,7 +22,7 @@ if (!defined('ABSPATH')) {
 }
 
 // Define plugin constants
-define('DIGITALOGIC_VERSION', '1.0.0');
+define('DIGITALOGIC_VERSION', '1.1.0');
 define('DIGITALOGIC_MIN_PHP_VERSION', '8.2');
 define('DIGITALOGIC_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('DIGITALOGIC_PLUGIN_URL', plugin_dir_url(__FILE__));
@@ -112,7 +112,10 @@ final class Digitalogic {
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-product-manager.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-pricing.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-import-export.php';
+        require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-unit-converter.php';
+        require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-product-identifier-resolver.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-patris-feed.php';
+        require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-import-freight-service.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-report-engine.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-command-dispatcher.php';
 
@@ -176,6 +179,7 @@ final class Digitalogic {
         Digitalogic_Pricing::instance();
         Digitalogic_Import_Export::instance();
         Digitalogic_Patris_Feed::instance();
+        Digitalogic_Import_Freight_Service::instance();
         Digitalogic_Report_Engine::instance();
         Digitalogic_Command_Dispatcher::instance();
         Digitalogic_WebSocket::instance();
@@ -366,7 +370,6 @@ final class Digitalogic {
                 'api_url' => '',
                 'api_token' => '',
                 'selected_warehouses' => array(),
-                'shipping_methods' => array(),
                 'legacy_url_replacements' => array(),
                 'image_quality_thresholds' => array(
                     'very_low' => 180,

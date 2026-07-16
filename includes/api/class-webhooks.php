@@ -18,6 +18,7 @@ class Digitalogic_Webhooks {
         if (is_null(self::$instance)) {
             self::$instance = new self();
         }
+        self::$instance->register_import_freight_delivery_channel();
         return self::$instance;
     }
     
@@ -43,10 +44,19 @@ class Digitalogic_Webhooks {
         // Hook into currency updates
         add_action('update_option_dollar_price', array($this, 'currency_updated'), 10, 3);
         add_action('update_option_yuan_price', array($this, 'currency_updated'), 10, 3);
-        
+
         // Add settings page
         add_action('admin_init', array($this, 'register_settings'));
         add_action('rest_api_init', array($this, 'register_routes'));
+    }
+
+    private function register_import_freight_delivery_channel() {
+        // Freight delivery uses an explicit result contract so failures from
+        // one transport cannot abort panel/Redis or other webhook attempts.
+        Digitalogic_Import_Freight_Service::instance()->register_delivery_channel(
+            'webhook',
+            array($this, 'deliver_import_freight_event')
+        );
     }
     
     /**
@@ -278,6 +288,68 @@ class Digitalogic_Webhooks {
         
         $this->trigger_webhook('currency.updated', $data);
     }
+
+    public function import_freight_method_created($method) {
+        return $this->trigger_import_freight_method_webhook('import_freight.method.created', $method);
+    }
+
+    public function import_freight_method_updated($method) {
+        return $this->trigger_import_freight_method_webhook('import_freight.method.updated', $method);
+    }
+
+    public function import_freight_method_deleted($method) {
+        return $this->trigger_import_freight_method_webhook('import_freight.method.deleted', $method);
+    }
+
+    public function import_freight_assignment_updated($product_id, $method_id) {
+        return $this->trigger_webhook('import_freight.assignment.updated', array(
+            'product_id' => absint($product_id),
+            'import_freight_method_id' => sanitize_key((string) $method_id),
+        ));
+    }
+
+    private function trigger_import_freight_method_webhook($event, $method) {
+        $method = is_array($method) ? $method : array();
+        return $this->trigger_webhook($event, array(
+            'id' => isset($method['id']) ? sanitize_key($method['id']) : '',
+            'name' => isset($method['name']) ? sanitize_text_field($method['name']) : '',
+            'enabled' => !empty($method['enabled']),
+            'price_per_kg_cny' => isset($method['price_per_kg_cny']) ? (float) $method['price_per_kg_cny'] : null,
+        ));
+    }
+
+    /**
+     * Result-aware synchronous freight delivery used by the canonical service.
+     */
+    public function deliver_import_freight_event($hook, $args) {
+        $args = is_array($args) ? $args : array();
+        if ('digitalogic_product_import_freight_method_updated' === $hook) {
+            return $this->trigger_webhook('import_freight.assignment.updated', array(
+                'product_id' => absint(isset($args[0]) ? $args[0] : 0),
+                'import_freight_method_id' => sanitize_key((string) (isset($args[1]) ? $args[1] : '')),
+            ), true);
+        }
+
+        $events = array(
+            'digitalogic_import_freight_method_created' => 'import_freight.method.created',
+            'digitalogic_import_freight_method_updated' => 'import_freight.method.updated',
+            'digitalogic_import_freight_method_deleted' => 'import_freight.method.deleted',
+        );
+        if (!isset($events[$hook])) {
+            return new WP_Error(
+                'digitalogic_webhook_delivery_event_unknown',
+                __('The webhook transport does not recognize this import freight event.', 'digitalogic')
+            );
+        }
+
+        $method = isset($args[0]) && is_array($args[0]) ? $args[0] : array();
+        return $this->trigger_webhook($events[$hook], array(
+            'id' => isset($method['id']) ? sanitize_key($method['id']) : '',
+            'name' => isset($method['name']) ? sanitize_text_field($method['name']) : '',
+            'enabled' => !empty($method['enabled']),
+            'price_per_kg_cny' => isset($method['price_per_kg_cny']) ? (float) $method['price_per_kg_cny'] : null,
+        ), true);
+    }
     
     /**
      * Trigger webhook
@@ -286,7 +358,7 @@ class Digitalogic_Webhooks {
         $webhook_urls = get_option('digitalogic_webhook_urls', array());
         
         if (empty($webhook_urls)) {
-            return;
+            return true;
         }
         
         // Ensure it's an array
@@ -308,36 +380,65 @@ class Digitalogic_Webhooks {
         );
         
         $payload_json = json_encode($payload);
+        if (!is_string($payload_json)) {
+            return new WP_Error(
+                'digitalogic_webhook_payload_encoding_failed',
+                __('The webhook payload could not be encoded.', 'digitalogic')
+            );
+        }
         $signature = hash_hmac('sha256', $payload_json, $secret);
-        
-        foreach ($webhook_urls as $url) {
+
+        $failures = array();
+        foreach (array_values($webhook_urls) as $index => $url) {
             if (empty($url)) {
                 continue;
             }
+
+            try {
+                $response = wp_remote_post($url, array(
+                    'headers' => array(
+                        'Content-Type' => 'application/json',
+                        'X-Digitalogic-Signature' => $signature,
+                        'X-Digitalogic-Event' => $event
+                    ),
+                    'body' => $payload_json,
+                    'timeout' => 10,
+                    'blocking' => (bool) $blocking
+                ));
+            } catch (Throwable $exception) {
+                $response = new WP_Error('digitalogic_webhook_transport_exception', $exception->getMessage());
+            }
             
-            $response = wp_remote_post($url, array(
-                'headers' => array(
-                    'Content-Type' => 'application/json',
-                    'X-Digitalogic-Signature' => $signature,
-                    'X-Digitalogic-Event' => $event
-                ),
-                'body' => $payload_json,
-                'timeout' => 10,
-                'blocking' => (bool) $blocking
-            ));
-            
-            // Log failed webhook attempts for debugging
-            if (is_wp_error($response)) {
-                Digitalogic_Logger::instance()->log(
-                    'webhook_failed',
-                    'webhook',
-                    null,
-                    null,
-                    json_encode(array('url' => $url, 'error' => $response->get_error_message())),
-                    'Webhook delivery failed'
-                );
+            $response_code = is_wp_error($response) ? 0 : (int) wp_remote_retrieve_response_code($response);
+            if (is_wp_error($response) || ($blocking && ($response_code < 200 || $response_code >= 300))) {
+                $error_message = is_wp_error($response)
+                    ? $response->get_error_message()
+                    : sprintf('HTTP %d', $response_code);
+                $failures[] = array('index' => $index, 'reason' => $error_message);
+                try {
+                    Digitalogic_Logger::instance()->log(
+                        'webhook_failed',
+                        'webhook',
+                        null,
+                        null,
+                        wp_json_encode(array('destination_index' => $index, 'error' => $error_message)),
+                        'Webhook delivery failed'
+                    );
+                } catch (Throwable $exception) {
+                    error_log('[Digitalogic webhooks] Failure logging was unavailable.');
+                }
             }
         }
+
+        if (!empty($failures)) {
+            return new WP_Error(
+                'digitalogic_webhook_delivery_failed',
+                __('One or more webhook destinations rejected the import freight event.', 'digitalogic'),
+                array('failures' => $failures)
+            );
+        }
+
+        return true;
     }
     
     /**

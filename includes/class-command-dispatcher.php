@@ -84,6 +84,15 @@ class Digitalogic_Command_Dispatcher {
             'digitalogic_sync_patris' => array($this, 'sync_patris'),
             'digitalogic_import_patris_payload' => array($this, 'import_patris_payload'),
             'digitalogic_update_patris_settings' => array($this, 'update_patris_settings'),
+            'digitalogic_get_integration_catalog' => array($this, 'get_integration_catalog'),
+            'digitalogic_list_import_freight_methods' => array($this, 'list_import_freight_methods'),
+            'digitalogic_create_import_freight_method' => array($this, 'create_import_freight_method'),
+            'digitalogic_get_import_freight_method' => array($this, 'get_import_freight_method'),
+            'digitalogic_update_import_freight_method' => array($this, 'update_import_freight_method'),
+            'digitalogic_delete_import_freight_method' => array($this, 'delete_import_freight_method'),
+            'digitalogic_get_product_import_pricing' => array($this, 'get_product_import_pricing'),
+            'digitalogic_assign_product_import_freight' => array($this, 'assign_product_import_freight'),
+            'digitalogic_batch_assign_product_import_freight' => array($this, 'batch_assign_product_import_freight'),
         );
     }
 
@@ -248,6 +257,78 @@ class Digitalogic_Command_Dispatcher {
             'settings' => Digitalogic_Patris_Feed::instance()->update_settings($payload),
             'push_token' => Digitalogic_Patris_Feed::instance()->get_push_token(),
         );
+    }
+
+    public function get_integration_catalog($payload = array()) {
+        return Digitalogic_Import_Freight_Service::instance()->get_integration_catalog();
+    }
+
+    public function list_import_freight_methods($payload = array()) {
+        $include_disabled = !isset($payload['include_disabled'])
+            || filter_var($payload['include_disabled'], FILTER_VALIDATE_BOOLEAN);
+
+        $methods = Digitalogic_Import_Freight_Service::instance()->list_methods($include_disabled);
+        if (is_wp_error($methods)) {
+            return $methods;
+        }
+
+        return array(
+            'methods' => $methods,
+        );
+    }
+
+    public function create_import_freight_method($payload) {
+        $data = isset($payload['method']) && is_array($payload['method']) ? $payload['method'] : $payload;
+
+        return Digitalogic_Import_Freight_Service::instance()->create_method($data);
+    }
+
+    public function get_import_freight_method($payload) {
+        return Digitalogic_Import_Freight_Service::instance()->get_method(isset($payload['id']) ? $payload['id'] : '');
+    }
+
+    public function update_import_freight_method($payload) {
+        $id = isset($payload['id']) ? $payload['id'] : '';
+        $data = isset($payload['method']) && is_array($payload['method']) ? $payload['method'] : $payload;
+
+        return Digitalogic_Import_Freight_Service::instance()->update_method($id, $data);
+    }
+
+    public function delete_import_freight_method($payload) {
+        return Digitalogic_Import_Freight_Service::instance()->delete_method(isset($payload['id']) ? $payload['id'] : '');
+    }
+
+    public function get_product_import_pricing($payload) {
+        return Digitalogic_Import_Freight_Service::instance()->get_product_assignment_by_code(
+            isset($payload['code']) ? $payload['code'] : ''
+        );
+    }
+
+    public function assign_product_import_freight($payload) {
+        if (array_key_exists('import_freight_method_id', $payload)) {
+            $method_id = $payload['import_freight_method_id'];
+        } elseif (array_key_exists('method_id', $payload)) {
+            $method_id = $payload['method_id'];
+        } else {
+            return new WP_Error(
+                'digitalogic_import_freight_method_required',
+                __('The import freight method field is required; use null or an empty value to clear it explicitly.', 'digitalogic'),
+                array('status' => 400)
+            );
+        }
+
+        return Digitalogic_Import_Freight_Service::instance()->assign_product_by_code(
+            isset($payload['code']) ? $payload['code'] : '',
+            $method_id
+        );
+    }
+
+    public function batch_assign_product_import_freight($payload) {
+        $assignments = isset($payload['assignments']) && is_array($payload['assignments'])
+            ? $payload['assignments']
+            : array();
+
+        return Digitalogic_Import_Freight_Service::instance()->batch_assign_products($assignments);
     }
 
     /**
