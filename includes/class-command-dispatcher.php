@@ -332,7 +332,7 @@ class Digitalogic_Command_Dispatcher {
 	 * @return array|WP_Error
 	 */
 	public function get_product_import_pricing_batch( $payload ) {
-		$codes = isset( $payload['codes'] ) && is_array( $payload['codes'] )
+		$codes = is_array( $payload ) && array_key_exists( 'codes', $payload )
 			? $payload['codes']
 			: array();
 

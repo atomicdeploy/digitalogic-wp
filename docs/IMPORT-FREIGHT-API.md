@@ -69,7 +69,8 @@ Patris and other read-only pricing clients should prefetch with
 {"codes":["113007045","113007046"]}
 ```
 
-The operation accepts 1-500 unique non-empty Codes. Codes remain strings,
+The operation accepts an ordered JSON list of 1-500 unique non-empty Codes;
+associative objects are rejected rather than having their keys discarded. Codes remain strings,
 retain trimmed request order, and are resolved by the same collision-safe
 service as the single-Code endpoint. Duplicate Codes reject the whole request;
 not-found or ambiguous products become typed per-Code results so unrelated

@@ -334,6 +334,7 @@ final class ImportFreightServiceTest extends TestCase {
 	 */
 	public function test_batch_assignment_read_rejects_invalid_duplicate_and_oversize_requests() {
 		$empty     = $this->service->get_product_assignments_by_codes( array() );
+		$object    = $this->service->get_product_assignments_by_codes( array( 'named' => 'VALID' ) );
 		$invalid   = $this->service->get_product_assignments_by_codes( array( 'VALID', array( 'not-a-code' ) ) );
 		$duplicate = $this->service->get_product_assignments_by_codes( array( ' 00123 ', '00123' ) );
 		$oversize  = $this->service->get_product_assignments_by_codes(
@@ -341,10 +342,17 @@ final class ImportFreightServiceTest extends TestCase {
 		);
 
 		$this->assertSame( 'digitalogic_pricing_assignment_batch_empty', $empty->get_error_code() );
+		$this->assertSame( 'digitalogic_pricing_assignment_batch_shape_invalid', $object->get_error_code() );
 		$this->assertSame( 'digitalogic_pricing_assignment_batch_code_invalid', $invalid->get_error_code() );
 		$this->assertSame( 'digitalogic_pricing_assignment_batch_code_duplicate', $duplicate->get_error_code() );
 		$this->assertSame( 'digitalogic_pricing_assignment_batch_too_large', $oversize->get_error_code() );
 		$this->assertSame( 500, $oversize->get_error_data()['maximum_codes'] );
+		$this->assertSame(
+			'digitalogic_pricing_assignment_batch_shape_invalid',
+			Digitalogic_Command_Dispatcher::instance()
+				->get_product_import_pricing_batch( array( 'codes' => '113007045' ) )
+				->get_error_code()
+		);
 	}
 
 	/**

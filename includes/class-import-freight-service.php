@@ -592,7 +592,14 @@ final class Digitalogic_Import_Freight_Service {
 	 * @return array|WP_Error
 	 */
 	public function get_product_assignments_by_codes( $codes ) {
-		if ( ! is_array( $codes ) || empty( $codes ) ) {
+		if ( ! is_array( $codes ) || array_values( $codes ) !== $codes ) {
+			return new WP_Error(
+				'digitalogic_pricing_assignment_batch_shape_invalid',
+				__( 'Product Codes must be provided as an ordered JSON list.', 'digitalogic' ),
+				array( 'status' => 400 )
+			);
+		}
+		if ( empty( $codes ) ) {
 			return new WP_Error(
 				'digitalogic_pricing_assignment_batch_empty',
 				__( 'At least one product Code is required.', 'digitalogic' ),
