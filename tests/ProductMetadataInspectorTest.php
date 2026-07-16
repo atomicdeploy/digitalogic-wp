@@ -28,6 +28,7 @@ final class ProductMetadataInspectorTest extends TestCase {
 					'_price'         => '100.00',
 					'_stock'         => '5.0000',
 					'_stock_status'  => 'instock',
+					'_manage_stock'  => 'yes',
 					'_tax_status'    => 'taxable',
 					'_tax_class'     => '',
 					'total_sales'    => '2',
@@ -41,6 +42,7 @@ final class ProductMetadataInspectorTest extends TestCase {
 					'_price'        => '125',
 					'_stock'        => '3',
 					'_stock_status' => 'instock',
+					'_manage_stock' => 'yes',
 					'_tax_status'   => 'taxable',
 					'_tax_class'    => '',
 					'total_sales'   => '0',
@@ -54,11 +56,42 @@ final class ProductMetadataInspectorTest extends TestCase {
 				'post_type' => 'product_variation',
 				'meta'      => array( '_sku' => 'DUPLICATE' ),
 			),
+			810 => array(
+				'post_type'    => 'product',
+				'post_status'  => 'publish',
+				'product_type' => 'variable',
+				'meta_rows'    => array( '_price' => array( '10', '20' ) ),
+				'meta'         => array(
+					'_sku'          => 'PARENT-810',
+					'_price'        => '10',
+					'_manage_stock' => 'yes',
+					'_stock'        => '7',
+					'_stock_status' => 'instock',
+					'_tax_status'   => 'none',
+					'_tax_class'    => 'reduced-rate',
+					'total_sales'   => '4',
+				),
+			),
+			811 => array(
+				'post_type'    => 'product_variation',
+				'post_status'  => 'publish',
+				'post_parent'  => 810,
+				'product_type' => 'variation',
+				'meta'         => array(
+					'_price'        => '12',
+					'_manage_stock' => 'parent',
+					'_stock_status' => 'instock',
+					'_tax_class'    => 'parent',
+				),
+			),
 		);
 		$GLOBALS['digitalogic_test_wc_lookup_rows'] = array(
 			801 => $this->lookupRow( 801, '00123', '100.0000', '100.0000', '5.0', 'instock', 'taxable', '', '2' ),
 			802 => $this->lookupRow( 802, 'OTHER', '124', '124', '4', 'outofstock', 'none', 'reduced-rate', '1' ),
+			810 => $this->lookupRow( 810, 'PARENT-810', '10', '20', '7', 'instock', 'none', 'reduced-rate', '4' ),
+			811 => $this->lookupRow( 811, '', '12', '12', null, 'instock', '', 'parent', '0' ),
 		);
+		$GLOBALS['digitalogic_test_wc_products']    = array();
 		$GLOBALS['wpdb']                            = new Digitalogic_Test_WPDB();
 
 		$resolver = new ReflectionProperty( Digitalogic_Product_Identifier_Resolver::class, 'instance' );
@@ -89,12 +122,52 @@ final class ProductMetadataInspectorTest extends TestCase {
 		$this->assertFalse( $result['is_consistent'] );
 		$this->assertSame( 'woocommerce_crud_and_current_postmeta', $result['source_of_truth'] );
 		$fields = array_column( $result['inconsistencies'], 'field' );
-		foreach ( array( 'sku', 'stock_quantity', 'stock_status', 'tax_status', 'tax_class', 'total_sales', 'price' ) as $field ) {
+		foreach ( array( 'sku', 'stock_quantity', 'stock_status', 'tax_status', 'tax_class', 'total_sales', 'min_price', 'max_price' ) as $field ) {
 			$this->assertContains( $field, $fields );
 		}
 		foreach ( $result['inconsistencies'] as $inconsistency ) {
 			$this->assertContains( $inconsistency['code'], array( 'derived_lookup_mismatch', 'lookup_row_missing' ) );
 		}
+	}
+
+	/** Verify effective CRUD values avoid false mismatches for inherited variation data. */
+	public function test_variable_and_variation_metadata_use_effective_woocommerce_semantics(): void {
+		$variable  = $this->inspector->inspect( array( 'woocommerce_id' => '810' ) );
+		$variation = $this->inspector->inspect( array( 'woocommerce_id' => '811' ) );
+
+		$this->assertTrue( $variable['is_consistent'] );
+		$this->assertSame( 'variable', $variable['product_type'] );
+		$this->assertSame( '10', $variable['effective_woocommerce']['price'] );
+		$this->assertSame( '20', $variable['lookup_table']['max_price'] );
+		$this->assertSame( '20', $variable['expected_lookup_values']['max_price'] );
+
+		$this->assertTrue( $variation['is_consistent'] );
+		$this->assertSame( 'variation', $variation['product_type'] );
+		$this->assertSame( 'PARENT-810', $variation['effective_woocommerce']['sku'] );
+		$this->assertSame( 'parent', $variation['effective_woocommerce']['manage_stock'] );
+		$this->assertSame( '7', $variation['effective_woocommerce']['stock_quantity'] );
+		$this->assertSame( 'none', $variation['effective_woocommerce']['tax_status'] );
+		$this->assertSame( 'reduced-rate', $variation['effective_woocommerce']['tax_class'] );
+		$this->assertSame( '', $variation['expected_lookup_values']['sku'] );
+		$this->assertNull( $variation['expected_lookup_values']['stock_quantity'] );
+		$this->assertSame( '', $variation['expected_lookup_values']['tax_status'] );
+		$this->assertSame( 'parent', $variation['expected_lookup_values']['tax_class'] );
+		$this->assertArrayNotHasKey( '_sku', $variation['postmeta'] );
+		$this->assertArrayNotHasKey( '_stock', $variation['postmeta'] );
+		$this->assertArrayNotHasKey( '_tax_status', $variation['postmeta'] );
+		$this->assertSame( 'parent', $variation['postmeta']['_tax_class'] );
+	}
+
+	/** Verify a stale variable maximum price is detected independently. */
+	public function test_variable_maximum_price_mismatch_is_detected(): void {
+		$GLOBALS['digitalogic_test_wc_lookup_rows'][810]['max_price'] = '21';
+
+		$result = $this->inspector->inspect( array( 'woocommerce_id' => '810' ) );
+		$fields = array_column( $result['inconsistencies'], 'field' );
+
+		$this->assertFalse( $result['is_consistent'] );
+		$this->assertContains( 'max_price', $fields );
+		$this->assertNotContains( 'min_price', $fields );
 	}
 
 	/** Verify ambiguous exact SKUs fail before diagnostics run. */
@@ -125,7 +198,7 @@ final class ProductMetadataInspectorTest extends TestCase {
 	 * @param string $sku SKU.
 	 * @param string $min Minimum price.
 	 * @param string $max Maximum price.
-	 * @param string $stock Stock quantity.
+	 * @param mixed  $stock Stock quantity.
 	 * @param string $stock_status Stock status.
 	 * @param string $tax_status Tax status.
 	 * @param string $tax_class Tax class.
@@ -134,21 +207,20 @@ final class ProductMetadataInspectorTest extends TestCase {
 	 */
 	private function lookupRow( $id, $sku, $min, $max, $stock, $stock_status, $tax_status, $tax_class, $sales ): array {
 		return array(
-			'product_id'       => $id,
-			'sku'              => $sku,
-			'virtual'          => '0',
-			'downloadable'     => '0',
-			'min_price'        => $min,
-			'max_price'        => $max,
-			'onsale'           => '0',
-			'stock_quantity'   => $stock,
-			'stock_status'     => $stock_status,
-			'rating_count'     => '0',
-			'average_rating'   => '0',
-			'total_sales'      => $sales,
-			'tax_status'       => $tax_status,
-			'tax_class'        => $tax_class,
-			'global_unique_id' => '',
+			'product_id'     => $id,
+			'sku'            => $sku,
+			'virtual'        => '0',
+			'downloadable'   => '0',
+			'min_price'      => $min,
+			'max_price'      => $max,
+			'onsale'         => '0',
+			'stock_quantity' => $stock,
+			'stock_status'   => $stock_status,
+			'rating_count'   => '0',
+			'average_rating' => '0',
+			'total_sales'    => $sales,
+			'tax_status'     => $tax_status,
+			'tax_class'      => $tax_class,
 		);
 	}
 }

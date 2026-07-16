@@ -846,6 +846,7 @@ class Digitalogic_Admin {
         $notice_type = 'success';
         $selector_type = '';
         $selector_value = '';
+        $lookup_row_refresh_supported = Digitalogic_Product_Table::instance()->supports_per_product_refresh();
 
         if (isset($_POST['digitalogic_refresh_product_lookup'])) {
             check_admin_referer('digitalogic_refresh_product_lookup');
@@ -887,15 +888,20 @@ class Digitalogic_Admin {
 
         if ($metadata && isset($_POST['digitalogic_refresh_product_lookup'])) {
             try {
-                Digitalogic_Product_Table::instance()->regenerate_lookup_tables(array($metadata['product_id']));
-                $metadata = Digitalogic_Product_Metadata_Inspector::instance()->inspect(array(
-                    $selector_type => $selector_value,
-                ));
-                if (is_wp_error($metadata)) {
-                    $diagnostic_error = $metadata;
-                    $metadata = null;
+                $refresh = Digitalogic_Product_Table::instance()->regenerate_lookup_tables(array($metadata['product_id']));
+                if (is_wp_error($refresh)) {
+                    $notice = $refresh->get_error_message();
+                    $notice_type = 'error';
                 } else {
-                    $notice = __('The derived WooCommerce lookup row was refreshed for this product.', 'digitalogic');
+                    $metadata = Digitalogic_Product_Metadata_Inspector::instance()->inspect(array(
+                        $selector_type => $selector_value,
+                    ));
+                    if (is_wp_error($metadata)) {
+                        $diagnostic_error = $metadata;
+                        $metadata = null;
+                    } else {
+                        $notice = __('The derived WooCommerce lookup row was refreshed for this product.', 'digitalogic');
+                    }
                 }
             } catch (Throwable $error) {
                 $notice = __('WooCommerce could not refresh this product lookup row.', 'digitalogic');

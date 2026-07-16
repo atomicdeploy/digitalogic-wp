@@ -264,7 +264,8 @@ class Digitalogic_CLI_Commands {
      * : Exact WooCommerce product or variation ID.
      *
      * [--sku=<sku>]
-     * : Exact current SKU used to select the product.
+     * : Exact current SKU used to select the product. With a positional ID,
+     *   this remains the deprecated replacement-SKU option for compatibility.
      * 
      * [--price=<price>]
      * : Regular price
@@ -282,11 +283,23 @@ class Digitalogic_CLI_Commands {
      * 
      *     wp digitalogic products update 123 --price=99.99 --stock=50
      *     wp digitalogic products update --sku=00123 --set-sku=00124
+     *     wp digitalogic products update 123 --sku=00124
      * 
      * @when after_wp_load
      */
     public function products_update($args, $assoc_args) {
-        $identifiers = $this->product_identifiers($args, $assoc_args);
+        $legacy_positional_sku_setter = isset($args[0])
+            && '' !== trim((string) $args[0])
+            && isset($assoc_args['sku'])
+            && '' !== trim((string) $assoc_args['sku'])
+            && !isset($assoc_args['id']);
+
+        if ($legacy_positional_sku_setter && isset($assoc_args['set-sku'])) {
+            WP_CLI::error('Use either the legacy positional-ID --sku setter or --set-sku, not both.');
+            return;
+        }
+
+        $identifiers = $this->product_identifiers($args, $assoc_args, $legacy_positional_sku_setter);
         if (is_wp_error($identifiers)) {
             WP_CLI::error($identifiers->get_error_message());
             return;
@@ -306,7 +319,10 @@ class Digitalogic_CLI_Commands {
             $data['stock_quantity'] = intval($assoc_args['stock']);
         }
         
-        if (isset($assoc_args['set-sku'])) {
+        if ($legacy_positional_sku_setter) {
+            $data['sku'] = sanitize_text_field($assoc_args['sku']);
+            WP_CLI::warning('The positional-ID --sku setter is deprecated; use --id=<id> --set-sku=<sku>.');
+        } elseif (isset($assoc_args['set-sku'])) {
             $data['sku'] = sanitize_text_field($assoc_args['set-sku']);
         }
         
@@ -906,12 +922,15 @@ class Digitalogic_CLI_Commands {
      *
      * @param array $args Positional command arguments.
      * @param array $assoc_args Named command arguments.
+     * @param bool  $legacy_positional_sku_setter Treat --sku as the legacy setter.
      * @return array|WP_Error
      */
-    private function product_identifiers($args, $assoc_args) {
+    private function product_identifiers($args, $assoc_args, $legacy_positional_sku_setter = false) {
         $has_positional = isset($args[0]) && '' !== trim((string) $args[0]);
         $has_id = isset($assoc_args['id']) && '' !== trim((string) $assoc_args['id']);
-        $has_sku = isset($assoc_args['sku']) && '' !== trim((string) $assoc_args['sku']);
+        $has_sku = !$legacy_positional_sku_setter
+            && isset($assoc_args['sku'])
+            && '' !== trim((string) $assoc_args['sku']);
 
         if ((int) $has_positional + (int) $has_id + (int) $has_sku !== 1) {
             return new WP_Error(

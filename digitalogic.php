@@ -144,7 +144,7 @@ final class Digitalogic {
 		// Admin includes
 		if ( is_admin() ) {
 			require_once DIGITALOGIC_PLUGIN_DIR . 'includes/admin/class-admin.php';
-			require_once DIGITALOGIC_PLUGIN_DIR . 'includes/admin/class-product-table.php';
+			require_once DIGITALOGIC_PLUGIN_DIR . 'includes/admin/class-digitalogic-product-table.php';
 		}
 
 		// API includes

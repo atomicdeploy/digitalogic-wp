@@ -127,13 +127,16 @@ Numeric and leading-zero SKUs remain strings. Duplicate exact SKUs return HTTP
 - **GET** `/products/{id}/metadata`
 - **GET** `/products/sku/{sku}/metadata`
 
-These routes use the `diagnostic` permission scope. They return a whitelisted
-snapshot of current product post meta, the matching derived
-`wc_product_meta_lookup` row, and structured inconsistency records. The normal
-WooCommerce CRUD object and current post meta remain authoritative; lookup data
-is never copied back implicitly. Administrators can refresh one lookup row from
-**Digitalogic → Product Diagnostics** using WooCommerce's supported data-store
-API.
+These routes use the `diagnostic` permission scope. They return effective
+WooCommerce values, a whitelisted snapshot of current product post meta, the
+expected raw lookup-source values, the matching derived
+`wc_product_meta_lookup` row, and structured inconsistency records. This keeps
+variation inheritance visible without comparing inherited display values to a
+row WooCommerce builds from child post meta. Lookup data is never copied back
+implicitly. On WooCommerce versions that expose the public per-product
+data-store API, administrators can refresh one row from **Digitalogic → Product
+Diagnostics**. Older supported versions refuse that row action and never fall
+back to a catalog-wide rebuild.
 
 ---
 

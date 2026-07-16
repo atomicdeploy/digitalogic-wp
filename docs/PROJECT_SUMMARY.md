@@ -193,7 +193,7 @@ digitalogic-wp/
 ├── includes/
 │   ├── admin/
 │   │   ├── class-admin.php
-│   │   ├── class-product-table.php
+│   │   ├── class-digitalogic-product-table.php
 │   │   └── views/
 │   │       ├── dashboard.php
 │   │       ├── products.php

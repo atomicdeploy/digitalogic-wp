@@ -30,10 +30,11 @@ wp digitalogic products metadata --id=123
 wp digitalogic products metadata --sku=001230 --format=json
 ```
 
-The command compares a whitelisted current post-meta snapshot with the derived
-WooCommerce product lookup row. It reports structured mismatches but never
-writes or rebuilds data. WooCommerce CRUD and current post meta remain the
-source of truth.
+The command shows both effective WooCommerce values (including variation
+inheritance) and a whitelisted current post-meta snapshot. It compares the
+derived product lookup row against WooCommerce's raw lookup-source semantics,
+so inherited variation values do not create false mismatches. It reports
+structured mismatches but never writes or rebuilds data.
 
 An administrator can inspect and explicitly refresh one product's derived row
 from **Digitalogic → Product Diagnostics**.
@@ -46,9 +47,14 @@ wp digitalogic products update --id=123 --sale-price=225000
 wp digitalogic products update --sku=001230 --set-sku=001231
 ```
 
-`--sku` selects the current product. Use `--set-sku` to change its SKU. This
-separation prevents an update from accidentally selecting by the replacement
-value.
+Without a positional ID, `--sku` selects the current product. Use `--set-sku`
+to change its SKU. This separation prevents an update from accidentally
+selecting by the replacement value.
+
+For backward compatibility, the historical positional form
+`products update 123 --sku=NEW-SKU` still treats `--sku` as the replacement
+value and emits a deprecation warning. New integrations should use
+`--id=123 --set-sku=NEW-SKU`.
 
 Available update fields:
 

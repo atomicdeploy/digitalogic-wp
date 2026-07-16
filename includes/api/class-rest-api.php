@@ -501,16 +501,12 @@ class Digitalogic_REST_API {
      * GET /products/{id}
      */
     public function get_product(WP_REST_Request $request) {
-        $product_id = $request['id'];
-        
-        $manager = Digitalogic_Product_Manager::instance();
-        $product = $manager->get_product($product_id);
-        
-        if (!$product) {
-            return new WP_REST_Response(array(
-                'success' => false,
-                'message' => 'Product not found'
-            ), 404);
+        $product = Digitalogic_Product_Manager::instance()->get_product_by_identifiers(array(
+            'woocommerce_id' => (string) $request['id'],
+        ));
+
+        if (is_wp_error($product)) {
+            return $this->product_error_response($product, 404);
         }
         
         return new WP_REST_Response(array(
@@ -568,17 +564,13 @@ class Digitalogic_REST_API {
      * PUT /products/{id}
      */
     public function update_product(WP_REST_Request $request) {
-        $product_id = $request['id'];
-        $data = $request->get_json_params();
-        
-        $manager = Digitalogic_Product_Manager::instance();
-        $result = $manager->update_product($product_id, $data);
+        $result = Digitalogic_Product_Manager::instance()->update_product_by_identifiers(
+            array('woocommerce_id' => (string) $request['id']),
+            $request->get_json_params()
+        );
         
         if (is_wp_error($result)) {
-            return new WP_REST_Response(array(
-                'success' => false,
-                'message' => $result->get_error_message()
-            ), 400);
+            return $this->product_error_response($result, 400);
         }
         
         return new WP_REST_Response(array(

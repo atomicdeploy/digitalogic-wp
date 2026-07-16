@@ -32,6 +32,8 @@ $GLOBALS['digitalogic_test_wc_products'] = array();
 $GLOBALS['digitalogic_test_wc_product_saves'] = array();
 $GLOBALS['digitalogic_test_wc_save_failures'] = array();
 $GLOBALS['digitalogic_test_wc_lookup_rows'] = array();
+$GLOBALS['digitalogic_test_wc_data_store'] = null;
+$GLOBALS['digitalogic_test_wc_lookup_full_rebuilds'] = 0;
 $GLOBALS['digitalogic_test_product_updates'] = array();
 $GLOBALS['digitalogic_test_wc_currency'] = 'IRT';
 $GLOBALS['digitalogic_test_transients'] = array(); // phpcs:ignore
@@ -465,7 +467,18 @@ function get_post_meta($post_id, $key = '', $single = false) {
     if ($key === '') {
         return $meta;
     }
+
+    $meta_rows = isset($GLOBALS['digitalogic_test_posts'][$post_id]['meta_rows'][$key])
+        ? array_values($GLOBALS['digitalogic_test_posts'][$post_id]['meta_rows'][$key])
+        : array();
+    if (!$single && !empty($meta_rows)) {
+        return $meta_rows;
+    }
     if (!array_key_exists($key, $meta)) {
+        if ($single && !empty($meta_rows)) {
+            return end($meta_rows);
+        }
+
         return $single ? '' : array();
     }
 
@@ -1001,90 +1014,6 @@ class Digitalogic_Options {
     }
 }
 
-class Digitalogic_Product_Manager {
-    private static $instance;
-
-    public $query_requests = array();
-
-    public static function instance() {
-        if (!self::$instance) {
-            self::$instance = new self();
-        }
-        return self::$instance;
-    }
-
-    public function get_products($args = array()) {
-        return array();
-    }
-
-    public function query_products($args = array()) {
-        $this->query_requests[] = $args;
-        if (isset($GLOBALS['digitalogic_test_product_query_result'])) {
-            return $GLOBALS['digitalogic_test_product_query_result'];
-        }
-
-        return array(
-            'products' => array(),
-            'total' => 0,
-            'recordsTotal' => 0,
-            'recordsFiltered' => 0,
-            'page' => 1,
-            'limit' => 50,
-            'pages' => 0,
-        );
-    }
-
-    public function get_product($product_id) {
-        $product_id = (int) $product_id;
-        if (!isset($GLOBALS['digitalogic_test_posts'][$product_id])) {
-            return null;
-        }
-
-        return array(
-            'id' => $product_id,
-            'name' => (string) ($GLOBALS['digitalogic_test_posts'][$product_id]['post_title'] ?? ''),
-            'sku' => (string) ($GLOBALS['digitalogic_test_posts'][$product_id]['meta']['_sku'] ?? ''),
-            'type' => (string) $GLOBALS['digitalogic_test_posts'][$product_id]['post_type'],
-            'status' => (string) ($GLOBALS['digitalogic_test_posts'][$product_id]['post_status'] ?? 'publish'),
-            'regular_price' => (string) ($GLOBALS['digitalogic_test_posts'][$product_id]['meta']['_regular_price'] ?? ''),
-            'sale_price' => (string) ($GLOBALS['digitalogic_test_posts'][$product_id]['meta']['_sale_price'] ?? ''),
-            'stock_quantity' => $GLOBALS['digitalogic_test_posts'][$product_id]['meta']['_stock'] ?? null,
-            'stock_status' => (string) ($GLOBALS['digitalogic_test_posts'][$product_id]['meta']['_stock_status'] ?? ''),
-        );
-    }
-
-    public function get_product_by_identifiers($identifiers) {
-        $resolved = Digitalogic_Product_Identifier_Resolver::instance()->resolve($identifiers);
-        if (is_wp_error($resolved)) {
-            return $resolved;
-        }
-
-        $product = $this->get_product((int) $resolved['woocommerce_id']);
-        if (!$product) {
-            return new WP_Error('digitalogic_product_unavailable', 'Product unavailable.', array('status' => 404));
-        }
-        $product['resolved_by'] = $resolved['resolved_by'];
-        $product['resolved_identifier'] = $resolved['identifier'];
-        return $product;
-    }
-
-    public function get_product_metadata($identifiers) {
-        return Digitalogic_Product_Metadata_Inspector::instance()->inspect($identifiers);
-    }
-
-    public function update_product_by_identifiers($identifiers, $data) {
-        $resolved = Digitalogic_Product_Identifier_Resolver::instance()->resolve($identifiers);
-        if (is_wp_error($resolved)) {
-            return $resolved;
-        }
-        $GLOBALS['digitalogic_test_product_updates'][] = array(
-            'product_id' => (int) $resolved['woocommerce_id'],
-            'data' => $data,
-        );
-        return true;
-    }
-}
-
 class Digitalogic_Logger {
     private static $instance;
     public $entries = array();
@@ -1121,32 +1050,225 @@ class WC_Product {
             : array();
     }
 
+    public function get_id() {
+        return $this->id;
+    }
+
+    public function get_parent_id() {
+        $post = $GLOBALS['digitalogic_test_posts'][$this->id] ?? array();
+        return (int) ($post['post_parent'] ?? $post['parent_id'] ?? 0);
+    }
+
+    public function get_name() {
+        return (string) ($GLOBALS['digitalogic_test_posts'][$this->id]['post_title'] ?? '');
+    }
+
+    public function get_sku() {
+        $sku = (string) ($this->meta['_sku'] ?? '');
+        $parent = $this->get_parent_id();
+        return '' === $sku && $parent ? (string) wc_get_product($parent)->get_sku() : $sku;
+    }
+
+    public function get_type() {
+        $post = $GLOBALS['digitalogic_test_posts'][$this->id] ?? array();
+        if (isset($post['product_type'])) {
+            return (string) $post['product_type'];
+        }
+        return ($post['post_type'] ?? '') === 'product_variation' ? 'variation' : 'simple';
+    }
+
+    public function get_status() {
+        return (string) ($GLOBALS['digitalogic_test_posts'][$this->id]['post_status'] ?? 'publish');
+    }
+
+    public function get_regular_price() {
+        return (string) ($this->meta['_regular_price'] ?? '');
+    }
+
+    public function get_sale_price() {
+        return (string) ($this->meta['_sale_price'] ?? '');
+    }
+
+    public function get_price() {
+        if (null !== $this->price) {
+            return $this->price;
+        }
+        return (string) ($this->meta['_price'] ?? $this->meta['_regular_price'] ?? '');
+    }
+
+    public function get_stock_quantity() {
+        if (null !== $this->stock_quantity) {
+            return $this->stock_quantity;
+        }
+        if ('parent' === $this->get_manage_stock() && $this->get_parent_id()) {
+            return wc_get_product($this->get_parent_id())->get_stock_quantity();
+        }
+        return array_key_exists('_stock', $this->meta) ? $this->meta['_stock'] : null;
+    }
+
+    public function get_stock_status() {
+        return null !== $this->stock_status
+            ? $this->stock_status
+            : (string) ($this->meta['_stock_status'] ?? 'instock');
+    }
+
+    public function get_manage_stock() {
+        if ($this->manage_stock || 'yes' === ($this->meta['_manage_stock'] ?? 'no')) {
+            return true;
+        }
+        if ('parent' === ($this->meta['_manage_stock'] ?? '')) {
+            return 'parent';
+        }
+        $parent = $this->get_parent_id();
+        return $parent && true === wc_get_product($parent)->get_manage_stock() ? 'parent' : false;
+    }
+
+    public function get_weight() {
+        return null !== $this->weight ? $this->weight : (string) ($this->meta['_weight'] ?? '');
+    }
+
+    public function get_length() {
+        return (string) ($this->meta['_length'] ?? '');
+    }
+
+    public function get_width() {
+        return (string) ($this->meta['_width'] ?? '');
+    }
+
+    public function get_height() {
+        return (string) ($this->meta['_height'] ?? '');
+    }
+
+    public function get_image_id() {
+        return (int) ($this->meta['_thumbnail_id'] ?? 0);
+    }
+
+    public function get_permalink() {
+        return 'https://digitalogic.test/product/' . $this->id;
+    }
+
+    public function get_gallery_image_ids() {
+        return array();
+    }
+
+    public function get_category_ids() {
+        return (array) ($GLOBALS['digitalogic_test_posts'][$this->id]['category_ids'] ?? array());
+    }
+
+    public function get_total_sales() {
+        return (int) ($this->meta['total_sales'] ?? 0);
+    }
+
+    public function get_date_modified() {
+        return null;
+    }
+
+    public function get_meta($key, $single = true) {
+        return $this->meta[$key] ?? '';
+    }
+
+    public function get_attribute($name) {
+        return (string) ($this->meta['attribute_' . $name] ?? $this->meta[$name] ?? '');
+    }
+
+    public function get_children() {
+        $children = array();
+        foreach ($GLOBALS['digitalogic_test_posts'] as $post_id => $post) {
+            $parent_id = (int) ($post['post_parent'] ?? $post['parent_id'] ?? 0);
+            if ($parent_id === $this->id) {
+                $children[] = (int) $post_id;
+            }
+        }
+        return $children;
+    }
+
+    public function get_tax_status() {
+        if (array_key_exists('_tax_status', $this->meta)) {
+            return (string) $this->meta['_tax_status'];
+        }
+        $parent = $this->get_parent_id();
+        return $parent ? (string) wc_get_product($parent)->get_tax_status() : 'taxable';
+    }
+
+    public function get_tax_class() {
+        if (array_key_exists('_tax_class', $this->meta)) {
+            $tax_class = (string) $this->meta['_tax_class'];
+            if ('parent' !== $tax_class) {
+                return $tax_class;
+            }
+        }
+        $parent = $this->get_parent_id();
+        return $parent ? (string) wc_get_product($parent)->get_tax_class() : '';
+    }
+
+    public function is_type($type) {
+        return $this->get_type() === $type;
+    }
+
+    public function set_name($value) {
+        $GLOBALS['digitalogic_test_posts'][$this->id]['post_title'] = (string) $value;
+    }
+
+    public function set_sku($value) {
+        $this->meta['_sku'] = (string) $value;
+    }
+
+    public function set_status($value) {
+        $GLOBALS['digitalogic_test_posts'][$this->id]['post_status'] = (string) $value;
+    }
+
     public function update_meta_data($key, $value) {
         $this->meta[$key] = $value;
     }
 
     public function set_weight($value) {
         $this->weight = (string) $value;
+        $this->meta['_weight'] = (string) $value;
     }
 
     public function set_manage_stock($value) {
         $this->manage_stock = (bool) $value;
+        $this->meta['_manage_stock'] = $value ? 'yes' : 'no';
     }
 
     public function set_stock_quantity($value) {
         $this->stock_quantity = (int) $value;
+        $this->meta['_stock'] = (int) $value;
     }
 
     public function set_stock_status($value) {
         $this->stock_status = (string) $value;
+        $this->meta['_stock_status'] = (string) $value;
     }
 
     public function set_regular_price($value) {
         $this->regular_price = (string) $value;
+        $this->meta['_regular_price'] = (string) $value;
     }
 
     public function set_price($value) {
         $this->price = (string) $value;
+        $this->meta['_price'] = (string) $value;
+    }
+
+    public function set_sale_price($value) {
+        $this->meta['_sale_price'] = (string) $value;
+    }
+
+    public function set_length($value) {
+        $this->meta['_length'] = (string) $value;
+    }
+
+    public function set_width($value) {
+        $this->meta['_width'] = (string) $value;
+    }
+
+    public function set_height($value) {
+        $this->meta['_height'] = (string) $value;
+    }
+
+    public function set_category_ids($value) {
+        $GLOBALS['digitalogic_test_posts'][$this->id]['category_ids'] = array_values($value);
     }
 
     public function save() {
@@ -1158,6 +1280,95 @@ class WC_Product {
         $GLOBALS['digitalogic_test_wc_product_saves'][] = $this->id;
         return $this->id;
     }
+}
+
+function wp_get_attachment_url($attachment_id) {
+    return $attachment_id ? 'https://digitalogic.test/media/' . (int) $attachment_id : false;
+}
+
+function wp_get_attachment_image_url($attachment_id, $size = 'thumbnail') {
+    return wp_get_attachment_url($attachment_id);
+}
+
+function wp_get_post_revisions($post_id) {
+    return array();
+}
+
+function get_term($term_id, $taxonomy = '') {
+    return new WP_Error('term_not_found', 'Term not found.');
+}
+
+function get_terms($args = array()) {
+    return array();
+}
+
+function admin_url($path = '') {
+    return 'https://digitalogic.test/wp-admin/' . ltrim((string) $path, '/');
+}
+
+function wc_clean($value) {
+    return sanitize_text_field($value);
+}
+
+function wp_strip_all_tags($value) {
+    return strip_tags((string) $value);
+}
+
+function wc_get_products($args = array()) {
+    $products = array();
+    foreach ($GLOBALS['digitalogic_test_posts'] as $post_id => $post) {
+        if (!in_array($post['post_type'], array('product', 'product_variation'), true)) {
+            continue;
+        }
+        $product = wc_get_product($post_id);
+        if (isset($args['sku']) && (string) $args['sku'] !== $product->get_sku()) {
+            continue;
+        }
+        if (isset($args['status']) && 'any' !== $args['status'] && !in_array($product->get_status(), (array) $args['status'], true)) {
+            continue;
+        }
+        if (isset($args['type']) && !in_array($product->get_type(), (array) $args['type'], true)) {
+            continue;
+        }
+        $products[] = 'ids' === ($args['return'] ?? '') ? (int) $post_id : $product;
+    }
+
+    $limit = isset($args['limit']) ? (int) $args['limit'] : -1;
+    $page = max(1, (int) ($args['page'] ?? 1));
+    if ($limit > -1) {
+        $products = array_slice($products, ($page - 1) * $limit, $limit);
+    }
+
+    return $products;
+}
+
+class WC_Data_Store {
+    public static function load($object_type) {
+        if ('product' !== $object_type) {
+            throw new RuntimeException('Unexpected WooCommerce data-store type.');
+        }
+
+        return $GLOBALS['digitalogic_test_wc_data_store'] ?: new Digitalogic_Test_WC_Product_Data_Store_Without_Row_Refresh();
+    }
+}
+
+class Digitalogic_Test_WC_Product_Data_Store_With_Row_Refresh {
+    public $refreshed_ids = array();
+
+    public function refresh_product_lookup_table($product_id) {
+        $this->refreshed_ids[] = (int) $product_id;
+    }
+}
+
+class Digitalogic_Test_WC_Product_Data_Store_Without_Row_Refresh {
+}
+
+function wc_update_product_lookup_tables() {
+    $GLOBALS['digitalogic_test_wc_lookup_full_rebuilds']++;
+}
+
+function wc_stock_amount($amount) {
+    return '' === $amount || null === $amount ? null : (float) $amount;
 }
 
 function wc_get_product($product_id) {
@@ -1289,6 +1500,8 @@ require_once dirname(__DIR__) . '/includes/class-digitalogic-woocommerce-currenc
 require_once dirname(__DIR__) . '/includes/class-product-identifier-resolver.php';
 require_once dirname(__DIR__) . '/includes/class-digitalogic-product-query.php';
 require_once dirname(__DIR__) . '/includes/class-digitalogic-product-metadata-inspector.php';
+require_once dirname(__DIR__) . '/includes/class-product-manager.php';
+require_once dirname(__DIR__) . '/includes/admin/class-digitalogic-product-table.php';
 require_once dirname(__DIR__) . '/includes/class-digitalogic-pricing-input-credential.php'; // phpcs:ignore
 require_once dirname(__DIR__) . '/includes/class-patris-feed.php';
 require_once dirname(__DIR__) . '/includes/class-product-sync-receiver.php';

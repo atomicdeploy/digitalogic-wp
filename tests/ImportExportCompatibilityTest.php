@@ -87,7 +87,8 @@ final class ImportExportCompatibilityTest extends TestCase {
             )),
         );
 
-        $this->manager = new Digitalogic_Test_Import_Export_Manager();
+        $manager_class = new ReflectionClass(Digitalogic_Test_Import_Export_Manager::class);
+        $this->manager = $manager_class->newInstanceWithoutConstructor();
         $this->manager->products[42] = array(
             'id' => 42,
             'name' => 'Round-trip product',
