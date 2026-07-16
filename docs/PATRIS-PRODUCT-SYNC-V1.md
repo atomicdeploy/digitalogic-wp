@@ -140,11 +140,14 @@ by fuzzy name matching.
 
 Receiver state is written under `digitalogic_product_sync_v1_state`, evicted
 from the option cache, and read back with a digest check before WooCommerce
-writes. Each source has a durable per-product pending outbox plus an applied
-`{record_hash,woocommerce_id}` CAS record. A successful persisted Woo record
-hash acknowledges crash-window retries without a duplicate save. Missing,
-ambiguous, and failed writes stay pending. The final outbox state is read back
-before the result-aware `digitalogic_product_sync_v1_applied` domain action.
+writes. Each source has an applied `{record_hash,woocommerce_id}` CAS record, a
+transient `pending_products` outbox, and a terminal `deferred_products`
+reconciliation set. A successful persisted Woo record hash acknowledges
+crash-window retries without a duplicate save. Woo lookup/storage/write
+failures stay pending; exact Code not-found and ambiguity move to deferred and
+are never guessed. The final delivery state is read back before the result-aware
+`digitalogic_product_sync_v1_applied` domain action. Existing v2 receiver state
+is projected and transactionally persisted as v3 under the same advisory lock.
 This state is independent of the legacy Patris feed option.
 
 ## Successful response
@@ -163,6 +166,13 @@ This state is independent of the legacy Patris feed option.
     "fully_applied": true,
     "retryable": false,
     "pending_products": 0,
+    "deferred_products": 0,
+    "deferred_reconciliation": {
+      "missing": 0,
+      "ambiguous": 0,
+      "details": [],
+      "details_truncated": 0
+    },
     "persistence_verified": true,
     "woocommerce": {
       "updated": 1,
@@ -178,10 +188,29 @@ This state is independent of the legacy Patris feed option.
 Validation errors use HTTP 400 or 422. Ordering conflicts use 409. A busy
 advisory lock or unavailable lock service returns retryable HTTP 503.
 
-When any WooCommerce target is missing, ambiguous, or fails to save, the HTTP
-request remains a verified receiver commit but `data.status` is
-`partially_applied`, `retryable` is true, and `pending_products` is non-zero.
-Send the identical event again after correcting the product or write failure.
+Only transient WooCommerce lookup/storage/write failures make `data.status`
+`partially_applied`, `retryable` true, and `pending_products` non-zero. Send the
+identical event again after correcting a transient failure.
+
+Missing and ambiguous Codes are terminal reconciliation work. A commit with
+only those rows is `accepted` (or `already_current`/`replayed`), has
+`retryable:false` and `pending_products:0`, and reports `deferred_products` as
+an unquoted JSON integer in the range 0..2,147,483,647 plus at most 100 typed
+detail rows. An identical replay is idempotent and does not re-query those
+Codes. Deferred Codes are retried by the next distinct source event or
+explicitly by an administrator:
+
+```shell
+wp digitalogic product-sync status
+wp digitalogic product-sync reconcile --user=<administrator>
+wp digitalogic product-sync reconcile \
+  --source-id=patris-office --dataset=kala.db --user=<administrator>
+```
+
+The status command exposes source/event identities and aggregate counts only;
+it does not print product payloads or credentials. Reconciliation processes
+only pending/deferred records, never already-applied writes, and preserves the
+stored source event ordering watermark.
 
 The synthetic cross-project fixture is 2,760 bytes with SHA-256
 `810bdf4d8fd5e3c2a87750a02f241363f6403736c899a625f615967fea259da5`.
