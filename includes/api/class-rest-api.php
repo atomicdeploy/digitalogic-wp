@@ -195,11 +195,35 @@ class Digitalogic_REST_API {
             'callback' => array($this, 'get_product'),
             'permission_callback' => array($this, 'check_read_permission')
         ));
+
+        register_rest_route('digitalogic/v1', '/products/sku/(?P<sku>[^/]+)', array(
+            'methods' => 'GET',
+            'callback' => array($this, 'get_product_by_sku'),
+            'permission_callback' => array($this, 'check_read_permission')
+        ));
         
         register_rest_route('digitalogic/v1', '/products/(?P<id>\d+)', array(
             'methods' => 'PUT',
             'callback' => array($this, 'update_product'),
             'permission_callback' => array($this, 'check_write_permission')
+        ));
+
+        register_rest_route('digitalogic/v1', '/products/sku/(?P<sku>[^/]+)', array(
+            'methods' => 'PUT',
+            'callback' => array($this, 'update_product_by_sku'),
+            'permission_callback' => array($this, 'check_write_permission')
+        ));
+
+        register_rest_route('digitalogic/v1', '/products/(?P<id>\d+)/metadata', array(
+            'methods' => 'GET',
+            'callback' => array($this, 'get_product_metadata'),
+            'permission_callback' => array($this, 'check_diagnostic_permission')
+        ));
+
+        register_rest_route('digitalogic/v1', '/products/sku/(?P<sku>[^/]+)/metadata', array(
+            'methods' => 'GET',
+            'callback' => array($this, 'get_product_metadata_by_sku'),
+            'permission_callback' => array($this, 'check_diagnostic_permission')
         ));
         
         register_rest_route('digitalogic/v1', '/products/batch', array(
@@ -494,6 +518,51 @@ class Digitalogic_REST_API {
             'data' => $product
         ), 200);
     }
+
+    /**
+     * GET /products/sku/{sku}
+     */
+    public function get_product_by_sku(WP_REST_Request $request) {
+        $product = Digitalogic_Product_Manager::instance()->get_product_by_identifiers(array(
+            'sku' => (string) $request['sku'],
+        ));
+
+        if (is_wp_error($product)) {
+            return $this->product_error_response($product, 404);
+        }
+
+        return new WP_REST_Response(array('success' => true, 'data' => $product), 200);
+    }
+
+    /**
+     * GET /products/{id}/metadata
+     */
+    public function get_product_metadata(WP_REST_Request $request) {
+        $metadata = Digitalogic_Product_Manager::instance()->get_product_metadata(array(
+            'woocommerce_id' => (string) $request['id'],
+        ));
+
+        if (is_wp_error($metadata)) {
+            return $this->product_error_response($metadata, 404);
+        }
+
+        return new WP_REST_Response(array('success' => true, 'data' => $metadata), 200);
+    }
+
+    /**
+     * GET /products/sku/{sku}/metadata
+     */
+    public function get_product_metadata_by_sku(WP_REST_Request $request) {
+        $metadata = Digitalogic_Product_Manager::instance()->get_product_metadata(array(
+            'sku' => (string) $request['sku'],
+        ));
+
+        if (is_wp_error($metadata)) {
+            return $this->product_error_response($metadata, 404);
+        }
+
+        return new WP_REST_Response(array('success' => true, 'data' => $metadata), 200);
+    }
     
     /**
      * PUT /products/{id}
@@ -516,6 +585,39 @@ class Digitalogic_REST_API {
             'success' => true,
             'message' => 'Product updated successfully'
         ), 200);
+    }
+
+    /**
+     * PUT /products/sku/{sku}
+     */
+    public function update_product_by_sku(WP_REST_Request $request) {
+        $result = Digitalogic_Product_Manager::instance()->update_product_by_identifiers(
+            array('sku' => (string) $request['sku']),
+            $request->get_json_params()
+        );
+
+        if (is_wp_error($result)) {
+            return $this->product_error_response($result, 400);
+        }
+
+        return new WP_REST_Response(array(
+            'success' => true,
+            'message' => 'Product updated successfully'
+        ), 200);
+    }
+
+    private function product_error_response($error, $default_status) {
+        $details = $error->get_error_data();
+        $status = is_array($details) && isset($details['status'])
+            ? (int) $details['status']
+            : (int) $default_status;
+
+        return new WP_REST_Response(array(
+            'success' => false,
+            'code' => $error->get_error_code(),
+            'message' => $error->get_error_message(),
+            'details' => is_array($details) ? $details : array(),
+        ), $status);
     }
     
     /**

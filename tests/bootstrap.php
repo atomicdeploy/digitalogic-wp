@@ -31,6 +31,8 @@ $GLOBALS['digitalogic_test_remote_post_results'] = array();
 $GLOBALS['digitalogic_test_wc_products'] = array();
 $GLOBALS['digitalogic_test_wc_product_saves'] = array();
 $GLOBALS['digitalogic_test_wc_save_failures'] = array();
+$GLOBALS['digitalogic_test_wc_lookup_rows'] = array();
+$GLOBALS['digitalogic_test_product_updates'] = array();
 $GLOBALS['digitalogic_test_wc_currency'] = 'IRT';
 $GLOBALS['digitalogic_test_transients'] = array(); // phpcs:ignore
 $GLOBALS['digitalogic_test_transient_deletes'] = array(); // phpcs:ignore
@@ -651,6 +653,8 @@ class Digitalogic_Test_WPDB {
     public $identifier_prepare_failure = false;
     public $identifier_query_failure = false;
     public $identifier_query_last_error = '';
+    public $metadata_lookup_query_count = 0;
+    public $metadata_lookup_query_failure = false;
     public $last_error = '';
     public $option_read_counts = array();
     // phpcs:disable -- Deterministic lifecycle-interleaving hooks for focused tests.
@@ -701,6 +705,17 @@ class Digitalogic_Test_WPDB {
     public function get_row($prepared, $output = ARRAY_A) {
         $query = is_array($prepared) && isset($prepared['query']) ? $prepared['query'] : (string) $prepared;
         $args = is_array($prepared) && isset($prepared['args']) ? $prepared['args'] : array();
+
+        if (strpos($query, 'digitalogic_product_metadata_lookup') !== false) {
+            $this->metadata_lookup_query_count++;
+            if ($this->metadata_lookup_query_failure) {
+                $this->last_error = 'Injected product metadata lookup failure.';
+                return null;
+            }
+            $this->last_error = '';
+            $product_id = isset($args[0]) ? (int) $args[0] : 0;
+            return $GLOBALS['digitalogic_test_wc_lookup_rows'][$product_id] ?? null;
+        }
 
         if (strpos($query, $this->options) !== false) {
             $name = isset($args[0]) ? (string) $args[0] : '';
@@ -1018,6 +1033,56 @@ class Digitalogic_Product_Manager {
             'pages' => 0,
         );
     }
+
+    public function get_product($product_id) {
+        $product_id = (int) $product_id;
+        if (!isset($GLOBALS['digitalogic_test_posts'][$product_id])) {
+            return null;
+        }
+
+        return array(
+            'id' => $product_id,
+            'name' => (string) ($GLOBALS['digitalogic_test_posts'][$product_id]['post_title'] ?? ''),
+            'sku' => (string) ($GLOBALS['digitalogic_test_posts'][$product_id]['meta']['_sku'] ?? ''),
+            'type' => (string) $GLOBALS['digitalogic_test_posts'][$product_id]['post_type'],
+            'status' => (string) ($GLOBALS['digitalogic_test_posts'][$product_id]['post_status'] ?? 'publish'),
+            'regular_price' => (string) ($GLOBALS['digitalogic_test_posts'][$product_id]['meta']['_regular_price'] ?? ''),
+            'sale_price' => (string) ($GLOBALS['digitalogic_test_posts'][$product_id]['meta']['_sale_price'] ?? ''),
+            'stock_quantity' => $GLOBALS['digitalogic_test_posts'][$product_id]['meta']['_stock'] ?? null,
+            'stock_status' => (string) ($GLOBALS['digitalogic_test_posts'][$product_id]['meta']['_stock_status'] ?? ''),
+        );
+    }
+
+    public function get_product_by_identifiers($identifiers) {
+        $resolved = Digitalogic_Product_Identifier_Resolver::instance()->resolve($identifiers);
+        if (is_wp_error($resolved)) {
+            return $resolved;
+        }
+
+        $product = $this->get_product((int) $resolved['woocommerce_id']);
+        if (!$product) {
+            return new WP_Error('digitalogic_product_unavailable', 'Product unavailable.', array('status' => 404));
+        }
+        $product['resolved_by'] = $resolved['resolved_by'];
+        $product['resolved_identifier'] = $resolved['identifier'];
+        return $product;
+    }
+
+    public function get_product_metadata($identifiers) {
+        return Digitalogic_Product_Metadata_Inspector::instance()->inspect($identifiers);
+    }
+
+    public function update_product_by_identifiers($identifiers, $data) {
+        $resolved = Digitalogic_Product_Identifier_Resolver::instance()->resolve($identifiers);
+        if (is_wp_error($resolved)) {
+            return $resolved;
+        }
+        $GLOBALS['digitalogic_test_product_updates'][] = array(
+            'product_id' => (int) $resolved['woocommerce_id'],
+            'data' => $data,
+        );
+        return true;
+    }
 }
 
 class Digitalogic_Logger {
@@ -1223,6 +1288,7 @@ require_once dirname(__DIR__) . '/includes/class-unit-converter.php';
 require_once dirname(__DIR__) . '/includes/class-digitalogic-woocommerce-currency-status.php';
 require_once dirname(__DIR__) . '/includes/class-product-identifier-resolver.php';
 require_once dirname(__DIR__) . '/includes/class-digitalogic-product-query.php';
+require_once dirname(__DIR__) . '/includes/class-digitalogic-product-metadata-inspector.php';
 require_once dirname(__DIR__) . '/includes/class-digitalogic-pricing-input-credential.php'; // phpcs:ignore
 require_once dirname(__DIR__) . '/includes/class-patris-feed.php';
 require_once dirname(__DIR__) . '/includes/class-product-sync-receiver.php';

@@ -154,14 +154,117 @@ class Digitalogic_CLI_Commands {
         
         WP_CLI\Utils\format_items($format, $items, array('ID', 'Name', 'Product Code', 'Price', 'Stock'));
     }
+
+    /**
+     * Get one product by exact WooCommerce ID or SKU.
+     *
+     * ## OPTIONS
+     *
+     * [--id=<product_id>]
+     * : Exact WooCommerce product or variation ID.
+     *
+     * [--sku=<sku>]
+     * : Exact SKU. Numeric and leading-zero SKUs remain strings.
+     *
+     * [--format=<format>]
+     * : table or json. Default: table.
+     *
+     * @when after_wp_load
+     */
+    public function products_get($args, $assoc_args) {
+        $identifiers = $this->product_identifiers($args, $assoc_args);
+        if (is_wp_error($identifiers)) {
+            WP_CLI::error($identifiers->get_error_message());
+            return;
+        }
+
+        $product = Digitalogic_Product_Manager::instance()->get_product_by_identifiers($identifiers);
+        if (is_wp_error($product)) {
+            WP_CLI::error($product->get_error_message());
+            return;
+        }
+
+        $format = isset($assoc_args['format']) ? sanitize_key($assoc_args['format']) : 'table';
+        if ('json' === $format) {
+            WP_CLI::line(wp_json_encode($product, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+            return;
+        }
+
+        WP_CLI\Utils\format_items('table', array($product), array(
+            'id',
+            'name',
+            'sku',
+            'type',
+            'status',
+            'regular_price',
+            'sale_price',
+            'stock_quantity',
+            'stock_status',
+        ));
+    }
+
+    /**
+     * Compare current product meta with its derived lookup row.
+     *
+     * ## OPTIONS
+     *
+     * [--id=<product_id>]
+     * : Exact WooCommerce product or variation ID.
+     *
+     * [--sku=<sku>]
+     * : Exact SKU.
+     *
+     * [--format=<format>]
+     * : table or json. Default: table.
+     *
+     * @when after_wp_load
+     */
+    public function products_metadata($args, $assoc_args) {
+        $identifiers = $this->product_identifiers($args, $assoc_args);
+        if (is_wp_error($identifiers)) {
+            WP_CLI::error($identifiers->get_error_message());
+            return;
+        }
+
+        $metadata = Digitalogic_Product_Manager::instance()->get_product_metadata($identifiers);
+        if (is_wp_error($metadata)) {
+            WP_CLI::error($metadata->get_error_message());
+            return;
+        }
+
+        $format = isset($assoc_args['format']) ? sanitize_key($assoc_args['format']) : 'table';
+        if ('json' === $format) {
+            WP_CLI::line(wp_json_encode($metadata, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+            return;
+        }
+
+        WP_CLI\Utils\format_items('table', array(array(
+            'product_id' => $metadata['product_id'],
+            'sku' => $metadata['sku'],
+            'patris_code' => $metadata['patris_code'],
+            'resolved_by' => $metadata['resolved_by'],
+            'consistent' => $metadata['is_consistent'] ? 'yes' : 'no',
+            'inconsistencies' => $metadata['inconsistency_count'],
+        )), array('product_id', 'sku', 'patris_code', 'resolved_by', 'consistent', 'inconsistencies'));
+
+        foreach ($metadata['inconsistencies'] as $inconsistency) {
+            WP_CLI::warning(wp_json_encode($inconsistency, JSON_UNESCAPED_UNICODE));
+        }
+    }
     
     /**
      * Update a product
      * 
      * ## OPTIONS
      * 
-     * <id>
-     * : Product ID
+     * [<id>]
+     * : Backward-compatible positional WooCommerce product ID.
+     *
+     * [--id=<product_id>]
+     * : Exact WooCommerce product or variation ID.
+     *
+     * [--sku=<sku>]
+     * : Exact current SKU used to select the product.
      * 
      * [--price=<price>]
      * : Regular price
@@ -172,48 +275,55 @@ class Digitalogic_CLI_Commands {
      * [--stock=<quantity>]
      * : Stock quantity
      * 
-     * [--sku=<sku>]
-     * : Product code
+     * [--set-sku=<sku>]
+     * : Replace the selected product's SKU.
      * 
      * ## EXAMPLES
      * 
      *     wp digitalogic products update 123 --price=99.99 --stock=50
+     *     wp digitalogic products update --sku=00123 --set-sku=00124
      * 
      * @when after_wp_load
      */
     public function products_update($args, $assoc_args) {
-        $product_id = intval($args[0]);
+        $identifiers = $this->product_identifiers($args, $assoc_args);
+        if (is_wp_error($identifiers)) {
+            WP_CLI::error($identifiers->get_error_message());
+            return;
+        }
         
         $data = array();
         
         if (isset($assoc_args['price'])) {
-            $data['regular_price'] = floatval($assoc_args['price']);
+            $data['regular_price'] = sanitize_text_field($assoc_args['price']);
         }
         
         if (isset($assoc_args['sale-price'])) {
-            $data['sale_price'] = floatval($assoc_args['sale-price']);
+            $data['sale_price'] = sanitize_text_field($assoc_args['sale-price']);
         }
         
         if (isset($assoc_args['stock'])) {
             $data['stock_quantity'] = intval($assoc_args['stock']);
         }
         
-        if (isset($assoc_args['sku'])) {
-            $data['sku'] = $assoc_args['sku'];
+        if (isset($assoc_args['set-sku'])) {
+            $data['sku'] = sanitize_text_field($assoc_args['set-sku']);
         }
         
         if (empty($data)) {
             WP_CLI::error('No update data provided');
+            return;
         }
         
         $manager = Digitalogic_Product_Manager::instance();
-        $result = $manager->update_product($product_id, $data);
+        $result = $manager->update_product_by_identifiers($identifiers, $data);
         
         if (is_wp_error($result)) {
             WP_CLI::error($result->get_error_message());
+            return;
         }
         
-        WP_CLI::success('Product #' . $product_id . ' updated');
+        WP_CLI::success('Product updated.');
     }
     
     /**
@@ -791,6 +901,32 @@ class Digitalogic_CLI_Commands {
 		return false;
 	}
 
+    /**
+     * Build one unambiguous exact product selector for shared services.
+     *
+     * @param array $args Positional command arguments.
+     * @param array $assoc_args Named command arguments.
+     * @return array|WP_Error
+     */
+    private function product_identifiers($args, $assoc_args) {
+        $has_positional = isset($args[0]) && '' !== trim((string) $args[0]);
+        $has_id = isset($assoc_args['id']) && '' !== trim((string) $assoc_args['id']);
+        $has_sku = isset($assoc_args['sku']) && '' !== trim((string) $assoc_args['sku']);
+
+        if ((int) $has_positional + (int) $has_id + (int) $has_sku !== 1) {
+            return new WP_Error(
+                'digitalogic_cli_product_selector',
+                'Specify exactly one product selector: positional ID, --id, or --sku.'
+            );
+        }
+
+        if ($has_sku) {
+            return array('sku' => (string) $assoc_args['sku']);
+        }
+
+        return array('woocommerce_id' => (string) ($has_id ? $assoc_args['id'] : $args[0]));
+    }
+
 	/**
 	 * Print a newly issued secret once, followed by nonsecret metadata.
 	 *
@@ -813,6 +949,8 @@ class Digitalogic_CLI_Commands {
 WP_CLI::add_command('digitalogic currency get', array('Digitalogic_CLI_Commands', 'currency_get'));
 WP_CLI::add_command('digitalogic currency update', array('Digitalogic_CLI_Commands', 'currency_update'));
 WP_CLI::add_command('digitalogic products list', array('Digitalogic_CLI_Commands', 'products_list'));
+WP_CLI::add_command('digitalogic products get', array('Digitalogic_CLI_Commands', 'products_get'));
+WP_CLI::add_command('digitalogic products metadata', array('Digitalogic_CLI_Commands', 'products_metadata'));
 WP_CLI::add_command('digitalogic products update', array('Digitalogic_CLI_Commands', 'products_update'));
 WP_CLI::add_command('digitalogic export', array('Digitalogic_CLI_Commands', 'export'));
 WP_CLI::add_command('digitalogic import', array('Digitalogic_CLI_Commands', 'import'));

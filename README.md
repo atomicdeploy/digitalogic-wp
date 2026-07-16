@@ -265,6 +265,9 @@ wp digitalogic currency update --usd=42000 --cny=6000 --recalculate
 # Product operations
 wp digitalogic products list --limit=20 --search=arduino
 wp digitalogic products update 123 --price=99.99 --stock=50
+wp digitalogic products get --sku=001230 --format=json
+wp digitalogic products metadata --id=123 --format=json
+wp digitalogic products update --sku=001230 --set-sku=001231
 
 # Import/Export
 wp digitalogic export --format=csv --output=/path/to/export.csv
@@ -277,6 +280,9 @@ wp digitalogic import /path/to/products.xlsx
 # Logs
 wp digitalogic logs --limit=50 --action=update_product
 ```
+
+See [WP-CLI product commands](docs/CLI.md) for exact ID/SKU selection,
+diagnostic output, permissions, and update semantics.
 
 ## Development
 

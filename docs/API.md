@@ -114,6 +114,27 @@ curl -u key:secret "https://yoursite.com/wp-json/digitalogic/v1/products?page=1&
 }
 ```
 
+The same product can be read or updated by an exact, case-sensitive SKU:
+
+- **GET** `/products/sku/{sku}`
+- **PUT** `/products/sku/{sku}`
+
+Numeric and leading-zero SKUs remain strings. Duplicate exact SKUs return HTTP
+409 instead of selecting an arbitrary product or variation.
+
+### Product Metadata Diagnostics
+
+- **GET** `/products/{id}/metadata`
+- **GET** `/products/sku/{sku}/metadata`
+
+These routes use the `diagnostic` permission scope. They return a whitelisted
+snapshot of current product post meta, the matching derived
+`wc_product_meta_lookup` row, and structured inconsistency records. The normal
+WooCommerce CRUD object and current post meta remain authoritative; lookup data
+is never copied back implicitly. Administrators can refresh one lookup row from
+**Digitalogic → Product Diagnostics** using WooCommerce's supported data-store
+API.
+
 ---
 
 ### Bulk Update Products

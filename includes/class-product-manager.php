@@ -243,6 +243,69 @@ class Digitalogic_Product_Manager {
         
         return $this->format_product_data($product);
     }
+
+    /**
+     * Resolve and return one product through the shared exact identifier policy.
+     *
+     * @param array $identifiers WooCommerce ID, exact SKU, Patris Code, or code.
+     * @return array|WP_Error
+     */
+    public function get_product_by_identifiers($identifiers) {
+        $resolved = Digitalogic_Product_Identifier_Resolver::instance()->resolve($identifiers);
+        if (is_wp_error($resolved)) {
+            return $resolved;
+        }
+
+        $product = $this->get_product((int) $resolved['woocommerce_id']);
+        if (!$product) {
+            return new WP_Error(
+                'digitalogic_product_unavailable',
+                __('The resolved product is no longer available.', 'digitalogic'),
+                array('status' => 404)
+            );
+        }
+
+        $product['resolved_by'] = (string) $resolved['resolved_by'];
+        $product['resolved_identifier'] = (string) $resolved['identifier'];
+
+        return $product;
+    }
+
+    /**
+     * Backward-compatible exact SKU lookup.
+     *
+     * @param string $sku Exact SKU, preserved as a string.
+     * @return array|WP_Error
+     */
+    public function get_product_by_sku($sku) {
+        return $this->get_product_by_identifiers(array('sku' => (string) $sku));
+    }
+
+    /**
+     * Inspect current post meta against the derived WooCommerce lookup row.
+     *
+     * @param array $identifiers Exact identifier object.
+     * @return array|WP_Error
+     */
+    public function get_product_metadata($identifiers) {
+        return Digitalogic_Product_Metadata_Inspector::instance()->inspect($identifiers);
+    }
+
+    /**
+     * Resolve one exact identifier and update through the normal CRUD path.
+     *
+     * @param array $identifiers Exact identifier object.
+     * @param array $data Product fields accepted by update_product().
+     * @return bool|WP_Error
+     */
+    public function update_product_by_identifiers($identifiers, $data) {
+        $resolved = Digitalogic_Product_Identifier_Resolver::instance()->resolve($identifiers);
+        if (is_wp_error($resolved)) {
+            return $resolved;
+        }
+
+        return $this->update_product((int) $resolved['woocommerce_id'], $data);
+    }
     
     /**
      * Format product data for output

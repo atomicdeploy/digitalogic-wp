@@ -237,7 +237,11 @@ final class RestApiPermissionsTest extends TestCase {
         $expected = array(
             'GET /products' => 'check_read_permission',
             'GET /products/(?P<id>\d+)' => 'check_read_permission',
+            'GET /products/sku/(?P<sku>[^/]+)' => 'check_read_permission',
             'PUT /products/(?P<id>\d+)' => 'check_write_permission',
+            'PUT /products/sku/(?P<sku>[^/]+)' => 'check_write_permission',
+            'GET /products/(?P<id>\d+)/metadata' => 'check_diagnostic_permission',
+            'GET /products/sku/(?P<sku>[^/]+)/metadata' => 'check_diagnostic_permission',
             'POST /products/batch' => 'check_write_permission',
             'GET /currency' => 'check_read_permission',
             'POST /currency' => 'check_write_permission',

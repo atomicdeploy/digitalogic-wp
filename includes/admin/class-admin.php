@@ -154,6 +154,15 @@ class Digitalogic_Admin {
 
         $this->page_hooks[] = add_submenu_page(
             'digitalogic',
+            __('Product Metadata Diagnostics', 'digitalogic'),
+            __('Product Diagnostics', 'digitalogic'),
+            'manage_woocommerce',
+            'digitalogic-product-diagnostics',
+            array($this, 'render_product_diagnostics_page')
+        );
+
+        $this->page_hooks[] = add_submenu_page(
+            'digitalogic',
             __('UI Settings', 'digitalogic'),
             __('UI Settings', 'digitalogic'),
             'manage_options',
@@ -821,6 +830,80 @@ class Digitalogic_Admin {
      */
     public function render_status_page() {
         include DIGITALOGIC_PLUGIN_DIR . 'includes/admin/views/status.php';
+    }
+
+    /**
+     * Render exact-ID/SKU metadata diagnostics and an explicit lookup refresh.
+     */
+    public function render_product_diagnostics_page() {
+        if (!current_user_can('manage_woocommerce')) {
+            wp_die(esc_html__('You do not have permission to access this page.', 'digitalogic'));
+        }
+
+        $metadata = null;
+        $diagnostic_error = null;
+        $notice = '';
+        $notice_type = 'success';
+        $selector_type = '';
+        $selector_value = '';
+
+        if (isset($_POST['digitalogic_refresh_product_lookup'])) {
+            check_admin_referer('digitalogic_refresh_product_lookup');
+            $selector_type = isset($_POST['selector_type']) ? sanitize_key(wp_unslash($_POST['selector_type'])) : '';
+            $selector_value = isset($_POST['selector_value']) ? sanitize_text_field(wp_unslash($_POST['selector_value'])) : '';
+        } else {
+            $product_id = isset($_GET['product_id']) ? sanitize_text_field(wp_unslash($_GET['product_id'])) : '';
+            $sku = isset($_GET['sku']) ? sanitize_text_field(wp_unslash($_GET['sku'])) : '';
+            if ('' !== $product_id && '' !== $sku) {
+                $diagnostic_error = new WP_Error(
+                    'digitalogic_product_diagnostic_selector',
+                    __('Enter either a WooCommerce ID or an exact SKU, not both.', 'digitalogic')
+                );
+            } elseif ('' !== $product_id) {
+                $selector_type = 'woocommerce_id';
+                $selector_value = $product_id;
+            } elseif ('' !== $sku) {
+                $selector_type = 'sku';
+                $selector_value = $sku;
+            }
+        }
+
+        if (!$diagnostic_error && '' !== $selector_type && '' !== $selector_value) {
+            if (!in_array($selector_type, array('woocommerce_id', 'sku'), true)) {
+                $diagnostic_error = new WP_Error(
+                    'digitalogic_product_diagnostic_selector',
+                    __('The product selector is invalid.', 'digitalogic')
+                );
+            } else {
+                $metadata = Digitalogic_Product_Metadata_Inspector::instance()->inspect(array(
+                    $selector_type => $selector_value,
+                ));
+                if (is_wp_error($metadata)) {
+                    $diagnostic_error = $metadata;
+                    $metadata = null;
+                }
+            }
+        }
+
+        if ($metadata && isset($_POST['digitalogic_refresh_product_lookup'])) {
+            try {
+                Digitalogic_Product_Table::instance()->regenerate_lookup_tables(array($metadata['product_id']));
+                $metadata = Digitalogic_Product_Metadata_Inspector::instance()->inspect(array(
+                    $selector_type => $selector_value,
+                ));
+                if (is_wp_error($metadata)) {
+                    $diagnostic_error = $metadata;
+                    $metadata = null;
+                } else {
+                    $notice = __('The derived WooCommerce lookup row was refreshed for this product.', 'digitalogic');
+                }
+            } catch (Throwable $error) {
+                $notice = __('WooCommerce could not refresh this product lookup row.', 'digitalogic');
+                $notice_type = 'error';
+            }
+        }
+
+        include DIGITALOGIC_PLUGIN_DIR . 'includes/admin/views/product-diagnostics.php';
     }
 
     /**
