@@ -132,7 +132,6 @@ final class PatrisFeedResolutionTest extends TestCase {
 
     private function resetSingleton($class) {
         $property = new ReflectionProperty($class, 'instance');
-        $property->setAccessible(true);
         $property->setValue(null, null);
     }
 }

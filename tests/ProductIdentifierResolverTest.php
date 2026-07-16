@@ -37,7 +37,6 @@ final class ProductIdentifierResolverTest extends TestCase {
         $GLOBALS['wpdb'] = new Digitalogic_Test_WPDB();
 
         $instance = new ReflectionProperty(Digitalogic_Product_Identifier_Resolver::class, 'instance');
-        $instance->setAccessible(true);
         $instance->setValue(null, null);
         $this->resolver = Digitalogic_Product_Identifier_Resolver::instance();
     }

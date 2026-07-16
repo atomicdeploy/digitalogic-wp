@@ -270,7 +270,6 @@ final class ImportFreightServiceTest extends TestCase {
 
     public function test_lock_is_released_when_a_mutation_callback_throws() {
         $lock = new ReflectionMethod(Digitalogic_Import_Freight_Service::class, 'with_catalog_lock');
-        $lock->setAccessible(true);
 
         $result = $lock->invoke($this->service, function() {
             throw new RuntimeException('injected callback failure');
@@ -1014,7 +1013,6 @@ final class ImportFreightServiceTest extends TestCase {
 
     private function resetSingleton($class_name) {
         $property = new ReflectionProperty($class_name, 'instance');
-        $property->setAccessible(true);
         $property->setValue(null, null);
     }
 }

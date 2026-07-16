@@ -30,7 +30,7 @@ jobs:
         
     - name: Get Composer cache directory
       id: composer-cache
-      run: echo "dir=$(composer config cache-files-dir)" >> $GITHUB_OUTPUT
+      run: echo "dir=$(composer config cache-files-dir)" >> "$GITHUB_OUTPUT"
       
     - name: Cache Composer dependencies
       uses: actions/cache@v4
@@ -102,7 +102,7 @@ jobs:
       run: composer install --prefer-dist --no-progress
       
     - name: Check for known security vulnerabilities
-      run: composer audit || true
+      run: composer audit --locked
       
   build:
     name: Build Plugin

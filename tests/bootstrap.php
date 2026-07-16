@@ -372,6 +372,26 @@ function get_post_type($post_id) {
         : null;
 }
 
+function get_post($post_id) {
+    $post_id = (int) $post_id;
+    if (!isset($GLOBALS['digitalogic_test_posts'][$post_id])) {
+        return null;
+    }
+
+    return (object) array_merge(
+        array(
+            'ID' => $post_id,
+            'post_content' => '',
+            'post_excerpt' => '',
+        ),
+        $GLOBALS['digitalogic_test_posts'][$post_id]
+    );
+}
+
+function get_post_thumbnail_id($post_id) {
+    return 0;
+}
+
 function get_post_meta($post_id, $key = '', $single = false) {
     if (!isset($GLOBALS['digitalogic_test_posts'][$post_id])) {
         return $single ? '' : array();

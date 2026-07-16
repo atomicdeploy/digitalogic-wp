@@ -6,7 +6,7 @@ This guide helps you test the plugin installation and verify all features are wo
 
 - WordPress 6.0 or higher
 - WooCommerce 7.0 or higher (8.2+ recommended)
-- PHP 8.2 or higher
+- PHP 8.3 or higher
 - WP-CLI installed (optional, for CLI testing)
 
 ## Installation Testing

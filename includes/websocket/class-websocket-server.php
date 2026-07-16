@@ -16,7 +16,7 @@ class Digitalogic_WebSocket_Server {
     private $redis_channel = 'digitalogic_panel_events';
 
     public function run($host = '127.0.0.1', $port = 8090) {
-        $server = stream_socket_server('tcp://' . $host . ':' . $port, $errno, $errstr);
+        $server = @stream_socket_server('tcp://' . $host . ':' . $port, $errno, $errstr);
         if (!$server) {
             throw new RuntimeException($errstr, $errno);
         }
