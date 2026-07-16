@@ -1430,6 +1430,14 @@ class Digitalogic_Product_Sync_Receiver {
         return null;
     }
 
+    private function v2_terminal_resolution_reason($error_code) {
+        // v2 collapsed SQL lookup failures into not_found, so only a proven
+        // multi-row ambiguity can be migrated without first querying again.
+        return 'digitalogic_product_identifier_ambiguous' === $error_code
+            ? 'ambiguous'
+            : null;
+    }
+
     /**
      * Project v2 delivery state into v3 without discarding retry metadata.
      *
@@ -1449,7 +1457,7 @@ class Digitalogic_Product_Sync_Receiver {
             $deferred = array();
             foreach ($pending as $code => $entry) {
                 $reason = is_array($entry)
-                    ? $this->terminal_resolution_reason((string) ($entry['last_error'] ?? ''))
+                    ? $this->v2_terminal_resolution_reason((string) ($entry['last_error'] ?? ''))
                     : null;
                 if (null === $reason) {
                     continue;

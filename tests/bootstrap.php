@@ -647,6 +647,10 @@ class Digitalogic_Test_WPDB {
     public $mysql_string_roundtrip = false;
     public $after_rollback = null;
     public $identifier_query_count = 0;
+    public $identifier_prepare_failure = false;
+    public $identifier_query_failure = false;
+    public $identifier_query_last_error = '';
+    public $last_error = '';
     public $option_read_counts = array();
     // phpcs:disable -- Deterministic lifecycle-interleaving hooks for focused tests.
     public $before_get_lock = null;
@@ -658,6 +662,11 @@ class Digitalogic_Test_WPDB {
     private $next_meta_id = 1;
 
     public function prepare($query, ...$args) {
+        if ($this->identifier_prepare_failure && strpos((string) $query, 'digitalogic_identifier:') !== false) {
+            $this->last_error = 'Injected identifier prepare failure.';
+            return false;
+        }
+
         return array(
             'query' => $query,
             'args' => $args,
@@ -727,6 +736,17 @@ class Digitalogic_Test_WPDB {
         }
 
         $this->identifier_query_count++;
+        if ($this->identifier_query_failure) {
+            $this->last_error = '' !== $this->identifier_query_last_error
+                ? $this->identifier_query_last_error
+                : 'Injected identifier query failure.';
+            return null;
+        }
+        if ('' !== $this->identifier_query_last_error) {
+            $this->last_error = $this->identifier_query_last_error;
+            return array();
+        }
+        $this->last_error = '';
         $rows = array();
         foreach ($GLOBALS['digitalogic_test_posts'] as $post_id => $post) {
             if (!in_array($post['post_type'], array('product', 'product_variation'), true)) {

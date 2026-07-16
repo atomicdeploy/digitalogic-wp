@@ -614,7 +614,33 @@ final class ProductSyncReceiverTest extends TestCase {
         $this->assertSame(1, $recovered['deferred_products']);
     }
 
-    public function test_v2_state_migrates_terminal_resolution_failures_without_a_retry(): void {
+    public function test_identifier_query_failure_stays_pending_until_an_identical_retry_can_resolve(): void {
+        $product = $this->productWithCode(0, 'QUERY-FAILURE');
+        $event = $this->envelope('snapshot', array($product), array($product), '2026-07-16T11:16:45Z');
+        $GLOBALS['wpdb']->identifier_query_failure = true;
+
+        $failed = Digitalogic_Product_Sync_Receiver::instance()->receive($event);
+        $this->assertSame('partially_applied', $failed['status']);
+        $this->assertTrue($failed['retryable']);
+        $this->assertSame(1, $failed['pending_products']);
+        $this->assertSame(0, $failed['deferred_products']);
+        $this->assertSame(1, $failed['woocommerce']['failed']);
+        $this->assertSame(
+            'digitalogic_product_identifier_query_failed',
+            $failed['woocommerce']['errors'][0]['code']
+        );
+        $this->assertTrue($failed['woocommerce']['errors'][0]['retryable']);
+
+        $GLOBALS['wpdb']->identifier_query_failure = false;
+        $recovered = Digitalogic_Product_Sync_Receiver::instance()->receive($event);
+        $this->assertSame('recovered', $recovered['status']);
+        $this->assertFalse($recovered['retryable']);
+        $this->assertSame(0, $recovered['pending_products']);
+        $this->assertSame(1, $recovered['deferred_products']);
+        $this->assertSame(1, $recovered['woocommerce']['missing']);
+    }
+
+    public function test_v2_not_found_state_is_requeried_before_it_can_be_deferred(): void {
         $product = $this->productWithCode(0, 'MIGRATE-MISSING');
         $event = $this->envelope('snapshot', array($product), array($product), '2026-07-16T11:17:00Z');
         $this->assertSame('accepted', Digitalogic_Product_Sync_Receiver::instance()->receive($event)['status']);
@@ -629,14 +655,16 @@ final class ProductSyncReceiverTest extends TestCase {
 
         $projected = Digitalogic_Product_Sync_Receiver::instance()->get_state();
         $this->assertSame(3, $projected['version']);
-        $this->assertCount(0, $projected['sources'][$source_key]['pending_products']);
-        $this->assertCount(1, $projected['sources'][$source_key]['deferred_products']);
+        $this->assertCount(1, $projected['sources'][$source_key]['pending_products']);
+        $this->assertCount(0, $projected['sources'][$source_key]['deferred_products']);
         $this->assertSame(2, get_option(Digitalogic_Product_Sync_Receiver::STATE_OPTION, array())['version']);
 
+        $GLOBALS['wpdb']->identifier_query_count = 0;
         $replay = Digitalogic_Product_Sync_Receiver::instance()->receive($event);
-        $this->assertSame('replayed', $replay['status']);
+        $this->assertSame('recovered', $replay['status']);
         $this->assertSame(0, $replay['pending_products']);
         $this->assertSame(1, $replay['deferred_products']);
+        $this->assertSame(1, $GLOBALS['wpdb']->identifier_query_count);
         $this->assertSame(3, get_option(Digitalogic_Product_Sync_Receiver::STATE_OPTION, array())['version']);
         $this->assertEmpty($GLOBALS['digitalogic_test_wc_product_saves']);
     }

@@ -123,4 +123,27 @@ final class ProductIdentifierResolverTest extends TestCase {
         $not_product = $this->resolver->resolve(array('woocommerce_id' => '700', 'sku' => 'SKU-601'));
         $this->assertSame('digitalogic_product_identifier_not_found', $not_product->get_error_code());
     }
+
+    // phpcs:disable -- Match the established PHPUnit fixture style in this baseline-managed test file.
+    public function test_database_failures_propagate_from_every_resolution_path_as_retryable(): void {
+        $GLOBALS['wpdb']->identifier_query_failure = true;
+        $code = $this->resolver->resolve(array('code' => 'MISSING-CODE'));
+        $this->assertSame('digitalogic_product_identifier_query_failed', $code->get_error_code());
+        $this->assertSame(503, $code->get_error_data()['status']);
+        $this->assertTrue($code->get_error_data()['retryable']);
+        $this->assertArrayNotHasKey('database_error', $code->get_error_data());
+
+        $GLOBALS['wpdb']->identifier_query_failure = false;
+        $GLOBALS['wpdb']->identifier_query_last_error = 'Injected SQL details that must not escape.';
+        $meta = $this->resolver->resolve(array('sku' => 'MISSING-SKU'));
+        $this->assertSame('digitalogic_product_identifier_query_failed', $meta->get_error_code());
+        $this->assertStringNotContainsString('Injected SQL', $meta->get_error_message());
+
+        $GLOBALS['wpdb']->identifier_query_last_error = '';
+        $GLOBALS['wpdb']->identifier_prepare_failure = true;
+        $woocommerce_id = $this->resolver->resolve(array('woocommerce_id' => '601'));
+        $this->assertSame('digitalogic_product_identifier_query_failed', $woocommerce_id->get_error_code());
+        $this->assertSame(503, $woocommerce_id->get_error_data()['status']);
+    }
+    // phpcs:enable
 }

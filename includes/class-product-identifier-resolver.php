@@ -98,6 +98,9 @@ final class Digitalogic_Product_Identifier_Resolver {
             "(BINARY {$current_sku} = BINARY %s OR BINARY {$current_patris} = BINARY %s)",
             array($code, $code)
         );
+        if (is_wp_error($rows)) {
+            return $rows;
+        }
 
         $sku_matches = array();
         $patris_matches = array();
@@ -138,6 +141,9 @@ final class Digitalogic_Product_Identifier_Resolver {
 
     private function resolve_woocommerce_id($woocommerce_id) {
         $rows = $this->query_rows('woocommerce_id', 'p.ID = %d', array((int) $woocommerce_id));
+        if (is_wp_error($rows)) {
+            return $rows;
+        }
         if (empty($rows)) {
             return $this->not_found('No product or variation has that exact WooCommerce ID.');
         }
@@ -156,6 +162,9 @@ final class Digitalogic_Product_Identifier_Resolver {
             "BINARY {$current_value} = BINARY %s",
             array($meta_key, $value)
         );
+        if (is_wp_error($rows)) {
+            return $rows;
+        }
 
         // Defend exactness again in PHP in case a database collation or test
         // adapter returns a broader row set than the BINARY predicate.
@@ -177,6 +186,9 @@ final class Digitalogic_Product_Identifier_Resolver {
      */
     private function query_rows($marker, $predicate, $args) {
         global $wpdb;
+        if (!is_object($wpdb) || !method_exists($wpdb, 'prepare') || !method_exists($wpdb, 'get_results')) {
+            return $this->query_failed();
+        }
         $posts = isset($wpdb->posts) ? $wpdb->posts : $wpdb->prefix . 'posts';
         $postmeta = isset($wpdb->postmeta) ? $wpdb->postmeta : $wpdb->prefix . 'postmeta';
         $query = "/* digitalogic_identifier:{$marker} */
@@ -197,7 +209,21 @@ final class Digitalogic_Product_Identifier_Resolver {
                 AND {$predicate}
             ORDER BY p.ID ASC";
 
-        return $wpdb->get_results($wpdb->prepare($query, ...$args), ARRAY_A);
+        try {
+            $prepared = $wpdb->prepare($query, ...$args);
+            if (false === $prepared || null === $prepared || '' === $prepared) {
+                return $this->query_failed();
+            }
+            $rows = $wpdb->get_results($prepared, ARRAY_A);
+        } catch (Throwable) {
+            return $this->query_failed();
+        }
+
+        if (!is_array($rows) || '' !== trim((string) ($wpdb->last_error ?? ''))) {
+            return $this->query_failed();
+        }
+
+        return $rows;
     }
 
     private function one_or_ambiguous($rows, $resolved_by, $value) {
@@ -273,6 +299,17 @@ final class Digitalogic_Product_Identifier_Resolver {
             'digitalogic_product_identifier_not_found',
             __($message, 'digitalogic'),
             array('status' => 404)
+        );
+    }
+
+    private function query_failed() {
+        return new WP_Error(
+            'digitalogic_product_identifier_query_failed',
+            __('The product identifier lookup could not be completed.', 'digitalogic'),
+            array(
+                'status' => 503,
+                'retryable' => true,
+            )
         );
     }
 }

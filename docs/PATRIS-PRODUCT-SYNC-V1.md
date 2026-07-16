@@ -144,10 +144,13 @@ writes. Each source has an applied `{record_hash,woocommerce_id}` CAS record, a
 transient `pending_products` outbox, and a terminal `deferred_products`
 reconciliation set. A successful persisted Woo record hash acknowledges
 crash-window retries without a duplicate save. Woo lookup/storage/write
-failures stay pending; exact Code not-found and ambiguity move to deferred and
-are never guessed. The final delivery state is read back before the result-aware
+failures, including identifier database query failures, stay pending; exact
+Code not-found and ambiguity move to deferred only after a successful lookup
+and are never guessed. The final delivery state is read back before the result-aware
 `digitalogic_product_sync_v1_applied` domain action. Existing v2 receiver state
 is projected and transactionally persisted as v3 under the same advisory lock.
+Because v2 could not distinguish SQL failure from not-found, its not-found
+entries stay pending until one successful v3 lookup reclassifies them.
 This state is independent of the legacy Patris feed option.
 
 ## Successful response

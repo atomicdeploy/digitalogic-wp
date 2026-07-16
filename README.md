@@ -185,7 +185,8 @@ The v1 receiver uses a dedicated header-only secret, independently recomputes
 `landed_price_v1`, verifies record/source/occurrence hashes, merges deltas, and
 keeps transient Woo failures in a durable idempotent outbox. Missing and
 ambiguous Codes are bounded terminal reconciliation work, so they do not cause
-Patris HTTP retries. Patris Code is canonical and deleted Codes are
+Patris HTTP retries. Database prepare/query failures remain transient and can
+never be reported as missing. Patris Code is canonical and deleted Codes are
 receiver-state tombstones, never WooCommerce deletions. Inspect nonsecret counts
 with `wp digitalogic product-sync status`; an administrator can retry only
 durable pending/deferred work with `wp digitalogic product-sync reconcile
