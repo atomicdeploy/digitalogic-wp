@@ -102,6 +102,16 @@ Update currency exchange rates:
 **Admin Interface:**
 Navigate to Digitalogic → Currency Settings
 
+Legacy WordPress dashboard and status summaries display exchange rates as
+half-up rounded integers with locale-aware thousands separators. Persian
+(`fa*`) administrator locales also use Persian digits. This formatting is
+presentation-only: stored rates and API values keep their original precision.
+
+WooCommerce remains the source of truth for the local currency. `IRT` values
+are Tomans. `IRR` values remain Rials and must be divided by 10 before being
+represented as Tomans; the plugin therefore does not provide a symbol-only
+IRR/Toman toggle.
+
 **WP-CLI:**
 ```bash
 wp digitalogic currency update --usd=42000 --cny=6000 --recalculate
