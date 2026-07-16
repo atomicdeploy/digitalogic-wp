@@ -39,12 +39,22 @@ once, followed by nonsecret JSON metadata. Move that first line directly into
 the protected Patris process environment. Status and revoke output metadata
 only. Rotation and revocation invalidate the preceding value immediately.
 
+Lifecycle mutations use a bounded, site-specific MySQL advisory lock plus a
+row-locked transaction and exact readback. Create and rotate compare the
+authoritative record they observed before waiting with the record inside the
+lock, so overlapping callers cannot both reveal credentials. Revoke always
+acts on the current locked generation, which prevents a waiting rotation from
+undoing it. A secret is printed only after its transaction commits and passes
+readback; retry a reported busy or concurrent-change error as a new command.
+
 WordPress stores only a SHA-256 verifier for the high-entropy generated value,
 its nonsecret ID/generation, state, and UTC lifecycle timestamps. The verifier
 is compared in constant time. Repeated failed supplied-Authorization attempts
 are throttled in a token-free client/generation bucket; a correct credential is
 verified before that bucket and clears it, so unrelated failures cannot lock
 Patris out. Tokens are not written to application logs or throttle state.
+Verification and status bypass WordPress/Redis option caches, so a stale cached
+verifier cannot extend an old credential after rotation or revocation.
 
 ## Patris environment wiring
 

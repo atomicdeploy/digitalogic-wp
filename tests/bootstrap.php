@@ -648,6 +648,11 @@ class Digitalogic_Test_WPDB {
     public $after_rollback = null;
     public $identifier_query_count = 0;
     public $option_read_counts = array();
+    // phpcs:disable -- Deterministic lifecycle-interleaving hooks for focused tests.
+    public $before_get_lock = null;
+    public $after_option_write = null;
+    public $lock_timeouts = array();
+    // phpcs:enable
     private $transaction_snapshot = null;
     private $meta_ids = array();
     private $next_meta_id = 1;
@@ -663,6 +668,15 @@ class Digitalogic_Test_WPDB {
         $query = is_array($prepared) && isset($prepared['query']) ? $prepared['query'] : (string) $prepared;
         if (strpos($query, 'GET_LOCK') !== false) {
             $this->acquire_count++;
+            // phpcs:disable -- Test-only interleaving hook follows the legacy bootstrap style.
+            $args = is_array($prepared) && isset($prepared['args']) ? $prepared['args'] : array();
+            $this->lock_timeouts[] = isset($args[1]) ? (int) $args[1] : null;
+            $callback = $this->before_get_lock;
+            $this->before_get_lock = null;
+            if (is_callable($callback)) {
+                call_user_func($callback, $this);
+            }
+            // phpcs:enable
             return $this->acquire_result;
         }
 
@@ -769,6 +783,13 @@ class Digitalogic_Test_WPDB {
             }
             $GLOBALS['digitalogic_test_options'][$name] = $this->stored_database_value($data['option_value']);
             $this->insert_id++;
+            // phpcs:disable -- Test-only interleaving hook follows the legacy bootstrap style.
+            $callback = $this->after_option_write;
+            $this->after_option_write = null;
+            if (is_callable($callback)) {
+                call_user_func($callback, $this, $name);
+            }
+            // phpcs:enable
             return 1;
         }
 
@@ -800,6 +821,13 @@ class Digitalogic_Test_WPDB {
                 return 0;
             }
             $GLOBALS['digitalogic_test_options'][$name] = $this->stored_database_value($data['option_value']);
+            // phpcs:disable -- Test-only interleaving hook follows the legacy bootstrap style.
+            $callback = $this->after_option_write;
+            $this->after_option_write = null;
+            if (is_callable($callback)) {
+                call_user_func($callback, $this, $name);
+            }
+            // phpcs:enable
             return 1;
         }
 

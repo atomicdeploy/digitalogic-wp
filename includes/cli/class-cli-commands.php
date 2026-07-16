@@ -689,9 +689,15 @@ class Digitalogic_CLI_Commands {
 			return;
 		}
 
+		$result = Digitalogic_Pricing_Input_Credential::instance()->status();
+		if ( is_wp_error( $result ) ) {
+			WP_CLI::error( $result->get_error_message() );
+			return;
+		}
+
 		WP_CLI::line(
 			wp_json_encode(
-				Digitalogic_Pricing_Input_Credential::instance()->status(),
+				$result,
 				JSON_UNESCAPED_SLASHES
 			)
 		);

@@ -22,6 +22,8 @@ final class Digitalogic_Pricing_Input_Credential {
 	private const FAILURE_WINDOW       = 60;
 	private const FAILURE_BLOCK_PERIOD = 300;
 	private const THROTTLE_PREFIX      = 'digitalogic_pricing_input_auth_';
+	private const LOCK_NAME            = 'digitalogic_pricing_input_credential_v1';
+	private const LOCK_TIMEOUT_SECONDS = 3;
 
 	/**
 	 * Shared service instance.
@@ -59,7 +61,11 @@ final class Digitalogic_Pricing_Input_Credential {
 			return $this->error( 'digitalogic_pricing_input_unauthorized', 401 );
 		}
 
-		$record         = $this->read_record();
+		$record_row = $this->read_record_db();
+		if ( is_wp_error( $record_row ) ) {
+			return $this->error( 'digitalogic_pricing_input_unavailable', 503 );
+		}
+		$record         = $record_row['value'];
 		$throttle_key   = $this->throttle_key( $record );
 		$throttle_state = get_transient( $throttle_key );
 
@@ -96,24 +102,40 @@ final class Digitalogic_Pricing_Input_Credential {
 	 * @return array|WP_Error Secret and nonsecret metadata, or an error.
 	 */
 	public function create() {
-		$record = $this->read_record();
-		$state  = $this->record_state( $record );
-
-		if ( 'active' === $state ) {
-			return new WP_Error(
-				'digitalogic_pricing_input_already_active',
-				'An active pricing-input credential already exists; rotate it instead.',
-				array( 'status' => 409 )
-			);
+		$observed = $this->read_record_db();
+		if ( is_wp_error( $observed ) ) {
+			return $observed;
 		}
+		$fingerprint = $this->record_fingerprint( $observed );
 
-		if ( 'invalid' === $state ) {
-			return $this->configuration_error();
-		}
+		return $this->with_lifecycle_lock(
+			function () use ( $fingerprint ) {
+				$current = $this->read_record_db();
+				if ( is_wp_error( $current ) ) {
+					return $current;
+				}
+				if ( ! hash_equals( $fingerprint, $this->record_fingerprint( $current ) ) ) {
+					return $this->concurrency_error();
+				}
 
-		$generation = 'revoked' === $state ? ( (int) $record['generation'] + 1 ) : 1;
+				$record = $current['value'];
+				$state  = $this->record_state( $record );
+				if ( 'active' === $state ) {
+					return new WP_Error(
+						'digitalogic_pricing_input_already_active',
+						'An active pricing-input credential already exists; rotate it instead.',
+						array( 'status' => 409 )
+					);
+				}
+				if ( 'invalid' === $state ) {
+					return $this->configuration_error();
+				}
 
-		return $this->issue( null, $generation, false );
+				$generation = 'revoked' === $state ? ( (int) $record['generation'] + 1 ) : 1;
+
+				return $this->issue_locked( $current, null, $generation, false );
+			}
+		);
 	}
 
 	/**
@@ -122,16 +144,34 @@ final class Digitalogic_Pricing_Input_Credential {
 	 * @return array|WP_Error Secret and nonsecret metadata, or an error.
 	 */
 	public function rotate() {
-		$record = $this->read_record();
-		if ( 'active' !== $this->record_state( $record ) ) {
-			return new WP_Error(
-				'digitalogic_pricing_input_not_active',
-				'No active pricing-input credential is available to rotate.',
-				array( 'status' => 409 )
-			);
+		$observed = $this->read_record_db();
+		if ( is_wp_error( $observed ) ) {
+			return $observed;
 		}
+		$fingerprint = $this->record_fingerprint( $observed );
 
-		return $this->issue( $record, (int) $record['generation'] + 1, true );
+		return $this->with_lifecycle_lock(
+			function () use ( $fingerprint ) {
+				$current = $this->read_record_db();
+				if ( is_wp_error( $current ) ) {
+					return $current;
+				}
+				if ( ! hash_equals( $fingerprint, $this->record_fingerprint( $current ) ) ) {
+					return $this->concurrency_error();
+				}
+
+				$record = $current['value'];
+				if ( 'active' !== $this->record_state( $record ) ) {
+					return new WP_Error(
+						'digitalogic_pricing_input_not_active',
+						'No active pricing-input credential is available to rotate.',
+						array( 'status' => 409 )
+					);
+				}
+
+				return $this->issue_locked( $current, $record, (int) $record['generation'] + 1, true );
+			}
+		);
 	}
 
 	/**
@@ -140,39 +180,50 @@ final class Digitalogic_Pricing_Input_Credential {
 	 * @return array|WP_Error Nonsecret status metadata, or an error.
 	 */
 	public function revoke() {
-		$record = $this->read_record();
-		$state  = $this->record_state( $record );
+		return $this->with_lifecycle_lock(
+			function () {
+				$current = $this->read_record_db();
+				if ( is_wp_error( $current ) ) {
+					return $current;
+				}
 
-		if ( 'revoked' === $state ) {
-			return $this->metadata( $record );
-		}
+				$record = $current['value'];
+				$state  = $this->record_state( $record );
+				if ( 'revoked' === $state ) {
+					return $this->metadata( $record );
+				}
+				if ( 'active' !== $state ) {
+					return new WP_Error(
+						'digitalogic_pricing_input_not_active',
+						'No active pricing-input credential is available to revoke.',
+						array( 'status' => 409 )
+					);
+				}
 
-		if ( 'active' !== $state ) {
-			return new WP_Error(
-				'digitalogic_pricing_input_not_active',
-				'No active pricing-input credential is available to revoke.',
-				array( 'status' => 409 )
-			);
-		}
+				$record['status']     = 'revoked';
+				$record['revoked_at'] = $this->timestamp();
+				unset( $record['verifier'] );
+				$stored = $this->persist_record_locked( $current, $record );
+				if ( is_wp_error( $stored ) ) {
+					return $stored;
+				}
 
-		$record['status']     = 'revoked';
-		$record['revoked_at'] = $this->timestamp();
-		unset( $record['verifier'] );
-
-		if ( ! update_option( self::OPTION_NAME, $record, false ) ) {
-			return $this->write_error();
-		}
-
-		return $this->metadata( $record );
+				return $this->metadata( $stored );
+			}
+		);
 	}
 
 	/**
 	 * Return only nonsecret credential metadata.
 	 *
-	 * @return array
+	 * @return array|WP_Error
 	 */
 	public function status() {
-		$record = $this->read_record();
+		$record_row = $this->read_record_db();
+		if ( is_wp_error( $record_row ) ) {
+			return $record_row;
+		}
+		$record = $record_row['value'];
 		$state  = $this->record_state( $record );
 
 		if ( 'active' === $state || 'revoked' === $state ) {
@@ -189,14 +240,15 @@ final class Digitalogic_Pricing_Input_Credential {
 	}
 
 	/**
-	 * Generate and persist a new one-way credential record.
+	 * Generate and persist a new one-way credential record while locked.
 	 *
+	 * @param array      $current    Authoritative current option row.
 	 * @param array|null $previous   Previous active record during rotation.
 	 * @param int        $generation New generation number.
 	 * @param bool       $rotation   Whether this is a rotation.
-	 * @return array|WP_Error
+	 * @return array
 	 */
-	private function issue( $previous, $generation, $rotation ) {
+	private function issue_locked( $current, $previous, $generation, $rotation ) {
 		try {
 			$credential_id = bin2hex( random_bytes( 8 ) );
 			$secret_bytes  = random_bytes( 32 );
@@ -222,13 +274,14 @@ final class Digitalogic_Pricing_Input_Credential {
 			'generation'     => (int) $generation,
 		);
 
-		if ( ! update_option( self::OPTION_NAME, $record, false ) ) {
-			return $this->write_error();
+		$stored = $this->persist_record_locked( $current, $record );
+		if ( is_wp_error( $stored ) ) {
+			return $stored;
 		}
 
 		return array(
 			'secret'   => $token,
-			'metadata' => $this->metadata( $record ),
+			'metadata' => $this->metadata( $stored ),
 		);
 	}
 
@@ -307,12 +360,272 @@ final class Digitalogic_Pricing_Input_Credential {
 	}
 
 	/**
-	 * Return the stored record without coercion.
+	 * Serialize a lifecycle operation with a bounded database advisory lock.
 	 *
-	 * @return mixed
+	 * @param callable $callback Operation performed while the lock is held.
+	 * @return mixed|WP_Error
 	 */
-	private function read_record() {
-		return get_option( self::OPTION_NAME, null );
+	private function with_lifecycle_lock( $callback ) {
+		$acquired = $this->acquire_lifecycle_lock();
+		if ( is_wp_error( $acquired ) ) {
+			return $acquired;
+		}
+
+		try {
+			return call_user_func( $callback );
+		} catch ( Throwable $error ) {
+			return $this->lifecycle_error();
+		} finally {
+			$this->release_lifecycle_lock();
+		}
+	}
+
+	/**
+	 * Acquire the credential lifecycle advisory lock.
+	 *
+	 * @return true|WP_Error
+	 */
+	private function acquire_lifecycle_lock() {
+		global $wpdb;
+
+		if ( ! is_object( $wpdb ) || ! method_exists( $wpdb, 'prepare' ) || ! method_exists( $wpdb, 'get_var' ) ) {
+			return $this->storage_error();
+		}
+
+		try {
+			$locked = $wpdb->get_var( // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Advisory lock intentionally bypasses caches.
+				$wpdb->prepare( 'SELECT GET_LOCK(%s, %d)', $this->lifecycle_lock_name(), self::LOCK_TIMEOUT_SECONDS ) // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- Prepared immediately above.
+			);
+		} catch ( Throwable $error ) {
+			return $this->storage_error();
+		}
+
+		if ( '1' !== (string) $locked ) {
+			return new WP_Error(
+				'digitalogic_pricing_input_lifecycle_busy',
+				'The pricing-input credential lifecycle is busy; retry later.',
+				array(
+					'status'    => 503,
+					'retryable' => true,
+				)
+			);
+		}
+
+		return true;
+	}
+
+	/**
+	 * Release the credential lifecycle advisory lock without masking a result.
+	 *
+	 * @return void
+	 */
+	private function release_lifecycle_lock() {
+		global $wpdb;
+
+		if ( ! is_object( $wpdb ) || ! method_exists( $wpdb, 'prepare' ) || ! method_exists( $wpdb, 'get_var' ) ) {
+			return;
+		}
+
+		try {
+			$wpdb->get_var( // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Advisory lock intentionally bypasses caches.
+				$wpdb->prepare( 'SELECT RELEASE_LOCK(%s)', $this->lifecycle_lock_name() ) // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- Prepared immediately above.
+			);
+		} catch ( Throwable $error ) {
+			// The lifecycle result is already determined; never expose internals.
+			unset( $error );
+		}
+	}
+
+	/**
+	 * Build a site-specific advisory lock name within MySQL's 64-byte limit.
+	 *
+	 * @return string
+	 */
+	private function lifecycle_lock_name() {
+		global $wpdb;
+
+		$prefix = is_object( $wpdb ) && isset( $wpdb->prefix ) ? (string) $wpdb->prefix : 'wp_';
+
+		return substr( self::LOCK_NAME . '_' . hash( 'sha256', $prefix ), 0, 64 );
+	}
+
+	/**
+	 * Read the option from authoritative MySQL state, bypassing object caches.
+	 *
+	 * @param bool $for_update Whether to lock the row inside a transaction.
+	 * @return array|WP_Error
+	 */
+	private function read_record_db( $for_update = false ) {
+		global $wpdb;
+
+		if ( ! is_object( $wpdb ) || ! method_exists( $wpdb, 'prepare' ) || ! method_exists( $wpdb, 'get_row' ) ) {
+			return $this->storage_error();
+		}
+
+		$table = isset( $wpdb->options ) ? $wpdb->options : $wpdb->prefix . 'options';
+		$sql   = "SELECT option_value FROM {$table} WHERE option_name = %s LIMIT 1";
+		if ( $for_update ) {
+			$sql .= ' FOR UPDATE';
+		}
+
+		try {
+			$query = $wpdb->prepare( $sql, self::OPTION_NAME ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- Table and optional lock clause are trusted constants.
+			$row   = $wpdb->get_row( $query, ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared,WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Lifecycle decisions require authoritative state.
+		} catch ( Throwable $error ) {
+			return $this->storage_error();
+		}
+
+		if ( isset( $wpdb->last_error ) && '' !== (string) $wpdb->last_error ) {
+			return $this->storage_error();
+		}
+		if ( null === $row ) {
+			return array(
+				'exists' => false,
+				'value'  => null,
+			);
+		}
+		if ( ! is_array( $row ) || ! array_key_exists( 'option_value', $row ) ) {
+			return $this->storage_error();
+		}
+
+		return array(
+			'exists' => true,
+			'value'  => maybe_unserialize( $row['option_value'] ),
+		);
+	}
+
+	/**
+	 * Persist and verify a record inside both advisory and row locks.
+	 *
+	 * @param array $current Authoritative option row observed while locked.
+	 * @param array $record  Desired validated record.
+	 * @return array|WP_Error
+	 */
+	private function persist_record_locked( $current, $record ) {
+		global $wpdb;
+
+		if (
+			! is_object( $wpdb )
+			|| ! method_exists( $wpdb, 'query' )
+			|| ! method_exists( $wpdb, 'insert' )
+			|| ! method_exists( $wpdb, 'update' )
+		) {
+			return $this->storage_error();
+		}
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Transaction protects verified lifecycle persistence.
+		if ( false === $wpdb->query( 'START TRANSACTION' ) ) {
+			return $this->write_error();
+		}
+
+		try {
+			$locked_current = $this->read_record_db( true );
+			if ( is_wp_error( $locked_current ) ) {
+				$this->rollback_lifecycle_write();
+				return $locked_current;
+			}
+			if ( ! hash_equals( $this->record_fingerprint( $current ), $this->record_fingerprint( $locked_current ) ) ) {
+				$this->rollback_lifecycle_write();
+				return $this->concurrency_error();
+			}
+
+			$table      = isset( $wpdb->options ) ? $wpdb->options : $wpdb->prefix . 'options';
+			$serialized = maybe_serialize( $record );
+			if ( $locked_current['exists'] ) {
+				// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Row is locked and read back before commit.
+				$written = $wpdb->update(
+					$table,
+					array( 'option_value' => $serialized ),
+					array( 'option_name' => self::OPTION_NAME ),
+					array( '%s' ),
+					array( '%s' )
+				);
+			} else {
+				// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Row is inserted and read back before commit.
+				$written = $wpdb->insert(
+					$table,
+					array(
+						'option_name'  => self::OPTION_NAME,
+						'option_value' => $serialized,
+						'autoload'     => 'no',
+					),
+					array( '%s', '%s', '%s' )
+				);
+			}
+
+			if ( false === $written || 0 === $written ) {
+				$this->rollback_lifecycle_write();
+				return $this->write_error();
+			}
+
+			$readback = $this->read_record_db( true );
+			if ( is_wp_error( $readback ) || ! $readback['exists'] || $record !== $readback['value'] ) {
+				$this->rollback_lifecycle_write();
+				return $this->write_error();
+			}
+
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Commit follows exact readback.
+			if ( false === $wpdb->query( 'COMMIT' ) ) {
+				$this->rollback_lifecycle_write();
+				$this->invalidate_record_cache();
+				return $this->write_error();
+			}
+		} catch ( Throwable $error ) {
+			$this->rollback_lifecycle_write();
+			return $this->lifecycle_error();
+		}
+
+		$this->invalidate_record_cache();
+
+		return $readback['value'];
+	}
+
+	/**
+	 * Roll back a failed lifecycle transaction without exposing DB details.
+	 *
+	 * @return void
+	 */
+	private function rollback_lifecycle_write() {
+		global $wpdb;
+
+		if ( is_object( $wpdb ) && method_exists( $wpdb, 'query' ) ) {
+			try {
+				$wpdb->query( 'ROLLBACK' ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Error recovery.
+			} catch ( Throwable $error ) {
+				// Preserve the sanitized lifecycle error selected by the caller.
+				unset( $error );
+			}
+		}
+	}
+
+	/**
+	 * Return a stable fingerprint for optimistic pre-lock observation.
+	 *
+	 * @param array $row Authoritative option row.
+	 * @return string
+	 */
+	private function record_fingerprint( $row ) {
+		$material = ! empty( $row['exists'] )
+			? 'present:' . maybe_serialize( $row['value'] )
+			: 'missing';
+
+		return hash( 'sha256', $material );
+	}
+
+	/**
+	 * Invalidate all WordPress option-cache views after a direct DB commit.
+	 *
+	 * @return void
+	 */
+	private function invalidate_record_cache() {
+		try {
+			wp_cache_delete( self::OPTION_NAME, 'options' );
+			wp_cache_delete( 'notoptions', 'options' );
+			wp_cache_delete( 'alloptions', 'options' );
+		} catch ( Throwable $error ) {
+			// Authentication/status use authoritative reads; cache failure is safe.
+			unset( $error );
+		}
 	}
 
 	/**
@@ -450,6 +763,51 @@ final class Digitalogic_Pricing_Input_Credential {
 		return new WP_Error(
 			'digitalogic_pricing_input_configuration_invalid',
 			'The pricing-input credential configuration is invalid.',
+			array( 'status' => 500 )
+		);
+	}
+
+	/**
+	 * Return a retryable optimistic-observation conflict.
+	 *
+	 * @return WP_Error
+	 */
+	private function concurrency_error() {
+		return new WP_Error(
+			'digitalogic_pricing_input_lifecycle_conflict',
+			'The pricing-input credential changed concurrently; retry.',
+			array(
+				'status'    => 409,
+				'retryable' => true,
+			)
+		);
+	}
+
+	/**
+	 * Return a sanitized authoritative-storage error.
+	 *
+	 * @return WP_Error
+	 */
+	private function storage_error() {
+		return new WP_Error(
+			'digitalogic_pricing_input_storage_unavailable',
+			'The pricing-input credential storage is unavailable.',
+			array(
+				'status'    => 503,
+				'retryable' => true,
+			)
+		);
+	}
+
+	/**
+	 * Return a sanitized unexpected lifecycle error.
+	 *
+	 * @return WP_Error
+	 */
+	private function lifecycle_error() {
+		return new WP_Error(
+			'digitalogic_pricing_input_lifecycle_failed',
+			'The pricing-input credential lifecycle could not be completed.',
 			array( 'status' => 500 )
 		);
 	}

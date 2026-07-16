@@ -22,6 +22,7 @@ final class PricingInputCredentialTest extends TestCase {
         $GLOBALS['digitalogic_test_posts'] = array();
         $GLOBALS['digitalogic_test_wc_products'] = array();
         $GLOBALS['digitalogic_test_wc_product_saves'] = array();
+        $GLOBALS['wpdb'] = new Digitalogic_Test_WPDB();
         WP_CLI::$errors = array();
         WP_CLI::$warnings = array();
         WP_CLI::$logs = array();
@@ -194,6 +195,185 @@ final class PricingInputCredentialTest extends TestCase {
             $this->assertInstanceOf(WP_Error::class, $result, $name);
             $this->assertSame('digitalogic_pricing_input_unauthorized', $result->get_error_code(), $name);
         }
+    }
+
+    public function test_overlapping_creates_are_linearized_and_only_one_secret_is_revealed(): void {
+        $nested = null;
+        $GLOBALS['wpdb']->before_get_lock = function() use (&$nested): void {
+            $nested = $this->credential->create();
+        };
+
+        $outer = $this->credential->create();
+
+        $this->assertIsArray($nested);
+        $this->assertArrayHasKey('secret', $nested);
+        $this->assertInstanceOf(WP_Error::class, $outer);
+        $this->assertSame('digitalogic_pricing_input_lifecycle_conflict', $outer->get_error_code());
+        $this->assertStringNotContainsString($nested['secret'], serialize($outer));
+        $this->assertSame(1, $this->credential->status()['generation']);
+        $this->assertTrue(
+            $this->credential->authorize(
+                $this->request('GET', '/digitalogic/v1/integration/catalog', $nested['secret'])
+            )
+        );
+        $this->assertSame(array(3, 3), $GLOBALS['wpdb']->lock_timeouts);
+        $this->assertSame(2, $GLOBALS['wpdb']->acquire_count);
+        $this->assertSame(2, $GLOBALS['wpdb']->release_count);
+    }
+
+    public function test_overlapping_rotates_share_one_observation_and_only_one_can_issue(): void {
+        $initial = $this->createSecret();
+        $GLOBALS['wpdb']->acquire_count = 0;
+        $GLOBALS['wpdb']->release_count = 0;
+        $GLOBALS['wpdb']->lock_timeouts = array();
+        $nested = null;
+        $GLOBALS['wpdb']->before_get_lock = function() use (&$nested): void {
+            $nested = $this->credential->rotate();
+        };
+
+        $outer = $this->credential->rotate();
+
+        $this->assertIsArray($nested);
+        $this->assertArrayHasKey('secret', $nested);
+        $this->assertSame(2, $nested['metadata']['generation']);
+        $this->assertInstanceOf(WP_Error::class, $outer);
+        $this->assertSame('digitalogic_pricing_input_lifecycle_conflict', $outer->get_error_code());
+        $this->assertStringNotContainsString($nested['secret'], serialize($outer));
+        $this->assertInstanceOf(
+            WP_Error::class,
+            $this->credential->authorize(
+                $this->request('GET', '/digitalogic/v1/integration/catalog', $initial)
+            )
+        );
+        $this->assertTrue(
+            $this->credential->authorize(
+                $this->request('GET', '/digitalogic/v1/integration/catalog', $nested['secret'])
+            )
+        );
+
+        $later = $this->credential->rotate();
+        $this->assertIsArray($later);
+        $this->assertSame(3, $later['metadata']['generation']);
+        $this->assertInstanceOf(
+            WP_Error::class,
+            $this->credential->authorize(
+                $this->request('GET', '/digitalogic/v1/integration/catalog', $nested['secret'])
+            )
+        );
+        $this->assertTrue(
+            $this->credential->authorize(
+                $this->request('POST', '/digitalogic/v1/pricing-assignments/batch', $later['secret'])
+            )
+        );
+        $this->assertSame(array(3, 3, 3), $GLOBALS['wpdb']->lock_timeouts);
+        $this->assertSame(3, $GLOBALS['wpdb']->acquire_count);
+        $this->assertSame(3, $GLOBALS['wpdb']->release_count);
+    }
+
+    public function test_revoke_wins_both_lock_orders_against_an_overlapping_rotate(): void {
+        $initial = $this->createSecret();
+        $nested_revoke = null;
+        $GLOBALS['wpdb']->before_get_lock = function() use (&$nested_revoke): void {
+            $nested_revoke = $this->credential->revoke();
+        };
+
+        $outer_rotate = $this->credential->rotate();
+
+        $this->assertIsArray($nested_revoke);
+        $this->assertSame('revoked', $nested_revoke['state']);
+        $this->assertInstanceOf(WP_Error::class, $outer_rotate);
+        $this->assertSame('digitalogic_pricing_input_lifecycle_conflict', $outer_rotate->get_error_code());
+        $this->assertSame('revoked', $this->credential->status()['state']);
+        $this->assertInstanceOf(
+            WP_Error::class,
+            $this->credential->authorize(
+                $this->request('GET', '/digitalogic/v1/integration/catalog', $initial)
+            )
+        );
+
+        $active = $this->credential->create();
+        $nested_rotate = null;
+        $GLOBALS['wpdb']->before_get_lock = function() use (&$nested_rotate): void {
+            $nested_rotate = $this->credential->rotate();
+        };
+
+        $outer_revoke = $this->credential->revoke();
+
+        $this->assertIsArray($nested_rotate);
+        $this->assertArrayHasKey('secret', $nested_rotate);
+        $this->assertIsArray($outer_revoke);
+        $this->assertSame('revoked', $outer_revoke['state']);
+        $this->assertSame($nested_rotate['metadata']['generation'], $outer_revoke['generation']);
+        $this->assertSame('revoked', $this->credential->status()['state']);
+        $this->assertInstanceOf(
+            WP_Error::class,
+            $this->credential->authorize(
+                $this->request('GET', '/digitalogic/v1/integration/catalog', $active['secret'])
+            )
+        );
+        $this->assertInstanceOf(
+            WP_Error::class,
+            $this->credential->authorize(
+                $this->request('GET', '/digitalogic/v1/integration/catalog', $nested_rotate['secret'])
+            )
+        );
+    }
+
+    public function test_authoritative_verification_ignores_stale_cache_after_rotate_and_revoke(): void {
+        $issued = $this->credential->create();
+        $old_record = $GLOBALS['digitalogic_test_options'][Digitalogic_Pricing_Input_Credential::OPTION_NAME];
+        $GLOBALS['digitalogic_test_option_cache'][Digitalogic_Pricing_Input_Credential::OPTION_NAME] = $old_record;
+
+        $rotated = $this->credential->rotate();
+        $active_record = $GLOBALS['digitalogic_test_options'][Digitalogic_Pricing_Input_Credential::OPTION_NAME];
+        $GLOBALS['digitalogic_test_option_cache'][Digitalogic_Pricing_Input_Credential::OPTION_NAME] = $old_record;
+
+        $this->assertInstanceOf(
+            WP_Error::class,
+            $this->credential->authorize(
+                $this->request('GET', '/digitalogic/v1/integration/catalog', $issued['secret'])
+            )
+        );
+        $this->assertTrue(
+            $this->credential->authorize(
+                $this->request('GET', '/digitalogic/v1/integration/catalog', $rotated['secret'])
+            )
+        );
+
+        $this->credential->revoke();
+        $GLOBALS['digitalogic_test_option_cache'][Digitalogic_Pricing_Input_Credential::OPTION_NAME] = $active_record;
+
+        $this->assertInstanceOf(
+            WP_Error::class,
+            $this->credential->authorize(
+                $this->request('POST', '/digitalogic/v1/pricing-assignments/batch', $rotated['secret'])
+            )
+        );
+        $this->assertSame('revoked', $this->credential->status()['state']);
+    }
+
+    public function test_lifecycle_lock_timeout_and_failed_readback_reveal_no_secret_and_release_safely(): void {
+        $GLOBALS['wpdb']->acquire_result = 0;
+        $busy = $this->credential->create();
+
+        $this->assertInstanceOf(WP_Error::class, $busy);
+        $this->assertSame('digitalogic_pricing_input_lifecycle_busy', $busy->get_error_code());
+        $this->assertTrue($busy->get_error_data()['retryable']);
+        $this->assertArrayNotHasKey(Digitalogic_Pricing_Input_Credential::OPTION_NAME, $GLOBALS['digitalogic_test_options']);
+        $this->assertSame(array(3), $GLOBALS['wpdb']->lock_timeouts);
+        $this->assertSame(0, $GLOBALS['wpdb']->release_count);
+
+        $GLOBALS['wpdb']->acquire_result = 1;
+        $GLOBALS['wpdb']->after_option_write = function($wpdb, $name): void {
+            $GLOBALS['digitalogic_test_options'][$name]['generation'] = 999;
+        };
+        $failed = $this->credential->create();
+
+        $this->assertInstanceOf(WP_Error::class, $failed);
+        $this->assertSame('digitalogic_pricing_input_write_failed', $failed->get_error_code());
+        $this->assertArrayNotHasKey(Digitalogic_Pricing_Input_Credential::OPTION_NAME, $GLOBALS['digitalogic_test_options']);
+        $this->assertSame(1, $GLOBALS['wpdb']->release_count);
+        $this->assertStringNotContainsString('dgp1.', serialize($failed));
     }
 
     public function test_storage_status_errors_and_runtime_sources_never_leak_a_secret(): void {
