@@ -705,9 +705,13 @@
     }
 
     function enhanceLoginLabels() {
+        var identityLabel = authPageAction() === 'lostPassword'
+            ? getLabel('recoveryIdentity', 'Username or email address')
+            : getLabel('usernameEmailPhone', 'نام کاربری، ایمیل یا شماره موبایل');
+
         setLabel(
             document.querySelector('label[for="user_login"]'),
-            getLabel('usernameEmailPhone', 'نام کاربری، ایمیل یا شماره موبایل'),
+            identityLabel,
             'dashicons-id'
         );
         setLabel(
@@ -2652,6 +2656,7 @@
     if (config.testHooks && typeof config.testHooks === 'object') {
         config.testHooks.authLinkAction = authLinkAction;
         config.testHooks.authPageAction = authPageAction;
+        config.testHooks.enhanceLoginLabels = enhanceLoginLabels;
         config.testHooks.normalizeAuthChrome = normalizeAuthChrome;
     }
 

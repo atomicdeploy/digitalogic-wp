@@ -33,7 +33,36 @@ if (!function_exists('determine_locale')) {
     }
 }
 
+if (!function_exists('esc_url')) {
+    function esc_url($url) {
+        return (string) $url;
+    }
+}
+
+if (!function_exists('esc_attr')) {
+    function esc_attr($text) {
+        return htmlspecialchars((string) $text, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+    }
+}
+
+if (!function_exists('df_digits_form_signup')) {
+    function df_digits_form_signup() {
+        return isset($GLOBALS['digitalogic_test_digits_signup_html'])
+            ? (string) $GLOBALS['digitalogic_test_digits_signup_html']
+            : '';
+    }
+}
+
+if (!function_exists('digits_render_new_form')) {
+    function digits_render_new_form($details) {
+        echo isset($GLOBALS['digitalogic_test_digits_login_html'])
+            ? (string) $GLOBALS['digitalogic_test_digits_login_html']
+            : '';
+    }
+}
+
 require_once dirname(__DIR__) . '/includes/integrations/class-admin-branding.php';
+require_once dirname(__DIR__) . '/includes/integrations/class-auth-page.php';
 
 final class AdminBrandingAuthTest extends TestCase {
     protected function setUp(): void {
@@ -58,5 +87,34 @@ final class AdminBrandingAuthTest extends TestCase {
         $this->assertStringNotContainsString('mobile', strtolower($english['recoveryIdentity']));
         $this->assertSame('نام کاربری یا نشانی ایمیل', $persian['recoveryIdentity']);
         $this->assertStringNotContainsString('موبایل', $persian['recoveryIdentity']);
+    }
+
+    public function test_raw_digits_registration_output_contains_a_no_javascript_login_fallback(): void {
+        $GLOBALS['digitalogic_test_digits_signup_html'] = $this->raw_digits_transition();
+        $method = new ReflectionMethod(Digitalogic_Plugin_Auth_Routes::class, 'digits_register_form_html');
+        $html = $method->invoke(null);
+
+        $this->assert_raw_login_fallback($html);
+    }
+
+    public function test_raw_canonical_login_output_contains_the_same_no_javascript_fallback(): void {
+        $GLOBALS['digitalogic_test_digits_login_html'] = $this->raw_digits_transition();
+        $method = new ReflectionMethod(Digitalogic_Plugin_Auth_Routes::class, 'digits_login_form_html');
+        $html = $method->invoke(null, '');
+
+        $this->assert_raw_login_fallback($html);
+    }
+
+    private function raw_digits_transition(): string {
+        return '<div class="digits-form_footer">'
+            . '<a href="#" class="digits-form_toggle_login_register show_login">اکنون وارد شوید</a>'
+            . '</div>';
+    }
+
+    private function assert_raw_login_fallback(string $html): void {
+        $this->assertStringContainsString('href="https://digitalogic.test/login/"', $html);
+        $this->assertStringNotContainsString('href="#"', $html);
+        $this->assertStringContainsString('class="digits-form_toggle_login_register show_login"', $html);
+        $this->assertStringNotContainsString('<script', $html);
     }
 }

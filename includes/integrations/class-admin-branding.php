@@ -430,7 +430,7 @@ JS;
             'ajaxUrl' => admin_url('admin-ajax.php'),
             'themeNonce' => wp_create_nonce('digitalogic_admin_theme'),
             'themeAjaxAction' => 'digitalogic_set_admin_theme',
-            'loginUrl' => self::canonical_login_url(), // phpcs:ignore
+            'loginUrl' => Digitalogic_Plugin_Auth_Routes::canonical_login_url(), // phpcs:ignore
             'adminColorSchemes' => [
                 'light' => self::ADMIN_COLOR_LIGHT,
                 'dark' => self::ADMIN_COLOR_DARK,
@@ -519,10 +519,6 @@ JS;
             'recoveryIdentity' => 'نام کاربری یا نشانی ایمیل', // phpcs:ignore
         ];
     }
-
-    private static function canonical_login_url(): string { // phpcs:ignore
-        return home_url('/login/'); // phpcs:ignore
-    } // phpcs:ignore
 
     private static function dynamic_css(): string {
         $stylesheet_uri = get_stylesheet_directory_uri();

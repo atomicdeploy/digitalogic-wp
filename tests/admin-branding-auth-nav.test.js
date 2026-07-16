@@ -15,6 +15,9 @@ function fakeClassList(values) {
     const classes = new Set(values || []);
 
     return {
+        add(value) {
+            classes.add(value);
+        },
         contains(value) {
             return classes.has(value);
         }
@@ -39,7 +42,12 @@ function fakeLink(href, classes, textContent) {
 function createHarness(options) {
     const navLinks = options.navLinks || [];
     const digitsLinks = options.digitsLinks || [];
-    const recoveryLabel = { textContent: options.recoveryText || '' };
+    const recoveryLabel = {
+        classList: fakeClassList(),
+        dataset: {},
+        innerHTML: '',
+        textContent: options.recoveryText || ''
+    };
     const recoveryAttributes = new Map();
     const recoveryField = {
         setAttribute(name, value) {
@@ -62,6 +70,10 @@ function createHarness(options) {
         },
         addEventListener() {},
         querySelector(selector) {
+            if (selector === 'label[for="user_login"]') {
+                return options.hasRecoveryForm ? recoveryLabel : null;
+            }
+
             if (selector === 'body.login #lostpasswordform label[for="user_login"]') {
                 return options.hasRecoveryForm ? recoveryLabel : null;
             }
@@ -200,4 +212,25 @@ test('WordPress recovery describes only its supported username or email identity
     assert.equal(harness.recoveryLabel.textContent, 'Username or email address');
     assert.equal(harness.recoveryField.getAttribute('placeholder'), 'Username or email address');
     assert.equal(harness.recoveryField.getAttribute('aria-label'), 'Username or email address');
+});
+
+test('real startup order cannot restore mobile wording on WordPress recovery', () => {
+    const harness = createHarness({
+        bodyClasses: ['login-action-lostpassword'],
+        lang: 'fa-IR',
+        locationHref: 'https://digitalogic.test/wp-login.php?action=lostpassword',
+        hasRecoveryForm: true,
+        recoveryText: 'نام کاربری، ایمیل یا شماره موبایل',
+        labels: {
+            recoveryIdentity: 'نام کاربری یا نشانی ایمیل',
+            usernameEmailPhone: 'نام کاربری، ایمیل یا شماره موبایل'
+        }
+    });
+
+    // DOMContentLoaded currently normalizes auth chrome before login labels.
+    harness.hooks.normalizeAuthChrome();
+    harness.hooks.enhanceLoginLabels();
+
+    assert.match(harness.recoveryLabel.innerHTML, /نام کاربری یا نشانی ایمیل/);
+    assert.doesNotMatch(harness.recoveryLabel.innerHTML, /موبایل/);
 });
