@@ -2456,6 +2456,147 @@
         startAutoplay();
     }
 
+    function authPageAction() {
+        if (!document.body || !document.body.classList) {
+            return '';
+        }
+
+        if (
+            document.body.classList.contains('login-action-lostpassword') ||
+            document.body.classList.contains('login-action-retrievepassword') ||
+            document.body.classList.contains('login-action-rp') ||
+            document.body.classList.contains('login-action-resetpass')
+        ) {
+            return 'lostPassword';
+        }
+
+        if (document.body.classList.contains('login-action-register')) {
+            return 'register';
+        }
+
+        if (document.body.classList.contains('login-action-login')) {
+            return 'login';
+        }
+
+        return '';
+    }
+
+    function authLinkAction(link) {
+        if (!link) {
+            return '';
+        }
+
+        var rawHref = cleanText(link.getAttribute && link.getAttribute('href'), '');
+        var parsed = null;
+        var action = '';
+
+        if (rawHref && rawHref.charAt(0) !== '#') {
+            try {
+                parsed = new window.URL(rawHref, window.location.href);
+                action = cleanText(parsed.searchParams.get('action'), '').toLowerCase();
+            } catch (error) {
+                parsed = null;
+            }
+        }
+
+        if (action === 'register') {
+            return 'register';
+        }
+
+        if (['lostpassword', 'retrievepassword', 'rp', 'resetpass'].indexOf(action) !== -1) {
+            return 'lostPassword';
+        }
+
+        if (action === 'login') {
+            return 'login';
+        }
+
+        if (link.classList) {
+            if (link.classList.contains('wp-login-register')) {
+                return 'register';
+            }
+
+            if (link.classList.contains('wp-login-lost-password')) {
+                return 'lostPassword';
+            }
+
+            if (link.classList.contains('wp-login-log-in')) {
+                return 'login';
+            }
+        }
+
+        if (link.getAttribute && link.getAttribute('aria-current') === 'page') {
+            return authPageAction();
+        }
+
+        if (parsed && !action) {
+            try {
+                var canonical = new window.URL(config.loginUrl || '/login/', window.location.href);
+                var parsedPath = parsed.pathname.replace(/\/+$/, '') || '/';
+                var canonicalPath = canonical.pathname.replace(/\/+$/, '') || '/';
+
+                if (parsed.origin === canonical.origin && parsedPath === canonicalPath) {
+                    return 'login';
+                }
+
+                if (parsed.origin === canonical.origin && /\/wp-login\.php$/.test(parsedPath)) {
+                    return 'login';
+                }
+            } catch (error) {}
+        }
+
+        return '';
+    }
+
+    function normalizeAuthNavigation() {
+        var labels = {
+            login: getLabel('login', 'Log in'),
+            register: getLabel('register', 'Register'),
+            lostPassword: getLabel('lostPassword', 'Reset password')
+        };
+
+        document.querySelectorAll('body.login #nav a').forEach(function (link) {
+            var action = authLinkAction(link);
+            var label = action ? labels[action] : '';
+
+            if (label && cleanText(link.textContent, '') !== label) {
+                link.textContent = label;
+            }
+        });
+    }
+
+    function normalizeDigitsLoginFallback() {
+        var loginUrl = cleanText(config.loginUrl, '/login/');
+
+        document.querySelectorAll('.digits-form_toggle_login_register.show_login').forEach(function (link) {
+            var href = cleanText(link.getAttribute('href'), '');
+
+            if (!href || href === '#' || /^javascript:/i.test(href)) {
+                link.setAttribute('href', loginUrl);
+                link.setAttribute('data-dg-http-fallback', 'login');
+            }
+        });
+    }
+
+    function normalizeRecoveryIdentity() {
+        if (authPageAction() !== 'lostPassword') {
+            return;
+        }
+
+        var label = getLabel('recoveryIdentity', 'Username or email address');
+        var fieldLabel = document.querySelector('body.login #lostpasswordform label[for="user_login"]');
+        var field = document.querySelector('body.login #lostpasswordform #user_login');
+
+        if (fieldLabel && cleanText(fieldLabel.textContent, '') !== label) {
+            fieldLabel.textContent = label;
+        }
+
+        if (field) {
+            field.setAttribute('placeholder', label);
+            field.setAttribute('aria-label', label);
+        }
+    }
+
     function normalizeAuthChrome() {
         if (!document.body || !document.body.classList.contains('login')) {
             return;
@@ -2479,25 +2620,9 @@
             }
         });
 
-        var navLinks = document.querySelectorAll('body.login #nav a');
-        if (navLinks.length >= 2) {
-            var registerLabel = getLabel('register', 'Register');
-            var lostPasswordLabel = getLabel('lostPassword', 'Reset password');
-
-            if (cleanText(navLinks[0].textContent, '') !== registerLabel) {
-                navLinks[0].textContent = registerLabel;
-            }
-
-            if (cleanText(navLinks[1].textContent, '') !== lostPasswordLabel) {
-                navLinks[1].textContent = lostPasswordLabel;
-            }
-        } else if (navLinks.length === 1) {
-            var loginLabel = getLabel('login', 'Log in');
-
-            if (cleanText(navLinks[0].textContent, '') !== loginLabel) {
-                navLinks[0].textContent = loginLabel;
-            }
-        }
+        normalizeAuthNavigation();
+        normalizeDigitsLoginFallback();
+        normalizeRecoveryIdentity();
     }
 
     function observeAuthChrome() {
@@ -2512,8 +2637,8 @@
             var shouldNormalize = mutations.some(function (mutation) {
                 return Array.prototype.some.call(mutation.addedNodes, function (node) {
                     return node.nodeType === 1 && (
-                        node.matches && node.matches('#nav, .altEmail_container, .dg-digits-login-shell, .digits-form_container') ||
-                        node.querySelector && node.querySelector('#nav, .altEmail_container, .dg-digits-login-shell, .digits-form_container')
+                        node.matches && node.matches('#nav, .altEmail_container, .dg-digits-login-shell, .digits-form_container, .digits-form_toggle_login_register') ||
+                        node.querySelector && node.querySelector('#nav, .altEmail_container, .dg-digits-login-shell, .digits-form_container, .digits-form_toggle_login_register')
                     );
                 });
             });
@@ -2522,6 +2647,12 @@
                 window.requestAnimationFrame(normalizeAuthChrome);
             }
         }).observe(document.body, { childList: true, subtree: true });
+    }
+
+    if (config.testHooks && typeof config.testHooks === 'object') {
+        config.testHooks.authLinkAction = authLinkAction;
+        config.testHooks.authPageAction = authPageAction;
+        config.testHooks.normalizeAuthChrome = normalizeAuthChrome;
     }
 
     function enableRipples() {

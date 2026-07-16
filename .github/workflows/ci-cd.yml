@@ -73,8 +73,11 @@ jobs:
     - name: Check PHP syntax
       run: find . -name "*.php" -not -path "./vendor/*" -print0 | xargs -0 -n1 php -l
 
-    - name: Check panel JavaScript syntax
-      run: node --check assets/js/panel-app.js
+    - name: Check JavaScript syntax and authentication navigation behavior
+      run: |
+        node --check assets/js/panel-app.js
+        node --check assets/js/branding/admin-branding.js
+        node --test tests/admin-branding-auth-nav.test.js
 
     - name: Run PHPUnit tests
       run: composer test
