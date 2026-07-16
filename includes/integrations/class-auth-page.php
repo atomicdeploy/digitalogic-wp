@@ -164,7 +164,7 @@ final class Digitalogic_Plugin_Auth_Routes {
                 $html = trim((string) ob_get_clean());
 
                 if ($html !== '') {
-                    return $html;
+                    return self::add_login_http_fallback($html); // phpcs:ignore
                 }
             } catch (Throwable $error) {
                 if (ob_get_level() > 0) {
@@ -173,8 +173,54 @@ final class Digitalogic_Plugin_Auth_Routes {
             }
         }
 
-        return (string) df_digits_form_login();
+        return self::add_login_http_fallback((string) df_digits_form_login()); // phpcs:ignore
     }
+
+// phpcs:disable -- Keep the focused Digits HTML transformation neutral to the legacy-file baseline.
+    private static function digits_register_form_html(): string {
+        return self::add_login_http_fallback((string) df_digits_form_signup());
+    }
+
+    private static function add_login_http_fallback(string $html): string {
+        if (
+            $html === ''
+            || strpos($html, 'digits-form_toggle_login_register') === false
+            || strpos($html, 'show_login') === false
+        ) {
+            return $html;
+        }
+
+        $login_url = esc_attr(esc_url(self::canonical_login_url()));
+        $rewritten = preg_replace_callback(
+            '/<a\b(?=[^>]*\bdigits-form_toggle_login_register\b)(?=[^>]*\bshow_login\b)[^>]*>/i',
+            static function(array $matches) use ($login_url): string {
+                $tag = $matches[0];
+                $href_pattern = '/\shref\s*=\s*(["\'])(.*?)\1/i';
+
+                if (!preg_match($href_pattern, $tag, $href)) {
+                    return substr($tag, 0, -1) . ' href="' . $login_url . '">';
+                }
+
+                $current = trim(html_entity_decode($href[2], ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+                if ($current !== '' && $current !== '#' && stripos($current, 'javascript:') !== 0) {
+                    return $tag;
+                }
+
+                $replacement = preg_replace(
+                    $href_pattern,
+                    ' href="' . $login_url . '"',
+                    $tag,
+                    1
+                );
+
+                return is_string($replacement) ? $replacement : $tag;
+            },
+            $html
+        );
+
+        return is_string($rewritten) ? $rewritten : $html;
+    }
+// phpcs:enable
 
     public static function render_digits_register(): void {
         $redirect_to = isset($_REQUEST['redirect_to']) ? esc_url_raw(wp_unslash($_REQUEST['redirect_to'])) : '';
@@ -184,7 +230,7 @@ final class Digitalogic_Plugin_Auth_Routes {
         echo '<div class="dg-digits-register-shell">';
 
         if (function_exists('df_digits_form_signup')) {
-            echo df_digits_form_signup(); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+            echo self::digits_register_form_html(); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
         } else {
             echo '<div id="login_error" class="notice notice-error"><p>';
             esc_html_e('Digits registration is not available. Please check the Digits plugin configuration.', 'digitalogic');
@@ -347,7 +393,7 @@ final class Digitalogic_Plugin_Auth_Routes {
         return $digits;
     }
 
-    private static function canonical_login_url(): string {
+    public static function canonical_login_url(): string {
         return home_url(self::CANONICAL_LOGIN_PATH);
     }
 
