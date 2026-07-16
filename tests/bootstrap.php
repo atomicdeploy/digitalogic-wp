@@ -9,6 +9,10 @@ $GLOBALS['digitalogic_test_capabilities'] = array();
 $GLOBALS['digitalogic_test_filters'] = array();
 $GLOBALS['digitalogic_test_routes'] = array();
 $GLOBALS['digitalogic_test_rest_url'] = 'https://example.test/wp-json/';
+$GLOBALS['digitalogic_test_rest_url_calls'] = 0;
+$GLOBALS['digitalogic_test_rest_url_depth'] = 0;
+$GLOBALS['digitalogic_test_rest_url_nested_filter'] = false;
+$GLOBALS['digitalogic_test_rest_url_nested_results'] = array();
 
 class WP_REST_Request {
 }
@@ -88,9 +92,27 @@ function wp_parse_url($url, $component = -1) {
 }
 
 function rest_url($path = '') {
+    $GLOBALS['digitalogic_test_rest_url_calls']++;
+    $GLOBALS['digitalogic_test_rest_url_depth']++;
+
+    if ($GLOBALS['digitalogic_test_rest_url_depth'] > 1) {
+        throw new RuntimeException('REST URL resolution re-entered the WooCommerce authentication filter.');
+    }
+
     $base = $GLOBALS['digitalogic_test_rest_url'];
 
-    return rtrim($base, '/') . '/' . ltrim($path, '/');
+    try {
+        if (!empty($GLOBALS['digitalogic_test_rest_url_nested_filter'])) {
+            $GLOBALS['digitalogic_test_rest_url_nested_results'][] = apply_filters(
+                'woocommerce_rest_is_request_to_rest_api',
+                false
+            );
+        }
+
+        return rtrim($base, '/') . '/' . ltrim($path, '/');
+    } finally {
+        $GLOBALS['digitalogic_test_rest_url_depth']--;
+    }
 }
 
 require_once dirname(__DIR__) . '/includes/api/class-rest-api.php';

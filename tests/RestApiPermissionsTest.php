@@ -13,12 +13,42 @@ final class RestApiPermissionsTest extends TestCase {
         $GLOBALS['digitalogic_test_filters'] = array();
         $GLOBALS['digitalogic_test_routes'] = array();
         $GLOBALS['digitalogic_test_rest_url'] = 'https://example.test/wp-json/';
+        $GLOBALS['digitalogic_test_rest_url_calls'] = 0;
+        $GLOBALS['digitalogic_test_rest_url_depth'] = 0;
+        $GLOBALS['digitalogic_test_rest_url_nested_filter'] = false;
+        $GLOBALS['digitalogic_test_rest_url_nested_results'] = array();
         unset($_SERVER['REQUEST_URI']);
+
+        $this->resetApi();
+    }
+
+    private function resetApi($rest_url = null) {
+        if (is_string($rest_url)) {
+            $GLOBALS['digitalogic_test_rest_url'] = $rest_url;
+        }
+
+        remove_all_filters('woocommerce_rest_is_request_to_rest_api');
 
         $instance = new ReflectionProperty(Digitalogic_REST_API::class, 'instance');
         $instance->setAccessible(true);
         $instance->setValue(null, null);
         $this->api = Digitalogic_REST_API::instance();
+    }
+
+    public function test_woocommerce_route_matcher_is_precomputed_before_filter_registration() {
+        $GLOBALS['digitalogic_test_rest_url_calls'] = 0;
+        $GLOBALS['digitalogic_test_rest_url_nested_filter'] = true;
+        $GLOBALS['digitalogic_test_rest_url_nested_results'] = array();
+
+        $this->resetApi();
+
+        $this->assertSame(1, $GLOBALS['digitalogic_test_rest_url_calls']);
+        $this->assertSame(array(false), $GLOBALS['digitalogic_test_rest_url_nested_results']);
+
+        $_SERVER['REQUEST_URI'] = '/wp-json/digitalogic/v1/products';
+
+        $this->assertTrue(apply_filters('woocommerce_rest_is_request_to_rest_api', false));
+        $this->assertSame(1, $GLOBALS['digitalogic_test_rest_url_calls']);
     }
 
     /**
@@ -67,14 +97,14 @@ final class RestApiPermissionsTest extends TestCase {
     }
 
     public function test_woocommerce_authentication_recognizes_subdirectory_install() {
-        $GLOBALS['digitalogic_test_rest_url'] = 'https://example.test/store/wp-json/';
+        $this->resetApi('https://example.test/store/wp-json/');
         $_SERVER['REQUEST_URI'] = '/store/wp-json/digitalogic/v1/products';
 
         $this->assertTrue(apply_filters('woocommerce_rest_is_request_to_rest_api', false));
     }
 
     public function test_woocommerce_authentication_recognizes_rest_route_query() {
-        $GLOBALS['digitalogic_test_rest_url'] = 'https://example.test/?rest_route=/';
+        $this->resetApi('https://example.test/?rest_route=/');
         $_SERVER['REQUEST_URI'] = '/?rest_route=%2Fdigitalogic%2Fv1%2Fproducts';
 
         $this->assertTrue(apply_filters('woocommerce_rest_is_request_to_rest_api', false));
@@ -84,7 +114,7 @@ final class RestApiPermissionsTest extends TestCase {
     }
 
     public function test_rest_route_query_does_not_authenticate_unrelated_subdirectory_request() {
-        $GLOBALS['digitalogic_test_rest_url'] = 'https://example.test/store/?rest_route=/';
+        $this->resetApi('https://example.test/store/?rest_route=/');
         $_SERVER['REQUEST_URI'] = '/store/?unrelated=1';
 
         $this->assertFalse(apply_filters('woocommerce_rest_is_request_to_rest_api', false));

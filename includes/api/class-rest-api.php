@@ -12,6 +12,24 @@ if (!defined('ABSPATH')) {
 class Digitalogic_REST_API {
     
     private static $instance = null;
+
+    /**
+     * REST path used for exact Digitalogic namespace matching.
+     *
+     * This is resolved before the WooCommerce authentication filter is
+     * registered so the filter never calls rest_url() while WordPress is
+     * resolving the current user.
+     *
+     * @var string|null
+     */
+    private $woocommerce_auth_api_path = null;
+
+    /**
+     * Whether this installation routes REST requests through rest_route.
+     *
+     * @var bool
+     */
+    private $woocommerce_auth_uses_rest_route = false;
     
     public static function instance() {
         if (is_null(self::$instance)) {
@@ -22,10 +40,43 @@ class Digitalogic_REST_API {
     
     private function __construct() {
         add_action('rest_api_init', array($this, 'register_routes'));
+
+        $this->prepare_woocommerce_rest_authentication();
+
         add_filter(
             'woocommerce_rest_is_request_to_rest_api',
             array($this, 'allow_woocommerce_rest_authentication')
         );
+    }
+
+    /**
+     * Resolve immutable route-matcher state before registering the Woo filter.
+     *
+     * WooCommerce can run its REST authentication check while resolving the
+     * current user. Calling rest_url() from that filter can therefore re-enter
+     * current-user resolution through other plugins. Resolve the installation
+     * path once, before our filter exists, and keep the callback side-effect
+     * free.
+     *
+     * @return void
+     */
+    private function prepare_woocommerce_rest_authentication() {
+        $api_url = rest_url('digitalogic/v1');
+        $api_path = wp_parse_url($api_url, PHP_URL_PATH);
+
+        if (!is_string($api_path)) {
+            return;
+        }
+
+        $this->woocommerce_auth_api_path = rtrim($api_path, '/');
+
+        $api_query = wp_parse_url($api_url, PHP_URL_QUERY);
+        if (!is_string($api_query) || '' === $api_query) {
+            return;
+        }
+
+        parse_str($api_query, $api_query_params);
+        $this->woocommerce_auth_uses_rest_route = isset($api_query_params['rest_route']);
     }
 
     /**
@@ -50,28 +101,24 @@ class Digitalogic_REST_API {
 
         $request_uri = wp_unslash($_SERVER['REQUEST_URI']);
         $request_path = wp_parse_url($request_uri, PHP_URL_PATH);
-        $api_url = rest_url('digitalogic/v1');
-        $api_path = wp_parse_url($api_url, PHP_URL_PATH);
-        $api_query = wp_parse_url($api_url, PHP_URL_QUERY);
 
-        if (is_string($api_query) && '' !== $api_query) {
-            parse_str($api_query, $api_query_params);
-            if (isset($api_query_params['rest_route'])) {
-                if (!is_string($request_path) || !is_string($api_path)) {
-                    return false;
-                }
-
-                if (rtrim($request_path, '/') !== rtrim($api_path, '/')) {
-                    return false;
-                }
-
-                return $this->query_targets_digitalogic_namespace($request_uri);
+        if ($this->woocommerce_auth_uses_rest_route) {
+            if (!is_string($request_path) || !is_string($this->woocommerce_auth_api_path)) {
+                return false;
             }
+
+            if (rtrim($request_path, '/') !== $this->woocommerce_auth_api_path) {
+                return false;
+            }
+
+            return $this->query_targets_digitalogic_namespace($request_uri);
         }
 
-        if (is_string($request_path) && is_string($api_path) && '/' !== $api_path) {
-            $api_path = rtrim($api_path, '/');
-            if ($request_path === $api_path || str_starts_with($request_path, $api_path . '/')) {
+        if (is_string($request_path) && !empty($this->woocommerce_auth_api_path)) {
+            if (
+                $request_path === $this->woocommerce_auth_api_path
+                || str_starts_with($request_path, $this->woocommerce_auth_api_path . '/')
+            ) {
                 return true;
             }
         }
