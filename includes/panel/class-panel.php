@@ -589,8 +589,12 @@ class Digitalogic_Panel {
     }
 
     public function record_option_event($option, $old_value, $value) {
-        if (in_array($option, array('dollar_price', 'yuan_price', 'digitalogic_dollar_price', 'digitalogic_yuan_price'), true)) {
-            self::record_event('currency.updated', array('option' => $option));
+        if (in_array($option, array('dollar_price', 'yuan_price', 'digitalogic_dollar_price', 'digitalogic_yuan_price', 'woocommerce_currency'), true)) {
+            $data = array('option' => $option);
+            if ('woocommerce_currency' === $option) {
+                $data['woocommerce_base'] = Digitalogic_WooCommerce_Currency_Status::instance()->get_status();
+            }
+            self::record_event('currency.updated', $data);
         }
     }
 

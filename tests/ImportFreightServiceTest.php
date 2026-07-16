@@ -39,12 +39,14 @@ final class ImportFreightServiceTest extends TestCase {
         $GLOBALS['digitalogic_test_wc_products'] = array();
         $GLOBALS['digitalogic_test_wc_product_saves'] = array();
         $GLOBALS['digitalogic_test_wc_save_failures'] = array();
+        $GLOBALS['digitalogic_test_wc_currency'] = 'IRT';
         $GLOBALS['digitalogic_test_current_user_can_calls'] = 0;
         $GLOBALS['digitalogic_test_rest_url_calls'] = 0;
         $GLOBALS['wpdb'] = new Digitalogic_Test_WPDB();
         $_POST = array();
 
         $this->resetSingleton(Digitalogic_Import_Freight_Service::class);
+        $this->resetSingleton(Digitalogic_WooCommerce_Currency_Status::class);
         $this->resetSingleton(Digitalogic_Patris_Feed::class);
         $this->resetSingleton(Digitalogic_Command_Dispatcher::class);
         $this->resetSingleton(Digitalogic_REST_API::class);
@@ -114,6 +116,7 @@ final class ImportFreightServiceTest extends TestCase {
         $again = $this->service->get_integration_catalog();
 
         $this->assertSame('digitalogic.integration-catalog', $first['schema']);
+        $this->assertSame('1.1.0', $first['schema_version']);
         $this->assertSame('landed_price_v1', $first['pricing']['formula_id']);
         $this->assertSame(
             '((weight_g * freight_cny_per_kg / 1000) + foreign_price_cny) * (1 + profit_percent / 100) * cny_to_irt',
@@ -122,6 +125,14 @@ final class ImportFreightServiceTest extends TestCase {
         $this->assertSame(25300.0, $first['currency']['cny_to_irt']);
         $this->assertSame(25300.0, $first['currency']['cny_to_local']);
         $this->assertSame('IRT', $first['currency']['local']);
+        $this->assertSame('IRT', $first['currency']['woocommerce_base']['code']);
+        $this->assertSame('toman', $first['currency']['woocommerce_base']['unit']);
+        $this->assertSame(10, $first['currency']['woocommerce_base']['irr_per_unit']);
+        $this->assertSame('IRT', $first['currency']['pricing_output']['code']);
+        $this->assertSame('toman', $first['currency']['pricing_output']['unit']);
+        $this->assertTrue($first['currency']['compatibility']['compatible']);
+        $this->assertSame('ready', $first['currency']['compatibility']['status']);
+        $this->assertTrue($first['currency']['compatibility']['read_only']);
         $this->assertSame('2026-07-16', $first['currency']['effective_date']);
         $this->assertSame('260716', $first['currency']['source_effective_date']);
         $this->assertSame(array('shenzhen', 'tehran'), $first['selected_warehouses']);
@@ -165,7 +176,7 @@ final class ImportFreightServiceTest extends TestCase {
         $methods = $this->indexMethods($catalog['import_freight_methods']);
 
         $this->assertSame('digitalogic.integration-catalog', $catalog['schema']);
-        $this->assertSame('1.0.0', $catalog['schema_version']);
+        $this->assertSame('1.1.0', $catalog['schema_version']);
         $this->assertIsString($catalog['revision']);
         $this->assertSame(25300.0, $catalog['currency']['cny_to_local']);
         $this->assertFalse($catalog['pricing']['default_percentage_markup']['configured']);

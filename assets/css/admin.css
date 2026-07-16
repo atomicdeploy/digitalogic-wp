@@ -10,6 +10,71 @@
     margin: 30px 0;
 }
 
+.digitalogic-currency-status {
+    align-items: flex-start;
+    background: #fff;
+    border: 1px solid #dcdcde;
+    border-inline-start-width: 4px;
+    border-radius: 4px;
+    display: flex;
+    gap: 12px;
+    margin: 18px 0;
+    max-width: 920px;
+    padding: 16px 18px;
+}
+
+.digitalogic-currency-status.is-ready {
+    border-inline-start-color: #00a32a;
+}
+
+.digitalogic-currency-status.is-warning {
+    border-inline-start-color: #dba617;
+}
+
+.digitalogic-currency-status > .dashicons {
+    flex: 0 0 auto;
+    font-size: 24px;
+    height: 24px;
+    margin-top: 2px;
+    width: 24px;
+}
+
+.digitalogic-currency-status.is-ready > .dashicons,
+.digitalogic-status-label.is-ready .dashicons {
+    color: #008a20;
+}
+
+.digitalogic-currency-status.is-warning > .dashicons,
+.digitalogic-status-label.is-warning .dashicons {
+    color: #996800;
+}
+
+.digitalogic-currency-status h2,
+.digitalogic-currency-status h3,
+.digitalogic-currency-status p {
+    margin-block: 0 8px;
+}
+
+.digitalogic-currency-status p:last-child {
+    margin-bottom: 0;
+}
+
+.digitalogic-status-label {
+    align-items: center;
+    display: inline-flex;
+    font-weight: 600;
+    gap: 4px;
+    margin-inline-end: 10px;
+}
+
+.digitalogic-currency-postbox-status .digitalogic-status-label {
+    margin-top: 0;
+}
+
+.digitalogic-currency-postbox-status p:last-child {
+    margin-bottom: 0;
+}
+
 .stat-box {
     background: #fff;
     border: 1px solid #ccd0d4;

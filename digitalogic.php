@@ -109,6 +109,7 @@ final class Digitalogic {
         // Core includes
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-number-formatter.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-options.php';
+        require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-woocommerce-currency-status.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-logger.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-product-manager.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-pricing.php';
@@ -177,6 +178,7 @@ final class Digitalogic {
 
         // Initialize components
         Digitalogic_Options::instance();
+        Digitalogic_WooCommerce_Currency_Status::instance();
         Digitalogic_Logger::instance();
         Digitalogic_Product_Manager::instance();
         Digitalogic_Pricing::instance();

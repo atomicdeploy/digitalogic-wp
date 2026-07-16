@@ -9,6 +9,7 @@
  * @var string $notice_type
  * @var array  $freight_methods
  * @var array  $default_markup
+ * @var array  $currency_status
  * @var array|null $freight_assignment
  */
 
@@ -99,6 +100,24 @@ $notice_type = in_array($notice_type, array('success', 'error', 'warning', 'info
         <p class="description">
             <?php echo esc_html__('Manage freight used to import products from Patris. These records do not change WooCommerce customer delivery methods.', 'digitalogic'); ?>
         </p>
+
+        <div class="digitalogic-currency-status <?php echo $currency_status['compatible'] ? 'is-ready' : 'is-warning'; ?>">
+            <span class="dashicons <?php echo $currency_status['compatible'] ? 'dashicons-yes-alt' : 'dashicons-warning'; ?>" aria-hidden="true"></span>
+            <div>
+                <h3><?php echo esc_html__('Pricing catalog currency', 'digitalogic'); ?></h3>
+                <p>
+                    <?php
+                    echo esc_html(sprintf(
+                        /* translators: 1: WooCommerce currency code, 2: compatibility status. */
+                        __('WooCommerce base: %1$s. Integration status: %2$s.', 'digitalogic'),
+                        $currency_status['code'],
+                        $currency_status['status']
+                    ));
+                    ?>
+                </p>
+                <p class="description"><?php echo esc_html__('The versioned catalog exposes IRT as Toman (10 IRR per unit) and blocks IRT pricing when this base-currency check fails.', 'digitalogic'); ?></p>
+            </div>
+        </div>
 
         <h3><?php echo esc_html__('Default percentage markup', 'digitalogic'); ?></h3>
         <p class="description">

@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Read-only WooCommerce base-currency monitoring with explicit IRT/Toman metadata, catalog compatibility warnings, shared REST/CLI/panel/webhook status, audit events, and non-destructive automated coverage.
 - Optional signed `patris.product_sync.applied` observer summaries through the existing webhook fan-out, without exposing product payloads or affecting direct sync outcomes.
 - Bounded product-sync deferred reconciliation state and administrator WP-CLI status/retry commands, separating terminal missing/ambiguous Codes from transient HTTP/database retries.
 - Canonical nullable global default percentage markup with exact decimal storage, REST/command/admin controls, catalog revisioning, and result-aware delivery events.

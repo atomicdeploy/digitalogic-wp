@@ -97,6 +97,7 @@ final class AdminCurrencyPostboxTest extends TestCase {
             array(
                 'digitalogic-currency-update',
                 'digitalogic-currency-last-update',
+                'digitalogic-currency-status',
                 'digitalogic-currency-rates',
                 'digitalogic-currency-options',
             ),
@@ -104,6 +105,7 @@ final class AdminCurrencyPostboxTest extends TestCase {
         );
         $this->assertSame('side', $GLOBALS['digitalogic_test_meta_boxes']['digitalogic-currency-update']['context']);
         $this->assertSame('side', $GLOBALS['digitalogic_test_meta_boxes']['digitalogic-currency-last-update']['context']);
+        $this->assertSame('side', $GLOBALS['digitalogic_test_meta_boxes']['digitalogic-currency-status']['context']);
         $this->assertSame('normal', $GLOBALS['digitalogic_test_meta_boxes']['digitalogic-currency-rates']['context']);
         $this->assertSame('normal', $GLOBALS['digitalogic_test_meta_boxes']['digitalogic-currency-options']['context']);
 

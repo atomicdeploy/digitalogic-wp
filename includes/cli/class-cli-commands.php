@@ -28,12 +28,25 @@ class Digitalogic_CLI_Commands {
      * @when after_wp_load
      */
     public function currency_get($args, $assoc_args) {
-        $options = Digitalogic_Options::instance();
+        $currency = Digitalogic_Command_Dispatcher::instance()->get_currency();
+        $base = $currency['woocommerce_base'];
         
         WP_CLI::line('Currency Rates:');
-        WP_CLI::line('USD: ' . $options->get_dollar_price());
-        WP_CLI::line('CNY: ' . $options->get_yuan_price());
-        WP_CLI::line('Last Update: ' . $options->get_update_date());
+        WP_CLI::line('USD: ' . $currency['dollar_price']);
+        WP_CLI::line('CNY: ' . $currency['yuan_price']);
+        WP_CLI::line('Last Update: ' . $currency['update_date']);
+        $base_label = $base['code'];
+        if (!empty($base['unit'])) {
+            $base_label .= ' (' . $base['unit'] . ')';
+        }
+        WP_CLI::line('WooCommerce Base: ' . $base_label);
+        WP_CLI::line('Patris IRT Pricing: ' . $base['status']);
+
+        if (!$base['compatible']) {
+            WP_CLI::warning(
+                'WooCommerce must use IRT (Toman) before transformed Patris prices can be applied.'
+            );
+        }
     }
     
     /**

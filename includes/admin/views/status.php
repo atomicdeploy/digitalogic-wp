@@ -12,6 +12,7 @@ global $wpdb;
 $digitalogic = digitalogic();
 $hpos_status = $digitalogic->get_hpos_status();
 $options = Digitalogic_Options::instance();
+$currency_status = Digitalogic_WooCommerce_Currency_Status::instance()->get_status();
 
 // WordPress info
 $wp_version = get_bloginfo('version');
@@ -175,6 +176,25 @@ $wc_features['Plugin Compatible'] = $hpos_status['plugin_compatible'] ? 'Yes' : 
         <h2><?php _e('Currency Settings', 'digitalogic'); ?></h2>
         <table class="widefat striped">
             <tbody>
+                <tr>
+                    <td><strong><?php _e('WooCommerce Base Currency', 'digitalogic'); ?></strong></td>
+                    <td>
+                        <code><?php echo esc_html($currency_status['code']); ?></code>
+                        <?php if ($currency_status['compatible']) : ?>
+                            &mdash; <?php echo esc_html__('Toman (10 IRR per unit)', 'digitalogic'); ?>
+                        <?php endif; ?>
+                    </td>
+                </tr>
+                <tr>
+                    <td><strong><?php _e('Patris IRT Pricing', 'digitalogic'); ?></strong></td>
+                    <td>
+                        <span class="digitalogic-status-label <?php echo $currency_status['compatible'] ? 'is-ready' : 'is-warning'; ?>">
+                            <span class="dashicons <?php echo $currency_status['compatible'] ? 'dashicons-yes-alt' : 'dashicons-warning'; ?>" aria-hidden="true"></span>
+                            <?php echo $currency_status['compatible'] ? esc_html__('Ready', 'digitalogic') : esc_html__('Base currency mismatch', 'digitalogic'); ?>
+                        </span>
+                        <span class="description"><?php echo esc_html__('Read-only monitoring; no automatic currency mutation.', 'digitalogic'); ?></span>
+                    </td>
+                </tr>
                 <tr>
                     <td><strong><?php _e('USD Price (dollar_price)', 'digitalogic'); ?></strong></td>
                     <td><?php echo esc_html(Digitalogic_Number_Formatter::format_integer($dollar_price)); ?></td>

@@ -136,6 +136,11 @@ curl -u key:secret "https://yoursite.com/wp-json/digitalogic/v1/products?page=1&
 
 **GET** `/currency`
 
+The response includes the configured USD/CNY rates and a read-only
+`woocommerce_base` status object. IRT is represented as Toman (10 IRR per
+unit); a different WooCommerce base reports `base_currency_mismatch` rather
+than being converted or changed automatically.
+
 ### Update Currency Rates
 
 **POST** `/currency`
@@ -155,7 +160,7 @@ curl -u key:secret "https://yoursite.com/wp-json/digitalogic/v1/products?page=1&
 Import freight describes supplier-to-Digitalogic transport. It does not use
 WooCommerce checkout, shipping-zone, or customer delivery APIs.
 
-- **GET** `/integration/catalog` - versioned CNY/IRT rate, `landed_price_v1`, selected warehouses, and methods
+- **GET** `/integration/catalog` - versioned CNY/IRT rate, WooCommerce base-currency compatibility, `landed_price_v1`, selected warehouses, and methods
 - **GET** `/import-freight-methods` - list canonical methods
 - **POST** `/import-freight-methods` - create a method with an immutable ID
 - **GET|PUT|DELETE** `/import-freight-methods/{id}` - read, update, or delete an unassigned method

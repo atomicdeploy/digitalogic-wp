@@ -24,7 +24,7 @@ final class Digitalogic_Import_Freight_Service {
     public const LEGACY_ACF_REFERENCE_META = '_shipping_method';
     public const LEGACY_ACF_FIELD_KEY = 'field_694534693f9ba';
     public const CATALOG_SCHEMA = 'digitalogic.integration-catalog';
-    public const CATALOG_SCHEMA_VERSION = '1.0.0';
+    public const CATALOG_SCHEMA_VERSION = '1.1.0';
     public const FORMULA_ID = 'landed_price_v1';
     public const FORMULA_REVISION = '1.0.0';
     public const DEFAULT_MARKUP_SCHEMA = 'digitalogic.default-percentage-markup';
@@ -892,12 +892,17 @@ final class Digitalogic_Import_Freight_Service {
         }
         $default_markup = $this->load_default_percentage_markup();
 
-        $local_currency = $this->local_currency();
+        $currency_status = Digitalogic_WooCommerce_Currency_Status::instance()->get_status();
+        $local_currency = $currency_status['code'];
         $yuan_rate = $this->yuan_rate();
         $source_effective_date = $this->currency_effective_date();
         $currency_warnings = is_null($yuan_rate)
             ? array('cny_to_local_missing_or_invalid')
             : array();
+        $currency_warnings = array_values(array_unique(array_merge(
+            $currency_warnings,
+            $currency_status['warnings']
+        )));
         $material = array(
             'schema' => self::CATALOG_SCHEMA,
             'schema_version' => self::CATALOG_SCHEMA_VERSION,
@@ -909,6 +914,26 @@ final class Digitalogic_Import_Freight_Service {
                 'effective_date' => $this->normalize_effective_date($source_effective_date),
                 'source_effective_date' => $source_effective_date,
                 'source_effective_date_format' => 'ymd',
+                'woocommerce_base' => array(
+                    'source' => $currency_status['source'],
+                    'option' => $currency_status['option'],
+                    'code' => $currency_status['code'],
+                    'unit' => $currency_status['unit'],
+                    'irr_per_unit' => $currency_status['irr_per_unit'],
+                    'price_decimals' => $currency_status['price_decimals'],
+                ),
+                'pricing_output' => array(
+                    'code' => $currency_status['pricing_output_currency'],
+                    'unit' => $currency_status['pricing_output_unit'],
+                    'irr_per_unit' => $currency_status['pricing_output_irr_per_unit'],
+                    'price_decimals' => 0,
+                ),
+                'compatibility' => array(
+                    'status' => $currency_status['status'],
+                    'compatible' => $currency_status['compatible'],
+                    'required_woocommerce_base' => Digitalogic_WooCommerce_Currency_Status::REQUIRED_CURRENCY,
+                    'read_only' => $currency_status['read_only'],
+                ),
                 'warnings' => $currency_warnings,
             ),
             'pricing' => array(
@@ -929,7 +954,7 @@ final class Digitalogic_Import_Freight_Service {
                 'default_percentage_markup' => $default_markup,
                 'rounding' => array(
                     'mode' => 'half_up',
-                    'local_currency_decimals' => $this->local_currency_decimals(),
+                    'local_currency_decimals' => $currency_status['price_decimals'],
                 ),
             ),
             'selected_warehouses' => $warehouses,
@@ -2611,14 +2636,6 @@ final class Digitalogic_Import_Freight_Service {
         }
 
         return (string) get_option('options_update_date', get_option('update_date', ''));
-    }
-
-    private function local_currency() {
-        return function_exists('get_woocommerce_currency') ? (string) get_woocommerce_currency() : 'IRT';
-    }
-
-    private function local_currency_decimals() {
-        return function_exists('wc_get_price_decimals') ? absint(wc_get_price_decimals()) : 0;
     }
 
     private function normalize_effective_date($value) {

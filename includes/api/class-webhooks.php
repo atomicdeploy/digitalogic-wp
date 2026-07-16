@@ -57,6 +57,7 @@ class Digitalogic_Webhooks {
         // Hook into currency updates
         add_action('update_option_dollar_price', array($this, 'currency_updated'), 10, 3);
         add_action('update_option_yuan_price', array($this, 'currency_updated'), 10, 3);
+        add_action('digitalogic_woocommerce_currency_changed', array($this, 'woocommerce_currency_changed'), 10, 3);
 
         // Committed transformed Patris outcomes are optional observer events.
         add_action('digitalogic_product_sync_v1_applied', array($this, 'product_sync_applied'), 10, 2);
@@ -293,15 +294,29 @@ class Digitalogic_Webhooks {
      * Currency updated webhook
      */
     public function currency_updated($old_value, $value, $option) {
-        $options = Digitalogic_Options::instance();
+        $data = Digitalogic_Command_Dispatcher::instance()->get_currency();
+        $data['changed_option'] = $option;
         
-        $data = array(
-            'dollar_price' => $options->get_dollar_price(),
-            'yuan_price' => $options->get_yuan_price(),
-            'update_date' => $options->get_update_date(),
-            'changed_option' => $option
-        );
-        
+        $this->trigger_webhook('currency.updated', $data);
+    }
+
+    /**
+     * Publish committed WooCommerce base-currency status through the existing event.
+     *
+     * @param string $old_currency Previous currency code.
+     * @param string $new_currency New currency code.
+     * @param array  $status Shared new-currency status.
+     * @return void
+     */
+    public function woocommerce_currency_changed($old_currency, $new_currency, $status) {
+        if (!is_array($status)) {
+            $status = Digitalogic_WooCommerce_Currency_Status::instance()->describe($new_currency);
+        }
+        $data = Digitalogic_Command_Dispatcher::instance()->get_currency();
+        $data['woocommerce_base'] = $status;
+        $data['previous_woocommerce_base'] = Digitalogic_WooCommerce_Currency_Status::instance()->describe($old_currency);
+        $data['changed_option'] = Digitalogic_WooCommerce_Currency_Status::OPTION_NAME;
+
         $this->trigger_webhook('currency.updated', $data);
     }
 

@@ -112,6 +112,12 @@ are Tomans. `IRR` values remain Rials and must be divided by 10 before being
 represented as Tomans; the plugin therefore does not provide a symbol-only
 IRR/Toman toggle.
 
+The page reports the WooCommerce base currency without changing it. Patris
+final prices require `IRT`, meaning Toman (`1 IRT = 1 Toman = 10 IRR`). `IRR`
+is a distinct, incompatible base code; a mismatch blocks transformed IRT price
+writes and is visible in the catalog, REST, CLI, panel, webhooks, and status
+screens. See [WooCommerce base-currency status](docs/WOOCOMMERCE-CURRENCY-STATUS.md).
+
 **WP-CLI:**
 ```bash
 wp digitalogic currency update --usd=42000 --cny=6000 --recalculate
@@ -165,7 +171,7 @@ curl -X POST https://yoursite.com/wp-json/digitalogic/v1/products/batch \
 - `POST /wp-json/digitalogic/v1/products/batch` - Bulk update
 
 #### Currency
-- `GET /wp-json/digitalogic/v1/currency` - Get currency rates
+- `GET /wp-json/digitalogic/v1/currency` - Get currency rates and read-only WooCommerce base-currency status
 - `POST /wp-json/digitalogic/v1/currency` - Update currency rates
 
 #### Pricing
@@ -173,7 +179,7 @@ curl -X POST https://yoursite.com/wp-json/digitalogic/v1/products/batch \
 - `GET|PUT /wp-json/digitalogic/v1/pricing/default-markup` - Read, set, or explicitly clear the canonical default percentage markup
 
 #### Import Freight Integration
-- `GET /wp-json/digitalogic/v1/integration/catalog` - Read the versioned pricing/freight catalog
+- `GET /wp-json/digitalogic/v1/integration/catalog` - Read the versioned pricing/freight catalog and IRT/Toman compatibility
 - `POST /wp-json/digitalogic/v1/pricing-assignments/batch` - Read a bounded ordered Code assignment projection
 - `GET|POST /wp-json/digitalogic/v1/import-freight-methods` - List or create supplier import methods
 - `GET|PUT|DELETE /wp-json/digitalogic/v1/import-freight-methods/{id}` - Manage an immutable method ID
