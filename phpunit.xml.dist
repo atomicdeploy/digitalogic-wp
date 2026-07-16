@@ -1,27 +1,20 @@
 <?xml version="1.0"?>
-<phpunit
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:noNamespaceSchemaLocation="https://schema.phpunit.de/9.3/phpunit.xsd"
     bootstrap="tests/bootstrap.php"
     backupGlobals="false"
     colors="true"
     convertErrorsToExceptions="true"
     convertNoticesToExceptions="true"
-    convertWarningsToExceptions="true"
-    >
+    convertWarningsToExceptions="true">
     <testsuites>
         <testsuite name="Digitalogic Test Suite">
             <directory>tests</directory>
         </testsuite>
     </testsuites>
-    <filter>
-        <whitelist processUncoveredFilesFromWhitelist="true">
+    <coverage processUncoveredFiles="true">
+        <include>
             <directory suffix=".php">includes</directory>
-            <exclude>
-                <directory suffix=".php">vendor</directory>
-                <directory suffix=".php">tests</directory>
-            </exclude>
-        </whitelist>
-    </filter>
-    <php>
-        <const name="WP_TESTS_PHPUNIT_POLYFILLS_PATH" value="vendor/yoast/phpunit-polyfills" />
-    </php>
+        </include>
+    </coverage>
 </phpunit>

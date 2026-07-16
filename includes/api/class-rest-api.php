@@ -22,6 +22,84 @@ class Digitalogic_REST_API {
     
     private function __construct() {
         add_action('rest_api_init', array($this, 'register_routes'));
+        add_filter(
+            'woocommerce_rest_is_request_to_rest_api',
+            array($this, 'allow_woocommerce_rest_authentication')
+        );
+    }
+
+    /**
+     * Let WooCommerce authenticate API keys for this plugin's REST namespace.
+     *
+     * WooCommerce only recognizes its own wc/* and wc-* namespaces by default.
+     * Preserve requests already recognized by WooCommerce and opt in only the
+     * exact digitalogic/v1 namespace (including installations in a subdirectory
+     * or using the rest_route query parameter).
+     *
+     * @param bool $is_request Whether WooCommerce already recognizes the request.
+     * @return bool
+     */
+    public function allow_woocommerce_rest_authentication($is_request) {
+        if ($is_request) {
+            return true;
+        }
+
+        if (empty($_SERVER['REQUEST_URI'])) {
+            return false;
+        }
+
+        $request_uri = wp_unslash($_SERVER['REQUEST_URI']);
+        $request_path = wp_parse_url($request_uri, PHP_URL_PATH);
+        $api_url = rest_url('digitalogic/v1');
+        $api_path = wp_parse_url($api_url, PHP_URL_PATH);
+        $api_query = wp_parse_url($api_url, PHP_URL_QUERY);
+
+        if (is_string($api_query) && '' !== $api_query) {
+            parse_str($api_query, $api_query_params);
+            if (isset($api_query_params['rest_route'])) {
+                if (!is_string($request_path) || !is_string($api_path)) {
+                    return false;
+                }
+
+                if (rtrim($request_path, '/') !== rtrim($api_path, '/')) {
+                    return false;
+                }
+
+                return $this->query_targets_digitalogic_namespace($request_uri);
+            }
+        }
+
+        if (is_string($request_path) && is_string($api_path) && '/' !== $api_path) {
+            $api_path = rtrim($api_path, '/');
+            if ($request_path === $api_path || str_starts_with($request_path, $api_path . '/')) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Check a rest_route query parameter against the Digitalogic namespace.
+     *
+     * @param string $request_uri Current request URI.
+     * @return bool
+     */
+    private function query_targets_digitalogic_namespace($request_uri) {
+
+        $request_query = wp_parse_url($request_uri, PHP_URL_QUERY);
+        if (!is_string($request_query) || '' === $request_query) {
+            return false;
+        }
+
+        parse_str($request_query, $query_params);
+        if (!isset($query_params['rest_route']) || !is_string($query_params['rest_route'])) {
+            return false;
+        }
+
+        $route = '/' . trim($query_params['rest_route'], '/');
+
+        return '/digitalogic/v1' === $route || str_starts_with($route, '/digitalogic/v1/');
     }
     
     /**
@@ -32,64 +110,64 @@ class Digitalogic_REST_API {
         register_rest_route('digitalogic/v1', '/products', array(
             'methods' => 'GET',
             'callback' => array($this, 'get_products'),
-            'permission_callback' => array($this, 'check_permission')
+            'permission_callback' => array($this, 'check_read_permission')
         ));
         
         register_rest_route('digitalogic/v1', '/products/(?P<id>\d+)', array(
             'methods' => 'GET',
             'callback' => array($this, 'get_product'),
-            'permission_callback' => array($this, 'check_permission')
+            'permission_callback' => array($this, 'check_read_permission')
         ));
         
         register_rest_route('digitalogic/v1', '/products/(?P<id>\d+)', array(
             'methods' => 'PUT',
             'callback' => array($this, 'update_product'),
-            'permission_callback' => array($this, 'check_permission')
+            'permission_callback' => array($this, 'check_write_permission')
         ));
         
         register_rest_route('digitalogic/v1', '/products/batch', array(
             'methods' => 'POST',
             'callback' => array($this, 'batch_update_products'),
-            'permission_callback' => array($this, 'check_permission')
+            'permission_callback' => array($this, 'check_write_permission')
         ));
         
         // Currency endpoints
         register_rest_route('digitalogic/v1', '/currency', array(
             'methods' => 'GET',
             'callback' => array($this, 'get_currency'),
-            'permission_callback' => array($this, 'check_permission')
+            'permission_callback' => array($this, 'check_read_permission')
         ));
         
         register_rest_route('digitalogic/v1', '/currency', array(
             'methods' => 'POST',
             'callback' => array($this, 'update_currency'),
-            'permission_callback' => array($this, 'check_permission')
+            'permission_callback' => array($this, 'check_write_permission')
         ));
         
         // Pricing endpoints
         register_rest_route('digitalogic/v1', '/pricing/recalculate', array(
             'methods' => 'POST',
             'callback' => array($this, 'recalculate_prices'),
-            'permission_callback' => array($this, 'check_permission')
+            'permission_callback' => array($this, 'check_write_permission')
         ));
         
         // Export endpoint
         register_rest_route('digitalogic/v1', '/export', array(
             'methods' => 'GET',
             'callback' => array($this, 'export_products'),
-            'permission_callback' => array($this, 'check_permission')
+            'permission_callback' => array($this, 'check_diagnostic_permission')
         ));
 
         register_rest_route('digitalogic/v1', '/reports', array(
             'methods' => 'GET',
             'callback' => array($this, 'get_reports'),
-            'permission_callback' => array($this, 'check_permission')
+            'permission_callback' => array($this, 'check_diagnostic_permission')
         ));
 
         register_rest_route('digitalogic/v1', '/patris/sync', array(
             'methods' => 'POST',
             'callback' => array($this, 'sync_patris'),
-            'permission_callback' => array($this, 'check_permission')
+            'permission_callback' => array($this, 'check_write_permission')
         ));
 
         register_rest_route('digitalogic/v1', '/patris/push', array(
@@ -100,21 +178,78 @@ class Digitalogic_REST_API {
     }
     
     /**
-     * Check API permission
+     * Backward-compatible permission check for existing integrations.
+     *
+     * This alias deliberately uses the write scope, matching the broad access
+     * historically associated with this method without restoring read-level
+     * authorization for management routes.
+     *
+     * @deprecated Use check_read_permission(), check_write_permission(), or
+     *             check_diagnostic_permission() for an explicit route scope.
+     *
+     * @param WP_REST_Request|null $request Current REST request.
+     * @return bool
      */
-    public function check_permission() {
-        // Check if user is logged in with proper capabilities
+    public function check_permission($request = null) {
+        return $this->check_write_permission($request);
+    }
+
+    /**
+     * Check access to read-only catalog and currency routes.
+     *
+     * @param WP_REST_Request|null $request Current REST request.
+     * @return bool
+     */
+    public function check_read_permission($request = null) {
+        return $this->check_scoped_permission('read', $request);
+    }
+
+    /**
+     * Check access to routes that mutate products, settings, or sync state.
+     *
+     * @param WP_REST_Request|null $request Current REST request.
+     * @return bool
+     */
+    public function check_write_permission($request = null) {
+        return $this->check_scoped_permission('write', $request);
+    }
+
+    /**
+     * Check access to reports and exports that expose operational data.
+     *
+     * @param WP_REST_Request|null $request Current REST request.
+     * @return bool
+     */
+    public function check_diagnostic_permission($request = null) {
+        return $this->check_scoped_permission('diagnostic', $request);
+    }
+
+    /**
+     * Resolve a REST permission scope.
+     *
+     * The legacy filter remains available for explicit integrations. Its
+     * default is deliberately false; callbacks must return the boolean true.
+     * The second argument lets integrations grant only the required scope.
+     *
+     * @param string               $scope   One of read, write, or diagnostic.
+     * @param WP_REST_Request|null $request Current REST request.
+     * @return bool
+     */
+    private function check_scoped_permission($scope, $request = null) {
         if (current_user_can('manage_woocommerce')) {
             return true;
         }
-        
-        // Check for WooCommerce REST API authentication
-        if (defined('REST_REQUEST') && REST_REQUEST) {
-            // WooCommerce handles its own authentication
-            return apply_filters('digitalogic_rest_api_permission', current_user_can('read'));
-        }
-        
-        return false;
+
+        /**
+         * Filter access to a Digitalogic REST API scope.
+         *
+         * @param bool                 $allowed Denied by default.
+         * @param string               $scope   Permission scope.
+         * @param WP_REST_Request|null $request Current REST request.
+         */
+        $allowed = apply_filters('digitalogic_rest_api_permission', false, $scope, $request);
+
+        return true === $allowed;
     }
 
     public function check_patris_push_permission(WP_REST_Request $request) {
