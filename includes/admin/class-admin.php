@@ -21,6 +21,10 @@ class Digitalogic_Admin {
     }
     
     private $page_hooks = array();
+
+    private $currency_page_hook = '';
+
+    private $currency_page_data = array();
     
     private function __construct() {
         add_action('admin_menu', array($this, 'add_menu'));
@@ -101,7 +105,7 @@ class Digitalogic_Admin {
             array($this, 'render_products_page')
         );
         
-        $this->page_hooks[] = add_submenu_page(
+        $this->currency_page_hook = add_submenu_page(
             'digitalogic',
             __('Price Settings', 'digitalogic'),
             __('Currency', 'digitalogic'),
@@ -109,6 +113,8 @@ class Digitalogic_Admin {
             'price-settings',
             array($this, 'render_currency_page')
         );
+        $this->page_hooks[] = $this->currency_page_hook;
+        add_action('load-' . $this->currency_page_hook, array($this, 'register_currency_meta_boxes'));
         
         $this->page_hooks[] = add_submenu_page(
             'digitalogic',
@@ -326,6 +332,8 @@ class Digitalogic_Admin {
         if (!in_array($hook, $this->page_hooks) && strpos($hook, 'digitalogic') === false) {
             return;
         }
+
+        $this->enqueue_currency_postbox_assets($hook);
         
         // DataTables - Local files
         wp_enqueue_style('datatables', DIGITALOGIC_PLUGIN_URL . 'assets/vendor/datatables/jquery.dataTables.min.css', array(), '1.13.7');
@@ -363,6 +371,30 @@ class Digitalogic_Admin {
                 'filtered' => __('(filtered from _MAX_ total entries)', 'digitalogic'),
             )
         ));
+    }
+
+    /**
+     * Enqueue the native postbox behavior only for the currency screen.
+     *
+     * @param string $hook Current admin page hook.
+     */
+    private function enqueue_currency_postbox_assets($hook) {
+        if ($hook !== $this->currency_page_hook) {
+            return;
+        }
+
+        wp_enqueue_script(
+            'digitalogic-currency-postboxes',
+            DIGITALOGIC_PLUGIN_URL . 'assets/js/currency-postboxes.js',
+            array('jquery', 'postbox'),
+            DIGITALOGIC_VERSION,
+            true
+        );
+        wp_localize_script(
+            'digitalogic-currency-postboxes',
+            'digitalogicCurrencyPostboxes',
+            array('screenId' => $hook)
+        );
     }
     
     /**
@@ -445,8 +477,143 @@ class Digitalogic_Admin {
         $yuan_price = $options->get_yuan_price();
         $update_date = $options->get_update_date_formatted();
         $update_date_relative = $options->get_update_date_relative();
+
+        $this->currency_page_data = array(
+            'dollar_price' => $dollar_price,
+            'yuan_price' => $yuan_price,
+            'update_date' => $update_date,
+            'update_date_relative' => $update_date_relative,
+        );
+
+        $current_screen = get_current_screen();
         
         include DIGITALOGIC_PLUGIN_DIR . 'includes/admin/views/currency.php';
+    }
+
+    /**
+     * Register the native WordPress meta boxes used by the currency page.
+     */
+    public function register_currency_meta_boxes() {
+        $screen = get_current_screen();
+
+        if (!$screen) {
+            return;
+        }
+
+        add_meta_box(
+            'digitalogic-currency-update',
+            __('Update', 'digitalogic'),
+            array($this, 'render_currency_update_meta_box'),
+            $screen,
+            'side',
+            'high'
+        );
+        add_meta_box(
+            'digitalogic-currency-last-update',
+            __('Last Update', 'digitalogic'),
+            array($this, 'render_currency_last_update_meta_box'),
+            $screen,
+            'side',
+            'default'
+        );
+        add_meta_box(
+            'digitalogic-currency-rates',
+            __('Exchange Rates', 'digitalogic'),
+            array($this, 'render_currency_rates_meta_box'),
+            $screen,
+            'normal',
+            'high'
+        );
+        add_meta_box(
+            'digitalogic-currency-options',
+            __('Additional Options', 'digitalogic'),
+            array($this, 'render_currency_options_meta_box'),
+            $screen,
+            'normal',
+            'default'
+        );
+    }
+
+    /**
+     * Render the currency update action meta box.
+     */
+    public function render_currency_update_meta_box() {
+        ?>
+        <div class="submitbox" id="submitpost">
+            <div id="major-publishing-actions">
+                <div id="publishing-action">
+                    <?php submit_button(__('Update Currency Rates', 'digitalogic'), 'primary large', 'submit', false); ?>
+                </div>
+                <div class="clear"></div>
+            </div>
+        </div>
+        <?php
+    }
+
+    /**
+     * Render the last-update summary meta box.
+     */
+    public function render_currency_last_update_meta_box() {
+        ?>
+        <p>
+            <strong id="update_date"><?php echo esc_html($this->currency_page_value('update_date')); ?></strong>
+        </p>
+        <p class="description"><?php echo esc_html($this->currency_page_value('update_date_relative')); ?></p>
+        <?php
+    }
+
+    /**
+     * Render the exchange-rate fields meta box.
+     */
+    public function render_currency_rates_meta_box() {
+        ?>
+        <table class="form-table" role="presentation">
+            <tr>
+                <th scope="row">
+                    <label for="dollar_price"><?php esc_html_e('USD Price (in local currency)', 'digitalogic'); ?></label>
+                </th>
+                <td>
+                    <input type="number" min="0" step="0.01" name="dollar_price" id="dollar_price" value="<?php echo esc_attr($this->currency_page_value('dollar_price')); ?>" class="regular-text" inputmode="decimal">
+                    <p class="description"><?php esc_html_e('The exchange rate for 1 USD in your local currency', 'digitalogic'); ?></p>
+                </td>
+            </tr>
+            <tr>
+                <th scope="row">
+                    <label for="yuan_price"><?php esc_html_e('CNY/Yuan Price (in local currency)', 'digitalogic'); ?></label>
+                </th>
+                <td>
+                    <input type="number" min="0" step="0.01" name="yuan_price" id="yuan_price" value="<?php echo esc_attr($this->currency_page_value('yuan_price')); ?>" class="regular-text" inputmode="decimal">
+                    <p class="description"><?php esc_html_e('The exchange rate for 1 CNY in your local currency', 'digitalogic'); ?></p>
+                </td>
+            </tr>
+        </table>
+        <?php
+    }
+
+    /**
+     * Render the optional recalculation controls meta box.
+     */
+    public function render_currency_options_meta_box() {
+        ?>
+        <fieldset>
+            <legend class="screen-reader-text"><?php esc_html_e('Recalculate Prices', 'digitalogic'); ?></legend>
+            <label for="recalculate_prices">
+                <input type="checkbox" name="recalculate_prices" id="recalculate_prices" value="1">
+                <?php esc_html_e('Recalculate Prices', 'digitalogic'); ?>
+            </label>
+            <p class="description"><?php esc_html_e('Update all products with dynamic pricing after saving', 'digitalogic'); ?></p>
+        </fieldset>
+        <?php
+    }
+
+    /**
+     * Read a prepared value for a currency-page meta box.
+     *
+     * @param string $key Value key.
+     * @return mixed
+     */
+    private function currency_page_value($key) {
+        return isset($this->currency_page_data[$key]) ? $this->currency_page_data[$key] : '';
     }
     
     /**

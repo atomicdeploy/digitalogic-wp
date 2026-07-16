@@ -76,6 +76,7 @@ jobs:
     - name: Check JavaScript syntax and authentication navigation behavior
       run: |
         node --check assets/js/panel-app.js
+        node --check assets/js/currency-postboxes.js
         node --check assets/js/branding/admin-branding.js
         node --test tests/admin-branding-auth-nav.test.js
 
