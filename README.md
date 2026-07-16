@@ -161,6 +161,16 @@ curl -X POST https://yoursite.com/wp-json/digitalogic/v1/products/batch \
 #### Pricing
 - `POST /wp-json/digitalogic/v1/pricing/recalculate` - Recalculate all prices
 
+#### Import Freight Integration
+- `GET /wp-json/digitalogic/v1/integration/catalog` - Read the versioned pricing/freight catalog
+- `GET|POST /wp-json/digitalogic/v1/import-freight-methods` - List or create supplier import methods
+- `GET|PUT|DELETE /wp-json/digitalogic/v1/import-freight-methods/{id}` - Manage an immutable method ID
+- `GET|PUT /wp-json/digitalogic/v1/products/by-code/{code}/import-pricing` - Read or assign by exact Patris Code/SKU
+- `POST /wp-json/digitalogic/v1/products/import-pricing/batch` - Preflight and apply Code-based assignments
+
+Import freight is distinct from customer delivery and WooCommerce checkout
+shipping. See [Import Freight Integration Contract](docs/IMPORT-FREIGHT-API.md).
+
 #### Export
 - `GET /wp-json/digitalogic/v1/export?format=csv` - Export products as CSV
 - `GET /wp-json/digitalogic/v1/export?format=json` - Export products as JSON
@@ -338,6 +348,11 @@ GPL v2 or later. See LICENSE file for details.
 Developed for Digitalogic electronic components shop.
 
 ## Changelog
+
+### 1.1.0
+- Added the canonical supplier import-freight catalog, Code/SKU assignments, landed-price contract, and Patris integration API.
+- Added transactional migration from legacy freight options and ACF assignments with observable panel, Redis, and webhook delivery results.
+- Normalized Patris gram weights into the WooCommerce store weight unit.
 
 ### 1.0.0
 - Initial release

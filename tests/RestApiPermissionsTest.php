@@ -229,8 +229,13 @@ final class RestApiPermissionsTest extends TestCase {
 
         $actual = array();
         foreach ($GLOBALS['digitalogic_test_routes'] as $registration) {
-            $permission_callback = $registration['args']['permission_callback'];
-            $actual[$registration['args']['methods'] . ' ' . $registration['route']] = $permission_callback[1];
+            $definitions = isset($registration['args']['callback'])
+                ? array($registration['args'])
+                : $registration['args'];
+            foreach ($definitions as $definition) {
+                $permission_callback = $definition['permission_callback'];
+                $actual[$definition['methods'] . ' ' . $registration['route']] = $permission_callback[1];
+            }
         }
 
         $expected = array(
@@ -245,15 +250,31 @@ final class RestApiPermissionsTest extends TestCase {
             'GET /reports' => 'check_diagnostic_permission',
             'POST /patris/sync' => 'check_write_permission',
             'POST /patris/push' => 'check_patris_push_permission',
+            'GET /integration/catalog' => 'check_read_permission',
+            'GET /import-freight-methods' => 'check_read_permission',
+            'POST /import-freight-methods' => 'check_write_permission',
+            'GET /import-freight-methods/(?P<id>[a-z][a-z0-9_]{1,63})' => 'check_read_permission',
+            'PUT /import-freight-methods/(?P<id>[a-z][a-z0-9_]{1,63})' => 'check_write_permission',
+            'DELETE /import-freight-methods/(?P<id>[a-z][a-z0-9_]{1,63})' => 'check_write_permission',
+            'GET /products/by-code/(?P<code>[^/]+)/import-pricing' => 'check_read_permission',
+            'PUT /products/by-code/(?P<code>[^/]+)/import-pricing' => 'check_write_permission',
+            'POST /products/import-pricing/batch' => 'check_write_permission',
         );
 
         $this->assertSame($expected, $actual);
     }
 
     public function test_patris_push_delegates_to_its_scoped_verifier() {
-        $request = new WP_REST_Request();
+        $GLOBALS['digitalogic_test_options']['digitalogic_patris_feed_push_token'] = 'scoped-patris-token';
+        unset($GLOBALS['digitalogic_test_option_cache']['digitalogic_patris_feed_push_token']);
+        $authorized = new WP_REST_Request(array(), array(), array(
+            'x-digitalogic-token' => 'scoped-patris-token',
+        ));
+        $unauthorized = new WP_REST_Request(array(), array(), array(
+            'x-digitalogic-token' => 'wrong-token',
+        ));
 
-        $this->assertSame('patris-verifier-result', $this->api->check_patris_push_permission($request));
-        $this->assertSame($request, Digitalogic_Patris_Feed::instance()->verified_request);
+        $this->assertTrue($this->api->check_patris_push_permission($authorized));
+        $this->assertFalse($this->api->check_patris_push_permission($unauthorized));
     }
 }

@@ -6,6 +6,9 @@
  * @var string $push_token
  * @var array  $report
  * @var string $notice
+ * @var string $notice_type
+ * @var array  $freight_methods
+ * @var array|null $freight_assignment
  */
 
 if (!defined('ABSPATH')) {
@@ -13,13 +16,14 @@ if (!defined('ABSPATH')) {
 }
 
 $push_url = rest_url('digitalogic/v1/patris/push');
+$notice_type = in_array($notice_type, array('success', 'error', 'warning', 'info'), true) ? $notice_type : 'info';
 ?>
 <div class="wrap digitalogic-patris-reports">
     <h1><?php echo esc_html__('Digitalogic Patris Reports', 'digitalogic'); ?></h1>
     <p class="description"><?php echo esc_html__('Normalized Patris/API data is compared against WooCommerce to recreate and extend the old reportFinal workflows.', 'digitalogic'); ?></p>
 
     <?php if (!empty($notice)) : ?>
-        <div class="notice notice-info is-dismissible"><p><?php echo esc_html($notice); ?></p></div>
+        <div class="notice notice-<?php echo esc_attr($notice_type); ?> is-dismissible"><p><?php echo esc_html($notice); ?></p></div>
     <?php endif; ?>
 
     <div class="digitalogic-report-layout">
@@ -41,8 +45,11 @@ $push_url = rest_url('digitalogic/v1/patris/push');
                         <td><input class="regular-text code" id="digitalogic-patris-warehouses" name="selected_warehouses" value="<?php echo esc_attr(implode(',', (array) $settings['selected_warehouses'])); ?>" dir="ltr"><p class="description"><?php echo esc_html__('Comma-separated dynamic warehouse keys from the normalized API.', 'digitalogic'); ?></p></td>
                     </tr>
                     <tr>
-                        <th scope="row"><label for="digitalogic-patris-shipping"><?php echo esc_html__('Shipping Methods JSON', 'digitalogic'); ?></label></th>
-                        <td><textarea class="large-text code" rows="4" id="digitalogic-patris-shipping" name="shipping_methods" dir="ltr"><?php echo esc_textarea(wp_json_encode($settings['shipping_methods'], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE)); ?></textarea></td>
+                        <th scope="row"><?php echo esc_html__('Import Freight Catalog', 'digitalogic'); ?></th>
+                        <td>
+                            <code><?php echo esc_html(rest_url('digitalogic/v1/import-freight-methods')); ?></code>
+                            <p class="description"><?php echo esc_html__('Supplier import freight methods are managed as validated records. They are separate from WooCommerce customer delivery methods.', 'digitalogic'); ?></p>
+                        </td>
                     </tr>
                     <tr>
                         <th scope="row"><label for="digitalogic-patris-stale"><?php echo esc_html__('Stale After Hours', 'digitalogic'); ?></label></th>
@@ -85,6 +92,155 @@ $push_url = rest_url('digitalogic/v1/patris/push');
             <?php endif; ?>
         </section>
     </div>
+
+    <section class="digitalogic-section digitalogic-import-freight">
+        <h2><?php echo esc_html__('Supplier Import Freight', 'digitalogic'); ?></h2>
+        <p class="description">
+            <?php echo esc_html__('Manage freight used to import products from Patris. These records do not change WooCommerce customer delivery methods.', 'digitalogic'); ?>
+        </p>
+
+        <h3><?php echo esc_html__('Freight methods', 'digitalogic'); ?></h3>
+        <div class="digitalogic-report-table-wrap">
+            <table class="widefat striped">
+                <thead>
+                    <tr>
+                        <th scope="col"><?php echo esc_html__('Method ID', 'digitalogic'); ?></th>
+                        <th scope="col"><?php echo esc_html__('Name', 'digitalogic'); ?></th>
+                        <th scope="col"><?php echo esc_html__('CNY per kg', 'digitalogic'); ?></th>
+                        <th scope="col"><?php echo esc_html__('Enabled', 'digitalogic'); ?></th>
+                        <th scope="col"><?php echo esc_html__('Assigned products', 'digitalogic'); ?></th>
+                        <th scope="col"><?php echo esc_html__('Actions', 'digitalogic'); ?></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php if (empty($freight_methods)) : ?>
+                        <tr><td colspan="6"><?php echo esc_html__('No import freight methods are available.', 'digitalogic'); ?></td></tr>
+                    <?php else : ?>
+                        <?php foreach ($freight_methods as $method) : ?>
+                            <?php
+                            $method_id = (string) $method['id'];
+                            $form_id = 'digitalogic-freight-update-' . sanitize_html_class($method_id);
+                            $assigned_products = isset($method['assigned_products']) ? absint($method['assigned_products']) : 0;
+                            $can_delete = $assigned_products === 0 && empty($method['legacy_key']);
+                            ?>
+                            <tr>
+                                <td><code><?php echo esc_html($method_id); ?></code></td>
+                                <td>
+                                    <label class="screen-reader-text" for="<?php echo esc_attr($form_id); ?>-name"><?php echo esc_html__('Method name', 'digitalogic'); ?></label>
+                                    <input id="<?php echo esc_attr($form_id); ?>-name" class="regular-text" form="<?php echo esc_attr($form_id); ?>" name="method_name" value="<?php echo esc_attr($method['name']); ?>" required>
+                                </td>
+                                <td>
+                                    <label class="screen-reader-text" for="<?php echo esc_attr($form_id); ?>-rate"><?php echo esc_html__('CNY price per kilogram', 'digitalogic'); ?></label>
+                                    <input id="<?php echo esc_attr($form_id); ?>-rate" class="small-text" form="<?php echo esc_attr($form_id); ?>" type="number" min="0" step="any" name="price_per_kg_cny" value="<?php echo esc_attr($method['price_per_kg_cny']); ?>" required dir="ltr">
+                                </td>
+                                <td>
+                                    <label>
+                                        <input form="<?php echo esc_attr($form_id); ?>" type="checkbox" name="method_enabled" value="1" <?php checked(!empty($method['enabled'])); ?>>
+                                        <?php echo esc_html__('Active', 'digitalogic'); ?>
+                                    </label>
+                                </td>
+                                <td><?php echo esc_html(number_format_i18n($assigned_products)); ?></td>
+                                <td>
+                                    <form method="post" id="<?php echo esc_attr($form_id); ?>" class="digitalogic-inline-form">
+                                        <?php wp_nonce_field('digitalogic_import_freight_admin'); ?>
+                                        <input type="hidden" name="digitalogic_import_freight_action" value="update_method">
+                                        <input type="hidden" name="method_id" value="<?php echo esc_attr($method_id); ?>">
+                                        <button type="submit" class="button button-small"><?php echo esc_html__('Save', 'digitalogic'); ?></button>
+                                    </form>
+                                    <?php if ($can_delete) : ?>
+                                        <form method="post" class="digitalogic-inline-form">
+                                            <?php wp_nonce_field('digitalogic_import_freight_admin'); ?>
+                                            <input type="hidden" name="digitalogic_import_freight_action" value="delete_method">
+                                            <input type="hidden" name="method_id" value="<?php echo esc_attr($method_id); ?>">
+                                            <button type="submit" class="button button-small button-link-delete"><?php echo esc_html__('Delete', 'digitalogic'); ?></button>
+                                        </form>
+                                    <?php else : ?>
+                                        <span class="description"><?php echo esc_html__('Delete unavailable', 'digitalogic'); ?></span>
+                                    <?php endif; ?>
+                                </td>
+                            </tr>
+                        <?php endforeach; ?>
+                    <?php endif; ?>
+                </tbody>
+            </table>
+        </div>
+
+        <h3><?php echo esc_html__('Add a freight method', 'digitalogic'); ?></h3>
+        <form method="post">
+            <?php wp_nonce_field('digitalogic_import_freight_admin'); ?>
+            <input type="hidden" name="digitalogic_import_freight_action" value="create_method">
+            <table class="form-table" role="presentation">
+                <tr>
+                    <th scope="row"><label for="digitalogic-freight-new-id"><?php echo esc_html__('Method ID', 'digitalogic'); ?></label></th>
+                    <td>
+                        <input id="digitalogic-freight-new-id" class="regular-text code" name="method_id" required pattern="[a-z][a-z0-9_]{1,63}" dir="ltr">
+                        <p class="description"><?php echo esc_html__('A stable 2-64 character lowercase ID, such as rail_freight. It cannot be renamed later.', 'digitalogic'); ?></p>
+                    </td>
+                </tr>
+                <tr>
+                    <th scope="row"><label for="digitalogic-freight-new-name"><?php echo esc_html__('Name', 'digitalogic'); ?></label></th>
+                    <td><input id="digitalogic-freight-new-name" class="regular-text" name="method_name" required></td>
+                </tr>
+                <tr>
+                    <th scope="row"><label for="digitalogic-freight-new-rate"><?php echo esc_html__('CNY per kg', 'digitalogic'); ?></label></th>
+                    <td><input id="digitalogic-freight-new-rate" type="number" min="0" step="any" name="price_per_kg_cny" required dir="ltr"></td>
+                </tr>
+                <tr>
+                    <th scope="row"><?php echo esc_html__('Status', 'digitalogic'); ?></th>
+                    <td><label><input type="checkbox" name="method_enabled" value="1" checked> <?php echo esc_html__('Enabled', 'digitalogic'); ?></label></td>
+                </tr>
+            </table>
+            <p class="submit"><button type="submit" class="button button-primary"><?php echo esc_html__('Add freight method', 'digitalogic'); ?></button></p>
+        </form>
+
+        <h3><?php echo esc_html__('Assign a product', 'digitalogic'); ?></h3>
+        <p class="description"><?php echo esc_html__('Enter one exact Patris Code or WooCommerce SKU. An empty method selection clears the current assignment.', 'digitalogic'); ?></p>
+        <form method="post">
+            <?php wp_nonce_field('digitalogic_import_freight_admin'); ?>
+            <input type="hidden" name="digitalogic_import_freight_action" value="assign_product">
+            <table class="form-table" role="presentation">
+                <tr>
+                    <th scope="row"><label for="digitalogic-freight-product-code"><?php echo esc_html__('Exact Code / SKU', 'digitalogic'); ?></label></th>
+                    <td><input id="digitalogic-freight-product-code" class="regular-text code" name="product_code" required dir="ltr"></td>
+                </tr>
+                <tr>
+                    <th scope="row"><label for="digitalogic-freight-assignment-method"><?php echo esc_html__('Import freight method', 'digitalogic'); ?></label></th>
+                    <td>
+                        <select id="digitalogic-freight-assignment-method" name="assignment_method_id">
+                            <option value=""><?php echo esc_html__('Clear assignment', 'digitalogic'); ?></option>
+                            <?php foreach ($freight_methods as $method) : ?>
+                                <option value="<?php echo esc_attr($method['id']); ?>" <?php disabled(empty($method['enabled'])); ?>>
+                                    <?php
+                                    echo esc_html(sprintf(
+                                        '%1$s - %2$s CNY/kg%3$s',
+                                        $method['name'],
+                                        $method['price_per_kg_cny'],
+                                        empty($method['enabled']) ? ' (' . __('disabled', 'digitalogic') . ')' : ''
+                                    ));
+                                    ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </td>
+                </tr>
+            </table>
+            <p class="submit"><button type="submit" class="button button-primary"><?php echo esc_html__('Apply assignment', 'digitalogic'); ?></button></p>
+        </form>
+
+        <?php if (is_array($freight_assignment)) : ?>
+            <p>
+                <strong><?php echo esc_html__('Resolved product:', 'digitalogic'); ?></strong>
+                <?php echo esc_html(sprintf('#%1$d (%2$s)', absint($freight_assignment['product_id']), $freight_assignment['resolved_by'])); ?>
+                &mdash;
+                <strong><?php echo esc_html__('Current method:', 'digitalogic'); ?></strong>
+                <?php
+                echo empty($freight_assignment['import_freight_method'])
+                    ? esc_html__('None', 'digitalogic')
+                    : esc_html($freight_assignment['import_freight_method']['name']);
+                ?>
+            </p>
+        <?php endif; ?>
+    </section>
 
     <section class="digitalogic-section digitalogic-report-results">
         <h2><?php echo esc_html__('Problem Rows', 'digitalogic'); ?></h2>

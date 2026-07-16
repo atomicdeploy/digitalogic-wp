@@ -464,29 +464,114 @@ class Digitalogic_Admin {
     }
 
     public function render_patris_reports_page() {
+        if (!current_user_can('manage_woocommerce')) {
+            wp_die(esc_html__('You do not have permission to manage Patris reports.', 'digitalogic'));
+        }
+
         $feed = Digitalogic_Patris_Feed::instance();
+        $freight_service = Digitalogic_Import_Freight_Service::instance();
         $notice = '';
+        $notice_type = 'info';
+        $freight_assignment = null;
+        $posted_value = static function ($key) {
+            if (!isset($_POST[$key]) || !is_scalar($_POST[$key])) {
+                return '';
+            }
+
+            return wp_unslash((string) $_POST[$key]);
+        };
+
+        $freight_action = sanitize_key($posted_value('digitalogic_import_freight_action'));
+
+        if ($freight_action !== '') {
+            check_admin_referer('digitalogic_import_freight_admin');
+
+            switch ($freight_action) {
+                case 'create_method':
+                    $result = $freight_service->create_method(array(
+                        'id' => $posted_value('method_id'),
+                        'name' => sanitize_text_field($posted_value('method_name')),
+                        'price_per_kg_cny' => $posted_value('price_per_kg_cny'),
+                        'enabled' => isset($_POST['method_enabled']),
+                    ));
+                    $notice = is_wp_error($result)
+                        ? $result->get_error_message()
+                        : sprintf(__('Import freight method "%s" created.', 'digitalogic'), $result['name']);
+                    $notice_type = is_wp_error($result) ? 'error' : 'success';
+                    break;
+
+                case 'update_method':
+                    $method_id = $posted_value('method_id');
+                    $result = $freight_service->update_method($method_id, array(
+                        'name' => sanitize_text_field($posted_value('method_name')),
+                        'price_per_kg_cny' => $posted_value('price_per_kg_cny'),
+                        'enabled' => isset($_POST['method_enabled']),
+                    ));
+                    $notice = is_wp_error($result)
+                        ? $result->get_error_message()
+                        : sprintf(__('Import freight method "%s" updated.', 'digitalogic'), $result['name']);
+                    $notice_type = is_wp_error($result) ? 'error' : 'success';
+                    break;
+
+                case 'delete_method':
+                    $method_id = $posted_value('method_id');
+                    $result = $freight_service->delete_method($method_id);
+                    $notice = is_wp_error($result)
+                        ? $result->get_error_message()
+                        : __('Import freight method deleted.', 'digitalogic');
+                    $notice_type = is_wp_error($result) ? 'error' : 'success';
+                    break;
+
+                case 'assign_product':
+                    $code = sanitize_text_field($posted_value('product_code'));
+                    $method_id = $posted_value('assignment_method_id');
+                    $result = $freight_service->assign_product_by_code($code, $method_id);
+                    if (is_wp_error($result)) {
+                        $notice = $result->get_error_message();
+                        $notice_type = 'error';
+                    } else {
+                        $freight_assignment = $result;
+                        $notice = $method_id === ''
+                            ? __('The import freight assignment was cleared.', 'digitalogic')
+                            : __('The import freight method was assigned.', 'digitalogic');
+                        $notice_type = 'success';
+                    }
+                    break;
+
+                default:
+                    $notice = __('Unknown import freight action.', 'digitalogic');
+                    $notice_type = 'error';
+                    break;
+            }
+        }
 
         if (isset($_POST['digitalogic_patris_settings_submit']) && check_admin_referer('digitalogic_patris_settings')) {
             $feed->update_settings(array(
-                'api_url' => isset($_POST['api_url']) ? wp_unslash($_POST['api_url']) : '',
-                'api_token' => isset($_POST['api_token']) ? wp_unslash($_POST['api_token']) : '',
-                'selected_warehouses' => isset($_POST['selected_warehouses']) ? wp_unslash($_POST['selected_warehouses']) : '',
-                'shipping_methods' => isset($_POST['shipping_methods']) ? wp_unslash($_POST['shipping_methods']) : '',
-                'stale_after_hours' => isset($_POST['stale_after_hours']) ? absint($_POST['stale_after_hours']) : 48,
-                'sync_interval' => isset($_POST['sync_interval']) ? sanitize_key(wp_unslash($_POST['sync_interval'])) : '',
+                'api_url' => $posted_value('api_url'),
+                'api_token' => $posted_value('api_token'),
+                'selected_warehouses' => $posted_value('selected_warehouses'),
+                'stale_after_hours' => $posted_value('stale_after_hours') !== '' ? absint($posted_value('stale_after_hours')) : 48,
+                'sync_interval' => sanitize_key($posted_value('sync_interval')),
             ));
             $notice = __('Patris report settings saved.', 'digitalogic');
+            $notice_type = 'success';
         }
 
         if (isset($_POST['digitalogic_patris_sync_submit']) && check_admin_referer('digitalogic_patris_sync')) {
             $result = $feed->pull_sync();
             $notice = is_wp_error($result) ? $result->get_error_message() : __('Patris feed synchronized.', 'digitalogic');
+            $notice_type = is_wp_error($result) ? 'error' : 'success';
         }
 
         $settings = $feed->get_settings();
         $push_token = $feed->get_push_token();
         $report = Digitalogic_Report_Engine::instance()->get_report();
+        $freight_methods = $freight_service->list_methods(true);
+        if (is_wp_error($freight_methods)) {
+            $notice = $freight_methods->get_error_message();
+            $notice_type = 'error';
+            $freight_methods = array();
+        }
 
         include DIGITALOGIC_PLUGIN_DIR . 'includes/admin/views/patris-reports.php';
     }

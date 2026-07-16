@@ -28,6 +28,8 @@ class Digitalogic_Panel {
             self::$instance = new self();
         }
 
+        self::$instance->register_import_freight_delivery_channel();
+
         return self::$instance;
     }
 
@@ -47,6 +49,13 @@ class Digitalogic_Panel {
         add_filter('posts_search', array($this, 'extend_product_search'), 10, 2);
         add_action('wp_footer', array($this, 'hide_wp_armour_honeypot_notice'), 1000);
         add_action('admin_footer', array($this, 'hide_wp_armour_honeypot_notice'), 1000);
+    }
+
+    private function register_import_freight_delivery_channel() {
+        Digitalogic_Import_Freight_Service::instance()->register_delivery_channel(
+            'panel',
+            array($this, 'deliver_import_freight_event')
+        );
     }
 
     public function register_route() {
@@ -585,15 +594,107 @@ class Digitalogic_Panel {
         }
     }
 
+    public function record_import_freight_method_created($method) {
+        return $this->record_import_freight_method_event('import_freight.method.created', $method);
+    }
+
+    public function record_import_freight_method_updated($method) {
+        return $this->record_import_freight_method_event('import_freight.method.updated', $method);
+    }
+
+    public function record_import_freight_method_deleted($method) {
+        return $this->record_import_freight_method_event('import_freight.method.deleted', $method);
+    }
+
+    public function record_import_freight_assignment_event($product_id, $method_id) {
+        return self::record_event('import_freight.assignment.updated', array(
+            'product_id' => absint($product_id),
+            'import_freight_method_id' => sanitize_key((string) $method_id),
+        ));
+    }
+
+    private function record_import_freight_method_event($event, $method) {
+        $method = is_array($method) ? $method : array();
+        return self::record_event($event, array(
+            'id' => isset($method['id']) ? sanitize_key($method['id']) : '',
+            'name' => isset($method['name']) ? sanitize_text_field($method['name']) : '',
+            'enabled' => !empty($method['enabled']),
+            'price_per_kg_cny' => isset($method['price_per_kg_cny']) ? (float) $method['price_per_kg_cny'] : null,
+        ));
+    }
+
+    /**
+     * Result-aware import-freight delivery channel used after service commits.
+     */
+    public function deliver_import_freight_event($hook, $args) {
+        $args = is_array($args) ? $args : array();
+        if ('digitalogic_product_import_freight_method_updated' === $hook) {
+            $event = 'import_freight.assignment.updated';
+            $data = array(
+                'product_id' => absint(isset($args[0]) ? $args[0] : 0),
+                'import_freight_method_id' => sanitize_key((string) (isset($args[1]) ? $args[1] : '')),
+            );
+        } else {
+            $events = array(
+                'digitalogic_import_freight_method_created' => 'import_freight.method.created',
+                'digitalogic_import_freight_method_updated' => 'import_freight.method.updated',
+                'digitalogic_import_freight_method_deleted' => 'import_freight.method.deleted',
+            );
+            if (!isset($events[$hook])) {
+                return new WP_Error(
+                    'digitalogic_panel_delivery_event_unknown',
+                    __('The panel does not recognize this import freight event.', 'digitalogic')
+                );
+            }
+
+            $event = $events[$hook];
+            $method = isset($args[0]) && is_array($args[0]) ? $args[0] : array();
+            $data = array(
+                'id' => isset($method['id']) ? sanitize_key($method['id']) : '',
+                'name' => isset($method['name']) ? sanitize_text_field($method['name']) : '',
+                'enabled' => !empty($method['enabled']),
+                'price_per_kg_cny' => isset($method['price_per_kg_cny']) ? (float) $method['price_per_kg_cny'] : null,
+            );
+        }
+
+        $result = self::record_event_result($event, $data);
+        if (is_wp_error($result)) {
+            return $result;
+        }
+        if (!empty($result['delivery_warnings'])) {
+            return new WP_Error(
+                'digitalogic_panel_delivery_failed',
+                __('The panel event was stored, but one or more real-time deliveries failed.', 'digitalogic'),
+                array('warnings' => $result['delivery_warnings'])
+            );
+        }
+
+        return true;
+    }
+
     public static function record_event($event, $data = array()) {
+        $result = self::record_event_result($event, $data);
+        return is_wp_error($result) ? null : $result['event'];
+    }
+
+    /**
+     * Persist and publish an event while retaining per-channel outcome data.
+     *
+     * @return array{event:array,delivery_warnings:array}|WP_Error
+     */
+    public static function record_event_result($event, $data = array()) {
         $lock = self::acquire_event_lock();
         if ($lock === false) {
             self::report_event_delivery_failure('Could not acquire the database event lock; the event was not recorded.');
-            return null;
+            return new WP_Error(
+                'digitalogic_panel_queue_lock_failed',
+                __('The panel event queue lock could not be acquired.', 'digitalogic')
+            );
         }
 
         $stored = false;
         $event_envelope = null;
+        $delivery_warnings = array();
 
         try {
             self::refresh_event_option_cache(true);
@@ -623,6 +724,7 @@ class Digitalogic_Panel {
 
             if (!update_option(self::EVENT_SEQUENCE_OPTION, $event_id, false)) {
                 self::report_event_delivery_failure('The durable event sequence could not be updated.');
+                $delivery_warnings[] = 'panel_sequence_write_failed';
             }
 
             $stored = update_option(self::EVENT_OPTION, $events, false);
@@ -632,12 +734,20 @@ class Digitalogic_Panel {
 
         if (!$stored || !is_array($event_envelope)) {
             self::report_event_delivery_failure('The panel event queue could not be updated; Redis publication was skipped.');
-            return null;
+            return new WP_Error(
+                'digitalogic_panel_queue_write_failed',
+                __('The panel event queue could not be updated.', 'digitalogic')
+            );
         }
 
-        self::publish_event($event_envelope);
+        if (!self::publish_event($event_envelope)) {
+            $delivery_warnings[] = 'panel_redis_delivery_failed';
+        }
 
-        return $event_envelope;
+        return array(
+            'event' => $event_envelope,
+            'delivery_warnings' => array_values(array_unique($delivery_warnings)),
+        );
     }
 
     /**
@@ -704,6 +814,7 @@ class Digitalogic_Panel {
         $redis = apply_filters('digitalogic_panel_redis_client', null);
         if ($redis === null) {
             if (!class_exists('Redis')) {
+                self::report_event_delivery_failure('The Redis extension is unavailable.');
                 return false;
             }
 

@@ -150,9 +150,33 @@ curl -u key:secret "https://yoursite.com/wp-json/digitalogic/v1/products?page=1&
 
 ---
 
+## Import Freight Integration
+
+Import freight describes supplier-to-Digitalogic transport. It does not use
+WooCommerce checkout, shipping-zone, or customer delivery APIs.
+
+- **GET** `/integration/catalog` - versioned CNY/IRT rate, `landed_price_v1`, selected warehouses, and methods
+- **GET** `/import-freight-methods` - list canonical methods
+- **POST** `/import-freight-methods` - create a method with an immutable ID
+- **GET|PUT|DELETE** `/import-freight-methods/{id}` - read, update, or delete an unassigned method
+- **GET|PUT** `/products/by-code/{code}/import-pricing` - read or assign by exact Patris Code/SKU
+- **POST** `/products/import-pricing/batch` - preflight and apply an atomic assignment batch
+
+GET routes use the `read` permission scope. Mutating routes use `write`.
+Deleting an assigned method returns HTTP 409; disabling it remains available.
+See [Import Freight Integration Contract](IMPORT-FREIGHT-API.md) for schemas,
+migration behavior, and the pricing formula.
+
+---
+
 ## Webhooks
 
 Webhook events:
+
+- `import_freight.method.created`
+- `import_freight.method.updated`
+- `import_freight.method.deleted`
+- `import_freight.assignment.updated`
 - `product.created`
 - `product.updated`
 - `currency.updated`
@@ -174,6 +198,15 @@ Supported command names:
 - `digitalogic_update_currency`
 - `digitalogic_export`
 - `digitalogic_get_logs`
+- `digitalogic_get_integration_catalog`
+- `digitalogic_list_import_freight_methods`
+- `digitalogic_create_import_freight_method`
+- `digitalogic_get_import_freight_method`
+- `digitalogic_update_import_freight_method`
+- `digitalogic_delete_import_freight_method`
+- `digitalogic_get_product_import_pricing`
+- `digitalogic_assign_product_import_freight`
+- `digitalogic_batch_assign_product_import_freight`
 
 Browser WebSocket request:
 ```json
