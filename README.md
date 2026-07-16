@@ -164,6 +164,7 @@ curl -X POST https://yoursite.com/wp-json/digitalogic/v1/products/batch \
 
 #### Import Freight Integration
 - `GET /wp-json/digitalogic/v1/integration/catalog` - Read the versioned pricing/freight catalog
+- `POST /wp-json/digitalogic/v1/pricing-assignments/batch` - Read a bounded ordered Code assignment projection
 - `GET|POST /wp-json/digitalogic/v1/import-freight-methods` - List or create supplier import methods
 - `GET|PUT|DELETE /wp-json/digitalogic/v1/import-freight-methods/{id}` - Manage an immutable method ID
 - `GET|PUT /wp-json/digitalogic/v1/products/by-code/{code}/import-pricing` - Read or assign by exact Patris Code/SKU
@@ -198,6 +199,13 @@ The plugin uses WooCommerce REST API authentication:
 1. Go to WooCommerce → Settings → Advanced → REST API
 2. Create API keys (consumer key & secret)
 3. Use Basic Auth with consumer key as username and secret as password
+
+Patris pricing uses a separate one-way, rotatable Bearer credential confined to
+`GET /integration/catalog` and `POST /pricing-assignments/batch`. See
+[Patris pricing-input machine credential](docs/PRICING-INPUT-CREDENTIAL.md) for
+administrator-only WP-CLI lifecycle commands and environment-name wiring. Do
+not reuse write, webhook, product-sync, WooCommerce consumer, or login secrets
+for this machine identity.
 
 ### Webhooks
 

@@ -8,6 +8,7 @@ define('ABSPATH', __DIR__ . '/');
 define('WP_CLI', true);
 define('ARRAY_A', 'ARRAY_A');
 
+// phpcs:disable Generic.Formatting.MultipleStatementAlignment -- Preserve the intentionally simple test-global registry.
 $GLOBALS['digitalogic_test_capabilities'] = array();
 $GLOBALS['digitalogic_test_filters'] = array();
 $GLOBALS['digitalogic_test_routes'] = array();
@@ -31,6 +32,9 @@ $GLOBALS['digitalogic_test_wc_products'] = array();
 $GLOBALS['digitalogic_test_wc_product_saves'] = array();
 $GLOBALS['digitalogic_test_wc_save_failures'] = array();
 $GLOBALS['digitalogic_test_wc_currency'] = 'IRT';
+$GLOBALS['digitalogic_test_transients'] = array(); // phpcs:ignore
+$GLOBALS['digitalogic_test_transient_deletes'] = array(); // phpcs:ignore
+// phpcs:enable Generic.Formatting.MultipleStatementAlignment
 
 class WP_Error {
     private $code;
@@ -61,6 +65,8 @@ class WP_REST_Request implements ArrayAccess {
     private $json;
     private $headers;
     private $body;
+    private $route = ''; // phpcs:ignore
+    private $method = ''; // phpcs:ignore
 
     public function __construct($params = array(), $json = array(), $headers = array(), $body = null) {
         $this->params = is_array($params) ? $params : array();
@@ -90,6 +96,26 @@ class WP_REST_Request implements ArrayAccess {
     public function get_body() {
         return $this->body;
     }
+
+// phpcs:disable -- Test-only REST request compatibility methods follow the legacy bootstrap style.
+    public function set_route($route) {
+        $this->route = (string) $route;
+        return $this;
+    }
+
+    public function get_route() {
+        return $this->route;
+    }
+
+    public function set_method($method) {
+        $this->method = strtoupper((string) $method);
+        return $this;
+    }
+
+    public function get_method() {
+        return $this->method;
+    }
+// phpcs:enable
 
     public function offsetExists($offset): bool {
         return array_key_exists($offset, $this->params);
@@ -312,6 +338,39 @@ function delete_option($name) {
     unset($GLOBALS['digitalogic_test_option_cache'][$name]);
     return true;
 }
+
+// phpcs:disable -- Test-only transient stubs follow the legacy bootstrap style.
+function get_transient($name) {
+    if (!isset($GLOBALS['digitalogic_test_transients'][$name])) {
+        return false;
+    }
+
+    $transient = $GLOBALS['digitalogic_test_transients'][$name];
+    if ($transient['expires'] > 0 && $transient['expires'] <= time()) {
+        unset($GLOBALS['digitalogic_test_transients'][$name]);
+        return false;
+    }
+
+    return $transient['value'];
+}
+
+function set_transient($name, $value, $expiration = 0) {
+    $GLOBALS['digitalogic_test_transients'][$name] = array(
+        'value' => $value,
+        'expires' => $expiration > 0 ? time() + (int) $expiration : 0,
+    );
+
+    return true;
+}
+
+function delete_transient($name) {
+    $GLOBALS['digitalogic_test_transient_deletes'][] = $name;
+    $exists = isset($GLOBALS['digitalogic_test_transients'][$name]);
+    unset($GLOBALS['digitalogic_test_transients'][$name]);
+
+    return $exists;
+}
+// phpcs:enable
 
 function wp_cache_delete($key, $group = '') {
     $GLOBALS['digitalogic_test_cache_deletes'][] = array($key, $group);
@@ -589,6 +648,11 @@ class Digitalogic_Test_WPDB {
     public $after_rollback = null;
     public $identifier_query_count = 0;
     public $option_read_counts = array();
+    // phpcs:disable -- Deterministic lifecycle-interleaving hooks for focused tests.
+    public $before_get_lock = null;
+    public $after_option_write = null;
+    public $lock_timeouts = array();
+    // phpcs:enable
     private $transaction_snapshot = null;
     private $meta_ids = array();
     private $next_meta_id = 1;
@@ -604,6 +668,15 @@ class Digitalogic_Test_WPDB {
         $query = is_array($prepared) && isset($prepared['query']) ? $prepared['query'] : (string) $prepared;
         if (strpos($query, 'GET_LOCK') !== false) {
             $this->acquire_count++;
+            // phpcs:disable -- Test-only interleaving hook follows the legacy bootstrap style.
+            $args = is_array($prepared) && isset($prepared['args']) ? $prepared['args'] : array();
+            $this->lock_timeouts[] = isset($args[1]) ? (int) $args[1] : null;
+            $callback = $this->before_get_lock;
+            $this->before_get_lock = null;
+            if (is_callable($callback)) {
+                call_user_func($callback, $this);
+            }
+            // phpcs:enable
             return $this->acquire_result;
         }
 
@@ -710,6 +783,13 @@ class Digitalogic_Test_WPDB {
             }
             $GLOBALS['digitalogic_test_options'][$name] = $this->stored_database_value($data['option_value']);
             $this->insert_id++;
+            // phpcs:disable -- Test-only interleaving hook follows the legacy bootstrap style.
+            $callback = $this->after_option_write;
+            $this->after_option_write = null;
+            if (is_callable($callback)) {
+                call_user_func($callback, $this, $name);
+            }
+            // phpcs:enable
             return 1;
         }
 
@@ -741,6 +821,13 @@ class Digitalogic_Test_WPDB {
                 return 0;
             }
             $GLOBALS['digitalogic_test_options'][$name] = $this->stored_database_value($data['option_value']);
+            // phpcs:disable -- Test-only interleaving hook follows the legacy bootstrap style.
+            $callback = $this->after_option_write;
+            $this->after_option_write = null;
+            if (is_callable($callback)) {
+                call_user_func($callback, $this, $name);
+            }
+            // phpcs:enable
             return 1;
         }
 
@@ -1084,6 +1171,7 @@ $GLOBALS['wpdb'] = new Digitalogic_Test_WPDB();
 
 require_once dirname(__DIR__) . '/includes/class-unit-converter.php';
 require_once dirname(__DIR__) . '/includes/class-product-identifier-resolver.php';
+require_once dirname(__DIR__) . '/includes/class-digitalogic-pricing-input-credential.php'; // phpcs:ignore
 require_once dirname(__DIR__) . '/includes/class-patris-feed.php';
 require_once dirname(__DIR__) . '/includes/class-product-sync-receiver.php';
 require_once dirname(__DIR__) . '/includes/class-import-freight-service.php';

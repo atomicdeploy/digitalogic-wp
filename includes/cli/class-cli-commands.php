@@ -601,6 +601,138 @@ class Digitalogic_CLI_Commands {
 			wp_json_encode( $result, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES )
 		);
 	}
+
+	/**
+	 * Create the route-scoped Patris pricing-input credential.
+	 *
+	 * The generated Bearer value is printed exactly once. Run this command with
+	 * an explicit administrator context and move the value directly into the
+	 * Patris environment secret configured by BearerTokenEnv.
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     wp digitalogic pricing-input-credential create --user=<administrator>
+	 *
+	 * @when after_wp_load
+	 *
+	 * @return void
+	 */
+	public function pricing_input_credential_create() {
+		if ( ! $this->require_pricing_credential_admin() ) {
+			return;
+		}
+
+		$this->output_issued_pricing_credential(
+			Digitalogic_Pricing_Input_Credential::instance()->create()
+		);
+	}
+
+	/**
+	 * Rotate the pricing-input credential and invalidate its old value.
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     wp digitalogic pricing-input-credential rotate --user=<administrator>
+	 *
+	 * @when after_wp_load
+	 *
+	 * @return void
+	 */
+	public function pricing_input_credential_rotate() {
+		if ( ! $this->require_pricing_credential_admin() ) {
+			return;
+		}
+
+		$this->output_issued_pricing_credential(
+			Digitalogic_Pricing_Input_Credential::instance()->rotate()
+		);
+	}
+
+	/**
+	 * Revoke the pricing-input credential immediately.
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     wp digitalogic pricing-input-credential revoke --user=<administrator>
+	 *
+	 * @when after_wp_load
+	 *
+	 * @return void
+	 */
+	public function pricing_input_credential_revoke() {
+		if ( ! $this->require_pricing_credential_admin() ) {
+			return;
+		}
+
+		$result = Digitalogic_Pricing_Input_Credential::instance()->revoke();
+		if ( is_wp_error( $result ) ) {
+			WP_CLI::error( $result->get_error_message() );
+			return;
+		}
+
+		WP_CLI::line( wp_json_encode( $result, JSON_UNESCAPED_SLASHES ) );
+	}
+
+	/**
+	 * Show nonsecret pricing-input credential metadata.
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     wp digitalogic pricing-input-credential status --user=<administrator>
+	 *
+	 * @when after_wp_load
+	 *
+	 * @return void
+	 */
+	public function pricing_input_credential_status() {
+		if ( ! $this->require_pricing_credential_admin() ) {
+			return;
+		}
+
+		$result = Digitalogic_Pricing_Input_Credential::instance()->status();
+		if ( is_wp_error( $result ) ) {
+			WP_CLI::error( $result->get_error_message() );
+			return;
+		}
+
+		WP_CLI::line(
+			wp_json_encode(
+				$result,
+				JSON_UNESCAPED_SLASHES
+			)
+		);
+	}
+
+	/**
+	 * Require an explicit administrator user for credential lifecycle commands.
+	 *
+	 * @return bool
+	 */
+	private function require_pricing_credential_admin() {
+		if ( current_user_can( 'manage_options' ) ) {
+			return true;
+		}
+
+		WP_CLI::error( 'Run this command with --user=<administrator>.' );
+
+		return false;
+	}
+
+	/**
+	 * Print a newly issued secret once, followed by nonsecret metadata.
+	 *
+	 * @param array|WP_Error $result Credential issuance result.
+	 * @return void
+	 */
+	private function output_issued_pricing_credential( $result ) {
+		if ( is_wp_error( $result ) ) {
+			WP_CLI::error( $result->get_error_message() );
+			return;
+		}
+
+		WP_CLI::line( $result['secret'] );
+		WP_CLI::line( wp_json_encode( $result['metadata'], JSON_UNESCAPED_SLASHES ) );
+	}
 }
 
 // Register commands
@@ -622,4 +754,20 @@ WP_CLI::add_command('digitalogic panel broadcast', array('Digitalogic_CLI_Comman
 WP_CLI::add_command(
 	'digitalogic pricing assignments',
 	array( 'Digitalogic_CLI_Commands', 'pricing_assignments' )
+);
+WP_CLI::add_command(
+	'digitalogic pricing-input-credential create',
+	array( 'Digitalogic_CLI_Commands', 'pricing_input_credential_create' )
+);
+WP_CLI::add_command(
+	'digitalogic pricing-input-credential rotate',
+	array( 'Digitalogic_CLI_Commands', 'pricing_input_credential_rotate' )
+);
+WP_CLI::add_command(
+	'digitalogic pricing-input-credential revoke',
+	array( 'Digitalogic_CLI_Commands', 'pricing_input_credential_revoke' )
+);
+WP_CLI::add_command(
+	'digitalogic pricing-input-credential status',
+	array( 'Digitalogic_CLI_Commands', 'pricing_input_credential_status' )
 );

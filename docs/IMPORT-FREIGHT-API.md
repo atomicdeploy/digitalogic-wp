@@ -33,8 +33,11 @@ The old free-form `shipping_methods` member of
 ## REST endpoints
 
 All routes require an authenticated identity with the plugin's read or write
-integration permission (normally `manage_woocommerce`). WooCommerce REST API
-keys may provide that identity.
+integration permission (normally `manage_woocommerce`). The catalog and bounded
+pricing-assignment batch additionally accept the dedicated header-only Patris
+pricing-input credential documented in
+[PRICING-INPUT-CREDENTIAL.md](PRICING-INPUT-CREDENTIAL.md). That machine identity
+is confined to those two exact route/method pairs.
 
 - `GET /wp-json/digitalogic/v1/integration/catalog`
 - `GET|PUT /wp-json/digitalogic/v1/pricing/default-markup`
@@ -118,13 +121,12 @@ upgrade must complete migration separately.
 }
 ```
 
-This POST is a read operation and uses `check_read_permission`: either the
-authenticated identity has `manage_woocommerce`, or the
-`digitalogic_rest_api_permission` filter returns the boolean `true` for the
-`read` scope and this exact request. It deliberately does not accept the Patris
-push token or the transformed product-sync write secret. A dedicated
-header-only, route-scoped machine read credential remains a separate hardening
-follow-up; do not grant Patris a write secret to bridge that gap.
+This POST is a read operation. A human identity with `manage_woocommerce` keeps
+normal access. Patris uses the same dedicated Bearer credential as
+`GET /integration/catalog`; the verifier itself enforces both exact route and
+method tuples. It deliberately does not accept the broad read filter, a
+WooCommerce Basic credential as the Patris machine identity, the Patris push
+token, or the transformed product-sync write secret.
 
 The same service operation is exposed as the
 `digitalogic_get_product_import_pricing_batch` command and through WP-CLI:

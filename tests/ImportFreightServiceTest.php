@@ -145,6 +145,48 @@ final class ImportFreightServiceTest extends TestCase {
         $this->assertSame(87.0, $this->service->get_method('air_express')['price_per_kg_cny']);
     }
 
+    // phpcs:disable -- Focused regression follows this legacy test file's established style.
+    /**
+     * A cold catalog read projects defaults but leaves migration to init.
+     */
+    public function test_catalog_read_is_typed_and_write_free_before_migration() {
+        $this->assertArrayNotHasKey(Digitalogic_Import_Freight_Service::MIGRATION_OPTION, $GLOBALS['digitalogic_test_options']);
+        $this->assertArrayNotHasKey(Digitalogic_Import_Freight_Service::METHODS_OPTION, $GLOBALS['digitalogic_test_options']);
+        $before = array(
+            'options' => $GLOBALS['digitalogic_test_options'],
+            'option_cache' => $GLOBALS['digitalogic_test_option_cache'],
+            'posts' => $GLOBALS['digitalogic_test_posts'],
+            'actions' => $GLOBALS['digitalogic_test_actions'],
+            'queries' => $GLOBALS['wpdb']->queries,
+            'locks' => $GLOBALS['wpdb']->acquire_count,
+        );
+
+        $catalog = $this->service->get_integration_catalog();
+        $methods = $this->indexMethods($catalog['import_freight_methods']);
+
+        $this->assertSame('digitalogic.integration-catalog', $catalog['schema']);
+        $this->assertSame('1.0.0', $catalog['schema_version']);
+        $this->assertIsString($catalog['revision']);
+        $this->assertSame(25300.0, $catalog['currency']['cny_to_local']);
+        $this->assertFalse($catalog['pricing']['default_percentage_markup']['configured']);
+        $this->assertNull($catalog['pricing']['default_percentage_markup']['profit_percent']);
+        $this->assertSame(array('air_express', 'air_freight', 'sea_freight'), array_keys($methods));
+        $this->assertSame(85.0, $methods['air_express']['price_per_kg_cny']);
+        $this->assertIsBool($methods['air_express']['enabled']);
+        $this->assertIsInt($methods['air_express']['assigned_products']);
+        $this->assertIsArray($methods['air_express']['metadata']);
+        $this->assertIsArray($methods['air_express']['tiered_rates']);
+        $this->assertArrayNotHasKey(Digitalogic_Import_Freight_Service::MIGRATION_OPTION, $GLOBALS['digitalogic_test_options']);
+        $this->assertArrayNotHasKey(Digitalogic_Import_Freight_Service::METHODS_OPTION, $GLOBALS['digitalogic_test_options']);
+        $this->assertSame($before['options'], $GLOBALS['digitalogic_test_options']);
+        $this->assertSame($before['option_cache'], $GLOBALS['digitalogic_test_option_cache']);
+        $this->assertSame($before['posts'], $GLOBALS['digitalogic_test_posts']);
+        $this->assertSame($before['actions'], $GLOBALS['digitalogic_test_actions']);
+        $this->assertSame($before['queries'], $GLOBALS['wpdb']->queries);
+        $this->assertSame($before['locks'], $GLOBALS['wpdb']->acquire_count);
+    }
+    // phpcs:enable
+
     public function test_crud_enforces_immutable_ids_delete_conflict_and_disable_semantics() {
         $GLOBALS['digitalogic_test_posts'][201] = array(
             'post_type' => 'product',
