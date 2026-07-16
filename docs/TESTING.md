@@ -21,12 +21,12 @@ cd /path/to/wordpress
 wp plugin install /path/to/digitalogic-wp.zip --activate
 
 # Verify plugin is active
-wp plugin list | grep digitalogic
+wp plugin status digitalogic-wp
 ```
 
 Expected output:
 ```
-digitalogic    1.0.0    active
+Plugin digitalogic-wp details:
 ```
 
 ### 2. Check HPOS Compatibility
@@ -332,7 +332,7 @@ wp eval "echo 'Memory: ' . memory_get_peak_usage(true) / 1024 / 1024 . ' MB';"
 **Check**:
 ```bash
 # Verify language files exist
-ls -la wp-content/plugins/digitalogic/languages/
+ls -la wp-content/plugins/digitalogic-wp/languages/
 
 # Should show:
 # digitalogic.pot

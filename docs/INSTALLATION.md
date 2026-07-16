@@ -29,27 +29,31 @@ wp plugin install /path/to/digitalogic-wp.zip --activate
 wp plugin install https://github.com/atomicdeploy/digitalogic-wp/releases/latest/download/digitalogic-wp.zip --activate
 ```
 
+Every release publishes the stable `digitalogic-wp.zip` asset, a versioned
+archive, and `SHA256SUMS`. The stable name keeps the latest-download URL valid;
+the versioned archive and checksums provide immutable release evidence.
+
 ### Method 3: Manual Installation (Advanced)
 
 1. Download and extract the plugin
-2. Upload the `digitalogic` folder to `/wp-content/plugins/`
+2. Upload the `digitalogic-wp` folder to `/wp-content/plugins/`
 3. SSH into your server and navigate to the plugin directory:
    ```bash
-   cd /path/to/wp-content/plugins/digitalogic
+   cd /path/to/wp-content/plugins/digitalogic-wp
    composer install --no-dev --optimize-autoloader
    ```
 4. Activate the plugin:
    - Via WordPress Admin: **Plugins** → **Installed Plugins** → **Activate**
-   - Via WP-CLI: `wp plugin activate digitalogic`
+   - Via WP-CLI: `wp plugin activate digitalogic-wp`
 
 ### Method 4: Git Clone (For Development)
 
 ```bash
 cd /path/to/wp-content/plugins/
-git clone https://github.com/atomicdeploy/digitalogic-wp.git digitalogic
-cd digitalogic
+git clone https://github.com/atomicdeploy/digitalogic-wp.git digitalogic-wp
+cd digitalogic-wp
 composer install
-wp plugin activate digitalogic
+wp plugin activate digitalogic-wp
 ```
 
 ## Post-Installation Setup
@@ -117,8 +121,8 @@ wp plugin activate woocommerce
 **Solution:** Deactivate and reactivate the plugin:
 
 ```bash
-wp plugin deactivate digitalogic
-wp plugin activate digitalogic
+wp plugin deactivate digitalogic-wp
+wp plugin activate digitalogic-wp
 ```
 
 ### Permission Errors
@@ -134,7 +138,7 @@ wp user add-cap admin_username manage_woocommerce
 **Solution:** Install dependencies:
 
 ```bash
-cd /path/to/wp-content/plugins/digitalogic
+cd /path/to/wp-content/plugins/digitalogic-wp
 composer install --no-dev --optimize-autoloader
 ```
 
@@ -162,16 +166,16 @@ Settings → Permalinks → Save Changes (no changes needed, just save)
 ### Via WP-CLI
 
 ```bash
-wp plugin update digitalogic --version=1.1.0
+wp plugin update digitalogic-wp --version=1.1.0
 ```
 
 ### Via Git (Development)
 
 ```bash
-cd /path/to/wp-content/plugins/digitalogic
+cd /path/to/wp-content/plugins/digitalogic-wp
 git pull origin main
 composer install --no-dev --optimize-autoloader
-wp plugin deactivate digitalogic && wp plugin activate digitalogic
+wp plugin deactivate digitalogic-wp && wp plugin activate digitalogic-wp
 ```
 
 ## Uninstallation
@@ -181,7 +185,7 @@ wp plugin deactivate digitalogic && wp plugin activate digitalogic
 1. Deactivate the plugin
 2. Delete from WordPress Admin or via WP-CLI:
    ```bash
-   wp plugin uninstall digitalogic --deactivate
+   wp plugin uninstall digitalogic-wp --deactivate
    ```
 
 ### Clean Database (Optional)
