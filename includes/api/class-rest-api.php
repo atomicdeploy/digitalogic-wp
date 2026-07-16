@@ -268,6 +268,19 @@ class Digitalogic_REST_API {
             'permission_callback' => array($this, 'check_read_permission'),
         ));
 
+        register_rest_route('digitalogic/v1', '/pricing/default-markup', array(
+            array(
+                'methods' => 'GET',
+                'callback' => array($this, 'get_default_percentage_markup'),
+                'permission_callback' => array($this, 'check_read_permission'),
+            ),
+            array(
+                'methods' => 'PUT',
+                'callback' => array($this, 'update_default_percentage_markup'),
+                'permission_callback' => array($this, 'check_write_permission'),
+            ),
+        ));
+
         register_rest_route('digitalogic/v1', '/import-freight-methods', array(
             array(
                 'methods' => 'GET',
@@ -677,6 +690,18 @@ class Digitalogic_REST_API {
     public function get_integration_catalog(WP_REST_Request $request) {
         return $this->import_freight_response(
             Digitalogic_Command_Dispatcher::instance()->get_integration_catalog($request->get_params())
+        );
+    }
+
+    public function get_default_percentage_markup(WP_REST_Request $request) {
+        return $this->import_freight_response(
+            Digitalogic_Command_Dispatcher::instance()->get_default_percentage_markup($request->get_params())
+        );
+    }
+
+    public function update_default_percentage_markup(WP_REST_Request $request) {
+        return $this->import_freight_response(
+            Digitalogic_Command_Dispatcher::instance()->update_default_percentage_markup($this->request_payload($request))
         );
     }
 

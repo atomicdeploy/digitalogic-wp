@@ -160,6 +160,7 @@ curl -X POST https://yoursite.com/wp-json/digitalogic/v1/products/batch \
 
 #### Pricing
 - `POST /wp-json/digitalogic/v1/pricing/recalculate` - Recalculate all prices
+- `GET|PUT /wp-json/digitalogic/v1/pricing/default-markup` - Read, set, or explicitly clear the canonical default percentage markup
 
 #### Import Freight Integration
 - `GET /wp-json/digitalogic/v1/integration/catalog` - Read the versioned pricing/freight catalog
@@ -167,6 +168,10 @@ curl -X POST https://yoursite.com/wp-json/digitalogic/v1/products/batch \
 - `GET|PUT|DELETE /wp-json/digitalogic/v1/import-freight-methods/{id}` - Manage an immutable method ID
 - `GET|PUT /wp-json/digitalogic/v1/products/by-code/{code}/import-pricing` - Read or assign by exact Patris Code/SKU
 - `POST /wp-json/digitalogic/v1/products/import-pricing/batch` - Preflight and apply Code-based assignments
+
+The default markup is nullable, exact-decimal, and used only when both product
+markup metadata rows are absent or both rows are stored empty. Saving it does
+not write WooCommerce prices.
 
 Import freight is distinct from customer delivery and WooCommerce checkout
 shipping. See [Import Freight Integration Contract](docs/IMPORT-FREIGHT-API.md).

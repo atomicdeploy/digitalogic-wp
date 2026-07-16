@@ -85,6 +85,8 @@ class Digitalogic_Command_Dispatcher {
             'digitalogic_import_patris_payload' => array($this, 'import_patris_payload'),
             'digitalogic_update_patris_settings' => array($this, 'update_patris_settings'),
             'digitalogic_get_integration_catalog' => array($this, 'get_integration_catalog'),
+            'digitalogic_get_default_percentage_markup' => array($this, 'get_default_percentage_markup'),
+            'digitalogic_update_default_percentage_markup' => array($this, 'update_default_percentage_markup'),
             'digitalogic_list_import_freight_methods' => array($this, 'list_import_freight_methods'),
             'digitalogic_create_import_freight_method' => array($this, 'create_import_freight_method'),
             'digitalogic_get_import_freight_method' => array($this, 'get_import_freight_method'),
@@ -261,6 +263,24 @@ class Digitalogic_Command_Dispatcher {
 
     public function get_integration_catalog($payload = array()) {
         return Digitalogic_Import_Freight_Service::instance()->get_integration_catalog();
+    }
+
+    public function get_default_percentage_markup($payload = array()) {
+        return Digitalogic_Import_Freight_Service::instance()->get_default_percentage_markup();
+    }
+
+    public function update_default_percentage_markup($payload) {
+        if (!is_array($payload) || !array_key_exists('profit_percent', $payload)) {
+            return new WP_Error(
+                'digitalogic_import_freight_default_markup_required',
+                __('The profit_percent field is required; use null to clear the default explicitly.', 'digitalogic'),
+                array('status' => 400)
+            );
+        }
+
+        return Digitalogic_Import_Freight_Service::instance()->update_default_percentage_markup(
+            $payload['profit_percent']
+        );
     }
 
     public function list_import_freight_methods($payload = array()) {

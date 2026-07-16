@@ -248,6 +248,8 @@ final class RestApiPermissionsTest extends TestCase {
             'POST /patris/push' => 'check_patris_push_permission',
             'POST /patris/product-sync' => 'check_patris_product_sync_permission',
             'GET /integration/catalog' => 'check_read_permission',
+            'GET /pricing/default-markup' => 'check_read_permission',
+            'PUT /pricing/default-markup' => 'check_write_permission',
             'GET /import-freight-methods' => 'check_read_permission',
             'POST /import-freight-methods' => 'check_write_permission',
             'GET /import-freight-methods/(?P<id>[a-z][a-z0-9_]{1,63})' => 'check_read_permission',
