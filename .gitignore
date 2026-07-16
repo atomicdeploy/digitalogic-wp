@@ -41,8 +41,8 @@ ehthumbs.db
 Thumbs.db
 
 # Test
-/tests/
 phpunit.xml
+.phpunit.result.cache
 
 # Temporary files
 *.tmp

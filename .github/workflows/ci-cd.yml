@@ -75,6 +75,9 @@ jobs:
       
     - name: Check PHP syntax
       run: find . -name "*.php" -not -path "./vendor/*" -print0 | xargs -0 -n1 php -l
+
+    - name: Run PHPUnit tests
+      run: composer test
       
   security:
     name: Security Check

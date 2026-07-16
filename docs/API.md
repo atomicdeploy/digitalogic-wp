@@ -6,7 +6,14 @@ Base URL: `https://yoursite.com/wp-json/digitalogic/v1`
 
 ### Authentication
 
-All endpoints require authentication using WooCommerce REST API credentials:
+All management endpoints require an authenticated WordPress user with the
+`manage_woocommerce` capability. This normally includes administrators and shop
+managers, but excludes subscriber and customer accounts.
+
+The API accepts WordPress cookie authentication with a REST nonce, WordPress
+Application Passwords, and WooCommerce REST API consumer keys. A WooCommerce
+consumer key must belong to a user with `manage_woocommerce`; its configured
+read/write permission is also enforced for the HTTP method.
 
 ```bash
 # Using Basic Auth
@@ -16,6 +23,42 @@ curl -u consumer_key:consumer_secret https://yoursite.com/wp-json/digitalogic/v1
 curl -H "Authorization: Basic $(echo -n 'consumer_key:consumer_secret' | base64)" \
   https://yoursite.com/wp-json/digitalogic/v1/products
 ```
+
+Use a `read` or `read/write` WooCommerce key for GET routes. POST and PUT routes
+require a `write` or `read/write` key.
+
+Routes use three explicit permission scopes:
+
+- `read`: product and currency GET routes
+- `write`: product/currency updates, recalculation, and Patris pull-sync
+- `diagnostic`: reports and exports
+
+Trusted integrations that do not authenticate as a WooCommerce manager can
+continue using the legacy permission filter, but access is denied by default.
+The callback must explicitly return the boolean `true` for only the scopes it
+supports:
+
+```php
+add_filter(
+    'digitalogic_rest_api_permission',
+    function ($allowed, $scope, $request) {
+        if (!my_integration_authenticates_request($request)) {
+            return false;
+        }
+
+        return in_array($scope, array('read', 'write'), true);
+    },
+    10,
+    3
+);
+```
+
+For backward compatibility, a one-argument callback still works, but returning
+`true` from it grants all three scopes. Update legacy callbacks to accept the
+scope and request arguments before using them for least-privilege access.
+
+`POST /patris/push` is not controlled by this filter. It retains its dedicated
+Patris request verifier and token policy.
 
 ---
 
