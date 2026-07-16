@@ -29,6 +29,7 @@ $GLOBALS['digitalogic_test_remote_posts'] = array();
 $GLOBALS['digitalogic_test_remote_post_results'] = array();
 $GLOBALS['digitalogic_test_wc_products'] = array();
 $GLOBALS['digitalogic_test_wc_product_saves'] = array();
+$GLOBALS['digitalogic_test_wc_save_failures'] = array();
 $GLOBALS['digitalogic_test_wc_currency'] = 'IRT';
 
 class WP_Error {
@@ -346,6 +347,10 @@ function wp_parse_url($url, $component = -1) {
 
 function wp_unslash($value) {
     return $value;
+}
+
+function wp_generate_password($length = 12, $special_chars = true, $extra_special_chars = false) {
+    return substr(str_repeat('test-generated-secret-', 8), 0, (int) $length);
 }
 
 function maybe_serialize($value) {
@@ -924,6 +929,9 @@ class WC_Product {
     }
 
     public function save() {
+        if (in_array($this->id, $GLOBALS['digitalogic_test_wc_save_failures'] ?? array(), true)) {
+            throw new RuntimeException('Injected WooCommerce save failure.');
+        }
         $this->save_count++;
         $GLOBALS['digitalogic_test_posts'][$this->id]['meta'] = $this->meta;
         $GLOBALS['digitalogic_test_wc_product_saves'][] = $this->id;

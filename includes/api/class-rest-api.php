@@ -399,8 +399,8 @@ class Digitalogic_REST_API {
     }
 
     /**
-     * Authenticate the contract-aware receiver via its header-only Patris token
-     * or the normal write scope (including WooCommerce REST API credentials).
+     * Authenticate the contract-aware receiver via its dedicated header-only
+     * secret or the normal write scope (including WooCommerce credentials).
      *
      * @param WP_REST_Request $request Current request.
      * @return bool

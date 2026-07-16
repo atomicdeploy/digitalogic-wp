@@ -29,7 +29,7 @@ final class Digitalogic_Product_Identifier_Resolver {
      * Resolve the highest-precedence supplied identifier.
      *
      * Precedence is explicit WooCommerce ID, exact SKU, exact Patris Code,
-     * then the generic exact code adapter (SKU before Patris Code).
+     * then the collision-safe generic exact code adapter.
      *
      * @param array $identifiers String identifiers.
      * @return array|WP_Error
@@ -73,7 +73,11 @@ final class Digitalogic_Product_Identifier_Resolver {
     }
 
     /**
-     * Resolve a legacy generic code using exact SKU-before-Patris precedence.
+     * Resolve a generic Patris code without crossing identifier namespaces.
+     *
+     * Patris Code is canonical. SKU is only a compatibility fallback when no
+     * exact Patris Code exists. If the same text names a Patris Code target and
+     * a distinct SKU target, the identifier is ambiguous and no write is safe.
      */
     public function resolve_code($code) {
         $code = $this->normalize_identifier($code, 'Code/SKU');
@@ -106,11 +110,27 @@ final class Digitalogic_Product_Identifier_Resolver {
             }
         }
 
-        if (!empty($sku_matches)) {
-            return $this->one_or_ambiguous($sku_matches, 'sku', $code);
-        }
         if (!empty($patris_matches)) {
-            return $this->one_or_ambiguous($patris_matches, 'patris_code', $code);
+            if (count($patris_matches) > 1) {
+                return $this->ambiguous($patris_matches, 'patris_code', 'duplicate_patris_code');
+            }
+
+            $patris_match = reset($patris_matches);
+            $distinct_sku_matches = array_values(array_filter($sku_matches, static function($row) use ($patris_match) {
+                return (string) $row['ID'] !== (string) $patris_match['ID'];
+            }));
+            if (!empty($distinct_sku_matches)) {
+                return $this->ambiguous(
+                    array_merge(array($patris_match), $distinct_sku_matches),
+                    'patris_code',
+                    'cross_namespace_collision'
+                );
+            }
+
+            return $this->format_match($patris_match, 'patris_code', $code);
+        }
+        if (!empty($sku_matches)) {
+            return $this->one_or_ambiguous($sku_matches, 'sku_fallback', $code);
         }
 
         return $this->not_found('No product has that exact Code or SKU.');
@@ -182,20 +202,28 @@ final class Digitalogic_Product_Identifier_Resolver {
 
     private function one_or_ambiguous($rows, $resolved_by, $value) {
         if (count($rows) > 1) {
-            return new WP_Error(
-                'digitalogic_product_identifier_ambiguous',
-                __('More than one product has that exact identifier.', 'digitalogic'),
-                array(
-                    'status' => 409,
-                    'resolved_by' => $resolved_by,
-                    'woocommerce_ids' => array_values(array_map(static function($row) {
-                        return (string) $row['ID'];
-                    }, $rows)),
-                )
-            );
+            return $this->ambiguous($rows, $resolved_by, 'duplicate_identifier');
         }
 
         return $this->format_match(reset($rows), $resolved_by, $value);
+    }
+
+    private function ambiguous($rows, $resolved_by, $reason) {
+        $ids = array_values(array_unique(array_map(static function($row) {
+            return (string) $row['ID'];
+        }, $rows)));
+        sort($ids, SORT_STRING);
+
+        return new WP_Error(
+            'digitalogic_product_identifier_ambiguous',
+            __('More than one product has that exact identifier.', 'digitalogic'),
+            array(
+                'status' => 409,
+                'resolved_by' => $resolved_by,
+                'reason' => (string) $reason,
+                'woocommerce_ids' => $ids,
+            )
+        );
     }
 
     private function format_match($row, $resolved_by, $identifier) {

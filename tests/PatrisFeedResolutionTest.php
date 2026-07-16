@@ -62,7 +62,7 @@ final class PatrisFeedResolutionTest extends TestCase {
         $this->assertSame('Upstream-only product', $snapshot['NOT-IN-WOO']['name']);
     }
 
-    public function test_generic_code_prefers_exact_sku_over_a_different_products_patris_code(): void {
+    public function test_cross_namespace_collision_is_ambiguous_and_neither_product_is_written(): void {
         $GLOBALS['digitalogic_test_posts'] = array(
             702 => array(
                 'post_type' => 'product',
@@ -76,16 +76,20 @@ final class PatrisFeedResolutionTest extends TestCase {
 
         $result = $this->feed->import_payload(array('products' => array(array(
             'product_code' => 'COLLISION',
-            'name' => 'SKU wins',
+            'name' => 'Must remain ambiguous',
             'total_stock' => 2,
             'final_price' => 12345,
         ))), 'test');
 
-        $this->assertSame(1, $result['updated']);
-        $this->assertSame(array(702), $GLOBALS['digitalogic_test_wc_product_saves']);
-        $this->assertSame('SKU wins', $GLOBALS['digitalogic_test_posts'][702]['meta']['_digitalogic_patris_name']);
+        $this->assertSame(0, $result['updated']);
+        $this->assertSame(1, $result['failed']);
+        $this->assertSame(array('Skipped product because its exact Code/SKU is ambiguous.'), $result['errors']);
+        $this->assertSame(array(), $GLOBALS['digitalogic_test_wc_product_saves']);
+        $this->assertSame('sku-target', $GLOBALS['digitalogic_test_posts'][702]['meta']['_existing_sentinel']);
+        $this->assertArrayNotHasKey('_digitalogic_patris_name', $GLOBALS['digitalogic_test_posts'][702]['meta']);
         $this->assertSame('patris-nontarget', $GLOBALS['digitalogic_test_posts'][703]['meta']['_existing_sentinel']);
         $this->assertArrayNotHasKey('_digitalogic_patris_name', $GLOBALS['digitalogic_test_posts'][703]['meta']);
+        $this->assertSame('Must remain ambiguous', get_option('digitalogic_patris_feed_products')['COLLISION']['name']);
     }
 
     public function test_ambiguous_and_invalid_identifiers_fail_safely_without_product_writes_but_remain_reportable(): void {

@@ -25,6 +25,7 @@ final class ProductSyncReceiverTest extends TestCase {
         $GLOBALS['digitalogic_test_cache_deletes'] = array();
         $GLOBALS['digitalogic_test_wc_products'] = array();
         $GLOBALS['digitalogic_test_wc_product_saves'] = array();
+        $GLOBALS['digitalogic_test_wc_save_failures'] = array();
         $GLOBALS['digitalogic_test_wc_currency'] = 'IRT';
         $GLOBALS['wpdb'] = new Digitalogic_Test_WPDB();
     }
@@ -32,15 +33,18 @@ final class ProductSyncReceiverTest extends TestCase {
     public function test_accepts_the_go_generated_synthetic_fixture_with_exact_hashes(): void {
         $path = __DIR__ . '/fixtures/patris-product-sync-v1-golden.json';
         $this->assertSame(
-            '409f065af9c8b4adde8410e052a6ca2b11c4c2e6358f73c07db3165f20ba64ec',
+            '810bdf4d8fd5e3c2a87750a02f241363f6403736c899a625f615967fea259da5',
             hash_file('sha256', $path)
         );
 
         $result = Digitalogic_Product_Sync_Receiver::instance()->receive_json(file_get_contents($path));
 
         $this->assertNotInstanceOf(WP_Error::class, $result, $result instanceof WP_Error ? $result->get_error_message() : '');
-        $this->assertSame('accepted', $result['status']);
-        $this->assertSame('sha256:b659a592853f5709fd3ee0d52f7e58738cf3d109fe58d538257738a6dd157dff', $result['event_id']);
+        $this->assertSame('partially_applied', $result['status']);
+        $this->assertSame('sha256:25d5afce95dfdcf598c28f9c9639cbd54ed7f2e838a6c285844eee75d972ef06', $result['event_id']);
+        $this->assertFalse($result['fully_applied']);
+        $this->assertTrue($result['retryable']);
+        $this->assertSame(2, $result['pending_products']);
         $this->assertSame(2, $result['stored_products']);
         $this->assertSame(2, $result['woocommerce']['missing']);
         $this->assertCount(2, $result['woocommerce']['errors']);
@@ -93,6 +97,11 @@ final class ProductSyncReceiverTest extends TestCase {
 
     public function test_exact_replay_causes_no_second_write_woo_save_or_domain_event(): void {
         $product = $this->product(0);
+        $GLOBALS['digitalogic_test_posts'][701] = array(
+            'post_type' => 'product',
+            'post_status' => 'publish',
+            'meta' => array('_digitalogic_patris_product_code' => $product['product_code']),
+        );
         $envelope = $this->envelope('snapshot', array($product), array($product), '2026-07-16T10:00:00Z');
 
         $first = Digitalogic_Product_Sync_Receiver::instance()->receive($envelope);
@@ -107,11 +116,16 @@ final class ProductSyncReceiverTest extends TestCase {
         $this->assertSame($option_events, count($GLOBALS['digitalogic_test_actions']['update_option_' . Digitalogic_Product_Sync_Receiver::STATE_OPTION] ?? array()));
         $this->assertSame($domain_events, count($GLOBALS['digitalogic_test_actions']['digitalogic_product_sync_v1_applied'] ?? array()));
         $this->assertSame($transaction_queries, count($GLOBALS['wpdb']->queries));
-        $this->assertSame(array(), $GLOBALS['digitalogic_test_wc_product_saves']);
+        $this->assertSame(array(701), $GLOBALS['digitalogic_test_wc_product_saves']);
     }
 
     public function test_throwing_domain_listener_does_not_turn_committed_event_into_failure(): void {
         $product = $this->product(0);
+        $GLOBALS['digitalogic_test_posts'][702] = array(
+            'post_type' => 'product',
+            'post_status' => 'publish',
+            'meta' => array('_digitalogic_patris_product_code' => $product['product_code']),
+        );
         $envelope = $this->envelope('snapshot', array($product), array($product), '2026-07-16T10:00:00Z');
         add_action('digitalogic_product_sync_v1_applied', static function() {
             throw new RuntimeException('injected listener failure');
@@ -130,13 +144,13 @@ final class ProductSyncReceiverTest extends TestCase {
         $first = $this->product(0);
         $second = $this->product(1);
         $snapshot = $this->envelope('snapshot', array($first), array($first), '2026-07-16T10:00:00Z');
-        $this->assertSame('accepted', Digitalogic_Product_Sync_Receiver::instance()->receive($snapshot)['status']);
+        $this->assertSame('partially_applied', Digitalogic_Product_Sync_Receiver::instance()->receive($snapshot)['status']);
 
         $update = $this->envelope('update', array($second), array($first, $second), '2026-07-16T10:01:00Z');
         $result = Digitalogic_Product_Sync_Receiver::instance()->receive($update);
         $state = Digitalogic_Product_Sync_Receiver::instance()->get_source_state('receiver-tests', 'kala.db');
 
-        $this->assertSame('accepted', $result['status']);
+        $this->assertSame('partially_applied', $result['status']);
         $this->assertCount(2, $state['products']);
         $this->assertArrayHasKey($first['product_code'], $state['products']);
         $this->assertArrayHasKey($second['product_code'], $state['products']);
@@ -160,7 +174,7 @@ final class ProductSyncReceiverTest extends TestCase {
         $result = Digitalogic_Product_Sync_Receiver::instance()->receive($delete);
         $state = Digitalogic_Product_Sync_Receiver::instance()->get_source_state('receiver-tests', 'kala.db');
 
-        $this->assertSame('accepted', $result['status']);
+        $this->assertSame('partially_applied', $result['status']);
         $this->assertSame(0, $result['received_products']);
         $this->assertSame(1, $result['deleted_codes']);
         $this->assertArrayNotHasKey($first['product_code'], $state['products']);
@@ -274,6 +288,217 @@ final class ProductSyncReceiverTest extends TestCase {
         $this->assertSame('digitalogic_product_sync_order_conflict', $conflict_error->get_error_code());
     }
 
+    public function test_independently_recomputes_landed_price_and_requires_null_when_inputs_are_incomplete(): void {
+        $priced = $this->product(1);
+        $priced['final_price']++;
+        $priced = $this->rehashProduct($priced);
+        $wrong = $this->envelope('snapshot', array($priced), array($priced), '2026-07-16T11:00:00Z');
+        $wrong_result = Digitalogic_Product_Sync_Receiver::instance()->receive($wrong);
+        $this->assertSame('digitalogic_product_sync_final_price_mismatch', $wrong_result->get_error_code());
+        $this->assertSame(2009410, $wrong_result->get_error_data()['expected']);
+
+        $incomplete = $this->product(0);
+        $incomplete['final_price'] = 1;
+        $incomplete = $this->rehashProduct($incomplete);
+        $nonnull = $this->envelope('snapshot', array($incomplete), array($incomplete), '2026-07-16T11:01:00Z');
+        $nonnull_result = Digitalogic_Product_Sync_Receiver::instance()->receive($nonnull);
+        $this->assertSame('digitalogic_product_sync_final_price_mismatch', $nonnull_result->get_error_code());
+        $this->assertNull($nonnull_result->get_error_data()['expected']);
+        $this->assertContains('foreign_price', $nonnull_result->get_error_data()['missing']);
+    }
+
+    public function test_decimal_formula_uses_one_exact_half_up_integer_round_and_enforces_bounds(): void {
+        $product = $this->product(1);
+        $product['foreign_price'] = 1;
+        $product['weight_grams'] = 1;
+        $product['freight_cny_per_kg'] = 1;
+        $product['markup_percent'] = 0;
+        $product['irt_per_cny'] = 500;
+        $product['final_price'] = 501; // (1 + 1/1000) * 500 = 500.5.
+        $product = $this->rehashProduct($product);
+        $GLOBALS['digitalogic_test_posts'][703] = array(
+            'post_type' => 'product',
+            'post_status' => 'publish',
+            'meta' => array('_digitalogic_patris_product_code' => $product['product_code']),
+        );
+        $accepted = Digitalogic_Product_Sync_Receiver::instance()->receive(
+            $this->envelope('snapshot', array($product), array($product), '2026-07-16T11:02:00Z')
+        );
+        $this->assertSame('accepted', $accepted['status']);
+        $this->assertSame('501', $GLOBALS['digitalogic_test_wc_products'][703]->price);
+
+        $product['markup_percent'] = 1000.1;
+        $product['final_price'] = 5506;
+        $product = $this->rehashProduct($product);
+        $bounded = Digitalogic_Product_Sync_Receiver::instance()->receive(
+            $this->envelope('snapshot', array($product), array($product), '2026-07-16T11:03:00Z')
+        );
+        $this->assertSame('digitalogic_product_sync_field_invalid', $bounded->get_error_code());
+        $this->assertSame('products[0].markup_percent', $bounded->get_error_data()['field']);
+
+        $product['markup_percent'] = 0.1234567890123;
+        $product = $this->rehashProduct($product);
+        $scale = Digitalogic_Product_Sync_Receiver::instance()->receive(
+            $this->envelope('snapshot', array($product), array($product), '2026-07-16T11:04:00Z')
+        );
+        $this->assertSame('digitalogic_product_sync_field_invalid', $scale->get_error_code());
+        $this->assertStringContainsString('fractional digits', $scale->get_error_data()['reason']);
+    }
+
+    public function test_failed_woo_save_stays_pending_and_identical_replay_recovers(): void {
+        $product = $this->product(1);
+        $GLOBALS['digitalogic_test_posts'][710] = array(
+            'post_type' => 'product',
+            'post_status' => 'publish',
+            'meta' => array('_digitalogic_patris_product_code' => $product['product_code']),
+        );
+        $GLOBALS['digitalogic_test_wc_save_failures'] = array(710);
+        $event = $this->envelope('snapshot', array($product), array($product), '2026-07-16T11:10:00Z');
+
+        $first = Digitalogic_Product_Sync_Receiver::instance()->receive($event);
+        $this->assertSame('partially_applied', $first['status']);
+        $this->assertSame(1, $first['woocommerce']['failed']);
+        $this->assertSame(1, $first['pending_products']);
+        $this->assertEmpty($GLOBALS['digitalogic_test_wc_product_saves']);
+
+        $GLOBALS['digitalogic_test_wc_save_failures'] = array();
+        $second = Digitalogic_Product_Sync_Receiver::instance()->receive($event);
+        $this->assertSame('recovered', $second['status']);
+        $this->assertTrue($second['replayed']);
+        $this->assertTrue($second['fully_applied']);
+        $this->assertSame(0, $second['pending_products']);
+        $this->assertSame(array(710), $GLOBALS['digitalogic_test_wc_product_saves']);
+
+        $third = Digitalogic_Product_Sync_Receiver::instance()->receive($event);
+        $this->assertSame('replayed', $third['status']);
+        $this->assertSame(array(710), $GLOBALS['digitalogic_test_wc_product_saves']);
+    }
+
+    public function test_partial_batch_retries_only_the_unapplied_product(): void {
+        $first_product = $this->product(0);
+        $second_product = $this->product(1);
+        $GLOBALS['digitalogic_test_posts'][711] = array(
+            'post_type' => 'product',
+            'post_status' => 'publish',
+            'meta' => array('_digitalogic_patris_product_code' => $first_product['product_code']),
+        );
+        $GLOBALS['digitalogic_test_posts'][712] = array(
+            'post_type' => 'product',
+            'post_status' => 'publish',
+            'meta' => array('_digitalogic_patris_product_code' => $second_product['product_code']),
+        );
+        $GLOBALS['digitalogic_test_wc_save_failures'] = array(712);
+        $event = $this->envelope(
+            'snapshot',
+            array($first_product, $second_product),
+            array($first_product, $second_product),
+            '2026-07-16T11:11:00Z'
+        );
+
+        $first = Digitalogic_Product_Sync_Receiver::instance()->receive($event);
+        $this->assertSame('partially_applied', $first['status']);
+        $this->assertSame(1, $first['woocommerce']['updated']);
+        $this->assertSame(1, $first['woocommerce']['failed']);
+        $this->assertSame(array(711), $GLOBALS['digitalogic_test_wc_product_saves']);
+
+        $GLOBALS['digitalogic_test_wc_save_failures'] = array();
+        $second = Digitalogic_Product_Sync_Receiver::instance()->receive($event);
+        $this->assertSame('recovered', $second['status']);
+        $this->assertSame(1, $second['woocommerce']['updated']);
+        $this->assertSame(array(711, 712), $GLOBALS['digitalogic_test_wc_product_saves']);
+    }
+
+    public function test_missing_product_added_later_is_recovered_by_identical_replay(): void {
+        $product = $this->product(0);
+        $event = $this->envelope('snapshot', array($product), array($product), '2026-07-16T11:12:00Z');
+        $first = Digitalogic_Product_Sync_Receiver::instance()->receive($event);
+        $this->assertSame('partially_applied', $first['status']);
+        $this->assertSame(1, $first['woocommerce']['missing']);
+
+        $GLOBALS['digitalogic_test_posts'][713] = array(
+            'post_type' => 'product',
+            'post_status' => 'publish',
+            'meta' => array('_sku' => $product['product_code']),
+        );
+        $recovered = Digitalogic_Product_Sync_Receiver::instance()->receive($event);
+        $this->assertSame('recovered', $recovered['status']);
+        $this->assertSame(1, $recovered['woocommerce']['updated']);
+        $this->assertSame(array(713), $GLOBALS['digitalogic_test_wc_product_saves']);
+    }
+
+    public function test_persisted_record_hash_cas_acks_without_a_duplicate_woo_save(): void {
+        $product = $this->product(0);
+        $GLOBALS['digitalogic_test_posts'][714] = array(
+            'post_type' => 'product',
+            'post_status' => 'publish',
+            'meta' => array('_digitalogic_patris_product_code' => $product['product_code']),
+        );
+        $event = $this->envelope('snapshot', array($product), array($product), '2026-07-16T11:13:00Z');
+        $this->assertSame('accepted', Digitalogic_Product_Sync_Receiver::instance()->receive($event)['status']);
+        $this->assertSame(array(714), $GLOBALS['digitalogic_test_wc_product_saves']);
+
+        $state = Digitalogic_Product_Sync_Receiver::instance()->get_state();
+        $source_key = array_key_first($state['sources']);
+        unset($state['sources'][$source_key]['applied_products'][$product['product_code']]);
+        $state['sources'][$source_key]['pending_products'][$product['product_code']] = array(
+            'record_hash' => $product['record_hash'],
+            'queued_event_id' => $event['event_id'],
+            'attempts' => 0,
+        );
+        update_option(Digitalogic_Product_Sync_Receiver::STATE_OPTION, $state, false);
+
+        $recovered = Digitalogic_Product_Sync_Receiver::instance()->receive($event);
+        $this->assertSame('recovered', $recovered['status']);
+        $this->assertSame(1, $recovered['woocommerce']['already_applied']);
+        $this->assertSame(array(714), $GLOBALS['digitalogic_test_wc_product_saves']);
+    }
+
+    public function test_patris_code_is_canonical_and_cross_namespace_collision_remains_pending(): void {
+        $product = $this->product(0);
+        $code = $product['product_code'];
+        $GLOBALS['digitalogic_test_posts'][720] = array(
+            'post_type' => 'product',
+            'post_status' => 'publish',
+            'meta' => array('_sku' => $code),
+        );
+        $GLOBALS['digitalogic_test_posts'][721] = array(
+            'post_type' => 'product',
+            'post_status' => 'publish',
+            'meta' => array('_digitalogic_patris_product_code' => $code),
+        );
+        $resolved = Digitalogic_Product_Identifier_Resolver::instance()->resolve(array('code' => $code));
+        $this->assertSame('digitalogic_product_identifier_ambiguous', $resolved->get_error_code());
+        $this->assertSame('cross_namespace_collision', $resolved->get_error_data()['reason']);
+
+        $event = $this->envelope('snapshot', array($product), array($product), '2026-07-16T11:14:00Z');
+        $first = Digitalogic_Product_Sync_Receiver::instance()->receive($event);
+        $this->assertSame('partially_applied', $first['status']);
+        $this->assertSame(1, $first['woocommerce']['ambiguous']);
+        $this->assertEmpty($GLOBALS['digitalogic_test_wc_product_saves']);
+
+        $GLOBALS['digitalogic_test_posts'][720]['meta']['_sku'] = 'OTHER-SKU';
+        $recovered = Digitalogic_Product_Sync_Receiver::instance()->receive($event);
+        $this->assertSame('recovered', $recovered['status']);
+        $this->assertSame(array(721), $GLOBALS['digitalogic_test_wc_product_saves']);
+    }
+
+    public function test_newer_same_content_occurrence_advances_watermark_before_older_change(): void {
+        $first = $this->product(0);
+        $second = $this->product(1);
+        $jan2 = $this->envelope('snapshot', array($first), array($first), '2026-01-02T00:00:00Z');
+        $jan4 = $this->envelope('snapshot', array($first), array($first), '2026-01-04T00:00:00Z');
+        $this->assertNotSame($jan2['event_id'], $jan4['event_id']);
+        Digitalogic_Product_Sync_Receiver::instance()->receive($jan2);
+        $same_content = Digitalogic_Product_Sync_Receiver::instance()->receive($jan4);
+        $this->assertFalse($same_content['replayed']);
+
+        $jan3 = $this->envelope('update', array($second), array($first, $second), '2026-01-03T00:00:00Z');
+        $stale = Digitalogic_Product_Sync_Receiver::instance()->receive($jan3);
+        $this->assertSame('digitalogic_product_sync_stale_event', $stale->get_error_code());
+        $source = Digitalogic_Product_Sync_Receiver::instance()->get_source_state('receiver-tests', 'kala.db');
+        $this->assertSame('2026-01-04T00:00:00Z', $source['generated_at']);
+    }
+
     public function test_lock_and_storage_failures_are_reported_without_domain_event(): void {
         $product = $this->product(0);
         $envelope = $this->envelope('snapshot', array($product), array($product), '2026-07-16T10:00:00Z');
@@ -302,6 +527,17 @@ final class ProductSyncReceiverTest extends TestCase {
 
     private function product($index) {
         return self::$golden['products'][$index];
+    }
+
+    private function rehashProduct($product) {
+        unset($product['record_hash']);
+        ksort($product['warehouse_stock'], SORT_STRING);
+        $product['record_hash'] = 'sha256:' . hash(
+            'sha256',
+            json_encode($product, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)
+        );
+
+        return $product;
     }
 
     private function envelope($type, $event_products, $full_products, $generated_at, $deleted = array(), $quarantined = array()) {
@@ -377,6 +613,7 @@ final class ProductSyncReceiverTest extends TestCase {
                 'dataset' => $envelope['source']['dataset'],
                 'revision' => $envelope['source']['revision'],
             ),
+            'generated_at' => $envelope['generated_at'],
             'products' => $hashes,
         );
         if (!empty($envelope['deleted_codes'])) {

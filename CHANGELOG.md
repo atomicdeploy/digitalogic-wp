@@ -77,8 +77,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Dedicated authenticated `digitalogic.product-sync` v1 REST receiver, kept separate from the legacy Patris push route.
-- Strict typed envelope validation, recursive raw-field rejection, Go-compatible record/source/event hash verification, and duplicate-key-safe JSON decoding.
-- Ordered per-source snapshots, update merging, bounded event replay protection, quarantine preservation, and deletion-only tombstones that never delete WooCommerce products.
+- Strict typed envelope validation, recursive raw-field rejection, receiver-side exact `landed_price_v1` evaluation, Go-compatible record/source/occurrence hash verification, and duplicate-key-safe JSON decoding.
+- Ordered per-source snapshots, timestamp-bound event identities, update merging, bounded replay protection, quarantine preservation, and deletion-only tombstones that never delete WooCommerce products.
+- Dedicated header-only v1 receiver secrets with optional exact source scopes, plus a durable per-product WooCommerce outbox with record-hash CAS recovery.
 - Receiver contract and staged rollout documentation.
 
 ### Changed

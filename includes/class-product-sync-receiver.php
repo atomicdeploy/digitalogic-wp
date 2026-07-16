@@ -237,7 +237,7 @@ class Digitalogic_Product_Sync_Receiver {
     public const CONTRACT_NAME = 'digitalogic.product-sync';
     public const FORMULA_ID = 'landed_price_v1';
 
-    private const STATE_VERSION = 1;
+    private const STATE_VERSION = 2;
     private const LOCK_NAME = 'digitalogic_product_sync_v1';
     private const LOCK_TIMEOUT_SECONDS = 15;
     private const MAX_BODY_BYTES = 8388608;
@@ -247,6 +247,9 @@ class Digitalogic_Product_Sync_Receiver {
     private const MAX_RECENT_EVENTS = 128;
     private const MAX_RESULT_ERRORS = 100;
     private const MAX_CODE_LENGTH = 191;
+    private const MAX_FORMULA_INTEGER_DIGITS = 15;
+    private const MAX_FORMULA_SCALE = 12;
+    private const MAX_MARKUP_PERCENT = '1000';
 
     private const ENVELOPE_FIELDS = array(
         'schema',
@@ -464,7 +467,11 @@ class Digitalogic_Product_Sync_Receiver {
         }
 
         if (is_array($existing) && isset($existing['recent_events'][$envelope['event_id']])) {
-            return $this->replay_result($envelope, $existing);
+            if (empty($existing['pending_products'])) {
+                return $this->replay_result($envelope, $existing);
+            }
+
+            return $this->retry_pending_locked($state, $source_key, $envelope, $existing);
         }
         if ('update' === $envelope['event_type'] && !is_array($existing)) {
             return $this->error(
@@ -492,18 +499,8 @@ class Digitalogic_Product_Sync_Receiver {
         if (is_wp_error($transition)) {
             return $transition;
         }
-        if (
-            is_array($existing)
-            && $envelope['source']['revision'] === ($existing['source']['revision'] ?? '')
-        ) {
-            return array(
-                'status' => 'already_current',
-                'replayed' => true,
-                'event_id' => $envelope['event_id'],
-                'source' => $envelope['source'],
-                'stored_products' => count($existing['products'] ?? array()),
-            );
-        }
+        $same_revision = is_array($existing)
+            && $envelope['source']['revision'] === ($existing['source']['revision'] ?? '');
 
         $recent_events = is_array($existing['recent_events'] ?? null) ? $existing['recent_events'] : array();
         $recent_events[$envelope['event_id']] = array(
@@ -515,6 +512,7 @@ class Digitalogic_Product_Sync_Receiver {
             array_shift($recent_events);
         }
 
+        $delivery = $this->build_delivery_state($transition['products'], $transition['changed_products'], $envelope, $existing);
         $source_state = array(
             'source' => $envelope['source'],
             'generated_at' => $envelope['generated_at'],
@@ -527,6 +525,8 @@ class Digitalogic_Product_Sync_Receiver {
             'products' => $transition['products'],
             'quarantined_codes' => $envelope['quarantined_codes'],
             'recent_events' => $recent_events,
+            'applied_products' => $delivery['applied_products'],
+            'pending_products' => $delivery['pending_products'],
             'received_at' => current_time('mysql'),
         );
         $state['sources'][$source_key] = $source_state;
@@ -536,9 +536,20 @@ class Digitalogic_Product_Sync_Receiver {
             return $stored;
         }
 
-        $woo = $this->apply_woocommerce_updates($transition['changed_products']);
+        $before_delivery = $this->state_digest($source_state);
+        $woo = $this->drain_pending_products($source_state);
+        $state['sources'][$source_key] = $source_state;
+        if (!hash_equals($before_delivery, $this->state_digest($source_state))) {
+            $delivery_stored = $this->persist_and_read_back($state);
+            if (is_wp_error($delivery_stored)) {
+                return $delivery_stored;
+            }
+        }
+
+        $fully_applied = empty($source_state['pending_products']);
+        $status = $fully_applied ? ($same_revision ? 'already_current' : 'accepted') : 'partially_applied';
         $result = array(
-            'status' => 'accepted',
+            'status' => $status,
             'replayed' => false,
             'event_id' => $envelope['event_id'],
             'event_type' => $envelope['event_type'],
@@ -548,9 +559,46 @@ class Digitalogic_Product_Sync_Receiver {
             'deleted_codes' => $transition['deleted_count'],
             'preserved_quarantined' => $transition['preserved_quarantined'],
             'woocommerce' => $woo,
+            'fully_applied' => $fully_applied,
+            'retryable' => !$fully_applied,
+            'pending_products' => count($source_state['pending_products']),
             'persistence_verified' => true,
         );
 
+        return $this->emit_result($result, $envelope);
+    }
+
+    private function retry_pending_locked($state, $source_key, $envelope, $existing) {
+        $source_state = $existing;
+        $before_delivery = $this->state_digest($source_state);
+        $woo = $this->drain_pending_products($source_state);
+        $state['sources'][$source_key] = $source_state;
+        if (!hash_equals($before_delivery, $this->state_digest($source_state))) {
+            $stored = $this->persist_and_read_back($state);
+            if (is_wp_error($stored)) {
+                return $stored;
+            }
+        }
+
+        $fully_applied = empty($source_state['pending_products']);
+        $result = array(
+            'status' => $fully_applied ? 'recovered' : 'retry_pending',
+            'replayed' => true,
+            'event_id' => $envelope['event_id'],
+            'event_type' => $envelope['event_type'],
+            'source' => $envelope['source'],
+            'stored_products' => count($source_state['products'] ?? array()),
+            'woocommerce' => $woo,
+            'fully_applied' => $fully_applied,
+            'retryable' => !$fully_applied,
+            'pending_products' => count($source_state['pending_products']),
+            'persistence_verified' => true,
+        );
+
+        return $this->emit_result($result, $envelope);
+    }
+
+    private function emit_result($result, $envelope) {
         try {
             do_action('digitalogic_product_sync_v1_applied', $result, array(
                 'schema' => $envelope['schema'],
@@ -840,6 +888,11 @@ class Digitalogic_Product_Sync_Receiver {
             );
         }
 
+        $formula_check = $this->validate_final_price_formula($product, $path);
+        if (is_wp_error($formula_check)) {
+            return $formula_check;
+        }
+
         $stored = array();
         foreach (self::PRODUCT_FIELDS as $field) {
             if ('warehouse_stock' === $field) {
@@ -985,18 +1038,82 @@ class Digitalogic_Product_Sync_Receiver {
         );
     }
 
-    private function apply_woocommerce_updates($products) {
+    private function build_delivery_state($products, $changed_products, $envelope, $existing) {
+        $applied = is_array($existing['applied_products'] ?? null) ? $existing['applied_products'] : array();
+        $pending = is_array($existing['pending_products'] ?? null) ? $existing['pending_products'] : array();
+
+        foreach ($applied as $code => $entry) {
+            if (!isset($products[$code]) || !is_array($entry) || !isset($entry['record_hash'], $entry['woocommerce_id'])) {
+                unset($applied[$code]);
+            }
+        }
+        foreach ($pending as $code => $entry) {
+            if (
+                !isset($products[$code])
+                || !is_array($entry)
+                || !isset($entry['record_hash'])
+                || !hash_equals((string) $products[$code]['record_hash'], (string) $entry['record_hash'])
+            ) {
+                unset($pending[$code]);
+            }
+        }
+
+        foreach ($changed_products as $product) {
+            $code = $product['product_code'];
+            $record_hash = $product['record_hash'];
+            $applied_entry = is_array($applied[$code] ?? null) ? $applied[$code] : array();
+            if (isset($applied_entry['record_hash']) && hash_equals((string) $applied_entry['record_hash'], $record_hash)) {
+                unset($pending[$code]);
+                continue;
+            }
+
+            $pending_entry = is_array($pending[$code] ?? null) ? $pending[$code] : array();
+            if (!isset($pending_entry['record_hash']) || !hash_equals((string) $pending_entry['record_hash'], $record_hash)) {
+                $pending_entry = array(
+                    'record_hash' => $record_hash,
+                    'queued_event_id' => $envelope['event_id'],
+                    'attempts' => 0,
+                );
+            }
+            $pending[$code] = $pending_entry;
+        }
+
+        ksort($applied, SORT_STRING);
+        ksort($pending, SORT_STRING);
+        return array('applied_products' => $applied, 'pending_products' => $pending);
+    }
+
+    private function drain_pending_products(&$source_state) {
         $result = array(
+            'attempted' => 0,
             'updated' => 0,
+            'already_applied' => 0,
             'missing' => 0,
             'ambiguous' => 0,
             'failed' => 0,
             'errors' => array(),
             'errors_truncated' => 0,
         );
-        foreach ($products as $product_data) {
+        $products = is_array($source_state['products'] ?? null) ? $source_state['products'] : array();
+        $pending = is_array($source_state['pending_products'] ?? null) ? $source_state['pending_products'] : array();
+        $applied = is_array($source_state['applied_products'] ?? null) ? $source_state['applied_products'] : array();
+        ksort($pending, SORT_STRING);
+
+        foreach ($pending as $code => &$pending_entry) {
+            if (!isset($products[$code]) || !is_array($pending_entry)) {
+                unset($pending[$code]);
+                continue;
+            }
+            $product_data = $products[$code];
+            $record_hash = (string) ($pending_entry['record_hash'] ?? '');
+            if (!hash_equals((string) $product_data['record_hash'], $record_hash)) {
+                unset($pending[$code]);
+                continue;
+            }
+
+            $result['attempted']++;
             $resolved = Digitalogic_Product_Identifier_Resolver::instance()->resolve(array(
-                'code' => $product_data['product_code'],
+                'code' => $code,
             ));
             if (is_wp_error($resolved)) {
                 if ('digitalogic_product_identifier_not_found' === $resolved->get_error_code()) {
@@ -1006,36 +1123,87 @@ class Digitalogic_Product_Sync_Receiver {
                 } else {
                     $result['failed']++;
                 }
+                $this->mark_pending_failure($pending_entry, $resolved->get_error_code());
                 $this->append_woo_error($result, array(
-                    'product_code' => $product_data['product_code'],
+                    'product_code' => $code,
                     'code' => $resolved->get_error_code(),
+                    'retryable' => true,
                 ));
                 continue;
             }
 
-            $product = wc_get_product((int) $resolved['woocommerce_id']);
+            $woocommerce_id = (int) $resolved['woocommerce_id'];
+            $applied_entry = is_array($applied[$code] ?? null) ? $applied[$code] : array();
+            if (
+                isset($applied_entry['record_hash'], $applied_entry['woocommerce_id'])
+                && hash_equals((string) $applied_entry['record_hash'], $record_hash)
+                && (string) $applied_entry['woocommerce_id'] === (string) $woocommerce_id
+            ) {
+                unset($pending[$code]);
+                $result['already_applied']++;
+                continue;
+            }
+
+            $persisted_hash = (string) get_post_meta($woocommerce_id, '_digitalogic_patris_record_hash', true);
+            if ('' !== $persisted_hash && hash_equals($record_hash, $persisted_hash)) {
+                $applied[$code] = array(
+                    'record_hash' => $record_hash,
+                    'woocommerce_id' => (string) $woocommerce_id,
+                );
+                unset($pending[$code]);
+                $result['already_applied']++;
+                continue;
+            }
+
+            $product = wc_get_product($woocommerce_id);
             if (!$product) {
                 $result['failed']++;
+                $this->mark_pending_failure($pending_entry, 'digitalogic_product_sync_woocommerce_product_unavailable');
                 $this->append_woo_error($result, array(
-                    'product_code' => $product_data['product_code'],
+                    'product_code' => $code,
                     'code' => 'digitalogic_product_sync_woocommerce_product_unavailable',
+                    'retryable' => true,
                 ));
                 continue;
             }
 
             try {
                 Digitalogic_Patris_Feed::instance()->apply_product_feed($product, $product_data);
+                $persisted_hash = (string) get_post_meta($woocommerce_id, '_digitalogic_patris_record_hash', true);
+                if ('' === $persisted_hash || !hash_equals($record_hash, $persisted_hash)) {
+                    throw new RuntimeException('WooCommerce record hash readback failed.');
+                }
+                $applied[$code] = array(
+                    'record_hash' => $record_hash,
+                    'woocommerce_id' => (string) $woocommerce_id,
+                );
+                unset($pending[$code]);
                 $result['updated']++;
             } catch (Throwable $exception) {
                 $result['failed']++;
+                $this->mark_pending_failure($pending_entry, 'digitalogic_product_sync_woocommerce_write_failed');
                 $this->append_woo_error($result, array(
-                    'product_code' => $product_data['product_code'],
+                    'product_code' => $code,
                     'code' => 'digitalogic_product_sync_woocommerce_write_failed',
+                    'retryable' => true,
                 ));
             }
         }
+        unset($pending_entry);
+
+        ksort($pending, SORT_STRING);
+        ksort($applied, SORT_STRING);
+        $source_state['pending_products'] = $pending;
+        $source_state['applied_products'] = $applied;
+        $result['pending'] = count($pending);
 
         return $result;
+    }
+
+    private function mark_pending_failure(&$pending_entry, $code) {
+        $pending_entry['attempts'] = max(0, (int) ($pending_entry['attempts'] ?? 0)) + 1;
+        $pending_entry['last_error'] = (string) $code;
+        $pending_entry['last_attempt_at'] = current_time('mysql');
     }
 
     private function append_woo_error(&$result, $error) {
@@ -1132,7 +1300,217 @@ class Digitalogic_Product_Sync_Receiver {
             'event_type' => $envelope['event_type'],
             'source' => $envelope['source'],
             'stored_products' => count($existing['products'] ?? array()),
+            'fully_applied' => true,
+            'retryable' => false,
+            'pending_products' => 0,
         );
+    }
+
+    /**
+     * Independently evaluate landed_price_v1 using bounded decimal strings.
+     * No binary floating-point operation participates in the calculation and
+     * the only rounding is one half-up step to the final IRT integer.
+     */
+    private function validate_final_price_formula($product, $path) {
+        $required = array('foreign_price', 'weight_grams', 'freight_cny_per_kg', 'markup_percent', 'irt_per_cny');
+        $missing = array();
+        $decimals = array();
+        foreach ($required as $field) {
+            if (null === $product[$field]) {
+                $missing[] = $field;
+                continue;
+            }
+            $parts = $this->formula_decimal_parts($product[$field]);
+            if (isset($parts['error'])) {
+                return $this->field_error($path . '.' . $field, $parts['error']);
+            }
+            $decimals[$field] = $parts;
+        }
+        if ('' === $product['import_freight_method_id']) {
+            $missing[] = 'import_freight_method_id';
+        }
+
+        if (!empty($missing)) {
+            if (null === $product['final_price']) {
+                return true;
+            }
+
+            return $this->error(
+                'digitalogic_product_sync_final_price_mismatch',
+                'final_price must be null when landed_price_v1 inputs are incomplete.',
+                422,
+                array('path' => $path . '.final_price', 'expected' => null, 'missing' => $missing)
+            );
+        }
+
+        if ($this->decimal_compare($decimals['markup_percent'], $this->formula_decimal_parts(self::MAX_MARKUP_PERCENT)) > 0) {
+            return $this->field_error($path . '.markup_percent', 'must not exceed ' . self::MAX_MARKUP_PERCENT);
+        }
+
+        $freight = $this->decimal_multiply($decimals['weight_grams'], $decimals['freight_cny_per_kg']);
+        $freight['scale'] += 3; // grams to kilograms, exactly.
+        $landed_cny = $this->decimal_add($decimals['foreign_price'], $freight);
+        $markup_multiplier = $this->decimal_add(
+            $this->formula_decimal_parts('100'),
+            $decimals['markup_percent']
+        );
+        $marked_up = $this->decimal_multiply($landed_cny, $markup_multiplier);
+        $marked_up['scale'] += 2; // percent to multiplier, exactly.
+        $irt = $this->decimal_multiply($marked_up, $decimals['irt_per_cny']);
+        $rounded = $this->decimal_round_half_up_integer($irt);
+        if ($this->big_integer_compare($rounded, (string) PHP_INT_MAX) > 0) {
+            return $this->field_error($path . '.final_price', 'landed_price_v1 exceeds the supported IRT integer range');
+        }
+
+        $actual = null === $product['final_price'] ? null : $this->number_to_storage($product['final_price']);
+        $expected = (int) $rounded;
+        if (!is_int($actual) || $actual !== $expected) {
+            return $this->error(
+                'digitalogic_product_sync_final_price_mismatch',
+                'final_price does not match independently evaluated landed_price_v1.',
+                422,
+                array('path' => $path . '.final_price', 'expected' => $expected, 'actual' => $actual)
+            );
+        }
+
+        return true;
+    }
+
+    private function formula_decimal_parts($value) {
+        if ($value instanceof Digitalogic_Product_Sync_JSON_Number) {
+            $text = $value->value;
+        } elseif (is_string($value) || is_int($value)) {
+            $text = (string) $value;
+        } elseif (is_float($value) && is_finite($value)) {
+            $text = json_encode($value, JSON_THROW_ON_ERROR);
+        } else {
+            return array('error' => 'must be an exact base-10 decimal');
+        }
+        if (!preg_match('/^(0|[1-9][0-9]*)(?:\.([0-9]+))?$/', $text, $matches)) {
+            return array('error' => 'must be a non-negative base-10 decimal without exponent notation');
+        }
+
+        $integer = $matches[1];
+        $fraction = isset($matches[2]) ? $matches[2] : '';
+        $integer_digits = strlen(ltrim($integer, '0'));
+        if (0 === $integer_digits) {
+            $integer_digits = 1;
+        }
+        if ($integer_digits > self::MAX_FORMULA_INTEGER_DIGITS) {
+            return array('error' => 'has too many integer digits for landed_price_v1');
+        }
+        if (strlen($fraction) > self::MAX_FORMULA_SCALE) {
+            return array('error' => 'has too many fractional digits for landed_price_v1');
+        }
+
+        $scale = strlen($fraction);
+        $digits = ltrim($integer . $fraction, '0');
+        $digits = '' === $digits ? '0' : $digits;
+        while ($scale > 0 && str_ends_with($digits, '0')) {
+            $digits = substr($digits, 0, -1);
+            $scale--;
+        }
+        if ('' === $digits) {
+            $digits = '0';
+            $scale = 0;
+        }
+
+        return array('digits' => $digits, 'scale' => $scale);
+    }
+
+    private function decimal_add($left, $right) {
+        $scale = max((int) $left['scale'], (int) $right['scale']);
+        $left_digits = $left['digits'] . str_repeat('0', $scale - (int) $left['scale']);
+        $right_digits = $right['digits'] . str_repeat('0', $scale - (int) $right['scale']);
+
+        return array('digits' => $this->big_integer_add($left_digits, $right_digits), 'scale' => $scale);
+    }
+
+    private function decimal_multiply($left, $right) {
+        return array(
+            'digits' => $this->big_integer_multiply($left['digits'], $right['digits']),
+            'scale' => (int) $left['scale'] + (int) $right['scale'],
+        );
+    }
+
+    private function decimal_compare($left, $right) {
+        $scale = max((int) $left['scale'], (int) $right['scale']);
+        $left_digits = $left['digits'] . str_repeat('0', $scale - (int) $left['scale']);
+        $right_digits = $right['digits'] . str_repeat('0', $scale - (int) $right['scale']);
+
+        return $this->big_integer_compare($left_digits, $right_digits);
+    }
+
+    private function decimal_round_half_up_integer($decimal) {
+        $digits = $this->normalize_big_integer($decimal['digits']);
+        $scale = (int) $decimal['scale'];
+        if ($scale <= 0) {
+            return $digits . str_repeat('0', -$scale);
+        }
+
+        $padded = str_pad($digits, $scale + 1, '0', STR_PAD_LEFT);
+        $cut = strlen($padded) - $scale;
+        $integer = $this->normalize_big_integer(substr($padded, 0, $cut));
+        if ((int) $padded[$cut] >= 5) {
+            $integer = $this->big_integer_add($integer, '1');
+        }
+
+        return $integer;
+    }
+
+    private function big_integer_add($left, $right) {
+        $left = strrev($this->normalize_big_integer($left));
+        $right = strrev($this->normalize_big_integer($right));
+        $length = max(strlen($left), strlen($right));
+        $carry = 0;
+        $result = '';
+        for ($index = 0; $index < $length; $index++) {
+            $sum = ($index < strlen($left) ? (int) $left[$index] : 0)
+                + ($index < strlen($right) ? (int) $right[$index] : 0)
+                + $carry;
+            $result .= (string) ($sum % 10);
+            $carry = intdiv($sum, 10);
+        }
+        if ($carry > 0) {
+            $result .= (string) $carry;
+        }
+
+        return $this->normalize_big_integer(strrev($result));
+    }
+
+    private function big_integer_multiply($left, $right) {
+        $left = $this->normalize_big_integer($left);
+        $right = $this->normalize_big_integer($right);
+        if ('0' === $left || '0' === $right) {
+            return '0';
+        }
+
+        $result = array_fill(0, strlen($left) + strlen($right), 0);
+        for ($left_index = strlen($left) - 1; $left_index >= 0; $left_index--) {
+            for ($right_index = strlen($right) - 1; $right_index >= 0; $right_index--) {
+                $position = $left_index + $right_index + 1;
+                $sum = $result[$position] + ((int) $left[$left_index] * (int) $right[$right_index]);
+                $result[$position] = $sum % 10;
+                $result[$position - 1] += intdiv($sum, 10);
+            }
+        }
+
+        return $this->normalize_big_integer(implode('', $result));
+    }
+
+    private function big_integer_compare($left, $right) {
+        $left = $this->normalize_big_integer($left);
+        $right = $this->normalize_big_integer($right);
+        if (strlen($left) !== strlen($right)) {
+            return strlen($left) <=> strlen($right);
+        }
+
+        return strcmp($left, $right) <=> 0;
+    }
+
+    private function normalize_big_integer($value) {
+        $value = ltrim((string) $value, '0');
+        return '' === $value ? '0' : $value;
     }
 
     private function record_hash($product) {
@@ -1177,6 +1555,7 @@ class Digitalogic_Product_Sync_Receiver {
                 'dataset' => $envelope['source']['dataset'],
                 'revision' => $envelope['source']['revision'],
             ),
+            'generated_at' => $envelope['generated_at'],
             'products' => $product_hashes,
         );
         if (!empty($envelope['deleted_codes'])) {

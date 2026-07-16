@@ -25,6 +25,8 @@ class Digitalogic_Patris_Feed {
     private const CUSTOMERS_OPTION = 'digitalogic_patris_feed_customers';
     private const LAST_SYNC_OPTION = 'digitalogic_patris_feed_last_sync';
     private const TOKEN_OPTION = 'digitalogic_patris_feed_push_token';
+    public const PRODUCT_SYNC_SECRET_OPTION = 'digitalogic_product_sync_v1_secret';
+    public const PRODUCT_SYNC_SCOPES_OPTION = 'digitalogic_product_sync_v1_source_scopes';
 
     private static $instance = null;
 
@@ -320,18 +322,86 @@ class Digitalogic_Patris_Feed {
     }
 
     /**
-     * Authenticate the versioned receiver without accepting query-string
-     * credentials. The token remains shared with the legacy integration so an
-     * operator can migrate endpoints without provisioning a second secret.
+     * Return the dedicated v1 receiver secret.
+     *
+     * This credential is intentionally independent of the legacy push token.
+     */
+    public function get_product_sync_secret() {
+        $secret = (string) get_option(self::PRODUCT_SYNC_SECRET_OPTION, '');
+        if ('' !== $secret) {
+            return $secret;
+        }
+
+        $generated = wp_generate_password(64, false, false);
+        if (add_option(self::PRODUCT_SYNC_SECRET_OPTION, $generated, '', 'no')) {
+            return $generated;
+        }
+
+        return (string) get_option(self::PRODUCT_SYNC_SECRET_OPTION, '');
+    }
+
+    /**
+     * Return normalized exact source scopes for the v1 secret.
+     *
+     * An empty list is deliberately unscoped for backwards-compatible setup;
+     * once configured, every request must match one exact {id,dataset} pair.
+     */
+    public function get_product_sync_source_scopes() {
+        $configured = get_option(self::PRODUCT_SYNC_SCOPES_OPTION, array());
+        $scopes = array();
+        foreach ((array) $configured as $scope) {
+            if (!is_array($scope)) {
+                continue;
+            }
+            $id = isset($scope['id']) && is_string($scope['id']) ? trim($scope['id']) : '';
+            $dataset = isset($scope['dataset']) && is_string($scope['dataset']) ? trim($scope['dataset']) : '';
+            if ('' === $id || '' === $dataset || strlen($id) > 191 || strlen($dataset) > 191) {
+                continue;
+            }
+            $scopes[$id . "\n" . $dataset] = array('id' => $id, 'dataset' => $dataset);
+        }
+
+        ksort($scopes, SORT_STRING);
+        return array_values($scopes);
+    }
+
+    /**
+     * Authenticate the versioned receiver with its dedicated header-only
+     * secret and, when configured, an exact source ID/dataset scope.
      *
      * @param WP_REST_Request $request Current request.
      * @return bool
      */
     public function verify_product_sync_request(WP_REST_Request $request) {
-        $expected = $this->get_push_token();
-        $provided = $request->get_header('x-digitalogic-token');
+        $expected = $this->get_product_sync_secret();
+        $provided = $request->get_header('x-digitalogic-product-sync-secret');
 
-        return is_string($provided) && '' !== $provided && hash_equals($expected, $provided);
+        if (!is_string($provided) || '' === $provided || '' === $expected || !hash_equals($expected, $provided)) {
+            return false;
+        }
+
+        $configured_scopes = get_option(self::PRODUCT_SYNC_SCOPES_OPTION, array());
+        $scopes = $this->get_product_sync_source_scopes();
+        if (empty($configured_scopes)) {
+            return true;
+        }
+        if (empty($scopes)) {
+            return false;
+        }
+
+        $payload = $request->get_json_params();
+        $source = is_array($payload) && isset($payload['source']) && is_array($payload['source'])
+            ? $payload['source']
+            : array();
+        $source_id = isset($source['id']) && is_string($source['id']) ? $source['id'] : '';
+        $dataset = isset($source['dataset']) && is_string($source['dataset']) ? $source['dataset'] : '';
+        foreach ($scopes as $scope) {
+            if (hash_equals($scope['id'], $source_id) && hash_equals($scope['dataset'], $dataset)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function normalize_product($row) {

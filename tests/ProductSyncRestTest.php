@@ -8,7 +8,8 @@ final class ProductSyncRestTest extends TestCase {
         $GLOBALS['digitalogic_test_filters'] = array();
         $GLOBALS['digitalogic_test_routes'] = array();
         $GLOBALS['digitalogic_test_options'] = array(
-            'digitalogic_patris_feed_push_token' => 'receiver-secret',
+            'digitalogic_patris_feed_push_token' => 'legacy-secret',
+            Digitalogic_Patris_Feed::PRODUCT_SYNC_SECRET_OPTION => 'receiver-secret',
         );
         $GLOBALS['digitalogic_test_option_cache'] = array();
         $GLOBALS['digitalogic_test_actions'] = array();
@@ -37,13 +38,34 @@ final class ProductSyncRestTest extends TestCase {
         $this->assertNotSame($routes['/patris/product-sync']['callback'], $routes['/patris/push']['callback']);
     }
 
-    public function test_v1_token_is_header_only_and_write_scope_remains_supported(): void {
+    public function test_v1_secret_is_separate_header_only_scoped_and_write_scope_remains_supported(): void {
         $api = Digitalogic_REST_API::instance();
         $query_token = new WP_REST_Request(array('token' => 'receiver-secret'));
-        $header_token = new WP_REST_Request(array(), array(), array('X-Digitalogic-Token' => 'receiver-secret'));
+        $legacy_token = new WP_REST_Request(array(), array(), array('X-Digitalogic-Token' => 'legacy-secret'));
+        $header_token = new WP_REST_Request(array(), array(), array('X-Digitalogic-Product-Sync-Secret' => 'receiver-secret'));
 
         $this->assertFalse($api->check_patris_product_sync_permission($query_token));
+        $this->assertFalse($api->check_patris_product_sync_permission($legacy_token));
         $this->assertTrue($api->check_patris_product_sync_permission($header_token));
+
+        $GLOBALS['digitalogic_test_options'][Digitalogic_Patris_Feed::PRODUCT_SYNC_SCOPES_OPTION] = array(
+            array('id' => 'rest-tests', 'dataset' => 'kala.db'),
+        );
+        $matching = new WP_REST_Request(
+            array(),
+            array('source' => array('id' => 'rest-tests', 'dataset' => 'kala.db')),
+            array('X-Digitalogic-Product-Sync-Secret' => 'receiver-secret')
+        );
+        $wrong_source = new WP_REST_Request(
+            array(),
+            array('source' => array('id' => 'other', 'dataset' => 'kala.db')),
+            array('X-Digitalogic-Product-Sync-Secret' => 'receiver-secret')
+        );
+        $this->assertTrue($api->check_patris_product_sync_permission($matching));
+        $this->assertFalse($api->check_patris_product_sync_permission($wrong_source));
+
+        $GLOBALS['digitalogic_test_options'][Digitalogic_Patris_Feed::PRODUCT_SYNC_SCOPES_OPTION] = array('malformed');
+        $this->assertFalse($api->check_patris_product_sync_permission($matching));
 
         $GLOBALS['digitalogic_test_capabilities']['manage_woocommerce'] = true;
         $this->assertTrue($api->check_patris_product_sync_permission(new WP_REST_Request()));
@@ -53,7 +75,7 @@ final class ProductSyncRestTest extends TestCase {
         $payload = $this->emptySnapshot();
         $body = json_encode($payload, JSON_UNESCAPED_SLASHES);
         $headers = array(
-            'X-Digitalogic-Token' => 'receiver-secret',
+            'X-Digitalogic-Product-Sync-Secret' => 'receiver-secret',
             'X-Patris-Contract' => $payload['schema'],
             'X-Patris-Contract-Version' => $payload['schema_version'],
             'X-Patris-Event-ID' => $payload['event_id'],
@@ -79,7 +101,7 @@ final class ProductSyncRestTest extends TestCase {
         $request = new WP_REST_Request(
             array(),
             $payload,
-            array('X-Digitalogic-Token' => 'receiver-secret'),
+            array('X-Digitalogic-Product-Sync-Secret' => 'receiver-secret'),
             json_encode($payload)
         );
         $response = Digitalogic_REST_API::instance()->receive_patris_product_sync($request);
@@ -100,6 +122,7 @@ final class ProductSyncRestTest extends TestCase {
             'formula_id' => 'landed_price_v1',
             'formula_revision' => '1.0.0',
             'source' => $source,
+            'generated_at' => '2026-07-16T10:00:00Z',
             'products' => array(),
         );
 
