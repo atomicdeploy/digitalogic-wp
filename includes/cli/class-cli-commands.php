@@ -483,7 +483,7 @@ class Digitalogic_CLI_Commands {
         try {
             $server = new Digitalogic_WebSocket_Server();
             $server->run($host, $port);
-        } catch (Exception $e) {
+        } catch (Throwable $e) {
             WP_CLI::error($e->getMessage());
         }
     }

@@ -320,7 +320,7 @@
                 saveTimers: {},
                 userSaveTimers: {},
                 saveState: {},
-                lastEventId: 0,
+                lastEventId: Number(config.event_cursor || 0),
                 eventTimer: null,
                 toasts: [],
                 toastId: 0
@@ -745,6 +745,7 @@
             },
             handleTransportEvent: function(event) {
                 if (event && event.event && event.event !== 'connected' && event.event !== 'response') {
+                    this.lastEventId = Math.max(this.lastEventId, Number(event.id || 0));
                     this.handlePanelEvent(event.name || event.event, event.data || {});
                 }
             },
