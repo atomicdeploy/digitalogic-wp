@@ -40,10 +40,12 @@ final class ProductSyncRestTest extends TestCase {
 
     public function test_v1_secret_is_separate_header_only_scoped_and_write_scope_remains_supported(): void {
         $api = Digitalogic_REST_API::instance();
-        $query_token = new WP_REST_Request(array('token' => 'receiver-secret'));
+        $query_token = new WP_REST_Request(array('token' => 'legacy-secret'));
         $legacy_token = new WP_REST_Request(array(), array(), array('X-Digitalogic-Token' => 'legacy-secret'));
         $header_token = new WP_REST_Request(array(), array(), array('X-Digitalogic-Product-Sync-Secret' => 'receiver-secret'));
 
+        $this->assertTrue($api->check_patris_push_permission($query_token));
+        $this->assertTrue($api->check_patris_push_permission($legacy_token));
         $this->assertFalse($api->check_patris_product_sync_permission($query_token));
         $this->assertFalse($api->check_patris_product_sync_permission($legacy_token));
         $this->assertTrue($api->check_patris_product_sync_permission($header_token));
@@ -109,6 +111,24 @@ final class ProductSyncRestTest extends TestCase {
         $this->assertSame(422, $response->get_status());
         $this->assertFalse($response->get_data()['success']);
         $this->assertSame('digitalogic_product_sync_currency_unsupported', $response->get_data()['code']);
+    }
+
+    public function test_partial_and_identical_retry_responses_are_intentionally_http_200(): void {
+        $body = file_get_contents(__DIR__ . '/fixtures/patris-product-sync-v1-golden.json');
+        $payload = json_decode($body, true, 512, JSON_THROW_ON_ERROR);
+        $headers = array('X-Digitalogic-Product-Sync-Secret' => 'receiver-secret');
+        $request = new WP_REST_Request(array(), $payload, $headers, $body);
+
+        $partial = Digitalogic_REST_API::instance()->receive_patris_product_sync($request);
+        $this->assertSame(200, $partial->get_status());
+        $this->assertSame('partially_applied', $partial->get_data()['data']['status']);
+        $this->assertTrue($partial->get_data()['data']['retryable']);
+
+        $retry = Digitalogic_REST_API::instance()->receive_patris_product_sync($request);
+        $this->assertSame(200, $retry->get_status());
+        $this->assertSame('retry_pending', $retry->get_data()['data']['status']);
+        $this->assertTrue($retry->get_data()['data']['replayed']);
+        $this->assertTrue($retry->get_data()['data']['retryable']);
     }
 
     private function emptySnapshot() {
