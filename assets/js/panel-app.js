@@ -3,10 +3,11 @@
 
     var config = window.digitalogicPanel || {};
     var Vue = window.Vue;
+    var productQuery = window.DigitalogicProductQuery;
     var adminThemeStorageKey = config.theme_storage_key || 'digitalogic-admin-theme';
     var panelThemeStorageKey = 'digitalogic_panel_theme';
 
-    if (!Vue || !document.getElementById('digitalogic-panel')) {
+    if (!Vue || !productQuery || !document.getElementById('digitalogic-panel')) {
         return;
     }
 
@@ -206,9 +207,12 @@
         return [
             {key: 'id', label: 'ID', field: 'id', width: 76, visible: true, sortable: true, editable: false, mono: true, filter: 'text', icon: 'dashicons-tag', priority: 1},
             {key: 'name', labelKey: 'productTitle', field: 'name', width: 340, visible: true, sortable: true, editable: true, filter: 'text', icon: 'dashicons-products', priority: 1},
+            {key: 'part_number', labelKey: 'partNumber', field: 'part_number', width: 150, visible: false, sortable: false, editable: false, mono: true, filter: 'text', icon: 'dashicons-tag', priority: 3},
             {key: 'sku', labelKey: 'sku', field: 'sku', width: 140, visible: true, sortable: true, editable: true, mono: true, filter: 'text', icon: 'dashicons-editor-code', priority: 1},
+            {key: 'type', labelKey: 'productType', field: 'type', width: 122, visible: false, sortable: false, editable: false, type: 'select', filter: 'select', icon: 'dashicons-category', priority: 3},
             {key: 'regular_price', labelKey: 'regularPrice', field: 'regular_price', width: 132, visible: true, sortable: true, editable: true, numeric: true, filter: 'numeric', icon: 'dashicons-money-alt', priority: 2},
             {key: 'sale_price', labelKey: 'salePrice', field: 'sale_price', width: 132, visible: true, sortable: true, editable: true, numeric: true, filter: 'numeric', icon: 'dashicons-tickets-alt', priority: 3},
+            {key: 'weight', labelKey: 'weight', field: 'weight', width: 112, visible: false, sortable: true, editable: true, numeric: true, filter: 'numeric', icon: 'dashicons-image-filter', priority: 3},
             {key: 'patris_foreign_currency', labelKey: 'patrisCurrency', field: 'patris_foreign_currency', width: 106, visible: true, sortable: true, editable: true, filter: 'text', icon: 'dashicons-money-alt', priority: 3},
             {key: 'patris_foreign_price', labelKey: 'patrisForeignPrice', field: 'patris_foreign_price', width: 138, visible: true, sortable: true, editable: true, numeric: true, filter: 'numeric', icon: 'dashicons-chart-line', priority: 3},
             {key: 'patris_weight_grams', labelKey: 'patrisWeight', field: 'patris_weight_grams', width: 118, visible: true, sortable: true, editable: true, numeric: true, filter: 'numeric', icon: 'dashicons-image-filter', priority: 3},
@@ -284,6 +288,15 @@
                 selectedProduct: null,
                 selectedUser: null,
                 search: '',
+                productPage: 1,
+                productPageSize: 50,
+                productTotal: 0,
+                productFilteredTotal: 0,
+                productTotalPages: 0,
+                productRequestSequence: 0,
+                productQueryTimer: null,
+                productEditMode: stored('digitalogic_panel_product_edit_mode', 'view') === 'edit',
+                productAutosave: stored('digitalogic_panel_product_autosave', '1') !== '0',
                 userSearch: '',
                 edits: {},
                 userEdits: {},
@@ -318,6 +331,7 @@
                 userColumns: mergeColumns(storedJson('digitalogic_panel_user_columns', []), defaultUserColumns()),
                 cardOrder: storedJson('digitalogic_panel_cards', ['products', 'usd', 'cny']).filter(function(key) { return key !== 'transport'; }),
                 saveTimers: {},
+                savePromises: {},
                 userSaveTimers: {},
                 saveState: {},
                 lastEventId: Number(config.event_cursor || 0),
@@ -373,6 +387,15 @@
                     {value: 'instock', label: this.t.instock},
                     {value: 'outofstock', label: this.t.outofstock},
                     {value: 'onbackorder', label: this.t.onbackorder}
+                ];
+            },
+            productTypeOptions: function() {
+                return [
+                    {value: 'simple', label: this.t.simpleProduct},
+                    {value: 'variable', label: this.t.variableProduct},
+                    {value: 'variation', label: this.t.productVariation},
+                    {value: 'grouped', label: this.t.groupedProduct},
+                    {value: 'external', label: this.t.externalProduct}
                 ];
             },
             userRoleOptions: function() {
@@ -461,19 +484,15 @@
                 }).filter(Boolean);
             },
             filteredProducts: function() {
-                var term = this.search.trim().toLowerCase();
-                var rows = !term ? this.products.slice() : this.products.filter(function(product) {
-                    return [product.id, product.name, product.part_number, product.sku, product.type, product.status, product.stock_status].join(' ').toLowerCase().indexOf(term) !== -1;
-                });
-                if (this.imageFilter === 'with') {
-                    rows = rows.filter(function(product) { return !!product.image; });
-                } else if (this.imageFilter === 'without') {
-                    rows = rows.filter(function(product) { return !product.image; });
-                }
-                rows = rows.filter(function(product) {
-                    return this.productMatchesFilters(product);
-                }, this);
-                return this.applySorts(rows, this.sortState);
+                return this.products.slice();
+            },
+            productPendingCount: function() {
+                return Object.keys(this.edits).filter(function(id) {
+                    return this.edits[id] && Object.keys(this.edits[id]).length;
+                }, this).length;
+            },
+            productPageNumbers: function() {
+                return productQuery.pageWindow(this.productPage, this.productTotalPages, 2);
             },
             filteredUsers: function() {
                 var term = this.userSearch.trim().toLowerCase();
@@ -523,6 +542,9 @@
             }
         },
         watch: {
+            search: function() {
+                this.queueProductReload(true);
+            },
             lang: function(value) {
                 window.localStorage.setItem('digitalogic_panel_language', value);
                 document.documentElement.dir = this.t.dir || 'ltr';
@@ -540,7 +562,19 @@
                 deep: true,
                 handler: function(value) {
                     window.localStorage.setItem('digitalogic_panel_product_filters', JSON.stringify(value || {}));
+                    this.queueProductReload(true);
                 }
+            },
+            imageFilter: function(value) {
+                window.localStorage.setItem('digitalogic_panel_image_filter', value || 'all');
+                this.queueProductReload(true);
+            },
+            productEditMode: function(value) {
+                window.localStorage.setItem('digitalogic_panel_product_edit_mode', value ? 'edit' : 'view');
+            },
+            productAutosave: function(value) {
+                window.localStorage.setItem('digitalogic_panel_product_autosave', value ? '1' : '0');
+                if (value) this.saveAllProductEdits().catch(function() {});
             },
             compactTable: function(value) {
                 window.localStorage.setItem('digitalogic_panel_compact_table', value ? '1' : '0');
@@ -573,6 +607,12 @@
             if (this.eventTimer) {
                 window.clearInterval(this.eventTimer);
             }
+            if (this.productQueryTimer) {
+                window.clearTimeout(this.productQueryTimer);
+            }
+            Object.keys(this.saveTimers).forEach(function(id) {
+                window.clearTimeout(this.saveTimers[id]);
+            }, this);
         },
         methods: {
             bindGlobalEvents: function() {
@@ -700,25 +740,62 @@
                     self.loading = false;
                 });
             },
-            loadProducts: function() {
+            loadProducts: function(page) {
                 var self = this;
+                var requestedPage = Math.max(1, parseInt(page || self.productPage, 10) || 1);
+                var requestSequence = ++self.productRequestSequence;
+                var payload = productQuery.buildPayload({
+                    page: requestedPage,
+                    pageSize: self.productPageSize,
+                    search: self.search,
+                    filters: self.productFilters,
+                    image: self.imageFilter,
+                    sorts: self.sortState
+                });
                 self.loading = true;
-                return self.run('digitalogic_get_products', {page: 1, limit: 1000}).then(function(data) {
-                    self.products = data.products || [];
+                return self.run('digitalogic_get_products', payload).then(function(data) {
+                    if (requestSequence !== self.productRequestSequence) return;
+                    self.productTotal = Number(data.recordsTotal || data.total || 0);
+                    self.productFilteredTotal = Number(data.recordsFiltered || 0);
+                    self.productTotalPages = Number(data.pages || Math.ceil(self.productFilteredTotal / self.productPageSize) || 0);
+                    if (self.productTotalPages && requestedPage > self.productTotalPages) {
+                        return self.loadProducts(self.productTotalPages);
+                    }
+                    self.products = productQuery.applyPendingEdits(data.products, self.edits);
+                    self.productPage = Math.max(1, Math.min(Number(data.page || requestedPage), Math.max(1, self.productTotalPages)));
                     if (self.selectedProduct && self.selectedProduct.id) {
                         var selected = self.productById(self.selectedProduct.id);
                         if (selected) Object.assign(self.selectedProduct, selected);
                     }
                 }).catch(function(error) {
+                    if (requestSequence !== self.productRequestSequence) return;
                     self.error = error.message || self.t.error;
                 }).finally(function() {
-                    self.loading = false;
+                    if (requestSequence === self.productRequestSequence) self.loading = false;
                 });
+            },
+            queueProductReload: function(resetPage) {
+                if (this.currentPage !== 'products') return;
+                if (resetPage) this.productPage = 1;
+                window.clearTimeout(this.productQueryTimer);
+                var self = this;
+                this.productQueryTimer = window.setTimeout(function() {
+                    self.loadProducts();
+                }, 280);
+            },
+            goToProductPage: function(page) {
+                page = Math.max(1, Math.min(parseInt(page, 10) || 1, Math.max(1, this.productTotalPages)));
+                if (page === this.productPage && this.products.length) return;
+                this.productPage = page;
+                this.loadProducts(page);
             },
             loadProduct: function(id) {
                 var self = this;
                 return self.run('digitalogic_get_product', {product_id: id}).then(function(data) {
-                    self.selectedProduct = data.product || null;
+                    self.selectedProduct = productQuery.applyPendingEdits(
+                        data.product ? [data.product] : [],
+                        self.edits
+                    )[0] || null;
                 }).catch(function(error) {
                     self.error = error.message || self.t.error;
                 });
@@ -862,6 +939,7 @@
                 if (value === null || typeof value === 'undefined' || value === '') return '-';
                 if (column.field === 'status') return this.statusLabel(value);
                 if (column.field === 'stock_status') return this.stockStatusLabel(value);
+                if (column.field === 'type') return this.customSelectLabel(this.productTypeOptions, value);
                 return column.numeric ? this.formatInputNumber(value) : value;
             },
             inputValue: function(row, column) {
@@ -869,6 +947,7 @@
             },
             startCellEdit: function(kind, row, column) {
                 if (!column.editable) return;
+                if (kind === 'product' && !this.productEditMode) return;
                 if (column.type === 'select') return;
                 var key = kind + ':' + row.id + ':' + column.field;
                 this.editingCell = key;
@@ -897,7 +976,7 @@
             },
             finishCellEdit: function(kind, row) {
                 if (kind === 'user') this.flushUserSave(row);
-                else this.flushProductSave(row);
+                else if (this.productAutosave) this.flushProductSave(row);
                 this.editingCell = null;
             },
             onGridCellKeydown: function(event, product, column) {
@@ -952,6 +1031,7 @@
                 });
             },
             editProduct: function(product, field, value) {
+                if (!this.productEditMode || !product || !product.id) return;
                 if (!this.edits[product.id]) this.edits[product.id] = {};
                 this.edits[product.id][field] = value;
                 product[field] = value;
@@ -964,10 +1044,11 @@
                 this.scheduleUserSave(user);
             },
             scheduleProductSave: function(product) {
+                if (!this.productAutosave) return;
                 var self = this;
                 window.clearTimeout(this.saveTimers[product.id]);
                 this.saveTimers[product.id] = window.setTimeout(function() {
-                    self.saveProduct(product);
+                    self.saveProduct(product).catch(function() {});
                 }, 800);
             },
             scheduleUserSave: function(user) {
@@ -993,27 +1074,81 @@
             },
             saveProduct: function(product) {
                 var self = this;
-                var data = self.edits[product.id] || {};
-                if (!Object.keys(data).length) return Promise.resolve();
-                self.saveState['product:' + product.id] = 'saving';
-                return self.run('digitalogic_update_product', {product_id: product.id, data: data}).then(function(response) {
-                    delete self.edits[product.id];
+                var productId = product && Number(product.id);
+                if (!productId) return Promise.resolve();
+                if (self.savePromises[productId]) {
+                    return self.savePromises[productId].then(function() {
+                        return self.edits[productId] && Object.keys(self.edits[productId]).length
+                            ? self.saveProduct(product)
+                            : undefined;
+                    });
+                }
+
+                var snapshot = Object.assign({}, self.edits[productId] || {});
+                if (!Object.keys(snapshot).length) return Promise.resolve();
+                self.saveState['product:' + productId] = 'saving';
+                var savePromise = self.run('digitalogic_update_product', {product_id: productId, data: snapshot}).then(function(response) {
+                    var remaining = productQuery.reconcileEdits(self.edits[productId], snapshot);
+                    if (Object.keys(remaining).length) self.edits[productId] = remaining;
+                    else delete self.edits[productId];
                     if (response && response.product) {
                         Object.assign(product, response.product);
-                        if (self.selectedProduct && self.selectedProduct.id === product.id) {
+                        Object.assign(product, remaining);
+                        if (self.selectedProduct && Number(self.selectedProduct.id) === productId) {
                             Object.assign(self.selectedProduct, response.product);
+                            Object.assign(self.selectedProduct, remaining);
                         }
                     }
-                    self.saveState['product:' + product.id] = 'saved';
-                    window.setTimeout(function() { delete self.saveState['product:' + product.id]; }, 1400);
-                    if (self.selectedProduct && self.selectedProduct.id === product.id) self.loadProduct(product.id);
+                    self.saveState['product:' + productId] = 'saved';
+                    window.setTimeout(function() { delete self.saveState['product:' + productId]; }, 1400);
+                    if (!Object.keys(remaining).length && self.selectedProduct && Number(self.selectedProduct.id) === productId) self.loadProduct(productId);
                     if (window.opener && window.opener !== window) {
-                        window.opener.postMessage({type: 'digitalogic-product-updated', productId: product.id}, window.location.origin);
+                        window.opener.postMessage({type: 'digitalogic-product-updated', productId: productId}, window.location.origin);
                     }
                 }).catch(function(error) {
-                    self.saveState['product:' + product.id] = 'error';
+                    self.saveState['product:' + productId] = 'error';
                     self.error = error.message || self.t.error;
+                    throw error;
+                }).finally(function() {
+                    delete self.savePromises[productId];
                 });
+                self.savePromises[productId] = savePromise;
+                return savePromise;
+            },
+            saveAllProductEdits: function() {
+                var self = this;
+                var ids = Object.keys(this.edits).filter(function(id) {
+                    return self.edits[id] && Object.keys(self.edits[id]).length;
+                });
+                if (!ids.length) return Promise.resolve();
+
+                return Promise.all(ids.map(function(id) {
+                    return self.saveProduct(self.productById(id) || (self.selectedProduct && Number(self.selectedProduct.id) === Number(id) ? self.selectedProduct : {id: Number(id)}));
+                })).catch(function(error) {
+                    self.error = error && error.message ? error.message : self.t.error;
+                    throw error;
+                });
+            },
+            setProductEditMode: function(enabled) {
+                var self = this;
+                enabled = !!enabled;
+                if (enabled || !this.productPendingCount) {
+                    this.productEditMode = enabled;
+                    this.editingCell = null;
+                    this.selectCell = null;
+                    return Promise.resolve();
+                }
+
+                return this.saveAllProductEdits().then(function() {
+                    self.productEditMode = false;
+                    self.editingCell = null;
+                    self.selectCell = null;
+                }).catch(function() {
+                    self.productEditMode = true;
+                });
+            },
+            setProductAutosave: function(enabled) {
+                this.productAutosave = !!enabled;
             },
             saveUser: function(user) {
                 var self = this;
@@ -1126,7 +1261,7 @@
                 if (!column.sortable) return;
                 var state = (kind === 'user' ? this.userSortState : this.sortState).slice();
                 var item = state.find(function(sort) { return sort.key === column.key; });
-                if (!event.shiftKey) state = item ? [item] : [];
+                if (kind === 'product' || !event.shiftKey) state = item ? [item] : [];
                 item = state.find(function(sort) { return sort.key === column.key; });
                 if (!item) state.push({key: column.key, field: column.field, direction: 'asc'});
                 else if (item.direction === 'asc') item.direction = 'desc';
@@ -1137,6 +1272,7 @@
                 } else {
                     this.sortState = state;
                     window.localStorage.setItem('digitalogic_panel_product_sorts', JSON.stringify(state));
+                    this.queueProductReload(true);
                 }
             },
             sortLabel: function(kind, column) {
@@ -1484,6 +1620,7 @@
             columnOptions: function(column) {
                 if (column.field === 'status') return this.productStatusOptions;
                 if (column.field === 'stock_status') return this.stockStatusOptions;
+                if (column.field === 'type') return this.productTypeOptions;
                 if (column.field === 'role') return this.userRoleOptions;
                 return [];
             },
@@ -1495,6 +1632,7 @@
             },
             openSelectCell: function(kind, row, column, event) {
                 if (!row || !column || !column.editable || column.type !== 'select') return;
+                if (kind === 'product' && !this.productEditMode) return;
                 if (event) {
                     event.preventDefault();
                     event.stopPropagation();
@@ -1539,7 +1677,7 @@
                     this.flushUserSave(row);
                 } else {
                     this.editProduct(row, column.field, value);
-                    this.flushProductSave(row);
+                    if (this.productAutosave) this.flushProductSave(row);
                 }
                 this.selectCell = null;
             },
@@ -1552,6 +1690,7 @@
                     name: 'dashicons-products',
                     sku: 'dashicons-editor-code',
                     part_number: 'dashicons-tag',
+                    type: 'dashicons-category',
                     status: 'dashicons-visibility',
                     stock_status: 'dashicons-yes-alt',
                     regular_price: 'dashicons-money-alt',
@@ -1604,7 +1743,6 @@
             },
             setImageFilter: function(value) {
                 this.imageFilter = value || 'all';
-                window.localStorage.setItem('digitalogic_panel_image_filter', this.imageFilter);
                 this.openMenu = '';
             },
             applyBulkAction: function(action) {
@@ -1616,6 +1754,7 @@
                         if (response && response.url) window.open(response.url, '_blank', 'noopener');
                     });
                 }
+                if (!this.productEditMode) return;
                 var data = {};
                 if (action === 'publish') data.status = 'publish';
                 if (action === 'draft') data.status = 'draft';
@@ -1669,28 +1808,6 @@
                 this.imageFilter = 'all';
                 window.localStorage.setItem('digitalogic_panel_image_filter', 'all');
             },
-            productMatchesFilters: function(product) {
-                var filters = this.productFilters || {};
-                return Object.keys(filters).every(function(key) {
-                    var column = this.productColumns.find(function(item) {
-                        return item.key === key;
-                    });
-                    if (!column) return true;
-                    var filter = filters[key];
-                    var value = product[column.field];
-                    if (column.filter === 'numeric') {
-                        var number = Number(this.normalizeNumber(value));
-                        if (filter.min && number < Number(this.normalizeNumber(filter.min))) return false;
-                        if (filter.max && number > Number(this.normalizeNumber(filter.max))) return false;
-                        return true;
-                    }
-                    if (column.filter === 'select') {
-                        return !filter || String(value || '') === String(filter);
-                    }
-                    var haystack = String(column.field === 'status' ? this.statusLabel(value) : value || '').toLowerCase();
-                    return haystack.indexOf(String(filter || '').toLowerCase()) !== -1;
-                }, this);
-            },
             openColumnContext: function(kind, column, event) {
                 if (event) {
                     event.preventDefault();
@@ -1720,6 +1837,7 @@
                 } else {
                     this.sortState = [sort];
                     window.localStorage.setItem('digitalogic_panel_product_sorts', JSON.stringify(this.sortState));
+                    this.queueProductReload(true);
                 }
                 this.columnContext = null;
             },

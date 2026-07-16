@@ -617,6 +617,18 @@ body.wp-admin .wrap > form .form-table > tbody > tr > th {
     font-variant-numeric: tabular-nums;
 }
 
+/* Keep machine-readable values stable on every Digitalogic admin screen. */
+.wrap[class*="digitalogic-"] input[type="number"],
+.wrap[class*="digitalogic-"] input[inputmode="numeric"],
+.wrap[class*="digitalogic-"] input[inputmode="decimal"],
+.wrap[class*="digitalogic-"] input[data-field="sku"],
+.wrap[class*="digitalogic-"] .digitalogic-num {
+    direction: ltr !important;
+    text-align: left !important;
+    unicode-bidi: plaintext;
+    font-variant-numeric: tabular-nums;
+}
+
 .digitalogic-report-empty {
     margin: 0;
     padding: 14px;
