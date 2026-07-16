@@ -155,6 +155,22 @@ final class ProductMetadataAccessTest extends TestCase {
 		$this->assertStringContainsString( 'deprecated', WP_CLI::$warnings[0] );
 	}
 
+	/** Verify the historical positional setter can still clear an SKU. */
+	public function test_cli_positional_id_sku_setter_can_clear_the_sku(): void {
+		$command = new Digitalogic_CLI_Commands();
+
+		try {
+			$command->products_update( array( '901' ), array( 'sku' => '' ) );
+			$this->fail( 'WP_CLI::success should terminate the command.' );
+		} catch ( RuntimeException $exception ) {
+			$this->assertStringContainsString( 'Product updated.', $exception->getMessage() );
+		}
+
+		$this->assertSame( '', $GLOBALS['digitalogic_test_posts'][901]['meta']['_sku'] );
+		$this->assertSame( array( 901 ), $GLOBALS['digitalogic_test_wc_product_saves'] );
+		$this->assertCount( 1, WP_CLI::$warnings );
+	}
+
 	/** Verify exact SKU selection and the explicit replacement option. */
 	public function test_cli_sku_selector_with_set_sku_updates_the_resolved_product(): void {
 		$command = new Digitalogic_CLI_Commands();

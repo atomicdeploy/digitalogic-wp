@@ -88,18 +88,18 @@ final class Digitalogic_Product_Query {
 			}
 		}
 
-		$status = isset( $filters['status'] ) ? sanitize_key( (string) wp_unslash( $filters['status'] ) ) : '';
-		if ( in_array( $status, self::PRODUCT_STATUSES, true ) ) {
+		$status = self::enum_filter( $filters['status'] ?? '', self::PRODUCT_STATUSES );
+		if ( '' !== $status && array() !== $status ) {
 			$normalized_filters['status'] = $status;
 		}
 
-		$type = isset( $filters['type'] ) ? sanitize_key( (string) wp_unslash( $filters['type'] ) ) : '';
-		if ( in_array( $type, self::PRODUCT_TYPES, true ) ) {
+		$type = self::enum_filter( $filters['type'] ?? '', self::PRODUCT_TYPES );
+		if ( '' !== $type && array() !== $type ) {
 			$normalized_filters['type'] = $type;
 		}
 
-		$stock_status = isset( $filters['stock_status'] ) ? sanitize_key( (string) wp_unslash( $filters['stock_status'] ) ) : '';
-		if ( in_array( $stock_status, self::STOCK_STATUSES, true ) ) {
+		$stock_status = self::enum_filter( $filters['stock_status'] ?? '', self::STOCK_STATUSES );
+		if ( '' !== $stock_status && array() !== $stock_status ) {
 			$normalized_filters['stock_status'] = $stock_status;
 		}
 
@@ -209,19 +209,37 @@ final class Digitalogic_Product_Query {
 		}
 
 		if ( ! empty( $filters['status'] ) ) {
-			$query['post_status'] = array( $filters['status'] );
+			$query['post_status'] = (array) $filters['status'];
 		}
 
 		if ( ! empty( $filters['type'] ) ) {
-			if ( 'variation' === $filters['type'] ) {
+			$types         = (array) $filters['type'];
+			$has_variation = in_array( 'variation', $types, true );
+			$product_types = array_values( array_diff( $types, array( 'variation' ) ) );
+
+			if ( $has_variation && empty( $product_types ) ) {
 				$query['post_type'] = array( 'product_variation' );
-			} else {
+			} elseif ( ! $has_variation ) {
 				$query['post_type'] = array( 'product' );
 				$query['tax_query'] = array( // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_tax_query -- Product type must be filtered before pagination.
 					array(
 						'taxonomy' => 'product_type',
 						'field'    => 'slug',
-						'terms'    => array( $filters['type'] ),
+						'terms'    => $product_types,
+					),
+				);
+			} else {
+				$query['post_type'] = array( 'product', 'product_variation' );
+				$query['tax_query'] = array( // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_tax_query -- Product and variation types must be filtered before pagination.
+					'relation' => 'OR',
+					array(
+						'taxonomy' => 'product_type',
+						'field'    => 'slug',
+						'terms'    => $product_types,
+					),
+					array(
+						'taxonomy' => 'product_type',
+						'operator' => 'NOT EXISTS',
 					),
 				);
 			}
@@ -250,10 +268,11 @@ final class Digitalogic_Product_Query {
 		}
 
 		if ( ! empty( $filters['stock_status'] ) ) {
-			$meta_query[] = array(
+			$stock_statuses = (array) $filters['stock_status'];
+			$meta_query[]   = array(
 				'key'     => '_stock_status',
-				'value'   => $filters['stock_status'],
-				'compare' => '=',
+				'value'   => 1 === count( $stock_statuses ) ? reset( $stock_statuses ) : $stock_statuses,
+				'compare' => 1 === count( $stock_statuses ) ? '=' : 'IN',
 			);
 		}
 
@@ -405,6 +424,33 @@ final class Digitalogic_Product_Query {
 
 		$value = trim( sanitize_text_field( wp_unslash( (string) $value ) ) );
 		return function_exists( 'mb_substr' ) ? mb_substr( $value, 0, $max_length ) : substr( $value, 0, $max_length );
+	}
+
+	/**
+	 * Normalize one enum or a legacy enum list without casting arrays.
+	 *
+	 * @param mixed $value Raw scalar or array value.
+	 * @param array $allowed Allowed keys.
+	 * @return string|array
+	 */
+	private static function enum_filter( $value, $allowed ) {
+		$is_list = is_array( $value );
+		$values  = $is_list ? $value : array( $value );
+		$result  = array();
+
+		foreach ( $values as $item ) {
+			if ( ! is_scalar( $item ) ) {
+				continue;
+			}
+
+			$item = sanitize_key( (string) wp_unslash( $item ) );
+			if ( in_array( $item, $allowed, true ) ) {
+				$result[] = $item;
+			}
+		}
+
+		$result = array_values( array_unique( $result ) );
+		return $is_list ? $result : ( $result[0] ?? '' );
 	}
 
 	/**

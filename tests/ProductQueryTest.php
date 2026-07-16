@@ -18,7 +18,10 @@ final class ProductQueryTest extends TestCase {
 	protected function setUp(): void {
 		$manager = new ReflectionProperty( Digitalogic_Product_Manager::class, 'instance' );
 		$manager->setValue( null, null );
-		unset( $GLOBALS['digitalogic_test_product_query_result'] );
+		$GLOBALS['digitalogic_test_wp_query_args']    = array();
+		$GLOBALS['digitalogic_test_wp_query_results'] = array();
+		$GLOBALS['digitalogic_test_primed_post_ids']  = array();
+		$GLOBALS['digitalogic_test_wc_products']      = array();
 	}
 
 	/**
@@ -77,6 +80,32 @@ final class ProductQueryTest extends TestCase {
 			),
 			$normalized['sorts']
 		);
+	}
+
+	/**
+	 * Legacy internal enum lists remain bounded and never trigger array casts.
+	 */
+	public function test_normalizes_legacy_enum_lists_without_widening_the_allowlist(): void {
+		$normalized = Digitalogic_Product_Query::normalize_args(
+			array(
+				'status'       => array( 'publish', 'private', 'trash', array( 'draft' ) ),
+				'type'         => array( 'simple', 'variation', 'unknown' ),
+				'stock_status' => array( 'instock', 'invalid' ),
+			)
+		);
+
+		$this->assertSame( array( 'publish', 'private' ), $normalized['filters']['status'] );
+		$this->assertSame( array( 'simple', 'variation' ), $normalized['filters']['type'] );
+		$this->assertSame( array( 'instock' ), $normalized['filters']['stock_status'] );
+
+		$query = Digitalogic_Product_Query::build_wp_query_args( $normalized );
+		$this->assertSame( array( 'publish', 'private' ), $query['post_status'] );
+		$this->assertSame( array( 'product', 'product_variation' ), $query['post_type'] );
+		$this->assertSame( 'OR', $query['tax_query']['relation'] );
+		$this->assertSame( array( 'simple' ), $query['tax_query'][0]['terms'] );
+		$this->assertSame( 'NOT EXISTS', $query['tax_query'][1]['operator'] );
+		$this->assertSame( 'instock', $query['meta_query'][0]['value'] );
+		$this->assertSame( '=', $query['meta_query'][0]['compare'] );
 	}
 
 	/**
@@ -140,27 +169,45 @@ final class ProductQueryTest extends TestCase {
 	 * Every command transport delegates to one manager query operation.
 	 */
 	public function test_dispatcher_uses_one_shared_manager_query_contract(): void {
-		$GLOBALS['digitalogic_test_product_query_result'] = array(
-			'products'        => array( array( 'id' => 42 ) ),
-			'total'           => 120,
-			'recordsTotal'    => 120,
-			'recordsFiltered' => 1,
-			'page'            => 2,
-			'limit'           => 25,
-			'pages'           => 1,
+		$GLOBALS['digitalogic_test_posts']            = array(
+			42 => array(
+				'post_type'   => 'product',
+				'post_status' => 'publish',
+				'post_title'  => 'Contract product',
+				'meta'        => array( '_sku' => 'SKU-42' ),
+			),
 		);
-		$payload = array(
+		$GLOBALS['digitalogic_test_wp_query_results'] = array(
+			array(
+				'posts'       => array( 42 ),
+				'found_posts' => 1,
+			),
+			array(
+				'posts'       => array(),
+				'found_posts' => 120,
+			),
+		);
+		$payload                                      = array(
 			'page'    => 2,
 			'limit'   => 25,
 			'filters' => array( 'sku' => 'SKU-42' ),
 		);
 
-		$result  = Digitalogic_Command_Dispatcher::instance()->get_products( $payload );
-		$manager = Digitalogic_Product_Manager::instance();
+		$result = Digitalogic_Command_Dispatcher::instance()->get_products( $payload );
 
-		$this->assertSame( $GLOBALS['digitalogic_test_product_query_result'], $result );
-		$this->assertCount( 1, $manager->query_requests );
-		$this->assertSame( $payload, $manager->query_requests[0] );
+		$this->assertSame( 42, $result['products'][0]['id'] );
+		$this->assertSame( 'SKU-42', $result['products'][0]['sku'] );
+		$this->assertSame( 120, $result['total'] );
+		$this->assertSame( 120, $result['recordsTotal'] );
+		$this->assertSame( 1, $result['recordsFiltered'] );
+		$this->assertSame( 2, $result['page'] );
+		$this->assertSame( 25, $result['limit'] );
+		$this->assertSame( 1, $result['pages'] );
+		$this->assertCount( 2, $GLOBALS['digitalogic_test_wp_query_args'] );
+		$this->assertSame( 2, $GLOBALS['digitalogic_test_wp_query_args'][0]['paged'] );
+		$this->assertSame( 25, $GLOBALS['digitalogic_test_wp_query_args'][0]['posts_per_page'] );
+		$this->assertSame( 'SKU-42', $GLOBALS['digitalogic_test_wp_query_args'][0]['meta_query'][0]['value'] );
+		$this->assertSame( array( 42 ), $GLOBALS['digitalogic_test_primed_post_ids'][0] );
 	}
 
 	/**

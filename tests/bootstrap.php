@@ -35,6 +35,9 @@ $GLOBALS['digitalogic_test_wc_lookup_rows'] = array();
 $GLOBALS['digitalogic_test_wc_data_store'] = null;
 $GLOBALS['digitalogic_test_wc_lookup_full_rebuilds'] = 0;
 $GLOBALS['digitalogic_test_product_updates'] = array();
+$GLOBALS['digitalogic_test_wp_query_args'] = array();
+$GLOBALS['digitalogic_test_wp_query_results'] = array();
+$GLOBALS['digitalogic_test_primed_post_ids'] = array();
 $GLOBALS['digitalogic_test_wc_currency'] = 'IRT';
 $GLOBALS['digitalogic_test_transients'] = array(); // phpcs:ignore
 $GLOBALS['digitalogic_test_transient_deletes'] = array(); // phpcs:ignore
@@ -154,6 +157,24 @@ class WP_REST_Response {
     public function get_status() {
         return $this->status;
     }
+}
+
+class WP_Query {
+    public $posts = array();
+    public $found_posts = 0;
+
+    public function __construct($args = array()) {
+        $GLOBALS['digitalogic_test_wp_query_args'][] = $args;
+        $result = !empty($GLOBALS['digitalogic_test_wp_query_results'])
+            ? array_shift($GLOBALS['digitalogic_test_wp_query_results'])
+            : array();
+        $this->posts = isset($result['posts']) ? array_values($result['posts']) : array();
+        $this->found_posts = isset($result['found_posts']) ? (int) $result['found_posts'] : count($this->posts);
+    }
+}
+
+function _prime_post_caches($post_ids, $update_term_cache = true, $update_meta_cache = true) {
+    $GLOBALS['digitalogic_test_primed_post_ids'][] = array_values(array_map('absint', (array) $post_ids));
 }
 
 function add_action($hook_name, $callback, $priority = 10, $accepted_args = 1) {

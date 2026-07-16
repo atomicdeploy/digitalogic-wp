@@ -291,7 +291,6 @@ class Digitalogic_CLI_Commands {
         $legacy_positional_sku_setter = isset($args[0])
             && '' !== trim((string) $args[0])
             && isset($assoc_args['sku'])
-            && '' !== trim((string) $assoc_args['sku'])
             && !isset($assoc_args['id']);
 
         if ($legacy_positional_sku_setter && isset($assoc_args['set-sku'])) {
