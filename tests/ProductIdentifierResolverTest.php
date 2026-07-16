@@ -32,6 +32,8 @@ final class ProductIdentifierResolverTest extends TestCase {
             ),
             611 => array('post_type' => 'product', 'post_status' => 'trash', 'meta' => array('_sku' => 'TRASH-SKU')),
             612 => array('post_type' => 'product_variation', 'post_status' => 'auto-draft', 'meta' => array('_sku' => 'AUTO-SKU')),
+            613 => array('post_type' => 'product', 'meta' => array('_sku' => '113001001')),
+            614 => array('post_type' => 'product', 'meta' => array('_sku' => 'A113001001')),
             700 => array('post_type' => 'post', 'meta' => array('_sku' => 'NOT-A-PRODUCT')),
         );
         $GLOBALS['wpdb'] = new Digitalogic_Test_WPDB();
@@ -67,17 +69,26 @@ final class ProductIdentifierResolverTest extends TestCase {
 
     public function test_generic_code_rejects_cross_namespace_collision_and_uses_exact_sku_fallback(): void {
         $cross = $this->resolver->resolve(array('code' => 'CROSS'));
-        $numeric_looking = $this->resolver->resolve(array('code' => '00123'));
+        $numeric_only = $this->resolver->resolve(array('code' => '113001001'));
+        $leading_zero = $this->resolver->resolve(array('code' => '00123'));
+        $alphanumeric = $this->resolver->resolve(array('code' => 'A113001001'));
+        $numeric_integer = $this->resolver->resolve(array('code' => 113001001));
         $wrong_case = $this->resolver->resolve(array('code' => 'sku-601'));
 
         $this->assertSame('digitalogic_product_identifier_ambiguous', $cross->get_error_code());
         $this->assertSame('cross_namespace_collision', $cross->get_error_data()['reason']);
         $this->assertSame(array('607', '608'), $cross->get_error_data()['woocommerce_ids']);
-        $this->assertSame('609', $numeric_looking['woocommerce_id']);
-        $this->assertSame('sku_fallback', $numeric_looking['resolved_by']);
-        $this->assertSame('00123', $numeric_looking['identifier']);
+        $this->assertSame('613', $numeric_only['woocommerce_id']);
+        $this->assertSame('sku_fallback', $numeric_only['resolved_by']);
+        $this->assertSame('113001001', $numeric_only['identifier']);
+        $this->assertIsString($numeric_only['identifier']);
+        $this->assertSame('609', $leading_zero['woocommerce_id']);
+        $this->assertSame('00123', $leading_zero['identifier']);
+        $this->assertSame('614', $alphanumeric['woocommerce_id']);
+        $this->assertSame('A113001001', $alphanumeric['identifier']);
+        $this->assertSame('digitalogic_invalid_product_identifier', $numeric_integer->get_error_code());
         $this->assertSame('digitalogic_product_identifier_not_found', $wrong_case->get_error_code());
-        $this->assertSame(3, $GLOBALS['wpdb']->identifier_query_count);
+        $this->assertSame(5, $GLOBALS['wpdb']->identifier_query_count);
     }
 
     public function test_non_woo_identifiers_require_strings_and_latest_duplicate_meta_row_is_deterministic(): void {

@@ -855,7 +855,9 @@ class Digitalogic_Product_Sync_Receiver {
             if (isset($seen_codes[$code])) {
                 return $this->error('digitalogic_product_sync_duplicate_code', 'Product codes must be unique inside an event.', 422, array('product_code' => $code));
             }
-            $seen_codes[$code] = true;
+            // PHP coerces canonical numeric-string array keys to integers. Keep
+            // the validated string as the value whenever the map is projected.
+            $seen_codes[$code] = $code;
             $products[] = $validated;
         }
 
@@ -872,14 +874,20 @@ class Digitalogic_Product_Sync_Receiver {
             return $warnings;
         }
 
-        $deleted_lookup = array_fill_keys(array_column($deleted_codes, 'product_code'), true);
-        $quarantined_lookup = array_fill_keys($quarantined_codes, true);
-        foreach (array_keys($seen_codes) as $code) {
+        $deleted_lookup = array();
+        foreach ($deleted_codes as $tombstone) {
+            $deleted_lookup[$tombstone['product_code']] = $tombstone['product_code'];
+        }
+        $quarantined_lookup = array();
+        foreach ($quarantined_codes as $quarantined_code) {
+            $quarantined_lookup[$quarantined_code] = $quarantined_code;
+        }
+        foreach ($seen_codes as $code) {
             if (isset($deleted_lookup[$code]) || isset($quarantined_lookup[$code])) {
                 return $this->error('digitalogic_product_sync_code_overlap', 'A code cannot be both a product and a tombstone or quarantine entry.', 422, array('product_code' => $code));
             }
         }
-        foreach (array_keys($deleted_lookup) as $code) {
+        foreach ($deleted_lookup as $code) {
             if (isset($quarantined_lookup[$code])) {
                 return $this->error('digitalogic_product_sync_code_overlap', 'Quarantined codes cannot be tombstoned.', 422, array('product_code' => $code));
             }
@@ -1128,12 +1136,15 @@ class Digitalogic_Product_Sync_Receiver {
         foreach ($envelope['products'] as $product) {
             $incoming[$product['product_code']] = $product;
         }
-        $quarantined = array_fill_keys($envelope['quarantined_codes'], true);
+        $quarantined = array();
+        foreach ($envelope['quarantined_codes'] as $quarantined_code) {
+            $quarantined[$quarantined_code] = $quarantined_code;
+        }
         $preserved = 0;
 
         if ('snapshot' === $envelope['event_type']) {
             $next = $incoming;
-            foreach ($quarantined as $code => $_unused) {
+            foreach ($quarantined as $code) {
                 if (isset($previous[$code])) {
                     $next[$code] = $previous[$code];
                     $preserved++;
@@ -1142,8 +1153,8 @@ class Digitalogic_Product_Sync_Receiver {
             $revision_products = $incoming;
         } else {
             $next = $previous;
-            foreach ($incoming as $code => $product) {
-                $next[$code] = $product;
+            foreach ($incoming as $product) {
+                $next[$product['product_code']] = $product;
             }
             $deleted = 0;
             foreach ($envelope['deleted_codes'] as $tombstone) {
@@ -1153,14 +1164,14 @@ class Digitalogic_Product_Sync_Receiver {
                     $deleted++;
                 }
             }
-            foreach ($quarantined as $code => $_unused) {
+            foreach ($quarantined as $code) {
                 if (isset($previous[$code])) {
                     $next[$code] = $previous[$code];
                     $preserved++;
                 }
             }
             $revision_products = $next;
-            foreach ($quarantined as $code => $_unused) {
+            foreach ($quarantined as $code) {
                 unset($revision_products[$code]);
             }
         }
@@ -1193,10 +1204,14 @@ class Digitalogic_Product_Sync_Receiver {
         $pending = is_array($existing['pending_products'] ?? null) ? $existing['pending_products'] : array();
         $deferred = is_array($existing['deferred_products'] ?? null) ? $existing['deferred_products'] : array();
 
-        foreach ($applied as $code => $entry) {
-            if (!isset($products[$code]) || !is_array($entry) || !isset($entry['record_hash'], $entry['woocommerce_id'])) {
-                unset($applied[$code]);
+        foreach ($applied as $code_key => $entry) {
+            $product_code = $this->delivery_product_code($products, $code_key, $entry);
+            if (null === $product_code || !is_array($entry) || !isset($entry['record_hash'], $entry['woocommerce_id'])) {
+                unset($applied[$code_key]);
+                continue;
             }
+            $entry['product_code'] = $product_code;
+            $applied[$code_key] = $entry;
         }
         $pending = $this->prune_delivery_set($products, $pending);
         $deferred = $this->prune_delivery_set($products, $deferred);
@@ -1216,6 +1231,7 @@ class Digitalogic_Product_Sync_Receiver {
             $existing_entry = !empty($pending_entry) ? $pending_entry : $deferred_entry;
             if (!isset($existing_entry['record_hash']) || !hash_equals((string) $existing_entry['record_hash'], $record_hash)) {
                 $pending_entry = array(
+                    'product_code' => $code,
                     'record_hash' => $record_hash,
                     'queued_event_id' => $envelope['event_id'],
                     'attempts' => 0,
@@ -1267,18 +1283,20 @@ class Digitalogic_Product_Sync_Receiver {
         }
         ksort($work, SORT_STRING);
 
-        foreach ($work as $code => $delivery_entry) {
-            if (!$this->valid_delivery_entry($products, $code, $delivery_entry)) {
-                unset($pending[$code]);
-                unset($deferred[$code]);
+        foreach ($work as $code_key => $delivery_entry) {
+            $product_code = $this->valid_delivery_product_code($products, $code_key, $delivery_entry);
+            if (null === $product_code) {
+                unset($pending[$code_key]);
+                unset($deferred[$code_key]);
                 continue;
             }
-            $product_data = $products[$code];
+            $delivery_entry['product_code'] = $product_code;
+            $product_data = $products[$code_key];
             $record_hash = (string) $delivery_entry['record_hash'];
 
             $result['attempted']++;
             $resolved = Digitalogic_Product_Identifier_Resolver::instance()->resolve(array(
-                'code' => $code,
+                'code' => $product_code,
             ));
             if (is_wp_error($resolved)) {
                 $error_code = $resolved->get_error_code();
@@ -1293,15 +1311,15 @@ class Digitalogic_Product_Sync_Receiver {
                 $this->mark_delivery_failure($delivery_entry, $error_code);
                 if (null !== $deferred_reason) {
                     $delivery_entry['reason'] = $deferred_reason;
-                    $deferred[$code] = $delivery_entry;
-                    unset($pending[$code]);
+                    $deferred[$code_key] = $delivery_entry;
+                    unset($pending[$code_key]);
                 } else {
                     unset($delivery_entry['reason']);
-                    $pending[$code] = $delivery_entry;
-                    unset($deferred[$code]);
+                    $pending[$code_key] = $delivery_entry;
+                    unset($deferred[$code_key]);
                 }
                 $this->append_woo_error($result, array(
-                    'product_code' => $code,
+                    'product_code' => $product_code,
                     'code' => $error_code,
                     'retryable' => null === $deferred_reason,
                 ));
@@ -1309,26 +1327,27 @@ class Digitalogic_Product_Sync_Receiver {
             }
 
             $woocommerce_id = (int) $resolved['woocommerce_id'];
-            $applied_entry = is_array($applied[$code] ?? null) ? $applied[$code] : array();
+            $applied_entry = is_array($applied[$code_key] ?? null) ? $applied[$code_key] : array();
             if (
                 isset($applied_entry['record_hash'], $applied_entry['woocommerce_id'])
                 && hash_equals((string) $applied_entry['record_hash'], $record_hash)
                 && (string) $applied_entry['woocommerce_id'] === (string) $woocommerce_id
             ) {
-                unset($pending[$code]);
-                unset($deferred[$code]);
+                unset($pending[$code_key]);
+                unset($deferred[$code_key]);
                 $result['already_applied']++;
                 continue;
             }
 
             $persisted_hash = (string) get_post_meta($woocommerce_id, '_digitalogic_patris_record_hash', true);
             if ('' !== $persisted_hash && hash_equals($record_hash, $persisted_hash)) {
-                $applied[$code] = array(
+                $applied[$code_key] = array(
+                    'product_code' => $product_code,
                     'record_hash' => $record_hash,
                     'woocommerce_id' => (string) $woocommerce_id,
                 );
-                unset($pending[$code]);
-                unset($deferred[$code]);
+                unset($pending[$code_key]);
+                unset($deferred[$code_key]);
                 $result['already_applied']++;
                 continue;
             }
@@ -1338,10 +1357,10 @@ class Digitalogic_Product_Sync_Receiver {
                 $result['failed']++;
                 $this->mark_delivery_failure($delivery_entry, 'digitalogic_product_sync_woocommerce_product_unavailable');
                 unset($delivery_entry['reason']);
-                $pending[$code] = $delivery_entry;
-                unset($deferred[$code]);
+                $pending[$code_key] = $delivery_entry;
+                unset($deferred[$code_key]);
                 $this->append_woo_error($result, array(
-                    'product_code' => $code,
+                    'product_code' => $product_code,
                     'code' => 'digitalogic_product_sync_woocommerce_product_unavailable',
                     'retryable' => true,
                 ));
@@ -1354,21 +1373,22 @@ class Digitalogic_Product_Sync_Receiver {
                 if ('' === $persisted_hash || !hash_equals($record_hash, $persisted_hash)) {
                     throw new RuntimeException('WooCommerce record hash readback failed.');
                 }
-                $applied[$code] = array(
+                $applied[$code_key] = array(
+                    'product_code' => $product_code,
                     'record_hash' => $record_hash,
                     'woocommerce_id' => (string) $woocommerce_id,
                 );
-                unset($pending[$code]);
-                unset($deferred[$code]);
+                unset($pending[$code_key]);
+                unset($deferred[$code_key]);
                 $result['updated']++;
             } catch (Throwable $exception) {
                 $result['failed']++;
                 $this->mark_delivery_failure($delivery_entry, 'digitalogic_product_sync_woocommerce_write_failed');
                 unset($delivery_entry['reason']);
-                $pending[$code] = $delivery_entry;
-                unset($deferred[$code]);
+                $pending[$code_key] = $delivery_entry;
+                unset($deferred[$code_key]);
                 $this->append_woo_error($result, array(
-                    'product_code' => $code,
+                    'product_code' => $product_code,
                     'code' => 'digitalogic_product_sync_woocommerce_write_failed',
                     'retryable' => true,
                 ));
@@ -1387,18 +1407,57 @@ class Digitalogic_Product_Sync_Receiver {
         return $result;
     }
 
-    private function valid_delivery_entry($products, $code, $entry) {
-        return isset($products[$code])
-            && is_array($entry)
-            && isset($entry['record_hash'])
-            && hash_equals((string) $products[$code]['record_hash'], (string) $entry['record_hash']);
+    private function valid_delivery_product_code($products, $code_key, $entry) {
+        $product_code = $this->delivery_product_code($products, $code_key, $entry);
+        if (
+            null === $product_code
+            || !is_array($entry)
+            || !isset($entry['record_hash'])
+            || !hash_equals((string) $products[$code_key]['record_hash'], (string) $entry['record_hash'])
+        ) {
+            return null;
+        }
+
+        return $product_code;
+    }
+
+    /**
+     * Restore a validated canonical Code from durable product data.
+     *
+     * Numeric-string PHP array keys are integers after insertion and after
+     * WordPress option serialization. The product value remains string-typed,
+     * so it is the authoritative resolver and response boundary value.
+     *
+     * @return string|null
+     */
+    private function delivery_product_code($products, $code_key, $entry = null) {
+        if (!array_key_exists($code_key, $products) || !is_array($products[$code_key])) {
+            return null;
+        }
+        $product_code = $products[$code_key]['product_code'] ?? null;
+        if (!is_string($product_code) || (string) $code_key !== $product_code) {
+            return null;
+        }
+        if (
+            is_array($entry)
+            && array_key_exists('product_code', $entry)
+            && (!is_string($entry['product_code']) || $entry['product_code'] !== $product_code)
+        ) {
+            return null;
+        }
+
+        return $product_code;
     }
 
     private function prune_delivery_set($products, $delivery_set) {
-        foreach ($delivery_set as $code => $entry) {
-            if (!$this->valid_delivery_entry($products, $code, $entry)) {
-                unset($delivery_set[$code]);
+        foreach ($delivery_set as $code_key => $entry) {
+            $product_code = $this->valid_delivery_product_code($products, $code_key, $entry);
+            if (null === $product_code) {
+                unset($delivery_set[$code_key]);
+                continue;
             }
+            $entry['product_code'] = $product_code;
+            $delivery_set[$code_key] = $entry;
         }
 
         return $delivery_set;
@@ -1492,6 +1551,9 @@ class Digitalogic_Product_Sync_Receiver {
             'details_truncated' => 0,
         );
         foreach ($deferred as $code => $entry) {
+            $product_code = is_array($entry) && is_string($entry['product_code'] ?? null)
+                ? $entry['product_code']
+                : (string) $code;
             $reason = is_array($entry) ? (string) ($entry['reason'] ?? '') : '';
             if ('ambiguous' === $reason) {
                 $summary['ambiguous']++;
@@ -1501,7 +1563,7 @@ class Digitalogic_Product_Sync_Receiver {
             }
             if (count($summary['details']) < self::MAX_RESULT_ERRORS) {
                 $summary['details'][] = array(
-                    'product_code' => (string) $code,
+                    'product_code' => $product_code,
                     'reason' => $reason,
                     'code' => is_array($entry) ? (string) ($entry['last_error'] ?? '') : '',
                 );
@@ -1861,8 +1923,8 @@ class Digitalogic_Product_Sync_Receiver {
 
     private function source_revision($products, $quarantined_codes) {
         $material = array();
-        foreach ($products as $code => $product) {
-            $material[] = $code . '=' . $product['record_hash'];
+        foreach ($products as $product) {
+            $material[] = $product['product_code'] . '=' . $product['record_hash'];
         }
         sort($material, SORT_STRING);
         foreach ($quarantined_codes as $code) {
