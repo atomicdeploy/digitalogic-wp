@@ -121,6 +121,110 @@ final class ProductSyncReceiverTest extends TestCase {
         $this->assertSame(array(701), $GLOBALS['digitalogic_test_wc_product_saves']);
     }
 
+    // phpcs:disable -- Match the established PHPUnit fixture style in this baseline-managed test file.
+    public function test_numeric_only_code_stays_string_typed_through_first_delivery_and_persisted_retry(): void {
+        $product = $this->productWithCode(0, '113001001');
+        $code = $product['product_code'];
+        $GLOBALS['digitalogic_test_posts'][704] = array(
+            'post_type' => 'product',
+            'post_status' => 'publish',
+            'meta' => array('_sku' => $code),
+        );
+        $GLOBALS['digitalogic_test_wc_save_failures'] = array(704);
+        $event = $this->envelope('snapshot', array($product), array($product), '2026-07-16T10:00:30Z');
+
+        $first = Digitalogic_Product_Sync_Receiver::instance()->receive($event);
+
+        $this->assertSame('partially_applied', $first['status']);
+        $this->assertSame(1, $first['pending_products']);
+        $this->assertSame(0, $first['deferred_products']);
+        $this->assertSame('digitalogic_product_sync_woocommerce_write_failed', $first['woocommerce']['errors'][0]['code']);
+        $this->assertSame($code, $first['woocommerce']['errors'][0]['product_code']);
+        $this->assertIsString($first['woocommerce']['errors'][0]['product_code']);
+
+        $state = get_option(Digitalogic_Product_Sync_Receiver::STATE_OPTION, array());
+        $source_key = array_key_first($state['sources']);
+        $this->assertSame(3, $state['version']);
+        $this->assertSame($code, $state['sources'][$source_key]['products'][$code]['product_code']);
+        $this->assertIsString($state['sources'][$source_key]['products'][$code]['product_code']);
+        $this->assertSame($code, $state['sources'][$source_key]['pending_products'][$code]['product_code']);
+        $this->assertIsString($state['sources'][$source_key]['pending_products'][$code]['product_code']);
+
+        // Reproduce the pre-fix v3 shape already persisted by the live canary:
+        // the numeric map key is an integer and the entry has no redundant code.
+        unset($state['sources'][$source_key]['pending_products'][$code]['product_code']);
+        update_option(Digitalogic_Product_Sync_Receiver::STATE_OPTION, $state, false);
+        $GLOBALS['digitalogic_test_wc_save_failures'] = array();
+
+        $retry = Digitalogic_Product_Sync_Receiver::instance()->receive($event);
+        $persisted = get_option(Digitalogic_Product_Sync_Receiver::STATE_OPTION, array());
+
+        $this->assertSame('recovered', $retry['status']);
+        $this->assertFalse($retry['retryable']);
+        $this->assertSame(1, $retry['woocommerce']['updated']);
+        $this->assertSame(array(704), $GLOBALS['digitalogic_test_wc_product_saves']);
+        $this->assertSame($code, $persisted['sources'][$source_key]['applied_products'][$code]['product_code']);
+        $this->assertIsString($persisted['sources'][$source_key]['applied_products'][$code]['product_code']);
+    }
+
+    public function test_numeric_only_deferred_code_reconciles_from_legacy_v3_state_by_exact_sku(): void {
+        $product = $this->productWithCode(0, '113003030');
+        $code = $product['product_code'];
+        $event = $this->envelope('snapshot', array($product), array($product), '2026-07-16T10:00:45Z');
+
+        $first = Digitalogic_Product_Sync_Receiver::instance()->receive($event);
+
+        $this->assertSame('accepted', $first['status']);
+        $this->assertFalse($first['retryable']);
+        $this->assertSame(0, $first['pending_products']);
+        $this->assertSame(1, $first['deferred_products']);
+        $this->assertSame($code, $first['woocommerce']['errors'][0]['product_code']);
+        $this->assertIsString($first['woocommerce']['errors'][0]['product_code']);
+        $this->assertSame($code, $first['deferred_reconciliation']['details'][0]['product_code']);
+        $this->assertIsString($first['deferred_reconciliation']['details'][0]['product_code']);
+
+        $state = get_option(Digitalogic_Product_Sync_Receiver::STATE_OPTION, array());
+        $source_key = array_key_first($state['sources']);
+        $this->assertSame($code, $state['sources'][$source_key]['deferred_products'][$code]['product_code']);
+        unset($state['sources'][$source_key]['deferred_products'][$code]['product_code']);
+        update_option(Digitalogic_Product_Sync_Receiver::STATE_OPTION, $state, false);
+        $GLOBALS['digitalogic_test_posts'][705] = array(
+            'post_type' => 'product',
+            'post_status' => 'publish',
+            'meta' => array('_sku' => $code),
+        );
+
+        $reconciled = Digitalogic_Product_Sync_Receiver::instance()->reconcile('receiver-tests', 'kala.db');
+        $persisted = get_option(Digitalogic_Product_Sync_Receiver::STATE_OPTION, array());
+
+        $this->assertSame('reconciled', $reconciled['status']);
+        $this->assertSame(1, $reconciled['sources'][0]['woocommerce']['updated']);
+        $this->assertSame(0, $reconciled['pending_products']);
+        $this->assertSame(0, $reconciled['deferred_products']);
+        $this->assertSame(array(705), $GLOBALS['digitalogic_test_wc_product_saves']);
+        $this->assertSame($code, $persisted['sources'][$source_key]['applied_products'][$code]['product_code']);
+        $this->assertIsString($persisted['sources'][$source_key]['applied_products'][$code]['product_code']);
+    }
+
+    public function test_numeric_only_code_overlap_error_projects_the_canonical_string(): void {
+        $product = $this->productWithCode(0, '113001001');
+        $event = $this->envelope(
+            'snapshot',
+            array($product),
+            array($product),
+            '2026-07-16T10:00:50Z',
+            array(),
+            array($product['product_code'])
+        );
+
+        $result = Digitalogic_Product_Sync_Receiver::instance()->receive($event);
+
+        $this->assertSame('digitalogic_product_sync_code_overlap', $result->get_error_code());
+        $this->assertSame($product['product_code'], $result->get_error_data()['product_code']);
+        $this->assertIsString($result->get_error_data()['product_code']);
+    }
+    // phpcs:enable
+
     public function test_throwing_domain_listener_does_not_turn_committed_event_into_failure(): void {
         $product = $this->product(0);
         $GLOBALS['digitalogic_test_posts'][702] = array(
