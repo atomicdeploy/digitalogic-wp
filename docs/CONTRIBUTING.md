@@ -13,7 +13,7 @@ Thank you for your interest in contributing to the Digitalogic WordPress plugin!
 
 ### Prerequisites
 
-- PHP 8.2 or higher
+- PHP 8.3 or higher
 - Composer
 - WordPress development environment
 - WooCommerce plugin

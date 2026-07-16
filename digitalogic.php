@@ -9,7 +9,7 @@
  * Text Domain: digitalogic
  * Domain Path: /languages
  * Requires at least: 6.0
- * Requires PHP: 8.2
+ * Requires PHP: 8.3
  * WC requires at least: 7.0
  * WC tested up to: 8.5
  * License: GPL v2 or later
@@ -23,7 +23,7 @@ if (!defined('ABSPATH')) {
 
 // Define plugin constants
 define('DIGITALOGIC_VERSION', '1.2.0');
-define('DIGITALOGIC_MIN_PHP_VERSION', '8.2');
+define('DIGITALOGIC_MIN_PHP_VERSION', '8.3');
 define('DIGITALOGIC_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('DIGITALOGIC_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('DIGITALOGIC_PLUGIN_BASENAME', plugin_basename(__FILE__));

@@ -1,5 +1,6 @@
 <?php
 
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 final class RestApiPermissionsTest extends TestCase {
@@ -25,7 +26,6 @@ final class RestApiPermissionsTest extends TestCase {
         remove_all_filters('woocommerce_rest_is_request_to_rest_api');
 
         $instance = new ReflectionProperty(Digitalogic_REST_API::class, 'instance');
-        $instance->setAccessible(true);
         $instance->setValue(null, null);
         $this->api = Digitalogic_REST_API::instance();
     }
@@ -43,9 +43,7 @@ final class RestApiPermissionsTest extends TestCase {
         $this->assertSame(0, $GLOBALS['digitalogic_test_current_user_can_calls']);
     }
 
-    /**
-     * @dataProvider rolePolicyProvider
-     */
+    #[DataProvider('rolePolicyProvider')]
     public function test_role_capability_policy($role, $capabilities, $expected) {
         $GLOBALS['digitalogic_test_capabilities'] = $capabilities;
         $request = new WP_REST_Request();
@@ -64,9 +62,7 @@ final class RestApiPermissionsTest extends TestCase {
         );
     }
 
-    /**
-     * @dataProvider restRequestProvider
-     */
+    #[DataProvider('restRequestProvider')]
     public function test_woocommerce_authentication_recognizes_only_digitalogic_routes($request_uri, $already_recognized, $expected) {
         $_SERVER['REQUEST_URI'] = $request_uri;
 

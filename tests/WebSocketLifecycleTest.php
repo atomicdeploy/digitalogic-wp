@@ -424,19 +424,16 @@ final class WebSocketLifecycleTest extends TestCase {
 
     private function invoke_private($object, $method, array $arguments = array()) {
         $reflection = new ReflectionMethod($object, $method);
-        $reflection->setAccessible(true);
         return $reflection->invokeArgs($object, $arguments);
     }
 
     private function read_private($object, $property) {
         $reflection = new ReflectionProperty($object, $property);
-        $reflection->setAccessible(true);
         return $reflection->getValue($object);
     }
 
     private function write_private($object, $property, $value): void {
         $reflection = new ReflectionProperty($object, $property);
-        $reflection->setAccessible(true);
         $reflection->setValue($object, $value);
     }
 

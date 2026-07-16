@@ -68,7 +68,7 @@
 
 ## Requirements
 
-- PHP 8.0 or higher
+- PHP 8.3 or higher
 - WordPress 6.0 or higher
 - WooCommerce 7.0 or higher (8.2+ recommended for HPOS)
 - MySQL 5.7 or higher
