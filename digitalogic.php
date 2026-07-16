@@ -107,6 +107,7 @@ final class Digitalogic {
      */
     private function includes() {
         // Core includes
+        require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-number-formatter.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-options.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-logger.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-product-manager.php';
