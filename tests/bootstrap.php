@@ -8,6 +8,7 @@ define('ABSPATH', __DIR__ . '/');
 define('WP_CLI', true);
 define('ARRAY_A', 'ARRAY_A');
 
+// phpcs:disable Generic.Formatting.MultipleStatementAlignment -- Preserve the intentionally simple test-global registry.
 $GLOBALS['digitalogic_test_capabilities'] = array();
 $GLOBALS['digitalogic_test_filters'] = array();
 $GLOBALS['digitalogic_test_routes'] = array();
@@ -31,6 +32,9 @@ $GLOBALS['digitalogic_test_wc_products'] = array();
 $GLOBALS['digitalogic_test_wc_product_saves'] = array();
 $GLOBALS['digitalogic_test_wc_save_failures'] = array();
 $GLOBALS['digitalogic_test_wc_currency'] = 'IRT';
+$GLOBALS['digitalogic_test_transients'] = array(); // phpcs:ignore
+$GLOBALS['digitalogic_test_transient_deletes'] = array(); // phpcs:ignore
+// phpcs:enable Generic.Formatting.MultipleStatementAlignment
 
 class WP_Error {
     private $code;
@@ -61,6 +65,8 @@ class WP_REST_Request implements ArrayAccess {
     private $json;
     private $headers;
     private $body;
+    private $route = ''; // phpcs:ignore
+    private $method = ''; // phpcs:ignore
 
     public function __construct($params = array(), $json = array(), $headers = array(), $body = null) {
         $this->params = is_array($params) ? $params : array();
@@ -90,6 +96,26 @@ class WP_REST_Request implements ArrayAccess {
     public function get_body() {
         return $this->body;
     }
+
+// phpcs:disable -- Test-only REST request compatibility methods follow the legacy bootstrap style.
+    public function set_route($route) {
+        $this->route = (string) $route;
+        return $this;
+    }
+
+    public function get_route() {
+        return $this->route;
+    }
+
+    public function set_method($method) {
+        $this->method = strtoupper((string) $method);
+        return $this;
+    }
+
+    public function get_method() {
+        return $this->method;
+    }
+// phpcs:enable
 
     public function offsetExists($offset): bool {
         return array_key_exists($offset, $this->params);
@@ -312,6 +338,39 @@ function delete_option($name) {
     unset($GLOBALS['digitalogic_test_option_cache'][$name]);
     return true;
 }
+
+// phpcs:disable -- Test-only transient stubs follow the legacy bootstrap style.
+function get_transient($name) {
+    if (!isset($GLOBALS['digitalogic_test_transients'][$name])) {
+        return false;
+    }
+
+    $transient = $GLOBALS['digitalogic_test_transients'][$name];
+    if ($transient['expires'] > 0 && $transient['expires'] <= time()) {
+        unset($GLOBALS['digitalogic_test_transients'][$name]);
+        return false;
+    }
+
+    return $transient['value'];
+}
+
+function set_transient($name, $value, $expiration = 0) {
+    $GLOBALS['digitalogic_test_transients'][$name] = array(
+        'value' => $value,
+        'expires' => $expiration > 0 ? time() + (int) $expiration : 0,
+    );
+
+    return true;
+}
+
+function delete_transient($name) {
+    $GLOBALS['digitalogic_test_transient_deletes'][] = $name;
+    $exists = isset($GLOBALS['digitalogic_test_transients'][$name]);
+    unset($GLOBALS['digitalogic_test_transients'][$name]);
+
+    return $exists;
+}
+// phpcs:enable
 
 function wp_cache_delete($key, $group = '') {
     $GLOBALS['digitalogic_test_cache_deletes'][] = array($key, $group);
@@ -1084,6 +1143,7 @@ $GLOBALS['wpdb'] = new Digitalogic_Test_WPDB();
 
 require_once dirname(__DIR__) . '/includes/class-unit-converter.php';
 require_once dirname(__DIR__) . '/includes/class-product-identifier-resolver.php';
+require_once dirname(__DIR__) . '/includes/class-digitalogic-pricing-input-credential.php'; // phpcs:ignore
 require_once dirname(__DIR__) . '/includes/class-patris-feed.php';
 require_once dirname(__DIR__) . '/includes/class-product-sync-receiver.php';
 require_once dirname(__DIR__) . '/includes/class-import-freight-service.php';

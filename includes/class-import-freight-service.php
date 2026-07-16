@@ -206,19 +206,8 @@ final class Digitalogic_Import_Freight_Service {
         if (is_wp_error($migration)) {
             return $migration;
         }
-        $methods = $this->load_methods();
-        $result = array();
 
-        foreach ($methods as $method) {
-            if (!$include_disabled && empty($method['enabled'])) {
-                continue;
-            }
-
-            $method['assigned_products'] = $this->count_assignments($method['id']);
-            $result[] = $method;
-        }
-
-        return $result;
+        return $this->present_methods($this->load_methods(), $include_disabled);
     }
 
     /**
@@ -890,10 +879,6 @@ final class Digitalogic_Import_Freight_Service {
      * @return array
      */
     public function get_integration_catalog() {
-        $migration = $this->maybe_migrate();
-        if (is_wp_error($migration)) {
-            return $migration;
-        }
         $settings = get_option('digitalogic_patris_feed_settings', array());
         $settings = is_array($settings) ? $settings : array();
         $warehouses = isset($settings['selected_warehouses']) && is_array($settings['selected_warehouses'])
@@ -901,7 +886,7 @@ final class Digitalogic_Import_Freight_Service {
             : array();
         sort($warehouses, SORT_STRING);
 
-        $methods = $this->list_methods(true);
+        $methods = $this->load_catalog_methods_for_read();
         if (is_wp_error($methods)) {
             return $methods;
         }
@@ -1498,7 +1483,7 @@ final class Digitalogic_Import_Freight_Service {
 		return $markup;
 	}
 
-    private function count_assignments($method_id) {
+    private function count_assignments($method_id, $methods = null) {
         $ids = get_posts(array(
             'post_type' => array('product', 'product_variation'),
             'post_status' => 'any',
@@ -1509,7 +1494,7 @@ final class Digitalogic_Import_Freight_Service {
             'meta_value' => $method_id,
         ));
 
-        $methods = $this->load_methods();
+        $methods = is_array($methods) ? $methods : $this->load_methods();
         if (isset($methods[$method_id])) {
             $legacy_value = $this->field_value_for_method($methods[$method_id]);
             $legacy_ids = get_posts(array(
@@ -1640,6 +1625,55 @@ final class Digitalogic_Import_Freight_Service {
 
         return $valid;
     }
+
+    // phpcs:disable -- New read projection is isolated inside a legacy non-WPCS class.
+    /**
+     * Build the complete integration catalog projection without migrating.
+     *
+     * Activation and init own persistence. A cold read overlays the same
+     * canonical defaults in memory so the machine contract remains typed and
+     * useful without turning a GET request into a write path.
+     *
+     * @return array|WP_Error
+     */
+    private function load_catalog_methods_for_read() {
+        $methods = $this->load_methods();
+        $defaults = $this->legacy_seed_methods();
+
+        foreach ($defaults as $id => $method) {
+            if (is_wp_error($method)) {
+                return $method;
+            }
+            if (!isset($methods[$id])) {
+                $methods[$id] = $method;
+            }
+        }
+        ksort($methods, SORT_STRING);
+
+        return $this->present_methods($methods, true);
+    }
+
+    /**
+     * Add assignment counts to a method map without repeating projection code.
+     *
+     * @param array $methods Canonical method map.
+     * @param bool  $include_disabled Whether disabled methods are returned.
+     * @return array
+     */
+    private function present_methods($methods, $include_disabled) {
+        $result = array();
+        foreach ($methods as $method) {
+            if (!$include_disabled && empty($method['enabled'])) {
+                continue;
+            }
+
+            $method['assigned_products'] = $this->count_assignments($method['id'], $methods);
+            $result[] = $method;
+        }
+
+        return $result;
+    }
+    // phpcs:enable
 
     private function store_methods($methods) {
         ksort($methods, SORT_STRING);

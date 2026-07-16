@@ -114,6 +114,7 @@ final class Digitalogic {
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-import-export.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-unit-converter.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-product-identifier-resolver.php';
+        require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-pricing-input-credential.php'; // phpcs:ignore
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-patris-feed.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-product-sync-receiver.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-import-freight-service.php';

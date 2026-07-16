@@ -265,7 +265,7 @@ class Digitalogic_REST_API {
         register_rest_route('digitalogic/v1', '/integration/catalog', array(
             'methods' => 'GET',
             'callback' => array($this, 'get_integration_catalog'),
-            'permission_callback' => array($this, 'check_read_permission'),
+            'permission_callback' => array($this, 'check_pricing_input_permission'),
         ));
 
         register_rest_route('digitalogic/v1', '/pricing/default-markup', array(
@@ -331,7 +331,7 @@ class Digitalogic_REST_API {
 			array(
 				'methods'             => 'POST',
 				'callback'            => array( $this, 'get_product_import_pricing_batch' ),
-				'permission_callback' => array( $this, 'check_read_permission' ),
+				'permission_callback' => array( $this, 'check_pricing_input_permission' ),
 			)
 		);
 
@@ -388,6 +388,24 @@ class Digitalogic_REST_API {
     public function check_diagnostic_permission($request = null) {
         return $this->check_scoped_permission('diagnostic', $request);
     }
+
+	/**
+	 * Authorize the two exact Patris pricing-input contracts.
+	 *
+	 * Human administrators and shop managers retain their normal capability
+	 * access. The separate machine identity is verified by its route-aware,
+	 * header-only credential service and cannot fall through to other scopes.
+	 *
+	 * @param WP_REST_Request $request Current REST request.
+	 * @return true|WP_Error
+	 */
+	public function check_pricing_input_permission( WP_REST_Request $request ) {
+		if ( current_user_can( 'manage_woocommerce' ) ) { // phpcs:ignore WordPress.WP.Capabilities.Unknown
+			return true;
+		}
+
+		return Digitalogic_Pricing_Input_Credential::instance()->authorize( $request );
+	}
 
     /**
      * Resolve a REST permission scope.
