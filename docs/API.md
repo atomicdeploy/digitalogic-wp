@@ -161,6 +161,7 @@ WooCommerce checkout, shipping-zone, or customer delivery APIs.
 - **GET|PUT|DELETE** `/import-freight-methods/{id}` - read, update, or delete an unassigned method
 - **GET|PUT** `/products/by-code/{code}/import-pricing` - read or assign by exact Patris Code/SKU
 - **POST** `/products/import-pricing/batch` - preflight and apply an atomic assignment batch
+- **POST** `/pricing-assignments/batch` - read up to 500 exact assignments in a versioned, ordered, no-write response
 
 GET routes use the `read` permission scope. Mutating routes use `write`.
 Deleting an assigned method returns HTTP 409; disabling it remains available.

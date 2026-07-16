@@ -257,6 +257,7 @@ final class RestApiPermissionsTest extends TestCase {
             'DELETE /import-freight-methods/(?P<id>[a-z][a-z0-9_]{1,63})' => 'check_write_permission',
             'GET /products/by-code/(?P<code>[^/]+)/import-pricing' => 'check_read_permission',
             'PUT /products/by-code/(?P<code>[^/]+)/import-pricing' => 'check_write_permission',
+            'POST /pricing-assignments/batch' => 'check_read_permission',
             'POST /products/import-pricing/batch' => 'check_write_permission',
         );
 

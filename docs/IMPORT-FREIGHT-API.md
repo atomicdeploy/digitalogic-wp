@@ -41,6 +41,7 @@ keys may provide that identity.
 - `GET|POST /wp-json/digitalogic/v1/import-freight-methods`
 - `GET|PUT|DELETE /wp-json/digitalogic/v1/import-freight-methods/{id}`
 - `GET|PUT /wp-json/digitalogic/v1/products/by-code/{code}/import-pricing`
+- `POST /wp-json/digitalogic/v1/pricing-assignments/batch` (read only)
 - `POST /wp-json/digitalogic/v1/products/import-pricing/batch`
 
 Method IDs are immutable. An assigned method returns HTTP 409 when deleted; it
@@ -58,6 +59,72 @@ no write occurs. Identifiers remain strings, so a code such as `00123` is never
 coerced to an integer. Missing and same-source duplicate identifiers fail
 without a write; names are never used for automatic matching. Trash and
 auto-draft records are excluded.
+
+### Versioned batch assignment reads
+
+Patris and other read-only pricing clients should prefetch with
+`POST /wp-json/digitalogic/v1/pricing-assignments/batch`:
+
+```json
+{"codes":["113007045","113007046"]}
+```
+
+The operation accepts 1-500 unique non-empty Codes. Codes remain strings,
+retain trimmed request order, and are resolved by the same collision-safe
+service as the single-Code endpoint. Duplicate Codes reject the whole request;
+not-found or ambiguous products become typed per-Code results so unrelated
+Codes still resolve. The response is
+`digitalogic.pricing-assignment-batch` version `1.0.0`, includes the exact
+default-markup snapshot read once for the request, and emits effective
+percentage values as canonical base-10 strings. The method catalog is also
+loaded once. No product, price, assignment, option, event, or lock is written.
+
+```json
+{
+  "schema": "digitalogic.pricing-assignment-batch",
+  "schema_version": "1.0.0",
+  "requested_count": 2,
+  "resolved_count": 1,
+  "error_count": 1,
+  "maximum_codes": 500,
+  "default_percentage_markup": {"configured": true, "profit_percent": "30"},
+  "results": [
+    {
+      "code": "113007045",
+      "status": "ok",
+      "assignment": {
+        "code": "113007045",
+        "import_freight_method_id": "air_express",
+        "profit_percent": "30"
+      }
+    },
+    {
+      "code": "MISSING",
+      "status": "error",
+      "error": {
+        "code": "digitalogic_product_code_not_found",
+        "http_status": 404,
+        "retryable": false
+      }
+    }
+  ]
+}
+```
+
+This POST is a read operation and uses `check_read_permission`: either the
+authenticated identity has `manage_woocommerce`, or the
+`digitalogic_rest_api_permission` filter returns the boolean `true` for the
+`read` scope and this exact request. It deliberately does not accept the Patris
+push token or the transformed product-sync write secret. A dedicated
+header-only, route-scoped machine read credential remains a separate hardening
+follow-up; do not grant Patris a write secret to bridge that gap.
+
+The same service operation is exposed as the
+`digitalogic_get_product_import_pricing_batch` command and through WP-CLI:
+
+```bash
+wp digitalogic pricing assignments 113007045 113007046
+```
 
 Example assignment:
 
