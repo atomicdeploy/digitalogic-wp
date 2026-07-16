@@ -649,7 +649,13 @@ class Digitalogic_REST_API {
             'x-patris-event-id' => array($header_event_id, is_array($payload) ? ($payload['event_id'] ?? null) : null),
         );
         foreach ($header_checks as $header => $values) {
-            if ('' !== $values[0] && (!is_string($values[1]) || !hash_equals((string) $values[0], $values[1]))) {
+            $provided = $values[0];
+            $expected = $values[1];
+            if (null === $provided || '' === $provided) {
+                continue;
+            }
+
+            if (!is_string($provided) || !is_string($expected) || !hash_equals($provided, $expected)) {
                 return new WP_REST_Response(array(
                     'success' => false,
                     'code' => 'digitalogic_product_sync_header_mismatch',

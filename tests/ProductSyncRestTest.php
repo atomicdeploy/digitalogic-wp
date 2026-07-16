@@ -73,6 +73,45 @@ final class ProductSyncRestTest extends TestCase {
         $this->assertTrue($api->check_patris_product_sync_permission(new WP_REST_Request()));
     }
 
+    public function test_rest_callback_accepts_absent_optional_headers_returned_as_null(): void {
+        $payload = $this->emptySnapshot();
+        $request = new WP_REST_Request(
+            array(),
+            $payload,
+            array('X-Digitalogic-Product-Sync-Secret' => 'receiver-secret'),
+            json_encode($payload, JSON_UNESCAPED_SLASHES)
+        );
+
+        $this->assertNull($request->get_header('X-Patris-Contract'));
+        $this->assertNull($request->get_header('X-Patris-Contract-Version'));
+        $this->assertNull($request->get_header('X-Patris-Event-ID'));
+
+        $response = Digitalogic_REST_API::instance()->receive_patris_product_sync($request);
+        $this->assertSame(200, $response->get_status());
+        $this->assertTrue($response->get_data()['success']);
+        $this->assertSame('accepted', $response->get_data()['data']['status']);
+    }
+
+    public function test_rest_callback_accepts_explicitly_empty_optional_headers(): void {
+        $payload = $this->emptySnapshot();
+        $request = new WP_REST_Request(
+            array(),
+            $payload,
+            array(
+                'X-Digitalogic-Product-Sync-Secret' => 'receiver-secret',
+                'X-Patris-Contract' => '',
+                'X-Patris-Contract-Version' => '',
+                'X-Patris-Event-ID' => '',
+            ),
+            json_encode($payload, JSON_UNESCAPED_SLASHES)
+        );
+
+        $response = Digitalogic_REST_API::instance()->receive_patris_product_sync($request);
+        $this->assertSame(200, $response->get_status());
+        $this->assertTrue($response->get_data()['success']);
+        $this->assertSame('accepted', $response->get_data()['data']['status']);
+    }
+
     public function test_rest_callback_accepts_empty_snapshot_and_checks_headers(): void {
         $payload = $this->emptySnapshot();
         $body = json_encode($payload, JSON_UNESCAPED_SLASHES);
