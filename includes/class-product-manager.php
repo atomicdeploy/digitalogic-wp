@@ -398,9 +398,6 @@ class Digitalogic_Product_Manager {
             // Save product
             $product->save();
             
-            // Update product lookup tables
-            wc_update_product_lookup_tables($product_id);
-            
             // Log the change
             Digitalogic_Logger::instance()->log(
                 'update_product',

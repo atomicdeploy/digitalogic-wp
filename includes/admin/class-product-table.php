@@ -32,14 +32,30 @@ class Digitalogic_Product_Table {
      */
     public function regenerate_lookup_tables($product_ids = array()) {
         if (empty($product_ids)) {
-            // Update all products
+            // This is an explicit maintenance action. The WooCommerce helper
+            // rebuilds the entire catalog and does not accept a product ID.
             wc_update_product_lookup_tables();
-        } else {
-            // Update specific products
-            foreach ($product_ids as $product_id) {
-                wc_update_product_lookup_tables($product_id);
-            }
+
+            return true;
         }
+
+        $product_ids = array_values(array_unique(array_filter(array_map('absint', $product_ids))));
+        if (empty($product_ids)) {
+            return true;
+        }
+
+        $data_store = WC_Data_Store::load('product');
+        if (is_callable(array($data_store, 'refresh_product_lookup_table'))) {
+            foreach ($product_ids as $product_id) {
+                $data_store->refresh_product_lookup_table($product_id);
+            }
+
+            return true;
+        }
+
+        // WooCommerce versions before the per-product refresh API can only
+        // schedule a full lookup rebuild. Run it once, never once per ID.
+        wc_update_product_lookup_tables();
         
         return true;
     }
