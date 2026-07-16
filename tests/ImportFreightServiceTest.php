@@ -218,123 +218,165 @@ final class ImportFreightServiceTest extends TestCase {
         $this->assertSame($before, get_post_meta(301, '_digitalogic_import_freight_method_id', true));
     }
 
-    public function test_batch_assignment_read_is_ordered_typed_read_only_and_preloads_defaults_once() {
-        $GLOBALS['digitalogic_test_posts'][306] = array(
-            'post_type' => 'product',
-            'meta' => array(
-                '_sku' => 'SKU-306',
-                '_digitalogic_patris_product_code' => '113007045',
-                '_digitalogic_import_freight_method_id' => 'air_express',
-            ),
-        );
-        $this->service->migrate_legacy_data();
-        $this->service->update_default_percentage_markup('30');
+	/**
+	 * The batch response matches the shared golden contract and stays read-only.
+	 */
+	public function test_batch_assignment_read_is_ordered_typed_read_only_and_preloads_defaults_once() {
+		$GLOBALS['digitalogic_test_posts'][306] = array(
+			'post_type' => 'product',
+			'meta'      => array(
+				'_sku'                                  => 'SKU-306',
+				'_digitalogic_patris_product_code'      => '113007045',
+				'_digitalogic_import_freight_method_id' => 'air_express',
+			),
+		);
+		$this->service->migrate_legacy_data();
+		$this->service->update_default_percentage_markup( '30' );
 
-        $fixture = json_decode(
-            file_get_contents(__DIR__ . '/fixtures/pricing-assignment-batch-v1-golden.json'),
-            true,
-            512,
-            JSON_THROW_ON_ERROR
-        );
-        $options_before = $GLOBALS['digitalogic_test_options'];
-        $posts_before = $GLOBALS['digitalogic_test_posts'];
-        $actions_before = $GLOBALS['digitalogic_test_actions'];
-        $queries_before = $GLOBALS['wpdb']->queries;
-        $locks_before = $GLOBALS['wpdb']->acquire_count;
-        $default_reads_before = $GLOBALS['wpdb']->option_read_counts[Digitalogic_Import_Freight_Service::DEFAULT_MARKUP_OPTION] ?? 0;
-        $method_reads_before = $GLOBALS['wpdb']->option_read_counts[Digitalogic_Import_Freight_Service::METHODS_OPTION] ?? 0;
+		$fixture = json_decode(
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Test-only local fixture.
+			file_get_contents( __DIR__ . '/fixtures/pricing-assignment-batch-v1-golden.json' ),
+			true,
+			512,
+			JSON_THROW_ON_ERROR
+		);
+		$options_before       = $GLOBALS['digitalogic_test_options'];
+		$posts_before         = $GLOBALS['digitalogic_test_posts'];
+		$actions_before       = $GLOBALS['digitalogic_test_actions'];
+		$queries_before       = $GLOBALS['wpdb']->queries;
+		$locks_before         = $GLOBALS['wpdb']->acquire_count;
+		$default_reads_before = $GLOBALS['wpdb']->option_read_counts[ Digitalogic_Import_Freight_Service::DEFAULT_MARKUP_OPTION ] ?? 0;
 
-        $result = $this->service->get_product_assignments_by_codes(array('113007045', 'MISSING'));
+		$result = $this->service->get_product_assignments_by_codes( array( '113007045', 'MISSING' ) );
 
-        $this->assertSame($fixture['schema'], $result['schema']);
-        $this->assertSame($fixture['schema_version'], $result['schema_version']);
-        $this->assertSame(array('113007045', 'MISSING'), array_column($result['results'], 'code'));
-        $this->assertSame(array('ok', 'error'), array_column($result['results'], 'status'));
-        $this->assertSame('air_express', $result['results'][0]['assignment']['import_freight_method_id']);
-        $this->assertSame('30', $result['results'][0]['assignment']['profit_percent']);
-        $this->assertSame($fixture['results'][1]['error'], $result['results'][1]['error']);
-        $this->assertSame('30', $result['default_percentage_markup']['profit_percent']);
-        $this->assertSame($default_reads_before + 1, $GLOBALS['wpdb']->option_read_counts[Digitalogic_Import_Freight_Service::DEFAULT_MARKUP_OPTION]);
-        $this->assertSame($method_reads_before + 1, $GLOBALS['wpdb']->option_read_counts[Digitalogic_Import_Freight_Service::METHODS_OPTION]);
-        $this->assertSame($options_before, $GLOBALS['digitalogic_test_options']);
-        $this->assertSame($posts_before, $GLOBALS['digitalogic_test_posts']);
-        $this->assertSame($actions_before, $GLOBALS['digitalogic_test_actions']);
-        $this->assertSame($queries_before, $GLOBALS['wpdb']->queries);
-        $this->assertSame($locks_before, $GLOBALS['wpdb']->acquire_count);
-    }
+		$this->assertSame( $fixture, $result );
+		$this->assertSame(
+			$default_reads_before + 1,
+			$GLOBALS['wpdb']->option_read_counts[ Digitalogic_Import_Freight_Service::DEFAULT_MARKUP_OPTION ]
+		);
+		$this->assertSame( $options_before, $GLOBALS['digitalogic_test_options'] );
+		$this->assertSame( $posts_before, $GLOBALS['digitalogic_test_posts'] );
+		$this->assertSame( $actions_before, $GLOBALS['digitalogic_test_actions'] );
+		$this->assertSame( $queries_before, $GLOBALS['wpdb']->queries );
+		$this->assertSame( $locks_before, $GLOBALS['wpdb']->acquire_count );
+	}
 
-    public function test_batch_assignment_read_preserves_exact_markup_and_collision_errors() {
-        $GLOBALS['digitalogic_test_posts'] = array(
-            307 => array(
-                'post_type' => 'product',
-                'meta' => array(
-                    '_digitalogic_patris_product_code' => 'EXACT-MARKUP',
-                    '_digitalogic_import_freight_method_id' => 'air_freight',
-                    '_digitalogic_markup_type' => 'percentage',
-                    '_digitalogic_markup' => '12.500000000001',
-                ),
-            ),
-            308 => array(
-                'post_type' => 'product',
-                'meta' => array('_digitalogic_patris_product_code' => 'COLLISION'),
-            ),
-            309 => array(
-                'post_type' => 'product_variation',
-                'meta' => array('_sku' => 'COLLISION'),
-            ),
-        );
-        $this->service->migrate_legacy_data();
+	/**
+	 * A cold read cannot invoke migration or mutate canonical storage.
+	 */
+	public function test_batch_assignment_read_is_write_free_before_migration() {
+		$GLOBALS['digitalogic_test_posts'][311] = array(
+			'post_type' => 'product',
+			'meta'      => array(
+				'_digitalogic_patris_product_code'      => 'COLD-READ',
+				'_digitalogic_import_freight_method_id' => 'air_express',
+			),
+		);
+		$this->assertArrayNotHasKey( Digitalogic_Import_Freight_Service::MIGRATION_OPTION, $GLOBALS['digitalogic_test_options'] );
+		$before = array(
+			'options' => $GLOBALS['digitalogic_test_options'],
+			'posts'   => $GLOBALS['digitalogic_test_posts'],
+			'actions' => $GLOBALS['digitalogic_test_actions'],
+			'queries' => $GLOBALS['wpdb']->queries,
+			'locks'   => $GLOBALS['wpdb']->acquire_count,
+		);
 
-        $result = $this->service->get_product_assignments_by_codes(array('EXACT-MARKUP', 'COLLISION'));
+		$result = $this->service->get_product_assignments_by_codes( array( 'COLD-READ' ) );
 
-        $this->assertSame('12.500000000001', $result['results'][0]['assignment']['profit_percent']);
-        $this->assertSame('12.500000000001', $result['results'][0]['assignment']['markup']['value']);
-        $this->assertSame('digitalogic_product_code_ambiguous', $result['results'][1]['error']['code']);
-        $this->assertSame(409, $result['results'][1]['error']['http_status']);
-        $this->assertFalse($result['results'][1]['error']['retryable']);
-        $this->assertArrayNotHasKey('assignment', $result['results'][1]);
-    }
+		$this->assertSame( 'ok', $result['results'][0]['status'] );
+		$this->assertSame( 'air_express', $result['results'][0]['assignment']['import_freight_method_id'] );
+		$this->assertArrayNotHasKey( Digitalogic_Import_Freight_Service::METHODS_OPTION, $GLOBALS['digitalogic_test_options'] );
+		$this->assertSame( $before['options'], $GLOBALS['digitalogic_test_options'] );
+		$this->assertSame( $before['posts'], $GLOBALS['digitalogic_test_posts'] );
+		$this->assertSame( $before['actions'], $GLOBALS['digitalogic_test_actions'] );
+		$this->assertSame( $before['queries'], $GLOBALS['wpdb']->queries );
+		$this->assertSame( $before['locks'], $GLOBALS['wpdb']->acquire_count );
+	}
 
-    public function test_batch_assignment_read_rejects_invalid_duplicate_and_oversize_requests() {
-        $empty = $this->service->get_product_assignments_by_codes(array());
-        $invalid = $this->service->get_product_assignments_by_codes(array('VALID', array('not-a-code')));
-        $duplicate = $this->service->get_product_assignments_by_codes(array(' 00123 ', '00123'));
-        $oversize = $this->service->get_product_assignments_by_codes(
-            array_fill(0, Digitalogic_Import_Freight_Service::MAX_PRICING_ASSIGNMENT_BATCH_SIZE + 1, 'X')
-        );
+	/**
+	 * Exact decimal overrides and collision errors survive the projection.
+	 */
+	public function test_batch_assignment_read_preserves_exact_markup_and_collision_errors() {
+		$GLOBALS['digitalogic_test_posts'] = array(
+			307 => array(
+				'post_type' => 'product',
+				'meta'      => array(
+					'_digitalogic_patris_product_code' => 'EXACT-MARKUP',
+					'_digitalogic_import_freight_method_id' => 'air_freight',
+					'_digitalogic_markup_type'         => 'percentage',
+					'_digitalogic_markup'              => '12.500000000001',
+				),
+			),
+			308 => array(
+				'post_type' => 'product',
+				'meta'      => array( '_digitalogic_patris_product_code' => 'COLLISION' ),
+			),
+			309 => array(
+				'post_type' => 'product_variation',
+				'meta'      => array( '_sku' => 'COLLISION' ),
+			),
+		);
+		$this->service->migrate_legacy_data();
 
-        $this->assertSame('digitalogic_pricing_assignment_batch_empty', $empty->get_error_code());
-        $this->assertSame('digitalogic_pricing_assignment_batch_code_invalid', $invalid->get_error_code());
-        $this->assertSame('digitalogic_pricing_assignment_batch_code_duplicate', $duplicate->get_error_code());
-        $this->assertSame('digitalogic_pricing_assignment_batch_too_large', $oversize->get_error_code());
-        $this->assertSame(500, $oversize->get_error_data()['maximum_codes']);
-    }
+		$result = $this->service->get_product_assignments_by_codes( array( 'EXACT-MARKUP', 'COLLISION' ) );
 
-    public function test_batch_assignment_rest_command_and_service_share_one_contract() {
-        $GLOBALS['digitalogic_test_posts'][310] = array(
-            'post_type' => 'product',
-            'meta' => array(
-                '_sku' => 'COMMAND-310',
-                '_digitalogic_import_freight_method_id' => 'sea_freight',
-            ),
-        );
-        $this->service->migrate_legacy_data();
-        $payload = array('codes' => array('COMMAND-310'));
-        $service = $this->service->get_product_assignments_by_codes($payload['codes']);
-        $command = Digitalogic_Command_Dispatcher::instance()->get_product_import_pricing_batch($payload);
-        $GLOBALS['digitalogic_test_capabilities']['manage_woocommerce'] = true;
-        $transport_command = Digitalogic_Command_Dispatcher::instance()->execute(
-            'digitalogic_get_product_import_pricing_batch',
-            $payload,
-            'websocket'
-        );
-        $rest = Digitalogic_REST_API::instance()->get_product_import_pricing_batch(new WP_REST_Request(array(), $payload));
+		$this->assertSame( '12.500000000001', $result['results'][0]['assignment']['profit_percent'] );
+		$this->assertSame( 'product_override', $result['results'][0]['assignment']['profit_percent_source'] );
+		$this->assertArrayNotHasKey( 'markup', $result['results'][0]['assignment'] );
+		$this->assertSame( 'digitalogic_product_code_ambiguous', $result['results'][1]['error']['code'] );
+		$this->assertSame( 409, $result['results'][1]['error']['http_status'] );
+		$this->assertFalse( $result['results'][1]['error']['retryable'] );
+		$this->assertArrayNotHasKey( 'assignment', $result['results'][1] );
+	}
 
-        $this->assertSame($service, $command);
-        $this->assertSame($service, $transport_command);
-        $this->assertSame(200, $rest->get_status());
-        $this->assertSame($service, $rest->get_data()['data']);
-    }
+	/**
+	 * Whole-request validation rejects invalid batch envelopes.
+	 */
+	public function test_batch_assignment_read_rejects_invalid_duplicate_and_oversize_requests() {
+		$empty     = $this->service->get_product_assignments_by_codes( array() );
+		$invalid   = $this->service->get_product_assignments_by_codes( array( 'VALID', array( 'not-a-code' ) ) );
+		$duplicate = $this->service->get_product_assignments_by_codes( array( ' 00123 ', '00123' ) );
+		$oversize  = $this->service->get_product_assignments_by_codes(
+			array_fill( 0, Digitalogic_Import_Freight_Service::MAX_PRICING_ASSIGNMENT_BATCH_SIZE + 1, 'X' )
+		);
+
+		$this->assertSame( 'digitalogic_pricing_assignment_batch_empty', $empty->get_error_code() );
+		$this->assertSame( 'digitalogic_pricing_assignment_batch_code_invalid', $invalid->get_error_code() );
+		$this->assertSame( 'digitalogic_pricing_assignment_batch_code_duplicate', $duplicate->get_error_code() );
+		$this->assertSame( 'digitalogic_pricing_assignment_batch_too_large', $oversize->get_error_code() );
+		$this->assertSame( 500, $oversize->get_error_data()['maximum_codes'] );
+	}
+
+	/**
+	 * REST, dispatcher, and transport commands expose one service contract.
+	 */
+	public function test_batch_assignment_rest_command_and_service_share_one_contract() {
+		$GLOBALS['digitalogic_test_posts'][310] = array(
+			'post_type' => 'product',
+			'meta'      => array(
+				'_sku'                                  => 'COMMAND-310',
+				'_digitalogic_import_freight_method_id' => 'sea_freight',
+			),
+		);
+		$this->service->migrate_legacy_data();
+		$payload = array( 'codes' => array( 'COMMAND-310' ) );
+		$service = $this->service->get_product_assignments_by_codes( $payload['codes'] );
+		$command = Digitalogic_Command_Dispatcher::instance()->get_product_import_pricing_batch( $payload );
+		$GLOBALS['digitalogic_test_capabilities']['manage_woocommerce'] = true;
+		$transport_command = Digitalogic_Command_Dispatcher::instance()->execute(
+			'digitalogic_get_product_import_pricing_batch',
+			$payload,
+			'websocket'
+		);
+		$rest              = Digitalogic_REST_API::instance()->get_product_import_pricing_batch(
+			new WP_REST_Request( array(), $payload )
+		);
+
+		$this->assertSame( $service, $command );
+		$this->assertSame( $service, $transport_command );
+		$this->assertSame( 200, $rest->get_status() );
+		$this->assertSame( $service, $rest->get_data()['data'] );
+	}
 
     public function test_rest_and_dispatcher_share_identical_service_results_and_scoped_permissions() {
         $this->service->migrate_legacy_data();

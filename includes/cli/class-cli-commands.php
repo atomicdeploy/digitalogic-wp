@@ -560,39 +560,47 @@ class Digitalogic_CLI_Commands {
         WP_CLI::success('Panel broadcast queued.');
     }
 
-    /**
-     * Read exact import-pricing assignments for a bounded Code list.
-     *
-     * ## OPTIONS
-     *
-     * [<code>...]
-     * : One or more exact Patris Codes or SKU compatibility fallbacks.
-     *
-     * [--codes=<codes>]
-     * : Additional comma-separated Codes.
-     *
-     * ## EXAMPLES
-     *
-     *     wp digitalogic pricing assignments 113007045 113007046
-     *     wp digitalogic pricing assignments --codes=113007045,113007046
-     *
-     * @when after_wp_load
-     */
-    public function pricing_assignments($args, $assoc_args) {
-        $codes = array_values(array_map('strval', $args));
-        if (isset($assoc_args['codes'])) {
-            $codes = array_merge($codes, explode(',', (string) $assoc_args['codes']));
-        }
+	/**
+	 * Read exact import-pricing assignments for a bounded Code list.
+	 *
+	 * ## OPTIONS
+	 *
+	 * [<code>...]
+	 * : One or more exact Patris Codes or SKU compatibility fallbacks.
+	 *
+	 * [--codes=<codes>]
+	 * : Additional comma-separated Codes.
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     wp digitalogic pricing assignments 113007045 113007046
+	 *     wp digitalogic pricing assignments --codes=113007045,113007046
+	 *
+	 * @when after_wp_load
+	 *
+	 * @param array $args Positional Codes.
+	 * @param array $assoc_args Named command arguments.
+	 * @return void
+	 */
+	public function pricing_assignments( $args, $assoc_args ) {
+		$codes = array_values( array_map( 'strval', $args ) );
+		if ( isset( $assoc_args['codes'] ) ) {
+			$codes = array_merge( $codes, explode( ',', (string) $assoc_args['codes'] ) );
+		}
 
-        $result = Digitalogic_Command_Dispatcher::instance()->get_product_import_pricing_batch(array(
-            'codes' => $codes,
-        ));
-        if (is_wp_error($result)) {
-            WP_CLI::error($result->get_error_message());
-        }
+		$result = Digitalogic_Command_Dispatcher::instance()->get_product_import_pricing_batch(
+			array(
+				'codes' => $codes,
+			)
+		);
+		if ( is_wp_error( $result ) ) {
+			WP_CLI::error( $result->get_error_message() );
+		}
 
-        WP_CLI::line(wp_json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
-    }
+		WP_CLI::line(
+			wp_json_encode( $result, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES )
+		);
+	}
 }
 
 // Register commands
@@ -611,4 +619,7 @@ WP_CLI::add_command('digitalogic websocket serve', array('Digitalogic_CLI_Comman
 WP_CLI::add_command('digitalogic websocket token', array('Digitalogic_CLI_Commands', 'websocket_token'));
 WP_CLI::add_command('digitalogic panel token', array('Digitalogic_CLI_Commands', 'panel_token'));
 WP_CLI::add_command('digitalogic panel broadcast', array('Digitalogic_CLI_Commands', 'panel_broadcast'));
-WP_CLI::add_command('digitalogic pricing assignments', array('Digitalogic_CLI_Commands', 'pricing_assignments'));
+WP_CLI::add_command(
+	'digitalogic pricing assignments',
+	array( 'Digitalogic_CLI_Commands', 'pricing_assignments' )
+);

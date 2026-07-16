@@ -76,8 +76,12 @@ not-found or ambiguous products become typed per-Code results so unrelated
 Codes still resolve. The response is
 `digitalogic.pricing-assignment-batch` version `1.0.0`, includes the exact
 default-markup snapshot read once for the request, and emits effective
-percentage values as canonical base-10 strings. The method catalog is also
-loaded once. No product, price, assignment, option, event, or lock is written.
+percentage values as canonical base-10 strings. Each success is a deliberately
+minimal machine projection: requested Code, method ID, effective percentage,
+percentage source, and pricing warnings. No internal WooCommerce identity or
+localized error message is exposed. No product, price, assignment, option,
+event, or lock is written, and this read never invokes migration; activation or
+upgrade must complete migration separately.
 
 ```json
 {
@@ -95,7 +99,9 @@ loaded once. No product, price, assignment, option, event, or lock is written.
       "assignment": {
         "code": "113007045",
         "import_freight_method_id": "air_express",
-        "profit_percent": "30"
+        "profit_percent": "30",
+        "profit_percent_source": "global_default",
+        "pricing_warnings": []
       }
     },
     {
