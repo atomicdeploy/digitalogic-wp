@@ -11,6 +11,19 @@ if (!defined('ABSPATH')) {
 }
 
 class Digitalogic_Webhooks {
+
+    // phpcs:disable -- Preserve the established webhook formatting while the legacy file remains baseline-managed.
+    private const PRODUCT_SYNC_EVENT = 'patris.product_sync.applied';
+    private const PRODUCT_SYNC_SCHEMA = 'digitalogic.product-sync';
+    private const MAX_PRODUCT_SYNC_COUNT = 10000;
+    private const PRODUCT_SYNC_STATUSES = array(
+        'accepted',
+        'already_current',
+        'partially_applied',
+        'recovered',
+        'retry_pending',
+    );
+    // phpcs:enable
     
     private static $instance = null;
     
@@ -44,6 +57,9 @@ class Digitalogic_Webhooks {
         // Hook into currency updates
         add_action('update_option_dollar_price', array($this, 'currency_updated'), 10, 3);
         add_action('update_option_yuan_price', array($this, 'currency_updated'), 10, 3);
+
+        // Committed transformed Patris outcomes are optional observer events.
+        add_action('digitalogic_product_sync_v1_applied', array($this, 'product_sync_applied'), 10, 2);
 
         // Add settings page
         add_action('admin_init', array($this, 'register_settings'));
@@ -288,6 +304,113 @@ class Digitalogic_Webhooks {
         
         $this->trigger_webhook('currency.updated', $data);
     }
+
+    // phpcs:disable -- Preserve the established webhook formatting while the legacy file remains baseline-managed.
+    /**
+     * Publish a committed product-sync outcome through the shared observer.
+     *
+     * The receiver owns delivery truth. This listener deliberately ignores
+     * observer transport results so n8n remains optional and cannot change a
+     * committed receiver response.
+     */
+    public function product_sync_applied($result, $envelope) {
+        try {
+            $summary = $this->product_sync_summary($result, $envelope);
+            if (null === $summary) {
+                return true;
+            }
+
+            $this->trigger_webhook(self::PRODUCT_SYNC_EVENT, $summary);
+        } catch (Throwable) {
+            error_log('[Digitalogic webhooks] Product-sync observer delivery was unavailable.');
+        }
+
+        return true;
+    }
+
+    /**
+     * Project the receiver result onto the bounded public observer contract.
+     */
+    private function product_sync_summary($result, $envelope) {
+        if (!is_array($result) || !is_array($envelope)) {
+            return null;
+        }
+        if (self::PRODUCT_SYNC_SCHEMA !== ($envelope['schema'] ?? null)) {
+            return null;
+        }
+        $schema_version = $envelope['schema_version'] ?? null;
+        if (!is_string($schema_version) || !preg_match('/^1(?:\.[0-9]+){1,2}$/', $schema_version)) {
+            return null;
+        }
+        $event_id = $envelope['event_id'] ?? null;
+        if (!is_string($event_id) || !preg_match('/^sha256:[a-f0-9]{64}$/', $event_id)) {
+            return null;
+        }
+        $event_type = $envelope['event_type'] ?? null;
+        if (!in_array($event_type, array('snapshot', 'update'), true)) {
+            return null;
+        }
+        $status = $result['status'] ?? null;
+        if (!in_array($status, self::PRODUCT_SYNC_STATUSES, true)) {
+            return null;
+        }
+        $source = is_array($envelope['source'] ?? null) ? $envelope['source'] : array();
+        $source_id = $this->safe_product_sync_source($source['id'] ?? null);
+        $dataset = $this->safe_product_sync_source($source['dataset'] ?? null);
+        if (null === $source_id || null === $dataset) {
+            return null;
+        }
+
+        $pending = $this->bounded_product_sync_count($result['pending_products'] ?? null);
+        $deferred = $this->bounded_product_sync_count($result['deferred_products'] ?? null);
+        $retryable = true === ($result['retryable'] ?? false);
+        $partial = in_array($status, array('partially_applied', 'retry_pending'), true);
+        if (($partial && (!$retryable || 0 === $pending)) || (!$partial && ($retryable || 0 !== $pending))) {
+            return null;
+        }
+
+        $woocommerce = is_array($result['woocommerce'] ?? null) ? $result['woocommerce'] : array();
+        $woo_summary = array();
+        foreach (array('attempted', 'updated', 'already_applied', 'missing', 'ambiguous', 'failed', 'errors_truncated') as $field) {
+            $woo_summary[$field] = $this->bounded_product_sync_count($woocommerce[$field] ?? null);
+        }
+
+        return array(
+            'schema' => self::PRODUCT_SYNC_SCHEMA,
+            'schema_version' => $schema_version,
+            'event_id' => $event_id,
+            'event_type' => $event_type,
+            'source' => array(
+                'id' => $source_id,
+                'dataset' => $dataset,
+            ),
+            'status' => $status,
+            'retryable' => $retryable,
+            'pending_products' => $pending,
+            'deferred_products' => $deferred,
+            'woocommerce' => $woo_summary,
+        );
+    }
+
+    private function safe_product_sync_source($value) {
+        if (
+            !is_string($value)
+            || 1 !== preg_match('/\A[A-Za-z0-9][A-Za-z0-9._-]{0,190}\z/D', $value)
+        ) {
+            return null;
+        }
+
+        return $value;
+    }
+
+    private function bounded_product_sync_count($value) {
+        if (!is_int($value) || $value < 0) {
+            return 0;
+        }
+
+        return min($value, self::MAX_PRODUCT_SYNC_COUNT);
+    }
+    // phpcs:enable
 
     public function import_freight_method_created($method) {
         return $this->trigger_import_freight_method_webhook('import_freight.method.created', $method);

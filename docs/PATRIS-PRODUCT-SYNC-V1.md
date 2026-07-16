@@ -215,6 +215,36 @@ it does not print product payloads or credentials. Reconciliation processes
 only pending/deferred records, never already-applied writes, and preserves the
 stored source event ordering watermark.
 
+## Optional signed observer event
+
+After the receiver state and Woo delivery outbox are committed, the shared
+webhook service emits `patris.product_sync.applied` when at least one standard
+webhook destination is configured. The existing `X-Digitalogic-Signature` HMAC
+and fan-out are reused; there is no n8n-specific transport.
+
+The event's `data` object is an allowlisted projection containing only:
+
+- `schema`, `schema_version`, `event_id`, and `event_type`;
+- non-path `source.id` and `source.dataset`;
+- `status`, `retryable`, `pending_products`, and `deferred_products`; and
+- bounded Woo aggregate counts: `attempted`, `updated`, `already_applied`,
+  `missing`, `ambiguous`, `failed`, and `errors_truncated`.
+
+Products, names, raw fields, error details, request/response bodies, endpoint
+paths, headers, credentials, source revisions, and receiver state are never
+projected. Counts are bounded to the receiver's 10,000-product limit. A path-like
+source identifier fails closed and produces no observer event.
+
+Terminal replays do not emit the committed domain action, so they do not create
+duplicate observer events. A transient attempt may emit `partially_applied`,
+followed by `recovered` when the durable retry succeeds. Observer transport or
+listener failure is isolated from the already-committed receiver response.
+
+An n8n workflow may verify the existing signature and route this event to
+Telegram alerts or an audit copy. It must not treat the observer as a data
+source, acknowledge Patris delivery, or initiate receiver retries. With no
+webhook URL configured, product sync remains a complete standalone deployment.
+
 The synthetic cross-project fixture is 2,760 bytes with SHA-256
 `810bdf4d8fd5e3c2a87750a02f241363f6403736c899a625f615967fea259da5`.
 Its occurrence identity is

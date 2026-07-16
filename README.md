@@ -225,6 +225,12 @@ Webhook events:
 - `product.created` - New product added
 - `product.updated` - Product updated
 - `currency.updated` - Currency rates changed
+- `patris.product_sync.applied` - Safe committed Patris sync summary for optional observers
+
+The Patris observer event uses the same HMAC signature and destination fan-out.
+It contains bounded aggregate counts only. n8n can route it to alerts or audit
+copies, but direct Patris delivery remains authoritative and does not depend on
+a configured webhook destination.
 
 Verify webhook signatures:
 ```php
