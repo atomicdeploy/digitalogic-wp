@@ -628,7 +628,19 @@ class Digitalogic_Panel {
      */
     public function deliver_import_freight_event($hook, $args) {
         $args = is_array($args) ? $args : array();
-        if ('digitalogic_product_import_freight_method_updated' === $hook) {
+        if ('digitalogic_import_freight_default_markup_updated' === $hook) {
+            $event = 'import_freight.default_markup.updated';
+            $markup = isset($args[0]) && is_array($args[0]) ? $args[0] : array();
+            $data = array(
+                'configured' => !empty($markup['configured']),
+                'profit_percent' => isset($markup['profit_percent']) ? (string) $markup['profit_percent'] : null,
+                'source' => isset($markup['source']) ? sanitize_key($markup['source']) : '',
+                'revision' => isset($markup['revision']) ? sanitize_text_field($markup['revision']) : '',
+                'previous_revision' => isset($markup['previous_revision']) ? sanitize_text_field($markup['previous_revision']) : '',
+                'updated_at' => isset($markup['updated_at']) ? sanitize_text_field($markup['updated_at']) : '',
+                'updated_by' => isset($markup['updated_by']) ? absint($markup['updated_by']) : 0,
+            );
+        } elseif ('digitalogic_product_import_freight_method_updated' === $hook) {
             $event = 'import_freight.assignment.updated';
             $data = array(
                 'product_id' => absint(isset($args[0]) ? $args[0] : 0),

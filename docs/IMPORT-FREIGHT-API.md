@@ -37,6 +37,7 @@ integration permission (normally `manage_woocommerce`). WooCommerce REST API
 keys may provide that identity.
 
 - `GET /wp-json/digitalogic/v1/integration/catalog`
+- `GET|PUT /wp-json/digitalogic/v1/pricing/default-markup`
 - `GET|POST /wp-json/digitalogic/v1/import-freight-methods`
 - `GET|PUT|DELETE /wp-json/digitalogic/v1/import-freight-methods/{id}`
 - `GET|PUT /wp-json/digitalogic/v1/products/by-code/{code}/import-pricing`
@@ -48,13 +49,15 @@ readable. Disabled methods cannot be assigned to new products, while replaying
 the same disabled assignment is an allowed idempotent no-op. Custom IDs cannot
 use the legacy ACF values `express`, `aerial`, or `marine`.
 
-Product assignment uses the shared exact identifier resolver. Its deterministic
-precedence is an explicitly supplied WooCommerce product/variation ID, exact
-`_sku`, then exact `_digitalogic_patris_product_code`; the legacy `{code}` route
-uses exact SKU before exact Patris Code. Identifiers remain strings, so a code
-such as `00123` is never coerced to an integer. Missing and same-source duplicate
-identifiers fail without a write; names are never used for automatic matching.
-Trash and auto-draft records are excluded.
+Product assignment uses the shared exact identifier resolver. Explicit
+WooCommerce ID, SKU, and Patris Code inputs retain their named namespaces. The
+generic `{code}` route treats exact `_digitalogic_patris_product_code` as
+canonical and uses exact `_sku` only when no Patris Code exists; if the same
+text names distinct SKU and Patris Code targets, resolution is ambiguous and
+no write occurs. Identifiers remain strings, so a code such as `00123` is never
+coerced to an integer. Missing and same-source duplicate identifiers fail
+without a write; names are never used for automatic matching. Trash and
+auto-draft records are excluded.
 
 Example assignment:
 
@@ -108,6 +111,10 @@ channels run. A committed mutation remains successful, while no-op retries do
 not emit another event. An empty webhook destination list is an intentionally
 disabled, confirmed-success channel.
 
+The same delivery contract applies to `import_freight.default_markup.updated`.
+Updating or clearing the default changes only the canonical catalog option; it
+does not recalculate or write any WooCommerce product price.
+
 ## Catalog and formula
 
 The read-only integration catalog contains the CNY-to-local (currently IRT)
@@ -126,6 +133,45 @@ is retained as `source_effective_date` with format `ymd`.
   * cny_to_irt
 ```
 
+The reference values `24.5 CNY`, `240 g`, `120 CNY/kg`, `30%`, and
+`29,000 IRT/CNY` produce exactly `2,009,410 IRT` after one final half-up round.
+
+The catalog exposes the nullable default at
+`pricing.default_percentage_markup`:
+
+```json
+{
+  "schema": "digitalogic.default-percentage-markup",
+  "schema_version": "1.0.0",
+  "configured": true,
+  "type": "percentage",
+  "profit_percent": "30",
+  "source": "global_default",
+  "revision": "sha256:...",
+  "bounds": {
+    "minimum": "0",
+    "maximum": "1000",
+    "maximum_fraction_digits": 12
+  },
+  "warnings": []
+}
+```
+
+The stored percentage is a canonical base-10 string: no exponent or grouping
+notation, no redundant leading/trailing zeroes, and at most 12 fractional
+digits. JSON clients should send a string to preserve every decimal digit:
+
+```json
+{"profit_percent": "30.125"}
+```
+
+Use `{"profit_percent": null}` to clear it. The absence of the option is the
+only unset state; there is no hard-coded fallback. The workbook's current 30%
+is a proposed reviewed production action, not an automatic migration or seed.
+The setting revision covers its configured state and exact decimal. The parent
+integration-catalog revision includes the full setting metadata, so Patris can
+invalidate caches deterministically.
+
 The method schema reserves validated fields for minimum charge, actual versus
 volumetric billable weight, volumetric divisor, transit-day bounds, metadata,
 and tiered rates. Version 1 exposes these fields but does not silently apply a
@@ -138,12 +184,13 @@ WooCommerce product, Digitalogic converts that positive finite gram value with
 The original gram value remains available in Patris metadata for formula input.
 
 Feed ingestion uses the same shared generic Code/SKU resolver as freight
-assignment. A Patris-Code-only product can therefore be updated, while an exact
-SKU wins over a different product carrying the same Patris Code. Not-found rows
-are counted as `missing_in_woocommerce`; ambiguous or invalid identifiers are
-counted as failed with non-sensitive errors and never write a product. Every
-valid normalized upstream row is still retained in the feed snapshot for
-reporting and later reconciliation, including missing or ambiguous rows.
+assignment. A Patris-Code-only product can therefore be updated, SKU is a
+compatibility fallback only when that Code is absent, and cross-namespace
+collisions fail as ambiguous. Not-found rows are counted as
+`missing_in_woocommerce`; ambiguous or invalid identifiers are counted as
+failed with non-sensitive errors and never write a product. Every valid
+normalized upstream row is still retained in the feed snapshot for reporting
+and later reconciliation, including missing or ambiguous rows.
 
 Product assignment reads expose the markup mapping used by the formula:
 
@@ -153,18 +200,27 @@ Product assignment reads expose the markup mapping used by the formula:
     "type": "percentage",
     "value": 12.5,
     "profit_percent": 12.5,
+    "source": "product_override",
+    "default_revision": null,
     "warning": null
   },
   "profit_percent": 12.5,
+  "profit_percent_source": "product_override",
   "pricing_warnings": []
 }
 ```
 
-Only a numeric `percentage` markup maps to `profit_percent`. A `fixed`, missing,
-or unsupported markup returns `profit_percent: null` and a machine-readable
-warning; `landed_price_v1` never silently treats a fixed amount as a percent.
+Only a valid product `percentage` maps directly to `profit_percent`, with
+`source: product_override`. When both product markup fields are truly absent,
+the configured default is returned as an exact decimal string with
+`source: global_default` and its setting revision. A fixed, malformed,
+explicitly incomplete percentage, or unsupported product markup returns
+`profit_percent: null` and a machine-readable warning; these explicit product
+states never silently fall back or treat a fixed amount as a percent. If both
+the product and global default are absent, the existing `markup_missing`
+warning remains.
 
-Administrators can manage methods and assign products by exact Patris Code/SKU
+Administrators can manage the nullable default, methods, and assignments by exact Patris Code/SKU
 on the existing Patris Reports screen. This UI and all integration routes are
 for supplier import freight only and do not read or mutate WooCommerce customer
 delivery methods.

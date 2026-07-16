@@ -538,6 +538,24 @@ class Digitalogic_Admin {
                     }
                     break;
 
+                case 'update_default_markup':
+                    $result = $freight_service->update_default_percentage_markup(
+                        $posted_value('default_profit_percent')
+                    );
+                    $notice = is_wp_error($result)
+                        ? $result->get_error_message()
+                        : __('The global default percentage markup was saved. WooCommerce prices were not changed.', 'digitalogic');
+                    $notice_type = is_wp_error($result) ? 'error' : 'success';
+                    break;
+
+                case 'clear_default_markup':
+                    $result = $freight_service->update_default_percentage_markup(null);
+                    $notice = is_wp_error($result)
+                        ? $result->get_error_message()
+                        : __('The global default percentage markup was cleared. WooCommerce prices were not changed.', 'digitalogic');
+                    $notice_type = is_wp_error($result) ? 'error' : 'success';
+                    break;
+
                 default:
                     $notice = __('Unknown import freight action.', 'digitalogic');
                     $notice_type = 'error';
@@ -571,6 +589,18 @@ class Digitalogic_Admin {
             $notice = $freight_methods->get_error_message();
             $notice_type = 'error';
             $freight_methods = array();
+        }
+        $default_markup = $freight_service->get_default_percentage_markup();
+        if (is_wp_error($default_markup)) {
+            $notice = $default_markup->get_error_message();
+            $notice_type = 'error';
+            $default_markup = array(
+                'configured' => false,
+                'profit_percent' => null,
+                'revision' => '',
+                'source' => 'unavailable',
+                'bounds' => array('minimum' => '0', 'maximum' => '1000', 'maximum_fraction_digits' => 12),
+            );
         }
 
         include DIGITALOGIC_PLUGIN_DIR . 'includes/admin/views/patris-reports.php';

@@ -8,6 +8,7 @@
  * @var string $notice
  * @var string $notice_type
  * @var array  $freight_methods
+ * @var array  $default_markup
  * @var array|null $freight_assignment
  */
 
@@ -98,6 +99,54 @@ $notice_type = in_array($notice_type, array('success', 'error', 'warning', 'info
         <p class="description">
             <?php echo esc_html__('Manage freight used to import products from Patris. These records do not change WooCommerce customer delivery methods.', 'digitalogic'); ?>
         </p>
+
+        <h3><?php echo esc_html__('Default percentage markup', 'digitalogic'); ?></h3>
+        <p class="description">
+            <?php echo esc_html__('Used only when a product has no markup configuration. A product percentage overrides it; fixed or unsupported product markup never falls back. Saving or clearing this value does not update WooCommerce prices.', 'digitalogic'); ?>
+        </p>
+        <div class="digitalogic-report-table-wrap">
+            <table class="form-table" role="presentation">
+                <tr>
+                    <th scope="row"><label for="digitalogic-default-profit-percent"><?php echo esc_html__('Global profit percent', 'digitalogic'); ?></label></th>
+                    <td>
+                        <form method="post" class="digitalogic-inline-form">
+                            <?php wp_nonce_field('digitalogic_import_freight_admin'); ?>
+                            <input type="hidden" name="digitalogic_import_freight_action" value="update_default_markup">
+                            <input
+                                id="digitalogic-default-profit-percent"
+                                class="small-text code"
+                                name="default_profit_percent"
+                                value="<?php echo esc_attr(!empty($default_markup['configured']) ? $default_markup['profit_percent'] : ''); ?>"
+                                inputmode="decimal"
+                                pattern="[0-9۰-۹٠-٩]+(?:[.٫][0-9۰-۹٠-٩]{1,12})?"
+                                required
+                                dir="ltr"
+                            >
+                            <span>%</span>
+                            <button type="submit" class="button button-primary"><?php echo esc_html__('Save default', 'digitalogic'); ?></button>
+                        </form>
+                        <?php if (!empty($default_markup['configured'])) : ?>
+                            <form method="post" class="digitalogic-inline-form">
+                                <?php wp_nonce_field('digitalogic_import_freight_admin'); ?>
+                                <input type="hidden" name="digitalogic_import_freight_action" value="clear_default_markup">
+                                <button type="submit" class="button button-secondary"><?php echo esc_html__('Clear default', 'digitalogic'); ?></button>
+                            </form>
+                        <?php endif; ?>
+                        <p class="description">
+                            <?php
+                            printf(
+                                esc_html__('Allowed range: %1$s–%2$s%%, up to %3$d fractional digits. The recovered workbook value 30%% is proposed for a reviewed production action and is not seeded automatically.', 'digitalogic'),
+                                esc_html($default_markup['bounds']['minimum']),
+                                esc_html($default_markup['bounds']['maximum']),
+                                absint($default_markup['bounds']['maximum_fraction_digits'])
+                            );
+                            ?>
+                        </p>
+                        <p class="description"><code><?php echo esc_html($default_markup['revision']); ?></code></p>
+                    </td>
+                </tr>
+            </table>
+        </div>
 
         <h3><?php echo esc_html__('Freight methods', 'digitalogic'); ?></h3>
         <div class="digitalogic-report-table-wrap">

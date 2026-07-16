@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Canonical nullable global default percentage markup with exact decimal storage, REST/command/admin controls, catalog revisioning, and result-aware delivery events.
 - **WordPress Admin Bar integration** with quicklinks menu
   - Parent menu item with WooCommerce-focused cart icon (dashicons-cart)
   - Quicklinks to Dashboard, Products, Currency, Import/Export, Logs, and Status pages

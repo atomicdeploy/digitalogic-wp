@@ -17,6 +17,7 @@ if (!class_exists('Digitalogic_Product_Identifier_Resolver')) {
 final class Digitalogic_Import_Freight_Service {
 
     public const METHODS_OPTION = 'digitalogic_import_freight_methods_v1';
+    public const DEFAULT_MARKUP_OPTION = 'digitalogic_import_freight_default_markup_v1';
     public const MIGRATION_OPTION = 'digitalogic_import_freight_migration_v1';
     public const PRODUCT_METHOD_META = '_digitalogic_import_freight_method_id';
     public const LEGACY_PRODUCT_METHOD_META = 'shipping_method';
@@ -26,11 +27,15 @@ final class Digitalogic_Import_Freight_Service {
     public const CATALOG_SCHEMA_VERSION = '1.0.0';
     public const FORMULA_ID = 'landed_price_v1';
     public const FORMULA_REVISION = '1.0.0';
+    public const DEFAULT_MARKUP_SCHEMA = 'digitalogic.default-percentage-markup';
+    public const DEFAULT_MARKUP_SCHEMA_VERSION = '1.0.0';
 
     private const MIGRATION_VERSION = 1;
     private const MAX_BATCH_SIZE = 500;
     private const CATALOG_LOCK_NAME = 'digitalogic_import_freight_catalog_v1';
     private const CATALOG_LOCK_TIMEOUT_SECONDS = 10;
+    private const DEFAULT_MARKUP_MAX_PERCENT = '1000';
+    private const DEFAULT_MARKUP_MAX_SCALE = 12;
 
     private static $instance = null;
     private $migration_checked = false;
@@ -210,6 +215,97 @@ final class Digitalogic_Import_Freight_Service {
         }
 
         return $result;
+    }
+
+    /**
+     * Return the canonical nullable catalog-wide percentage markup.
+     *
+     * The value is read directly from MySQL so Redis or another object cache
+     * cannot return stale pricing inputs to Patris.
+     *
+     * @return array|WP_Error
+     */
+    public function get_default_percentage_markup() {
+        $migration = $this->maybe_migrate();
+        if (is_wp_error($migration)) {
+            return $migration;
+        }
+
+        return $this->load_default_percentage_markup();
+    }
+
+    /**
+     * Set or explicitly clear the catalog-wide default percentage markup.
+     *
+     * Null and an empty string remove the option. An equivalent canonical
+     * value is an idempotent no-op and does not publish another domain event.
+     * This mutation never recalculates or writes a WooCommerce product price.
+     *
+     * @param mixed $value Decimal percentage or null to clear.
+     * @return array|WP_Error
+     */
+    public function update_default_percentage_markup($value) {
+        $migration = $this->maybe_migrate();
+        if (is_wp_error($migration)) {
+            return $migration;
+        }
+
+        $clear = is_null($value) || (is_string($value) && '' === trim($value));
+        $canonical = null;
+        if (!$clear) {
+            $canonical = $this->canonical_default_percentage($value);
+            if (is_wp_error($canonical)) {
+                return $canonical;
+            }
+        }
+
+        return $this->with_catalog_lock(function() use ($clear, $canonical) {
+            $previous = $this->load_default_percentage_markup();
+            $same = $clear
+                ? empty($previous['storage_present'])
+                : !empty($previous['configured']) && $previous['profit_percent'] === $canonical;
+            if ($same) {
+                $previous['changed'] = false;
+                return $previous;
+            }
+
+            $state = $clear ? null : $this->new_default_percentage_markup_state($canonical);
+            $stored = $this->run_transaction(function() use ($clear, $state) {
+                return $this->store_option_state_verified(
+                    self::DEFAULT_MARKUP_OPTION,
+                    !$clear,
+                    $state,
+                    'digitalogic_import_freight_default_markup_write_failed'
+                );
+            });
+            if (is_wp_error($stored)) {
+                return $stored;
+            }
+
+            $result = $this->load_default_percentage_markup();
+            if (
+                ($clear && !empty($result['storage_present']))
+                || (!$clear && (empty($result['configured']) || $result['profit_percent'] !== $canonical))
+            ) {
+                return new WP_Error(
+                    'digitalogic_import_freight_default_markup_readback_failed',
+                    __('The default percentage markup did not pass exact database readback.', 'digitalogic'),
+                    array('status' => 500)
+                );
+            }
+
+            $result['changed'] = true;
+            $result['previous_revision'] = $previous['revision'];
+            $delivery_warnings = $this->emit_domain_action(
+                'digitalogic_import_freight_default_markup_updated',
+                $result
+            );
+            if (!empty($delivery_warnings)) {
+                $result['delivery_warnings'] = $delivery_warnings;
+            }
+
+            return $result;
+        });
     }
 
     /**
@@ -689,6 +785,7 @@ final class Digitalogic_Import_Freight_Service {
         if (is_wp_error($methods)) {
             return $methods;
         }
+        $default_markup = $this->load_default_percentage_markup();
 
         $local_currency = $this->local_currency();
         $yuan_rate = $this->yuan_rate();
@@ -720,7 +817,11 @@ final class Digitalogic_Import_Freight_Service {
                     'profit_percent_field' => 'markup.profit_percent',
                     'supported_type' => 'percentage',
                     'unsupported_types_return_null_with_warning' => true,
+                    'resolution_order' => array('product_percentage', 'global_default'),
+                    'global_default_field' => 'pricing.default_percentage_markup.profit_percent',
+                    'fixed_or_unsupported_never_uses_global_default' => true,
                 ),
+                'default_percentage_markup' => $default_markup,
                 'rounding' => array(
                     'mode' => 'half_up',
                     'local_currency_decimals' => $this->local_currency_decimals(),
@@ -1221,6 +1322,7 @@ final class Digitalogic_Import_Freight_Service {
             'legacy_shipping_method' => $legacy_row['exists'] ? (string) $legacy_row['value'] : '',
             'markup' => $markup,
             'profit_percent' => $markup['profit_percent'],
+            'profit_percent_source' => $markup['source'],
             'pricing_warnings' => $markup['warning'] ? array($markup['warning']) : array(),
         ));
     }
@@ -1961,18 +2063,34 @@ final class Digitalogic_Import_Freight_Service {
     private function build_markup_contract($product_id) {
         $type = sanitize_key((string) get_post_meta($product_id, '_digitalogic_markup_type', true));
         $raw_value = get_post_meta($product_id, '_digitalogic_markup', true);
+        $value_present = !is_null($raw_value) && !(is_string($raw_value) && '' === trim($raw_value));
         $value = $this->number_or_null($raw_value);
         $profit_percent = null;
+        $source = null;
+        $default_revision = null;
         $warning = null;
 
-        if ($type === 'percentage' && !is_null($value)) {
+        if ($type === 'percentage' && !is_null($value) && $value >= 0 && $value <= (float) self::DEFAULT_MARKUP_MAX_PERCENT) {
             $profit_percent = $value;
+            $source = 'product_override';
         } elseif ($type === 'fixed') {
             $warning = 'fixed_markup_not_supported_by_landed_price_v1';
         } elseif ($type === 'percentage') {
-            $warning = 'percentage_markup_value_missing';
+            $warning = !$value_present ? 'percentage_markup_value_missing' : 'percentage_markup_value_invalid';
         } elseif ($type === '') {
-            $warning = is_null($value) ? 'markup_missing' : 'markup_type_missing';
+            if (!$value_present) {
+                $default = $this->load_default_percentage_markup();
+                if (!empty($default['configured'])) {
+                    $profit_percent = $default['profit_percent'];
+                    $source = 'global_default';
+                    $default_revision = $default['revision'];
+                } else {
+                    $source = 'unset';
+                    $warning = 'markup_missing';
+                }
+            } else {
+                $warning = 'markup_type_missing';
+            }
         } else {
             $warning = 'markup_type_unsupported';
         }
@@ -1981,8 +2099,176 @@ final class Digitalogic_Import_Freight_Service {
             'type' => $type === '' ? null : $type,
             'value' => $value,
             'profit_percent' => $profit_percent,
+            'source' => $source,
+            'default_revision' => $default_revision,
             'warning' => $warning,
         );
+    }
+
+    private function load_default_percentage_markup() {
+        $row = $this->read_option_db(self::DEFAULT_MARKUP_OPTION);
+        if (!$row['exists']) {
+            return $this->default_percentage_markup_contract(false, null, 'unset', null, 0, false, array('default_markup_unset'));
+        }
+
+        $state = $row['value'];
+        if (!is_array($state)) {
+            return $this->default_percentage_markup_contract(false, null, 'invalid_storage', null, 0, true, array('default_markup_storage_invalid'));
+        }
+        $canonical = $this->canonical_default_percentage(isset($state['profit_percent']) ? $state['profit_percent'] : null);
+        if (
+            is_wp_error($canonical)
+            || !isset($state['schema'], $state['schema_version'], $state['type'], $state['source'], $state['revision'])
+            || self::DEFAULT_MARKUP_SCHEMA !== $state['schema']
+            || self::DEFAULT_MARKUP_SCHEMA_VERSION !== $state['schema_version']
+            || 'percentage' !== $state['type']
+            || 'global_default' !== $state['source']
+            || !isset($state['configured'])
+            || true !== $state['configured']
+            || !array_key_exists('profit_percent', $state)
+            || !is_string($state['profit_percent'])
+            || $state['profit_percent'] !== $canonical
+        ) {
+            return $this->default_percentage_markup_contract(false, null, 'invalid_storage', null, 0, true, array('default_markup_storage_invalid'));
+        }
+
+        $identity = $this->default_percentage_markup_identity(true, $canonical, 'global_default');
+        $revision = $this->default_percentage_markup_revision($identity);
+        if (!hash_equals($revision, (string) $state['revision'])) {
+            return $this->default_percentage_markup_contract(false, null, 'invalid_storage', null, 0, true, array('default_markup_storage_invalid'));
+        }
+
+        return array_merge($identity, array(
+            'revision' => $revision,
+            'updated_at' => isset($state['updated_at']) ? (string) $state['updated_at'] : '',
+            'updated_by' => isset($state['updated_by']) ? absint($state['updated_by']) : 0,
+            'storage_present' => true,
+            'bounds' => $this->default_percentage_markup_bounds(),
+            'warnings' => array(),
+        ));
+    }
+
+    private function new_default_percentage_markup_state($canonical) {
+        $identity = $this->default_percentage_markup_identity(true, $canonical, 'global_default');
+
+        return array_merge($identity, array(
+            'revision' => $this->default_percentage_markup_revision($identity),
+            'updated_at' => current_time('mysql', true),
+            'updated_by' => function_exists('get_current_user_id') ? absint(get_current_user_id()) : 0,
+        ));
+    }
+
+    private function default_percentage_markup_contract($configured, $value, $source, $updated_at, $updated_by, $storage_present, $warnings) {
+        $identity = $this->default_percentage_markup_identity($configured, $value, $source);
+
+        return array_merge($identity, array(
+            'revision' => $this->default_percentage_markup_revision($identity),
+            'updated_at' => $updated_at,
+            'updated_by' => absint($updated_by),
+            'storage_present' => (bool) $storage_present,
+            'bounds' => $this->default_percentage_markup_bounds(),
+            'warnings' => array_values($warnings),
+        ));
+    }
+
+    private function default_percentage_markup_identity($configured, $value, $source) {
+        return array(
+            'schema' => self::DEFAULT_MARKUP_SCHEMA,
+            'schema_version' => self::DEFAULT_MARKUP_SCHEMA_VERSION,
+            'configured' => (bool) $configured,
+            'type' => 'percentage',
+            'profit_percent' => $value,
+            'source' => $source,
+        );
+    }
+
+    private function default_percentage_markup_revision($identity) {
+        return 'sha256:' . hash(
+            'sha256',
+            wp_json_encode($identity, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
+        );
+    }
+
+    private function default_percentage_markup_bounds() {
+        return array(
+            'minimum' => '0',
+            'maximum' => self::DEFAULT_MARKUP_MAX_PERCENT,
+            'maximum_fraction_digits' => self::DEFAULT_MARKUP_MAX_SCALE,
+        );
+    }
+
+    private function canonical_default_percentage($value) {
+        if (is_bool($value) || is_array($value) || is_object($value) || is_null($value)) {
+            return new WP_Error(
+                'digitalogic_import_freight_default_markup_invalid',
+                __('Default markup must be a finite base-10 percentage.', 'digitalogic'),
+                array('status' => 400)
+            );
+        }
+        if (is_int($value)) {
+            $text = (string) $value;
+        } elseif (is_float($value)) {
+            if (!is_finite($value)) {
+                return new WP_Error(
+                    'digitalogic_import_freight_default_markup_invalid',
+                    __('Default markup must be a finite base-10 percentage.', 'digitalogic'),
+                    array('status' => 400)
+                );
+            }
+            $text = json_encode($value, JSON_PRESERVE_ZERO_FRACTION);
+            if (!is_string($text)) {
+                $text = '';
+            }
+        } elseif (is_string($value)) {
+            $text = trim(wp_unslash($value));
+            $text = strtr($text, array(
+                '۰' => '0', '۱' => '1', '۲' => '2', '۳' => '3', '۴' => '4',
+                '۵' => '5', '۶' => '6', '۷' => '7', '۸' => '8', '۹' => '9',
+                '٠' => '0', '١' => '1', '٢' => '2', '٣' => '3', '٤' => '4',
+                '٥' => '5', '٦' => '6', '٧' => '7', '٨' => '8', '٩' => '9',
+                '٫' => '.',
+            ));
+        } else {
+            $text = '';
+        }
+
+        if (strlen($text) > 64 || !preg_match('/^[+\-]?[0-9]+(?:\.[0-9]+)?$/', $text)) {
+            return new WP_Error(
+                'digitalogic_import_freight_default_markup_invalid',
+                __('Default markup must be a finite base-10 percentage without exponent or grouping notation.', 'digitalogic'),
+                array('status' => 400)
+            );
+        }
+
+        $negative = str_starts_with($text, '-');
+        $text = ltrim($text, '+-');
+        $parts = explode('.', $text, 2);
+        $integer = ltrim($parts[0], '0');
+        $integer = '' === $integer ? '0' : $integer;
+        $fraction = isset($parts[1]) ? rtrim($parts[1], '0') : '';
+        if (strlen($fraction) > self::DEFAULT_MARKUP_MAX_SCALE) {
+            return new WP_Error(
+                'digitalogic_import_freight_default_markup_scale_invalid',
+                sprintf(__('Default markup supports at most %d fractional digits.', 'digitalogic'), self::DEFAULT_MARKUP_MAX_SCALE),
+                array('status' => 400, 'maximum_fraction_digits' => self::DEFAULT_MARKUP_MAX_SCALE)
+            );
+        }
+
+        $is_zero = '0' === $integer && '' === $fraction;
+        if (
+            ($negative && !$is_zero)
+            || strlen($integer) > strlen(self::DEFAULT_MARKUP_MAX_PERCENT)
+            || (strlen($integer) === strlen(self::DEFAULT_MARKUP_MAX_PERCENT) && strcmp($integer, self::DEFAULT_MARKUP_MAX_PERCENT) > 0)
+            || ($integer === self::DEFAULT_MARKUP_MAX_PERCENT && '' !== $fraction)
+        ) {
+            return new WP_Error(
+                'digitalogic_import_freight_default_markup_out_of_range',
+                sprintf(__('Default markup must be between 0 and %s percent.', 'digitalogic'), self::DEFAULT_MARKUP_MAX_PERCENT),
+                array('status' => 400, 'minimum' => '0', 'maximum' => self::DEFAULT_MARKUP_MAX_PERCENT)
+            );
+        }
+
+        return '' === $fraction ? $integer : $integer . '.' . $fraction;
     }
 
     public function filter_acf_method_field($field) {
