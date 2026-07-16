@@ -253,6 +253,14 @@ class Digitalogic_REST_API {
             'permission_callback' => array($this, 'check_patris_push_permission')
         ));
 
+        // Versioned transformed-only contract. This is intentionally distinct
+        // from the legacy full-replacement /patris/push parser.
+        register_rest_route('digitalogic/v1', '/patris/product-sync', array(
+            'methods' => 'POST',
+            'callback' => array($this, 'receive_patris_product_sync'),
+            'permission_callback' => array($this, 'check_patris_product_sync_permission')
+        ));
+
         // Supplier import freight (not WooCommerce customer delivery methods).
         register_rest_route('digitalogic/v1', '/integration/catalog', array(
             'methods' => 'GET',
@@ -388,6 +396,21 @@ class Digitalogic_REST_API {
 
     public function check_patris_push_permission(WP_REST_Request $request) {
         return Digitalogic_Patris_Feed::instance()->verify_push_request($request);
+    }
+
+    /**
+     * Authenticate the contract-aware receiver via its dedicated header-only
+     * secret or the normal write scope (including WooCommerce credentials).
+     *
+     * @param WP_REST_Request $request Current request.
+     * @return bool
+     */
+    public function check_patris_product_sync_permission(WP_REST_Request $request) {
+        if (Digitalogic_Patris_Feed::instance()->verify_product_sync_request($request)) {
+            return true;
+        }
+
+        return $this->check_write_permission($request);
     }
 
     /**
@@ -608,6 +631,43 @@ class Digitalogic_REST_API {
         ), 200);
     }
 
+    /**
+     * POST /patris/product-sync
+     *
+     * Consume the deterministic digitalogic.product-sync v1 envelope. Patris
+     * identity headers are optional, but when present they must agree with the
+     * body so proxies cannot accidentally pair stale metadata with new JSON.
+     */
+    public function receive_patris_product_sync(WP_REST_Request $request) {
+        $payload = $request->get_json_params();
+        $header_contract = $request->get_header('x-patris-contract');
+        $header_version = $request->get_header('x-patris-contract-version');
+        $header_event_id = $request->get_header('x-patris-event-id');
+        $header_checks = array(
+            'x-patris-contract' => array($header_contract, is_array($payload) ? ($payload['schema'] ?? null) : null),
+            'x-patris-contract-version' => array($header_version, is_array($payload) ? ($payload['schema_version'] ?? null) : null),
+            'x-patris-event-id' => array($header_event_id, is_array($payload) ? ($payload['event_id'] ?? null) : null),
+        );
+        foreach ($header_checks as $header => $values) {
+            if ('' !== $values[0] && (!is_string($values[1]) || !hash_equals((string) $values[0], $values[1]))) {
+                return new WP_REST_Response(array(
+                    'success' => false,
+                    'code' => 'digitalogic_product_sync_header_mismatch',
+                    'message' => 'Patris identity headers must match the product-sync body.',
+                    'details' => array('header' => $header),
+                ), 400);
+            }
+        }
+
+        $body = method_exists($request, 'get_body') ? $request->get_body() : '';
+        if (!is_string($body) || '' === trim($body)) {
+            $body = wp_json_encode(is_array($payload) ? $payload : array());
+        }
+        $result = Digitalogic_Product_Sync_Receiver::instance()->receive_json($body);
+
+        return $this->product_sync_response($result);
+    }
+
     public function get_integration_catalog(WP_REST_Request $request) {
         return $this->import_freight_response(
             Digitalogic_Command_Dispatcher::instance()->get_integration_catalog($request->get_params())
@@ -691,5 +751,21 @@ class Digitalogic_REST_API {
         }
 
         return new WP_REST_Response(array('success' => true, 'data' => $result), $success_status);
+    }
+
+    private function product_sync_response($result) {
+        if (is_wp_error($result)) {
+            $details = $result->get_error_data();
+            $status = is_array($details) && isset($details['status']) ? (int) $details['status'] : 400;
+
+            return new WP_REST_Response(array(
+                'success' => false,
+                'code' => $result->get_error_code(),
+                'message' => $result->get_error_message(),
+                'details' => $details,
+            ), $status);
+        }
+
+        return new WP_REST_Response(array('success' => true, 'data' => $result), 200);
     }
 }

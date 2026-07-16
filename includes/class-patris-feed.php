@@ -25,6 +25,8 @@ class Digitalogic_Patris_Feed {
     private const CUSTOMERS_OPTION = 'digitalogic_patris_feed_customers';
     private const LAST_SYNC_OPTION = 'digitalogic_patris_feed_last_sync';
     private const TOKEN_OPTION = 'digitalogic_patris_feed_push_token';
+    public const PRODUCT_SYNC_SECRET_OPTION = 'digitalogic_product_sync_v1_secret';
+    public const PRODUCT_SYNC_SCOPES_OPTION = 'digitalogic_product_sync_v1_source_scopes';
 
     private static $instance = null;
 
@@ -319,6 +321,89 @@ class Digitalogic_Patris_Feed {
         return is_string($provided) && hash_equals($expected, $provided);
     }
 
+    /**
+     * Return the dedicated v1 receiver secret.
+     *
+     * This credential is intentionally independent of the legacy push token.
+     */
+    public function get_product_sync_secret() {
+        $secret = (string) get_option(self::PRODUCT_SYNC_SECRET_OPTION, '');
+        if ('' !== $secret) {
+            return $secret;
+        }
+
+        $generated = wp_generate_password(64, false, false);
+        if (add_option(self::PRODUCT_SYNC_SECRET_OPTION, $generated, '', 'no')) {
+            return $generated;
+        }
+
+        return (string) get_option(self::PRODUCT_SYNC_SECRET_OPTION, '');
+    }
+
+    /**
+     * Return normalized exact source scopes for the v1 secret.
+     *
+     * An empty list is deliberately unscoped for backwards-compatible setup;
+     * once configured, every request must match one exact {id,dataset} pair.
+     */
+    public function get_product_sync_source_scopes() {
+        $configured = get_option(self::PRODUCT_SYNC_SCOPES_OPTION, array());
+        $scopes = array();
+        foreach ((array) $configured as $scope) {
+            if (!is_array($scope)) {
+                continue;
+            }
+            $id = isset($scope['id']) && is_string($scope['id']) ? trim($scope['id']) : '';
+            $dataset = isset($scope['dataset']) && is_string($scope['dataset']) ? trim($scope['dataset']) : '';
+            if ('' === $id || '' === $dataset || strlen($id) > 191 || strlen($dataset) > 191) {
+                continue;
+            }
+            $scopes[$id . "\n" . $dataset] = array('id' => $id, 'dataset' => $dataset);
+        }
+
+        ksort($scopes, SORT_STRING);
+        return array_values($scopes);
+    }
+
+    /**
+     * Authenticate the versioned receiver with its dedicated header-only
+     * secret and, when configured, an exact source ID/dataset scope.
+     *
+     * @param WP_REST_Request $request Current request.
+     * @return bool
+     */
+    public function verify_product_sync_request(WP_REST_Request $request) {
+        $expected = $this->get_product_sync_secret();
+        $provided = $request->get_header('x-digitalogic-product-sync-secret');
+
+        if (!is_string($provided) || '' === $provided || '' === $expected || !hash_equals($expected, $provided)) {
+            return false;
+        }
+
+        $configured_scopes = get_option(self::PRODUCT_SYNC_SCOPES_OPTION, array());
+        $scopes = $this->get_product_sync_source_scopes();
+        if (empty($configured_scopes)) {
+            return true;
+        }
+        if (empty($scopes)) {
+            return false;
+        }
+
+        $payload = $request->get_json_params();
+        $source = is_array($payload) && isset($payload['source']) && is_array($payload['source'])
+            ? $payload['source']
+            : array();
+        $source_id = isset($source['id']) && is_string($source['id']) ? $source['id'] : '';
+        $dataset = isset($source['dataset']) && is_string($source['dataset']) ? $source['dataset'] : '';
+        foreach ($scopes as $scope) {
+            if (hash_equals($scope['id'], $source_id) && hash_equals($scope['dataset'], $dataset)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private function normalize_product($row) {
         $row = is_array($row) ? $row : array();
         $warehouse_stock = isset($row['warehouse_stock']) && is_array($row['warehouse_stock']) ? $row['warehouse_stock'] : array();
@@ -377,12 +462,23 @@ class Digitalogic_Patris_Feed {
         return $normalized;
     }
 
-    private function apply_product_feed(WC_Product $product, $data) {
+    /**
+     * Apply a normalized Patris product through the shared WooCommerce writer.
+     *
+     * Both the legacy feed and the versioned transformed-only receiver use this
+     * method so stock, weight, pricing, and Patris metadata cannot drift into
+     * parallel implementations. Canonical callers do not pass a raw payload.
+     *
+     * @param WC_Product $product WooCommerce product.
+     * @param array      $data    Validated normalized product.
+     * @return void
+     */
+    public function apply_product_feed(WC_Product $product, $data) {
         $product->update_meta_data('_digitalogic_patris_product_code', $data['product_code']);
         $product->update_meta_data('_digitalogic_patris_name', $data['name']);
         $product->update_meta_data('_digitalogic_patris_serial', $data['serial']);
         $product->update_meta_data('_digitalogic_patris_unit', $data['unit']);
-        $product->update_meta_data('_digitalogic_patris_unit_id', $data['unit_id']);
+        $product->update_meta_data('_digitalogic_patris_unit_id', $data['unit_id'] ?? '');
         $product->update_meta_data('_digitalogic_patris_sale_price_source', $data['sale_price_source']);
         $product->update_meta_data('_digitalogic_patris_purchase_price_source', $data['purchase_price_source']);
         $product->update_meta_data('_digitalogic_patris_warehouse_stock', wp_json_encode($data['warehouse_stock']));
@@ -393,9 +489,36 @@ class Digitalogic_Patris_Feed {
         $product->update_meta_data('_digitalogic_patris_weight_grams', $data['weight_grams']);
         $product->update_meta_data('_digitalogic_patris_location', $data['location']);
         $product->update_meta_data('_digitalogic_patris_final_price', $data['final_price']);
-        $product->update_meta_data('_digitalogic_patris_updated_at', $data['updated_at']);
-        $product->update_meta_data('_digitalogic_patris_flags', wp_json_encode($data['flags']));
-        $product->update_meta_data('_digitalogic_patris_last_feed', wp_json_encode($data['raw'], JSON_UNESCAPED_UNICODE));
+        $product->update_meta_data(
+            '_digitalogic_patris_updated_at',
+            isset($data['source_updated_at']) ? $data['source_updated_at'] : ($data['updated_at'] ?? '')
+        );
+        if (array_key_exists('flags', $data)) {
+            $product->update_meta_data('_digitalogic_patris_flags', wp_json_encode($data['flags']));
+        }
+        if (array_key_exists('raw', $data)) {
+            $product->update_meta_data('_digitalogic_patris_last_feed', wp_json_encode($data['raw'], JSON_UNESCAPED_UNICODE));
+        }
+
+        $canonical_meta = array(
+            'import_freight_method_id' => '_digitalogic_patris_import_freight_method_id',
+            'freight_cny_per_kg' => '_digitalogic_patris_freight_cny_per_kg',
+            'markup_percent' => '_digitalogic_patris_markup_percent',
+            'irt_per_cny' => '_digitalogic_patris_irt_per_cny',
+            'pricing_catalog_revision' => '_digitalogic_patris_pricing_catalog_revision',
+            'pricing_catalog_status' => '_digitalogic_patris_pricing_catalog_status',
+            'currency_effective_date' => '_digitalogic_patris_currency_effective_date',
+            'formula_version' => '_digitalogic_patris_formula_version',
+            'record_hash' => '_digitalogic_patris_record_hash',
+        );
+        foreach ($canonical_meta as $field => $meta_key) {
+            if (array_key_exists($field, $data)) {
+                $product->update_meta_data($meta_key, $data[$field]);
+            }
+        }
+        if (array_key_exists('warnings', $data)) {
+            $product->update_meta_data('_digitalogic_patris_warnings', wp_json_encode($data['warnings']));
+        }
 
         $store_weight = Digitalogic_Unit_Converter::grams_to_store_weight($data['weight_grams']);
         if (!is_null($store_weight)) {

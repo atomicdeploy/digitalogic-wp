@@ -66,14 +66,16 @@ final class ProductIdentifierResolverTest extends TestCase {
         $this->assertSame(1, $GLOBALS['wpdb']->identifier_query_count);
     }
 
-    public function test_generic_code_uses_exact_sku_before_exact_patris_code_without_integer_coercion(): void {
+    public function test_generic_code_rejects_cross_namespace_collision_and_uses_exact_sku_fallback(): void {
         $cross = $this->resolver->resolve(array('code' => 'CROSS'));
         $numeric_looking = $this->resolver->resolve(array('code' => '00123'));
         $wrong_case = $this->resolver->resolve(array('code' => 'sku-601'));
 
-        $this->assertSame('607', $cross['woocommerce_id']);
-        $this->assertSame('sku', $cross['resolved_by']);
+        $this->assertSame('digitalogic_product_identifier_ambiguous', $cross->get_error_code());
+        $this->assertSame('cross_namespace_collision', $cross->get_error_data()['reason']);
+        $this->assertSame(array('607', '608'), $cross->get_error_data()['woocommerce_ids']);
         $this->assertSame('609', $numeric_looking['woocommerce_id']);
+        $this->assertSame('sku_fallback', $numeric_looking['resolved_by']);
         $this->assertSame('00123', $numeric_looking['identifier']);
         $this->assertSame('digitalogic_product_identifier_not_found', $wrong_case->get_error_code());
         $this->assertSame(3, $GLOBALS['wpdb']->identifier_query_count);

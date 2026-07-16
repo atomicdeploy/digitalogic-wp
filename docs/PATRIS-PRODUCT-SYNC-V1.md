@@ -1,0 +1,189 @@
+# Patris Product Sync v1 Receiver
+
+Digitalogic exposes a dedicated receiver for the transformed Patris Export
+contract:
+
+```text
+POST /wp-json/digitalogic/v1/patris/product-sync
+```
+
+This endpoint is intentionally separate from the legacy `/patris/push` route.
+The legacy route accepts historical product/customer snapshots and keeps its
+existing replacement behavior. New Patris integrations must use
+`/patris/product-sync`; sending a v1 delta to the legacy route is unsupported.
+
+Do not enable production delivery merely by deploying this code. First run the
+cross-project contract tests, send a read-only staging snapshot, and verify the
+stored receiver state and WooCommerce canary products.
+
+## Authentication
+
+Use either:
+
+- `X-Digitalogic-Product-Sync-Secret: <v1 receiver secret>`; this credential is
+  separate from the legacy Patris push token and is accepted in this header
+  only, never in the query string or `X-Digitalogic-Token`; or
+- an authenticated Digitalogic write scope, including a WooCommerce REST API
+  key whose user can manage WooCommerce.
+
+The receiver secret is stored in `digitalogic_product_sync_v1_secret` and is
+generated on first read. Deployments should configure exact source scopes in
+`digitalogic_product_sync_v1_source_scopes` as a JSON list of `{id,dataset}`
+objects. An empty list is unscoped for initial setup; a non-empty list denies
+every source pair not present exactly. For example:
+
+```bash
+wp option update digitalogic_product_sync_v1_source_scopes \
+  '[{"id":"patris-office","dataset":"kala.db"}]' --format=json
+wp eval 'echo Digitalogic_Patris_Feed::instance()->get_product_sync_secret();'
+```
+
+Patris may also send `X-Patris-Contract`, `X-Patris-Contract-Version`, and
+`X-Patris-Event-ID`. When present, each header must match the JSON body.
+
+## Envelope
+
+The receiver accepts schema major version 1. The current producer sends:
+
+```json
+{
+  "schema": "digitalogic.product-sync",
+  "schema_version": "1.0",
+  "event": "digitalogic.product-sync",
+  "event_type": "snapshot",
+  "event_id": "sha256:...",
+  "local_currency": "IRT",
+  "formula_id": "landed_price_v1",
+  "formula_revision": "1.0.0",
+  "formula_version": "landed_price_v1",
+  "source": {
+    "id": "patris-office",
+    "dataset": "kala.db",
+    "revision": "sha256:..."
+  },
+  "generated_at": "2026-07-16T08:00:00Z",
+  "products": [],
+  "deleted_codes": [],
+  "quarantined_codes": [],
+  "warnings": []
+}
+```
+
+Every product is the fixed typed `digitalogic.product-sync` v1 shape emitted by
+Patris Export. `product_code` is always a non-empty JSON string, even when it
+contains only digits. Product output currency is CNY, final prices are
+non-negative integer IRT values or `null`, and the product formula must be
+`landed_price_v1`.
+
+The receiver recursively rejects raw Patris/Paradox keys, including spelling,
+case, and separator variants of `Sharh`, `Sharh1`, `Sharh2`, `FOROSH`,
+`KHARYD`, `ALLANBAR`, and `ANBAR*`. Only transformed fields cross this boundary.
+
+## Integrity and ordering
+
+The receiver independently verifies:
+
+- each `record_hash` from the typed product in Go-compatible JSON field order;
+- every non-null `final_price` by independently evaluating
+  `landed_price_v1` as bounded exact decimals, with one half-up round to the
+  final IRT integer; incomplete formula inputs require `final_price: null`;
+- `source.revision` from the resulting complete source snapshot; and
+- `event_id` from the schema, source identity, sorted record hashes,
+  occurrence timestamp, tombstones, and quarantined Codes.
+
+The exact `event_id` hash material is the compact Go `encoding/json` object in
+this field order:
+
+```text
+schema, schema_version, event_type, local_currency, formula_id,
+formula_revision, source{id,dataset,revision}, generated_at, products,
+[deleted_codes when non-empty], [quarantined_codes when non-empty]
+```
+
+`products` is a lexicographically sorted string list whose entries are
+`<product_code>=<record_hash>`. `generated_at` is the exact validated RFC3339
+wire string. Binding it into the identity makes same-content occurrences at
+different timestamps distinct and ensures a newer same-content event advances
+the ordering watermark.
+
+The JSON decoder rejects duplicate object keys and preserves exact decimal
+tokens while hashing. Events are ordered per `{source.id, source.dataset}` by
+RFC3339-nanosecond `generated_at`. An update requires an existing snapshot.
+Older events and conflicting events at the same source timestamp are rejected.
+
+Formula operands allow at most 15 integer digits and 12 fractional digits;
+percentage markup is bounded to `0..1000`. Required price, weight, freight,
+markup, and exchange-rate inputs must be present (and the freight method must
+be selected) for a non-null final price. Binary floating point is not used.
+
+The most recent 128 event IDs per source are retained. Replaying one of those
+IDs after full delivery returns `status: replayed` without another option
+write, WooCommerce save, log entry, or domain event. If products remain in the
+durable outbox, the identical replay retries only those pending products and
+returns `recovered` or `retry_pending`.
+
+## Snapshot, update, deletion, and quarantine behavior
+
+- `snapshot` replaces the receiver snapshot for that source.
+- `update` merges complete changed products into the existing snapshot.
+- `deleted_codes` is valid on updates, including an update containing only
+  tombstones. It removes exact Codes from receiver state only.
+- A tombstone never trashes, drafts, or deletes a WooCommerce product.
+- `quarantined_codes` protects the previously stored record for that Code. A
+  quarantined Code cannot also appear as a product or tombstone in the event.
+
+Incoming changed products are optionally mirrored to WooCommerce only through
+the shared exact Code/SKU resolver. Patris Code is canonical. SKU is used only
+when no exact Patris Code exists; a distinct exact SKU and Patris Code collision
+is ambiguous. Missing or ambiguous identifiers are reported and never resolved
+by fuzzy name matching.
+
+Receiver state is written under `digitalogic_product_sync_v1_state`, evicted
+from the option cache, and read back with a digest check before WooCommerce
+writes. Each source has a durable per-product pending outbox plus an applied
+`{record_hash,woocommerce_id}` CAS record. A successful persisted Woo record
+hash acknowledges crash-window retries without a duplicate save. Missing,
+ambiguous, and failed writes stay pending. The final outbox state is read back
+before the result-aware `digitalogic_product_sync_v1_applied` domain action.
+This state is independent of the legacy Patris feed option.
+
+## Successful response
+
+```json
+{
+  "success": true,
+  "data": {
+    "status": "accepted",
+    "replayed": false,
+    "event_id": "sha256:...",
+    "event_type": "update",
+    "received_products": 1,
+    "stored_products": 2,
+    "deleted_codes": 0,
+    "fully_applied": true,
+    "retryable": false,
+    "pending_products": 0,
+    "persistence_verified": true,
+    "woocommerce": {
+      "updated": 1,
+      "missing": 0,
+      "ambiguous": 0,
+      "failed": 0,
+      "errors": []
+    }
+  }
+}
+```
+
+Validation errors use HTTP 400 or 422. Ordering conflicts use 409. A busy
+advisory lock or unavailable lock service returns retryable HTTP 503.
+
+When any WooCommerce target is missing, ambiguous, or fails to save, the HTTP
+request remains a verified receiver commit but `data.status` is
+`partially_applied`, `retryable` is true, and `pending_products` is non-zero.
+Send the identical event again after correcting the product or write failure.
+
+The synthetic cross-project fixture is 2,760 bytes with SHA-256
+`810bdf4d8fd5e3c2a87750a02f241363f6403736c899a625f615967fea259da5`.
+Its occurrence identity is
+`sha256:25d5afce95dfdcf598c28f9c9639cbd54ed7f2e838a6c285844eee75d972ef06`.
