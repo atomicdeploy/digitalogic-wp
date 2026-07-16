@@ -551,15 +551,9 @@ class Digitalogic_REST_API {
      * GET /currency
      */
     public function get_currency(WP_REST_Request $request) {
-        $options = Digitalogic_Options::instance();
-        
         return new WP_REST_Response(array(
             'success' => true,
-            'data' => array(
-                'dollar_price' => $options->get_dollar_price(),
-                'yuan_price' => $options->get_yuan_price(),
-                'update_date' => $options->get_update_date()
-            )
+            'data' => Digitalogic_Command_Dispatcher::instance()->get_currency()
         ), 200);
     }
     

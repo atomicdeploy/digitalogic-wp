@@ -198,6 +198,7 @@ class Digitalogic_Command_Dispatcher {
             'dollar_price' => $options->get_dollar_price(),
             'yuan_price' => $options->get_yuan_price(),
             'update_date' => $options->get_update_date(),
+            'woocommerce_base' => Digitalogic_WooCommerce_Currency_Status::instance()->get_status(),
         );
     }
 

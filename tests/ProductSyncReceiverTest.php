@@ -368,6 +368,9 @@ final class ProductSyncReceiverTest extends TestCase {
         $GLOBALS['digitalogic_test_wc_currency'] = 'IRR';
         $currency_error = Digitalogic_Product_Sync_Receiver::instance()->receive($base);
         $this->assertSame('digitalogic_product_sync_store_currency_mismatch', $currency_error->get_error_code());
+        $this->assertSame('IRR', $currency_error->get_error_data()['woocommerce_base_currency']);
+        $this->assertSame('IRT', $currency_error->get_error_data()['required_currency']);
+        $this->assertSame('woocommerce_base_currency_must_be_irt', $currency_error->get_error_data()['warning']);
         $GLOBALS['digitalogic_test_wc_currency'] = 'IRT';
 
         $typed = $base;

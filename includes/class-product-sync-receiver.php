@@ -812,11 +812,17 @@ class Digitalogic_Product_Sync_Receiver {
         if ('IRT' !== $payload['local_currency']) {
             return $this->error('digitalogic_product_sync_currency_unsupported', 'The receiver currently supports IRT output only.', 422);
         }
-        if (function_exists('get_woocommerce_currency') && 'IRT' !== strtoupper((string) get_woocommerce_currency())) {
+        $currency_status = Digitalogic_WooCommerce_Currency_Status::instance()->get_status();
+        if (!$currency_status['compatible']) {
             return $this->error(
                 'digitalogic_product_sync_store_currency_mismatch',
                 'WooCommerce must use IRT before transformed IRT prices can be applied.',
-                409
+                409,
+                array(
+                    'woocommerce_base_currency' => $currency_status['code'],
+                    'required_currency' => Digitalogic_WooCommerce_Currency_Status::REQUIRED_CURRENCY,
+                    'warning' => Digitalogic_WooCommerce_Currency_Status::INCOMPATIBLE_WARNING,
+                )
             );
         }
         if (self::FORMULA_ID !== $payload['formula_id'] || self::FORMULA_ID !== $payload['formula_version']) {

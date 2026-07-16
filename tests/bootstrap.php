@@ -310,8 +310,9 @@ function update_option($name, $value, $autoload = null) {
     $GLOBALS['digitalogic_test_option_cache'][$name] = $value;
 
     if ($changed) {
-        do_action('updated_option', $name, $old_value, $value);
         do_action('update_option_' . $name, $old_value, $value, $name);
+        do_action('updated_option_' . $name, $old_value, $value, $name);
+        do_action('updated_option', $name, $old_value, $value);
     }
 
     return $changed;
@@ -976,6 +977,10 @@ class Digitalogic_Options {
         return (float) get_option('options_yuan_price', get_option('yuan_price', 0));
     }
 
+    public function get_dollar_price() {
+        return (float) get_option('options_dollar_price', get_option('dollar_price', 0));
+    }
+
     public function get_update_date() {
         return (string) get_option('options_update_date', get_option('update_date', ''));
     }
@@ -1093,6 +1098,12 @@ function get_woocommerce_currency() {
         : 'IRT';
 }
 
+function get_woocommerce_currency_symbol($currency = '') {
+    $currency = strtoupper((string) $currency);
+
+    return 'IRT' === $currency ? 'Toman' : $currency;
+}
+
 function wc_get_weight($weight, $to_unit, $from_unit = '') {
     $weight = (float) $weight;
     $from_unit = $from_unit !== '' ? $from_unit : 'kg';
@@ -1190,6 +1201,7 @@ class WP_CLI {
 $GLOBALS['wpdb'] = new Digitalogic_Test_WPDB();
 
 require_once dirname(__DIR__) . '/includes/class-unit-converter.php';
+require_once dirname(__DIR__) . '/includes/class-digitalogic-woocommerce-currency-status.php';
 require_once dirname(__DIR__) . '/includes/class-product-identifier-resolver.php';
 require_once dirname(__DIR__) . '/includes/class-digitalogic-pricing-input-credential.php'; // phpcs:ignore
 require_once dirname(__DIR__) . '/includes/class-patris-feed.php';

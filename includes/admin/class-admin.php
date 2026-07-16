@@ -477,12 +477,14 @@ class Digitalogic_Admin {
         $yuan_price = $options->get_yuan_price();
         $update_date = $options->get_update_date_formatted();
         $update_date_relative = $options->get_update_date_relative();
+        $currency_status = Digitalogic_WooCommerce_Currency_Status::instance()->get_status();
 
         $this->currency_page_data = array(
             'dollar_price' => $dollar_price,
             'yuan_price' => $yuan_price,
             'update_date' => $update_date,
             'update_date_relative' => $update_date_relative,
+            'currency_status' => $currency_status,
         );
 
         $current_screen = get_current_screen();
@@ -515,6 +517,14 @@ class Digitalogic_Admin {
             $screen,
             'side',
             'default'
+        );
+        add_meta_box(
+            'digitalogic-currency-status',
+            __('WooCommerce Base Currency', 'digitalogic'),
+            array($this, 'render_currency_status_meta_box'),
+            $screen,
+            'side',
+            'high'
         );
         add_meta_box(
             'digitalogic-currency-rates',
@@ -559,6 +569,38 @@ class Digitalogic_Admin {
             <strong id="update_date"><?php echo esc_html($this->currency_page_value('update_date')); ?></strong>
         </p>
         <p class="description"><?php echo esc_html($this->currency_page_value('update_date_relative')); ?></p>
+        <?php
+    }
+
+    /**
+     * Render the read-only WooCommerce/Patris currency compatibility box.
+     */
+    public function render_currency_status_meta_box() {
+        $status = $this->currency_page_value('currency_status');
+        if (!is_array($status)) {
+            $status = Digitalogic_WooCommerce_Currency_Status::instance()->get_status();
+        }
+        $compatible = !empty($status['compatible']);
+        ?>
+        <div class="digitalogic-currency-postbox-status">
+            <p class="digitalogic-status-label <?php echo $compatible ? 'is-ready' : 'is-warning'; ?>">
+                <span class="dashicons <?php echo $compatible ? 'dashicons-yes-alt' : 'dashicons-warning'; ?>" aria-hidden="true"></span>
+                <?php echo $compatible ? esc_html__('Ready', 'digitalogic') : esc_html__('Base currency mismatch', 'digitalogic'); ?>
+            </p>
+            <p>
+                <strong><code><?php echo esc_html($status['code']); ?></code></strong>
+                <?php if ($compatible) : ?>
+                    &mdash; <?php echo esc_html__('Toman (10 IRR per unit)', 'digitalogic'); ?>
+                <?php endif; ?>
+            </p>
+            <?php if ($compatible) : ?>
+                <p><?php echo esc_html__('Ready for the Patris CNY-to-IRT pricing contract.', 'digitalogic'); ?></p>
+            <?php else : ?>
+                <p><?php echo esc_html__('Patris produces IRT prices. WooCommerce must use IRT before transformed prices can be applied.', 'digitalogic'); ?></p>
+            <?php endif; ?>
+            <p class="description"><?php echo esc_html__('Read-only monitoring; Digitalogic never changes this setting automatically.', 'digitalogic'); ?></p>
+            <p><a href="<?php echo esc_url(admin_url('admin.php?page=wc-settings')); ?>"><?php echo esc_html__('Open WooCommerce settings', 'digitalogic'); ?></a></p>
+        </div>
         <?php
     }
 
@@ -769,6 +811,7 @@ class Digitalogic_Admin {
                 'bounds' => array('minimum' => '0', 'maximum' => '1000', 'maximum_fraction_digits' => 12),
             );
         }
+        $currency_status = Digitalogic_WooCommerce_Currency_Status::instance()->get_status();
 
         include DIGITALOGIC_PLUGIN_DIR . 'includes/admin/views/patris-reports.php';
     }

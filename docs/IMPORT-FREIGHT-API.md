@@ -195,11 +195,22 @@ does not recalculate or write any WooCommerce product price.
 
 The read-only integration catalog contains the CNY-to-local (currently IRT)
 rate, effective currency date, selected Patris warehouses, enabled/disabled
-method records, and a deterministic revision. Consumers can cache by revision.
+method records, WooCommerce base-currency compatibility, and a deterministic
+revision. Consumers can cache by revision. Catalog schema `1.1.0` remains
+compatible with major-version-1 consumers.
+
 `currency.cny_to_local` is the currency-neutral rate. The compatibility field
 `currency.cny_to_irt` is populated only when the WooCommerce local currency is
 IRT. `currency.effective_date` is ISO `YYYY-MM-DD`; the original compact value
 is retained as `source_effective_date` with format `ymd`.
+
+`currency.woocommerce_base`, `currency.pricing_output`, and
+`currency.compatibility` make the unit boundary explicit. IRT is Toman in this
+contract (`1 IRT = 1 Toman = 10 IRR`). IRR is not accepted as an alias. A
+non-IRT WooCommerce base sets `cny_to_irt` to `null` and adds
+`woocommerce_base_currency_must_be_irt`; the plugin observes this state but
+never changes WooCommerce's setting. See
+[WooCommerce base-currency status](WOOCOMMERCE-CURRENCY-STATUS.md).
 
 `landed_price_v1` is:
 
