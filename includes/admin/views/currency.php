@@ -1,54 +1,20 @@
 <div class="wrap digitalogic-currency">
-    <h1><?php _e('Currency Settings', 'digitalogic'); ?></h1>
-    
+    <h1><?php esc_html_e('Currency Settings', 'digitalogic'); ?></h1>
+
     <form method="post" action="">
         <?php wp_nonce_field('digitalogic_currency_update'); ?>
-        
-        <table class="form-table">
-            <tr>
-                <th scope="row">
-                    <label for="dollar_price"><?php _e('USD Price (in local currency)', 'digitalogic'); ?></label>
-                </th>
-                <td>
-                    <input type="number" step="0.01" name="dollar_price" id="dollar_price" value="<?php echo esc_attr($dollar_price); ?>" class="regular-text">
-                    <p class="description"><?php _e('The exchange rate for 1 USD in your local currency', 'digitalogic'); ?></p>
-                </td>
-            </tr>
-            
-            <tr>
-                <th scope="row">
-                    <label for="yuan_price"><?php _e('CNY/Yuan Price (in local currency)', 'digitalogic'); ?></label>
-                </th>
-                <td>
-                    <input type="number" step="0.01" name="yuan_price" id="yuan_price" value="<?php echo esc_attr($yuan_price); ?>" class="regular-text">
-                    <p class="description"><?php _e('The exchange rate for 1 CNY in your local currency', 'digitalogic'); ?></p>
-                </td>
-            </tr>
-            
-            <tr>
-                <th scope="row">
-                    <label for="recalculate_prices"><?php _e('Recalculate Prices', 'digitalogic'); ?></label>
-                </th>
-                <td>
-                    <input type="checkbox" name="recalculate_prices" id="recalculate_prices" value="1">
-                    <label for="recalculate_prices"><?php _e('Update all products with dynamic pricing after saving', 'digitalogic'); ?></label>
-                </td>
-            </tr>
-            
-            <tr>
-                <th scope="row">
-                    <?php _e('Last Update', 'digitalogic'); ?>
-                </th>
-                <td>
-                    <strong id="update_date">
-                        <?php echo esc_html($update_date); ?>
-                        <br>
-                        <small style="color: #666; font-weight: normal;">(<?php echo esc_html($update_date_relative); ?>)</small>
-                    </strong>
-                </td>
-            </tr>
-        </table>
-        
-        <?php submit_button(__('Update Currency Rates', 'digitalogic')); ?>
+
+        <div id="poststuff">
+            <div id="post-body" class="metabox-holder columns-2">
+                <div id="postbox-container-1" class="postbox-container">
+                    <?php do_meta_boxes($current_screen, 'side', null); ?>
+                </div>
+
+                <div id="postbox-container-2" class="postbox-container">
+                    <?php do_meta_boxes($current_screen, 'normal', null); ?>
+                </div>
+            </div>
+            <br class="clear">
+        </div>
     </form>
 </div>
