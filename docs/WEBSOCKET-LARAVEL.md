@@ -27,6 +27,33 @@ wp digitalogic websocket serve --host=127.0.0.1 --port=8090 --allow-root
 
 Run it under `systemd` or Supervisor in production. Keep it bound to `127.0.0.1` and expose it through Apache at `/wordpress-ws`.
 
+Panel updates are first stored in the bounded WordPress event queue with a
+strictly increasing ID, then the same envelope is published to Redis. Product,
+currency, user, and toast events therefore share one delivery path. The browser
+keeps polling the stored queue every five seconds, so Redis or WebSocket downtime
+does not remove the manual/polling fallback.
+
+The default Redis endpoint is `127.0.0.1:6379`, database unset, channel
+`digitalogic_panel_events`. Deployments that need authentication, a different
+database, or a different endpoint can configure the server-side filter below.
+The password is never included in browser configuration or logs.
+
+```php
+add_filter('digitalogic_panel_redis_config', function ($config) {
+    $config['host'] = '127.0.0.1';
+    $config['port'] = 6379;
+    $config['timeout'] = 0.5;
+    $config['password'] = getenv('DIGITALOGIC_REDIS_PASSWORD') ?: '';
+    $config['database'] = 2;
+    $config['channel'] = 'digitalogic_panel_events';
+    return $config;
+});
+```
+
+The WP-CLI process only marks Redis healthy after successful connection and
+validated `AUTH`, `SELECT`, and `SUBSCRIBE` replies. Failed setup or a dropped
+subscription is retried while clients continue using the queue-backed fallback.
+
 ## Apache
 
 ```apache

@@ -15,6 +15,11 @@ class Digitalogic_Panel {
     private const REWRITE_VERSION_OPTION = 'digitalogic_panel_rewrite_version';
     private const REWRITE_VERSION = '20260617-panel';
     private const EVENT_OPTION = 'digitalogic_panel_events';
+    private const EVENT_SEQUENCE_OPTION = 'digitalogic_panel_event_sequence';
+    private const EVENT_LOCK_NAME = 'digitalogic_panel_events_v1';
+    private const EVENT_LIMIT = 200;
+
+    private static $reported_delivery_failures = array();
 
     private static $instance = null;
 
@@ -159,6 +164,7 @@ class Digitalogic_Panel {
             'theme_mode' => $this->current_theme_mode(),
             'admin_color' => $this->current_admin_color(),
             'theme_storage_key' => 'digitalogic-admin-theme',
+            'event_cursor' => self::get_latest_event_id(),
             'user' => array(
                 'id' => $user->ID,
                 'login' => $user->user_login,
@@ -494,12 +500,75 @@ class Digitalogic_Panel {
     }
 
     public static function get_events_since($since = 0) {
+        self::refresh_event_option_cache();
         $events = get_option(self::EVENT_OPTION, array());
         $events = is_array($events) ? $events : array();
 
         return array_values(array_filter($events, function($event) use ($since) {
                 return isset($event['id']) && absint($event['id']) > $since;
         }));
+    }
+
+    /**
+     * Return the newest stored panel event ID.
+     *
+     * @return int
+     */
+    public static function get_latest_event_id() {
+        self::refresh_event_option_cache();
+        $events = get_option(self::EVENT_OPTION, array());
+        $latest_id = absint(get_option(self::EVENT_SEQUENCE_OPTION, 0));
+
+        if (is_array($events)) {
+            foreach ($events as $event) {
+                if (!is_array($event) || !isset($event['id'])) {
+                    continue;
+                }
+
+                $latest_id = max($latest_id, absint($event['id']));
+            }
+        }
+
+        return $latest_id;
+    }
+
+    /**
+     * Return normalized server-side Redis settings for panel event delivery.
+     *
+     * The password is intentionally limited to server-side consumers. Do not
+     * pass this configuration to client settings or write it to logs.
+     *
+     * @return array{host:string,port:int,timeout:float,password:string,database:?int,channel:string}
+     */
+    public static function get_redis_config() {
+        $defaults = array(
+            'host' => '127.0.0.1',
+            'port' => 6379,
+            'timeout' => 0.2,
+            'password' => '',
+            'database' => null,
+            'channel' => 'digitalogic_panel_events',
+        );
+        $filtered = apply_filters('digitalogic_panel_redis_config', $defaults);
+        $config = is_array($filtered) ? array_merge($defaults, $filtered) : $defaults;
+
+        $host = is_scalar($config['host']) ? trim((string) $config['host']) : '';
+        $port = (int) $config['port'];
+        $timeout = (float) $config['timeout'];
+        $password = is_scalar($config['password']) ? (string) $config['password'] : '';
+        $database = $config['database'] === null || $config['database'] === ''
+            ? null
+            : max(0, (int) $config['database']);
+        $channel = is_scalar($config['channel']) ? trim((string) $config['channel']) : '';
+
+        return array(
+            'host' => $host !== '' ? $host : $defaults['host'],
+            'port' => $port > 0 && $port <= 65535 ? $port : $defaults['port'],
+            'timeout' => $timeout > 0 ? $timeout : $defaults['timeout'],
+            'password' => $password,
+            'database' => $database,
+            'channel' => $channel !== '' ? $channel : $defaults['channel'],
+        );
     }
 
     public function record_product_event($product_id) {
@@ -517,21 +586,189 @@ class Digitalogic_Panel {
     }
 
     public static function record_event($event, $data = array()) {
-        $events = get_option(self::EVENT_OPTION, array());
-        $events = is_array($events) ? $events : array();
-        $events[] = array(
-            'id' => (int) round(microtime(true) * 1000),
-            'event' => sanitize_key(str_replace('.', '_', $event)),
-            'name' => sanitize_text_field($event),
-            'data' => is_array($data) ? $data : array(),
-            'time' => current_time('mysql'),
-        );
-
-        if (count($events) > 200) {
-            $events = array_slice($events, -200);
+        $lock = self::acquire_event_lock();
+        if ($lock === false) {
+            self::report_event_delivery_failure('Could not acquire the database event lock; the event was not recorded.');
+            return null;
         }
 
-        update_option(self::EVENT_OPTION, $events, false);
+        $stored = false;
+        $event_envelope = null;
+
+        try {
+            self::refresh_event_option_cache(true);
+            $events = get_option(self::EVENT_OPTION, array());
+            $events = is_array($events) ? $events : array();
+            $latest_id = absint(get_option(self::EVENT_SEQUENCE_OPTION, 0));
+
+            foreach ($events as $stored_event) {
+                if (is_array($stored_event) && isset($stored_event['id'])) {
+                    $latest_id = max($latest_id, absint($stored_event['id']));
+                }
+            }
+
+            $event_id = max((int) round(microtime(true) * 1000), $latest_id + 1);
+            $event_envelope = array(
+                'id' => $event_id,
+                'event' => sanitize_key(str_replace('.', '_', $event)),
+                'name' => sanitize_text_field($event),
+                'data' => is_array($data) ? $data : array(),
+                'time' => current_time('mysql'),
+            );
+            $events[] = $event_envelope;
+
+            if (count($events) > self::EVENT_LIMIT) {
+                $events = array_slice($events, -self::EVENT_LIMIT);
+            }
+
+            if (!update_option(self::EVENT_SEQUENCE_OPTION, $event_id, false)) {
+                self::report_event_delivery_failure('The durable event sequence could not be updated.');
+            }
+
+            $stored = update_option(self::EVENT_OPTION, $events, false);
+        } finally {
+            self::release_event_lock($lock);
+        }
+
+        if (!$stored || !is_array($event_envelope)) {
+            self::report_event_delivery_failure('The panel event queue could not be updated; Redis publication was skipped.');
+            return null;
+        }
+
+        self::publish_event($event_envelope);
+
+        return $event_envelope;
+    }
+
+    /**
+     * Acquire a database-wide lock around sequence allocation and queue writes.
+     *
+     * MySQL advisory locks serialize all PHP workers that use this writer, so
+     * IDs remain strictly increasing and concurrent option updates cannot drop
+     * an event through a read-modify-write race.
+     *
+     * @return string|false
+     */
+    private static function acquire_event_lock() {
+        global $wpdb;
+
+        if (!is_object($wpdb) || !method_exists($wpdb, 'prepare') || !method_exists($wpdb, 'get_var')) {
+            return 'process';
+        }
+
+        $query = $wpdb->prepare('SELECT GET_LOCK(%s, %d)', self::EVENT_LOCK_NAME, 5);
+        return (string) $wpdb->get_var($query) === '1' ? 'database' : false;
+    }
+
+    /**
+     * Release an event lock acquired by acquire_event_lock().
+     *
+     * @param string $lock Lock provider.
+     */
+    private static function release_event_lock($lock) {
+        global $wpdb;
+
+        if ($lock !== 'database' || !is_object($wpdb) || !method_exists($wpdb, 'prepare') || !method_exists($wpdb, 'get_var')) {
+            return;
+        }
+
+        $wpdb->get_var($wpdb->prepare('SELECT RELEASE_LOCK(%s)', self::EVENT_LOCK_NAME));
+    }
+
+    /**
+     * Avoid stale option values in the long-running WP-CLI WebSocket process.
+     */
+    private static function refresh_event_option_cache($force = false) {
+        if (
+            !function_exists('wp_cache_delete')
+            || (!$force && (!defined('WP_CLI') || !WP_CLI))
+        ) {
+            return;
+        }
+
+        wp_cache_delete(self::EVENT_OPTION, 'options');
+        wp_cache_delete(self::EVENT_SEQUENCE_OPTION, 'options');
+    }
+
+    /**
+     * Publish the already-persisted envelope to Redis for immediate delivery.
+     *
+     * A zero subscriber count is a successful Redis PUBLISH reply. Any false
+     * connection/auth/select/publish response is reported while the option
+     * queue and the browser's polling loop remain the delivery fallback.
+     *
+     * @param array $event_envelope Stored event envelope.
+     * @return bool
+     */
+    private static function publish_event($event_envelope) {
+        $redis = apply_filters('digitalogic_panel_redis_client', null);
+        if ($redis === null) {
+            if (!class_exists('Redis')) {
+                return false;
+            }
+
+            $redis = new Redis();
+        }
+
+        if (!is_object($redis)) {
+            self::report_event_delivery_failure('The Redis publisher factory returned an invalid client.');
+            return false;
+        }
+
+        $config = self::get_redis_config();
+
+        try {
+            if (!method_exists($redis, 'connect') || $redis->connect($config['host'], $config['port'], $config['timeout']) !== true) {
+                throw new RuntimeException('Redis connection failed.');
+            }
+
+            if ($config['password'] !== '' && (!method_exists($redis, 'auth') || $redis->auth($config['password']) !== true)) {
+                throw new RuntimeException('Redis authentication failed.');
+            }
+
+            if ($config['database'] !== null && (!method_exists($redis, 'select') || $redis->select($config['database']) !== true)) {
+                throw new RuntimeException('Redis database selection failed.');
+            }
+
+            $payload = wp_json_encode($event_envelope);
+            if (!is_string($payload)) {
+                throw new RuntimeException('The panel event could not be JSON encoded.');
+            }
+
+            if (!method_exists($redis, 'publish') || $redis->publish($config['channel'], $payload) === false) {
+                throw new RuntimeException('Redis publication failed.');
+            }
+
+            return true;
+        } catch (Throwable $error) {
+            self::report_event_delivery_failure($error->getMessage());
+            return false;
+        } finally {
+            if (method_exists($redis, 'close')) {
+                try {
+                    $redis->close();
+                } catch (Throwable $error) {
+                    // Connection teardown does not change delivery outcome.
+                }
+            }
+        }
+    }
+
+    /**
+     * Report a transport/storage failure and coalesce repeats in this process.
+     *
+     * @param string $message Failure summary without credentials.
+     */
+    private static function report_event_delivery_failure($message) {
+        $message = sanitize_text_field((string) $message);
+        do_action('digitalogic_panel_event_delivery_failed', $message);
+
+        $signature = md5($message);
+        $now = time();
+        if (!isset(self::$reported_delivery_failures[$signature]) || ($now - self::$reported_delivery_failures[$signature]) >= 60) {
+            self::$reported_delivery_failures[$signature] = $now;
+            error_log('[Digitalogic panel events] ' . $message);
+        }
     }
 
     public static function broadcast_panel_message($data = array()) {
@@ -540,22 +777,7 @@ class Digitalogic_Panel {
             $data['message'] = __('Panel notification', 'digitalogic');
         }
 
-        self::record_event('panel.toast', $data);
-
-        if (class_exists('Redis')) {
-            try {
-                $redis = new Redis();
-                $redis->connect('127.0.0.1', 6379, 0.2);
-                $redis->publish('digitalogic_panel_events', wp_json_encode(array(
-                    'event' => 'panel.toast',
-                    'data' => $data,
-                    'time' => current_time('mysql'),
-                )));
-                $redis->close();
-            } catch (Throwable $e) {
-                // The option-backed event queue remains the reliable fallback.
-            }
-        }
+        return self::record_event('panel.toast', $data);
     }
 
     private function format_user($user) {

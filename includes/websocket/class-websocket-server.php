@@ -23,7 +23,7 @@ class Digitalogic_WebSocket_Server {
 
         stream_set_blocking($server, false);
         if (defined('WP_CLI') && WP_CLI) {
-            WP_CLI::success('Digitalogic WebSocket server listening on ' . $host . ':' . $port);
+            WP_CLI::log('Digitalogic WebSocket server listening on ' . $host . ':' . $port);
         }
 
         $this->connect_redis_subscriber();
@@ -298,41 +298,140 @@ class Digitalogic_WebSocket_Server {
     private function connect_redis_subscriber() {
         $this->close_redis_subscriber();
 
-        $config = class_exists('Digitalogic_Panel') ? Digitalogic_Panel::get_redis_config() : array();
-        $host = isset($config['host']) ? (string) $config['host'] : '127.0.0.1';
-        $port = isset($config['port']) ? (int) $config['port'] : 6379;
-        $timeout = isset($config['timeout']) ? (float) $config['timeout'] : 0.2;
-        $password = isset($config['password']) ? (string) $config['password'] : '';
-        $database = array_key_exists('database', $config) && $config['database'] !== null ? (int) $config['database'] : null;
-        $this->redis_channel = !empty($config['channel']) ? (string) $config['channel'] : 'digitalogic_panel_events';
+        $config = Digitalogic_Panel::get_redis_config();
+        $host = $config['host'];
+        $port = $config['port'];
+        $timeout = $config['timeout'];
+        $password = $config['password'];
+        $database = $config['database'];
+        $this->redis_channel = $config['channel'];
 
         $socket = @stream_socket_client('tcp://' . $host . ':' . $port, $errno, $errstr, $timeout);
         if (!is_resource($socket)) {
-            $this->redis_next_connect_at = microtime(true) + 5;
-            if (defined('WP_CLI') && WP_CLI) {
-                WP_CLI::warning('Digitalogic WebSocket Redis subscriber unavailable: ' . $errstr);
-            }
+            $this->schedule_redis_retry('Redis connection failed: ' . $errstr, 5);
             return;
         }
 
-        stream_set_blocking($socket, false);
+        stream_set_blocking($socket, true);
+        $timeout_seconds = (int) floor($timeout);
+        $timeout_microseconds = (int) (($timeout - $timeout_seconds) * 1000000);
+        stream_set_timeout($socket, $timeout_seconds, $timeout_microseconds);
         $this->redis_socket = $socket;
         $this->redis_buffer = '';
+
+        try {
+            if ($password !== '') {
+                $auth_reply = $this->send_redis_setup_command(array('AUTH', $password), $timeout);
+                if ((string) $auth_reply !== 'OK') {
+                    throw new RuntimeException('Redis AUTH was rejected.');
+                }
+            }
+
+            if ($database !== null) {
+                $select_reply = $this->send_redis_setup_command(array('SELECT', (string) $database), $timeout);
+                if ((string) $select_reply !== 'OK') {
+                    throw new RuntimeException('Redis SELECT was rejected.');
+                }
+            }
+
+            $subscribe_reply = $this->send_redis_setup_command(array('SUBSCRIBE', $this->redis_channel), $timeout);
+            if (
+                !is_array($subscribe_reply)
+                || count($subscribe_reply) < 3
+                || strtolower((string) $subscribe_reply[0]) !== 'subscribe'
+                || (string) $subscribe_reply[1] !== $this->redis_channel
+                || (int) $subscribe_reply[2] < 1
+            ) {
+                throw new RuntimeException('Redis SUBSCRIBE acknowledgement was invalid.');
+            }
+        } catch (Throwable $error) {
+            $this->schedule_redis_retry($error->getMessage(), 5);
+            return;
+        }
+
+        stream_set_blocking($this->redis_socket, false);
+        stream_set_timeout($this->redis_socket, 0);
         $this->redis_next_connect_at = 0;
-
-        if ($password !== '') {
-            @fwrite($this->redis_socket, $this->redis_encode_command(array('AUTH', $password)));
-        }
-
-        if ($database !== null) {
-            @fwrite($this->redis_socket, $this->redis_encode_command(array('SELECT', (string) $database)));
-        }
-
-        @fwrite($this->redis_socket, $this->redis_encode_command(array('SUBSCRIBE', $this->redis_channel)));
         $this->send_missed_panel_events();
+        $this->process_redis_buffer();
 
         if (defined('WP_CLI') && WP_CLI) {
             WP_CLI::log('Digitalogic WebSocket subscribed to Redis channel ' . $this->redis_channel . '.');
+        }
+    }
+
+    /**
+     * Schedule a clean Redis reconnect after setup or I/O failure.
+     *
+     * @param string $message Failure summary without credentials.
+     * @param int    $delay Retry delay in seconds.
+     */
+    private function schedule_redis_retry($message, $delay = 5) {
+        $this->close_redis_subscriber();
+        $this->redis_next_connect_at = microtime(true) + max(1, (int) $delay);
+
+        if (defined('WP_CLI') && WP_CLI) {
+            WP_CLI::warning('Digitalogic WebSocket Redis subscriber unavailable: ' . sanitize_text_field($message));
+        }
+    }
+
+    /**
+     * Write a complete Redis command and synchronously read its setup reply.
+     *
+     * @param array $parts Redis command parts.
+     * @param float $timeout Read timeout in seconds.
+     * @return mixed
+     */
+    private function send_redis_setup_command($parts, $timeout) {
+        $payload = $this->redis_encode_command($parts);
+        $length = strlen($payload);
+        $written = 0;
+
+        while ($written < $length) {
+            $result = @fwrite($this->redis_socket, substr($payload, $written));
+            if ($result === false || $result === 0) {
+                throw new RuntimeException('Redis command write failed.');
+            }
+
+            $written += $result;
+        }
+
+        return $this->read_redis_setup_reply($timeout);
+    }
+
+    /**
+     * Read exactly one complete RESP reply during subscriber setup.
+     *
+     * @param float $timeout Read timeout in seconds.
+     * @return mixed
+     */
+    private function read_redis_setup_reply($timeout) {
+        $deadline = microtime(true) + max(0.1, (float) $timeout);
+
+        while (true) {
+            if ($this->redis_buffer !== '') {
+                list($complete, $reply) = $this->pop_redis_reply();
+                if ($complete) {
+                    return $reply;
+                }
+            }
+
+            $chunk = @fread($this->redis_socket, 8192);
+            if (is_string($chunk) && $chunk !== '') {
+                $this->redis_buffer .= $chunk;
+                continue;
+            }
+
+            $metadata = stream_get_meta_data($this->redis_socket);
+            if (!empty($metadata['timed_out']) || microtime(true) >= $deadline) {
+                throw new RuntimeException('Redis setup reply timed out.');
+            }
+
+            if (!empty($metadata['eof'])) {
+                throw new RuntimeException('Redis closed the setup connection.');
+            }
+
+            usleep(10000);
         }
     }
 
@@ -353,13 +452,19 @@ class Digitalogic_WebSocket_Server {
         $chunk = @fread($this->redis_socket, 8192);
         if ($chunk === '' || $chunk === false) {
             if (feof($this->redis_socket)) {
-                $this->close_redis_subscriber();
-                $this->redis_next_connect_at = microtime(true) + 1;
+                $this->schedule_redis_retry('Redis closed the subscription connection.', 1);
             }
             return;
         }
 
         $this->redis_buffer .= $chunk;
+        $this->process_redis_buffer();
+    }
+
+    /**
+     * Process all complete Redis replies already buffered in userspace.
+     */
+    private function process_redis_buffer() {
         while ($this->redis_buffer !== '') {
             list($complete, $reply) = $this->pop_redis_reply();
             if (!$complete) {
@@ -381,7 +486,15 @@ class Digitalogic_WebSocket_Server {
         }
 
         $event = json_decode((string) $reply[2], true);
-        if (!is_array($event)) {
+        if (
+            !is_array($event)
+            || empty($event['id'])
+            || empty($event['name'])
+            || !isset($event['data'])
+            || !is_array($event['data'])
+            || !isset($event['time'])
+            || !is_string($event['time'])
+        ) {
             return;
         }
 
