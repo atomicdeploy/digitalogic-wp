@@ -30,6 +30,10 @@ final class Digitalogic_Import_Freight_Service {
     public const DEFAULT_MARKUP_SCHEMA = 'digitalogic.default-percentage-markup';
     public const DEFAULT_MARKUP_SCHEMA_VERSION = '1.0.0';
 
+	public const PRICING_ASSIGNMENT_BATCH_SCHEMA         = 'digitalogic.pricing-assignment-batch';
+	public const PRICING_ASSIGNMENT_BATCH_SCHEMA_VERSION = '1.0.0';
+	public const MAX_PRICING_ASSIGNMENT_BATCH_SIZE       = 500;
+
     private const MIGRATION_VERSION = 1;
     private const MAX_BATCH_SIZE = 500;
     private const CATALOG_LOCK_NAME = 'digitalogic_import_freight_catalog_v1';
@@ -575,6 +579,117 @@ final class Digitalogic_Import_Freight_Service {
 
         return $this->build_assignment_response($resolved);
     }
+
+	/**
+	 * Resolve a bounded list of exact product Codes without mutating state.
+	 *
+	 * Results retain normalized request order. Product lookup failures are
+	 * represented per Code so one missing or ambiguous product does not hide
+	 * valid assignments in the same read. Shared default-markup state is loaded
+	 * once and reused for every successful row.
+	 *
+	 * @param array $codes Exact Patris Codes or SKU compatibility fallbacks.
+	 * @return array|WP_Error
+	 */
+	public function get_product_assignments_by_codes( $codes ) {
+		if ( ! is_array( $codes ) || array_values( $codes ) !== $codes ) {
+			return new WP_Error(
+				'digitalogic_pricing_assignment_batch_shape_invalid',
+				__( 'Product Codes must be provided as an ordered JSON list.', 'digitalogic' ),
+				array( 'status' => 400 )
+			);
+		}
+		if ( empty( $codes ) ) {
+			return new WP_Error(
+				'digitalogic_pricing_assignment_batch_empty',
+				__( 'At least one product Code is required.', 'digitalogic' ),
+				array( 'status' => 400 )
+			);
+		}
+		if ( count( $codes ) > self::MAX_PRICING_ASSIGNMENT_BATCH_SIZE ) {
+			return new WP_Error(
+				'digitalogic_pricing_assignment_batch_too_large',
+				sprintf(
+					/* translators: %d: maximum number of Codes per request. */
+					__( 'Pricing assignment read batches are limited to %d Codes.', 'digitalogic' ),
+					self::MAX_PRICING_ASSIGNMENT_BATCH_SIZE
+				),
+				array(
+					'status'        => 413,
+					'maximum_codes' => self::MAX_PRICING_ASSIGNMENT_BATCH_SIZE,
+				)
+			);
+		}
+
+		$normalized_codes = array();
+		$seen             = array();
+		foreach ( array_values( $codes ) as $index => $code ) {
+			$normalized = $this->normalize_code( $code );
+			if ( '' === $normalized ) {
+				return new WP_Error(
+					'digitalogic_pricing_assignment_batch_code_invalid',
+					__( 'Every pricing assignment batch item must be a non-empty string or integer Code.', 'digitalogic' ),
+					array(
+						'status' => 400,
+						'index'  => $index,
+					)
+				);
+			}
+			if ( isset( $seen[ $normalized ] ) ) {
+				return new WP_Error(
+					'digitalogic_pricing_assignment_batch_code_duplicate',
+					__( 'Duplicate product Codes are not allowed in a pricing assignment read batch.', 'digitalogic' ),
+					array(
+						'status'      => 400,
+						'code_value'  => $normalized,
+						'first_index' => $seen[ $normalized ],
+						'index'       => $index,
+					)
+				);
+			}
+			$seen[ $normalized ] = $index;
+			$normalized_codes[]  = $normalized;
+		}
+
+		$default_markup = $this->load_default_percentage_markup();
+		$results        = array();
+		$resolved_count = 0;
+		foreach ( $normalized_codes as $code ) {
+			$resolved = $this->resolve_freight_product( $code );
+			if ( is_wp_error( $resolved ) ) {
+				$data      = $resolved->get_error_data();
+				$status    = is_array( $data ) && isset( $data['status'] ) ? (int) $data['status'] : 400;
+				$results[] = array(
+					'code'   => $code,
+					'status' => 'error',
+					'error'  => array(
+						'code'        => (string) $resolved->get_error_code(),
+						'http_status' => $status,
+						'retryable'   => $status >= 500,
+					),
+				);
+				continue;
+			}
+
+			++$resolved_count;
+			$results[] = array(
+				'code'       => $code,
+				'status'     => 'ok',
+				'assignment' => $this->build_pricing_assignment_projection( $code, $resolved, $default_markup ),
+			);
+		}
+
+		return array(
+			'schema'                    => self::PRICING_ASSIGNMENT_BATCH_SCHEMA,
+			'schema_version'            => self::PRICING_ASSIGNMENT_BATCH_SCHEMA_VERSION,
+			'requested_count'           => count( $normalized_codes ),
+			'resolved_count'            => $resolved_count,
+			'error_count'               => count( $normalized_codes ) - $resolved_count,
+			'maximum_codes'             => self::MAX_PRICING_ASSIGNMENT_BATCH_SIZE,
+			'default_percentage_markup' => $default_markup,
+			'results'                   => $results,
+		);
+	}
 
     /**
      * Assign or clear a method through deterministic Code/SKU resolution.
@@ -1334,6 +1449,54 @@ final class Digitalogic_Import_Freight_Service {
             'pricing_warnings' => $markup['warning'] ? array($markup['warning']) : array(),
         ));
     }
+
+	/**
+	 * Build the stable machine projection used by the batch read contract.
+	 *
+	 * @param string $requested_code Normalized Code from the request.
+	 * @param array  $resolved Resolved internal product identity.
+	 * @param array  $default_markup Preloaded default-markup contract.
+	 * @return array
+	 */
+	private function build_pricing_assignment_projection( $requested_code, $resolved, $default_markup ) {
+		$method_row = $this->read_post_meta_db( $resolved['product_id'], self::PRODUCT_METHOD_META );
+		$markup     = $this->build_exact_markup_contract( $resolved['product_id'], $default_markup );
+
+		return array(
+			'code'                     => $requested_code,
+			'import_freight_method_id' => $method_row['exists'] ? (string) $method_row['value'] : '',
+			'profit_percent'           => $markup['profit_percent'],
+			'profit_percent_source'    => $markup['source'],
+			'pricing_warnings'         => $markup['warning'] ? array( $markup['warning'] ) : array(),
+		);
+	}
+
+	/**
+	 * Preserve an exact product percentage in the machine batch projection.
+	 *
+	 * @param int   $product_id Product post ID.
+	 * @param array $default_markup Preloaded default-markup contract.
+	 * @return array
+	 */
+	private function build_exact_markup_contract( $product_id, $default_markup ) {
+		$markup = $this->build_markup_contract( $product_id, $default_markup );
+		if ( 'percentage' !== $markup['type'] || 'product_override' !== $markup['source'] ) {
+			return $markup;
+		}
+
+		$canonical = $this->canonical_default_percentage( get_post_meta( $product_id, '_digitalogic_markup', true ) );
+		if ( is_wp_error( $canonical ) ) {
+			$markup['value']          = null;
+			$markup['profit_percent'] = null;
+			$markup['source']         = null;
+			$markup['warning']        = 'percentage_markup_value_invalid';
+			return $markup;
+		}
+
+		$markup['value']          = $canonical;
+		$markup['profit_percent'] = $canonical;
+		return $markup;
+	}
 
     private function count_assignments($method_id) {
         $ids = get_posts(array(

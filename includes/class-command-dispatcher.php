@@ -93,6 +93,7 @@ class Digitalogic_Command_Dispatcher {
             'digitalogic_update_import_freight_method' => array($this, 'update_import_freight_method'),
             'digitalogic_delete_import_freight_method' => array($this, 'delete_import_freight_method'),
             'digitalogic_get_product_import_pricing' => array($this, 'get_product_import_pricing'),
+			'digitalogic_get_product_import_pricing_batch' => array( $this, 'get_product_import_pricing_batch' ),
             'digitalogic_assign_product_import_freight' => array($this, 'assign_product_import_freight'),
             'digitalogic_batch_assign_product_import_freight' => array($this, 'batch_assign_product_import_freight'),
         );
@@ -323,6 +324,20 @@ class Digitalogic_Command_Dispatcher {
             isset($payload['code']) ? $payload['code'] : ''
         );
     }
+
+	/**
+	 * Read a bounded batch of product pricing assignments.
+	 *
+	 * @param array $payload Command payload.
+	 * @return array|WP_Error
+	 */
+	public function get_product_import_pricing_batch( $payload ) {
+		$codes = is_array( $payload ) && array_key_exists( 'codes', $payload )
+			? $payload['codes']
+			: array();
+
+		return Digitalogic_Import_Freight_Service::instance()->get_product_assignments_by_codes( $codes );
+	}
 
     public function assign_product_import_freight($payload) {
         if (array_key_exists('import_freight_method_id', $payload)) {

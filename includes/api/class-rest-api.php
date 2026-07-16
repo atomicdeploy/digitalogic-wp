@@ -325,6 +325,16 @@ class Digitalogic_REST_API {
             ),
         ));
 
+		register_rest_route(
+			'digitalogic/v1',
+			'/pricing-assignments/batch',
+			array(
+				'methods'             => 'POST',
+				'callback'            => array( $this, 'get_product_import_pricing_batch' ),
+				'permission_callback' => array( $this, 'check_read_permission' ),
+			)
+		);
+
         register_rest_route('digitalogic/v1', '/products/import-pricing/batch', array(
             'methods' => 'POST',
             'callback' => array($this, 'batch_assign_product_import_freight'),
@@ -746,6 +756,18 @@ class Digitalogic_REST_API {
             Digitalogic_Command_Dispatcher::instance()->get_product_import_pricing(array('code' => $request['code']))
         );
     }
+
+	/**
+	 * Read a bounded batch of product pricing assignments.
+	 *
+	 * @param WP_REST_Request $request REST request.
+	 * @return WP_REST_Response
+	 */
+	public function get_product_import_pricing_batch( WP_REST_Request $request ) {
+		return $this->import_freight_response(
+			Digitalogic_Command_Dispatcher::instance()->get_product_import_pricing_batch( $this->request_payload( $request ) )
+		);
+	}
 
     public function assign_product_import_freight(WP_REST_Request $request) {
         $payload = $this->request_payload($request);
