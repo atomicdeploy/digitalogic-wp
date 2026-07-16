@@ -397,7 +397,6 @@ class Digitalogic_Patris_Feed {
         }
 
         $product->save();
-        wc_update_product_lookup_tables($product->get_id());
     }
 
     private function clean_string($value) {

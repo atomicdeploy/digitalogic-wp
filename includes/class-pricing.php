@@ -149,9 +149,6 @@ class Digitalogic_Pricing {
         // Save all product changes (meta data + price)
         $product->save();
         
-        // Update product lookup tables
-        wc_update_product_lookup_tables($product_id);
-        
         return true;
     }
     
