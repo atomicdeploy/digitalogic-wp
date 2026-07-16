@@ -237,8 +237,10 @@ final class Digitalogic_Import_Freight_Service {
     /**
      * Set or explicitly clear the catalog-wide default percentage markup.
      *
-     * Null and an empty string remove the option. An equivalent canonical
-     * value is an idempotent no-op and does not publish another domain event.
+     * Only null removes the option. Blank strings are invalid so an omitted
+     * form value cannot accidentally perform a destructive clear. An
+     * equivalent canonical value is an idempotent no-op and does not publish
+     * another domain event.
      * This mutation never recalculates or writes a WooCommerce product price.
      *
      * @param mixed $value Decimal percentage or null to clear.
@@ -250,7 +252,7 @@ final class Digitalogic_Import_Freight_Service {
             return $migration;
         }
 
-        $clear = is_null($value) || (is_string($value) && '' === trim($value));
+        $clear = is_null($value);
         $canonical = null;
         if (!$clear) {
             $canonical = $this->canonical_default_percentage($value);
@@ -737,6 +739,9 @@ final class Digitalogic_Import_Freight_Service {
             $results = array();
             $updated = 0;
             $delivery_warnings = array();
+            // The catalog lock keeps this exact direct-DB read stable for the
+            // response loop and avoids one option query per batch row.
+            $default_markup = $this->load_default_percentage_markup();
             foreach ($prepared as $index => $row) {
                 if (!empty($writes[$index]['changed'])) {
                     $updated++;
@@ -747,7 +752,7 @@ final class Digitalogic_Import_Freight_Service {
                     ));
                 }
 
-                $response = $this->build_assignment_response($row['resolved']);
+                $response = $this->build_assignment_response($row['resolved'], $default_markup);
                 $response['changed'] = !empty($writes[$index]['changed']);
                 $results[] = $response;
             }
@@ -1309,12 +1314,15 @@ final class Digitalogic_Import_Freight_Service {
         return array('changed' => $changed, 'product_id' => (int) $product_id);
     }
 
-    private function build_assignment_response($resolved) {
+    private function build_assignment_response($resolved, $default_markup = null) {
         $method_row = $this->read_post_meta_db($resolved['product_id'], self::PRODUCT_METHOD_META);
         $legacy_row = $this->read_post_meta_db($resolved['product_id'], self::LEGACY_PRODUCT_METHOD_META);
         $method_id = $method_row['exists'] ? (string) $method_row['value'] : '';
         $methods = $this->load_methods();
-        $markup = $this->build_markup_contract($resolved['product_id']);
+        if (!is_array($default_markup)) {
+            $default_markup = $this->load_default_percentage_markup();
+        }
+        $markup = $this->build_markup_contract($resolved['product_id'], $default_markup);
 
         return array_merge($resolved, array(
             'import_freight_method_id' => $method_id,
@@ -2060,17 +2068,48 @@ final class Digitalogic_Import_Freight_Service {
         });
     }
 
-    private function build_markup_contract($product_id) {
-        $type = sanitize_key((string) get_post_meta($product_id, '_digitalogic_markup_type', true));
+    private function build_markup_contract($product_id, $default_markup) {
+        $type_exists = metadata_exists('post', $product_id, '_digitalogic_markup_type');
+        $value_exists = metadata_exists('post', $product_id, '_digitalogic_markup');
+        $raw_type = get_post_meta($product_id, '_digitalogic_markup_type', true);
         $raw_value = get_post_meta($product_id, '_digitalogic_markup', true);
-        $value_present = !is_null($raw_value) && !(is_string($raw_value) && '' === trim($raw_value));
+        $type_input = is_scalar($raw_type) ? strtolower(trim(wp_unslash((string) $raw_type))) : '';
+        $type = sanitize_key($type_input);
+        $type_malformed = $type_exists && (
+            !is_scalar($raw_type)
+            || ('' !== $type_input && ('' === $type || $type !== $type_input))
+        );
+        $type_empty = !$type_exists || '' === $type_input;
+        $value_empty = !$value_exists
+            || is_null($raw_value)
+            || (is_string($raw_value) && '' === trim($raw_value));
+        $semantically_unconfigured = (
+            (!$type_exists && !$value_exists)
+            || ($type_exists && $value_exists && $type_empty && $value_empty)
+        );
+        $value_present = !$value_empty;
         $value = $this->number_or_null($raw_value);
         $profit_percent = null;
         $source = null;
         $default_revision = null;
         $warning = null;
 
-        if ($type === 'percentage' && !is_null($value) && $value >= 0 && $value <= (float) self::DEFAULT_MARKUP_MAX_PERCENT) {
+        if ($type_malformed) {
+            $warning = 'markup_type_malformed';
+        } elseif ($semantically_unconfigured) {
+            if (!empty($default_markup['configured'])) {
+                $profit_percent = $default_markup['profit_percent'];
+                $source = 'global_default';
+                $default_revision = $default_markup['revision'];
+            } else {
+                $source = 'unset';
+                $warning = 'markup_missing';
+            }
+        } elseif ($type_exists && !$value_exists && $type_empty) {
+            $warning = 'markup_metadata_value_absent';
+        } elseif (!$type_exists && $value_exists && $value_empty) {
+            $warning = 'markup_metadata_type_absent';
+        } elseif ($type === 'percentage' && !is_null($value) && $value >= 0 && $value <= (float) self::DEFAULT_MARKUP_MAX_PERCENT) {
             $profit_percent = $value;
             $source = 'product_override';
         } elseif ($type === 'fixed') {
@@ -2078,19 +2117,7 @@ final class Digitalogic_Import_Freight_Service {
         } elseif ($type === 'percentage') {
             $warning = !$value_present ? 'percentage_markup_value_missing' : 'percentage_markup_value_invalid';
         } elseif ($type === '') {
-            if (!$value_present) {
-                $default = $this->load_default_percentage_markup();
-                if (!empty($default['configured'])) {
-                    $profit_percent = $default['profit_percent'];
-                    $source = 'global_default';
-                    $default_revision = $default['revision'];
-                } else {
-                    $source = 'unset';
-                    $warning = 'markup_missing';
-                }
-            } else {
-                $warning = 'markup_type_missing';
-            }
+            $warning = 'markup_type_missing';
         } else {
             $warning = 'markup_type_unsupported';
         }

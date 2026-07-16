@@ -165,8 +165,10 @@ digits. JSON clients should send a string to preserve every decimal digit:
 {"profit_percent": "30.125"}
 ```
 
-Use `{"profit_percent": null}` to clear it. The absence of the option is the
-only unset state; there is no hard-coded fallback. The workbook's current 30%
+Use `{"profit_percent": null}` to clear it. JSON `null` is the only destructive
+API/command value: a blank or whitespace-only value is invalid with HTTP 400,
+and the administrator UI provides a separate clear action. The absence of the
+option is the only unset state; there is no hard-coded fallback. The workbook's current 30%
 is a proposed reviewed production action, not an automatic migration or seed.
 The setting revision covers its configured state and exact decimal. The parent
 integration-catalog revision includes the full setting metadata, so Patris can
@@ -211,14 +213,19 @@ Product assignment reads expose the markup mapping used by the formula:
 ```
 
 Only a valid product `percentage` maps directly to `profit_percent`, with
-`source: product_override`. When both product markup fields are truly absent,
-the configured default is returned as an exact decimal string with
-`source: global_default` and its setting revision. A fixed, malformed,
-explicitly incomplete percentage, or unsupported product markup returns
-`profit_percent: null` and a machine-readable warning; these explicit product
-states never silently fall back or treat a fixed amount as a percent. If both
-the product and global default are absent, the existing `markup_missing`
-warning remains.
+`source: product_override`. Product markup is semantically unconfigured when
+both metadata rows are absent, or when both rows exist and both values are
+empty. In either state, the configured default is returned as an exact decimal
+string with `source: global_default` and its setting revision. Treating paired
+stored-empty rows this way preserves the current live product data contract.
+
+One-sided metadata rows never fall back. Empty one-sided rows report
+`markup_metadata_value_absent` or `markup_metadata_type_absent`; malformed raw
+types report `markup_type_malformed`. Fixed, unsupported, nonempty malformed,
+or incomplete percentage states likewise return `profit_percent: null` and a
+machine-readable warning instead of treating a fixed amount as a percent. If
+the product is semantically unconfigured and the global default is absent, the
+existing `markup_missing` warning remains.
 
 Administrators can manage the nullable default, methods, and assignments by exact Patris Code/SKU
 on the existing Patris Reports screen. This UI and all integration routes are

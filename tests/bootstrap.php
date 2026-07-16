@@ -588,6 +588,7 @@ class Digitalogic_Test_WPDB {
     public $mysql_string_roundtrip = false;
     public $after_rollback = null;
     public $identifier_query_count = 0;
+    public $option_read_counts = array();
     private $transaction_snapshot = null;
     private $meta_ids = array();
     private $next_meta_id = 1;
@@ -620,6 +621,10 @@ class Digitalogic_Test_WPDB {
 
         if (strpos($query, $this->options) !== false) {
             $name = isset($args[0]) ? (string) $args[0] : '';
+            if (!isset($this->option_read_counts[$name])) {
+                $this->option_read_counts[$name] = 0;
+            }
+            $this->option_read_counts[$name]++;
             return array_key_exists($name, $GLOBALS['digitalogic_test_options'])
                 ? array('option_value' => $this->database_raw_value($GLOBALS['digitalogic_test_options'][$name]))
                 : null;

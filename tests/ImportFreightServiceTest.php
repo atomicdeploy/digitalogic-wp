@@ -1033,6 +1033,8 @@ final class ImportFreightServiceTest extends TestCase {
     public function test_default_markup_validation_bounds_and_mysql_string_readback_are_exact() {
         $this->service->get_default_percentage_markup();
         $invalid = array(
+            '' => 'digitalogic_import_freight_default_markup_invalid',
+            '   ' => 'digitalogic_import_freight_default_markup_invalid',
             '1e2' => 'digitalogic_import_freight_default_markup_invalid',
             '-0.1' => 'digitalogic_import_freight_default_markup_out_of_range',
             '1000.0000001' => 'digitalogic_import_freight_default_markup_out_of_range',
@@ -1099,6 +1101,33 @@ final class ImportFreightServiceTest extends TestCase {
         $this->assertSame($default['revision'], $global['markup']['default_revision']);
         $this->assertSame(array(), $global['pricing_warnings']);
 
+        update_post_meta(602, '_digitalogic_markup_type', '');
+        update_post_meta(602, '_digitalogic_markup', '');
+        $paired_empty = $this->service->get_product_assignment_by_code('MARKUP-602');
+        $this->assertSame('30', $paired_empty['profit_percent']);
+        $this->assertSame('global_default', $paired_empty['profit_percent_source']);
+        $this->assertSame($default['revision'], $paired_empty['markup']['default_revision']);
+        $this->assertSame(array(), $paired_empty['pricing_warnings']);
+
+        delete_post_meta(602, '_digitalogic_markup');
+        $type_only_empty = $this->service->get_product_assignment_by_code('MARKUP-602');
+        $this->assertNull($type_only_empty['profit_percent']);
+        $this->assertNull($type_only_empty['profit_percent_source']);
+        $this->assertSame(array('markup_metadata_value_absent'), $type_only_empty['pricing_warnings']);
+
+        delete_post_meta(602, '_digitalogic_markup_type');
+        update_post_meta(602, '_digitalogic_markup', '');
+        $value_only_empty = $this->service->get_product_assignment_by_code('MARKUP-602');
+        $this->assertNull($value_only_empty['profit_percent']);
+        $this->assertNull($value_only_empty['profit_percent_source']);
+        $this->assertSame(array('markup_metadata_type_absent'), $value_only_empty['pricing_warnings']);
+
+        update_post_meta(602, '_digitalogic_markup_type', '***');
+        $malformed_type = $this->service->get_product_assignment_by_code('MARKUP-602');
+        $this->assertNull($malformed_type['profit_percent']);
+        $this->assertNull($malformed_type['profit_percent_source']);
+        $this->assertSame(array('markup_type_malformed'), $malformed_type['pricing_warnings']);
+
         update_post_meta(602, '_digitalogic_markup_type', 'percentage');
         update_post_meta(602, '_digitalogic_markup', '12.5');
         $override = $this->service->get_product_assignment_by_code('MARKUP-602');
@@ -1144,6 +1173,41 @@ final class ImportFreightServiceTest extends TestCase {
         $fallback = $this->service->get_product_assignment_by_code('MARKUP-602');
         $this->assertSame('30', $fallback['profit_percent']);
         $this->assertSame('global_default', $fallback['profit_percent_source']);
+    }
+
+    public function test_batch_assignment_reads_default_markup_once_for_all_response_rows() {
+        $assignments = array();
+        for ($index = 0; $index < 12; $index++) {
+            $product_id = 620 + $index;
+            $code = 'BATCH-MARKUP-' . $product_id;
+            $GLOBALS['digitalogic_test_posts'][$product_id] = array(
+                'post_type' => 'product',
+                'post_status' => 'publish',
+                'meta' => array('_sku' => $code),
+            );
+            $assignments[] = array(
+                'code' => $code,
+                'method_id' => 'air_express',
+            );
+        }
+
+        $this->service->migrate_legacy_data();
+        $this->service->update_default_percentage_markup('30');
+        $GLOBALS['wpdb']->option_read_counts = array();
+
+        $result = $this->service->batch_assign_products($assignments);
+
+        $this->assertFalse(is_wp_error($result));
+        $this->assertSame(12, $result['updated']);
+        $this->assertCount(12, $result['assignments']);
+        foreach ($result['assignments'] as $assignment) {
+            $this->assertSame('30', $assignment['profit_percent']);
+            $this->assertSame('global_default', $assignment['profit_percent_source']);
+        }
+        $this->assertSame(
+            1,
+            $GLOBALS['wpdb']->option_read_counts[Digitalogic_Import_Freight_Service::DEFAULT_MARKUP_OPTION] ?? 0
+        );
     }
 
     public function test_thirty_percent_global_fixture_produces_2009410_irt() {
@@ -1194,6 +1258,31 @@ final class ImportFreightServiceTest extends TestCase {
         $get = $api->get_default_percentage_markup(new WP_REST_Request());
         $this->assertSame(200, $get->get_status());
         $this->assertSame($put->get_data()['data']['revision'], $get->get_data()['data']['revision']);
+
+        foreach (array('', '   ') as $blank) {
+            $invalid_rest = $api->update_default_percentage_markup(
+                new WP_REST_Request(array(), array('profit_percent' => $blank))
+            );
+            $this->assertSame(400, $invalid_rest->get_status());
+            $this->assertSame(
+                'digitalogic_import_freight_default_markup_invalid',
+                $invalid_rest->get_data()['code']
+            );
+            $this->assertSame('30', $this->service->get_default_percentage_markup()['profit_percent']);
+
+            $invalid_command = $dispatcher->execute(
+                'digitalogic_update_default_percentage_markup',
+                array('profit_percent' => $blank),
+                'websocket'
+            );
+            $this->assertSame(
+                'digitalogic_import_freight_default_markup_invalid',
+                $invalid_command->get_error_code()
+            );
+            $this->assertSame(400, $invalid_command->get_error_data()['status']);
+            $this->assertSame('30', $this->service->get_default_percentage_markup()['profit_percent']);
+        }
+
         $clear = $api->update_default_percentage_markup(new WP_REST_Request(array(), array('profit_percent' => null)));
         $this->assertSame(200, $clear->get_status());
         $this->assertFalse($clear->get_data()['data']['configured']);
@@ -1202,6 +1291,10 @@ final class ImportFreightServiceTest extends TestCase {
         $view = file_get_contents(dirname(__DIR__) . '/includes/admin/views/patris-reports.php');
         $this->assertStringContainsString("case 'update_default_markup'", $admin);
         $this->assertStringContainsString("case 'clear_default_markup'", $admin);
+        $this->assertMatchesRegularExpression(
+            "/case 'update_default_markup'.*posted_value\\('default_profit_percent'\\).*case 'clear_default_markup'.*update_default_percentage_markup\\(null\\)/s",
+            $admin
+        );
         $this->assertStringContainsString('WooCommerce prices were not changed.', $admin);
         $this->assertStringContainsString('digitalogic_import_freight_admin', $view);
         $this->assertStringContainsString('name="default_profit_percent"', $view);
