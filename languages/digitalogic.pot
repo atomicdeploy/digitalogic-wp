@@ -1,212 +1,1810 @@
-# Digitalogic WordPress Plugin - Translation Template
-# Copyright (C) 2024 Digitalogic
-# This file is distributed under the same license as the Digitalogic package.
+# Copyright (C) 2026 Digitalogic
+# This file is distributed under the GPL v2 or later.
 msgid ""
 msgstr ""
-"Project-Id-Version: Digitalogic 1.0.0\n"
-"Report-Msgid-Bugs-To: https://github.com/atomicdeploy/digitalogic-wp\n"
-"POT-Creation-Date: 2024-01-01 00:00+0000\n"
-"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Project-Id-Version: Digitalogic WooCommerce Extension 1.3.0\n"
+"Report-Msgid-Bugs-To: https://wordpress.org/support/plugin/digitalogic-wp\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
-"Language: \n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
+"POT-Creation-Date: 2026-07-16T23:40:54+00:00\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"X-Generator: WP-CLI 2.12.0\n"
+"X-Domain: digitalogic\n"
 
+#. Plugin Name of the plugin
 #: digitalogic.php
-msgid "Digitalogic requires WooCommerce to be installed and activated."
+msgid "Digitalogic WooCommerce Extension"
 msgstr ""
 
-#: includes/admin/class-admin.php
+#. Plugin URI of the plugin
+#: digitalogic.php
+msgid "https://github.com/atomicdeploy/digitalogic-wp"
+msgstr ""
+
+#. Description of the plugin
+#: digitalogic.php
+msgid "Custom dynamic pricing, stock manager, and POS integration for Digitalogic electronic components shop. Supports bulk operations, import/export, and external API integration."
+msgstr ""
+
+#. Author of the plugin
+#: digitalogic.php
+#: includes/admin/class-admin.php:81
+#: includes/admin/class-admin.php:197
+#: includes/admin/class-admin.php:200
 msgid "Digitalogic"
 msgstr ""
 
-msgid "Products"
+#. Author URI of the plugin
+#: digitalogic.php
+msgid "https://digitalogic.ir"
 msgstr ""
 
-msgid "Currency Settings"
+#: digitalogic.php:43
+#, php-format
+msgid "Digitalogic requires PHP %1$s or newer. The current server is running PHP %2$s. Please upgrade PHP to a supported release before activating Digitalogic."
 msgstr ""
 
+#: digitalogic.php:399
+msgid "Digitalogic requires WooCommerce to be installed and activated."
+msgstr ""
+
+#: digitalogic.php:412
+#: includes/admin/class-admin.php:80
+#: includes/admin/class-admin.php:92
+#: includes/admin/class-admin.php:93
+#: includes/admin/class-admin.php:208
+#: includes/admin/class-admin.php:211
+#: includes/admin/views/dashboard.php:2
+msgid "Dashboard"
+msgstr ""
+
+#: digitalogic.php:413
+#: includes/admin/class-admin.php:111
+#: includes/admin/class-admin.php:230
 msgid "Currency"
 msgstr ""
 
+#: digitalogic.php:414
+#: includes/admin/class-admin.php:102
+#: includes/admin/class-admin.php:219
+msgid "Products"
+msgstr ""
+
+#: digitalogic.php:430
+msgid "Documentation"
+msgstr ""
+
+#: digitalogic.php:431
+msgid "API & Status"
+msgstr ""
+
+#: digitalogic.php:432
+msgid "Support"
+msgstr ""
+
+#: includes/admin/class-admin.php:101
+#: includes/admin/class-admin.php:222
+msgid "Product List"
+msgstr ""
+
+#: includes/admin/class-admin.php:110
+#: includes/admin/class-admin.php:233
+msgid "Price Settings"
+msgstr ""
+
+#: includes/admin/class-admin.php:121
+#: includes/admin/class-admin.php:122
+#: includes/admin/class-admin.php:241
+#: includes/admin/class-admin.php:244
+#: includes/admin/views/dashboard.php:31
 msgid "Import/Export"
 msgstr ""
 
+#: includes/admin/class-admin.php:130
+#: includes/admin/class-admin.php:255
+#: includes/admin/views/logs.php:2
+#: includes/admin/views/status.php:167
 msgid "Activity Logs"
 msgstr ""
 
+#: includes/admin/class-admin.php:131
+#: includes/admin/class-admin.php:252
 msgid "Logs"
 msgstr ""
 
+#: includes/admin/class-admin.php:139
+#: includes/admin/class-admin.php:140
+#: includes/admin/class-admin.php:262
+#: includes/admin/class-admin.php:265
+msgid "Patris Reports"
+msgstr ""
+
+#: includes/admin/class-admin.php:148
+#: includes/admin/class-admin.php:276
+#: includes/admin/views/status.php:64
+msgid "Status & Diagnostics"
+msgstr ""
+
+#: includes/admin/class-admin.php:149
+#: includes/admin/class-admin.php:273
+#: includes/admin/views/patris-reports.php:259
+msgid "Status"
+msgstr ""
+
+#: includes/admin/class-admin.php:157
+#: includes/admin/views/product-diagnostics.php:25
+msgid "Product Metadata Diagnostics"
+msgstr ""
+
+#: includes/admin/class-admin.php:158
+msgid "Product Diagnostics"
+msgstr ""
+
+#: includes/admin/class-admin.php:166
+#: includes/admin/class-admin.php:167
+msgid "UI Settings"
+msgstr ""
+
+#: includes/admin/class-admin.php:301
+#: includes/admin/views/panel.php:20
+msgid "Panel"
+msgstr ""
+
+#: includes/admin/class-admin.php:364
 msgid "Are you sure you want to update these products?"
 msgstr ""
 
+#: includes/admin/class-admin.php:365
 msgid "Success"
 msgstr ""
 
+#: includes/admin/class-admin.php:366
 msgid "Error"
 msgstr ""
 
+#: includes/admin/class-admin.php:367
+#: includes/panel/views/app.php:35
 msgid "Loading..."
 msgstr ""
 
-msgid "Product not found"
+#: includes/admin/class-admin.php:368
+msgid "View"
 msgstr ""
 
-msgid "Updated %d products successfully"
+#: includes/admin/class-admin.php:369
+#: includes/admin/views/patris-reports.php:353
+msgid "Edit"
 msgstr ""
 
-msgid "Currency rates updated"
-msgstr ""
-
-#: includes/admin/views/dashboard.php
-msgid "Digitalogic Dashboard"
-msgstr ""
-
-msgid "Total Products"
-msgstr ""
-
-msgid "USD Price"
-msgstr ""
-
-msgid "CNY Price"
-msgstr ""
-
-msgid "Last Update"
-msgstr ""
-
-msgid "Quick Links"
-msgstr ""
-
-msgid "Manage Products"
-msgstr ""
-
-msgid "Update Currency Rates"
-msgstr ""
-
-msgid "View Logs"
-msgstr ""
-
-#: includes/admin/views/products.php
-msgid "Product Management"
-msgstr ""
-
+#: includes/admin/class-admin.php:370
+#: includes/admin/views/products.php:30
 msgid "Search products..."
 msgstr ""
 
-msgid "Refresh"
+#: includes/admin/class-admin.php:371
+msgid "Show"
 msgstr ""
 
-msgid "Save Changes"
+#: includes/admin/class-admin.php:372
+#: includes/admin/class-admin.php:378
+#: includes/admin/views/status.php:168
+msgid "entries"
 msgstr ""
 
-msgid "ID"
+#: includes/admin/class-admin.php:373
+msgid "Search:"
 msgstr ""
 
-msgid "Image"
+#: includes/admin/class-admin.php:374
+msgid "No data available in table"
 msgstr ""
 
-msgid "Name"
+#: includes/admin/class-admin.php:375
+msgid "Showing"
 msgstr ""
 
-msgid "SKU"
+#: includes/admin/class-admin.php:376
+msgid "to"
 msgstr ""
 
-msgid "Regular Price"
+#: includes/admin/class-admin.php:377
+msgid "of"
 msgstr ""
 
-msgid "Sale Price"
+#: includes/admin/class-admin.php:379
+msgid "No matching records found"
 msgstr ""
 
-msgid "Stock"
+#: includes/admin/class-admin.php:380
+msgid "(filtered from _MAX_ total entries)"
 msgstr ""
 
-msgid "Weight"
+#: includes/admin/class-admin.php:447
+#: includes/admin/views/products.php:2
+msgid "Product Management"
 msgstr ""
 
-msgid "Actions"
+#: includes/admin/class-admin.php:449
+msgid "WooCommerce must be installed and activated to use this feature."
 msgstr ""
 
-#: includes/admin/views/currency.php
+#: includes/admin/class-admin.php:478
+#, php-format
+msgid "Updated %d products successfully"
+msgstr ""
+
+#: includes/admin/class-admin.php:481
+msgid "Currency rates updated"
+msgstr ""
+
+#: includes/admin/class-admin.php:516
+msgid "Update"
+msgstr ""
+
+#: includes/admin/class-admin.php:524
+#: includes/admin/views/dashboard.php:21
+msgid "Last Update"
+msgstr ""
+
+#: includes/admin/class-admin.php:532
+#: includes/admin/views/status.php:180
+msgid "WooCommerce Base Currency"
+msgstr ""
+
+#: includes/admin/class-admin.php:540
+msgid "Exchange Rates"
+msgstr ""
+
+#: includes/admin/class-admin.php:548
+msgid "Additional Options"
+msgstr ""
+
+#: includes/admin/class-admin.php:564
+#: includes/admin/views/dashboard.php:30
+msgid "Update Currency Rates"
+msgstr ""
+
+#: includes/admin/class-admin.php:597
+#: includes/admin/views/patris-reports.php:115
+#: includes/admin/views/status.php:193
+#: includes/cli/class-cli-commands.php:43
+msgid "Ready"
+msgstr ""
+
+#: includes/admin/class-admin.php:597
+#: includes/admin/views/patris-reports.php:116
+#: includes/admin/views/status.php:193
+#: includes/cli/class-cli-commands.php:43
+msgid "Base currency mismatch"
+msgstr ""
+
+#: includes/admin/class-admin.php:602
+#: includes/admin/views/status.php:184
+msgid "Toman (10 IRR per unit)"
+msgstr ""
+
+#: includes/admin/class-admin.php:606
+msgid "Ready for the Patris CNY-to-IRT pricing contract."
+msgstr ""
+
+#: includes/admin/class-admin.php:608
+msgid "Patris produces IRT prices. WooCommerce must use IRT before transformed prices can be applied."
+msgstr ""
+
+#: includes/admin/class-admin.php:610
+msgid "Read-only monitoring; Digitalogic never changes this setting automatically."
+msgstr ""
+
+#: includes/admin/class-admin.php:611
+msgid "Open WooCommerce settings"
+msgstr ""
+
+#: includes/admin/class-admin.php:624
 msgid "USD Price (in local currency)"
 msgstr ""
 
+#: includes/admin/class-admin.php:628
 msgid "The exchange rate for 1 USD in your local currency"
 msgstr ""
 
+#: includes/admin/class-admin.php:633
 msgid "CNY/Yuan Price (in local currency)"
 msgstr ""
 
+#: includes/admin/class-admin.php:637
 msgid "The exchange rate for 1 CNY in your local currency"
 msgstr ""
 
+#: includes/admin/class-admin.php:650
+#: includes/admin/class-admin.php:653
 msgid "Recalculate Prices"
 msgstr ""
 
+#: includes/admin/class-admin.php:655
 msgid "Update all products with dynamic pricing after saving"
 msgstr ""
 
-#: includes/admin/views/import-export.php
+#: includes/admin/class-admin.php:686
+msgid "You do not have permission to manage Patris reports."
+msgstr ""
+
+#: includes/admin/class-admin.php:717
+#, php-format
+msgid "Import freight method \"%s\" created."
+msgstr ""
+
+#: includes/admin/class-admin.php:730
+#, php-format
+msgid "Import freight method \"%s\" updated."
+msgstr ""
+
+#: includes/admin/class-admin.php:739
+msgid "Import freight method deleted."
+msgstr ""
+
+#: includes/admin/class-admin.php:753
+msgid "The import freight assignment was cleared."
+msgstr ""
+
+#: includes/admin/class-admin.php:754
+msgid "The import freight method was assigned."
+msgstr ""
+
+#: includes/admin/class-admin.php:765
+msgid "The global default percentage markup was saved. WooCommerce prices were not changed."
+msgstr ""
+
+#: includes/admin/class-admin.php:773
+msgid "The global default percentage markup was cleared. WooCommerce prices were not changed."
+msgstr ""
+
+#: includes/admin/class-admin.php:778
+msgid "Unknown import freight action."
+msgstr ""
+
+#: includes/admin/class-admin.php:792
+msgid "Patris report settings saved."
+msgstr ""
+
+#: includes/admin/class-admin.php:798
+msgid "Patris feed synchronized."
+msgstr ""
+
+#: includes/admin/class-admin.php:840
+#: includes/admin/class-admin.php:920
+msgid "You do not have permission to access this page."
+msgstr ""
+
+#: includes/admin/class-admin.php:861
+msgid "Enter either a WooCommerce ID or an exact SKU, not both."
+msgstr ""
+
+#: includes/admin/class-admin.php:876
+msgid "The product selector is invalid."
+msgstr ""
+
+#: includes/admin/class-admin.php:903
+msgid "The derived WooCommerce lookup row was refreshed for this product."
+msgstr ""
+
+#: includes/admin/class-admin.php:907
+msgid "WooCommerce could not refresh this product lookup row."
+msgstr ""
+
+#: includes/admin/class-admin.php:927
+msgid "UI settings saved."
+msgstr ""
+
+#: includes/admin/class-digitalogic-product-table.php:55
+msgid "WooCommerce product lookup-table maintenance is unavailable."
+msgstr ""
+
+#: includes/admin/class-digitalogic-product-table.php:144
+msgid "This WooCommerce version cannot safely refresh only one product lookup row."
+msgstr ""
+
+#: includes/admin/views/currency.php:2
+#: includes/admin/views/status.php:176
+msgid "Currency Settings"
+msgstr ""
+
+#: includes/admin/views/dashboard.php:6
+#: includes/admin/views/status.php:163
+msgid "Total Products"
+msgstr ""
+
+#: includes/admin/views/dashboard.php:11
+msgid "USD Price"
+msgstr ""
+
+#: includes/admin/views/dashboard.php:16
+msgid "CNY Price"
+msgstr ""
+
+#: includes/admin/views/dashboard.php:27
+msgid "Quick Links"
+msgstr ""
+
+#: includes/admin/views/dashboard.php:29
+msgid "Manage Products"
+msgstr ""
+
+#: includes/admin/views/dashboard.php:32
+msgid "View Logs"
+msgstr ""
+
+#: includes/admin/views/dashboard.php:33
+#: includes/admin/views/panel.php:23
+msgid "Open Panel"
+msgstr ""
+
+#: includes/admin/views/import-export.php:2
 msgid "Import/Export Products"
 msgstr ""
 
+#: includes/admin/views/import-export.php:5
 msgid "Export Products"
 msgstr ""
 
-msgid "Export your products to CSV or JSON format"
+#: includes/admin/views/import-export.php:7
+msgid "Export your products to CSV, JSON, or Excel format"
 msgstr ""
 
+#: includes/admin/views/import-export.php:13
 msgid "Format"
 msgstr ""
 
+#: includes/admin/views/import-export.php:17
 msgid "CSV"
 msgstr ""
 
+#: includes/admin/views/import-export.php:18
 msgid "JSON"
 msgstr ""
 
+#: includes/admin/views/import-export.php:19
+msgid "Excel (XLSX)"
+msgstr ""
+
+#: includes/admin/views/import-export.php:21
+msgid "Excel format uses a custom branded template with styling"
+msgstr ""
+
+#: includes/admin/views/import-export.php:26
 msgid "Export All Products"
 msgstr ""
 
+#: includes/admin/views/import-export.php:35
+#: includes/admin/views/import-export.php:52
 msgid "Import Products"
 msgstr ""
 
-msgid "Import products from CSV or JSON file"
+#: includes/admin/views/import-export.php:37
+msgid "Import products from CSV, JSON, or Excel file"
 msgstr ""
 
+#: includes/admin/views/import-export.php:43
 msgid "File"
 msgstr ""
 
-msgid "Select a CSV or JSON file to import"
+#: includes/admin/views/import-export.php:47
+msgid "Select a CSV, JSON, or Excel file to import"
 msgstr ""
 
-#: includes/admin/views/logs.php
+#: includes/admin/views/logs.php:4
 msgid "View all activity and changes made in the system"
 msgstr ""
 
+#: includes/admin/views/logs.php:9
+#: includes/admin/views/products.php:37
+msgid "ID"
+msgstr ""
+
+#: includes/admin/views/logs.php:10
 msgid "User"
 msgstr ""
 
+#: includes/admin/views/logs.php:11
+#: includes/admin/views/patris-reports.php:339
 msgid "Action"
 msgstr ""
 
+#: includes/admin/views/logs.php:12
 msgid "Object Type"
 msgstr ""
 
+#: includes/admin/views/logs.php:13
 msgid "Object ID"
 msgstr ""
 
+#: includes/admin/views/logs.php:14
 msgid "Date"
 msgstr ""
 
+#: includes/admin/views/logs.php:15
 msgid "IP Address"
 msgstr ""
 
-#: includes/class-import-export.php
+#: includes/admin/views/panel.php:21
+msgid "Open the Digitalogic operations panel"
+msgstr ""
+
+#: includes/admin/views/panel.php:22
+msgid "The panel uses your current WordPress login and opens in a separate tab. The temporary in-site route is /panel/ so it does not interfere with reserved platform vhosts."
+msgstr ""
+
+#: includes/admin/views/panel.php:24
+msgid "Open panel URL directly"
+msgstr ""
+
+#: includes/admin/views/panel.php:25
+msgid "Panel URL"
+msgstr ""
+
+#: includes/admin/views/panel.php:26
+msgid "Authentication"
+msgstr ""
+
+#: includes/admin/views/panel.php:27
+msgid "WordPress session, WebSocket commands, and AJAX fallback through the Digitalogic panel bridge."
+msgstr ""
+
+#: includes/admin/views/patris-reports.php:24
+msgid "Digitalogic Patris Reports"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php:25
+msgid "Normalized Patris/API data is compared against WooCommerce to recreate and extend the old reportFinal workflows."
+msgstr ""
+
+#: includes/admin/views/patris-reports.php:33
+msgid "Feed Settings"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php:38
+msgid "Pull API URL"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php:42
+msgid "Pull API Token"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php:46
+msgid "Selected Warehouses"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php:47
+msgid "Comma-separated dynamic warehouse keys from the normalized API."
+msgstr ""
+
+#: includes/admin/views/patris-reports.php:50
+msgid "Import Freight Catalog"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php:53
+msgid "Supplier import freight methods are managed as validated records. They are separate from WooCommerce customer delivery methods."
+msgstr ""
+
+#: includes/admin/views/patris-reports.php:57
+msgid "Stale After Hours"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php:61
+msgid "Pull Schedule"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php:64
+msgid "Manual only"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php:64
+msgid "Hourly"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php:64
+msgid "Twice daily"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php:64
+msgid "Daily"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php:71
+msgid "Save Settings"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php:75
+msgid "Pull Sync Now"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php:78
+msgid "Push endpoint"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php:80
+msgid "X-Digitalogic-Token"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php:86
+msgid "Summary"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php:88
+msgid "WooCommerce products"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php:89
+msgid "Patris/API products"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php:90
+msgid "Patris/API customers"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php:93
+msgid "Last sync:"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php:99
+msgid "Supplier Import Freight"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php:101
+msgid "Manage freight used to import products from Patris. These records do not change WooCommerce customer delivery methods."
+msgstr ""
+
+#: includes/admin/views/patris-reports.php:107
+msgid "Pricing catalog currency"
+msgstr ""
+
+#. translators: 1: WooCommerce currency code, 2: compatibility status.
+#: includes/admin/views/patris-reports.php:112
+#, php-format
+msgid "WooCommerce base: %1$s. Integration status: %2$s."
+msgstr ""
+
+#: includes/admin/views/patris-reports.php:120
+msgid "The versioned catalog exposes IRT as Toman (10 IRR per unit) and blocks IRT pricing when this base-currency check fails."
+msgstr ""
+
+#: includes/admin/views/patris-reports.php:124
+msgid "Default percentage markup"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php:126
+msgid "Used only when a product has no markup configuration. A product percentage overrides it; fixed or unsupported product markup never falls back. Saving or clearing this value does not update WooCommerce prices."
+msgstr ""
+
+#: includes/admin/views/patris-reports.php:131
+msgid "Global profit percent"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php:147
+msgid "Save default"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php:153
+msgid "Clear default"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php:159
+#, php-format
+msgid "Allowed range: %1$s–%2$s%%, up to %3$d fractional digits. The recovered workbook value 30%% is proposed for a reviewed production action and is not seeded automatically."
+msgstr ""
+
+#: includes/admin/views/patris-reports.php:172
+msgid "Freight methods"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php:177
+#: includes/admin/views/patris-reports.php:244
+msgid "Method ID"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php:178
+#: includes/admin/views/patris-reports.php:251
+#: includes/admin/views/products.php:39
+msgid "Name"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php:179
+#: includes/admin/views/patris-reports.php:255
+msgid "CNY per kg"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php:180
+#: includes/admin/views/patris-reports.php:260
+msgid "Enabled"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php:181
+msgid "Assigned products"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php:182
+#: includes/admin/views/products.php:45
+msgid "Actions"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php:187
+msgid "No import freight methods are available."
+msgstr ""
+
+#: includes/admin/views/patris-reports.php:199
+msgid "Method name"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php:203
+msgid "CNY price per kilogram"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php:209
+msgid "Active"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php:218
+msgid "Save"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php:225
+msgid "Delete"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php:228
+msgid "Delete unavailable"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php:238
+msgid "Add a freight method"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php:247
+msgid "A stable 2-64 character lowercase ID, such as rail_freight. It cannot be renamed later."
+msgstr ""
+
+#: includes/admin/views/patris-reports.php:263
+msgid "Add freight method"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php:266
+msgid "Assign a product"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php:267
+msgid "Enter one exact Patris Code or WooCommerce SKU. An empty method selection clears the current assignment."
+msgstr ""
+
+#: includes/admin/views/patris-reports.php:273
+msgid "Exact Code / SKU"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php:277
+msgid "Import freight method"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php:280
+msgid "Clear assignment"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php:288
+msgid "disabled"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php:297
+msgid "Apply assignment"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php:302
+msgid "Resolved product:"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php:305
+msgid "Current method:"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php:308
+msgid "None"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php:316
+msgid "Problem Rows"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php:325
+msgid "No rows in this category."
+msgstr ""
+
+#: includes/admin/views/patris-reports.php:331
+msgid "Code"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php:332
+msgid "WooCommerce"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php:333
+msgid "Patris/API"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php:334
+#: includes/admin/views/products.php:43
+msgid "Stock"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php:335
+msgid "Foreign"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php:336
+#: includes/admin/views/products.php:44
+msgid "Weight"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php:337
+msgid "Final Price"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php:338
+msgid "Updated"
+msgstr ""
+
+#: includes/admin/views/product-diagnostics.php:26
+msgid "Resolve one exact WooCommerce ID or SKU and compare current product meta with WooCommerce’s derived lookup row."
+msgstr ""
+
+#: includes/admin/views/product-diagnostics.php:39
+msgid "WooCommerce ID"
+msgstr ""
+
+#: includes/admin/views/product-diagnostics.php:43
+msgid "Exact SKU"
+msgstr ""
+
+#: includes/admin/views/product-diagnostics.php:47
+msgid "Inspect Product"
+msgstr ""
+
+#: includes/admin/views/product-diagnostics.php:52
+msgid "Resolution"
+msgstr ""
+
+#: includes/admin/views/product-diagnostics.php:61
+msgid "Consistency"
+msgstr ""
+
+#: includes/admin/views/product-diagnostics.php:63
+msgid "No mismatch was found in the compared fields."
+msgstr ""
+
+#. translators: %d: number of metadata mismatches.
+#: includes/admin/views/product-diagnostics.php:65
+#, php-format
+msgid "%d lookup mismatch(es) detected."
+msgstr ""
+
+#: includes/admin/views/product-diagnostics.php:67
+msgid "Field"
+msgstr ""
+
+#: includes/admin/views/product-diagnostics.php:67
+msgid "Expected lookup value"
+msgstr ""
+
+#: includes/admin/views/product-diagnostics.php:67
+msgid "Post meta"
+msgstr ""
+
+#: includes/admin/views/product-diagnostics.php:67
+msgid "Lookup row"
+msgstr ""
+
+#: includes/admin/views/product-diagnostics.php:84
+msgid "Effective WooCommerce values"
+msgstr ""
+
+#: includes/admin/views/product-diagnostics.php:85
+msgid "Current post meta"
+msgstr ""
+
+#: includes/admin/views/product-diagnostics.php:86
+msgid "Expected lookup values"
+msgstr ""
+
+#: includes/admin/views/product-diagnostics.php:87
+msgid "Derived WooCommerce lookup row"
+msgstr ""
+
+#: includes/admin/views/product-diagnostics.php:105
+msgid "Refresh only this product’s derived lookup row using WooCommerce’s supported data-store API."
+msgstr ""
+
+#: includes/admin/views/product-diagnostics.php:106
+msgid "Refresh Lookup Row"
+msgstr ""
+
+#: includes/admin/views/product-diagnostics.php:109
+msgid "This WooCommerce version does not expose a safe one-product lookup refresh. No global rebuild will be started from this page."
+msgstr ""
+
+#: includes/admin/views/products.php:38
+msgid "Image"
+msgstr ""
+
+#: includes/admin/views/products.php:40
+msgid "Product Code"
+msgstr ""
+
+#: includes/admin/views/products.php:41
+msgid "Regular Price"
+msgstr ""
+
+#: includes/admin/views/products.php:42
+msgid "Sale Price"
+msgstr ""
+
+#: includes/admin/views/products.php:55
+msgid "JavaScript is required for this page to function properly. Please enable JavaScript in your browser."
+msgstr ""
+
+#: includes/admin/views/status.php:66
+msgid "System information and plugin diagnostics for troubleshooting and support."
+msgstr ""
+
+#: includes/admin/views/status.php:70
+msgid "WordPress Environment"
+msgstr ""
+
+#: includes/admin/views/status.php:74
+msgid "WordPress Version"
+msgstr ""
+
+#: includes/admin/views/status.php:78
+msgid "WooCommerce Version"
+msgstr ""
+
+#: includes/admin/views/status.php:82
+msgid "Site URL"
+msgstr ""
+
+#: includes/admin/views/status.php:86
+msgid "Home URL"
+msgstr ""
+
+#: includes/admin/views/status.php:90
+msgid "Language"
+msgstr ""
+
+#: includes/admin/views/status.php:94
+msgid "Timezone"
+msgstr ""
+
+#: includes/admin/views/status.php:103
+msgid "Server Environment"
+msgstr ""
+
+#: includes/admin/views/status.php:107
+msgid "Server Software"
+msgstr ""
+
+#: includes/admin/views/status.php:111
+msgid "PHP Version"
+msgstr ""
+
+#: includes/admin/views/status.php:115
+#, php-format
+msgid "Supported (minimum %s)"
+msgstr ""
+
+#: includes/admin/views/status.php:117
+#, php-format
+msgid "Unsupported (minimum %s)"
+msgstr ""
+
+#: includes/admin/views/status.php:122
+msgid "Minimum PHP"
+msgstr ""
+
+#: includes/admin/views/status.php:126
+msgid "MySQL Version"
+msgstr ""
+
+#: includes/admin/views/status.php:130
+msgid "Max Upload Size"
+msgstr ""
+
+#: includes/admin/views/status.php:134
+msgid "Max Post Size"
+msgstr ""
+
+#: includes/admin/views/status.php:138
+msgid "Memory Limit"
+msgstr ""
+
+#: includes/admin/views/status.php:142
+msgid "Max Execution Time"
+msgstr ""
+
+#: includes/admin/views/status.php:151
+msgid "Plugin Information"
+msgstr ""
+
+#: includes/admin/views/status.php:155
+msgid "Plugin Version"
+msgstr ""
+
+#: includes/admin/views/status.php:159
+msgid "Plugin Path"
+msgstr ""
+
+#: includes/admin/views/status.php:189
+msgid "Patris IRT Pricing"
+msgstr ""
+
+#: includes/admin/views/status.php:195
+msgid "Read-only monitoring; no automatic currency mutation."
+msgstr ""
+
+#: includes/admin/views/status.php:199
+msgid "USD Price (dollar_price)"
+msgstr ""
+
+#: includes/admin/views/status.php:203
+msgid "CNY Price (yuan_price)"
+msgstr ""
+
+#: includes/admin/views/status.php:207
+msgid "Last Update Date (update_date)"
+msgstr ""
+
+#: includes/admin/views/status.php:216
+msgid "WooCommerce HPOS Status"
+msgstr ""
+
+#: includes/admin/views/status.php:236
+msgid "This plugin is fully compatible with WooCommerce High-Performance Order Storage (HPOS). All operations use WooCommerce CRUD methods for maximum compatibility."
+msgstr ""
+
+#: includes/admin/views/status.php:240
+msgid "HPOS is available but not currently enabled. The plugin works with both traditional and HPOS storage modes."
+msgstr ""
+
+#: includes/admin/views/status.php:247
+msgid "REST API Endpoints"
+msgstr ""
+
+#: includes/admin/views/status.php:248
+msgid "Available REST API endpoints:"
+msgstr ""
+
+#: includes/admin/views/status.php:261
+msgid "WP-CLI Commands"
+msgstr ""
+
+#: includes/admin/views/status.php:262
+msgid "Available WP-CLI commands:"
+msgstr ""
+
+#: includes/admin/views/status.php:276
+msgid "Debug Information"
+msgstr ""
+
+#: includes/admin/views/status.php:277
+msgid "Copy this information when requesting support:"
+msgstr ""
+
+#: includes/admin/views/ui-settings.php:13
+msgid "Digitalogic UI Settings"
+msgstr ""
+
+#: includes/admin/views/ui-settings.php:19
+msgid "Custom admin and login experience"
+msgstr ""
+
+#: includes/admin/views/ui-settings.php:21
+msgid "Controls the Digitalogic branded admin theme, wp-login.php styling, phone-aware login bridge, and legacy /login redirect."
+msgstr ""
+
+#: includes/admin/views/ui-settings.php:27
+msgid "Enable custom UI layer"
+msgstr ""
+
+#: includes/admin/views/ui-settings.php:36
+msgid "Load Digitalogic custom admin/login styles and auth route improvements."
+msgstr ""
+
+#: includes/admin/views/ui-settings.php:44
+msgid "Save UI settings"
+msgstr ""
+
+#: includes/api/class-webhooks.php:491
+msgid "The webhook transport does not recognize this import freight event."
+msgstr ""
+
+#: includes/api/class-webhooks.php:536
+msgid "The webhook payload could not be encoded."
+msgstr ""
+
+#: includes/api/class-webhooks.php:586
+msgid "One or more webhook destinations rejected the import freight event."
+msgstr ""
+
+#: includes/class-command-dispatcher.php:53
+#: includes/websocket/class-websocket-server.php:182
+msgid "Unauthorized"
+msgstr ""
+
+#: includes/class-command-dispatcher.php:57
+msgid "Payload must be an object."
+msgstr ""
+
+#: includes/class-command-dispatcher.php:67
+#: includes/class-command-dispatcher.php:360
+msgid "Unknown command."
+msgstr ""
+
+#: includes/class-command-dispatcher.php:113
+msgid "Product ID is required."
+msgstr ""
+
+#: includes/class-command-dispatcher.php:118
+msgid "Product not found."
+msgstr ""
+
+#: includes/class-command-dispatcher.php:129
+msgid "Product ID and data are required."
+msgstr ""
+
+#: includes/class-command-dispatcher.php:138
+msgid "Product updated"
+msgstr ""
+
+#: includes/class-command-dispatcher.php:146
+msgid "No updates provided."
+msgstr ""
+
+#: includes/class-command-dispatcher.php:171
+msgid "Currency updated"
+msgstr ""
+
+#: includes/class-command-dispatcher.php:258
+msgid "The profit_percent field is required; use null to clear the default explicitly."
+msgstr ""
+
+#: includes/class-command-dispatcher.php:331
+#: includes/class-import-freight-service.php:776
+msgid "The import freight method field is required; use null or an empty value to clear it explicitly."
+msgstr ""
+
+#: includes/class-command-dispatcher.php:365
+msgid "This AJAX action is not available over WebSocket."
+msgstr ""
+
+#: includes/class-digitalogic-product-metadata-inspector.php:76
+#: includes/class-product-manager.php:263
+msgid "The resolved product is no longer available."
+msgstr ""
+
+#: includes/class-digitalogic-product-metadata-inspector.php:349
+msgid "Product metadata diagnostics could not read the WooCommerce lookup table."
+msgstr ""
+
+#. translators: 1: previous currency code, 2: new currency code.
+#: includes/class-digitalogic-woocommerce-currency-status.php:129
+#, php-format
+msgid "WooCommerce base currency changed from %1$s to %2$s."
+msgstr ""
+
+#: includes/class-import-export.php:142
+#: includes/class-import-export.php:155
+#: includes/class-import-export.php:182
+#: includes/class-import-export.php:191
+#: includes/class-import-export.php:198
+#: includes/class-import-export.php:206
+msgid "Excel archive exceeds the import safety limits"
+msgstr ""
+
+#: includes/class-import-export.php:148
+#: includes/class-import-export.php:164
+#: includes/class-import-export.php:268
+msgid "Unable to read Excel file"
+msgstr ""
+
+#: includes/class-import-export.php:174
+msgid "Invalid Excel archive"
+msgstr ""
+
+#: includes/class-import-export.php:224
+#: includes/class-import-export.php:233
+#: includes/class-import-export.php:470
+#: includes/class-import-export.php:539
 msgid "File not found"
 msgstr ""
 
+#: includes/class-import-export.php:229
+msgid "Excel imports must use a local file"
+msgstr ""
+
+#: includes/class-import-export.php:238
+msgid "Excel file is not readable"
+msgstr ""
+
+#: includes/class-import-export.php:243
+msgid "Unsupported Excel file type"
+msgstr ""
+
+#: includes/class-import-export.php:252
+msgid "Excel file exceeds the import size limit"
+msgstr ""
+
+#: includes/class-import-export.php:546
 msgid "Invalid JSON file"
+msgstr ""
+
+#: includes/class-import-export.php:590
+#: includes/class-import-export.php:740
+msgid "PhpSpreadsheet library not found"
+msgstr ""
+
+#: includes/class-import-export.php:770
+msgid "Excel worksheet exceeds the import dimension limit"
+msgstr ""
+
+#: includes/class-import-export.php:784
+msgid "Excel file is empty"
+msgstr ""
+
+#: includes/class-import-export.php:796
+msgid "Excel file does not match the product import template"
+msgstr ""
+
+#: includes/class-import-export.php:885
+msgid "Unable to import Excel file"
+msgstr ""
+
+#: includes/class-import-freight-service.php:287
+msgid "The default percentage markup did not pass exact database readback."
+msgstr ""
+
+#: includes/class-import-freight-service.php:326
+#: includes/class-import-freight-service.php:443
+#: includes/class-import-freight-service.php:513
+#: includes/class-import-freight-service.php:1342
+msgid "Import freight method not found."
+msgstr ""
+
+#: includes/class-import-freight-service.php:352
+msgid "Legacy freight mappings are reserved for migrated methods."
+msgstr ""
+
+#: includes/class-import-freight-service.php:364
+msgid "That method ID is reserved by the legacy ACF field mapping."
+msgstr ""
+
+#: includes/class-import-freight-service.php:388
+msgid "Import freight method ID already exists."
+msgstr ""
+
+#: includes/class-import-freight-service.php:433
+msgid "Import freight method IDs are immutable."
+msgstr ""
+
+#: includes/class-import-freight-service.php:451
+msgid "Legacy freight mappings are immutable."
+msgstr ""
+
+#: includes/class-import-freight-service.php:522
+msgid "Assigned import freight methods cannot be deleted. Disable the method or reassign its products first."
+msgstr ""
+
+#: includes/class-import-freight-service.php:530
+msgid "Migrated legacy import freight methods must be disabled instead of deleted."
+msgstr ""
+
+#: includes/class-import-freight-service.php:587
+msgid "Product Codes must be provided as an ordered JSON list."
+msgstr ""
+
+#: includes/class-import-freight-service.php:594
+msgid "At least one product Code is required."
+msgstr ""
+
+#. translators: %d: maximum number of Codes per request.
+#: includes/class-import-freight-service.php:603
+#, php-format
+msgid "Pricing assignment read batches are limited to %d Codes."
+msgstr ""
+
+#: includes/class-import-freight-service.php:620
+msgid "Every pricing assignment batch item must be a non-empty string or integer Code."
+msgstr ""
+
+#: includes/class-import-freight-service.php:630
+msgid "Duplicate product Codes are not allowed in a pricing assignment read batch."
+msgstr ""
+
+#: includes/class-import-freight-service.php:747
+msgid "At least one product assignment is required."
+msgstr ""
+
+#: includes/class-import-freight-service.php:755
+msgid "Import freight assignment batches are limited to 500 rows."
+msgstr ""
+
+#: includes/class-import-freight-service.php:782
+#: includes/class-import-freight-service.php:1365
+msgid "Product Code/SKU is required."
+msgstr ""
+
+#: includes/class-import-freight-service.php:787
+msgid "Duplicate Code/SKU in assignment batch."
+msgstr ""
+
+#: includes/class-import-freight-service.php:802
+msgid "Two batch rows resolve to the same product."
+msgstr ""
+
+#: includes/class-import-freight-service.php:822
+msgid "No assignments were changed because one or more batch rows were invalid."
+msgstr ""
+
+#: includes/class-import-freight-service.php:1175
+msgid "Import freight method name is required."
+msgstr ""
+
+#: includes/class-import-freight-service.php:1180
+msgid "landed_price_v1 currently requires CNY freight rates."
+msgstr ""
+
+#: includes/class-import-freight-service.php:1185
+msgid "A non-negative CNY price per kilogram is required."
+msgstr ""
+
+#: includes/class-import-freight-service.php:1190
+msgid "Minimum charge cannot be negative."
+msgstr ""
+
+#: includes/class-import-freight-service.php:1195
+msgid "Unknown billable-weight rule."
+msgstr ""
+
+#: includes/class-import-freight-service.php:1200
+msgid "Volumetric divisor must be greater than zero."
+msgstr ""
+
+#: includes/class-import-freight-service.php:1212
+msgid "Maximum transit days cannot be lower than minimum transit days."
+msgstr ""
+
+#: includes/class-import-freight-service.php:1250
+msgid "Every tiered rate must be an object."
+msgstr ""
+
+#: includes/class-import-freight-service.php:1261
+msgid "Tiered rates require valid non-negative bounds and rates."
+msgstr ""
+
+#: includes/class-import-freight-service.php:1282
+msgid "Tiered freight-rate ranges cannot overlap."
+msgstr ""
+
+#: includes/class-import-freight-service.php:1322
+msgid "Method ID must be 2-64 lowercase letters, numbers, or underscores and start with a letter."
+msgstr ""
+
+#: includes/class-import-freight-service.php:1353
+#: includes/class-import-freight-service.php:2570
+msgid "Disabled import freight methods cannot be assigned to new products."
+msgstr ""
+
+#: includes/class-import-freight-service.php:1368
+msgid "No product has that exact Patris Code or SKU."
+msgstr ""
+
+#: includes/class-import-freight-service.php:1373
+msgid "More than one product has that exact Patris Code or SKU; no assignment was changed."
+msgstr ""
+
+#: includes/class-import-freight-service.php:1893
+msgid "The import freight change could not be completed."
+msgstr ""
+
+#: includes/class-import-freight-service.php:1911
+msgid "The database lock service is unavailable."
+msgstr ""
+
+#: includes/class-import-freight-service.php:1926
+msgid "Another import freight update is already running. Please retry."
+msgstr ""
+
+#: includes/class-import-freight-service.php:1969
+msgid "The import freight transaction was rolled back."
+msgstr ""
+
+#: includes/class-import-freight-service.php:1992
+msgid "Nested import freight transactions are not supported."
+msgstr ""
+
+#: includes/class-import-freight-service.php:2001
+msgid "The database could not start an import freight transaction."
+msgstr ""
+
+#: includes/class-import-freight-service.php:2018
+msgid "The import freight transaction could not be committed."
+msgstr ""
+
+#: includes/class-import-freight-service.php:2051
+msgid "The database could not roll back the failed import freight change."
+msgstr ""
+
+#: includes/class-import-freight-service.php:2162
+#: includes/class-import-freight-service.php:2206
+msgid "Import freight storage writes require an active transaction."
+msgstr ""
+
+#: includes/class-import-freight-service.php:2178
+#: includes/class-import-freight-service.php:2186
+msgid "The import freight option could not be saved."
+msgstr ""
+
+#: includes/class-import-freight-service.php:2227
+#: includes/class-import-freight-service.php:2235
+msgid "The product import freight assignment could not be saved."
+msgstr ""
+
+#: includes/class-import-freight-service.php:2453
+#: includes/class-import-freight-service.php:2463
+msgid "Default markup must be a finite base-10 percentage."
+msgstr ""
+
+#: includes/class-import-freight-service.php:2487
+msgid "Default markup must be a finite base-10 percentage without exponent or grouping notation."
+msgstr ""
+
+#: includes/class-import-freight-service.php:2501
+#, php-format
+msgid "Default markup supports at most %d fractional digits."
+msgstr ""
+
+#: includes/class-import-freight-service.php:2515
+#, php-format
+msgid "Default markup must be between 0 and %s percent."
+msgstr ""
+
+#: includes/class-import-freight-service.php:2533
+msgid "(disabled)"
+msgstr ""
+
+#: includes/class-import-freight-service.php:2550
+msgid "Select a valid import freight method."
+msgstr ""
+
+#: includes/class-import-freight-service.php:2608
+msgid "Transit days must be non-negative whole numbers."
+msgstr ""
+
+#: includes/class-options.php:311
+#: includes/class-options.php:315
+msgid "today"
+msgstr ""
+
+#: includes/class-options.php:317
+msgid "1 day ago"
+msgstr ""
+
+#: includes/class-options.php:319
+#, php-format
+msgid "%d days ago"
+msgstr ""
+
+#: includes/class-patris-feed.php:165
+msgid "Patris API URL is not configured."
+msgstr ""
+
+#: includes/class-patris-feed.php:184
+#, php-format
+msgid "Patris API returned HTTP %d."
+msgstr ""
+
+#: includes/class-patris-feed.php:189
+msgid "Patris API did not return valid JSON."
+msgstr ""
+
+#: includes/class-patris-feed.php:197
+msgid "Patris payload must be an object."
+msgstr ""
+
+#: includes/class-patris-feed.php:204
+msgid "Patris payload did not contain products or customers."
+msgstr ""
+
+#: includes/class-patris-feed.php:223
+msgid "Skipped product without product_code."
+msgstr ""
+
+#: includes/class-patris-feed.php:242
+msgid "Skipped product because its exact Code/SKU is ambiguous."
+msgstr ""
+
+#: includes/class-patris-feed.php:243
+msgid "Skipped product because its Code/SKU could not be resolved."
+msgstr ""
+
+#: includes/class-patris-feed.php:253
+#, php-format
+msgid "WooCommerce product for %s could not be loaded."
+msgstr ""
+
+#: includes/class-product-identifier-resolver.php:245
+msgid "More than one product has that exact identifier."
+msgstr ""
+
+#: includes/class-product-identifier-resolver.php:308
+msgid "The product identifier lookup could not be completed."
+msgstr ""
+
+#: includes/class-product-manager.php:585
+msgid "Product not found"
+msgstr ""
+
+#: includes/class-report-engine.php:34
+msgid "In Patris/API but missing in WooCommerce"
+msgstr ""
+
+#: includes/class-report-engine.php:35
+msgid "In WooCommerce but missing in Patris/API"
+msgstr ""
+
+#: includes/class-report-engine.php:36
+msgid "Duplicate product code / SKU"
+msgstr ""
+
+#: includes/class-report-engine.php:37
+msgid "Zero or negative stock"
+msgstr ""
+
+#: includes/class-report-engine.php:38
+msgid "Zero or invalid price"
+msgstr ""
+
+#: includes/class-report-engine.php:39
+msgid "Missing foreign price"
+msgstr ""
+
+#: includes/class-report-engine.php:40
+msgid "Missing, bad, or ambiguous weight"
+msgstr ""
+
+#: includes/class-report-engine.php:41
+msgid "Missing minimum / reorder point"
+msgstr ""
+
+#: includes/class-report-engine.php:42
+msgid "Stale Patris/API price data"
+msgstr ""
+
+#: includes/class-report-engine.php:43
+msgid "Missing product image"
+msgstr ""
+
+#: includes/class-report-engine.php:44
+msgid "Missing product description"
+msgstr ""
+
+#: includes/class-report-engine.php:45
+msgid "Name differs between WooCommerce and Patris/API"
+msgstr ""
+
+#: includes/class-report-engine.php:46
+msgid "Duplicate product image files"
+msgstr ""
+
+#: includes/class-report-engine.php:47
+msgid "Corrupt product image files"
+msgstr ""
+
+#: includes/class-report-engine.php:48
+msgid "Low quality product images"
+msgstr ""
+
+#: includes/class-report-engine.php:49
+msgid "Customers missing mobile/phone number"
+msgstr ""
+
+#: includes/cli/class-cli-commands.php:34
+msgid "Currency Rates:"
+msgstr ""
+
+#. translators: %s: USD exchange rate.
+#: includes/cli/class-cli-commands.php:35
+#, php-format
+msgid "USD: %s"
+msgstr ""
+
+#. translators: %s: CNY exchange rate.
+#: includes/cli/class-cli-commands.php:36
+#, php-format
+msgid "CNY: %s"
+msgstr ""
+
+#. translators: %s: last currency update.
+#: includes/cli/class-cli-commands.php:37
+#, php-format
+msgid "Last Update: %s"
+msgstr ""
+
+#: includes/cli/class-cli-commands.php:40
+msgid "Toman"
+msgstr ""
+
+#. translators: %s: WooCommerce base currency label.
+#: includes/cli/class-cli-commands.php:44
+#, php-format
+msgid "WooCommerce Base: %s"
+msgstr ""
+
+#. translators: %s: Patris IRT compatibility status.
+#: includes/cli/class-cli-commands.php:45
+#, php-format
+msgid "Patris IRT Pricing: %s"
+msgstr ""
+
+#: includes/cli/class-cli-commands.php:49
+msgid "WooCommerce must use IRT (Toman) before transformed Patris prices can be applied."
+msgstr ""
+
+#: includes/integrations/class-admin-branding.php:129
+msgid "Switch admin theme"
+msgstr ""
+
+#: includes/integrations/class-admin-branding.php:146
+msgid "Digitalogic Light"
+msgstr ""
+
+#: includes/integrations/class-admin-branding.php:154
+msgid "Digitalogic Dark"
+msgstr ""
+
+#: includes/integrations/class-admin-branding.php:165
+msgid "You must be logged in to change the admin theme."
+msgstr ""
+
+#: includes/integrations/class-admin-branding.php:205
+msgid "A user is required to update the admin theme."
+msgstr ""
+
+#: includes/integrations/class-admin-branding.php:209
+#: includes/panel/class-panel.php:332
+msgid "Choose either light or dark mode."
+msgstr ""
+
+#: includes/integrations/class-auth-page.php:112
+msgid "ثبت نام"
+msgstr ""
+
+#: includes/integrations/class-auth-page.php:116
+msgid "بازیابی رمز عبور"
+msgstr ""
+
+#: includes/integrations/class-auth-page.php:236
+msgid "Digits registration is not available. Please check the Digits plugin configuration."
+msgstr ""
+
+#: includes/integrations/class-auth-page.php:243
+msgid "ورود"
+msgstr ""
+
+#: includes/integrations/class-comment-guard.php:59
+msgid "Your comment could not be accepted from this network."
+msgstr ""
+
+#: includes/integrations/class-comment-guard.php:60
+msgid "Comment blocked"
+msgstr ""
+
+#: includes/integrations/class-desktop-app.php:120
+msgid "Digitalogic Desktop"
+msgstr ""
+
+#: includes/integrations/class-desktop-app.php:129
+msgid "Sign in with your normal Digitalogic account to continue in the desktop app."
+msgstr ""
+
+#: includes/integrations/class-laravel-bridge.php:140
+#: includes/panel/class-panel.php:116
+msgid "You are not allowed to open the Digitalogic panel."
+msgstr ""
+
+#: includes/integrations/class-laravel-bridge.php:141
+#: includes/panel/class-panel.php:117
+msgid "Forbidden"
+msgstr ""
+
+#: includes/integrations/class-laravel-bridge.php:364
+msgid "Laravel HTTP request class is not available."
+msgstr ""
+
+#: includes/integrations/class-laravel-bridge.php:375
+msgid "Laravel HTTP kernel is not available."
+msgstr ""
+
+#: includes/integrations/class-laravel-bridge.php:430
+msgid "No local Laravel app is configured for direct loading."
+msgstr ""
+
+#: includes/panel/class-panel.php:321
+msgid "You must be logged in to change the theme."
+msgstr ""
+
+#: includes/panel/class-panel.php:346
+msgid "You are not allowed to list users."
+msgstr ""
+
+#: includes/panel/class-panel.php:364
+msgid "You are not allowed to edit users."
+msgstr ""
+
+#: includes/panel/class-panel.php:372
+#: includes/panel/class-panel.php:466
+msgid "User not found."
+msgstr ""
+
+#: includes/panel/class-panel.php:385
+#: includes/panel/class-panel.php:421
+msgid "Invalid email address."
+msgstr ""
+
+#: includes/panel/class-panel.php:413
+msgid "You are not allowed to create users."
+msgstr ""
+
+#: includes/panel/class-panel.php:429
+msgid "A user with this login or email already exists."
+msgstr ""
+
+#: includes/panel/class-panel.php:457
+msgid "You are not allowed to delete users."
+msgstr ""
+
+#: includes/panel/class-panel.php:462
+msgid "This user cannot be deleted from the panel."
+msgstr ""
+
+#: includes/panel/class-panel.php:472
+msgid "User deletion failed."
+msgstr ""
+
+#: includes/panel/class-panel.php:487
+msgid "User ID is required."
+msgstr ""
+
+#: includes/panel/class-panel.php:670
+msgid "The panel does not recognize this import freight event."
+msgstr ""
+
+#: includes/panel/class-panel.php:691
+msgid "The panel event was stored, but one or more real-time deliveries failed."
+msgstr ""
+
+#: includes/panel/class-panel.php:715
+msgid "The panel event queue lock could not be acquired."
+msgstr ""
+
+#: includes/panel/class-panel.php:763
+msgid "The panel event queue could not be updated."
+msgstr ""
+
+#: includes/panel/class-panel.php:912
+msgid "Panel notification"
+msgstr ""
+
+#: includes/panel/views/app.php:22
+#, php-format
+msgid "Digitalogic Panel - %s"
+msgstr ""
+
+#: includes/websocket/class-websocket-server.php:164
+msgid "Invalid JSON payload."
 msgstr ""

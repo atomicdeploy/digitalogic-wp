@@ -134,14 +134,14 @@ final class WooCommerceCurrencyStatusTest extends TestCase {
 		$this->assertTrue( $dispatcher['woocommerce_base']['compatible'] );
 
 		( new Digitalogic_CLI_Commands() )->currency_get( array(), array() );
-		$this->assertContains( 'WooCommerce Base: IRT (toman)', WP_CLI::$logs );
-		$this->assertContains( 'Patris IRT Pricing: ready', WP_CLI::$logs );
+		$this->assertContains( 'WooCommerce Base: IRT (Toman)', WP_CLI::$logs );
+		$this->assertContains( 'Patris IRT Pricing: Ready', WP_CLI::$logs );
 		$this->assertSame( array(), WP_CLI::$warnings );
 
 		WP_CLI::$logs                            = array();
 		$GLOBALS['digitalogic_test_wc_currency'] = 'USD';
 		( new Digitalogic_CLI_Commands() )->currency_get( array(), array() );
-		$this->assertContains( 'Patris IRT Pricing: base_currency_mismatch', WP_CLI::$logs );
+		$this->assertContains( 'Patris IRT Pricing: Base currency mismatch', WP_CLI::$logs );
 		$this->assertCount( 1, WP_CLI::$warnings );
 	}
 

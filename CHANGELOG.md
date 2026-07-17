@@ -7,7 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-07-17
+
 ### Added
+- Exact product and variation access by canonical WooCommerce ID or case-sensitive SKU across REST and WP-CLI.
+- Read-only product metadata diagnostics showing effective WooCommerce values, raw lookup-source values, and stale derived rows.
+- Safe one-product lookup refresh on WooCommerce versions exposing the public row API, with no catalog-wide fallback.
+- Server-side product table filtering, sorting, persistent views, aligned configurable columns, and bounded pagination across transports.
+- Native WordPress currency-page postboxes and locale-aware zero-decimal currency summaries.
 - Read-only WooCommerce base-currency monitoring with explicit IRT/Toman metadata, catalog compatibility warnings, shared REST/CLI/panel/webhook status, audit events, and non-destructive automated coverage.
 - Optional signed `patris.product_sync.applied` observer summaries through the existing webhook fan-out, without exposing product payloads or affecting direct sync outcomes.
 - Bounded product-sync deferred reconciliation state and administrator WP-CLI status/retry commands, separating terminal missing/ambiguous Codes from transient HTTP/database retries.
@@ -53,6 +60,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Automatic Persian (Jalali) calendar support when locale is fa_IR
 
 ### Changed
+- Preserved the historical positional-ID `--sku` setter while introducing explicit `--set-sku` selection semantics.
+- Refreshed Persian translation catalogs and removed the stale tracked binary catalog from source control.
+- Made WooCommerce base-currency and Patris IRT readiness visible without mutating the store currency.
 - **Plugin now works both WITH and WITHOUT ACF installed**
   - Checks ACF availability on initialization
   - All get/set methods adapt based on ACF presence

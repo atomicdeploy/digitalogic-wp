@@ -265,6 +265,9 @@ wp digitalogic currency update --usd=42000 --cny=6000 --recalculate
 # Product operations
 wp digitalogic products list --limit=20 --search=arduino
 wp digitalogic products update 123 --price=99.99 --stock=50
+wp digitalogic products get --sku=001230 --format=json
+wp digitalogic products metadata --id=123 --format=json
+wp digitalogic products update --sku=001230 --set-sku=001231
 
 # Import/Export
 wp digitalogic export --format=csv --output=/path/to/export.csv
@@ -277,6 +280,9 @@ wp digitalogic import /path/to/products.xlsx
 # Logs
 wp digitalogic logs --limit=50 --action=update_product
 ```
+
+See [WP-CLI product commands](docs/CLI.md) for exact ID/SKU selection,
+diagnostic output, permissions, and update semantics.
 
 ## Development
 
@@ -398,6 +404,12 @@ GPL v2 or later. See LICENSE file for details.
 Developed for Digitalogic electronic components shop.
 
 ## Changelog
+
+### 1.3.0
+- Added exact ID/SKU product access and variation-aware metadata diagnostics across REST, WP-CLI, and WordPress admin.
+- Added safe per-product lookup refresh without a hidden catalog-wide fallback on older WooCommerce versions.
+- Added server-side product-table filtering and persistent views, native currency postboxes, IRT readiness monitoring, and locale-aware number formatting.
+- Refreshed Persian translation catalogs and retained backward-compatible CLI update behavior.
 
 ### 1.2.0
 - Added the authenticated, transformed-only `digitalogic.product-sync` v1 receiver with deterministic integrity and ordering checks.

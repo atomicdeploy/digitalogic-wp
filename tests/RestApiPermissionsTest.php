@@ -234,10 +234,15 @@ final class RestApiPermissionsTest extends TestCase {
             }
         }
 
+        // phpcs:disable WordPress.Arrays.MultipleStatementAlignment.DoubleArrowNotAligned -- Route regex lengths are intentionally uneven.
         $expected = array(
             'GET /products' => 'check_read_permission',
             'GET /products/(?P<id>\d+)' => 'check_read_permission',
+            'GET /products/sku/(?P<sku>[^/]+)' => 'check_read_permission', // phpcs:ignore
             'PUT /products/(?P<id>\d+)' => 'check_write_permission',
+            'PUT /products/sku/(?P<sku>[^/]+)' => 'check_write_permission', // phpcs:ignore
+            'GET /products/(?P<id>\d+)/metadata' => 'check_diagnostic_permission', // phpcs:ignore
+            'GET /products/sku/(?P<sku>[^/]+)/metadata' => 'check_diagnostic_permission', // phpcs:ignore
             'POST /products/batch' => 'check_write_permission',
             'GET /currency' => 'check_read_permission',
             'POST /currency' => 'check_write_permission',
@@ -260,6 +265,7 @@ final class RestApiPermissionsTest extends TestCase {
 			'POST /pricing-assignments/batch'     => 'check_pricing_input_permission',
             'POST /products/import-pricing/batch' => 'check_write_permission',
         );
+        // phpcs:enable WordPress.Arrays.MultipleStatementAlignment.DoubleArrowNotAligned
 
         $this->assertSame($expected, $actual);
     }
