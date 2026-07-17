@@ -405,6 +405,12 @@ Developed for Digitalogic electronic components shop.
 
 ## Changelog
 
+### 1.3.0
+- Added exact ID/SKU product access and variation-aware metadata diagnostics across REST, WP-CLI, and WordPress admin.
+- Added safe per-product lookup refresh without a hidden catalog-wide fallback on older WooCommerce versions.
+- Added server-side product-table filtering and persistent views, native currency postboxes, IRT readiness monitoring, and locale-aware number formatting.
+- Refreshed Persian translation catalogs and retained backward-compatible CLI update behavior.
+
 ### 1.2.0
 - Added the authenticated, transformed-only `digitalogic.product-sync` v1 receiver with deterministic integrity and ordering checks.
 - Added snapshot/delta merging, bounded replay protection, quarantine preservation, and non-destructive Code tombstones.

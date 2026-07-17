@@ -34,7 +34,9 @@ final class ProductLookupRefreshTest extends TestCase {
 	public function test_unsupported_data_store_never_falls_back_to_global_rebuild(): void {
 		$GLOBALS['digitalogic_test_wc_data_store'] = new Digitalogic_Test_WC_Product_Data_Store_Without_Row_Refresh();
 		$table                                     = Digitalogic_Product_Table::instance();
+		$proxy                                     = WC_Data_Store::load( 'product' );
 
+		$this->assertTrue( is_callable( array( $proxy, 'refresh_product_lookup_table' ) ) );
 		$this->assertFalse( $table->supports_per_product_refresh() );
 		$result = $table->regenerate_lookup_tables( array( 901 ) );
 

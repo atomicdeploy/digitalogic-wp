@@ -87,8 +87,10 @@ final class ImportExportCompatibilityTest extends TestCase {
             )),
         );
 
+        // phpcs:disable -- Reflection bypasses the production singleton constructor for this compatibility fixture.
         $manager_class = new ReflectionClass(Digitalogic_Test_Import_Export_Manager::class);
         $this->manager = $manager_class->newInstanceWithoutConstructor();
+        // phpcs:enable
         $this->manager->products[42] = array(
             'id' => 42,
             'name' => 'Round-trip product',

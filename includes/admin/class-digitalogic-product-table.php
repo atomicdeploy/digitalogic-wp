@@ -72,7 +72,7 @@ class Digitalogic_Product_Table {
 			return $this->unsupported_error();
 		}
 
-		if ( ! is_callable( array( $data_store, 'refresh_product_lookup_table' ) ) ) {
+		if ( ! $this->supports_row_refresh( $data_store ) ) {
 			return $this->unsupported_error();
 		}
 
@@ -95,7 +95,42 @@ class Digitalogic_Product_Table {
 			return false;
 		}
 
-		return is_callable( array( $data_store, 'refresh_product_lookup_table' ) );
+		return $this->supports_row_refresh( $data_store );
+	}
+
+	/**
+	 * Inspect the underlying store instead of trusting the magic proxy.
+	 *
+	 * WooCommerce's WC_Data_Store implements __call(), which makes a normal
+	 * is_callable() check return true even when older product stores do not
+	 * implement the requested method.
+	 *
+	 * @param object|null $data_store WooCommerce data-store proxy or test store.
+	 * @return bool
+	 */
+	private function supports_row_refresh( $data_store ) {
+		if ( ! is_object( $data_store ) ) {
+			return false;
+		}
+
+		if ( method_exists( $data_store, 'has_callable' ) ) {
+			return (bool) $data_store->has_callable( 'refresh_product_lookup_table' );
+		}
+
+		$class_name = method_exists( $data_store, 'get_current_class_name' )
+			? $data_store->get_current_class_name()
+			: get_class( $data_store );
+		if ( ! is_string( $class_name ) || ! class_exists( $class_name ) || ! method_exists( $class_name, 'refresh_product_lookup_table' ) ) {
+			return false;
+		}
+
+		try {
+			$method = new ReflectionMethod( $class_name, 'refresh_product_lookup_table' );
+		} catch ( ReflectionException ) {
+			return false;
+		}
+
+		return $method->isPublic();
 	}
 
 	/**

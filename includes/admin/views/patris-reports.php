@@ -111,7 +111,9 @@ $notice_type = in_array($notice_type, array('success', 'error', 'warning', 'info
                         /* translators: 1: WooCommerce currency code, 2: compatibility status. */
                         __('WooCommerce base: %1$s. Integration status: %2$s.', 'digitalogic'),
                         $currency_status['code'],
-                        $currency_status['status']
+						$currency_status['compatible']
+							? __( 'Ready', 'digitalogic' )
+							: __( 'Base currency mismatch', 'digitalogic' )
                     ));
                     ?>
                 </p>
