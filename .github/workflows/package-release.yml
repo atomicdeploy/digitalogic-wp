@@ -1,9 +1,14 @@
 name: Package and publish WordPress plugin
 
 on:
-  release:
-    types: [published]
+  push:
+    tags:
+      - 'v*'
   workflow_dispatch: {}
+
+concurrency:
+  group: package-release-${{ github.ref }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -20,6 +25,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
@@ -59,6 +66,18 @@ jobs:
       - name: Reject public backup artifacts
         run: bash scripts/check-public-tree.sh
 
+      - name: Validate tag, plugin version, and changelog
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main:refs/remotes/origin/main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "Release tag $GITHUB_REF_NAME does not point to code merged into main." >&2
+            exit 1
+          fi
+          bash scripts/generate-release-notes.sh "$GITHUB_REF_NAME" "$GITHUB_SHA" build/release-notes.md
+
   package:
     name: Build verified plugin package
     needs: verify
@@ -68,6 +87,7 @@ jobs:
       stable_archive_name: ${{ steps.metadata.outputs.stable_archive_name }}
       checksum_name: ${{ steps.metadata.outputs.checksum_name }}
       artifact_name: ${{ steps.metadata.outputs.artifact_name }}
+      release_notes_name: ${{ steps.metadata.outputs.release_notes_name }}
     env:
       COMPOSER_ROOT_VERSION: dev-main
 
@@ -109,7 +129,7 @@ jobs:
         id: metadata
         shell: bash
         env:
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
         run: |
           set -euo pipefail
           label="${RELEASE_TAG:-${GITHUB_SHA:0:12}}"
@@ -124,6 +144,7 @@ jobs:
             echo "archive_name=digitalogic-wp-${label}.zip"
             echo 'stable_archive_name=digitalogic-wp.zip'
             echo 'checksum_name=SHA256SUMS'
+            echo 'release_notes_name=RELEASE_NOTES.md'
             echo "artifact_name=digitalogic-wp-${label}"
           } >> "$GITHUB_OUTPUT"
 
@@ -145,6 +166,47 @@ jobs:
             cat "${CHECKSUM_NAME}"
           )
 
+      - name: Generate curated release notes
+        shell: bash
+        env:
+          RELEASE_NOTES_NAME: ${{ steps.metadata.outputs.release_notes_name }}
+          RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'auto' }}
+        run: bash scripts/generate-release-notes.sh "$RELEASE_TAG" "$GITHUB_SHA" "build/${RELEASE_NOTES_NAME}"
+
+      - name: Generate package summary
+        if: always()
+        shell: bash
+        env:
+          ARCHIVE_NAME: ${{ steps.metadata.outputs.archive_name }}
+          STABLE_ARCHIVE_NAME: ${{ steps.metadata.outputs.stable_archive_name }}
+          CHECKSUM_NAME: ${{ steps.metadata.outputs.checksum_name }}
+        run: |
+          {
+            echo '## Digitalogic WordPress release package'
+            echo
+            echo "- Source commit: \`${GITHUB_SHA}\`"
+            echo "- Source ref: \`${GITHUB_REF_NAME}\`"
+            echo "- Versioned package: \`${ARCHIVE_NAME}\`"
+            echo "- Stable install package: \`${STABLE_ARCHIVE_NAME}\`"
+            echo "- Job status: \`${{ job.status }}\`"
+            echo
+            echo '### SHA-256 manifest'
+            echo
+            echo '```text'
+            if [[ -f "build/${CHECKSUM_NAME}" ]]; then
+              cat "build/${CHECKSUM_NAME}"
+            else
+              echo 'Package checksum manifest was not produced.'
+            fi
+            echo '```'
+            echo
+            echo 'Install the stable ZIP through WordPress Admin, or run:'
+            echo
+            echo '```bash'
+            echo "wp plugin install ${STABLE_ARCHIVE_NAME} --force --activate"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
@@ -153,13 +215,14 @@ jobs:
             build/${{ steps.metadata.outputs.archive_name }}
             build/${{ steps.metadata.outputs.stable_archive_name }}
             build/${{ steps.metadata.outputs.checksum_name }}
+            build/${{ steps.metadata.outputs.release_notes_name }}
           if-no-files-found: error
           compression-level: 0
           retention-days: 30
 
   publish_release:
-    name: Publish GitHub release asset
-    if: github.event_name == 'release'
+    name: Publish verified GitHub release
+    if: startsWith(github.ref, 'refs/tags/')
     needs: package
     runs-on: ubuntu-latest
     permissions:
@@ -172,19 +235,76 @@ jobs:
           name: ${{ needs.package.outputs.artifact_name }}
           path: release-package
 
-      - name: Upload package to GitHub release
+      - name: Create release and upload verified assets
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          ARCHIVE_NAME: ${{ needs.package.outputs.archive_name }}
+          STABLE_ARCHIVE_NAME: ${{ needs.package.outputs.stable_archive_name }}
+          CHECKSUM_NAME: ${{ needs.package.outputs.checksum_name }}
+          RELEASE_NOTES_NAME: ${{ needs.package.outputs.release_notes_name }}
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            existing_dir="$(mktemp -d)"
+            trap 'rm -rf -- "$existing_dir"' EXIT
+            existing_body="$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json body --jq '.body')"
+            if ! grep -Fq "$GITHUB_SHA" <<<"$existing_body"; then
+              echo "Existing release $RELEASE_TAG does not identify source commit $GITHUB_SHA." >&2
+              exit 1
+            fi
+            gh release download "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --dir "$existing_dir" \
+              --pattern "$ARCHIVE_NAME" \
+              --pattern "$STABLE_ARCHIVE_NAME" \
+              --pattern "$CHECKSUM_NAME"
+            for file in "$ARCHIVE_NAME" "$STABLE_ARCHIVE_NAME" "$CHECKSUM_NAME"; do
+              if ! cmp -s "release-package/$file" "$existing_dir/$file"; then
+                echo "Existing immutable release asset differs: $file" >&2
+                exit 1
+              fi
+            done
+            echo "Release $RELEASE_TAG already contains the identical verified assets."
+          else
+            gh release create "$RELEASE_TAG" \
+              --verify-tag \
+              --title "Digitalogic WooCommerce Extension ${RELEASE_TAG#v}" \
+              --notes-file "release-package/${RELEASE_NOTES_NAME}" \
+              "release-package/${ARCHIVE_NAME}" \
+              "release-package/${STABLE_ARCHIVE_NAME}" \
+              "release-package/${CHECKSUM_NAME}" \
+              --repo "$GITHUB_REPOSITORY"
+          fi
+
+      - name: Generate publication summary
+        if: always()
+        shell: bash
+        env:
+          JOB_STATUS: ${{ job.status }}
+          RELEASE_TAG: ${{ github.ref_name }}
           ARCHIVE_NAME: ${{ needs.package.outputs.archive_name }}
           STABLE_ARCHIVE_NAME: ${{ needs.package.outputs.stable_archive_name }}
           CHECKSUM_NAME: ${{ needs.package.outputs.checksum_name }}
         run: |
-          set -euo pipefail
-          gh release upload "$RELEASE_TAG" \
-            "release-package/${ARCHIVE_NAME}" \
-            "release-package/${STABLE_ARCHIVE_NAME}" \
-            "release-package/${CHECKSUM_NAME}" \
-            --clobber \
-            --repo "$GITHUB_REPOSITORY"
+          if [[ "$JOB_STATUS" != "success" ]]; then
+            {
+              echo '## Digitalogic WordPress release publication failed'
+              echo
+              echo "- Source commit: \`$GITHUB_SHA\`"
+              echo "- Tag: \`$RELEASE_TAG\`"
+              echo '- Review the failed publication step before retrying. No mutable asset replacement is performed.'
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          {
+            echo '## Published Digitalogic WordPress release'
+            echo
+            echo "- Release: [\`${RELEASE_TAG}\`](https://github.com/${GITHUB_REPOSITORY}/releases/tag/${RELEASE_TAG})"
+            echo "- Source commit: \`${GITHUB_SHA}\`"
+            echo "- Installable ZIP: [\`${STABLE_ARCHIVE_NAME}\`](https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}/${STABLE_ARCHIVE_NAME})"
+            echo "- Immutable ZIP: [\`${ARCHIVE_NAME}\`](https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}/${ARCHIVE_NAME})"
+            echo "- Checksums: [\`${CHECKSUM_NAME}\`](https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}/${CHECKSUM_NAME})"
+            echo "- Job status: \`${{ job.status }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
