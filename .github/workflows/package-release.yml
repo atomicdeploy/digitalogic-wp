@@ -208,7 +208,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload workflow artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ steps.metadata.outputs.artifact_name }}
           path: |
