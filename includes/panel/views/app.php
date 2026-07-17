@@ -209,7 +209,7 @@ $logo_url = !empty($config['theme']['logo_url']) ? $config['theme']['logo_url'] 
                                     <tr>
                                         <th scope="col"><label class="dlp-check"><input type="checkbox" v-model="allProductsSelected" :aria-label="t.selectAll"><span></span></label></th>
                                         <th scope="col" v-for="column in visibleProductColumns" :key="column.key" :data-column-key="column.key" :class="{'is-resizing': resizingColumn === column.key}" draggable="true" @contextmenu.prevent="openColumnContext('product', column, $event)" @dragstart="startColumnDrag(column.key)" @dragover.prevent @drop="dropColumn('product', column.key)" @dblclick.stop="autoResizeColumn('product', column)">
-                                            <button class="dlp-th-button" @click="cycleSort('product', column, $event)"><span class="dlp-th-label"><span :class="icon(column.icon || 'dashicons-editor-ul')"></span>{{ column.labelKey ? t[column.labelKey] : column.label }}</span><span>{{ sortLabel('product', column) }}</span></button>
+                                            <button class="dlp-th-button" :aria-disabled="!column.sortable" @click="cycleSort('product', column, $event)"><span class="dlp-th-label"><span :class="icon(column.icon || 'dashicons-editor-ul')"></span>{{ column.labelKey ? t[column.labelKey] : column.label }}</span><span>{{ sortLabel('product', column) }}</span></button>
                                             <button class="dlp-column-menu-button" @click.stop="openColumnContext('product', column, $event)" :aria-label="t.actions"><span class="dashicons dashicons-ellipsis"></span></button>
                                             <span class="dlp-col-resizer" @mousedown="startColumnResize('product', column, $event)" @dblclick.stop.prevent="autoResizeColumn('product', column)"></span>
                                         </th>
@@ -218,7 +218,8 @@ $logo_url = !empty($config['theme']['logo_url']) ? $config['theme']['logo_url'] 
                                     <tr class="dlp-filter-row">
                                         <th></th>
                                         <th v-for="column in visibleProductColumns" :key="'filter-' + column.key" :data-column-key="column.key" :class="{'is-resizing': resizingColumn === column.key}">
-                                            <template v-if="column.filter === 'select'">
+                                            <template v-if="!column.filter"></template>
+                                            <template v-else-if="column.filter === 'select'">
                                                 <span class="dlp-custom-select dlp-filter-cell-select">
                                                     <button class="dlp-filter-control dlp-filter-trigger" @click.stop="toggleMenu('filter-' + column.key)">{{ customSelectLabel([{value: '', label: t.all}].concat(columnOptions(column)), productFilters[column.key] || '') }}</button>
                                                     <span class="dlp-menu" v-if="openMenu === 'filter-' + column.key">
@@ -279,10 +280,10 @@ $logo_url = !empty($config['theme']['logo_url']) ? $config['theme']['logo_url'] 
                         <button class="dlp-button" :disabled="productPage >= productTotalPages || loading" @click="goToProductPage(productPage + 1)">{{ t.next }}<span class="dashicons dashicons-arrow-right-alt2"></span></button>
                     </nav>
                     <div class="dlp-column-context" v-if="columnContext" :style="columnContextStyle">
-                        <button @click="contextSort('asc')"><span class="dashicons dashicons-arrow-up-alt"></span>{{ t.sortAsc }}</button>
-                        <button @click="contextSort('desc')"><span class="dashicons dashicons-arrow-down-alt"></span>{{ t.sortDesc }}</button>
+                        <button v-if="contextColumn() && contextColumn().sortable" @click="contextSort('asc')"><span class="dashicons dashicons-arrow-up-alt"></span>{{ t.sortAsc }}</button>
+                        <button v-if="contextColumn() && contextColumn().sortable" @click="contextSort('desc')"><span class="dashicons dashicons-arrow-down-alt"></span>{{ t.sortDesc }}</button>
                         <button @click="hideContextColumn"><span class="dashicons dashicons-hidden"></span>{{ t.hideColumn }}</button>
-                        <button @click="clearContextFilter"><span class="dashicons dashicons-dismiss"></span>{{ t.clear }}</button>
+                        <button v-if="contextColumn() && contextColumn().filter" @click="clearContextFilter"><span class="dashicons dashicons-dismiss"></span>{{ t.clear }}</button>
                     </div>
                     <div class="dlp-column-context dlp-row-context" v-if="rowContext && rowContextProduct()" :style="rowContextStyle">
                         <button @click="viewProduct(rowContextProduct()); closeRowContext()"><span class="dashicons dashicons-visibility"></span>{{ t.view }}</button>

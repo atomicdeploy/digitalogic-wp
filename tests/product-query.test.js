@@ -66,10 +66,38 @@ test('page window stays bounded around the current page', () => {
     assert.deepEqual(productQuery.pageWindow(1, 0, 2), []);
 });
 
+test('persisted column layouts receive new defaults next to their logical neighbors', () => {
+    const defaults = [
+        {key: 'name', width: 340, visible: true, editable: true},
+        {key: 'regular_price', width: 132, visible: true, editable: true},
+        {key: 'sale_price', width: 132, visible: true, editable: true},
+        {key: 'min_price', width: 132, visible: true, editable: false},
+        {key: 'max_price', width: 132, visible: true, editable: false},
+        {key: 'stock_quantity', width: 104, visible: true, editable: true}
+    ];
+    const saved = [
+        {key: 'name', width: 420, visible: true},
+        {key: 'regular_price', width: 160, visible: false},
+        {key: 'sale_price', width: 170, visible: true},
+        {key: 'stock_quantity', width: 110, visible: true}
+    ];
+
+    const merged = productQuery.mergeColumns(saved, defaults);
+
+    assert.deepEqual(merged.map((column) => column.key), [
+        'name', 'regular_price', 'sale_price', 'min_price', 'max_price', 'stock_quantity'
+    ]);
+    assert.equal(merged[0].width, 420);
+    assert.equal(merged[1].visible, false);
+    assert.equal(merged[3].editable, false);
+    assert.equal(merged[4].editable, false);
+});
+
 test('panel uses the shared server query and a persisted safe edit lock', () => {
     const panelSource = fs.readFileSync(path.join(__dirname, '..', 'assets', 'js', 'panel-app.js'), 'utf8');
     const managerSource = fs.readFileSync(path.join(__dirname, '..', 'includes', 'class-product-manager.php'), 'utf8');
     const viewSource = fs.readFileSync(path.join(__dirname, '..', 'includes', 'panel', 'views', 'app.php'), 'utf8');
+    const panelPhpSource = fs.readFileSync(path.join(__dirname, '..', 'includes', 'panel', 'class-panel.php'), 'utf8');
     const panelCss = fs.readFileSync(path.join(__dirname, '..', 'assets', 'css', 'panel.css'), 'utf8');
     const adminCss = fs.readFileSync(path.join(__dirname, '..', 'assets', 'css', 'admin.css'), 'utf8');
 
@@ -79,6 +107,11 @@ test('panel uses the shared server query and a persisted safe edit lock', () => 
     assert.match(panelSource, /productQuery\.buildPayload/);
     assert.match(panelSource, /productQuery\.reconcileEdits/);
     assert.match(panelSource, /productQuery\.applyPendingEdits/);
+    assert.match(panelSource, /key: 'min_price',[^\n]+sortable: false, editable: false, numeric: true, filter: false/);
+    assert.match(panelSource, /key: 'max_price',[^\n]+sortable: false, editable: false, numeric: true, filter: false/);
+    assert.match(panelSource, /key: 'regular_price',[^\n]+editable: true/);
+    assert.match(panelSource, /key: 'sale_price',[^\n]+editable: true/);
+    assert.match(panelSource, /key: 'weight',[^\n]+editable: true/);
     assert.match(panelSource, /digitalogic_update_product/);
     assert.match(managerSource, /-1 === intval\(\s*\$args\['limit'\]\s*\)/);
     assert.match(managerSource, /\$batch_args\['limit'\]\s*=\s*100;/);
@@ -86,6 +119,12 @@ test('panel uses the shared server query and a persisted safe edit lock', () => 
     assert.match(viewSource, /:aria-colcount="visibleProductColumns\.length \+ 2"/);
     assert.match(viewSource, /<th scope="col" v-for="column in visibleProductColumns"/);
     assert.match(viewSource, /:readonly="!productEditMode"/);
+    assert.match(viewSource, /<template v-if="!column\.filter"><\/template>/);
+    assert.match(viewSource, /:aria-disabled="!column\.sortable"/);
+    assert.match(panelPhpSource, /'minPrice' => 'Minimum price'/);
+    assert.match(panelPhpSource, /'maxPrice' => 'Maximum price'/);
+    assert.match(panelPhpSource, /'minPrice' => 'حداقل قیمت'/);
+    assert.match(panelPhpSource, /'maxPrice' => 'حداکثر قیمت'/);
     assert.match(panelCss, /\.dlp-table \.dlp-cell-numeric[\s\S]*?direction:\s*ltr;[\s\S]*?text-align:\s*left;/);
     assert.match(adminCss, /\.wrap\[class\*="digitalogic-"\] input\[type="number"\][\s\S]*?direction:\s*ltr !important;/);
 });

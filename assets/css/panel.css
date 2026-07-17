@@ -1993,6 +1993,8 @@ code {
     }
 
     .dlp-data-grid [data-column-key="regular_price"],
+    .dlp-data-grid [data-column-key="min_price"],
+    .dlp-data-grid [data-column-key="max_price"],
     .dlp-data-grid [data-column-key="stock_status"],
     .dlp-data-grid [data-column-key="status"],
     .dlp-data-grid [data-column-key="id"] {

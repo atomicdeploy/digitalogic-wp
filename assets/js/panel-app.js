@@ -212,6 +212,8 @@
             {key: 'type', labelKey: 'productType', field: 'type', width: 122, visible: false, sortable: false, editable: false, type: 'select', filter: 'select', icon: 'dashicons-category', priority: 3},
             {key: 'regular_price', labelKey: 'regularPrice', field: 'regular_price', width: 132, visible: true, sortable: true, editable: true, numeric: true, filter: 'numeric', icon: 'dashicons-money-alt', priority: 2},
             {key: 'sale_price', labelKey: 'salePrice', field: 'sale_price', width: 132, visible: true, sortable: true, editable: true, numeric: true, filter: 'numeric', icon: 'dashicons-tickets-alt', priority: 3},
+            {key: 'min_price', labelKey: 'minPrice', field: 'min_price', width: 132, visible: true, sortable: false, editable: false, numeric: true, filter: false, icon: 'dashicons-arrow-down-alt', priority: 3},
+            {key: 'max_price', labelKey: 'maxPrice', field: 'max_price', width: 132, visible: true, sortable: false, editable: false, numeric: true, filter: false, icon: 'dashicons-arrow-up-alt', priority: 3},
             {key: 'weight', labelKey: 'weight', field: 'weight', width: 112, visible: false, sortable: true, editable: true, numeric: true, filter: 'numeric', icon: 'dashicons-image-filter', priority: 3},
             {key: 'patris_foreign_currency', labelKey: 'patrisCurrency', field: 'patris_foreign_currency', width: 106, visible: true, sortable: true, editable: true, filter: 'text', icon: 'dashicons-money-alt', priority: 3},
             {key: 'patris_foreign_price', labelKey: 'patrisForeignPrice', field: 'patris_foreign_price', width: 138, visible: true, sortable: true, editable: true, numeric: true, filter: 'numeric', icon: 'dashicons-chart-line', priority: 3},
@@ -232,38 +234,6 @@
             {key: 'email', label: 'Email', field: 'email', width: 260, visible: true, sortable: true, editable: true},
             {key: 'roles', labelKey: 'role', field: 'roles', width: 180, visible: true, sortable: true, editable: false}
         ];
-    }
-
-    function mergeColumns(saved, defaults) {
-        var map = {};
-        defaults.forEach(function(column) {
-            map[column.key] = Object.assign({}, column);
-        });
-
-        (Array.isArray(saved) ? saved : []).forEach(function(column) {
-            if (column && map[column.key]) {
-                map[column.key] = Object.assign(map[column.key], {
-                    width: Math.max(72, parseInt(column.width, 10) || map[column.key].width),
-                    visible: column.visible !== false
-                });
-            }
-        });
-
-        var order = (Array.isArray(saved) ? saved : []).map(function(column) {
-            return column && column.key;
-        }).filter(function(key) {
-            return key && map[key];
-        });
-
-        defaults.forEach(function(column) {
-            if (order.indexOf(column.key) === -1) {
-                order.push(column.key);
-            }
-        });
-
-        return order.map(function(key) {
-            return map[key];
-        });
     }
 
     var transport = createTransport();
@@ -327,8 +297,8 @@
                 resizingColumn: '',
                 sortState: storedJson('digitalogic_panel_product_sorts', []),
                 userSortState: storedJson('digitalogic_panel_user_sorts', []),
-                productColumns: mergeColumns(storedJson('digitalogic_panel_product_columns', []), defaultProductColumns()),
-                userColumns: mergeColumns(storedJson('digitalogic_panel_user_columns', []), defaultUserColumns()),
+                productColumns: productQuery.mergeColumns(storedJson('digitalogic_panel_product_columns', []), defaultProductColumns()),
+                userColumns: productQuery.mergeColumns(storedJson('digitalogic_panel_user_columns', []), defaultUserColumns()),
                 cardOrder: storedJson('digitalogic_panel_cards', ['products', 'usd', 'cny']).filter(function(key) { return key !== 'transport'; }),
                 saveTimers: {},
                 savePromises: {},
@@ -1829,7 +1799,7 @@
             },
             contextSort: function(direction) {
                 var column = this.contextColumn();
-                if (!column) return;
+                if (!column || !column.sortable) return;
                 var sort = {key: column.key, field: column.field, direction: direction};
                 if (this.columnContext.kind === 'user') {
                     this.userSortState = [sort];

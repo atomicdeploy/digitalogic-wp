@@ -694,6 +694,7 @@ class Digitalogic_Test_WPDB {
     // phpcs:disable -- Product metadata lookup controls are test-only database hooks.
     public $metadata_lookup_query_count = 0;
     public $metadata_lookup_query_failure = false;
+    public $price_range_query_count = 0;
     // phpcs:enable
     public $last_error = '';
     public $option_read_counts = array();
@@ -789,6 +790,23 @@ class Digitalogic_Test_WPDB {
     public function get_results($prepared, $output = ARRAY_A) {
         $query = is_array($prepared) && isset($prepared['query']) ? $prepared['query'] : (string) $prepared;
         $args = is_array($prepared) && isset($prepared['args']) ? $prepared['args'] : array();
+        if (strpos($query, 'digitalogic_product_price_range_lookup') !== false) {
+            $this->price_range_query_count++;
+            $rows = array();
+            foreach ($args as $product_id) {
+                $product_id = (int) $product_id;
+                if (!isset($GLOBALS['digitalogic_test_wc_lookup_rows'][$product_id])) {
+                    continue;
+                }
+                $lookup_row = $GLOBALS['digitalogic_test_wc_lookup_rows'][$product_id];
+                $rows[] = array(
+                    'product_id' => $product_id,
+                    'min_price' => $lookup_row['min_price'] ?? null,
+                    'max_price' => $lookup_row['max_price'] ?? null,
+                );
+            }
+            return $rows;
+        }
         if (strpos($query, 'digitalogic_identifier:') === false) {
             return array();
         }
