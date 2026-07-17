@@ -18,7 +18,7 @@ jobs:
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
       
     - name: Setup PHP
       uses: shivammathur/setup-php@v2
@@ -57,7 +57,7 @@ jobs:
         
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
       
     - name: Setup PHP
       uses: shivammathur/setup-php@v2
@@ -93,7 +93,7 @@ jobs:
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
       
     - name: Setup PHP
       uses: shivammathur/setup-php@v2
@@ -119,7 +119,7 @@ jobs:
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
       with:
         # Tests above use GitHub's synthetic merge commit. Package the exact
         # reviewed head so its commit epoch and checksum are reproducible.
