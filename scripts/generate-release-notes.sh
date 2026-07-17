@@ -18,7 +18,7 @@ constant_version="$(sed -nE "s/.*define\([[:space:]]*'DIGITALOGIC_VERSION',[[:sp
 if [[ "$tag" == "auto" ]]; then
     tag="v${header_version}"
 fi
-if [[ ! "$tag" =~ ^v([0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.-]+)?)$ ]]; then
+if [[ ! "$tag" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
     printf 'Release tag must use vX.Y.Z syntax: %s\n' "$tag" >&2
     exit 2
 fi
@@ -64,7 +64,7 @@ Both ZIP files have a single \`digitalogic-wp/\` plugin root and include product
 
 ## Verify the download
 
-Download \`SHA256SUMS\` beside the ZIP files, then run \`sha256sum -c SHA256SUMS\`. On Windows, compare \`Get-FileHash .\\digitalogic-wp.zip -Algorithm SHA256\` with the matching line in \`SHA256SUMS\`.
+Download \`SHA256SUMS\` beside the ZIP files. To verify only the stable installer, run \`grep ' digitalogic-wp.zip$' SHA256SUMS | sha256sum -c -\`. To verify the complete release set, download both ZIPs and run \`sha256sum -c SHA256SUMS\`. On Windows, compare \`Get-FileHash .\\digitalogic-wp.zip -Algorithm SHA256\` with the matching line in \`SHA256SUMS\`.
 
 ## Changelog
 
