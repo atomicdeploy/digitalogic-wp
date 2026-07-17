@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.2] - 2026-07-17
+
+### Changed
+- Added grouped Dependabot maintenance for Composer and GitHub Actions so dependency updates remain reviewable and independently testable.
+- Updated the release and CI workflows to current `actions/checkout`, `actions/cache`, `actions/download-artifact`, and `actions/upload-artifact` generations.
+- Updated the WordPress Coding Standards development dependency from 3.3.0 to 3.4.0 without changing the production dependency set.
+
 ## [1.3.1] - 2026-07-17
 
 ### Fixed
@@ -193,7 +200,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added options: `dollar_price`, `yuan_price`, `update_date`
 - Added product meta keys: `_digitalogic_dynamic_pricing`, `_digitalogic_currency_type`, `_digitalogic_base_price`, `_digitalogic_markup`, `_digitalogic_markup_type`
 
-## [Unreleased]
+## Roadmap
 
 ### Planned Features
 - Excel import/export with PhpSpreadsheet library
