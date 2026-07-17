@@ -92,10 +92,62 @@
         return result;
     }
 
+    function mergeColumns(saved, defaults) {
+        saved = Array.isArray(saved) ? saved : [];
+        defaults = Array.isArray(defaults) ? defaults : [];
+        var map = {};
+        defaults.forEach(function(column) {
+            map[column.key] = Object.assign({}, column);
+        });
+
+        saved.forEach(function(column) {
+            if (column && map[column.key]) {
+                map[column.key] = Object.assign(map[column.key], {
+                    width: Math.max(72, parseInt(column.width, 10) || map[column.key].width),
+                    visible: column.visible !== false
+                });
+            }
+        });
+
+        var order = [];
+        saved.forEach(function(column) {
+            var key = column && column.key;
+            if (key && map[key] && order.indexOf(key) === -1) order.push(key);
+        });
+
+        defaults.forEach(function(column, defaultIndex) {
+            if (order.indexOf(column.key) !== -1) return;
+
+            var insertAt = -1;
+            for (var previous = defaultIndex - 1; previous >= 0; previous--) {
+                var previousIndex = order.indexOf(defaults[previous].key);
+                if (previousIndex !== -1) {
+                    insertAt = previousIndex + 1;
+                    break;
+                }
+            }
+            if (insertAt === -1) {
+                for (var next = defaultIndex + 1; next < defaults.length; next++) {
+                    var nextIndex = order.indexOf(defaults[next].key);
+                    if (nextIndex !== -1) {
+                        insertAt = nextIndex;
+                        break;
+                    }
+                }
+            }
+            order.splice(insertAt === -1 ? order.length : insertAt, 0, column.key);
+        });
+
+        return order.map(function(key) {
+            return map[key];
+        });
+    }
+
     return {
         buildPayload: buildPayload,
         reconcileEdits: reconcileEdits,
         applyPendingEdits: applyPendingEdits,
-        pageWindow: pageWindow
+        pageWindow: pageWindow,
+        mergeColumns: mergeColumns
     };
 });

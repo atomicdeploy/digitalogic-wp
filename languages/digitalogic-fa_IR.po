@@ -1,6 +1,6 @@
 msgid ""
 msgstr ""
-"Project-Id-Version: Digitalogic WooCommerce Extension 1.3.0\n"
+"Project-Id-Version: Digitalogic WooCommerce Extension 1.3.1\n"
 "Report-Msgid-Bugs-To: https://wordpress.org/support/plugin/digitalogic-wp\n"
 "POT-Creation-Date: 2026-07-16T23:40:54+00:00\n"
 "PO-Revision-Date: 2026-07-17 00:00+0000\n"

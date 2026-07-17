@@ -241,7 +241,7 @@ class Digitalogic_Product_Manager {
             return null;
         }
         
-        return $this->format_product_data($product);
+        return $this->format_single_product($product);
     }
 
 	/**
@@ -312,10 +312,11 @@ class Digitalogic_Product_Manager {
      * 
      * @param WC_Product $product
      * @param int  $depth Current recursion depth.
-     * @param bool $list_context Whether this row is for the paginated list.
+     * @param bool  $list_context Whether this row is for the paginated list.
+     * @param array|null $lookup_price_ranges WooCommerce lookup price rows keyed by product ID, or null to omit derived ranges.
      * @return array
      */
-    private function format_product_data($product, $depth = 0, $list_context = false) {
+    private function format_product_data($product, $depth, $list_context, $lookup_price_ranges) {
         if (!$product || !is_a($product, 'WC_Product')) {
             return array();
         }
@@ -327,6 +328,12 @@ class Digitalogic_Product_Manager {
         }
         
         try {
+            $product_id = $product->get_id();
+            $price = $product->get_price();
+            $include_price_range = is_array($lookup_price_ranges);
+            $lookup_price_range = $include_price_range && isset($lookup_price_ranges[$product_id])
+                ? $lookup_price_ranges[$product_id]
+                : array();
             $public_product = $this->get_public_product($product);
             $public_product = $public_product ?: $product;
             $image_url = wp_get_attachment_url($product->get_image_id());
@@ -335,7 +342,7 @@ class Digitalogic_Product_Manager {
             }
 
             $data = array(
-                'id' => $product->get_id(),
+                'id' => $product_id,
                 'parent_id' => $product->get_parent_id(),
                 'edit_product_id' => $this->get_edit_product_id($product),
                 'name' => $product->get_name(),
@@ -345,7 +352,7 @@ class Digitalogic_Product_Manager {
                 'status' => $product->get_status(),
                 'regular_price' => $product->get_regular_price(),
                 'sale_price' => $product->get_sale_price(),
-                'price' => $product->get_price(),
+                'price' => $price,
                 'stock_quantity' => $product->get_stock_quantity(),
                 'stock_status' => $product->get_stock_status(),
                 'manage_stock' => $product->get_manage_stock(),
@@ -379,6 +386,11 @@ class Digitalogic_Product_Manager {
                 'patris_updated_at' => $product->get_meta('_digitalogic_patris_updated_at', true),
                 'patris_flags' => $this->decode_json_meta($product->get_meta('_digitalogic_patris_flags', true)),
             );
+
+            if ($include_price_range) {
+                $data['min_price'] = $this->lookup_price_value($lookup_price_range, 'min_price', $price);
+                $data['max_price'] = $this->lookup_price_value($lookup_price_range, 'max_price', $price);
+            }
             
             // Add variation data if variable product (only at first level)
             if (!$list_context && $depth === 0 && $product->is_type('variable')) {
@@ -394,7 +406,7 @@ class Digitalogic_Product_Manager {
                 foreach ($children as $variation_id) {
                     $variation = wc_get_product($variation_id);
                     if ($variation) {
-                        $data['variations'][] = $this->format_product_data($variation, $depth + 1);
+                        $data['variations'][] = $this->format_product_data($variation, $depth + 1, false, $lookup_price_ranges);
                     }
                 }
             }
@@ -436,9 +448,91 @@ class Digitalogic_Product_Manager {
             $this->prime_post_caches(array_values(array_unique($related_ids)), true);
         }
 
-        return array_values(array_map(function($product) {
-            return $this->format_product_data($product, 0, true);
+        $lookup_price_ranges = $this->get_lookup_price_ranges($product_ids);
+
+        return array_values(array_map(function($product) use ($lookup_price_ranges) {
+            return $this->format_product_data($product, 0, true, $lookup_price_ranges);
         }, $products));
+    }
+
+    /**
+     * Format one product and its bounded variation set with one lookup query.
+     *
+     * @param WC_Product $product Product to format.
+     * @return array
+     */
+    private function format_single_product($product) {
+        $product_ids = array($product->get_id());
+        if ($product->is_type('variable')) {
+            $product_ids = array_merge($product_ids, array_slice($product->get_children(), 0, 100));
+        }
+
+        return $this->format_product_data(
+            $product,
+            0,
+            false,
+            $this->get_lookup_price_ranges($product_ids)
+        );
+    }
+
+    /**
+     * Read WooCommerce-derived minimum and maximum prices in one bounded query.
+     *
+     * @param int[] $product_ids Product and variation IDs.
+     * @return array<int,array{min_price:mixed,max_price:mixed}>
+     */
+    private function get_lookup_price_ranges($product_ids) {
+        global $wpdb;
+
+        $product_ids = array_values(array_unique(array_filter(array_map('absint', (array) $product_ids))));
+        if (!$product_ids) {
+            return array();
+        }
+
+        $lookup_table = $wpdb->prefix . 'wc_product_meta_lookup';
+        $placeholders = implode(', ', array_fill(0, count($product_ids), '%d'));
+        $query = "/* digitalogic_product_price_range_lookup */
+            SELECT product_id, min_price, max_price
+            FROM {$lookup_table}
+            WHERE product_id IN ({$placeholders})"; // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Trusted WooCommerce table name and generated integer placeholders.
+        $prepared = $wpdb->prepare($query, ...$product_ids); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- The dynamic query contains one integer placeholder per bounded product ID.
+        if (!$prepared) {
+            error_log('Digitalogic: Unable to prepare the product price-range lookup query.');
+            return array();
+        }
+
+        $rows = $wpdb->get_results($prepared, ARRAY_A); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.NotPrepared -- One fresh bounded lookup-table read replaces the former per-row query.
+        if (!is_array($rows)) {
+            error_log('Digitalogic: Unable to read WooCommerce product price ranges.');
+            return array();
+        }
+
+        $ranges = array();
+        foreach ($rows as $row) {
+            $product_id = isset($row['product_id']) ? absint($row['product_id']) : 0;
+            if ($product_id) {
+                $ranges[$product_id] = array(
+                    'min_price' => $row['min_price'] ?? null,
+                    'max_price' => $row['max_price'] ?? null,
+                );
+            }
+        }
+
+        return $ranges;
+    }
+
+    /**
+     * Return a lookup price without hiding zero; use the historical product fallback when absent.
+     *
+     * @param array  $lookup_price_range Lookup row for one product.
+     * @param string $field Lookup field name.
+     * @param mixed  $fallback Current WooCommerce product price.
+     * @return string
+     */
+    private function lookup_price_value($lookup_price_range, $field, $fallback) {
+        return is_array($lookup_price_range) && isset($lookup_price_range[$field])
+            ? (string) $lookup_price_range[$field]
+            : (string) $fallback;
     }
 
     private function prime_post_caches($post_ids, $terms) {
@@ -585,7 +679,8 @@ class Digitalogic_Product_Manager {
             return new WP_Error('invalid_product', __('Product not found', 'digitalogic'));
         }
         
-        $old_data = $this->format_product_data($product);
+        // The audit snapshot does not need a fresh derived lookup read for every bulk-update row.
+        $old_data = $this->format_product_data($product, 0, false, null);
         
         try {
             // Update basic fields

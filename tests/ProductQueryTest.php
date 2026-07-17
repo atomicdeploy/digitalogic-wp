@@ -18,10 +18,13 @@ final class ProductQueryTest extends TestCase {
 	protected function setUp(): void {
 		$manager = new ReflectionProperty( Digitalogic_Product_Manager::class, 'instance' );
 		$manager->setValue( null, null );
+		$GLOBALS['digitalogic_test_posts']            = array();
 		$GLOBALS['digitalogic_test_wp_query_args']    = array();
 		$GLOBALS['digitalogic_test_wp_query_results'] = array();
 		$GLOBALS['digitalogic_test_primed_post_ids']  = array();
 		$GLOBALS['digitalogic_test_wc_products']      = array();
+		$GLOBALS['digitalogic_test_wc_lookup_rows']   = array();
+		$GLOBALS['wpdb']                              = new Digitalogic_Test_WPDB();
 	}
 
 	/**
@@ -208,6 +211,125 @@ final class ProductQueryTest extends TestCase {
 		$this->assertSame( 25, $GLOBALS['digitalogic_test_wp_query_args'][0]['posts_per_page'] );
 		$this->assertSame( 'SKU-42', $GLOBALS['digitalogic_test_wp_query_args'][0]['meta_query'][0]['value'] );
 		$this->assertSame( array( 42 ), $GLOBALS['digitalogic_test_primed_post_ids'][0] );
+	}
+
+	/**
+	 * The grid restores exact lookup-table ranges without a query per row.
+	 */
+	public function test_product_grid_batches_derived_price_ranges_and_preserves_fallback_zero(): void {
+		$GLOBALS['digitalogic_test_posts'] = array(
+			42 => array(
+				'post_type'   => 'product',
+				'post_status' => 'publish',
+				'post_title'  => 'Simple product',
+				'product_type' => 'simple',
+				'meta'        => array( '_price' => '100' ),
+			),
+			43 => array(
+				'post_type'   => 'product',
+				'post_status' => 'publish',
+				'post_title'  => 'Variable product',
+				'product_type' => 'variable',
+				'meta'        => array( '_price' => '120' ),
+			),
+			44 => array(
+				'post_type'   => 'product_variation',
+				'post_status' => 'publish',
+				'post_title'  => 'Variation',
+				'post_parent' => 43,
+				'meta'        => array( '_price' => '180' ),
+			),
+			45 => array(
+				'post_type'   => 'product',
+				'post_status' => 'publish',
+				'post_title'  => 'Fallback zero',
+				'product_type' => 'simple',
+				'meta'        => array( '_price' => '0' ),
+			),
+		);
+		$GLOBALS['digitalogic_test_wc_lookup_rows'] = array(
+			42 => array( 'min_price' => '100.0000', 'max_price' => '100.0000' ),
+			43 => array( 'min_price' => '120.0000', 'max_price' => '180.0000' ),
+			44 => array( 'min_price' => '180.0000', 'max_price' => '180.0000' ),
+		);
+		$GLOBALS['digitalogic_test_wp_query_results'] = array(
+			array(
+				'posts'       => array( 42, 43, 44, 45 ),
+				'found_posts' => 4,
+			),
+		);
+
+		$result = Digitalogic_Product_Manager::instance()->query_products( array( 'limit' => 50 ) );
+
+		$this->assertSame( '100.0000', $result['products'][0]['min_price'] );
+		$this->assertSame( '100.0000', $result['products'][0]['max_price'] );
+		$this->assertSame( '120.0000', $result['products'][1]['min_price'] );
+		$this->assertSame( '180.0000', $result['products'][1]['max_price'] );
+		$this->assertSame( '180.0000', $result['products'][2]['min_price'] );
+		$this->assertSame( '180.0000', $result['products'][2]['max_price'] );
+		$this->assertSame( '0', $result['products'][3]['min_price'] );
+		$this->assertSame( '0', $result['products'][3]['max_price'] );
+		$this->assertSame( 1, $GLOBALS['wpdb']->price_range_query_count );
+	}
+
+	/**
+	 * Variable-product detail fetches parent and children in one lookup operation.
+	 */
+	public function test_variable_product_detail_batches_parent_and_variation_price_ranges(): void {
+		$GLOBALS['digitalogic_test_posts'] = array(
+			43 => array(
+				'post_type'   => 'product',
+				'post_status' => 'publish',
+				'post_title'  => 'Variable product',
+				'product_type' => 'variable',
+				'meta'        => array( '_price' => '120' ),
+			),
+			44 => array(
+				'post_type'   => 'product_variation',
+				'post_status' => 'publish',
+				'post_title'  => 'Variation',
+				'post_parent' => 43,
+				'meta'        => array( '_price' => '180' ),
+			),
+		);
+		$GLOBALS['digitalogic_test_wc_lookup_rows'] = array(
+			43 => array( 'min_price' => '120.0000', 'max_price' => '180.0000' ),
+			44 => array( 'min_price' => '180.0000', 'max_price' => '180.0000' ),
+		);
+
+		$product = Digitalogic_Product_Manager::instance()->get_product( 43 );
+
+		$this->assertSame( '120.0000', $product['min_price'] );
+		$this->assertSame( '180.0000', $product['max_price'] );
+		$this->assertCount( 1, $product['variations'] );
+		$this->assertSame( '180.0000', $product['variations'][0]['min_price'] );
+		$this->assertSame( '180.0000', $product['variations'][0]['max_price'] );
+		$this->assertSame( 1, $GLOBALS['wpdb']->price_range_query_count );
+	}
+
+	/**
+	 * Update audit snapshots do not invent derived ranges or query once per bulk row.
+	 */
+	public function test_update_audit_snapshot_omits_unloaded_price_ranges(): void {
+		$GLOBALS['digitalogic_test_posts'] = array(
+			42 => array(
+				'post_type'   => 'product',
+				'post_status' => 'publish',
+				'post_title'  => 'Original name',
+				'meta'        => array( '_price' => '100' ),
+			),
+		);
+		$logger = Digitalogic_Logger::instance();
+		$before = count( $logger->entries );
+
+		$result = Digitalogic_Product_Manager::instance()->update_product( 42, array( 'name' => 'Updated name' ) );
+
+		$this->assertTrue( $result );
+		$this->assertSame( 0, $GLOBALS['wpdb']->price_range_query_count );
+		$this->assertCount( $before + 1, $logger->entries );
+		$old_data = json_decode( $logger->entries[ $before ][3], true );
+		$this->assertArrayNotHasKey( 'min_price', $old_data );
+		$this->assertArrayNotHasKey( 'max_price', $old_data );
 	}
 
 	/**

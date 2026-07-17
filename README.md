@@ -405,6 +405,9 @@ Developed for Digitalogic electronic components shop.
 
 ## Changelog
 
+### 1.3.1
+- Restored batched, read-only WooCommerce minimum and maximum price ranges in the configurable product grid while retaining editable regular and sale prices.
+
 ### 1.3.0
 - Added exact ID/SKU product access and variation-aware metadata diagnostics across REST, WP-CLI, and WordPress admin.
 - Added safe per-product lookup refresh without a hidden catalog-wide fallback on older WooCommerce versions.
