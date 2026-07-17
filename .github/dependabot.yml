@@ -1,0 +1,61 @@
+version: 2
+
+updates:
+  # Keep the target branch implicit so these settings also apply to security
+  # updates, which Dependabot always opens against the default branch.
+  - package-ecosystem: "composer"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Asia/Tehran"
+    open-pull-requests-limit: 5
+    rebase-strategy: "auto"
+    versioning-strategy: "increase-if-necessary"
+    labels:
+      - "🧹 type: maintenance"
+      - "🏗️ area: build-ci"
+    commit-message:
+      prefix: "chore(deps)"
+      prefix-development: "chore(deps-dev)"
+    groups:
+      composer-production-minor-patch:
+        applies-to: "version-updates"
+        dependency-type: "production"
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+      composer-development-minor-patch:
+        applies-to: "version-updates"
+        dependency-type: "development"
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:15"
+      timezone: "Asia/Tehran"
+    open-pull-requests-limit: 3
+    rebase-strategy: "auto"
+    labels:
+      - "🧹 type: maintenance"
+      - "🏗️ area: build-ci"
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      github-actions-minor-patch:
+        applies-to: "version-updates"
+        update-types:
+          - "minor"
+          - "patch"
+        patterns:
+          - "*"
