@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Made the `/panel/` and nested panel rewrite rules self-healing when WordPress retains the plugin's rewrite-version marker but another deployment or permalink refresh drops the stored routes.
 - Kept same-origin panel launches inside the existing WordPress session and removed one-time handoff codes from integrated `/panel/` URLs; the legacy handoff remains only for explicitly external panel hosts.
+- Prevented the custom Digits login and registration footer from blocking a PHP-FPM worker on remote WordPress.org translation discovery while preserving the locale already selected by WordPress.
 
 ## [1.3.2] - 2026-07-17
 
