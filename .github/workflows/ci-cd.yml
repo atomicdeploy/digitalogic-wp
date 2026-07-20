@@ -81,6 +81,8 @@ jobs:
         node --check assets/js/branding/admin-branding.js
         node --test tests/product-query.test.js
         node --test tests/admin-branding-auth-nav.test.js
+        node --check --input-type=commonjs < assets/integrations/google-apps-script/Code.gs
+        node --test tests/google-sheets-apps-script.test.js
 
     - name: Run PHPUnit tests
       run: composer test

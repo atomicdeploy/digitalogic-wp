@@ -8,7 +8,7 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 	private static $fixture;
 
 	public static function setUpBeforeClass(): void {
-		self::$fixture_json = file_get_contents( __DIR__ . '/fixtures/patris-product-sync-v1.1-golden.json' );
+		self::$fixture_json = file_get_contents( __DIR__ . '/fixtures/patris-catalog-materializer-golden.json' );
 		self::$fixture      = json_decode( self::$fixture_json, true, 512, JSON_THROW_ON_ERROR );
 	}
 
@@ -32,7 +32,7 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 		$GLOBALS['digitalogic_test_capabilities']      = array( 'manage_options' => true );
 		$GLOBALS['wpdb']                               = new Digitalogic_Test_WPDB();
 		WC_Product_Variable::$synced_ids               = array();
-		$this->resetSingleton( Digitalogic_Import_Freight_Service::class );
+		$this->resetSingleton( Digitalogic_Shipping_Method_Service::class );
 	}
 
 	public function test_dry_run_plans_only_positive_stock_and_writes_nothing(): void {
@@ -68,7 +68,7 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 		$this->assertSame( '101001001', $product->get_sku() );
 		$this->assertSame( '101001001', $product->get_meta( '_digitalogic_patris_product_code', true ) );
 		$this->assertSame( 'Synthetic priced product', $product->get_meta( '_digitalogic_patris_name', true ) );
-		$this->assertSame( 'air_express', get_post_meta( $product_id, Digitalogic_Import_Freight_Service::PRODUCT_METHOD_META, true ) );
+		$this->assertSame( 'air_express', get_post_meta( $product_id, Digitalogic_Shipping_Method_Service::PRODUCT_METHOD_META, true ) );
 		$this->assertSame( '2009410', $product->get_regular_price() );
 		$this->assertSame( 5, $product->get_stock_quantity() );
 		$this->assertGreaterThan( 0, (float) $product->get_weight() );
@@ -115,7 +115,7 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 
 		$state      = get_option( Digitalogic_Product_Sync_Receiver::STATE_OPTION, array() );
 		$source_key = array_key_first( $state['sources'] );
-		$state['sources'][ $source_key ]['products']['101001001']['import_freight_method_id'] = 'air_express';
+		$state['sources'][ $source_key ]['products']['101001001']['shipping_method_id'] = 'air_express';
 		update_option( Digitalogic_Product_Sync_Receiver::STATE_OPTION, $state, false );
 		$published = Digitalogic_Patris_Catalog_Materializer::instance()->run(
 			$manifest,
@@ -245,7 +245,7 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 
 		$state      = get_option( Digitalogic_Product_Sync_Receiver::STATE_OPTION, array() );
 		$source_key = array_key_first( $state['sources'] );
-		$state['sources'][ $source_key ]['products']['101001001']['import_freight_method_id'] = 'air_express';
+		$state['sources'][ $source_key ]['products']['101001001']['shipping_method_id'] = 'air_express';
 		update_option( Digitalogic_Product_Sync_Receiver::STATE_OPTION, $state, false );
 		$published = Digitalogic_Patris_Catalog_Materializer::instance()->run(
 			$manifest,
@@ -284,7 +284,7 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 
 		$state      = get_option( Digitalogic_Product_Sync_Receiver::STATE_OPTION, array() );
 		$source_key = array_key_first( $state['sources'] );
-		$state['sources'][ $source_key ]['products']['101001001']['import_freight_method_id'] = 'air_express';
+		$state['sources'][ $source_key ]['products']['101001001']['shipping_method_id'] = 'air_express';
 		update_option( Digitalogic_Product_Sync_Receiver::STATE_OPTION, $state, false );
 		$GLOBALS['digitalogic_test_wc_save_failures'][] = 100;
 

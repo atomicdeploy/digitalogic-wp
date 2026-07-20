@@ -123,8 +123,9 @@ final class Digitalogic {
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-pricing-input-credential.php'; // phpcs:ignore
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-patris-feed.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-product-sync-receiver.php';
-        require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-import-freight-service.php';
+        require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-shipping-method-service.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-patris-catalog-materializer.php';
+        require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-google-sheets-catalog.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-report-engine.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-command-dispatcher.php';
 
@@ -192,7 +193,8 @@ final class Digitalogic {
         Digitalogic_Pricing::instance();
         Digitalogic_Import_Export::instance();
         Digitalogic_Patris_Feed::instance();
-        Digitalogic_Import_Freight_Service::instance();
+        Digitalogic_Shipping_Method_Service::instance();
+        Digitalogic_Google_Sheets_Catalog::instance();
         Digitalogic_Report_Engine::instance();
         Digitalogic_Command_Dispatcher::instance();
         Digitalogic_WebSocket::instance();

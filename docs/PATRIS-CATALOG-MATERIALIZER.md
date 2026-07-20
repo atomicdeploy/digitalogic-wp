@@ -1,7 +1,7 @@
 # Patris Catalog Materializer
 
 The Patris catalog materializer converts reviewed, positive-stock records from
-the validated `digitalogic.product-sync` v1.1 state into WooCommerce products.
+the validated living `digitalogic.product-sync` state into WooCommerce products.
 It is deliberately an administrator-operated WP-CLI workflow. It is not called
 from HTTP, cron, the receiver, or normal storefront requests.
 
@@ -190,7 +190,7 @@ name an existing product category by exact term ID.
 ## Category rows
 
 Source categories use their exact Patris category Code as the object key. The
-source name and source parent relationship must match the current v1.1 state.
+source name and source parent relationship must match the current living-contract state.
 
 ```json
 "101001": {
@@ -242,7 +242,7 @@ For each accepted leaf, the materializer:
 - stores exact Patris source ownership and Code, and sets leaf SKU to Code;
 - uses the shared feed writer for price, stock, weight, warehouses, warnings,
   currency, formula, and pricing metadata;
-- assigns the canonical `air_express` import-freight method;
+- assigns the canonical `air_express` supplier shipping method;
 - adds the reviewed category without removing existing manual categories;
 - writes Rank Math product/category title, description, focus keyword, and
   primary category metadata;
@@ -265,7 +265,7 @@ A leaf is publish-ready only when all of these remain true at apply time:
 
 - source and WooCommerce stock are positive;
 - source foreign price, source weight, and calculated final price are positive;
-- source import freight is exactly `air_express` and WooCommerce has the same
+- the source supplier shipping method is exactly `air_express` and WooCommerce has the same
   canonical assignment;
 - the source has no Patris validation/pricing warnings;
 - a reviewed category is available and assigned;
@@ -278,7 +278,7 @@ ready, while remaining Code-less and SKU-less.
 
 ## Recommended two-phase rollout
 
-1. Receive a fresh complete product-sync v1.1 baseline.
+1. Receive a fresh complete product-sync baseline using the living contract.
 2. Run the materializer without `--apply` and review every planned action and
    skip reason.
 3. Apply a small Code allowlist without `--publish-ready`. Confirm products,

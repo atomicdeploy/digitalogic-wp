@@ -23,7 +23,7 @@ the setting automatically.
 ## Shared status model
 
 `Digitalogic_WooCommerce_Currency_Status` is the single source used by the
-versioned integration catalog, product-sync validation, REST, the command
+integration catalog, product-sync validation, REST, the command
 dispatcher, WP-CLI, panel events, webhooks, and administrator screens. Its
 status is nonsecret and includes:
 
@@ -51,20 +51,12 @@ On mismatch, `compatible` is `false`, `status` is
 
 ## Integration catalog
 
-`GET /wp-json/digitalogic/v1/integration/catalog` publishes schema version
-`1.1.0` (still major version 1). The existing fields remain available, and
-`currency` now also contains:
-
-- `woocommerce_base`: observed code, unit, IRR scale, and display precision;
-- `pricing_output`: the required IRT/Toman output contract;
-- `compatibility`: structured readiness, required base code, and read-only
-  marker;
-- `warnings`: the mismatch warning alongside rate warnings.
-
-`currency.cny_to_irt` remains populated only when the WooCommerce base is
-`IRT`; otherwise it is `null`. The base-currency metadata is covered by the
-catalog revision, so consumers invalidate cached compatibility state when the
-setting changes.
+`GET /wp-json/digitalogic/integration/catalog` publishes the living sparse
+catalog. `currency.local` is always present. `cny_to_local`, `cny_to_irt`, and
+`effective_date` are emitted only when their source values are available;
+missing values are represented by warnings and omitted keys, never null
+placeholders. The currency projection is covered by the catalog revision, so
+consumers invalidate cached state when it changes.
 
 The read-only `GET /wp-json/digitalogic/v1/currency` response and shared
 `digitalogic_get_currency` command expose the same status under

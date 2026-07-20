@@ -44,6 +44,7 @@ $GLOBALS['digitalogic_test_wp_query_args'] = array();
 $GLOBALS['digitalogic_test_wp_query_results'] = array();
 $GLOBALS['digitalogic_test_primed_post_ids'] = array();
 $GLOBALS['digitalogic_test_wc_currency'] = 'IRT';
+$GLOBALS['digitalogic_test_terms'] = array();
 $GLOBALS['digitalogic_test_transients'] = array(); // phpcs:ignore
 $GLOBALS['digitalogic_test_transient_deletes'] = array(); // phpcs:ignore
 $GLOBALS['digitalogic_test_locale'] = 'en_US';
@@ -153,6 +154,7 @@ class WP_REST_Request implements ArrayAccess {
 class WP_REST_Response {
     private $data;
     private $status;
+	private $headers = array();
 
     public function __construct($data = null, $status = 200) {
         $this->data = $data;
@@ -166,6 +168,18 @@ class WP_REST_Response {
     public function get_status() {
         return $this->status;
     }
+
+	public function header($key, $value, $replace = true) {
+		if (!$replace && isset($this->headers[$key])) {
+			$this->headers[$key] .= ', ' . $value;
+			return;
+		}
+		$this->headers[$key] = $value;
+	}
+
+	public function get_headers() {
+		return $this->headers;
+	}
 }
 
 // phpcs:disable -- Test-only WordPress query stubs intentionally follow the legacy bootstrap style.
@@ -1373,6 +1387,10 @@ class WC_Product {
         $this->meta[$key] = $value;
     }
 
+    public function delete_meta_data($key) {
+        unset($this->meta[$key]);
+    }
+
     public function set_weight($value) {
         $this->weight = (string) $value;
         $this->meta['_weight'] = (string) $value; // phpcs:ignore -- Keep test product metadata synchronized.
@@ -1384,8 +1402,12 @@ class WC_Product {
     }
 
     public function set_stock_quantity($value) {
-        $this->stock_quantity = (int) $value;
-        $this->meta['_stock'] = (int) $value; // phpcs:ignore -- Keep test product metadata synchronized.
+        $this->stock_quantity = null === $value ? null : (int) $value;
+        if (null === $value) {
+            unset($this->meta['_stock']);
+        } else {
+            $this->meta['_stock'] = (int) $value; // phpcs:ignore -- Keep test product metadata synchronized.
+        }
     }
 
     public function set_stock_status($value) {
@@ -1528,41 +1550,55 @@ function wp_get_post_revisions($post_id) {
 }
 
 function get_term($term_id, $taxonomy = '') {
-    $term_id = (int) $term_id;
-    $term = $GLOBALS['digitalogic_test_terms'][$term_id] ?? null;
-    if (!is_array($term) || ('' !== $taxonomy && ($term['taxonomy'] ?? '') !== $taxonomy)) {
-        return new WP_Error('term_not_found', 'Term not found.');
-    }
+	$term_id = (int) $term_id;
+	foreach (($GLOBALS['digitalogic_test_terms'] ?? array()) as $stored) {
+		$term = is_object($stored) ? $stored : (object) $stored;
+		if (
+			(int) ($term->term_id ?? 0) === $term_id
+			&& ('' === $taxonomy || !isset($term->taxonomy) || (string) $term->taxonomy === (string) $taxonomy)
+		) {
+			return $term;
+		}
+	}
 
-    return (object) $term;
+	return new WP_Error('term_not_found', 'Term not found.');
 }
 
 function get_terms($args = array()) {
-    $terms = array();
-    foreach (($GLOBALS['digitalogic_test_terms'] ?? array()) as $term_id => $term) {
-        if (isset($args['taxonomy']) && (string) $args['taxonomy'] !== (string) ($term['taxonomy'] ?? '')) {
-            continue;
-        }
-        if (isset($args['parent']) && (int) $args['parent'] !== (int) ($term['parent'] ?? 0)) {
-            continue;
-        }
-        if (isset($args['name']) && (string) $args['name'] !== (string) ($term['name'] ?? '')) {
-            continue;
-        }
-        if (isset($args['meta_key'])) {
-            $meta = $GLOBALS['digitalogic_test_term_meta'][$term_id][$args['meta_key']] ?? '';
-            if ((string) $meta !== (string) ($args['meta_value'] ?? '')) {
-                continue;
-            }
-        }
-        $terms[] = (object) $term;
-    }
-    usort($terms, static fn($left, $right) => $left->term_id <=> $right->term_id);
-    if (isset($args['number']) && (int) $args['number'] > 0) {
-        $terms = array_slice($terms, 0, (int) $args['number']);
-    }
+	$terms = array();
+	foreach (($GLOBALS['digitalogic_test_terms'] ?? array()) as $term_id => $term) {
+		$term = is_object($term) ? $term : (object) $term;
+		if (isset($args['taxonomy']) && isset($term->taxonomy) && (string) $args['taxonomy'] !== (string) $term->taxonomy) {
+			continue;
+		}
+		if (isset($args['parent']) && (int) $args['parent'] !== (int) ($term->parent ?? 0)) {
+			continue;
+		}
+		if (isset($args['name']) && (string) $args['name'] !== (string) ($term->name ?? '')) {
+			continue;
+		}
+		if (isset($args['meta_key'])) {
+			$resolved_id = (int) ($term->term_id ?? $term_id);
+			$meta = $GLOBALS['digitalogic_test_term_meta'][$resolved_id][$args['meta_key']] ?? '';
+			if ((string) $meta !== (string) ($args['meta_value'] ?? '')) {
+				continue;
+			}
+		}
+		if (!empty($args['include']) && !in_array((int) ($term->term_id ?? 0), array_map('intval', (array) $args['include']), true)) {
+			continue;
+		}
+		$terms[] = $term;
+	}
+	usort($terms, static fn($left, $right) => (int) ($left->term_id ?? 0) <=> (int) ($right->term_id ?? 0));
+	if ('DESC' === strtoupper((string) ($args['order'] ?? 'ASC'))) {
+		$terms = array_reverse($terms);
+	}
+	$offset = max(0, (int) ($args['offset'] ?? 0));
+	if (isset($args['number']) && (int) $args['number'] > 0) {
+		return array_slice($terms, $offset, (int) $args['number']);
+	}
 
-    return $terms;
+	return array_slice($terms, $offset);
 }
 
 function term_exists($term, $taxonomy = '', $parent_term = null) {
@@ -1651,7 +1687,19 @@ function wc_delete_product_transients($product_id = 0) {
 }
 
 function wc_attribute_taxonomy_id_by_name($name) {
-    return str_starts_with((string) $name, 'pa_') ? 1 : 0;
+	return str_starts_with((string) $name, 'pa_') ? 1 : 0;
+}
+
+function wp_count_terms($args = array()) {
+	return count($GLOBALS['digitalogic_test_terms']);
+}
+
+function get_term_link($term, $taxonomy = '') {
+    if (!is_object($term) || empty($term->term_id)) {
+        return new WP_Error('term_not_found', 'Term not found.');
+    }
+
+	return 'https://digitalogic.test/product-category/' . (string) ($term->slug ?? $term->term_id);
 }
 
 function admin_url($path = '') {
@@ -1881,8 +1929,9 @@ require_once dirname(__DIR__) . '/includes/admin/class-digitalogic-product-table
 require_once dirname(__DIR__) . '/includes/class-digitalogic-pricing-input-credential.php'; // phpcs:ignore
 require_once dirname(__DIR__) . '/includes/class-patris-feed.php';
 require_once dirname(__DIR__) . '/includes/class-product-sync-receiver.php';
-require_once dirname(__DIR__) . '/includes/class-import-freight-service.php';
+require_once dirname(__DIR__) . '/includes/class-shipping-method-service.php';
 require_once dirname(__DIR__) . '/includes/class-patris-catalog-materializer.php';
+require_once dirname(__DIR__) . '/includes/class-digitalogic-google-sheets-catalog.php';
 require_once dirname(__DIR__) . '/includes/class-command-dispatcher.php';
 require_once dirname(__DIR__) . '/includes/api/class-rest-api.php';
 require_once dirname(__DIR__) . '/includes/api/class-webhooks.php';
