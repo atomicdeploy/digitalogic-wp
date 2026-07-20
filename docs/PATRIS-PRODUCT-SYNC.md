@@ -11,6 +11,10 @@ Digitalogic and Patris Export use one living, versionless contract. Because both
 
 The product-sync request uses `X-Digitalogic-Product-Sync-Secret`. It may be restricted to exact `{id,dataset}` source pairs.
 
+Product delivery and pricing-assignment lookups match the case-sensitive
+`_digitalogic_patris_product_code` value only. A WooCommerce SKU is never used
+as a fallback for Patris integration traffic.
+
 ## Sparse null semantics
 
 - Omit a key when Patris has no source or reference data for it.
