@@ -33,6 +33,40 @@ test('API base accepts HTTPS roots and complete REST namespace URLs only', () =>
   assert.equal(normalize('http://digitalogic.test'), '');
 });
 
+test('catalog pages are validated by their living response structure', () => {
+  const validate = sandbox.module.exports.validateCatalogPage_;
+  const page = {
+    dataset: 'products',
+    columns: [{ key: 'sync_key' }],
+    rows: [{ sync_key: '00123' }],
+    pagination: { has_more: false },
+  };
+
+  assert.equal(validate(page, 'products'), page);
+  assert.throws(
+    () => validate({ dataset: 'products', columns: [], rows: [] }, 'products'),
+    /Malformed products catalog response/
+  );
+  assert.throws(
+    () => validate({ ...page, dataset: 'categories' }, 'products'),
+    /Malformed products catalog response/
+  );
+  assert.throws(
+    () => validate({ ...page, pagination: [] }, 'products'),
+    /Malformed products catalog response/
+  );
+});
+
+test('sparse rows render missing and explicit null as blank without changing real values', () => {
+  const render = sandbox.module.exports.rowToSheetValues_;
+  const keys = ['sync_key', 'missing', 'explicit_null', 'zero', 'disabled'];
+
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(render({ sync_key: 'woo:42', explicit_null: null, zero: 0, disabled: false }, keys))),
+    ['woo:42', '', '', 0, false]
+  );
+});
+
 test('Apps Script keeps secrets in properties and manages distinct tabs', () => {
   assert.match(source, /getScriptProperties\(\)/);
   assert.doesNotMatch(source, /setValue\([^\n]*(?:CONSUMER_KEY|CONSUMER_SECRET)/);

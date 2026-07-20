@@ -166,13 +166,7 @@ function fetchDataset_(config, dataset) {
     if (page > DIGITALOGIC_MAX_PAGES) {
       throw new Error('Catalog pagination exceeded the safety limit for ' + dataset.id + '.');
     }
-    const response = fetchPage_(config, dataset.id, page);
-    if (response.schema !== 'digitalogic.google-sheets-catalog' || Number(response.schema_version) !== 1) {
-      throw new Error('Unsupported Digitalogic catalog schema.');
-    }
-    if (response.dataset !== dataset.id || !Array.isArray(response.columns) || !Array.isArray(response.rows)) {
-      throw new Error('Malformed ' + dataset.id + ' catalog response.');
-    }
+    const response = validateCatalogPage_(fetchPage_(config, dataset.id, page), dataset.id);
 
     response.columns.forEach(function (column) {
       if (!column || !column.key || columnKeys[column.key]) {
@@ -197,6 +191,27 @@ function fetchDataset_(config, dataset) {
     rows: rows,
     pageRevisions: pages,
   };
+}
+
+/** Validate the living response by its required structure. */
+function validateCatalogPage_(response, dataset) {
+  const isObject = response !== null && typeof response === 'object' && !Array.isArray(response);
+  const hasPagination = isObject
+    && response.pagination !== null
+    && typeof response.pagination === 'object'
+    && !Array.isArray(response.pagination);
+
+  if (
+    !isObject
+    || response.dataset !== dataset
+    || !Array.isArray(response.columns)
+    || !Array.isArray(response.rows)
+    || !hasPagination
+  ) {
+    throw new Error('Malformed ' + dataset + ' catalog response.');
+  }
+
+  return response;
 }
 
 /** Fetch and validate one REST page with Basic auth in an HTTP header. */
@@ -261,12 +276,10 @@ function upsertDataset_(spreadsheet, dataset, locale) {
 
   const keys = dataset.columns.map(function (column) { return column.key; });
   if (!keys.length || keys[0] !== 'sync_key') {
-    throw new Error(dataset.sheetName + ' schema must start with sync_key.');
+    throw new Error(dataset.sheetName + ' column layout must start with sync_key.');
   }
   const incomingRows = dataset.rows.map(function (row) {
-    return keys.map(function (key) {
-      return Object.prototype.hasOwnProperty.call(row, key) && row[key] !== null ? row[key] : '';
-    });
+    return rowToSheetValues_(row, keys);
   });
   const existingRows = readExistingRows_(sheet, keys);
   const rows = mergeRows_(existingRows, incomingRows, 0);
@@ -291,7 +304,7 @@ function upsertDataset_(spreadsheet, dataset, locale) {
   styleDataset_(sheet, dataset, locale, rows.length);
 }
 
-/** Read managed rows only when the existing machine schema matches exactly. */
+/** Read managed rows only when the existing machine-key layout matches exactly. */
 function readExistingRows_(sheet, keys) {
   if (sheet.getLastRow() < 3 || sheet.getLastColumn() < keys.length) {
     return [];
@@ -301,6 +314,13 @@ function readExistingRows_(sheet, keys) {
     return [];
   }
   return sheet.getRange(3, 1, sheet.getLastRow() - 2, keys.length).getValues();
+}
+
+/** Render sparse API rows into the fixed tab layout; missing and null are blank cells. */
+function rowToSheetValues_(row, keys) {
+  return keys.map(function (key) {
+    return Object.prototype.hasOwnProperty.call(row, key) && row[key] !== null ? row[key] : '';
+  });
 }
 
 /**
@@ -422,5 +442,7 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     mergeRows_: mergeRows_,
     normalizeApiBase_: normalizeApiBase_,
+    rowToSheetValues_: rowToSheetValues_,
+    validateCatalogPage_: validateCatalogPage_,
   };
 }

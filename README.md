@@ -182,9 +182,12 @@ curl -X POST https://yoursite.com/wp-json/digitalogic/v1/products/batch \
 #### Google Sheets
 - `GET /wp-json/digitalogic/v1/google-sheets/catalog` - Read a bounded, canonical `products` or `categories` dataset
 
-The supplied Apps Script performs Code-keyed idempotent upserts, preserves
-identifier cells as text, and stores credentials only in Script Properties.
-See [Google Sheets catalog synchronization](docs/GOOGLE-SHEETS.md).
+The supplied Apps Script performs idempotent upserts keyed by exact Patris Code
+or the display-only `woo:<id>` fallback, preserves identifier cells as text,
+and stores credentials only in Script Properties. Patris matching never falls
+back to SKU. Catalog rows follow the living sparse response: an absent key means
+no source/reference value, while `null` is emitted only for an explicit upstream
+null. See [Google Sheets catalog synchronization](docs/GOOGLE-SHEETS.md).
 
 #### Currency
 - `GET /wp-json/digitalogic/v1/currency` - Get currency rates and read-only WooCommerce base-currency status

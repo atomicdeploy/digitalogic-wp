@@ -67,8 +67,12 @@ least-privilege access.
 read-only `products` or `categories` page for Google Apps Script, n8n, or
 another client. It uses the normal read permission scope and supports
 `dataset`, `locale`, `page`, and `limit` (maximum 100). See
-[Google Sheets catalog synchronization](GOOGLE-SHEETS.md) for the schema,
-credential storage, manual/scheduled refresh, and recovery guidance.
+[Google Sheets catalog synchronization](GOOGLE-SHEETS.md) for the living sparse
+response fields, exact Patris Code matching, credential storage,
+manual/scheduled refresh, and recovery guidance. Missing keys mean no
+source/reference value; a present `null` records an explicit upstream null.
+Products without a Patris Code use `woo:<id>` only as a display/upsert key, and
+SKU is never used as a Patris matching fallback.
 
 ### List Products
 

@@ -22,15 +22,42 @@ final class GoogleSheetsCatalogTest extends TestCase {
 	/** Prepare isolated catalog fixtures. */
 	protected function setUp(): void {
 		parent::setUp();
-		$GLOBALS['digitalogic_test_terms']                              = array();
-		$GLOBALS['digitalogic_test_wc_currency']                        = 'IRT';
-		$GLOBALS['digitalogic_test_options']['woocommerce_weight_unit'] = 'kg';
+		$GLOBALS['digitalogic_test_options']              = array(
+			'woocommerce_weight_unit'          => 'kg',
+			'options_yuan_price'               => '30000',
+			'options_update_date'              => '260720',
+			'digitalogic_patris_feed_settings' => array(
+				'selected_warehouses' => array( 'تهران' ),
+			),
+		);
+		$GLOBALS['digitalogic_test_terms']                = array();
+		$GLOBALS['digitalogic_test_posts']                = array();
+		$GLOBALS['digitalogic_test_option_cache']         = array();
+		$GLOBALS['digitalogic_test_post_meta_cache']      = array();
+		$GLOBALS['digitalogic_test_meta_update_failures'] = array();
+		$GLOBALS['digitalogic_test_meta_delete_failures'] = array();
+		$GLOBALS['digitalogic_test_transaction_failures'] = array();
+		$GLOBALS['digitalogic_test_wc_currency']          = 'IRT';
+		$GLOBALS['wpdb']                                  = new Digitalogic_Test_WPDB();
+		$this->reset_singleton( Digitalogic_Shipping_Method_Service::class );
+		$this->reset_singleton( Digitalogic_WooCommerce_Currency_Status::class );
 		$this->catalog = Digitalogic_Google_Sheets_Catalog::instance();
 	}
 
-	/** Verify canonical fields and dynamic warehouse projections. */
+	/** Verify the real canonical presenters and dynamic warehouse projection. */
 	public function test_product_projection_uses_code_shipping_pricing_and_dynamic_warehouse_columns() {
-		$products    = array(
+		$GLOBALS['digitalogic_test_posts'][41] = array(
+			'post_type'   => 'product',
+			'post_status' => 'publish',
+			'meta'        => array(
+				'_digitalogic_patris_product_code' => '000123',
+				'_digitalogic_shipping_method_id'  => 'air_express',
+			),
+		);
+		$service                               = Digitalogic_Shipping_Method_Service::instance();
+		$this->assertFalse( is_wp_error( $service->update_default_percentage_markup( '30' ) ) );
+
+		$products = array(
 			array(
 				'id'                      => 41,
 				'parent_id'               => 0,
@@ -61,32 +88,8 @@ final class GoogleSheetsCatalogTest extends TestCase {
 				'patris_updated_at'       => '2026-07-20T12:00:00Z',
 			),
 		);
-		$integration = array(
-			'currency'            => array( 'local' => 'IRT' ),
-			'selected_warehouses' => array( 'تهران' ),
-			'shipping_methods'    => array(
-				array(
-					'id'               => 'air_express',
-					'name'             => 'Air/Express',
-					'price_per_kg_cny' => 85,
-				),
-			),
-		);
-		$assignments = array(
-			'results' => array(
-				array(
-					'code'       => '000123',
-					'status'     => 'ok',
-					'assignment' => array(
-						'shipping_method_id'    => 'air_express',
-						'profit_percent'        => '30',
-						'profit_percent_source' => 'global_default',
-					),
-				),
-			),
-		);
 
-		$result = $this->catalog->transform_products( $products, $integration, $assignments );
+		$result = $this->catalog->transform_products( $products );
 
 		$this->assertFalse( is_wp_error( $result ) );
 		$this->assertCount( 1, $result['rows'] );
@@ -95,7 +98,7 @@ final class GoogleSheetsCatalogTest extends TestCase {
 		$this->assertSame( '000123', $row['patris_code'] );
 		$this->assertSame( 2400000, $row['effective_price'] );
 		$this->assertSame( 'air_express', $row['shipping_method_id'] );
-		$this->assertSame( 'Air/Express', $row['shipping_method_name_en'] );
+		$this->assertSame( 'Air (Express)', $row['shipping_method_name_en'] );
 		$this->assertSame( 'حمل هوایی (اکسپرس)', $row['shipping_method_name_fa'] );
 		$this->assertSame( 85, $row['shipping_price_per_kg_cny'] );
 		$this->assertSame( 30, $row['profit_percent'] );
@@ -107,18 +110,18 @@ final class GoogleSheetsCatalogTest extends TestCase {
 		$keys = array_column( $result['columns'], 'key' );
 		$this->assertContains( 'warehouse_stock:' . rawurlencode( 'تهران' ), $keys );
 		$this->assertContains( 'warehouse_stock:Shenzhen', $keys );
-		$this->assertSame( array(), array_diff( $keys, array_keys( $row ) ) );
+		$this->assertArrayNotHasKey( 'schema', $result );
+		$this->assertArrayNotHasKey( 'schema_version', $result );
 	}
 
-	/** Verify safe string fallbacks and visible data-quality warnings. */
-	public function test_missing_code_uses_string_sku_fallback_and_exposes_actionable_status() {
+	/** Verify SKU is never used for Patris matching or as the primary sync key. */
+	public function test_missing_code_uses_woo_key_and_never_matches_sku_assignment() {
 		$result = $this->catalog->transform_products(
 			array(
 				array(
-					'id'                  => 9,
-					'sku'                 => '000009',
-					'name'                => 'Unmatched Product',
-					'patris_product_code' => '',
+					'id'   => 9,
+					'sku'  => '000009',
+					'name' => 'Unmatched Product',
 				),
 			),
 			array( 'currency' => array( 'local' => 'IRT' ) ),
@@ -134,12 +137,56 @@ final class GoogleSheetsCatalogTest extends TestCase {
 		);
 
 		$row = $result['rows'][0];
-		$this->assertSame( '000009', $row['sync_key'] );
-		$this->assertSame( '', $row['patris_code'] );
+		$this->assertSame( 'woo:9', $row['sync_key'] );
+		$this->assertArrayNotHasKey( 'patris_code', $row );
+		$this->assertSame( '000009', $row['sku'] );
 		$this->assertSame( 'warning', $row['sync_status'] );
 		$this->assertStringContainsString( 'missing_patris_code', $row['sync_error'] );
-		$this->assertStringContainsString( 'digitalogic_product_not_found', $row['sync_error'] );
+		$this->assertStringNotContainsString( 'digitalogic_product_not_found', $row['sync_error'] );
 		$this->assertStringContainsString( 'missing_effective_price', $row['sync_error'] );
+	}
+
+	/** Verify omission and explicit null remain distinguishable in JSON and hashes. */
+	public function test_sparse_rows_preserve_missing_versus_explicit_null() {
+		$base                           = array(
+			'id'                  => 70,
+			'patris_product_code' => 'CODE-70',
+			'name'                => 'Sparse row',
+		);
+		$missing                        = $this->catalog->transform_products(
+			array( $base ),
+			array( 'currency' => array( 'local' => 'IRT' ) ),
+			array( 'results' => array() )
+		);
+		$explicit_null                  = $base;
+		$explicit_null['regular_price'] = null;
+		$with_null                      = $this->catalog->transform_products(
+			array( $explicit_null ),
+			array( 'currency' => array( 'local' => 'IRT' ) ),
+			array( 'results' => array() )
+		);
+
+		$missing_row = $missing['rows'][0];
+		$null_row    = $with_null['rows'][0];
+		$this->assertArrayNotHasKey( 'regular_price', $missing_row );
+		$this->assertArrayNotHasKey( 'effective_price', $missing_row );
+		$this->assertArrayHasKey( 'regular_price', $null_row );
+		$this->assertNull( $null_row['regular_price'] );
+		$this->assertArrayHasKey( 'effective_price', $null_row );
+		$this->assertNull( $null_row['effective_price'] );
+		$this->assertStringNotContainsString( ':null', wp_json_encode( $missing_row ) );
+		$this->assertNotSame( $missing_row['record_revision'], $null_row['record_revision'] );
+	}
+
+	/** Verify a stable row identity is mandatory and never synthesized as woo:0. */
+	public function test_product_without_code_or_positive_id_fails_closed() {
+		$result = $this->catalog->transform_products(
+			array( array( 'name' => 'No identity' ) ),
+			array( 'currency' => array( 'local' => 'IRT' ) ),
+			array( 'results' => array() )
+		);
+
+		$this->assertSame( 'digitalogic_sheets_sync_key_missing', $result->get_error_code() );
 	}
 
 	/** Verify category pagination, separation, and Persian headers. */
@@ -185,6 +232,11 @@ final class GoogleSheetsCatalogTest extends TestCase {
 		$this->assertSame( 2, $result['pagination']['pages'] );
 		$this->assertTrue( $result['pagination']['has_more'] );
 		$this->assertCount( 2, $result['rows'] );
+		$this->assertSame(
+			array( 'dataset', 'locale', 'generated_at', 'page_revision', 'columns', 'rows', 'pagination' ),
+			array_keys( $result )
+		);
+		$this->assertArrayNotHasKey( 'parent_name', $result['rows'][0] );
 		$this->assertSame( 'دسته والد', $result['columns'][5]['header'] );
 		$this->assertSame( 'Modules', $result['rows'][1]['parent_name'] );
 		$this->assertSame( 'Electronic', $result['rows'][0]['description'] );
@@ -210,5 +262,15 @@ final class GoogleSheetsCatalogTest extends TestCase {
 		$this->assertFalse( $response->get_data()['success'] );
 		$this->assertSame( 'digitalogic_sheets_dataset_invalid', $response->get_data()['code'] );
 		$this->assertArrayNotHasKey( 'credentials', $response->get_data() );
+	}
+
+	/**
+	 * Reset one singleton between isolated tests.
+	 *
+	 * @param string $class_name Singleton class name.
+	 */
+	private function reset_singleton( $class_name ) {
+		$property = new ReflectionProperty( $class_name, 'instance' );
+		$property->setValue( null, null );
 	}
 }

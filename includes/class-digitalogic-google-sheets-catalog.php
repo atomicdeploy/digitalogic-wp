@@ -14,9 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  */
 final class Digitalogic_Google_Sheets_Catalog {
 
-	public const SCHEMA         = 'digitalogic.google-sheets-catalog';
-	public const SCHEMA_VERSION = 1;
-	public const MAX_PAGE_SIZE  = 100;
+	public const MAX_PAGE_SIZE = 100;
 
 	/**
 	 * Shared instance.
@@ -69,7 +67,7 @@ final class Digitalogic_Google_Sheets_Catalog {
 	public function transform_products( $products, $integration_catalog = null, $assignment_batch = null ) {
 		$products = is_array( $products ) ? array_values( $products ) : array();
 		if ( null === $integration_catalog ) {
-			$integration_catalog = Digitalogic_Import_Freight_Service::instance()->get_integration_catalog();
+			$integration_catalog = Digitalogic_Shipping_Method_Service::instance()->get_integration_catalog();
 		}
 		if ( is_wp_error( $integration_catalog ) ) {
 			return $integration_catalog;
@@ -87,7 +85,7 @@ final class Digitalogic_Google_Sheets_Catalog {
 		if ( null === $assignment_batch ) {
 			$assignment_batch = array( 'results' => array() );
 			if ( $identifiers ) {
-				$assignment_batch = Digitalogic_Import_Freight_Service::instance()
+				$assignment_batch = Digitalogic_Shipping_Method_Service::instance()
 					->get_product_assignments_by_codes( array_keys( $identifiers ) );
 			}
 		}
@@ -98,8 +96,10 @@ final class Digitalogic_Google_Sheets_Catalog {
 		$assignments = $this->index_assignments( $assignment_batch );
 		$methods     = $this->index_methods( $integration_catalog );
 		$warehouses  = $this->warehouse_names( $products, $integration_catalog );
-		$currency    = isset( $integration_catalog['currency']['local'] )
-			? (string) $integration_catalog['currency']['local']
+		$currency    = isset( $integration_catalog['currency'] )
+			&& is_array( $integration_catalog['currency'] )
+			&& array_key_exists( 'local', $integration_catalog['currency'] )
+			? $integration_catalog['currency']['local']
 			: get_woocommerce_currency();
 		$weight_unit = (string) get_option( 'woocommerce_weight_unit', 'kg' );
 		$rows        = array();
@@ -116,14 +116,25 @@ final class Digitalogic_Google_Sheets_Catalog {
 			$assignment        = is_array( $assignment_result ) && 'ok' === ( $assignment_result['status'] ?? '' )
 				? (array) ( $assignment_result['assignment'] ?? array() )
 				: array();
-			$method_id         = $this->first_string(
-				$assignment,
-				array( 'shipping_method_id', 'import_freight_method_id' )
-			);
+			$method_id         = array_key_exists( 'shipping_method_id', $assignment )
+				&& is_scalar( $assignment['shipping_method_id'] )
+				? trim( (string) $assignment['shipping_method_id'] )
+				: '';
 			$method            = '' !== $method_id && isset( $methods[ $method_id ] ) ? $methods[ $method_id ] : array();
-			$patris_code       = trim( (string) ( $product['patris_product_code'] ?? '' ) );
+			$patris_code       = $identifier;
 			$product_id        = absint( $product['id'] ?? 0 );
 			$warnings          = array();
+			$sync_key          = '' !== $patris_code
+				? $patris_code
+				: ( $product_id > 0 ? 'woo:' . $product_id : '' );
+
+			if ( '' === $sync_key ) {
+				return new WP_Error(
+					'digitalogic_sheets_sync_key_missing',
+					__( 'Every catalog product must have a Patris Code or a positive WooCommerce ID.', 'digitalogic' ),
+					array( 'status' => 500 )
+				);
+			}
 
 			if ( '' === $patris_code ) {
 				$warnings[] = 'missing_patris_code';
@@ -131,66 +142,92 @@ final class Digitalogic_Google_Sheets_Catalog {
 			if ( is_array( $assignment_result ) && 'error' === ( $assignment_result['status'] ?? '' ) ) {
 				$warnings[] = (string) ( $assignment_result['error']['code'] ?? 'shipping_assignment_unavailable' );
 			}
+			foreach ( (array) ( $assignment['pricing_warnings'] ?? array() ) as $pricing_warning ) {
+				if ( is_scalar( $pricing_warning ) && '' !== trim( (string) $pricing_warning ) ) {
+					$warnings[] = trim( (string) $pricing_warning );
+				}
+			}
 			if ( '' !== $method_id && ! $method ) {
 				$warnings[] = 'shipping_method_not_found';
 			}
 
-			$effective_price = $this->first_value(
+			$effective_price = $this->first_present_value(
 				$product,
 				array( 'patris_final_price', 'price', 'sale_price', 'regular_price' )
 			);
-			if ( null === $effective_price || '' === $effective_price ) {
+			if ( ! $effective_price['exists'] || null === $effective_price['value'] || '' === $effective_price['value'] ) {
 				$warnings[] = 'missing_effective_price';
 			}
 
 			$row = array(
-				'sync_key'                  => '' !== $patris_code ? $patris_code : ( '' !== $identifier ? $identifier : 'woo:' . $product_id ),
-				'patris_code'               => $patris_code,
-				'woocommerce_id'            => $product_id,
-				'parent_id'                 => absint( $product['parent_id'] ?? 0 ),
-				'product_type'              => (string) ( $product['type'] ?? '' ),
-				'publication_status'        => (string) ( $product['status'] ?? '' ),
-				'name'                      => (string) ( $product['name'] ?? '' ),
-				'part_number'               => (string) ( $product['part_number'] ?? '' ),
-				'sku'                       => (string) ( $product['sku'] ?? '' ),
-				'categories'                => $this->category_names( $product['categories'] ?? array() ),
-				'category_ids'              => implode( ',', array_map( 'strval', (array) ( $product['category_ids'] ?? array() ) ) ),
-				'currency'                  => $currency,
-				'regular_price'             => $this->number_or_null( $product['regular_price'] ?? null ),
-				'sale_price'                => $this->number_or_null( $product['sale_price'] ?? null ),
-				'effective_price'           => $this->number_or_null( $effective_price ),
-				'patris_final_price'        => $this->number_or_null( $product['patris_final_price'] ?? null ),
-				'price_status'              => (string) ( $product['patris_price_status'] ?? '' ),
-				'stock_quantity'            => $this->number_or_null( $product['stock_quantity'] ?? null ),
-				'stock_status'              => (string) ( $product['stock_status'] ?? '' ),
-				'patris_total_stock'        => $this->number_or_null( $product['patris_total_stock'] ?? null ),
-				'patris_minimum_stock'      => $this->number_or_null( $product['patris_minimum_stock'] ?? null ),
-				'weight_grams'              => $this->product_weight_grams( $product, $weight_unit ),
-				'woocommerce_weight'        => $this->number_or_null( $product['weight'] ?? null ),
-				'woocommerce_weight_unit'   => $weight_unit,
-				'foreign_price'             => $this->number_or_null( $product['patris_foreign_price'] ?? null ),
-				'foreign_currency'          => (string) ( $product['patris_foreign_currency'] ?? '' ),
-				'shipping_method_id'        => $method_id,
-				'shipping_method_name_en'   => (string) ( $method['name'] ?? '' ),
-				'shipping_method_name_fa'   => $this->method_name_fa( $method_id, (string) ( $method['name'] ?? '' ) ),
-				'shipping_price_per_kg_cny' => $this->number_or_null( $method['price_per_kg_cny'] ?? null ),
-				'profit_percent'            => $this->number_or_null( $assignment['profit_percent'] ?? null ),
-				'profit_percent_source'     => (string) ( $assignment['profit_percent_source'] ?? '' ),
-				'permalink'                 => (string) ( $product['canonical_url'] ?? $product['permalink'] ?? '' ),
-				'image_url'                 => (string) ( $product['image'] ?? '' ),
-				'updated_at'                => (string) ( $product['patris_updated_at'] ?? $product['date_modified'] ?? '' ),
-				'sync_status'               => $warnings ? 'warning' : 'ok',
-				'sync_error'                => implode( ';', array_values( array_unique( array_filter( $warnings ) ) ) ),
+				'sync_key' => $sync_key,
 			);
 
-			$stock = isset( $product['patris_warehouse_stock'] ) && is_array( $product['patris_warehouse_stock'] )
-				? $product['patris_warehouse_stock']
-				: array();
-			foreach ( $warehouses as $warehouse ) {
-				$row[ $this->warehouse_key( $warehouse ) ] = array_key_exists( $warehouse, $stock )
-					? $this->number_or_text( $stock[ $warehouse ] )
-					: null;
+			$this->add_text_field( $row, 'patris_code', $product, 'patris_product_code', $warnings );
+			$this->add_number_field( $row, 'woocommerce_id', $product, 'id', $warnings );
+			$this->add_number_field( $row, 'parent_id', $product, 'parent_id', $warnings );
+			$this->add_text_field( $row, 'product_type', $product, 'type', $warnings );
+			$this->add_text_field( $row, 'publication_status', $product, 'status', $warnings );
+			$this->add_text_field( $row, 'name', $product, 'name', $warnings );
+			$this->add_text_field( $row, 'part_number', $product, 'part_number', $warnings );
+			$this->add_text_field( $row, 'sku', $product, 'sku', $warnings );
+			$this->add_categories_field( $row, $product, $warnings );
+			$this->add_category_ids_field( $row, $product, $warnings );
+			$this->add_explicit_text_value( $row, 'currency', $currency, $warnings );
+			$this->add_number_field( $row, 'regular_price', $product, 'regular_price', $warnings );
+			$this->add_number_field( $row, 'sale_price', $product, 'sale_price', $warnings );
+			$this->add_explicit_number_value( $row, 'effective_price', $effective_price, $warnings );
+			$this->add_number_field( $row, 'patris_final_price', $product, 'patris_final_price', $warnings );
+			$this->add_text_field( $row, 'price_status', $product, 'patris_price_status', $warnings );
+			$this->add_number_field( $row, 'stock_quantity', $product, 'stock_quantity', $warnings );
+			$this->add_text_field( $row, 'stock_status', $product, 'stock_status', $warnings );
+			$this->add_number_field( $row, 'patris_total_stock', $product, 'patris_total_stock', $warnings );
+			$this->add_number_field( $row, 'patris_minimum_stock', $product, 'patris_minimum_stock', $warnings );
+			$this->add_explicit_number_value( $row, 'weight_grams', $this->product_weight_grams( $product, $weight_unit, $warnings ), $warnings );
+			$this->add_number_field( $row, 'woocommerce_weight', $product, 'weight', $warnings );
+			$this->add_explicit_text_value( $row, 'woocommerce_weight_unit', $weight_unit, $warnings );
+			$this->add_number_field( $row, 'foreign_price', $product, 'patris_foreign_price', $warnings );
+			$this->add_text_field( $row, 'foreign_currency', $product, 'patris_foreign_currency', $warnings );
+			$this->add_text_field( $row, 'shipping_method_id', $assignment, 'shipping_method_id', $warnings );
+			$this->add_text_field( $row, 'shipping_method_name_en', $method, 'name', $warnings );
+			if ( '' !== $method_id ) {
+				$method_name = $this->first_present_value( $method, array( 'name' ) );
+				if ( $method_name['exists'] && null === $method_name['value'] ) {
+					$row['shipping_method_name_fa'] = null;
+				} else {
+					$row['shipping_method_name_fa'] = $this->method_name_fa(
+						$method_id,
+						$method_name['exists'] && is_scalar( $method_name['value'] ) ? (string) $method_name['value'] : ''
+					);
+				}
 			}
+			$this->add_number_field( $row, 'shipping_price_per_kg_cny', $method, 'shipping_price_per_kg_cny', $warnings );
+			$this->add_number_field( $row, 'profit_percent', $assignment, 'profit_percent', $warnings );
+			$this->add_text_field( $row, 'profit_percent_source', $assignment, 'profit_percent_source', $warnings );
+			$this->add_selected_text_field( $row, 'permalink', $product, array( 'canonical_url', 'permalink' ), $warnings );
+			$this->add_text_field( $row, 'image_url', $product, 'image', $warnings );
+			$this->add_selected_text_field( $row, 'updated_at', $product, array( 'patris_updated_at', 'date_modified' ), $warnings );
+
+			$stock = $product['patris_warehouse_stock'] ?? null;
+			if ( is_array( $stock ) ) {
+				foreach ( $warehouses as $warehouse ) {
+					if ( ! array_key_exists( $warehouse, $stock ) ) {
+						continue;
+					}
+					$stock_value = $this->number_or_text( $stock[ $warehouse ] );
+					if ( $stock_value['valid'] ) {
+						$row[ $this->warehouse_key( $warehouse ) ] = $stock_value['value'];
+					} else {
+						$warnings[] = 'invalid_warehouse_stock:' . $warehouse;
+					}
+				}
+			} elseif ( array_key_exists( 'patris_warehouse_stock', $product ) && null !== $stock ) {
+				$warnings[] = 'invalid_patris_warehouse_stock';
+			}
+
+			$warnings           = array_values( array_unique( array_filter( $warnings, 'strlen' ) ) );
+			$row['sync_status'] = $warnings ? 'warning' : 'ok';
+			$row['sync_error']  = implode( ';', $warnings );
 
 			$row['record_revision'] = 'sha256:' . hash(
 				'sha256',
@@ -312,29 +349,76 @@ final class Digitalogic_Google_Sheets_Catalog {
 				continue;
 			}
 
-			$parent_name = '';
-			$parent_id   = absint( $term->parent ?? 0 );
+			$warnings  = array();
+			$parent_id = property_exists( $term, 'parent' ) && is_numeric( $term->parent )
+				? absint( $term->parent )
+				: 0;
+			$row       = array(
+				'sync_key' => 'category:' . absint( $term->term_id ),
+			);
+			$this->add_explicit_number_value(
+				$row,
+				'category_id',
+				array(
+					'exists' => true,
+					'value'  => $term->term_id,
+				),
+				$warnings
+			);
+			if ( property_exists( $term, 'name' ) ) {
+				$this->add_explicit_text_value( $row, 'name', $term->name, $warnings );
+			}
+			if ( property_exists( $term, 'slug' ) ) {
+				$this->add_explicit_text_value( $row, 'slug', $term->slug, $warnings );
+			}
+			if ( property_exists( $term, 'parent' ) ) {
+				$this->add_explicit_number_value(
+					$row,
+					'parent_id',
+					array(
+						'exists' => true,
+						'value'  => $term->parent,
+					),
+					$warnings
+				);
+			}
 			if ( $parent_id ) {
 				$parent = get_term( $parent_id, 'product_cat' );
-				if ( ! is_wp_error( $parent ) && is_object( $parent ) ) {
-					$parent_name = (string) ( $parent->name ?? '' );
+				if ( ! is_wp_error( $parent ) && is_object( $parent ) && property_exists( $parent, 'name' ) ) {
+					$this->add_explicit_text_value( $row, 'parent_name', $parent->name, $warnings );
+				} else {
+					$warnings[] = 'parent_category_unavailable';
 				}
 			}
-			$link                   = get_term_link( $term, 'product_cat' );
-			$link                   = is_wp_error( $link ) ? '' : (string) $link;
-			$row                    = array(
-				'sync_key'      => 'category:' . absint( $term->term_id ),
-				'category_id'   => absint( $term->term_id ),
-				'name'          => (string) ( $term->name ?? '' ),
-				'slug'          => (string) ( $term->slug ?? '' ),
-				'parent_id'     => $parent_id,
-				'parent_name'   => $parent_name,
-				'product_count' => absint( $term->count ?? 0 ),
-				'description'   => wp_strip_all_tags( (string) ( $term->description ?? '' ) ),
-				'permalink'     => $link,
-				'sync_status'   => 'ok',
-				'sync_error'    => '',
-			);
+			if ( property_exists( $term, 'count' ) ) {
+				$this->add_explicit_number_value(
+					$row,
+					'product_count',
+					array(
+						'exists' => true,
+						'value'  => $term->count,
+					),
+					$warnings
+				);
+			}
+			if ( property_exists( $term, 'description' ) ) {
+				if ( null === $term->description ) {
+					$row['description'] = null;
+				} elseif ( is_scalar( $term->description ) ) {
+					$row['description'] = wp_strip_all_tags( (string) $term->description );
+				} else {
+					$warnings[] = 'invalid_description';
+				}
+			}
+			$link = get_term_link( $term, 'product_cat' );
+			if ( is_wp_error( $link ) ) {
+				$warnings[] = 'category_permalink_unavailable';
+			} else {
+				$this->add_explicit_text_value( $row, 'permalink', $link, $warnings );
+			}
+			$warnings               = array_values( array_unique( array_filter( $warnings, 'strlen' ) ) );
+			$row['sync_status']     = $warnings ? 'warning' : 'ok';
+			$row['sync_error']      = implode( ';', $warnings );
 			$row['record_revision'] = 'sha256:' . hash(
 				'sha256',
 				wp_json_encode( $row, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES )
@@ -369,18 +453,16 @@ final class Digitalogic_Google_Sheets_Catalog {
 		);
 
 		return array(
-			'schema'         => self::SCHEMA,
-			'schema_version' => self::SCHEMA_VERSION,
-			'dataset'        => $args['dataset'],
-			'locale'         => $args['locale'],
-			'generated_at'   => gmdate( 'c' ),
-			'page_revision'  => 'sha256:' . hash(
+			'dataset'       => $args['dataset'],
+			'locale'        => $args['locale'],
+			'generated_at'  => gmdate( 'c' ),
+			'page_revision' => 'sha256:' . hash(
 				'sha256',
 				wp_json_encode( $revision_material, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES )
 			),
-			'columns'        => $columns,
-			'rows'           => array_values( $rows ),
-			'pagination'     => array(
+			'columns'       => $columns,
+			'rows'          => array_values( $rows ),
+			'pagination'    => array(
 				'page'     => $args['page'],
 				'limit'    => $args['limit'],
 				'total'    => $total,
@@ -449,7 +531,7 @@ final class Digitalogic_Google_Sheets_Catalog {
 				$this->column( 'updated_at', 'Updated At', 'زمان به‌روزرسانی', 'datetime' ),
 				$this->column( 'sync_status', 'Sync Status', 'وضعیت همگام‌سازی', 'text' ),
 				$this->column( 'sync_error', 'Sync Notes', 'توضیحات همگام‌سازی', 'text' ),
-				$this->column( 'record_revision', 'Record Revision', 'نسخه رکورد', 'text' ),
+				$this->column( 'record_revision', 'Record Revision', 'شناسه بازبینی رکورد', 'text' ),
 			)
 		);
 	}
@@ -472,7 +554,7 @@ final class Digitalogic_Google_Sheets_Catalog {
 			$this->column( 'permalink', 'Category URL', 'نشانی دسته‌بندی', 'url' ),
 			$this->column( 'sync_status', 'Sync Status', 'وضعیت همگام‌سازی', 'text' ),
 			$this->column( 'sync_error', 'Sync Notes', 'توضیحات همگام‌سازی', 'text' ),
-			$this->column( 'record_revision', 'Record Revision', 'نسخه رکورد', 'text' ),
+			$this->column( 'record_revision', 'Record Revision', 'شناسه بازبینی رکورد', 'text' ),
 		);
 	}
 
@@ -513,7 +595,7 @@ final class Digitalogic_Google_Sheets_Catalog {
 	}
 
 	/**
-	 * Index a batch assignment response by requested Code/SKU.
+	 * Index a batch assignment response by exact Patris Code.
 	 *
 	 * @param array $batch Assignment batch.
 	 * @return array
@@ -530,15 +612,13 @@ final class Digitalogic_Google_Sheets_Catalog {
 	}
 
 	/**
-	 * Index either the current or the canonical-renamed shipping catalog.
+	 * Index the canonical shipping catalog.
 	 *
 	 * @param array $catalog Integration catalog.
 	 * @return array
 	 */
 	private function index_methods( $catalog ) {
-		$source  = isset( $catalog['shipping_methods'] )
-			? $catalog['shipping_methods']
-			: ( $catalog['import_freight_methods'] ?? array() );
+		$source  = $catalog['shipping_methods'] ?? array();
 		$methods = array();
 		foreach ( (array) $source as $method ) {
 			if ( is_array( $method ) && ! empty( $method['id'] ) ) {
@@ -559,14 +639,11 @@ final class Digitalogic_Google_Sheets_Catalog {
 		if ( ! is_array( $product ) ) {
 			return '';
 		}
-		foreach ( array( 'patris_product_code', 'sku' ) as $key ) {
-			$value = trim( (string) ( $product[ $key ] ?? '' ) );
-			if ( '' !== $value ) {
-				return $value;
-			}
+		if ( ! array_key_exists( 'patris_product_code', $product ) || ! is_scalar( $product['patris_product_code'] ) ) {
+			return '';
 		}
 
-		return '';
+		return trim( (string) $product['patris_product_code'] );
 	}
 
 	/**
@@ -627,6 +704,176 @@ final class Digitalogic_Google_Sheets_Catalog {
 	}
 
 	/**
+	 * Copy one present text value without manufacturing a placeholder.
+	 *
+	 * @param array  $row Target row.
+	 * @param string $target_key Target key.
+	 * @param array  $source Source record.
+	 * @param string $source_key Source key.
+	 * @param array  $warnings Row warnings.
+	 * @return void
+	 */
+	private function add_text_field( &$row, $target_key, $source, $source_key, &$warnings ) {
+		if ( ! is_array( $source ) || ! array_key_exists( $source_key, $source ) ) {
+			return;
+		}
+
+		$this->add_explicit_text_value( $row, $target_key, $source[ $source_key ], $warnings );
+	}
+
+	/**
+	 * Copy the first present, usable text value from an ordered set of keys.
+	 *
+	 * @param array  $row Target row.
+	 * @param string $target_key Target key.
+	 * @param array  $source Source record.
+	 * @param array  $source_keys Ordered source keys.
+	 * @param array  $warnings Row warnings.
+	 * @return void
+	 */
+	private function add_selected_text_field( &$row, $target_key, $source, $source_keys, &$warnings ) {
+		$selected = $this->first_present_value( $source, $source_keys );
+		if ( ! $selected['exists'] ) {
+			return;
+		}
+
+		$this->add_explicit_text_value( $row, $target_key, $selected['value'], $warnings );
+	}
+
+	/**
+	 * Add a value known to exist at its source, preserving explicit null/empty.
+	 *
+	 * @param array  $row Target row.
+	 * @param string $target_key Target key.
+	 * @param mixed  $value Explicit source value.
+	 * @param array  $warnings Row warnings.
+	 * @return void
+	 */
+	private function add_explicit_text_value( &$row, $target_key, $value, &$warnings ) {
+		if ( null === $value ) {
+			$row[ $target_key ] = null;
+			return;
+		}
+		if ( is_scalar( $value ) ) {
+			$row[ $target_key ] = (string) $value;
+			return;
+		}
+
+		$warnings[] = 'invalid_' . $target_key;
+	}
+
+	/**
+	 * Copy one present numeric value without collapsing absence into null.
+	 *
+	 * @param array  $row Target row.
+	 * @param string $target_key Target key.
+	 * @param array  $source Source record.
+	 * @param string $source_key Source key.
+	 * @param array  $warnings Row warnings.
+	 * @return void
+	 */
+	private function add_number_field( &$row, $target_key, $source, $source_key, &$warnings ) {
+		if ( ! is_array( $source ) || ! array_key_exists( $source_key, $source ) ) {
+			return;
+		}
+
+		$this->add_explicit_number_value(
+			$row,
+			$target_key,
+			array(
+				'exists' => true,
+				'value'  => $source[ $source_key ],
+			),
+			$warnings
+		);
+	}
+
+	/**
+	 * Add a present numeric descriptor while preserving explicit null/empty.
+	 *
+	 * @param array  $row Target row.
+	 * @param string $target_key Target key.
+	 * @param array  $descriptor Exists/value descriptor.
+	 * @param array  $warnings Row warnings.
+	 * @return void
+	 */
+	private function add_explicit_number_value( &$row, $target_key, $descriptor, &$warnings ) {
+		if ( ! is_array( $descriptor ) || empty( $descriptor['exists'] ) ) {
+			return;
+		}
+
+		$value = $descriptor['value'] ?? null;
+		if ( null === $value || '' === $value ) {
+			$row[ $target_key ] = $value;
+			return;
+		}
+
+		$number = $this->finite_number( $value );
+		if ( null === $number ) {
+			$warnings[] = 'invalid_' . $target_key;
+			return;
+		}
+
+		$row[ $target_key ] = $number;
+	}
+
+	/**
+	 * Project category names only when the source key exists.
+	 *
+	 * @param array $row Target row.
+	 * @param array $product Product record.
+	 * @param array $warnings Row warnings.
+	 * @return void
+	 */
+	private function add_categories_field( &$row, $product, &$warnings ) {
+		if ( ! array_key_exists( 'categories', $product ) ) {
+			return;
+		}
+		if ( null === $product['categories'] ) {
+			$row['categories'] = null;
+			return;
+		}
+		if ( ! is_array( $product['categories'] ) ) {
+			$warnings[] = 'invalid_categories';
+			return;
+		}
+
+		$row['categories'] = $this->category_names( $product['categories'] );
+	}
+
+	/**
+	 * Project category IDs only when the source key exists.
+	 *
+	 * @param array $row Target row.
+	 * @param array $product Product record.
+	 * @param array $warnings Row warnings.
+	 * @return void
+	 */
+	private function add_category_ids_field( &$row, $product, &$warnings ) {
+		if ( ! array_key_exists( 'category_ids', $product ) ) {
+			return;
+		}
+		if ( null === $product['category_ids'] ) {
+			$row['category_ids'] = null;
+			return;
+		}
+		if ( ! is_array( $product['category_ids'] ) ) {
+			$warnings[] = 'invalid_category_ids';
+			return;
+		}
+
+		$ids = array();
+		foreach ( $product['category_ids'] as $id ) {
+			if ( ! is_scalar( $id ) ) {
+				$warnings[] = 'invalid_category_ids';
+				return;
+			}
+			$ids[] = (string) $id;
+		}
+		$row['category_ids'] = implode( ',', $ids );
+	}
+
+	/**
 	 * Flatten category names without leaking internal objects.
 	 *
 	 * @param mixed $categories Product category list.
@@ -652,61 +899,97 @@ final class Digitalogic_Google_Sheets_Catalog {
 	 *
 	 * @param array  $product Product row.
 	 * @param string $store_unit WooCommerce weight unit.
-	 * @return float|int|null
+	 * @param array  $warnings Row warnings.
+	 * @return array Exists/value descriptor.
 	 */
-	private function product_weight_grams( $product, $store_unit ) {
-		$patris = $this->number_or_null( $product['patris_weight_grams'] ?? null );
-		if ( null !== $patris ) {
-			return $patris;
+	private function product_weight_grams( $product, $store_unit, &$warnings ) {
+		if ( array_key_exists( 'patris_weight_grams', $product ) ) {
+			$value = $product['patris_weight_grams'];
+			if ( null === $value || '' === $value ) {
+				return array(
+					'exists' => true,
+					'value'  => $value,
+				);
+			}
+			$number = $this->finite_number( $value );
+			if ( null === $number ) {
+				$warnings[] = 'invalid_weight_grams';
+				return array( 'exists' => false );
+			}
+
+			return array(
+				'exists' => true,
+				'value'  => $number,
+			);
 		}
 
-		$weight = $this->number_or_null( $product['weight'] ?? null );
-		if ( null === $weight || $weight <= 0 ) {
-			return null;
+		if ( ! array_key_exists( 'weight', $product ) ) {
+			return array( 'exists' => false );
 		}
+		$weight = $product['weight'];
+		if ( null === $weight || '' === $weight ) {
+			return array(
+				'exists' => true,
+				'value'  => $weight,
+			);
+		}
+		$weight = $this->finite_number( $weight );
+		if ( null === $weight ) {
+			$warnings[] = 'invalid_woocommerce_weight';
+			return array( 'exists' => false );
+		}
+
 		$grams = wc_get_weight( $weight, 'g', '' !== $store_unit ? $store_unit : 'kg' );
+		$grams = $this->finite_number( $grams );
+		if ( null === $grams ) {
+			$warnings[] = 'invalid_weight_grams';
+			return array( 'exists' => false );
+		}
 
-		return $this->number_or_null( $grams );
+		return array(
+			'exists' => true,
+			'value'  => $grams,
+		);
 	}
 
 	/**
-	 * Read the first non-empty value.
+	 * Read the first present value, preferring a non-null/non-empty candidate.
 	 *
 	 * @param array $values Source values.
 	 * @param array $keys Ordered keys.
-	 * @return mixed|null
+	 * @return array Exists/value descriptor.
 	 */
-	private function first_value( $values, $keys ) {
+	private function first_present_value( $values, $keys ) {
+		$first = array( 'exists' => false );
 		foreach ( $keys as $key ) {
-			if ( array_key_exists( $key, $values ) && null !== $values[ $key ] && '' !== $values[ $key ] ) {
-				return $values[ $key ];
+			if ( ! array_key_exists( $key, $values ) ) {
+				continue;
+			}
+			if ( ! $first['exists'] ) {
+				$first = array(
+					'exists' => true,
+					'value'  => $values[ $key ],
+				);
+			}
+			if ( null !== $values[ $key ] && '' !== $values[ $key ] ) {
+				return array(
+					'exists' => true,
+					'value'  => $values[ $key ],
+				);
 			}
 		}
 
-		return null;
+		return $first;
 	}
 
 	/**
-	 * Read the first non-empty string.
-	 *
-	 * @param array $values Source values.
-	 * @param array $keys Ordered keys.
-	 * @return string
-	 */
-	private function first_string( $values, $keys ) {
-		$value = $this->first_value( $values, $keys );
-
-		return null === $value ? '' : trim( (string) $value );
-	}
-
-	/**
-	 * Convert finite numerics to spreadsheet numbers and blanks to null.
+	 * Convert finite numerics to spreadsheet numbers.
 	 *
 	 * @param mixed $value Source value.
 	 * @return float|int|null
 	 */
-	private function number_or_null( $value ) {
-		if ( null === $value || '' === $value || ! is_numeric( $value ) ) {
+	private function finite_number( $value ) {
+		if ( ! is_numeric( $value ) ) {
 			return null;
 		}
 		$number = (float) $value;
@@ -725,11 +1008,29 @@ final class Digitalogic_Google_Sheets_Catalog {
 	 * Preserve nonnumeric warehouse values for explicit integration states.
 	 *
 	 * @param mixed $value Warehouse value.
-	 * @return mixed
+	 * @return array Valid/value descriptor.
 	 */
 	private function number_or_text( $value ) {
-		$number = $this->number_or_null( $value );
+		if ( null === $value || '' === $value ) {
+			return array(
+				'valid' => true,
+				'value' => $value,
+			);
+		}
+		$number = $this->finite_number( $value );
+		if ( null !== $number ) {
+			return array(
+				'valid' => true,
+				'value' => $number,
+			);
+		}
+		if ( is_scalar( $value ) ) {
+			return array(
+				'valid' => true,
+				'value' => (string) $value,
+			);
+		}
 
-		return null !== $number ? $number : ( is_scalar( $value ) ? (string) $value : null );
+		return array( 'valid' => false );
 	}
 }

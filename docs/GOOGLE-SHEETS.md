@@ -1,13 +1,13 @@
 # Google Sheets catalog synchronization
 
-Digitalogic-WP exposes one read-only, paginated catalog contract for Google
-Sheets, n8n, and other standalone clients:
+Digitalogic-WP exposes one read-only, paginated living catalog response for
+Google Sheets, n8n, and other standalone clients:
 
 ```text
 GET /wp-json/digitalogic/v1/google-sheets/catalog
 ```
 
-The contract always keeps product records and product-category records in
+The response always keeps product records and product-category records in
 different datasets. The supplied Google Apps Script creates or updates the
 `Products` and `Categories` tabs accordingly. It never reads credentials from
 spreadsheet cells and never sends credentials as query parameters.
@@ -27,10 +27,21 @@ assignment services. It includes:
 - category relationships, product/image links, publication status, update
   time, record revision, and explicit sync status/notes.
 
-Patris Code is the primary upsert key. Products that do not yet have a Patris
-Code remain visible using their string SKU (or `woo:<id>` as the final
-fallback) and are marked `warning` with `missing_patris_code`. Duplicate keys
-make the Apps Script stop rather than silently overwrite a product.
+An exact, case-sensitive Patris Code is the only Patris matching key. When it
+exists, that Code is also the row's `sync_key`. A product without a Patris Code
+remains visible with `woo:<id>` as its display/upsert `sync_key` and is marked
+`warning` with `missing_patris_code`. The WooCommerce SKU remains a separate
+display field: it is never a fallback for Patris matching. Duplicate
+`sync_key` values make the Apps Script stop rather than silently overwrite a
+product.
+
+Rows are sparse. A missing key means the source or reference did not provide a
+value. A present key whose value is `null` means the upstream source explicitly
+provided null; empty strings, zero, and `false` retain their own meanings. The
+REST response preserves that distinction. A spreadsheet cell cannot represent
+missing-versus-null metadata, so the supplied Apps Script displays both missing
+keys and explicit null values as blank cells while preserving real empty,
+numeric, and boolean values in the response-processing path.
 
 The `Categories` dataset contains category ID, name, slug, parent, product
 count, description, URL, status, and revision. Categories are not mixed into
@@ -111,9 +122,11 @@ Supported query values:
 - `page`: one-based positive integer;
 - `limit`: `1` through `100`.
 
-Every response reports `page_revision` plus `pagination.total`,
-`pagination.pages`, and `pagination.has_more`. Every column includes its
-machine key, English label, Persian label, selected header, and cell type.
+Every response identifies its `dataset`, supplies `columns` and sparse `rows`,
+and reports `page_revision` plus `pagination.total`, `pagination.pages`, and
+`pagination.has_more`. Every column includes its machine key, English label,
+Persian label, selected header, and cell type. Clients validate these living
+response fields directly.
 
 ## n8n path
 
@@ -139,8 +152,9 @@ the WooCommerce and Google credentials.
   Digitalogic plugin is active.
 - `missing_patris_code`: match the WooCommerce product and assign its Patris
   Code; the product remains visible meanwhile.
-- `Duplicate catalog sync_key`: fix duplicate Patris Codes/SKUs before retrying
-  so no row is overwritten.
+- `Duplicate catalog sync_key`: fix duplicate exact Patris Codes before
+  retrying so no row is overwritten. `woo:<id>` fallback keys are based only on
+  canonical WooCommerce IDs, never SKUs.
 - Google authorization revoked: authorize `syncCatalog` again, then reinstall
   the scheduled trigger.
 - A stale scheduled trigger: run `removeScheduledSync`, then
@@ -153,6 +167,12 @@ the WooCommerce and Google credentials.
 نگهداری می‌شود؛ بنابراین صفرهای ابتدای کد حذف نمی‌شوند. موجودی هر انبار در
 ستون جداگانه قرار می‌گیرد و قیمت نهایی، روش حمل، هزینه حمل، حاشیه سود، وزن و
 وضعیت همگام‌سازی نیز در خروجی موجود است.
+
+تطبیق پاتریس فقط با `Code` دقیق و حساس به حروف انجام می‌شود و هرگز از SKU به
+عنوان جایگزین استفاده نمی‌شود. اگر Code موجود نباشد، کلید نمایشی `woo:<id>`
+صرفاً برای نگهداری ردیف شیت استفاده می‌شود. ردیف‌های API تنک هستند: نبودن کلید
+یعنی منبع مقداری نداده است و مقدار `null` فقط یعنی منبع صریحاً null داده است.
+در خود شیت، هر دو حالت به‌صورت سلول خالی نمایش داده می‌شوند.
 
 برای راه‌اندازی، یک کلید WooCommerce با سطح دسترسی **Read** بسازید و سه مقدار
 `DIGITALOGIC_API_BASE`، `DIGITALOGIC_CONSUMER_KEY` و
