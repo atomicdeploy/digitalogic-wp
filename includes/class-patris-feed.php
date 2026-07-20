@@ -501,6 +501,7 @@ class Digitalogic_Patris_Feed {
         }
 
         $canonical_meta = array(
+            'category_code' => '_digitalogic_patris_category_code',
             'import_freight_method_id' => '_digitalogic_patris_import_freight_method_id',
             'freight_cny_per_kg' => '_digitalogic_patris_freight_cny_per_kg',
             'markup_percent' => '_digitalogic_patris_markup_percent',
