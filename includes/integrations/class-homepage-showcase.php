@@ -40,10 +40,10 @@ final class Digitalogic_Homepage_Showcase {
 			DIGITALOGIC_VERSION
 		);
 
-		$hero_products   = $this->get_varied_products( 6 );
-		$hero_ids        = array_map( static fn( $product ) => $product->get_id(), $hero_products );
-		$latest_products = $this->get_latest_products( 8, $hero_ids );
-		$categories      = $this->get_category_spotlights();
+		$hero_products = $this->get_varied_products( 6 );
+		$hero_ids      = array_map( static fn( $product ) => $product->get_id(), $hero_products );
+		$more_products = $this->get_more_products( 8, $hero_ids );
+		$categories    = $this->get_category_spotlights();
 
 		ob_start();
 		?>
@@ -111,17 +111,17 @@ final class Digitalogic_Homepage_Showcase {
 				</div>
 			</section>
 
-			<?php if ( ! empty( $latest_products ) ) : ?>
+			<?php if ( ! empty( $more_products ) ) : ?>
 				<section class="dgl-section dgl-products" aria-labelledby="dgl-products-title">
 					<div class="dgl-section-heading">
 						<div>
-							<span class="dgl-eyebrow">تازه رسیده‌ها</span>
-							<h2 id="dgl-products-title">موجودی‌های جدید فروشگاه</h2>
+							<span class="dgl-eyebrow">بیشتر بگرد</span>
+							<h2 id="dgl-products-title">چندتا انتخاب جذاب دیگه</h2>
 						</div>
-						<a href="<?php echo esc_url( wc_get_page_permalink( 'shop' ) ); ?>">همه‌ی موجودی‌ها</a>
+						<a href="<?php echo esc_url( wc_get_page_permalink( 'shop' ) ); ?>">کل فروشگاه</a>
 					</div>
 					<div class="dgl-product-grid">
-						<?php foreach ( $latest_products as $product ) : ?>
+						<?php foreach ( $more_products as $product ) : ?>
 							<?php echo $this->product_card( $product ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
 						<?php endforeach; ?>
 					</div>
@@ -191,18 +191,60 @@ final class Digitalogic_Homepage_Showcase {
 	 * @param array $exclude_ids Product IDs already used in the hero.
 	 * @return array
 	 */
-	private function get_latest_products( $limit, $exclude_ids ) {
-		return wc_get_products(
-			array(
-				'status'       => 'publish',
-				'stock_status' => 'instock',
-				'visibility'   => 'visible',
-				'exclude'      => array_map( 'absint', $exclude_ids ),
-				'limit'        => (int) $limit,
-				'orderby'      => 'modified',
-				'order'        => 'DESC',
-			)
+	private function get_more_products( $limit, $exclude_ids ) {
+		$slugs = array(
+			'patris-113007',
+			'patris-113003',
+			'patris-113008',
+			'patris-113010',
+			'temperature-and-humidity-sensors',
+			'lcd-and-oled-displays',
+			'regulators',
+			'patris-106001',
 		);
+		$found = array();
+
+		foreach ( $slugs as $slug ) {
+			$products = wc_get_products(
+				array(
+					'status'       => 'publish',
+					'stock_status' => 'instock',
+					'visibility'   => 'visible',
+					'category'     => array( $slug ),
+					'exclude'      => array_merge( array_map( 'absint', $exclude_ids ), array_keys( $found ) ),
+					'limit'        => 1,
+					'orderby'      => 'modified',
+					'order'        => 'DESC',
+				)
+			);
+			if ( empty( $products ) ) {
+				continue;
+			}
+			$product                     = reset( $products );
+			$found[ $product->get_id() ] = $product;
+			if ( count( $found ) >= $limit ) {
+				break;
+			}
+		}
+
+		if ( count( $found ) < $limit ) {
+			$fallback = wc_get_products(
+				array(
+					'status'       => 'publish',
+					'stock_status' => 'instock',
+					'visibility'   => 'visible',
+					'exclude'      => array_merge( array_map( 'absint', $exclude_ids ), array_keys( $found ) ),
+					'limit'        => $limit - count( $found ),
+					'orderby'      => 'modified',
+					'order'        => 'DESC',
+				)
+			);
+			foreach ( $fallback as $product ) {
+				$found[ $product->get_id() ] = $product;
+			}
+		}
+
+		return array_values( $found );
 	}
 
 	/**
