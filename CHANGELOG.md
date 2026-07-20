@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.5.0
+
+- Restore a high-contrast, keyboard-accessible homepage carousel with original generated artwork for stocked modules, foreign sourcing, and two-/four-layer PCB production.
+- Add two non-duplicated, inventory-backed product carousels with improved responsive controls.
+- Add a professional RTL product-table catalog with search, category and sort filters, pagination, intentional image fallbacks, and native WooCommerce quick add.
+- Add complete guest-friendly foreign-sourcing and PCB quote forms with repeatable line items, strict validation, private uploads, tracking codes, admin records, notifications, and request statuses.
+- Add temporary openly licensed product-photo attribution support and a public image-credit register.
+
 ## 1.4.3
 
 - Read variation options through WooCommerce's variation-attribute API so reviewed children remain idempotent after creation and duplicate options are still rejected.

@@ -39,6 +39,13 @@ final class Digitalogic_Homepage_Showcase {
 			array(),
 			DIGITALOGIC_VERSION
 		);
+		wp_enqueue_script(
+			'digitalogic-storefront-carousel',
+			DIGITALOGIC_PLUGIN_URL . 'assets/js/storefront-carousel.js',
+			array(),
+			DIGITALOGIC_VERSION,
+			true
+		);
 
 		$hero_products = $this->get_varied_products( 6 );
 		$hero_ids      = array_map( static fn( $product ) => $product->get_id(), $hero_products );
@@ -48,31 +55,30 @@ final class Digitalogic_Homepage_Showcase {
 		ob_start();
 		?>
 		<div class="dgl-home" dir="rtl">
-			<section class="dgl-hero" aria-labelledby="dgl-hero-title">
-				<div class="dgl-hero-copy">
-					<span class="dgl-eyebrow">فروشگاه قطعات و ماژول‌های الکترونیک</span>
-					<h1 id="dgl-hero-title">یه عالمه قطعه و ماژول باحال، آماده‌ی پروژه‌ی بعدی تو</h1>
-					<p>از آردوینو، ESP و رزبری‌پای تا سنسور، نمایشگر و ماژول‌های کاربردی؛ موجودی واقعی فروشگاه رو ببین و راحت انتخاب کن.</p>
-					<div class="dgl-hero-actions">
-						<a class="dgl-button dgl-button--primary" href="<?php echo esc_url( wc_get_page_permalink( 'shop' ) ); ?>">بزن بریم فروشگاه</a>
-						<a class="dgl-button dgl-button--ghost" href="<?php echo esc_url( $this->category_url( 'modules-development-board' ) ); ?>">ماژول‌ها و بردها</a>
+			<?php echo $this->hero_carousel(); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
+
+			<?php if ( ! empty( $hero_products ) ) : ?>
+				<section class="dgl-section dgl-products dgl-stock-now" aria-labelledby="dgl-stock-title">
+					<div class="dgl-section-heading">
+						<div>
+							<span class="dgl-section-kicker"><i></i> همین الان موجوده</span>
+							<h2 id="dgl-stock-title">چندتا ماژول که حیفه نبینیشون</h2>
+						</div>
+						<div class="dgl-heading-actions">
+							<a href="<?php echo esc_url( $this->catalog_url() ); ?>">لیست کامل محصولات</a>
+							<div class="dgl-carousel-buttons" aria-label="کنترل محصولات">
+								<button type="button" data-dgl-rail-prev aria-label="محصولات قبلی">→</button>
+								<button type="button" data-dgl-rail-next aria-label="محصولات بعدی">←</button>
+							</div>
+						</div>
 					</div>
-					<div class="dgl-hero-tags" aria-label="محصولات محبوب">
-						<a href="<?php echo esc_url( $this->category_url( 'wi-fi-and-bluetooth-modules' ) ); ?>">ESP و ارتباطات</a>
-						<a href="<?php echo esc_url( $this->category_url( 'raspberry-pi-boards' ) ); ?>">Raspberry Pi</a>
-						<a href="<?php echo esc_url( $this->category_url( 'arduino-boards' ) ); ?>">Arduino</a>
-						<a href="<?php echo esc_url( $this->category_url( 'sensors-transducers' ) ); ?>">سنسورها</a>
-					</div>
-				</div>
-				<div class="dgl-prime-showcase" aria-label="محصولات موجود فروشگاه">
-					<div class="dgl-section-kicker"><span></span> همین الان موجوده</div>
-					<div class="dgl-prime-grid">
+					<div class="dgl-product-rail" data-dgl-rail>
 						<?php foreach ( $hero_products as $product ) : ?>
-							<?php echo $this->product_card( $product, true ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
+							<?php echo $this->product_card( $product ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
 						<?php endforeach; ?>
 					</div>
-				</div>
-			</section>
+				</section>
+			<?php endif; ?>
 
 			<?php if ( ! empty( $categories ) ) : ?>
 				<section class="dgl-section" aria-labelledby="dgl-category-title">
@@ -81,7 +87,7 @@ final class Digitalogic_Homepage_Showcase {
 							<span class="dgl-eyebrow">از کجا شروع کنیم؟</span>
 							<h2 id="dgl-category-title">یه راست برو سراغ چیزی که لازم داری</h2>
 						</div>
-						<a href="<?php echo esc_url( wc_get_page_permalink( 'shop' ) ); ?>">دیدن همه محصولات</a>
+						<a href="<?php echo esc_url( $this->catalog_url() ); ?>">دیدن همه محصولات</a>
 					</div>
 					<div class="dgl-category-grid">
 						<?php foreach ( $categories as $category ) : ?>
@@ -104,7 +110,7 @@ final class Digitalogic_Homepage_Showcase {
 					</div>
 				</div>
 				<div class="dgl-service-grid">
-					<?php echo $this->service_card( '01', 'قطعه و ماژول آماده', 'آردوینو، ESP، سنسور، نمایشگر و کلی ماژول کاربردی برای پروژه‌های کوچیک و بزرگ.', wc_get_page_permalink( 'shop' ), 'محصولات رو ببین' ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
+					<?php echo $this->service_card( '01', 'قطعه و ماژول آماده', 'آردوینو، ESP، سنسور، نمایشگر و کلی ماژول کاربردی برای پروژه‌های کوچیک و بزرگ.', $this->catalog_url(), 'محصولات رو ببین' ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
 					<?php echo $this->service_card( '02', 'سفارش مستقیم از چین', 'قطعه‌ای پیدا نمی‌شه یا تعداد بالا می‌خوای؟ لینک یا پارت‌نامبر رو بده؛ تأمینش می‌کنیم.', home_url( '/import-of-electronic-products/' ), 'ثبت درخواست خرید' ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
 					<?php echo $this->service_card( '2L', 'ساخت PCB دو لایه', 'فایل Gerber رو بفرست؛ برای نمونه‌سازی و تولید، قیمت و زمان تحویل شفاف می‌گیری.', home_url( '/سفارش-چاپ-برد-pcb/' ), 'سفارش PCB دو لایه' ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
 					<?php echo $this->service_card( '4L', 'ساخت PCB چهار لایه', 'برای بردهای حرفه‌ای‌تر و مسیرکشی فشرده، سفارش چهار لایه‌ات رو با خیال راحت بسپار.', home_url( '/سفارش-چاپ-برد-pcb/' ), 'سفارش PCB چهار لایه' ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
@@ -118,9 +124,15 @@ final class Digitalogic_Homepage_Showcase {
 							<span class="dgl-eyebrow">بیشتر بگرد</span>
 							<h2 id="dgl-products-title">چندتا انتخاب جذاب دیگه</h2>
 						</div>
-						<a href="<?php echo esc_url( wc_get_page_permalink( 'shop' ) ); ?>">کل فروشگاه</a>
+						<div class="dgl-heading-actions">
+							<a href="<?php echo esc_url( $this->catalog_url() ); ?>">کل فروشگاه</a>
+							<div class="dgl-carousel-buttons" aria-label="کنترل محصولات">
+								<button type="button" data-dgl-rail-prev aria-label="محصولات قبلی">→</button>
+								<button type="button" data-dgl-rail-next aria-label="محصولات بعدی">←</button>
+							</div>
+						</div>
 					</div>
-					<div class="dgl-product-grid">
+					<div class="dgl-product-rail" data-dgl-rail>
 						<?php foreach ( $more_products as $product ) : ?>
 							<?php echo $this->product_card( $product ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
 						<?php endforeach; ?>
@@ -137,6 +149,86 @@ final class Digitalogic_Homepage_Showcase {
 				<a class="dgl-button dgl-button--light" href="<?php echo esc_url( home_url( '/our-contacts/' ) ); ?>">با ما در ارتباط باش</a>
 			</section>
 		</div>
+		<?php
+
+		return ob_get_clean();
+	}
+
+	/**
+	 * Render the main, high-contrast service carousel.
+	 *
+	 * @return string
+	 */
+	private function hero_carousel() {
+		$slides = array(
+			array(
+				'image'           => DIGITALOGIC_PLUGIN_URL . 'assets/images/storefront-modules-hero.webp',
+				'eyebrow'         => 'قطعات، ماژول‌ها و بردهای توسعه',
+				'title'           => 'ماژول‌های باحال رو کردیم؛ ببین چی موجوده',
+				'copy'            => 'از ESP و آردوینو تا Raspberry Pi، سنسور و نمایشگر؛ موجودی واقعی رو ورق بزن و سریع سفارش بده.',
+				'primary_label'   => 'لیست حرفه‌ای محصولات',
+				'primary_url'     => $this->catalog_url(),
+				'secondary_label' => 'ESP و ارتباطات',
+				'secondary_url'   => $this->category_url( 'wi-fi-and-bluetooth-modules' ),
+			),
+			array(
+				'image'           => DIGITALOGIC_PLUGIN_URL . 'assets/images/storefront-sourcing-service.webp',
+				'eyebrow'         => 'سفارش کالا و قطعه از چین',
+				'title'           => 'پارت‌نامبر بده؛ پیداش می‌کنیم و می‌رسونیم دستت',
+				'copy'            => 'برای قطعه کمیاب، خرید تیراژی یا BOM کامل، یه درخواست بفرست تا قیمت و زمان تأمین رو شفاف برات دربیاریم.',
+				'primary_label'   => 'ثبت سفارش خارجی',
+				'primary_url'     => home_url( '/import-of-electronic-products/' ),
+				'secondary_label' => 'فرم چه اطلاعاتی می‌خواد؟',
+				'secondary_url'   => home_url( '/import-of-electronic-products/#dgl-request-title' ),
+			),
+			array(
+				'image'           => DIGITALOGIC_PLUGIN_URL . 'assets/images/storefront-pcb-service.webp',
+				'eyebrow'         => 'تولید PCB دو لایه و چهار لایه',
+				'title'           => 'Gerber رو بده؛ برد تمیز و حرفه‌ای تحویل بگیر',
+				'copy'            => 'از نمونه‌سازی تا تیراژ؛ مشخصات برد رو ثبت کن تا قیمت، زمان ساخت و گزینه‌های تولید رو یک‌جا بگیری.',
+				'primary_label'   => 'استعلام ساخت PCB',
+				'primary_url'     => home_url( '/سفارش-چاپ-برد-pcb/' ),
+				'secondary_label' => 'دو لایه یا چهار لایه؟',
+				'secondary_url'   => home_url( '/سفارش-چاپ-برد-pcb/#dgl-request-title' ),
+			),
+		);
+
+		ob_start();
+		?>
+		<section class="dgl-story-carousel" data-dgl-story-carousel aria-roledescription="carousel" aria-label="محصولات و خدمات دیجیتالاجیک">
+			<div class="dgl-story-slides" aria-live="off">
+				<?php foreach ( $slides as $index => $slide ) : ?>
+					<article class="dgl-story-slide<?php echo 0 === $index ? ' is-active' : ''; ?>" data-dgl-story-slide aria-hidden="<?php echo 0 === $index ? 'false' : 'true'; ?>"<?php echo 0 === $index ? '' : ' hidden'; ?>>
+						<span class="dgl-story-media" style="background-image:url('<?php echo esc_url( $slide['image'] ); ?>')" aria-hidden="true"></span>
+						<div class="dgl-story-copy">
+							<span class="dgl-eyebrow"><?php echo esc_html( $slide['eyebrow'] ); ?></span>
+							<?php if ( 0 === $index ) : ?>
+								<h1><?php echo esc_html( $slide['title'] ); ?></h1>
+							<?php else : ?>
+								<h2><?php echo esc_html( $slide['title'] ); ?></h2>
+							<?php endif; ?>
+							<p><?php echo esc_html( $slide['copy'] ); ?></p>
+							<div class="dgl-hero-actions">
+								<a class="dgl-button dgl-button--primary" href="<?php echo esc_url( $slide['primary_url'] ); ?>"><?php echo esc_html( $slide['primary_label'] ); ?></a>
+								<a class="dgl-button dgl-button--ghost" href="<?php echo esc_url( $slide['secondary_url'] ); ?>"><?php echo esc_html( $slide['secondary_label'] ); ?></a>
+							</div>
+						</div>
+					</article>
+				<?php endforeach; ?>
+			</div>
+			<div class="dgl-story-controls">
+				<div class="dgl-carousel-buttons">
+					<button type="button" data-dgl-story-prev aria-label="اسلاید قبلی">→</button>
+					<button type="button" data-dgl-story-next aria-label="اسلاید بعدی">←</button>
+				</div>
+				<div class="dgl-story-dots" role="tablist" aria-label="انتخاب اسلاید">
+					<?php foreach ( $slides as $index => $slide ) : ?>
+						<button type="button" role="tab" data-dgl-story-dot="<?php echo esc_attr( $index ); ?>" aria-label="اسلاید <?php echo esc_attr( $index + 1 ); ?>" aria-selected="<?php echo 0 === $index ? 'true' : 'false'; ?>"></button>
+					<?php endforeach; ?>
+				</div>
+				<span class="dgl-story-counter" dir="ltr"><b data-dgl-story-current>01</b> / 03</span>
+			</div>
+		</section>
 		<?php
 
 		return ob_get_clean();
@@ -353,5 +445,16 @@ final class Digitalogic_Homepage_Showcase {
 		$url  = $term && ! is_wp_error( $term ) ? get_term_link( $term, 'product_cat' ) : '';
 
 		return ! is_wp_error( $url ) && '' !== $url ? $url : wc_get_page_permalink( 'shop' );
+	}
+
+	/**
+	 * Resolve the professional catalog page, with the Woo shop as fallback.
+	 *
+	 * @return string
+	 */
+	private function catalog_url() {
+		$page = get_page_by_path( 'catalog' );
+
+		return $page && 'publish' === $page->post_status ? get_permalink( $page ) : wc_get_page_permalink( 'shop' );
 	}
 }
