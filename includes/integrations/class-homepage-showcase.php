@@ -258,7 +258,7 @@ final class Digitalogic_Homepage_Showcase {
 					'stock_status' => 'instock',
 					'visibility'   => 'visible',
 					'category'     => array( $slug ),
-					'limit'        => 1,
+					'limit'        => 24,
 					'orderby'      => 'modified',
 					'order'        => 'DESC',
 				)
@@ -266,7 +266,7 @@ final class Digitalogic_Homepage_Showcase {
 			if ( empty( $products ) ) {
 				continue;
 			}
-			$product                    = reset( $products );
+			$product                    = $this->prefer_product_with_image( $products );
 			$found[ $product->get_id() ] = $product;
 			if ( count( $found ) >= $limit ) {
 				break;
@@ -304,7 +304,7 @@ final class Digitalogic_Homepage_Showcase {
 					'visibility'   => 'visible',
 					'category'     => array( $slug ),
 					'exclude'      => array_merge( array_map( 'absint', $exclude_ids ), array_keys( $found ) ),
-					'limit'        => 1,
+					'limit'        => 24,
 					'orderby'      => 'modified',
 					'order'        => 'DESC',
 				)
@@ -312,7 +312,7 @@ final class Digitalogic_Homepage_Showcase {
 			if ( empty( $products ) ) {
 				continue;
 			}
-			$product                     = reset( $products );
+			$product                     = $this->prefer_product_with_image( $products );
 			$found[ $product->get_id() ] = $product;
 			if ( count( $found ) >= $limit ) {
 				break;
@@ -337,6 +337,22 @@ final class Digitalogic_Homepage_Showcase {
 		}
 
 		return array_values( $found );
+	}
+
+	/**
+	 * Prefer a real product photo without making image availability a hard gate.
+	 *
+	 * @param array $products Candidate products.
+	 * @return WC_Product|false
+	 */
+	private function prefer_product_with_image( $products ) {
+		foreach ( $products as $product ) {
+			if ( $product instanceof WC_Product && $product->get_image_id() ) {
+				return $product;
+			}
+		}
+
+		return reset( $products );
 	}
 
 	/**
