@@ -1,0 +1,13 @@
+{
+	"name": "digitalogic-pbx-operational-assets",
+	"version": "1.0.0",
+	"private": true,
+	"description": "Secret-free Asterisk callback helper and deployment assets.",
+	"scripts": {
+		"check": "node --check lib/pbx-verification-agi.js",
+		"test": "node --test test/*.test.js"
+	},
+	"engines": {
+		"node": ">=18.0.0"
+	}
+}

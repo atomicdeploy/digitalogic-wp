@@ -41,6 +41,15 @@
 - HMAC signature verification
 - Non-blocking async delivery
 
+### ☎️ Phone verification and PBX notifications
+- Login or add an Iranian mobile/landline contact by calling `021-66754123` and choosing IVR option `2`
+- Six-digit, 10-minute challenge with exact caller-ID matching and single-use browser-bound consumption
+- Multiple supplemental emails and verified phone contacts in WooCommerce My Account
+- Per-number customer/admin consent controls for voice order updates
+- Global and per-order-status switches are disabled by default; calls run asynchronously with quiet hours and rate limits
+- Editable Persian templates support only `{first_name}`, `{order_number}`, `{order_status}`, and `{site_name}`
+- Deployment and security details: [`docs/PBX_CALL_VERIFICATION.md`](docs/PBX_CALL_VERIFICATION.md)
+
 ### 💻 WP-CLI Support
 - Command-line product management
 - Currency rate updates
