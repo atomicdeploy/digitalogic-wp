@@ -33,7 +33,7 @@ class Digitalogic_REST_API {
      *
      * WooCommerce only recognizes its own wc/* and wc-* namespaces by default.
      * Preserve requests already recognized by WooCommerce and opt in only the
-     * existing Digitalogic API and exact versionless Patris integration routes
+     * existing Digitalogic API and exact Patris integration routes
      * (including subdirectory installs and rest_route query parameters).
      *
      * @param bool $is_request Whether WooCommerce already recognizes the request.
@@ -877,7 +877,7 @@ class Digitalogic_REST_API {
     /**
      * POST /patris/product-sync
      *
-     * Consume the deterministic digitalogic.product-sync envelope. Patris
+     * Consume the deterministic patris.product-sync envelope. Patris
      * identity headers are optional, but when present they must agree with the
      * body so proxies cannot accidentally pair stale metadata with new JSON.
      */

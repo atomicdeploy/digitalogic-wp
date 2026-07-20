@@ -1,6 +1,6 @@
 msgid ""
 msgstr ""
-"Project-Id-Version: Digitalogic WooCommerce Extension 1.4.0\n"
+"Project-Id-Version: Digitalogic WooCommerce Extension 1.5.0\n"
 "Report-Msgid-Bugs-To: https://github.com/atomicdeploy/digitalogic-wp/issues\n"
 "POT-Creation-Date: 2026-07-20 21:54+0330\n"
 "PO-Revision-Date: 2026-07-17 00:00+0000\n"
@@ -1304,7 +1304,7 @@ msgid "Product-sync endpoint"
 msgstr ""
 
 #: includes\admin\views\patris-reports.php:58
-msgid "X-Digitalogic-Product-Sync-Secret"
+msgid "X-Patris-Product-Sync-Secret"
 msgstr ""
 
 #: includes\admin\views\patris-reports.php:64

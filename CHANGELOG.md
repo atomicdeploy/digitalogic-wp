@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.4.0] - 2026-07-21
+## [1.5.0] - 2026-07-21
 
 ### Added
 - Secure six-digit phone verification by inbound call on `021-66754123`, IVR option `2`, as a Digits-independent login alternative and a way to verify supplemental Iranian mobile or fixed-line contacts.
@@ -20,6 +20,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Phone ownership codes are stored only as keyed MACs, browser challenges use opaque HttpOnly bindings, and verified challenges are consumed atomically once.
 - PBX verification secrets and callout credentials are read only from `wp-config.php`; callback bodies, identifiers, timestamps, DID/ANI values, and exact HMAC signatures are bounded and validated before use.
 - PBX schema availability is fail-closed until every required InnoDB table, column, index, cleanup task, and recovery schedule verifies successfully; signed callback attempt limits reserve capacity atomically before code matching.
+
+## [1.4.3] - 2026-07-21
+
+### Fixed
+- Read variation options through WooCommerce's variation-attribute API so reviewed children remain idempotent after creation and duplicate options are still rejected.
+
+## [1.4.1] - 2026-07-20
+
+### Fixed
+- Added an escaped, idempotent Woodmart single-product fallback so the reviewed English Patris identity renders immediately below the Persian product title even when the theme bypasses WooCommerce's standard summary hook.
+
+## [1.4.0] - 2026-07-20
+
+### Added
+- Added an administrator-reviewed, dry-run-first Patris catalog materializer for positive-stock records from the living product-sync contract, including explicit simple-product adoption/creation and variation children under reviewed existing variable parents.
+- Added stable Patris category ownership, additive category assignment, optional reviewed Persian category names, and explicitly referenced Digitalogic-only categories without overwriting unrelated manual taxonomy work.
+- Added reviewed Persian product and category SEO metadata, short descriptions, part/model metadata, Rank Math sitemap cache invalidation, and publication readiness gates.
+- Added a second storefront identity line for the original English Patris name, selected-variation identity updates, and product structured-data SKU/MPN enrichment.
+- Added storefront and panel search coverage for Persian names, Patris names, exact Codes/SKUs, serials, part numbers, models, variation records, and product categories.
+
+### Changed
+- Reused the existing Patris feed writer for price, positive stock, weight, warehouse, warning, and pricing metadata, and assigned the canonical `air_express` supplier shipping method to materialized leaves.
+- Kept newly created products and previously nonpublic reviewed targets as drafts unless every source, pricing, freight, category, identity, enrichment, and SEO publication gate passes and an administrator explicitly supplies `--publish-ready`; preserved already-published reviewed targets without counting them as newly published.
+
+### Security
+- Require strict manifests with exact source identity, reviewed target IDs, duplicate-key rejection, bounded input size, positive-stock filtering, and a named apply lock; refuse implicit variable-parent conversion or unreviewed leaf ownership.
 
 ## [1.3.6] - 2026-07-20
 
@@ -36,7 +62,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Replaced the product-sync payload families with one sparse living contract, including category and exclusion projections and explicit missing-versus-null semantics.
-- Moved the four Patris-facing routes to the unversioned `digitalogic` REST namespace and removed raw-feed and pricing aliases.
+- Moved the four Patris-facing routes to the `digitalogic` REST namespace and removed raw-feed and pricing aliases.
 - Standardized supplier shipping inputs, storage, events, and responses on `shipping_method_id` and `shipping_price_per_kg_cny` without mirrored keys.
 
 ## [1.3.4] - 2026-07-20
@@ -156,7 +182,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.2.0] - 2026-07-16
 
 ### Added
-- Dedicated authenticated `digitalogic.product-sync` REST receiver.
+- Dedicated authenticated `patris.product-sync` REST receiver.
 - Strict typed envelope validation, recursive raw-field rejection, receiver-side exact `landed_price` evaluation, Go-compatible record/source/event hash verification, and duplicate-key-safe JSON decoding.
 - Ordered per-source snapshots, timestamp-bound event identities, update merging, bounded replay protection, quarantine preservation, and deletion-only tombstones that never delete WooCommerce products.
 - Dedicated header-only receiver secrets with optional exact source scopes, plus a durable per-product WooCommerce outbox with record-hash CAS recovery.

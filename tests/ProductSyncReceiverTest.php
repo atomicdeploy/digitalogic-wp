@@ -24,7 +24,7 @@ final class ProductSyncReceiverTest extends TestCase {
         $this->resetSingleton(Digitalogic_Product_Sync_Receiver::class);
     }
 
-    public function test_accepts_versionless_golden_fixture_and_requires_catalog_arrays(): void {
+    public function test_accepts_current_golden_fixture_and_requires_catalog_arrays(): void {
         $path = __DIR__ . '/fixtures/patris-product-sync-golden.json';
         $result = Digitalogic_Product_Sync_Receiver::instance()->receive_json(file_get_contents($path));
 
@@ -126,7 +126,7 @@ final class ProductSyncReceiverTest extends TestCase {
             'revision' => 'sha256:' . hash('sha256', implode("\n", $material)),
         );
         $identity = array(
-            'schema' => 'digitalogic.product-sync',
+            'schema' => 'patris.product-sync',
             'event_type' => 'snapshot',
             'local_currency' => $pricing ? 'IRT' : '',
             'formula_id' => $pricing ? 'landed_price' : '',
@@ -141,7 +141,7 @@ final class ProductSyncReceiverTest extends TestCase {
         sort($identity['categories'], SORT_STRING);
 
         $envelope = array(
-            'schema' => 'digitalogic.product-sync',
+            'schema' => 'patris.product-sync',
             'event_type' => 'snapshot',
             'event_id' => 'sha256:' . hash('sha256', json_encode($identity, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)),
             'source' => $source,

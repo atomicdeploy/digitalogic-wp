@@ -920,6 +920,96 @@ class Digitalogic_CLI_Commands {
 	}
 
 	/**
+	 * Plan or explicitly apply reviewed Patris catalog materialization.
+	 *
+	 * Dry-run is the default. --apply authorizes taxonomy/product writes, while
+	 * --publish-ready additionally promotes only rows that pass every gate.
+	 *
+	 * ## OPTIONS
+	 *
+	 * --manifest=<path>
+	 * : Strict digitalogic.patris-catalog-enrichment v1.0 JSON manifest.
+	 *
+	 * [--source-id=<id>]
+	 * : Optional exact source-id assertion against the manifest.
+	 *
+	 * [--dataset=<dataset>]
+	 * : Optional exact dataset assertion against the manifest.
+	 *
+	 * [--codes=<codes>]
+	 * : Optional comma-separated exact Patris Codes.
+	 *
+	 * [--limit=<count>]
+	 * : Optional positive batch limit after exact Code sorting.
+	 *
+	 * [--apply]
+	 * : Apply the reviewed plan. Without this flag no writes occur.
+	 *
+	 * [--publish-ready]
+	 * : Publish only fully priced, weighted, in-stock, SEO-enriched rows.
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     wp digitalogic product-sync materialize --manifest=/secure/reviewed.json --user=<administrator>
+	 *     wp digitalogic product-sync materialize --manifest=/secure/reviewed.json --limit=25 --apply --user=<administrator>
+	 *     wp digitalogic product-sync materialize --manifest=/secure/reviewed.json --apply --publish-ready --user=<administrator>
+	 *
+	 * @when after_wp_load
+	 *
+	 * @param array $args Positional arguments (unused).
+	 * @param array $assoc_args Named command arguments.
+	 * @return void
+	 */
+	public function product_sync_materialize( $args, $assoc_args ) {
+		if ( ! $this->require_administrator() ) {
+			return;
+		}
+		$path = isset( $assoc_args['manifest'] ) ? (string) $assoc_args['manifest'] : '';
+		if ( '' === trim( $path ) ) {
+			WP_CLI::error( 'Specify --manifest=<reviewed-json-path>.' );
+			return;
+		}
+
+		$service  = Digitalogic_Patris_Catalog_Materializer::instance();
+		$manifest = $service->load_manifest_file( $path );
+		if ( is_wp_error( $manifest ) ) {
+			WP_CLI::error( $manifest->get_error_message() );
+			return;
+		}
+		foreach ( array( 'source-id' => 'id', 'dataset' => 'dataset' ) as $argument => $field ) {
+			if ( isset( $assoc_args[ $argument ] ) && (string) $assoc_args[ $argument ] !== (string) $manifest['source'][ $field ] ) {
+				WP_CLI::error( 'The CLI source assertion does not match the reviewed manifest.' );
+				return;
+			}
+		}
+
+		$codes = array();
+		if ( isset( $assoc_args['codes'] ) ) {
+			foreach ( explode( ',', (string) $assoc_args['codes'] ) as $code ) {
+				$code = trim( $code );
+				if ( '' !== $code ) {
+					$codes[] = $code;
+				}
+			}
+		}
+		$result = $service->run(
+			$manifest,
+			array(
+				'apply'         => isset( $assoc_args['apply'] ),
+				'publish_ready' => isset( $assoc_args['publish-ready'] ),
+				'limit'         => isset( $assoc_args['limit'] ) ? $assoc_args['limit'] : 0,
+				'codes'         => $codes,
+			)
+		);
+		if ( is_wp_error( $result ) ) {
+			WP_CLI::error( $result->get_error_message() );
+			return;
+		}
+
+		WP_CLI::line( wp_json_encode( $result, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES ) );
+	}
+
+	/**
 	 * Print one bounded Google Sheets catalog page as JSON.
 	 *
 	 * ## OPTIONS
@@ -1062,6 +1152,10 @@ WP_CLI::add_command(
 WP_CLI::add_command(
 	'digitalogic product-sync reconcile',
 	array( 'Digitalogic_CLI_Commands', 'product_sync_reconcile' )
+);
+WP_CLI::add_command(
+	'digitalogic product-sync materialize',
+	array( 'Digitalogic_CLI_Commands', 'product_sync_materialize' )
 );
 WP_CLI::add_command(
 	'digitalogic google-sheets catalog',

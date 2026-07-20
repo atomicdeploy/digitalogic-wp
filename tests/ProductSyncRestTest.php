@@ -55,7 +55,7 @@ final class ProductSyncRestTest extends TestCase {
             array(),
             $payload,
             array(
-                'X-Digitalogic-Product-Sync-Secret' => 'receiver-secret',
+                'X-Patris-Product-Sync-Secret' => 'receiver-secret',
                 'X-Patris-Contract' => $payload['schema'],
                 'X-Patris-Event-ID' => $payload['event_id'],
             ),
