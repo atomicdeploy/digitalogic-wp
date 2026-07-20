@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.5] - 2026-07-20
+
+### Changed
+- Replaced the product-sync payload families with one sparse living contract, including category and exclusion projections and explicit missing-versus-null semantics.
+- Moved the four Patris-facing routes to the unversioned `digitalogic` REST namespace and removed raw-feed and pricing aliases.
+- Standardized supplier shipping inputs, storage, events, and responses on `shipping_method_id` and `shipping_price_per_kg_cny` without mirrored keys.
+
 ## [1.3.4] - 2026-07-20
 
 ### Added
@@ -20,17 +27,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.3.3] - 2026-07-20
 
 ### Added
-- Added exact Patris Export product-sync v1.1 receiver compatibility for product `category_code`, the complete typed category projection, and excluded catalog Codes, including Go-compatible category, source, and event identity verification.
-- Persisted the v1.1 catalog projection in receiver state v4, exposed bounded category/exclusion counts in receiver responses and status output, and mirrored each product's category Code to `_digitalogic_patris_category_code` through the shared WooCommerce writer.
-- Added a Go-generated v1.1 golden fixture and focused compatibility, catalog-transition, tamper, feature-level baseline, and v3-to-v4 migration coverage while retaining the v1.0 golden regression.
+- Added product `category_code`, the complete typed category projection, and excluded catalog Codes, including Go-compatible category, source, and event identity verification.
+- Persisted the catalog projection in receiver state, exposed bounded category/exclusion counts in receiver responses and status output, and mirrored each product's category Code to `_digitalogic_patris_category_code` through the shared WooCommerce writer.
+- Added a Go-compatible golden fixture and focused catalog, tamper, identity, and sparse-value coverage.
 - Added the production-proven pre-save WooCommerce change capture to `product.updated` webhooks, with compact `changed_fields` values and date/scalar normalization.
 
 ### Changed
 - Reduced peak memory during transactional receiver readback by comparing the exact stored serialization digest instead of serializing both the expected and read-back state again.
 - Ported the live login loading-state fixes so button text is hidden behind a centered spinner, loading stripes loop cleanly in LTR/RTL, and Persian retry messages no longer claim the form was released.
-
-### Security
-- Require a fresh snapshot when a source changes between the v1.0 and v1.1 contract feature levels, preventing an update from mixing incompatible product record shapes.
 
 ## [1.3.2] - 2026-07-17
 
@@ -127,26 +131,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.2.0] - 2026-07-16
 
 ### Added
-- Dedicated authenticated `digitalogic.product-sync` v1 REST receiver, kept separate from the legacy Patris push route.
-- Strict typed envelope validation, recursive raw-field rejection, receiver-side exact `landed_price_v1` evaluation, Go-compatible record/source/occurrence hash verification, and duplicate-key-safe JSON decoding.
+- Dedicated authenticated `digitalogic.product-sync` REST receiver.
+- Strict typed envelope validation, recursive raw-field rejection, receiver-side exact `landed_price` evaluation, Go-compatible record/source/event hash verification, and duplicate-key-safe JSON decoding.
 - Ordered per-source snapshots, timestamp-bound event identities, update merging, bounded replay protection, quarantine preservation, and deletion-only tombstones that never delete WooCommerce products.
-- Dedicated header-only v1 receiver secrets with optional exact source scopes, plus a durable per-product WooCommerce outbox with record-hash CAS recovery.
+- Dedicated header-only receiver secrets with optional exact source scopes, plus a durable per-product WooCommerce outbox with record-hash CAS recovery.
 - Receiver contract and staged rollout documentation.
 
 ### Changed
-- The normalized Patris WooCommerce writer is shared by legacy and v1 ingestion so Code resolution, weight, stock, price, and metadata behavior stay aligned.
+- The normalized Patris WooCommerce writer is shared by all current ingestion paths so Code resolution, weight, stock, price, and metadata behavior stay aligned.
 
 ## [1.1.0] - 2026-07-16
 
 ### Added
-- Canonical supplier import-freight catalog, immutable method IDs, legacy ACF migration, and exact product/variation assignment APIs.
+- Canonical supplier shipping-method catalog, immutable method IDs, and exact product/variation assignment APIs.
 - Shared exact product identifier resolver with WooCommerce ID, SKU, and Patris Code precedence.
-- `landed_price_v1` integration catalog and percentage-markup contract for Patris Export.
+- `landed_price` integration catalog and percentage-markup contract for Patris Export.
 - Result-aware durable panel queue, Redis/WebSocket, and multi-destination webhook delivery reporting.
 
 ### Changed
 - Patris gram weights are converted into the configured WooCommerce store weight unit.
-- Import-freight writes use verified InnoDB transactions, authoritative rollback, cache invalidation, and compare-and-swap legacy reconciliation.
+- Supplier shipping-method writes use verified InnoDB transactions, authoritative rollback, and cache invalidation.
 
 ## [1.0.0] - 2024-12-08
 

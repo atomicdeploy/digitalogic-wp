@@ -53,12 +53,9 @@ add_filter(
 );
 ```
 
-For backward compatibility, a one-argument callback still works, but returning
-`true` from it grants all three scopes. Update legacy callbacks to accept the
-scope and request arguments before using them for least-privilege access.
-
-`POST /patris/push` is not controlled by this filter. It retains its dedicated
-Patris request verifier and token policy.
+A one-argument callback still grants all three general API scopes when it
+returns `true`. New callbacks should accept the scope and request arguments for
+least-privilege access.
 
 ---
 
@@ -179,23 +176,25 @@ than being converted or changed automatically.
 
 ---
 
-## Import Freight Integration
+## Supplier Shipping Method Integration
 
-Import freight describes supplier-to-Digitalogic transport. It does not use
+A supplier shipping method describes supplier-to-Digitalogic transport. It does not use
 WooCommerce checkout, shipping-zone, or customer delivery APIs.
 
-- **GET** `/integration/catalog` - versioned CNY/IRT rate, WooCommerce base-currency compatibility, `landed_price_v1`, selected warehouses, and methods
-- **GET** `/import-freight-methods` - list canonical methods
-- **POST** `/import-freight-methods` - create a method with an immutable ID
-- **GET|PUT|DELETE** `/import-freight-methods/{id}` - read, update, or delete an unassigned method
-- **GET|PUT** `/products/by-code/{code}/import-pricing` - read or assign by exact Patris Code/SKU
-- **POST** `/products/import-pricing/batch` - preflight and apply an atomic assignment batch
-- **POST** `/pricing-assignments/batch` - read up to 500 exact assignments in a versioned, ordered, no-write response
+- **GET** `/wp-json/digitalogic/integration/catalog` - sparse CNY/IRT rate, `landed_price`, selected warehouses, and methods
+- **GET** `/shipping-methods` - list canonical methods
+- **POST** `/shipping-methods` - create a method with an immutable ID
+- **GET|PUT|DELETE** `/shipping-methods/{id}` - read, update, or delete an unassigned method
+- **GET** `/wp-json/digitalogic/integration/products/by-code/{code}/pricing` - read one exact sparse pricing assignment
+- **GET|PUT** `/products/by-code/{code}/shipping-method` - manage an assignment by exact Patris Code
+- **POST** `/products/shipping-methods/batch` - preflight and apply an atomic assignment batch
+- **POST** `/wp-json/digitalogic/integration/pricing-assignments/batch` - read up to 500 exact assignments in an ordered, no-write response
 
 GET routes use the `read` permission scope. Mutating routes use `write`.
 Deleting an assigned method returns HTTP 409; disabling it remains available.
-See [Import Freight Integration Contract](IMPORT-FREIGHT-API.md) for schemas,
-migration behavior, and the pricing formula.
+Method and tier payloads use `shipping_price_per_kg_cny`; aliases are not
+accepted or emitted. See [Supplier Shipping Method API](SHIPPING-METHOD-API.md)
+and [Patris Product Sync](PATRIS-PRODUCT-SYNC.md).
 
 ---
 
@@ -203,10 +202,10 @@ migration behavior, and the pricing formula.
 
 Webhook events:
 
-- `import_freight.method.created`
-- `import_freight.method.updated`
-- `import_freight.method.deleted`
-- `import_freight.assignment.updated`
+- `shipping_method.created`
+- `shipping_method.updated`
+- `shipping_method.deleted`
+- `shipping_method.assignment.updated`
 - `product.created`
 - `product.updated`
 - `currency.updated`
@@ -229,14 +228,14 @@ Supported command names:
 - `digitalogic_export`
 - `digitalogic_get_logs`
 - `digitalogic_get_integration_catalog`
-- `digitalogic_list_import_freight_methods`
-- `digitalogic_create_import_freight_method`
-- `digitalogic_get_import_freight_method`
-- `digitalogic_update_import_freight_method`
-- `digitalogic_delete_import_freight_method`
-- `digitalogic_get_product_import_pricing`
-- `digitalogic_assign_product_import_freight`
-- `digitalogic_batch_assign_product_import_freight`
+- `digitalogic_list_shipping_methods`
+- `digitalogic_create_shipping_method`
+- `digitalogic_get_shipping_method`
+- `digitalogic_update_shipping_method`
+- `digitalogic_delete_shipping_method`
+- `digitalogic_get_product_shipping_method`
+- `digitalogic_assign_product_shipping_method`
+- `digitalogic_batch_assign_product_shipping_methods`
 
 Browser WebSocket request:
 ```json

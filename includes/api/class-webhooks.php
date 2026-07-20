@@ -12,7 +12,7 @@ if (!defined('ABSPATH')) {
 
 class Digitalogic_Webhooks {
 
-    // phpcs:disable -- Preserve the established webhook formatting while the legacy file remains baseline-managed.
+    // phpcs:disable -- Preserve the established webhook formatting in this file.
     private const PRODUCT_SYNC_EVENT = 'patris.product_sync.applied';
     private const PRODUCT_SYNC_SCHEMA = 'digitalogic.product-sync';
     private const MAX_PRODUCT_SYNC_COUNT = 10000;
@@ -38,7 +38,7 @@ class Digitalogic_Webhooks {
         if (is_null(self::$instance)) {
             self::$instance = new self();
         }
-        self::$instance->register_import_freight_delivery_channel();
+        self::$instance->register_shipping_method_delivery_channel();
         return self::$instance;
     }
     
@@ -68,19 +68,19 @@ class Digitalogic_Webhooks {
         add_action('digitalogic_woocommerce_currency_changed', array($this, 'woocommerce_currency_changed'), 10, 3);
 
         // Committed transformed Patris outcomes are optional observer events.
-        add_action('digitalogic_product_sync_v1_applied', array($this, 'product_sync_applied'), 10, 2);
+        add_action('digitalogic_product_sync_applied', array($this, 'product_sync_applied'), 10, 2);
 
         // Add settings page
         add_action('admin_init', array($this, 'register_settings'));
         add_action('rest_api_init', array($this, 'register_routes'));
     }
 
-    private function register_import_freight_delivery_channel() {
-        // Freight delivery uses an explicit result contract so failures from
+    private function register_shipping_method_delivery_channel() {
+		// Shipping-method delivery uses an explicit result contract so failures from
         // one transport cannot abort panel/Redis or other webhook attempts.
-        Digitalogic_Import_Freight_Service::instance()->register_delivery_channel(
+		Digitalogic_Shipping_Method_Service::instance()->register_delivery_channel(
             'webhook',
-            array($this, 'deliver_import_freight_event')
+            array($this, 'deliver_shipping_method_event')
         );
     }
     
@@ -405,10 +405,6 @@ class Digitalogic_Webhooks {
         if (self::PRODUCT_SYNC_SCHEMA !== ($envelope['schema'] ?? null)) {
             return null;
         }
-        $schema_version = $envelope['schema_version'] ?? null;
-        if (!is_string($schema_version) || !preg_match('/^1(?:\.[0-9]+){1,2}$/', $schema_version)) {
-            return null;
-        }
         $event_id = $envelope['event_id'] ?? null;
         if (!is_string($event_id) || !preg_match('/^sha256:[a-f0-9]{64}$/', $event_id)) {
             return null;
@@ -444,7 +440,6 @@ class Digitalogic_Webhooks {
 
         return array(
             'schema' => self::PRODUCT_SYNC_SCHEMA,
-            'schema_version' => $schema_version,
             'event_id' => $event_id,
             'event_type' => $event_type,
             'source' => array(
@@ -479,78 +474,87 @@ class Digitalogic_Webhooks {
     }
     // phpcs:enable
 
-    public function import_freight_method_created($method) {
-        return $this->trigger_import_freight_method_webhook('import_freight.method.created', $method);
-    }
+	public function shipping_method_created($method) {
+		return $this->trigger_shipping_method_webhook('shipping_method.created', $method);
+	}
 
-    public function import_freight_method_updated($method) {
-        return $this->trigger_import_freight_method_webhook('import_freight.method.updated', $method);
-    }
+	public function shipping_method_updated($method) {
+		return $this->trigger_shipping_method_webhook('shipping_method.updated', $method);
+	}
 
-    public function import_freight_method_deleted($method) {
-        return $this->trigger_import_freight_method_webhook('import_freight.method.deleted', $method);
-    }
+	public function shipping_method_deleted($method) {
+		return $this->trigger_shipping_method_webhook('shipping_method.deleted', $method);
+	}
 
-    public function import_freight_assignment_updated($product_id, $method_id) {
-        return $this->trigger_webhook('import_freight.assignment.updated', array(
+	public function shipping_method_assignment_updated($product_id, $method_id) {
+		return $this->trigger_webhook('shipping_method.assignment.updated', array(
             'product_id' => absint($product_id),
-            'import_freight_method_id' => sanitize_key((string) $method_id),
+			'shipping_method_id' => sanitize_key((string) $method_id),
         ));
     }
 
-    private function trigger_import_freight_method_webhook($event, $method) {
+	private function trigger_shipping_method_webhook($event, $method) {
         $method = is_array($method) ? $method : array();
-        return $this->trigger_webhook($event, array(
+        $payload = array(
             'id' => isset($method['id']) ? sanitize_key($method['id']) : '',
             'name' => isset($method['name']) ? sanitize_text_field($method['name']) : '',
             'enabled' => !empty($method['enabled']),
-            'price_per_kg_cny' => isset($method['price_per_kg_cny']) ? (float) $method['price_per_kg_cny'] : null,
-        ));
+		);
+		if (array_key_exists('shipping_price_per_kg_cny', $method) && null !== $method['shipping_price_per_kg_cny']) {
+			$payload['shipping_price_per_kg_cny'] = (float) $method['shipping_price_per_kg_cny'];
+		}
+        return $this->trigger_webhook($event, $payload);
     }
 
     /**
-     * Result-aware synchronous freight delivery used by the canonical service.
+	 * Result-aware synchronous shipping-method delivery.
      */
-    public function deliver_import_freight_event($hook, $args) {
+    public function deliver_shipping_method_event($hook, $args) {
         $args = is_array($args) ? $args : array();
-        if ('digitalogic_import_freight_default_markup_updated' === $hook) {
+        if ('digitalogic_shipping_default_markup_updated' === $hook) {
             $markup = isset($args[0]) && is_array($args[0]) ? $args[0] : array();
-            return $this->trigger_webhook('import_freight.default_markup.updated', array(
+			$payload = array(
                 'configured' => !empty($markup['configured']),
-                'profit_percent' => isset($markup['profit_percent']) ? (string) $markup['profit_percent'] : null,
                 'source' => isset($markup['source']) ? sanitize_key($markup['source']) : '',
                 'revision' => isset($markup['revision']) ? sanitize_text_field($markup['revision']) : '',
                 'previous_revision' => isset($markup['previous_revision']) ? sanitize_text_field($markup['previous_revision']) : '',
                 'updated_at' => isset($markup['updated_at']) ? sanitize_text_field($markup['updated_at']) : '',
                 'updated_by' => isset($markup['updated_by']) ? absint($markup['updated_by']) : 0,
-            ), true);
+			);
+			if (array_key_exists('profit_percent', $markup) && null !== $markup['profit_percent']) {
+				$payload['profit_percent'] = (string) $markup['profit_percent'];
+			}
+			return $this->trigger_webhook('shipping_method.default_markup.updated', $payload, true);
         }
-        if ('digitalogic_product_import_freight_method_updated' === $hook) {
-            return $this->trigger_webhook('import_freight.assignment.updated', array(
+        if ('digitalogic_product_shipping_method_updated' === $hook) {
+			return $this->trigger_webhook('shipping_method.assignment.updated', array(
                 'product_id' => absint(isset($args[0]) ? $args[0] : 0),
-                'import_freight_method_id' => sanitize_key((string) (isset($args[1]) ? $args[1] : '')),
+				'shipping_method_id' => sanitize_key((string) (isset($args[1]) ? $args[1] : '')),
             ), true);
         }
 
         $events = array(
-            'digitalogic_import_freight_method_created' => 'import_freight.method.created',
-            'digitalogic_import_freight_method_updated' => 'import_freight.method.updated',
-            'digitalogic_import_freight_method_deleted' => 'import_freight.method.deleted',
+			'digitalogic_shipping_method_created' => 'shipping_method.created',
+			'digitalogic_shipping_method_updated' => 'shipping_method.updated',
+			'digitalogic_shipping_method_deleted' => 'shipping_method.deleted',
         );
         if (!isset($events[$hook])) {
             return new WP_Error(
                 'digitalogic_webhook_delivery_event_unknown',
-                __('The webhook transport does not recognize this import freight event.', 'digitalogic')
+				__('The webhook transport does not recognize this shipping-method event.', 'digitalogic')
             );
         }
 
         $method = isset($args[0]) && is_array($args[0]) ? $args[0] : array();
-        return $this->trigger_webhook($events[$hook], array(
+        $payload = array(
             'id' => isset($method['id']) ? sanitize_key($method['id']) : '',
             'name' => isset($method['name']) ? sanitize_text_field($method['name']) : '',
             'enabled' => !empty($method['enabled']),
-            'price_per_kg_cny' => isset($method['price_per_kg_cny']) ? (float) $method['price_per_kg_cny'] : null,
-        ), true);
+		);
+		if (array_key_exists('shipping_price_per_kg_cny', $method) && null !== $method['shipping_price_per_kg_cny']) {
+			$payload['shipping_price_per_kg_cny'] = (float) $method['shipping_price_per_kg_cny'];
+		}
+        return $this->trigger_webhook($events[$hook], $payload, true);
     }
     
     /**
@@ -635,7 +639,7 @@ class Digitalogic_Webhooks {
         if (!empty($failures)) {
             return new WP_Error(
                 'digitalogic_webhook_delivery_failed',
-                __('One or more webhook destinations rejected the import freight event.', 'digitalogic'),
+				__('One or more webhook destinations rejected the shipping-method event.', 'digitalogic'),
                 array('failures' => $failures)
             );
         }

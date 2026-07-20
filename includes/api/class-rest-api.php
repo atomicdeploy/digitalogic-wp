@@ -33,8 +33,8 @@ class Digitalogic_REST_API {
      *
      * WooCommerce only recognizes its own wc/* and wc-* namespaces by default.
      * Preserve requests already recognized by WooCommerce and opt in only the
-     * exact digitalogic/v1 namespace (including installations in a subdirectory
-     * or using the rest_route query parameter).
+     * existing Digitalogic API and exact versionless Patris integration routes
+     * (including subdirectory installs and rest_route query parameters).
      *
      * @param bool $is_request Whether WooCommerce already recognizes the request.
      * @return bool
@@ -85,7 +85,11 @@ class Digitalogic_REST_API {
 
         $route = '/' . trim($query_params['rest_route'], '/');
 
-        return '/digitalogic/v1' === $route || str_starts_with($route, '/digitalogic/v1/');
+        return '/digitalogic/v1' === $route
+            || str_starts_with($route, '/digitalogic/v1/')
+            || '/digitalogic/patris/product-sync' === $route
+            || '/digitalogic/integration' === $route
+            || str_starts_with($route, '/digitalogic/integration/');
     }
 
     /**
@@ -100,15 +104,21 @@ class Digitalogic_REST_API {
             return false;
         }
 
-        $api_path = $this->normalize_request_path(
-            $this->get_wordpress_base_path()
-            . '/'
-            . trim($rest_prefix, '/')
-            . '/digitalogic/v1'
-        );
         $request_path = $this->normalize_request_path($request_path);
+        $base = $this->get_wordpress_base_path() . '/' . trim($rest_prefix, '/');
+        $routes = array(
+            '/digitalogic/v1',
+            '/digitalogic/patris/product-sync',
+            '/digitalogic/integration',
+        );
+        foreach ($routes as $route) {
+            $api_path = $this->normalize_request_path($base . $route);
+            if ($request_path === $api_path || str_starts_with($request_path, $api_path . '/')) {
+                return true;
+            }
+        }
 
-        return $request_path === $api_path || str_starts_with($request_path, $api_path . '/');
+        return false;
     }
 
     /**
@@ -281,28 +291,16 @@ class Digitalogic_REST_API {
             'permission_callback' => array($this, 'check_diagnostic_permission')
         ));
 
-        register_rest_route('digitalogic/v1', '/patris/sync', array(
-            'methods' => 'POST',
-            'callback' => array($this, 'sync_patris'),
-            'permission_callback' => array($this, 'check_write_permission')
-        ));
-
-        register_rest_route('digitalogic/v1', '/patris/push', array(
-            'methods' => 'POST',
-            'callback' => array($this, 'push_patris'),
-            'permission_callback' => array($this, 'check_patris_push_permission')
-        ));
-
-        // Versioned transformed-only contract. This is intentionally distinct
-        // from the legacy full-replacement /patris/push parser.
-        register_rest_route('digitalogic/v1', '/patris/product-sync', array(
+        // Living transformed-only Patris contract. No raw-feed
+        // aliases are registered for this integration surface.
+        register_rest_route('digitalogic', '/patris/product-sync', array(
             'methods' => 'POST',
             'callback' => array($this, 'receive_patris_product_sync'),
             'permission_callback' => array($this, 'check_patris_product_sync_permission')
         ));
 
-        // Supplier import freight (not WooCommerce customer delivery methods).
-        register_rest_route('digitalogic/v1', '/integration/catalog', array(
+		// Supplier shipping methods (not WooCommerce customer delivery methods).
+		register_rest_route('digitalogic', '/integration/catalog', array(
             'methods' => 'GET',
             'callback' => array($this, 'get_integration_catalog'),
             'permission_callback' => array($this, 'check_pricing_input_permission'),
@@ -321,65 +319,105 @@ class Digitalogic_REST_API {
             ),
         ));
 
-        register_rest_route('digitalogic/v1', '/import-freight-methods', array(
-            array(
-                'methods' => 'GET',
-                'callback' => array($this, 'list_import_freight_methods'),
-                'permission_callback' => array($this, 'check_read_permission'),
-            ),
-            array(
-                'methods' => 'POST',
-                'callback' => array($this, 'create_import_freight_method'),
-                'permission_callback' => array($this, 'check_write_permission'),
-            ),
-        ));
-
-        register_rest_route('digitalogic/v1', '/import-freight-methods/(?P<id>[a-z][a-z0-9_]{1,63})', array(
-            array(
-                'methods' => 'GET',
-                'callback' => array($this, 'get_import_freight_method'),
-                'permission_callback' => array($this, 'check_read_permission'),
-            ),
-            array(
-                'methods' => 'PUT',
-                'callback' => array($this, 'update_import_freight_method'),
-                'permission_callback' => array($this, 'check_write_permission'),
-            ),
-            array(
-                'methods' => 'DELETE',
-                'callback' => array($this, 'delete_import_freight_method'),
-                'permission_callback' => array($this, 'check_write_permission'),
-            ),
-        ));
-
-        register_rest_route('digitalogic/v1', '/products/by-code/(?P<code>[^/]+)/import-pricing', array(
-            array(
-                'methods' => 'GET',
-                'callback' => array($this, 'get_product_import_pricing'),
-                'permission_callback' => array($this, 'check_read_permission'),
-            ),
-            array(
-                'methods' => 'PUT',
-                'callback' => array($this, 'assign_product_import_freight'),
-                'permission_callback' => array($this, 'check_write_permission'),
-            ),
-        ));
+		$this->register_shipping_method_routes();
 
 		register_rest_route(
-			'digitalogic/v1',
-			'/pricing-assignments/batch',
+			'digitalogic',
+			'/integration/pricing-assignments/batch',
 			array(
 				'methods'             => 'POST',
-				'callback'            => array( $this, 'get_product_import_pricing_batch' ),
+				'callback'            => array( $this, 'get_pricing_assignments_batch' ),
 				'permission_callback' => array( $this, 'check_pricing_input_permission' ),
 			)
 		);
 
-        register_rest_route('digitalogic/v1', '/products/import-pricing/batch', array(
-            'methods' => 'POST',
-            'callback' => array($this, 'batch_assign_product_import_freight'),
-            'permission_callback' => array($this, 'check_write_permission'),
-        ));
+		register_rest_route(
+			'digitalogic',
+			'/integration/products/by-code/(?P<code>[^/]+)/pricing',
+			array(
+				'methods'             => 'GET',
+				'callback'            => array( $this, 'get_product_pricing' ),
+				'permission_callback' => array( $this, 'check_pricing_input_permission' ),
+			)
+		);
+
+	}
+
+	/**
+	 * Register the canonical shipping-method management surface.
+	 */
+	private function register_shipping_method_routes() {
+		$collections = array(
+			'/shipping-methods' => array('list_shipping_methods', 'create_shipping_method'),
+		);
+		foreach ($collections as $route => $callbacks) {
+			register_rest_route('digitalogic/v1', $route, array(
+				array(
+					'methods' => 'GET',
+					'callback' => array($this, $callbacks[0]),
+					'permission_callback' => array($this, 'check_read_permission'),
+				),
+				array(
+					'methods' => 'POST',
+					'callback' => array($this, $callbacks[1]),
+					'permission_callback' => array($this, 'check_write_permission'),
+				),
+			));
+		}
+
+		$items = array(
+			'/shipping-methods/(?P<id>[a-z][a-z0-9_]{1,63})' => array(
+				'get_shipping_method',
+				'update_shipping_method',
+				'delete_shipping_method',
+			),
+		);
+		foreach ($items as $route => $callbacks) {
+			register_rest_route('digitalogic/v1', $route, array(
+				array(
+					'methods' => 'GET',
+					'callback' => array($this, $callbacks[0]),
+					'permission_callback' => array($this, 'check_read_permission'),
+				),
+				array(
+					'methods' => 'PUT',
+					'callback' => array($this, $callbacks[1]),
+					'permission_callback' => array($this, 'check_write_permission'),
+				),
+				array(
+					'methods' => 'DELETE',
+					'callback' => array($this, $callbacks[2]),
+					'permission_callback' => array($this, 'check_write_permission'),
+				),
+			));
+		}
+
+		$product_routes = array(
+			'/products/by-code/(?P<code>[^/]+)/shipping-method' => array(
+				'get_product_shipping_method',
+				'assign_product_shipping_method',
+			),
+		);
+		foreach ($product_routes as $route => $callbacks) {
+			register_rest_route('digitalogic/v1', $route, array(
+				array(
+					'methods' => 'GET',
+					'callback' => array($this, $callbacks[0]),
+					'permission_callback' => array($this, 'check_read_permission'),
+				),
+				array(
+					'methods' => 'PUT',
+					'callback' => array($this, $callbacks[1]),
+					'permission_callback' => array($this, 'check_write_permission'),
+				),
+			));
+		}
+
+		register_rest_route('digitalogic/v1', '/products/shipping-methods/batch', array(
+			'methods' => 'POST',
+			'callback' => array($this, 'batch_assign_product_shipping_methods'),
+			'permission_callback' => array($this, 'check_write_permission'),
+		));
     }
     
     /**
@@ -473,10 +511,6 @@ class Digitalogic_REST_API {
         $allowed = apply_filters('digitalogic_rest_api_permission', false, $scope, $request);
 
         return true === $allowed;
-    }
-
-    public function check_patris_push_permission(WP_REST_Request $request) {
-        return Digitalogic_Patris_Feed::instance()->verify_push_request($request);
     }
 
     /**
@@ -795,52 +829,19 @@ class Digitalogic_REST_API {
         ), 200);
     }
 
-    public function sync_patris(WP_REST_Request $request) {
-        $result = Digitalogic_Patris_Feed::instance()->pull_sync();
-        if (is_wp_error($result)) {
-            return new WP_REST_Response(array(
-                'success' => false,
-                'message' => $result->get_error_message()
-            ), 400);
-        }
-
-        return new WP_REST_Response(array(
-            'success' => true,
-            'data' => $result
-        ), 200);
-    }
-
-    public function push_patris(WP_REST_Request $request) {
-        $payload = $request->get_json_params();
-        $result = Digitalogic_Patris_Feed::instance()->import_payload(is_array($payload) ? $payload : array(), 'push');
-        if (is_wp_error($result)) {
-            return new WP_REST_Response(array(
-                'success' => false,
-                'message' => $result->get_error_message()
-            ), 400);
-        }
-
-        return new WP_REST_Response(array(
-            'success' => true,
-            'data' => $result
-        ), 200);
-    }
-
     /**
      * POST /patris/product-sync
      *
-     * Consume the deterministic digitalogic.product-sync v1 envelope. Patris
+     * Consume the deterministic digitalogic.product-sync envelope. Patris
      * identity headers are optional, but when present they must agree with the
      * body so proxies cannot accidentally pair stale metadata with new JSON.
      */
     public function receive_patris_product_sync(WP_REST_Request $request) {
         $payload = $request->get_json_params();
         $header_contract = $request->get_header('x-patris-contract');
-        $header_version = $request->get_header('x-patris-contract-version');
         $header_event_id = $request->get_header('x-patris-event-id');
         $header_checks = array(
             'x-patris-contract' => array($header_contract, is_array($payload) ? ($payload['schema'] ?? null) : null),
-            'x-patris-contract-version' => array($header_version, is_array($payload) ? ($payload['schema_version'] ?? null) : null),
             'x-patris-event-id' => array($header_event_id, is_array($payload) ? ($payload['event_id'] ?? null) : null),
         );
         foreach ($header_checks as $header => $values) {
@@ -870,64 +871,77 @@ class Digitalogic_REST_API {
     }
 
     public function get_integration_catalog(WP_REST_Request $request) {
-        return $this->import_freight_response(
+		return $this->shipping_method_response(
             Digitalogic_Command_Dispatcher::instance()->get_integration_catalog($request->get_params())
         );
     }
 
     public function get_default_percentage_markup(WP_REST_Request $request) {
-        return $this->import_freight_response(
+		return $this->shipping_method_response(
             Digitalogic_Command_Dispatcher::instance()->get_default_percentage_markup($request->get_params())
         );
     }
 
     public function update_default_percentage_markup(WP_REST_Request $request) {
-        return $this->import_freight_response(
+		return $this->shipping_method_response(
             Digitalogic_Command_Dispatcher::instance()->update_default_percentage_markup($this->request_payload($request))
         );
     }
 
-    public function list_import_freight_methods(WP_REST_Request $request) {
-        return $this->import_freight_response(
-            Digitalogic_Command_Dispatcher::instance()->list_import_freight_methods($request->get_params())
-        );
-    }
+	public function list_shipping_methods(WP_REST_Request $request) {
+		return $this->shipping_method_response(
+			Digitalogic_Command_Dispatcher::instance()->list_shipping_methods($request->get_params())
+		);
+	}
 
-    public function create_import_freight_method(WP_REST_Request $request) {
-        return $this->import_freight_response(
-            Digitalogic_Command_Dispatcher::instance()->create_import_freight_method($this->request_payload($request)),
-            201
-        );
-    }
+	public function create_shipping_method(WP_REST_Request $request) {
+		return $this->shipping_method_response(
+			Digitalogic_Command_Dispatcher::instance()->create_shipping_method($this->request_payload($request)),
+			201
+		);
+	}
 
-    public function get_import_freight_method(WP_REST_Request $request) {
-        return $this->import_freight_response(
-            Digitalogic_Command_Dispatcher::instance()->get_import_freight_method(array('id' => $request['id']))
-        );
-    }
+	public function get_shipping_method(WP_REST_Request $request) {
+		return $this->shipping_method_response(
+			Digitalogic_Command_Dispatcher::instance()->get_shipping_method(array('id' => $request['id']))
+		);
+	}
 
-    public function update_import_freight_method(WP_REST_Request $request) {
-        $payload = array(
-            'id' => $request['id'],
-            'method' => $this->request_payload($request),
-        );
+	public function update_shipping_method(WP_REST_Request $request) {
+		return $this->shipping_method_response(
+			Digitalogic_Command_Dispatcher::instance()->update_shipping_method(array(
+				'id' => $request['id'],
+				'method' => $this->request_payload($request),
+			))
+		);
+	}
 
-        return $this->import_freight_response(
-            Digitalogic_Command_Dispatcher::instance()->update_import_freight_method($payload)
-        );
-    }
+	public function delete_shipping_method(WP_REST_Request $request) {
+		return $this->shipping_method_response(
+			Digitalogic_Command_Dispatcher::instance()->delete_shipping_method(array('id' => $request['id']))
+		);
+	}
 
-    public function delete_import_freight_method(WP_REST_Request $request) {
-        return $this->import_freight_response(
-            Digitalogic_Command_Dispatcher::instance()->delete_import_freight_method(array('id' => $request['id']))
-        );
-    }
+	public function get_product_shipping_method(WP_REST_Request $request) {
+		return $this->shipping_method_response(
+			Digitalogic_Command_Dispatcher::instance()->get_product_shipping_method(array('code' => $request['code']))
+		);
+	}
 
-    public function get_product_import_pricing(WP_REST_Request $request) {
-        return $this->import_freight_response(
-            Digitalogic_Command_Dispatcher::instance()->get_product_import_pricing(array('code' => $request['code']))
-        );
-    }
+	public function assign_product_shipping_method(WP_REST_Request $request) {
+		$payload = $this->request_payload($request);
+		$payload['code'] = $request['code'];
+
+		return $this->shipping_method_response(
+			Digitalogic_Command_Dispatcher::instance()->assign_product_shipping_method($payload)
+		);
+	}
+
+	public function batch_assign_product_shipping_methods(WP_REST_Request $request) {
+		return $this->shipping_method_response(
+			Digitalogic_Command_Dispatcher::instance()->batch_assign_product_shipping_methods($this->request_payload($request))
+		);
+	}
 
 	/**
 	 * Read a bounded batch of product pricing assignments.
@@ -935,26 +949,19 @@ class Digitalogic_REST_API {
 	 * @param WP_REST_Request $request REST request.
 	 * @return WP_REST_Response
 	 */
-	public function get_product_import_pricing_batch( WP_REST_Request $request ) {
-		return $this->import_freight_response(
-			Digitalogic_Command_Dispatcher::instance()->get_product_import_pricing_batch( $this->request_payload( $request ) )
+	public function get_pricing_assignments_batch( WP_REST_Request $request ) {
+		return $this->shipping_method_response(
+			Digitalogic_Command_Dispatcher::instance()->get_pricing_assignments_batch( $this->request_payload( $request ) )
 		);
 	}
 
-    public function assign_product_import_freight(WP_REST_Request $request) {
-        $payload = $this->request_payload($request);
-        $payload['code'] = $request['code'];
-
-        return $this->import_freight_response(
-            Digitalogic_Command_Dispatcher::instance()->assign_product_import_freight($payload)
-        );
-    }
-
-    public function batch_assign_product_import_freight(WP_REST_Request $request) {
-        return $this->import_freight_response(
-            Digitalogic_Command_Dispatcher::instance()->batch_assign_product_import_freight($this->request_payload($request))
-        );
-    }
+	public function get_product_pricing( WP_REST_Request $request ) {
+		return $this->shipping_method_response(
+			Digitalogic_Command_Dispatcher::instance()->get_product_pricing(
+				array( 'code' => $request['code'] )
+			)
+		);
+	}
 
     private function request_payload(WP_REST_Request $request) {
         $payload = $request->get_json_params();
@@ -962,7 +969,7 @@ class Digitalogic_REST_API {
         return is_array($payload) ? $payload : array();
     }
 
-    private function import_freight_response($result, $success_status = 200) {
+	private function shipping_method_response($result, $success_status = 200) {
         if (is_wp_error($result)) {
             $details = $result->get_error_data();
             $status = is_array($details) && isset($details['status']) ? (int) $details['status'] : 400;
