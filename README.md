@@ -107,6 +107,14 @@ half-up rounded integers with locale-aware thousands separators. Persian
 (`fa*`) administrator locales also use Persian digits. This formatting is
 presentation-only: stored rates and API values keep their original precision.
 
+Currency effective dates are read from the raw ACF `options_update_date`
+option (falling back to `update_date`) and accept legacy `YYMMDD` or strict ISO
+date values. The admin, external panel, `[dollar_rate]`, and `[yuan_rate]`
+storefront cards all use one formatter: English locales display Gregorian
+dates, while Persian (`fa*`) locales display Jalali dates with Persian digits.
+Invalid or empty stored values display as blank instead of today or an
+epoch-era date. See [Currency effective-date formatting](docs/CURRENCY-DATE-FORMATTING.md).
+
 WooCommerce remains the source of truth for the local currency. `IRT` values
 are Tomans. `IRR` values remain Rials and must be divided by 10 before being
 represented as Tomans; the plugin therefore does not provide a symbol-only

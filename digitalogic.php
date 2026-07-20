@@ -3,7 +3,7 @@
  * Plugin Name: Digitalogic WooCommerce Extension
  * Plugin URI: https://github.com/atomicdeploy/digitalogic-wp
  * Description: Custom dynamic pricing, stock manager, and POS integration for Digitalogic electronic components shop. Supports bulk operations, import/export, and external API integration.
- * Version: 1.3.3
+ * Version: 1.3.4
  * Author: Digitalogic
  * Author URI: https://digitalogic.ir
  * Text Domain: digitalogic
@@ -22,7 +22,7 @@ if (!defined('ABSPATH')) {
 }
 
 // Define plugin constants
-define( 'DIGITALOGIC_VERSION', '1.3.3' );
+define( 'DIGITALOGIC_VERSION', '1.3.4' );
 define('DIGITALOGIC_MIN_PHP_VERSION', '8.3');
 define('DIGITALOGIC_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('DIGITALOGIC_PLUGIN_URL', plugin_dir_url(__FILE__));
@@ -108,7 +108,9 @@ final class Digitalogic {
     private function includes() {
         // Core includes
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-number-formatter.php';
+        require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-currency-date-formatter.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-options.php';
+        require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-currency-shortcodes.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-woocommerce-currency-status.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-logger.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-product-query.php';
@@ -180,6 +182,7 @@ final class Digitalogic {
 
         // Initialize components
         Digitalogic_Options::instance();
+        Digitalogic_Currency_Shortcodes::instance();
         Digitalogic_WooCommerce_Currency_Status::instance();
         Digitalogic_Logger::instance();
         Digitalogic_Product_Manager::instance();
