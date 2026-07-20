@@ -1304,7 +1304,7 @@ msgid "Product-sync endpoint"
 msgstr ""
 
 #: includes\admin\views\patris-reports.php:58
-msgid "X-Digitalogic-Product-Sync-Secret"
+msgid "X-Patris-Product-Sync-Secret"
 msgstr ""
 
 #: includes\admin\views\patris-reports.php:64

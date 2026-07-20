@@ -370,7 +370,7 @@ class Digitalogic_Patris_Feed {
      */
     public function verify_product_sync_request(WP_REST_Request $request) {
         $expected = $this->get_product_sync_secret();
-        $provided = $request->get_header('x-digitalogic-product-sync-secret');
+        $provided = $request->get_header('x-patris-product-sync-secret');
 
         if (!is_string($provided) || '' === $provided || '' === $expected || !hash_equals($expected, $provided)) {
             return false;

@@ -438,7 +438,7 @@ Developed for Digitalogic electronic components shop.
 - Refreshed Persian translation catalogs and retained backward-compatible CLI update behavior.
 
 ### 1.2.0
-- Added the authenticated, transformed-only `digitalogic.product-sync` receiver with deterministic integrity and ordering checks.
+- Added the authenticated, transformed-only `patris.product-sync` receiver with deterministic integrity and ordering checks.
 - Added snapshot/delta merging, bounded replay protection, quarantine preservation, and non-destructive Code tombstones.
 - Added exact receiver-side landed-price verification, a durable per-product Woo delivery outbox, and a separate source-scopeable header secret.
 - Reused the exact collision-safe Patris Code resolver and normalized Patris WooCommerce writer.

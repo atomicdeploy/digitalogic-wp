@@ -18,7 +18,7 @@ final class ProductSyncWebhookTest extends TestCase {
         $this->resetSingleton(Digitalogic_Shipping_Method_Service::class);
     }
 
-    public function test_observer_emits_bounded_versionless_summary(): void {
+    public function test_observer_emits_bounded_current_contract_summary(): void {
         $result = array(
             'status' => 'accepted',
             'retryable' => false,
@@ -27,7 +27,7 @@ final class ProductSyncWebhookTest extends TestCase {
             'woocommerce' => array('attempted' => 2, 'missing' => 2),
         );
         $envelope = array(
-            'schema' => 'digitalogic.product-sync',
+            'schema' => 'patris.product-sync',
             'event_id' => 'sha256:' . str_repeat('a', 64),
             'event_type' => 'snapshot',
             'source' => array('id' => 'patris-export', 'dataset' => 'ALLANBAR'),
@@ -42,7 +42,7 @@ final class ProductSyncWebhookTest extends TestCase {
             array('schema', 'event_id', 'event_type', 'source', 'status', 'retryable', 'pending_products', 'deferred_products', 'woocommerce'),
             array_keys($payload['data'])
         );
-        $this->assertSame('digitalogic.product-sync', $payload['data']['schema']);
+        $this->assertSame('patris.product-sync', $payload['data']['schema']);
     }
 
     private function resetSingleton($class): void {

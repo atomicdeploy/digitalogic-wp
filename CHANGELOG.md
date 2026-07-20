@@ -22,7 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Replaced the product-sync payload families with one sparse living contract, including category and exclusion projections and explicit missing-versus-null semantics.
-- Moved the four Patris-facing routes to the unversioned `digitalogic` REST namespace and removed raw-feed and pricing aliases.
+- Moved the four Patris-facing routes to the `digitalogic` REST namespace and removed raw-feed and pricing aliases.
 - Standardized supplier shipping inputs, storage, events, and responses on `shipping_method_id` and `shipping_price_per_kg_cny` without mirrored keys.
 
 ## [1.3.4] - 2026-07-20
@@ -142,7 +142,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.2.0] - 2026-07-16
 
 ### Added
-- Dedicated authenticated `digitalogic.product-sync` REST receiver.
+- Dedicated authenticated `patris.product-sync` REST receiver.
 - Strict typed envelope validation, recursive raw-field rejection, receiver-side exact `landed_price` evaluation, Go-compatible record/source/event hash verification, and duplicate-key-safe JSON decoding.
 - Ordered per-source snapshots, timestamp-bound event identities, update merging, bounded replay protection, quarantine preservation, and deletion-only tombstones that never delete WooCommerce products.
 - Dedicated header-only receiver secrets with optional exact source scopes, plus a durable per-product WooCommerce outbox with record-hash CAS recovery.

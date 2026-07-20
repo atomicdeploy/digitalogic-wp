@@ -1,6 +1,6 @@
 # Patris Product Sync Living Contract
 
-Digitalogic and Patris Export use one living, versionless contract. Because both ends are deployed together, contract changes replace the current shape instead of adding compatibility branches.
+Digitalogic and Patris Export use one living contract. Because both ends are deployed together, contract changes replace the current shape instead of adding compatibility branches.
 
 ## Endpoints
 
@@ -9,7 +9,7 @@ Digitalogic and Patris Export use one living, versionless contract. Because both
 - `POST /wp-json/digitalogic/integration/pricing-assignments/batch`
 - `GET /wp-json/digitalogic/integration/products/by-code/{code}/pricing`
 
-The product-sync request uses `X-Digitalogic-Product-Sync-Secret`. It may be restricted to exact `{id,dataset}` source pairs.
+The product-sync request uses `X-Patris-Product-Sync-Secret`. It may be restricted to exact `{id,dataset}` source pairs.
 
 Product delivery and pricing-assignment lookups match the case-sensitive
 `_digitalogic_patris_product_code` value only. A WooCommerce SKU is never used
@@ -30,7 +30,7 @@ The envelope contains:
 
 ```json
 {
-  "schema": "digitalogic.product-sync",
+  "schema": "patris.product-sync",
   "event_type": "snapshot",
   "event_id": "sha256:...",
   "local_currency": "IRT",
