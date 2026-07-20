@@ -164,7 +164,7 @@ final class Digitalogic_Homepage_Showcase {
 			array(
 				'image'           => DIGITALOGIC_PLUGIN_URL . 'assets/images/storefront-modules-hero.webp',
 				'eyebrow'         => 'قطعات، ماژول‌ها و بردهای توسعه',
-				'title'           => 'ماژول‌های باحال رو کردیم؛ ببین چی موجوده',
+				'title'           => 'ماژول‌های جذاب تازه رسیدن؛ ببین چه چیزهایی داریم',
 				'copy'            => 'از ESP و آردوینو تا Raspberry Pi، سنسور و نمایشگر؛ موجودی واقعی رو ورق بزن و سریع سفارش بده.',
 				'primary_label'   => 'لیست حرفه‌ای محصولات',
 				'primary_url'     => $this->catalog_url(),
