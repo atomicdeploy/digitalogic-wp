@@ -79,8 +79,53 @@ jobs:
         node --check assets/js/panel-app.js
         node --check assets/js/currency-postboxes.js
         node --check assets/js/branding/admin-branding.js
+        node --check assets/js/call-verification.js
+        node --test tests/call-verification-ui.test.js
         node --test tests/product-query.test.js
         node --test tests/admin-branding-auth-nav.test.js
+        node --test tests/product-identity.test.js
+        node --check ops/pbx/lib/pbx-verification-agi.js
+        npm --prefix ops/pbx test
+        bash -n ops/pbx/bin/pbx-verification-digitalogic
+        bash -n ops/pbx/scripts/generate-prompts.sh
+        bash -n ops/pbx/scripts/install-prompts.sh
+
+    - name: Reject non-synthetic mobile fixtures
+      run: |
+        python - <<'PY'
+        import pathlib
+        import re
+        import sys
+
+        excluded = {'.git', 'vendor', 'node_modules'}
+        # Existing SMS CLI examples plus the PBX test number; all are overtly synthetic.
+        synthetic_mobiles = {'09120000000', '09120000001', '09123456789'}
+        digit_map = str.maketrans('۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩', '01234567890123456789')
+        candidate = re.compile(r'(?<!\d)(?:\+98|0098|98|0)?9\d{9}(?!\d)')
+        violations = []
+
+        for path in pathlib.Path('.').rglob('*'):
+          if not path.is_file() or any(part in excluded for part in path.parts):
+            continue
+          try:
+            content = path.read_text(encoding='utf-8').translate(digit_map)
+          except (OSError, UnicodeDecodeError):
+            continue
+          for match in candidate.finditer(content):
+            digits = re.sub(r'\D', '', match.group())
+            if digits.startswith('0098'):
+              digits = digits[4:]
+            elif digits.startswith('98'):
+              digits = digits[2:]
+            if len(digits) == 10 and digits.startswith('9'):
+              digits = '0' + digits
+            if digits not in synthetic_mobiles:
+              violations.append(f'{path}:{content.count(chr(10), 0, match.start()) + 1}')
+
+        if violations:
+          print('Non-synthetic mobile fixture found at: ' + ', '.join(violations), file=sys.stderr)
+          sys.exit(1)
+        PY
 
     - name: Run PHPUnit tests
       run: composer test
