@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.3] - 2026-07-20
+
+### Added
+- Added exact Patris Export product-sync v1.1 receiver compatibility for product `category_code`, the complete typed category projection, and excluded catalog Codes, including Go-compatible category, source, and event identity verification.
+- Persisted the v1.1 catalog projection in receiver state v4, exposed bounded category/exclusion counts in receiver responses and status output, and mirrored each product's category Code to `_digitalogic_patris_category_code` through the shared WooCommerce writer.
+- Added a Go-generated v1.1 golden fixture and focused compatibility, catalog-transition, tamper, feature-level baseline, and v3-to-v4 migration coverage while retaining the v1.0 golden regression.
+- Added the production-proven pre-save WooCommerce change capture to `product.updated` webhooks, with compact `changed_fields` values and date/scalar normalization.
+
+### Changed
+- Reduced peak memory during transactional receiver readback by comparing the exact stored serialization digest instead of serializing both the expected and read-back state again.
+- Ported the live login loading-state fixes so button text is hidden behind a centered spinner, loading stripes loop cleanly in LTR/RTL, and Persian retry messages no longer claim the form was released.
+
+### Security
+- Require a fresh snapshot when a source changes between the v1.0 and v1.1 contract feature levels, preventing an update from mixing incompatible product record shapes.
+
 ## [1.3.2] - 2026-07-17
 
 ### Changed

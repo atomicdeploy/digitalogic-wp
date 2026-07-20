@@ -1150,16 +1150,17 @@ body.login :is(#wp-submit, .button-primary, .digits-form_submit-btn, .digits-for
     position: relative;
     overflow: hidden !important;
     background-image: linear-gradient(135deg, var(--dg-accent) 0%, var(--dg-accent-strong) 100%) !important;
-    color: #fff !important;
+    color: transparent !important;
     cursor: wait !important;
     animation: none !important;
     opacity: 1 !important;
     isolation: isolate;
+    text-shadow: none !important;
 }
 
 body.login :is(#wp-submit, .button-primary, .digits-form_submit-btn, .digits-form_submit, .digits-form_button, .digits-social-btn).is-loading:disabled {
     background-image: linear-gradient(135deg, var(--dg-accent) 0%, var(--dg-accent-strong) 100%) !important;
-    color: #fff !important;
+    color: transparent !important;
     filter: none !important;
 }
 
@@ -1183,14 +1184,18 @@ html[dir="rtl"] body.login :is(#wp-submit, .button-primary, .digits-form_submit-
 
 body.login :is(#wp-submit, .button-primary, .digits-form_submit-btn, .digits-form_submit, .digits-form_button, .digits-social-btn).is-loading::after {
     content: "";
-    display: inline-block;
+    display: block;
     inline-size: 18px;
     block-size: 18px;
     border: 2px solid rgba(255, 255, 255, 0.42);
     border-block-start-color: #fff;
     border-radius: 999px;
     animation: dg-fuji-spin 0.72s linear infinite;
-    position: relative;
+    position: absolute;
+    inset-block-start: 50%;
+    inset-inline-start: 50%;
+    margin-block-start: -9px;
+    margin-inline-start: -9px;
     z-index: 1;
 }
 
@@ -1215,6 +1220,8 @@ body.login :is(.digits-form_submit-btn, .digits-form_submit, .digits-form_button
 body.login :is(#wp-submit, .button-primary, .digits-form_submit-btn, .digits-form_submit, .digits-form_button, .digits-social-btn).is-loading > * {
     position: relative;
     z-index: 1;
+    opacity: 0 !important;
+    visibility: hidden !important;
 }
 
 body.login form.dg-form-pending {
@@ -2375,21 +2382,21 @@ body.wp-admin .digitalogic-panel-page .button-hero {
 
 @keyframes dg-loading-stripes-ltr {
     from {
-        transform: translateX(-36px);
+        transform: translateX(0);
     }
 
     to {
-        transform: translateX(36px);
+        transform: translateX(56.568542px);
     }
 }
 
 @keyframes dg-loading-stripes-rtl {
     from {
-        transform: translateX(36px);
+        transform: translateX(0);
     }
 
     to {
-        transform: translateX(-36px);
+        transform: translateX(-56.568542px);
     }
 }
 

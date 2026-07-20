@@ -26,6 +26,13 @@ class Digitalogic_Webhooks {
     // phpcs:enable
     
     private static $instance = null;
+
+    /**
+     * Best-effort WooCommerce product field changes captured before save.
+     *
+     * @var array<int,array<int,array<string,mixed>>>
+     */
+    private $pending_product_changes = array();
     
     public static function instance() {
         if (is_null(self::$instance)) {
@@ -43,6 +50,7 @@ class Digitalogic_Webhooks {
         add_action('profile_update', array($this, 'user_updated'), 10, 3);
 
         // Hook into product updates
+        add_action('woocommerce_before_product_object_save', array($this, 'capture_product_changes'), 10, 1);
         add_action('woocommerce_update_product', array($this, 'product_updated'), 10, 1);
         add_action('woocommerce_new_product', array($this, 'product_created'), 10, 1);
         add_action('before_delete_post', array($this, 'product_deleted'), 10, 2);
@@ -207,6 +215,46 @@ class Digitalogic_Webhooks {
         ));
     }
     
+    // phpcs:disable -- Preserve the production hotfix formatting while the legacy file remains baseline-managed.
+    /**
+     * Capture changed WooCommerce product fields before save.
+     *
+     * @param WC_Product $product Product being saved.
+     */
+    public function capture_product_changes($product) {
+        if (!is_object($product) || !method_exists($product, 'get_id') || !method_exists($product, 'get_changes')) {
+            return;
+        }
+
+        $product_id = (int) $product->get_id();
+        if ($product_id <= 0) {
+            return;
+        }
+
+        $changes = $product->get_changes();
+        if (empty($changes) || !is_array($changes)) {
+            return;
+        }
+
+        $data = method_exists($product, 'get_data') ? $product->get_data() : array();
+        $captured = array();
+        foreach ($changes as $field => $new_value) {
+            if (in_array((string) $field, array('date_modified', 'date_created'), true)) {
+                continue;
+            }
+            $captured[] = array(
+                'field' => (string) $field,
+                'old' => $this->webhook_scalar_value(is_array($data) && array_key_exists($field, $data) ? $data[$field] : null),
+                'new' => $this->webhook_scalar_value($new_value),
+            );
+        }
+
+        if (!empty($captured)) {
+            $this->pending_product_changes[$product_id] = $captured;
+        }
+    }
+    // phpcs:enable
+
     /**
      * Product updated webhook
      */
@@ -215,6 +263,10 @@ class Digitalogic_Webhooks {
         $product = $manager->get_product($product_id);
         
         if ($product) {
+            if (isset($this->pending_product_changes[(int) $product_id])) {
+                $product['changed_fields'] = $this->pending_product_changes[(int) $product_id];
+                unset($this->pending_product_changes[(int) $product_id]);
+            }
             $this->trigger_webhook('product.updated', $product);
         }
     }
@@ -668,6 +720,31 @@ class Digitalogic_Webhooks {
             'request' => $this->request_context(),
         );
     }
+
+    // phpcs:disable -- Preserve the production hotfix formatting while the legacy file remains baseline-managed.
+    /**
+     * Normalize webhook change values into compact nonsecret scalars.
+     *
+     * @param mixed $value Raw value.
+     * @return mixed
+     */
+    private function webhook_scalar_value($value) {
+        if ($value instanceof WC_DateTime || $value instanceof DateTimeInterface) {
+            return $value->date('c');
+        }
+        if (is_scalar($value) || null === $value) {
+            return $value;
+        }
+        if (is_array($value)) {
+            return wp_json_encode($value);
+        }
+        if (is_object($value) && method_exists($value, '__toString')) {
+            return (string) $value;
+        }
+
+        return gettype($value);
+    }
+    // phpcs:enable
 
     /**
      * Current request metadata.
