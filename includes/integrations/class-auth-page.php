@@ -117,7 +117,7 @@ final class Digitalogic_Plugin_Auth_Routes {
         echo '</a>';
         echo '</p>';
 
-        login_footer('user_login');
+        self::render_login_footer();
         exit;
     }
 
@@ -244,8 +244,28 @@ final class Digitalogic_Plugin_Auth_Routes {
         echo '</a>';
         echo '</p>';
 
-        login_footer('user_login');
+        self::render_login_footer();
         exit;
+    }
+
+    /**
+     * Render the custom login footer without WordPress.org translation discovery.
+     *
+     * The canonical login page already runs in the locale selected by WordPress
+     * (including a supplied wp_lang value). The core footer language selector can
+     * nevertheless call the remote translations API while rendering, holding a
+     * PHP-FPM worker when that service is slow or unavailable. Keep the override
+     * scoped to this footer render so the standard WordPress login screen and all
+     * other admin language controls retain their normal behaviour.
+     */
+    private static function render_login_footer(): void {
+        add_filter('login_display_language_dropdown', '__return_false', PHP_INT_MAX);
+
+        try {
+            login_footer('user_login');
+        } finally {
+            remove_filter('login_display_language_dropdown', '__return_false', PHP_INT_MAX);
+        }
     }
 
     public static function register_url(string $url): string {
