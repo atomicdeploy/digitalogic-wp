@@ -1282,6 +1282,16 @@ class WC_Product {
         return (array) ($GLOBALS['digitalogic_test_posts'][$this->id]['attributes'] ?? array());
     }
 
+    public function get_variation_attributes() {
+        $attributes = array();
+        foreach ($this->meta as $key => $value) {
+            if (0 === strpos((string) $key, 'attribute_')) {
+                $attributes[(string) $key] = (string) $value;
+            }
+        }
+        return $attributes;
+    }
+
     public function get_default_attributes() {
         return (array) ($GLOBALS['digitalogic_test_posts'][$this->id]['default_attributes'] ?? array());
     }
@@ -1295,6 +1305,9 @@ class WC_Product {
     }
 
     public function get_meta($key, $single = true) {
+        if (0 === strpos((string) $key, 'attribute_')) {
+            return '';
+        }
         return $this->meta[$key] ?? '';
     }
 

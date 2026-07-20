@@ -1253,10 +1253,12 @@ final class Digitalogic_Patris_Catalog_Materializer {
 			}
 			if ( '' !== $enrichment['attribute_taxonomy'] ) {
 				$term = get_term( (int) $enrichment['attribute_term_id'], $enrichment['attribute_taxonomy'] );
+				$variation_attributes = $product->get_variation_attributes();
+				$attribute_key        = 'attribute_' . $enrichment['attribute_taxonomy'];
 				if (
 					is_wp_error( $term )
 					|| ! is_object( $term )
-					|| (string) $product->get_meta( 'attribute_' . $enrichment['attribute_taxonomy'], true ) !== (string) $term->slug
+					|| (string) ( $variation_attributes[ $attribute_key ] ?? '' ) !== (string) $term->slug
 				) {
 					return $this->error( 'digitalogic_patris_materializer_variation_attribute_mismatch', 'The managed variation no longer owns its reviewed attribute option.' );
 				}
@@ -1304,7 +1306,8 @@ final class Digitalogic_Patris_Catalog_Materializer {
 		}
 		foreach ( (array) $parent->get_children() as $child_id ) {
 			$child = wc_get_product( (int) $child_id );
-			if ( $child && (string) $child->get_meta( 'attribute_' . $taxonomy, true ) === (string) $term->slug ) {
+			$child_attributes = $child && $child->is_type( 'variation' ) ? $child->get_variation_attributes() : array();
+			if ( (string) ( $child_attributes[ 'attribute_' . $taxonomy ] ?? '' ) === (string) $term->slug ) {
 				return $this->error( 'digitalogic_patris_materializer_variation_attribute_conflict', 'That reviewed attribute option already belongs to another child.' );
 			}
 		}

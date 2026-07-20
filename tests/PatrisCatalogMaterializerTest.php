@@ -239,7 +239,7 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 		$this->assertCount( 1, $children );
 		$child = wc_get_product( $children[0] );
 		$this->assertSame( 'draft', $child->get_status() );
-		$this->assertSame( 'raw-sensor', $child->get_meta( 'attribute_pa_model', true ) );
+		$this->assertSame( 'raw-sensor', $child->get_variation_attributes()['attribute_pa_model'] );
 		$this->assertSame( '', wc_get_product( 100 )->get_sku() );
 		$this->assertSame( '', wc_get_product( 100 )->get_meta( '_digitalogic_patris_product_code', true ) );
 
@@ -262,6 +262,32 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 		$this->assertSame( 'Synthetic sensor family', wc_get_product( 100 )->get_meta( '_digitalogic_patris_family_name', true ) );
 		$this->assertSame( '', wc_get_product( 100 )->get_meta( '_digitalogic_patris_product_code', true ) );
 		$this->assertContains( 100, WC_Product_Variable::$synced_ids );
+	}
+
+	public function test_refuses_a_reviewed_variation_option_already_owned_by_an_existing_child(): void {
+		$this->receiveFixture();
+		$this->addProduct( 100, 'variable' );
+		$this->addTerm( 373, 'Reviewed sensor', 0, 'pa_model', 'reviewed-sensor' );
+		$GLOBALS['digitalogic_test_posts'][200] = array(
+			'post_type'    => 'product_variation',
+			'post_status'  => 'publish',
+			'post_parent'  => 100,
+			'product_type' => 'variation',
+			'post_title'   => 'Existing reviewed option',
+			'meta'         => array( 'attribute_pa_model' => 'reviewed-sensor' ),
+		);
+		$manifest                  = $this->manifest();
+		$row                       = &$manifest['products']['101001001'];
+		$row['target_parent_id']   = '100';
+		$row['attribute_taxonomy'] = 'pa_model';
+		$row['attribute_term_id']  = '373';
+		$row['parent_enrichment']  = $this->parentEnrichment();
+		$row['variation_group']    = 'duplicate-option-check';
+
+		$result = Digitalogic_Patris_Catalog_Materializer::instance()->run( $manifest );
+
+		$this->assertSame( 1, $result['skipped'] );
+		$this->assertSame( 'digitalogic_patris_materializer_variation_attribute_conflict', $result['details'][0]['reason'] );
 	}
 
 	public function test_parent_publication_failure_restores_a_preexisting_published_child_status(): void {
