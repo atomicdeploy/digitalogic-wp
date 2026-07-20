@@ -886,7 +886,7 @@
             clearLoading();
             showLoginFailureMessage(
                 document.querySelector('.dg-digits-login-shell form, .dg-digits-register-shell form'),
-                getLabel('requestTimeout', 'پاسخی از سرور دریافت نشد. اتصال یا افزونه ورود به‌موقع پاسخ نداد؛ فرم آزاد شد، دوباره تلاش کنید.'),
+                getLabel('requestTimeout', 'پاسخی از سرور دریافت نشد. اتصال یا افزونه ورود به‌موقع پاسخ نداد؛ دوباره تلاش کنید.'),
                 'error'
             );
         }, 9000);
@@ -1229,7 +1229,7 @@
             clearLoading();
             showDigitsInlineMessage(
                 form,
-                getLabel('digitsEmptyResponse', 'افزونه ورود پاسخ ناقص فرستاد: درخواست موفق علامت خورد اما داده مرحله بعدی در پاسخ نبود. فرم آزاد شد؛ دوباره تلاش کنید.'),
+                getLabel('digitsEmptyResponse', 'افزونه ورود پاسخ ناقص فرستاد: درخواست موفق علامت خورد اما داده مرحله بعدی در پاسخ نبود. دوباره تلاش کنید.'),
                 'error'
             );
             return;
@@ -1306,8 +1306,8 @@
             showDigitsInlineMessage(
                 form,
                 error && error.name === 'AbortError'
-                    ? getLabel('requestTimeout', 'پاسخی از سرور دریافت نشد. اتصال یا افزونه ورود به‌موقع پاسخ نداد؛ فرم آزاد شد، دوباره تلاش کنید.')
-                    : getLabel('requestError', 'درخواست ورود با خطای شبکه یا سرور روبه‌رو شد. فرم آزاد شد؛ دوباره تلاش کنید.'),
+                    ? getLabel('requestTimeout', 'پاسخی از سرور دریافت نشد. اتصال یا افزونه ورود به‌موقع پاسخ نداد؛ دوباره تلاش کنید.')
+                    : getLabel('requestError', 'درخواست ورود با خطای شبکه یا سرور روبه‌رو شد. دوباره تلاش کنید.'),
                 'error'
             );
         });
@@ -1371,7 +1371,7 @@
                         clearLoading();
                         showLoginFailureMessage(
                             null,
-                            getLabel('digitsMalformedAjax', 'خطای افزونه Digits: پاسخ AJAX مرحله ورود بدون داده معتبر برگشت، بنابراین callback افزونه اجرا نشد تا فرم گیر نکند. فرم آزاد شد؛ دوباره تلاش کنید.'),
+                            getLabel('digitsMalformedAjax', 'خطای افزونه Digits: پاسخ AJAX مرحله ورود بدون داده معتبر برگشت، بنابراین callback افزونه اجرا نشد تا فرم گیر نکند. دوباره تلاش کنید.'),
                             'error'
                         );
                         return;
@@ -1401,7 +1401,7 @@
 
                     showLoginFailureMessage(
                         null,
-                        getLabel('requestError', 'درخواست AJAX ورود شکست خورد. فرم آزاد شد؛ دوباره تلاش کنید.'),
+                        getLabel('requestError', 'درخواست AJAX ورود شکست خورد. دوباره تلاش کنید.'),
                         'error'
                     );
                 };
@@ -2078,7 +2078,7 @@
             if (/Cannot read properties of undefined .*reload/.test(raw) || /reading 'reload'/.test(raw)) {
                 return getLabel(
                     'digitsReloadBug',
-                    'خطای افزونه Digits: پاسخ AJAX مرحله ورود ناقص بود و اسکریپت Digits هنگام خواندن مقدار reload خراب شد. فرم آزاد شد؛ لطفاً دوباره تلاش کنید.'
+                    'خطای افزونه Digits: پاسخ AJAX مرحله ورود ناقص بود و اسکریپت Digits هنگام خواندن مقدار reload خراب شد. لطفاً دوباره تلاش کنید.'
                 );
             }
 
@@ -2086,7 +2086,7 @@
                 return getLabel('runtimeErrorPrefix', 'خطای صفحه: ') + raw + (source ? ' (' + source.split('/').slice(-3).join('/') + ')' : '');
             }
 
-            return getLabel('runtimeError', 'یک خطای صفحه رخ داد اما مرورگر جزئیات آن را گزارش نکرد. فرم آزاد شد؛ دوباره تلاش کنید.');
+            return getLabel('runtimeError', 'یک خطای صفحه رخ داد اما مرورگر جزئیات آن را گزارش نکرد. دوباره تلاش کنید.');
         }
 
         window.addEventListener('error', function (event) {
