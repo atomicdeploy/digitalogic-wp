@@ -46,7 +46,7 @@ final class WooCommerceCurrencyStatusTest extends TestCase {
 
 		$this->reset_singleton( Digitalogic_WooCommerce_Currency_Status::class );
 		$this->reset_singleton( Digitalogic_Logger::class );
-		$this->reset_singleton( Digitalogic_Import_Freight_Service::class );
+		$this->reset_singleton( Digitalogic_Shipping_Method_Service::class );
 		$this->reset_singleton( Digitalogic_Command_Dispatcher::class );
 		$this->reset_singleton( Digitalogic_REST_API::class );
 		$this->reset_singleton( Digitalogic_Webhooks::class );
@@ -79,20 +79,15 @@ final class WooCommerceCurrencyStatusTest extends TestCase {
 	/**
 	 * IRR remains distinct and blocks the IRT pricing contract.
 	 */
-	public function test_non_irt_catalog_is_blocked_versioned_and_never_relabels_irr(): void {
-		$catalog_irt                             = Digitalogic_Import_Freight_Service::instance()->get_integration_catalog();
+	public function test_non_irt_catalog_is_sparse_and_never_relabels_irr(): void {
+		$catalog_irt                             = Digitalogic_Shipping_Method_Service::instance()->get_integration_catalog();
 		$GLOBALS['digitalogic_test_wc_currency'] = 'IRR';
-		$catalog_irr                             = Digitalogic_Import_Freight_Service::instance()->get_integration_catalog();
+		$catalog_irr                             = Digitalogic_Shipping_Method_Service::instance()->get_integration_catalog();
 
-		$this->assertSame( '1.2.0', $catalog_irr['schema_version'] );
 		$this->assertSame( 'IRR', $catalog_irr['currency']['local'] );
-		$this->assertSame( 'IRR', $catalog_irr['currency']['woocommerce_base']['code'] );
-		$this->assertNull( $catalog_irr['currency']['woocommerce_base']['unit'] );
-		$this->assertNull( $catalog_irr['currency']['woocommerce_base']['irr_per_unit'] );
-		$this->assertNull( $catalog_irr['currency']['cny_to_irt'] );
-		$this->assertFalse( $catalog_irr['currency']['compatibility']['compatible'] );
-		$this->assertSame( 'base_currency_mismatch', $catalog_irr['currency']['compatibility']['status'] );
+		$this->assertArrayNotHasKey( 'cny_to_irt', $catalog_irr['currency'] );
 		$this->assertContains( 'woocommerce_base_currency_must_be_irt', $catalog_irr['currency']['warnings'] );
+		$this->assertStringNotContainsString( 'null', wp_json_encode( $catalog_irr ) );
 		$this->assertNotSame( $catalog_irt['revision'], $catalog_irr['revision'] );
 	}
 

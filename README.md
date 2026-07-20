@@ -187,11 +187,12 @@ curl -X POST https://yoursite.com/wp-json/digitalogic/v1/products/batch \
 - `GET|PUT /wp-json/digitalogic/v1/pricing/default-markup` - Read, set, or explicitly clear the canonical default percentage markup
 
 #### Supplier Shipping Method Integration
-- `GET /wp-json/digitalogic/v1/integration/catalog` - Read the versioned pricing/shipping catalog and IRT/Toman compatibility
-- `POST /wp-json/digitalogic/v1/pricing-assignments/batch` - Read a bounded ordered Code assignment projection
+- `GET /wp-json/digitalogic/integration/catalog` - Read the living pricing and shipping catalog
+- `POST /wp-json/digitalogic/integration/pricing-assignments/batch` - Read a bounded ordered Code assignment projection
+- `GET /wp-json/digitalogic/integration/products/by-code/{code}/pricing` - Read one exact sparse pricing assignment
 - `GET|POST /wp-json/digitalogic/v1/shipping-methods` - List or create supplier shipping methods
 - `GET|PUT|DELETE /wp-json/digitalogic/v1/shipping-methods/{id}` - Manage an immutable method ID
-- `GET|PUT /wp-json/digitalogic/v1/products/by-code/{code}/shipping-method` - Read or assign by exact Patris Code/SKU
+- `GET|PUT /wp-json/digitalogic/v1/products/by-code/{code}/shipping-method` - Read or assign by exact Patris Code
 - `POST /wp-json/digitalogic/v1/products/shipping-methods/batch` - Preflight and apply Code-based assignments
 
 The default markup is nullable, exact-decimal, and used only when both product
@@ -199,14 +200,13 @@ markup metadata rows are absent or both rows are stored empty. Saving it does
 not write WooCommerce prices.
 
 A supplier shipping method is distinct from customer delivery and WooCommerce
-checkout shipping. See [Shipping Method Integration Contract](docs/IMPORT-FREIGHT-API.md).
+checkout shipping. See [Supplier Shipping Method API](docs/SHIPPING-METHOD-API.md).
 
-#### Patris Product Sync v1
-- `POST /wp-json/digitalogic/v1/patris/product-sync` - Accept a verified, transformed-only snapshot or delta
-- `POST /wp-json/digitalogic/v1/patris/push` - Legacy feed route; not safe for v1 deltas
+#### Patris Product Sync
+- `POST /wp-json/digitalogic/patris/product-sync` - Accept a verified, transformed-only snapshot or update
 
-The v1 receiver uses a dedicated header-only secret, independently recomputes
-`landed_price_v1`, verifies record/source/occurrence hashes, merges deltas, and
+The receiver uses a dedicated header-only secret, independently recomputes
+`landed_price`, verifies record/source/event hashes, merges updates, and
 keeps transient Woo failures in a durable idempotent outbox. Missing and
 ambiguous Codes are bounded terminal reconciliation work, so they do not cause
 Patris HTTP retries. Database prepare/query failures remain transient and can
@@ -214,7 +214,7 @@ never be reported as missing. Patris Code is canonical and deleted Codes are
 receiver-state tombstones, never WooCommerce deletions. Inspect nonsecret counts
 with `wp digitalogic product-sync status`; an administrator can retry only
 durable pending/deferred work with `wp digitalogic product-sync reconcile
---user=<administrator>`. See [Patris Product Sync v1](docs/PATRIS-PRODUCT-SYNC-V1.md).
+--user=<administrator>`. See [Patris Product Sync](docs/PATRIS-PRODUCT-SYNC.md).
 
 #### Export
 - `GET /wp-json/digitalogic/v1/export?format=csv` - Export products as CSV
@@ -230,7 +230,8 @@ The plugin uses WooCommerce REST API authentication:
 3. Use Basic Auth with consumer key as username and secret as password
 
 Patris pricing uses a separate one-way, rotatable Bearer credential confined to
-`GET /integration/catalog` and `POST /pricing-assignments/batch`. See
+`GET /digitalogic/integration/catalog` and
+`POST /digitalogic/integration/pricing-assignments/batch`. See
 [Patris pricing-input machine credential](docs/PRICING-INPUT-CREDENTIAL.md) for
 administrator-only WP-CLI lifecycle commands and environment-name wiring. Do
 not reuse write, webhook, product-sync, WooCommerce consumer, or login secrets
@@ -423,14 +424,13 @@ Developed for Digitalogic electronic components shop.
 - Refreshed Persian translation catalogs and retained backward-compatible CLI update behavior.
 
 ### 1.2.0
-- Added the authenticated, transformed-only `digitalogic.product-sync` v1 receiver with deterministic integrity and ordering checks.
+- Added the authenticated, transformed-only `digitalogic.product-sync` receiver with deterministic integrity and ordering checks.
 - Added snapshot/delta merging, bounded replay protection, quarantine preservation, and non-destructive Code tombstones.
 - Added exact receiver-side landed-price verification, a durable per-product Woo delivery outbox, and a separate source-scopeable header secret.
-- Reused the exact collision-safe Patris Code/SKU resolver and normalized Patris WooCommerce writer without changing the legacy feed route.
+- Reused the exact collision-safe Patris Code resolver and normalized Patris WooCommerce writer.
 
 ### 1.1.0
-- Added the canonical supplier shipping-method catalog, Code/SKU assignments, landed-price contract, and Patris integration API.
-- Added transactional migration from legacy shipping options and ACF assignments with observable panel, Redis, and webhook delivery results.
+- Added the canonical supplier shipping-method catalog, exact Patris Code assignments, landed-price contract, and Patris integration API.
 - Normalized Patris gram weights into the WooCommerce store weight unit.
 
 ### 1.0.0

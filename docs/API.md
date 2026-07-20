@@ -53,12 +53,9 @@ add_filter(
 );
 ```
 
-For backward compatibility, a one-argument callback still works, but returning
-`true` from it grants all three scopes. Update legacy callbacks to accept the
-scope and request arguments before using them for least-privilege access.
-
-`POST /patris/push` is not controlled by this filter. It retains its dedicated
-Patris request verifier and token policy.
+A one-argument callback still grants all three general API scopes when it
+returns `true`. New callbacks should accept the scope and request arguments for
+least-privilege access.
 
 ---
 
@@ -184,25 +181,20 @@ than being converted or changed automatically.
 A supplier shipping method describes supplier-to-Digitalogic transport. It does not use
 WooCommerce checkout, shipping-zone, or customer delivery APIs.
 
-- **GET** `/integration/catalog` - versioned CNY/IRT rate, WooCommerce base-currency compatibility, `landed_price_v1`, selected warehouses, and methods
+- **GET** `/wp-json/digitalogic/integration/catalog` - sparse CNY/IRT rate, `landed_price`, selected warehouses, and methods
 - **GET** `/shipping-methods` - list canonical methods
 - **POST** `/shipping-methods` - create a method with an immutable ID
 - **GET|PUT|DELETE** `/shipping-methods/{id}` - read, update, or delete an unassigned method
-- **GET|PUT** `/products/by-code/{code}/shipping-method` - read or assign by exact Patris Code/SKU
+- **GET** `/wp-json/digitalogic/integration/products/by-code/{code}/pricing` - read one exact sparse pricing assignment
+- **GET|PUT** `/products/by-code/{code}/shipping-method` - manage an assignment by exact Patris Code
 - **POST** `/products/shipping-methods/batch` - preflight and apply an atomic assignment batch
-- **POST** `/pricing-assignments/batch` - read up to 500 exact assignments in a versioned, ordered, no-write response
+- **POST** `/wp-json/digitalogic/integration/pricing-assignments/batch` - read up to 500 exact assignments in an ordered, no-write response
 
 GET routes use the `read` permission scope. Mutating routes use `write`.
 Deleting an assigned method returns HTTP 409; disabling it remains available.
-Method and tier payloads use `shipping_price_per_kg_cny`. The former
-`price_per_kg_cny` field is accepted only as a deprecated input alias and is
-never emitted by the canonical routes.
-See [Shipping Method Integration Contract](IMPORT-FREIGHT-API.md) for schemas,
-migration behavior, and the pricing formula.
-
-The former `/import-freight-methods`, `/products/.../import-pricing`, and
-`/products/import-pricing/batch` routes remain temporary input aliases. They
-return a `Deprecation: true` response header and canonical response keys.
+Method and tier payloads use `shipping_price_per_kg_cny`; aliases are not
+accepted or emitted. See [Supplier Shipping Method API](SHIPPING-METHOD-API.md)
+and [Patris Product Sync](PATRIS-PRODUCT-SYNC.md).
 
 ---
 

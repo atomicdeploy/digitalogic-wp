@@ -1,0 +1,16 @@
+{
+  "schema": "digitalogic.product-sync",
+  "event_type": "snapshot",
+  "event_id": "sha256:2bbb46be3ac8923ab6dab2256cfc419eabbb8d6405b7568169aa2ad0a93d1a63",
+  "source": {
+    "id": "patris-export",
+    "dataset": "ALLANBAR",
+    "revision": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "generated_at": "2026-07-20T00:00:00Z",
+  "products": [],
+  "categories": [],
+  "excluded_codes": [],
+  "quarantined_codes": [],
+  "warnings": []
+}

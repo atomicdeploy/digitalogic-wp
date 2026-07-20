@@ -81,8 +81,6 @@ class Digitalogic_Command_Dispatcher {
             'digitalogic_export' => array($this, 'export'),
             'digitalogic_get_logs' => array($this, 'get_logs'),
             'digitalogic_get_reports' => array($this, 'get_reports'),
-            'digitalogic_sync_patris' => array($this, 'sync_patris'),
-            'digitalogic_import_patris_payload' => array($this, 'import_patris_payload'),
             'digitalogic_update_patris_settings' => array($this, 'update_patris_settings'),
             'digitalogic_get_integration_catalog' => array($this, 'get_integration_catalog'),
             'digitalogic_get_default_percentage_markup' => array($this, 'get_default_percentage_markup'),
@@ -93,17 +91,10 @@ class Digitalogic_Command_Dispatcher {
 			'digitalogic_update_shipping_method' => array($this, 'update_shipping_method'),
 			'digitalogic_delete_shipping_method' => array($this, 'delete_shipping_method'),
 			'digitalogic_get_product_shipping_method' => array($this, 'get_product_shipping_method'),
+			'digitalogic_get_product_pricing' => array($this, 'get_product_pricing'),
+			'digitalogic_get_pricing_assignments_batch' => array($this, 'get_pricing_assignments_batch'),
 			'digitalogic_assign_product_shipping_method' => array($this, 'assign_product_shipping_method'),
 			'digitalogic_batch_assign_product_shipping_methods' => array($this, 'batch_assign_product_shipping_methods'),
-            'digitalogic_list_import_freight_methods' => array($this, 'list_import_freight_methods'),
-            'digitalogic_create_import_freight_method' => array($this, 'create_import_freight_method'),
-            'digitalogic_get_import_freight_method' => array($this, 'get_import_freight_method'),
-            'digitalogic_update_import_freight_method' => array($this, 'update_import_freight_method'),
-            'digitalogic_delete_import_freight_method' => array($this, 'delete_import_freight_method'),
-            'digitalogic_get_product_import_pricing' => array($this, 'get_product_import_pricing'),
-			'digitalogic_get_product_import_pricing_batch' => array( $this, 'get_product_import_pricing_batch' ),
-            'digitalogic_assign_product_import_freight' => array($this, 'assign_product_import_freight'),
-            'digitalogic_batch_assign_product_import_freight' => array($this, 'batch_assign_product_import_freight'),
         );
     }
 
@@ -238,14 +229,6 @@ class Digitalogic_Command_Dispatcher {
         return Digitalogic_Report_Engine::instance()->get_report( is_array( $payload ) ? $payload : array() );
     }
 
-    public function sync_patris($payload) {
-        return Digitalogic_Patris_Feed::instance()->pull_sync();
-    }
-
-    public function import_patris_payload($payload) {
-        return Digitalogic_Patris_Feed::instance()->import_payload( $payload, 'command' );
-    }
-
     public function update_patris_settings($payload) {
         return array(
             'settings' => Digitalogic_Patris_Feed::instance()->update_settings( $payload ),
@@ -264,7 +247,7 @@ class Digitalogic_Command_Dispatcher {
     public function update_default_percentage_markup($payload) {
         if (!is_array( $payload ) || !array_key_exists( 'profit_percent', $payload )) {
             return new WP_Error(
-                'digitalogic_import_freight_default_markup_required',
+                'digitalogic_shipping_default_markup_required',
                 __( 'The profit_percent field is required; use null to clear the default explicitly.', 'digitalogic' ),
                 array('status' => 400)
             );
@@ -294,18 +277,9 @@ class Digitalogic_Command_Dispatcher {
 
 	public function create_shipping_method($payload) {
         $data = isset( $payload['method'] ) && is_array( $payload['method'] ) ? $payload['method'] : $payload;
-		$deprecations = array();
-		$data = $this->normalize_shipping_method_payload( $data, $deprecations );
-		if (is_wp_error( $data )) {
-			return $data;
-		}
-
 		$result = Digitalogic_Shipping_Method_Service::instance()->create_method( $data );
 		if (!is_wp_error( $result )) {
 			$result = Digitalogic_Shipping_Method_Service::instance()->present_method( $result );
-		}
-		foreach ($deprecations as $deprecation) {
-			$result = $this->deprecated_result( $result, $deprecation );
 		}
 		return $result;
     }
@@ -320,18 +294,9 @@ class Digitalogic_Command_Dispatcher {
 	public function update_shipping_method($payload) {
         $id = isset( $payload['id'] ) ? $payload['id'] : '';
         $data = isset( $payload['method'] ) && is_array( $payload['method'] ) ? $payload['method'] : $payload;
-		$deprecations = array();
-		$data = $this->normalize_shipping_method_payload( $data, $deprecations );
-		if (is_wp_error( $data )) {
-			return $data;
-		}
-
 		$result = Digitalogic_Shipping_Method_Service::instance()->update_method( $id, $data );
 		if (!is_wp_error( $result )) {
 			$result = Digitalogic_Shipping_Method_Service::instance()->present_method( $result );
-		}
-		foreach ($deprecations as $deprecation) {
-			$result = $this->deprecated_result( $result, $deprecation );
 		}
 		return $result;
     }
@@ -352,7 +317,7 @@ class Digitalogic_Command_Dispatcher {
 	 * @param array $payload Command payload.
 	 * @return array|WP_Error
 	 */
-	public function get_product_import_pricing_batch( $payload ) {
+	public function get_pricing_assignments_batch( $payload ) {
 		$codes = is_array( $payload ) && array_key_exists( 'codes', $payload )
 			? $payload['codes']
 			: array();
@@ -360,32 +325,42 @@ class Digitalogic_Command_Dispatcher {
 		return Digitalogic_Shipping_Method_Service::instance()->get_product_assignments_by_codes( $codes );
 	}
 
+	public function get_product_pricing( $payload ) {
+		$code = is_array($payload) && array_key_exists('code', $payload)
+			? $payload['code']
+			: '';
+		$batch = Digitalogic_Shipping_Method_Service::instance()->get_product_assignments_by_codes(array($code));
+		if (is_wp_error($batch)) {
+			return $batch;
+		}
+
+		$row = $batch['results'][0];
+		if ('ok' === $row['status']) {
+			return $row['assignment'];
+		}
+
+		return new WP_Error(
+			$row['error']['code'],
+			__('The product pricing assignment could not be resolved.', 'digitalogic'),
+			array('status' => $row['error']['http_status'])
+		);
+	}
+
 	public function assign_product_shipping_method($payload) {
-		$deprecations = array();
 		if (array_key_exists( 'shipping_method_id', $payload )) {
 			$method_id = $payload['shipping_method_id'];
-		} elseif (array_key_exists( 'import_freight_method_id', $payload )) {
-            $method_id = $payload['import_freight_method_id'];
-			$deprecations[] = 'import_freight_method_id:use_shipping_method_id';
-        } elseif (array_key_exists( 'method_id', $payload )) {
-            $method_id = $payload['method_id'];
-			$deprecations[] = 'method_id:use_shipping_method_id';
         } else {
             return new WP_Error(
-                'digitalogic_import_freight_method_required',
+				'digitalogic_shipping_method_required',
 				__( 'The shipping_method_id field is required; use null or an empty value to clear it explicitly.', 'digitalogic' ),
                 array('status' => 400)
             );
         }
 
-		$result = Digitalogic_Shipping_Method_Service::instance()->assign_product_by_code(
+		return Digitalogic_Shipping_Method_Service::instance()->assign_product_by_code(
             isset( $payload['code'] ) ? $payload['code'] : '',
             $method_id
         );
-		foreach ($deprecations as $deprecation) {
-			$result = $this->deprecated_result( $result, $deprecation );
-		}
-		return $result;
     }
 
 	public function batch_assign_product_shipping_methods($payload) {
@@ -395,119 +370,6 @@ class Digitalogic_Command_Dispatcher {
 
 		return Digitalogic_Shipping_Method_Service::instance()->batch_assign_products( $assignments );
 	}
-
-	// Explicit migration-boundary aliases for existing AJAX/WebSocket clients.
-	public function list_import_freight_methods($payload = array()) {
-		return $this->deprecated_result( $this->list_shipping_methods( $payload ), 'legacy_import_freight_command:use_shipping_method_commands' );
-	}
-
-	public function create_import_freight_method($payload) {
-		return $this->deprecated_result( $this->create_shipping_method( $payload ), 'legacy_import_freight_command:use_shipping_method_commands' );
-	}
-
-	public function get_import_freight_method($payload) {
-		return $this->deprecated_result( $this->get_shipping_method( $payload ), 'legacy_import_freight_command:use_shipping_method_commands' );
-	}
-
-	public function update_import_freight_method($payload) {
-		return $this->deprecated_result( $this->update_shipping_method( $payload ), 'legacy_import_freight_command:use_shipping_method_commands' );
-	}
-
-	public function delete_import_freight_method($payload) {
-		return $this->deprecated_result( $this->delete_shipping_method( $payload ), 'legacy_import_freight_command:use_shipping_method_commands' );
-	}
-
-	public function get_product_import_pricing($payload) {
-		return $this->deprecated_result( $this->get_product_shipping_method( $payload ), 'legacy_import_freight_command:use_shipping_method_commands' );
-	}
-
-	public function assign_product_import_freight($payload) {
-		return $this->deprecated_result( $this->assign_product_shipping_method( $payload ), 'legacy_import_freight_command:use_shipping_method_commands' );
-	}
-
-	public function batch_assign_product_import_freight($payload) {
-		return $this->deprecated_result( $this->batch_assign_product_shipping_methods( $payload ), 'legacy_import_freight_command:use_shipping_method_commands' );
-	}
-
-	private function deprecated_result($result, $notice) {
-		if (is_wp_error( $result ) || !is_array( $result )) {
-			return $result;
-		}
-
-		$deprecations = isset( $result['deprecations'] ) && is_array( $result['deprecations'] )
-			? $result['deprecations']
-			: array();
-		$deprecations[] = sanitize_text_field( (string) $notice );
-		$result['deprecations'] = array_values( array_unique( $deprecations ) );
-		return $result;
-	}
-
-	/**
-	 * Translate canonical API fields to the storage-service representation.
-	 *
-	 * The service intentionally retains its established internal field names
-	 * so rollback releases can read dual-written records. Transport callers
-	 * receive and should send only the shipping-method vocabulary.
-	 *
-	 * @param array $data         Method payload.
-	 * @param array $deprecations Populated with accepted legacy aliases.
-	 * @return array|WP_Error
-	 */
-	private function normalize_shipping_method_payload($data, &$deprecations) {
-		if (!is_array( $data )) {
-			return $data;
-		}
-
-		$normalized = $this->normalize_shipping_price_field( $data, $deprecations, '' );
-		if (is_wp_error( $normalized )) {
-			return $normalized;
-		}
-
-		if (isset( $normalized['tiered_rates'] ) && is_array( $normalized['tiered_rates'] )) {
-			foreach ($normalized['tiered_rates'] as $index => $tier) {
-				if (!is_array( $tier )) {
-					continue;
-				}
-				$tier = $this->normalize_shipping_price_field( $tier, $deprecations, 'tiered_rates.' . $index . '.' );
-				if (is_wp_error( $tier )) {
-					return $tier;
-				}
-				$normalized['tiered_rates'][$index] = $tier;
-			}
-		}
-
-		return $normalized;
-	}
-
-	/**
-	 * Normalize one canonical shipping price field.
-	 *
-	 * @param array  $data         Payload or tier.
-	 * @param array  $deprecations Populated with accepted legacy aliases.
-	 * @param string $path         Machine-readable field path prefix.
-	 * @return array|WP_Error
-	 */
-	private function normalize_shipping_price_field($data, &$deprecations, $path) {
-		$has_canonical = array_key_exists( 'shipping_price_per_kg_cny', $data );
-		$has_legacy = array_key_exists( 'price_per_kg_cny', $data );
-
-		if ($has_canonical && $has_legacy && (string) $data['shipping_price_per_kg_cny'] !== (string) $data['price_per_kg_cny']) {
-			return new WP_Error(
-				'digitalogic_shipping_method_price_conflict',
-				__( 'Provide either shipping_price_per_kg_cny or its deprecated price_per_kg_cny alias, not conflicting values.', 'digitalogic' ),
-				array('status' => 400, 'field' => $path . 'shipping_price_per_kg_cny')
-			);
-		}
-
-		if ($has_canonical) {
-			$data['price_per_kg_cny'] = $data['shipping_price_per_kg_cny'];
-			unset( $data['shipping_price_per_kg_cny'] );
-		} elseif ($has_legacy) {
-			$deprecations[] = $path . 'price_per_kg_cny:use_shipping_price_per_kg_cny';
-		}
-
-		return $data;
-    }
 
     /**
      * Execute a normal wp_ajax_{action} callback through a non-HTTP transport.

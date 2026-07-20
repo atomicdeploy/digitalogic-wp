@@ -3,8 +3,8 @@
 Digitalogic exposes one least-privilege machine identity for the two read-only
 contracts needed by Patris pricing:
 
-- `GET /wp-json/digitalogic/v1/integration/catalog`
-- `POST /wp-json/digitalogic/v1/pricing-assignments/batch`
+- `GET /wp-json/digitalogic/integration/catalog`
+- `POST /wp-json/digitalogic/integration/pricing-assignments/batch`
 
 The second operation uses POST only because it accepts a bounded JSON Code
 list. It does not mutate products, assignments, prices, options, events, or
@@ -63,7 +63,7 @@ variable's name. Do not put the credential in Patris JSON/TOML/YAML, source
 control, service arguments, screenshots, or shell history.
 
 ```text
-PATRIS_EXPORT_DIGITALOGIC_URL=https://digitalogic.ir/wp-json/digitalogic/v1/
+PATRIS_EXPORT_DIGITALOGIC_URL=https://digitalogic.ir/wp-json/digitalogic/
 PATRIS_EXPORT_DIGITALOGIC_BEARER_ENV=DIGITALOGIC_PRICING_INPUT_TOKEN
 DIGITALOGIC_PRICING_INPUT_TOKEN=<value emitted once by WP-CLI>
 ```
@@ -80,13 +80,13 @@ environment and contain no literal credential.
 ```bash
 curl -fsS \
   -H "Authorization: Bearer ${DIGITALOGIC_PRICING_INPUT_TOKEN}" \
-  https://digitalogic.ir/wp-json/digitalogic/v1/integration/catalog
+  https://digitalogic.ir/wp-json/digitalogic/integration/catalog
 
 curl -fsS \
   -H "Authorization: Bearer ${DIGITALOGIC_PRICING_INPUT_TOKEN}" \
   -H 'Content-Type: application/json' \
   --data '{"codes":["113001002"]}' \
-  https://digitalogic.ir/wp-json/digitalogic/v1/pricing-assignments/batch
+  https://digitalogic.ir/wp-json/digitalogic/integration/pricing-assignments/batch
 ```
 
 Before enabling Patris, also confirm that absent and deliberately wrong Bearer

@@ -62,7 +62,7 @@ final class PatrisFeedResolutionTest extends TestCase {
         $this->assertSame('Upstream-only product', $snapshot['NOT-IN-WOO']['name']);
     }
 
-    public function test_cross_namespace_collision_is_ambiguous_and_neither_product_is_written(): void {
+    public function test_sku_collision_does_not_override_the_exact_patris_code_target(): void {
         $GLOBALS['digitalogic_test_posts'] = array(
             702 => array(
                 'post_type' => 'product',
@@ -70,32 +70,32 @@ final class PatrisFeedResolutionTest extends TestCase {
             ),
             703 => array(
                 'post_type' => 'product',
-                'meta' => array('_digitalogic_patris_product_code' => 'COLLISION', '_existing_sentinel' => 'patris-nontarget'),
+                'meta' => array('_digitalogic_patris_product_code' => 'COLLISION', '_existing_sentinel' => 'patris-target'),
             ),
         );
 
         $result = $this->feed->import_payload(array('products' => array(array(
             'product_code' => 'COLLISION',
-            'name' => 'Must remain ambiguous',
+            'name' => 'Exact Patris target',
             'total_stock' => 2,
             'final_price' => 12345,
         ))), 'test');
 
-        $this->assertSame(0, $result['updated']);
-        $this->assertSame(1, $result['failed']);
-        $this->assertSame(array('Skipped product because its exact Code/SKU is ambiguous.'), $result['errors']);
-        $this->assertSame(array(), $GLOBALS['digitalogic_test_wc_product_saves']);
+        $this->assertSame(1, $result['updated']);
+        $this->assertSame(0, $result['failed']);
+        $this->assertSame(array(), $result['errors']);
+        $this->assertSame(array(703), $GLOBALS['digitalogic_test_wc_product_saves']);
         $this->assertSame('sku-target', $GLOBALS['digitalogic_test_posts'][702]['meta']['_existing_sentinel']);
         $this->assertArrayNotHasKey('_digitalogic_patris_name', $GLOBALS['digitalogic_test_posts'][702]['meta']);
-        $this->assertSame('patris-nontarget', $GLOBALS['digitalogic_test_posts'][703]['meta']['_existing_sentinel']);
-        $this->assertArrayNotHasKey('_digitalogic_patris_name', $GLOBALS['digitalogic_test_posts'][703]['meta']);
-        $this->assertSame('Must remain ambiguous', get_option('digitalogic_patris_feed_products')['COLLISION']['name']);
+        $this->assertSame('patris-target', $GLOBALS['digitalogic_test_posts'][703]['meta']['_existing_sentinel']);
+        $this->assertSame('Exact Patris target', $GLOBALS['digitalogic_test_posts'][703]['meta']['_digitalogic_patris_name']);
+        $this->assertSame('Exact Patris target', get_option('digitalogic_patris_feed_products')['COLLISION']['name']);
     }
 
     public function test_ambiguous_and_invalid_identifiers_fail_safely_without_product_writes_but_remain_reportable(): void {
         $GLOBALS['digitalogic_test_posts'] = array(
-            704 => array('post_type' => 'product', 'meta' => array('_sku' => 'AMBIGUOUS', '_existing_sentinel' => 'first')),
-            705 => array('post_type' => 'product_variation', 'meta' => array('_sku' => 'AMBIGUOUS', '_existing_sentinel' => 'second')),
+            704 => array('post_type' => 'product', 'meta' => array('_digitalogic_patris_product_code' => 'AMBIGUOUS', '_existing_sentinel' => 'first')),
+            705 => array('post_type' => 'product_variation', 'meta' => array('_digitalogic_patris_product_code' => 'AMBIGUOUS', '_existing_sentinel' => 'second')),
         );
         $invalid_code = str_repeat('X', 192);
         $ambiguous_row = array(
@@ -116,8 +116,8 @@ final class PatrisFeedResolutionTest extends TestCase {
         $this->assertSame(0, $result['missing_in_woocommerce']);
         $this->assertSame(2, $result['failed']);
         $this->assertSame(array(
-            'Skipped product because its exact Code/SKU is ambiguous.',
-            'Skipped product because its Code/SKU could not be resolved.',
+            'Skipped product because its exact Patris Code is ambiguous.',
+            'Skipped product because its Patris Code could not be resolved.',
         ), $result['errors']);
         $this->assertSame(array(), $GLOBALS['digitalogic_test_wc_product_saves']);
         $this->assertSame('first', $GLOBALS['digitalogic_test_posts'][704]['meta']['_existing_sentinel']);
