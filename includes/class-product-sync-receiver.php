@@ -2,7 +2,7 @@
 /**
  * Living, transformed-only Patris product-sync receiver.
  *
- * It accepts the canonical digitalogic.product-sync contract,
+ * It accepts the canonical patris.product-sync contract,
  * verifies its deterministic identities, and maintains an ordered snapshot
  * per Patris source.
  */
@@ -233,7 +233,7 @@ final class Digitalogic_Product_Sync_JSON_Decoder {
 
 class Digitalogic_Product_Sync_Receiver {
     public const STATE_OPTION = 'digitalogic_product_sync_state';
-    public const CONTRACT_NAME = 'digitalogic.product-sync';
+    public const CONTRACT_NAME = 'patris.product-sync';
     public const FORMULA_ID = 'landed_price';
 
     private const LOCK_NAME = 'digitalogic_product_sync';
@@ -840,7 +840,7 @@ class Digitalogic_Product_Sync_Receiver {
             }
         }
         if (self::CONTRACT_NAME !== $payload['schema']) {
-            return $this->error('digitalogic_product_sync_schema_unsupported', 'Only digitalogic.product-sync envelopes are accepted.', 422);
+            return $this->error('digitalogic_product_sync_schema_unsupported', 'Only patris.product-sync envelopes are accepted.', 422);
         }
         if (!in_array($payload['event_type'], array('snapshot', 'update'), true)) {
             return $this->field_error('event_type', 'must be snapshot or update');

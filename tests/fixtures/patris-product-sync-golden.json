@@ -1,7 +1,7 @@
 {
-  "schema": "digitalogic.product-sync",
+  "schema": "patris.product-sync",
   "event_type": "snapshot",
-  "event_id": "sha256:2bbb46be3ac8923ab6dab2256cfc419eabbb8d6405b7568169aa2ad0a93d1a63",
+  "event_id": "sha256:0554ef4f5dc36a0380d7d0ae0b1b8f5bbb350d218a6f30fa885f792de73bbe0a",
   "source": {
     "id": "patris-export",
     "dataset": "ALLANBAR",

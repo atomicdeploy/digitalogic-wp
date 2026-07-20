@@ -55,7 +55,7 @@ $notice_type = in_array($notice_type, array('success', 'error', 'warning', 'info
             <div class="digitalogic-push-box">
                 <strong><?php echo esc_html__('Product-sync endpoint', 'digitalogic'); ?></strong>
                 <code><?php echo esc_html($product_sync_url); ?></code>
-                <strong><?php echo esc_html__('X-Digitalogic-Product-Sync-Secret', 'digitalogic'); ?></strong>
+                <strong><?php echo esc_html__('X-Patris-Product-Sync-Secret', 'digitalogic'); ?></strong>
                 <code><?php echo esc_html($product_sync_secret); ?></code>
             </div>
         </section>

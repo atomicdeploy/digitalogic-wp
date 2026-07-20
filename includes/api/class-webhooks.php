@@ -14,7 +14,7 @@ class Digitalogic_Webhooks {
 
     // phpcs:disable -- Preserve the established webhook formatting in this file.
     private const PRODUCT_SYNC_EVENT = 'patris.product_sync.applied';
-    private const PRODUCT_SYNC_SCHEMA = 'digitalogic.product-sync';
+    private const PRODUCT_SYNC_SCHEMA = 'patris.product-sync';
     private const MAX_PRODUCT_SYNC_COUNT = 10000;
     private const PRODUCT_SYNC_STATUSES = array(
         'accepted',
