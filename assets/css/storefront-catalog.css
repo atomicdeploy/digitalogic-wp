@@ -93,6 +93,10 @@
 	padding: 12px;
 }
 
+.dgl-catalog-toolbar > * {
+	min-inline-size: 0;
+}
+
 .dgl-catalog-toolbar input,
 .dgl-catalog-toolbar select {
 	background-color: var(--dgl-catalog-soft);
@@ -115,23 +119,33 @@
 	box-shadow: 0 0 0 3px rgba(23, 105, 232, .11);
 }
 
-.dgl-catalog-search {
+.dgl-catalog .dgl-catalog-search {
+	display: block;
+	inline-size: 100%;
+	min-inline-size: 0;
 	position: relative;
 }
 
-.dgl-catalog-search input {
-	padding-right: 42px;
+.dgl-catalog .dgl-catalog-toolbar .dgl-catalog-search > input[type="search"] {
+	box-sizing: border-box;
+	inline-size: 100%;
+	max-inline-size: 100%;
+	padding-inline-end: 13px;
+	padding-inline-start: 42px;
 }
 
-.dgl-catalog-search svg {
+.dgl-catalog .dgl-catalog-search > svg {
 	fill: none;
 	height: 18px;
+	inset-block-start: 50%;
+	inset-inline-end: auto;
+	inset-inline-start: 14px;
+	pointer-events: none;
 	position: absolute;
-	right: 14px;
 	stroke: #7b8ca4;
 	stroke-linecap: round;
 	stroke-width: 1.8;
-	top: 13px;
+	transform: translateY(-50%);
 	width: 18px;
 	z-index: 1;
 }
@@ -394,6 +408,46 @@
 	color: var(--dgl-catalog-blue) !important;
 }
 
+.dgl-catalog-results {
+	outline: none;
+	position: relative;
+	scroll-margin-block-start: 24px;
+}
+
+.dgl-catalog-results > * {
+	transition: opacity .16s ease;
+}
+
+.dgl-catalog-results.is-loading {
+	min-block-size: 110px;
+	pointer-events: none;
+}
+
+.dgl-catalog-results.is-loading > * {
+	opacity: .42;
+}
+
+.dgl-catalog-results.is-loading::after {
+	animation: dgl-catalog-spin .75s linear infinite;
+	border: 3px solid rgba(23, 105, 232, .2);
+	border-block-start-color: var(--dgl-catalog-blue);
+	border-radius: 50%;
+	content: "";
+	height: 30px;
+	inset-block-start: 26px;
+	inset-inline-start: 50%;
+	margin-inline-start: -15px;
+	position: absolute;
+	width: 30px;
+	z-index: 3;
+}
+
+@keyframes dgl-catalog-spin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+
 .dgl-catalog-pagination {
 	margin-top: 20px;
 }
@@ -624,5 +678,9 @@
 	.dgl-catalog * {
 		scroll-behavior: auto !important;
 		transition: none !important;
+	}
+
+	.dgl-catalog-results.is-loading::after {
+		animation: none;
 	}
 }

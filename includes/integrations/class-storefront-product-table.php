@@ -23,7 +23,10 @@ final class Digitalogic_Storefront_Product_Table {
 		add_shortcode( 'digitalogic_product_table', array( $this, 'render' ) );
 		add_shortcode( 'digitalogic_image_credits', array( $this, 'render_image_credits' ) );
 		add_filter( 'posts_orderby', array( $this, 'recommended_orderby' ), 10, 2 );
+		add_filter( 'digitalogic_command_handlers', array( $this, 'register_commands' ), 10, 2 );
 		add_action( 'wp_enqueue_scripts', array( $this, 'maybe_enqueue_assets' ) );
+		add_action( 'wp_ajax_digitalogic_catalog_page', array( $this, 'ajax_catalog_page' ) );
+		add_action( 'wp_ajax_nopriv_digitalogic_catalog_page', array( $this, 'ajax_catalog_page' ) );
 	}
 
 	/**
@@ -54,12 +57,8 @@ final class Digitalogic_Storefront_Product_Table {
 
 		$filters  = $this->request_filters();
 		$query    = new WP_Query( $this->query_args( $filters ) );
-		$products = array_filter(
-			array_map(
-				static fn( $post ) => wc_get_product( $post->ID ),
-				$query->posts
-			)
-		);
+		$products = $this->products_from_query( $query );
+		$base_url = $this->catalog_base_url();
 		$terms    = get_terms(
 			array(
 				'taxonomy'   => 'product_cat',
@@ -82,7 +81,7 @@ final class Digitalogic_Storefront_Product_Table {
 				<div class="dgl-catalog-count"><strong><?php echo esc_html( number_format_i18n( $query->found_posts ) ); ?></strong><span>کالای موجود</span></div>
 			</header>
 
-			<form class="dgl-catalog-toolbar" method="get" action="<?php echo esc_url( get_permalink() ); ?>">
+			<form class="dgl-catalog-toolbar" method="get" action="<?php echo esc_url( $base_url ); ?>">
 				<label class="dgl-catalog-search">
 					<span class="screen-reader-text">جست‌وجوی محصول</span>
 					<svg aria-hidden="true" viewBox="0 0 24 24"><path d="m21 21-4.35-4.35m2.35-5.65a8 8 0 1 1-16 0 8 8 0 0 1 16 0Z"/></svg>
@@ -110,38 +109,22 @@ final class Digitalogic_Storefront_Product_Table {
 				</label>
 				<button type="submit">اعمال فیلتر</button>
 				<?php if ( $filters['search'] || $filters['category'] || 'recommended' !== $filters['sort'] ) : ?>
-					<a class="dgl-catalog-reset" href="<?php echo esc_url( get_permalink() ); ?>">پاکش کن</a>
+					<a class="dgl-catalog-reset" href="<?php echo esc_url( $base_url ); ?>">پاکش کن</a>
 				<?php endif; ?>
 			</form>
 
-			<?php if ( empty( $products ) ) : ?>
-				<div class="dgl-catalog-empty">
-					<strong>چیزی با این فیلتر پیدا نشد</strong>
-					<p>یه عبارت کوتاه‌تر امتحان کن یا دسته‌بندی رو روی «همه دسته‌ها» بذار.</p>
-					<a href="<?php echo esc_url( get_permalink() ); ?>">دیدن همه محصولات</a>
-				</div>
-			<?php else : ?>
-				<div class="dgl-catalog-table-wrap">
-					<table class="dgl-catalog-table">
-						<thead>
-							<tr>
-								<th scope="col">محصول</th>
-								<th scope="col">کد / SKU</th>
-								<th scope="col">دسته</th>
-								<th scope="col">موجودی</th>
-								<th scope="col">قیمت</th>
-								<th scope="col">سفارش سریع</th>
-							</tr>
-						</thead>
-						<tbody>
-							<?php foreach ( $products as $product ) : ?>
-								<?php echo $this->product_row( $product ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
-							<?php endforeach; ?>
-						</tbody>
-					</table>
-				</div>
-				<?php echo $this->pagination( $query, $filters ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
-			<?php endif; ?>
+			<div
+				class="dgl-catalog-results"
+				data-page="<?php echo esc_attr( $filters['page'] ); ?>"
+				data-total-pages="<?php echo esc_attr( max( 1, (int) $query->max_num_pages ) ); ?>"
+				role="region"
+				aria-label="نتایج محصولات"
+				aria-busy="false"
+				tabindex="-1"
+			>
+				<?php echo $this->render_results( $query, $products, $filters, $base_url ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
+			</div>
+			<div class="dgl-catalog-load-status screen-reader-text" role="status" aria-live="polite" aria-atomic="true"></div>
 
 			<div class="dgl-catalog-toast" role="status" aria-live="polite" hidden></div>
 			<p class="dgl-catalog-credit-note">عکس‌های موقتِ منبع‌باز با ذکر منبع استفاده شدن؛ <a href="<?php echo esc_url( home_url( '/image-credits/' ) ); ?>">اعتبار عکس‌ها</a></p>
@@ -149,6 +132,157 @@ final class Digitalogic_Storefront_Product_Table {
 		<?php
 
 		return ob_get_clean();
+	}
+
+	/**
+	 * Register the read-only catalog page command for non-HTTP transports.
+	 *
+	 * @param array  $commands  Registered command handlers.
+	 * @param string $transport Transport name.
+	 * @return array
+	 */
+	public function register_commands( $commands, $transport ) {
+		unset( $transport );
+		$commands['digitalogic_catalog_page'] = array( $this, 'catalog_page_command' );
+
+		return $commands;
+	}
+
+	/**
+	 * Serve a catalog result fragment over the normal WordPress AJAX fallback.
+	 */
+	public function ajax_catalog_page() {
+		$result = $this->catalog_page_command( $_REQUEST, 'ajax' ); // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+
+		if ( is_wp_error( $result ) ) {
+			$data   = $result->get_error_data();
+			$status = is_array( $data ) && ! empty( $data['status'] ) ? (int) $data['status'] : 500;
+			wp_send_json_error(
+				array(
+					'code'    => $result->get_error_code(),
+					'message' => $result->get_error_message(),
+				),
+				$status
+			);
+		}
+
+		wp_send_json_success( $result );
+	}
+
+	/**
+	 * Build the same catalog fragment for AJAX and WebSocket clients.
+	 *
+	 * @param array  $payload   Catalog filter payload.
+	 * @param string $transport Transport name.
+	 * @return array|WP_Error
+	 */
+	public function catalog_page_command( $payload, $transport = 'websocket' ) {
+		unset( $transport );
+
+		if ( ! function_exists( 'wc_get_product' ) ) {
+			return new WP_Error( 'digitalogic_catalog_unavailable', __( 'WooCommerce is unavailable.', 'digitalogic' ), array( 'status' => 503 ) );
+		}
+
+		$payload  = is_array( $payload ) ? $payload : array();
+		$filters  = $this->request_filters( $payload );
+		$query    = new WP_Query( $this->query_args( $filters ) );
+		$products = $this->products_from_query( $query );
+		$base_url = $this->catalog_base_url( $payload['base_url'] ?? '' );
+
+		return array(
+			'html'              => $this->render_results( $query, $products, $filters, $base_url ),
+			'page'              => (int) $filters['page'],
+			'max_pages'         => max( 1, (int) $query->max_num_pages ),
+			'found_posts'       => (int) $query->found_posts,
+			'found_posts_label' => number_format_i18n( $query->found_posts ),
+		);
+	}
+
+	/**
+	 * Render only the replaceable result table and pagination.
+	 *
+	 * @param WP_Query $query    Product query.
+	 * @param array    $products Products for the current page.
+	 * @param array    $filters  Normalized filters.
+	 * @param string   $base_url Catalog page URL.
+	 * @return string
+	 */
+	private function render_results( $query, $products, $filters, $base_url ) {
+		ob_start();
+		?>
+		<?php if ( empty( $products ) ) : ?>
+			<div class="dgl-catalog-empty">
+				<strong>چیزی با این فیلتر پیدا نشد</strong>
+				<p>یه عبارت کوتاه‌تر امتحان کن یا دسته‌بندی رو روی «همه دسته‌ها» بذار.</p>
+				<a href="<?php echo esc_url( $base_url ); ?>">دیدن همه محصولات</a>
+			</div>
+		<?php else : ?>
+			<div class="dgl-catalog-table-wrap">
+				<table class="dgl-catalog-table">
+					<thead>
+						<tr>
+							<th scope="col">محصول</th>
+							<th scope="col">کد / SKU</th>
+							<th scope="col">دسته</th>
+							<th scope="col">موجودی</th>
+							<th scope="col">قیمت</th>
+							<th scope="col">سفارش سریع</th>
+						</tr>
+					</thead>
+					<tbody>
+						<?php foreach ( $products as $product ) : ?>
+							<?php echo $this->product_row( $product ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
+						<?php endforeach; ?>
+					</tbody>
+				</table>
+			</div>
+			<?php echo $this->pagination( $query, $filters, $base_url ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
+		<?php endif; ?>
+		<?php
+
+		return ob_get_clean();
+	}
+
+	/**
+	 * Convert query posts to usable WooCommerce product objects.
+	 *
+	 * @param WP_Query $query Product query.
+	 * @return array
+	 */
+	private function products_from_query( $query ) {
+		return array_filter(
+			array_map(
+				static fn( $post ) => wc_get_product( $post->ID ),
+				$query->posts
+			)
+		);
+	}
+
+	/**
+	 * Resolve a same-site base URL that remains valid in the WP-CLI WS process.
+	 *
+	 * @param mixed $candidate Optional client-provided catalog URL.
+	 * @return string
+	 */
+	private function catalog_base_url( $candidate = '' ) {
+		$fallback  = get_permalink();
+		$fallback  = is_string( $fallback ) && '' !== $fallback ? $fallback : home_url( '/catalog/' );
+		$candidate = is_scalar( $candidate ) ? esc_url_raw( wp_unslash( (string) $candidate ) ) : '';
+
+		if ( '' === $candidate ) {
+			return $fallback;
+		}
+
+		$candidate_parts = wp_parse_url( $candidate );
+		$home_parts      = wp_parse_url( home_url( '/' ) );
+		$scheme          = strtolower( (string) ( $candidate_parts['scheme'] ?? '' ) );
+		$same_host       = isset( $candidate_parts['host'], $home_parts['host'] ) && 0 === strcasecmp( $candidate_parts['host'], $home_parts['host'] );
+
+		if ( ! $same_host || ! in_array( $scheme, array( 'http', 'https' ), true ) ) {
+			return $fallback;
+		}
+
+		return $candidate;
 	}
 
 	/**
@@ -213,7 +347,7 @@ final class Digitalogic_Storefront_Product_Table {
 			'digitalogic-storefront-catalog',
 			DIGITALOGIC_PLUGIN_URL . 'assets/css/storefront-catalog.css',
 			array(),
-			DIGITALOGIC_VERSION
+			filemtime( DIGITALOGIC_PLUGIN_DIR . 'assets/css/storefront-catalog.css' ) ?: DIGITALOGIC_VERSION
 		);
 
 		$dependencies = array( 'jquery' );
@@ -229,15 +363,21 @@ final class Digitalogic_Storefront_Product_Table {
 			'digitalogic-storefront-catalog',
 			DIGITALOGIC_PLUGIN_URL . 'assets/js/storefront-catalog.js',
 			$dependencies,
-			DIGITALOGIC_VERSION,
+			filemtime( DIGITALOGIC_PLUGIN_DIR . 'assets/js/storefront-catalog.js' ) ?: DIGITALOGIC_VERSION,
 			true
 		);
 		wp_localize_script(
 			'digitalogic-storefront-catalog',
 			'digitalogicCatalog',
 			array(
-				'added' => 'اضافه شد؛ توی سبد منتظرته 😎',
-				'error' => 'اضافه نشد؛ یه بار دیگه امتحانش کن.',
+				'added'        => 'اضافه شد؛ توی سبد منتظرته 😎',
+				'error'        => 'اضافه نشد؛ یه بار دیگه امتحانش کن.',
+				'ajaxUrl'      => admin_url( 'admin-ajax.php' ),
+				'baseUrl'      => $this->catalog_base_url(),
+				'pageAction'   => 'digitalogic_catalog_page',
+				'pageLoading'  => 'صفحه بعدی محصولات در حال بارگذاری است.',
+				'pageLoaded'   => 'صفحه محصولات بارگذاری شد.',
+				'pageError'    => 'بارگذاری سریع انجام نشد؛ صفحه معمولی باز می‌شود.',
 			)
 		);
 	}
@@ -245,14 +385,16 @@ final class Digitalogic_Storefront_Product_Table {
 	/**
 	 * Read and normalize public filters.
 	 *
+	 * @param array|null $source Explicit request data, or null for the page query.
 	 * @return array
 	 */
-	private function request_filters() {
+	private function request_filters( $source = null ) {
+		$source        = is_array( $source ) ? $source : $_GET;
 		$allowed_sorts = array( 'recommended', 'popular', 'newest', 'name', 'price-low', 'price-high' );
-		$sort          = isset( $_GET['dgl_sort'] ) && is_scalar( $_GET['dgl_sort'] ) ? sanitize_key( wp_unslash( $_GET['dgl_sort'] ) ) : 'recommended'; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
-		$search        = isset( $_GET['dgl_search'] ) && is_scalar( $_GET['dgl_search'] ) ? sanitize_text_field( wp_unslash( $_GET['dgl_search'] ) ) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
-		$category      = isset( $_GET['dgl_category'] ) && is_scalar( $_GET['dgl_category'] ) ? absint( wp_unslash( $_GET['dgl_category'] ) ) : 0; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
-		$page          = isset( $_GET['dgl_page'] ) && is_scalar( $_GET['dgl_page'] ) ? max( 1, absint( wp_unslash( $_GET['dgl_page'] ) ) ) : 1; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+		$sort          = isset( $source['dgl_sort'] ) && is_scalar( $source['dgl_sort'] ) ? sanitize_key( wp_unslash( $source['dgl_sort'] ) ) : 'recommended';
+		$search        = isset( $source['dgl_search'] ) && is_scalar( $source['dgl_search'] ) ? sanitize_text_field( wp_unslash( $source['dgl_search'] ) ) : '';
+		$category      = isset( $source['dgl_category'] ) && is_scalar( $source['dgl_category'] ) ? absint( wp_unslash( $source['dgl_category'] ) ) : 0;
+		$page          = isset( $source['dgl_page'] ) && is_scalar( $source['dgl_page'] ) ? max( 1, min( 1000, absint( wp_unslash( $source['dgl_page'] ) ) ) ) : 1;
 
 		return array(
 			'search'   => $search,
@@ -462,11 +604,12 @@ final class Digitalogic_Storefront_Product_Table {
 	/**
 	 * Render pagination while preserving active filters.
 	 *
-	 * @param WP_Query $query Query.
-	 * @param array    $filters Filters.
+	 * @param WP_Query $query    Query.
+	 * @param array    $filters  Filters.
+	 * @param string   $base_url Catalog page URL.
 	 * @return string
 	 */
-	private function pagination( $query, $filters ) {
+	private function pagination( $query, $filters, $base_url ) {
 		if ( $query->max_num_pages < 2 ) {
 			return '';
 		}
@@ -478,7 +621,7 @@ final class Digitalogic_Storefront_Product_Table {
 				'dgl_sort'     => 'recommended' !== $filters['sort'] ? $filters['sort'] : false,
 				'dgl_page'     => 999999999,
 			),
-			get_permalink()
+			$base_url
 		);
 		$base = str_replace( '999999999', '%#%', $base );
 		$links = paginate_links(
@@ -488,6 +631,7 @@ final class Digitalogic_Storefront_Product_Table {
 				'total'     => $query->max_num_pages,
 				'mid_size'  => 2,
 				'end_size'  => 1,
+				'aria_current' => 'page',
 				'prev_text' => 'قبلی',
 				'next_text' => 'بعدی',
 				'type'      => 'list',

@@ -49,12 +49,13 @@ class Digitalogic_Command_Dispatcher {
     public function execute($command, $payload = array(), $transport = 'ajax') {
         $command = self::normalize_command_name($command);
 
-        if (!current_user_can('manage_woocommerce')) {
-            return new WP_Error('digitalogic_unauthorized', __('Unauthorized', 'digitalogic'), array('status' => 403));
-        }
-
         if (!is_array($payload)) {
             return new WP_Error('digitalogic_invalid_payload', __('Payload must be an object.', 'digitalogic'), array('status' => 400));
+        }
+
+        $requires_auth = (bool) apply_filters('digitalogic_command_requires_auth', true, $command, $payload, $transport);
+        if ($requires_auth && !current_user_can('manage_woocommerce')) {
+            return new WP_Error('digitalogic_unauthorized', __('Unauthorized', 'digitalogic'), array('status' => 403));
         }
 
         $commands = apply_filters('digitalogic_command_handlers', $this->default_handlers(), $transport);
