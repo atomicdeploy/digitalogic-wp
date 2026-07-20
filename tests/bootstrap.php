@@ -41,6 +41,8 @@ $GLOBALS['digitalogic_test_primed_post_ids'] = array();
 $GLOBALS['digitalogic_test_wc_currency'] = 'IRT';
 $GLOBALS['digitalogic_test_transients'] = array(); // phpcs:ignore
 $GLOBALS['digitalogic_test_transient_deletes'] = array(); // phpcs:ignore
+$GLOBALS['digitalogic_test_rewrite_rules'] = array(); // phpcs:ignore
+$GLOBALS['digitalogic_test_rewrite_flushes'] = array(); // phpcs:ignore
 // phpcs:enable Generic.Formatting.MultipleStatementAlignment
 
 class WP_Error {
@@ -211,6 +213,17 @@ function add_filter($hook_name, $callback, $priority = 10, $accepted_args = 1) {
     );
 
     return true;
+}
+
+function add_rewrite_rule($regex, $query, $after = 'bottom') {
+    $GLOBALS['digitalogic_test_rewrite_rules'][$regex] = array(
+        'query' => $query,
+        'after' => $after,
+    );
+}
+
+function flush_rewrite_rules($hard = true) {
+    $GLOBALS['digitalogic_test_rewrite_flushes'][] = (bool) $hard;
 }
 
 function remove_all_filters($hook_name) {
@@ -430,6 +443,24 @@ function wp_parse_args($args, $defaults = array()) {
 
 function wp_parse_url($url, $component = -1) {
     return parse_url($url, $component);
+}
+
+function trailingslashit($value) {
+    return rtrim((string) $value, '/\\') . '/';
+}
+
+function untrailingslashit($value) {
+    return rtrim((string) $value, '/\\');
+}
+
+function add_query_arg($args, $url) {
+    if (!is_array($args) || empty($args)) {
+        return $url;
+    }
+
+    $separator = strpos($url, '?') === false ? '?' : '&';
+
+    return $url . $separator . http_build_query($args);
 }
 
 function wp_unslash($value) {
@@ -1584,6 +1615,7 @@ require_once dirname(__DIR__) . '/includes/class-command-dispatcher.php';
 require_once dirname(__DIR__) . '/includes/api/class-rest-api.php';
 require_once dirname(__DIR__) . '/includes/api/class-webhooks.php';
 require_once dirname(__DIR__) . '/includes/class-report-engine.php';
+require_once dirname(__DIR__) . '/includes/integrations/class-laravel-bridge.php';
 require_once dirname(__DIR__) . '/includes/panel/class-panel.php';
 require_once dirname(__DIR__) . '/includes/websocket/class-websocket-server.php';
 require_once dirname(__DIR__) . '/includes/cli/class-cli-commands.php';

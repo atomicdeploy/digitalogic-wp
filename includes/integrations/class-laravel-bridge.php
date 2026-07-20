@@ -144,6 +144,12 @@ class Digitalogic_Laravel_Bridge {
         }
 
         $return_to = isset($_GET['return_to']) ? esc_url_raw(wp_unslash($_GET['return_to'])) : '';
+
+        if ($this->uses_integrated_panel()) {
+            wp_safe_redirect($this->get_integrated_panel_url($return_to));
+            exit;
+        }
+
         $code = $this->create_session_handoff(get_current_user_id(), $return_to);
 
         wp_redirect($this->get_panel_auth_url(array(
@@ -343,15 +349,37 @@ class Digitalogic_Laravel_Bridge {
     }
 
     public function get_panel_auth_url($args = array()) {
-        $panel_url = $this->get_panel_url();
-        $panel_host = wp_parse_url($panel_url, PHP_URL_HOST);
-        $home_host = wp_parse_url(home_url(), PHP_URL_HOST);
-
-        if ($panel_host && $home_host && strtolower($panel_host) === strtolower($home_host)) {
-            return add_query_arg(array_filter($args), trailingslashit($panel_url));
+        if ($this->uses_integrated_panel()) {
+            return $this->get_integrated_panel_url(isset($args['return_to']) ? $args['return_to'] : '');
         }
 
         return $this->get_panel_url('/auth/wordpress', $args);
+    }
+
+    public function uses_integrated_panel() {
+        $panel_origin = $this->normalized_origin($this->get_panel_url());
+        $home_origin = $this->normalized_origin(home_url());
+
+        return $panel_origin !== '' && hash_equals($home_origin, $panel_origin);
+    }
+
+    private function get_integrated_panel_url($return_to = '') {
+        $args = $return_to !== '' ? array('return_to' => $return_to) : array();
+
+        return add_query_arg($args, trailingslashit($this->get_panel_url()));
+    }
+
+    private function normalized_origin($url) {
+        $parts = wp_parse_url($url);
+        if (!is_array($parts) || empty($parts['host'])) {
+            return '';
+        }
+
+        $scheme = isset($parts['scheme']) ? strtolower((string) $parts['scheme']) : 'https';
+        $host = strtolower((string) $parts['host']);
+        $port = isset($parts['port']) ? (int) $parts['port'] : ($scheme === 'https' ? 443 : 80);
+
+        return $scheme . '://' . $host . ':' . $port;
     }
 
     public function call_local_laravel($path, $method = 'GET', $payload = array()) {

@@ -13,7 +13,7 @@ class Digitalogic_Panel {
     private const PATH_VAR = 'digitalogic_panel_path';
     private const LEGACY_VAR = 'digitalogic_panel_legacy';
     private const REWRITE_VERSION_OPTION = 'digitalogic_panel_rewrite_version';
-    private const REWRITE_VERSION = '20260617-panel';
+    private const REWRITE_VERSION = '20260720-panel-self-heal';
     private const EVENT_OPTION = 'digitalogic_panel_events';
     private const EVENT_SEQUENCE_OPTION = 'digitalogic_panel_event_sequence';
     private const EVENT_LOCK_NAME = 'digitalogic_panel_events_v1';
@@ -59,15 +59,42 @@ class Digitalogic_Panel {
     }
 
     public function register_route() {
-        add_rewrite_rule('^panel/?$', 'index.php?' . self::QUERY_VAR . '=1', 'top');
-        add_rewrite_rule('^panel/(.+)/?$', 'index.php?' . self::QUERY_VAR . '=1&' . self::PATH_VAR . '=$matches[1]', 'top');
-        add_rewrite_rule('^panell/?$', 'index.php?' . self::QUERY_VAR . '=1&' . self::LEGACY_VAR . '=1', 'top');
-        add_rewrite_rule('^panell/(.+)/?$', 'index.php?' . self::QUERY_VAR . '=1&' . self::LEGACY_VAR . '=1&' . self::PATH_VAR . '=$matches[1]', 'top');
+        $rules = $this->rewrite_rules();
+        foreach ($rules as $pattern => $target) {
+            add_rewrite_rule($pattern, $target, 'top');
+        }
 
-        if (get_option(self::REWRITE_VERSION_OPTION) !== self::REWRITE_VERSION) {
+        if (
+            get_option(self::REWRITE_VERSION_OPTION) !== self::REWRITE_VERSION
+            || !$this->stored_rewrite_rules_are_current($rules)
+        ) {
             flush_rewrite_rules(false);
             update_option(self::REWRITE_VERSION_OPTION, self::REWRITE_VERSION, false);
         }
+    }
+
+    private function rewrite_rules() {
+        return array(
+            '^panel/?$' => 'index.php?' . self::QUERY_VAR . '=1',
+            '^panel/(.+)/?$' => 'index.php?' . self::QUERY_VAR . '=1&' . self::PATH_VAR . '=$matches[1]',
+            '^panell/?$' => 'index.php?' . self::QUERY_VAR . '=1&' . self::LEGACY_VAR . '=1',
+            '^panell/(.+)/?$' => 'index.php?' . self::QUERY_VAR . '=1&' . self::LEGACY_VAR . '=1&' . self::PATH_VAR . '=$matches[1]',
+        );
+    }
+
+    private function stored_rewrite_rules_are_current($expected_rules) {
+        $stored_rules = get_option('rewrite_rules', array());
+        if (!is_array($stored_rules)) {
+            return false;
+        }
+
+        foreach ($expected_rules as $pattern => $target) {
+            if (!isset($stored_rules[$pattern]) || $stored_rules[$pattern] !== $target) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     public function register_query_vars($vars) {
