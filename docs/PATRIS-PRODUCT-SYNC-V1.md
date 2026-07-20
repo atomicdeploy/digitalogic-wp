@@ -43,12 +43,13 @@ Patris may also send `X-Patris-Contract`, `X-Patris-Contract-Version`, and
 
 ## Envelope
 
-The receiver accepts schema major version 1. The current producer sends:
+The receiver accepts schema major version 1. Patris Export currently sends
+schema version 1.1:
 
 ```json
 {
   "schema": "digitalogic.product-sync",
-  "schema_version": "1.0",
+  "schema_version": "1.1",
   "event": "digitalogic.product-sync",
   "event_type": "snapshot",
   "event_id": "sha256:...",
@@ -63,17 +64,34 @@ The receiver accepts schema major version 1. The current producer sends:
   },
   "generated_at": "2026-07-16T08:00:00Z",
   "products": [],
+  "categories": [],
+  "excluded_codes": [],
   "deleted_codes": [],
   "quarantined_codes": [],
   "warnings": []
 }
 ```
 
-Every product is the fixed typed `digitalogic.product-sync` v1 shape emitted by
-Patris Export. `product_code` is always a non-empty JSON string, even when it
-contains only digits. Product output currency is CNY, final prices are
-non-negative integer IRT values or `null`, and the product formula must be
-`landed_price_v1`.
+Every product is the fixed typed `digitalogic.product-sync` shape emitted by
+Patris Export. In v1.1, `category_code` follows `product_code` and is a required
+string; an empty value means the product has no matching structural category.
+`product_code` is always a non-empty JSON string, even when it contains only
+digits. Product output currency is CNY, final prices are non-negative integer
+IRT values or `null`, and the product formula must be `landed_price_v1`.
+
+`categories` is the complete sorted catalog projection, not a delta. Every
+entry has exactly `category_code`, `name`, `parent_code`, positive integer
+`depth`, `warnings`, and `record_hash`. Roots have an empty parent and depth 1;
+children reference another category in the same projection and have parent
+depth plus one. `excluded_codes` is the complete sorted set of structural or
+accounting records which must not become products. Both arrays are omitted by
+the producer when empty.
+
+Legacy v1.0 envelopes remain accepted with their original product shape and
+hash material. They must not contain `category_code`, `categories`, or
+`excluded_codes`. A source changing between the v1.0 and v1.1 feature levels
+must establish a fresh snapshot; a cross-feature update is rejected with
+`digitalogic_product_sync_baseline_required`.
 
 The receiver recursively rejects raw Patris/Paradox keys, including spelling,
 case, and separator variants of `Sharh`, `Sharh1`, `Sharh2`, `FOROSH`,
@@ -83,11 +101,13 @@ case, and separator variants of `Sharh`, `Sharh1`, `Sharh2`, `FOROSH`,
 
 The receiver independently verifies:
 
-- each `record_hash` from the typed product in Go-compatible JSON field order;
+- each product and category `record_hash` from its typed record in
+  Go-compatible JSON field order;
 - every non-null `final_price` by independently evaluating
   `landed_price_v1` as bounded exact decimals, with one half-up round to the
   final IRT integer; incomplete formula inputs require `final_price: null`;
-- `source.revision` from the resulting complete source snapshot; and
+- `source.revision` from the resulting complete product, category, exclusion,
+  and quarantine snapshot; and
 - `event_id` from the schema, source identity, sorted record hashes,
   occurrence timestamp, tombstones, and quarantined Codes.
 
@@ -97,12 +117,16 @@ this field order:
 ```text
 schema, schema_version, event_type, local_currency, formula_id,
 formula_revision, source{id,dataset,revision}, generated_at, products,
+[categories when non-empty], [excluded_codes when non-empty],
 [deleted_codes when non-empty], [quarantined_codes when non-empty]
 ```
 
 `products` is a lexicographically sorted string list whose entries are
-`<product_code>=<record_hash>`. `generated_at` is the exact validated RFC3339
-wire string. Binding it into the identity makes same-content occurrences at
+`<product_code>=<record_hash>`. `categories` uses the same form with the
+category Code. The source revision sorts product entries, entries prefixed by
+`category:`, and entries prefixed by `excluded=` together, then appends sorted
+`quarantined=` entries. `generated_at` is the exact validated RFC3339 wire
+string. Binding it into the identity makes same-content occurrences at
 different timestamps distinct and ensures a newer same-content event advances
 the ordering watermark.
 
@@ -126,6 +150,8 @@ returns `recovered` or `retry_pending`.
 
 - `snapshot` replaces the receiver snapshot for that source.
 - `update` merges complete changed products into the existing snapshot.
+- On every v1.1 snapshot or update, `categories` and `excluded_codes` replace
+  their previous complete projections; they are never merged as deltas.
 - `deleted_codes` is valid on updates, including an update containing only
   tombstones. It removes exact Codes from receiver state only.
 - A tombstone never trashes, drafts, or deletes a WooCommerce product.
@@ -138,6 +164,13 @@ when no exact Patris Code exists; a distinct exact SKU and Patris Code collision
 is ambiguous. Missing or ambiguous identifiers are reported and never resolved
 by fuzzy name matching.
 
+For v1.1 products, the shared WooCommerce writer stores the validated category
+Code in `_digitalogic_patris_category_code`. This compatibility change does
+not create, rename, delete, or assign WooCommerce product terms. Native term
+materialization and taxonomy reconciliation remain separately tracked in
+[issue #81](https://github.com/atomicdeploy/digitalogic-wp/issues/81); deploying
+this receiver must not be represented as completing that work.
+
 Receiver state is written under `digitalogic_product_sync_v1_state`, evicted
 from the option cache, and read back with a digest check before WooCommerce
 writes. Each source has an applied `{record_hash,woocommerce_id}` CAS record, a
@@ -147,10 +180,12 @@ crash-window retries without a duplicate save. Woo lookup/storage/write
 failures, including identifier database query failures, stay pending; exact
 Code not-found and ambiguity move to deferred only after a successful lookup
 and are never guessed. The final delivery state is read back before the result-aware
-`digitalogic_product_sync_v1_applied` domain action. Existing v2 receiver state
-is projected and transactionally persisted as v3 under the same advisory lock.
-Because v2 could not distinguish SQL failure from not-found, its not-found
-entries stay pending until one successful v3 lookup reclassifies them.
+`digitalogic_product_sync_v1_applied` domain action. Existing v2/v3 receiver
+state is projected and transactionally persisted as v4 under the same advisory
+lock. Migrated sources are explicitly marked v1.0 with empty category and
+exclusion projections. Because v2 could not distinguish SQL failure from
+not-found, its not-found entries stay pending until one successful current
+receiver lookup reclassifies them.
 This state is independent of the legacy Patris feed option.
 
 ## Successful response
@@ -165,6 +200,9 @@ This state is independent of the legacy Patris feed option.
     "event_type": "update",
     "received_products": 1,
     "stored_products": 2,
+    "received_categories": 2,
+    "stored_categories": 2,
+    "excluded_codes": 1,
     "deleted_codes": 0,
     "fully_applied": true,
     "retryable": false,
@@ -211,8 +249,9 @@ wp digitalogic product-sync reconcile \
 ```
 
 The status command exposes source/event identities and aggregate counts only;
-it does not print product payloads or credentials. Reconciliation processes
-only pending/deferred records, never already-applied writes, and preserves the
+it includes the schema version and stored product/category/exclusion totals but
+does not print record payloads or credentials. Reconciliation processes only
+pending/deferred records, never already-applied writes, and preserves the
 stored source event ordering watermark.
 
 ## Optional signed observer event
@@ -249,3 +288,8 @@ The synthetic cross-project fixture is 2,760 bytes with SHA-256
 `810bdf4d8fd5e3c2a87750a02f241363f6403736c899a625f615967fea259da5`.
 Its occurrence identity is
 `sha256:25d5afce95dfdcf598c28f9c9639cbd54ed7f2e838a6c285844eee75d972ef06`.
+
+The Go-generated v1.1 catalog fixture is 3,361 bytes with SHA-256
+`8a635fa63cadc2b5021879c32e3ee47ce9d4928806948c154cdeb1b744da61fd`.
+Its occurrence identity is
+`sha256:4230ed302661c27a3b1bac71c60fac6a82c43bfb1ac0a7942137695b00afc2ac`.
