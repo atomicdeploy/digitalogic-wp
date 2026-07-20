@@ -61,6 +61,15 @@ least-privilege access.
 
 ## Products Endpoints
 
+### Google Sheets catalog
+
+`GET /wp-json/digitalogic/v1/google-sheets/catalog` returns a bounded,
+read-only `products` or `categories` page for Google Apps Script, n8n, or
+another client. It uses the normal read permission scope and supports
+`dataset`, `locale`, `page`, and `limit` (maximum 100). See
+[Google Sheets catalog synchronization](GOOGLE-SHEETS.md) for the schema,
+credential storage, manual/scheduled refresh, and recovery guidance.
+
 ### List Products
 
 **GET** `/products`

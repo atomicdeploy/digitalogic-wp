@@ -1781,3 +1781,15 @@ msgstr ""
 #, php-format
 msgid "Digitalogic Panel - %s"
 msgstr ""
+
+#: includes/websocket/class-websocket-server.php:164
+msgid "Invalid JSON payload."
+msgstr ""
+
+#: includes/class-digitalogic-google-sheets-catalog.php
+msgid "Dataset must be products or categories."
+msgstr ""
+
+#: includes/class-digitalogic-google-sheets-catalog.php
+msgid "Locale must be en, fa, or bilingual."
+msgstr ""

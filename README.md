@@ -26,6 +26,7 @@
 - CSV import/export
 - JSON import/export
 - Excel import/export with custom branded template (XLSX format via PhpSpreadsheet)
+- Google Sheets catalog sync with separate Products/Categories tabs, bilingual headers, and manual or scheduled refresh
 - Bulk operations for thousands of products
 
 ### 🌐 REST API
@@ -178,6 +179,13 @@ curl -X POST https://yoursite.com/wp-json/digitalogic/v1/products/batch \
 - `PUT /wp-json/digitalogic/v1/products/{id}` - Update product
 - `POST /wp-json/digitalogic/v1/products/batch` - Bulk update
 
+#### Google Sheets
+- `GET /wp-json/digitalogic/v1/google-sheets/catalog` - Read a bounded, canonical `products` or `categories` dataset
+
+The supplied Apps Script performs Code-keyed idempotent upserts, preserves
+identifier cells as text, and stores credentials only in Script Properties.
+See [Google Sheets catalog synchronization](docs/GOOGLE-SHEETS.md).
+
 #### Currency
 - `GET /wp-json/digitalogic/v1/currency` - Get currency rates and read-only WooCommerce base-currency status
 - `POST /wp-json/digitalogic/v1/currency` - Update currency rates
@@ -285,6 +293,9 @@ wp digitalogic export --format=excel --output=/path/to/export.xlsx
 wp digitalogic import /path/to/products.csv
 wp digitalogic import /path/to/products.json
 wp digitalogic import /path/to/products.xlsx
+
+# Google Sheets-ready catalog pages
+wp digitalogic google-sheets catalog --dataset=products --locale=bilingual --page=1 --limit=100
 
 # Logs
 wp digitalogic logs --limit=50 --action=update_product
