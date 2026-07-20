@@ -43,6 +43,8 @@ $GLOBALS['digitalogic_test_transients'] = array(); // phpcs:ignore
 $GLOBALS['digitalogic_test_transient_deletes'] = array(); // phpcs:ignore
 $GLOBALS['digitalogic_test_rewrite_rules'] = array(); // phpcs:ignore
 $GLOBALS['digitalogic_test_rewrite_flushes'] = array(); // phpcs:ignore
+$GLOBALS['digitalogic_test_locale'] = 'en_US';
+$GLOBALS['digitalogic_test_shortcodes'] = array();
 // phpcs:enable Generic.Formatting.MultipleStatementAlignment
 
 class WP_Error {
@@ -187,6 +189,12 @@ function add_action($hook_name, $callback, $priority = 10, $accepted_args = 1) {
         'priority' => $priority,
         'accepted_args' => $accepted_args,
     );
+
+    return true;
+}
+
+function add_shortcode($tag, $callback) {
+    $GLOBALS['digitalogic_test_shortcodes'][$tag] = $callback;
 
     return true;
 }
@@ -658,6 +666,18 @@ function esc_url_raw($value) {
     return trim((string) $value);
 }
 
+function esc_url($value) {
+    return trim((string) $value);
+}
+
+function esc_attr($value) {
+    return htmlspecialchars((string) $value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+}
+
+function esc_html($value) {
+    return htmlspecialchars((string) $value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+}
+
 function wp_http_validate_url($value) {
     return filter_var($value, FILTER_VALIDATE_URL) !== false;
 }
@@ -672,6 +692,22 @@ function get_bloginfo($field = '') {
 
 function home_url($path = '') {
     return 'https://digitalogic.test' . $path;
+}
+
+function content_url($path = '') {
+    return 'https://digitalogic.test/wp-content' . $path;
+}
+
+function determine_locale() {
+    return $GLOBALS['digitalogic_test_locale'];
+}
+
+function get_locale() {
+    return $GLOBALS['digitalogic_test_locale'];
+}
+
+function wp_timezone() {
+    return new DateTimeZone('Asia/Tehran');
 }
 
 function wp_remote_post($url, $args = array()) {
@@ -1088,7 +1124,11 @@ class Digitalogic_Options {
     }
 
     public function get_update_date() {
-        return (string) get_option('options_update_date', get_option('update_date', ''));
+        return Digitalogic_Currency_Date_Formatter::instance()->get_raw_update_date();
+    }
+
+    public function get_update_date_formatted($format = 'Y/m/d') {
+        return Digitalogic_Currency_Date_Formatter::instance()->format($this->get_update_date(), $format);
     }
 }
 
@@ -1600,6 +1640,8 @@ class WP_CLI {
 
 $GLOBALS['wpdb'] = new Digitalogic_Test_WPDB();
 
+require_once dirname(__DIR__) . '/includes/class-digitalogic-currency-date-formatter.php';
+require_once dirname(__DIR__) . '/includes/class-digitalogic-currency-shortcodes.php';
 require_once dirname(__DIR__) . '/includes/class-unit-converter.php';
 require_once dirname(__DIR__) . '/includes/class-digitalogic-woocommerce-currency-status.php';
 require_once dirname(__DIR__) . '/includes/class-product-identifier-resolver.php';

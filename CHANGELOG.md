@@ -12,6 +12,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Kept same-origin panel launches inside the existing WordPress session and removed one-time handoff codes from integrated `/panel/` URLs; the legacy handoff remains only for explicitly external panel hosts.
 - Prevented the custom Digits login and registration footer from blocking a PHP-FPM worker on remote WordPress.org translation discovery while preserving the locale already selected by WordPress.
 
+## [1.3.4] - 2026-07-20
+
+### Added
+- Added versioned `[dollar_rate]` and `[yuan_rate]` storefront cards that share the same currency effective-date service used by the WordPress admin and external panel.
+- Added strict regression coverage for legacy YYMMDD storage, ISO dates and date-times, invalid/empty values, Persian and English locales, and the production `260629` case.
+
+### Fixed
+- Prevented legacy YYMMDD currency dates from being interpreted as Unix timestamps and displaying an epoch-era Jalali year such as `۱۳۴۸`.
+- Read the raw `options_update_date` value before ACF/wp-parsidate formatting, return a blank value for invalid dates instead of silently substituting today, and provide deterministic built-in Jalali conversion with Persian digits for `fa*` locales.
+
 ## [1.3.3] - 2026-07-20
 
 ### Added

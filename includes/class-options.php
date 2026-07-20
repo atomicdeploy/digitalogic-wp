@@ -232,61 +232,29 @@ class Digitalogic_Options {
     }
     
     /**
-     * Get last update date
-     * Works with or without ACF - tries multiple storage locations
-     * 
-     * @return string YYMMDD format
+     * Get the raw last-update date.
+     *
+     * The prefixed ACF option must be read directly. Asking ACF for the field
+     * can send a legacy YYMMDD value through wp-parsidate as a Unix timestamp.
+     *
+     * @return string Legacy YYMMDD or ISO date value.
      */
     public function get_update_date() {
-        // Try ACF storage first if ACF is available (options_ prefix)
-        if ($this->acf_available) {
-            $value = get_option('options_update_date', false);
-            if ($value !== false) {
-                return $value;
-            }
-        }
-        
-        // Fallback to direct option (works without ACF)
-        return get_option('update_date', date('ymd'));
-    }
-    
-    /**
-     * Parse the stored YYMMDD date format to Y-m-d string
-     * 
-     * @param string $date_raw Date in YYMMDD format
-     * @return string Date in Y-m-d format
-     */
-    private function parse_update_date($date_raw) {
-        // Convert YYMMDD to a full date string
-        // Assuming 20XX century for YY
-        if (strlen($date_raw) === 6) {
-            $year = '20' . substr($date_raw, 0, 2);
-            $month = substr($date_raw, 2, 2);
-            $day = substr($date_raw, 4, 2);
-            return $year . '-' . $month . '-' . $day;
-        } else {
-            // Fallback to today's date if format is wrong
-            return date('Y-m-d');
-        }
+        return Digitalogic_Currency_Date_Formatter::instance()->get_raw_update_date();
     }
     
     /**
      * Get formatted update date for display
-     * Supports Persian dates via parsidate plugin if available
+     * Uses the same strict locale-aware formatter as storefront currency cards.
      * 
      * @param string $format Date format (default: 'Y/m/d')
      * @return string Formatted date
      */
     public function get_update_date_formatted($format = 'Y/m/d') {
-        $update_date_raw = $this->get_update_date();
-        $date_string = $this->parse_update_date($update_date_raw);
-        
-        // Check if Persian (Jalali) date conversion is available
-        if (function_exists('parsidate') && get_locale() === 'fa_IR') {
-            return parsidate($format, strtotime($date_string));
-        } else {
-            return date_i18n($format, strtotime($date_string));
-        }
+        return Digitalogic_Currency_Date_Formatter::instance()->format(
+            $this->get_update_date(),
+            $format
+        );
     }
     
     /**
@@ -295,16 +263,14 @@ class Digitalogic_Options {
      * @return string Relative time string
      */
     public function get_update_date_relative() {
-        $update_date_raw = $this->get_update_date();
-        $date_string = $this->parse_update_date($update_date_raw);
-        
-        $update_timestamp = strtotime($date_string);
-        $today = strtotime(date('Y-m-d'));
-        
-        // Calculate difference in days
-        $seconds_per_day = 86400; // 24 * 60 * 60
-        $diff_seconds = $today - $update_timestamp;
-        $diff_days = (int) floor($diff_seconds / $seconds_per_day);
+        $date = Digitalogic_Currency_Date_Formatter::instance()->parse($this->get_update_date());
+
+        if (null === $date) {
+            return '';
+        }
+
+        $today = new DateTimeImmutable('today', $date->getTimezone());
+        $diff_days = (int) $date->setTime(0, 0)->diff($today)->format('%r%a');
         
         // Handle future dates (negative difference)
         if ($diff_days < 0) {
@@ -329,17 +295,7 @@ class Digitalogic_Options {
      * @return string Formatted date
      */
     public static function format_date($timestamp, $format = 'Y/m/d') {
-        // Convert string to timestamp if needed
-        if (!is_numeric($timestamp)) {
-            $timestamp = strtotime($timestamp);
-        }
-        
-        // Check if Persian (Jalali) date conversion is available
-        if (function_exists('parsidate') && get_locale() === 'fa_IR') {
-            return parsidate($format, $timestamp);
-        } else {
-            return date_i18n($format, $timestamp);
-        }
+        return Digitalogic_Currency_Date_Formatter::instance()->format_timestamp($timestamp, $format);
     }
     
     /**
@@ -384,11 +340,10 @@ add_filter('pre_option_yuan_price', function($pre_option, $option, $default) {
     return $options->get_yuan_price();
 }, 10, 3);
 
-// Redirect get_option('update_date') to use our plugin methods
+// Prefer raw ACF storage without calling back into get_option('update_date').
 add_filter('pre_option_update_date', function($pre_option, $option, $default) {
-    // Use our plugin method which handles ACF storage properly
-    $options = Digitalogic_Options::instance();
-    return $options->get_update_date();
+    $acf_value = get_option('options_update_date', false);
+    return false !== $acf_value ? $acf_value : $pre_option;
 }, 10, 3);
 
 /**
