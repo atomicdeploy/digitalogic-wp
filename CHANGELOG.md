@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.3] - 2026-07-21
+
+### Fixed
+- Read variation options through WooCommerce's variation-attribute API so reviewed children remain idempotent after creation and duplicate options are still rejected.
+
+## [1.4.1] - 2026-07-20
+
+### Fixed
+- Added an escaped, idempotent Woodmart single-product fallback so the reviewed English Patris identity renders immediately below the Persian product title even when the theme bypasses WooCommerce's standard summary hook.
+
+## [1.4.0] - 2026-07-20
+
+### Added
+- Added an administrator-reviewed, dry-run-first Patris catalog materializer for positive-stock records from the living product-sync contract, including explicit simple-product adoption/creation and variation children under reviewed existing variable parents.
+- Added stable Patris category ownership, additive category assignment, optional reviewed Persian category names, and explicitly referenced Digitalogic-only categories without overwriting unrelated manual taxonomy work.
+- Added reviewed Persian product and category SEO metadata, short descriptions, part/model metadata, Rank Math sitemap cache invalidation, and publication readiness gates.
+- Added a second storefront identity line for the original English Patris name, selected-variation identity updates, and product structured-data SKU/MPN enrichment.
+- Added storefront and panel search coverage for Persian names, Patris names, exact Codes/SKUs, serials, part numbers, models, variation records, and product categories.
+
+### Changed
+- Reused the existing Patris feed writer for price, positive stock, weight, warehouse, warning, and pricing metadata, and assigned the canonical `air_express` supplier shipping method to materialized leaves.
+- Kept newly created products and previously nonpublic reviewed targets as drafts unless every source, pricing, freight, category, identity, enrichment, and SEO publication gate passes and an administrator explicitly supplies `--publish-ready`; preserved already-published reviewed targets without counting them as newly published.
+
+### Security
+- Require strict manifests with exact source identity, reviewed target IDs, duplicate-key rejection, bounded input size, positive-stock filtering, and a named apply lock; refuse implicit variable-parent conversion or unreviewed leaf ownership.
+
 ## [1.3.6] - 2026-07-20
 
 ### Added
