@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.4.3
+
+- Read variation options through WooCommerce's variation-attribute API so reviewed children remain idempotent after creation and duplicate options are still rejected.
+
+## 1.4.2
+
+- Hide product categories on the public storefront when they contain no catalog-visible products, while preserving authoritative admin, CLI and integration queries.
+- Add an inventory-backed Persian homepage showcase with a varied in-stock product hero, focused category paths, China sourcing, and two-/four-layer PCB services without duplicated product rails.
+
 All notable changes to the Digitalogic WordPress Plugin will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
