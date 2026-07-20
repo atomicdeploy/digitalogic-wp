@@ -47,10 +47,10 @@ $notice_type = in_array($notice_type, array('success', 'error', 'warning', 'info
                         <td><input class="regular-text code" id="digitalogic-patris-warehouses" name="selected_warehouses" value="<?php echo esc_attr(implode(',', (array) $settings['selected_warehouses'])); ?>" dir="ltr"><p class="description"><?php echo esc_html__('Comma-separated dynamic warehouse keys from the normalized API.', 'digitalogic'); ?></p></td>
                     </tr>
                     <tr>
-                        <th scope="row"><?php echo esc_html__('Import Freight Catalog', 'digitalogic'); ?></th>
+						<th scope="row"><?php echo esc_html__('Shipping Method Catalog', 'digitalogic'); ?></th>
                         <td>
-                            <code><?php echo esc_html(rest_url('digitalogic/v1/import-freight-methods')); ?></code>
-                            <p class="description"><?php echo esc_html__('Supplier import freight methods are managed as validated records. They are separate from WooCommerce customer delivery methods.', 'digitalogic'); ?></p>
+							<code><?php echo esc_html(rest_url('digitalogic/v1/shipping-methods')); ?></code>
+							<p class="description"><?php echo esc_html__('Supplier shipping methods are managed as validated records. They are separate from WooCommerce customer delivery methods.', 'digitalogic'); ?></p>
                         </td>
                     </tr>
                     <tr>
@@ -96,9 +96,9 @@ $notice_type = in_array($notice_type, array('success', 'error', 'warning', 'info
     </div>
 
     <section class="digitalogic-section digitalogic-import-freight">
-        <h2><?php echo esc_html__('Supplier Import Freight', 'digitalogic'); ?></h2>
+		<h2><?php echo esc_html__('Supplier Shipping Methods', 'digitalogic'); ?></h2>
         <p class="description">
-            <?php echo esc_html__('Manage freight used to import products from Patris. These records do not change WooCommerce customer delivery methods.', 'digitalogic'); ?>
+			<?php echo esc_html__('Manage how products are shipped from suppliers through Patris. These records do not change WooCommerce customer delivery methods.', 'digitalogic'); ?>
         </p>
 
         <div class="digitalogic-currency-status <?php echo $currency_status['compatible'] ? 'is-ready' : 'is-warning'; ?>">
@@ -169,7 +169,7 @@ $notice_type = in_array($notice_type, array('success', 'error', 'warning', 'info
             </table>
         </div>
 
-        <h3><?php echo esc_html__('Freight methods', 'digitalogic'); ?></h3>
+		<h3><?php echo esc_html__('Shipping methods', 'digitalogic'); ?></h3>
         <div class="digitalogic-report-table-wrap">
             <table class="widefat striped">
                 <thead>
@@ -184,7 +184,7 @@ $notice_type = in_array($notice_type, array('success', 'error', 'warning', 'info
                 </thead>
                 <tbody>
                     <?php if (empty($freight_methods)) : ?>
-                        <tr><td colspan="6"><?php echo esc_html__('No import freight methods are available.', 'digitalogic'); ?></td></tr>
+						<tr><td colspan="6"><?php echo esc_html__('No shipping methods are available.', 'digitalogic'); ?></td></tr>
                     <?php else : ?>
                         <?php foreach ($freight_methods as $method) : ?>
                             <?php
@@ -235,7 +235,7 @@ $notice_type = in_array($notice_type, array('success', 'error', 'warning', 'info
             </table>
         </div>
 
-        <h3><?php echo esc_html__('Add a freight method', 'digitalogic'); ?></h3>
+		<h3><?php echo esc_html__('Add a shipping method', 'digitalogic'); ?></h3>
         <form method="post">
             <?php wp_nonce_field('digitalogic_import_freight_admin'); ?>
             <input type="hidden" name="digitalogic_import_freight_action" value="create_method">
@@ -244,7 +244,7 @@ $notice_type = in_array($notice_type, array('success', 'error', 'warning', 'info
                     <th scope="row"><label for="digitalogic-freight-new-id"><?php echo esc_html__('Method ID', 'digitalogic'); ?></label></th>
                     <td>
                         <input id="digitalogic-freight-new-id" class="regular-text code" name="method_id" required pattern="[a-z][a-z0-9_]{1,63}" dir="ltr">
-                        <p class="description"><?php echo esc_html__('A stable 2-64 character lowercase ID, such as rail_freight. It cannot be renamed later.', 'digitalogic'); ?></p>
+						<p class="description"><?php echo esc_html__('A stable 2-64 character lowercase ID, such as rail. It cannot be renamed later.', 'digitalogic'); ?></p>
                     </td>
                 </tr>
                 <tr>
@@ -260,7 +260,7 @@ $notice_type = in_array($notice_type, array('success', 'error', 'warning', 'info
                     <td><label><input type="checkbox" name="method_enabled" value="1" checked> <?php echo esc_html__('Enabled', 'digitalogic'); ?></label></td>
                 </tr>
             </table>
-            <p class="submit"><button type="submit" class="button button-primary"><?php echo esc_html__('Add freight method', 'digitalogic'); ?></button></p>
+			<p class="submit"><button type="submit" class="button button-primary"><?php echo esc_html__('Add shipping method', 'digitalogic'); ?></button></p>
         </form>
 
         <h3><?php echo esc_html__('Assign a product', 'digitalogic'); ?></h3>
@@ -274,7 +274,7 @@ $notice_type = in_array($notice_type, array('success', 'error', 'warning', 'info
                     <td><input id="digitalogic-freight-product-code" class="regular-text code" name="product_code" required dir="ltr"></td>
                 </tr>
                 <tr>
-                    <th scope="row"><label for="digitalogic-freight-assignment-method"><?php echo esc_html__('Import freight method', 'digitalogic'); ?></label></th>
+					<th scope="row"><label for="digitalogic-freight-assignment-method"><?php echo esc_html__('Shipping method', 'digitalogic'); ?></label></th>
                     <td>
                         <select id="digitalogic-freight-assignment-method" name="assignment_method_id">
                             <option value=""><?php echo esc_html__('Clear assignment', 'digitalogic'); ?></option>
@@ -304,9 +304,9 @@ $notice_type = in_array($notice_type, array('success', 'error', 'warning', 'info
                 &mdash;
                 <strong><?php echo esc_html__('Current method:', 'digitalogic'); ?></strong>
                 <?php
-                echo empty($freight_assignment['import_freight_method'])
+				echo empty($freight_assignment['shipping_method'])
                     ? esc_html__('None', 'digitalogic')
-                    : esc_html($freight_assignment['import_freight_method']['name']);
+					: esc_html($freight_assignment['shipping_method']['name']);
                 ?>
             </p>
         <?php endif; ?>

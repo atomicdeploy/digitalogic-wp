@@ -687,7 +687,7 @@ class Digitalogic_Admin {
         }
 
         $feed = Digitalogic_Patris_Feed::instance();
-        $freight_service = Digitalogic_Import_Freight_Service::instance();
+		$freight_service = Digitalogic_Shipping_Method_Service::instance();
         $notice = '';
         $notice_type = 'info';
         $freight_assignment = null;
@@ -714,7 +714,7 @@ class Digitalogic_Admin {
                     ));
                     $notice = is_wp_error($result)
                         ? $result->get_error_message()
-                        : sprintf(__('Import freight method "%s" created.', 'digitalogic'), $result['name']);
+						: sprintf(__('Shipping method "%s" created.', 'digitalogic'), $result['name']);
                     $notice_type = is_wp_error($result) ? 'error' : 'success';
                     break;
 
@@ -727,7 +727,7 @@ class Digitalogic_Admin {
                     ));
                     $notice = is_wp_error($result)
                         ? $result->get_error_message()
-                        : sprintf(__('Import freight method "%s" updated.', 'digitalogic'), $result['name']);
+						: sprintf(__('Shipping method "%s" updated.', 'digitalogic'), $result['name']);
                     $notice_type = is_wp_error($result) ? 'error' : 'success';
                     break;
 
@@ -736,7 +736,7 @@ class Digitalogic_Admin {
                     $result = $freight_service->delete_method($method_id);
                     $notice = is_wp_error($result)
                         ? $result->get_error_message()
-                        : __('Import freight method deleted.', 'digitalogic');
+						: __('Shipping method deleted.', 'digitalogic');
                     $notice_type = is_wp_error($result) ? 'error' : 'success';
                     break;
 
@@ -750,8 +750,8 @@ class Digitalogic_Admin {
                     } else {
                         $freight_assignment = $result;
                         $notice = $method_id === ''
-                            ? __('The import freight assignment was cleared.', 'digitalogic')
-                            : __('The import freight method was assigned.', 'digitalogic');
+							? __('The shipping-method assignment was cleared.', 'digitalogic')
+							: __('The shipping method was assigned.', 'digitalogic');
                         $notice_type = 'success';
                     }
                     break;
@@ -775,7 +775,7 @@ class Digitalogic_Admin {
                     break;
 
                 default:
-                    $notice = __('Unknown import freight action.', 'digitalogic');
+					$notice = __('Unknown shipping-method action.', 'digitalogic');
                     $notice_type = 'error';
                     break;
             }

@@ -136,8 +136,8 @@ RFC3339-nanosecond `generated_at`. An update requires an existing snapshot.
 Older events and conflicting events at the same source timestamp are rejected.
 
 Formula operands allow at most 15 integer digits and 12 fractional digits;
-percentage markup is bounded to `0..1000`. Required price, weight, freight,
-markup, and exchange-rate inputs must be present (and the freight method must
+percentage markup is bounded to `0..1000`. Required price, weight, shipping,
+markup, and exchange-rate inputs must be present (and the shipping method must
 be selected) for a non-null final price. Binary floating point is not used.
 
 The most recent 128 event IDs per source are retained. Replaying one of those

@@ -1,6 +1,6 @@
-# Import Freight Integration Contract
+# Supplier Shipping Method Integration Contract
 
-Digitalogic import freight methods describe how inventory is brought from a
+Digitalogic supplier shipping methods describe how inventory is brought from a
 supplier to Digitalogic. They are not WooCommerce shipping zones, checkout
 rates, or customer delivery methods.
 
@@ -15,10 +15,11 @@ IDs:
 | `aerial` | `air_freight` | 80 CNY/kg |
 | `marine` | `sea_freight` | 50 CNY/kg |
 
-Existing product values in `shipping_method` are copied to
-`_digitalogic_import_freight_method_id`. The `_shipping_method` ACF field-key
-reference is preserved. Canonical assignments continue to mirror a compatible
-legacy value so existing ACF screens remain usable.
+Existing product values in `shipping_method` and
+`_digitalogic_import_freight_method_id` are copied to
+`_digitalogic_shipping_method_id`. The `_shipping_method` ACF field-key
+reference is preserved. During the compatibility window, canonical assignments
+dual-write the former keys so a plugin rollback remains safe.
 
 The ACF radio choices are populated from the canonical catalog. The three
 legacy methods keep their existing `express`, `aerial`, and `marine` values;
@@ -41,11 +42,21 @@ is confined to those two exact route/method pairs.
 
 - `GET /wp-json/digitalogic/v1/integration/catalog`
 - `GET|PUT /wp-json/digitalogic/v1/pricing/default-markup`
-- `GET|POST /wp-json/digitalogic/v1/import-freight-methods`
-- `GET|PUT|DELETE /wp-json/digitalogic/v1/import-freight-methods/{id}`
-- `GET|PUT /wp-json/digitalogic/v1/products/by-code/{code}/import-pricing`
+- `GET|POST /wp-json/digitalogic/v1/shipping-methods`
+- `GET|PUT|DELETE /wp-json/digitalogic/v1/shipping-methods/{id}`
+- `GET|PUT /wp-json/digitalogic/v1/products/by-code/{code}/shipping-method`
 - `POST /wp-json/digitalogic/v1/pricing-assignments/batch` (read only)
-- `POST /wp-json/digitalogic/v1/products/import-pricing/batch`
+- `POST /wp-json/digitalogic/v1/products/shipping-methods/batch`
+
+The former import-freight routes remain explicit deprecated aliases. They add
+the `Deprecation: true` response header, accept old field names at input only,
+and still emit canonical shipping-method response keys.
+
+Method records use `shipping_price_per_kg_cny` at every public transport
+boundary, including tier rows. The former `price_per_kg_cny` input is accepted
+temporarily with a machine-readable deprecation notice; conflicting old and new
+values are rejected. Stable IDs such as `air_freight` and `sea_freight` are
+retained because IDs are immutable data identifiers, not display terminology.
 
 Method IDs are immutable. An assigned method returns HTTP 409 when deleted; it
 may be disabled with `{"enabled": false}` and existing assignments remain
@@ -102,7 +113,7 @@ upgrade must complete migration separately.
       "status": "ok",
       "assignment": {
         "code": "113007045",
-        "import_freight_method_id": "air_express",
+        "shipping_method_id": "air_express",
         "profit_percent": "30",
         "profit_percent_source": "global_default",
         "pricing_warnings": []
@@ -139,7 +150,7 @@ Example assignment:
 
 ```json
 {
-  "import_freight_method_id": "air_express"
+  "shipping_method_id": "air_express"
 }
 ```
 
@@ -150,8 +161,8 @@ does not change any product when one of its rows is invalid:
 ```json
 {
   "assignments": [
-    {"code": "113007045", "import_freight_method_id": "air_express"},
-    {"code": "113007046", "import_freight_method_id": "sea_freight"}
+    {"code": "113007045", "shipping_method_id": "air_express"},
+    {"code": "113007046", "shipping_method_id": "sea_freight"}
   ]
 }
 ```
@@ -187,7 +198,7 @@ channels run. A committed mutation remains successful, while no-op retries do
 not emit another event. An empty webhook destination list is an intentionally
 disabled, confirmed-success channel.
 
-The same delivery contract applies to `import_freight.default_markup.updated`.
+The same delivery contract applies to `shipping_method.default_markup.updated`.
 Updating or clearing the default changes only the canonical catalog option; it
 does not recalculate or write any WooCommerce product price.
 
@@ -196,7 +207,7 @@ does not recalculate or write any WooCommerce product price.
 The read-only integration catalog contains the CNY-to-local (currently IRT)
 rate, effective currency date, selected Patris warehouses, enabled/disabled
 method records, WooCommerce base-currency compatibility, and a deterministic
-revision. Consumers can cache by revision. Catalog schema `1.1.0` remains
+revision. Consumers can cache by revision. Catalog schema `1.2.0` remains
 compatible with major-version-1 consumers.
 
 `currency.cny_to_local` is the currency-neutral rate. The compatibility field
@@ -215,7 +226,7 @@ never changes WooCommerce's setting. See
 `landed_price_v1` is:
 
 ```text
-((weight_g * freight_cny_per_kg / 1000) + foreign_price_cny)
+((weight_g * shipping_price_per_kg_cny / 1000) + foreign_price_cny)
   * (1 + profit_percent / 100)
   * cny_to_irt
 ```
@@ -272,7 +283,7 @@ WooCommerce product, Digitalogic converts that positive finite gram value with
 `240 g` remains `240` in a gram store and becomes `0.24` in a kilogram store).
 The original gram value remains available in Patris metadata for formula input.
 
-Feed ingestion uses the same shared generic Code/SKU resolver as freight
+Feed ingestion uses the same shared generic Code/SKU resolver as shipping-method
 assignment. A Patris-Code-only product can therefore be updated, SKU is a
 compatibility fallback only when that Code is absent, and cross-namespace
 collisions fail as ambiguous. Not-found rows are counted as
@@ -316,8 +327,9 @@ existing `markup_missing` warning remains.
 
 Administrators can manage the nullable default, methods, and assignments by exact Patris Code/SKU
 on the existing Patris Reports screen. This UI and all integration routes are
-for supplier import freight only and do not read or mutate WooCommerce customer
+for supplier shipping methods only and do not read or mutate WooCommerce customer
 delivery methods.
 
-The same `Digitalogic_Import_Freight_Service` backs REST and the shared command
-dispatcher used by AJAX/WebSocket transports.
+The same `Digitalogic_Shipping_Method_Service` backs REST and the shared command
+dispatcher used by AJAX/WebSocket transports. The former class name is retained
+as a PHP compatibility alias rather than a parallel implementation.

@@ -333,24 +333,24 @@ msgstr ""
 
 #: includes/admin/class-admin.php:717
 #, php-format
-msgid "Import freight method \"%s\" created."
+msgid "Shipping method \"%s\" created."
 msgstr ""
 
 #: includes/admin/class-admin.php:730
 #, php-format
-msgid "Import freight method \"%s\" updated."
+msgid "Shipping method \"%s\" updated."
 msgstr ""
 
 #: includes/admin/class-admin.php:739
-msgid "Import freight method deleted."
+msgid "Shipping method deleted."
 msgstr ""
 
 #: includes/admin/class-admin.php:753
-msgid "The import freight assignment was cleared."
+msgid "The shipping-method assignment was cleared."
 msgstr ""
 
 #: includes/admin/class-admin.php:754
-msgid "The import freight method was assigned."
+msgid "The shipping method was assigned."
 msgstr ""
 
 #: includes/admin/class-admin.php:765
@@ -362,7 +362,7 @@ msgid "The global default percentage markup was cleared. WooCommerce prices were
 msgstr ""
 
 #: includes/admin/class-admin.php:778
-msgid "Unknown import freight action."
+msgid "Unknown shipping-method action."
 msgstr ""
 
 #: includes/admin/class-admin.php:792
@@ -581,11 +581,11 @@ msgid "Comma-separated dynamic warehouse keys from the normalized API."
 msgstr ""
 
 #: includes/admin/views/patris-reports.php:50
-msgid "Import Freight Catalog"
+msgid "Shipping Method Catalog"
 msgstr ""
 
 #: includes/admin/views/patris-reports.php:53
-msgid "Supplier import freight methods are managed as validated records. They are separate from WooCommerce customer delivery methods."
+msgid "Supplier shipping methods are managed as validated records. They are separate from WooCommerce customer delivery methods."
 msgstr ""
 
 #: includes/admin/views/patris-reports.php:57
@@ -649,11 +649,11 @@ msgid "Last sync:"
 msgstr ""
 
 #: includes/admin/views/patris-reports.php:99
-msgid "Supplier Import Freight"
+msgid "Supplier Shipping Methods"
 msgstr ""
 
 #: includes/admin/views/patris-reports.php:101
-msgid "Manage freight used to import products from Patris. These records do not change WooCommerce customer delivery methods."
+msgid "Manage how products are shipped from suppliers through Patris. These records do not change WooCommerce customer delivery methods."
 msgstr ""
 
 #: includes/admin/views/patris-reports.php:107
@@ -696,7 +696,7 @@ msgid "Allowed range: %1$s–%2$s%%, up to %3$d fractional digits. The recovered
 msgstr ""
 
 #: includes/admin/views/patris-reports.php:172
-msgid "Freight methods"
+msgid "Shipping methods"
 msgstr ""
 
 #: includes/admin/views/patris-reports.php:177
@@ -730,7 +730,7 @@ msgid "Actions"
 msgstr ""
 
 #: includes/admin/views/patris-reports.php:187
-msgid "No import freight methods are available."
+msgid "No shipping methods are available."
 msgstr ""
 
 #: includes/admin/views/patris-reports.php:199
@@ -758,15 +758,15 @@ msgid "Delete unavailable"
 msgstr ""
 
 #: includes/admin/views/patris-reports.php:238
-msgid "Add a freight method"
+msgid "Add a shipping method"
 msgstr ""
 
 #: includes/admin/views/patris-reports.php:247
-msgid "A stable 2-64 character lowercase ID, such as rail_freight. It cannot be renamed later."
+msgid "A stable 2-64 character lowercase ID, such as rail. It cannot be renamed later."
 msgstr ""
 
 #: includes/admin/views/patris-reports.php:263
-msgid "Add freight method"
+msgid "Add shipping method"
 msgstr ""
 
 #: includes/admin/views/patris-reports.php:266
@@ -782,7 +782,7 @@ msgid "Exact Code / SKU"
 msgstr ""
 
 #: includes/admin/views/patris-reports.php:277
-msgid "Import freight method"
+msgid "Shipping method"
 msgstr ""
 
 #: includes/admin/views/patris-reports.php:280
@@ -1120,7 +1120,7 @@ msgid "Save UI settings"
 msgstr ""
 
 #: includes/api/class-webhooks.php:491
-msgid "The webhook transport does not recognize this import freight event."
+msgid "The webhook transport does not recognize this shipping-method event."
 msgstr ""
 
 #: includes/api/class-webhooks.php:536
@@ -1128,7 +1128,7 @@ msgid "The webhook payload could not be encoded."
 msgstr ""
 
 #: includes/api/class-webhooks.php:586
-msgid "One or more webhook destinations rejected the import freight event."
+msgid "One or more webhook destinations rejected the shipping-method event."
 msgstr ""
 
 #: includes/class-command-dispatcher.php:53
@@ -1175,7 +1175,11 @@ msgstr ""
 
 #: includes/class-command-dispatcher.php:331
 #: includes/class-import-freight-service.php:776
-msgid "The import freight method field is required; use null or an empty value to clear it explicitly."
+msgid "The shipping_method_id field is required; use null or an empty value to clear it explicitly."
+msgstr ""
+
+#: includes/class-command-dispatcher.php
+msgid "Provide either shipping_price_per_kg_cny or its deprecated price_per_kg_cny alias, not conflicting values."
 msgstr ""
 
 #: includes/class-command-dispatcher.php:365
@@ -1272,11 +1276,11 @@ msgstr ""
 #: includes/class-import-freight-service.php:443
 #: includes/class-import-freight-service.php:513
 #: includes/class-import-freight-service.php:1342
-msgid "Import freight method not found."
+msgid "Shipping method not found."
 msgstr ""
 
 #: includes/class-import-freight-service.php:352
-msgid "Legacy freight mappings are reserved for migrated methods."
+msgid "Legacy shipping-method mappings are reserved for migrated methods."
 msgstr ""
 
 #: includes/class-import-freight-service.php:364
@@ -1284,23 +1288,23 @@ msgid "That method ID is reserved by the legacy ACF field mapping."
 msgstr ""
 
 #: includes/class-import-freight-service.php:388
-msgid "Import freight method ID already exists."
+msgid "Shipping method ID already exists."
 msgstr ""
 
 #: includes/class-import-freight-service.php:433
-msgid "Import freight method IDs are immutable."
+msgid "Shipping method IDs are immutable."
 msgstr ""
 
 #: includes/class-import-freight-service.php:451
-msgid "Legacy freight mappings are immutable."
+msgid "Legacy shipping-method mappings are immutable."
 msgstr ""
 
 #: includes/class-import-freight-service.php:522
-msgid "Assigned import freight methods cannot be deleted. Disable the method or reassign its products first."
+msgid "Assigned shipping methods cannot be deleted. Disable the method or reassign its products first."
 msgstr ""
 
 #: includes/class-import-freight-service.php:530
-msgid "Migrated legacy import freight methods must be disabled instead of deleted."
+msgid "Migrated legacy shipping methods must be disabled instead of deleted."
 msgstr ""
 
 #: includes/class-import-freight-service.php:587
@@ -1330,7 +1334,7 @@ msgid "At least one product assignment is required."
 msgstr ""
 
 #: includes/class-import-freight-service.php:755
-msgid "Import freight assignment batches are limited to 500 rows."
+msgid "Shipping-method assignment batches are limited to 500 rows."
 msgstr ""
 
 #: includes/class-import-freight-service.php:782
@@ -1351,11 +1355,11 @@ msgid "No assignments were changed because one or more batch rows were invalid."
 msgstr ""
 
 #: includes/class-import-freight-service.php:1175
-msgid "Import freight method name is required."
+msgid "Shipping method name is required."
 msgstr ""
 
 #: includes/class-import-freight-service.php:1180
-msgid "landed_price_v1 currently requires CNY freight rates."
+msgid "landed_price_v1 currently requires shipping prices in CNY."
 msgstr ""
 
 #: includes/class-import-freight-service.php:1185
@@ -1387,7 +1391,7 @@ msgid "Tiered rates require valid non-negative bounds and rates."
 msgstr ""
 
 #: includes/class-import-freight-service.php:1282
-msgid "Tiered freight-rate ranges cannot overlap."
+msgid "Tiered shipping-price ranges cannot overlap."
 msgstr ""
 
 #: includes/class-import-freight-service.php:1322
@@ -1396,7 +1400,7 @@ msgstr ""
 
 #: includes/class-import-freight-service.php:1353
 #: includes/class-import-freight-service.php:2570
-msgid "Disabled import freight methods cannot be assigned to new products."
+msgid "Disabled shipping methods cannot be assigned to new products."
 msgstr ""
 
 #: includes/class-import-freight-service.php:1368
@@ -1408,7 +1412,7 @@ msgid "More than one product has that exact Patris Code or SKU; no assignment wa
 msgstr ""
 
 #: includes/class-import-freight-service.php:1893
-msgid "The import freight change could not be completed."
+msgid "The shipping-method change could not be completed."
 msgstr ""
 
 #: includes/class-import-freight-service.php:1911
@@ -1416,42 +1420,42 @@ msgid "The database lock service is unavailable."
 msgstr ""
 
 #: includes/class-import-freight-service.php:1926
-msgid "Another import freight update is already running. Please retry."
+msgid "Another shipping-method update is already running. Please retry."
 msgstr ""
 
 #: includes/class-import-freight-service.php:1969
-msgid "The import freight transaction was rolled back."
+msgid "The shipping-method transaction was rolled back."
 msgstr ""
 
 #: includes/class-import-freight-service.php:1992
-msgid "Nested import freight transactions are not supported."
+msgid "Nested shipping-method transactions are not supported."
 msgstr ""
 
 #: includes/class-import-freight-service.php:2001
-msgid "The database could not start an import freight transaction."
+msgid "The database could not start a shipping-method transaction."
 msgstr ""
 
 #: includes/class-import-freight-service.php:2018
-msgid "The import freight transaction could not be committed."
+msgid "The shipping-method transaction could not be committed."
 msgstr ""
 
 #: includes/class-import-freight-service.php:2051
-msgid "The database could not roll back the failed import freight change."
+msgid "The database could not roll back the failed shipping-method change."
 msgstr ""
 
 #: includes/class-import-freight-service.php:2162
 #: includes/class-import-freight-service.php:2206
-msgid "Import freight storage writes require an active transaction."
+msgid "Shipping-method storage writes require an active transaction."
 msgstr ""
 
 #: includes/class-import-freight-service.php:2178
 #: includes/class-import-freight-service.php:2186
-msgid "The import freight option could not be saved."
+msgid "The shipping-method option could not be saved."
 msgstr ""
 
 #: includes/class-import-freight-service.php:2227
 #: includes/class-import-freight-service.php:2235
-msgid "The product import freight assignment could not be saved."
+msgid "The product shipping-method assignment could not be saved."
 msgstr ""
 
 #: includes/class-import-freight-service.php:2453
@@ -1478,7 +1482,7 @@ msgid "(disabled)"
 msgstr ""
 
 #: includes/class-import-freight-service.php:2550
-msgid "Select a valid import freight method."
+msgid "Select a valid shipping method."
 msgstr ""
 
 #: includes/class-import-freight-service.php:2608
@@ -1781,7 +1785,7 @@ msgid "User ID is required."
 msgstr ""
 
 #: includes/panel/class-panel.php:670
-msgid "The panel does not recognize this import freight event."
+msgid "The panel does not recognize this shipping-method event."
 msgstr ""
 
 #: includes/panel/class-panel.php:691

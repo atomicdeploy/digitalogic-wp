@@ -3,7 +3,7 @@
   "schema_version": "1.0",
   "event": "digitalogic.product-sync",
   "event_type": "snapshot",
-  "event_id": "sha256:25d5afce95dfdcf598c28f9c9639cbd54ed7f2e838a6c285844eee75d972ef06",
+  "event_id": "sha256:ff95ee16c89bb5eae58a587ee47a6f447f01c14fc5f56c01b37f26acc365fe03",
   "local_currency": "IRT",
   "formula_id": "landed_price_v1",
   "formula_revision": "1.0.0",
@@ -11,7 +11,7 @@
   "source": {
     "id": "synthetic-fixture",
     "dataset": "synthetic-kala.db",
-    "revision": "sha256:eec5251e15aa8d8d29736650afdc0edfa9d2576fe60427af22afe5d7119f7294"
+    "revision": "sha256:ad5b20311e604a9770544b5e03d2c4562815d3e5ccadf414ab15cd9056cf6101"
   },
   "generated_at": "2026-01-02T03:04:05Z",
   "products": [
@@ -32,8 +32,8 @@
       "foreign_price": null,
       "weight_grams": null,
       "location": "weight unavailable",
-      "import_freight_method_id": "",
-      "freight_cny_per_kg": null,
+      "shipping_method_id": "",
+      "shipping_price_per_kg_cny": null,
       "markup_percent": null,
       "irt_per_cny": 29000,
       "pricing_catalog_revision": "synthetic-catalog-v1",
@@ -45,12 +45,12 @@
       "warnings": [
         "final_price_unavailable",
         "foreign_price_missing",
-        "freight_rate_missing",
-        "import_freight_method_missing",
         "markup_percent_missing",
+        "shipping_method_missing",
+        "shipping_price_missing",
         "weight_missing"
       ],
-      "record_hash": "sha256:d031b2316e7963976b994301033f1fe4c4ba29a744c221ec0117cd6170344ca8"
+      "record_hash": "sha256:f0a92b3ed4fcab23d1acf184952c339d61472e70d2f9ba4f79c58c01683a744c"
     },
     {
       "product_code": "SYNTH-PRICED-001",
@@ -69,8 +69,8 @@
       "foreign_price": 24.5,
       "weight_grams": 240,
       "location": "TEST-A",
-      "import_freight_method_id": "synthetic-air",
-      "freight_cny_per_kg": 120,
+      "shipping_method_id": "synthetic-air",
+      "shipping_price_per_kg_cny": 120,
       "markup_percent": 30,
       "irt_per_cny": 29000,
       "pricing_catalog_revision": "synthetic-catalog-v1",
@@ -80,7 +80,7 @@
       "formula_version": "landed_price_v1",
       "source_updated_at": "2026-01-01T00:00:00Z",
       "warnings": [],
-      "record_hash": "sha256:fb1fc9e10312f7aaa4659550525a0f9b4536f375e4d005ee1f2e1658a90e4976"
+      "record_hash": "sha256:62e49dde95905d5a6c4cf75f1b1e310698f7265871459d77aee29b9883e0bef7"
     }
   ]
 }

@@ -1,9 +1,9 @@
 <?php
 /**
- * Canonical inbound freight catalog and product assignment service.
+ * Canonical supplier shipping-method catalog and product assignment service.
  *
- * Import freight describes how Digitalogic obtains inventory from suppliers.
- * It is intentionally independent from WooCommerce customer delivery methods.
+ * A supplier shipping method describes how Digitalogic obtains inventory. It
+ * is intentionally independent from WooCommerce customer delivery methods.
  */
 
 if (!defined('ABSPATH')) {
@@ -16,15 +16,19 @@ if (!class_exists('Digitalogic_Product_Identifier_Resolver')) {
 
 final class Digitalogic_Import_Freight_Service {
 
-    public const METHODS_OPTION = 'digitalogic_import_freight_methods_v1';
-    public const DEFAULT_MARKUP_OPTION = 'digitalogic_import_freight_default_markup_v1';
-    public const MIGRATION_OPTION = 'digitalogic_import_freight_migration_v1';
-    public const PRODUCT_METHOD_META = '_digitalogic_import_freight_method_id';
+	public const METHODS_OPTION = 'digitalogic_shipping_methods_v1';
+	public const DEFAULT_MARKUP_OPTION = 'digitalogic_pricing_default_percentage_markup_v1';
+	public const MIGRATION_OPTION = 'digitalogic_shipping_method_migration_v2';
+	public const PRODUCT_METHOD_META = '_digitalogic_shipping_method_id';
+	public const LEGACY_METHODS_OPTION = 'digitalogic_import_freight_methods_v1';
+	public const LEGACY_DEFAULT_MARKUP_OPTION = 'digitalogic_import_freight_default_markup_v1';
+	public const LEGACY_MIGRATION_OPTION = 'digitalogic_import_freight_migration_v1';
+	public const LEGACY_IMPORT_FREIGHT_PRODUCT_METHOD_META = '_digitalogic_import_freight_method_id';
     public const LEGACY_PRODUCT_METHOD_META = 'shipping_method';
     public const LEGACY_ACF_REFERENCE_META = '_shipping_method';
     public const LEGACY_ACF_FIELD_KEY = 'field_694534693f9ba';
     public const CATALOG_SCHEMA = 'digitalogic.integration-catalog';
-    public const CATALOG_SCHEMA_VERSION = '1.1.0';
+	public const CATALOG_SCHEMA_VERSION = '1.2.0';
     public const FORMULA_ID = 'landed_price_v1';
     public const FORMULA_REVISION = '1.0.0';
     public const DEFAULT_MARKUP_SCHEMA = 'digitalogic.default-percentage-markup';
@@ -34,9 +38,9 @@ final class Digitalogic_Import_Freight_Service {
 	public const PRICING_ASSIGNMENT_BATCH_SCHEMA_VERSION = '1.0.0';
 	public const MAX_PRICING_ASSIGNMENT_BATCH_SIZE       = 500;
 
-    private const MIGRATION_VERSION = 1;
+	private const MIGRATION_VERSION = 2;
     private const MAX_BATCH_SIZE = 500;
-    private const CATALOG_LOCK_NAME = 'digitalogic_import_freight_catalog_v1';
+	private const CATALOG_LOCK_NAME = 'digitalogic_shipping_method_catalog_v1';
     private const CATALOG_LOCK_TIMEOUT_SECONDS = 10;
     private const DEFAULT_MARKUP_MAX_PERCENT = '1000';
     private const DEFAULT_MARKUP_MAX_SCALE = 12;
@@ -66,6 +70,9 @@ final class Digitalogic_Import_Freight_Service {
         add_action('added_post_meta', array($this, 'sync_legacy_assignment'), 10, 4);
         add_action('updated_post_meta', array($this, 'sync_legacy_assignment'), 10, 4);
         add_action('deleted_post_meta', array($this, 'delete_legacy_assignment'), 10, 4);
+		add_action('added_post_meta', array($this, 'sync_legacy_import_freight_assignment'), 10, 4);
+		add_action('updated_post_meta', array($this, 'sync_legacy_import_freight_assignment'), 10, 4);
+		add_action('deleted_post_meta', array($this, 'delete_legacy_import_freight_assignment'), 10, 4);
         add_action('added_option', array($this, 'sync_added_legacy_rate'), 10, 2);
         add_action('updated_option', array($this, 'sync_updated_legacy_rate'), 10, 3);
         add_filter('acf/load_field/key=' . self::LEGACY_ACF_FIELD_KEY, array($this, 'filter_acf_method_field'));
@@ -141,6 +148,13 @@ final class Digitalogic_Import_Freight_Service {
                     $methods = $this->load_methods();
                     $catalog_seeded = false;
 
+					$legacy_catalog = $this->read_option_db(self::LEGACY_METHODS_OPTION, true);
+					$canonical_catalog = $this->read_option_db(self::METHODS_OPTION, true);
+					if (!$canonical_catalog['exists'] && $legacy_catalog['exists'] && is_array($legacy_catalog['value'])) {
+						$methods = $legacy_catalog['value'];
+						$catalog_seeded = true;
+					}
+
                     $seed_methods = $this->legacy_seed_methods();
                     foreach ($seed_methods as $method) {
                         if (is_wp_error($method)) {
@@ -155,12 +169,19 @@ final class Digitalogic_Import_Freight_Service {
                         }
                     }
 
-                    if ($catalog_seeded) {
+					$catalog_reconciled = !$legacy_catalog['exists']
+						|| !$this->option_row_matches($legacy_catalog, true, $methods);
+					if ($catalog_seeded || !$canonical_catalog['exists'] || $catalog_reconciled) {
                         $stored = $this->store_methods($methods);
                         if (is_wp_error($stored)) {
                             return $stored;
                         }
                     }
+
+					$markup_migrated = $this->migrate_legacy_default_markup();
+					if (is_wp_error($markup_migrated)) {
+						return $markup_migrated;
+					}
 
                     $assignments_migrated = $this->migrate_legacy_product_assignments($methods);
                     if (is_wp_error($assignments_migrated)) {
@@ -175,10 +196,20 @@ final class Digitalogic_Import_Freight_Service {
                     if (is_wp_error($version_stored)) {
                         return $version_stored;
                     }
+					$legacy_version_stored = $this->store_option_verified(
+						self::LEGACY_MIGRATION_OPTION,
+						1,
+						'digitalogic_import_freight_migration_write_failed'
+					);
+					if (is_wp_error($legacy_version_stored)) {
+						return $legacy_version_stored;
+					}
 
                     return array(
-                        'migrated' => $catalog_seeded || $assignments_migrated > 0,
+						'migrated' => $catalog_seeded || $catalog_reconciled || $markup_migrated || $assignments_migrated > 0,
                         'catalog_seeded' => $catalog_seeded,
+						'catalog_reconciled' => $catalog_reconciled,
+						'default_markup_migrated' => $markup_migrated,
                         'assignments_migrated' => $assignments_migrated,
                         'migration_version' => self::MIGRATION_VERSION,
                     );
@@ -266,12 +297,7 @@ final class Digitalogic_Import_Freight_Service {
 
             $state = $clear ? null : $this->new_default_percentage_markup_state($canonical);
             $stored = $this->run_transaction(function() use ($clear, $state) {
-                return $this->store_option_state_verified(
-                    self::DEFAULT_MARKUP_OPTION,
-                    !$clear,
-                    $state,
-                    'digitalogic_import_freight_default_markup_write_failed'
-                );
+				return $this->store_default_markup_state(!$clear, $state);
             });
             if (is_wp_error($stored)) {
                 return $stored;
@@ -323,7 +349,7 @@ final class Digitalogic_Import_Freight_Service {
         if (!isset($methods[$id])) {
             return new WP_Error(
                 'digitalogic_import_freight_method_not_found',
-                __('Import freight method not found.', 'digitalogic'),
+				__('Shipping method not found.', 'digitalogic'),
                 array('status' => 404)
             );
         }
@@ -333,6 +359,39 @@ final class Digitalogic_Import_Freight_Service {
 
         return $method;
     }
+
+	/**
+	 * Present an internal method record using the canonical transport schema.
+	 *
+	 * @param array $method Stored method record.
+	 * @return array
+	 */
+	public function present_method($method) {
+		if (!is_array($method)) {
+			return $method;
+		}
+
+		if (array_key_exists('price_per_kg_cny', $method)) {
+			$method['shipping_price_per_kg_cny'] = $method['price_per_kg_cny'];
+			unset($method['price_per_kg_cny']);
+		}
+		unset($method['legacy_key']);
+
+		if (isset($method['tiered_rates']) && is_array($method['tiered_rates'])) {
+			foreach ($method['tiered_rates'] as $index => $tier) {
+				if (!is_array($tier)) {
+					continue;
+				}
+				if (array_key_exists('price_per_kg_cny', $tier)) {
+					$tier['shipping_price_per_kg_cny'] = $tier['price_per_kg_cny'];
+					unset($tier['price_per_kg_cny']);
+				}
+				$method['tiered_rates'][$index] = $tier;
+			}
+		}
+
+		return $method;
+	}
 
     /**
      * Create a method with a caller-supplied immutable ID.
@@ -349,7 +408,7 @@ final class Digitalogic_Import_Freight_Service {
         if (array_key_exists('legacy_key', $data) && trim((string) $data['legacy_key']) !== '') {
             return new WP_Error(
                 'digitalogic_import_freight_legacy_key_reserved',
-                __('Legacy freight mappings are reserved for migrated methods.', 'digitalogic'),
+				__('Legacy shipping-method mappings are reserved for migrated methods.', 'digitalogic'),
                 array('status' => 400)
             );
         }
@@ -385,7 +444,7 @@ final class Digitalogic_Import_Freight_Service {
             if (isset($methods[$id])) {
                 return new WP_Error(
                     'digitalogic_import_freight_method_exists',
-                    __('Import freight method ID already exists.', 'digitalogic'),
+					__('Shipping method ID already exists.', 'digitalogic'),
                     array('status' => 409)
                 );
             }
@@ -430,7 +489,7 @@ final class Digitalogic_Import_Freight_Service {
         if (isset($changes['id']) && (string) $changes['id'] !== $id) {
             return new WP_Error(
                 'digitalogic_import_freight_method_id_immutable',
-                __('Import freight method IDs are immutable.', 'digitalogic'),
+				__('Shipping method IDs are immutable.', 'digitalogic'),
                 array('status' => 400)
             );
         }
@@ -440,7 +499,7 @@ final class Digitalogic_Import_Freight_Service {
             if (!isset($methods[$id])) {
                 return new WP_Error(
                     'digitalogic_import_freight_method_not_found',
-                    __('Import freight method not found.', 'digitalogic'),
+					__('Shipping method not found.', 'digitalogic'),
                     array('status' => 404)
                 );
             }
@@ -448,7 +507,7 @@ final class Digitalogic_Import_Freight_Service {
             if (isset($changes['legacy_key']) && $changes['legacy_key'] !== $methods[$id]['legacy_key']) {
                 return new WP_Error(
                     'digitalogic_import_freight_legacy_key_immutable',
-                    __('Legacy freight mappings are immutable.', 'digitalogic'),
+					__('Legacy shipping-method mappings are immutable.', 'digitalogic'),
                     array('status' => 400)
                 );
             }
@@ -510,7 +569,7 @@ final class Digitalogic_Import_Freight_Service {
             if (!isset($methods[$id])) {
                 return new WP_Error(
                     'digitalogic_import_freight_method_not_found',
-                    __('Import freight method not found.', 'digitalogic'),
+					__('Shipping method not found.', 'digitalogic'),
                     array('status' => 404)
                 );
             }
@@ -519,7 +578,7 @@ final class Digitalogic_Import_Freight_Service {
             if ($assigned > 0) {
                 return new WP_Error(
                     'digitalogic_import_freight_method_assigned',
-                    __('Assigned import freight methods cannot be deleted. Disable the method or reassign its products first.', 'digitalogic'),
+					__('Assigned shipping methods cannot be deleted. Disable the method or reassign its products first.', 'digitalogic'),
                     array('status' => 409, 'assigned_products' => $assigned)
                 );
             }
@@ -527,7 +586,7 @@ final class Digitalogic_Import_Freight_Service {
             if (!empty($methods[$id]['legacy_key'])) {
                 return new WP_Error(
                     'digitalogic_import_freight_legacy_method_delete_forbidden',
-                    __('Migrated legacy import freight methods must be disabled instead of deleted.', 'digitalogic'),
+					__('Migrated legacy shipping methods must be disabled instead of deleted.', 'digitalogic'),
                     array('status' => 409)
                 );
             }
@@ -752,7 +811,7 @@ final class Digitalogic_Import_Freight_Service {
         if (count($assignments) > self::MAX_BATCH_SIZE) {
             return new WP_Error(
                 'digitalogic_import_freight_batch_too_large',
-                __('Import freight assignment batches are limited to 500 rows.', 'digitalogic'),
+				__('Shipping-method assignment batches are limited to 500 rows.', 'digitalogic'),
                 array('status' => 413)
             );
         }
@@ -762,18 +821,23 @@ final class Digitalogic_Import_Freight_Service {
             $errors = array();
             $seen_codes = array();
             $seen_product_ids = array();
+			$deprecations = array();
 
             foreach (array_values($assignments) as $index => $assignment) {
                 $assignment = is_array($assignment) ? $assignment : array();
                 $code = $this->normalize_code(isset($assignment['code']) ? $assignment['code'] : '');
-                if (array_key_exists('import_freight_method_id', $assignment)) {
+				if (array_key_exists('shipping_method_id', $assignment)) {
+					$method_id = $assignment['shipping_method_id'];
+				} elseif (array_key_exists('import_freight_method_id', $assignment)) {
                     $method_id = $assignment['import_freight_method_id'];
+					$deprecations[] = 'import_freight_method_id:use_shipping_method_id';
                 } elseif (array_key_exists('method_id', $assignment)) {
                     $method_id = $assignment['method_id'];
+					$deprecations[] = 'method_id:use_shipping_method_id';
                 } else {
                     $errors[$index] = array(
                         'code' => 'digitalogic_import_freight_method_required',
-                        'message' => __('The import freight method field is required; use null or an empty value to clear it explicitly.', 'digitalogic'),
+						'message' => __('The shipping_method_id field is required; use null or an empty value to clear it explicitly.', 'digitalogic'),
                     );
                     continue;
                 }
@@ -866,6 +930,9 @@ final class Digitalogic_Import_Freight_Service {
                 'unchanged' => count($results) - $updated,
                 'assignments' => $results,
             );
+			if (!empty($deprecations)) {
+				$result['deprecations'] = array_values(array_unique($deprecations));
+			}
             if (!empty($delivery_warnings)) {
                 $result['delivery_warnings'] = array_values(array_unique($delivery_warnings));
             }
@@ -890,6 +957,10 @@ final class Digitalogic_Import_Freight_Service {
         if (is_wp_error($methods)) {
             return $methods;
         }
+		foreach ($methods as &$method) {
+			$method = $this->present_method($method);
+		}
+		unset($method);
         $default_markup = $this->load_default_percentage_markup();
 
         $currency_status = Digitalogic_WooCommerce_Currency_Status::instance()->get_status();
@@ -939,8 +1010,8 @@ final class Digitalogic_Import_Freight_Service {
             'pricing' => array(
                 'formula_id' => self::FORMULA_ID,
                 'formula_revision' => self::FORMULA_REVISION,
-                'expression' => '((weight_g * freight_cny_per_kg / 1000) + foreign_price_cny) * (1 + profit_percent / 100) * cny_to_irt',
-                'inputs' => array('weight_g', 'freight_cny_per_kg', 'foreign_price_cny', 'profit_percent', 'cny_to_irt'),
+				'expression' => '((weight_g * shipping_price_per_kg_cny / 1000) + foreign_price_cny) * (1 + profit_percent / 100) * cny_to_irt',
+				'inputs' => array('weight_g', 'shipping_price_per_kg_cny', 'foreign_price_cny', 'profit_percent', 'cny_to_irt'),
                 'product_markup_contract' => array(
                     'type_field' => 'markup.type',
                     'value_field' => 'markup.value',
@@ -958,11 +1029,11 @@ final class Digitalogic_Import_Freight_Service {
                 ),
             ),
             'selected_warehouses' => $warehouses,
-            'import_freight_methods' => $methods,
+			'shipping_methods' => $methods,
         );
 
         $revision_material = $material;
-        foreach ($revision_material['import_freight_methods'] as &$method) {
+		foreach ($revision_material['shipping_methods'] as &$method) {
             unset($method['assigned_products']);
         }
         unset($method);
@@ -993,7 +1064,7 @@ final class Digitalogic_Import_Freight_Service {
                     return array('stale' => true, 'changed' => false);
                 }
 
-                $canonical = $this->read_post_meta_db($object_id, self::PRODUCT_METHOD_META, true);
+				$canonical = $this->read_product_method_meta($object_id, true);
                 $current_id = $canonical['exists'] ? (string) $canonical['value'] : '';
                 $method_id = $this->legacy_value_to_method_id($attempted_value, $methods);
                 if (
@@ -1044,7 +1115,7 @@ final class Digitalogic_Import_Freight_Service {
                     return array('changed' => false, 'stale' => true);
                 }
 
-                $canonical_row = $this->read_post_meta_db($object_id, self::PRODUCT_METHOD_META, true);
+				$canonical_row = $this->read_product_method_meta($object_id, true);
                 $canonical = $canonical_row['exists'] ? (string) $canonical_row['value'] : '';
                 $deleted_method_id = $this->legacy_value_to_method_id($meta_value);
                 if ($canonical === '' || $canonical !== $deleted_method_id) {
@@ -1058,6 +1129,75 @@ final class Digitalogic_Import_Freight_Service {
             $this->emit_domain_action('digitalogic_product_import_freight_method_updated', $object_id, '');
         }
     }
+
+	/**
+	 * Accept writes from a rolled-back plugin version at the migration edge.
+	 */
+	public function sync_legacy_import_freight_assignment($meta_id, $object_id, $meta_key, $meta_value) {
+		if (
+			$this->syncing_legacy_meta
+			|| self::LEGACY_IMPORT_FREIGHT_PRODUCT_METHOD_META !== $meta_key
+			|| !$this->is_product($object_id)
+		) {
+			return;
+		}
+
+		$attempted = sanitize_key((string) $meta_value);
+		$result = $this->with_catalog_lock(function() use ($object_id, $attempted) {
+			return $this->run_transaction(function() use ($object_id, $attempted) {
+				$legacy = $this->read_post_meta_db(
+					$object_id,
+					self::LEGACY_IMPORT_FREIGHT_PRODUCT_METHOD_META,
+					true
+				);
+				if (!$legacy['exists'] || (string) $legacy['value'] !== $attempted) {
+					return array('changed' => false, 'stale' => true);
+				}
+
+				$method = $this->validate_assignment_method($attempted, $object_id);
+				if (is_wp_error($method)) {
+					return $method;
+				}
+				return $this->apply_assignment($object_id, $method);
+			});
+		});
+
+		if (!is_wp_error($result) && !empty($result['changed'])) {
+			$this->emit_domain_action(
+				'digitalogic_product_import_freight_method_updated',
+				$object_id,
+				$attempted
+			);
+		}
+	}
+
+	public function delete_legacy_import_freight_assignment($meta_ids, $object_id, $meta_key, $meta_value) {
+		if (
+			$this->syncing_legacy_meta
+			|| self::LEGACY_IMPORT_FREIGHT_PRODUCT_METHOD_META !== $meta_key
+			|| !$this->is_product($object_id)
+		) {
+			return;
+		}
+
+		$result = $this->with_catalog_lock(function() use ($object_id) {
+			return $this->run_transaction(function() use ($object_id) {
+				$legacy = $this->read_post_meta_db(
+					$object_id,
+					self::LEGACY_IMPORT_FREIGHT_PRODUCT_METHOD_META,
+					true
+				);
+				if ($legacy['exists']) {
+					return array('changed' => false, 'stale' => true);
+				}
+				return $this->apply_assignment($object_id, null);
+			});
+		});
+
+		if (!is_wp_error($result) && !empty($result['changed'])) {
+			$this->emit_domain_action('digitalogic_product_import_freight_method_updated', $object_id, '');
+		}
+	}
 
     /**
      * Mirror a newly-created legacy ACF rate into an existing canonical method.
@@ -1080,17 +1220,17 @@ final class Digitalogic_Import_Freight_Service {
     private function legacy_seed_methods() {
         $definitions = array(
             'air_express' => array(
-                'name' => 'Air Freight (Express)',
+				'name' => 'Air (Express)',
                 'legacy_key' => 'express',
                 'fallback_rate' => 85,
             ),
             'air_freight' => array(
-                'name' => 'Air Freight',
+				'name' => 'Air',
                 'legacy_key' => 'aerial',
                 'fallback_rate' => 80,
             ),
             'sea_freight' => array(
-                'name' => 'Sea/Ocean Freight',
+				'name' => 'Sea/Ocean',
                 'legacy_key' => 'marine',
                 'fallback_rate' => 50,
             ),
@@ -1133,20 +1273,32 @@ final class Digitalogic_Import_Freight_Service {
             'fields' => 'ids',
             'no_found_rows' => true,
             'meta_query' => array(
+				'relation' => 'OR',
+				array('key' => self::LEGACY_IMPORT_FREIGHT_PRODUCT_METHOD_META, 'compare' => 'EXISTS'),
                 array('key' => self::LEGACY_PRODUCT_METHOD_META, 'compare' => 'EXISTS'),
             ),
         ));
         $migrated = 0;
 
         foreach ((array) $ids as $product_id) {
-            $canonical_row = $this->read_post_meta_db($product_id, self::PRODUCT_METHOD_META, true);
+			$canonical_row = $this->read_product_method_meta($product_id, true);
             $canonical = $canonical_row['exists'] ? (string) $canonical_row['value'] : '';
             if ($canonical !== '' && isset($methods[$canonical])) {
                 $method_id = $canonical;
             } else {
-                $legacy_row = $this->read_post_meta_db($product_id, self::LEGACY_PRODUCT_METHOD_META, true);
-                $legacy = $legacy_row['exists'] ? $legacy_row['value'] : '';
-                $method_id = $this->legacy_value_to_method_id($legacy, $methods);
+				$old_canonical_row = $this->read_post_meta_db(
+					$product_id,
+					self::LEGACY_IMPORT_FREIGHT_PRODUCT_METHOD_META,
+					true
+				);
+				$old_canonical = $old_canonical_row['exists'] ? (string) $old_canonical_row['value'] : '';
+				if ($old_canonical !== '' && isset($methods[$old_canonical])) {
+					$method_id = $old_canonical;
+				} else {
+					$legacy_row = $this->read_post_meta_db($product_id, self::LEGACY_PRODUCT_METHOD_META, true);
+					$legacy = $legacy_row['exists'] ? $legacy_row['value'] : '';
+					$method_id = $this->legacy_value_to_method_id($legacy, $methods);
+				}
                 if ($method_id === '') {
                     continue;
                 }
@@ -1172,12 +1324,12 @@ final class Digitalogic_Import_Freight_Service {
 
         $name = sanitize_text_field(isset($data['name']) ? wp_unslash($data['name']) : '');
         if ($name === '') {
-            return new WP_Error('digitalogic_import_freight_name_required', __('Import freight method name is required.', 'digitalogic'), array('status' => 400));
+			return new WP_Error('digitalogic_import_freight_name_required', __('Shipping method name is required.', 'digitalogic'), array('status' => 400));
         }
 
         $currency = strtoupper(sanitize_key(isset($data['currency']) ? $data['currency'] : 'CNY'));
         if ('CNY' !== $currency) {
-            return new WP_Error('digitalogic_import_freight_currency_unsupported', __('landed_price_v1 currently requires CNY freight rates.', 'digitalogic'), array('status' => 400));
+			return new WP_Error('digitalogic_import_freight_currency_unsupported', __('landed_price_v1 currently requires shipping prices in CNY.', 'digitalogic'), array('status' => 400));
         }
 
         $price = $this->number_or_null(isset($data['price_per_kg_cny']) ? $data['price_per_kg_cny'] : null);
@@ -1279,7 +1431,7 @@ final class Digitalogic_Import_Freight_Service {
             if ($index > 0 && (is_null($previous_max) || $tier['min_weight_kg'] <= $previous_max)) {
                 return new WP_Error(
                     'digitalogic_import_freight_tiers_overlap',
-                    __('Tiered freight-rate ranges cannot overlap.', 'digitalogic'),
+					__('Tiered shipping-price ranges cannot overlap.', 'digitalogic'),
                     array('status' => 400, 'tier_index' => $index)
                 );
             }
@@ -1339,18 +1491,18 @@ final class Digitalogic_Import_Freight_Service {
 
         $methods = $this->load_methods();
         if (!isset($methods[$method_id])) {
-            return new WP_Error('digitalogic_import_freight_method_not_found', __('Import freight method not found.', 'digitalogic'), array('status' => 404));
+			return new WP_Error('digitalogic_import_freight_method_not_found', __('Shipping method not found.', 'digitalogic'), array('status' => 404));
         }
         if (empty($methods[$method_id]['enabled'])) {
             $current = $product_id
-                ? $this->read_post_meta_db($product_id, self::PRODUCT_METHOD_META)
+				? $this->read_product_method_meta($product_id)
                 : array('exists' => false, 'value' => null);
             $current_method_id = $current['exists'] ? (string) $current['value'] : '';
             if ($current_method_id === $method_id) {
                 return $methods[$method_id];
             }
 
-            return new WP_Error('digitalogic_import_freight_method_disabled', __('Disabled import freight methods cannot be assigned to new products.', 'digitalogic'), array('status' => 409));
+			return new WP_Error('digitalogic_import_freight_method_disabled', __('Disabled shipping methods cannot be assigned to new products.', 'digitalogic'), array('status' => 409));
         }
 
         return $methods[$method_id];
@@ -1409,6 +1561,16 @@ final class Digitalogic_Import_Freight_Service {
             }
             $changed = $changed || !empty($canonical_write['changed']);
 
+			$legacy_canonical_write = $this->store_post_meta_verified(
+				$product_id,
+				self::LEGACY_IMPORT_FREIGHT_PRODUCT_METHOD_META,
+				$desired_method_id
+			);
+			if (is_wp_error($legacy_canonical_write)) {
+				return $legacy_canonical_write;
+			}
+			$changed = $changed || !empty($legacy_canonical_write['changed']);
+
             $legacy_write = $this->store_post_meta_verified(
                 $product_id,
                 self::LEGACY_PRODUCT_METHOD_META,
@@ -1440,19 +1602,22 @@ final class Digitalogic_Import_Freight_Service {
     }
 
     private function build_assignment_response($resolved, $default_markup = null) {
-        $method_row = $this->read_post_meta_db($resolved['product_id'], self::PRODUCT_METHOD_META);
-        $legacy_row = $this->read_post_meta_db($resolved['product_id'], self::LEGACY_PRODUCT_METHOD_META);
+		$method_row = $this->read_product_method_meta($resolved['product_id']);
         $method_id = $method_row['exists'] ? (string) $method_row['value'] : '';
         $methods = $this->load_methods();
         if (!is_array($default_markup)) {
             $default_markup = $this->load_default_percentage_markup();
         }
         $markup = $this->build_markup_contract($resolved['product_id'], $default_markup);
+		$stored_method = $method_id !== '' && isset($methods[$method_id]) ? $methods[$method_id] : null;
+		$shipping_method = is_array($stored_method) ? $this->present_method($stored_method) : null;
 
         return array_merge($resolved, array(
-            'import_freight_method_id' => $method_id,
-            'import_freight_method' => $method_id !== '' && isset($methods[$method_id]) ? $methods[$method_id] : null,
-            'legacy_shipping_method' => $legacy_row['exists'] ? (string) $legacy_row['value'] : '',
+			'shipping_method_id' => $method_id,
+			'shipping_method' => $shipping_method,
+			'shipping_price_per_kg_cny' => is_array($stored_method)
+				? $stored_method['price_per_kg_cny']
+				: null,
             'markup' => $markup,
             'profit_percent' => $markup['profit_percent'],
             'profit_percent_source' => $markup['source'],
@@ -1469,15 +1634,15 @@ final class Digitalogic_Import_Freight_Service {
 	 * @return array
 	 */
 	private function build_pricing_assignment_projection( $requested_code, $resolved, $default_markup ) {
-		$method_row = $this->read_post_meta_db( $resolved['product_id'], self::PRODUCT_METHOD_META );
+		$method_row = $this->read_product_method_meta( $resolved['product_id'] );
 		$markup     = $this->build_exact_markup_contract( $resolved['product_id'], $default_markup );
 
 		return array(
-			'code'                     => $requested_code,
-			'import_freight_method_id' => $method_row['exists'] ? (string) $method_row['value'] : '',
-			'profit_percent'           => $markup['profit_percent'],
-			'profit_percent_source'    => $markup['source'],
-			'pricing_warnings'         => $markup['warning'] ? array( $markup['warning'] ) : array(),
+			'code'                  => $requested_code,
+			'shipping_method_id'    => $method_row['exists'] ? (string) $method_row['value'] : '',
+			'profit_percent'        => $markup['profit_percent'],
+			'profit_percent_source' => $markup['source'],
+			'pricing_warnings'      => $markup['warning'] ? array( $markup['warning'] ) : array(),
 		);
 	}
 
@@ -1518,6 +1683,17 @@ final class Digitalogic_Import_Freight_Service {
             'meta_key' => self::PRODUCT_METHOD_META,
             'meta_value' => $method_id,
         ));
+
+		$legacy_canonical_ids = get_posts(array(
+			'post_type' => array('product', 'product_variation'),
+			'post_status' => 'any',
+			'posts_per_page' => -1,
+			'fields' => 'ids',
+			'no_found_rows' => true,
+			'meta_key' => self::LEGACY_IMPORT_FREIGHT_PRODUCT_METHOD_META,
+			'meta_value' => $method_id,
+		));
+		$ids = array_merge((array) $ids, (array) $legacy_canonical_ids);
 
         $methods = is_array($methods) ? $methods : $this->load_methods();
         if (isset($methods[$method_id])) {
@@ -1634,6 +1810,9 @@ final class Digitalogic_Import_Freight_Service {
 
     private function load_methods() {
         $stored = $this->read_option_db(self::METHODS_OPTION);
+		if (!$stored['exists']) {
+			$stored = $this->read_option_db(self::LEGACY_METHODS_OPTION);
+		}
         $methods = $stored['exists'] ? $stored['value'] : array();
         if (!is_array($methods)) {
             return array();
@@ -1702,11 +1881,80 @@ final class Digitalogic_Import_Freight_Service {
 
     private function store_methods($methods) {
         ksort($methods, SORT_STRING);
-        return $this->store_option_verified(
+		$canonical = $this->store_option_verified(
             self::METHODS_OPTION,
             $methods,
             'digitalogic_import_freight_catalog_write_failed'
         );
+		if (is_wp_error($canonical)) {
+			return $canonical;
+		}
+
+		$legacy = $this->store_option_verified(
+			self::LEGACY_METHODS_OPTION,
+			$methods,
+			'digitalogic_import_freight_catalog_write_failed'
+		);
+		if (is_wp_error($legacy)) {
+			return $legacy;
+		}
+
+		return array('changed' => !empty($canonical['changed']) || !empty($legacy['changed']));
+	}
+
+	/**
+	 * Copy the former pricing option into its domain-neutral canonical name.
+	 * Both names are retained and subsequently dual-written for safe rollback.
+	 */
+	private function migrate_legacy_default_markup() {
+		$canonical = $this->read_option_db(self::DEFAULT_MARKUP_OPTION, true);
+		$legacy = $this->read_option_db(self::LEGACY_DEFAULT_MARKUP_OPTION, true);
+
+		if ($canonical['exists']) {
+			if (!$legacy['exists'] || !$this->option_row_matches($legacy, true, $canonical['value'])) {
+				$mirrored = $this->store_option_verified(
+					self::LEGACY_DEFAULT_MARKUP_OPTION,
+					$canonical['value'],
+					'digitalogic_import_freight_default_markup_write_failed'
+				);
+				return is_wp_error($mirrored) ? $mirrored : !empty($mirrored['changed']);
+			}
+			return false;
+		}
+		if (!$legacy['exists']) {
+			return false;
+		}
+
+		$stored = $this->store_option_verified(
+			self::DEFAULT_MARKUP_OPTION,
+			$legacy['value'],
+			'digitalogic_import_freight_default_markup_write_failed'
+		);
+		return is_wp_error($stored) ? $stored : !empty($stored['changed']);
+	}
+
+	private function store_default_markup_state($desired_exists, $state) {
+		$canonical = $this->store_option_state_verified(
+			self::DEFAULT_MARKUP_OPTION,
+			$desired_exists,
+			$state,
+			'digitalogic_import_freight_default_markup_write_failed'
+		);
+		if (is_wp_error($canonical)) {
+			return $canonical;
+		}
+
+		$legacy = $this->store_option_state_verified(
+			self::LEGACY_DEFAULT_MARKUP_OPTION,
+			$desired_exists,
+			$state,
+			'digitalogic_import_freight_default_markup_write_failed'
+		);
+		if (is_wp_error($legacy)) {
+			return $legacy;
+		}
+
+		return array('changed' => !empty($canonical['changed']) || !empty($legacy['changed']));
     }
 
     /**
@@ -1772,6 +2020,22 @@ final class Digitalogic_Import_Freight_Service {
             )
             : array('exists' => false, 'value' => null, 'meta_id' => 0);
     }
+
+	/**
+	 * Read the canonical assignment and fall back to the former canonical key
+	 * during the compatibility window.
+	 */
+	private function read_product_method_meta($post_id, $for_update = false) {
+		$row = $this->read_post_meta_db($post_id, self::PRODUCT_METHOD_META, $for_update);
+		if (!$row['exists']) {
+			$row = $this->read_post_meta_db(
+				$post_id,
+				self::LEGACY_IMPORT_FREIGHT_PRODUCT_METHOD_META,
+				$for_update
+			);
+		}
+		return $row;
+	}
 
     /**
      * Low-level option write used by the transaction.
@@ -1890,7 +2154,7 @@ final class Digitalogic_Import_Freight_Service {
 
             return new WP_Error(
                 'digitalogic_import_freight_unexpected_write_failure',
-                __('The import freight change could not be completed.', 'digitalogic'),
+				__('The shipping-method change could not be completed.', 'digitalogic'),
                 array('status' => 500, 'exception' => get_class($exception))
             );
         } finally {
@@ -1923,7 +2187,7 @@ final class Digitalogic_Import_Freight_Service {
         if ('1' !== (string) $locked) {
             return new WP_Error(
                 'digitalogic_import_freight_catalog_busy',
-                __('Another import freight update is already running. Please retry.', 'digitalogic'),
+				__('Another shipping-method update is already running. Please retry.', 'digitalogic'),
                 array('status' => 503, 'retryable' => true)
             );
         }
@@ -1966,7 +2230,7 @@ final class Digitalogic_Import_Freight_Service {
             }
             return new WP_Error(
                 'digitalogic_import_freight_transaction_exception',
-                __('The import freight transaction was rolled back.', 'digitalogic'),
+				__('The shipping-method transaction was rolled back.', 'digitalogic'),
                 array('status' => 500, 'exception' => get_class($exception))
             );
         }
@@ -1989,7 +2253,7 @@ final class Digitalogic_Import_Freight_Service {
         if ($this->transaction_active) {
             return new WP_Error(
                 'digitalogic_import_freight_nested_transaction',
-                __('Nested import freight transactions are not supported.', 'digitalogic'),
+				__('Nested shipping-method transactions are not supported.', 'digitalogic'),
                 array('status' => 500)
             );
         }
@@ -1998,7 +2262,7 @@ final class Digitalogic_Import_Freight_Service {
         if (!is_object($wpdb) || !method_exists($wpdb, 'query') || false === $wpdb->query('START TRANSACTION')) {
             return new WP_Error(
                 'digitalogic_import_freight_transaction_unavailable',
-                __('The database could not start an import freight transaction.', 'digitalogic'),
+				__('The database could not start a shipping-method transaction.', 'digitalogic'),
                 array('status' => 503)
             );
         }
@@ -2015,7 +2279,7 @@ final class Digitalogic_Import_Freight_Service {
         if (!$this->transaction_active || false === $wpdb->query('COMMIT')) {
             return new WP_Error(
                 'digitalogic_import_freight_commit_failed',
-                __('The import freight transaction could not be committed.', 'digitalogic'),
+				__('The shipping-method transaction could not be committed.', 'digitalogic'),
                 array('status' => 500)
             );
         }
@@ -2048,7 +2312,7 @@ final class Digitalogic_Import_Freight_Service {
         if ($rollback_failed) {
             return new WP_Error(
                 'digitalogic_import_freight_rollback_failed',
-                __('The database could not roll back the failed import freight change.', 'digitalogic'),
+				__('The database could not roll back the failed shipping-method change.', 'digitalogic'),
                 array('status' => 500)
             );
         }
@@ -2107,7 +2371,7 @@ final class Digitalogic_Import_Freight_Service {
             return true;
         } catch (Throwable $exception) {
             error_log(sprintf(
-                '[Digitalogic import freight] Listener for %s failed after commit: %s',
+				'[Digitalogic shipping method] Listener for %s failed after commit: %s',
                 $hook,
                 $exception->getMessage()
             ));
@@ -2134,7 +2398,7 @@ final class Digitalogic_Import_Freight_Service {
                 }
             } catch (Throwable $exception) {
                 error_log(sprintf(
-                    '[Digitalogic import freight] Delivery channel %s failed after commit: %s',
+					'[Digitalogic shipping method] Delivery channel %s failed after commit: %s',
                     $channel,
                     $exception->getMessage()
                 ));
@@ -2159,7 +2423,7 @@ final class Digitalogic_Import_Freight_Service {
         if (!$this->transaction_active) {
             return new WP_Error(
                 'digitalogic_import_freight_transaction_required',
-                __('Import freight storage writes require an active transaction.', 'digitalogic'),
+				__('Shipping-method storage writes require an active transaction.', 'digitalogic'),
                 array('status' => 500)
             );
         }
@@ -2175,7 +2439,7 @@ final class Digitalogic_Import_Freight_Service {
         if (!$this->write_option_db($name, $desired_exists, $value)) {
             return new WP_Error(
                 $error_code,
-                __('The import freight option could not be saved.', 'digitalogic'),
+				__('The shipping-method option could not be saved.', 'digitalogic'),
                 array('status' => 500, 'option' => $name)
             );
         }
@@ -2183,7 +2447,7 @@ final class Digitalogic_Import_Freight_Service {
         if (!$this->option_row_matches($stored, $desired_exists, $value)) {
             return new WP_Error(
                 $error_code,
-                __('The import freight option could not be saved.', 'digitalogic'),
+				__('The shipping-method option could not be saved.', 'digitalogic'),
                 array('status' => 500, 'option' => $name)
             );
         }
@@ -2203,7 +2467,7 @@ final class Digitalogic_Import_Freight_Service {
         if (!$this->transaction_active) {
             return new WP_Error(
                 'digitalogic_import_freight_transaction_required',
-                __('Import freight storage writes require an active transaction.', 'digitalogic'),
+				__('Shipping-method storage writes require an active transaction.', 'digitalogic'),
                 array('status' => 500)
             );
         }
@@ -2224,7 +2488,7 @@ final class Digitalogic_Import_Freight_Service {
         if (!$this->write_post_meta_db($post_id, $key, $desired_exists, $value)) {
             return new WP_Error(
                 'digitalogic_import_freight_meta_write_failed',
-                __('The product import freight assignment could not be saved.', 'digitalogic'),
+				__('The product shipping-method assignment could not be saved.', 'digitalogic'),
                 array('status' => 500, 'product_id' => (int) $post_id, 'meta_key' => $key)
             );
         }
@@ -2232,7 +2496,7 @@ final class Digitalogic_Import_Freight_Service {
         if (($desired_exists && (!$stored['exists'] || (string) $stored['value'] !== $value)) || (!$desired_exists && $stored['exists'])) {
             return new WP_Error(
                 'digitalogic_import_freight_meta_write_failed',
-                __('The product import freight assignment could not be saved.', 'digitalogic'),
+				__('The product shipping-method assignment could not be saved.', 'digitalogic'),
                 array('status' => 500, 'product_id' => (int) $post_id, 'meta_key' => $key)
             );
         }
@@ -2280,7 +2544,7 @@ final class Digitalogic_Import_Freight_Service {
                 return array('changed' => false, 'stale' => true);
             }
 
-            $canonical = $this->read_post_meta_db($product_id, self::PRODUCT_METHOD_META, true);
+			$canonical = $this->read_product_method_meta($product_id, true);
             $canonical_id = $canonical['exists'] ? (string) $canonical['value'] : '';
             return $this->restore_legacy_assignment_in_transaction(
                 $product_id,
@@ -2356,6 +2620,9 @@ final class Digitalogic_Import_Freight_Service {
 
     private function load_default_percentage_markup() {
         $row = $this->read_option_db(self::DEFAULT_MARKUP_OPTION);
+		if (!$row['exists']) {
+			$row = $this->read_option_db(self::LEGACY_DEFAULT_MARKUP_OPTION);
+		}
         if (!$row['exists']) {
             return $this->default_percentage_markup_contract(false, null, 'unset', null, 0, false, array('default_markup_unset'));
         }
@@ -2547,7 +2814,7 @@ final class Digitalogic_Import_Freight_Service {
         $methods = $this->load_methods();
         $method_id = $this->legacy_value_to_method_id($value, $methods);
         if ($method_id === '' || !isset($methods[$method_id])) {
-            return __('Select a valid import freight method.', 'digitalogic');
+			return __('Select a valid shipping method.', 'digitalogic');
         }
         if (!empty($methods[$method_id]['enabled'])) {
             return true;
@@ -2561,13 +2828,13 @@ final class Digitalogic_Import_Freight_Service {
             $post_id = absint(wp_unslash($_POST['post_ID']));
         }
         $current_row = $post_id
-            ? $this->read_post_meta_db($post_id, self::PRODUCT_METHOD_META)
+			? $this->read_product_method_meta($post_id)
             : array('exists' => false, 'value' => null);
         $current = $current_row['exists'] ? (string) $current_row['value'] : '';
 
         return $current === $method_id
             ? true
-            : __('Disabled import freight methods cannot be assigned to new products.', 'digitalogic');
+			: __('Disabled shipping methods cannot be assigned to new products.', 'digitalogic');
     }
 
     private function is_product($post_id) {
@@ -2653,4 +2920,10 @@ final class Digitalogic_Import_Freight_Service {
 
         return sprintf('%04d-%02d-%02d', $year, $month, $day);
     }
+}
+
+// Canonical name for new integrations. The former class name remains the
+// implementation symbol so third-party extensions do not break during rollout.
+if (!class_exists('Digitalogic_Shipping_Method_Service')) {
+	class_alias('Digitalogic_Import_Freight_Service', 'Digitalogic_Shipping_Method_Service');
 }

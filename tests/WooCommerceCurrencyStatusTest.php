@@ -84,7 +84,7 @@ final class WooCommerceCurrencyStatusTest extends TestCase {
 		$GLOBALS['digitalogic_test_wc_currency'] = 'IRR';
 		$catalog_irr                             = Digitalogic_Import_Freight_Service::instance()->get_integration_catalog();
 
-		$this->assertSame( '1.1.0', $catalog_irr['schema_version'] );
+		$this->assertSame( '1.2.0', $catalog_irr['schema_version'] );
 		$this->assertSame( 'IRR', $catalog_irr['currency']['local'] );
 		$this->assertSame( 'IRR', $catalog_irr['currency']['woocommerce_base']['code'] );
 		$this->assertNull( $catalog_irr['currency']['woocommerce_base']['unit'] );

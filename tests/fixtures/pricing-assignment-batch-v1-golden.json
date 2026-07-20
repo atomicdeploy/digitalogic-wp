@@ -29,7 +29,7 @@
       "status": "ok",
       "assignment": {
         "code": "113007045",
-        "import_freight_method_id": "air_express",
+        "shipping_method_id": "air_express",
         "profit_percent": "30",
         "profit_percent_source": "global_default",
         "pricing_warnings": []

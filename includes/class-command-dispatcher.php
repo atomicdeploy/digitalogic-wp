@@ -3,7 +3,7 @@
  * Shared command dispatcher for AJAX, REST, and WebSocket transports.
  */
 
-if (!defined('ABSPATH')) {
+if (!defined( 'ABSPATH' )) {
     exit;
 }
 
@@ -12,9 +12,9 @@ class Digitalogic_Ajax_Die_Exception extends Exception {
     private $args;
 
     public function __construct($message = '', $title = '', $args = array()) {
-        parent::__construct((string) $message);
+        parent::__construct( (string) $message );
         $this->title = $title;
-        $this->args = is_array($args) ? $args : array();
+        $this->args = is_array( $args ) ? $args : array();
     }
 
     public function get_title() {
@@ -31,7 +31,7 @@ class Digitalogic_Command_Dispatcher {
     private static $instance = null;
 
     public static function instance() {
-        if (is_null(self::$instance)) {
+        if (is_null( self::$instance )) {
             self::$instance = new self();
         }
 
@@ -47,27 +47,27 @@ class Digitalogic_Command_Dispatcher {
      * @return mixed|WP_Error
      */
     public function execute($command, $payload = array(), $transport = 'ajax') {
-        $command = self::normalize_command_name($command);
+        $command = self::normalize_command_name( $command );
 
-        if (!current_user_can('manage_woocommerce')) {
-            return new WP_Error('digitalogic_unauthorized', __('Unauthorized', 'digitalogic'), array('status' => 403));
+        if (!current_user_can( 'manage_woocommerce' )) {
+            return new WP_Error( 'digitalogic_unauthorized', __( 'Unauthorized', 'digitalogic' ), array('status' => 403) );
         }
 
-        if (!is_array($payload)) {
-            return new WP_Error('digitalogic_invalid_payload', __('Payload must be an object.', 'digitalogic'), array('status' => 400));
+        if (!is_array( $payload )) {
+            return new WP_Error( 'digitalogic_invalid_payload', __( 'Payload must be an object.', 'digitalogic' ), array('status' => 400) );
         }
 
-        $commands = apply_filters('digitalogic_command_handlers', $this->default_handlers(), $transport);
+        $commands = apply_filters( 'digitalogic_command_handlers', $this->default_handlers(), $transport );
 
-        if (!isset($commands[$command]) || !is_callable($commands[$command])) {
-            if (in_array($transport, array('websocket', 'laravel'), true)) {
-                return $this->execute_wp_ajax_action($command, $payload, $transport);
+        if (!isset( $commands[$command] ) || !is_callable( $commands[$command] )) {
+            if (in_array( $transport, array('websocket', 'laravel'), true )) {
+                return $this->execute_wp_ajax_action( $command, $payload, $transport );
             }
 
-            return new WP_Error('digitalogic_unknown_command', __('Unknown command.', 'digitalogic'), array('status' => 404));
+            return new WP_Error( 'digitalogic_unknown_command', __( 'Unknown command.', 'digitalogic' ), array('status' => 404) );
         }
 
-        return call_user_func($commands[$command], $payload, $transport);
+        return call_user_func( $commands[$command], $payload, $transport );
     }
 
     private function default_handlers() {
@@ -87,6 +87,14 @@ class Digitalogic_Command_Dispatcher {
             'digitalogic_get_integration_catalog' => array($this, 'get_integration_catalog'),
             'digitalogic_get_default_percentage_markup' => array($this, 'get_default_percentage_markup'),
             'digitalogic_update_default_percentage_markup' => array($this, 'update_default_percentage_markup'),
+			'digitalogic_list_shipping_methods' => array($this, 'list_shipping_methods'),
+			'digitalogic_create_shipping_method' => array($this, 'create_shipping_method'),
+			'digitalogic_get_shipping_method' => array($this, 'get_shipping_method'),
+			'digitalogic_update_shipping_method' => array($this, 'update_shipping_method'),
+			'digitalogic_delete_shipping_method' => array($this, 'delete_shipping_method'),
+			'digitalogic_get_product_shipping_method' => array($this, 'get_product_shipping_method'),
+			'digitalogic_assign_product_shipping_method' => array($this, 'assign_product_shipping_method'),
+			'digitalogic_batch_assign_product_shipping_methods' => array($this, 'batch_assign_product_shipping_methods'),
             'digitalogic_list_import_freight_methods' => array($this, 'list_import_freight_methods'),
             'digitalogic_create_import_freight_method' => array($this, 'create_import_freight_method'),
             'digitalogic_get_import_freight_method' => array($this, 'get_import_freight_method'),
@@ -100,75 +108,75 @@ class Digitalogic_Command_Dispatcher {
     }
 
     public function get_products($payload) {
-        return Digitalogic_Product_Manager::instance()->query_products($payload);
+        return Digitalogic_Product_Manager::instance()->query_products( $payload );
     }
 
     public function get_product($payload) {
-        $product_id = isset($payload['product_id']) ? intval($payload['product_id']) : 0;
-        if (!$product_id && isset($payload['id'])) {
-            $product_id = intval($payload['id']);
+        $product_id = isset( $payload['product_id'] ) ? intval( $payload['product_id'] ) : 0;
+        if (!$product_id && isset( $payload['id'] )) {
+            $product_id = intval( $payload['id'] );
         }
 
         if ($product_id <= 0) {
-            return new WP_Error('digitalogic_invalid_product', __('Product ID is required.', 'digitalogic'), array('status' => 400));
+            return new WP_Error( 'digitalogic_invalid_product', __( 'Product ID is required.', 'digitalogic' ), array('status' => 400) );
         }
 
-        $product = Digitalogic_Product_Manager::instance()->get_product($product_id);
+        $product = Digitalogic_Product_Manager::instance()->get_product( $product_id );
         if (!$product) {
-            return new WP_Error('digitalogic_product_not_found', __('Product not found.', 'digitalogic'), array('status' => 404));
+            return new WP_Error( 'digitalogic_product_not_found', __( 'Product not found.', 'digitalogic' ), array('status' => 404) );
         }
 
         return array('product' => $product);
     }
 
     public function update_product($payload) {
-        $product_id = isset($payload['product_id']) ? intval($payload['product_id']) : 0;
-        $data = isset($payload['data']) && is_array($payload['data']) ? $payload['data'] : array();
+        $product_id = isset( $payload['product_id'] ) ? intval( $payload['product_id'] ) : 0;
+        $data = isset( $payload['data'] ) && is_array( $payload['data'] ) ? $payload['data'] : array();
 
-        if ($product_id <= 0 || empty($data)) {
-            return new WP_Error('digitalogic_invalid_product_update', __('Product ID and data are required.', 'digitalogic'), array('status' => 400));
+        if ($product_id <= 0 || empty( $data )) {
+            return new WP_Error( 'digitalogic_invalid_product_update', __( 'Product ID and data are required.', 'digitalogic' ), array('status' => 400) );
         }
 
-        $result = Digitalogic_Product_Manager::instance()->update_product($product_id, $this->sanitize_product_data($data));
-        if (is_wp_error($result)) {
+        $result = Digitalogic_Product_Manager::instance()->update_product( $product_id, $this->sanitize_product_data( $data ) );
+        if (is_wp_error( $result )) {
             return $result;
         }
 
         return array(
-            'message' => __('Product updated', 'digitalogic'),
-            'product' => Digitalogic_Product_Manager::instance()->get_product($product_id),
+            'message' => __( 'Product updated', 'digitalogic' ),
+            'product' => Digitalogic_Product_Manager::instance()->get_product( $product_id ),
         );
     }
 
     public function bulk_update($payload) {
-        $updates = isset($payload['updates']) && is_array($payload['updates']) ? $payload['updates'] : array();
-        if (empty($updates)) {
-            return new WP_Error('digitalogic_empty_bulk_update', __('No updates provided.', 'digitalogic'), array('status' => 400));
+        $updates = isset( $payload['updates'] ) && is_array( $payload['updates'] ) ? $payload['updates'] : array();
+        if (empty( $updates )) {
+            return new WP_Error( 'digitalogic_empty_bulk_update', __( 'No updates provided.', 'digitalogic' ), array('status' => 400) );
         }
 
         $sanitized = array();
         foreach ($updates as $product_id => $data) {
-            $product_id = intval($product_id);
-            if ($product_id > 0 && is_array($data)) {
-                $sanitized[$product_id] = $this->sanitize_product_data($data);
+            $product_id = intval( $product_id );
+            if ($product_id > 0 && is_array( $data )) {
+                $sanitized[$product_id] = $this->sanitize_product_data( $data );
             }
         }
 
-        return Digitalogic_Product_Manager::instance()->bulk_update($sanitized);
+        return Digitalogic_Product_Manager::instance()->bulk_update( $sanitized );
     }
 
     public function update_currency($payload) {
         $options = Digitalogic_Options::instance();
 
-        if (isset($payload['dollar_price'])) {
-            $options->set_dollar_price(floatval($payload['dollar_price']));
+        if (isset( $payload['dollar_price'] )) {
+            $options->set_dollar_price( floatval( $payload['dollar_price'] ) );
         }
 
-        if (isset($payload['yuan_price'])) {
-            $options->set_yuan_price(floatval($payload['yuan_price']));
+        if (isset( $payload['yuan_price'] )) {
+            $options->set_yuan_price( floatval( $payload['yuan_price'] ) );
         }
 
-        return __('Currency updated', 'digitalogic');
+        return __( 'Currency updated', 'digitalogic' );
     }
 
     public function get_currency() {
@@ -183,49 +191,51 @@ class Digitalogic_Command_Dispatcher {
     }
 
     public function export($payload) {
-        $format = isset($payload['format']) ? sanitize_key($payload['format']) : 'csv';
-        $product_ids = isset($payload['product_ids']) && is_array($payload['product_ids'])
-            ? array_map('intval', $payload['product_ids'])
+        $format = isset( $payload['format'] ) ? sanitize_key( $payload['format'] ) : 'csv';
+        $product_ids = isset( $payload['product_ids'] ) && is_array( $payload['product_ids'] )
+            ? array_map( 'intval', $payload['product_ids'] )
             : array();
 
         $import_export = Digitalogic_Import_Export::instance();
         if ($format === 'json') {
-            $filepath = $import_export->export_json($product_ids);
+            $filepath = $import_export->export_json( $product_ids );
         } elseif ($format === 'excel') {
-            $filepath = $import_export->export_excel($product_ids);
+            $filepath = $import_export->export_excel( $product_ids );
         } else {
             $format = 'csv';
-            $filepath = $import_export->export_csv($product_ids);
+            $filepath = $import_export->export_csv( $product_ids );
         }
 
-        if (is_wp_error($filepath)) {
+        if (is_wp_error( $filepath )) {
             return $filepath;
         }
 
         $upload_dir = wp_upload_dir();
 
         return array(
-            'url' => str_replace($upload_dir['basedir'], $upload_dir['baseurl'], $filepath),
+            'url' => str_replace( $upload_dir['basedir'], $upload_dir['baseurl'], $filepath ),
             'filepath' => $filepath,
             'format' => $format,
         );
     }
 
     public function get_logs($payload) {
-        $page = isset($payload['page']) ? max(1, intval($payload['page'])) : 1;
-        $limit = isset($payload['limit']) ? max(1, min(200, intval($payload['limit']))) : 50;
+        $page = isset( $payload['page'] ) ? max( 1, intval( $payload['page'] ) ) : 1;
+        $limit = isset( $payload['limit'] ) ? max( 1, min( 200, intval( $payload['limit'] ) ) ) : 50;
         $offset = ($page - 1) * $limit;
 
         return array(
-            'logs' => Digitalogic_Logger::instance()->get_logs(array(
+            'logs' => Digitalogic_Logger::instance()->get_logs(
+                array(
                 'limit' => $limit,
                 'offset' => $offset,
-            )),
+                )
+            ),
         );
     }
 
     public function get_reports($payload) {
-        return Digitalogic_Report_Engine::instance()->get_report(is_array($payload) ? $payload : array());
+        return Digitalogic_Report_Engine::instance()->get_report( is_array( $payload ) ? $payload : array() );
     }
 
     public function sync_patris($payload) {
@@ -233,76 +243,106 @@ class Digitalogic_Command_Dispatcher {
     }
 
     public function import_patris_payload($payload) {
-        return Digitalogic_Patris_Feed::instance()->import_payload($payload, 'command');
+        return Digitalogic_Patris_Feed::instance()->import_payload( $payload, 'command' );
     }
 
     public function update_patris_settings($payload) {
         return array(
-            'settings' => Digitalogic_Patris_Feed::instance()->update_settings($payload),
+            'settings' => Digitalogic_Patris_Feed::instance()->update_settings( $payload ),
             'push_token' => Digitalogic_Patris_Feed::instance()->get_push_token(),
         );
     }
 
     public function get_integration_catalog($payload = array()) {
-        return Digitalogic_Import_Freight_Service::instance()->get_integration_catalog();
+		return Digitalogic_Shipping_Method_Service::instance()->get_integration_catalog();
     }
 
     public function get_default_percentage_markup($payload = array()) {
-        return Digitalogic_Import_Freight_Service::instance()->get_default_percentage_markup();
+		return Digitalogic_Shipping_Method_Service::instance()->get_default_percentage_markup();
     }
 
     public function update_default_percentage_markup($payload) {
-        if (!is_array($payload) || !array_key_exists('profit_percent', $payload)) {
+        if (!is_array( $payload ) || !array_key_exists( 'profit_percent', $payload )) {
             return new WP_Error(
                 'digitalogic_import_freight_default_markup_required',
-                __('The profit_percent field is required; use null to clear the default explicitly.', 'digitalogic'),
+                __( 'The profit_percent field is required; use null to clear the default explicitly.', 'digitalogic' ),
                 array('status' => 400)
             );
         }
 
-        return Digitalogic_Import_Freight_Service::instance()->update_default_percentage_markup(
+		return Digitalogic_Shipping_Method_Service::instance()->update_default_percentage_markup(
             $payload['profit_percent']
         );
     }
 
-    public function list_import_freight_methods($payload = array()) {
-        $include_disabled = !isset($payload['include_disabled'])
-            || filter_var($payload['include_disabled'], FILTER_VALIDATE_BOOLEAN);
+	public function list_shipping_methods($payload = array()) {
+        $include_disabled = !isset( $payload['include_disabled'] )
+            || filter_var( $payload['include_disabled'], FILTER_VALIDATE_BOOLEAN );
 
-        $methods = Digitalogic_Import_Freight_Service::instance()->list_methods($include_disabled);
-        if (is_wp_error($methods)) {
+		$methods = Digitalogic_Shipping_Method_Service::instance()->list_methods( $include_disabled );
+        if (is_wp_error( $methods )) {
             return $methods;
         }
 
         return array(
-            'methods' => $methods,
+			'methods' => array_map(
+				array(Digitalogic_Shipping_Method_Service::instance(), 'present_method'),
+				$methods
+			),
         );
     }
 
-    public function create_import_freight_method($payload) {
-        $data = isset($payload['method']) && is_array($payload['method']) ? $payload['method'] : $payload;
+	public function create_shipping_method($payload) {
+        $data = isset( $payload['method'] ) && is_array( $payload['method'] ) ? $payload['method'] : $payload;
+		$deprecations = array();
+		$data = $this->normalize_shipping_method_payload( $data, $deprecations );
+		if (is_wp_error( $data )) {
+			return $data;
+		}
 
-        return Digitalogic_Import_Freight_Service::instance()->create_method($data);
+		$result = Digitalogic_Shipping_Method_Service::instance()->create_method( $data );
+		if (!is_wp_error( $result )) {
+			$result = Digitalogic_Shipping_Method_Service::instance()->present_method( $result );
+		}
+		foreach ($deprecations as $deprecation) {
+			$result = $this->deprecated_result( $result, $deprecation );
+		}
+		return $result;
     }
 
-    public function get_import_freight_method($payload) {
-        return Digitalogic_Import_Freight_Service::instance()->get_method(isset($payload['id']) ? $payload['id'] : '');
+	public function get_shipping_method($payload) {
+		$result = Digitalogic_Shipping_Method_Service::instance()->get_method( isset( $payload['id'] ) ? $payload['id'] : '' );
+		return is_wp_error( $result )
+			? $result
+			: Digitalogic_Shipping_Method_Service::instance()->present_method( $result );
     }
 
-    public function update_import_freight_method($payload) {
-        $id = isset($payload['id']) ? $payload['id'] : '';
-        $data = isset($payload['method']) && is_array($payload['method']) ? $payload['method'] : $payload;
+	public function update_shipping_method($payload) {
+        $id = isset( $payload['id'] ) ? $payload['id'] : '';
+        $data = isset( $payload['method'] ) && is_array( $payload['method'] ) ? $payload['method'] : $payload;
+		$deprecations = array();
+		$data = $this->normalize_shipping_method_payload( $data, $deprecations );
+		if (is_wp_error( $data )) {
+			return $data;
+		}
 
-        return Digitalogic_Import_Freight_Service::instance()->update_method($id, $data);
+		$result = Digitalogic_Shipping_Method_Service::instance()->update_method( $id, $data );
+		if (!is_wp_error( $result )) {
+			$result = Digitalogic_Shipping_Method_Service::instance()->present_method( $result );
+		}
+		foreach ($deprecations as $deprecation) {
+			$result = $this->deprecated_result( $result, $deprecation );
+		}
+		return $result;
     }
 
-    public function delete_import_freight_method($payload) {
-        return Digitalogic_Import_Freight_Service::instance()->delete_method(isset($payload['id']) ? $payload['id'] : '');
+	public function delete_shipping_method($payload) {
+		return Digitalogic_Shipping_Method_Service::instance()->delete_method( isset( $payload['id'] ) ? $payload['id'] : '' );
     }
 
-    public function get_product_import_pricing($payload) {
-        return Digitalogic_Import_Freight_Service::instance()->get_product_assignment_by_code(
-            isset($payload['code']) ? $payload['code'] : ''
+	public function get_product_shipping_method($payload) {
+		return Digitalogic_Shipping_Method_Service::instance()->get_product_assignment_by_code(
+            isset( $payload['code'] ) ? $payload['code'] : ''
         );
     }
 
@@ -317,34 +357,156 @@ class Digitalogic_Command_Dispatcher {
 			? $payload['codes']
 			: array();
 
-		return Digitalogic_Import_Freight_Service::instance()->get_product_assignments_by_codes( $codes );
+		return Digitalogic_Shipping_Method_Service::instance()->get_product_assignments_by_codes( $codes );
 	}
 
-    public function assign_product_import_freight($payload) {
-        if (array_key_exists('import_freight_method_id', $payload)) {
+	public function assign_product_shipping_method($payload) {
+		$deprecations = array();
+		if (array_key_exists( 'shipping_method_id', $payload )) {
+			$method_id = $payload['shipping_method_id'];
+		} elseif (array_key_exists( 'import_freight_method_id', $payload )) {
             $method_id = $payload['import_freight_method_id'];
-        } elseif (array_key_exists('method_id', $payload)) {
+			$deprecations[] = 'import_freight_method_id:use_shipping_method_id';
+        } elseif (array_key_exists( 'method_id', $payload )) {
             $method_id = $payload['method_id'];
+			$deprecations[] = 'method_id:use_shipping_method_id';
         } else {
             return new WP_Error(
                 'digitalogic_import_freight_method_required',
-                __('The import freight method field is required; use null or an empty value to clear it explicitly.', 'digitalogic'),
+				__( 'The shipping_method_id field is required; use null or an empty value to clear it explicitly.', 'digitalogic' ),
                 array('status' => 400)
             );
         }
 
-        return Digitalogic_Import_Freight_Service::instance()->assign_product_by_code(
-            isset($payload['code']) ? $payload['code'] : '',
+		$result = Digitalogic_Shipping_Method_Service::instance()->assign_product_by_code(
+            isset( $payload['code'] ) ? $payload['code'] : '',
             $method_id
         );
+		foreach ($deprecations as $deprecation) {
+			$result = $this->deprecated_result( $result, $deprecation );
+		}
+		return $result;
     }
 
-    public function batch_assign_product_import_freight($payload) {
-        $assignments = isset($payload['assignments']) && is_array($payload['assignments'])
+	public function batch_assign_product_shipping_methods($payload) {
+        $assignments = isset( $payload['assignments'] ) && is_array( $payload['assignments'] )
             ? $payload['assignments']
             : array();
 
-        return Digitalogic_Import_Freight_Service::instance()->batch_assign_products($assignments);
+		return Digitalogic_Shipping_Method_Service::instance()->batch_assign_products( $assignments );
+	}
+
+	// Explicit migration-boundary aliases for existing AJAX/WebSocket clients.
+	public function list_import_freight_methods($payload = array()) {
+		return $this->deprecated_result( $this->list_shipping_methods( $payload ), 'legacy_import_freight_command:use_shipping_method_commands' );
+	}
+
+	public function create_import_freight_method($payload) {
+		return $this->deprecated_result( $this->create_shipping_method( $payload ), 'legacy_import_freight_command:use_shipping_method_commands' );
+	}
+
+	public function get_import_freight_method($payload) {
+		return $this->deprecated_result( $this->get_shipping_method( $payload ), 'legacy_import_freight_command:use_shipping_method_commands' );
+	}
+
+	public function update_import_freight_method($payload) {
+		return $this->deprecated_result( $this->update_shipping_method( $payload ), 'legacy_import_freight_command:use_shipping_method_commands' );
+	}
+
+	public function delete_import_freight_method($payload) {
+		return $this->deprecated_result( $this->delete_shipping_method( $payload ), 'legacy_import_freight_command:use_shipping_method_commands' );
+	}
+
+	public function get_product_import_pricing($payload) {
+		return $this->deprecated_result( $this->get_product_shipping_method( $payload ), 'legacy_import_freight_command:use_shipping_method_commands' );
+	}
+
+	public function assign_product_import_freight($payload) {
+		return $this->deprecated_result( $this->assign_product_shipping_method( $payload ), 'legacy_import_freight_command:use_shipping_method_commands' );
+	}
+
+	public function batch_assign_product_import_freight($payload) {
+		return $this->deprecated_result( $this->batch_assign_product_shipping_methods( $payload ), 'legacy_import_freight_command:use_shipping_method_commands' );
+	}
+
+	private function deprecated_result($result, $notice) {
+		if (is_wp_error( $result ) || !is_array( $result )) {
+			return $result;
+		}
+
+		$deprecations = isset( $result['deprecations'] ) && is_array( $result['deprecations'] )
+			? $result['deprecations']
+			: array();
+		$deprecations[] = sanitize_text_field( (string) $notice );
+		$result['deprecations'] = array_values( array_unique( $deprecations ) );
+		return $result;
+	}
+
+	/**
+	 * Translate canonical API fields to the storage-service representation.
+	 *
+	 * The service intentionally retains its established internal field names
+	 * so rollback releases can read dual-written records. Transport callers
+	 * receive and should send only the shipping-method vocabulary.
+	 *
+	 * @param array $data         Method payload.
+	 * @param array $deprecations Populated with accepted legacy aliases.
+	 * @return array|WP_Error
+	 */
+	private function normalize_shipping_method_payload($data, &$deprecations) {
+		if (!is_array( $data )) {
+			return $data;
+		}
+
+		$normalized = $this->normalize_shipping_price_field( $data, $deprecations, '' );
+		if (is_wp_error( $normalized )) {
+			return $normalized;
+		}
+
+		if (isset( $normalized['tiered_rates'] ) && is_array( $normalized['tiered_rates'] )) {
+			foreach ($normalized['tiered_rates'] as $index => $tier) {
+				if (!is_array( $tier )) {
+					continue;
+				}
+				$tier = $this->normalize_shipping_price_field( $tier, $deprecations, 'tiered_rates.' . $index . '.' );
+				if (is_wp_error( $tier )) {
+					return $tier;
+				}
+				$normalized['tiered_rates'][$index] = $tier;
+			}
+		}
+
+		return $normalized;
+	}
+
+	/**
+	 * Normalize one canonical shipping price field.
+	 *
+	 * @param array  $data         Payload or tier.
+	 * @param array  $deprecations Populated with accepted legacy aliases.
+	 * @param string $path         Machine-readable field path prefix.
+	 * @return array|WP_Error
+	 */
+	private function normalize_shipping_price_field($data, &$deprecations, $path) {
+		$has_canonical = array_key_exists( 'shipping_price_per_kg_cny', $data );
+		$has_legacy = array_key_exists( 'price_per_kg_cny', $data );
+
+		if ($has_canonical && $has_legacy && (string) $data['shipping_price_per_kg_cny'] !== (string) $data['price_per_kg_cny']) {
+			return new WP_Error(
+				'digitalogic_shipping_method_price_conflict',
+				__( 'Provide either shipping_price_per_kg_cny or its deprecated price_per_kg_cny alias, not conflicting values.', 'digitalogic' ),
+				array('status' => 400, 'field' => $path . 'shipping_price_per_kg_cny')
+			);
+		}
+
+		if ($has_canonical) {
+			$data['price_per_kg_cny'] = $data['shipping_price_per_kg_cny'];
+			unset( $data['shipping_price_per_kg_cny'] );
+		} elseif ($has_legacy) {
+			$deprecations[] = $path . 'price_per_kg_cny:use_shipping_price_per_kg_cny';
+		}
+
+		return $data;
     }
 
     /**
@@ -355,18 +517,18 @@ class Digitalogic_Command_Dispatcher {
      * handles the common wp_send_json()/wp_die() path used by WordPress AJAX.
      */
     public function execute_wp_ajax_action($command, $payload, $transport = 'websocket') {
-        $command = self::normalize_command_name($command);
-        if (!$command || !has_action('wp_ajax_' . $command)) {
-            return new WP_Error('digitalogic_unknown_command', __('Unknown command.', 'digitalogic'), array('status' => 404));
+        $command = self::normalize_command_name( $command );
+        if (!$command || !has_action( 'wp_ajax_' . $command )) {
+            return new WP_Error( 'digitalogic_unknown_command', __( 'Unknown command.', 'digitalogic' ), array('status' => 404) );
         }
 
-        $allowed = apply_filters('digitalogic_websocket_ajax_action_allowed', true, $command, $payload, $transport);
+        $allowed = apply_filters( 'digitalogic_websocket_ajax_action_allowed', true, $command, $payload, $transport );
         if (!$allowed) {
-            return new WP_Error('digitalogic_ajax_action_blocked', __('This AJAX action is not available over WebSocket.', 'digitalogic'), array('status' => 403));
+            return new WP_Error( 'digitalogic_ajax_action_blocked', __( 'This AJAX action is not available over WebSocket.', 'digitalogic' ), array('status' => 403) );
         }
 
-        if (!defined('DOING_AJAX')) {
-            define('DOING_AJAX', true);
+        if (!defined( 'DOING_AJAX' )) {
+            define( 'DOING_AJAX', true );
         }
 
         $old_post = $_POST;
@@ -375,13 +537,13 @@ class Digitalogic_Command_Dispatcher {
         $old_files = $_FILES;
         $_FILES = array();
 
-        $request = $this->normalize_ajax_payload($payload);
+        $request = $this->normalize_ajax_payload( $payload );
         $request['action'] = $command;
         $_POST = $request;
-        $_REQUEST = array_merge($_GET, $_POST);
+        $_REQUEST = array_merge( $_GET, $_POST );
 
         $die_handler = function($message, $title = '', $args = array()) {
-            throw new Digitalogic_Ajax_Die_Exception($message, $title, $args);
+            throw new Digitalogic_Ajax_Die_Exception( $message, $title, $args );
         };
 
         $ajax_die_filter = function() use ($die_handler) {
@@ -391,76 +553,80 @@ class Digitalogic_Command_Dispatcher {
             return $die_handler;
         };
 
-        add_filter('wp_die_ajax_handler', $ajax_die_filter);
-        add_filter('wp_die_handler', $die_filter);
+        add_filter( 'wp_die_ajax_handler', $ajax_die_filter );
+        add_filter( 'wp_die_handler', $die_filter );
 
         ob_start();
         try {
-            do_action('wp_ajax_' . $command);
+            do_action( 'wp_ajax_' . $command );
         } catch (Digitalogic_Ajax_Die_Exception $e) {
             $output = ob_get_clean();
-            remove_filter('wp_die_ajax_handler', $ajax_die_filter);
-            remove_filter('wp_die_handler', $die_filter);
-            $this->restore_request_globals($old_post, $old_get, $old_request, $old_files);
+            remove_filter( 'wp_die_ajax_handler', $ajax_die_filter );
+            remove_filter( 'wp_die_handler', $die_filter );
+            $this->restore_request_globals( $old_post, $old_get, $old_request, $old_files );
 
             if ($output !== '') {
-                return $this->parse_ajax_output($output);
+                return $this->parse_ajax_output( $output );
             }
 
             $args = $e->get_args();
-            $status = isset($args['response']) && $args['response'] ? (int) $args['response'] : 500;
+            $status = isset( $args['response'] ) && $args['response'] ? (int) $args['response'] : 500;
 
-            return new WP_Error('digitalogic_ajax_die', $e->getMessage(), array('status' => $status));
+            return new WP_Error( 'digitalogic_ajax_die', $e->getMessage(), array('status' => $status) );
         } catch (Throwable $e) {
             $output = ob_get_clean();
-            remove_filter('wp_die_ajax_handler', $ajax_die_filter);
-            remove_filter('wp_die_handler', $die_filter);
-            $this->restore_request_globals($old_post, $old_get, $old_request, $old_files);
+            remove_filter( 'wp_die_ajax_handler', $ajax_die_filter );
+            remove_filter( 'wp_die_handler', $die_filter );
+            $this->restore_request_globals( $old_post, $old_get, $old_request, $old_files );
 
-            return new WP_Error('digitalogic_ajax_exception', $e->getMessage(), array(
+            return new WP_Error(
+                'digitalogic_ajax_exception',
+                $e->getMessage(),
+                array(
                 'status' => 500,
                 'output' => $output,
-            ));
+                )
+            );
         }
 
         $output = ob_get_clean();
-        remove_filter('wp_die_ajax_handler', $ajax_die_filter);
-        remove_filter('wp_die_handler', $die_filter);
-        $this->restore_request_globals($old_post, $old_get, $old_request, $old_files);
+        remove_filter( 'wp_die_ajax_handler', $ajax_die_filter );
+        remove_filter( 'wp_die_handler', $die_filter );
+        $this->restore_request_globals( $old_post, $old_get, $old_request, $old_files );
 
-        return $this->parse_ajax_output($output);
+        return $this->parse_ajax_output( $output );
     }
 
     private function normalize_ajax_payload($payload) {
         $normalized = array();
 
         foreach ($payload as $key => $value) {
-            $key = sanitize_key($key);
+            $key = sanitize_key( $key );
             if ($key === '') {
                 continue;
             }
 
-            $normalized[$key] = $this->recursive_unslash($value);
+            $normalized[$key] = $this->recursive_unslash( $value );
         }
 
         return $normalized;
     }
 
     private function recursive_unslash($value) {
-        if (is_array($value)) {
-            return array_map(array($this, 'recursive_unslash'), $value);
+        if (is_array( $value )) {
+            return array_map( array($this, 'recursive_unslash'), $value );
         }
 
-        return is_string($value) ? wp_unslash($value) : $value;
+        return is_string( $value ) ? wp_unslash( $value ) : $value;
     }
 
     private function parse_ajax_output($output) {
-        $output = trim((string) $output);
+        $output = trim( (string) $output );
         if ($output === '') {
             return null;
         }
 
-        $decoded = json_decode($output, true);
+        $decoded = json_decode( $output, true );
         if (json_last_error() === JSON_ERROR_NONE) {
             return $decoded;
         }
@@ -476,9 +642,9 @@ class Digitalogic_Command_Dispatcher {
     }
 
     public static function normalize_command_name($command) {
-        $command = sanitize_text_field(wp_unslash((string) $command));
+        $command = sanitize_text_field( wp_unslash( (string) $command ) );
 
-        return preg_replace('/[^a-zA-Z0-9_\.\/-]/', '', $command);
+        return preg_replace( '/[^a-zA-Z0-9_\.\/-]/', '', $command );
     }
 
     private function sanitize_product_data($data) {
@@ -507,26 +673,26 @@ class Digitalogic_Command_Dispatcher {
 
         $sanitized = array();
         foreach ($allowed as $key) {
-            if (!array_key_exists($key, $data)) {
+            if (!array_key_exists( $key, $data )) {
                 continue;
             }
 
-            $value = is_string($data[$key]) ? wp_unslash($data[$key]) : $data[$key];
-            if (in_array($key, array('name', 'sku'), true)) {
-                $sanitized[$key] = sanitize_text_field($value);
+            $value = is_string( $data[$key] ) ? wp_unslash( $data[$key] ) : $data[$key];
+            if (in_array( $key, array('name', 'sku'), true )) {
+                $sanitized[$key] = sanitize_text_field( $value );
             } elseif ($key === 'category_ids') {
-                $sanitized[$key] = is_array($value) ? array_values(array_filter(array_map('absint', $value))) : array();
+                $sanitized[$key] = is_array( $value ) ? array_values( array_filter( array_map( 'absint', $value ) ) ) : array();
             } elseif ($key === 'status') {
-                $status = sanitize_key($value);
-                $sanitized[$key] = in_array($status, array('publish', 'draft', 'pending', 'private'), true) ? $status : 'draft';
+                $status = sanitize_key( $value );
+                $sanitized[$key] = in_array( $status, array('publish', 'draft', 'pending', 'private'), true ) ? $status : 'draft';
             } elseif ($key === 'stock_status') {
-                $stock_status = sanitize_key($value);
-                $sanitized[$key] = in_array($stock_status, array('instock', 'outofstock', 'onbackorder'), true) ? $stock_status : 'instock';
+                $stock_status = sanitize_key( $value );
+                $sanitized[$key] = in_array( $stock_status, array('instock', 'outofstock', 'onbackorder'), true ) ? $stock_status : 'instock';
             } elseif ($key === 'manage_stock') {
-                $sanitized[$key] = filter_var($value, FILTER_VALIDATE_BOOLEAN);
+                $sanitized[$key] = filter_var( $value, FILTER_VALIDATE_BOOLEAN );
             } else {
-                $numeric_value = is_string($value) ? str_replace(array(',', '٬', '،', ' '), '', $value) : $value;
-                $sanitized[$key] = is_numeric($numeric_value) ? $numeric_value : sanitize_text_field((string) $value);
+                $numeric_value = is_string( $value ) ? str_replace( array(',', '٬', '،', ' '), '', $value ) : $value;
+                $sanitized[$key] = is_numeric( $numeric_value ) ? $numeric_value : sanitize_text_field( (string) $value );
             }
         }
 

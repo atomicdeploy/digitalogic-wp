@@ -146,6 +146,7 @@ class WP_REST_Request implements ArrayAccess {
 class WP_REST_Response {
     private $data;
     private $status;
+	private $headers = array();
 
     public function __construct($data = null, $status = 200) {
         $this->data = $data;
@@ -159,6 +160,18 @@ class WP_REST_Response {
     public function get_status() {
         return $this->status;
     }
+
+	public function header($key, $value, $replace = true) {
+		if (!$replace && isset($this->headers[$key])) {
+			$this->headers[$key] .= ', ' . $value;
+			return;
+		}
+		$this->headers[$key] = $value;
+	}
+
+	public function get_headers() {
+		return $this->headers;
+	}
 }
 
 // phpcs:disable -- Test-only WordPress query stubs intentionally follow the legacy bootstrap style.

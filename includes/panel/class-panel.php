@@ -52,7 +52,7 @@ class Digitalogic_Panel {
     }
 
     private function register_import_freight_delivery_channel() {
-        Digitalogic_Import_Freight_Service::instance()->register_delivery_channel(
+		Digitalogic_Shipping_Method_Service::instance()->register_delivery_channel(
             'panel',
             array($this, 'deliver_import_freight_event')
         );
@@ -607,41 +607,41 @@ class Digitalogic_Panel {
     }
 
     public function record_import_freight_method_created($method) {
-        return $this->record_import_freight_method_event('import_freight.method.created', $method);
+		return $this->record_shipping_method_event('shipping_method.created', $method);
     }
 
     public function record_import_freight_method_updated($method) {
-        return $this->record_import_freight_method_event('import_freight.method.updated', $method);
+		return $this->record_shipping_method_event('shipping_method.updated', $method);
     }
 
     public function record_import_freight_method_deleted($method) {
-        return $this->record_import_freight_method_event('import_freight.method.deleted', $method);
+		return $this->record_shipping_method_event('shipping_method.deleted', $method);
     }
 
     public function record_import_freight_assignment_event($product_id, $method_id) {
-        return self::record_event('import_freight.assignment.updated', array(
+		return self::record_event('shipping_method.assignment.updated', array(
             'product_id' => absint($product_id),
-            'import_freight_method_id' => sanitize_key((string) $method_id),
+			'shipping_method_id' => sanitize_key((string) $method_id),
         ));
     }
 
-    private function record_import_freight_method_event($event, $method) {
+	private function record_shipping_method_event($event, $method) {
         $method = is_array($method) ? $method : array();
         return self::record_event($event, array(
             'id' => isset($method['id']) ? sanitize_key($method['id']) : '',
             'name' => isset($method['name']) ? sanitize_text_field($method['name']) : '',
             'enabled' => !empty($method['enabled']),
-            'price_per_kg_cny' => isset($method['price_per_kg_cny']) ? (float) $method['price_per_kg_cny'] : null,
+			'shipping_price_per_kg_cny' => isset($method['price_per_kg_cny']) ? (float) $method['price_per_kg_cny'] : null,
         ));
     }
 
     /**
-     * Result-aware import-freight delivery channel used after service commits.
+	 * Result-aware shipping-method delivery channel used after commits.
      */
     public function deliver_import_freight_event($hook, $args) {
         $args = is_array($args) ? $args : array();
         if ('digitalogic_import_freight_default_markup_updated' === $hook) {
-            $event = 'import_freight.default_markup.updated';
+			$event = 'shipping_method.default_markup.updated';
             $markup = isset($args[0]) && is_array($args[0]) ? $args[0] : array();
             $data = array(
                 'configured' => !empty($markup['configured']),
@@ -653,21 +653,21 @@ class Digitalogic_Panel {
                 'updated_by' => isset($markup['updated_by']) ? absint($markup['updated_by']) : 0,
             );
         } elseif ('digitalogic_product_import_freight_method_updated' === $hook) {
-            $event = 'import_freight.assignment.updated';
+			$event = 'shipping_method.assignment.updated';
             $data = array(
                 'product_id' => absint(isset($args[0]) ? $args[0] : 0),
-                'import_freight_method_id' => sanitize_key((string) (isset($args[1]) ? $args[1] : '')),
+				'shipping_method_id' => sanitize_key((string) (isset($args[1]) ? $args[1] : '')),
             );
         } else {
             $events = array(
-                'digitalogic_import_freight_method_created' => 'import_freight.method.created',
-                'digitalogic_import_freight_method_updated' => 'import_freight.method.updated',
-                'digitalogic_import_freight_method_deleted' => 'import_freight.method.deleted',
+				'digitalogic_import_freight_method_created' => 'shipping_method.created',
+				'digitalogic_import_freight_method_updated' => 'shipping_method.updated',
+				'digitalogic_import_freight_method_deleted' => 'shipping_method.deleted',
             );
             if (!isset($events[$hook])) {
                 return new WP_Error(
                     'digitalogic_panel_delivery_event_unknown',
-                    __('The panel does not recognize this import freight event.', 'digitalogic')
+					__('The panel does not recognize this shipping-method event.', 'digitalogic')
                 );
             }
 
@@ -677,7 +677,7 @@ class Digitalogic_Panel {
                 'id' => isset($method['id']) ? sanitize_key($method['id']) : '',
                 'name' => isset($method['name']) ? sanitize_text_field($method['name']) : '',
                 'enabled' => !empty($method['enabled']),
-                'price_per_kg_cny' => isset($method['price_per_kg_cny']) ? (float) $method['price_per_kg_cny'] : null,
+				'shipping_price_per_kg_cny' => isset($method['price_per_kg_cny']) ? (float) $method['price_per_kg_cny'] : null,
             );
         }
 

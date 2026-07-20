@@ -186,20 +186,20 @@ curl -X POST https://yoursite.com/wp-json/digitalogic/v1/products/batch \
 - `POST /wp-json/digitalogic/v1/pricing/recalculate` - Recalculate all prices
 - `GET|PUT /wp-json/digitalogic/v1/pricing/default-markup` - Read, set, or explicitly clear the canonical default percentage markup
 
-#### Import Freight Integration
-- `GET /wp-json/digitalogic/v1/integration/catalog` - Read the versioned pricing/freight catalog and IRT/Toman compatibility
+#### Supplier Shipping Method Integration
+- `GET /wp-json/digitalogic/v1/integration/catalog` - Read the versioned pricing/shipping catalog and IRT/Toman compatibility
 - `POST /wp-json/digitalogic/v1/pricing-assignments/batch` - Read a bounded ordered Code assignment projection
-- `GET|POST /wp-json/digitalogic/v1/import-freight-methods` - List or create supplier import methods
-- `GET|PUT|DELETE /wp-json/digitalogic/v1/import-freight-methods/{id}` - Manage an immutable method ID
-- `GET|PUT /wp-json/digitalogic/v1/products/by-code/{code}/import-pricing` - Read or assign by exact Patris Code/SKU
-- `POST /wp-json/digitalogic/v1/products/import-pricing/batch` - Preflight and apply Code-based assignments
+- `GET|POST /wp-json/digitalogic/v1/shipping-methods` - List or create supplier shipping methods
+- `GET|PUT|DELETE /wp-json/digitalogic/v1/shipping-methods/{id}` - Manage an immutable method ID
+- `GET|PUT /wp-json/digitalogic/v1/products/by-code/{code}/shipping-method` - Read or assign by exact Patris Code/SKU
+- `POST /wp-json/digitalogic/v1/products/shipping-methods/batch` - Preflight and apply Code-based assignments
 
 The default markup is nullable, exact-decimal, and used only when both product
 markup metadata rows are absent or both rows are stored empty. Saving it does
 not write WooCommerce prices.
 
-Import freight is distinct from customer delivery and WooCommerce checkout
-shipping. See [Import Freight Integration Contract](docs/IMPORT-FREIGHT-API.md).
+A supplier shipping method is distinct from customer delivery and WooCommerce
+checkout shipping. See [Shipping Method Integration Contract](docs/IMPORT-FREIGHT-API.md).
 
 #### Patris Product Sync v1
 - `POST /wp-json/digitalogic/v1/patris/product-sync` - Accept a verified, transformed-only snapshot or delta
@@ -429,8 +429,8 @@ Developed for Digitalogic electronic components shop.
 - Reused the exact collision-safe Patris Code/SKU resolver and normalized Patris WooCommerce writer without changing the legacy feed route.
 
 ### 1.1.0
-- Added the canonical supplier import-freight catalog, Code/SKU assignments, landed-price contract, and Patris integration API.
-- Added transactional migration from legacy freight options and ACF assignments with observable panel, Redis, and webhook delivery results.
+- Added the canonical supplier shipping-method catalog, Code/SKU assignments, landed-price contract, and Patris integration API.
+- Added transactional migration from legacy shipping options and ACF assignments with observable panel, Redis, and webhook delivery results.
 - Normalized Patris gram weights into the WooCommerce store weight unit.
 
 ### 1.0.0

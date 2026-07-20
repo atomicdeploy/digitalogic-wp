@@ -11,7 +11,7 @@ list. It does not mutate products, assignments, prices, options, events, or
 locks.
 
 The catalog GET is also strictly non-mutating. If activation/init migration has
-not run yet, it projects the canonical default freight methods in memory; it
+not run yet, it projects the canonical default shipping methods in memory; it
 does not use the request to migrate or persist them.
 
 The credential is not accepted by any other route or method. It is also not a

@@ -74,6 +74,7 @@ final class ImportFreightServiceTest extends TestCase {
         $this->assertSame(85.0, $methods['air_express']['price_per_kg_cny']);
         $this->assertSame(80.0, $methods['air_freight']['price_per_kg_cny']);
         $this->assertSame(50.0, $methods['sea_freight']['price_per_kg_cny']);
+		$this->assertSame('air_express', get_post_meta(101, Digitalogic_Import_Freight_Service::PRODUCT_METHOD_META, true));
         $this->assertSame('air_express', get_post_meta(101, '_digitalogic_import_freight_method_id', true));
         $this->assertSame('field_custom_existing', get_post_meta(101, '_shipping_method', true));
 
@@ -86,6 +87,52 @@ final class ImportFreightServiceTest extends TestCase {
         $this->assertSame('field_custom_existing', get_post_meta(101, '_shipping_method', true));
     }
 
+	public function test_former_canonical_storage_migrates_and_remains_dual_written_for_rollback(): void {
+		$GLOBALS['digitalogic_test_options'][Digitalogic_Import_Freight_Service::LEGACY_METHODS_OPTION] = array(
+			'rail' => array(
+				'id' => 'rail',
+				'name' => 'Rail',
+				'enabled' => true,
+				'currency' => 'CNY',
+				'price_per_kg_cny' => 42.0,
+				'minimum_charge_cny' => null,
+				'billable_weight_rule' => 'actual',
+				'volumetric_divisor_cm3_per_kg' => null,
+				'transit_days_min' => null,
+				'transit_days_max' => null,
+				'metadata' => array(),
+				'tiered_rates' => array(),
+				'legacy_key' => '',
+			),
+		);
+		$GLOBALS['digitalogic_test_posts'][109] = array(
+			'post_type' => 'product',
+			'meta' => array(
+				'_sku' => 'ROLLBACK-109',
+				Digitalogic_Import_Freight_Service::LEGACY_IMPORT_FREIGHT_PRODUCT_METHOD_META => 'rail',
+			),
+		);
+
+		$first = $this->service->migrate_legacy_data();
+		$canonical = get_option(Digitalogic_Import_Freight_Service::METHODS_OPTION);
+		$legacy = get_option(Digitalogic_Import_Freight_Service::LEGACY_METHODS_OPTION);
+
+		$this->assertFalse(is_wp_error($first));
+		$this->assertArrayHasKey('rail', $canonical);
+		$this->assertSame($canonical, $legacy);
+		$this->assertSame('rail', get_post_meta(109, Digitalogic_Import_Freight_Service::PRODUCT_METHOD_META, true));
+		$this->assertSame('rail', get_post_meta(109, Digitalogic_Import_Freight_Service::LEGACY_IMPORT_FREIGHT_PRODUCT_METHOD_META, true));
+		$this->assertSame(2, get_option(Digitalogic_Import_Freight_Service::MIGRATION_OPTION));
+		$this->assertSame(1, get_option(Digitalogic_Import_Freight_Service::LEGACY_MIGRATION_OPTION));
+
+		$updated = $this->service->update_method('rail', array('price_per_kg_cny' => 43));
+		$this->assertSame(43.0, $updated['price_per_kg_cny']);
+		$this->assertSame(
+			get_option(Digitalogic_Import_Freight_Service::METHODS_OPTION),
+			get_option(Digitalogic_Import_Freight_Service::LEGACY_METHODS_OPTION)
+		);
+	}
+
     public function test_legacy_acf_changes_remain_bidirectionally_compatible() {
         $GLOBALS['digitalogic_test_posts'][102] = array(
             'post_type' => 'product',
@@ -93,18 +140,24 @@ final class ImportFreightServiceTest extends TestCase {
         );
         $this->service->migrate_legacy_data();
 
+		$this->assertSame('air_freight', get_post_meta(102, Digitalogic_Import_Freight_Service::PRODUCT_METHOD_META, true));
         $this->assertSame('air_freight', get_post_meta(102, '_digitalogic_import_freight_method_id', true));
         $this->assertSame('field_694534693f9ba', get_post_meta(102, '_shipping_method', true));
 
         update_post_meta(102, 'shipping_method', 'marine');
+		$this->assertSame('sea_freight', get_post_meta(102, Digitalogic_Import_Freight_Service::PRODUCT_METHOD_META, true));
         $this->assertSame('sea_freight', get_post_meta(102, '_digitalogic_import_freight_method_id', true));
 
         $assignment = $this->service->assign_product_by_code('CODE-102', 'air_express');
-        $this->assertSame('air_express', $assignment['import_freight_method_id']);
+		$this->assertSame('air_express', $assignment['shipping_method_id']);
+		$this->assertSame(85.0, $assignment['shipping_method']['shipping_price_per_kg_cny']);
+		$this->assertArrayNotHasKey('price_per_kg_cny', $assignment['shipping_method']);
+		$this->assertArrayNotHasKey('legacy_key', $assignment['shipping_method']);
         $this->assertSame('express', get_post_meta(102, 'shipping_method', true));
         $this->assertSame('field_694534693f9ba', get_post_meta(102, '_shipping_method', true));
 
         $this->service->assign_product_by_code('CODE-102', null);
+		$this->assertSame('', get_post_meta(102, Digitalogic_Import_Freight_Service::PRODUCT_METHOD_META, true));
         $this->assertSame('', get_post_meta(102, '_digitalogic_import_freight_method_id', true));
         $this->assertSame('', get_post_meta(102, 'shipping_method', true));
         $this->assertSame('field_694534693f9ba', get_post_meta(102, '_shipping_method', true));
@@ -116,10 +169,10 @@ final class ImportFreightServiceTest extends TestCase {
         $again = $this->service->get_integration_catalog();
 
         $this->assertSame('digitalogic.integration-catalog', $first['schema']);
-        $this->assertSame('1.1.0', $first['schema_version']);
+		$this->assertSame('1.2.0', $first['schema_version']);
         $this->assertSame('landed_price_v1', $first['pricing']['formula_id']);
         $this->assertSame(
-            '((weight_g * freight_cny_per_kg / 1000) + foreign_price_cny) * (1 + profit_percent / 100) * cny_to_irt',
+			'((weight_g * shipping_price_per_kg_cny / 1000) + foreign_price_cny) * (1 + profit_percent / 100) * cny_to_irt',
             $first['pricing']['expression']
         );
         $this->assertSame(25300.0, $first['currency']['cny_to_irt']);
@@ -138,7 +191,12 @@ final class ImportFreightServiceTest extends TestCase {
         $this->assertSame(array('shenzhen', 'tehran'), $first['selected_warehouses']);
         $this->assertSame($first['revision'], $again['revision']);
 
-        $updated = $this->service->update_method('air_express', array('price_per_kg_cny' => 86));
+		$updated = $this->service->update_method('air_express', array(
+			'price_per_kg_cny' => 86,
+			'tiered_rates' => array(
+				array('min_weight_kg' => 0, 'max_weight_kg' => null, 'price_per_kg_cny' => 84),
+			),
+		));
         $changed = $this->service->get_integration_catalog();
 
         $this->assertSame(86.0, $updated['price_per_kg_cny']);
@@ -150,6 +208,9 @@ final class ImportFreightServiceTest extends TestCase {
         $this->assertArrayHasKey('transit_days_min', $updated);
         $this->assertArrayHasKey('metadata', $updated);
         $this->assertArrayHasKey('tiered_rates', $updated);
+		$changed_methods = $this->indexMethods($changed['shipping_methods']);
+		$this->assertSame(84.0, $changed_methods['air_express']['tiered_rates'][0]['shipping_price_per_kg_cny']);
+		$this->assertArrayNotHasKey('price_per_kg_cny', $changed_methods['air_express']['tiered_rates'][0]);
 
         update_option('options_express', 87);
         do_action('updated_option', 'options_express', 86, 87);
@@ -173,16 +234,16 @@ final class ImportFreightServiceTest extends TestCase {
         );
 
         $catalog = $this->service->get_integration_catalog();
-        $methods = $this->indexMethods($catalog['import_freight_methods']);
+		$methods = $this->indexMethods($catalog['shipping_methods']);
 
         $this->assertSame('digitalogic.integration-catalog', $catalog['schema']);
-        $this->assertSame('1.1.0', $catalog['schema_version']);
+		$this->assertSame('1.2.0', $catalog['schema_version']);
         $this->assertIsString($catalog['revision']);
         $this->assertSame(25300.0, $catalog['currency']['cny_to_local']);
         $this->assertFalse($catalog['pricing']['default_percentage_markup']['configured']);
         $this->assertNull($catalog['pricing']['default_percentage_markup']['profit_percent']);
         $this->assertSame(array('air_express', 'air_freight', 'sea_freight'), array_keys($methods));
-        $this->assertSame(85.0, $methods['air_express']['price_per_kg_cny']);
+		$this->assertSame(85.0, $methods['air_express']['shipping_price_per_kg_cny']);
         $this->assertIsBool($methods['air_express']['enabled']);
         $this->assertIsInt($methods['air_express']['assigned_products']);
         $this->assertIsArray($methods['air_express']['metadata']);
@@ -233,7 +294,7 @@ final class ImportFreightServiceTest extends TestCase {
 
         $disabled = $this->service->update_method('rail_freight', array('enabled' => false));
         $this->assertFalse($disabled['enabled']);
-        $this->assertSame('rail_freight', $this->service->get_product_assignment_by_code('P-201')['import_freight_method_id']);
+		$this->assertSame('rail_freight', $this->service->get_product_assignment_by_code('P-201')['shipping_method_id']);
         $disabled_assignment = $this->service->assign_product_by_code('P-202', 'rail_freight');
         $this->assertSame('digitalogic_import_freight_method_disabled', $disabled_assignment->get_error_code());
 
@@ -337,7 +398,7 @@ final class ImportFreightServiceTest extends TestCase {
 		$result = $this->service->get_product_assignments_by_codes( array( 'COLD-READ' ) );
 
 		$this->assertSame( 'ok', $result['results'][0]['status'] );
-		$this->assertSame( 'air_express', $result['results'][0]['assignment']['import_freight_method_id'] );
+		$this->assertSame( 'air_express', $result['results'][0]['assignment']['shipping_method_id'] );
 		$this->assertArrayNotHasKey( Digitalogic_Import_Freight_Service::METHODS_OPTION, $GLOBALS['digitalogic_test_options'] );
 		$this->assertSame( $before['options'], $GLOBALS['digitalogic_test_options'] );
 		$this->assertSame( $before['posts'], $GLOBALS['digitalogic_test_posts'] );
@@ -453,16 +514,58 @@ final class ImportFreightServiceTest extends TestCase {
         $create_request = new WP_REST_Request(array(), array(
             'id' => 'road_freight',
             'name' => 'Road Freight',
-            'price_per_kg_cny' => 35,
+			'shipping_price_per_kg_cny' => 35,
+			'tiered_rates' => array(
+				array(
+					'min_weight_kg' => 0,
+					'max_weight_kg' => null,
+					'shipping_price_per_kg_cny' => 34,
+				),
+			),
         ));
-        $create_response = $api->create_import_freight_method($create_request);
+		$create_response = $api->create_shipping_method($create_request);
         $this->assertSame(201, $create_response->get_status());
+		$this->assertSame(35.0, $create_response->get_data()['data']['shipping_price_per_kg_cny']);
+		$this->assertArrayNotHasKey('price_per_kg_cny', $create_response->get_data()['data']);
+		$this->assertArrayNotHasKey('legacy_key', $create_response->get_data()['data']);
+		$this->assertSame(34.0, $create_response->get_data()['data']['tiered_rates'][0]['shipping_price_per_kg_cny']);
+		$this->assertArrayNotHasKey('price_per_kg_cny', $create_response->get_data()['data']['tiered_rates'][0]);
         $this->assertSame(
-            $dispatcher->get_import_freight_method(array('id' => 'road_freight')),
+			$dispatcher->get_shipping_method(array('id' => 'road_freight')),
             $create_response->get_data()['data']
         );
 
-        $rename_response = $api->update_import_freight_method(new WP_REST_Request(
+		$legacy_update = $dispatcher->update_shipping_method(array(
+			'id' => 'road_freight',
+			'method' => array('price_per_kg_cny' => 36),
+		));
+		$this->assertSame(36.0, $legacy_update['shipping_price_per_kg_cny']);
+		$this->assertArrayNotHasKey('price_per_kg_cny', $legacy_update);
+		$this->assertContains('price_per_kg_cny:use_shipping_price_per_kg_cny', $legacy_update['deprecations']);
+
+		$legacy_response = $api->list_import_freight_methods(new WP_REST_Request());
+		$this->assertSame('true', $legacy_response->get_headers()['Deprecation']);
+		$this->assertSame('</wp-json/digitalogic/v1/shipping-methods>; rel="successor-version"', $legacy_response->get_headers()['Link']);
+		$this->assertContains(
+			'legacy_import_freight_command:use_shipping_method_commands',
+			$legacy_response->get_data()['data']['deprecations']
+		);
+		foreach ($legacy_response->get_data()['data']['methods'] as $method) {
+			$this->assertArrayHasKey('shipping_price_per_kg_cny', $method);
+			$this->assertArrayNotHasKey('price_per_kg_cny', $method);
+			$this->assertArrayNotHasKey('legacy_key', $method);
+		}
+
+		$conflicting_price = $dispatcher->update_shipping_method(array(
+			'id' => 'road_freight',
+			'method' => array(
+				'shipping_price_per_kg_cny' => 36,
+				'price_per_kg_cny' => 37,
+			),
+		));
+		$this->assertSame('digitalogic_shipping_method_price_conflict', $conflicting_price->get_error_code());
+
+		$rename_response = $api->update_shipping_method(new WP_REST_Request(
             array('id' => 'road_freight'),
             array('id' => 'renamed_road', 'name' => 'Renamed')
         ));
@@ -668,7 +771,7 @@ final class ImportFreightServiceTest extends TestCase {
         $retry = $this->service->migrate_legacy_data();
 
         $this->assertSame(1, $retry['assignments_migrated']);
-        $this->assertSame(1, get_option(Digitalogic_Import_Freight_Service::MIGRATION_OPTION));
+		$this->assertSame(2, get_option(Digitalogic_Import_Freight_Service::MIGRATION_OPTION));
         $this->assertSame('sea_freight', get_post_meta(404, Digitalogic_Import_Freight_Service::PRODUCT_METHOD_META, true));
     }
 
@@ -678,7 +781,7 @@ final class ImportFreightServiceTest extends TestCase {
         $migration = $this->service->migrate_legacy_data();
 
         $this->assertFalse(is_wp_error($migration));
-        $this->assertSame('1', get_option(Digitalogic_Import_Freight_Service::MIGRATION_OPTION));
+		$this->assertSame('2', get_option(Digitalogic_Import_Freight_Service::MIGRATION_OPTION));
         $this->assertSame('85', get_option('options_express'));
 
         $updated = $this->service->update_method('air_express', array('price_per_kg_cny' => 92.5));
@@ -702,7 +805,7 @@ final class ImportFreightServiceTest extends TestCase {
         $this->assertArrayHasKey('air_express', $stored);
         $this->assertArrayHasKey('air_freight', $stored);
         $this->assertArrayHasKey('sea_freight', $stored);
-        $this->assertSame(1, get_option(Digitalogic_Import_Freight_Service::MIGRATION_OPTION));
+		$this->assertSame(2, get_option(Digitalogic_Import_Freight_Service::MIGRATION_OPTION));
     }
 
     public function test_acf_choices_support_custom_ids_and_reject_new_disabled_or_unknown_values() {
@@ -772,9 +875,9 @@ final class ImportFreightServiceTest extends TestCase {
     public function test_report_uses_the_canonical_catalog_and_tier_validation_rejects_bad_ranges() {
         $this->service->migrate_legacy_data();
         $report = Digitalogic_Report_Engine::instance()->get_report();
-        $method_ids = array_column($report['settings']['import_freight_methods'], 'id');
+		$method_ids = array_column($report['settings']['shipping_methods'], 'id');
 
-        $this->assertSame($report['settings']['import_freight_methods'], $report['settings']['shipping_methods']);
+		$this->assertArrayNotHasKey('import_freight_methods', $report['settings']);
         $this->assertContains('air_express', $method_ids);
         $this->assertNotContains('deprecated', $method_ids);
         $this->assertNotNull($report['settings']['integration_catalog_revision']);
@@ -882,7 +985,7 @@ final class ImportFreightServiceTest extends TestCase {
 
         $this->assertFalse(is_wp_error($result));
         $this->assertFalse($result['changed']);
-        $this->assertSame('air_express', $result['import_freight_method_id']);
+		$this->assertSame('air_express', $result['shipping_method_id']);
         $this->assertArrayNotHasKey('digitalogic_product_import_freight_method_updated', $GLOBALS['digitalogic_test_actions']);
     }
 
@@ -906,14 +1009,14 @@ final class ImportFreightServiceTest extends TestCase {
         $this->assertTrue($result['changed']);
         $events = get_option('digitalogic_panel_events', array());
         $this->assertCount(1, $events);
-        $this->assertSame('import_freight.assignment.updated', $events[0]['name']);
+		$this->assertSame('shipping_method.assignment.updated', $events[0]['name']);
         $this->assertSame(504, $events[0]['data']['product_id']);
-        $this->assertSame('air_express', $events[0]['data']['import_freight_method_id']);
+		$this->assertSame('air_express', $events[0]['data']['shipping_method_id']);
         $this->assertCount(1, $redis->published);
         $this->assertSame($events[0], json_decode($redis->published[0][1], true));
         $this->assertCount(1, $GLOBALS['digitalogic_test_remote_posts']);
         $webhook_payload = json_decode($GLOBALS['digitalogic_test_remote_posts'][0]['args']['body'], true);
-        $this->assertSame('import_freight.assignment.updated', $webhook_payload['event']);
+		$this->assertSame('shipping_method.assignment.updated', $webhook_payload['event']);
         $this->assertSame(504, $webhook_payload['data']['product_id']);
 
         $retry = $this->service->assign_product_by_code('EVENT-504', 'air_express');
@@ -925,7 +1028,7 @@ final class ImportFreightServiceTest extends TestCase {
         $webhook_source = file_get_contents(dirname(__DIR__) . '/includes/api/class-webhooks.php');
         $panel_source = file_get_contents(dirname(__DIR__) . '/includes/panel/class-panel.php');
         $this->assertStringContainsString('digitalogic_product_import_freight_method_updated', $webhook_source);
-        $this->assertStringContainsString('import_freight.assignment.updated', $webhook_source);
+		$this->assertStringContainsString('shipping_method.assignment.updated', $webhook_source);
         $this->assertStringNotContainsString("add_action('digitalogic_import_freight", $webhook_source);
         $this->assertStringNotContainsString("add_action('digitalogic_product_import_freight", $webhook_source);
         $this->assertStringNotContainsString("add_action('digitalogic_import_freight", $panel_source);
@@ -1544,7 +1647,7 @@ final class ImportFreightServiceTest extends TestCase {
         $this->assertTrue($updated['changed']);
         $events = get_option('digitalogic_panel_events', array());
         $this->assertCount(1, $events);
-        $this->assertSame('import_freight.default_markup.updated', $events[0]['name']);
+		$this->assertSame('shipping_method.default_markup.updated', $events[0]['name']);
         $this->assertTrue($events[0]['data']['configured']);
         $this->assertSame('30', $events[0]['data']['profit_percent']);
         $this->assertSame($updated['revision'], $events[0]['data']['revision']);
@@ -1553,7 +1656,7 @@ final class ImportFreightServiceTest extends TestCase {
         $this->assertCount(1, $redis->published);
         $this->assertCount(1, $GLOBALS['digitalogic_test_remote_posts']);
         $webhook = json_decode($GLOBALS['digitalogic_test_remote_posts'][0]['args']['body'], true);
-        $this->assertSame('import_freight.default_markup.updated', $webhook['event']);
+		$this->assertSame('shipping_method.default_markup.updated', $webhook['event']);
         $this->assertSame('30', $webhook['data']['profit_percent']);
         $this->assertSame($updated['previous_revision'], $webhook['data']['previous_revision']);
 

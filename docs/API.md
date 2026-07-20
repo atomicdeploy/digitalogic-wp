@@ -179,23 +179,30 @@ than being converted or changed automatically.
 
 ---
 
-## Import Freight Integration
+## Supplier Shipping Method Integration
 
-Import freight describes supplier-to-Digitalogic transport. It does not use
+A supplier shipping method describes supplier-to-Digitalogic transport. It does not use
 WooCommerce checkout, shipping-zone, or customer delivery APIs.
 
 - **GET** `/integration/catalog` - versioned CNY/IRT rate, WooCommerce base-currency compatibility, `landed_price_v1`, selected warehouses, and methods
-- **GET** `/import-freight-methods` - list canonical methods
-- **POST** `/import-freight-methods` - create a method with an immutable ID
-- **GET|PUT|DELETE** `/import-freight-methods/{id}` - read, update, or delete an unassigned method
-- **GET|PUT** `/products/by-code/{code}/import-pricing` - read or assign by exact Patris Code/SKU
-- **POST** `/products/import-pricing/batch` - preflight and apply an atomic assignment batch
+- **GET** `/shipping-methods` - list canonical methods
+- **POST** `/shipping-methods` - create a method with an immutable ID
+- **GET|PUT|DELETE** `/shipping-methods/{id}` - read, update, or delete an unassigned method
+- **GET|PUT** `/products/by-code/{code}/shipping-method` - read or assign by exact Patris Code/SKU
+- **POST** `/products/shipping-methods/batch` - preflight and apply an atomic assignment batch
 - **POST** `/pricing-assignments/batch` - read up to 500 exact assignments in a versioned, ordered, no-write response
 
 GET routes use the `read` permission scope. Mutating routes use `write`.
 Deleting an assigned method returns HTTP 409; disabling it remains available.
-See [Import Freight Integration Contract](IMPORT-FREIGHT-API.md) for schemas,
+Method and tier payloads use `shipping_price_per_kg_cny`. The former
+`price_per_kg_cny` field is accepted only as a deprecated input alias and is
+never emitted by the canonical routes.
+See [Shipping Method Integration Contract](IMPORT-FREIGHT-API.md) for schemas,
 migration behavior, and the pricing formula.
+
+The former `/import-freight-methods`, `/products/.../import-pricing`, and
+`/products/import-pricing/batch` routes remain temporary input aliases. They
+return a `Deprecation: true` response header and canonical response keys.
 
 ---
 
@@ -203,10 +210,10 @@ migration behavior, and the pricing formula.
 
 Webhook events:
 
-- `import_freight.method.created`
-- `import_freight.method.updated`
-- `import_freight.method.deleted`
-- `import_freight.assignment.updated`
+- `shipping_method.created`
+- `shipping_method.updated`
+- `shipping_method.deleted`
+- `shipping_method.assignment.updated`
 - `product.created`
 - `product.updated`
 - `currency.updated`
@@ -229,14 +236,14 @@ Supported command names:
 - `digitalogic_export`
 - `digitalogic_get_logs`
 - `digitalogic_get_integration_catalog`
-- `digitalogic_list_import_freight_methods`
-- `digitalogic_create_import_freight_method`
-- `digitalogic_get_import_freight_method`
-- `digitalogic_update_import_freight_method`
-- `digitalogic_delete_import_freight_method`
-- `digitalogic_get_product_import_pricing`
-- `digitalogic_assign_product_import_freight`
-- `digitalogic_batch_assign_product_import_freight`
+- `digitalogic_list_shipping_methods`
+- `digitalogic_create_shipping_method`
+- `digitalogic_get_shipping_method`
+- `digitalogic_update_shipping_method`
+- `digitalogic_delete_shipping_method`
+- `digitalogic_get_product_shipping_method`
+- `digitalogic_assign_product_shipping_method`
+- `digitalogic_batch_assign_product_shipping_methods`
 
 Browser WebSocket request:
 ```json
