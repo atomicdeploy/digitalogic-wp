@@ -105,7 +105,7 @@ final class Digitalogic_Homepage_Showcase {
 				</div>
 				<div class="dgl-service-grid">
 					<?php echo $this->service_card( '01', 'قطعه و ماژول آماده', 'آردوینو، ESP، سنسور، نمایشگر و کلی ماژول کاربردی برای پروژه‌های کوچیک و بزرگ.', wc_get_page_permalink( 'shop' ), 'محصولات رو ببین' ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
-					<?php echo $this->service_card( '02', 'سفارش مستقیم از چین', 'قطعه‌ای پیدا نمی‌شه یا تعداد بالا می‌خوای؟ لینک یا پارت‌نامبر رو بده؛ تأمینش می‌کنیم.', home_url( '/واردات-محصولات-الکترونیک/' ), 'ثبت درخواست خرید' ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
+					<?php echo $this->service_card( '02', 'سفارش مستقیم از چین', 'قطعه‌ای پیدا نمی‌شه یا تعداد بالا می‌خوای؟ لینک یا پارت‌نامبر رو بده؛ تأمینش می‌کنیم.', home_url( '/import-of-electronic-products/' ), 'ثبت درخواست خرید' ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
 					<?php echo $this->service_card( '2L', 'ساخت PCB دو لایه', 'فایل Gerber رو بفرست؛ برای نمونه‌سازی و تولید، قیمت و زمان تحویل شفاف می‌گیری.', home_url( '/سفارش-چاپ-برد-pcb/' ), 'سفارش PCB دو لایه' ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
 					<?php echo $this->service_card( '4L', 'ساخت PCB چهار لایه', 'برای بردهای حرفه‌ای‌تر و مسیرکشی فشرده، سفارش چهار لایه‌ات رو با خیال راحت بسپار.', home_url( '/سفارش-چاپ-برد-pcb/' ), 'سفارش PCB چهار لایه' ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
 				</div>
