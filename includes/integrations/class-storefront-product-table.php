@@ -22,6 +22,22 @@ final class Digitalogic_Storefront_Product_Table {
 	private function __construct() {
 		add_shortcode( 'digitalogic_product_table', array( $this, 'render' ) );
 		add_shortcode( 'digitalogic_image_credits', array( $this, 'render_image_credits' ) );
+		add_filter( 'posts_orderby', array( $this, 'recommended_orderby' ), 10, 2 );
+		add_action( 'wp_enqueue_scripts', array( $this, 'maybe_enqueue_assets' ) );
+	}
+
+	/**
+	 * Load catalog styles in the document head for pages that use our shortcodes.
+	 */
+	public function maybe_enqueue_assets() {
+		$post = get_queried_object();
+		if ( ! $post instanceof WP_Post ) {
+			return;
+		}
+
+		if ( has_shortcode( $post->post_content, 'digitalogic_product_table' ) || has_shortcode( $post->post_content, 'digitalogic_image_credits' ) ) {
+			$this->enqueue_assets();
+		}
 	}
 
 	/**
@@ -84,6 +100,7 @@ final class Digitalogic_Storefront_Product_Table {
 				<label>
 					<span class="screen-reader-text">مرتب‌سازی</span>
 					<select name="dgl_sort">
+						<option value="recommended" <?php selected( $filters['sort'], 'recommended' ); ?>>پیشنهادی‌ها</option>
 						<option value="popular" <?php selected( $filters['sort'], 'popular' ); ?>>محبوب‌ترها</option>
 						<option value="newest" <?php selected( $filters['sort'], 'newest' ); ?>>جدیدترها</option>
 						<option value="name" <?php selected( $filters['sort'], 'name' ); ?>>نام محصول</option>
@@ -92,7 +109,7 @@ final class Digitalogic_Storefront_Product_Table {
 					</select>
 				</label>
 				<button type="submit">اعمال فیلتر</button>
-				<?php if ( $filters['search'] || $filters['category'] || 'popular' !== $filters['sort'] ) : ?>
+				<?php if ( $filters['search'] || $filters['category'] || 'recommended' !== $filters['sort'] ) : ?>
 					<a class="dgl-catalog-reset" href="<?php echo esc_url( get_permalink() ); ?>">پاکش کن</a>
 				<?php endif; ?>
 			</form>
@@ -231,14 +248,17 @@ final class Digitalogic_Storefront_Product_Table {
 	 * @return array
 	 */
 	private function request_filters() {
-		$allowed_sorts = array( 'popular', 'newest', 'name', 'price-low', 'price-high' );
-		$sort          = isset( $_GET['dgl_sort'] ) ? sanitize_key( wp_unslash( $_GET['dgl_sort'] ) ) : 'popular'; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+		$allowed_sorts = array( 'recommended', 'popular', 'newest', 'name', 'price-low', 'price-high' );
+		$sort          = isset( $_GET['dgl_sort'] ) && is_scalar( $_GET['dgl_sort'] ) ? sanitize_key( wp_unslash( $_GET['dgl_sort'] ) ) : 'recommended'; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+		$search        = isset( $_GET['dgl_search'] ) && is_scalar( $_GET['dgl_search'] ) ? sanitize_text_field( wp_unslash( $_GET['dgl_search'] ) ) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+		$category      = isset( $_GET['dgl_category'] ) && is_scalar( $_GET['dgl_category'] ) ? absint( wp_unslash( $_GET['dgl_category'] ) ) : 0; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+		$page          = isset( $_GET['dgl_page'] ) && is_scalar( $_GET['dgl_page'] ) ? max( 1, absint( wp_unslash( $_GET['dgl_page'] ) ) ) : 1; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
 
 		return array(
-			'search'   => isset( $_GET['dgl_search'] ) ? sanitize_text_field( wp_unslash( $_GET['dgl_search'] ) ) : '', // phpcs:ignore WordPress.Security.NonceVerification.Recommended
-			'category' => isset( $_GET['dgl_category'] ) ? absint( $_GET['dgl_category'] ) : 0, // phpcs:ignore WordPress.Security.NonceVerification.Recommended
-			'sort'     => in_array( $sort, $allowed_sorts, true ) ? $sort : 'popular',
-			'page'     => isset( $_GET['dgl_page'] ) ? max( 1, absint( $_GET['dgl_page'] ) ) : 1, // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+			'search'   => $search,
+			'category' => $category,
+			'sort'     => in_array( $sort, $allowed_sorts, true ) ? $sort : 'recommended',
+			'page'     => $page,
 		);
 	}
 
@@ -293,6 +313,11 @@ final class Digitalogic_Storefront_Product_Table {
 		}
 
 		switch ( $filters['sort'] ) {
+			case 'recommended':
+				$args['digitalogic_recommended_order'] = true;
+				$args['orderby']                       = 'date';
+				$args['order']                         = 'DESC';
+				break;
 			case 'newest':
 				$args['orderby'] = 'date';
 				$args['order']   = 'DESC';
@@ -318,6 +343,37 @@ final class Digitalogic_Storefront_Product_Table {
 		}
 
 		return $args;
+	}
+
+	/**
+	 * Put photographed products first in the default showcase order, then
+	 * preserve useful commercial ordering by sales and recency.
+	 *
+	 * @param string   $orderby Existing ORDER BY clause.
+	 * @param WP_Query $query   Current query.
+	 * @return string
+	 */
+	public function recommended_orderby( $orderby, $query ) {
+		if ( ! $query->get( 'digitalogic_recommended_order' ) ) {
+			return $orderby;
+		}
+
+		global $wpdb;
+
+		return "EXISTS (
+			SELECT 1 FROM {$wpdb->postmeta} AS dgl_thumbnail_meta
+			WHERE dgl_thumbnail_meta.post_id = {$wpdb->posts}.ID
+				AND dgl_thumbnail_meta.meta_key = '_thumbnail_id'
+				AND dgl_thumbnail_meta.meta_value <> ''
+		) DESC,
+		COALESCE((
+			SELECT CAST(dgl_sales_meta.meta_value AS UNSIGNED)
+			FROM {$wpdb->postmeta} AS dgl_sales_meta
+			WHERE dgl_sales_meta.post_id = {$wpdb->posts}.ID
+				AND dgl_sales_meta.meta_key = 'total_sales'
+			LIMIT 1
+		), 0) DESC,
+		{$wpdb->posts}.post_date DESC";
 	}
 
 	/**
@@ -419,7 +475,7 @@ final class Digitalogic_Storefront_Product_Table {
 			array(
 				'dgl_search'   => $filters['search'] ?: false,
 				'dgl_category' => $filters['category'] ?: false,
-				'dgl_sort'     => 'popular' !== $filters['sort'] ? $filters['sort'] : false,
+				'dgl_sort'     => 'recommended' !== $filters['sort'] ? $filters['sort'] : false,
 				'dgl_page'     => 999999999,
 			),
 			get_permalink()

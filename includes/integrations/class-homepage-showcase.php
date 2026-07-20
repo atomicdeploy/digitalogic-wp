@@ -21,6 +21,17 @@ final class Digitalogic_Homepage_Showcase {
 
 	private function __construct() {
 		add_shortcode( 'digitalogic_homepage', array( $this, 'render' ) );
+		add_action( 'wp_enqueue_scripts', array( $this, 'maybe_enqueue_assets' ) );
+	}
+
+	/**
+	 * Load homepage presentation assets in the document head.
+	 */
+	public function maybe_enqueue_assets() {
+		$post = get_queried_object();
+		if ( is_front_page() || ( $post instanceof WP_Post && has_shortcode( $post->post_content, 'digitalogic_homepage' ) ) ) {
+			$this->enqueue_assets();
+		}
 	}
 
 	/**
@@ -33,19 +44,7 @@ final class Digitalogic_Homepage_Showcase {
 			return '';
 		}
 
-		wp_enqueue_style(
-			'digitalogic-storefront',
-			DIGITALOGIC_PLUGIN_URL . 'assets/css/storefront.css',
-			array(),
-			DIGITALOGIC_VERSION
-		);
-		wp_enqueue_script(
-			'digitalogic-storefront-carousel',
-			DIGITALOGIC_PLUGIN_URL . 'assets/js/storefront-carousel.js',
-			array(),
-			DIGITALOGIC_VERSION,
-			true
-		);
+		$this->enqueue_assets();
 
 		$hero_products = $this->get_varied_products( 6 );
 		$hero_ids      = array_map( static fn( $product ) => $product->get_id(), $hero_products );
@@ -164,7 +163,7 @@ final class Digitalogic_Homepage_Showcase {
 			array(
 				'image'           => DIGITALOGIC_PLUGIN_URL . 'assets/images/storefront-modules-hero.webp',
 				'eyebrow'         => 'قطعات، ماژول‌ها و بردهای توسعه',
-				'title'           => 'ماژول‌های جذاب تازه رسیدن؛ ببین چه چیزهایی داریم',
+				'title'           => 'ماژول‌های باحال رو کردیم؛ ببین چی موجوده',
 				'copy'            => 'از ESP و آردوینو تا Raspberry Pi، سنسور و نمایشگر؛ موجودی واقعی رو ورق بزن و سریع سفارش بده.',
 				'primary_label'   => 'لیست حرفه‌ای محصولات',
 				'primary_url'     => $this->catalog_url(),
@@ -217,6 +216,11 @@ final class Digitalogic_Homepage_Showcase {
 				<?php endforeach; ?>
 			</div>
 			<div class="dgl-story-controls">
+				<button type="button" class="dgl-story-autoplay" data-dgl-story-autoplay aria-pressed="false" aria-label="توقف پخش خودکار اسلایدها">
+					<span class="dgl-story-autoplay-icon" data-dgl-story-autoplay-icon aria-hidden="true">Ⅱ</span>
+					<span data-dgl-story-autoplay-label>توقف پخش</span>
+				</button>
+				<span class="dgl-screen-reader-text" data-dgl-story-autoplay-status aria-live="polite" aria-atomic="true"></span>
 				<div class="dgl-carousel-buttons">
 					<button type="button" data-dgl-story-prev aria-label="اسلاید قبلی">→</button>
 					<button type="button" data-dgl-story-next aria-label="اسلاید بعدی">←</button>
@@ -377,10 +381,7 @@ final class Digitalogic_Homepage_Showcase {
 			if ( ! $term || is_wp_error( $term ) || ! $visibility->is_category_visible( $term->term_id ) ) {
 				continue;
 			}
-			$url = get_term_link( $term, 'product_cat' );
-			if ( is_wp_error( $url ) ) {
-				continue;
-			}
+			$url = add_query_arg( 'dgl_category', $term->term_id, $this->catalog_url() );
 			$cards[] = array(
 				'url'      => $url,
 				'title'    => $definition[1],
@@ -458,9 +459,28 @@ final class Digitalogic_Homepage_Showcase {
 	 */
 	private function category_url( $slug ) {
 		$term = get_term_by( 'slug', $slug, 'product_cat' );
-		$url  = $term && ! is_wp_error( $term ) ? get_term_link( $term, 'product_cat' ) : '';
+		$url  = $term && ! is_wp_error( $term ) ? add_query_arg( 'dgl_category', $term->term_id, $this->catalog_url() ) : '';
 
 		return ! is_wp_error( $url ) && '' !== $url ? $url : wc_get_page_permalink( 'shop' );
+	}
+
+	/**
+	 * Register homepage assets. WordPress de-duplicates repeated calls.
+	 */
+	private function enqueue_assets() {
+		wp_enqueue_style(
+			'digitalogic-storefront',
+			DIGITALOGIC_PLUGIN_URL . 'assets/css/storefront.css',
+			array(),
+			DIGITALOGIC_VERSION
+		);
+		wp_enqueue_script(
+			'digitalogic-storefront-carousel',
+			DIGITALOGIC_PLUGIN_URL . 'assets/js/storefront-carousel.js',
+			array(),
+			DIGITALOGIC_VERSION,
+			true
+		);
 	}
 
 	/**

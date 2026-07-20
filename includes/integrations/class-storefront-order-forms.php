@@ -25,6 +25,7 @@ final class Digitalogic_Storefront_Order_Forms {
 		add_action( 'init', array( $this, 'register_request_type' ) );
 		add_shortcode( 'digitalogic_foreign_order_form', array( $this, 'render_foreign_form' ) );
 		add_shortcode( 'digitalogic_pcb_order_form', array( $this, 'render_pcb_form' ) );
+		add_action( 'wp_enqueue_scripts', array( $this, 'maybe_enqueue_assets' ) );
 		add_action( 'admin_post_digitalogic_submit_request', array( $this, 'handle_submission' ) );
 		add_action( 'admin_post_nopriv_digitalogic_submit_request', array( $this, 'handle_submission' ) );
 		add_action( 'admin_post_digitalogic_download_request_file', array( $this, 'download_request_file' ) );
@@ -33,6 +34,20 @@ final class Digitalogic_Storefront_Order_Forms {
 		add_action( 'save_post_' . self::POST_TYPE, array( $this, 'save_request_status' ) );
 		add_filter( 'manage_' . self::POST_TYPE . '_posts_columns', array( $this, 'admin_columns' ) );
 		add_action( 'manage_' . self::POST_TYPE . '_posts_custom_column', array( $this, 'render_admin_column' ), 10, 2 );
+	}
+
+	/**
+	 * Load form styles in the document head on request pages.
+	 */
+	public function maybe_enqueue_assets() {
+		$post = get_queried_object();
+		if ( ! $post instanceof WP_Post ) {
+			return;
+		}
+
+		if ( has_shortcode( $post->post_content, 'digitalogic_foreign_order_form' ) || has_shortcode( $post->post_content, 'digitalogic_pcb_order_form' ) ) {
+			$this->enqueue_assets();
+		}
 	}
 
 	/**
@@ -122,10 +137,10 @@ final class Digitalogic_Storefront_Order_Forms {
 							<strong data-dgl-file-name>فایل رو بکش اینجا یا انتخابش کن</strong>
 						</label>
 						<label><span>روش ارسال ترجیحی</span><select name="shipping_speed"><option value="best">بهترین ترکیب قیمت و زمان</option><option value="economy">اقتصادی؛ عجله ندارم</option><option value="express">سریع؛ زمان مهم‌تره</option></select></label>
-						<label><span>مهلت تقریبی تحویل</span><input type="text" name="target_date" placeholder="مثلاً تا یک ماه آینده"></label>
-						<label><span>بودجه یا ارز مرجع</span><input type="text" name="budget" placeholder="مثلاً ۵۰۰ دلار یا بدون محدودیت"></label>
+						<label><span>مهلت تقریبی تحویل</span><input type="text" name="target_date" maxlength="120" placeholder="مثلاً تا یک ماه آینده"></label>
+						<label><span>بودجه یا ارز مرجع</span><input type="text" name="budget" maxlength="120" placeholder="مثلاً ۵۰۰ دلار یا بدون محدودیت"></label>
 						<label><span>فاکتور رسمی</span><select name="invoice"><option value="no">لازم ندارم</option><option value="yes">لازم دارم</option><option value="unsure">بعداً هماهنگ کنیم</option></select></label>
-						<label class="dgl-span-2"><span>توضیحات تکمیلی</span><textarea name="notes" rows="4" placeholder="برند موردنظر، جایگزین قابل‌قبول، شرایط بسته‌بندی یا هر نکته‌ای که مهمه..."></textarea></label>
+						<label class="dgl-span-2"><span>توضیحات تکمیلی</span><textarea name="notes" rows="4" maxlength="3000" placeholder="برند موردنظر، جایگزین قابل‌قبول، شرایط بسته‌بندی یا هر نکته‌ای که مهمه..."></textarea></label>
 					</div>
 				</fieldset>
 
@@ -191,7 +206,7 @@ final class Digitalogic_Storefront_Order_Forms {
 						</label>
 						<label><span>زمان تحویل ترجیحی</span><select name="delivery_speed"><option value="standard">استاندارد</option><option value="fast">سریع‌تر، حتی با هزینه بیشتر</option><option value="economy">اقتصادی، زمان مهم نیست</option></select></label>
 						<label><span>مونتاژ قطعات</span><select name="assembly"><option value="no">فقط PCB خام</option><option value="quote">مونتاژ هم قیمت بدهید</option></select></label>
-						<label class="dgl-span-2"><span>توضیحات فنی</span><textarea name="notes" rows="4" placeholder="امپدانس کنترل‌شده، castellated hole، تست الکتریکی، نوع پنل یا هر نکته مهم دیگه..."></textarea></label>
+						<label class="dgl-span-2"><span>توضیحات فنی</span><textarea name="notes" rows="4" maxlength="3000" placeholder="امپدانس کنترل‌شده، castellated hole، تست الکتریکی، نوع پنل یا هر نکته مهم دیگه..."></textarea></label>
 					</div>
 				</fieldset>
 
@@ -234,7 +249,7 @@ final class Digitalogic_Storefront_Order_Forms {
 		<input type="hidden" name="action" value="digitalogic_submit_request">
 		<input type="hidden" name="request_type" value="<?php echo esc_attr( $type ); ?>">
 		<?php wp_nonce_field( 'digitalogic_submit_' . $type, 'digitalogic_request_nonce' ); ?>
-		<label class="dgl-hp" aria-hidden="true">Website<input type="text" name="website" tabindex="-1" autocomplete="off"></label>
+		<label class="dgl-hp" aria-hidden="true">Website<input type="text" name="website" maxlength="200" tabindex="-1" autocomplete="off"></label>
 		<?php
 
 		return ob_get_clean();
@@ -341,7 +356,7 @@ final class Digitalogic_Storefront_Order_Forms {
 	 * @return array
 	 */
 	private function prefill_product() {
-		$product_id = isset( $_GET['product_id'] ) ? absint( $_GET['product_id'] ) : 0; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+		$product_id = absint( $this->query_scalar( 'product_id', 24 ) );
 		$product    = $product_id ? wc_get_product( $product_id ) : false;
 		if ( ! $product || 'publish' !== $product->get_status() ) {
 			return array();
@@ -359,17 +374,17 @@ final class Digitalogic_Storefront_Order_Forms {
 	 * Handle and persist a public form submission.
 	 */
 	public function handle_submission() {
-		$type     = isset( $_POST['request_type'] ) ? sanitize_key( wp_unslash( $_POST['request_type'] ) ) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Missing
+		$type     = sanitize_key( $this->posted_scalar( 'request_type', 16 ) ); // phpcs:ignore WordPress.Security.NonceVerification.Missing
 		$redirect = wp_get_referer() ?: home_url( '/' );
 
 		if ( ! in_array( $type, array( 'foreign', 'pcb' ), true ) ) {
 			$this->redirect_with_error( $redirect, 'invalid' );
 		}
-		$nonce = isset( $_POST['digitalogic_request_nonce'] ) ? sanitize_text_field( wp_unslash( $_POST['digitalogic_request_nonce'] ) ) : '';
+		$nonce = sanitize_text_field( $this->posted_scalar( 'digitalogic_request_nonce', 64 ) );
 		if ( ! wp_verify_nonce( $nonce, 'digitalogic_submit_' . $type ) ) {
 			$this->redirect_with_error( $redirect, 'expired' );
 		}
-		if ( ! empty( $_POST['website'] ) ) {
+		if ( isset( $_POST['website'] ) && ( ! is_scalar( $_POST['website'] ) || '' !== trim( $this->posted_scalar( 'website', 200 ) ) ) ) {
 			$this->redirect_with_success( $redirect, 'DLG-OK' );
 		}
 
@@ -440,11 +455,12 @@ final class Digitalogic_Storefront_Order_Forms {
 	 * @return array|WP_Error
 	 */
 	private function sanitize_contact() {
-		$name    = isset( $_POST['contact_name'] ) ? sanitize_text_field( wp_unslash( $_POST['contact_name'] ) ) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Missing
-		$mobile  = isset( $_POST['mobile'] ) ? preg_replace( '/[^0-9+]/', '', wp_unslash( $_POST['mobile'] ) ) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Missing
-		$email   = isset( $_POST['email'] ) ? sanitize_email( wp_unslash( $_POST['email'] ) ) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Missing
-		$company = isset( $_POST['company'] ) ? sanitize_text_field( wp_unslash( $_POST['company'] ) ) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Missing
-		$consent = isset( $_POST['consent'] ) ? sanitize_key( wp_unslash( $_POST['consent'] ) ) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Missing
+		$name       = $this->posted_text( 'contact_name', 100 );
+		$mobile_raw = $this->normalize_digits( $this->posted_scalar( 'mobile', 20 ) );
+		$mobile     = preg_replace( '/[^0-9+]/', '', $mobile_raw );
+		$email      = sanitize_email( $this->posted_scalar( 'email', 150 ) );
+		$company    = $this->posted_text( 'company', 120 );
+		$consent    = sanitize_key( $this->posted_scalar( 'consent', 8 ) );
 
 		if ( '' === $name || strlen( preg_replace( '/\D/', '', $mobile ) ) < 10 ) {
 			return new WP_Error( 'contact', 'Contact details are incomplete.' );
@@ -465,7 +481,7 @@ final class Digitalogic_Storefront_Order_Forms {
 	 * @return array
 	 */
 	private function sanitize_foreign_payload() {
-		$raw_items = isset( $_POST['items'] ) && is_array( $_POST['items'] ) ? wp_unslash( $_POST['items'] ) : array(); // phpcs:ignore WordPress.Security.NonceVerification.Missing
+		$raw_items = isset( $_POST['items'] ) && is_array( $_POST['items'] ) ? $_POST['items'] : array(); // phpcs:ignore WordPress.Security.NonceVerification.Missing
 		$items     = array();
 
 		foreach ( array_slice( $raw_items, 0, 10 ) as $raw_item ) {
@@ -473,11 +489,11 @@ final class Digitalogic_Storefront_Order_Forms {
 				continue;
 			}
 			$item = array(
-				'name'        => sanitize_text_field( $raw_item['name'] ?? '' ),
-				'part_number' => sanitize_text_field( $raw_item['part_number'] ?? '' ),
-				'url'         => esc_url_raw( $raw_item['url'] ?? '' ),
-				'quantity'    => max( 1, absint( $raw_item['quantity'] ?? 1 ) ),
-				'notes'       => sanitize_text_field( $raw_item['notes'] ?? '' ),
+				'name'        => $this->array_text( $raw_item, 'name', 180 ),
+				'part_number' => $this->array_text( $raw_item, 'part_number', 120 ),
+				'url'         => esc_url_raw( $this->array_scalar( $raw_item, 'url', 500 ) ),
+				'quantity'    => max( 1, $this->array_integer( $raw_item, 'quantity', 1 ) ),
+				'notes'       => $this->array_text( $raw_item, 'notes', 250 ),
 			);
 			if ( $item['name'] || $item['part_number'] || $item['url'] ) {
 				$items[] = $item;
@@ -487,10 +503,10 @@ final class Digitalogic_Storefront_Order_Forms {
 		return array(
 			'items'          => $items,
 			'shipping_speed' => $this->allowed_value( 'shipping_speed', array( 'best', 'economy', 'express' ), 'best' ),
-			'target_date'    => $this->posted_text( 'target_date' ),
-			'budget'         => $this->posted_text( 'budget' ),
+			'target_date'    => $this->posted_text( 'target_date', 120 ),
+			'budget'         => $this->posted_text( 'budget', 120 ),
 			'invoice'        => $this->allowed_value( 'invoice', array( 'no', 'yes', 'unsure' ), 'no' ),
-			'notes'          => $this->posted_textarea( 'notes' ),
+			'notes'          => $this->posted_textarea( 'notes', 3000 ),
 		);
 	}
 
@@ -500,10 +516,10 @@ final class Digitalogic_Storefront_Order_Forms {
 	 * @return array|WP_Error
 	 */
 	private function sanitize_pcb_payload() {
-		$project_name = $this->posted_text( 'project_name' );
-		$quantity     = isset( $_POST['board_quantity'] ) ? absint( $_POST['board_quantity'] ) : 0; // phpcs:ignore WordPress.Security.NonceVerification.Missing
-		$length       = isset( $_POST['board_length'] ) ? (float) wp_unslash( $_POST['board_length'] ) : 0; // phpcs:ignore WordPress.Security.NonceVerification.Missing
-		$width        = isset( $_POST['board_width'] ) ? (float) wp_unslash( $_POST['board_width'] ) : 0; // phpcs:ignore WordPress.Security.NonceVerification.Missing
+		$project_name = $this->posted_text( 'project_name', 120 );
+		$quantity     = $this->posted_integer( 'board_quantity' );
+		$length       = $this->posted_decimal( 'board_length' );
+		$width        = $this->posted_decimal( 'board_width' );
 
 		if ( '' === $project_name || $quantity < 5 || 0 !== $quantity % 5 || $length <= 0 || $width <= 0 || $length > 600 || $width > 600 ) {
 			return new WP_Error( 'pcb_specs', 'PCB specifications are incomplete.' );
@@ -524,7 +540,7 @@ final class Digitalogic_Storefront_Order_Forms {
 			'stencil'        => $this->allowed_value( 'stencil', array( 'no', 'yes', 'unsure' ), 'no' ),
 			'delivery_speed' => $this->allowed_value( 'delivery_speed', array( 'standard', 'fast', 'economy' ), 'standard' ),
 			'assembly'       => $this->allowed_value( 'assembly', array( 'no', 'quote' ), 'no' ),
-			'notes'          => $this->posted_textarea( 'notes' ),
+			'notes'          => $this->posted_textarea( 'notes', 3000 ),
 		);
 	}
 
@@ -535,10 +551,13 @@ final class Digitalogic_Storefront_Order_Forms {
 	 * @return bool|WP_Error
 	 */
 	private function validate_file( $type ) {
-		if ( empty( $_FILES['dgl_request_file'] ) || UPLOAD_ERR_NO_FILE === (int) $_FILES['dgl_request_file']['error'] ) { // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
+		$file = $this->request_upload();
+		if ( false === $file ) {
 			return false;
 		}
-		$file = $_FILES['dgl_request_file']; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
+		if ( is_wp_error( $file ) ) {
+			return $file;
+		}
 		if ( UPLOAD_ERR_OK !== (int) $file['error'] || (int) $file['size'] > 20 * MB_IN_BYTES ) {
 			return new WP_Error( 'file_size', 'Upload failed or file is too large.' );
 		}
@@ -553,6 +572,48 @@ final class Digitalogic_Storefront_Order_Forms {
 	}
 
 	/**
+	 * Normalize the PHP upload structure before any filename or filesystem use.
+	 *
+	 * @return array|false|WP_Error
+	 */
+	private function request_upload() {
+		if ( ! isset( $_FILES['dgl_request_file'] ) ) {
+			return false;
+		}
+
+		$file = $_FILES['dgl_request_file']; // phpcs:ignore WordPress.Security.NonceVerification.Missing -- The submission nonce is verified before this helper runs.
+		if ( ! is_array( $file ) || ! isset( $file['error'] ) || ! is_scalar( $file['error'] ) ) {
+			return new WP_Error( 'upload_failed', 'Uploaded file data is invalid.' );
+		}
+
+		$error_value = $this->upload_scalar( $file, 'error', 3 );
+		if ( ! preg_match( '/^[0-9]+$/D', $error_value ) ) {
+			return new WP_Error( 'upload_failed', 'Uploaded file data is invalid.' );
+		}
+
+		$error = (int) $error_value;
+		if ( UPLOAD_ERR_NO_FILE === $error ) {
+			return false;
+		}
+
+		$name     = $this->upload_scalar( $file, 'name', 255 );
+		$tmp_name = $this->upload_scalar( $file, 'tmp_name', 4096 );
+		$size_raw = $this->upload_scalar( $file, 'size', 24 );
+		$size     = preg_match( '/^[0-9]+$/D', $size_raw ) ? (int) $size_raw : 0;
+
+		if ( UPLOAD_ERR_OK === $error && ( '' === $name || '' === $tmp_name || ! preg_match( '/^[0-9]+$/D', $size_raw ) ) ) {
+			return new WP_Error( 'upload_failed', 'Uploaded file data is invalid.' );
+		}
+
+		return array(
+			'name'     => $name,
+			'tmp_name' => $tmp_name,
+			'error'    => $error,
+			'size'     => $size,
+		);
+	}
+
+	/**
 	 * Store an uploaded request file outside the public web root when possible.
 	 *
 	 * @param string $type Request type.
@@ -560,7 +621,11 @@ final class Digitalogic_Storefront_Order_Forms {
 	 * @return array|WP_Error
 	 */
 	private function store_upload( $type, $request_id ) {
-		$file      = $_FILES['dgl_request_file']; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized,WordPress.Security.NonceVerification.Missing
+		$file = $this->request_upload();
+		if ( ! is_array( $file ) ) {
+			return new WP_Error( 'upload_failed', 'Uploaded file data is invalid.' );
+		}
+
 		$extension = strtolower( pathinfo( sanitize_file_name( $file['name'] ), PATHINFO_EXTENSION ) );
 		$directory = $this->private_upload_directory();
 		if ( is_wp_error( $directory ) ) {
@@ -629,7 +694,7 @@ final class Digitalogic_Storefront_Order_Forms {
 	 * Download a private request file for authorized store managers.
 	 */
 	public function download_request_file() {
-		$request_id = isset( $_GET['request_id'] ) ? absint( $_GET['request_id'] ) : 0;
+		$request_id = absint( $this->query_scalar( 'request_id', 24 ) );
 		if ( ! $request_id || ! current_user_can( 'manage_woocommerce' ) ) {
 			wp_die( esc_html__( 'You are not allowed to download this file.', 'digitalogic' ), '', array( 'response' => 403 ) );
 		}
@@ -696,9 +761,9 @@ final class Digitalogic_Storefront_Order_Forms {
 	 * @return string
 	 */
 	private function request_notice() {
-		$success = isset( $_GET['dgl_request'] ) && 'success' === sanitize_key( wp_unslash( $_GET['dgl_request'] ) ); // phpcs:ignore WordPress.Security.NonceVerification.Recommended
-		$code    = isset( $_GET['dgl_code'] ) ? sanitize_text_field( wp_unslash( $_GET['dgl_code'] ) ) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
-		$error   = isset( $_GET['dgl_error'] ) ? sanitize_key( wp_unslash( $_GET['dgl_error'] ) ) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+		$success = 'success' === sanitize_key( $this->query_scalar( 'dgl_request', 16 ) );
+		$code    = sanitize_text_field( $this->query_scalar( 'dgl_code', 64 ) );
+		$error   = sanitize_key( $this->query_scalar( 'dgl_error', 32 ) );
 
 		if ( $success ) {
 			return '<div class="dgl-request-notice is-success" role="status"><strong>درخواستت ثبت شد 🎉</strong><span>کد پیگیری: <b dir="ltr">' . esc_html( $code ) . '</b> — خیلی زود باهات هماهنگ می‌شیم.</span></div>';
@@ -727,16 +792,164 @@ final class Digitalogic_Storefront_Order_Forms {
 		return '<div class="dgl-request-notice is-error" role="alert"><strong>یه لحظه!</strong><span>' . esc_html( $message ) . '</span></div>';
 	}
 
-	private function posted_text( $key ) {
-		return isset( $_POST[ $key ] ) ? sanitize_text_field( wp_unslash( $_POST[ $key ] ) ) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Missing
+	/**
+	 * Read one public query value only when it is scalar, and bound its raw length.
+	 *
+	 * @param string $key Query key.
+	 * @param int    $max_length Maximum characters.
+	 * @return string
+	 */
+	private function query_scalar( $key, $max_length ) {
+		if ( ! isset( $_GET[ $key ] ) || ! is_scalar( $_GET[ $key ] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+			return '';
+		}
+
+		return $this->bounded_scalar( $_GET[ $key ], $max_length ); // phpcs:ignore WordPress.Security.NonceVerification.Recommended
 	}
 
-	private function posted_textarea( $key ) {
-		return isset( $_POST[ $key ] ) ? sanitize_textarea_field( wp_unslash( $_POST[ $key ] ) ) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Missing
+	/**
+	 * Read one public POST value only when it is scalar, and bound its raw length.
+	 *
+	 * @param string $key POST key.
+	 * @param int    $max_length Maximum characters; zero leaves the value unbounded.
+	 * @return string
+	 */
+	private function posted_scalar( $key, $max_length = 0 ) {
+		if ( ! isset( $_POST[ $key ] ) || ! is_scalar( $_POST[ $key ] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Missing
+			return '';
+		}
+
+		return $this->bounded_scalar( $_POST[ $key ], $max_length ); // phpcs:ignore WordPress.Security.NonceVerification.Missing
+	}
+
+	/**
+	 * Read a scalar from a repeatable item or upload structure.
+	 *
+	 * @param array  $source Source array.
+	 * @param string $key Source key.
+	 * @param int    $max_length Maximum characters.
+	 * @return string
+	 */
+	private function array_scalar( $source, $key, $max_length ) {
+		if ( ! isset( $source[ $key ] ) || ! is_scalar( $source[ $key ] ) ) {
+			return '';
+		}
+
+		return $this->bounded_scalar( $source[ $key ], $max_length );
+	}
+
+	/**
+	 * Bound a PHP upload scalar without unslashing its filesystem path.
+	 *
+	 * Unlike GET and POST values, PHP does not slash the $_FILES structure.
+	 *
+	 * @param array  $source Upload structure.
+	 * @param string $key Upload key.
+	 * @param int    $max_length Maximum characters.
+	 * @return string
+	 */
+	private function upload_scalar( $source, $key, $max_length ) {
+		if ( ! isset( $source[ $key ] ) || ! is_scalar( $source[ $key ] ) ) {
+			return '';
+		}
+
+		return $this->bounded_scalar( $source[ $key ], $max_length, false );
+	}
+
+	/**
+	 * Unslash and truncate a previously type-checked scalar before sanitization.
+	 *
+	 * @param mixed $value Scalar value.
+	 * @param int   $max_length Maximum characters.
+	 * @param bool  $unslash Whether WordPress slashes the source superglobal.
+	 * @return string
+	 */
+	private function bounded_scalar( $value, $max_length, $unslash = true ) {
+		$value = $unslash ? wp_unslash( (string) $value ) : (string) $value;
+		if ( $max_length <= 0 ) {
+			return $value;
+		}
+		if ( function_exists( 'mb_substr' ) ) {
+			return mb_substr( $value, 0, $max_length, 'UTF-8' );
+		}
+
+		$characters = preg_split( '//u', $value, -1, PREG_SPLIT_NO_EMPTY );
+		if ( false !== $characters ) {
+			return implode( '', array_slice( $characters, 0, $max_length ) );
+		}
+
+		return substr( $value, 0, $max_length );
+	}
+
+	private function posted_text( $key, $max_length = 0 ) {
+		return sanitize_text_field( $this->posted_scalar( $key, $max_length ) );
+	}
+
+	private function posted_textarea( $key, $max_length = 0 ) {
+		return sanitize_textarea_field( $this->posted_scalar( $key, $max_length ) );
+	}
+
+	private function array_text( $source, $key, $max_length ) {
+		return sanitize_text_field( $this->array_scalar( $source, $key, $max_length ) );
+	}
+
+	private function posted_integer( $key ) {
+		$value = $this->normalize_digits( trim( $this->posted_scalar( $key, 24 ) ) );
+
+		return preg_match( '/^[0-9]+$/D', $value ) ? absint( $value ) : 0;
+	}
+
+	private function array_integer( $source, $key, $default = 0 ) {
+		$value = $this->normalize_digits( trim( $this->array_scalar( $source, $key, 24 ) ) );
+
+		return preg_match( '/^[0-9]+$/D', $value ) ? absint( $value ) : $default;
+	}
+
+	private function posted_decimal( $key ) {
+		$value = $this->normalize_digits( trim( $this->posted_scalar( $key, 24 ) ) );
+		if ( ! preg_match( '/^(?:[0-9]+(?:\.[0-9]+)?|\.[0-9]+)$/D', $value ) ) {
+			return 0;
+		}
+
+		return (float) $value;
+	}
+
+	/**
+	 * Convert Persian and Arabic-Indic numerals to ASCII digits.
+	 *
+	 * @param string $value Raw scalar value.
+	 * @return string
+	 */
+	private function normalize_digits( $value ) {
+		return strtr(
+			$value,
+			array(
+				'۰' => '0',
+				'۱' => '1',
+				'۲' => '2',
+				'۳' => '3',
+				'۴' => '4',
+				'۵' => '5',
+				'۶' => '6',
+				'۷' => '7',
+				'۸' => '8',
+				'۹' => '9',
+				'٠' => '0',
+				'١' => '1',
+				'٢' => '2',
+				'٣' => '3',
+				'٤' => '4',
+				'٥' => '5',
+				'٦' => '6',
+				'٧' => '7',
+				'٨' => '8',
+				'٩' => '9',
+			)
+		);
 	}
 
 	private function allowed_value( $key, $allowed, $default ) {
-		$value = isset( $_POST[ $key ] ) ? sanitize_key( wp_unslash( $_POST[ $key ] ) ) : $default; // phpcs:ignore WordPress.Security.NonceVerification.Missing
+		$value = sanitize_key( $this->posted_scalar( $key, 64 ) );
 
 		return in_array( $value, $allowed, true ) ? $value : $default;
 	}
@@ -746,7 +959,7 @@ final class Digitalogic_Storefront_Order_Forms {
 	}
 
 	private function request_ip() {
-		return isset( $_SERVER['REMOTE_ADDR'] ) ? sanitize_text_field( wp_unslash( $_SERVER['REMOTE_ADDR'] ) ) : 'unknown';
+		return isset( $_SERVER['REMOTE_ADDR'] ) && is_scalar( $_SERVER['REMOTE_ADDR'] ) ? sanitize_text_field( $this->bounded_scalar( $_SERVER['REMOTE_ADDR'], 45 ) ) : 'unknown';
 	}
 
 	private function redirect_with_error( $url, $error ) {
@@ -800,11 +1013,11 @@ final class Digitalogic_Storefront_Order_Forms {
 	}
 
 	public function save_request_status( $post_id ) {
-		$nonce = isset( $_POST['dgl_request_status_nonce'] ) ? sanitize_text_field( wp_unslash( $_POST['dgl_request_status_nonce'] ) ) : '';
+		$nonce = sanitize_text_field( $this->posted_scalar( 'dgl_request_status_nonce', 64 ) );
 		if ( ! $nonce || ! wp_verify_nonce( $nonce, 'dgl_save_request_status' ) || ! current_user_can( 'manage_woocommerce' ) || wp_is_post_autosave( $post_id ) || wp_is_post_revision( $post_id ) ) {
 			return;
 		}
-		$status = isset( $_POST['dgl_request_status'] ) ? sanitize_key( wp_unslash( $_POST['dgl_request_status'] ) ) : '';
+		$status = sanitize_key( $this->posted_scalar( 'dgl_request_status', 32 ) );
 		if ( isset( $this->request_statuses()[ $status ] ) ) {
 			update_post_meta( $post_id, '_dgl_request_status', $status );
 		}
