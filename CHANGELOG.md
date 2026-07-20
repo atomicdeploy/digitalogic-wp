@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.5.1
+
+- Prioritize products with real photos in the default table view while keeping explicit popularity, price, name, and date sorting available.
+- Route homepage category entry points into the professional table catalog instead of the legacy product grid.
+- Add a touch- and keyboard-friendly carousel pause control, earlier stylesheet loading, hardened public form inputs, Persian/Arabic phone-digit normalization, and quick-add network failure recovery.
+
 ## 1.5.0
 
 - Restore a high-contrast, keyboard-accessible homepage carousel with original generated artwork for stocked modules, foreign sourcing, and two-/four-layer PCB production.

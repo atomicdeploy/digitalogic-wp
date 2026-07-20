@@ -716,6 +716,68 @@
 	color: #fff;
 }
 
+.dgl-story-autoplay {
+	align-items: center;
+	background: rgba(8, 28, 59, .82);
+	border: 1px solid rgba(255, 255, 255, .25);
+	border-radius: 999px;
+	color: #fff;
+	cursor: pointer;
+	display: inline-flex;
+	font: inherit;
+	font-size: 12px;
+	font-weight: 850;
+	gap: 7px;
+	justify-content: center;
+	min-height: 39px;
+	padding: 0 14px;
+	transition: background-color .2s ease, border-color .2s ease, transform .2s ease;
+	white-space: nowrap;
+}
+
+.dgl-story-autoplay-icon {
+	display: inline-flex;
+	font-size: 12px;
+	justify-content: center;
+	line-height: 1;
+	min-width: 12px;
+}
+
+.dgl-story-autoplay:hover,
+.dgl-story-autoplay[aria-pressed='true'] {
+	background: var(--dgl-orange);
+	border-color: var(--dgl-orange);
+}
+
+.dgl-story-autoplay:hover {
+	transform: translateY(-1px);
+}
+
+.dgl-story-autoplay:focus-visible,
+.dgl-story-controls .dgl-carousel-buttons button:focus-visible,
+.dgl-story-dots button:focus-visible {
+	outline: 3px solid #ffd08a;
+	outline-offset: 3px;
+}
+
+.dgl-story-autoplay:disabled {
+	background: rgba(8, 28, 59, .72);
+	border-color: rgba(255, 255, 255, .18);
+	cursor: not-allowed;
+	opacity: .78;
+	transform: none;
+}
+
+.dgl-screen-reader-text {
+	clip: rect(0, 0, 0, 0);
+	clip-path: inset(50%);
+	height: 1px;
+	overflow: hidden;
+	position: absolute;
+	white-space: nowrap;
+	width: 1px;
+}
+
 .dgl-carousel-buttons button:hover {
 	background: var(--dgl-blue);
 	border-color: var(--dgl-blue);
@@ -869,8 +931,13 @@
 
 	.dgl-story-controls {
 		bottom: 20px;
+		gap: 9px;
 		left: 22px;
 		right: 22px;
+	}
+
+	.dgl-story-autoplay {
+		padding-inline: 11px;
 	}
 
 	.dgl-heading-actions {
@@ -884,6 +951,20 @@
 }
 
 @media (max-width: 460px) {
+	.dgl-story-controls {
+		left: 16px;
+		right: 16px;
+	}
+
+	.dgl-story-autoplay {
+		font-size: 11px;
+		padding-inline: 9px;
+	}
+
+	.dgl-story-counter {
+		display: none;
+	}
+
 	.dgl-product-rail .dgl-product-card {
 		flex-basis: 84%;
 	}

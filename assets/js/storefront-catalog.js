@@ -38,4 +38,20 @@
 			button.removeClass('added').find('span').text('افزودن سریع');
 		}, 2600);
 	});
+
+	$(document).ajaxError(function(event, request, settings) {
+		var url = settings && settings.url ? settings.url : '';
+		if (url.indexOf('wc-ajax=add_to_cart') === -1) return;
+
+		var buttons = $('.dgl-quick-button[aria-busy="true"]');
+		if (!buttons.length) return;
+
+		// WooCommerce's completion callback runs after ajaxError and can add
+		// the "added" class even for a failed request, so reset on the next tick.
+		window.setTimeout(function() {
+			buttons.removeClass('loading added').removeAttr('aria-busy');
+			buttons.find('span').text('افزودن سریع');
+			showToast((window.digitalogicCatalog && digitalogicCatalog.error) || 'اضافه نشد؛ یه بار دیگه امتحانش کن.');
+		}, 0);
+	});
 })(jQuery);
