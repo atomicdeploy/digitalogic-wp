@@ -1,6 +1,7 @@
 <?php
 /**
- * In-site Vue panel served from /panel while the standalone Laravel panel is prepared.
+ * Integrated Vue panel served from /panel with WordPress and bundled Laravel
+ * available in the same PHP process.
  */
 
 if (!defined('ABSPATH')) {
@@ -146,6 +147,11 @@ class Digitalogic_Panel {
             );
         }
 
+        $laravel = Digitalogic_Laravel_Bridge::instance()->boot_for_panel();
+        if (is_wp_error($laravel)) {
+            do_action('digitalogic_laravel_boot_failed', $laravel);
+        }
+
         $this->enqueue_assets();
         nocache_headers();
         status_header(200);
@@ -277,8 +283,6 @@ class Digitalogic_Panel {
             'cli' => array(
                 'websocket' => 'wp digitalogic websocket serve --host=127.0.0.1 --port=8090 --allow-root',
             'websocket_token' => 'wp digitalogic websocket token --allow-root',
-            'panel_token' => 'wp digitalogic panel token --allow-root',
-            'panel_rotate' => 'wp digitalogic panel token --rotate --allow-root',
             'panel_broadcast' => 'wp digitalogic panel broadcast --message="Hello panel" --level=success --allow-root',
             'patris_sync' => 'wp digitalogic patris sync --allow-root',
             'patris_report' => 'wp digitalogic patris report --format=table --allow-root',
@@ -297,7 +301,8 @@ class Digitalogic_Panel {
             ),
             'bridge' => array(
                 'panel_url' => Digitalogic_Laravel_Bridge::instance()->get_panel_url(),
-                'rest_url' => rest_url('digitalogic-panel/v1/'),
+                'mode' => 'in_process',
+                'auth' => 'wordpress_session',
                 'wordpress_loaded' => true,
                 'laravel_bootstrap' => file_exists(DIGITALOGIC_PLUGIN_DIR . 'laravel/bootstrap/app.php'),
             ),
@@ -320,7 +325,6 @@ class Digitalogic_Panel {
                 'admin' => admin_url(),
                 'ajax' => admin_url('admin-ajax.php'),
                 'rest' => rest_url('digitalogic/v1/'),
-                'bridge_rest' => rest_url('digitalogic-panel/v1/'),
             ),
             'websocket' => array(
                 'enabled' => !empty($ws['enabled']),
@@ -329,6 +333,8 @@ class Digitalogic_Panel {
                 'ajax_proxy_enabled' => !empty($ws['ajax_proxy_enabled']),
             ),
             'bridge' => array(
+                'mode' => 'in_process',
+                'auth' => 'wordpress_session',
                 'wordpress_bootstrap' => ABSPATH,
                 'laravel_bootstrap' => file_exists(DIGITALOGIC_PLUGIN_DIR . 'laravel/bootstrap/app.php'),
                 'theme_shared' => true,

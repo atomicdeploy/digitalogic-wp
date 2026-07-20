@@ -654,25 +654,6 @@ class Digitalogic_CLI_Commands {
     }
 
     /**
-     * Show or rotate the Laravel panel bridge token.
-     *
-     * ## OPTIONS
-     *
-     * [--rotate]
-     * : Rotate the token before printing it.
-     *
-     * @when after_wp_load
-     */
-    public function panel_token($args, $assoc_args) {
-        if (isset($assoc_args['rotate'])) {
-            WP_CLI::line(Digitalogic_Laravel_Bridge::rotate_token());
-            return;
-        }
-
-        WP_CLI::line(Digitalogic_Laravel_Bridge::get_token());
-    }
-
-    /**
      * Broadcast a JSON toast/event message to open Digitalogic panels.
      *
      * ## OPTIONS
@@ -996,7 +977,6 @@ WP_CLI::add_command('digitalogic patris report', array('Digitalogic_CLI_Commands
 WP_CLI::add_command('digitalogic patris token', array('Digitalogic_CLI_Commands', 'patris_token'));
 WP_CLI::add_command('digitalogic websocket serve', array('Digitalogic_CLI_Commands', 'websocket_serve'));
 WP_CLI::add_command('digitalogic websocket token', array('Digitalogic_CLI_Commands', 'websocket_token'));
-WP_CLI::add_command('digitalogic panel token', array('Digitalogic_CLI_Commands', 'panel_token'));
 WP_CLI::add_command('digitalogic panel broadcast', array('Digitalogic_CLI_Commands', 'panel_broadcast'));
 WP_CLI::add_command(
 	'digitalogic pricing assignments',

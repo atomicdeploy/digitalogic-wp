@@ -26,9 +26,8 @@ panel token, or create a second Laravel identity/session.
 4. Panel commands continue through the shared command dispatcher, whether the
    transport is WebSocket, AJAX, or an in-process Laravel kernel call.
 
-The former one-time handoff endpoint remains only as compatibility for an
-explicitly configured different-host panel. It is not used by the integrated
-Digitalogic application and should be removed after consumers have migrated.
+External panel origins, one-time handoff endpoints, panel tokens, and a second
+Laravel identity/session are deliberately unsupported.
 
 ## Minimal WordPress Bootstrap
 
@@ -52,8 +51,8 @@ WooCommerce services, the command dispatcher, and WebSocket configuration.
 
 ## Shared UI
 
-Laravel should call `GET /wp-json/digitalogic-panel/v1/theme` with the panel
-token and use those values for:
+Laravel runs inside the WordPress request and can read the shared theme values
+through WordPress APIs and the Digitalogic classes directly, including:
 
 - logo and site icon
 - RTL/LTR direction
@@ -78,26 +77,17 @@ falls back to authenticated `admin-ajax.php` through the same command dispatcher
 
 For direct WordPress-to-Laravel calls, configure the local app path with either:
 
+- the default bundled `laravel/` directory inside the plugin
 - the `digitalogic_laravel_app_path` option
 - the `digitalogic_laravel_app_path` filter
 
-When configured, the bridge can boot `bootstrap/app.php` and invoke Laravel's
-HTTP kernel without using a public vhost or reserved port.
+On every authorized `/panel/` request, the bridge boots `bootstrap/app.php` in
+the current WordPress process. It can then invoke Laravel's HTTP kernel without
+using a public vhost or reserved port. Until the Laravel source is present, the
+existing Vue panel remains available and a `digitalogic_laravel_boot_failed`
+hook receives the explicit unavailable error.
 
-Token-protected bridge endpoints:
-
-- `GET /wp-json/digitalogic-panel/v1/laravel/status`
-- `POST /wp-json/digitalogic-panel/v1/laravel/request`
-
-Example request:
-
-```json
-{
-  "method": "POST",
-  "path": "/internal/products/sync",
-  "data": {"limit": 50}
-}
-```
-
-If no Laravel app path is configured, the status endpoint reports
-`available: false` and request calls return `503`.
+The PHP bridge boots Laravel and invokes its HTTP kernel directly. No public
+Laravel bridge REST endpoint is registered. If no bundled Laravel app path is
+configured, the in-process call returns a `503` `WP_Error` with code
+`digitalogic_laravel_unavailable`.

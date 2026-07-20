@@ -21,20 +21,34 @@ final class LaravelBridgeIntegratedAuthTest extends TestCase {
         $this->assertStringNotContainsString('code=', $url);
     }
 
-    public function test_explicit_external_panel_keeps_legacy_handoff_compatibility(): void {
+    public function test_external_panel_configuration_is_ignored(): void {
         $GLOBALS['digitalogic_test_options']['digitalogic_laravel_panel_url'] = 'https://panel.example.test';
 
         $bridge = $this->bridge();
         $url = $bridge->get_panel_auth_url(array('code' => 'legacy-code'));
 
-        $this->assertFalse($bridge->uses_integrated_panel());
-        $this->assertSame('https://panel.example.test/auth/wordpress?code=legacy-code', $url);
+        $this->assertTrue($bridge->uses_integrated_panel());
+        $this->assertSame('https://digitalogic.test/panel/', $url);
+        $this->assertStringNotContainsString('code=', $url);
     }
 
-    public function test_same_host_on_a_different_port_is_not_same_origin(): void {
+    public function test_different_port_configuration_is_ignored(): void {
         $GLOBALS['digitalogic_test_options']['digitalogic_laravel_panel_url'] = 'https://digitalogic.test:8443';
 
-        $this->assertFalse($this->bridge()->uses_integrated_panel());
+        $this->assertSame('https://digitalogic.test/panel', $this->bridge()->get_panel_url());
+    }
+
+    public function test_bridge_source_has_no_panel_token_or_session_handoff(): void {
+        $source = file_get_contents(dirname(__DIR__) . '/includes/integrations/class-laravel-bridge.php');
+
+        $this->assertStringNotContainsString('TOKEN_OPTION', $source);
+        $this->assertStringNotContainsString('session/consume', $source);
+        $this->assertStringNotContainsString('x-digitalogic-panel-token', strtolower($source));
+        $this->assertStringNotContainsString('create_session_handoff', $source);
+        $this->assertStringNotContainsString("add_action('rest_api_init'", $source);
+
+        $panel_source = file_get_contents(dirname(__DIR__) . '/includes/panel/class-panel.php');
+        $this->assertStringContainsString('Digitalogic_Laravel_Bridge::instance()->boot_for_panel()', $panel_source);
     }
 
     private function bridge(): Digitalogic_Laravel_Bridge {
