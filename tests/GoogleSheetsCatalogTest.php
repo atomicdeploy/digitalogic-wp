@@ -100,7 +100,8 @@ final class GoogleSheetsCatalogTest extends TestCase {
 		$this->assertSame( 'air_express', $row['shipping_method_id'] );
 		$this->assertSame( 'Air (Express)', $row['shipping_method_name_en'] );
 		$this->assertSame( 'حمل هوایی (اکسپرس)', $row['shipping_method_name_fa'] );
-		$this->assertSame( 85, $row['shipping_price_per_kg_cny'] );
+		$this->assertSame( '85', $row['shipping_price_per_kg'] );
+		$this->assertSame( 'CNY', $row['shipping_price_per_kg_currency'] );
 		$this->assertSame( 30, $row['profit_percent'] );
 		$this->assertSame( 7, $row[ 'warehouse_stock:' . rawurlencode( 'تهران' ) ] );
 		$this->assertSame( 5, $row['warehouse_stock:Shenzhen'] );
@@ -111,7 +112,56 @@ final class GoogleSheetsCatalogTest extends TestCase {
 		$this->assertContains( 'warehouse_stock:' . rawurlencode( 'تهران' ), $keys );
 		$this->assertContains( 'warehouse_stock:Shenzhen', $keys );
 		$this->assertArrayNotHasKey( 'schema', $result );
-		$this->assertArrayNotHasKey( 'schema_version', $result );
+	}
+
+	/** Preserve the canonical shipping decimal in the numeric Sheets column. */
+	public function test_shipping_decimal_is_not_coerced_through_a_float() {
+		$result = $this->catalog->transform_products(
+			array(
+				array(
+					'id'                  => 42,
+					'patris_product_code' => 'EXACT-42',
+					'name'                => 'Exact shipping decimal',
+				),
+			),
+			array(
+				'currency' => array('local' => 'IRT'),
+				'shipping_methods' => array(
+					array(
+						'id' => 'exact',
+						'name' => 'Exact',
+						'enabled' => true,
+						'currency' => 'CNY',
+						'price_per_kg' => '1.234567890125',
+					),
+				),
+			),
+			array(
+				'results' => array(
+					array(
+						'code' => 'EXACT-42',
+						'status' => 'ok',
+						'assignment' => array(
+							'shipping_method_id' => 'exact',
+							'profit_percent_source' => 'unavailable',
+							'pricing_warnings' => array(),
+						),
+					),
+				),
+			)
+		);
+
+		$this->assertFalse(is_wp_error($result));
+		$this->assertSame('1.234567890125', $result['rows'][0]['shipping_price_per_kg']);
+		$column = array_values(array_filter(
+			$result['columns'],
+			static fn($candidate) => 'shipping_price_per_kg' === $candidate['key']
+		))[0];
+		$this->assertSame('number', $column['type']);
+		$this->assertStringContainsString(
+			'"shipping_price_per_kg":"1.234567890125"',
+			json_encode($result['rows'][0], JSON_THROW_ON_ERROR)
+		);
 	}
 
 	/** Verify SKU is never used for Patris matching or as the primary sync key. */

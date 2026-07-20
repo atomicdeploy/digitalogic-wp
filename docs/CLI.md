@@ -65,13 +65,17 @@ Available update fields:
 
 ## Materialize reviewed Patris catalog products
 
-The catalog materializer consumes the current validated product-sync v1.1
+The catalog materializer consumes the current validated living product-sync
 state plus a strict administrator-reviewed Persian enrichment manifest. It is
 a dry run unless `--apply` is present. New products and previously nonpublic
 reviewed targets remain drafts unless `--publish-ready` is also present and
 every readiness gate passes. An exact reviewed target that was already
 published keeps that status and is reported as `preserved_published` instead of
 being counted as newly published.
+
+The current source record must carry `shipping_price_per_kg` together with an
+explicit `shipping_price_per_kg_currency` of `CNY` or `IRR`; no freight currency
+is inferred during materialization.
 
 ```bash
 wp digitalogic product-sync materialize \

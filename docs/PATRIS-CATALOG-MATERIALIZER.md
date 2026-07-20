@@ -1,7 +1,7 @@
 # Patris Catalog Materializer
 
 The Patris catalog materializer converts reviewed, positive-stock records from
-the validated living `digitalogic.product-sync` state into WooCommerce products.
+the validated living `patris.product-sync` state into WooCommerce products.
 It is deliberately an administrator-operated WP-CLI workflow. It is not called
 from HTTP, cron, the receiver, or normal storefront requests.
 
@@ -10,6 +10,10 @@ pricing, weight, category, warehouse, and warning data. The enrichment manifest
 supplies the human-reviewed Persian identity, taxonomy target, SEO text, and
 exact WooCommerce ownership decision that cannot safely be inferred from the
 source feed.
+
+Freight arrives as the inseparable `shipping_price_per_kg` and
+`shipping_price_per_kg_currency` pair. The currency must explicitly be `CNY` or
+`IRR`; the materializer never infers it from the amount or shipping method.
 
 ## Safety model
 
@@ -91,7 +95,6 @@ shown below is required even when its value is empty or `null`.
 ```json
 {
   "schema": "digitalogic.patris-catalog-enrichment",
-  "schema_version": "1.0",
   "source": {
     "id": "patris-office",
     "dataset": "kala.db"
@@ -265,8 +268,9 @@ A leaf is publish-ready only when all of these remain true at apply time:
 
 - source and WooCommerce stock are positive;
 - source foreign price, source weight, and calculated final price are positive;
-- the source supplier shipping method is exactly `air_express` and WooCommerce has the same
-  canonical assignment;
+- the source supplier shipping method is exactly `air_express`, its freight
+  price is positive and paired with an explicit `CNY` or `IRR` currency, and
+  WooCommerce has the same canonical assignment;
 - the source has no Patris validation/pricing warnings;
 - a reviewed category is available and assigned;
 - Persian name, short description, SEO title, SEO description, focus keyword,

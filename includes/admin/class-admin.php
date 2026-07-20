@@ -709,7 +709,8 @@ class Digitalogic_Admin {
                     $result = $shipping_service->create_method(array(
                         'id' => $posted_value('method_id'),
                         'name' => sanitize_text_field($posted_value('method_name')),
-                        'shipping_price_per_kg_cny' => $posted_value('shipping_price_per_kg_cny'),
+                        'currency' => $posted_value('shipping_price_per_kg_currency'),
+                        'price_per_kg' => $posted_value('shipping_price_per_kg'),
                         'enabled' => isset($_POST['method_enabled']),
                     ));
                     $notice = is_wp_error($result)
@@ -722,7 +723,8 @@ class Digitalogic_Admin {
                     $method_id = $posted_value('method_id');
                     $result = $shipping_service->update_method($method_id, array(
                         'name' => sanitize_text_field($posted_value('method_name')),
-                        'shipping_price_per_kg_cny' => $posted_value('shipping_price_per_kg_cny'),
+                        'currency' => $posted_value('shipping_price_per_kg_currency'),
+                        'price_per_kg' => $posted_value('shipping_price_per_kg'),
                         'enabled' => isset($_POST['method_enabled']),
                     ));
                     $notice = is_wp_error($result)

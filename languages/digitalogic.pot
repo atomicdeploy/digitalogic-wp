@@ -419,11 +419,15 @@ msgid "Shipping method name is required."
 msgstr ""
 
 #: includes\class-shipping-method-service.php:834
-msgid "landed_price requires shipping prices in CNY."
+msgid "Shipping price currency is required."
 msgstr ""
 
-#: includes\class-shipping-method-service.php:839
-msgid "A non-negative CNY price per kilogram is required."
+#: includes\class-shipping-method-service.php:838
+msgid "Shipping price currency must be CNY or IRR."
+msgstr ""
+
+#: includes\class-shipping-method-service.php:843
+msgid "A non-negative shipping price per kilogram is required."
 msgstr ""
 
 #: includes\class-shipping-method-service.php:844
@@ -1449,8 +1453,8 @@ msgid "Method ID"
 msgstr ""
 
 #: includes\admin\views\patris-reports.php:157
-#: includes\admin\views\patris-reports.php:233
-msgid "CNY per kg"
+#: includes\admin\views\patris-reports.php:239
+msgid "Price per kg"
 msgstr ""
 
 #: includes\admin\views\patris-reports.php:158
@@ -1470,8 +1474,12 @@ msgstr ""
 msgid "Method name"
 msgstr ""
 
-#: includes\admin\views\patris-reports.php:181
-msgid "CNY price per kilogram"
+#: includes\admin\views\patris-reports.php:182
+msgid "Shipping price per kilogram"
+msgstr ""
+
+#: includes\admin\views\patris-reports.php:187
+msgid "Shipping price currency"
 msgstr ""
 
 #: includes\admin\views\patris-reports.php:187

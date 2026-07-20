@@ -111,6 +111,107 @@ final class ProductSyncReceiverTest extends TestCase {
         $this->assertSame('digitalogic_product_sync_field_invalid', $result->get_error_code());
     }
 
+    public function test_cny_and_irr_freight_produce_the_same_final_irt_price(): void {
+        $base = array(
+            'foreign_currency' => 'CNY',
+            'foreign_price' => 100,
+            'weight_grams' => 1000,
+            'shipping_method_id' => 'air_express',
+            'markup_percent' => 30,
+            'irt_per_cny' => 30000,
+            'final_price' => 4680000,
+            'warnings' => array(),
+        );
+        $cny = array_merge($base, array(
+            'product_code' => 'CNY-FREIGHT',
+            'shipping_price_per_kg' => 20,
+            'shipping_price_per_kg_currency' => 'CNY',
+        ));
+        $cny['record_hash'] = $this->recordHash($cny, true);
+        $irr = array_merge($base, array(
+            'product_code' => 'IRR-FREIGHT',
+            'shipping_price_per_kg' => 6000000,
+            'shipping_price_per_kg_currency' => 'IRR',
+        ));
+        $irr['record_hash'] = $this->recordHash($irr, true);
+        $explicitNull = array(
+            'product_code' => 'NULL-FREIGHT',
+            'shipping_price_per_kg' => null,
+            'shipping_price_per_kg_currency' => null,
+            'warnings' => array(),
+        );
+        $explicitNull['record_hash'] = $this->recordHash($explicitNull, true);
+		$nullCurrency = array(
+			'product_code' => 'NULL-CURRENCY',
+			'shipping_price_per_kg' => 20,
+			'shipping_price_per_kg_currency' => null,
+			'warnings' => array(),
+		);
+		$nullCurrency['record_hash'] = $this->recordHash($nullCurrency, true);
+		$nullAmount = array(
+			'product_code' => 'NULL-AMOUNT',
+			'shipping_price_per_kg' => null,
+			'shipping_price_per_kg_currency' => 'CNY',
+			'warnings' => array(),
+		);
+		$nullAmount['record_hash'] = $this->recordHash($nullAmount, true);
+
+        $result = Digitalogic_Product_Sync_Receiver::instance()->receive(
+            $this->snapshot(array($cny, $irr, $explicitNull, $nullCurrency, $nullAmount), array(), true)
+        );
+
+        $this->assertNotInstanceOf(WP_Error::class, $result);
+        $this->assertSame('accepted', $result['status']);
+        $state = Digitalogic_Product_Sync_Receiver::instance()->get_source_state('tests', 'ALLANBAR');
+        $this->assertSame(4680000, $state['products']['CNY-FREIGHT']['final_price']);
+        $this->assertSame(4680000, $state['products']['IRR-FREIGHT']['final_price']);
+        $this->assertNull($state['products']['NULL-FREIGHT']['shipping_price_per_kg']);
+        $this->assertNull($state['products']['NULL-FREIGHT']['shipping_price_per_kg_currency']);
+        $this->assertArrayNotHasKey('final_price', $state['products']['NULL-FREIGHT']);
+		$this->assertSame('20', $state['products']['NULL-CURRENCY']['shipping_price_per_kg']);
+		$this->assertNull($state['products']['NULL-CURRENCY']['shipping_price_per_kg_currency']);
+		$this->assertArrayNotHasKey('final_price', $state['products']['NULL-CURRENCY']);
+		$this->assertNull($state['products']['NULL-AMOUNT']['shipping_price_per_kg']);
+		$this->assertSame('CNY', $state['products']['NULL-AMOUNT']['shipping_price_per_kg_currency']);
+		$this->assertArrayNotHasKey('final_price', $state['products']['NULL-AMOUNT']);
+    }
+
+    public function test_shipping_price_and_currency_are_an_explicit_pair(): void {
+        $priceOnly = array(
+            'product_code' => 'PRICE-ONLY',
+            'shipping_price_per_kg' => 20,
+            'warnings' => array(),
+        );
+        $priceOnly['record_hash'] = $this->recordHash($priceOnly, true);
+        $result = Digitalogic_Product_Sync_Receiver::instance()->receive(
+            $this->snapshot(array($priceOnly), array(), true)
+        );
+        $this->assertSame('digitalogic_product_sync_shipping_currency_required', $result->get_error_code());
+
+        $currencyOnly = array(
+            'product_code' => 'CURRENCY-ONLY',
+            'shipping_price_per_kg_currency' => 'CNY',
+            'warnings' => array(),
+        );
+        $currencyOnly['record_hash'] = $this->recordHash($currencyOnly, true);
+        $result = Digitalogic_Product_Sync_Receiver::instance()->receive(
+            $this->snapshot(array($currencyOnly), array(), true)
+        );
+        $this->assertSame('digitalogic_product_sync_shipping_currency_required', $result->get_error_code());
+
+        $unsupported = array(
+            'product_code' => 'UNSUPPORTED-CURRENCY',
+            'shipping_price_per_kg' => 20,
+            'shipping_price_per_kg_currency' => 'USD',
+            'warnings' => array(),
+        );
+        $unsupported['record_hash'] = $this->recordHash($unsupported, true);
+        $result = Digitalogic_Product_Sync_Receiver::instance()->receive(
+            $this->snapshot(array($unsupported), array(), true)
+        );
+        $this->assertSame('digitalogic_product_sync_field_invalid', $result->get_error_code());
+    }
+
     private function snapshot($products = array(), $categories = array(), $pricing = false): array {
         $material = array();
         foreach ($products as $product) {
