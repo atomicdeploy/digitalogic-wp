@@ -3,7 +3,7 @@
  * Plugin Name: Digitalogic WooCommerce Extension
  * Plugin URI: https://github.com/atomicdeploy/digitalogic-wp
  * Description: Custom dynamic pricing, stock manager, and POS integration for Digitalogic electronic components shop. Supports bulk operations, import/export, and external API integration.
- * Version: 1.3.5
+ * Version: 1.3.6
  * Author: Digitalogic
  * Author URI: https://digitalogic.ir
  * Text Domain: digitalogic
@@ -22,7 +22,7 @@ if (!defined('ABSPATH')) {
 }
 
 // Define plugin constants
-define( 'DIGITALOGIC_VERSION', '1.3.5' );
+define( 'DIGITALOGIC_VERSION', '1.3.6' );
 define('DIGITALOGIC_MIN_PHP_VERSION', '8.3');
 define('DIGITALOGIC_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('DIGITALOGIC_PLUGIN_URL', plugin_dir_url(__FILE__));
@@ -124,6 +124,7 @@ final class Digitalogic {
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-patris-feed.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-product-sync-receiver.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-shipping-method-service.php';
+        require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-google-sheets-catalog.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-report-engine.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-command-dispatcher.php';
 
@@ -190,6 +191,7 @@ final class Digitalogic {
         Digitalogic_Import_Export::instance();
         Digitalogic_Patris_Feed::instance();
         Digitalogic_Shipping_Method_Service::instance();
+        Digitalogic_Google_Sheets_Catalog::instance();
         Digitalogic_Report_Engine::instance();
         Digitalogic_Command_Dispatcher::instance();
         Digitalogic_WebSocket::instance();

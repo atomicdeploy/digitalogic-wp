@@ -1781,3 +1781,15 @@ msgstr ""
 #, php-format
 msgid "Digitalogic Panel - %s"
 msgstr ""
+
+#: includes/class-digitalogic-google-sheets-catalog.php
+msgid "Dataset must be products or categories."
+msgstr ""
+
+#: includes/class-digitalogic-google-sheets-catalog.php
+msgid "Locale must be en, fa, or bilingual."
+msgstr ""
+
+#: includes/class-digitalogic-google-sheets-catalog.php
+msgid "Every catalog product must have a Patris Code or a positive WooCommerce ID."
+msgstr ""

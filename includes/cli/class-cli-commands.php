@@ -920,6 +920,43 @@ class Digitalogic_CLI_Commands {
 	}
 
 	/**
+	 * Print one bounded Google Sheets catalog page as JSON.
+	 *
+	 * ## OPTIONS
+	 *
+	 * [--dataset=<dataset>]
+	 * : products or categories. Default: products.
+	 *
+	 * [--page=<page>]
+	 * : One-based page. Default: 1.
+	 *
+	 * [--limit=<limit>]
+	 * : Page size from 1 to 100. Default: 100.
+	 *
+	 * [--locale=<locale>]
+	 * : en, fa, or bilingual. Default: en.
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     wp digitalogic google-sheets catalog --dataset=products --locale=fa
+	 *     wp digitalogic google-sheets catalog --dataset=categories --page=2
+	 *
+	 * @param array $args Positional arguments.
+	 * @param array $assoc_args Named arguments.
+	 * @return void
+	 * @when after_wp_load
+	 */
+	public function google_sheets_catalog( $args, $assoc_args ) {
+		$result = Digitalogic_Google_Sheets_Catalog::instance()->get_page( $assoc_args );
+		if ( is_wp_error( $result ) ) {
+			WP_CLI::error( $result->get_error_message() );
+			return;
+		}
+
+		WP_CLI::line( wp_json_encode( $result, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES ) );
+	}
+
+	/**
 	 * Require an explicit administrator user for mutating operational commands.
 	 *
 	 * @return bool
@@ -1025,4 +1062,8 @@ WP_CLI::add_command(
 WP_CLI::add_command(
 	'digitalogic product-sync reconcile',
 	array( 'Digitalogic_CLI_Commands', 'product_sync_reconcile' )
+);
+WP_CLI::add_command(
+	'digitalogic google-sheets catalog',
+	array( 'Digitalogic_CLI_Commands', 'google_sheets_catalog' )
 );

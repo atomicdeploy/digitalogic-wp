@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.6] - 2026-07-20
+
+### Added
+- Read-only, bounded Google Sheets catalog pages that reuse the canonical product, pricing, shipping-method, warehouse-stock, and category services.
+- An import-ready Google Apps Script with separate Products/Categories tabs, exact Patris Code or display-only `woo:<id>` key upserts, bilingual RTL/LTR headers, manual refresh, idempotent scheduled synchronization, and Script Properties-only credentials.
+- Standalone REST, WP-CLI, and n8n integration guidance with explicit status/error columns and per-record/page revisions.
+
+### Changed
+- Made Google Sheets catalog rows follow the living sparse response: missing keys mean no source/reference value, explicit upstream null remains `null`, and Patris matching never falls back to SKU.
+- Apps Script now validates the requested dataset, column and row arrays, and pagination object directly.
+
 ## [1.3.5] - 2026-07-20
 
 ### Changed

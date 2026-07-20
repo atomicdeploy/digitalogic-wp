@@ -1705,3 +1705,36 @@ msgstr ""
 #, php-format
 msgid "Digitalogic Panel - %s"
 msgstr ""
+
+#: includes/class-digitalogic-google-sheets-catalog.php
+msgid "Dataset must be products or categories."
+msgstr "مجموعه داده باید محصولات یا دسته‌بندی‌ها باشد."
+
+#: includes/class-digitalogic-google-sheets-catalog.php
+msgid "Locale must be en, fa, or bilingual."
+msgstr "زبان باید انگلیسی، فارسی یا دوزبانه باشد."
+
+#: includes/class-digitalogic-google-sheets-catalog.php
+msgid "Every catalog product must have a Patris Code or a positive WooCommerce ID."
+msgstr "هر محصول فهرست باید کد پاتریس یا شناسه مثبت ووکامرس داشته باشد."
+
+#~ msgid "Digitalogic Dashboard"
+#~ msgstr "داشبورد دیجیتالاجیک"
+
+#~ msgid "Refresh"
+#~ msgstr "بارگذاری مجدد"
+
+#~ msgid "Save Changes"
+#~ msgstr "ذخیره تغییرات"
+
+#~ msgid "SKU"
+#~ msgstr "کد کالا"
+
+#~ msgid "Export your products to CSV or JSON format"
+#~ msgstr "محصولات خود را به فرمت CSV یا JSON خروجی بگیرید"
+
+#~ msgid "Import products from CSV or JSON file"
+#~ msgstr "ورود محصولات از فایل CSV یا JSON"
+
+#~ msgid "Select a CSV or JSON file to import"
+#~ msgstr "یک فایل CSV یا JSON برای ورود انتخاب کنید"

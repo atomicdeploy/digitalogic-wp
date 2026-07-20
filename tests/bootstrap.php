@@ -39,6 +39,7 @@ $GLOBALS['digitalogic_test_wp_query_args'] = array();
 $GLOBALS['digitalogic_test_wp_query_results'] = array();
 $GLOBALS['digitalogic_test_primed_post_ids'] = array();
 $GLOBALS['digitalogic_test_wc_currency'] = 'IRT';
+$GLOBALS['digitalogic_test_terms'] = array();
 $GLOBALS['digitalogic_test_transients'] = array(); // phpcs:ignore
 $GLOBALS['digitalogic_test_transient_deletes'] = array(); // phpcs:ignore
 $GLOBALS['digitalogic_test_locale'] = 'en_US';
@@ -1408,11 +1409,45 @@ function wp_get_post_revisions($post_id) {
 }
 
 function get_term($term_id, $taxonomy = '') {
+    foreach ($GLOBALS['digitalogic_test_terms'] as $term) {
+        if (is_object($term) && (int) ($term->term_id ?? 0) === (int) $term_id) {
+            return $term;
+        }
+    }
+
     return new WP_Error('term_not_found', 'Term not found.');
 }
 
 function get_terms($args = array()) {
-    return array();
+    $terms = array_values($GLOBALS['digitalogic_test_terms']);
+    if (!empty($args['include'])) {
+        $include = array_map('intval', (array) $args['include']);
+        $terms = array_values(array_filter($terms, function($term) use ($include) {
+            return is_object($term) && in_array((int) ($term->term_id ?? 0), $include, true);
+        }));
+    }
+    usort($terms, function($left, $right) {
+        return (int) ($left->term_id ?? 0) <=> (int) ($right->term_id ?? 0);
+    });
+    if ('DESC' === strtoupper((string) ($args['order'] ?? 'ASC'))) {
+        $terms = array_reverse($terms);
+    }
+    $offset = max(0, (int) ($args['offset'] ?? 0));
+    $number = isset($args['number']) ? (int) $args['number'] : 0;
+
+    return $number > 0 ? array_slice($terms, $offset, $number) : array_slice($terms, $offset);
+}
+
+function wp_count_terms($args = array()) {
+    return count($GLOBALS['digitalogic_test_terms']);
+}
+
+function get_term_link($term, $taxonomy = '') {
+    if (!is_object($term) || empty($term->term_id)) {
+        return new WP_Error('term_not_found', 'Term not found.');
+    }
+
+    return 'https://digitalogic.test/product-category/' . (string) ($term->slug ?? $term->term_id);
 }
 
 function admin_url($path = '') {
@@ -1643,6 +1678,7 @@ require_once dirname(__DIR__) . '/includes/class-digitalogic-pricing-input-crede
 require_once dirname(__DIR__) . '/includes/class-patris-feed.php';
 require_once dirname(__DIR__) . '/includes/class-product-sync-receiver.php';
 require_once dirname(__DIR__) . '/includes/class-shipping-method-service.php';
+require_once dirname(__DIR__) . '/includes/class-digitalogic-google-sheets-catalog.php';
 require_once dirname(__DIR__) . '/includes/class-command-dispatcher.php';
 require_once dirname(__DIR__) . '/includes/api/class-rest-api.php';
 require_once dirname(__DIR__) . '/includes/api/class-webhooks.php';

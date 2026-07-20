@@ -285,6 +285,16 @@ class Digitalogic_REST_API {
             'permission_callback' => array($this, 'check_diagnostic_permission')
         ));
 
+		register_rest_route(
+			'digitalogic/v1',
+			'/google-sheets/catalog',
+			array(
+				'methods'             => 'GET',
+				'callback'            => array( $this, 'get_google_sheets_catalog' ),
+				'permission_callback' => array( $this, 'check_read_permission' ),
+			)
+		);
+
         register_rest_route('digitalogic/v1', '/reports', array(
             'methods' => 'GET',
             'callback' => array($this, 'get_reports'),
@@ -546,6 +556,41 @@ class Digitalogic_REST_API {
             'pages' => $result['pages'],
         ), 200);
     }
+
+	/**
+	 * GET /google-sheets/catalog
+	 *
+	 * Return one bounded Products or Categories page through the shared catalog
+	 * projection. External clients authenticate with a read-only WooCommerce
+	 * key, while signed-in administrators keep their WordPress session.
+	 *
+	 * @param WP_REST_Request $request REST request.
+	 * @return WP_REST_Response
+	 */
+	public function get_google_sheets_catalog( WP_REST_Request $request ) {
+		$result = Digitalogic_Google_Sheets_Catalog::instance()->get_page( $request->get_params() );
+		if ( is_wp_error( $result ) ) {
+			$data   = $result->get_error_data();
+			$status = is_array( $data ) && isset( $data['status'] ) ? (int) $data['status'] : 500;
+
+			return new WP_REST_Response(
+				array(
+					'success' => false,
+					'code'    => $result->get_error_code(),
+					'message' => $result->get_error_message(),
+				),
+				$status
+			);
+		}
+
+		return new WP_REST_Response(
+			array(
+				'success' => true,
+				'data'    => $result,
+			),
+			200
+		);
+	}
     
 	/**
 	 * GET /products/{id}
