@@ -237,12 +237,13 @@ class Digitalogic_Product_Sync_Receiver {
     public const CONTRACT_NAME = 'digitalogic.product-sync';
     public const FORMULA_ID = 'landed_price_v1';
 
-    private const STATE_VERSION = 3;
+    private const STATE_VERSION = 4;
     private const LOCK_NAME = 'digitalogic_product_sync_v1';
     private const LOCK_TIMEOUT_SECONDS = 15;
     private const MAX_BODY_BYTES = 8388608;
     private const MAX_STATE_BYTES = 16777216;
     private const MAX_PRODUCTS = 10000;
+    private const MAX_CATEGORIES = 10000;
     private const MAX_SOURCES = 16;
     private const MAX_RECENT_EVENTS = 128;
     private const MAX_RESULT_ERRORS = 100;
@@ -265,12 +266,14 @@ class Digitalogic_Product_Sync_Receiver {
         'source',
         'generated_at',
         'products',
+        'categories',
+        'excluded_codes',
         'deleted_codes',
         'quarantined_codes',
         'warnings',
     );
 
-    private const PRODUCT_FIELDS = array(
+    private const PRODUCT_FIELDS_V1_0 = array(
         'product_code',
         'name',
         'serial',
@@ -294,6 +297,44 @@ class Digitalogic_Product_Sync_Receiver {
         'final_price',
         'formula_version',
         'source_updated_at',
+        'warnings',
+        'record_hash',
+    );
+
+    private const PRODUCT_FIELDS_V1_1 = array(
+        'product_code',
+        'category_code',
+        'name',
+        'serial',
+        'unit',
+        'sale_price_source',
+        'purchase_price_source',
+        'warehouse_stock',
+        'total_stock',
+        'minimum_stock',
+        'foreign_currency',
+        'foreign_price',
+        'weight_grams',
+        'location',
+        'import_freight_method_id',
+        'freight_cny_per_kg',
+        'markup_percent',
+        'irt_per_cny',
+        'pricing_catalog_revision',
+        'pricing_catalog_status',
+        'currency_effective_date',
+        'final_price',
+        'formula_version',
+        'source_updated_at',
+        'warnings',
+        'record_hash',
+    );
+
+    private const CATEGORY_FIELDS = array(
+        'category_code',
+        'name',
+        'parent_code',
+        'depth',
         'warnings',
         'record_hash',
     );
@@ -454,6 +495,8 @@ class Digitalogic_Product_Sync_Receiver {
         $sources = array();
         $totals = array(
             'stored_products' => 0,
+            'stored_categories' => 0,
+            'excluded_codes' => 0,
             'applied_products' => 0,
             'pending_products' => 0,
             'deferred_products' => 0,
@@ -574,6 +617,9 @@ class Digitalogic_Product_Sync_Receiver {
         if (2 === $version) {
             $state = $this->migrate_v2_state($state);
             $migration_required = true;
+        } elseif (3 === $version) {
+            $state = $this->migrate_v3_state($state);
+            $migration_required = true;
         } elseif (self::STATE_VERSION !== $version) {
             return array('version' => self::STATE_VERSION, 'sources' => array());
         }
@@ -582,6 +628,7 @@ class Digitalogic_Product_Sync_Receiver {
             if (!is_array($source_state)) {
                 $source_state = array();
             }
+            $this->normalize_catalog_source_state($source_state);
             $source_state['deferred_products'] = is_array($source_state['deferred_products'] ?? null)
                 ? array_slice($source_state['deferred_products'], 0, self::MAX_DEFERRED_PRODUCTS, true)
                 : array();
@@ -634,6 +681,22 @@ class Digitalogic_Product_Sync_Receiver {
                 409
             );
         }
+        if (
+            'update' === $envelope['event_type']
+            && is_array($existing)
+            && $this->has_catalog_contract($envelope['schema_version'])
+                !== $this->has_catalog_contract((string) ($existing['schema_version'] ?? '1.0'))
+        ) {
+            return $this->error(
+                'digitalogic_product_sync_baseline_required',
+                'A snapshot is required before changing the source contract feature level.',
+                409,
+                array(
+                    'stored_schema_version' => (string) ($existing['schema_version'] ?? '1.0'),
+                    'received_schema_version' => $envelope['schema_version'],
+                )
+            );
+        }
 
         if (is_array($existing)) {
             $comparison = $this->compare_timestamp_order($envelope['generated_at_order'], $existing['generated_at_order'] ?? array());
@@ -669,6 +732,7 @@ class Digitalogic_Product_Sync_Receiver {
         $delivery = $this->build_delivery_state($transition['products'], $transition['changed_products'], $envelope, $existing);
         $source_state = array(
             'source' => $envelope['source'],
+            'schema_version' => $envelope['schema_version'],
             'generated_at' => $envelope['generated_at'],
             'generated_at_order' => $envelope['generated_at_order'],
             'last_event_id' => $envelope['event_id'],
@@ -677,6 +741,8 @@ class Digitalogic_Product_Sync_Receiver {
             'formula_id' => $envelope['formula_id'],
             'formula_revision' => $envelope['formula_revision'],
             'products' => $transition['products'],
+            'categories' => $transition['categories'],
+            'excluded_codes' => $transition['excluded_codes'],
             'quarantined_codes' => $envelope['quarantined_codes'],
             'recent_events' => $recent_events,
             'applied_products' => $delivery['applied_products'],
@@ -710,6 +776,9 @@ class Digitalogic_Product_Sync_Receiver {
             'source' => $envelope['source'],
             'received_products' => count($envelope['products']),
             'stored_products' => count($transition['products']),
+            'received_categories' => count($envelope['categories']),
+            'stored_categories' => count($transition['categories']),
+            'excluded_codes' => count($transition['excluded_codes']),
             'deleted_codes' => $transition['deleted_count'],
             'preserved_quarantined' => $transition['preserved_quarantined'],
             'woocommerce' => $woo,
@@ -739,6 +808,8 @@ class Digitalogic_Product_Sync_Receiver {
             'event_type' => $envelope['event_type'],
             'source' => $envelope['source'],
             'stored_products' => count($source_state['products'] ?? array()),
+            'stored_categories' => count($source_state['categories'] ?? array()),
+            'excluded_codes' => count($source_state['excluded_codes'] ?? array()),
             'woocommerce' => $woo,
             'persistence_verified' => true,
         ), $this->delivery_result_state($source_state));
@@ -806,6 +877,17 @@ class Digitalogic_Product_Sync_Receiver {
         if (!$this->is_supported_major_version($payload['schema_version'])) {
             return $this->error('digitalogic_product_sync_version_unsupported', 'Only product-sync schema major version 1 is supported.', 422);
         }
+        $has_catalog = $this->has_catalog_contract($payload['schema_version']);
+        if (
+            !$has_catalog
+            && (array_key_exists('categories', $payload) || array_key_exists('excluded_codes', $payload))
+        ) {
+            return $this->error(
+                'digitalogic_product_sync_version_field_unsupported',
+                'Categories and excluded Codes require product-sync schema version 1.1 or newer.',
+                422
+            );
+        }
         if (!in_array($payload['event_type'], array('snapshot', 'update'), true)) {
             return $this->field_error('event_type', 'must be snapshot or update');
         }
@@ -853,7 +935,7 @@ class Digitalogic_Product_Sync_Receiver {
         $products = array();
         $seen_codes = array();
         foreach ($payload['products'] as $index => $product) {
-            $validated = $this->validate_product($product, $index);
+            $validated = $this->validate_product($product, $index, $payload['schema_version']);
             if (is_wp_error($validated)) {
                 return $validated;
             }
@@ -865,6 +947,19 @@ class Digitalogic_Product_Sync_Receiver {
             // the validated string as the value whenever the map is projected.
             $seen_codes[$code] = $code;
             $products[] = $validated;
+        }
+
+        $categories = $this->validate_categories($payload['categories'] ?? array());
+        if (is_wp_error($categories)) {
+            return $categories;
+        }
+        $excluded_codes = $this->validate_string_set($payload['excluded_codes'] ?? array(), 'excluded_codes');
+        if (is_wp_error($excluded_codes)) {
+            return $excluded_codes;
+        }
+        $catalog_check = $this->validate_catalog_projection($products, $categories, $excluded_codes);
+        if (is_wp_error($catalog_check)) {
+            return $catalog_check;
         }
 
         $deleted_codes = $this->validate_tombstones($payload['deleted_codes'] ?? array(), $payload['event_type']);
@@ -913,6 +1008,8 @@ class Digitalogic_Product_Sync_Receiver {
             'generated_at' => $payload['generated_at'],
             'generated_at_order' => $generated_at_order,
             'products' => $products,
+            'categories' => $categories,
+            'excluded_codes' => $excluded_codes,
             'deleted_codes' => $deleted_codes,
             'quarantined_codes' => $quarantined_codes,
             'warnings' => $warnings,
@@ -964,13 +1061,14 @@ class Digitalogic_Product_Sync_Receiver {
         return $source;
     }
 
-    private function validate_product($product, $index) {
+    private function validate_product($product, $index, $schema_version) {
         $path = 'products[' . (int) $index . ']';
+        $product_fields = $this->product_fields($schema_version);
         if (!is_array($product) || array_is_list($product)) {
             return $this->field_error($path, 'must be an object');
         }
-        $missing = array_values(array_diff(self::PRODUCT_FIELDS, array_keys($product)));
-        $unknown = array_values(array_diff(array_keys($product), self::PRODUCT_FIELDS));
+        $missing = array_values(array_diff($product_fields, array_keys($product)));
+        $unknown = array_values(array_diff(array_keys($product), $product_fields));
         if (!empty($missing) || !empty($unknown)) {
             return $this->error(
                 'digitalogic_product_sync_product_shape_invalid',
@@ -988,6 +1086,16 @@ class Digitalogic_Product_Sync_Receiver {
         }
         if (strlen($product['product_code']) > self::MAX_CODE_LENGTH) {
             return $this->field_error($path . '.product_code', 'is too long');
+        }
+        if (
+            $this->has_catalog_contract($schema_version)
+            && (
+                !is_string($product['category_code'])
+                || trim($product['category_code']) !== $product['category_code']
+                || strlen($product['category_code']) > self::MAX_CODE_LENGTH
+            )
+        ) {
+            return $this->field_error($path . '.category_code', 'must be a trimmed string within the code limit');
         }
         foreach (self::PRODUCT_STRING_FIELDS as $field) {
             if (!is_string($product[$field])) {
@@ -1041,7 +1149,7 @@ class Digitalogic_Product_Sync_Receiver {
 
         $hash_product = $product;
         $hash_product['warnings'] = $warnings;
-        $expected_hash = $this->record_hash($hash_product);
+        $expected_hash = $this->record_hash($hash_product, $product_fields);
         if (!hash_equals($expected_hash, $product['record_hash'])) {
             return $this->error(
                 'digitalogic_product_sync_record_hash_mismatch',
@@ -1057,7 +1165,7 @@ class Digitalogic_Product_Sync_Receiver {
         }
 
         $stored = array();
-        foreach (self::PRODUCT_FIELDS as $field) {
+        foreach ($product_fields as $field) {
             if ('warehouse_stock' === $field) {
                 $stocks = $product[$field];
                 ksort($stocks, SORT_STRING);
@@ -1075,6 +1183,169 @@ class Digitalogic_Product_Sync_Receiver {
 
         return $stored;
     }
+
+    // phpcs:disable -- Preserve the established receiver formatting while the legacy file remains baseline-managed.
+    private function validate_categories($values) {
+        if (!is_array($values) || !array_is_list($values)) {
+            return $this->field_error('categories', 'must be an array');
+        }
+        if (count($values) > self::MAX_CATEGORIES) {
+            return $this->error('digitalogic_product_sync_category_limit', 'The event contains too many categories.', 413);
+        }
+
+        $categories = array();
+        $seen = array();
+        foreach ($values as $index => $category) {
+            $path = 'categories[' . (int) $index . ']';
+            if (!is_array($category) || array_is_list($category)) {
+                return $this->field_error($path, 'must be an object');
+            }
+            $missing = array_values(array_diff(self::CATEGORY_FIELDS, array_keys($category)));
+            $unknown = array_values(array_diff(array_keys($category), self::CATEGORY_FIELDS));
+            if (!empty($missing) || !empty($unknown)) {
+                return $this->error(
+                    'digitalogic_product_sync_category_shape_invalid',
+                    'A category does not match the typed v1.1 shape.',
+                    422,
+                    array('path' => $path, 'missing' => $missing, 'unknown' => $unknown)
+                );
+            }
+            if (
+                !is_string($category['category_code'])
+                || '' === trim($category['category_code'])
+                || trim($category['category_code']) !== $category['category_code']
+                || strlen($category['category_code']) > self::MAX_CODE_LENGTH
+            ) {
+                return $this->field_error($path . '.category_code', 'must be a non-empty trimmed string within the code limit');
+            }
+            if (isset($seen[$category['category_code']])) {
+                return $this->error(
+                    'digitalogic_product_sync_duplicate_category_code',
+                    'Category codes must be unique inside an event.',
+                    422,
+                    array('category_code' => $category['category_code'])
+                );
+            }
+            if (!is_string($category['name']) || !is_string($category['parent_code'])) {
+                return $this->field_error($path, 'name and parent_code must be strings');
+            }
+            if (
+                trim($category['parent_code']) !== $category['parent_code']
+                || strlen($category['parent_code']) > self::MAX_CODE_LENGTH
+                || $category['parent_code'] === $category['category_code']
+            ) {
+                return $this->field_error($path . '.parent_code', 'must be a distinct trimmed category code or an empty string');
+            }
+            if (!$this->is_nonnegative_integer($category['depth']) || $this->number_compare_zero($category['depth']) <= 0) {
+                return $this->field_error($path . '.depth', 'must be a positive integer');
+            }
+            $warnings = $this->validate_string_set($category['warnings'], $path . '.warnings', false);
+            if (is_wp_error($warnings)) {
+                return $warnings;
+            }
+            if (!is_string($category['record_hash']) || !$this->is_hash($category['record_hash'])) {
+                return $this->field_error($path . '.record_hash', 'must be a sha256 identity');
+            }
+
+            $hash_category = $category;
+            $hash_category['warnings'] = $warnings;
+            $expected_hash = $this->category_record_hash($hash_category);
+            if (!hash_equals($expected_hash, $category['record_hash'])) {
+                return $this->error(
+                    'digitalogic_product_sync_category_hash_mismatch',
+                    'A category record_hash does not match its typed category.',
+                    422,
+                    array('path' => $path . '.record_hash', 'expected' => $expected_hash)
+                );
+            }
+
+            $stored = array(
+                'category_code' => $category['category_code'],
+                'name' => $category['name'],
+                'parent_code' => $category['parent_code'],
+                'depth' => $this->number_to_storage($category['depth']),
+                'warnings' => $warnings,
+                'record_hash' => $category['record_hash'],
+            );
+            $seen[$stored['category_code']] = $stored['category_code'];
+            $categories[] = $stored;
+        }
+
+        usort($categories, static function($left, $right) {
+            return strcmp($left['category_code'], $right['category_code']);
+        });
+        $lookup = array();
+        foreach ($categories as $category) {
+            $lookup[$category['category_code']] = $category;
+        }
+        foreach ($categories as $category) {
+            if ('' === $category['parent_code']) {
+                if (1 !== $category['depth']) {
+                    return $this->field_error(
+                        'categories.' . $category['category_code'] . '.depth',
+                        'must be 1 for a root category'
+                    );
+                }
+                continue;
+            }
+            if (!isset($lookup[$category['parent_code']])) {
+                return $this->field_error(
+                    'categories.' . $category['category_code'] . '.parent_code',
+                    'must reference a category in the same complete projection'
+                );
+            }
+            if ($category['depth'] !== $lookup[$category['parent_code']]['depth'] + 1) {
+                return $this->field_error(
+                    'categories.' . $category['category_code'] . '.depth',
+                    'must be exactly one greater than its parent depth'
+                );
+            }
+        }
+
+        return $categories;
+    }
+
+    private function validate_catalog_projection($products, $categories, $excluded_codes) {
+        $category_lookup = array();
+        foreach ($categories as $category) {
+            $category_lookup[$category['category_code']] = $category['category_code'];
+        }
+        $excluded_lookup = array();
+        foreach ($excluded_codes as $code) {
+            $excluded_lookup[$code] = $code;
+            if (isset($category_lookup[$code])) {
+                return $this->error(
+                    'digitalogic_product_sync_catalog_overlap',
+                    'A Code cannot be both a category and an excluded record.',
+                    422,
+                    array('code' => $code)
+                );
+            }
+        }
+        foreach ($products as $product) {
+            $code = $product['product_code'];
+            if (isset($category_lookup[$code]) || isset($excluded_lookup[$code])) {
+                return $this->error(
+                    'digitalogic_product_sync_catalog_overlap',
+                    'A Code cannot be both a sellable product and a structural catalog record.',
+                    422,
+                    array('code' => $code)
+                );
+            }
+            $category_code = (string) ($product['category_code'] ?? '');
+            if ('' !== $category_code && !isset($category_lookup[$category_code])) {
+                return $this->error(
+                    'digitalogic_product_sync_category_reference_invalid',
+                    'A product category_code must reference the complete category projection.',
+                    422,
+                    array('product_code' => $code, 'category_code' => $category_code)
+                );
+            }
+        }
+
+        return true;
+    }
+    // phpcs:enable
 
     private function validate_tombstones($values, $event_type) {
         if (!is_array($values) || !array_is_list($values)) {
@@ -1142,6 +1413,12 @@ class Digitalogic_Product_Sync_Receiver {
         foreach ($envelope['products'] as $product) {
             $incoming[$product['product_code']] = $product;
         }
+        $categories = array();
+        foreach ($envelope['categories'] as $category) {
+            $categories[$category['category_code']] = $category;
+        }
+        ksort($categories, SORT_STRING);
+        $excluded_codes = $envelope['excluded_codes'];
         $quarantined = array();
         foreach ($envelope['quarantined_codes'] as $quarantined_code) {
             $quarantined[$quarantined_code] = $quarantined_code;
@@ -1184,7 +1461,20 @@ class Digitalogic_Product_Sync_Receiver {
 
         ksort($next, SORT_STRING);
         ksort($revision_products, SORT_STRING);
-        $expected_revision = $this->source_revision($revision_products, $envelope['quarantined_codes']);
+        $catalog_check = $this->validate_catalog_projection(
+            array_values($next),
+            array_values($categories),
+            $excluded_codes
+        );
+        if (is_wp_error($catalog_check)) {
+            return $catalog_check;
+        }
+        $expected_revision = $this->source_revision(
+            $revision_products,
+            $categories,
+            $excluded_codes,
+            $envelope['quarantined_codes']
+        );
         if (!hash_equals($expected_revision, $envelope['source']['revision'])) {
             return $this->error(
                 'digitalogic_product_sync_source_revision_mismatch',
@@ -1196,6 +1486,8 @@ class Digitalogic_Product_Sync_Receiver {
 
         return array(
             'products' => $next,
+            'categories' => $categories,
+            'excluded_codes' => $excluded_codes,
             'changed_products' => array_values($incoming),
             'deleted_count' => 'snapshot' === $envelope['event_type']
                 ? count(array_diff(array_keys($previous), array_merge(array_keys($next), $envelope['quarantined_codes'])))
@@ -1504,7 +1796,7 @@ class Digitalogic_Product_Sync_Receiver {
     }
 
     /**
-     * Project v2 delivery state into v3 without discarding retry metadata.
+     * Project v2 delivery state into the current shape without discarding retry metadata.
      *
      * The migration is persisted by receive() or reconcile() while holding the
      * same advisory lock used for normal event delivery.
@@ -1544,7 +1836,41 @@ class Digitalogic_Product_Sync_Receiver {
         unset($source_state);
         $state['sources'] = $sources;
 
+        return $this->migrate_v3_state($state);
+    }
+
+    /**
+     * Add the v1.1 catalog projection fields to legacy v3 source state.
+     */
+    private function migrate_v3_state($state) {
+        $state['version'] = self::STATE_VERSION;
+        $sources = is_array($state['sources'] ?? null) ? $state['sources'] : array();
+        foreach ($sources as &$source_state) {
+            if (!is_array($source_state)) {
+                $source_state = array();
+            }
+            $this->normalize_catalog_source_state($source_state);
+        }
+        unset($source_state);
+        $state['sources'] = $sources;
+
         return $state;
+    }
+
+    private function normalize_catalog_source_state(&$source_state) {
+        $schema_version = (string) ($source_state['schema_version'] ?? '1.0');
+        $source_state['schema_version'] = $this->is_supported_major_version($schema_version)
+            ? $schema_version
+            : '1.0';
+        $source_state['categories'] = is_array($source_state['categories'] ?? null)
+            ? $source_state['categories']
+            : array();
+        ksort($source_state['categories'], SORT_STRING);
+        $excluded = is_array($source_state['excluded_codes'] ?? null)
+            ? array_values(array_unique(array_filter($source_state['excluded_codes'], 'is_string')))
+            : array();
+        sort($excluded, SORT_STRING);
+        $source_state['excluded_codes'] = $excluded;
     }
 
     private function deferred_summary($deferred) {
@@ -1608,9 +1934,12 @@ class Digitalogic_Product_Sync_Receiver {
                 'dataset' => (string) ($source['dataset'] ?? ''),
                 'revision' => (string) ($source['revision'] ?? ''),
             ),
+            'schema_version' => (string) ($source_state['schema_version'] ?? '1.0'),
             'generated_at' => (string) ($source_state['generated_at'] ?? ''),
             'last_event_id' => (string) ($source_state['last_event_id'] ?? ''),
             'stored_products' => count(is_array($source_state['products'] ?? null) ? $source_state['products'] : array()),
+            'stored_categories' => count(is_array($source_state['categories'] ?? null) ? $source_state['categories'] : array()),
+            'excluded_codes' => count(is_array($source_state['excluded_codes'] ?? null) ? $source_state['excluded_codes'] : array()),
             'applied_products' => count(is_array($source_state['applied_products'] ?? null) ? $source_state['applied_products'] : array()),
             'pending_products' => count(is_array($source_state['pending_products'] ?? null) ? $source_state['pending_products'] : array()),
             'deferred_products' => count(is_array($source_state['deferred_products'] ?? null) ? $source_state['deferred_products'] : array()),
@@ -1641,6 +1970,7 @@ class Digitalogic_Product_Sync_Receiver {
 
             return $this->error('digitalogic_product_sync_state_too_large', 'The combined receiver state is too large.', 413);
         }
+        $expected_digest = hash('sha256', $serialized);
         $row = $wpdb->get_row($wpdb->prepare(
             "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s FOR UPDATE",
             self::STATE_OPTION
@@ -1675,10 +2005,15 @@ class Digitalogic_Product_Sync_Receiver {
             "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s",
             self::STATE_OPTION
         ), ARRAY_A);
-        $read_back = is_array($read_row) && array_key_exists('option_value', $read_row)
-            ? maybe_unserialize($read_row['option_value'])
+        $read_serialized = is_array($read_row) && is_string($read_row['option_value'] ?? null)
+            ? $read_row['option_value']
             : null;
-        if (!is_array($read_back) || !hash_equals($this->state_digest($state), $this->state_digest($read_back))) {
+        $read_back = is_string($read_serialized) ? maybe_unserialize($read_serialized) : null;
+        if (
+            !is_array($read_back)
+            || !is_string($read_serialized)
+            || !hash_equals($expected_digest, hash('sha256', $read_serialized))
+        ) {
             $wpdb->query('ROLLBACK');
             $this->invalidate_state_cache();
 
@@ -1705,6 +2040,8 @@ class Digitalogic_Product_Sync_Receiver {
             'event_type' => $envelope['event_type'],
             'source' => $envelope['source'],
             'stored_products' => count($existing['products'] ?? array()),
+            'stored_categories' => count($existing['categories'] ?? array()),
+            'excluded_codes' => count($existing['excluded_codes'] ?? array()),
         ), $this->delivery_result_state($existing));
     }
     // phpcs:enable
@@ -1916,9 +2253,10 @@ class Digitalogic_Product_Sync_Receiver {
         return '' === $value ? '0' : $value;
     }
 
-    private function record_hash($product) {
+    // phpcs:disable -- Preserve the established receiver formatting while the legacy file remains baseline-managed.
+    private function record_hash($product, $product_fields) {
         $ordered = array();
-        foreach (self::PRODUCT_FIELDS as $field) {
+        foreach ($product_fields as $field) {
             if ('record_hash' !== $field) {
                 $ordered[$field] = $product[$field];
             }
@@ -1927,10 +2265,27 @@ class Digitalogic_Product_Sync_Receiver {
         return $this->hash_identity($this->encode_go_json($ordered, array('warehouse_stock')));
     }
 
-    private function source_revision($products, $quarantined_codes) {
+    private function category_record_hash($category) {
+        $ordered = array();
+        foreach (self::CATEGORY_FIELDS as $field) {
+            if ('record_hash' !== $field) {
+                $ordered[$field] = $category[$field];
+            }
+        }
+
+        return $this->hash_identity($this->encode_go_json($ordered));
+    }
+
+    private function source_revision($products, $categories, $excluded_codes, $quarantined_codes) {
         $material = array();
         foreach ($products as $product) {
             $material[] = $product['product_code'] . '=' . $product['record_hash'];
+        }
+        foreach ($categories as $category) {
+            $material[] = 'category:' . $category['category_code'] . '=' . $category['record_hash'];
+        }
+        foreach ($excluded_codes as $code) {
+            $material[] = 'excluded=' . $code;
         }
         sort($material, SORT_STRING);
         foreach ($quarantined_codes as $code) {
@@ -1946,6 +2301,11 @@ class Digitalogic_Product_Sync_Receiver {
             $product_hashes[] = $product['product_code'] . '=' . $product['record_hash'];
         }
         sort($product_hashes, SORT_STRING);
+        $category_hashes = array();
+        foreach ($envelope['categories'] as $category) {
+            $category_hashes[] = $category['category_code'] . '=' . $category['record_hash'];
+        }
+        sort($category_hashes, SORT_STRING);
         $identity = array(
             'schema' => $envelope['schema'],
             'schema_version' => $envelope['schema_version'],
@@ -1961,6 +2321,12 @@ class Digitalogic_Product_Sync_Receiver {
             'generated_at' => $envelope['generated_at'],
             'products' => $product_hashes,
         );
+        if (!empty($category_hashes)) {
+            $identity['categories'] = $category_hashes;
+        }
+        if (!empty($envelope['excluded_codes'])) {
+            $identity['excluded_codes'] = $envelope['excluded_codes'];
+        }
         if (!empty($envelope['deleted_codes'])) {
             $identity['deleted_codes'] = $envelope['deleted_codes'];
         }
@@ -1970,6 +2336,7 @@ class Digitalogic_Product_Sync_Receiver {
 
         return $this->hash_identity($this->encode_go_json($identity));
     }
+    // phpcs:enable
 
     /**
      * Encode the validated subset the same way Go encoding/json does.
@@ -2065,6 +2432,23 @@ class Digitalogic_Product_Sync_Receiver {
     private function is_supported_major_version($version) {
         return is_string($version) && 1 === preg_match('/^1(?:\.[0-9]+){1,2}$/', $version);
     }
+
+    // phpcs:disable -- Preserve the established receiver formatting while the legacy file remains baseline-managed.
+    private function has_catalog_contract($version) {
+        if (!$this->is_supported_major_version($version)) {
+            return false;
+        }
+        $parts = explode('.', $version);
+
+        return (int) ($parts[1] ?? 0) >= 1;
+    }
+
+    private function product_fields($schema_version) {
+        return $this->has_catalog_contract($schema_version)
+            ? self::PRODUCT_FIELDS_V1_1
+            : self::PRODUCT_FIELDS_V1_0;
+    }
+    // phpcs:enable
 
     private function is_hash($value) {
         return is_string($value) && 1 === preg_match('/^sha256:[a-f0-9]{64}$/', $value);

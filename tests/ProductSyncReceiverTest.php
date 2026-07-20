@@ -4,10 +4,13 @@ use PHPUnit\Framework\TestCase;
 
 final class ProductSyncReceiverTest extends TestCase {
     private static $golden;
+    private static $goldenV11;
 
     public static function setUpBeforeClass(): void {
         $path = __DIR__ . '/fixtures/patris-product-sync-v1-golden.json';
         self::$golden = json_decode(file_get_contents($path), true, 512, JSON_THROW_ON_ERROR);
+        $path = __DIR__ . '/fixtures/patris-product-sync-v1.1-golden.json';
+        self::$goldenV11 = json_decode(file_get_contents($path), true, 512, JSON_THROW_ON_ERROR);
     }
 
     protected function setUp(): void {
@@ -61,6 +64,45 @@ final class ProductSyncReceiverTest extends TestCase {
         $this->assertSame('240', $source['products']['SYNTH-PRICED-001']['weight_grams']);
         $this->assertSame(2009410, $source['products']['SYNTH-PRICED-001']['final_price']);
     }
+
+    // phpcs:disable -- Match the established PHPUnit fixture style in this baseline-managed test file.
+    public function test_accepts_go_generated_v11_catalog_fixture_with_exact_hashes_and_durable_state(): void {
+        $path = __DIR__ . '/fixtures/patris-product-sync-v1.1-golden.json';
+        $this->assertSame(
+            '8a635fa63cadc2b5021879c32e3ee47ce9d4928806948c154cdeb1b744da61fd',
+            hash_file('sha256', $path)
+        );
+        $GLOBALS['digitalogic_test_posts'][699] = array(
+            'post_type' => 'product',
+            'post_status' => 'publish',
+            'meta' => array('_sku' => '101001001'),
+        );
+
+        $result = Digitalogic_Product_Sync_Receiver::instance()->receive_json(file_get_contents($path));
+
+        $this->assertNotInstanceOf(WP_Error::class, $result, $result instanceof WP_Error ? $result->get_error_message() : '');
+        $this->assertSame('accepted', $result['status']);
+        $this->assertSame('sha256:4230ed302661c27a3b1bac71c60fac6a82c43bfb1ac0a7942137695b00afc2ac', $result['event_id']);
+        $this->assertSame(2, $result['received_products']);
+        $this->assertSame(2, $result['received_categories']);
+        $this->assertSame(2, $result['stored_categories']);
+        $this->assertSame(1, $result['excluded_codes']);
+        $this->assertSame(1, $result['woocommerce']['updated']);
+        $this->assertSame(1, $result['deferred_products']);
+
+        $source = Digitalogic_Product_Sync_Receiver::instance()->get_source_state('synthetic-fixture', 'synthetic-kala.db');
+        $this->assertSame('1.1', $source['schema_version']);
+        $this->assertSame('101001', $source['products']['101001001']['category_code']);
+        $this->assertSame('101', $source['categories']['101001']['parent_code']);
+        $this->assertSame(array('999010'), $source['excluded_codes']);
+        $this->assertSame('101001', $GLOBALS['digitalogic_test_wc_products'][699]->meta['_digitalogic_patris_category_code']);
+
+        $status = Digitalogic_Product_Sync_Receiver::instance()->get_status();
+        $this->assertSame(2, $status['totals']['stored_categories']);
+        $this->assertSame(1, $status['totals']['excluded_codes']);
+        $this->assertSame('1.1', $status['sources'][0]['schema_version']);
+    }
+    // phpcs:enable
 
     public function test_snapshot_persists_before_event_and_uses_shared_exact_woo_writer(): void {
         $product = $this->product(1);
@@ -144,7 +186,7 @@ final class ProductSyncReceiverTest extends TestCase {
 
         $state = get_option(Digitalogic_Product_Sync_Receiver::STATE_OPTION, array());
         $source_key = array_key_first($state['sources']);
-        $this->assertSame(3, $state['version']);
+        $this->assertSame(4, $state['version']);
         $this->assertSame($code, $state['sources'][$source_key]['products'][$code]['product_code']);
         $this->assertIsString($state['sources'][$source_key]['products'][$code]['product_code']);
         $this->assertSame($code, $state['sources'][$source_key]['pending_products'][$code]['product_code']);
@@ -261,6 +303,84 @@ final class ProductSyncReceiverTest extends TestCase {
         $this->assertArrayHasKey($first['product_code'], $state['products']);
         $this->assertArrayHasKey($second['product_code'], $state['products']);
     }
+
+    // phpcs:disable -- Match the established PHPUnit fixture style in this baseline-managed test file.
+    public function test_v11_update_merges_products_and_replaces_complete_catalog_projection(): void {
+        $first = $this->v11Product(0);
+        $second = $this->v11Product(1);
+        $categories = array($this->v11Category(0), $this->v11Category(1));
+        $snapshot = $this->v11Envelope(
+            'snapshot',
+            array($first),
+            array($first),
+            '2026-07-16T10:00:00Z',
+            $categories,
+            array('999010')
+        );
+        $this->assertSame('accepted', Digitalogic_Product_Sync_Receiver::instance()->receive($snapshot)['status']);
+
+        $categories[1]['name'] = 'Renamed synthetic modules';
+        $categories[1] = $this->rehashCategory($categories[1]);
+        $update = $this->v11Envelope(
+            'update',
+            array($second),
+            array($first, $second),
+            '2026-07-16T10:01:00Z',
+            $categories,
+            array('999991')
+        );
+        $result = Digitalogic_Product_Sync_Receiver::instance()->receive($update);
+        $state = Digitalogic_Product_Sync_Receiver::instance()->get_source_state('receiver-tests', 'kala.db');
+
+        $this->assertSame('accepted', $result['status']);
+        $this->assertCount(2, $state['products']);
+        $this->assertSame('Renamed synthetic modules', $state['categories']['101001']['name']);
+        $this->assertSame(array('999991'), $state['excluded_codes']);
+        $this->assertSame($update['source']['revision'], $state['source']['revision']);
+    }
+
+    public function test_v11_rejects_category_hash_tampering_and_dangling_product_category(): void {
+        $tampered = self::$goldenV11;
+        $tampered['categories'][1]['name'] .= ' changed';
+        $hash_error = Digitalogic_Product_Sync_Receiver::instance()->receive($tampered);
+        $this->assertSame('digitalogic_product_sync_category_hash_mismatch', $hash_error->get_error_code());
+
+        $product = $this->v11Product(0);
+        $product['category_code'] = '404';
+        $product = $this->rehashProduct($product);
+        $event = $this->v11Envelope(
+            'snapshot',
+            array($product),
+            array($product),
+            '2026-07-16T10:02:00Z',
+            array($this->v11Category(0), $this->v11Category(1)),
+            array()
+        );
+        $reference_error = Digitalogic_Product_Sync_Receiver::instance()->receive($event);
+        $this->assertSame('digitalogic_product_sync_category_reference_invalid', $reference_error->get_error_code());
+    }
+
+    public function test_contract_feature_level_change_requires_a_fresh_snapshot(): void {
+        $legacy = $this->product(0);
+        $snapshot = $this->envelope('snapshot', array($legacy), array($legacy), '2026-07-16T10:00:00Z');
+        $this->assertSame('accepted', Digitalogic_Product_Sync_Receiver::instance()->receive($snapshot)['status']);
+
+        $product = $this->v11Product(0);
+        $update = $this->v11Envelope(
+            'update',
+            array($product),
+            array($product),
+            '2026-07-16T10:01:00Z',
+            array($this->v11Category(0), $this->v11Category(1)),
+            array('999010')
+        );
+        $result = Digitalogic_Product_Sync_Receiver::instance()->receive($update);
+
+        $this->assertSame('digitalogic_product_sync_baseline_required', $result->get_error_code());
+        $this->assertSame('1.0', $result->get_error_data()['stored_schema_version']);
+        $this->assertSame('1.1', $result->get_error_data()['received_schema_version']);
+    }
+    // phpcs:enable
 
     public function test_deletion_only_update_removes_receiver_entry_but_never_woo_product(): void {
         $first = $this->product(0);
@@ -761,7 +881,7 @@ final class ProductSyncReceiverTest extends TestCase {
         update_option(Digitalogic_Product_Sync_Receiver::STATE_OPTION, $state, false);
 
         $projected = Digitalogic_Product_Sync_Receiver::instance()->get_state();
-        $this->assertSame(3, $projected['version']);
+        $this->assertSame(4, $projected['version']);
         $this->assertCount(1, $projected['sources'][$source_key]['pending_products']);
         $this->assertCount(0, $projected['sources'][$source_key]['deferred_products']);
         $this->assertSame(2, get_option(Digitalogic_Product_Sync_Receiver::STATE_OPTION, array())['version']);
@@ -772,8 +892,38 @@ final class ProductSyncReceiverTest extends TestCase {
         $this->assertSame(0, $replay['pending_products']);
         $this->assertSame(1, $replay['deferred_products']);
         $this->assertSame(1, $GLOBALS['wpdb']->identifier_query_count);
-        $this->assertSame(3, get_option(Digitalogic_Product_Sync_Receiver::STATE_OPTION, array())['version']);
+        $this->assertSame(4, get_option(Digitalogic_Product_Sync_Receiver::STATE_OPTION, array())['version']);
         $this->assertEmpty($GLOBALS['digitalogic_test_wc_product_saves']);
+    }
+
+    public function test_v3_state_projects_and_persists_empty_v10_catalog_fields(): void {
+        $product = $this->productWithCode(0, 'MIGRATE-V3');
+        $event = $this->envelope('snapshot', array($product), array($product), '2026-07-16T11:17:30Z');
+        $this->assertSame('accepted', Digitalogic_Product_Sync_Receiver::instance()->receive($event)['status']);
+
+        $state = get_option(Digitalogic_Product_Sync_Receiver::STATE_OPTION, array());
+        $source_key = array_key_first($state['sources']);
+        $state['version'] = 3;
+        unset(
+            $state['sources'][$source_key]['schema_version'],
+            $state['sources'][$source_key]['categories'],
+            $state['sources'][$source_key]['excluded_codes']
+        );
+        update_option(Digitalogic_Product_Sync_Receiver::STATE_OPTION, $state, false);
+
+        $projected = Digitalogic_Product_Sync_Receiver::instance()->get_state();
+        $this->assertSame(4, $projected['version']);
+        $this->assertSame('1.0', $projected['sources'][$source_key]['schema_version']);
+        $this->assertSame(array(), $projected['sources'][$source_key]['categories']);
+        $this->assertSame(array(), $projected['sources'][$source_key]['excluded_codes']);
+        $this->assertSame(3, get_option(Digitalogic_Product_Sync_Receiver::STATE_OPTION, array())['version']);
+
+        $this->assertSame('replayed', Digitalogic_Product_Sync_Receiver::instance()->receive($event)['status']);
+        $persisted = get_option(Digitalogic_Product_Sync_Receiver::STATE_OPTION, array());
+        $this->assertSame(4, $persisted['version']);
+        $this->assertSame('1.0', $persisted['sources'][$source_key]['schema_version']);
+        $this->assertSame(array(), $persisted['sources'][$source_key]['categories']);
+        $this->assertSame(array(), $persisted['sources'][$source_key]['excluded_codes']);
     }
 
     public function test_deferred_response_details_and_cli_status_are_bounded_and_nonsecret(): void {
@@ -886,14 +1036,20 @@ final class ProductSyncReceiverTest extends TestCase {
     }
 
     // phpcs:disable -- Match the established PHPUnit fixture style in this baseline-managed test file.
+    private function v11Product($index) {
+        return self::$goldenV11['products'][$index];
+    }
+
+    private function v11Category($index) {
+        return self::$goldenV11['categories'][$index];
+    }
+
     private function productWithCode($index, $code) {
         $product = $this->product($index);
         $product['product_code'] = $code;
 
         return $this->rehashProduct($product);
     }
-    // phpcs:enable
-
     private function rehashProduct($product) {
         unset($product['record_hash']);
         ksort($product['warehouse_stock'], SORT_STRING);
@@ -903,6 +1059,16 @@ final class ProductSyncReceiverTest extends TestCase {
         );
 
         return $product;
+    }
+
+    private function rehashCategory($category) {
+        unset($category['record_hash']);
+        $category['record_hash'] = 'sha256:' . hash(
+            'sha256',
+            json_encode($category, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)
+        );
+
+        return $category;
     }
 
     private function envelope($type, $event_products, $full_products, $generated_at, $deleted = array(), $quarantined = array()) {
@@ -943,13 +1109,63 @@ final class ProductSyncReceiverTest extends TestCase {
         return $envelope;
     }
 
-    private function sourceRevision($products, $quarantined) {
+    private function v11Envelope($type, $event_products, $full_products, $generated_at, $categories, $excluded, $deleted = array(), $quarantined = array()) {
+        usort($event_products, static function($left, $right) {
+            return strcmp($left['product_code'], $right['product_code']);
+        });
+        usort($categories, static function($left, $right) {
+            return strcmp($left['category_code'], $right['category_code']);
+        });
+        usort($deleted, static function($left, $right) {
+            return strcmp($left['product_code'], $right['product_code']);
+        });
+        sort($excluded, SORT_STRING);
+        sort($quarantined, SORT_STRING);
+        $source = array(
+            'id' => 'receiver-tests',
+            'dataset' => 'kala.db',
+            'revision' => $this->sourceRevision($full_products, $quarantined, $categories, $excluded),
+        );
+        $envelope = array(
+            'schema' => 'digitalogic.product-sync',
+            'schema_version' => '1.1',
+            'event' => 'digitalogic.product-sync',
+            'event_type' => $type,
+            'event_id' => '',
+            'local_currency' => 'IRT',
+            'formula_id' => 'landed_price_v1',
+            'formula_revision' => '1.0.0',
+            'formula_version' => 'landed_price_v1',
+            'source' => $source,
+            'generated_at' => $generated_at,
+            'products' => array_values($event_products),
+            'categories' => array_values($categories),
+            'excluded_codes' => array_values($excluded),
+        );
+        if (!empty($deleted)) {
+            $envelope['deleted_codes'] = $deleted;
+        }
+        if (!empty($quarantined)) {
+            $envelope['quarantined_codes'] = $quarantined;
+        }
+        $envelope['event_id'] = $this->eventId($envelope);
+
+        return $envelope;
+    }
+
+    private function sourceRevision($products, $quarantined, $categories = array(), $excluded = array()) {
         $lines = array();
         foreach ($products as $product) {
             if (in_array($product['product_code'], $quarantined, true)) {
                 continue;
             }
             $lines[] = $product['product_code'] . '=' . $product['record_hash'];
+        }
+        foreach ($categories as $category) {
+            $lines[] = 'category:' . $category['category_code'] . '=' . $category['record_hash'];
+        }
+        foreach ($excluded as $code) {
+            $lines[] = 'excluded=' . $code;
         }
         sort($lines, SORT_STRING);
         sort($quarantined, SORT_STRING);
@@ -966,6 +1182,11 @@ final class ProductSyncReceiverTest extends TestCase {
             $hashes[] = $product['product_code'] . '=' . $product['record_hash'];
         }
         sort($hashes, SORT_STRING);
+        $category_hashes = array();
+        foreach ($envelope['categories'] ?? array() as $category) {
+            $category_hashes[] = $category['category_code'] . '=' . $category['record_hash'];
+        }
+        sort($category_hashes, SORT_STRING);
         $identity = array(
             'schema' => $envelope['schema'],
             'schema_version' => $envelope['schema_version'],
@@ -981,6 +1202,12 @@ final class ProductSyncReceiverTest extends TestCase {
             'generated_at' => $envelope['generated_at'],
             'products' => $hashes,
         );
+        if (!empty($category_hashes)) {
+            $identity['categories'] = $category_hashes;
+        }
+        if (!empty($envelope['excluded_codes'])) {
+            $identity['excluded_codes'] = $envelope['excluded_codes'];
+        }
         if (!empty($envelope['deleted_codes'])) {
             $identity['deleted_codes'] = $envelope['deleted_codes'];
         }
@@ -990,4 +1217,5 @@ final class ProductSyncReceiverTest extends TestCase {
 
         return 'sha256:' . hash('sha256', json_encode($identity, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
     }
+    // phpcs:enable
 }
