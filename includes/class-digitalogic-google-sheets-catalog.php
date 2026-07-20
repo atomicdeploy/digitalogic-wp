@@ -714,7 +714,11 @@ final class Digitalogic_Google_Sheets_Catalog {
 			return null;
 		}
 
-		return floor( $number ) === $number ? (int) $number : $number;
+		if ( floor( $number ) === $number && $number <= PHP_INT_MAX && $number >= PHP_INT_MIN ) {
+			return (int) $number;
+		}
+
+		return $number;
 	}
 
 	/**
