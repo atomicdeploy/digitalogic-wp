@@ -2,6 +2,52 @@
 
 use PHPUnit\Framework\TestCase;
 
+if ( ! defined( 'DIGITALOGIC_PLUGIN_URL' ) ) {
+	define( 'DIGITALOGIC_PLUGIN_URL', 'https://digitalogic.test/wp-content/plugins/digitalogic-wp/' );
+}
+
+if ( ! defined( 'DIGITALOGIC_VERSION' ) ) {
+	define( 'DIGITALOGIC_VERSION', 'test' );
+}
+
+if ( ! function_exists( 'is_admin' ) ) {
+	function is_admin() {
+		return false;
+	}
+}
+
+if ( ! function_exists( 'is_product' ) ) {
+	function is_product() {
+		return ! empty( $GLOBALS['digitalogic_test_is_product'] );
+	}
+}
+
+if ( ! function_exists( 'get_queried_object_id' ) ) {
+	function get_queried_object_id() {
+		return isset( $GLOBALS['digitalogic_test_queried_object_id'] ) ? (int) $GLOBALS['digitalogic_test_queried_object_id'] : 0;
+	}
+}
+
+if ( ! function_exists( 'wp_enqueue_style' ) ) {
+	function wp_enqueue_style( $handle, $src = '', $dependencies = array(), $version = false ) {
+		$GLOBALS['digitalogic_test_enqueued_styles'][ $handle ] = compact( 'src', 'dependencies', 'version' );
+	}
+}
+
+if ( ! function_exists( 'wp_enqueue_script' ) ) {
+	function wp_enqueue_script( $handle, $src = '', $dependencies = array(), $version = false, $in_footer = false ) {
+		$GLOBALS['digitalogic_test_enqueued_scripts'][ $handle ] = compact( 'src', 'dependencies', 'version', 'in_footer' );
+	}
+}
+
+if ( ! function_exists( 'wp_localize_script' ) ) {
+	function wp_localize_script( $handle, $object_name, $data ) {
+		$GLOBALS['digitalogic_test_localized_scripts'][ $handle ][ $object_name ] = $data;
+
+		return true;
+	}
+}
+
 final class ProductIdentitySearchTest extends TestCase {
 
 	protected function setUp(): void {
@@ -10,6 +56,30 @@ final class ProductIdentitySearchTest extends TestCase {
 		$GLOBALS['digitalogic_test_filters']          = array();
 		$GLOBALS['digitalogic_test_action_callbacks'] = array();
 		$GLOBALS['product']                           = null;
+		$GLOBALS['digitalogic_test_is_product']       = false;
+		$GLOBALS['digitalogic_test_queried_object_id'] = 0;
+		$GLOBALS['digitalogic_test_enqueued_styles']  = array();
+		$GLOBALS['digitalogic_test_enqueued_scripts'] = array();
+		$GLOBALS['digitalogic_test_localized_scripts'] = array();
+	}
+
+	public function test_localizes_single_product_patris_name_for_woodmart_fallback(): void {
+		$GLOBALS['digitalogic_test_posts'][12] = array(
+			'post_type'   => 'product',
+			'post_status' => 'publish',
+			'post_title'  => 'Reviewed Persian product title',
+			'meta'        => array( '_digitalogic_patris_family_name' => 'ATmega <Core>' ),
+		);
+		$GLOBALS['digitalogic_test_is_product']        = true;
+		$GLOBALS['digitalogic_test_queried_object_id'] = 12;
+		$identity                                      = ( new ReflectionClass( Digitalogic_Product_Identity::class ) )->newInstanceWithoutConstructor();
+
+		$identity->enqueue_assets();
+
+		$this->assertSame(
+			'ATmega <Core>',
+			$GLOBALS['digitalogic_test_localized_scripts']['digitalogic-product-identity']['digitalogicProductIdentity']['singleProductPatrisName']
+		);
 	}
 
 	public function test_renders_escaped_patris_name_as_a_second_line(): void {

@@ -121,14 +121,66 @@ final class Digitalogic_Product_Identity {
 			DIGITALOGIC_VERSION,
 			true
 		);
+
+		$this->localize_single_product_identity();
+	}
+
+	/**
+	 * Provide the reviewed Patris identity to the Woodmart single-product fallback.
+	 */
+	private function localize_single_product_identity() {
+		if ( ! function_exists( 'is_product' ) || ! is_product() ) {
+			return;
+		}
+
+		$product = null;
+		if ( function_exists( 'get_queried_object_id' ) ) {
+			$product_id = absint( get_queried_object_id() );
+			if ( $product_id > 0 ) {
+				$product = wc_get_product( $product_id );
+			}
+		}
+		if ( ! $product instanceof WC_Product && isset( $GLOBALS['product'] ) && $GLOBALS['product'] instanceof WC_Product ) {
+			$product = $GLOBALS['product'];
+		}
+
+		$patris_name = $this->get_product_patris_name( $product );
+		if ( '' === $patris_name ) {
+			return;
+		}
+
+		wp_localize_script(
+			'digitalogic-product-identity',
+			'digitalogicProductIdentity',
+			array(
+				'singleProductPatrisName' => $patris_name,
+			)
+		);
 	}
 
 	/**
 	 * Render one non-duplicated English/Patris family identity.
+	 *
+	 * @param mixed $product Product candidate.
 	 */
 	private function render_product_patris_name( $product ) {
-		if ( ! $product instanceof WC_Product ) {
+		$patris_name = $this->get_product_patris_name( $product );
+		if ( '' === $patris_name ) {
 			return;
+		}
+
+		echo '<div class="digitalogic-patris-name" dir="ltr" lang="en">' . esc_html( $patris_name ) . '</div>';
+	}
+
+	/**
+	 * Resolve one non-duplicated English/Patris family identity.
+	 *
+	 * @param mixed $product Product candidate.
+	 * @return string
+	 */
+	private function get_product_patris_name( $product ) {
+		if ( ! $product instanceof WC_Product ) {
+			return '';
 		}
 		$patris_name = (string) $product->get_meta( '_digitalogic_patris_name', true );
 		if ( '' === trim( $patris_name ) ) {
@@ -136,9 +188,9 @@ final class Digitalogic_Product_Identity {
 		}
 		$patris_name = trim( $patris_name );
 		if ( '' === $patris_name || 0 === strcasecmp( trim( (string) $product->get_name() ), $patris_name ) ) {
-			return;
+			return '';
 		}
 
-		echo '<div class="digitalogic-patris-name" dir="ltr" lang="en">' . esc_html( $patris_name ) . '</div>';
+		return $patris_name;
 	}
 }
