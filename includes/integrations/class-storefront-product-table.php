@@ -222,7 +222,7 @@ final class Digitalogic_Storefront_Product_Table {
 					<thead>
 						<tr>
 							<th scope="col">محصول</th>
-							<th scope="col">کد / SKU</th>
+							<th scope="col">کد پاتریس / SKU</th>
 							<th scope="col">دسته</th>
 							<th scope="col">موجودی</th>
 							<th scope="col">قیمت</th>
@@ -534,16 +534,62 @@ final class Digitalogic_Storefront_Product_Table {
 			LEFT JOIN {$wpdb->postmeta} AS identifiers
 				ON identifiers.post_id = products.ID
 				AND identifiers.meta_key IN ('_sku', '_digitalogic_patris_product_code')
+			LEFT JOIN {$wpdb->posts} AS variations
+				ON variations.post_parent = products.ID
+				AND variations.post_type = 'product_variation'
+				AND variations.post_status = 'publish'
+			LEFT JOIN {$wpdb->postmeta} AS variation_identifiers
+				ON variation_identifiers.post_id = variations.ID
+				AND variation_identifiers.meta_key IN ('_sku', '_digitalogic_patris_product_code')
 			WHERE products.post_type = 'product'
 				AND products.post_status = 'publish'
-				AND (products.post_title LIKE %s OR identifiers.meta_value LIKE %s)
+				AND (
+					products.post_title LIKE %s
+					OR identifiers.meta_value LIKE %s
+					OR variations.post_title LIKE %s
+					OR variation_identifiers.meta_value LIKE %s
+				)
 			LIMIT 3000",
+			$like,
+			$like,
 			$like,
 			$like
 		);
 		$ids  = array_map( 'absint', (array) $wpdb->get_col( $sql ) ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
 
 		return $ids ?: array( 0 );
+	}
+
+	/**
+	 * Resolve published child Codes for legacy or variable parent rows.
+	 *
+	 * @param int $product_id Parent product ID.
+	 * @return array
+	 */
+	private function get_product_child_codes( $product_id ) {
+		$child_ids = get_posts(
+			array(
+				'post_type'      => 'product_variation',
+				'post_status'    => 'publish',
+				'post_parent'    => absint( $product_id ),
+				'fields'         => 'ids',
+				'posts_per_page' => 50,
+			)
+		);
+		$codes     = array();
+
+		foreach ( $child_ids as $child_id ) {
+			$variation = wc_get_product( $child_id );
+			if ( ! $variation instanceof WC_Product || $variation->get_parent_id() !== absint( $product_id ) || 'publish' !== $variation->get_status() ) {
+				continue;
+			}
+			$code = trim( (string) $variation->get_meta( Digitalogic_Product_Identifier_Resolver::PATRIS_CODE_META, true ) );
+			if ( '' !== $code ) {
+				$codes[ $code ] = $code;
+			}
+		}
+
+		return array_values( $codes );
 	}
 
 	/**
@@ -557,11 +603,22 @@ final class Digitalogic_Storefront_Product_Table {
 		$url         = $product->get_permalink();
 		$sku         = trim( (string) $product->get_sku() );
 		$patris_code = trim( (string) $product->get_meta( Digitalogic_Product_Identifier_Resolver::PATRIS_CODE_META, true ) );
-		$code        = $patris_code ?: $sku;
+		$code        = $patris_code;
+		$is_variable = $product->is_type( 'variable' );
+		if ( '' === $code ) {
+			$code = $sku;
+		}
+		$child_codes = '' === $code ? $this->get_product_child_codes( $product->get_id() ) : array();
+		$code_label  = 'کد پاتریس';
+		if ( '' === $patris_code && '' !== $sku ) {
+			$code_label = 'SKU';
+		} elseif ( ! empty( $child_codes ) ) {
+			$code_label = 'کدهای ثبت‌شده برای مدل‌ها';
+		}
 		$categories  = wc_get_product_category_list( $product->get_id(), '، ' );
 		$quantity    = $product->get_stock_quantity();
 		$stock_text  = $product->managing_stock() && null !== $quantity ? number_format_i18n( max( 0, $quantity ) ) . ' عدد' : 'موجود';
-		$can_add     = $product->is_type( 'simple' ) && $product->is_purchasable() && $product->is_in_stock() && '' !== $product->get_price();
+		$can_add     = $product->is_type( 'simple' ) && empty( $child_codes ) && $product->is_purchasable() && $product->is_in_stock() && '' !== $product->get_price();
 
 		ob_start();
 		?>
@@ -576,10 +633,32 @@ final class Digitalogic_Storefront_Product_Table {
 				</a>
 				<div>
 					<a class="dgl-catalog-product-name" href="<?php echo esc_url( $url ); ?>"><?php echo esc_html( $name ); ?></a>
-					<span class="dgl-catalog-mobile-meta"><?php echo $code ? 'کد ' . esc_html( $code ) . ' · ' : ''; ?><?php echo wp_kses_post( $categories ); ?></span>
+					<span class="dgl-catalog-mobile-meta">
+						<?php if ( $code ) : ?>
+							<?php echo esc_html( $code_label ); ?> <b dir="ltr"><?php echo esc_html( $code ); ?></b> ·
+						<?php elseif ( $child_codes ) : ?>
+							کدهای ثبت‌شده برای مدل‌ها <b dir="ltr"><?php echo esc_html( implode( ' · ', $child_codes ) ); ?></b> ·
+						<?php elseif ( $is_variable ) : ?>
+							کد پاتریس بعد از انتخاب مدل ·
+						<?php endif; ?>
+						<?php echo wp_kses_post( $categories ); ?>
+					</span>
 				</div>
 			</td>
-			<td class="dgl-catalog-code" dir="ltr"><?php echo $code ? esc_html( $code ) : '—'; ?></td>
+			<td class="dgl-catalog-code">
+				<span><?php echo esc_html( $code_label ); ?></span>
+				<?php if ( $code ) : ?>
+					<b dir="ltr"><?php echo esc_html( $code ); ?></b>
+				<?php elseif ( $child_codes ) : ?>
+					<?php foreach ( $child_codes as $child_code ) : ?>
+						<b dir="ltr"><?php echo esc_html( $child_code ); ?></b>
+					<?php endforeach; ?>
+				<?php elseif ( $is_variable ) : ?>
+					<a href="<?php echo esc_url( $url ); ?>">انتخاب مدل</a>
+				<?php else : ?>
+					—
+				<?php endif; ?>
+			</td>
 			<td class="dgl-catalog-category"><?php echo $categories ? wp_kses_post( $categories ) : '—'; ?></td>
 			<td><span class="dgl-catalog-stock"><i></i><?php echo esc_html( $stock_text ); ?></span></td>
 			<td class="dgl-catalog-price"><?php echo $product->get_price_html() ? wp_kses_post( $product->get_price_html() ) : '<span>استعلام قیمت</span>'; ?></td>
@@ -589,7 +668,9 @@ final class Digitalogic_Storefront_Product_Table {
 						<label><span class="screen-reader-text">تعداد <?php echo esc_html( $name ); ?></span><input type="number" class="dgl-quick-qty" min="1" step="1" value="1"<?php echo $product->is_sold_individually() ? ' max="1" readonly' : ''; ?>></label>
 						<a href="<?php echo esc_url( $product->add_to_cart_url() ); ?>" data-quantity="1" data-product_id="<?php echo esc_attr( $product->get_id() ); ?>" data-product_sku="<?php echo esc_attr( $sku ); ?>" class="dgl-quick-button button product_type_simple add_to_cart_button ajax_add_to_cart" rel="nofollow"><span>افزودن سریع</span><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M6 6h15l-2 8H8L6 3H3m5 15a1 1 0 1 0 0 2 1 1 0 0 0 0-2Zm10 0a1 1 0 1 0 0 2 1 1 0 0 0 0-2Z"/></svg></a>
 					</div>
-				<?php elseif ( $product->is_type( 'variable' ) ) : ?>
+				<?php elseif ( $child_codes ) : ?>
+					<a class="dgl-catalog-options" href="<?php echo esc_url( $url ); ?>">دیدن کد مدل‌ها</a>
+				<?php elseif ( $is_variable ) : ?>
 					<a class="dgl-catalog-options" href="<?php echo esc_url( $url ); ?>">انتخاب گزینه‌ها</a>
 				<?php else : ?>
 					<a class="dgl-catalog-options" href="<?php echo esc_url( add_query_arg( 'product_id', $product->get_id(), home_url( '/import-of-electronic-products/' ) ) ); ?>">درخواست قیمت</a>

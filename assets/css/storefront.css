@@ -249,11 +249,20 @@
 
 .dgl-product-body small {
 	color: #8a98ac;
-	direction: ltr;
+	direction: rtl;
 	display: block;
 	font-size: 10px;
 	margin-bottom: 6px;
 	text-align: right;
+}
+
+.dgl-product-body small b {
+	color: var(--dgl-blue);
+	direction: ltr;
+	display: inline-block;
+	font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+	font-weight: 900;
+	unicode-bidi: isolate;
 }
 
 .dgl-product-body h3 {

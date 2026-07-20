@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.5.2
+
+- Display the canonical Patris Code explicitly on product loops, Woodmart single-product layouts, selected variations, cart/checkout lines, order details, homepage product cards, and the table catalog.
+- Keep unrelated WooCommerce SKUs labeled as SKU, hide only exact duplicate SKU output, and show legacy child Codes as registered model references without implying they are directly purchasable.
+- Let table-catalog searches for a published variation Code return the parent product, while blocking misleading quick-add actions for legacy code-less parents with coded child records.
+
 ## 1.5.1
 
 - Prioritize products with real photos in the default table view while keeping explicit popularity, price, name, and date sorting available.

@@ -410,6 +410,7 @@ final class Digitalogic_Homepage_Showcase {
 		$image       = $product->get_image( 'woocommerce_thumbnail', array( 'loading' => 'lazy', 'alt' => $name ) );
 		$price       = $product->get_price_html();
 		$patris_code = trim( (string) $product->get_meta( Digitalogic_Product_Identifier_Resolver::PATRIS_CODE_META, true ) );
+		$child_codes = '' === $patris_code ? $this->get_product_child_codes( $product->get_id() ) : array();
 		$classes     = 'dgl-product-card' . ( $compact ? ' dgl-product-card--compact' : '' );
 
 		ob_start();
@@ -421,7 +422,9 @@ final class Digitalogic_Homepage_Showcase {
 			</a>
 			<div class="dgl-product-body">
 				<?php if ( '' !== $patris_code ) : ?>
-					<small>کد <?php echo esc_html( $patris_code ); ?></small>
+					<small>کد پاتریس <b dir="ltr"><?php echo esc_html( $patris_code ); ?></b></small>
+				<?php elseif ( ! empty( $child_codes ) ) : ?>
+					<small>کدهای ثبت‌شده برای مدل‌ها <b dir="ltr"><?php echo esc_html( implode( ' · ', $child_codes ) ); ?></b></small>
 				<?php endif; ?>
 				<h3><a href="<?php echo esc_url( $url ); ?>"><?php echo esc_html( $name ); ?></a></h3>
 				<div class="dgl-product-footer">
@@ -433,6 +436,38 @@ final class Digitalogic_Homepage_Showcase {
 		<?php
 
 		return ob_get_clean();
+	}
+
+	/**
+	 * Resolve published child Codes for code-less parent cards.
+	 *
+	 * @param int $product_id Parent product ID.
+	 * @return array
+	 */
+	private function get_product_child_codes( $product_id ) {
+		$child_ids = get_posts(
+			array(
+				'post_type'      => 'product_variation',
+				'post_status'    => 'publish',
+				'post_parent'    => absint( $product_id ),
+				'fields'         => 'ids',
+				'posts_per_page' => 10,
+			)
+		);
+		$codes     = array();
+
+		foreach ( $child_ids as $child_id ) {
+			$variation = wc_get_product( $child_id );
+			if ( ! $variation instanceof WC_Product || $variation->get_parent_id() !== absint( $product_id ) || 'publish' !== $variation->get_status() ) {
+				continue;
+			}
+			$code = trim( (string) $variation->get_meta( Digitalogic_Product_Identifier_Resolver::PATRIS_CODE_META, true ) );
+			if ( '' !== $code ) {
+				$codes[ $code ] = $code;
+			}
+		}
+
+		return array_values( $codes );
 	}
 
 	/**

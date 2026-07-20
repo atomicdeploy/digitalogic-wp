@@ -293,10 +293,36 @@
 }
 
 .dgl-catalog-code {
+	align-items: flex-start;
 	color: #67778d;
-	font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+	display: flex;
+	flex-direction: column;
 	font-size: 10px;
+	gap: 3px;
 	text-align: right !important;
+}
+
+.dgl-catalog-code span {
+	color: #8a98aa;
+	font-size: 9px;
+	font-weight: 700;
+}
+
+.dgl-catalog-code b {
+	color: #145da0;
+	font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+	font-size: 11px;
+	font-weight: 900;
+}
+
+.dgl-catalog-code a {
+	color: #145da0;
+	font-weight: 800;
+}
+
+.dgl-catalog-mobile-meta b {
+	color: #145da0;
+	font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
 }
 
 .dgl-catalog-category {
