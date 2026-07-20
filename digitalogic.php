@@ -3,7 +3,7 @@
  * Plugin Name: Digitalogic WooCommerce Extension
  * Plugin URI: https://github.com/atomicdeploy/digitalogic-wp
  * Description: Custom dynamic pricing, stock manager, and POS integration for Digitalogic electronic components shop. Supports bulk operations, import/export, and external API integration.
- * Version: 1.4.3
+ * Version: 1.5.0
  * Author: Digitalogic
  * Author URI: https://digitalogic.ir
  * Text Domain: digitalogic
@@ -22,7 +22,7 @@ if (!defined('ABSPATH')) {
 }
 
 // Define plugin constants
-define( 'DIGITALOGIC_VERSION', '1.4.3' );
+define( 'DIGITALOGIC_VERSION', '1.5.0' );
 define('DIGITALOGIC_MIN_PHP_VERSION', '8.3');
 define('DIGITALOGIC_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('DIGITALOGIC_PLUGIN_URL', plugin_dir_url(__FILE__));
@@ -145,6 +145,8 @@ final class Digitalogic {
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-product-identity.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-storefront-catalog.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-homepage-showcase.php';
+        require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-storefront-product-table.php';
+        require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-storefront-order-forms.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/panel/class-panel.php';
 
         // Admin includes
@@ -203,6 +205,8 @@ final class Digitalogic {
         Digitalogic_Comment_Guard::instance();
         Digitalogic_Storefront_Catalog::instance();
         Digitalogic_Homepage_Showcase::instance();
+        Digitalogic_Storefront_Product_Table::instance();
+        Digitalogic_Storefront_Order_Forms::instance();
 
         if (is_admin()) {
             Digitalogic_Admin::instance();
