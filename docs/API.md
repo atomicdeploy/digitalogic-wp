@@ -322,60 +322,15 @@ add_filter('digitalogic_websocket_ajax_action_allowed', function ($allowed, $act
 
 ---
 
-## Laravel Panel Bridge
+## Integrated Laravel Panel
 
-Base URL: `https://yoursite.com/wp-json/digitalogic-panel/v1`
+The `/panel/` application uses the existing WordPress login cookie and
+capability checks. WordPress and the bundled Laravel application run in the
+same PHP process, so there is no panel token, handoff code, bridge REST API, or
+second Laravel identity/session. The in-process bridge loads
+`bootstrap/app.php` and invokes the Laravel HTTP kernel directly; Laravel can
+then call WordPress, WooCommerce, Digitalogic commands, and the shared
+WebSocket configuration without network serialization.
 
-Get the bridge token:
-```bash
-wp digitalogic panel token --allow-root
-```
-
-Rotate the token:
-```bash
-wp digitalogic panel token --rotate --allow-root
-```
-
-Laravel request example:
-```php
-$response = Http::withHeaders([
-    'X-Digitalogic-Panel-Token' => config('services.digitalogic.token'),
-])->get('https://digitalogic.ir/wp-json/digitalogic-panel/v1/products', [
-    'page' => 1,
-    'limit' => 50,
-]);
-```
-
-Panel endpoints:
-- `GET /products`
-- `GET /products/{id}`
-- `PATCH /products/{id}`
-- `POST /commands`
-- `POST /session/consume`
-- `GET /theme`
-- `GET /laravel/status`
-- `POST /laravel/request`
-
-The `/commands` endpoint can call Digitalogic commands, custom
-`digitalogic_command_handlers`, or registered `wp_ajax_{action}` callbacks. Use
-this for WordPress/Laravel interoperability when the Laravel panel needs to
-trigger the same server-side behavior that the WordPress admin already uses.
-
-WordPress admins can enter the panel from **Digitalogic > Panel**. The launch
-URL creates a short-lived, one-time handoff code and redirects to the configured
-panel URL. By default, the temporary route is:
-
-`https://digitalogic.ir/panel/?code=...`
-
-Laravel consumes that code with the bridge token:
-```php
-$session = Http::withHeaders([
-    'X-Digitalogic-Panel-Token' => config('services.digitalogic.token'),
-])->post($base . '/session/consume', [
-    'code' => $request->query('code'),
-])->json();
-```
-
-The `GET /theme` endpoint exposes the shared Digitalogic visual identity,
-including logo URLs, direction, locale, color tokens, and the `/digitalogic-ui/`
-asset base.
+See [Laravel Panel Interoperability](LARAVEL-PANEL.md) for the application path
+and bootstrap contract.
