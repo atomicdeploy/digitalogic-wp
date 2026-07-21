@@ -77,6 +77,11 @@ Both the `s` and `_X.` routes must contain only their existing inbound `NoOp`, t
 Remove the former `digitalogic-call-verification-menu`, public digit 2, pending
 lookup, and conditional shortcut from those public priorities completely.
 
+Inside the existing `[prefix-tci-callerid]` subroutine, normalize `00989…` first
+and `0989…` second, replacing either prefix with `09`. Only after normalization
+may the existing internal callback access prefix `9` be added. This ordering maps
+both variants to the same callable mobile number without changing any other ANI.
+
 Do not add a public fallback digit. The private `verify` context is intentionally
 unrouted until a separate Digitalogic IVR is designed and approved.
 
@@ -100,6 +105,8 @@ Use real PSTN ANI and redacted evidence:
   the verification HTTP endpoint and AGI and rings extension 101 immediately.
 - Asterisk shows the paired TCI and `PJSIP/101` channels, with no verification
   audio, early `Answer()`, prompt, or DTMF collection.
+- `0989123456789` and `00989123456789` both normalize to `09123456789` before
+  the internal callback access prefix is added; an existing `09…` ANI is unchanged.
 - Both s and _X inbound paths behave identically.
 - The dormant helper contexts remain loaded but unreachable from public and
   internal dialplan paths.
