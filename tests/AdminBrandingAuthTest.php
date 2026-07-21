@@ -97,8 +97,10 @@ final class AdminBrandingAuthTest extends TestCase {
         $persian = $method->invoke(null);
 
         $this->assertSame('Username or email address', $english['recoveryIdentity']);
+        $this->assertSame('Back', $english['back']);
         $this->assertStringNotContainsString('mobile', strtolower($english['recoveryIdentity']));
         $this->assertSame('نام کاربری یا نشانی ایمیل', $persian['recoveryIdentity']);
+        $this->assertSame('بازگشت', $persian['back']);
         $this->assertStringNotContainsString('موبایل', $persian['recoveryIdentity']);
     }
 

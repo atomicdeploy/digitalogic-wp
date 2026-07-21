@@ -525,8 +525,27 @@ body.login .dg-digits-login-shell.dg-digits-auto-identity .digits-form_tab_body.
     display: block !important;
 }
 
-body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) :is(.digits_captcha_row, .dg_min_capt, .digits_reg_logincaptcha, .dig_captcha) {
+body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .digits_captcha_row[hidden] {
     display: none !important;
+}
+
+body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .digits_captcha_row:not([hidden]) {
+    display: grid !important;
+    gap: 10px;
+    margin-block: 12px !important;
+    padding: 12px !important;
+    border: 1px solid var(--dg-border) !important;
+    border-radius: 14px !important;
+    background: var(--dg-panel-soft) !important;
+    color: var(--dg-text) !important;
+}
+
+body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .digits_captcha_row:not([hidden]) input {
+    min-height: 44px;
+    border-color: var(--dg-border) !important;
+    border-radius: 12px !important;
+    background: var(--dg-input-bg) !important;
+    color: var(--dg-text) !important;
 }
 
 body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .digits-form_heading {
@@ -2096,12 +2115,10 @@ body.login .dg-digits-login-shell .digits-form_rememberme .digits_login_remember
 body.login #rememberme:checked {
     border-color: transparent !important;
     background-color: var(--dg-accent);
-    background-image:
-        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath fill='none' stroke='%23fff' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round' d='M5 10.4l3.2 3.2L15.4 6.5'/%3E%3C/svg%3E"),
-        linear-gradient(135deg, var(--dg-accent), var(--dg-accent-strong)) !important;
-    background-position: center, center !important;
-    background-repeat: no-repeat, no-repeat !important;
-    background-size: 15px 15px, 100% 100% !important;
+    background-image: linear-gradient(135deg, var(--dg-accent), var(--dg-accent-strong)) !important;
+    background-position: center !important;
+    background-repeat: no-repeat !important;
+    background-size: 100% 100% !important;
     box-shadow: 0 10px 24px color-mix(in srgb, var(--dg-accent-strong) 28%, transparent);
     transform: scale(1.06);
 }

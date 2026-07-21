@@ -268,6 +268,19 @@ guessing product ownership or creating new variable families. See
 
 ### Authentication
 
+Interactive customers use the canonical same-origin `/login/` flow. Safe GET
+requests to `wp-login.php` retain their supported action and redirect arguments
+while redirecting to that route; login POSTs still terminate in WordPress so
+WordPress and Digits remain the only authentication authorities. The first
+field accepts username, e-mail, or mobile, normalizes Persian/Arabic digits for
+machine values, and keeps registration in the configured Digits OTP flow.
+
+The branding layer never disables a native Digits captcha. When a configured
+Digits reCAPTCHA site key is available it prepares that supported replacement;
+otherwise the native challenge remains visible, required, and submitted by
+Digits. OAuth values, service credentials, and account-linking rules remain
+outside the repository and are not copied into the client configuration.
+
 The plugin uses WooCommerce REST API authentication:
 
 1. Go to WooCommerce → Settings → Advanced → REST API
