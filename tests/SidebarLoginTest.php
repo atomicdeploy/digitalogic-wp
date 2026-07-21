@@ -102,14 +102,14 @@ final class SidebarLoginTest extends TestCase {
 		$this->assertTrue( $scripts['digitalogic-sidebar-login']['in_footer'] );
 	}
 
-	public function test_compatibility_style_loads_after_vendor_base_when_another_route_registered_it(): void {
+	public function test_compatibility_style_never_forces_the_global_vendor_base_even_when_queued(): void {
 		$GLOBALS['digitalogic_test_styles_registry']->registered['digits-login-style'] = (object) array( 'deps' => array() );
 		array_unshift( $GLOBALS['digitalogic_test_enqueued_style_handles'], 'digits-login-style' );
 
 		Digitalogic_Sidebar_Login::enqueue_sidebar_assets();
 
 		$this->assertSame(
-			array( 'digits-login-style', 'digits-style', 'digits-login-style-rtl' ),
+			array( 'digits-style', 'digits-login-style-rtl' ),
 			$GLOBALS['digitalogic_test_enqueued_styles']['digitalogic-sidebar-login']['dependencies']
 		);
 	}
