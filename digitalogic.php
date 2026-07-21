@@ -3,7 +3,7 @@
  * Plugin Name: Digitalogic WooCommerce Extension
  * Plugin URI: https://github.com/atomicdeploy/digitalogic-wp
  * Description: Custom dynamic pricing, stock manager, and POS integration for Digitalogic electronic components shop. Supports bulk operations, import/export, and external API integration.
- * Version: 1.6.4
+ * Version: 1.6.5
  * Author: Digitalogic
  * Author URI: https://digitalogic.ir
  * Text Domain: digitalogic
@@ -22,7 +22,7 @@ if (!defined('ABSPATH')) {
 }
 
 // Define plugin constants
-define( 'DIGITALOGIC_VERSION', '1.6.4' );
+define( 'DIGITALOGIC_VERSION', '1.6.5' );
 define( 'DIGITALOGIC_PBX_SCHEMA_VERSION', '3' );
 define('DIGITALOGIC_MIN_PHP_VERSION', '8.3');
 define('DIGITALOGIC_PLUGIN_DIR', plugin_dir_path(__FILE__));
@@ -146,6 +146,7 @@ final class Digitalogic {
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-admin-branding.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-label-overrides.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-auth-page.php';
+        require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-digitalogic-sidebar-login.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-desktop-app.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-frontend-search.php';
 		require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-pbx-phone.php';
@@ -181,6 +182,7 @@ final class Digitalogic {
         Digitalogic_Label_Overrides::init();
         Digitalogic_Plugin_Admin_Branding::init();
         Digitalogic_Plugin_Auth_Routes::init();
+        Digitalogic_Sidebar_Login::init();
         Digitalogic_Desktop_App::init();
         Digitalogic_Frontend_Search::instance();
 		Digitalogic_Call_Verification::instance();

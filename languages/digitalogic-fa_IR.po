@@ -1,6 +1,6 @@
 msgid ""
 msgstr ""
-"Project-Id-Version: Digitalogic WooCommerce Extension 1.6.4\n"
+"Project-Id-Version: Digitalogic WooCommerce Extension 1.6.5\n"
 "Report-Msgid-Bugs-To: https://github.com/atomicdeploy/digitalogic-wp/issues\n"
 "POT-Creation-Date: 2026-07-21T02:00:49+00:00\n"
 "PO-Revision-Date: 2026-07-17 00:00+0000\n"
@@ -1857,6 +1857,18 @@ msgstr "افزودن و تأیید شماره تلفن از طریق تماس"
 #: includes/integrations/class-call-verification.php:1440
 msgid "Mobile or landline number (include area code)"
 msgstr "شماره موبایل یا تلفن ثابت (همراه با کد شهر)"
+
+#: includes/integrations/class-call-verification.php
+msgid "Place the call from the same phone number you entered so caller ID can confirm ownership."
+msgstr "تماس را دقیقاً از همان شماره‌ای برقرار کنید که وارد کرده‌اید تا مالکیت آن از روی شماره تماس‌گیرنده تأیید شود."
+
+#: includes/integrations/class-digitalogic-sidebar-login.php
+msgid "Show or hide password"
+msgstr "نمایش یا پنهان کردن رمز عبور"
+
+#: includes/integrations/class-digitalogic-sidebar-login.php
+msgid "Dismiss message"
+msgstr "بستن پیام"
 
 #: includes/integrations/class-call-verification.php:1470
 msgid "Voice order updates"
