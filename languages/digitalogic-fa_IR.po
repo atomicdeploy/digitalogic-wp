@@ -1,6 +1,6 @@
 msgid ""
 msgstr ""
-"Project-Id-Version: Digitalogic WooCommerce Extension 1.3.1\n"
+"Project-Id-Version: Digitalogic WooCommerce Extension 1.5.0\n"
 "Report-Msgid-Bugs-To: https://github.com/atomicdeploy/digitalogic-wp/issues\n"
 "POT-Creation-Date: 2026-07-20 21:54+0330\n"
 "PO-Revision-Date: 2026-07-17 00:00+0000\n"
@@ -1725,6 +1725,308 @@ msgstr "زبان باید انگلیسی، فارسی یا دوزبانه باش
 #: includes/class-digitalogic-google-sheets-catalog.php
 msgid "Every catalog product must have a Patris Code or a positive WooCommerce ID."
 msgstr "هر محصول فهرست باید کد پاتریس یا شناسه مثبت ووکامرس داشته باشد."
+
+#: includes/integrations/class-call-verification.php
+msgid "Verify by calling"
+msgstr "تأیید از طریق تماس"
+
+#: includes/integrations/class-call-verification.php
+msgid "Waiting for your call…"
+msgstr "در انتظار تماس شما…"
+
+#: includes/integrations/class-call-verification.php
+msgid "Phone number verified. Finishing…"
+msgstr "شماره تلفن تأیید شد. در حال تکمیل…"
+
+#: includes/integrations/class-call-verification.php
+msgid "This code expired. Please request another code."
+msgstr "این کد منقضی شده است. لطفاً کد دیگری دریافت کنید."
+
+#: includes/integrations/class-call-verification.php
+msgid "Verification could not be completed. Please try again."
+msgstr "تأیید کامل نشد. لطفاً دوباره تلاش کنید."
+
+#: includes/integrations/class-call-verification.php
+msgid "Mobile or landline number"
+msgstr "شماره موبایل یا تلفن ثابت"
+
+#: includes/integrations/class-call-verification.php
+msgid "Mobile or landline number (include area code)"
+msgstr "شماره موبایل یا تلفن ثابت (همراه با کد شهر)"
+
+#: includes/integrations/class-call-verification.php
+msgid "Create call code"
+msgstr "دریافت کد تماس"
+
+#: includes/integrations/class-call-verification.php
+msgid "Call"
+msgstr "با این شماره تماس بگیرید:"
+
+#: includes/integrations/class-call-verification.php
+#, php-format
+msgid "Choose IVR option %s, then enter this six-digit code:"
+msgstr "گزینه %s منوی تلفنی را انتخاب کنید، سپس این کد شش‌رقمی را وارد کنید:"
+
+#: includes/integrations/class-call-verification.php
+msgid "Cancel"
+msgstr "لغو"
+
+#: includes/integrations/class-call-verification.php
+msgid "Additional contact information"
+msgstr "اطلاعات تماس تکمیلی"
+
+#: includes/integrations/class-call-verification.php
+msgid "Add more email addresses or verify mobile and landline numbers. Voice notifications are off unless you enable them for a verified number."
+msgstr "می‌توانید ایمیل‌های بیشتری اضافه کنید یا شماره موبایل و تلفن ثابت را تأیید کنید. اعلان صوتی تا زمانی که برای یک شماره تأییدشده فعالش نکنید خاموش است."
+
+#: includes/integrations/class-call-verification.php
+msgid "Additional email"
+msgstr "ایمیل تکمیلی"
+
+#: includes/integrations/class-call-verification.php
+msgid "Add email"
+msgstr "افزودن ایمیل"
+
+#: includes/integrations/class-call-verification.php
+msgid "Add and verify a phone number by calling"
+msgstr "افزودن و تأیید شماره تلفن از طریق تماس"
+
+#: includes/integrations/class-call-verification.php
+msgid "Verified"
+msgstr "تأییدشده"
+
+#: includes/integrations/class-call-verification.php
+msgid "Unverified"
+msgstr "تأییدنشده"
+
+#: includes/integrations/class-call-verification.php
+msgid "Voice order updates"
+msgstr "اعلان صوتی وضعیت سفارش"
+
+#: includes/integrations/class-call-verification.php
+msgid "Explicitly allowed voice events"
+msgstr "رویدادهای مجاز برای اعلان صوتی"
+
+#: includes/integrations/class-call-verification.php
+msgid "Voice notifications enabled"
+msgstr "اعلان‌های صوتی فعال باشد"
+
+#: includes/integrations/class-call-verification.php
+msgid "Administratively suppress calls"
+msgstr "جلوگیری مدیریتی از تماس‌ها"
+
+#: includes/integrations/class-voice-notifications.php
+msgid "Voice notifications"
+msgstr "اعلان‌های صوتی"
+
+#: includes/integrations/class-voice-notifications.php
+msgid "PBX voice notifications"
+msgstr "اعلان‌های صوتی مرکز تلفن"
+
+#: includes/integrations/class-voice-notifications.php
+msgid "Global kill switch"
+msgstr "کلید اصلی توقف"
+
+#: includes/integrations/class-voice-notifications.php
+msgid "Allow queued PBX calls"
+msgstr "اجازه تماس‌های صف‌شده مرکز تلفن"
+
+#: includes/integrations/class-voice-notifications.php
+msgid "Calling window (Tehran)"
+msgstr "بازه مجاز تماس (تهران)"
+
+#: includes/integrations/class-voice-notifications.php
+msgid "Order status messages"
+msgstr "پیام‌های وضعیت سفارش"
+
+#: includes/integrations/class-voice-notifications.php
+msgid "Persian message template"
+msgstr "قالب پیام فارسی"
+
+#: includes/integrations/class-voice-notifications.php
+msgid "Save voice settings"
+msgstr "ذخیره تنظیمات صوتی"
+
+#: includes/integrations/class-call-verification.php includes/integrations/class-voice-notifications.php
+msgid "A reason is required when an administrator enables or expands voice-call consent."
+msgstr "برای فعال‌کردن یا گسترش رضایت تماس صوتی توسط مدیر، درج دلیل الزامی است."
+
+msgid "A reason is required when enabling or expanding voice-call consent."
+msgstr "برای فعال‌کردن یا گسترش رضایت تماس صوتی، درج دلیل الزامی است."
+
+msgid "Authentication is required."
+msgstr "احراز هویت الزامی است."
+
+msgid "Call verification is not configured."
+msgstr "تأیید تلفنی پیکربندی نشده است."
+
+msgid "Call verification is temporarily unavailable."
+msgstr "تأیید تلفنی موقتاً در دسترس نیست."
+
+msgid "Calls are made only to verified contacts with effective consent. The global switch and every order status are disabled by default."
+msgstr "تماس فقط با شماره‌های تأییدشده و دارای رضایت معتبر برقرار می‌شود. کلید اصلی و همه وضعیت‌های سفارش به‌طور پیش‌فرض غیرفعال‌اند."
+
+msgid "Configure the server-only PBX callout URL and token before enabling voice notifications."
+msgstr "پیش از فعال‌کردن اعلان صوتی، نشانی و توکن محرمانه سرویس تماس مرکز تلفن را روی سرور تنظیم کنید."
+
+msgid "Contact management is temporarily unavailable."
+msgstr "مدیریت اطلاعات تماس موقتاً در دسترس نیست."
+
+msgid "Contact not found."
+msgstr "اطلاعات تماس پیدا نشد."
+
+msgid "Cookies are required for call verification."
+msgstr "برای تأیید تلفنی باید کوکی مرورگر فعال باشد."
+
+msgid "Digitalogic PBX features are disabled because the verified database migration or recovery schedule is incomplete."
+msgstr "امکانات مرکز تلفن دیجیتالاجیک غیرفعال است، زیرا انتقال تأییدشده پایگاه‌داده یا زمان‌بندی بازیابی کامل نشده است."
+
+msgid "Digitalogic PBX retention scheduling failed."
+msgstr "زمان‌بندی پاک‌سازی دوره‌ای مرکز تلفن دیجیتالاجیک ناموفق بود."
+
+msgid "Digitalogic call verification is hidden because DIGITALOGIC_PBX_VERIFY_SECRET is missing or invalid."
+msgstr "تأیید تلفنی دیجیتالاجیک پنهان است، زیرا DIGITALOGIC_PBX_VERIFY_SECRET تنظیم نشده یا نامعتبر است."
+
+msgid "Digitalogic verified contacts"
+msgstr "راه‌های تماس تأییدشده دیجیتالاجیک"
+
+msgid "Digitalogic voice-queue recovery scheduling failed."
+msgstr "زمان‌بندی بازیابی صف تماس صوتی دیجیتالاجیک ناموفق بود."
+
+msgid "Enter a valid Iranian mobile or landline number with its area code."
+msgstr "یک شماره معتبر موبایل یا تلفن ثابت ایران همراه با کد شهر وارد کنید."
+
+msgid "Enter a valid email address."
+msgstr "یک نشانی ایمیل معتبر وارد کنید."
+
+msgid "Label"
+msgstr "عنوان"
+
+msgid "No unique account is available for this verified number."
+msgstr "برای این شماره تأییدشده، حساب کاربری یکتایی پیدا نشد."
+
+msgid "PBX authentication failed."
+msgstr "احراز هویت مرکز تلفن ناموفق بود."
+
+msgid "PBX callout configuration is invalid."
+msgstr "پیکربندی سرویس تماس مرکز تلفن نامعتبر است."
+
+msgid "PBX callout is not configured."
+msgstr "سرویس تماس مرکز تلفن پیکربندی نشده است."
+
+msgid "PBX event conflict."
+msgstr "رویداد مرکز تلفن با یک رویداد قبلی تداخل دارد."
+
+msgid "PBX event is still processing."
+msgstr "رویداد مرکز تلفن هنوز در حال پردازش است."
+
+msgid "PBX payload is invalid."
+msgstr "داده ارسالی مرکز تلفن نامعتبر است."
+
+msgid "PBX request body is invalid."
+msgstr "بدنه درخواست مرکز تلفن نامعتبر است."
+
+msgid "PBX request replay rejected."
+msgstr "تکرار درخواست مرکز تلفن رد شد."
+
+msgid "PBX storage and recovery schedules are not ready."
+msgstr "ذخیره‌سازی و زمان‌بندی بازیابی مرکز تلفن آماده نیست."
+
+msgid "PBX verification is not configured."
+msgstr "تأیید مرکز تلفن پیکربندی نشده است."
+
+msgid "PBX verification is temporarily unavailable."
+msgstr "تأیید مرکز تلفن موقتاً در دسترس نیست."
+
+msgid "Per-number rate limits"
+msgstr "محدودیت تماس برای هر شماره"
+
+msgid "Please sign in before adding a contact."
+msgstr "پیش از افزودن اطلاعات تماس وارد حساب خود شوید."
+
+msgid "Reason for administrative consent change"
+msgstr "دلیل تغییر رضایت توسط مدیر"
+
+msgid "Remove"
+msgstr "حذف"
+
+msgid "Removing this contact also disables voice notifications. Continue?"
+msgstr "با حذف این راه تماس، اعلان صوتی آن نیز غیرفعال می‌شود. ادامه می‌دهید؟"
+
+msgid "Server-only PBX callout configuration is missing or invalid."
+msgstr "پیکربندی محرمانه سرویس تماس مرکز تلفن روی سرور وجود ندارد یا نامعتبر است."
+
+msgid "The contact could not be saved."
+msgstr "اطلاعات تماس ذخیره نشد."
+
+msgid "The contact preferences could not be saved."
+msgstr "تنظیمات اطلاعات تماس ذخیره نشد."
+
+msgid "The request origin is not allowed."
+msgstr "مبدأ این درخواست مجاز نیست."
+
+msgid "The verification is not ready or has expired."
+msgstr "تأیید هنوز آماده نیست یا منقضی شده است."
+
+msgid "The verified number could not be saved."
+msgstr "شماره تأییدشده ذخیره نشد."
+
+msgid "The voice template contains an unsupported placeholder."
+msgstr "قالب پیام صوتی دارای جای‌نگهدار پشتیبانی‌نشده است."
+
+msgid "The voice template contains malformed braces."
+msgstr "آکولادهای قالب پیام صوتی نادرست است."
+
+msgid "This verification belongs to another account."
+msgstr "این تأیید به حساب دیگری تعلق دارد."
+
+msgid "This verification has already been used."
+msgstr "این تأیید قبلاً استفاده شده است."
+
+msgid "Too many verification attempts. Please wait and try again."
+msgstr "تعداد تلاش‌های تأیید بیش از حد مجاز است. کمی صبر کنید و دوباره تلاش کنید."
+
+msgid "Unsupported verification purpose."
+msgstr "هدف این درخواست تأیید پشتیبانی نمی‌شود."
+
+msgid "Verification is temporarily unavailable."
+msgstr "سامانه تأیید موقتاً در دسترس نیست."
+
+msgid "Verification not found."
+msgstr "درخواست تأیید پیدا نشد."
+
+msgid "Voice notification settings could not be saved. The previous policy remains active."
+msgstr "تنظیمات اعلان صوتی ذخیره نشد و سیاست قبلی همچنان فعال است."
+
+msgid "Voice notification settings saved."
+msgstr "تنظیمات اعلان صوتی ذخیره شد."
+
+msgid "Voice notifications remain disabled until the verified PBX database migration and recovery schedules are ready."
+msgstr "تا آماده‌شدن انتقال تأییدشده پایگاه‌داده و زمان‌بندی بازیابی مرکز تلفن، اعلان‌های صوتی غیرفعال می‌مانند."
+
+msgid "Voice preferences require a verified phone number."
+msgstr "تنظیمات تماس صوتی فقط برای شماره تلفن تأییدشده قابل تغییر است."
+
+msgid "Voice rate reservation is unavailable."
+msgstr "رزرو ظرفیت تماس صوتی در دسترس نیست."
+
+msgid "Voice templates must be plain text between 1 and 800 bytes."
+msgstr "قالب پیام صوتی باید متن ساده و بین ۱ تا ۸۰۰ بایت باشد."
+
+msgid "You have reached the limit for additional contacts of this type."
+msgstr "به سقف تعداد راه‌های تماس تکمیلی از این نوع رسیده‌اید."
+
+msgid "day"
+msgstr "روز"
+
+msgid "hour"
+msgstr "ساعت"
+
+msgid "The global voice-call switch could not be verified off. No other voice settings were changed."
+msgstr "خاموش‌بودن کلید اصلی تماس صوتی تأیید نشد و هیچ تنظیم صوتی دیگری تغییر نکرد."
+
+msgid "Voice notification settings could not be saved. The global call switch remains off."
+msgstr "تنظیمات اعلان صوتی ذخیره نشد و کلید اصلی تماس همچنان خاموش است."
 
 #~ msgid "Digitalogic Dashboard"
 #~ msgstr "داشبورد دیجیتالاجیک"
