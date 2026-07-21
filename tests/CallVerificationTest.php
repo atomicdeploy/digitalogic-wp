@@ -44,6 +44,30 @@ final class CallVerificationTest extends TestCase {
         $this->assertMatchesRegularExpression('/^[a-f0-9]{64}$/', hash_hmac('sha256', $canonical, str_repeat("\x5a", 32)));
     }
 
+    public function test_pending_probe_uses_a_distinct_path_bound_signature(): void {
+        $body = '{"schema":"phone-verification-pending.v1"}';
+        $canonical = Digitalogic_Call_Verification::pbx_canonical_string(
+            '1784567890',
+            'mF5QGmkQ9T0L8YzAF1QJHf1S2W8ERuHM',
+            $body,
+            '/wp-json/digitalogic/v1/call-verification/pbx-pending'
+        );
+
+        $this->assertSame(
+            "v1\nPOST\n/wp-json/digitalogic/v1/call-verification/pbx-pending\n1784567890\nmF5QGmkQ9T0L8YzAF1QJHf1S2W8ERuHM\n" . hash('sha256', $body),
+            $canonical
+        );
+        $this->assertNotSame(
+            $canonical,
+            Digitalogic_Call_Verification::pbx_canonical_string('1784567890', 'mF5QGmkQ9T0L8YzAF1QJHf1S2W8ERuHM', $body)
+        );
+    }
+
+    public function test_browser_challenge_expires_after_exactly_120_seconds(): void {
+        $ttl = new ReflectionClassConstant(Digitalogic_Call_Verification::class, 'CHALLENGE_TTL');
+        $this->assertSame(120, $ttl->getValue());
+    }
+
     public function test_verification_secret_requires_canonical_strict_base64_and_32_decoded_bytes(): void {
         $raw = str_repeat("\xff", 32);
         $encoded = base64_encode($raw);
@@ -108,6 +132,162 @@ final class CallVerificationTest extends TestCase {
         $this->assertSame('+982166754124', $valid['caller']);
     }
 
+    public function test_pending_probe_envelope_is_exact_code_free_and_did_ani_bound(): void {
+        $timestamp = 1784567890;
+        $payload = $this->validPendingPayload($timestamp);
+        $valid = Digitalogic_Call_Verification::validate_pbx_pending_payload($payload, $timestamp);
+
+        $this->assertFalse(is_wp_error($valid));
+        $this->assertSame('+989123456789', $valid['caller']);
+
+        $withCode = $payload;
+        $withCode['code'] = '381624';
+        $this->assertTrue(is_wp_error(Digitalogic_Call_Verification::validate_pbx_pending_payload($withCode, $timestamp)));
+
+        $wrongSchema = $payload;
+        $wrongSchema['schema'] = 'phone-verification.v1';
+        $this->assertTrue(is_wp_error(Digitalogic_Call_Verification::validate_pbx_pending_payload($wrongSchema, $timestamp)));
+
+        $wrongDid = $payload;
+        $wrongDid['called_number'] = '+982191002369';
+        $this->assertTrue(is_wp_error(Digitalogic_Call_Verification::validate_pbx_pending_payload($wrongDid, $timestamp)));
+
+        $routedAni = $payload;
+        $routedAni['caller_number'] = '909123456789';
+        $this->assertTrue(is_wp_error(Digitalogic_Call_Verification::validate_pbx_pending_payload($routedAni, $timestamp)));
+    }
+
+    public function test_pending_probe_returns_only_a_boolean_without_pii(): void {
+        $oldWpdb = $GLOBALS['wpdb'] ?? null;
+        $GLOBALS['wpdb'] = new class {
+            public string $prefix = 'wp_';
+            public string $last_error = '';
+            public function prepare($query, ...$args) { return $query; }
+			public function query($query) { return 1; }
+            public function get_var($query) { return 1; }
+        };
+        $timestamp = 1784567890;
+        $request = new WP_REST_Request(
+            array(),
+            array(),
+            array('x-pbx-timestamp' => (string) $timestamp),
+            json_encode($this->validPendingPayload($timestamp))
+        );
+
+        try {
+            $response = Digitalogic_Call_Verification::instance()->pbx_pending($request);
+            $this->assertSame(200, $response->get_status());
+            $this->assertSame(array('pending' => true), $response->get_data());
+
+            $GLOBALS['wpdb'] = new class {
+                public string $prefix = 'wp_';
+				public string $last_error = '';
+                public function prepare($query, ...$args) { return $query; }
+				public function query($query) { return 1; }
+				public function get_var($query) {
+					if ( false !== strpos( $query, 'verification_rates' ) ) {
+						$this->last_error = '';
+						return 1;
+					}
+					$this->last_error = 'simulated pending lookup failure';
+					return null;
+				}
+            };
+            $failure = Digitalogic_Call_Verification::instance()->pbx_pending($request);
+            $this->assertSame(503, $failure->get_status());
+            $this->assertSame(array('pending' => false), $failure->get_data());
+        } finally {
+            if (null === $oldWpdb) {
+                unset($GLOBALS['wpdb']);
+            } else {
+                $GLOBALS['wpdb'] = $oldWpdb;
+            }
+        }
+    }
+
+	public function test_pending_probe_rate_limits_each_ani_and_fails_closed_when_rate_storage_fails(): void {
+		$oldWpdb = $GLOBALS['wpdb'] ?? null;
+		$fakeWpdb = new class {
+			public string $prefix = 'wp_';
+			public string $last_error = '';
+			public bool $fail_rate_write = false;
+			public int $challenge_lookups = 0;
+			public array $counters = array();
+			public array $bucket_names = array();
+			public function prepare( $query, ...$args ) { return array( 'query' => $query, 'args' => $args ); }
+			public function query( $prepared ) {
+				$query = is_array( $prepared ) ? $prepared['query'] : $prepared;
+				if ( false === strpos( $query, 'verification_rates' ) ) {
+					return 1;
+				}
+				if ( $this->fail_rate_write ) {
+					$this->last_error = 'injected pending-probe rate write failure';
+					return false;
+				}
+				$key = (string) $prepared['args'][0];
+				$this->bucket_names[] = (string) $prepared['args'][1];
+				$this->counters[ $key ] = ( $this->counters[ $key ] ?? 0 ) + 1;
+				$this->last_error = '';
+				return 1;
+			}
+			public function get_var( $prepared ) {
+				$query = is_array( $prepared ) ? $prepared['query'] : $prepared;
+				if ( false !== strpos( $query, 'verification_rates' ) ) {
+					$key = (string) $prepared['args'][0];
+					return $this->counters[ $key ] ?? 0;
+				}
+				++$this->challenge_lookups;
+				$this->last_error = '';
+				return 1;
+			}
+		};
+		$timestamp = 1784567890;
+		$requestFor = function ( string $caller ) use ( $timestamp ): WP_REST_Request {
+			$payload = $this->validPendingPayload( $timestamp );
+			$payload['caller_number'] = $caller;
+			return new WP_REST_Request(
+				array(),
+				array(),
+				array( 'x-pbx-timestamp' => (string) $timestamp ),
+				json_encode( $payload )
+			);
+		};
+
+		try {
+			$GLOBALS['wpdb'] = $fakeWpdb;
+			$firstCaller = $requestFor( '+989123456789' );
+			for ( $attempt = 0; $attempt < 20; ++$attempt ) {
+				$response = Digitalogic_Call_Verification::instance()->pbx_pending( $firstCaller );
+				$this->assertSame( 200, $response->get_status() );
+				$this->assertSame( array( 'pending' => true ), $response->get_data() );
+			}
+
+			$limited = Digitalogic_Call_Verification::instance()->pbx_pending( $firstCaller );
+			$this->assertSame( 429, $limited->get_status() );
+			$this->assertSame( array( 'pending' => false ), $limited->get_data() );
+			$this->assertGreaterThanOrEqual( 1, (int) $limited->get_headers()['Retry-After'] );
+			$this->assertSame( 20, $fakeWpdb->challenge_lookups );
+
+			$secondCaller = Digitalogic_Call_Verification::instance()->pbx_pending( $requestFor( '+989120000000' ) );
+			$this->assertSame( 200, $secondCaller->get_status() );
+			$this->assertSame( array( 'pending' => true ), $secondCaller->get_data() );
+			$this->assertSame( 21, $fakeWpdb->challenge_lookups );
+
+			$fakeWpdb->fail_rate_write = true;
+			$storageFailure = Digitalogic_Call_Verification::instance()->pbx_pending( $requestFor( '+989120000001' ) );
+			$this->assertSame( 503, $storageFailure->get_status() );
+			$this->assertSame( array( 'pending' => false ), $storageFailure->get_data() );
+			$this->assertSame( 21, $fakeWpdb->challenge_lookups );
+			$this->assertSame( array( 'pbx-pending-60s' ), array_values( array_unique( $fakeWpdb->bucket_names ) ) );
+		} finally {
+			if ( null === $oldWpdb ) {
+				unset( $GLOBALS['wpdb'] );
+			} else {
+				$GLOBALS['wpdb'] = $oldWpdb;
+			}
+		}
+	}
+
     public function test_security_responses_receive_no_store_headers(): void {
         $request = (new WP_REST_Request())->set_route('/digitalogic/v1/call-verification/123');
         $response = new WP_REST_Response(array('code' => '123456'), 201);
@@ -118,6 +298,102 @@ final class CallVerificationTest extends TestCase {
         $this->assertSame('no-store, no-cache, must-revalidate, private', $response->get_headers()['Cache-Control']);
         $this->assertSame('no-cache', $response->get_headers()['Pragma']);
     }
+
+	public function test_status_polling_is_bound_rate_limited_at_eight_per_three_seconds_and_storage_failures_close(): void {
+		$oldWpdb       = $GLOBALS['wpdb'] ?? null;
+		$oldOptions    = $GLOBALS['digitalogic_test_options'];
+		$oldCache      = $GLOBALS['digitalogic_test_option_cache'];
+		$hadCookie     = array_key_exists( 'digitalogic_call_binding', $_COOKIE );
+		$oldCookie     = $_COOKIE['digitalogic_call_binding'] ?? null;
+		$binding       = str_repeat( 'b', 43 );
+		$csrf          = str_repeat( 'c', 43 );
+		$challengeId   = '123e4567-e89b-42d3-a456-426614174111';
+		$lookupHash    = new ReflectionMethod( Digitalogic_Call_Verification::class, 'lookup_hash' );
+		$row            = (object) array(
+			'id'               => 81,
+			'public_id'        => $challengeId,
+			'binding_mac'      => $lookupHash->invoke( null, 'binding', $binding ),
+			'csrf_mac'         => $lookupHash->invoke( null, 'csrf', $csrf ),
+			'status'           => 'pending',
+			'expires_at'       => gmdate( 'Y-m-d H:i:s', time() + 120 ),
+			'consume_deadline' => null,
+		);
+		$fakeWpdb = new class( $row ) {
+			public string $prefix = 'wp_';
+			public string $last_error = '';
+			public bool $fail_rate_write = false;
+			public array $counters = array();
+			public array $rate_keys = array();
+			private object $row;
+			public function __construct( object $row ) { $this->row = $row; }
+			public function prepare( $query, ...$args ) { return array( 'query' => $query, 'args' => $args ); }
+			public function get_row( $prepared ) { return clone $this->row; }
+			public function query( $prepared ) {
+				$query = is_array( $prepared ) ? $prepared['query'] : $prepared;
+				if ( false === strpos( $query, 'verification_rates' ) ) {
+					return 1;
+				}
+				if ( $this->fail_rate_write ) {
+					$this->last_error = 'injected status rate write failure';
+					return false;
+				}
+				$key = (string) $prepared['args'][0];
+				$this->rate_keys[] = $key;
+				$this->counters[ $key ] = ( $this->counters[ $key ] ?? 0 ) + 1;
+				return 1;
+			}
+			public function get_var( $prepared ) {
+				$key = (string) $prepared['args'][0];
+				return $this->counters[ $key ] ?? 0;
+			}
+		};
+
+		try {
+			$GLOBALS['wpdb'] = $fakeWpdb;
+			$GLOBALS['digitalogic_test_options']['digitalogic_pbx_schema_version'] = '3';
+			$GLOBALS['digitalogic_test_option_cache']['digitalogic_pbx_schema_version'] = '3';
+			$_COOKIE['digitalogic_call_binding'] = $binding;
+			$request = new WP_REST_Request(
+				array( 'id' => $challengeId ),
+				array(),
+				array( 'x-digitalogic-csrf' => $csrf )
+			);
+
+			for ( $attempt = 0; $attempt < 8; ++$attempt ) {
+				$response = Digitalogic_Call_Verification::instance()->challenge_status( $request );
+				$this->assertInstanceOf( WP_REST_Response::class, $response );
+				$this->assertSame( 200, $response->get_status() );
+			}
+			$limited = Digitalogic_Call_Verification::instance()->challenge_status( $request );
+			$this->assertTrue( is_wp_error( $limited ) );
+			$this->assertSame( 'digitalogic_call_rate', $limited->get_error_code() );
+			$this->assertSame( 429, $limited->get_error_data()['status'] );
+			$this->assertCount( 1, array_unique( $fakeWpdb->rate_keys ) );
+
+			$fakeWpdb->fail_rate_write = true;
+			$storageFailure = Digitalogic_Call_Verification::instance()->challenge_status( $request );
+			$this->assertTrue( is_wp_error( $storageFailure ) );
+			$this->assertSame( 'digitalogic_call_rate_storage', $storageFailure->get_error_code() );
+			$this->assertSame( 503, $storageFailure->get_error_data()['status'] );
+
+			$source = file_get_contents( dirname( __DIR__ ) . '/includes/integrations/class-call-verification.php' );
+			$this->assertStringContainsString( "self::lookup_hash( 'status', (string) \$row->binding_mac . '|' . (string) \$row->public_id )", $source );
+			$this->assertStringContainsString( "'status-3s'", $source );
+		} finally {
+			$GLOBALS['digitalogic_test_options'] = $oldOptions;
+			$GLOBALS['digitalogic_test_option_cache'] = $oldCache;
+			if ( $hadCookie ) {
+				$_COOKIE['digitalogic_call_binding'] = $oldCookie;
+			} else {
+				unset( $_COOKIE['digitalogic_call_binding'] );
+			}
+			if ( null === $oldWpdb ) {
+				unset( $GLOBALS['wpdb'] );
+			} else {
+				$GLOBALS['wpdb'] = $oldWpdb;
+			}
+		}
+	}
 
     public function test_exact_signed_pbx_callback_route_is_registered(): void {
         $GLOBALS['digitalogic_test_routes'] = array();
@@ -131,6 +407,20 @@ final class CallVerificationTest extends TestCase {
         $this->assertCount(1, $matches);
         $this->assertSame('POST', $matches[0]['args']['methods']);
         $this->assertSame('authorize_pbx', $matches[0]['args']['permission_callback'][1]);
+    }
+
+    public function test_exact_signed_pending_probe_route_is_registered(): void {
+        $GLOBALS['digitalogic_test_routes'] = array();
+        Digitalogic_Call_Verification::instance()->register_routes();
+        $matches = array_values(array_filter(
+            $GLOBALS['digitalogic_test_routes'],
+            static fn(array $route): bool => $route['namespace'] === 'digitalogic/v1'
+                && $route['route'] === '/call-verification/pbx-pending'
+        ));
+
+        $this->assertCount(1, $matches);
+        $this->assertSame('POST', $matches[0]['args']['methods']);
+        $this->assertSame('authorize_pbx_pending', $matches[0]['args']['permission_callback'][1]);
     }
 
 	public function test_login_identity_queries_fail_closed_and_short_circuit_on_database_errors(): void {
@@ -156,10 +446,11 @@ final class CallVerificationTest extends TestCase {
 			public function prepare( $query, ...$args ) { return $query; }
 			public function get_col( $query ) {
 				++$this->queries;
-				if ( 1 === $this->queries ) {
-					$this->last_error = '';
-					return array( 101 );
-				}
+				$this->last_error = '';
+				return array( 101 );
+			}
+			public function get_results( $query, $output = null ) {
+				++$this->queries;
 				$this->last_error = 'injected Digits lookup failure';
 				return array();
 			}
@@ -186,6 +477,28 @@ final class CallVerificationTest extends TestCase {
 				$GLOBALS['wpdb'] = $oldWpdb;
 			}
 		}
+	}
+
+	public function test_digits_login_identity_requires_a_complete_consistent_pair_matching_the_challenge(): void {
+		$consistent = new ReflectionMethod( Digitalogic_Call_Verification::class, 'consistent_digits_user_ids' );
+		$rows = array(
+			array( 'user_id' => 11, 'meta_key' => 'digits_phone', 'meta_value' => '+989123456789' ),
+			array( 'user_id' => 11, 'meta_key' => 'digits_phone_no', 'meta_value' => '09123456789' ),
+			array( 'user_id' => 12, 'meta_key' => 'digits_phone', 'meta_value' => '+989123456789' ),
+			array( 'user_id' => 13, 'meta_key' => 'digits_phone', 'meta_value' => '+989123456789' ),
+			array( 'user_id' => 13, 'meta_key' => 'digits_phone_no', 'meta_value' => '09120000000' ),
+			array( 'user_id' => 14, 'meta_key' => 'digits_phone', 'meta_value' => '+989123456789' ),
+			array( 'user_id' => 14, 'meta_key' => 'digits_phone_no', 'meta_value' => '09123456789' ),
+			array( 'user_id' => 14, 'meta_key' => 'digits_phone_no', 'meta_value' => 'not-a-phone' ),
+			array( 'user_id' => 15, 'meta_key' => 'digits_phone', 'meta_value' => '9123456789' ),
+			array( 'user_id' => 15, 'meta_key' => 'digits_phone_no', 'meta_value' => '9123456789' ),
+			array( 'user_id' => 16, 'meta_key' => 'billing_phone', 'meta_value' => '09123456789' ),
+		);
+
+		$this->assertSame(
+			array( 11, 15 ),
+			$consistent->invoke( null, $rows, '+989123456789' )
+		);
 	}
 
 	public function test_verified_login_suspends_only_zerospam_form_filter_and_restores_it(): void {
@@ -644,6 +957,32 @@ final class CallVerificationTest extends TestCase {
         $this->assertStringContainsString("'call-event'", $source);
     }
 
+	public function test_guest_sidebar_reuses_one_configured_login_widget_without_exposing_secrets(): void {
+		$source = file_get_contents( dirname( __DIR__ ) . '/includes/integrations/class-call-verification.php' );
+		$enqueue_start = strpos( $source, 'public function enqueue_assets' );
+		$enqueue_end = strpos( $source, 'public function maybe_enqueue_account_assets', $enqueue_start );
+		$this->assertIsInt( $enqueue_start );
+		$this->assertIsInt( $enqueue_end );
+		$localized_source = substr( $source, $enqueue_start, $enqueue_end - $enqueue_start );
+
+		$this->assertStringContainsString(
+			"add_action( 'wp_footer', array( \$this, 'render_sidebar_login_verification' ), 5 )",
+			$source
+		);
+		$this->assertStringContainsString( '$is_guest_page   = ! is_admin() && ! is_user_logged_in();', $source );
+		$this->assertStringContainsString( 'data-digitalogic-sidebar-call-parking hidden', $source );
+		$this->assertStringContainsString( 'data-digitalogic-sidebar-call-widget hidden', $source );
+		$this->assertStringContainsString( 'data-purpose="login"', $source );
+		$this->assertStringContainsString( 'aria-expanded="false"', $source );
+		$this->assertStringContainsString( 'aria-describedby="<?php echo esc_attr( $phone_help_id ); ?>"', $source );
+		$this->assertStringContainsString( 'Place the call from the same phone number you entered so caller ID can confirm ownership.', $source );
+		$this->assertStringContainsString( 'data-call-dial', $source );
+		$this->assertStringContainsString( 'When the caller-ID shortcut says «دوست عزیزم»', $source );
+		$this->assertStringNotContainsString( 'data-call-ivr', $source );
+		$this->assertStringNotContainsString( 'self::IVR_OPTION', $source );
+		$this->assertStringNotContainsString( 'DIGITALOGIC_PBX_VERIFY_SECRET', $localized_source );
+	}
+
     private function validPayload(int $timestamp): array {
         return array(
             'schema' => 'phone-verification.v1',
@@ -653,6 +992,18 @@ final class CallVerificationTest extends TestCase {
             'called_number' => '+982166754123',
             'caller_number' => '+989123456789',
             'code' => '381624',
+            'occurred_at' => gmdate('Y-m-d\TH:i:s.000\Z', $timestamp),
+        );
+    }
+
+    private function validPendingPayload(int $timestamp): array {
+        return array(
+            'schema' => 'phone-verification-pending.v1',
+            'site_id' => 'digitalogic.ir',
+            'event_id' => '123e4567-e89b-42d3-a456-426614174000',
+            'call_id' => '1721491200.42',
+            'called_number' => '+982166754123',
+            'caller_number' => '+989123456789',
             'occurred_at' => gmdate('Y-m-d\TH:i:s.000\Z', $timestamp),
         );
     }
