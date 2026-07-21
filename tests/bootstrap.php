@@ -205,6 +205,12 @@ class WP_Query {
     }
 }
 
+if (!function_exists('wp_salt')) {
+    function wp_salt($scheme = 'auth') {
+        return 'digitalogic-unit-test-salt-with-at-least-thirty-two-bytes:' . (string) $scheme;
+    }
+}
+
 function _prime_post_caches($post_ids, $update_term_cache = true, $update_meta_cache = true) {
     $GLOBALS['digitalogic_test_primed_post_ids'][] = array_values(array_map('absint', (array) $post_ids));
 }

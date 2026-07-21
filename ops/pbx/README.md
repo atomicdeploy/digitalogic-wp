@@ -1,50 +1,59 @@
 # Digitalogic PBX operational assets
 
-Version 1.0.0 provides a dependency-free Node 18+ AGI helper for inbound phone
-verification at `+982166754123`, a safe digit-2 dialplan include, Persian prompt
-sources, offline tests, and deployment/rollback instructions. It contains no
-credentials and makes no live change merely by existing in the plugin repository.
+Version 1.1.0 provides a dependency-free Node 18+ AGI helper for caller-aware
+phone verification at `+982166754123`. Digitalogic historically had no public
+inbound IVR, so this release removes the first-audio digit-2 menu and does not
+invent a replacement digit. A caller with an unexpired challenge is offered a
+private shortcut; every other caller continues to the existing operator path.
 
-The helper is intentionally an AGI process rather than `System()` with interpolated
-arguments. It reads sanitized channel variables, collects DTMF with `GET DATA`,
-validates all values, sends exact signed JSON, and never logs caller number, code,
-request body, response body, or authorization material.
+The wrapper forwards one reviewed mode to the helper:
 
-The WordPress callback contract is:
+- `preflight`: signed ANI lookup with no audio. It sets only
+  `PBX_VERIFY_PENDING=0|1`.
+- `shortcut`: a BGM-mixed private code flow. Star, no input, partial input, and
+  service failure return immediately to the operator flow; a rejected six-digit
+  typo gets one bounded retry before fallback.
+- `verify`: retained only as an unrouted building block for a future approved IVR.
+
+The helper never places a code in a dialplan variable, AGI argument, URL, log, or
+recording. It sends two path-bound HMAC-SHA256 request types. The pending request
+uses this exact envelope and receives exactly `{ "pending": <boolean> }`:
+
+```text
+POST /wp-json/digitalogic/v1/call-verification/pbx-pending
+schema, site_id, event_id, call_id, called_number, caller_number, occurred_at
+schema = phone-verification-pending.v1
+```
+
+Confirmation remains:
 
 ```text
 POST /wp-json/digitalogic/v1/call-verification/pbx-confirm
-X-PBX-Key-Id: v1
-X-PBX-Timestamp: <10-digit Unix time>
-X-PBX-Nonce: <base64url random value>
-X-PBX-Signature: <64 lowercase hex HMAC-SHA256>
+schema = phone-verification.v1
 ```
 
-Canonical bytes, with no trailing newline, are:
+Both requests carry `X-PBX-Key-Id`, timestamp, nonce, and signature headers. The
+canonical bytes, without a trailing newline, are:
 
 ```text
-v1\nPOST\n<callback path>\n<timestamp>\n<nonce>\n<sha256(raw JSON body)>
+v1\nPOST\n<exact path>\n<timestamp>\n<nonce>\n<sha256(raw JSON body)>
 ```
 
-The HMAC key is the decoded random bytes from the canonical base64 secret file, not
-the printable base64 text itself.
+The HMAC key is the decoded random bytes in the root-owned base64 secret file.
+Redirects are refused and response size/time are bounded. Preflight errors fail
+open to the historical call flow; code confirmation remains fail closed.
+Every dedicated verification prompt uses the established filtered, limited BGM
+mix so retries, success, invalid-code, and failure audio remain stylistically
+consistent without masking the speech.
 
-A 2xx JSON response must explicitly contain `verified: true` or `status: "verified"`.
-`success: true` alone is deliberately insufficient because it can mean only that the
-request was processed. Invalid/expired challenges return a generic rejected response;
-authentication, throttling, malformed responses, and timeouts fail closed.
-
-Deterministic process exit codes are `0` verified, `10` untrusted/invalid call,
-`11` code attempts exhausted, `20` configuration/secret failure, `30` network/timeout,
-`40` remote authentication rejection, `50` AGI/HTTP protocol failure, and `60` hangup.
-The helper also sets `PBX_VERIFY_RESULT` to a non-sensitive fixed status where the channel
-is still available; the numeric exit remains authoritative.
-
-See [DEPLOYMENT.md](DEPLOYMENT.md), [SECURITY.md](SECURITY.md), and
-[ROLLBACK.md](ROLLBACK.md). Run locally with:
+Run:
 
 ```bash
 cd ops/pbx
 npm run check
 npm test
+bash -n bin/pbx-verification-digitalogic scripts/*.sh
 ```
+
+See [DEPLOYMENT.md](DEPLOYMENT.md), [SECURITY.md](SECURITY.md), and
+[ROLLBACK.md](ROLLBACK.md).

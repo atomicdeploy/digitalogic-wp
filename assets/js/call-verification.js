@@ -51,7 +51,6 @@
 		const cancel = widget.querySelector('[data-call-cancel]');
 		const error = widget.querySelector('[data-call-error]');
 		const dial = widget.querySelector('[data-call-dial]');
-		const ivr = widget.querySelector('[data-call-ivr]');
 		if (!panel || !phone || !start || !instructions || !code || !status || !error) {
 			return;
 		}
@@ -61,8 +60,12 @@
 		let challengeId = '';
 		let csrfToken = '';
 		let pollTimer = 0;
+		let countdownTimer = 0;
+		let pollController = null;
 		let stopped = false;
 		let attemptGeneration = 0;
+		let expiresAt = 0;
+		const pollInterval = Math.max(400, Math.min(750, Number(config.pollMs) || 500));
 
 		function showError(value) {
 			error.textContent = value || messages.error || 'Verification failed.';
@@ -72,6 +75,36 @@
 		function stopPolling() {
 			stopped = true;
 			window.clearTimeout(pollTimer);
+			window.clearTimeout(countdownTimer);
+			if (pollController) {
+				pollController.abort();
+				pollController = null;
+			}
+		}
+
+		function remainingText(seconds) {
+			const template = messages.remaining || '%s seconds remaining';
+			return String(template).replace('%s', String(seconds));
+		}
+
+		function updateCountdown(expectedGeneration) {
+			window.clearTimeout(countdownTimer);
+			if (stopped || expectedGeneration !== attemptGeneration || !expiresAt || document.hidden) {
+				return;
+			}
+			const seconds = Math.max(0, Math.ceil((expiresAt - Date.now()) / 1000));
+			status.textContent = `${messages.waiting || 'Waiting for your call…'} ${remainingText(seconds)}`;
+			if (seconds > 0) {
+				countdownTimer = window.setTimeout(() => updateCountdown(expectedGeneration), 250);
+			}
+		}
+
+		function schedulePoll(expectedGeneration, delay = pollInterval) {
+			window.clearTimeout(pollTimer);
+			if (stopped || expectedGeneration !== attemptGeneration || document.hidden) {
+				return;
+			}
+			pollTimer = window.setTimeout(() => poll(expectedGeneration), delay);
 		}
 
 		function resetForRetry(message) {
@@ -79,6 +112,7 @@
 			attemptGeneration += 1;
 			challengeId = '';
 			csrfToken = '';
+			expiresAt = 0;
 			code.textContent = '';
 			instructions.hidden = true;
 			start.disabled = false;
@@ -123,10 +157,13 @@
 			const expectedChallengeId = challengeId;
 			const expectedCsrfToken = csrfToken;
 			try {
+				pollController = new AbortController();
 				const data = await request(`${config.challengeUrl}/${encodeURIComponent(expectedChallengeId)}`, {
 					method: 'GET',
 					headers: headers(expectedCsrfToken),
+					signal: pollController.signal,
 				});
+				pollController = null;
 				if (
 					stopped
 					|| expectedGeneration !== attemptGeneration
@@ -154,24 +191,43 @@
 					}
 					return;
 				}
+				if (Number.isFinite(Number(data.expires_in))) {
+					expiresAt = Date.now() + (Math.max(0, Number(data.expires_in)) * 1000);
+					updateCountdown(expectedGeneration);
+				}
 				if (['expired', 'cancelled', 'consumed'].includes(data.status)) {
 					status.textContent = messages.expired || 'Code expired.';
 					resetForRetry(messages.expired || 'Code expired.');
 					return;
 				}
 			} catch (pollError) {
+				pollController = null;
 				if (
 					stopped
 					|| expectedGeneration !== attemptGeneration
 					|| expectedChallengeId !== challengeId
+					|| pollError.name === 'AbortError'
 				) {
 					return;
 				}
 				resetForRetry(pollError.message);
 				return;
 			}
-			pollTimer = window.setTimeout(() => poll(expectedGeneration), 2000);
+			schedulePoll(expectedGeneration);
 		}
+
+		document.addEventListener('visibilitychange', () => {
+			if (stopped || !challengeId || !widget.isConnected) {
+				return;
+			}
+			if (document.hidden) {
+				window.clearTimeout(pollTimer);
+				window.clearTimeout(countdownTimer);
+				return;
+			}
+			updateCountdown(attemptGeneration);
+			schedulePoll(attemptGeneration, 0);
+		});
 
 		if (toggle) {
 			toggle.setAttribute('aria-expanded', panel.hidden ? 'false' : 'true');
@@ -218,13 +274,11 @@
 						dial.setAttribute('href', `tel:${tel}`);
 					}
 				}
-				if (ivr) {
-					ivr.textContent = String(data.ivr_option || '');
-				}
-				status.textContent = messages.waiting || 'Waiting for your call…';
+				expiresAt = Date.now() + (Math.max(0, Number(data.expires_in) || 0) * 1000);
+				updateCountdown(expectedGeneration);
 				instructions.hidden = false;
 				widget.removeAttribute('aria-busy');
-				pollTimer = window.setTimeout(() => poll(expectedGeneration), 1200);
+				schedulePoll(expectedGeneration);
 			} catch (startError) {
 				if (stopped || expectedGeneration !== attemptGeneration) {
 					return;
@@ -242,6 +296,7 @@
 			const cancelledCsrfToken = csrfToken;
 			challengeId = '';
 			csrfToken = '';
+			expiresAt = 0;
 			code.textContent = '';
 			instructions.hidden = true;
 			start.disabled = false;

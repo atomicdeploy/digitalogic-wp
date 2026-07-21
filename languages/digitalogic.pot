@@ -2,9 +2,9 @@
 # This file is distributed under the GPL v2 or later.
 msgid ""
 msgstr ""
-"Project-Id-Version: Digitalogic 1.6.1\n"
+"Project-Id-Version: Digitalogic 1.6.4\n"
 "Report-Msgid-Bugs-To: https://github.com/atomicdeploy/digitalogic-wp/issues\n"
-"POT-Creation-Date: 2026-07-20 21:54+0330\n"
+"POT-Creation-Date: 2026-07-21 10:06+0330\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -1818,6 +1818,11 @@ msgid "Waiting for your call…"
 msgstr ""
 
 #: includes/integrations/class-call-verification.php
+#, php-format
+msgid "%s seconds remaining"
+msgstr ""
+
+#: includes/integrations/class-call-verification.php
 msgid "Phone number verified. Finishing…"
 msgstr ""
 
@@ -1850,8 +1855,7 @@ msgid "Call"
 msgstr ""
 
 #: includes/integrations/class-call-verification.php
-#, php-format
-msgid "Choose IVR option %s, then enter this six-digit code:"
+msgid "Call from the same number you entered. When the caller-ID shortcut says «دوست عزیزم», enter this six-digit code. If no live challenge is found, the call continues to the operator."
 msgstr ""
 
 #: includes/integrations/class-call-verification.php

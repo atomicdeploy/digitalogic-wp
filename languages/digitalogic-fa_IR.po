@@ -1,6 +1,6 @@
 msgid ""
 msgstr ""
-"Project-Id-Version: Digitalogic WooCommerce Extension 1.6.1\n"
+"Project-Id-Version: Digitalogic WooCommerce Extension 1.6.4\n"
 "Report-Msgid-Bugs-To: https://github.com/atomicdeploy/digitalogic-wp/issues\n"
 "POT-Creation-Date: 2026-07-20 21:54+0330\n"
 "PO-Revision-Date: 2026-07-17 00:00+0000\n"
@@ -1772,6 +1772,11 @@ msgid "Waiting for your call…"
 msgstr "در انتظار تماس شما…"
 
 #: includes/integrations/class-call-verification.php
+#, php-format
+msgid "%s seconds remaining"
+msgstr "%s ثانیه تا پایان اعتبار کد"
+
+#: includes/integrations/class-call-verification.php
 msgid "Phone number verified. Finishing…"
 msgstr "شماره تلفن تأیید شد. در حال تکمیل…"
 
@@ -1804,9 +1809,8 @@ msgid "Call"
 msgstr "با این شماره تماس بگیرید:"
 
 #: includes/integrations/class-call-verification.php
-#, php-format
-msgid "Choose IVR option %s, then enter this six-digit code:"
-msgstr "گزینه %s منوی تلفنی را انتخاب کنید، سپس این کد شش‌رقمی را وارد کنید:"
+msgid "Call from the same number you entered. When the caller-ID shortcut says «دوست عزیزم», enter this six-digit code. If no live challenge is found, the call continues to the operator."
+msgstr "از همان شماره‌ای که وارد کرده‌اید تماس بگیرید. وقتی میان‌بر تشخیص شماره پیام «دوست عزیزم» را پخش کرد، این کد شش‌رقمی را وارد کنید. اگر درخواست فعالی پیدا نشود، تماس مستقیماً به اپراتور ادامه پیدا می‌کند."
 
 #: includes/integrations/class-call-verification.php
 msgid "Cancel"
