@@ -223,10 +223,14 @@
 }
 
 .dgl-catalog-product-cell {
+	display: table-cell;
+	min-width: 310px;
+}
+
+.dgl-catalog-product-layout {
 	align-items: center;
 	display: flex;
 	gap: 12px;
-	min-width: 310px;
 }
 
 .dgl-catalog-thumb {
@@ -293,13 +297,20 @@
 }
 
 .dgl-catalog-code {
-	align-items: flex-start;
 	color: #67778d;
-	display: flex;
-	flex-direction: column;
+	display: table-cell;
 	font-size: 10px;
-	gap: 3px;
 	text-align: right !important;
+}
+
+.dgl-catalog-code > span,
+.dgl-catalog-code > b,
+.dgl-catalog-code > a {
+	display: block;
+}
+
+.dgl-catalog-code > * + * {
+	margin-block-start: 3px;
 }
 
 .dgl-catalog-code span {

@@ -44,6 +44,17 @@ final class StorefrontCatalogTest extends TestCase {
 		add_filter( 'digitalogic_is_public_storefront_request', static fn() => true );
 	}
 
+	/** Table cells must retain table formatting; flex belongs to an inner wrapper. */
+	public function test_catalog_code_and_product_cells_keep_table_column_layout(): void {
+		$css = file_get_contents( dirname( __DIR__ ) . '/assets/css/storefront-catalog.css' );
+
+		$this->assertIsString( $css );
+		$this->assertMatchesRegularExpression( '/\.dgl-catalog-product-cell\s*\{[^}]*display:\s*table-cell;/s', $css );
+		$this->assertMatchesRegularExpression( '/\.dgl-catalog-product-layout\s*\{[^}]*display:\s*flex;/s', $css );
+		$this->assertMatchesRegularExpression( '/\.dgl-catalog-code\s*\{[^}]*display:\s*table-cell;/s', $css );
+		$this->assertDoesNotMatchRegularExpression( '/\.dgl-catalog-code\s*\{[^}]*display:\s*flex;/s', $css );
+	}
+
 	public function test_forces_empty_category_hiding_only_for_product_categories(): void {
 		$catalog = ( new ReflectionClass( Digitalogic_Storefront_Catalog::class ) )->newInstanceWithoutConstructor();
 
@@ -273,6 +284,9 @@ final class StorefrontCatalogTest extends TestCase {
 		$this->assertStringContainsString( '>کد کالا</span>', $html );
 		$this->assertStringContainsString( 'CODE-49', $html );
 		$this->assertStringNotContainsString( 'کد پاتریس', $html );
+		$this->assertSame( 6, substr_count( $html, '<td' ) );
+		$this->assertStringContainsString( 'class="dgl-catalog-product-layout"', $html );
+		$this->assertMatchesRegularExpression( '/<td class="dgl-catalog-product-cell">.*<\/td>\s*<td class="dgl-catalog-code">/s', $html );
 	}
 
 	/** Ensure an unrelated WooCommerce SKU keeps its own label. */
