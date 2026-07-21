@@ -66,6 +66,8 @@ $GLOBALS['digitalogic_test_transients'] = array(); // phpcs:ignore
 $GLOBALS['digitalogic_test_transient_deletes'] = array(); // phpcs:ignore
 $GLOBALS['digitalogic_test_rewrite_rules'] = array(); // phpcs:ignore
 $GLOBALS['digitalogic_test_rewrite_flushes'] = array(); // phpcs:ignore
+$GLOBALS['digitalogic_test_registered_post_types'] = array(); // phpcs:ignore
+$GLOBALS['digitalogic_test_post_type_meta_caps'] = array(); // phpcs:ignore
 $GLOBALS['digitalogic_test_locale'] = 'en_US';
 $GLOBALS['digitalogic_test_shortcodes'] = array();
 $GLOBALS['digitalogic_test_enqueued_styles'] = array();
@@ -286,6 +288,21 @@ function current_user_can($capability) {
     $GLOBALS['digitalogic_test_current_user_can_calls']++;
 
     return !empty($GLOBALS['digitalogic_test_capabilities'][$capability]);
+}
+
+function register_post_type($post_type, $args = array()) {
+    $GLOBALS['digitalogic_test_registered_post_types'][$post_type] = $args;
+
+    if (!empty($args['map_meta_cap'])) {
+        foreach (array('edit_post', 'read_post', 'delete_post') as $meta_cap) {
+            $capability = $args['capabilities'][$meta_cap] ?? '';
+            if ($capability !== '') {
+                $GLOBALS['digitalogic_test_post_type_meta_caps'][$capability] = $meta_cap;
+            }
+        }
+    }
+
+    return (object) array('name' => $post_type);
 }
 
 function get_current_user_id() {
