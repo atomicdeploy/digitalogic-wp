@@ -225,8 +225,8 @@ final class Digitalogic_Product_Identity {
 		if ( array_is_list( $offer ) ) {
 			$normalized = array();
 			foreach ( $offer as $item ) {
-				$child_converted = false;
-				$normalized[]    = $this->normalize_toman_offer_node( $item, $inherited_toman, $valid, $child_converted );
+				$child_converted          = false;
+				$normalized[]             = $this->normalize_toman_offer_node( $item, $inherited_toman, $valid, $child_converted );
 				$contains_converted_price = $contains_converted_price || $child_converted;
 			}
 
@@ -276,7 +276,7 @@ final class Digitalogic_Product_Identity {
 	 */
 	private function multiply_decimal_by_ten( $value, &$converted ) {
 		$converted = false;
-		$text = trim( (string) $value );
+		$text      = trim( (string) $value );
 		if ( ! preg_match( '/^([0-9]+)(?:\.([0-9]+))?$/', $text, $matches ) ) {
 			return $value;
 		}
