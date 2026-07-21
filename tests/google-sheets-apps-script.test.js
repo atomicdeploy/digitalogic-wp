@@ -509,6 +509,15 @@ test('support tabs detect machine row 5, display row 6, and data row 7 without l
   assert.equal(detect({ 5: ['wrong'], 1: ['wrong'] }, keys), null);
 });
 
+test('professional support tabs have reserved titles, workflow guidance, and legacy-safe styling', () => {
+  assert.match(source, /CHANGES \| SAFE PRODUCT UPDATE QUEUE/);
+  assert.match(source, /AUDIT \| WRITEBACK ACTIVITY & RECOVERY/);
+  assert.match(source, /CONTROLLED WRITEBACK/);
+  assert.match(source, /layout\.id !== 'professional'/);
+  assert.match(source, /sheet\.setFrozenColumns\(0\)/);
+  assert.match(source, /protection\.setRange\(sheet\.getRange\(1, 1, machineHeaderRow, sheet\.getLastColumn\(\)\)\)/);
+});
+
 test('support-tab reader begins at the detected data row and preserves real sheet row numbers', () => {
   const readRows = sandbox.module.exports.readExistingStructuredRows_;
   const calls = [];
