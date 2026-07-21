@@ -345,7 +345,6 @@ final class Digitalogic_Patris_Catalog_Materializer {
 				if ( $was_published ) {
 					++$result['preserved_published'];
 				}
-
 				$updated = $this->apply_identity_and_enrichment(
 					$product,
 					$code,
@@ -378,6 +377,7 @@ final class Digitalogic_Patris_Catalog_Materializer {
 					++$result['failed'];
 					continue;
 				}
+				$product->update_meta_data( Digitalogic_Shipping_Method_Service::PRODUCT_METHOD_META, self::SHIPPING_METHOD );
 				++$result['air_express_assigned'];
 
 				$gates = $this->publish_gates( $product, $record, $enrichment, $category_term );
@@ -418,6 +418,24 @@ final class Digitalogic_Patris_Catalog_Materializer {
 				} else {
 					++$result['publish_blocked'];
 					$this->append_detail( $result, $code, 'publish_blocked', array( 'gates' => $gates ) );
+					if ( 'draft' !== (string) $product->get_status() ) {
+						$product->set_status( 'draft' );
+						if ( method_exists( $product, 'set_catalog_visibility' ) && ! $product->is_type( 'variation' ) ) {
+							$product->set_catalog_visibility( 'hidden' );
+						}
+						$product->delete_meta_data( '_digitalogic_patris_publish_ready_at' );
+						try {
+							$product->save();
+						} catch ( Throwable $exception ) {
+							$this->append_detail( $result, $code, 'draft_write_failed' );
+							++$result['failed'];
+							continue;
+						}
+						if ( $was_published ) {
+							--$result['preserved_published'];
+						}
+						$this->flush_product_caches( $product->get_id() );
+					}
 				}
 			}
 
@@ -1621,6 +1639,23 @@ final class Digitalogic_Patris_Catalog_Materializer {
 		) {
 			$gates[] = 'shipping_price_per_kg_currency';
 		}
+		if (
+			! array_key_exists( 'markup_percent', $record )
+			|| null === $record['markup_percent']
+			|| ! is_numeric( $record['markup_percent'] )
+			|| $this->number( $record['markup_percent'] ) < 0
+		) {
+			$gates[] = 'markup_percent';
+		}
+		if ( $this->number( $record['irt_per_cny'] ?? null ) <= 0 ) {
+			$gates[] = 'irt_per_cny';
+		}
+		if (
+			'' === trim( (string) ( $record['pricing_catalog_revision'] ?? '' ) )
+			|| '' === trim( (string) ( $record['pricing_catalog_status'] ?? '' ) )
+		) {
+			$gates[] = 'pricing_assignment';
+		}
 		if ( ! empty( $record['warnings'] ) ) {
 			$gates[] = 'patris_warnings';
 		}
@@ -1636,8 +1671,12 @@ final class Digitalogic_Patris_Catalog_Materializer {
 		if ( $this->number( $product->get_stock_quantity() ) <= 0 ) {
 			$gates[] = 'woocommerce_stock';
 		}
-		if ( $this->number( $product->get_regular_price() ) <= 0 ) {
+		if ( $this->number( $product->get_regular_price() ) <= 0 || $this->number( $product->get_price() ) <= 0 ) {
 			$gates[] = 'woocommerce_price';
+		}
+		$image_id = (int) $product->get_image_id();
+		if ( $image_id <= 0 || false === wp_get_attachment_url( $image_id ) ) {
+			$gates[] = 'woocommerce_image';
 		}
 		foreach ( array( 'name_fa', 'short_description_fa', 'seo_title_fa', 'seo_description_fa', 'focus_keyword_fa' ) as $field ) {
 			if ( '' === trim( wp_strip_all_tags( $enrichment[ $field ] ) ) ) {

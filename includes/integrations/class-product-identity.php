@@ -149,7 +149,7 @@ final class Digitalogic_Product_Identity {
 	}
 
 	/**
-	 * Add leaf Code as SKU/MPN without replacing offers or other schema data.
+	 * Add reviewed identities and remove only an impossible offer for unpriced products.
 	 *
 	 * @param array      $entity Existing WooCommerce or Rank Math Product entity.
 	 * @param WC_Product $product Product when supplied by the integration.
@@ -165,6 +165,17 @@ final class Digitalogic_Product_Identity {
 		if ( ! $product instanceof WC_Product ) {
 			return $entity;
 		}
+		$patris_name = $this->get_product_patris_name( $product );
+		if ( '' !== $patris_name ) {
+			$entity['alternateName'] = $patris_name;
+		}
+		$effective_price = trim( (string) $product->get_price() );
+		if ( '' === $effective_price || $this->is_zero_decimal( $effective_price ) ) {
+			unset( $entity['offers'] );
+		} elseif ( isset( $entity['offers'] ) ) {
+			$entity['offers'] = $this->normalize_toman_offer( $entity['offers'] );
+		}
+
 		$code = trim( (string) $product->get_meta( Digitalogic_Product_Identifier_Resolver::PATRIS_CODE_META, true ) );
 		if ( '' === $code || (string) $product->get_sku() !== $code ) {
 			return $entity;
@@ -176,6 +187,123 @@ final class Digitalogic_Product_Identity {
 		}
 
 		return $entity;
+	}
+
+	/**
+	 * Convert the store's Toman offer into the equivalent ISO 4217 Rial offer.
+	 *
+	 * @param mixed $offer Offer, price specification, or a list of offers.
+	 * @param bool  $inherited_toman Whether a parent object declared IRT.
+	 * @return mixed
+	 */
+	private function normalize_toman_offer( $offer, $inherited_toman = false ) {
+		$valid                    = true;
+		$contains_converted_price = false;
+		$normalized               = $this->normalize_toman_offer_node(
+			$offer,
+			$inherited_toman,
+			$valid,
+			$contains_converted_price
+		);
+
+		return $valid ? $normalized : $offer;
+	}
+
+	/**
+	 * Normalize one offer subtree while sharing an all-or-nothing validity flag.
+	 *
+	 * @param mixed $offer Offer node or list.
+	 * @param bool  $inherited_toman Whether the parent declared IRT.
+	 * @param bool  $valid Whether every inherited Toman price is canonical.
+	 * @param bool  $contains_converted_price Whether this subtree converted a price.
+	 * @return mixed
+	 */
+	private function normalize_toman_offer_node( $offer, $inherited_toman, &$valid, &$contains_converted_price ) {
+		if ( ! is_array( $offer ) ) {
+			return $offer;
+		}
+		if ( array_is_list( $offer ) ) {
+			$normalized = array();
+			foreach ( $offer as $item ) {
+				$child_converted          = false;
+				$normalized[]             = $this->normalize_toman_offer_node( $item, $inherited_toman, $valid, $child_converted );
+				$contains_converted_price = $contains_converted_price || $child_converted;
+			}
+
+			return $normalized;
+		}
+
+		$declared_currency = strtoupper( trim( (string) ( $offer['priceCurrency'] ?? '' ) ) );
+		$is_toman          = '' === $declared_currency ? $inherited_toman : 'IRT' === $declared_currency;
+		if ( isset( $offer['priceSpecification'] ) ) {
+			$child_converted             = false;
+			$offer['priceSpecification'] = $this->normalize_toman_offer_node( $offer['priceSpecification'], $is_toman, $valid, $child_converted );
+			$contains_converted_price    = $contains_converted_price || $child_converted;
+		}
+		if ( isset( $offer['offers'] ) ) {
+			$child_converted          = false;
+			$offer['offers']          = $this->normalize_toman_offer_node( $offer['offers'], $is_toman, $valid, $child_converted );
+			$contains_converted_price = $contains_converted_price || $child_converted;
+		}
+		if ( ! $valid || ! $is_toman ) {
+			return $offer;
+		}
+
+		foreach ( array( 'price', 'lowPrice', 'highPrice' ) as $field ) {
+			if ( array_key_exists( $field, $offer ) ) {
+				$converted       = false;
+				$offer[ $field ] = $this->multiply_decimal_by_ten( $offer[ $field ], $converted );
+				if ( ! $converted ) {
+					$valid = false;
+					return $offer;
+				}
+				$contains_converted_price = true;
+			}
+		}
+		if ( $contains_converted_price ) {
+			$offer['priceCurrency'] = 'IRR';
+		}
+
+		return $offer;
+	}
+
+	/**
+	 * Multiply one nonnegative canonical decimal by ten without float drift.
+	 *
+	 * @param mixed $value Decimal value.
+	 * @param bool  $converted Whether conversion succeeded.
+	 * @return mixed
+	 */
+	private function multiply_decimal_by_ten( $value, &$converted ) {
+		$converted = false;
+		$text      = trim( (string) $value );
+		if ( ! preg_match( '/^([0-9]+)(?:\.([0-9]+))?$/', $text, $matches ) ) {
+			return $value;
+		}
+		$converted = true;
+
+		$whole    = ltrim( $matches[1], '0' );
+		$whole    = '' === $whole ? '0' : $whole;
+		$fraction = $matches[2] ?? '';
+		if ( '' === $fraction ) {
+			return '0' === $whole ? '0' : $whole . '0';
+		}
+
+		$result_whole = ltrim( $whole . $fraction[0], '0' );
+		$result_whole = '' === $result_whole ? '0' : $result_whole;
+		$result_scale = rtrim( substr( $fraction, 1 ), '0' );
+
+		return '' === $result_scale ? $result_whole : $result_whole . '.' . $result_scale;
+	}
+
+	/**
+	 * Determine whether a canonical WooCommerce decimal represents zero.
+	 *
+	 * @param string $value Canonical decimal text.
+	 * @return bool
+	 */
+	private function is_zero_decimal( $value ) {
+		return 1 === preg_match( '/^0+(?:\.0+)?$/', $value );
 	}
 
 	/**

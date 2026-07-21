@@ -206,6 +206,8 @@ final class ProductIdentitySearchTest extends TestCase {
 			'post_parent'  => 10,
 			'meta'         => array(
 				'_sku'                             => 'PAT-11',
+				'_price'                           => '100',
+				'_regular_price'                   => '100',
 				'_digitalogic_patris_product_code' => 'PAT-11',
 				'_digitalogic_patris_name'         => 'Patris child',
 				'_digitalogic_persian_name'        => 'فرزند فارسی',
@@ -229,6 +231,7 @@ final class ProductIdentitySearchTest extends TestCase {
 		$this->assertSame( 'فرزند فارسی', $data['digitalogic_persian_name'] );
 		$this->assertSame( 'PAT-11', $entity['sku'] );
 		$this->assertSame( 'HC-06-DIP', $entity['mpn'] );
+		$this->assertSame( 'Patris child', $entity['alternateName'] );
 		$this->assertSame( array( 'price' => '100' ), $entity['offers'] );
 
 		ob_start();
@@ -291,6 +294,252 @@ final class ProductIdentitySearchTest extends TestCase {
 			),
 			$order_item->meta[0]
 		);
+	}
+
+	public function test_unpriced_product_keeps_honest_identity_without_a_fabricated_offer(): void {
+		$GLOBALS['digitalogic_test_posts'][12] = array(
+			'post_type'    => 'product',
+			'post_status'  => 'publish',
+			'product_type' => 'simple',
+			'post_title'   => 'محصول بدون قیمت',
+			'meta'         => array(
+				'_sku'                             => 'PAT-12',
+				'_digitalogic_patris_product_code' => 'PAT-12',
+				'_digitalogic_patris_name'         => 'Unpriced Patris product',
+			),
+		);
+
+		$product  = wc_get_product( 12 );
+		$identity = ( new ReflectionClass( Digitalogic_Product_Identity::class ) )->newInstanceWithoutConstructor();
+		$entity   = $identity->add_product_schema_identity(
+			array(
+				'@type'  => 'Product',
+				'name'   => 'محصول بدون قیمت',
+				'offers' => array(
+					'@type'         => 'Offer',
+					'price'         => '',
+					'priceCurrency' => 'IRT',
+				),
+			),
+			$product
+		);
+
+		$this->assertSame( 'PAT-12', $entity['sku'] );
+		$this->assertSame( 'Unpriced Patris product', $entity['alternateName'] );
+		$this->assertArrayNotHasKey( 'offers', $entity );
+	}
+
+	public function test_zero_priced_product_does_not_emit_an_offer(): void {
+		$GLOBALS['digitalogic_test_posts'][16] = array(
+			'post_type'    => 'product',
+			'post_status'  => 'publish',
+			'product_type' => 'simple',
+			'post_title'   => 'Zero priced product',
+			'meta'         => array(
+				'_sku'                             => 'PAT-16',
+				'_price'                           => '000.000',
+				'_regular_price'                   => '000.000',
+				'_digitalogic_patris_product_code' => 'PAT-16',
+			),
+		);
+
+		$product  = wc_get_product( 16 );
+		$identity = ( new ReflectionClass( Digitalogic_Product_Identity::class ) )->newInstanceWithoutConstructor();
+		$entity   = $identity->add_product_schema_identity(
+			array(
+				'@type'  => 'Product',
+				'offers' => array(
+					'@type'         => 'Offer',
+					'price'         => '0',
+					'priceCurrency' => 'IRT',
+				),
+			),
+			$product
+		);
+
+		$this->assertArrayNotHasKey( 'offers', $entity );
+	}
+
+	public function test_toman_offer_uses_equivalent_iso_rial_price_without_float_drift(): void {
+		$GLOBALS['digitalogic_test_posts'][13] = array(
+			'post_type'    => 'product',
+			'post_status'  => 'publish',
+			'product_type' => 'simple',
+			'post_title'   => 'محصول قیمت‌دار',
+			'meta'         => array(
+				'_sku'                             => 'PAT-13',
+				'_price'                           => '123.45',
+				'_regular_price'                   => '123.45',
+				'_digitalogic_patris_product_code' => 'PAT-13',
+				'_digitalogic_patris_name'         => 'Priced Patris product',
+			),
+		);
+
+		$product  = wc_get_product( 13 );
+		$identity = ( new ReflectionClass( Digitalogic_Product_Identity::class ) )->newInstanceWithoutConstructor();
+		$entity   = $identity->add_product_schema_identity(
+			array(
+				'@type'  => 'Product',
+				'offers' => array(
+					'@type'         => 'Offer',
+					'price'         => '123.45',
+					'priceCurrency' => 'IRT',
+				),
+			),
+			$product
+		);
+
+		$this->assertSame( '1234.5', $entity['offers']['price'] );
+		$this->assertSame( 'IRR', $entity['offers']['priceCurrency'] );
+	}
+
+	public function test_noncanonical_toman_offer_is_not_relabelled_as_rial(): void {
+		$GLOBALS['digitalogic_test_posts'][15] = array(
+			'post_type'    => 'product',
+			'post_status'  => 'publish',
+			'product_type' => 'simple',
+			'post_title'   => 'محصول قیمت‌دار',
+			'meta'         => array(
+				'_price'                           => '123.45',
+				'_regular_price'                   => '123.45',
+				'_digitalogic_patris_product_code' => 'PAT-15',
+			),
+		);
+
+		$product  = wc_get_product( 15 );
+		$identity = ( new ReflectionClass( Digitalogic_Product_Identity::class ) )->newInstanceWithoutConstructor();
+		$offer    = array(
+			'@type'         => 'Offer',
+			'price'         => '1,234',
+			'priceCurrency' => 'IRT',
+		);
+		$entity   = $identity->add_product_schema_identity(
+			array(
+				'@type'  => 'Product',
+				'offers' => $offer,
+			),
+			$product
+		);
+
+		$this->assertSame( $offer, $entity['offers'] );
+	}
+
+	public function test_nested_noncanonical_toman_price_preserves_the_entire_offer_subtree(): void {
+		$GLOBALS['digitalogic_test_posts'][17] = array(
+			'post_type'    => 'product',
+			'post_status'  => 'publish',
+			'product_type' => 'variable',
+			'post_title'   => 'Atomic offer conversion',
+			'meta'         => array(
+				'_price'         => '10',
+				'_regular_price' => '10',
+			),
+		);
+
+		$product  = wc_get_product( 17 );
+		$identity = ( new ReflectionClass( Digitalogic_Product_Identity::class ) )->newInstanceWithoutConstructor();
+		$offer    = array(
+			'@type'         => 'AggregateOffer',
+			'lowPrice'      => '10',
+			'highPrice'     => '20',
+			'priceCurrency' => 'IRT',
+			'offers'        => array(
+				array(
+					'@type' => 'Offer',
+					'price' => '1,234',
+				),
+			),
+		);
+		$entity   = $identity->add_product_schema_identity(
+			array(
+				'@type'  => 'Product',
+				'offers' => $offer,
+			),
+			$product
+		);
+
+		$this->assertSame( $offer, $entity['offers'] );
+	}
+
+	public function test_declared_toman_container_with_only_nested_prices_is_relabelled_atomically(): void {
+		$GLOBALS['digitalogic_test_posts'][18] = array(
+			'post_type'    => 'product',
+			'post_status'  => 'publish',
+			'product_type' => 'variable',
+			'post_title'   => 'Nested offers',
+			'meta'         => array(
+				'_price'         => '12.34',
+				'_regular_price' => '12.34',
+			),
+		);
+
+		$product  = wc_get_product( 18 );
+		$identity = ( new ReflectionClass( Digitalogic_Product_Identity::class ) )->newInstanceWithoutConstructor();
+		$entity   = $identity->add_product_schema_identity(
+			array(
+				'@type'  => 'Product',
+				'offers' => array(
+					'@type'         => 'AggregateOffer',
+					'priceCurrency' => 'IRT',
+					'offers'        => array(
+						array(
+							'@type' => 'Offer',
+							'price' => '12.34',
+						),
+					),
+				),
+			),
+			$product
+		);
+
+		$this->assertSame( 'IRR', $entity['offers']['priceCurrency'] );
+		$this->assertSame( '123.4', $entity['offers']['offers'][0]['price'] );
+		$this->assertSame( 'IRR', $entity['offers']['offers'][0]['priceCurrency'] );
+	}
+
+	public function test_code_less_variable_parent_normalizes_nested_offers_and_exposes_family_name(): void {
+		$GLOBALS['digitalogic_test_posts'][14] = array(
+			'post_type'    => 'product',
+			'post_status'  => 'publish',
+			'product_type' => 'variable',
+			'post_title'   => 'خانواده حسگر گاز',
+			'meta'         => array(
+				'_price'                          => '100',
+				'_digitalogic_patris_family_name' => 'MQ gas sensor family',
+			),
+		);
+
+		$product  = wc_get_product( 14 );
+		$identity = ( new ReflectionClass( Digitalogic_Product_Identity::class ) )->newInstanceWithoutConstructor();
+		$entity   = $identity->add_product_schema_identity(
+			array(
+				'@type'  => 'Product',
+				'offers' => array(
+					'@type'         => 'AggregateOffer',
+					'lowPrice'      => '10.01',
+					'highPrice'     => '20',
+					'priceCurrency' => 'IRT',
+					'offers'        => array(
+						array(
+							'@type'              => 'Offer',
+							'priceSpecification' => array(
+								'@type' => 'UnitPriceSpecification',
+								'price' => '10.01',
+							),
+						),
+					),
+				),
+			),
+			$product
+		);
+
+		$this->assertSame( 'MQ gas sensor family', $entity['alternateName'] );
+		$this->assertArrayNotHasKey( 'sku', $entity );
+		$this->assertSame( '100.1', $entity['offers']['lowPrice'] );
+		$this->assertSame( '200', $entity['offers']['highPrice'] );
+		$this->assertSame( 'IRR', $entity['offers']['priceCurrency'] );
+		$this->assertSame( '100.1', $entity['offers']['offers'][0]['priceSpecification']['price'] );
+		$this->assertSame( 'IRR', $entity['offers']['offers'][0]['priceSpecification']['priceCurrency'] );
 	}
 
 	public function test_product_search_includes_both_names_code_serial_part_model_and_variations(): void {
