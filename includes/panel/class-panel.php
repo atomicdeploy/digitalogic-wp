@@ -29,7 +29,9 @@ class Digitalogic_Panel {
             self::$instance = new self();
         }
 
-        self::$instance->register_shipping_method_delivery_channel();
+        if (!self::$instance->is_wp_cli_request()) {
+            self::$instance->register_shipping_method_delivery_channel();
+        }
 
         return self::$instance;
     }
@@ -65,6 +67,12 @@ class Digitalogic_Panel {
             add_rewrite_rule($pattern, $target, 'top');
         }
 
+        // WP-CLI loads init too. Never flush here because third-party rewrite
+        // hooks may terminate the command before its requested action runs.
+        if ($this->is_wp_cli_request()) {
+            return;
+        }
+
         if (
             get_option(self::REWRITE_VERSION_OPTION) !== self::REWRITE_VERSION
             || !$this->stored_rewrite_rules_are_current($rules)
@@ -72,6 +80,10 @@ class Digitalogic_Panel {
             flush_rewrite_rules(false);
             update_option(self::REWRITE_VERSION_OPTION, self::REWRITE_VERSION, false);
         }
+    }
+
+    protected function is_wp_cli_request() {
+        return defined('WP_CLI') && WP_CLI;
     }
 
     private function rewrite_rules() {

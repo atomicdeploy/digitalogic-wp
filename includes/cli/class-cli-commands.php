@@ -555,6 +555,24 @@ class Digitalogic_CLI_Commands {
      *
      * ## OPTIONS
      *
+	 * [--view=<view>]
+	 * : Report view: warnings or price_list.
+	 *
+	 * [--category=<category>]
+	 * : Optional warning category key.
+	 *
+	 * [--page=<page>]
+	 * : One-based result page.
+	 *
+	 * [--per-page=<count>]
+	 * : Rows per page, bounded by the report engine.
+	 *
+	 * [--source-id=<id>]
+	 * : Optional exact source id; must be paired with --dataset.
+	 *
+	 * [--dataset=<dataset>]
+	 * : Optional exact source dataset; must be paired with --source-id.
+	 *
      * [--format=<format>]
      * : Output format.
      * ---
@@ -568,7 +586,8 @@ class Digitalogic_CLI_Commands {
      * ## EXAMPLES
      *
      *     wp digitalogic patris report
-     *     wp digitalogic patris report --format=json
+	 *     wp digitalogic patris report --view=warnings --page=1 --per-page=50
+	 *     wp digitalogic patris report --view=price_list --format=json
      *
      * @when after_wp_load
      */
