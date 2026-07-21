@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Added an explicit Patris storefront pricing policy and non-mutating `wp digitalogic pricing audit` command that report canonical Patris, WooCommerce regular, promotion, and effective prices separately.
 - Added a persisted, optional sticky first product column that follows the first visible/reordered column in RTL and LTR while keeping the selection control frozen beside it.
 - Added reusable Digitalogic browser error pages with responsive light/dark styling, English and Persian copy, RTL/LTR layout, safe recovery actions, and stable support references.
 - Added an opt-in Google Sheets product/pricing control workspace with bounded preview/apply writeback, exact Patris identity and revisions, append-only audit rows, guarded WooCommerce product writes, and an inactive credential-placeholder n8n proxy template.
@@ -30,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Prevented the custom Digits login and registration footer from blocking a PHP-FPM worker on remote WordPress.org translation discovery while preserving the locale already selected by WordPress.
 
 ### Changed
+- Patris price ingestion now preserves existing promotions by default, leaves variable-parent storefront prices derived from variations, and invalidates product caches after safe writes; promotion replacement requires the explicit `replace_sale` policy.
 - Patris catalog publication now fails closed and returns a managed leaf to hidden draft unless source and WooCommerce prices, stock and weight, reviewed WooCommerce media, currency-qualified freight, markup, exchange rate, pricing assignment, canonical shipping, identity, category, enrichment, and source warnings all pass their readiness gates.
 - Canonical `air_express` assignment now remains on the in-memory WooCommerce product through its final materializer save instead of risking a stale-object overwrite.
 - Product JSON-LD adds the reviewed English Patris leaf or family name as `alternateName`, removes impossible offers for empty or zero WooCommerce prices, and atomically converts complete Toman offer subtrees to their exact ISO `IRR` equivalent without float drift or partial currency relabelling.

@@ -54,7 +54,7 @@ final class PatrisFeedResolutionTest extends TestCase {
         $this->assertSame(array(701), $GLOBALS['digitalogic_test_wc_product_saves']);
         $this->assertSame('keep-me', $GLOBALS['digitalogic_test_posts'][701]['meta']['_existing_sentinel']);
         $this->assertSame('PATRIS-ONLY', $GLOBALS['digitalogic_test_posts'][701]['meta']['_digitalogic_patris_product_code']);
-        $this->assertSame('0.24', $GLOBALS['digitalogic_test_wc_products'][701]->weight);
+        $this->assertSame('0.24', wc_get_product(701)->get_weight());
 
         $snapshot = get_option('digitalogic_patris_feed_products');
         $this->assertSame('preserve-in-raw-snapshot', $snapshot['PATRIS-ONLY']['raw']['source_marker']);

@@ -538,23 +538,10 @@ class Digitalogic_Patris_Feed {
             $product->delete_meta_data('_stock');
         }
 
-        if (array_key_exists('final_price', $data) && null !== $data['final_price']) {
-            $final_price = $data['final_price'];
-            $stock_unavailable = array_key_exists('total_stock', $data)
-                && null !== $data['total_stock']
-                && $data['total_stock'] <= 0;
-            $should_zero = $final_price <= 0 || $stock_unavailable;
-            $product->set_regular_price($should_zero ? '0' : (string) $final_price);
-            $product->set_price($should_zero ? '0' : (string) $final_price);
-            $product->update_meta_data('_digitalogic_patris_price_status', $should_zero ? 'zeroed' : 'priced');
-        } else {
-            $product->set_regular_price('');
-            $product->set_price('');
-            $product->set_sale_price('');
-            $product->update_meta_data('_digitalogic_patris_price_status', 'unpriced');
-        }
-
+        $price_policy = Digitalogic_Patris_Price_Policy::instance();
+        $price_policy->apply($product, $data);
         $product->save();
+        $price_policy->invalidate($product);
     }
 
     private function sync_product_meta($product, $data, $field, $meta_key, $encode_json, &$null_fields, &$missing_fields) {
