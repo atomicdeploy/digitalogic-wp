@@ -11,50 +11,48 @@ standalone platform rewrite is ready, the live panel route is:
 https://digitalogic.ir/panel/
 ```
 
-## Authentication Flow
+## Integrated Authentication Flow
 
-1. WordPress verifies the current admin session and capability.
-2. WordPress creates a one-time handoff code valid for 120 seconds.
-3. WordPress redirects to `/panel/?code=...` for the in-site panel, or to an
-   external `/auth/wordpress` route only when a different panel URL is
-   configured deliberately.
-4. Laravel consumes the code with `POST /wp-json/digitalogic-panel/v1/session/consume`.
-5. Laravel creates its own app session mapped to the returned WordPress user.
+The same-origin `/panel/` route uses the existing WordPress login cookie and
+capability system directly. It does not create a one-time handoff code, pass a
+panel token, or create a second Laravel identity/session.
 
-Laravel request:
+1. WordPress handles `/panel/` and restores the normal WordPress user session.
+2. The plugin verifies `manage_woocommerce` before rendering or booting panel
+   code.
+3. A bundled Laravel application can be booted in the same PHP process through
+   `bootstrap/app.php`; WordPress functions, the current user, WooCommerce, and
+   the existing WebSocket configuration remain available to that process.
+4. Panel commands continue through the shared command dispatcher, whether the
+   transport is WebSocket, AJAX, or an in-process Laravel kernel call.
 
-```php
-$base = 'https://digitalogic.ir/wp-json/digitalogic-panel/v1';
-
-$session = Http::withHeaders([
-    'X-Digitalogic-Panel-Token' => config('services.digitalogic.token'),
-])->post($base . '/session/consume', [
-    'code' => $request->query('code'),
-])->throw()->json('data');
-```
-
-The response includes the WordPress user, selected capabilities, return target,
-WordPress site URLs, cookie names/domain, and shared theme tokens.
+External panel origins, one-time handoff endpoints, panel tokens, and a second
+Laravel identity/session are deliberately unsupported.
 
 ## Minimal WordPress Bootstrap
 
-For routes that need to validate WordPress cookies directly, Laravel should load
-WordPress without rendering the front-end theme:
+If Laravel becomes the outer request entry point, it must bootstrap WordPress
+without rendering the front-end theme and then use WordPress authorization
+directly:
 
 ```php
 define('WP_USE_THEMES', false);
 require base_path('../wp/wp-load.php');
+
+if (! is_user_logged_in() || ! current_user_can('manage_woocommerce')) {
+    abort(403);
+}
 ```
 
-Avoid loading front-end routes or templates from Laravel. For high-frequency
-panel actions, prefer the bridge endpoints and command dispatcher instead of
-booting the full front-end request path. That avoids theme rendering, Elementor
-frontend work, and unnecessary WooCommerce page hooks.
+Do not copy WordPress users into a Laravel guard or pass WordPress identity in
+application tokens. Avoid loading front-end routes or templates from Laravel;
+boot only the WordPress runtime needed for authentication, capabilities,
+WooCommerce services, the command dispatcher, and WebSocket configuration.
 
 ## Shared UI
 
-Laravel should call `GET /wp-json/digitalogic-panel/v1/theme` with the panel
-token and use those values for:
+Laravel runs inside the WordPress request and can read the shared theme values
+through WordPress APIs and the Digitalogic classes directly, including:
 
 - logo and site icon
 - RTL/LTR direction
@@ -79,26 +77,17 @@ falls back to authenticated `admin-ajax.php` through the same command dispatcher
 
 For direct WordPress-to-Laravel calls, configure the local app path with either:
 
+- the default bundled `laravel/` directory inside the plugin
 - the `digitalogic_laravel_app_path` option
 - the `digitalogic_laravel_app_path` filter
 
-When configured, the bridge can boot `bootstrap/app.php` and invoke Laravel's
-HTTP kernel without using a public vhost or reserved port.
+On every authorized `/panel/` request, the bridge boots `bootstrap/app.php` in
+the current WordPress process. It can then invoke Laravel's HTTP kernel without
+using a public vhost or reserved port. Until the Laravel source is present, the
+existing Vue panel remains available and a `digitalogic_laravel_boot_failed`
+hook receives the explicit unavailable error.
 
-Token-protected bridge endpoints:
-
-- `GET /wp-json/digitalogic-panel/v1/laravel/status`
-- `POST /wp-json/digitalogic-panel/v1/laravel/request`
-
-Example request:
-
-```json
-{
-  "method": "POST",
-  "path": "/internal/products/sync",
-  "data": {"limit": 50}
-}
-```
-
-If no Laravel app path is configured, the status endpoint reports
-`available: false` and request calls return `503`.
+The PHP bridge boots Laravel and invokes its HTTP kernel directly. No public
+Laravel bridge REST endpoint is registered. If no bundled Laravel app path is
+configured, the in-process call returns a `503` `WP_Error` with code
+`digitalogic_laravel_unavailable`.

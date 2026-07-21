@@ -16,7 +16,7 @@ does not use the request to migrate or persist them.
 
 The credential is not accepted by any other route or method. It is also not a
 Patris push token, product-sync receiver secret, webhook secret, WooCommerce
-consumer key, WordPress login, panel token, or WebSocket token. Only an exact
+consumer key, WordPress login, or WebSocket token. Only an exact
 `Authorization: Bearer ...` header is read. Query parameters, cookies, URL
 userinfo, Basic authentication, legacy headers, and product-sync headers do not
 act as this machine identity.

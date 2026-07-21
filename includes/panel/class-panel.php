@@ -1,6 +1,7 @@
 <?php
 /**
- * In-site Vue panel served from /panel while the standalone Laravel panel is prepared.
+ * Integrated Vue panel served from /panel with WordPress and bundled Laravel
+ * available in the same PHP process.
  */
 
 if (!defined('ABSPATH')) {
@@ -13,7 +14,7 @@ class Digitalogic_Panel {
     private const PATH_VAR = 'digitalogic_panel_path';
     private const LEGACY_VAR = 'digitalogic_panel_legacy';
     private const REWRITE_VERSION_OPTION = 'digitalogic_panel_rewrite_version';
-    private const REWRITE_VERSION = '20260617-panel';
+    private const REWRITE_VERSION = '20260720-panel-self-heal';
     private const EVENT_OPTION = 'digitalogic_panel_events';
     private const EVENT_SEQUENCE_OPTION = 'digitalogic_panel_event_sequence';
     private const EVENT_LOCK_NAME = 'digitalogic_panel_events_v1';
@@ -59,15 +60,42 @@ class Digitalogic_Panel {
     }
 
     public function register_route() {
-        add_rewrite_rule('^panel/?$', 'index.php?' . self::QUERY_VAR . '=1', 'top');
-        add_rewrite_rule('^panel/(.+)/?$', 'index.php?' . self::QUERY_VAR . '=1&' . self::PATH_VAR . '=$matches[1]', 'top');
-        add_rewrite_rule('^panell/?$', 'index.php?' . self::QUERY_VAR . '=1&' . self::LEGACY_VAR . '=1', 'top');
-        add_rewrite_rule('^panell/(.+)/?$', 'index.php?' . self::QUERY_VAR . '=1&' . self::LEGACY_VAR . '=1&' . self::PATH_VAR . '=$matches[1]', 'top');
+        $rules = $this->rewrite_rules();
+        foreach ($rules as $pattern => $target) {
+            add_rewrite_rule($pattern, $target, 'top');
+        }
 
-        if (get_option(self::REWRITE_VERSION_OPTION) !== self::REWRITE_VERSION) {
+        if (
+            get_option(self::REWRITE_VERSION_OPTION) !== self::REWRITE_VERSION
+            || !$this->stored_rewrite_rules_are_current($rules)
+        ) {
             flush_rewrite_rules(false);
             update_option(self::REWRITE_VERSION_OPTION, self::REWRITE_VERSION, false);
         }
+    }
+
+    private function rewrite_rules() {
+        return array(
+            '^panel/?$' => 'index.php?' . self::QUERY_VAR . '=1',
+            '^panel/(.+)/?$' => 'index.php?' . self::QUERY_VAR . '=1&' . self::PATH_VAR . '=$matches[1]',
+            '^panell/?$' => 'index.php?' . self::QUERY_VAR . '=1&' . self::LEGACY_VAR . '=1',
+            '^panell/(.+)/?$' => 'index.php?' . self::QUERY_VAR . '=1&' . self::LEGACY_VAR . '=1&' . self::PATH_VAR . '=$matches[1]',
+        );
+    }
+
+    private function stored_rewrite_rules_are_current($expected_rules) {
+        $stored_rules = get_option('rewrite_rules', array());
+        if (!is_array($stored_rules)) {
+            return false;
+        }
+
+        foreach ($expected_rules as $pattern => $target) {
+            if (!isset($stored_rules[$pattern]) || $stored_rules[$pattern] !== $target) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     public function register_query_vars($vars) {
@@ -117,6 +145,11 @@ class Digitalogic_Panel {
                 esc_html__('Forbidden', 'digitalogic'),
                 array('response' => 403)
             );
+        }
+
+        $laravel = Digitalogic_Laravel_Bridge::instance()->boot_for_panel();
+        if (is_wp_error($laravel)) {
+            do_action('digitalogic_laravel_boot_failed', $laravel);
         }
 
         $this->enqueue_assets();
@@ -250,8 +283,6 @@ class Digitalogic_Panel {
             'cli' => array(
                 'websocket' => 'wp digitalogic websocket serve --host=127.0.0.1 --port=8090 --allow-root',
             'websocket_token' => 'wp digitalogic websocket token --allow-root',
-            'panel_token' => 'wp digitalogic panel token --allow-root',
-            'panel_rotate' => 'wp digitalogic panel token --rotate --allow-root',
             'panel_broadcast' => 'wp digitalogic panel broadcast --message="Hello panel" --level=success --allow-root',
             'patris_sync' => 'wp digitalogic patris sync --allow-root',
             'patris_report' => 'wp digitalogic patris report --format=table --allow-root',
@@ -270,7 +301,8 @@ class Digitalogic_Panel {
             ),
             'bridge' => array(
                 'panel_url' => Digitalogic_Laravel_Bridge::instance()->get_panel_url(),
-                'rest_url' => rest_url('digitalogic-panel/v1/'),
+                'mode' => 'in_process',
+                'auth' => 'wordpress_session',
                 'wordpress_loaded' => true,
                 'laravel_bootstrap' => file_exists(DIGITALOGIC_PLUGIN_DIR . 'laravel/bootstrap/app.php'),
             ),
@@ -293,7 +325,6 @@ class Digitalogic_Panel {
                 'admin' => admin_url(),
                 'ajax' => admin_url('admin-ajax.php'),
                 'rest' => rest_url('digitalogic/v1/'),
-                'bridge_rest' => rest_url('digitalogic-panel/v1/'),
             ),
             'websocket' => array(
                 'enabled' => !empty($ws['enabled']),
@@ -302,6 +333,8 @@ class Digitalogic_Panel {
                 'ajax_proxy_enabled' => !empty($ws['ajax_proxy_enabled']),
             ),
             'bridge' => array(
+                'mode' => 'in_process',
+                'auth' => 'wordpress_session',
                 'wordpress_bootstrap' => ABSPATH,
                 'laravel_bootstrap' => file_exists(DIGITALOGIC_PLUGIN_DIR . 'laravel/bootstrap/app.php'),
                 'theme_shared' => true,
