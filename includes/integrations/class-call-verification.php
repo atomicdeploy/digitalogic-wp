@@ -27,19 +27,24 @@ final class Digitalogic_Call_Verification {
 	private const ROUTE                 = '/call-verification';
 	private const PBX_ROUTE             = '/call-verification/pbx-confirm';
 	private const PBX_CANONICAL_PATH    = '/wp-json/digitalogic/v1/call-verification/pbx-confirm';
+	private const PBX_PENDING_ROUTE     = '/call-verification/pbx-pending';
+	private const PBX_PENDING_PATH      = '/wp-json/digitalogic/v1/call-verification/pbx-pending';
 	private const PBX_KEY_ID            = 'v1';
 	private const SITE_ID               = 'digitalogic.ir';
 	private const ACCESS_DID            = '+982166754123';
 	private const DIAL_DISPLAY          = '021-66754123';
 	private const DIAL_TEL              = '+982166754123';
-	private const IVR_OPTION            = '2';
-	private const CHALLENGE_TTL         = 600;
+	private const CHALLENGE_TTL         = 120;
 	private const CONSUME_TTL           = 120;
 	private const COOKIE_NAME           = 'digitalogic_call_binding';
 	private const CSRF_HEADER           = 'x-digitalogic-csrf';
 	private const PBX_SKEW_SECONDS      = 60;
 	private const MAX_ACTIVE_PER_PHONE  = 3;
 	private const MAX_CONTACTS_PER_KIND = 10;
+	private const PBX_PENDING_LIMIT     = 20;
+	private const PBX_PENDING_WINDOW    = 60;
+	private const STATUS_RATE_LIMIT     = 8;
+	private const STATUS_RATE_WINDOW    = 3;
 	private const CLEANUP_ACTION        = 'digitalogic_pbx_cleanup';
 
 	/** @var self|null */
@@ -372,6 +377,16 @@ final class Digitalogic_Call_Verification {
 
 		register_rest_route(
 			self::REST_NAMESPACE,
+			self::PBX_PENDING_ROUTE,
+			array(
+				'methods'             => 'POST',
+				'callback'            => array( $this, 'pbx_pending' ),
+				'permission_callback' => array( $this, 'authorize_pbx_pending' ),
+			)
+		);
+
+		register_rest_route(
+			self::REST_NAMESPACE,
 			'/contacts',
 			array(
 				array(
@@ -511,7 +526,6 @@ final class Digitalogic_Call_Verification {
 					'display' => self::DIAL_DISPLAY,
 					'tel'     => self::DIAL_TEL,
 				),
-				'ivr_option'   => self::IVR_OPTION,
 			),
 			201
 		);
@@ -531,12 +545,24 @@ final class Digitalogic_Call_Verification {
 		if ( is_wp_error( $row ) ) {
 			return $row;
 		}
+		$status_rate = $this->rate_hit(
+			'status-3s',
+			self::lookup_hash( 'status', (string) $row->binding_mac . '|' . (string) $row->public_id ),
+			self::STATUS_RATE_LIMIT,
+			self::STATUS_RATE_WINDOW
+		);
+		if ( is_wp_error( $status_rate ) ) {
+			return $status_rate;
+		}
 
-		$row = $this->expire_if_needed( $row );
+		$row        = $this->expire_if_needed( $row );
+		$deadline   = 'verified' === $row->status ? (string) $row->consume_deadline : (string) $row->expires_at;
+		$expires_in = max( 0, (int) strtotime( $deadline . ' UTC' ) - time() );
 		return new WP_REST_Response(
 			array(
-				'success' => true,
-				'status'  => $row->status,
+				'success'    => true,
+				'status'     => $row->status,
+				'expires_in' => $expires_in,
 			),
 			200
 		);
@@ -701,6 +727,27 @@ final class Digitalogic_Call_Verification {
 	 * @return bool|WP_Error
 	 */
 	public function authorize_pbx( WP_REST_Request $request ) {
+		return $this->authorize_pbx_path( $request, self::PBX_CANONICAL_PATH );
+	}
+
+	/**
+	 * Validate the separately signed PBX pending-probe route.
+	 *
+	 * @param WP_REST_Request $request Request.
+	 * @return bool|WP_Error
+	 */
+	public function authorize_pbx_pending( WP_REST_Request $request ) {
+		return $this->authorize_pbx_path( $request, self::PBX_PENDING_PATH );
+	}
+
+	/**
+	 * Validate a signed PBX request for its exact canonical path.
+	 *
+	 * @param WP_REST_Request $request        Request.
+	 * @param string          $canonical_path Canonical REST path.
+	 * @return bool|WP_Error
+	 */
+	private function authorize_pbx_path( WP_REST_Request $request, string $canonical_path ) {
 		if ( ! self::is_schema_ready() ) {
 			return new WP_Error( 'digitalogic_pbx_schema', __( 'PBX verification is temporarily unavailable.', 'digitalogic' ), array( 'status' => 503 ) );
 		}
@@ -727,7 +774,7 @@ final class Digitalogic_Call_Verification {
 		if ( '' === $secret ) {
 			return new WP_Error( 'digitalogic_pbx_config', __( 'PBX verification is not configured.', 'digitalogic' ), array( 'status' => 503 ) );
 		}
-		$canonical = self::pbx_canonical_string( $timestamp, $nonce, $raw_body );
+		$canonical = self::pbx_canonical_string( $timestamp, $nonce, $raw_body, $canonical_path );
 		$expected  = hash_hmac( 'sha256', $canonical, $secret );
 		if ( ! hash_equals( $expected, $signature ) ) {
 			return new WP_Error( 'digitalogic_pbx_auth', __( 'PBX authentication failed.', 'digitalogic' ), array( 'status' => 401 ) );
@@ -755,6 +802,53 @@ final class Digitalogic_Call_Verification {
 		}
 
 		return true;
+	}
+
+	/**
+	 * Tell the PBX whether this ANI has a live browser challenge.
+	 *
+	 * The response deliberately contains only a boolean and never exposes a
+	 * challenge id, phone number, code, or expiry.
+	 *
+	 * @param WP_REST_Request $request Request.
+	 * @return WP_REST_Response|WP_Error
+	 */
+	public function pbx_pending( WP_REST_Request $request ) {
+		$payload   = json_decode( $request->get_body(), true );
+		$validated = self::validate_pbx_pending_payload( $payload, (int) $request->get_header( 'x-pbx-timestamp' ) );
+		if ( is_wp_error( $validated ) ) {
+			return new WP_REST_Response( array( 'pending' => false ), 400 );
+		}
+		$pending_rate = $this->rate_hit(
+			'pbx-pending-60s',
+			self::lookup_hash( 'pbx-pending', $validated['caller'] ),
+			self::PBX_PENDING_LIMIT,
+			self::PBX_PENDING_WINDOW
+		);
+		if ( is_wp_error( $pending_rate ) ) {
+			$is_limited = 'digitalogic_call_rate' === $pending_rate->get_error_code();
+			$response   = new WP_REST_Response( array( 'pending' => false ), $is_limited ? 429 : 503 );
+			if ( $is_limited ) {
+				$error_data  = $pending_rate->get_error_data();
+				$retry_after = is_array( $error_data ) ? max( 1, (int) ( $error_data['retry_after'] ?? 1 ) ) : 1;
+				$response->header( 'Retry-After', (string) $retry_after );
+			}
+			return $response;
+		}
+
+		global $wpdb;
+		$wpdb->last_error = '';
+		$count            = $wpdb->get_var(
+			$wpdb->prepare(
+				'SELECT COUNT(*) FROM ' . self::table( 'phone_challenges' ) . " WHERE phone_hash = %s AND status = 'pending' AND expires_at > UTC_TIMESTAMP()",
+				self::lookup_hash( 'phone', $validated['caller'] )
+			)
+		);
+		if ( '' !== (string) $wpdb->last_error || null === $count ) {
+			return new WP_REST_Response( array( 'pending' => false ), 503 );
+		}
+
+		return new WP_REST_Response( array( 'pending' => (int) $count > 0 ), 200 );
 	}
 
 	/**
@@ -1193,10 +1287,11 @@ final class Digitalogic_Call_Verification {
 	 * @param string $timestamp Unix timestamp.
 	 * @param string $nonce     Request nonce.
 	 * @param string $body      Exact raw request body.
+	 * @param string $path      Exact canonical REST path.
 	 * @return string
 	 */
-	public static function pbx_canonical_string( string $timestamp, string $nonce, string $body ): string {
-		return "v1\nPOST\n" . self::PBX_CANONICAL_PATH . "\n{$timestamp}\n{$nonce}\n" . hash( 'sha256', $body );
+	public static function pbx_canonical_string( string $timestamp, string $nonce, string $body, string $path = self::PBX_CANONICAL_PATH ): string {
+		return "v1\nPOST\n{$path}\n{$timestamp}\n{$nonce}\n" . hash( 'sha256', $body );
 	}
 
 	/**
@@ -1250,6 +1345,46 @@ final class Digitalogic_Call_Verification {
 			'call_id'  => $call_id,
 			'caller'   => $caller,
 			'code'     => $code,
+		);
+	}
+
+	/**
+	 * Validate the exact, code-free PBX pending-probe envelope.
+	 *
+	 * @param mixed $payload          Decoded JSON payload.
+	 * @param int   $signed_timestamp Authenticated request timestamp.
+	 * @return array{event_id:string,call_id:string,caller:string}|WP_Error
+	 */
+	public static function validate_pbx_pending_payload( $payload, int $signed_timestamp ) {
+		$required_keys = array( 'schema', 'site_id', 'event_id', 'call_id', 'called_number', 'caller_number', 'occurred_at' );
+		if ( ! is_array( $payload ) || count( $required_keys ) !== count( $payload )
+			|| ! empty( array_diff( $required_keys, array_keys( $payload ) ) )
+			|| ! empty( array_diff( array_keys( $payload ), $required_keys ) ) ) {
+			return new WP_Error( 'digitalogic_pbx_payload', __( 'PBX payload is invalid.', 'digitalogic' ) );
+		}
+
+		$event_id           = is_string( $payload['event_id'] ) ? $payload['event_id'] : '';
+		$call_id            = is_string( $payload['call_id'] ) ? $payload['call_id'] : '';
+		$called             = is_string( $payload['called_number'] ) ? self::normalize_called_did( $payload['called_number'] ) : '';
+		$caller             = is_string( $payload['caller_number'] ) ? Digitalogic_PBX_Phone::normalize_trusted_ani( $payload['caller_number'] ) : '';
+		$occurred_at        = is_string( $payload['occurred_at'] ) ? $payload['occurred_at'] : '';
+		$occurred_timestamp = 1 === preg_match( '/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/', $occurred_at ) ? strtotime( $occurred_at ) : false;
+		$valid              = 1 === preg_match( '/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i', $event_id )
+			&& 1 === preg_match( '/^[A-Za-z0-9_.:-]{1,128}$/', $call_id )
+			&& 'phone-verification-pending.v1' === $payload['schema']
+			&& self::SITE_ID === $payload['site_id']
+			&& self::ACCESS_DID === $called
+			&& '' !== $caller
+			&& false !== $occurred_timestamp
+			&& abs( $signed_timestamp - $occurred_timestamp ) <= 180;
+		if ( ! $valid ) {
+			return new WP_Error( 'digitalogic_pbx_payload', __( 'PBX payload is invalid.', 'digitalogic' ) );
+		}
+
+		return array(
+			'event_id' => $event_id,
+			'call_id'  => $call_id,
+			'caller'   => $caller,
 		);
 	}
 
@@ -1368,6 +1503,7 @@ final class Digitalogic_Call_Verification {
 					'verified'    => __( 'Phone number verified. Finishing…', 'digitalogic' ),
 					'expired'     => __( 'This code expired. Please request another code.', 'digitalogic' ),
 					'error'       => __( 'Verification could not be completed. Please try again.', 'digitalogic' ),
+					'remaining'   => __( '%s seconds remaining', 'digitalogic' ),
 					'confirmDrop' => __( 'Removing this contact also disables voice notifications. Continue?', 'digitalogic' ),
 				),
 			)
@@ -1447,7 +1583,7 @@ final class Digitalogic_Call_Verification {
 				<button type="button" class="button button-primary" data-call-start><?php esc_html_e( 'Create call code', 'digitalogic' ); ?></button>
 				<div class="digitalogic-call-instructions" data-call-instructions hidden>
 					<p><?php esc_html_e( 'Call', 'digitalogic' ); ?> <a dir="ltr" data-call-dial href="tel:<?php echo esc_attr( self::DIAL_TEL ); ?>"><?php echo esc_html( self::DIAL_DISPLAY ); ?></a></p>
-					<p><?php printf( esc_html__( 'Choose IVR option %s, then enter this six-digit code:', 'digitalogic' ), '<strong dir="ltr" data-call-ivr>' . esc_html( self::IVR_OPTION ) . '</strong>' ); ?></p>
+					<p><?php esc_html_e( 'Call from the same number you entered. When the caller-ID shortcut says «دوست عزیزم», enter this six-digit code. If no live challenge is found, the call continues to the operator.', 'digitalogic' ); ?></p>
 					<output class="digitalogic-call-code" data-call-code dir="ltr" aria-live="polite"></output>
 					<p data-call-status role="status" aria-live="polite" aria-atomic="true"><?php esc_html_e( 'Waiting for your call…', 'digitalogic' ); ?></p>
 					<button type="button" class="button-link" data-call-cancel><?php esc_html_e( 'Cancel', 'digitalogic' ); ?></button>
@@ -1488,7 +1624,7 @@ final class Digitalogic_Call_Verification {
 					<button type="button" class="button" data-call-start><?php esc_html_e( 'Create call code', 'digitalogic' ); ?></button>
 					<div class="digitalogic-call-instructions" data-call-instructions hidden aria-live="polite">
 						<p><?php esc_html_e( 'Call', 'digitalogic' ); ?> <a dir="ltr" href="tel:+982166754123">021-66754123</a>.</p>
-						<p><?php printf( esc_html__( 'Choose IVR option %s, then enter this six-digit code:', 'digitalogic' ), '<strong dir="ltr">2</strong>' ); ?></p>
+						<p><?php esc_html_e( 'Call from the same number you entered. When the caller-ID shortcut says «دوست عزیزم», enter this six-digit code. If no live challenge is found, the call continues to the operator.', 'digitalogic' ); ?></p>
 						<output class="digitalogic-call-code" data-call-code dir="ltr"></output>
 						<p data-call-status><?php esc_html_e( 'Waiting for your call…', 'digitalogic' ); ?></p>
 						<button type="button" class="button-link" data-call-cancel><?php esc_html_e( 'Cancel', 'digitalogic' ); ?></button>
@@ -1984,15 +2120,24 @@ final class Digitalogic_Call_Verification {
 		$placeholders = implode( ',', array_fill( 0, count( $values ), '%s' ) );
 		// This lookup runs only after live PBX proof and is restricted to
 		// explicit authentication identities. WooCommerce billing/order phone
-		// metadata is contact data and must never select a login account.
-		$sql              = "SELECT user_id FROM {$wpdb->usermeta} WHERE meta_key IN ('digits_phone','digits_phone_no') AND meta_value IN ({$placeholders})";
+		// metadata is contact data and must never select a login account. Fetch
+		// every Digits identity row for the small set of matching users so stale,
+		// partial, or contradictory key pairs can be rejected in PHP.
+		$sql              = "SELECT identity.user_id, identity.meta_key, identity.meta_value
+			FROM {$wpdb->usermeta} AS identity
+			INNER JOIN (
+				SELECT DISTINCT user_id FROM {$wpdb->usermeta}
+				WHERE meta_key IN ('digits_phone','digits_phone_no') AND meta_value IN ({$placeholders})
+			) AS candidate ON candidate.user_id = identity.user_id
+			WHERE identity.meta_key IN ('digits_phone','digits_phone_no')";
 		$wpdb->last_error = '';
-		$digits_ids       = $wpdb->get_col( $wpdb->prepare( $sql, ...$values ) );
-		if ( '' !== (string) $wpdb->last_error || ! is_array( $digits_ids ) ) {
+		$digits_rows      = $wpdb->get_results( $wpdb->prepare( $sql, ...$values ), ARRAY_A );
+		if ( '' !== (string) $wpdb->last_error || ! is_array( $digits_rows ) ) {
 			return new WP_Error( 'digitalogic_call_storage', __( 'Verification is temporarily unavailable.', 'digitalogic' ), array( 'status' => 503 ) );
 		}
-		$user_ids = array_values( array_unique( array_map( 'absint', array_merge( (array) $user_ids, (array) $digits_ids ) ) ) );
-		$user_ids = array_values( array_filter( $user_ids ) );
+		$digits_ids = self::consistent_digits_user_ids( $digits_rows, $phone );
+		$user_ids   = array_values( array_unique( array_map( 'absint', array_merge( (array) $user_ids, (array) $digits_ids ) ) ) );
+		$user_ids   = array_values( array_filter( $user_ids ) );
 		if ( 1 !== count( $user_ids ) ) {
 			$status = count( $user_ids ) > 1 ? 409 : 403;
 			return new WP_Error( 'digitalogic_call_account', __( 'No unique account is available for this verified number.', 'digitalogic' ), array( 'status' => $status ) );
@@ -2000,6 +2145,67 @@ final class Digitalogic_Call_Verification {
 
 		$user = get_userdata( $user_ids[0] );
 		return $user instanceof WP_User ? $user : new WP_Error( 'digitalogic_call_account', __( 'No unique account is available for this verified number.', 'digitalogic' ), array( 'status' => 403 ) );
+	}
+
+	/**
+	 * Keep only users whose two Digits identity keys agree with each other and
+	 * with the phone proven by the PBX call.
+	 *
+	 * @param array  $rows  Digits usermeta rows for candidate users.
+	 * @param string $phone Canonical challenged phone.
+	 * @return int[]
+	 */
+	private static function consistent_digits_user_ids( array $rows, string $phone ): array {
+		$phone = Digitalogic_PBX_Phone::normalize( $phone );
+		if ( '' === $phone ) {
+			return array();
+		}
+
+		$identities = array();
+		foreach ( $rows as $row ) {
+			$user_id = absint( is_array( $row ) ? ( $row['user_id'] ?? 0 ) : ( $row->user_id ?? 0 ) );
+			$key     = (string) ( is_array( $row ) ? ( $row['meta_key'] ?? '' ) : ( $row->meta_key ?? '' ) );
+			$value   = (string) ( is_array( $row ) ? ( $row['meta_value'] ?? '' ) : ( $row->meta_value ?? '' ) );
+			if ( $user_id < 1 || ! in_array( $key, array( 'digits_phone', 'digits_phone_no' ), true ) ) {
+				continue;
+			}
+			if ( ! isset( $identities[ $user_id ] ) ) {
+				$identities[ $user_id ] = array(
+					'digits_phone'    => array(),
+					'digits_phone_no' => array(),
+					'invalid'         => false,
+				);
+			}
+
+			$normalized = self::normalize_digits_phone_meta( $value );
+			if ( '' === $normalized ) {
+				$identities[ $user_id ]['invalid'] = true;
+				continue;
+			}
+			$identities[ $user_id ][ $key ][ $normalized ] = true;
+		}
+
+		$matches = array();
+		foreach ( $identities as $user_id => $identity ) {
+			$digits_phone = array_keys( $identity['digits_phone'] );
+			$phone_no     = array_keys( $identity['digits_phone_no'] );
+			if ( ! $identity['invalid'] && array( $phone ) === $digits_phone && array( $phone ) === $phone_no ) {
+				$matches[] = (int) $user_id;
+			}
+		}
+
+		return $matches;
+	}
+
+	/**
+	 * Normalize Digits' supported E.164, national, and significant-only forms.
+	 *
+	 * @param string $value Stored Digits metadata.
+	 * @return string
+	 */
+	private static function normalize_digits_phone_meta( string $value ): string {
+		$normalized = Digitalogic_PBX_Phone::normalize( $value );
+		return '' !== $normalized ? $normalized : Digitalogic_PBX_Phone::normalize( '0' . trim( $value ) );
 	}
 
 	/**

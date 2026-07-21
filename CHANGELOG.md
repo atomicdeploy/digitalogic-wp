@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.6.4
+
+- Replace the temporary public inbound verification menu with a caller-ID-gated shortcut for active 120-second challenges, preserving the original direct-to-operator call flow for everyone else.
+- Poll verified calls every 500 ms for immediate browser-bound login completion, with cancellation, expiry, replay, rate-limit, and stale-request safeguards.
+- Mix all verification speech with the reviewed low-volume PBX background music and keep code collection private inside AGI.
+
 ## 1.6.3
 
 - Expose the existing inbound-call login verification beneath the active Digits OTP resend control in the Woodmart sidebar, with singleton AJAX remounting, Persian/RTL and mobile containment, keyboard disclosure semantics, and live dial/IVR instructions.

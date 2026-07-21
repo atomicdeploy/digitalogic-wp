@@ -49,12 +49,28 @@ test('the call alternative is disclosure-safe and makes no request until start',
 	assert.match(source, /toggle\.setAttribute\('aria-expanded', panel\.hidden \? 'false' : 'true'\)/);
 });
 
-test('server-returned dial number, IVR option, and code populate the instructions', () => {
+test('server-returned dial number and code populate shortcut instructions without an invented IVR digit', () => {
 	assert.match(source, /dial\.textContent = display/);
 	assert.match(source, /dial\.setAttribute\('href', `tel:\$\{tel\}`\)/);
-	assert.match(source, /ivr\.textContent = String\(data\.ivr_option \|\| ''\)/);
 	assert.match(source, /code\.textContent = data\.code/);
 	assert.match(source, /body: JSON\.stringify\(\{ phone: phone\.value, purpose \}\)/);
+	assert.doesNotMatch(source, /ivr_option|ivr_path|data-call-ivr/);
+});
+
+test('polling is fast, visibility-aware, and keeps an absolute countdown', () => {
+	assert.match(source, /Number\(config\.pollMs\) \|\| 500/);
+	assert.match(source, /document\.addEventListener\('visibilitychange'/);
+	assert.match(source, /if \(document\.hidden\)/);
+	assert.match(source, /schedulePoll\(attemptGeneration, 0\)/);
+	assert.match(source, /expiresAt = Date\.now\(\) \+ \(Math\.max\(0, Number\(data\.expires_in\)/);
+	assert.match(source, /Math\.ceil\(\(expiresAt - Date\.now\(\)\) \/ 1000\)/);
+});
+
+test('cancelling aborts the active status request as well as invalidating its generation', () => {
+	assert.match(source, /pollController = new AbortController\(\)/);
+	assert.match(source, /signal: pollController\.signal/);
+	assert.match(source, /pollController\.abort\(\)/);
+	assert.match(source, /pollError\.name === 'AbortError'/);
 });
 
 test('cancel invalidates in-flight polling before it can consume a stale proof', () => {

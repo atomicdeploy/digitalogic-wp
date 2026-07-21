@@ -1,18 +1,21 @@
 # Deployment and validation
 
-These are reviewed runbook steps, not an automatic installer. Keep the website voice
-feature and all outbound preferences disabled until every validation gate passes.
+This is a reviewed runbook, not an automatic installer. Do not mutate Asterisk
+or enable the feature until the WordPress pending endpoint, 120-second challenge
+TTL, browser consumption, and login redirect have been deployed and tested.
 
-## 1. Preflight
+## 1. Preflight and backups
 
-- Node.js 18 or newer is installed at `/usr/bin/node`.
-- Asterisk AGI debug and DTMF debug/logging are off.
-- NTP is healthy; callback authentication allows no more than 60 seconds of skew.
-- The inbound carrier supplies authoritative ANI. Do not trust a user-set SIP `From`.
-- Capture a test call's DID/ANI format without logging production values long-term.
-- Confirm `+982166754123` reaches both live s/_X paths in `[from-tci]` as expected.
+- Confirm Node 18+, `ffmpeg`, Piper, NTP, and authoritative TCI ANI.
+- Confirm AGI and DTMF debug/logging are off.
+- Record active calls and wait for a maintenance window.
+- Back up and hash `/etc/asterisk/extensions.conf`, the current helper/config,
+  prompt symlink, and any approved BGM source.
+- Export any realtime `extensions` rows that overlap `[from-tci]` or the new
+  helper contexts. Digitalogic currently uses static inbound routing; if rows do
+  exist, treat static and realtime definitions as one source-of-truth change.
 
-Run repository checks before copying anything:
+Run repository gates:
 
 ```bash
 cd ops/pbx
@@ -21,120 +24,90 @@ npm test
 bash -n bin/pbx-verification-digitalogic scripts/*.sh
 ```
 
-## 2. Install one immutable helper release
-
-Replace `1.0.0` with the reviewed asset version:
+## 2. Install immutable helper/config release
 
 ```bash
-install -d -o root -g root -m 0755 /opt/digitalogic-pbx-verification/releases/1.0.0
+install -d -o root -g root -m 0755 /opt/digitalogic-pbx-verification/releases/1.1.0
 install -o root -g root -m 0755 lib/pbx-verification-agi.js \
-  /opt/digitalogic-pbx-verification/releases/1.0.0/pbx-verification-agi.js
-ln -sfn releases/1.0.0 /opt/digitalogic-pbx-verification/current
+  /opt/digitalogic-pbx-verification/releases/1.1.0/pbx-verification-agi.js
+ln -sfn releases/1.1.0 /opt/digitalogic-pbx-verification/current
 install -o root -g root -m 0755 bin/pbx-verification-digitalogic \
   /usr/local/libexec/pbx-verification-digitalogic
-```
-
-Create configuration and a separate 384-bit HMAC key outside the repo:
-
-```bash
-install -d -o root -g asterisk -m 0750 /etc/asterisk/secrets
-umask 027
-openssl rand -base64 48 > /etc/asterisk/secrets/digitalogic-pbx-verification.key
-chown root:asterisk /etc/asterisk/secrets/digitalogic-pbx-verification.key
-chmod 0640 /etc/asterisk/secrets/digitalogic-pbx-verification.key
 install -o root -g asterisk -m 0640 config/pbx-verification.env.example \
   /etc/asterisk/pbx-verification-digitalogic.env
 ```
 
-The example contains no secret. Verify its origin, exact callback path, DID, context,
-key ID, prompt paths, and secret-file path. Do not put the secret in the env file or repo.
+Keep the existing per-site base64 HMAC key in its root-owned, non-symlinked
+secret file. If rotation is required, provision the new key in WordPress first,
+then switch PBX and server key IDs atomically. Never place the key in the env file.
 
-## 3. Generate and install Persian prompts
+Verify both paths and both contexts exactly. `PBX_PENDING_HTTP_TIMEOUT_MS=1500`
+is intentional: a WordPress outage must not delay ordinary callers for four seconds.
 
-Reuse the host's existing local Piper binary/model/config from the PBX callout renderer;
-no external TTS service or new TTS install is required. `ffmpeg` performs deterministic
-mono PCM conversion to Asterisk 8 kHz `.wav` and 16 kHz `.wav16` variants:
+## 3. Generate BGM-mixed Persian prompts
+
+Use a reviewed, licensed BGM file copied to an immutable PBX path. The generator
+will fail if `PBX_BGM_FILE` is missing; every pending, entry, retry, success, and
+failure prompt receives the same filtered/limited mix and cannot ship dry.
 
 ```bash
 PBX_TTS_ENGINE=piper \
 PBX_PIPER_BIN=/reviewed/path/to/piper \
 PBX_PIPER_MODEL=/reviewed/path/to/fa_IR-model.onnx \
 PBX_PIPER_CONFIG=/reviewed/path/to/fa_IR-model.onnx.json \
+PBX_BGM_FILE=/reviewed/immutable/path/IVR-07.mp3 \
   bash scripts/generate-prompts.sh ./build/prompts-fa-IR
-sudo bash scripts/install-prompts.sh digitalogic 1.0.0 ./build/prompts-fa-IR
+sudo bash scripts/install-prompts.sh digitalogic 1.1.0 ./build/prompts-fa-IR
 ```
 
-Listen to every generated WAV before deployment. Confirm natural pronunciation of
-"عدد دو" and "کد شش رقمی". The installer writes an immutable release and atomically
-switches `current`; prompt generation output is ignored by Git. `edge-tts` remains an
-explicit optional fallback (`PBX_TTS_ENGINE=edge`) but is not part of the on-host path.
+Listen to every output and verify the BGM remains below speech, `*` can interrupt
+the pending prompt, and both 8 kHz/16 kHz files are mono PCM. The installer creates
+an immutable release and atomically switches `current`.
 
-## 4. Merge the dialplan safely
+## 4. Merge the dialplan
 
-The live host uses a hand-maintained `/etc/asterisk/extensions.conf` and does not
-include `extensions_custom.conf`. Take a dated backup and checksum, then manually merge
-`asterisk/digitalogic-digit-2.conf` into that live file and connect its Gosub only from
-both s/_X inbound paths in `[from-tci]`. Recheck the source checksum immediately before
-installing the reviewed replacement so a concurrent edit cannot be overwritten.
+Manually merge `asterisk/digitalogic-pending-shortcut.conf` into both exact
+`[from-tci]` s/_X paths. Recheck the live checksum immediately before install.
 
-Two ordering gates are mandatory:
+Mandatory ordering is: initialize fail-open variables; snapshot ANI/DID; signed
+preflight; conditional shortcut (which alone answers the channel); verified
+hangup; then the untouched
+`prefix-tci-callerid` → `record-call` → operator flow. Remove the former
+`digitalogic-call-verification-menu` and its public digit 2 completely.
 
-1. In both s/_X paths, snapshot filtered `__PBX_VERIFY_ANI` before
-   `[prefix-tci-callerid]` prepends literal `9`, and set trusted literal
-   `__PBX_VERIFY_DID=+982166754123`. Do not depend on blank DNID or `${EXTEN}=s`, and
-   never derive ANI from the subsequently modified `CALLERID(num)`.
-2. Run the digit-2 menu before `Gosub(record-call)`. Digit 2 hangs up after AGI and never
-   reaches recording; timeout/0/invalid returns to the untouched recording/operator flow.
+Do not add a public fallback digit. The private `verify` context is intentionally
+unrouted until a separate Digitalogic IVR is designed and approved.
 
-Preserve the current operator target verbatim. Check and reload:
+If realtime rows overlap, update/export them in the same maintenance transaction,
+then compare their effective priorities with the static file before reload. Never
+allow one layer to retain the old digit-2 menu.
 
 ```bash
 asterisk -rx 'dialplan show from-tci'
-asterisk -rx 'dialplan show digitalogic-call-verification-menu'
+asterisk -rx 'dialplan show pbx-call-verification-pending-digitalogic'
 asterisk -rx 'dialplan show pbx-call-verification-digitalogic'
 asterisk -rx 'dialplan reload'
 asterisk -rx 'agi set debug off'
 ```
 
-## 5. Callback validation
+## 5. Acceptance tests
 
-Use a staging challenge and real external PSTN calls; a configurable MicroSIP caller ID
-is not ownership proof. Confirm without printing full numbers/codes:
+Use real PSTN ANI and redacted evidence:
 
-- Correct ANI/code produces one signed callback and `PBX_VERIFY_RESULT=verified`.
-- Correct code from wrong/withheld ANI produces no callback.
-- ANI after the Digitalogic routing-prefix mutation (`9` plus national ANI) is rejected;
-  only the pre-mutation snapshot works.
-- Trusted pre-routing eight-digit Tehran ANI maps through fixed area `21`, and observed
-  `098` plus NSN maps only when its explicit env flag is enabled. Neither rule applies
-  to public website input.
-- Wrong, short, expired, and replayed codes do not verify.
-- Timestamp, nonce, body mutation, wrong key ID, and wrong DID are rejected server-side.
-- A callback timeout lasts at most four seconds and plays the generic temporary message.
-- No phone, code, raw body, secret, or DTMF appears in Asterisk, web, proxy, or PHP logs.
+- No active challenge: no verification audio or early `Answer()`; original operator
+  flow and caller-ID prefix remain unchanged.
+- Pending exact ANI: the private «دوست عزیزم…» BGM prompt plays immediately.
+- Star during the prompt or between digits cancels immediately; no input times out
+  once, then operator flow begins, with no callback and no verification DTMF in
+  recordings or logs.
+- Correct six-digit code: one confirm callback marks the challenge verified and the
+  call terminates after the success prompt.
+- A rejected six-digit typo gets one retry, then falls back to the operator;
+  wrong/expired codes and wrong/withheld ANI cannot verify.
+- Pending endpoint timeout, malformed JSON, extra response keys, bad signature,
+  replay, or HTTP failure reaches the operator within the bounded timeout.
+- Confirm endpoint failures remain closed and generic.
+- Both s and _X inbound paths behave identically.
 
-## 6. Call-flow validation
-
-- Digit 2 enters website verification.
-- Digit 2 audio is not recorded and never reaches `record-call` or the operator.
-- No digit, digit 0, timeout, and invalid digit preserve the existing operator behavior;
-  recording begins only after the verification menu returns to that existing path.
-- A normal operator call still receives the TCI caller-ID prefix exactly as before.
-- Both `[from-tci]` s and _X entry paths satisfy the same ordering and fallback tests.
-
-## 7. Secure existing localhost `/call`
-
-Before enabling outbound notifications, verify `/call` binds only to `127.0.0.1` or a
-Unix socket, does not accept token/target/text in query strings, and rejects missing or
-wrong Bearer authorization before validating a target. Generate a dedicated outbound
-token with `openssl rand -base64 48`, store it in root-owned service/WordPress credential
-files, and restart the service without printing its environment. Do not reuse the inbound
-HMAC key. Validate target conversion from E.164 to the existing local `from-internal`
-route, idempotency, rate limits, text length, no redirects, and log redaction with a
-staging verified opt-in contact before global enablement.
-
-## 8. Enable gradually
-
-Keep the WordPress global kill switch off during IVR deployment. Enable inbound call
-verification for test accounts first. Outbound voice remains opt-in and off by default;
-enable one event/template and one verified test contact only after `/call` hardening.
+Only after these pass should inbound verification be enabled for test accounts.
+Outbound voice remains a separate opt-in, authenticated trust boundary.
