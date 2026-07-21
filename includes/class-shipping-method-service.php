@@ -667,6 +667,78 @@ final class Digitalogic_Shipping_Method_Service {
         });
     }
 
+	/**
+	 * Atomically assign a product only when its current method still matches.
+	 *
+	 * Missing metadata, an empty string, and null all represent an unassigned
+	 * product. The comparison and write share one row lock and transaction, so
+	 * callers can safely use this method for optimistic apply and compensation.
+	 *
+	 * @param string      $code Patris Code.
+	 * @param string|null $expected_method_id Expected current assignment.
+	 * @param string|null $method_id Desired assignment; empty clears it.
+	 * @return array|WP_Error
+	 */
+	public function compare_and_assign_product_by_code( $code, $expected_method_id, $method_id ) {
+		$expected = $this->normalize_expected_assignment( $expected_method_id );
+		if ( is_wp_error( $expected ) ) {
+			return $expected;
+		}
+
+		return $this->with_catalog_lock(
+			function () use ( $code, $expected, $method_id ) {
+				$resolved = $this->resolve_shipping_product( $code );
+				if ( is_wp_error( $resolved ) ) {
+					return $resolved;
+				}
+
+				$method = $this->validate_assignment_method( $method_id, $resolved['product_id'] );
+				if ( is_wp_error( $method ) ) {
+					return $method;
+				}
+
+				$write = $this->run_transaction(
+					function () use ( $resolved, $expected, $method ) {
+						$current_row = $this->read_product_method_meta( $resolved['product_id'], true );
+						$current     = $current_row['exists'] ? (string) $current_row['value'] : '';
+						if ( $current !== $expected ) {
+							return new WP_Error(
+								'digitalogic_shipping_assignment_conflict',
+								__( 'The product shipping assignment changed before it could be written.', 'digitalogic' ),
+								array(
+									'status'                     => 409,
+									'current_shipping_method_id' => $current,
+								)
+							);
+						}
+
+						return $this->apply_assignment( $resolved['product_id'], $method );
+					}
+				);
+				if ( is_wp_error( $write ) ) {
+					return $write;
+				}
+
+				$delivery_warnings = array();
+				if ( ! empty( $write['changed'] ) ) {
+					$delivery_warnings = $this->emit_domain_action(
+						'digitalogic_product_shipping_method_updated',
+						$resolved['product_id'],
+						is_null( $method ) ? '' : $method['id']
+					);
+				}
+
+				$response            = $this->build_assignment_response( $resolved );
+				$response['changed'] = ! empty( $write['changed'] );
+				if ( ! empty( $delivery_warnings ) ) {
+					$response['delivery_warnings'] = $delivery_warnings;
+				}
+
+				return $response;
+			}
+		);
+	}
+
     /**
      * Apply a preflighted batch. No changes occur when any row is invalid.
      *
@@ -1192,6 +1264,31 @@ final class Digitalogic_Shipping_Method_Service {
 
         return $methods[$method_id];
     }
+
+	/** Normalize the internal expected assignment without weakening identity. */
+	private function normalize_expected_assignment( $method_id ) {
+		if ( null === $method_id || '' === $method_id ) {
+			return '';
+		}
+		if ( ! is_scalar( $method_id ) ) {
+			return new WP_Error(
+				'digitalogic_shipping_expected_assignment_invalid',
+				__( 'The expected shipping-method assignment is invalid.', 'digitalogic' ),
+				array( 'status' => 400 )
+			);
+		}
+
+		$method_id = (string) $method_id;
+		if ( strlen( $method_id ) > 191 || preg_match( '/[\x00-\x1F\x7F]/', $method_id ) ) {
+			return new WP_Error(
+				'digitalogic_shipping_expected_assignment_invalid',
+				__( 'The expected shipping-method assignment is invalid.', 'digitalogic' ),
+				array( 'status' => 400 )
+			);
+		}
+
+		return $method_id;
+	}
 
     private function resolve_shipping_product($code) {
         $resolved = Digitalogic_Product_Identifier_Resolver::instance()->resolve(array('patris_code' => $code));
