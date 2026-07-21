@@ -216,12 +216,14 @@ test('panel failures are structured and heavy reports use the bounded AJAX path'
     const panelPhpSource = fs.readFileSync(path.join(__dirname, '..', 'includes', 'panel', 'class-panel.php'), 'utf8');
 
     assert.match(panelSource, /requestAjax:\s*ajax/);
-    assert.match(panelSource, /reportPageSize:\s*25/);
-    assert.match(panelSource, /item_limit:\s*0/);
-    assert.match(panelSource, /loadReportCategory:\s*function/);
+    assert.match(panelSource, /per_page:\s*50/);
+    assert.match(panelSource, /force_refresh:\s*forceRefresh/);
+    assert.match(panelSource, /reportRequestSequence/);
+    assert.match(panelSource, /reportRequestKey/);
+    assert.match(panelSource, /setReportCategory:\s*function/);
     assert.match(panelSource, /reportCategoryTitle:\s*function/);
     assert.match(panelSource, /option !== null && typeof option === 'object'/);
-    assert.match(panelSource, /item_offset:\s*\(requestedPage - 1\) \* self\.reportPageSize/);
+    assert.doesNotMatch(panelSource, /\bitem_limit\b|\bitem_offset\b|loadReportCategory:\s*function/);
     assert.match(panelSource, /\{ajaxOnly:\s*true\}/);
     assert.match(panelSource, /addEventListener\('unhandledrejection'/);
     assert.match(panelSource, /consoleApi\.groupCollapsed/);
@@ -231,10 +233,12 @@ test('panel failures are structured and heavy reports use the bounded AJAX path'
     assert.match(viewSource, /aria-labelledby="dlp-fatal-title"/);
     assert.match(viewSource, /reportCategoryTitle\(category\)/);
     assert.match(viewSource, /@click="loadReports\(true\)"/);
-    assert.match(viewSource, /:open="activeReportCategory === category\.key"/);
-    assert.match(viewSource, /category\.returned_count/);
+    assert.match(viewSource, /v-for="\(item, itemIndex\) in reports\.rows"/);
+    assert.match(viewSource, /reports\.pagination\.page/);
+    assert.doesNotMatch(viewSource, /activeReportCategory|category\.returned_count/);
     assert.match(panelPhpSource, /'foreign_currency_options'\s*=>\s*\$this->foreign_currency_options\(\)/);
     assert.match(panelPhpSource, /digitalogic_panel_foreign_currency_codes/);
     assert.match(panelPhpSource, /digitalogic_panel_foreign_currency_options/);
-    assert.match(panelPhpSource, /'reportMissingInWooCommerce'\s*=>\s*'In Patris\/API but missing in WooCommerce'/);
+    assert.match(panelPhpSource, /'reportMissingInWooCommerce'\s*=>\s*'In Patris but missing in WooCommerce'/);
+    assert.match(panelPhpSource, /'reportPriceDrift'\s*=>\s*'Price differs from the current source'/);
 });

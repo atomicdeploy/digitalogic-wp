@@ -138,69 +138,71 @@ function panel_fixture_products() {
 }
 
 function panel_fixture_reports($payload = array()) {
-    $item = array(
-        'product_code' => 'DG-ABC-12345',
-        'woo_name' => 'ماژول کنترل دما دیجیتالاجیک',
-        'name' => 'ماژول کنترل دما',
-        'stock' => 18,
-        'foreign_currency' => 'CNY',
-        'foreign_price' => 42.5,
-        'weight_grams' => 150,
-        'final_price' => 1250000,
-        'edit_url' => '#edit-101',
-    );
     $definitions = array(
-        array('zero_price', 'قیمت صفر یا نامعتبر', 'danger', 2),
-        array('missing_foreign_price', 'قیمت ارزی ناموجود', 'warning', 4),
-        array('bad_weight', 'وزن نامعتبر', 'warning', 1),
-        array('missing_in_woocommerce', 'در پاتریس و ناموجود در ووکامرس', 'danger', 0),
-        array('missing_in_patris', 'در ووکامرس و ناموجود در پاتریس', 'warning', 12),
-        array('missing_image', 'تصویر ناموجود', 'warning', 30),
-        array('image_duplicate', 'تصویر تکراری', 'warning', 0),
-        array('image_corrupt', 'تصویر خراب', 'danger', 0),
-        array('image_quality', 'کیفیت پایین تصویر', 'warning', 3),
-        array('customer_missing_mobile', 'شماره همراه مشتری ناموجود', 'warning', 1),
+        'price_drift' => array('قیمت با منبع فعلی مغایرت دارد', 'danger'),
+        'missing_foreign_price' => array('قیمت یوان موجود نیست', 'warning'),
+        'missing_weight' => array('وزن موجود نیست', 'warning'),
+        'zero_price' => array('قیمت محاسبه‌شده صفر یا منفی است', 'danger'),
+        'missing_in_woocommerce' => array('در پاتریس موجود اما در ووکامرس ناموجود', 'danger'),
     );
-    $requested_category = preg_replace('/[^a-z0-9_]/', '', strtolower((string) ($payload['category'] ?? '')));
-    $limit = max(0, min(250, (int) ($payload['item_limit'] ?? 25)));
-    $offset = max(0, (int) ($payload['item_offset'] ?? 0));
-    $categories = array_map(static function($definition) use ($item, $requested_category, $limit, $offset) {
-        $count = $definition[3];
-        $is_requested = '' === $requested_category || $requested_category === $definition[0];
-        $category_offset = $is_requested ? min($offset, $count) : 0;
-        $returned = $is_requested ? min(max(0, $count - $category_offset), $limit) : 0;
-        $items = array();
-        for ($index = 0; $index < $returned; $index++) {
-            $row = $item;
-            $row['product_code'] .= '-' . ($category_offset + $index + 1);
-            $row['minimum_stock'] = 3;
-            $row['location'] = 'A-' . ($category_offset + $index + 1);
-            $row['updated_at'] = '2026-07-21 12:00:00';
-            $items[] = $row;
-        }
-        return array(
-            'key' => $definition[0],
-            'title' => $definition[1],
-            'severity' => $definition[2],
-            'count' => $count,
-            'items' => $items,
-            'item_offset' => $category_offset,
-            'returned_count' => $returned,
-            'has_more' => $is_requested && ($category_offset + $returned) < $count,
-            'truncated' => $returned < $count,
+    $all_rows = array();
+    for ($index = 1; $index <= 60; $index++) {
+        $issue = $index <= 30 ? 'price_drift' : ($index <= 42 ? 'missing_foreign_price' : ($index <= 50 ? 'missing_weight' : ($index <= 56 ? 'zero_price' : 'missing_in_woocommerce')));
+        $source = array(
+            'name' => 'ماژول پاتریس ' . $index,
+            'total_stock' => (string) (20 - ($index % 7)),
+            'foreign_currency' => 'CNY',
+            'weight_grams' => '150',
+            'final_price' => $issue === 'zero_price' ? '0' : (string) (1250000 + $index),
         );
-    }, $definitions);
+        if ('missing_foreign_price' !== $issue) {
+            $source['foreign_price'] = '42.5';
+        }
+        if ('missing_weight' === $issue) {
+            unset($source['weight_grams']);
+        }
+        $row = array(
+            'product_code' => sprintf('DG-QA-%05d', $index),
+            'status' => 'missing_in_woocommerce' === $issue ? 'source_only' : 'matched',
+            'source' => $source,
+            'issues' => array($issue),
+        );
+        if ('source_only' !== $row['status']) {
+            $row['woo_id'] = 1000 + $index;
+            $row['woocommerce'] = array(
+                'name' => 'ماژول ووکامرس ' . $index,
+                'stock_quantity' => (string) (20 - ($index % 7)),
+                'active_price' => (string) (1240000 + $index),
+            );
+            $row['edit_url'] = '#edit-' . (1000 + $index);
+        }
+        $all_rows[] = $row;
+    }
 
-    $returned_count = array_sum(array_column($categories, 'returned_count'));
+    $view = 'price_list' === ($payload['view'] ?? '') ? 'price_list' : 'warnings';
+    $requested_category = preg_replace('/[^a-z0-9_]/', '', strtolower((string) ($payload['category'] ?? '')));
+    $filtered_rows = array_values(array_filter($all_rows, static function($row) use ($view, $requested_category) {
+        if ('warnings' === $view && empty($row['issues'])) return false;
+        return '' === $requested_category || in_array($requested_category, $row['issues'], true);
+    }));
+    $per_page = max(1, min(100, (int) ($payload['per_page'] ?? 50)));
+    $pages = max(1, (int) ceil(count($filtered_rows) / $per_page));
+    $page = max(1, min($pages, (int) ($payload['page'] ?? 1)));
+    $rows = array_slice($filtered_rows, ($page - 1) * $per_page, $per_page);
+    $categories = array();
+    foreach ($definitions as $key => $definition) {
+        $count = count(array_filter($all_rows, static function($row) use ($key) { return in_array($key, $row['issues'], true); }));
+        $categories[] = array('key' => $key, 'title' => $definition[0], 'severity' => $definition[1], 'count' => $count, 'items' => array());
+    }
 
     return array(
-        'counts' => array('woocommerce_products' => 967, 'patris_products' => 819, 'patris_customers' => 42),
+        'status' => 'current',
+        'view' => $view,
+        'counts' => array('woocommerce_products' => 967, 'patris_products' => 819, 'matched_products' => 56, 'positive_source_only_products' => 4, 'drift_products' => 30),
         'categories' => $categories,
-        'category' => $requested_category,
-        'returned_count' => $returned_count,
-        'truncated' => (bool) array_filter($categories, static function($category) { return $category['truncated']; }),
-        'item_limit' => $limit,
-        'item_offset' => $offset,
+        'rows' => $rows,
+        'filters' => array('category' => $requested_category),
+        'pagination' => array('page' => $page, 'per_page' => $per_page, 'total' => count($filtered_rows), 'pages' => $pages),
         'generated_at' => '2026-07-21T12:00:00+03:30',
     );
 }
@@ -294,12 +296,22 @@ class Digitalogic_Panel {
             'foreignPrice' => 'قیمت ارزی', 'finalPrice' => 'قیمت نهایی', 'showingRows' => 'نمایش ردیف‌ها', 'modernStyle' => 'مدرن', 'light' => 'روشن', 'dark' => 'تیره',
             'details' => 'جزئیات', 'minimumStock' => 'حداقل موجودی', 'location' => 'مکان', 'updatedAt' => 'به‌روزرسانی', 'dimensions' => 'ابعاد',
             'contact' => 'تماس', 'email' => 'ایمیل', 'address' => 'نشانی', 'page' => 'صفحه', 'generatedAt' => 'زمان تولید', 'notSet' => 'تنظیم نشده',
-            'reportMissingInWooCommerce' => $dir === 'rtl' ? 'در پاتریس/API موجود است اما در ووکامرس نیست' : 'In Patris/API but missing in WooCommerce',
-            'reportMissingInPatris' => $dir === 'rtl' ? 'در ووکامرس موجود است اما در پاتریس/API نیست' : 'In WooCommerce but missing in Patris/API',
+            'warnings' => $dir === 'rtl' ? 'هشدارها' : 'Warnings', 'priceList' => $dir === 'rtl' ? 'فهرست قیمت' : 'Price list',
+            'allWarnings' => $dir === 'rtl' ? 'همه هشدارها' : 'All warnings', 'reportState' => $dir === 'rtl' ? 'وضعیت' : 'State',
+            'reportMatched' => $dir === 'rtl' ? 'تطبیق‌یافته' : 'Matched', 'reportSourceOnly' => $dir === 'rtl' ? 'فقط در منبع' : 'Source only',
+            'reportWooOnly' => $dir === 'rtl' ? 'فقط در ووکامرس' : 'WooCommerce only', 'reportAmbiguous' => $dir === 'rtl' ? 'مبهم' : 'Ambiguous',
+            'reportSourceUnavailable' => $dir === 'rtl' ? 'منبع فعلی در دسترس نیست.' : 'No current source is available.',
+            'exactCodeMatches' => $dir === 'rtl' ? 'تطبیق دقیق کد' : 'Exact Code matches', 'driftProducts' => $dir === 'rtl' ? 'کالاهای مغایر' : 'Drift products',
+            'positiveSourceOnly' => $dir === 'rtl' ? 'موجودی مثبت فقط در منبع' : 'Positive source-only',
+            'current' => $dir === 'rtl' ? 'به‌روز' : 'Current', 'findings' => $dir === 'rtl' ? 'یافته‌ها' : 'Findings', 'missing' => $dir === 'rtl' ? 'ناموجود' : 'Missing',
+            'reportMissingInWooCommerce' => $dir === 'rtl' ? 'در پاتریس موجود اما در ووکامرس ناموجود' : 'In Patris but missing in WooCommerce',
+            'reportMissingInPatris' => $dir === 'rtl' ? 'در ووکامرس موجود اما در پاتریس ناموجود' : 'In WooCommerce but missing in Patris',
             'reportDuplicateSku' => $dir === 'rtl' ? 'کد کالا / SKU تکراری' : 'Duplicate product code / SKU',
             'reportZeroStock' => $dir === 'rtl' ? 'موجودی صفر یا منفی' : 'Zero or negative stock',
-            'reportZeroPrice' => $dir === 'rtl' ? 'قیمت صفر یا نامعتبر' : 'Zero or invalid price',
-            'reportMissingForeignPrice' => $dir === 'rtl' ? 'قیمت ارزی ناموجود' : 'Missing foreign price',
+            'reportZeroPrice' => $dir === 'rtl' ? 'قیمت محاسبه‌شده صفر یا منفی است' : 'Zero or negative calculated price',
+            'reportMissingForeignPrice' => $dir === 'rtl' ? 'قیمت یوان موجود نیست' : 'Missing CNY price',
+            'reportMissingWeight' => $dir === 'rtl' ? 'وزن موجود نیست' : 'Missing weight',
+            'reportPriceDrift' => $dir === 'rtl' ? 'قیمت با منبع فعلی مغایرت دارد' : 'Price differs from the current source',
             'reportBadWeight' => $dir === 'rtl' ? 'وزن ناموجود، نامعتبر یا مبهم' : 'Missing, bad, or ambiguous weight',
             'reportMissingMinimumStock' => $dir === 'rtl' ? 'حداقل موجودی ناموجود' : 'Missing minimum stock',
             'reportStalePrice' => $dir === 'rtl' ? 'قیمت پاتریس/API قدیمی' : 'Stale Patris/API price',

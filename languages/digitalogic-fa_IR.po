@@ -522,8 +522,8 @@ msgid "Digitalogic Patris Reports"
 msgstr "گزارش‌های پاتریس دیجیتالاجیک"
 
 #: includes/admin/views/patris-reports.php:25
-msgid "Sparse transformed Patris data is compared against WooCommerce and applied through the living product-sync contract."
-msgstr ""
+msgid "Sparse transformed Patris data is compared against WooCommerce and applied through the living product-sync flow."
+msgstr "داده‌های تبدیل‌شده و کم‌تراکم پاتریس با ووکامرس مقایسه و از طریق جریان جاری همگام‌سازی محصول اعمال می‌شوند."
 
 #: includes/admin/views/patris-reports.php:33
 msgid "Integration Settings"
@@ -873,7 +873,7 @@ msgstr "تصویر"
 
 #: includes/admin/views/products.php:40
 msgid "Product Code"
-msgstr "کد محصول"
+msgstr "کد کالا"
 
 #: includes/admin/views/products.php:41
 msgid "Regular Price"
@@ -1288,7 +1288,7 @@ msgstr ""
 
 #: includes/class-report-engine.php:37
 msgid "Zero or negative stock"
-msgstr ""
+msgstr "موجودی صفر یا منفی است"
 
 #: includes/class-report-engine.php:38
 msgid "Zero or invalid price"
@@ -2179,3 +2179,308 @@ msgstr ""
 #: includes/websocket/class-websocket-server.php:164
 msgid "Invalid JSON payload."
 msgstr ""
+
+#: includes/admin/views/patris-reports.php
+msgid "All warnings"
+msgstr "همه هشدارها"
+
+#: includes/class-report-engine.php
+msgid "Calculated price is explicitly null"
+msgstr "قیمت محاسبه‌شده صراحتاً null است"
+
+#: includes/class-report-engine.php includes/admin/views/patris-reports.php
+msgid "CNY exchange rate is explicitly null"
+msgstr "نرخ تبدیل یوان صراحتاً null است"
+
+#: includes/class-report-engine.php
+msgid "CNY price is explicitly null"
+msgstr "قیمت یوان صراحتاً null است"
+
+#: includes/admin/views/patris-reports.php
+msgid "Current"
+msgstr "به‌روز"
+
+#: includes/admin/views/patris-reports.php
+msgid "Current Patris products"
+msgstr "محصولات فعلی پاتریس"
+
+#: includes/admin/views/patris-reports.php
+msgid "Current Product Report"
+msgstr "گزارش فعلی محصولات"
+
+#: includes/admin/views/patris-reports.php
+msgid "Current source:"
+msgstr "منبع فعلی:"
+
+#: includes/class-report-engine.php
+msgid "Duplicate exact product Code metadata"
+msgstr "متادیتای تکراری کد دقیق کالا"
+
+#: includes/admin/views/patris-reports.php
+msgid "Exact Code matches"
+msgstr "تطابق‌های دقیق کد کالا"
+
+#: includes/admin/views/patris-reports.php
+msgid "Findings"
+msgstr "موارد نیازمند بررسی"
+
+#: includes/class-report-engine.php
+msgid "Foreign currency is explicitly null"
+msgstr "ارز خارجی صراحتاً null است"
+
+#: includes/class-report-engine.php
+msgid "Foreign currency is not CNY"
+msgstr "ارز خارجی یوان (CNY) نیست"
+
+#: includes/class-report-engine.php
+msgid "In Patris but missing in WooCommerce"
+msgstr "در پاتریس موجود اما در ووکامرس ناموجود"
+
+#: includes/class-report-engine.php
+msgid "In WooCommerce but missing in Patris"
+msgstr "در ووکامرس موجود اما در پاتریس ناموجود"
+
+#: includes/class-report-engine.php
+msgid "Invalid source value"
+msgstr "مقدار منبع نامعتبر است"
+
+#: includes/admin/views/patris-reports.php
+msgid "Missing"
+msgstr "موجود نیست"
+
+#: includes/class-report-engine.php
+msgid "Missing calculated price"
+msgstr "قیمت محاسبه‌شده موجود نیست"
+
+#: includes/class-report-engine.php
+msgid "Missing CNY exchange rate"
+msgstr "نرخ تبدیل یوان موجود نیست"
+
+#: includes/class-report-engine.php
+msgid "Missing CNY price"
+msgstr "قیمت یوان موجود نیست"
+
+#: includes/class-report-engine.php
+msgid "Missing exact product Code metadata"
+msgstr "متادیتای کد دقیق کالا موجود نیست"
+
+#: includes/class-report-engine.php
+msgid "Missing foreign currency"
+msgstr "ارز خارجی موجود نیست"
+
+#: includes/class-report-engine.php
+msgid "Missing profit margin"
+msgstr "حاشیه سود موجود نیست"
+
+#: includes/class-report-engine.php
+msgid "Missing shipping price inputs"
+msgstr "ورودی‌های هزینه حمل موجود نیست"
+
+#: includes/class-report-engine.php
+msgid "Missing source update time"
+msgstr "زمان به‌روزرسانی منبع موجود نیست"
+
+#: includes/class-report-engine.php
+msgid "Missing stock"
+msgstr "موجودی موجود نیست"
+
+#: includes/class-report-engine.php
+msgid "Missing weight"
+msgstr "وزن موجود نیست"
+
+#: includes/admin/views/patris-reports.php
+msgid "Next"
+msgstr "بعدی"
+
+#: includes/admin/views/patris-reports.php
+msgid "No rows on this report page."
+msgstr "در این صفحه از گزارش ردیفی وجود ندارد."
+
+#: includes/admin/views/patris-reports.php
+#, php-format
+msgid "Page %1$d of %2$d"
+msgstr "صفحه %1$d از %2$d"
+
+#: includes/admin/views/patris-reports.php
+msgid "Patris"
+msgstr "پاتریس"
+
+#: includes/admin/views/patris-reports.php
+msgid "Patris-only products"
+msgstr "محصولات فقط موجود در پاتریس"
+
+#: includes/admin/views/patris-reports.php
+msgid "Previous"
+msgstr "قبلی"
+
+#: includes/class-report-engine.php
+msgid "Price differs from the current source"
+msgstr "قیمت با منبع فعلی مغایرت دارد"
+
+#: includes/admin/views/patris-reports.php
+msgid "Price List"
+msgstr "فهرست قیمت"
+
+#: includes/admin/views/patris-reports.php
+msgid "Price: source / WooCommerce"
+msgstr "قیمت: منبع / ووکامرس"
+
+#: includes/admin/views/patris-reports.php
+msgid "Products with drift"
+msgstr "محصولات دارای مغایرت"
+
+#: includes/class-report-engine.php
+msgid "Profit margin is explicitly null"
+msgstr "حاشیه سود صراحتاً null است"
+
+#: includes/class-report-engine.php
+msgid "Record hash differs from the current source"
+msgstr "هش رکورد با منبع فعلی مغایرت دارد"
+
+#: includes/class-report-engine.php
+msgid "Shipping price inputs contain explicit null"
+msgstr "ورودی‌های هزینه حمل دارای مقدار null صریح هستند"
+
+#: includes/admin/views/patris-reports.php
+msgid "Source generated:"
+msgstr "زمان تولید منبع:"
+
+#: includes/class-report-engine.php
+msgid "Source update time differs in WooCommerce"
+msgstr "زمان به‌روزرسانی منبع در ووکامرس مغایرت دارد"
+
+#: includes/class-report-engine.php
+msgid "Source update time is explicitly null"
+msgstr "زمان به‌روزرسانی منبع صراحتاً null است"
+
+#: includes/admin/views/patris-reports.php
+msgid "Source updated"
+msgstr "به‌روزرسانی منبع"
+
+#: includes/class-report-engine.php
+msgid "Source warnings require attention"
+msgstr "هشدارهای منبع نیازمند بررسی هستند"
+
+#: includes/class-report-engine.php
+msgid "Stale source data"
+msgstr "داده منبع قدیمی است"
+
+#: includes/admin/views/patris-reports.php
+msgid "State"
+msgstr "وضعیت"
+
+#: includes/class-report-engine.php
+msgid "Stock differs from the current source"
+msgstr "موجودی با منبع فعلی مغایرت دارد"
+
+#: includes/class-report-engine.php
+msgid "Stock is explicitly null"
+msgstr "موجودی صراحتاً null است"
+
+#: includes/admin/views/patris-reports.php
+msgid "Stock: source / WooCommerce"
+msgstr "موجودی: منبع / ووکامرس"
+
+#: includes/admin/views/patris-reports.php
+msgid "The report matches only exact product Code metadata. WooCommerce SKU is never used as a fallback."
+msgstr "گزارش فقط بر پایه متادیتای دقیق کد کالا تطبیق می‌دهد و هرگز از SKU ووکامرس به‌عنوان جایگزین استفاده نمی‌کند."
+
+#: includes/admin/views/patris-reports.php
+msgid "Variable parents excluded:"
+msgstr "محصولات مادر متغیرِ کنار گذاشته‌شده:"
+
+#: includes/admin/views/patris-reports.php
+msgid "Warnings"
+msgstr "هشدارها"
+
+#: includes/admin/views/patris-reports.php
+msgid "Weight (g)"
+msgstr "وزن (گرم)"
+
+#: includes/class-report-engine.php
+msgid "Weight differs from the current source"
+msgstr "وزن با منبع فعلی مغایرت دارد"
+
+#: includes/class-report-engine.php
+msgid "Weight is explicitly null"
+msgstr "وزن صراحتاً null است"
+
+#: includes/admin/views/patris-reports.php
+msgid "WooCommerce-only products"
+msgstr "محصولات فقط موجود در ووکامرس"
+
+#: includes/class-report-engine.php
+msgid "Zero or negative calculated price"
+msgstr "قیمت محاسبه‌شده صفر یا منفی است"
+
+#: includes/class-report-engine.php
+msgid "The static product snapshot is not a validated canonical envelope."
+msgstr "تصویر ثابت محصولات یک بستهٔ استاندارد و اعتبارسنجی‌شده نیست."
+
+#: includes/class-report-engine.php
+msgid "The static product snapshot has no valid source scope."
+msgstr "تصویر ثابت محصولات محدودهٔ منبع معتبری ندارد."
+
+#: includes/class-report-engine.php
+msgid "The static product snapshot contains an invalid product."
+msgstr "تصویر ثابت محصولات شامل کالای نامعتبر است."
+
+#: includes/class-report-engine.php
+msgid "Positive-stock product missing in WooCommerce"
+msgstr "کالای دارای موجودی مثبت در ووکامرس وجود ندارد"
+
+#: includes/class-report-engine.php
+msgid "Stock management differs from the current source"
+msgstr "مدیریت موجودی با منبع فعلی مغایرت دارد"
+
+#: includes/class-report-engine.php
+msgid "Stock availability differs from the current source"
+msgstr "وضعیت دسترس‌پذیری کالا با منبع فعلی مغایرت دارد"
+
+#: includes/admin/views/patris-reports.php
+msgid "Matched"
+msgstr "تطبیق‌یافته"
+
+#: includes/admin/views/patris-reports.php
+msgid "Source only"
+msgstr "فقط در منبع"
+
+#: includes/admin/views/patris-reports.php
+msgid "WooCommerce only"
+msgstr "فقط در ووکامرس"
+
+#: includes/admin/views/patris-reports.php
+msgid "Ambiguous"
+msgstr "مبهم"
+
+#: includes/admin/views/patris-reports.php
+msgid "Current receiver state"
+msgstr "وضعیت فعلی دریافت‌کننده"
+
+#: includes/admin/views/patris-reports.php
+msgid "Validated static snapshot (read-only)"
+msgstr "تصویر ثابت اعتبارسنجی‌شده (فقط خواندنی)"
+
+#: includes/admin/views/patris-reports.php
+msgid "No current source snapshot is available; reconciliation findings are withheld."
+msgstr "هیچ تصویر فعلی از منبع در دسترس نیست؛ نتایج تطبیق نمایش داده نمی‌شوند."
+
+#: includes/admin/views/patris-reports.php
+msgid "The selected source snapshot was not found; reconciliation findings are withheld."
+msgstr "تصویر منبع انتخاب‌شده پیدا نشد؛ نتایج تطبیق نمایش داده نمی‌شوند."
+
+#: includes/admin/views/patris-reports.php
+msgid "Both source ID and dataset are required; reconciliation findings are withheld."
+msgstr "شناسهٔ منبع و مجموعه‌داده هر دو الزامی‌اند؛ نتایج تطبیق نمایش داده نمی‌شوند."
+
+#: includes/admin/views/patris-reports.php
+msgid "Positive-stock Patris-only products"
+msgstr "کالاهای فقط موجود در پاتریس با موجودی مثبت"
+
+#: includes/admin/views/patris-reports.php
+msgid "Report state:"
+msgstr "وضعیت گزارش:"
+
+#: includes/admin/views/patris-reports.php
+msgid "The report source is unavailable."
+msgstr "منبع گزارش در دسترس نیست."

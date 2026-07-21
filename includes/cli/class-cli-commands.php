@@ -17,6 +17,8 @@ if (!defined('WP_CLI') || !WP_CLI) {
  * Digitalogic WP-CLI Commands
  */
 class Digitalogic_CLI_Commands {
+
+	private const MAX_CURRENT_PATRIS_JSON_BYTES = 8388608;
     
     /**
      * Get currency rates
@@ -573,28 +575,417 @@ class Digitalogic_CLI_Commands {
     public function patris_report($args, $assoc_args) {
         if (!class_exists('Digitalogic_Report_Engine')) {
             WP_CLI::error('Report engine is not available.');
+			return;
         }
 
         $format = isset($assoc_args['format']) ? sanitize_key((string) $assoc_args['format']) : 'table';
-        $report = Digitalogic_Report_Engine::instance()->get_report();
+		if ( ! in_array( $format, array( 'table', 'json', 'csv' ), true ) ) {
+			WP_CLI::error( 'Report format must be table, json, or csv.' );
+			return;
+		}
+		$report_args = array(
+			'view'      => $assoc_args['view'] ?? 'warnings',
+			'category'  => $assoc_args['category'] ?? '',
+			'page'      => $assoc_args['page'] ?? 1,
+			'per_page'  => $assoc_args['per-page'] ?? 100,
+			'source_id' => $assoc_args['source-id'] ?? '',
+			'dataset'   => $assoc_args['dataset'] ?? '',
+		);
+		$report = Digitalogic_Report_Engine::instance()->get_report($report_args);
 
         if ($format === 'json') {
             WP_CLI::line(wp_json_encode($report, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
             return;
         }
 
-        $items = array();
-        foreach ($report['categories'] as $category) {
-            $items[] = array(
-                'Key' => $category['key'],
-                'Title' => $category['title'],
-                'Severity' => $category['severity'],
-                'Count' => $category['count'],
-            );
-        }
-
-        WP_CLI\Utils\format_items($format, $items, array('Key', 'Title', 'Severity', 'Count'));
+		$this->output_current_patris_report( $report, $format );
     }
+
+	/**
+	 * Output warning summaries or actual price-list rows.
+	 *
+	 * @param array  $report Current report.
+	 * @param string $format WP-CLI table or CSV format.
+	 * @return void
+	 */
+	private function output_current_patris_report( $report, $format ) {
+		$items = array();
+		if ( 'price_list' === ( $report['view'] ?? '' ) ) {
+			foreach ( $report['rows'] as $row ) {
+				$source = is_array( $row['source'] ?? null ) ? $row['source'] : array();
+				$woo    = is_array( $row['woocommerce'] ?? null ) ? $row['woocommerce'] : array();
+				$items[] = array(
+					'Code'             => (string) ( $row['product_code'] ?? '' ),
+					'State'            => (string) ( $row['status'] ?? '' ),
+					'Source price'     => $this->current_patris_sparse_value( $source, 'final_price' ),
+					'Woo active price' => array_key_exists( 'active_price', $woo ) ? (string) $woo['active_price'] : '[missing]',
+					'Source stock'     => $this->current_patris_sparse_value( $source, 'total_stock' ),
+					'Woo stock'        => array_key_exists( 'stock_quantity', $woo ) ? ( null === $woo['stock_quantity'] ? 'null' : (string) $woo['stock_quantity'] ) : '[missing]',
+					'CNY price'        => $this->current_patris_sparse_value( $source, 'foreign_price' ),
+					'Weight (g)'       => $this->current_patris_sparse_value( $source, 'weight_grams' ),
+					'Findings'         => implode( ',', array_map( 'strval', (array) ( $row['issues'] ?? array() ) ) ),
+				);
+			}
+			WP_CLI\Utils\format_items(
+				$format,
+				$items,
+				array( 'Code', 'State', 'Source price', 'Woo active price', 'Source stock', 'Woo stock', 'CNY price', 'Weight (g)', 'Findings' )
+			);
+			return;
+		}
+
+		foreach ( $report['categories'] as $category ) {
+			$items[] = array(
+				'Key'      => $category['key'],
+				'Title'    => $category['title'],
+				'Severity' => $category['severity'],
+				'Count'    => $category['count'],
+			);
+		}
+		WP_CLI\Utils\format_items( $format, $items, array( 'Key', 'Title', 'Severity', 'Count' ) );
+	}
+
+	/**
+	 * Render one sparse value without conflating absence and explicit null.
+	 *
+	 * @param array  $record Sparse record.
+	 * @param string $field Field name.
+	 * @return string
+	 */
+	private function current_patris_sparse_value( $record, $field ) {
+		if ( ! array_key_exists( $field, $record ) ) {
+			return '[missing]';
+		}
+		if ( null === $record[ $field ] ) {
+			return 'null';
+		}
+		if ( is_array( $record[ $field ] ) ) {
+			return (string) wp_json_encode( $record[ $field ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES );
+		}
+
+		return (string) $record[ $field ];
+	}
+
+	/**
+	 * Validate and compare one static kala.json without changing receiver or WooCommerce state.
+	 *
+	 * The input must be a regular, nonsymlinked kala.json outside the WordPress
+	 * webroot. The living receiver validates the exact sparse envelope, but this
+	 * command does not acquire its write lock, persist the source, or update a
+	 * WooCommerce product.
+	 *
+	 * ## OPTIONS
+	 *
+	 * --file=<path>
+	 * : Absolute path to the transformed canonical kala.json outside the webroot.
+	 *
+	 * [--format=<format>]
+	 * : Output format: table, json, or csv. Default: table.
+	 *
+	 * [--view=<view>]
+	 * : warnings or price_list. Default: warnings.
+	 *
+	 * [--category=<category>]
+	 * : Limit warning rows to one report category.
+	 *
+	 * [--page=<page>]
+	 * : One-based report page. Default: 1.
+	 *
+	 * [--per-page=<count>]
+	 * : Rows per page, from 1 to 100. Default: 100.
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     wp digitalogic patris inspect --file=/srv/digitalogic-private/kala.json --user=administrator
+	 *     wp digitalogic patris inspect --file=/srv/digitalogic-private/kala.json --user=administrator --view=price_list --format=json
+	 *
+	 * @when after_wp_load
+	 *
+	 * @param array $args Positional arguments.
+	 * @param array $assoc_args Named arguments.
+	 */
+	public function patris_inspect( $args, $assoc_args ) {
+		unset( $args );
+		if ( ! $this->require_current_patris_administrator() ) {
+			return;
+		}
+		$format = isset( $assoc_args['format'] ) ? sanitize_key( (string) $assoc_args['format'] ) : 'table';
+		if ( ! in_array( $format, array( 'table', 'json', 'csv' ), true ) ) {
+			WP_CLI::error( 'Report format must be table, json, or csv.' );
+			return;
+		}
+
+		$json = $this->read_current_patris_json( $assoc_args['file'] ?? '' );
+		if ( is_wp_error( $json ) ) {
+			WP_CLI::error( $json->get_error_message() );
+			return;
+		}
+
+		$envelope = Digitalogic_Product_Sync_Receiver::instance()->validate_json( $json );
+		if ( is_wp_error( $envelope ) ) {
+			WP_CLI::error( $envelope->get_error_message() );
+			return;
+		}
+
+		$report = Digitalogic_Report_Engine::instance()->get_report_from_validated_envelope(
+			$envelope,
+			$this->current_patris_report_args( $assoc_args )
+		);
+		if ( is_wp_error( $report ) ) {
+			WP_CLI::error( $report->get_error_message() );
+			return;
+		}
+		if ( 'json' === $format ) {
+			WP_CLI::line(
+				wp_json_encode(
+					array(
+						'inspection' => $this->validated_envelope_summary( $envelope ),
+						'report'     => $report,
+					),
+					JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+				)
+			);
+			return;
+		}
+
+		WP_CLI::line(
+			sprintf(
+				'Static Patris snapshot is valid and was not applied; source products: %d; WooCommerce products: %d; selected rows: %d.',
+				(int) $report['counts']['patris_products'],
+				(int) $report['counts']['woocommerce_products'],
+				(int) $report['pagination']['total']
+			)
+		);
+		$this->output_current_patris_report( $report, $format );
+	}
+
+	/**
+	 * Confirm and apply one canonical static kala.json through the living receiver.
+	 *
+	 * ## OPTIONS
+	 *
+	 * --file=<path>
+	 * : Absolute path to the transformed canonical kala.json outside the webroot.
+	 *
+	 * --yes
+	 * : Explicitly confirm receiver persistence and WooCommerce writes.
+	 *
+	 * [--format=<format>]
+	 * : Output format: table, json, or csv. Default: table.
+	 *
+	 * [--view=<view>]
+	 * : warnings or price_list. Default: warnings.
+	 *
+	 * [--category=<category>]
+	 * : Limit warning rows to one report category.
+	 *
+	 * [--page=<page>]
+	 * : One-based report page. Default: 1.
+	 *
+	 * [--per-page=<count>]
+	 * : Rows per page, from 1 to 100. Default: 100.
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     wp digitalogic patris ingest --file=/srv/digitalogic-private/kala.json --user=administrator --yes
+	 *
+	 * @when after_wp_load
+	 *
+	 * @param array $args Positional arguments.
+	 * @param array $assoc_args Named arguments.
+	 */
+	public function patris_ingest( $args, $assoc_args ) {
+		unset( $args );
+		if ( ! $this->require_current_patris_administrator() ) {
+			return;
+		}
+		if ( true !== ( $assoc_args['yes'] ?? false ) && '1' !== (string) ( $assoc_args['yes'] ?? '' ) ) {
+			WP_CLI::error( 'This command writes receiver and WooCommerce state; pass --yes to continue.' );
+			return;
+		}
+		$format = isset( $assoc_args['format'] ) ? sanitize_key( (string) $assoc_args['format'] ) : 'table';
+		if ( ! in_array( $format, array( 'table', 'json', 'csv' ), true ) ) {
+			WP_CLI::error( 'Report format must be table, json, or csv.' );
+			return;
+		}
+
+		$json = $this->read_current_patris_json( $assoc_args['file'] ?? '' );
+		if ( is_wp_error( $json ) ) {
+			WP_CLI::error( $json->get_error_message() );
+			return;
+		}
+		$result = Digitalogic_Product_Sync_Receiver::instance()->receive_json( $json );
+		if ( is_wp_error( $result ) ) {
+			WP_CLI::error( $result->get_error_message() );
+			return;
+		}
+
+		$source      = is_array( $result['source'] ?? null ) ? $result['source'] : array();
+		$report_args = $this->current_patris_report_args( $assoc_args );
+		$report_args['source_id'] = $source['id'] ?? '';
+		$report_args['dataset']   = $source['dataset'] ?? '';
+		$report = Digitalogic_Report_Engine::instance()->get_report( $report_args );
+		if ( 'json' === $format ) {
+			WP_CLI::line(
+				wp_json_encode(
+					array(
+						'ingestion' => $result,
+						'report'    => $report,
+					),
+					JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+				)
+			);
+			return;
+		}
+
+		WP_CLI::line(
+			sprintf(
+				'Current Patris state: %s; source products: %d; WooCommerce products: %d; selected rows: %d.',
+				(string) ( $result['status'] ?? 'accepted' ),
+				(int) $report['counts']['patris_products'],
+				(int) $report['counts']['woocommerce_products'],
+				(int) $report['pagination']['total']
+			)
+		);
+		$this->output_current_patris_report( $report, $format );
+	}
+
+	/**
+	 * Require both the administrator role and its expected capability.
+	 *
+	 * @return bool
+	 */
+	private function require_current_patris_administrator() {
+		$user  = wp_get_current_user();
+		$roles = is_object( $user ) && isset( $user->roles ) ? (array) $user->roles : array();
+		if ( in_array( 'administrator', $roles, true ) && current_user_can( 'manage_options' ) ) {
+			return true;
+		}
+
+		WP_CLI::error( 'Run this command with --user=<administrator>.' );
+		return false;
+	}
+
+	/**
+	 * Read one already path-validated, bounded static snapshot.
+	 *
+	 * @param mixed $requested_path Candidate path.
+	 * @return string|WP_Error
+	 */
+	private function read_current_patris_json( $requested_path ) {
+		$path = self::validate_current_patris_json_path( $requested_path );
+		if ( is_wp_error( $path ) ) {
+			return $path;
+		}
+
+		$json = file_get_contents( $path, false, null, 0, self::MAX_CURRENT_PATRIS_JSON_BYTES + 1 ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- A reviewed local CLI file is required and bounded.
+		if ( ! is_string( $json ) || '' === trim( $json ) ) {
+			return new WP_Error( 'digitalogic_patris_static_file_read_failed', 'The canonical kala.json could not be read or is empty.' );
+		}
+		if ( strlen( $json ) > self::MAX_CURRENT_PATRIS_JSON_BYTES ) {
+			return new WP_Error( 'digitalogic_patris_static_file_too_large', 'The canonical kala.json exceeds the 8 MiB inspection limit.' );
+		}
+
+		return $json;
+	}
+
+	/**
+	 * Build bounded report arguments shared by static commands.
+	 *
+	 * @param array $assoc_args Named command arguments.
+	 * @return array
+	 */
+	private function current_patris_report_args( $assoc_args ) {
+		return array(
+			'view'     => $assoc_args['view'] ?? 'warnings',
+			'category' => $assoc_args['category'] ?? '',
+			'page'     => $assoc_args['page'] ?? 1,
+			'per_page' => $assoc_args['per-page'] ?? 100,
+		);
+	}
+
+	/**
+	 * Return a bounded nonproduct summary of a validated static envelope.
+	 *
+	 * @param array $envelope Validated envelope.
+	 * @return array
+	 */
+	private function validated_envelope_summary( $envelope ) {
+		return array(
+			'status'     => 'valid',
+			'event_id'   => (string) $envelope['event_id'],
+			'event_type' => (string) $envelope['event_type'],
+			'source'     => $envelope['source'],
+			'generated_at' => (string) $envelope['generated_at'],
+			'products'   => count( $envelope['products'] ),
+			'categories' => count( $envelope['categories'] ),
+		);
+	}
+
+	/**
+	 * Validate a private static report input without following a webroot path.
+	 *
+	 * @param mixed $requested_path Candidate path.
+	 * @return string|WP_Error
+	 */
+	public static function validate_current_patris_json_path( $requested_path ) {
+		if ( ! is_string( $requested_path ) || '' === trim( $requested_path ) ) {
+			return new WP_Error( 'digitalogic_patris_inspect_file_required', 'Specify --file=<absolute-path-to-kala.json>.' );
+		}
+		$requested_path = trim( $requested_path );
+		$is_absolute    = str_starts_with( $requested_path, '/' )
+			|| 1 === preg_match( '/^[A-Za-z]:[\\\\\/]/', $requested_path );
+		if ( ! $is_absolute ) {
+			return new WP_Error( 'digitalogic_patris_inspect_absolute_path_required', 'The canonical kala.json path must be absolute.' );
+		}
+		if ( is_link( $requested_path ) ) {
+			return new WP_Error( 'digitalogic_patris_inspect_symlink_forbidden', 'The canonical kala.json must not be a symbolic link.' );
+		}
+
+		$path = realpath( $requested_path );
+		if ( false === $path || ! is_file( $path ) || ! is_readable( $path ) ) {
+			return new WP_Error( 'digitalogic_patris_inspect_file_unreadable', 'The canonical kala.json is not a readable regular file.' );
+		}
+		if ( 'kala.json' !== strtolower( basename( $path ) ) ) {
+			return new WP_Error( 'digitalogic_patris_inspect_filename_invalid', 'The inspected file must be named kala.json.' );
+		}
+
+		$normalized_path      = self::normalize_cli_path( $path );
+		$normalized_requested = self::normalize_cli_path( $requested_path );
+		$webroot              = realpath( ABSPATH );
+		$webroot              = false === $webroot ? ABSPATH : $webroot;
+		$normalized_root      = rtrim( self::normalize_cli_path( $webroot ), '/' ) . '/';
+		$compare_path         = DIRECTORY_SEPARATOR === '\\' ? strtolower( $normalized_path ) : $normalized_path;
+		$compare_requested = DIRECTORY_SEPARATOR === '\\' ? strtolower( $normalized_requested ) : $normalized_requested;
+		$compare_root         = DIRECTORY_SEPARATOR === '\\' ? strtolower( $normalized_root ) : $normalized_root;
+		if (
+			str_starts_with( $compare_path . '/', $compare_root )
+			|| str_starts_with( $compare_requested . '/', $compare_root )
+		) {
+			return new WP_Error( 'digitalogic_patris_inspect_webroot_forbidden', 'The canonical kala.json must be stored outside the WordPress webroot.' );
+		}
+
+		clearstatcache( true, $path );
+		$size = filesize( $path );
+		if ( false === $size || $size <= 0 ) {
+			return new WP_Error( 'digitalogic_patris_inspect_file_empty', 'The canonical kala.json is empty.' );
+		}
+		if ( $size > self::MAX_CURRENT_PATRIS_JSON_BYTES ) {
+			return new WP_Error( 'digitalogic_patris_inspect_file_too_large', 'The canonical kala.json exceeds the 8 MiB inspection limit.' );
+		}
+
+		return $path;
+	}
+
+	/**
+	 * Normalize a CLI filesystem path for containment checks.
+	 *
+	 * @param string $path Filesystem path.
+	 * @return string
+	 */
+	private static function normalize_cli_path( $path ) {
+		return str_replace( '\\', '/', rtrim( (string) $path, '/\\' ) );
+	}
 
     /**
      * Show the Patris/API push token.
@@ -1102,6 +1493,8 @@ WP_CLI::add_command('digitalogic import', array('Digitalogic_CLI_Commands', 'imp
 WP_CLI::add_command('digitalogic logs', array('Digitalogic_CLI_Commands', 'logs'));
 WP_CLI::add_command('digitalogic patris sync', array('Digitalogic_CLI_Commands', 'patris_sync'));
 WP_CLI::add_command('digitalogic patris report', array('Digitalogic_CLI_Commands', 'patris_report'));
+WP_CLI::add_command('digitalogic patris inspect', array('Digitalogic_CLI_Commands', 'patris_inspect'));
+WP_CLI::add_command('digitalogic patris ingest', array('Digitalogic_CLI_Commands', 'patris_ingest'));
 WP_CLI::add_command('digitalogic patris token', array('Digitalogic_CLI_Commands', 'patris_token'));
 WP_CLI::add_command('digitalogic websocket serve', array('Digitalogic_CLI_Commands', 'websocket_serve'));
 WP_CLI::add_command('digitalogic websocket token', array('Digitalogic_CLI_Commands', 'websocket_token'));

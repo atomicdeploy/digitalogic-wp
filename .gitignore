@@ -59,5 +59,14 @@ phpunit.xml
 # Exports
 /wp-content/uploads/digitalogic-exports/
 
+# Production Patris data and standalone reports
+kala.json
+kala.db
+*.sqlite
+*.sqlite3
+reportFinal.php
+reportProduts.php
+reportProducts.php
+
 # Translation files - .mo files are built during deployment
 languages/*.mo

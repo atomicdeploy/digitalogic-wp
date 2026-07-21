@@ -352,13 +352,13 @@
                 summary: null,
                 settings: null,
                 reports: null,
-                activeReportCategory: '',
                 reportLoading: false,
                 reportLoadPromise: null,
-                reportCategoryLoading: '',
-                reportCategoryErrors: {},
-                reportCategoryRequestSequence: 0,
-                reportPageSize: 25,
+                reportRequestKey: '',
+                reportRequestSequence: 0,
+                reportView: 'warnings',
+                reportCategory: '',
+                reportPage: 1,
                 products: [],
                 users: [],
                 selectedProduct: null,
@@ -435,6 +435,11 @@
                 if (this.route.indexOf('/sync') === 0) return 'sync';
                 if (this.route.indexOf('/settings') === 0) return 'settings';
                 return 'dashboard';
+            },
+            reportCategories: function() {
+                return ((this.reports && this.reports.categories) || []).filter(function(category) {
+                    return Number(category.count) > 0;
+                });
             },
             productRouteId: function() {
                 var match = this.route.match(/^\/products\/(\d+)/);
@@ -616,10 +621,8 @@
             },
             migrationSections: function() {
                 return [
-                    {key: 'price-reports', icon: 'dashicons-chart-area', title: this.t.priceReports, body: this.t.priceReportsText, reportKeys: ['zero_price', 'missing_foreign_price', 'bad_weight']},
+                    {key: 'price-reports', icon: 'dashicons-chart-area', title: this.t.priceReports, body: this.t.priceReportsText},
                     {key: 'sync-prices', icon: 'dashicons-update', title: this.t.priceSync, body: this.t.priceSyncText, route: '/sync'},
-                    {key: 'image-audit', icon: 'dashicons-format-image', title: this.t.imageAudit, body: this.t.imageAuditText, reportKeys: ['missing_image', 'image_duplicate', 'image_corrupt', 'image_quality']},
-                    {key: 'customer-report', icon: 'dashicons-groups', title: this.t.customerReports, body: this.t.customerReportsText, reportKeys: ['customer_missing_mobile']},
                     {key: 'currency-shipping', icon: 'dashicons-admin-tools', title: this.t.currencyShipping, body: this.t.currencyShippingText, route: '/settings'},
                     {key: 'excel-export', icon: 'dashicons-media-spreadsheet', title: this.t.excelExports, body: this.t.excelExportsText, route: '/cli'}
                 ];
@@ -846,87 +849,85 @@
                     self.error = error.message || self.t.error;
                 });
             },
-            loadReports: function(forceRefresh) {
+            loadReports: function(pageOrForceRefresh) {
                 var self = this;
-                if (self.reportLoading) {
+                var forceRefresh = pageOrForceRefresh === true;
+                var requestedPage = (typeof pageOrForceRefresh === 'number' || typeof pageOrForceRefresh === 'string')
+                    ? Math.max(1, parseInt(pageOrForceRefresh, 10) || 1)
+                    : Math.max(1, parseInt(self.reportPage, 10) || 1);
+                var requestArgs = {
+                    view: self.reportView,
+                    category: self.reportCategory,
+                    page: requestedPage,
+                    per_page: 50,
+                    force_refresh: forceRefresh
+                };
+                var requestKey = JSON.stringify(requestArgs);
+                if (self.reportLoading && self.reportRequestKey === requestKey) {
                     return self.reportLoadPromise || Promise.resolve(self.reports);
                 }
 
+                var requestSequence = ++self.reportRequestSequence;
+                self.reportRequestKey = requestKey;
                 self.reportLoading = true;
                 self.loading = true;
                 self.error = '';
-                var request = self.run('digitalogic_get_reports', {
-                    item_limit: 0,
-                    item_offset: 0,
-                    force_refresh: forceRefresh === true
-                }, {ajaxOnly: true}).then(function(data) {
+                var request = self.run('digitalogic_get_reports', requestArgs, {ajaxOnly: true}).then(function(data) {
+                    if (requestSequence !== self.reportRequestSequence) return data;
                     self.reports = data;
-                    self.reportCategoryErrors = {};
-                    var categories = (data && data.categories) || [];
-                    var active = categories.find(function(category) {
-                        return category.key === self.activeReportCategory && Number(category.count || 0) > 0;
-                    }) || categories.find(function(category) {
-                        return Number(category.count || 0) > 0;
-                    });
-                    self.activeReportCategory = active ? active.key : '';
-                    if (active) {
-                        return self.loadReportCategory(active.key, 1);
-                    }
+                    self.reportView = data.view || self.reportView;
+                    self.reportCategory = (data.filters && data.filters.category) || '';
+                    self.reportPage = (data.pagination && Number(data.pagination.page)) || 1;
                 }).catch(function(error) {
+                    if (requestSequence !== self.reportRequestSequence) return;
                     self.error = error.message || self.t.error;
                 }).finally(function() {
+                    if (requestSequence !== self.reportRequestSequence) return;
                     self.reportLoading = false;
                     self.reportLoadPromise = null;
+                    self.reportRequestKey = '';
                     self.loading = false;
                 });
                 self.reportLoadPromise = request;
                 return request;
             },
-            loadReportCategory: function(categoryKey, page) {
-                var self = this;
-                if (!categoryKey || !self.reports) return Promise.resolve();
-
-                var requestedPage = Math.max(1, parseInt(page, 10) || 1);
-                var requestSequence = ++self.reportCategoryRequestSequence;
-                self.reportCategoryLoading = categoryKey;
-                self.error = '';
-                self.reportCategoryErrors = Object.assign({}, self.reportCategoryErrors, (function() {
-                    var cleared = {};
-                    cleared[categoryKey] = '';
-                    return cleared;
-                })());
-                return self.run('digitalogic_get_reports', {
-                    category: categoryKey,
-                    item_limit: self.reportPageSize,
-                    item_offset: (requestedPage - 1) * self.reportPageSize,
-                    force_refresh: false
-                }, {ajaxOnly: true}).then(function(data) {
-                    if (requestSequence !== self.reportCategoryRequestSequence) return;
-                    var incoming = ((data && data.categories) || []).find(function(category) {
-                        return category.key === categoryKey;
-                    });
-                    if (!incoming) {
-                        throw new Error(self.t.reportCategoryUnavailable || self.t.error || 'The report category could not be loaded.');
-                    }
-
-                    self.reports = Object.assign({}, self.reports, {
-                        generated_at: data.generated_at || self.reports.generated_at,
-                        categories: (self.reports.categories || []).map(function(category) {
-                            return category.key === categoryKey ? incoming : category;
-                        })
-                    });
-                }).catch(function(error) {
-                    if (requestSequence !== self.reportCategoryRequestSequence) return;
-                    var message = error.message || self.t.error;
-                    var categoryErrors = Object.assign({}, self.reportCategoryErrors);
-                    categoryErrors[categoryKey] = message;
-                    self.reportCategoryErrors = categoryErrors;
-                    self.error = message;
-                }).finally(function() {
-                    if (requestSequence === self.reportCategoryRequestSequence) {
-                        self.reportCategoryLoading = '';
-                    }
-                });
+            setReportView: function(view) {
+                this.reportView = view === 'price_list' ? 'price_list' : 'warnings';
+                this.reportCategory = '';
+                this.reportPage = 1;
+                return this.loadReports(1);
+            },
+            setReportCategory: function(category) {
+                this.reportView = 'warnings';
+                this.reportCategory = category || '';
+                this.reportPage = 1;
+                return this.loadReports(1);
+            },
+            reportSparseValue: function(record, field) {
+                if (!record || !Object.prototype.hasOwnProperty.call(record, field)) return this.t.missing;
+                if (record[field] === null) return 'null';
+                if (Array.isArray(record[field]) || (record[field] && typeof record[field] === 'object')) {
+                    return JSON.stringify(record[field]);
+                }
+                return String(record[field]);
+            },
+            reportWooValue: function(record, field) {
+                if (!record || !Object.prototype.hasOwnProperty.call(record, field)) return this.t.missing;
+                return record[field] === null ? 'null' : String(record[field]);
+            },
+            reportStateLabel: function(state) {
+                var labels = {
+                    matched: this.t.reportMatched,
+                    source_only: this.t.reportSourceOnly,
+                    woocommerce_only: this.t.reportWooOnly,
+                    ambiguous: this.t.reportAmbiguous
+                };
+                return labels[state] || state;
+            },
+            reportIssueTitle: function(issue) {
+                var categories = (this.reports && this.reports.categories) || [];
+                var match = categories.find(function(category) { return category.key === issue; });
+                return match ? this.reportCategoryTitle(match) : issue;
             },
             loadProducts: function(page) {
                 var self = this;
@@ -1977,42 +1978,43 @@
                     this.navigate(section.route);
                     return;
                 }
-                var categories = (this.reports && this.reports.categories) || [];
-                var category = (section.reportKeys || []).map(function(key) {
-                    return categories.find(function(item) { return item.key === key && Number(item.count || 0) > 0; });
-                }).find(Boolean) || categories.find(function(item) {
-                    return (section.reportKeys || []).indexOf(item.key) !== -1;
-                });
-                if (!category) return;
-                this.activeReportCategory = category.key;
-                if (this.reportCategoryLoading !== category.key && Number(category.count || 0) > 0 && (!category.items || !category.items.length)) {
-                    this.loadReportCategory(category.key, 1);
-                }
-                this.$nextTick(function() {
-                    var target = document.querySelector('[data-report-category="' + category.key + '"]');
-                    if (target) target.scrollIntoView({block: 'start', inline: 'nearest', behavior: 'smooth'});
-                });
-            },
-            onReportCategoryToggle: function(category, event) {
-                if (event && event.target && event.target.open) {
-                    this.activeReportCategory = category.key;
-                    if (this.reportCategoryLoading !== category.key && Number(category.count || 0) > 0 && (!category.items || !category.items.length)) {
-                        this.loadReportCategory(category.key, 1);
-                    }
-                } else if (this.activeReportCategory === category.key) {
-                    this.activeReportCategory = '';
-                }
-            },
-            reportPageNumber: function(category) {
-                return Math.floor(Math.max(0, Number(category && category.item_offset || 0)) / this.reportPageSize) + 1;
-            },
-            reportPageCount: function(category) {
-                return Math.max(1, Math.ceil(Math.max(0, Number(category && category.count || 0)) / this.reportPageSize));
+                if (section.key === 'price-reports') this.setReportView('price_list');
             },
             reportCategoryTitle: function(category) {
                 var translationKeys = {
                     missing_in_woocommerce: 'reportMissingInWooCommerce',
+                    positive_stock_missing_in_woocommerce: 'reportPositiveStockMissingInWooCommerce',
                     missing_in_patris: 'reportMissingInPatris',
+                    missing_product_code: 'reportMissingProductCode',
+                    duplicate_product_code: 'reportDuplicateProductCode',
+                    source_warning: 'reportSourceWarning',
+                    missing_foreign_currency: 'reportMissingForeignCurrency',
+                    null_foreign_currency: 'reportNullForeignCurrency',
+                    unexpected_foreign_currency: 'reportUnexpectedForeignCurrency',
+                    null_foreign_price: 'reportNullForeignPrice',
+                    missing_weight: 'reportMissingWeight',
+                    null_weight: 'reportNullWeight',
+                    missing_stock: 'reportMissingStock',
+                    null_stock: 'reportNullStock',
+                    missing_final_price: 'reportMissingFinalPrice',
+                    null_final_price: 'reportNullFinalPrice',
+                    missing_shipping: 'reportMissingShipping',
+                    null_shipping: 'reportNullShipping',
+                    missing_markup: 'reportMissingMarkup',
+                    null_markup: 'reportNullMarkup',
+                    missing_exchange_rate: 'reportMissingExchangeRate',
+                    null_exchange_rate: 'reportNullExchangeRate',
+                    invalid_source_value: 'reportInvalidSourceValue',
+                    missing_source_updated_at: 'reportMissingSourceUpdatedAt',
+                    null_source_updated_at: 'reportNullSourceUpdatedAt',
+                    stale_source: 'reportStaleSource',
+                    price_drift: 'reportPriceDrift',
+                    stock_drift: 'reportStockDrift',
+                    stock_management_drift: 'reportStockManagementDrift',
+                    stock_status_drift: 'reportStockStatusDrift',
+                    weight_drift: 'reportWeightDrift',
+                    record_hash_drift: 'reportRecordHashDrift',
+                    source_updated_at_drift: 'reportSourceUpdatedAtDrift',
                     duplicate_sku: 'reportDuplicateSku',
                     zero_stock: 'reportZeroStock',
                     zero_price: 'reportZeroPrice',
@@ -2030,32 +2032,6 @@
                 };
                 var key = category && translationKeys[category.key];
                 return (key && this.t[key]) || (category && (category.title || category.key)) || this.t.reports;
-            },
-            changeReportPage: function(category, delta) {
-                var page = Math.max(1, Math.min(this.reportPageCount(category), this.reportPageNumber(category) + Number(delta || 0)));
-                return this.loadReportCategory(category.key, page);
-            },
-            reportItemDetails: function(item) {
-                item = item || {};
-                var contact = [item.tel, item.phone, item.mobile].filter(Boolean).join(' / ');
-                var dimensions = item.image_width && item.image_height ? item.image_width + ' × ' + item.image_height : '';
-                return [
-                    {label: this.t.minimumStock, value: item.minimum_stock},
-                    {label: this.t.location, value: item.location},
-                    {label: this.t.updatedAt, value: item.updated_at},
-                    {label: this.t.dimensions, value: dimensions},
-                    {label: this.t.contact, value: contact},
-                    {label: this.t.email, value: item.email},
-                    {label: this.t.address, value: item.address}
-                ].filter(function(detail) {
-                    return detail.value !== null && detail.value !== undefined && String(detail.value).trim() !== '';
-                });
-            },
-            reportForeignPrice: function(item) {
-                item = item || {};
-                return [item.foreign_currency, item.foreign_price].filter(function(value) {
-                    return value !== null && value !== undefined && value !== '';
-                }).join(' ');
             },
             categoryOptions: function() {
                 return (this.summary && this.summary.categories) || [];

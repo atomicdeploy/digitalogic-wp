@@ -395,6 +395,51 @@ class Digitalogic_Product_Sync_Receiver {
     private function __construct() {}
 
     /**
+     * Validate one exact JSON document without locking, persisting, or writing WooCommerce.
+     *
+     * The returned envelope is the same typed, sparse canonical projection used
+     * by receive_json(). Callers must not treat this method as authorization to
+     * apply the envelope.
+     *
+     * @param string $json Request body.
+     * @return array|WP_Error
+     */
+    public function validate_json($json) {
+        if (!is_string($json) || '' === trim($json)) {
+            return $this->error('digitalogic_product_sync_invalid_json', 'A JSON request body is required.', 400);
+        }
+        if (strlen($json) > self::MAX_BODY_BYTES) {
+            return $this->error('digitalogic_product_sync_payload_too_large', 'The product-sync payload is too large.', 413);
+        }
+
+        try {
+            $payload = Digitalogic_Product_Sync_JSON_Decoder::decode($json);
+        } catch (RuntimeException $exception) {
+            return $this->error(
+                'digitalogic_product_sync_invalid_json',
+                'The product-sync request is not valid JSON.',
+                400,
+                array('reason' => $exception->getMessage())
+            );
+        }
+        if (!is_array($payload) || array_is_list($payload)) {
+            return $this->error('digitalogic_product_sync_invalid_payload', 'The product-sync payload must be an object.', 400);
+        }
+
+        $forbidden = $this->find_forbidden_raw_key($payload);
+        if (null !== $forbidden) {
+            return $this->error(
+                'digitalogic_product_sync_raw_key_forbidden',
+                'Raw Patris fields are forbidden on the transformed product-sync endpoint.',
+                422,
+                array('path' => $forbidden)
+            );
+        }
+
+        return $this->validate_envelope($payload);
+    }
+
+    /**
      * Receive an exact JSON document while preserving numeric wire tokens.
      *
      * @param string $json Request body.
@@ -2241,16 +2286,18 @@ class Digitalogic_Product_Sync_Receiver {
         $identity = array(
             'schema' => $envelope['schema'],
             'event_type' => $envelope['event_type'],
-            'local_currency' => $envelope['local_currency'] ?? '',
-            'formula_id' => $envelope['formula_id'] ?? '',
-            'source' => array(
+        );
+        if (array_key_exists('local_currency', $envelope)) {
+            $identity['local_currency'] = $envelope['local_currency'];
+            $identity['formula_id'] = $envelope['formula_id'];
+        }
+        $identity['source'] = array(
                 'id' => $envelope['source']['id'],
                 'dataset' => $envelope['source']['dataset'],
                 'revision' => $envelope['source']['revision'],
-            ),
-            'generated_at' => $envelope['generated_at'],
-            'products' => $product_hashes,
         );
+        $identity['generated_at'] = $envelope['generated_at'];
+        $identity['products'] = $product_hashes;
         $identity['categories'] = $category_hashes;
         $identity['excluded_codes'] = $envelope['excluded_codes'];
         if (!empty($envelope['deleted_codes'])) {

@@ -440,7 +440,7 @@ $retry_url = isset($_SERVER['REQUEST_URI']) ? (string) $_SERVER['REQUEST_URI'] :
                     <div class="dlp-panel">
                         <div class="dlp-panel-head">
                             <strong>{{ t.reports }}</strong>
-                            <button class="dlp-button" :disabled="reportLoading" @click="loadReports(true)"><span class="dashicons dashicons-update" :class="{'dlp-spin': reportLoading}"></span>{{ reportLoading ? t.loading : t.refresh }}</button>
+                            <button class="dlp-button" :disabled="$data.reportLoading || loading" @click="loadReports(true)"><span class="dashicons dashicons-update" :class="{'dlp-spin': $data.reportLoading || loading}"></span>{{ ($data.reportLoading || loading) ? t.loading : t.refresh }}</button>
                         </div>
                         <div class="dlp-report-grid">
                             <button class="dlp-report-card" v-for="section in migrationSections" :key="section.key" :disabled="!section.route && !reports" @click="openMigrationSection(section)"><span :class="icon(section.icon)"></span><strong>{{ section.title }}</strong><span>{{ section.body }}</span></button>
@@ -457,40 +457,46 @@ $retry_url = isset($_SERVER['REQUEST_URI']) ? (string) $_SERVER['REQUEST_URI'] :
                         <div class="dlp-report-summary">
                             <span><strong>{{ formatNumber(reports.counts && reports.counts.woocommerce_products) }}</strong>{{ t.products }}</span>
                             <span><strong>{{ formatNumber(reports.counts && reports.counts.patris_products) }}</strong>{{ t.patrisProducts }}</span>
-                            <span><strong>{{ formatNumber(reports.counts && reports.counts.patris_customers) }}</strong>{{ t.customerReports }}</span>
+                            <span v-if="reports.counts && reports.counts.matched_products !== undefined"><strong>{{ formatNumber(reports.counts.matched_products) }}</strong>{{ t.exactCodeMatches }}</span>
+                            <span v-if="reports.counts && reports.counts.drift_products !== undefined"><strong>{{ formatNumber(reports.counts.drift_products) }}</strong>{{ t.driftProducts }}</span>
+                            <span v-if="reports.counts && reports.counts.positive_source_only_products !== undefined"><strong>{{ formatNumber(reports.counts.positive_source_only_products) }}</strong>{{ t.positiveSourceOnly }}</span>
+                            <span v-if="reports.counts && reports.counts.patris_customers !== undefined"><strong>{{ formatNumber(reports.counts.patris_customers) }}</strong>{{ t.customerReports }}</span>
                         </div>
-                        <details v-for="category in reports.categories" :key="category.key" class="dlp-report-category" :class="'is-' + category.severity" :data-report-category="category.key" :open="activeReportCategory === category.key" @toggle="onReportCategoryToggle(category, $event)">
-                            <summary><span class="dlp-status-dot"></span><strong>{{ reportCategoryTitle(category) }}</strong><span>{{ formatNumber(category.count) }}</span></summary>
-                            <div v-if="reportCategoryLoading === category.key" class="dlp-empty">{{ t.loading }}</div>
-                            <div v-else-if="reportCategoryErrors[category.key]" class="dlp-error dlp-report-error"><span>{{ reportCategoryErrors[category.key] }}</span><button class="dlp-button" @click="loadReportCategory(category.key, reportPageNumber(category))"><span class="dashicons dashicons-update"></span>{{ t.retry }}</button></div>
-                            <div v-else-if="!category.items || !category.items.length" class="dlp-empty">{{ Number(category.count || 0) > 0 ? t.loading : t.noRows }}</div>
-                            <div v-else>
-                                <div class="dlp-report-limit">{{ t.showingRows }} {{ formatNumber(category.item_offset + 1) }}–{{ formatNumber(category.item_offset + category.returned_count) }} / {{ formatNumber(category.count) }}</div>
-                                <div class="dlp-table-wrap">
-                                <table class="dlp-table dlp-report-table" :aria-label="reportCategoryTitle(category)">
-                                    <thead><tr><th scope="col">{{ t.sku }}</th><th scope="col">{{ t.products }}</th><th scope="col">Patris/API</th><th scope="col">{{ t.stock }}</th><th scope="col">{{ t.foreignPrice }}</th><th scope="col">{{ t.weight }}</th><th scope="col">{{ t.finalPrice }}</th><th scope="col">{{ t.details }}</th><th scope="col">{{ t.actions }}</th></tr></thead>
+                            <div v-if="error" class="dlp-error dlp-report-error" role="alert"><span>{{ error }}</span><button class="dlp-button" :disabled="loading" @click="loadReports(reports.pagination ? reports.pagination.page : 1)"><span class="dashicons dashicons-update" :class="{'dlp-spin': loading}"></span>{{ t.retry }}</button></div>
+                            <div v-if="reports.status !== 'current' && reports.status !== 'static'" class="dlp-empty">{{ t.reportSourceUnavailable }}</div>
+                            <div class="dlp-actions">
+                                <button class="dlp-button" :class="{'is-primary': reportView === 'warnings'}" :disabled="loading" @click="setReportView('warnings')">{{ t.warnings }}</button>
+                                <button class="dlp-button" :class="{'is-primary': reportView === 'price_list'}" :disabled="loading" @click="setReportView('price_list')">{{ t.priceList }}</button>
+                            </div>
+                            <div v-if="reportView === 'warnings'" class="dlp-actions">
+                                <button class="dlp-button" :class="{'is-primary': !reportCategory}" :disabled="loading" @click="setReportCategory('')">{{ t.allWarnings }}</button>
+                                <button v-for="category in reportCategories" :key="category.key" class="dlp-button" :class="{'is-primary': reportCategory === category.key}" :disabled="loading" @click="setReportCategory(category.key)">{{ reportCategoryTitle(category) }} ({{ formatNumber(category.count) }})</button>
+                            </div>
+                            <div v-if="!reports.rows.length" class="dlp-empty">{{ t.noRows }}</div>
+                            <div v-else class="dlp-table-wrap">
+                                <table class="dlp-table dlp-report-table" :aria-label="reportView === 'price_list' ? t.priceList : t.problemRows">
+                                    <thead><tr><th scope="col">{{ t.sku }}</th><th scope="col">{{ t.reportState }}</th><th scope="col">{{ t.products }}</th><th scope="col">Patris/API</th><th scope="col">{{ t.stock }}</th><th scope="col">{{ t.foreignPrice }}</th><th scope="col">{{ t.weight }}</th><th scope="col">{{ t.finalPrice }}</th><th scope="col">{{ t.findings }}</th><th scope="col">{{ t.actions }}</th></tr></thead>
                                     <tbody>
-                                        <tr v-for="(item, itemIndex) in category.items" :key="category.key + ':' + (item.woo_id || item.product_code || item.customer_code || item.name) + ':' + itemIndex">
-                                            <td class="dlp-mono">{{ item.product_code || item.customer_code }}</td>
-                                            <td>{{ item.woo_name }}</td>
-                                            <td>{{ item.name }}</td>
-                                            <td class="dlp-cell-numeric">{{ item.stock }}</td>
-                                            <td class="dlp-cell-numeric">{{ reportForeignPrice(item) }}</td>
-                                            <td class="dlp-cell-numeric">{{ item.weight_grams }}</td>
-                                            <td class="dlp-cell-numeric">{{ item.final_price }}</td>
-                                            <td><span class="dlp-report-details"><span v-for="detail in reportItemDetails(item)" :key="detail.label"><strong>{{ detail.label }}</strong><bdi dir="auto">{{ detail.value }}</bdi></span></span></td>
+                                        <tr v-for="(item, itemIndex) in reports.rows" :key="item.status + ':' + (item.woo_id || item.product_code) + ':' + itemIndex">
+                                            <td class="dlp-mono"><bdi dir="auto">{{ item.product_code }}</bdi></td>
+                                            <td>{{ reportStateLabel(item.status) }}</td>
+                                            <td><bdi dir="auto">{{ reportWooValue(item.woocommerce, 'name') }}</bdi></td>
+                                            <td><bdi dir="auto">{{ reportSparseValue(item.source, 'name') }}</bdi></td>
+                                            <td class="dlp-cell-numeric"><bdi dir="auto">{{ reportSparseValue(item.source, 'total_stock') }} / {{ reportWooValue(item.woocommerce, 'stock_quantity') }}</bdi></td>
+                                            <td class="dlp-cell-numeric"><bdi dir="auto">{{ reportSparseValue(item.source, 'foreign_price') }}</bdi></td>
+                                            <td class="dlp-cell-numeric"><bdi dir="auto">{{ reportSparseValue(item.source, 'weight_grams') }}</bdi></td>
+                                            <td class="dlp-cell-numeric"><bdi dir="auto">{{ reportSparseValue(item.source, 'final_price') }} / {{ reportWooValue(item.woocommerce, 'active_price') }}</bdi></td>
+                                            <td><span v-if="!item.issues || !item.issues.length">{{ t.current }}</span><span v-for="issue in item.issues" :key="issue" class="dlp-pill">{{ reportIssueTitle(issue) }}</span></td>
                                             <td><a v-if="item.edit_url" class="dlp-icon-button" :href="item.edit_url" target="_blank" rel="noopener" :aria-label="t.edit"><span class="dashicons dashicons-edit"></span></a></td>
                                         </tr>
                                     </tbody>
                                 </table>
-                                </div>
-                                <nav v-if="category.count > reportPageSize" class="dlp-report-pagination" :aria-label="t.pagination">
-                                    <button class="dlp-button" :disabled="reportCategoryLoading === category.key || reportPageNumber(category) <= 1" @click="changeReportPage(category, -1)"><span :class="icon(t.dir === 'rtl' ? 'dashicons-arrow-right-alt2' : 'dashicons-arrow-left-alt2')"></span>{{ t.previous }}</button>
-                                    <span>{{ t.page }} {{ formatNumber(reportPageNumber(category)) }} / {{ formatNumber(reportPageCount(category)) }}</span>
-                                    <button class="dlp-button" :disabled="reportCategoryLoading === category.key || !category.has_more" @click="changeReportPage(category, 1)">{{ t.next }}<span :class="icon(t.dir === 'rtl' ? 'dashicons-arrow-left-alt2' : 'dashicons-arrow-right-alt2')"></span></button>
-                                </nav>
                             </div>
-                        </details>
+                            <nav v-if="reports.pagination && reports.pagination.pages > 1" class="dlp-pagination dlp-report-pagination" :aria-label="t.pagination">
+                                <button class="dlp-button" :disabled="reports.pagination.page <= 1 || loading" @click="loadReports(reports.pagination.page - 1)"><span :class="icon(t.dir === 'rtl' ? 'dashicons-arrow-right-alt2' : 'dashicons-arrow-left-alt2')"></span>{{ t.previous }}</button>
+                                <span>{{ t.page }} {{ formatNumber(reports.pagination.page) }} / {{ formatNumber(reports.pagination.pages) }}</span>
+                                <button class="dlp-button" :disabled="reports.pagination.page >= reports.pagination.pages || loading" @click="loadReports(reports.pagination.page + 1)">{{ t.next }}<span :class="icon(t.dir === 'rtl' ? 'dashicons-arrow-left-alt2' : 'dashicons-arrow-right-alt2')"></span></button>
+                            </nav>
                     </div>
                     <div v-else class="dlp-panel"><div class="dlp-empty">{{ loading ? t.loading : (error || t.noRows) }}</div></div>
                 </section>
