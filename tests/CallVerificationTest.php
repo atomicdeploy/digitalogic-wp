@@ -6,6 +6,7 @@ use PHPUnit\Framework\TestCase;
 require_once dirname(__DIR__) . '/includes/integrations/class-pbx-phone.php';
 require_once dirname(__DIR__) . '/includes/integrations/class-call-verification.php';
 require_once dirname(__DIR__) . '/includes/integrations/class-voice-notifications.php';
+require_once __DIR__ . '/fixtures/ZeroSpamLogin.php';
 
 final class CallVerificationTest extends TestCase {
     public function test_public_phone_normalizer_accepts_ir_mobile_and_full_landline_but_not_local_ani(): void {
@@ -187,6 +188,128 @@ final class CallVerificationTest extends TestCase {
 		}
 	}
 
+	public function test_verified_login_suspends_only_zerospam_form_filter_and_restores_it(): void {
+		$oldFilters = $GLOBALS['digitalogic_test_filters'] ?? array();
+		$oldWpFilter = $GLOBALS['wp_filter'] ?? array();
+		$zeroSpam = new \ZeroSpam\Modules\Login\Login();
+		$accountPolicy = new class {
+			public int $calls = 0;
+			public function validate( $user, $password ) {
+				++$this->calls;
+				return $user;
+			}
+		};
+		$unrelatedFormFilter = new class {
+			public int $calls = 0;
+			public function process_form( $user, $password ) {
+				++$this->calls;
+				return $user;
+			}
+		};
+
+		try {
+			remove_all_filters( 'wp_authenticate_user' );
+			add_filter( 'wp_authenticate_user', array( $zeroSpam, 'process_form' ), 10, 2 );
+			add_filter( 'wp_authenticate_user', array( $unrelatedFormFilter, 'process_form' ), 15, 2 );
+			add_filter( 'wp_authenticate_user', array( $accountPolicy, 'validate' ), 20, 2 );
+			$hook = new WP_Hook();
+			$hook->callbacks = array(
+				10 => array(
+					'zerospam' => array(
+						'function'      => array( $zeroSpam, 'process_form' ),
+						'accepted_args' => 2,
+					),
+				),
+				15 => array(
+					'unrelated-form-filter' => array(
+						'function'      => array( $unrelatedFormFilter, 'process_form' ),
+						'accepted_args' => 2,
+					),
+				),
+				20 => array(
+					'account-policy' => array(
+						'function'      => array( $accountPolicy, 'validate' ),
+						'accepted_args' => 2,
+					),
+				),
+			);
+			$GLOBALS['wp_filter']['wp_authenticate_user'] = $hook;
+
+			$authenticate = new ReflectionMethod( Digitalogic_Call_Verification::class, 'authenticate_verified_user' );
+			$user = new WP_User( 52, 'verified-user' );
+			$this->assertSame( $user, $authenticate->invoke( Digitalogic_Call_Verification::instance(), $user ) );
+			$this->assertSame( 0, $zeroSpam->calls );
+			$this->assertSame( 1, $unrelatedFormFilter->calls );
+			$this->assertSame( 1, $accountPolicy->calls );
+
+			$normalLogin = apply_filters( 'wp_authenticate_user', $user, '' );
+			$this->assertTrue( is_wp_error( $normalLogin ) );
+			$this->assertSame( 'failed_zerospam', $normalLogin->get_error_code() );
+			$this->assertSame( 1, $zeroSpam->calls );
+			$this->assertSame( 2, $unrelatedFormFilter->calls );
+			$this->assertSame( 2, $accountPolicy->calls );
+		} finally {
+			$GLOBALS['digitalogic_test_filters'] = $oldFilters;
+			$GLOBALS['wp_filter'] = $oldWpFilter;
+		}
+	}
+
+	public function test_verified_login_propagates_other_policy_failures_and_restores_zerospam_on_throw(): void {
+		$oldFilters = $GLOBALS['digitalogic_test_filters'] ?? array();
+		$oldWpFilter = $GLOBALS['wp_filter'] ?? array();
+		$zeroSpam = new \ZeroSpam\Modules\Login\Login();
+		$authenticate = new ReflectionMethod( Digitalogic_Call_Verification::class, 'authenticate_verified_user' );
+		$user = new WP_User( 53, 'policy-user' );
+		$policyError = new class {
+			public function validate( $user, $password ) {
+				return new WP_Error( 'account_suspended', 'account policy denied access' );
+			}
+		};
+		$throwingPolicy = new class {
+			public function validate( $user, $password ) {
+				throw new RuntimeException( 'injected account policy failure' );
+			}
+		};
+
+		try {
+			remove_all_filters( 'wp_authenticate_user' );
+			add_filter( 'wp_authenticate_user', array( $zeroSpam, 'process_form' ), 10, 2 );
+			add_filter( 'wp_authenticate_user', array( $policyError, 'validate' ), 20, 2 );
+			$hook = new WP_Hook();
+			$hook->callbacks = array(
+				10 => array( 'zerospam' => array( 'function' => array( $zeroSpam, 'process_form' ), 'accepted_args' => 2 ) ),
+				20 => array( 'policy' => array( 'function' => array( $policyError, 'validate' ), 'accepted_args' => 2 ) ),
+			);
+			$GLOBALS['wp_filter']['wp_authenticate_user'] = $hook;
+
+			$result = $authenticate->invoke( Digitalogic_Call_Verification::instance(), $user );
+			$this->assertTrue( is_wp_error( $result ) );
+			$this->assertSame( 'account_suspended', $result->get_error_code() );
+			$this->assertSame( 0, $zeroSpam->calls );
+
+			remove_all_filters( 'wp_authenticate_user' );
+			add_filter( 'wp_authenticate_user', array( $zeroSpam, 'process_form' ), 10, 2 );
+			add_filter( 'wp_authenticate_user', array( $throwingPolicy, 'validate' ), 20, 2 );
+			$hook = new WP_Hook();
+			$hook->callbacks = array(
+				10 => array( 'zerospam' => array( 'function' => array( $zeroSpam, 'process_form' ), 'accepted_args' => 2 ) ),
+				20 => array( 'policy' => array( 'function' => array( $throwingPolicy, 'validate' ), 'accepted_args' => 2 ) ),
+			);
+			$GLOBALS['wp_filter']['wp_authenticate_user'] = $hook;
+
+			try {
+				$authenticate->invoke( Digitalogic_Call_Verification::instance(), $user );
+				$this->fail( 'Expected the account policy exception.' );
+			} catch ( RuntimeException $exception ) {
+				$this->assertSame( 'injected account policy failure', $exception->getMessage() );
+			}
+			$callbacks = array_column( $GLOBALS['digitalogic_test_filters']['wp_authenticate_user'], 'callback' );
+			$this->assertContains( array( $zeroSpam, 'process_form' ), $callbacks );
+		} finally {
+			$GLOBALS['digitalogic_test_filters'] = $oldFilters;
+			$GLOBALS['wp_filter'] = $oldWpFilter;
+		}
+	}
 	public function test_callback_and_contact_range_locks_fail_closed_on_database_errors(): void {
 		$source = file_get_contents( dirname( __DIR__ ) . '/includes/integrations/class-call-verification.php' );
 		$callbackStart = strpos( $source, 'public function pbx_confirm' );

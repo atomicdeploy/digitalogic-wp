@@ -37,12 +37,9 @@ class Digitalogic_Laravel_Bridge {
     public function handle_panel_launch() {
         check_admin_referer('digitalogic_laravel_panel_launch');
 
-        if (!current_user_can('manage_woocommerce')) {
-            wp_die(
-                esc_html__('You are not allowed to open the Digitalogic panel.', 'digitalogic'),
-                esc_html__('Forbidden', 'digitalogic'),
-                array('response' => 403)
-            );
+        if ( ! Digitalogic_Access_Control::can_access_panel() ) {
+            Digitalogic_Panel_Error_Page::render( 403, 'panel-access-denied' );
+            exit;
         }
 
         $return_to = isset($_GET['return_to']) ? esc_url_raw(wp_unslash($_GET['return_to'])) : '';
@@ -89,7 +86,7 @@ class Digitalogic_Laravel_Bridge {
      * been installed, and the returned WP_Error exposes that exact state.
      */
     public function boot_for_panel() {
-        if (!current_user_can('manage_woocommerce')) {
+        if ( ! Digitalogic_Access_Control::can_access_panel() ) {
             return new WP_Error(
                 'digitalogic_laravel_forbidden',
                 __('You are not allowed to use the Digitalogic application.', 'digitalogic'),

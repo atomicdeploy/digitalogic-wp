@@ -9,12 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Added a persisted, optional sticky first product column that follows the first visible/reordered column in RTL and LTR while keeping the selection control frozen beside it.
+- Added reusable Digitalogic browser error pages with responsive light/dark styling, English and Persian copy, RTL/LTR layout, safe recovery actions, and stable support references.
 - Added an opt-in Google Sheets product/pricing control workspace with bounded preview/apply writeback, exact Patris identity and revisions, append-only audit rows, guarded WooCommerce product writes, and an inactive credential-placeholder n8n proxy template.
 
 ### Security
 - Google Sheets writeback uses exact-decimal optimistic revisions, idempotent requests, a shared WooCommerce product lock, and transactional shipping compare-and-set apply/compensation so concurrent changes are preserved.
 
 ### Fixed
+- Prevented the private storefront request post type from registering `manage_woocommerce` as an object meta capability, which caused WordPress to deny valid administrator and shop-manager access across the panel, admin, REST, and WebSocket paths.
+- Centralized panel authorization across the browser shell, in-process Laravel bridge, AJAX command dispatcher, and authenticated WebSocket path, including a safe WordPress-administrator fallback without granting storefront customers access.
+- Replaced the panel's raw WordPress `wp_die()` authorization response with a scoped, escaped Digitalogic 403 document that does not expose a Query Monitor call stack.
 - Made the `/panel/` and nested panel rewrite rules self-healing when WordPress retains the plugin's rewrite-version marker but another deployment or permalink refresh drops the stored routes.
 - Made panel launches strictly same-origin and in-process using the existing WordPress session; removed the panel token, session handoff, external-panel mode, and copied identity headers.
 - Prevented the custom Digits login and registration footer from blocking a PHP-FPM worker on remote WordPress.org translation discovery while preserving the locale already selected by WordPress.
@@ -28,7 +32,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Shipping amounts, minimums, divisors, and tier bounds/rates now remain canonical decimal strings through storage and every outward projection, without exponent notation or binary-float loss.
 - Product sync preserves missing versus explicitly null freight fields, and the one-time installed-data migration bypasses stale option caches and verifies persistence before marking completion.
 
-## [1.5.0] - 2026-07-21
+## [1.6.1] - 2026-07-21
+
+### Fixed
+- Preserved WordPress account-policy authentication filters while exempting only WP Zero Spam's core form honeypot from a signed, browser-bound PBX login consume request.
+
+## [1.6.0] - 2026-07-21
 
 ### Added
 - Secure six-digit phone verification by inbound call on `021-66754123`, IVR option `2`, as a Digits-independent login alternative and a way to verify supplemental Iranian mobile or fixed-line contacts.
@@ -42,10 +51,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - PBX verification secrets and callout credentials are read only from `wp-config.php`; callback bodies, identifiers, timestamps, DID/ANI values, and exact HMAC signatures are bounded and validated before use.
 - PBX schema availability is fail-closed until every required InnoDB table, column, index, cleanup task, and recovery schedule verifies successfully; signed callback attempt limits reserve capacity atomically before code matching.
 
+## [1.5.2] - 2026-07-21
+
+### Added
+- Displayed the canonical Patris Code explicitly on product loops, Woodmart single-product layouts, selected variations, cart/checkout lines, order details, homepage product cards, and the table catalog.
+- Kept unrelated WooCommerce SKUs labeled as SKU, hid only exact duplicate SKU output, and showed legacy child Codes as registered model references without implying that they are directly purchasable.
+- Let table-catalog searches for a published variation Code return the parent product while blocking misleading quick-add actions for legacy code-less parents with coded child records.
+
+## [1.5.1] - 2026-07-21
+
+### Changed
+- Prioritized products with real photos in the default table view while keeping explicit popularity, price, name, and date sorting available.
+- Routed homepage category entry points into the professional table catalog instead of the legacy product grid.
+- Added a touch- and keyboard-friendly carousel pause control, earlier stylesheet loading, hardened public form inputs, Persian/Arabic phone-digit normalization, and quick-add network failure recovery.
+
+## [1.5.0] - 2026-07-21
+
+### Added
+- Restored a high-contrast, keyboard-accessible homepage carousel with original generated artwork for stocked modules, foreign sourcing, and two-/four-layer PCB production.
+- Added two non-duplicated, inventory-backed product carousels with improved responsive controls.
+- Added a professional RTL product-table catalog with search, category and sort filters, pagination, intentional image fallbacks, and native WooCommerce quick add.
+- Added complete guest-friendly foreign-sourcing and PCB quote forms with repeatable line items, strict validation, private uploads, tracking codes, admin records, notifications, and request statuses.
+- Added temporary openly licensed product-photo attribution support and a public image-credit register.
+
 ## [1.4.3] - 2026-07-21
 
 ### Fixed
 - Read variation options through WooCommerce's variation-attribute API so reviewed children remain idempotent after creation and duplicate options are still rejected.
+
+## [1.4.2] - 2026-07-20
+
+### Added
+- Hid product categories on the public storefront when they contain no catalog-visible products while preserving authoritative admin, CLI, and integration queries.
+- Added an inventory-backed Persian homepage showcase with a varied in-stock product hero, focused category paths, China sourcing, and two-/four-layer PCB services without duplicated product rails.
 
 ## [1.4.1] - 2026-07-20
 

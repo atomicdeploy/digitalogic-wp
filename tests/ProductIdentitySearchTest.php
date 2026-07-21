@@ -6,6 +6,10 @@ if ( ! defined( 'DIGITALOGIC_PLUGIN_URL' ) ) {
 	define( 'DIGITALOGIC_PLUGIN_URL', 'https://digitalogic.test/wp-content/plugins/digitalogic-wp/' );
 }
 
+if ( ! defined( 'DIGITALOGIC_PLUGIN_DIR' ) ) {
+	define( 'DIGITALOGIC_PLUGIN_DIR', dirname( __DIR__ ) . '/' );
+}
+
 if ( ! defined( 'DIGITALOGIC_VERSION' ) ) {
 	define( 'DIGITALOGIC_VERSION', 'test' );
 }
@@ -51,24 +55,27 @@ if ( ! function_exists( 'wp_localize_script' ) ) {
 final class ProductIdentitySearchTest extends TestCase {
 
 	protected function setUp(): void {
-		$GLOBALS['digitalogic_test_posts']            = array();
-		$GLOBALS['digitalogic_test_wc_products']      = array();
-		$GLOBALS['digitalogic_test_filters']          = array();
-		$GLOBALS['digitalogic_test_action_callbacks'] = array();
-		$GLOBALS['product']                           = null;
-		$GLOBALS['digitalogic_test_is_product']       = false;
+		$GLOBALS['digitalogic_test_posts']             = array();
+		$GLOBALS['digitalogic_test_wc_products']       = array();
+		$GLOBALS['digitalogic_test_filters']           = array();
+		$GLOBALS['digitalogic_test_action_callbacks']  = array();
+		$GLOBALS['product']                            = null;
+		$GLOBALS['digitalogic_test_is_product']        = false;
 		$GLOBALS['digitalogic_test_queried_object_id'] = 0;
-		$GLOBALS['digitalogic_test_enqueued_styles']  = array();
-		$GLOBALS['digitalogic_test_enqueued_scripts'] = array();
+		$GLOBALS['digitalogic_test_enqueued_styles']   = array();
+		$GLOBALS['digitalogic_test_enqueued_scripts']  = array();
 		$GLOBALS['digitalogic_test_localized_scripts'] = array();
 	}
 
 	public function test_localizes_single_product_patris_name_for_woodmart_fallback(): void {
-		$GLOBALS['digitalogic_test_posts'][12] = array(
+		$GLOBALS['digitalogic_test_posts'][12]         = array(
 			'post_type'   => 'product',
 			'post_status' => 'publish',
 			'post_title'  => 'Reviewed Persian product title',
-			'meta'        => array( '_digitalogic_patris_family_name' => 'ATmega <Core>' ),
+			'meta'        => array(
+				'_digitalogic_patris_family_name'  => 'ATmega <Core>',
+				'_digitalogic_patris_product_code' => 'PAT-12',
+			),
 		);
 		$GLOBALS['digitalogic_test_is_product']        = true;
 		$GLOBALS['digitalogic_test_queried_object_id'] = 12;
@@ -76,18 +83,24 @@ final class ProductIdentitySearchTest extends TestCase {
 
 		$identity->enqueue_assets();
 
-		$this->assertSame(
-			'ATmega <Core>',
-			$GLOBALS['digitalogic_test_localized_scripts']['digitalogic-product-identity']['digitalogicProductIdentity']['singleProductPatrisName']
-		);
+		$config = $GLOBALS['digitalogic_test_localized_scripts']['digitalogic-product-identity']['digitalogicProductIdentity'];
+		$this->assertSame( 'ATmega <Core>', $config['singleProductPatrisName'] );
+		$this->assertSame( 'PAT-12', $config['singleProductPatrisCode'] );
+		$this->assertSame( 'کد پاتریس', $config['codeLabel'] );
+		$this->assertFalse( $config['singleProductIsVariable'] );
+		$this->assertFalse( $config['singleProductLegacyChildReferences'] );
+		$this->assertSame( array(), $config['singleProductChildCodes'] );
 	}
 
-	public function test_renders_escaped_patris_name_as_a_second_line(): void {
+	public function test_renders_escaped_patris_name_and_code_as_customer_facing_identity(): void {
 		$GLOBALS['digitalogic_test_posts'][10] = array(
 			'post_type'   => 'product',
 			'post_status' => 'publish',
 			'post_title'  => 'ماژول فارسی',
-			'meta'        => array( '_digitalogic_patris_name' => 'English <Module>' ),
+			'meta'        => array(
+				'_digitalogic_patris_name'         => 'English <Module>',
+				'_digitalogic_patris_product_code' => 'PAT-<10>',
+			),
 		);
 		$GLOBALS['product']                    = wc_get_product( 10 );
 		$identity                              = ( new ReflectionClass( Digitalogic_Product_Identity::class ) )->newInstanceWithoutConstructor();
@@ -99,6 +112,90 @@ final class ProductIdentitySearchTest extends TestCase {
 		$this->assertStringContainsString( 'digitalogic-patris-name', $html );
 		$this->assertStringContainsString( 'English &lt;Module&gt;', $html );
 		$this->assertStringNotContainsString( 'English <Module>', $html );
+		$this->assertStringContainsString( 'کد پاتریس', $html );
+		$this->assertStringContainsString( 'PAT-&lt;10&gt;', $html );
+		$this->assertStringNotContainsString( 'PAT-<10>', $html );
+	}
+
+	/** Ensure an exact Code remains visible without mislabeling an unrelated SKU. */
+	public function test_renders_code_when_patris_name_matches_title_and_never_labels_sku_as_patris(): void {
+		$GLOBALS['digitalogic_test_posts'][13] = array(
+			'post_type'   => 'product',
+			'post_status' => 'publish',
+			'post_title'  => 'Identical name',
+			'meta'        => array(
+				'_digitalogic_patris_name'         => 'Identical name',
+				'_digitalogic_patris_product_code' => 'PAT-13',
+			),
+		);
+		$GLOBALS['product']                    = wc_get_product( 13 );
+		$identity                              = ( new ReflectionClass( Digitalogic_Product_Identity::class ) )->newInstanceWithoutConstructor();
+
+		ob_start();
+		$identity->render_single_patris_name();
+		$code_html = ob_get_clean();
+
+		$this->assertStringNotContainsString( 'digitalogic-patris-name', $code_html );
+		$this->assertStringContainsString( 'PAT-13', $code_html );
+
+		$GLOBALS['digitalogic_test_posts'][14] = array(
+			'post_type'   => 'product',
+			'post_status' => 'publish',
+			'post_title'  => 'SKU only',
+			'meta'        => array( '_sku' => 'RPI5-8GB' ),
+		);
+		$GLOBALS['product']                    = wc_get_product( 14 );
+		ob_start();
+		$identity->render_single_patris_name();
+		$sku_html = ob_get_clean();
+
+		$this->assertSame( '', $sku_html );
+	}
+
+	/** Ensure legacy child Codes stay reference-only and block ambiguous purchase. */
+	public function test_lists_registered_child_codes_for_legacy_code_less_parent(): void {
+		$GLOBALS['digitalogic_test_posts'][20] = array(
+			'post_type'    => 'product',
+			'post_status'  => 'publish',
+			'product_type' => 'simple',
+			'post_title'   => 'Legacy parent',
+			'meta'         => array(),
+		);
+		$GLOBALS['digitalogic_test_posts'][21] = array(
+			'post_type'    => 'product_variation',
+			'post_status'  => 'publish',
+			'product_type' => 'variation',
+			'post_parent'  => 20,
+			'post_title'   => 'Model <A>',
+			'meta'         => array( '_digitalogic_patris_product_code' => 'CHILD-21' ),
+		);
+		$GLOBALS['digitalogic_test_posts'][22] = array(
+			'post_type'    => 'product_variation',
+			'post_status'  => 'draft',
+			'product_type' => 'variation',
+			'post_parent'  => 20,
+			'post_title'   => 'Draft model',
+			'meta'         => array( '_digitalogic_patris_product_code' => 'DRAFT-22' ),
+		);
+		$GLOBALS['product']                    = wc_get_product( 20 );
+		$identity                              = ( new ReflectionClass( Digitalogic_Product_Identity::class ) )->newInstanceWithoutConstructor();
+
+		ob_start();
+		$identity->render_single_patris_name();
+		$html = ob_get_clean();
+
+		$this->assertStringContainsString( 'کدهای ثبت‌شده برای مدل‌ها', $html );
+		$this->assertStringContainsString( 'Model &lt;A&gt;', $html );
+		$this->assertStringContainsString( 'CHILD-21', $html );
+		$this->assertStringNotContainsString( 'DRAFT-22', $html );
+		$this->assertStringContainsString( 'برای انتخاب کد دقیق با پشتیبانی هماهنگ کن', $html );
+
+		$GLOBALS['digitalogic_test_is_product']        = true;
+		$GLOBALS['digitalogic_test_queried_object_id'] = 20;
+		$identity->enqueue_assets();
+		$config = $GLOBALS['digitalogic_test_localized_scripts']['digitalogic-product-identity']['digitalogicProductIdentity'];
+		$this->assertTrue( $config['singleProductLegacyChildReferences'] );
+		$this->assertStringContainsString( 'برای انتخاب کد دقیق', $config['legacyChildNote'] );
 	}
 
 	public function test_exposes_child_identity_and_adds_sku_mpn_without_replacing_offers(): void {
@@ -140,8 +237,63 @@ final class ProductIdentitySearchTest extends TestCase {
 		ob_start();
 		$identity->render_variation_identity_slot();
 		$slot = ob_get_clean();
-		$this->assertStringContainsString( 'dir="ltr"', $slot );
-		$this->assertStringContainsString( 'lang="en"', $slot );
+		$this->assertStringContainsString( 'data-digitalogic-variation-identity', $slot );
+		$this->assertStringContainsString( 'aria-live="polite"', $slot );
+	}
+
+	/** Ensure the selected Code follows a customer line through the order flow. */
+	public function test_adds_exact_patris_code_to_cart_checkout_and_order_details(): void {
+		$GLOBALS['digitalogic_test_posts'][30] = array(
+			'post_type'   => 'product',
+			'post_status' => 'publish',
+			'post_title'  => 'Cart product',
+			'meta'        => array(
+				'_sku'                             => 'PAT-<30>',
+				'_digitalogic_patris_product_code' => 'PAT-<30>',
+			),
+		);
+		$product                               = wc_get_product( 30 );
+		$identity                              = ( new ReflectionClass( Digitalogic_Product_Identity::class ) )->newInstanceWithoutConstructor();
+
+		$item_data = $identity->add_cart_item_patris_code(
+			array(),
+			array(
+				'data'       => $product,
+				'product_id' => 30,
+			)
+		);
+		$this->assertSame( 'کد پاتریس', $item_data[0]['key'] );
+		$this->assertSame( 'PAT-<30>', $item_data[0]['value'] );
+		$this->assertStringContainsString( 'PAT-&lt;30&gt;', $item_data[0]['display'] );
+
+		$order_item = new class() {
+			/**
+			 * Captured order metadata.
+			 *
+			 * @var array
+			 */
+			public $meta = array();
+
+			/**
+			 * Capture one metadata write.
+			 *
+			 * @param string $key Metadata label.
+			 * @param string $value Metadata value.
+			 * @param bool   $unique Whether the key is unique.
+			 */
+			public function add_meta_data( $key, $value, $unique ) {
+				$this->meta[] = compact( 'key', 'value', 'unique' );
+			}
+		};
+		$identity->add_order_item_patris_code( $order_item, 'cart-key', array( 'data' => $product ), null );
+		$this->assertSame(
+			array(
+				'key'    => 'کد پاتریس',
+				'value'  => 'PAT-<30>',
+				'unique' => true,
+			),
+			$order_item->meta[0]
+		);
 	}
 
 	public function test_unpriced_product_keeps_honest_identity_without_a_fabricated_offer(): void {

@@ -13,6 +13,7 @@ class Digitalogic_Frontend_Search {
 
     private $public_actions = array(
         'woodmart_ajax_search',
+        'digitalogic_catalog_page',
     );
 
     public static function instance() {

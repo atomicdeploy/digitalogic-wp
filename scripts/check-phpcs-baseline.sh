@@ -18,7 +18,7 @@ report="$(mktemp "${TMPDIR:-/tmp}/digitalogic-phpcs.XXXXXX.json")"
 trap 'rm -f -- "$report"' EXIT
 
 set +e
-"$phpcs" \
+php -d memory_limit=512M "$phpcs" \
     --standard=WordPress \
     --extensions=php \
     --ignore=vendor/ \

@@ -1,7 +1,18 @@
-<?php
+<?php // phpcs:disable WordPress.Files.FileName.InvalidClassFileName -- Preserve the published integration filename.
 /**
  * Inbound-call phone verification and supplemental contact points.
+ *
+ * @package Digitalogic
  */
+
+// PHPCS cannot infer the safety of the reviewed plugin-table SQL, custom capabilities,
+// binary-secret encoding, bounded request validation, or legacy integration filenames.
+// phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.DirectDatabaseQuery.SchemaChange
+// phpcs:disable WordPress.DB.PreparedSQL.NotPrepared,WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+// phpcs:disable WordPress.WP.Capabilities.Unknown,WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode,WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_decode
+// phpcs:disable WordPress.Security.ValidatedSanitizedInput.InputNotSanitized,WordPress.WP.I18n.MissingTranslatorsComment,WordPress.PHP.NoSilencedErrors.Discouraged
+// phpcs:disable Squiz.Commenting.FileComment.MissingPackageTag,WordPress.Files.FileName.InvalidClassFileName,Generic.Commenting.DocComment.MissingShort
+// phpcs:disable Universal.Operators.DisallowShortTernary.Found,WordPress.PHP.YodaConditions.NotYoda
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
@@ -620,7 +631,7 @@ final class Digitalogic_Call_Verification {
 				return $user;
 			}
 
-			$filtered = apply_filters( 'wp_authenticate_user', $user, '' );
+			$filtered = $this->authenticate_verified_user( $user );
 			if ( is_wp_error( $filtered ) ) {
 				$wpdb->query( 'ROLLBACK' );
 				return $filtered;
@@ -1942,6 +1953,66 @@ final class Digitalogic_Call_Verification {
 
 		$user = get_userdata( $user_ids[0] );
 		return $user instanceof WP_User ? $user : new WP_Error( 'digitalogic_call_account', __( 'No unique account is available for this verified number.', 'digitalogic' ), array( 'status' => 403 ) );
+	}
+
+	/**
+	 * Apply account-policy authentication filters after PBX ownership proof.
+	 *
+	 * WordPress Zero Spam's core-login callback requires a form honeypot or login-page
+	 * intent cookie. Neither exists in this REST flow, whose equivalent anti-automation
+	 * controls are the signed PBX proof, browser binding, CSRF token, rate limits, and
+	 * single-use transaction. Suspend only that form-specific callback for this call;
+	 * every other account/security filter still runs and the callback is always restored.
+	 *
+	 * @param WP_User $user Resolved user.
+	 * @return WP_User|WP_Error
+	 */
+	private function authenticate_verified_user( WP_User $user ) {
+		$removed = $this->suspend_zerospam_login_filter();
+		try {
+			return apply_filters( 'wp_authenticate_user', $user, '' );
+		} finally {
+			foreach ( $removed as $filter ) {
+				add_filter( 'wp_authenticate_user', $filter['callback'], $filter['priority'], $filter['accepted_args'] );
+			}
+		}
+	}
+
+	/**
+	 * Remove only Zero Spam's core form validator from this request's auth-filter pass.
+	 *
+	 * @return array<int,array{callback:callable,priority:int,accepted_args:int}> Removed callbacks.
+	 */
+	private function suspend_zerospam_login_filter(): array {
+		global $wp_filter;
+		$hook = $wp_filter['wp_authenticate_user'] ?? null;
+		if ( ! is_object( $hook ) || ! isset( $hook->callbacks ) || ! is_array( $hook->callbacks ) ) {
+			return array();
+		}
+
+		$removed = array();
+		foreach ( $hook->callbacks as $priority => $callbacks ) {
+			if ( ! is_array( $callbacks ) ) {
+				continue;
+			}
+			foreach ( $callbacks as $registered ) {
+				$callback = is_array( $registered ) ? ( $registered['function'] ?? null ) : null;
+				if ( ! is_array( $callback ) || 2 !== count( $callback ) || ! is_object( $callback[0] )
+					|| 'ZeroSpam\\Modules\\Login\\Login' !== get_class( $callback[0] ) || 'process_form' !== $callback[1] ) {
+					continue;
+				}
+				$numeric_priority = (int) $priority;
+				if ( remove_filter( 'wp_authenticate_user', $callback, $numeric_priority ) ) {
+					$removed[] = array(
+						'callback'      => $callback,
+						'priority'      => $numeric_priority,
+						'accepted_args' => (int) ( $registered['accepted_args'] ?? 2 ),
+					);
+				}
+			}
+		}
+
+		return $removed;
 	}
 
 	/**

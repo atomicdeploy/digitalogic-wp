@@ -53,7 +53,7 @@ class Digitalogic_WebSocket_Auth {
             return 0;
         }
 
-        return current_user_can('manage_woocommerce') ? $user_id : 0;
+        return Digitalogic_Access_Control::can_access_panel() ? $user_id : 0;
     }
 
     private static function parse_cookie_header($header) {
