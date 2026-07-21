@@ -9,8 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Added a persisted, optional sticky first product column that follows the first visible/reordered column in RTL and LTR while keeping the selection control frozen beside it.
+- Added reusable Digitalogic browser error pages with responsive light/dark styling, English and Persian copy, RTL/LTR layout, safe recovery actions, and stable support references.
 
 ### Fixed
+- Centralized panel authorization across the browser shell, in-process Laravel bridge, AJAX command dispatcher, and authenticated WebSocket path, including a safe WordPress-administrator fallback without granting storefront customers access.
+- Replaced the panel's raw WordPress `wp_die()` authorization response with a scoped, escaped Digitalogic 403 document that does not expose a Query Monitor call stack.
 - Made the `/panel/` and nested panel rewrite rules self-healing when WordPress retains the plugin's rewrite-version marker but another deployment or permalink refresh drops the stored routes.
 - Made panel launches strictly same-origin and in-process using the existing WordPress session; removed the panel token, session handoff, external-panel mode, and copied identity headers.
 - Prevented the custom Digits login and registration footer from blocking a PHP-FPM worker on remote WordPress.org translation discovery while preserving the locale already selected by WordPress.

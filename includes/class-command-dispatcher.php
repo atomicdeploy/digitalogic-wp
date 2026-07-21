@@ -49,7 +49,7 @@ class Digitalogic_Command_Dispatcher {
     public function execute($command, $payload = array(), $transport = 'ajax') {
         $command = self::normalize_command_name( $command );
 
-        if (!current_user_can( 'manage_woocommerce' )) {
+        if ( ! Digitalogic_Access_Control::can_access_panel() ) {
             return new WP_Error( 'digitalogic_unauthorized', __( 'Unauthorized', 'digitalogic' ), array('status' => 403) );
         }
 
