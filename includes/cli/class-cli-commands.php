@@ -1150,6 +1150,112 @@ class Digitalogic_CLI_Commands {
 	}
 
 	/**
+	 * Audit canonical, regular, sale, and effective prices without mutating.
+	 *
+	 * ## OPTIONS
+	 *
+	 * [--limit=<number>]
+	 * : Maximum products to inspect (1-500).
+	 * ---
+	 * default: 100
+	 * ---
+	 *
+	 * [--page=<number>]
+	 * : One-based audit page.
+	 * ---
+	 * default: 1
+	 * ---
+	 *
+	 * [--format=<format>]
+	 * : Output format: table, csv, or json.
+	 * ---
+	 * default: table
+	 * ---
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     wp digitalogic pricing audit --limit=100 --format=table
+	 *     wp digitalogic pricing audit --page=2 --format=json
+	 *
+	 * @when after_wp_load
+	 *
+	 * @param array $args Positional arguments (unused).
+	 * @param array $assoc_args Named command arguments.
+	 * @return void
+	 */
+	public function pricing_audit( $args, $assoc_args ) {
+		$limit  = isset( $assoc_args['limit'] ) ? (int) $assoc_args['limit'] : 100;
+		$page   = isset( $assoc_args['page'] ) ? (int) $assoc_args['page'] : 1;
+		$format = isset( $assoc_args['format'] ) ? sanitize_key( $assoc_args['format'] ) : 'table';
+
+		if ( ! in_array( $format, array( 'table', 'csv', 'json' ), true ) ) {
+			WP_CLI::error( 'Format must be table, csv, or json.' );
+			return;
+		}
+
+		$rows = Digitalogic_Patris_Price_Policy::instance()->audit( $limit, $page );
+		WP_CLI\Utils\format_items(
+			$format,
+			$rows,
+			array(
+				'product_id',
+				'product_type',
+				'canonical_patris',
+				'woo_regular',
+				'woo_sale',
+				'woo_effective',
+				'sale_policy',
+				'price_source',
+				'audit_status',
+				'needs_review',
+			)
+		);
+	}
+
+	/**
+	 * Read or explicitly change the Patris promotion policy.
+	 *
+	 * Reading is non-mutating. Changing the policy requires an explicit
+	 * administrator context; `preserve_sale` remains the safe default.
+	 *
+	 * ## OPTIONS
+	 *
+	 * [--set=<policy>]
+	 * : Set `preserve_sale` or `replace_sale`.
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     wp digitalogic pricing policy
+	 *     wp digitalogic pricing policy --set=replace_sale --user=<administrator>
+	 *
+	 * @when after_wp_load
+	 *
+	 * @param array $args Positional arguments (unused).
+	 * @param array $assoc_args Named command arguments.
+	 * @return void
+	 */
+	public function pricing_policy( $args, $assoc_args ) {
+		$service = Digitalogic_Patris_Price_Policy::instance();
+		if ( ! isset( $assoc_args['set'] ) ) {
+			WP_CLI::line( $service->get_sale_policy() );
+			return;
+		}
+
+		if ( ! $this->require_administrator() ) {
+			return;
+		}
+
+		$policy = sanitize_key( (string) $assoc_args['set'] );
+		if ( ! in_array( $policy, array( Digitalogic_Patris_Price_Policy::PRESERVE_SALE, Digitalogic_Patris_Price_Policy::REPLACE_SALE ), true ) ) {
+			WP_CLI::error( 'Policy must be preserve_sale or replace_sale.' );
+			return;
+		}
+
+		update_option( Digitalogic_Patris_Price_Policy::OPTION_NAME, $policy, false );
+		WP_CLI::success( 'Patris promotion policy set to ' . $policy . '.' );
+	}
+
+	/**
 	 * Create the route-scoped Patris pricing-input credential.
 	 *
 	 * The generated Bearer value is printed exactly once. Run this command with
@@ -1521,6 +1627,14 @@ WP_CLI::add_command('digitalogic panel broadcast', array('Digitalogic_CLI_Comman
 WP_CLI::add_command(
 	'digitalogic pricing assignments',
 	array( 'Digitalogic_CLI_Commands', 'pricing_assignments' )
+);
+WP_CLI::add_command(
+	'digitalogic pricing audit',
+	array( 'Digitalogic_CLI_Commands', 'pricing_audit' )
+);
+WP_CLI::add_command(
+	'digitalogic pricing policy',
+	array( 'Digitalogic_CLI_Commands', 'pricing_policy' )
 );
 WP_CLI::add_command(
 	'digitalogic pricing-input-credential create',

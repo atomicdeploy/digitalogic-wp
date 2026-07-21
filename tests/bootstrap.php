@@ -52,6 +52,7 @@ $GLOBALS['digitalogic_test_wc_products'] = array();
 $GLOBALS['digitalogic_test_wc_product_saves'] = array();
 $GLOBALS['digitalogic_test_wc_save_failures'] = array();
 $GLOBALS['digitalogic_test_wc_set_price_calls'] = array();
+$GLOBALS['digitalogic_test_wc_transient_deletes'] = array();
 $GLOBALS['digitalogic_test_wc_after_save'] = null;
 $GLOBALS['digitalogic_test_wc_save_fail_once'] = array();
 $GLOBALS['digitalogic_test_wc_lookup_rows'] = array();
@@ -1953,6 +1954,7 @@ function wp_set_object_terms($object_id, $terms, $taxonomy, $append = false) {
 
 function wc_delete_product_transients($product_id = 0) {
     if ((int) $product_id > 0) {
+        $GLOBALS['digitalogic_test_wc_transient_deletes'][] = (int) $product_id;
         unset($GLOBALS['digitalogic_test_wc_products'][(int) $product_id]);
     }
     return true;
@@ -2202,6 +2204,7 @@ require_once dirname( __DIR__ ) . '/includes/class-digitalogic-access-control.ph
 require_once dirname( __DIR__ ) . '/includes/panel/class-digitalogic-panel-error-page.php';
 require_once dirname(__DIR__) . '/includes/class-product-identifier-resolver.php';
 require_once dirname(__DIR__) . '/includes/class-digitalogic-product-query.php';
+require_once dirname(__DIR__) . '/includes/class-digitalogic-patris-price-policy.php'; // phpcs:ignore
 require_once dirname(__DIR__) . '/includes/class-digitalogic-product-metadata-inspector.php'; // phpcs:ignore
 require_once dirname(__DIR__) . '/includes/class-digitalogic-product-write-lock.php'; // phpcs:ignore
 require_once dirname(__DIR__) . '/includes/class-product-manager.php'; // phpcs:ignore

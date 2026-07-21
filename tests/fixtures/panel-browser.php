@@ -272,7 +272,7 @@ class Digitalogic_Panel {
             'savePending' => 'ذخیره تغییرات', 'bulkActions' => 'عملیات گروهی', 'columns' => 'ستون‌ها', 'pinEditor' => 'سنجاق ویرایشگر',
             'compactTableMode' => 'جدول فشرده', 'freezeFirstColumn' => 'تثبیت ستون اول', 'resetColumns' => 'بازنشانی ستون‌ها',
             'productTitle' => 'نام محصول', 'partNumber' => 'پارت نامبر', 'sku' => 'کد محصول', 'productType' => 'نوع محصول',
-            'regularPrice' => 'قیمت عادی', 'salePrice' => 'قیمت فروش', 'minPrice' => 'حداقل قیمت', 'maxPrice' => 'حداکثر قیمت',
+            'regularPrice' => 'قیمت عادی', 'salePrice' => 'قیمت فروش', 'effectivePrice' => 'قیمت فعال فروشگاه', 'patrisPriceStatus' => 'وضعیت قیمت پاتریس', 'patrisSalePolicy' => 'سیاست تخفیف', 'minPrice' => 'حداقل قیمت', 'maxPrice' => 'حداکثر قیمت',
             'weight' => 'وزن', 'patrisCurrency' => 'ارز پاتریس', 'patrisForeignPrice' => 'قیمت ارزی پاتریس',
             'patrisWeight' => 'وزن پاتریس', 'patrisFinalPrice' => 'قیمت نهایی پاتریس', 'patrisLocation' => 'مکان پاتریس',
             'patrisUpdatedAt' => 'به‌روزرسانی پاتریس', 'stock' => 'موجودی', 'availability' => 'وضعیت موجودی', 'status' => 'وضعیت',

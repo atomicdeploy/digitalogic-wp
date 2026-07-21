@@ -265,7 +265,7 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 				static function ( &$record ) {
 					unset( $record['final_price'] );
 				},
-				array( 'final_price', 'woocommerce_price' ),
+				array( 'final_price' ),
 			),
 			'source shipping'    => array(
 				static function ( &$record ) {

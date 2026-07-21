@@ -340,6 +340,7 @@ class Digitalogic_Product_Manager {
             if (!$image_url && $public_product->get_id() !== $product->get_id()) {
                 $image_url = wp_get_attachment_url($public_product->get_image_id());
             }
+            $pricing_policy = Digitalogic_Patris_Price_Policy::instance()->project($product);
 
             $data = array(
                 'id' => $product_id,
@@ -353,6 +354,9 @@ class Digitalogic_Product_Manager {
                 'regular_price' => $product->get_regular_price(),
                 'sale_price' => $product->get_sale_price(),
                 'price' => $price,
+                'effective_price'         => $pricing_policy['woo_effective_price'],
+                'price_source'            => $pricing_policy['price_source'],
+                'patris_sale_policy'      => $pricing_policy['sale_policy'],
                 'stock_quantity' => $product->get_stock_quantity(),
                 'stock_status' => $product->get_stock_status(),
                 'manage_stock' => $product->get_manage_stock(),

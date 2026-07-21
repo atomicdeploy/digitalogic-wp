@@ -117,6 +117,7 @@ final class Digitalogic {
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/panel/class-digitalogic-panel-error-page.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-logger.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-product-query.php';
+        require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-patris-price-policy.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-product-manager.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-pricing.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-import-export.php';

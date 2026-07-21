@@ -83,7 +83,7 @@ final class ProductSyncReceiverTest extends TestCase {
         $result = Digitalogic_Product_Sync_Receiver::instance()->receive($payload);
 
         $this->assertNotInstanceOf(WP_Error::class, $result);
-        $woo           = $GLOBALS['digitalogic_test_wc_products'][701];
+        $woo           = wc_get_product(701);
         $nullFields    = json_decode($woo->meta['_digitalogic_patris_null_fields'], true, 512, JSON_THROW_ON_ERROR);
         $missingFields = json_decode($woo->meta['_digitalogic_patris_missing_fields'], true, 512, JSON_THROW_ON_ERROR);
         $this->assertContains('name', $nullFields);
