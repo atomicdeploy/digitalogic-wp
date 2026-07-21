@@ -720,6 +720,24 @@ function styleChangesSheet_(sheet, layout, locale) {
     .build();
 
   sheet.setRightToLeft(locale === 'fa');
+  styleProfessionalSupportSheet_(sheet, layout, {
+    title: 'CHANGES | SAFE PRODUCT UPDATE QUEUE',
+    subtitle: 'Stage from Products, edit only the intended commercial fields, preview, then explicitly confirm apply.',
+    section: 'EDITABLE CHANGESET  /  SELECT ONLY REVIEWED ROWS',
+    tabColor: '#16a34a',
+    headerColor: '#0f766e',
+    columnWidths: [90, 140, 140, 285, 120, 120, 120, 140, 160, 130],
+    helpTitle: 'CONTROLLED WRITEBACK',
+    helpText: [
+      '1  Select current records in Products.',
+      '2  Digitalogic Changes > Stage selected Products.',
+      '3  Edit price, stock, shipping, or profit fields here.',
+      '4  Select reviewed rows and run Preview selected changes.',
+      '5  Review Audit, then Apply last preview with confirmation.',
+      '',
+      'Preview is non-publishing. Apply is bounded, revision-checked, and idempotent.',
+    ].join('\n'),
+  });
   sheet.getRange(layout.dataStartRow, selectedColumn, rowCount, 1).setDataValidation(checkboxRule);
   sheet.getRange(layout.dataStartRow, statusColumn, rowCount, 1).setDataValidation(stockRule);
   DIGITALOGIC_CHANGE_COLUMNS.forEach(function (column, index) {
@@ -739,6 +757,14 @@ function styleChangesSheet_(sheet, layout, locale) {
 function styleAuditSheet_(sheet, layout, locale) {
   const rowCount = Math.max(sheet.getMaxRows() - layout.dataStartRow + 1, 1);
   sheet.setRightToLeft(locale === 'fa');
+  styleProfessionalSupportSheet_(sheet, layout, {
+    title: 'AUDIT | WRITEBACK ACTIVITY & RECOVERY',
+    subtitle: 'Append-only evidence for every preview and apply response, including revisions and rollback metadata.',
+    section: 'TRANSACTION LOG  /  INTEGRATION MANAGED',
+    tabColor: '#d97706',
+    headerColor: '#92400e',
+    columnWidths: [160, 90, 250, 70, 140, 100, 140, 260, 285, 285, 180, 100, 220, 220, 260, 100],
+  });
   DIGITALOGIC_AUDIT_COLUMNS.forEach(function (column, index) {
     const range = sheet.getRange(layout.dataStartRow, index + 1, rowCount, 1);
     if (column.type === 'integer') {
@@ -750,6 +776,104 @@ function styleAuditSheet_(sheet, layout, locale) {
     }
   });
   protectAppendOnlySheet_(sheet);
+}
+
+/** Style only the reserved presentation rows of the professional support-tab layout. */
+function styleProfessionalSupportSheet_(sheet, layout, options) {
+  if (!layout || layout.id !== 'professional') {
+    return false;
+  }
+
+  const columnCount = options.columnWidths.length;
+  const rowCount = Math.max(sheet.getMaxRows() - layout.dataStartRow + 1, 1);
+  const navy = '#0f172a';
+  const slate = '#475569';
+  const graySoft = '#f1f5f9';
+  const white = '#ffffff';
+
+  if (options.helpTitle) {
+    ensureGridSize_(sheet, 12, 18);
+  }
+  // Google Sheets cannot merge a title across an existing frozen-column boundary.
+  sheet.setFrozenRows(0);
+  sheet.setFrozenColumns(0);
+  sheet.getRange(1, 1, 4, columnCount).breakApart();
+  sheet.getRange(1, 1, 2, columnCount).merge()
+    .setValue(options.title)
+    .setBackground(navy)
+    .setFontColor(white)
+    .setFontFamily('Arial')
+    .setFontSize(18)
+    .setFontWeight('bold')
+    .setHorizontalAlignment('left')
+    .setVerticalAlignment('middle');
+  sheet.getRange(3, 1, 1, columnCount).merge()
+    .setValue(options.subtitle)
+    .setBackground(graySoft)
+    .setFontColor(slate)
+    .setFontFamily('Arial')
+    .setFontSize(10)
+    .setFontStyle('italic')
+    .setVerticalAlignment('middle');
+  sheet.getRange(4, 1, 1, columnCount).merge()
+    .setValue(options.section)
+    .setBackground(options.headerColor)
+    .setFontColor(white)
+    .setFontFamily('Arial')
+    .setFontSize(10)
+    .setFontWeight('bold')
+    .setVerticalAlignment('middle');
+
+  sheet.getRange(layout.machineHeaderRow, 1, 1, columnCount)
+    .setBackground(navy)
+    .setFontColor(white)
+    .setFontFamily('Arial')
+    .setFontWeight('bold');
+  sheet.getRange(layout.displayHeaderRow, 1, 1, columnCount)
+    .setBackground(options.headerColor)
+    .setFontColor(white)
+    .setFontFamily('Vazirmatn')
+    .setFontWeight('bold')
+    .setHorizontalAlignment('center')
+    .setVerticalAlignment('middle')
+    .setWrap(true);
+  sheet.getRange(layout.dataStartRow, 1, rowCount, columnCount)
+    .setFontColor('#334155')
+    .setVerticalAlignment('middle');
+
+  if (options.helpTitle) {
+    sheet.getRange('L4:R12').breakApart();
+    sheet.getRange('L4:R4').merge()
+      .setValue(options.helpTitle)
+      .setBackground('#0284c7')
+      .setFontColor(white)
+      .setFontWeight('bold')
+      .setHorizontalAlignment('left');
+    sheet.getRange('L7:R12').merge()
+      .setValue(options.helpText)
+      .setBackground('#e0f2fe')
+      .setFontColor(navy)
+      .setFontFamily('Arial')
+      .setFontSize(10)
+      .setWrap(true)
+      .setVerticalAlignment('top');
+    sheet.setColumnWidth(11, 24);
+    sheet.setColumnWidths(12, 7, 88);
+  }
+
+  options.columnWidths.forEach(function (width, index) {
+    sheet.setColumnWidth(index + 1, width);
+  });
+  sheet.setHiddenGridlines(true);
+  sheet.setTabColor(options.tabColor);
+  sheet.setFrozenRows(layout.displayHeaderRow);
+  sheet.hideRows(layout.machineHeaderRow);
+  sheet.setRowHeights(1, 2, 28);
+  sheet.setRowHeight(3, 26);
+  sheet.setRowHeight(4, 24);
+  sheet.setRowHeight(layout.displayHeaderRow, 34);
+  sheet.setRowHeights(layout.dataStartRow, rowCount, 24);
+  return true;
 }
 
 /** Return the workbook-owned Dashboard without rewriting its design or cells. */
@@ -812,6 +936,8 @@ function protectHeaderRange_(sheet, description, machineHeaderRow) {
   if (!protection) {
     protection = sheet.getRange(1, 1, machineHeaderRow, sheet.getLastColumn())
       .protect().setDescription(description);
+  } else {
+    protection.setRange(sheet.getRange(1, 1, machineHeaderRow, sheet.getLastColumn()));
   }
   restrictProtectionToOperator_(protection);
 }

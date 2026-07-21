@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Google Sheets writeback uses exact-decimal optimistic revisions, idempotent requests, a shared WooCommerce product lock, and transactional shipping compare-and-set apply/compensation so concurrent changes are preserved.
 
 ### Fixed
+- Styled the reserved `Changes` and `Audit` support rows as professional workflow panels while preserving staged values, append-only audit data, legacy layouts, and frozen table headers.
 - Made the n8n Google Sheets writeback template return the actual Digitalogic JSON envelope on n8n 2.x instead of ending the webhook early with an empty HTTP 200 response.
 - Repaired critical `/panel/` rendering and inline-edit regressions: title direction is always callable, pointer edits place a collapsed caret at the clicked text position, Patris currency uses a canonical clearable selector, and render/bootstrap failures now show a localized recovery screen with structured, deduplicated console diagnostics.
 - Corrected Persian product-table geometry, including the `Ctrl+K` hint, exact checkbox centering, compact/mobile metadata containment, stable action-column sizing, and removal of the empty row tail caused by responsive column tracks.
