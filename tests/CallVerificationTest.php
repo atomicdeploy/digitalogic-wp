@@ -268,13 +268,13 @@ final class CallVerificationTest extends TestCase {
 			$this->assertGreaterThanOrEqual( 1, (int) $limited->get_headers()['Retry-After'] );
 			$this->assertSame( 20, $fakeWpdb->challenge_lookups );
 
-			$secondCaller = Digitalogic_Call_Verification::instance()->pbx_pending( $requestFor( '+989351234567' ) );
+			$secondCaller = Digitalogic_Call_Verification::instance()->pbx_pending( $requestFor( '+989120000000' ) );
 			$this->assertSame( 200, $secondCaller->get_status() );
 			$this->assertSame( array( 'pending' => true ), $secondCaller->get_data() );
 			$this->assertSame( 21, $fakeWpdb->challenge_lookups );
 
 			$fakeWpdb->fail_rate_write = true;
-			$storageFailure = Digitalogic_Call_Verification::instance()->pbx_pending( $requestFor( '+989197103488' ) );
+			$storageFailure = Digitalogic_Call_Verification::instance()->pbx_pending( $requestFor( '+989120000001' ) );
 			$this->assertSame( 503, $storageFailure->get_status() );
 			$this->assertSame( array( 'pending' => false ), $storageFailure->get_data() );
 			$this->assertSame( 21, $fakeWpdb->challenge_lookups );
@@ -486,7 +486,7 @@ final class CallVerificationTest extends TestCase {
 			array( 'user_id' => 11, 'meta_key' => 'digits_phone_no', 'meta_value' => '09123456789' ),
 			array( 'user_id' => 12, 'meta_key' => 'digits_phone', 'meta_value' => '+989123456789' ),
 			array( 'user_id' => 13, 'meta_key' => 'digits_phone', 'meta_value' => '+989123456789' ),
-			array( 'user_id' => 13, 'meta_key' => 'digits_phone_no', 'meta_value' => '09351234567' ),
+			array( 'user_id' => 13, 'meta_key' => 'digits_phone_no', 'meta_value' => '09120000000' ),
 			array( 'user_id' => 14, 'meta_key' => 'digits_phone', 'meta_value' => '+989123456789' ),
 			array( 'user_id' => 14, 'meta_key' => 'digits_phone_no', 'meta_value' => '09123456789' ),
 			array( 'user_id' => 14, 'meta_key' => 'digits_phone_no', 'meta_value' => 'not-a-phone' ),
