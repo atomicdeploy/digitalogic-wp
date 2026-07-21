@@ -125,13 +125,13 @@ final class GoogleSheetsCatalogTest extends TestCase {
 				),
 			),
 			array(
-				'currency' => array('local' => 'IRT'),
+				'currency'         => array('local' => 'IRT'),
 				'shipping_methods' => array(
 					array(
-						'id' => 'exact',
-						'name' => 'Exact',
-						'enabled' => true,
-						'currency' => 'CNY',
+						'id'           => 'exact',
+						'name'         => 'Exact',
+						'enabled'      => true,
+						'currency'     => 'CNY',
 						'price_per_kg' => '1.234567890125',
 					),
 				),
@@ -139,12 +139,12 @@ final class GoogleSheetsCatalogTest extends TestCase {
 			array(
 				'results' => array(
 					array(
-						'code' => 'EXACT-42',
-						'status' => 'ok',
+						'code'       => 'EXACT-42',
+						'status'     => 'ok',
 						'assignment' => array(
-							'shipping_method_id' => 'exact',
+							'shipping_method_id'    => 'exact',
 							'profit_percent_source' => 'unavailable',
-							'pricing_warnings' => array(),
+							'pricing_warnings'      => array(),
 						),
 					),
 				),

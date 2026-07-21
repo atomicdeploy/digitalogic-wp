@@ -6,30 +6,30 @@ final class ShippingMethodServiceTest extends TestCase {
     private $service;
 
     protected function setUp(): void {
-        $GLOBALS['digitalogic_test_options'] = array(
-            'options_yuan_price' => '25300',
-            'options_update_date' => '260716',
+        $GLOBALS['digitalogic_test_options']              = array(
+            'options_yuan_price'               => '25300',
+            'options_update_date'              => '260716',
             'digitalogic_patris_feed_settings' => array(
                 'selected_warehouses' => array('tehran', 'shenzhen'),
             ),
         );
-        $GLOBALS['digitalogic_test_posts'] = array();
-        $GLOBALS['digitalogic_test_option_cache'] = array();
-        $GLOBALS['digitalogic_test_post_meta_cache'] = array();
-        $GLOBALS['digitalogic_test_actions'] = array();
-        $GLOBALS['digitalogic_test_action_callbacks'] = array();
-        $GLOBALS['digitalogic_test_filters'] = array();
-        $GLOBALS['digitalogic_test_routes'] = array();
-        $GLOBALS['digitalogic_test_capabilities'] = array();
-        $GLOBALS['digitalogic_test_update_failures'] = array();
+        $GLOBALS['digitalogic_test_posts']                = array();
+        $GLOBALS['digitalogic_test_option_cache']         = array();
+        $GLOBALS['digitalogic_test_post_meta_cache']      = array();
+        $GLOBALS['digitalogic_test_actions']              = array();
+        $GLOBALS['digitalogic_test_action_callbacks']     = array();
+        $GLOBALS['digitalogic_test_filters']              = array();
+        $GLOBALS['digitalogic_test_routes']               = array();
+        $GLOBALS['digitalogic_test_capabilities']         = array();
+        $GLOBALS['digitalogic_test_update_failures']      = array();
         $GLOBALS['digitalogic_test_meta_update_failures'] = array();
         $GLOBALS['digitalogic_test_meta_delete_failures'] = array();
         $GLOBALS['digitalogic_test_transaction_failures'] = array();
-        $GLOBALS['digitalogic_test_cache_deletes'] = array();
-        $GLOBALS['digitalogic_test_remote_posts'] = array();
-        $GLOBALS['digitalogic_test_remote_post_results'] = array();
-        $GLOBALS['digitalogic_test_wc_currency'] = 'IRT';
-        $GLOBALS['wpdb'] = new Digitalogic_Test_WPDB();
+        $GLOBALS['digitalogic_test_cache_deletes']        = array();
+        $GLOBALS['digitalogic_test_remote_posts']         = array();
+        $GLOBALS['digitalogic_test_remote_post_results']  = array();
+        $GLOBALS['digitalogic_test_wc_currency']          = 'IRT';
+        $GLOBALS['wpdb']                                  = new Digitalogic_Test_WPDB();
         $this->resetSingleton(Digitalogic_Shipping_Method_Service::class);
         $this->resetSingleton(Digitalogic_WooCommerce_Currency_Status::class);
         $this->service = Digitalogic_Shipping_Method_Service::instance();
@@ -56,9 +56,9 @@ final class ShippingMethodServiceTest extends TestCase {
 
     public function test_canonical_shipping_fields_require_explicit_supported_currency(): void {
         $created = $this->service->create_method(array(
-            'id' => 'rail',
-            'name' => 'Rail',
-            'currency' => 'IRR',
+            'id'           => 'rail',
+            'name'         => 'Rail',
+            'currency'     => 'IRR',
             'price_per_kg' => 4200000,
         ));
         $this->assertNotInstanceOf(WP_Error::class, $created);
@@ -66,34 +66,34 @@ final class ShippingMethodServiceTest extends TestCase {
         $this->assertSame('4200000', $created['price_per_kg']);
 
         $missingCurrency = $this->service->create_method(array(
-            'id' => 'road',
-            'name' => 'Road',
+            'id'           => 'road',
+            'name'         => 'Road',
             'price_per_kg' => 40,
         ));
         $this->assertSame('digitalogic_shipping_currency_required', $missingCurrency->get_error_code());
 
         $unsupportedCurrency = $this->service->create_method(array(
-            'id' => 'road',
-            'name' => 'Road',
-            'currency' => 'USD',
+            'id'           => 'road',
+            'name'         => 'Road',
+            'currency'     => 'USD',
             'price_per_kg' => 40,
         ));
         $this->assertSame('digitalogic_shipping_currency_unsupported', $unsupportedCurrency->get_error_code());
 
 		foreach (array('cny', ' CNY', 'CNY ') as $invalidCurrency) {
 			$invalid = $this->service->create_method(array(
-				'id' => 'strict_' . md5($invalidCurrency),
-				'name' => 'Strict currency',
-				'currency' => $invalidCurrency,
+				'id'           => 'strict_' . md5($invalidCurrency),
+				'name'         => 'Strict currency',
+				'currency'     => $invalidCurrency,
 				'price_per_kg' => '40',
 			));
 			$this->assertSame('digitalogic_shipping_currency_unsupported', $invalid->get_error_code());
 		}
 
         $alias = $this->service->create_method(array(
-            'id' => 'road',
-            'name' => 'Road',
-            'currency' => 'CNY',
+            'id'               => 'road',
+            'name'             => 'Road',
+            'currency'         => 'CNY',
             'unsupported_rate' => 40,
         ));
         $this->assertSame('digitalogic_shipping_method_unknown_field', $alias->get_error_code());
@@ -101,11 +101,11 @@ final class ShippingMethodServiceTest extends TestCase {
 
     public function test_assignment_writes_one_meta_key_and_batch_is_sparse(): void {
         $GLOBALS['digitalogic_test_posts'][501] = array(
-            'post_type' => 'product',
+            'post_type'   => 'product',
             'post_status' => 'publish',
-            'meta' => array('_digitalogic_patris_product_code' => 'CODE-501'),
+            'meta'        => array('_digitalogic_patris_product_code' => 'CODE-501'),
         );
-        $assigned = $this->service->assign_product_by_code('CODE-501', 'air_express');
+        $assigned                               = $this->service->assign_product_by_code('CODE-501', 'air_express');
 
         $this->assertNotInstanceOf(WP_Error::class, $assigned);
         $this->assertSame('air_express', get_post_meta(501, '_digitalogic_shipping_method_id', true));
@@ -130,14 +130,14 @@ final class ShippingMethodServiceTest extends TestCase {
 
     public function test_exact_patris_code_matching_never_falls_back_to_sku(): void {
         $GLOBALS['digitalogic_test_posts'][510] = array(
-            'post_type' => 'product',
+            'post_type'   => 'product',
             'post_status' => 'publish',
-            'meta' => array('_sku' => 'SKU-ONLY-510'),
+            'meta'        => array('_sku' => 'SKU-ONLY-510'),
         );
         $GLOBALS['digitalogic_test_posts'][511] = array(
-            'post_type' => 'product',
+            'post_type'   => 'product',
             'post_status' => 'publish',
-            'meta' => array('_digitalogic_patris_product_code' => 'PATRIS-511'),
+            'meta'        => array('_digitalogic_patris_product_code' => 'PATRIS-511'),
         );
 
         $sku_only = $this->service->assign_product_by_code('SKU-ONLY-510', 'air_express');
@@ -151,20 +151,20 @@ final class ShippingMethodServiceTest extends TestCase {
 
     public function test_crud_immutable_ids_disable_and_delete_conflict(): void {
         $GLOBALS['digitalogic_test_posts'][520] = array(
-            'post_type' => 'product',
+            'post_type'   => 'product',
             'post_status' => 'publish',
-            'meta' => array('_digitalogic_patris_product_code' => 'PATRIS-520'),
+            'meta'        => array('_digitalogic_patris_product_code' => 'PATRIS-520'),
         );
         $GLOBALS['digitalogic_test_posts'][521] = array(
-            'post_type' => 'product',
+            'post_type'   => 'product',
             'post_status' => 'publish',
-            'meta' => array('_digitalogic_patris_product_code' => 'PATRIS-521'),
+            'meta'        => array('_digitalogic_patris_product_code' => 'PATRIS-521'),
         );
 
         $created = $this->service->create_method(array(
-            'id' => 'rail',
-            'name' => 'Rail',
-            'currency' => 'CNY',
+            'id'           => 'rail',
+            'name'         => 'Rail',
+            'currency'     => 'CNY',
             'price_per_kg' => 42,
         ));
         $this->assertSame('rail', $created['id']);
@@ -185,9 +185,9 @@ final class ShippingMethodServiceTest extends TestCase {
         $this->assertSame('digitalogic_shipping_method_id_immutable', $immutable->get_error_code());
 
         $this->assertNotInstanceOf(WP_Error::class, $this->service->create_method(array(
-            'id' => 'courier',
-            'name' => 'Courier',
-            'currency' => 'IRR',
+            'id'           => 'courier',
+            'name'         => 'Courier',
+            'currency'     => 'IRR',
             'price_per_kg' => 27000000,
         )));
         $this->assertSame(array('deleted' => true, 'id' => 'courier'), $this->service->delete_method('courier'));
@@ -196,9 +196,9 @@ final class ShippingMethodServiceTest extends TestCase {
     public function test_batch_preflight_is_atomic_and_validates_shape(): void {
         foreach (array(530, 531) as $product_id) {
             $GLOBALS['digitalogic_test_posts'][$product_id] = array(
-                'post_type' => 'product',
+                'post_type'   => 'product',
                 'post_status' => 'publish',
-                'meta' => array('_digitalogic_patris_product_code' => 'PATRIS-' . $product_id),
+                'meta'        => array('_digitalogic_patris_product_code' => 'PATRIS-' . $product_id),
             );
         }
 
@@ -231,14 +231,14 @@ final class ShippingMethodServiceTest extends TestCase {
     }
 
     public function test_lock_failure_is_retryable_and_write_free(): void {
-        $before = $GLOBALS['digitalogic_test_options'];
-		$releaseCount = $GLOBALS['wpdb']->release_count;
+        $before                          = $GLOBALS['digitalogic_test_options'];
+		$releaseCount                    = $GLOBALS['wpdb']->release_count;
         $GLOBALS['wpdb']->acquire_result = 0;
 
         $result = $this->service->create_method(array(
-            'id' => 'blocked',
-            'name' => 'Blocked',
-            'currency' => 'CNY',
+            'id'           => 'blocked',
+            'name'         => 'Blocked',
+            'currency'     => 'CNY',
             'price_per_kg' => 10,
         ));
 
@@ -257,19 +257,19 @@ final class ShippingMethodServiceTest extends TestCase {
         $this->assertStringNotContainsString('null', json_encode($catalog));
 
         $transit = $this->service->create_method(array(
-            'id' => 'bad_transit',
-            'name' => 'Bad transit',
-            'currency' => 'CNY',
-            'price_per_kg' => 10,
+            'id'               => 'bad_transit',
+            'name'             => 'Bad transit',
+            'currency'         => 'CNY',
+            'price_per_kg'     => 10,
             'transit_days_min' => 3,
             'transit_days_max' => 2,
         ));
         $this->assertSame('digitalogic_shipping_transit_invalid', $transit->get_error_code());
 
         $overlap = $this->service->create_method(array(
-            'id' => 'bad_tiers',
-            'name' => 'Bad tiers',
-            'currency' => 'IRR',
+            'id'           => 'bad_tiers',
+            'name'         => 'Bad tiers',
+            'currency'     => 'IRR',
             'price_per_kg' => 3000000,
             'tiered_rates' => array(
                 array('min_weight_kg' => 0, 'max_weight_kg' => 5, 'price_per_kg' => 3000000),
@@ -279,9 +279,9 @@ final class ShippingMethodServiceTest extends TestCase {
         $this->assertSame('digitalogic_shipping_tiers_overlap', $overlap->get_error_code());
 
         $tiered = $this->service->create_method(array(
-            'id' => 'tiered_irr',
-            'name' => 'Tiered IRR',
-            'currency' => 'IRR',
+            'id'           => 'tiered_irr',
+            'name'         => 'Tiered IRR',
+            'currency'     => 'IRR',
             'price_per_kg' => 3000000,
             'tiered_rates' => array(
                 array('min_weight_kg' => 0, 'max_weight_kg' => 5, 'price_per_kg' => 3000000),
@@ -296,22 +296,22 @@ final class ShippingMethodServiceTest extends TestCase {
 
 	public function test_method_decimals_are_bounded_exact_strings_in_every_projection(): void {
 		$created = $this->service->create_method(array(
-			'id' => 'exact_decimal',
-			'name' => 'Exact decimal',
-			'currency' => 'IRR',
-			'price_per_kg' => '123456789.123456789125',
-			'minimum_charge' => '0.000000000005',
+			'id'                            => 'exact_decimal',
+			'name'                          => 'Exact decimal',
+			'currency'                      => 'IRR',
+			'price_per_kg'                  => '123456789.123456789125',
+			'minimum_charge'                => '0.000000000005',
 			'volumetric_divisor_cm3_per_kg' => '5000.000000000005',
-			'tiered_rates' => array(
+			'tiered_rates'                  => array(
 				array(
 					'min_weight_kg' => '0.000000000005',
 					'max_weight_kg' => '1.000000000005',
-					'price_per_kg' => '9.876543210125',
+					'price_per_kg'  => '9.876543210125',
 				),
 				array(
 					'min_weight_kg' => '1.000000000006',
 					'max_weight_kg' => null,
-					'price_per_kg' => '8.000000000005',
+					'price_per_kg'  => '8.000000000005',
 				),
 			),
 		));
@@ -325,7 +325,7 @@ final class ShippingMethodServiceTest extends TestCase {
 		$this->assertSame('9.876543210125', $created['tiered_rates'][0]['price_per_kg']);
 
 		$catalog = $this->service->get_integration_catalog();
-		$method = array_values(array_filter(
+		$method  = array_values(array_filter(
 			$catalog['shipping_methods'],
 			static fn($candidate) => 'exact_decimal' === $candidate['id']
 		))[0];
@@ -337,17 +337,17 @@ final class ShippingMethodServiceTest extends TestCase {
 		$this->assertDoesNotMatchRegularExpression('/[0-9][eE][+\-]?[0-9]/', $json);
 
 		$tooPrecise = $this->service->create_method(array(
-			'id' => 'too_precise',
-			'name' => 'Too precise',
-			'currency' => 'CNY',
+			'id'           => 'too_precise',
+			'name'         => 'Too precise',
+			'currency'     => 'CNY',
 			'price_per_kg' => '0.1234567890125',
 		));
 		$this->assertSame('digitalogic_shipping_rate_invalid', $tooPrecise->get_error_code());
 
 		$exponent = $this->service->create_method(array(
-			'id' => 'exponent',
-			'name' => 'Exponent',
-			'currency' => 'CNY',
+			'id'           => 'exponent',
+			'name'         => 'Exponent',
+			'currency'     => 'CNY',
 			'price_per_kg' => '1e-5',
 		));
 		$this->assertSame('digitalogic_shipping_rate_invalid', $exponent->get_error_code());
@@ -377,19 +377,19 @@ final class ShippingMethodServiceTest extends TestCase {
     }
 
     public function test_installed_method_option_is_migrated_without_losing_rates(): void {
-		$retiredRateKey = 'shipping_price_per_kg_cny';
+		$retiredRateKey    = 'shipping_price_per_kg_cny';
 		$retiredMinimumKey = 'minimum_charge_cny';
         unset($GLOBALS['digitalogic_test_options']['digitalogic_shipping_currency_migration_complete']);
-		$GLOBALS['digitalogic_test_option_cache']['digitalogic_shipping_currency_migration_complete'] = 'complete';
-        $GLOBALS['digitalogic_test_options'][Digitalogic_Shipping_Method_Service::METHODS_OPTION] = array(
+		$GLOBALS['digitalogic_test_option_cache']['digitalogic_shipping_currency_migration_complete']  = 'complete';
+        $GLOBALS['digitalogic_test_options'][Digitalogic_Shipping_Method_Service::METHODS_OPTION]      = array(
             'installed_air' => array(
-                'id' => 'installed_air',
-                'name' => 'Installed air',
-                'enabled' => true,
-                'currency' => 'cny',
-                $retiredRateKey => 77,
+                'id'               => 'installed_air',
+                'name'             => 'Installed air',
+                'enabled'          => true,
+                'currency'         => 'cny',
+                $retiredRateKey    => 77,
                 $retiredMinimumKey => 5,
-                'tiered_rates' => array(
+                'tiered_rates'     => array(
                     array('min_weight_kg' => 0, 'max_weight_kg' => 10, $retiredRateKey => 70),
                 ),
             ),
@@ -400,7 +400,7 @@ final class ShippingMethodServiceTest extends TestCase {
         $this->resetSingleton(Digitalogic_Shipping_Method_Service::class);
 
         $service = Digitalogic_Shipping_Method_Service::instance();
-        $method = $service->get_method('installed_air');
+        $method  = $service->get_method('installed_air');
 
         $this->assertNotInstanceOf(WP_Error::class, $method);
         $this->assertSame('CNY', $method['currency']);
@@ -425,12 +425,12 @@ final class ShippingMethodServiceTest extends TestCase {
 		unset($GLOBALS['digitalogic_test_option_cache']['digitalogic_shipping_currency_migration_complete']);
 		$GLOBALS['digitalogic_test_options'][Digitalogic_Shipping_Method_Service::METHODS_OPTION] = array(
 			'legacy' => array(
-				'id' => 'legacy',
-				'name' => 'Legacy',
-				'enabled' => true,
-				'currency' => 'cny',
+				'id'                        => 'legacy',
+				'name'                      => 'Legacy',
+				'enabled'                   => true,
+				'currency'                  => 'cny',
 				'shipping_price_per_kg_cny' => 77,
-				'tiered_rates' => array(),
+				'tiered_rates'              => array(),
 			),
 		);
 		$GLOBALS['digitalogic_test_update_failures'][] = Digitalogic_Shipping_Method_Service::METHODS_OPTION;

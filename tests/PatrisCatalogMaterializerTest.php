@@ -184,10 +184,10 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 
 		foreach ( $cases as $label => $case ) {
 			list( $freight, $expected_gates ) = $case;
-			$state                        = get_option( Digitalogic_Product_Sync_Receiver::STATE_OPTION, array() );
-			$source_key                   = array_key_first( $state['sources'] );
-			$record                       = &$state['sources'][ $source_key ]['products']['101001001'];
-			$record['shipping_method_id'] = 'air_express';
+			$state                            = get_option( Digitalogic_Product_Sync_Receiver::STATE_OPTION, array() );
+			$source_key                       = array_key_first( $state['sources'] );
+			$record                           = &$state['sources'][ $source_key ]['products']['101001001'];
+			$record['shipping_method_id']     = 'air_express';
 			unset( $record['shipping_price_per_kg'], $record['shipping_price_per_kg_currency'] );
 			foreach ( $freight as $field => $value ) {
 				$record[ $field ] = $value;
@@ -447,13 +447,13 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 			'post_title'   => 'Existing reviewed option',
 			'meta'         => array( 'attribute_pa_model' => 'reviewed-sensor' ),
 		);
-		$manifest                  = $this->manifest();
-		$row                       = &$manifest['products']['101001001'];
-		$row['target_parent_id']   = '100';
-		$row['attribute_taxonomy'] = 'pa_model';
-		$row['attribute_term_id']  = '373';
-		$row['parent_enrichment']  = $this->parentEnrichment();
-		$row['variation_group']    = 'duplicate-option-check';
+		$manifest                               = $this->manifest();
+		$row                                    = &$manifest['products']['101001001'];
+		$row['target_parent_id']                = '100';
+		$row['attribute_taxonomy']              = 'pa_model';
+		$row['attribute_term_id']               = '373';
+		$row['parent_enrichment']               = $this->parentEnrichment();
+		$row['variation_group']                 = 'duplicate-option-check';
 
 		$result = Digitalogic_Patris_Catalog_Materializer::instance()->run( $manifest );
 
