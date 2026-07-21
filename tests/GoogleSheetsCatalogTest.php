@@ -96,6 +96,11 @@ final class GoogleSheetsCatalogTest extends TestCase {
 		$row = $result['rows'][0];
 		$this->assertSame( '000123', $row['sync_key'] );
 		$this->assertSame( '000123', $row['patris_code'] );
+		$code_column = array_values(array_filter(
+			$result['columns'],
+			static fn($candidate) => 'patris_code' === $candidate['key']
+		))[0];
+		$this->assertSame( 'کد کالا', $code_column['label_fa'] );
 		$this->assertSame( 2400000, $row['effective_price'] );
 		$this->assertSame( 'air_express', $row['shipping_method_id'] );
 		$this->assertSame( 'Air (Express)', $row['shipping_method_name_en'] );

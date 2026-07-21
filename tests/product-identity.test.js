@@ -11,6 +11,8 @@ const source = fs.readFileSync(
 test('selected variations and Woodmart fallback expose the Patris Code safely', () => {
 	assert.match(source, /variation\.digitalogic_patris_code/);
 	assert.match(source, /settings\.singleProductPatrisCode/);
+	assert.match(source, /کد کالا/);
+	assert.doesNotMatch(source, /کد پاتریس/);
 	assert.match(source, /value\.textContent = code/);
 	assert.match(source, /itemCode\.textContent = text\(child && child\.code\)/);
 	assert.match(source, /reset_data hide_variation/);

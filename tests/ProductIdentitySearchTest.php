@@ -86,7 +86,7 @@ final class ProductIdentitySearchTest extends TestCase {
 		$config = $GLOBALS['digitalogic_test_localized_scripts']['digitalogic-product-identity']['digitalogicProductIdentity'];
 		$this->assertSame( 'ATmega <Core>', $config['singleProductPatrisName'] );
 		$this->assertSame( 'PAT-12', $config['singleProductPatrisCode'] );
-		$this->assertSame( 'کد پاتریس', $config['codeLabel'] );
+		$this->assertSame( 'کد کالا', $config['codeLabel'] );
 		$this->assertFalse( $config['singleProductIsVariable'] );
 		$this->assertFalse( $config['singleProductLegacyChildReferences'] );
 		$this->assertSame( array(), $config['singleProductChildCodes'] );
@@ -112,7 +112,7 @@ final class ProductIdentitySearchTest extends TestCase {
 		$this->assertStringContainsString( 'digitalogic-patris-name', $html );
 		$this->assertStringContainsString( 'English &lt;Module&gt;', $html );
 		$this->assertStringNotContainsString( 'English <Module>', $html );
-		$this->assertStringContainsString( 'کد پاتریس', $html );
+		$this->assertStringContainsString( 'کد کالا', $html );
 		$this->assertStringContainsString( 'PAT-&lt;10&gt;', $html );
 		$this->assertStringNotContainsString( 'PAT-<10>', $html );
 	}
@@ -262,7 +262,7 @@ final class ProductIdentitySearchTest extends TestCase {
 				'product_id' => 30,
 			)
 		);
-		$this->assertSame( 'کد پاتریس', $item_data[0]['key'] );
+		$this->assertSame( 'کد کالا', $item_data[0]['key'] );
 		$this->assertSame( 'PAT-<30>', $item_data[0]['value'] );
 		$this->assertStringContainsString( 'PAT-&lt;30&gt;', $item_data[0]['display'] );
 
@@ -288,7 +288,7 @@ final class ProductIdentitySearchTest extends TestCase {
 		$identity->add_order_item_patris_code( $order_item, 'cart-key', array( 'data' => $product ), null );
 		$this->assertSame(
 			array(
-				'key'    => 'کد پاتریس',
+				'key'    => 'کد کالا',
 				'value'  => 'PAT-<30>',
 				'unique' => true,
 			),

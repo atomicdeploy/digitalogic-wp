@@ -488,7 +488,7 @@ final class Digitalogic_Google_Sheets_Catalog {
 	private function product_columns( $warehouses ) {
 		$columns = array(
 			$this->column( 'sync_key', 'Sync Key', 'کلید همگام‌سازی', 'text' ),
-			$this->column( 'patris_code', 'Patris Code', 'کد پاتریس', 'text' ),
+			$this->column( 'patris_code', 'Patris Code', 'کد کالا', 'text' ),
 			$this->column( 'woocommerce_id', 'WooCommerce ID', 'شناسه ووکامرس', 'integer' ),
 			$this->column( 'parent_id', 'Parent ID', 'شناسه والد', 'integer' ),
 			$this->column( 'product_type', 'Product Type', 'نوع محصول', 'text' ),

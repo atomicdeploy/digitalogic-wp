@@ -422,7 +422,7 @@ final class Digitalogic_Homepage_Showcase {
 			</a>
 			<div class="dgl-product-body">
 				<?php if ( '' !== $patris_code ) : ?>
-					<small>کد پاتریس <b dir="ltr"><?php echo esc_html( $patris_code ); ?></b></small>
+					<small>کد کالا <b dir="ltr"><?php echo esc_html( $patris_code ); ?></b></small>
 				<?php elseif ( ! empty( $child_codes ) ) : ?>
 					<small>کدهای ثبت‌شده برای مدل‌ها <b dir="ltr"><?php echo esc_html( implode( ' · ', $child_codes ) ); ?></b></small>
 				<?php endif; ?>
