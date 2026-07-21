@@ -117,7 +117,7 @@ test('panel uses the shared server query and a persisted safe edit lock', () => 
     assert.match(managerSource, /\$batch_args\['limit'\]\s*=\s*100;/);
     assert.match(managerSource, /digitalogic_part_number_taxonomy\.taxonomy = 'pa_model'/);
     assert.match(viewSource, /:aria-colcount="visibleProductColumns\.length \+ 2"/);
-    assert.match(viewSource, /<th scope="col" v-for="column in visibleProductColumns"/);
+    assert.match(viewSource, /<th scope="col" v-for="\(column, columnIndex\) in visibleProductColumns"/);
     assert.match(viewSource, /:readonly="!productEditMode"/);
     assert.match(viewSource, /<template v-if="!column\.filter"><\/template>/);
     assert.match(viewSource, /:aria-disabled="!column\.sortable"/);
@@ -127,4 +127,23 @@ test('panel uses the shared server query and a persisted safe edit lock', () => 
     assert.match(panelPhpSource, /'maxPrice' => 'حداکثر قیمت'/);
     assert.match(panelCss, /\.dlp-table \.dlp-cell-numeric[\s\S]*?direction:\s*ltr;[\s\S]*?text-align:\s*left;/);
     assert.match(adminCss, /\.wrap\[class\*="digitalogic-"\] input\[type="number"\][\s\S]*?direction:\s*ltr !important;/);
+});
+
+test('product table can freeze the first visible column in RTL and LTR', () => {
+    const panelSource = fs.readFileSync(path.join(__dirname, '..', 'assets', 'js', 'panel-app.js'), 'utf8');
+    const viewSource = fs.readFileSync(path.join(__dirname, '..', 'includes', 'panel', 'views', 'app.php'), 'utf8');
+    const panelPhpSource = fs.readFileSync(path.join(__dirname, '..', 'includes', 'panel', 'class-panel.php'), 'utf8');
+    const panelCss = fs.readFileSync(path.join(__dirname, '..', 'assets', 'css', 'panel.css'), 'utf8');
+
+    assert.match(panelSource, /digitalogic_panel_freeze_first_product_column/);
+    assert.match(panelSource, /freezeFirstProductColumn:\s*function\(value\)/);
+    assert.match(viewSource, /v-model="freezeFirstProductColumn"/);
+    assert.match(viewSource, /'is-first-column-sticky': freezeFirstProductColumn/);
+    assert.match(viewSource, /'is-sticky-first-data-column': columnIndex === 0/);
+    assert.match(panelPhpSource, /'freezeFirstColumn' => 'Freeze first column'/);
+    assert.match(panelPhpSource, /'freezeFirstColumn' => 'ثابت نگه داشتن ستون اول'/);
+    assert.match(panelCss, /\.is-first-column-sticky[\s\S]*?inset-inline-start:\s*0/);
+    assert.match(panelCss, /\.is-sticky-first-data-column[\s\S]*?inset-inline-start:\s*var\(--dlp-selection-column-width\)/);
+    assert.doesNotMatch(panelCss, /\.is-sticky-first-data-column[\s\S]{0,180}?\bleft\s*:/);
+    assert.doesNotMatch(panelCss, /\.is-sticky-first-data-column[\s\S]{0,180}?\bright\s*:/);
 });
