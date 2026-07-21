@@ -125,6 +125,7 @@ final class Digitalogic {
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-product-sync-receiver.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-shipping-method-service.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-google-sheets-catalog.php';
+        require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-google-sheets-writeback.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-report-engine.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-command-dispatcher.php';
 
@@ -192,6 +193,7 @@ final class Digitalogic {
         Digitalogic_Patris_Feed::instance();
         Digitalogic_Shipping_Method_Service::instance();
         Digitalogic_Google_Sheets_Catalog::instance();
+        Digitalogic_Google_Sheets_Writeback::instance();
         Digitalogic_Report_Engine::instance();
         Digitalogic_Command_Dispatcher::instance();
         Digitalogic_WebSocket::instance();
