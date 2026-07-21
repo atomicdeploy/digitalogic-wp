@@ -55,11 +55,13 @@ class Digitalogic_Comment_Guard {
 
         if ($reasons) {
             $this->log('BLOCK', implode(',', $reasons), $ip, $commentdata, $abuse, $sfs);
-            wp_die(
-                esc_html__('Your comment could not be accepted from this network.', 'digitalogic'),
-                esc_html__('Comment blocked', 'digitalogic'),
-                array('response' => 403)
-            );
+			Digitalogic_Panel_Error_Page::render(
+				403,
+				'comment-network-blocked',
+				'',
+				array( 'context' => Digitalogic_Panel_Error_Page::CONTEXT_COMMENT_GUARD )
+			);
+			exit;
         }
 
         $this->log('ALLOW', 'clean', $ip, $commentdata, $abuse, $sfs);

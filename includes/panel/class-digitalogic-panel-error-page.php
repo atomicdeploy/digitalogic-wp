@@ -14,8 +14,29 @@ if ( ! defined( 'ABSPATH' ) ) {
  */
 final class Digitalogic_Panel_Error_Page {
 
+	/** Default panel authorization context. */
+	public const CONTEXT_PANEL = 'panel';
+
+	/** Patris report administration context. */
+	public const CONTEXT_PATRIS_REPORTS = 'patris-reports';
+
+	/** Product metadata diagnostics context. */
+	public const CONTEXT_PRODUCT_DIAGNOSTICS = 'product-diagnostics';
+
+	/** Digitalogic UI settings context. */
+	public const CONTEXT_UI_SETTINGS = 'ui-settings';
+
+	/** Public comment reputation context. */
+	public const CONTEXT_COMMENT_GUARD = 'comment-guard';
+
+	/** Standalone document rendering mode. */
+	public const MODE_DOCUMENT = 'document';
+
+	/** WordPress-admin-safe embedded rendering mode. */
+	public const MODE_ADMIN_EMBEDDED = 'admin-embedded';
+
 	/**
-	 * Render a complete localized error document.
+	 * Render a localized browser error response.
 	 *
 	 * This intentionally avoids wp_die() so plugin errors never fall back to the
 	 * generic WordPress error screen or expose a Query Monitor call stack.
@@ -30,8 +51,10 @@ final class Digitalogic_Panel_Error_Page {
 		$status = in_array( (int) $status, array( 400, 401, 403, 404, 500, 503 ), true ) ? (int) $status : 500;
 		$view   = self::view_model( $status, $code, $message, $args );
 
-		nocache_headers();
-		status_header( $status );
+		if ( self::MODE_DOCUMENT === $view['mode'] ) {
+			nocache_headers();
+			status_header( $status );
+		}
 		wp_enqueue_style(
 			'digitalogic-panel-error',
 			DIGITALOGIC_PLUGIN_URL . 'assets/css/panel-error.css',
@@ -40,6 +63,23 @@ final class Digitalogic_Panel_Error_Page {
 		);
 
 		include DIGITALOGIC_PLUGIN_DIR . 'includes/panel/views/error.php';
+	}
+
+	/**
+	 * Render a localized error inside the existing WordPress admin document.
+	 *
+	 * Admin page callbacks run after the admin header. This mode deliberately
+	 * avoids emitting a second doctype, html, head, or body element.
+	 *
+	 * @param int    $status  HTTP status.
+	 * @param string $code    Stable support reference.
+	 * @param string $message Optional message override.
+	 * @param array  $args    Optional contextual view values.
+	 * @return void
+	 */
+	public static function render_admin( $status, $code, $message = '', $args = array() ) {
+		$args['mode'] = self::MODE_ADMIN_EMBEDDED;
+		self::render( $status, $code, $message, $args );
 	}
 
 	/**
@@ -52,17 +92,19 @@ final class Digitalogic_Panel_Error_Page {
 	 * @return array
 	 */
 	public static function view_model( $status, $code, $message = '', $args = array() ) {
-		$status = in_array( (int) $status, array( 400, 401, 403, 404, 500, 503 ), true ) ? (int) $status : 500;
-		$locale = determine_locale();
-		$is_fa  = 0 === strpos( strtolower( (string) $locale ), 'fa' );
-		$copy   = self::copy( $status, $is_fa );
-		$user   = wp_get_current_user();
+		$status  = in_array( (int) $status, array( 400, 401, 403, 404, 500, 503 ), true ) ? (int) $status : 500;
+		$locale  = determine_locale();
+		$is_fa   = 0 === strpos( strtolower( (string) $locale ), 'fa' );
+		$context = isset( $args['context'] ) ? sanitize_key( (string) $args['context'] ) : self::CONTEXT_PANEL;
+		$mode    = isset( $args['mode'] ) && self::MODE_ADMIN_EMBEDDED === $args['mode'] ? self::MODE_ADMIN_EMBEDDED : self::MODE_DOCUMENT;
+		$copy    = self::copy( $status, $is_fa, $context );
+		$user    = wp_get_current_user();
 
 		$defaults = array(
 			'eyebrow' => $copy['eyebrow'],
 			'title'   => $copy['title'],
 			'detail'  => $copy['detail'],
-			'actions' => self::default_actions( $status, $is_fa ),
+			'actions' => self::default_actions( $status, $is_fa, $context ),
 		);
 		$args     = wp_parse_args( $args, $defaults );
 
@@ -86,6 +128,8 @@ final class Digitalogic_Panel_Error_Page {
 			'code'            => 'DG-' . $reference,
 			'locale'          => str_replace( '_', '-', (string) $locale ),
 			'direction'       => $is_fa ? 'rtl' : 'ltr',
+			'context'         => $context,
+			'mode'            => $mode,
 			'eyebrow'         => (string) $args['eyebrow'],
 			'title'           => (string) $args['title'],
 			'detail'          => (string) $args['detail'],
@@ -103,11 +147,12 @@ final class Digitalogic_Panel_Error_Page {
 	/**
 	 * Return complete English or Persian copy for a supported status.
 	 *
-	 * @param int  $status HTTP status.
-	 * @param bool $is_fa  Whether Persian copy is required.
+	 * @param int    $status  HTTP status.
+	 * @param bool   $is_fa   Whether Persian copy is required.
+	 * @param string $context Browser error context.
 	 * @return array
 	 */
-	private static function copy( $status, $is_fa ) {
+	private static function copy( $status, $is_fa, $context ) {
 		$english = array(
 			400 => array(
 				'eyebrow' => 'Invalid request',
@@ -173,9 +218,11 @@ final class Digitalogic_Panel_Error_Page {
 			),
 		);
 
-		$set = $is_fa ? $persian : $english;
+		$set     = $is_fa ? $persian : $english;
+		$context = self::context_copy( $status, $is_fa, $context );
 		return array_merge(
 			$set[ $status ],
+			$context,
 			array(
 				'signed_in' => $is_fa ? 'واردشده با حساب %s' : 'Signed in as %s',
 				'reference' => $is_fa ? 'کد پیگیری' : 'Reference',
@@ -184,20 +231,99 @@ final class Digitalogic_Panel_Error_Page {
 	}
 
 	/**
-	 * Build safe recovery actions for the current authentication state.
+	 * Return localized copy for plugin-owned forbidden-page contexts.
 	 *
-	 * @param int  $status HTTP status.
-	 * @param bool $is_fa  Whether Persian labels are required.
+	 * @param int    $status  HTTP status.
+	 * @param bool   $is_fa   Whether Persian copy is required.
+	 * @param string $context Browser error context.
 	 * @return array
 	 */
-	private static function default_actions( $status, $is_fa ) {
+	private static function context_copy( $status, $is_fa, $context ) {
+		if ( 403 !== (int) $status ) {
+			return array();
+		}
+
+		$english = array(
+			self::CONTEXT_PATRIS_REPORTS      => array(
+				'eyebrow' => 'Access restricted',
+				'title'   => 'Patris reports are not available to this account',
+				'detail'  => 'This page requires store-management access. Ask a site administrator to grant the appropriate WordPress capability.',
+			),
+			self::CONTEXT_PRODUCT_DIAGNOSTICS => array(
+				'eyebrow' => 'Access restricted',
+				'title'   => 'Product diagnostics are not available to this account',
+				'detail'  => 'This page contains store diagnostics and requires store-management access.',
+			),
+			self::CONTEXT_UI_SETTINGS         => array(
+				'eyebrow' => 'Administrator access required',
+				'title'   => 'Digitalogic interface settings are restricted',
+				'detail'  => 'Only a WordPress administrator can change the Digitalogic interface settings.',
+			),
+			self::CONTEXT_COMMENT_GUARD       => array(
+				'eyebrow' => 'Comment blocked',
+				'title'   => 'We could not accept this comment',
+				'detail'  => 'Your comment could not be accepted from this network.',
+			),
+		);
+		$persian = array(
+			self::CONTEXT_PATRIS_REPORTS      => array(
+				'eyebrow' => 'دسترسی محدود',
+				'title'   => 'این حساب به گزارش‌های پاتریس دسترسی ندارد',
+				'detail'  => 'این صفحه به دسترسی مدیریت فروشگاه نیاز دارد. از مدیر سایت بخواهید مجوز مناسب وردپرس را به حساب شما اختصاص دهد.',
+			),
+			self::CONTEXT_PRODUCT_DIAGNOSTICS => array(
+				'eyebrow' => 'دسترسی محدود',
+				'title'   => 'این حساب به عیب‌یابی محصولات دسترسی ندارد',
+				'detail'  => 'این صفحه شامل اطلاعات عیب‌یابی فروشگاه است و به دسترسی مدیریت فروشگاه نیاز دارد.',
+			),
+			self::CONTEXT_UI_SETTINGS         => array(
+				'eyebrow' => 'نیازمند دسترسی مدیر',
+				'title'   => 'تنظیمات نمای دیجیتالوجیک محدود است',
+				'detail'  => 'فقط مدیر وردپرس می‌تواند تنظیمات نمای دیجیتالوجیک را تغییر دهد.',
+			),
+			self::CONTEXT_COMMENT_GUARD       => array(
+				'eyebrow' => 'دیدگاه مسدود شد',
+				'title'   => 'امکان پذیرش این دیدگاه نبود',
+				'detail'  => 'ارسال دیدگاه از این شبکه پذیرفته نشد.',
+			),
+		);
+		$set     = $is_fa ? $persian : $english;
+
+		return isset( $set[ $context ] ) ? $set[ $context ] : array();
+	}
+
+	/**
+	 * Build safe recovery actions for the current authentication state.
+	 *
+	 * @param int    $status  HTTP status.
+	 * @param bool   $is_fa   Whether Persian labels are required.
+	 * @param string $context Browser error context.
+	 * @return array
+	 */
+	private static function default_actions( $status, $is_fa, $context ) {
 		$panel_url = home_url( '/panel/' );
 		$actions   = array();
+
+		if ( self::CONTEXT_COMMENT_GUARD === $context ) {
+			$actions[] = array(
+				'label'   => $is_fa ? 'بازگشت به فروشگاه' : 'Return to the store',
+				'url'     => home_url( '/' ),
+				'primary' => true,
+			);
+
+			return $actions;
+		}
 
 		if ( 401 === $status || ! is_user_logged_in() ) {
 			$actions[] = array(
 				'label'   => $is_fa ? 'ورود به پنل' : 'Sign in to the panel',
 				'url'     => wp_login_url( $panel_url ),
+				'primary' => true,
+			);
+		} elseif ( in_array( $context, array( self::CONTEXT_PATRIS_REPORTS, self::CONTEXT_PRODUCT_DIAGNOSTICS, self::CONTEXT_UI_SETTINGS ), true ) ) {
+			$actions[] = array(
+				'label'   => $is_fa ? 'بازگشت به پیشخوان وردپرس' : 'Return to WordPress dashboard',
+				'url'     => admin_url(),
 				'primary' => true,
 			);
 		} elseif ( 403 === $status ) {
