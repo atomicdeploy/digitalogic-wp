@@ -40,6 +40,7 @@
 - Currency rate change notifications
 - HMAC signature verification
 - Non-blocking async delivery
+- Secret-free production watchdog, notification routing, n8n workflow, and rollback assets: [`ops/office-automation/README.md`](ops/office-automation/README.md)
 
 ### ☎️ Phone verification and PBX notifications
 - From the Digits OTP sidebar, choose **Verify by calling**, or add an Iranian mobile/landline contact from My Account, then call `021-66754123` from the same number. A live caller-ID challenge collects the 120-second code immediately after «دوست عزیزم»; calls without one continue to the operator.

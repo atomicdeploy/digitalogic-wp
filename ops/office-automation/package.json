@@ -1,0 +1,13 @@
+{
+	"name": "digitalogic-office-automation-operations",
+	"version": "1.0.0",
+	"private": true,
+	"description": "Secret-free watchdog, notification-routing, n8n workflow, and deployment assets.",
+	"scripts": {
+		"check": "node --check lib/apache-site-watchdog-to-n8n.cjs && node --check lib/office-automation-sip-notifier.cjs && node --check scripts/render-n8n-workflow.cjs",
+		"test": "node --test test/*.test.cjs"
+	},
+	"engines": {
+		"node": ">=18.0.0"
+	}
+}
