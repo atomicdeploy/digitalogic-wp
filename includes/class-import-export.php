@@ -590,7 +590,7 @@ class Digitalogic_Import_Export {
             return new WP_Error('library_missing', __('PhpSpreadsheet library not found', 'digitalogic'));
         }
 
-        $options = is_array($options) ? $options : array();
+        $options  = is_array($options) ? $options : array();
         $locale = isset($options['locale']) ? sanitize_key((string) $options['locale']) : 'en';
         if (!in_array($locale, array('en', 'fa', 'bilingual'), true)) {
             $locale = 'en';
@@ -604,7 +604,7 @@ class Digitalogic_Import_Export {
             wp_mkdir_p($export_dir);
         }
         
-        $filename = ($template_only ? 'products-template-' : 'products-export-') . $locale . '-' . date('Y-m-d-His') . '.xlsx';
+        $filename  = ($template_only ? 'products-template-' : 'products-export-') . $locale . '-' . date('Y-m-d-His') . '.xlsx';
         $filepath = $export_dir . '/' . $filename;
 
         $manager = Digitalogic_Product_Manager::instance();
@@ -622,9 +622,9 @@ class Digitalogic_Import_Export {
             }
         }
 
-        $projection = $this->get_workbook_projection($products);
+        $projection     = $this->get_workbook_projection($products);
         $projected_rows = array();
-        $warehouses = array();
+        $warehouses     = array();
         if (!is_wp_error($projection)) {
             foreach ((array) ($projection['columns'] ?? array()) as $column) {
                 $key = isset($column['key']) ? (string) $column['key'] : '';
@@ -642,7 +642,7 @@ class Digitalogic_Import_Export {
         foreach ($products as $product) {
             $warehouses = array_merge($warehouses, array_keys((array) ($product['patris_warehouse_stock'] ?? array())));
         }
-        $warehouses = Digitalogic_Product_Column_Schema::normalize_warehouses($warehouses);
+        $warehouses    = Digitalogic_Product_Column_Schema::normalize_warehouses($warehouses);
         $columns = Digitalogic_Product_Column_Schema::workbook_columns($warehouses);
         
         // Create new Spreadsheet object
@@ -661,7 +661,7 @@ class Digitalogic_Import_Export {
         $sheet->setRightToLeft('fa' === $locale);
         $sheet->getTabColor()->setRGB('2563EB');
         
-        $num_columns = count($columns);
+        $num_columns  = count($columns);
         $last_column = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($num_columns);
         
         foreach ($columns as $index => $column_definition) {
@@ -694,8 +694,8 @@ class Digitalogic_Import_Export {
 
             $projected = $projected_rows[(int) $product_data['id']] ?? array();
             foreach ($columns as $index => $column_definition) {
-                $column = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($index + 1);
-                $value = $this->workbook_export_value($product_data, $projected, $product, $column_definition['key']);
+                $column  = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($index + 1);
+                $value   = $this->workbook_export_value($product_data, $projected, $product, $column_definition['key']);
                 $numeric = in_array($column_definition['type'], array('integer', 'number'), true);
                 self::set_spreadsheet_value($sheet, $column . $row, $value, $numeric);
                 if ('text' === $column_definition['type']) {
@@ -708,13 +708,13 @@ class Digitalogic_Import_Export {
             }
             $sheet->getRowDimension($row)->setRowHeight(24);
             
-            if ($row % 2 == 0) {
+            if ($row % 2 === 0) {
                 $sheet->getStyle('A' . $row . ':' . $last_column . $row)->getFill()
                     ->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID)
                     ->getStartColor()->setRGB('EDF4F8');
             }
             
-            $row++;
+            ++$row;
         }
         
         $lastRow = max(1, $row - 1);
@@ -766,30 +766,30 @@ class Digitalogic_Import_Export {
         }
 
         $product_fields = array(
-            'woocommerce_id' => 'id',
-            'name' => 'name',
-            'sku' => 'sku',
-            'patris_code' => 'patris_product_code',
-            'product_type' => 'type',
-            'publication_status' => 'status',
-            'regular_price' => 'regular_price',
-            'sale_price' => 'sale_price',
-            'effective_price' => 'effective_price',
-            'stock_quantity' => 'stock_quantity',
-            'stock_status' => 'stock_status',
-            'woocommerce_weight' => 'weight',
-            'length' => 'length',
-            'width' => 'width',
-            'height' => 'height',
-            'foreign_currency' => 'patris_foreign_currency',
-            'foreign_price' => 'patris_foreign_price',
-            'weight_grams' => 'patris_weight_grams',
-            'patris_total_stock' => 'patris_total_stock',
+            'woocommerce_id'       => 'id',
+            'name'                 => 'name',
+            'sku'                  => 'sku',
+            'patris_code'          => 'patris_product_code',
+            'product_type'         => 'type',
+            'publication_status'   => 'status',
+            'regular_price'        => 'regular_price',
+            'sale_price'           => 'sale_price',
+            'effective_price'      => 'effective_price',
+            'stock_quantity'       => 'stock_quantity',
+            'stock_status'         => 'stock_status',
+            'woocommerce_weight'   => 'weight',
+            'length'               => 'length',
+            'width'                => 'width',
+            'height'               => 'height',
+            'foreign_currency'     => 'patris_foreign_currency',
+            'foreign_price'        => 'patris_foreign_price',
+            'weight_grams'         => 'patris_weight_grams',
+            'patris_total_stock'   => 'patris_total_stock',
             'patris_minimum_stock' => 'patris_minimum_stock',
-            'patris_location' => 'patris_location',
-            'patris_final_price' => 'patris_final_price',
-            'price_status' => 'patris_price_status',
-            'patris_sale_policy' => 'patris_sale_policy',
+            'patris_location'      => 'patris_location',
+            'patris_final_price'   => 'patris_final_price',
+            'price_status'         => 'patris_price_status',
+            'patris_sale_policy'   => 'patris_sale_policy',
         );
         if (isset($product_fields[$key])) {
             return $product_data[$product_fields[$key]] ?? '';
@@ -801,10 +801,10 @@ class Digitalogic_Import_Export {
 
         $meta_fields = array(
             'dynamic_pricing' => '_digitalogic_dynamic_pricing',
-            'currency_type' => '_digitalogic_currency_type',
-            'base_price' => '_digitalogic_base_price',
-            'markup' => '_digitalogic_markup',
-            'markup_type' => '_digitalogic_markup_type',
+            'currency_type'   => '_digitalogic_currency_type',
+            'base_price'      => '_digitalogic_base_price',
+            'markup'          => '_digitalogic_markup',
+            'markup_type'     => '_digitalogic_markup_type',
         );
         return isset($meta_fields[$key]) ? $product->get_meta($meta_fields[$key], true) : '';
     }
@@ -916,7 +916,7 @@ class Digitalogic_Import_Export {
                 return new WP_Error('empty_file', __('Excel file is empty', 'digitalogic'));
             }
             
-            $headers = array_map(
+            $headers          = array_map(
                 static function($header) {
                     return trim((string) $header);
                 },
@@ -940,17 +940,17 @@ class Digitalogic_Import_Export {
             }
             if ($formula_rows) {
                 foreach ($formula_rows as $formula_row) {
-                    $results['failed']++;
+                    ++$results['failed'];
                     $results['errors'][] = sprintf('Row %d: Formula cells are not supported', $formula_row);
                 }
                 return $results;
             }
 
-            $manager = Digitalogic_Product_Manager::instance();
+            $manager         = Digitalogic_Product_Manager::instance();
             $current_row_num = 2;
             foreach ($data as $row) {
-                $row = array_pad((array) $row, count($resolved_headers), null);
-                $row = array_slice($row, 0, count($resolved_headers));
+                $row       = array_pad((array) $row, count($resolved_headers), null);
+                $row       = array_slice($row, 0, count($resolved_headers));
                 $has_value = (bool) array_filter(
                     $row,
                     static function($value) {
@@ -958,7 +958,7 @@ class Digitalogic_Import_Export {
                     }
                 );
                 if (!$has_value) {
-                    $current_row_num++;
+                    ++$current_row_num;
                     continue;
                 }
 
@@ -968,13 +968,13 @@ class Digitalogic_Import_Export {
                 }
 
                 if (empty($row_data['woocommerce_id'])) {
-                    $results['failed']++;
+                    ++$results['failed'];
                     $results['errors'][] = sprintf('Row %d: Missing product ID', $current_row_num);
-                    $current_row_num++;
+                    ++$current_row_num;
                     continue;
                 }
 
-                $product_id = intval($row_data['woocommerce_id']);
+                $product_id  = intval($row_data['woocommerce_id']);
                 $update_data = array();
                 foreach ($row_data as $key => $value) {
                     $definition = Digitalogic_Product_Column_Schema::workbook_column_by_key($key);
@@ -989,21 +989,21 @@ class Digitalogic_Import_Export {
 
                 $result = $manager->update_product($product_id, $update_data);
                 if (is_wp_error($result)) {
-                    $results['failed']++;
+                    ++$results['failed'];
                     $results['errors'][] = sprintf('Row %d: %s', $current_row_num, $result->get_error_message());
                 } else {
-                    $results['success']++;
+                    ++$results['success'];
 
                     $this->update_dynamic_pricing($product_id, array(
                         'Dynamic Pricing' => $row_data['dynamic_pricing'] ?? '',
-                        'Currency Type' => $row_data['currency_type'] ?? '',
-                        'Base Price' => $row_data['base_price'] ?? '',
-                        'Markup' => $row_data['markup'] ?? '',
-                        'Markup Type' => $row_data['markup_type'] ?? '',
+                        'Currency Type'   => $row_data['currency_type'] ?? '',
+                        'Base Price'      => $row_data['base_price'] ?? '',
+                        'Markup'          => $row_data['markup'] ?? '',
+                        'Markup Type'     => $row_data['markup_type'] ?? '',
                     ));
                 }
 
-                $current_row_num++;
+                ++$current_row_num;
             }
             
             return $results;

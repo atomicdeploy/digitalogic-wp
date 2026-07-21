@@ -393,8 +393,8 @@ class Digitalogic_CLI_Commands {
      * @when after_wp_load
      */
     public function export($args, $assoc_args) {
-        $format = isset($assoc_args['format']) ? $assoc_args['format'] : 'csv';
-        $locale = isset($assoc_args['locale']) ? sanitize_key($assoc_args['locale']) : 'en';
+        $format   = isset($assoc_args['format']) ? $assoc_args['format'] : 'csv';
+        $locale   = isset($assoc_args['locale']) ? sanitize_key($assoc_args['locale']) : 'en';
         $template = isset($assoc_args['template']);
         
         $import_export = Digitalogic_Import_Export::instance();
@@ -403,7 +403,7 @@ class Digitalogic_CLI_Commands {
             $filepath = $import_export->export_json();
         } elseif ($format === 'excel') {
             $filepath = $import_export->export_excel(array(), array(
-                'locale' => $locale,
+                'locale'   => $locale,
                 'template' => $template,
             ));
         } else {
