@@ -402,12 +402,16 @@ msgid "Shipping method name is required."
 msgstr "نام روش حمل‌ونقل الزامی است."
 
 #: includes\class-shipping-method-service.php:834
-msgid "landed_price requires shipping prices in CNY."
-msgstr ""
+msgid "Shipping price currency is required."
+msgstr "ارز هزینه حمل الزامی است."
 
-#: includes\class-shipping-method-service.php:839
-msgid "A non-negative CNY price per kilogram is required."
-msgstr ""
+#: includes\class-shipping-method-service.php:838
+msgid "Shipping price currency must be CNY or IRR."
+msgstr "ارز هزینه حمل باید CNY یا IRR باشد."
+
+#: includes\class-shipping-method-service.php:843
+msgid "A non-negative shipping price per kilogram is required."
+msgstr "قیمت غیرمنفی حمل به‌ازای هر کیلوگرم الزامی است."
 
 #: includes\class-shipping-method-service.php:844
 msgid "Minimum charge cannot be negative."
@@ -1383,9 +1387,9 @@ msgid "Method ID"
 msgstr "شناسه روش"
 
 #: includes\admin\views\patris-reports.php:157
-#: includes\admin\views\patris-reports.php:233
-msgid "CNY per kg"
-msgstr "یوان به‌ازای هر کیلوگرم"
+#: includes\admin\views\patris-reports.php:239
+msgid "Price per kg"
+msgstr "قیمت به‌ازای هر کیلوگرم"
 
 #: includes\admin\views\patris-reports.php:158
 #: includes\admin\views\patris-reports.php:238
@@ -1404,9 +1408,13 @@ msgstr "هیچ روش حمل‌ونقلی موجود نیست."
 msgid "Method name"
 msgstr "نام روش"
 
-#: includes\admin\views\patris-reports.php:181
-msgid "CNY price per kilogram"
-msgstr "قیمت به یوان برای هر کیلوگرم"
+#: includes\admin\views\patris-reports.php:182
+msgid "Shipping price per kilogram"
+msgstr "قیمت حمل به‌ازای هر کیلوگرم"
+
+#: includes\admin\views\patris-reports.php:187
+msgid "Shipping price currency"
+msgstr "ارز هزینه حمل"
 
 #: includes\admin\views\patris-reports.php:187
 msgid "Active"

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Shipping rates now carry an explicit `CNY` or `IRR` currency. Method objects use `price_per_kg` plus `currency`, while product-sync records use the required pair `shipping_price_per_kg` plus `shipping_price_per_kg_currency`.
+- Final-price validation converts CNY freight with the effective CNY-to-IRT rate and converts IRR freight to IRT before applying markup and a single final rounding step.
+- Shipping amounts, minimums, divisors, and tier bounds/rates now remain canonical decimal strings through storage and every outward projection, without exponent notation or binary-float loss.
+- Product sync preserves missing versus explicitly null freight fields, and the one-time installed-data migration bypasses stale option caches and verifies persistence before marking completion.
+
 ## [1.5.0] - 2026-07-21
 
 ### Added
@@ -63,7 +69,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Replaced the product-sync payload families with one sparse living contract, including category and exclusion projections and explicit missing-versus-null semantics.
 - Moved the four Patris-facing routes to the `digitalogic` REST namespace and removed raw-feed and pricing aliases.
-- Standardized supplier shipping inputs, storage, events, and responses on `shipping_method_id` and `shipping_price_per_kg_cny` without mirrored keys.
+- Standardized supplier shipping inputs, storage, events, and responses on one canonical field set without mirrored keys.
 
 ## [1.3.4] - 2026-07-20
 
