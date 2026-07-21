@@ -11,8 +11,15 @@ piper_bin="${PBX_PIPER_BIN:-piper}"
 piper_model="${PBX_PIPER_MODEL:-}"
 piper_config="${PBX_PIPER_CONFIG:-}"
 edge_voice="${PBX_EDGE_VOICE:-fa-IR-DilaraNeural}"
+bgm_file="${PBX_BGM_FILE:-}"
+bgm_volume="${PBX_BGM_VOLUME:-0.035}"
+
+mixed_prompts=(pending-code enter-code verified invalid temporary-failure)
+all_prompts=("${mixed_prompts[@]}")
 
 command -v ffmpeg >/dev/null 2>&1
+test -r "$bgm_file"
+[[ "$bgm_volume" =~ ^(0(\.[0-9]{1,3})?|1(\.0{1,3})?)$ ]]
 mkdir -p -- "$output_dir"
 work_dir="$(mktemp -d)"
 trap 'rm -rf -- "$work_dir"' EXIT
@@ -42,7 +49,7 @@ case "$engine" in
 		;;
 esac
 
-for name in menu-option-2 enter-code verified invalid temporary-failure; do
+for name in "${all_prompts[@]}"; do
 	text_file="$source_dir/$name.txt"
 	test -s "$text_file"
 	if [[ "$engine" == piper ]]; then
@@ -56,14 +63,23 @@ for name in menu-option-2 enter-code verified invalid temporary-failure; do
 	fi
 	source_audio="$(find "$work_dir" -maxdepth 1 -type f -name "$name.source.*" -print -quit)"
 	test -n "$source_audio"
-	ffmpeg -nostdin -hide_banner -loglevel error -y -i "$source_audio" \
+	render_audio="$source_audio"
+	if [[ " ${mixed_prompts[*]} " == *" $name "* ]]; then
+		tail_seconds=1
+		ffmpeg -nostdin -hide_banner -loglevel error -y \
+			-stream_loop -1 -i "$bgm_file" -i "$source_audio" \
+			-filter_complex "[0:a]volume=${bgm_volume},highpass=f=120,lowpass=f=7000[bgm];[1:a]volume=0.92,apad=pad_dur=${tail_seconds}[voice];[bgm][voice]amix=inputs=2:duration=shortest:dropout_transition=0,alimiter=limit=0.80,aresample=16000[a]" \
+			-map "[a]" -ac 1 -ar 16000 -c:a pcm_s16le "$work_dir/$name.mixed.wav"
+		render_audio="$work_dir/$name.mixed.wav"
+	fi
+	ffmpeg -nostdin -hide_banner -loglevel error -y -i "$render_audio" \
 		-map_metadata -1 -fflags +bitexact -flags:a +bitexact \
 		-ac 1 -ar 8000 -c:a pcm_s16le -f wav "$output_dir/$name.wav"
-	ffmpeg -nostdin -hide_banner -loglevel error -y -i "$source_audio" \
+	ffmpeg -nostdin -hide_banner -loglevel error -y -i "$render_audio" \
 		-map_metadata -1 -fflags +bitexact -flags:a +bitexact \
 		-ac 1 -ar 16000 -c:a pcm_s16le -f wav "$output_dir/$name.wav16"
 	test -s "$output_dir/$name.wav"
 	test -s "$output_dir/$name.wav16"
 done
 
-printf '%s\n' "Generated versioned-text Asterisk 8 kHz WAV and 16 kHz WAV16 prompts with $engine in $output_dir"
+printf '%s\n' "Generated Asterisk 8/16 kHz prompts with $engine; IVR prompts include approved BGM from $bgm_file"

@@ -9,20 +9,23 @@ const helper = require('../lib/pbx-verification-agi');
 const ENV = Object.freeze({
 	PBX_CALLBACK_ORIGIN: 'https://digitalogic.ir',
 	PBX_CALLBACK_PATH: '/wp-json/digitalogic/v1/call-verification/pbx-confirm',
+	PBX_PENDING_PATH: '/wp-json/digitalogic/v1/call-verification/pbx-pending',
 	PBX_SITE_ID: 'digitalogic.ir',
 	PBX_KEY_ID: 'v1',
 	PBX_EXPECTED_AGI_CONTEXT: 'pbx-call-verification-digitalogic',
+	PBX_EXPECTED_PENDING_CONTEXT: 'pbx-call-verification-pending-digitalogic',
 	PBX_EXPECTED_DID: '+982166754123',
 	PBX_HMAC_SECRET_FILE: '/etc/asterisk/secrets/digitalogic-pbx-verification.key',
 	PBX_PROMPT_ENTER_CODE: 'custom/call-verification/digitalogic/current/enter-code',
+	PBX_PROMPT_PENDING_CODE: 'custom/call-verification/digitalogic/current/pending-code',
 	PBX_PROMPT_VERIFIED: 'custom/call-verification/digitalogic/current/verified',
 	PBX_PROMPT_INVALID: 'custom/call-verification/digitalogic/current/invalid',
 	PBX_PROMPT_TEMPORARY_FAILURE: 'custom/call-verification/digitalogic/current/temporary-failure',
 });
 
-function agiInput(responseLines) {
+function agiInput(responseLines, context = ENV.PBX_EXPECTED_AGI_CONTEXT) {
 	return Readable.from([[
-		`agi_context: ${ENV.PBX_EXPECTED_AGI_CONTEXT}`,
+		`agi_context: ${context}`,
 		'agi_uniqueid: 1721491200.42',
 		'agi_dnid: 02166754123',
 		'agi_callerid: 09123456789',
@@ -39,6 +42,14 @@ function agiOutput() {
 			return true;
 		},
 	};
+}
+
+function shortcutDtmfResponses(code, endpos = 4096) {
+	const digits = [...code];
+	return [
+		`200 result=${digits[0].charCodeAt(0)} endpos=${endpos}`,
+		...digits.slice(1).map((digit) => `200 result=${digit.charCodeAt(0)}`),
+	];
 }
 
 test('normalizes supported Iranian mobile and landline forms', () => {
@@ -241,4 +252,245 @@ test('runAgi continues after the invalid-code STREAM FILE endpos response', asyn
 	assert.equal(callbackCount, 1);
 	assert.match(output.text, new RegExp(`STREAM FILE ${ENV.PBX_PROMPT_INVALID.replaceAll('/', '\\/')} ""`));
 	assert.match(output.text, new RegExp(`STREAM FILE ${ENV.PBX_PROMPT_VERIFIED.replaceAll('/', '\\/')} ""`));
+});
+
+
+test('pending probe payload and signature use the exact path-bound contract', () => {
+	const config = helper.loadConfig(ENV);
+	const payload = helper.buildPendingPayload(config, {
+		eventId: '123e4567-e89b-42d3-a456-426614174000',
+		callId: '1721491200.42',
+		calledNumber: ENV.PBX_EXPECTED_DID,
+		callerNumber: '+989123456789',
+		occurredAt: '2026-07-21T00:00:00.000Z',
+	});
+	assert.deepEqual(Object.keys(payload), [
+		'schema', 'site_id', 'event_id', 'call_id', 'called_number', 'caller_number', 'occurred_at',
+	]);
+	assert.equal(payload.schema, 'phone-verification-pending.v1');
+	assert.equal(Object.prototype.hasOwnProperty.call(payload, 'code'), false);
+
+	const signed = helper.buildSignedRequest(config, Buffer.alloc(32, 0x7c), payload, {
+		path: config.pendingPath,
+		timestamp: '1784567890',
+		nonce: 'mF5QGmkQ9T0L8YzAF1QJHf1S2W8ERuHM',
+	});
+	assert.match(signed.canonical, new RegExp(`^v1\\nPOST\\n${config.pendingPath.replaceAll('/', '\\/')}\\n`));
+	assert.equal(signed.canonical.includes(config.callbackPath), false);
+});
+
+test('pending response accepts only the exact one-boolean object', async () => {
+	assert.equal(helper.classifyPendingResponse(200, { pending: true }), 'pending');
+	assert.equal(helper.classifyPendingResponse(200, { pending: false }), 'none');
+	assert.equal(helper.classifyPendingResponse(200, { success: true, pending: true }), 'protocol');
+	assert.equal(helper.classifyPendingResponse(200, { pending: 1 }), 'protocol');
+	assert.equal(helper.classifyPendingResponse(200, []), 'protocol');
+	assert.equal(helper.classifyPendingResponse(503, null), 'temporary');
+
+	const config = helper.loadConfig(ENV);
+	let requestedUrl = '';
+	const result = await helper.postPending(config, Buffer.alloc(32, 0x2a), {
+		schema: 'phone-verification-pending.v1',
+	}, async (url, request) => {
+		requestedUrl = url;
+		assert.equal(request.method, 'POST');
+		return {
+			status: 200,
+			headers: new Map(),
+			text: async () => '{"pending":true}',
+		};
+	});
+	assert.equal(requestedUrl, config.pendingUrl);
+	assert.equal(result, 'pending');
+});
+
+test('preflight sets only the pending flag for an exact ANI match', async () => {
+	const output = agiOutput();
+	let postedPayload;
+	const exitCode = await helper.runAgi({
+		mode: 'preflight',
+		env: ENV,
+		loadSecret: () => Buffer.alloc(32, 0x3a),
+		input: agiInput([
+			`200 result=1 (${ENV.PBX_EXPECTED_DID})`,
+			'200 result=1 (+989123456789)',
+			'200 result=1',
+		], ENV.PBX_EXPECTED_PENDING_CONTEXT),
+		output,
+		fetchImpl: async (url, request) => {
+			assert.equal(url, `https://${new URL(ENV.PBX_CALLBACK_ORIGIN).host}${ENV.PBX_PENDING_PATH}`);
+			postedPayload = JSON.parse(request.body);
+			return {
+				status: 200,
+				headers: new Map(),
+				text: async () => '{"pending":true}',
+			};
+		},
+	});
+
+	assert.equal(exitCode, helper.EXIT.VERIFIED);
+	assert.equal(postedPayload.schema, 'phone-verification-pending.v1');
+	assert.equal(postedPayload.caller_number, '+989123456789');
+	assert.match(output.text, /SET VARIABLE PBX_VERIFY_PENDING 1/);
+	assert.equal(output.text.includes('GET DATA'), false);
+});
+
+test('preflight network failure explicitly remains fail-open', async () => {
+	const output = agiOutput();
+	const exitCode = await helper.runAgi({
+		mode: 'preflight',
+		env: ENV,
+		loadSecret: () => Buffer.alloc(32, 0x4a),
+		input: agiInput([
+			`200 result=1 (${ENV.PBX_EXPECTED_DID})`,
+			'200 result=1 (+989123456789)',
+			'200 result=1',
+		], ENV.PBX_EXPECTED_PENDING_CONTEXT),
+		output,
+		fetchImpl: async () => { throw new Error('offline'); },
+	});
+
+	assert.equal(exitCode, helper.EXIT.NETWORK);
+	assert.match(output.text, /SET VARIABLE PBX_VERIFY_PENDING 0/);
+	assert.equal(output.text.includes('STREAM FILE'), false);
+});
+
+test('shortcut captures star from the prompt and cancels without waiting or posting', async () => {
+	const output = agiOutput();
+	let callbackCount = 0;
+	const exitCode = await helper.runAgi({
+		mode: 'shortcut',
+		env: ENV,
+		loadSecret: () => Buffer.alloc(32, 0x5a),
+		input: agiInput([
+			`200 result=1 (${ENV.PBX_EXPECTED_DID})`,
+			'200 result=1 (+989123456789)',
+			'200 result=42 endpos=512',
+			'200 result=1',
+		], ENV.PBX_EXPECTED_PENDING_CONTEXT),
+		output,
+		fetchImpl: async () => { callbackCount += 1; },
+	});
+
+	assert.equal(exitCode, helper.EXIT.VERIFIED);
+	assert.equal(callbackCount, 0);
+	assert.match(output.text, new RegExp(`STREAM FILE ${ENV.PBX_PROMPT_PENDING_CODE.replaceAll('/', '\\/')} "0123456789\\*"`));
+	assert.match(output.text, /SET VARIABLE PBX_VERIFY_RESULT fallback/);
+	assert.equal(output.text.includes('WAIT FOR DIGIT'), false);
+	assert.equal(output.text.includes('GET DATA'), false);
+});
+
+test('shortcut cancels immediately when star is pressed between code digits', async () => {
+	const output = agiOutput();
+	let callbackCount = 0;
+	const exitCode = await helper.runAgi({
+		mode: 'shortcut',
+		env: ENV,
+		loadSecret: () => Buffer.alloc(32, 0x5c),
+		input: agiInput([
+			`200 result=1 (${ENV.PBX_EXPECTED_DID})`,
+			'200 result=1 (+989123456789)',
+			'200 result=49 endpos=640',
+			'200 result=50',
+			'200 result=42',
+			'200 result=1',
+		], ENV.PBX_EXPECTED_PENDING_CONTEXT),
+		output,
+		fetchImpl: async () => { callbackCount += 1; },
+	});
+
+	assert.equal(exitCode, helper.EXIT.VERIFIED);
+	assert.equal(callbackCount, 0);
+	assert.equal((output.text.match(/WAIT FOR DIGIT /g) || []).length, 2);
+	assert.match(output.text, /SET VARIABLE PBX_VERIFY_RESULT fallback/);
+});
+
+test('shortcut waits a bounded interval after an uninterrupted prompt, then falls back', async () => {
+	const output = agiOutput();
+	let callbackCount = 0;
+	const exitCode = await helper.runAgi({
+		mode: 'shortcut',
+		env: ENV,
+		loadSecret: () => Buffer.alloc(32, 0x5b),
+		input: agiInput([
+			`200 result=1 (${ENV.PBX_EXPECTED_DID})`,
+			'200 result=1 (+989123456789)',
+			'200 result=0 endpos=4096',
+			'200 result=0',
+			'200 result=1',
+		], ENV.PBX_EXPECTED_PENDING_CONTEXT),
+		output,
+		fetchImpl: async () => { callbackCount += 1; },
+	});
+
+	assert.equal(exitCode, helper.EXIT.VERIFIED);
+	assert.equal(callbackCount, 0);
+	assert.match(output.text, new RegExp(`WAIT FOR DIGIT ${ENV.PBX_DTMF_TIMEOUT_MS || 12000}`));
+	assert.match(output.text, /SET VARIABLE PBX_VERIFY_RESULT fallback/);
+});
+
+test('shortcut posts a valid code immediately and marks the call verified', async () => {
+	const output = agiOutput();
+	const exitCode = await helper.runAgi({
+		mode: 'shortcut',
+		env: ENV,
+		loadSecret: () => Buffer.alloc(32, 0x6a),
+		input: agiInput([
+			`200 result=1 (${ENV.PBX_EXPECTED_DID})`,
+			'200 result=1 (+989123456789)',
+			...shortcutDtmfResponses('381624'),
+			'200 result=0 endpos=4096',
+			'200 result=1',
+		], ENV.PBX_EXPECTED_PENDING_CONTEXT),
+		output,
+		fetchImpl: async () => ({
+			status: 200,
+			headers: new Map(),
+			text: async () => '{"verified":true}',
+		}),
+	});
+
+	assert.equal(exitCode, helper.EXIT.VERIFIED);
+	assert.match(output.text, new RegExp(`STREAM FILE ${ENV.PBX_PROMPT_PENDING_CODE.replaceAll('/', '\\/')} "0123456789\\*"`));
+	assert.equal((output.text.match(/WAIT FOR DIGIT /g) || []).length, 5);
+	assert.match(output.text, /SET VARIABLE PBX_VERIFY_RESULT verified/);
+	assert.equal(output.text.includes('381624'), false);
+});
+
+test('shortcut gives a rejected six-digit typo one bounded retry', async () => {
+	const output = agiOutput();
+	let callbackCount = 0;
+	const exitCode = await helper.runAgi({
+		mode: 'shortcut',
+		env: { ...ENV, PBX_DTMF_ATTEMPTS: '3' },
+		loadSecret: () => Buffer.alloc(32, 0x7a),
+		input: agiInput([
+			`200 result=1 (${ENV.PBX_EXPECTED_DID})`,
+			'200 result=1 (+989123456789)',
+			...shortcutDtmfResponses('111111', 1024),
+			'200 result=0 endpos=1024',
+			...shortcutDtmfResponses('381624', 2048),
+			'200 result=0 endpos=2048',
+			'200 result=1',
+		], ENV.PBX_EXPECTED_PENDING_CONTEXT),
+		output,
+		fetchImpl: async () => {
+			callbackCount += 1;
+			return {
+				status: 200,
+				headers: new Map(),
+				text: async () => callbackCount === 1
+					? '{"verified":false}' : '{"verified":true}',
+			};
+		},
+	});
+
+	assert.equal(exitCode, helper.EXIT.VERIFIED);
+	assert.equal(callbackCount, 2);
+	assert.equal((output.text.match(new RegExp(`STREAM FILE ${ENV.PBX_PROMPT_PENDING_CODE.replaceAll('/', '\\/')}`, 'g')) || []).length, 2);
+	assert.equal((output.text.match(/WAIT FOR DIGIT /g) || []).length, 10);
+	assert.match(output.text, new RegExp(`STREAM FILE ${ENV.PBX_PROMPT_INVALID.replaceAll('/', '\\/')} ""`));
+	assert.match(output.text, /SET VARIABLE PBX_VERIFY_RESULT verified/);
+	assert.equal(output.text.includes('111111'), false);
+	assert.equal(output.text.includes('381624'), false);
 });

@@ -42,8 +42,8 @@
 - Non-blocking async delivery
 
 ### ☎️ Phone verification and PBX notifications
-- Login or add an Iranian mobile/landline contact by calling `021-66754123` and choosing IVR option `2`
-- Six-digit, 10-minute challenge with exact caller-ID matching and single-use browser-bound consumption
+- From the Digits OTP sidebar, choose **Verify by calling**, or add an Iranian mobile/landline contact from My Account, then call `021-66754123` from the same number. A live caller-ID challenge collects the 120-second code immediately after «دوست عزیزم»; calls without one continue to the operator.
+- Six-digit, 120-second challenge with exact caller-ID matching and single-use browser-bound consumption
 - Multiple supplemental emails and verified phone contacts in WooCommerce My Account
 - Per-number customer/admin consent controls for voice order updates
 - Global and per-order-status switches are disabled by default; calls run asynchronously with quiet hours and rate limits

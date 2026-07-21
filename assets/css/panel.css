@@ -154,6 +154,66 @@ body.digitalogic-panel-body::after {
     text-align: center;
 }
 
+.dlp-fatal-panel {
+    width: min(620px, calc(100vw - 32px));
+    margin-inline: auto;
+}
+
+.dlp-fatal-panel[hidden] {
+    display: none !important;
+}
+
+.dlp-fatal-panel:focus {
+    outline: none;
+}
+
+.dlp-fatal-panel:focus-visible {
+    outline: 3px solid var(--dlp-accent);
+    outline-offset: 4px;
+    border-radius: 24px;
+}
+
+.dlp-fatal-copy {
+    display: grid;
+    gap: 10px;
+    padding: 22px;
+    border: 1px solid color-mix(in srgb, var(--dlp-danger) 35%, var(--dlp-border));
+    border-radius: 20px;
+    background: var(--dlp-panel-raised);
+    box-shadow: var(--dlp-shadow);
+}
+
+.dlp-fatal-copy h1,
+.dlp-fatal-copy p {
+    margin: 0;
+}
+
+.dlp-fatal-copy h1 {
+    color: var(--dlp-heading);
+    font-size: clamp(24px, 4vw, 34px);
+}
+
+.dlp-fatal-copy p {
+    color: var(--dlp-text-soft);
+    line-height: 1.8;
+}
+
+.dlp-fatal-copy code:empty {
+    display: none;
+}
+
+.dlp-fatal-copy code {
+    padding: 9px 12px;
+    border-radius: 10px;
+    background: var(--dlp-panel-soft);
+    color: var(--dlp-danger);
+    overflow-wrap: anywhere;
+}
+
+.dlp-fatal-actions {
+    justify-content: center;
+}
+
 .dlp-boot-mark,
 .dlp-logo-mark {
     display: grid;
@@ -366,6 +426,7 @@ a.dlp-button:focus {
 .dlp-main {
     min-width: 0;
     display: grid;
+    grid-template-columns: minmax(0, 1fr);
     align-content: start;
     gap: 12px;
 }
@@ -414,15 +475,13 @@ a.dlp-button:focus {
 
 .dlp-search-wrap .dlp-search {
     width: 100%;
-    padding-inline-end: 58px;
-}
-
-[dir="rtl"] .dlp-search-wrap .dlp-search {
-    padding-inline: 58px 16px;
+    padding-inline: 16px 58px;
 }
 
 .dlp-search-kbd {
     position: absolute;
+    inset-block-start: 50%;
+    inset-inline-start: auto;
     inset-inline-end: 12px;
     display: inline-grid;
     place-items: center;
@@ -437,15 +496,12 @@ a.dlp-button:focus {
     font-size: 11px;
     line-height: 1;
     box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--dlp-border-strong) 50%, transparent);
+    transform: translateY(-50%);
     pointer-events: none;
 }
 
 .dlp-search-kbd::before {
     content: attr(data-hotkey);
-}
-
-[dir="rtl"] .dlp-search-kbd {
-    inset-inline: 12px auto;
 }
 
 .dlp-topbar .dlp-actions {
@@ -1230,6 +1286,18 @@ a.dlp-button:focus {
     white-space: nowrap;
 }
 
+.dlp-data-grid .dlp-cell-actions {
+    position: relative;
+}
+
+.dlp-data-grid .dlp-cell-actions .dlp-icon-button {
+    width: 34px;
+    min-width: 34px;
+    height: 34px;
+    min-height: 34px;
+    flex-basis: 34px;
+}
+
 .dlp-icon-button,
 .dlp-menu-button {
     justify-content: center;
@@ -1359,15 +1427,30 @@ a.dlp-button:focus {
 
 .dlp-check {
     position: relative;
-    display: inline-grid;
+    display: grid;
     place-items: center;
+    box-sizing: border-box;
     width: 22px;
     height: 22px;
+    margin: 0;
+    vertical-align: middle;
+}
+
+.dlp-data-grid tr > :first-child {
+    text-align: center;
+    line-height: 0;
+}
+
+.dlp-data-grid tr > :first-child .dlp-check {
+    margin-inline: auto;
 }
 
 .dlp-check input {
     position: absolute;
     inset: 0;
+    width: 100%;
+    height: 100%;
+    margin: 0;
     opacity: 0;
     cursor: pointer;
 }
@@ -1388,7 +1471,7 @@ a.dlp-button:focus {
     content: "";
     position: absolute;
     left: 50%;
-    top: 45%;
+    top: 50%;
     width: 5px;
     height: 10px;
     border-right: 2px solid #fff;
@@ -1418,12 +1501,37 @@ a.dlp-button:focus {
     font-size: 11px;
 }
 
+.dlp-data-grid .dlp-save-state {
+    position: absolute;
+    inset-inline-end: -2px;
+    inset-block-start: -2px;
+    display: block;
+    width: 10px;
+    height: 10px;
+    min-width: 0;
+    overflow: hidden;
+    border: 2px solid var(--dlp-panel);
+    border-radius: 999px;
+    background: var(--dlp-accent);
+    color: transparent;
+    font-size: 0;
+    line-height: 0;
+}
+
 .dlp-save-state.is-saved {
     color: var(--dlp-success);
 }
 
+.dlp-data-grid .dlp-save-state.is-saved {
+    background: var(--dlp-success);
+}
+
 .dlp-save-state.is-error {
     color: var(--dlp-danger);
+}
+
+.dlp-data-grid .dlp-save-state.is-error {
+    background: var(--dlp-danger);
 }
 
 .dlp-status-dot {
@@ -1487,6 +1595,29 @@ a.dlp-button:focus {
     flex-basis: 30px;
     border-radius: 0;
     box-shadow: none;
+}
+
+.dlp-data-grid.is-compact .dlp-cell-actions {
+    gap: 4px;
+}
+
+.dlp-data-grid.is-compact .dlp-cell-actions .dlp-icon-button {
+    width: 28px;
+    min-width: 28px;
+    height: 28px;
+    min-height: 28px;
+    flex-basis: 28px;
+}
+
+.dlp-data-grid.is-compact .dlp-cell-actions .dlp-icon-button .dashicons {
+    width: 16px;
+    height: 16px;
+    font-size: 16px;
+    line-height: 16px;
+}
+
+.dlp-data-grid.is-compact .dlp-save-state {
+    min-width: 0;
 }
 
 .dlp-thumb-empty,
@@ -1711,6 +1842,11 @@ a.dlp-button:focus {
     outline: none;
 }
 
+.dlp-report-card:disabled {
+    opacity: 0.56;
+    cursor: progress;
+}
+
 .dlp-report-summary {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1779,13 +1915,80 @@ a.dlp-button:focus {
     background: var(--dlp-accent);
 }
 
+.dlp-report-limit {
+    padding: 8px 18px;
+    border-top: 1px solid var(--dlp-border);
+    border-bottom: 1px solid var(--dlp-border);
+    background: var(--dlp-panel-soft);
+    color: var(--dlp-text-soft);
+    font-size: 12px;
+}
+
 .dlp-report-table {
-    min-width: 1040px;
+    min-width: 1180px;
+    table-layout: auto;
 }
 
 .dlp-report-table td,
 .dlp-report-table th {
     vertical-align: top;
+}
+
+.dlp-report-table th:first-child,
+.dlp-report-table td:first-child,
+.dlp-report-table .dlp-cell-numeric {
+    white-space: nowrap;
+}
+
+.dlp-report-table th:last-child,
+.dlp-report-table td:last-child {
+    width: 62px;
+    text-align: center;
+}
+
+.dlp-report-details {
+    display: grid;
+    gap: 5px;
+    min-width: 180px;
+    font-size: 12px;
+}
+
+.dlp-report-details > span {
+    display: grid;
+    grid-template-columns: minmax(72px, auto) minmax(0, 1fr);
+    gap: 7px;
+}
+
+.dlp-report-details strong {
+    color: var(--dlp-text-soft);
+    font-weight: 600;
+}
+
+.dlp-report-pagination {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 12px 18px;
+    border-top: 1px solid var(--dlp-border);
+    color: var(--dlp-text-soft);
+}
+
+.dlp-report-error {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.dlp-spin {
+    animation: dlp-spin 0.9s linear infinite;
+}
+
+@keyframes dlp-spin {
+    to {
+        transform: rotate(360deg);
+    }
 }
 
 .dlp-detail-image {
@@ -1953,25 +2156,6 @@ code {
         grid-template-columns: 1fr;
     }
 
-    .dlp-table {
-        min-width: 0;
-    }
-
-    .dlp-data-grid [data-column-key="sale_price"],
-    .dlp-data-grid [data-column-key="stock_quantity"] {
-        display: none;
-    }
-
-    .dlp-mobile-meta {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 4px;
-        margin-top: 4px;
-        color: var(--dlp-text-soft);
-        font-family: "DigitalogicFanum", "IRANSans", system-ui, sans-serif;
-        font-size: 11px;
-        font-weight: 500;
-    }
 }
 
 @media (max-width: 767px) {
@@ -1991,7 +2175,8 @@ code {
         border-radius: 14px;
         height: auto;
         max-height: none;
-        align-items: flex-start;
+        flex-direction: column;
+        align-items: stretch;
     }
 
     .dlp-sidebar {
@@ -1999,9 +2184,10 @@ code {
     }
 
     .dlp-topbar .dlp-actions {
-        width: 100%;
-        flex-wrap: nowrap;
-        overflow-x: auto;
+        width: auto;
+        max-width: 100%;
+        flex-wrap: wrap;
+        overflow-x: visible;
     }
 
     .dlp-topbar .dlp-actions > * {
@@ -2026,13 +2212,52 @@ code {
         grid-template-columns: 1fr;
     }
 
-    .dlp-data-grid [data-column-key="regular_price"],
-    .dlp-data-grid [data-column-key="min_price"],
-    .dlp-data-grid [data-column-key="max_price"],
-    .dlp-data-grid [data-column-key="stock_status"],
-    .dlp-data-grid [data-column-key="status"],
-    .dlp-data-grid [data-column-key="id"] {
-        display: none;
+    .dlp-data-grid {
+        min-width: 0;
+    }
+
+    /* Collapse both the track and its cells. Keeping these selectors driven by
+     * column priority prevents newly-added columns from recreating a ghost tail. */
+    .dlp-data-grid[data-grid-kind="product"] col[data-column-priority="2"],
+    .dlp-data-grid[data-grid-kind="product"] col[data-column-priority="3"] {
+        visibility: collapse;
+        width: 0 !important;
+    }
+
+    .dlp-title-cell {
+        flex: 1 1 auto;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 4px;
+        white-space: normal;
+        text-align: start;
+    }
+
+    .dlp-data-grid.is-compact .dlp-cell-title .dlp-editable-cell,
+    .dlp-data-grid.is-compact .dlp-cell-title .dlp-cell-edit-shell {
+        height: auto;
+        min-height: 34px;
+    }
+
+    .dlp-mobile-meta {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 3px 8px;
+        box-sizing: border-box;
+        width: 100%;
+        min-width: 0;
+        margin-top: 2px;
+        color: var(--dlp-text-soft);
+        font-family: "DigitalogicFanum", "IRANSans", system-ui, sans-serif;
+        font-size: 11px;
+        font-weight: 500;
+    }
+
+    .dlp-mobile-meta > span {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
     }
 
     .dlp-title {

@@ -20,4 +20,4 @@ set -a
 set +a
 unset NODE_OPTIONS NODE_PATH
 
-exec /usr/bin/node "$helper"
+exec /usr/bin/node "$helper" "$@"

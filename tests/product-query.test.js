@@ -147,3 +147,98 @@ test('product table can freeze the first visible column in RTL and LTR', () => {
     assert.doesNotMatch(panelCss, /\.is-sticky-first-data-column[\s\S]{0,180}?\bleft\s*:/);
     assert.doesNotMatch(panelCss, /\.is-sticky-first-data-column[\s\S]{0,180}?\bright\s*:/);
 });
+
+test('product title direction bindings never call an undefined panel method', () => {
+    const panelSource = fs.readFileSync(path.join(__dirname, '..', 'assets', 'js', 'panel-app.js'), 'utf8');
+    const viewSource = fs.readFileSync(path.join(__dirname, '..', 'includes', 'panel', 'views', 'app.php'), 'utf8');
+    const titleDirectionCalls = viewSource.match(/\btitleDir\s*\(/g) || [];
+    const hasTitleDirectionMethod = /\btitleDir\s*:\s*function\s*\(\s*product\s*\)/.test(panelSource);
+
+    assert.ok(
+        titleDirectionCalls.length === 0 || hasTitleDirectionMethod,
+        'Every titleDir() template binding must have a callable panel method (or use native dir="auto" instead).'
+    );
+});
+
+test('pointer-started inline editing preserves a collapsed caret instead of selecting the value', () => {
+    const panelSource = fs.readFileSync(path.join(__dirname, '..', 'assets', 'js', 'panel-app.js'), 'utf8');
+    const viewSource = fs.readFileSync(path.join(__dirname, '..', 'includes', 'panel', 'views', 'app.php'), 'utf8');
+    const startCellEdit = panelSource.match(
+        /startCellEdit:\s*function\s*\(([^)]*)\)\s*\{([\s\S]*?)\n\s*\},\n\s*isCellEditing:/
+    );
+
+    assert.ok(startCellEdit, 'The panel must retain a focused startCellEdit implementation.');
+    assert.match(startCellEdit[1], /\bevent\b/, 'startCellEdit must receive the originating pointer event.');
+    assert.doesNotMatch(startCellEdit[2], /\binput\.select\s*\(/, 'Inline editing must not select the whole value.');
+    assert.match(startCellEdit[2], /\bclientX\b/, 'Inline editing must preserve the horizontal pointer position.');
+    assert.match(startCellEdit[2], /\bsetSelectionRange\s*\(/, 'Inline editing must place a collapsed caret.');
+    assert.match(
+        viewSource,
+        /startCellEdit\(\s*'product'\s*,\s*product\s*,\s*column\s*,\s*\$event\s*\)/,
+        'Product-cell clicks must forward their pointer event to startCellEdit.'
+    );
+});
+
+test('the Patris foreign-currency column uses the shared select-option path', () => {
+    const panelSource = fs.readFileSync(path.join(__dirname, '..', 'assets', 'js', 'panel-app.js'), 'utf8');
+    const currencyColumn = panelSource.match(/\{key:\s*'patris_foreign_currency'[^\n]+\}/);
+    const columnOptions = panelSource.match(
+        /columnOptions:\s*function\s*\(column\)\s*\{([\s\S]*?)\n\s*\},\n\s*customSelectLabel:/
+    );
+
+    assert.ok(currencyColumn, 'The product grid must define its Patris foreign-currency column.');
+    assert.match(currencyColumn[0], /\btype:\s*'select'/, 'Currency editing must use a dropdown, not a textbox.');
+    assert.match(currencyColumn[0], /\bfilter:\s*'select'/, 'Currency filtering must use the same option set.');
+    assert.ok(columnOptions, 'The panel must retain the shared columnOptions implementation.');
+    assert.match(
+        columnOptions[1],
+        /column\.field\s*===\s*'patris_foreign_currency'\)\s*return\s+(?!\[\])[^;]+;/,
+        'The currency column must resolve a non-empty shared option source.'
+    );
+});
+
+test('the visible product-search shortcut has a concrete panel definition', () => {
+    const panelSource = fs.readFileSync(path.join(__dirname, '..', 'assets', 'js', 'panel-app.js'), 'utf8');
+    const viewSource = fs.readFileSync(path.join(__dirname, '..', 'includes', 'panel', 'views', 'app.php'), 'utf8');
+
+    assert.match(viewSource, /class="dlp-search-kbd"[^>]+:data-hotkey="productSearchHotkey(?:Label)?"/);
+    assert.match(viewSource, /:aria-keyshortcuts="productSearchHotkey"/);
+    assert.match(
+        panelSource,
+        /\bproductSearchHotkey\s*:/,
+        'The search hint and aria-keyshortcuts binding must not resolve to undefined.'
+    );
+});
+
+test('panel failures are structured and heavy reports use the bounded AJAX path', () => {
+    const panelSource = fs.readFileSync(path.join(__dirname, '..', 'assets', 'js', 'panel-app.js'), 'utf8');
+    const viewSource = fs.readFileSync(path.join(__dirname, '..', 'includes', 'panel', 'views', 'app.php'), 'utf8');
+    const panelPhpSource = fs.readFileSync(path.join(__dirname, '..', 'includes', 'panel', 'class-panel.php'), 'utf8');
+
+    assert.match(panelSource, /requestAjax:\s*ajax/);
+    assert.match(panelSource, /per_page:\s*50/);
+    assert.match(panelSource, /force_refresh:\s*forceRefresh/);
+    assert.match(panelSource, /reportRequestSequence/);
+    assert.match(panelSource, /reportRequestKey/);
+    assert.match(panelSource, /setReportCategory:\s*function/);
+    assert.match(panelSource, /reportCategoryTitle:\s*function/);
+    assert.match(panelSource, /option !== null && typeof option === 'object'/);
+    assert.doesNotMatch(panelSource, /\bitem_limit\b|\bitem_offset\b|loadReportCategory:\s*function/);
+    assert.match(panelSource, /\{ajaxOnly:\s*true\}/);
+    assert.match(panelSource, /addEventListener\('unhandledrejection'/);
+    assert.match(panelSource, /consoleApi\.groupCollapsed/);
+    assert.match(panelSource, /app\.config\.errorHandler\s*=\s*function[\s\S]*?showFatalPanelError\('Panel render failed'/);
+    assert.match(panelSource, /reportPanelError\('Panel bootstrap failed'/);
+    assert.match(viewSource, /id="digitalogic-panel-fallback"/);
+    assert.match(viewSource, /aria-labelledby="dlp-fatal-title"/);
+    assert.match(viewSource, /reportCategoryTitle\(category\)/);
+    assert.match(viewSource, /@click="loadReports\(true\)"/);
+    assert.match(viewSource, /v-for="\(item, itemIndex\) in reports\.rows"/);
+    assert.match(viewSource, /reports\.pagination\.page/);
+    assert.doesNotMatch(viewSource, /activeReportCategory|category\.returned_count/);
+    assert.match(panelPhpSource, /'foreign_currency_options'\s*=>\s*\$this->foreign_currency_options\(\)/);
+    assert.match(panelPhpSource, /digitalogic_panel_foreign_currency_codes/);
+    assert.match(panelPhpSource, /digitalogic_panel_foreign_currency_options/);
+    assert.match(panelPhpSource, /'reportMissingInWooCommerce'\s*=>\s*'In Patris but missing in WooCommerce'/);
+    assert.match(panelPhpSource, /'reportPriceDrift'\s*=>\s*'Price differs from the current source'/);
+});

@@ -16,6 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Google Sheets writeback uses exact-decimal optimistic revisions, idempotent requests, a shared WooCommerce product lock, and transactional shipping compare-and-set apply/compensation so concurrent changes are preserved.
 
 ### Fixed
+- Repaired critical `/panel/` rendering and inline-edit regressions: title direction is always callable, pointer edits place a collapsed caret at the clicked text position, Patris currency uses a canonical clearable selector, and render/bootstrap failures now show a localized recovery screen with structured, deduplicated console diagnostics.
+- Corrected Persian product-table geometry, including the `Ctrl+K` hint, exact checkbox centering, compact/mobile metadata containment, stable action-column sizing, and removal of the empty row tail caused by responsive column tracks.
+- Made the current Patris reconciliation report usable across warning and price-list views with bounded 50-row pages, category filters, request deduplication, stale-response protection, client-language labels, visible generation details, catalog-generation invalidation that cannot republish stale in-flight data, and a server-side build lock against concurrent forced refreshes.
 - Prevented the private storefront request post type from registering `manage_woocommerce` as an object meta capability, which caused WordPress to deny valid administrator and shop-manager access across the panel, admin, REST, and WebSocket paths.
 - Centralized panel authorization across the browser shell, in-process Laravel bridge, AJAX command dispatcher, and authenticated WebSocket path, including a safe WordPress-administrator fallback without granting storefront customers access.
 - Replaced the panel's raw WordPress `wp_die()` authorization response with a scoped, escaped Digitalogic 403 document that does not expose a Query Monitor call stack.
@@ -32,6 +35,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Final-price validation converts CNY freight with the effective CNY-to-IRT rate and converts IRR freight to IRT before applying markup and a single final rounding step.
 - Shipping amounts, minimums, divisors, and tier bounds/rates now remain canonical decimal strings through storage and every outward projection, without exponent notation or binary-float loss.
 - Product sync preserves missing versus explicitly null freight fields, and the one-time installed-data migration bypasses stale option caches and verifies persistence before marking completion.
+
+## [1.6.4] - 2026-07-21
+
+### Fixed
+- Replaced the temporary public inbound verification menu with a caller-ID-gated shortcut for active 120-second challenges, preserving the original direct-to-operator call flow for everyone else.
+
+### Changed
+- Poll verified calls every 500 ms for immediate browser-bound login completion, with cancellation, expiry, replay, rate-limit, and stale-request safeguards.
+- Mix all verification speech with the reviewed low-volume PBX background music and keep code collection private inside AGI.
+
+## [1.6.3] - 2026-07-21
+
+### Added
+- Exposed the existing inbound-call login verification beneath the active Digits OTP resend control in the Woodmart sidebar, with singleton AJAX remounting, Persian/RTL and mobile containment, keyboard disclosure semantics, and live dial instructions.
+
+## [1.6.2] - 2026-07-21
+
+### Fixed
+- Restored the Digits password/verification-code layout in the guest Woodmart login sidebar, including scoped RTL, responsive, OTP-help, loading, error, honeypot, and keyboard-accessibility safeguards.
 
 ## [1.6.1] - 2026-07-21
 

@@ -6,8 +6,99 @@
     var productQuery = window.DigitalogicProductQuery;
     var adminThemeStorageKey = config.theme_storage_key || 'digitalogic-admin-theme';
     var panelThemeStorageKey = 'digitalogic_panel_theme';
+    var panelRoot = document.getElementById('digitalogic-panel');
+    var panelTemplate = document.getElementById('digitalogic-panel-template');
 
-    if (!Vue || !productQuery || !document.getElementById('digitalogic-panel')) {
+    var panelConsoleHistory = {};
+
+    function showFatalPanelError(context, error) {
+        var root = document.getElementById('digitalogic-panel');
+        var fallback = document.getElementById('digitalogic-panel-fallback');
+        if (!fallback) return;
+
+        if (root) root.hidden = true;
+        fallback.hidden = false;
+        var detail = fallback.querySelector('[data-dlp-fatal-detail]');
+        if (detail) {
+            detail.textContent = error && error.message
+                ? error.message
+                : String(context || 'The panel could not be displayed.');
+        }
+        fallback.focus();
+    }
+
+    function panelConsole(level, context, error, details) {
+        var consoleApi = window.console;
+        if (!consoleApi) return;
+
+        var message = error && (error.message || error.stack) ? (error.message || error.stack) : String(error || '');
+        var historyKey = level + ':' + context + ':' + message;
+        var now = Date.now();
+        if (level !== 'info' && panelConsoleHistory[historyKey] && now - panelConsoleHistory[historyKey] < 30000) {
+            return;
+        }
+        panelConsoleHistory[historyKey] = now;
+
+        var method = typeof consoleApi[level] === 'function' ? level : 'log';
+        var accent = level === 'error' ? '#dc2626' : (level === 'warn' ? '#d97706' : '#2563eb');
+        if (typeof consoleApi.groupCollapsed === 'function') {
+            consoleApi.groupCollapsed(
+                '%c DIGITALOGIC %c ' + context,
+                'background:' + accent + ';color:#fff;border-radius:5px;padding:3px 7px;font-weight:700',
+                'color:' + accent + ';font-weight:700'
+            );
+            consoleApi[method](error || message);
+            if (details && typeof consoleApi.info === 'function') {
+                consoleApi.info('Context', details);
+            }
+            consoleApi.groupEnd();
+            return;
+        }
+        consoleApi[method]('Digitalogic Panel - ' + context, error || message, details || '');
+    }
+
+    function reportPanelError(context, error, details) {
+        var message = error && (error.stack || error.message || String(error));
+        window.digitalogicPanelLastError = message || context;
+        document.documentElement.setAttribute('data-dlp-last-error', message || context);
+        panelConsole('error', context, error, details);
+    }
+
+    window.addEventListener('error', function(event) {
+        reportPanelError('Unhandled browser error', event.error || new Error(event.message || 'Unknown browser error'), {
+            source: event.filename ? String(event.filename).split('/').pop() : '',
+            line: event.lineno || 0,
+            column: event.colno || 0
+        });
+        var sameOriginRuntimeError = !!event.error;
+        if (event.filename) {
+            try {
+                sameOriginRuntimeError = sameOriginRuntimeError && new URL(event.filename, window.location.href).origin === window.location.origin;
+            } catch (ignored) {
+                sameOriginRuntimeError = false;
+            }
+        }
+        if (sameOriginRuntimeError && event.cancelable && typeof event.preventDefault === 'function') {
+            event.preventDefault();
+        }
+    });
+
+    window.addEventListener('unhandledrejection', function(event) {
+        var reason = event && event.reason ? event.reason : new Error('Unhandled promise rejection');
+        reportPanelError('Unhandled promise rejection', reason);
+        if (event && typeof event.preventDefault === 'function') event.preventDefault();
+    });
+
+    if (!Vue || !productQuery || !panelRoot || !panelTemplate) {
+        var missingDependencies = [
+            !Vue ? 'Vue' : '',
+            !productQuery ? 'DigitalogicProductQuery' : '',
+            !panelRoot ? 'panel root' : '',
+            !panelTemplate ? 'panel template' : ''
+        ].filter(Boolean);
+        var dependencyError = new Error('Missing panel dependency: ' + missingDependencies.join(', '));
+        reportPanelError('Panel bootstrap failed', dependencyError);
+        showFatalPanelError('Panel bootstrap failed', dependencyError);
         return;
     }
 
@@ -28,7 +119,14 @@
             connecting = true;
             var separator = ws.url.indexOf('?') === -1 ? '?' : '&';
             var authParam = ws.token ? 'token=' + encodeURIComponent(ws.token) : 'nonce=' + encodeURIComponent(ws.nonce || '');
-            socket = new window.WebSocket(ws.url + separator + authParam);
+            try {
+                socket = new window.WebSocket(ws.url + separator + authParam);
+            } catch (error) {
+                ready = false;
+                connecting = false;
+                panelConsole('warn', 'WebSocket unavailable; using AJAX', error);
+                return;
+            }
 
             socket.onopen = function() {
                 ready = true;
@@ -124,6 +222,7 @@
 
         return {
             request: request,
+            requestAjax: ajax,
             isReady: function() {
                 return ready;
             },
@@ -215,7 +314,7 @@
             {key: 'min_price', labelKey: 'minPrice', field: 'min_price', width: 132, visible: true, sortable: false, editable: false, numeric: true, filter: false, icon: 'dashicons-arrow-down-alt', priority: 3},
             {key: 'max_price', labelKey: 'maxPrice', field: 'max_price', width: 132, visible: true, sortable: false, editable: false, numeric: true, filter: false, icon: 'dashicons-arrow-up-alt', priority: 3},
             {key: 'weight', labelKey: 'weight', field: 'weight', width: 112, visible: false, sortable: true, editable: true, numeric: true, filter: 'numeric', icon: 'dashicons-image-filter', priority: 3},
-            {key: 'patris_foreign_currency', labelKey: 'patrisCurrency', field: 'patris_foreign_currency', width: 106, visible: true, sortable: true, editable: true, filter: 'text', icon: 'dashicons-money-alt', priority: 3},
+            {key: 'patris_foreign_currency', labelKey: 'patrisCurrency', field: 'patris_foreign_currency', width: 118, visible: true, sortable: true, editable: true, type: 'select', filter: 'select', icon: 'dashicons-money-alt', priority: 3},
             {key: 'patris_foreign_price', labelKey: 'patrisForeignPrice', field: 'patris_foreign_price', width: 138, visible: true, sortable: true, editable: true, numeric: true, filter: 'numeric', icon: 'dashicons-chart-line', priority: 3},
             {key: 'patris_weight_grams', labelKey: 'patrisWeight', field: 'patris_weight_grams', width: 118, visible: true, sortable: true, editable: true, numeric: true, filter: 'numeric', icon: 'dashicons-image-filter', priority: 3},
             {key: 'patris_final_price', labelKey: 'patrisFinalPrice', field: 'patris_final_price', width: 138, visible: true, sortable: true, editable: true, numeric: true, filter: 'numeric', icon: 'dashicons-yes-alt', priority: 3},
@@ -253,6 +352,10 @@
                 summary: null,
                 settings: null,
                 reports: null,
+                reportLoading: false,
+                reportLoadPromise: null,
+                reportRequestKey: '',
+                reportRequestSequence: 0,
                 reportView: 'warnings',
                 reportCategory: '',
                 reportPage: 1,
@@ -377,6 +480,27 @@
                     {value: 'external', label: this.t.externalProduct}
                 ];
             },
+            foreignCurrencyOptions: function() {
+                var options = Array.isArray(config.foreign_currency_options) ? config.foreign_currency_options : [];
+                var language = this.lang;
+                var normalized = options.filter(function(option) {
+                    return typeof option === 'string' || (option !== null && typeof option === 'object' && !Array.isArray(option));
+                }).map(function(option) {
+                    if (typeof option === 'string') return {value: option, label: option};
+                    var localizedLabel = option.labels && option.labels[language];
+                    return {value: String(option.value || ''), label: String(localizedLabel || option.label || option.value || '')};
+                });
+                if (!normalized.some(function(option) { return option.value === ''; })) {
+                    normalized.unshift({value: '', label: this.t.notSet || 'Not set'});
+                }
+                return normalized;
+            },
+            productSearchHotkey: function() {
+                return 'Control+K';
+            },
+            productSearchHotkeyLabel: function() {
+                return 'Ctrl K';
+            },
             userRoleOptions: function() {
                 return [
                     {value: 'customer', label: this.t.customer},
@@ -497,7 +621,7 @@
             },
             migrationSections: function() {
                 return [
-                    {key: 'price-reports', icon: 'dashicons-chart-area', title: this.t.priceReports, body: this.t.priceReportsText, route: '/products'},
+                    {key: 'price-reports', icon: 'dashicons-chart-area', title: this.t.priceReports, body: this.t.priceReportsText},
                     {key: 'sync-prices', icon: 'dashicons-update', title: this.t.priceSync, body: this.t.priceSyncText, route: '/sync'},
                     {key: 'currency-shipping', icon: 'dashicons-admin-tools', title: this.t.currencyShipping, body: this.t.currencyShippingText, route: '/settings'},
                     {key: 'excel-export', icon: 'dashicons-media-spreadsheet', title: this.t.excelExports, body: this.t.excelExportsText, route: '/cli'}
@@ -582,6 +706,11 @@
             applyStyleMode(this.styleMode);
             this.loadRoute();
             this.bindGlobalEvents();
+            panelConsole('info', 'Panel ready', 'Vue interface mounted', {
+                route: this.route,
+                language: this.lang,
+                direction: this.t.dir || 'ltr'
+            });
         },
         beforeUnmount: function() {
             if (this.eventTimer) {
@@ -632,13 +761,16 @@
                         self.productDialogOpen = false;
                         self.userDialogOpen = false;
                     }
-                    if (event.key === 'F2' && self.currentPage === 'products') {
+                    if ((event.ctrlKey || event.metaKey) && (event.code === 'KeyK' || String(event.key || '').toLowerCase() === 'k')) {
                         event.preventDefault();
+                        if (self.currentPage !== 'products') self.navigate('/products');
                         var search = document.querySelector('.dlp-search');
-                        if (search) {
+                        self.$nextTick(function() {
+                            search = document.querySelector('.dlp-search');
+                            if (!search) return;
                             search.focus();
                             search.scrollIntoView({block: 'nearest', inline: 'nearest'});
-                        }
+                        });
                     }
                     if (self.currentPage === 'products' && !editableTarget && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
                         event.preventDefault();
@@ -675,9 +807,17 @@
                 window.history.pushState({}, '', nextUrl);
                 this.route = normalizePath(window.location.pathname);
             },
-            run: function(command, data) {
-                this.transport = transport.isReady() ? 'websocket' : 'ajax';
-                return transport.request(command, data || {});
+            run: function(command, data, options) {
+                var ajaxOnly = !!(options && options.ajaxOnly);
+                var silentError = !!(options && options.silentError);
+                this.transport = ajaxOnly ? 'ajax' : (transport.isReady() ? 'websocket' : 'ajax');
+                var request = ajaxOnly ? transport.requestAjax(command, data || {}) : transport.request(command, data || {});
+                return request.catch(function(error) {
+                    if (!silentError) {
+                        reportPanelError('Command failed: ' + command, error, {transport: ajaxOnly ? 'ajax' : 'automatic'});
+                    }
+                    throw error;
+                });
             },
             loadRoute: function() {
                 this.error = '';
@@ -709,25 +849,47 @@
                     self.error = error.message || self.t.error;
                 });
             },
-            loadReports: function(page) {
+            loadReports: function(pageOrForceRefresh) {
                 var self = this;
-                var requestedPage = Math.max(1, parseInt(page || self.reportPage, 10) || 1);
-                self.loading = true;
-                return self.run('digitalogic_get_reports', {
+                var forceRefresh = pageOrForceRefresh === true;
+                var requestedPage = (typeof pageOrForceRefresh === 'number' || typeof pageOrForceRefresh === 'string')
+                    ? Math.max(1, parseInt(pageOrForceRefresh, 10) || 1)
+                    : Math.max(1, parseInt(self.reportPage, 10) || 1);
+                var requestArgs = {
                     view: self.reportView,
                     category: self.reportCategory,
                     page: requestedPage,
-                    per_page: 50
-                }).then(function(data) {
+                    per_page: 50,
+                    force_refresh: forceRefresh
+                };
+                var requestKey = JSON.stringify(requestArgs);
+                if (self.reportLoading && self.reportRequestKey === requestKey) {
+                    return self.reportLoadPromise || Promise.resolve(self.reports);
+                }
+
+                var requestSequence = ++self.reportRequestSequence;
+                self.reportRequestKey = requestKey;
+                self.reportLoading = true;
+                self.loading = true;
+                self.error = '';
+                var request = self.run('digitalogic_get_reports', requestArgs, {ajaxOnly: true}).then(function(data) {
+                    if (requestSequence !== self.reportRequestSequence) return data;
                     self.reports = data;
                     self.reportView = data.view || self.reportView;
                     self.reportCategory = (data.filters && data.filters.category) || '';
                     self.reportPage = (data.pagination && Number(data.pagination.page)) || 1;
                 }).catch(function(error) {
+                    if (requestSequence !== self.reportRequestSequence) return;
                     self.error = error.message || self.t.error;
                 }).finally(function() {
+                    if (requestSequence !== self.reportRequestSequence) return;
+                    self.reportLoading = false;
+                    self.reportLoadPromise = null;
+                    self.reportRequestKey = '';
                     self.loading = false;
                 });
+                self.reportLoadPromise = request;
+                return request;
             },
             setReportView: function(view) {
                 this.reportView = view === 'price_list' ? 'price_list' : 'warnings';
@@ -765,7 +927,7 @@
             reportIssueTitle: function(issue) {
                 var categories = (this.reports && this.reports.categories) || [];
                 var match = categories.find(function(category) { return category.key === issue; });
-                return match ? match.title : issue;
+                return match ? this.reportCategoryTitle(match) : issue;
             },
             loadProducts: function(page) {
                 var self = this;
@@ -840,12 +1002,14 @@
             },
             fetchEvents: function() {
                 var self = this;
-                this.run('digitalogic_panel_events', {since: this.lastEventId}).then(function(data) {
+                this.run('digitalogic_panel_events', {since: this.lastEventId}, {silentError: true}).then(function(data) {
                     (data.events || []).forEach(function(event) {
                         self.lastEventId = Math.max(self.lastEventId, Number(event.id || 0));
                         self.handlePanelEvent(event.name || event.event, event.data || {});
                     });
-                }).catch(function() {});
+                }).catch(function(error) {
+                    panelConsole('warn', 'Live update polling paused', error);
+                });
             },
             handleTransportEvent: function(event) {
                 if (event && event.event && event.event !== 'connected' && event.event !== 'response') {
@@ -967,15 +1131,19 @@
                 if (column.field === 'status') return this.statusLabel(value);
                 if (column.field === 'stock_status') return this.stockStatusLabel(value);
                 if (column.field === 'type') return this.customSelectLabel(this.productTypeOptions, value);
+                if (column.field === 'patris_foreign_currency') return this.customSelectLabel(this.foreignCurrencyOptions, value);
                 return column.numeric ? this.formatInputNumber(value) : value;
             },
             inputValue: function(row, column) {
                 return column.numeric ? this.formatInputNumber(row[column.field]) : (row[column.field] || '');
             },
-            startCellEdit: function(kind, row, column) {
+            startCellEdit: function(kind, row, column, event) {
                 if (!column.editable) return;
                 if (kind === 'product' && !this.productEditMode) return;
                 if (column.type === 'select') return;
+                if (event && typeof event.button === 'number' && event.button !== 0) return;
+                if (event && typeof event.preventDefault === 'function') event.preventDefault();
+                var clientX = event && typeof event.clientX === 'number' ? event.clientX : null;
                 var key = kind + ':' + row.id + ':' + column.field;
                 this.editingCell = key;
                 if (kind === 'product') {
@@ -985,11 +1153,12 @@
                     var input = document.querySelector('[data-cell-key="' + key + '"]');
                     if (input) {
                         input.focus();
-                        if (!column.numeric && typeof input.select === 'function') {
-                            input.select();
+                        if (typeof input.setSelectionRange === 'function') {
+                            var caret = this.caretFromPoint(input, clientX);
+                            input.setSelectionRange(caret, caret);
                         }
                     }
-                });
+                }.bind(this));
             },
             isCellEditing: function(kind, row, column) {
                 return this.editingCell === kind + ':' + row.id + ':' + column.field;
@@ -1002,12 +1171,22 @@
                 kind === 'user' ? this.editUser(row, column.field, value) : this.editProduct(row, column.field, value);
             },
             finishCellEdit: function(kind, row) {
-                if (kind === 'user') this.flushUserSave(row);
-                else if (this.productAutosave) this.flushProductSave(row);
+                var save = kind === 'user'
+                    ? this.flushUserSave(row)
+                    : (this.productAutosave ? this.flushProductSave(row) : Promise.resolve());
                 this.editingCell = null;
+                return Promise.resolve(save).catch(function() {
+                    // saveProduct/saveUser already exposes the operation error in the UI;
+                    // consume the event-handler promise so it never becomes unhandled.
+                });
             },
             onGridCellKeydown: function(event, product, column) {
                 var editKeys = ['Enter', 'F2'];
+                if (column.type === 'select' && editKeys.concat([' ']).indexOf(event.key) !== -1) {
+                    event.preventDefault();
+                    this.openSelectCell('product', product, column, event);
+                    return;
+                }
                 if (editKeys.indexOf(event.key) !== -1) {
                     event.preventDefault();
                     this.startCellEdit('product', product, column);
@@ -1155,6 +1334,9 @@
                     self.error = error && error.message ? error.message : self.t.error;
                     throw error;
                 });
+            },
+            saveAllProductEditsFromButton: function() {
+                return this.saveAllProductEdits().catch(function() {});
             },
             setProductEditMode: function(enabled) {
                 var self = this;
@@ -1372,7 +1554,39 @@
                     return value.length;
                 }
                 var rect = input.getBoundingClientRect();
-                var ratio = Math.max(0, Math.min(1, (clientX - rect.left) / Math.max(1, rect.width)));
+                var style = typeof window.getComputedStyle === 'function' ? window.getComputedStyle(input) : {};
+                var paddingLeft = parseFloat(style.paddingLeft) || 0;
+                var paddingRight = parseFloat(style.paddingRight) || 0;
+                var available = Math.max(1, rect.width - paddingLeft - paddingRight);
+                var pointer = Math.max(0, Math.min(available, clientX - rect.left - paddingLeft));
+                var direction = String(style.direction || input.dir || 'ltr').toLowerCase();
+                var target = direction === 'rtl' ? available - pointer : pointer;
+                var canvas = document.createElement && document.createElement('canvas');
+                var context = canvas && canvas.getContext ? canvas.getContext('2d') : null;
+
+                if (context && typeof context.measureText === 'function') {
+                    context.font = style.font || [style.fontStyle, style.fontWeight, style.fontSize, style.fontFamily].filter(Boolean).join(' ');
+                    var fullWidth = Math.max(1, context.measureText(value).width);
+                    var freeSpace = Math.max(0, available - fullWidth);
+                    var textAlign = String(style.textAlign || 'start').toLowerCase();
+                    var offset = 0;
+                    if (textAlign === 'center') {
+                        offset = freeSpace / 2;
+                    } else if (textAlign === 'end' || (textAlign === 'right' && direction !== 'rtl') || (textAlign === 'left' && direction === 'rtl')) {
+                        offset = freeSpace;
+                    }
+                    target += Math.abs(Number(input.scrollLeft) || 0);
+                    target = Math.max(0, target - offset);
+                    var previousWidth = 0;
+                    for (var i = 1; i <= value.length; i++) {
+                        var nextWidth = context.measureText(value.slice(0, i)).width;
+                        if (target <= previousWidth + ((nextWidth - previousWidth) / 2)) return i - 1;
+                        previousWidth = nextWidth;
+                    }
+                    return value.length;
+                }
+
+                var ratio = Math.max(0, Math.min(1, target / available));
                 return Math.max(0, Math.min(value.length, Math.round(value.length * ratio)));
             },
             startCardEdit: function(card, event) {
@@ -1648,8 +1862,14 @@
                 if (column.field === 'status') return this.productStatusOptions;
                 if (column.field === 'stock_status') return this.stockStatusOptions;
                 if (column.field === 'type') return this.productTypeOptions;
+                if (column.field === 'patris_foreign_currency') return this.foreignCurrencyOptions;
                 if (column.field === 'role') return this.userRoleOptions;
                 return [];
+            },
+            columnFilterOptions: function(column) {
+                return this.columnOptions(column).filter(function(option) {
+                    return String(option.value) !== '';
+                });
             },
             customSelectLabel: function(options, value) {
                 var option = (options || []).find(function(item) {
@@ -1699,14 +1919,18 @@
                 var row = this.selectCellRow();
                 var column = this.selectCellColumn();
                 if (!row || !column) return;
+                var save = Promise.resolve();
                 if (this.selectCell.kind === 'user') {
                     this.editUser(row, column.field, value);
-                    this.flushUserSave(row);
+                    save = this.flushUserSave(row);
                 } else {
                     this.editProduct(row, column.field, value);
-                    if (this.productAutosave) this.flushProductSave(row);
+                    if (this.productAutosave) save = this.flushProductSave(row);
                 }
                 this.selectCell = null;
+                return Promise.resolve(save).catch(function() {
+                    // The save operation has already populated the visible error state.
+                });
             },
             isLatinText: function(value) {
                 value = String(value || '').trim();
@@ -1741,8 +1965,73 @@
             },
             titleClass: function(product) {
                 return {
-                    'dlp-latin-title': this.isLatinText(product.name)
+                    'dlp-latin-title': this.isLatinText(product && product.name)
                 };
+            },
+            titleDir: function(product) {
+                var name = String(product && product.name || '').trim();
+                if (!name) return (this.t && this.t.dir) || (this.lang === 'fa' ? 'rtl' : 'ltr');
+                return this.isLatinText(name) ? 'ltr' : 'rtl';
+            },
+            openMigrationSection: function(section) {
+                if (section.route) {
+                    this.navigate(section.route);
+                    return;
+                }
+                if (section.key === 'price-reports') this.setReportView('price_list');
+            },
+            reportCategoryTitle: function(category) {
+                var translationKeys = {
+                    missing_in_woocommerce: 'reportMissingInWooCommerce',
+                    positive_stock_missing_in_woocommerce: 'reportPositiveStockMissingInWooCommerce',
+                    missing_in_patris: 'reportMissingInPatris',
+                    missing_product_code: 'reportMissingProductCode',
+                    duplicate_product_code: 'reportDuplicateProductCode',
+                    source_warning: 'reportSourceWarning',
+                    missing_foreign_currency: 'reportMissingForeignCurrency',
+                    null_foreign_currency: 'reportNullForeignCurrency',
+                    unexpected_foreign_currency: 'reportUnexpectedForeignCurrency',
+                    null_foreign_price: 'reportNullForeignPrice',
+                    missing_weight: 'reportMissingWeight',
+                    null_weight: 'reportNullWeight',
+                    missing_stock: 'reportMissingStock',
+                    null_stock: 'reportNullStock',
+                    missing_final_price: 'reportMissingFinalPrice',
+                    null_final_price: 'reportNullFinalPrice',
+                    missing_shipping: 'reportMissingShipping',
+                    null_shipping: 'reportNullShipping',
+                    missing_markup: 'reportMissingMarkup',
+                    null_markup: 'reportNullMarkup',
+                    missing_exchange_rate: 'reportMissingExchangeRate',
+                    null_exchange_rate: 'reportNullExchangeRate',
+                    invalid_source_value: 'reportInvalidSourceValue',
+                    missing_source_updated_at: 'reportMissingSourceUpdatedAt',
+                    null_source_updated_at: 'reportNullSourceUpdatedAt',
+                    stale_source: 'reportStaleSource',
+                    price_drift: 'reportPriceDrift',
+                    stock_drift: 'reportStockDrift',
+                    stock_management_drift: 'reportStockManagementDrift',
+                    stock_status_drift: 'reportStockStatusDrift',
+                    weight_drift: 'reportWeightDrift',
+                    record_hash_drift: 'reportRecordHashDrift',
+                    source_updated_at_drift: 'reportSourceUpdatedAtDrift',
+                    duplicate_sku: 'reportDuplicateSku',
+                    zero_stock: 'reportZeroStock',
+                    zero_price: 'reportZeroPrice',
+                    missing_foreign_price: 'reportMissingForeignPrice',
+                    bad_weight: 'reportBadWeight',
+                    missing_minimum_stock: 'reportMissingMinimumStock',
+                    stale_price: 'reportStalePrice',
+                    missing_image: 'reportMissingImage',
+                    missing_description: 'reportMissingDescription',
+                    mismatched_name: 'reportMismatchedName',
+                    image_duplicate: 'reportImageDuplicate',
+                    image_corrupt: 'reportImageCorrupt',
+                    image_quality: 'reportImageQuality',
+                    customer_missing_mobile: 'reportCustomerMissingMobile'
+                };
+                var key = category && translationKeys[category.key];
+                return (key && this.t[key]) || (category && (category.title || category.key)) || this.t.reports;
             },
             categoryOptions: function() {
                 return (this.summary && this.summary.categories) || [];
@@ -1984,17 +2273,24 @@
                 });
             }
         },
-        template: document.getElementById('digitalogic-panel-template').innerHTML
+        template: panelTemplate.innerHTML
     });
 
-    app.config.errorHandler = function(error) {
-        var message = error && (error.stack || error.message || String(error));
-        window.digitalogicPanelLastError = message;
-        document.documentElement.setAttribute('data-dlp-last-error', message || 'Panel render error');
-        if (window.console && typeof window.console.error === 'function') {
-            window.console.error('Digitalogic panel render error', error);
+    app.config.errorHandler = function(error, instance, info) {
+        var lifecycle = String(info || 'unknown');
+        var renderFailure = /render|mount|update/i.test(lifecycle) && !/event handler/i.test(lifecycle);
+        reportPanelError('Vue ' + lifecycle, error, {lifecycle: lifecycle});
+        if (renderFailure) {
+            window.setTimeout(function() {
+                showFatalPanelError('Panel render failed', error);
+            }, 0);
         }
     };
 
-    app.mount('#digitalogic-panel');
+    try {
+        app.mount('#digitalogic-panel');
+    } catch (error) {
+        reportPanelError('Vue mount failed', error);
+        showFatalPanelError('Panel mount failed', error);
+    }
 })(window, document);

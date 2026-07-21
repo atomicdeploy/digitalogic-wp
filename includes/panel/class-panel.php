@@ -29,7 +29,9 @@ class Digitalogic_Panel {
             self::$instance = new self();
         }
 
-        self::$instance->register_shipping_method_delivery_channel();
+        if (!self::$instance->is_wp_cli_request()) {
+            self::$instance->register_shipping_method_delivery_channel();
+        }
 
         return self::$instance;
     }
@@ -65,6 +67,12 @@ class Digitalogic_Panel {
             add_rewrite_rule($pattern, $target, 'top');
         }
 
+        // WP-CLI loads init too. Never flush here because third-party rewrite
+        // hooks may terminate the command before its requested action runs.
+        if ($this->is_wp_cli_request()) {
+            return;
+        }
+
         if (
             get_option(self::REWRITE_VERSION_OPTION) !== self::REWRITE_VERSION
             || !$this->stored_rewrite_rules_are_current($rules)
@@ -72,6 +80,10 @@ class Digitalogic_Panel {
             flush_rewrite_rules(false);
             update_option(self::REWRITE_VERSION_OPTION, self::REWRITE_VERSION, false);
         }
+    }
+
+    protected function is_wp_cli_request() {
+        return defined('WP_CLI') && WP_CLI;
     }
 
     private function rewrite_rules() {
@@ -212,6 +224,7 @@ class Digitalogic_Panel {
             'admin_color' => $this->current_admin_color(),
             'theme_storage_key' => 'digitalogic-admin-theme',
             'event_cursor' => self::get_latest_event_id(),
+            'foreign_currency_options' => $this->foreign_currency_options(),
             'user' => array(
                 'id' => $user->ID,
                 'login' => $user->user_login,
@@ -232,6 +245,55 @@ class Digitalogic_Panel {
                 'fa' => $this->translations_fa(),
             ),
         );
+    }
+
+    /**
+     * Return the currencies that are valid for the Patris foreign-price field.
+     *
+     * Patris currently accepts CNY. Multi-currency integrations can extend the
+     * list through the code or option filters without changing the panel UI.
+     */
+    private function foreign_currency_options() {
+        $codes = apply_filters('digitalogic_panel_foreign_currency_codes', array('CNY'));
+        $codes = is_array($codes) ? $codes : array('CNY');
+        $woocommerce_currencies = function_exists('get_woocommerce_currencies')
+            ? get_woocommerce_currencies()
+            : array();
+        $localized_currencies = array('en' => $woocommerce_currencies, 'fa' => $woocommerce_currencies);
+        if (function_exists('switch_to_locale') && function_exists('restore_current_locale')) {
+            foreach (array('en' => 'en_US', 'fa' => 'fa_IR') as $language => $locale) {
+                if (switch_to_locale($locale)) {
+                    $localized_currencies[$language] = function_exists('get_woocommerce_currencies')
+                        ? get_woocommerce_currencies()
+                        : $woocommerce_currencies;
+                    restore_current_locale();
+                }
+            }
+        }
+        $options = array();
+
+        foreach ($codes as $code) {
+            $code = preg_replace('/[^A-Z]/', '', strtoupper((string) $code));
+            if ('' === $code) {
+                continue;
+            }
+
+            $label = isset($woocommerce_currencies[$code])
+                ? sprintf('%s - %s', $code, wp_strip_all_tags($woocommerce_currencies[$code]))
+                : $code;
+            $options[] = array(
+                'value' => $code,
+                'label' => $label,
+                'labels' => array(
+                    'en' => isset($localized_currencies['en'][$code]) ? sprintf('%s - %s', $code, wp_strip_all_tags($localized_currencies['en'][$code])) : $code,
+                    'fa' => isset($localized_currencies['fa'][$code]) ? sprintf('%s - %s', $code, wp_strip_all_tags($localized_currencies['fa'][$code])) : $code,
+                ),
+            );
+        }
+
+        $filtered = apply_filters('digitalogic_panel_foreign_currency_options', $options, $codes);
+
+        return array_values(is_array($filtered) ? $filtered : $options);
     }
 
     public function register_commands($commands, $transport) {
@@ -1276,6 +1338,67 @@ class Digitalogic_Panel {
             'transport' => 'Transport',
             'signedInAs' => 'Signed in as',
             'noRows' => 'No records found',
+            'showingRows' => 'Showing rows',
+            'details' => 'Details',
+            'minimumStock' => 'Minimum stock',
+            'location' => 'Location',
+            'updatedAt' => 'Updated',
+            'dimensions' => 'Dimensions',
+            'contact' => 'Contact',
+            'email' => 'Email',
+            'address' => 'Address',
+            'page' => 'Page',
+            'generatedAt' => 'Generated',
+            'notSet' => 'Not set',
+            'retry' => 'Retry',
+            'reportCategoryUnavailable' => 'The report category could not be loaded.',
+            'reportMissingInWooCommerce' => 'In Patris but missing in WooCommerce',
+            'reportPositiveStockMissingInWooCommerce' => 'Positive-stock product missing in WooCommerce',
+            'reportMissingInPatris' => 'In WooCommerce but missing in Patris',
+            'reportMissingProductCode' => 'Missing exact product Code metadata',
+            'reportDuplicateProductCode' => 'Duplicate exact product Code metadata',
+            'reportSourceWarning' => 'Source warnings require attention',
+            'reportMissingForeignCurrency' => 'Missing foreign currency',
+            'reportNullForeignCurrency' => 'Foreign currency is explicitly null',
+            'reportUnexpectedForeignCurrency' => 'Foreign currency is not CNY',
+            'reportMissingForeignPrice' => 'Missing CNY price',
+            'reportNullForeignPrice' => 'CNY price is explicitly null',
+            'reportMissingWeight' => 'Missing weight',
+            'reportNullWeight' => 'Weight is explicitly null',
+            'reportMissingStock' => 'Missing stock',
+            'reportNullStock' => 'Stock is explicitly null',
+            'reportMissingFinalPrice' => 'Missing calculated price',
+            'reportNullFinalPrice' => 'Calculated price is explicitly null',
+            'reportMissingShipping' => 'Missing shipping price inputs',
+            'reportNullShipping' => 'Shipping price inputs contain explicit null',
+            'reportMissingMarkup' => 'Missing profit margin',
+            'reportNullMarkup' => 'Profit margin is explicitly null',
+            'reportMissingExchangeRate' => 'Missing CNY exchange rate',
+            'reportNullExchangeRate' => 'CNY exchange rate is explicitly null',
+            'reportInvalidSourceValue' => 'Invalid source value',
+            'reportZeroStock' => 'Zero or negative stock',
+            'reportZeroPrice' => 'Zero or negative calculated price',
+            'reportMissingSourceUpdatedAt' => 'Missing source update time',
+            'reportNullSourceUpdatedAt' => 'Source update time is explicitly null',
+            'reportStaleSource' => 'Stale source data',
+            'reportPriceDrift' => 'Price differs from the current source',
+            'reportStockDrift' => 'Stock differs from the current source',
+            'reportStockManagementDrift' => 'Stock management differs from the current source',
+            'reportStockStatusDrift' => 'Stock availability differs from the current source',
+            'reportWeightDrift' => 'Weight differs from the current source',
+            'reportRecordHashDrift' => 'Record hash differs from the current source',
+            'reportSourceUpdatedAtDrift' => 'Source update time differs in WooCommerce',
+            'reportDuplicateSku' => 'Duplicate product code / SKU',
+            'reportBadWeight' => 'Missing, bad, or ambiguous weight',
+            'reportMissingMinimumStock' => 'Missing minimum stock',
+            'reportStalePrice' => 'Stale Patris/API price',
+            'reportMissingImage' => 'Missing product image',
+            'reportMissingDescription' => 'Missing product description',
+            'reportMismatchedName' => 'WooCommerce and Patris/API names differ',
+            'reportImageDuplicate' => 'Duplicate image',
+            'reportImageCorrupt' => 'Broken image',
+            'reportImageQuality' => 'Low-quality image',
+            'reportCustomerMissingMobile' => 'Customer mobile/phone missing',
             'error' => 'Something went wrong. Please try again.',
             'update_currency' => 'Currency update',
             'update_product' => 'Product update',
@@ -1474,6 +1597,67 @@ class Digitalogic_Panel {
             'transport' => 'ارتباط',
             'signedInAs' => 'ورود با',
             'noRows' => 'رکوردی پیدا نشد',
+            'showingRows' => 'نمایش ردیف‌ها',
+            'details' => 'جزئیات',
+            'minimumStock' => 'حداقل موجودی',
+            'location' => 'مکان',
+            'updatedAt' => 'به‌روزرسانی',
+            'dimensions' => 'ابعاد',
+            'contact' => 'تماس',
+            'email' => 'ایمیل',
+            'address' => 'نشانی',
+            'page' => 'صفحه',
+            'generatedAt' => 'زمان تولید',
+            'notSet' => 'تنظیم نشده',
+            'retry' => 'تلاش دوباره',
+            'reportCategoryUnavailable' => 'بخش درخواستی گزارش بارگذاری نشد.',
+            'reportMissingInWooCommerce' => 'در پاتریس موجود اما در ووکامرس ناموجود',
+            'reportPositiveStockMissingInWooCommerce' => 'کالای دارای موجودی مثبت در ووکامرس وجود ندارد',
+            'reportMissingInPatris' => 'در ووکامرس موجود اما در پاتریس ناموجود',
+            'reportMissingProductCode' => 'متادیتای کد دقیق کالا موجود نیست',
+            'reportDuplicateProductCode' => 'متادیتای تکراری کد دقیق کالا',
+            'reportSourceWarning' => 'هشدارهای منبع نیازمند بررسی هستند',
+            'reportMissingForeignCurrency' => 'ارز خارجی موجود نیست',
+            'reportNullForeignCurrency' => 'ارز خارجی صراحتاً null است',
+            'reportUnexpectedForeignCurrency' => 'ارز خارجی یوان (CNY) نیست',
+            'reportMissingForeignPrice' => 'قیمت یوان موجود نیست',
+            'reportNullForeignPrice' => 'قیمت یوان صراحتاً null است',
+            'reportMissingWeight' => 'وزن موجود نیست',
+            'reportNullWeight' => 'وزن صراحتاً null است',
+            'reportMissingStock' => 'موجودی موجود نیست',
+            'reportNullStock' => 'موجودی صراحتاً null است',
+            'reportMissingFinalPrice' => 'قیمت محاسبه‌شده موجود نیست',
+            'reportNullFinalPrice' => 'قیمت محاسبه‌شده صراحتاً null است',
+            'reportMissingShipping' => 'ورودی‌های هزینه حمل موجود نیست',
+            'reportNullShipping' => 'ورودی‌های هزینه حمل دارای مقدار null صریح هستند',
+            'reportMissingMarkup' => 'حاشیه سود موجود نیست',
+            'reportNullMarkup' => 'حاشیه سود صراحتاً null است',
+            'reportMissingExchangeRate' => 'نرخ تبدیل یوان موجود نیست',
+            'reportNullExchangeRate' => 'نرخ تبدیل یوان صراحتاً null است',
+            'reportInvalidSourceValue' => 'مقدار منبع نامعتبر است',
+            'reportZeroStock' => 'موجودی صفر یا منفی است',
+            'reportZeroPrice' => 'قیمت محاسبه‌شده صفر یا منفی است',
+            'reportMissingSourceUpdatedAt' => 'زمان به‌روزرسانی منبع موجود نیست',
+            'reportNullSourceUpdatedAt' => 'زمان به‌روزرسانی منبع صراحتاً null است',
+            'reportStaleSource' => 'داده منبع قدیمی است',
+            'reportPriceDrift' => 'قیمت با منبع فعلی مغایرت دارد',
+            'reportStockDrift' => 'موجودی با منبع فعلی مغایرت دارد',
+            'reportStockManagementDrift' => 'مدیریت موجودی با منبع فعلی مغایرت دارد',
+            'reportStockStatusDrift' => 'وضعیت دسترس‌پذیری کالا با منبع فعلی مغایرت دارد',
+            'reportWeightDrift' => 'وزن با منبع فعلی مغایرت دارد',
+            'reportRecordHashDrift' => 'هش رکورد با منبع فعلی مغایرت دارد',
+            'reportSourceUpdatedAtDrift' => 'زمان به‌روزرسانی منبع در ووکامرس مغایرت دارد',
+            'reportDuplicateSku' => 'کد کالا / SKU تکراری',
+            'reportBadWeight' => 'وزن ناموجود، نامعتبر یا مبهم',
+            'reportMissingMinimumStock' => 'حداقل موجودی ناموجود',
+            'reportStalePrice' => 'قیمت پاتریس/API قدیمی',
+            'reportMissingImage' => 'تصویر محصول ناموجود',
+            'reportMissingDescription' => 'توضیحات محصول ناموجود',
+            'reportMismatchedName' => 'نام ووکامرس و پاتریس/API متفاوت است',
+            'reportImageDuplicate' => 'تصویر تکراری',
+            'reportImageCorrupt' => 'تصویر خراب',
+            'reportImageQuality' => 'کیفیت پایین تصویر',
+            'reportCustomerMissingMobile' => 'شماره همراه/تلفن مشتری ناموجود',
             'error' => 'مشکلی پیش آمد. دوباره تلاش کنید.',
         );
     }

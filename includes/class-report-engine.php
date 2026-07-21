@@ -18,6 +18,10 @@ final class Digitalogic_Report_Engine {
 	private const MAX_WOO_PRODUCTS    = 10000;
 	private const WOO_BATCH_SIZE      = 100;
 	private const MAX_PAGE_SIZE       = 100;
+	private const CACHE_GROUP          = 'digitalogic_reports';
+	private const CACHE_TTL            = 300;
+	private const CACHE_GENERATION_KEY = 'generation-v1';
+	private const BUILD_LOCK_TTL       = 180;
 
 	/**
 	 * Shared report engine.
@@ -25,6 +29,28 @@ final class Digitalogic_Report_Engine {
 	 * @var self|null
 	 */
 	private static $instance = null;
+
+	/**
+	 * Token and key for the request-owned atomic build lock.
+	 *
+	 * @var string
+	 */
+	private $build_lock_token = '';
+	private $active_build_lock_key = '';
+	private $local_cache_generation = 'initial';
+
+	/** Register every source mutation that can make a report stale. */
+	private function __construct() {
+		add_action( 'save_post_product', array( $this, 'invalidate_cache' ) );
+		add_action( 'woocommerce_update_product', array( $this, 'invalidate_cache' ) );
+		add_action( 'digitalogic_product_updated', array( $this, 'invalidate_cache' ) );
+		add_action( 'digitalogic_product_sync_applied', array( $this, 'invalidate_cache' ) );
+		add_action( 'digitalogic_patris_feed_synced', array( $this, 'invalidate_cache' ) );
+		add_action( 'digitalogic_woocommerce_currency_changed', array( $this, 'invalidate_cache' ) );
+		add_action( 'updated_option', array( $this, 'invalidate_cache_for_option' ), 10, 3 );
+		add_action( 'added_option', array( $this, 'invalidate_cache_for_added_option' ), 10, 2 );
+		add_action( 'deleted_option', array( $this, 'invalidate_cache_for_deleted_option' ) );
+	}
 
 	/**
 	 * Return the shared report engine.
@@ -48,13 +74,56 @@ final class Digitalogic_Report_Engine {
 	 * null.
 	 *
 	 * @param array $args Untrusted transport arguments.
-	 * @return array
+	 * @return array|WP_Error
 	 */
 	public function get_report( $args = array() ) {
-		$args      = $this->normalize_args( $args );
-		$selection = $this->select_source_state( $args );
+		$raw_args      = is_array( $args ) ? $args : array();
+		$force_refresh = $this->is_truthy( $raw_args['force_refresh'] ?? false );
+		$args          = $this->normalize_args( $raw_args );
+		if ( is_wp_error( $args ) ) {
+			return $args;
+		}
 
-		return $this->build_report( $args, $selection );
+		$cached_report = $this->get_cached_report( $args );
+		$report        = $force_refresh ? null : $cached_report;
+		if ( is_array( $report ) ) {
+			return $report;
+		}
+
+		if ( ! $this->acquire_build_lock( $args ) ) {
+			if ( is_array( $cached_report ) ) {
+				$cached_report['refresh_deferred'] = true;
+				return $cached_report;
+			}
+
+			return new WP_Error(
+				'digitalogic_report_build_in_progress',
+				__( 'Another report build is already running. Please retry shortly.', 'digitalogic' ),
+				array( 'status' => 503, 'retry_after' => 2 )
+			);
+		}
+
+		try {
+			// A previous request may have populated this exact page while this
+			// request was waiting for the atomic lock.
+			$report = $force_refresh ? null : $this->get_cached_report( $args );
+			if ( ! is_array( $report ) ) {
+				$build_generation = $this->cache_generation();
+				$selection        = $this->select_source_state( $args );
+				$report           = $this->build_report( $args, $selection );
+				if ( ! $this->set_cached_report( $args, $report, $build_generation ) ) {
+					return new WP_Error(
+						'digitalogic_report_source_changed',
+						__( 'Report source data changed while the report was being built. Please retry.', 'digitalogic' ),
+						array( 'status' => 503, 'retry_after' => 1 )
+					);
+				}
+			}
+		} finally {
+			$this->release_build_lock();
+		}
+
+		return $report;
 	}
 
 	/**
@@ -115,8 +184,13 @@ final class Digitalogic_Report_Engine {
 			}
 		}
 
+		$args = $this->normalize_args( $args );
+		if ( is_wp_error( $args ) ) {
+			return $args;
+		}
+
 		return $this->build_report(
-			$this->normalize_args( $args ),
+			$args,
 			array(
 				'status' => 'static',
 				'state'  => $state,
@@ -339,10 +413,246 @@ final class Digitalogic_Report_Engine {
 	}
 
 	/**
+	 * Read one locale- and request-specific cached report.
+	 *
+	 * @param array $args Normalized report arguments.
+	 * @return array|null
+	 */
+	private function get_cached_report( $args ) {
+		if ( ! function_exists( 'wp_cache_get' ) ) {
+			return null;
+		}
+
+		$found = false;
+		try {
+			$report = wp_cache_get( $this->cache_key( $args ), self::CACHE_GROUP, false, $found );
+		} catch ( Throwable $error ) {
+			return null;
+		}
+		if ( ! $found || ! is_array( $report ) || ! isset( $report['_cache_generation'] ) ) {
+			return null;
+		}
+
+		$cached_generation = (string) $report['_cache_generation'];
+		unset( $report['_cache_generation'] );
+		if ( ! hash_equals( $this->cache_generation(), $cached_generation ) ) {
+			$this->delete_cached_report( $args );
+			return null;
+		}
+
+		return $report;
+	}
+
+	/** Invalidate every request-shaped report without requiring a key registry. */
+	public function invalidate_cache() {
+		$token                        = $this->new_cache_token();
+		$this->local_cache_generation = $token;
+		if ( function_exists( 'wp_cache_set' ) ) {
+			try {
+				wp_cache_set( self::CACHE_GENERATION_KEY, $token, self::CACHE_GROUP, 0 );
+			} catch ( Throwable $error ) {
+				// A cache backend outage must not make product writes fail.
+			}
+		}
+	}
+
+	/** Invalidate reports when an option that feeds reconciliation changes. */
+	public function invalidate_cache_for_option( $option, $old_value = null, $value = null ) {
+		if ( $this->is_report_option( $option ) ) {
+			$this->invalidate_cache();
+		}
+	}
+
+	/** WordPress added_option callback adapter. */
+	public function invalidate_cache_for_added_option( $option, $value = null ) {
+		$this->invalidate_cache_for_option( $option );
+	}
+
+	/** WordPress deleted_option callback adapter. */
+	public function invalidate_cache_for_deleted_option( $option ) {
+		$this->invalidate_cache_for_option( $option );
+	}
+
+	/** Return whether an option contributes to report output. */
+	private function is_report_option( $option ) {
+		return in_array(
+			(string) $option,
+			array(
+				'digitalogic_product_sync_state',
+				'digitalogic_patris_feed_settings',
+				'digitalogic_patris_feed_products',
+				'digitalogic_patris_feed_customers',
+				'digitalogic_shipping_methods',
+				'digitalogic_pricing_default_percentage_markup',
+				'dollar_price',
+				'yuan_price',
+				'options_dollar_price',
+				'options_yuan_price',
+				'woocommerce_currency',
+			),
+			true
+		);
+	}
+
+	/** Acquire the lock for this exact normalized report page. */
+	private function acquire_build_lock( $args ) {
+		$this->active_build_lock_key = $this->build_lock_key( $args );
+		if ( ! function_exists( 'wp_cache_add' ) ) {
+			$this->build_lock_token = 'request-local';
+			return true;
+		}
+
+		$token = $this->new_cache_token();
+		try {
+			$acquired = wp_cache_add( $this->active_build_lock_key, $token, self::CACHE_GROUP, self::BUILD_LOCK_TTL );
+		} catch ( Throwable $error ) {
+			$this->build_lock_token = 'request-local';
+			return true;
+		}
+		$this->build_lock_token = $acquired ? $token : '';
+
+		return (bool) $acquired;
+	}
+
+	/** Release only the lock still owned by this request. */
+	private function release_build_lock() {
+		if ( 'request-local' === $this->build_lock_token ) {
+			$this->build_lock_token      = '';
+			$this->active_build_lock_key = '';
+			return;
+		}
+		if (
+			'' === $this->build_lock_token
+			|| '' === $this->active_build_lock_key
+			|| ! function_exists( 'wp_cache_get' )
+			|| ! function_exists( 'wp_cache_delete' )
+		) {
+			$this->build_lock_token      = '';
+			$this->active_build_lock_key = '';
+			return;
+		}
+
+		$found = false;
+		try {
+			$current = wp_cache_get( $this->active_build_lock_key, self::CACHE_GROUP, false, $found );
+			if ( $found && is_string( $current ) && hash_equals( $this->build_lock_token, $current ) ) {
+				wp_cache_delete( $this->active_build_lock_key, self::CACHE_GROUP );
+			}
+		} catch ( Throwable $error ) {
+			// The report itself remains valid if the cache backend disappears.
+		}
+		$this->build_lock_token      = '';
+		$this->active_build_lock_key = '';
+	}
+
+	/** Return the atomic-lock key for one normalized request shape. */
+	private function build_lock_key( $args ) {
+		return 'build-lock-v3-' . md5( $this->cache_key( $args ) );
+	}
+
+	/** Publish a cache entry only if no source mutation raced the build. */
+	private function set_cached_report( $args, $report, $build_generation ) {
+		if ( ! function_exists( 'wp_cache_set' ) || ! is_array( $report ) ) {
+			return true;
+		}
+
+		$build_generation = (string) $build_generation;
+		if ( ! hash_equals( $build_generation, $this->cache_generation() ) ) {
+			return false;
+		}
+
+		$cached_report                      = $report;
+		$cached_report['_cache_generation'] = $build_generation;
+		try {
+			wp_cache_set( $this->cache_key( $args ), $cached_report, self::CACHE_GROUP, self::CACHE_TTL );
+		} catch ( Throwable $error ) {
+			return true;
+		}
+
+		if ( ! hash_equals( $build_generation, $this->cache_generation() ) ) {
+			$this->delete_cached_report( $args );
+			return false;
+		}
+
+		return true;
+	}
+
+	/** Read the current source-generation token. */
+	private function cache_generation() {
+		if ( ! function_exists( 'wp_cache_get' ) ) {
+			return $this->local_cache_generation;
+		}
+
+		$found = false;
+		try {
+			$generation = wp_cache_get( self::CACHE_GENERATION_KEY, self::CACHE_GROUP, false, $found );
+		} catch ( Throwable $error ) {
+			return $this->local_cache_generation;
+		}
+
+		return $found && is_string( $generation ) && '' !== $generation
+			? $generation
+			: $this->local_cache_generation;
+	}
+
+	/** Create an ownership/generation token. */
+	private function new_cache_token() {
+		$prefix = function_exists( 'wp_generate_uuid4' ) ? wp_generate_uuid4() : 'report';
+
+		return $prefix . '-' . uniqid( '', true );
+	}
+
+	/** Delete one exact request-shaped cache entry. */
+	private function delete_cached_report( $args ) {
+		if ( function_exists( 'wp_cache_delete' ) ) {
+			try {
+				wp_cache_delete( $this->cache_key( $args ), self::CACHE_GROUP );
+			} catch ( Throwable $error ) {
+				// A cache backend outage does not invalidate the generated response.
+			}
+		}
+	}
+
+	/** Build a deterministic cache key containing locale and every normalized argument. */
+	private function cache_key( $args ) {
+		$locale = function_exists( 'determine_locale' ) ? determine_locale() : get_locale();
+
+		return $this->cache_key_for_locale( $locale, $args );
+	}
+
+	/** Build a deterministic locale/request cache key. */
+	private function cache_key_for_locale( $locale, $args ) {
+		$shape = array(
+			'locale'    => (string) $locale,
+			'view'      => (string) $args['view'],
+			'category'  => (string) $args['category'],
+			'page'      => (int) $args['page'],
+			'per_page'  => (int) $args['per_page'],
+			'source_id' => (string) $args['source_id'],
+			'dataset'   => (string) $args['dataset'],
+		);
+		$json = function_exists( 'wp_json_encode' ) ? wp_json_encode( $shape ) : json_encode( $shape );
+
+		return 'current-v3-' . md5( (string) $json );
+	}
+
+	/** Parse explicit force-refresh values without treating the string false as true. */
+	private function is_truthy( $value ) {
+		if ( is_bool( $value ) ) {
+			return $value;
+		}
+		if ( is_int( $value ) || is_float( $value ) ) {
+			return 1.0 === (float) $value;
+		}
+
+		return in_array( strtolower( trim( (string) $value ) ), array( '1', 'true', 'yes', 'on' ), true );
+	}
+
+	/**
 	 * Normalize transport arguments and enforce report bounds.
 	 *
 	 * @param mixed $args Raw arguments.
-	 * @return array
+	 * @return array|WP_Error
 	 */
 	private function normalize_args( $args ) {
 		$args      = is_array( $args ) ? $args : array();
@@ -355,6 +665,14 @@ final class Digitalogic_Report_Engine {
 		$dataset   = isset( $args['dataset'] ) && is_scalar( $args['dataset'] )
 			? sanitize_text_field( (string) $args['dataset'] )
 			: '';
+
+		if ( '' !== $category && ! isset( $this->category_definitions()[ $category ] ) ) {
+			return new WP_Error(
+				'digitalogic_unknown_report_category',
+				__( 'Unknown report category.', 'digitalogic' ),
+				array( 'status' => 400 )
+			);
+		}
 
 		return array(
 			'view'      => in_array( $view, array( 'warnings', 'price_list' ), true ) ? $view : 'warnings',
@@ -511,6 +829,7 @@ final class Digitalogic_Report_Engine {
 			if ( empty( $batch ) ) {
 				break;
 			}
+			$batch_count = count( $batch );
 
 			foreach ( $batch as $product ) {
 				++$fetched;
@@ -528,7 +847,9 @@ final class Digitalogic_Report_Engine {
 				$rows[] = $this->woocommerce_product( $product );
 			}
 
-			if ( count( $batch ) < $limit ) {
+			unset( $batch );
+			$this->flush_runtime_cache();
+			if ( $batch_count < $limit ) {
 				break;
 			}
 			++$page;
@@ -539,6 +860,13 @@ final class Digitalogic_Report_Engine {
 			'variable_parents_excluded' => $variable_excluded,
 			'truncated'                 => $truncated,
 		);
+	}
+
+	/** Release per-batch WordPress runtime objects when the cache supports it. */
+	private function flush_runtime_cache() {
+		if ( function_exists( 'wp_cache_flush_runtime' ) ) {
+			wp_cache_flush_runtime();
+		}
 	}
 
 	/**

@@ -126,6 +126,17 @@ function validatePromptName(value) {
 		&& /^[A-Za-z0-9_./-]+$/.test(value);
 }
 
+function validateCallbackPath(value) {
+	return typeof value === 'string'
+		&& /^\/wp-json\/[A-Za-z0-9._~!$&'()*+,;=:@%/-]+$/.test(value)
+		&& !value.includes('..')
+		&& !value.includes('//');
+}
+
+function validateContextName(value) {
+	return typeof value === 'string' && /^[A-Za-z0-9_-]{1,80}$/.test(value);
+}
+
 function loadConfig(env = process.env) {
 	const callbackOrigin = new URL(requireEnv(env, 'PBX_CALLBACK_ORIGIN'));
 	if (callbackOrigin.protocol !== 'https:'
@@ -138,17 +149,21 @@ function loadConfig(env = process.env) {
 	}
 
 	const callbackPath = requireEnv(env, 'PBX_CALLBACK_PATH');
-	if (!/^\/wp-json\/[A-Za-z0-9._~!$&'()*+,;=:@%/-]+$/.test(callbackPath)
-		|| callbackPath.includes('..') || callbackPath.includes('//')) {
+	const pendingPath = requireEnv(env, 'PBX_PENDING_PATH');
+	if (!validateCallbackPath(callbackPath) || !validateCallbackPath(pendingPath)
+		|| callbackPath === pendingPath) {
 		throw new Error('Invalid callback path');
 	}
 
 	const siteId = requireEnv(env, 'PBX_SITE_ID');
 	const keyId = requireEnv(env, 'PBX_KEY_ID');
 	const expectedContext = requireEnv(env, 'PBX_EXPECTED_AGI_CONTEXT');
+	const expectedPendingContext = requireEnv(env, 'PBX_EXPECTED_PENDING_CONTEXT');
 	if (!/^[a-z0-9.-]{1,100}$/i.test(siteId)
 		|| !/^[A-Za-z0-9._:-]{1,100}$/.test(keyId)
-		|| !/^[A-Za-z0-9_-]{1,80}$/.test(expectedContext)) {
+		|| !validateContextName(expectedContext)
+		|| !validateContextName(expectedPendingContext)
+		|| expectedContext === expectedPendingContext) {
 		throw new Error('Invalid site, key, or context identifier');
 	}
 
@@ -159,6 +174,7 @@ function loadConfig(env = process.env) {
 
 	const prompts = {
 		enterCode: requireEnv(env, 'PBX_PROMPT_ENTER_CODE'),
+		pendingCode: requireEnv(env, 'PBX_PROMPT_PENDING_CODE'),
 		verified: requireEnv(env, 'PBX_PROMPT_VERIFIED'),
 		invalid: requireEnv(env, 'PBX_PROMPT_INVALID'),
 		temporaryFailure: requireEnv(env, 'PBX_PROMPT_TEMPORARY_FAILURE'),
@@ -177,9 +193,12 @@ function loadConfig(env = process.env) {
 		callbackOrigin: callbackOrigin.origin,
 		callbackPath,
 		callbackUrl: new URL(callbackPath, callbackOrigin.origin).toString(),
+		pendingPath,
+		pendingUrl: new URL(pendingPath, callbackOrigin.origin).toString(),
 		siteId,
 		keyId,
 		expectedContext,
+		expectedPendingContext,
 		expectedDid,
 		secretFile,
 		allowBareAni: parseBoolean(env.PBX_ALLOW_BARE_ANI, false),
@@ -189,6 +208,7 @@ function loadConfig(env = process.env) {
 		aniLocalAreaCode: parseAreaCode(env.PBX_ANI_LOCAL_AREA_CODE),
 		didLocalAreaCode: parseAreaCode(env.PBX_DID_LOCAL_AREA_CODE),
 		httpTimeoutMs: parseInteger(env.PBX_HTTP_TIMEOUT_MS, 'HTTP timeout', 1000, 10000, 4000),
+		pendingHttpTimeoutMs: parseInteger(env.PBX_PENDING_HTTP_TIMEOUT_MS, 'pending HTTP timeout', 500, 3000, 1500),
 		dtmfTimeoutMs: parseInteger(env.PBX_DTMF_TIMEOUT_MS, 'DTMF timeout', 3000, 30000, 12000),
 		dtmfAttempts: parseInteger(env.PBX_DTMF_ATTEMPTS, 'DTMF attempts', 1, 3, 3),
 		maxResponseBytes: parseInteger(env.PBX_MAX_RESPONSE_BYTES, 'response limit', 256, 16384, 4096),
@@ -239,8 +259,12 @@ function signCanonical(secret, canonical) {
 function buildSignedRequest(config, secret, payload, options = {}) {
 	const timestamp = String(options.timestamp || Math.floor(Date.now() / 1000));
 	const nonce = options.nonce || crypto.randomBytes(24).toString('base64url');
+	const requestPath = options.path || config.callbackPath;
+	if (!validateCallbackPath(requestPath)) {
+		throw new Error('Invalid signed request path');
+	}
 	const rawBody = JSON.stringify(payload);
-	const canonical = canonicalRequest(config.callbackPath, timestamp, nonce, rawBody);
+	const canonical = canonicalRequest(requestPath, timestamp, nonce, rawBody);
 	const signature = signCanonical(secret, canonical);
 	return {
 		rawBody,
@@ -248,7 +272,7 @@ function buildSignedRequest(config, secret, payload, options = {}) {
 		headers: Object.freeze({
 			'Content-Type': 'application/json',
 			Accept: 'application/json',
-			'User-Agent': 'pbx-call-verification/1.0',
+			'User-Agent': 'pbx-call-verification/1.1',
 			'X-PBX-Key-Id': config.keyId,
 			'X-PBX-Timestamp': timestamp,
 			'X-PBX-Nonce': nonce,
@@ -276,6 +300,23 @@ function buildPayload(config, call) {
 	};
 }
 
+function buildPendingPayload(config, call) {
+	if (!validateEventId(call.eventId) || !validateCallId(call.callId)
+		|| normalizeIranNumber(call.calledNumber) !== config.expectedDid
+		|| !normalizeIranNumber(call.callerNumber)) {
+		throw new Error('Invalid pending payload input');
+	}
+	return {
+		schema: 'phone-verification-pending.v1',
+		site_id: config.siteId,
+		event_id: call.eventId,
+		call_id: call.callId,
+		called_number: call.calledNumber,
+		caller_number: call.callerNumber,
+		occurred_at: call.occurredAt || new Date().toISOString(),
+	};
+}
+
 function classifyResponse(status, json) {
 	if (status >= 200 && status < 300) {
 		if (json && (json.verified === true || json.status === 'verified'
@@ -290,6 +331,25 @@ function classifyResponse(status, json) {
 	}
 	if ([400, 404, 409, 410, 422].includes(status)) {
 		return 'rejected';
+	}
+	if (status === 401 || status === 403) {
+		return 'remote_auth';
+	}
+	if (status === 429 || status >= 500) {
+		return 'temporary';
+	}
+	return 'protocol';
+}
+
+function classifyPendingResponse(status, json) {
+	if (status >= 200 && status < 300) {
+		if (json && !Array.isArray(json)
+			&& Object.keys(json).length === 1
+			&& Object.prototype.hasOwnProperty.call(json, 'pending')
+			&& typeof json.pending === 'boolean') {
+			return json.pending ? 'pending' : 'none';
+		}
+		return 'protocol';
 	}
 	if (status === 401 || status === 403) {
 		return 'remote_auth';
@@ -332,17 +392,17 @@ async function readBoundedResponse(response, maximumBytes) {
 	return Buffer.concat(chunks, total).toString('utf8');
 }
 
-async function postVerification(config, secret, payload, fetchImpl = globalThis.fetch) {
+async function postSignedJson(config, secret, payload, endpoint, fetchImpl = globalThis.fetch) {
 	if (typeof fetchImpl !== 'function') {
-		return 'temporary';
+		return { error: 'temporary' };
 	}
-	const request = buildSignedRequest(config, secret, payload);
+	const request = buildSignedRequest(config, secret, payload, { path: endpoint.path });
 	const controller = new AbortController();
-	const timer = setTimeout(() => controller.abort(), config.httpTimeoutMs);
+	const timer = setTimeout(() => controller.abort(), endpoint.timeoutMs);
 	let response;
 	let text;
 	try {
-		response = await fetchImpl(config.callbackUrl, {
+		response = await fetchImpl(endpoint.url, {
 			method: 'POST',
 			headers: request.headers,
 			body: request.rawBody,
@@ -351,7 +411,7 @@ async function postVerification(config, secret, payload, fetchImpl = globalThis.
 		});
 		text = await readBoundedResponse(response, config.maxResponseBytes);
 	} catch (error) {
-		return error instanceof ProtocolError ? 'protocol' : 'temporary';
+		return { error: error instanceof ProtocolError ? 'protocol' : 'temporary' };
 	} finally {
 		clearTimeout(timer);
 	}
@@ -361,10 +421,28 @@ async function postVerification(config, secret, payload, fetchImpl = globalThis.
 		try {
 			json = JSON.parse(text);
 		} catch (_) {
-			return 'protocol';
+			return { error: 'protocol' };
 		}
 	}
-	return classifyResponse(response.status, json);
+	return { status: response.status, json };
+}
+
+async function postVerification(config, secret, payload, fetchImpl = globalThis.fetch) {
+	const result = await postSignedJson(config, secret, payload, {
+		path: config.callbackPath,
+		url: config.callbackUrl,
+		timeoutMs: config.httpTimeoutMs,
+	}, fetchImpl);
+	return result.error || classifyResponse(result.status, result.json);
+}
+
+async function postPending(config, secret, payload, fetchImpl = globalThis.fetch) {
+	const result = await postSignedJson(config, secret, payload, {
+		path: config.pendingPath,
+		url: config.pendingUrl,
+		timeoutMs: config.pendingHttpTimeoutMs,
+	}, fetchImpl);
+	return result.error || classifyPendingResponse(result.status, result.json);
 }
 
 class LineReader {
@@ -448,7 +526,7 @@ class AgiSession {
 		}
 		// Asterisk appends an allowlisted endpos field to STREAM FILE responses.
 		// Keep the grammar deliberately narrow so unexpected AGI output fails closed.
-		const match = /^200 result=(-?\d{1,20})(?: \(([^()\r\n]{0,1024})\))?(?: endpos=(\d{1,20}))?$/.exec(response);
+		const match = /^200 result=(-?\d{1,20}|[*#]?)(?: \(([^()\r\n]{0,1024})\))?(?: endpos=(\d{1,20}))?$/.exec(response);
 		if (!match) {
 			throw new ProtocolError('Invalid AGI response');
 		}
@@ -473,9 +551,68 @@ class AgiSession {
 		await this.command(`SET VARIABLE PBX_VERIFY_RESULT ${value}`);
 	}
 
+	async setPending(value) {
+		if (typeof value !== 'boolean') {
+			throw new ProtocolError('Invalid pending value');
+		}
+		await this.command(`SET VARIABLE PBX_VERIFY_PENDING ${value ? '1' : '0'}`);
+	}
+
 	async getData(prompt, timeoutMs) {
 		const response = await this.command(`GET DATA ${prompt} ${timeoutMs} 6`, timeoutMs + 5000);
 		return response.result;
+	}
+
+	decodeDtmfResult(result) {
+		if (result === '0' || result === '') {
+			return null;
+		}
+		const ascii = Number(result);
+		if (!Number.isSafeInteger(ascii)) {
+			return null;
+		}
+		if (ascii === 42) {
+			return '*';
+		}
+		if (ascii >= 48 && ascii <= 57) {
+			return String.fromCharCode(ascii);
+		}
+		return null;
+	}
+
+	async streamForShortcutKey(prompt) {
+		const response = await this.command(`STREAM FILE ${prompt} "0123456789*"`, 30000);
+		return this.decodeDtmfResult(response.result);
+	}
+
+	async waitForShortcutKey(timeoutMs) {
+		const response = await this.command(`WAIT FOR DIGIT ${timeoutMs}`, timeoutMs + 5000);
+		return this.decodeDtmfResult(response.result);
+	}
+
+	async getShortcutCode(prompt, timeoutMs) {
+		let key = await this.streamForShortcutKey(prompt);
+		const deadline = Date.now() + timeoutMs;
+		if (key === null) {
+			key = await this.waitForShortcutKey(timeoutMs);
+		}
+		if (key === '*' || !/^\d$/.test(key || '')) {
+			return null;
+		}
+
+		let code = key;
+		while (code.length < 6) {
+			const remainingMs = deadline - Date.now();
+			if (remainingMs <= 0) {
+				return null;
+			}
+			key = await this.waitForShortcutKey(remainingMs);
+			if (key === '*' || !/^\d$/.test(key || '')) {
+				return null;
+			}
+			code += key;
+		}
+		return code;
 	}
 
 	async stream(prompt) {
@@ -491,7 +628,24 @@ async function safeSetResult(agi, result) {
 	}
 }
 
+async function safeSetPending(agi, pending) {
+	try {
+		await agi.setPending(pending);
+	} catch (_) {
+		// The dialplan initializes the variable to zero before invoking AGI.
+	}
+}
+
+function parseMode(value) {
+	const mode = value === undefined || value === '' ? 'verify' : value;
+	return ['verify', 'preflight', 'shortcut'].includes(mode) ? mode : null;
+}
+
 async function runAgi(dependencies = {}) {
+	const mode = parseMode(dependencies.mode);
+	if (mode === null) {
+		return EXIT.CONFIGURATION;
+	}
 	let config;
 	let secret;
 	try {
@@ -504,7 +658,8 @@ async function runAgi(dependencies = {}) {
 	let agi;
 	try {
 		agi = await AgiSession.open(dependencies.input || process.stdin, dependencies.output || process.stdout);
-		if (agi.environment.agi_context !== config.expectedContext) {
+		const expectedContext = mode === 'verify' ? config.expectedContext : config.expectedPendingContext;
+		if (agi.environment.agi_context !== expectedContext) {
 			await safeSetResult(agi, 'invalid_call');
 			return EXIT.INVALID_CALL;
 		}
@@ -527,6 +682,68 @@ async function runAgi(dependencies = {}) {
 			return EXIT.INVALID_CALL;
 		}
 
+		const fetchImpl = dependencies.fetchImpl || globalThis.fetch;
+		if (mode === 'preflight') {
+			const payload = buildPendingPayload(config, {
+				eventId: crypto.randomUUID(),
+				callId,
+				calledNumber,
+				callerNumber,
+				occurredAt: new Date().toISOString(),
+			});
+			const outcome = await postPending(config, secret, payload, fetchImpl);
+			await safeSetPending(agi, outcome === 'pending');
+			if (outcome === 'pending' || outcome === 'none') {
+				return EXIT.VERIFIED;
+			}
+			return outcome === 'temporary' ? EXIT.NETWORK
+				: outcome === 'remote_auth' ? EXIT.REMOTE_REJECTED : EXIT.PROTOCOL;
+		}
+
+		const verifyCode = async (code) => {
+			const payload = buildPayload(config, {
+				eventId: crypto.randomUUID(),
+				callId,
+				calledNumber,
+				callerNumber,
+				code,
+				occurredAt: new Date().toISOString(),
+			});
+			return postVerification(config, secret, payload, fetchImpl);
+		};
+
+		if (mode === 'shortcut') {
+			// The automatic shortcut should not trap an ordinary caller. Star, timeout,
+			// partial input, or malformed input returns immediately. A real six-digit
+			// typo gets one bounded retry before the historical call flow resumes.
+			const shortcutAttempts = Math.min(config.dtmfAttempts, 2);
+			for (let attempt = 1; attempt <= shortcutAttempts; attempt += 1) {
+				const code = await agi.getShortcutCode(config.prompts.pendingCode, config.dtmfTimeoutMs);
+				if (!validateSixDigitCode(code)) {
+					await safeSetResult(agi, 'fallback');
+					return EXIT.VERIFIED;
+				}
+				const outcome = await verifyCode(code);
+				if (outcome === 'verified') {
+					await agi.stream(config.prompts.verified);
+					await safeSetResult(agi, 'verified');
+					return EXIT.VERIFIED;
+				}
+				if (outcome === 'rejected') {
+					await agi.stream(config.prompts.invalid);
+					if (attempt < shortcutAttempts) {
+						continue;
+					}
+					await safeSetResult(agi, 'fallback');
+					return EXIT.INVALID_CODE;
+				}
+				await agi.stream(config.prompts.temporaryFailure);
+				await safeSetResult(agi, outcome === 'temporary' ? 'temporary_failure' : 'remote_failure');
+				return outcome === 'temporary' ? EXIT.NETWORK
+					: outcome === 'remote_auth' ? EXIT.REMOTE_REJECTED : EXIT.PROTOCOL;
+			}
+		}
+
 		for (let attempt = 1; attempt <= config.dtmfAttempts; attempt += 1) {
 			const code = await agi.getData(config.prompts.enterCode, config.dtmfTimeoutMs);
 			if (!validateSixDigitCode(code)) {
@@ -536,20 +753,7 @@ async function runAgi(dependencies = {}) {
 				continue;
 			}
 
-			const eventId = crypto.randomUUID();
-			if (!validateEventId(eventId)) {
-				await safeSetResult(agi, 'protocol_failure');
-				return EXIT.PROTOCOL;
-			}
-			const payload = buildPayload(config, {
-				eventId,
-				callId,
-				calledNumber,
-				callerNumber,
-				code,
-				occurredAt: new Date().toISOString(),
-			});
-			const outcome = await postVerification(config, secret, payload, dependencies.fetchImpl || globalThis.fetch);
+			const outcome = await verifyCode(code);
 
 			if (outcome === 'verified') {
 				await agi.stream(config.prompts.verified);
@@ -583,7 +787,7 @@ async function runAgi(dependencies = {}) {
 }
 
 if (require.main === module) {
-	runAgi().then((exitCode) => {
+	runAgi({ mode: process.argv[2] }).then((exitCode) => {
 		process.exitCode = exitCode;
 	}).catch(() => {
 		process.exitCode = EXIT.PROTOCOL;
@@ -592,13 +796,16 @@ if (require.main === module) {
 
 module.exports = {
 	EXIT,
+	buildPendingPayload,
 	buildPayload,
 	buildSignedRequest,
 	canonicalRequest,
 	classifyResponse,
+	classifyPendingResponse,
 	loadConfig,
 	normalizeIranNumber,
 	postVerification,
+	postPending,
 	runAgi,
 	signCanonical,
 	validateCallId,
