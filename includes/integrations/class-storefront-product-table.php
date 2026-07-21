@@ -624,25 +624,27 @@ final class Digitalogic_Storefront_Product_Table {
 		?>
 		<tr data-product-id="<?php echo esc_attr( $product->get_id() ); ?>">
 			<td class="dgl-catalog-product-cell">
-				<a class="dgl-catalog-thumb" href="<?php echo esc_url( $url ); ?>" aria-label="<?php echo esc_attr( $name ); ?>">
-					<?php if ( $product->get_image_id() ) : ?>
-						<?php echo wp_get_attachment_image( $product->get_image_id(), 'woocommerce_thumbnail', false, array( 'loading' => 'lazy', 'alt' => $name ) ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
-					<?php else : ?>
-						<span class="dgl-catalog-no-image" aria-hidden="true"><i></i><b>DL</b></span>
-					<?php endif; ?>
-				</a>
-				<div>
-					<a class="dgl-catalog-product-name" href="<?php echo esc_url( $url ); ?>"><?php echo esc_html( $name ); ?></a>
-					<span class="dgl-catalog-mobile-meta">
-						<?php if ( $code ) : ?>
-							<?php echo esc_html( $code_label ); ?> <b dir="ltr"><?php echo esc_html( $code ); ?></b> ·
-						<?php elseif ( $child_codes ) : ?>
-							کدهای ثبت‌شده برای مدل‌ها <b dir="ltr"><?php echo esc_html( implode( ' · ', $child_codes ) ); ?></b> ·
-						<?php elseif ( $is_variable ) : ?>
-							کد کالا بعد از انتخاب مدل ·
+				<div class="dgl-catalog-product-layout">
+					<a class="dgl-catalog-thumb" href="<?php echo esc_url( $url ); ?>" aria-label="<?php echo esc_attr( $name ); ?>">
+						<?php if ( $product->get_image_id() ) : ?>
+							<?php echo wp_get_attachment_image( $product->get_image_id(), 'woocommerce_thumbnail', false, array( 'loading' => 'lazy', 'alt' => $name ) ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
+						<?php else : ?>
+							<span class="dgl-catalog-no-image" aria-hidden="true"><i></i><b>DL</b></span>
 						<?php endif; ?>
-						<?php echo wp_kses_post( $categories ); ?>
-					</span>
+					</a>
+					<div>
+						<a class="dgl-catalog-product-name" href="<?php echo esc_url( $url ); ?>"><?php echo esc_html( $name ); ?></a>
+						<span class="dgl-catalog-mobile-meta">
+							<?php if ( $code ) : ?>
+								<?php echo esc_html( $code_label ); ?> <b dir="ltr"><?php echo esc_html( $code ); ?></b> ·
+							<?php elseif ( $child_codes ) : ?>
+								کدهای ثبت‌شده برای مدل‌ها <b dir="ltr"><?php echo esc_html( implode( ' · ', $child_codes ) ); ?></b> ·
+							<?php elseif ( $is_variable ) : ?>
+								کد کالا بعد از انتخاب مدل ·
+							<?php endif; ?>
+							<?php echo wp_kses_post( $categories ); ?>
+						</span>
+					</div>
 				</div>
 			</td>
 			<td class="dgl-catalog-code">
