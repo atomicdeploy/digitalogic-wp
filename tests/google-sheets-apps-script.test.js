@@ -6,6 +6,15 @@ const test = require('node:test');
 
 const sourcePath = path.join(__dirname, '..', 'assets', 'integrations', 'google-apps-script', 'Code.gs');
 const source = fs.readFileSync(sourcePath, 'utf8');
+const professionalDashboardPath = path.join(
+  __dirname,
+  '..',
+  'assets',
+  'integrations',
+  'google-apps-script',
+  'ProfessionalDashboard.gs'
+);
+const professionalDashboardSource = fs.readFileSync(professionalDashboardPath, 'utf8');
 const n8nPath = path.join(
   __dirname,
   '..',
@@ -649,30 +658,108 @@ test('idempotency keys survive uncertain retries and rotate after a completed at
   assert.match(nextAttempt, /^digitalogic:apply:[a-f0-9]{16}:[a-f0-9]{24}$/);
 });
 
+test('professional control center is credential-free, editable, and idempotently initialized', () => {
+  assert.match(professionalDashboardSource, /function initializeDigitalogicControlCenter\(\)/);
+  assert.match(professionalDashboardSource, /syncCatalog\(\);/);
+  assert.match(professionalDashboardSource, /setupEditableWorkspace\(\);/);
+  assert.match(professionalDashboardSource, /installScheduledSync\(\);/);
+  assert.match(professionalDashboardSource, /'Pricing Calculator'/);
+  assert.match(professionalDashboardSource, /'Settings'/);
+  assert.match(professionalDashboardSource, /'Help'/);
+  assert.match(professionalDashboardSource, /newChart\(\)[\s\S]*?\.asPieChart\(\)/);
+  assert.match(professionalDashboardSource, /newChart\(\)[\s\S]*?\.asColumnChart\(\)/);
+  assert.match(professionalDashboardSource, /=COUNTA\(Products!\$A\$3:\$A\)/);
+  assert.match(professionalDashboardSource, /Products!\$AL\$3:\$AL/);
+  assert.match(professionalDashboardSource, /placeholder\.getRange\('A1'\)\.isBlank\(\)/);
+  assert.match(professionalDashboardSource, /Preview then explicit Apply/);
+  assert.match(professionalDashboardSource, /محاسبه قیمت نهایی/);
+  assert.doesNotMatch(
+    professionalDashboardSource,
+    /\bck_[A-Za-z0-9]+\b|\bcs_[A-Za-z0-9]+\b|DIGITALOGIC_N8N_WRITEBACK_TOKEN\s*[:=]\s*['"][^'"]+/
+  );
+
+  assert.match(
+    source,
+    /if \(config\.n8nWritebackBase[\s\S]*?!stateProperties\.getProperty\('DIGITALOGIC_LAST_WRITEBACK_TRANSPORT'\)/
+  );
+  assert.match(source, /DIGITALOGIC_LAST_WRITEBACK_STATUS: 'ready'/);
+  assert.match(source, /DIGITALOGIC_LAST_WRITEBACK_TRANSPORT: 'n8n'/);
+});
+
 test('n8n template is inactive, importable, credential-only, and keeps apply explicit', () => {
   assert.equal(n8nWorkflow.active, false);
   assert.equal(n8nWorkflow.name, 'Digitalogic Google Sheets - Safe Writeback');
   assert.equal(n8nWorkflow.settings.saveDataErrorExecution, 'none');
   assert.equal(n8nWorkflow.settings.saveManualExecutions, false);
-  assert.equal(n8nWorkflow.nodes.length, 9);
+  assert.equal(n8nWorkflow.nodes.length, 11);
   const byName = Object.fromEntries(n8nWorkflow.nodes.map((node) => [node.name, node]));
   assert.equal(byName['Preview Webhook'].parameters.path, 'digitalogic-google-sheets/preview');
   assert.equal(byName['Apply Webhook'].parameters.path, 'digitalogic-google-sheets/apply');
+  assert.equal(byName['Preview Webhook'].parameters.responseMode, 'responseNode');
+  assert.equal(byName['Preview Webhook'].parameters.responseData, undefined);
+  assert.equal(byName['Apply Webhook'].parameters.responseMode, 'responseNode');
+  assert.equal(byName['Apply Webhook'].parameters.responseData, undefined);
   assert.match(byName['Validate Explicit Apply'].parameters.jsCode, /X-Digitalogic-Confirm-Apply/);
+  assert.match(byName['Validate Preview Envelope'].parameters.jsCode, /validation_ok: false/);
+  assert.match(byName['Validate Explicit Apply'].parameters.jsCode, /validation_ok: false/);
+  assert.doesNotMatch(byName['Validate Preview Envelope'].parameters.jsCode, /throw new Error/);
+  assert.doesNotMatch(byName['Validate Explicit Apply'].parameters.jsCode, /throw new Error/);
+  assert.equal(byName['Preview Envelope Valid?'].type, 'n8n-nodes-base.if');
+  assert.equal(byName['Apply Envelope Valid?'].type, 'n8n-nodes-base.if');
   assert.match(byName['Digitalogic Preview'].parameters.url, /writeback\/preview$/);
   assert.match(byName['Digitalogic Apply'].parameters.url, /writeback\/apply$/);
+  assert.deepEqual(
+    byName['Digitalogic Preview'].parameters.headerParameters.parameters.find(
+      (header) => header.name === 'Accept-Encoding',
+    ),
+    { name: 'Accept-Encoding', value: 'identity' },
+  );
+  assert.deepEqual(
+    byName['Digitalogic Apply'].parameters.headerParameters.parameters.find(
+      (header) => header.name === 'Accept-Encoding',
+    ),
+    { name: 'Accept-Encoding', value: 'identity' },
+  );
+  assert.equal(byName['Digitalogic Preview'].parameters.contentType, 'json');
+  assert.equal(byName['Digitalogic Preview'].parameters.specifyBody, 'json');
+  assert.equal(byName['Digitalogic Preview'].parameters.jsonBody, '={{ $json.request }}');
+  assert.equal(byName['Digitalogic Preview'].parameters.rawContentType, undefined);
+  assert.equal(byName['Digitalogic Preview'].parameters.body, undefined);
+  assert.equal(byName['Digitalogic Apply'].parameters.contentType, 'json');
+  assert.equal(byName['Digitalogic Apply'].parameters.specifyBody, 'json');
+  assert.equal(byName['Digitalogic Apply'].parameters.jsonBody, '={{ $json.request }}');
+  assert.equal(byName['Digitalogic Apply'].parameters.rawContentType, undefined);
+  assert.equal(byName['Digitalogic Apply'].parameters.body, undefined);
   assert.equal(byName['Digitalogic Preview'].parameters.options.response.response.fullResponse, true);
   assert.equal(byName['Digitalogic Preview'].parameters.options.response.response.neverError, true);
+  assert.equal(byName['Return Preview'].type, 'n8n-nodes-base.respondToWebhook');
   assert.equal(byName['Return Preview'].parameters.respondWith, 'json');
   assert.match(byName['Return Preview'].parameters.responseBody, /\$json\.body/);
   assert.match(byName['Return Preview'].parameters.options.responseCode, /statusCode/);
   assert.equal(byName['Digitalogic Apply'].parameters.options.response.response.fullResponse, true);
+  assert.equal(byName['Return Apply'].type, 'n8n-nodes-base.respondToWebhook');
   assert.equal(byName['Return Apply'].parameters.respondWith, 'json');
   assert.match(byName['Return Apply'].parameters.responseBody, /\$json\.body/);
   assert.match(byName['Return Apply'].parameters.options.responseCode, /statusCode/);
   assert.equal(
     n8nWorkflow.connections['Apply Webhook'].main[0][0].node,
     'Validate Explicit Apply'
+  );
+  assert.equal(
+    n8nWorkflow.connections['Preview Envelope Valid?'].main[0][0].node,
+    'Digitalogic Preview'
+  );
+  assert.equal(
+    n8nWorkflow.connections['Preview Envelope Valid?'].main[1][0].node,
+    'Return Preview'
+  );
+  assert.equal(
+    n8nWorkflow.connections['Apply Envelope Valid?'].main[0][0].node,
+    'Digitalogic Apply'
+  );
+  assert.equal(
+    n8nWorkflow.connections['Apply Envelope Valid?'].main[1][0].node,
+    'Return Apply'
   );
   assert.equal(byName['Scheduled Refresh'], undefined);
   assert.equal(byName['Manual Refresh'], undefined);
