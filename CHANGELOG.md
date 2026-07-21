@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.6.1
+
+- Preserve WordPress account-policy authentication filters while exempting only WP Zero Spam's core form honeypot from a signed, browser-bound PBX login consume request.
+
 ## 1.6.0
 
 - Add secure six-digit phone verification by inbound call on `021-66754123`, IVR option `2`, as a Digits-independent login alternative and a way to verify supplemental Iranian mobile or fixed-line contacts.

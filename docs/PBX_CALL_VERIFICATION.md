@@ -75,7 +75,7 @@ The feature gate opens only after all plugin-owned PBX tables verify their requi
 
 ## Deployment order
 
-1. Back up WordPress and deploy plugin version 1.6.0. Activation/update creates and verifies the plugin-owned challenge, contact, consent-audit, replay, event, rate, and job tables. Do not continue if WordPress reports the migration/recovery-schedule gate as incomplete.
+1. Back up WordPress and deploy plugin version 1.6.1. Activation/update creates and verifies the plugin-owned challenge, contact, consent-audit, replay, event, rate, and job tables. Do not continue if WordPress reports the migration/recovery-schedule gate as incomplete.
 2. Install the inbound AGI/dialplan and prompts from `ops/pbx/` using its deployment and rollback documents.
 3. Add independent verification and callout credentials to server-only configuration; configure the AGI with the same decoded HMAC key bytes.
 4. Keep outbound voice settings disabled. Test a mobile and an eight-digit Tehran ANI through the signed callback, then test browser consumption.

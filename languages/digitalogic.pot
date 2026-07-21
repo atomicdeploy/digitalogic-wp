@@ -2,7 +2,7 @@
 # This file is distributed under the GPL v2 or later.
 msgid ""
 msgstr ""
-"Project-Id-Version: Digitalogic 1.6.0\n"
+"Project-Id-Version: Digitalogic 1.6.1\n"
 "Report-Msgid-Bugs-To: https://github.com/atomicdeploy/digitalogic-wp/issues\n"
 "POT-Creation-Date: 2026-07-20 21:54+0330\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
