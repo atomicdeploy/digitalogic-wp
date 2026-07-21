@@ -77,6 +77,8 @@ final class RestApiPermissionsTest extends TestCase {
         return array(
             'namespace root' => array('/wp-json/digitalogic/v1', false, true),
             'namespace route and query' => array('/wp-json/digitalogic/v1/products?consumer_key=ck_example', false, true),
+			'versionless report route' => array('/wp-json/digitalogic/reports', false, true),
+			'versionless report suffix lookalike' => array('/wp-json/digitalogic/reports/unsafe', false, false),
             'namespace lookalike' => array('/wp-json/digitalogic/v10/products', false, false),
             'namespace suffix lookalike' => array('/wp-json/digitalogic/v1-unsafe/products', false, false),
             'unrelated route' => array('/wp-json/example/v1/products', false, false),
@@ -98,6 +100,13 @@ final class RestApiPermissionsTest extends TestCase {
         $_SERVER['REQUEST_URI'] = '/?rest_route=%2Fdigitalogic%2Fv1%2Fproducts';
 
         $this->assertTrue(apply_filters('woocommerce_rest_is_request_to_rest_api', false));
+
+		$_SERVER['REQUEST_URI'] = '/?rest_route=%2Fdigitalogic%2Freports';
+
+		$this->assertTrue(apply_filters('woocommerce_rest_is_request_to_rest_api', false));
+
+		$_SERVER['REQUEST_URI'] = '/?rest_route=%2Fdigitalogic%2Freports%2Funsafe';
+		$this->assertFalse(apply_filters('woocommerce_rest_is_request_to_rest_api', false));
 
         $_SERVER['REQUEST_URI'] = '/?rest_route=%2Fdigitalogic%2Fv10%2Fproducts';
         $this->assertFalse(apply_filters('woocommerce_rest_is_request_to_rest_api', false));
@@ -222,6 +231,17 @@ final class RestApiPermissionsTest extends TestCase {
 
     public function test_every_route_has_the_expected_permission_policy() {
         $this->api->register_routes();
+
+		$report_routes = array_values(
+			array_filter(
+				$GLOBALS['digitalogic_test_routes'],
+				static function($registration) {
+					return '/reports' === $registration['route'];
+				}
+			)
+		);
+		$this->assertCount(1, $report_routes);
+		$this->assertSame('digitalogic', $report_routes[0]['namespace']);
 
         $actual = array();
         foreach ($GLOBALS['digitalogic_test_routes'] as $registration) {

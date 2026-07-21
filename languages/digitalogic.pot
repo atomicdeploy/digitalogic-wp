@@ -556,7 +556,7 @@ msgid "Digitalogic Patris Reports"
 msgstr ""
 
 #: includes/admin/views/patris-reports.php:25
-msgid "Sparse transformed Patris data is compared against WooCommerce and applied through the living product-sync contract."
+msgid "Sparse transformed Patris data is compared against WooCommerce and applied through the living product-sync flow."
 msgstr ""
 
 #: includes/admin/views/patris-reports.php:33
@@ -2219,4 +2219,309 @@ msgstr ""
 
 #: includes/websocket/class-websocket-server.php:164
 msgid "Invalid JSON payload."
+msgstr ""
+
+#: includes/admin/views/patris-reports.php
+msgid "All warnings"
+msgstr ""
+
+#: includes/class-report-engine.php
+msgid "Calculated price is explicitly null"
+msgstr ""
+
+#: includes/class-report-engine.php includes/admin/views/patris-reports.php
+msgid "CNY exchange rate is explicitly null"
+msgstr ""
+
+#: includes/class-report-engine.php
+msgid "CNY price is explicitly null"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php
+msgid "Current"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php
+msgid "Current Patris products"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php
+msgid "Current Product Report"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php
+msgid "Current source:"
+msgstr ""
+
+#: includes/class-report-engine.php
+msgid "Duplicate exact product Code metadata"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php
+msgid "Exact Code matches"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php
+msgid "Findings"
+msgstr ""
+
+#: includes/class-report-engine.php
+msgid "Foreign currency is explicitly null"
+msgstr ""
+
+#: includes/class-report-engine.php
+msgid "Foreign currency is not CNY"
+msgstr ""
+
+#: includes/class-report-engine.php
+msgid "In Patris but missing in WooCommerce"
+msgstr ""
+
+#: includes/class-report-engine.php
+msgid "In WooCommerce but missing in Patris"
+msgstr ""
+
+#: includes/class-report-engine.php
+msgid "Invalid source value"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php
+msgid "Missing"
+msgstr ""
+
+#: includes/class-report-engine.php
+msgid "Missing calculated price"
+msgstr ""
+
+#: includes/class-report-engine.php
+msgid "Missing CNY exchange rate"
+msgstr ""
+
+#: includes/class-report-engine.php
+msgid "Missing CNY price"
+msgstr ""
+
+#: includes/class-report-engine.php
+msgid "Missing exact product Code metadata"
+msgstr ""
+
+#: includes/class-report-engine.php
+msgid "Missing foreign currency"
+msgstr ""
+
+#: includes/class-report-engine.php
+msgid "Missing profit margin"
+msgstr ""
+
+#: includes/class-report-engine.php
+msgid "Missing shipping price inputs"
+msgstr ""
+
+#: includes/class-report-engine.php
+msgid "Missing source update time"
+msgstr ""
+
+#: includes/class-report-engine.php
+msgid "Missing stock"
+msgstr ""
+
+#: includes/class-report-engine.php
+msgid "Missing weight"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php
+msgid "Next"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php
+msgid "No rows on this report page."
+msgstr ""
+
+#: includes/admin/views/patris-reports.php
+#, php-format
+msgid "Page %1$d of %2$d"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php
+msgid "Patris"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php
+msgid "Patris-only products"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php
+msgid "Previous"
+msgstr ""
+
+#: includes/class-report-engine.php
+msgid "Price differs from the current source"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php
+msgid "Price List"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php
+msgid "Price: source / WooCommerce"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php
+msgid "Products with drift"
+msgstr ""
+
+#: includes/class-report-engine.php
+msgid "Profit margin is explicitly null"
+msgstr ""
+
+#: includes/class-report-engine.php
+msgid "Record hash differs from the current source"
+msgstr ""
+
+#: includes/class-report-engine.php
+msgid "Shipping price inputs contain explicit null"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php
+msgid "Source generated:"
+msgstr ""
+
+#: includes/class-report-engine.php
+msgid "Source update time differs in WooCommerce"
+msgstr ""
+
+#: includes/class-report-engine.php
+msgid "Source update time is explicitly null"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php
+msgid "Source updated"
+msgstr ""
+
+#: includes/class-report-engine.php
+msgid "Source warnings require attention"
+msgstr ""
+
+#: includes/class-report-engine.php
+msgid "Stale source data"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php
+msgid "State"
+msgstr ""
+
+#: includes/class-report-engine.php
+msgid "Stock differs from the current source"
+msgstr ""
+
+#: includes/class-report-engine.php
+msgid "Stock is explicitly null"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php
+msgid "Stock: source / WooCommerce"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php
+msgid "The report matches only exact product Code metadata. WooCommerce SKU is never used as a fallback."
+msgstr ""
+
+#: includes/admin/views/patris-reports.php
+msgid "Variable parents excluded:"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php
+msgid "Warnings"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php
+msgid "Weight (g)"
+msgstr ""
+
+#: includes/class-report-engine.php
+msgid "Weight differs from the current source"
+msgstr ""
+
+#: includes/class-report-engine.php
+msgid "Weight is explicitly null"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php
+msgid "WooCommerce-only products"
+msgstr ""
+
+#: includes/class-report-engine.php
+msgid "Zero or negative calculated price"
+msgstr ""
+
+#: includes/class-report-engine.php
+msgid "The static product snapshot is not a validated canonical envelope."
+msgstr ""
+
+#: includes/class-report-engine.php
+msgid "The static product snapshot has no valid source scope."
+msgstr ""
+
+#: includes/class-report-engine.php
+msgid "The static product snapshot contains an invalid product."
+msgstr ""
+
+#: includes/class-report-engine.php
+msgid "Positive-stock product missing in WooCommerce"
+msgstr ""
+
+#: includes/class-report-engine.php
+msgid "Stock management differs from the current source"
+msgstr ""
+
+#: includes/class-report-engine.php
+msgid "Stock availability differs from the current source"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php
+msgid "Matched"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php
+msgid "Source only"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php
+msgid "WooCommerce only"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php
+msgid "Ambiguous"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php
+msgid "Current receiver state"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php
+msgid "Validated static snapshot (read-only)"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php
+msgid "No current source snapshot is available; reconciliation findings are withheld."
+msgstr ""
+
+#: includes/admin/views/patris-reports.php
+msgid "The selected source snapshot was not found; reconciliation findings are withheld."
+msgstr ""
+
+#: includes/admin/views/patris-reports.php
+msgid "Both source ID and dataset are required; reconciliation findings are withheld."
+msgstr ""
+
+#: includes/admin/views/patris-reports.php
+msgid "Positive-stock Patris-only products"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php
+msgid "Report state:"
+msgstr ""
+
+#: includes/admin/views/patris-reports.php
+msgid "The report source is unavailable."
 msgstr ""

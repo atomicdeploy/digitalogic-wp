@@ -8,6 +8,15 @@ fi
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 root="$(cd -- "$script_dir/.." && pwd)"
+if [[ -x /usr/bin/find ]]; then
+    find_bin=/usr/bin/find
+else
+    find_bin="$(command -v find || true)"
+fi
+if [[ -z "$find_bin" ]] || [[ "${find_bin,,}" == *.exe ]]; then
+    printf 'A Unix find implementation is required to build the plugin package.\n' >&2
+    exit 1
+fi
 output="$1"
 if [[ "$output" != /* ]]; then
     output="$(pwd)/$output"
@@ -87,7 +96,7 @@ done
 
 # Composer's --no-dev flag removes development packages, but distribution
 # archives can still contain their own tests, examples, and tooling metadata.
-find "$stage/vendor" -type d \
+"$find_bin" "$stage/vendor" -type d \
     \( -iname test -o -iname tests -o -iname testdata \
        -o -iname doc -o -iname docs \
        -o -iname guide -o -iname guides \
@@ -98,7 +107,7 @@ find "$stage/vendor" -type d \
        -o -name .phive -o -name .phpdoc -o -name .idea -o -name .vscode \) \
     -prune -exec rm -rf -- {} +
 rm -rf -- "$stage/vendor/bin"
-find "$stage/vendor" -type f \
+"$find_bin" "$stage/vendor" -type f \
     \( -iname 'phpunit.xml*' -o -iname 'phpcs.xml*' \
        -o -iname '*.neon' -o -iname 'psalm.xml*' \
        -o -iname 'infection.json*' -o -name '.travis.yml' \
@@ -112,18 +121,18 @@ find "$stage/vendor" -type f \
        -o -iname 'README*' -o -iname 'CHANGELOG*' \
        -o -iname 'CONTRIBUTING*' -o -iname 'UPGRADE*' \) \
     -delete
-find "$stage/assets" "$stage/includes" "$stage/languages" -type f \
+"$find_bin" "$stage/assets" "$stage/includes" "$stage/languages" -type f \
     \( -iname 'README*' -o -iname '*.md' \) -delete
 
-if find "$stage" -type l -print -quit | grep -q .; then
+if "$find_bin" "$stage" -type l -print -quit | grep -q .; then
     printf 'Symlinks are not allowed in the plugin package.\n' >&2
-    find "$stage" -type l -print >&2
+    "$find_bin" "$stage" -type l -print >&2
     exit 1
 fi
 
-find "$stage" -type d -exec chmod 0755 {} +
-find "$stage" -type f -exec chmod 0644 {} +
-find "$stage" -exec touch -h -d "@$source_date_epoch" {} +
+"$find_bin" "$stage" -type d -exec chmod 0755 {} +
+"$find_bin" "$stage" -type f -exec chmod 0644 {} +
+"$find_bin" "$stage" -exec touch -h -d "@$source_date_epoch" {} +
 
 create_archive() {
     local destination="$1"
@@ -131,7 +140,7 @@ create_archive() {
     (
         cd "$work_dir/stage"
         export TZ=UTC
-        find "$plugin_slug" -type f -print0 |
+        "$find_bin" "$plugin_slug" -type f -print0 |
             LC_ALL=C sort -z |
             xargs -0 zip -X -q "$destination"
     )
@@ -247,6 +256,14 @@ for entry in "${archive_entries[@]}"; do
             exit 1
             ;;
     esac
+
+	case "$basename" in
+		kala.json | kala.db | *.sqlite | *.sqlite3 | \
+		reportfinal.php | reportproduts.php | reportproducts.php)
+			printf 'Production data or standalone report artifact reached package: %s\n' "$entry" >&2
+			exit 1
+			;;
+	esac
 done
 
 verify_dir="$work_dir/verify"
@@ -260,7 +277,7 @@ while IFS= read -r -d '' php_file; do
         exit 1
     fi
     php_count=$((php_count + 1))
-done < <(find "$verify_dir/$plugin_slug" -type f -name '*.php' -print0)
+done < <("$find_bin" "$verify_dir/$plugin_slug" -type f -name '*.php' -print0)
 
 # shellcheck disable=SC2016
 PACKAGE_ROOT="$verify_dir/$plugin_slug" php -r '

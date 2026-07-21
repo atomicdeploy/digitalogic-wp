@@ -19,10 +19,51 @@ if (!defined('ABSPATH')) {
 
 $product_sync_url = rest_url('digitalogic/patris/product-sync');
 $notice_type = in_array($notice_type, array('success', 'error', 'warning', 'info'), true) ? $notice_type : 'info';
+$report_base_url = admin_url('admin.php?page=digitalogic-patris-reports');
+$report_scope = array();
+if (!empty($report['source']['id']) && !empty($report['source']['dataset'])) {
+    $report_scope = array(
+        'report_source_id' => $report['source']['id'],
+        'report_dataset' => $report['source']['dataset'],
+    );
+}
+$report_url = static function ($values = array()) use ($report_base_url, $report_scope) {
+    return add_query_arg(array_merge($report_scope, $values), $report_base_url);
+};
+$sparse_value = static function ($record, $key) {
+    if (!is_array($record) || !array_key_exists($key, $record)) {
+        return __('Missing', 'digitalogic');
+    }
+    if (null === $record[$key]) {
+        return 'null';
+    }
+    if (is_array($record[$key])) {
+        return wp_json_encode($record[$key], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    }
+
+    return (string) $record[$key];
+};
+$category_titles = array();
+foreach ($report['categories'] as $report_category) {
+    $category_titles[$report_category['key']] = $report_category['title'];
+}
+$row_status_titles = array(
+	'matched'          => __('Matched', 'digitalogic'),
+	'source_only'      => __('Source only', 'digitalogic'),
+	'woocommerce_only' => __('WooCommerce only', 'digitalogic'),
+	'ambiguous'        => __('Ambiguous', 'digitalogic'),
+);
+$report_status_titles = array(
+	'current'                 => __('Current receiver state', 'digitalogic'),
+	'static'                  => __('Validated static snapshot (read-only)', 'digitalogic'),
+	'source_state_empty'      => __('No current source snapshot is available; reconciliation findings are withheld.', 'digitalogic'),
+	'source_not_found'        => __('The selected source snapshot was not found; reconciliation findings are withheld.', 'digitalogic'),
+	'source_scope_incomplete' => __('Both source ID and dataset are required; reconciliation findings are withheld.', 'digitalogic'),
+);
 ?>
 <div class="wrap digitalogic-patris-reports">
     <h1><?php echo esc_html__('Digitalogic Patris Reports', 'digitalogic'); ?></h1>
-    <p class="description"><?php echo esc_html__('Sparse transformed Patris data is compared against WooCommerce and applied through the living product-sync contract.', 'digitalogic'); ?></p>
+    <p class="description"><?php echo esc_html__('Sparse transformed Patris data is compared against WooCommerce and applied through the living product-sync flow.', 'digitalogic'); ?></p>
 
     <?php if (!empty($notice)) : ?>
         <div class="notice notice-<?php echo esc_attr($notice_type); ?> is-dismissible"><p><?php echo esc_html($notice); ?></p></div>
@@ -64,12 +105,19 @@ $notice_type = in_array($notice_type, array('success', 'error', 'warning', 'info
             <h2><?php echo esc_html__('Summary', 'digitalogic'); ?></h2>
             <div class="digitalogic-report-stats">
                 <span><strong><?php echo esc_html(number_format_i18n($report['counts']['woocommerce_products'])); ?></strong><?php echo esc_html__('WooCommerce products', 'digitalogic'); ?></span>
-                <span><strong><?php echo esc_html(number_format_i18n($report['counts']['patris_products'])); ?></strong><?php echo esc_html__('Patris/API products', 'digitalogic'); ?></span>
-                <span><strong><?php echo esc_html(number_format_i18n($report['counts']['patris_customers'])); ?></strong><?php echo esc_html__('Patris/API customers', 'digitalogic'); ?></span>
+				<span><strong><?php echo esc_html(number_format_i18n($report['counts']['patris_products'])); ?></strong><?php echo esc_html__('Current Patris products', 'digitalogic'); ?></span>
+				<span><strong><?php echo esc_html(number_format_i18n($report['counts']['matched_products'])); ?></strong><?php echo esc_html__('Exact Code matches', 'digitalogic'); ?></span>
+				<span><strong><?php echo esc_html(number_format_i18n($report['counts']['source_only_products'])); ?></strong><?php echo esc_html__('Patris-only products', 'digitalogic'); ?></span>
+				<span><strong><?php echo esc_html(number_format_i18n($report['counts']['positive_source_only_products'])); ?></strong><?php echo esc_html__('Positive-stock Patris-only products', 'digitalogic'); ?></span>
+				<span><strong><?php echo esc_html(number_format_i18n($report['counts']['woocommerce_only_products'])); ?></strong><?php echo esc_html__('WooCommerce-only products', 'digitalogic'); ?></span>
+				<span><strong><?php echo esc_html(number_format_i18n($report['counts']['drift_products'])); ?></strong><?php echo esc_html__('Products with drift', 'digitalogic'); ?></span>
             </div>
-            <?php if (!empty($report['last_sync'])) : ?>
-                <p><strong><?php echo esc_html__('Last sync:', 'digitalogic'); ?></strong> <?php echo esc_html($report['last_sync']['synced_at'] ?? ''); ?></p>
+			<?php if (!empty($report['source'])) : ?>
+				<p><strong><?php echo esc_html__('Current source:', 'digitalogic'); ?></strong> <code><?php echo esc_html($report['source']['id'] . ' / ' . $report['source']['dataset']); ?></code></p>
+				<p><strong><?php echo esc_html__('Source generated:', 'digitalogic'); ?></strong> <?php echo esc_html($report['source']['generated_at'] ?? ''); ?></p>
             <?php endif; ?>
+			<p><strong><?php echo esc_html__('Variable parents excluded:', 'digitalogic'); ?></strong> <?php echo esc_html(number_format_i18n($report['counts']['variable_parents_excluded'])); ?></p>
+			<p><strong><?php echo esc_html__('Report state:', 'digitalogic'); ?></strong> <?php echo esc_html($report_status_titles[$report['status']] ?? $report['status']); ?></p>
         </section>
     </div>
 
@@ -309,51 +357,82 @@ $notice_type = in_array($notice_type, array('success', 'error', 'warning', 'info
     </section>
 
     <section class="digitalogic-section digitalogic-report-results">
-        <h2><?php echo esc_html__('Problem Rows', 'digitalogic'); ?></h2>
-        <?php foreach ($report['categories'] as $category) : ?>
-            <details class="digitalogic-report-category is-<?php echo esc_attr($category['severity']); ?>" <?php echo $category['count'] ? 'open' : ''; ?>>
-                <summary>
-                    <span class="digitalogic-report-dot"></span>
-                    <strong><?php echo esc_html($category['title']); ?></strong>
-                    <span><?php echo esc_html(number_format_i18n($category['count'])); ?></span>
-                </summary>
-                <?php if (empty($category['items'])) : ?>
-                    <p class="digitalogic-report-empty"><?php echo esc_html__('No rows in this category.', 'digitalogic'); ?></p>
-                <?php else : ?>
-                    <div class="digitalogic-report-table-wrap">
-                        <table class="widefat striped digitalogic-report-table">
-                            <thead>
-                                <tr>
-                                    <th><?php echo esc_html__('Code', 'digitalogic'); ?></th>
-                                    <th><?php echo esc_html__('WooCommerce', 'digitalogic'); ?></th>
-                                    <th><?php echo esc_html__('Patris/API', 'digitalogic'); ?></th>
-                                    <th><?php echo esc_html__('Stock', 'digitalogic'); ?></th>
-                                    <th><?php echo esc_html__('Foreign', 'digitalogic'); ?></th>
-                                    <th><?php echo esc_html__('Weight', 'digitalogic'); ?></th>
-                                    <th><?php echo esc_html__('Final Price', 'digitalogic'); ?></th>
-                                    <th><?php echo esc_html__('Updated', 'digitalogic'); ?></th>
-                                    <th><?php echo esc_html__('Action', 'digitalogic'); ?></th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <?php foreach ($category['items'] as $item) : ?>
-                                    <tr>
-                                        <td><code><?php echo esc_html($item['product_code'] ?? $item['customer_code'] ?? ''); ?></code></td>
-                                        <td><?php echo esc_html($item['woo_name'] ?? ''); ?></td>
-                                        <td><?php echo esc_html($item['name'] ?? ''); ?></td>
-                                        <td class="digitalogic-num"><?php echo esc_html(isset($item['stock']) ? $item['stock'] : ''); ?></td>
-                                        <td class="digitalogic-num"><?php echo esc_html(trim(($item['foreign_currency'] ?? '') . ' ' . ($item['foreign_price'] ?? ''))); ?></td>
-                                        <td class="digitalogic-num"><?php echo esc_html(isset($item['weight_grams']) ? $item['weight_grams'] : ''); ?></td>
-                                        <td class="digitalogic-num"><?php echo esc_html(isset($item['final_price']) ? $item['final_price'] : ''); ?></td>
-                                        <td><?php echo esc_html($item['updated_at'] ?? ''); ?></td>
-                                        <td><?php if (!empty($item['edit_url'])) : ?><a class="button button-small" href="<?php echo esc_url($item['edit_url']); ?>" target="_blank" rel="noopener"><?php echo esc_html__('Edit', 'digitalogic'); ?></a><?php endif; ?></td>
-                                    </tr>
-                                <?php endforeach; ?>
-                            </tbody>
-                        </table>
-                    </div>
-                <?php endif; ?>
-            </details>
-        <?php endforeach; ?>
+		<h2><?php echo esc_html__('Current Product Report', 'digitalogic'); ?></h2>
+		<?php if (!in_array($report['status'], array('current', 'static'), true)) : ?>
+			<div class="notice notice-warning inline"><p><?php echo esc_html($report_status_titles[$report['status']] ?? __('The report source is unavailable.', 'digitalogic')); ?></p></div>
+		<?php endif; ?>
+		<p class="description"><?php echo esc_html__('The report matches only exact product Code metadata. WooCommerce SKU is never used as a fallback.', 'digitalogic'); ?></p>
+		<p class="nav-tab-wrapper">
+			<a class="nav-tab <?php echo 'warnings' === $report['view'] ? 'nav-tab-active' : ''; ?>" href="<?php echo esc_url($report_url(array('report_view' => 'warnings'))); ?>"><?php echo esc_html__('Warnings', 'digitalogic'); ?></a>
+			<a class="nav-tab <?php echo 'price_list' === $report['view'] ? 'nav-tab-active' : ''; ?>" href="<?php echo esc_url($report_url(array('report_view' => 'price_list'))); ?>"><?php echo esc_html__('Price List', 'digitalogic'); ?></a>
+		</p>
+
+		<?php if ('warnings' === $report['view']) : ?>
+			<div class="digitalogic-report-stats">
+				<a class="button <?php echo empty($report['filters']['category']) ? 'button-primary' : ''; ?>" href="<?php echo esc_url($report_url(array('report_view' => 'warnings'))); ?>"><?php echo esc_html__('All warnings', 'digitalogic'); ?></a>
+				<?php foreach ($report['categories'] as $category) : ?>
+					<?php if (empty($category['count'])) : continue; endif; ?>
+					<a class="button <?php echo $report['filters']['category'] === $category['key'] ? 'button-primary' : ''; ?>" href="<?php echo esc_url($report_url(array('report_view' => 'warnings', 'report_category' => $category['key']))); ?>">
+						<?php echo esc_html($category['title'] . ' (' . number_format_i18n($category['count']) . ')'); ?>
+					</a>
+				<?php endforeach; ?>
+			</div>
+		<?php endif; ?>
+
+		<?php if (empty($report['rows'])) : ?>
+			<p class="digitalogic-report-empty"><?php echo esc_html__('No rows on this report page.', 'digitalogic'); ?></p>
+		<?php else : ?>
+			<div class="digitalogic-report-table-wrap">
+				<table class="widefat striped digitalogic-report-table">
+					<thead>
+						<tr>
+							<th><?php echo esc_html__('Product Code', 'digitalogic'); ?></th>
+							<th><?php echo esc_html__('State', 'digitalogic'); ?></th>
+							<th><?php echo esc_html__('WooCommerce', 'digitalogic'); ?></th>
+							<th><?php echo esc_html__('Patris', 'digitalogic'); ?></th>
+							<th><?php echo esc_html__('Stock: source / WooCommerce', 'digitalogic'); ?></th>
+							<th><?php echo esc_html__('CNY price', 'digitalogic'); ?></th>
+							<th><?php echo esc_html__('Weight (g)', 'digitalogic'); ?></th>
+							<th><?php echo esc_html__('Price: source / WooCommerce', 'digitalogic'); ?></th>
+							<th><?php echo esc_html__('Source updated', 'digitalogic'); ?></th>
+							<th><?php echo esc_html__('Findings', 'digitalogic'); ?></th>
+							<th><?php echo esc_html__('Action', 'digitalogic'); ?></th>
+						</tr>
+					</thead>
+					<tbody>
+						<?php foreach ($report['rows'] as $item) : ?>
+							<?php $source_row = $item['source'] ?? array(); $woo_row = $item['woocommerce'] ?? array(); ?>
+							<tr>
+								<td><code><?php echo esc_html($item['product_code']); ?></code></td>
+								<td><?php echo esc_html($row_status_titles[$item['status']] ?? $item['status']); ?></td>
+								<td><?php echo esc_html($woo_row['name'] ?? '—'); ?></td>
+								<td><?php echo esc_html($sparse_value($source_row, 'name')); ?></td>
+								<td class="digitalogic-num"><span dir="ltr"><?php echo esc_html($sparse_value($source_row, 'total_stock') . ' / ' . (array_key_exists('stock_quantity', $woo_row) ? (null === $woo_row['stock_quantity'] ? 'null' : $woo_row['stock_quantity']) : '—')); ?></span></td>
+								<td class="digitalogic-num"><span dir="ltr"><?php echo esc_html($sparse_value($source_row, 'foreign_price')); ?></span></td>
+								<td class="digitalogic-num"><span dir="ltr"><?php echo esc_html($sparse_value($source_row, 'weight_grams')); ?></span></td>
+								<td class="digitalogic-num"><span dir="ltr"><?php echo esc_html($sparse_value($source_row, 'final_price') . ' / ' . ($woo_row['active_price'] ?? '—')); ?></span></td>
+								<td><span dir="ltr"><?php echo esc_html($sparse_value($source_row, 'source_updated_at')); ?></span></td>
+								<td>
+									<?php if (empty($item['issues'])) : ?>
+										<span class="description"><?php echo esc_html__('Current', 'digitalogic'); ?></span>
+									<?php else : ?>
+										<?php foreach ($item['issues'] as $issue) : ?><span class="digitalogic-report-badge"><?php echo esc_html($category_titles[$issue] ?? $issue); ?></span> <?php endforeach; ?>
+									<?php endif; ?>
+								</td>
+								<td><?php if (!empty($item['edit_url'])) : ?><a class="button button-small" href="<?php echo esc_url($item['edit_url']); ?>" target="_blank" rel="noopener"><?php echo esc_html__('Edit', 'digitalogic'); ?></a><?php endif; ?></td>
+							</tr>
+						<?php endforeach; ?>
+					</tbody>
+				</table>
+			</div>
+		<?php endif; ?>
+
+		<?php if ($report['pagination']['pages'] > 1) : ?>
+			<p class="tablenav-pages">
+				<?php if ($report['pagination']['page'] > 1) : ?><a class="button" href="<?php echo esc_url($report_url(array('report_view' => $report['view'], 'report_category' => $report['filters']['category'], 'report_page' => $report['pagination']['page'] - 1))); ?>"><?php echo esc_html__('Previous', 'digitalogic'); ?></a><?php endif; ?>
+				<span><?php echo esc_html(sprintf(__('Page %1$d of %2$d', 'digitalogic'), $report['pagination']['page'], $report['pagination']['pages'])); ?></span>
+				<?php if ($report['pagination']['page'] < $report['pagination']['pages']) : ?><a class="button" href="<?php echo esc_url($report_url(array('report_view' => $report['view'], 'report_category' => $report['filters']['category'], 'report_page' => $report['pagination']['page'] + 1))); ?>"><?php echo esc_html__('Next', 'digitalogic'); ?></a><?php endif; ?>
+			</p>
+		<?php endif; ?>
     </section>
 </div>

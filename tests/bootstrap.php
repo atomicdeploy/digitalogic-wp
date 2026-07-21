@@ -1979,6 +1979,11 @@ function wp_strip_all_tags($value) {
 }
 
 function wc_get_products($args = array()) {
+    if (!isset($GLOBALS['digitalogic_test_wc_product_query_args']) || !is_array($GLOBALS['digitalogic_test_wc_product_query_args'])) {
+        $GLOBALS['digitalogic_test_wc_product_query_args'] = array();
+    }
+    $GLOBALS['digitalogic_test_wc_product_query_args'][] = $args;
+
     $products = array();
     foreach ($GLOBALS['digitalogic_test_posts'] as $post_id => $post) {
         if (!in_array($post['post_type'], array('product', 'product_variation'), true)) {

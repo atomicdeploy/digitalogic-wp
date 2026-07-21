@@ -253,6 +253,9 @@
                 summary: null,
                 settings: null,
                 reports: null,
+                reportView: 'warnings',
+                reportCategory: '',
+                reportPage: 1,
                 products: [],
                 users: [],
                 selectedProduct: null,
@@ -329,6 +332,11 @@
                 if (this.route.indexOf('/sync') === 0) return 'sync';
                 if (this.route.indexOf('/settings') === 0) return 'settings';
                 return 'dashboard';
+            },
+            reportCategories: function() {
+                return ((this.reports && this.reports.categories) || []).filter(function(category) {
+                    return Number(category.count) > 0;
+                });
             },
             productRouteId: function() {
                 var match = this.route.match(/^\/products\/(\d+)/);
@@ -491,8 +499,6 @@
                 return [
                     {key: 'price-reports', icon: 'dashicons-chart-area', title: this.t.priceReports, body: this.t.priceReportsText, route: '/products'},
                     {key: 'sync-prices', icon: 'dashicons-update', title: this.t.priceSync, body: this.t.priceSyncText, route: '/sync'},
-                    {key: 'image-audit', icon: 'dashicons-format-image', title: this.t.imageAudit, body: this.t.imageAuditText, route: '/reports'},
-                    {key: 'customer-report', icon: 'dashicons-groups', title: this.t.customerReports, body: this.t.customerReportsText, route: '/users'},
                     {key: 'currency-shipping', icon: 'dashicons-admin-tools', title: this.t.currencyShipping, body: this.t.currencyShippingText, route: '/settings'},
                     {key: 'excel-export', icon: 'dashicons-media-spreadsheet', title: this.t.excelExports, body: this.t.excelExportsText, route: '/cli'}
                 ];
@@ -703,16 +709,63 @@
                     self.error = error.message || self.t.error;
                 });
             },
-            loadReports: function() {
+            loadReports: function(page) {
                 var self = this;
+                var requestedPage = Math.max(1, parseInt(page || self.reportPage, 10) || 1);
                 self.loading = true;
-                return self.run('digitalogic_get_reports', {}).then(function(data) {
+                return self.run('digitalogic_get_reports', {
+                    view: self.reportView,
+                    category: self.reportCategory,
+                    page: requestedPage,
+                    per_page: 50
+                }).then(function(data) {
                     self.reports = data;
+                    self.reportView = data.view || self.reportView;
+                    self.reportCategory = (data.filters && data.filters.category) || '';
+                    self.reportPage = (data.pagination && Number(data.pagination.page)) || 1;
                 }).catch(function(error) {
                     self.error = error.message || self.t.error;
                 }).finally(function() {
                     self.loading = false;
                 });
+            },
+            setReportView: function(view) {
+                this.reportView = view === 'price_list' ? 'price_list' : 'warnings';
+                this.reportCategory = '';
+                this.reportPage = 1;
+                return this.loadReports(1);
+            },
+            setReportCategory: function(category) {
+                this.reportView = 'warnings';
+                this.reportCategory = category || '';
+                this.reportPage = 1;
+                return this.loadReports(1);
+            },
+            reportSparseValue: function(record, field) {
+                if (!record || !Object.prototype.hasOwnProperty.call(record, field)) return this.t.missing;
+                if (record[field] === null) return 'null';
+                if (Array.isArray(record[field]) || (record[field] && typeof record[field] === 'object')) {
+                    return JSON.stringify(record[field]);
+                }
+                return String(record[field]);
+            },
+            reportWooValue: function(record, field) {
+                if (!record || !Object.prototype.hasOwnProperty.call(record, field)) return this.t.missing;
+                return record[field] === null ? 'null' : String(record[field]);
+            },
+            reportStateLabel: function(state) {
+                var labels = {
+                    matched: this.t.reportMatched,
+                    source_only: this.t.reportSourceOnly,
+                    woocommerce_only: this.t.reportWooOnly,
+                    ambiguous: this.t.reportAmbiguous
+                };
+                return labels[state] || state;
+            },
+            reportIssueTitle: function(issue) {
+                var categories = (this.reports && this.reports.categories) || [];
+                var match = categories.find(function(category) { return category.key === issue; });
+                return match ? match.title : issue;
             },
             loadProducts: function(page) {
                 var self = this;
