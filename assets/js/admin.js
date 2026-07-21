@@ -515,31 +515,39 @@
             });
         });
         
-        // Export
-        $('#export-btn').on('click', function() {
-            var format = $('#export_format').val();
-            var $btn = $(this);
+        function runExport($btn, format, template) {
             var $result = $('#export-result');
             
+            var originalText = $btn.text();
             $btn.prop('disabled', true).text('Exporting...');
             $result.removeClass('success error').text('');
             
             digitalogicRequest('digitalogic_export', {
                 format: format,
-                product_ids: []
+                product_ids: [],
+                locale: $('#export_locale').val(),
+                template: template ? 1 : 0
             }).done(function(response) {
                 if (response.success) {
-                    $result.addClass('success').html(
-                        'Export completed! <a href="' + response.data.url + '" download>Download file</a>'
-                    );
+                    var $link = $('<a>').attr('href', response.data.url).attr('download', '').text('Download file');
+                    $result.addClass('success').text('Export completed! ').append($link);
                 } else {
                     $result.addClass('error').text('Export failed: ' + response.data);
                 }
             }).fail(function() {
                 $result.addClass('error').text('Export failed');
             }).always(function() {
-                $btn.prop('disabled', false).text('Export All Products');
+                $btn.prop('disabled', false).text(originalText);
             });
+        }
+
+        // Export
+        $('#export-btn').on('click', function() {
+            runExport($(this), $('#export_format').val(), false);
+        });
+
+        $('#excel-template-btn').on('click', function() {
+            runExport($(this), 'excel', true);
         });
         
         // Import

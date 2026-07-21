@@ -1,6 +1,7 @@
 <?php
 
 use PhpOffice\PhpSpreadsheet\Cell\DataType;
+use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xls;
@@ -135,7 +136,11 @@ final class ImportExportCompatibilityTest extends TestCase {
         $this->assertSame('Name', $sheet->getCell('B1')->getValue());
         $this->assertSame('Round-trip product', $sheet->getCell('B2')->getValue());
         $this->assertSame('A2', $sheet->getFreezePane());
-        $this->assertSame('A1:Q1', $sheet->getAutoFilter()->getRange());
+        $last_column = Coordinate::stringFromColumnIndex(count(Digitalogic_Product_Column_Schema::workbook_columns()));
+        $this->assertSame('A1:' . $last_column . '1', $sheet->getAutoFilter()->getRange());
+        $this->assertNotNull($workbook->getSheetByName('Instructions'));
+        $this->assertNotNull($workbook->getSheetByName('Schema'));
+        $this->assertSame('@', $sheet->getStyle('C2')->getNumberFormat()->getFormatCode());
         $workbook->disconnectWorksheets();
 
         $result = $this->exporter->import_excel($filepath);
@@ -145,6 +150,60 @@ final class ImportExportCompatibilityTest extends TestCase {
         $this->assertSame('Round-trip product', $this->manager->updates[42]['name']);
         $this->assertSame('DG-42', $this->manager->updates[42]['sku']);
         $this->assertEquals('150000', $this->manager->updates[42]['regular_price']);
+    }
+
+    public function test_empty_persian_template_is_localized_and_contains_no_product_rows(): void {
+        $filepath = $this->exporter->export_excel(array(), array(
+            'locale' => 'fa',
+            'template' => true,
+        ));
+
+        $workbook = IOFactory::load($filepath);
+        $sheet = $workbook->getSheetByName('Products');
+        $this->assertSame('Product Import Template', $workbook->getProperties()->getTitle());
+        $this->assertSame('شناسه ووکامرس', $sheet->getCell('A1')->getValue());
+        $this->assertTrue($sheet->getRightToLeft());
+        $this->assertSame(1, $sheet->getHighestDataRow());
+        $this->assertStringContainsString('Formula policy', $workbook->getSheetByName('Instructions')->getCell('A4')->getValue());
+        $workbook->disconnectWorksheets();
+    }
+
+    public function test_import_matches_reordered_bilingual_and_persian_headers_with_removed_columns(): void {
+        $filepath = $this->temp_dir . '/localized-reordered.xlsx';
+        $workbook = new Spreadsheet();
+        $sheet = $workbook->getActiveSheet();
+        $sheet->fromArray(array(
+            array('SKU / شناسه کالا', 'WooCommerce ID / شناسه ووکامرس', 'قیمت عادی'),
+            array('00042-DG', 42, '175000'),
+        ));
+        $sheet->setCellValueExplicit('A2', '00042-DG', DataType::TYPE_STRING);
+        (new Xlsx($workbook))->save($filepath);
+        $workbook->disconnectWorksheets();
+
+        $result = $this->exporter->import_excel($filepath);
+
+        $this->assertSame(1, $result['success']);
+        $this->assertSame(0, $result['failed']);
+        $this->assertSame('00042-DG', $this->manager->updates[42]['sku']);
+        $this->assertEquals('175000', $this->manager->updates[42]['regular_price']);
+        $this->assertArrayNotHasKey('name', $this->manager->updates[42]);
+    }
+
+    public function test_machine_headers_are_supported_and_read_only_context_is_ignored(): void {
+        $filepath = $this->temp_dir . '/machine-headers.xlsx';
+        $workbook = new Spreadsheet();
+        $workbook->getActiveSheet()->fromArray(array(
+            array('woocommerce_id', 'name', 'shipping_method_id'),
+            array(42, 'Machine header product', 'read-only-method'),
+        ));
+        (new Xlsx($workbook))->save($filepath);
+        $workbook->disconnectWorksheets();
+
+        $result = $this->exporter->import_excel($filepath);
+
+        $this->assertSame(1, $result['success']);
+        $this->assertSame('Machine header product', $this->manager->updates[42]['name']);
+        $this->assertArrayNotHasKey('shipping_method_id', $this->manager->updates[42]);
     }
 
     public function test_xlsx_import_rejects_non_local_and_malformed_sources(): void {
@@ -197,6 +256,26 @@ final class ImportExportCompatibilityTest extends TestCase {
         };
         $archive_result = $this->exporter->import_excel($filepath);
         $this->assertSame('xlsx_archive_limits_exceeded', $archive_result->get_error_code());
+        $this->assertSame(array(), $this->manager->updates);
+    }
+
+    public function test_formula_in_a_later_row_prevents_all_product_writes(): void {
+        $filepath = $this->temp_dir . '/late-formula.xlsx';
+        $workbook = new Spreadsheet();
+        $sheet = $workbook->getActiveSheet();
+        $sheet->fromArray(array(
+            array('WooCommerce ID', 'Name'),
+            array(42, 'Safe first row'),
+            array(43, null),
+        ));
+        $sheet->setCellValue('B3', '=1+1');
+        (new Xlsx($workbook))->save($filepath);
+        $workbook->disconnectWorksheets();
+
+        $result = $this->exporter->import_excel($filepath);
+
+        $this->assertSame(0, $result['success']);
+        $this->assertSame(1, $result['failed']);
         $this->assertSame(array(), $this->manager->updates);
     }
 

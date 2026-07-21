@@ -486,62 +486,7 @@ final class Digitalogic_Google_Sheets_Catalog {
 	 * @return array
 	 */
 	private function product_columns( $warehouses ) {
-		$columns = array(
-			$this->column( 'sync_key', 'Sync Key', 'کلید همگام‌سازی', 'text' ),
-			$this->column( 'patris_code', 'Patris Code', 'کد کالا', 'text' ),
-			$this->column( 'woocommerce_id', 'WooCommerce ID', 'شناسه ووکامرس', 'integer' ),
-			$this->column( 'parent_id', 'Parent ID', 'شناسه والد', 'integer' ),
-			$this->column( 'product_type', 'Product Type', 'نوع محصول', 'text' ),
-			$this->column( 'publication_status', 'Publication Status', 'وضعیت انتشار', 'text' ),
-			$this->column( 'name', 'Name', 'نام', 'text' ),
-			$this->column( 'part_number', 'Part Number', 'پارت نامبر', 'text' ),
-			$this->column( 'sku', 'SKU', 'شناسه کالا', 'text' ),
-			$this->column( 'categories', 'Categories', 'دسته‌بندی‌ها', 'text' ),
-			$this->column( 'category_ids', 'Category IDs', 'شناسه‌های دسته‌بندی', 'text' ),
-			$this->column( 'currency', 'Currency', 'ارز', 'text' ),
-			$this->column( 'regular_price', 'Regular Price', 'قیمت عادی', 'number' ),
-			$this->column( 'sale_price', 'Sale Price', 'قیمت فروش ویژه', 'number' ),
-			$this->column( 'effective_price', 'Effective Price', 'قیمت نهایی قابل استفاده', 'number' ),
-			$this->column( 'patris_final_price', 'Patris Final Price', 'قیمت نهایی پاتریس', 'number' ),
-			$this->column( 'price_status', 'Price Status', 'وضعیت قیمت', 'text' ),
-			$this->column( 'stock_quantity', 'WooCommerce Stock', 'موجودی ووکامرس', 'number' ),
-			$this->column( 'stock_status', 'Stock Status', 'وضعیت موجودی', 'text' ),
-			$this->column( 'patris_total_stock', 'Patris Total Stock', 'موجودی کل پاتریس', 'number' ),
-			$this->column( 'patris_minimum_stock', 'Minimum Stock', 'حداقل موجودی', 'number' ),
-		);
-
-		foreach ( $warehouses as $warehouse ) {
-			$columns[] = $this->column(
-				$this->warehouse_key( $warehouse ),
-				'Warehouse Stock: ' . $warehouse,
-				'موجودی انبار: ' . $warehouse,
-				'number'
-			);
-		}
-
-		return array_merge(
-			$columns,
-			array(
-				$this->column( 'weight_grams', 'Weight (g)', 'وزن (گرم)', 'number' ),
-				$this->column( 'woocommerce_weight', 'WooCommerce Weight', 'وزن ووکامرس', 'number' ),
-				$this->column( 'woocommerce_weight_unit', 'Weight Unit', 'واحد وزن', 'text' ),
-				$this->column( 'foreign_price', 'Foreign Price', 'قیمت ارزی', 'number' ),
-				$this->column( 'foreign_currency', 'Foreign Currency', 'ارز خارجی', 'text' ),
-				$this->column( 'shipping_method_id', 'Shipping Method ID', 'شناسه روش حمل', 'text' ),
-				$this->column( 'shipping_method_name_en', 'Shipping Method', 'نام انگلیسی روش حمل', 'text' ),
-				$this->column( 'shipping_method_name_fa', 'Shipping Method (Persian)', 'روش حمل', 'text' ),
-				$this->column( 'shipping_price_per_kg', 'Shipping Price per kg', 'هزینه حمل هر کیلو', 'number' ),
-				$this->column( 'shipping_price_per_kg_currency', 'Shipping Price Currency', 'ارز هزینه حمل', 'text' ),
-				$this->column( 'profit_percent', 'Profit Margin (%)', 'حاشیه سود (درصد)', 'number' ),
-				$this->column( 'profit_percent_source', 'Profit Source', 'منبع حاشیه سود', 'text' ),
-				$this->column( 'permalink', 'Product URL', 'نشانی محصول', 'url' ),
-				$this->column( 'image_url', 'Image URL', 'نشانی تصویر', 'url' ),
-				$this->column( 'updated_at', 'Updated At', 'زمان به‌روزرسانی', 'datetime' ),
-				$this->column( 'sync_status', 'Sync Status', 'وضعیت همگام‌سازی', 'text' ),
-				$this->column( 'sync_error', 'Sync Notes', 'توضیحات همگام‌سازی', 'text' ),
-				$this->column( 'record_revision', 'Record Revision', 'شناسه بازبینی رکورد', 'text' ),
-			)
-		);
+		return Digitalogic_Product_Column_Schema::catalog_columns( $warehouses );
 	}
 
 	/**
@@ -691,7 +636,7 @@ final class Digitalogic_Google_Sheets_Catalog {
 	 * @return string
 	 */
 	private function warehouse_key( $warehouse ) {
-		return 'warehouse_stock:' . rawurlencode( (string) $warehouse );
+		return Digitalogic_Product_Column_Schema::warehouse_key( $warehouse );
 	}
 
 	/**

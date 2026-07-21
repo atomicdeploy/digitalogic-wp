@@ -96,7 +96,7 @@ class Digitalogic_Admin {
             array($this, 'render_dashboard')
         );
         
-        $this->page_hooks[] = add_submenu_page(
+        $product_page_hook = add_submenu_page(
             'digitalogic',
             __('Product List', 'digitalogic'),
             __('Products', 'digitalogic'),
@@ -104,6 +104,8 @@ class Digitalogic_Admin {
             'product-list',
             array($this, 'render_products_page')
         );
+        $this->page_hooks[] = $product_page_hook;
+        add_action('load-' . $product_page_hook, array($this, 'redirect_products_page'));
         
         $this->currency_page_hook = add_submenu_page(
             'digitalogic',
@@ -217,7 +219,7 @@ class Digitalogic_Admin {
             'id'     => 'digitalogic-products',
             'parent' => 'digitalogic',
             'title'  => '<span class="dashicons dashicons-products"></span> ' . __('Products', 'digitalogic'),
-            'href'   => admin_url('admin.php?page=product-list'),
+            'href'   => Digitalogic_Laravel_Bridge::instance()->get_panel_url('/products/'),
             'meta'   => array(
                 'title' => __('Product List', 'digitalogic'),
             ),
@@ -453,7 +455,26 @@ class Digitalogic_Admin {
             return;
         }
         
-        include DIGITALOGIC_PLUGIN_DIR . 'includes/admin/views/products.php';
+        $panel_products_url = Digitalogic_Laravel_Bridge::instance()->get_panel_url('/products/');
+        ?>
+        <div class="wrap">
+            <h1><?php esc_html_e('Product Management', 'digitalogic'); ?></h1>
+            <p><?php esc_html_e('Products are managed in the shared Digitalogic product grid.', 'digitalogic'); ?></p>
+            <p><a class="button button-primary" href="<?php echo esc_url($panel_products_url); ?>"><?php esc_html_e('Open product grid', 'digitalogic'); ?></a></p>
+        </div>
+        <?php
+    }
+
+    /**
+     * Keep the WordPress Products entrypoint on the canonical shared grid.
+     */
+    public function redirect_products_page() {
+        if (!current_user_can('manage_woocommerce')) {
+            return;
+        }
+
+        wp_safe_redirect(Digitalogic_Laravel_Bridge::instance()->get_panel_url('/products/'));
+        exit;
     }
     
     /**

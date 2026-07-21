@@ -377,24 +377,35 @@ class Digitalogic_CLI_Commands {
      * 
      * [--output=<file>]
      * : Output file path
+     *
+     * [--locale=<locale>]
+     * : Excel header locale: en, fa, or bilingual
+     *
+     * [--template]
+     * : Download an empty header-driven Excel template
      * 
      * ## EXAMPLES
      * 
      *     wp digitalogic export --format=csv
      *     wp digitalogic export --format=json --output=/path/to/products.json
-     *     wp digitalogic export --format=excel --output=/path/to/products.xlsx
+     *     wp digitalogic export --format=excel --locale=bilingual --template --output=/path/to/products.xlsx
      * 
      * @when after_wp_load
      */
     public function export($args, $assoc_args) {
         $format = isset($assoc_args['format']) ? $assoc_args['format'] : 'csv';
+        $locale = isset($assoc_args['locale']) ? sanitize_key($assoc_args['locale']) : 'en';
+        $template = isset($assoc_args['template']);
         
         $import_export = Digitalogic_Import_Export::instance();
         
         if ($format === 'json') {
             $filepath = $import_export->export_json();
         } elseif ($format === 'excel') {
-            $filepath = $import_export->export_excel();
+            $filepath = $import_export->export_excel(array(), array(
+                'locale' => $locale,
+                'template' => $template,
+            ));
         } else {
             $filepath = $import_export->export_csv();
         }

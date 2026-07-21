@@ -585,10 +585,17 @@ class Digitalogic_Import_Export {
      * @param array $product_ids
      * @return string File path
      */
-    public function export_excel($product_ids = array()) {
+    public function export_excel($product_ids = array(), $options = array()) {
         if (!class_exists('\PhpOffice\PhpSpreadsheet\Spreadsheet')) {
             return new WP_Error('library_missing', __('PhpSpreadsheet library not found', 'digitalogic'));
         }
+
+        $options = is_array($options) ? $options : array();
+        $locale = isset($options['locale']) ? sanitize_key((string) $options['locale']) : 'en';
+        if (!in_array($locale, array('en', 'fa', 'bilingual'), true)) {
+            $locale = 'en';
+        }
+        $template_only = !empty($options['template']);
         
         $upload_dir = wp_upload_dir();
         $export_dir = $upload_dir['basedir'] . '/digitalogic-exports';
@@ -597,8 +604,46 @@ class Digitalogic_Import_Export {
             wp_mkdir_p($export_dir);
         }
         
-        $filename = 'products-export-' . date('Y-m-d-His') . '.xlsx';
+        $filename = ($template_only ? 'products-template-' : 'products-export-') . $locale . '-' . date('Y-m-d-His') . '.xlsx';
         $filepath = $export_dir . '/' . $filename;
+
+        $manager = Digitalogic_Product_Manager::instance();
+        $products = array();
+        if (!$template_only) {
+            if (empty($product_ids)) {
+                $products = $manager->get_products(array('limit' => -1));
+            } else {
+                foreach ($product_ids as $id) {
+                    $product = $manager->get_product($id);
+                    if ($product) {
+                        $products[] = $product;
+                    }
+                }
+            }
+        }
+
+        $projection = $this->get_workbook_projection($products);
+        $projected_rows = array();
+        $warehouses = array();
+        if (!is_wp_error($projection)) {
+            foreach ((array) ($projection['columns'] ?? array()) as $column) {
+                $key = isset($column['key']) ? (string) $column['key'] : '';
+                if (str_starts_with($key, 'warehouse_stock:')) {
+                    $warehouses[] = Digitalogic_Product_Column_Schema::warehouse_name_from_key($key);
+                }
+            }
+            foreach ((array) ($projection['rows'] ?? array()) as $row) {
+                $id = absint($row['woocommerce_id'] ?? 0);
+                if ($id > 0) {
+                    $projected_rows[$id] = $row;
+                }
+            }
+        }
+        foreach ($products as $product) {
+            $warehouses = array_merge($warehouses, array_keys((array) ($product['patris_warehouse_stock'] ?? array())));
+        }
+        $warehouses = Digitalogic_Product_Column_Schema::normalize_warehouses($warehouses);
+        $columns = Digitalogic_Product_Column_Schema::workbook_columns($warehouses);
         
         // Create new Spreadsheet object
         $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
@@ -607,118 +652,79 @@ class Digitalogic_Import_Export {
         // Set custom template properties
         $spreadsheet->getProperties()
             ->setCreator('Digitalogic WooCommerce Extension')
-            ->setTitle('Product Export')
+            ->setTitle($template_only ? 'Product Import Template' : 'Product Export')
             ->setSubject('Product Data')
-            ->setDescription('Product export from Digitalogic WooCommerce Extension')
+            ->setDescription('Header-driven Digitalogic product workbook. Formula cells are never imported.')
             ->setCategory('Products');
         
-        // Custom template styling
         $sheet->setTitle('Products');
+        $sheet->setRightToLeft('fa' === $locale);
+        $sheet->getTabColor()->setRGB('2563EB');
         
-        // Headers with custom styling
-        $headers = self::get_product_headers();
-        
-        $num_columns = count($headers);
+        $num_columns = count($columns);
         $last_column = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($num_columns);
         
-        // Set headers
-        foreach ($headers as $index => $header) {
+        foreach ($columns as $index => $column_definition) {
             $column = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($index + 1);
-            $sheet->setCellValue($column . '1', $header);
+            self::set_spreadsheet_value(
+                $sheet,
+                $column . '1',
+                Digitalogic_Product_Column_Schema::localized_header($column_definition, $locale)
+            );
+            $sheet->getColumnDimension($column)->setWidth($column_definition['width']);
         }
         
-        // Style header row
         $headerStyle = $sheet->getStyle('A1:' . $last_column . '1');
-        $headerStyle->getFont()->setBold(true)->setSize(12);
+        $headerStyle->getFont()->setBold(true)->setSize(11);
         $headerStyle->getFill()
             ->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID)
-            ->getStartColor()->setRGB('4472C4');
+            ->getStartColor()->setRGB('173F5F');
         $headerStyle->getFont()->getColor()->setRGB('FFFFFF');
         $headerStyle->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
+        $headerStyle->getAlignment()->setVertical(\PhpOffice\PhpSpreadsheet\Style\Alignment::VERTICAL_CENTER);
+        $sheet->getRowDimension(1)->setRowHeight(30);
         
-        // Set column widths
-        $sheet->getColumnDimension('A')->setWidth(10);
-        $sheet->getColumnDimension('B')->setWidth(40);
-        $sheet->getColumnDimension('C')->setWidth(15);
-        $sheet->getColumnDimension('D')->setWidth(12);
-        $sheet->getColumnDimension('E')->setWidth(15);
-        $sheet->getColumnDimension('F')->setWidth(15);
-        $sheet->getColumnDimension('G')->setWidth(15);
-        $sheet->getColumnDimension('H')->setWidth(15);
-        $sheet->getColumnDimension('I')->setWidth(12);
-        $sheet->getColumnDimension('J')->setWidth(12);
-        $sheet->getColumnDimension('K')->setWidth(12);
-        $sheet->getColumnDimension('L')->setWidth(12);
-        $sheet->getColumnDimension('M')->setWidth(18);
-        $sheet->getColumnDimension('N')->setWidth(15);
-        $sheet->getColumnDimension('O')->setWidth(15);
-        $sheet->getColumnDimension('P')->setWidth(12);
-        $sheet->getColumnDimension('Q')->setWidth(15);
-        
-        // Get products
-        $manager = Digitalogic_Product_Manager::instance();
-        
-        if (empty($product_ids)) {
-            $products = $manager->get_products(array('limit' => -1));
-        } else {
-            $products = array();
-            foreach ($product_ids as $id) {
-                $product = $manager->get_product($id);
-                if ($product) {
-                    $products[] = $product;
-                }
-            }
-        }
-        
-        // Write data
         $row = 2;
         foreach ($products as $product_data) {
             $product = wc_get_product($product_data['id']);
             if (!$product) {
                 continue;
             }
+
+            $projected = $projected_rows[(int) $product_data['id']] ?? array();
+            foreach ($columns as $index => $column_definition) {
+                $column = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($index + 1);
+                $value = $this->workbook_export_value($product_data, $projected, $product, $column_definition['key']);
+                $numeric = in_array($column_definition['type'], array('integer', 'number'), true);
+                self::set_spreadsheet_value($sheet, $column . $row, $value, $numeric);
+                if ('text' === $column_definition['type']) {
+                    $sheet->getStyle($column . $row)->getNumberFormat()->setFormatCode('@');
+                } elseif ($numeric) {
+                    $sheet->getStyle($column . $row)->getNumberFormat()->setFormatCode('#,##0.########');
+                }
+            }
             
-            self::set_spreadsheet_value($sheet, 'A' . $row, $product_data['id'], true);
-            self::set_spreadsheet_value($sheet, 'B' . $row, $product_data['name']);
-            self::set_spreadsheet_value($sheet, 'C' . $row, $product_data['sku']);
-            self::set_spreadsheet_value($sheet, 'D' . $row, $product_data['type']);
-            self::set_spreadsheet_value($sheet, 'E' . $row, $product_data['regular_price'], true);
-            self::set_spreadsheet_value($sheet, 'F' . $row, $product_data['sale_price'], true);
-            self::set_spreadsheet_value($sheet, 'G' . $row, $product_data['stock_quantity'], true);
-            self::set_spreadsheet_value($sheet, 'H' . $row, $product_data['stock_status']);
-            self::set_spreadsheet_value($sheet, 'I' . $row, $product_data['weight'], true);
-            self::set_spreadsheet_value($sheet, 'J' . $row, $product_data['length'], true);
-            self::set_spreadsheet_value($sheet, 'K' . $row, $product_data['width'], true);
-            self::set_spreadsheet_value($sheet, 'L' . $row, $product_data['height'], true);
-            self::set_spreadsheet_value($sheet, 'M' . $row, $product->get_meta('_digitalogic_dynamic_pricing', true));
-            self::set_spreadsheet_value($sheet, 'N' . $row, $product->get_meta('_digitalogic_currency_type', true));
-            self::set_spreadsheet_value($sheet, 'O' . $row, $product->get_meta('_digitalogic_base_price', true), true);
-            self::set_spreadsheet_value($sheet, 'P' . $row, $product->get_meta('_digitalogic_markup', true), true);
-            self::set_spreadsheet_value($sheet, 'Q' . $row, $product->get_meta('_digitalogic_markup_type', true));
-            
-            // Apply alternating row colors
             if ($row % 2 == 0) {
                 $sheet->getStyle('A' . $row . ':' . $last_column . $row)->getFill()
                     ->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID)
-                    ->getStartColor()->setRGB('F2F2F2');
+                    ->getStartColor()->setRGB('EDF4F8');
             }
             
             $row++;
         }
         
-        // Add borders to all cells with data
-        $lastRow = $row - 1;
+        $lastRow = max(1, $row - 1);
         $sheet->getStyle('A1:' . $last_column . $lastRow)->getBorders()->getAllBorders()
             ->setBorderStyle(\PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN)
-            ->getColor()->setRGB('000000');
+            ->getColor()->setRGB('C7D5DF');
+        $sheet->getStyle('A1:' . $last_column . $lastRow)->getAlignment()->setVertical(
+            \PhpOffice\PhpSpreadsheet\Style\Alignment::VERTICAL_CENTER
+        );
         
-        // Freeze header row
         $sheet->freezePane('A2');
-        
-        // Add filters to header row
         $sheet->setAutoFilter('A1:' . $last_column . '1');
+        $this->add_workbook_instructions($spreadsheet, $columns, $locale);
         
-        // Write file and release workbook resources even when the writer fails.
         try {
             $writer = new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($spreadsheet);
             $writer->save($filepath);
@@ -727,6 +733,125 @@ class Digitalogic_Import_Export {
         }
         
         return $filepath;
+    }
+
+    /**
+     * Build the optional shipping/pricing projection without making basic export brittle.
+     *
+     * @param array $products Product manager rows.
+     * @return array|WP_Error
+     */
+    private function get_workbook_projection($products) {
+        if (!class_exists('Digitalogic_Google_Sheets_Catalog')) {
+            return new WP_Error('projection_unavailable', __('Catalog projection is unavailable', 'digitalogic'));
+        }
+
+        try {
+            return Digitalogic_Google_Sheets_Catalog::instance()->transform_products((array) $products);
+        } catch (\Throwable $e) {
+            return new WP_Error('projection_unavailable', __('Catalog projection is unavailable', 'digitalogic'));
+        }
+    }
+
+    /**
+     * Resolve one exported workbook cell from canonical and legacy sources.
+     */
+    private function workbook_export_value($product_data, $projected, $product, $key) {
+        if (array_key_exists($key, $projected)) {
+            return $projected[$key];
+        }
+
+        $product_fields = array(
+            'woocommerce_id' => 'id',
+            'name' => 'name',
+            'sku' => 'sku',
+            'patris_code' => 'patris_product_code',
+            'product_type' => 'type',
+            'publication_status' => 'status',
+            'regular_price' => 'regular_price',
+            'sale_price' => 'sale_price',
+            'stock_quantity' => 'stock_quantity',
+            'stock_status' => 'stock_status',
+            'woocommerce_weight' => 'weight',
+            'length' => 'length',
+            'width' => 'width',
+            'height' => 'height',
+            'foreign_currency' => 'patris_foreign_currency',
+            'foreign_price' => 'patris_foreign_price',
+            'weight_grams' => 'patris_weight_grams',
+            'patris_total_stock' => 'patris_total_stock',
+            'patris_minimum_stock' => 'patris_minimum_stock',
+            'patris_location' => 'patris_location',
+            'patris_final_price' => 'patris_final_price',
+        );
+        if (isset($product_fields[$key])) {
+            return $product_data[$product_fields[$key]] ?? '';
+        }
+        if (str_starts_with($key, 'warehouse_stock:')) {
+            $warehouse = Digitalogic_Product_Column_Schema::warehouse_name_from_key($key);
+            return $product_data['patris_warehouse_stock'][$warehouse] ?? '';
+        }
+
+        $meta_fields = array(
+            'dynamic_pricing' => '_digitalogic_dynamic_pricing',
+            'currency_type' => '_digitalogic_currency_type',
+            'base_price' => '_digitalogic_base_price',
+            'markup' => '_digitalogic_markup',
+            'markup_type' => '_digitalogic_markup_type',
+        );
+        return isset($meta_fields[$key]) ? $product->get_meta($meta_fields[$key], true) : '';
+    }
+
+    /**
+     * Add operator guidance plus a machine-readable schema worksheet.
+     */
+    private function add_workbook_instructions($spreadsheet, $columns, $locale) {
+        $instructions = $spreadsheet->createSheet();
+        $instructions->setTitle('Instructions');
+        $instructions->getTabColor()->setRGB('10B981');
+        $instructions->setRightToLeft('fa' === $locale);
+        $instructions->fromArray(array(
+            array('Digitalogic Product Workbook'),
+            array('Edit the Products sheet. Columns may be reordered or removed; import matches recognized headers.'),
+            array('WooCommerce ID and at least one writable column are required. SKU and Patris Code are text.'),
+            array('Formula policy: formulas are not trusted or calculated. Any row containing a formula is rejected before writes begin.'),
+            array('Read-only context columns (shipping, profit, and warehouse stock) are exported for review and ignored on import.'),
+            array('Use the Schema sheet for stable machine keys, English/Persian labels, types, and access.'),
+        ));
+        $instructions->getStyle('A1')->getFont()->setBold(true)->setSize(18)->getColor()->setRGB('173F5F');
+        $instructions->getStyle('A1:A6')->getAlignment()->setWrapText(true)->setVertical(
+            \PhpOffice\PhpSpreadsheet\Style\Alignment::VERTICAL_TOP
+        );
+        $instructions->getColumnDimension('A')->setWidth(112);
+        foreach (range(2, 6) as $row) {
+            $instructions->getRowDimension($row)->setRowHeight(34);
+        }
+
+        $schema = $spreadsheet->createSheet();
+        $schema->setTitle('Schema');
+        $schema->getTabColor()->setRGB('F59E0B');
+        $schema->fromArray(array(array('Machine Key', 'English Header', 'Persian Header', 'Type', 'Access', 'Group')));
+        $row = 2;
+        foreach ($columns as $column) {
+            $schema->fromArray(array(array(
+                $column['key'],
+                $column['label_en'],
+                $column['label_fa'],
+                $column['type'],
+                !empty($column['writable']) ? 'writable' : 'read-only',
+                $column['group'],
+            )), null, 'A' . $row, true);
+            $row++;
+        }
+        $schema->getStyle('A1:F1')->getFont()->setBold(true)->getColor()->setRGB('FFFFFF');
+        $schema->getStyle('A1:F1')->getFill()->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID)
+            ->getStartColor()->setRGB('173F5F');
+        foreach (array('A' => 32, 'B' => 28, 'C' => 28, 'D' => 12, 'E' => 14, 'F' => 14) as $column => $width) {
+            $schema->getColumnDimension($column)->setWidth($width);
+        }
+        $schema->freezePane('A2');
+        $schema->setAutoFilter('A1:F' . max(2, $row - 1));
+        $spreadsheet->setActiveSheetIndex(0);
     }
     
     /**
@@ -784,98 +909,93 @@ class Digitalogic_Import_Export {
                 return new WP_Error('empty_file', __('Excel file is empty', 'digitalogic'));
             }
             
-            // First row is headers
             $headers = array_map(
                 static function($header) {
                     return trim((string) $header);
                 },
                 array_shift($data)
             );
-            $missing_headers = array_diff(self::get_product_headers(), $headers);
-            if (!empty($missing_headers) || count($headers) !== count(array_unique($headers))) {
-                return new WP_Error('invalid_headers', __('Excel file does not match the product import template', 'digitalogic'));
+            $resolved_headers = Digitalogic_Product_Column_Schema::resolve_workbook_headers($headers);
+            if (is_wp_error($resolved_headers)) {
+                return $resolved_headers;
             }
-            
-            $manager = Digitalogic_Product_Manager::instance();
-            
-            $current_row_num = 2; // Start at 2 because row 1 is headers
-            foreach ($data as $row) {
-                if (empty($row[0])) {
-                    $current_row_num++;
-                    continue; // Skip empty rows
+
+            // Formula cells are rejected across the complete sheet before the
+            // first product write, so a later unsafe row cannot cause a partial import.
+            $formula_rows = array();
+            foreach ($data as $row_index => $row) {
+                foreach ((array) $row as $value) {
+                    if (is_string($value) && str_starts_with(ltrim($value), '=')) {
+                        $formula_rows[] = $row_index + 2;
+                        break;
+                    }
                 }
-                
-                // Validate row has same number of columns as headers
-                if (count($headers) !== count($row)) {
+            }
+            if ($formula_rows) {
+                foreach ($formula_rows as $formula_row) {
                     $results['failed']++;
-                    $results['errors'][] = sprintf('Row %d has %d columns but expected %d', $current_row_num, count($row), count($headers));
+                    $results['errors'][] = sprintf('Row %d: Formula cells are not supported', $formula_row);
+                }
+                return $results;
+            }
+
+            $manager = Digitalogic_Product_Manager::instance();
+            $current_row_num = 2;
+            foreach ($data as $row) {
+                $row = array_pad((array) $row, count($resolved_headers), null);
+                $row = array_slice($row, 0, count($resolved_headers));
+                $has_value = (bool) array_filter(
+                    $row,
+                    static function($value) {
+                        return null !== $value && '' !== trim((string) $value);
+                    }
+                );
+                if (!$has_value) {
                     $current_row_num++;
                     continue;
                 }
 
-                $has_formula = false;
-                foreach ($row as $value) {
-                    if (is_string($value) && str_starts_with(ltrim($value), '=')) {
-                        $has_formula = true;
-                        break;
-                    }
+                $row_data = array();
+                foreach ($resolved_headers as $index => $key) {
+                    $row_data[$key] = $row[$index] ?? null;
                 }
-                if ($has_formula) {
-                    $results['failed']++;
-                    $results['errors'][] = sprintf('Row %d: Formula cells are not supported', $current_row_num);
-                    $current_row_num++;
-                    continue;
-                }
-                
-                $row_data = array_combine($headers, $row);
-                
-                // Additional safety check (should never happen due to earlier validation)
-                if ($row_data === false) {
-                    $results['failed']++;
-                    $results['errors'][] = sprintf('Row %d: Failed to parse data', $current_row_num);
-                    $current_row_num++;
-                    continue;
-                }
-                
-                if (empty($row_data['ID'])) {
+
+                if (empty($row_data['woocommerce_id'])) {
                     $results['failed']++;
                     $results['errors'][] = sprintf('Row %d: Missing product ID', $current_row_num);
                     $current_row_num++;
                     continue;
                 }
-                
-                $product_id = intval($row_data['ID']);
-                
-                $update_data = array(
-                    'name' => $row_data['Name'],
-                    'sku' => $row_data['SKU'],
-                    'regular_price' => $row_data['Regular Price'],
-                    'sale_price' => $row_data['Sale Price'],
-                    'stock_quantity' => $row_data['Stock Quantity'],
-                    'stock_status' => $row_data['Stock Status'],
-                    'weight' => $row_data['Weight'],
-                    'length' => $row_data['Length'],
-                    'width' => $row_data['Width'],
-                    'height' => $row_data['Height'],
-                );
-                
-                // Remove empty values
+
+                $product_id = intval($row_data['woocommerce_id']);
+                $update_data = array();
+                foreach ($row_data as $key => $value) {
+                    $definition = Digitalogic_Product_Column_Schema::workbook_column_by_key($key);
+                    if (!$definition || empty($definition['writable']) || str_starts_with($definition['manager_field'], '_')) {
+                        continue;
+                    }
+                    $update_data[$definition['manager_field']] = $value;
+                }
                 $update_data = array_filter($update_data, function($value) {
                     return $value !== '' && $value !== null;
                 });
-                
+
                 $result = $manager->update_product($product_id, $update_data);
-                
                 if (is_wp_error($result)) {
                     $results['failed']++;
                     $results['errors'][] = sprintf('Row %d: %s', $current_row_num, $result->get_error_message());
                 } else {
                     $results['success']++;
-                    
-                    // Update dynamic pricing using helper method
-                    $this->update_dynamic_pricing($product_id, $row_data);
+
+                    $this->update_dynamic_pricing($product_id, array(
+                        'Dynamic Pricing' => $row_data['dynamic_pricing'] ?? '',
+                        'Currency Type' => $row_data['currency_type'] ?? '',
+                        'Base Price' => $row_data['base_price'] ?? '',
+                        'Markup' => $row_data['markup'] ?? '',
+                        'Markup Type' => $row_data['markup_type'] ?? '',
+                    ));
                 }
-                
+
                 $current_row_num++;
             }
             

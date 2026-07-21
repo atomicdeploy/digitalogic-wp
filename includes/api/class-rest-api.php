@@ -912,13 +912,18 @@ class Digitalogic_REST_API {
     public function export_products(WP_REST_Request $request) {
         $format = $request->get_param('format') ?: 'json';
         $product_ids = $request->get_param('product_ids') ?: array();
+        $locale = sanitize_key((string) ($request->get_param('locale') ?: 'en'));
+        $template = (bool) $request->get_param('template');
         
         $import_export = Digitalogic_Import_Export::instance();
         
         if ($format === 'csv') {
             $filepath = $import_export->export_csv($product_ids);
         } elseif ($format === 'excel') {
-            $filepath = $import_export->export_excel($product_ids);
+            $filepath = $import_export->export_excel($product_ids, array(
+                'locale' => $locale,
+                'template' => $template,
+            ));
         } else {
             $filepath = $import_export->export_json($product_ids);
         }

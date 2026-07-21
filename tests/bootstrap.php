@@ -2205,6 +2205,7 @@ require_once dirname( __DIR__ ) . '/includes/panel/class-digitalogic-panel-error
 require_once dirname(__DIR__) . '/includes/class-product-identifier-resolver.php';
 require_once dirname(__DIR__) . '/includes/class-digitalogic-product-query.php';
 require_once dirname(__DIR__) . '/includes/class-digitalogic-patris-price-policy.php'; // phpcs:ignore
+require_once dirname(__DIR__) . '/includes/class-digitalogic-product-column-schema.php'; // phpcs:ignore
 require_once dirname(__DIR__) . '/includes/class-digitalogic-product-metadata-inspector.php'; // phpcs:ignore
 require_once dirname(__DIR__) . '/includes/class-digitalogic-product-write-lock.php'; // phpcs:ignore
 require_once dirname(__DIR__) . '/includes/class-product-manager.php'; // phpcs:ignore

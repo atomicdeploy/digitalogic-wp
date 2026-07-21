@@ -824,6 +824,30 @@ a.dlp-button:focus {
     gap: 6px;
 }
 
+.dlp-column-group {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 8px 14px;
+    flex: 1 1 100%;
+    width: 100%;
+    padding: 12px;
+    border: 1px solid var(--dlp-border);
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--dlp-panel) 76%, transparent);
+}
+
+.dlp-column-group > strong {
+    grid-column: 1 / -1;
+    color: var(--dlp-heading);
+    font-size: 12px;
+    letter-spacing: 0.02em;
+}
+
+.dlp-column-group.is-warehouse {
+    border-color: color-mix(in srgb, var(--dlp-accent) 34%, var(--dlp-border));
+    background: color-mix(in srgb, var(--dlp-accent-soft) 34%, var(--dlp-panel));
+}
+
 .dlp-panel {
     overflow: hidden;
 }
@@ -836,7 +860,17 @@ a.dlp-button:focus {
 }
 
 .dlp-table-wrap {
+    position: relative;
     overflow: auto;
+}
+
+.dlp-resize-guide {
+    position: absolute;
+    z-index: 145;
+    width: 2px;
+    pointer-events: none;
+    background: var(--dlp-accent);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--dlp-panel) 65%, transparent), 0 0 12px var(--dlp-accent-soft);
 }
 
 .dlp-products-section > .dlp-toolbar {
@@ -932,6 +966,38 @@ a.dlp-button:focus {
     z-index: 100;
 }
 
+.dlp-data-grid[data-grid-kind="product"] .dlp-group-row th {
+    top: 0;
+    height: 32px;
+    padding-block: 4px;
+    color: var(--dlp-text-soft);
+    text-align: center;
+    white-space: nowrap;
+}
+
+.dlp-data-grid[data-grid-kind="product"] .dlp-column-header-row th {
+    top: 32px;
+    height: 43px;
+}
+
+.dlp-data-grid[data-grid-kind="product"] .dlp-group-row th[rowspan] {
+    vertical-align: middle;
+}
+
+.dlp-warehouse-group-heading {
+    color: var(--dlp-accent-strong) !important;
+    background: color-mix(in srgb, var(--dlp-accent-soft) 54%, var(--dlp-panel)) !important;
+}
+
+.dlp-warehouse-group-heading .dashicons {
+    margin-inline-end: 6px;
+    vertical-align: middle;
+}
+
+.dlp-data-grid .is-warehouse-column {
+    background-color: color-mix(in srgb, var(--dlp-accent-soft) 12%, transparent);
+}
+
 /* Keep the selection control and the first visible data column together while
  * the product grid scrolls horizontally. Logical inset works in both RTL and
  * LTR, and the explicit classes follow column visibility/reordering. */
@@ -997,6 +1063,10 @@ a.dlp-button:focus {
 .dlp-data-grid .dlp-filter-row th {
     top: 43px;
     z-index: 95;
+}
+
+.dlp-data-grid[data-grid-kind="product"] .dlp-filter-row th {
+    top: 75px;
 }
 
 .dlp-filter-control {

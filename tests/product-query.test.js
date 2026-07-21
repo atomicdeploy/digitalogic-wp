@@ -148,6 +148,31 @@ test('product table can freeze the first visible column in RTL and LTR', () => {
     assert.doesNotMatch(panelCss, /\.is-sticky-first-data-column[\s\S]{0,180}?\bright\s*:/);
 });
 
+test('product grid exposes independent warehouse columns with grouped accessible headers', () => {
+    const panelSource = fs.readFileSync(path.join(__dirname, '..', 'assets', 'js', 'panel-app.js'), 'utf8');
+    const viewSource = fs.readFileSync(path.join(__dirname, '..', 'includes', 'panel', 'views', 'app.php'), 'utf8');
+    const panelPhpSource = fs.readFileSync(path.join(__dirname, '..', 'includes', 'panel', 'class-panel.php'), 'utf8');
+    const panelCss = fs.readFileSync(path.join(__dirname, '..', 'assets', 'css', 'panel.css'), 'utf8');
+    const adminSource = fs.readFileSync(path.join(__dirname, '..', 'includes', 'admin', 'class-admin.php'), 'utf8');
+
+    assert.match(panelSource, /field:\s*'patris_warehouse_stock'/);
+    assert.match(panelSource, /mergeWarehouseColumns\(data\.products\)/);
+    assert.match(panelSource, /\(row\.patris_warehouse_stock \|\| \{\}\)\[column\.warehouse\]/);
+    assert.match(panelSource, /visibleStandardProductColumns\.concat\(this\.visibleWarehouseProductColumns\)/);
+    assert.match(viewSource, /class="dlp-group-row"/);
+    assert.match(viewSource, /scope="colgroup"[^>]+visibleWarehouseProductColumns\.length/);
+    assert.match(viewSource, /v-for="column in warehouseProductColumns"/);
+    assert.match(viewSource, /onColumnHeaderKeydown\('product', column, \$event\)/);
+    assert.match(viewSource, /class="dlp-resize-guide"/);
+    assert.match(panelSource, /event\.shiftKey && event\.key === 'F10'/);
+    assert.match(panelSource, /resizeGuide = null/);
+    assert.match(panelPhpSource, /'warehouseStock' => 'Warehouse stock'/);
+    assert.match(panelCss, /\.dlp-resize-guide[\s\S]*?position:\s*absolute/);
+    assert.match(panelCss, /\.dlp-data-grid\[data-grid-kind="product"\] \.dlp-filter-row th[\s\S]*?top:\s*75px/);
+    assert.match(adminSource, /get_panel_url\('\/products\/'\)/);
+    assert.match(adminSource, /add_action\('load-' \. \$product_page_hook, array\(\$this, 'redirect_products_page'\)\)/);
+});
+
 test('product title direction bindings never call an undefined panel method', () => {
     const panelSource = fs.readFileSync(path.join(__dirname, '..', 'assets', 'js', 'panel-app.js'), 'utf8');
     const viewSource = fs.readFileSync(path.join(__dirname, '..', 'includes', 'panel', 'views', 'app.php'), 'utf8');
