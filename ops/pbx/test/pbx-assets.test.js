@@ -23,32 +23,39 @@ test('Digitalogic keeps verification dormant while the public DID routes directl
 	assert.doesNotMatch(dialplan, /^\s*same => n\([^)]+\)/m);
 });
 
-test('TCI international-style mobile caller IDs normalize before callback prefixing', () => {
+test('TCI caller IDs normalize and strip local 021 before callback prefixing', () => {
 	const dialplan = read('asterisk/digitalogic-pending-shortcut.conf');
 	const from00989 = '${CALLERID(num):0:5}"="00989';
 	const from0989 = '${CALLERID(num):0:4}"="0989';
+	const local021 = '${CALLERID(num):0:3}"="021';
 	const callbackPrefix = 'Set(CALLERID(num)=9${CALLERID(num)})';
 	assert.notEqual(dialplan.indexOf(from00989), -1);
 	assert.notEqual(dialplan.indexOf(from0989), -1);
+	assert.notEqual(dialplan.indexOf(local021), -1);
 	assert.notEqual(dialplan.indexOf(callbackPrefix), -1);
 	assert.ok(dialplan.indexOf(from00989) < dialplan.indexOf(from0989));
-	assert.ok(dialplan.indexOf(from0989) < dialplan.indexOf(callbackPrefix));
+	assert.ok(dialplan.indexOf(from0989) < dialplan.indexOf(local021));
+	assert.ok(dialplan.indexOf(local021) < dialplan.indexOf(callbackPrefix));
 	assert.match(dialplan, /00989[^\n]+CALLERID\(num\)=09\$\{CALLERID\(num\):5\}/);
 	assert.match(dialplan, /0989[^\n]+CALLERID\(num\)=09\$\{CALLERID\(num\):4\}/);
 
-	const normalize = (number) => {
+	const callbackNumber = (number) => {
 		if (number.startsWith('00989')) {
-			return `09${number.slice(5)}`;
+			number = `09${number.slice(5)}`;
 		}
 		if (number.startsWith('0989')) {
-			return `09${number.slice(4)}`;
+			number = `09${number.slice(4)}`;
 		}
-		return number;
+		if (number.startsWith('021')) {
+			number = number.slice(3);
+		}
+		return `9${number}`;
 	};
-	assert.equal(normalize('0989123456789'), '09123456789');
-	assert.equal(normalize('00989123456789'), '09123456789');
-	assert.equal(normalize('09123456789'), '09123456789');
-	assert.equal(normalize('02166754123'), '02166754123');
+	assert.equal(callbackNumber('0989123456789'), '909123456789');
+	assert.equal(callbackNumber('00989123456789'), '909123456789');
+	assert.equal(callbackNumber('09123456789'), '909123456789');
+	assert.equal(callbackNumber('02166754123'), '966754123');
+	assert.equal(callbackNumber('02612345678'), '902612345678');
 });
 
 test('private code collection stays inside AGI and wrapper forwards its mode', () => {

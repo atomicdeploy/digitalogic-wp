@@ -78,9 +78,11 @@ Remove the former `digitalogic-call-verification-menu`, public digit 2, pending
 lookup, and conditional shortcut from those public priorities completely.
 
 Inside the existing `[prefix-tci-callerid]` subroutine, normalize `00989…` first
-and `0989…` second, replacing either prefix with `09`. Only after normalization
-may the existing internal callback access prefix `9` be added. This ordering maps
-both variants to the same callable mobile number without changing any other ANI.
+and `0989…` second, replacing either prefix with `09`. Then strip `021` from a
+same-city Tehran landline. Only after those transformations may the existing
+internal callback access prefix `9` be added. For example, `02166754123` becomes
+`966754123`; the outbound `_9X.` route removes the access digit and sends
+`66754123`. Non-Tehran landline prefixes remain intact.
 
 Do not add a public fallback digit. The private `verify` context is intentionally
 unrouted until a separate Digitalogic IVR is designed and approved.
@@ -107,6 +109,8 @@ Use real PSTN ANI and redacted evidence:
   audio, early `Answer()`, prompt, or DTMF collection.
 - `0989123456789` and `00989123456789` both normalize to `09123456789` before
   the internal callback access prefix is added; an existing `09…` ANI is unchanged.
+- `02166754123` becomes extension caller ID `966754123`; one-touch redial sends
+  the same-city subscriber number `66754123` without the `021` prefix.
 - Both s and _X inbound paths behave identically.
 - The dormant helper contexts remain loaded but unreachable from public and
   internal dialplan paths.
