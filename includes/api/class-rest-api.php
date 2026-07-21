@@ -295,6 +295,18 @@ class Digitalogic_REST_API {
 			)
 		);
 
+		foreach ( array( 'preview', 'apply' ) as $writeback_mode ) {
+			register_rest_route(
+				'digitalogic/v1',
+				'/google-sheets/writeback/' . $writeback_mode,
+				array(
+					'methods'             => 'POST',
+					'callback'            => array( $this, 'apply' === $writeback_mode ? 'apply_google_sheets_writeback' : 'preview_google_sheets_writeback' ),
+					'permission_callback' => array( $this, 'check_write_permission' ),
+				)
+			);
+		}
+
         register_rest_route('digitalogic/v1', '/reports', array(
             'methods' => 'GET',
             'callback' => array($this, 'get_reports'),
@@ -581,6 +593,64 @@ class Digitalogic_REST_API {
 				),
 				$status
 			);
+		}
+
+		return new WP_REST_Response(
+			array(
+				'success' => true,
+				'data'    => $result,
+			),
+			200
+		);
+	}
+
+	/**
+	 * POST /google-sheets/writeback/preview
+	 *
+	 * @param WP_REST_Request $request REST request.
+	 * @return WP_REST_Response
+	 */
+	public function preview_google_sheets_writeback( WP_REST_Request $request ) {
+		return $this->google_sheets_writeback_response(
+			Digitalogic_Google_Sheets_Writeback::instance()->preview( $request->get_json_params() )
+		);
+	}
+
+	/**
+	 * POST /google-sheets/writeback/apply
+	 *
+	 * @param WP_REST_Request $request REST request.
+	 * @return WP_REST_Response
+	 */
+	public function apply_google_sheets_writeback( WP_REST_Request $request ) {
+		return $this->google_sheets_writeback_response(
+			Digitalogic_Google_Sheets_Writeback::instance()->apply( $request->get_json_params() )
+		);
+	}
+
+	/**
+	 * Wrap one transport-neutral Sheets writeback result.
+	 *
+	 * @param array|WP_Error $result Service result.
+	 * @return WP_REST_Response
+	 */
+	private function google_sheets_writeback_response( $result ) {
+		if ( is_wp_error( $result ) ) {
+			$data    = $result->get_error_data();
+			$status  = is_array( $data ) && isset( $data['status'] ) ? (int) $data['status'] : 500;
+			$details = is_array( $data ) ? $data : array();
+			unset( $details['status'] );
+
+			$response = array(
+				'success' => false,
+				'code'    => $result->get_error_code(),
+				'message' => $result->get_error_message(),
+			);
+			if ( $details ) {
+				$response['details'] = $details;
+			}
+
+			return new WP_REST_Response( $response, $status );
 		}
 
 		return new WP_REST_Response(

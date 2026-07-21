@@ -38,6 +38,8 @@ $GLOBALS['digitalogic_test_remote_post_results'] = array();
 $GLOBALS['digitalogic_test_wc_products'] = array();
 $GLOBALS['digitalogic_test_wc_product_saves'] = array();
 $GLOBALS['digitalogic_test_wc_save_failures'] = array();
+$GLOBALS['digitalogic_test_wc_set_price_calls'] = array();
+$GLOBALS['digitalogic_test_wc_after_save'] = null;
 $GLOBALS['digitalogic_test_wc_save_fail_once'] = array();
 $GLOBALS['digitalogic_test_wc_lookup_rows'] = array();
 $GLOBALS['digitalogic_test_wc_data_store'] = null;
@@ -831,8 +833,10 @@ class Digitalogic_Test_WPDB {
     public $postmeta = 'wp_postmeta';
     public $insert_id = 0;
     public $acquire_result = 1;
+    public $acquire_results = array();
     public $acquire_count = 0;
     public $release_count = 0;
+    public $lock_names = array();
     public $queries = array();
     public $mysql_string_roundtrip = false;
     public $after_rollback = null;
@@ -874,6 +878,7 @@ class Digitalogic_Test_WPDB {
             $this->acquire_count++;
             // phpcs:disable -- Test-only interleaving hook follows the legacy bootstrap style.
             $args = is_array($prepared) && isset($prepared['args']) ? $prepared['args'] : array();
+            $this->lock_names[] = isset($args[0]) ? (string) $args[0] : '';
             $this->lock_timeouts[] = isset($args[1]) ? (int) $args[1] : null;
             $callback = $this->before_get_lock;
             $this->before_get_lock = null;
@@ -881,7 +886,7 @@ class Digitalogic_Test_WPDB {
                 call_user_func($callback, $this);
             }
             // phpcs:enable
-            return $this->acquire_result;
+            return !empty($this->acquire_results) ? array_shift($this->acquire_results) : $this->acquire_result;
         }
 
         if (strpos($query, 'RELEASE_LOCK') !== false) {
@@ -1520,6 +1525,7 @@ class WC_Product {
     }
 
     public function set_price($value) {
+        $GLOBALS['digitalogic_test_wc_set_price_calls'][] = array($this->id, $value);
         $this->price = (string) $value;
         $this->meta['_price'] = (string) $value; // phpcs:ignore -- Keep test product metadata synchronized.
     }
@@ -1558,6 +1564,11 @@ class WC_Product {
         $this->save_count++;
         $GLOBALS['digitalogic_test_posts'][$this->id]['meta'] = $this->meta;
         $GLOBALS['digitalogic_test_wc_product_saves'][] = $this->id;
+        $after_save = $GLOBALS['digitalogic_test_wc_after_save'] ?? null;
+        $GLOBALS['digitalogic_test_wc_after_save'] = null;
+        if (is_callable($after_save)) {
+            call_user_func($after_save, $this);
+        }
         return $this->id;
     }
 }
@@ -2023,6 +2034,7 @@ require_once dirname(__DIR__) . '/includes/class-digitalogic-woocommerce-currenc
 require_once dirname(__DIR__) . '/includes/class-product-identifier-resolver.php';
 require_once dirname(__DIR__) . '/includes/class-digitalogic-product-query.php';
 require_once dirname(__DIR__) . '/includes/class-digitalogic-product-metadata-inspector.php'; // phpcs:ignore
+require_once dirname(__DIR__) . '/includes/class-digitalogic-product-write-lock.php'; // phpcs:ignore
 require_once dirname(__DIR__) . '/includes/class-product-manager.php'; // phpcs:ignore
 require_once dirname(__DIR__) . '/includes/admin/class-digitalogic-product-table.php'; // phpcs:ignore
 require_once dirname(__DIR__) . '/includes/class-digitalogic-pricing-input-credential.php'; // phpcs:ignore
@@ -2031,6 +2043,7 @@ require_once dirname(__DIR__) . '/includes/class-product-sync-receiver.php';
 require_once dirname(__DIR__) . '/includes/class-shipping-method-service.php';
 require_once dirname(__DIR__) . '/includes/class-patris-catalog-materializer.php';
 require_once dirname(__DIR__) . '/includes/class-digitalogic-google-sheets-catalog.php';
+require_once dirname(__DIR__) . '/includes/class-digitalogic-google-sheets-writeback.php';
 require_once dirname(__DIR__) . '/includes/class-command-dispatcher.php';
 require_once dirname(__DIR__) . '/includes/api/class-rest-api.php';
 require_once dirname(__DIR__) . '/includes/api/class-webhooks.php';
