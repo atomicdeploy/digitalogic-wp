@@ -87,6 +87,7 @@ class Digitalogic_REST_API {
 
         return '/digitalogic/v1' === $route
             || str_starts_with($route, '/digitalogic/v1/')
+            || '/digitalogic/reports' === $route
             || '/digitalogic/patris/product-sync' === $route
             || '/digitalogic/integration' === $route
             || str_starts_with($route, '/digitalogic/integration/');
@@ -106,6 +107,10 @@ class Digitalogic_REST_API {
 
         $request_path = $this->normalize_request_path($request_path);
         $base = $this->get_wordpress_base_path() . '/' . trim($rest_prefix, '/');
+        $report_path = $this->normalize_request_path($base . '/digitalogic/reports');
+        if ($request_path === $report_path) {
+            return true;
+        }
         $routes = array(
             '/digitalogic/v1',
             '/digitalogic/patris/product-sync',
@@ -307,13 +312,13 @@ class Digitalogic_REST_API {
 			);
 		}
 
-        register_rest_route('digitalogic/v1', '/reports', array(
+        register_rest_route('digitalogic', '/reports', array(
             'methods' => 'GET',
             'callback' => array($this, 'get_reports'),
             'permission_callback' => array($this, 'check_diagnostic_permission')
         ));
 
-        // Living transformed-only Patris contract. No raw-feed
+        // Living transformed-only Patris format. No raw-feed
         // aliases are registered for this integration surface.
         register_rest_route('digitalogic', '/patris/product-sync', array(
             'methods' => 'POST',

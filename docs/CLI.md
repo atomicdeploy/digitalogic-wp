@@ -39,6 +39,44 @@ structured mismatches but never writes or rebuilds data.
 An administrator can inspect and explicitly refresh one product's derived row
 from **Digitalogic → Product Diagnostics**.
 
+## Inspect the current Patris report
+
+The report reads the living `digitalogic_product_sync_state` projection and
+matches only exact `_digitalogic_patris_product_code` metadata. It never falls
+back to SKU. Warning and price-list output is paginated to at most 100 rows.
+
+```bash
+wp digitalogic patris report --view=warnings --page=1 --per-page=100
+wp digitalogic patris report --view=price_list --format=json
+```
+
+For a reviewed static transformed snapshot, keep `kala.json` outside the
+WordPress webroot and run the administrator-only inspection command:
+
+```bash
+wp digitalogic patris inspect \
+  --file=/srv/digitalogic-private/kala.json \
+  --user=<administrator> \
+  --view=warnings
+```
+
+The command accepts only an absolute, readable, nonsymlinked file named
+`kala.json`, rejects webroot paths and files larger than 8 MiB, validates it
+with the living receiver rules, and compares it without persisting source state
+or writing WooCommerce. To apply the reviewed file, use the separately named
+command and its mandatory confirmation:
+
+```bash
+wp digitalogic patris ingest \
+  --file=/srv/digitalogic-private/kala.json \
+  --user=<administrator> \
+  --yes
+```
+
+`ingest` persists the source and performs the receiver's WooCommerce writes;
+without `--yes` it exits without mutation. See
+[Current Patris Report](CURRENT-PATRIS-REPORT.md).
+
 ## Update one product
 
 ```bash

@@ -241,6 +241,20 @@ with `wp digitalogic product-sync status`; an administrator can retry only
 durable pending/deferred work with `wp digitalogic product-sync reconcile
 --user=<administrator>`. See [Patris Product Sync](docs/PATRIS-PRODUCT-SYNC.md).
 
+The authenticated **Digitalogic → Patris Reports** page and
+`GET /wp-json/digitalogic/reports` compare that same current receiver state
+with WooCommerce. They match the exact product Code metadata only, exclude
+variable parents, preserve missing-versus-explicit-null source values, and
+report source-only, positive-stock source-only, WooCommerce-only, source
+warnings, and price, stock-management, availability, weight, timestamp, and
+record-hash drift. Every response is paginated and bounded. An administrator
+can validate and compare a reviewed static canonical file stored outside the
+webroot without changing receiver or WooCommerce state with
+`wp digitalogic patris inspect --file=/srv/digitalogic-private/kala.json
+--user=<administrator>`. Applying that file is a separate, explicit
+`wp digitalogic patris ingest ... --yes` operation. See
+[Current Patris Report](docs/CURRENT-PATRIS-REPORT.md).
+
 Positive-stock products that do not yet exist in WooCommerce can be created or
 explicitly adopted with the dry-run-first, administrator-reviewed catalog
 materializer. It adds Persian enrichment, taxonomy and SEO metadata without

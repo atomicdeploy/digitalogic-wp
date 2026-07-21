@@ -229,15 +229,17 @@ final class ProductSyncReceiverTest extends TestCase {
         $identity = array(
             'schema'            => 'patris.product-sync',
             'event_type'        => 'snapshot',
-            'local_currency'    => $pricing ? 'IRT' : '',
-            'formula_id'        => $pricing ? 'landed_price' : '',
-            'source'            => $source,
-            'generated_at'      => '2026-07-20T00:00:00Z',
-            'products'          => array_map(static fn($product) => $product['product_code'] . '=' . $product['record_hash'], $products),
-            'categories'        => array_map(static fn($category) => $category['category_code'] . '=' . $category['record_hash'], $categories),
-            'excluded_codes'    => array(),
-            'quarantined_codes' => array(),
         );
+        if ($pricing) {
+            $identity['local_currency'] = 'IRT';
+            $identity['formula_id']     = 'landed_price';
+        }
+        $identity['source']            = $source;
+        $identity['generated_at']      = '2026-07-20T00:00:00Z';
+        $identity['products']          = array_map(static fn($product) => $product['product_code'] . '=' . $product['record_hash'], $products);
+        $identity['categories']        = array_map(static fn($category) => $category['category_code'] . '=' . $category['record_hash'], $categories);
+        $identity['excluded_codes']    = array();
+        $identity['quarantined_codes'] = array();
         sort($identity['products'], SORT_STRING);
         sort($identity['categories'], SORT_STRING);
 

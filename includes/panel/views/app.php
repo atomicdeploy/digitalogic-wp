@@ -415,34 +415,49 @@ $logo_url = !empty($config['theme']['logo_url']) ? $config['theme']['logo_url'] 
                     <div class="dlp-panel" v-if="reports">
                         <div class="dlp-panel-head">
                             <strong>{{ t.problemRows }}</strong>
-                            <span class="dlp-pill">{{ formatNumber(reports.counts && reports.counts.patris_products) }} Patris/API</span>
+							<span class="dlp-pill">{{ formatNumber(reports.counts && reports.counts.patris_products) }} Patris</span>
                         </div>
                         <div class="dlp-report-summary">
                             <span><strong>{{ formatNumber(reports.counts && reports.counts.woocommerce_products) }}</strong>{{ t.products }}</span>
                             <span><strong>{{ formatNumber(reports.counts && reports.counts.patris_products) }}</strong>{{ t.patrisProducts }}</span>
-                            <span><strong>{{ formatNumber(reports.counts && reports.counts.patris_customers) }}</strong>{{ t.customerReports }}</span>
+							<span><strong>{{ formatNumber(reports.counts && reports.counts.matched_products) }}</strong>{{ t.exactCodeMatches }}</span>
+							<span><strong>{{ formatNumber(reports.counts && reports.counts.drift_products) }}</strong>{{ t.driftProducts }}</span>
+							<span><strong>{{ formatNumber(reports.counts && reports.counts.positive_source_only_products) }}</strong>{{ t.positiveSourceOnly }}</span>
                         </div>
-                        <details v-for="category in reports.categories" :key="category.key" class="dlp-report-category" :class="'is-' + category.severity" :open="category.count > 0">
-                            <summary><span class="dlp-status-dot"></span><strong>{{ category.title }}</strong><span>{{ formatNumber(category.count) }}</span></summary>
-                            <div v-if="!category.items || !category.items.length" class="dlp-empty">{{ t.noRows }}</div>
-                            <div v-else class="dlp-table-wrap">
-                                <table class="dlp-table dlp-report-table">
-                                    <thead><tr><th>{{ t.sku }}</th><th>{{ t.products }}</th><th>Patris/API</th><th>{{ t.stock }}</th><th>{{ t.foreignPrice }}</th><th>{{ t.weight }}</th><th>{{ t.finalPrice }}</th><th>{{ t.actions }}</th></tr></thead>
-                                    <tbody>
-                                        <tr v-for="item in category.items" :key="category.key + ':' + (item.woo_id || item.product_code || item.customer_code || item.name)">
-                                            <td class="dlp-mono">{{ item.product_code || item.customer_code }}</td>
-                                            <td>{{ item.woo_name }}</td>
-                                            <td>{{ item.name }}</td>
-                                            <td class="dlp-cell-numeric">{{ item.stock }}</td>
-                                            <td class="dlp-cell-numeric">{{ [item.foreign_currency, item.foreign_price].filter(Boolean).join(' ') }}</td>
-                                            <td class="dlp-cell-numeric">{{ item.weight_grams }}</td>
-                                            <td class="dlp-cell-numeric">{{ item.final_price }}</td>
-                                            <td><a v-if="item.edit_url" class="dlp-icon-button" :href="item.edit_url" target="_blank" rel="noopener" :aria-label="t.edit"><span class="dashicons dashicons-edit"></span></a></td>
-                                        </tr>
-                                    </tbody>
-                                </table>
-                            </div>
-                        </details>
+						<div v-if="reports.status !== 'current' && reports.status !== 'static'" class="dlp-empty">{{ t.reportSourceUnavailable }}</div>
+						<div class="dlp-actions">
+							<button class="dlp-button" :class="{'is-primary': reportView === 'warnings'}" @click="setReportView('warnings')">{{ t.warnings }}</button>
+							<button class="dlp-button" :class="{'is-primary': reportView === 'price_list'}" @click="setReportView('price_list')">{{ t.priceList }}</button>
+						</div>
+						<div v-if="reportView === 'warnings'" class="dlp-actions">
+							<button class="dlp-button" :class="{'is-primary': !reportCategory}" @click="setReportCategory('')">{{ t.allWarnings }}</button>
+							<button v-for="category in reportCategories" :key="category.key" class="dlp-button" :class="{'is-primary': reportCategory === category.key}" @click="setReportCategory(category.key)">{{ category.title }} ({{ formatNumber(category.count) }})</button>
+						</div>
+						<div v-if="!reports.rows || !reports.rows.length" class="dlp-empty">{{ t.noRows }}</div>
+						<div v-else class="dlp-table-wrap">
+							<table class="dlp-table dlp-report-table">
+								<thead><tr><th>{{ t.sku }}</th><th>{{ t.reportState }}</th><th>{{ t.products }}</th><th>Patris</th><th>{{ t.stock }}</th><th>{{ t.foreignPrice }}</th><th>{{ t.weight }}</th><th>{{ t.finalPrice }}</th><th>{{ t.findings }}</th><th>{{ t.actions }}</th></tr></thead>
+								<tbody>
+									<tr v-for="item in reports.rows" :key="item.status + ':' + (item.woo_id || item.product_code)">
+										<td class="dlp-mono">{{ item.product_code }}</td>
+										<td>{{ reportStateLabel(item.status) }}</td>
+										<td>{{ reportWooValue(item.woocommerce, 'name') }}</td>
+										<td>{{ reportSparseValue(item.source, 'name') }}</td>
+										<td class="dlp-cell-numeric">{{ reportSparseValue(item.source, 'total_stock') }} / {{ reportWooValue(item.woocommerce, 'stock_quantity') }}</td>
+										<td class="dlp-cell-numeric">{{ reportSparseValue(item.source, 'foreign_price') }}</td>
+										<td class="dlp-cell-numeric">{{ reportSparseValue(item.source, 'weight_grams') }}</td>
+										<td class="dlp-cell-numeric">{{ reportSparseValue(item.source, 'final_price') }} / {{ reportWooValue(item.woocommerce, 'active_price') }}</td>
+										<td><span v-if="!item.issues || !item.issues.length">{{ t.current }}</span><span v-for="issue in item.issues" :key="issue" class="dlp-pill">{{ reportIssueTitle(issue) }}</span></td>
+										<td><a v-if="item.edit_url" class="dlp-icon-button" :href="item.edit_url" target="_blank" rel="noopener" :aria-label="t.edit"><span class="dashicons dashicons-edit"></span></a></td>
+									</tr>
+								</tbody>
+							</table>
+						</div>
+						<div v-if="reports.pagination && reports.pagination.pages > 1" class="dlp-pagination">
+							<button class="dlp-button" :disabled="reports.pagination.page <= 1 || loading" @click="loadReports(reports.pagination.page - 1)">{{ t.previous }}</button>
+							<span>{{ t.page }} {{ formatNumber(reports.pagination.page) }} / {{ formatNumber(reports.pagination.pages) }}</span>
+							<button class="dlp-button" :disabled="reports.pagination.page >= reports.pagination.pages || loading" @click="loadReports(reports.pagination.page + 1)">{{ t.next }}</button>
+						</div>
                     </div>
                     <div v-else class="dlp-panel"><div class="dlp-empty">{{ loading ? t.loading : (error || t.noRows) }}</div></div>
                 </section>

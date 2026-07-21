@@ -800,7 +800,23 @@ class Digitalogic_Admin {
 
         $settings = $feed->get_settings();
         $product_sync_secret = $feed->get_product_sync_secret();
-        $report = Digitalogic_Report_Engine::instance()->get_report();
+		$report_query_value = static function ( $key, $default = '' ) {
+			if ( ! isset( $_GET[ $key ] ) || ! is_scalar( $_GET[ $key ] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only bounded report filters.
+				return $default;
+			}
+
+			return wp_unslash( (string) $_GET[ $key ] ); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only bounded report filters.
+		};
+		$report = Digitalogic_Report_Engine::instance()->get_report(
+			array(
+				'view'      => $report_query_value( 'report_view', 'warnings' ),
+				'category'  => $report_query_value( 'report_category' ),
+				'page'      => $report_query_value( 'report_page', '1' ),
+				'per_page'  => $report_query_value( 'report_per_page', '50' ),
+				'source_id' => $report_query_value( 'report_source_id' ),
+				'dataset'   => $report_query_value( 'report_dataset' ),
+			)
+		);
         $shipping_methods = $shipping_service->list_methods(true);
         if (is_wp_error($shipping_methods)) {
             $notice = $shipping_methods->get_error_message();
