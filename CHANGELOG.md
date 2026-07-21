@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Prevent the private storefront request post type from registering `manage_woocommerce` as an object meta capability, which caused WordPress to deny valid administrator and shop-manager access across the panel, admin, REST, and WebSocket paths.
+
 ## 1.6.1
 
 - Preserve WordPress account-policy authentication filters while exempting only WP Zero Spam's core form honeypot from a signed, browser-bound PBX login consume request.
