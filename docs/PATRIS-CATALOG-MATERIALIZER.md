@@ -254,9 +254,13 @@ For each accepted leaf, the materializer:
 
 The storefront displays the Persian WooCommerce title first and the Patris
 English identity below it. Selecting a variation updates the English identity
-to the child value. WooCommerce/Rank Math Product schema keeps the existing
-offers and adds the exact Code as SKU; MPN is emitted only when the reviewed
-part number is nonempty.
+to the child value. WooCommerce/Rank Math emits server-rendered JSON-LD Product
+data, adds the exact Code as SKU and the Patris name as `alternateName`, and
+emits MPN only when the reviewed part number is nonempty. An unpriced product
+keeps an honest base Product entity without a fabricated Offer; real existing
+offers are preserved. Because the storefront displays Toman while Google
+requires ISO 4217 currency codes, structured offers convert `IRT` amounts to
+their exact ten-times `IRR` equivalent without changing the represented value.
 
 Product search includes the WooCommerce/Persian title, Patris leaf and family
 names, exact SKU/Code, Patris serial, reviewed part number and model, variation
@@ -264,17 +268,22 @@ records, global attribute values, and product categories.
 
 ## Publication gates
 
-A leaf is publish-ready only when all of these remain true at apply time:
+A leaf is publish-ready when all of these remain true at apply time:
 
 - source and WooCommerce stock are positive;
-- source foreign price, source weight, and calculated final price are positive;
-- the source supplier shipping method is exactly `air_express`, its freight
-  price is positive and paired with an explicit `CNY` or `IRR` currency, and
-  WooCommerce has the same canonical assignment;
-- the source has no Patris validation/pricing warnings;
+- WooCommerce has the canonical `air_express` supplier shipping assignment;
+- the source has no blocking Patris warnings; missing product price, weight,
+  image, freight, markup, or pricing-assignment warnings are informational and
+  never block publication;
 - a reviewed category is available and assigned;
 - Persian name, short description, SEO title, SEO description, focus keyword,
   Patris Code, and matching SKU are present.
+
+Missing product price, weight, or image values remain empty rather than being
+invented. WooCommerce publishes those pages normally; an empty price remains
+non-purchasable until a real price arrives. Product rich-result and merchant
+listing eligibility may remain limited until Google-required price or image
+properties truthfully exist, but ordinary crawling and indexing are not gated.
 
 For variations, publication also requires the reviewed variable parent
 enrichment. The parent is published and made visible only after the child is

@@ -133,7 +133,8 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 
 		$this->assertSame( 1, $first['created'] );
 		$this->assertSame( 0, $first['published'] );
-		$this->assertSame( 1, $first['publish_blocked'] );
+		$this->assertSame( 0, $first['publish_blocked'] );
+		$this->assertSame( 1, $first['publish_ready'] );
 		$this->assertSame( 0, $second['created'] );
 		$this->assertSame( 1, $second['reconciled'] );
 		$this->assertCount( 1, $GLOBALS['digitalogic_test_posts'] );
@@ -151,75 +152,35 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 		$this->assertSame( (string) $product->get_category_ids()[0], $product->get_meta( 'rank_math_primary_product_cat', true ) );
 	}
 
-	/** Verify stale freight state cannot bypass publication readiness. */
-	public function test_publish_ready_requires_positive_currency_qualified_freight_and_accepts_irr(): void {
+	/** Missing source freight and pricing inputs must not hide a reviewed product. */
+	public function test_publish_ready_allows_missing_source_freight_and_pricing_inputs(): void {
 		$this->receiveFixture();
-		$service = Digitalogic_Patris_Catalog_Materializer::instance();
-		$cases   = array(
-			'pair missing'         => array( array(), array( 'shipping_price_per_kg', 'shipping_price_per_kg_currency' ) ),
-			'amount missing'       => array( array( 'shipping_price_per_kg_currency' => 'CNY' ), array( 'shipping_price_per_kg' ) ),
-			'currency missing'     => array( array( 'shipping_price_per_kg' => '120' ), array( 'shipping_price_per_kg_currency' ) ),
-			'amount not positive'  => array(
-				array(
-					'shipping_price_per_kg'          => '0',
-					'shipping_price_per_kg_currency' => 'IRR',
-				),
-				array( 'shipping_price_per_kg' ),
-			),
-			'currency not exact'   => array(
-				array(
-					'shipping_price_per_kg'          => '120',
-					'shipping_price_per_kg_currency' => 'cny',
-				),
-				array( 'shipping_price_per_kg_currency' ),
-			),
-			'currency unsupported' => array(
-				array(
-					'shipping_price_per_kg'          => '120',
-					'shipping_price_per_kg_currency' => 'USD',
-				),
-				array( 'shipping_price_per_kg_currency' ),
-			),
+		$state      = get_option( Digitalogic_Product_Sync_Receiver::STATE_OPTION, array() );
+		$source_key = array_key_first( $state['sources'] );
+		$record     = &$state['sources'][ $source_key ]['products']['101001001'];
+		unset(
+			$record['shipping_method_id'],
+			$record['shipping_price_per_kg'],
+			$record['shipping_price_per_kg_currency'],
+			$record['markup_percent'],
+			$record['final_price']
 		);
-
-		foreach ( $cases as $label => $case ) {
-			list( $freight, $expected_gates ) = $case;
-			$state                            = get_option( Digitalogic_Product_Sync_Receiver::STATE_OPTION, array() );
-			$source_key                       = array_key_first( $state['sources'] );
-			$record                           = &$state['sources'][ $source_key ]['products']['101001001'];
-			$record['shipping_method_id']     = 'air_express';
-			unset( $record['shipping_price_per_kg'], $record['shipping_price_per_kg_currency'] );
-			foreach ( $freight as $field => $value ) {
-				$record[ $field ] = $value;
-			}
-			unset( $record );
-			update_option( Digitalogic_Product_Sync_Receiver::STATE_OPTION, $state, false );
-
-			$result = $service->run(
-				$this->manifest(),
-				array(
-					'apply'         => true,
-					'publish_ready' => true,
-				)
-			);
-
-			$this->assertSame( 1, $result['publish_blocked'], $label );
-			$this->assertSame( 0, $result['published'], $label );
-			$this->assertSame( 'publish_blocked', $result['details'][0]['reason'], $label );
-			foreach ( $expected_gates as $gate ) {
-				$this->assertContains( $gate, $result['details'][0]['gates'], $label );
-			}
-		}
-
-		$state                                    = get_option( Digitalogic_Product_Sync_Receiver::STATE_OPTION, array() );
-		$source_key                               = array_key_first( $state['sources'] );
-		$record                                   = &$state['sources'][ $source_key ]['products']['101001001'];
-		$record['shipping_price_per_kg']          = '34800000';
-		$record['shipping_price_per_kg_currency'] = 'IRR';
+		$record['warnings'] = array(
+			'exchange_rate_missing',
+			'final_price_unavailable',
+			'freight_rate_missing',
+			'import_freight_method_missing',
+			'markup_percent_missing',
+			'product_pricing_assignment_not_found',
+			'purchase_price_source_unavailable',
+			'shipping_method_missing',
+			'shipping_price_per_kg_currency_missing',
+			'shipping_price_per_kg_missing',
+		);
 		unset( $record );
 		update_option( Digitalogic_Product_Sync_Receiver::STATE_OPTION, $state, false );
 
-		$result = $service->run(
+		$result = Digitalogic_Patris_Catalog_Materializer::instance()->run(
 			$this->manifest(),
 			array(
 				'apply'         => true,
@@ -229,6 +190,74 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 
 		$this->assertSame( 0, $result['publish_blocked'] );
 		$this->assertSame( 1, $result['published'] );
+		$product = wc_get_product( (int) array_key_first( $GLOBALS['digitalogic_test_posts'] ) );
+		$this->assertSame( 'publish', $product->get_status() );
+		$this->assertSame( '', $product->get_price() );
+		$this->assertSame( 'air_express', get_post_meta( $product->get_id(), Digitalogic_Shipping_Method_Service::PRODUCT_METHOD_META, true ) );
+	}
+
+	/** Missing product weight, price, or image warnings must not hide a reviewed product. */
+	public function test_publish_ready_allows_missing_weight_price_and_image_without_inventing_values(): void {
+		$this->receiveFixture();
+		$state      = get_option( Digitalogic_Product_Sync_Receiver::STATE_OPTION, array() );
+		$source_key = array_key_first( $state['sources'] );
+		$record     = &$state['sources'][ $source_key ]['products']['101001001'];
+
+		$record['shipping_method_id'] = 'air_express';
+		$record['foreign_price']      = null;
+		$record['weight_grams']       = null;
+		$record['warnings']           = array(
+			'final_price_unavailable',
+			'foreign_price_missing',
+			'missing_image',
+			'weight_missing',
+		);
+		unset( $record['final_price'] );
+		unset( $record );
+		update_option( Digitalogic_Product_Sync_Receiver::STATE_OPTION, $state, false );
+
+		$result = Digitalogic_Patris_Catalog_Materializer::instance()->run(
+			$this->manifest(),
+			array(
+				'apply'         => true,
+				'publish_ready' => true,
+			)
+		);
+
+		$this->assertSame( 0, $result['publish_blocked'] );
+		$this->assertSame( 1, $result['published'] );
+		$product = wc_get_product( (int) array_key_first( $GLOBALS['digitalogic_test_posts'] ) );
+		$this->assertSame( 'publish', $product->get_status() );
+		$this->assertSame( '', $product->get_weight() );
+		$this->assertSame( '', $product->get_regular_price() );
+		$this->assertSame( '', $product->get_price() );
+		$this->assertSame( 'unpriced', $product->get_meta( '_digitalogic_patris_price_status', true ) );
+	}
+
+	/** Warnings unrelated to optional product fields remain a publication stop. */
+	public function test_publish_ready_still_blocks_unreviewed_source_warnings(): void {
+		$this->receiveFixture();
+		$state      = get_option( Digitalogic_Product_Sync_Receiver::STATE_OPTION, array() );
+		$source_key = array_key_first( $state['sources'] );
+		$record     = &$state['sources'][ $source_key ]['products']['101001001'];
+
+		$record['shipping_method_id'] = 'air_express';
+		$record['warnings']           = array( 'supplier_identity_conflict' );
+		unset( $record );
+		update_option( Digitalogic_Product_Sync_Receiver::STATE_OPTION, $state, false );
+
+		$result = Digitalogic_Patris_Catalog_Materializer::instance()->run(
+			$this->manifest(),
+			array(
+				'apply'         => true,
+				'publish_ready' => true,
+			)
+		);
+
+		$this->assertSame( 1, $result['publish_blocked'] );
+		$this->assertSame( 0, $result['publish_ready'] );
+		$this->assertSame( 0, $result['published'] );
+		$this->assertContains( 'patris_warnings', $result['details'][0]['gates'] );
 	}
 
 	/** Verify every apply removes the retired marker without a migration flag. */
@@ -342,7 +371,7 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 		$this->assertSame( 'products.101001001.parent_enrichment.focus_keyword_fa', $parent_error->get_error_data()['path'] );
 	}
 
-	public function test_preserves_a_published_reviewed_target_when_publication_gates_are_incomplete(): void {
+	public function test_preserves_a_published_reviewed_target_without_republishing_it(): void {
 		$this->receiveFixture();
 		$this->addProduct( 10803, 'simple' );
 		$manifest = $this->manifest();
@@ -353,7 +382,8 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 		$this->assertSame( 1, $result['adopted'] );
 		$this->assertSame( 1, $result['preserved_published'] );
 		$this->assertSame( 0, $result['published'] );
-		$this->assertSame( 1, $result['publish_blocked'] );
+		$this->assertSame( 0, $result['publish_blocked'] );
+		$this->assertSame( 1, $result['publish_ready'] );
 		$this->assertSame( 'publish', wc_get_product( 10803 )->get_status() );
 	}
 

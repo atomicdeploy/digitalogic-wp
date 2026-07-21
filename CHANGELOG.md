@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Prevented the custom Digits login and registration footer from blocking a PHP-FPM worker on remote WordPress.org translation discovery while preserving the locale already selected by WordPress.
 
 ### Changed
+- Patris catalog publication no longer treats missing product price, weight, or image data as a stop condition; values remain empty rather than being invented, while positive stock, reviewed identity/category, canonical shipping assignment, and unrelated source warnings remain guarded.
+- Product JSON-LD adds the reviewed English Patris leaf or family name as `alternateName`, removes an impossible `Offer` when WooCommerce has no price, and converts Toman offers to their exact ISO `IRR` equivalent for Google without float drift.
 - Shipping rates now carry an explicit `CNY` or `IRR` currency. Method objects use `price_per_kg` plus `currency`, while product-sync records use the required pair `shipping_price_per_kg` plus `shipping_price_per_kg_currency`.
 - Final-price validation converts CNY freight with the effective CNY-to-IRT rate and converts IRR freight to IRT before applying markup and a single final rounding step.
 - Shipping amounts, minimums, divisors, and tier bounds/rates now remain canonical decimal strings through storage and every outward projection, without exponent notation or binary-float loss.

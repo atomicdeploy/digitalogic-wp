@@ -72,7 +72,7 @@ final class Digitalogic_Product_Identity {
 	}
 
 	/**
-	 * Add leaf Code as SKU/MPN without replacing offers or other schema data.
+	 * Add reviewed identities and remove only an impossible offer for unpriced products.
 	 *
 	 * @param array      $entity Existing WooCommerce or Rank Math Product entity.
 	 * @param WC_Product $product Product when supplied by the integration.
@@ -88,6 +88,16 @@ final class Digitalogic_Product_Identity {
 		if ( ! $product instanceof WC_Product ) {
 			return $entity;
 		}
+		$patris_name = $this->get_product_patris_name( $product );
+		if ( '' !== $patris_name ) {
+			$entity['alternateName'] = $patris_name;
+		}
+		if ( '' === trim( (string) $product->get_price() ) ) {
+			unset( $entity['offers'] );
+		} elseif ( isset( $entity['offers'] ) ) {
+			$entity['offers'] = $this->normalize_toman_offer( $entity['offers'] );
+		}
+
 		$code = trim( (string) $product->get_meta( Digitalogic_Product_Identifier_Resolver::PATRIS_CODE_META, true ) );
 		if ( '' === $code || (string) $product->get_sku() !== $code ) {
 			return $entity;
@@ -99,6 +109,78 @@ final class Digitalogic_Product_Identity {
 		}
 
 		return $entity;
+	}
+
+	/**
+	 * Convert the store's Toman offer into the equivalent ISO 4217 Rial offer.
+	 *
+	 * @param mixed $offer Offer, price specification, or a list of offers.
+	 * @param bool  $inherited_toman Whether a parent object declared IRT.
+	 * @return mixed
+	 */
+	private function normalize_toman_offer( $offer, $inherited_toman = false ) {
+		if ( ! is_array( $offer ) ) {
+			return $offer;
+		}
+		if ( array_is_list( $offer ) ) {
+			return array_map(
+				function ( $item ) use ( $inherited_toman ) {
+					return $this->normalize_toman_offer( $item, $inherited_toman );
+				},
+				$offer
+			);
+		}
+
+		$declared_currency = strtoupper( trim( (string) ( $offer['priceCurrency'] ?? '' ) ) );
+		$is_toman          = '' === $declared_currency ? $inherited_toman : 'IRT' === $declared_currency;
+		if ( isset( $offer['priceSpecification'] ) ) {
+			$offer['priceSpecification'] = $this->normalize_toman_offer( $offer['priceSpecification'], $is_toman );
+		}
+		if ( isset( $offer['offers'] ) ) {
+			$offer['offers'] = $this->normalize_toman_offer( $offer['offers'], $is_toman );
+		}
+		if ( ! $is_toman ) {
+			return $offer;
+		}
+
+		$has_price = false;
+		foreach ( array( 'price', 'lowPrice', 'highPrice' ) as $field ) {
+			if ( array_key_exists( $field, $offer ) ) {
+				$has_price       = true;
+				$offer[ $field ] = $this->multiply_decimal_by_ten( $offer[ $field ] );
+			}
+		}
+		if ( isset( $offer['priceCurrency'] ) || $has_price ) {
+			$offer['priceCurrency'] = 'IRR';
+		}
+
+		return $offer;
+	}
+
+	/**
+	 * Multiply one nonnegative canonical decimal by ten without float drift.
+	 *
+	 * @param mixed $value Decimal value.
+	 * @return mixed
+	 */
+	private function multiply_decimal_by_ten( $value ) {
+		$text = trim( (string) $value );
+		if ( ! preg_match( '/^([0-9]+)(?:\.([0-9]+))?$/', $text, $matches ) ) {
+			return $value;
+		}
+
+		$whole    = ltrim( $matches[1], '0' );
+		$whole    = '' === $whole ? '0' : $whole;
+		$fraction = $matches[2] ?? '';
+		if ( '' === $fraction ) {
+			return '0' === $whole ? '0' : $whole . '0';
+		}
+
+		$result_whole = ltrim( $whole . $fraction[0], '0' );
+		$result_whole = '' === $result_whole ? '0' : $result_whole;
+		$result_scale = rtrim( substr( $fraction, 1 ), '0' );
+
+		return '' === $result_scale ? $result_whole : $result_whole . '.' . $result_scale;
 	}
 
 	/**
