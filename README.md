@@ -41,6 +41,15 @@
 - HMAC signature verification
 - Non-blocking async delivery
 
+### ☎️ Phone verification and PBX notifications
+- Login or add an Iranian mobile/landline contact by calling `021-66754123` and choosing IVR option `2`
+- Six-digit, 10-minute challenge with exact caller-ID matching and single-use browser-bound consumption
+- Multiple supplemental emails and verified phone contacts in WooCommerce My Account
+- Per-number customer/admin consent controls for voice order updates
+- Global and per-order-status switches are disabled by default; calls run asynchronously with quiet hours and rate limits
+- Editable Persian templates support only `{first_name}`, `{order_number}`, `{order_status}`, and `{site_name}`
+- Deployment and security details: [`docs/PBX_CALL_VERIFICATION.md`](docs/PBX_CALL_VERIFICATION.md)
+
 ### 💻 WP-CLI Support
 - Command-line product management
 - Currency rate updates
@@ -226,6 +235,12 @@ receiver-state tombstones, never WooCommerce deletions. Inspect nonsecret counts
 with `wp digitalogic product-sync status`; an administrator can retry only
 durable pending/deferred work with `wp digitalogic product-sync reconcile
 --user=<administrator>`. See [Patris Product Sync](docs/PATRIS-PRODUCT-SYNC.md).
+
+Positive-stock products that do not yet exist in WooCommerce can be created or
+explicitly adopted with the dry-run-first, administrator-reviewed catalog
+materializer. It adds Persian enrichment, taxonomy and SEO metadata without
+guessing product ownership or creating new variable families. See
+[Patris Catalog Materializer](docs/PATRIS-CATALOG-MATERIALIZER.md).
 
 #### Export
 - `GET /wp-json/digitalogic/v1/export?format=csv` - Export products as CSV
@@ -438,7 +453,7 @@ Developed for Digitalogic electronic components shop.
 - Refreshed Persian translation catalogs and retained backward-compatible CLI update behavior.
 
 ### 1.2.0
-- Added the authenticated, transformed-only `digitalogic.product-sync` receiver with deterministic integrity and ordering checks.
+- Added the authenticated, transformed-only `patris.product-sync` receiver with deterministic integrity and ordering checks.
 - Added snapshot/delta merging, bounded replay protection, quarantine preservation, and non-destructive Code tombstones.
 - Added exact receiver-side landed-price verification, a durable per-product Woo delivery outbox, and a separate source-scopeable header secret.
 - Reused the exact collision-safe Patris Code resolver and normalized Patris WooCommerce writer.

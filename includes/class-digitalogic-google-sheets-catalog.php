@@ -201,7 +201,10 @@ final class Digitalogic_Google_Sheets_Catalog {
 					);
 				}
 			}
-			$this->add_number_field( $row, 'shipping_price_per_kg_cny', $method, 'shipping_price_per_kg_cny', $warnings );
+			// Shipping decimals are canonical strings; do not coerce them through
+			// PHP float before the Sheets client writes the numeric column.
+			$this->add_text_field( $row, 'shipping_price_per_kg', $method, 'price_per_kg', $warnings );
+			$this->add_text_field( $row, 'shipping_price_per_kg_currency', $method, 'currency', $warnings );
 			$this->add_number_field( $row, 'profit_percent', $assignment, 'profit_percent', $warnings );
 			$this->add_text_field( $row, 'profit_percent_source', $assignment, 'profit_percent_source', $warnings );
 			$this->add_selected_text_field( $row, 'permalink', $product, array( 'canonical_url', 'permalink' ), $warnings );
@@ -523,7 +526,8 @@ final class Digitalogic_Google_Sheets_Catalog {
 				$this->column( 'shipping_method_id', 'Shipping Method ID', 'شناسه روش حمل', 'text' ),
 				$this->column( 'shipping_method_name_en', 'Shipping Method', 'نام انگلیسی روش حمل', 'text' ),
 				$this->column( 'shipping_method_name_fa', 'Shipping Method (Persian)', 'روش حمل', 'text' ),
-				$this->column( 'shipping_price_per_kg_cny', 'Shipping Price per kg (CNY)', 'هزینه حمل هر کیلو (یوان)', 'number' ),
+				$this->column( 'shipping_price_per_kg', 'Shipping Price per kg', 'هزینه حمل هر کیلو', 'number' ),
+				$this->column( 'shipping_price_per_kg_currency', 'Shipping Price Currency', 'ارز هزینه حمل', 'text' ),
 				$this->column( 'profit_percent', 'Profit Margin (%)', 'حاشیه سود (درصد)', 'number' ),
 				$this->column( 'profit_percent_source', 'Profit Source', 'منبع حاشیه سود', 'text' ),
 				$this->column( 'permalink', 'Product URL', 'نشانی محصول', 'url' ),

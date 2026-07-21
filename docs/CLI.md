@@ -62,3 +62,43 @@ Available update fields:
 - `--sale-price=<amount>`
 - `--stock=<quantity>`
 - `--set-sku=<sku>`
+
+## Materialize reviewed Patris catalog products
+
+The catalog materializer consumes the current validated living product-sync
+state plus a strict administrator-reviewed Persian enrichment manifest. It is
+a dry run unless `--apply` is present. New products and previously nonpublic
+reviewed targets remain drafts unless `--publish-ready` is also present and
+every readiness gate passes. An exact reviewed target that was already
+published keeps that status and is reported as `preserved_published` instead of
+being counted as newly published.
+
+The current source record must carry `shipping_price_per_kg` together with an
+explicit `shipping_price_per_kg_currency` of `CNY` or `IRR`; no freight currency
+is inferred during materialization.
+
+```bash
+wp digitalogic product-sync materialize \
+  --manifest=/secure/reviewed-patris-catalog.json \
+  --user=<administrator>
+
+wp digitalogic product-sync materialize \
+  --manifest=/secure/reviewed-patris-catalog.json \
+  --codes=10001,10002 \
+  --apply \
+  --user=<administrator>
+
+wp digitalogic product-sync materialize \
+  --manifest=/secure/reviewed-patris-catalog.json \
+  --apply \
+  --publish-ready \
+  --user=<administrator>
+```
+
+Optional `--source-id` and `--dataset` arguments must exactly match the
+manifest when supplied. `--codes` selects exact Patris Codes and `--limit`
+bounds the sorted positive-stock selection. An omitted limit or exact
+`--limit=0` means unlimited; every other supplied value must be a canonical
+positive integer. See
+[Patris Catalog Materializer](PATRIS-CATALOG-MATERIALIZER.md) for the manifest
+contract, variation rules, two-phase rollout, and publication gates.

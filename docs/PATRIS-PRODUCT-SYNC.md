@@ -1,6 +1,6 @@
 # Patris Product Sync Living Contract
 
-Digitalogic and Patris Export use one living, versionless contract. Because both ends are deployed together, contract changes replace the current shape instead of adding compatibility branches.
+Digitalogic and Patris Export use one living contract. Because both ends are deployed together, contract changes replace the current shape instead of adding compatibility branches.
 
 ## Endpoints
 
@@ -9,7 +9,7 @@ Digitalogic and Patris Export use one living, versionless contract. Because both
 - `POST /wp-json/digitalogic/integration/pricing-assignments/batch`
 - `GET /wp-json/digitalogic/integration/products/by-code/{code}/pricing`
 
-The product-sync request uses `X-Digitalogic-Product-Sync-Secret`. It may be restricted to exact `{id,dataset}` source pairs.
+The product-sync request uses `X-Patris-Product-Sync-Secret`. It may be restricted to exact `{id,dataset}` source pairs.
 
 Product delivery and pricing-assignment lookups match the case-sensitive
 `_digitalogic_patris_product_code` value only. A WooCommerce SKU is never used
@@ -30,7 +30,7 @@ The envelope contains:
 
 ```json
 {
-  "schema": "digitalogic.product-sync",
+  "schema": "patris.product-sync",
   "event_type": "snapshot",
   "event_id": "sha256:...",
   "local_currency": "IRT",
@@ -53,7 +53,9 @@ The envelope contains:
 
 A product requires `product_code`, `warnings`, and `record_hash`. Its optional sparse superset is:
 
-`category_code`, `name`, `serial`, `unit`, `sale_price_source`, `purchase_price_source`, `warehouse_stock`, `total_stock`, `minimum_stock`, `foreign_currency`, `foreign_price`, `weight_grams`, `location`, `shipping_method_id`, `shipping_price_per_kg_cny`, `markup_percent`, `irt_per_cny`, `pricing_catalog_revision`, `pricing_catalog_status`, `currency_effective_date`, `final_price`, `source_updated_at`, and `warnings`.
+`category_code`, `name`, `serial`, `unit`, `sale_price_source`, `purchase_price_source`, `warehouse_stock`, `total_stock`, `minimum_stock`, `foreign_currency`, `foreign_price`, `weight_grams`, `location`, `shipping_method_id`, `shipping_price_per_kg`, `shipping_price_per_kg_currency`, `markup_percent`, `irt_per_cny`, `pricing_catalog_revision`, `pricing_catalog_status`, `currency_effective_date`, `final_price`, `source_updated_at`, and `warnings`.
+
+`shipping_price_per_kg` and `shipping_price_per_kg_currency` are a required key pair whenever either is present. A non-null currency is uppercase `CNY` or `IRR`. The two present values independently preserve explicit source nulls, so a numeric amount with null currency and a null amount with `CNY` or `IRR` are both valid representations. Either null makes calculation incomplete and therefore requires `final_price` to be omitted.
 
 A category requires `category_code`, `name`, `parent_code`, `depth`, `warnings`, and `record_hash`. `name` accepts a string or explicit null. `parent_code` and `depth` are derived non-null values; root `parent_code` is the empty string.
 
@@ -68,9 +70,18 @@ Event identity includes `schema`, `event_type`, `local_currency`, `formula_id`, 
 `landed_price` uses exact bounded decimals and rounds half up once to an integer IRT final price:
 
 ```text
-landed CNY = foreign_price + (weight_grams / 1000 × shipping_price_per_kg_cny)
-final IRT  = landed CNY × (1 + markup_percent / 100) × irt_per_cny
+goods IRT = foreign_price × irt_per_cny
+
+freight IRT when shipping_price_per_kg_currency = CNY:
+  weight_grams / 1000 × shipping_price_per_kg × irt_per_cny
+
+freight IRT when shipping_price_per_kg_currency = IRR:
+  weight_grams / 1000 × shipping_price_per_kg / 10
+
+final IRT = (goods IRT + freight IRT) × (1 + markup_percent / 100)
 ```
+
+The receiver uses exact decimal arithmetic and rounds half up once, after markup.
 
 ## Catalog and assignments
 
@@ -80,7 +91,7 @@ The public catalog is exactly:
 {schema, revision, currency, pricing, selected_warehouses, shipping_methods}
 ```
 
-`schema` is `digitalogic.integration-catalog`; `pricing.formula_id` is `landed_price`. Currency fields are sparse and never filled with null placeholders. Shipping methods use only `shipping_method_id` and `shipping_price_per_kg_cny` terminology.
+`schema` is `digitalogic.integration-catalog`; `pricing.formula_id` is `landed_price`. Currency fields are sparse and never filled with null placeholders. Each shipping method contains canonical-string `price_per_kg` and a required `currency` (`CNY` or `IRR`); configured minimums, divisors, and tier bounds/rates use the same exact decimal-string representation. Product assignments expose that selection through `shipping_method_id` and, when a method is assigned, the paired flattened shipping-price fields.
 
 The batch response is exactly:
 

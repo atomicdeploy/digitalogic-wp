@@ -159,6 +159,7 @@ $logo_url = !empty($config['theme']['logo_url']) ? $config['theme']['logo_url'] 
                     <div class="dlp-column-panel" v-if="columnMenuOpen">
                         <label v-for="column in productColumns" :key="column.key"><input type="checkbox" :checked="column.visible !== false" @change="toggleColumn('product', column)"> {{ column.labelKey ? t[column.labelKey] : column.label }}</label>
                         <label class="dlp-column-option"><input type="checkbox" v-model="compactTable"> {{ t.compactTableMode }}</label>
+                        <label class="dlp-column-option"><input type="checkbox" v-model="freezeFirstProductColumn"> {{ t.freezeFirstColumn }}</label>
                         <button class="dlp-button" @click="resetColumns('product')">{{ t.resetColumns }}</button>
                     </div>
                     <transition name="dlp-editor">
@@ -199,7 +200,7 @@ $logo_url = !empty($config['theme']['logo_url']) ? $config['theme']['logo_url'] 
                     </transition>
                     <div class="dlp-panel">
                         <div class="dlp-table-wrap">
-                            <table class="dlp-table dlp-data-grid" data-grid-kind="product" :aria-colcount="visibleProductColumns.length + 2" :class="{'is-compact': compactTable, 'is-view-mode': !productEditMode}">
+                            <table class="dlp-table dlp-data-grid" data-grid-kind="product" :aria-colcount="visibleProductColumns.length + 2" :class="{'is-compact': compactTable, 'is-view-mode': !productEditMode, 'is-first-column-sticky': freezeFirstProductColumn}">
                                 <colgroup>
                                     <col style="width:44px">
                                     <col v-for="column in visibleProductColumns" :key="column.key" :class="'dlp-col-' + column.key" :style="{width: column.width + 'px'}">
@@ -208,7 +209,7 @@ $logo_url = !empty($config['theme']['logo_url']) ? $config['theme']['logo_url'] 
                                 <thead>
                                     <tr>
                                         <th scope="col"><label class="dlp-check"><input type="checkbox" v-model="allProductsSelected" :aria-label="t.selectAll"><span></span></label></th>
-                                        <th scope="col" v-for="column in visibleProductColumns" :key="column.key" :data-column-key="column.key" :class="{'is-resizing': resizingColumn === column.key}" draggable="true" @contextmenu.prevent="openColumnContext('product', column, $event)" @dragstart="startColumnDrag(column.key)" @dragover.prevent @drop="dropColumn('product', column.key)" @dblclick.stop="autoResizeColumn('product', column)">
+                                        <th scope="col" v-for="(column, columnIndex) in visibleProductColumns" :key="column.key" :data-column-key="column.key" :class="{'is-resizing': resizingColumn === column.key, 'is-sticky-first-data-column': columnIndex === 0}" draggable="true" @contextmenu.prevent="openColumnContext('product', column, $event)" @dragstart="startColumnDrag(column.key)" @dragover.prevent @drop="dropColumn('product', column.key)" @dblclick.stop="autoResizeColumn('product', column)">
                                             <button class="dlp-th-button" :aria-disabled="!column.sortable" @click="cycleSort('product', column, $event)"><span class="dlp-th-label"><span :class="icon(column.icon || 'dashicons-editor-ul')"></span>{{ column.labelKey ? t[column.labelKey] : column.label }}</span><span>{{ sortLabel('product', column) }}</span></button>
                                             <button class="dlp-column-menu-button" @click.stop="openColumnContext('product', column, $event)" :aria-label="t.actions"><span class="dashicons dashicons-ellipsis"></span></button>
                                             <span class="dlp-col-resizer" @mousedown="startColumnResize('product', column, $event)" @dblclick.stop.prevent="autoResizeColumn('product', column)"></span>
@@ -217,7 +218,7 @@ $logo_url = !empty($config['theme']['logo_url']) ? $config['theme']['logo_url'] 
                                     </tr>
                                     <tr class="dlp-filter-row">
                                         <th></th>
-                                        <th v-for="column in visibleProductColumns" :key="'filter-' + column.key" :data-column-key="column.key" :class="{'is-resizing': resizingColumn === column.key}">
+                                        <th v-for="(column, columnIndex) in visibleProductColumns" :key="'filter-' + column.key" :data-column-key="column.key" :class="{'is-resizing': resizingColumn === column.key, 'is-sticky-first-data-column': columnIndex === 0}">
                                             <template v-if="!column.filter"></template>
                                             <template v-else-if="column.filter === 'select'">
                                                 <span class="dlp-custom-select dlp-filter-cell-select">
@@ -242,7 +243,7 @@ $logo_url = !empty($config['theme']['logo_url']) ? $config['theme']['logo_url'] 
                                 <tbody>
                                     <tr v-for="product in filteredProducts" :key="product.id" :data-product-row="product.id" :class="{'is-edited': rowEdited(product), 'is-selected': isProductSelected(product), 'is-active-product': selectedProduct && selectedProduct.id === product.id}" @click="selectProductRow(product)" @dblclick="openProductPanel(product, {reveal: true})" @focusin="selectProductRow(product)" @contextmenu.prevent="openProductRowContext(product, $event)">
                                         <td><label class="dlp-check"><input type="checkbox" v-model="selectedProducts[product.id]" :aria-label="t.selectRow"><span></span></label></td>
-                                        <td v-for="column in visibleProductColumns" :key="column.key" :class="cellClass(column)" :data-column-key="column.key">
+                                        <td v-for="(column, columnIndex) in visibleProductColumns" :key="column.key" :class="[cellClass(column), {'is-sticky-first-data-column': columnIndex === 0}]" :data-column-key="column.key">
                                             <button v-if="column.type === 'select'" class="dlp-editable-cell dlp-select-cell" :class="{'is-readonly': !column.editable || !productEditMode}" :disabled="!column.editable || !productEditMode" tabindex="0" :data-grid-row="product.id" :data-grid-col="column.key" @click.stop="openSelectCell('product', product, column, $event)" @focus="selectProductRow(product)" @keydown="onGridCellKeydown($event, product, column)">
                                                 <span class="dlp-status-badge" :class="'is-' + statusTone(product[column.field])"><span :class="icon(statusIcon(product[column.field]))"></span>{{ formatColumnValue(product, column) }}</span>
                                             </button>

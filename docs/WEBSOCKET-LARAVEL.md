@@ -138,44 +138,24 @@ add_filter('digitalogic_websocket_ajax_action_allowed', function ($allowed, $act
 
 ## Laravel Panel
 
-Laravel should call the token-authenticated panel bridge for server-side product reads and updates:
-
-```bash
-wp digitalogic panel token --allow-root
-```
+Laravel is bundled with the WordPress application and is booted in the same PHP
+process. WordPress is the only authentication and authorization source:
 
 ```php
-use Illuminate\Support\Facades\Http;
+define('WP_USE_THEMES', false);
+require dirname(__DIR__) . '/wp-load.php';
 
-$base = 'https://digitalogic.ir/wp-json/digitalogic-panel/v1';
-$token = config('services.digitalogic.token');
+if (! current_user_can('manage_woocommerce')) {
+    abort(403);
+}
 
-$products = Http::withHeaders([
-    'X-Digitalogic-Panel-Token' => $token,
-])->get($base . '/products', [
-    'page' => 1,
-    'limit' => 50,
-])->json();
-
-Http::withHeaders([
-    'X-Digitalogic-Panel-Token' => $token,
-])->patch($base . '/products/123', [
-    'regular_price' => '275000',
-    'stock_quantity' => 75,
-]);
+$products = Digitalogic_Command_Dispatcher::instance()->execute(
+    'digitalogic_get_products',
+    ['page' => 1, 'limit' => 50],
+    'laravel'
+);
 ```
 
-The command endpoint can also call registered `wp_ajax_{action}` handlers, which
-keeps Laravel and WordPress interoperable without duplicating WooCommerce
-business logic in both applications.
-
-For command parity with WebSocket/AJAX, Laravel can call:
-
-```php
-Http::withHeaders([
-    'X-Digitalogic-Panel-Token' => $token,
-])->post($base . '/commands', [
-    'command' => 'digitalogic_get_products',
-    'data' => ['page' => 1, 'limit' => 50],
-]);
-```
+The same command dispatcher is shared by the in-process Laravel kernel,
+WebSocket transport, and authenticated WordPress AJAX fallback. No public
+panel-bridge endpoint, token handoff, or second Laravel session is involved.

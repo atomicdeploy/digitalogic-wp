@@ -194,7 +194,7 @@ than being converted or changed automatically.
 A supplier shipping method describes supplier-to-Digitalogic transport. It does not use
 WooCommerce checkout, shipping-zone, or customer delivery APIs.
 
-- **GET** `/wp-json/digitalogic/integration/catalog` - sparse CNY/IRT rate, `landed_price`, selected warehouses, and methods
+- **GET** `/wp-json/digitalogic/integration/catalog` - sparse CNY/IRT rate, `landed_price`, selected warehouses, and methods with explicit freight currencies
 - **GET** `/shipping-methods` - list canonical methods
 - **POST** `/shipping-methods` - create a method with an immutable ID
 - **GET|PUT|DELETE** `/shipping-methods/{id}` - read, update, or delete an unassigned method
@@ -205,8 +205,12 @@ WooCommerce checkout, shipping-zone, or customer delivery APIs.
 
 GET routes use the `read` permission scope. Mutating routes use `write`.
 Deleting an assigned method returns HTTP 409; disabling it remains available.
-Method and tier payloads use `shipping_price_per_kg_cny`; aliases are not
-accepted or emitted. See [Supplier Shipping Method API](SHIPPING-METHOD-API.md)
+Method payloads use required `price_per_kg` and `currency` fields. Currency input
+must be exactly `CNY` or `IRR`; tier rates inherit the method currency. Rates,
+minimums, divisors, and tier bounds are canonical decimal strings with at most
+12 fractional digits and are never emitted through binary floats. Product-sync
+records use the paired flattened fields `shipping_price_per_kg` and
+`shipping_price_per_kg_currency`. Aliases are not accepted or emitted. See [Supplier Shipping Method API](SHIPPING-METHOD-API.md)
 and [Patris Product Sync](PATRIS-PRODUCT-SYNC.md).
 
 ---
@@ -334,60 +338,15 @@ add_filter('digitalogic_websocket_ajax_action_allowed', function ($allowed, $act
 
 ---
 
-## Laravel Panel Bridge
+## Integrated Laravel Panel
 
-Base URL: `https://yoursite.com/wp-json/digitalogic-panel/v1`
+The `/panel/` application uses the existing WordPress login cookie and
+capability checks. WordPress and the bundled Laravel application run in the
+same PHP process, so there is no panel token, handoff code, bridge REST API, or
+second Laravel identity/session. The in-process bridge loads
+`bootstrap/app.php` and invokes the Laravel HTTP kernel directly; Laravel can
+then call WordPress, WooCommerce, Digitalogic commands, and the shared
+WebSocket configuration without network serialization.
 
-Get the bridge token:
-```bash
-wp digitalogic panel token --allow-root
-```
-
-Rotate the token:
-```bash
-wp digitalogic panel token --rotate --allow-root
-```
-
-Laravel request example:
-```php
-$response = Http::withHeaders([
-    'X-Digitalogic-Panel-Token' => config('services.digitalogic.token'),
-])->get('https://digitalogic.ir/wp-json/digitalogic-panel/v1/products', [
-    'page' => 1,
-    'limit' => 50,
-]);
-```
-
-Panel endpoints:
-- `GET /products`
-- `GET /products/{id}`
-- `PATCH /products/{id}`
-- `POST /commands`
-- `POST /session/consume`
-- `GET /theme`
-- `GET /laravel/status`
-- `POST /laravel/request`
-
-The `/commands` endpoint can call Digitalogic commands, custom
-`digitalogic_command_handlers`, or registered `wp_ajax_{action}` callbacks. Use
-this for WordPress/Laravel interoperability when the Laravel panel needs to
-trigger the same server-side behavior that the WordPress admin already uses.
-
-WordPress admins can enter the panel from **Digitalogic > Panel**. The launch
-URL creates a short-lived, one-time handoff code and redirects to the configured
-panel URL. By default, the temporary route is:
-
-`https://digitalogic.ir/panel/?code=...`
-
-Laravel consumes that code with the bridge token:
-```php
-$session = Http::withHeaders([
-    'X-Digitalogic-Panel-Token' => config('services.digitalogic.token'),
-])->post($base . '/session/consume', [
-    'code' => $request->query('code'),
-])->json();
-```
-
-The `GET /theme` endpoint exposes the shared Digitalogic visual identity,
-including logo URLs, direction, locale, color tokens, and the `/digitalogic-ui/`
-asset base.
+See [Laravel Panel Interoperability](LARAVEL-PANEL.md) for the application path
+and bootstrap contract.

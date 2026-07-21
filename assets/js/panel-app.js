@@ -283,6 +283,7 @@
                 productFilters: storedJson('digitalogic_panel_product_filters', {}),
                 imageFilter: stored('digitalogic_panel_image_filter', 'all'),
                 compactTable: stored('digitalogic_panel_compact_table', '0') === '1',
+                freezeFirstProductColumn: stored('digitalogic_panel_freeze_first_product_column', '1') !== '0',
                 columnContext: null,
                 selectedProducts: {},
                 selectedUsers: {},
@@ -548,6 +549,9 @@
             },
             compactTable: function(value) {
                 window.localStorage.setItem('digitalogic_panel_compact_table', value ? '1' : '0');
+            },
+            freezeFirstProductColumn: function(value) {
+                window.localStorage.setItem('digitalogic_panel_freeze_first_product_column', value ? '1' : '0');
             },
             route: function() {
                 this.loadRoute();

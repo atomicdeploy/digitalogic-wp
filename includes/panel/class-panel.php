@@ -1,6 +1,7 @@
 <?php
 /**
- * In-site Vue panel served from /panel while the standalone Laravel panel is prepared.
+ * Integrated Vue panel served from /panel with WordPress and bundled Laravel
+ * available in the same PHP process.
  */
 
 if (!defined('ABSPATH')) {
@@ -13,7 +14,7 @@ class Digitalogic_Panel {
     private const PATH_VAR = 'digitalogic_panel_path';
     private const LEGACY_VAR = 'digitalogic_panel_legacy';
     private const REWRITE_VERSION_OPTION = 'digitalogic_panel_rewrite_version';
-    private const REWRITE_VERSION = '20260617-panel';
+    private const REWRITE_VERSION = '20260720-panel-self-heal';
     private const EVENT_OPTION = 'digitalogic_panel_events';
     private const EVENT_SEQUENCE_OPTION = 'digitalogic_panel_event_sequence';
     private const EVENT_LOCK_NAME = 'digitalogic_panel_events_v1';
@@ -59,15 +60,42 @@ class Digitalogic_Panel {
     }
 
     public function register_route() {
-        add_rewrite_rule('^panel/?$', 'index.php?' . self::QUERY_VAR . '=1', 'top');
-        add_rewrite_rule('^panel/(.+)/?$', 'index.php?' . self::QUERY_VAR . '=1&' . self::PATH_VAR . '=$matches[1]', 'top');
-        add_rewrite_rule('^panell/?$', 'index.php?' . self::QUERY_VAR . '=1&' . self::LEGACY_VAR . '=1', 'top');
-        add_rewrite_rule('^panell/(.+)/?$', 'index.php?' . self::QUERY_VAR . '=1&' . self::LEGACY_VAR . '=1&' . self::PATH_VAR . '=$matches[1]', 'top');
+        $rules = $this->rewrite_rules();
+        foreach ($rules as $pattern => $target) {
+            add_rewrite_rule($pattern, $target, 'top');
+        }
 
-        if (get_option(self::REWRITE_VERSION_OPTION) !== self::REWRITE_VERSION) {
+        if (
+            get_option(self::REWRITE_VERSION_OPTION) !== self::REWRITE_VERSION
+            || !$this->stored_rewrite_rules_are_current($rules)
+        ) {
             flush_rewrite_rules(false);
             update_option(self::REWRITE_VERSION_OPTION, self::REWRITE_VERSION, false);
         }
+    }
+
+    private function rewrite_rules() {
+        return array(
+            '^panel/?$' => 'index.php?' . self::QUERY_VAR . '=1',
+            '^panel/(.+)/?$' => 'index.php?' . self::QUERY_VAR . '=1&' . self::PATH_VAR . '=$matches[1]',
+            '^panell/?$' => 'index.php?' . self::QUERY_VAR . '=1&' . self::LEGACY_VAR . '=1',
+            '^panell/(.+)/?$' => 'index.php?' . self::QUERY_VAR . '=1&' . self::LEGACY_VAR . '=1&' . self::PATH_VAR . '=$matches[1]',
+        );
+    }
+
+    private function stored_rewrite_rules_are_current($expected_rules) {
+        $stored_rules = get_option('rewrite_rules', array());
+        if (!is_array($stored_rules)) {
+            return false;
+        }
+
+        foreach ($expected_rules as $pattern => $target) {
+            if (!isset($stored_rules[$pattern]) || $stored_rules[$pattern] !== $target) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     public function register_query_vars($vars) {
@@ -117,6 +145,11 @@ class Digitalogic_Panel {
                 esc_html__('Forbidden', 'digitalogic'),
                 array('response' => 403)
             );
+        }
+
+        $laravel = Digitalogic_Laravel_Bridge::instance()->boot_for_panel();
+        if (is_wp_error($laravel)) {
+            do_action('digitalogic_laravel_boot_failed', $laravel);
         }
 
         $this->enqueue_assets();
@@ -250,8 +283,6 @@ class Digitalogic_Panel {
             'cli' => array(
                 'websocket' => 'wp digitalogic websocket serve --host=127.0.0.1 --port=8090 --allow-root',
             'websocket_token' => 'wp digitalogic websocket token --allow-root',
-            'panel_token' => 'wp digitalogic panel token --allow-root',
-            'panel_rotate' => 'wp digitalogic panel token --rotate --allow-root',
             'panel_broadcast' => 'wp digitalogic panel broadcast --message="Hello panel" --level=success --allow-root',
             'patris_sync' => 'wp digitalogic patris sync --allow-root',
             'patris_report' => 'wp digitalogic patris report --format=table --allow-root',
@@ -270,7 +301,8 @@ class Digitalogic_Panel {
             ),
             'bridge' => array(
                 'panel_url' => Digitalogic_Laravel_Bridge::instance()->get_panel_url(),
-                'rest_url' => rest_url('digitalogic-panel/v1/'),
+                'mode' => 'in_process',
+                'auth' => 'wordpress_session',
                 'wordpress_loaded' => true,
                 'laravel_bootstrap' => file_exists(DIGITALOGIC_PLUGIN_DIR . 'laravel/bootstrap/app.php'),
             ),
@@ -293,7 +325,6 @@ class Digitalogic_Panel {
                 'admin' => admin_url(),
                 'ajax' => admin_url('admin-ajax.php'),
                 'rest' => rest_url('digitalogic/v1/'),
-                'bridge_rest' => rest_url('digitalogic-panel/v1/'),
             ),
             'websocket' => array(
                 'enabled' => !empty($ws['enabled']),
@@ -302,6 +333,8 @@ class Digitalogic_Panel {
                 'ajax_proxy_enabled' => !empty($ws['ajax_proxy_enabled']),
             ),
             'bridge' => array(
+                'mode' => 'in_process',
+                'auth' => 'wordpress_session',
                 'wordpress_bootstrap' => ABSPATH,
                 'laravel_bootstrap' => file_exists(DIGITALOGIC_PLUGIN_DIR . 'laravel/bootstrap/app.php'),
                 'theme_shared' => true,
@@ -613,8 +646,17 @@ class Digitalogic_Panel {
             'name' => isset($method['name']) ? sanitize_text_field($method['name']) : '',
             'enabled' => !empty($method['enabled']),
 		);
-		if (array_key_exists('shipping_price_per_kg_cny', $method) && null !== $method['shipping_price_per_kg_cny']) {
-			$data['shipping_price_per_kg_cny'] = (float) $method['shipping_price_per_kg_cny'];
+		if (array_key_exists('currency', $method)) {
+			$data['currency'] = (string) $method['currency'];
+		}
+		if (array_key_exists('price_per_kg', $method) && null !== $method['price_per_kg']) {
+			$data['price_per_kg'] = (string) $method['price_per_kg'];
+		}
+		if (array_key_exists('minimum_charge', $method) && null !== $method['minimum_charge']) {
+			$data['minimum_charge'] = (string) $method['minimum_charge'];
+		}
+		if (!empty($method['tiered_rates']) && is_array($method['tiered_rates'])) {
+			$data['tiered_rates'] = $this->shipping_tiers_payload($method['tiered_rates']);
 		}
         return self::record_event($event, $data);
     }
@@ -664,8 +706,17 @@ class Digitalogic_Panel {
                 'name' => isset($method['name']) ? sanitize_text_field($method['name']) : '',
                 'enabled' => !empty($method['enabled']),
             );
-			if (array_key_exists('shipping_price_per_kg_cny', $method) && null !== $method['shipping_price_per_kg_cny']) {
-				$data['shipping_price_per_kg_cny'] = (float) $method['shipping_price_per_kg_cny'];
+			if (array_key_exists('currency', $method)) {
+				$data['currency'] = (string) $method['currency'];
+			}
+			if (array_key_exists('price_per_kg', $method) && null !== $method['price_per_kg']) {
+				$data['price_per_kg'] = (string) $method['price_per_kg'];
+			}
+			if (array_key_exists('minimum_charge', $method) && null !== $method['minimum_charge']) {
+				$data['minimum_charge'] = (string) $method['minimum_charge'];
+			}
+			if (!empty($method['tiered_rates']) && is_array($method['tiered_rates'])) {
+				$data['tiered_rates'] = $this->shipping_tiers_payload($method['tiered_rates']);
 			}
         }
 
@@ -683,6 +734,19 @@ class Digitalogic_Panel {
 
         return true;
     }
+
+	/** Preserve canonical tier decimals without generated nulls or float casts. */
+	private function shipping_tiers_payload($tiers) {
+		return array_values(array_map(static function($tier) {
+			$payload = array();
+			foreach (array('min_weight_kg', 'max_weight_kg', 'price_per_kg') as $field) {
+				if (is_array($tier) && array_key_exists($field, $tier) && null !== $tier[$field]) {
+					$payload[$field] = (string) $tier[$field];
+				}
+			}
+			return $payload;
+		}, (array) $tiers));
+	}
 
     public static function record_event($event, $data = array()) {
         $result = self::record_event_result($event, $data);
@@ -933,12 +997,22 @@ class Digitalogic_Panel {
 
         global $wpdb;
         $like = '%' . $wpdb->esc_like($term) . '%';
-        $search_body = preg_replace('/^\s*AND\s*/', '', (string) $search);
 
         $meta_clause = $wpdb->prepare(
             "{$wpdb->posts}.ID IN (
                 SELECT post_id FROM {$wpdb->postmeta}
-                WHERE meta_key IN ('_sku', '_product_attributes', 'attribute_pa_model')
+                WHERE meta_key IN (
+                    '_sku',
+                    '_product_attributes',
+                    'attribute_pa_model',
+                    '_digitalogic_patris_name',
+                    '_digitalogic_patris_family_name',
+                    '_digitalogic_patris_product_code',
+					'_digitalogic_patris_serial',
+					'_digitalogic_persian_name',
+                    '_digitalogic_part_number',
+                    '_digitalogic_model'
+                )
                 AND meta_value LIKE %s
             )",
             $like
@@ -951,9 +1025,25 @@ class Digitalogic_Panel {
                 INNER JOIN {$wpdb->postmeta} variation_meta ON variations.ID = variation_meta.post_id
                 WHERE variations.post_type = 'product_variation'
                 AND variations.post_parent > 0
-                AND variation_meta.meta_key IN ('_sku', 'attribute_pa_model')
-                AND variation_meta.meta_value LIKE %s
+                AND variations.post_status = 'publish'
+                AND (
+                    variations.post_title LIKE %s
+                    OR (
+                        variation_meta.meta_key IN (
+                            '_sku',
+                            'attribute_pa_model',
+                            '_digitalogic_patris_name',
+                            '_digitalogic_patris_product_code',
+							'_digitalogic_patris_serial',
+							'_digitalogic_persian_name',
+                            '_digitalogic_part_number',
+                            '_digitalogic_model'
+                        )
+                        AND variation_meta.meta_value LIKE %s
+                    )
+                )
             )",
+			$like,
             $like
         );
 
@@ -970,11 +1060,28 @@ class Digitalogic_Panel {
             $like
         );
 
-        if ($search_body === '') {
-            return ' AND (' . $meta_clause . ' OR ' . $variation_clause . ' OR ' . $taxonomy_clause . ')';
+        $identity_clause = $meta_clause . ' OR ' . $variation_clause . ' OR ' . $taxonomy_clause;
+        if (trim((string) $search) === '') {
+            return ' AND (' . $identity_clause . ')';
         }
 
-        return ' AND (' . $search_body . ' OR ' . $meta_clause . ' OR ' . $variation_clause . ' OR ' . $taxonomy_clause . ')';
+        // Extend only the first positive title predicate generated by WP_Query.
+        // Keeping every NOT LIKE group and the anonymous post-password clause
+        // in their original position prevents alternate-identity matches from
+        // bypassing core exclusions or exposing password-protected products.
+        $posts_table = preg_quote((string) $wpdb->posts, '/');
+        $pattern = '/(\(\s*' . $posts_table . '\.post_title\s+LIKE\s+(?:\'(?:\\\\.|[^\'])*\'|"(?:\\\\.|[^"])*"|[^\s)]+)\s*)\)/i';
+        $extended = preg_replace_callback(
+            $pattern,
+            static function($matches) use ($identity_clause) {
+                return $matches[1] . ' OR (' . $identity_clause . '))';
+            },
+            (string) $search,
+            1,
+            $replacements
+        );
+
+        return 1 === $replacements && is_string($extended) ? $extended : $search;
     }
 
     public function hide_wp_armour_honeypot_notice() {
@@ -1164,6 +1271,7 @@ class Digitalogic_Panel {
             'withoutImage' => 'Missing image',
             'bulkActions' => 'Bulk actions',
             'compactTableMode' => 'Compact table',
+            'freezeFirstColumn' => 'Freeze first column',
             'publishSelected' => 'Publish selected',
             'draftSelected' => 'Move selected to draft',
             'markInStock' => 'Mark in stock',
@@ -1197,6 +1305,7 @@ class Digitalogic_Panel {
             'withoutImage' => 'بدون تصویر',
             'bulkActions' => 'عملیات گروهی',
             'compactTableMode' => 'حالت فشرده جدول',
+            'freezeFirstColumn' => 'ثابت نگه داشتن ستون اول',
             'publishSelected' => 'انتشار انتخاب شده ها',
             'draftSelected' => 'انتقال به پیش نویس',
             'markInStock' => 'موجود کردن',

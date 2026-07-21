@@ -370,7 +370,7 @@ class Digitalogic_Patris_Feed {
      */
     public function verify_product_sync_request(WP_REST_Request $request) {
         $expected = $this->get_product_sync_secret();
-        $provided = $request->get_header('x-digitalogic-product-sync-secret');
+        $provided = $request->get_header('x-patris-product-sync-secret');
 
         if (!is_string($provided) || '' === $provided || '' === $expected || !hash_equals($expected, $provided)) {
             return false;
@@ -489,7 +489,8 @@ class Digitalogic_Patris_Feed {
             'weight_grams' => array('_digitalogic_patris_weight_grams', false),
             'location' => array('_digitalogic_patris_location', false),
             'shipping_method_id' => array('_digitalogic_patris_shipping_method_id', false),
-            'shipping_price_per_kg_cny' => array('_digitalogic_patris_shipping_price_per_kg_cny', false),
+            'shipping_price_per_kg' => array('_digitalogic_patris_shipping_price_per_kg', false),
+            'shipping_price_per_kg_currency' => array('_digitalogic_patris_shipping_price_per_kg_currency', false),
             'markup_percent' => array('_digitalogic_patris_markup_percent', false),
             'irt_per_cny' => array('_digitalogic_patris_irt_per_cny', false),
             'pricing_catalog_revision' => array('_digitalogic_patris_pricing_catalog_revision', false),

@@ -3,7 +3,7 @@
  * Plugin Name: Digitalogic WooCommerce Extension
  * Plugin URI: https://github.com/atomicdeploy/digitalogic-wp
  * Description: Custom dynamic pricing, stock manager, and POS integration for Digitalogic electronic components shop. Supports bulk operations, import/export, and external API integration.
- * Version: 1.3.6
+ * Version: 1.5.0
  * Author: Digitalogic
  * Author URI: https://digitalogic.ir
  * Text Domain: digitalogic
@@ -22,7 +22,8 @@ if (!defined('ABSPATH')) {
 }
 
 // Define plugin constants
-define( 'DIGITALOGIC_VERSION', '1.3.6' );
+define( 'DIGITALOGIC_VERSION', '1.5.0' );
+define( 'DIGITALOGIC_PBX_SCHEMA_VERSION', '3' );
 define('DIGITALOGIC_MIN_PHP_VERSION', '8.3');
 define('DIGITALOGIC_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('DIGITALOGIC_PLUGIN_URL', plugin_dir_url(__FILE__));
@@ -124,6 +125,7 @@ final class Digitalogic {
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-patris-feed.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-product-sync-receiver.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-shipping-method-service.php';
+        require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-patris-catalog-materializer.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-google-sheets-catalog.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-google-sheets-writeback.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-report-engine.php';
@@ -143,6 +145,10 @@ final class Digitalogic {
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-auth-page.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-desktop-app.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-frontend-search.php';
+		require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-pbx-phone.php';
+		require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-call-verification.php';
+		require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-voice-notifications.php';
+        require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-product-identity.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/panel/class-panel.php';
 
         // Admin includes
@@ -170,6 +176,8 @@ final class Digitalogic {
         Digitalogic_Plugin_Auth_Routes::init();
         Digitalogic_Desktop_App::init();
         Digitalogic_Frontend_Search::instance();
+		Digitalogic_Call_Verification::instance();
+        Digitalogic_Product_Identity::instance();
     }
 
     /**
@@ -181,6 +189,10 @@ final class Digitalogic {
             add_action('admin_notices', array($this, 'woocommerce_missing_notice'));
             return;
         }
+
+		if ( DIGITALOGIC_PBX_SCHEMA_VERSION !== (string) get_option( 'digitalogic_pbx_schema_version', '' ) ) {
+			$this->install_pbx_schema();
+		}
 
         // Initialize components
         Digitalogic_Options::instance();
@@ -200,6 +212,7 @@ final class Digitalogic {
         Digitalogic_Laravel_Bridge::instance();
         Digitalogic_Panel::instance();
         Digitalogic_Comment_Guard::instance();
+		Digitalogic_Voice_Notifications::instance();
 
         if (is_admin()) {
             Digitalogic_Admin::instance();
@@ -266,16 +279,38 @@ final class Digitalogic {
     /**
      * Plugin activation
      */
-    public function activate() {
-        // Create database tables
-        $this->create_tables();
+	public function activate() {
+		// Create database tables
+		$this->create_tables();
+		$this->install_pbx_schema();
 
         // Set default options
         $this->set_default_options();
 
         // Flush rewrite rules
         flush_rewrite_rules();
-    }
+	}
+
+	/**
+	 * Mark PBX storage ready only after both installers verify all invariants.
+	 *
+	 * @return bool
+	 */
+	private function install_pbx_schema(): bool {
+		$call_ready = Digitalogic_Call_Verification::install();
+		$voice_ready = Digitalogic_Voice_Notifications::install();
+		if ( $call_ready && $voice_ready ) {
+			update_option( 'digitalogic_pbx_schema_version', DIGITALOGIC_PBX_SCHEMA_VERSION, false );
+			if ( DIGITALOGIC_PBX_SCHEMA_VERSION === (string) get_option( 'digitalogic_pbx_schema_version', '' ) ) {
+				return true;
+			}
+		}
+
+		Digitalogic_Call_Verification::mark_schema_unready();
+		Digitalogic_Voice_Notifications::mark_schema_unready();
+		delete_option( 'digitalogic_pbx_schema_version' );
+		return false;
+	}
 
     /**
      * Plugin deactivation
