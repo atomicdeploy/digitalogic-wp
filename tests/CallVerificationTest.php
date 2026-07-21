@@ -645,6 +645,31 @@ final class CallVerificationTest extends TestCase {
         $this->assertStringContainsString("'call-event'", $source);
     }
 
+	public function test_guest_sidebar_reuses_one_configured_login_widget_without_exposing_secrets(): void {
+		$source = file_get_contents( dirname( __DIR__ ) . '/includes/integrations/class-call-verification.php' );
+		$enqueue_start = strpos( $source, 'public function enqueue_assets' );
+		$enqueue_end = strpos( $source, 'public function maybe_enqueue_account_assets', $enqueue_start );
+		$this->assertIsInt( $enqueue_start );
+		$this->assertIsInt( $enqueue_end );
+		$localized_source = substr( $source, $enqueue_start, $enqueue_end - $enqueue_start );
+
+		$this->assertStringContainsString(
+			"add_action( 'wp_footer', array( \$this, 'render_sidebar_login_verification' ), 5 )",
+			$source
+		);
+		$this->assertStringContainsString( '$is_guest_page   = ! is_admin() && ! is_user_logged_in();', $source );
+		$this->assertStringContainsString( 'data-digitalogic-sidebar-call-parking hidden', $source );
+		$this->assertStringContainsString( 'data-digitalogic-sidebar-call-widget hidden', $source );
+		$this->assertStringContainsString( 'data-purpose="login"', $source );
+		$this->assertStringContainsString( 'aria-expanded="false"', $source );
+		$this->assertStringContainsString( 'aria-describedby="<?php echo esc_attr( $phone_help_id ); ?>"', $source );
+		$this->assertStringContainsString( 'Place the call from the same phone number you entered so caller ID can confirm ownership.', $source );
+		$this->assertStringContainsString( 'data-call-dial', $source );
+		$this->assertStringContainsString( 'data-call-ivr', $source );
+		$this->assertStringContainsString( 'self::IVR_OPTION', $source );
+		$this->assertStringNotContainsString( 'DIGITALOGIC_PBX_VERIFY_SECRET', $localized_source );
+	}
+
     private function validPayload(int $timestamp): array {
         return array(
             'schema' => 'phone-verification.v1',

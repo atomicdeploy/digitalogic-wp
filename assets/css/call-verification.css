@@ -8,6 +8,8 @@
 	background: #fff;
 }
 
+.digitalogic-call-parking[hidden],
+.digitalogic-call-verification[hidden],
 .digitalogic-call-panel[hidden],
 .digitalogic-call-instructions[hidden],
 .digitalogic-call-error[hidden] {

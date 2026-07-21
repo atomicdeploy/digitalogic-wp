@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.6.3
+
+- Expose the existing inbound-call login verification beneath the active Digits OTP resend control in the Woodmart sidebar, with singleton AJAX remounting, Persian/RTL and mobile containment, keyboard disclosure semantics, and live dial/IVR instructions.
+
 ## 1.6.2
 
 - Restore the Digits password/verification-code layout in the guest Woodmart login sidebar, including scoped RTL, responsive, OTP-help, loading, error, honeypot, and keyboard-accessibility safeguards.

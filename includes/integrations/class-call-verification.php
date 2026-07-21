@@ -70,6 +70,7 @@ final class Digitalogic_Call_Verification {
 		add_action( 'login_enqueue_scripts', array( $this, 'enqueue_assets' ), 40 );
 		add_action( 'wp_enqueue_scripts', array( $this, 'maybe_enqueue_account_assets' ), 40 );
 		add_action( 'login_footer', array( $this, 'render_login_verification' ) );
+		add_action( 'wp_footer', array( $this, 'render_sidebar_login_verification' ), 5 );
 		add_action( 'woocommerce_after_edit_account_form', array( $this, 'render_account_contacts' ) );
 		add_action( 'show_user_profile', array( $this, 'render_admin_contacts' ) );
 		add_action( 'edit_user_profile', array( $this, 'render_admin_contacts' ) );
@@ -1374,10 +1375,17 @@ final class Digitalogic_Call_Verification {
 	}
 
 	/**
-	 * Enqueue assets only on WooCommerce account pages.
+	 * Enqueue assets on WooCommerce account pages and guest storefronts.
+	 *
+	 * The Woodmart login sidebar is available across public pages and Digits builds
+	 * its OTP step after an AJAX request. Loading the existing PBX controller here
+	 * lets the sidebar move one pre-initialized widget into that dynamic step.
 	 */
 	public function maybe_enqueue_account_assets(): void {
-		if ( function_exists( 'is_account_page' ) && is_account_page() ) {
+		$is_account_page = function_exists( 'is_account_page' ) && is_account_page();
+		$is_guest_page   = ! is_admin() && ! is_user_logged_in();
+
+		if ( $is_account_page || $is_guest_page ) {
 			$this->enqueue_assets();
 		}
 	}
@@ -1389,20 +1397,59 @@ final class Digitalogic_Call_Verification {
 		if ( ! self::is_configured() ) {
 			return;
 		}
+
+		$this->render_login_widget( false );
+	}
+
+	/**
+	 * Park one initialized login widget in the footer for the AJAX sidebar.
+	 *
+	 * The sidebar script moves this exact node rather than cloning it, preserving
+	 * its challenge id, CSRF proof, event listeners, and polling state when Digits
+	 * rebuilds or switches its password/OTP panels.
+	 */
+	public function render_sidebar_login_verification(): void {
+		if ( is_admin() || is_user_logged_in() || ! self::is_configured() ) {
+			return;
+		}
 		?>
-		<section class="digitalogic-call-verification" data-digitalogic-call-widget data-purpose="login">
-			<button type="button" class="button digitalogic-call-toggle"><?php esc_html_e( 'Verify by calling', 'digitalogic' ); ?></button>
-			<div class="digitalogic-call-panel" hidden>
+		<div class="digitalogic-call-parking" data-digitalogic-sidebar-call-parking hidden>
+			<?php $this->render_login_widget( true ); ?>
+		</div>
+		<?php
+	}
+
+	/**
+	 * Render the shared login-purpose call-verification controls.
+	 *
+	 * @param bool $sidebar Whether this is the singleton parked for Woodmart.
+	 */
+	private function render_login_widget( bool $sidebar ): void {
+		$toggle_id     = $sidebar ? 'digitalogic-sidebar-call-toggle' : 'digitalogic-login-call-toggle';
+		$panel_id      = $sidebar ? 'digitalogic-sidebar-call-panel' : 'digitalogic-login-call-panel';
+		$phone_help_id = $sidebar ? 'digitalogic-sidebar-call-phone-help' : 'digitalogic-login-call-phone-help';
+		?>
+		<section
+			class="<?php echo esc_attr( 'digitalogic-call-verification' . ( $sidebar ? ' digitalogic-call-verification--sidebar' : '' ) ); ?>"
+			data-digitalogic-call-widget
+			data-purpose="login"
+			<?php if ( $sidebar ) : ?>
+				data-digitalogic-sidebar-call-widget hidden
+			<?php endif; ?>
+		>
+			<button type="button" id="<?php echo esc_attr( $toggle_id ); ?>" class="button digitalogic-call-toggle" aria-expanded="false" aria-controls="<?php echo esc_attr( $panel_id ); ?>"><?php esc_html_e( 'Verify by calling', 'digitalogic' ); ?></button>
+			<div class="digitalogic-call-panel" id="<?php echo esc_attr( $panel_id ); ?>" role="region" aria-labelledby="<?php echo esc_attr( $toggle_id ); ?>" hidden>
 				<label>
-					<span><?php esc_html_e( 'Mobile or landline number', 'digitalogic' ); ?></span>
-					<input type="tel" inputmode="tel" autocomplete="tel" data-call-phone placeholder="02112345678">
+					<span><?php esc_html_e( 'Mobile or landline number (include area code)', 'digitalogic' ); ?></span>
+					<input type="tel" inputmode="tel" autocomplete="tel" dir="ltr" data-call-phone aria-describedby="<?php echo esc_attr( $phone_help_id ); ?>" placeholder="02112345678">
 				</label>
+				<p class="digitalogic-call-match-note" id="<?php echo esc_attr( $phone_help_id ); ?>"><?php esc_html_e( 'Place the call from the same phone number you entered so caller ID can confirm ownership.', 'digitalogic' ); ?></p>
 				<button type="button" class="button button-primary" data-call-start><?php esc_html_e( 'Create call code', 'digitalogic' ); ?></button>
-				<div class="digitalogic-call-instructions" data-call-instructions hidden aria-live="polite">
-					<p><?php esc_html_e( 'Call', 'digitalogic' ); ?> <a dir="ltr" href="tel:+982166754123">021-66754123</a>.</p>
-					<p><?php printf( esc_html__( 'Choose IVR option %s, then enter this six-digit code:', 'digitalogic' ), '<strong dir="ltr">2</strong>' ); ?></p>
-					<output class="digitalogic-call-code" data-call-code dir="ltr"></output>
-					<p data-call-status><?php esc_html_e( 'Waiting for your call…', 'digitalogic' ); ?></p>
+				<div class="digitalogic-call-instructions" data-call-instructions hidden>
+					<p><?php esc_html_e( 'Call', 'digitalogic' ); ?> <a dir="ltr" data-call-dial href="tel:<?php echo esc_attr( self::DIAL_TEL ); ?>"><?php echo esc_html( self::DIAL_DISPLAY ); ?></a></p>
+					<p><?php printf( esc_html__( 'Choose IVR option %s, then enter this six-digit code:', 'digitalogic' ), '<strong dir="ltr" data-call-ivr>' . esc_html( self::IVR_OPTION ) . '</strong>' ); ?></p>
+					<output class="digitalogic-call-code" data-call-code dir="ltr" aria-live="polite"></output>
+					<p data-call-status role="status" aria-live="polite" aria-atomic="true"><?php esc_html_e( 'Waiting for your call…', 'digitalogic' ); ?></p>
 					<button type="button" class="button-link" data-call-cancel><?php esc_html_e( 'Cancel', 'digitalogic' ); ?></button>
 				</div>
 				<p class="digitalogic-call-error" data-call-error role="alert" hidden></p>

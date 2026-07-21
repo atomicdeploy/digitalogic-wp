@@ -45,7 +45,10 @@ final class Digitalogic_Sidebar_Login {
 			return;
 		}
 
-		$dependencies = self::enqueued_digits_styles();
+		$dependencies = array_merge(
+			array( 'digitalogic-call-verification' ),
+			self::enqueued_digits_styles()
+		);
 
 		wp_enqueue_style(
 			self::STYLE_HANDLE,
@@ -62,7 +65,7 @@ final class Digitalogic_Sidebar_Login {
 		wp_enqueue_script(
 			self::SCRIPT_HANDLE,
 			DIGITALOGIC_PLUGIN_URL . self::SCRIPT_FILE,
-			array(),
+			array( 'digitalogic-call-verification' ),
 			(string) filemtime( $script_path ),
 			true
 		);
