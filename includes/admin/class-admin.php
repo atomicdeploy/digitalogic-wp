@@ -682,8 +682,14 @@ class Digitalogic_Admin {
     }
 
     public function render_patris_reports_page() {
-        if (!current_user_can('manage_woocommerce')) {
-            wp_die(esc_html__('You do not have permission to manage Patris reports.', 'digitalogic'));
+		if ( ! Digitalogic_Access_Control::can_access_panel() ) {
+			Digitalogic_Panel_Error_Page::render_admin(
+				403,
+				'patris-reports-access-denied',
+				'',
+				array( 'context' => Digitalogic_Panel_Error_Page::CONTEXT_PATRIS_REPORTS )
+			);
+			exit;
         }
 
         $feed = Digitalogic_Patris_Feed::instance();
@@ -829,8 +835,14 @@ class Digitalogic_Admin {
 	 * Render exact-ID/SKU metadata diagnostics and an explicit lookup refresh.
 	 */
 	public function render_product_diagnostics_page() {
-		if ( ! current_user_can( 'manage_woocommerce' ) ) {
-			wp_die( esc_html__( 'You do not have permission to access this page.', 'digitalogic' ) );
+		if ( ! Digitalogic_Access_Control::can_access_panel() ) {
+			Digitalogic_Panel_Error_Page::render_admin(
+				403,
+				'product-diagnostics-access-denied',
+				'',
+				array( 'context' => Digitalogic_Panel_Error_Page::CONTEXT_PRODUCT_DIAGNOSTICS )
+			);
+			exit;
 		}
 
 		$metadata                     = null;
@@ -914,7 +926,13 @@ class Digitalogic_Admin {
      */
     public function render_ui_settings_page() {
         if (!current_user_can('manage_options')) {
-            wp_die(esc_html__('You do not have permission to access this page.', 'digitalogic'));
+			Digitalogic_Panel_Error_Page::render_admin(
+				403,
+				'ui-settings-access-denied',
+				'',
+				array( 'context' => Digitalogic_Panel_Error_Page::CONTEXT_UI_SETTINGS )
+			);
+			exit;
         }
 
         if (isset($_POST['digitalogic_ui_settings_submit']) && check_admin_referer('digitalogic_ui_settings')) {

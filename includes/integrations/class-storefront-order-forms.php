@@ -695,14 +695,26 @@ final class Digitalogic_Storefront_Order_Forms {
 	 */
 	public function download_request_file() {
 		$request_id = absint( $this->query_scalar( 'request_id', 24 ) );
-		if ( ! $request_id || ! current_user_can( 'manage_woocommerce' ) ) {
-			wp_die( esc_html__( 'You are not allowed to download this file.', 'digitalogic' ), '', array( 'response' => 403 ) );
+		if ( ! $request_id || ! Digitalogic_Access_Control::can_access_panel() ) {
+			Digitalogic_Panel_Error_Page::render(
+				403,
+				'request-download-access-denied',
+				'',
+				array( 'context' => Digitalogic_Panel_Error_Page::CONTEXT_REQUEST_DOWNLOAD )
+			);
+			exit;
 		}
 		check_admin_referer( 'dgl_download_request_' . $request_id );
 		$file = (array) get_post_meta( $request_id, '_dgl_request_file', true );
 		$path = isset( $file['path'] ) ? wp_normalize_path( $file['path'] ) : '';
 		if ( ! $path || ! is_file( $path ) ) {
-			wp_die( esc_html__( 'The request file no longer exists.', 'digitalogic' ), '', array( 'response' => 404 ) );
+			Digitalogic_Panel_Error_Page::render(
+				404,
+				'request-file-not-found',
+				'',
+				array( 'context' => Digitalogic_Panel_Error_Page::CONTEXT_REQUEST_DOWNLOAD )
+			);
+			exit;
 		}
 
 		nocache_headers();
