@@ -1,0 +1,238 @@
+{
+  "name": "Digitalogic Google Sheets - Safe Writeback",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Digitalogic Google Sheets safe writeback\n\nImport inactive, then configure two n8n credentials:\n1. Header Auth named `Digitalogic Sheets Bridge Header Auth` using header `X-Digitalogic-Bridge-Token`.\n2. HTTP Basic Auth named `Digitalogic WooCommerce Write API` using a write-scope WooCommerce REST key.\n\nSet the same bridge token only in Apps Script Properties as `DIGITALOGIC_N8N_WRITEBACK_TOKEN`. Never put any credential in this workflow JSON or a sheet cell. Catalog refresh stays in the bound Apps Script menu or its installed scheduled trigger.",
+        "height": 392,
+        "width": 470,
+        "color": 5
+      },
+      "id": "9fd34e84-c399-4cbd-a406-30ae6e41d846",
+      "name": "Setup and safety",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-900, -580]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "digitalogic-google-sheets/preview",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "716be1f1-2519-40f0-b39e-22e77023781c",
+      "name": "Preview Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [-860, -80],
+      "webhookId": "digitalogic-google-sheets-preview",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_WITH_HEADER_AUTH_CREDENTIAL_ID",
+          "name": "Digitalogic Sheets Bridge Header Auth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $json.body && typeof $json.body === 'object' ? $json.body : {};\nconst headerKey = String(($json.headers || {})['idempotency-key'] || '');\nconst bodyKey = String(body.idempotency_key || '');\nif (!/^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/.test(bodyKey) || headerKey !== bodyKey) {\n  throw new Error('A matching bounded Idempotency-Key header and body value are required.');\n}\nif (!Array.isArray(body.changes) || body.changes.length < 1 || body.changes.length > 50) {\n  throw new Error('changes must contain 1 through 50 rows.');\n}\nfor (const [index, change] of body.changes.entries()) {\n  if (!change || change.sync_key !== change.patris_code || !/^sha256:[a-f0-9]{64}$/.test(String(change.expected_record_revision || '')) || !change.fields || typeof change.fields !== 'object' || Array.isArray(change.fields)) {\n    throw new Error(`Invalid revision-checked change at index ${index}.`);\n  }\n}\nreturn [{ json: { idempotency_key: bodyKey, request: { idempotency_key: bodyKey, changes: body.changes } } }];"
+      },
+      "id": "d9bd58f2-5c42-4ba6-8f6c-b415f06ec7b8",
+      "name": "Validate Preview Envelope",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-620, -80]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://digitalogic.ir/wp-json/digitalogic/v1/google-sheets/writeback/preview",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Idempotency-Key",
+              "value": "={{ $json.idempotency_key }}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify($json.request) }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "b8cda890-cdaf-4684-a79d-9158a36bb20c",
+      "name": "Digitalogic Preview",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-360, -80],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "REPLACE_WITH_WOOCOMMERCE_WRITE_CREDENTIAL_ID",
+          "name": "Digitalogic WooCommerce Write API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ Math.min(599, Math.max(200, Number($json.statusCode) || 502)) }}"
+        }
+      },
+      "id": "17634479-6495-4bfd-a666-121cab529857",
+      "name": "Return Preview",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [-100, -80]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "digitalogic-google-sheets/apply",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "2961fd40-7308-4430-a6ca-c17e2d824a75",
+      "name": "Apply Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [-860, 260],
+      "webhookId": "digitalogic-google-sheets-apply",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_WITH_HEADER_AUTH_CREDENTIAL_ID",
+          "name": "Digitalogic Sheets Bridge Header Auth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const headers = $json.headers || {};\nif (String(headers['x-digitalogic-confirm-apply'] || '') !== 'APPLY') {\n  throw new Error('Explicit X-Digitalogic-Confirm-Apply: APPLY header is required.');\n}\nconst body = $json.body && typeof $json.body === 'object' ? $json.body : {};\nconst headerKey = String(headers['idempotency-key'] || '');\nconst bodyKey = String(body.idempotency_key || '');\nif (!/^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/.test(bodyKey) || headerKey !== bodyKey) {\n  throw new Error('A matching bounded Idempotency-Key header and body value are required.');\n}\nif (!Array.isArray(body.changes) || body.changes.length < 1 || body.changes.length > 50) {\n  throw new Error('changes must contain 1 through 50 rows.');\n}\nfor (const [index, change] of body.changes.entries()) {\n  if (!change || change.sync_key !== change.patris_code || !/^sha256:[a-f0-9]{64}$/.test(String(change.expected_record_revision || '')) || !change.fields || typeof change.fields !== 'object' || Array.isArray(change.fields)) {\n    throw new Error(`Invalid revision-checked change at index ${index}.`);\n  }\n}\nreturn [{ json: { idempotency_key: bodyKey, request: { idempotency_key: bodyKey, changes: body.changes } } }];"
+      },
+      "id": "aa38d5b7-1964-4163-bcc8-d380404a3801",
+      "name": "Validate Explicit Apply",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-620, 260]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://digitalogic.ir/wp-json/digitalogic/v1/google-sheets/writeback/apply",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Idempotency-Key",
+              "value": "={{ $json.idempotency_key }}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify($json.request) }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "398eb51d-646d-4935-94cc-28571188c853",
+      "name": "Digitalogic Apply",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-360, 260],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "REPLACE_WITH_WOOCOMMERCE_WRITE_CREDENTIAL_ID",
+          "name": "Digitalogic WooCommerce Write API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ Math.min(599, Math.max(200, Number($json.statusCode) || 502)) }}"
+        }
+      },
+      "id": "de860c8e-fe11-4e2f-8bb3-5dd45f7f35bc",
+      "name": "Return Apply",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [-100, 260]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Preview Webhook": {
+      "main": [[{"node": "Validate Preview Envelope", "type": "main", "index": 0}]]
+    },
+    "Validate Preview Envelope": {
+      "main": [[{"node": "Digitalogic Preview", "type": "main", "index": 0}]]
+    },
+    "Digitalogic Preview": {
+      "main": [[{"node": "Return Preview", "type": "main", "index": 0}]]
+    },
+    "Apply Webhook": {
+      "main": [[{"node": "Validate Explicit Apply", "type": "main", "index": 0}]]
+    },
+    "Validate Explicit Apply": {
+      "main": [[{"node": "Digitalogic Apply", "type": "main", "index": 0}]]
+    },
+    "Digitalogic Apply": {
+      "main": [[{"node": "Return Apply", "type": "main", "index": 0}]]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "saveManualExecutions": false,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "c494f3d7-e4aa-430f-9aed-c06678aeec70",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}

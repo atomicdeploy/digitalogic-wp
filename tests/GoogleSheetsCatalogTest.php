@@ -125,7 +125,7 @@ final class GoogleSheetsCatalogTest extends TestCase {
 				),
 			),
 			array(
-				'currency'         => array('local' => 'IRT'),
+				'currency'         => array( 'local' => 'IRT' ),
 				'shipping_methods' => array(
 					array(
 						'id'           => 'exact',
@@ -151,17 +151,41 @@ final class GoogleSheetsCatalogTest extends TestCase {
 			)
 		);
 
-		$this->assertFalse(is_wp_error($result));
-		$this->assertSame('1.234567890125', $result['rows'][0]['shipping_price_per_kg']);
-		$column = array_values(array_filter(
-			$result['columns'],
-			static fn($candidate) => 'shipping_price_per_kg' === $candidate['key']
-		))[0];
-		$this->assertSame('number', $column['type']);
+		$this->assertFalse( is_wp_error( $result ) );
+		$this->assertSame( '1.234567890125', $result['rows'][0]['shipping_price_per_kg'] );
+		$column = array_values(
+			array_filter(
+				$result['columns'],
+				static fn( $candidate ) => 'shipping_price_per_kg' === $candidate['key']
+			)
+		)[0];
+		$this->assertSame( 'number', $column['type'] );
 		$this->assertStringContainsString(
 			'"shipping_price_per_kg":"1.234567890125"',
-			json_encode($result['rows'][0], JSON_THROW_ON_ERROR)
+			wp_json_encode( $result['rows'][0], JSON_THROW_ON_ERROR )
 		);
+	}
+
+	/** Exact source decimals must never collide after numeric display coercion. */
+	public function test_record_revision_preserves_exact_price_precision() {
+		$base                    = array(
+			'id'                  => 43,
+			'patris_product_code' => 'EXACT-43',
+			'name'                => 'Exact revision decimal',
+			'stock_status'        => 'instock',
+		);
+		$first                   = $base;
+		$first['regular_price']  = '999999999999998.000001';
+		$first['price']          = '999999999999998.000001';
+		$second                  = $base;
+		$second['regular_price'] = '999999999999998.000002';
+		$second['price']         = '999999999999998.000002';
+
+		$first_row  = $this->catalog->transform_products( array( $first ) )['rows'][0];
+		$second_row = $this->catalog->transform_products( array( $second ) )['rows'][0];
+
+		$this->assertSame( $first_row['regular_price'], $second_row['regular_price'] );
+		$this->assertNotSame( $first_row['record_revision'], $second_row['record_revision'] );
 	}
 
 	/** Verify SKU is never used for Patris matching or as the primary sync key. */
