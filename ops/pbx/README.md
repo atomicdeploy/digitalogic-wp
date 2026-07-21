@@ -5,6 +5,8 @@ phone verification at `+982166754123`. Digitalogic has no public inbound IVR, so
 the current production DID bypasses every verification helper and rings extension
 101 directly. The helper and its BGM-mixed prompts remain installed but dormant
 for the next, separately approved IVR pass. No public verification digit exists.
+Before the existing internal callback prefix is added, inbound caller IDs beginning
+with `0989` or `00989` are canonicalized to the Iranian local `09` form.
 
 The dormant wrapper forwards one reviewed mode to the helper:
 
