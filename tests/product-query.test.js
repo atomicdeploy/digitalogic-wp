@@ -144,6 +144,7 @@ test('product table can freeze the first visible column in RTL and LTR', () => {
     assert.match(panelPhpSource, /'freezeFirstColumn' => 'ثابت نگه داشتن ستون اول'/);
     assert.match(panelCss, /\.is-first-column-sticky[\s\S]*?inset-inline-start:\s*0/);
     assert.match(panelCss, /\.is-sticky-first-data-column[\s\S]*?inset-inline-start:\s*var\(--dlp-selection-column-width\)/);
+    assert.match(panelCss, /tr:not\(\.dlp-column-header-row\) > :first-child/);
     assert.doesNotMatch(panelCss, /\.is-sticky-first-data-column[\s\S]{0,180}?\bleft\s*:/);
     assert.doesNotMatch(panelCss, /\.is-sticky-first-data-column[\s\S]{0,180}?\bright\s*:/);
 });
@@ -159,6 +160,7 @@ test('product grid exposes independent warehouse columns with grouped accessible
     assert.match(panelSource, /mergeWarehouseColumns\(data\.products\)/);
     assert.match(panelSource, /\(row\.patris_warehouse_stock \|\| \{\}\)\[column\.warehouse\]/);
     assert.match(panelSource, /visibleStandardProductColumns\.concat\(this\.visibleWarehouseProductColumns\)/);
+    assert.match(viewSource, /v-if="visibleStandardProductColumns\.length" scope="colgroup"/);
     assert.match(viewSource, /class="dlp-group-row"/);
     assert.match(viewSource, /scope="colgroup"[^>]+visibleWarehouseProductColumns\.length/);
     assert.match(viewSource, /v-for="column in warehouseProductColumns"/);

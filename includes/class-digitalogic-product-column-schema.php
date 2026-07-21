@@ -98,6 +98,7 @@ final class Digitalogic_Product_Column_Schema {
 			self::workbook_column( 'publication_status', 'Publication Status', 'وضعیت انتشار', 'text', true, 'status', array( 'Status' ), 18 ),
 			self::workbook_column( 'regular_price', 'Regular Price', 'قیمت عادی', 'number', true, 'regular_price', array(), 18 ),
 			self::workbook_column( 'sale_price', 'Sale Price', 'قیمت فروش ویژه', 'number', true, 'sale_price', array(), 18 ),
+			self::workbook_column( 'effective_price', 'Effective Price', 'قیمت فعال فروشگاه', 'number', false, '', array(), 20 ),
 			self::workbook_column( 'stock_quantity', 'WooCommerce Stock', 'موجودی ووکامرس', 'number', true, 'stock_quantity', array( 'Stock Quantity' ), 20 ),
 			self::workbook_column( 'stock_status', 'Stock Status', 'وضعیت موجودی', 'text', true, 'stock_status', array(), 18 ),
 			self::workbook_column( 'woocommerce_weight', 'WooCommerce Weight', 'وزن ووکامرس', 'number', true, 'weight', array( 'Weight' ), 20 ),
@@ -116,6 +117,8 @@ final class Digitalogic_Product_Column_Schema {
 			self::workbook_column( 'patris_minimum_stock', 'Minimum Stock', 'حداقل موجودی', 'number', true, 'patris_minimum_stock', array(), 18 ),
 			self::workbook_column( 'patris_location', 'Patris Location', 'موقعیت پاتریس', 'text', true, 'patris_location', array(), 18 ),
 			self::workbook_column( 'patris_final_price', 'Patris Final Price', 'قیمت نهایی پاتریس', 'number', true, 'patris_final_price', array(), 20 ),
+			self::workbook_column( 'price_status', 'Patris Price Status', 'وضعیت قیمت پاتریس', 'text', false, '', array(), 20 ),
+			self::workbook_column( 'patris_sale_policy', 'Promotion Policy', 'سیاست تخفیف', 'text', false, '', array(), 18 ),
 		);
 
 		foreach ( self::normalize_warehouses( $warehouses ) as $warehouse ) {
@@ -295,6 +298,12 @@ final class Digitalogic_Product_Column_Schema {
 
 	/**
 	 * Construct public catalog metadata.
+	 *
+	 * @param string $key      Machine key.
+	 * @param string $label_en English label.
+	 * @param string $label_fa Persian label.
+	 * @param string $type     Scalar data type.
+	 * @return array
 	 */
 	private static function catalog_column( $key, $label_en, $label_fa, $type ) {
 		return array(
@@ -307,6 +316,17 @@ final class Digitalogic_Product_Column_Schema {
 
 	/**
 	 * Construct workbook metadata.
+	 *
+	 * @param string $key           Machine key.
+	 * @param string $label_en      English label.
+	 * @param string $label_fa      Persian label.
+	 * @param string $type          Scalar data type.
+	 * @param bool   $writable      Whether imports may write the column.
+	 * @param string $manager_field Product-manager or metadata field.
+	 * @param array  $aliases       Legacy header aliases.
+	 * @param float  $width         Suggested worksheet width.
+	 * @param string $group         Logical workbook group.
+	 * @return array
 	 */
 	private static function workbook_column( $key, $label_en, $label_fa, $type, $writable, $manager_field, $aliases, $width, $group = 'product' ) {
 		return array(
@@ -324,6 +344,9 @@ final class Digitalogic_Product_Column_Schema {
 
 	/**
 	 * List every accepted header for a workbook column.
+	 *
+	 * @param array $column Workbook column definition.
+	 * @return array
 	 */
 	private static function column_aliases( $column ) {
 		return array_merge(
@@ -339,6 +362,9 @@ final class Digitalogic_Product_Column_Schema {
 
 	/**
 	 * Extract the warehouse label from English, Persian, or bilingual headers.
+	 *
+	 * @param string $header Human-readable column header.
+	 * @return string
 	 */
 	private static function warehouse_from_header( $header ) {
 		$patterns = array(
@@ -356,6 +382,9 @@ final class Digitalogic_Product_Column_Schema {
 
 	/**
 	 * Normalize visual Unicode differences without changing source values.
+	 *
+	 * @param string $header Human-readable column header.
+	 * @return string
 	 */
 	private static function normalize_header( $header ) {
 		$header = trim( (string) $header );
@@ -364,7 +393,7 @@ final class Digitalogic_Product_Column_Schema {
 			array(
 				'ي' => 'ی',
 				'ك' => 'ک',
-				'‌'  => ' ',
+				'‌' => ' ',
 			)
 		);
 		$header = preg_replace( '/\s+/u', ' ', $header );

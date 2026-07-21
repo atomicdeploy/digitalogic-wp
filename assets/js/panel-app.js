@@ -337,12 +337,12 @@
         if (!warehouse) return null;
         return {
             key: definition.key || ('warehouse_stock:' + encodeURIComponent(warehouse)),
-            label: definition.label_en || ('Warehouse Stock: ' + warehouse),
-            labelEn: definition.label_en || ('Warehouse Stock: ' + warehouse),
-            labelFa: definition.label_fa || ('موجودی انبار: ' + warehouse),
+            label: warehouse,
+            labelEn: warehouse,
+            labelFa: warehouse,
             field: 'patris_warehouse_stock',
             warehouse: warehouse,
-            width: 168,
+            width: 150,
             visible: definition.visible !== false,
             sortable: false,
             editable: false,

@@ -682,7 +682,8 @@ class Digitalogic_Import_Export {
         $headerStyle->getFont()->getColor()->setRGB('FFFFFF');
         $headerStyle->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
         $headerStyle->getAlignment()->setVertical(\PhpOffice\PhpSpreadsheet\Style\Alignment::VERTICAL_CENTER);
-        $sheet->getRowDimension(1)->setRowHeight(30);
+        $headerStyle->getAlignment()->setWrapText(true);
+        $sheet->getRowDimension(1)->setRowHeight('bilingual' === $locale ? 58 : 36);
         
         $row = 2;
         foreach ($products as $product_data) {
@@ -699,10 +700,13 @@ class Digitalogic_Import_Export {
                 self::set_spreadsheet_value($sheet, $column . $row, $value, $numeric);
                 if ('text' === $column_definition['type']) {
                     $sheet->getStyle($column . $row)->getNumberFormat()->setFormatCode('@');
+                } elseif ('integer' === $column_definition['type']) {
+                    $sheet->getStyle($column . $row)->getNumberFormat()->setFormatCode('0');
                 } elseif ($numeric) {
                     $sheet->getStyle($column . $row)->getNumberFormat()->setFormatCode('#,##0.########');
                 }
             }
+            $sheet->getRowDimension($row)->setRowHeight(24);
             
             if ($row % 2 == 0) {
                 $sheet->getStyle('A' . $row . ':' . $last_column . $row)->getFill()
@@ -770,6 +774,7 @@ class Digitalogic_Import_Export {
             'publication_status' => 'status',
             'regular_price' => 'regular_price',
             'sale_price' => 'sale_price',
+            'effective_price' => 'effective_price',
             'stock_quantity' => 'stock_quantity',
             'stock_status' => 'stock_status',
             'woocommerce_weight' => 'weight',
@@ -783,6 +788,8 @@ class Digitalogic_Import_Export {
             'patris_minimum_stock' => 'patris_minimum_stock',
             'patris_location' => 'patris_location',
             'patris_final_price' => 'patris_final_price',
+            'price_status' => 'patris_price_status',
+            'patris_sale_policy' => 'patris_sale_policy',
         );
         if (isset($product_fields[$key])) {
             return $product_data[$product_fields[$key]] ?? '';

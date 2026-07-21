@@ -1005,7 +1005,7 @@ a.dlp-button:focus {
     --dlp-selection-column-width: 44px;
 }
 
-.dlp-data-grid[data-grid-kind="product"].is-first-column-sticky tr > :first-child {
+.dlp-data-grid[data-grid-kind="product"].is-first-column-sticky tr:not(.dlp-column-header-row) > :first-child {
     position: sticky;
     inset-inline-start: 0;
     z-index: 82;

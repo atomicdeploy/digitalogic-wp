@@ -913,7 +913,10 @@ class Digitalogic_REST_API {
         $format = $request->get_param('format') ?: 'json';
         $product_ids = $request->get_param('product_ids') ?: array();
         $locale = sanitize_key((string) ($request->get_param('locale') ?: 'en'));
-        $template = (bool) $request->get_param('template');
+        $template_param = $request->get_param('template');
+        $template = function_exists('rest_sanitize_boolean')
+            ? rest_sanitize_boolean($template_param)
+            : in_array(strtolower((string) $template_param), array('1', 'true', 'yes'), true);
         
         $import_export = Digitalogic_Import_Export::instance();
         

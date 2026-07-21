@@ -250,13 +250,13 @@ $retry_url = isset($_SERVER['REQUEST_URI']) ? (string) $_SERVER['REQUEST_URI'] :
                                 <thead>
                                     <tr class="dlp-group-row">
                                         <th scope="col" rowspan="2"><label class="dlp-check"><input type="checkbox" v-model="allProductsSelected" :aria-label="t.selectAll"><span></span></label></th>
-                                        <th scope="colgroup" :colspan="visibleStandardProductColumns.length">{{ t.productDetails }}</th>
+                                        <th v-if="visibleStandardProductColumns.length" scope="colgroup" :colspan="visibleStandardProductColumns.length">{{ t.productDetails }}</th>
                                         <th v-if="visibleWarehouseProductColumns.length" class="dlp-warehouse-group-heading" scope="colgroup" :colspan="visibleWarehouseProductColumns.length"><span class="dashicons dashicons-archive"></span>{{ t.warehouseStock }}</th>
                                         <th scope="col" rowspan="2">{{ t.actions }}</th>
                                     </tr>
                                     <tr class="dlp-column-header-row">
                                         <th scope="col" v-for="(column, columnIndex) in visibleProductColumns" :key="column.key" :data-column-key="column.key" :data-column-priority="column.priority || 1" :class="{'is-resizing': resizingColumn === column.key, 'is-sticky-first-data-column': columnIndex === 0, 'is-warehouse-column': column.warehouse}" :draggable="true" tabindex="0" @contextmenu.prevent="openColumnContext('product', column, $event)" @keydown="onColumnHeaderKeydown('product', column, $event)" @dragstart="startColumnDrag(column.key)" @dragover.prevent @drop="dropColumn('product', column.key)" @dblclick.stop="autoResizeColumn('product', column)">
-                                            <button class="dlp-th-button" :aria-disabled="!column.sortable" @click="cycleSort('product', column, $event)"><span class="dlp-th-label"><span :class="icon(column.icon || 'dashicons-editor-ul')"></span>{{ columnLabel(column) }}</span><span>{{ sortLabel('product', column) }}</span></button>
+                                            <button class="dlp-th-button" :title="columnLabel(column)" :aria-disabled="!column.sortable" @click="cycleSort('product', column, $event)"><span class="dlp-th-label"><span :class="icon(column.icon || 'dashicons-editor-ul')"></span>{{ columnLabel(column) }}</span><span>{{ sortLabel('product', column) }}</span></button>
                                             <button class="dlp-column-menu-button" @click.stop="openColumnContext('product', column, $event)" :aria-label="t.actions"><span class="dashicons dashicons-ellipsis"></span></button>
                                             <span class="dlp-col-resizer" @mousedown="startColumnResize('product', column, $event)" @dblclick.stop.prevent="autoResizeColumn('product', column)"></span>
                                         </th>

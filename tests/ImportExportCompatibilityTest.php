@@ -141,6 +141,10 @@ final class ImportExportCompatibilityTest extends TestCase {
         $this->assertNotNull($workbook->getSheetByName('Instructions'));
         $this->assertNotNull($workbook->getSheetByName('Schema'));
         $this->assertSame('@', $sheet->getStyle('C2')->getNumberFormat()->getFormatCode());
+        $headers = $sheet->rangeToArray('A1:' . $last_column . '1')[0];
+        $this->assertContains('Effective Price', $headers);
+        $this->assertContains('Patris Price Status', $headers);
+        $this->assertContains('Promotion Policy', $headers);
         $workbook->disconnectWorksheets();
 
         $result = $this->exporter->import_excel($filepath);
