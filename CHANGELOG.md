@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.6.2
+
+- Restore the Digits password/verification-code layout in the guest Woodmart login sidebar, including scoped RTL, responsive, OTP-help, loading, error, honeypot, and keyboard-accessibility safeguards.
+
 ## 1.6.1
 
 - Preserve WordPress account-policy authentication filters while exempting only WP Zero Spam's core form honeypot from a signed, browser-bound PBX login consume request.
