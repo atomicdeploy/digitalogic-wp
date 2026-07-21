@@ -1836,6 +1836,11 @@ msgstr ""
 msgid "Waiting for your call…"
 msgstr ""
 
+#: includes/integrations/class-call-verification.php
+#, php-format
+msgid "%s seconds remaining"
+msgstr ""
+
 #: includes/integrations/class-call-verification.php:1367
 msgid "Phone number verified. Finishing…"
 msgstr ""
@@ -1866,10 +1871,8 @@ msgstr ""
 msgid "Call"
 msgstr ""
 
-#: includes/integrations/class-call-verification.php:1403
-#: includes/integrations/class-call-verification.php:1444
-#, php-format
-msgid "Choose IVR option %s, then enter this six-digit code:"
+#: includes/integrations/class-call-verification.php
+msgid "Call from the same number you entered. When the caller-ID shortcut says «دوست عزیزم», enter this six-digit code. If no live challenge is found, the call continues to the operator."
 msgstr ""
 
 #: includes/integrations/class-call-verification.php:1406

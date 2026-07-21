@@ -1,6 +1,6 @@
 # PBX call verification and voice order updates
 
-Digitalogic exposes an inbound verification option alongside the existing Digits login. A user enters an Iranian mobile or fixed-line number, receives a six-digit code in the browser, calls `021-66754123`, selects IVR option `2`, and enters the code. The signed PBX callback must match both the canonical number and code before the browser can consume the challenge.
+Digitalogic exposes an inbound verification option alongside the existing Digits login. A user enters an Iranian mobile or fixed-line number, receives a six-digit code that expires after 120 seconds, and calls `021-66754123` from that same number. When the signed pending-ANI probe finds the live challenge, the PBX plays the «دوست عزیزم» shortcut and collects the code directly; otherwise the call falls through to the operator. Digitalogic has no website digit in its main IVR. The signed PBX callback must match both the canonical number and code before the browser can consume the challenge.
 
 The same proof can add a verified supplemental phone to WooCommerce My Account. Customers can also keep multiple supplemental email addresses. A verified phone is eligible for order-announcement consent, but consent, the global switch, and every order status are all off by default.
 
@@ -60,6 +60,8 @@ The JSON body has an exact key allowlist and a 4 KiB maximum:
 ```
 
 Only an atomic ANI/code match returns `{"success":true,"verified":true}`. Invalid, expired, limited, or non-matching callbacks return `{"success":false,"verified":false}`. Event IDs are UUIDv4 values claimed with a processing sentinel; completed results are idempotent, exact concurrent retries converge under row locks, and reuse of an event ID with a different call or body is rejected as a conflict.
+
+Before changing the greeting, the PBX may make a separately signed `POST` to `/wp-json/digitalogic/v1/call-verification/pbx-pending`. Its HMAC canonical string must contain that exact path and a fresh single-use nonce. The exact JSON envelope uses schema `phone-verification-pending.v1` and the same fields as the confirmation envelope except `code`; extra keys are rejected. The only successful response shape is `{"pending":true}` or `{"pending":false}`—the endpoint never returns a phone number, challenge id, code, or expiry.
 
 The trusted callback accepts the carrier ANI forms observed on the Digitalogic TCI line: national `09…`, international `98…`/`+98…`, carrier `098` plus ten significant digits, and exactly eight local Tehran digits. The eight-digit exception exists only in the HMAC-authenticated callback. Public user input always requires the landline area code. Routing-prefixed outbound forms such as `9` plus a national number are rejected as ANI.
 

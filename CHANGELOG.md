@@ -36,6 +36,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Shipping amounts, minimums, divisors, and tier bounds/rates now remain canonical decimal strings through storage and every outward projection, without exponent notation or binary-float loss.
 - Product sync preserves missing versus explicitly null freight fields, and the one-time installed-data migration bypasses stale option caches and verifies persistence before marking completion.
 
+## [1.6.4] - 2026-07-21
+
+### Fixed
+- Replaced the temporary public inbound verification menu with a caller-ID-gated shortcut for active 120-second challenges, preserving the original direct-to-operator call flow for everyone else.
+
+### Changed
+- Poll verified calls every 500 ms for immediate browser-bound login completion, with cancellation, expiry, replay, rate-limit, and stale-request safeguards.
+- Mix all verification speech with the reviewed low-volume PBX background music and keep code collection private inside AGI.
+
+## [1.6.3] - 2026-07-21
+
+### Added
+- Exposed the existing inbound-call login verification beneath the active Digits OTP resend control in the Woodmart sidebar, with singleton AJAX remounting, Persian/RTL and mobile containment, keyboard disclosure semantics, and live dial instructions.
+
+## [1.6.2] - 2026-07-21
+
+### Fixed
+- Restored the Digits password/verification-code layout in the guest Woodmart login sidebar, including scoped RTL, responsive, OTP-help, loading, error, honeypot, and keyboard-accessibility safeguards.
+
 ## [1.6.1] - 2026-07-21
 
 ### Fixed

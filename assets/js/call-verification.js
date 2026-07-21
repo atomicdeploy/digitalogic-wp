@@ -36,7 +36,11 @@
 		return result;
 	}
 
-	document.querySelectorAll('[data-digitalogic-call-widget]').forEach((widget) => {
+	function initializeWidget(widget) {
+		if (!(widget instanceof HTMLElement) || widget.dataset.digitalogicCallInitialized === 'true') {
+			return;
+		}
+
 		const toggle = widget.querySelector('.digitalogic-call-toggle');
 		const panel = widget.querySelector('.digitalogic-call-panel');
 		const phone = widget.querySelector('[data-call-phone]');
@@ -46,11 +50,22 @@
 		const status = widget.querySelector('[data-call-status]');
 		const cancel = widget.querySelector('[data-call-cancel]');
 		const error = widget.querySelector('[data-call-error]');
+		const dial = widget.querySelector('[data-call-dial]');
+		if (!panel || !phone || !start || !instructions || !code || !status || !error) {
+			return;
+		}
+
+		widget.dataset.digitalogicCallInitialized = 'true';
 		const purpose = widget.dataset.purpose || 'login';
 		let challengeId = '';
 		let csrfToken = '';
 		let pollTimer = 0;
+		let countdownTimer = 0;
+		let pollController = null;
 		let stopped = false;
+		let attemptGeneration = 0;
+		let expiresAt = 0;
+		const pollInterval = Math.max(400, Math.min(750, Number(config.pollMs) || 500));
 
 		function showError(value) {
 			error.textContent = value || messages.error || 'Verification failed.';
@@ -60,24 +75,67 @@
 		function stopPolling() {
 			stopped = true;
 			window.clearTimeout(pollTimer);
+			window.clearTimeout(countdownTimer);
+			if (pollController) {
+				pollController.abort();
+				pollController = null;
+			}
+		}
+
+		function remainingText(seconds) {
+			const template = messages.remaining || '%s seconds remaining';
+			return String(template).replace('%s', String(seconds));
+		}
+
+		function updateCountdown(expectedGeneration) {
+			window.clearTimeout(countdownTimer);
+			if (stopped || expectedGeneration !== attemptGeneration || !expiresAt || document.hidden) {
+				return;
+			}
+			const seconds = Math.max(0, Math.ceil((expiresAt - Date.now()) / 1000));
+			status.textContent = `${messages.waiting || 'Waiting for your call…'} ${remainingText(seconds)}`;
+			if (seconds > 0) {
+				countdownTimer = window.setTimeout(() => updateCountdown(expectedGeneration), 250);
+			}
+		}
+
+		function schedulePoll(expectedGeneration, delay = pollInterval) {
+			window.clearTimeout(pollTimer);
+			if (stopped || expectedGeneration !== attemptGeneration || document.hidden) {
+				return;
+			}
+			pollTimer = window.setTimeout(() => poll(expectedGeneration), delay);
 		}
 
 		function resetForRetry(message) {
 			stopPolling();
+			attemptGeneration += 1;
 			challengeId = '';
 			csrfToken = '';
+			expiresAt = 0;
 			code.textContent = '';
 			instructions.hidden = true;
 			start.disabled = false;
+			if (cancel) {
+				cancel.disabled = false;
+			}
+			widget.removeAttribute('aria-busy');
 			showError(message);
 		}
 
-		async function consume() {
-			const data = await request(`${config.challengeUrl}/${encodeURIComponent(challengeId)}/consume`, {
+		async function consume(expectedGeneration, expectedChallengeId, expectedCsrfToken) {
+			const data = await request(`${config.challengeUrl}/${encodeURIComponent(expectedChallengeId)}/consume`, {
 				method: 'POST',
-				headers: headers(csrfToken, purpose === 'add_contact'),
+				headers: headers(expectedCsrfToken, purpose === 'add_contact'),
 				body: '{}',
 			});
+			if (
+				stopped
+				|| expectedGeneration !== attemptGeneration
+				|| expectedChallengeId !== challengeId
+			) {
+				return;
+			}
 			status.textContent = messages.verified || 'Verified.';
 			if (data.redirect_url) {
 				window.location.assign(data.redirect_url);
@@ -86,23 +144,56 @@
 			}
 		}
 
-		async function poll() {
-			if (stopped || !challengeId) {
+		async function poll(expectedGeneration) {
+			if (
+				stopped
+				|| expectedGeneration !== attemptGeneration
+				|| !challengeId
+				|| !widget.isConnected
+			) {
+				stopPolling();
 				return;
 			}
+			const expectedChallengeId = challengeId;
+			const expectedCsrfToken = csrfToken;
 			try {
-				const data = await request(`${config.challengeUrl}/${encodeURIComponent(challengeId)}`, {
+				pollController = new AbortController();
+				const data = await request(`${config.challengeUrl}/${encodeURIComponent(expectedChallengeId)}`, {
 					method: 'GET',
-					headers: headers(csrfToken),
+					headers: headers(expectedCsrfToken),
+					signal: pollController.signal,
 				});
+				pollController = null;
+				if (
+					stopped
+					|| expectedGeneration !== attemptGeneration
+					|| expectedChallengeId !== challengeId
+				) {
+					return;
+				}
 				if (data.status === 'verified') {
-					stopPolling();
+					window.clearTimeout(pollTimer);
+					if (cancel) {
+						cancel.disabled = true;
+					}
+					widget.setAttribute('aria-busy', 'true');
 					try {
-						await consume();
+						await consume(expectedGeneration, expectedChallengeId, expectedCsrfToken);
 					} catch (consumeError) {
+						if (
+							stopped
+							|| expectedGeneration !== attemptGeneration
+							|| expectedChallengeId !== challengeId
+						) {
+							return;
+						}
 						resetForRetry(consumeError.message);
 					}
 					return;
+				}
+				if (Number.isFinite(Number(data.expires_in))) {
+					expiresAt = Date.now() + (Math.max(0, Number(data.expires_in)) * 1000);
+					updateCountdown(expectedGeneration);
 				}
 				if (['expired', 'cancelled', 'consumed'].includes(data.status)) {
 					status.textContent = messages.expired || 'Code expired.';
@@ -110,14 +201,41 @@
 					return;
 				}
 			} catch (pollError) {
+				pollController = null;
+				if (
+					stopped
+					|| expectedGeneration !== attemptGeneration
+					|| expectedChallengeId !== challengeId
+					|| pollError.name === 'AbortError'
+				) {
+					return;
+				}
 				resetForRetry(pollError.message);
 				return;
 			}
-			pollTimer = window.setTimeout(poll, 2000);
+			schedulePoll(expectedGeneration);
+		}
+
+		document.addEventListener('visibilitychange', () => {
+			if (stopped || !challengeId || !widget.isConnected) {
+				return;
+			}
+			if (document.hidden) {
+				window.clearTimeout(pollTimer);
+				window.clearTimeout(countdownTimer);
+				return;
+			}
+			updateCountdown(attemptGeneration);
+			schedulePoll(attemptGeneration, 0);
+		});
+
+		if (toggle) {
+			toggle.setAttribute('aria-expanded', panel.hidden ? 'false' : 'true');
 		}
 
 		toggle?.addEventListener('click', () => {
 			panel.hidden = !panel.hidden;
+			toggle.setAttribute('aria-expanded', panel.hidden ? 'false' : 'true');
 			if (!panel.hidden) {
 				phone.focus();
 			}
@@ -125,48 +243,98 @@
 
 		start?.addEventListener('click', async () => {
 			stopPolling();
+			attemptGeneration += 1;
+			const expectedGeneration = attemptGeneration;
 			stopped = false;
 			error.hidden = true;
 			instructions.hidden = true;
 			code.textContent = '';
 			start.disabled = true;
+			if (cancel) {
+				cancel.disabled = false;
+			}
+			widget.setAttribute('aria-busy', 'true');
 			try {
 				const data = await request(config.challengeUrl, {
 					method: 'POST',
 					headers: headers('', purpose === 'add_contact'),
 					body: JSON.stringify({ phone: phone.value, purpose }),
 				});
+				if (stopped || expectedGeneration !== attemptGeneration) {
+					return;
+				}
 				challengeId = data.challenge_id;
 				csrfToken = data.csrf_token;
 				code.textContent = data.code;
-				status.textContent = messages.waiting || 'Waiting for your call…';
+				if (dial && data.dial) {
+					const display = String(data.dial.display || '');
+					const tel = String(data.dial.tel || '');
+					dial.textContent = display;
+					if (/^\+?[0-9]+$/.test(tel)) {
+						dial.setAttribute('href', `tel:${tel}`);
+					}
+				}
+				expiresAt = Date.now() + (Math.max(0, Number(data.expires_in) || 0) * 1000);
+				updateCountdown(expectedGeneration);
 				instructions.hidden = false;
-				pollTimer = window.setTimeout(poll, 1200);
+				widget.removeAttribute('aria-busy');
+				schedulePoll(expectedGeneration);
 			} catch (startError) {
+				if (stopped || expectedGeneration !== attemptGeneration) {
+					return;
+				}
 				start.disabled = false;
+				widget.removeAttribute('aria-busy');
 				showError(startError.message);
 			}
 		});
 
 		cancel?.addEventListener('click', async () => {
 			stopPolling();
-			if (challengeId) {
+			attemptGeneration += 1;
+			const cancelledChallengeId = challengeId;
+			const cancelledCsrfToken = csrfToken;
+			challengeId = '';
+			csrfToken = '';
+			expiresAt = 0;
+			code.textContent = '';
+			instructions.hidden = true;
+			start.disabled = false;
+			widget.removeAttribute('aria-busy');
+			if (cancelledChallengeId) {
 				try {
-					await request(`${config.challengeUrl}/${encodeURIComponent(challengeId)}`, {
+					await request(`${config.challengeUrl}/${encodeURIComponent(cancelledChallengeId)}`, {
 						method: 'DELETE',
-						headers: headers(csrfToken),
+						headers: headers(cancelledCsrfToken),
 					});
 				} catch (_error) {
 					// Cancellation is best effort; the server expiry remains authoritative.
 				}
 			}
-			challengeId = '';
-			csrfToken = '';
-			code.textContent = '';
-			instructions.hidden = true;
-			start.disabled = false;
+			phone.focus();
+		});
+	}
+
+	function initializeWidgets(root = document) {
+		if (root instanceof Element && root.matches('[data-digitalogic-call-widget]')) {
+			initializeWidget(root);
+		}
+		if (typeof root.querySelectorAll === 'function') {
+			root.querySelectorAll('[data-digitalogic-call-widget]').forEach(initializeWidget);
+		}
+	}
+
+	initializeWidgets();
+	const widgetObserver = new MutationObserver((records) => {
+		records.forEach((record) => {
+			record.addedNodes.forEach((node) => {
+				if (node instanceof Element) {
+					initializeWidgets(node);
+				}
+			});
 		});
 	});
+	widgetObserver.observe(document.body, { childList: true, subtree: true });
 
 	const contacts = document.querySelector('[data-digitalogic-contacts]');
 	if (!contacts || !config.contactsUrl || !config.wpNonce) {

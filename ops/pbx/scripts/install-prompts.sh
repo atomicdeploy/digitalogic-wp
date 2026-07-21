@@ -24,7 +24,7 @@ if [[ -e "$release_dir" ]]; then
 fi
 
 install -d -o asterisk -g asterisk -m 0755 "$release_dir"
-for name in menu-option-2 enter-code verified invalid temporary-failure; do
+for name in pending-code enter-code verified invalid temporary-failure; do
 	test -s "$source_dir/$name.wav"
 	test -s "$source_dir/$name.wav16"
 	install -o asterisk -g asterisk -m 0644 "$source_dir/$name.wav" "$release_dir/$name.wav"
