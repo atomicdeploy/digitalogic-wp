@@ -194,7 +194,7 @@ than being converted or changed automatically.
 A supplier shipping method describes supplier-to-Digitalogic transport. It does not use
 WooCommerce checkout, shipping-zone, or customer delivery APIs.
 
-- **GET** `/wp-json/digitalogic/integration/catalog` - sparse CNY/IRT rate, `landed_price`, selected warehouses, and methods
+- **GET** `/wp-json/digitalogic/integration/catalog` - sparse CNY/IRT rate, `landed_price`, selected warehouses, and methods with explicit freight currencies
 - **GET** `/shipping-methods` - list canonical methods
 - **POST** `/shipping-methods` - create a method with an immutable ID
 - **GET|PUT|DELETE** `/shipping-methods/{id}` - read, update, or delete an unassigned method
@@ -205,8 +205,12 @@ WooCommerce checkout, shipping-zone, or customer delivery APIs.
 
 GET routes use the `read` permission scope. Mutating routes use `write`.
 Deleting an assigned method returns HTTP 409; disabling it remains available.
-Method and tier payloads use `shipping_price_per_kg_cny`; aliases are not
-accepted or emitted. See [Supplier Shipping Method API](SHIPPING-METHOD-API.md)
+Method payloads use required `price_per_kg` and `currency` fields. Currency input
+must be exactly `CNY` or `IRR`; tier rates inherit the method currency. Rates,
+minimums, divisors, and tier bounds are canonical decimal strings with at most
+12 fractional digits and are never emitted through binary floats. Product-sync
+records use the paired flattened fields `shipping_price_per_kg` and
+`shipping_price_per_kg_currency`. Aliases are not accepted or emitted. See [Supplier Shipping Method API](SHIPPING-METHOD-API.md)
 and [Patris Product Sync](PATRIS-PRODUCT-SYNC.md).
 
 ---

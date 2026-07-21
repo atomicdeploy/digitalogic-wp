@@ -909,7 +909,7 @@ class Digitalogic_CLI_Commands {
 	 * ## OPTIONS
 	 *
 	 * --manifest=<path>
-	 * : Strict digitalogic.patris-catalog-enrichment v1.0 JSON manifest.
+	 * : Strict living digitalogic.patris-catalog-enrichment JSON manifest.
 	 *
 	 * [--source-id=<id>]
 	 * : Optional exact source-id assertion against the manifest.
@@ -927,7 +927,8 @@ class Digitalogic_CLI_Commands {
 	 * : Apply the reviewed plan. Without this flag no writes occur.
 	 *
 	 * [--publish-ready]
-	 * : Publish only fully priced, weighted, in-stock, SEO-enriched rows.
+	 * : Publish only fully priced, freight-currency-qualified, weighted,
+	 * in-stock, SEO-enriched rows.
 	 *
 	 * ## EXAMPLES
 	 *

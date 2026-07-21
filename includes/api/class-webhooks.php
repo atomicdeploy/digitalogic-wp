@@ -500,8 +500,17 @@ class Digitalogic_Webhooks {
             'name' => isset($method['name']) ? sanitize_text_field($method['name']) : '',
             'enabled' => !empty($method['enabled']),
 		);
-		if (array_key_exists('shipping_price_per_kg_cny', $method) && null !== $method['shipping_price_per_kg_cny']) {
-			$payload['shipping_price_per_kg_cny'] = (float) $method['shipping_price_per_kg_cny'];
+		if (array_key_exists('currency', $method)) {
+			$payload['currency'] = (string) $method['currency'];
+		}
+		if (array_key_exists('price_per_kg', $method) && null !== $method['price_per_kg']) {
+			$payload['price_per_kg'] = (string) $method['price_per_kg'];
+		}
+		if (array_key_exists('minimum_charge', $method) && null !== $method['minimum_charge']) {
+			$payload['minimum_charge'] = (string) $method['minimum_charge'];
+		}
+		if (!empty($method['tiered_rates']) && is_array($method['tiered_rates'])) {
+			$payload['tiered_rates'] = $this->shipping_tiers_payload($method['tiered_rates']);
 		}
         return $this->trigger_webhook($event, $payload);
     }
@@ -551,11 +560,33 @@ class Digitalogic_Webhooks {
             'name' => isset($method['name']) ? sanitize_text_field($method['name']) : '',
             'enabled' => !empty($method['enabled']),
 		);
-		if (array_key_exists('shipping_price_per_kg_cny', $method) && null !== $method['shipping_price_per_kg_cny']) {
-			$payload['shipping_price_per_kg_cny'] = (float) $method['shipping_price_per_kg_cny'];
+		if (array_key_exists('currency', $method)) {
+			$payload['currency'] = (string) $method['currency'];
+		}
+		if (array_key_exists('price_per_kg', $method) && null !== $method['price_per_kg']) {
+			$payload['price_per_kg'] = (string) $method['price_per_kg'];
+		}
+		if (array_key_exists('minimum_charge', $method) && null !== $method['minimum_charge']) {
+			$payload['minimum_charge'] = (string) $method['minimum_charge'];
+		}
+		if (!empty($method['tiered_rates']) && is_array($method['tiered_rates'])) {
+			$payload['tiered_rates'] = $this->shipping_tiers_payload($method['tiered_rates']);
 		}
         return $this->trigger_webhook($events[$hook], $payload, true);
     }
+
+	/** Preserve canonical tier decimals without generated nulls or float casts. */
+	private function shipping_tiers_payload($tiers) {
+		return array_values(array_map(static function($tier) {
+			$payload = array();
+			foreach (array('min_weight_kg', 'max_weight_kg', 'price_per_kg') as $field) {
+				if (is_array($tier) && array_key_exists($field, $tier) && null !== $tier[$field]) {
+					$payload[$field] = (string) $tier[$field];
+				}
+			}
+			return $payload;
+		}, (array) $tiers));
+	}
     
     /**
      * Trigger webhook
