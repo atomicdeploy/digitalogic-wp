@@ -54,7 +54,7 @@ class Digitalogic_Command_Dispatcher {
         }
 
         $requires_auth = (bool) apply_filters('digitalogic_command_requires_auth', true, $command, $payload, $transport);
-        if ($requires_auth && !current_user_can('manage_woocommerce')) {
+        if ($requires_auth && !Digitalogic_Access_Control::can_access_panel()) {
             return new WP_Error('digitalogic_unauthorized', __('Unauthorized', 'digitalogic'), array('status' => 403));
         }
 

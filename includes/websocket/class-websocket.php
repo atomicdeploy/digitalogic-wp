@@ -38,7 +38,7 @@ class Digitalogic_WebSocket {
     }
 
     public function check_permission() {
-        return current_user_can('manage_woocommerce');
+        return Digitalogic_Access_Control::can_access_panel();
     }
 
     public function get_config_response() {
@@ -54,7 +54,7 @@ class Digitalogic_WebSocket {
             'enabled' => (bool) apply_filters('digitalogic_websocket_enabled', true),
             'url' => $default_url,
             'nonce' => wp_create_nonce('digitalogic_ws'),
-            'token' => current_user_can('manage_woocommerce') ? self::create_client_token(get_current_user_id()) : '',
+            'token' => Digitalogic_Access_Control::can_access_panel() ? self::create_client_token(get_current_user_id()) : '',
             'reconnect_interval' => 3000,
             'request_timeout' => 15000,
             'ajax_proxy_enabled' => (bool) apply_filters('digitalogic_websocket_ajax_proxy_enabled', true),
@@ -82,7 +82,7 @@ class Digitalogic_WebSocket {
     }
 
     public function enqueue_admin_proxy() {
-        if (!current_user_can('manage_woocommerce')) {
+        if ( ! Digitalogic_Access_Control::can_access_panel() ) {
             return;
         }
 
@@ -129,7 +129,7 @@ class Digitalogic_WebSocket {
         $user_id = (int) $data['user_id'];
         wp_set_current_user($user_id);
 
-        return current_user_can('manage_woocommerce') ? $user_id : 0;
+        return Digitalogic_Access_Control::can_access_panel() ? $user_id : 0;
     }
 
     public static function create_public_token() {

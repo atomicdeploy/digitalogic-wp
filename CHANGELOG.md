@@ -3,6 +3,8 @@
 ## Unreleased
 
 - Prevent the private storefront request post type from registering `manage_woocommerce` as an object meta capability, which caused WordPress to deny valid administrator and shop-manager access across the panel, admin, REST, and WebSocket paths.
+- Add reusable Digitalogic browser error pages with responsive light/dark styling, English and Persian copy, RTL/LTR layout, safe recovery actions, and stable support references.
+- Replace the panel's raw WordPress `wp_die()` authorization response and centralize its WordPress capability policy without granting storefront customers access.
 
 ## 1.6.1
 

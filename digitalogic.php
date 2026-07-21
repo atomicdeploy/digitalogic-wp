@@ -113,6 +113,8 @@ final class Digitalogic {
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-options.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-currency-shortcodes.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-woocommerce-currency-status.php';
+        require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-access-control.php';
+        require_once DIGITALOGIC_PLUGIN_DIR . 'includes/panel/class-digitalogic-panel-error-page.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-logger.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-product-query.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-product-manager.php';

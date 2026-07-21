@@ -178,7 +178,7 @@ class Digitalogic_WebSocket_Server {
 
         wp_set_current_user(max(0, (int) $this->clients[$id]['user_id']));
         if ($command === 'digitalogic_panel_events' && class_exists('Digitalogic_Panel')) {
-            if (!current_user_can('manage_woocommerce')) {
+            if ( ! Digitalogic_Access_Control::can_access_panel() ) {
                 $this->send_error($id, $request_id, 'digitalogic_unauthorized', __('Unauthorized', 'digitalogic'));
                 return;
             }
