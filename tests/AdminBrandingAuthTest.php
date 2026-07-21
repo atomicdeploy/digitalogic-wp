@@ -9,7 +9,7 @@ if (!defined('DIGITALOGIC_PLUGIN_URL')) {
 
 if (!function_exists('is_user_logged_in')) {
     function is_user_logged_in() {
-        return false;
+        return !empty($GLOBALS['digitalogic_test_is_user_logged_in']);
     }
 }
 

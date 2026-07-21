@@ -56,6 +56,8 @@ jobs:
           node --check assets/js/branding/admin-branding.js
           node --test tests/product-query.test.js
           node --test tests/admin-branding-auth-nav.test.js
+          node --test tests/sidebar-login-style.test.js
+          node --check assets/js/sidebar-login.js
 
       - name: Run PHPUnit tests
         run: composer test

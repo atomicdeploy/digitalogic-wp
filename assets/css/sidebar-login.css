@@ -1,0 +1,391 @@
+/**
+ * Digits' AJAX login steps inside the Woodmart account sidebar.
+ *
+ * Form selectors are rooted at .login-form-side. Digits appends notices directly
+ * to body, so only notices explicitly marked by our sidebar script are global.
+ */
+
+.login-form-side .woocommerce-form-login.digits-tp_style,
+.login-form-side .digits-form_tab_wrapper,
+.login-form-side .digits-form_tab_container,
+.login-form-side .digits-form_tabs,
+.login-form-side .digits-form_body,
+.login-form-side .digits-form_body_wrapper,
+.login-form-side .digits-form_tab_body,
+.login-form-side .digits-form_input_row,
+.login-form-side .digits-form_input,
+.login-form-side .digits_secure_login_auth_wrapper {
+	box-sizing: border-box;
+	width: 100%;
+	max-width: 100%;
+	min-width: 0;
+}
+
+.login-form-side .digits-form_tab_container {
+	position: relative;
+}
+
+.login-form-side .digits-form_tab-bar {
+	display: flex;
+	flex-wrap: nowrap;
+	align-items: stretch;
+	gap: .5rem;
+	width: 100%;
+	margin: 0 0 1rem;
+	padding: 0;
+	border: 0;
+	list-style: none;
+}
+
+.login-form-side .digits-form_tab-bar .digits-form_tab-item {
+	display: flex;
+	flex: 1 1 0;
+	align-items: center;
+	justify-content: center;
+	min-width: 0;
+	min-height: 44px;
+	padding: .55rem .35rem;
+	border: 1px solid var(--brdcolor-gray-300, #d7d7d7) !important;
+	border-radius: var(--wd-brd-radius, 4px);
+	background: var(--bgcolor-gray-100, #f7f7f7);
+	color: var(--color-gray-700, #4a4a4a);
+	font-size: .875rem;
+	font-weight: 600;
+	line-height: 1.45;
+	text-align: center;
+	opacity: .72;
+	cursor: pointer;
+}
+
+.login-form-side .digits-form_tab-bar .digits-form_tab-item.digits-tab_active {
+	border-color: var(--wd-primary-color, #f58220) !important;
+	background: #fff7f0;
+	background: color-mix(in srgb, var(--wd-primary-color, #f58220) 10%, #fff);
+	color: var(--color-gray-900, #242424);
+	box-shadow: inset 0 -2px 0 var(--wd-primary-color, #f58220) !important;
+	opacity: 1;
+}
+
+.login-form-side .digits-form_tab-bar .digits-form_tab-item:focus-visible,
+.login-form-side .digits-form_link:focus-visible,
+.login-form-side .digits_password_eye:focus-visible {
+	outline: 2px solid var(--wd-primary-color, #f58220);
+	outline-offset: 2px;
+}
+
+.login-form-side .digits-slider_line {
+	display: none !important;
+}
+
+.login-form-side .digits-form_body {
+	margin-top: 0;
+}
+
+.login-form-side .digits-form_tab_body:not(.digits-tab_active) {
+	display: none !important;
+}
+
+.login-form-side .digits-form_tab_body.digits-tab_active {
+	display: block !important;
+}
+
+.login-form-side .digits-form_input_row {
+	position: relative;
+	margin: 0 0 1rem;
+	border: 0;
+}
+
+.login-form-side .digits-form_input input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]),
+.login-form-side .digits-form_input textarea,
+.login-form-side .digits-form_input select {
+	box-sizing: border-box;
+	width: 100%;
+	max-width: 100%;
+	min-width: 0;
+	margin: 0;
+}
+
+.login-form-side .digits-form_input input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]) {
+	min-height: 44px;
+	line-height: normal;
+}
+
+.login-form-side .digits_password_inp_row input[type="password"] {
+	padding-inline-end: 2.75rem;
+}
+
+.login-form-side .digits_password_eye {
+	display: flex;
+	position: absolute;
+	align-items: center;
+	justify-content: center;
+	right: auto;
+	left: auto;
+	inset-block-start: 50%;
+	inset-inline-end: .75rem;
+	top: 50% !important;
+	bottom: auto;
+	width: 24px;
+	height: 24px;
+	transform: translateY(-50%);
+	opacity: 1;
+	pointer-events: auto;
+	cursor: pointer;
+}
+
+.login-form-side .digits-form_footer {
+	display: none !important;
+}
+
+.login-form-side .digits-form_tab_body .digits-form_footer_content {
+	display: block;
+	visibility: visible;
+	opacity: 1;
+}
+
+.login-form-side .digits-form_footer_content,
+.login-form-side .digits-form_link {
+	box-sizing: border-box;
+	max-width: 100%;
+}
+
+.login-form-side .digits-form_link {
+	min-height: 44px;
+	margin-top: .25rem;
+	padding: .7rem .25rem;
+	color: var(--wd-link-color, var(--wd-primary-color, #f58220));
+	font-size: .875rem;
+	line-height: 1.5;
+	text-align: center;
+	cursor: pointer;
+}
+
+.login-form-side .digits_otp_info {
+	position: static;
+	width: 100%;
+	max-width: 100%;
+	margin-top: .75rem;
+	padding: .75rem;
+	border-radius: var(--wd-brd-radius, 4px);
+	background: var(--bgcolor-gray-100, #f7f7f7);
+}
+
+.login-form-side .digits_otp_info_ic {
+	display: none;
+}
+
+.login-form-side .digits_otp_info_desc,
+.login-form-side .digits_otp_info_desc_text {
+	position: static;
+	display: block;
+	width: 100%;
+	max-width: 100%;
+	padding: 0;
+	font-size: .8125rem;
+	line-height: 1.65;
+	white-space: normal;
+	word-break: break-word;
+	opacity: 1;
+}
+
+.login-form-side .digits_otp_dest {
+	display: block;
+	margin-top: .25rem;
+	direction: ltr;
+	text-align: center;
+	unicode-bidi: isolate;
+}
+
+.login-form-side .digits-form_submit-btn {
+	box-sizing: border-box;
+	width: 100%;
+	max-width: 100%;
+	min-height: 44px;
+	margin-inline: 0;
+}
+
+.login-form-side .digits_loading_spinner {
+	display: inline-block;
+	flex: 0 0 auto;
+	box-sizing: border-box;
+	width: 1rem;
+	height: 1rem;
+	margin-inline: 0 .5rem;
+	color: #fff !important;
+	border: .15rem solid #fff;
+	border-top-color: transparent;
+	border-radius: 50%;
+	line-height: 1;
+	vertical-align: middle;
+	animation: digitalogic-sidebar-login-spin .6s linear infinite;
+}
+
+.login-form-side .digits_form_processing {
+	pointer-events: none;
+}
+
+.login-form-side .digits_form_processing .digits-form_tab-item,
+.login-form-side .digits_form_processing .digits-form_link,
+.login-form-side .digits_form_processing .digits-form_submit-btn {
+	cursor: wait;
+}
+
+.login-form-side .digits-form_message,
+.login-form-side .woocommerce-error,
+.login-form-side .woocommerce-message {
+	box-sizing: border-box;
+	width: calc(100% - 1.875rem);
+	max-width: 100%;
+	margin-inline: .9375rem;
+	overflow-wrap: anywhere;
+}
+
+body > .dig_popmessage.digitalogic-sidebar-login-notice {
+	z-index: 9999999;
+	display: block;
+	position: fixed;
+	top: 1.5rem;
+	right: 1.5rem;
+	left: auto;
+	box-sizing: border-box;
+	width: min(320px, calc(100vw - 2rem));
+	min-height: 80px;
+	border-radius: 8px;
+	background: #fff;
+	box-shadow: 0 10px 32px rgb(0 0 0 / 18%);
+	line-height: 1.6;
+	overflow: hidden;
+}
+
+body > .dig_popmessage.digitalogic-sidebar-login-notice .dig_popmessage_contents {
+	display: flex;
+	position: relative;
+	min-height: 80px;
+	padding: 1rem 1.25rem;
+	border: 1px solid #f0d5dc;
+	border-inline-start: 4px solid #d63638;
+	background: #fff7f8;
+}
+
+body > .dig_popmessage.digitalogic-sidebar-login-notice .dig_firele {
+	display: none;
+}
+
+body > .dig_popmessage.digitalogic-sidebar-login-notice .dig_lasele {
+	flex: 1 1 auto;
+	min-width: 0;
+	padding: 0;
+}
+
+body > .dig_popmessage.digitalogic-sidebar-login-notice .dig_lase_snap,
+body > .dig_popmessage.digitalogic-sidebar-login-notice .dig_lase_message {
+	display: block;
+	padding-inline-end: 1.75rem;
+	overflow-wrap: anywhere;
+}
+
+body > .dig_popmessage.digitalogic-sidebar-login-notice .dig_lase_snap {
+	margin-bottom: .25rem;
+	color: #8a2424;
+	font-size: 1rem;
+	font-weight: 700;
+}
+
+body > .dig_popmessage.digitalogic-sidebar-login-notice .dig_lase_message {
+	color: #5c1d1d;
+	font-size: .875rem;
+}
+
+body > .dig_popmessage.digitalogic-sidebar-login-notice.dig_success_msg .dig_popmessage_contents {
+	border-color: #cce9dc;
+	border-inline-start-color: #008a52;
+	background: #f2fbf7;
+}
+
+body > .dig_popmessage.digitalogic-sidebar-login-notice.dig_success_msg .dig_lase_snap,
+body > .dig_popmessage.digitalogic-sidebar-login-notice.dig_success_msg .dig_lase_message {
+	color: #006d41;
+}
+
+body > .dig_popmessage.digitalogic-sidebar-login-notice.dig_notice_msg .dig_popmessage_contents {
+	border-color: #f0dfb1;
+	border-inline-start-color: #b07800;
+	background: #fffbef;
+}
+
+body > .dig_popmessage.digitalogic-sidebar-login-notice.dig_notice_msg .dig_lase_snap,
+body > .dig_popmessage.digitalogic-sidebar-login-notice.dig_notice_msg .dig_lase_message {
+	color: #765100;
+}
+
+body > .dig_popmessage.digitalogic-sidebar-login-notice .dig_popdismiss {
+	display: flex;
+	position: absolute;
+	top: .375rem;
+	inset-inline-end: .375rem;
+	align-items: center;
+	justify-content: center;
+	width: 32px;
+	height: 32px;
+	border-radius: 50%;
+	color: currentcolor;
+	font-size: 0;
+	cursor: pointer;
+}
+
+body > .dig_popmessage.digitalogic-sidebar-login-notice .dig_popdismiss::before {
+	content: "\00d7";
+	font-size: 1.5rem;
+	line-height: 1;
+}
+
+body > .dig_popmessage.digitalogic-sidebar-login-notice .dig_popdismiss:focus-visible {
+	outline: 2px solid currentcolor;
+	outline-offset: 1px;
+}
+
+.login-form-side #altEmail_container {
+	position: absolute !important;
+	inset-inline-start: -10000px !important;
+	top: auto !important;
+	width: 1px !important;
+	height: 1px !important;
+	overflow: hidden !important;
+}
+
+@media (max-width: 380px) {
+	.login-form-side .digits-form_tab-bar {
+		gap: .375rem;
+	}
+
+	.login-form-side .digits-form_tab-bar .digits-form_tab-item {
+		padding-inline: .2rem;
+		font-size: .8125rem;
+	}
+
+	body > .dig_popmessage.digitalogic-sidebar-login-notice {
+		top: 1rem;
+		right: 1rem;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.login-form-side .digits-form_tab-bar .digits-form_tab-item,
+	.login-form-side .digits_loading_spinner {
+		transition: none;
+	}
+
+	.login-form-side .digits_loading_spinner {
+		animation-duration: 1.2s;
+	}
+}
+
+@keyframes digitalogic-sidebar-login-spin {
+	from {
+		transform: rotate(0deg);
+	}
+
+	to {
+		transform: rotate(360deg);
+	}
+}

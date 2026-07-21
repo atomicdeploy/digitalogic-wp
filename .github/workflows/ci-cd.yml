@@ -83,6 +83,8 @@ jobs:
         node --test tests/call-verification-ui.test.js
         node --test tests/product-query.test.js
         node --test tests/admin-branding-auth-nav.test.js
+        node --test tests/sidebar-login-style.test.js
+        node --check assets/js/sidebar-login.js
         node --test tests/product-identity.test.js
         node --check ops/pbx/lib/pbx-verification-agi.js
         npm --prefix ops/pbx test
