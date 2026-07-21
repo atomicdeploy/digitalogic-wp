@@ -7,32 +7,6 @@
 
 use PHPUnit\Framework\TestCase;
 
-if ( ! function_exists( 'register_post_type' ) ) {
-	/**
-	 * Capture post-type arguments and model WordPress's object meta-cap map.
-	 *
-	 * @param string $post_type Post-type key.
-	 * @param array  $args      Registration arguments.
-	 * @return object
-	 */
-	function register_post_type( $post_type, $args = array() ) {
-		$GLOBALS['digitalogic_test_registered_post_types'][ $post_type ] = $args;
-
-		if ( ! empty( $args['map_meta_cap'] ) ) {
-			foreach ( array( 'edit_post', 'read_post', 'delete_post' ) as $meta_cap ) {
-				$capability = $args['capabilities'][ $meta_cap ] ?? '';
-				if ( '' !== $capability ) {
-					$GLOBALS['digitalogic_test_post_type_meta_caps'][ $capability ] = $meta_cap;
-				}
-			}
-		}
-
-		return (object) array(
-			'name' => $post_type,
-		);
-	}
-}
-
 require_once dirname( __DIR__ ) . '/includes/integrations/class-storefront-order-forms.php';
 
 /**
@@ -45,7 +19,7 @@ final class StorefrontOrderFormsCapabilitiesTest extends TestCase {
 	 */
 	protected function setUp(): void {
 		$GLOBALS['digitalogic_test_registered_post_types'] = array();
-		$GLOBALS['digitalogic_test_post_type_meta_caps']    = array();
+		$GLOBALS['digitalogic_test_post_type_meta_caps']   = array();
 	}
 
 	/**
