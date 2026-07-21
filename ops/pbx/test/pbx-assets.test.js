@@ -8,18 +8,17 @@ const test = require('node:test');
 const root = path.resolve(__dirname, '..');
 const read = (name) => fs.readFileSync(path.join(root, name), 'utf8');
 
-test('Digitalogic uses an ANI-gated shortcut without inventing a public IVR digit', () => {
+test('Digitalogic keeps verification dormant while the public DID routes directly', () => {
 	const dialplan = read('asterisk/digitalogic-pending-shortcut.conf');
 	assert.equal(fs.existsSync(path.join(root, 'asterisk/digitalogic-digit-2.conf')), false);
 	assert.doesNotMatch(dialplan, /^exten\s*=>\s*2,/m);
 	assert.doesNotMatch(dialplan, /menu-option-2/);
-	assert.match(dialplan, /Set\(__PBX_VERIFY_PENDING=0\)/);
-	assert.match(dialplan, /,preflight,1\)/);
-	assert.match(dialplan, /,shortcut,1\)/);
-	assert.match(dialplan, /PBX_VERIFY_RESULT.*verified.*Hangup/);
-	assert.match(dialplan, /prefix-tci-callerid \/ record-call \/ operator flow follows/);
 	const mergeInstructions = dialplan.split('[pbx-call-verification-pending-digitalogic]')[0];
 	assert.doesNotMatch(mergeInstructions, /Answer\(\)/);
+	assert.doesNotMatch(mergeInstructions, /Gosub\([^\n]*(preflight|shortcut)/);
+	assert.match(mergeInstructions, /Dial\(PJSIP\/\$\{OPERATOR_EXT\},30,Tt\)/);
+	assert.match(mergeInstructions, /OPERATOR_EXT=101/);
+	assert.match(dialplan, /^exten => preflight,1,AGI\([^\n]+,preflight\)$/m);
 	assert.match(dialplan, /^exten => shortcut,1,Answer\(\)\s*\n same => n,StopMixMonitor\(\)/m);
 	assert.doesNotMatch(dialplan, /^\s*same => n\([^)]+\)/m);
 });

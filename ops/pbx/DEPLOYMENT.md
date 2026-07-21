@@ -1,8 +1,8 @@
 # Deployment and validation
 
-This is a reviewed runbook, not an automatic installer. Do not mutate Asterisk
-or enable the feature until the WordPress pending endpoint, 120-second challenge
-TTL, browser consumption, and login redirect have been deployed and tested.
+This is a reviewed runbook, not an automatic installer. The verification assets
+may be installed, but Digitalogic's public TCI routes remain direct-to-101 until a
+separate IVR design is approved and tested.
 
 ## 1. Preflight and backups
 
@@ -64,16 +64,18 @@ Listen to every output and verify the BGM remains below speech, `*` can interrup
 the pending prompt, and both 8 kHz/16 kHz files are mono PCM. The installer creates
 an immutable release and atomically switches `current`.
 
-## 4. Merge the dialplan
+## 4. Keep the public dialplan direct to extension 101
 
-Manually merge `asterisk/digitalogic-pending-shortcut.conf` into both exact
-`[from-tci]` s/_X paths. Recheck the live checksum immediately before install.
+Install only the dormant helper contexts from
+`asterisk/digitalogic-pending-shortcut.conf`. Do not add its `preflight` or
+`shortcut` calls to either `[from-tci]` entry path. Recheck the live checksum
+immediately before install.
 
-Mandatory ordering is: initialize fail-open variables; snapshot ANI/DID; signed
-preflight; conditional shortcut (which alone answers the channel); verified
-hangup; then the untouched
-`prefix-tci-callerid` → `record-call` → operator flow. Remove the former
-`digitalogic-call-verification-menu` and its public digit 2 completely.
+Both the `s` and `_X.` routes must contain only their existing inbound `NoOp`, then
+`prefix-tci-callerid` → `record-call` →
+`Dial(PJSIP/${OPERATOR_EXT},30,Tt)` → `Hangup(19)`. Keep `OPERATOR_EXT=101`.
+Remove the former `digitalogic-call-verification-menu`, public digit 2, pending
+lookup, and conditional shortcut from those public priorities completely.
 
 Do not add a public fallback digit. The private `verify` context is intentionally
 unrouted until a separate Digitalogic IVR is designed and approved.
@@ -94,20 +96,13 @@ asterisk -rx 'agi set debug off'
 
 Use real PSTN ANI and redacted evidence:
 
-- No active challenge: no verification audio or early `Answer()`; original operator
-  flow and caller-ID prefix remain unchanged.
-- Pending exact ANI: the private «دوست عزیزم…» BGM prompt plays immediately.
-- Star during the prompt or between digits cancels immediately; no input times out
-  once, then operator flow begins, with no callback and no verification DTMF in
-  recordings or logs.
-- Correct six-digit code: one confirm callback marks the challenge verified and the
-  call terminates after the success prompt.
-- A rejected six-digit typo gets one retry, then falls back to the operator;
-  wrong/expired codes and wrong/withheld ANI cannot verify.
-- Pending endpoint timeout, malformed JSON, extra response keys, bad signature,
-  replay, or HTTP failure reaches the operator within the bounded timeout.
-- Confirm endpoint failures remain closed and generic.
+- Every call, including one whose ANI has a pending website challenge, bypasses
+  the verification HTTP endpoint and AGI and rings extension 101 immediately.
+- Asterisk shows the paired TCI and `PJSIP/101` channels, with no verification
+  audio, early `Answer()`, prompt, or DTMF collection.
 - Both s and _X inbound paths behave identically.
+- The dormant helper contexts remain loaded but unreachable from public and
+  internal dialplan paths.
 
-Only after these pass should inbound verification be enabled for test accounts.
-Outbound voice remains a separate opt-in, authenticated trust boundary.
+Inbound verification can be revisited only as part of the approved Digitalogic
+IVR pass. Outbound voice remains a separate opt-in, authenticated trust boundary.
