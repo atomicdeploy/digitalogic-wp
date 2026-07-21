@@ -646,8 +646,17 @@ class Digitalogic_Panel {
             'name' => isset($method['name']) ? sanitize_text_field($method['name']) : '',
             'enabled' => !empty($method['enabled']),
 		);
-		if (array_key_exists('shipping_price_per_kg_cny', $method) && null !== $method['shipping_price_per_kg_cny']) {
-			$data['shipping_price_per_kg_cny'] = (float) $method['shipping_price_per_kg_cny'];
+		if (array_key_exists('currency', $method)) {
+			$data['currency'] = (string) $method['currency'];
+		}
+		if (array_key_exists('price_per_kg', $method) && null !== $method['price_per_kg']) {
+			$data['price_per_kg'] = (string) $method['price_per_kg'];
+		}
+		if (array_key_exists('minimum_charge', $method) && null !== $method['minimum_charge']) {
+			$data['minimum_charge'] = (string) $method['minimum_charge'];
+		}
+		if (!empty($method['tiered_rates']) && is_array($method['tiered_rates'])) {
+			$data['tiered_rates'] = $this->shipping_tiers_payload($method['tiered_rates']);
 		}
         return self::record_event($event, $data);
     }
@@ -697,8 +706,17 @@ class Digitalogic_Panel {
                 'name' => isset($method['name']) ? sanitize_text_field($method['name']) : '',
                 'enabled' => !empty($method['enabled']),
             );
-			if (array_key_exists('shipping_price_per_kg_cny', $method) && null !== $method['shipping_price_per_kg_cny']) {
-				$data['shipping_price_per_kg_cny'] = (float) $method['shipping_price_per_kg_cny'];
+			if (array_key_exists('currency', $method)) {
+				$data['currency'] = (string) $method['currency'];
+			}
+			if (array_key_exists('price_per_kg', $method) && null !== $method['price_per_kg']) {
+				$data['price_per_kg'] = (string) $method['price_per_kg'];
+			}
+			if (array_key_exists('minimum_charge', $method) && null !== $method['minimum_charge']) {
+				$data['minimum_charge'] = (string) $method['minimum_charge'];
+			}
+			if (!empty($method['tiered_rates']) && is_array($method['tiered_rates'])) {
+				$data['tiered_rates'] = $this->shipping_tiers_payload($method['tiered_rates']);
 			}
         }
 
@@ -716,6 +734,19 @@ class Digitalogic_Panel {
 
         return true;
     }
+
+	/** Preserve canonical tier decimals without generated nulls or float casts. */
+	private function shipping_tiers_payload($tiers) {
+		return array_values(array_map(static function($tier) {
+			$payload = array();
+			foreach (array('min_weight_kg', 'max_weight_kg', 'price_per_kg') as $field) {
+				if (is_array($tier) && array_key_exists($field, $tier) && null !== $tier[$field]) {
+					$payload[$field] = (string) $tier[$field];
+				}
+			}
+			return $payload;
+		}, (array) $tiers));
+	}
 
     public static function record_event($event, $data = array()) {
         $result = self::record_event_result($event, $data);

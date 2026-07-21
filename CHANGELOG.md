@@ -15,6 +15,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Made panel launches strictly same-origin and in-process using the existing WordPress session; removed the panel token, session handoff, external-panel mode, and copied identity headers.
 - Prevented the custom Digits login and registration footer from blocking a PHP-FPM worker on remote WordPress.org translation discovery while preserving the locale already selected by WordPress.
 
+### Changed
+- Shipping rates now carry an explicit `CNY` or `IRR` currency. Method objects use `price_per_kg` plus `currency`, while product-sync records use the required pair `shipping_price_per_kg` plus `shipping_price_per_kg_currency`.
+- Final-price validation converts CNY freight with the effective CNY-to-IRT rate and converts IRR freight to IRT before applying markup and a single final rounding step.
+- Shipping amounts, minimums, divisors, and tier bounds/rates now remain canonical decimal strings through storage and every outward projection, without exponent notation or binary-float loss.
+- Product sync preserves missing versus explicitly null freight fields, and the one-time installed-data migration bypasses stale option caches and verifies persistence before marking completion.
+
+## [1.5.0] - 2026-07-21
+
+### Added
+- Secure six-digit phone verification by inbound call on `021-66754123`, IVR option `2`, as a Digits-independent login alternative and a way to verify supplemental Iranian mobile or fixed-line contacts.
+- Multiple supplemental phone and email contacts in WooCommerce My Account and WordPress user profiles, with per-phone voice consent and order-event preferences.
+- Disabled-by-default, asynchronous WooCommerce status announcements through the loopback PBX callout service, including a global kill switch, per-status Persian templates, strict placeholders, quiet hours, rate limits, consent rechecks, and idempotent jobs.
+- Signed, replay-resistant PBX callback contract at `/wp-json/digitalogic/v1/call-verification/pbx-confirm`, encrypted contact storage, database-backed verification rate limits, and focused PHP protocol tests.
+- Transactional consent audit records, reason-required administrative consent expansion, bounded retention, per-canonical-number outbound limits, and a reconciled voice-job queue.
+
+### Security
+- Phone ownership codes are stored only as keyed MACs, browser challenges use opaque HttpOnly bindings, and verified challenges are consumed atomically once.
+- PBX verification secrets and callout credentials are read only from `wp-config.php`; callback bodies, identifiers, timestamps, DID/ANI values, and exact HMAC signatures are bounded and validated before use.
+- PBX schema availability is fail-closed until every required InnoDB table, column, index, cleanup task, and recovery schedule verifies successfully; signed callback attempt limits reserve capacity atomically before code matching.
+
 ## [1.4.3] - 2026-07-21
 
 ### Fixed
@@ -57,7 +77,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Replaced the product-sync payload families with one sparse living contract, including category and exclusion projections and explicit missing-versus-null semantics.
 - Moved the four Patris-facing routes to the `digitalogic` REST namespace and removed raw-feed and pricing aliases.
-- Standardized supplier shipping inputs, storage, events, and responses on `shipping_method_id` and `shipping_price_per_kg_cny` without mirrored keys.
+- Standardized supplier shipping inputs, storage, events, and responses on one canonical field set without mirrored keys.
 
 ## [1.3.4] - 2026-07-20
 

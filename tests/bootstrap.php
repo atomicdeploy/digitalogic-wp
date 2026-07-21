@@ -7,6 +7,9 @@
 define('ABSPATH', __DIR__ . '/');
 define('WP_CLI', true);
 define('ARRAY_A', 'ARRAY_A');
+define('MINUTE_IN_SECONDS', 60);
+define('HOUR_IN_SECONDS', 3600);
+define('DAY_IN_SECONDS', 86400);
 
 // phpcs:disable Generic.Formatting.MultipleStatementAlignment -- Preserve the intentionally simple test-global registry.
 $GLOBALS['digitalogic_test_capabilities'] = array();
@@ -51,6 +54,8 @@ $GLOBALS['digitalogic_test_rewrite_rules'] = array(); // phpcs:ignore
 $GLOBALS['digitalogic_test_rewrite_flushes'] = array(); // phpcs:ignore
 $GLOBALS['digitalogic_test_locale'] = 'en_US';
 $GLOBALS['digitalogic_test_shortcodes'] = array();
+$GLOBALS['digitalogic_test_scheduled_events'] = array();
+$GLOBALS['digitalogic_test_schedule_failure'] = false;
 $GLOBALS['digitalogic_test_enqueued_styles'] = array();
 $GLOBALS['digitalogic_test_enqueued_scripts'] = array();
 // phpcs:enable Generic.Formatting.MultipleStatementAlignment
@@ -222,6 +227,41 @@ function add_shortcode($tag, $callback) {
 
 function has_action($hook_name) {
     return !empty($GLOBALS['digitalogic_test_action_callbacks'][$hook_name]);
+}
+
+function wp_next_scheduled($hook, $args = array()) {
+    foreach ($GLOBALS['digitalogic_test_scheduled_events'] as $event) {
+        if ($event['hook'] === $hook && $event['args'] === $args) {
+            return $event['timestamp'];
+        }
+    }
+    return false;
+}
+
+function wp_schedule_single_event($timestamp, $hook, $args = array(), $wp_error = false) {
+    if (!empty($GLOBALS['digitalogic_test_schedule_failure'])) {
+        return $wp_error ? new WP_Error('schedule_failed', 'schedule failed') : false;
+    }
+    $GLOBALS['digitalogic_test_scheduled_events'][] = array(
+        'timestamp' => (int) $timestamp,
+        'hook' => (string) $hook,
+        'args' => array_values((array) $args),
+        'recurrence' => '',
+    );
+    return true;
+}
+
+function wp_schedule_event($timestamp, $recurrence, $hook, $args = array(), $wp_error = false) {
+    if (!empty($GLOBALS['digitalogic_test_schedule_failure'])) {
+        return $wp_error ? new WP_Error('schedule_failed', 'schedule failed') : false;
+    }
+    $GLOBALS['digitalogic_test_scheduled_events'][] = array(
+        'timestamp' => (int) $timestamp,
+        'hook' => (string) $hook,
+        'args' => array_values((array) $args),
+        'recurrence' => (string) $recurrence,
+    );
+    return true;
 }
 
 function current_user_can($capability) {
@@ -757,12 +797,27 @@ function wp_remote_retrieve_response_code($response) {
         : 0;
 }
 
+function wp_remote_retrieve_body($response) {
+    return is_array($response) && isset($response['body']) ? (string) $response['body'] : '';
+}
+
+function wp_remote_retrieve_header($response, $header) {
+    $headers = is_array($response) && isset($response['headers']) && is_array($response['headers'])
+        ? array_change_key_case($response['headers'], CASE_LOWER)
+        : array();
+    return isset($headers[strtolower((string) $header)]) ? $headers[strtolower((string) $header)] : '';
+}
+
 function current_time($type, $gmt = 0) {
     return $type === 'mysql' ? '2026-07-16 12:00:00' : time();
 }
 
 function wp_json_encode($value, $flags = 0, $depth = 512) {
     return json_encode($value, $flags, $depth);
+}
+
+function wp_specialchars_decode($string, $quote_style = ENT_NOQUOTES) {
+    return htmlspecialchars_decode((string) $string, $quote_style);
 }
 
 function __($message, $domain = null) {

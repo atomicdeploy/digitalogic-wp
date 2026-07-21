@@ -154,7 +154,8 @@ $notice_type = in_array($notice_type, array('success', 'error', 'warning', 'info
                     <tr>
                         <th scope="col"><?php echo esc_html__('Method ID', 'digitalogic'); ?></th>
                         <th scope="col"><?php echo esc_html__('Name', 'digitalogic'); ?></th>
-                        <th scope="col"><?php echo esc_html__('CNY per kg', 'digitalogic'); ?></th>
+                        <th scope="col"><?php echo esc_html__('Price per kg', 'digitalogic'); ?></th>
+                        <th scope="col"><?php echo esc_html__('Currency', 'digitalogic'); ?></th>
                         <th scope="col"><?php echo esc_html__('Enabled', 'digitalogic'); ?></th>
                         <th scope="col"><?php echo esc_html__('Assigned products', 'digitalogic'); ?></th>
                         <th scope="col"><?php echo esc_html__('Actions', 'digitalogic'); ?></th>
@@ -162,7 +163,7 @@ $notice_type = in_array($notice_type, array('success', 'error', 'warning', 'info
                 </thead>
                 <tbody>
                     <?php if (empty($shipping_methods)) : ?>
-						<tr><td colspan="6"><?php echo esc_html__('No shipping methods are available.', 'digitalogic'); ?></td></tr>
+						<tr><td colspan="7"><?php echo esc_html__('No shipping methods are available.', 'digitalogic'); ?></td></tr>
                     <?php else : ?>
                         <?php foreach ($shipping_methods as $method) : ?>
                             <?php
@@ -178,8 +179,15 @@ $notice_type = in_array($notice_type, array('success', 'error', 'warning', 'info
                                     <input id="<?php echo esc_attr($form_id); ?>-name" class="regular-text" form="<?php echo esc_attr($form_id); ?>" name="method_name" value="<?php echo esc_attr($method['name']); ?>" required>
                                 </td>
                                 <td>
-                                    <label class="screen-reader-text" for="<?php echo esc_attr($form_id); ?>-rate"><?php echo esc_html__('CNY price per kilogram', 'digitalogic'); ?></label>
-                                    <input id="<?php echo esc_attr($form_id); ?>-rate" class="small-text" form="<?php echo esc_attr($form_id); ?>" type="number" min="0" step="any" name="shipping_price_per_kg_cny" value="<?php echo esc_attr($method['shipping_price_per_kg_cny']); ?>" required dir="ltr">
+                                    <label class="screen-reader-text" for="<?php echo esc_attr($form_id); ?>-rate"><?php echo esc_html__('Shipping price per kilogram', 'digitalogic'); ?></label>
+                                    <input id="<?php echo esc_attr($form_id); ?>-rate" class="small-text" form="<?php echo esc_attr($form_id); ?>" type="number" min="0" step="any" name="shipping_price_per_kg" value="<?php echo esc_attr($method['price_per_kg']); ?>" required dir="ltr">
+                                </td>
+                                <td>
+                                    <label class="screen-reader-text" for="<?php echo esc_attr($form_id); ?>-currency"><?php echo esc_html__('Shipping price currency', 'digitalogic'); ?></label>
+                                    <select id="<?php echo esc_attr($form_id); ?>-currency" form="<?php echo esc_attr($form_id); ?>" name="shipping_price_per_kg_currency" required dir="ltr">
+                                        <option value="CNY" <?php selected('CNY', $method['currency']); ?>>CNY</option>
+                                        <option value="IRR" <?php selected('IRR', $method['currency']); ?>>IRR</option>
+                                    </select>
                                 </td>
                                 <td>
                                     <label>
@@ -230,8 +238,17 @@ $notice_type = in_array($notice_type, array('success', 'error', 'warning', 'info
                     <td><input id="digitalogic-shipping-new-name" class="regular-text" name="method_name" required></td>
                 </tr>
                 <tr>
-                    <th scope="row"><label for="digitalogic-shipping-new-rate"><?php echo esc_html__('CNY per kg', 'digitalogic'); ?></label></th>
-                    <td><input id="digitalogic-shipping-new-rate" type="number" min="0" step="any" name="shipping_price_per_kg_cny" required dir="ltr"></td>
+                    <th scope="row"><label for="digitalogic-shipping-new-rate"><?php echo esc_html__('Price per kg', 'digitalogic'); ?></label></th>
+                    <td><input id="digitalogic-shipping-new-rate" type="number" min="0" step="any" name="shipping_price_per_kg" required dir="ltr"></td>
+                </tr>
+                <tr>
+                    <th scope="row"><label for="digitalogic-shipping-new-currency"><?php echo esc_html__('Currency', 'digitalogic'); ?></label></th>
+                    <td>
+                        <select id="digitalogic-shipping-new-currency" name="shipping_price_per_kg_currency" required dir="ltr">
+                            <option value="CNY">CNY</option>
+                            <option value="IRR">IRR</option>
+                        </select>
+                    </td>
                 </tr>
                 <tr>
                     <th scope="row"><?php echo esc_html__('Status', 'digitalogic'); ?></th>
@@ -260,9 +277,10 @@ $notice_type = in_array($notice_type, array('success', 'error', 'warning', 'info
                                 <option value="<?php echo esc_attr($method['id']); ?>" <?php disabled(empty($method['enabled'])); ?>>
                                     <?php
                                     echo esc_html(sprintf(
-                                        '%1$s - %2$s CNY/kg%3$s',
+                                        '%1$s - %2$s %3$s/kg%4$s',
                                         $method['name'],
-                                        $method['shipping_price_per_kg_cny'],
+                                        $method['price_per_kg'],
+                                        $method['currency'],
                                         empty($method['enabled']) ? ' (' . __('disabled', 'digitalogic') . ')' : ''
                                     ));
                                     ?>

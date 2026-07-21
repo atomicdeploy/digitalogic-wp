@@ -31,6 +31,11 @@ final class Digitalogic_Shipping_Method_Service {
     private const CATALOG_LOCK_TIMEOUT_SECONDS = 10;
     private const DEFAULT_MARKUP_MAX_PERCENT = '1000';
     private const DEFAULT_MARKUP_MAX_SCALE = 12;
+	private const METHOD_DECIMAL_MAX_SCALE = 12;
+	private const METHOD_DECIMAL_MAX_INTEGER_DIGITS = 18;
+	private const CURRENCY_MIGRATION_OPTION = 'digitalogic_shipping_currency_migration_complete';
+	private const RETIRED_RATE_STORAGE_KEY = 'shipping_price_per_kg_cny';
+	private const RETIRED_MINIMUM_STORAGE_KEY = 'minimum_charge_cny';
 
     private static $instance = null;
     private $catalog_lock_depth = 0;
@@ -49,7 +54,124 @@ final class Digitalogic_Shipping_Method_Service {
     }
 
     private function __construct() {
+		$this->migrate_stored_method_currencies_once();
     }
+
+	/**
+	 * Convert the installed method option to the currency-explicit internal
+	 * shape once. This is storage maintenance only; request payloads never
+	 * accept retired field names.
+	 */
+	private function migrate_stored_method_currencies_once() {
+		$marker = $this->read_option_db(self::CURRENCY_MIGRATION_OPTION);
+		if ($marker['exists'] && 'complete' === (string) $marker['value']) {
+			return;
+		}
+
+		$this->with_catalog_lock(function() {
+			return $this->run_transaction(function() {
+				$marker = $this->read_option_db(self::CURRENCY_MIGRATION_OPTION, true);
+				if ($marker['exists'] && 'complete' === (string) $marker['value']) {
+					return array('changed' => false);
+				}
+
+				$stored = $this->read_option_db(self::METHODS_OPTION, true);
+				if ($stored['exists'] && is_array($stored['value'])) {
+					$migrated = $this->migrate_stored_methods($stored['value']);
+					if (is_wp_error($migrated)) {
+						return $migrated;
+					}
+					if ($migrated !== $stored['value']) {
+						$write = $this->store_option_verified(
+							self::METHODS_OPTION,
+							$migrated,
+							'digitalogic_shipping_currency_migration_failed'
+						);
+						if (is_wp_error($write)) {
+							return $write;
+						}
+					}
+				}
+
+				return $this->store_option_verified(
+					self::CURRENCY_MIGRATION_OPTION,
+					'complete',
+					'digitalogic_shipping_currency_migration_failed'
+				);
+			});
+		});
+	}
+
+	/**
+	 * Normalize only installed storage. Public management inputs remain strict.
+	 *
+	 * @param array $methods Stored method map.
+	 * @return array|WP_Error
+	 */
+	private function migrate_stored_methods($methods) {
+		foreach ($methods as &$method) {
+			if (!is_array($method)) {
+				continue;
+			}
+			if (array_key_exists(self::RETIRED_RATE_STORAGE_KEY, $method)) {
+				if (!array_key_exists('price_per_kg', $method)) {
+					$method['price_per_kg'] = $method[self::RETIRED_RATE_STORAGE_KEY];
+				}
+				unset($method[self::RETIRED_RATE_STORAGE_KEY]);
+			}
+			if (array_key_exists(self::RETIRED_MINIMUM_STORAGE_KEY, $method)) {
+				if (!array_key_exists('minimum_charge', $method)) {
+					$method['minimum_charge'] = $method[self::RETIRED_MINIMUM_STORAGE_KEY];
+				}
+				unset($method[self::RETIRED_MINIMUM_STORAGE_KEY]);
+			}
+
+			$currency = isset($method['currency']) && is_scalar($method['currency'])
+				? strtoupper(trim((string) $method['currency']))
+				: '';
+			$method['currency'] = in_array($currency, array('CNY', 'IRR'), true) ? $currency : 'CNY';
+
+			foreach (array('price_per_kg', 'minimum_charge', 'volumetric_divisor_cm3_per_kg') as $field) {
+				if (!array_key_exists($field, $method) || null === $method[$field]) {
+					continue;
+				}
+				$decimal = $this->canonical_stored_method_decimal($method[$field]);
+				if (is_wp_error($decimal)) {
+					return $decimal;
+				}
+				$method[$field] = $decimal;
+			}
+
+			if (!isset($method['tiered_rates']) || !is_array($method['tiered_rates'])) {
+				continue;
+			}
+			foreach ($method['tiered_rates'] as &$tier) {
+				if (!is_array($tier)) {
+					continue;
+				}
+				if (array_key_exists(self::RETIRED_RATE_STORAGE_KEY, $tier)) {
+					if (!array_key_exists('price_per_kg', $tier)) {
+						$tier['price_per_kg'] = $tier[self::RETIRED_RATE_STORAGE_KEY];
+					}
+					unset($tier[self::RETIRED_RATE_STORAGE_KEY]);
+				}
+				foreach (array('min_weight_kg', 'max_weight_kg', 'price_per_kg') as $field) {
+					if (!array_key_exists($field, $tier) || null === $tier[$field]) {
+						continue;
+					}
+					$decimal = $this->canonical_stored_method_decimal($tier[$field]);
+					if (is_wp_error($decimal)) {
+						return $decimal;
+					}
+					$tier[$field] = $decimal;
+				}
+			}
+			unset($tier);
+		}
+		unset($method);
+
+		return $methods;
+	}
 
     /**
      * Register an independently invoked post-commit delivery channel.
@@ -705,9 +827,23 @@ final class Digitalogic_Shipping_Method_Service {
 				'id' => (string) $method['id'],
 				'name' => (string) $method['name'],
 				'enabled' => !empty($method['enabled']),
+				'currency' => (string) $method['currency'],
 			);
-			if (array_key_exists('shipping_price_per_kg_cny', $method) && null !== $method['shipping_price_per_kg_cny']) {
-				$catalog_method['shipping_price_per_kg_cny'] = $method['shipping_price_per_kg_cny'];
+			foreach (array('price_per_kg', 'minimum_charge', 'volumetric_divisor_cm3_per_kg') as $field) {
+				if (array_key_exists($field, $method) && null !== $method[$field]) {
+					$catalog_method[$field] = (string) $method[$field];
+				}
+			}
+			if (!empty($method['tiered_rates']) && is_array($method['tiered_rates'])) {
+				$catalog_method['tiered_rates'] = array_values(array_map(function($tier) {
+					$presented = array();
+					foreach (array('min_weight_kg', 'max_weight_kg', 'price_per_kg') as $field) {
+						if (is_array($tier) && array_key_exists($field, $tier) && null !== $tier[$field]) {
+							$presented[$field] = (string) $tier[$field];
+						}
+					}
+					return $presented;
+				}, $method['tiered_rates']));
 			}
 			$catalog_methods[] = $catalog_method;
 		}
@@ -782,8 +918,8 @@ final class Digitalogic_Shipping_Method_Service {
                 'name' => $definition['name'],
                 'enabled' => true,
                 'currency' => 'CNY',
-                'shipping_price_per_kg_cny' => $definition['fallback_rate'],
-                'minimum_charge_cny' => null,
+                'price_per_kg' => $definition['fallback_rate'],
+                'minimum_charge' => null,
                 'billable_weight_rule' => 'actual',
                 'volumetric_divisor_cm3_per_kg' => null,
                 'transit_days_min' => null,
@@ -802,8 +938,8 @@ final class Digitalogic_Shipping_Method_Service {
             'name',
             'enabled',
             'currency',
-            'shipping_price_per_kg_cny',
-            'minimum_charge_cny',
+            'price_per_kg',
+            'minimum_charge',
             'billable_weight_rule',
             'volumetric_divisor_cm3_per_kg',
             'transit_days_min',
@@ -829,19 +965,32 @@ final class Digitalogic_Shipping_Method_Service {
 			return new WP_Error('digitalogic_shipping_name_required', __('Shipping method name is required.', 'digitalogic'), array('status' => 400));
         }
 
-        $currency = strtoupper(sanitize_key(isset($data['currency']) ? $data['currency'] : 'CNY'));
-        if ('CNY' !== $currency) {
-			return new WP_Error('digitalogic_shipping_currency_unsupported', __('landed_price requires shipping prices in CNY.', 'digitalogic'), array('status' => 400));
+        if (!array_key_exists('currency', $data) || !is_string($data['currency'])) {
+            return new WP_Error('digitalogic_shipping_currency_required', __('Shipping price currency is required.', 'digitalogic'), array('status' => 400));
+        }
+        $currency = $data['currency'];
+        if (!in_array($currency, array('CNY', 'IRR'), true)) {
+			return new WP_Error('digitalogic_shipping_currency_unsupported', __('Shipping price currency must be CNY or IRR.', 'digitalogic'), array('status' => 400));
         }
 
-        $price = $this->number_or_null(isset($data['shipping_price_per_kg_cny']) ? $data['shipping_price_per_kg_cny'] : null);
-        if (is_null($price) || $price < 0) {
-            return new WP_Error('digitalogic_shipping_rate_invalid', __('A non-negative CNY price per kilogram is required.', 'digitalogic'), array('status' => 400));
+        $price = $this->canonical_method_decimal(
+            array_key_exists('price_per_kg', $data) ? $data['price_per_kg'] : null,
+            false,
+            'digitalogic_shipping_rate_invalid',
+            __('A non-negative shipping price per kilogram is required.', 'digitalogic')
+        );
+        if (is_wp_error($price)) {
+            return $price;
         }
 
-        $minimum = $this->number_or_null(isset($data['minimum_charge_cny']) ? $data['minimum_charge_cny'] : null);
-        if (!is_null($minimum) && $minimum < 0) {
-            return new WP_Error('digitalogic_shipping_minimum_invalid', __('Minimum charge cannot be negative.', 'digitalogic'), array('status' => 400));
+        $minimum = $this->canonical_method_decimal(
+            array_key_exists('minimum_charge', $data) ? $data['minimum_charge'] : null,
+            true,
+            'digitalogic_shipping_minimum_invalid',
+            __('Minimum charge must be a non-negative decimal.', 'digitalogic')
+        );
+        if (is_wp_error($minimum)) {
+            return $minimum;
         }
 
         $billable_rule = sanitize_key(isset($data['billable_weight_rule']) ? $data['billable_weight_rule'] : 'actual');
@@ -849,8 +998,16 @@ final class Digitalogic_Shipping_Method_Service {
             return new WP_Error('digitalogic_shipping_billable_weight_invalid', __('Unknown billable-weight rule.', 'digitalogic'), array('status' => 400));
         }
 
-        $divisor = $this->number_or_null(isset($data['volumetric_divisor_cm3_per_kg']) ? $data['volumetric_divisor_cm3_per_kg'] : null);
-        if (!is_null($divisor) && $divisor <= 0) {
+        $divisor = $this->canonical_method_decimal(
+            array_key_exists('volumetric_divisor_cm3_per_kg', $data) ? $data['volumetric_divisor_cm3_per_kg'] : null,
+            true,
+            'digitalogic_shipping_divisor_invalid',
+            __('Volumetric divisor must be a positive decimal.', 'digitalogic')
+        );
+        if (is_wp_error($divisor)) {
+            return $divisor;
+        }
+        if (!is_null($divisor) && '0' === $divisor) {
             return new WP_Error('digitalogic_shipping_divisor_invalid', __('Volumetric divisor must be greater than zero.', 'digitalogic'), array('status' => 400));
         }
 
@@ -875,9 +1032,9 @@ final class Digitalogic_Shipping_Method_Service {
             'id' => $id,
             'name' => $name,
             'enabled' => !isset($data['enabled']) || $this->boolean_value($data['enabled']),
-            'currency' => 'CNY',
-            'shipping_price_per_kg_cny' => $price,
-            'minimum_charge_cny' => $minimum,
+            'currency' => $currency,
+            'price_per_kg' => $price,
+            'minimum_charge' => $minimum,
             'billable_weight_rule' => $billable_rule,
             'volumetric_divisor_cm3_per_kg' => $divisor,
             'transit_days_min' => $transit_min,
@@ -899,7 +1056,7 @@ final class Digitalogic_Shipping_Method_Service {
             }
             $unknown = array_values(array_diff(
                 array_keys($tier),
-                array('min_weight_kg', 'max_weight_kg', 'shipping_price_per_kg_cny')
+                array('min_weight_kg', 'max_weight_kg', 'price_per_kg')
             ));
             if (!empty($unknown)) {
                 return new WP_Error(
@@ -909,10 +1066,30 @@ final class Digitalogic_Shipping_Method_Service {
                 );
             }
 
-            $min = $this->number_or_null(isset($tier['min_weight_kg']) ? $tier['min_weight_kg'] : null);
-            $max = $this->number_or_null(isset($tier['max_weight_kg']) ? $tier['max_weight_kg'] : null);
-            $rate = $this->number_or_null(isset($tier['shipping_price_per_kg_cny']) ? $tier['shipping_price_per_kg_cny'] : null);
-            if (is_null($min) || $min < 0 || is_null($rate) || $rate < 0 || (!is_null($max) && $max < $min)) {
+            $min = $this->canonical_method_decimal(
+                array_key_exists('min_weight_kg', $tier) ? $tier['min_weight_kg'] : null,
+                false,
+                'digitalogic_shipping_tier_invalid',
+                __('Tiered rates require valid non-negative bounds and rates.', 'digitalogic')
+            );
+            $max = $this->canonical_method_decimal(
+                array_key_exists('max_weight_kg', $tier) ? $tier['max_weight_kg'] : null,
+                true,
+                'digitalogic_shipping_tier_invalid',
+                __('Tiered rates require valid non-negative bounds and rates.', 'digitalogic')
+            );
+            $rate = $this->canonical_method_decimal(
+                array_key_exists('price_per_kg', $tier) ? $tier['price_per_kg'] : null,
+                false,
+                'digitalogic_shipping_tier_invalid',
+                __('Tiered rates require valid non-negative bounds and rates.', 'digitalogic')
+            );
+            if (
+                is_wp_error($min)
+                || is_wp_error($max)
+                || is_wp_error($rate)
+                || (!is_null($max) && $this->compare_method_decimals($max, $min) < 0)
+            ) {
                 return new WP_Error(
                     'digitalogic_shipping_tier_invalid',
                     __('Tiered rates require valid non-negative bounds and rates.', 'digitalogic'),
@@ -923,17 +1100,20 @@ final class Digitalogic_Shipping_Method_Service {
             $clean[] = array(
                 'min_weight_kg' => $min,
                 'max_weight_kg' => $max,
-                'shipping_price_per_kg_cny' => $rate,
+                'price_per_kg' => $rate,
             );
         }
 
         usort($clean, function($left, $right) {
-            return $left['min_weight_kg'] <=> $right['min_weight_kg'];
+            return $this->compare_method_decimals($left['min_weight_kg'], $right['min_weight_kg']);
         });
 
         $previous_max = null;
         foreach ($clean as $index => $tier) {
-            if ($index > 0 && (is_null($previous_max) || $tier['min_weight_kg'] <= $previous_max)) {
+            if (
+                $index > 0
+                && (is_null($previous_max) || $this->compare_method_decimals($tier['min_weight_kg'], $previous_max) <= 0)
+            ) {
                 return new WP_Error(
                     'digitalogic_shipping_tiers_overlap',
 					__('Tiered shipping-price ranges cannot overlap.', 'digitalogic'),
@@ -1074,17 +1254,20 @@ final class Digitalogic_Shipping_Method_Service {
 		$stored_method = $method_id !== '' && isset($methods[$method_id]) ? $methods[$method_id] : null;
 		$shipping_method = is_array($stored_method) ? $this->present_method($stored_method) : null;
 
-		return array_merge($resolved, array(
+		$response = array_merge($resolved, array(
 			'shipping_method_id' => $method_id,
 			'shipping_method' => $shipping_method,
-			'shipping_price_per_kg_cny' => is_array($stored_method)
-				? $stored_method['shipping_price_per_kg_cny']
-				: null,
             'markup' => $markup,
             'profit_percent' => $markup['profit_percent'],
             'profit_percent_source' => $markup['source'],
             'pricing_warnings' => $markup['warning'] ? array($markup['warning']) : array(),
         ));
+		if (is_array($stored_method)) {
+			$response['shipping_price_per_kg'] = $stored_method['price_per_kg'];
+			$response['shipping_price_per_kg_currency'] = $stored_method['currency'];
+		}
+
+		return $response;
     }
 
 	/**
@@ -2066,6 +2249,123 @@ final class Digitalogic_Shipping_Method_Service {
     private function normalize_code($code) {
         return is_string($code) || is_int($code) ? trim((string) $code) : '';
     }
+
+	/**
+	 * Canonicalize one non-negative method decimal without binary-float output.
+	 *
+	 * Callers should send decimal strings when fractional precision matters.
+	 * Integers are lossless; finite floats are accepted only when PHP can expose
+	 * them directly as ordinary base-10 text within the same bounded shape.
+	 */
+	private function canonical_method_decimal($value, $nullable, $error_code, $message) {
+		if (null === $value || '' === $value) {
+			return $nullable
+				? null
+				: new WP_Error($error_code, $message, array('status' => 400));
+		}
+		if (is_bool($value) || is_array($value) || is_object($value)) {
+			return new WP_Error($error_code, $message, array('status' => 400));
+		}
+
+		if (is_int($value)) {
+			$text = (string) $value;
+		} elseif (is_float($value)) {
+			if (!is_finite($value)) {
+				return new WP_Error($error_code, $message, array('status' => 400));
+			}
+			$text = json_encode($value, JSON_PRESERVE_ZERO_FRACTION);
+			$text = is_string($text) ? $text : '';
+		} elseif (is_string($value)) {
+			$text = trim(wp_unslash($value));
+			$text = strtr($text, array(
+				'۰' => '0', '۱' => '1', '۲' => '2', '۳' => '3', '۴' => '4',
+				'۵' => '5', '۶' => '6', '۷' => '7', '۸' => '8', '۹' => '9',
+				'٠' => '0', '١' => '1', '٢' => '2', '٣' => '3', '٤' => '4',
+				'٥' => '5', '٦' => '6', '٧' => '7', '٨' => '8', '٩' => '9',
+				'٫' => '.',
+			));
+		} else {
+			$text = '';
+		}
+
+		if (strlen($text) > 64 || !preg_match('/^[+\-]?[0-9]+(?:\.[0-9]+)?$/', $text)) {
+			return new WP_Error(
+				$error_code,
+				$message,
+				array(
+					'status' => 400,
+					'maximum_fraction_digits' => self::METHOD_DECIMAL_MAX_SCALE,
+				)
+			);
+		}
+
+		$negative = str_starts_with($text, '-');
+		$text = ltrim($text, '+-');
+		$parts = explode('.', $text, 2);
+		$integer = ltrim($parts[0], '0');
+		$integer = '' === $integer ? '0' : $integer;
+		$fraction = isset($parts[1]) ? rtrim($parts[1], '0') : '';
+		$is_zero = '0' === $integer && '' === $fraction;
+		if (
+			($negative && !$is_zero)
+			|| strlen($integer) > self::METHOD_DECIMAL_MAX_INTEGER_DIGITS
+			|| strlen($fraction) > self::METHOD_DECIMAL_MAX_SCALE
+		) {
+			return new WP_Error(
+				$error_code,
+				$message,
+				array(
+					'status' => 400,
+					'maximum_integer_digits' => self::METHOD_DECIMAL_MAX_INTEGER_DIGITS,
+					'maximum_fraction_digits' => self::METHOD_DECIMAL_MAX_SCALE,
+				)
+			);
+		}
+
+		return '' === $fraction ? $integer : $integer . '.' . $fraction;
+	}
+
+	/**
+	 * Bring already-installed numeric values into the canonical storage shape.
+	 */
+	private function canonical_stored_method_decimal($value) {
+		if (is_float($value) && is_finite($value)) {
+			$text = json_encode($value, JSON_PRESERVE_ZERO_FRACTION);
+			if (!is_string($text) || false !== stripos($text, 'e')) {
+				$text = sprintf('%.' . self::METHOD_DECIMAL_MAX_SCALE . 'F', $value);
+			}
+			$value = $text;
+		}
+
+		return $this->canonical_method_decimal(
+			$value,
+			false,
+			'digitalogic_shipping_currency_migration_failed',
+			__('An installed shipping-method decimal could not be migrated safely.', 'digitalogic')
+		);
+	}
+
+	/**
+	 * Compare two canonical non-negative decimal strings without float casts.
+	 */
+	private function compare_method_decimals($left, $right) {
+		$left_parts = explode('.', (string) $left, 2);
+		$right_parts = explode('.', (string) $right, 2);
+		if (strlen($left_parts[0]) !== strlen($right_parts[0])) {
+			return strlen($left_parts[0]) <=> strlen($right_parts[0]);
+		}
+		$integer_comparison = strcmp($left_parts[0], $right_parts[0]);
+		if (0 !== $integer_comparison) {
+			return $integer_comparison < 0 ? -1 : 1;
+		}
+
+		$scale = max(strlen($left_parts[1] ?? ''), strlen($right_parts[1] ?? ''));
+		$left_fraction = str_pad($left_parts[1] ?? '', $scale, '0');
+		$right_fraction = str_pad($right_parts[1] ?? '', $scale, '0');
+		$fraction_comparison = strcmp($left_fraction, $right_fraction);
+
+		return 0 === $fraction_comparison ? 0 : ($fraction_comparison < 0 ? -1 : 1);
+	}
 
     private function number_or_null($value) {
         if (is_null($value) || $value === '') {
