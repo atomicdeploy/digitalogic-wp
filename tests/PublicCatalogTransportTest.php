@@ -58,7 +58,7 @@ final class PublicCatalogTransportTest extends TestCase {
 
 		$this->assertInstanceOf( WP_Error::class, $result );
 		$this->assertSame( 'digitalogic_unauthorized', $result->get_error_code() );
-		$this->assertSame( 1, $GLOBALS['digitalogic_test_current_user_can_calls'] );
+		$this->assertSame( 2, $GLOBALS['digitalogic_test_current_user_can_calls'] );
 	}
 
 	/** Ensure malformed payloads fail before any public-command exception. */
