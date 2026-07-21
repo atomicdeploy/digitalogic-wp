@@ -7,9 +7,14 @@
 define('ABSPATH', __DIR__ . '/');
 define('WP_CLI', true);
 define('ARRAY_A', 'ARRAY_A');
+// phpcs:disable -- PBX test-only WordPress time constants follow the legacy bootstrap style.
 define('MINUTE_IN_SECONDS', 60);
 define('HOUR_IN_SECONDS', 3600);
 define('DAY_IN_SECONDS', 86400);
+define('DIGITALOGIC_VERSION', 'test');
+define('DIGITALOGIC_PLUGIN_DIR', dirname(__DIR__) . '/');
+define('DIGITALOGIC_PLUGIN_URL', 'https://digitalogic.test/wp-content/plugins/digitalogic-wp/');
+// phpcs:enable
 
 // phpcs:disable Generic.Formatting.MultipleStatementAlignment -- Preserve the intentionally simple test-global registry.
 $GLOBALS['digitalogic_test_capabilities'] = array();
@@ -18,6 +23,14 @@ $GLOBALS['digitalogic_test_routes'] = array();
 $GLOBALS['digitalogic_test_rest_prefix'] = 'wp-json';
 $GLOBALS['digitalogic_test_rest_url_calls'] = 0;
 $GLOBALS['digitalogic_test_current_user_can_calls'] = 0;
+$GLOBALS['digitalogic_test_current_user_id'] = 0;
+$GLOBALS['digitalogic_test_current_user'] = (object) array(
+    'ID' => 0,
+    'user_login' => '',
+    'display_name' => '',
+);
+$GLOBALS['digitalogic_test_status_headers'] = array();
+$GLOBALS['digitalogic_test_nocache_headers'] = 0;
 $GLOBALS['digitalogic_test_options'] = array();
 $GLOBALS['digitalogic_test_option_cache'] = array();
 $GLOBALS['digitalogic_test_actions'] = array();
@@ -49,17 +62,16 @@ $GLOBALS['digitalogic_test_wp_query_args'] = array();
 $GLOBALS['digitalogic_test_wp_query_results'] = array();
 $GLOBALS['digitalogic_test_primed_post_ids'] = array();
 $GLOBALS['digitalogic_test_wc_currency'] = 'IRT';
-$GLOBALS['digitalogic_test_terms'] = array();
 $GLOBALS['digitalogic_test_transients'] = array(); // phpcs:ignore
 $GLOBALS['digitalogic_test_transient_deletes'] = array(); // phpcs:ignore
 $GLOBALS['digitalogic_test_rewrite_rules'] = array(); // phpcs:ignore
 $GLOBALS['digitalogic_test_rewrite_flushes'] = array(); // phpcs:ignore
 $GLOBALS['digitalogic_test_locale'] = 'en_US';
 $GLOBALS['digitalogic_test_shortcodes'] = array();
-$GLOBALS['digitalogic_test_scheduled_events'] = array();
-$GLOBALS['digitalogic_test_schedule_failure'] = false;
 $GLOBALS['digitalogic_test_enqueued_styles'] = array();
 $GLOBALS['digitalogic_test_enqueued_scripts'] = array();
+$GLOBALS['digitalogic_test_scheduled_events'] = array(); // phpcs:ignore -- Test-only cron registry.
+$GLOBALS['digitalogic_test_schedule_failure'] = false; // phpcs:ignore -- Test-only failure control.
 // phpcs:enable Generic.Formatting.MultipleStatementAlignment
 
 class WP_Error {
@@ -163,7 +175,7 @@ class WP_REST_Request implements ArrayAccess {
 class WP_REST_Response {
     private $data;
     private $status;
-	private $headers = array();
+	private $headers = array(); // phpcs:ignore -- Test-only REST response state.
 
     public function __construct($data = null, $status = 200) {
         $this->data = $data;
@@ -178,6 +190,7 @@ class WP_REST_Response {
         return $this->status;
     }
 
+	// phpcs:disable -- Test-only REST response methods follow the legacy bootstrap style.
 	public function header($key, $value, $replace = true) {
 		if (!$replace && isset($this->headers[$key])) {
 			$this->headers[$key] .= ', ' . $value;
@@ -189,6 +202,7 @@ class WP_REST_Response {
 	public function get_headers() {
 		return $this->headers;
 	}
+	// phpcs:enable
 }
 
 // phpcs:disable -- Test-only WordPress query stubs intentionally follow the legacy bootstrap style.
@@ -231,6 +245,7 @@ function has_action($hook_name) {
     return !empty($GLOBALS['digitalogic_test_action_callbacks'][$hook_name]);
 }
 
+// phpcs:disable -- Test-only cron stubs follow the legacy bootstrap style.
 function wp_next_scheduled($hook, $args = array()) {
     foreach ($GLOBALS['digitalogic_test_scheduled_events'] as $event) {
         if ($event['hook'] === $hook && $event['args'] === $args) {
@@ -265,11 +280,57 @@ function wp_schedule_event($timestamp, $recurrence, $hook, $args = array(), $wp_
     );
     return true;
 }
+// phpcs:enable
 
 function current_user_can($capability) {
     $GLOBALS['digitalogic_test_current_user_can_calls']++;
 
     return !empty($GLOBALS['digitalogic_test_capabilities'][$capability]);
+}
+
+function get_current_user_id() {
+    return (int) $GLOBALS['digitalogic_test_current_user_id'];
+}
+
+function wp_get_current_user() {
+    return $GLOBALS['digitalogic_test_current_user'];
+}
+
+function is_user_logged_in() {
+    return get_current_user_id() > 0;
+}
+
+function wp_login_url($redirect = '', $force_reauth = false) {
+    $url = 'https://digitalogic.test/wp-login.php';
+    return $redirect !== '' ? $url . '?redirect_to=' . rawurlencode((string) $redirect) : $url;
+}
+
+function wp_logout_url($redirect = '') {
+    $url = 'https://digitalogic.test/wp-login.php?action=logout';
+    return $redirect !== '' ? $url . '&redirect_to=' . rawurlencode((string) $redirect) : $url;
+}
+
+function status_header($status_code) {
+    $GLOBALS['digitalogic_test_status_headers'][] = (int) $status_code;
+}
+
+function nocache_headers() {
+    $GLOBALS['digitalogic_test_nocache_headers']++;
+}
+
+function wp_enqueue_style($handle, $src = '', $dependencies = array(), $version = false, $media = 'all') {
+    $GLOBALS['digitalogic_test_enqueued_styles'][$handle] = compact('src', 'dependencies', 'version', 'media');
+}
+
+function wp_print_styles($handles = false) {
+    $handles = false === $handles ? array_keys($GLOBALS['digitalogic_test_enqueued_styles']) : (array) $handles;
+    foreach ($handles as $handle) {
+        if (!isset($GLOBALS['digitalogic_test_enqueued_styles'][$handle])) {
+            continue;
+        }
+        $style = $GLOBALS['digitalogic_test_enqueued_styles'][$handle];
+        echo '<link rel="stylesheet" href="' . esc_url($style['src']) . '">';
+    }
 }
 
 function add_filter($hook_name, $callback, $priority = 10, $accepted_args = 1) {
@@ -799,6 +860,7 @@ function wp_remote_retrieve_response_code($response) {
         : 0;
 }
 
+// phpcs:disable -- Test-only HTTP response stubs follow the legacy bootstrap style.
 function wp_remote_retrieve_body($response) {
     return is_array($response) && isset($response['body']) ? (string) $response['body'] : '';
 }
@@ -809,6 +871,7 @@ function wp_remote_retrieve_header($response, $header) {
         : array();
     return isset($headers[strtolower((string) $header)]) ? $headers[strtolower((string) $header)] : '';
 }
+// phpcs:enable
 
 function current_time($type, $gmt = 0) {
     return $type === 'mysql' ? '2026-07-16 12:00:00' : time();
@@ -818,9 +881,11 @@ function wp_json_encode($value, $flags = 0, $depth = 512) {
     return json_encode($value, $flags, $depth);
 }
 
+// phpcs:disable -- Test-only compatibility stub follows the legacy bootstrap style.
 function wp_specialchars_decode($string, $quote_style = ENT_NOQUOTES) {
     return htmlspecialchars_decode((string) $string, $quote_style);
 }
+// phpcs:enable
 
 function __($message, $domain = null) {
     return $message;
@@ -2031,6 +2096,8 @@ require_once dirname(__DIR__) . '/includes/class-digitalogic-currency-date-forma
 require_once dirname(__DIR__) . '/includes/class-digitalogic-currency-shortcodes.php';
 require_once dirname(__DIR__) . '/includes/class-unit-converter.php';
 require_once dirname(__DIR__) . '/includes/class-digitalogic-woocommerce-currency-status.php';
+require_once dirname(__DIR__) . '/includes/class-digitalogic-access-control.php';
+require_once dirname(__DIR__) . '/includes/panel/class-digitalogic-panel-error-page.php';
 require_once dirname(__DIR__) . '/includes/class-product-identifier-resolver.php';
 require_once dirname(__DIR__) . '/includes/class-digitalogic-product-query.php';
 require_once dirname(__DIR__) . '/includes/class-digitalogic-product-metadata-inspector.php'; // phpcs:ignore

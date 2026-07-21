@@ -3,7 +3,7 @@
  * Plugin Name: Digitalogic WooCommerce Extension
  * Plugin URI: https://github.com/atomicdeploy/digitalogic-wp
  * Description: Custom dynamic pricing, stock manager, and POS integration for Digitalogic electronic components shop. Supports bulk operations, import/export, and external API integration.
- * Version: 1.5.0
+ * Version: 1.6.1
  * Author: Digitalogic
  * Author URI: https://digitalogic.ir
  * Text Domain: digitalogic
@@ -22,7 +22,7 @@ if (!defined('ABSPATH')) {
 }
 
 // Define plugin constants
-define( 'DIGITALOGIC_VERSION', '1.5.0' );
+define( 'DIGITALOGIC_VERSION', '1.6.1' );
 define( 'DIGITALOGIC_PBX_SCHEMA_VERSION', '3' );
 define('DIGITALOGIC_MIN_PHP_VERSION', '8.3');
 define('DIGITALOGIC_PLUGIN_DIR', plugin_dir_path(__FILE__));
@@ -113,6 +113,8 @@ final class Digitalogic {
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-options.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-currency-shortcodes.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-woocommerce-currency-status.php';
+        require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-access-control.php';
+        require_once DIGITALOGIC_PLUGIN_DIR . 'includes/panel/class-digitalogic-panel-error-page.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-logger.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-product-query.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-product-manager.php';
@@ -150,6 +152,10 @@ final class Digitalogic {
 		require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-call-verification.php';
 		require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-voice-notifications.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-product-identity.php';
+        require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-storefront-catalog.php';
+        require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-homepage-showcase.php';
+        require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-storefront-product-table.php';
+        require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-storefront-order-forms.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/panel/class-panel.php';
 
         // Admin includes
@@ -214,6 +220,10 @@ final class Digitalogic {
         Digitalogic_Laravel_Bridge::instance();
         Digitalogic_Panel::instance();
         Digitalogic_Comment_Guard::instance();
+        Digitalogic_Storefront_Catalog::instance();
+        Digitalogic_Homepage_Showcase::instance();
+        Digitalogic_Storefront_Product_Table::instance();
+        Digitalogic_Storefront_Order_Forms::instance();
 		Digitalogic_Voice_Notifications::instance();
 
         if (is_admin()) {

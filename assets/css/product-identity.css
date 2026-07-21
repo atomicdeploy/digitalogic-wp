@@ -1,14 +1,120 @@
-.digitalogic-patris-name,
-.digitalogic-variation-identity {
-    display: block;
-    margin-top: 0.25rem;
-    color: var(--wd-text-color, #666);
-    font-size: 0.875em;
-    font-weight: 400;
-    line-height: 1.45;
-    overflow-wrap: anywhere;
+.digitalogic-product-identity {
+	align-items: flex-start;
+	display: flex;
+	flex-direction: column;
+	gap: 0.35rem;
+	margin-block: 0.3rem 0.45rem;
+}
+
+.digitalogic-patris-name {
+	color: var(--wd-text-color, #5f6b7a);
+	display: block;
+	font-size: 0.875em;
+	font-weight: 500;
+	line-height: 1.45;
+	overflow-wrap: anywhere;
+}
+
+.digitalogic-patris-code {
+	align-items: center;
+	color: var(--wd-text-color, #5f6b7a);
+	direction: rtl;
+	display: inline-flex;
+	font-size: 0.78em;
+	font-weight: 700;
+	gap: 0.45rem;
+	line-height: 1.4;
+}
+
+.digitalogic-patris-code code,
+.digitalogic-cart-patris-code {
+	background: rgba(20, 93, 160, 0.09);
+	border: 1px solid rgba(20, 93, 160, 0.2);
+	border-radius: 999px;
+	color: var(--wd-primary-color, #145da0);
+	direction: ltr;
+	display: inline-block;
+	font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+	font-size: 0.96em;
+	font-weight: 800;
+	letter-spacing: 0.035em;
+	padding: 0.16rem 0.55rem;
+	unicode-bidi: isolate;
+}
+
+.digitalogic-patris-code.is-placeholder em {
+	color: var(--wd-text-color, #6b7280);
+	font-size: 0.92em;
+	font-style: normal;
+	font-weight: 500;
+}
+
+.digitalogic-patris-code-list {
+	align-items: flex-start;
+	direction: rtl;
+	display: flex;
+	flex-direction: column;
+	font-size: 0.78em;
+	font-weight: 700;
+	gap: 0.35rem;
+}
+
+.digitalogic-patris-code-list > div {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.35rem;
+}
+
+.digitalogic-patris-code-item {
+	align-items: center;
+	background: rgba(20, 93, 160, 0.05);
+	border: 1px solid rgba(20, 93, 160, 0.14);
+	border-radius: 0.55rem;
+	display: inline-flex;
+	gap: 0.4rem;
+	padding: 0.25rem 0.42rem;
+}
+
+.digitalogic-patris-code-item i {
+	color: var(--wd-text-color, #5f6b7a);
+	font-size: 0.9em;
+	font-style: normal;
+	font-weight: 500;
+}
+
+.digitalogic-patris-code-item code {
+	background: transparent;
+	border: 0;
+	color: var(--wd-primary-color, #145da0);
+	font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+	font-size: 0.96em;
+	font-weight: 900;
+	padding: 0;
+}
+
+.digitalogic-patris-code-note {
+	color: var(--wd-text-color, #5f6b7a);
+	font-size: 0.76em;
+	line-height: 1.7;
+	margin: 0;
 }
 
 .digitalogic-variation-identity[hidden] {
-    display: none;
+	display: none;
+}
+
+.product_meta .sku_wrapper.digitalogic-duplicate-patris-sku,
+.wd-product-sku.digitalogic-duplicate-patris-sku {
+	display: none !important;
+}
+
+.product-grid-item .digitalogic-product-identity,
+.wd-carousel-item .digitalogic-product-identity {
+	gap: 0.22rem;
+	margin-block: 0.2rem 0.3rem;
+}
+
+.product-grid-item .digitalogic-patris-code,
+.wd-carousel-item .digitalogic-patris-code {
+	font-size: 0.72em;
 }
