@@ -488,6 +488,7 @@ JS;
                 'register' => 'Register',
                 'lostPassword' => 'Reset password',
                 'login' => 'Log in',
+                'back'                 => 'Back', // phpcs:ignore Generic.WhiteSpace.DisallowSpaceIndent.SpacesUsed -- Preserve the legacy array indentation.
                 'recoveryIdentity' => 'Username or email address', // phpcs:ignore
             ];
         }
@@ -516,6 +517,7 @@ JS;
             'register' => 'ثبت نام',
             'lostPassword' => 'بازیابی رمز عبور',
             'login' => 'ورود',
+            'back'                 => 'بازگشت', // phpcs:ignore Generic.WhiteSpace.DisallowSpaceIndent.SpacesUsed -- Preserve the legacy array indentation.
             'recoveryIdentity' => 'نام کاربری یا نشانی ایمیل', // phpcs:ignore
         ];
     }

@@ -316,6 +316,7 @@
         trigger.setAttribute('aria-haspopup', 'listbox');
         trigger.setAttribute('aria-expanded', 'false');
         trigger.setAttribute('aria-controls', 'dg-language-menu');
+        trigger.setAttribute('aria-label', getLabel('language', 'Language'));
 
         var menu = document.createElement('div');
         menu.id = 'dg-language-menu';
@@ -323,16 +324,48 @@
         menu.setAttribute('role', 'listbox');
         menu.setAttribute('aria-hidden', 'true');
 
-        function closeMenu() {
+        function syncChevron(open) {
+            var chevron = trigger.querySelector('.dg-language-chevron');
+            if (!chevron) {
+                return;
+            }
+
+            chevron.classList.toggle('dashicons-arrow-up-alt2', open);
+            chevron.classList.toggle('dashicons-arrow-down-alt2', !open);
+        }
+
+        function closeMenu(restoreFocus) {
             picker.classList.remove('is-open');
             menu.setAttribute('aria-hidden', 'true');
             trigger.setAttribute('aria-expanded', 'false');
+            syncChevron(false);
+            if (restoreFocus) {
+                trigger.focus({ preventScroll: true });
+            }
         }
 
-        function openMenu() {
+        function optionButtons() {
+            return Array.prototype.slice.call(menu.querySelectorAll('.dg-language-option'));
+        }
+
+        function focusOption(index) {
+            var options = optionButtons();
+            if (!options.length) {
+                return;
+            }
+
+            var normalized = (index + options.length) % options.length;
+            options[normalized].focus({ preventScroll: true });
+        }
+
+        function openMenu(focusIndex) {
             picker.classList.add('is-open');
             menu.setAttribute('aria-hidden', 'false');
             trigger.setAttribute('aria-expanded', 'true');
+            syncChevron(true);
+            if (typeof focusIndex === 'number') {
+                focusOption(focusIndex);
+            }
         }
 
         function syncSelection() {
@@ -340,38 +373,82 @@
             var text = selected ? selected.text : 'فارسی';
             trigger.innerHTML = '<span class="dashicons dashicons-translation" aria-hidden="true"></span>' +
                 '<span class="dg-select-text">' + escapeHtml(text) + '</span>' +
-                '<span class="dashicons dashicons-arrow-up-alt2" aria-hidden="true"></span>';
+                '<span class="dashicons dg-language-chevron dashicons-arrow-down-alt2" aria-hidden="true"></span>';
 
             menu.querySelectorAll('.dg-language-option').forEach(function (option) {
                 var active = option.getAttribute('data-value') === select.value;
                 option.classList.toggle('is-active', active);
                 option.setAttribute('aria-selected', active ? 'true' : 'false');
+                option.setAttribute('tabindex', active ? '0' : '-1');
             });
+            syncChevron(picker.classList.contains('is-open'));
         }
 
         trigger.addEventListener('click', function () {
             if (!picker.classList.contains('is-open')) {
-                openMenu();
+                var selectedIndex = Math.max(0, select.selectedIndex);
+                openMenu(selectedIndex);
             } else {
-                closeMenu();
+                closeMenu(false);
             }
         });
 
-        Array.prototype.slice.call(select.options).forEach(function (option) {
+        trigger.addEventListener('keydown', function (event) {
+            if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                event.preventDefault();
+                openMenu(event.key === 'ArrowUp' ? optionButtons().length - 1 : Math.max(0, select.selectedIndex));
+            } else if (event.key === 'Escape') {
+                event.preventDefault();
+                closeMenu(true);
+            }
+        });
+
+        Array.prototype.slice.call(select.options).forEach(function (option, index) {
             var item = document.createElement('button');
             item.type = 'button';
+            item.id = 'dg-language-option-' + index;
             item.className = 'dg-language-option';
             item.setAttribute('role', 'option');
             item.setAttribute('data-value', option.value);
+            item.setAttribute('tabindex', '-1');
             item.innerHTML = '<span class="dashicons dashicons-translation" aria-hidden="true"></span>' +
                 '<span>' + escapeHtml(option.text) + '</span>';
             item.addEventListener('click', function () {
                 select.value = option.value;
                 syncSelection();
-                closeMenu();
+                closeMenu(false);
                 submitLanguageForm();
             });
             menu.appendChild(item);
+        });
+
+        menu.addEventListener('keydown', function (event) {
+            var options = optionButtons();
+            var current = options.indexOf(document.activeElement);
+            var target = current;
+
+            if (event.key === 'ArrowDown') {
+                target = current + 1;
+            } else if (event.key === 'ArrowUp') {
+                target = current - 1;
+            } else if (event.key === 'Home') {
+                target = 0;
+            } else if (event.key === 'End') {
+                target = options.length - 1;
+            } else if (event.key === 'Escape') {
+                event.preventDefault();
+                closeMenu(true);
+                return;
+            } else if ((event.key === 'Enter' || event.key === ' ') && current >= 0) {
+                event.preventDefault();
+                options[current].click();
+                return;
+            } else {
+                return;
+            }
+
+            event.preventDefault();
+            focusOption(target);
         });
 
         select.addEventListener('change', submitLanguageForm);
@@ -389,7 +466,7 @@
 
         document.addEventListener('click', function (event) {
             if (!picker.contains(event.target)) {
-                closeMenu();
+                closeMenu(false);
             }
         });
 
@@ -406,7 +483,7 @@
         style.textContent = [
             'body.login .dg-digits-login-shell :is(form, .digits_form_index_section, .digits_secure_modal_box, .digits_ui, .digits-form_container, .digits-form_page, .digits-form_wrapper, .digits_modal_box, .digits2_box, .digits-form_login, .digits-form_body, .digits-form_body_wrapper, .digits-form_tab_wrapper, .digits-form_tab_container, .digits-form_tab_body, .digits_signup_form_step, .digits-form_footer){background:transparent!important;border:0!important;box-shadow:none!important;backdrop-filter:none!important;overflow:visible!important;}',
             'body.login .dg-digits-login-shell :is(form, .digits_form_index_section, .digits-form_wrapper, .digits_modal_box, .digits2_box){margin:0!important;padding:0!important;overflow:visible!important;}',
-            'body.login .dg-digits-login-shell :is(.digits-form_tabs, .digits-form_tab-bar, .digits_captcha_row, .dg_min_capt, .digits_reg_logincaptcha, .dig_captcha){display:none!important;}',
+            'body.login .dg-digits-login-shell :is(.digits-form_tabs, .digits-form_tab-bar),body.login :is(.dg-digits-login-shell,.dg-digits-register-shell) .digits_captcha_row[hidden]{display:none!important;}',
             'body.login .dg-digits-login-shell.dg-digits-auto-identity .digits-form_tab_body:not(.digits-tab_active),body.login .dg-digits-login-shell.dg-digits-auto-identity .digits-form_tab_body[hidden]{display:none!important;}',
             'body.login .dg-digits-login-shell.dg-digits-auto-identity .digits-form_tab_body.digits-tab_active{display:block!important;}',
             'body.login .dg-digits-login-shell.dg-digits-auto-identity:not([data-dg-identity="phone"]) .digits-form_countrycode{display:none!important;}',
@@ -421,7 +498,7 @@
             'body.login .dg-digits-login-shell .digits-form_rememberme .digits_login_remember_me{appearance:none!important;-webkit-appearance:none!important;display:inline-grid!important;place-items:center!important;visibility:visible!important;opacity:1!important;inline-size:22px!important;block-size:22px!important;width:22px!important;height:22px!important;min-width:22px!important;min-height:22px!important;max-width:22px!important;max-height:22px!important;flex:0 0 22px!important;margin:0!important;padding:0!important;line-height:1!important;border:1px solid var(--dg-border)!important;border-radius:8px!important;background:color-mix(in srgb,var(--dg-panel-soft) 72%,transparent)!important;box-shadow:inset 0 1px 0 color-mix(in srgb,#ffffff 10%,transparent),var(--dg-shadow-soft)!important;transform:scale(1)!important;transition:background-color .18s ease,background-image .18s ease,border-color .18s ease,box-shadow .18s ease,transform .18s cubic-bezier(.2,.8,.2,1)!important;}',
             'body.login .dg-digits-login-shell .digits-form_rememberme .digits_login_remember_me::before{content:""!important;display:block!important;visibility:visible!important;width:6px!important;height:11px!important;margin:-1px 0 0!important;border:solid #fff!important;border-width:0 2px 2px 0!important;opacity:0;transform:rotate(45deg) scale(.62);transform-origin:center;transition:opacity .16s ease,transform .18s cubic-bezier(.2,.8,.2,1);}',
             'body.login .dg-digits-login-shell .digits-form_rememberme .digits_login_remember_me:active,body.login #rememberme:active{transform:scale(.92)!important;}',
-            'body.login .dg-digits-login-shell .digits-form_rememberme .digits_login_remember_me:checked,body.login #rememberme:checked{border-color:transparent!important;background-color:var(--dg-accent)!important;background-image:url("data:image/svg+xml,%3Csvg xmlns=\\\'http://www.w3.org/2000/svg\\\' viewBox=\\\'0 0 20 20\\\'%3E%3Cpath fill=\\\'none\\\' stroke=\\\'%23fff\\\' stroke-width=\\\'2.4\\\' stroke-linecap=\\\'round\\\' stroke-linejoin=\\\'round\\\' d=\\\'M5 10.4l3.2 3.2L15.4 6.5\\\'/%3E%3C/svg%3E"),linear-gradient(135deg,var(--dg-accent),var(--dg-accent-strong))!important;background-position:center,center!important;background-repeat:no-repeat,no-repeat!important;background-size:15px 15px,100% 100%!important;box-shadow:0 10px 24px color-mix(in srgb,var(--dg-accent-strong) 28%,transparent)!important;transform:scale(1.06)!important;}',
+            'body.login .dg-digits-login-shell .digits-form_rememberme .digits_login_remember_me:checked,body.login #rememberme:checked{border-color:transparent!important;background-color:var(--dg-accent)!important;background-image:linear-gradient(135deg,var(--dg-accent),var(--dg-accent-strong))!important;background-position:center!important;background-repeat:no-repeat!important;background-size:100% 100%!important;box-shadow:0 10px 24px color-mix(in srgb,var(--dg-accent-strong) 28%,transparent)!important;transform:scale(1.06)!important;}',
             'body.login .dg-digits-login-shell .digits-form_rememberme .digits_login_remember_me:checked::before{opacity:1;transform:rotate(45deg) scale(1);}',
             'body.login .dg-digits-login-shell .digits-form_rememberme .digits_login_remember_me::after{content:none!important;display:none!important;}',
             'body.login .dg-digits-login-shell.dg-digits-auto-identity .digits-mobile_wrapper{direction:ltr!important;}',
@@ -441,35 +518,6 @@
             'body.login .dg-digits-login-shell .digits-social-btn:hover{transform:translateY(-1px)!important;border-color:var(--dg-border-strong)!important;background:var(--dg-panel-strong)!important;}'
         ].join('\n');
         document.head.appendChild(style);
-    }
-
-    function normalizeDigits(value) {
-        var source = '۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩';
-        var target = '01234567890123456789';
-
-        return String(value || '').replace(/[۰-۹٠-٩]/g, function (digit) {
-            return target.charAt(source.indexOf(digit));
-        });
-    }
-
-    function classifyIdentity(value) {
-        var normalized = normalizeDigits(value).trim();
-        var numeric = normalized.replace(/[^\d+]/g, '');
-        var digits = numeric.replace(/\D/g, '');
-
-        if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)) {
-            return 'email';
-        }
-
-        if (/^(?:\+?98|0098|0)?9\d{9}$/.test(digits.length > 0 && numeric.indexOf('+') !== -1 ? numeric : digits)) {
-            return 'phone';
-        }
-
-        if (/^(?:98|0098|0)?9\d{9}$/.test(digits)) {
-            return 'phone';
-        }
-
-        return 'username';
     }
 
     function normalizeDigits(value) {
@@ -648,7 +696,7 @@
                     text: 'IR +98',
                     label: getLabel('phoneIdentity', 'موبایل ایران'),
                     inputMode: 'tel',
-                    autocomplete: 'tel'
+                    autocomplete: 'tel-national'
                 },
                 email: {
                     icon: 'dashicons-email-alt2',
@@ -777,7 +825,9 @@
         }
 
         var isVisible = input.type === 'text';
-        var label = isVisible ? 'پنهان کردن رمز عبور' : 'نمایش رمز عبور';
+        var label = isVisible
+            ? getLabel('hidePassword', 'Hide password')
+            : getLabel('showPassword', 'Show password');
         var icon = isVisible ? 'dashicons-hidden' : 'dashicons-visibility';
 
         button.classList.toggle('is-visible', isVisible);
@@ -1057,6 +1107,9 @@
         form.classList.add('dg-username-step-active');
 
         if (!step) {
+            var backIcon = isPersianLocale() ? 'dashicons-arrow-right-alt' : 'dashicons-arrow-left-alt';
+            var backLabel = getLabel('back', 'Back');
+            var loginLabel = getLabel('login', 'Log in');
             step = document.createElement('div');
             step.className = 'digits-form_tab_container dg-username-password-step';
             step.innerHTML = [
@@ -1072,8 +1125,8 @@
                 '<input class="dg-username-password-input" type="password" autocomplete="current-password" required placeholder="رمز عبور">',
                 '</div>',
                 '<div class="dg-username-login-actions">',
-                '<button type="button" class="button dg-username-login-back"><span class="dashicons dashicons-arrow-right-alt" aria-hidden="true"></span><span>بازگشت</span></button>',
-                '<button type="submit" class="digits-form_button digits-form_submit digits-form_submit-btn dg-username-login-submit"><span>ورود</span></button>',
+                '<button type="button" class="button dg-username-login-back"><span class="dashicons ' + backIcon + '" aria-hidden="true"></span><span>' + escapeHtml(backLabel) + '</span></button>',
+                '<button type="submit" class="digits-form_button digits-form_submit digits-form_submit-btn dg-username-login-submit"><span>' + escapeHtml(loginLabel) + '</span></button>',
                 '</div>',
                 '</div>',
                 '</div>'
@@ -1506,7 +1559,7 @@
     function submitDigitsSecureForm(form) {
         var button = digitsSubmitButton(form);
 
-        disableVisibleDigitsCaptcha();
+        prepareDigitsCaptchaProtection();
 
         if (typeof form.checkValidity === 'function' && !form.checkValidity()) {
             clearLoading();
@@ -1859,40 +1912,14 @@
         syncFlag();
     }
 
-    function disableVisibleDigitsCaptcha() {
+    function prepareDigitsCaptchaProtection() {
         document.querySelectorAll(':is(.dg-digits-login-shell, .dg-digits-register-shell) .digits_captcha_row').forEach(function (row) {
-            if (prepareDigitsRecaptcha(row)) {
-                return;
-            }
-
-            row.hidden = true;
-            row.setAttribute('aria-hidden', 'true');
-
-            row.querySelectorAll('input').forEach(function (input) {
-                input.required = false;
-                input.removeAttribute('required');
-                input.disabled = true;
-            });
-        });
-
-        document.querySelectorAll(':is(.dg-digits-login-shell, .dg-digits-register-shell) :is(.dg_min_capt, .digits_reg_logincaptcha, .dig_captcha)').forEach(function (row) {
-            if (row.closest('.digits_captcha_row') && row.closest('.digits_captcha_row').querySelector('.invi-recaptcha')) {
-                return;
-            }
-
-            row.hidden = true;
-            row.setAttribute('aria-hidden', 'true');
-
-            row.querySelectorAll('input').forEach(function (input) {
-                input.required = false;
-                input.removeAttribute('required');
-                input.disabled = true;
-            });
+            prepareDigitsRecaptcha(row);
         });
     }
 
     function bindDigitsAutoIdentity() {
-        disableVisibleDigitsCaptcha();
+        prepareDigitsCaptchaProtection();
 
         var shell = document.querySelector('.dg-digits-login-shell');
         if (!shell || shell.dataset.dgAutoIdentityReady === 'true') {
@@ -1904,7 +1931,7 @@
         var countryCode = shell.querySelector('input[name="login_digt_countrycode"]');
 
         if (!phoneInput || !emailInput) {
-            disableVisibleDigitsCaptcha();
+            prepareDigitsCaptchaProtection();
             return;
         }
 
@@ -1913,7 +1940,7 @@
 
         if (shell.dataset.dgCaptchaObserverReady !== 'true') {
             shell.dataset.dgCaptchaObserverReady = 'true';
-            new MutationObserver(disableVisibleDigitsCaptcha).observe(shell, { childList: true, subtree: true });
+            new MutationObserver(prepareDigitsCaptchaProtection).observe(shell, { childList: true, subtree: true });
         }
 
         if (countryCode && !countryCode.value) {
@@ -1922,10 +1949,6 @@
 
         bindCountryCodePicker(shell);
 
-        phoneInput.placeholder = 'شماره موبایل یا ایمیل';
-        emailInput.placeholder = 'شماره موبایل یا ایمیل';
-        phoneInput.placeholder = 'نام کاربری، ایمیل یا شماره موبایل';
-        emailInput.placeholder = 'نام کاربری، ایمیل یا شماره موبایل';
         phoneInput.setAttribute('autocomplete', 'username');
         emailInput.setAttribute('autocomplete', 'username');
         phoneInput.setAttribute('dir', 'auto');
@@ -2012,7 +2035,7 @@
         });
 
         selectDigitsMode(classifyIdentity(phoneInput.value || emailInput.value), false);
-        disableVisibleDigitsCaptcha();
+        prepareDigitsCaptchaProtection();
     }
 
     function enforceDigitsRegisterMobile() {
@@ -2656,8 +2679,13 @@
     if (config.testHooks && typeof config.testHooks === 'object') {
         config.testHooks.authLinkAction = authLinkAction;
         config.testHooks.authPageAction = authPageAction;
+        config.testHooks.capturePasswordSelection = capturePasswordSelection;
+        config.testHooks.classifyIdentity = classifyIdentity;
         config.testHooks.enhanceLoginLabels = enhanceLoginLabels;
+        config.testHooks.normalizeDigits = normalizeDigits;
         config.testHooks.normalizeAuthChrome = normalizeAuthChrome;
+        config.testHooks.phonePartsFromValue = phonePartsFromValue;
+        config.testHooks.sanitizeIdentityValue = sanitizeIdentityValue;
     }
 
     function enableRipples() {

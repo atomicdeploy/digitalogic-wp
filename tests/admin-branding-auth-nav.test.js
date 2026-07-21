@@ -10,6 +10,10 @@ const brandingSource = fs.readFileSync(
     path.join(__dirname, '..', 'assets', 'js', 'branding', 'admin-branding.js'),
     'utf8'
 );
+const brandingCss = fs.readFileSync(
+    path.join(__dirname, '..', 'assets', 'css', 'branding', 'admin-branding.css'),
+    'utf8'
+);
 
 function fakeClassList(values) {
     const classes = new Set(values || []);
@@ -58,6 +62,7 @@ function createHarness(options) {
         }
     };
     const document = {
+        activeElement: null,
         body: {
             classList: fakeClassList(['login'].concat(options.bodyClasses || [])),
             dataset: {}
@@ -120,6 +125,7 @@ function createHarness(options) {
     vm.runInNewContext(brandingSource, context, { filename: 'admin-branding.js' });
 
     return {
+        document,
         hooks: config.testHooks,
         recoveryField,
         recoveryLabel
@@ -233,4 +239,70 @@ test('real startup order cannot restore mobile wording on WordPress recovery', (
 
     assert.match(harness.recoveryLabel.innerHTML, /نام کاربری یا نشانی ایمیل/);
     assert.doesNotMatch(harness.recoveryLabel.innerHTML, /موبایل/);
+});
+
+test('one canonical identity normalizer handles Persian and Arabic digits without spaces', () => {
+    const harness = createHarness({});
+
+    assert.equal((brandingSource.match(/function normalizeDigits\(/g) || []).length, 1);
+    assert.equal(harness.hooks.normalizeDigits('۰۹۱۲٣٤٥٦٧٨٩'), '09123456789');
+    assert.equal(harness.hooks.sanitizeIdentityValue('۰۹۱۲ ۳۴۵ ۶۷۸۹'), '09123456789');
+    assert.equal(harness.hooks.sanitizeIdentityValue(' mahdi+tag @ example.com '), 'mahdi+tag@example.com');
+    assert.equal(harness.hooks.classifyIdentity('mahdi@example.com'), 'email');
+    assert.equal(harness.hooks.classifyIdentity('09123456789'), 'phone');
+    assert.equal(harness.hooks.classifyIdentity('mahdi_user'), 'username');
+
+    const phone = harness.hooks.phonePartsFromValue('+989123456789');
+    assert.equal(phone.type, 'phone');
+    assert.equal(phone.national, '9123456789');
+    assert.equal(phone.countryCode, '+98');
+    assert.equal(phone.valid, true);
+});
+
+test('password visibility restoration preserves the user-selected range and direction', () => {
+    const harness = createHarness({});
+    const restored = [];
+    const input = {
+        selectionStart: 2,
+        selectionEnd: 7,
+        selectionDirection: 'backward',
+        focus() {},
+        setSelectionRange(start, end, direction) {
+            restored.push({ start, end, direction });
+        }
+    };
+    harness.document.activeElement = input;
+
+    const restore = harness.hooks.capturePasswordSelection(input);
+    input.selectionStart = 0;
+    input.selectionEnd = 0;
+    restore();
+
+    assert.deepEqual(restored, [{ start: 2, end: 7, direction: 'backward' }]);
+});
+
+test('native Digits captcha remains active unless a configured replacement is prepared', () => {
+    const start = brandingSource.indexOf('function prepareDigitsCaptchaProtection');
+    const end = brandingSource.indexOf('function bindDigitsAutoIdentity', start);
+    const protection = brandingSource.slice(start, end);
+
+    assert.ok(start > 0 && end > start);
+    assert.match(protection, /prepareDigitsRecaptcha\(row\)/);
+    assert.doesNotMatch(protection, /input\.disabled\s*=\s*true/);
+    assert.doesNotMatch(protection, /removeAttribute\('required'\)/);
+    assert.match(brandingCss, /\.digits_captcha_row\[hidden\]\s*\{\s*display:\s*none\s*!important;/s);
+    assert.doesNotMatch(brandingCss, /:is\(\.digits_captcha_row,\s*\.dg_min_capt,[^}]+display:\s*none/s);
+});
+
+test('checkbox, localized step controls, and language picker use one accessible implementation', () => {
+    assert.doesNotMatch(brandingSource + brandingCss, /M5 10\.4l3\.2 3\.2L15\.4 6\.5/);
+    assert.match(brandingCss, /digits_login_remember_me:checked::before/);
+    assert.match(brandingSource, /getLabel\('back', 'Back'\)/);
+    assert.match(brandingSource, /getLabel\('login', 'Log in'\)/);
+    assert.match(brandingSource, /trigger\.addEventListener\('keydown'/);
+    assert.match(brandingSource, /menu\.addEventListener\('keydown'/);
+    assert.match(brandingSource, /event\.key === 'ArrowDown'/);
+    assert.match(brandingSource, /event\.key === 'Escape'/);
+    assert.match(brandingSource, /dashicons-arrow-down-alt2/);
+    assert.match(brandingSource, /dashicons-arrow-up-alt2/);
 });
