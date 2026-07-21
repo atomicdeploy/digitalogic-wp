@@ -1,12 +1,12 @@
 # Digitalogic PBX operational assets
 
 Version 1.1.0 provides a dependency-free Node 18+ AGI helper for caller-aware
-phone verification at `+982166754123`. Digitalogic historically had no public
-inbound IVR, so this release removes the first-audio digit-2 menu and does not
-invent a replacement digit. A caller with an unexpired challenge is offered a
-private shortcut; every other caller continues to the existing operator path.
+phone verification at `+982166754123`. Digitalogic has no public inbound IVR, so
+the current production DID bypasses every verification helper and rings extension
+101 directly. The helper and its BGM-mixed prompts remain installed but dormant
+for the next, separately approved IVR pass. No public verification digit exists.
 
-The wrapper forwards one reviewed mode to the helper:
+The dormant wrapper forwards one reviewed mode to the helper:
 
 - `preflight`: signed ANI lookup with no audio. It sets only
   `PBX_VERIFY_PENDING=0|1`.
@@ -40,8 +40,8 @@ v1\nPOST\n<exact path>\n<timestamp>\n<nonce>\n<sha256(raw JSON body)>
 ```
 
 The HMAC key is the decoded random bytes in the root-owned base64 secret file.
-Redirects are refused and response size/time are bounded. Preflight errors fail
-open to the historical call flow; code confirmation remains fail closed.
+Redirects are refused and response size/time are bounded. If preflight is enabled
+in a future IVR, its errors fail open; code confirmation remains fail closed.
 Every dedicated verification prompt uses the established filtered, limited BGM
 mix so retries, success, invalid-code, and failure audio remain stylistically
 consistent without masking the speech.
