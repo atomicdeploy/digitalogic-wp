@@ -23,6 +23,14 @@ final class PanelAccessControlTest extends TestCase {
 	}
 
 	/**
+	 * Prevent an extensibility filter from leaking into unrelated tests.
+	 */
+	protected function tearDown(): void {
+		remove_all_filters( 'digitalogic_panel_access_capabilities' );
+		remove_all_filters( 'digitalogic_panel_access_allowed' );
+	}
+
+	/**
 	 * WooCommerce managers retain panel access.
 	 */
 	public function test_woocommerce_manager_can_access_panel(): void {
