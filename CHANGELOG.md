@@ -11,11 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added a persisted, optional sticky first product column that follows the first visible/reordered column in RTL and LTR while keeping the selection control frozen beside it.
 - Added reusable Digitalogic browser error pages with responsive light/dark styling, English and Persian copy, RTL/LTR layout, safe recovery actions, and stable support references.
 - Added an opt-in Google Sheets product/pricing control workspace with bounded preview/apply writeback, exact Patris identity and revisions, append-only audit rows, guarded WooCommerce product writes, and an inactive credential-placeholder n8n proxy template.
+- Added an idempotent professional Google Sheets control-center builder with live catalog KPIs, charts, a landed-price calculator, bilingual guidance, editable non-secret settings, protected reference tabs, and one-command synchronization and scheduling.
 
 ### Security
 - Google Sheets writeback uses exact-decimal optimistic revisions, idempotent requests, a shared WooCommerce product lock, and transactional shipping compare-and-set apply/compensation so concurrent changes are preserved.
 
 ### Fixed
+- Made the n8n Google Sheets writeback template return the actual Digitalogic JSON envelope on n8n 2.x instead of ending the webhook early with an empty HTTP 200 response.
 - Repaired critical `/panel/` rendering and inline-edit regressions: title direction is always callable, pointer edits place a collapsed caret at the clicked text position, Patris currency uses a canonical clearable selector, and render/bootstrap failures now show a localized recovery screen with structured, deduplicated console diagnostics.
 - Corrected Persian product-table geometry, including the `Ctrl+K` hint, exact checkbox centering, compact/mobile metadata containment, stable action-column sizing, and removal of the empty row tail caused by responsive column tracks.
 - Made the current Patris reconciliation report usable across warning and price-list views with bounded 50-row pages, category filters, request deduplication, stale-response protection, client-language labels, visible generation details, catalog-generation invalidation that cannot republish stale in-flight data, and a server-side build lock against concurrent forced refreshes.

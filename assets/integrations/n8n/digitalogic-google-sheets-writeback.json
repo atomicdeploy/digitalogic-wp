@@ -37,13 +37,44 @@
     },
     {
       "parameters": {
-        "jsCode": "const body = $json.body && typeof $json.body === 'object' ? $json.body : {};\nconst headerKey = String(($json.headers || {})['idempotency-key'] || '');\nconst bodyKey = String(body.idempotency_key || '');\nif (!/^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/.test(bodyKey) || headerKey !== bodyKey) {\n  throw new Error('A matching bounded Idempotency-Key header and body value are required.');\n}\nif (!Array.isArray(body.changes) || body.changes.length < 1 || body.changes.length > 50) {\n  throw new Error('changes must contain 1 through 50 rows.');\n}\nfor (const [index, change] of body.changes.entries()) {\n  if (!change || change.sync_key !== change.patris_code || !/^sha256:[a-f0-9]{64}$/.test(String(change.expected_record_revision || '')) || !change.fields || typeof change.fields !== 'object' || Array.isArray(change.fields)) {\n    throw new Error(`Invalid revision-checked change at index ${index}.`);\n  }\n}\nreturn [{ json: { idempotency_key: bodyKey, request: { idempotency_key: bodyKey, changes: body.changes } } }];"
+        "jsCode": "const reject = (code, message) => [{ json: { validation_ok: false, statusCode: 400, body: { success: false, code, message } } }];\nconst body = $json.body && typeof $json.body === 'object' ? $json.body : {};\nconst headerKey = String(($json.headers || {})['idempotency-key'] || '');\nconst bodyKey = String(body.idempotency_key || '');\nif (!/^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/.test(bodyKey) || headerKey !== bodyKey) {\n  return reject('invalid_idempotency_key', 'A matching bounded Idempotency-Key header and body value are required.');\n}\nif (!Array.isArray(body.changes) || body.changes.length < 1 || body.changes.length > 50) {\n  return reject('invalid_change_count', 'changes must contain 1 through 50 rows.');\n}\nfor (const [index, change] of body.changes.entries()) {\n  if (!change || change.sync_key !== change.patris_code || !/^sha256:[a-f0-9]{64}$/.test(String(change.expected_record_revision || '')) || !change.fields || typeof change.fields !== 'object' || Array.isArray(change.fields)) {\n    return reject('invalid_change', `Invalid revision-checked change at index ${index}.`);\n  }\n}\nreturn [{ json: { validation_ok: true, idempotency_key: bodyKey, request: { idempotency_key: bodyKey, changes: body.changes } } }];"
       },
       "id": "d9bd58f2-5c42-4ba6-8f6c-b415f06ec7b8",
       "name": "Validate Preview Envelope",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [-620, -80]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "603d98c3-12d4-4e46-a7be-8b2aaed31ab8",
+              "leftValue": "={{ $json.validation_ok }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "8862491a-69a8-4bc8-b1bd-90525f7ccb12",
+      "name": "Preview Envelope Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [-480, -80]
     },
     {
       "parameters": {
@@ -61,13 +92,17 @@
             {
               "name": "Accept",
               "value": "application/json"
+            },
+            {
+              "name": "Accept-Encoding",
+              "value": "identity"
             }
           ]
         },
         "sendBody": true,
-        "contentType": "raw",
-        "rawContentType": "application/json",
-        "body": "={{ JSON.stringify($json.request) }}",
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.request }}",
         "options": {
           "response": {
             "response": {
@@ -130,13 +165,44 @@
     },
     {
       "parameters": {
-        "jsCode": "const headers = $json.headers || {};\nif (String(headers['x-digitalogic-confirm-apply'] || '') !== 'APPLY') {\n  throw new Error('Explicit X-Digitalogic-Confirm-Apply: APPLY header is required.');\n}\nconst body = $json.body && typeof $json.body === 'object' ? $json.body : {};\nconst headerKey = String(headers['idempotency-key'] || '');\nconst bodyKey = String(body.idempotency_key || '');\nif (!/^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/.test(bodyKey) || headerKey !== bodyKey) {\n  throw new Error('A matching bounded Idempotency-Key header and body value are required.');\n}\nif (!Array.isArray(body.changes) || body.changes.length < 1 || body.changes.length > 50) {\n  throw new Error('changes must contain 1 through 50 rows.');\n}\nfor (const [index, change] of body.changes.entries()) {\n  if (!change || change.sync_key !== change.patris_code || !/^sha256:[a-f0-9]{64}$/.test(String(change.expected_record_revision || '')) || !change.fields || typeof change.fields !== 'object' || Array.isArray(change.fields)) {\n    throw new Error(`Invalid revision-checked change at index ${index}.`);\n  }\n}\nreturn [{ json: { idempotency_key: bodyKey, request: { idempotency_key: bodyKey, changes: body.changes } } }];"
+        "jsCode": "const reject = (code, message) => [{ json: { validation_ok: false, statusCode: 400, body: { success: false, code, message } } }];\nconst headers = $json.headers || {};\nif (String(headers['x-digitalogic-confirm-apply'] || '') !== 'APPLY') {\n  return reject('explicit_apply_confirmation_required', 'Explicit X-Digitalogic-Confirm-Apply: APPLY header is required.');\n}\nconst body = $json.body && typeof $json.body === 'object' ? $json.body : {};\nconst headerKey = String(headers['idempotency-key'] || '');\nconst bodyKey = String(body.idempotency_key || '');\nif (!/^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/.test(bodyKey) || headerKey !== bodyKey) {\n  return reject('invalid_idempotency_key', 'A matching bounded Idempotency-Key header and body value are required.');\n}\nif (!Array.isArray(body.changes) || body.changes.length < 1 || body.changes.length > 50) {\n  return reject('invalid_change_count', 'changes must contain 1 through 50 rows.');\n}\nfor (const [index, change] of body.changes.entries()) {\n  if (!change || change.sync_key !== change.patris_code || !/^sha256:[a-f0-9]{64}$/.test(String(change.expected_record_revision || '')) || !change.fields || typeof change.fields !== 'object' || Array.isArray(change.fields)) {\n    return reject('invalid_change', `Invalid revision-checked change at index ${index}.`);\n  }\n}\nreturn [{ json: { validation_ok: true, idempotency_key: bodyKey, request: { idempotency_key: bodyKey, changes: body.changes } } }];"
       },
       "id": "aa38d5b7-1964-4163-bcc8-d380404a3801",
       "name": "Validate Explicit Apply",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [-620, 260]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "66bdf8d9-ee11-4a28-bbb9-924d73a01c47",
+              "leftValue": "={{ $json.validation_ok }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "28544d86-fcce-41d8-9915-27cd2c62261b",
+      "name": "Apply Envelope Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [-480, 260]
     },
     {
       "parameters": {
@@ -154,13 +220,17 @@
             {
               "name": "Accept",
               "value": "application/json"
+            },
+            {
+              "name": "Accept-Encoding",
+              "value": "identity"
             }
           ]
         },
         "sendBody": true,
-        "contentType": "raw",
-        "rawContentType": "application/json",
-        "body": "={{ JSON.stringify($json.request) }}",
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.request }}",
         "options": {
           "response": {
             "response": {
@@ -207,7 +277,13 @@
       "main": [[{"node": "Validate Preview Envelope", "type": "main", "index": 0}]]
     },
     "Validate Preview Envelope": {
-      "main": [[{"node": "Digitalogic Preview", "type": "main", "index": 0}]]
+      "main": [[{"node": "Preview Envelope Valid?", "type": "main", "index": 0}]]
+    },
+    "Preview Envelope Valid?": {
+      "main": [
+        [{"node": "Digitalogic Preview", "type": "main", "index": 0}],
+        [{"node": "Return Preview", "type": "main", "index": 0}]
+      ]
     },
     "Digitalogic Preview": {
       "main": [[{"node": "Return Preview", "type": "main", "index": 0}]]
@@ -216,7 +292,13 @@
       "main": [[{"node": "Validate Explicit Apply", "type": "main", "index": 0}]]
     },
     "Validate Explicit Apply": {
-      "main": [[{"node": "Digitalogic Apply", "type": "main", "index": 0}]]
+      "main": [[{"node": "Apply Envelope Valid?", "type": "main", "index": 0}]]
+    },
+    "Apply Envelope Valid?": {
+      "main": [
+        [{"node": "Digitalogic Apply", "type": "main", "index": 0}],
+        [{"node": "Return Apply", "type": "main", "index": 0}]
+      ]
     },
     "Digitalogic Apply": {
       "main": [[{"node": "Return Apply", "type": "main", "index": 0}]]

@@ -582,7 +582,16 @@ function setupEditableWorkspace() {
     const config = getConfig_();
     const spreadsheet = getSpreadsheet_(config);
     const workspace = ensureWritebackWorkspace_(spreadsheet, config.locale);
-    updateDashboard_(workspace.dashboard, getStateProperties_(config));
+    const stateProperties = getStateProperties_(config);
+    if (config.n8nWritebackBase
+      && !stateProperties.getProperty('DIGITALOGIC_LAST_WRITEBACK_TRANSPORT')) {
+      stateProperties.setProperties({
+        DIGITALOGIC_LAST_WRITEBACK_STATUS: 'ready',
+        DIGITALOGIC_LAST_WRITEBACK_TRANSPORT: 'n8n',
+        DIGITALOGIC_LAST_WRITEBACK_MESSAGE: 'Preview/apply bridge configured; no request has run yet.',
+      });
+    }
+    updateDashboard_(workspace.dashboard, stateProperties);
     spreadsheet.toast('Changes, Audit, and Dashboard are ready.', 'Digitalogic', 6);
     return {
       changes: workspace.changes.getName(),
