@@ -743,7 +743,7 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 					'name_fa'                          => 'محصول آزمایشی قیمت‌گذاری‌شده',
 					'short_description_fa'             => 'یک قطعه آزمایشی برای بررسی همگام‌سازی دقیق فروشگاه.',
 					'seo_title_fa'                     => 'خرید محصول آزمایشی قیمت‌گذاری‌شده',
-					'seo_description_fa'               => 'مشخصات و قیمت محصول آزمایشی با کد دقیق پاتریس.',
+					'seo_description_fa'               => 'مشخصات و قیمت محصول آزمایشی با کد کالای دقیق.',
 					'focus_keyword_fa'                 => 'محصول آزمایشی',
 					'part_number'                      => 'SYNTH-001',
 					'model'                            => 'SYNTH-001',

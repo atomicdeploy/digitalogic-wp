@@ -9,6 +9,9 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 final class Digitalogic_Product_Identity {
 
+	private const PRODUCT_CODE_LABEL        = 'کد کالا';
+	private const LEGACY_PRODUCT_CODE_LABEL = 'کد پاتریس';
+
 	private static $instance = null;
 
 	/**
@@ -106,13 +109,13 @@ final class Digitalogic_Product_Identity {
 		}
 
 		foreach ( $item_data as $item ) {
-			if ( isset( $item['key'] ) && 'کد پاتریس' === $item['key'] ) {
+			if ( isset( $item['key'] ) && in_array( $item['key'], array( self::PRODUCT_CODE_LABEL, self::LEGACY_PRODUCT_CODE_LABEL ), true ) ) {
 				return $item_data;
 			}
 		}
 
 		$item_data[] = array(
-			'key'     => 'کد پاتریس',
+			'key'     => self::PRODUCT_CODE_LABEL,
 			'value'   => $code,
 			'display' => '<span class="digitalogic-cart-patris-code" dir="ltr">' . esc_html( $code ) . '</span>',
 		);
@@ -144,7 +147,7 @@ final class Digitalogic_Product_Identity {
 
 		$code = $this->get_product_patris_code( $product );
 		if ( '' !== $code ) {
-			$item->add_meta_data( 'کد پاتریس', $code, true );
+			$item->add_meta_data( self::PRODUCT_CODE_LABEL, $code, true );
 		}
 	}
 
@@ -366,7 +369,7 @@ final class Digitalogic_Product_Identity {
 				'singleProductIsVariable'            => $is_variable || ! empty( $child_codes ),
 				'singleProductChildCodes'            => $child_codes,
 				'singleProductLegacyChildReferences' => ! $is_variable && ! empty( $child_codes ),
-				'codeLabel'                          => 'کد پاتریس',
+				'codeLabel'                          => self::PRODUCT_CODE_LABEL,
 				'selectModelLabel'                   => 'مدل رو انتخاب کن تا کد دقیقش بیاد',
 				'legacyChildNote'                    => 'این کدها فعلاً مرجع مدل‌ها هستن؛ برای انتخاب کد دقیق با پشتیبانی هماهنگ کن.',
 			)
@@ -414,7 +417,7 @@ final class Digitalogic_Product_Identity {
 		}
 
 		if ( '' !== $patris_code ) {
-			$output .= '<div class="digitalogic-patris-code"><span>کد پاتریس</span><code dir="ltr">' . esc_html( $patris_code ) . '</code></div>';
+			$output .= '<div class="digitalogic-patris-code"><span>' . esc_html( self::PRODUCT_CODE_LABEL ) . '</span><code dir="ltr">' . esc_html( $patris_code ) . '</code></div>';
 		} elseif ( ! empty( $child_codes ) ) {
 			$output .= '<div class="digitalogic-patris-code-list"><span>کدهای ثبت‌شده برای مدل‌ها</span><div>';
 			foreach ( $child_codes as $child ) {
@@ -425,7 +428,7 @@ final class Digitalogic_Product_Identity {
 				$output .= '<p class="digitalogic-patris-code-note">این کدها فعلاً مرجع مدل‌ها هستن؛ برای انتخاب کد دقیق با پشتیبانی هماهنگ کن.</p>';
 			}
 		} elseif ( $is_variable ) {
-			$output .= '<div class="digitalogic-patris-code is-placeholder"><span>کد پاتریس</span><em>مدل رو انتخاب کن</em></div>';
+			$output .= '<div class="digitalogic-patris-code is-placeholder"><span>' . esc_html( self::PRODUCT_CODE_LABEL ) . '</span><em>مدل رو انتخاب کن</em></div>';
 		}
 
 		return $output . '</div>';

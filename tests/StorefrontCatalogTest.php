@@ -240,6 +240,41 @@ final class StorefrontCatalogTest extends TestCase {
 		$this->assertStringNotContainsString( 'افزودن سریع', $html );
 	}
 
+	/** Ensure source product codes use the canonical generic customer label. */
+	public function test_table_uses_generic_product_code_label(): void {
+		$GLOBALS['digitalogic_test_posts'][49] = array(
+			'post_type'    => 'product',
+			'post_status'  => 'publish',
+			'product_type' => 'simple',
+			'post_title'   => 'Coded product',
+			'meta'         => array(
+				'_digitalogic_patris_product_code' => 'CODE-49',
+				'_price'                           => '1000',
+			),
+		);
+		$product                               = new class( 49 ) extends WC_Product {
+			public function get_price_html() {
+				return '۱۰۰۰ تومان'; }
+			public function managing_stock() {
+				return false; }
+			public function is_purchasable() {
+				return true; }
+			public function is_in_stock() {
+				return true; }
+			public function is_sold_individually() {
+				return false; }
+			public function add_to_cart_url() {
+				return 'https://digitalogic.test/?add-to-cart=49'; }
+		};
+		$table                                 = ( new ReflectionClass( Digitalogic_Storefront_Product_Table::class ) )->newInstanceWithoutConstructor();
+		$method                                = new ReflectionMethod( $table, 'product_row' );
+		$html                                  = $method->invoke( $table, $product );
+
+		$this->assertStringContainsString( '>کد کالا</span>', $html );
+		$this->assertStringContainsString( 'CODE-49', $html );
+		$this->assertStringNotContainsString( 'کد پاتریس', $html );
+	}
+
 	/** Ensure an unrelated WooCommerce SKU keeps its own label. */
 	public function test_table_calls_an_unrelated_code_sku_not_patris_code(): void {
 		$GLOBALS['digitalogic_test_posts'][50] = array(

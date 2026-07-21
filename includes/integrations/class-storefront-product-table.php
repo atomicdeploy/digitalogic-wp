@@ -85,7 +85,7 @@ final class Digitalogic_Storefront_Product_Table {
 				<label class="dgl-catalog-search">
 					<span class="screen-reader-text">جست‌وجوی محصول</span>
 					<svg aria-hidden="true" viewBox="0 0 24 24"><path d="m21 21-4.35-4.35m2.35-5.65a8 8 0 1 1-16 0 8 8 0 0 1 16 0Z"/></svg>
-					<input type="search" name="dgl_search" value="<?php echo esc_attr( $filters['search'] ); ?>" placeholder="اسم قطعه، SKU یا کد پاتریس...">
+					<input type="search" name="dgl_search" value="<?php echo esc_attr( $filters['search'] ); ?>" placeholder="اسم قطعه، SKU یا کد کالا...">
 				</label>
 				<label>
 					<span class="screen-reader-text">دسته‌بندی</span>
@@ -222,7 +222,7 @@ final class Digitalogic_Storefront_Product_Table {
 					<thead>
 						<tr>
 							<th scope="col">محصول</th>
-							<th scope="col">کد پاتریس / SKU</th>
+							<th scope="col">کد کالا / SKU</th>
 							<th scope="col">دسته</th>
 							<th scope="col">موجودی</th>
 							<th scope="col">قیمت</th>
@@ -609,7 +609,7 @@ final class Digitalogic_Storefront_Product_Table {
 			$code = $sku;
 		}
 		$child_codes = '' === $code ? $this->get_product_child_codes( $product->get_id() ) : array();
-		$code_label  = 'کد پاتریس';
+		$code_label  = 'کد کالا';
 		if ( '' === $patris_code && '' !== $sku ) {
 			$code_label = 'SKU';
 		} elseif ( ! empty( $child_codes ) ) {
@@ -639,7 +639,7 @@ final class Digitalogic_Storefront_Product_Table {
 						<?php elseif ( $child_codes ) : ?>
 							کدهای ثبت‌شده برای مدل‌ها <b dir="ltr"><?php echo esc_html( implode( ' · ', $child_codes ) ); ?></b> ·
 						<?php elseif ( $is_variable ) : ?>
-							کد پاتریس بعد از انتخاب مدل ·
+							کد کالا بعد از انتخاب مدل ·
 						<?php endif; ?>
 						<?php echo wp_kses_post( $categories ); ?>
 					</span>

@@ -39,7 +39,7 @@
 			codeLine = document.createElement('div');
 			codeLine.className = 'digitalogic-patris-code';
 			label = document.createElement('span');
-			label.textContent = text(settings.codeLabel) || 'کد پاتریس';
+			label.textContent = text(settings.codeLabel) || 'کد کالا';
 			value = document.createElement('code');
 			value.dir = 'ltr';
 			value.textContent = code;
@@ -77,7 +77,7 @@
 			codeLine = document.createElement('div');
 			codeLine.className = 'digitalogic-patris-code is-placeholder';
 			label = document.createElement('span');
-			label.textContent = text(settings.codeLabel) || 'کد پاتریس';
+			label.textContent = text(settings.codeLabel) || 'کد کالا';
 			value = document.createElement('em');
 			value.textContent = text(settings.selectModelLabel) || 'مدل رو انتخاب کن تا کد دقیقش بیاد';
 			codeLine.appendChild(label);

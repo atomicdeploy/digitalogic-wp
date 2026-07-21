@@ -713,7 +713,7 @@ msgstr "تخصیص روش به محصول"
 
 #: includes/admin/views/patris-reports.php:262
 msgid "Enter one exact Patris Code or WooCommerce SKU. An empty method selection clears the current assignment."
-msgstr "یک Code دقیق پاتریس یا SKU ووکامرس وارد کنید. انتخاب روش خالی، تخصیص فعلی را پاک می‌کند."
+msgstr "یک کد کالای دقیق یا SKU ووکامرس وارد کنید. انتخاب روش خالی، تخصیص فعلی را پاک می‌کند."
 
 #: includes/admin/views/patris-reports.php:268
 msgid "Exact Code / SKU"
@@ -1126,7 +1126,7 @@ msgstr ""
 
 #: includes/class-digitalogic-google-sheets-catalog.php:134
 msgid "Every catalog product must have a Patris Code or a positive WooCommerce ID."
-msgstr "هر محصول فهرست باید کد پاتریس یا شناسه مثبت ووکامرس داشته باشد."
+msgstr "هر محصول فهرست باید کد کالا یا شناسه مثبت ووکامرس داشته باشد."
 
 #: includes/class-digitalogic-google-sheets-catalog.php:262
 msgid "Dataset must be products or categories."
@@ -1251,11 +1251,11 @@ msgstr ""
 
 #: includes/class-patris-feed.php:242
 msgid "Skipped product because its exact Patris Code is ambiguous."
-msgstr "محصول رد شد زیرا کد دقیق پاتریس آن مبهم است."
+msgstr "محصول رد شد زیرا کد کالای دقیق آن مبهم است."
 
 #: includes/class-patris-feed.php:243
 msgid "Skipped product because its Patris Code could not be resolved."
-msgstr "محصول رد شد زیرا کد پاتریس آن قابل تطبیق نبود."
+msgstr "محصول رد شد زیرا کد کالای آن قابل تطبیق نبود."
 
 #: includes/class-patris-feed.php:253
 #, php-format
@@ -1394,11 +1394,11 @@ msgstr "بسته‌های تخصیص روش حمل‌ونقل به ۵۰۰ ردی
 #: includes/class-shipping-method-service.php:713
 #: includes/class-shipping-method-service.php:1202
 msgid "Patris Code is required."
-msgstr "کد پاتریس الزامی است."
+msgstr "کد کالا الزامی است."
 
 #: includes/class-shipping-method-service.php:718
 msgid "Duplicate Patris Code in assignment batch."
-msgstr "کد پاتریس تکراری در بسته تخصیص وجود دارد."
+msgstr "کد کالای تکراری در بسته تخصیص وجود دارد."
 
 #: includes/class-shipping-method-service.php:733
 msgid "Two batch rows resolve to the same product."
@@ -1478,11 +1478,11 @@ msgstr "روش‌های حمل‌ونقل غیرفعال را نمی‌توان 
 
 #: includes/class-shipping-method-service.php:1205
 msgid "No product has that exact Patris Code."
-msgstr "هیچ محصولی دارای این کد دقیق پاتریس نیست."
+msgstr "هیچ محصولی دارای این کد کالای دقیق نیست."
 
 #: includes/class-shipping-method-service.php:1210
 msgid "More than one product has that exact Patris Code; no assignment was changed."
-msgstr "بیش از یک محصول دارای این کد دقیق پاتریس است؛ هیچ تخصیصی تغییر نکرد."
+msgstr "بیش از یک محصول دارای این کد کالای دقیق است؛ هیچ تخصیصی تغییر نکرد."
 
 #: includes/class-shipping-method-service.php:1595
 msgid "The shipping-method change could not be completed."
