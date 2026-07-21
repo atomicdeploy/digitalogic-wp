@@ -310,7 +310,6 @@ final class CallVerificationTest extends TestCase {
 			$GLOBALS['wp_filter'] = $oldWpFilter;
 		}
 	}
-
 	public function test_callback_and_contact_range_locks_fail_closed_on_database_errors(): void {
 		$source = file_get_contents( dirname( __DIR__ ) . '/includes/integrations/class-call-verification.php' );
 		$callbackStart = strpos( $source, 'public function pbx_confirm' );

@@ -687,10 +687,10 @@ class Digitalogic_Admin {
         }
 
         $feed = Digitalogic_Patris_Feed::instance();
-        $freight_service = Digitalogic_Import_Freight_Service::instance();
+		$shipping_service = Digitalogic_Shipping_Method_Service::instance();
         $notice = '';
         $notice_type = 'info';
-        $freight_assignment = null;
+        $shipping_assignment = null;
         $posted_value = static function ($key) {
             if (!isset($_POST[$key]) || !is_scalar($_POST[$key])) {
                 return '';
@@ -699,65 +699,67 @@ class Digitalogic_Admin {
             return wp_unslash((string) $_POST[$key]);
         };
 
-        $freight_action = sanitize_key($posted_value('digitalogic_import_freight_action'));
+        $shipping_action = sanitize_key($posted_value('digitalogic_shipping_action'));
 
-        if ($freight_action !== '') {
-            check_admin_referer('digitalogic_import_freight_admin');
+        if ($shipping_action !== '') {
+            check_admin_referer('digitalogic_shipping_admin');
 
-            switch ($freight_action) {
+            switch ($shipping_action) {
                 case 'create_method':
-                    $result = $freight_service->create_method(array(
+                    $result = $shipping_service->create_method(array(
                         'id' => $posted_value('method_id'),
                         'name' => sanitize_text_field($posted_value('method_name')),
-                        'price_per_kg_cny' => $posted_value('price_per_kg_cny'),
+                        'currency' => $posted_value('shipping_price_per_kg_currency'),
+                        'price_per_kg' => $posted_value('shipping_price_per_kg'),
                         'enabled' => isset($_POST['method_enabled']),
                     ));
                     $notice = is_wp_error($result)
                         ? $result->get_error_message()
-                        : sprintf(__('Import freight method "%s" created.', 'digitalogic'), $result['name']);
+						: sprintf(__('Shipping method "%s" created.', 'digitalogic'), $result['name']);
                     $notice_type = is_wp_error($result) ? 'error' : 'success';
                     break;
 
                 case 'update_method':
                     $method_id = $posted_value('method_id');
-                    $result = $freight_service->update_method($method_id, array(
+                    $result = $shipping_service->update_method($method_id, array(
                         'name' => sanitize_text_field($posted_value('method_name')),
-                        'price_per_kg_cny' => $posted_value('price_per_kg_cny'),
+                        'currency' => $posted_value('shipping_price_per_kg_currency'),
+                        'price_per_kg' => $posted_value('shipping_price_per_kg'),
                         'enabled' => isset($_POST['method_enabled']),
                     ));
                     $notice = is_wp_error($result)
                         ? $result->get_error_message()
-                        : sprintf(__('Import freight method "%s" updated.', 'digitalogic'), $result['name']);
+						: sprintf(__('Shipping method "%s" updated.', 'digitalogic'), $result['name']);
                     $notice_type = is_wp_error($result) ? 'error' : 'success';
                     break;
 
                 case 'delete_method':
                     $method_id = $posted_value('method_id');
-                    $result = $freight_service->delete_method($method_id);
+                    $result = $shipping_service->delete_method($method_id);
                     $notice = is_wp_error($result)
                         ? $result->get_error_message()
-                        : __('Import freight method deleted.', 'digitalogic');
+						: __('Shipping method deleted.', 'digitalogic');
                     $notice_type = is_wp_error($result) ? 'error' : 'success';
                     break;
 
                 case 'assign_product':
                     $code = sanitize_text_field($posted_value('product_code'));
                     $method_id = $posted_value('assignment_method_id');
-                    $result = $freight_service->assign_product_by_code($code, $method_id);
+                    $result = $shipping_service->assign_product_by_code($code, $method_id);
                     if (is_wp_error($result)) {
                         $notice = $result->get_error_message();
                         $notice_type = 'error';
                     } else {
-                        $freight_assignment = $result;
+                        $shipping_assignment = $result;
                         $notice = $method_id === ''
-                            ? __('The import freight assignment was cleared.', 'digitalogic')
-                            : __('The import freight method was assigned.', 'digitalogic');
+							? __('The shipping-method assignment was cleared.', 'digitalogic')
+							: __('The shipping method was assigned.', 'digitalogic');
                         $notice_type = 'success';
                     }
                     break;
 
                 case 'update_default_markup':
-                    $result = $freight_service->update_default_percentage_markup(
+                    $result = $shipping_service->update_default_percentage_markup(
                         $posted_value('default_profit_percent')
                     );
                     $notice = is_wp_error($result)
@@ -767,7 +769,7 @@ class Digitalogic_Admin {
                     break;
 
                 case 'clear_default_markup':
-                    $result = $freight_service->update_default_percentage_markup(null);
+                    $result = $shipping_service->update_default_percentage_markup(null);
                     $notice = is_wp_error($result)
                         ? $result->get_error_message()
                         : __('The global default percentage markup was cleared. WooCommerce prices were not changed.', 'digitalogic');
@@ -775,7 +777,7 @@ class Digitalogic_Admin {
                     break;
 
                 default:
-                    $notice = __('Unknown import freight action.', 'digitalogic');
+					$notice = __('Unknown shipping-method action.', 'digitalogic');
                     $notice_type = 'error';
                     break;
             }
@@ -783,32 +785,23 @@ class Digitalogic_Admin {
 
         if (isset($_POST['digitalogic_patris_settings_submit']) && check_admin_referer('digitalogic_patris_settings')) {
             $feed->update_settings(array(
-                'api_url' => $posted_value('api_url'),
-                'api_token' => $posted_value('api_token'),
                 'selected_warehouses' => $posted_value('selected_warehouses'),
                 'stale_after_hours' => $posted_value('stale_after_hours') !== '' ? absint($posted_value('stale_after_hours')) : 48,
-                'sync_interval' => sanitize_key($posted_value('sync_interval')),
             ));
             $notice = __('Patris report settings saved.', 'digitalogic');
             $notice_type = 'success';
         }
 
-        if (isset($_POST['digitalogic_patris_sync_submit']) && check_admin_referer('digitalogic_patris_sync')) {
-            $result = $feed->pull_sync();
-            $notice = is_wp_error($result) ? $result->get_error_message() : __('Patris feed synchronized.', 'digitalogic');
-            $notice_type = is_wp_error($result) ? 'error' : 'success';
-        }
-
         $settings = $feed->get_settings();
-        $push_token = $feed->get_push_token();
+        $product_sync_secret = $feed->get_product_sync_secret();
         $report = Digitalogic_Report_Engine::instance()->get_report();
-        $freight_methods = $freight_service->list_methods(true);
-        if (is_wp_error($freight_methods)) {
-            $notice = $freight_methods->get_error_message();
+        $shipping_methods = $shipping_service->list_methods(true);
+        if (is_wp_error($shipping_methods)) {
+            $notice = $shipping_methods->get_error_message();
             $notice_type = 'error';
-            $freight_methods = array();
+            $shipping_methods = array();
         }
-        $default_markup = $freight_service->get_default_percentage_markup();
+        $default_markup = $shipping_service->get_default_percentage_markup();
         if (is_wp_error($default_markup)) {
             $notice = $default_markup->get_error_message();
             $notice_type = 'error';

@@ -654,25 +654,6 @@ class Digitalogic_CLI_Commands {
     }
 
     /**
-     * Show or rotate the Laravel panel bridge token.
-     *
-     * ## OPTIONS
-     *
-     * [--rotate]
-     * : Rotate the token before printing it.
-     *
-     * @when after_wp_load
-     */
-    public function panel_token($args, $assoc_args) {
-        if (isset($assoc_args['rotate'])) {
-            WP_CLI::line(Digitalogic_Laravel_Bridge::rotate_token());
-            return;
-        }
-
-        WP_CLI::line(Digitalogic_Laravel_Bridge::get_token());
-    }
-
-    /**
      * Broadcast a JSON toast/event message to open Digitalogic panels.
      *
      * ## OPTIONS
@@ -928,7 +909,7 @@ class Digitalogic_CLI_Commands {
 	 * ## OPTIONS
 	 *
 	 * --manifest=<path>
-	 * : Strict digitalogic.patris-catalog-enrichment v1.0 JSON manifest.
+	 * : Strict living digitalogic.patris-catalog-enrichment JSON manifest.
 	 *
 	 * [--source-id=<id>]
 	 * : Optional exact source-id assertion against the manifest.
@@ -946,7 +927,8 @@ class Digitalogic_CLI_Commands {
 	 * : Apply the reviewed plan. Without this flag no writes occur.
 	 *
 	 * [--publish-ready]
-	 * : Publish only fully priced, weighted, in-stock, SEO-enriched rows.
+	 * : Publish only fully priced, freight-currency-qualified, weighted,
+	 * in-stock, SEO-enriched rows.
 	 *
 	 * ## EXAMPLES
 	 *
@@ -1001,6 +983,43 @@ class Digitalogic_CLI_Commands {
 				'codes'         => $codes,
 			)
 		);
+		if ( is_wp_error( $result ) ) {
+			WP_CLI::error( $result->get_error_message() );
+			return;
+		}
+
+		WP_CLI::line( wp_json_encode( $result, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES ) );
+	}
+
+	/**
+	 * Print one bounded Google Sheets catalog page as JSON.
+	 *
+	 * ## OPTIONS
+	 *
+	 * [--dataset=<dataset>]
+	 * : products or categories. Default: products.
+	 *
+	 * [--page=<page>]
+	 * : One-based page. Default: 1.
+	 *
+	 * [--limit=<limit>]
+	 * : Page size from 1 to 100. Default: 100.
+	 *
+	 * [--locale=<locale>]
+	 * : en, fa, or bilingual. Default: en.
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     wp digitalogic google-sheets catalog --dataset=products --locale=fa
+	 *     wp digitalogic google-sheets catalog --dataset=categories --page=2
+	 *
+	 * @param array $args Positional arguments.
+	 * @param array $assoc_args Named arguments.
+	 * @return void
+	 * @when after_wp_load
+	 */
+	public function google_sheets_catalog( $args, $assoc_args ) {
+		$result = Digitalogic_Google_Sheets_Catalog::instance()->get_page( $assoc_args );
 		if ( is_wp_error( $result ) ) {
 			WP_CLI::error( $result->get_error_message() );
 			return;
@@ -1086,7 +1105,6 @@ WP_CLI::add_command('digitalogic patris report', array('Digitalogic_CLI_Commands
 WP_CLI::add_command('digitalogic patris token', array('Digitalogic_CLI_Commands', 'patris_token'));
 WP_CLI::add_command('digitalogic websocket serve', array('Digitalogic_CLI_Commands', 'websocket_serve'));
 WP_CLI::add_command('digitalogic websocket token', array('Digitalogic_CLI_Commands', 'websocket_token'));
-WP_CLI::add_command('digitalogic panel token', array('Digitalogic_CLI_Commands', 'panel_token'));
 WP_CLI::add_command('digitalogic panel broadcast', array('Digitalogic_CLI_Commands', 'panel_broadcast'));
 WP_CLI::add_command(
 	'digitalogic pricing assignments',
@@ -1119,4 +1137,8 @@ WP_CLI::add_command(
 WP_CLI::add_command(
 	'digitalogic product-sync materialize',
 	array( 'Digitalogic_CLI_Commands', 'product_sync_materialize' )
+);
+WP_CLI::add_command(
+	'digitalogic google-sheets catalog',
+	array( 'Digitalogic_CLI_Commands', 'google_sheets_catalog' )
 );

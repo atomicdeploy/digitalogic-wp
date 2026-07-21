@@ -4,7 +4,7 @@ on:
   push:
     branches: [ main, develop ]
   pull_request:
-    branches: [ main, develop, agent/storefront-homepage ]
+    branches: [ main, develop ]
 
 permissions:
   contents: read
@@ -84,6 +84,8 @@ jobs:
         node --test tests/product-query.test.js
         node --test tests/admin-branding-auth-nav.test.js
         node --test tests/product-identity.test.js
+        node --check --input-type=commonjs < assets/integrations/google-apps-script/Code.gs
+        node --test tests/google-sheets-apps-script.test.js
         node --check ops/pbx/lib/pbx-verification-agi.js
         npm --prefix ops/pbx test
         bash -n ops/pbx/bin/pbx-verification-digitalogic

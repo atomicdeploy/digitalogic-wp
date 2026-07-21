@@ -14,24 +14,22 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 final class Digitalogic_Patris_Catalog_Materializer {
 
-	public const MANIFEST_SCHEMA         = 'digitalogic.patris-catalog-enrichment';
-	public const MANIFEST_SCHEMA_VERSION = '1.0';
+	public const MANIFEST_SCHEMA = 'digitalogic.patris-catalog-enrichment';
 
-	public const CATEGORY_CODE_META        = '_digitalogic_patris_category_code';
-	public const CATEGORY_KEY_META         = '_digitalogic_catalog_category_key';
-	public const CATEGORY_TERM_META        = '_digitalogic_patris_category_term_id';
-	public const CATEGORY_MANAGED_META     = '_digitalogic_patris_category_managed';
-	public const CATEGORY_ADOPTED_META     = '_digitalogic_patris_category_adopted';
-	public const OWNER_SOURCE_META         = '_digitalogic_patris_owner_source_id';
-	public const OWNER_DATASET_META        = '_digitalogic_patris_owner_dataset';
-	public const OWNER_CODE_META           = '_digitalogic_patris_owner_product_code';
-	public const MATERIALIZER_VERSION_META = '_digitalogic_patris_materializer_version';
+	public const CATEGORY_CODE_META    = '_digitalogic_patris_category_code';
+	public const CATEGORY_KEY_META     = '_digitalogic_catalog_category_key';
+	public const CATEGORY_TERM_META    = '_digitalogic_patris_category_term_id';
+	public const CATEGORY_MANAGED_META = '_digitalogic_patris_category_managed';
+	public const CATEGORY_ADOPTED_META = '_digitalogic_patris_category_adopted';
+	public const OWNER_SOURCE_META     = '_digitalogic_patris_owner_source_id';
+	public const OWNER_DATASET_META    = '_digitalogic_patris_owner_dataset';
+	public const OWNER_CODE_META       = '_digitalogic_patris_owner_product_code';
 
-	private const IMPORT_FREIGHT_METHOD = 'air_express';
-	private const LOCK_NAME             = 'digitalogic_patris_catalog_materializer_v1';
-	private const LOCK_TIMEOUT_SECONDS  = 10;
-	private const MAX_MANIFEST_BYTES    = 8388608;
-	private const MAX_DETAILS           = 100;
+	private const SHIPPING_METHOD      = 'air_express';
+	private const LOCK_NAME            = 'digitalogic_patris_catalog_materializer';
+	private const LOCK_TIMEOUT_SECONDS = 10;
+	private const MAX_MANIFEST_BYTES   = 8388608;
+	private const MAX_DETAILS          = 100;
 
 	private static $instance = null;
 
@@ -107,14 +105,14 @@ final class Digitalogic_Patris_Catalog_Materializer {
 			return $this->manifest_error( 'root', 'must be an object' );
 		}
 
-		$required = array( 'schema', 'schema_version', 'source', 'products', 'categories' );
+		$required = array( 'schema', 'source', 'products', 'categories' );
 		$allowed  = array_merge( $required, array( 'source_revision' ) );
 		$shape    = $this->validate_object_shape( $manifest, $required, $allowed, 'root' );
 		if ( is_wp_error( $shape ) ) {
 			return $shape;
 		}
-		if ( self::MANIFEST_SCHEMA !== $manifest['schema'] || self::MANIFEST_SCHEMA_VERSION !== $manifest['schema_version'] ) {
-			return $this->manifest_error( 'schema', 'must identify the supported enrichment manifest v1.0' );
+		if ( self::MANIFEST_SCHEMA !== $manifest['schema'] ) {
+			return $this->manifest_error( 'schema', 'must identify the living enrichment manifest' );
 		}
 
 		if ( ! is_array( $manifest['source'] ) || array_is_list( $manifest['source'] ) ) {
@@ -148,11 +146,10 @@ final class Digitalogic_Patris_Catalog_Materializer {
 		}
 
 		$normalized = array(
-			'schema'         => self::MANIFEST_SCHEMA,
-			'schema_version' => self::MANIFEST_SCHEMA_VERSION,
-			'source'         => $manifest['source'],
-			'products'       => $products,
-			'categories'     => $categories,
+			'schema'     => self::MANIFEST_SCHEMA,
+			'source'     => $manifest['source'],
+			'products'   => $products,
+			'categories' => $categories,
 		);
 		if ( isset( $manifest['source_revision'] ) ) {
 			$normalized['source_revision'] = $manifest['source_revision'];
@@ -203,10 +200,14 @@ final class Digitalogic_Patris_Catalog_Materializer {
 				'The exact product-sync source in the manifest was not found.'
 			);
 		}
-		if ( '1.1' !== (string) ( $source_state['schema_version'] ?? '' ) ) {
+		if (
+			empty( $source_state['source']['revision'] )
+			|| ! is_array( $source_state['categories'] ?? null )
+			|| ! is_array( $source_state['excluded_codes'] ?? null )
+		) {
 			return $this->error(
-				'digitalogic_patris_materializer_v11_required',
-				'A current product-sync v1.1 baseline is required before materialization.'
+				'digitalogic_patris_materializer_catalog_projection_required',
+				'A current living product-sync baseline with catalog projections is required before materialization.'
 			);
 		}
 		if (
@@ -368,9 +369,9 @@ final class Digitalogic_Patris_Catalog_Materializer {
 					continue;
 				}
 
-				$assignment = Digitalogic_Import_Freight_Service::instance()->assign_product_by_code(
+				$assignment = Digitalogic_Shipping_Method_Service::instance()->assign_product_by_code(
 					$code,
-					self::IMPORT_FREIGHT_METHOD
+					self::SHIPPING_METHOD
 				);
 				if ( is_wp_error( $assignment ) ) {
 					$this->append_detail( $result, $code, $assignment->get_error_code() );
@@ -1249,10 +1250,12 @@ final class Digitalogic_Patris_Catalog_Materializer {
 			}
 			if ( '' !== $enrichment['attribute_taxonomy'] ) {
 				$term = get_term( (int) $enrichment['attribute_term_id'], $enrichment['attribute_taxonomy'] );
+				$variation_attributes = $product->get_variation_attributes();
+				$attribute_key        = 'attribute_' . $enrichment['attribute_taxonomy'];
 				if (
 					is_wp_error( $term )
 					|| ! is_object( $term )
-					|| (string) $product->get_meta( 'attribute_' . $enrichment['attribute_taxonomy'], true ) !== (string) $term->slug
+					|| (string) ( $variation_attributes[ $attribute_key ] ?? '' ) !== (string) $term->slug
 				) {
 					return $this->error( 'digitalogic_patris_materializer_variation_attribute_mismatch', 'The managed variation no longer owns its reviewed attribute option.' );
 				}
@@ -1300,7 +1303,8 @@ final class Digitalogic_Patris_Catalog_Materializer {
 		}
 		foreach ( (array) $parent->get_children() as $child_id ) {
 			$child = wc_get_product( (int) $child_id );
-			if ( $child && (string) $child->get_meta( 'attribute_' . $taxonomy, true ) === (string) $term->slug ) {
+			$child_attributes = $child && $child->is_type( 'variation' ) ? $child->get_variation_attributes() : array();
+			if ( (string) ( $child_attributes[ 'attribute_' . $taxonomy ] ?? '' ) === (string) $term->slug ) {
 				return $this->error( 'digitalogic_patris_materializer_variation_attribute_conflict', 'That reviewed attribute option already belongs to another child.' );
 			}
 		}
@@ -1506,11 +1510,11 @@ final class Digitalogic_Patris_Catalog_Materializer {
 	 * @param string     $dataset Exact receiver dataset.
 	 */
 	private function stage_managed_identity( $product, $code, $source_id, $dataset ) {
+		$product->delete_meta_data( '_digitalogic_patris_materializer_version' );
 		$product->update_meta_data( Digitalogic_Product_Identifier_Resolver::PATRIS_CODE_META, $code );
 		$product->update_meta_data( self::OWNER_SOURCE_META, $source_id );
 		$product->update_meta_data( self::OWNER_DATASET_META, $dataset );
 		$product->update_meta_data( self::OWNER_CODE_META, $code );
-		$product->update_meta_data( self::MATERIALIZER_VERSION_META, self::MANIFEST_SCHEMA_VERSION );
 	}
 
 	/**
@@ -1604,8 +1608,18 @@ final class Digitalogic_Patris_Catalog_Materializer {
 		if ( $this->number( $record['final_price'] ?? null ) <= 0 ) {
 			$gates[] = 'final_price';
 		}
-		if ( self::IMPORT_FREIGHT_METHOD !== (string) ( $record['import_freight_method_id'] ?? '' ) ) {
+		if ( self::SHIPPING_METHOD !== (string) ( $record['shipping_method_id'] ?? '' ) ) {
 			$gates[] = 'patris_air_express';
+		}
+		if ( $this->number( $record['shipping_price_per_kg'] ?? null ) <= 0 ) {
+			$gates[] = 'shipping_price_per_kg';
+		}
+		if (
+			! isset( $record['shipping_price_per_kg_currency'] )
+			|| ! is_string( $record['shipping_price_per_kg_currency'] )
+			|| ! in_array( $record['shipping_price_per_kg_currency'], array( 'CNY', 'IRR' ), true )
+		) {
+			$gates[] = 'shipping_price_per_kg_currency';
 		}
 		if ( ! empty( $record['warnings'] ) ) {
 			$gates[] = 'patris_warnings';
@@ -1613,7 +1627,7 @@ final class Digitalogic_Patris_Catalog_Materializer {
 		if ( $category_term <= 0 ) {
 			$gates[] = 'category';
 		}
-		if ( (string) get_post_meta( $product->get_id(), Digitalogic_Import_Freight_Service::PRODUCT_METHOD_META, true ) !== self::IMPORT_FREIGHT_METHOD ) {
+		if ( (string) get_post_meta( $product->get_id(), Digitalogic_Shipping_Method_Service::PRODUCT_METHOD_META, true ) !== self::SHIPPING_METHOD ) {
 			$gates[] = 'woocommerce_air_express';
 		}
 		if ( $this->number( $product->get_weight() ) <= 0 ) {
@@ -1676,7 +1690,6 @@ final class Digitalogic_Patris_Catalog_Materializer {
 	private function new_result( $source_state, $manifest, $apply, $publish_ready, $selected ) {
 		return array(
 			'schema'                    => 'digitalogic.patris-catalog-materialization-result',
-			'schema_version'            => '1.0',
 			'mode'                      => $apply ? 'apply' : 'dry_run',
 			'publish_requested'         => $publish_ready,
 			'source'                    => $manifest['source'],

@@ -53,16 +53,26 @@ add_filter(
 );
 ```
 
-For backward compatibility, a one-argument callback still works, but returning
-`true` from it grants all three scopes. Update legacy callbacks to accept the
-scope and request arguments before using them for least-privilege access.
-
-`POST /patris/push` is not controlled by this filter. It retains its dedicated
-Patris request verifier and token policy.
+A one-argument callback still grants all three general API scopes when it
+returns `true`. New callbacks should accept the scope and request arguments for
+least-privilege access.
 
 ---
 
 ## Products Endpoints
+
+### Google Sheets catalog
+
+`GET /wp-json/digitalogic/v1/google-sheets/catalog` returns a bounded,
+read-only `products` or `categories` page for Google Apps Script, n8n, or
+another client. It uses the normal read permission scope and supports
+`dataset`, `locale`, `page`, and `limit` (maximum 100). See
+[Google Sheets catalog synchronization](GOOGLE-SHEETS.md) for the living sparse
+response fields, exact Patris Code matching, credential storage,
+manual/scheduled refresh, and recovery guidance. Missing keys mean no
+source/reference value; a present `null` records an explicit upstream null.
+Products without a Patris Code use `woo:<id>` only as a display/upsert key, and
+SKU is never used as a Patris matching fallback.
 
 ### List Products
 
@@ -179,23 +189,29 @@ than being converted or changed automatically.
 
 ---
 
-## Import Freight Integration
+## Supplier Shipping Method Integration
 
-Import freight describes supplier-to-Digitalogic transport. It does not use
+A supplier shipping method describes supplier-to-Digitalogic transport. It does not use
 WooCommerce checkout, shipping-zone, or customer delivery APIs.
 
-- **GET** `/integration/catalog` - versioned CNY/IRT rate, WooCommerce base-currency compatibility, `landed_price_v1`, selected warehouses, and methods
-- **GET** `/import-freight-methods` - list canonical methods
-- **POST** `/import-freight-methods` - create a method with an immutable ID
-- **GET|PUT|DELETE** `/import-freight-methods/{id}` - read, update, or delete an unassigned method
-- **GET|PUT** `/products/by-code/{code}/import-pricing` - read or assign by exact Patris Code/SKU
-- **POST** `/products/import-pricing/batch` - preflight and apply an atomic assignment batch
-- **POST** `/pricing-assignments/batch` - read up to 500 exact assignments in a versioned, ordered, no-write response
+- **GET** `/wp-json/digitalogic/integration/catalog` - sparse CNY/IRT rate, `landed_price`, selected warehouses, and methods with explicit freight currencies
+- **GET** `/shipping-methods` - list canonical methods
+- **POST** `/shipping-methods` - create a method with an immutable ID
+- **GET|PUT|DELETE** `/shipping-methods/{id}` - read, update, or delete an unassigned method
+- **GET** `/wp-json/digitalogic/integration/products/by-code/{code}/pricing` - read one exact sparse pricing assignment
+- **GET|PUT** `/products/by-code/{code}/shipping-method` - manage an assignment by exact Patris Code
+- **POST** `/products/shipping-methods/batch` - preflight and apply an atomic assignment batch
+- **POST** `/wp-json/digitalogic/integration/pricing-assignments/batch` - read up to 500 exact assignments in an ordered, no-write response
 
 GET routes use the `read` permission scope. Mutating routes use `write`.
 Deleting an assigned method returns HTTP 409; disabling it remains available.
-See [Import Freight Integration Contract](IMPORT-FREIGHT-API.md) for schemas,
-migration behavior, and the pricing formula.
+Method payloads use required `price_per_kg` and `currency` fields. Currency input
+must be exactly `CNY` or `IRR`; tier rates inherit the method currency. Rates,
+minimums, divisors, and tier bounds are canonical decimal strings with at most
+12 fractional digits and are never emitted through binary floats. Product-sync
+records use the paired flattened fields `shipping_price_per_kg` and
+`shipping_price_per_kg_currency`. Aliases are not accepted or emitted. See [Supplier Shipping Method API](SHIPPING-METHOD-API.md)
+and [Patris Product Sync](PATRIS-PRODUCT-SYNC.md).
 
 ---
 
@@ -203,10 +219,10 @@ migration behavior, and the pricing formula.
 
 Webhook events:
 
-- `import_freight.method.created`
-- `import_freight.method.updated`
-- `import_freight.method.deleted`
-- `import_freight.assignment.updated`
+- `shipping_method.created`
+- `shipping_method.updated`
+- `shipping_method.deleted`
+- `shipping_method.assignment.updated`
 - `product.created`
 - `product.updated`
 - `currency.updated`
@@ -229,14 +245,14 @@ Supported command names:
 - `digitalogic_export`
 - `digitalogic_get_logs`
 - `digitalogic_get_integration_catalog`
-- `digitalogic_list_import_freight_methods`
-- `digitalogic_create_import_freight_method`
-- `digitalogic_get_import_freight_method`
-- `digitalogic_update_import_freight_method`
-- `digitalogic_delete_import_freight_method`
-- `digitalogic_get_product_import_pricing`
-- `digitalogic_assign_product_import_freight`
-- `digitalogic_batch_assign_product_import_freight`
+- `digitalogic_list_shipping_methods`
+- `digitalogic_create_shipping_method`
+- `digitalogic_get_shipping_method`
+- `digitalogic_update_shipping_method`
+- `digitalogic_delete_shipping_method`
+- `digitalogic_get_product_shipping_method`
+- `digitalogic_assign_product_shipping_method`
+- `digitalogic_batch_assign_product_shipping_methods`
 
 Browser WebSocket request:
 ```json
@@ -322,60 +338,15 @@ add_filter('digitalogic_websocket_ajax_action_allowed', function ($allowed, $act
 
 ---
 
-## Laravel Panel Bridge
+## Integrated Laravel Panel
 
-Base URL: `https://yoursite.com/wp-json/digitalogic-panel/v1`
+The `/panel/` application uses the existing WordPress login cookie and
+capability checks. WordPress and the bundled Laravel application run in the
+same PHP process, so there is no panel token, handoff code, bridge REST API, or
+second Laravel identity/session. The in-process bridge loads
+`bootstrap/app.php` and invokes the Laravel HTTP kernel directly; Laravel can
+then call WordPress, WooCommerce, Digitalogic commands, and the shared
+WebSocket configuration without network serialization.
 
-Get the bridge token:
-```bash
-wp digitalogic panel token --allow-root
-```
-
-Rotate the token:
-```bash
-wp digitalogic panel token --rotate --allow-root
-```
-
-Laravel request example:
-```php
-$response = Http::withHeaders([
-    'X-Digitalogic-Panel-Token' => config('services.digitalogic.token'),
-])->get('https://digitalogic.ir/wp-json/digitalogic-panel/v1/products', [
-    'page' => 1,
-    'limit' => 50,
-]);
-```
-
-Panel endpoints:
-- `GET /products`
-- `GET /products/{id}`
-- `PATCH /products/{id}`
-- `POST /commands`
-- `POST /session/consume`
-- `GET /theme`
-- `GET /laravel/status`
-- `POST /laravel/request`
-
-The `/commands` endpoint can call Digitalogic commands, custom
-`digitalogic_command_handlers`, or registered `wp_ajax_{action}` callbacks. Use
-this for WordPress/Laravel interoperability when the Laravel panel needs to
-trigger the same server-side behavior that the WordPress admin already uses.
-
-WordPress admins can enter the panel from **Digitalogic > Panel**. The launch
-URL creates a short-lived, one-time handoff code and redirects to the configured
-panel URL. By default, the temporary route is:
-
-`https://digitalogic.ir/panel/?code=...`
-
-Laravel consumes that code with the bridge token:
-```php
-$session = Http::withHeaders([
-    'X-Digitalogic-Panel-Token' => config('services.digitalogic.token'),
-])->post($base . '/session/consume', [
-    'code' => $request->query('code'),
-])->json();
-```
-
-The `GET /theme` endpoint exposes the shared Digitalogic visual identity,
-including logo URLs, direction, locale, color tokens, and the `/digitalogic-ui/`
-asset base.
+See [Laravel Panel Interoperability](LARAVEL-PANEL.md) for the application path
+and bootstrap contract.

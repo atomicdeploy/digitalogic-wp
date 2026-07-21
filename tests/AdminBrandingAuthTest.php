@@ -61,12 +61,25 @@ if (!function_exists('digits_render_new_form')) {
     }
 }
 
+if (!function_exists('login_footer')) {
+    function login_footer($input_id = '') {
+        $GLOBALS['digitalogic_test_login_footer_input'] = (string) $input_id;
+        $GLOBALS['digitalogic_test_login_footer_filters'] =
+            $GLOBALS['digitalogic_test_filters']['login_display_language_dropdown'] ?? [];
+    }
+}
+
 require_once dirname(__DIR__) . '/includes/integrations/class-admin-branding.php';
 require_once dirname(__DIR__) . '/includes/integrations/class-auth-page.php';
 
 final class AdminBrandingAuthTest extends TestCase {
     protected function setUp(): void {
         $GLOBALS['digitalogic_test_locale'] = 'en_US';
+        unset(
+            $GLOBALS['digitalogic_test_filters']['login_display_language_dropdown'],
+            $GLOBALS['digitalogic_test_login_footer_input'],
+            $GLOBALS['digitalogic_test_login_footer_filters']
+        );
     }
 
     public function test_client_config_exposes_the_canonical_login_fallback(): void {
@@ -103,6 +116,21 @@ final class AdminBrandingAuthTest extends TestCase {
         $html = $method->invoke(null, '');
 
         $this->assert_raw_login_fallback($html);
+    }
+
+    public function test_custom_footer_suppresses_remote_language_discovery_only_while_rendering(): void {
+        $method = new ReflectionMethod(Digitalogic_Plugin_Auth_Routes::class, 'render_login_footer');
+        $method->invoke(null);
+
+        $this->assertSame('user_login', $GLOBALS['digitalogic_test_login_footer_input']);
+        $this->assertCount(1, $GLOBALS['digitalogic_test_login_footer_filters']);
+        $this->assertSame(
+            '__return_false',
+            $GLOBALS['digitalogic_test_login_footer_filters'][0]['callback']
+        );
+        $this->assertEmpty(
+            $GLOBALS['digitalogic_test_filters']['login_display_language_dropdown'] ?? []
+        );
     }
 
     private function raw_digits_transition(): string {

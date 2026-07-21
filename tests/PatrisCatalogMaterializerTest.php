@@ -8,31 +8,73 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 	private static $fixture;
 
 	public static function setUpBeforeClass(): void {
-		self::$fixture_json = file_get_contents( __DIR__ . '/fixtures/patris-product-sync-v1.1-golden.json' );
+		self::$fixture_json = file_get_contents( __DIR__ . '/fixtures/patris-catalog-materializer-golden.json' );
 		self::$fixture      = json_decode( self::$fixture_json, true, 512, JSON_THROW_ON_ERROR );
 	}
 
+	/** Reset every shared service and storage surface used by materialization. */
 	protected function setUp(): void {
-		$GLOBALS['digitalogic_test_options']           = array();
-		$GLOBALS['digitalogic_test_option_cache']      = array();
-		$GLOBALS['digitalogic_test_posts']             = array();
-		$GLOBALS['digitalogic_test_next_post_id']      = 1;
-		$GLOBALS['digitalogic_test_post_meta_cache']   = array();
-		$GLOBALS['digitalogic_test_terms']             = array();
-		$GLOBALS['digitalogic_test_term_meta']         = array();
-		$GLOBALS['digitalogic_test_next_term_id']      = 1;
-		$GLOBALS['digitalogic_test_wc_products']       = array();
-		$GLOBALS['digitalogic_test_wc_product_saves']  = array();
-		$GLOBALS['digitalogic_test_wc_save_failures']  = array();
-		$GLOBALS['digitalogic_test_wc_save_fail_once'] = array();
-		$GLOBALS['digitalogic_test_actions']           = array();
-		$GLOBALS['digitalogic_test_action_callbacks']  = array();
-		$GLOBALS['digitalogic_test_filters']           = array();
-		$GLOBALS['digitalogic_test_cache_deletes']     = array();
-		$GLOBALS['digitalogic_test_capabilities']      = array( 'manage_options' => true );
-		$GLOBALS['wpdb']                               = new Digitalogic_Test_WPDB();
-		WC_Product_Variable::$synced_ids               = array();
-		$this->resetSingleton( Digitalogic_Import_Freight_Service::class );
+		parent::setUp();
+		foreach (
+			array(
+				'digitalogic_test_options',
+				'digitalogic_test_option_cache',
+				'digitalogic_test_posts',
+				'digitalogic_test_post_meta_cache',
+				'digitalogic_test_terms',
+				'digitalogic_test_term_meta',
+				'digitalogic_test_wc_products',
+				'digitalogic_test_wc_product_saves',
+				'digitalogic_test_wc_save_failures',
+				'digitalogic_test_wc_save_fail_once',
+				'digitalogic_test_wc_lookup_rows',
+				'digitalogic_test_actions',
+				'digitalogic_test_action_callbacks',
+				'digitalogic_test_filters',
+				'digitalogic_test_routes',
+				'digitalogic_test_update_failures',
+				'digitalogic_test_meta_update_failures',
+				'digitalogic_test_meta_delete_failures',
+				'digitalogic_test_transaction_failures',
+				'digitalogic_test_cache_deletes',
+				'digitalogic_test_remote_posts',
+				'digitalogic_test_remote_post_results',
+				'digitalogic_test_product_updates',
+				'digitalogic_test_wp_query_args',
+				'digitalogic_test_wp_query_results',
+				'digitalogic_test_primed_post_ids',
+				'digitalogic_test_transients',
+				'digitalogic_test_transient_deletes',
+			) as $global_name
+		) {
+			$GLOBALS[ $global_name ] = array();
+		}
+
+		$defaults = array(
+			'digitalogic_test_next_post_id'            => 1,
+			'digitalogic_test_next_term_id'            => 1,
+			'digitalogic_test_wc_data_store'           => null,
+			'digitalogic_test_wc_lookup_full_rebuilds' => 0,
+			'digitalogic_test_capabilities'            => array( 'manage_options' => true ),
+			'digitalogic_test_rest_prefix'             => 'wp-json',
+			'digitalogic_test_rest_url_calls'          => 0,
+			'digitalogic_test_current_user_can_calls'  => 0,
+			'digitalogic_test_wc_currency'             => 'IRT',
+			'digitalogic_test_locale'                  => 'en_US',
+		);
+		foreach ( $defaults as $global_name => $value ) {
+			$GLOBALS[ $global_name ] = $value;
+		}
+
+		$GLOBALS['wpdb'] = new Digitalogic_Test_WPDB();
+
+		WC_Product_Variable::$synced_ids = array();
+		$this->resetSingleton( Digitalogic_Patris_Catalog_Materializer::class );
+		$this->resetSingleton( Digitalogic_Product_Sync_Receiver::class );
+		$this->resetSingleton( Digitalogic_Shipping_Method_Service::class );
+		$this->resetSingleton( Digitalogic_Patris_Feed::class );
+		$this->resetSingleton( Digitalogic_Product_Identifier_Resolver::class );
+		$this->resetSingleton( Digitalogic_WooCommerce_Currency_Status::class );
 	}
 
 	public function test_dry_run_plans_only_positive_stock_and_writes_nothing(): void {
@@ -41,12 +83,45 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 		$result = Digitalogic_Patris_Catalog_Materializer::instance()->run( $this->manifest() );
 
 		$this->assertNotInstanceOf( WP_Error::class, $result );
+		$this->assertSame( 'digitalogic.patris-catalog-materialization-result', $result['schema'] );
 		$this->assertSame( 'dry_run', $result['mode'] );
 		$this->assertSame( 1, $result['selected_positive_stock'] );
 		$this->assertSame( 1, $result['planned_create'] );
 		$this->assertSame( 2, $result['categories']['planned_create'] );
 		$this->assertSame( array(), $GLOBALS['digitalogic_test_posts'] );
 		$this->assertSame( array(), $GLOBALS['digitalogic_test_terms'] );
+	}
+
+	public function test_fixture_uses_the_living_contract_and_currency_qualified_freight(): void {
+		$this->assertSame( 'patris.product-sync', self::$fixture['schema'] );
+
+		$this->receiveFixture();
+		$state    = Digitalogic_Product_Sync_Receiver::instance()->get_source_state( 'synthetic-fixture', 'synthetic-kala.db' );
+		$priced   = $state['products']['101001001'];
+		$explicit = $state['products']['101001002'];
+
+		$this->assertSame( '120', $priced['shipping_price_per_kg'] );
+		$this->assertSame( 'CNY', $priced['shipping_price_per_kg_currency'] );
+		$this->assertSame( 2009410, $priced['final_price'] );
+		$this->assertArrayHasKey( 'shipping_price_per_kg', $explicit );
+		$this->assertArrayHasKey( 'shipping_price_per_kg_currency', $explicit );
+		$this->assertNull( $explicit['shipping_price_per_kg'] );
+		$this->assertNull( $explicit['shipping_price_per_kg_currency'] );
+		$this->assertArrayNotHasKey( 'final_price', $explicit );
+	}
+
+	public function test_manifest_has_one_closed_living_shape(): void {
+		$service   = Digitalogic_Patris_Catalog_Materializer::instance();
+		$manifest  = $this->manifest();
+		$validated = $service->validate_manifest( $manifest );
+
+		$this->assertNotInstanceOf( WP_Error::class, $validated );
+		$this->assertSame( array( 'schema', 'source', 'products', 'categories' ), array_keys( $validated ) );
+
+		$manifest['unexpected'] = true;
+		$rejected               = $service->validate_manifest( $manifest );
+		$this->assertInstanceOf( WP_Error::class, $rejected );
+		$this->assertSame( 'digitalogic_patris_materializer_manifest_shape', $rejected->get_error_code() );
 	}
 
 	public function test_apply_creates_an_idempotent_draft_with_exact_feed_category_and_air_express(): void {
@@ -68,12 +143,108 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 		$this->assertSame( '101001001', $product->get_sku() );
 		$this->assertSame( '101001001', $product->get_meta( '_digitalogic_patris_product_code', true ) );
 		$this->assertSame( 'Synthetic priced product', $product->get_meta( '_digitalogic_patris_name', true ) );
-		$this->assertSame( 'air_express', get_post_meta( $product_id, Digitalogic_Import_Freight_Service::PRODUCT_METHOD_META, true ) );
+		$this->assertSame( 'air_express', get_post_meta( $product_id, Digitalogic_Shipping_Method_Service::PRODUCT_METHOD_META, true ) );
 		$this->assertSame( '2009410', $product->get_regular_price() );
 		$this->assertSame( 5, $product->get_stock_quantity() );
 		$this->assertGreaterThan( 0, (float) $product->get_weight() );
 		$this->assertCount( 1, $product->get_category_ids() );
 		$this->assertSame( (string) $product->get_category_ids()[0], $product->get_meta( 'rank_math_primary_product_cat', true ) );
+	}
+
+	/** Verify stale freight state cannot bypass publication readiness. */
+	public function test_publish_ready_requires_positive_currency_qualified_freight_and_accepts_irr(): void {
+		$this->receiveFixture();
+		$service = Digitalogic_Patris_Catalog_Materializer::instance();
+		$cases   = array(
+			'pair missing'         => array( array(), array( 'shipping_price_per_kg', 'shipping_price_per_kg_currency' ) ),
+			'amount missing'       => array( array( 'shipping_price_per_kg_currency' => 'CNY' ), array( 'shipping_price_per_kg' ) ),
+			'currency missing'     => array( array( 'shipping_price_per_kg' => '120' ), array( 'shipping_price_per_kg_currency' ) ),
+			'amount not positive'  => array(
+				array(
+					'shipping_price_per_kg'          => '0',
+					'shipping_price_per_kg_currency' => 'IRR',
+				),
+				array( 'shipping_price_per_kg' ),
+			),
+			'currency not exact'   => array(
+				array(
+					'shipping_price_per_kg'          => '120',
+					'shipping_price_per_kg_currency' => 'cny',
+				),
+				array( 'shipping_price_per_kg_currency' ),
+			),
+			'currency unsupported' => array(
+				array(
+					'shipping_price_per_kg'          => '120',
+					'shipping_price_per_kg_currency' => 'USD',
+				),
+				array( 'shipping_price_per_kg_currency' ),
+			),
+		);
+
+		foreach ( $cases as $label => $case ) {
+			list( $freight, $expected_gates ) = $case;
+			$state                            = get_option( Digitalogic_Product_Sync_Receiver::STATE_OPTION, array() );
+			$source_key                       = array_key_first( $state['sources'] );
+			$record                           = &$state['sources'][ $source_key ]['products']['101001001'];
+			$record['shipping_method_id']     = 'air_express';
+			unset( $record['shipping_price_per_kg'], $record['shipping_price_per_kg_currency'] );
+			foreach ( $freight as $field => $value ) {
+				$record[ $field ] = $value;
+			}
+			unset( $record );
+			update_option( Digitalogic_Product_Sync_Receiver::STATE_OPTION, $state, false );
+
+			$result = $service->run(
+				$this->manifest(),
+				array(
+					'apply'         => true,
+					'publish_ready' => true,
+				)
+			);
+
+			$this->assertSame( 1, $result['publish_blocked'], $label );
+			$this->assertSame( 0, $result['published'], $label );
+			$this->assertSame( 'publish_blocked', $result['details'][0]['reason'], $label );
+			foreach ( $expected_gates as $gate ) {
+				$this->assertContains( $gate, $result['details'][0]['gates'], $label );
+			}
+		}
+
+		$state                                    = get_option( Digitalogic_Product_Sync_Receiver::STATE_OPTION, array() );
+		$source_key                               = array_key_first( $state['sources'] );
+		$record                                   = &$state['sources'][ $source_key ]['products']['101001001'];
+		$record['shipping_price_per_kg']          = '34800000';
+		$record['shipping_price_per_kg_currency'] = 'IRR';
+		unset( $record );
+		update_option( Digitalogic_Product_Sync_Receiver::STATE_OPTION, $state, false );
+
+		$result = $service->run(
+			$this->manifest(),
+			array(
+				'apply'         => true,
+				'publish_ready' => true,
+			)
+		);
+
+		$this->assertSame( 0, $result['publish_blocked'] );
+		$this->assertSame( 1, $result['published'] );
+	}
+
+	/** Verify every apply removes the retired marker without a migration flag. */
+	public function test_apply_removes_the_obsolete_materializer_marker_idempotently(): void {
+		$this->receiveFixture();
+		$service = Digitalogic_Patris_Catalog_Materializer::instance();
+		$service->run( $this->manifest(), array( 'apply' => true ) );
+		$product_id = (int) array_key_first( $GLOBALS['digitalogic_test_posts'] );
+		update_post_meta( $product_id, '_digitalogic_patris_materializer_version', 'obsolete' );
+
+		$second = $service->run( $this->manifest(), array( 'apply' => true ) );
+		$third  = $service->run( $this->manifest(), array( 'apply' => true ) );
+
+		$this->assertSame( 1, $second['reconciled'] );
+		$this->assertSame( 1, $third['reconciled'] );
+		$this->assertSame( '', get_post_meta( $product_id, '_digitalogic_patris_materializer_version', true ) );
 	}
 
 	public function test_refuses_a_variable_container_and_converts_only_an_explicit_empty_exception(): void {
@@ -115,7 +286,7 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 
 		$state      = get_option( Digitalogic_Product_Sync_Receiver::STATE_OPTION, array() );
 		$source_key = array_key_first( $state['sources'] );
-		$state['sources'][ $source_key ]['products']['101001001']['import_freight_method_id'] = 'air_express';
+		$state['sources'][ $source_key ]['products']['101001001']['shipping_method_id'] = 'air_express';
 		update_option( Digitalogic_Product_Sync_Receiver::STATE_OPTION, $state, false );
 		$published = Digitalogic_Patris_Catalog_Materializer::instance()->run(
 			$manifest,
@@ -239,13 +410,13 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 		$this->assertCount( 1, $children );
 		$child = wc_get_product( $children[0] );
 		$this->assertSame( 'draft', $child->get_status() );
-		$this->assertSame( 'raw-sensor', $child->get_meta( 'attribute_pa_model', true ) );
+		$this->assertSame( 'raw-sensor', $child->get_variation_attributes()['attribute_pa_model'] );
 		$this->assertSame( '', wc_get_product( 100 )->get_sku() );
 		$this->assertSame( '', wc_get_product( 100 )->get_meta( '_digitalogic_patris_product_code', true ) );
 
 		$state      = get_option( Digitalogic_Product_Sync_Receiver::STATE_OPTION, array() );
 		$source_key = array_key_first( $state['sources'] );
-		$state['sources'][ $source_key ]['products']['101001001']['import_freight_method_id'] = 'air_express';
+		$state['sources'][ $source_key ]['products']['101001001']['shipping_method_id'] = 'air_express';
 		update_option( Digitalogic_Product_Sync_Receiver::STATE_OPTION, $state, false );
 		$published = Digitalogic_Patris_Catalog_Materializer::instance()->run(
 			$manifest,
@@ -262,6 +433,32 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 		$this->assertSame( 'Synthetic sensor family', wc_get_product( 100 )->get_meta( '_digitalogic_patris_family_name', true ) );
 		$this->assertSame( '', wc_get_product( 100 )->get_meta( '_digitalogic_patris_product_code', true ) );
 		$this->assertContains( 100, WC_Product_Variable::$synced_ids );
+	}
+
+	public function test_refuses_a_reviewed_variation_option_already_owned_by_an_existing_child(): void {
+		$this->receiveFixture();
+		$this->addProduct( 100, 'variable' );
+		$this->addTerm( 373, 'Reviewed sensor', 0, 'pa_model', 'reviewed-sensor' );
+		$GLOBALS['digitalogic_test_posts'][200] = array(
+			'post_type'    => 'product_variation',
+			'post_status'  => 'publish',
+			'post_parent'  => 100,
+			'product_type' => 'variation',
+			'post_title'   => 'Existing reviewed option',
+			'meta'         => array( 'attribute_pa_model' => 'reviewed-sensor' ),
+		);
+		$manifest                               = $this->manifest();
+		$row                                    = &$manifest['products']['101001001'];
+		$row['target_parent_id']                = '100';
+		$row['attribute_taxonomy']              = 'pa_model';
+		$row['attribute_term_id']               = '373';
+		$row['parent_enrichment']               = $this->parentEnrichment();
+		$row['variation_group']                 = 'duplicate-option-check';
+
+		$result = Digitalogic_Patris_Catalog_Materializer::instance()->run( $manifest );
+
+		$this->assertSame( 1, $result['skipped'] );
+		$this->assertSame( 'digitalogic_patris_materializer_variation_attribute_conflict', $result['details'][0]['reason'] );
 	}
 
 	public function test_parent_publication_failure_restores_a_preexisting_published_child_status(): void {
@@ -284,7 +481,7 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 
 		$state      = get_option( Digitalogic_Product_Sync_Receiver::STATE_OPTION, array() );
 		$source_key = array_key_first( $state['sources'] );
-		$state['sources'][ $source_key ]['products']['101001001']['import_freight_method_id'] = 'air_express';
+		$state['sources'][ $source_key ]['products']['101001001']['shipping_method_id'] = 'air_express';
 		update_option( Digitalogic_Product_Sync_Receiver::STATE_OPTION, $state, false );
 		$GLOBALS['digitalogic_test_wc_save_failures'][] = 100;
 
@@ -379,13 +576,12 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 
 	private function manifest(): array {
 		return array(
-			'schema'         => Digitalogic_Patris_Catalog_Materializer::MANIFEST_SCHEMA,
-			'schema_version' => Digitalogic_Patris_Catalog_Materializer::MANIFEST_SCHEMA_VERSION,
-			'source'         => array(
+			'schema'     => Digitalogic_Patris_Catalog_Materializer::MANIFEST_SCHEMA,
+			'source'     => array(
 				'id'      => 'synthetic-fixture',
 				'dataset' => 'synthetic-kala.db',
 			),
-			'products'       => array(
+			'products'   => array(
 				'101001001' => array(
 					'patris_name'                      => 'Synthetic priced product',
 					'target_product_id'                => null,
@@ -405,7 +601,7 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 					'model'                            => 'SYNTH-001',
 				),
 			),
-			'categories'     => array(
+			'categories' => array(
 				'101'    => $this->categoryRow( 'Synthetic components', 'قطعات آزمایشی' ),
 				'101001' => $this->categoryRow( 'Synthetic modules', 'ماژول‌های آزمایشی' ),
 			),

@@ -1,6 +1,7 @@
 <?php
 /**
- * In-site Vue panel served from /panel while the standalone Laravel panel is prepared.
+ * Integrated Vue panel served from /panel with WordPress and bundled Laravel
+ * available in the same PHP process.
  */
 
 if (!defined('ABSPATH')) {
@@ -13,7 +14,7 @@ class Digitalogic_Panel {
     private const PATH_VAR = 'digitalogic_panel_path';
     private const LEGACY_VAR = 'digitalogic_panel_legacy';
     private const REWRITE_VERSION_OPTION = 'digitalogic_panel_rewrite_version';
-    private const REWRITE_VERSION = '20260617-panel';
+    private const REWRITE_VERSION = '20260720-panel-self-heal';
     private const EVENT_OPTION = 'digitalogic_panel_events';
     private const EVENT_SEQUENCE_OPTION = 'digitalogic_panel_event_sequence';
     private const EVENT_LOCK_NAME = 'digitalogic_panel_events_v1';
@@ -28,7 +29,7 @@ class Digitalogic_Panel {
             self::$instance = new self();
         }
 
-        self::$instance->register_import_freight_delivery_channel();
+        self::$instance->register_shipping_method_delivery_channel();
 
         return self::$instance;
     }
@@ -51,23 +52,50 @@ class Digitalogic_Panel {
         add_action('admin_footer', array($this, 'hide_wp_armour_honeypot_notice'), 1000);
     }
 
-    private function register_import_freight_delivery_channel() {
-        Digitalogic_Import_Freight_Service::instance()->register_delivery_channel(
+    private function register_shipping_method_delivery_channel() {
+		Digitalogic_Shipping_Method_Service::instance()->register_delivery_channel(
             'panel',
-            array($this, 'deliver_import_freight_event')
+            array($this, 'deliver_shipping_method_event')
         );
     }
 
     public function register_route() {
-        add_rewrite_rule('^panel/?$', 'index.php?' . self::QUERY_VAR . '=1', 'top');
-        add_rewrite_rule('^panel/(.+)/?$', 'index.php?' . self::QUERY_VAR . '=1&' . self::PATH_VAR . '=$matches[1]', 'top');
-        add_rewrite_rule('^panell/?$', 'index.php?' . self::QUERY_VAR . '=1&' . self::LEGACY_VAR . '=1', 'top');
-        add_rewrite_rule('^panell/(.+)/?$', 'index.php?' . self::QUERY_VAR . '=1&' . self::LEGACY_VAR . '=1&' . self::PATH_VAR . '=$matches[1]', 'top');
+        $rules = $this->rewrite_rules();
+        foreach ($rules as $pattern => $target) {
+            add_rewrite_rule($pattern, $target, 'top');
+        }
 
-        if (get_option(self::REWRITE_VERSION_OPTION) !== self::REWRITE_VERSION) {
+        if (
+            get_option(self::REWRITE_VERSION_OPTION) !== self::REWRITE_VERSION
+            || !$this->stored_rewrite_rules_are_current($rules)
+        ) {
             flush_rewrite_rules(false);
             update_option(self::REWRITE_VERSION_OPTION, self::REWRITE_VERSION, false);
         }
+    }
+
+    private function rewrite_rules() {
+        return array(
+            '^panel/?$' => 'index.php?' . self::QUERY_VAR . '=1',
+            '^panel/(.+)/?$' => 'index.php?' . self::QUERY_VAR . '=1&' . self::PATH_VAR . '=$matches[1]',
+            '^panell/?$' => 'index.php?' . self::QUERY_VAR . '=1&' . self::LEGACY_VAR . '=1',
+            '^panell/(.+)/?$' => 'index.php?' . self::QUERY_VAR . '=1&' . self::LEGACY_VAR . '=1&' . self::PATH_VAR . '=$matches[1]',
+        );
+    }
+
+    private function stored_rewrite_rules_are_current($expected_rules) {
+        $stored_rules = get_option('rewrite_rules', array());
+        if (!is_array($stored_rules)) {
+            return false;
+        }
+
+        foreach ($expected_rules as $pattern => $target) {
+            if (!isset($stored_rules[$pattern]) || $stored_rules[$pattern] !== $target) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     public function register_query_vars($vars) {
@@ -117,6 +145,11 @@ class Digitalogic_Panel {
                 esc_html__('Forbidden', 'digitalogic'),
                 array('response' => 403)
             );
+        }
+
+        $laravel = Digitalogic_Laravel_Bridge::instance()->boot_for_panel();
+        if (is_wp_error($laravel)) {
+            do_action('digitalogic_laravel_boot_failed', $laravel);
         }
 
         $this->enqueue_assets();
@@ -250,8 +283,6 @@ class Digitalogic_Panel {
             'cli' => array(
                 'websocket' => 'wp digitalogic websocket serve --host=127.0.0.1 --port=8090 --allow-root',
             'websocket_token' => 'wp digitalogic websocket token --allow-root',
-            'panel_token' => 'wp digitalogic panel token --allow-root',
-            'panel_rotate' => 'wp digitalogic panel token --rotate --allow-root',
             'panel_broadcast' => 'wp digitalogic panel broadcast --message="Hello panel" --level=success --allow-root',
             'patris_sync' => 'wp digitalogic patris sync --allow-root',
             'patris_report' => 'wp digitalogic patris report --format=table --allow-root',
@@ -260,7 +291,7 @@ class Digitalogic_Panel {
         'patris' => array(
             'project' => 'Digitalogic normalized Patris API',
             'mode' => 'Pull scheduled/manual feed or authenticated push payload into WooCommerce',
-            'suggested_bridge' => 'POST /wp-json/digitalogic/v1/patris/push or configure a pull URL in Patris Reports',
+            'suggested_bridge' => 'POST /wp-json/digitalogic/patris/product-sync',
         ),
             'logs' => Digitalogic_Logger::instance()->get_logs(array('limit' => 6)),
             'categories' => Digitalogic_Product_Manager::instance()->get_product_categories(),
@@ -270,7 +301,8 @@ class Digitalogic_Panel {
             ),
             'bridge' => array(
                 'panel_url' => Digitalogic_Laravel_Bridge::instance()->get_panel_url(),
-                'rest_url' => rest_url('digitalogic-panel/v1/'),
+                'mode' => 'in_process',
+                'auth' => 'wordpress_session',
                 'wordpress_loaded' => true,
                 'laravel_bootstrap' => file_exists(DIGITALOGIC_PLUGIN_DIR . 'laravel/bootstrap/app.php'),
             ),
@@ -293,7 +325,6 @@ class Digitalogic_Panel {
                 'admin' => admin_url(),
                 'ajax' => admin_url('admin-ajax.php'),
                 'rest' => rest_url('digitalogic/v1/'),
-                'bridge_rest' => rest_url('digitalogic-panel/v1/'),
             ),
             'websocket' => array(
                 'enabled' => !empty($ws['enabled']),
@@ -302,6 +333,8 @@ class Digitalogic_Panel {
                 'ajax_proxy_enabled' => !empty($ws['ajax_proxy_enabled']),
             ),
             'bridge' => array(
+                'mode' => 'in_process',
+                'auth' => 'wordpress_session',
                 'wordpress_bootstrap' => ABSPATH,
                 'laravel_bootstrap' => file_exists(DIGITALOGIC_PLUGIN_DIR . 'laravel/bootstrap/app.php'),
                 'theme_shared' => true,
@@ -606,68 +639,63 @@ class Digitalogic_Panel {
         }
     }
 
-    public function record_import_freight_method_created($method) {
-        return $this->record_import_freight_method_event('import_freight.method.created', $method);
-    }
-
-    public function record_import_freight_method_updated($method) {
-        return $this->record_import_freight_method_event('import_freight.method.updated', $method);
-    }
-
-    public function record_import_freight_method_deleted($method) {
-        return $this->record_import_freight_method_event('import_freight.method.deleted', $method);
-    }
-
-    public function record_import_freight_assignment_event($product_id, $method_id) {
-        return self::record_event('import_freight.assignment.updated', array(
-            'product_id' => absint($product_id),
-            'import_freight_method_id' => sanitize_key((string) $method_id),
-        ));
-    }
-
-    private function record_import_freight_method_event($event, $method) {
+	private function record_shipping_method_event($event, $method) {
         $method = is_array($method) ? $method : array();
-        return self::record_event($event, array(
+        $data = array(
             'id' => isset($method['id']) ? sanitize_key($method['id']) : '',
             'name' => isset($method['name']) ? sanitize_text_field($method['name']) : '',
             'enabled' => !empty($method['enabled']),
-            'price_per_kg_cny' => isset($method['price_per_kg_cny']) ? (float) $method['price_per_kg_cny'] : null,
-        ));
+		);
+		if (array_key_exists('currency', $method)) {
+			$data['currency'] = (string) $method['currency'];
+		}
+		if (array_key_exists('price_per_kg', $method) && null !== $method['price_per_kg']) {
+			$data['price_per_kg'] = (string) $method['price_per_kg'];
+		}
+		if (array_key_exists('minimum_charge', $method) && null !== $method['minimum_charge']) {
+			$data['minimum_charge'] = (string) $method['minimum_charge'];
+		}
+		if (!empty($method['tiered_rates']) && is_array($method['tiered_rates'])) {
+			$data['tiered_rates'] = $this->shipping_tiers_payload($method['tiered_rates']);
+		}
+        return self::record_event($event, $data);
     }
 
     /**
-     * Result-aware import-freight delivery channel used after service commits.
+	 * Result-aware shipping-method delivery channel used after commits.
      */
-    public function deliver_import_freight_event($hook, $args) {
+    public function deliver_shipping_method_event($hook, $args) {
         $args = is_array($args) ? $args : array();
-        if ('digitalogic_import_freight_default_markup_updated' === $hook) {
-            $event = 'import_freight.default_markup.updated';
+        if ('digitalogic_shipping_default_markup_updated' === $hook) {
+			$event = 'shipping_method.default_markup.updated';
             $markup = isset($args[0]) && is_array($args[0]) ? $args[0] : array();
             $data = array(
                 'configured' => !empty($markup['configured']),
-                'profit_percent' => isset($markup['profit_percent']) ? (string) $markup['profit_percent'] : null,
                 'source' => isset($markup['source']) ? sanitize_key($markup['source']) : '',
                 'revision' => isset($markup['revision']) ? sanitize_text_field($markup['revision']) : '',
                 'previous_revision' => isset($markup['previous_revision']) ? sanitize_text_field($markup['previous_revision']) : '',
                 'updated_at' => isset($markup['updated_at']) ? sanitize_text_field($markup['updated_at']) : '',
                 'updated_by' => isset($markup['updated_by']) ? absint($markup['updated_by']) : 0,
             );
-        } elseif ('digitalogic_product_import_freight_method_updated' === $hook) {
-            $event = 'import_freight.assignment.updated';
+			if (array_key_exists('profit_percent', $markup) && null !== $markup['profit_percent']) {
+				$data['profit_percent'] = (string) $markup['profit_percent'];
+			}
+        } elseif ('digitalogic_product_shipping_method_updated' === $hook) {
+			$event = 'shipping_method.assignment.updated';
             $data = array(
                 'product_id' => absint(isset($args[0]) ? $args[0] : 0),
-                'import_freight_method_id' => sanitize_key((string) (isset($args[1]) ? $args[1] : '')),
+				'shipping_method_id' => sanitize_key((string) (isset($args[1]) ? $args[1] : '')),
             );
         } else {
             $events = array(
-                'digitalogic_import_freight_method_created' => 'import_freight.method.created',
-                'digitalogic_import_freight_method_updated' => 'import_freight.method.updated',
-                'digitalogic_import_freight_method_deleted' => 'import_freight.method.deleted',
+				'digitalogic_shipping_method_created' => 'shipping_method.created',
+				'digitalogic_shipping_method_updated' => 'shipping_method.updated',
+				'digitalogic_shipping_method_deleted' => 'shipping_method.deleted',
             );
             if (!isset($events[$hook])) {
                 return new WP_Error(
                     'digitalogic_panel_delivery_event_unknown',
-                    __('The panel does not recognize this import freight event.', 'digitalogic')
+					__('The panel does not recognize this shipping-method event.', 'digitalogic')
                 );
             }
 
@@ -677,8 +705,19 @@ class Digitalogic_Panel {
                 'id' => isset($method['id']) ? sanitize_key($method['id']) : '',
                 'name' => isset($method['name']) ? sanitize_text_field($method['name']) : '',
                 'enabled' => !empty($method['enabled']),
-                'price_per_kg_cny' => isset($method['price_per_kg_cny']) ? (float) $method['price_per_kg_cny'] : null,
             );
+			if (array_key_exists('currency', $method)) {
+				$data['currency'] = (string) $method['currency'];
+			}
+			if (array_key_exists('price_per_kg', $method) && null !== $method['price_per_kg']) {
+				$data['price_per_kg'] = (string) $method['price_per_kg'];
+			}
+			if (array_key_exists('minimum_charge', $method) && null !== $method['minimum_charge']) {
+				$data['minimum_charge'] = (string) $method['minimum_charge'];
+			}
+			if (!empty($method['tiered_rates']) && is_array($method['tiered_rates'])) {
+				$data['tiered_rates'] = $this->shipping_tiers_payload($method['tiered_rates']);
+			}
         }
 
         $result = self::record_event_result($event, $data);
@@ -695,6 +734,19 @@ class Digitalogic_Panel {
 
         return true;
     }
+
+	/** Preserve canonical tier decimals without generated nulls or float casts. */
+	private function shipping_tiers_payload($tiers) {
+		return array_values(array_map(static function($tier) {
+			$payload = array();
+			foreach (array('min_weight_kg', 'max_weight_kg', 'price_per_kg') as $field) {
+				if (is_array($tier) && array_key_exists($field, $tier) && null !== $tier[$field]) {
+					$payload[$field] = (string) $tier[$field];
+				}
+			}
+			return $payload;
+		}, (array) $tiers));
+	}
 
     public static function record_event($event, $data = array()) {
         $result = self::record_event_result($event, $data);
@@ -1219,6 +1271,7 @@ class Digitalogic_Panel {
             'withoutImage' => 'Missing image',
             'bulkActions' => 'Bulk actions',
             'compactTableMode' => 'Compact table',
+            'freezeFirstColumn' => 'Freeze first column',
             'publishSelected' => 'Publish selected',
             'draftSelected' => 'Move selected to draft',
             'markInStock' => 'Mark in stock',
@@ -1252,6 +1305,7 @@ class Digitalogic_Panel {
             'withoutImage' => 'بدون تصویر',
             'bulkActions' => 'عملیات گروهی',
             'compactTableMode' => 'حالت فشرده جدول',
+            'freezeFirstColumn' => 'ثابت نگه داشتن ستون اول',
             'publishSelected' => 'انتشار انتخاب شده ها',
             'draftSelected' => 'انتقال به پیش نویس',
             'markInStock' => 'موجود کردن',

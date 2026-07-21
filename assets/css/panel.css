@@ -876,6 +876,40 @@ a.dlp-button:focus {
     z-index: 100;
 }
 
+/* Keep the selection control and the first visible data column together while
+ * the product grid scrolls horizontally. Logical inset works in both RTL and
+ * LTR, and the explicit classes follow column visibility/reordering. */
+.dlp-data-grid[data-grid-kind="product"].is-first-column-sticky {
+    --dlp-selection-column-width: 44px;
+}
+
+.dlp-data-grid[data-grid-kind="product"].is-first-column-sticky tr > :first-child {
+    position: sticky;
+    inset-inline-start: 0;
+    z-index: 82;
+    background: var(--dlp-panel);
+    background-clip: padding-box;
+}
+
+.dlp-data-grid[data-grid-kind="product"].is-first-column-sticky .is-sticky-first-data-column {
+    position: sticky;
+    inset-inline-start: var(--dlp-selection-column-width);
+    z-index: 81;
+    background: var(--dlp-panel);
+    background-clip: padding-box;
+    box-shadow: 1px 0 0 var(--dlp-border), -1px 0 0 var(--dlp-border);
+}
+
+.dlp-data-grid[data-grid-kind="product"].is-first-column-sticky thead tr > :first-child {
+    z-index: 122;
+    background-color: color-mix(in srgb, var(--dlp-panel) 92%, var(--dlp-bg-strong));
+}
+
+.dlp-data-grid[data-grid-kind="product"].is-first-column-sticky thead .is-sticky-first-data-column {
+    z-index: 121;
+    background-color: color-mix(in srgb, var(--dlp-panel) 90%, var(--dlp-bg-strong));
+}
+
 .dlp-table tbody tr:nth-child(even) {
     background: color-mix(in srgb, var(--dlp-panel-soft) 42%, transparent);
 }

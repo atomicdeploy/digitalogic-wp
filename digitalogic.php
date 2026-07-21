@@ -124,8 +124,9 @@ final class Digitalogic {
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-pricing-input-credential.php'; // phpcs:ignore
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-patris-feed.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-product-sync-receiver.php';
-        require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-import-freight-service.php';
+        require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-shipping-method-service.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-patris-catalog-materializer.php';
+        require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-google-sheets-catalog.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-report-engine.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-command-dispatcher.php';
 
@@ -143,14 +144,14 @@ final class Digitalogic {
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-auth-page.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-desktop-app.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-frontend-search.php';
+		require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-pbx-phone.php';
+		require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-call-verification.php';
+		require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-voice-notifications.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-product-identity.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-storefront-catalog.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-homepage-showcase.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-storefront-product-table.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-storefront-order-forms.php';
-		require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-pbx-phone.php';
-		require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-call-verification.php';
-		require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-voice-notifications.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/panel/class-panel.php';
 
         // Admin includes
@@ -178,8 +179,8 @@ final class Digitalogic {
         Digitalogic_Plugin_Auth_Routes::init();
         Digitalogic_Desktop_App::init();
         Digitalogic_Frontend_Search::instance();
-        Digitalogic_Product_Identity::instance();
 		Digitalogic_Call_Verification::instance();
+        Digitalogic_Product_Identity::instance();
     }
 
     /**
@@ -205,7 +206,8 @@ final class Digitalogic {
         Digitalogic_Pricing::instance();
         Digitalogic_Import_Export::instance();
         Digitalogic_Patris_Feed::instance();
-        Digitalogic_Import_Freight_Service::instance();
+        Digitalogic_Shipping_Method_Service::instance();
+        Digitalogic_Google_Sheets_Catalog::instance();
         Digitalogic_Report_Engine::instance();
         Digitalogic_Command_Dispatcher::instance();
         Digitalogic_WebSocket::instance();
