@@ -202,4 +202,26 @@ final class PanelErrorPageTest extends TestCase {
 			$this->assertDoesNotMatchRegularExpression( '/\\bwp_die\\s*\\(/', $source, $path );
 		}
 	}
+
+	/**
+	 * Embedded admin denials return control so WordPress can render its footer.
+	 */
+	public function test_admin_error_callbacks_do_not_terminate_the_admin_document(): void {
+		$path = dirname( __DIR__ ) . '/includes/admin/class-admin.php';
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Local source audit.
+		$source = file_get_contents( $path );
+
+		$this->assertIsString( $source );
+		foreach ( array( 'render_patris_reports_page', 'render_product_diagnostics_page', 'render_ui_settings_page' ) as $callback ) {
+			$start = strpos( $source, 'function ' . $callback . '(' );
+			$this->assertNotFalse( $start, $callback );
+			$next = strpos( $source, "\n    public function ", $start + 1 );
+			$next = false === $next ? strlen( $source ) : $next;
+			$body = substr( $source, $start, $next - $start );
+
+			$this->assertStringContainsString( 'Digitalogic_Panel_Error_Page::render_admin(', $body, $callback );
+			$this->assertDoesNotMatchRegularExpression( '/render_admin\([\s\S]*?\);\s*exit\s*;/', $body, $callback );
+			$this->assertMatchesRegularExpression( '/render_admin\([\s\S]*?\);\s*return\s*;/', $body, $callback );
+		}
+	}
 }

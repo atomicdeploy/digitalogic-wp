@@ -689,7 +689,7 @@ class Digitalogic_Admin {
 				'',
 				array( 'context' => Digitalogic_Panel_Error_Page::CONTEXT_PATRIS_REPORTS )
 			);
-			exit;
+			return;
         }
 
         $feed = Digitalogic_Patris_Feed::instance();
@@ -842,7 +842,7 @@ class Digitalogic_Admin {
 				'',
 				array( 'context' => Digitalogic_Panel_Error_Page::CONTEXT_PRODUCT_DIAGNOSTICS )
 			);
-			exit;
+			return;
 		}
 
 		$metadata                     = null;
@@ -932,7 +932,7 @@ class Digitalogic_Admin {
 				'',
 				array( 'context' => Digitalogic_Panel_Error_Page::CONTEXT_UI_SETTINGS )
 			);
-			exit;
+			return;
         }
 
         if (isset($_POST['digitalogic_ui_settings_submit']) && check_admin_referer('digitalogic_ui_settings')) {
