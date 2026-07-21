@@ -11,6 +11,9 @@ define('ARRAY_A', 'ARRAY_A');
 define('MINUTE_IN_SECONDS', 60);
 define('HOUR_IN_SECONDS', 3600);
 define('DAY_IN_SECONDS', 86400);
+define('DIGITALOGIC_VERSION', 'test');
+define('DIGITALOGIC_PLUGIN_DIR', dirname(__DIR__) . '/');
+define('DIGITALOGIC_PLUGIN_URL', 'https://digitalogic.test/wp-content/plugins/digitalogic-wp/');
 // phpcs:enable
 
 // phpcs:disable Generic.Formatting.MultipleStatementAlignment -- Preserve the intentionally simple test-global registry.
@@ -20,6 +23,14 @@ $GLOBALS['digitalogic_test_routes'] = array();
 $GLOBALS['digitalogic_test_rest_prefix'] = 'wp-json';
 $GLOBALS['digitalogic_test_rest_url_calls'] = 0;
 $GLOBALS['digitalogic_test_current_user_can_calls'] = 0;
+$GLOBALS['digitalogic_test_current_user_id'] = 0;
+$GLOBALS['digitalogic_test_current_user'] = (object) array(
+    'ID' => 0,
+    'user_login' => '',
+    'display_name' => '',
+);
+$GLOBALS['digitalogic_test_status_headers'] = array();
+$GLOBALS['digitalogic_test_nocache_headers'] = 0;
 $GLOBALS['digitalogic_test_options'] = array();
 $GLOBALS['digitalogic_test_option_cache'] = array();
 $GLOBALS['digitalogic_test_actions'] = array();
@@ -273,6 +284,51 @@ function current_user_can($capability) {
     $GLOBALS['digitalogic_test_current_user_can_calls']++;
 
     return !empty($GLOBALS['digitalogic_test_capabilities'][$capability]);
+}
+
+function get_current_user_id() {
+    return (int) $GLOBALS['digitalogic_test_current_user_id'];
+}
+
+function wp_get_current_user() {
+    return $GLOBALS['digitalogic_test_current_user'];
+}
+
+function is_user_logged_in() {
+    return get_current_user_id() > 0;
+}
+
+function wp_login_url($redirect = '', $force_reauth = false) {
+    $url = 'https://digitalogic.test/wp-login.php';
+    return $redirect !== '' ? $url . '?redirect_to=' . rawurlencode((string) $redirect) : $url;
+}
+
+function wp_logout_url($redirect = '') {
+    $url = 'https://digitalogic.test/wp-login.php?action=logout';
+    return $redirect !== '' ? $url . '&redirect_to=' . rawurlencode((string) $redirect) : $url;
+}
+
+function status_header($status_code) {
+    $GLOBALS['digitalogic_test_status_headers'][] = (int) $status_code;
+}
+
+function nocache_headers() {
+    $GLOBALS['digitalogic_test_nocache_headers']++;
+}
+
+function wp_enqueue_style($handle, $src = '', $dependencies = array(), $version = false, $media = 'all') {
+    $GLOBALS['digitalogic_test_enqueued_styles'][$handle] = compact('src', 'dependencies', 'version', 'media');
+}
+
+function wp_print_styles($handles = false) {
+    $handles = false === $handles ? array_keys($GLOBALS['digitalogic_test_enqueued_styles']) : (array) $handles;
+    foreach ($handles as $handle) {
+        if (!isset($GLOBALS['digitalogic_test_enqueued_styles'][$handle])) {
+            continue;
+        }
+        $style = $GLOBALS['digitalogic_test_enqueued_styles'][$handle];
+        echo '<link rel="stylesheet" href="' . esc_url($style['src']) . '">';
+    }
 }
 
 function add_filter($hook_name, $callback, $priority = 10, $accepted_args = 1) {
@@ -2029,6 +2085,8 @@ require_once dirname(__DIR__) . '/includes/class-digitalogic-currency-date-forma
 require_once dirname(__DIR__) . '/includes/class-digitalogic-currency-shortcodes.php';
 require_once dirname(__DIR__) . '/includes/class-unit-converter.php';
 require_once dirname(__DIR__) . '/includes/class-digitalogic-woocommerce-currency-status.php';
+require_once dirname(__DIR__) . '/includes/class-digitalogic-access-control.php';
+require_once dirname(__DIR__) . '/includes/panel/class-digitalogic-panel-error-page.php';
 require_once dirname(__DIR__) . '/includes/class-product-identifier-resolver.php';
 require_once dirname(__DIR__) . '/includes/class-digitalogic-product-query.php';
 require_once dirname(__DIR__) . '/includes/class-digitalogic-product-metadata-inspector.php'; // phpcs:ignore
