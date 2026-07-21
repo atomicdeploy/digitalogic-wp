@@ -73,9 +73,9 @@ final class Digitalogic_Storefront_Order_Forms {
 				'supports'     => array( 'title', 'author' ),
 				'map_meta_cap' => true,
 				'capabilities' => array(
-					'edit_post'              => 'manage_woocommerce',
-					'read_post'              => 'manage_woocommerce',
-					'delete_post'            => 'manage_woocommerce',
+					'edit_post'              => 'edit_digitalogic_request',
+					'read_post'              => 'read_digitalogic_request',
+					'delete_post'            => 'delete_digitalogic_request',
 					'edit_posts'             => 'manage_woocommerce',
 					'edit_others_posts'      => 'manage_woocommerce',
 					'publish_posts'          => 'manage_woocommerce',
