@@ -258,11 +258,13 @@ The storefront displays the Persian WooCommerce title first and the Patris
 English identity below it. Selecting a variation updates the English identity
 to the child value. WooCommerce/Rank Math emits server-rendered JSON-LD Product
 data, adds the exact Code as SKU and the Patris name as `alternateName`, and
-emits MPN only when the reviewed part number is nonempty. An unpriced product
-keeps an honest base Product entity without a fabricated Offer; real existing
-offers are preserved. Because the storefront displays Toman while Google
-requires ISO 4217 currency codes, structured offers convert `IRT` amounts to
-their exact ten-times `IRR` equivalent without changing the represented value.
+emits MPN only when the reviewed part number is nonempty. An unpriced or
+zero-priced product keeps an honest base Product entity without a fabricated
+Offer; real existing offers are preserved. Because the storefront displays
+Toman while Google requires ISO 4217 currency codes, structured offers convert
+the complete `IRT` subtree atomically to its exact ten-times `IRR` equivalent.
+If any inherited Toman price is noncanonical, the original subtree is retained
+instead of partially relabelling its currency.
 
 Product search includes the WooCommerce/Persian title, Patris leaf and family
 names, exact SKU/Code, Patris serial, reviewed part number and model, variation

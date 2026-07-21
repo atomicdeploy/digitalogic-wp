@@ -169,7 +169,8 @@ final class Digitalogic_Product_Identity {
 		if ( '' !== $patris_name ) {
 			$entity['alternateName'] = $patris_name;
 		}
-		if ( '' === trim( (string) $product->get_price() ) ) {
+		$effective_price = trim( (string) $product->get_price() );
+		if ( '' === $effective_price || $this->is_zero_decimal( $effective_price ) ) {
 			unset( $entity['offers'] );
 		} elseif ( isset( $entity['offers'] ) ) {
 			$entity['offers'] = $this->normalize_toman_offer( $entity['offers'] );
@@ -196,43 +197,70 @@ final class Digitalogic_Product_Identity {
 	 * @return mixed
 	 */
 	private function normalize_toman_offer( $offer, $inherited_toman = false ) {
+		$valid                    = true;
+		$contains_converted_price = false;
+		$normalized               = $this->normalize_toman_offer_node(
+			$offer,
+			$inherited_toman,
+			$valid,
+			$contains_converted_price
+		);
+
+		return $valid ? $normalized : $offer;
+	}
+
+	/**
+	 * Normalize one offer subtree while sharing an all-or-nothing validity flag.
+	 *
+	 * @param mixed $offer Offer node or list.
+	 * @param bool  $inherited_toman Whether the parent declared IRT.
+	 * @param bool  $valid Whether every inherited Toman price is canonical.
+	 * @param bool  $contains_converted_price Whether this subtree converted a price.
+	 * @return mixed
+	 */
+	private function normalize_toman_offer_node( $offer, $inherited_toman, &$valid, &$contains_converted_price ) {
 		if ( ! is_array( $offer ) ) {
 			return $offer;
 		}
 		if ( array_is_list( $offer ) ) {
-			return array_map(
-				function ( $item ) use ( $inherited_toman ) {
-					return $this->normalize_toman_offer( $item, $inherited_toman );
-				},
-				$offer
-			);
+			$normalized = array();
+			foreach ( $offer as $item ) {
+				$child_converted = false;
+				$normalized[]    = $this->normalize_toman_offer_node( $item, $inherited_toman, $valid, $child_converted );
+				$contains_converted_price = $contains_converted_price || $child_converted;
+			}
+
+			return $normalized;
 		}
 
-		$original_offer    = $offer;
 		$declared_currency = strtoupper( trim( (string) ( $offer['priceCurrency'] ?? '' ) ) );
 		$is_toman          = '' === $declared_currency ? $inherited_toman : 'IRT' === $declared_currency;
 		if ( isset( $offer['priceSpecification'] ) ) {
-			$offer['priceSpecification'] = $this->normalize_toman_offer( $offer['priceSpecification'], $is_toman );
+			$child_converted             = false;
+			$offer['priceSpecification'] = $this->normalize_toman_offer_node( $offer['priceSpecification'], $is_toman, $valid, $child_converted );
+			$contains_converted_price    = $contains_converted_price || $child_converted;
 		}
 		if ( isset( $offer['offers'] ) ) {
-			$offer['offers'] = $this->normalize_toman_offer( $offer['offers'], $is_toman );
+			$child_converted          = false;
+			$offer['offers']          = $this->normalize_toman_offer_node( $offer['offers'], $is_toman, $valid, $child_converted );
+			$contains_converted_price = $contains_converted_price || $child_converted;
 		}
-		if ( ! $is_toman ) {
+		if ( ! $valid || ! $is_toman ) {
 			return $offer;
 		}
 
-		$has_price = false;
 		foreach ( array( 'price', 'lowPrice', 'highPrice' ) as $field ) {
 			if ( array_key_exists( $field, $offer ) ) {
 				$converted       = false;
-				$has_price       = true;
 				$offer[ $field ] = $this->multiply_decimal_by_ten( $offer[ $field ], $converted );
 				if ( ! $converted ) {
-					return $original_offer;
+					$valid = false;
+					return $offer;
 				}
+				$contains_converted_price = true;
 			}
 		}
-		if ( $has_price ) {
+		if ( $contains_converted_price ) {
 			$offer['priceCurrency'] = 'IRR';
 		}
 
@@ -266,6 +294,16 @@ final class Digitalogic_Product_Identity {
 		$result_scale = rtrim( substr( $fraction, 1 ), '0' );
 
 		return '' === $result_scale ? $result_whole : $result_whole . '.' . $result_scale;
+	}
+
+	/**
+	 * Determine whether a canonical WooCommerce decimal represents zero.
+	 *
+	 * @param string $value Canonical decimal text.
+	 * @return bool
+	 */
+	private function is_zero_decimal( $value ) {
+		return 1 === preg_match( '/^0+(?:\.0+)?$/', $value );
 	}
 
 	/**

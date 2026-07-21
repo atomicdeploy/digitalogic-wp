@@ -329,6 +329,37 @@ final class ProductIdentitySearchTest extends TestCase {
 		$this->assertArrayNotHasKey( 'offers', $entity );
 	}
 
+	public function test_zero_priced_product_does_not_emit_an_offer(): void {
+		$GLOBALS['digitalogic_test_posts'][16] = array(
+			'post_type'    => 'product',
+			'post_status'  => 'publish',
+			'product_type' => 'simple',
+			'post_title'   => 'Zero priced product',
+			'meta'         => array(
+				'_sku'                             => 'PAT-16',
+				'_price'                           => '000.000',
+				'_regular_price'                   => '000.000',
+				'_digitalogic_patris_product_code' => 'PAT-16',
+			),
+		);
+
+		$product  = wc_get_product( 16 );
+		$identity = ( new ReflectionClass( Digitalogic_Product_Identity::class ) )->newInstanceWithoutConstructor();
+		$entity   = $identity->add_product_schema_identity(
+			array(
+				'@type'  => 'Product',
+				'offers' => array(
+					'@type'         => 'Offer',
+					'price'         => '0',
+					'priceCurrency' => 'IRT',
+				),
+			),
+			$product
+		);
+
+		$this->assertArrayNotHasKey( 'offers', $entity );
+	}
+
 	public function test_toman_offer_uses_equivalent_iso_rial_price_without_float_drift(): void {
 		$GLOBALS['digitalogic_test_posts'][13] = array(
 			'post_type'    => 'product',
@@ -391,6 +422,79 @@ final class ProductIdentitySearchTest extends TestCase {
 		);
 
 		$this->assertSame( $offer, $entity['offers'] );
+	}
+
+	public function test_nested_noncanonical_toman_price_preserves_the_entire_offer_subtree(): void {
+		$GLOBALS['digitalogic_test_posts'][17] = array(
+			'post_type'    => 'product',
+			'post_status'  => 'publish',
+			'product_type' => 'variable',
+			'post_title'   => 'Atomic offer conversion',
+			'meta'         => array(
+				'_price'         => '10',
+				'_regular_price' => '10',
+			),
+		);
+
+		$product  = wc_get_product( 17 );
+		$identity = ( new ReflectionClass( Digitalogic_Product_Identity::class ) )->newInstanceWithoutConstructor();
+		$offer    = array(
+			'@type'         => 'AggregateOffer',
+			'lowPrice'      => '10',
+			'highPrice'     => '20',
+			'priceCurrency' => 'IRT',
+			'offers'        => array(
+				array(
+					'@type' => 'Offer',
+					'price' => '1,234',
+				),
+			),
+		);
+		$entity   = $identity->add_product_schema_identity(
+			array(
+				'@type'  => 'Product',
+				'offers' => $offer,
+			),
+			$product
+		);
+
+		$this->assertSame( $offer, $entity['offers'] );
+	}
+
+	public function test_declared_toman_container_with_only_nested_prices_is_relabelled_atomically(): void {
+		$GLOBALS['digitalogic_test_posts'][18] = array(
+			'post_type'    => 'product',
+			'post_status'  => 'publish',
+			'product_type' => 'variable',
+			'post_title'   => 'Nested offers',
+			'meta'         => array(
+				'_price'         => '12.34',
+				'_regular_price' => '12.34',
+			),
+		);
+
+		$product  = wc_get_product( 18 );
+		$identity = ( new ReflectionClass( Digitalogic_Product_Identity::class ) )->newInstanceWithoutConstructor();
+		$entity   = $identity->add_product_schema_identity(
+			array(
+				'@type'  => 'Product',
+				'offers' => array(
+					'@type'         => 'AggregateOffer',
+					'priceCurrency' => 'IRT',
+					'offers'        => array(
+						array(
+							'@type' => 'Offer',
+							'price' => '12.34',
+						),
+					),
+				),
+			),
+			$product
+		);
+
+		$this->assertSame( 'IRR', $entity['offers']['priceCurrency'] );
+		$this->assertSame( '123.4', $entity['offers']['offers'][0]['price'] );
+		$this->assertSame( 'IRR', $entity['offers']['offers'][0]['priceCurrency'] );
 	}
 
 	public function test_code_less_variable_parent_normalizes_nested_offers_and_exposes_family_name(): void {

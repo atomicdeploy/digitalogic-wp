@@ -26,7 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Patris catalog publication now fails closed unless source and WooCommerce prices, stock and weight, reviewed WooCommerce media, currency-qualified freight, markup, exchange rate, pricing assignment, canonical shipping, identity, category, enrichment, and source warnings all pass their readiness gates.
 - Canonical `air_express` assignment now remains on the in-memory WooCommerce product through its final materializer save instead of risking a stale-object overwrite.
-- Product JSON-LD adds the reviewed English Patris leaf or family name as `alternateName`, removes an impossible `Offer` when WooCommerce has no price, and converts Toman offers to their exact ISO `IRR` equivalent for Google without float drift.
+- Product JSON-LD adds the reviewed English Patris leaf or family name as `alternateName`, removes impossible offers for empty or zero WooCommerce prices, and atomically converts complete Toman offer subtrees to their exact ISO `IRR` equivalent without float drift or partial currency relabelling.
 - Shipping rates now carry an explicit `CNY` or `IRR` currency. Method objects use `price_per_kg` plus `currency`, while product-sync records use the required pair `shipping_price_per_kg` plus `shipping_price_per_kg_currency`.
 - Final-price validation converts CNY freight with the effective CNY-to-IRT rate and converts IRR freight to IRT before applying markup and a single final rounding step.
 - Shipping amounts, minimums, divisors, and tier bounds/rates now remain canonical decimal strings through storage and every outward projection, without exponent notation or binary-float loss.
