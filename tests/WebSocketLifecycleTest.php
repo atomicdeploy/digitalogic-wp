@@ -250,6 +250,9 @@ final class WebSocketLifecycleTest extends TestCase {
 
     public function test_subscriber_broadcasts_valid_durable_envelopes_and_suppresses_duplicates(): void {
         $pair = stream_socket_pair(STREAM_PF_UNIX, STREAM_SOCK_STREAM, STREAM_IPPROTO_IP);
+        if (false === $pair) {
+            $this->markTestSkipped('Unix socket pairs are unavailable on this platform.');
+        }
         $this->assertIsArray($pair);
         stream_set_timeout($pair[1], 1);
 
@@ -288,6 +291,9 @@ final class WebSocketLifecycleTest extends TestCase {
     }
 
     public function test_websocket_cli_catches_engine_errors_without_terminating_phpunit(): void {
+        if ('\\' === DIRECTORY_SEPARATOR) {
+            $this->markTestSkipped('The occupied-port server probe is not reliable on Windows.');
+        }
         $listener = stream_socket_server('tcp://127.0.0.1:0', $errno, $errstr);
         $this->assertIsResource($listener);
         $address = stream_socket_get_name($listener, false);

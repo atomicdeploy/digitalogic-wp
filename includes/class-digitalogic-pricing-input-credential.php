@@ -231,7 +231,6 @@ final class Digitalogic_Pricing_Input_Credential {
 		}
 
 		return array(
-			'schema_version' => self::SCHEMA_VERSION,
 			'configured'     => 'invalid' === $state,
 			'active'         => false,
 			'state'          => $state,
@@ -636,7 +635,6 @@ final class Digitalogic_Pricing_Input_Credential {
 	 */
 	private function metadata( $record ) {
 		return array(
-			'schema_version' => self::SCHEMA_VERSION,
 			'configured'     => true,
 			'active'         => 'active' === $record['status'],
 			'state'          => $record['status'],
@@ -656,8 +654,8 @@ final class Digitalogic_Pricing_Input_Credential {
 	 */
 	private function contracts() {
 		return array(
-			'GET /digitalogic/v1/integration/catalog',
-			'POST /digitalogic/v1/pricing-assignments/batch',
+			'GET /digitalogic/integration/catalog',
+			'POST /digitalogic/integration/pricing-assignments/batch',
 		);
 	}
 

@@ -1,0 +1,14 @@
+.digitalogic-patris-name,
+.digitalogic-variation-identity {
+    display: block;
+    margin-top: 0.25rem;
+    color: var(--wd-text-color, #666);
+    font-size: 0.875em;
+    font-weight: 400;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+}
+
+.digitalogic-variation-identity[hidden] {
+    display: none;
+}

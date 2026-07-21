@@ -20,7 +20,11 @@ $GLOBALS['digitalogic_test_option_cache'] = array();
 $GLOBALS['digitalogic_test_actions'] = array();
 $GLOBALS['digitalogic_test_action_callbacks'] = array();
 $GLOBALS['digitalogic_test_posts'] = array();
+$GLOBALS['digitalogic_test_next_post_id'] = 1;
 $GLOBALS['digitalogic_test_post_meta_cache'] = array();
+$GLOBALS['digitalogic_test_terms'] = array();
+$GLOBALS['digitalogic_test_term_meta'] = array();
+$GLOBALS['digitalogic_test_next_term_id'] = 1;
 $GLOBALS['digitalogic_test_update_failures'] = array();
 $GLOBALS['digitalogic_test_meta_update_failures'] = array();
 $GLOBALS['digitalogic_test_meta_delete_failures'] = array();
@@ -31,6 +35,7 @@ $GLOBALS['digitalogic_test_remote_post_results'] = array();
 $GLOBALS['digitalogic_test_wc_products'] = array();
 $GLOBALS['digitalogic_test_wc_product_saves'] = array();
 $GLOBALS['digitalogic_test_wc_save_failures'] = array();
+$GLOBALS['digitalogic_test_wc_save_fail_once'] = array();
 $GLOBALS['digitalogic_test_wc_lookup_rows'] = array();
 $GLOBALS['digitalogic_test_wc_data_store'] = null;
 $GLOBALS['digitalogic_test_wc_lookup_full_rebuilds'] = 0;
@@ -39,12 +44,15 @@ $GLOBALS['digitalogic_test_wp_query_args'] = array();
 $GLOBALS['digitalogic_test_wp_query_results'] = array();
 $GLOBALS['digitalogic_test_primed_post_ids'] = array();
 $GLOBALS['digitalogic_test_wc_currency'] = 'IRT';
+$GLOBALS['digitalogic_test_terms'] = array();
 $GLOBALS['digitalogic_test_transients'] = array(); // phpcs:ignore
 $GLOBALS['digitalogic_test_transient_deletes'] = array(); // phpcs:ignore
 $GLOBALS['digitalogic_test_rewrite_rules'] = array(); // phpcs:ignore
 $GLOBALS['digitalogic_test_rewrite_flushes'] = array(); // phpcs:ignore
 $GLOBALS['digitalogic_test_locale'] = 'en_US';
 $GLOBALS['digitalogic_test_shortcodes'] = array();
+$GLOBALS['digitalogic_test_enqueued_styles'] = array();
+$GLOBALS['digitalogic_test_enqueued_scripts'] = array();
 // phpcs:enable Generic.Formatting.MultipleStatementAlignment
 
 class WP_Error {
@@ -148,6 +156,7 @@ class WP_REST_Request implements ArrayAccess {
 class WP_REST_Response {
     private $data;
     private $status;
+	private $headers = array();
 
     public function __construct($data = null, $status = 200) {
         $this->data = $data;
@@ -161,6 +170,18 @@ class WP_REST_Response {
     public function get_status() {
         return $this->status;
     }
+
+	public function header($key, $value, $replace = true) {
+		if (!$replace && isset($this->headers[$key])) {
+			$this->headers[$key] .= ', ' . $value;
+			return;
+		}
+		$this->headers[$key] = $value;
+	}
+
+	public function get_headers() {
+		return $this->headers;
+	}
 }
 
 // phpcs:disable -- Test-only WordPress query stubs intentionally follow the legacy bootstrap style.
@@ -647,6 +668,12 @@ function absint($value) {
 
 function sanitize_key($value) {
     return preg_replace('/[^a-z0-9_\-]/', '', strtolower((string) $value));
+}
+
+function sanitize_title($value) {
+    $value = strtolower(trim((string) $value));
+    $value = preg_replace('/[^a-z0-9\-_]+/', '-', $value);
+    return trim((string) $value, '-');
 }
 
 function sanitize_text_field($value) {
@@ -1274,6 +1301,32 @@ class WC_Product {
         return (array) ($GLOBALS['digitalogic_test_posts'][$this->id]['category_ids'] ?? array());
     }
 
+    public function get_short_description() {
+        return (string) ($GLOBALS['digitalogic_test_posts'][$this->id]['post_excerpt'] ?? '');
+    }
+
+    public function get_catalog_visibility() {
+        return (string) ($GLOBALS['digitalogic_test_posts'][$this->id]['catalog_visibility'] ?? 'visible');
+    }
+
+    public function get_attributes() {
+        return (array) ($GLOBALS['digitalogic_test_posts'][$this->id]['attributes'] ?? array());
+    }
+
+    public function get_variation_attributes() {
+        $attributes = array();
+        foreach ($this->meta as $key => $value) {
+            if (0 === strpos((string) $key, 'attribute_')) {
+                $attributes[(string) $key] = (string) $value;
+            }
+        }
+        return $attributes;
+    }
+
+    public function get_default_attributes() {
+        return (array) ($GLOBALS['digitalogic_test_posts'][$this->id]['default_attributes'] ?? array());
+    }
+
     public function get_total_sales() {
         return (int) ($this->meta['total_sales'] ?? 0);
     }
@@ -1283,6 +1336,9 @@ class WC_Product {
     }
 
     public function get_meta($key, $single = true) {
+        if (0 === strpos((string) $key, 'attribute_')) {
+            return '';
+        }
         return $this->meta[$key] ?? '';
     }
 
@@ -1335,10 +1391,48 @@ class WC_Product {
     public function set_status($value) {
         $GLOBALS['digitalogic_test_posts'][$this->id]['post_status'] = (string) $value;
     }
+
+    public function set_short_description($value) {
+        $GLOBALS['digitalogic_test_posts'][$this->id]['post_excerpt'] = (string) $value;
+    }
+
+    public function set_catalog_visibility($value) {
+        $GLOBALS['digitalogic_test_posts'][$this->id]['catalog_visibility'] = (string) $value;
+    }
+
+    public function set_parent_id($value) {
+        $GLOBALS['digitalogic_test_posts'][$this->id]['post_parent'] = (int) $value;
+    }
+
+    public function set_attributes($value) {
+        $value = (array) $value;
+        $contains_objects = false;
+        foreach ($value as $attribute) {
+            if ($attribute instanceof WC_Product_Attribute) {
+                $contains_objects = true;
+                break;
+            }
+        }
+        if ($contains_objects) {
+            $GLOBALS['digitalogic_test_posts'][$this->id]['attributes'] = $value;
+            return;
+        }
+        foreach ($value as $taxonomy => $option) {
+            $this->meta['attribute_' . $taxonomy] = (string) $option;
+        }
+    }
+
+    public function set_default_attributes($value) {
+        $GLOBALS['digitalogic_test_posts'][$this->id]['default_attributes'] = (array) $value;
+    }
     // phpcs:enable
 
     public function update_meta_data($key, $value) {
         $this->meta[$key] = $value;
+    }
+
+    public function delete_meta_data($key) {
+        unset($this->meta[$key]);
     }
 
     public function set_weight($value) {
@@ -1352,8 +1446,12 @@ class WC_Product {
     }
 
     public function set_stock_quantity($value) {
-        $this->stock_quantity = (int) $value;
-        $this->meta['_stock'] = (int) $value; // phpcs:ignore -- Keep test product metadata synchronized.
+        $this->stock_quantity = null === $value ? null : (int) $value;
+        if (null === $value) {
+            unset($this->meta['_stock']);
+        } else {
+            $this->meta['_stock'] = (int) $value; // phpcs:ignore -- Keep test product metadata synchronized.
+        }
     }
 
     public function set_stock_status($value) {
@@ -1397,11 +1495,89 @@ class WC_Product {
         if (in_array($this->id, $GLOBALS['digitalogic_test_wc_save_failures'] ?? array(), true)) {
             throw new RuntimeException('Injected WooCommerce save failure.');
         }
+        $fail_once_at = (int) ($GLOBALS['digitalogic_test_wc_save_fail_once'][$this->id] ?? 0);
+        if ($fail_once_at > 0 && $fail_once_at === $this->save_count + 1) {
+            unset($GLOBALS['digitalogic_test_wc_save_fail_once'][$this->id]);
+            throw new RuntimeException('Injected one-time WooCommerce save failure.');
+        }
         $this->save_count++;
         $GLOBALS['digitalogic_test_posts'][$this->id]['meta'] = $this->meta;
         $GLOBALS['digitalogic_test_wc_product_saves'][] = $this->id;
         return $this->id;
     }
+}
+
+class WC_Product_Simple extends WC_Product {
+    public function __construct($id = 0) {
+        if ((int) $id <= 0) {
+            $id = max(1, (int) ($GLOBALS['digitalogic_test_next_post_id'] ?? 1));
+            while (isset($GLOBALS['digitalogic_test_posts'][$id])) {
+                $id++;
+            }
+            $GLOBALS['digitalogic_test_next_post_id'] = $id + 1;
+            $GLOBALS['digitalogic_test_posts'][$id] = array(
+                'post_type' => 'product',
+                'post_status' => 'draft',
+                'product_type' => 'simple',
+                'post_title' => '',
+                'post_excerpt' => '',
+                'meta' => array(),
+            );
+        }
+        parent::__construct($id);
+        $GLOBALS['digitalogic_test_posts'][$this->id]['product_type'] = 'simple';
+    }
+}
+
+class WC_Product_Variation extends WC_Product {
+    public function __construct($id = 0) {
+        if ((int) $id <= 0) {
+            $id = max(1, (int) ($GLOBALS['digitalogic_test_next_post_id'] ?? 1));
+            while (isset($GLOBALS['digitalogic_test_posts'][$id])) {
+                $id++;
+            }
+            $GLOBALS['digitalogic_test_next_post_id'] = $id + 1;
+            $GLOBALS['digitalogic_test_posts'][$id] = array(
+                'post_type' => 'product_variation',
+                'post_status' => 'draft',
+                'product_type' => 'variation',
+                'post_parent' => 0,
+                'post_title' => '',
+                'meta' => array(),
+            );
+        }
+        parent::__construct($id);
+        $GLOBALS['digitalogic_test_posts'][$this->id]['post_type'] = 'product_variation';
+        $GLOBALS['digitalogic_test_posts'][$this->id]['product_type'] = 'variation';
+    }
+}
+
+class WC_Product_Variable extends WC_Product {
+    public static $synced_ids = array();
+
+    public static function sync($product_id) {
+        self::$synced_ids[] = (int) $product_id;
+        return true;
+    }
+}
+
+class WC_Product_Attribute {
+    private $id = 0;
+    private $name = '';
+    private $options = array();
+    private $position = 0;
+    private $visible = false;
+    private $variation = false;
+
+    public function set_id($value) { $this->id = (int) $value; }
+    public function set_name($value) { $this->name = (string) $value; }
+    public function set_options($value) { $this->options = array_values((array) $value); }
+    public function set_position($value) { $this->position = (int) $value; }
+    public function set_visible($value) { $this->visible = (bool) $value; }
+    public function set_variation($value) { $this->variation = (bool) $value; }
+    public function get_options() { return $this->options; }
+    public function get_visible() { return $this->visible; }
+    public function get_variation() { return $this->variation; }
 }
 
 // phpcs:disable -- Test-only WordPress and WooCommerce stubs intentionally follow the legacy bootstrap style.
@@ -1418,11 +1594,156 @@ function wp_get_post_revisions($post_id) {
 }
 
 function get_term($term_id, $taxonomy = '') {
-    return new WP_Error('term_not_found', 'Term not found.');
+	$term_id = (int) $term_id;
+	foreach (($GLOBALS['digitalogic_test_terms'] ?? array()) as $stored) {
+		$term = is_object($stored) ? $stored : (object) $stored;
+		if (
+			(int) ($term->term_id ?? 0) === $term_id
+			&& ('' === $taxonomy || !isset($term->taxonomy) || (string) $term->taxonomy === (string) $taxonomy)
+		) {
+			return $term;
+		}
+	}
+
+	return new WP_Error('term_not_found', 'Term not found.');
 }
 
 function get_terms($args = array()) {
-    return array();
+	$terms = array();
+	foreach (($GLOBALS['digitalogic_test_terms'] ?? array()) as $term_id => $term) {
+		$term = is_object($term) ? $term : (object) $term;
+		if (isset($args['taxonomy']) && isset($term->taxonomy) && (string) $args['taxonomy'] !== (string) $term->taxonomy) {
+			continue;
+		}
+		if (isset($args['parent']) && (int) $args['parent'] !== (int) ($term->parent ?? 0)) {
+			continue;
+		}
+		if (isset($args['name']) && (string) $args['name'] !== (string) ($term->name ?? '')) {
+			continue;
+		}
+		if (isset($args['meta_key'])) {
+			$resolved_id = (int) ($term->term_id ?? $term_id);
+			$meta = $GLOBALS['digitalogic_test_term_meta'][$resolved_id][$args['meta_key']] ?? '';
+			if ((string) $meta !== (string) ($args['meta_value'] ?? '')) {
+				continue;
+			}
+		}
+		if (!empty($args['include']) && !in_array((int) ($term->term_id ?? 0), array_map('intval', (array) $args['include']), true)) {
+			continue;
+		}
+		$terms[] = $term;
+	}
+	usort($terms, static fn($left, $right) => (int) ($left->term_id ?? 0) <=> (int) ($right->term_id ?? 0));
+	if ('DESC' === strtoupper((string) ($args['order'] ?? 'ASC'))) {
+		$terms = array_reverse($terms);
+	}
+	$offset = max(0, (int) ($args['offset'] ?? 0));
+	if (isset($args['number']) && (int) $args['number'] > 0) {
+		return array_slice($terms, $offset, (int) $args['number']);
+	}
+
+	return array_slice($terms, $offset);
+}
+
+function term_exists($term, $taxonomy = '', $parent_term = null) {
+    foreach (($GLOBALS['digitalogic_test_terms'] ?? array()) as $term_id => $stored) {
+        if (
+            (string) ($stored['name'] ?? '') === (string) $term
+            && ('' === $taxonomy || (string) ($stored['taxonomy'] ?? '') === (string) $taxonomy)
+            && (null === $parent_term || (int) ($stored['parent'] ?? 0) === (int) $parent_term)
+        ) {
+            return array('term_id' => (string) $term_id, 'term_taxonomy_id' => (string) $term_id);
+        }
+    }
+
+    return null;
+}
+
+function wp_insert_term($term, $taxonomy, $args = array()) {
+    $parent = (int) ($args['parent'] ?? 0);
+    $existing = term_exists($term, $taxonomy, $parent);
+    if (is_array($existing)) {
+        return new WP_Error('term_exists', 'Term already exists.', (int) $existing['term_id']);
+    }
+    $next = max(1, (int) ($GLOBALS['digitalogic_test_next_term_id'] ?? 1));
+    while (isset($GLOBALS['digitalogic_test_terms'][$next])) {
+        $next++;
+    }
+    $GLOBALS['digitalogic_test_next_term_id'] = $next + 1;
+    $GLOBALS['digitalogic_test_terms'][$next] = array(
+        'term_id' => $next,
+        'name' => (string) $term,
+        'slug' => isset($args['slug']) ? (string) $args['slug'] : sanitize_title($term),
+        'parent' => $parent,
+        'taxonomy' => (string) $taxonomy,
+    );
+
+    return array('term_id' => $next, 'term_taxonomy_id' => $next);
+}
+
+function wp_update_term($term_id, $taxonomy, $args = array()) {
+    $term_id = (int) $term_id;
+    if (!isset($GLOBALS['digitalogic_test_terms'][$term_id])) {
+        return new WP_Error('term_not_found', 'Term not found.');
+    }
+    if (isset($args['name'])) {
+        $GLOBALS['digitalogic_test_terms'][$term_id]['name'] = (string) $args['name'];
+    }
+    if (isset($args['parent'])) {
+        $GLOBALS['digitalogic_test_terms'][$term_id]['parent'] = (int) $args['parent'];
+    }
+    $GLOBALS['digitalogic_test_terms'][$term_id]['taxonomy'] = (string) $taxonomy;
+
+    return array('term_id' => $term_id, 'term_taxonomy_id' => $term_id);
+}
+
+function get_term_meta($term_id, $key = '', $single = false) {
+    $value = $GLOBALS['digitalogic_test_term_meta'][(int) $term_id][(string) $key] ?? '';
+    return $single ? $value : ('' === $value ? array() : array($value));
+}
+
+function update_term_meta($term_id, $meta_key, $meta_value, $prev_value = '') {
+    $term_id = (int) $term_id;
+    if (!isset($GLOBALS['digitalogic_test_terms'][$term_id])) {
+        return false;
+    }
+    $GLOBALS['digitalogic_test_term_meta'][$term_id][(string) $meta_key] = $meta_value;
+
+    return true;
+}
+
+function clean_term_cache($ids, $taxonomy = '') {
+    return true;
+}
+
+function wp_set_object_terms($object_id, $terms, $taxonomy, $append = false) {
+    if ('product_type' === $taxonomy) {
+        $GLOBALS['digitalogic_test_posts'][(int) $object_id]['product_type'] = (string) $terms;
+    }
+    return array((int) $object_id);
+}
+
+function wc_delete_product_transients($product_id = 0) {
+    if ((int) $product_id > 0) {
+        unset($GLOBALS['digitalogic_test_wc_products'][(int) $product_id]);
+    }
+    return true;
+}
+
+function wc_attribute_taxonomy_id_by_name($name) {
+	return str_starts_with((string) $name, 'pa_') ? 1 : 0;
+}
+
+function wp_count_terms($args = array()) {
+	return count($GLOBALS['digitalogic_test_terms']);
+}
+
+function get_term_link($term, $taxonomy = '') {
+    if (!is_object($term) || empty($term->term_id)) {
+        return new WP_Error('term_not_found', 'Term not found.');
+    }
+
+	return 'https://digitalogic.test/product-category/' . (string) ($term->slug ?? $term->term_id);
 }
 
 function admin_url($path = '') {
@@ -1652,12 +1973,15 @@ require_once dirname(__DIR__) . '/includes/admin/class-digitalogic-product-table
 require_once dirname(__DIR__) . '/includes/class-digitalogic-pricing-input-credential.php'; // phpcs:ignore
 require_once dirname(__DIR__) . '/includes/class-patris-feed.php';
 require_once dirname(__DIR__) . '/includes/class-product-sync-receiver.php';
-require_once dirname(__DIR__) . '/includes/class-import-freight-service.php';
+require_once dirname(__DIR__) . '/includes/class-shipping-method-service.php';
+require_once dirname(__DIR__) . '/includes/class-patris-catalog-materializer.php';
+require_once dirname(__DIR__) . '/includes/class-digitalogic-google-sheets-catalog.php';
 require_once dirname(__DIR__) . '/includes/class-command-dispatcher.php';
 require_once dirname(__DIR__) . '/includes/api/class-rest-api.php';
 require_once dirname(__DIR__) . '/includes/api/class-webhooks.php';
 require_once dirname(__DIR__) . '/includes/class-report-engine.php';
 require_once dirname(__DIR__) . '/includes/integrations/class-laravel-bridge.php';
 require_once dirname(__DIR__) . '/includes/panel/class-panel.php';
+require_once dirname(__DIR__) . '/includes/integrations/class-product-identity.php';
 require_once dirname(__DIR__) . '/includes/websocket/class-websocket-server.php';
 require_once dirname(__DIR__) . '/includes/cli/class-cli-commands.php';
