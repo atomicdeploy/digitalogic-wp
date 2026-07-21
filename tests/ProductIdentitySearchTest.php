@@ -210,6 +210,37 @@ final class ProductIdentitySearchTest extends TestCase {
 		$this->assertSame( 'IRR', $entity['offers']['priceCurrency'] );
 	}
 
+	public function test_noncanonical_toman_offer_is_not_relabelled_as_rial(): void {
+		$GLOBALS['digitalogic_test_posts'][15] = array(
+			'post_type'    => 'product',
+			'post_status'  => 'publish',
+			'product_type' => 'simple',
+			'post_title'   => 'محصول قیمت‌دار',
+			'meta'         => array(
+				'_price'                           => '123.45',
+				'_regular_price'                   => '123.45',
+				'_digitalogic_patris_product_code' => 'PAT-15',
+			),
+		);
+
+		$product  = wc_get_product( 15 );
+		$identity = ( new ReflectionClass( Digitalogic_Product_Identity::class ) )->newInstanceWithoutConstructor();
+		$offer    = array(
+			'@type'         => 'Offer',
+			'price'         => '1,234',
+			'priceCurrency' => 'IRT',
+		);
+		$entity   = $identity->add_product_schema_identity(
+			array(
+				'@type'  => 'Product',
+				'offers' => $offer,
+			),
+			$product
+		);
+
+		$this->assertSame( $offer, $entity['offers'] );
+	}
+
 	public function test_code_less_variable_parent_normalizes_nested_offers_and_exposes_family_name(): void {
 		$GLOBALS['digitalogic_test_posts'][14] = array(
 			'post_type'    => 'product',

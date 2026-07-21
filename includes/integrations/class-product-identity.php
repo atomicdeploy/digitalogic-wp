@@ -131,6 +131,7 @@ final class Digitalogic_Product_Identity {
 			);
 		}
 
+		$original_offer    = $offer;
 		$declared_currency = strtoupper( trim( (string) ( $offer['priceCurrency'] ?? '' ) ) );
 		$is_toman          = '' === $declared_currency ? $inherited_toman : 'IRT' === $declared_currency;
 		if ( isset( $offer['priceSpecification'] ) ) {
@@ -146,11 +147,15 @@ final class Digitalogic_Product_Identity {
 		$has_price = false;
 		foreach ( array( 'price', 'lowPrice', 'highPrice' ) as $field ) {
 			if ( array_key_exists( $field, $offer ) ) {
+				$converted       = false;
 				$has_price       = true;
-				$offer[ $field ] = $this->multiply_decimal_by_ten( $offer[ $field ] );
+				$offer[ $field ] = $this->multiply_decimal_by_ten( $offer[ $field ], $converted );
+				if ( ! $converted ) {
+					return $original_offer;
+				}
 			}
 		}
-		if ( isset( $offer['priceCurrency'] ) || $has_price ) {
+		if ( $has_price ) {
 			$offer['priceCurrency'] = 'IRR';
 		}
 
@@ -161,13 +166,16 @@ final class Digitalogic_Product_Identity {
 	 * Multiply one nonnegative canonical decimal by ten without float drift.
 	 *
 	 * @param mixed $value Decimal value.
+	 * @param bool  $converted Whether conversion succeeded.
 	 * @return mixed
 	 */
-	private function multiply_decimal_by_ten( $value ) {
+	private function multiply_decimal_by_ten( $value, &$converted ) {
+		$converted = false;
 		$text = trim( (string) $value );
 		if ( ! preg_match( '/^([0-9]+)(?:\.([0-9]+))?$/', $text, $matches ) ) {
 			return $value;
 		}
+		$converted = true;
 
 		$whole    = ltrim( $matches[1], '0' );
 		$whole    = '' === $whole ? '0' : $whole;

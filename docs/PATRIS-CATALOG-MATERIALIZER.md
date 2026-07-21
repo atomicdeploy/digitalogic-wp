@@ -40,7 +40,9 @@ Freight arrives as the inseparable `shipping_price_per_kg` and
 - An existing variable product may become a simple leaf only when the manifest
   explicitly sets `convert_empty_variable_to_simple` and the container still
   has zero children.
-- Product images are outside this workflow and are not read or changed.
+- Product images are not imported or changed. Publication only reads the
+  existing WooCommerce featured-image reference and requires it to resolve to
+  media that was attached through the separate reviewed image workflow.
 - Apply runs hold a named MySQL advisory lock and trigger receiver
   reconciliation after the reviewed writes finish.
 
@@ -268,22 +270,26 @@ records, global attribute values, and product categories.
 
 ## Publication gates
 
-A leaf is publish-ready when all of these remain true at apply time:
+A leaf is publish-ready only when all of these remain true at apply time:
 
 - source and WooCommerce stock are positive;
-- WooCommerce has the canonical `air_express` supplier shipping assignment;
-- the source has no blocking Patris warnings; missing product price, weight,
-  image, freight, markup, or pricing-assignment warnings are informational and
-  never block publication;
+- source foreign price, calculated final price, WooCommerce regular/effective
+  price, source weight, and WooCommerce weight are positive;
+- the source supplier shipping method is exactly `air_express`, its freight
+  price is positive and paired with an explicit `CNY` or `IRR` currency, and
+  WooCommerce has the same canonical assignment;
+- markup is present and nonnegative, the CNY-to-IRT exchange rate is positive,
+  and pricing-catalog revision and status identify the resolved assignment;
+- the source has no Patris warnings, including missing image, pricing,
+  assignment, freight, weight, or exchange-rate warnings;
+- WooCommerce has a featured image whose attachment still resolves;
 - a reviewed category is available and assigned;
 - Persian name, short description, SEO title, SEO description, focus keyword,
   Patris Code, and matching SKU are present.
 
-Missing product price, weight, or image values remain empty rather than being
-invented. WooCommerce publishes those pages normally; an empty price remains
-non-purchasable until a real price arrives. Product rich-result and merchant
-listing eligibility may remain limited until Google-required price or image
-properties truthfully exist, but ordinary crawling and indexing are not gated.
+Missing commerce or media values remain empty rather than being invented, and
+the product remains draft. Reconciliation may safely fill those fields later;
+publication must be requested again after every gate passes.
 
 For variations, publication also requires the reviewed variable parent
 enrichment. The parent is published and made visible only after the child is
