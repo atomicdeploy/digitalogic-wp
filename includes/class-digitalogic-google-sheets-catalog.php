@@ -232,9 +232,13 @@ final class Digitalogic_Google_Sheets_Catalog {
 			$row['sync_status'] = $warnings ? 'warning' : 'ok';
 			$row['sync_error']  = implode( ';', $warnings );
 
+			$revision_material      = array(
+				'row'           => $row,
+				'exact_sources' => $this->exact_product_revision_sources( $product, $assignment, $method ),
+			);
 			$row['record_revision'] = 'sha256:' . hash(
 				'sha256',
-				wp_json_encode( $row, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES )
+				wp_json_encode( $revision_material, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES )
 			);
 			$rows[]                 = $row;
 		}
@@ -1006,6 +1010,99 @@ final class Digitalogic_Google_Sheets_Catalog {
 		}
 
 		return $number;
+	}
+
+	/**
+	 * Preserve exact pre-display numeric sources in optimistic row revisions.
+	 *
+	 * Sheets display values intentionally remain numbers, but PHP floats cannot
+	 * distinguish every allowed WooCommerce decimal. Hashing scalar source text
+	 * alongside the display row prevents distinct prices from sharing a revision.
+	 *
+	 * @param array $product Canonical product record.
+	 * @param array $assignment Product pricing/shipping assignment.
+	 * @param array $method Selected shipping method.
+	 * @return array
+	 */
+	private function exact_product_revision_sources( $product, $assignment, $method ) {
+		$product_keys    = array(
+			'id',
+			'parent_id',
+			'regular_price',
+			'sale_price',
+			'price',
+			'patris_final_price',
+			'stock_quantity',
+			'patris_total_stock',
+			'patris_minimum_stock',
+			'patris_weight_grams',
+			'weight',
+			'patris_foreign_price',
+			'patris_warehouse_stock',
+		);
+		$assignment_keys = array( 'shipping_method_id', 'profit_percent' );
+		$method_keys     = array( 'price_per_kg' );
+
+		return array(
+			'product'    => $this->revision_source_fields( $product, $product_keys ),
+			'assignment' => $this->revision_source_fields( $assignment, $assignment_keys ),
+			'method'     => $this->revision_source_fields( $method, $method_keys ),
+		);
+	}
+
+	/**
+	 * Build stable descriptors for selected source fields.
+	 *
+	 * @param array $source Source record.
+	 * @param array $keys Selected keys.
+	 * @return array
+	 */
+	private function revision_source_fields( $source, $keys ) {
+		$fields = array();
+		foreach ( $keys as $key ) {
+			if ( ! is_array( $source ) || ! array_key_exists( $key, $source ) ) {
+				$fields[ $key ] = array( 'exists' => false );
+				continue;
+			}
+			$fields[ $key ] = array(
+				'exists' => true,
+				'value'  => $this->stable_revision_value( $source[ $key ] ),
+			);
+		}
+
+		return $fields;
+	}
+
+	/**
+	 * Recursively stringify scalars and sort associative keys.
+	 *
+	 * @param mixed $value Source value.
+	 * @return mixed
+	 */
+	private function stable_revision_value( $value ) {
+		if ( null === $value ) {
+			return null;
+		}
+		if ( is_bool( $value ) ) {
+			return $value ? 'true' : 'false';
+		}
+		if ( is_scalar( $value ) ) {
+			return (string) $value;
+		}
+		if ( ! is_array( $value ) ) {
+			return array( 'unsupported_type' => get_debug_type( $value ) );
+		}
+
+		$is_list = array_is_list( $value );
+		if ( ! $is_list ) {
+			ksort( $value, SORT_STRING );
+		}
+		$stable = array();
+		foreach ( $value as $key => $item ) {
+			$stable[ $key ] = $this->stable_revision_value( $item );
+		}
+
+		return $stable;
 	}
 
 	/**

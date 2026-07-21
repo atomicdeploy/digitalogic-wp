@@ -190,13 +190,18 @@ curl -X POST https://yoursite.com/wp-json/digitalogic/v1/products/batch \
 
 #### Google Sheets
 - `GET /wp-json/digitalogic/v1/google-sheets/catalog` - Read a bounded, canonical `products` or `categories` dataset
+- `POST /wp-json/digitalogic/v1/google-sheets/writeback/preview` - Validate a bounded, revision-checked product change set without mutation
+- `POST /wp-json/digitalogic/v1/google-sheets/writeback/apply` - Apply the exact previewed change set with idempotency, audit, and conflict-safe compensation
 
 The supplied Apps Script performs idempotent upserts keyed by exact Patris Code
 or the display-only `woo:<id>` fallback, preserves identifier cells as text,
 and stores credentials only in Script Properties. Patris matching never falls
 back to SKU. Catalog rows follow the living sparse response: an absent key means
 no source/reference value, while `null` is emitted only for an explicit upstream
-null. See [Google Sheets catalog synchronization](docs/GOOGLE-SHEETS.md).
+null. The opt-in `Changes`, `Audit`, and Dashboard workflow can call the site
+directly or through the supplied inactive n8n proxy template. See [Google Sheets
+catalog synchronization](docs/GOOGLE-SHEETS.md) and [editable Google Sheets
+writeback](docs/GOOGLE-SHEETS-WRITEBACK.md).
 
 #### Currency
 - `GET /wp-json/digitalogic/v1/currency` - Get currency rates and read-only WooCommerce base-currency status

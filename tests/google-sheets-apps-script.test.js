@@ -16,6 +16,10 @@ const n8nPath = path.join(
 );
 const n8nSource = fs.readFileSync(n8nPath, 'utf8');
 const n8nWorkflow = JSON.parse(n8nSource);
+const appsScriptManifest = JSON.parse(fs.readFileSync(
+  path.join(__dirname, '..', 'assets', 'integrations', 'google-apps-script', 'appsscript.json'),
+  'utf8'
+));
 const sandbox = { module: { exports: {} }, exports: {} };
 vm.runInNewContext(source, sandbox, { filename: sourcePath });
 
@@ -85,7 +89,88 @@ test('Apps Script keeps secrets in properties and manages distinct tabs', () => 
   assert.match(source, /setNumberFormat\('@'\)/);
   assert.match(source, /newTrigger\('syncCatalog'\)/);
   assert.match(source, /headers\.Authorization = 'Basic '/);
-  assert.doesNotMatch(source, /openById|DIGITALOGIC_SPREADSHEET_ID/);
+  assert.match(source, /DIGITALOGIC_SPREADSHEET_ID/);
+  assert.match(source, /SpreadsheetApp\.openById\(config\.spreadsheetId\)/);
+  assert.ok(appsScriptManifest.oauthScopes.includes('https://www.googleapis.com/auth/spreadsheets'));
+  assert.ok(!appsScriptManifest.oauthScopes.includes('https://www.googleapis.com/auth/spreadsheets.currentonly'));
+});
+
+test('explicit spreadsheet destinations remain supported for scheduled standalone sync', () => {
+  const expected = { id: 'sheet-123' };
+  sandbox.SpreadsheetApp = {
+    openById(id) {
+      assert.equal(id, 'sheet-123');
+      return expected;
+    },
+    getActiveSpreadsheet() {
+      throw new Error('active spreadsheet fallback must not run');
+    },
+  };
+
+  assert.equal(sandbox.module.exports.getSpreadsheet_({ spreadsheetId: 'sheet-123' }), expected);
+});
+
+test('standalone scheduled sync uses script state and leaves writeback workspace opt-in', () => {
+  const standalone = { module: { exports: {} }, exports: {} };
+  vm.runInNewContext(source, standalone, { filename: sourcePath });
+  const state = {};
+  const properties = {
+    getProperty(key) { return state[key] ?? null; },
+    setProperty(key, value) { state[key] = value; },
+    setProperties(update) { Object.assign(state, update); },
+  };
+  let documentPropertyCalls = 0;
+  let workspaceCalls = 0;
+  let released = false;
+  const upserts = [];
+  const spreadsheet = {
+    getSheetByName(name) {
+      assert.equal(name, 'Dashboard');
+      return null;
+    },
+    toast() {},
+  };
+
+  standalone.PropertiesService = {
+    getDocumentProperties() {
+      documentPropertyCalls += 1;
+      throw new Error('DocumentProperties are unavailable to standalone scripts.');
+    },
+    getScriptProperties() { return properties; },
+  };
+  standalone.LockService = {
+    getScriptLock() {
+      return {
+        waitLock(timeout) { assert.equal(timeout, 30000); },
+        releaseLock() { released = true; },
+      };
+    },
+  };
+  standalone.getConfig_ = () => ({ spreadsheetId: 'sheet-123', locale: 'en' });
+  standalone.getSpreadsheet_ = () => spreadsheet;
+  standalone.fetchDataset_ = (config, dataset) => ({
+    id: dataset.id,
+    columns: [{ key: 'sync_key' }],
+    rows: [],
+    pageRevisions: [],
+  });
+  standalone.calculateRevision_ = () => `sha256:${'1'.repeat(64)}`;
+  standalone.upsertDataset_ = (target, dataset) => upserts.push([target, dataset.id]);
+  standalone.ensureWritebackWorkspace_ = () => {
+    workspaceCalls += 1;
+    throw new Error('catalog sync must not create writeback tabs');
+  };
+
+  const result = standalone.module.exports.syncCatalog();
+
+  assert.equal(result.status, 'updated');
+  assert.equal(result.revision, `sha256:${'1'.repeat(64)}`);
+  assert.equal(documentPropertyCalls, 0);
+  assert.equal(workspaceCalls, 0);
+  assert.equal(upserts.length, 2);
+  assert.equal(state.DIGITALOGIC_CATALOG_REVISION, result.revision);
+  assert.equal(state.DIGITALOGIC_LAST_SYNC_STATUS, 'ok');
+  assert.equal(released, true);
 });
 
 test('managed protections retain only the executing owner and disable domain edits', () => {

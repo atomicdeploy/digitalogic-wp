@@ -27,6 +27,14 @@ Viewer or Commenter access only. If untrusted users must submit edits, move
 secrets and authorization to an external identity-validated service; sheet
 protections do not create that security boundary.
 
+For scheduled catalog-only synchronization from a standalone Apps Script
+project, `DIGITALOGIC_SPREADSHEET_ID` remains supported. The editable menu and
+owner-operated preview/apply workflow are intended for the bound workbook;
+standalone projects must be treated as trusted operator automation.
+Catalog sync stores state in document properties when bound and script
+properties when standalone. It never creates or validates `Changes`, `Audit`,
+or `Dashboard`; **Set up editable workspace** is the explicit opt-in step.
+
 The bound script protects the two canonical tabs, the Changes header, and the
 Audit log for the executing workbook owner only; non-owner protection editors
 and domain-wide edit access are removed. Run setup, sync, preview, and apply
@@ -87,6 +95,12 @@ prevents a row from changing a different product through an SKU or display-key
 fallback. `expected_record_revision` must be the current
 `sha256:<64 hex>` value from `Products`. A stale revision returns a conflict
 instead of overwriting a newer WooCommerce/Patris value.
+Revision hashes include the exact source decimal strings as well as their
+numeric display cells, so prices near the supported precision ceiling remain
+distinct. Apply holds the same per-product lock used by normal WooCommerce CRUD
+writes from revision recheck through verification and compensation. Shipping
+uses a transactional compare-and-set for both apply and rollback, preserving a
+newer assignment instead of compensating over it.
 
 Only these fields are writable:
 

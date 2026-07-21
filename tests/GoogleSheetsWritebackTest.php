@@ -41,6 +41,7 @@ final class GoogleSheetsWritebackTest extends TestCase {
 		$GLOBALS['digitalogic_test_wc_set_price_calls']   = array();
 		$GLOBALS['digitalogic_test_wc_after_save']        = null;
 		$GLOBALS['digitalogic_test_actions']              = array();
+		$GLOBALS['digitalogic_test_action_callbacks']     = array();
 		$GLOBALS['digitalogic_test_update_failures']      = array();
 		$GLOBALS['digitalogic_test_terms']                = array();
 		$GLOBALS['digitalogic_test_wc_currency']          = 'IRT';
@@ -70,6 +71,7 @@ final class GoogleSheetsWritebackTest extends TestCase {
 			array(
 				Digitalogic_Product_Identifier_Resolver::class,
 				Digitalogic_Product_Manager::class,
+				Digitalogic_Product_Write_Lock::class,
 				Digitalogic_Shipping_Method_Service::class,
 				Digitalogic_WooCommerce_Currency_Status::class,
 				Digitalogic_Google_Sheets_Catalog::class,
@@ -207,6 +209,70 @@ final class GoogleSheetsWritebackTest extends TestCase {
 		$this->assertCount( 0, Digitalogic_Logger::instance()->entries );
 	}
 
+	/** A shipping CAS conflict compensates product fields without touching the concurrent assignment. */
+	public function test_shipping_apply_conflict_preserves_concurrent_assignment() {
+		$revision                                  = $this->current_row()['record_revision'];
+		$GLOBALS['digitalogic_test_wc_after_save'] = static function ( $product ) {
+			Digitalogic_Shipping_Method_Service::instance()->assign_product_by_code( '000741', 'sea_freight' );
+			// The lightweight WC double stores a whole meta array on save; mirror the
+			// cache invalidation/reload that real WooCommerce performs for direct meta.
+			$product->meta[ Digitalogic_Shipping_Method_Service::PRODUCT_METHOD_META ] = 'sea_freight';
+		};
+		$result                                    = $this->service->apply(
+			$this->payload(
+				'apply-shipping-cas-conflict-000741',
+				$revision,
+				array(
+					'regular_price'      => 120,
+					'shipping_method_id' => 'air_express',
+				)
+			)
+		);
+
+		$this->assertSame( 'conflict', $result['results'][0]['status'] );
+		$this->assertSame( 'digitalogic_shipping_assignment_conflict', $result['results'][0]['code'] );
+		$this->assertSame( '100', wc_get_product( 741 )->get_regular_price() );
+		$this->assertSame(
+			'sea_freight',
+			get_post_meta( 741, Digitalogic_Shipping_Method_Service::PRODUCT_METHOD_META, true )
+		);
+		$this->assertNotContains( 'shipping_method_id', $result['results'][0]['rollback']['restored_fields'] );
+		$this->assertArrayNotHasKey( 'shipping_method_id', $result['results'][0]['rollback']['skipped_fields'] );
+	}
+
+	/** Compensation uses shipping CAS and never overwrites a later assignment. */
+	public function test_shipping_compensation_preserves_later_assignment() {
+		$revision = $this->current_row()['record_revision'];
+		$once     = true;
+		add_action(
+			'digitalogic_product_shipping_method_updated',
+			static function () use ( &$once ) {
+				if ( ! $once ) {
+					return;
+				}
+				$once = false;
+				Digitalogic_Shipping_Method_Service::instance()->assign_product_by_code( '000741', 'sea_freight' );
+			},
+			10,
+			2
+		);
+		$result = $this->service->apply(
+			$this->payload(
+				'apply-shipping-compensation-cas-000741',
+				$revision,
+				array( 'shipping_method_id' => 'air_express' )
+			)
+		);
+
+		$this->assertSame( 'conflict', $result['results'][0]['status'] );
+		$this->assertSame( 'post_apply_value_conflict', $result['results'][0]['code'] );
+		$this->assertSame(
+			'sea_freight',
+			get_post_meta( 741, Digitalogic_Shipping_Method_Service::PRODUCT_METHOD_META, true )
+		);
+		$this->assertSame( 'current_value_changed', $result['results'][0]['rollback']['skipped_fields']['shipping_method_id'] );
+	}
+
 	/** Clearing a legacy fixed markup is a real change with truthful recovery metadata. */
 	public function test_null_profit_clears_fixed_markup_and_marks_manual_rollback_unavailable() {
 		$product = wc_get_product( 741 );
@@ -318,6 +384,28 @@ final class GoogleSheetsWritebackTest extends TestCase {
 		);
 		$this->assertSame( '999999999999998.000001', $exact['results'][0]['before']['regular_price'] );
 		$this->assertSame( '999999999999998.000002', $exact['results'][0]['after']['regular_price'] );
+	}
+
+	/** Distinct exact prices must invalidate an older optimistic revision. */
+	public function test_exact_decimal_revision_change_is_detected_as_stale() {
+		$product = wc_get_product( 741 );
+		$product->set_regular_price( '999999999999998.000001' );
+		$product->save();
+		$revision = $this->current_row()['record_revision'];
+		$product->set_regular_price( '999999999999998.000002' );
+		$product->save();
+
+		$result = $this->service->apply(
+			$this->payload(
+				'apply-stale-exact-decimal-000741',
+				$revision,
+				array( 'regular_price' => '999999999999998.000003' )
+			)
+		);
+
+		$this->assertSame( 'conflict', $result['results'][0]['status'] );
+		$this->assertSame( 'record_revision_conflict', $result['results'][0]['code'] );
+		$this->assertSame( '999999999999998.000002', $product->get_regular_price() );
 	}
 
 	/** Internal DB and exception messages never cross the row-result boundary. */

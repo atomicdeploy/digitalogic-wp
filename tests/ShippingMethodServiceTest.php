@@ -128,6 +128,36 @@ final class ShippingMethodServiceTest extends TestCase {
         $this->assertStringNotContainsString('null', json_encode($batch));
     }
 
+	public function test_shipping_compare_and_assign_is_transactional_and_conflict_safe(): void {
+		$GLOBALS['digitalogic_test_posts'][502] = array(
+			'post_type'   => 'product',
+			'post_status' => 'publish',
+			'meta'        => array( '_digitalogic_patris_product_code' => 'CODE-502' ),
+		);
+
+		$conflict = $this->service->compare_and_assign_product_by_code( 'CODE-502', 'sea_freight', 'air_express' );
+		$this->assertInstanceOf( WP_Error::class, $conflict );
+		$this->assertSame( 'digitalogic_shipping_assignment_conflict', $conflict->get_error_code() );
+		$this->assertSame( '', $conflict->get_error_data()['current_shipping_method_id'] );
+		$this->assertSame( '', get_post_meta( 502, Digitalogic_Shipping_Method_Service::PRODUCT_METHOD_META, true ) );
+
+		$assigned = $this->service->compare_and_assign_product_by_code( 'CODE-502', null, 'air_express' );
+		$this->assertNotInstanceOf( WP_Error::class, $assigned );
+		$this->assertTrue( $assigned['changed'] );
+		$this->assertSame( 'air_express', get_post_meta( 502, Digitalogic_Shipping_Method_Service::PRODUCT_METHOD_META, true ) );
+
+		$cleared = $this->service->compare_and_assign_product_by_code( 'CODE-502', 'air_express', null );
+		$this->assertNotInstanceOf( WP_Error::class, $cleared );
+		$this->assertTrue( $cleared['changed'] );
+		$this->assertSame( '', get_post_meta( 502, Digitalogic_Shipping_Method_Service::PRODUCT_METHOD_META, true ) );
+		$this->assertGreaterThanOrEqual( 3, count( array_filter(
+			$GLOBALS['wpdb']->queries,
+			static fn( $query ) => 'START TRANSACTION' === $query
+		) ) );
+		$this->assertContains( 'ROLLBACK', $GLOBALS['wpdb']->queries );
+		$this->assertContains( 'COMMIT', $GLOBALS['wpdb']->queries );
+	}
+
     public function test_exact_patris_code_matching_never_falls_back_to_sku(): void {
         $GLOBALS['digitalogic_test_posts'][510] = array(
             'post_type'   => 'product',

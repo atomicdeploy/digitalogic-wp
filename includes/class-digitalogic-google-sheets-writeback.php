@@ -503,21 +503,25 @@ final class Digitalogic_Google_Sheets_Writeback {
 			return $result;
 		}
 
-		$lock_name = 'product:' . hash( 'sha256', (string) $result['patris_code'] );
-		if ( ! $this->acquire_advisory_lock( $lock_name, 5 ) ) {
-			$this->release_named_advisory_lock( $sync_lock_name );
-			$result['status']    = 'failed';
-			$result['code']      = 'product_write_lock_busy';
-			$result['message']   = __( 'This product is being updated by another request. Retry the unchanged request.', 'digitalogic' );
-			$result['retryable'] = true;
-
-			return $result;
-		}
-
 		try {
-			return $this->apply_prepared_change_locked( $prepared, $idempotency_key );
+			$locked = Digitalogic_Product_Write_Lock::instance()->with_product_lock(
+				$prepared['product_id'],
+				function () use ( $prepared, $idempotency_key ) {
+					return $this->apply_prepared_change_locked( $prepared, $idempotency_key );
+				},
+				5
+			);
+			if ( is_wp_error( $locked ) ) {
+				$result = $this->application_error_result( $result, $locked );
+				$data   = $locked->get_error_data();
+				if ( is_array( $data ) && ! empty( $data['retryable'] ) ) {
+					$result['retryable'] = true;
+				}
+				return $result;
+			}
+
+			return $locked;
 		} finally {
-			$this->release_advisory_lock( $lock_name );
 			$this->release_named_advisory_lock( $sync_lock_name );
 		}
 	}
@@ -536,6 +540,14 @@ final class Digitalogic_Google_Sheets_Writeback {
 		if ( is_wp_error( $projected ) ) {
 			return $this->application_error_result( $result, $projected );
 		}
+		if ( (int) $prepared['product_id'] !== (int) $projected['product_id'] ) {
+			$result['status']    = 'conflict';
+			$result['code']      = 'product_identity_conflict';
+			$result['message']   = __( 'The Patris Code resolved to a different product during apply. No fields were written.', 'digitalogic' );
+			$result['retryable'] = false;
+
+			return $result;
+		}
 		if ( $prepared['expected_revision'] !== (string) $projected['row']['record_revision'] ) {
 			$result['status']          = 'conflict';
 			$result['code']            = 'record_revision_conflict';
@@ -545,18 +557,23 @@ final class Digitalogic_Google_Sheets_Writeback {
 			return $result;
 		}
 
-		$product  = $projected['product'];
-		$snapshot = $this->capture_snapshot( $product, $projected['row'] );
-		$failure  = null;
+		$product        = $projected['product'];
+		$snapshot       = $this->capture_snapshot( $product, $projected['row'] );
+		$product_fields = array_values( array_diff( $prepared['changed_fields'], array( 'shipping_method_id' ) ) );
+		$applied_fields = $product_fields;
+		$failure        = null;
 		try {
 			$this->apply_product_fields( $product, $prepared['desired'], $prepared['changed_fields'] );
 			if ( in_array( 'shipping_method_id', $prepared['changed_fields'], true ) ) {
-				$shipping = Digitalogic_Shipping_Method_Service::instance()->assign_product_by_code(
+				$shipping = Digitalogic_Shipping_Method_Service::instance()->compare_and_assign_product_by_code(
 					$patris_code,
+					$snapshot['shipping_method_id'],
 					$prepared['desired']['shipping_method_id']
 				);
 				if ( is_wp_error( $shipping ) ) {
 					$failure = $shipping;
+				} elseif ( ! empty( $shipping['changed'] ) ) {
+					$applied_fields[] = 'shipping_method_id';
 				}
 			}
 		} catch ( Throwable $throwable ) {
@@ -571,7 +588,7 @@ final class Digitalogic_Google_Sheets_Writeback {
 			$rollback           = $this->restore_snapshot(
 				$patris_code,
 				$snapshot,
-				$prepared['changed_fields'],
+				$applied_fields,
 				$prepared['desired']
 			);
 			$result             = $this->application_error_result( $result, $failure );
@@ -582,7 +599,7 @@ final class Digitalogic_Google_Sheets_Writeback {
 
 		$after = $this->project_product( $patris_code );
 		if ( is_wp_error( $after ) ) {
-			$rollback           = $this->restore_snapshot( $patris_code, $snapshot, $prepared['changed_fields'], $prepared['desired'] );
+			$rollback           = $this->restore_snapshot( $patris_code, $snapshot, $applied_fields, $prepared['desired'] );
 			$result['status']   = 'failed';
 			$result['code']     = 'post_apply_verification_failed';
 			$result['message']  = __( 'The product could not be projected after the write; compensation was attempted.', 'digitalogic' );
@@ -600,7 +617,7 @@ final class Digitalogic_Google_Sheets_Writeback {
 			$prepared['changed_fields']
 		);
 		if ( $mismatched ) {
-			$rollback                    = $this->restore_snapshot( $patris_code, $snapshot, $prepared['changed_fields'], $prepared['desired'] );
+			$rollback                    = $this->restore_snapshot( $patris_code, $snapshot, $applied_fields, $prepared['desired'] );
 			$result['status']            = 'conflict';
 			$result['code']              = 'post_apply_value_conflict';
 			$result['message']           = __( 'A concurrent writer or save hook changed requested fields during apply.', 'digitalogic' );
@@ -632,7 +649,7 @@ final class Digitalogic_Google_Sheets_Writeback {
 			$audit_id = false;
 		}
 		if ( false === $audit_id ) {
-			$rollback           = $this->restore_snapshot( $patris_code, $snapshot, $prepared['changed_fields'], $prepared['desired'] );
+			$rollback           = $this->restore_snapshot( $patris_code, $snapshot, $applied_fields, $prepared['desired'] );
 			$result['status']   = 'failed';
 			$result['code']     = 'audit_log_failed';
 			$result['message']  = __( 'The audit record could not be stored; compensation was attempted.', 'digitalogic' );
@@ -1003,23 +1020,31 @@ final class Digitalogic_Google_Sheets_Writeback {
 		}
 
 		if ( in_array( 'shipping_method_id', $changed_fields, true ) ) {
-			$current_shipping  = $current_values['shipping_method_id'];
 			$original_shipping = '' === $snapshot['shipping_method_id'] ? null : $snapshot['shipping_method_id'];
-			$desired_shipping  = $desired['shipping_method_id'];
-			if ( $current_shipping === $original_shipping ) {
-				$original_fields[] = 'shipping_method_id';
-			} elseif ( $current_shipping === $desired_shipping ) {
-				$shipping = Digitalogic_Shipping_Method_Service::instance()->assign_product_by_code(
-					$patris_code,
-					$original_shipping
-				);
-				if ( is_wp_error( $shipping ) ) {
-					$errors[] = 'shipping_restore_failed';
+			$shipping          = Digitalogic_Shipping_Method_Service::instance()->compare_and_assign_product_by_code(
+				$patris_code,
+				$desired['shipping_method_id'],
+				$original_shipping
+			);
+			if ( is_wp_error( $shipping ) ) {
+				$data     = $shipping->get_error_data();
+				$current  = is_array( $data ) && array_key_exists( 'current_shipping_method_id', $data )
+					? (string) $data['current_shipping_method_id']
+					: null;
+				$original = null === $original_shipping ? '' : (string) $original_shipping;
+				if ( 'digitalogic_shipping_assignment_conflict' === $shipping->get_error_code() && null !== $current ) {
+					if ( $current === $original ) {
+						$original_fields[] = 'shipping_method_id';
+					} else {
+						$skipped_fields['shipping_method_id'] = 'current_value_changed';
+					}
 				} else {
-					$restored_fields[] = 'shipping_method_id';
+					$errors[] = 'shipping_restore_failed';
 				}
+			} elseif ( ! empty( $shipping['changed'] ) ) {
+				$restored_fields[] = 'shipping_method_id';
 			} else {
-				$skipped_fields['shipping_method_id'] = 'current_value_changed';
+				$original_fields[] = 'shipping_method_id';
 			}
 		}
 

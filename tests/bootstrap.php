@@ -2034,6 +2034,7 @@ require_once dirname(__DIR__) . '/includes/class-digitalogic-woocommerce-currenc
 require_once dirname(__DIR__) . '/includes/class-product-identifier-resolver.php';
 require_once dirname(__DIR__) . '/includes/class-digitalogic-product-query.php';
 require_once dirname(__DIR__) . '/includes/class-digitalogic-product-metadata-inspector.php'; // phpcs:ignore
+require_once dirname(__DIR__) . '/includes/class-digitalogic-product-write-lock.php'; // phpcs:ignore
 require_once dirname(__DIR__) . '/includes/class-product-manager.php'; // phpcs:ignore
 require_once dirname(__DIR__) . '/includes/admin/class-digitalogic-product-table.php'; // phpcs:ignore
 require_once dirname(__DIR__) . '/includes/class-digitalogic-pricing-input-credential.php'; // phpcs:ignore

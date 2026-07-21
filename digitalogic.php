@@ -121,6 +121,7 @@ final class Digitalogic {
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-unit-converter.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-product-identifier-resolver.php';
 		require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-product-metadata-inspector.php';
+		require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-product-write-lock.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-pricing-input-credential.php'; // phpcs:ignore
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-patris-feed.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-product-sync-receiver.php';
@@ -199,6 +200,7 @@ final class Digitalogic {
         Digitalogic_Currency_Shortcodes::instance();
         Digitalogic_WooCommerce_Currency_Status::instance();
         Digitalogic_Logger::instance();
+		Digitalogic_Product_Write_Lock::instance();
         Digitalogic_Product_Manager::instance();
         Digitalogic_Pricing::instance();
         Digitalogic_Import_Export::instance();

@@ -8,6 +8,7 @@
  *
  * Optional Script Properties:
  *   DIGITALOGIC_LOCALE        en, fa, or bilingual (default: bilingual)
+ *   DIGITALOGIC_SPREADSHEET_ID  Leave blank for a bound spreadsheet.
  *   DIGITALOGIC_SYNC_HOURS    1, 2, 4, 6, 8, or 12 (default: 6)
  *   DIGITALOGIC_WRITEBACK_CONSUMER_KEY     Read/write key; falls back to the catalog key.
  *   DIGITALOGIC_WRITEBACK_CONSUMER_SECRET  Matching secret; falls back to the catalog secret.
@@ -98,21 +99,24 @@ function onOpen() {
 function syncCatalog() {
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
+  let stateProperties = null;
 
   try {
     const config = getConfig_();
     const spreadsheet = getSpreadsheet_(config);
-    const workspace = ensureWritebackWorkspace_(spreadsheet, config.locale);
+    const dashboard = spreadsheet.getSheetByName(DIGITALOGIC_SUPPORT_SHEETS.dashboard.sheetName);
     const fetched = DIGITALOGIC_DATASETS.map(function (dataset) {
       return fetchDataset_(config, dataset);
     });
     const revision = calculateRevision_(fetched);
-    const documentProperties = PropertiesService.getDocumentProperties();
-    const previousRevision = documentProperties.getProperty('DIGITALOGIC_CATALOG_REVISION');
+    stateProperties = getStateProperties_(config);
+    const previousRevision = stateProperties.getProperty('DIGITALOGIC_CATALOG_REVISION');
 
     if (previousRevision === revision) {
-      documentProperties.setProperty('DIGITALOGIC_LAST_SYNC_AT', new Date().toISOString());
-      updateDashboard_(workspace.dashboard, documentProperties);
+      stateProperties.setProperty('DIGITALOGIC_LAST_SYNC_AT', new Date().toISOString());
+      if (dashboard) {
+        updateDashboard_(dashboard, stateProperties);
+      }
       spreadsheet.toast(localize_(config.locale, 'Catalog is already current.', 'فهرست محصولات به‌روز است.'), 'Digitalogic', 5);
       return { status: 'unchanged', revision: revision };
     }
@@ -121,26 +125,52 @@ function syncCatalog() {
       upsertDataset_(spreadsheet, dataset, config.locale);
     });
 
-    documentProperties.setProperties({
+    stateProperties.setProperties({
       DIGITALOGIC_CATALOG_REVISION: revision,
       DIGITALOGIC_LAST_SYNC_AT: new Date().toISOString(),
       DIGITALOGIC_LAST_SYNC_STATUS: 'ok',
       DIGITALOGIC_LAST_SYNC_ERROR: '',
     });
-    updateDashboard_(workspace.dashboard, documentProperties);
+    if (dashboard) {
+      updateDashboard_(dashboard, stateProperties);
+    }
     spreadsheet.toast(localize_(config.locale, 'Products and categories synchronized.', 'محصولات و دسته‌بندی‌ها همگام شدند.'), 'Digitalogic', 7);
 
     return { status: 'updated', revision: revision };
   } catch (error) {
-    PropertiesService.getDocumentProperties().setProperties({
-      DIGITALOGIC_LAST_SYNC_AT: new Date().toISOString(),
-      DIGITALOGIC_LAST_SYNC_STATUS: 'error',
-      DIGITALOGIC_LAST_SYNC_ERROR: String(error && error.message ? error.message : error).slice(0, 500),
-    });
+    try {
+      (stateProperties || getStateProperties_(null)).setProperties({
+        DIGITALOGIC_LAST_SYNC_AT: new Date().toISOString(),
+        DIGITALOGIC_LAST_SYNC_STATUS: 'error',
+        DIGITALOGIC_LAST_SYNC_ERROR: String(error && error.message ? error.message : error).slice(0, 500),
+      });
+    } catch (stateError) {
+      // Preserve the catalog failure when state persistence is also unavailable.
+    }
     throw error;
   } finally {
     lock.releaseLock();
   }
+}
+
+/** Use workbook state when bound and script state for standalone destinations. */
+function getStateProperties_(config) {
+  if (!config || !config.spreadsheetId) {
+    try {
+      const documentProperties = PropertiesService.getDocumentProperties();
+      if (documentProperties) {
+        return documentProperties;
+      }
+    } catch (error) {
+      // Standalone Apps Script projects do not expose DocumentProperties.
+    }
+  }
+
+  const scriptProperties = PropertiesService.getScriptProperties();
+  if (!scriptProperties) {
+    throw new Error('Apps Script state properties are unavailable.');
+  }
+  return scriptProperties;
 }
 
 /** Install one idempotent time-driven trigger using DIGITALOGIC_SYNC_HOURS. */
@@ -197,6 +227,7 @@ function getConfig_() {
     consumerKey: consumerKey,
     consumerSecret: consumerSecret,
     locale: locale,
+    spreadsheetId: String(properties.getProperty('DIGITALOGIC_SPREADSHEET_ID') || '').trim(),
     syncHours: syncHours,
     writebackConsumerKey: writebackConsumerKey,
     writebackConsumerSecret: writebackConsumerSecret,
@@ -230,11 +261,14 @@ function normalizeWebhookBase_(value) {
   return input;
 }
 
-/** Resolve the bound spreadsheet; document-scoped state requires this model. */
-function getSpreadsheet_() {
+/** Resolve a bound spreadsheet or an explicitly configured destination. */
+function getSpreadsheet_(config) {
+  if (config && config.spreadsheetId) {
+    return SpreadsheetApp.openById(config.spreadsheetId);
+  }
   const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
   if (!spreadsheet) {
-    throw new Error('This Apps Script project must be bound to its Digitalogic spreadsheet.');
+    throw new Error('Bind this script to a spreadsheet or set DIGITALOGIC_SPREADSHEET_ID.');
   }
   return spreadsheet;
 }
@@ -548,7 +582,7 @@ function setupEditableWorkspace() {
     const config = getConfig_();
     const spreadsheet = getSpreadsheet_(config);
     const workspace = ensureWritebackWorkspace_(spreadsheet, config.locale);
-    updateDashboard_(workspace.dashboard, PropertiesService.getDocumentProperties());
+    updateDashboard_(workspace.dashboard, getStateProperties_(config));
     spreadsheet.toast('Changes, Audit, and Dashboard are ready.', 'Digitalogic', 6);
     return {
       changes: workspace.changes.getName(),
@@ -1627,6 +1661,8 @@ if (typeof module !== 'undefined' && module.exports) {
     detectStructuredLayout_: detectStructuredLayout_,
     ensureDashboardSheet_: ensureDashboardSheet_,
     findFirstBlankStructuredRow_: findFirstBlankStructuredRow_,
+    getSpreadsheet_: getSpreadsheet_,
+    getStateProperties_: getStateProperties_,
     getOrCreateIdempotencyKey_: getOrCreateIdempotencyKey_,
     isSelected_: isSelected_,
     mergeRows_: mergeRows_,
@@ -1640,6 +1676,7 @@ if (typeof module !== 'undefined' && module.exports) {
     restrictProtectionToOperator_: restrictProtectionToOperator_,
     restoreNeutralizedSheetText_: restoreNeutralizedSheetText_,
     rowToSheetValues_: rowToSheetValues_,
+    syncCatalog: syncCatalog,
     validateCatalogPage_: validateCatalogPage_,
     validateWritebackResponse_: validateWritebackResponse_,
     updateDashboard_: updateDashboard_,
