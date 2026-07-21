@@ -9,7 +9,26 @@ if (!defined('ABSPATH')) {
 
 class Digitalogic_Report_Engine {
 
+    private const CACHE_GROUP = 'digitalogic_reports';
+    private const CACHE_TTL = 300;
+    private const CACHE_GENERATION_KEY = 'generation-v1';
+    private const BUILD_LOCK_TTL = 180;
+    private const MAX_ITEM_LIMIT = 250;
+
     private static $instance = null;
+    private $build_lock_token = '';
+
+    private function __construct() {
+        add_action('save_post_product', array($this, 'invalidate_cache'));
+        add_action('woocommerce_update_product', array($this, 'invalidate_cache'));
+        add_action('digitalogic_product_updated', array($this, 'invalidate_cache'));
+        add_action('digitalogic_product_sync_applied', array($this, 'invalidate_cache'));
+        add_action('digitalogic_patris_feed_synced', array($this, 'invalidate_cache'));
+        add_action('digitalogic_woocommerce_currency_changed', array($this, 'invalidate_cache'));
+        add_action('updated_option', array($this, 'invalidate_cache_for_option'), 10, 3);
+        add_action('added_option', array($this, 'invalidate_cache_for_added_option'), 10, 2);
+        add_action('deleted_option', array($this, 'invalidate_cache_for_deleted_option'));
+    }
 
     public static function instance() {
         if (is_null(self::$instance)) {
@@ -20,6 +39,60 @@ class Digitalogic_Report_Engine {
     }
 
     public function get_report($args = array()) {
+        $args = is_array($args) ? $args : array();
+
+        // Preserve the existing unlimited, always-fresh report contract used
+        // by CLI and REST callers unless they explicitly request a bound.
+        if (!array_key_exists('item_limit', $args)) {
+            return $this->build_report();
+        }
+
+        $force_refresh = $this->is_truthy($args['force_refresh'] ?? false);
+        $cached_report = $this->get_cached_report();
+        $report = $force_refresh ? null : $cached_report;
+
+        if (!is_array($report)) {
+            $lock_acquired = $this->acquire_build_lock();
+            if (!$lock_acquired && is_array($cached_report)) {
+                $report = $cached_report;
+                $report['refresh_deferred'] = true;
+            } elseif (!$lock_acquired) {
+                return new WP_Error(
+                    'digitalogic_report_build_in_progress',
+                    __('Another report build is already running. Please retry shortly.', 'digitalogic'),
+                    array('status' => 503, 'retry_after' => 2)
+                );
+            } else {
+                try {
+                    // Close the small gap between the first cache read and the
+                    // atomic lock acquisition before starting the expensive audit.
+                    $report = $force_refresh ? null : $this->get_cached_report();
+                    if (!is_array($report)) {
+                        $build_generation = $this->cache_generation();
+                        $report = $this->build_report();
+                        if (!$this->set_cached_report($report, $build_generation)) {
+                            return new WP_Error(
+                                'digitalogic_report_source_changed',
+                                __('Report source data changed while the report was being built. Please retry.', 'digitalogic'),
+                                array('status' => 503, 'retry_after' => 1)
+                            );
+                        }
+                    }
+                } finally {
+                    $this->release_build_lock();
+                }
+            }
+        }
+
+        return $this->limit_report_items(
+            $report,
+            $this->normalize_item_limit($args['item_limit']),
+            $this->normalize_item_offset($args['item_offset'] ?? 0),
+            $this->normalize_category_key($args['category'] ?? '')
+        );
+    }
+
+    private function build_report() {
         $feed = Digitalogic_Patris_Feed::instance();
         $feed_products = $feed->get_products();
         $feed_customers = $feed->get_customers();
@@ -92,6 +165,7 @@ class Digitalogic_Report_Engine {
             }
         }
 
+        $product_index = 0;
         foreach ($products as $product) {
             $sku = (string) $product['sku'];
             if ($sku === '' || empty($feed_products[$sku])) {
@@ -113,6 +187,8 @@ class Digitalogic_Report_Engine {
             if ($this->is_zero_or_negative($product['regular_price'])) {
                 $categories['zero_price']['items'][] = $this->product_item($product, $feed_products[$sku] ?? array());
             }
+
+            $this->maybe_flush_runtime_cache(++$product_index);
         }
 
         foreach ($by_sku as $sku => $items) {
@@ -153,15 +229,285 @@ class Digitalogic_Report_Engine {
         );
     }
 
+    private function get_cached_report() {
+        if (!function_exists('wp_cache_get')) {
+            return null;
+        }
+
+        $found = false;
+        $report = wp_cache_get($this->cache_key(), self::CACHE_GROUP, false, $found);
+        if (!$found || !is_array($report) || !isset($report['_cache_generation'])) {
+            return null;
+        }
+
+        $cached_generation = (string) $report['_cache_generation'];
+        unset($report['_cache_generation']);
+        if (!hash_equals($this->cache_generation(), $cached_generation)) {
+            $this->delete_cached_report();
+            return null;
+        }
+
+        return $report;
+    }
+
+    public function invalidate_cache() {
+        if (function_exists('wp_cache_set')) {
+            wp_cache_set(self::CACHE_GENERATION_KEY, $this->new_cache_token(), self::CACHE_GROUP, 0);
+        }
+
+        if (!function_exists('wp_cache_delete')) {
+            return;
+        }
+
+        $locales = array('en_US', 'fa_IR');
+        if (function_exists('determine_locale')) {
+            $locales[] = determine_locale();
+        }
+        if (function_exists('get_locale')) {
+            $locales[] = get_locale();
+        }
+
+        foreach (array_unique(array_filter($locales)) as $locale) {
+            wp_cache_delete($this->cache_key_for_locale($locale), self::CACHE_GROUP);
+        }
+    }
+
+    public function invalidate_cache_for_option($option, $old_value = null, $value = null) {
+        if ($this->is_report_option($option)) {
+            $this->invalidate_cache();
+        }
+    }
+
+    public function invalidate_cache_for_added_option($option, $value = null) {
+        $this->invalidate_cache_for_option($option);
+    }
+
+    public function invalidate_cache_for_deleted_option($option) {
+        $this->invalidate_cache_for_option($option);
+    }
+
+    private function is_report_option($option) {
+        return in_array((string) $option, array(
+            'digitalogic_patris_feed_settings',
+            'digitalogic_patris_feed_products',
+            'digitalogic_patris_feed_customers',
+            'digitalogic_shipping_methods',
+            'digitalogic_pricing_default_percentage_markup',
+            'dollar_price',
+            'yuan_price',
+            'options_dollar_price',
+            'options_yuan_price',
+            'woocommerce_currency',
+        ), true);
+    }
+
+    private function acquire_build_lock() {
+        if (!function_exists('wp_cache_add')) {
+            $this->build_lock_token = 'request-local';
+            return true;
+        }
+
+        $token = $this->new_cache_token();
+        $acquired = wp_cache_add($this->build_lock_key(), $token, self::CACHE_GROUP, self::BUILD_LOCK_TTL);
+        $this->build_lock_token = $acquired ? $token : '';
+
+        return (bool) $acquired;
+    }
+
+    private function release_build_lock() {
+        if ('request-local' === $this->build_lock_token) {
+            $this->build_lock_token = '';
+            return;
+        }
+        if (!$this->build_lock_token || !function_exists('wp_cache_get') || !function_exists('wp_cache_delete')) {
+            return;
+        }
+
+        $found = false;
+        $current = wp_cache_get($this->build_lock_key(), self::CACHE_GROUP, false, $found);
+        if ($found && is_string($current) && hash_equals($this->build_lock_token, $current)) {
+            wp_cache_delete($this->build_lock_key(), self::CACHE_GROUP);
+        }
+        $this->build_lock_token = '';
+    }
+
+    private function build_lock_key() {
+        return 'build-lock-v2-' . md5($this->cache_key());
+    }
+
+    private function set_cached_report($report, $build_generation) {
+        if (!function_exists('wp_cache_set') || !is_array($report)) {
+            return true;
+        }
+
+        $build_generation = (string) $build_generation;
+        if (!hash_equals($build_generation, $this->cache_generation())) {
+            return false;
+        }
+
+        $cached_report = $report;
+        $cached_report['_cache_generation'] = $build_generation;
+        wp_cache_set($this->cache_key(), $cached_report, self::CACHE_GROUP, self::CACHE_TTL);
+
+        if (!hash_equals($build_generation, $this->cache_generation())) {
+            $this->delete_cached_report();
+            return false;
+        }
+
+        return true;
+    }
+
+    private function cache_generation() {
+        if (!function_exists('wp_cache_get')) {
+            return 'initial';
+        }
+
+        $found = false;
+        $generation = wp_cache_get(self::CACHE_GENERATION_KEY, self::CACHE_GROUP, false, $found);
+
+        return $found && is_string($generation) && '' !== $generation ? $generation : 'initial';
+    }
+
+    private function new_cache_token() {
+        return function_exists('wp_generate_uuid4') ? wp_generate_uuid4() : uniqid('report-', true);
+    }
+
+    private function delete_cached_report() {
+        if (function_exists('wp_cache_delete')) {
+            wp_cache_delete($this->cache_key(), self::CACHE_GROUP);
+        }
+    }
+
+    private function cache_key() {
+        $locale = function_exists('determine_locale') ? determine_locale() : get_locale();
+
+        return $this->cache_key_for_locale($locale);
+    }
+
+    private function cache_key_for_locale($locale) {
+        return 'full-v1-' . md5((string) $locale);
+    }
+
+    private function normalize_item_limit($value) {
+        if (is_string($value)) {
+            $value = trim($value);
+        }
+
+        if (!is_int($value) && !(is_string($value) && preg_match('/^\d+$/', $value))) {
+            return 0;
+        }
+
+        return min(self::MAX_ITEM_LIMIT, max(0, (int) $value));
+    }
+
+    private function normalize_item_offset($value) {
+        if (is_string($value)) {
+            $value = trim($value);
+        }
+
+        if (!is_int($value) && !(is_string($value) && preg_match('/^\d+$/', $value))) {
+            return 0;
+        }
+
+        return max(0, (int) $value);
+    }
+
+    private function normalize_category_key($value) {
+        return preg_replace('/[^a-z0-9_]/', '', strtolower(trim((string) $value)));
+    }
+
+    private function limit_report_items($report, $item_limit, $item_offset = 0, $category_key = '') {
+        $available_categories = array_column((array) ($report['categories'] ?? array()), 'key');
+        if ('' !== $category_key && !in_array($category_key, $available_categories, true)) {
+            return new WP_Error(
+                'digitalogic_unknown_report_category',
+                __('Unknown report category.', 'digitalogic'),
+                array('status' => 400)
+            );
+        }
+
+        $returned_count = 0;
+        $truncated = false;
+        $categories = array();
+
+        foreach ((array) ($report['categories'] ?? array()) as $category) {
+            $items = isset($category['items']) && is_array($category['items'])
+                ? array_values($category['items'])
+                : array();
+            $total_count = isset($category['count']) ? max(0, (int) $category['count']) : count($items);
+            $is_requested_category = '' === $category_key || $category_key === (string) ($category['key'] ?? '');
+            $category_offset = $is_requested_category ? min($item_offset, $total_count) : 0;
+            $category['items'] = $is_requested_category
+                ? array_slice($items, $category_offset, $item_limit)
+                : array();
+            $category['item_offset'] = $category_offset;
+            $category['returned_count'] = count($category['items']);
+            $category['has_more'] = $is_requested_category
+                && ($category_offset + $category['returned_count']) < $total_count;
+            $category['truncated'] = $category['returned_count'] < $total_count;
+            $returned_count += $category['returned_count'];
+            $truncated = $truncated || $category['truncated'];
+            $categories[] = $category;
+        }
+
+        $report['categories'] = $categories;
+        $report['category'] = $category_key;
+        $report['item_limit'] = $item_limit;
+        $report['item_offset'] = $item_offset;
+        $report['returned_count'] = $returned_count;
+        $report['truncated'] = $truncated;
+
+        return $report;
+    }
+
+    private function is_truthy($value) {
+        if (is_bool($value)) {
+            return $value;
+        }
+
+        if (is_int($value) || is_float($value)) {
+            return 1.0 === (float) $value;
+        }
+
+        return in_array(strtolower(trim((string) $value)), array('1', 'true', 'yes', 'on'), true);
+    }
+
     private function get_woocommerce_products() {
         $manager = Digitalogic_Product_Manager::instance();
-        return $manager->get_products(array(
-            'limit' => -1,
-            'status' => 'any',
-            'type' => array('simple', 'variable', 'variation'),
-            'orderby' => 'ID',
-            'order' => 'ASC',
-        ));
+        $products = array();
+        $page = 1;
+
+        do {
+            $result = $manager->query_products(array(
+                'limit' => 100,
+                'page' => $page,
+                'status' => 'any',
+                'type' => array('simple', 'variable', 'variation'),
+                'orderby' => 'ID',
+                'order' => 'ASC',
+            ));
+            foreach ((array) ($result['products'] ?? array()) as $product) {
+                $products[] = $product;
+            }
+            $pages = max(0, (int) ($result['pages'] ?? 0));
+            unset($result);
+            $this->flush_runtime_cache();
+            ++$page;
+        } while ($page <= $pages);
+
+        return $products;
+    }
+
+    private function maybe_flush_runtime_cache($index, $batch_size = 100) {
+        if ($index > 0 && 0 === $index % max(1, (int) $batch_size)) {
+            $this->flush_runtime_cache();
+        }
+    }
+
+    private function flush_runtime_cache() {
+        if (function_exists('wp_cache_flush_runtime')) {
+            wp_cache_flush_runtime();
+        }
     }
 
     private function index_products_by_sku($products) {
@@ -233,7 +579,9 @@ class Digitalogic_Report_Engine {
         $thresholds = $settings['image_quality_thresholds'];
         $review_threshold = isset($thresholds['soft_review']) ? (int) $thresholds['soft_review'] : 450;
 
+        $product_index = 0;
         foreach ($products as $product) {
+            $this->maybe_flush_runtime_cache(++$product_index);
             $image_id = get_post_thumbnail_id($product['edit_product_id'] ?? $product['id']);
             if (!$image_id) {
                 continue;

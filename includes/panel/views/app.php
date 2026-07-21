@@ -13,6 +13,21 @@ $config = Digitalogic_Panel::instance()->client_config();
 $lang = strpos($config['locale'], 'fa') === 0 ? 'fa' : 'en';
 $dir = $config['i18n'][$lang]['dir'];
 $logo_url = !empty($config['theme']['logo_url']) ? $config['theme']['logo_url'] : '';
+$fatal_copy = 'fa' === $lang
+    ? array(
+        'title' => 'نمایش پنل امکان‌پذیر نیست',
+        'detail' => 'رابط پنل هنگام بارگذاری با خطا روبه‌رو شد. صفحه را دوباره بارگذاری کنید؛ اگر مشکل ادامه داشت، جزئیات کنسول را بررسی کنید.',
+        'retry' => 'بارگذاری دوباره',
+        'wordpress' => 'پیشخوان وردپرس',
+    )
+    : array(
+        'title' => 'The panel could not be displayed',
+        'detail' => 'The panel interface encountered an error while loading. Reload the page; if it continues, review the console details.',
+        'retry' => 'Reload panel',
+        'wordpress' => 'WordPress dashboard',
+    );
+$wordpress_admin_url = function_exists('admin_url') ? admin_url() : ($config['legacy_panel_url'] ?? '/wp-admin/');
+$retry_url = isset($_SERVER['REQUEST_URI']) ? (string) $_SERVER['REQUEST_URI'] : ($config['panel_url'] ?? '/panel/');
 ?><!doctype html>
 <html <?php language_attributes(); ?> dir="<?php echo esc_attr($dir); ?>">
 <head>
@@ -35,6 +50,24 @@ $logo_url = !empty($config['theme']['logo_url']) ? $config['theme']['logo_url'] 
             <div><?php esc_html_e('Loading...', 'digitalogic'); ?></div>
         </div>
     </div>
+    <section id="digitalogic-panel-fallback" class="dlp-boot dlp-fatal-panel" role="alert" aria-labelledby="dlp-fatal-title" aria-describedby="dlp-fatal-description" tabindex="-1" hidden>
+        <div class="dlp-boot-mark">
+            <?php if ($logo_url) : ?>
+                <img src="<?php echo esc_url($logo_url); ?>" alt="<?php echo esc_attr(get_bloginfo('name')); ?>">
+            <?php else : ?>
+                <span>D</span>
+            <?php endif; ?>
+        </div>
+        <div class="dlp-fatal-copy">
+            <h1 id="dlp-fatal-title"><?php echo esc_html($fatal_copy['title']); ?></h1>
+            <p id="dlp-fatal-description"><?php echo esc_html($fatal_copy['detail']); ?></p>
+            <code data-dlp-fatal-detail dir="ltr"></code>
+        </div>
+        <div class="dlp-actions dlp-fatal-actions">
+            <a class="dlp-button dlp-primary" href="<?php echo esc_url($retry_url); ?>"><span class="dashicons dashicons-update"></span><?php echo esc_html($fatal_copy['retry']); ?></a>
+            <a class="dlp-button" href="<?php echo esc_url($wordpress_admin_url); ?>"><span class="dashicons dashicons-admin-home"></span><?php echo esc_html($fatal_copy['wordpress']); ?></a>
+        </div>
+    </section>
     <script type="text/x-template" id="digitalogic-panel-template">
         <div class="dlp-layout" v-cloak>
             <aside class="dlp-sidebar">
@@ -129,14 +162,14 @@ $logo_url = !empty($config['theme']['logo_url']) ? $config['theme']['logo_url'] 
 
                 <section v-if="currentPage === 'products'" class="dlp-products-section">
                     <div class="dlp-toolbar">
-                        <label class="dlp-search-wrap" :data-hotkey="productSearchHotkey">
-                            <input class="dlp-input dlp-search" v-model="search" :placeholder="t.search" :data-hotkey="productSearchHotkey" :aria-keyshortcuts="productSearchHotkey" autofocus>
-                            <span class="dlp-search-kbd" :data-hotkey="productSearchHotkey" aria-hidden="true"></span>
+                        <label class="dlp-search-wrap" :data-hotkey="productSearchHotkeyLabel">
+                            <input class="dlp-input dlp-search" v-model="search" :placeholder="t.search" :aria-label="t.search" :data-hotkey="productSearchHotkeyLabel" :aria-keyshortcuts="productSearchHotkey" autofocus>
+                            <span class="dlp-search-kbd" :data-hotkey="productSearchHotkeyLabel" aria-hidden="true"></span>
                         </label>
                         <span class="dlp-pill">{{ formatNumber(productFilteredTotal) }} / {{ formatNumber(productTotal) }}</span>
                         <button class="dlp-button dlp-mode-toggle" :class="{'is-editing': productEditMode}" :aria-pressed="productEditMode ? 'true' : 'false'" @click="setProductEditMode(!productEditMode)"><span class="dashicons" :class="productEditMode ? 'dashicons-unlock' : 'dashicons-lock'"></span>{{ productEditMode ? t.editMode : t.viewMode }}</button>
                         <label class="dlp-inline-toggle" :class="{'is-disabled': !productEditMode}"><input type="checkbox" :checked="productAutosave" :disabled="!productEditMode" @change="setProductAutosave($event.target.checked)"><span>{{ t.autosave }}</span></label>
-                        <button v-if="productPendingCount" class="dlp-button dlp-primary" :disabled="!productEditMode" @click="saveAllProductEdits"><span class="dashicons dashicons-saved"></span>{{ t.savePending }} ({{ formatNumber(productPendingCount) }})</button>
+                        <button v-if="productPendingCount" class="dlp-button dlp-primary" :disabled="!productEditMode" @click="saveAllProductEditsFromButton"><span class="dashicons dashicons-saved"></span>{{ t.savePending }} ({{ formatNumber(productPendingCount) }})</button>
                         <div class="dlp-custom-select dlp-filter-select">
                             <button class="dlp-button" @click.stop="toggleMenu('image-filter')"><span class="dashicons dashicons-format-image"></span>{{ imageFilterLabel }}</button>
                             <span class="dlp-menu" v-if="openMenu === 'image-filter'">
@@ -203,13 +236,13 @@ $logo_url = !empty($config['theme']['logo_url']) ? $config['theme']['logo_url'] 
                             <table class="dlp-table dlp-data-grid" data-grid-kind="product" :aria-colcount="visibleProductColumns.length + 2" :class="{'is-compact': compactTable, 'is-view-mode': !productEditMode, 'is-first-column-sticky': freezeFirstProductColumn}">
                                 <colgroup>
                                     <col style="width:44px">
-                                    <col v-for="column in visibleProductColumns" :key="column.key" :class="'dlp-col-' + column.key" :style="{width: column.width + 'px'}">
-                                    <col style="width:112px">
+                                    <col v-for="column in visibleProductColumns" :key="column.key" :class="'dlp-col-' + column.key" :data-column-priority="column.priority || 1" :style="{width: column.width + 'px'}">
+                                    <col class="dlp-col-actions" style="width:140px">
                                 </colgroup>
                                 <thead>
                                     <tr>
                                         <th scope="col"><label class="dlp-check"><input type="checkbox" v-model="allProductsSelected" :aria-label="t.selectAll"><span></span></label></th>
-                                        <th scope="col" v-for="(column, columnIndex) in visibleProductColumns" :key="column.key" :data-column-key="column.key" :class="{'is-resizing': resizingColumn === column.key, 'is-sticky-first-data-column': columnIndex === 0}" draggable="true" @contextmenu.prevent="openColumnContext('product', column, $event)" @dragstart="startColumnDrag(column.key)" @dragover.prevent @drop="dropColumn('product', column.key)" @dblclick.stop="autoResizeColumn('product', column)">
+                                        <th scope="col" v-for="(column, columnIndex) in visibleProductColumns" :key="column.key" :data-column-key="column.key" :data-column-priority="column.priority || 1" :class="{'is-resizing': resizingColumn === column.key, 'is-sticky-first-data-column': columnIndex === 0}" draggable="true" @contextmenu.prevent="openColumnContext('product', column, $event)" @dragstart="startColumnDrag(column.key)" @dragover.prevent @drop="dropColumn('product', column.key)" @dblclick.stop="autoResizeColumn('product', column)">
                                             <button class="dlp-th-button" :aria-disabled="!column.sortable" @click="cycleSort('product', column, $event)"><span class="dlp-th-label"><span :class="icon(column.icon || 'dashicons-editor-ul')"></span>{{ column.labelKey ? t[column.labelKey] : column.label }}</span><span>{{ sortLabel('product', column) }}</span></button>
                                             <button class="dlp-column-menu-button" @click.stop="openColumnContext('product', column, $event)" :aria-label="t.actions"><span class="dashicons dashicons-ellipsis"></span></button>
                                             <span class="dlp-col-resizer" @mousedown="startColumnResize('product', column, $event)" @dblclick.stop.prevent="autoResizeColumn('product', column)"></span>
@@ -218,14 +251,14 @@ $logo_url = !empty($config['theme']['logo_url']) ? $config['theme']['logo_url'] 
                                     </tr>
                                     <tr class="dlp-filter-row">
                                         <th></th>
-                                        <th v-for="(column, columnIndex) in visibleProductColumns" :key="'filter-' + column.key" :data-column-key="column.key" :class="{'is-resizing': resizingColumn === column.key, 'is-sticky-first-data-column': columnIndex === 0}">
+                                        <th v-for="(column, columnIndex) in visibleProductColumns" :key="'filter-' + column.key" :data-column-key="column.key" :data-column-priority="column.priority || 1" :class="{'is-resizing': resizingColumn === column.key, 'is-sticky-first-data-column': columnIndex === 0}">
                                             <template v-if="!column.filter"></template>
                                             <template v-else-if="column.filter === 'select'">
                                                 <span class="dlp-custom-select dlp-filter-cell-select">
-                                                    <button class="dlp-filter-control dlp-filter-trigger" @click.stop="toggleMenu('filter-' + column.key)">{{ customSelectLabel([{value: '', label: t.all}].concat(columnOptions(column)), productFilters[column.key] || '') }}</button>
+                                                    <button class="dlp-filter-control dlp-filter-trigger" @click.stop="toggleMenu('filter-' + column.key)">{{ customSelectLabel([{value: '', label: t.all}].concat(columnFilterOptions(column)), productFilters[column.key] || '') }}</button>
                                                     <span class="dlp-menu" v-if="openMenu === 'filter-' + column.key">
                                                         <button @click="setProductFilter(column.key, ''); openMenu = ''">{{ t.all }}</button>
-                                                        <button v-for="option in columnOptions(column)" :key="option.value" @click="setProductFilter(column.key, option.value); openMenu = ''">{{ option.label }}</button>
+                                                        <button v-for="option in columnFilterOptions(column)" :key="option.value" @click="setProductFilter(column.key, option.value); openMenu = ''">{{ option.label }}</button>
                                                     </span>
                                                 </span>
                                             </template>
@@ -243,11 +276,12 @@ $logo_url = !empty($config['theme']['logo_url']) ? $config['theme']['logo_url'] 
                                 <tbody>
                                     <tr v-for="product in filteredProducts" :key="product.id" :data-product-row="product.id" :class="{'is-edited': rowEdited(product), 'is-selected': isProductSelected(product), 'is-active-product': selectedProduct && selectedProduct.id === product.id}" @click="selectProductRow(product)" @dblclick="openProductPanel(product, {reveal: true})" @focusin="selectProductRow(product)" @contextmenu.prevent="openProductRowContext(product, $event)">
                                         <td><label class="dlp-check"><input type="checkbox" v-model="selectedProducts[product.id]" :aria-label="t.selectRow"><span></span></label></td>
-                                        <td v-for="(column, columnIndex) in visibleProductColumns" :key="column.key" :class="[cellClass(column), {'is-sticky-first-data-column': columnIndex === 0}]" :data-column-key="column.key">
+                                        <td v-for="(column, columnIndex) in visibleProductColumns" :key="column.key" :class="[cellClass(column), {'is-sticky-first-data-column': columnIndex === 0}]" :data-column-key="column.key" :data-column-priority="column.priority || 1">
                                             <button v-if="column.type === 'select'" class="dlp-editable-cell dlp-select-cell" :class="{'is-readonly': !column.editable || !productEditMode}" :disabled="!column.editable || !productEditMode" tabindex="0" :data-grid-row="product.id" :data-grid-col="column.key" @click.stop="openSelectCell('product', product, column, $event)" @focus="selectProductRow(product)" @keydown="onGridCellKeydown($event, product, column)">
-                                                <span class="dlp-status-badge" :class="'is-' + statusTone(product[column.field])"><span :class="icon(statusIcon(product[column.field]))"></span>{{ formatColumnValue(product, column) }}</span>
+                                                <span v-if="column.field === 'status' || column.field === 'stock_status'" class="dlp-status-badge" :class="'is-' + statusTone(product[column.field])"><span :class="icon(statusIcon(product[column.field]))"></span>{{ formatColumnValue(product, column) }}</span>
+                                                <span v-else class="dlp-select-value">{{ formatColumnValue(product, column) }}</span>
                                             </button>
-                                            <span v-else-if="!isCellEditing('product', product, column)" class="dlp-editable-cell" :class="{'is-readonly': !column.editable || !productEditMode}" tabindex="0" :data-grid-row="product.id" :data-grid-col="column.key" @click.stop="column.editable && productEditMode && startCellEdit('product', product, column)" @focus="selectProductRow(product)" @keydown="onGridCellKeydown($event, product, column)">
+                                            <span v-else-if="!isCellEditing('product', product, column)" class="dlp-editable-cell" :class="{'is-readonly': !column.editable || !productEditMode}" tabindex="0" :data-grid-row="product.id" :data-grid-col="column.key" @pointerdown.stop="column.editable && productEditMode && startCellEdit('product', product, column, $event)" @focus="selectProductRow(product)" @keydown="onGridCellKeydown($event, product, column)">
                                                 <template v-if="column.field === 'name'"><span class="dlp-product-cell"><img v-if="product.image" :src="product.image" alt="" loading="lazy" decoding="async"><span v-else class="dlp-thumb-empty"><span class="dashicons dashicons-format-image"></span></span><span class="dlp-title-cell" :class="titleClass(product)">{{ product.name }}<span v-if="product.part_number" class="dlp-part-number">{{ product.part_number }}</span><span class="dlp-mobile-meta" v-if="responsiveProductColumns.length"><span v-for="meta in responsiveProductColumns" :key="meta.key">{{ meta.labelKey ? t[meta.labelKey] : meta.label }}: {{ formatColumnValue(product, meta) }}</span></span></span></span></template>
                                                 <template v-else-if="column.field === 'status' || column.field === 'stock_status'"><span class="dlp-status-badge" :class="'is-' + statusTone(product[column.field])"><span :class="icon(statusIcon(product[column.field]))"></span>{{ formatColumnValue(product, column) }}</span></template>
                                                 <template v-else>{{ formatColumnValue(product, column) }}</template>
@@ -266,7 +300,7 @@ $logo_url = !empty($config['theme']['logo_url']) ? $config['theme']['logo_url'] 
                                                 <span class="dlp-row-menu-wrap">
                                                     <button class="dlp-icon-button" @click="toggleRowMenu('product', product.id, $event)" :aria-label="t.actions"><span class="dashicons dashicons-ellipsis"></span></button>
                                                 </span>
-                                                <span class="dlp-save-state" :class="'is-' + saveStatus('product', product.id)">{{ saveStatus('product', product.id) }}</span>
+                                                <span v-if="saveStatus('product', product.id)" class="dlp-save-state" :class="'is-' + saveStatus('product', product.id)" role="status" aria-live="polite" :title="saveStatus('product', product.id)">{{ saveStatus('product', product.id) }}</span>
                                             </span>
                                         </td>
                                     </tr>
@@ -276,9 +310,9 @@ $logo_url = !empty($config['theme']['logo_url']) ? $config['theme']['logo_url'] 
                         </div>
                     </div>
                     <nav class="dlp-pagination" v-if="productTotalPages > 1" :aria-label="t.pagination">
-                        <button class="dlp-button" :disabled="productPage <= 1 || loading" @click="goToProductPage(productPage - 1)"><span class="dashicons dashicons-arrow-left-alt2"></span>{{ t.previous }}</button>
+                        <button class="dlp-button" :disabled="productPage <= 1 || loading" @click="goToProductPage(productPage - 1)"><span class="dashicons" :class="t.dir === 'rtl' ? 'dashicons-arrow-right-alt2' : 'dashicons-arrow-left-alt2'"></span>{{ t.previous }}</button>
                         <button v-for="page in productPageNumbers" :key="page" class="dlp-button dlp-page-button" :class="{'is-current': page === productPage}" :aria-current="page === productPage ? 'page' : null" :disabled="loading" @click="goToProductPage(page)">{{ formatNumber(page) }}</button>
-                        <button class="dlp-button" :disabled="productPage >= productTotalPages || loading" @click="goToProductPage(productPage + 1)">{{ t.next }}<span class="dashicons dashicons-arrow-right-alt2"></span></button>
+                        <button class="dlp-button" :disabled="productPage >= productTotalPages || loading" @click="goToProductPage(productPage + 1)">{{ t.next }}<span class="dashicons" :class="t.dir === 'rtl' ? 'dashicons-arrow-left-alt2' : 'dashicons-arrow-right-alt2'"></span></button>
                     </nav>
                     <div class="dlp-column-context" v-if="columnContext" :style="columnContextStyle">
                         <button v-if="contextColumn() && contextColumn().sortable" @click="contextSort('asc')"><span class="dashicons dashicons-arrow-up-alt"></span>{{ t.sortAsc }}</button>
@@ -368,7 +402,7 @@ $logo_url = !empty($config['theme']['logo_url']) ? $config['theme']['logo_url'] 
                                     <tr v-for="item in filteredUsers" :key="item.id" :class="{'is-edited': userEdited(item), 'is-selected': !!selectedUsers[item.id], 'is-active-product': selectedUser && selectedUser.id === item.id}" @click="openUserPanel(item)">
                                         <td><label class="dlp-check"><input type="checkbox" v-model="selectedUsers[item.id]" :aria-label="t.selectRow"><span></span></label></td>
                                         <td v-for="column in visibleUserColumns" :key="column.key" :class="cellClass(column)" :data-column-key="column.key">
-                                            <span v-if="!isCellEditing('user', item, column)" class="dlp-editable-cell" :class="{'is-readonly': !column.editable}" tabindex="0" @click.stop="column.editable && startCellEdit('user', item, column)" @focus="openUserPanel(item)">{{ column.field === 'roles' ? roleText(item.roles) : formatColumnValue(item, column) }}</span>
+                                            <span v-if="!isCellEditing('user', item, column)" class="dlp-editable-cell" :class="{'is-readonly': !column.editable}" tabindex="0" @pointerdown.stop="column.editable && startCellEdit('user', item, column, $event)" @focus="openUserPanel(item)">{{ column.field === 'roles' ? roleText(item.roles) : formatColumnValue(item, column) }}</span>
                                             <input v-else class="dlp-cell-input" :data-cell-key="'user:' + item.id + ':' + column.field" :value="inputValue(item, column)" @input="onCellInput('user', item, column, $event)" @keydown.enter.prevent="finishCellEdit('user', item)" @keydown.esc.prevent="editingCell = null" @blur="finishCellEdit('user', item)">
                                         </td>
                                         <td>
@@ -406,41 +440,55 @@ $logo_url = !empty($config['theme']['logo_url']) ? $config['theme']['logo_url'] 
                     <div class="dlp-panel">
                         <div class="dlp-panel-head">
                             <strong>{{ t.reports }}</strong>
-                            <button class="dlp-button" @click="loadReports"><span class="dashicons dashicons-update"></span>{{ t.refresh }}</button>
+                            <button class="dlp-button" :disabled="reportLoading" @click="loadReports(true)"><span class="dashicons dashicons-update" :class="{'dlp-spin': reportLoading}"></span>{{ reportLoading ? t.loading : t.refresh }}</button>
                         </div>
                         <div class="dlp-report-grid">
-                            <button class="dlp-report-card" v-for="section in migrationSections" :key="section.key" @click="navigate(section.route)"><span :class="icon(section.icon)"></span><strong>{{ section.title }}</strong><span>{{ section.body }}</span></button>
+                            <button class="dlp-report-card" v-for="section in migrationSections" :key="section.key" :disabled="!section.route && !reports" @click="openMigrationSection(section)"><span :class="icon(section.icon)"></span><strong>{{ section.title }}</strong><span>{{ section.body }}</span></button>
                         </div>
                     </div>
                     <div class="dlp-panel" v-if="reports">
                         <div class="dlp-panel-head">
                             <strong>{{ t.problemRows }}</strong>
-                            <span class="dlp-pill">{{ formatNumber(reports.counts && reports.counts.patris_products) }} Patris/API</span>
+                            <span class="dlp-actions">
+                                <span v-if="reports.generated_at" class="dlp-muted">{{ t.generatedAt }}: {{ formatDateTime(reports.generated_at) }}</span>
+                                <span class="dlp-pill">{{ formatNumber(reports.counts && reports.counts.patris_products) }} Patris/API</span>
+                            </span>
                         </div>
                         <div class="dlp-report-summary">
                             <span><strong>{{ formatNumber(reports.counts && reports.counts.woocommerce_products) }}</strong>{{ t.products }}</span>
                             <span><strong>{{ formatNumber(reports.counts && reports.counts.patris_products) }}</strong>{{ t.patrisProducts }}</span>
                             <span><strong>{{ formatNumber(reports.counts && reports.counts.patris_customers) }}</strong>{{ t.customerReports }}</span>
                         </div>
-                        <details v-for="category in reports.categories" :key="category.key" class="dlp-report-category" :class="'is-' + category.severity" :open="category.count > 0">
-                            <summary><span class="dlp-status-dot"></span><strong>{{ category.title }}</strong><span>{{ formatNumber(category.count) }}</span></summary>
-                            <div v-if="!category.items || !category.items.length" class="dlp-empty">{{ t.noRows }}</div>
-                            <div v-else class="dlp-table-wrap">
-                                <table class="dlp-table dlp-report-table">
-                                    <thead><tr><th>{{ t.sku }}</th><th>{{ t.products }}</th><th>Patris/API</th><th>{{ t.stock }}</th><th>{{ t.foreignPrice }}</th><th>{{ t.weight }}</th><th>{{ t.finalPrice }}</th><th>{{ t.actions }}</th></tr></thead>
+                        <details v-for="category in reports.categories" :key="category.key" class="dlp-report-category" :class="'is-' + category.severity" :data-report-category="category.key" :open="activeReportCategory === category.key" @toggle="onReportCategoryToggle(category, $event)">
+                            <summary><span class="dlp-status-dot"></span><strong>{{ reportCategoryTitle(category) }}</strong><span>{{ formatNumber(category.count) }}</span></summary>
+                            <div v-if="reportCategoryLoading === category.key" class="dlp-empty">{{ t.loading }}</div>
+                            <div v-else-if="reportCategoryErrors[category.key]" class="dlp-error dlp-report-error"><span>{{ reportCategoryErrors[category.key] }}</span><button class="dlp-button" @click="loadReportCategory(category.key, reportPageNumber(category))"><span class="dashicons dashicons-update"></span>{{ t.retry }}</button></div>
+                            <div v-else-if="!category.items || !category.items.length" class="dlp-empty">{{ Number(category.count || 0) > 0 ? t.loading : t.noRows }}</div>
+                            <div v-else>
+                                <div class="dlp-report-limit">{{ t.showingRows }} {{ formatNumber(category.item_offset + 1) }}–{{ formatNumber(category.item_offset + category.returned_count) }} / {{ formatNumber(category.count) }}</div>
+                                <div class="dlp-table-wrap">
+                                <table class="dlp-table dlp-report-table" :aria-label="reportCategoryTitle(category)">
+                                    <thead><tr><th scope="col">{{ t.sku }}</th><th scope="col">{{ t.products }}</th><th scope="col">Patris/API</th><th scope="col">{{ t.stock }}</th><th scope="col">{{ t.foreignPrice }}</th><th scope="col">{{ t.weight }}</th><th scope="col">{{ t.finalPrice }}</th><th scope="col">{{ t.details }}</th><th scope="col">{{ t.actions }}</th></tr></thead>
                                     <tbody>
-                                        <tr v-for="item in category.items" :key="category.key + ':' + (item.woo_id || item.product_code || item.customer_code || item.name)">
+                                        <tr v-for="(item, itemIndex) in category.items" :key="category.key + ':' + (item.woo_id || item.product_code || item.customer_code || item.name) + ':' + itemIndex">
                                             <td class="dlp-mono">{{ item.product_code || item.customer_code }}</td>
                                             <td>{{ item.woo_name }}</td>
                                             <td>{{ item.name }}</td>
                                             <td class="dlp-cell-numeric">{{ item.stock }}</td>
-                                            <td class="dlp-cell-numeric">{{ [item.foreign_currency, item.foreign_price].filter(Boolean).join(' ') }}</td>
+                                            <td class="dlp-cell-numeric">{{ reportForeignPrice(item) }}</td>
                                             <td class="dlp-cell-numeric">{{ item.weight_grams }}</td>
                                             <td class="dlp-cell-numeric">{{ item.final_price }}</td>
+                                            <td><span class="dlp-report-details"><span v-for="detail in reportItemDetails(item)" :key="detail.label"><strong>{{ detail.label }}</strong><bdi dir="auto">{{ detail.value }}</bdi></span></span></td>
                                             <td><a v-if="item.edit_url" class="dlp-icon-button" :href="item.edit_url" target="_blank" rel="noopener" :aria-label="t.edit"><span class="dashicons dashicons-edit"></span></a></td>
                                         </tr>
                                     </tbody>
                                 </table>
+                                </div>
+                                <nav v-if="category.count > reportPageSize" class="dlp-report-pagination" :aria-label="t.pagination">
+                                    <button class="dlp-button" :disabled="reportCategoryLoading === category.key || reportPageNumber(category) <= 1" @click="changeReportPage(category, -1)"><span :class="icon(t.dir === 'rtl' ? 'dashicons-arrow-right-alt2' : 'dashicons-arrow-left-alt2')"></span>{{ t.previous }}</button>
+                                    <span>{{ t.page }} {{ formatNumber(reportPageNumber(category)) }} / {{ formatNumber(reportPageCount(category)) }}</span>
+                                    <button class="dlp-button" :disabled="reportCategoryLoading === category.key || !category.has_more" @click="changeReportPage(category, 1)">{{ t.next }}<span :class="icon(t.dir === 'rtl' ? 'dashicons-arrow-left-alt2' : 'dashicons-arrow-right-alt2')"></span></button>
+                                </nav>
                             </div>
                         </details>
                     </div>
@@ -487,5 +535,22 @@ $logo_url = !empty($config['theme']['logo_url']) ? $config['theme']['logo_url'] 
         </div>
     </script>
     <?php wp_print_scripts(array('vue', 'digitalogic-panel')); ?>
+    <script>
+        window.setTimeout(function() {
+            var root = document.getElementById('digitalogic-panel');
+            var fallback = document.getElementById('digitalogic-panel-fallback');
+            if (!root || root.querySelector('.dlp-layout') || !fallback || !fallback.hidden) return;
+            root.hidden = true;
+            fallback.hidden = false;
+            var detail = fallback.querySelector('[data-dlp-fatal-detail]');
+            if (detail) detail.textContent = 'PANEL-BOOT-TIMEOUT';
+            if (window.console && typeof window.console.groupCollapsed === 'function') {
+                window.console.groupCollapsed('%c DIGITALOGIC %c Panel bootstrap timeout', 'background:#dc2626;color:#fff;border-radius:5px;padding:3px 7px;font-weight:700', 'color:#dc2626;font-weight:700');
+                window.console.error('The panel application did not mount within four seconds.');
+                window.console.groupEnd();
+            }
+            fallback.focus();
+        }, 4000);
+    </script>
 </body>
 </html>

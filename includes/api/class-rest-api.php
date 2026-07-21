@@ -938,9 +938,14 @@ class Digitalogic_REST_API {
     }
 
     public function get_reports(WP_REST_Request $request) {
+        $report = Digitalogic_Report_Engine::instance()->get_report($request->get_params());
+        if (is_wp_error($report)) {
+            return $report;
+        }
+
         return new WP_REST_Response(array(
             'success' => true,
-            'data' => Digitalogic_Report_Engine::instance()->get_report($request->get_params())
+            'data' => $report,
         ), 200);
     }
 

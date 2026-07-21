@@ -645,6 +645,8 @@ function wp_cache_delete($key, $group = '') {
         }
     } elseif ('post_meta' === $group) {
         unset($GLOBALS['digitalogic_test_post_meta_cache'][(int) $key]);
+    } elseif (isset($GLOBALS['digitalogic_test_object_cache'])) {
+        unset($GLOBALS['digitalogic_test_object_cache'][(string) $group . ':' . (string) $key]);
     }
 
     return true;
