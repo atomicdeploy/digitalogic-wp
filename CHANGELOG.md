@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Added an explicit Patris storefront pricing policy and non-mutating `wp digitalogic pricing audit` command that report canonical Patris, WooCommerce regular, promotion, and effective prices separately.
+- Added version-controlled, secret-free production sources and tests for the Apache/PHP-FPM watchdog, SIP notifier, gated n8n event workflow, and plan-first deploy/rollback procedures.
 - Added a persisted, optional sticky first product column that follows the first visible/reordered column in RTL and LTR while keeping the selection control frozen beside it.
 - Added reusable Digitalogic browser error pages with responsive light/dark styling, English and Persian copy, RTL/LTR layout, safe recovery actions, and stable support references.
 - Added an opt-in Google Sheets product/pricing control workspace with bounded preview/apply writeback, exact Patris identity and revisions, append-only audit rows, guarded WooCommerce product writes, and an inactive credential-placeholder n8n proxy template.
@@ -20,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Consolidated the login identity normalizer, preserved password selections through visibility toggles, localized username-step controls, added keyboard-complete language selection, and removed the duplicate checkbox glyph across RTL/LTR light/dark login states.
+- Enforced explicit notification channel allow-lists in both n8n routing and the notifier, kept endpoint/category preferences after the channel gate, and counted PHP-FPM slow requests by canonical request headers instead of stack lines.
 - Styled the reserved `Changes` and `Audit` support rows as professional workflow panels while preserving staged values, append-only audit data, legacy layouts, and frozen table headers.
 - Made the n8n Google Sheets writeback template return the actual Digitalogic JSON envelope on n8n 2.x instead of ending the webhook early with an empty HTTP 200 response.
 - Repaired critical `/panel/` rendering and inline-edit regressions: title direction is always callable, pointer edits place a collapsed caret at the clicked text position, Patris currency uses a canonical clearable selector, and render/bootstrap failures now show a localized recovery screen with structured, deduplicated console diagnostics.

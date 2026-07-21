@@ -1,0 +1,443 @@
+{
+  "id": "__N8N_WORKFLOW_ID__",
+  "name": "Office - Automation Events",
+  "description": "Secret-free source template. Render credentials, webhook paths, destinations, and endpoint URLs outside the repository before an owner-approved import.",
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "__OFFICE_AUTOMATION_WEBHOOK_PATH__",
+        "responseMode": "onReceived",
+        "options": {
+          "responseCode": 202
+        },
+        "responseData": "firstEntryJson"
+      },
+      "id": "office-automation-events-webhook",
+      "name": "Office Automation Events Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "__OFFICE_AUTOMATION_WEBHOOK_ID__"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "__NORMALIZE_OFFICE_EVENT_CODE__"
+      },
+      "id": "normalize-office-automation-event",
+      "name": "Normalize Office Automation Event",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        260,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "toText",
+        "sourceProperty": "eventJsonLine",
+        "binaryPropertyName": "eventLogFile",
+        "options": {}
+      },
+      "id": "convert-event-log-to-file",
+      "name": "Convert Event Log to File",
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        520,
+        -120
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "write",
+        "fileName": "__LOCAL_EVENT_LOG_FILE__",
+        "dataPropertyName": "=eventLogFile",
+        "options": {
+          "append": true
+        }
+      },
+      "id": "append-local-event-log",
+      "name": "Append Local Event Log",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        780,
+        -120
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "publish",
+        "channel": "__REDIS_CHANNEL__",
+        "messageData": "={{ $json.redisMessage }}"
+      },
+      "id": "publish-event-to-redis",
+      "name": "Publish Event to Redis",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [
+        520,
+        120
+      ],
+      "credentials": {
+        "redis": {
+          "id": "__REDIS_CREDENTIAL_ID__",
+          "name": "__REDIS_CREDENTIAL_NAME__"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "__TELEGRAM_CHAT_ID__",
+        "text": "={{ $('Normalize Office Automation Event').item.json.telegramText }}",
+        "additionalFields": {
+          "parse_mode": "HTML",
+          "appendAttribution": false,
+          "disable_web_page_preview": true
+        }
+      },
+      "id": "notify-telegram-automation-group",
+      "name": "Notify Telegram Automation Group",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1560,
+        -260
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "__TELEGRAM_CREDENTIAL_ID__",
+          "name": "__TELEGRAM_CREDENTIAL_NAME__"
+        }
+      },
+      "onError": "continueRegularOutput",
+      "continueOnFail": true,
+      "retryOnFail": false,
+      "maxTries": 1,
+      "waitBetweenTries": 0
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "__NTFY_URL__",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Title",
+              "value": "={{ $('Normalize Office Automation Event').item.json.ntfyTitle }}"
+            },
+            {
+              "name": "Tags",
+              "value": "={{ $('Normalize Office Automation Event').item.json.ntfyTags }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "text/plain",
+        "body": "={{ $('Normalize Office Automation Event').item.json.ntfyText }}",
+        "options": {
+          "timeout": 3000
+        }
+      },
+      "id": "notify-ntfy-office-topic",
+      "name": "Notify ntfy Office Topic",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1560,
+        80
+      ],
+      "onError": "continueRegularOutput",
+      "continueOnFail": true,
+      "retryOnFail": false,
+      "maxTries": 1,
+      "waitBetweenTries": 0
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "__SIP_NOTIFY_URL__",
+        "sendHeaders": true,
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ $('Normalize Office Automation Event').item.json.sipPayload }}",
+        "options": {
+          "timeout": 3000
+        },
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth"
+      },
+      "id": "notify-sip-extensions",
+      "name": "Notify SIP Extensions",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1560,
+        -90
+      ],
+      "onError": "continueRegularOutput",
+      "continueOnFail": true,
+      "retryOnFail": false,
+      "maxTries": 1,
+      "waitBetweenTries": 0,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "__SIP_ROUTING_CREDENTIAL_ID__",
+          "name": "__SIP_ROUTING_CREDENTIAL_NAME__"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "__SHEETS_WEBHOOK_URL__",
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ eventRecord: $('Normalize Office Automation Event').item.json.eventRecord }) }}",
+        "options": {
+          "timeout": 3000
+        }
+      },
+      "id": "append-event-to-central-google-sheet",
+      "name": "Append Event to Central Google Sheet",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        520,
+        300
+      ],
+      "onError": "continueRegularOutput",
+      "continueOnFail": true,
+      "retryOnFail": false,
+      "maxTries": 1,
+      "waitBetweenTries": 0
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "__SIP_ROUTE_URL__",
+        "sendHeaders": true,
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ $('Normalize Office Automation Event').item.json.sipPayload }}",
+        "options": {
+          "timeout": 2000
+        },
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth"
+      },
+      "id": "get-notification-routing-policy",
+      "name": "Get Notification Routing Policy",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1040,
+        -120
+      ],
+      "onError": "continueRegularOutput",
+      "continueOnFail": true,
+      "retryOnFail": false,
+      "maxTries": 1,
+      "waitBetweenTries": 0,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "__SIP_ROUTING_CREDENTIAL_ID__",
+          "name": "__SIP_ROUTING_CREDENTIAL_NAME__"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const route = $('Get Notification Routing Policy').item.json;\nreturn route.channels?.telegram ? $input.all() : [];"
+      },
+      "id": "gate-telegram-notification",
+      "name": "Gate Telegram Notification",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1300,
+        -260
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const route = $('Get Notification Routing Policy').item.json;\nreturn route.channels?.ntfy ? $input.all() : [];"
+      },
+      "id": "gate-ntfy-notification",
+      "name": "Gate ntfy Notification",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1300,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const route = $('Get Notification Routing Policy').item.json;\nreturn route.channels?.sip ? $input.all() : [];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1300,
+        -90
+      ],
+      "id": "00000000-0000-4000-8000-000000000088",
+      "name": "Gate SIP Notification"
+    }
+  ],
+  "connections": {
+    "Office Automation Events Webhook": {
+      "main": [
+        [
+          {
+            "node": "Normalize Office Automation Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Office Automation Event": {
+      "main": [
+        [
+          {
+            "node": "Convert Event Log to File",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Publish Event to Redis",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Append Event to Central Google Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Convert Event Log to File": {
+      "main": [
+        [
+          {
+            "node": "Append Local Event Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append Local Event Log": {
+      "main": [
+        [
+          {
+            "node": "Get Notification Routing Policy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notify Telegram Automation Group": {
+      "main": [
+        []
+      ]
+    },
+    "Notify ntfy Office Topic": {
+      "main": [
+        []
+      ]
+    },
+    "Notify SIP Extensions": {
+      "main": [
+        []
+      ]
+    },
+    "Append Event to Central Google Sheet": {
+      "main": [
+        []
+      ]
+    },
+    "Get Notification Routing Policy": {
+      "main": [
+        [
+          {
+            "node": "Gate Telegram Notification",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Gate ntfy Notification",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Gate SIP Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gate Telegram Notification": {
+      "main": [
+        [
+          {
+            "node": "Notify Telegram Automation Group",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gate ntfy Notification": {
+      "main": [
+        [
+          {
+            "node": "Notify ntfy Office Topic",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gate SIP Notification": {
+      "main": [
+        [
+          {
+            "node": "Notify SIP Extensions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "saveDataSuccessExecution": "none",
+    "saveDataErrorExecution": "all",
+    "errorWorkflow": "__ERROR_WORKFLOW_ID__",
+    "executionTimeout": 60
+  },
+  "staticData": null,
+  "pinData": {},
+  "tags": []
+}

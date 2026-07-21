@@ -93,6 +93,10 @@ jobs:
         bash -n ops/pbx/bin/pbx-verification-digitalogic
         bash -n ops/pbx/scripts/generate-prompts.sh
         bash -n ops/pbx/scripts/install-prompts.sh
+        npm --prefix ops/office-automation run check
+        npm --prefix ops/office-automation test
+        bash -n ops/office-automation/scripts/deploy.sh
+        bash -n ops/office-automation/scripts/rollback.sh
 
     - name: Reject non-synthetic mobile fixtures
       run: |
