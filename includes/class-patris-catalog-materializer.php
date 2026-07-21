@@ -345,7 +345,6 @@ final class Digitalogic_Patris_Catalog_Materializer {
 				if ( $was_published ) {
 					++$result['preserved_published'];
 				}
-
 				$updated = $this->apply_identity_and_enrichment(
 					$product,
 					$code,
@@ -419,6 +418,24 @@ final class Digitalogic_Patris_Catalog_Materializer {
 				} else {
 					++$result['publish_blocked'];
 					$this->append_detail( $result, $code, 'publish_blocked', array( 'gates' => $gates ) );
+					if ( 'draft' !== (string) $product->get_status() ) {
+						$product->set_status( 'draft' );
+						if ( method_exists( $product, 'set_catalog_visibility' ) && ! $product->is_type( 'variation' ) ) {
+							$product->set_catalog_visibility( 'hidden' );
+						}
+						$product->delete_meta_data( '_digitalogic_patris_publish_ready_at' );
+						try {
+							$product->save();
+						} catch ( Throwable $exception ) {
+							$this->append_detail( $result, $code, 'draft_write_failed' );
+							++$result['failed'];
+							continue;
+						}
+						if ( $was_published ) {
+							--$result['preserved_published'];
+						}
+						$this->flush_product_caches( $product->get_id() );
+					}
 				}
 			}
 

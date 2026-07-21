@@ -486,7 +486,7 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 		$this->assertSame( 'products.101001001.parent_enrichment.focus_keyword_fa', $parent_error->get_error_data()['path'] );
 	}
 
-	public function test_preserves_a_published_reviewed_target_when_publication_gates_are_incomplete(): void {
+	public function test_demotes_a_published_managed_target_when_publication_gates_are_incomplete(): void {
 		$this->receiveFixture();
 		$this->addProduct( 10803, 'simple' );
 		$manifest = $this->manifest();
@@ -495,11 +495,12 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 		$result = Digitalogic_Patris_Catalog_Materializer::instance()->run( $manifest, array( 'apply' => true ) );
 
 		$this->assertSame( 1, $result['adopted'] );
-		$this->assertSame( 1, $result['preserved_published'] );
+		$this->assertSame( 0, $result['preserved_published'] );
 		$this->assertSame( 0, $result['published'] );
 		$this->assertSame( 1, $result['publish_blocked'] );
 		$this->assertSame( 0, $result['publish_ready'] );
-		$this->assertSame( 'publish', wc_get_product( 10803 )->get_status() );
+		$this->assertSame( 'draft', wc_get_product( 10803 )->get_status() );
+		$this->assertSame( 'hidden', wc_get_product( 10803 )->get_catalog_visibility() );
 	}
 
 	public function test_partial_create_with_first_save_ownership_is_retryable(): void {

@@ -290,8 +290,10 @@ A leaf is publish-ready only when all of these remain true at apply time:
   Patris Code, and matching SKU are present.
 
 Missing commerce or media values remain empty rather than being invented, and
-the product remains draft. Reconciliation may safely fill those fields later;
-publication must be requested again after every gate passes.
+the managed leaf remains or returns to draft with hidden catalog visibility.
+Reconciliation may safely fill those fields later; publication must be
+requested again after every gate passes. A variable parent is not demoted when
+one child is blocked because another reviewed child may still be publishable.
 
 For variations, publication also requires the reviewed variable parent
 enrichment. The parent is published and made visible only after the child is

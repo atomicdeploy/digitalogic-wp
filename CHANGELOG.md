@@ -24,7 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Prevented the custom Digits login and registration footer from blocking a PHP-FPM worker on remote WordPress.org translation discovery while preserving the locale already selected by WordPress.
 
 ### Changed
-- Patris catalog publication now fails closed unless source and WooCommerce prices, stock and weight, reviewed WooCommerce media, currency-qualified freight, markup, exchange rate, pricing assignment, canonical shipping, identity, category, enrichment, and source warnings all pass their readiness gates.
+- Patris catalog publication now fails closed and returns a managed leaf to hidden draft unless source and WooCommerce prices, stock and weight, reviewed WooCommerce media, currency-qualified freight, markup, exchange rate, pricing assignment, canonical shipping, identity, category, enrichment, and source warnings all pass their readiness gates.
 - Canonical `air_express` assignment now remains on the in-memory WooCommerce product through its final materializer save instead of risking a stale-object overwrite.
 - Product JSON-LD adds the reviewed English Patris leaf or family name as `alternateName`, removes impossible offers for empty or zero WooCommerce prices, and atomically converts complete Toman offer subtrees to their exact ISO `IRR` equivalent without float drift or partial currency relabelling.
 - Shipping rates now carry an explicit `CNY` or `IRR` currency. Method objects use `price_per_kg` plus `currency`, while product-sync records use the required pair `shipping_price_per_kg` plus `shipping_price_per_kg_currency`.
