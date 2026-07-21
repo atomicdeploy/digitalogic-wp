@@ -36,6 +36,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Shipping amounts, minimums, divisors, and tier bounds/rates now remain canonical decimal strings through storage and every outward projection, without exponent notation or binary-float loss.
 - Product sync preserves missing versus explicitly null freight fields, and the one-time installed-data migration bypasses stale option caches and verifies persistence before marking completion.
 
+## [1.6.5] - 2026-07-21
+
+### Fixed
+- Restored the narrowly scoped Woodmart/Digits sidebar compatibility layer so only the active login step is visible and the singleton call-verification control mounts immediately beneath the OTP resend action.
+- Restored Persian caller-ID guidance, keyboard semantics, RTL/mobile containment, scoped notice styling, and cache-busted sidebar assets without duplicating forms or verification widgets.
+
 ## [1.6.4] - 2026-07-21
 
 ### Fixed

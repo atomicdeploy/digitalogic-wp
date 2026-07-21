@@ -2,7 +2,7 @@
 # This file is distributed under the GPL v2 or later.
 msgid ""
 msgstr ""
-"Project-Id-Version: Digitalogic 1.6.4\n"
+"Project-Id-Version: Digitalogic 1.6.5\n"
 "Report-Msgid-Bugs-To: https://github.com/atomicdeploy/digitalogic-wp/issues\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -1906,6 +1906,18 @@ msgstr ""
 
 #: includes/integrations/class-call-verification.php:1440
 msgid "Mobile or landline number (include area code)"
+msgstr ""
+
+#: includes/integrations/class-call-verification.php
+msgid "Place the call from the same phone number you entered so caller ID can confirm ownership."
+msgstr ""
+
+#: includes/integrations/class-digitalogic-sidebar-login.php
+msgid "Show or hide password"
+msgstr ""
+
+#: includes/integrations/class-digitalogic-sidebar-login.php
+msgid "Dismiss message"
 msgstr ""
 
 #: includes/integrations/class-call-verification.php:1470
