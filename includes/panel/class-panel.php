@@ -225,6 +225,7 @@ class Digitalogic_Panel {
             'theme_storage_key' => 'digitalogic-admin-theme',
             'event_cursor' => self::get_latest_event_id(),
             'foreign_currency_options' => $this->foreign_currency_options(),
+            'warehouse_columns' => $this->warehouse_columns(),
             'user' => array(
                 'id' => $user->ID,
                 'login' => $user->user_login,
@@ -294,6 +295,37 @@ class Digitalogic_Panel {
         $filtered = apply_filters('digitalogic_panel_foreign_currency_options', $options, $codes);
 
         return array_values(is_array($filtered) ? $filtered : $options);
+    }
+
+    /**
+     * Return configured warehouse columns for the shared product grid.
+     *
+     * Observed warehouses from each product page are merged in the browser, so
+     * a temporarily incomplete integration catalog never hides stock data.
+     *
+     * @return array
+     */
+    private function warehouse_columns() {
+        try {
+            $catalog = Digitalogic_Shipping_Method_Service::instance()->get_integration_catalog();
+        } catch (\Throwable $e) {
+            $catalog = array();
+        }
+        if (is_wp_error($catalog) || !is_array($catalog)) {
+            $catalog = array();
+        }
+
+        $columns = array();
+        foreach (Digitalogic_Product_Column_Schema::normalize_warehouses($catalog['selected_warehouses'] ?? array()) as $warehouse) {
+            $columns[] = array(
+                'key' => Digitalogic_Product_Column_Schema::warehouse_key($warehouse),
+                'warehouse' => $warehouse,
+                'label_en' => 'Warehouse Stock: ' . $warehouse,
+                'label_fa' => 'موجودی انبار: ' . $warehouse,
+            );
+        }
+
+        return $columns;
     }
 
     public function register_commands($commands, $transport) {
@@ -1271,6 +1303,8 @@ class Digitalogic_Panel {
             'interfaceSettings' => 'Interface',
             'tableSettings' => 'Tables',
             'productTable' => 'Product table',
+            'productDetails' => 'Product details',
+            'warehouseStock' => 'Warehouse stock',
             'userTable' => 'User table',
             'bridgeSettings' => 'WordPress / Laravel bridge',
             'autosave' => 'Autosave',
@@ -1533,6 +1567,8 @@ class Digitalogic_Panel {
             'interfaceSettings' => 'ظاهر و تجربه کاربری',
             'tableSettings' => 'تنظیمات جدول ها',
             'productTable' => 'جدول محصولات',
+            'productDetails' => 'مشخصات محصول',
+            'warehouseStock' => 'موجودی انبار',
             'userTable' => 'جدول کاربران',
             'bridgeSettings' => 'پل وردپرس / لاراول',
             'autosave' => 'ذخیره خودکار',

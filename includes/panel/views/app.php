@@ -190,7 +190,14 @@ $retry_url = isset($_SERVER['REQUEST_URI']) ? (string) $_SERVER['REQUEST_URI'] :
                         <button v-if="selectedProduct && !pinnedEditorPinned" class="dlp-button" @click="togglePinnedEditor"><span class="dashicons dashicons-sticky"></span>{{ t.pinEditor }}</button>
                     </div>
                     <div class="dlp-column-panel" v-if="columnMenuOpen">
-                        <label v-for="column in productColumns" :key="column.key"><input type="checkbox" :checked="column.visible !== false" @change="toggleColumn('product', column)"> {{ column.labelKey ? t[column.labelKey] : column.label }}</label>
+                        <div class="dlp-column-group">
+                            <strong>{{ t.productDetails }}</strong>
+                            <label v-for="column in standardProductColumns" :key="column.key"><input type="checkbox" :checked="column.visible !== false" @change="toggleColumn('product', column)"> {{ columnLabel(column) }}</label>
+                        </div>
+                        <div class="dlp-column-group is-warehouse" v-if="warehouseProductColumns.length">
+                            <strong>{{ t.warehouseStock }}</strong>
+                            <label v-for="column in warehouseProductColumns" :key="column.key"><input type="checkbox" :checked="column.visible !== false" @change="toggleColumn('product', column)"> {{ columnLabel(column) }}</label>
+                        </div>
                         <label class="dlp-column-option"><input type="checkbox" v-model="compactTable"> {{ t.compactTableMode }}</label>
                         <label class="dlp-column-option"><input type="checkbox" v-model="freezeFirstProductColumn"> {{ t.freezeFirstColumn }}</label>
                         <button class="dlp-button" @click="resetColumns('product')">{{ t.resetColumns }}</button>
@@ -233,6 +240,7 @@ $retry_url = isset($_SERVER['REQUEST_URI']) ? (string) $_SERVER['REQUEST_URI'] :
                     </transition>
                     <div class="dlp-panel">
                         <div class="dlp-table-wrap">
+                            <span class="dlp-resize-guide" v-if="resizeGuide" :style="resizeGuideStyle" aria-hidden="true"></span>
                             <table class="dlp-table dlp-data-grid" data-grid-kind="product" :aria-colcount="visibleProductColumns.length + 2" :class="{'is-compact': compactTable, 'is-view-mode': !productEditMode, 'is-first-column-sticky': freezeFirstProductColumn}">
                                 <colgroup>
                                     <col style="width:44px">
@@ -240,14 +248,18 @@ $retry_url = isset($_SERVER['REQUEST_URI']) ? (string) $_SERVER['REQUEST_URI'] :
                                     <col class="dlp-col-actions" style="width:140px">
                                 </colgroup>
                                 <thead>
-                                    <tr>
-                                        <th scope="col"><label class="dlp-check"><input type="checkbox" v-model="allProductsSelected" :aria-label="t.selectAll"><span></span></label></th>
-                                        <th scope="col" v-for="(column, columnIndex) in visibleProductColumns" :key="column.key" :data-column-key="column.key" :data-column-priority="column.priority || 1" :class="{'is-resizing': resizingColumn === column.key, 'is-sticky-first-data-column': columnIndex === 0}" draggable="true" @contextmenu.prevent="openColumnContext('product', column, $event)" @dragstart="startColumnDrag(column.key)" @dragover.prevent @drop="dropColumn('product', column.key)" @dblclick.stop="autoResizeColumn('product', column)">
-                                            <button class="dlp-th-button" :aria-disabled="!column.sortable" @click="cycleSort('product', column, $event)"><span class="dlp-th-label"><span :class="icon(column.icon || 'dashicons-editor-ul')"></span>{{ column.labelKey ? t[column.labelKey] : column.label }}</span><span>{{ sortLabel('product', column) }}</span></button>
+                                    <tr class="dlp-group-row">
+                                        <th scope="col" rowspan="2"><label class="dlp-check"><input type="checkbox" v-model="allProductsSelected" :aria-label="t.selectAll"><span></span></label></th>
+                                        <th v-if="visibleStandardProductColumns.length" scope="colgroup" :colspan="visibleStandardProductColumns.length">{{ t.productDetails }}</th>
+                                        <th v-if="visibleWarehouseProductColumns.length" class="dlp-warehouse-group-heading" scope="colgroup" :colspan="visibleWarehouseProductColumns.length"><span class="dashicons dashicons-archive"></span>{{ t.warehouseStock }}</th>
+                                        <th scope="col" rowspan="2">{{ t.actions }}</th>
+                                    </tr>
+                                    <tr class="dlp-column-header-row">
+                                        <th scope="col" v-for="(column, columnIndex) in visibleProductColumns" :key="column.key" :data-column-key="column.key" :data-column-priority="column.priority || 1" :class="{'is-resizing': resizingColumn === column.key, 'is-sticky-first-data-column': columnIndex === 0, 'is-warehouse-column': column.warehouse}" :draggable="true" tabindex="0" @contextmenu.prevent="openColumnContext('product', column, $event)" @keydown="onColumnHeaderKeydown('product', column, $event)" @dragstart="startColumnDrag(column.key)" @dragover.prevent @drop="dropColumn('product', column.key)" @dblclick.stop="autoResizeColumn('product', column)">
+                                            <button class="dlp-th-button" :title="columnLabel(column)" :aria-disabled="!column.sortable" @click="cycleSort('product', column, $event)"><span class="dlp-th-label"><span :class="icon(column.icon || 'dashicons-editor-ul')"></span>{{ columnLabel(column) }}</span><span>{{ sortLabel('product', column) }}</span></button>
                                             <button class="dlp-column-menu-button" @click.stop="openColumnContext('product', column, $event)" :aria-label="t.actions"><span class="dashicons dashicons-ellipsis"></span></button>
                                             <span class="dlp-col-resizer" @mousedown="startColumnResize('product', column, $event)" @dblclick.stop.prevent="autoResizeColumn('product', column)"></span>
                                         </th>
-                                        <th scope="col">{{ t.actions }}</th>
                                     </tr>
                                     <tr class="dlp-filter-row">
                                         <th></th>
@@ -276,13 +288,13 @@ $retry_url = isset($_SERVER['REQUEST_URI']) ? (string) $_SERVER['REQUEST_URI'] :
                                 <tbody>
                                     <tr v-for="product in filteredProducts" :key="product.id" :data-product-row="product.id" :class="{'is-edited': rowEdited(product), 'is-selected': isProductSelected(product), 'is-active-product': selectedProduct && selectedProduct.id === product.id}" @click="selectProductRow(product)" @dblclick="openProductPanel(product, {reveal: true})" @focusin="selectProductRow(product)" @contextmenu.prevent="openProductRowContext(product, $event)">
                                         <td><label class="dlp-check"><input type="checkbox" v-model="selectedProducts[product.id]" :aria-label="t.selectRow"><span></span></label></td>
-                                        <td v-for="(column, columnIndex) in visibleProductColumns" :key="column.key" :class="[cellClass(column), {'is-sticky-first-data-column': columnIndex === 0}]" :data-column-key="column.key" :data-column-priority="column.priority || 1">
+                                        <td v-for="(column, columnIndex) in visibleProductColumns" :key="column.key" :class="[cellClass(column), {'is-sticky-first-data-column': columnIndex === 0, 'is-resizing': resizingColumn === column.key, 'is-warehouse-column': column.warehouse}]" :data-column-key="column.key" :data-column-priority="column.priority || 1">
                                             <button v-if="column.type === 'select'" class="dlp-editable-cell dlp-select-cell" :class="{'is-readonly': !column.editable || !productEditMode}" :disabled="!column.editable || !productEditMode" tabindex="0" :data-grid-row="product.id" :data-grid-col="column.key" @click.stop="openSelectCell('product', product, column, $event)" @focus="selectProductRow(product)" @keydown="onGridCellKeydown($event, product, column)">
                                                 <span v-if="column.field === 'status' || column.field === 'stock_status'" class="dlp-status-badge" :class="'is-' + statusTone(product[column.field])"><span :class="icon(statusIcon(product[column.field]))"></span>{{ formatColumnValue(product, column) }}</span>
                                                 <span v-else class="dlp-select-value">{{ formatColumnValue(product, column) }}</span>
                                             </button>
                                             <span v-else-if="!isCellEditing('product', product, column)" class="dlp-editable-cell" :class="{'is-readonly': !column.editable || !productEditMode}" tabindex="0" :data-grid-row="product.id" :data-grid-col="column.key" @pointerdown.stop="column.editable && productEditMode && startCellEdit('product', product, column, $event)" @focus="selectProductRow(product)" @keydown="onGridCellKeydown($event, product, column)">
-                                                <template v-if="column.field === 'name'"><span class="dlp-product-cell"><img v-if="product.image" :src="product.image" alt="" loading="lazy" decoding="async"><span v-else class="dlp-thumb-empty"><span class="dashicons dashicons-format-image"></span></span><span class="dlp-title-cell" :class="titleClass(product)">{{ product.name }}<span v-if="product.part_number" class="dlp-part-number">{{ product.part_number }}</span><span class="dlp-mobile-meta" v-if="responsiveProductColumns.length"><span v-for="meta in responsiveProductColumns" :key="meta.key">{{ meta.labelKey ? t[meta.labelKey] : meta.label }}: {{ formatColumnValue(product, meta) }}</span></span></span></span></template>
+                                                <template v-if="column.field === 'name'"><span class="dlp-product-cell"><img v-if="product.image" :src="product.image" alt="" loading="lazy" decoding="async"><span v-else class="dlp-thumb-empty"><span class="dashicons dashicons-format-image"></span></span><span class="dlp-title-cell" :class="titleClass(product)">{{ product.name }}<span v-if="product.part_number" class="dlp-part-number">{{ product.part_number }}</span><span class="dlp-mobile-meta" v-if="responsiveProductColumns.length"><span v-for="meta in responsiveProductColumns" :key="meta.key">{{ columnLabel(meta) }}: {{ formatColumnValue(product, meta) }}</span></span></span></span></template>
                                                 <template v-else-if="column.field === 'status' || column.field === 'stock_status'"><span class="dlp-status-badge" :class="'is-' + statusTone(product[column.field])"><span :class="icon(statusIcon(product[column.field]))"></span>{{ formatColumnValue(product, column) }}</span></template>
                                                 <template v-else>{{ formatColumnValue(product, column) }}</template>
                                             </span>
@@ -397,7 +409,7 @@ $retry_url = isset($_SERVER['REQUEST_URI']) ? (string) $_SERVER['REQUEST_URI'] :
                                     <col v-for="column in visibleUserColumns" :key="column.key" :style="{width: column.width + 'px'}">
                                     <col style="width:74px">
                                 </colgroup>
-                                <thead><tr><th></th><th v-for="column in visibleUserColumns" :key="column.key" :data-column-key="column.key" :class="{'is-resizing': resizingColumn === column.key}" draggable="true" @contextmenu.prevent="openColumnContext('user', column, $event)" @dragstart="startColumnDrag(column.key)" @dragover.prevent @drop="dropColumn('user', column.key)" @dblclick.stop="autoResizeColumn('user', column)"><button class="dlp-th-button" @click="cycleSort('user', column, $event)"><span class="dlp-th-label">{{ column.labelKey ? t[column.labelKey] : column.label }}</span><span>{{ sortLabel('user', column) }}</span></button><button class="dlp-column-menu-button" @click.stop="openColumnContext('user', column, $event)" :aria-label="t.actions"><span class="dashicons dashicons-ellipsis"></span></button><span class="dlp-col-resizer" @mousedown="startColumnResize('user', column, $event)" @dblclick.stop.prevent="autoResizeColumn('user', column)"></span></th><th>{{ t.actions }}</th></tr></thead>
+                                <thead><tr><th></th><th v-for="column in visibleUserColumns" :key="column.key" :data-column-key="column.key" :class="{'is-resizing': resizingColumn === column.key}" draggable="true" tabindex="0" @contextmenu.prevent="openColumnContext('user', column, $event)" @keydown="onColumnHeaderKeydown('user', column, $event)" @dragstart="startColumnDrag(column.key)" @dragover.prevent @drop="dropColumn('user', column.key)" @dblclick.stop="autoResizeColumn('user', column)"><button class="dlp-th-button" @click="cycleSort('user', column, $event)"><span class="dlp-th-label">{{ columnLabel(column) }}</span><span>{{ sortLabel('user', column) }}</span></button><button class="dlp-column-menu-button" @click.stop="openColumnContext('user', column, $event)" :aria-label="t.actions"><span class="dashicons dashicons-ellipsis"></span></button><span class="dlp-col-resizer" @mousedown="startColumnResize('user', column, $event)" @dblclick.stop.prevent="autoResizeColumn('user', column)"></span></th><th>{{ t.actions }}</th></tr></thead>
                                 <tbody>
                                     <tr v-for="item in filteredUsers" :key="item.id" :class="{'is-edited': userEdited(item), 'is-selected': !!selectedUsers[item.id], 'is-active-product': selectedUser && selectedUser.id === item.id}" @click="openUserPanel(item)">
                                         <td><label class="dlp-check"><input type="checkbox" v-model="selectedUsers[item.id]" :aria-label="t.selectRow"><span></span></label></td>
@@ -521,7 +533,7 @@ $retry_url = isset($_SERVER['REQUEST_URI']) ? (string) $_SERVER['REQUEST_URI'] :
                     <div class="dlp-panel">
                         <div class="dlp-panel-head"><strong>{{ t.tableSettings }}</strong></div>
                         <div class="dlp-field-grid">
-                            <div class="dlp-field"><span>{{ t.productTable }}</span><label v-for="column in productColumns" :key="column.key"><input type="checkbox" :checked="column.visible !== false" @change="toggleColumn('product', column)"> {{ column.labelKey ? t[column.labelKey] : column.label }}</label><button class="dlp-button" @click="resetColumns('product')">{{ t.resetColumns }}</button></div>
+                            <div class="dlp-field"><span>{{ t.productTable }}</span><div class="dlp-column-group"><strong>{{ t.productDetails }}</strong><label v-for="column in standardProductColumns" :key="column.key"><input type="checkbox" :checked="column.visible !== false" @change="toggleColumn('product', column)"> {{ columnLabel(column) }}</label></div><div class="dlp-column-group is-warehouse" v-if="warehouseProductColumns.length"><strong>{{ t.warehouseStock }}</strong><label v-for="column in warehouseProductColumns" :key="column.key"><input type="checkbox" :checked="column.visible !== false" @change="toggleColumn('product', column)"> {{ columnLabel(column) }}</label></div><button class="dlp-button" @click="resetColumns('product')">{{ t.resetColumns }}</button></div>
                             <div class="dlp-field"><span>{{ t.userTable }}</span><label v-for="column in userColumns" :key="column.key"><input type="checkbox" :checked="column.visible !== false" @change="toggleColumn('user', column)"> {{ column.labelKey ? t[column.labelKey] : column.label }}</label><button class="dlp-button" @click="resetColumns('user')">{{ t.resetColumns }}</button></div>
                         </div>
                     </div>

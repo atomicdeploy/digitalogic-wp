@@ -25,7 +25,7 @@
 ### 🔄 Import/Export
 - CSV import/export
 - JSON import/export
-- Excel import/export with custom branded template (XLSX format via PhpSpreadsheet)
+- Header-driven localized Excel import/export, including empty templates and bilingual product/warehouse columns ([workbook contract](docs/EXCEL-PRODUCT-WORKBOOK.md))
 - Google Sheets catalog sync with separate Products/Categories tabs, bilingual headers, and manual or scheduled refresh
 - Bulk operations for thousands of products
 
@@ -341,6 +341,7 @@ wp digitalogic products update --sku=001230 --set-sku=001231
 wp digitalogic export --format=csv --output=/path/to/export.csv
 wp digitalogic export --format=json --output=/path/to/export.json
 wp digitalogic export --format=excel --output=/path/to/export.xlsx
+wp digitalogic export --format=excel --locale=bilingual --template --output=/path/to/products-template.xlsx
 wp digitalogic import /path/to/products.csv
 wp digitalogic import /path/to/products.json
 wp digitalogic import /path/to/products.xlsx

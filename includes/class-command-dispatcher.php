@@ -183,16 +183,24 @@ class Digitalogic_Command_Dispatcher {
     }
 
     public function export($payload) {
-        $format = isset( $payload['format'] ) ? sanitize_key( $payload['format'] ) : 'csv';
+        $format      = isset( $payload['format'] ) ? sanitize_key( $payload['format'] ) : 'csv';
         $product_ids = isset( $payload['product_ids'] ) && is_array( $payload['product_ids'] )
             ? array_map( 'intval', $payload['product_ids'] )
             : array();
+        $locale   = isset( $payload['locale'] ) ? sanitize_key( $payload['locale'] ) : 'en';
+        $template = ! empty( $payload['template'] );
 
         $import_export = Digitalogic_Import_Export::instance();
         if ($format === 'json') {
             $filepath = $import_export->export_json( $product_ids );
         } elseif ($format === 'excel') {
-            $filepath = $import_export->export_excel( $product_ids );
+            $filepath = $import_export->export_excel(
+                $product_ids,
+                array(
+                    'locale'   => $locale,
+                    'template' => $template,
+                )
+            );
         } else {
             $format = 'csv';
             $filepath = $import_export->export_csv( $product_ids );
@@ -205,9 +213,11 @@ class Digitalogic_Command_Dispatcher {
         $upload_dir = wp_upload_dir();
 
         return array(
-            'url' => str_replace( $upload_dir['basedir'], $upload_dir['baseurl'], $filepath ),
+            'url'      => str_replace( $upload_dir['basedir'], $upload_dir['baseurl'], $filepath ),
             'filepath' => $filepath,
-            'format' => $format,
+            'format'   => $format,
+            'locale'   => $locale,
+            'template' => 'excel' === $format && $template,
         );
     }
 
