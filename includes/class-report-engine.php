@@ -24,9 +24,9 @@ class Digitalogic_Report_Engine {
         $feed_products = $feed->get_products();
         $feed_customers = $feed->get_customers();
         $settings = $feed->get_settings();
-        $catalog = Digitalogic_Import_Freight_Service::instance()->get_integration_catalog();
+		$catalog = Digitalogic_Shipping_Method_Service::instance()->get_integration_catalog();
         $catalog_error = is_wp_error($catalog) ? $catalog : null;
-        $freight_methods = $catalog_error ? array() : $catalog['import_freight_methods'];
+		$shipping_methods = $catalog_error ? array() : $catalog['shipping_methods'];
         $products = $this->get_woocommerce_products();
         $by_sku = $this->index_products_by_sku($products);
 
@@ -143,10 +143,7 @@ class Digitalogic_Report_Engine {
             ),
             'settings' => array(
                 'selected_warehouses' => $settings['selected_warehouses'],
-                // Backward-compatible report key; values now come from the
-                // validated supplier-import catalog, never Woo delivery APIs.
-                'shipping_methods' => $freight_methods,
-                'import_freight_methods' => $freight_methods,
+				'shipping_methods' => $shipping_methods,
                 'integration_catalog_revision' => $catalog_error ? null : $catalog['revision'],
                 'integration_catalog_error' => $catalog_error ? $catalog_error->get_error_code() : null,
                 'stale_after_hours' => $settings['stale_after_hours'],

@@ -29,7 +29,7 @@ class Digitalogic_Panel {
             self::$instance = new self();
         }
 
-        self::$instance->register_import_freight_delivery_channel();
+        self::$instance->register_shipping_method_delivery_channel();
 
         return self::$instance;
     }
@@ -52,10 +52,10 @@ class Digitalogic_Panel {
         add_action('admin_footer', array($this, 'hide_wp_armour_honeypot_notice'), 1000);
     }
 
-    private function register_import_freight_delivery_channel() {
-        Digitalogic_Import_Freight_Service::instance()->register_delivery_channel(
+    private function register_shipping_method_delivery_channel() {
+		Digitalogic_Shipping_Method_Service::instance()->register_delivery_channel(
             'panel',
-            array($this, 'deliver_import_freight_event')
+            array($this, 'deliver_shipping_method_event')
         );
     }
 
@@ -291,7 +291,7 @@ class Digitalogic_Panel {
         'patris' => array(
             'project' => 'Digitalogic normalized Patris API',
             'mode' => 'Pull scheduled/manual feed or authenticated push payload into WooCommerce',
-            'suggested_bridge' => 'POST /wp-json/digitalogic/v1/patris/push or configure a pull URL in Patris Reports',
+            'suggested_bridge' => 'POST /wp-json/digitalogic/patris/product-sync',
         ),
             'logs' => Digitalogic_Logger::instance()->get_logs(array('limit' => 6)),
             'categories' => Digitalogic_Product_Manager::instance()->get_product_categories(),
@@ -639,68 +639,54 @@ class Digitalogic_Panel {
         }
     }
 
-    public function record_import_freight_method_created($method) {
-        return $this->record_import_freight_method_event('import_freight.method.created', $method);
-    }
-
-    public function record_import_freight_method_updated($method) {
-        return $this->record_import_freight_method_event('import_freight.method.updated', $method);
-    }
-
-    public function record_import_freight_method_deleted($method) {
-        return $this->record_import_freight_method_event('import_freight.method.deleted', $method);
-    }
-
-    public function record_import_freight_assignment_event($product_id, $method_id) {
-        return self::record_event('import_freight.assignment.updated', array(
-            'product_id' => absint($product_id),
-            'import_freight_method_id' => sanitize_key((string) $method_id),
-        ));
-    }
-
-    private function record_import_freight_method_event($event, $method) {
+	private function record_shipping_method_event($event, $method) {
         $method = is_array($method) ? $method : array();
-        return self::record_event($event, array(
+        $data = array(
             'id' => isset($method['id']) ? sanitize_key($method['id']) : '',
             'name' => isset($method['name']) ? sanitize_text_field($method['name']) : '',
             'enabled' => !empty($method['enabled']),
-            'price_per_kg_cny' => isset($method['price_per_kg_cny']) ? (float) $method['price_per_kg_cny'] : null,
-        ));
+		);
+		if (array_key_exists('shipping_price_per_kg_cny', $method) && null !== $method['shipping_price_per_kg_cny']) {
+			$data['shipping_price_per_kg_cny'] = (float) $method['shipping_price_per_kg_cny'];
+		}
+        return self::record_event($event, $data);
     }
 
     /**
-     * Result-aware import-freight delivery channel used after service commits.
+	 * Result-aware shipping-method delivery channel used after commits.
      */
-    public function deliver_import_freight_event($hook, $args) {
+    public function deliver_shipping_method_event($hook, $args) {
         $args = is_array($args) ? $args : array();
-        if ('digitalogic_import_freight_default_markup_updated' === $hook) {
-            $event = 'import_freight.default_markup.updated';
+        if ('digitalogic_shipping_default_markup_updated' === $hook) {
+			$event = 'shipping_method.default_markup.updated';
             $markup = isset($args[0]) && is_array($args[0]) ? $args[0] : array();
             $data = array(
                 'configured' => !empty($markup['configured']),
-                'profit_percent' => isset($markup['profit_percent']) ? (string) $markup['profit_percent'] : null,
                 'source' => isset($markup['source']) ? sanitize_key($markup['source']) : '',
                 'revision' => isset($markup['revision']) ? sanitize_text_field($markup['revision']) : '',
                 'previous_revision' => isset($markup['previous_revision']) ? sanitize_text_field($markup['previous_revision']) : '',
                 'updated_at' => isset($markup['updated_at']) ? sanitize_text_field($markup['updated_at']) : '',
                 'updated_by' => isset($markup['updated_by']) ? absint($markup['updated_by']) : 0,
             );
-        } elseif ('digitalogic_product_import_freight_method_updated' === $hook) {
-            $event = 'import_freight.assignment.updated';
+			if (array_key_exists('profit_percent', $markup) && null !== $markup['profit_percent']) {
+				$data['profit_percent'] = (string) $markup['profit_percent'];
+			}
+        } elseif ('digitalogic_product_shipping_method_updated' === $hook) {
+			$event = 'shipping_method.assignment.updated';
             $data = array(
                 'product_id' => absint(isset($args[0]) ? $args[0] : 0),
-                'import_freight_method_id' => sanitize_key((string) (isset($args[1]) ? $args[1] : '')),
+				'shipping_method_id' => sanitize_key((string) (isset($args[1]) ? $args[1] : '')),
             );
         } else {
             $events = array(
-                'digitalogic_import_freight_method_created' => 'import_freight.method.created',
-                'digitalogic_import_freight_method_updated' => 'import_freight.method.updated',
-                'digitalogic_import_freight_method_deleted' => 'import_freight.method.deleted',
+				'digitalogic_shipping_method_created' => 'shipping_method.created',
+				'digitalogic_shipping_method_updated' => 'shipping_method.updated',
+				'digitalogic_shipping_method_deleted' => 'shipping_method.deleted',
             );
             if (!isset($events[$hook])) {
                 return new WP_Error(
                     'digitalogic_panel_delivery_event_unknown',
-                    __('The panel does not recognize this import freight event.', 'digitalogic')
+					__('The panel does not recognize this shipping-method event.', 'digitalogic')
                 );
             }
 
@@ -710,8 +696,10 @@ class Digitalogic_Panel {
                 'id' => isset($method['id']) ? sanitize_key($method['id']) : '',
                 'name' => isset($method['name']) ? sanitize_text_field($method['name']) : '',
                 'enabled' => !empty($method['enabled']),
-                'price_per_kg_cny' => isset($method['price_per_kg_cny']) ? (float) $method['price_per_kg_cny'] : null,
             );
+			if (array_key_exists('shipping_price_per_kg_cny', $method) && null !== $method['shipping_price_per_kg_cny']) {
+				$data['shipping_price_per_kg_cny'] = (float) $method['shipping_price_per_kg_cny'];
+			}
         }
 
         $result = self::record_event_result($event, $data);
@@ -978,12 +966,22 @@ class Digitalogic_Panel {
 
         global $wpdb;
         $like = '%' . $wpdb->esc_like($term) . '%';
-        $search_body = preg_replace('/^\s*AND\s*/', '', (string) $search);
 
         $meta_clause = $wpdb->prepare(
             "{$wpdb->posts}.ID IN (
                 SELECT post_id FROM {$wpdb->postmeta}
-                WHERE meta_key IN ('_sku', '_product_attributes', 'attribute_pa_model')
+                WHERE meta_key IN (
+                    '_sku',
+                    '_product_attributes',
+                    'attribute_pa_model',
+                    '_digitalogic_patris_name',
+                    '_digitalogic_patris_family_name',
+                    '_digitalogic_patris_product_code',
+					'_digitalogic_patris_serial',
+					'_digitalogic_persian_name',
+                    '_digitalogic_part_number',
+                    '_digitalogic_model'
+                )
                 AND meta_value LIKE %s
             )",
             $like
@@ -996,9 +994,25 @@ class Digitalogic_Panel {
                 INNER JOIN {$wpdb->postmeta} variation_meta ON variations.ID = variation_meta.post_id
                 WHERE variations.post_type = 'product_variation'
                 AND variations.post_parent > 0
-                AND variation_meta.meta_key IN ('_sku', 'attribute_pa_model')
-                AND variation_meta.meta_value LIKE %s
+                AND variations.post_status = 'publish'
+                AND (
+                    variations.post_title LIKE %s
+                    OR (
+                        variation_meta.meta_key IN (
+                            '_sku',
+                            'attribute_pa_model',
+                            '_digitalogic_patris_name',
+                            '_digitalogic_patris_product_code',
+							'_digitalogic_patris_serial',
+							'_digitalogic_persian_name',
+                            '_digitalogic_part_number',
+                            '_digitalogic_model'
+                        )
+                        AND variation_meta.meta_value LIKE %s
+                    )
+                )
             )",
+			$like,
             $like
         );
 
@@ -1015,11 +1029,28 @@ class Digitalogic_Panel {
             $like
         );
 
-        if ($search_body === '') {
-            return ' AND (' . $meta_clause . ' OR ' . $variation_clause . ' OR ' . $taxonomy_clause . ')';
+        $identity_clause = $meta_clause . ' OR ' . $variation_clause . ' OR ' . $taxonomy_clause;
+        if (trim((string) $search) === '') {
+            return ' AND (' . $identity_clause . ')';
         }
 
-        return ' AND (' . $search_body . ' OR ' . $meta_clause . ' OR ' . $variation_clause . ' OR ' . $taxonomy_clause . ')';
+        // Extend only the first positive title predicate generated by WP_Query.
+        // Keeping every NOT LIKE group and the anonymous post-password clause
+        // in their original position prevents alternate-identity matches from
+        // bypassing core exclusions or exposing password-protected products.
+        $posts_table = preg_quote((string) $wpdb->posts, '/');
+        $pattern = '/(\(\s*' . $posts_table . '\.post_title\s+LIKE\s+(?:\'(?:\\\\.|[^\'])*\'|"(?:\\\\.|[^"])*"|[^\s)]+)\s*)\)/i';
+        $extended = preg_replace_callback(
+            $pattern,
+            static function($matches) use ($identity_clause) {
+                return $matches[1] . ' OR (' . $identity_clause . '))';
+            },
+            (string) $search,
+            1,
+            $replacements
+        );
+
+        return 1 === $replacements && is_string($extended) ? $extended : $search;
     }
 
     public function hide_wp_armour_honeypot_notice() {

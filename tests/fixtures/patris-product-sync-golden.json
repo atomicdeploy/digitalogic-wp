@@ -1,0 +1,16 @@
+{
+  "schema": "patris.product-sync",
+  "event_type": "snapshot",
+  "event_id": "sha256:0554ef4f5dc36a0380d7d0ae0b1b8f5bbb350d218a6f30fa885f792de73bbe0a",
+  "source": {
+    "id": "patris-export",
+    "dataset": "ALLANBAR",
+    "revision": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "generated_at": "2026-07-20T00:00:00Z",
+  "products": [],
+  "categories": [],
+  "excluded_codes": [],
+  "quarantined_codes": [],
+  "warnings": []
+}

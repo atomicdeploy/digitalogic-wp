@@ -248,39 +248,26 @@ final class RestApiPermissionsTest extends TestCase {
             'POST /currency' => 'check_write_permission',
             'POST /pricing/recalculate' => 'check_write_permission',
             'GET /export' => 'check_diagnostic_permission',
+			'GET /google-sheets/catalog' => 'check_read_permission',
             'GET /reports' => 'check_diagnostic_permission',
-            'POST /patris/sync' => 'check_write_permission',
-            'POST /patris/push' => 'check_patris_push_permission',
             'POST /patris/product-sync' => 'check_patris_product_sync_permission',
             'GET /integration/catalog' => 'check_pricing_input_permission',
             'GET /pricing/default-markup' => 'check_read_permission',
             'PUT /pricing/default-markup' => 'check_write_permission',
-            'GET /import-freight-methods' => 'check_read_permission',
-            'POST /import-freight-methods' => 'check_write_permission',
-            'GET /import-freight-methods/(?P<id>[a-z][a-z0-9_]{1,63})' => 'check_read_permission',
-            'PUT /import-freight-methods/(?P<id>[a-z][a-z0-9_]{1,63})' => 'check_write_permission',
-            'DELETE /import-freight-methods/(?P<id>[a-z][a-z0-9_]{1,63})' => 'check_write_permission',
-            'GET /products/by-code/(?P<code>[^/]+)/import-pricing' => 'check_read_permission',
-            'PUT /products/by-code/(?P<code>[^/]+)/import-pricing' => 'check_write_permission',
-			'POST /pricing-assignments/batch'     => 'check_pricing_input_permission',
-            'POST /products/import-pricing/batch' => 'check_write_permission',
+			'GET /shipping-methods' => 'check_read_permission',
+			'POST /shipping-methods' => 'check_write_permission',
+			'GET /shipping-methods/(?P<id>[a-z][a-z0-9_]{1,63})' => 'check_read_permission',
+			'PUT /shipping-methods/(?P<id>[a-z][a-z0-9_]{1,63})' => 'check_write_permission',
+			'DELETE /shipping-methods/(?P<id>[a-z][a-z0-9_]{1,63})' => 'check_write_permission',
+			'GET /products/by-code/(?P<code>[^/]+)/shipping-method' => 'check_read_permission',
+			'PUT /products/by-code/(?P<code>[^/]+)/shipping-method' => 'check_write_permission',
+			'POST /products/shipping-methods/batch' => 'check_write_permission',
+			'POST /integration/pricing-assignments/batch' => 'check_pricing_input_permission',
+			'GET /integration/products/by-code/(?P<code>[^/]+)/pricing' => 'check_pricing_input_permission',
         );
         // phpcs:enable WordPress.Arrays.MultipleStatementAlignment.DoubleArrowNotAligned
 
         $this->assertSame($expected, $actual);
     }
 
-    public function test_patris_push_delegates_to_its_scoped_verifier() {
-        $GLOBALS['digitalogic_test_options']['digitalogic_patris_feed_push_token'] = 'scoped-patris-token';
-        unset($GLOBALS['digitalogic_test_option_cache']['digitalogic_patris_feed_push_token']);
-        $authorized = new WP_REST_Request(array(), array(), array(
-            'x-digitalogic-token' => 'scoped-patris-token',
-        ));
-        $unauthorized = new WP_REST_Request(array(), array(), array(
-            'x-digitalogic-token' => 'wrong-token',
-        ));
-
-        $this->assertTrue($this->api->check_patris_push_permission($authorized));
-        $this->assertFalse($this->api->check_patris_push_permission($unauthorized));
-    }
 }

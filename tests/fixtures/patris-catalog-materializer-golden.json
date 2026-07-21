@@ -1,17 +1,13 @@
 {
-  "schema": "digitalogic.product-sync",
-  "schema_version": "1.1",
-  "event": "digitalogic.product-sync",
+  "schema": "patris.product-sync",
   "event_type": "snapshot",
-  "event_id": "sha256:4230ed302661c27a3b1bac71c60fac6a82c43bfb1ac0a7942137695b00afc2ac",
+  "event_id": "sha256:c74cd423f2e84e0676270d0df2bdee4c935ef3eced9b148126734bd370e48831",
   "local_currency": "IRT",
-  "formula_id": "landed_price_v1",
-  "formula_revision": "1.0.0",
-  "formula_version": "landed_price_v1",
+  "formula_id": "landed_price",
   "source": {
     "id": "synthetic-fixture",
     "dataset": "synthetic-kala.db",
-    "revision": "sha256:48748e38b0af76d87bbdf97328efb1f98c43a0e984544a551972238e1e7180bf"
+    "revision": "sha256:380f09a26f315f59e9d7737a5ab879cab53b239d5299e6ef9509fc7ada95c689"
   },
   "generated_at": "2026-01-02T03:04:05Z",
   "products": [
@@ -33,18 +29,17 @@
       "foreign_price": 24.5,
       "weight_grams": 240,
       "location": "TEST-A",
-      "import_freight_method_id": "synthetic-air",
-      "freight_cny_per_kg": 120,
       "markup_percent": 30,
       "irt_per_cny": 29000,
       "pricing_catalog_revision": "synthetic-catalog-v1",
       "pricing_catalog_status": "static",
       "currency_effective_date": "2026-01-01",
       "final_price": 2009410,
-      "formula_version": "landed_price_v1",
       "source_updated_at": "2026-01-01T00:00:00Z",
       "warnings": [],
-      "record_hash": "sha256:25e2672d5b77e1ea5f9749c31757f8fdc933b96d634410eb55bec1f0e6e12fb5"
+      "record_hash": "sha256:bdfdb43e53b79c1d1b63612fdf426935ed99df423c4fd2dae06b70995ed7d8bb",
+      "shipping_method_id": "synthetic-air",
+      "shipping_price_per_kg_cny": 120
     },
     {
       "product_code": "101001002",
@@ -64,25 +59,23 @@
       "foreign_price": null,
       "weight_grams": null,
       "location": "weight unavailable",
-      "import_freight_method_id": "",
-      "freight_cny_per_kg": null,
       "markup_percent": null,
       "irt_per_cny": 29000,
       "pricing_catalog_revision": "synthetic-catalog-v1",
       "pricing_catalog_status": "static",
       "currency_effective_date": "2026-01-01",
-      "final_price": null,
-      "formula_version": "landed_price_v1",
       "source_updated_at": "",
       "warnings": [
         "final_price_unavailable",
         "foreign_price_missing",
-        "freight_rate_missing",
-        "import_freight_method_missing",
         "markup_percent_missing",
+        "shipping_method_missing",
+        "shipping_price_missing",
         "weight_missing"
       ],
-      "record_hash": "sha256:e45fd709eba4e43aab7f3eea5a3994950e0d41c271284f0d198e85ef10bd5125"
+      "record_hash": "sha256:38dbe4341d93940c9244725fa0526a164e09588672fb85543bab2cfdf048de23",
+      "shipping_method_id": "",
+      "shipping_price_per_kg_cny": null
     }
   ],
   "categories": [
@@ -92,7 +85,7 @@
       "parent_code": "",
       "depth": 1,
       "warnings": [],
-      "record_hash": "sha256:31241792f095579c78ebbfaa239d4302d6b6bc11555afaa009357a8ecb01ac58"
+      "record_hash": "sha256:7c1d126b3ba2a2b1d3aef91c3597fb8a8c190e24d77e4f49dc3d28ff16f9669b"
     },
     {
       "category_code": "101001",
@@ -100,10 +93,12 @@
       "parent_code": "101",
       "depth": 2,
       "warnings": [],
-      "record_hash": "sha256:027f01ca991309c98a4dc275388209e7d6d0bf5926663b81edd71ead7d226a23"
+      "record_hash": "sha256:323436395a79b321e8e713942d5cf90b49518d8735ef25a1c374448822f26252"
     }
   ],
   "excluded_codes": [
     "999010"
-  ]
+  ],
+  "quarantined_codes": [],
+  "warnings": []
 }

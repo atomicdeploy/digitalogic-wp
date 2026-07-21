@@ -25,8 +25,8 @@ class Digitalogic_Patris_Feed {
     private const CUSTOMERS_OPTION = 'digitalogic_patris_feed_customers';
     private const LAST_SYNC_OPTION = 'digitalogic_patris_feed_last_sync';
     private const TOKEN_OPTION = 'digitalogic_patris_feed_push_token';
-    public const PRODUCT_SYNC_SECRET_OPTION = 'digitalogic_product_sync_v1_secret';
-    public const PRODUCT_SYNC_SCOPES_OPTION = 'digitalogic_product_sync_v1_source_scopes';
+    public const PRODUCT_SYNC_SECRET_OPTION = 'digitalogic_product_sync_secret';
+    public const PRODUCT_SYNC_SCOPES_OPTION = 'digitalogic_product_sync_source_scopes';
 
     private static $instance = null;
 
@@ -69,7 +69,7 @@ class Digitalogic_Patris_Feed {
         $current = $this->get_settings();
         $next = is_array($settings) ? $settings : array();
 
-        // Import freight is now managed by Digitalogic_Import_Freight_Service.
+        // Supplier shipping methods are managed by Digitalogic_Shipping_Method_Service.
         // Never revive the former unvalidated, free-form shipping_methods blob.
         unset($current['shipping_methods'], $next['shipping_methods']);
 
@@ -231,7 +231,7 @@ class Digitalogic_Patris_Feed {
             $normalized_products[$product_data['product_code']] = $product_data;
 
             $resolved = Digitalogic_Product_Identifier_Resolver::instance()->resolve(array(
-                'code' => $product_data['product_code'],
+                'patris_code' => $product_data['product_code'],
             ));
             if (is_wp_error($resolved)) {
                 if ('digitalogic_product_identifier_not_found' === $resolved->get_error_code()) {
@@ -239,8 +239,8 @@ class Digitalogic_Patris_Feed {
                 } else {
                     $results['failed']++;
                     $results['errors'][] = 'digitalogic_product_identifier_ambiguous' === $resolved->get_error_code()
-                        ? __('Skipped product because its exact Code/SKU is ambiguous.', 'digitalogic')
-                        : __('Skipped product because its Code/SKU could not be resolved.', 'digitalogic');
+                        ? __('Skipped product because its exact Patris Code is ambiguous.', 'digitalogic')
+                        : __('Skipped product because its Patris Code could not be resolved.', 'digitalogic');
                 }
                 continue;
             }
@@ -321,11 +321,7 @@ class Digitalogic_Patris_Feed {
         return is_string($provided) && hash_equals($expected, $provided);
     }
 
-    /**
-     * Return the dedicated v1 receiver secret.
-     *
-     * This credential is intentionally independent of the legacy push token.
-     */
+    /** Return the dedicated product-sync receiver secret. */
     public function get_product_sync_secret() {
         $secret = (string) get_option(self::PRODUCT_SYNC_SECRET_OPTION, '');
         if ('' !== $secret) {
@@ -341,9 +337,9 @@ class Digitalogic_Patris_Feed {
     }
 
     /**
-     * Return normalized exact source scopes for the v1 secret.
+     * Return normalized exact source scopes for the product-sync secret.
      *
-     * An empty list is deliberately unscoped for backwards-compatible setup;
+     * An empty list is deliberately unscoped for initial setup;
      * once configured, every request must match one exact {id,dataset} pair.
      */
     public function get_product_sync_source_scopes() {
@@ -366,7 +362,7 @@ class Digitalogic_Patris_Feed {
     }
 
     /**
-     * Authenticate the versioned receiver with its dedicated header-only
+     * Authenticate the living receiver with its dedicated header-only
      * secret and, when configured, an exact source ID/dataset scope.
      *
      * @param WP_REST_Request $request Current request.
@@ -374,7 +370,7 @@ class Digitalogic_Patris_Feed {
      */
     public function verify_product_sync_request(WP_REST_Request $request) {
         $expected = $this->get_product_sync_secret();
-        $provided = $request->get_header('x-digitalogic-product-sync-secret');
+        $provided = $request->get_header('x-patris-product-sync-secret');
 
         if (!is_string($provided) || '' === $provided || '' === $expected || !hash_equals($expected, $provided)) {
             return false;
@@ -425,7 +421,7 @@ class Digitalogic_Patris_Feed {
             'location' => $this->clean_string($row['location'] ?? ''),
             'final_price' => $this->clean_number($row['final_price'] ?? null),
             'description' => wp_kses_post((string) ($row['description'] ?? '')),
-            'updated_at' => $this->clean_string($row['updated_at'] ?? ''),
+            'source_updated_at' => $this->clean_string($row['source_updated_at'] ?? $row['updated_at'] ?? ''),
             'flags' => isset($row['flags']) && is_array($row['flags']) ? array_values(array_map('sanitize_key', $row['flags'])) : array(),
             'raw' => $row,
         );
@@ -465,7 +461,7 @@ class Digitalogic_Patris_Feed {
     /**
      * Apply a normalized Patris product through the shared WooCommerce writer.
      *
-     * Both the legacy feed and the versioned transformed-only receiver use this
+     * Both row imports and the transformed-only receiver use this
      * method so stock, weight, pricing, and Patris metadata cannot drift into
      * parallel implementations. Canonical callers do not pass a raw payload.
      *
@@ -474,73 +470,108 @@ class Digitalogic_Patris_Feed {
      * @return void
      */
     public function apply_product_feed(WC_Product $product, $data) {
-        $product->update_meta_data('_digitalogic_patris_product_code', $data['product_code']);
-        $product->update_meta_data('_digitalogic_patris_name', $data['name']);
-        $product->update_meta_data('_digitalogic_patris_serial', $data['serial']);
-        $product->update_meta_data('_digitalogic_patris_unit', $data['unit']);
-        $product->update_meta_data('_digitalogic_patris_unit_id', $data['unit_id'] ?? '');
-        $product->update_meta_data('_digitalogic_patris_sale_price_source', $data['sale_price_source']);
-        $product->update_meta_data('_digitalogic_patris_purchase_price_source', $data['purchase_price_source']);
-        $product->update_meta_data('_digitalogic_patris_warehouse_stock', wp_json_encode($data['warehouse_stock']));
-        $product->update_meta_data('_digitalogic_patris_total_stock', $data['total_stock']);
-        $product->update_meta_data('_digitalogic_patris_minimum_stock', $data['minimum_stock']);
-        $product->update_meta_data('_digitalogic_patris_foreign_currency', $data['foreign_currency']);
-        $product->update_meta_data('_digitalogic_patris_foreign_price', $data['foreign_price']);
-        $product->update_meta_data('_digitalogic_patris_weight_grams', $data['weight_grams']);
-        $product->update_meta_data('_digitalogic_patris_location', $data['location']);
-        $product->update_meta_data('_digitalogic_patris_final_price', $data['final_price']);
-        $product->update_meta_data(
-            '_digitalogic_patris_updated_at',
-            isset($data['source_updated_at']) ? $data['source_updated_at'] : ($data['updated_at'] ?? '')
+        $data = is_array($data) ? $data : array();
+        $product->update_meta_data('_digitalogic_patris_product_code', (string) ($data['product_code'] ?? ''));
+
+        $meta_fields = array(
+            'category_code' => array('_digitalogic_patris_category_code', false),
+            'name' => array('_digitalogic_patris_name', false),
+            'serial' => array('_digitalogic_patris_serial', false),
+            'unit' => array('_digitalogic_patris_unit', false),
+            'unit_id' => array('_digitalogic_patris_unit_id', false),
+            'sale_price_source' => array('_digitalogic_patris_sale_price_source', false),
+            'purchase_price_source' => array('_digitalogic_patris_purchase_price_source', false),
+            'warehouse_stock' => array('_digitalogic_patris_warehouse_stock', true),
+            'total_stock' => array('_digitalogic_patris_total_stock', false),
+            'minimum_stock' => array('_digitalogic_patris_minimum_stock', false),
+            'foreign_currency' => array('_digitalogic_patris_foreign_currency', false),
+            'foreign_price' => array('_digitalogic_patris_foreign_price', false),
+            'weight_grams' => array('_digitalogic_patris_weight_grams', false),
+            'location' => array('_digitalogic_patris_location', false),
+            'shipping_method_id' => array('_digitalogic_patris_shipping_method_id', false),
+            'shipping_price_per_kg_cny' => array('_digitalogic_patris_shipping_price_per_kg_cny', false),
+            'markup_percent' => array('_digitalogic_patris_markup_percent', false),
+            'irt_per_cny' => array('_digitalogic_patris_irt_per_cny', false),
+            'pricing_catalog_revision' => array('_digitalogic_patris_pricing_catalog_revision', false),
+            'pricing_catalog_status' => array('_digitalogic_patris_pricing_catalog_status', false),
+            'currency_effective_date' => array('_digitalogic_patris_currency_effective_date', false),
+            'final_price' => array('_digitalogic_patris_final_price', false),
+            'source_updated_at' => array('_digitalogic_patris_updated_at', false),
+            'warnings' => array('_digitalogic_patris_warnings', true),
+            'record_hash' => array('_digitalogic_patris_record_hash', false),
+            'flags' => array('_digitalogic_patris_flags', true),
+            'raw' => array('_digitalogic_patris_last_feed', true),
         );
-        if (array_key_exists('flags', $data)) {
-            $product->update_meta_data('_digitalogic_patris_flags', wp_json_encode($data['flags']));
+        $null_fields = array();
+        $missing_fields = array();
+        foreach ($meta_fields as $field => $definition) {
+            $this->sync_product_meta(
+                $product,
+                $data,
+                $field,
+                $definition[0],
+                $definition[1],
+                $null_fields,
+                $missing_fields
+            );
         }
-        if (array_key_exists('raw', $data)) {
-            $product->update_meta_data('_digitalogic_patris_last_feed', wp_json_encode($data['raw'], JSON_UNESCAPED_UNICODE));
+        sort($null_fields, SORT_STRING);
+        sort($missing_fields, SORT_STRING);
+        $product->update_meta_data('_digitalogic_patris_null_fields', wp_json_encode($null_fields));
+        $product->update_meta_data('_digitalogic_patris_missing_fields', wp_json_encode($missing_fields));
+
+        if (array_key_exists('weight_grams', $data) && null !== $data['weight_grams']) {
+            $store_weight = Digitalogic_Unit_Converter::grams_to_store_weight($data['weight_grams']);
+            $product->set_weight(is_null($store_weight) ? '' : (string) $store_weight);
+        } else {
+            $product->set_weight('');
         }
 
-        $canonical_meta = array(
-            'category_code' => '_digitalogic_patris_category_code',
-            'import_freight_method_id' => '_digitalogic_patris_import_freight_method_id',
-            'freight_cny_per_kg' => '_digitalogic_patris_freight_cny_per_kg',
-            'markup_percent' => '_digitalogic_patris_markup_percent',
-            'irt_per_cny' => '_digitalogic_patris_irt_per_cny',
-            'pricing_catalog_revision' => '_digitalogic_patris_pricing_catalog_revision',
-            'pricing_catalog_status' => '_digitalogic_patris_pricing_catalog_status',
-            'currency_effective_date' => '_digitalogic_patris_currency_effective_date',
-            'formula_version' => '_digitalogic_patris_formula_version',
-            'record_hash' => '_digitalogic_patris_record_hash',
-        );
-        foreach ($canonical_meta as $field => $meta_key) {
-            if (array_key_exists($field, $data)) {
-                $product->update_meta_data($meta_key, $data[$field]);
-            }
-        }
-        if (array_key_exists('warnings', $data)) {
-            $product->update_meta_data('_digitalogic_patris_warnings', wp_json_encode($data['warnings']));
-        }
-
-        $store_weight = Digitalogic_Unit_Converter::grams_to_store_weight($data['weight_grams']);
-        if (!is_null($store_weight)) {
-            $product->set_weight((string) $store_weight);
-        }
-
-        if ($data['total_stock'] !== null) {
+        if (array_key_exists('total_stock', $data) && null !== $data['total_stock']) {
             $product->set_manage_stock(true);
             $product->set_stock_quantity((int) round($data['total_stock']));
             $product->set_stock_status($data['total_stock'] > 0 ? 'instock' : 'outofstock');
+        } else {
+            $product->set_manage_stock(false);
+            $product->set_stock_quantity(null);
+            $product->delete_meta_data('_stock');
         }
 
-        $final_price = $data['final_price'];
-        if ($final_price !== null) {
-            $should_zero = $final_price <= 0 || ($data['total_stock'] !== null && $data['total_stock'] <= 0);
+        if (array_key_exists('final_price', $data) && null !== $data['final_price']) {
+            $final_price = $data['final_price'];
+            $stock_unavailable = array_key_exists('total_stock', $data)
+                && null !== $data['total_stock']
+                && $data['total_stock'] <= 0;
+            $should_zero = $final_price <= 0 || $stock_unavailable;
             $product->set_regular_price($should_zero ? '0' : (string) $final_price);
             $product->set_price($should_zero ? '0' : (string) $final_price);
             $product->update_meta_data('_digitalogic_patris_price_status', $should_zero ? 'zeroed' : 'priced');
+        } else {
+            $product->set_regular_price('');
+            $product->set_price('');
+            $product->set_sale_price('');
+            $product->update_meta_data('_digitalogic_patris_price_status', 'unpriced');
         }
 
         $product->save();
+    }
+
+    private function sync_product_meta($product, $data, $field, $meta_key, $encode_json, &$null_fields, &$missing_fields) {
+        if (!array_key_exists($field, $data)) {
+            $product->delete_meta_data($meta_key);
+            $missing_fields[] = $field;
+            return;
+        }
+        if (null === $data[$field]) {
+            $product->delete_meta_data($meta_key);
+            $null_fields[] = $field;
+            return;
+        }
+
+        $value = $encode_json
+            ? wp_json_encode($data[$field], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
+            : $data[$field];
+        $product->update_meta_data($meta_key, $value);
     }
 
     private function clean_string($value) {
