@@ -11,10 +11,10 @@ define('ARRAY_A', 'ARRAY_A');
 define('MINUTE_IN_SECONDS', 60);
 define('HOUR_IN_SECONDS', 3600);
 define('DAY_IN_SECONDS', 86400);
-define('DIGITALOGIC_VERSION', 'test');
-define('DIGITALOGIC_PLUGIN_DIR', dirname(__DIR__) . '/');
-define('DIGITALOGIC_PLUGIN_URL', 'https://digitalogic.test/wp-content/plugins/digitalogic-wp/');
 // phpcs:enable
+define( 'DIGITALOGIC_VERSION', 'test' );
+define( 'DIGITALOGIC_PLUGIN_DIR', dirname( __DIR__ ) . '/' );
+define( 'DIGITALOGIC_PLUGIN_URL', 'https://digitalogic.test/wp-content/plugins/digitalogic-wp/' );
 
 // phpcs:disable Generic.Formatting.MultipleStatementAlignment -- Preserve the intentionally simple test-global registry.
 $GLOBALS['digitalogic_test_capabilities'] = array();
@@ -25,9 +25,9 @@ $GLOBALS['digitalogic_test_rest_url_calls'] = 0;
 $GLOBALS['digitalogic_test_current_user_can_calls'] = 0;
 $GLOBALS['digitalogic_test_current_user_id'] = 0;
 $GLOBALS['digitalogic_test_current_user'] = (object) array(
-    'ID' => 0,
-    'user_login' => '',
-    'display_name' => '',
+	'ID'           => 0,
+	'user_login'   => '',
+	'display_name' => '',
 );
 $GLOBALS['digitalogic_test_status_headers'] = array();
 $GLOBALS['digitalogic_test_nocache_headers'] = 0;
@@ -66,6 +66,8 @@ $GLOBALS['digitalogic_test_transients'] = array(); // phpcs:ignore
 $GLOBALS['digitalogic_test_transient_deletes'] = array(); // phpcs:ignore
 $GLOBALS['digitalogic_test_rewrite_rules'] = array(); // phpcs:ignore
 $GLOBALS['digitalogic_test_rewrite_flushes'] = array(); // phpcs:ignore
+$GLOBALS['digitalogic_test_registered_post_types'] = array(); // phpcs:ignore
+$GLOBALS['digitalogic_test_post_type_meta_caps'] = array(); // phpcs:ignore
 $GLOBALS['digitalogic_test_locale'] = 'en_US';
 $GLOBALS['digitalogic_test_shortcodes'] = array();
 $GLOBALS['digitalogic_test_enqueued_styles'] = array();
@@ -288,49 +290,136 @@ function current_user_can($capability) {
     return !empty($GLOBALS['digitalogic_test_capabilities'][$capability]);
 }
 
+/**
+ * Capture post-type arguments and model WordPress's object meta-cap map.
+ *
+ * @param string $post_type Post-type key.
+ * @param array  $args      Registration arguments.
+ * @return object
+ */
+function register_post_type( $post_type, $args = array() ) {
+	$GLOBALS['digitalogic_test_registered_post_types'][ $post_type ] = $args;
+
+	if ( ! empty( $args['map_meta_cap'] ) ) {
+		foreach ( array( 'edit_post', 'read_post', 'delete_post' ) as $meta_cap ) {
+			$capability = $args['capabilities'][ $meta_cap ] ?? '';
+			if ( '' !== $capability ) {
+				$GLOBALS['digitalogic_test_post_type_meta_caps'][ $capability ] = $meta_cap;
+			}
+		}
+	}
+
+	return (object) array(
+		'name' => $post_type,
+	);
+}
+
+/**
+ * Return the current test user ID.
+ *
+ * @return int
+ */
 function get_current_user_id() {
-    return (int) $GLOBALS['digitalogic_test_current_user_id'];
+	return (int) $GLOBALS['digitalogic_test_current_user_id'];
 }
 
+/**
+ * Return the current test user object.
+ *
+ * @return object
+ */
 function wp_get_current_user() {
-    return $GLOBALS['digitalogic_test_current_user'];
+	return $GLOBALS['digitalogic_test_current_user'];
 }
 
+/**
+ * Determine whether a test user is signed in.
+ *
+ * @return bool
+ */
 function is_user_logged_in() {
-    return get_current_user_id() > 0;
+	return 0 < get_current_user_id();
 }
 
-function wp_login_url($redirect = '', $force_reauth = false) {
-    $url = 'https://digitalogic.test/wp-login.php';
-    return $redirect !== '' ? $url . '?redirect_to=' . rawurlencode((string) $redirect) : $url;
+/**
+ * Build a test login URL.
+ *
+ * @param string $redirect     Redirect URL after login.
+ * @param bool   $force_reauth Whether reauthentication is requested.
+ * @return string
+ */
+function wp_login_url( $redirect = '', $force_reauth = false ) {
+	$url = 'https://digitalogic.test/wp-login.php';
+	unset( $force_reauth );
+
+	return '' !== $redirect ? $url . '?redirect_to=' . rawurlencode( (string) $redirect ) : $url;
 }
 
-function wp_logout_url($redirect = '') {
-    $url = 'https://digitalogic.test/wp-login.php?action=logout';
-    return $redirect !== '' ? $url . '&redirect_to=' . rawurlencode((string) $redirect) : $url;
+/**
+ * Build a test logout URL.
+ *
+ * @param string $redirect Redirect URL after logout.
+ * @return string
+ */
+function wp_logout_url( $redirect = '' ) {
+	$url = 'https://digitalogic.test/wp-login.php?action=logout';
+
+	return '' !== $redirect ? $url . '&redirect_to=' . rawurlencode( (string) $redirect ) : $url;
 }
 
-function status_header($status_code) {
-    $GLOBALS['digitalogic_test_status_headers'][] = (int) $status_code;
+/**
+ * Capture a test response status.
+ *
+ * @param int $status_code HTTP response status.
+ * @return void
+ */
+function status_header( $status_code ) {
+	$GLOBALS['digitalogic_test_status_headers'][] = (int) $status_code;
 }
 
+/**
+ * Record a no-cache header request.
+ *
+ * @return void
+ */
 function nocache_headers() {
-    $GLOBALS['digitalogic_test_nocache_headers']++;
+	++$GLOBALS['digitalogic_test_nocache_headers'];
 }
 
-function wp_enqueue_style($handle, $src = '', $dependencies = array(), $version = false, $media = 'all') {
-    $GLOBALS['digitalogic_test_enqueued_styles'][$handle] = compact('src', 'dependencies', 'version', 'media');
+/**
+ * Capture an enqueued test stylesheet.
+ *
+ * @param string       $handle       Stylesheet handle.
+ * @param string       $src          Stylesheet URL.
+ * @param array        $dependencies Dependency handles.
+ * @param string|false $version      Stylesheet version.
+ * @param string       $media        Stylesheet media target.
+ * @return void
+ */
+function wp_enqueue_style( $handle, $src = '', $dependencies = array(), $version = false, $media = 'all' ) {
+	$GLOBALS['digitalogic_test_enqueued_styles'][ $handle ] = array(
+		'src'          => $src,
+		'dependencies' => $dependencies,
+		'version'      => $version,
+		'media'        => $media,
+	);
 }
 
-function wp_print_styles($handles = false) {
-    $handles = false === $handles ? array_keys($GLOBALS['digitalogic_test_enqueued_styles']) : (array) $handles;
-    foreach ($handles as $handle) {
-        if (!isset($GLOBALS['digitalogic_test_enqueued_styles'][$handle])) {
-            continue;
-        }
-        $style = $GLOBALS['digitalogic_test_enqueued_styles'][$handle];
-        echo '<link rel="stylesheet" href="' . esc_url($style['src']) . '">';
-    }
+/**
+ * Print captured test stylesheet tags.
+ *
+ * @param string|array|false $handles Stylesheet handles.
+ * @return void
+ */
+function wp_print_styles( $handles = false ) {
+	$handles = false === $handles ? array_keys( $GLOBALS['digitalogic_test_enqueued_styles'] ) : (array) $handles;
+	foreach ( $handles as $handle ) {
+		if ( ! isset( $GLOBALS['digitalogic_test_enqueued_styles'][ $handle ] ) ) {
+			continue;
+		}
+		$style = $GLOBALS['digitalogic_test_enqueued_styles'][ $handle ];
+		echo '<link rel="stylesheet" href="' . esc_url( $style['src'] ) . '">';
+	}
 }
 
 function add_filter($hook_name, $callback, $priority = 10, $accepted_args = 1) {
@@ -2096,8 +2185,8 @@ require_once dirname(__DIR__) . '/includes/class-digitalogic-currency-date-forma
 require_once dirname(__DIR__) . '/includes/class-digitalogic-currency-shortcodes.php';
 require_once dirname(__DIR__) . '/includes/class-unit-converter.php';
 require_once dirname(__DIR__) . '/includes/class-digitalogic-woocommerce-currency-status.php';
-require_once dirname(__DIR__) . '/includes/class-digitalogic-access-control.php';
-require_once dirname(__DIR__) . '/includes/panel/class-digitalogic-panel-error-page.php';
+require_once dirname( __DIR__ ) . '/includes/class-digitalogic-access-control.php';
+require_once dirname( __DIR__ ) . '/includes/panel/class-digitalogic-panel-error-page.php';
 require_once dirname(__DIR__) . '/includes/class-product-identifier-resolver.php';
 require_once dirname(__DIR__) . '/includes/class-digitalogic-product-query.php';
 require_once dirname(__DIR__) . '/includes/class-digitalogic-product-metadata-inspector.php'; // phpcs:ignore

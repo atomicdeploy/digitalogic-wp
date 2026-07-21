@@ -36,6 +36,10 @@ body.digitalogic-error-body {
     min-height: 100%;
 }
 
+.digitalogic-error-embedded {
+    font-family: "DigitalogicFanum", "Segoe UI", Tahoma, system-ui, sans-serif;
+}
+
 body.digitalogic-error-body {
     margin: 0;
     color: var(--dle-text);
@@ -63,6 +67,16 @@ body.digitalogic-error-body {
     display: grid;
     place-items: center;
     padding: 32px 18px;
+}
+
+.digitalogic-error-embedded .dle-shell {
+    min-height: calc(100vh - 150px);
+    padding: 24px 20px 36px 0;
+}
+
+[dir="rtl"].digitalogic-error-embedded .dle-shell {
+    padding-right: 0;
+    padding-left: 20px;
 }
 
 .dle-card {
@@ -270,6 +284,11 @@ body.digitalogic-error-body {
 }
 
 @media (max-width: 560px) {
+    .digitalogic-error-embedded .dle-shell,
+    [dir="rtl"].digitalogic-error-embedded .dle-shell {
+        padding-inline: 0;
+    }
+
     .dle-card {
         border-radius: 22px;
     }
