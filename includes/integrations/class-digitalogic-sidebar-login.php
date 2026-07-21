@@ -76,10 +76,11 @@ final class Digitalogic_Sidebar_Login {
 	}
 
 	/**
-	 * Return already-enqueued Digits layers so this compatibility sheet loads last.
+	 * Return already-enqueued Digits main/RTL layers so this sheet loads last.
 	 *
-	 * Depending on a merely registered handle would cause WordPress to print that
-	 * vendor stylesheet, including Digits' intentionally omitted global login CSS.
+	 * Never depend on digits-login-style: this host temporarily queues that global
+	 * base file before Woodmart removes it later in the enqueue lifecycle. Making it
+	 * a dependency would force the intentionally omitted stylesheet back into output.
 	 *
 	 * @return array<string>
 	 */
@@ -91,7 +92,7 @@ final class Digitalogic_Sidebar_Login {
 
 		return array_values(
 			array_filter(
-				array( 'digits-login-style', 'digits-style', 'digits-login-style-rtl' ),
+				array( 'digits-style', 'digits-login-style-rtl' ),
 				static fn( string $handle ): bool => isset( $styles->registered[ $handle ] ) && wp_style_is( $handle, 'enqueued' )
 			)
 		);
