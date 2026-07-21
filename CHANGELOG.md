@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.6.0
+
+- Add secure six-digit phone verification by inbound call on `021-66754123`, IVR option `2`, as a Digits-independent login alternative and a way to verify supplemental Iranian mobile or fixed-line contacts.
+- Add multiple supplemental phone and email contacts in WooCommerce My Account and WordPress user profiles, with per-phone voice consent and order-event preferences.
+- Add disabled-by-default, asynchronous WooCommerce status announcements through the loopback PBX callout service, including a global kill switch, per-status Persian templates, strict placeholders, quiet hours, rate limits, consent rechecks, and idempotent jobs.
+- Add a signed, replay-resistant PBX callback contract, encrypted contact storage, database-backed verification limits, transactional consent auditing, privacy retention, and reconciled voice-job delivery.
+- Store phone ownership codes only as keyed MACs, consume browser verification atomically once, and fail closed until every required InnoDB table, column, index, cleanup task, and recovery schedule verifies successfully.
+
+## 1.5.2
+
+- Display the canonical Patris Code explicitly on product loops, Woodmart single-product layouts, selected variations, cart/checkout lines, order details, homepage product cards, and the table catalog.
+- Keep unrelated WooCommerce SKUs labeled as SKU, hide only exact duplicate SKU output, and show legacy child Codes as registered model references without implying they are directly purchasable.
+- Let table-catalog searches for a published variation Code return the parent product, while blocking misleading quick-add actions for legacy code-less parents with coded child records.
+
 ## 1.5.1
 
 - Prioritize products with real photos in the default table view while keeping explicit popularity, price, name, and date sorting available.

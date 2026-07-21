@@ -1,0 +1,23 @@
+#!/bin/sh
+set -eu
+umask 077
+
+env_file=/etc/asterisk/pbx-verification-digitalogic.env
+helper=/opt/digitalogic-pbx-verification/current/pbx-verification-agi.js
+
+test -r "$env_file"
+test "$(stat -c %u "$env_file")" = 0
+case "$(stat -c %a "$env_file")" in
+	600|640) ;;
+	*) exit 20 ;;
+esac
+test -x "$helper"
+
+set -a
+# The file is root-owned and not group-writable; values remain outside the repo.
+# shellcheck disable=SC1090
+. "$env_file"
+set +a
+unset NODE_OPTIONS NODE_PATH
+
+exec /usr/bin/node "$helper"

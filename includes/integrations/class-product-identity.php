@@ -11,6 +11,13 @@ final class Digitalogic_Product_Identity {
 
 	private static $instance = null;
 
+	/**
+	 * Published child identities resolved during this request.
+	 *
+	 * @var array
+	 */
+	private $child_identity_cache = array();
+
 	public static function instance() {
 		if ( null === self::$instance ) {
 			self::$instance = new self();
@@ -24,6 +31,8 @@ final class Digitalogic_Product_Identity {
 		add_action( 'woocommerce_single_product_summary', array( $this, 'render_single_patris_name' ), 6 );
 		add_action( 'woocommerce_after_variations_form', array( $this, 'render_variation_identity_slot' ), 5 );
 		add_filter( 'woocommerce_available_variation', array( $this, 'add_variation_identity_data' ), 10, 3 );
+		add_filter( 'woocommerce_get_item_data', array( $this, 'add_cart_item_patris_code' ), 10, 2 );
+		add_action( 'woocommerce_checkout_create_order_line_item', array( $this, 'add_order_item_patris_code' ), 10, 4 );
 		add_filter( 'woocommerce_structured_data_product', array( $this, 'add_product_schema_identity' ), 10, 2 );
 		add_filter( 'rank_math/snippet/rich_snippet_product_entity', array( $this, 'add_product_schema_identity' ), 10, 2 );
 		add_action( 'wp_enqueue_scripts', array( $this, 'enqueue_assets' ), 90 );
@@ -34,7 +43,7 @@ final class Digitalogic_Product_Identity {
 	 */
 	public function render_loop_patris_name() {
 		global $product;
-		$this->render_product_patris_name( $product );
+		$this->render_product_identity( $product, 'loop' );
 	}
 
 	/**
@@ -42,14 +51,14 @@ final class Digitalogic_Product_Identity {
 	 */
 	public function render_single_patris_name() {
 		global $product;
-		$this->render_product_patris_name( $product );
+		$this->render_product_identity( $product, 'single' );
 	}
 
 	/**
 	 * Provide a stable destination for selected-variation identity JavaScript.
 	 */
 	public function render_variation_identity_slot() {
-		echo '<div class="digitalogic-variation-identity" dir="ltr" lang="en" aria-live="polite" hidden></div>';
+		echo '<div class="digitalogic-product-identity digitalogic-variation-identity" data-digitalogic-variation-identity aria-live="polite" hidden></div>';
 	}
 
 	/**
@@ -69,6 +78,74 @@ final class Digitalogic_Product_Identity {
 		$data['digitalogic_persian_name'] = sanitize_text_field( (string) $variation->get_meta( '_digitalogic_persian_name', true ) );
 
 		return $data;
+	}
+
+	/**
+	 * Keep the selected leaf identity visible in cart and checkout summaries.
+	 *
+	 * @param array $item_data Existing customer-facing item data.
+	 * @param array $cart_item WooCommerce cart item.
+	 * @return array
+	 */
+	public function add_cart_item_patris_code( $item_data, $cart_item ) {
+		if ( ! is_array( $item_data ) || ! is_array( $cart_item ) ) {
+			return $item_data;
+		}
+
+		$product = isset( $cart_item['data'] ) && $cart_item['data'] instanceof WC_Product
+			? $cart_item['data']
+			: false;
+		if ( ! $product ) {
+			$product_id = ! empty( $cart_item['variation_id'] ) ? absint( $cart_item['variation_id'] ) : absint( $cart_item['product_id'] ?? 0 );
+			$product    = $product_id ? wc_get_product( $product_id ) : false;
+		}
+
+		$code = $this->get_product_patris_code( $product );
+		if ( '' === $code ) {
+			return $item_data;
+		}
+
+		foreach ( $item_data as $item ) {
+			if ( isset( $item['key'] ) && 'کد پاتریس' === $item['key'] ) {
+				return $item_data;
+			}
+		}
+
+		$item_data[] = array(
+			'key'     => 'کد پاتریس',
+			'value'   => $code,
+			'display' => '<span class="digitalogic-cart-patris-code" dir="ltr">' . esc_html( $code ) . '</span>',
+		);
+
+		return $item_data;
+	}
+
+	/**
+	 * Persist the selected leaf Code for account pages, emails and order details.
+	 *
+	 * @param mixed  $item Order line item.
+	 * @param string $cart_item_key Cart item key.
+	 * @param array  $values Cart item values.
+	 * @param mixed  $order Order object.
+	 */
+	public function add_order_item_patris_code( $item, $cart_item_key, $values, $order ) {
+		unset( $cart_item_key, $order );
+		if ( ! is_object( $item ) || ! method_exists( $item, 'add_meta_data' ) || ! is_array( $values ) ) {
+			return;
+		}
+
+		$product = isset( $values['data'] ) && $values['data'] instanceof WC_Product
+			? $values['data']
+			: false;
+		if ( ! $product ) {
+			$product_id = ! empty( $values['variation_id'] ) ? absint( $values['variation_id'] ) : absint( $values['product_id'] ?? 0 );
+			$product    = $product_id ? wc_get_product( $product_id ) : false;
+		}
+
+		$code = $this->get_product_patris_code( $product );
+		if ( '' !== $code ) {
+			$item->add_meta_data( 'کد پاتریس', $code, true );
+		}
 	}
 
 	/**
@@ -112,13 +189,13 @@ final class Digitalogic_Product_Identity {
 			'digitalogic-product-identity',
 			DIGITALOGIC_PLUGIN_URL . 'assets/css/product-identity.css',
 			array(),
-			DIGITALOGIC_VERSION
+			filemtime( DIGITALOGIC_PLUGIN_DIR . 'assets/css/product-identity.css' ) ?: DIGITALOGIC_VERSION
 		);
 		wp_enqueue_script(
 			'digitalogic-product-identity',
 			DIGITALOGIC_PLUGIN_URL . 'assets/js/product-identity.js',
 			array( 'jquery' ),
-			DIGITALOGIC_VERSION,
+			filemtime( DIGITALOGIC_PLUGIN_DIR . 'assets/js/product-identity.js' ) ?: DIGITALOGIC_VERSION,
 			true
 		);
 
@@ -145,7 +222,10 @@ final class Digitalogic_Product_Identity {
 		}
 
 		$patris_name = $this->get_product_patris_name( $product );
-		if ( '' === $patris_name ) {
+		$patris_code = $this->get_product_patris_code( $product );
+		$is_variable = $product instanceof WC_Product && $product->is_type( 'variable' );
+		$child_codes = '' === $patris_code ? $this->get_product_child_identities( $product ) : array();
+		if ( '' === $patris_name && '' === $patris_code && ! $is_variable && empty( $child_codes ) ) {
 			return;
 		}
 
@@ -153,23 +233,74 @@ final class Digitalogic_Product_Identity {
 			'digitalogic-product-identity',
 			'digitalogicProductIdentity',
 			array(
-				'singleProductPatrisName' => $patris_name,
+				'singleProductPatrisName'            => $patris_name,
+				'singleProductPatrisCode'            => $patris_code,
+				'singleProductIsVariable'            => $is_variable || ! empty( $child_codes ),
+				'singleProductChildCodes'            => $child_codes,
+				'singleProductLegacyChildReferences' => ! $is_variable && ! empty( $child_codes ),
+				'codeLabel'                          => 'کد پاتریس',
+				'selectModelLabel'                   => 'مدل رو انتخاب کن تا کد دقیقش بیاد',
+				'legacyChildNote'                    => 'این کدها فعلاً مرجع مدل‌ها هستن؛ برای انتخاب کد دقیق با پشتیبانی هماهنگ کن.',
 			)
 		);
 	}
 
 	/**
-	 * Render one non-duplicated English/Patris family identity.
+	 * Render one non-duplicated Patris name and customer-facing Code.
 	 *
-	 * @param mixed $product Product candidate.
+	 * @param mixed  $product Product candidate.
+	 * @param string $context Rendering context.
 	 */
-	private function render_product_patris_name( $product ) {
-		$patris_name = $this->get_product_patris_name( $product );
-		if ( '' === $patris_name ) {
+	private function render_product_identity( $product, $context ) {
+		if ( ! $product instanceof WC_Product ) {
 			return;
 		}
 
-		echo '<div class="digitalogic-patris-name" dir="ltr" lang="en">' . esc_html( $patris_name ) . '</div>';
+		$patris_name = $this->get_product_patris_name( $product );
+		$patris_code = $this->get_product_patris_code( $product );
+		$is_variable = $product->is_type( 'variable' );
+		$child_codes = 'single' === $context && '' === $patris_code ? $this->get_product_child_identities( $product ) : array();
+		if ( '' === $patris_name && '' === $patris_code && ! $is_variable && empty( $child_codes ) ) {
+			return;
+		}
+
+		echo $this->identity_markup( $patris_name, $patris_code, $is_variable, $context, $child_codes ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+	}
+
+	/**
+	 * Build the escaped identity component used by PHP and mirrored in JS.
+	 *
+	 * @param string $patris_name Reviewed English/Patris name.
+	 * @param string $patris_code Exact Patris Code.
+	 * @param bool   $is_variable Whether a child selection supplies the exact Code.
+	 * @param string $context Rendering context.
+	 * @param array  $child_codes Published child Code/name pairs.
+	 * @return string
+	 */
+	private function identity_markup( $patris_name, $patris_code, $is_variable, $context, $child_codes = array() ) {
+		$context = in_array( $context, array( 'single', 'loop' ), true ) ? $context : 'loop';
+		$output  = '<div class="digitalogic-product-identity" data-digitalogic-product-identity="' . esc_attr( $context ) . '">';
+
+		if ( '' !== $patris_name ) {
+			$output .= '<div class="digitalogic-patris-name" dir="ltr" lang="en">' . esc_html( $patris_name ) . '</div>';
+		}
+
+		if ( '' !== $patris_code ) {
+			$output .= '<div class="digitalogic-patris-code"><span>کد پاتریس</span><code dir="ltr">' . esc_html( $patris_code ) . '</code></div>';
+		} elseif ( ! empty( $child_codes ) ) {
+			$output .= '<div class="digitalogic-patris-code-list"><span>کدهای ثبت‌شده برای مدل‌ها</span><div>';
+			foreach ( $child_codes as $child ) {
+				$output .= '<span class="digitalogic-patris-code-item"><i>' . esc_html( $child['name'] ) . '</i><code dir="ltr">' . esc_html( $child['code'] ) . '</code></span>';
+			}
+			$output .= '</div></div>';
+			if ( ! $is_variable ) {
+				$output .= '<p class="digitalogic-patris-code-note">این کدها فعلاً مرجع مدل‌ها هستن؛ برای انتخاب کد دقیق با پشتیبانی هماهنگ کن.</p>';
+			}
+		} elseif ( $is_variable ) {
+			$output .= '<div class="digitalogic-patris-code is-placeholder"><span>کد پاتریس</span><em>مدل رو انتخاب کن</em></div>';
+		}
+
+		return $output . '</div>';
 	}
 
 	/**
@@ -192,5 +323,74 @@ final class Digitalogic_Product_Identity {
 		}
 
 		return $patris_name;
+	}
+
+	/**
+	 * Read published child identities even for legacy parents whose Woo type or
+	 * purchasability currently prevents the variation form from rendering.
+	 *
+	 * @param mixed $product Parent product candidate.
+	 * @return array
+	 */
+	private function get_product_child_identities( $product ) {
+		if ( ! $product instanceof WC_Product || $product->get_id() <= 0 ) {
+			return array();
+		}
+		$product_id = $product->get_id();
+		if ( array_key_exists( $product_id, $this->child_identity_cache ) ) {
+			return $this->child_identity_cache[ $product_id ];
+		}
+
+		$child_ids  = get_posts(
+			array(
+				'post_type'      => 'product_variation',
+				'post_status'    => 'publish',
+				'post_parent'    => $product_id,
+				'fields'         => 'ids',
+				'posts_per_page' => 50,
+				'orderby'        => array(
+					'menu_order' => 'ASC',
+					'ID'         => 'ASC',
+				),
+			)
+		);
+		$identities = array();
+
+		foreach ( $child_ids as $child_id ) {
+			$variation = wc_get_product( $child_id );
+			if ( ! $variation instanceof WC_Product || $variation->get_parent_id() !== $product_id || 'publish' !== $variation->get_status() ) {
+				continue;
+			}
+			$code = $this->get_product_patris_code( $variation );
+			if ( '' === $code ) {
+				continue;
+			}
+			$name = $this->get_product_patris_name( $variation );
+			if ( '' === $name ) {
+				$name = trim( (string) $variation->get_name() );
+			}
+			$identities[ $code ] = array(
+				'name' => $name,
+				'code' => $code,
+			);
+		}
+
+		$this->child_identity_cache[ $product_id ] = array_values( $identities );
+
+		return $this->child_identity_cache[ $product_id ];
+	}
+
+	/**
+	 * Resolve the exact leaf Code without mislabeling an unrelated Woo SKU.
+	 *
+	 * @param mixed $product Product candidate.
+	 * @return string
+	 */
+	private function get_product_patris_code( $product ) {
+		if ( ! $product instanceof WC_Product ) {
+			return '';
+		}
+
+		return trim( (string) $product->get_meta( Digitalogic_Product_Identifier_Resolver::PATRIS_CODE_META, true ) );
 	}
 }
