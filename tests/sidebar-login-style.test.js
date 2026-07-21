@@ -93,6 +93,36 @@ test('body-appended Digits notices are marked and styled only for sidebar reques
     assert.doesNotMatch(css, /\.login-form-side \.dig_popmessage/);
 });
 
+test('the PBX singleton mounts only after the active OTP resend control', () => {
+    assert.match(accessibilityScript, /const callWidgetSelector = '\[data-digitalogic-sidebar-call-widget\]'/);
+    assert.match(accessibilityScript, /\.digits-form_tab_body\.digits-tab_active/);
+    assert.match(accessibilityScript, /body\.querySelector\('\.digits-form_resend_otp'\)/);
+    assert.match(accessibilityScript, /const mountAnchor = resend\.closest\('\.digits-form_footer_content'\) \|\| resend/);
+    assert.match(accessibilityScript, /mountAnchor\.nextElementSibling !== sidebarCallWidget/);
+    assert.match(accessibilityScript, /mountAnchor\.insertAdjacentElement\('afterend', sidebarCallWidget\)/);
+    assert.doesNotMatch(accessibilityScript, /resend\.insertAdjacentElement\('afterend', sidebarCallWidget\)/);
+    assert.doesNotMatch(accessibilityScript, /cloneNode\(/);
+});
+
+test('the PBX singleton is parked through Digits rerenders and only prefills phone-like input', () => {
+    assert.match(accessibilityScript, /const callParkingSelector = '\[data-digitalogic-sidebar-call-parking\]'/);
+    assert.match(accessibilityScript, /sidebarCallParking\.append\(sidebarCallWidget\)/);
+    assert.match(accessibilityScript, /sidebarCallWidget\.hidden = true/);
+    assert.match(accessibilityScript, /\^\(\?:\\\+98\|0098\|98\|0\)\[0-9\]\{10\}\$/);
+    assert.match(accessibilityScript, /const candidate = sidebar\.querySelector\('#username'\)\?\.value/);
+    assert.doesNotMatch(accessibilityScript, /querySelector\('input\[name="digits_phone"\]'\)/);
+    assert.match(accessibilityScript, /input\.value = candidate\.trim\(\)/);
+});
+
+test('the sidebar PBX panel remains bounded, RTL-safe, and touch friendly', () => {
+    assert.match(css, /\.login-form-side \.digitalogic-call-verification--sidebar\s*\{[^}]*width:\s*100%/s);
+    assert.match(css, /\.login-form-side \.digitalogic-call-verification--sidebar \*\s*\{[^}]*max-width:\s*100%;[^}]*min-width:\s*0;/s);
+    assert.match(css, /\.digitalogic-call-toggle\s*\{[^}]*min-height:\s*44px/s);
+    assert.match(css, /\[data-call-phone\]\s*\{[^}]*width:\s*100%;[^}]*min-height:\s*44px;[^}]*direction:\s*ltr;/s);
+    assert.match(css, /\.digitalogic-call-code\s*\{[^}]*unicode-bidi:\s*isolate;/s);
+    assert.match(css, /@media \(max-width:\s*380px\)/);
+});
+
 test('critical Digits rules cannot leak outside the Woodmart sidebar', () => {
     assert.doesNotMatch(css, /(?:^|\})\s*\.digits-form_tab_body\b/m);
     assert.doesNotMatch(css, /(?:^|\})\s*\.digits-form_tab-bar\b/m);

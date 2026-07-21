@@ -1792,6 +1792,10 @@ msgid "Mobile or landline number (include area code)"
 msgstr "شماره موبایل یا تلفن ثابت (همراه با کد شهر)"
 
 #: includes/integrations/class-call-verification.php
+msgid "Place the call from the same phone number you entered so caller ID can confirm ownership."
+msgstr "تماس را دقیقاً از همان شماره‌ای برقرار کنید که وارد کرده‌اید تا مالکیت آن از روی شماره تماس‌گیرنده تأیید شود."
+
+#: includes/integrations/class-call-verification.php
 msgid "Create call code"
 msgstr "دریافت کد تماس"
 

@@ -41,7 +41,7 @@
 - Non-blocking async delivery
 
 ### ☎️ Phone verification and PBX notifications
-- Login or add an Iranian mobile/landline contact by calling `021-66754123` and choosing IVR option `2`
+- From the Digits OTP sidebar, choose **Verify by calling**, or add an Iranian mobile/landline contact from My Account, then call `021-66754123` and choose IVR option `2`
 - Six-digit, 10-minute challenge with exact caller-ID matching and single-use browser-bound consumption
 - Multiple supplemental emails and verified phone contacts in WooCommerce My Account
 - Per-number customer/admin consent controls for voice order updates

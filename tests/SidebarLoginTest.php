@@ -89,7 +89,7 @@ final class SidebarLoginTest extends TestCase {
 		$this->assertCount( 1, $styles );
 		$this->assertArrayHasKey( 'digitalogic-sidebar-login', $styles );
 		$this->assertSame(
-			array( 'digits-style', 'digits-login-style-rtl' ),
+			array( 'digitalogic-call-verification', 'digits-style', 'digits-login-style-rtl' ),
 			$styles['digitalogic-sidebar-login']['dependencies']
 		);
 
@@ -98,6 +98,10 @@ final class SidebarLoginTest extends TestCase {
 		$this->assertSame(
 			'https://digitalogic.test/wp-content/plugins/digitalogic-wp/assets/js/sidebar-login.js',
 			$scripts['digitalogic-sidebar-login']['src']
+		);
+		$this->assertSame(
+			array( 'digitalogic-call-verification' ),
+			$scripts['digitalogic-sidebar-login']['dependencies']
 		);
 		$this->assertTrue( $scripts['digitalogic-sidebar-login']['in_footer'] );
 	}
@@ -109,7 +113,7 @@ final class SidebarLoginTest extends TestCase {
 		Digitalogic_Sidebar_Login::enqueue_sidebar_assets();
 
 		$this->assertSame(
-			array( 'digits-style', 'digits-login-style-rtl' ),
+			array( 'digitalogic-call-verification', 'digits-style', 'digits-login-style-rtl' ),
 			$GLOBALS['digitalogic_test_enqueued_styles']['digitalogic-sidebar-login']['dependencies']
 		);
 	}
@@ -120,7 +124,7 @@ final class SidebarLoginTest extends TestCase {
 		Digitalogic_Sidebar_Login::enqueue_sidebar_assets();
 
 		$this->assertSame(
-			array( 'digits-style', 'digits-login-style-rtl' ),
+			array( 'digitalogic-call-verification', 'digits-style', 'digits-login-style-rtl' ),
 			$GLOBALS['digitalogic_test_enqueued_styles']['digitalogic-sidebar-login']['dependencies']
 		);
 	}

@@ -9,8 +9,12 @@
     ].join(',');
     const keyboardAttribute = 'data-digitalogic-keyboard-control';
     const noticeClass = 'digitalogic-sidebar-login-notice';
+    const callWidgetSelector = '[data-digitalogic-sidebar-call-widget]';
+    const callParkingSelector = '[data-digitalogic-sidebar-call-parking]';
     let sidebarNoticePending = false;
     let sidebarNoticeTimer = 0;
+    let sidebarCallWidget = null;
+    let sidebarCallParking = null;
 
     const isNativeControl = (element) => element.matches(
         'a[href],button,input,select,textarea,summary'
@@ -61,6 +65,61 @@
 
     const enhanceAll = () => {
         document.querySelectorAll(sidebarSelector).forEach(enhanceSidebar);
+    };
+
+    const toAsciiDigits = (value) => String(value || '')
+        .replace(/[۰-۹]/g, (digit) => String(digit.charCodeAt(0) - 1776))
+        .replace(/[٠-٩]/g, (digit) => String(digit.charCodeAt(0) - 1632));
+
+    const phoneLike = (value) => {
+        const compact = toAsciiDigits(value).replace(/[^+0-9]/g, '');
+        return /^(?:\+98|0098|98|0)[0-9]{10}$/.test(compact);
+    };
+
+    const prefillSidebarPhone = (widget, sidebar) => {
+        const input = widget.querySelector('[data-call-phone]');
+        if (!(input instanceof HTMLInputElement) || input.value.trim()) {
+            return;
+        }
+
+        const candidate = sidebar.querySelector('#username')?.value;
+        if (candidate) {
+            if (phoneLike(candidate)) {
+                input.value = candidate.trim();
+            }
+        }
+    };
+
+    const syncSidebarCallWidget = () => {
+        sidebarCallWidget = sidebarCallWidget || document.querySelector(callWidgetSelector);
+        sidebarCallParking = sidebarCallParking || document.querySelector(callParkingSelector);
+        if (!(sidebarCallWidget instanceof HTMLElement)) {
+            return;
+        }
+
+        const activeOtpBody = Array.from(document.querySelectorAll(
+            `${sidebarSelector} .digits-form_tab_body.digits-tab_active`
+        )).find((body) => body.querySelector('.digits-form_resend_otp'));
+        const resend = activeOtpBody?.querySelector('.digits-form_resend_otp');
+        const sidebar = activeOtpBody?.closest(sidebarSelector);
+
+        if (resend && sidebar) {
+            const mountAnchor = resend.closest('.digits-form_footer_content') || resend;
+            if (mountAnchor.nextElementSibling !== sidebarCallWidget) {
+                mountAnchor.insertAdjacentElement('afterend', sidebarCallWidget);
+            }
+            sidebarCallWidget.hidden = false;
+            prefillSidebarPhone(sidebarCallWidget, sidebar);
+            return;
+        }
+
+        sidebarCallWidget.hidden = true;
+        if (
+            sidebarCallParking instanceof HTMLElement
+            && sidebarCallWidget.parentElement !== sidebarCallParking
+        ) {
+            sidebarCallParking.append(sidebarCallWidget);
+        }
     };
 
     const expectSidebarNotice = () => {
@@ -163,6 +222,7 @@
 
     const start = () => {
         enhanceAll();
+        syncSidebarCallWidget();
 
         const observer = new MutationObserver((records) => {
             records.forEach((record) => {
@@ -176,6 +236,7 @@
                     markSidebarNotice(node);
                 });
             });
+            syncSidebarCallWidget();
         });
         observer.observe(document.body, {
             attributes: true,

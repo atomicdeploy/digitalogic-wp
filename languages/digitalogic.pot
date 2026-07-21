@@ -1838,6 +1838,10 @@ msgid "Mobile or landline number (include area code)"
 msgstr ""
 
 #: includes/integrations/class-call-verification.php
+msgid "Place the call from the same phone number you entered so caller ID can confirm ownership."
+msgstr ""
+
+#: includes/integrations/class-call-verification.php
 msgid "Create call code"
 msgstr ""
 

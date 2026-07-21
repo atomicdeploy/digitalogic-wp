@@ -36,7 +36,11 @@
 		return result;
 	}
 
-	document.querySelectorAll('[data-digitalogic-call-widget]').forEach((widget) => {
+	function initializeWidget(widget) {
+		if (!(widget instanceof HTMLElement) || widget.dataset.digitalogicCallInitialized === 'true') {
+			return;
+		}
+
 		const toggle = widget.querySelector('.digitalogic-call-toggle');
 		const panel = widget.querySelector('.digitalogic-call-panel');
 		const phone = widget.querySelector('[data-call-phone]');
@@ -46,11 +50,19 @@
 		const status = widget.querySelector('[data-call-status]');
 		const cancel = widget.querySelector('[data-call-cancel]');
 		const error = widget.querySelector('[data-call-error]');
+		const dial = widget.querySelector('[data-call-dial]');
+		const ivr = widget.querySelector('[data-call-ivr]');
+		if (!panel || !phone || !start || !instructions || !code || !status || !error) {
+			return;
+		}
+
+		widget.dataset.digitalogicCallInitialized = 'true';
 		const purpose = widget.dataset.purpose || 'login';
 		let challengeId = '';
 		let csrfToken = '';
 		let pollTimer = 0;
 		let stopped = false;
+		let attemptGeneration = 0;
 
 		function showError(value) {
 			error.textContent = value || messages.error || 'Verification failed.';
@@ -64,20 +76,32 @@
 
 		function resetForRetry(message) {
 			stopPolling();
+			attemptGeneration += 1;
 			challengeId = '';
 			csrfToken = '';
 			code.textContent = '';
 			instructions.hidden = true;
 			start.disabled = false;
+			if (cancel) {
+				cancel.disabled = false;
+			}
+			widget.removeAttribute('aria-busy');
 			showError(message);
 		}
 
-		async function consume() {
-			const data = await request(`${config.challengeUrl}/${encodeURIComponent(challengeId)}/consume`, {
+		async function consume(expectedGeneration, expectedChallengeId, expectedCsrfToken) {
+			const data = await request(`${config.challengeUrl}/${encodeURIComponent(expectedChallengeId)}/consume`, {
 				method: 'POST',
-				headers: headers(csrfToken, purpose === 'add_contact'),
+				headers: headers(expectedCsrfToken, purpose === 'add_contact'),
 				body: '{}',
 			});
+			if (
+				stopped
+				|| expectedGeneration !== attemptGeneration
+				|| expectedChallengeId !== challengeId
+			) {
+				return;
+			}
 			status.textContent = messages.verified || 'Verified.';
 			if (data.redirect_url) {
 				window.location.assign(data.redirect_url);
@@ -86,20 +110,46 @@
 			}
 		}
 
-		async function poll() {
-			if (stopped || !challengeId) {
+		async function poll(expectedGeneration) {
+			if (
+				stopped
+				|| expectedGeneration !== attemptGeneration
+				|| !challengeId
+				|| !widget.isConnected
+			) {
+				stopPolling();
 				return;
 			}
+			const expectedChallengeId = challengeId;
+			const expectedCsrfToken = csrfToken;
 			try {
-				const data = await request(`${config.challengeUrl}/${encodeURIComponent(challengeId)}`, {
+				const data = await request(`${config.challengeUrl}/${encodeURIComponent(expectedChallengeId)}`, {
 					method: 'GET',
-					headers: headers(csrfToken),
+					headers: headers(expectedCsrfToken),
 				});
+				if (
+					stopped
+					|| expectedGeneration !== attemptGeneration
+					|| expectedChallengeId !== challengeId
+				) {
+					return;
+				}
 				if (data.status === 'verified') {
-					stopPolling();
+					window.clearTimeout(pollTimer);
+					if (cancel) {
+						cancel.disabled = true;
+					}
+					widget.setAttribute('aria-busy', 'true');
 					try {
-						await consume();
+						await consume(expectedGeneration, expectedChallengeId, expectedCsrfToken);
 					} catch (consumeError) {
+						if (
+							stopped
+							|| expectedGeneration !== attemptGeneration
+							|| expectedChallengeId !== challengeId
+						) {
+							return;
+						}
 						resetForRetry(consumeError.message);
 					}
 					return;
@@ -110,14 +160,26 @@
 					return;
 				}
 			} catch (pollError) {
+				if (
+					stopped
+					|| expectedGeneration !== attemptGeneration
+					|| expectedChallengeId !== challengeId
+				) {
+					return;
+				}
 				resetForRetry(pollError.message);
 				return;
 			}
-			pollTimer = window.setTimeout(poll, 2000);
+			pollTimer = window.setTimeout(() => poll(expectedGeneration), 2000);
+		}
+
+		if (toggle) {
+			toggle.setAttribute('aria-expanded', panel.hidden ? 'false' : 'true');
 		}
 
 		toggle?.addEventListener('click', () => {
 			panel.hidden = !panel.hidden;
+			toggle.setAttribute('aria-expanded', panel.hidden ? 'false' : 'true');
 			if (!panel.hidden) {
 				phone.focus();
 			}
@@ -125,48 +187,99 @@
 
 		start?.addEventListener('click', async () => {
 			stopPolling();
+			attemptGeneration += 1;
+			const expectedGeneration = attemptGeneration;
 			stopped = false;
 			error.hidden = true;
 			instructions.hidden = true;
 			code.textContent = '';
 			start.disabled = true;
+			if (cancel) {
+				cancel.disabled = false;
+			}
+			widget.setAttribute('aria-busy', 'true');
 			try {
 				const data = await request(config.challengeUrl, {
 					method: 'POST',
 					headers: headers('', purpose === 'add_contact'),
 					body: JSON.stringify({ phone: phone.value, purpose }),
 				});
+				if (stopped || expectedGeneration !== attemptGeneration) {
+					return;
+				}
 				challengeId = data.challenge_id;
 				csrfToken = data.csrf_token;
 				code.textContent = data.code;
+				if (dial && data.dial) {
+					const display = String(data.dial.display || '');
+					const tel = String(data.dial.tel || '');
+					dial.textContent = display;
+					if (/^\+?[0-9]+$/.test(tel)) {
+						dial.setAttribute('href', `tel:${tel}`);
+					}
+				}
+				if (ivr) {
+					ivr.textContent = String(data.ivr_option || '');
+				}
 				status.textContent = messages.waiting || 'Waiting for your call…';
 				instructions.hidden = false;
-				pollTimer = window.setTimeout(poll, 1200);
+				widget.removeAttribute('aria-busy');
+				pollTimer = window.setTimeout(() => poll(expectedGeneration), 1200);
 			} catch (startError) {
+				if (stopped || expectedGeneration !== attemptGeneration) {
+					return;
+				}
 				start.disabled = false;
+				widget.removeAttribute('aria-busy');
 				showError(startError.message);
 			}
 		});
 
 		cancel?.addEventListener('click', async () => {
 			stopPolling();
-			if (challengeId) {
-				try {
-					await request(`${config.challengeUrl}/${encodeURIComponent(challengeId)}`, {
-						method: 'DELETE',
-						headers: headers(csrfToken),
-					});
-				} catch (_error) {
-					// Cancellation is best effort; the server expiry remains authoritative.
-				}
-			}
+			attemptGeneration += 1;
+			const cancelledChallengeId = challengeId;
+			const cancelledCsrfToken = csrfToken;
 			challengeId = '';
 			csrfToken = '';
 			code.textContent = '';
 			instructions.hidden = true;
 			start.disabled = false;
+			widget.removeAttribute('aria-busy');
+			if (cancelledChallengeId) {
+				try {
+					await request(`${config.challengeUrl}/${encodeURIComponent(cancelledChallengeId)}`, {
+						method: 'DELETE',
+						headers: headers(cancelledCsrfToken),
+					});
+				} catch (_error) {
+					// Cancellation is best effort; the server expiry remains authoritative.
+				}
+			}
+			phone.focus();
+		});
+	}
+
+	function initializeWidgets(root = document) {
+		if (root instanceof Element && root.matches('[data-digitalogic-call-widget]')) {
+			initializeWidget(root);
+		}
+		if (typeof root.querySelectorAll === 'function') {
+			root.querySelectorAll('[data-digitalogic-call-widget]').forEach(initializeWidget);
+		}
+	}
+
+	initializeWidgets();
+	const widgetObserver = new MutationObserver((records) => {
+		records.forEach((record) => {
+			record.addedNodes.forEach((node) => {
+				if (node instanceof Element) {
+					initializeWidgets(node);
+				}
+			});
 		});
 	});
+	widgetObserver.observe(document.body, { childList: true, subtree: true });
 
 	const contacts = document.querySelector('[data-digitalogic-contacts]');
 	if (!contacts || !config.contactsUrl || !config.wpNonce) {

@@ -353,6 +353,167 @@ body > .dig_popmessage.digitalogic-sidebar-login-notice .dig_popdismiss:focus-vi
 	overflow: hidden !important;
 }
 
+.login-form-side .digitalogic-call-verification--sidebar,
+.login-form-side .digitalogic-call-verification--sidebar * {
+	box-sizing: border-box;
+	max-width: 100%;
+	min-width: 0;
+}
+
+.login-form-side .digitalogic-call-verification--sidebar {
+	--digitalogic-call-accent: #873800;
+
+	width: 100%;
+	margin: .25rem 0 0;
+	padding: 0;
+	border: 0;
+	background: transparent;
+}
+
+.login-form-side .digitalogic-call-verification--sidebar .digitalogic-call-toggle {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 100%;
+	min-height: 44px;
+	margin: .25rem 0 0;
+	padding: .65rem .5rem;
+	border: 1px solid var(--digitalogic-call-accent) !important;
+	border-radius: var(--wd-brd-radius, 4px);
+	background: #fff7f0 !important;
+	background: color-mix(in srgb, var(--wd-primary-color, #f58220) 9%, #fff) !important;
+	color: var(--digitalogic-call-accent) !important;
+	font-size: .875rem;
+	font-weight: 700;
+	line-height: 1.5;
+	text-align: center;
+	box-shadow: none !important;
+}
+
+.login-form-side .digitalogic-call-verification--sidebar .digitalogic-call-toggle:hover,
+.login-form-side .digitalogic-call-verification--sidebar .digitalogic-call-toggle[aria-expanded="true"] {
+	background: #ffefe2 !important;
+	background: color-mix(in srgb, var(--wd-primary-color, #f58220) 15%, #fff) !important;
+}
+
+.login-form-side .digitalogic-call-verification--sidebar .digitalogic-call-toggle:focus-visible,
+.login-form-side .digitalogic-call-verification--sidebar button:focus-visible,
+.login-form-side .digitalogic-call-verification--sidebar input:focus-visible,
+.login-form-side .digitalogic-call-verification--sidebar a:focus-visible {
+	outline: 2px solid var(--digitalogic-call-accent);
+	outline-offset: 2px;
+}
+
+.login-form-side .digitalogic-call-verification--sidebar .digitalogic-call-panel {
+	display: grid;
+	gap: .75rem;
+	width: 100%;
+	margin: .5rem 0 0;
+	padding: .75rem;
+	border: 1px solid var(--brdcolor-gray-300, #d7d7d7);
+	border-inline-start: 3px solid var(--wd-primary-color, #f58220);
+	border-radius: var(--wd-brd-radius, 4px);
+	background: var(--bgcolor-gray-100, #f7f7f7);
+}
+
+.login-form-side .digitalogic-call-verification--sidebar .digitalogic-call-panel label {
+	display: grid;
+	gap: .35rem;
+	margin: 0;
+	font-size: .8125rem;
+	line-height: 1.65;
+}
+
+.login-form-side .digitalogic-call-verification--sidebar [data-call-phone] {
+	width: 100%;
+	min-height: 44px;
+	margin: 0;
+	direction: ltr;
+	text-align: left;
+	unicode-bidi: isolate;
+}
+
+.login-form-side .digitalogic-call-verification--sidebar [data-call-start] {
+	width: 100%;
+	min-height: 44px;
+	margin: 0;
+	border-color: var(--digitalogic-call-accent) !important;
+	background: var(--digitalogic-call-accent) !important;
+	color: #fff !important;
+}
+
+.login-form-side .digitalogic-call-verification--sidebar [data-call-start]:hover:not(:disabled) {
+	border-color: #672900 !important;
+	background: #672900 !important;
+}
+
+.login-form-side .digitalogic-call-verification--sidebar .digitalogic-call-match-note {
+	margin: 0;
+	color: var(--color-gray-600, #666);
+	font-size: .75rem;
+	line-height: 1.65;
+	overflow-wrap: anywhere;
+}
+
+.login-form-side .digitalogic-call-verification--sidebar .digitalogic-call-instructions {
+	width: 100%;
+	padding: .75rem;
+	border-inline-start: 3px solid var(--wd-primary-color, #f58220);
+	background: #fff;
+	font-size: .8125rem;
+	line-height: 1.75;
+	overflow-wrap: anywhere;
+}
+
+.login-form-side .digitalogic-call-verification--sidebar .digitalogic-call-instructions p {
+	margin: 0 0 .5rem;
+}
+
+.login-form-side .digitalogic-call-verification--sidebar .digitalogic-call-instructions p:last-of-type {
+	margin-bottom: 0;
+}
+
+.login-form-side .digitalogic-call-verification--sidebar [data-call-dial],
+.login-form-side .digitalogic-call-verification--sidebar [data-call-ivr],
+.login-form-side .digitalogic-call-verification--sidebar .digitalogic-call-code {
+	direction: ltr;
+	unicode-bidi: isolate;
+}
+
+.login-form-side .digitalogic-call-verification--sidebar [data-call-dial] {
+	display: inline-block;
+	color: var(--digitalogic-call-accent) !important;
+	font-weight: 700;
+	text-decoration: underline;
+}
+
+.login-form-side .digitalogic-call-verification--sidebar .digitalogic-call-code {
+	display: block;
+	width: 100%;
+	margin: .65rem 0;
+	font-size: clamp(1.4rem, 8vw, 2rem);
+	letter-spacing: .16em;
+	text-align: center;
+}
+
+.login-form-side .digitalogic-call-verification--sidebar [data-call-cancel] {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	min-height: 44px;
+	padding: .5rem;
+	color: var(--digitalogic-call-accent) !important;
+	text-decoration: underline;
+}
+
+.login-form-side .digitalogic-call-verification--sidebar .digitalogic-call-error {
+	margin: 0;
+	color: #b32d2e;
+	font-size: .8125rem;
+	line-height: 1.65;
+	overflow-wrap: anywhere;
+}
+
 @media (max-width: 380px) {
 	.login-form-side .digits-form_tab-bar {
 		gap: .375rem;
@@ -361,6 +522,16 @@ body > .dig_popmessage.digitalogic-sidebar-login-notice .dig_popdismiss:focus-vi
 	.login-form-side .digits-form_tab-bar .digits-form_tab-item {
 		padding-inline: .2rem;
 		font-size: .8125rem;
+	}
+
+	.login-form-side .digitalogic-call-verification--sidebar .digitalogic-call-panel,
+	.login-form-side .digitalogic-call-verification--sidebar .digitalogic-call-instructions {
+		padding: .625rem;
+	}
+
+	.login-form-side .digitalogic-call-verification--sidebar .digitalogic-call-code {
+		font-size: 1.45rem;
+		letter-spacing: .1em;
 	}
 
 	body > .dig_popmessage.digitalogic-sidebar-login-notice {
