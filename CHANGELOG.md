@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Added administrator-only WooCommerce product supplier links with a Persian
+  classic-editor panel, redacted product-list summaries, protected metadata,
+  exact product targeting, and stdin-only WP-CLI write commands.
 - Added an explicit Patris storefront pricing policy and non-mutating `wp digitalogic pricing audit` command that report canonical Patris, WooCommerce regular, promotion, and effective prices separately.
 - Added version-controlled, secret-free production sources and tests for the Apache/PHP-FPM watchdog, SIP notifier, gated n8n event workflow, and plan-first deploy/rollback procedures.
 - Added a persisted, optional sticky first product column that follows the first visible/reordered column in RTL and LTR while keeping the selection control frozen beside it.

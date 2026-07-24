@@ -69,6 +69,12 @@ $GLOBALS['digitalogic_test_rewrite_rules'] = array(); // phpcs:ignore
 $GLOBALS['digitalogic_test_rewrite_flushes'] = array(); // phpcs:ignore
 $GLOBALS['digitalogic_test_registered_post_types'] = array(); // phpcs:ignore
 $GLOBALS['digitalogic_test_post_type_meta_caps'] = array(); // phpcs:ignore
+$GLOBALS['digitalogic_test_registered_post_meta'] = array(); // phpcs:ignore
+$GLOBALS['digitalogic_test_meta_boxes'] = array(); // phpcs:ignore
+$GLOBALS['digitalogic_test_current_screen'] = (object) array( 'post_type' => 'product' ); // phpcs:ignore
+$GLOBALS['digitalogic_test_autosaves'] = array(); // phpcs:ignore
+$GLOBALS['digitalogic_test_revisions'] = array(); // phpcs:ignore
+$GLOBALS['digitalogic_test_valid_nonces'] = array(); // phpcs:ignore
 $GLOBALS['digitalogic_test_locale'] = 'en_US';
 $GLOBALS['digitalogic_test_shortcodes'] = array();
 $GLOBALS['digitalogic_test_enqueued_styles'] = array();
@@ -189,6 +195,10 @@ class WP_REST_Response {
         return $this->data;
     }
 
+    public function set_data($data) {
+        $this->data = $data;
+    }
+
     public function get_status() {
         return $this->status;
     }
@@ -291,8 +301,9 @@ function wp_schedule_event($timestamp, $recurrence, $hook, $args = array(), $wp_
 }
 // phpcs:enable
 
-function current_user_can($capability) {
-    $GLOBALS['digitalogic_test_current_user_can_calls']++;
+function current_user_can($capability, ...$args) {
+    unset($args);
+    ++$GLOBALS['digitalogic_test_current_user_can_calls'];
 
     return !empty($GLOBALS['digitalogic_test_capabilities'][$capability]);
 }
@@ -322,12 +333,101 @@ function register_post_type( $post_type, $args = array() ) {
 }
 
 /**
+ * Capture registered post metadata.
+ *
+ * @param string $post_type Post type.
+ * @param string $meta_key Meta key.
+ * @param array  $args Registration arguments.
+ * @return bool
+ */
+function register_post_meta( $post_type, $meta_key, $args ) {
+	$GLOBALS['digitalogic_test_registered_post_meta'][ $post_type ][ $meta_key ] = $args;
+
+	return true;
+}
+
+/**
  * Return the current test user ID.
  *
  * @return int
  */
 function get_current_user_id() {
 	return (int) $GLOBALS['digitalogic_test_current_user_id'];
+}
+
+/**
+ * Return the current test admin screen.
+ *
+ * @return object|null
+ */
+function get_current_screen() {
+	return $GLOBALS['digitalogic_test_current_screen'];
+}
+
+/**
+ * Capture a classic-editor metabox.
+ *
+ * @param string   $id Metabox ID.
+ * @param string   $title Metabox title.
+ * @param callable $callback Render callback.
+ * @param string   $screen Post type.
+ * @param string   $context Metabox context.
+ * @param string   $priority Metabox priority.
+ * @return void
+ */
+function add_meta_box( $id, $title, $callback, $screen = null, $context = 'advanced', $priority = 'default' ) {
+	$GLOBALS['digitalogic_test_meta_boxes'][ $id ] = array(
+		'title'    => $title,
+		'callback' => $callback,
+		'screen'   => is_object( $screen ) && isset( $screen->id ) ? $screen->id : $screen,
+		'context'  => $context,
+		'priority' => $priority,
+	);
+}
+
+/**
+ * Emit a deterministic nonce field.
+ *
+ * @param string $action Nonce action.
+ * @param string $name Field name.
+ * @return void
+ */
+function wp_nonce_field( $action, $name ) {
+	$nonce = 'nonce-' . $action;
+	$GLOBALS['digitalogic_test_valid_nonces'][ $action ] = $nonce;
+	echo '<input type="hidden" name="' . esc_attr( $name ) . '" value="' . esc_attr( $nonce ) . '">';
+}
+
+/**
+ * Verify a deterministic test nonce.
+ *
+ * @param string $nonce Nonce.
+ * @param string $action Nonce action.
+ * @return bool
+ */
+function wp_verify_nonce( $nonce, $action ) {
+	return isset( $GLOBALS['digitalogic_test_valid_nonces'][ $action ] )
+		&& hash_equals( $GLOBALS['digitalogic_test_valid_nonces'][ $action ], (string) $nonce );
+}
+
+/**
+ * Whether the post is a test autosave.
+ *
+ * @param int $post_id Post ID.
+ * @return bool
+ */
+function wp_is_post_autosave( $post_id ) {
+	return in_array( (int) $post_id, $GLOBALS['digitalogic_test_autosaves'], true );
+}
+
+/**
+ * Whether the post is a test revision.
+ *
+ * @param int $post_id Post ID.
+ * @return bool
+ */
+function wp_is_post_revision( $post_id ) {
+	return in_array( (int) $post_id, $GLOBALS['digitalogic_test_revisions'], true );
 }
 
 /**
@@ -409,6 +509,25 @@ function wp_enqueue_style( $handle, $src = '', $dependencies = array(), $version
 		'dependencies' => $dependencies,
 		'version'      => $version,
 		'media'        => $media,
+	);
+}
+
+/**
+ * Capture an enqueued test script.
+ *
+ * @param string       $handle Script handle.
+ * @param string       $src Script URL.
+ * @param array        $dependencies Dependency handles.
+ * @param string|false $version Script version.
+ * @param bool         $in_footer Whether the script belongs in the footer.
+ * @return void
+ */
+function wp_enqueue_script( $handle, $src = '', $dependencies = array(), $version = false, $in_footer = false ) {
+	$GLOBALS['digitalogic_test_enqueued_scripts'][ $handle ] = array(
+		'src'          => $src,
+		'dependencies' => $dependencies,
+		'version'      => $version,
+		'in_footer'    => $in_footer,
 	);
 }
 
@@ -697,6 +816,19 @@ function wp_unslash($value) {
     return $value;
 }
 
+function map_deep($value, $callback) {
+    if (is_array($value)) {
+        return array_map(
+            static function($item) use ($callback) {
+                return map_deep($item, $callback);
+            },
+            $value
+        );
+    }
+
+    return call_user_func($callback, $value);
+}
+
 function wp_generate_password($length = 12, $special_chars = true, $extra_special_chars = false) {
     return substr(str_repeat('test-generated-secret-', 8), 0, (int) $length);
 }
@@ -881,6 +1013,10 @@ function sanitize_text_field($value) {
     return trim(strip_tags((string) $value));
 }
 
+function sanitize_textarea_field($value) {
+    return trim(wp_strip_all_tags((string) $value));
+}
+
 function sanitize_email($value) {
     $email = filter_var((string) $value, FILTER_SANITIZE_EMAIL);
     return filter_var($email, FILTER_VALIDATE_EMAIL) ? $email : '';
@@ -904,6 +1040,22 @@ function esc_attr($value) {
 
 function esc_html($value) {
     return htmlspecialchars((string) $value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+}
+
+function esc_textarea($value) {
+    return htmlspecialchars((string) $value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+}
+
+function number_format_i18n($number, $decimals = 0) {
+    $locale  = strtolower(str_replace('_', '-', determine_locale()));
+    $persian = str_starts_with($locale, 'fa');
+
+    return number_format(
+        (float) $number,
+        (int) $decimals,
+        $persian ? '٫' : '.',
+        $persian ? '٬' : ','
+    );
 }
 
 function wp_http_validate_url($value) {
@@ -2203,6 +2355,7 @@ require_once dirname(__DIR__) . '/includes/class-digitalogic-woocommerce-currenc
 require_once dirname( __DIR__ ) . '/includes/class-digitalogic-access-control.php';
 require_once dirname( __DIR__ ) . '/includes/panel/class-digitalogic-panel-error-page.php';
 require_once dirname(__DIR__) . '/includes/class-product-identifier-resolver.php';
+require_once dirname(__DIR__) . '/includes/class-digitalogic-product-supplier-links.php';
 require_once dirname(__DIR__) . '/includes/class-digitalogic-product-query.php';
 require_once dirname(__DIR__) . '/includes/class-digitalogic-patris-price-policy.php'; // phpcs:ignore
 require_once dirname(__DIR__) . '/includes/class-digitalogic-product-column-schema.php'; // phpcs:ignore
@@ -2226,4 +2379,6 @@ require_once dirname(__DIR__) . '/includes/panel/class-panel.php';
 require_once dirname(__DIR__) . '/includes/integrations/class-label-overrides.php';
 require_once dirname(__DIR__) . '/includes/integrations/class-product-identity.php';
 require_once dirname(__DIR__) . '/includes/websocket/class-websocket-server.php';
+require_once dirname(__DIR__) . '/includes/admin/class-digitalogic-product-supplier-links-admin.php';
 require_once dirname(__DIR__) . '/includes/cli/class-cli-commands.php';
+require_once dirname(__DIR__) . '/includes/cli/class-digitalogic-product-supplier-links-cli.php';
