@@ -37,6 +37,7 @@ final class Digitalogic_Product_Identity {
 		add_filter( 'woocommerce_get_item_data', array( $this, 'add_cart_item_patris_code' ), 10, 2 );
 		add_action( 'woocommerce_checkout_create_order_line_item', array( $this, 'add_order_item_patris_code' ), 10, 4 );
 		add_filter( 'woocommerce_structured_data_product', array( $this, 'add_product_schema_identity' ), 10, 2 );
+		add_filter( 'rank_math/snippet/rich_snippet_product_entity', array( $this, 'normalize_product_schema_attribute_names' ), 9, 2 );
 		add_filter( 'rank_math/snippet/rich_snippet_product_entity', array( $this, 'add_product_schema_identity' ), 10, 2 );
 		add_action( 'wp_enqueue_scripts', array( $this, 'enqueue_assets' ), 90 );
 	}
@@ -152,6 +153,48 @@ final class Digitalogic_Product_Identity {
 	}
 
 	/**
+	 * Replace Rank Math's encoded attribute keys with saved WooCommerce labels.
+	 *
+	 * Rank Math builds additionalProperty names from the get_attributes() array
+	 * keys. Custom Persian keys are URL-encoded slugs, while the corresponding
+	 * WC_Product_Attribute retains the administrator-entered display name.
+	 * Only existing PropertyValue names are changed; no properties are added.
+	 *
+	 * @param array      $entity Existing Rank Math Product entity.
+	 * @param WC_Product $product Product when supplied by the integration.
+	 * @return array
+	 */
+	public function normalize_product_schema_attribute_names( $entity, $product = null ) {
+		if ( ! is_array( $entity ) || ! isset( $entity['additionalProperty'] ) || ! is_array( $entity['additionalProperty'] ) ) {
+			return $entity;
+		}
+		if ( ! $product instanceof WC_Product && isset( $GLOBALS['product'] ) && $GLOBALS['product'] instanceof WC_Product ) {
+			$product = $GLOBALS['product'];
+		}
+		if ( ! $product instanceof WC_Product ) {
+			return $entity;
+		}
+
+		$labels = $this->get_product_schema_attribute_labels( $product );
+		if ( empty( $labels ) ) {
+			return $entity;
+		}
+
+		foreach ( $entity['additionalProperty'] as &$property ) {
+			if ( ! is_array( $property ) || ! isset( $property['name'] ) || ! is_string( $property['name'] ) ) {
+				continue;
+			}
+			$key = $this->schema_attribute_lookup_key( $property['name'] );
+			if ( isset( $labels[ $key ] ) ) {
+				$property['name'] = $labels[ $key ];
+			}
+		}
+		unset( $property );
+
+		return $entity;
+	}
+
+	/**
 	 * Add reviewed identities and remove only an impossible offer for unpriced products.
 	 *
 	 * @param array      $entity Existing WooCommerce or Rank Math Product entity.
@@ -190,6 +233,49 @@ final class Digitalogic_Product_Identity {
 		}
 
 		return $entity;
+	}
+
+	/**
+	 * Build encoded-key-to-display-label mappings from saved attributes.
+	 *
+	 * @param WC_Product $product Product whose existing attributes are mapped.
+	 * @return array
+	 */
+	private function get_product_schema_attribute_labels( $product ) {
+		$labels = array();
+		foreach ( (array) $product->get_attributes() as $key => $attribute ) {
+			if ( ! $attribute instanceof WC_Product_Attribute ) {
+				continue;
+			}
+
+			$name  = trim( (string) $attribute->get_name() );
+			$label = function_exists( 'wc_attribute_label' )
+				? trim( wp_strip_all_tags( (string) wc_attribute_label( $name, $product ) ) )
+				: $name;
+			$label = sanitize_text_field( $label );
+			if ( '' === $name || '' === $label ) {
+				continue;
+			}
+
+			foreach ( array( $key, $name ) as $candidate ) {
+				$candidate = $this->schema_attribute_lookup_key( $candidate );
+				if ( '' !== $candidate && ! isset( $labels[ $candidate ] ) ) {
+					$labels[ $candidate ] = $label;
+				}
+			}
+		}
+
+		return $labels;
+	}
+
+	/**
+	 * Normalize only ASCII casing around a WooCommerce attribute key.
+	 *
+	 * @param mixed $key Attribute array key or PropertyValue name.
+	 * @return string
+	 */
+	private function schema_attribute_lookup_key( $key ) {
+		return strtolower( trim( (string) $key ) );
 	}
 
 	/**

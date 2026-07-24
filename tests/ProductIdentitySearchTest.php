@@ -65,6 +65,8 @@ final class ProductIdentitySearchTest extends TestCase {
 		$GLOBALS['digitalogic_test_enqueued_styles']   = array();
 		$GLOBALS['digitalogic_test_enqueued_scripts']  = array();
 		$GLOBALS['digitalogic_test_localized_scripts'] = array();
+
+		$GLOBALS['digitalogic_test_wc_attribute_labels'] = array();
 	}
 
 	public function test_localizes_single_product_patris_name_for_woodmart_fallback(): void {
@@ -239,6 +241,72 @@ final class ProductIdentitySearchTest extends TestCase {
 		$slot = ob_get_clean();
 		$this->assertStringContainsString( 'data-digitalogic-variation-identity', $slot );
 		$this->assertStringContainsString( 'aria-live="polite"', $slot );
+	}
+
+	/** Ensure Rank Math uses saved labels without changing any PropertyValue data. */
+	public function test_normalizes_rank_math_additional_property_names_from_saved_woocommerce_attributes(): void {
+		// phpcs:disable Generic.Formatting.MultipleStatementAlignment -- Keep the schema fixture's setup groups compact.
+		$custom_label = "\u{062A}\u{0648}\u{0627}\u{0646} \u{062E}\u{0631}\u{0648}\u{062C}\u{06CC}";
+		$model_label  = "\u{0645}\u{062F}\u{0644}";
+		$custom_key   = strtolower( rawurlencode( $custom_label ) );
+
+		$custom_attribute = new WC_Product_Attribute();
+		$custom_attribute->set_name( $custom_label );
+		$custom_attribute->set_visible( true );
+		$model_attribute = new WC_Product_Attribute();
+		$model_attribute->set_id( 7 );
+		$model_attribute->set_name( 'pa_model' );
+		$model_attribute->set_visible( true );
+
+		$GLOBALS['digitalogic_test_posts'][19] = array(
+			'post_type'    => 'product',
+			'post_status'  => 'publish',
+			'product_type' => 'simple',
+			'post_title'   => 'Schema attribute labels',
+			'attributes'   => array(
+				$custom_key => $custom_attribute,
+				'pa_model'  => $model_attribute,
+			),
+			'meta'         => array(),
+		);
+		$GLOBALS['digitalogic_test_wc_attribute_labels']['pa_model'] = $model_label;
+		$GLOBALS['product'] = wc_get_product( 19 );
+
+		$identity = ( new ReflectionClass( Digitalogic_Product_Identity::class ) )->newInstanceWithoutConstructor();
+		$entity   = array(
+			'@type'              => 'Product',
+			'brand'              => array(
+				'@type' => 'Brand',
+				'name'  => 'Existing brand',
+			),
+			'gtin13'             => '1234567890123',
+			'image'              => 'https://digitalogic.test/existing.jpg',
+			'additionalProperty' => array(
+				array(
+					'@type' => 'PropertyValue',
+					'name'  => strtoupper( $custom_key ),
+					'value' => '60 W',
+				),
+				array(
+					'@type' => 'PropertyValue',
+					'name'  => 'pa_model',
+					'value' => 'TPA3118',
+				),
+				array(
+					'@type' => 'PropertyValue',
+					'name'  => 'unrelated-key',
+					'value' => 'preserved',
+				),
+			),
+		);
+		$expected           = $entity;
+		$expected['additionalProperty'][0]['name'] = $custom_label;
+		$expected['additionalProperty'][1]['name'] = $model_label;
+
+		$normalized = $identity->normalize_product_schema_attribute_names( $entity );
+		// phpcs:enable Generic.Formatting.MultipleStatementAlignment
+
+		$this->assertSame( $expected, $normalized );
 	}
 
 	/** Ensure the selected Code follows a customer line through the order flow. */
