@@ -19,7 +19,7 @@ if ( ! defined( 'WP_CLI' ) || ! WP_CLI ) {
 final class Digitalogic_Product_Supplier_Links_CLI {
 
 	/**
-	 * List private links for one exact parent product.
+	 * List a redacted summary for one exact parent product.
 	 *
 	 * ## OPTIONS
 	 *
@@ -57,7 +57,21 @@ final class Digitalogic_Product_Supplier_Links_CLI {
 				array(
 					'product_id' => (string) $product['woocommerce_id'],
 					'count'      => count( $links ),
-					'links'      => $links,
+					'links'      => array_map(
+						static function ( $link ) {
+							return array(
+								'id'          => (string) ( $link['id'] ?? '' ),
+								'marketplace' => (string) ( $link['marketplace'] ?? 'other' ),
+								'source'      => (string) ( $link['source'] ?? 'manual' ),
+								'status'      => (string) ( $link['status'] ?? 'candidate' ),
+								'created_at'  => (string) ( $link['created_at'] ?? '' ),
+								'updated_at'  => (string) ( $link['updated_at'] ?? '' ),
+								'has_url'     => ! empty( $link['url'] ),
+								'has_note'    => ! empty( $link['note'] ),
+							);
+						},
+						$links
+					),
 				),
 				JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
 			)

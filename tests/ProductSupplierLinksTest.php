@@ -316,6 +316,48 @@ final class ProductSupplierLinksTest extends TestCase {
 		}
 	}
 
+	/** Verify CLI reads expose operational status but never seller details. */
+	public function test_cli_list_output_is_redacted(): void {
+		$this->service->replace_links(
+			101,
+			array(
+				array(
+					'url'          => 'https://item.taobao.com/item.htm?id=2468',
+					'source_title' => 'Private purchased module',
+					'seller'       => 'Private seller',
+					'seller_sku'   => 'PRIVATE-SKU',
+					'note'         => 'Private procurement note',
+					'source'       => 'purchase_history',
+					'status'       => 'purchased',
+				),
+			)
+		);
+
+		$cli = new Digitalogic_Product_Supplier_Links_CLI();
+		$cli->list_links( array(), array( 'id' => '101' ) );
+
+		$this->assertNotEmpty( WP_CLI::$logs );
+		$output = (string) end( WP_CLI::$logs );
+		$data   = json_decode( $output, true );
+
+		$this->assertSame( '101', $data['product_id'] );
+		$this->assertSame( 1, $data['count'] );
+		$this->assertSame( 'taobao', $data['links'][0]['marketplace'] );
+		$this->assertSame( 'purchase_history', $data['links'][0]['source'] );
+		$this->assertSame( 'purchased', $data['links'][0]['status'] );
+		$this->assertTrue( $data['links'][0]['has_url'] );
+		$this->assertTrue( $data['links'][0]['has_note'] );
+		$this->assertArrayNotHasKey( 'url', $data['links'][0] );
+		$this->assertArrayNotHasKey( 'note', $data['links'][0] );
+		$this->assertArrayNotHasKey( 'seller', $data['links'][0] );
+		$this->assertArrayNotHasKey( 'seller_sku', $data['links'][0] );
+		$this->assertArrayNotHasKey( 'site_name', $data['links'][0] );
+		$this->assertArrayNotHasKey( 'source_title', $data['links'][0] );
+		$this->assertStringNotContainsString( 'taobao.com', $output );
+		$this->assertStringNotContainsString( 'Private seller', $output );
+		$this->assertStringNotContainsString( 'Private procurement note', $output );
+	}
+
 	/** Verify CLI mutations require admin and never echo a seller URL. */
 	public function test_cli_remove_is_admin_gated_and_mutation_output_is_redacted(): void {
 		$links = $this->service->replace_links(
