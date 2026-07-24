@@ -143,7 +143,7 @@ final class ImportExportCompatibilityTest extends TestCase {
         $this->assertSame('@', $sheet->getStyle('C2')->getNumberFormat()->getFormatCode());
         $headers = $sheet->rangeToArray('A1:' . $last_column . '1')[0];
         $this->assertContains('Effective Price', $headers);
-        $this->assertContains('Patris Price Status', $headers);
+        $this->assertContains('Source Price Status', $headers);
         $this->assertContains('Promotion Policy', $headers);
         $workbook->disconnectWorksheets();
 
