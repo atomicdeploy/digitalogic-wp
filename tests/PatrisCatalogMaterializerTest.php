@@ -670,9 +670,14 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 		$this->receiveFixture();
 		$this->addTerm( 70, 'دسته‌بندی دقیق', 0 );
 		$manifest = $this->manifest();
-		$manifest['products']['101001001']['category_override'] = array(
-			'category_code'  => null,
-			'target_term_id' => '70',
+
+		$manifest['source_revision'] = self::$fixture['source']['revision'];
+		$manifest['products']['101001001']['category_override'] = $this->reviewedCategoryOverride(
+			$manifest,
+			array(
+				'category_code'  => null,
+				'target_term_id' => '70',
+			)
 		);
 
 		$result  = Digitalogic_Patris_Catalog_Materializer::instance()->run( $manifest, array( 'apply' => true ) );
@@ -687,9 +692,14 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 		$this->receiveFixture();
 		$this->addTerm( 80, 'تجهیزات پزشکی', 0 );
 		$manifest = $this->manifest();
-		$manifest['products']['101001001']['category_override'] = array(
-			'category_code'  => 'digitalogic:medical-sensors',
-			'target_term_id' => null,
+
+		$manifest['source_revision'] = self::$fixture['source']['revision'];
+		$manifest['products']['101001001']['category_override'] = $this->reviewedCategoryOverride(
+			$manifest,
+			array(
+				'category_code'  => 'digitalogic:medical-sensors',
+				'target_term_id' => null,
+			)
 		);
 		$manifest['categories']['digitalogic:medical-sensors']  = array(
 			'patris_name'           => '',
@@ -715,6 +725,62 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 		$term_id = (int) $created[0]['term_id'];
 		$this->assertSame( 'digitalogic:medical-sensors', get_term_meta( $term_id, Digitalogic_Patris_Catalog_Materializer::CATEGORY_KEY_META, true ) );
 		$this->assertSame( '', get_term_meta( $term_id, Digitalogic_Patris_Catalog_Materializer::CATEGORY_CODE_META, true ) );
+	}
+
+	/** Exact category decisions fail closed unless their title, evidence and source revision were approved. */
+	public function test_category_override_requires_revision_bound_evidence_and_exact_approved_title(): void {
+		$service  = Digitalogic_Patris_Catalog_Materializer::instance();
+		$manifest = $this->manifest();
+		$manifest['products']['101001001']['category_override'] = array(
+			'category_code'  => '101001',
+			'target_term_id' => null,
+		);
+
+		$missing_evidence = $service->validate_manifest( $manifest );
+		$this->assertInstanceOf( WP_Error::class, $missing_evidence );
+		$this->assertSame( 'digitalogic_patris_materializer_manifest_shape', $missing_evidence->get_error_code() );
+
+		$manifest['source_revision'] = self::$fixture['source']['revision'];
+
+		$manifest['products']['101001001']['category_override'] = $this->reviewedCategoryOverride(
+			$manifest,
+			array(
+				'category_code'  => '101001',
+				'target_term_id' => null,
+			)
+		);
+		$manifest['products']['101001001']['category_override']['approved_name_fa'] = 'عنوان تأییدشده متفاوت';
+
+		$title_mismatch = $service->validate_manifest( $manifest );
+		$this->assertInstanceOf( WP_Error::class, $title_mismatch );
+		$this->assertStringContainsString( 'approved_name_fa', $title_mismatch->get_error_data()['path'] );
+
+		$manifest['products']['101001001']['category_override'] = $this->reviewedCategoryOverride(
+			$manifest,
+			array(
+				'category_code'  => '101001',
+				'target_term_id' => null,
+			)
+		);
+		$manifest['products']['101001001']['category_override']['approved_source_revision'] =
+			'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+
+		$stale_revision = $service->validate_manifest( $manifest );
+		$this->assertInstanceOf( WP_Error::class, $stale_revision );
+		$this->assertStringContainsString( 'approved_source_revision', $stale_revision->get_error_data()['path'] );
+
+		$manifest['products']['101001001']['category_override'] = $this->reviewedCategoryOverride(
+			$manifest,
+			array(
+				'category_code'  => '101001',
+				'target_term_id' => null,
+			)
+		);
+		$manifest['products']['101001001']['category_override']['evidence_urls'] = array( 'http://example.test/product' );
+
+		$invalid_evidence = $service->validate_manifest( $manifest );
+		$this->assertInstanceOf( WP_Error::class, $invalid_evidence );
+		$this->assertStringContainsString( 'evidence_urls.0', $invalid_evidence->get_error_data()['path'] );
 	}
 
 	private function receiveFixture(): void {
@@ -753,6 +819,18 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 				'101'    => $this->categoryRow( 'Synthetic components', 'قطعات آزمایشی' ),
 				'101001' => $this->categoryRow( 'Synthetic modules', 'ماژول‌های آزمایشی' ),
 			),
+		);
+	}
+
+	/** Build one exact, revision-bound category decision for the synthetic fixture. */
+	private function reviewedCategoryOverride( array $manifest, array $selector ): array {
+		return array_merge(
+			$selector,
+			array(
+				'approved_name_fa'         => $manifest['products']['101001001']['name_fa'],
+				'approved_source_revision' => $manifest['source_revision'],
+				'evidence_urls'            => array( 'https://example.test/evidence/101001001' ),
+			)
 		);
 	}
 
