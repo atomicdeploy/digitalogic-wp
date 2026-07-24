@@ -124,6 +124,7 @@ final class Digitalogic {
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-import-export.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-unit-converter.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-product-identifier-resolver.php';
+        require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-product-supplier-links.php';
 		require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-product-metadata-inspector.php';
 		require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-product-write-lock.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-pricing-input-credential.php'; // phpcs:ignore
@@ -165,6 +166,7 @@ final class Digitalogic {
         if (is_admin()) {
             require_once DIGITALOGIC_PLUGIN_DIR . 'includes/admin/class-admin.php';
 			require_once DIGITALOGIC_PLUGIN_DIR . 'includes/admin/class-digitalogic-product-table.php';
+            require_once DIGITALOGIC_PLUGIN_DIR . 'includes/admin/class-digitalogic-product-supplier-links-admin.php';
         }
 
         // API includes
@@ -174,6 +176,7 @@ final class Digitalogic {
         // WP-CLI
         if (defined('WP_CLI') && WP_CLI) {
             require_once DIGITALOGIC_PLUGIN_DIR . 'includes/cli/class-cli-commands.php';
+            require_once DIGITALOGIC_PLUGIN_DIR . 'includes/cli/class-digitalogic-product-supplier-links-cli.php';
         }
     }
 
@@ -212,6 +215,7 @@ final class Digitalogic {
         Digitalogic_Logger::instance();
 		Digitalogic_Product_Write_Lock::instance();
         Digitalogic_Product_Manager::instance();
+        Digitalogic_Product_Supplier_Links::instance();
         Digitalogic_Pricing::instance();
         Digitalogic_Import_Export::instance();
         Digitalogic_Patris_Feed::instance();
@@ -232,6 +236,7 @@ final class Digitalogic {
 
         if (is_admin()) {
             Digitalogic_Admin::instance();
+            Digitalogic_Product_Supplier_Links_Admin::instance();
         }
 
         Digitalogic_REST_API::instance();
