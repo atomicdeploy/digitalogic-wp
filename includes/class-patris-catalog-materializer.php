@@ -136,7 +136,8 @@ final class Digitalogic_Patris_Catalog_Materializer {
 			return $this->manifest_error( 'source_revision', 'must be a lowercase sha256 identity when supplied' );
 		}
 
-		$products = $this->validate_manifest_products( $manifest['products'] );
+		$source_revision = isset( $manifest['source_revision'] ) ? (string) $manifest['source_revision'] : '';
+		$products        = $this->validate_manifest_products( $manifest['products'], $source_revision );
 		if ( is_wp_error( $products ) ) {
 			return $products;
 		}
@@ -470,10 +471,11 @@ final class Digitalogic_Patris_Catalog_Materializer {
 	/**
 	 * Validate product rows and explicit target ownership.
 	 *
-	 * @param mixed $rows Manifest products object.
+	 * @param mixed  $rows            Manifest products object.
+	 * @param string $source_revision Reviewed source revision, when pinned.
 	 * @return array|WP_Error
 	 */
-	private function validate_manifest_products( $rows ) {
+	private function validate_manifest_products( $rows, $source_revision ) {
 		if ( ! is_array( $rows ) || array_is_list( $rows ) ) {
 			return $this->manifest_error( 'products', 'must be an object keyed by exact Patris Code' );
 		}
@@ -559,7 +561,12 @@ final class Digitalogic_Patris_Catalog_Materializer {
 			if ( $row['convert_empty_variable_to_simple'] && ( null === $target_id || null !== $parent_id ) ) {
 				return $this->manifest_error( $path, 'empty-variable conversion requires one exact target_product_id and no parent' );
 			}
-			$category_override = $this->validate_category_override( $row['category_override'], $path . '.category_override' );
+			$category_override = $this->validate_category_override(
+				$row['category_override'],
+				$path . '.category_override',
+				$row['name_fa'],
+				$source_revision
+			);
 			if ( is_wp_error( $category_override ) ) {
 				return $category_override;
 			}
@@ -682,11 +689,13 @@ final class Digitalogic_Patris_Catalog_Materializer {
 	/**
 	 * Validate an optional reviewed product-specific category override.
 	 *
-	 * @param mixed  $override Raw override.
-	 * @param string $path Manifest path.
+	 * @param mixed  $override        Raw override.
+	 * @param string $path            Manifest path.
+	 * @param string $product_name_fa Exact reviewed product title.
+	 * @param string $source_revision Reviewed manifest source revision.
 	 * @return array|null|WP_Error
 	 */
-	private function validate_category_override( $override, $path ) {
+	private function validate_category_override( $override, $path, $product_name_fa, $source_revision ) {
 		if ( null === $override ) {
 			return null;
 		}
@@ -695,8 +704,8 @@ final class Digitalogic_Patris_Catalog_Materializer {
 		}
 		$shape = $this->validate_object_shape(
 			$override,
-			array( 'category_code', 'target_term_id' ),
-			array( 'category_code', 'target_term_id' ),
+			array( 'category_code', 'target_term_id', 'approved_name_fa', 'approved_source_revision', 'evidence_urls' ),
+			array( 'category_code', 'target_term_id', 'approved_name_fa', 'approved_source_revision', 'evidence_urls' ),
 			$path
 		);
 		if ( is_wp_error( $shape ) ) {
@@ -713,10 +722,54 @@ final class Digitalogic_Patris_Catalog_Materializer {
 		if ( ( null === $category_code ) === ( null === $target_term_id ) ) {
 			return $this->manifest_error( $path, 'must select exactly one category_code or target_term_id' );
 		}
+		if ( '' === $source_revision ) {
+			return $this->manifest_error( $path . '.approved_source_revision', 'requires a pinned root source_revision' );
+		}
+		$approved_source_revision = $override['approved_source_revision'];
+		if ( ! is_string( $approved_source_revision ) || ! preg_match( '/^sha256:[a-f0-9]{64}$/', $approved_source_revision ) ) {
+			return $this->manifest_error( $path . '.approved_source_revision', 'must be a lowercase sha256 identity' );
+		}
+		if ( ! hash_equals( $source_revision, $approved_source_revision ) ) {
+			return $this->manifest_error( $path . '.approved_source_revision', 'must match the pinned root source_revision' );
+		}
+		$approved_name_fa = $override['approved_name_fa'];
+		if (
+			! is_string( $approved_name_fa )
+			|| '' === trim( wp_strip_all_tags( $approved_name_fa ) )
+			|| trim( $approved_name_fa ) !== $approved_name_fa
+			|| ! $this->contains_persian( wp_strip_all_tags( $approved_name_fa ) )
+		) {
+			return $this->manifest_error( $path . '.approved_name_fa', 'must be an exact reviewed Persian title' );
+		}
+		if ( ! hash_equals( $approved_name_fa, $product_name_fa ) ) {
+			return $this->manifest_error( $path . '.approved_name_fa', 'must exactly match the product name_fa' );
+		}
+		if ( ! is_array( $override['evidence_urls'] ) || ! array_is_list( $override['evidence_urls'] ) || empty( $override['evidence_urls'] ) ) {
+			return $this->manifest_error( $path . '.evidence_urls', 'must be a non-empty list of HTTPS references' );
+		}
+		$evidence_urls = array();
+		foreach ( $override['evidence_urls'] as $index => $url ) {
+			if (
+				! is_string( $url )
+				|| trim( $url ) !== $url
+				|| false === filter_var( $url, FILTER_VALIDATE_URL )
+				|| 'https' !== strtolower( (string) wp_parse_url( $url, PHP_URL_SCHEME ) )
+				|| '' === (string) wp_parse_url( $url, PHP_URL_HOST )
+			) {
+				return $this->manifest_error( $path . '.evidence_urls.' . $index, 'must be a trimmed HTTPS URL' );
+			}
+			$evidence_urls[] = $url;
+		}
+		if ( count( array_unique( $evidence_urls ) ) !== count( $evidence_urls ) ) {
+			return $this->manifest_error( $path . '.evidence_urls', 'must not contain duplicate references' );
+		}
 
 		return array(
-			'category_code'  => $category_code,
-			'target_term_id' => $target_term_id,
+			'category_code'            => $category_code,
+			'target_term_id'           => $target_term_id,
+			'approved_name_fa'         => $approved_name_fa,
+			'approved_source_revision' => $approved_source_revision,
+			'evidence_urls'            => $evidence_urls,
 		);
 	}
 

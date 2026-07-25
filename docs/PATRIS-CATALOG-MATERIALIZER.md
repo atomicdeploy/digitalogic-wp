@@ -107,9 +107,11 @@ shown below is required even when its value is empty or `null`.
 }
 ```
 
-`source_revision` is the only optional root key. Omit it when the same reviewed
-manifest must be deliberately reused after a fresh sync, such as the second
-publication phase. The source ID and dataset still remain exact.
+`source_revision` is the only optional root key for manifests without product
+category overrides. Every manifest containing a `category_override` must pin it:
+classification approval is valid only for the exact reviewed source revision.
+For a deliberately reusable manifest without overrides, the source ID and
+dataset still remain exact.
 
 ## Product rows
 
@@ -162,7 +164,12 @@ reviewed target:
 ```json
 {
   "category_code": "101001",
-  "target_term_id": null
+  "target_term_id": null,
+  "approved_name_fa": "ماژول مبدل سطح منطقی چهار کاناله",
+  "approved_source_revision": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "evidence_urls": [
+    "https://manufacturer.example/products/logic-level-converter"
+  ]
 }
 ```
 
@@ -171,13 +178,23 @@ or:
 ```json
 {
   "category_code": null,
-  "target_term_id": "84"
+  "target_term_id": "84",
+  "approved_name_fa": "ماژول مبدل سطح منطقی چهار کاناله",
+  "approved_source_revision": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "evidence_urls": [
+    "https://manufacturer.example/products/logic-level-converter"
+  ]
 }
 ```
 
 The category Code can reference a source category or a synthetic
 `digitalogic:*` category declared in the manifest. A direct term override must
-name an existing product category by exact term ID.
+name an existing product category by exact term ID. Override approval is
+fail-closed: `approved_name_fa` must exactly equal the product row's `name_fa`,
+`approved_source_revision` must equal the root `source_revision`, and
+`evidence_urls` must contain at least one unique HTTPS reference. This prevents
+a category-wide generated title or stale review from silently overriding an
+exact product classification.
 
 `parent_enrichment` is `null` for simple products and is otherwise:
 
