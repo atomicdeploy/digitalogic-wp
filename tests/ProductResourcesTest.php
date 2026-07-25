@@ -168,6 +168,8 @@ final class ProductResourcesTest extends TestCase {
 		$this->assertStringContainsString( 'https://omronfs.omron.com/en_US/ecb/products/pdf/en-g8fe.pdf', $html );
 		$this->assertStringContainsString( 'rel="noopener noreferrer nofollow external"', $html );
 		$this->assertStringContainsString( 'G8FE-1AP-L DC12', $html );
+		$this->assertStringContainsString( 'dgl-product-document__metadata', $html );
+		$this->assertStringContainsString( '<bdi dir="ltr">OMRON</bdi>', $html );
 	}
 
 	public function test_appends_once_only_to_the_matching_product_specs_shortcode(): void {
@@ -214,6 +216,7 @@ final class ProductResourcesTest extends TestCase {
 		$this->assertStringContainsString( 'bdi[dir="rtl"]', $css );
 		$this->assertStringContainsString( 'bdi[dir="ltr"]', $css );
 		$this->assertStringContainsString( '.dgl-product-document__button--hosted', $css );
+		$this->assertStringContainsString( '@container dgl-documents (max-width: 620px)', $css );
 		$this->assertStringContainsString( '@media (max-width: 520px)', $css );
 	}
 

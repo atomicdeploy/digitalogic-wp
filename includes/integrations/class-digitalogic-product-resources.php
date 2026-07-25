@@ -361,17 +361,13 @@ final class Digitalogic_Product_Resources {
 							<span class="dgl-product-document__pdf" aria-hidden="true">PDF</span>
 							<div>
 								<h3><?php echo esc_html( $document['title'] ); ?></h3>
-								<small>
-									<?php
-									echo esc_html(
-										sprintf(
-											'%1$s • %2$s • %3$s',
-											$document['source_label'],
-											$this->format_file_size( $document['bytes'] ),
-											$document['product_identity']
-										)
-									);
-									?>
+								<small class="dgl-product-document__metadata">
+									<bdi dir="<?php echo esc_attr( self::direction_for_text( $document['source_label'] ) ); ?>"><?php echo esc_html( $document['source_label'] ); ?></bdi>
+									<span aria-hidden="true">•</span>
+									<?php $file_size = $this->format_file_size( $document['bytes'] ); ?>
+									<bdi dir="<?php echo esc_attr( self::direction_for_text( $file_size ) ); ?>"><?php echo esc_html( $file_size ); ?></bdi>
+									<span aria-hidden="true">•</span>
+									<bdi dir="<?php echo esc_attr( self::direction_for_text( $document['product_identity'] ) ); ?>"><?php echo esc_html( $document['product_identity'] ); ?></bdi>
 								</small>
 							</div>
 						</div>
