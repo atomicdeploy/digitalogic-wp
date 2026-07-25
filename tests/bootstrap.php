@@ -852,6 +852,20 @@ function get_post_type($post_id) {
         : null;
 }
 
+function get_post_mime_type( $post_id ) {
+	return isset( $GLOBALS['digitalogic_test_posts'][ $post_id ]['post_mime_type'] )
+		? $GLOBALS['digitalogic_test_posts'][ $post_id ]['post_mime_type']
+		: false;
+}
+
+function get_attached_file( $attachment_id, $unfiltered = false ) {
+	unset( $unfiltered );
+
+	return isset( $GLOBALS['digitalogic_test_attached_files'][ $attachment_id ] )
+		? $GLOBALS['digitalogic_test_attached_files'][ $attachment_id ]
+		: false;
+}
+
 function get_post($post_id) {
     $post_id = (int) $post_id;
     if (!isset($GLOBALS['digitalogic_test_posts'][$post_id])) {
@@ -2378,6 +2392,7 @@ require_once dirname(__DIR__) . '/includes/integrations/class-laravel-bridge.php
 require_once dirname(__DIR__) . '/includes/panel/class-panel.php';
 require_once dirname(__DIR__) . '/includes/integrations/class-label-overrides.php';
 require_once dirname(__DIR__) . '/includes/integrations/class-product-identity.php';
+require_once dirname(__DIR__) . '/includes/integrations/class-digitalogic-product-resources.php';
 require_once dirname(__DIR__) . '/includes/websocket/class-websocket-server.php';
 require_once dirname(__DIR__) . '/includes/admin/class-digitalogic-product-supplier-links-admin.php';
 require_once dirname(__DIR__) . '/includes/cli/class-cli-commands.php';
