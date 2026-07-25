@@ -80,12 +80,14 @@ final class ProductResourcesTest extends TestCase {
 			. "<td><bdi class=\"model\" DIR = 'AUTO'>G8FE-1AP-L DC12</bdi></td>"
 			. '<td><bdi dir="ltr">already explicit</bdi></td>';
 
-		$normalized = $this->resources->normalize_spec_directions( $html, 'dgl_product_specs' );
+		foreach ( array( 'dgl_product_specs', 'dgl_product_highlights' ) as $tag ) {
+			$normalized = $this->resources->normalize_spec_directions( $html, $tag );
 
-		$this->assertStringContainsString( '<bdi dir="rtl">پایه&zwnj;دار روی PCB (Through-hole)</bdi>', $normalized );
-		$this->assertStringContainsString( '<bdi class="model" dir="ltr">G8FE-1AP-L DC12</bdi>', $normalized );
-		$this->assertStringNotContainsString( 'dir="auto"', $normalized );
-		$this->assertStringContainsString( '<bdi dir="ltr">already explicit</bdi>', $normalized );
+			$this->assertStringContainsString( '<bdi dir="rtl">پایه&zwnj;دار روی PCB (Through-hole)</bdi>', $normalized );
+			$this->assertStringContainsString( '<bdi class="model" dir="ltr">G8FE-1AP-L DC12</bdi>', $normalized );
+			$this->assertStringNotContainsString( 'dir="auto"', $normalized );
+			$this->assertStringContainsString( '<bdi dir="ltr">already explicit</bdi>', $normalized );
+		}
 		$this->assertSame( $html, $this->resources->normalize_spec_directions( $html, 'unrelated_shortcode' ) );
 	}
 
@@ -161,7 +163,7 @@ final class ProductResourcesTest extends TestCase {
 		$html = $this->resources->render_documents( 11867 );
 
 		$this->assertStringContainsString( 'data-digitalogic-product-documents', $html );
-		$this->assertStringContainsString( 'دانلود از دیجیتالوجیک', $html );
+		$this->assertStringContainsString( 'دانلود از دیجیتالاجیک', $html );
 		$this->assertStringContainsString( 'https://digitalogic.test/media/13090', $html );
 		$this->assertMatchesRegularExpression( '/\sdownload(?:\s|>)/', $html );
 		$this->assertStringContainsString( 'مشاهده منبع رسمی', $html );

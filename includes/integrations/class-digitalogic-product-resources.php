@@ -350,7 +350,7 @@ final class Digitalogic_Product_Resources {
 				</span>
 				<div>
 					<h2 id="<?php echo esc_attr( $heading_id ); ?>">دانلود دیتاشیت و مستندات</h2>
-					<p>نسخه میزبانی‌شده در دیجیتالوجیک و پیوند مستقیم منبع رسمی سازنده.</p>
+					<p>نسخه میزبانی‌شده در دیجیتالاجیک و پیوند مستقیم منبع رسمی سازنده.</p>
 				</div>
 			</header>
 			<div class="dgl-product-documents__list">
@@ -381,7 +381,7 @@ final class Digitalogic_Product_Resources {
 								<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false">
 									<path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/>
 								</svg>
-								دانلود از دیجیتالوجیک
+								دانلود از دیجیتالاجیک
 							</a>
 							<a
 								class="dgl-product-document__button dgl-product-document__button--official"
@@ -436,7 +436,8 @@ final class Digitalogic_Product_Resources {
 	 */
 	public function normalize_spec_directions( string $output, string $tag, array $attr = array(), array $shortcode_match = array() ): string {
 		unset( $attr, $shortcode_match );
-		if ( 'dgl_product_specs' !== $tag || false === stripos( $output, 'dir' ) ) {
+		$supported_tags = array( 'dgl_product_specs', 'dgl_product_highlights' );
+		if ( ! in_array( $tag, $supported_tags, true ) || false === stripos( $output, 'dir' ) ) {
 			return $output;
 		}
 
