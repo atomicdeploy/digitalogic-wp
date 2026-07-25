@@ -672,6 +672,7 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 		$manifest = $this->manifest();
 
 		$manifest['source_revision'] = self::$fixture['source']['revision'];
+
 		$manifest['products']['101001001']['category_override'] = $this->reviewedCategoryOverride(
 			$manifest,
 			array(
@@ -694,6 +695,7 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 		$manifest = $this->manifest();
 
 		$manifest['source_revision'] = self::$fixture['source']['revision'];
+
 		$manifest['products']['101001001']['category_override'] = $this->reviewedCategoryOverride(
 			$manifest,
 			array(
@@ -749,6 +751,7 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 				'target_term_id' => null,
 			)
 		);
+
 		$manifest['products']['101001001']['category_override']['approved_name_fa'] = 'عنوان تأییدشده متفاوت';
 
 		$title_mismatch = $service->validate_manifest( $manifest );
@@ -762,6 +765,7 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 				'target_term_id' => null,
 			)
 		);
+
 		$manifest['products']['101001001']['category_override']['approved_source_revision'] =
 			'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 
@@ -776,6 +780,7 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 				'target_term_id' => null,
 			)
 		);
+
 		$manifest['products']['101001001']['category_override']['evidence_urls'] = array( 'http://example.test/product' );
 
 		$invalid_evidence = $service->validate_manifest( $manifest );
