@@ -2478,6 +2478,7 @@ require_once dirname(__DIR__) . '/includes/api/class-webhooks.php';
 require_once dirname(__DIR__) . '/includes/class-report-engine.php';
 require_once dirname(__DIR__) . '/includes/integrations/class-laravel-bridge.php';
 require_once dirname(__DIR__) . '/includes/panel/class-panel.php';
+require_once dirname(__DIR__) . '/includes/integrations/class-digitalogic-event-mesh.php';
 require_once dirname(__DIR__) . '/includes/integrations/class-label-overrides.php';
 require_once dirname(__DIR__) . '/includes/integrations/class-product-identity.php';
 require_once dirname(__DIR__) . '/includes/integrations/class-digitalogic-product-resources.php';

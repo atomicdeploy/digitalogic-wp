@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Added an authenticated WordPress/WebSocket workstation event mesh with
+  bounded actionable responses, evidence-based presence, WooCommerce caller
+  context, and privacy-preserving n8n and RouterOS deployment assets.
+
 ### Fixed
 - Prevented canonical product-sync and reconciliation from initiating
   per-product outbound update/stock webhooks while WooCommerce rows are being

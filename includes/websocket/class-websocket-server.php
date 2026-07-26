@@ -83,6 +83,7 @@ class Digitalogic_WebSocket_Server {
             'headers' => '',
             'buffer' => '',
             'user_id' => 0,
+            'device_id'     => '',
             'last_event_id' => class_exists('Digitalogic_Panel') ? Digitalogic_Panel::get_latest_event_id() : (int) round(microtime(true) * 1000),
         );
     }
@@ -183,14 +184,22 @@ class Digitalogic_WebSocket_Server {
                 return;
             }
 
-            $since = isset($data['since']) ? absint($data['since']) : 0;
+            $since  = isset($data['since']) ? absint($data['since']) : 0;
+            $events = Digitalogic_Panel::get_events_since($since);
+            if (class_exists('Digitalogic_Event_Mesh')) {
+                $client_user_id   = max(0, (int) ($this->clients[$id]['user_id'] ?? 0));
+                $client_device_id = (string) ($this->clients[$id]['device_id'] ?? '');
+                $events           = array_values(array_filter($events, static function($event) use ($client_user_id, $client_device_id) {
+                    return is_array($event) && Digitalogic_Event_Mesh::event_visible_to($event, $client_user_id, $client_device_id);
+                }));
+            }
             $this->send_json($id, array(
                 'id' => $request_id,
                 'event' => 'response',
                 'command' => $command,
                 'success' => true,
                 'data' => array(
-                    'events' => Digitalogic_Panel::get_events_since($since),
+                    'events' => $events,
                 ),
             ));
             return;
@@ -200,6 +209,14 @@ class Digitalogic_WebSocket_Server {
         if (is_wp_error($result)) {
             $this->send_error($id, $request_id, $result->get_error_code(), $result->get_error_message());
             return;
+        }
+
+        if (
+            $command === 'digitalogic_workstation_register'
+            && is_array($result)
+            && !empty($result['device_id'])
+        ) {
+            $this->clients[$id]['device_id'] = sanitize_text_field((string) $result['device_id']);
         }
 
         $this->send_json($id, array(
@@ -265,6 +282,17 @@ class Digitalogic_WebSocket_Server {
 
     private function send_panel_event($id, $event) {
         if (!isset($this->clients[$id]) || !is_array($event)) {
+            return;
+        }
+
+        if (
+            class_exists('Digitalogic_Event_Mesh')
+            && !Digitalogic_Event_Mesh::event_visible_to(
+                $event,
+                max(0, (int) ($this->clients[$id]['user_id'] ?? 0)),
+                (string) ($this->clients[$id]['device_id'] ?? '')
+            )
+        ) {
             return;
         }
 

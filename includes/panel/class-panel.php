@@ -636,9 +636,16 @@ class Digitalogic_Panel {
     }
 
     public function events_command($payload) {
-        $since = isset($payload['since']) ? absint($payload['since']) : 0;
+        $since  = isset($payload['since']) ? absint($payload['since']) : 0;
+        $events = self::get_events_since($since);
+        if (class_exists('Digitalogic_Event_Mesh')) {
+            $user_id = get_current_user_id();
+            $events  = array_values(array_filter($events, static function($event) use ($user_id) {
+                return is_array($event) && Digitalogic_Event_Mesh::event_visible_to($event, $user_id, '');
+            }));
+        }
         return array(
-            'events' => self::get_events_since($since),
+            'events' => $events,
         );
     }
 

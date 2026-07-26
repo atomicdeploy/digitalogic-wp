@@ -14,6 +14,31 @@
         window.dispatchEvent(new CustomEvent('digitalogic:desktop-files', {detail: files}));
     }
 
+    function announceSession() {
+        var panel = window.digitalogicPanel || {};
+        var websocket = panel.websocket || {};
+        if (!websocket.enabled || !websocket.url || !websocket.nonce || !panel.user || !panel.user.id) {
+            return;
+        }
+
+        window.dispatchEvent(new CustomEvent('digitalogic:desktop-session', {
+            detail: {
+                websocket: {
+                    url: String(websocket.url),
+                    nonce: String(websocket.nonce),
+                    reconnect_interval: Number(websocket.reconnect_interval || 3000),
+                    request_timeout: Number(websocket.request_timeout || 15000)
+                },
+                user: {
+                    id: Number(panel.user.id),
+                    display_name: String(panel.user.display_name || '')
+                },
+                event_cursor: Number(panel.event_cursor || 0),
+                capabilities: ['panel', 'event_mesh']
+            }
+        }));
+    }
+
     function panelVm() {
         var root = document.getElementById('digitalogic-panel');
         var app = root && root.__vue_app__;
@@ -55,7 +80,13 @@
         return false;
     }
 
-    document.addEventListener('DOMContentLoaded', focusFirstField);
+    document.addEventListener('DOMContentLoaded', function() {
+        focusFirstField();
+        announceSession();
+    });
+    if (document.readyState !== 'loading') {
+        announceSession();
+    }
 
     document.addEventListener('keydown', function(event) {
         if (event.key === 'Escape') {
