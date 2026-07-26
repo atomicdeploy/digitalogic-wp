@@ -14,7 +14,8 @@ if ( ! defined( 'ABSPATH' ) ) {
  */
 final class Digitalogic_Google_Sheets_Catalog {
 
-	public const MAX_PAGE_SIZE = 100;
+	public const MAX_PAGE_SIZE            = 500;
+	private const PRODUCT_QUERY_PAGE_SIZE = 100;
 
 	/**
 	 * Shared instance.
@@ -290,29 +291,59 @@ final class Digitalogic_Google_Sheets_Catalog {
 	 * @return array|WP_Error
 	 */
 	private function get_products_page( $args ) {
-		$result     = Digitalogic_Product_Manager::instance()->query_products(
-			array(
-				'page'  => $args['page'],
-				'limit' => $args['limit'],
-				'sorts' => array(
-					array(
-						'field'     => 'id',
-						'direction' => 'asc',
+		$offset            = ( $args['page'] - 1 ) * $args['limit'];
+		$query_page        = (int) floor( $offset / self::PRODUCT_QUERY_PAGE_SIZE ) + 1;
+		$first_page_offset = $offset % self::PRODUCT_QUERY_PAGE_SIZE;
+		$products          = array();
+		$total             = 0;
+		$query_pages       = 0;
+		$product_count     = 0;
+
+		while ( $product_count < $args['limit'] ) {
+			$result = Digitalogic_Product_Manager::instance()->query_products(
+				array(
+					'page'  => $query_page,
+					'limit' => self::PRODUCT_QUERY_PAGE_SIZE,
+					'sorts' => array(
+						array(
+							'field'     => 'id',
+							'direction' => 'asc',
+						),
 					),
-				),
-			)
-		);
-		$projection = $this->transform_products( $result['products'] ?? array() );
+				)
+			);
+			if ( 0 === $query_pages ) {
+				$total       = absint( $result['recordsFiltered'] ?? 0 );
+				$query_pages = absint( $result['pages'] ?? 0 );
+			}
+
+			$page_products = array_values( (array) ( $result['products'] ?? array() ) );
+			if ( $first_page_offset > 0 ) {
+				$page_products     = array_slice( $page_products, $first_page_offset );
+				$first_page_offset = 0;
+			}
+			$remaining     = $args['limit'] - count( $products );
+			$products      = array_merge( $products, array_slice( $page_products, 0, $remaining ) );
+			$product_count = count( $products );
+
+			if ( ! $page_products || $query_page >= $query_pages ) {
+				break;
+			}
+			++$query_page;
+		}
+
+		$projection = $this->transform_products( $products );
 		if ( is_wp_error( $projection ) ) {
 			return $projection;
 		}
+		$pages = $args['limit'] > 0 ? (int) ceil( $total / $args['limit'] ) : 0;
 
 		return $this->response_envelope(
 			$args,
 			$projection['columns'],
 			$projection['rows'],
-			absint( $result['recordsFiltered'] ?? 0 ),
-			absint( $result['pages'] ?? 0 )
+			$total,
+			$pages
 		);
 	}
 

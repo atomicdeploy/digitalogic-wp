@@ -29,7 +29,6 @@ final class Digitalogic_Excel_Pricing_Sync {
 	private const PREVIEW_TTL_SECONDS       = 600;
 	private const APPLY_IDEMPOTENCY_SECONDS = 86400;
 	private const MAX_AUDIT_ENTRIES         = 50;
-	private const MAX_PAGE_SIZE             = 100;
 	private const MAX_RATE                  = 1000000000;
 	private const MAX_PROFIT_PERCENT        = '1000';
 	private const MAX_PROFIT_SCALE          = 12;
@@ -140,9 +139,9 @@ final class Digitalogic_Excel_Pricing_Sync {
 		}
 
 		$page  = isset( $payload['page'] ) ? absint( $payload['page'] ) : 1;
-		$limit = isset( $payload['limit'] ) ? absint( $payload['limit'] ) : self::MAX_PAGE_SIZE;
+		$limit = isset( $payload['limit'] ) ? absint( $payload['limit'] ) : Digitalogic_Google_Sheets_Catalog::MAX_PAGE_SIZE;
 		$page  = max( 1, $page );
-		$limit = max( 1, min( self::MAX_PAGE_SIZE, $limit ) );
+		$limit = max( 1, min( Digitalogic_Google_Sheets_Catalog::MAX_PAGE_SIZE, $limit ) );
 
 		$catalog = Digitalogic_Google_Sheets_Catalog::instance()->get_page(
 			array(
