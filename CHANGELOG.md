@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.3] - 2026-07-26
+
+### Fixed
+- Kept guarded Excel pricing synchronization scoped to the exact configured
+  source and dataset while treating a valid newer local source revision as
+  non-blocking, fully Persian warning metadata without weakening state,
+  idempotency, preview-digest, or explicit apply-confirmation controls.
+
 ## [1.7.2] - 2026-07-26
 
 ### Fixed
