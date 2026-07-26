@@ -1,5 +1,5 @@
 /**
- * Professional workbook presentation for the Digitalogic / Patris control center.
+ * Professional workbook presentation for the Digitalogic catalog control center.
  *
  * This file intentionally contains no credentials. Run
  * initializeDigitalogicControlCenter() after the required Script Properties have
@@ -39,7 +39,7 @@ function initializeDigitalogicControlCenter() {
   spreadsheet.setActiveSheet(dashboard);
   spreadsheet.toast(
     'Control center is live. Use the Changes queue to preview and apply reviewed edits.',
-    'Digitalogic & Patris',
+    'Digitalogic Catalog',
     10
   );
   return {
@@ -168,20 +168,20 @@ function digitalogicBuildDashboard_(sheet) {
     sheet,
     16,
     'DIGITALOGIC | PRODUCT & PRICING CONTROL CENTER',
-    'Patris Export + Digitalogic WordPress + Google Sheets + n8n | مرکز مدیریت کالا، قیمت و موجودی'
+    'Digitalogic WordPress + Google Sheets + n8n | مرکز مدیریت کالا، قیمت و موجودی'
   );
 
   digitalogicKpi_(sheet, 'A5:D5', 'A6:D8', 'TOTAL PRODUCTS | کل کالاها', '=COUNTA(Products!$A$3:$A)', colors.blue);
   digitalogicKpi_(sheet, 'E5:H5', 'E6:H8', 'PRICED PRODUCTS | کالاهای قیمت‌دار', '=COUNTIFS(Products!$A$3:$A,"<>",Products!$O$3:$O,">0")', colors.teal);
   digitalogicKpi_(sheet, 'I5:L5', 'I6:L8', 'AVG EFFECTIVE PRICE | میانگین قیمت', '=IFERROR(AVERAGEIF(Products!$O$3:$O,">0"),0)', colors.green);
-  digitalogicKpi_(sheet, 'M5:P5', 'M6:P8', 'MISSING PATRIS CODE | کد پاتریس ناقص', '=COUNTIFS(Products!$A$3:$A,"<>",Products!$B$3:$B,"")', colors.amber);
+  digitalogicKpi_(sheet, 'M5:P5', 'M6:P8', 'MISSING PRODUCT CODE | کد کالا ناقص', '=COUNTIFS(Products!$A$3:$A,"<>",Products!$B$3:$B,"")', colors.amber);
   sheet.getRange('I6:L8').setNumberFormat('#,##0 "IRT"');
 
   digitalogicSection_(sheet, 'A10:D10', 'CATALOG HEALTH | سلامت فهرست', colors.blue);
   sheet.getRange('A11:B16').setValues([
     ['Metric', 'Count'],
     ['Priced products', ''],
-    ['Missing Patris code', ''],
+    ['Missing Product Code', ''],
     ['Draft products', ''],
     ['Published products', ''],
     ['Catalog errors', ''],
@@ -202,7 +202,7 @@ function digitalogicBuildDashboard_(sheet) {
     ['In stock', ''],
     ['Out of stock', ''],
     ['On backorder', ''],
-    ['Patris total stock', ''],
+    ['Source total stock', ''],
   ]);
   digitalogicHeader_(sheet.getRange('E11:F11'));
   sheet.getRange('F12:F15').setFormulas([
@@ -220,7 +220,7 @@ function digitalogicBuildDashboard_(sheet) {
     ['Catalog sync', 'not run', 'not run', '', '', '', ''],
     ['Writeback', 'not run', 'not run', '', '', '', ''],
     ['Transport', 'not configured', 'No secrets in this workbook', '', '', '', ''],
-    ['Patris identity', 'Exact Code', 'SKU is display-only and never used as fallback identity', '', '', '', ''],
+    ['Product identity', 'Exact Product Code', 'SKU is display-only and never used as fallback identity', '', '', '', ''],
     ['Owner review', 'Pending', 'Merged and deployed work remains open for owner review', '', '', '', ''],
   ]);
   digitalogicHeader_(sheet.getRange('J11:P11'));
@@ -288,7 +288,7 @@ function digitalogicBuildCalculator_(sheet) {
     sheet,
     10,
     'DIGITALOGIC | LANDED PRICE CALCULATOR',
-    'Auditable Patris pricing scenario | محاسبه قیمت نهایی با ورودی‌های شفاف و قابل بررسی'
+    'Auditable source pricing scenario | محاسبه قیمت نهایی با ورودی‌های شفاف و قابل بررسی'
   );
   digitalogicSection_(sheet, 'A5:J5', 'SCENARIO INPUTS | ورودی‌های سناریو', colors.green);
   sheet.getRange('A6:B15').setValues([
@@ -372,7 +372,7 @@ function digitalogicBuildSettings_(sheet) {
     ['Digitalogic WordPress', 'https://digitalogic.ir', 'Living catalog', 'Digitalogic', 'Connected'],
     ['Catalog API', '/google-sheets/catalog', 'Read', 'WordPress', 'Live'],
     ['Writeback API', 'n8n → guarded WordPress endpoint', 'Preview / Apply', 'Digitalogic', 'Guarded'],
-    ['Patris Export', 'Exact Code identity', 'Source + pricing', 'Patris', 'Connected'],
+    ['Source integration', 'Exact Product Code identity', 'Source + pricing', 'Catalog source', 'Connected'],
     ['n8n', 'https://automation.digitalogic.ir', 'Approval bridge', 'Digitalogic', 'Active'],
     ['Google owner', 'mahdielector@gmail.com', 'Editor', 'Mahdi Shokri', 'Signed in'],
     ['Secrets', 'Never stored in cells', 'Protected', 'Apps Script / n8n', 'Configured'],
@@ -420,7 +420,7 @@ function digitalogicBuildHelp_(sheet) {
     ['4. Apply', 'Run Apply previewed changes only after review and confirm the dialog. The request is bounded, idempotent, revision-checked, and audited.'],
     ['5. Verify', 'Read Audit, refresh Products, and confirm the new record revision. On conflict, refresh and create a new proposal instead of forcing it.'],
     ['6. Recover', 'If Google authorization expires, run syncCatalog and approve it again. Reinstall a stale trigger with removeScheduledSync then installScheduledSync.'],
-    ['Identity', 'Patris matching uses exact, case-sensitive Code. A woo:<id> display key keeps unmatched WooCommerce rows visible; SKU is never fallback identity.'],
+    ['Identity', 'Product matching uses exact, case-sensitive Product Code. A woo:<id> display key keeps unmatched WooCommerce rows visible; SKU is never fallback identity.'],
     ['Pricing', 'Final price combines foreign price, weight-based freight, FX conversion, and profit, then applies one final rounding step. Missing inputs stay visibly blocked.'],
     ['Publishing', 'Shipping assignment does not mean readiness. Missing Code, weight, price, images, descriptions, categories, or variation review remains a stop condition.'],
     ['Support', 'Digitalogic: https://digitalogic.ir  |  Automation: https://automation.digitalogic.ir  |  GitHub issue: atomicdeploy/digitalogic-wp#99'],

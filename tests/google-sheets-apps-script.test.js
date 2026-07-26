@@ -104,6 +104,13 @@ test('Apps Script keeps secrets in properties and manages distinct tabs', () => 
   assert.ok(!appsScriptManifest.oauthScopes.includes('https://www.googleapis.com/auth/spreadsheets.currentonly'));
 });
 
+test('Apps Script renders customer-facing Product Code labels without source branding', () => {
+  assert.match(source, /key: 'patris_code', header: 'Product Code'/);
+  assert.doesNotMatch(source, /header: 'Patris Code'/);
+  assert.match(professionalDashboardSource, /MISSING PRODUCT CODE \| کد کالا ناقص/);
+  assert.doesNotMatch(professionalDashboardSource, /Patris|پاتریس/);
+});
+
 test('explicit spreadsheet destinations remain supported for scheduled standalone sync', () => {
   const expected = { id: 'sheet-123' };
   sandbox.SpreadsheetApp = {

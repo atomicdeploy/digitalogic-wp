@@ -100,6 +100,7 @@ final class GoogleSheetsCatalogTest extends TestCase {
 			$result['columns'],
 			static fn($candidate) => 'patris_code' === $candidate['key']
 		))[0];
+		$this->assertSame( 'Product Code', $code_column['label_en'] );
 		$this->assertSame( 'کد کالا', $code_column['label_fa'] );
 		$this->assertSame( 2400000, $row['effective_price'] );
 		$this->assertSame( 'air_express', $row['shipping_method_id'] );

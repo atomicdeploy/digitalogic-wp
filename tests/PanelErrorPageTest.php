@@ -94,7 +94,7 @@ final class PanelErrorPageTest extends TestCase {
 		$GLOBALS['digitalogic_test_current_user_id'] = 18;
 
 		$contexts = array(
-			Digitalogic_Panel_Error_Page::CONTEXT_PATRIS_REPORTS      => 'Patris reports',
+			Digitalogic_Panel_Error_Page::CONTEXT_PATRIS_REPORTS      => 'Product data reports',
 			Digitalogic_Panel_Error_Page::CONTEXT_PRODUCT_DIAGNOSTICS => 'Product diagnostics',
 			Digitalogic_Panel_Error_Page::CONTEXT_UI_SETTINGS         => 'Digitalogic interface settings',
 		);

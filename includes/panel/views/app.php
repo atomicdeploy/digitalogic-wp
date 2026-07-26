@@ -463,7 +463,7 @@ $retry_url = isset($_SERVER['REQUEST_URI']) ? (string) $_SERVER['REQUEST_URI'] :
                             <strong>{{ t.problemRows }}</strong>
                             <span class="dlp-actions">
                                 <span v-if="reports.generated_at" class="dlp-muted">{{ t.generatedAt }}: {{ formatDateTime(reports.generated_at) }}</span>
-                                <span class="dlp-pill">{{ formatNumber(reports.counts && reports.counts.patris_products) }} Patris/API</span>
+                                <span class="dlp-pill">{{ formatNumber(reports.counts && reports.counts.patris_products) }} {{ t.sourceCatalog }}</span>
                             </span>
                         </div>
                         <div class="dlp-report-summary">
@@ -487,7 +487,7 @@ $retry_url = isset($_SERVER['REQUEST_URI']) ? (string) $_SERVER['REQUEST_URI'] :
                             <div v-if="!reports.rows.length" class="dlp-empty">{{ t.noRows }}</div>
                             <div v-else class="dlp-table-wrap">
                                 <table class="dlp-table dlp-report-table" :aria-label="reportView === 'price_list' ? t.priceList : t.problemRows">
-                                    <thead><tr><th scope="col">{{ t.sku }}</th><th scope="col">{{ t.reportState }}</th><th scope="col">{{ t.products }}</th><th scope="col">Patris/API</th><th scope="col">{{ t.stock }}</th><th scope="col">{{ t.foreignPrice }}</th><th scope="col">{{ t.weight }}</th><th scope="col">{{ t.finalPrice }}</th><th scope="col">{{ t.findings }}</th><th scope="col">{{ t.actions }}</th></tr></thead>
+                                    <thead><tr><th scope="col">{{ t.sku }}</th><th scope="col">{{ t.reportState }}</th><th scope="col">{{ t.products }}</th><th scope="col">{{ t.sourceCatalog }}</th><th scope="col">{{ t.stock }}</th><th scope="col">{{ t.foreignPrice }}</th><th scope="col">{{ t.weight }}</th><th scope="col">{{ t.finalPrice }}</th><th scope="col">{{ t.findings }}</th><th scope="col">{{ t.actions }}</th></tr></thead>
                                     <tbody>
                                         <tr v-for="(item, itemIndex) in reports.rows" :key="item.status + ':' + (item.woo_id || item.product_code) + ':' + itemIndex">
                                             <td class="dlp-mono"><bdi dir="auto">{{ item.product_code }}</bdi></td>

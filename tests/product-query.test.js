@@ -266,6 +266,9 @@ test('panel failures are structured and heavy reports use the bounded AJAX path'
     assert.match(panelPhpSource, /'foreign_currency_options'\s*=>\s*\$this->foreign_currency_options\(\)/);
     assert.match(panelPhpSource, /digitalogic_panel_foreign_currency_codes/);
     assert.match(panelPhpSource, /digitalogic_panel_foreign_currency_options/);
-    assert.match(panelPhpSource, /'reportMissingInWooCommerce'\s*=>\s*'In Patris but missing in WooCommerce'/);
+    assert.match(panelPhpSource, /'reportMissingInWooCommerce'\s*=>\s*'In source but missing in WooCommerce'/);
+    assert.match(panelPhpSource, /'sourceCatalog'\s*=>\s*'Source catalog'/);
+    assert.match(panelPhpSource, /'sourceCatalog'\s*=>\s*'منبع کالا'/);
+    assert.doesNotMatch(viewSource, /Patris\/API|پاتریس/);
     assert.match(panelPhpSource, /'reportPriceDrift'\s*=>\s*'Price differs from the current source'/);
 });

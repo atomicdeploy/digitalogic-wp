@@ -1221,9 +1221,9 @@ final class Digitalogic_Report_Engine {
 	 */
 	private function category_definitions() {
 		return array(
-			'missing_in_woocommerce'      => array( __( 'In Patris but missing in WooCommerce', 'digitalogic' ), 'danger' ),
+			'missing_in_woocommerce'      => array( __( 'In source but missing in WooCommerce', 'digitalogic' ), 'danger' ),
 			'positive_stock_missing_in_woocommerce' => array( __( 'Positive-stock product missing in WooCommerce', 'digitalogic' ), 'danger' ),
-			'missing_in_patris'           => array( __( 'In WooCommerce but missing in Patris', 'digitalogic' ), 'warning' ),
+			'missing_in_patris'           => array( __( 'In WooCommerce but missing in source', 'digitalogic' ), 'warning' ),
 			'missing_product_code'        => array( __( 'Missing exact product Code metadata', 'digitalogic' ), 'danger' ),
 			'duplicate_product_code'      => array( __( 'Duplicate exact product Code metadata', 'digitalogic' ), 'danger' ),
 			'source_warning'              => array( __( 'Source warnings require attention', 'digitalogic' ), 'warning' ),

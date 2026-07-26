@@ -186,7 +186,7 @@ $wc_features['Plugin Compatible'] = $hpos_status['plugin_compatible'] ? 'Yes' : 
                     </td>
                 </tr>
                 <tr>
-                    <td><strong><?php _e('Patris IRT Pricing', 'digitalogic'); ?></strong></td>
+                    <td><strong><?php _e('Source IRT Pricing', 'digitalogic'); ?></strong></td>
                     <td>
                         <span class="digitalogic-status-label <?php echo $currency_status['compatible'] ? 'is-ready' : 'is-warning'; ?>">
                             <span class="dashicons <?php echo $currency_status['compatible'] ? 'dashicons-yes-alt' : 'dashicons-warning'; ?>" aria-hidden="true"></span>

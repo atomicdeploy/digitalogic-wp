@@ -35,7 +35,7 @@ const DIGITALOGIC_SUPPORT_LAYOUTS = Object.freeze([
 const DIGITALOGIC_CHANGE_COLUMNS = Object.freeze([
   Object.freeze({ key: 'selected', header: 'Selected', type: 'boolean' }),
   Object.freeze({ key: 'sync_key', header: 'Product key', type: 'text' }),
-  Object.freeze({ key: 'patris_code', header: 'Patris Code', type: 'text' }),
+  Object.freeze({ key: 'patris_code', header: 'Product Code', type: 'text' }),
   Object.freeze({ key: 'expected_record_revision', header: 'Expected record revision', type: 'text' }),
   Object.freeze({ key: 'regular_price', header: 'Regular price', type: 'number' }),
   Object.freeze({ key: 'sale_price', header: 'Sale price', type: 'number' }),
@@ -1044,7 +1044,7 @@ function stageSelectedProducts() {
   });
 
   if (!stagedCount) {
-    throw new Error('No selected Product row had equal Patris/sync keys and a valid record revision.');
+    throw new Error('No selected Product row had matching Product Code and sync keys with a valid record revision.');
   }
   spreadsheet.setActiveSheet(workspace.changes);
   spreadsheet.toast(stagedCount + ' product row(s) staged. Edit fields, then select rows to preview.', 'Digitalogic', 7);

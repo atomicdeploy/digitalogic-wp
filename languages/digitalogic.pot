@@ -121,7 +121,7 @@ msgstr ""
 #: includes/admin/class-admin.php:140
 #: includes/admin/class-admin.php:262
 #: includes/admin/class-admin.php:265
-msgid "Patris Reports"
+msgid "Product Data Reports"
 msgstr ""
 
 #: includes/admin/class-admin.php:148
@@ -290,11 +290,11 @@ msgid "Toman (10 IRR per unit)"
 msgstr ""
 
 #: includes/admin/class-admin.php:606
-msgid "Ready for the Patris CNY-to-IRT pricing contract."
+msgid "Ready for the source CNY-to-IRT pricing contract."
 msgstr ""
 
 #: includes/admin/class-admin.php:608
-msgid "Patris produces IRT prices. WooCommerce must use IRT before transformed prices can be applied."
+msgid "The source feed produces IRT prices. WooCommerce must use IRT before transformed prices can be applied."
 msgstr ""
 
 #: includes/admin/class-admin.php:610
@@ -369,7 +369,7 @@ msgid "Unknown shipping-method action."
 msgstr ""
 
 #: includes/admin/class-admin.php:791
-msgid "Patris report settings saved."
+msgid "Product report settings saved."
 msgstr ""
 
 #: includes/admin/class-admin.php:833
@@ -552,11 +552,11 @@ msgid "WordPress session, WebSocket commands, and AJAX fallback through the Digi
 msgstr ""
 
 #: includes/admin/views/patris-reports.php:24
-msgid "Digitalogic Patris Reports"
+msgid "Digitalogic Product Data Reports"
 msgstr ""
 
 #: includes/admin/views/patris-reports.php:25
-msgid "Sparse transformed Patris data is compared against WooCommerce and applied through the living product-sync flow."
+msgid "Sparse transformed source data is compared against WooCommerce and applied through the living product-sync flow."
 msgstr ""
 
 #: includes/admin/views/patris-reports.php:33
@@ -620,7 +620,7 @@ msgid "Supplier Shipping Methods"
 msgstr ""
 
 #: includes/admin/views/patris-reports.php:79
-msgid "Manage how products are shipped from suppliers through Patris. These records do not change WooCommerce customer delivery methods."
+msgid "Manage how products are shipped from suppliers through the source integration. These records do not change WooCommerce customer delivery methods."
 msgstr ""
 
 #: includes/admin/views/patris-reports.php:85
@@ -746,7 +746,7 @@ msgid "Assign a product"
 msgstr ""
 
 #: includes/admin/views/patris-reports.php:262
-msgid "Enter one exact Patris Code or WooCommerce SKU. An empty method selection clears the current assignment."
+msgid "Enter one exact Product Code or WooCommerce SKU. An empty method selection clears the current assignment."
 msgstr ""
 
 #: includes/admin/views/patris-reports.php:268
@@ -1012,7 +1012,7 @@ msgid "Plugin Path"
 msgstr ""
 
 #: includes/admin/views/status.php:189
-msgid "Patris IRT Pricing"
+msgid "Source IRT Pricing"
 msgstr ""
 
 #: includes/admin/views/status.php:195
@@ -1159,7 +1159,7 @@ msgid "This AJAX action is not available over WebSocket."
 msgstr ""
 
 #: includes/class-digitalogic-google-sheets-catalog.php:134
-msgid "Every catalog product must have a Patris Code or a positive WooCommerce ID."
+msgid "Every catalog product must have a Product Code or a positive WooCommerce ID."
 msgstr ""
 
 #: includes/class-digitalogic-google-sheets-catalog.php:262
@@ -1267,24 +1267,24 @@ msgid "%d days ago"
 msgstr ""
 
 #: includes/class-patris-feed.php:165
-msgid "Patris API URL is not configured."
+msgid "Source API URL is not configured."
 msgstr ""
 
 #: includes/class-patris-feed.php:184
 #, php-format
-msgid "Patris API returned HTTP %d."
+msgid "Source API returned HTTP %d."
 msgstr ""
 
 #: includes/class-patris-feed.php:189
-msgid "Patris API did not return valid JSON."
+msgid "Source API did not return valid JSON."
 msgstr ""
 
 #: includes/class-patris-feed.php:197
-msgid "Patris payload must be an object."
+msgid "Source payload must be an object."
 msgstr ""
 
 #: includes/class-patris-feed.php:204
-msgid "Patris payload did not contain products or customers."
+msgid "Source payload did not contain products or customers."
 msgstr ""
 
 #: includes/class-patris-feed.php:223
@@ -1292,11 +1292,11 @@ msgid "Skipped product without product_code."
 msgstr ""
 
 #: includes/class-patris-feed.php:242
-msgid "Skipped product because its exact Patris Code is ambiguous."
+msgid "Skipped product because its exact Product Code is ambiguous."
 msgstr ""
 
 #: includes/class-patris-feed.php:243
-msgid "Skipped product because its Patris Code could not be resolved."
+msgid "Skipped product because its Product Code could not be resolved."
 msgstr ""
 
 #: includes/class-patris-feed.php:253
@@ -1435,11 +1435,11 @@ msgstr ""
 
 #: includes/class-shipping-method-service.php:713
 #: includes/class-shipping-method-service.php:1202
-msgid "Patris Code is required."
+msgid "Product Code is required."
 msgstr ""
 
 #: includes/class-shipping-method-service.php:718
-msgid "Duplicate Patris Code in assignment batch."
+msgid "Duplicate Product Code in assignment batch."
 msgstr ""
 
 #: includes/class-shipping-method-service.php:733
@@ -1519,11 +1519,11 @@ msgid "Disabled shipping methods cannot be assigned to new products."
 msgstr ""
 
 #: includes/class-shipping-method-service.php:1205
-msgid "No product has that exact Patris Code."
+msgid "No product has that exact Product Code."
 msgstr ""
 
 #: includes/class-shipping-method-service.php:1210
-msgid "More than one product has that exact Patris Code; no assignment was changed."
+msgid "More than one product has that exact Product Code; no assignment was changed."
 msgstr ""
 
 #: includes/class-shipping-method-service.php:1595
@@ -2257,7 +2257,7 @@ msgid "Current"
 msgstr ""
 
 #: includes/admin/views/patris-reports.php
-msgid "Current Patris products"
+msgid "Current source products"
 msgstr ""
 
 #: includes/admin/views/patris-reports.php
@@ -2289,11 +2289,11 @@ msgid "Foreign currency is not CNY"
 msgstr ""
 
 #: includes/class-report-engine.php
-msgid "In Patris but missing in WooCommerce"
+msgid "In source but missing in WooCommerce"
 msgstr ""
 
 #: includes/class-report-engine.php
-msgid "In WooCommerce but missing in Patris"
+msgid "In WooCommerce but missing in source"
 msgstr ""
 
 #: includes/class-report-engine.php
@@ -2358,11 +2358,11 @@ msgid "Page %1$d of %2$d"
 msgstr ""
 
 #: includes/admin/views/patris-reports.php
-msgid "Patris"
+msgid "Source"
 msgstr ""
 
 #: includes/admin/views/patris-reports.php
-msgid "Patris-only products"
+msgid "Source-only products"
 msgstr ""
 
 #: includes/admin/views/patris-reports.php
@@ -2530,7 +2530,7 @@ msgid "Both source ID and dataset are required; reconciliation findings are with
 msgstr ""
 
 #: includes/admin/views/patris-reports.php
-msgid "Positive-stock Patris-only products"
+msgid "Positive-stock source-only products"
 msgstr ""
 
 #: includes/admin/views/patris-reports.php
@@ -2539,4 +2539,20 @@ msgstr ""
 
 #: includes/admin/views/patris-reports.php
 msgid "The report source is unavailable."
+msgstr ""
+
+#: includes/class-digitalogic-google-sheets-writeback.php
+msgid "The exact Product Code did not resolve to the requested catalog row."
+msgstr ""
+
+#: includes/class-digitalogic-google-sheets-writeback.php
+msgid "A source product sync is in progress. Retry the unchanged request."
+msgstr ""
+
+#: includes/class-digitalogic-google-sheets-writeback.php
+msgid "The Product Code resolved to a different product during apply. No fields were written."
+msgstr ""
+
+#: includes/class-digitalogic-google-sheets-writeback.php
+msgid "Editable rows require an exact, unique Product Code."
 msgstr ""

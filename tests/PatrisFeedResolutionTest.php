@@ -116,8 +116,8 @@ final class PatrisFeedResolutionTest extends TestCase {
         $this->assertSame(0, $result['missing_in_woocommerce']);
         $this->assertSame(2, $result['failed']);
         $this->assertSame(array(
-            'Skipped product because its exact Patris Code is ambiguous.',
-            'Skipped product because its Patris Code could not be resolved.',
+            'Skipped product because its exact Product Code is ambiguous.',
+            'Skipped product because its Product Code could not be resolved.',
         ), $result['errors']);
         $this->assertSame(array(), $GLOBALS['digitalogic_test_wc_product_saves']);
         $this->assertSame('first', $GLOBALS['digitalogic_test_posts'][704]['meta']['_existing_sentinel']);

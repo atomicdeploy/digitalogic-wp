@@ -263,7 +263,7 @@ final class Digitalogic_Panel_Error_Page {
 		$english = array(
 			self::CONTEXT_PATRIS_REPORTS      => array(
 				'eyebrow' => 'Access restricted',
-				'title'   => 'Patris reports are not available to this account',
+				'title'   => 'Product data reports are not available to this account',
 				'detail'  => 'This page requires store-management access. Ask a site administrator to grant the appropriate WordPress capability.',
 			),
 			self::CONTEXT_PRODUCT_DIAGNOSTICS => array(
@@ -290,7 +290,7 @@ final class Digitalogic_Panel_Error_Page {
 		$persian = array(
 			self::CONTEXT_PATRIS_REPORTS      => array(
 				'eyebrow' => 'دسترسی محدود',
-				'title'   => 'این حساب به گزارش‌های کاتالوگ دسترسی ندارد',
+				'title'   => 'این حساب به گزارش‌های اطلاعات کالا دسترسی ندارد',
 				'detail'  => 'این صفحه به دسترسی مدیریت فروشگاه نیاز دارد. از مدیر سایت بخواهید مجوز مناسب وردپرس را به حساب شما اختصاص دهد.',
 			),
 			self::CONTEXT_PRODUCT_DIAGNOSTICS => array(

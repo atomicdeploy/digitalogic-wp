@@ -782,12 +782,12 @@ final class Digitalogic_Shipping_Method_Service {
                 }
 
                 if ($code === '') {
-					$errors[$index] = array('code' => 'digitalogic_invalid_product_code', 'message' => __('Patris Code is required.', 'digitalogic'));
+					$errors[$index] = array('code' => 'digitalogic_invalid_product_code', 'message' => __('Product Code is required.', 'digitalogic'));
                     continue;
                 }
 
                 if (isset($seen_codes[$code])) {
-					$errors[$index] = array('code' => 'digitalogic_duplicate_product_code', 'message' => __('Duplicate Patris Code in assignment batch.', 'digitalogic'));
+					$errors[$index] = array('code' => 'digitalogic_duplicate_product_code', 'message' => __('Duplicate Product Code in assignment batch.', 'digitalogic'));
                     continue;
                 }
                 $seen_codes[$code] = true;
@@ -1296,15 +1296,15 @@ final class Digitalogic_Shipping_Method_Service {
             $error_code = $resolved->get_error_code();
             $data = is_array($resolved->get_error_data()) ? $resolved->get_error_data() : array();
             if ('digitalogic_invalid_product_identifier' === $error_code) {
-                return new WP_Error('digitalogic_invalid_product_code', __('Patris Code is required.', 'digitalogic'), array('status' => 400));
+                return new WP_Error('digitalogic_invalid_product_code', __('Product Code is required.', 'digitalogic'), array('status' => 400));
             }
             if ('digitalogic_product_identifier_not_found' === $error_code) {
-                return new WP_Error('digitalogic_product_code_not_found', __('No product has that exact Patris Code.', 'digitalogic'), array('status' => 404));
+                return new WP_Error('digitalogic_product_code_not_found', __('No product has that exact Product Code.', 'digitalogic'), array('status' => 404));
             }
             if ('digitalogic_product_identifier_ambiguous' === $error_code) {
                 return new WP_Error(
                     'digitalogic_product_code_ambiguous',
-                    __('More than one product has that exact Patris Code; no assignment was changed.', 'digitalogic'),
+                    __('More than one product has that exact Product Code; no assignment was changed.', 'digitalogic'),
                     array(
                         'status' => 409,
                         'product_ids' => isset($data['woocommerce_ids']) ? $data['woocommerce_ids'] : array(),
