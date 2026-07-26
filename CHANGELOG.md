@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.4] - 2026-07-27
+
+### Fixed
+- Normalized TCI caller IDs that arrive in bare `989...` form to the canonical
+  Iranian mobile format before applying the internal callback access prefix,
+  matching the existing `0989...` and `00989...` handling.
+- Localized the complete product-sync page headings and descriptions for
+  Persian and English while keeping the technical authenticated endpoint
+  visible and left-to-right.
+- Corrected the Google Sheets dashboard warning metric to count the `warning`
+  sync status instead of populated shipping-method metadata, with a bilingual
+  customer-facing label.
+
 ## [1.7.3] - 2026-07-26
 
 ### Fixed
