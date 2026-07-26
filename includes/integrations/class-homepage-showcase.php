@@ -253,7 +253,7 @@ final class Digitalogic_Homepage_Showcase {
 			'displays-modules',
 			'modules-development-board',
 		);
-		$found = array();
+		$found      = array();
 
 		foreach ( $slugs as $slug ) {
 			$products = wc_get_products(
@@ -288,25 +288,32 @@ final class Digitalogic_Homepage_Showcase {
 	 * @return array
 	 */
 	private function get_more_products( $limit, $exclude_ids ) {
-		$slugs = array(
-			'patris-113007',
-			'patris-113003',
-			'patris-113008',
-			'patris-113010',
-			'temperature-and-humidity-sensors',
-			'lcd-and-oled-displays',
-			'regulators',
-			'patris-106001',
+		$categories = array(
+			array( 'category_code' => '113007' ),
+			array( 'category_code' => '113003' ),
+			array( 'category_code' => '113008' ),
+			array( 'category_code' => '113010' ),
+			array( 'slug' => 'temperature-and-humidity-sensors' ),
+			array( 'slug' => 'lcd-and-oled-displays' ),
+			array( 'slug' => 'regulators' ),
+			array( 'category_code' => '106001' ),
 		);
 		$found = array();
 
-		foreach ( $slugs as $slug ) {
+		foreach ( $categories as $category ) {
+			$term = isset( $category['category_code'] )
+				? Digitalogic_Product_Category_Slugs::instance()->find_by_category_code( $category['category_code'] )
+				: get_term_by( 'slug', $category['slug'], 'product_cat' );
+			if ( ! is_object( $term ) || is_wp_error( $term ) || '' === (string) ( $term->slug ?? '' ) ) {
+				continue;
+			}
+
 			$products = wc_get_products(
 				array(
 					'status'       => 'publish',
 					'stock_status' => 'instock',
 					'visibility'   => 'visible',
-					'category'     => array( $slug ),
+					'category'     => array( (string) $term->slug ),
 					'exclude'      => array_merge( array_map( 'absint', $exclude_ids ), array_keys( $found ) ),
 					'limit'        => 24,
 					'orderby'      => 'modified',

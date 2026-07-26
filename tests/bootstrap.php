@@ -2004,6 +2004,34 @@ function get_term($term_id, $taxonomy = '') {
 	return new WP_Error('term_not_found', 'Term not found.');
 }
 
+/**
+ * Find one term by a scalar field in the test registry.
+ *
+ * @param string $field    Field selector.
+ * @param mixed  $value    Expected value.
+ * @param string $taxonomy Optional taxonomy.
+ * @param string $output   Ignored output mode.
+ * @param string $filter   Ignored filter mode.
+ * @return object|false
+ */
+function get_term_by( $field, $value, $taxonomy = '', $output = 'OBJECT', $filter = 'raw' ) {
+	unset( $output, $filter );
+	foreach ( ( $GLOBALS['digitalogic_test_terms'] ?? array() ) as $stored ) {
+		$term = is_object( $stored ) ? $stored : (object) $stored;
+		if ( '' !== $taxonomy && isset( $term->taxonomy ) && (string) $term->taxonomy !== (string) $taxonomy ) {
+			continue;
+		}
+		$candidate = 'id' === $field || 'term_id' === $field
+			? (int) ($term->term_id ?? 0)
+			: (string) ($term->{$field} ?? '');
+		if ( ( 'id' === $field || 'term_id' === $field ? (int) $value : (string) $value ) === $candidate ) {
+			return $term;
+		}
+	}
+
+	return false;
+}
+
 function get_terms($args = array()) {
 	$terms = array();
 	foreach (($GLOBALS['digitalogic_test_terms'] ?? array()) as $term_id => $term) {
@@ -2061,6 +2089,9 @@ function wp_insert_term($term, $taxonomy, $args = array()) {
     if (is_array($existing)) {
         return new WP_Error('term_exists', 'Term already exists.', (int) $existing['term_id']);
     }
+	if ( isset( $args['slug'] ) && get_term_by( 'slug', (string) $args['slug'], $taxonomy ) ) {
+		return new WP_Error( 'term_exists', 'Term slug already exists.' );
+	}
     $next = max(1, (int) ($GLOBALS['digitalogic_test_next_term_id'] ?? 1));
     while (isset($GLOBALS['digitalogic_test_terms'][$next])) {
         $next++;
@@ -2088,6 +2119,13 @@ function wp_update_term($term_id, $taxonomy, $args = array()) {
     if (isset($args['parent'])) {
         $GLOBALS['digitalogic_test_terms'][$term_id]['parent'] = (int) $args['parent'];
     }
+	if ( isset( $args['slug'] ) ) {
+		$slug_owner = get_term_by( 'slug', (string) $args['slug'], $taxonomy );
+		if ( $slug_owner && $term_id !== (int) $slug_owner->term_id ) {
+			return new WP_Error( 'duplicate_term_slug', 'Term slug already exists.' );
+		}
+		$GLOBALS['digitalogic_test_terms'][ $term_id ]['slug'] = (string) $args['slug'];
+	}
     $GLOBALS['digitalogic_test_terms'][$term_id]['taxonomy'] = (string) $taxonomy;
 
     return array('term_id' => $term_id, 'term_taxonomy_id' => $term_id);
@@ -2387,6 +2425,7 @@ require_once dirname(__DIR__) . '/includes/class-digitalogic-woocommerce-currenc
 require_once dirname( __DIR__ ) . '/includes/class-digitalogic-access-control.php';
 require_once dirname( __DIR__ ) . '/includes/panel/class-digitalogic-panel-error-page.php';
 require_once dirname(__DIR__) . '/includes/class-product-identifier-resolver.php';
+require_once dirname(__DIR__) . '/includes/class-digitalogic-product-category-slugs.php';
 require_once dirname(__DIR__) . '/includes/class-digitalogic-product-supplier-links.php';
 require_once dirname(__DIR__) . '/includes/class-digitalogic-product-query.php';
 require_once dirname(__DIR__) . '/includes/class-digitalogic-patris-price-policy.php'; // phpcs:ignore
@@ -2412,6 +2451,7 @@ require_once dirname(__DIR__) . '/includes/panel/class-panel.php';
 require_once dirname(__DIR__) . '/includes/integrations/class-label-overrides.php';
 require_once dirname(__DIR__) . '/includes/integrations/class-product-identity.php';
 require_once dirname(__DIR__) . '/includes/integrations/class-digitalogic-product-resources.php';
+require_once dirname(__DIR__) . '/includes/integrations/class-homepage-showcase.php';
 require_once dirname(__DIR__) . '/includes/websocket/class-websocket-server.php';
 require_once dirname(__DIR__) . '/includes/admin/class-digitalogic-product-supplier-links-admin.php';
 require_once dirname(__DIR__) . '/includes/cli/class-cli-commands.php';

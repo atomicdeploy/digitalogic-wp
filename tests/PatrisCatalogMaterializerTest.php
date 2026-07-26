@@ -211,6 +211,54 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 		$this->assertGreaterThan( 0, (float) $product->get_weight() );
 		$this->assertCount( 1, $product->get_category_ids() );
 		$this->assertSame( (string) $product->get_category_ids()[0], $product->get_meta( 'rank_math_primary_product_cat', true ) );
+		foreach ( array( '101', '101001' ) as $category_code ) {
+			$term = Digitalogic_Product_Category_Slugs::instance()->find_by_category_code( $category_code );
+			$this->assertIsObject( $term );
+			$this->assertSame( 'product-category-' . $category_code, $term->slug );
+		}
+	}
+
+	/** Verify apply migrates managed legacy slugs and records every old path. */
+	public function test_apply_migrates_only_managed_legacy_category_slugs_and_records_redirects(): void {
+		$this->receiveFixture();
+		$manifest = $this->manifest();
+		$this->addTerm( 50, $manifest['categories']['101']['name_fa'], 0, 'product_cat', 'patris-custom-root' );
+		$this->addTerm( 51, $manifest['categories']['101001']['name_fa'], 50, 'product_cat', 'patris-101001' );
+		update_term_meta( 50, Digitalogic_Patris_Catalog_Materializer::CATEGORY_CODE_META, '101' );
+		update_term_meta( 51, Digitalogic_Patris_Catalog_Materializer::CATEGORY_CODE_META, '101001' );
+		update_term_meta( 50, Digitalogic_Patris_Catalog_Materializer::CATEGORY_MANAGED_META, '1' );
+		update_term_meta( 51, Digitalogic_Patris_Catalog_Materializer::CATEGORY_MANAGED_META, '1' );
+
+		$result = Digitalogic_Patris_Catalog_Materializer::instance()->run( $manifest, array( 'apply' => true ) );
+
+		$this->assertSame( 2, $result['categories']['updated'] );
+		$this->assertSame( 'product-category-101', get_term( 50, 'product_cat' )->slug );
+		$this->assertSame( 'product-category-101001', get_term( 51, 'product_cat' )->slug );
+		$this->assertSame(
+			array( 'patris-custom-root' ),
+			get_term_meta( 50, Digitalogic_Product_Category_Slugs::LEGACY_SLUGS_META, true )
+		);
+		$this->assertSame(
+			array( 'patris-101001' ),
+			get_term_meta( 51, Digitalogic_Product_Category_Slugs::LEGACY_SLUGS_META, true )
+		);
+	}
+
+	/** Verify adopted/manual term slugs remain outside automatic migration. */
+	public function test_apply_preserves_an_adopted_manual_legacy_category_slug(): void {
+		$this->receiveFixture();
+		$manifest = $this->manifest();
+		$this->addTerm( 50, $manifest['categories']['101']['name_fa'], 0, 'product_cat', 'patris-manual-root' );
+		$this->addTerm( 51, $manifest['categories']['101001']['name_fa'], 50, 'product_cat', 'patris-manual-leaf' );
+		update_term_meta( 50, Digitalogic_Patris_Catalog_Materializer::CATEGORY_CODE_META, '101' );
+		update_term_meta( 51, Digitalogic_Patris_Catalog_Materializer::CATEGORY_CODE_META, '101001' );
+
+		$result = Digitalogic_Patris_Catalog_Materializer::instance()->run( $manifest, array( 'apply' => true ) );
+
+		$this->assertSame( 2, $result['categories']['already_mapped'] );
+		$this->assertSame( 'patris-manual-root', get_term( 50, 'product_cat' )->slug );
+		$this->assertSame( 'patris-manual-leaf', get_term( 51, 'product_cat' )->slug );
+		$this->assertSame( '', get_term_meta( 50, Digitalogic_Product_Category_Slugs::LEGACY_SLUGS_META, true ) );
 	}
 
 	/** Verify stale freight state cannot bypass publication readiness. */

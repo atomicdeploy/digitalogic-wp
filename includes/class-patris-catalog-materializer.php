@@ -18,10 +18,10 @@ final class Digitalogic_Patris_Catalog_Materializer {
 
 	public const MANIFEST_SCHEMA_VERSION = '1.0';
 
-	public const CATEGORY_CODE_META    = '_digitalogic_patris_category_code';
+	public const CATEGORY_CODE_META    = Digitalogic_Product_Category_Slugs::CATEGORY_CODE_META;
 	public const CATEGORY_KEY_META     = '_digitalogic_catalog_category_key';
 	public const CATEGORY_TERM_META    = '_digitalogic_patris_category_term_id';
-	public const CATEGORY_MANAGED_META = '_digitalogic_patris_category_managed';
+	public const CATEGORY_MANAGED_META = Digitalogic_Product_Category_Slugs::CATEGORY_MANAGED_META;
 	public const CATEGORY_ADOPTED_META = '_digitalogic_patris_category_adopted';
 	public const OWNER_SOURCE_META     = '_digitalogic_patris_owner_source_id';
 	public const OWNER_DATASET_META    = '_digitalogic_patris_owner_dataset';
@@ -1155,12 +1155,20 @@ final class Digitalogic_Patris_Catalog_Materializer {
 					'action'  => 'planned_create',
 				);
 			} else {
+				$neutral_slug = Digitalogic_Product_Category_Slugs::neutral_slug( (string) $category['category_code'] );
+				if ( '' === $neutral_slug ) {
+					return $this->error( 'digitalogic_patris_materializer_category_slug_invalid', 'The product category Code cannot produce a stable public slug.' );
+				}
+				$slug_owner = get_term_by( 'slug', $neutral_slug, 'product_cat' );
+				if ( is_object( $slug_owner ) ) {
+					return $this->error( 'digitalogic_patris_materializer_category_slug_conflict', 'The stable product category slug is already owned by another category.' );
+				}
 				$inserted = wp_insert_term(
 					$name,
 					'product_cat',
 					array(
 						'parent' => $parent_id,
-						'slug'   => 'patris-' . sanitize_title( (string) $category['category_code'] ),
+						'slug'   => $neutral_slug,
 					)
 				);
 				if ( is_wp_error( $inserted ) ) {
@@ -1183,20 +1191,41 @@ final class Digitalogic_Patris_Catalog_Materializer {
 			return $this->error( 'digitalogic_patris_materializer_category_unavailable', 'The mapped category is unavailable.' );
 		}
 
-		if ( ( $managed || $rename_reviewed ) && ( (string) $term->name !== $name || (int) $term->parent !== $parent_id ) ) {
+		$neutral_slug = Digitalogic_Product_Category_Slugs::neutral_slug( (string) $category['category_code'] );
+		if ( '' === $neutral_slug ) {
+			return $this->error( 'digitalogic_patris_materializer_category_slug_invalid', 'The product category Code cannot produce a stable public slug.' );
+		}
+		$migrate_slug = $managed && str_starts_with( (string) ( $term->slug ?? '' ), Digitalogic_Product_Category_Slugs::LEGACY_PREFIX );
+		$needs_update = (string) $term->name !== $name || (int) $term->parent !== $parent_id || $migrate_slug;
+		if ( $migrate_slug ) {
+			$slug_owner = get_term_by( 'slug', $neutral_slug, 'product_cat' );
+			if ( is_object( $slug_owner ) && (int) $slug_owner->term_id !== $term_id ) {
+				return $this->error( 'digitalogic_patris_materializer_category_slug_conflict', 'The stable product category slug is already owned by another category.' );
+			}
+
+			if ( ! Digitalogic_Product_Category_Slugs::instance()->remember_legacy_slug( $term_id, (string) $term->slug ) ) {
+				return $this->error( 'digitalogic_patris_materializer_category_legacy_slug_failed', 'The legacy product category redirect could not be recorded.' );
+			}
+		}
+
+		if ( ( $managed || $rename_reviewed ) && $needs_update ) {
+			$update_args = array(
+				'name'   => $name,
+				'parent' => $parent_id,
+			);
+			if ( $migrate_slug ) {
+				$update_args['slug'] = $neutral_slug;
+			}
 			$updated = wp_update_term(
 				$term_id,
 				'product_cat',
-				array(
-					'name'   => $name,
-					'parent' => $parent_id,
-				)
+				$update_args
 			);
 			if ( is_wp_error( $updated ) ) {
 				return $updated;
 			}
 			$action = 'updated';
-		} elseif ( ! $managed && ( (string) $term->name !== $name || (int) $term->parent !== $parent_id ) ) {
+		} elseif ( ! $managed && $needs_update ) {
 			$action = 'preserved_manual';
 		}
 
@@ -1214,6 +1243,9 @@ final class Digitalogic_Patris_Catalog_Materializer {
 		}
 		if ( (string) get_term_meta( $term_id, self::CATEGORY_CODE_META, true ) !== (string) $category['category_code'] ) {
 			return $this->error( 'digitalogic_patris_materializer_category_meta_failed', 'The category Code failed readback verification.' );
+		}
+		if ( ( 'created' === $action || $migrate_slug ) && (string) get_term( $term_id, 'product_cat' )->slug !== $neutral_slug ) {
+			return $this->error( 'digitalogic_patris_materializer_category_slug_failed', 'The stable product category slug failed readback verification.' );
 		}
 
 		return array(
