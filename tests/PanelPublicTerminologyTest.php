@@ -19,9 +19,9 @@ final class PanelPublicTerminologyTest extends TestCase {
 		$panel = Digitalogic_Panel::instance();
 
 		foreach ( array( 'translations_en', 'translations_fa' ) as $method_name ) {
-			$method = new ReflectionMethod( Digitalogic_Panel::class, $method_name );
+			$method       = new ReflectionMethod( Digitalogic_Panel::class, $method_name );
 			$translations = $method->invoke( $panel );
-			$rendered = implode(
+			$rendered     = implode(
 				"\n",
 				array_map(
 					'strval',
@@ -48,8 +48,8 @@ final class PanelPublicTerminologyTest extends TestCase {
 	 * Report output labels must describe the source without exposing its brand.
 	 */
 	public function test_report_category_output_is_source_neutral(): void {
-		$engine = Digitalogic_Report_Engine::instance();
-		$method = new ReflectionMethod( Digitalogic_Report_Engine::class, 'category_definitions' );
+		$engine      = Digitalogic_Report_Engine::instance();
+		$method      = new ReflectionMethod( Digitalogic_Report_Engine::class, 'category_definitions' );
 		$definitions = $method->invoke( $engine );
 
 		$this->assertSame( 'In source but missing in WooCommerce', $definitions['missing_in_woocommerce'][0] );

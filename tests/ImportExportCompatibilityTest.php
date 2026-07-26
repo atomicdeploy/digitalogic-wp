@@ -174,7 +174,7 @@ final class ImportExportCompatibilityTest extends TestCase {
         $this->assertTrue($sheet->getRightToLeft());
         $this->assertSame(1, $sheet->getHighestDataRow());
         $last_column = Coordinate::stringFromColumnIndex(count(Digitalogic_Product_Column_Schema::workbook_columns()));
-        $headers = $sheet->rangeToArray('A1:' . $last_column . '1')[0];
+        $headers     = $sheet->rangeToArray('A1:' . $last_column . '1')[0];
         $this->assertContains('کد کالا', $headers);
         $this->assertStringNotContainsString('پاتریس', implode('|', $headers));
         $this->assertStringContainsString('Formula policy', $workbook->getSheetByName('Instructions')->getCell('A4')->getValue());
@@ -182,7 +182,7 @@ final class ImportExportCompatibilityTest extends TestCase {
     }
 
     public function test_product_code_header_targets_the_internal_identity_and_legacy_aliases_remain_accepted(): void {
-        $current = Digitalogic_Product_Column_Schema::resolve_workbook_headers(array('WooCommerce ID', 'Product Code', 'SKU'));
+        $current        = Digitalogic_Product_Column_Schema::resolve_workbook_headers(array('WooCommerce ID', 'Product Code', 'SKU'));
         $legacy_english = Digitalogic_Product_Column_Schema::resolve_workbook_headers(array('WooCommerce ID', 'Patris Code', 'Name'));
         $legacy_persian = Digitalogic_Product_Column_Schema::resolve_workbook_headers(array('WooCommerce ID', 'کد کالای پاتریس', 'Name'));
 
