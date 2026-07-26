@@ -46,7 +46,7 @@ final class GoogleSheetsCatalogTest extends TestCase {
 		$this->catalog = Digitalogic_Google_Sheets_Catalog::instance();
 	}
 
-	/** A 500-row catalog page is assembled through bounded 100-row DB queries. */
+	/** A 250-row catalog page is assembled through bounded 100-row DB queries. */
 	public function test_large_catalog_page_uses_bounded_internal_query_windows() {
 		$this->seed_catalog_products( 1, 150 );
 		$GLOBALS['digitalogic_test_wp_query_results'] = array(
@@ -65,13 +65,13 @@ final class GoogleSheetsCatalogTest extends TestCase {
 				'dataset' => 'products',
 				'locale'  => 'fa',
 				'page'    => 1,
-				'limit'   => 500,
+				'limit'   => 250,
 			)
 		);
 
 		$this->assertFalse( is_wp_error( $result ) );
 		$this->assertCount( 150, $result['rows'] );
-		$this->assertSame( 500, $result['pagination']['limit'] );
+		$this->assertSame( 250, $result['pagination']['limit'] );
 		$this->assertSame( 150, $result['pagination']['total'] );
 		$this->assertSame( 1, $result['pagination']['pages'] );
 		$this->assertFalse( $result['pagination']['has_more'] );

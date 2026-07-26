@@ -143,7 +143,7 @@ final class ExcelPricingSyncTest extends TestCase {
 			'state',
 			array(
 				'page'   => 1,
-				'limit'  => 500,
+				'limit'  => 250,
 				'locale' => 'fa',
 			)
 		);
@@ -180,7 +180,7 @@ final class ExcelPricingSyncTest extends TestCase {
 		$this->assertSame( '30', $state['default_markup']['profit_percent'] );
 		$this->assertSame( 'products', $state['catalog']['dataset'] );
 		$this->assertSame( 'fa', $state['catalog']['locale'] );
-		$this->assertSame( 500, $state['catalog']['pagination']['limit'] );
+		$this->assertSame( 250, $state['catalog']['pagination']['limit'] );
 		$this->assertNotEmpty( $state['catalog']['columns'] );
 		$this->assertMatchesRegularExpression( '/[^\x00-\x7F]/', $state['catalog']['columns'][0]['header'] );
 	}
