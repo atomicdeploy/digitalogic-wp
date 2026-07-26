@@ -34,6 +34,11 @@ Freight arrives as the inseparable `shipping_price_per_kg` and
   never removed.
 - Existing category names and parents are preserved unless `rename` is
   explicitly true for that reviewed source category.
+- New integration-managed product categories use stable, source-neutral public
+  slugs in the form `product-category-<category-code>`. On an apply run, only
+  terms marked with `_digitalogic_patris_category_managed=1` are migrated from
+  historic `patris-*` slugs. The old exact paths are retained as permanent
+  redirects; adopted/manual term slugs are never changed by this migration.
 - A variable product cannot own a leaf Patris Code. The materializer can create
   a reviewed child under an existing variable parent, but it never invents a
   new variable family.
