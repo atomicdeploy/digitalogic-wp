@@ -131,7 +131,7 @@ final class Digitalogic_Google_Sheets_Catalog {
 			if ( '' === $sync_key ) {
 				return new WP_Error(
 					'digitalogic_sheets_sync_key_missing',
-					__( 'Every catalog product must have a Patris Code or a positive WooCommerce ID.', 'digitalogic' ),
+					__( 'Every catalog product must have a Product Code or a positive WooCommerce ID.', 'digitalogic' ),
 					array( 'status' => 500 )
 				);
 			}

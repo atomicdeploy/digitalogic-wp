@@ -401,7 +401,7 @@ final class Digitalogic_Google_Sheets_Writeback {
 			return $this->prepared_error_from_wp_error( $index, $sync_key, $patris_code, $projected );
 		}
 		if ( $projected['row']['sync_key'] !== $sync_key || ( $projected['row']['patris_code'] ?? null ) !== $patris_code ) {
-			return $this->prepared_error( $index, $sync_key, $patris_code, 'invalid', 'resolved_identity_mismatch', __( 'The exact Patris Code did not resolve to the requested catalog row.', 'digitalogic' ) );
+			return $this->prepared_error( $index, $sync_key, $patris_code, 'invalid', 'resolved_identity_mismatch', __( 'The exact Product Code did not resolve to the requested catalog row.', 'digitalogic' ) );
 		}
 
 		$current_revision = (string) $projected['row']['record_revision'];
@@ -497,7 +497,7 @@ final class Digitalogic_Google_Sheets_Writeback {
 		if ( ! $this->acquire_named_advisory_lock( $sync_lock_name, 15 ) ) {
 			$result['status']    = 'failed';
 			$result['code']      = 'product_sync_lock_busy';
-			$result['message']   = __( 'A Patris product sync is in progress. Retry the unchanged request.', 'digitalogic' );
+			$result['message']   = __( 'A source product sync is in progress. Retry the unchanged request.', 'digitalogic' );
 			$result['retryable'] = true;
 
 			return $result;
@@ -543,7 +543,7 @@ final class Digitalogic_Google_Sheets_Writeback {
 		if ( (int) $prepared['product_id'] !== (int) $projected['product_id'] ) {
 			$result['status']    = 'conflict';
 			$result['code']      = 'product_identity_conflict';
-			$result['message']   = __( 'The Patris Code resolved to a different product during apply. No fields were written.', 'digitalogic' );
+			$result['message']   = __( 'The Product Code resolved to a different product during apply. No fields were written.', 'digitalogic' );
 			$result['retryable'] = false;
 
 			return $result;
@@ -882,7 +882,7 @@ final class Digitalogic_Google_Sheets_Writeback {
 			return $resolved;
 		}
 		if ( 'patris_code' !== $resolved['resolved_by'] || $patris_code !== $resolved['patris_code'] ) {
-			return $this->error( 'exact_patris_resolution_required', __( 'Editable rows require an exact, unique Patris Code.', 'digitalogic' ), 409 );
+			return $this->error( 'exact_patris_resolution_required', __( 'Editable rows require an exact, unique Product Code.', 'digitalogic' ), 409 );
 		}
 
 		$product_id = (int) $resolved['woocommerce_id'];

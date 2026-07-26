@@ -114,7 +114,6 @@ final class LabelOverridesTest extends TestCase {
 	/** Operator-facing catalog labels must stay source-neutral. */
 	public function test_operator_catalog_sources_do_not_expose_patris_branding(): void {
 		$paths = array(
-			dirname( __DIR__ ) . '/includes/class-digitalogic-product-column-schema.php',
 			dirname( __DIR__ ) . '/includes/panel/class-digitalogic-panel-error-page.php',
 			dirname( __DIR__ ) . '/includes/panel/class-panel.php',
 		);
@@ -125,7 +124,16 @@ final class LabelOverridesTest extends TestCase {
 			$this->assertStringNotContainsString( 'پاتریس', $source, $path );
 		}
 
-		$schema_source = file_get_contents( $paths[0] );
-		$this->assertStringContainsString( 'کد کالا', $schema_source );
+		$visible_labels = array();
+		foreach ( array_merge( Digitalogic_Product_Column_Schema::catalog_columns(), Digitalogic_Product_Column_Schema::workbook_columns() ) as $column ) {
+			$visible_labels[] = $column['label_en'];
+			$visible_labels[] = $column['label_fa'];
+		}
+
+		$rendered = implode( "\n", $visible_labels );
+		$this->assertStringContainsString( 'Product Code', $rendered );
+		$this->assertStringContainsString( 'کد کالا', $rendered );
+		$this->assertStringNotContainsString( 'Patris', $rendered );
+		$this->assertStringNotContainsString( 'پاتریس', $rendered );
 	}
 }

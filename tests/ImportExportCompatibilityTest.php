@@ -143,8 +143,13 @@ final class ImportExportCompatibilityTest extends TestCase {
         $this->assertSame('@', $sheet->getStyle('C2')->getNumberFormat()->getFormatCode());
         $headers = $sheet->rangeToArray('A1:' . $last_column . '1')[0];
         $this->assertContains('Effective Price', $headers);
+        $this->assertContains('Product Code', $headers);
         $this->assertContains('Source Price Status', $headers);
         $this->assertContains('Promotion Policy', $headers);
+        $this->assertNotContains('Patris Code', $headers);
+        $instructions = $workbook->getSheetByName('Instructions')->getCell('A3')->getValue();
+        $this->assertStringContainsString('Product Code', $instructions);
+        $this->assertStringNotContainsString('Patris Code', $instructions);
         $workbook->disconnectWorksheets();
 
         $result = $this->exporter->import_excel($filepath);
@@ -168,8 +173,24 @@ final class ImportExportCompatibilityTest extends TestCase {
         $this->assertSame('شناسه ووکامرس', $sheet->getCell('A1')->getValue());
         $this->assertTrue($sheet->getRightToLeft());
         $this->assertSame(1, $sheet->getHighestDataRow());
+        $last_column = Coordinate::stringFromColumnIndex(count(Digitalogic_Product_Column_Schema::workbook_columns()));
+        $headers = $sheet->rangeToArray('A1:' . $last_column . '1')[0];
+        $this->assertContains('کد کالا', $headers);
+        $this->assertStringNotContainsString('پاتریس', implode('|', $headers));
         $this->assertStringContainsString('Formula policy', $workbook->getSheetByName('Instructions')->getCell('A4')->getValue());
         $workbook->disconnectWorksheets();
+    }
+
+    public function test_product_code_header_targets_the_internal_identity_and_legacy_aliases_remain_accepted(): void {
+        $current = Digitalogic_Product_Column_Schema::resolve_workbook_headers(array('WooCommerce ID', 'Product Code', 'SKU'));
+        $legacy_english = Digitalogic_Product_Column_Schema::resolve_workbook_headers(array('WooCommerce ID', 'Patris Code', 'Name'));
+        $legacy_persian = Digitalogic_Product_Column_Schema::resolve_workbook_headers(array('WooCommerce ID', 'کد کالای پاتریس', 'Name'));
+
+        $this->assertSame('woocommerce_id', $current[0]);
+        $this->assertSame('patris_code', $current[1]);
+        $this->assertSame('sku', $current[2]);
+        $this->assertSame('patris_code', $legacy_english[1]);
+        $this->assertSame('patris_code', $legacy_persian[1]);
     }
 
     public function test_import_matches_reordered_bilingual_and_persian_headers_with_removed_columns(): void {

@@ -820,7 +820,7 @@ class Digitalogic_Import_Export {
         $instructions->fromArray(array(
             array('Digitalogic Product Workbook'),
             array('Edit the Products sheet. Columns may be reordered or removed; import matches recognized headers.'),
-            array('WooCommerce ID and at least one writable column are required. SKU and Patris Code are text.'),
+            array('WooCommerce ID and at least one writable column are required. SKU and Product Code are text.'),
             array('Formula policy: formulas are not trusted or calculated. Any row containing a formula is rejected before writes begin.'),
             array('Read-only context columns (shipping, profit, and warehouse stock) are exported for review and ignored on import.'),
             array('Use the Schema sheet for stable machine keys, English/Persian labels, types, and access.'),

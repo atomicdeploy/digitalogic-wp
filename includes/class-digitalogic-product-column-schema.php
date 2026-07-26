@@ -23,7 +23,7 @@ final class Digitalogic_Product_Column_Schema {
 	public static function catalog_columns( $warehouses = array() ) {
 		$columns = array(
 			self::catalog_column( 'sync_key', 'Sync Key', 'کلید همگام سازی', 'text' ),
-			self::catalog_column( 'patris_code', 'Patris Code', 'کد کالا', 'text' ),
+			self::catalog_column( 'patris_code', 'Product Code', 'کد کالا', 'text' ),
 			self::catalog_column( 'woocommerce_id', 'WooCommerce ID', 'شناسه ووکامرس', 'integer' ),
 			self::catalog_column( 'parent_id', 'Parent ID', 'شناسه والد', 'integer' ),
 			self::catalog_column( 'product_type', 'Product Type', 'نوع محصول', 'text' ),
@@ -92,8 +92,8 @@ final class Digitalogic_Product_Column_Schema {
 		$columns = array(
 			self::workbook_column( 'woocommerce_id', 'WooCommerce ID', 'شناسه ووکامرس', 'integer', false, '', array( 'ID', 'Product ID' ), 16 ),
 			self::workbook_column( 'name', 'Name', 'نام', 'text', true, 'name', array(), 38 ),
-			self::workbook_column( 'sku', 'SKU', 'شناسه کالا', 'text', true, 'sku', array( 'Product Code' ), 20 ),
-			self::workbook_column( 'patris_code', 'Product Code', 'کد کالا', 'text', false, '', array( 'Code', 'Patris Code', 'کد کالای ' . 'پات' . 'ریس' ), 20 ),
+			self::workbook_column( 'sku', 'SKU', 'شناسه کالا', 'text', true, 'sku', array(), 20 ),
+			self::workbook_column( 'patris_code', 'Product Code', 'کد کالا', 'text', false, '', array( 'Code', 'Patris Code', 'کد کالای پاتریس', 'کد پاتریس' ), 20 ),
 			self::workbook_column( 'product_type', 'Product Type', 'نوع محصول', 'text', false, '', array( 'Type' ), 16 ),
 			self::workbook_column( 'publication_status', 'Publication Status', 'وضعیت انتشار', 'text', true, 'status', array( 'Status' ), 18 ),
 			self::workbook_column( 'regular_price', 'Regular Price', 'قیمت عادی', 'number', true, 'regular_price', array(), 18 ),
@@ -110,14 +110,14 @@ final class Digitalogic_Product_Column_Schema {
 			self::workbook_column( 'base_price', 'Base Price', 'قیمت پایه', 'number', true, '_base_price', array(), 16 ),
 			self::workbook_column( 'markup', 'Markup', 'حاشیه سود', 'number', true, '_markup', array(), 14 ),
 			self::workbook_column( 'markup_type', 'Markup Type', 'نوع حاشیه سود', 'text', true, '_markup_type', array(), 18 ),
-			self::workbook_column( 'foreign_currency', 'Source Foreign Currency', 'ارز خارجی منبع', 'text', true, 'patris_foreign_currency', array( 'Foreign Currency', 'ارز خارجی ' . 'پات' . 'ریس' ), 18 ),
-			self::workbook_column( 'foreign_price', 'Source Foreign Price', 'قیمت ارزی منبع', 'number', true, 'patris_foreign_price', array( 'Foreign Price', 'قیمت ارزی ' . 'پات' . 'ریس' ), 18 ),
-			self::workbook_column( 'weight_grams', 'Source Weight (g)', 'وزن منبع (گرم)', 'number', true, 'patris_weight_grams', array( 'Weight (g)', 'وزن ' . 'پات' . 'ریس (گرم)' ), 18 ),
-			self::workbook_column( 'patris_total_stock', 'Source Total Stock', 'موجودی کل منبع', 'number', true, 'patris_total_stock', array( 'Patris Total Stock', 'موجودی کل ' . 'پات' . 'ریس' ), 20 ),
+			self::workbook_column( 'foreign_currency', 'Source Foreign Currency', 'ارز خارجی منبع', 'text', true, 'patris_foreign_currency', array( 'Foreign Currency', 'ارز خارجی پاتریس' ), 18 ),
+			self::workbook_column( 'foreign_price', 'Source Foreign Price', 'قیمت ارزی منبع', 'number', true, 'patris_foreign_price', array( 'Foreign Price', 'قیمت ارزی پاتریس' ), 18 ),
+			self::workbook_column( 'weight_grams', 'Source Weight (g)', 'وزن منبع (گرم)', 'number', true, 'patris_weight_grams', array( 'Weight (g)', 'وزن پاتریس (گرم)' ), 18 ),
+			self::workbook_column( 'patris_total_stock', 'Source Total Stock', 'موجودی کل منبع', 'number', true, 'patris_total_stock', array( 'Patris Total Stock', 'موجودی کل پاتریس' ), 20 ),
 			self::workbook_column( 'patris_minimum_stock', 'Minimum Stock', 'حداقل موجودی', 'number', true, 'patris_minimum_stock', array(), 18 ),
-			self::workbook_column( 'patris_location', 'Source Location', 'موقعیت منبع', 'text', true, 'patris_location', array( 'Patris Location', 'موقعیت ' . 'پات' . 'ریس' ), 18 ),
-			self::workbook_column( 'patris_final_price', 'Source Final Price', 'قیمت نهایی منبع', 'number', true, 'patris_final_price', array( 'Patris Final Price', 'قیمت نهایی ' . 'پات' . 'ریس' ), 20 ),
-			self::workbook_column( 'price_status', 'Source Price Status', 'وضعیت قیمت منبع', 'text', false, '', array( 'Patris Price Status', 'وضعیت قیمت ' . 'پات' . 'ریس' ), 20 ),
+			self::workbook_column( 'patris_location', 'Source Location', 'موقعیت منبع', 'text', true, 'patris_location', array( 'Patris Location', 'موقعیت پاتریس' ), 18 ),
+			self::workbook_column( 'patris_final_price', 'Source Final Price', 'قیمت نهایی منبع', 'number', true, 'patris_final_price', array( 'Patris Final Price', 'قیمت نهایی پاتریس' ), 20 ),
+			self::workbook_column( 'price_status', 'Source Price Status', 'وضعیت قیمت منبع', 'text', false, '', array( 'Patris Price Status', 'وضعیت قیمت پاتریس' ), 20 ),
 			self::workbook_column( 'patris_sale_policy', 'Promotion Policy', 'سیاست تخفیف', 'text', false, '', array(), 18 ),
 		);
 

@@ -107,8 +107,8 @@ msgstr "گزارش‌ها"
 
 #: includes/admin/class-admin.php:139 includes/admin/class-admin.php:140
 #: includes/admin/class-admin.php:262 includes/admin/class-admin.php:265
-msgid "Patris Reports"
-msgstr "گزارش‌های پاتریس"
+msgid "Product Data Reports"
+msgstr "گزارش‌های اطلاعات کالا"
 
 # Status page
 #: includes/admin/class-admin.php:148 includes/admin/class-admin.php:276
@@ -263,12 +263,12 @@ msgid "Toman (10 IRR per unit)"
 msgstr "تومان (۱۰ ریال به‌ازای هر واحد)"
 
 #: includes/admin/class-admin.php:606
-msgid "Ready for the Patris CNY-to-IRT pricing contract."
-msgstr "برای قرارداد قیمت‌گذاری CNY به IRT پاتریس آماده است."
+msgid "Ready for the source CNY-to-IRT pricing contract."
+msgstr "برای قرارداد قیمت‌گذاری منبع از CNY به IRT آماده است."
 
 #: includes/admin/class-admin.php:608
-msgid "Patris produces IRT prices. WooCommerce must use IRT before transformed prices can be applied."
-msgstr "پاتریس قیمت‌ها را با ارز IRT تولید می‌کند. پیش از اعمال قیمت‌های تبدیل‌شده، ارز ووکامرس باید IRT باشد."
+msgid "The source feed produces IRT prices. WooCommerce must use IRT before transformed prices can be applied."
+msgstr "خوراک منبع قیمت‌ها را با ارز IRT تولید می‌کند. پیش از اعمال قیمت‌های تبدیل‌شده، ارز ووکامرس باید IRT باشد."
 
 #: includes/admin/class-admin.php:610
 msgid "Read-only monitoring; Digitalogic never changes this setting automatically."
@@ -341,8 +341,8 @@ msgid "Unknown shipping-method action."
 msgstr "عملیات روش حمل‌ونقل ناشناخته است."
 
 #: includes/admin/class-admin.php:791
-msgid "Patris report settings saved."
-msgstr "تنظیمات گزارش پاتریس ذخیره شد."
+msgid "Product report settings saved."
+msgstr "تنظیمات گزارش کالا ذخیره شد."
 
 #: includes/admin/class-admin.php:833 includes/admin/class-admin.php:917
 msgid "You do not have permission to access this page."
@@ -518,12 +518,12 @@ msgid "WordPress session, WebSocket commands, and AJAX fallback through the Digi
 msgstr "نشست وردپرس، فرمان‌های WebSocket و مسیر جایگزین AJAX از طریق پل پنل دیجیتالاجیک."
 
 #: includes/admin/views/patris-reports.php:24
-msgid "Digitalogic Patris Reports"
-msgstr "گزارش‌های پاتریس دیجیتالاجیک"
+msgid "Digitalogic Product Data Reports"
+msgstr "گزارش‌های اطلاعات کالای دیجیتالاجیک"
 
 #: includes/admin/views/patris-reports.php:25
-msgid "Sparse transformed Patris data is compared against WooCommerce and applied through the living product-sync flow."
-msgstr "داده‌های تبدیل‌شده و کم‌تراکم پاتریس با ووکامرس مقایسه و از طریق جریان جاری همگام‌سازی محصول اعمال می‌شوند."
+msgid "Sparse transformed source data is compared against WooCommerce and applied through the living product-sync flow."
+msgstr "داده‌های تبدیل‌شده و کم‌تراکم منبع با ووکامرس مقایسه و از طریق جریان جاری همگام‌سازی کالا اعمال می‌شوند."
 
 #: includes/admin/views/patris-reports.php:33
 msgid "Integration Settings"
@@ -586,8 +586,8 @@ msgid "Supplier Shipping Methods"
 msgstr "روش‌های حمل‌ونقل تأمین‌کننده"
 
 #: includes/admin/views/patris-reports.php:79
-msgid "Manage how products are shipped from suppliers through Patris. These records do not change WooCommerce customer delivery methods."
-msgstr "نحوه حمل محصولات تأمین‌کنندگان از طریق پاتریس را مدیریت کنید. این رکوردها روش‌های تحویل سفارش به مشتری در ووکامرس را تغییر نمی‌دهند."
+msgid "Manage how products are shipped from suppliers through the source integration. These records do not change WooCommerce customer delivery methods."
+msgstr "نحوه حمل کالاها از تأمین‌کنندگان از طریق یکپارچه‌سازی منبع را مدیریت کنید. این رکوردها روش‌های تحویل سفارش به مشتری در ووکامرس را تغییر نمی‌دهند."
 
 #: includes/admin/views/patris-reports.php:85
 msgid "Pricing catalog currency"
@@ -712,7 +712,7 @@ msgid "Assign a product"
 msgstr "تخصیص روش به محصول"
 
 #: includes/admin/views/patris-reports.php:262
-msgid "Enter one exact Patris Code or WooCommerce SKU. An empty method selection clears the current assignment."
+msgid "Enter one exact Product Code or WooCommerce SKU. An empty method selection clears the current assignment."
 msgstr "یک کد کالای دقیق یا SKU ووکامرس وارد کنید. انتخاب روش خالی، تخصیص فعلی را پاک می‌کند."
 
 #: includes/admin/views/patris-reports.php:268
@@ -978,8 +978,8 @@ msgid "Plugin Path"
 msgstr "مسیر افزونه"
 
 #: includes/admin/views/status.php:189
-msgid "Patris IRT Pricing"
-msgstr "قیمت‌گذاری IRT پاتریس"
+msgid "Source IRT Pricing"
+msgstr "قیمت‌گذاری IRT منبع"
 
 #: includes/admin/views/status.php:195
 msgid "Read-only monitoring; no automatic currency mutation."
@@ -1125,7 +1125,7 @@ msgid "This AJAX action is not available over WebSocket."
 msgstr ""
 
 #: includes/class-digitalogic-google-sheets-catalog.php:134
-msgid "Every catalog product must have a Patris Code or a positive WooCommerce ID."
+msgid "Every catalog product must have a Product Code or a positive WooCommerce ID."
 msgstr "هر محصول فهرست باید کد کالا یا شناسه مثبت ووکامرس داشته باشد."
 
 #: includes/class-digitalogic-google-sheets-catalog.php:262
@@ -1225,36 +1225,36 @@ msgid "%d days ago"
 msgstr ""
 
 #: includes/class-patris-feed.php:165
-msgid "Patris API URL is not configured."
-msgstr ""
+msgid "Source API URL is not configured."
+msgstr "نشانی API منبع پیکربندی نشده است."
 
 #: includes/class-patris-feed.php:184
 #, php-format
-msgid "Patris API returned HTTP %d."
-msgstr ""
+msgid "Source API returned HTTP %d."
+msgstr "API منبع وضعیت HTTP %d را برگرداند."
 
 #: includes/class-patris-feed.php:189
-msgid "Patris API did not return valid JSON."
-msgstr ""
+msgid "Source API did not return valid JSON."
+msgstr "API منبع JSON معتبر برنگرداند."
 
 #: includes/class-patris-feed.php:197
-msgid "Patris payload must be an object."
-msgstr ""
+msgid "Source payload must be an object."
+msgstr "محموله منبع باید یک شیء باشد."
 
 #: includes/class-patris-feed.php:204
-msgid "Patris payload did not contain products or customers."
-msgstr ""
+msgid "Source payload did not contain products or customers."
+msgstr "محموله منبع شامل کالا یا مشتری نبود."
 
 #: includes/class-patris-feed.php:223
 msgid "Skipped product without product_code."
 msgstr ""
 
 #: includes/class-patris-feed.php:242
-msgid "Skipped product because its exact Patris Code is ambiguous."
+msgid "Skipped product because its exact Product Code is ambiguous."
 msgstr "محصول رد شد زیرا کد کالای دقیق آن مبهم است."
 
 #: includes/class-patris-feed.php:243
-msgid "Skipped product because its Patris Code could not be resolved."
+msgid "Skipped product because its Product Code could not be resolved."
 msgstr "محصول رد شد زیرا کد کالای آن قابل تطبیق نبود."
 
 #: includes/class-patris-feed.php:253
@@ -1393,11 +1393,11 @@ msgstr "بسته‌های تخصیص روش حمل‌ونقل به ۵۰۰ ردی
 
 #: includes/class-shipping-method-service.php:713
 #: includes/class-shipping-method-service.php:1202
-msgid "Patris Code is required."
+msgid "Product Code is required."
 msgstr "کد کالا الزامی است."
 
 #: includes/class-shipping-method-service.php:718
-msgid "Duplicate Patris Code in assignment batch."
+msgid "Duplicate Product Code in assignment batch."
 msgstr "کد کالای تکراری در بسته تخصیص وجود دارد."
 
 #: includes/class-shipping-method-service.php:733
@@ -1477,11 +1477,11 @@ msgid "Disabled shipping methods cannot be assigned to new products."
 msgstr "روش‌های حمل‌ونقل غیرفعال را نمی‌توان به محصولات جدید تخصیص داد."
 
 #: includes/class-shipping-method-service.php:1205
-msgid "No product has that exact Patris Code."
+msgid "No product has that exact Product Code."
 msgstr "هیچ محصولی دارای این کد کالای دقیق نیست."
 
 #: includes/class-shipping-method-service.php:1210
-msgid "More than one product has that exact Patris Code; no assignment was changed."
+msgid "More than one product has that exact Product Code; no assignment was changed."
 msgstr "بیش از یک محصول دارای این کد کالای دقیق است؛ هیچ تخصیصی تغییر نکرد."
 
 #: includes/class-shipping-method-service.php:1595
@@ -2216,8 +2216,8 @@ msgid "Current"
 msgstr "به‌روز"
 
 #: includes/admin/views/patris-reports.php
-msgid "Current Patris products"
-msgstr "محصولات فعلی پاتریس"
+msgid "Current source products"
+msgstr "کالاهای فعلی منبع"
 
 #: includes/admin/views/patris-reports.php
 msgid "Current Product Report"
@@ -2248,12 +2248,12 @@ msgid "Foreign currency is not CNY"
 msgstr "ارز خارجی یوان (CNY) نیست"
 
 #: includes/class-report-engine.php
-msgid "In Patris but missing in WooCommerce"
-msgstr "در پاتریس موجود اما در ووکامرس ناموجود"
+msgid "In source but missing in WooCommerce"
+msgstr "در منبع موجود اما در ووکامرس ناموجود"
 
 #: includes/class-report-engine.php
-msgid "In WooCommerce but missing in Patris"
-msgstr "در ووکامرس موجود اما در پاتریس ناموجود"
+msgid "In WooCommerce but missing in source"
+msgstr "در ووکامرس موجود اما در منبع ناموجود"
 
 #: includes/class-report-engine.php
 msgid "Invalid source value"
@@ -2317,12 +2317,12 @@ msgid "Page %1$d of %2$d"
 msgstr "صفحه %1$d از %2$d"
 
 #: includes/admin/views/patris-reports.php
-msgid "Patris"
-msgstr "پاتریس"
+msgid "Source"
+msgstr "منبع"
 
 #: includes/admin/views/patris-reports.php
-msgid "Patris-only products"
-msgstr "محصولات فقط موجود در پاتریس"
+msgid "Source-only products"
+msgstr "کالاهای فقط موجود در منبع"
 
 #: includes/admin/views/patris-reports.php
 msgid "Previous"
@@ -2489,8 +2489,8 @@ msgid "Both source ID and dataset are required; reconciliation findings are with
 msgstr "شناسهٔ منبع و مجموعه‌داده هر دو الزامی‌اند؛ نتایج تطبیق نمایش داده نمی‌شوند."
 
 #: includes/admin/views/patris-reports.php
-msgid "Positive-stock Patris-only products"
-msgstr "کالاهای فقط موجود در پاتریس با موجودی مثبت"
+msgid "Positive-stock source-only products"
+msgstr "کالاهای فقط موجود در منبع با موجودی مثبت"
 
 #: includes/admin/views/patris-reports.php
 msgid "Report state:"
@@ -2499,3 +2499,19 @@ msgstr "وضعیت گزارش:"
 #: includes/admin/views/patris-reports.php
 msgid "The report source is unavailable."
 msgstr "منبع گزارش در دسترس نیست."
+
+#: includes/class-digitalogic-google-sheets-writeback.php
+msgid "The exact Product Code did not resolve to the requested catalog row."
+msgstr "کد کالای دقیق به ردیف درخواستی فهرست کالا منتهی نشد."
+
+#: includes/class-digitalogic-google-sheets-writeback.php
+msgid "A source product sync is in progress. Retry the unchanged request."
+msgstr "همگام‌سازی کالا با منبع در حال اجرا است. درخواست بدون تغییر را دوباره امتحان کنید."
+
+#: includes/class-digitalogic-google-sheets-writeback.php
+msgid "The Product Code resolved to a different product during apply. No fields were written."
+msgstr "کد کالا هنگام اعمال به کالای دیگری منتهی شد. هیچ فیلدی نوشته نشد."
+
+#: includes/class-digitalogic-google-sheets-writeback.php
+msgid "Editable rows require an exact, unique Product Code."
+msgstr "ردیف‌های قابل ویرایش به کد کالای دقیق و یکتا نیاز دارند."

@@ -138,8 +138,8 @@ class Digitalogic_Admin {
 
         $this->page_hooks[] = add_submenu_page(
             'digitalogic',
-            __('Patris Reports', 'digitalogic'),
-            __('Patris Reports', 'digitalogic'),
+            __('Product Data Reports', 'digitalogic'),
+            __('Product Data Reports', 'digitalogic'),
             'manage_woocommerce',
             'digitalogic-patris-reports',
             array($this, 'render_patris_reports_page')
@@ -261,10 +261,10 @@ class Digitalogic_Admin {
         $wp_admin_bar->add_node(array(
             'id'     => 'digitalogic-patris-reports',
             'parent' => 'digitalogic',
-            'title'  => '<span class="dashicons dashicons-chart-bar"></span> ' . __('Patris Reports', 'digitalogic'),
+            'title'  => '<span class="dashicons dashicons-chart-bar"></span> ' . __('Product Data Reports', 'digitalogic'),
             'href'   => admin_url('admin.php?page=digitalogic-patris-reports'),
             'meta'   => array(
-                'title' => __('Patris Reports', 'digitalogic'),
+                'title' => __('Product Data Reports', 'digitalogic'),
             ),
         ));
         
@@ -624,9 +624,9 @@ class Digitalogic_Admin {
                 <?php endif; ?>
             </p>
             <?php if ($compatible) : ?>
-                <p><?php echo esc_html__('Ready for the Patris CNY-to-IRT pricing contract.', 'digitalogic'); ?></p>
+                <p><?php echo esc_html__('Ready for the source CNY-to-IRT pricing contract.', 'digitalogic'); ?></p>
             <?php else : ?>
-                <p><?php echo esc_html__('Patris produces IRT prices. WooCommerce must use IRT before transformed prices can be applied.', 'digitalogic'); ?></p>
+                <p><?php echo esc_html__('The source feed produces IRT prices. WooCommerce must use IRT before transformed prices can be applied.', 'digitalogic'); ?></p>
             <?php endif; ?>
             <p class="description"><?php echo esc_html__('Read-only monitoring; Digitalogic never changes this setting automatically.', 'digitalogic'); ?></p>
             <p><a href="<?php echo esc_url(admin_url('admin.php?page=wc-settings')); ?>"><?php echo esc_html__('Open WooCommerce settings', 'digitalogic'); ?></a></p>
@@ -815,7 +815,7 @@ class Digitalogic_Admin {
                 'selected_warehouses' => $posted_value('selected_warehouses'),
                 'stale_after_hours' => $posted_value('stale_after_hours') !== '' ? absint($posted_value('stale_after_hours')) : 48,
             ));
-            $notice = __('Patris report settings saved.', 'digitalogic');
+            $notice = __('Product report settings saved.', 'digitalogic');
             $notice_type = 'success';
         }
 

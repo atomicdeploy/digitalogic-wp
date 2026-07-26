@@ -162,7 +162,7 @@ class Digitalogic_Patris_Feed {
     public function pull_sync() {
         $settings = $this->get_settings();
         if (empty($settings['api_url'])) {
-            return new WP_Error('digitalogic_patris_missing_url', __('Patris API URL is not configured.', 'digitalogic'));
+            return new WP_Error('digitalogic_patris_missing_url', __('Source API URL is not configured.', 'digitalogic'));
         }
 
         $headers = array('Accept' => 'application/json');
@@ -181,12 +181,12 @@ class Digitalogic_Patris_Feed {
 
         $code = wp_remote_retrieve_response_code($response);
         if ($code < 200 || $code >= 300) {
-            return new WP_Error('digitalogic_patris_http_error', sprintf(__('Patris API returned HTTP %d.', 'digitalogic'), $code));
+            return new WP_Error('digitalogic_patris_http_error', sprintf(__('Source API returned HTTP %d.', 'digitalogic'), $code));
         }
 
         $payload = json_decode(wp_remote_retrieve_body($response), true);
         if (json_last_error() !== JSON_ERROR_NONE || !is_array($payload)) {
-            return new WP_Error('digitalogic_patris_invalid_json', __('Patris API did not return valid JSON.', 'digitalogic'));
+            return new WP_Error('digitalogic_patris_invalid_json', __('Source API did not return valid JSON.', 'digitalogic'));
         }
 
         return $this->import_payload($payload, 'pull');
@@ -194,14 +194,14 @@ class Digitalogic_Patris_Feed {
 
     public function import_payload($payload, $source = 'push') {
         if (!is_array($payload)) {
-            return new WP_Error('digitalogic_patris_invalid_payload', __('Patris payload must be an object.', 'digitalogic'));
+            return new WP_Error('digitalogic_patris_invalid_payload', __('Source payload must be an object.', 'digitalogic'));
         }
 
         $products = $this->extract_list($payload, 'products');
         $customers = $this->extract_list($payload, 'customers');
 
         if (empty($products) && empty($customers)) {
-            return new WP_Error('digitalogic_patris_empty_payload', __('Patris payload did not contain products or customers.', 'digitalogic'));
+            return new WP_Error('digitalogic_patris_empty_payload', __('Source payload did not contain products or customers.', 'digitalogic'));
         }
 
         $normalized_products = array();
@@ -239,8 +239,8 @@ class Digitalogic_Patris_Feed {
                 } else {
                     $results['failed']++;
                     $results['errors'][] = 'digitalogic_product_identifier_ambiguous' === $resolved->get_error_code()
-                        ? __('Skipped product because its exact Patris Code is ambiguous.', 'digitalogic')
-                        : __('Skipped product because its Patris Code could not be resolved.', 'digitalogic');
+                        ? __('Skipped product because its exact Product Code is ambiguous.', 'digitalogic')
+                        : __('Skipped product because its Product Code could not be resolved.', 'digitalogic');
                 }
                 continue;
             }
@@ -275,7 +275,7 @@ class Digitalogic_Patris_Feed {
             null,
             null,
             wp_json_encode($results),
-            'Patris feed synchronized'
+            'Source feed synchronized'
         );
 
         do_action('digitalogic_patris_feed_synced', $results);

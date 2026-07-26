@@ -62,8 +62,8 @@ $report_status_titles = array(
 );
 ?>
 <div class="wrap digitalogic-patris-reports">
-    <h1><?php echo esc_html__('Digitalogic Patris Reports', 'digitalogic'); ?></h1>
-    <p class="description"><?php echo esc_html__('Sparse transformed Patris data is compared against WooCommerce and applied through the living product-sync flow.', 'digitalogic'); ?></p>
+    <h1><?php echo esc_html__('Digitalogic Product Data Reports', 'digitalogic'); ?></h1>
+    <p class="description"><?php echo esc_html__('Sparse transformed source data is compared against WooCommerce and applied through the living product-sync flow.', 'digitalogic'); ?></p>
 
     <?php if (!empty($notice)) : ?>
         <div class="notice notice-<?php echo esc_attr($notice_type); ?> is-dismissible"><p><?php echo esc_html($notice); ?></p></div>
@@ -105,10 +105,10 @@ $report_status_titles = array(
             <h2><?php echo esc_html__('Summary', 'digitalogic'); ?></h2>
             <div class="digitalogic-report-stats">
                 <span><strong><?php echo esc_html(number_format_i18n($report['counts']['woocommerce_products'])); ?></strong><?php echo esc_html__('WooCommerce products', 'digitalogic'); ?></span>
-				<span><strong><?php echo esc_html(number_format_i18n($report['counts']['patris_products'])); ?></strong><?php echo esc_html__('Current Patris products', 'digitalogic'); ?></span>
+				<span><strong><?php echo esc_html(number_format_i18n($report['counts']['patris_products'])); ?></strong><?php echo esc_html__('Current source products', 'digitalogic'); ?></span>
 				<span><strong><?php echo esc_html(number_format_i18n($report['counts']['matched_products'])); ?></strong><?php echo esc_html__('Exact Code matches', 'digitalogic'); ?></span>
-				<span><strong><?php echo esc_html(number_format_i18n($report['counts']['source_only_products'])); ?></strong><?php echo esc_html__('Patris-only products', 'digitalogic'); ?></span>
-				<span><strong><?php echo esc_html(number_format_i18n($report['counts']['positive_source_only_products'])); ?></strong><?php echo esc_html__('Positive-stock Patris-only products', 'digitalogic'); ?></span>
+				<span><strong><?php echo esc_html(number_format_i18n($report['counts']['source_only_products'])); ?></strong><?php echo esc_html__('Source-only products', 'digitalogic'); ?></span>
+				<span><strong><?php echo esc_html(number_format_i18n($report['counts']['positive_source_only_products'])); ?></strong><?php echo esc_html__('Positive-stock source-only products', 'digitalogic'); ?></span>
 				<span><strong><?php echo esc_html(number_format_i18n($report['counts']['woocommerce_only_products'])); ?></strong><?php echo esc_html__('WooCommerce-only products', 'digitalogic'); ?></span>
 				<span><strong><?php echo esc_html(number_format_i18n($report['counts']['drift_products'])); ?></strong><?php echo esc_html__('Products with drift', 'digitalogic'); ?></span>
             </div>
@@ -124,7 +124,7 @@ $report_status_titles = array(
     <section class="digitalogic-section digitalogic-shipping-methods">
 		<h2><?php echo esc_html__('Supplier Shipping Methods', 'digitalogic'); ?></h2>
         <p class="description">
-			<?php echo esc_html__('Manage how products are shipped from suppliers through Patris. These records do not change WooCommerce customer delivery methods.', 'digitalogic'); ?>
+			<?php echo esc_html__('Manage how products are shipped from suppliers through the source integration. These records do not change WooCommerce customer delivery methods.', 'digitalogic'); ?>
         </p>
 
         <div class="digitalogic-currency-status <?php echo $currency_status['compatible'] ? 'is-ready' : 'is-warning'; ?>">
@@ -307,7 +307,7 @@ $report_status_titles = array(
         </form>
 
         <h3><?php echo esc_html__('Assign a product', 'digitalogic'); ?></h3>
-        <p class="description"><?php echo esc_html__('Enter one exact Patris Code or WooCommerce SKU. An empty method selection clears the current assignment.', 'digitalogic'); ?></p>
+        <p class="description"><?php echo esc_html__('Enter one exact Product Code or WooCommerce SKU. An empty method selection clears the current assignment.', 'digitalogic'); ?></p>
         <form method="post">
             <?php wp_nonce_field('digitalogic_shipping_admin'); ?>
             <input type="hidden" name="digitalogic_shipping_action" value="assign_product">
@@ -389,7 +389,7 @@ $report_status_titles = array(
 							<th><?php echo esc_html__('Product Code', 'digitalogic'); ?></th>
 							<th><?php echo esc_html__('State', 'digitalogic'); ?></th>
 							<th><?php echo esc_html__('WooCommerce', 'digitalogic'); ?></th>
-							<th><?php echo esc_html__('Patris', 'digitalogic'); ?></th>
+							<th><?php echo esc_html__('Source', 'digitalogic'); ?></th>
 							<th><?php echo esc_html__('Stock: source / WooCommerce', 'digitalogic'); ?></th>
 							<th><?php echo esc_html__('CNY price', 'digitalogic'); ?></th>
 							<th><?php echo esc_html__('Weight (g)', 'digitalogic'); ?></th>
