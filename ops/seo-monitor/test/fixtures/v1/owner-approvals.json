@@ -1,0 +1,27 @@
+{
+  "schema_version": "1.0",
+  "updated_at": "2026-07-26T09:57:00.000Z",
+  "approvals": [
+    {
+      "fingerprint": "approval-opaque-pending",
+      "status": "pending",
+      "owner": "PRIVATE-OWNER-PENDING"
+    },
+    {
+      "fingerprint": "approval-opaque-approved",
+      "status": "approved",
+      "source_url": "https://private.example/approved"
+    },
+    {
+      "fingerprint": "approval-opaque-rejected",
+      "status": "rejected",
+      "content": "PRIVATE-REJECTION-CONTENT"
+    },
+    {
+      "fingerprint": "approval-opaque-expired",
+      "status": "expired",
+      "routing": "PRIVATE-APPROVAL-ROUTE"
+    }
+  ],
+  "credentials": "PRIVATE-APPROVAL-CREDENTIAL"
+}

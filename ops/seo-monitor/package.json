@@ -1,0 +1,13 @@
+{
+  "name": "digitalogic-seo-monitor-status-declassifier",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Read-only, fixed-path declassifier for Digitalogic SEO monitor operator status.",
+  "scripts": {
+    "check": "node --check bin/digitalogic-seo-monitor-status.cjs && node --check test/status.test.cjs",
+    "test": "node --test test/*.test.cjs"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

@@ -2415,3 +2415,4 @@ require_once dirname(__DIR__) . '/includes/websocket/class-websocket-server.php'
 require_once dirname(__DIR__) . '/includes/admin/class-digitalogic-product-supplier-links-admin.php';
 require_once dirname(__DIR__) . '/includes/cli/class-cli-commands.php';
 require_once dirname(__DIR__) . '/includes/cli/class-digitalogic-product-supplier-links-cli.php';
+require_once dirname(__DIR__) . '/includes/cli/class-digitalogic-seo-monitor-status-cli.php';

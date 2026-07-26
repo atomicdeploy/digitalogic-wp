@@ -1,0 +1,9 @@
+# REVIEW TEMPLATE ONLY. Do not install until the feature PR is merged and approved.
+# Replace __HELPER_SHA256__ with the sha256 digest of the exact installed helper.
+Cmnd_Alias DIGITALOGIC_SEO_MONITOR_STATUS = sha256:__HELPER_SHA256__ /usr/local/libexec/digitalogic-seo-monitor-status ""
+
+Defaults!DIGITALOGIC_SEO_MONITOR_STATUS env_reset
+Defaults!DIGITALOGIC_SEO_MONITOR_STATUS secure_path="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+Defaults!DIGITALOGIC_SEO_MONITOR_STATUS env_delete+="NODE_OPTIONS NODE_PATH"
+
+www-data ALL=(root:root) NOPASSWD:NOEXEC:NOSETENV: DIGITALOGIC_SEO_MONITOR_STATUS

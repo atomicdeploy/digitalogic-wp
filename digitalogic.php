@@ -178,6 +178,7 @@ final class Digitalogic {
         if (defined('WP_CLI') && WP_CLI) {
             require_once DIGITALOGIC_PLUGIN_DIR . 'includes/cli/class-cli-commands.php';
             require_once DIGITALOGIC_PLUGIN_DIR . 'includes/cli/class-digitalogic-product-supplier-links-cli.php';
+            require_once DIGITALOGIC_PLUGIN_DIR . 'includes/cli/class-digitalogic-seo-monitor-status-cli.php';
         }
     }
 

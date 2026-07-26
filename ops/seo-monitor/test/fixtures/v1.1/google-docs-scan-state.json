@@ -1,0 +1,19 @@
+{
+  "schema_version": "1.1",
+  "updated_at": "2026-07-26T09:45:00.000Z",
+  "inventory_complete": true,
+  "google_docs_access_blocked": false,
+  "cursor": null,
+  "documents": [
+    {
+      "fingerprint": "v11-document-opaque-a",
+      "revision_fingerprint": "v11-revision-opaque-a",
+      "changed": false,
+      "tabs_seen": 3,
+      "error": false,
+      "source_url": "https://docs.google.com/private-v11",
+      "collaborators": ["PRIVATE-V11-GOOGLE-COLLABORATOR"]
+    }
+  ],
+  "credential": "PRIVATE-V11-GOOGLE-CREDENTIAL"
+}

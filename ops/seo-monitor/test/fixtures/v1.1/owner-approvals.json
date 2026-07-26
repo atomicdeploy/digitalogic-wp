@@ -1,0 +1,17 @@
+{
+  "schema_version": "1.1",
+  "updated_at": "2026-07-26T09:47:00.000Z",
+  "approvals": [
+    {
+      "fingerprint": "v11-approval-pending-a",
+      "status": "pending",
+      "owner": "PRIVATE-V11-OWNER-A"
+    },
+    {
+      "fingerprint": "v11-approval-pending-b",
+      "status": "pending",
+      "owner": "PRIVATE-V11-OWNER-B"
+    }
+  ],
+  "source_url": "https://private.example/v11-approvals"
+}
