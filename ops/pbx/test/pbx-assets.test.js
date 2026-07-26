@@ -27,17 +27,21 @@ test('TCI caller IDs normalize and strip local 021 before callback prefixing', (
 	const dialplan = read('asterisk/digitalogic-pending-shortcut.conf');
 	const from00989 = '${CALLERID(num):0:5}"="00989';
 	const from0989 = '${CALLERID(num):0:4}"="0989';
+	const from989 = '${CALLERID(num):0:3}"="989';
 	const local021 = '${CALLERID(num):0:3}"="021';
 	const callbackPrefix = 'Set(CALLERID(num)=9${CALLERID(num)})';
 	assert.notEqual(dialplan.indexOf(from00989), -1);
 	assert.notEqual(dialplan.indexOf(from0989), -1);
+	assert.notEqual(dialplan.indexOf(from989), -1);
 	assert.notEqual(dialplan.indexOf(local021), -1);
 	assert.notEqual(dialplan.indexOf(callbackPrefix), -1);
 	assert.ok(dialplan.indexOf(from00989) < dialplan.indexOf(from0989));
-	assert.ok(dialplan.indexOf(from0989) < dialplan.indexOf(local021));
+	assert.ok(dialplan.indexOf(from0989) < dialplan.indexOf(from989));
+	assert.ok(dialplan.indexOf(from989) < dialplan.indexOf(local021));
 	assert.ok(dialplan.indexOf(local021) < dialplan.indexOf(callbackPrefix));
 	assert.match(dialplan, /00989[^\n]+CALLERID\(num\)=09\$\{CALLERID\(num\):5\}/);
 	assert.match(dialplan, /0989[^\n]+CALLERID\(num\)=09\$\{CALLERID\(num\):4\}/);
+	assert.match(dialplan, /989[^\n]+CALLERID\(num\)=09\$\{CALLERID\(num\):3\}/);
 
 	const callbackNumber = (number) => {
 		if (number.startsWith('00989')) {
@@ -46,6 +50,9 @@ test('TCI caller IDs normalize and strip local 021 before callback prefixing', (
 		if (number.startsWith('0989')) {
 			number = `09${number.slice(4)}`;
 		}
+		if (number.startsWith('989')) {
+			number = `09${number.slice(3)}`;
+		}
 		if (number.startsWith('021')) {
 			number = number.slice(3);
 		}
@@ -53,6 +60,7 @@ test('TCI caller IDs normalize and strip local 021 before callback prefixing', (
 	};
 	assert.equal(callbackNumber('0989123456789'), '909123456789');
 	assert.equal(callbackNumber('00989123456789'), '909123456789');
+	assert.equal(callbackNumber('989123456789'), '909123456789');
 	assert.equal(callbackNumber('09123456789'), '909123456789');
 	assert.equal(callbackNumber('02166754123'), '966754123');
 	assert.equal(callbackNumber('02612345678'), '902612345678');
