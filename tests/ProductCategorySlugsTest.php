@@ -17,6 +17,7 @@ final class ProductCategorySlugsTest extends TestCase {
 		parent::setUp();
 		$GLOBALS['digitalogic_test_terms']                 = array();
 		$GLOBALS['digitalogic_test_term_meta']             = array();
+		$GLOBALS['digitalogic_test_term_queries']          = array();
 		$GLOBALS['digitalogic_test_posts']                 = array();
 		$GLOBALS['digitalogic_test_wc_products']           = array();
 		$GLOBALS['digitalogic_test_wc_product_query_args'] = array();
@@ -31,6 +32,19 @@ final class ProductCategorySlugsTest extends TestCase {
 		$this->add_term( 11, 'duplicate-category', '113007', true );
 
 		$this->assertFalse( Digitalogic_Product_Category_Slugs::instance()->find_by_category_code( '113007' ) );
+		$this->assertSame(
+			array(
+				array(
+					'key'     => Digitalogic_Product_Category_Slugs::CATEGORY_CODE_META,
+					'value'   => '113007',
+					'compare' => '=',
+				),
+			),
+			$GLOBALS['digitalogic_test_term_queries'][0]['meta_query']
+		);
+		$this->assertArrayNotHasKey( 'meta_key', $GLOBALS['digitalogic_test_term_queries'][0] );
+		$this->assertSame( 'term_id', $GLOBALS['digitalogic_test_term_queries'][0]['orderby'] );
+		$this->assertSame( 'ASC', $GLOBALS['digitalogic_test_term_queries'][0]['order'] );
 	}
 
 	/** Redirects require an exact recorded slug and a managed neutral owner. */
@@ -54,6 +68,13 @@ final class ProductCategorySlugsTest extends TestCase {
 
 		$this->add_term( 21, 'product-category-113008', '113008', false );
 		$this->assertSame( '', $service->resolve_legacy_category_redirect( 'patris-113008' ) );
+		$this->assertSame(
+			Digitalogic_Product_Category_Slugs::CATEGORY_MANAGED_META,
+			$GLOBALS['digitalogic_test_term_queries'][0]['meta_query'][0]['key']
+		);
+		$this->assertArrayNotHasKey( 'meta_key', $GLOBALS['digitalogic_test_term_queries'][0] );
+		$this->assertSame( 'term_id', $GLOBALS['digitalogic_test_term_queries'][0]['orderby'] );
+		$this->assertSame( 'ASC', $GLOBALS['digitalogic_test_term_queries'][0]['order'] );
 	}
 
 	/** Homepage source category selection follows category-code metadata. */

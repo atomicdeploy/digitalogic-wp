@@ -116,9 +116,10 @@ final class Digitalogic_Product_Category_Slugs {
 			array(
 				'taxonomy'   => 'product_cat',
 				'hide_empty' => false,
-				'meta_key'   => self::CATEGORY_CODE_META, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key
-				'meta_value' => $category_code, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_value
+				'meta_query' => self::exact_meta_query( self::CATEGORY_CODE_META, $category_code ), // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query
 				'number'     => 2,
+				'orderby'    => 'term_id',
+				'order'      => 'ASC',
 			)
 		);
 
@@ -145,8 +146,9 @@ final class Digitalogic_Product_Category_Slugs {
 			array(
 				'taxonomy'   => 'product_cat',
 				'hide_empty' => false,
-				'meta_key'   => self::CATEGORY_MANAGED_META, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key
-				'meta_value' => '1', // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_value
+				'meta_query' => self::exact_meta_query( self::CATEGORY_MANAGED_META, '1' ), // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query
+				'orderby'    => 'term_id',
+				'order'      => 'ASC',
 			)
 		);
 		if ( is_wp_error( $managed_terms ) ) {
@@ -235,5 +237,26 @@ final class Digitalogic_Product_Category_Slugs {
 		sort( $slugs, SORT_STRING );
 
 		return $slugs;
+	}
+
+	/**
+	 * Build one explicit equality clause for a term-meta query.
+	 *
+	 * WordPress accepts top-level meta_key/meta_value arguments for many query
+	 * classes, but the live term-query stack does not preserve that shorthand.
+	 * An explicit clause remains portable and keeps both lookups fail-closed.
+	 *
+	 * @param string $key Term meta key.
+	 * @param string $value Exact term meta value.
+	 * @return array
+	 */
+	private static function exact_meta_query( $key, $value ) {
+		return array(
+			array(
+				'key'     => (string) $key,
+				'value'   => (string) $value,
+				'compare' => '=',
+			),
+		);
 	}
 }
