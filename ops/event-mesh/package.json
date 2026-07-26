@@ -1,0 +1,13 @@
+{
+  "name": "digitalogic-event-mesh-operations",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Secret-free n8n and RouterOS event-mesh deployment assets",
+  "scripts": {
+    "check": "node --check n8n/route-event.code.js && node --check n8n/build-caller-notification.code.js && node --check n8n/filter-parent-audit.code.js && node --check scripts/render-n8n-workflow.cjs && node --check scripts/patch-office-workflow.cjs && node --check scripts/render-routeros-script.cjs",
+    "test": "node --test test/*.test.cjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

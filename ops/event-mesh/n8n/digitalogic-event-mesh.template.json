@@ -1,0 +1,201 @@
+{
+  "id": "__EVENT_MESH_WORKFLOW_ID__",
+  "name": "Digitalogic - Event Mesh Presence and Caller Context",
+  "description": "Secret-free source template. Receives raw, already-confirmed office events from the parent workflow; maps RouterOS evidence and confirmed inbound PBX calls into the Digitalogic node.",
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "event-mesh-trigger",
+      "name": "Called by Office Event Workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "__ROUTE_EVENT_CODE__"
+      },
+      "id": "route-event",
+      "name": "Route Presence or Confirmed Caller",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [260, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "presence-route-condition",
+              "leftValue": "={{$json.route}}",
+              "rightValue": "presence",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "is-presence-event",
+      "name": "Is Presence Evidence?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [520, -80]
+    },
+    {
+      "parameters": {
+        "operation": "presenceEvidence",
+        "operatorKey": "",
+        "deviceId": "",
+        "routerSubject": "={{$json.router_subject}}",
+        "source": "={{$json.source}}",
+        "state": "={{$json.state}}",
+        "observedAt": "={{$json.observed_at}}",
+        "metadata": "={{JSON.stringify($json.metadata || {})}}"
+      },
+      "id": "record-router-presence",
+      "name": "Record RouterOS Presence Evidence",
+      "type": "__DIGITALOGIC_NODE_TYPE__",
+      "typeVersion": 1,
+      "position": [790, -190],
+      "credentials": {
+        "digitalogicApi": {
+          "id": "__DIGITALOGIC_CREDENTIAL_ID__",
+          "name": "__DIGITALOGIC_CREDENTIAL_NAME__"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "caller-route-condition",
+              "leftValue": "={{$json.route}}",
+              "rightValue": "caller",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "is-confirmed-caller",
+      "name": "Is Confirmed Inbound Caller?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [790, 80]
+    },
+    {
+      "parameters": {
+        "operation": "callerContext",
+        "phone": "={{$json.phone}}",
+        "includeCallHistory": true
+      },
+      "id": "resolve-caller-context",
+      "name": "Resolve Caller and Asterisk History",
+      "type": "__DIGITALOGIC_NODE_TYPE__",
+      "typeVersion": 1,
+      "position": [1050, 20],
+      "credentials": {
+        "digitalogicApi": {
+          "id": "__DIGITALOGIC_CREDENTIAL_ID__",
+          "name": "__DIGITALOGIC_CREDENTIAL_NAME__"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "__BUILD_CALLER_NOTIFICATION_CODE__"
+      },
+      "id": "build-caller-notification",
+      "name": "Build Caller Notification",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1300, 20]
+    },
+    {
+      "parameters": {
+        "operation": "notify",
+        "title": "={{$json.notification_title}}",
+        "message": "={{$json.notification_message}}",
+        "level": "info",
+        "audience": __CALLER_NOTIFICATION_AUDIENCE_JSON__,
+        "actions": "[{\"id\":\"handled\",\"label\":\"Handled\",\"style\":\"primary\"},{\"id\":\"callback\",\"label\":\"Call back\",\"style\":\"default\"},{\"id\":\"dismiss\",\"label\":\"Dismiss\",\"style\":\"default\"}]",
+        "fields": "[{\"id\":\"next_step\",\"label\":\"Next step\",\"type\":\"select\",\"required\":false,\"options\":[{\"value\":\"handled\",\"label\":\"Handled\"},{\"value\":\"callback\",\"label\":\"Call back\"},{\"value\":\"lead\",\"label\":\"New lead\"},{\"value\":\"not_customer\",\"label\":\"Not a customer\"}]},{\"id\":\"note\",\"label\":\"Note\",\"type\":\"text\",\"required\":false}]",
+        "correlationId": "={{$json.notification_correlation_id}}"
+      },
+      "id": "send-caller-notification",
+      "name": "Send Actionable Caller Notification",
+      "type": "__DIGITALOGIC_NODE_TYPE__",
+      "typeVersion": 1,
+      "position": [1550, 20],
+      "credentials": {
+        "digitalogicApi": {
+          "id": "__DIGITALOGIC_CREDENTIAL_ID__",
+          "name": "__DIGITALOGIC_CREDENTIAL_NAME__"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Called by Office Event Workflow": {
+      "main": [[{"node": "Route Presence or Confirmed Caller", "type": "main", "index": 0}]]
+    },
+    "Route Presence or Confirmed Caller": {
+      "main": [[{"node": "Is Presence Evidence?", "type": "main", "index": 0}]]
+    },
+    "Is Presence Evidence?": {
+      "main": [
+        [{"node": "Record RouterOS Presence Evidence", "type": "main", "index": 0}],
+        [{"node": "Is Confirmed Inbound Caller?", "type": "main", "index": 0}]
+      ]
+    },
+    "Is Confirmed Inbound Caller?": {
+      "main": [
+        [{"node": "Resolve Caller and Asterisk History", "type": "main", "index": 0}],
+        []
+      ]
+    },
+    "Resolve Caller and Asterisk History": {
+      "main": [[{"node": "Build Caller Notification", "type": "main", "index": 0}]]
+    },
+    "Build Caller Notification": {
+      "main": [[{"node": "Send Actionable Caller Notification", "type": "main", "index": 0}]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "saveDataSuccessExecution": "none",
+    "saveDataErrorExecution": "none",
+    "executionTimeout": 60
+  },
+  "staticData": null,
+  "pinData": {},
+  "tags": []
+}

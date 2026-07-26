@@ -1,0 +1,35 @@
+{
+  "name": "n8n-nodes-digitalogic",
+  "version": "0.1.0",
+  "description": "Digitalogic event mesh operations for n8n",
+  "license": "GPL-2.0-or-later",
+  "author": "Digitalogic",
+  "keywords": [
+    "n8n-community-node-package",
+    "digitalogic",
+    "presence",
+    "notifications",
+    "crm"
+  ],
+  "main": "index.js",
+  "files": [
+    "index.js",
+    "dist/**/*",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node --test"
+  },
+  "n8n": {
+    "n8nNodesApiVersion": 1,
+    "credentials": [
+      "dist/credentials/DigitalogicApi.credentials.js"
+    ],
+    "nodes": [
+      "dist/nodes/Digitalogic/Digitalogic.node.js"
+    ]
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

@@ -24,6 +24,7 @@ if (!defined('ABSPATH')) {
 // Define plugin constants
 define( 'DIGITALOGIC_VERSION', '1.7.4' );
 define( 'DIGITALOGIC_PBX_SCHEMA_VERSION', '3' );
+define( 'DIGITALOGIC_EVENT_MESH_SCHEMA_VERSION', '1' );
 define('DIGITALOGIC_MIN_PHP_VERSION', '8.3');
 define('DIGITALOGIC_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('DIGITALOGIC_PLUGIN_URL', plugin_dir_url(__FILE__));
@@ -153,6 +154,7 @@ final class Digitalogic {
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-auth-page.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-digitalogic-sidebar-login.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-desktop-app.php';
+        require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-digitalogic-event-mesh.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-frontend-search.php';
 		require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-pbx-phone.php';
 		require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-call-verification.php';
@@ -211,6 +213,9 @@ final class Digitalogic {
 		if ( DIGITALOGIC_PBX_SCHEMA_VERSION !== (string) get_option( 'digitalogic_pbx_schema_version', '' ) ) {
 			$this->install_pbx_schema();
 		}
+		if ( DIGITALOGIC_EVENT_MESH_SCHEMA_VERSION !== (string) get_option( 'digitalogic_event_mesh_schema_version', '' ) ) {
+			Digitalogic_Event_Mesh::install();
+		}
 
         // Initialize components
         Digitalogic_Options::instance();
@@ -232,6 +237,7 @@ final class Digitalogic {
         Digitalogic_WebSocket::instance();
         Digitalogic_Laravel_Bridge::instance();
         Digitalogic_Panel::instance();
+        Digitalogic_Event_Mesh::instance();
         Digitalogic_Comment_Guard::instance();
         Digitalogic_Product_Resources::instance();
         Digitalogic_Storefront_Catalog::instance();
@@ -311,6 +317,7 @@ final class Digitalogic {
 		// Create database tables
 		$this->create_tables();
 		$this->install_pbx_schema();
+		Digitalogic_Event_Mesh::install();
 
         // Set default options
         $this->set_default_options();

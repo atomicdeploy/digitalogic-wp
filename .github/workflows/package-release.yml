@@ -52,12 +52,16 @@ jobs:
         run: |
           node --check assets/js/product-query.js
           node --check assets/js/panel-app.js
+          node --check assets/js/desktop-app.js
           node --check assets/js/currency-postboxes.js
           node --check assets/js/branding/admin-branding.js
           node --check assets/js/sidebar-login.js
           node --test tests/product-query.test.js
           node --test tests/admin-branding-auth-nav.test.js
           node --test tests/sidebar-login-style.test.js
+          npm --prefix ops/event-mesh run check
+          npm --prefix ops/event-mesh test
+          npm --prefix ops/n8n-nodes-digitalogic test
           npm --prefix ops/seo-monitor run check
           npm --prefix ops/seo-monitor test
           sudoers_candidate="$(mktemp /tmp/digitalogic-seo-monitor-sudoers.XXXXXX)"

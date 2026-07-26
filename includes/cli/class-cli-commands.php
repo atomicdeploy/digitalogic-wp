@@ -1123,6 +1123,142 @@ class Digitalogic_CLI_Commands {
     }
 
 	/**
+	 * Set the n8n event-mesh service key from a root-readable file.
+	 *
+	 * The secret is never printed. The file must contain only the key.
+	 *
+	 * ## OPTIONS
+	 *
+	 * --file=<path>
+	 * : Path to the service-key file.
+	 *
+	 * @when after_wp_load
+	 */
+	public function event_mesh_service_key_set( $args, $assoc_args ) {
+		$file = isset( $assoc_args['file'] ) ? realpath( (string) $assoc_args['file'] ) : false;
+		if ( false === $file || ! is_file( $file ) || ! is_readable( $file ) ) {
+			WP_CLI::error( 'A readable service-key file is required.' );
+			return;
+		}
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Reads a reviewed local CLI input.
+		$secret = trim( (string) file_get_contents( $file ) );
+		if ( ! Digitalogic_Event_Mesh::set_service_key( $secret ) ) {
+			WP_CLI::error( 'The service key must contain 32 to 256 characters.' );
+			return;
+		}
+		WP_CLI::success( 'The Digitalogic event-mesh service key hash was stored.' );
+	}
+
+	/**
+	 * Import private RouterOS-subject mappings without printing the identities.
+	 *
+	 * ## OPTIONS
+	 *
+	 * --file=<path>
+	 * : JSON array of objects with subject and operator_key fields.
+	 *
+	 * @when after_wp_load
+	 */
+	public function event_mesh_router_map( $args, $assoc_args ) {
+		$file = isset( $assoc_args['file'] ) ? realpath( (string) $assoc_args['file'] ) : false;
+		if ( false === $file || ! is_file( $file ) || ! is_readable( $file ) ) {
+			WP_CLI::error( 'A readable RouterOS mapping file is required.' );
+			return;
+		}
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Reads a reviewed local CLI input.
+		$rows = json_decode( (string) file_get_contents( $file ), true );
+		if ( ! is_array( $rows ) ) {
+			WP_CLI::error( 'The RouterOS mapping file must contain a JSON array.' );
+			return;
+		}
+		$count = 0;
+		foreach ( array_slice( $rows, 0, 100 ) as $row ) {
+			if (
+				is_array( $row )
+				&& Digitalogic_Event_Mesh::set_router_subject(
+					(string) ( $row['subject'] ?? '' ),
+					(string) ( $row['operator_key'] ?? '' )
+				)
+			) {
+				++$count;
+			}
+		}
+		if ( $count < 1 ) {
+			WP_CLI::error( 'No valid RouterOS mappings were imported.' );
+			return;
+		}
+		WP_CLI::success( sprintf( 'Imported %d private RouterOS subject mapping(s).', $count ) );
+	}
+
+	/**
+	 * Import private WordPress-user-to-operator assignments.
+	 *
+	 * ## OPTIONS
+	 *
+	 * --file=<path>
+	 * : JSON array of objects with user_id and operator_key fields.
+	 *
+	 * @when after_wp_load
+	 */
+	public function event_mesh_operator_map( $args, $assoc_args ) {
+		$file = isset( $assoc_args['file'] ) ? realpath( (string) $assoc_args['file'] ) : false;
+		if ( false === $file || ! is_file( $file ) || ! is_readable( $file ) ) {
+			WP_CLI::error( 'A readable operator mapping file is required.' );
+			return;
+		}
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Reads a reviewed local CLI input.
+		$rows = json_decode( (string) file_get_contents( $file ), true );
+		if ( ! is_array( $rows ) ) {
+			WP_CLI::error( 'The operator mapping file must contain a JSON array.' );
+			return;
+		}
+		$count = 0;
+		foreach ( array_slice( $rows, 0, 100 ) as $row ) {
+			if (
+				is_array( $row )
+				&& Digitalogic_Event_Mesh::set_operator_user(
+					absint( $row['user_id'] ?? 0 ),
+					(string) ( $row['operator_key'] ?? '' )
+				)
+			) {
+				++$count;
+			}
+		}
+		if ( $count < 1 ) {
+			WP_CLI::error( 'No valid operator mappings were imported.' );
+			return;
+		}
+		WP_CLI::success( sprintf( 'Imported %d private operator mapping(s).', $count ) );
+	}
+
+	/**
+	 * Queue one targeted actionable notification from a reviewed JSON file.
+	 *
+	 * ## OPTIONS
+	 *
+	 * --file=<path>
+	 * : JSON notification file.
+	 *
+	 * @when after_wp_load
+	 */
+	public function event_mesh_notify( $args, $assoc_args ) {
+		$file = isset( $assoc_args['file'] ) ? realpath( (string) $assoc_args['file'] ) : false;
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Reads a reviewed local CLI input.
+		$payload      = false !== $file && is_readable( $file ) ? json_decode( (string) file_get_contents( $file ), true ) : null;
+		$notification = Digitalogic_Event_Mesh::sanitize_notification( $payload );
+		if ( is_wp_error( $notification ) ) {
+			WP_CLI::error( $notification->get_error_message() );
+			return;
+		}
+		$result = Digitalogic_Panel::record_event_result( 'workstation.notification', $notification );
+		if ( is_wp_error( $result ) ) {
+			WP_CLI::error( $result->get_error_message() );
+			return;
+		}
+		WP_CLI::success( 'Targeted workstation notification queued.' );
+	}
+
+	/**
 	 * Read exact import-pricing assignments for a bounded Code list.
 	 *
 	 * ## OPTIONS
@@ -1639,6 +1775,10 @@ WP_CLI::add_command('digitalogic patris token', array('Digitalogic_CLI_Commands'
 WP_CLI::add_command('digitalogic websocket serve', array('Digitalogic_CLI_Commands', 'websocket_serve'));
 WP_CLI::add_command('digitalogic websocket token', array('Digitalogic_CLI_Commands', 'websocket_token'));
 WP_CLI::add_command('digitalogic panel broadcast', array('Digitalogic_CLI_Commands', 'panel_broadcast'));
+WP_CLI::add_command('digitalogic event-mesh service-key set', array('Digitalogic_CLI_Commands', 'event_mesh_service_key_set'));
+WP_CLI::add_command('digitalogic event-mesh router-map import', array('Digitalogic_CLI_Commands', 'event_mesh_router_map'));
+WP_CLI::add_command('digitalogic event-mesh operator-map import', array('Digitalogic_CLI_Commands', 'event_mesh_operator_map'));
+WP_CLI::add_command('digitalogic event-mesh notify', array('Digitalogic_CLI_Commands', 'event_mesh_notify'));
 WP_CLI::add_command(
 	'digitalogic pricing assignments',
 	array( 'Digitalogic_CLI_Commands', 'pricing_assignments' )
