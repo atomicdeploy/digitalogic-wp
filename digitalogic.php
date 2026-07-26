@@ -156,6 +156,7 @@ final class Digitalogic {
 		require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-call-verification.php';
 		require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-voice-notifications.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-product-identity.php';
+        require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-digitalogic-product-resources.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-storefront-catalog.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-homepage-showcase.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-storefront-product-table.php';
@@ -228,6 +229,7 @@ final class Digitalogic {
         Digitalogic_Laravel_Bridge::instance();
         Digitalogic_Panel::instance();
         Digitalogic_Comment_Guard::instance();
+        Digitalogic_Product_Resources::instance();
         Digitalogic_Storefront_Catalog::instance();
         Digitalogic_Homepage_Showcase::instance();
         Digitalogic_Storefront_Product_Table::instance();
