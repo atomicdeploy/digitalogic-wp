@@ -14,6 +14,19 @@ Product commands accept exactly one selector:
 SKUs are never converted to integers, so values such as `001230` remain exact.
 Duplicate SKUs fail with an ambiguity error rather than selecting one record.
 
+## List products
+
+```bash
+wp digitalogic products list --limit=20 --format=table
+wp digitalogic products list --limit=-1 --format=json
+```
+
+The source-neutral `Product Code` field is the exact
+`_digitalogic_patris_product_code` integration identifier. `SKU` is the
+separate WooCommerce SKU. Both remain exact strings, including leading zeroes.
+When only SKU exists, `Product Code` stays empty: product-sync reconciliation
+never falls back to SKU.
+
 ## Read one product
 
 ```bash
