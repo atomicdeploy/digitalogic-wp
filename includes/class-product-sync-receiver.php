@@ -1608,6 +1608,30 @@ class Digitalogic_Product_Sync_Receiver {
      * @return array
      */
     private function drain_delivery_products(&$source_state, $include_pending, $include_deferred) {
+        return Digitalogic_Webhooks::instance()->without_product_change_webhooks(
+            function () use (&$source_state, $include_pending, $include_deferred) {
+                return $this->drain_delivery_products_without_product_change_webhooks(
+                    $source_state,
+                    $include_pending,
+                    $include_deferred
+                );
+            }
+        );
+    }
+
+    /**
+     * Drain the durable delivery sets inside the receiver's webhook guard.
+     *
+     * @param array $source_state Source state, updated in place.
+     * @param bool  $include_pending Retry transient work.
+     * @param bool  $include_deferred Retry terminal reconciliation work.
+     * @return array
+     */
+    private function drain_delivery_products_without_product_change_webhooks(
+        &$source_state,
+        $include_pending,
+        $include_deferred
+    ) {
         $result = array(
             'attempted' => 0,
             'updated' => 0,
