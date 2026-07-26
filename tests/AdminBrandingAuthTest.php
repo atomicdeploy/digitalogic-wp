@@ -9,7 +9,7 @@ if (!defined('DIGITALOGIC_PLUGIN_URL')) {
 
 if (!function_exists('is_user_logged_in')) {
     function is_user_logged_in() {
-        return false;
+        return !empty($GLOBALS['digitalogic_test_is_user_logged_in']);
     }
 }
 
@@ -74,7 +74,9 @@ require_once dirname(__DIR__) . '/includes/integrations/class-auth-page.php';
 
 final class AdminBrandingAuthTest extends TestCase {
     protected function setUp(): void {
-        $GLOBALS['digitalogic_test_locale'] = 'en_US';
+        $GLOBALS['digitalogic_test_locale']            = 'en_US';
+        $GLOBALS['digitalogic_test_is_user_logged_in'] = false;
+        $GLOBALS['digitalogic_test_current_user_id']    = 0;
         unset(
             $GLOBALS['digitalogic_test_filters']['login_display_language_dropdown'],
             $GLOBALS['digitalogic_test_login_footer_input'],

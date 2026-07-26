@@ -16,7 +16,7 @@ if ( ! defined( 'DIGITALOGIC_VERSION' ) ) {
 
 if ( ! function_exists( 'is_admin' ) ) {
 	function is_admin() {
-		return false;
+		return ! empty( $GLOBALS['digitalogic_test_is_admin'] );
 	}
 }
 
