@@ -1380,6 +1380,7 @@ final class Digitalogic_Shipping_Method_Service {
 		$markup     = $this->build_exact_markup_contract( $resolved['product_id'], $default_markup );
 
 		$projection = array(
+			'code'                  => $requested_code,
 			'profit_percent_source' => null === $markup['source'] ? 'unavailable' : (string) $markup['source'],
 			'pricing_warnings'      => $markup['warning'] ? array( $markup['warning'] ) : array(),
 		);

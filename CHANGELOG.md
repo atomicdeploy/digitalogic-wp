@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Added the exact Product Code to every successful batch pricing-assignment
+  projection so strict Patris consumers can validate nested assignment identity
+  without an SKU or alternate-identity fallback.
+
 ## [1.7.1] - 2026-07-26
 
 ### Fixed

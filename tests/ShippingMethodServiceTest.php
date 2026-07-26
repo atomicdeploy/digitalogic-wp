@@ -120,13 +120,57 @@ final class ShippingMethodServiceTest extends TestCase {
         );
         $assignment = $batch['results'][0]['assignment'];
         $this->assertSame(
-            array('profit_percent_source', 'pricing_warnings', 'shipping_method_id'),
+            array('code', 'profit_percent_source', 'pricing_warnings', 'shipping_method_id'),
             array_keys($assignment)
         );
+        $this->assertSame($batch['results'][0]['code'], $assignment['code']);
+        $this->assertSame('CODE-501', $assignment['code']);
         $this->assertSame('air_express', $assignment['shipping_method_id']);
         $this->assertArrayNotHasKey('profit_percent', $assignment);
         $this->assertStringNotContainsString('null', json_encode($batch));
     }
+
+	public function test_batch_assignment_code_is_exact_ordered_and_never_falls_back_to_sku(): void {
+		$GLOBALS['digitalogic_test_posts'][503] = array(
+			'post_type'   => 'product',
+			'post_status' => 'publish',
+			'meta'        => array(
+				'_digitalogic_patris_product_code' => 'EXACT-503',
+				'_digitalogic_shipping_method_id'  => 'air_express',
+				'_sku'                             => 'SKU-503',
+			),
+		);
+		$GLOBALS['digitalogic_test_posts'][504] = array(
+			'post_type'   => 'product',
+			'post_status' => 'publish',
+			'meta'        => array(
+				'_digitalogic_patris_product_code' => 'EXACT-504',
+				'_digitalogic_shipping_method_id'  => 'sea_freight',
+			),
+		);
+
+		$batch = $this->service->get_product_assignments_by_codes(
+			array( ' EXACT-504 ', 'EXACT-503', 'SKU-503' )
+		);
+
+		$this->assertSame( 3, $batch['requested_count'] );
+		$this->assertSame( 2, $batch['resolved_count'] );
+		$this->assertSame( 1, $batch['error_count'] );
+		$this->assertSame( array( 'EXACT-504', 'EXACT-503', 'SKU-503' ), array_column( $batch['results'], 'code' ) );
+
+		foreach ( array_slice( $batch['results'], 0, 2 ) as $result ) {
+			$this->assertSame( 'ok', $result['status'] );
+			$this->assertSame( $result['code'], $result['assignment']['code'] );
+			$this->assertSame(
+				array( 'code', 'profit_percent_source', 'pricing_warnings', 'shipping_method_id' ),
+				array_keys( $result['assignment'] )
+			);
+		}
+
+		$this->assertSame( 'error', $batch['results'][2]['status'] );
+		$this->assertSame( 'digitalogic_product_code_not_found', $batch['results'][2]['error']['code'] );
+		$this->assertArrayNotHasKey( 'assignment', $batch['results'][2] );
+	}
 
 	public function test_shipping_compare_and_assign_is_transactional_and_conflict_safe(): void {
 		$GLOBALS['digitalogic_test_posts'][502] = array(
