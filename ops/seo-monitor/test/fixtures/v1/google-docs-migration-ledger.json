@@ -1,0 +1,46 @@
+{
+  "schema_version": "1.0",
+  "updated_at": "2026-07-26T09:54:00.000Z",
+  "entries": [
+    {
+      "fingerprint": "ledger-opaque-discovered",
+      "status": "discovered",
+      "document_id": "PRIVATE-LEDGER-DOC-ID"
+    },
+    {
+      "fingerprint": "ledger-opaque-not-content",
+      "status": "not_product_content",
+      "content": "PRIVATE-NOT-PRODUCT-CONTENT"
+    },
+    {
+      "fingerprint": "ledger-opaque-needs-mapping",
+      "status": "needs_mapping",
+      "source_url": "https://private.example/mapping"
+    },
+    {
+      "fingerprint": "ledger-opaque-staged",
+      "status": "staged_conflict",
+      "collaborator": "PRIVATE-LEDGER-COLLABORATOR"
+    },
+    {
+      "fingerprint": "ledger-opaque-applied",
+      "status": "applied_verified",
+      "product": "PRIVATE-PRODUCT"
+    },
+    {
+      "fingerprint": "ledger-opaque-retryable",
+      "status": "failed_retryable",
+      "credential": "PRIVATE-LEDGER-CREDENTIAL"
+    },
+    {
+      "fingerprint": "ledger-opaque-blocked",
+      "status": "blocked",
+      "routing": "PRIVATE-LEDGER-ROUTE"
+    },
+    {
+      "fingerprint": "ledger-opaque-other",
+      "status": "archived",
+      "raw": "PRIVATE-LEDGER-RAW"
+    }
+  ]
+}

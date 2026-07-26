@@ -1,0 +1,28 @@
+{
+  "schema_version": "1.0",
+  "updated_at": "2026-07-26T09:55:00.000Z",
+  "inventory_complete": false,
+  "google_docs_access_blocked": true,
+  "cursor": "PRIVATE-GOOGLE-CURSOR",
+  "documents": [
+    {
+      "fingerprint": "document-opaque-a",
+      "revision_fingerprint": "revision-opaque-a",
+      "changed": true,
+      "tabs_seen": 2,
+      "error": false,
+      "document_id": "PRIVATE-GOOGLE-DOC-ID",
+      "source_url": "https://docs.google.com/private-a",
+      "collaborators": ["PRIVATE-GOOGLE-COLLABORATOR"]
+    },
+    {
+      "fingerprint": "document-opaque-b",
+      "revision_fingerprint": "revision-opaque-b",
+      "changed": false,
+      "tabs_seen": 1,
+      "error": true,
+      "content": "PRIVATE-GOOGLE-DOC-CONTENT"
+    }
+  ],
+  "credential": "PRIVATE-GOOGLE-CREDENTIAL"
+}

@@ -99,6 +99,14 @@ jobs:
         npm --prefix ops/office-automation test
         bash -n ops/office-automation/scripts/deploy.sh
         bash -n ops/office-automation/scripts/rollback.sh
+        npm --prefix ops/seo-monitor run check
+        npm --prefix ops/seo-monitor test
+        sudoers_candidate="$(mktemp /tmp/digitalogic-seo-monitor-sudoers.XXXXXX)"
+        helper_digest="$(printf '0%.0s' {1..64})"
+        sed "s/__HELPER_SHA256__/$helper_digest/" \
+          ops/seo-monitor/sudoers.d/digitalogic-seo-monitor-status \
+          > "$sudoers_candidate"
+        /usr/sbin/visudo -cf "$sudoers_candidate"
 
     - name: Reject non-synthetic mobile fixtures
       run: |

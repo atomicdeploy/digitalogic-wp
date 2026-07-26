@@ -1,0 +1,43 @@
+{
+  "schema_version": "1.0",
+  "updated_at": "2026-07-26T09:56:00.000Z",
+  "decisions": [
+    {
+      "fingerprint": "decision-opaque-critical",
+      "severity": "critical",
+      "status": "pending",
+      "current": "PRIVATE-CURRENT-CRITICAL",
+      "recommended_reply": "PRIVATE-REPLY-CRITICAL",
+      "blocked_workflows": ["PRIVATE-WORKFLOW-CRITICAL"],
+      "title": "PRIVATE-DECISION-TITLE"
+    },
+    {
+      "fingerprint": "decision-opaque-significant",
+      "severity": "significant",
+      "status": "pending_owner_approval",
+      "current": "PRIVATE-CURRENT-SIGNIFICANT",
+      "recommended_reply": "PRIVATE-REPLY-SIGNIFICANT",
+      "blocked_workflows": ["PRIVATE-WORKFLOW-SIGNIFICANT"],
+      "source_url": "https://private.example/decision"
+    },
+    {
+      "fingerprint": "decision-opaque-tracked",
+      "severity": "tracked",
+      "status": "blocked",
+      "current": "PRIVATE-CURRENT-TRACKED",
+      "recommended_reply": "PRIVATE-REPLY-TRACKED",
+      "blocked_workflows": ["PRIVATE-WORKFLOW-TRACKED"],
+      "collaborator": "PRIVATE-DECISION-COLLABORATOR"
+    },
+    {
+      "fingerprint": "decision-opaque-other",
+      "severity": "advisory",
+      "status": "open",
+      "current": "PRIVATE-CURRENT-OTHER",
+      "recommended_reply": "PRIVATE-REPLY-OTHER",
+      "blocked_workflows": ["PRIVATE-WORKFLOW-OTHER"],
+      "notification_route": "PRIVATE-DECISION-ROUTE"
+    }
+  ],
+  "raw_content": "PRIVATE-DECISION-CONTENT"
+}

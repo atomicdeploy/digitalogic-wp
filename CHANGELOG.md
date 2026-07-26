@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Added a capability-gated `wp digitalogic seo-monitor status` command backed
+  by a fixed privileged declassifier that exposes only bounded counters,
+  controlled state, and keyed fingerprints while preserving the private
+  root-owned state boundary.
 - Added administrator-only WooCommerce product supplier links with a Persian
   classic-editor panel, redacted product-list summaries, protected metadata,
   exact product targeting, and stdin-only WP-CLI write commands.

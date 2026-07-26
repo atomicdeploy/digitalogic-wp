@@ -1,0 +1,25 @@
+{
+  "schema_version": "1.1",
+  "updated_at": "2026-07-26T09:46:00.000Z",
+  "decisions": [
+    {
+      "fingerprint": "v11-decision-tracked-a",
+      "severity": "tracked",
+      "status": "pending",
+      "current": "PRIVATE-V11-CURRENT-TRACKED",
+      "recommended_reply": "PRIVATE-V11-REPLY-TRACKED",
+      "blocked_workflows": ["PRIVATE-V11-WORKFLOW-TRACKED"],
+      "content": "PRIVATE-V11-DECISION-CONTENT"
+    },
+    {
+      "fingerprint": "v11-decision-other-a",
+      "severity": "informational",
+      "status": "open",
+      "current": "PRIVATE-V11-CURRENT-OTHER",
+      "recommended_reply": "PRIVATE-V11-REPLY-OTHER",
+      "blocked_workflows": ["PRIVATE-V11-WORKFLOW-OTHER"],
+      "notification_route": "PRIVATE-V11-DECISION-ROUTE"
+    }
+  ],
+  "collaborator": "PRIVATE-V11-DECISION-COLLABORATOR"
+}

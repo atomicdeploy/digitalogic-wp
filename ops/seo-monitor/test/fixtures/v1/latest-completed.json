@@ -1,0 +1,16 @@
+{
+  "schema_version": "1.0",
+  "audit_id": "latest-audit-opaque-v1",
+  "completed_at": "2026-07-26T09:58:00.000Z",
+  "status": "completed_with_findings",
+  "critical_findings": 1,
+  "significant_findings": 1,
+  "tracked_findings": 1,
+  "owner_decisions": 1,
+  "content": "PRIVATE-CONTENT-LATEST",
+  "source_url": "https://private.example/latest",
+  "collaborator": "PRIVATE-COLLABORATOR-LATEST",
+  "notification_route": "PRIVATE-ROUTE-LATEST",
+  "credential": "PRIVATE-CREDENTIAL-LATEST",
+  "raw_report": "PRIVATE-RAW-REPORT-LATEST"
+}
