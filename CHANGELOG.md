@@ -19,6 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added an idempotent professional Google Sheets control-center builder with live catalog KPIs, charts, a landed-price calculator, bilingual guidance, editable non-secret settings, protected reference tabs, and one-command synchronization and scheduling.
 
 ### Security
+- Redacted private supplier URLs, seller details, source titles, and notes from
+  the default WP-CLI list output while retaining safe operational status.
 - Native Digits captcha controls now remain required and visible unless the configured reCAPTCHA replacement is successfully prepared; the branding layer no longer disables an unconfigured challenge.
 - Google Sheets writeback uses exact-decimal optimistic revisions, idempotent requests, a shared WooCommerce product lock, and transactional shipping compare-and-set apply/compensation so concurrent changes are preserved.
 
