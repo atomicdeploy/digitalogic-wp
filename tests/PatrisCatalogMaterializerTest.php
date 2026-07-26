@@ -1,6 +1,8 @@
 <?php
 
 use PHPUnit\Framework\TestCase;
+use PHPUnit\Framework\Attributes\PreserveGlobalState;
+use PHPUnit\Framework\Attributes\RunInSeparateProcess;
 
 final class PatrisCatalogMaterializerTest extends TestCase {
 
@@ -45,6 +47,7 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 				'digitalogic_test_primed_post_ids',
 				'digitalogic_test_transients',
 				'digitalogic_test_transient_deletes',
+				'digitalogic_test_rank_math_invalidations',
 			) as $global_name
 		) {
 			$GLOBALS[ $global_name ] = array();
@@ -122,6 +125,64 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 		$rejected               = $service->validate_manifest( $manifest );
 		$this->assertInstanceOf( WP_Error::class, $rejected );
 		$this->assertSame( 'digitalogic_patris_materializer_manifest_shape', $rejected->get_error_code() );
+	}
+
+	/** Verify the producer's version marker remains optional but strictly typed. */
+	public function test_manifest_accepts_the_supported_optional_schema_version_and_rejects_other_versions(): void {
+		$service                    = Digitalogic_Patris_Catalog_Materializer::instance();
+		$manifest                   = $this->manifest();
+		$manifest['schema_version'] = Digitalogic_Patris_Catalog_Materializer::MANIFEST_SCHEMA_VERSION;
+		$validated                  = $service->validate_manifest( $manifest );
+
+		$this->assertNotInstanceOf( WP_Error::class, $validated );
+		$this->assertSame(
+			array( 'schema', 'schema_version', 'source', 'products', 'categories' ),
+			array_keys( $validated )
+		);
+		$this->assertSame( '1.0', $validated['schema_version'] );
+
+		foreach ( array( null, 1.0, '1', '1.0 ', '2.0' ) as $unsupported ) {
+			$manifest['schema_version'] = $unsupported;
+			$rejected                   = $service->validate_manifest( $manifest );
+
+			$this->assertInstanceOf( WP_Error::class, $rejected );
+			$this->assertSame( 'digitalogic_patris_materializer_manifest_invalid', $rejected->get_error_code() );
+			$this->assertSame( 'schema_version', $rejected->get_error_data()['path'] );
+		}
+	}
+
+	/** Verify current Rank Math releases use their supported cache API. */
+	#[RunInSeparateProcess]
+	#[PreserveGlobalState( false )]
+	public function test_apply_prefers_the_current_rank_math_sitemap_cache_api(): void {
+		$this->assertFalse( class_exists( '\RankMath\Sitemap\Cache', false ) );
+		require_once __DIR__ . '/fixtures/rank-math/class-cache.php';
+		$this->receiveFixture();
+
+		$result = Digitalogic_Patris_Catalog_Materializer::instance()->run( $this->manifest(), array( 'apply' => true ) );
+
+		$this->assertNotInstanceOf( WP_Error::class, $result );
+		$this->assertSame( array( null ), $GLOBALS['digitalogic_test_rank_math_invalidations'] );
+		$this->assertArrayNotHasKey( 'rank_math/sitemap/flush_cache', $GLOBALS['digitalogic_test_actions'] );
+	}
+
+	/** Verify a pre-existing listener still works when Rank Math's API is absent. */
+	public function test_apply_uses_a_registered_legacy_rank_math_sitemap_flush_listener_as_fallback(): void {
+		$this->assertFalse( class_exists( '\RankMath\Sitemap\Cache', false ) );
+		$invalidations = 0;
+		add_action(
+			'rank_math/sitemap/flush_cache',
+			static function () use ( &$invalidations ) {
+				++$invalidations;
+			}
+		);
+		$this->receiveFixture();
+
+		$result = Digitalogic_Patris_Catalog_Materializer::instance()->run( $this->manifest(), array( 'apply' => true ) );
+
+		$this->assertNotInstanceOf( WP_Error::class, $result );
+		$this->assertSame( 1, $invalidations );
+		$this->assertCount( 1, $GLOBALS['digitalogic_test_actions']['rank_math/sitemap/flush_cache'] );
 	}
 
 	public function test_apply_creates_an_idempotent_draft_with_exact_feed_category_and_air_express(): void {

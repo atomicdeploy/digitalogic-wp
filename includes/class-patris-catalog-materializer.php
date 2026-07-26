@@ -16,6 +16,8 @@ final class Digitalogic_Patris_Catalog_Materializer {
 
 	public const MANIFEST_SCHEMA = 'digitalogic.patris-catalog-enrichment';
 
+	public const MANIFEST_SCHEMA_VERSION = '1.0';
+
 	public const CATEGORY_CODE_META    = '_digitalogic_patris_category_code';
 	public const CATEGORY_KEY_META     = '_digitalogic_catalog_category_key';
 	public const CATEGORY_TERM_META    = '_digitalogic_patris_category_term_id';
@@ -106,13 +108,16 @@ final class Digitalogic_Patris_Catalog_Materializer {
 		}
 
 		$required = array( 'schema', 'source', 'products', 'categories' );
-		$allowed  = array_merge( $required, array( 'source_revision' ) );
+		$allowed  = array_merge( $required, array( 'schema_version', 'source_revision' ) );
 		$shape    = $this->validate_object_shape( $manifest, $required, $allowed, 'root' );
 		if ( is_wp_error( $shape ) ) {
 			return $shape;
 		}
 		if ( self::MANIFEST_SCHEMA !== $manifest['schema'] ) {
 			return $this->manifest_error( 'schema', 'must identify the living enrichment manifest' );
+		}
+		if ( array_key_exists( 'schema_version', $manifest ) && self::MANIFEST_SCHEMA_VERSION !== $manifest['schema_version'] ) {
+			return $this->manifest_error( 'schema_version', 'must identify the supported manifest contract version' );
 		}
 
 		if ( ! is_array( $manifest['source'] ) || array_is_list( $manifest['source'] ) ) {
@@ -147,11 +152,14 @@ final class Digitalogic_Patris_Catalog_Materializer {
 		}
 
 		$normalized = array(
-			'schema'     => self::MANIFEST_SCHEMA,
-			'source'     => $manifest['source'],
-			'products'   => $products,
-			'categories' => $categories,
+			'schema' => self::MANIFEST_SCHEMA,
 		);
+		if ( array_key_exists( 'schema_version', $manifest ) ) {
+			$normalized['schema_version'] = self::MANIFEST_SCHEMA_VERSION;
+		}
+		$normalized['source']     = $manifest['source'];
+		$normalized['products']   = $products;
+		$normalized['categories'] = $categories;
 		if ( isset( $manifest['source_revision'] ) ) {
 			$normalized['source_revision'] = $manifest['source_revision'];
 		}
@@ -457,7 +465,7 @@ final class Digitalogic_Patris_Catalog_Materializer {
 						'deferred_products' => (int) ( $receiver['deferred_products'] ?? 0 ),
 					);
 				}
-				do_action( 'rank_math/sitemap/flush_cache' );
+				$this->invalidate_sitemap_cache();
 			}
 		} finally {
 			if ( $locked ) {
@@ -1658,6 +1666,27 @@ final class Digitalogic_Patris_Catalog_Materializer {
 			wc_delete_product_transients( (int) $product_id );
 		}
 		clean_post_cache( (int) $product_id );
+	}
+
+	/**
+	 * Invalidate Rank Math sitemap storage after an applied catalog batch.
+	 *
+	 * Current Rank Math versions expose a cache API rather than a flush action.
+	 * Keep the former action as a guarded fallback for older or custom
+	 * integrations that registered it.
+	 */
+	private function invalidate_sitemap_cache() {
+		if (
+			class_exists( '\RankMath\Sitemap\Cache' )
+			&& is_callable( array( '\RankMath\Sitemap\Cache', 'invalidate_storage' ) )
+		) {
+			\RankMath\Sitemap\Cache::invalidate_storage();
+			return;
+		}
+
+		if ( has_action( 'rank_math/sitemap/flush_cache' ) ) {
+			do_action( 'rank_math/sitemap/flush_cache' ); // phpcs:ignore WordPress.NamingConventions.ValidHookName.UseUnderscores -- Preserve the former integration hook only as a compatibility fallback.
+		}
 	}
 
 	/**

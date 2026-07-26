@@ -1956,6 +1956,7 @@ class WC_Product_Attribute {
     public function set_position($value) { $this->position = (int) $value; }
     public function set_visible($value) { $this->visible = (bool) $value; }
     public function set_variation($value) { $this->variation = (bool) $value; }
+    public function get_name() { return $this->name; }
     public function get_options() { return $this->options; }
     public function get_visible() { return $this->visible; }
     public function get_variation() { return $this->variation; }
@@ -2250,6 +2251,23 @@ function get_woocommerce_currency_symbol($currency = '') {
     $currency = strtoupper((string) $currency);
 
     return 'IRT' === $currency ? 'Toman' : $currency;
+}
+
+/** Resolve a test attribute label from the in-memory taxonomy registry. */
+function wc_attribute_label($name, $product = '') {
+    $labels = $GLOBALS['digitalogic_test_wc_attribute_labels'] ?? array();
+    if (array_key_exists((string) $name, $labels)) {
+        return (string) $labels[(string) $name];
+    }
+    if ($product instanceof WC_Product) {
+        foreach ($product->get_attributes() as $attribute) {
+            if ($attribute instanceof WC_Product_Attribute && (string) $attribute->get_name() === (string) $name) {
+                return (string) $attribute->get_name();
+            }
+        }
+    }
+
+    return (string) $name;
 }
 
 function wc_get_weight($weight, $to_unit, $from_unit = '') {
