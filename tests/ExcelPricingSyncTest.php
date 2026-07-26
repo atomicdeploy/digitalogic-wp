@@ -143,7 +143,7 @@ final class ExcelPricingSyncTest extends TestCase {
 			'state',
 			array(
 				'page'   => 1,
-				'limit'  => 250,
+				'limit'  => 500,
 				'locale' => 'fa',
 			)
 		);

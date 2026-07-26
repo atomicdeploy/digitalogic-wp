@@ -13,6 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   context, and privacy-preserving n8n and RouterOS deployment assets.
 
 ### Fixed
+- Capped Excel live-pricing and shared catalog responses at 250 rows while
+  retaining bounded 100-row WooCommerce query windows and deterministic
+  pagination across the complete catalog.
 - Prevented canonical product-sync and reconciliation from initiating
   per-product outbound update/stock webhooks while WooCommerce rows are being
   drained, while preserving the existing bounded post-commit sync observer and

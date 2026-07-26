@@ -39,7 +39,7 @@ The request schema is `digitalogic.excel-pricing-sync-request/v1`.
 `schema_version` is `1`, `operation` matches the route name, and `source`
 contains exactly `id`, `dataset`, and a `sha256:` revision.
 
-State accepts optional `page` and `limit`; the maximum page size is 100.
+State accepts optional `page` and `limit`; the maximum page size is 250.
 Catalog locale is always Persian. `fa` and `fa_IR` are accepted as request
 locale values.
 
@@ -54,7 +54,7 @@ locale values.
     "revision": "sha256:CURRENT_SOURCE_REVISION"
   },
   "page": 1,
-  "limit": 100,
+  "limit": 250,
   "locale": "fa"
 }
 ```

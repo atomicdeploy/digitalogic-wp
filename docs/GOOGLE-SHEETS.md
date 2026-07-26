@@ -91,12 +91,13 @@ To use it:
 6. Reload the spreadsheet. Use **Digitalogic Sync -> Sync now** for a manual
    refresh, or **Enable scheduled sync** for the configured interval.
 
-The script fetches at most 100 rows per request, follows server pagination,
+The bundled script fetches 100 rows per request, follows server pagination,
 unions dynamic warehouse columns, and calculates an idempotent catalog
-revision. An unchanged revision avoids rewriting the tabs. Each managed tab
-uses a hidden machine-key row, a localized visible header row, filters, frozen
-headers and first column, text formatting for identifiers, number formatting,
-row banding, and status highlighting.
+revision. The catalog endpoint accepts up to 250 rows per response for clients
+that need fewer round trips. An unchanged revision avoids rewriting the tabs.
+Each managed tab uses a hidden machine-key row, a localized visible header row,
+filters, frozen headers and first column, text formatting for identifiers,
+number formatting, row banding, and status highlighting.
 
 The `Products` and `Categories` tabs are integration-managed. Put notes or
 manual formulas on a different tab so a synchronization cannot replace them.
@@ -120,7 +121,7 @@ Supported query values:
 - `dataset`: `products` or `categories`;
 - `locale`: `en`, `fa`, or `bilingual`;
 - `page`: one-based positive integer;
-- `limit`: `1` through `100`.
+- `limit`: `1` through `250`.
 
 Every response identifies its `dataset`, supplies `columns` and sparse `rows`,
 and reports `page_revision` plus `pagination.total`, `pagination.pages`, and
