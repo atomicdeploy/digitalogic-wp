@@ -40,6 +40,7 @@ $GLOBALS['digitalogic_test_next_post_id'] = 1;
 $GLOBALS['digitalogic_test_post_meta_cache'] = array();
 $GLOBALS['digitalogic_test_terms'] = array();
 $GLOBALS['digitalogic_test_term_meta'] = array();
+$GLOBALS['digitalogic_test_term_queries'] = array();
 $GLOBALS['digitalogic_test_next_term_id'] = 1;
 $GLOBALS['digitalogic_test_update_failures'] = array();
 $GLOBALS['digitalogic_test_meta_update_failures'] = array();
@@ -2033,6 +2034,7 @@ function get_term_by( $field, $value, $taxonomy = '', $output = 'OBJECT', $filte
 }
 
 function get_terms($args = array()) {
+	$GLOBALS['digitalogic_test_term_queries'][] = $args;
 	$terms = array();
 	foreach (($GLOBALS['digitalogic_test_terms'] ?? array()) as $term_id => $term) {
 		$term = is_object($term) ? $term : (object) $term;
@@ -2049,6 +2051,34 @@ function get_terms($args = array()) {
 			$resolved_id = (int) ($term->term_id ?? $term_id);
 			$meta = $GLOBALS['digitalogic_test_term_meta'][$resolved_id][$args['meta_key']] ?? '';
 			if ((string) $meta !== (string) ($args['meta_value'] ?? '')) {
+				continue;
+			}
+		} elseif ( ! empty( $args['meta_query'] ) ) {
+			$resolved_id = (int) ($term->term_id ?? $term_id);
+			$query       = $args['meta_query'];
+			$relation    = isset( $query['relation'] ) ? strtoupper( (string) $query['relation'] ) : 'AND';
+			unset( $query['relation'] );
+			$matches = array();
+			foreach ( $query as $clause ) {
+				if ( ! is_array( $clause ) || ! isset( $clause['key'] ) ) {
+					continue;
+				}
+				$exists = array_key_exists(
+					$clause['key'],
+					$GLOBALS['digitalogic_test_term_meta'][ $resolved_id ] ?? array()
+				);
+				$compare = strtoupper( (string) ( $clause['compare'] ?? '=' ) );
+				if ( 'EXISTS' === $compare ) {
+					$matches[] = $exists;
+					continue;
+				}
+				$value     = $exists
+					? $GLOBALS['digitalogic_test_term_meta'][ $resolved_id ][ $clause['key'] ]
+					: null;
+				$matches[] = $exists && (string) $value === (string) ( $clause['value'] ?? '' );
+			}
+			$matched = 'OR' === $relation ? in_array( true, $matches, true ) : ! in_array( false, $matches, true );
+			if ( ! $matched ) {
 				continue;
 			}
 		}
