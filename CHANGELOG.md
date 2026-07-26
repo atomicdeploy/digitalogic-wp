@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.1] - 2026-07-26
+
+### Fixed
+- Restored exact managed product-category Code lookup and permanent historic
+  slug redirects on WooCommerce installations that inject menu-order term
+  metadata, using explicit term-meta clauses and deterministic term-ID order.
+
 ## [1.7.0] - 2026-07-26
 
 ### Added
