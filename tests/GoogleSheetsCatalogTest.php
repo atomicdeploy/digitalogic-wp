@@ -44,6 +44,50 @@ final class GoogleSheetsCatalogTest extends TestCase {
 		$this->catalog = Digitalogic_Google_Sheets_Catalog::instance();
 	}
 
+	/** A 500-row catalog page is assembled through bounded 100-row DB queries. */
+	public function test_large_catalog_page_uses_bounded_internal_query_windows() {
+		for ( $product_id = 1; $product_id <= 150; ++$product_id ) {
+			$GLOBALS['digitalogic_test_posts'][ $product_id ] = array(
+				'post_type'   => 'product',
+				'post_status' => 'publish',
+				'post_title'  => 'Catalog product ' . $product_id,
+				'meta'        => array(),
+			);
+		}
+		$GLOBALS['digitalogic_test_wp_query_results'] = array(
+			array(
+				'posts'       => range( 1, 100 ),
+				'found_posts' => 150,
+			),
+			array(
+				'posts'       => range( 101, 150 ),
+				'found_posts' => 150,
+			),
+		);
+		$GLOBALS['digitalogic_test_wp_query_args']    = array();
+
+		$result = $this->catalog->get_page(
+			array(
+				'dataset' => 'products',
+				'locale'  => 'fa',
+				'page'    => 1,
+				'limit'   => 500,
+			)
+		);
+
+		$this->assertFalse( is_wp_error( $result ) );
+		$this->assertCount( 150, $result['rows'] );
+		$this->assertSame( 500, $result['pagination']['limit'] );
+		$this->assertSame( 150, $result['pagination']['total'] );
+		$this->assertSame( 1, $result['pagination']['pages'] );
+		$this->assertFalse( $result['pagination']['has_more'] );
+		$this->assertCount( 2, $GLOBALS['digitalogic_test_wp_query_args'] );
+		$this->assertSame( 100, $GLOBALS['digitalogic_test_wp_query_args'][0]['posts_per_page'] );
+		$this->assertSame( 1, $GLOBALS['digitalogic_test_wp_query_args'][0]['paged'] );
+		$this->assertSame( 100, $GLOBALS['digitalogic_test_wp_query_args'][1]['posts_per_page'] );
+		$this->assertSame( 2, $GLOBALS['digitalogic_test_wp_query_args'][1]['paged'] );
+	}
+
 	/** Verify the real canonical presenters and dynamic warehouse projection. */
 	public function test_product_projection_uses_code_shipping_pricing_and_dynamic_warehouse_columns() {
 		$GLOBALS['digitalogic_test_posts'][41] = array(

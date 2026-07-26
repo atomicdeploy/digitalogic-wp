@@ -29,7 +29,7 @@ final class Digitalogic_Excel_Pricing_Sync {
 	private const PREVIEW_TTL_SECONDS       = 600;
 	private const APPLY_IDEMPOTENCY_SECONDS = 86400;
 	private const MAX_AUDIT_ENTRIES         = 50;
-	private const MAX_PAGE_SIZE             = 100;
+	private const MAX_PAGE_SIZE             = 500;
 	private const MAX_RATE                  = 1000000000;
 	private const MAX_PROFIT_PERCENT        = '1000';
 	private const MAX_PROFIT_SCALE          = 12;
