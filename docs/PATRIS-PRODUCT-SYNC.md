@@ -100,4 +100,8 @@ The batch response is exactly:
  default_percentage_markup, results}
 ```
 
-An assignment contains only optional `shipping_method_id`, optional `profit_percent`, required `profit_percent_source`, and required `pricing_warnings`.
+An assignment contains the required exact `code` (identical to its enclosing
+successful result Code), optional `shipping_method_id`, optional
+`profit_percent`, required `profit_percent_source`, and required
+`pricing_warnings`. The nested Code is the normalized Product Code resolved by
+the existing exact Code path; it never falls back to WooCommerce SKU.
