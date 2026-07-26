@@ -18,7 +18,7 @@ const correlationId = first(body.linkedid, body.uniqueid, body.correlation_id, $
 
 if (
   (eventType.includes('dhcp') || eventType.includes('wifi') || eventType.includes('registration'))
-  && first(body.mac, body.mac_address, body['mac-address'])
+  && first(body.subject, body.subject_hash)
 ) {
   const present = ['bound', 'up', 'online', 'joined', 'connected', 'registered', '1', 'true'].includes(status);
   const away = ['unbound', 'down', 'offline', 'left', 'disconnected', 'deregistered', '0', 'false'].includes(status);
@@ -27,14 +27,9 @@ if (
       route: 'presence',
       source: eventType.includes('wifi') || eventType.includes('registration') ? 'routeros_wifi' : 'routeros_dhcp',
       state: present ? (eventType.includes('dhcp') ? 'bound' : 'joined') : (away ? (eventType.includes('dhcp') ? 'unbound' : 'left') : 'unknown'),
-      router_subject: first(body.mac, body.mac_address, body['mac-address']),
+      router_subject: first(body.subject, body.subject_hash),
       observed_at: observedAt,
-      metadata: {
-        hostname: first(body.hostname, body.host_name),
-        router: first(body.router, body.router_name),
-        ssid: first(body.ssid, body.interface),
-        signal: first(body.signal, body.signal_strength, body['signal-strength']),
-      },
+      metadata: { source: 'routeros' },
     },
   }];
 }

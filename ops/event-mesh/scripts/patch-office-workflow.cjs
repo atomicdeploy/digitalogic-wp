@@ -71,7 +71,7 @@ function patch(workflow, options) {
       convertFieldsToString: true,
     },
     mode: "once",
-    options: { waitForSubWorkflow: false },
+    options: { waitForSubWorkflow: true },
   };
   if (!dispatchNode) {
     dispatchNode = {
@@ -99,6 +99,7 @@ function patch(workflow, options) {
   next.settings.saveDataSuccessExecution = "none";
   next.settings.saveDataErrorExecution = "none";
   next.settings.saveExecutionProgress = false;
+  next.settings.saveManualExecutions = false;
   return next;
 }
 

@@ -6,7 +6,7 @@ const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { render } = require("../scripts/render-n8n-workflow.cjs");
+const { callerIds, render } = require("../scripts/render-n8n-workflow.cjs");
 const { patch, FILTER_NAME, DISPATCH_NAME } = require("../scripts/patch-office-workflow.cjs");
 const { render: renderRouterOs } = require("../scripts/render-routeros-script.cjs");
 
@@ -16,11 +16,30 @@ test("renders an inactive, credential-referenced event workflow", () => {
     EVENT_MESH_CREDENTIAL_ID: "synthetic-credential",
     EVENT_MESH_CREDENTIAL_NAME: "Synthetic Digitalogic Credential",
     EVENT_MESH_CALLER_AUDIENCE_JSON: '{"devices":["synthetic-workstation"]}',
+    EVENT_MESH_CALLER_IDS: "synthetic-office-workflow",
   });
   assert.equal(workflow.active, false);
   assert.equal(workflow.nodes.some((node) => node.type === "n8n-nodes-digitalogic.digitalogic"), true);
   assert.equal(JSON.stringify(workflow).includes("__"), false);
   assert.equal(JSON.stringify(workflow).includes("synthetic-workstation"), true);
+  assert.equal(workflow.settings.saveManualExecutions, false);
+  assert.equal(workflow.settings.saveDataSuccessExecution, "none");
+  assert.equal(workflow.settings.saveDataErrorExecution, "none");
+  assert.equal(workflow.settings.saveExecutionProgress, false);
+  assert.equal(workflow.settings.callerPolicy, "workflowsFromAList");
+  assert.equal(workflow.settings.callerIds, "synthetic-office-workflow");
+});
+
+test("validates the explicit parent-workflow caller allowlist", () => {
+  assert.equal(
+    callerIds({ EVENT_MESH_CALLER_IDS: "synthetic-office-primary,synthetic-office-backup" }),
+    "synthetic-office-primary,synthetic-office-backup",
+  );
+  assert.throws(
+    () => callerIds({ EVENT_MESH_CALLER_IDS: "synthetic-office,synthetic-office" }),
+    /unique n8n workflow IDs/,
+  );
+  assert.throws(() => callerIds({ EVENT_MESH_CALLER_IDS: "invalid workflow id" }), /unique n8n workflow IDs/);
 });
 
 test("tracked assets contain no concrete webhook path or credential secret", () => {
@@ -33,6 +52,9 @@ test("tracked assets contain no concrete webhook path or credential secret", () 
     assert.doesNotMatch(content, /https?:\/\/[^\s"']+\/webhook\/[A-Za-z0-9_-]+/i);
     assert.doesNotMatch(content, /(?:api[_-]?key|password|secret)\s*[:=]\s*["'][^_"'][^"']+/i);
   }
+  const routerRoute = fs.readFileSync(path.join(root, "n8n", "route-event.code.js"), "utf8");
+  assert.match(routerRoute, /body\.subject/);
+  assert.doesNotMatch(routerRoute, /body\.(?:mac|mac_address)|body\['mac-address'\]/);
 });
 
 test("patches the Office workflow without losing its existing raw-event branch", () => {
@@ -65,6 +87,11 @@ test("patches the Office workflow without losing its existing raw-event branch",
   assert.equal(twice.settings.saveDataSuccessExecution, "none");
   assert.equal(twice.settings.saveDataErrorExecution, "none");
   assert.equal(twice.settings.saveExecutionProgress, false);
+  assert.equal(twice.settings.saveManualExecutions, false);
+  assert.equal(
+    twice.nodes.find((node) => node.name === DISPATCH_NAME).parameters.options.waitForSubWorkflow,
+    true,
+  );
 });
 
 test("preserves the single-workflow export envelope during CLI patching", () => {
@@ -114,8 +141,24 @@ test("preserves the single-workflow export envelope during CLI patching", () => 
 });
 
 test("renders only an HTTPS RouterOS webhook target", () => {
-  const rendered = renderRouterOs("https://automation.example.test/webhook/private-path");
+  const rendered = renderRouterOs(
+    "https://automation.example.test/webhook/private-path",
+    "synthetic_router_subject_pepper_1234567890",
+  );
   assert.match(rendered, /https:\/\/automation\.example\.test\/webhook\/private-path/);
-  assert.throws(() => renderRouterOs("http://automation.example.test/webhook/path"), /HTTPS/);
-  assert.throws(() => renderRouterOs("https://example.test/\"\n/tool fetch"), /control/);
+  assert.match(rendered, /transform=sha512 to=hex/);
+  assert.match(rendered, /synthetic_router_subject_pepper_1234567890/);
+  assert.doesNotMatch(rendered, /leaseActIP/);
+  assert.doesNotMatch(rendered, /\\"mac\\"/);
+  assert.doesNotMatch(rendered, /\\"ip\\"/);
+  assert.doesNotMatch(rendered, /\\"hostname\\"/);
+  assert.throws(
+    () => renderRouterOs("http://automation.example.test/webhook/path", "synthetic_router_subject_pepper_1234567890"),
+    /HTTPS/,
+  );
+  assert.throws(
+    () => renderRouterOs("https://example.test/\"\n/tool fetch", "synthetic_router_subject_pepper_1234567890"),
+    /control/,
+  );
+  assert.throws(() => renderRouterOs("https://example.test/webhook/path", "short"), /pepper/);
 });

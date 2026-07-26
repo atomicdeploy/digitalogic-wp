@@ -17,6 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   per-product outbound update/stock webhooks while WooCommerce rows are being
   drained, while preserving the existing bounded post-commit sync observer and
   restoring ordinary product webhooks after success or failure.
+- Pseudonymized RouterOS presence subjects before network transmission and
+  omitted raw lease MAC, IP, and hostname values from the generated hook.
 
 ## [1.7.4] - 2026-07-27
 
