@@ -74,6 +74,17 @@ source/reference value; a present `null` records an explicit upstream null.
 Products without a Patris Code use `woo:<id>` only as a display/upsert key, and
 SKU is never used as a Patris matching fallback.
 
+### Excel pricing-settings synchronization
+
+The local Patris companion uses the POST-only
+`/wp-json/digitalogic/excel/pricing-sync/{state,preview,apply}` machine
+contract. It is separate from the general `digitalogic/v1` management
+permission scopes and accepts only the existing source-scoped product-sync
+secret. See [Excel pricing-settings synchronization](EXCEL-PRICING-SYNC.md)
+for the complete request shape, optimistic concurrency, preview confirmation,
+idempotency, seven-day/seven-percent warnings, transaction behavior, and
+credential boundary.
+
 ### List Products
 
 **GET** `/products`

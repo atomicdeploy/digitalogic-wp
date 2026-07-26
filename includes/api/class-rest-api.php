@@ -326,6 +326,18 @@ class Digitalogic_REST_API {
             'permission_callback' => array($this, 'check_patris_product_sync_permission')
         ));
 
+		foreach ( array( 'state', 'preview', 'apply' ) as $excel_sync_mode ) {
+			register_rest_route(
+				'digitalogic',
+				'/excel/pricing-sync/' . $excel_sync_mode,
+				array(
+					'methods'             => 'POST',
+					'callback'            => array( $this, 'excel_pricing_sync_' . $excel_sync_mode ),
+					'permission_callback' => array( $this, 'check_excel_pricing_sync_permission' ),
+				)
+			);
+		}
+
 		// Supplier shipping methods (not WooCommerce customer delivery methods).
 		register_rest_route('digitalogic', '/integration/catalog', array(
             'methods' => 'GET',
@@ -555,6 +567,20 @@ class Digitalogic_REST_API {
         return $this->check_write_permission($request);
     }
 
+	/**
+	 * Authenticate the exact Excel pricing-sync surface.
+	 *
+	 * Unlike the product receiver, this route never falls back to a human
+	 * session or WooCommerce key. The Patris secret must also have an exact
+	 * configured source scope.
+	 *
+	 * @param WP_REST_Request $request Current request.
+	 * @return true|WP_Error
+	 */
+	public function check_excel_pricing_sync_permission( WP_REST_Request $request ) {
+		return Digitalogic_Excel_Pricing_Sync::instance()->authorize( $request );
+	}
+
     /**
      * GET /products
      */
@@ -607,6 +633,69 @@ class Digitalogic_REST_API {
 			),
 			200
 		);
+	}
+
+	/**
+	 * POST /excel/pricing-sync/state
+	 *
+	 * @param WP_REST_Request $request REST request.
+	 * @return WP_REST_Response
+	 */
+	public function excel_pricing_sync_state( WP_REST_Request $request ) {
+		return $this->excel_pricing_sync_response(
+			Digitalogic_Excel_Pricing_Sync::instance()->state( $request )
+		);
+	}
+
+	/**
+	 * POST /excel/pricing-sync/preview
+	 *
+	 * @param WP_REST_Request $request REST request.
+	 * @return WP_REST_Response
+	 */
+	public function excel_pricing_sync_preview( WP_REST_Request $request ) {
+		return $this->excel_pricing_sync_response(
+			Digitalogic_Excel_Pricing_Sync::instance()->preview( $request )
+		);
+	}
+
+	/**
+	 * POST /excel/pricing-sync/apply
+	 *
+	 * @param WP_REST_Request $request REST request.
+	 * @return WP_REST_Response
+	 */
+	public function excel_pricing_sync_apply( WP_REST_Request $request ) {
+		return $this->excel_pricing_sync_response(
+			Digitalogic_Excel_Pricing_Sync::instance()->apply( $request )
+		);
+	}
+
+	/**
+	 * Wrap one transport-neutral Excel sync result.
+	 *
+	 * @param array|WP_Error $result Service result.
+	 * @return WP_REST_Response
+	 */
+	private function excel_pricing_sync_response( $result ) {
+		if ( is_wp_error( $result ) ) {
+			$data    = $result->get_error_data();
+			$status  = is_array( $data ) && isset( $data['status'] ) ? (int) $data['status'] : 500;
+			$details = is_array( $data ) ? $data : array();
+			unset( $details['status'] );
+			$body = array(
+				'success' => false,
+				'code'    => $result->get_error_code(),
+				'message' => $result->get_error_message(),
+			);
+			if ( $details ) {
+				$body['details'] = $details;
+			}
+
+			return new WP_REST_Response( $body, $status );
+		}
+
+		return new WP_REST_Response( $result, 200 );
 	}
 
 	/**
