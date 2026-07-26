@@ -51,3 +51,13 @@ visual parity with an unavailable workbook. Macro-enabled files may be read by
 the installed PhpSpreadsheet reader when supported, but Digitalogic exports
 XLSX and does not preserve or execute VBA. Attach the approved XLSM reference
 before any macro-preservation or exact-style requirement is accepted.
+
+## Dynamic pricing-settings companion
+
+The canonical macro workbook does not store WordPress credentials or persist a
+static product catalog as its source of truth. Its local Patris companion uses
+the source-scoped preview/apply flow documented in
+[Excel pricing-settings synchronization](EXCEL-PRICING-SYNC.md). Product rows
+are refreshed through the existing Persian Google Sheets catalog projection;
+global currency/default-profit changes are previewed and confirmed separately,
+then Patris regenerates the derived product prices.

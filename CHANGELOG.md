@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-07-26
+
 ### Added
 - Added a capability-gated `wp digitalogic seo-monitor status` command backed
   by a fixed privileged declassifier that exposes only bounded counters,
@@ -21,12 +23,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added reusable Digitalogic browser error pages with responsive light/dark styling, English and Persian copy, RTL/LTR layout, safe recovery actions, and stable support references.
 - Added an opt-in Google Sheets product/pricing control workspace with bounded preview/apply writeback, exact Patris identity and revisions, append-only audit rows, guarded WooCommerce product writes, and an inactive credential-placeholder n8n proxy template.
 - Added an idempotent professional Google Sheets control-center builder with live catalog KPIs, charts, a landed-price calculator, bilingual guidance, editable non-secret settings, protected reference tabs, and one-command synchronization and scheduling.
+- Added a source-scoped Excel pricing-settings state/preview/apply contract with
+  Persian catalog pages, versioned dollar/yuan/default-profit inputs, bounded
+  audit history, and companion-triggered canonical product regeneration.
 
 ### Security
 - Redacted private supplier URLs, seller details, source titles, and notes from
   the default WP-CLI list output while retaining safe operational status.
 - Native Digits captcha controls now remain required and visible unless the configured reCAPTCHA replacement is successfully prepared; the branding layer no longer disables an unconfigured challenge.
 - Google Sheets writeback uses exact-decimal optimistic revisions, idempotent requests, a shared WooCommerce product lock, and transactional shipping compare-and-set apply/compensation so concurrent changes are preserved.
+- Excel pricing settings require the existing exact-scoped Patris machine
+  secret, quoted optimistic revisions, bound expiring previews, explicit APPLY
+  confirmation, idempotency, transactional readback/rollback, and seven-day /
+  seven-percent operator warnings without placing credentials in the workbook.
 
 ### Fixed
 - Consolidated the login identity normalizer, preserved password selections through visibility toggles, localized username-step controls, added keyboard-complete language selection, and removed the duplicate checkbox glyph across RTL/LTR light/dark login states.
