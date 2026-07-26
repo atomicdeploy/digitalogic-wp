@@ -42,6 +42,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `patris-*` slugs to stable `product-category-<code>` URLs, retained exact
   permanent redirects, preserved adopted/manual slugs, and made homepage source
   category selection resolve through the authoritative category-code metadata.
+- Separated the exact source-neutral Product Code from WooCommerce SKU in
+  `wp digitalogic products list`, preserving both fields without an identity
+  fallback.
 - Consolidated the login identity normalizer, preserved password selections through visibility toggles, localized username-step controls, added keyboard-complete language selection, and removed the duplicate checkbox glyph across RTL/LTR light/dark login states.
 - Enforced explicit notification channel allow-lists in both n8n routing and the notifier, kept endpoint/category preferences after the channel gate, and counted PHP-FPM slow requests by canonical request headers instead of stack lines.
 - Styled the reserved `Changes` and `Audit` support rows as professional workflow panels while preserving staged values, append-only audit data, legacy layouts, and frozen table headers.

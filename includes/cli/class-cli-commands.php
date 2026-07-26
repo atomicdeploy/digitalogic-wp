@@ -105,6 +105,9 @@ class Digitalogic_CLI_Commands {
     
     /**
      * List products
+     *
+     * Product Code is the exact integration identifier. WooCommerce SKU is
+     * reported separately and is never used as a Product Code fallback.
      * 
      * ## OPTIONS
      * 
@@ -148,15 +151,16 @@ class Digitalogic_CLI_Commands {
         $items = array();
         foreach ($products as $product) {
             $items[] = array(
-                'ID' => $product['id'],
-                'Name' => $product['name'],
-                'Product Code' => $product['sku'],
-                'Price' => $product['price'],
-                'Stock' => $product['stock_quantity']
+                'ID'           => $product['id'],
+                'Name'         => $product['name'],
+                'Product Code' => (string) ($product['patris_product_code'] ?? ''),
+                'SKU'          => (string) ($product['sku'] ?? ''),
+                'Price'        => $product['price'],
+                'Stock'        => $product['stock_quantity']
             );
         }
         
-        WP_CLI\Utils\format_items($format, $items, array('ID', 'Name', 'Product Code', 'Price', 'Stock'));
+        WP_CLI\Utils\format_items($format, $items, array('ID', 'Name', 'Product Code', 'SKU', 'Price', 'Stock'));
     }
 
 	/**
