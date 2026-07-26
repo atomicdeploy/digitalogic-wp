@@ -46,17 +46,21 @@ final class GoogleSheetsCatalogTest extends TestCase {
 		$this->catalog = Digitalogic_Google_Sheets_Catalog::instance();
 	}
 
-	/** A 500-row catalog page is assembled through bounded 100-row DB queries. */
+	/** Oversized requests are capped at 250 rows assembled through 100-row DB queries. */
 	public function test_large_catalog_page_uses_bounded_internal_query_windows() {
-		$this->seed_catalog_products( 1, 150 );
+		$this->seed_catalog_products( 1, 260 );
 		$GLOBALS['digitalogic_test_wp_query_results'] = array(
 			array(
 				'posts'       => range( 1, 100 ),
-				'found_posts' => 150,
+				'found_posts' => 260,
 			),
 			array(
-				'posts'       => range( 101, 150 ),
-				'found_posts' => 150,
+				'posts'       => range( 101, 200 ),
+				'found_posts' => 260,
+			),
+			array(
+				'posts'       => range( 201, 260 ),
+				'found_posts' => 260,
 			),
 		);
 
@@ -70,16 +74,17 @@ final class GoogleSheetsCatalogTest extends TestCase {
 		);
 
 		$this->assertFalse( is_wp_error( $result ) );
-		$this->assertCount( 150, $result['rows'] );
-		$this->assertSame( 500, $result['pagination']['limit'] );
-		$this->assertSame( 150, $result['pagination']['total'] );
-		$this->assertSame( 1, $result['pagination']['pages'] );
-		$this->assertFalse( $result['pagination']['has_more'] );
-		$this->assertCount( 2, $GLOBALS['digitalogic_test_wp_query_args'] );
-		$this->assertSame( 100, $GLOBALS['digitalogic_test_wp_query_args'][0]['posts_per_page'] );
-		$this->assertSame( 1, $GLOBALS['digitalogic_test_wp_query_args'][0]['paged'] );
-		$this->assertSame( 100, $GLOBALS['digitalogic_test_wp_query_args'][1]['posts_per_page'] );
-		$this->assertSame( 2, $GLOBALS['digitalogic_test_wp_query_args'][1]['paged'] );
+		$this->assertCount( 250, $result['rows'] );
+		$this->assertSame( 'woo:1', $result['rows'][0]['sync_key'] );
+		$this->assertSame( 'woo:250', $result['rows'][249]['sync_key'] );
+		$this->assertSame( 250, count( array_unique( array_column( $result['rows'], 'sync_key' ) ) ) );
+		$this->assertSame( 250, $result['pagination']['limit'] );
+		$this->assertSame( 260, $result['pagination']['total'] );
+		$this->assertSame( 2, $result['pagination']['pages'] );
+		$this->assertTrue( $result['pagination']['has_more'] );
+		$this->assertCount( 3, $GLOBALS['digitalogic_test_wp_query_args'] );
+		$this->assertSame( array( 100, 100, 100 ), array_column( $GLOBALS['digitalogic_test_wp_query_args'], 'posts_per_page' ) );
+		$this->assertSame( array( 1, 2, 3 ), array_column( $GLOBALS['digitalogic_test_wp_query_args'], 'paged' ) );
 	}
 
 	/** A non-aligned external page preserves exact row boundaries across query windows. */
@@ -176,10 +181,12 @@ final class GoogleSheetsCatalogTest extends TestCase {
 		$row = $result['rows'][0];
 		$this->assertSame( '000123', $row['sync_key'] );
 		$this->assertSame( '000123', $row['patris_code'] );
-		$code_column = array_values(array_filter(
-			$result['columns'],
-			static fn($candidate) => 'patris_code' === $candidate['key']
-		))[0];
+		$code_column = array_values(
+			array_filter(
+				$result['columns'],
+				static fn( $candidate ) => 'patris_code' === $candidate['key']
+			)
+		)[0];
 		$this->assertSame( 'Product Code', $code_column['label_en'] );
 		$this->assertSame( 'کد کالا', $code_column['label_fa'] );
 		$this->assertSame( 2400000, $row['effective_price'] );

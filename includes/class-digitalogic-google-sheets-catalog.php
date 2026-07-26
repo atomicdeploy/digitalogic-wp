@@ -14,7 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  */
 final class Digitalogic_Google_Sheets_Catalog {
 
-	public const MAX_PAGE_SIZE            = 500;
+	public const MAX_PAGE_SIZE            = 250;
 	private const PRODUCT_QUERY_PAGE_SIZE = 100;
 
 	/**
