@@ -37,6 +37,8 @@ final class GoogleSheetsCatalogTest extends TestCase {
 		$GLOBALS['digitalogic_test_meta_update_failures'] = array();
 		$GLOBALS['digitalogic_test_meta_delete_failures'] = array();
 		$GLOBALS['digitalogic_test_transaction_failures'] = array();
+		$GLOBALS['digitalogic_test_wp_query_results']     = array();
+		$GLOBALS['digitalogic_test_wp_query_args']        = array();
 		$GLOBALS['digitalogic_test_wc_currency']          = 'IRT';
 		$GLOBALS['wpdb']                                  = new Digitalogic_Test_WPDB();
 		$this->reset_singleton( Digitalogic_Shipping_Method_Service::class );
@@ -46,14 +48,7 @@ final class GoogleSheetsCatalogTest extends TestCase {
 
 	/** A 500-row catalog page is assembled through bounded 100-row DB queries. */
 	public function test_large_catalog_page_uses_bounded_internal_query_windows() {
-		for ( $product_id = 1; $product_id <= 150; ++$product_id ) {
-			$GLOBALS['digitalogic_test_posts'][ $product_id ] = array(
-				'post_type'   => 'product',
-				'post_status' => 'publish',
-				'post_title'  => 'Catalog product ' . $product_id,
-				'meta'        => array(),
-			);
-		}
+		$this->seed_catalog_products( 1, 150 );
 		$GLOBALS['digitalogic_test_wp_query_results'] = array(
 			array(
 				'posts'       => range( 1, 100 ),
@@ -64,7 +59,6 @@ final class GoogleSheetsCatalogTest extends TestCase {
 				'found_posts' => 150,
 			),
 		);
-		$GLOBALS['digitalogic_test_wp_query_args']    = array();
 
 		$result = $this->catalog->get_page(
 			array(
@@ -86,6 +80,48 @@ final class GoogleSheetsCatalogTest extends TestCase {
 		$this->assertSame( 1, $GLOBALS['digitalogic_test_wp_query_args'][0]['paged'] );
 		$this->assertSame( 100, $GLOBALS['digitalogic_test_wp_query_args'][1]['posts_per_page'] );
 		$this->assertSame( 2, $GLOBALS['digitalogic_test_wp_query_args'][1]['paged'] );
+	}
+
+	/** A non-aligned external page preserves exact row boundaries across query windows. */
+	public function test_non_aligned_catalog_page_does_not_skip_or_duplicate_products() {
+		$this->seed_catalog_products( 101, 260 );
+		$GLOBALS['digitalogic_test_wp_query_results'] = array(
+			array(
+				'posts'       => range( 101, 200 ),
+				'found_posts' => 260,
+			),
+			array(
+				'posts'       => range( 201, 260 ),
+				'found_posts' => 260,
+			),
+		);
+
+		$result = $this->catalog->get_page(
+			array(
+				'dataset' => 'products',
+				'locale'  => 'fa',
+				'page'    => 2,
+				'limit'   => 125,
+			)
+		);
+
+		$this->assertFalse( is_wp_error( $result ) );
+		$this->assertCount( 125, $result['rows'] );
+		$this->assertSame( 'woo:126', $result['rows'][0]['sync_key'] );
+		$this->assertSame( 'woo:250', $result['rows'][124]['sync_key'] );
+		$this->assertSame( 125, count( array_unique( array_column( $result['rows'], 'sync_key' ) ) ) );
+		$this->assertSame(
+			array(
+				'page'     => 2,
+				'limit'    => 125,
+				'total'    => 260,
+				'pages'    => 3,
+				'has_more' => true,
+			),
+			$result['pagination']
+		);
+		$this->assertSame( array( 2, 3 ), array_column( $GLOBALS['digitalogic_test_wp_query_args'], 'paged' ) );
+		$this->assertSame( array( 100, 100 ), array_column( $GLOBALS['digitalogic_test_wp_query_args'], 'posts_per_page' ) );
 	}
 
 	/** Verify the real canonical presenters and dynamic warehouse projection. */
@@ -386,6 +422,23 @@ final class GoogleSheetsCatalogTest extends TestCase {
 		$this->assertFalse( $response->get_data()['success'] );
 		$this->assertSame( 'digitalogic_sheets_dataset_invalid', $response->get_data()['code'] );
 		$this->assertArrayNotHasKey( 'credentials', $response->get_data() );
+	}
+
+	/**
+	 * Seed deterministic product fixtures for catalog pagination tests.
+	 *
+	 * @param int $first_id First product ID.
+	 * @param int $last_id Last product ID.
+	 */
+	private function seed_catalog_products( $first_id, $last_id ) {
+		for ( $product_id = $first_id; $product_id <= $last_id; ++$product_id ) {
+			$GLOBALS['digitalogic_test_posts'][ $product_id ] = array(
+				'post_type'   => 'product',
+				'post_status' => 'publish',
+				'post_title'  => 'Catalog product ' . $product_id,
+				'meta'        => array(),
+			);
+		}
 	}
 
 	/**
