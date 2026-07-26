@@ -152,11 +152,22 @@ final class ExcelPricingSyncTest extends TestCase {
 		$this->assertSame( 200, $response->get_status() );
 		$state = $response->get_data();
 		$this->assertSame(
-			array( 'schema', 'state_revision', 'generated_at', 'currency', 'default_markup', 'catalog' ),
+			array( 'schema', 'state_revision', 'generated_at', 'source', 'warnings', 'currency', 'default_markup', 'catalog' ),
 			array_keys( $state )
 		);
 		$this->assertSame( Digitalogic_Excel_Pricing_Sync::STATE_SCHEMA, $state['schema'] );
 		$this->assertStringStartsWith( 'sha256:', $state['state_revision'] );
+		$this->assertSame(
+			array(
+				'id'                       => $this->source['id'],
+				'dataset'                  => $this->source['dataset'],
+				'submitted_revision'       => $this->source['revision'],
+				'current_revision'         => $this->source['revision'],
+				'revision_matches_current' => true,
+			),
+			$state['source']
+		);
+		$this->assertSame( array(), $state['warnings'] );
 		$this->assertSame(
 			array( 'dollar_price', 'yuan_price', 'effective_date', 'revision', 'age_days', 'stale' ),
 			array_keys( $state['currency'] )
@@ -172,6 +183,157 @@ final class ExcelPricingSyncTest extends TestCase {
 		$this->assertSame( 25, $state['catalog']['pagination']['limit'] );
 		$this->assertNotEmpty( $state['catalog']['columns'] );
 		$this->assertMatchesRegularExpression( '/[^\x00-\x7F]/', $state['catalog']['columns'][0]['header'] );
+	}
+
+	/**
+	 * A newer valid local revision remains visible and non-blocking throughout
+	 * state, preview, apply, settings metadata, and the bounded audit record.
+	 */
+	public function test_source_revision_drift_is_visible_but_non_blocking_for_full_flow(): void {
+		$submitted_source             = $this->source;
+		$submitted_source['revision'] = 'sha256:' . str_repeat( 'b', 64 );
+
+		$state = Digitalogic_Excel_Pricing_Sync::instance()->state(
+			$this->request(
+				'state',
+				array( 'source' => $submitted_source )
+			)
+		);
+		$this->assertFalse( is_wp_error( $state ) );
+		$this->assert_source_revision_drift( $state, $submitted_source );
+
+		$settings = $this->proposed_settings();
+		$preview  = Digitalogic_Excel_Pricing_Sync::instance()->preview(
+			$this->mutation_request(
+				'preview',
+				'excel-preview-drift-0001',
+				$state['state_revision'],
+				$settings,
+				array( 'source' => $submitted_source )
+			)
+		);
+		$this->assertFalse( is_wp_error( $preview ) );
+		$this->assert_source_revision_drift( $preview, $submitted_source );
+
+		$applied = Digitalogic_Excel_Pricing_Sync::instance()->apply(
+			$this->mutation_request(
+				'apply',
+				'excel-apply-drift-000001',
+				$state['state_revision'],
+				$settings,
+				array(
+					'source'         => $submitted_source,
+					'preview_digest' => $preview['preview_digest'],
+					'confirmation'   => 'APPLY',
+				)
+			)
+		);
+		$this->assertFalse( is_wp_error( $applied ) );
+		$this->assertSame( 'applied', $applied['status'] );
+		$this->assert_source_revision_drift( $applied, $submitted_source );
+		$this->assertSame(
+			$submitted_source,
+			$GLOBALS['digitalogic_test_options'][ Digitalogic_Excel_Pricing_Sync::SETTINGS_OPTION ]['source']
+		);
+
+		$audit = $GLOBALS['digitalogic_test_options'][ Digitalogic_Excel_Pricing_Sync::AUDIT_OPTION ];
+		$this->assertCount( 1, $audit );
+		$this->assertSame( $submitted_source, $audit[0]['source'] );
+		$this->assertSame( $applied['source'], $audit[0]['source_revision_context'] );
+	}
+
+	/**
+	 * Revision tolerance must never widen the configured source ID/dataset.
+	 */
+	public function test_wrong_source_id_or_dataset_remains_rejected(): void {
+		$wrong_sources = array(
+			array_merge( $this->source, array( 'id' => 'wrong-source' ) ),
+			array_merge( $this->source, array( 'dataset' => 'wrong-dataset' ) ),
+		);
+
+		foreach ( $wrong_sources as $wrong_source ) {
+			$result = Digitalogic_Excel_Pricing_Sync::instance()->state(
+				$this->request(
+					'state',
+					array( 'source' => $wrong_source )
+				)
+			);
+
+			$this->assertSame( 'digitalogic_excel_sync_source_scope_conflict', $result->get_error_code() );
+			$this->assertSame( 409, $result->get_error_data()['status'] );
+		}
+	}
+
+	/**
+	 * Revision tolerance does not weaken transport, idempotency, or preview
+	 * binding: every submitted revision remains part of those identities.
+	 */
+	public function test_revision_drift_keeps_mutation_guards_strict(): void {
+		$state    = $this->state_data();
+		$settings = $this->proposed_settings();
+		$source_b = array_merge(
+			$this->source,
+			array( 'revision' => 'sha256:' . str_repeat( 'b', 64 ) )
+		);
+		$source_c = array_merge(
+			$this->source,
+			array( 'revision' => 'sha256:' . str_repeat( 'c', 64 ) )
+		);
+
+		$if_match = Digitalogic_Excel_Pricing_Sync::instance()->preview(
+			$this->request(
+				'preview',
+				array(
+					'source'                  => $source_b,
+					'idempotency_key'         => 'excel-preview-guard-0001',
+					'expected_state_revision' => $state['state_revision'],
+					'settings'                => $settings,
+					'product_changes'         => array(),
+				),
+				array(
+					'Idempotency-Key' => 'excel-preview-guard-0001',
+					'If-Match'        => '"sha256:' . str_repeat( 'f', 64 ) . '"',
+				)
+			)
+		);
+		$this->assertSame( 'digitalogic_excel_sync_if_match_mismatch', $if_match->get_error_code() );
+
+		$preview = Digitalogic_Excel_Pricing_Sync::instance()->preview(
+			$this->mutation_request(
+				'preview',
+				'excel-preview-guard-0002',
+				$state['state_revision'],
+				$settings,
+				array( 'source' => $source_b )
+			)
+		);
+		$this->assertFalse( is_wp_error( $preview ) );
+
+		$reused = Digitalogic_Excel_Pricing_Sync::instance()->preview(
+			$this->mutation_request(
+				'preview',
+				'excel-preview-guard-0002',
+				$state['state_revision'],
+				$settings,
+				array( 'source' => $source_c )
+			)
+		);
+		$this->assertSame( 'digitalogic_excel_sync_idempotency_reused', $reused->get_error_code() );
+
+		$mismatched_preview = Digitalogic_Excel_Pricing_Sync::instance()->apply(
+			$this->mutation_request(
+				'apply',
+				'excel-apply-guard-000001',
+				$state['state_revision'],
+				$settings,
+				array(
+					'source'         => $source_c,
+					'preview_digest' => $preview['preview_digest'],
+					'confirmation'   => 'APPLY',
+				)
+			)
+		);
+		$this->assertSame( 'digitalogic_excel_sync_preview_mismatch', $mismatched_preview->get_error_code() );
 	}
 
 	/**
@@ -415,6 +577,36 @@ final class ExcelPricingSyncTest extends TestCase {
 				'If-Match'        => '"' . $revision . '"',
 			)
 		);
+	}
+
+	/**
+	 * Assert additive source metadata and its Persian non-blocking warning.
+	 *
+	 * @param array $response         Successful sync response.
+	 * @param array $submitted_source Submitted source identity.
+	 * @return void
+	 */
+	private function assert_source_revision_drift( $response, $submitted_source ) {
+		$this->assertSame( $submitted_source['id'], $response['source']['id'] );
+		$this->assertSame( $submitted_source['dataset'], $response['source']['dataset'] );
+		$this->assertSame( $submitted_source['revision'], $response['source']['submitted_revision'] );
+		$this->assertSame( $this->source['revision'], $response['source']['current_revision'] );
+		$this->assertFalse( $response['source']['revision_matches_current'] );
+
+		$warnings = array_values(
+			array_filter(
+				$response['warnings'],
+				static function ( $warning ) {
+					return is_array( $warning )
+						&& 'source_revision_out_of_sync' === ( $warning['code'] ?? '' );
+				}
+			)
+		);
+		$this->assertCount( 1, $warnings );
+		$this->assertSame( 'warning', $warnings[0]['severity'] );
+		$this->assertMatchesRegularExpression( '/[^\x00-\x7F]/', $warnings[0]['message_fa'] );
+		$this->assertSame( $submitted_source['revision'], $warnings[0]['details']['submitted_revision'] );
+		$this->assertSame( $this->source['revision'], $warnings[0]['details']['current_revision'] );
 	}
 
 	/**
