@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Prevented canonical product-sync and reconciliation from initiating
+  per-product outbound update/stock webhooks while WooCommerce rows are being
+  drained, while preserving the existing bounded post-commit sync observer and
+  restoring ordinary product webhooks after success or failure.
+
 ## [1.7.4] - 2026-07-27
 
 ### Fixed

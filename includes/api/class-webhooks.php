@@ -33,6 +33,13 @@ class Digitalogic_Webhooks {
      * @var array<int,array<int,array<string,mixed>>>
      */
     private $pending_product_changes = array();
+
+    /**
+     * Re-entrant guard for canonical bulk writes that publish one summary event.
+     *
+     * @var int
+     */
+    private $product_change_webhook_suppression_depth = 0;
     
     public static function instance() {
         if (is_null(self::$instance)) {
@@ -222,6 +229,10 @@ class Digitalogic_Webhooks {
      * @param WC_Product $product Product being saved.
      */
     public function capture_product_changes($product) {
+        if ($this->product_change_webhooks_suppressed()) {
+            return;
+        }
+
         if (!is_object($product) || !method_exists($product, 'get_id') || !method_exists($product, 'get_changes')) {
             return;
         }
@@ -259,6 +270,11 @@ class Digitalogic_Webhooks {
      * Product updated webhook
      */
     public function product_updated($product_id) {
+        if ($this->product_change_webhooks_suppressed()) {
+            unset($this->pending_product_changes[(int) $product_id]);
+            return;
+        }
+
         $manager = Digitalogic_Product_Manager::instance();
         $product = $manager->get_product($product_id);
         
@@ -275,6 +291,10 @@ class Digitalogic_Webhooks {
      * Product created webhook
      */
     public function product_created($product_id) {
+        if ($this->product_change_webhooks_suppressed()) {
+            return;
+        }
+
         $manager = Digitalogic_Product_Manager::instance();
         $product = $manager->get_product($product_id);
         
@@ -304,6 +324,10 @@ class Digitalogic_Webhooks {
      * Product stock webhook.
      */
     public function product_stock_changed($product) {
+        if ($this->product_change_webhooks_suppressed()) {
+            return;
+        }
+
         if (!is_object($product) || !method_exists($product, 'get_id')) {
             return;
         }
@@ -393,6 +417,41 @@ class Digitalogic_Webhooks {
         }
 
         return true;
+    }
+
+    /**
+     * Run canonical WooCommerce writes without initiating per-row HTTP.
+     *
+     * The receiver emits the existing bounded product-sync summary after this
+     * scope closes. The depth counter keeps nested/retry paths safe, and the
+     * finally block restores ordinary product webhooks after any exception.
+     *
+     * @param callable $operation Guarded bulk operation.
+     * @return mixed
+     */
+    public function without_product_change_webhooks($operation) {
+        if (!is_callable($operation)) {
+            throw new InvalidArgumentException('A callable product-change operation is required.');
+        }
+
+        $this->product_change_webhook_suppression_depth++;
+        try {
+            return call_user_func($operation);
+        } finally {
+            $this->product_change_webhook_suppression_depth = max(
+                0,
+                $this->product_change_webhook_suppression_depth - 1
+            );
+        }
+    }
+
+    /**
+     * Whether canonical bulk writes currently own product-change delivery.
+     *
+     * @return bool
+     */
+    private function product_change_webhooks_suppressed() {
+        return $this->product_change_webhook_suppression_depth > 0;
     }
 
     /**
