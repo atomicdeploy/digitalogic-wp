@@ -190,9 +190,12 @@
   },
   "settings": {
     "executionOrder": "v1",
-    "saveManualExecutions": true,
+    "saveManualExecutions": false,
     "saveDataSuccessExecution": "none",
     "saveDataErrorExecution": "none",
+    "saveExecutionProgress": false,
+    "callerPolicy": "workflowsFromAList",
+    "callerIds": "__EVENT_MESH_CALLER_IDS__",
     "executionTimeout": 60
   },
   "staticData": null,

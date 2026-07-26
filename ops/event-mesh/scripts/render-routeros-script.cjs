@@ -9,7 +9,7 @@ function required(env, key) {
   return value;
 }
 
-function render(endpoint) {
+function render(endpoint, subjectPepper) {
   const source = String(endpoint);
   if (/["\r\n]/.test(source)) {
     throw new Error("The Office Automation webhook URL contains control characters.");
@@ -18,14 +18,27 @@ function render(endpoint) {
   if (url.protocol !== "https:") {
     throw new Error("The Office Automation webhook must be an HTTPS URL without control characters.");
   }
+  const pepper = String(subjectPepper || "").trim();
+  if (!/^[A-Za-z0-9_-]{32,128}$/.test(pepper)) {
+    throw new Error("The RouterOS subject pepper must be a 32-128 character base64url value.");
+  }
   const template = fs.readFileSync(path.join(__dirname, "..", "routeros", "dhcp-lease-script.rsc"), "utf8");
-  return template.replace("__OFFICE_AUTOMATION_WEBHOOK_URL__", url.toString());
+  return template
+    .replace("__OFFICE_AUTOMATION_WEBHOOK_URL__", url.toString())
+    .replace("__ROUTEROS_SUBJECT_PEPPER__", pepper);
 }
 
 function main() {
   const output = path.resolve(required(process.env, "ROUTEROS_SCRIPT_OUTPUT"));
   fs.mkdirSync(path.dirname(output), { recursive: true, mode: 0o700 });
-  fs.writeFileSync(output, render(required(process.env, "EVENT_MESH_OFFICE_WEBHOOK_URL")), { mode: 0o600 });
+  fs.writeFileSync(
+    output,
+    render(
+      required(process.env, "EVENT_MESH_OFFICE_WEBHOOK_URL"),
+      required(process.env, "EVENT_MESH_ROUTER_SUBJECT_PEPPER"),
+    ),
+    { mode: 0o600 },
+  );
   process.stdout.write(`${output}\n`);
 }
 

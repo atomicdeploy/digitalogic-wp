@@ -38,13 +38,13 @@ test("classifies customer-originated CDR rows as inbound", () => {
   fs.writeFileSync(
     fixturePath,
     [
-      '"","09123456789","02166754124","","","","","","","2026-07-27 10:00:00","2026-07-27 10:00:02","2026-07-27 10:01:00","60","58","ANSWERED","","call-1"',
-      '"","02166754124","09123456789","","","","","","","2026-07-27 09:00:00","","2026-07-27 09:00:10","10","0","NO ANSWER","","call-2"',
+      '"","02100000000","02111111111","","","","","","","2026-07-27 10:00:00","2026-07-27 10:00:02","2026-07-27 10:01:00","60","58","ANSWERED","","call-1"',
+      '"","02111111111","02100000000","","","","","","","2026-07-27 09:00:00","","2026-07-27 09:00:10","10","0","NO ANSWER","","call-2"',
     ].join("\n"),
     "utf8",
   );
   try {
-    const history = readCdrHistory("09123456789", fixturePath);
+    const history = readCdrHistory("02100000000", fixturePath);
     assert.equal(history.calls[0].direction, "inbound");
     assert.equal(history.calls[1].direction, "outbound");
   } finally {
