@@ -290,7 +290,7 @@ final class Digitalogic_Panel_Error_Page {
 		$persian = array(
 			self::CONTEXT_PATRIS_REPORTS      => array(
 				'eyebrow' => 'دسترسی محدود',
-				'title'   => 'این حساب به گزارش‌های پاتریس دسترسی ندارد',
+				'title'   => 'این حساب به گزارش‌های کاتالوگ دسترسی ندارد',
 				'detail'  => 'این صفحه به دسترسی مدیریت فروشگاه نیاز دارد. از مدیر سایت بخواهید مجوز مناسب وردپرس را به حساب شما اختصاص دهد.',
 			),
 			self::CONTEXT_PRODUCT_DIAGNOSTICS => array(

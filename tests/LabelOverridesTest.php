@@ -110,4 +110,22 @@ final class LabelOverridesTest extends TestCase {
 			$this->assertStringNotContainsString( 'سریال پاتریس', $source, $path );
 		}
 	}
+
+	/** Operator-facing catalog labels must stay source-neutral. */
+	public function test_operator_catalog_sources_do_not_expose_patris_branding(): void {
+		$paths = array(
+			dirname( __DIR__ ) . '/includes/class-digitalogic-product-column-schema.php',
+			dirname( __DIR__ ) . '/includes/panel/class-digitalogic-panel-error-page.php',
+			dirname( __DIR__ ) . '/includes/panel/class-panel.php',
+		);
+
+		foreach ( $paths as $path ) {
+			$source = file_get_contents( $path );
+			$this->assertIsString( $source, $path );
+			$this->assertStringNotContainsString( 'پاتریس', $source, $path );
+		}
+
+		$schema_source = file_get_contents( $paths[0] );
+		$this->assertStringContainsString( 'کد کالا', $schema_source );
+	}
 }
