@@ -12,9 +12,13 @@ The companion calls three POST-only routes:
 
 These routes accept only the existing `X-Patris-Product-Sync-Secret`. The
 secret must have a non-empty exact `{id, dataset}` source scope, and every
-request must repeat the exact current `{id, dataset, revision}` from the
-materialized `patris.product-sync` source. There is no WordPress-session,
-WooCommerce-key, or administrator-capability fallback on this machine surface.
+request must repeat that exact `{id, dataset}` plus a syntactically valid
+`sha256:` revision from the local canonical source. The revision remains bound
+to preview, idempotency, settings metadata, and audit records. A local revision
+that differs from the materialized WordPress product-sync revision is visible
+as a non-blocking Persian warning; it is not an authentication failure. There
+is no WordPress-session, WooCommerce-key, or administrator-capability fallback
+on this machine surface.
 
 ## Ownership
 
@@ -62,6 +66,26 @@ The state data has this stable top-level shape:
   "schema": "digitalogic.excel-pricing-sync-state/v1",
   "state_revision": "sha256:GLOBAL_SETTINGS_REVISION",
   "generated_at": "2026-07-26T12:00:00+00:00",
+  "source": {
+    "id": "configured-source-id",
+    "dataset": "configured-dataset",
+    "submitted_revision": "sha256:LOCAL_SOURCE_REVISION",
+    "current_revision": "sha256:WORDPRESS_SOURCE_REVISION",
+    "revision_matches_current": false
+  },
+  "warnings": [
+    {
+      "code": "source_revision_out_of_sync",
+      "severity": "warning",
+      "message_fa": "نسخهٔ منبع محلی با آخرین نسخهٔ ثبت‌شده در سایت یکسان نیست؛ همگام‌سازی تنظیمات برای همین شناسه و مجموعه ادامه یافت.",
+      "details": {
+        "source_id": "configured-source-id",
+        "dataset": "configured-dataset",
+        "submitted_revision": "sha256:LOCAL_SOURCE_REVISION",
+        "current_revision": "sha256:WORDPRESS_SOURCE_REVISION"
+      }
+    }
+  ],
   "currency": {
     "dollar_price": 170000,
     "yuan_price": 25300,
@@ -122,7 +146,8 @@ Preview returns a server-bound `preview_digest` with a ten-minute expiry.
 Warnings have stable codes, severity, a Persian operator message in
 `message_fa`, and bounded comparison details. A date older than seven days and
 a currency or profit difference above seven percent are surfaced as critical
-warnings.
+warnings. When source revisions differ, `source_revision_out_of_sync` exposes
+both submitted and current revisions without blocking preview.
 
 ## Apply
 
@@ -168,6 +193,13 @@ Preview and apply response data use:
   "mode": "preview",
   "status": "confirmation_required",
   "state_revision": "sha256:GLOBAL_SETTINGS_REVISION",
+  "source": {
+    "id": "configured-source-id",
+    "dataset": "configured-dataset",
+    "submitted_revision": "sha256:LOCAL_SOURCE_REVISION",
+    "current_revision": "sha256:WORDPRESS_SOURCE_REVISION",
+    "revision_matches_current": false
+  },
   "preview_digest": "sha256:PREVIEW_DIGEST",
   "expires_at": "2026-07-26T12:10:00+00:00",
   "warnings": [],

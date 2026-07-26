@@ -129,9 +129,9 @@ final class Digitalogic_Excel_Pricing_Sync {
 			return $payload;
 		}
 
-		$current_source = $this->validate_current_source( $payload['source'] );
-		if ( is_wp_error( $current_source ) ) {
-			return $current_source;
+		$source_context = $this->validate_current_source( $payload['source'] );
+		if ( is_wp_error( $source_context ) ) {
+			return $source_context;
 		}
 
 		$globals = $this->read_globals();
@@ -156,10 +156,18 @@ final class Digitalogic_Excel_Pricing_Sync {
 			return $catalog;
 		}
 
+		$warnings       = array();
+		$source_warning = $this->source_revision_warning( $source_context );
+		if ( null !== $source_warning ) {
+			$warnings[] = $source_warning;
+		}
+
 		return array(
 			'schema'         => self::STATE_SCHEMA,
 			'state_revision' => $globals['state_revision'],
 			'generated_at'   => $this->now_iso8601(),
+			'source'         => $source_context,
+			'warnings'       => $warnings,
 			'currency'       => $globals['currency'],
 			'default_markup' => $globals['default_markup'],
 			'catalog'        => $catalog,
@@ -315,10 +323,10 @@ final class Digitalogic_Excel_Pricing_Sync {
 					return $replayed;
 				}
 
-				$source = $this->validate_current_source( $payload['source'] );
-				if ( is_wp_error( $source ) ) {
+				$source_context = $this->validate_current_source( $payload['source'] );
+				if ( is_wp_error( $source_context ) ) {
 					$this->release_idempotency( 'apply', $headers['idempotency_key'] );
-					return $source;
+					return $source_context;
 				}
 
 				$current = $this->read_globals();
@@ -357,6 +365,7 @@ final class Digitalogic_Excel_Pricing_Sync {
 
 				$result = $this->apply_locked(
 					$payload['source'],
+					$source_context,
 					$headers['idempotency_key'],
 					$headers['expected_state_revision'],
 					$settings,
@@ -399,9 +408,9 @@ final class Digitalogic_Excel_Pricing_Sync {
 	 * @return array|WP_Error
 	 */
 	private function build_preview( $source, $expected_state_revision, $settings ) {
-		$current_source = $this->validate_current_source( $source );
-		if ( is_wp_error( $current_source ) ) {
-			return $current_source;
+		$source_context = $this->validate_current_source( $source );
+		if ( is_wp_error( $source_context ) ) {
+			return $source_context;
 		}
 
 		$current = $this->read_globals();
@@ -412,7 +421,11 @@ final class Digitalogic_Excel_Pricing_Sync {
 			return $this->revision_conflict( $current['state_revision'] );
 		}
 
-		$warnings = $this->comparison_warnings( $current, $settings );
+		$warnings       = $this->comparison_warnings( $current, $settings );
+		$source_warning = $this->source_revision_warning( $source_context );
+		if ( null !== $source_warning ) {
+			array_unshift( $warnings, $source_warning );
+		}
 		$expires  = time() + self::PREVIEW_TTL_SECONDS;
 		$identity = array(
 			'schema'                  => self::PREVIEW_SCHEMA,
@@ -448,6 +461,7 @@ final class Digitalogic_Excel_Pricing_Sync {
 			'mode'            => 'preview',
 			'status'          => empty( $warnings ) ? 'ready' : 'confirmation_required',
 			'state_revision'  => $current['state_revision'],
+			'source'          => $source_context,
 			'preview_digest'  => $digest,
 			'expires_at'      => gmdate( 'c', $expires ),
 			'warnings'        => $warnings,
@@ -459,6 +473,7 @@ final class Digitalogic_Excel_Pricing_Sync {
 	 * Apply settings under the synchronization lock.
 	 *
 	 * @param array  $source                    Exact current source.
+	 * @param array  $source_context             Submitted/current source revisions.
 	 * @param string $idempotency_key           Apply idempotency key.
 	 * @param string $expected_state_revision   Expected settings revision.
 	 * @param array  $settings                  Canonical settings.
@@ -466,7 +481,7 @@ final class Digitalogic_Excel_Pricing_Sync {
 	 * @param array  $preview                   Stored preview.
 	 * @return array|WP_Error
 	 */
-	private function apply_locked( $source, $idempotency_key, $expected_state_revision, $settings, $preview_digest, $preview ) {
+	private function apply_locked( $source, $source_context, $idempotency_key, $expected_state_revision, $settings, $preview_digest, $preview ) {
 		$current = $this->read_globals();
 		if ( is_wp_error( $current ) ) {
 			return $current;
@@ -477,7 +492,7 @@ final class Digitalogic_Excel_Pricing_Sync {
 
 		if ( $changed ) {
 			$result = $this->run_transaction(
-				function () use ( $source, $idempotency_key, $expected_state_revision, $settings, $preview_digest, $desired ) {
+				function () use ( $source, $source_context, $idempotency_key, $expected_state_revision, $settings, $preview_digest, $desired ) {
 					foreach (
 						array(
 							'dollar_price',
@@ -512,6 +527,7 @@ final class Digitalogic_Excel_Pricing_Sync {
 
 					$audit = $this->append_audit_entry(
 						$source,
+						$source_context,
 						$idempotency_key,
 						$preview_digest,
 						$locked_current,
@@ -550,9 +566,22 @@ final class Digitalogic_Excel_Pricing_Sync {
 			$readback = $current;
 		}
 
-		$warnings   = isset( $preview['warnings'] ) && is_array( $preview['warnings'] )
+		$warnings       = isset( $preview['warnings'] ) && is_array( $preview['warnings'] )
 			? array_values( $preview['warnings'] )
 			: array();
+		$warnings       = array_values(
+			array_filter(
+				$warnings,
+				static function ( $warning ) {
+					return ! is_array( $warning )
+						|| 'source_revision_out_of_sync' !== ( $warning['code'] ?? '' );
+				}
+			)
+		);
+		$source_warning = $this->source_revision_warning( $source_context );
+		if ( null !== $source_warning ) {
+			array_unshift( $warnings, $source_warning );
+		}
 		$warnings[] = $this->warning(
 			'patris_regeneration_required',
 			'تنظیمات سراسری تأیید شد؛ companion باید قیمت‌های مشتق‌شده را بازتولید و ارسال کند.',
@@ -564,6 +593,7 @@ final class Digitalogic_Excel_Pricing_Sync {
 			'mode'            => 'apply',
 			'status'          => $changed ? 'applied' : 'unchanged',
 			'state_revision'  => $readback['state_revision'],
+			'source'          => $source_context,
 			'preview_digest'  => $preview_digest,
 			'expires_at'      => gmdate( 'c', (int) $preview['expires_at'] ),
 			'warnings'        => $warnings,
@@ -765,7 +795,12 @@ final class Digitalogic_Excel_Pricing_Sync {
 	}
 
 	/**
-	 * Require the exact source revision currently materialized in WordPress.
+	 * Require the exact configured source identity materialized in WordPress.
+	 *
+	 * A valid submitted revision remains part of request, preview, idempotency,
+	 * settings, and audit identities. It may be newer than the product-sync
+	 * revision currently stored by WordPress, so revision drift is returned as
+	 * non-blocking response metadata instead of an authorization failure.
 	 *
 	 * @param array $source Requested source.
 	 * @return array|WP_Error
@@ -784,11 +819,11 @@ final class Digitalogic_Excel_Pricing_Sync {
 			|| ! is_string( $current['revision'] )
 			|| ! hash_equals( $current['id'], $source['id'] )
 			|| ! hash_equals( $current['dataset'], $source['dataset'] )
-			|| ! hash_equals( $current['revision'], $source['revision'] )
+			|| ! $this->is_revision( $current['revision'] )
 		) {
 			return $this->error(
-				'digitalogic_excel_sync_source_revision_conflict',
-				'revision منبع محلی با آخرین منبع ثبت‌شده در سایت یکسان نیست.',
+				'digitalogic_excel_sync_source_scope_conflict',
+				'شناسه یا مجموعهٔ منبع محلی با منبع ثبت‌شده در سایت یکسان نیست.',
 				409,
 				array(
 					'current_source' => array(
@@ -800,7 +835,38 @@ final class Digitalogic_Excel_Pricing_Sync {
 			);
 		}
 
-		return $current;
+		return array(
+			'id'                       => $source['id'],
+			'dataset'                  => $source['dataset'],
+			'submitted_revision'       => $source['revision'],
+			'current_revision'         => $current['revision'],
+			'revision_matches_current' => hash_equals( $current['revision'], $source['revision'] ),
+		);
+	}
+
+	/**
+	 * Return a Persian operator warning when the valid submitted revision is
+	 * not yet materialized by the WordPress product-sync receiver.
+	 *
+	 * @param array $source_context Submitted/current source metadata.
+	 * @return array|null
+	 */
+	private function source_revision_warning( $source_context ) {
+		if ( ! empty( $source_context['revision_matches_current'] ) ) {
+			return null;
+		}
+
+		return $this->warning(
+			'source_revision_out_of_sync',
+			'نسخهٔ منبع محلی با آخرین نسخهٔ ثبت‌شده در سایت یکسان نیست؛ همگام‌سازی تنظیمات برای همین شناسه و مجموعه ادامه یافت.',
+			'warning',
+			array(
+				'source_id'          => $source_context['id'],
+				'dataset'            => $source_context['dataset'],
+				'submitted_revision' => $source_context['submitted_revision'],
+				'current_revision'   => $source_context['current_revision'],
+			)
+		);
 	}
 
 	/**
@@ -1298,6 +1364,7 @@ final class Digitalogic_Excel_Pricing_Sync {
 	 * Append a bounded nonsecret audit entry inside the write transaction.
 	 *
 	 * @param array  $source          Exact source.
+	 * @param array  $source_context   Submitted/current source revisions.
 	 * @param string $idempotency_key Apply idempotency key.
 	 * @param string $preview_digest  Preview digest.
 	 * @param array  $before          Previous globals.
@@ -1305,17 +1372,18 @@ final class Digitalogic_Excel_Pricing_Sync {
 	 * @param array  $settings        Applied settings.
 	 * @return true|WP_Error
 	 */
-	private function append_audit_entry( $source, $idempotency_key, $preview_digest, $before, $after, $settings ) {
+	private function append_audit_entry( $source, $source_context, $idempotency_key, $preview_digest, $before, $after, $settings ) {
 		$row       = $this->read_option_db( self::AUDIT_OPTION, true );
 		$entries   = $row['exists'] && is_array( $row['value'] ) ? array_values( $row['value'] ) : array();
 		$entries[] = array(
-			'applied_at'        => current_time( 'mysql', true ),
-			'source'            => $source,
-			'idempotency_key'   => $idempotency_key,
-			'preview_digest'    => $preview_digest,
-			'previous_revision' => $before['state_revision'],
-			'state_revision'    => $after['state_revision'],
-			'settings'          => $settings,
+			'applied_at'              => current_time( 'mysql', true ),
+			'source'                  => $source,
+			'source_revision_context' => $source_context,
+			'idempotency_key'         => $idempotency_key,
+			'preview_digest'          => $preview_digest,
+			'previous_revision'       => $before['state_revision'],
+			'state_revision'          => $after['state_revision'],
+			'settings'                => $settings,
 		);
 		$entries   = array_slice( $entries, -self::MAX_AUDIT_ENTRIES );
 
