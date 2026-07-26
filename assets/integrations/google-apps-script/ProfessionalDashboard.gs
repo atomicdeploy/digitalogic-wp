@@ -184,7 +184,7 @@ function digitalogicBuildDashboard_(sheet) {
     ['Missing Product Code', ''],
     ['Draft products', ''],
     ['Published products', ''],
-    ['Catalog errors', ''],
+    ['Warnings | هشدارها', ''],
   ]);
   digitalogicHeader_(sheet.getRange('A11:B11'));
   sheet.getRange('B12:B16').setFormulas([
@@ -192,7 +192,7 @@ function digitalogicBuildDashboard_(sheet) {
     ['=COUNTIFS(Products!$A$3:$A,"<>",Products!$B$3:$B,"")'],
     ['=COUNTIF(Products!$F$3:$F,"draft")'],
     ['=COUNTIF(Products!$F$3:$F,"publish")'],
-    ['=COUNTIFS(Products!$A$3:$A,"<>",Products!$AL$3:$AL,"<>")'],
+    ['=COUNTIF(Products!$AU$3:$AU,"warning")'],
   ]).setNumberFormat('#,##0');
   sheet.getRange('A11:B16').setBorder(true, true, true, true, true, true, colors.gray, SpreadsheetApp.BorderStyle.SOLID);
 

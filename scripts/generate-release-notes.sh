@@ -62,6 +62,8 @@ This release is an installable, production-only WordPress plugin package built a
 
 Both ZIP files have a single \`digitalogic-wp/\` plugin root and include production Composer dependencies. Development dependencies, tests, repository metadata, backup files, and editor artifacts are excluded.
 
+Operational deployment sources such as the PBX assets under \`ops/\` are intentionally excluded from the public WordPress plugin ZIP. They remain versioned in this immutable tag and GitHub's source archives for reviewed, separate deployment.
+
 ## Verify the download
 
 Download \`SHA256SUMS\` beside the ZIP files. To verify only the stable installer, run \`grep ' digitalogic-wp.zip$' SHA256SUMS | sha256sum -c -\`. To verify the complete release set, download both ZIPs and run \`sha256sum -c SHA256SUMS\`. On Windows, compare \`Get-FileHash .\\digitalogic-wp.zip -Algorithm SHA256\` with the matching line in \`SHA256SUMS\`.

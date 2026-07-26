@@ -111,6 +111,17 @@ test('Apps Script renders customer-facing Product Code labels without source bra
   assert.doesNotMatch(professionalDashboardSource, /Patris|پاتریس/);
 });
 
+test('Dashboard warnings use sync status and cannot be changed by shipping metadata', () => {
+  const catalogHealth = professionalDashboardSource.match(
+    /sheet\.getRange\('A11:B16'\)\.setValues\(\[[\s\S]*?sheet\.getRange\('B12:B16'\)\.setFormulas\(\[[\s\S]*?\.setNumberFormat\('#,##0'\);/
+  );
+
+  assert.ok(catalogHealth, 'catalog health values and formulas must remain one bounded dashboard block');
+  assert.match(catalogHealth[0], /\['Warnings \| هشدارها', ''\]/);
+  assert.match(catalogHealth[0], /\['=COUNTIF\(Products!\$AU\$3:\$AU,"warning"\)'\]/);
+  assert.doesNotMatch(catalogHealth[0], /Products!\$AL\$3:\$AL/);
+});
+
 test('explicit spreadsheet destinations remain supported for scheduled standalone sync', () => {
   const expected = { id: 'sheet-123' };
   sandbox.SpreadsheetApp = {
@@ -685,7 +696,7 @@ test('professional control center is credential-free, editable, and idempotently
   assert.match(professionalDashboardSource, /newChart\(\)[\s\S]*?\.asPieChart\(\)/);
   assert.match(professionalDashboardSource, /newChart\(\)[\s\S]*?\.asColumnChart\(\)/);
   assert.match(professionalDashboardSource, /=COUNTA\(Products!\$A\$3:\$A\)/);
-  assert.match(professionalDashboardSource, /Products!\$AL\$3:\$AL/);
+  assert.match(professionalDashboardSource, /Products!\$AU\$3:\$AU/);
   assert.match(professionalDashboardSource, /placeholder\.getRange\('A1'\)\.isBlank\(\)/);
   assert.match(professionalDashboardSource, /Preview then explicit Apply/);
   assert.match(professionalDashboardSource, /محاسبه قیمت نهایی/);
