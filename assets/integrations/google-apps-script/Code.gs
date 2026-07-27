@@ -52,6 +52,18 @@ const DIGITALOGIC_CHANGE_COLUMNS = Object.freeze([
   Object.freeze({ key: 'expected_record_revision', header: 'Expected record revision', type: 'text' }),
   Object.freeze({ key: 'shipping_method_id', header: 'Shipping method ID', type: 'text' }),
 ]);
+const DIGITALOGIC_LEGACY_CHANGE_KEYS = Object.freeze([
+  'selected',
+  'sync_key',
+  'patris_code',
+  'expected_record_revision',
+  'regular_price',
+  'sale_price',
+  'stock_quantity',
+  'stock_status',
+  'shipping_method_id',
+  'profit_percent',
+]);
 const DIGITALOGIC_EDITABLE_FIELDS = Object.freeze({
   shipping_method_id: Object.freeze({ type: 'text', maximumLength: 64, pattern: /^[a-z][a-z0-9_]{1,63}$/ }),
 });
@@ -1015,6 +1027,59 @@ function detectStructuredLayout_(candidateRows, expectedKeys) {
   return null;
 }
 
+/** Recognize the retired Changes schema only when it contains no staged user work. */
+function canMigrateEmptyLegacyChanges_(headerValues, dataRows) {
+  const legacyHeader = Array.prototype.slice.call(
+    headerValues || [],
+    0,
+    DIGITALOGIC_LEGACY_CHANGE_KEYS.length
+  ).map(String);
+  if (JSON.stringify(legacyHeader) !== JSON.stringify(DIGITALOGIC_LEGACY_CHANGE_KEYS)) {
+    return false;
+  }
+
+  return !(dataRows || []).some(function (row) {
+    return Array.prototype.slice.call(row || [], 0, DIGITALOGIC_LEGACY_CHANGE_KEYS.length)
+      .some(function (value, index) {
+        if (index === 0) {
+          const selected = String(value == null ? '' : value).trim().toLowerCase();
+          return value === true || (selected !== '' && selected !== 'false');
+        }
+        return value !== '' && value !== null && typeof value !== 'undefined';
+      });
+  });
+}
+
+/** Reset only the known retired Changes schema, and only when every staged row is empty. */
+function migrateEmptyLegacyChanges_(sheet, layout) {
+  const header = sheet.getRange(
+    layout.machineHeaderRow,
+    1,
+    1,
+    DIGITALOGIC_LEGACY_CHANGE_KEYS.length
+  ).getDisplayValues()[0];
+  const dataRowCount = Math.max(sheet.getLastRow() - layout.dataStartRow + 1, 0);
+  const dataRows = dataRowCount
+    ? sheet.getRange(
+      layout.dataStartRow,
+      1,
+      dataRowCount,
+      DIGITALOGIC_LEGACY_CHANGE_KEYS.length
+    ).getValues()
+    : [];
+  if (!canMigrateEmptyLegacyChanges_(header, dataRows)) {
+    return false;
+  }
+
+  sheet.getRange(
+    layout.machineHeaderRow,
+    1,
+    Math.max(sheet.getMaxRows() - layout.machineHeaderRow + 1, 1),
+    DIGITALOGIC_LEGACY_CHANGE_KEYS.length
+  ).clearContent().clearDataValidations().clearFormat();
+  return true;
+}
+
 /** Create or validate a known support-tab header without clearing existing rows. */
 function ensureStructuredSheet_(spreadsheet, definition, columns, minimumRows) {
   let sheet = spreadsheet.getSheetByName(definition.sheetName);
@@ -1028,6 +1093,7 @@ function ensureStructuredSheet_(spreadsheet, definition, columns, minimumRows) {
   const keys = columns.map(function (column) { return column.key; });
   const candidateRows = {};
   let layout = null;
+  let initializeHeaders = created;
   if (!created) {
     DIGITALOGIC_SUPPORT_LAYOUTS.forEach(function (candidate) {
       candidateRows[String(candidate.machineHeaderRow)] = sheet.getMaxRows() >= candidate.machineHeaderRow
@@ -1038,6 +1104,13 @@ function ensureStructuredSheet_(spreadsheet, definition, columns, minimumRows) {
     layout = detectStructuredLayout_(candidateRows, keys);
   }
 
+  if (!layout
+    && !created
+    && definition.sheetName === DIGITALOGIC_SUPPORT_SHEETS.changes.sheetName
+    && migrateEmptyLegacyChanges_(sheet, defaultLayout)) {
+    layout = defaultLayout;
+    initializeHeaders = true;
+  }
   if (!layout && !created) {
     throw new Error(definition.sheetName + ' has an unexpected machine-header layout; no cells were changed.');
   }
@@ -1045,17 +1118,16 @@ function ensureStructuredSheet_(spreadsheet, definition, columns, minimumRows) {
     layout = defaultLayout;
   }
   ensureGridSize_(sheet, Math.max(minimumRows, layout.dataStartRow), columns.length);
-  if (created) {
+  if (initializeHeaders) {
     sheet.getRange(layout.machineHeaderRow, 1, 1, keys.length).setValues([keys]);
     sheet.getRange(layout.displayHeaderRow, 1, 1, keys.length).setValues([
       columns.map(function (column) { return column.header; }),
     ]);
   }
 
-  if (created) {
+  if (initializeHeaders) {
     sheet.setTabColor(definition.tabColor);
     sheet.setFrozenRows(layout.displayHeaderRow || layout.machineHeaderRow);
-    sheet.setFrozenColumns(1);
     sheet.hideRows(layout.machineHeaderRow);
     sheet.getRange(layout.displayHeaderRow || layout.machineHeaderRow, 1, 1, keys.length)
       .setBackground('#17365d')
@@ -1077,12 +1149,7 @@ function styleChangesSheet_(sheet, layout, locale) {
   const rowCount = Math.max(sheet.getMaxRows() - layout.dataStartRow + 1, 1);
   const columnKeys = DIGITALOGIC_CHANGE_COLUMNS.map(function (column) { return column.key; });
   const selectedColumn = columnKeys.indexOf('selected') + 1;
-  const statusColumn = columnKeys.indexOf('stock_status') + 1;
   const checkboxRule = SpreadsheetApp.newDataValidation().requireCheckbox().setAllowInvalid(false).build();
-  const stockRule = SpreadsheetApp.newDataValidation()
-    .requireValueInList(['instock', 'outofstock', 'onbackorder'], true)
-    .setAllowInvalid(false)
-    .build();
 
   sheet.setRightToLeft(locale === 'fa');
   styleProfessionalSupportSheet_(sheet, layout, {
@@ -1091,12 +1158,12 @@ function styleChangesSheet_(sheet, layout, locale) {
     section: 'EDITABLE CHANGESET  /  SELECT ONLY REVIEWED ROWS',
     tabColor: '#16a34a',
     headerColor: '#0f766e',
-    columnWidths: [90, 140, 140, 285, 120, 120, 120, 140, 160, 130],
+    columnWidths: [90, 140, 140, 285, 160],
     helpTitle: 'CONTROLLED WRITEBACK',
     helpText: [
       '1  Select current records in Products.',
       '2  Digitalogic Changes > Stage selected Products.',
-      '3  Edit price, stock, shipping, or profit fields here.',
+      '3  Edit only the site-owned shipping method field here.',
       '4  Select reviewed rows and run Preview selected changes.',
       '5  Review Audit, then Apply last preview with confirmation.',
       '',
@@ -1104,7 +1171,6 @@ function styleChangesSheet_(sheet, layout, locale) {
     ].join('\n'),
   });
   sheet.getRange(layout.dataStartRow, selectedColumn, rowCount, 1).setDataValidation(checkboxRule);
-  sheet.getRange(layout.dataStartRow, statusColumn, rowCount, 1).setDataValidation(stockRule);
   DIGITALOGIC_CHANGE_COLUMNS.forEach(function (column, index) {
     const range = sheet.getRange(layout.dataStartRow, index + 1, rowCount, 1);
     if (column.type === 'number') {
@@ -1162,7 +1228,7 @@ function styleProfessionalSupportSheet_(sheet, layout, options) {
   // Google Sheets cannot merge a title across an existing frozen-column boundary.
   sheet.setFrozenRows(0);
   sheet.setFrozenColumns(0);
-  sheet.getRange(1, 1, 4, columnCount).breakApart();
+  sheet.getRange(1, 1, 4, sheet.getMaxColumns()).breakApart();
   sheet.getRange(1, 1, 2, columnCount).merge()
     .setValue(options.title)
     .setBackground(navy)
@@ -2169,6 +2235,7 @@ if (typeof module !== 'undefined' && module.exports) {
     boundedJson_: boundedJson_,
     buildPricingSettingsRequest_: buildPricingSettingsRequest_,
     buildWritebackRequest_: buildWritebackRequest_,
+    canMigrateEmptyLegacyChanges_: canMigrateEmptyLegacyChanges_,
     createWritebackHttpError_: createWritebackHttpError_,
     detectStructuredLayout_: detectStructuredLayout_,
     ensureDashboardSheet_: ensureDashboardSheet_,

@@ -640,12 +640,50 @@ test('support tabs detect machine row 5, display row 6, and data row 7 without l
   assert.equal(detect({ 5: ['wrong'], 1: ['wrong'] }, keys), null);
 });
 
+test('retired Changes schema migrates only when every staged row is empty', () => {
+  const canMigrate = sandbox.module.exports.canMigrateEmptyLegacyChanges_;
+  const retiredHeader = [
+    'selected',
+    'sync_key',
+    'patris_code',
+    'expected_record_revision',
+    'regular_price',
+    'sale_price',
+    'stock_quantity',
+    'stock_status',
+    'shipping_method_id',
+    'profit_percent',
+  ];
+
+  assert.equal(canMigrate(retiredHeader, [[false, '', '', '', '', '', '', '', '', '']]), true);
+  assert.equal(canMigrate(retiredHeader, [[true, '', '', '', '', '', '', '', '', '']]), false);
+  assert.equal(canMigrate(retiredHeader, [[false, 'woo:11079', '', '', '', '', '', '', '', '']]), false);
+  assert.equal(canMigrate([...retiredHeader.slice(0, 9), 'unexpected'], []), false);
+  assert.match(source, /migrateEmptyLegacyChanges_\(sheet, defaultLayout\)/);
+});
+
+test('Changes styling does not target fields removed from the editable contract', () => {
+  const start = source.indexOf('function styleChangesSheet_');
+  const end = source.indexOf('function styleAuditSheet_', start);
+  const styleChangesSource = source.slice(start, end);
+  const ensureStart = source.indexOf('function ensureStructuredSheet_');
+  const ensureEnd = source.indexOf('function styleChangesSheet_', ensureStart);
+  const ensureStructuredSource = source.slice(ensureStart, ensureEnd);
+
+  assert.ok(start >= 0 && end > start);
+  assert.doesNotMatch(styleChangesSource, /stock_status|requireValueInList/);
+  assert.match(styleChangesSource, /site-owned shipping method field/);
+  assert.doesNotMatch(ensureStructuredSource, /setFrozenColumns\(1\)/);
+});
+
 test('professional support tabs have reserved titles, workflow guidance, and legacy-safe styling', () => {
   assert.match(source, /CHANGES \| SAFE PRODUCT UPDATE QUEUE/);
   assert.match(source, /AUDIT \| WRITEBACK ACTIVITY & RECOVERY/);
   assert.match(source, /CONTROLLED WRITEBACK/);
   assert.match(source, /layout\.id !== 'professional'/);
   assert.match(source, /sheet\.setFrozenColumns\(0\)/);
+  assert.match(source, /getRange\(1, 1, 4, sheet\.getMaxColumns\(\)\)\.breakApart\(\)/);
+  assert.doesNotMatch(source, /getRange\(1, 1, 4, columnCount\)\.breakApart\(\)/);
   assert.match(source, /protection\.setRange\(sheet\.getRange\(1, 1, machineHeaderRow, sheet\.getLastColumn\(\)\)\)/);
 });
 
