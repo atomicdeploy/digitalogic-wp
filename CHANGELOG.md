@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.1] - 2026-07-27
+
+### Changed
+- Restored monotonic release provenance by superseding the untagged production
+  `1.8.0` build with a source-traceable `1.8.1` release whose current
+  `main` source is the reviewed semantic superset.
+
 ### Added
 - Added an authenticated WordPress/WebSocket workstation event mesh with
   bounded actionable responses, evidence-based presence, WooCommerce caller
