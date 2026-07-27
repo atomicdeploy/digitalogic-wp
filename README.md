@@ -41,6 +41,9 @@
 - HMAC signature verification
 - Non-blocking async delivery
 - Secret-free production watchdog, notification routing, n8n workflow, and rollback assets: [`ops/office-automation/README.md`](ops/office-automation/README.md)
+- Optional authenticated workstation event mesh and privacy-safe RouterOS/n8n
+  deployment assets (source distribution only, not the plugin ZIP):
+  [`ops/event-mesh/README.md`](ops/event-mesh/README.md)
 
 ### ☎️ Phone verification and PBX notifications
 - From the Digits OTP sidebar, choose **Verify by calling**, or add an Iranian mobile/landline contact from My Account, then call `021-66754123` from the same number. A live caller-ID challenge collects the 120-second code immediately after «دوست عزیزم»; calls without one continue to the operator.
@@ -85,6 +88,16 @@
 - MySQL 5.7 or higher
 
 ## Installation
+
+Current source-built release: [v1.8.1](https://github.com/atomicdeploy/digitalogic-wp/releases/tag/v1.8.1).
+It supersedes an untagged production-only `1.8.0` build with the reviewed
+semantic superset from `main`, preserving monotonic WordPress versioning while
+restoring immutable source and package provenance.
+Use the stable install ZIP below and verify it against the release
+[`SHA256SUMS`](https://github.com/atomicdeploy/digitalogic-wp/releases/download/v1.8.1/SHA256SUMS)
+manifest. The WordPress package contains production plugin files and
+dependencies; reviewed PBX, n8n, RouterOS, and workstation deployment assets
+remain available in the immutable source tag.
 
 ### Via WordPress Admin
 

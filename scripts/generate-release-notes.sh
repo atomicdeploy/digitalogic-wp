@@ -52,7 +52,7 @@ mkdir -p -- "$(dirname -- "$output")"
 cat > "$output" <<EOF
 # Digitalogic WooCommerce Extension ${version}
 
-This release is an installable, production-only WordPress plugin package built and verified directly from source commit [\`${source_commit}\`](https://github.com/atomicdeploy/digitalogic-wp/commit/${source_commit}). It provides the Digitalogic product, pricing, currency, inventory, shipping-method, Patris integration, REST, webhook, polling, and administrative panel capabilities documented in the repository.
+This release is an installable, production-only WordPress plugin package built and verified directly from source commit [\`${source_commit}\`](https://github.com/atomicdeploy/digitalogic-wp/commit/${source_commit}). It provides the Digitalogic product, pricing, currency, inventory, shipping-method, Patris integration, Excel and Google Sheets synchronization, REST, webhook, polling, and administrative panel capabilities documented in the repository.
 
 ## Download and install
 
@@ -62,7 +62,7 @@ This release is an installable, production-only WordPress plugin package built a
 
 Both ZIP files have a single \`digitalogic-wp/\` plugin root and include production Composer dependencies. Development dependencies, tests, repository metadata, backup files, and editor artifacts are excluded.
 
-Operational deployment sources such as the PBX assets under \`ops/\` are intentionally excluded from the public WordPress plugin ZIP. They remain versioned in this immutable tag and GitHub's source archives for reviewed, separate deployment.
+Operational deployment sources such as the PBX, n8n, RouterOS, and workstation event-mesh assets under \`ops/\` are intentionally excluded from the public WordPress plugin ZIP. They remain versioned in this immutable tag and GitHub's source archives for reviewed, separate deployment.
 
 ## Verify the download
 
