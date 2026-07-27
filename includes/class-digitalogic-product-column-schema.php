@@ -37,11 +37,11 @@ final class Digitalogic_Product_Column_Schema {
 			self::catalog_column( 'regular_price', 'Regular Price', 'قیمت عادی', 'number' ),
 			self::catalog_column( 'sale_price', 'Sale Price', 'قیمت فروش ویژه', 'number' ),
 			self::catalog_column( 'effective_price', 'Effective Price', 'قیمت نهایی قابل استفاده', 'number' ),
-			self::catalog_column( 'patris_final_price', 'Source Final Price', 'قیمت نهایی منبع', 'number' ),
+			self::catalog_column( 'patris_final_price', 'Calculated Selling Price', 'قیمت فروش محاسبه‌شده (تومان)', 'number' ),
 			self::catalog_column( 'price_status', 'Price Status', 'وضعیت قیمت', 'text' ),
 			self::catalog_column( 'stock_quantity', 'WooCommerce Stock', 'موجودی ووکامرس', 'number' ),
 			self::catalog_column( 'stock_status', 'Stock Status', 'وضعیت موجودی', 'text' ),
-			self::catalog_column( 'patris_total_stock', 'Source Total Stock', 'موجودی کل منبع', 'number' ),
+			self::catalog_column( 'patris_total_stock', 'Total Stock', 'موجودی کل', 'number' ),
 			self::catalog_column( 'patris_minimum_stock', 'Minimum Stock', 'حداقل موجودی', 'number' ),
 		);
 
@@ -67,8 +67,7 @@ final class Digitalogic_Product_Column_Schema {
 				self::catalog_column( 'shipping_method_name_fa', 'Shipping Method (Persian)', 'روش حمل', 'text' ),
 				self::catalog_column( 'shipping_price_per_kg', 'Shipping Price per kg', 'هزینه حمل هر کیلو', 'number' ),
 				self::catalog_column( 'shipping_price_per_kg_currency', 'Shipping Price Currency', 'ارز هزینه حمل', 'text' ),
-				self::catalog_column( 'profit_percent', 'Profit Margin (%)', 'حاشیه سود (درصد)', 'number' ),
-				self::catalog_column( 'profit_percent_source', 'Profit Source', 'منبع حاشیه سود', 'text' ),
+				self::catalog_column( 'profit_margin_percent', 'Profit Margin (%)', 'حاشیه سود (درصد)', 'number' ),
 				self::catalog_column( 'permalink', 'Product URL', 'نشانی محصول', 'url' ),
 				self::catalog_column( 'image_url', 'Image URL', 'نشانی تصویر', 'url' ),
 				self::catalog_column( 'updated_at', 'Updated At', 'زمان به روزرسانی', 'datetime' ),
@@ -110,14 +109,14 @@ final class Digitalogic_Product_Column_Schema {
 			self::workbook_column( 'base_price', 'Base Price', 'قیمت پایه', 'number', true, '_base_price', array(), 16 ),
 			self::workbook_column( 'markup', 'Markup', 'حاشیه سود', 'number', true, '_markup', array(), 14 ),
 			self::workbook_column( 'markup_type', 'Markup Type', 'نوع حاشیه سود', 'text', true, '_markup_type', array(), 18 ),
-			self::workbook_column( 'foreign_currency', 'Source Foreign Currency', 'ارز خارجی منبع', 'text', true, 'patris_foreign_currency', array( 'Foreign Currency', 'ارز خارجی پاتریس' ), 18 ),
-			self::workbook_column( 'foreign_price', 'Source Foreign Price', 'قیمت ارزی منبع', 'number', true, 'patris_foreign_price', array( 'Foreign Price', 'قیمت ارزی پاتریس' ), 18 ),
-			self::workbook_column( 'weight_grams', 'Source Weight (g)', 'وزن منبع (گرم)', 'number', true, 'patris_weight_grams', array( 'Weight (g)', 'وزن پاتریس (گرم)' ), 18 ),
-			self::workbook_column( 'patris_total_stock', 'Source Total Stock', 'موجودی کل منبع', 'number', true, 'patris_total_stock', array( 'Patris Total Stock', 'موجودی کل پاتریس' ), 20 ),
+			self::workbook_column( 'foreign_currency', 'Purchase Currency', 'ارز خرید', 'text', true, 'patris_foreign_currency', array( 'Foreign Currency', 'ارز خارجی پاتریس' ), 18 ),
+			self::workbook_column( 'foreign_price', 'Purchase Price', 'قیمت خرید (یوآن)', 'number', true, 'patris_foreign_price', array( 'Foreign Price', 'قیمت ارزی پاتریس' ), 18 ),
+			self::workbook_column( 'weight_grams', 'Product Weight (g)', 'وزن کالا (گرم)', 'number', true, 'patris_weight_grams', array( 'Weight (g)', 'وزن پاتریس (گرم)' ), 18 ),
+			self::workbook_column( 'patris_total_stock', 'Total Stock', 'موجودی کل', 'number', true, 'patris_total_stock', array( 'Patris Total Stock', 'موجودی کل پاتریس' ), 20 ),
 			self::workbook_column( 'patris_minimum_stock', 'Minimum Stock', 'حداقل موجودی', 'number', true, 'patris_minimum_stock', array(), 18 ),
-			self::workbook_column( 'patris_location', 'Source Location', 'موقعیت منبع', 'text', true, 'patris_location', array( 'Patris Location', 'موقعیت پاتریس' ), 18 ),
-			self::workbook_column( 'patris_final_price', 'Source Final Price', 'قیمت نهایی منبع', 'number', true, 'patris_final_price', array( 'Patris Final Price', 'قیمت نهایی پاتریس' ), 20 ),
-			self::workbook_column( 'price_status', 'Source Price Status', 'وضعیت قیمت منبع', 'text', false, '', array( 'Patris Price Status', 'وضعیت قیمت پاتریس' ), 20 ),
+			self::workbook_column( 'patris_location', 'Product Location', 'محل کالا', 'text', true, 'patris_location', array( 'Patris Location', 'موقعیت پاتریس' ), 18 ),
+			self::workbook_column( 'patris_final_price', 'Calculated Selling Price', 'قیمت فروش محاسبه‌شده (تومان)', 'number', true, 'patris_final_price', array( 'Patris Final Price', 'قیمت نهایی پاتریس' ), 20 ),
+			self::workbook_column( 'price_status', 'Price Calculation Status', 'وضعیت محاسبه قیمت', 'text', false, '', array( 'Patris Price Status', 'وضعیت قیمت پاتریس' ), 20 ),
 			self::workbook_column( 'patris_sale_policy', 'Promotion Policy', 'سیاست تخفیف', 'text', false, '', array(), 18 ),
 		);
 
@@ -143,8 +142,7 @@ final class Digitalogic_Product_Column_Schema {
 				self::workbook_column( 'shipping_method_name_fa', 'Shipping Method (Persian)', 'روش حمل', 'text', false, '', array(), 22 ),
 				self::workbook_column( 'shipping_price_per_kg', 'Shipping Price per kg', 'هزینه حمل هر کیلو', 'number', false, '', array(), 22 ),
 				self::workbook_column( 'shipping_price_per_kg_currency', 'Shipping Price Currency', 'ارز هزینه حمل', 'text', false, '', array(), 22 ),
-				self::workbook_column( 'profit_percent', 'Profit Margin (%)', 'حاشیه سود (درصد)', 'number', false, '', array(), 18 ),
-				self::workbook_column( 'profit_percent_source', 'Profit Source', 'منبع حاشیه سود', 'text', false, '', array(), 18 ),
+				self::workbook_column( 'profit_margin_percent', 'Profit Margin (%)', 'حاشیه سود (درصد)', 'number', false, '', array( 'profit_percent' ), 18 ),
 			)
 		);
 	}

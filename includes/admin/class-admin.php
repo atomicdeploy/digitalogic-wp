@@ -484,22 +484,27 @@ class Digitalogic_Admin {
         $options = Digitalogic_Options::instance();
         
         if (isset($_POST['submit']) && check_admin_referer('digitalogic_currency_update')) {
-            $dollar_price = floatval($_POST['dollar_price']);
-            $yuan_price = floatval($_POST['yuan_price']);
-            
-            $options->set_dollar_price($dollar_price);
-            $options->set_yuan_price($yuan_price);
-            
-            // Recalculate dynamic prices
-            if (isset($_POST['recalculate_prices'])) {
-                $pricing = Digitalogic_Pricing::instance();
-                $results = $pricing->bulk_recalculate_prices();
-                
-                echo '<div class="notice notice-success"><p>' . 
-                    sprintf(__('Updated %d products successfully', 'digitalogic'), $results['success']) . 
+            $result = Digitalogic_Pricing_Coordinator::instance()->update_currency(
+                array(
+                    'dollar_price' => wp_unslash($_POST['dollar_price'] ?? ''),
+                    'yuan_price' => wp_unslash($_POST['yuan_price'] ?? ''),
+                ),
+                'admin_currency'
+            );
+            if (is_wp_error($result)) {
+                echo '<div class="notice notice-error"><p>' .
+                    esc_html($result->get_error_message()) .
                     '</p></div>';
             } else {
-                echo '<div class="notice notice-success"><p>' . __('Currency rates updated', 'digitalogic') . '</p></div>';
+                echo '<div class="notice notice-success"><p>' .
+                    esc_html(
+                        sprintf(
+                            /* translators: %d: reconciled WooCommerce products. */
+                            __('Currency rates and %d Patris-managed prices were synchronized.', 'digitalogic'),
+                            (int) ($result['pricing_results']['updated_products'] ?? 0)
+                        )
+                    ) .
+                    '</p></div>';
             }
         }
         
@@ -786,20 +791,28 @@ class Digitalogic_Admin {
                     break;
 
                 case 'update_default_markup':
-                    $result = $shipping_service->update_default_percentage_markup(
-                        $posted_value('default_profit_percent')
+                    $profit_margin = $posted_value('profit_margin_percent');
+                    if ('' === $profit_margin) {
+                        $profit_margin = $posted_value('default_profit_percent');
+                    }
+                    $result = Digitalogic_Pricing_Coordinator::instance()->update_profit_margin(
+                        $profit_margin,
+                        'admin_profit_margin'
                     );
                     $notice = is_wp_error($result)
                         ? $result->get_error_message()
-                        : __('The global default percentage markup was saved. WooCommerce prices were not changed.', 'digitalogic');
+                        : __('حاشیه سود مشترک و قیمت‌های ووکامرس همگام شدند.', 'digitalogic');
                     $notice_type = is_wp_error($result) ? 'error' : 'success';
                     break;
 
                 case 'clear_default_markup':
-                    $result = $shipping_service->update_default_percentage_markup(null);
+                    $result = Digitalogic_Pricing_Coordinator::instance()->update_profit_margin(
+                        null,
+                        'admin_profit_margin'
+                    );
                     $notice = is_wp_error($result)
                         ? $result->get_error_message()
-                        : __('The global default percentage markup was cleared. WooCommerce prices were not changed.', 'digitalogic');
+                        : __('حاشیه سود مشترک را نمی‌توان خالی کرد.', 'digitalogic');
                     $notice_type = is_wp_error($result) ? 'error' : 'success';
                     break;
 

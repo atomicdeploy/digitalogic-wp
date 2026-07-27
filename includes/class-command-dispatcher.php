@@ -14,7 +14,7 @@ class Digitalogic_Ajax_Die_Exception extends Exception {
     public function __construct($message = '', $title = '', $args = array()) {
         parent::__construct( (string) $message );
         $this->title = $title;
-        $this->args = is_array( $args ) ? $args : array();
+        $this->args  = is_array( $args ) ? $args : array();
     }
 
     public function get_title() {
@@ -73,28 +73,28 @@ class Digitalogic_Command_Dispatcher {
 
     private function default_handlers() {
         return array(
-            'digitalogic_get_products' => array($this, 'get_products'),
-            'digitalogic_get_product' => array($this, 'get_product'),
-            'digitalogic_update_product' => array($this, 'update_product'),
-            'digitalogic_bulk_update' => array($this, 'bulk_update'),
-            'digitalogic_update_currency' => array($this, 'update_currency'),
-            'digitalogic_get_currency' => array($this, 'get_currency'),
-            'digitalogic_export' => array($this, 'export'),
-            'digitalogic_get_logs' => array($this, 'get_logs'),
-            'digitalogic_get_reports' => array($this, 'get_reports'),
-            'digitalogic_update_patris_settings' => array($this, 'update_patris_settings'),
-            'digitalogic_get_integration_catalog' => array($this, 'get_integration_catalog'),
-            'digitalogic_get_default_percentage_markup' => array($this, 'get_default_percentage_markup'),
+            'digitalogic_get_products'                     => array($this, 'get_products'),
+            'digitalogic_get_product'                      => array($this, 'get_product'),
+            'digitalogic_update_product'                   => array($this, 'update_product'),
+            'digitalogic_bulk_update'                      => array($this, 'bulk_update'),
+            'digitalogic_update_currency'                  => array($this, 'update_currency'),
+            'digitalogic_get_currency'                     => array($this, 'get_currency'),
+            'digitalogic_export'                           => array($this, 'export'),
+            'digitalogic_get_logs'                         => array($this, 'get_logs'),
+            'digitalogic_get_reports'                      => array($this, 'get_reports'),
+            'digitalogic_update_patris_settings'           => array($this, 'update_patris_settings'),
+            'digitalogic_get_integration_catalog'          => array($this, 'get_integration_catalog'),
+            'digitalogic_get_default_percentage_markup'    => array($this, 'get_default_percentage_markup'),
             'digitalogic_update_default_percentage_markup' => array($this, 'update_default_percentage_markup'),
-			'digitalogic_list_shipping_methods' => array($this, 'list_shipping_methods'),
-			'digitalogic_create_shipping_method' => array($this, 'create_shipping_method'),
-			'digitalogic_get_shipping_method' => array($this, 'get_shipping_method'),
-			'digitalogic_update_shipping_method' => array($this, 'update_shipping_method'),
-			'digitalogic_delete_shipping_method' => array($this, 'delete_shipping_method'),
-			'digitalogic_get_product_shipping_method' => array($this, 'get_product_shipping_method'),
-			'digitalogic_get_product_pricing' => array($this, 'get_product_pricing'),
-			'digitalogic_get_pricing_assignments_batch' => array($this, 'get_pricing_assignments_batch'),
-			'digitalogic_assign_product_shipping_method' => array($this, 'assign_product_shipping_method'),
+			'digitalogic_list_shipping_methods'            => array($this, 'list_shipping_methods'),
+			'digitalogic_create_shipping_method'           => array($this, 'create_shipping_method'),
+			'digitalogic_get_shipping_method'              => array($this, 'get_shipping_method'),
+			'digitalogic_update_shipping_method'           => array($this, 'update_shipping_method'),
+			'digitalogic_delete_shipping_method'           => array($this, 'delete_shipping_method'),
+			'digitalogic_get_product_shipping_method'      => array($this, 'get_product_shipping_method'),
+			'digitalogic_get_product_pricing'              => array($this, 'get_product_pricing'),
+			'digitalogic_get_pricing_assignments_batch'    => array($this, 'get_pricing_assignments_batch'),
+			'digitalogic_assign_product_shipping_method'   => array($this, 'assign_product_shipping_method'),
 			'digitalogic_batch_assign_product_shipping_methods' => array($this, 'batch_assign_product_shipping_methods'),
         );
     }
@@ -123,7 +123,7 @@ class Digitalogic_Command_Dispatcher {
 
     public function update_product($payload) {
         $product_id = isset( $payload['product_id'] ) ? intval( $payload['product_id'] ) : 0;
-        $data = isset( $payload['data'] ) && is_array( $payload['data'] ) ? $payload['data'] : array();
+        $data       = isset( $payload['data'] ) && is_array( $payload['data'] ) ? $payload['data'] : array();
 
         if ($product_id <= 0 || empty( $data )) {
             return new WP_Error( 'digitalogic_invalid_product_update', __( 'Product ID and data are required.', 'digitalogic' ), array('status' => 400) );
@@ -158,28 +158,48 @@ class Digitalogic_Command_Dispatcher {
     }
 
     public function update_currency($payload) {
-        $options = Digitalogic_Options::instance();
-
-        if (isset( $payload['dollar_price'] )) {
-            $options->set_dollar_price( floatval( $payload['dollar_price'] ) );
+        $values = array();
+        foreach (array('dollar_price', 'yuan_price', 'effective_date', 'usd_effective_date', 'cny_effective_date') as $field) {
+            if (is_array($payload) && array_key_exists($field, $payload)) {
+                $values[$field] = $payload[$field];
+            }
         }
 
-        if (isset( $payload['yuan_price'] )) {
-            $options->set_yuan_price( floatval( $payload['yuan_price'] ) );
-        }
-
-        return __( 'Currency updated', 'digitalogic' );
+        return Digitalogic_Pricing_Coordinator::instance()->update_currency(
+            $values,
+            'command_dispatcher'
+        );
     }
 
     public function get_currency() {
         $options = Digitalogic_Options::instance();
-
-        return array(
-            'dollar_price' => $options->get_dollar_price(),
-            'yuan_price' => $options->get_yuan_price(),
-            'update_date' => $options->get_update_date(),
+        $data    = array(
+            'dollar_price'     => $options->get_dollar_price(),
+            'yuan_price'       => $options->get_yuan_price(),
+            'update_date'      => $options->get_update_date(),
             'woocommerce_base' => Digitalogic_WooCommerce_Currency_Status::instance()->get_status(),
         );
+        $state   = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
+        if (!is_wp_error($state)) {
+            $data['dollar_price']           = $state['settings']['dollar_price'];
+            $data['yuan_price']             = $state['settings']['yuan_price'];
+            $data['effective_date']         = $state['settings']['effective_date'];
+            $data['usd_effective_date']     = $state['settings']['usd_effective_date'];
+            $data['cny_effective_date']     = $state['settings']['cny_effective_date'];
+            $data['profit_margin_percent']  = $state['settings']['profit_margin_percent'];
+            $data['default_profit_percent'] = $state['settings']['profit_margin_percent'];
+            $data['deprecated_aliases']     = array(
+                'default_profit_percent' => array(
+                    'replacement' => 'profit_margin_percent',
+                    'equivalent'  => true,
+                ),
+            );
+            $data['state_revision']         = $state['state_revision'];
+            $data['freshness']              = $state['freshness'];
+            $data['rate_provenance']        = $state['rate_provenance'];
+        }
+
+        return $data;
     }
 
     public function export($payload) {
@@ -187,8 +207,8 @@ class Digitalogic_Command_Dispatcher {
         $product_ids = isset( $payload['product_ids'] ) && is_array( $payload['product_ids'] )
             ? array_map( 'intval', $payload['product_ids'] )
             : array();
-        $locale   = isset( $payload['locale'] ) ? sanitize_key( $payload['locale'] ) : 'en';
-        $template = ! empty( $payload['template'] );
+        $locale      = isset( $payload['locale'] ) ? sanitize_key( $payload['locale'] ) : 'en';
+        $template    = ! empty( $payload['template'] );
 
         $import_export = Digitalogic_Import_Export::instance();
         if ($format === 'json') {
@@ -202,7 +222,7 @@ class Digitalogic_Command_Dispatcher {
                 )
             );
         } else {
-            $format = 'csv';
+            $format   = 'csv';
             $filepath = $import_export->export_csv( $product_ids );
         }
 
@@ -222,14 +242,14 @@ class Digitalogic_Command_Dispatcher {
     }
 
     public function get_logs($payload) {
-        $page = isset( $payload['page'] ) ? max( 1, intval( $payload['page'] ) ) : 1;
-        $limit = isset( $payload['limit'] ) ? max( 1, min( 200, intval( $payload['limit'] ) ) ) : 50;
+        $page   = isset( $payload['page'] ) ? max( 1, intval( $payload['page'] ) ) : 1;
+        $limit  = isset( $payload['limit'] ) ? max( 1, min( 200, intval( $payload['limit'] ) ) ) : 50;
         $offset = ($page - 1) * $limit;
 
         return array(
             'logs' => Digitalogic_Logger::instance()->get_logs(
                 array(
-                'limit' => $limit,
+                'limit'  => $limit,
                 'offset' => $offset,
                 )
             ),
@@ -242,7 +262,7 @@ class Digitalogic_Command_Dispatcher {
 
     public function update_patris_settings($payload) {
         return array(
-            'settings' => Digitalogic_Patris_Feed::instance()->update_settings( $payload ),
+            'settings'   => Digitalogic_Patris_Feed::instance()->update_settings( $payload ),
             'push_token' => Digitalogic_Patris_Feed::instance()->get_push_token(),
         );
     }
@@ -255,6 +275,78 @@ class Digitalogic_Command_Dispatcher {
 		return Digitalogic_Shipping_Method_Service::instance()->get_default_percentage_markup();
     }
 
+    /**
+     * Return the public shared-profit-margin contract.
+     *
+     * @param array $payload Request payload (unused).
+     * @return array|WP_Error
+     */
+    public function get_profit_margin($payload = array()) {
+        unset($payload);
+        $stored = Digitalogic_Shipping_Method_Service::instance()->get_default_percentage_markup();
+        if (is_wp_error($stored)) {
+            return $stored;
+        }
+
+        return array(
+            'configured'            => !empty($stored['configured']),
+            'profit_margin_percent' => $stored['profit_percent'],
+            'revision'              => $stored['revision'],
+            'updated_at'            => $stored['updated_at'],
+        );
+    }
+
+    /**
+     * Update the one shared ecosystem profit margin.
+     *
+     * `profit_percent` is accepted only as the deprecated default-markup alias.
+     *
+     * @param mixed $payload Request payload.
+     * @return array|WP_Error
+     */
+    public function update_profit_margin($payload) {
+        if (!is_array($payload)) {
+            $payload = array();
+        }
+        $has_primary = array_key_exists('profit_margin_percent', $payload);
+        $has_legacy  = array_key_exists('profit_percent', $payload);
+        if (!$has_primary && !$has_legacy) {
+            return new WP_Error(
+                'digitalogic_profit_margin_required',
+                __('The profit_margin_percent field is required.', 'digitalogic'),
+                array('status' => 400)
+            );
+        }
+        if ($has_primary && $has_legacy && (string) $payload['profit_margin_percent'] !== (string) $payload['profit_percent']) {
+            return new WP_Error(
+                'digitalogic_profit_margin_alias_conflict',
+                __('profit_margin_percent and deprecated profit_percent must be exactly equivalent.', 'digitalogic'),
+                array('status' => 400)
+            );
+        }
+
+        $result = Digitalogic_Pricing_Coordinator::instance()->update_profit_margin(
+            $has_primary ? $payload['profit_margin_percent'] : $payload['profit_percent'],
+            'command_dispatcher'
+        );
+        if (is_wp_error($result)) {
+            return $result;
+        }
+
+        $state = $this->get_profit_margin();
+        if (is_wp_error($state)) {
+            return $state;
+        }
+        $state['changed'] = !empty($result['settings_changed']);
+        if ($has_legacy && !$has_primary) {
+            $state['deprecated_input'] = array(
+                'profit_percent' => 'profit_margin_percent',
+            );
+        }
+
+        return $state;
+    }
+
     public function update_default_percentage_markup($payload) {
         if (!is_array( $payload ) || !array_key_exists( 'profit_percent', $payload )) {
             return new WP_Error(
@@ -264,8 +356,9 @@ class Digitalogic_Command_Dispatcher {
             );
         }
 
-		return Digitalogic_Shipping_Method_Service::instance()->update_default_percentage_markup(
-            $payload['profit_percent']
+		return Digitalogic_Pricing_Coordinator::instance()->update_profit_margin(
+            $payload['profit_percent'],
+            'command_dispatcher'
         );
     }
 
@@ -287,7 +380,7 @@ class Digitalogic_Command_Dispatcher {
     }
 
 	public function create_shipping_method($payload) {
-        $data = isset( $payload['method'] ) && is_array( $payload['method'] ) ? $payload['method'] : $payload;
+        $data   = isset( $payload['method'] ) && is_array( $payload['method'] ) ? $payload['method'] : $payload;
 		$result = Digitalogic_Shipping_Method_Service::instance()->create_method( $data );
 		if (!is_wp_error( $result )) {
 			$result = Digitalogic_Shipping_Method_Service::instance()->present_method( $result );
@@ -303,8 +396,8 @@ class Digitalogic_Command_Dispatcher {
     }
 
 	public function update_shipping_method($payload) {
-        $id = isset( $payload['id'] ) ? $payload['id'] : '';
-        $data = isset( $payload['method'] ) && is_array( $payload['method'] ) ? $payload['method'] : $payload;
+        $id     = isset( $payload['id'] ) ? $payload['id'] : '';
+        $data   = isset( $payload['method'] ) && is_array( $payload['method'] ) ? $payload['method'] : $payload;
 		$result = Digitalogic_Shipping_Method_Service::instance()->update_method( $id, $data );
 		if (!is_wp_error( $result )) {
 			$result = Digitalogic_Shipping_Method_Service::instance()->present_method( $result );
@@ -337,7 +430,7 @@ class Digitalogic_Command_Dispatcher {
 	}
 
 	public function get_product_pricing( $payload ) {
-		$code = is_array($payload) && array_key_exists('code', $payload)
+		$code  = is_array($payload) && array_key_exists('code', $payload)
 			? $payload['code']
 			: '';
 		$batch = Digitalogic_Shipping_Method_Service::instance()->get_product_assignments_by_codes(array($code));
@@ -404,16 +497,16 @@ class Digitalogic_Command_Dispatcher {
             define( 'DOING_AJAX', true );
         }
 
-        $old_post = $_POST;
-        $old_get = $_GET;
+        $old_post    = $_POST;
+        $old_get     = $_GET;
         $old_request = $_REQUEST;
-        $old_files = $_FILES;
-        $_FILES = array();
+        $old_files   = $_FILES;
+        $_FILES      = array();
 
-        $request = $this->normalize_ajax_payload( $payload );
+        $request           = $this->normalize_ajax_payload( $payload );
         $request['action'] = $command;
-        $_POST = $request;
-        $_REQUEST = array_merge( $_GET, $_POST );
+        $_POST             = $request;
+        $_REQUEST          = array_merge( $_GET, $_POST );
 
         $die_handler = function($message, $title = '', $args = array()) {
             throw new Digitalogic_Ajax_Die_Exception( $message, $title, $args );
@@ -422,7 +515,7 @@ class Digitalogic_Command_Dispatcher {
         $ajax_die_filter = function() use ($die_handler) {
             return $die_handler;
         };
-        $die_filter = function() use ($die_handler) {
+        $die_filter      = function() use ($die_handler) {
             return $die_handler;
         };
 
@@ -442,7 +535,7 @@ class Digitalogic_Command_Dispatcher {
                 return $this->parse_ajax_output( $output );
             }
 
-            $args = $e->get_args();
+            $args   = $e->get_args();
             $status = isset( $args['response'] ) && $args['response'] ? (int) $args['response'] : 500;
 
             return new WP_Error( 'digitalogic_ajax_die', $e->getMessage(), array('status' => $status) );
@@ -508,10 +601,10 @@ class Digitalogic_Command_Dispatcher {
     }
 
     private function restore_request_globals($post, $get, $request, $files) {
-        $_POST = $post;
-        $_GET = $get;
+        $_POST    = $post;
+        $_GET     = $get;
         $_REQUEST = $request;
-        $_FILES = $files;
+        $_FILES   = $files;
     }
 
     public static function normalize_command_name($command) {
@@ -556,15 +649,15 @@ class Digitalogic_Command_Dispatcher {
             } elseif ($key === 'category_ids') {
                 $sanitized[$key] = is_array( $value ) ? array_values( array_filter( array_map( 'absint', $value ) ) ) : array();
             } elseif ($key === 'status') {
-                $status = sanitize_key( $value );
+                $status          = sanitize_key( $value );
                 $sanitized[$key] = in_array( $status, array('publish', 'draft', 'pending', 'private'), true ) ? $status : 'draft';
             } elseif ($key === 'stock_status') {
-                $stock_status = sanitize_key( $value );
+                $stock_status    = sanitize_key( $value );
                 $sanitized[$key] = in_array( $stock_status, array('instock', 'outofstock', 'onbackorder'), true ) ? $stock_status : 'instock';
             } elseif ($key === 'manage_stock') {
                 $sanitized[$key] = filter_var( $value, FILTER_VALIDATE_BOOLEAN );
             } else {
-                $numeric_value = is_string( $value ) ? str_replace( array(',', '٬', '،', ' '), '', $value ) : $value;
+                $numeric_value   = is_string( $value ) ? str_replace( array(',', '٬', '،', ' '), '', $value ) : $value;
                 $sanitized[$key] = is_numeric( $numeric_value ) ? $numeric_value : sanitize_text_field( (string) $value );
             }
         }

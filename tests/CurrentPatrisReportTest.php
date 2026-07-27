@@ -213,8 +213,8 @@ final class CurrentPatrisReportTest extends TestCase {
 		$this->assertNotContains( 'stock_drift', $row['issues'] );
 	}
 
-	/** Out-of-stock operational zeroing is not a false price drift. */
-	public function test_expected_out_of_stock_price_zero_and_store_weight_are_current(): void {
+	/** Zero/negative stock never changes the expected canonical selling price. */
+	public function test_out_of_stock_and_negative_stock_keep_canonical_price_current(): void {
 		$updated_at = gmdate( 'c' );
 		$source     = array(
 			'product_code'                   => 'CURRENT-0',
@@ -232,14 +232,24 @@ final class CurrentPatrisReportTest extends TestCase {
 			'warnings'                       => array(),
 			'record_hash'                    => 'sha256:current-zero',
 		);
-		$this->store_source( array( 'CURRENT-0' => $source ) );
+		$negative_source                = $source;
+		$negative_source['product_code'] = 'CURRENT-NEG';
+		$negative_source['total_stock']  = -3;
+		$negative_source['record_hash']  = 'sha256:current-negative';
+		$this->store_source(
+			array(
+				'CURRENT-0'   => $source,
+				'CURRENT-NEG' => $negative_source,
+			)
+		);
 		$GLOBALS['digitalogic_test_posts'][301] = $this->woo_post(
 			'simple',
 			'Current zero-stock product',
 			array(
 				'_digitalogic_patris_product_code' => 'CURRENT-0',
-				'_regular_price'                   => '0',
-				'_price'                           => '0',
+				'_regular_price'                   => '4680000',
+				'_price'                           => '4680000',
+				'_sale_price'                      => '',
 				'_stock'                           => 0,
 				'_manage_stock'                    => 'yes',
 				'_stock_status'                    => 'outofstock',
@@ -251,15 +261,36 @@ final class CurrentPatrisReportTest extends TestCase {
 				'_digitalogic_patris_updated_at'   => $updated_at,
 			)
 		);
+		$GLOBALS['digitalogic_test_posts'][302] = $this->woo_post(
+			'simple',
+			'Current negative-stock product',
+			array(
+				'_digitalogic_patris_product_code' => 'CURRENT-NEG',
+				'_regular_price'                   => '4680000',
+				'_price'                           => '4680000',
+				'_sale_price'                      => '',
+				'_stock'                           => -3,
+				'_manage_stock'                    => 'yes',
+				'_stock_status'                    => 'outofstock',
+				'_weight'                          => '1',
+				'_digitalogic_patris_final_price'  => '4680000',
+				'_digitalogic_patris_total_stock'  => '-3',
+				'_digitalogic_patris_weight_grams' => '1000',
+				'_digitalogic_patris_record_hash'  => 'sha256:current-negative',
+				'_digitalogic_patris_updated_at'   => $updated_at,
+			)
+		);
 
 		$report = Digitalogic_Report_Engine::instance()->get_report( array( 'view' => 'price_list' ) );
-		$row    = $this->find_row( $report['rows'], 'CURRENT-0', 'matched' );
-		$this->assertContains( 'zero_stock', $row['issues'] );
-		$this->assertNotContains( 'price_drift', $row['issues'] );
-		$this->assertNotContains( 'stock_drift', $row['issues'] );
-		$this->assertNotContains( 'stock_management_drift', $row['issues'] );
-		$this->assertNotContains( 'stock_status_drift', $row['issues'] );
-		$this->assertNotContains( 'weight_drift', $row['issues'] );
+		foreach ( array( 'CURRENT-0', 'CURRENT-NEG' ) as $product_code ) {
+			$row = $this->find_row( $report['rows'], $product_code, 'matched' );
+			$this->assertContains( 'zero_stock', $row['issues'] );
+			$this->assertNotContains( 'price_drift', $row['issues'] );
+			$this->assertNotContains( 'stock_drift', $row['issues'] );
+			$this->assertNotContains( 'stock_management_drift', $row['issues'] );
+			$this->assertNotContains( 'stock_status_drift', $row['issues'] );
+			$this->assertNotContains( 'weight_drift', $row['issues'] );
+		}
 	}
 
 	/** Missing receiver state withholds reconciliation instead of inventing Woo-only findings. */

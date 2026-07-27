@@ -48,7 +48,7 @@ class Digitalogic_REST_API {
             return false;
         }
 
-        $request_uri = (string) $_SERVER['REQUEST_URI'];
+        $request_uri  = (string) $_SERVER['REQUEST_URI'];
         $request_path = parse_url($request_uri, PHP_URL_PATH);
         if (!is_string($request_path)) {
             return false;
@@ -106,8 +106,8 @@ class Digitalogic_REST_API {
         }
 
         $request_path = $this->normalize_request_path($request_path);
-        $base = $this->get_wordpress_base_path() . '/' . trim($rest_prefix, '/');
-        $report_path = $this->normalize_request_path($base . '/digitalogic/reports');
+        $base         = $this->get_wordpress_base_path() . '/' . trim($rest_prefix, '/');
+        $report_path  = $this->normalize_request_path($base . '/digitalogic/reports');
         if ($request_path === $report_path) {
             return true;
         }
@@ -134,8 +134,8 @@ class Digitalogic_REST_API {
      */
     private function request_path_targets_front_controller($request_path) {
         $request_path = $this->normalize_request_path($request_path);
-        $base_path = $this->get_wordpress_base_path();
-        $base_path = '' === $base_path ? '/' : $base_path;
+        $base_path    = $this->get_wordpress_base_path();
+        $base_path    = '' === $base_path ? '/' : $base_path;
 
         if ($request_path === $base_path) {
             return true;
@@ -200,14 +200,14 @@ class Digitalogic_REST_API {
     public function register_routes() {
         // Products endpoints
         register_rest_route('digitalogic/v1', '/products', array(
-            'methods' => 'GET',
-            'callback' => array($this, 'get_products'),
+            'methods'             => 'GET',
+            'callback'            => array($this, 'get_products'),
             'permission_callback' => array($this, 'check_read_permission')
         ));
         
         register_rest_route('digitalogic/v1', '/products/(?P<id>\d+)', array(
-            'methods' => 'GET',
-            'callback' => array($this, 'get_product'),
+            'methods'             => 'GET',
+            'callback'            => array($this, 'get_product'),
             'permission_callback' => array($this, 'check_read_permission')
         ));
 
@@ -222,8 +222,8 @@ class Digitalogic_REST_API {
 		);
         
         register_rest_route('digitalogic/v1', '/products/(?P<id>\d+)', array(
-            'methods' => 'PUT',
-            'callback' => array($this, 'update_product'),
+            'methods'             => 'PUT',
+            'callback'            => array($this, 'update_product'),
             'permission_callback' => array($this, 'check_write_permission')
         ));
 
@@ -258,35 +258,35 @@ class Digitalogic_REST_API {
 		);
         
         register_rest_route('digitalogic/v1', '/products/batch', array(
-            'methods' => 'POST',
-            'callback' => array($this, 'batch_update_products'),
+            'methods'             => 'POST',
+            'callback'            => array($this, 'batch_update_products'),
             'permission_callback' => array($this, 'check_write_permission')
         ));
         
         // Currency endpoints
         register_rest_route('digitalogic/v1', '/currency', array(
-            'methods' => 'GET',
-            'callback' => array($this, 'get_currency'),
+            'methods'             => 'GET',
+            'callback'            => array($this, 'get_currency'),
             'permission_callback' => array($this, 'check_read_permission')
         ));
         
         register_rest_route('digitalogic/v1', '/currency', array(
-            'methods' => 'POST',
-            'callback' => array($this, 'update_currency'),
+            'methods'             => 'POST',
+            'callback'            => array($this, 'update_currency'),
             'permission_callback' => array($this, 'check_write_permission')
         ));
         
         // Pricing endpoints
         register_rest_route('digitalogic/v1', '/pricing/recalculate', array(
-            'methods' => 'POST',
-            'callback' => array($this, 'recalculate_prices'),
+            'methods'             => 'POST',
+            'callback'            => array($this, 'recalculate_prices'),
             'permission_callback' => array($this, 'check_write_permission')
         ));
         
         // Export endpoint
         register_rest_route('digitalogic/v1', '/export', array(
-            'methods' => 'GET',
-            'callback' => array($this, 'export_products'),
+            'methods'             => 'GET',
+            'callback'            => array($this, 'export_products'),
             'permission_callback' => array($this, 'check_diagnostic_permission')
         ));
 
@@ -297,6 +297,23 @@ class Digitalogic_REST_API {
 				'methods'             => 'GET',
 				'callback'            => array( $this, 'get_google_sheets_catalog' ),
 				'permission_callback' => array( $this, 'check_read_permission' ),
+			)
+		);
+
+		register_rest_route(
+			'digitalogic/v1',
+			'/google-sheets/pricing-settings',
+			array(
+				array(
+					'methods'             => 'GET',
+					'callback'            => array( $this, 'get_google_sheets_pricing_settings' ),
+					'permission_callback' => array( $this, 'check_read_permission' ),
+				),
+				array(
+					'methods'             => 'POST',
+					'callback'            => array( $this, 'update_google_sheets_pricing_settings' ),
+					'permission_callback' => array( $this, 'check_write_permission' ),
+				),
 			)
 		);
 
@@ -313,26 +330,36 @@ class Digitalogic_REST_API {
 		}
 
         register_rest_route('digitalogic', '/reports', array(
-            'methods' => 'GET',
-            'callback' => array($this, 'get_reports'),
+            'methods'             => 'GET',
+            'callback'            => array($this, 'get_reports'),
             'permission_callback' => array($this, 'check_diagnostic_permission')
         ));
 
         // Living transformed-only Patris format. No raw-feed
         // aliases are registered for this integration surface.
         register_rest_route('digitalogic', '/patris/product-sync', array(
-            'methods' => 'POST',
-            'callback' => array($this, 'receive_patris_product_sync'),
+            'methods'             => 'POST',
+            'callback'            => array($this, 'receive_patris_product_sync'),
             'permission_callback' => array($this, 'check_patris_product_sync_permission')
         ));
 
-		foreach ( array( 'state', 'preview', 'apply' ) as $excel_sync_mode ) {
+		foreach ( array( 'state', 'preview', 'apply' ) as $pricing_sync_mode ) {
 			register_rest_route(
 				'digitalogic',
-				'/excel/pricing-sync/' . $excel_sync_mode,
+				'/pricing/sync/' . $pricing_sync_mode,
 				array(
 					'methods'             => 'POST',
-					'callback'            => array( $this, 'excel_pricing_sync_' . $excel_sync_mode ),
+					'callback'            => array( $this, 'pricing_sync_' . $pricing_sync_mode ),
+					'permission_callback' => array( $this, 'check_pricing_sync_permission' ),
+				)
+			);
+			// Compatibility alias for already-deployed workbook companions.
+			register_rest_route(
+				'digitalogic',
+				'/excel/pricing-sync/' . $pricing_sync_mode,
+				array(
+					'methods'             => 'POST',
+					'callback'            => array( $this, 'excel_pricing_sync_' . $pricing_sync_mode ),
 					'permission_callback' => array( $this, 'check_excel_pricing_sync_permission' ),
 				)
 			);
@@ -340,20 +367,32 @@ class Digitalogic_REST_API {
 
 		// Supplier shipping methods (not WooCommerce customer delivery methods).
 		register_rest_route('digitalogic', '/integration/catalog', array(
-            'methods' => 'GET',
-            'callback' => array($this, 'get_integration_catalog'),
+            'methods'             => 'GET',
+            'callback'            => array($this, 'get_integration_catalog'),
             'permission_callback' => array($this, 'check_pricing_input_permission'),
         ));
 
         register_rest_route('digitalogic/v1', '/pricing/default-markup', array(
             array(
-                'methods' => 'GET',
-                'callback' => array($this, 'get_default_percentage_markup'),
+                'methods'             => 'GET',
+                'callback'            => array($this, 'get_default_percentage_markup'),
                 'permission_callback' => array($this, 'check_read_permission'),
             ),
             array(
-                'methods' => 'PUT',
-                'callback' => array($this, 'update_default_percentage_markup'),
+                'methods'             => 'PUT',
+                'callback'            => array($this, 'update_default_percentage_markup'),
+                'permission_callback' => array($this, 'check_write_permission'),
+            ),
+        ));
+        register_rest_route('digitalogic/v1', '/pricing/profit-margin', array(
+            array(
+                'methods'             => 'GET',
+                'callback'            => array($this, 'get_profit_margin'),
+                'permission_callback' => array($this, 'check_read_permission'),
+            ),
+            array(
+                'methods'             => 'PUT',
+                'callback'            => array($this, 'update_profit_margin'),
                 'permission_callback' => array($this, 'check_write_permission'),
             ),
         ));
@@ -392,13 +431,13 @@ class Digitalogic_REST_API {
 		foreach ($collections as $route => $callbacks) {
 			register_rest_route('digitalogic/v1', $route, array(
 				array(
-					'methods' => 'GET',
-					'callback' => array($this, $callbacks[0]),
+					'methods'             => 'GET',
+					'callback'            => array($this, $callbacks[0]),
 					'permission_callback' => array($this, 'check_read_permission'),
 				),
 				array(
-					'methods' => 'POST',
-					'callback' => array($this, $callbacks[1]),
+					'methods'             => 'POST',
+					'callback'            => array($this, $callbacks[1]),
 					'permission_callback' => array($this, 'check_write_permission'),
 				),
 			));
@@ -414,18 +453,18 @@ class Digitalogic_REST_API {
 		foreach ($items as $route => $callbacks) {
 			register_rest_route('digitalogic/v1', $route, array(
 				array(
-					'methods' => 'GET',
-					'callback' => array($this, $callbacks[0]),
+					'methods'             => 'GET',
+					'callback'            => array($this, $callbacks[0]),
 					'permission_callback' => array($this, 'check_read_permission'),
 				),
 				array(
-					'methods' => 'PUT',
-					'callback' => array($this, $callbacks[1]),
+					'methods'             => 'PUT',
+					'callback'            => array($this, $callbacks[1]),
 					'permission_callback' => array($this, 'check_write_permission'),
 				),
 				array(
-					'methods' => 'DELETE',
-					'callback' => array($this, $callbacks[2]),
+					'methods'             => 'DELETE',
+					'callback'            => array($this, $callbacks[2]),
 					'permission_callback' => array($this, 'check_write_permission'),
 				),
 			));
@@ -440,21 +479,21 @@ class Digitalogic_REST_API {
 		foreach ($product_routes as $route => $callbacks) {
 			register_rest_route('digitalogic/v1', $route, array(
 				array(
-					'methods' => 'GET',
-					'callback' => array($this, $callbacks[0]),
+					'methods'             => 'GET',
+					'callback'            => array($this, $callbacks[0]),
 					'permission_callback' => array($this, 'check_read_permission'),
 				),
 				array(
-					'methods' => 'PUT',
-					'callback' => array($this, $callbacks[1]),
+					'methods'             => 'PUT',
+					'callback'            => array($this, $callbacks[1]),
 					'permission_callback' => array($this, 'check_write_permission'),
 				),
 			));
 		}
 
 		register_rest_route('digitalogic/v1', '/products/shipping-methods/batch', array(
-			'methods' => 'POST',
-			'callback' => array($this, 'batch_assign_product_shipping_methods'),
+			'methods'             => 'POST',
+			'callback'            => array($this, 'batch_assign_product_shipping_methods'),
 			'permission_callback' => array($this, 'check_write_permission'),
 		));
     }
@@ -568,7 +607,7 @@ class Digitalogic_REST_API {
     }
 
 	/**
-	 * Authenticate the exact Excel pricing-sync surface.
+	 * Authenticate the universal pricing-sync machine surface.
 	 *
 	 * Unlike the product receiver, this route never falls back to a human
 	 * session or WooCommerce key. The Patris secret must also have an exact
@@ -577,8 +616,18 @@ class Digitalogic_REST_API {
 	 * @param WP_REST_Request $request Current request.
 	 * @return true|WP_Error
 	 */
-	public function check_excel_pricing_sync_permission( WP_REST_Request $request ) {
+	public function check_pricing_sync_permission( WP_REST_Request $request ) {
 		return Digitalogic_Excel_Pricing_Sync::instance()->authorize( $request );
+	}
+
+	/**
+	 * Compatibility permission callback for the retired /excel route prefix.
+	 *
+	 * @param WP_REST_Request $request Current request.
+	 * @return true|WP_Error
+	 */
+	public function check_excel_pricing_sync_permission( WP_REST_Request $request ) {
+		return $this->check_pricing_sync_permission( $request );
 	}
 
     /**
@@ -589,14 +638,14 @@ class Digitalogic_REST_API {
         $result = Digitalogic_Product_Manager::instance()->query_products($params);
 
         return new WP_REST_Response(array(
-            'success' => true,
-            'data' => $result['products'],
-            'total' => $result['total'],
-            'recordsTotal' => $result['recordsTotal'],
+            'success'         => true,
+            'data'            => $result['products'],
+            'total'           => $result['total'],
+            'recordsTotal'    => $result['recordsTotal'],
             'recordsFiltered' => $result['recordsFiltered'],
-            'page' => $result['page'],
-            'limit' => $result['limit'],
-            'pages' => $result['pages'],
+            'page'            => $result['page'],
+            'limit'           => $result['limit'],
+            'pages'           => $result['pages'],
         ), 200);
     }
 
@@ -636,38 +685,144 @@ class Digitalogic_REST_API {
 	}
 
 	/**
-	 * POST /excel/pricing-sync/state
+	 * GET /google-sheets/pricing-settings
+	 *
+	 * @param WP_REST_Request $request REST request.
+	 * @return WP_REST_Response|WP_Error
+	 */
+	public function get_google_sheets_pricing_settings( WP_REST_Request $request ) {
+		unset( $request );
+		$state = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
+		if ( is_wp_error( $state ) ) {
+			return $state;
+		}
+
+		return new WP_REST_Response(
+			array(
+				'success' => true,
+				'data'    => $state,
+			),
+			200
+		);
+	}
+
+	/**
+	 * POST /google-sheets/pricing-settings
+	 *
+	 * Apply the complete four-field settings contract and all derived prices
+	 * in one transaction. The caller must compare the state revision first.
+	 *
+	 * @param WP_REST_Request $request REST request.
+	 * @return WP_REST_Response|WP_Error
+	 */
+	public function update_google_sheets_pricing_settings( WP_REST_Request $request ) {
+		$payload = $request->get_json_params();
+		if (
+			! is_array( $payload )
+			|| ! isset( $payload['expected_state_revision'] )
+			|| ! is_string( $payload['expected_state_revision'] )
+			|| 1 !== preg_match( '/\Asha256:[a-f0-9]{64}\z/D', $payload['expected_state_revision'] )
+		) {
+			return new WP_Error(
+				'digitalogic_pricing_expected_revision_required',
+				'پیش از اعمال تنظیمات قیمت، تازه‌ترین نسخهٔ تنظیمات را دریافت کنید.',
+				array( 'status' => 400 )
+			);
+		}
+		$settings = is_array( $payload ) && isset( $payload['settings'] ) && is_array( $payload['settings'] )
+			? $payload['settings']
+			: array();
+		$expected = $payload['expected_state_revision'];
+		$result   = Digitalogic_Excel_Pricing_Sync::instance()->apply_internal_settings(
+			$settings,
+			'google_sheets_settings',
+			$expected
+		);
+		if ( is_wp_error( $result ) ) {
+			return $result;
+		}
+
+		return new WP_REST_Response(
+			array(
+				'success' => true,
+				'data'    => $result,
+			),
+			200
+		);
+	}
+
+	/**
+	 * POST /pricing/sync/state
 	 *
 	 * @param WP_REST_Request $request REST request.
 	 * @return WP_REST_Response
 	 */
-	public function excel_pricing_sync_state( WP_REST_Request $request ) {
-		return $this->excel_pricing_sync_response(
+	public function pricing_sync_state( WP_REST_Request $request ) {
+		return $this->pricing_sync_response(
 			Digitalogic_Excel_Pricing_Sync::instance()->state( $request )
 		);
 	}
 
 	/**
-	 * POST /excel/pricing-sync/preview
+	 * POST /pricing/sync/preview
 	 *
 	 * @param WP_REST_Request $request REST request.
 	 * @return WP_REST_Response
 	 */
-	public function excel_pricing_sync_preview( WP_REST_Request $request ) {
-		return $this->excel_pricing_sync_response(
+	public function pricing_sync_preview( WP_REST_Request $request ) {
+		return $this->pricing_sync_response(
 			Digitalogic_Excel_Pricing_Sync::instance()->preview( $request )
 		);
 	}
 
 	/**
-	 * POST /excel/pricing-sync/apply
+	 * POST /pricing/sync/apply
+	 *
+	 * @param WP_REST_Request $request REST request.
+	 * @return WP_REST_Response
+	 */
+	public function pricing_sync_apply( WP_REST_Request $request ) {
+		return $this->pricing_sync_response(
+			Digitalogic_Excel_Pricing_Sync::instance()->apply( $request )
+		);
+	}
+
+	/**
+	 * Deprecated Excel-prefixed state alias.
+	 *
+	 * @param WP_REST_Request $request REST request.
+	 * @return WP_REST_Response
+	 */
+	public function excel_pricing_sync_state( WP_REST_Request $request ) {
+		return $this->deprecated_excel_pricing_sync_response(
+			Digitalogic_Excel_Pricing_Sync::instance()->state( $request ),
+			'state'
+		);
+	}
+
+	/**
+	 * Deprecated Excel-prefixed preview alias.
+	 *
+	 * @param WP_REST_Request $request REST request.
+	 * @return WP_REST_Response
+	 */
+	public function excel_pricing_sync_preview( WP_REST_Request $request ) {
+		return $this->deprecated_excel_pricing_sync_response(
+			Digitalogic_Excel_Pricing_Sync::instance()->preview( $request ),
+			'preview'
+		);
+	}
+
+	/**
+	 * Deprecated Excel-prefixed apply alias.
 	 *
 	 * @param WP_REST_Request $request REST request.
 	 * @return WP_REST_Response
 	 */
 	public function excel_pricing_sync_apply( WP_REST_Request $request ) {
-		return $this->excel_pricing_sync_response(
-			Digitalogic_Excel_Pricing_Sync::instance()->apply( $request )
+		return $this->deprecated_excel_pricing_sync_response(
+			Digitalogic_Excel_Pricing_Sync::instance()->apply( $request ),
+			'apply'
 		);
 	}
 
@@ -677,7 +832,7 @@ class Digitalogic_REST_API {
 	 * @param array|WP_Error $result Service result.
 	 * @return WP_REST_Response
 	 */
-	private function excel_pricing_sync_response( $result ) {
+	private function pricing_sync_response( $result ) {
 		if ( is_wp_error( $result ) ) {
 			$data    = $result->get_error_data();
 			$status  = is_array( $data ) && isset( $data['status'] ) ? (int) $data['status'] : 500;
@@ -698,6 +853,33 @@ class Digitalogic_REST_API {
 		return new WP_REST_Response( $result, 200 );
 	}
 
+	/**
+	 * Mark an Excel-prefixed compatibility response without breaking old clients.
+	 *
+	 * @param array|WP_Error $result Service result.
+	 * @param string         $mode   state, preview, or apply.
+	 * @return WP_REST_Response
+	 */
+	private function deprecated_excel_pricing_sync_response( $result, $mode ) {
+		if ( is_array( $result ) ) {
+			$legacy_schemas = array(
+				'state'   => Digitalogic_Excel_Pricing_Sync::LEGACY_STATE_SCHEMA,
+				'preview' => Digitalogic_Excel_Pricing_Sync::LEGACY_PREVIEW_SCHEMA,
+				'apply'   => Digitalogic_Excel_Pricing_Sync::LEGACY_APPLY_SCHEMA,
+			);
+			if ( isset( $legacy_schemas[ $mode ] ) ) {
+				$result['schema'] = $legacy_schemas[ $mode ];
+			}
+		}
+		$response = $this->pricing_sync_response( $result );
+		$response->header( 'Deprecation', 'true' );
+		$response->header(
+			'Link',
+			'</wp-json/digitalogic/pricing/sync/' . sanitize_key( (string) $mode ) . '>; rel="successor-version"'
+		);
+
+		return $response;
+	}
 	/**
 	 * POST /google-sheets/writeback/preview
 	 *
@@ -946,7 +1128,7 @@ class Digitalogic_REST_API {
         
         return new WP_REST_Response(array(
             'success' => true,
-            'data' => $results
+            'data'    => $results
         ), 200);
     }
     
@@ -956,7 +1138,7 @@ class Digitalogic_REST_API {
     public function get_currency(WP_REST_Request $request) {
         return new WP_REST_Response(array(
             'success' => true,
-            'data' => Digitalogic_Command_Dispatcher::instance()->get_currency()
+            'data'    => Digitalogic_Command_Dispatcher::instance()->get_currency()
         ), 200);
     }
     
@@ -965,20 +1147,25 @@ class Digitalogic_REST_API {
      */
     public function update_currency(WP_REST_Request $request) {
         $data = $request->get_json_params();
-        
-        $options = Digitalogic_Options::instance();
-        
-        if (isset($data['dollar_price'])) {
-            $options->set_dollar_price($data['dollar_price']);
+
+        $values = array();
+        foreach (array('dollar_price', 'yuan_price', 'effective_date', 'usd_effective_date', 'cny_effective_date') as $field) {
+            if (is_array($data) && array_key_exists($field, $data)) {
+                $values[$field] = $data[$field];
+            }
         }
-        
-        if (isset($data['yuan_price'])) {
-            $options->set_yuan_price($data['yuan_price']);
+        $result = Digitalogic_Pricing_Coordinator::instance()->update_currency(
+            $values,
+            'rest_currency'
+        );
+        if (is_wp_error($result)) {
+            return $result;
         }
         
         return new WP_REST_Response(array(
             'success' => true,
-            'message' => 'Currency rates updated'
+            'message' => 'نرخ‌های ارز و قیمت‌های ووکامرس هماهنگ شدند.',
+            'data'    => $result,
         ), 200);
     }
     
@@ -986,12 +1173,17 @@ class Digitalogic_REST_API {
      * POST /pricing/recalculate
      */
     public function recalculate_prices(WP_REST_Request $request) {
-        $pricing = Digitalogic_Pricing::instance();
-        $results = $pricing->bulk_recalculate_prices();
+        unset($request);
+        $results = Digitalogic_Pricing_Coordinator::instance()->reconcile_current(
+            'rest_pricing_recalculate'
+        );
+        if (is_wp_error($results)) {
+            return $results;
+        }
         
         return new WP_REST_Response(array(
             'success' => true,
-            'data' => $results
+            'data'    => $results
         ), 200);
     }
     
@@ -1028,12 +1220,12 @@ class Digitalogic_REST_API {
         }
         
         $upload_dir = wp_upload_dir();
-        $file_url = str_replace($upload_dir['basedir'], $upload_dir['baseurl'], $filepath);
+        $file_url   = str_replace($upload_dir['basedir'], $upload_dir['baseurl'], $filepath);
         
         return new WP_REST_Response(array(
             'success' => true,
-            'data' => array(
-                'url' => $file_url,
+            'data'    => array(
+                'url'    => $file_url,
                 'format' => $format
             )
         ), 200);
@@ -1047,7 +1239,7 @@ class Digitalogic_REST_API {
 
         return new WP_REST_Response(array(
             'success' => true,
-            'data' => $report,
+            'data'    => $report,
         ), 200);
     }
 
@@ -1059,10 +1251,10 @@ class Digitalogic_REST_API {
      * body so proxies cannot accidentally pair stale metadata with new JSON.
      */
     public function receive_patris_product_sync(WP_REST_Request $request) {
-        $payload = $request->get_json_params();
+        $payload         = $request->get_json_params();
         $header_contract = $request->get_header('x-patris-contract');
         $header_event_id = $request->get_header('x-patris-event-id');
-        $header_checks = array(
+        $header_checks   = array(
             'x-patris-contract' => array($header_contract, is_array($payload) ? ($payload['schema'] ?? null) : null),
             'x-patris-event-id' => array($header_event_id, is_array($payload) ? ($payload['event_id'] ?? null) : null),
         );
@@ -1076,7 +1268,7 @@ class Digitalogic_REST_API {
             if (!is_string($provided) || !is_string($expected) || !hash_equals($provided, $expected)) {
                 return new WP_REST_Response(array(
                     'success' => false,
-                    'code' => 'digitalogic_product_sync_header_mismatch',
+                    'code'    => 'digitalogic_product_sync_header_mismatch',
                     'message' => 'Patris identity headers must match the product-sync body.',
                     'details' => array('header' => $header),
                 ), 400);
@@ -1099,14 +1291,40 @@ class Digitalogic_REST_API {
     }
 
     public function get_default_percentage_markup(WP_REST_Request $request) {
-		return $this->shipping_method_response(
+		$response = $this->shipping_method_response(
             Digitalogic_Command_Dispatcher::instance()->get_default_percentage_markup($request->get_params())
         );
+		return $this->deprecated_default_markup_response($response);
     }
 
     public function update_default_percentage_markup(WP_REST_Request $request) {
-		return $this->shipping_method_response(
+		$response = $this->shipping_method_response(
             Digitalogic_Command_Dispatcher::instance()->update_default_percentage_markup($this->request_payload($request))
+        );
+		return $this->deprecated_default_markup_response($response);
+    }
+
+    /**
+     * GET /pricing/profit-margin.
+     *
+     * @param WP_REST_Request $request REST request.
+     * @return WP_REST_Response
+     */
+    public function get_profit_margin(WP_REST_Request $request) {
+		return $this->shipping_method_response(
+            Digitalogic_Command_Dispatcher::instance()->get_profit_margin($request->get_params())
+        );
+    }
+
+    /**
+     * PUT /pricing/profit-margin.
+     *
+     * @param WP_REST_Request $request REST request.
+     * @return WP_REST_Response
+     */
+    public function update_profit_margin(WP_REST_Request $request) {
+		return $this->shipping_method_response(
+            Digitalogic_Command_Dispatcher::instance()->update_profit_margin($this->request_payload($request))
         );
     }
 
@@ -1132,7 +1350,7 @@ class Digitalogic_REST_API {
 	public function update_shipping_method(WP_REST_Request $request) {
 		return $this->shipping_method_response(
 			Digitalogic_Command_Dispatcher::instance()->update_shipping_method(array(
-				'id' => $request['id'],
+				'id'     => $request['id'],
 				'method' => $this->request_payload($request),
 			))
 		);
@@ -1151,7 +1369,7 @@ class Digitalogic_REST_API {
 	}
 
 	public function assign_product_shipping_method(WP_REST_Request $request) {
-		$payload = $this->request_payload($request);
+		$payload         = $this->request_payload($request);
 		$payload['code'] = $request['code'];
 
 		return $this->shipping_method_response(
@@ -1194,11 +1412,11 @@ class Digitalogic_REST_API {
 	private function shipping_method_response($result, $success_status = 200) {
         if (is_wp_error($result)) {
             $details = $result->get_error_data();
-            $status = is_array($details) && isset($details['status']) ? (int) $details['status'] : 400;
+            $status  = is_array($details) && isset($details['status']) ? (int) $details['status'] : 400;
 
             return new WP_REST_Response(array(
                 'success' => false,
-                'code' => $result->get_error_code(),
+                'code'    => $result->get_error_code(),
                 'message' => $result->get_error_message(),
                 'details' => $details,
             ), $status);
@@ -1207,14 +1425,30 @@ class Digitalogic_REST_API {
         return new WP_REST_Response(array('success' => true, 'data' => $result), $success_status);
     }
 
+	/**
+	 * Mark the old default-markup route as an exact deprecated alias.
+	 *
+	 * @param WP_REST_Response $response Prepared response.
+	 * @return WP_REST_Response
+	 */
+	private function deprecated_default_markup_response( WP_REST_Response $response ) {
+		$response->header( 'Deprecation', 'true' );
+		$response->header(
+			'Link',
+			'</wp-json/digitalogic/v1/pricing/profit-margin>; rel="successor-version"'
+		);
+
+		return $response;
+	}
+
     private function product_sync_response($result) {
         if (is_wp_error($result)) {
             $details = $result->get_error_data();
-            $status = is_array($details) && isset($details['status']) ? (int) $details['status'] : 400;
+            $status  = is_array($details) && isset($details['status']) ? (int) $details['status'] : 400;
 
             return new WP_REST_Response(array(
                 'success' => false,
-                'code' => $result->get_error_code(),
+                'code'    => $result->get_error_code(),
                 'message' => $result->get_error_message(),
                 'details' => $details,
             ), $status);

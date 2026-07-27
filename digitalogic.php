@@ -3,7 +3,7 @@
  * Plugin Name: Digitalogic WooCommerce Extension
  * Plugin URI: https://github.com/atomicdeploy/digitalogic-wp
  * Description: Custom dynamic pricing, stock manager, and POS integration for Digitalogic electronic components shop. Supports bulk operations, import/export, and external API integration.
- * Version: 1.8.1
+ * Version: 1.8.3
  * Author: Digitalogic
  * Author URI: https://digitalogic.ir
  * Text Domain: digitalogic
@@ -22,9 +22,10 @@ if (!defined('ABSPATH')) {
 }
 
 // Define plugin constants
-define( 'DIGITALOGIC_VERSION', '1.8.1' );
+define( 'DIGITALOGIC_VERSION', '1.8.3' );
 define( 'DIGITALOGIC_PBX_SCHEMA_VERSION', '3' );
 define( 'DIGITALOGIC_EVENT_MESH_SCHEMA_VERSION', '1' );
+define( 'DIGITALOGIC_ASSISTANT_ACCOUNT_SCHEMA_VERSION', '2' );
 define('DIGITALOGIC_MIN_PHP_VERSION', '8.3');
 define('DIGITALOGIC_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('DIGITALOGIC_PLUGIN_URL', plugin_dir_url(__FILE__));
@@ -129,6 +130,7 @@ final class Digitalogic {
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-product-supplier-links.php';
 		require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-product-metadata-inspector.php';
 		require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-product-write-lock.php';
+        require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-patris-price-write-guard.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-pricing-input-credential.php'; // phpcs:ignore
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-patris-feed.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-product-sync-receiver.php';
@@ -137,6 +139,7 @@ final class Digitalogic {
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-google-sheets-catalog.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-google-sheets-writeback.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-excel-pricing-sync.php';
+        require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-pricing-coordinator.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-report-engine.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-command-dispatcher.php';
 
@@ -152,6 +155,7 @@ final class Digitalogic {
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-admin-branding.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-label-overrides.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-auth-page.php';
+        require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-telegram-account-link.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-digitalogic-sidebar-login.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-desktop-app.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-digitalogic-event-mesh.php';
@@ -204,6 +208,13 @@ final class Digitalogic {
      * Initialize plugin
      */
     public function init() {
+        if ( DIGITALOGIC_ASSISTANT_ACCOUNT_SCHEMA_VERSION !== (string) get_option( 'digitalogic_assistant_account_schema_version', '' ) ) {
+            Digitalogic_Telegram_Account_Link::install();
+        }
+        // Keep retention, account-deletion cleanup, and WordPress privacy hooks
+        // registered even while WooCommerce-dependent operations are unavailable.
+        Digitalogic_Telegram_Account_Link::instance();
+
         // Check if WooCommerce is active
         if (!class_exists('WooCommerce')) {
             add_action('admin_notices', array($this, 'woocommerce_missing_notice'));
@@ -223,6 +234,7 @@ final class Digitalogic {
         Digitalogic_WooCommerce_Currency_Status::instance();
         Digitalogic_Logger::instance();
 		Digitalogic_Product_Write_Lock::instance();
+        Digitalogic_Patris_Price_Write_Guard::instance();
         Digitalogic_Product_Manager::instance();
         Digitalogic_Product_Supplier_Links::instance();
         Digitalogic_Pricing::instance();
@@ -232,6 +244,7 @@ final class Digitalogic {
         Digitalogic_Google_Sheets_Catalog::instance();
         Digitalogic_Google_Sheets_Writeback::instance();
         Digitalogic_Excel_Pricing_Sync::instance();
+        Digitalogic_Pricing_Coordinator::instance();
         Digitalogic_Report_Engine::instance();
         Digitalogic_Command_Dispatcher::instance();
         Digitalogic_WebSocket::instance();
@@ -318,6 +331,8 @@ final class Digitalogic {
 		$this->create_tables();
 		$this->install_pbx_schema();
 		Digitalogic_Event_Mesh::install();
+		Digitalogic_Telegram_Account_Link::install();
+		Digitalogic_Telegram_Account_Link::register_account_endpoint();
 
         // Set default options
         $this->set_default_options();
@@ -351,6 +366,7 @@ final class Digitalogic {
      * Plugin deactivation
      */
     public function deactivate() {
+        Digitalogic_Telegram_Account_Link::deactivate();
         flush_rewrite_rules();
     }
 

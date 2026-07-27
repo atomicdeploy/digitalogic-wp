@@ -14,10 +14,10 @@ if ( ! defined( 'ABSPATH' ) ) {
  */
 final class Digitalogic_Report_Engine {
 
-	private const MAX_SOURCE_PRODUCTS = 10000;
-	private const MAX_WOO_PRODUCTS    = 10000;
-	private const WOO_BATCH_SIZE      = 100;
-	private const MAX_PAGE_SIZE       = 100;
+	private const MAX_SOURCE_PRODUCTS  = 10000;
+	private const MAX_WOO_PRODUCTS     = 10000;
+	private const WOO_BATCH_SIZE       = 100;
+	private const MAX_PAGE_SIZE        = 100;
 	private const CACHE_GROUP          = 'digitalogic_reports';
 	private const CACHE_TTL            = 300;
 	private const CACHE_GENERATION_KEY = 'generation-v1';
@@ -35,8 +35,8 @@ final class Digitalogic_Report_Engine {
 	 *
 	 * @var string
 	 */
-	private $build_lock_token = '';
-	private $active_build_lock_key = '';
+	private $build_lock_token       = '';
+	private $active_build_lock_key  = '';
 	private $local_cache_generation = 'initial';
 
 	/** Register every source mutation that can make a report stale. */
@@ -127,6 +127,56 @@ final class Digitalogic_Report_Engine {
 	}
 
 	/**
+	 * Return one exact product from the same current source selection used by reports.
+	 *
+	 * This read-only helper lets mutation adapters prove that a uniquely resolved
+	 * Woo leaf is still a current matched row before accepting a write.
+	 *
+	 * @param string $product_code Exact Product Code, including leading zeros.
+	 * @return array|WP_Error
+	 */
+	public function get_current_source_product( $product_code ) {
+		if ( ! is_string( $product_code ) || '' === $product_code ) {
+			return new WP_Error(
+				'digitalogic_report_product_code_invalid',
+				__( 'An exact Product Code is required.', 'digitalogic' ),
+				array( 'status' => 400 )
+			);
+		}
+
+		$args      = $this->normalize_args( array( 'view' => 'price_list' ) );
+		$selection = $this->select_source_state( $args );
+		if ( ! in_array( $selection['status'], array( 'current', 'static' ), true ) ) {
+			return new WP_Error(
+				'digitalogic_report_source_unavailable',
+				__( 'The current source state is unavailable.', 'digitalogic' ),
+				array( 'status' => 409 )
+			);
+		}
+
+		$products = is_array( $selection['state']['products'] ?? null )
+			? $selection['state']['products']
+			: array();
+		$product  = $products[ $product_code ] ?? null;
+		if (
+			! is_array( $product )
+			|| ! is_string( $product['product_code'] ?? null )
+			|| $product_code !== $product['product_code']
+		) {
+			return new WP_Error(
+				'digitalogic_report_product_not_in_current_source',
+				__( 'The Product Code is not present in the current source state.', 'digitalogic' ),
+				array( 'status' => 409 )
+			);
+		}
+
+		return array(
+			'source'  => $selection['source'],
+			'product' => $product,
+		);
+	}
+
+	/**
 	 * Compare one already-validated static envelope without mutating receiver state.
 	 *
 	 * The receiver owns validation. This method only projects its canonical,
@@ -163,7 +213,7 @@ final class Digitalogic_Report_Engine {
 		}
 		ksort( $products, SORT_STRING );
 
-		$state = array(
+		$state  = array(
 			'source'          => $envelope['source'],
 			'generated_at'    => $envelope['generated_at'] ?? '',
 			'last_event_id'   => $envelope['event_id'] ?? '',
@@ -207,16 +257,28 @@ final class Digitalogic_Report_Engine {
 	 * @return array
 	 */
 	private function build_report( $args, $selection ) {
-		$state       = $selection['state'];
-		$source      = $selection['source'];
-		$products    = is_array( $state['products'] ?? null ) ? $state['products'] : array();
-		$truncated   = count( $products ) > self::MAX_SOURCE_PRODUCTS;
-		$products    = array_slice( $products, 0, self::MAX_SOURCE_PRODUCTS, true );
-		$settings    = Digitalogic_Patris_Feed::instance()->get_settings();
-		$stale_hours = max( 1, absint( $settings['stale_after_hours'] ?? 48 ) );
-		$woo_result  = $this->get_woocommerce_products();
-		$woo_rows    = $woo_result['products'];
-		$woo_by_code = array();
+		$state             = $selection['state'];
+		$source            = $selection['source'];
+		$products          = is_array( $state['products'] ?? null ) ? $state['products'] : array();
+		$truncated         = count( $products ) > self::MAX_SOURCE_PRODUCTS;
+		$products          = array_slice( $products, 0, self::MAX_SOURCE_PRODUCTS, true );
+		$settings          = Digitalogic_Patris_Feed::instance()->get_settings();
+		$stale_hours       = max( 1, absint( $settings['stale_after_hours'] ?? 48 ) );
+		$woo_result        = $this->get_woocommerce_products();
+		$woo_rows          = $woo_result['products'];
+		$snapshot_revision = 'sha256:' . hash(
+			'sha256',
+			wp_json_encode(
+				array(
+					'generation'  => $this->cache_generation(),
+					'source'      => $source,
+					'products'    => $products,
+					'woocommerce' => $woo_rows,
+				),
+				JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+			)
+		);
+		$woo_by_code       = array();
 
 		foreach ( $woo_rows as $woo ) {
 			if ( ! isset( $woo['product_code'] ) || '' === $woo['product_code'] ) {
@@ -367,42 +429,44 @@ final class Digitalogic_Report_Engine {
 		}
 
 		$report = array(
-			'generated_at' => current_time( 'mysql' ),
-			'status'       => $selection['status'],
-			'brand'        => array(
+			'generated_at'      => current_time( 'mysql' ),
+			'snapshot_revision' => $snapshot_revision,
+			'status'            => $selection['status'],
+			'brand'             => array(
 				'en' => 'Digitalogic',
 				'fa' => 'دیجیتالاجیک',
 			),
-			'view'         => $args['view'],
-			'counts'       => array(
-				'woocommerce_products'      => count( $woo_rows ),
-				'patris_products'           => count( $products ),
-				'matched_products'          => $matched,
-				'source_only_products'      => $source_only,
+			'view'              => $args['view'],
+			'counts'            => array(
+				'woocommerce_products_raw'      => count( $woo_rows ) + $woo_result['variable_parents_excluded'],
+				'woocommerce_products'          => count( $woo_rows ),
+				'patris_products'               => count( $products ),
+				'matched_products'              => $matched,
+				'source_only_products'          => $source_only,
 				'positive_source_only_products' => $positive_only,
-				'woocommerce_only_products' => $woo_only,
-				'ambiguous_codes'           => $ambiguous,
-				'warning_products'          => $warning_products,
-				'drift_products'            => $drift_products,
-				'variable_parents_excluded' => $woo_result['variable_parents_excluded'],
+				'woocommerce_only_products'     => $woo_only,
+				'ambiguous_codes'               => $ambiguous,
+				'warning_products'              => $warning_products,
+				'drift_products'                => $drift_products,
+				'variable_parents_excluded'     => $woo_result['variable_parents_excluded'],
 			),
-			'pagination'   => array(
+			'pagination'        => array(
 				'page'     => $page,
 				'per_page' => $args['per_page'],
 				'total'    => $total,
 				'pages'    => $pages,
 			),
-			'limits'       => array(
+			'limits'            => array(
 				'max_source_products'      => self::MAX_SOURCE_PRODUCTS,
 				'max_woocommerce_products' => self::MAX_WOO_PRODUCTS,
 				'source_truncated'         => $truncated,
 				'woocommerce_truncated'    => $woo_result['truncated'],
 			),
-			'filters'      => array(
+			'filters'           => array(
 				'category' => $args['category'],
 			),
-			'rows'         => $page_rows,
-			'categories'   => array_values( $categories ),
+			'rows'              => $page_rows,
+			'categories'        => array_values( $categories ),
 		);
 
 		if ( ! empty( $source ) ) {
@@ -631,7 +695,7 @@ final class Digitalogic_Report_Engine {
 			'source_id' => (string) $args['source_id'],
 			'dataset'   => (string) $args['dataset'],
 		);
-		$json = function_exists( 'wp_json_encode' ) ? wp_json_encode( $shape ) : json_encode( $shape );
+		$json  = function_exists( 'wp_json_encode' ) ? wp_json_encode( $shape ) : json_encode( $shape );
 
 		return 'current-v3-' . md5( (string) $json );
 	}
@@ -1120,21 +1184,20 @@ final class Digitalogic_Report_Engine {
 	private function append_drift_issues( &$row, $source, $woo ) {
 		$canonical = is_array( $woo['canonical'] ?? null ) ? $woo['canonical'] : array();
 
-		if ( array_key_exists( 'final_price', $source ) && null !== $source['final_price'] ) {
-			$stock_unavailable  = array_key_exists( 'total_stock', $source )
-				&& null !== $source['total_stock']
-				&& is_numeric( $source['total_stock'] )
-				&& $this->decimal_compare_zero( $source['total_stock'] ) <= 0;
-			$expected_woo_price = $this->decimal_compare_zero( $source['final_price'] ) <= 0 || $stock_unavailable
-				? '0'
-				: $source['final_price'];
-			$price_fields = array();
+		if (
+			array_key_exists( 'final_price', $source )
+			&& null !== $source['final_price']
+			&& is_numeric( $source['final_price'] )
+			&& $this->decimal_compare_zero( $source['final_price'] ) > 0
+		) {
+			$expected_woo_price = $source['final_price'];
+			$price_fields       = array();
 			foreach ( array( 'regular_price', 'active_price' ) as $field ) {
 				if ( ! $this->values_equal( $expected_woo_price, $woo[ $field ] ) ) {
 					$price_fields[] = $field;
 				}
 			}
-			if ( '' !== $woo['sale_price'] && ! $this->values_equal( $expected_woo_price, $woo['sale_price'] ) ) {
+			if ( '' !== trim( (string) $woo['sale_price'] ) ) {
 				$price_fields[] = 'sale_price';
 			}
 			if ( ! array_key_exists( 'final_price', $canonical ) || ! $this->values_equal( $source['final_price'], $canonical['final_price'] ) ) {
@@ -1221,42 +1284,42 @@ final class Digitalogic_Report_Engine {
 	 */
 	private function category_definitions() {
 		return array(
-			'missing_in_woocommerce'      => array( __( 'In source but missing in WooCommerce', 'digitalogic' ), 'danger' ),
+			'missing_in_woocommerce'                => array( __( 'In source but missing in WooCommerce', 'digitalogic' ), 'danger' ),
 			'positive_stock_missing_in_woocommerce' => array( __( 'Positive-stock product missing in WooCommerce', 'digitalogic' ), 'danger' ),
-			'missing_in_patris'           => array( __( 'In WooCommerce but missing in source', 'digitalogic' ), 'warning' ),
-			'missing_product_code'        => array( __( 'Missing exact product Code metadata', 'digitalogic' ), 'danger' ),
-			'duplicate_product_code'      => array( __( 'Duplicate exact product Code metadata', 'digitalogic' ), 'danger' ),
-			'source_warning'              => array( __( 'Source warnings require attention', 'digitalogic' ), 'warning' ),
-			'missing_foreign_currency'    => array( __( 'Missing foreign currency', 'digitalogic' ), 'warning' ),
-			'null_foreign_currency'       => array( __( 'Foreign currency is explicitly null', 'digitalogic' ), 'warning' ),
-			'unexpected_foreign_currency' => array( __( 'Foreign currency is not CNY', 'digitalogic' ), 'warning' ),
-			'missing_foreign_price'       => array( __( 'Missing CNY price', 'digitalogic' ), 'warning' ),
-			'null_foreign_price'          => array( __( 'CNY price is explicitly null', 'digitalogic' ), 'warning' ),
-			'missing_weight'              => array( __( 'Missing weight', 'digitalogic' ), 'warning' ),
-			'null_weight'                 => array( __( 'Weight is explicitly null', 'digitalogic' ), 'warning' ),
-			'missing_stock'               => array( __( 'Missing stock', 'digitalogic' ), 'warning' ),
-			'null_stock'                  => array( __( 'Stock is explicitly null', 'digitalogic' ), 'warning' ),
-			'missing_final_price'         => array( __( 'Missing calculated price', 'digitalogic' ), 'danger' ),
-			'null_final_price'            => array( __( 'Calculated price is explicitly null', 'digitalogic' ), 'danger' ),
-			'missing_shipping'            => array( __( 'Missing shipping price inputs', 'digitalogic' ), 'warning' ),
-			'null_shipping'               => array( __( 'Shipping price inputs contain explicit null', 'digitalogic' ), 'warning' ),
-			'missing_markup'              => array( __( 'Missing profit margin', 'digitalogic' ), 'warning' ),
-			'null_markup'                 => array( __( 'Profit margin is explicitly null', 'digitalogic' ), 'warning' ),
-			'missing_exchange_rate'       => array( __( 'Missing CNY exchange rate', 'digitalogic' ), 'warning' ),
-			'null_exchange_rate'          => array( __( 'CNY exchange rate is explicitly null', 'digitalogic' ), 'warning' ),
-			'invalid_source_value'        => array( __( 'Invalid source value', 'digitalogic' ), 'danger' ),
-			'zero_stock'                  => array( __( 'Zero or negative stock', 'digitalogic' ), 'info' ),
-			'zero_price'                  => array( __( 'Zero or negative calculated price', 'digitalogic' ), 'danger' ),
-			'missing_source_updated_at'   => array( __( 'Missing source update time', 'digitalogic' ), 'warning' ),
-			'null_source_updated_at'      => array( __( 'Source update time is explicitly null', 'digitalogic' ), 'warning' ),
-			'stale_source'                => array( __( 'Stale source data', 'digitalogic' ), 'warning' ),
-			'price_drift'                 => array( __( 'Price differs from the current source', 'digitalogic' ), 'danger' ),
-			'stock_drift'                 => array( __( 'Stock differs from the current source', 'digitalogic' ), 'danger' ),
-			'stock_management_drift'      => array( __( 'Stock management differs from the current source', 'digitalogic' ), 'danger' ),
-			'stock_status_drift'          => array( __( 'Stock availability differs from the current source', 'digitalogic' ), 'danger' ),
-			'weight_drift'                => array( __( 'Weight differs from the current source', 'digitalogic' ), 'danger' ),
-			'record_hash_drift'           => array( __( 'Record hash differs from the current source', 'digitalogic' ), 'danger' ),
-			'source_updated_at_drift'     => array( __( 'Source update time differs in WooCommerce', 'digitalogic' ), 'warning' ),
+			'missing_in_patris'                     => array( __( 'In WooCommerce but missing in source', 'digitalogic' ), 'warning' ),
+			'missing_product_code'                  => array( __( 'Missing exact product Code metadata', 'digitalogic' ), 'danger' ),
+			'duplicate_product_code'                => array( __( 'Duplicate exact product Code metadata', 'digitalogic' ), 'danger' ),
+			'source_warning'                        => array( __( 'Source warnings require attention', 'digitalogic' ), 'warning' ),
+			'missing_foreign_currency'              => array( __( 'Missing foreign currency', 'digitalogic' ), 'warning' ),
+			'null_foreign_currency'                 => array( __( 'Foreign currency is explicitly null', 'digitalogic' ), 'warning' ),
+			'unexpected_foreign_currency'           => array( __( 'Foreign currency is not CNY', 'digitalogic' ), 'warning' ),
+			'missing_foreign_price'                 => array( __( 'Missing CNY price', 'digitalogic' ), 'warning' ),
+			'null_foreign_price'                    => array( __( 'CNY price is explicitly null', 'digitalogic' ), 'warning' ),
+			'missing_weight'                        => array( __( 'Missing weight', 'digitalogic' ), 'warning' ),
+			'null_weight'                           => array( __( 'Weight is explicitly null', 'digitalogic' ), 'warning' ),
+			'missing_stock'                         => array( __( 'Missing stock', 'digitalogic' ), 'warning' ),
+			'null_stock'                            => array( __( 'Stock is explicitly null', 'digitalogic' ), 'warning' ),
+			'missing_final_price'                   => array( __( 'Missing calculated price', 'digitalogic' ), 'danger' ),
+			'null_final_price'                      => array( __( 'Calculated price is explicitly null', 'digitalogic' ), 'danger' ),
+			'missing_shipping'                      => array( __( 'Missing shipping price inputs', 'digitalogic' ), 'warning' ),
+			'null_shipping'                         => array( __( 'Shipping price inputs contain explicit null', 'digitalogic' ), 'warning' ),
+			'missing_markup'                        => array( __( 'Missing profit margin', 'digitalogic' ), 'warning' ),
+			'null_markup'                           => array( __( 'Profit margin is explicitly null', 'digitalogic' ), 'warning' ),
+			'missing_exchange_rate'                 => array( __( 'Missing CNY exchange rate', 'digitalogic' ), 'warning' ),
+			'null_exchange_rate'                    => array( __( 'CNY exchange rate is explicitly null', 'digitalogic' ), 'warning' ),
+			'invalid_source_value'                  => array( __( 'Invalid source value', 'digitalogic' ), 'danger' ),
+			'zero_stock'                            => array( __( 'Zero or negative stock', 'digitalogic' ), 'info' ),
+			'zero_price'                            => array( __( 'Zero or negative calculated price', 'digitalogic' ), 'danger' ),
+			'missing_source_updated_at'             => array( __( 'Missing source update time', 'digitalogic' ), 'warning' ),
+			'null_source_updated_at'                => array( __( 'Source update time is explicitly null', 'digitalogic' ), 'warning' ),
+			'stale_source'                          => array( __( 'Stale source data', 'digitalogic' ), 'warning' ),
+			'price_drift'                           => array( __( 'Price differs from the current source', 'digitalogic' ), 'danger' ),
+			'stock_drift'                           => array( __( 'Stock differs from the current source', 'digitalogic' ), 'danger' ),
+			'stock_management_drift'                => array( __( 'Stock management differs from the current source', 'digitalogic' ), 'danger' ),
+			'stock_status_drift'                    => array( __( 'Stock availability differs from the current source', 'digitalogic' ), 'danger' ),
+			'weight_drift'                          => array( __( 'Weight differs from the current source', 'digitalogic' ), 'danger' ),
+			'record_hash_drift'                     => array( __( 'Record hash differs from the current source', 'digitalogic' ), 'danger' ),
+			'source_updated_at_drift'               => array( __( 'Source update time differs in WooCommerce', 'digitalogic' ), 'warning' ),
 		);
 	}
 

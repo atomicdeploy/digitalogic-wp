@@ -75,32 +75,33 @@ class Digitalogic_CLI_Commands {
      * @when after_wp_load
      */
     public function currency_update($args, $assoc_args) {
-        $options = Digitalogic_Options::instance();
-        
-        $updated = false;
-        
+        unset($args);
+        $values = array();
         if (isset($assoc_args['usd'])) {
-            $options->set_dollar_price(floatval($assoc_args['usd']));
-            WP_CLI::success('USD price updated to ' . $assoc_args['usd']);
-            $updated = true;
+            $values['dollar_price'] = $assoc_args['usd'];
         }
-        
         if (isset($assoc_args['cny'])) {
-            $options->set_yuan_price(floatval($assoc_args['cny']));
-            WP_CLI::success('CNY price updated to ' . $assoc_args['cny']);
-            $updated = true;
+            $values['yuan_price'] = $assoc_args['cny'];
         }
-        
-        if (!$updated) {
+        if (empty($values)) {
             WP_CLI::error('No currency rates provided. Use --usd or --cny');
+            return;
         }
-        
-        if (isset($assoc_args['recalculate'])) {
-            WP_CLI::line('Recalculating product prices...');
-            $pricing = Digitalogic_Pricing::instance();
-            $results = $pricing->bulk_recalculate_prices();
-            WP_CLI::success('Updated ' . $results['success'] . ' products, ' . $results['failed'] . ' failed');
+
+        $result = Digitalogic_Pricing_Coordinator::instance()->update_currency(
+            $values,
+            'wp_cli_currency'
+        );
+        if (is_wp_error($result)) {
+            WP_CLI::error($result->get_error_message());
+            return;
         }
+
+        WP_CLI::success(
+            'Currency settings and ' .
+            (int) ($result['pricing_results']['updated_products'] ?? 0) .
+            ' Patris-managed prices reconciled.'
+        );
     }
     
     /**
@@ -1364,20 +1365,16 @@ class Digitalogic_CLI_Commands {
 	}
 
 	/**
-	 * Read or explicitly change the Patris promotion policy.
+	 * Read the fixed managed-product storefront pricing policy.
 	 *
-	 * Reading is non-mutating. Changing the policy requires an explicit
-	 * administrator context; `preserve_sale` remains the safe default.
-	 *
-	 * ## OPTIONS
-	 *
-	 * [--set=<policy>]
-	 * : Set `preserve_sale` or `replace_sale`.
+	 * Managed selling price is always written to WooCommerce regular/effective
+	 * price and the WooCommerce sale field is always cleared. The old
+	 * `preserve_sale` and `replace_sale` switches are retired and cannot mutate
+	 * this invariant.
 	 *
 	 * ## EXAMPLES
 	 *
 	 *     wp digitalogic pricing policy
-	 *     wp digitalogic pricing policy --set=replace_sale --user=<administrator>
 	 *
 	 * @when after_wp_load
 	 *
@@ -1386,24 +1383,13 @@ class Digitalogic_CLI_Commands {
 	 * @return void
 	 */
 	public function pricing_policy( $args, $assoc_args ) {
-		$service = Digitalogic_Patris_Price_Policy::instance();
-		if ( ! isset( $assoc_args['set'] ) ) {
-			WP_CLI::line( $service->get_sale_policy() );
+		unset( $args );
+		if ( isset( $assoc_args['set'] ) ) {
+			WP_CLI::error( 'Sale-policy overrides are retired. Managed products always use canonical_sale.' );
 			return;
 		}
 
-		if ( ! $this->require_administrator() ) {
-			return;
-		}
-
-		$policy = sanitize_key( (string) $assoc_args['set'] );
-		if ( ! in_array( $policy, array( Digitalogic_Patris_Price_Policy::PRESERVE_SALE, Digitalogic_Patris_Price_Policy::REPLACE_SALE ), true ) ) {
-			WP_CLI::error( 'Policy must be preserve_sale or replace_sale.' );
-			return;
-		}
-
-		update_option( Digitalogic_Patris_Price_Policy::OPTION_NAME, $policy, false );
-		WP_CLI::success( 'Patris promotion policy set to ' . $policy . '.' );
+		WP_CLI::line( Digitalogic_Patris_Price_Policy::instance()->get_sale_policy() );
 	}
 
 	/**

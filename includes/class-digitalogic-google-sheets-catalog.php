@@ -49,9 +49,15 @@ final class Digitalogic_Google_Sheets_Catalog {
 			return $args;
 		}
 
-		return 'categories' === $args['dataset']
-			? $this->get_categories_page( $args )
-			: $this->get_products_page( $args );
+		if ( 'categories' === $args['dataset'] ) {
+			return $this->get_categories_page( $args );
+		}
+
+		if ( 'reconciled_products' === $args['dataset'] ) {
+			return $this->get_reconciled_products_page( $args );
+		}
+
+		return $this->get_products_page( $args );
 	}
 
 	/**
@@ -184,6 +190,7 @@ final class Digitalogic_Google_Sheets_Catalog {
 			$this->add_text_field( $row, 'stock_status', $product, 'stock_status', $warnings );
 			$this->add_number_field( $row, 'patris_total_stock', $product, 'patris_total_stock', $warnings );
 			$this->add_number_field( $row, 'patris_minimum_stock', $product, 'patris_minimum_stock', $warnings );
+			$this->add_text_field( $row, 'patris_location', $product, 'patris_location', $warnings );
 			$this->add_explicit_number_value( $row, 'weight_grams', $this->product_weight_grams( $product, $weight_unit, $warnings ), $warnings );
 			$this->add_number_field( $row, 'woocommerce_weight', $product, 'weight', $warnings );
 			$this->add_explicit_text_value( $row, 'woocommerce_weight_unit', $weight_unit, $warnings );
@@ -206,8 +213,7 @@ final class Digitalogic_Google_Sheets_Catalog {
 			// PHP float before the Sheets client writes the numeric column.
 			$this->add_text_field( $row, 'shipping_price_per_kg', $method, 'price_per_kg', $warnings );
 			$this->add_text_field( $row, 'shipping_price_per_kg_currency', $method, 'currency', $warnings );
-			$this->add_number_field( $row, 'profit_percent', $assignment, 'profit_percent', $warnings );
-			$this->add_text_field( $row, 'profit_percent_source', $assignment, 'profit_percent_source', $warnings );
+			$this->add_number_field( $row, 'profit_margin_percent', $assignment, 'profit_percent', $warnings );
 			$this->add_selected_text_field( $row, 'permalink', $product, array( 'canonical_url', 'permalink' ), $warnings );
 			$this->add_text_field( $row, 'image_url', $product, 'image', $warnings );
 			$this->add_selected_text_field( $row, 'updated_at', $product, array( 'patris_updated_at', 'date_modified' ), $warnings );
@@ -261,10 +267,10 @@ final class Digitalogic_Google_Sheets_Catalog {
 		$dataset = isset( $args['dataset'] ) ? sanitize_key( (string) $args['dataset'] ) : 'products';
 		$locale  = isset( $args['locale'] ) ? sanitize_key( (string) $args['locale'] ) : 'en';
 
-		if ( ! in_array( $dataset, array( 'products', 'categories' ), true ) ) {
+		if ( ! in_array( $dataset, array( 'products', 'reconciled_products', 'categories' ), true ) ) {
 			return new WP_Error(
 				'digitalogic_sheets_dataset_invalid',
-				__( 'Dataset must be products or categories.', 'digitalogic' ),
+				__( 'Dataset must be products, reconciled_products, or categories.', 'digitalogic' ),
 				array( 'status' => 400 )
 			);
 		}
@@ -277,10 +283,437 @@ final class Digitalogic_Google_Sheets_Catalog {
 		}
 
 		return array(
-			'dataset' => $dataset,
-			'locale'  => $locale,
-			'page'    => max( 1, absint( $args['page'] ?? 1 ) ),
-			'limit'   => max( 1, min( self::MAX_PAGE_SIZE, absint( $args['limit'] ?? self::MAX_PAGE_SIZE ) ) ),
+			'dataset'        => $dataset,
+			'locale'         => $locale,
+			'page'           => max( 1, absint( $args['page'] ?? 1 ) ),
+			'limit'          => max( 1, min( self::MAX_PAGE_SIZE, absint( $args['limit'] ?? self::MAX_PAGE_SIZE ) ) ),
+			'source_id'      => isset( $args['source_id'] ) && is_scalar( $args['source_id'] )
+				? sanitize_text_field( (string) $args['source_id'] )
+				: '',
+			'source_dataset' => isset( $args['source_dataset'] ) && is_scalar( $args['source_dataset'] )
+				? sanitize_text_field( (string) $args['source_dataset'] )
+				: '',
+		);
+	}
+
+	/**
+	 * Build one paginated, leaf-only union of the selected Patris source and WooCommerce.
+	 *
+	 * Report Engine owns exact Product Code reconciliation. This adapter only
+	 * turns the transport-neutral report rows into the same typed catalog shape
+	 * used by Google Sheets, Excel, and other clients.
+	 *
+	 * @param array $args Normalized arguments.
+	 * @return array|WP_Error
+	 */
+	private function get_reconciled_products_page( $args ) {
+		$report_page_size  = 100;
+		$offset            = ( $args['page'] - 1 ) * $args['limit'];
+		$report_page       = (int) floor( $offset / $report_page_size ) + 1;
+		$first_page_offset = $offset % $report_page_size;
+		$report_args       = array(
+			'view'     => 'price_list',
+			'page'     => $report_page,
+			'per_page' => $report_page_size,
+		);
+		if ( '' !== $args['source_id'] && '' !== $args['source_dataset'] ) {
+			$report_args['source_id'] = $args['source_id'];
+			$report_args['dataset']   = $args['source_dataset'];
+		}
+
+		$report = Digitalogic_Report_Engine::instance()->get_report( $report_args );
+		if ( is_wp_error( $report ) ) {
+			return $report;
+		}
+
+		$first_report     = $report;
+		$dataset_revision = is_string( $report['snapshot_revision'] ?? null )
+			? $report['snapshot_revision']
+			: '';
+		if ( ! preg_match( '/^sha256:[a-f0-9]{64}$/', $dataset_revision ) ) {
+			return new WP_Error(
+				'digitalogic_reconciled_snapshot_revision_invalid',
+				__( 'The reconciled catalog has no valid snapshot revision.', 'digitalogic' ),
+				array(
+					'status'      => 503,
+					'retry_after' => 1,
+				)
+			);
+		}
+
+		$total     = absint( $report['pagination']['total'] ?? 0 );
+		$rows      = array();
+		$row_count = 0;
+		if ( $offset < $total ) {
+			while ( $row_count < $args['limit'] ) {
+				$page_rows = array_values( (array) ( $report['rows'] ?? array() ) );
+				if ( $first_page_offset > 0 ) {
+					$page_rows         = array_slice( $page_rows, $first_page_offset );
+					$first_page_offset = 0;
+				}
+				$remaining = $args['limit'] - count( $rows );
+				$rows      = array_merge( $rows, array_slice( $page_rows, 0, $remaining ) );
+				$row_count = count( $rows );
+
+				if ( $row_count >= $args['limit'] || $report_page >= absint( $report['pagination']['pages'] ?? 0 ) ) {
+					break;
+				}
+
+				++$report_page;
+				$report_args['page'] = $report_page;
+				$report              = Digitalogic_Report_Engine::instance()->get_report( $report_args );
+				if ( is_wp_error( $report ) ) {
+					return $report;
+				}
+				if (
+					! hash_equals( $dataset_revision, (string) ( $report['snapshot_revision'] ?? '' ) )
+					|| absint( $report['pagination']['total'] ?? 0 ) !== $total
+				) {
+					return new WP_Error(
+						'digitalogic_reconciled_snapshot_changed',
+						__( 'The reconciled catalog changed while this page was assembled; retry the complete fetch.', 'digitalogic' ),
+						array(
+							'status'      => 409,
+							'retry_after' => 1,
+						)
+					);
+				}
+			}
+		}
+
+		$projection = $this->transform_reconciled_products( $rows );
+		if ( is_wp_error( $projection ) ) {
+			return $projection;
+		}
+
+		$pages    = $args['limit'] > 0 ? (int) ceil( $total / $args['limit'] ) : 0;
+		$response = $this->response_envelope(
+			$args,
+			$projection['columns'],
+			$projection['rows'],
+			$total,
+			$pages
+		);
+
+		$response['dataset_revision'] = $dataset_revision;
+		$response['reconciliation']   = array(
+			'status' => (string) ( $first_report['status'] ?? '' ),
+			'counts' => $this->reconciliation_counts( (array) ( $first_report['counts'] ?? array() ), $total ),
+		);
+		if ( is_array( $first_report['source'] ?? null ) ) {
+			$response['reconciliation']['source'] = $first_report['source'];
+		}
+
+		return $response;
+	}
+
+	/**
+	 * Convert Report Engine union rows into the catalog contract.
+	 *
+	 * Woo-backed rows reuse transform_products() so their record revision stays
+	 * byte-for-byte compatible with the optimistic writeback service. Source
+	 * fields are then overlaid for display without changing that Woo revision.
+	 *
+	 * @param array $report_rows Report Engine rows.
+	 * @return array|WP_Error
+	 */
+	private function transform_reconciled_products( $report_rows ) {
+		$report_rows         = array_values( (array) $report_rows );
+		$canonical_by_id     = array();
+		$integration_catalog = Digitalogic_Shipping_Method_Service::instance()->get_integration_catalog();
+		if ( is_wp_error( $integration_catalog ) ) {
+			return $integration_catalog;
+		}
+
+		foreach ( $report_rows as $report_row ) {
+			$woocommerce_id = absint( $report_row['woo_id'] ?? 0 );
+			if ( ! $woocommerce_id || isset( $canonical_by_id[ $woocommerce_id ] ) ) {
+				continue;
+			}
+			$canonical = Digitalogic_Product_Manager::instance()->get_product( $woocommerce_id );
+			if ( is_array( $canonical ) && $canonical ) {
+				$canonical_by_id[ $woocommerce_id ] = $canonical;
+			}
+		}
+
+		$base_by_id = array();
+		if ( $canonical_by_id ) {
+			$base_projection = $this->transform_products(
+				array_values( $canonical_by_id ),
+				$integration_catalog
+			);
+			if ( is_wp_error( $base_projection ) ) {
+				return $base_projection;
+			}
+			foreach ( (array) ( $base_projection['rows'] ?? array() ) as $base_row ) {
+				$id = absint( $base_row['woocommerce_id'] ?? 0 );
+				if ( $id ) {
+					$base_by_id[ $id ] = $base_row;
+				}
+			}
+		}
+
+		$methods = $this->index_methods( $integration_catalog );
+		$rows    = array();
+		$seen    = array();
+		foreach ( $report_rows as $report_row ) {
+			if ( ! is_array( $report_row ) ) {
+				continue;
+			}
+
+			$internal_status = (string) ( $report_row['status'] ?? '' );
+			$status          = $this->public_reconciliation_status( $internal_status );
+			$source          = is_array( $report_row['source'] ?? null ) ? $report_row['source'] : array();
+			$woocommerce     = is_array( $report_row['woocommerce'] ?? null ) ? $report_row['woocommerce'] : array();
+			$woocommerce_id  = absint( $report_row['woo_id'] ?? 0 );
+			$product_code    = is_scalar( $report_row['product_code'] ?? null )
+				? trim( (string) $report_row['product_code'] )
+				: '';
+			$sync_key        = $woocommerce_id
+				? 'woo:' . $woocommerce_id
+				: ( 'patris_only' === $status && '' !== $product_code ? 'patris:' . $product_code : '' );
+
+			if ( '' === $sync_key || isset( $seen[ $sync_key ] ) ) {
+				return new WP_Error(
+					'digitalogic_reconciled_sync_key_invalid',
+					__( 'Every reconciled row must have one unique, stable sync key.', 'digitalogic' ),
+					array(
+						'status'   => 500,
+						'sync_key' => $sync_key,
+					)
+				);
+			}
+			$seen[ $sync_key ] = true;
+
+			$row = $woocommerce_id && isset( $base_by_id[ $woocommerce_id ] )
+				? $base_by_id[ $woocommerce_id ]
+				: $this->minimal_reconciled_row( $source, $woocommerce, $woocommerce_id, $integration_catalog );
+
+			$row['sync_key']              = $sync_key;
+			$row['reconciliation_status'] = $status;
+			if (
+				'' !== $product_code
+				&& (
+					array_key_exists( 'product_code', $source )
+					|| array_key_exists( 'product_code', $woocommerce )
+				)
+			) {
+				$row['patris_code'] = $product_code;
+			}
+
+			$this->overlay_reconciled_source( $row, $source, $methods, $woocommerce_id );
+			foreach ( array_keys( $row ) as $field ) {
+				if ( 0 === strpos( (string) $field, 'warehouse_stock:' ) ) {
+					unset( $row[ $field ] );
+				}
+			}
+
+			$warnings = array_values(
+				array_unique(
+					array_filter(
+						array_merge(
+							$this->split_sync_warnings( $row['sync_error'] ?? '' ),
+							array_map( 'strval', (array) ( $report_row['issues'] ?? array() ) )
+						),
+						'strlen'
+					)
+				)
+			);
+
+			$row['sync_status'] = $warnings ? 'warning' : 'ok';
+			$row['sync_error']  = implode( ';', $warnings );
+			if ( ! isset( $row['record_revision'] ) || ! preg_match( '/^sha256:[a-f0-9]{64}$/', (string) $row['record_revision'] ) ) {
+				$row['record_revision'] = 'sha256:' . hash(
+					'sha256',
+					wp_json_encode( $row, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES )
+				);
+			}
+			$rows[] = $row;
+		}
+
+		return array(
+			'columns' => $this->reconciled_product_columns(),
+			'rows'    => $rows,
+		);
+	}
+
+	/**
+	 * Create a bounded row when no canonical Woo catalog row is available.
+	 *
+	 * @param array $source Source row, possibly empty.
+	 * @param array $woocommerce Report Engine Woo row, possibly empty.
+	 * @param int   $woocommerce_id Woo ID.
+	 * @param array $integration_catalog Shared catalog.
+	 * @return array
+	 */
+	private function minimal_reconciled_row( $source, $woocommerce, $woocommerce_id, $integration_catalog ) {
+		$row = array();
+		if ( $woocommerce_id ) {
+			$row['woocommerce_id'] = $woocommerce_id;
+		}
+		$mapping = array(
+			'parent_id'          => 'parent_id',
+			'product_type'       => 'type',
+			'publication_status' => 'status',
+			'name'               => 'name',
+			'regular_price'      => 'regular_price',
+			'sale_price'         => 'sale_price',
+			'stock_quantity'     => 'stock_quantity',
+			'stock_status'       => 'stock_status',
+			'permalink'          => 'permalink',
+			'updated_at'         => 'updated_at',
+		);
+		foreach ( $mapping as $target => $field ) {
+			if ( array_key_exists( $field, $woocommerce ) ) {
+				$row[ $target ] = $woocommerce[ $field ];
+			}
+		}
+		if ( array_key_exists( 'active_price', $woocommerce ) ) {
+			$row['effective_price'] = $this->number_or_text( $woocommerce['active_price'] )['value'];
+		}
+		if ( array_key_exists( 'categories', $woocommerce ) ) {
+			$row['categories'] = $woocommerce['categories'];
+		}
+		if ( array_key_exists( 'category_ids', $woocommerce ) ) {
+			$row['category_ids'] = $woocommerce['category_ids'];
+		}
+		if ( is_array( $integration_catalog['currency'] ?? null ) && array_key_exists( 'local', $integration_catalog['currency'] ) ) {
+			$row['currency'] = $integration_catalog['currency']['local'];
+		}
+		if ( ! $woocommerce && array_key_exists( 'name', $source ) ) {
+			$row['name'] = $source['name'];
+		}
+
+		return $row;
+	}
+
+	/**
+	 * Overlay source-owned product inputs without inventing absent values.
+	 *
+	 * @param array $row Catalog row, updated in place.
+	 * @param array $source Sparse Report Engine source.
+	 * @param array $methods Shipping methods indexed by ID.
+	 * @param int   $woocommerce_id Current Woo leaf ID, or zero for Patris-only.
+	 * @return void
+	 */
+	private function overlay_reconciled_source( &$row, $source, $methods, $woocommerce_id ) {
+		$mapping = array(
+			'name'                           => 'name',
+			'patris_final_price'             => 'final_price',
+			'patris_total_stock'             => 'total_stock',
+			'patris_minimum_stock'           => 'minimum_stock',
+			'patris_location'                => 'location',
+			'weight_grams'                   => 'weight_grams',
+			'foreign_price'                  => 'foreign_price',
+			'foreign_currency'               => 'foreign_currency',
+			'shipping_method_id'             => 'shipping_method_id',
+			'shipping_price_per_kg'          => 'shipping_price_per_kg',
+			'shipping_price_per_kg_currency' => 'shipping_price_per_kg_currency',
+			'profit_margin_percent'          => 'markup_percent',
+			'updated_at'                     => 'source_updated_at',
+		);
+		foreach ( $mapping as $target => $field ) {
+			if ( array_key_exists( $field, $source ) ) {
+				$value          = $source[ $field ];
+				$row[ $target ] = is_numeric( $value ) && ! in_array(
+					$target,
+					array( 'shipping_price_per_kg', 'shipping_price_per_kg_currency', 'foreign_currency', 'shipping_method_id', 'patris_location', 'updated_at', 'name' ),
+					true
+				)
+					? $this->number_or_text( $value )['value']
+					: $value;
+			}
+		}
+		if ( ! $woocommerce_id && array_key_exists( 'final_price', $source ) ) {
+			$value                  = $source['final_price'];
+			$row['effective_price'] = is_numeric( $value ) ? $this->number_or_text( $value )['value'] : $value;
+		}
+
+		$method_id = isset( $row['shipping_method_id'] ) && is_scalar( $row['shipping_method_id'] )
+			? trim( (string) $row['shipping_method_id'] )
+			: '';
+		$method    = '' !== $method_id && isset( $methods[ $method_id ] ) ? $methods[ $method_id ] : array();
+		if ( $method ) {
+			if ( array_key_exists( 'name', $method ) ) {
+				$row['shipping_method_name_en'] = $method['name'];
+				$row['shipping_method_name_fa'] = $this->method_name_fa( $method_id, (string) $method['name'] );
+			}
+		}
+	}
+
+	/**
+	 * Return external reconciliation vocabulary.
+	 *
+	 * @param string $status Report Engine status.
+	 * @return string
+	 */
+	private function public_reconciliation_status( $status ) {
+		$mapping = array(
+			'matched'          => 'matched',
+			'source_only'      => 'patris_only',
+			'woocommerce_only' => 'woo_only',
+			'ambiguous'        => 'ambiguous',
+		);
+
+		return $mapping[ $status ] ?? 'ambiguous';
+	}
+
+	/**
+	 * Normalize semicolon-separated row warnings.
+	 *
+	 * @param mixed $warnings Existing warning cell.
+	 * @return array
+	 */
+	private function split_sync_warnings( $warnings ) {
+		return is_scalar( $warnings )
+			? array_values( array_filter( array_map( 'trim', explode( ';', (string) $warnings ) ), 'strlen' ) )
+			: array();
+	}
+
+	/**
+	 * Add reconciliation and source-location columns to the shared catalog shape.
+	 *
+	 * @return array
+	 */
+	private function reconciled_product_columns() {
+		// Per-warehouse keys are intentionally omitted here. A page-local set
+		// would change the schema between pages; total stock and location remain
+		// globally stable source fields.
+		$columns = $this->product_columns( array() );
+		array_splice(
+			$columns,
+			1,
+			0,
+			array(
+				$this->column( 'reconciliation_status', 'Reconciliation Status', 'وضعیت تطبیق', 'text' ),
+			)
+		);
+
+		$location = $this->column( 'patris_location', 'Product Location', 'محل کالا', 'text' );
+		$index    = array_search( 'patris_minimum_stock', array_column( $columns, 'key' ), true );
+		array_splice( $columns, false === $index ? count( $columns ) : $index + 1, 0, array( $location ) );
+
+		return $columns;
+	}
+
+	/**
+	 * Convert Report Engine count names into the public reconciliation contract.
+	 *
+	 * @param array $counts Report Engine counts.
+	 * @param int   $total Total union rows.
+	 * @return array
+	 */
+	private function reconciliation_counts( $counts, $total ) {
+		return array(
+			'patris_products'           => absint( $counts['patris_products'] ?? 0 ),
+			'woocommerce_raw'           => absint( $counts['woocommerce_products_raw'] ?? 0 ),
+			'woocommerce_leaves'        => absint( $counts['woocommerce_products'] ?? 0 ),
+			'union_rows'                => absint( $total ),
+			'matched'                   => absint( $counts['matched_products'] ?? 0 ),
+			'patris_only'               => absint( $counts['source_only_products'] ?? 0 ),
+			'woo_only'                  => absint( $counts['woocommerce_only_products'] ?? 0 ),
+			'ambiguous_codes'           => absint( $counts['ambiguous_codes'] ?? 0 ),
+			'variable_parents_excluded' => absint( $counts['variable_parents_excluded'] ?? 0 ),
 		);
 	}
 

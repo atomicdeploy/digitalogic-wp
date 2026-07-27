@@ -75,6 +75,11 @@ final class ImportExportCompatibilityTest extends TestCase {
         mkdir($this->temp_dir, 0777, true);
         $GLOBALS['digitalogic_test_upload_dir'] = $this->temp_dir;
         $GLOBALS['digitalogic_test_filters'] = array();
+        $GLOBALS['digitalogic_test_options'] = array(
+            'digitalogic_patris_feed_settings' => array('selected_warehouses' => array()),
+        );
+        $GLOBALS['digitalogic_test_option_cache'] = array();
+        $GLOBALS['digitalogic_test_transients'] = array();
         $GLOBALS['digitalogic_test_posts'] = array(
             42 => array('post_type' => 'product', 'meta' => array()),
         );
@@ -109,6 +114,14 @@ final class ImportExportCompatibilityTest extends TestCase {
 
         $manager_instance = new ReflectionProperty(Digitalogic_Product_Manager::class, 'instance');
         $manager_instance->setValue(null, $this->manager);
+        foreach (array(
+            Digitalogic_Google_Sheets_Catalog::class,
+            Digitalogic_Product_Sync_Receiver::class,
+            Digitalogic_Report_Engine::class,
+        ) as $class_name) {
+            $instance = new ReflectionProperty($class_name, 'instance');
+            $instance->setValue(null, null);
+        }
 
         $exporter_instance = new ReflectionProperty(Digitalogic_Import_Export::class, 'instance');
         $exporter_instance->setValue(null, null);
@@ -144,7 +157,7 @@ final class ImportExportCompatibilityTest extends TestCase {
         $headers = $sheet->rangeToArray('A1:' . $last_column . '1')[0];
         $this->assertContains('Effective Price', $headers);
         $this->assertContains('Product Code', $headers);
-        $this->assertContains('Source Price Status', $headers);
+        $this->assertContains('Price Calculation Status', $headers);
         $this->assertContains('Promotion Policy', $headers);
         $this->assertNotContains('Patris Code', $headers);
         $instructions = $workbook->getSheetByName('Instructions')->getCell('A3')->getValue();
@@ -356,6 +369,20 @@ final class ImportExportCompatibilityTest extends TestCase {
         $this->assertSame(1, $json_result['success']);
         $this->assertSame(0, $json_result['failed']);
         $this->assertSame('Round-trip product', $this->manager->updates[42]['name']);
+    }
+
+    public function test_legacy_dynamic_pricing_import_is_rejected_for_patris_managed_product(): void {
+        $GLOBALS['digitalogic_test_posts'][42]['meta']['_digitalogic_patris_product_code'] = 'PRICE-42';
+        $GLOBALS['digitalogic_test_posts'][42]['meta']['_digitalogic_patris_record_hash'] = 'sha256:' . str_repeat('a', 64);
+        $json = $this->exporter->export_json(array(42));
+        $this->manager->updates = array();
+
+        $result = $this->exporter->import_json($json);
+
+        $this->assertSame(0, $result['success']);
+        $this->assertSame(1, $result['failed']);
+        $this->assertStringContainsString('فیلدهای قدیمی قیمت‌گذاری پویا', $result['errors'][0]);
+        $this->assertSame(array(), $this->manager->updates);
     }
 
     private function remove_tree($path) {

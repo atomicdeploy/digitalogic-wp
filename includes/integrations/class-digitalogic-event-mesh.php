@@ -96,7 +96,18 @@ final class Digitalogic_Event_Mesh {
 		) {$charset_collate};";
 
 		dbDelta( $sql );
+
+		/*
+		 * A stale `notoptions` entry can survive a deployment that creates the
+		 * schema marker outside the request that first looked it up. Clear the
+		 * negative cache before and after the idempotent write so the current
+		 * request verifies the durable database value instead of repeatedly
+		 * running dbDelta.
+		 */
+		wp_cache_delete( 'notoptions', 'options' );
 		update_option( 'digitalogic_event_mesh_schema_version', DIGITALOGIC_EVENT_MESH_SCHEMA_VERSION, false );
+		wp_cache_delete( 'digitalogic_event_mesh_schema_version', 'options' );
+		wp_cache_delete( 'notoptions', 'options' );
 
 		return DIGITALOGIC_EVENT_MESH_SCHEMA_VERSION === (string) get_option( 'digitalogic_event_mesh_schema_version', '' );
 	}

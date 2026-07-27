@@ -473,6 +473,7 @@
                 return config.theme || {};
             },
             currentPage: function() {
+                if (this.route.indexOf('/assistant') === 0) return 'assistant';
                 if (this.route.indexOf('/products') === 0) return 'products';
                 if (this.route.indexOf('/users') === 0) return 'users';
                 if (this.route.indexOf('/reports') === 0) return 'reports';
@@ -677,6 +678,38 @@
                     cny: {key: 'cny', label: 'CNY', value: this.formatMoney(currency.yuan_price), field: 'yuan_price', icon: 'dashicons-money-alt', editable: true}
                 };
                 return this.cardOrder.map(function(key) { return map[key]; }).filter(Boolean);
+            },
+            operatorHubCards: function() {
+                return [
+                    {
+                        key: 'services',
+                        label: this.t.workServices,
+                        description: this.t.workServicesText,
+                        icon: 'dashicons-store',
+                        route: '/products'
+                    },
+                    {
+                        key: 'requests',
+                        label: this.t.workRequests,
+                        description: this.t.workRequestsText,
+                        icon: 'dashicons-groups',
+                        route: '/users'
+                    },
+                    {
+                        key: 'reports',
+                        label: this.t.workReports,
+                        description: this.t.workReportsText,
+                        icon: 'dashicons-chart-bar',
+                        route: '/reports'
+                    },
+                    {
+                        key: 'systems',
+                        label: this.t.workSystems,
+                        description: this.t.workSystemsText,
+                        icon: 'dashicons-dashboard',
+                        route: '/'
+                    }
+                ];
             },
             commands: function() {
                 return (this.summary && this.summary.cli) || {};

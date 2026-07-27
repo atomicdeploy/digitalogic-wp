@@ -147,22 +147,22 @@ $report_status_titles = array(
             </div>
         </div>
 
-        <h3><?php echo esc_html__('Default percentage markup', 'digitalogic'); ?></h3>
+        <h3><?php echo esc_html__('حاشیه سود مشترک', 'digitalogic'); ?></h3>
         <p class="description">
-            <?php echo esc_html__('Used only when a product has no markup configuration. A product percentage overrides it; fixed or unsupported product markup never falls back. Saving or clearing this value does not update WooCommerce prices.', 'digitalogic'); ?>
+            <?php echo esc_html__('این مقدار برای همه کالاهای تحت مدیریت یکسان است. ذخیره آن، قیمت فروش ووکامرس را در همان تراکنش بازسازی و همگام می‌کند.', 'digitalogic'); ?>
         </p>
         <div class="digitalogic-report-table-wrap">
             <table class="form-table" role="presentation">
                 <tr>
-                    <th scope="row"><label for="digitalogic-default-profit-percent"><?php echo esc_html__('Global profit percent', 'digitalogic'); ?></label></th>
+                    <th scope="row"><label for="digitalogic-profit-margin-percent"><?php echo esc_html__('حاشیه سود (درصد)', 'digitalogic'); ?></label></th>
                     <td>
                         <form method="post" class="digitalogic-inline-form">
                             <?php wp_nonce_field('digitalogic_shipping_admin'); ?>
                             <input type="hidden" name="digitalogic_shipping_action" value="update_default_markup">
                             <input
-                                id="digitalogic-default-profit-percent"
+                                id="digitalogic-profit-margin-percent"
                                 class="small-text code"
-                                name="default_profit_percent"
+                                name="profit_margin_percent"
                                 value="<?php echo esc_attr(!empty($default_markup['configured']) ? $default_markup['profit_percent'] : ''); ?>"
                                 inputmode="decimal"
                                 pattern="[0-9۰-۹٠-٩]+(?:[.٫][0-9۰-۹٠-٩]{1,12})?"
@@ -170,19 +170,12 @@ $report_status_titles = array(
                                 dir="ltr"
                             >
                             <span>%</span>
-                            <button type="submit" class="button button-primary"><?php echo esc_html__('Save default', 'digitalogic'); ?></button>
+                            <button type="submit" class="button button-primary"><?php echo esc_html__('ذخیره و همگام‌سازی', 'digitalogic'); ?></button>
                         </form>
-                        <?php if (!empty($default_markup['configured'])) : ?>
-                            <form method="post" class="digitalogic-inline-form">
-                                <?php wp_nonce_field('digitalogic_shipping_admin'); ?>
-                                <input type="hidden" name="digitalogic_shipping_action" value="clear_default_markup">
-                                <button type="submit" class="button button-secondary"><?php echo esc_html__('Clear default', 'digitalogic'); ?></button>
-                            </form>
-                        <?php endif; ?>
                         <p class="description">
                             <?php
                             printf(
-                                esc_html__('Allowed range: %1$s–%2$s%%, up to %3$d fractional digits. The recovered workbook value 30%% is proposed for a reviewed production action and is not seeded automatically.', 'digitalogic'),
+                                esc_html__('بازه مجاز: %1$s تا %2$s درصد، با حداکثر %3$d رقم اعشار.', 'digitalogic'),
                                 esc_html($default_markup['bounds']['minimum']),
                                 esc_html($default_markup['bounds']['maximum']),
                                 absint($default_markup['bounds']['maximum_fraction_digits'])

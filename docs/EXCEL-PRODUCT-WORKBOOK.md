@@ -59,5 +59,5 @@ static product catalog as its source of truth. Its local Patris companion uses
 the source-scoped preview/apply flow documented in
 [Excel pricing-settings synchronization](EXCEL-PRICING-SYNC.md). Product rows
 are refreshed through the existing Persian Google Sheets catalog projection;
-global currency/default-profit changes are previewed and confirmed separately,
+global currency/shared-profit-margin changes are previewed and confirmed separately,
 then Patris regenerates the derived product prices.

@@ -74,16 +74,23 @@ source/reference value; a present `null` records an explicit upstream null.
 Products without a Patris Code use `woo:<id>` only as a display/upsert key, and
 SKU is never used as a Patris matching fallback.
 
-### Excel pricing-settings synchronization
+### Universal pricing synchronization
 
-The local Patris companion uses the POST-only
-`/wp-json/digitalogic/excel/pricing-sync/{state,preview,apply}` machine
-contract. It is separate from the general `digitalogic/v1` management
-permission scopes and accepts only the existing source-scoped product-sync
-secret. See [Excel pricing-settings synchronization](EXCEL-PRICING-SYNC.md)
-for the complete request shape, optimistic concurrency, preview confirmation,
-idempotency, seven-day/seven-percent warnings, transaction behavior, and
-credential boundary.
+Trusted Digitalogic components use the POST-only
+`/wp-json/digitalogic/pricing/sync/{state,preview,apply}` machine contract.
+It is not Excel-specific. The local Patris `/api/excel` route remains a
+software-specific workbook/VBA adapter and forwards to this universal
+WordPress contract.
+
+The remote machine surface is separate from the general `digitalogic/v1`
+management permission scopes and accepts only the existing exact
+`{id,dataset}`-scoped product-sync secret. The deprecated
+`/wp-json/digitalogic/excel/pricing-sync/*` paths remain temporary,
+header-marked aliases. See [Excel pricing adapter and universal pricing
+synchronization](EXCEL-PRICING-SYNC.md) for the complete request shape,
+optimistic concurrency, preview confirmation, idempotency,
+seven-day/seven-percent warnings, transaction behavior, and credential
+boundary.
 
 ### List Products
 
@@ -197,6 +204,21 @@ than being converted or changed automatically.
   "yuan_price": 6100
 }
 ```
+
+## Shared Profit Margin
+
+`GET|PUT /pricing/profit-margin` reads or updates the single ecosystem-wide
+margin. The canonical request field is `profit_margin_percent`. Updating it
+recalculates every managed product in the same coordinated transaction.
+
+`GET|PUT /pricing/default-markup` and the request field `profit_percent` are
+deprecated compatibility aliases. Alias responses carry `Deprecation: true`
+and a successor `Link` header. Managed products never accept a per-product
+profit override.
+
+For a managed product, customer-visible selling price is one value:
+WooCommerce `_regular_price` and `_price` both equal the coordinator's
+canonical selling price, while `_sale_price` is empty.
 
 ---
 

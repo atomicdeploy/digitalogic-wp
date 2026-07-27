@@ -20,14 +20,27 @@
  */
 
 const DIGITALOGIC_DATASETS = Object.freeze([
-  Object.freeze({ id: 'products', sheetName: 'Products', tabColor: '#1a73e8' }),
+  Object.freeze({ id: 'reconciled_products', sheetName: 'Products', tabColor: '#1a73e8' }),
   Object.freeze({ id: 'categories', sheetName: 'Categories', tabColor: '#34a853' }),
 ]);
 const DIGITALOGIC_PAGE_SIZE = 100;
 const DIGITALOGIC_MAX_PAGES = 10000;
 const DIGITALOGIC_MANAGED_HEADER_ROWS = 2;
 const DIGITALOGIC_WRITEBACK_PATH = '/google-sheets/writeback/';
+const DIGITALOGIC_PRICING_SETTINGS_PATH = '/google-sheets/pricing-settings';
 const DIGITALOGIC_WRITEBACK_MAX_LIMIT = 50;
+const DIGITALOGIC_PRICING_SETTINGS_CELLS = Object.freeze({
+  cny: 'B7',
+  shippingPrice: 'B8',
+  shippingCurrency: 'B9',
+  profit: 'B10',
+  usd: 'B15',
+  usdEffectiveDate: 'B16',
+  cnyEffectiveDate: 'B17',
+  stateRevision: 'B18',
+  shippingRevision: 'B19',
+  syncStatus: 'B20',
+});
 const DIGITALOGIC_SUPPORT_LAYOUTS = Object.freeze([
   Object.freeze({ id: 'professional', machineHeaderRow: 5, displayHeaderRow: 6, dataStartRow: 7 }),
   Object.freeze({ id: 'legacy', machineHeaderRow: 1, displayHeaderRow: 2, dataStartRow: 3 }),
@@ -37,20 +50,10 @@ const DIGITALOGIC_CHANGE_COLUMNS = Object.freeze([
   Object.freeze({ key: 'sync_key', header: 'Product key', type: 'text' }),
   Object.freeze({ key: 'patris_code', header: 'Product Code', type: 'text' }),
   Object.freeze({ key: 'expected_record_revision', header: 'Expected record revision', type: 'text' }),
-  Object.freeze({ key: 'regular_price', header: 'Regular price', type: 'number' }),
-  Object.freeze({ key: 'sale_price', header: 'Sale price', type: 'number' }),
-  Object.freeze({ key: 'stock_quantity', header: 'Stock quantity', type: 'integer' }),
-  Object.freeze({ key: 'stock_status', header: 'Stock status', type: 'enum' }),
   Object.freeze({ key: 'shipping_method_id', header: 'Shipping method ID', type: 'text' }),
-  Object.freeze({ key: 'profit_percent', header: 'Profit percent', type: 'number' }),
 ]);
 const DIGITALOGIC_EDITABLE_FIELDS = Object.freeze({
-  regular_price: Object.freeze({ type: 'number', minimum: '0.000001', maximum: '999999999999999', decimalPlaces: 6 }),
-  sale_price: Object.freeze({ type: 'number', minimum: '0.000001', maximum: '999999999999999', decimalPlaces: 6 }),
-  stock_quantity: Object.freeze({ type: 'integer', minimum: 0, maximum: 1000000000 }),
-  stock_status: Object.freeze({ type: 'enum', values: Object.freeze(['instock', 'outofstock', 'onbackorder']) }),
   shipping_method_id: Object.freeze({ type: 'text', maximumLength: 64, pattern: /^[a-z][a-z0-9_]{1,63}$/ }),
-  profit_percent: Object.freeze({ type: 'number', minimum: '0', maximum: '1000', decimalPlaces: 6 }),
 });
 const DIGITALOGIC_AUDIT_COLUMNS = Object.freeze([
   Object.freeze({ key: 'timestamp', header: 'Timestamp', type: 'datetime' }),
@@ -80,8 +83,10 @@ const DIGITALOGIC_SUPPORT_SHEETS = Object.freeze({
 function onOpen() {
   const locale = getConfig_().locale;
   const ui = SpreadsheetApp.getUi();
-  const menu = ui.createMenu(locale === 'fa' ? 'همگام‌سازی دیجیتالوجیک' : 'Digitalogic Sync');
+  const menu = ui.createMenu(locale === 'fa' ? 'همگام‌سازی دیجیتالاجیک' : 'Digitalogic Sync');
   menu.addItem(locale === 'fa' ? 'همگام‌سازی اکنون' : 'Sync now', 'syncCatalog');
+  menu.addItem(locale === 'fa' ? 'تازه‌سازی نرخ‌ها' : 'Refresh pricing settings', 'syncPricingSettings');
+  menu.addItem(locale === 'fa' ? 'اعمال نرخ‌ها و سود' : 'Apply pricing settings', 'applyPricingSettings');
   menu.addSeparator();
   menu.addItem(locale === 'fa' ? 'فعال‌سازی همگام‌سازی زمان‌بندی‌شده' : 'Enable scheduled sync', 'installScheduledSync');
   menu.addItem(locale === 'fa' ? 'حذف همگام‌سازی زمان‌بندی‌شده' : 'Disable scheduled sync', 'removeScheduledSync');
@@ -108,12 +113,15 @@ function syncCatalog() {
     const fetched = DIGITALOGIC_DATASETS.map(function (dataset) {
       return fetchDataset_(config, dataset);
     });
+    const pricingState = fetchPricingSettings_(config);
+    upsertPricingSettings_(spreadsheet, pricingState, config.locale);
     const revision = calculateRevision_(fetched);
     stateProperties = getStateProperties_(config);
     const previousRevision = stateProperties.getProperty('DIGITALOGIC_CATALOG_REVISION');
 
     if (previousRevision === revision) {
       stateProperties.setProperty('DIGITALOGIC_LAST_SYNC_AT', new Date().toISOString());
+      stateProperties.setProperty('DIGITALOGIC_PRICING_STATE_REVISION', pricingState.state_revision);
       if (dashboard) {
         updateDashboard_(dashboard, stateProperties);
       }
@@ -130,6 +138,7 @@ function syncCatalog() {
       DIGITALOGIC_LAST_SYNC_AT: new Date().toISOString(),
       DIGITALOGIC_LAST_SYNC_STATUS: 'ok',
       DIGITALOGIC_LAST_SYNC_ERROR: '',
+      DIGITALOGIC_PRICING_STATE_REVISION: pricingState.state_revision,
     });
     if (dashboard) {
       updateDashboard_(dashboard, stateProperties);
@@ -151,6 +160,306 @@ function syncCatalog() {
   } finally {
     lock.releaseLock();
   }
+}
+
+/** Refresh only the four canonical pricing settings and their status. */
+function syncPricingSettings() {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const config = getConfig_();
+    const spreadsheet = getSpreadsheet_(config);
+    const state = fetchPricingSettings_(config);
+    upsertPricingSettings_(spreadsheet, state, config.locale);
+    getStateProperties_(config).setProperties({
+      DIGITALOGIC_PRICING_STATE_REVISION: state.state_revision,
+      DIGITALOGIC_LAST_SYNC_AT: new Date().toISOString(),
+      DIGITALOGIC_LAST_SYNC_STATUS: 'ok',
+      DIGITALOGIC_LAST_SYNC_ERROR: '',
+    });
+    spreadsheet.toast(
+      localize_(config.locale, 'Pricing settings refreshed from the site.', 'نرخ‌ها و حاشیه سود از سایت تازه‌سازی شد.'),
+      'Digitalogic',
+      6
+    );
+    return state;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** Apply reviewed Settings cells through one optimistic atomic transaction. */
+function applyPricingSettings() {
+  const config = getConfig_();
+  validatePricingSettingsWriteCredentials_(config);
+  const spreadsheet = getSpreadsheet_(config);
+  const sheet = spreadsheet.getSheetByName('Settings');
+  if (!sheet) {
+    throw new Error('Settings sheet is missing. Build the control center first.');
+  }
+  const ui = SpreadsheetApp.getUi();
+  const answer = ui.alert(
+    localize_(config.locale, 'Apply pricing settings', 'اعمال تنظیمات قیمت'),
+    localize_(
+      config.locale,
+      'Apply CNY, USD, their separate effective dates, air-express shipping, and the shared profit margin to the site and reprice every managed product?',
+      'نرخ یوآن، دلار، تاریخ مؤثر جداگانهٔ هر ارز، نرخ حمل هوایی سریع و حاشیه سود در سایت ثبت و قیمت همهٔ کالاهای مدیریت‌شده دوباره محاسبه شود؟'
+    ),
+    ui.ButtonSet.YES_NO
+  );
+  if (answer !== ui.Button.YES) {
+    return { status: 'cancelled' };
+  }
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const request = buildPricingSettingsRequest_(sheet);
+    const applied = postPricingSettings_(config, request);
+    const readback = fetchPricingSettings_(config);
+    if (readback.state_revision !== applied.state_revision) {
+      throw new Error('Pricing settings changed again before final readback.');
+    }
+    upsertPricingSettings_(spreadsheet, readback, config.locale);
+    getStateProperties_(config).setProperties({
+      DIGITALOGIC_PRICING_STATE_REVISION: readback.state_revision,
+      DIGITALOGIC_LAST_SYNC_AT: new Date().toISOString(),
+      DIGITALOGIC_LAST_SYNC_STATUS: 'ok',
+      DIGITALOGIC_LAST_SYNC_ERROR: '',
+    });
+    spreadsheet.toast(
+      localize_(
+        config.locale,
+        'Pricing settings and managed WooCommerce prices now match.',
+        'تنظیمات قیمت و قیمت کالاهای مدیریت‌شدهٔ ووکامرس اکنون یکسان‌اند.'
+      ),
+      'Digitalogic',
+      8
+    );
+    return applied;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** Fetch the complete canonical settings state with read-scope credentials. */
+function fetchPricingSettings_(config) {
+  const response = UrlFetchApp.fetch(config.apiBase + DIGITALOGIC_PRICING_SETTINGS_PATH, {
+    method: 'get',
+    headers: {
+      Authorization: 'Basic ' + Utilities.base64Encode(config.consumerKey + ':' + config.consumerSecret),
+      Accept: 'application/json',
+    },
+    followRedirects: false,
+    muteHttpExceptions: true,
+  });
+  const status = response.getResponseCode();
+  let payload;
+  try {
+    payload = JSON.parse(response.getContentText());
+  } catch (error) {
+    throw new Error('Digitalogic pricing settings returned non-JSON HTTP ' + status + '.');
+  }
+  if (status < 200 || status >= 300 || !payload || payload.success !== true || !payload.data) {
+    const code = payload && (payload.code || payload.message) ? (payload.code || payload.message) : 'request_failed';
+    throw new Error('Digitalogic pricing settings HTTP ' + status + ': ' + code);
+  }
+
+  return validatePricingSettingsState_(payload.data);
+}
+
+/** Validate the bounded global pricing read contract. */
+function validatePricingSettingsState_(state) {
+  const settings = state && state.settings;
+  if (!state || typeof state !== 'object' || Array.isArray(state)
+    || state.schema !== 'digitalogic.pricing-sync-state/v1'
+    || !/^sha256:[a-f0-9]{64}$/.test(String(state.state_revision || ''))
+    || !settings || typeof settings !== 'object' || Array.isArray(settings)
+    || !/^(?:0|[1-9][0-9]{0,9})$/.test(pricingSettingText_(settings.dollar_price))
+    || !/^(?:0|[1-9][0-9]{0,9})$/.test(pricingSettingText_(settings.yuan_price))
+    || !/^\d{4}-\d{2}-\d{2}$/.test(String(settings.effective_date || ''))
+    || !/^\d{4}-\d{2}-\d{2}$/.test(String(settings.usd_effective_date || ''))
+    || !/^\d{4}-\d{2}-\d{2}$/.test(String(settings.cny_effective_date || ''))
+    || String(settings.effective_date) !== String(settings.cny_effective_date)
+    || !/^(?:0|[1-9][0-9]{0,3})(?:\.[0-9]{1,12})?$/.test(pricingSettingText_(settings.profit_margin_percent))
+    || !/^(?:0|[1-9][0-9]{0,17})(?:\.[0-9]{1,12})?$/.test(pricingSettingText_(settings.air_express_price_per_kg))
+    || compareSheetDecimals_(pricingSettingText_(settings.air_express_price_per_kg), '0') <= 0
+    || !/^(?:CNY|IRR)$/.test(String(settings.air_express_currency || ''))
+    || !/^sha256:[a-f0-9]{64}$/.test(String(settings.shipping_catalog_revision || ''))
+    || !state.freshness || typeof state.freshness !== 'object' || Array.isArray(state.freshness)) {
+    throw new Error('Malformed Digitalogic pricing settings response.');
+  }
+
+  return state;
+}
+
+/** Preserve legitimate numeric zero while rejecting absent pricing settings. */
+function pricingSettingText_(value) {
+  return value === null || typeof value === 'undefined' ? '' : String(value);
+}
+
+/** Write canonical settings to the reserved Settings cells without touching scenarios. */
+function upsertPricingSettings_(spreadsheet, state, locale) {
+  state = validatePricingSettingsState_(state);
+  let sheet = spreadsheet.getSheetByName('Settings');
+  if (!sheet) {
+    sheet = spreadsheet.insertSheet('Settings');
+    if (typeof digitalogicBuildSettings_ === 'function') {
+      digitalogicBuildSettings_(sheet);
+    } else {
+      sheet.getRange('A6:B20').setValues([
+        ['Setting', 'Value'],
+        ['CNY to IRT', ''],
+        ['Air express shipping / kg', ''],
+        ['Air express shipping currency', 'CNY'],
+        ['Shared profit margin (%)', ''],
+        ['Sync locale', ''],
+        ['Schedule', ''],
+        ['Writeback policy', ''],
+        ['Publishing policy', ''],
+        ['USD to IRT', ''],
+        ['USD effective date', ''],
+        ['CNY effective date', ''],
+        ['State revision', ''],
+        ['Shipping catalog revision', ''],
+        ['Sync status', ''],
+      ]);
+    }
+  }
+  const settings = state.settings;
+  sheet.getRange(DIGITALOGIC_PRICING_SETTINGS_CELLS.cny).setValue(Number(settings.yuan_price));
+  sheet.getRange(DIGITALOGIC_PRICING_SETTINGS_CELLS.shippingPrice)
+    .setNumberFormat('@')
+    .setValue(String(settings.air_express_price_per_kg));
+  sheet.getRange(DIGITALOGIC_PRICING_SETTINGS_CELLS.shippingCurrency).setValue(settings.air_express_currency);
+  sheet.getRange(DIGITALOGIC_PRICING_SETTINGS_CELLS.profit).setValue(Number(settings.profit_margin_percent));
+  sheet.getRange(DIGITALOGIC_PRICING_SETTINGS_CELLS.usd).setValue(Number(settings.dollar_price));
+  sheet.getRange(DIGITALOGIC_PRICING_SETTINGS_CELLS.usdEffectiveDate).setValue(settings.usd_effective_date);
+  sheet.getRange(DIGITALOGIC_PRICING_SETTINGS_CELLS.cnyEffectiveDate).setValue(settings.cny_effective_date);
+  sheet.getRange(DIGITALOGIC_PRICING_SETTINGS_CELLS.stateRevision).setValue(state.state_revision);
+  sheet.getRange(DIGITALOGIC_PRICING_SETTINGS_CELLS.shippingRevision)
+    .setValue(settings.shipping_catalog_revision);
+  sheet.getRange(DIGITALOGIC_PRICING_SETTINGS_CELLS.syncStatus).setValue(
+    state.freshness.stale
+      ? localize_(locale, 'STALE: older than 7 days', 'هشدار: نرخ‌ها بیش از ۷ روز قدمت دارند')
+      : localize_(locale, 'CURRENT', 'به‌روز')
+  );
+  return true;
+}
+
+/** Build the complete exact composite write contract from editable Settings cells. */
+function buildPricingSettingsRequest_(sheet) {
+  const cny = normalizeSheetDecimal_(sheet.getRange(DIGITALOGIC_PRICING_SETTINGS_CELLS.cny).getDisplayValue());
+  const usd = normalizeSheetDecimal_(sheet.getRange(DIGITALOGIC_PRICING_SETTINGS_CELLS.usd).getDisplayValue());
+  const shippingPrice = normalizeSheetDecimal_(
+    sheet.getRange(DIGITALOGIC_PRICING_SETTINGS_CELLS.shippingPrice).getDisplayValue()
+  );
+  const shippingCurrency = String(
+    restoreNeutralizedSheetText_(
+      sheet.getRange(DIGITALOGIC_PRICING_SETTINGS_CELLS.shippingCurrency).getDisplayValue()
+    ) || ''
+  ).trim();
+  const profit = normalizeSheetDecimal_(sheet.getRange(DIGITALOGIC_PRICING_SETTINGS_CELLS.profit).getDisplayValue());
+  const usdEffectiveDate = String(
+    restoreNeutralizedSheetText_(
+      sheet.getRange(DIGITALOGIC_PRICING_SETTINGS_CELLS.usdEffectiveDate).getDisplayValue()
+    ) || ''
+  ).trim();
+  const cnyEffectiveDate = String(
+    restoreNeutralizedSheetText_(
+      sheet.getRange(DIGITALOGIC_PRICING_SETTINGS_CELLS.cnyEffectiveDate).getDisplayValue()
+    ) || ''
+  ).trim();
+  const revision = String(
+    sheet.getRange(DIGITALOGIC_PRICING_SETTINGS_CELLS.stateRevision).getDisplayValue() || ''
+  ).trim();
+  const shippingRevision = String(
+    sheet.getRange(DIGITALOGIC_PRICING_SETTINGS_CELLS.shippingRevision).getDisplayValue() || ''
+  ).trim();
+  if (cny === null || compareSheetDecimals_(cny, '1') < 0 || compareSheetDecimals_(cny, '1000000000') > 0) {
+    throw new Error('CNY to IRT is outside its allowed range.');
+  }
+  if (usd === null || compareSheetDecimals_(usd, '1') < 0 || compareSheetDecimals_(usd, '1000000000') > 0) {
+    throw new Error('USD to IRT is outside its allowed range.');
+  }
+  if (profit === null || compareSheetDecimals_(profit, '1000') > 0) {
+    throw new Error('Shared profit margin is outside its allowed range.');
+  }
+  if (shippingPrice === null || compareSheetDecimals_(shippingPrice, '0') <= 0) {
+    throw new Error('Air-express shipping price must be greater than zero.');
+  }
+  if (!/^(?:CNY|IRR)$/.test(shippingCurrency)) {
+    throw new Error('Air-express shipping currency must be CNY or IRR.');
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(usdEffectiveDate)
+    || !/^\d{4}-\d{2}-\d{2}$/.test(cnyEffectiveDate)) {
+    throw new Error('USD and CNY effective dates must use YYYY-MM-DD.');
+  }
+  if (!/^sha256:[a-f0-9]{64}$/.test(revision)) {
+    throw new Error('Refresh pricing settings before applying edits.');
+  }
+  if (!/^sha256:[a-f0-9]{64}$/.test(shippingRevision)) {
+    throw new Error('Refresh the shipping catalog before applying edits.');
+  }
+
+  return {
+    expected_state_revision: revision,
+    settings: {
+      dollar_price: usd,
+      yuan_price: cny,
+      effective_date: cnyEffectiveDate,
+      usd_effective_date: usdEffectiveDate,
+      cny_effective_date: cnyEffectiveDate,
+      profit_margin_percent: profit,
+      air_express_price_per_kg: shippingPrice,
+      air_express_currency: shippingCurrency,
+      shipping_catalog_revision: shippingRevision,
+    },
+  };
+}
+
+/** Require direct write-scope credentials for an atomic settings mutation. */
+function validatePricingSettingsWriteCredentials_(config) {
+  if (!/^ck_[A-Za-z0-9]+$/.test(config.writebackConsumerKey)
+    || !/^cs_[A-Za-z0-9]+$/.test(config.writebackConsumerSecret)) {
+    throw new Error('Write-scope WooCommerce credentials are missing or malformed in Script Properties.');
+  }
+}
+
+/** POST the complete settings contract and validate its commit identity. */
+function postPricingSettings_(config, request) {
+  const response = UrlFetchApp.fetch(config.apiBase + DIGITALOGIC_PRICING_SETTINGS_PATH, {
+    method: 'post',
+    contentType: 'application/json',
+    headers: {
+      Authorization: 'Basic ' + Utilities.base64Encode(
+        config.writebackConsumerKey + ':' + config.writebackConsumerSecret
+      ),
+      Accept: 'application/json',
+    },
+    payload: JSON.stringify(request),
+    followRedirects: false,
+    muteHttpExceptions: true,
+  });
+  const status = response.getResponseCode();
+  let payload;
+  try {
+    payload = JSON.parse(response.getContentText());
+  } catch (error) {
+    throw new Error('Digitalogic pricing update returned non-JSON HTTP ' + status + '.');
+  }
+  if (status < 200 || status >= 300 || !payload || payload.success !== true || !payload.data) {
+    const code = payload && (payload.code || payload.message) ? (payload.code || payload.message) : 'request_failed';
+    throw new Error('Digitalogic pricing update HTTP ' + status + ': ' + code);
+  }
+  const data = payload.data;
+  if (!data || data.schema !== 'digitalogic.pricing-coordinator-result/v1'
+    || !/^sha256:[a-f0-9]{64}$/.test(String(data.state_revision || ''))
+    || !data.settings || typeof data.settings !== 'object' || Array.isArray(data.settings)) {
+    throw new Error('Malformed Digitalogic pricing update response.');
+  }
+
+  return data;
 }
 
 /** Use workbook state when bound and script state for standalone destinations. */
@@ -279,6 +588,7 @@ function fetchDataset_(config, dataset) {
   const columns = [];
   const columnKeys = Object.create(null);
   const rows = [];
+  let snapshot = null;
   let page = 1;
   let hasMore = true;
 
@@ -287,6 +597,7 @@ function fetchDataset_(config, dataset) {
       throw new Error('Catalog pagination exceeded the safety limit for ' + dataset.id + '.');
     }
     const response = validateCatalogPage_(fetchPage_(config, dataset.id, page), dataset.id);
+    snapshot = validateCatalogSnapshotPage_(response, dataset.id, page, snapshot);
 
     response.columns.forEach(function (column) {
       if (!column || !column.key || columnKeys[column.key]) {
@@ -302,6 +613,7 @@ function fetchDataset_(config, dataset) {
     hasMore = Boolean(response.pagination && response.pagination.has_more);
     page += 1;
   }
+  validateCompleteCatalogSnapshot_(rows, snapshot, dataset.id);
 
   return {
     id: dataset.id,
@@ -310,6 +622,7 @@ function fetchDataset_(config, dataset) {
     columns: columns,
     rows: rows,
     pageRevisions: pages,
+    datasetRevision: snapshot.datasetRevision,
   };
 }
 
@@ -332,6 +645,57 @@ function validateCatalogPage_(response, dataset) {
   }
 
   return response;
+}
+
+/** Require one immutable schema, total, and dataset revision across all pages. */
+function validateCatalogSnapshotPage_(response, dataset, requestedPage, expected) {
+  const page = Number(response.pagination && response.pagination.page);
+  const total = Number(response.pagination && response.pagination.total);
+  const columns = JSON.stringify(response.columns.map(function (column) {
+    return column && column.key ? String(column.key) : '';
+  }));
+  const requiresRevision = dataset === 'reconciled_products';
+  const datasetRevision = response.dataset_revision === null || typeof response.dataset_revision === 'undefined'
+    ? ''
+    : String(response.dataset_revision);
+
+  if (!Number.isInteger(page) || page !== requestedPage
+    || !Number.isInteger(total) || total < 0
+    || !columns || columns.indexOf('""') >= 0
+    || (requiresRevision && !/^sha256:[a-f0-9]{64}$/.test(datasetRevision))) {
+    throw new Error('Malformed ' + dataset + ' catalog snapshot metadata.');
+  }
+
+  const current = {
+    datasetRevision: datasetRevision,
+    total: total,
+    columns: columns,
+  };
+  if (expected && (
+    expected.total !== current.total
+    || expected.columns !== current.columns
+    || (requiresRevision && expected.datasetRevision !== current.datasetRevision)
+  )) {
+    throw new Error(dataset + ' changed while pages were being fetched; retry the complete sync.');
+  }
+
+  return expected || current;
+}
+
+/** Verify the fetched union is complete and every stable sync key is unique. */
+function validateCompleteCatalogSnapshot_(rows, snapshot, dataset) {
+  if (!snapshot || rows.length !== snapshot.total) {
+    throw new Error(dataset + ' row count changed while pages were being fetched.');
+  }
+  const seen = Object.create(null);
+  rows.forEach(function (row) {
+    const key = String(row && row.sync_key || '');
+    if (!key || seen[key]) {
+      throw new Error(dataset + ' contains a missing or duplicate sync_key.');
+    }
+    seen[key] = true;
+  });
+  return true;
 }
 
 /** Fetch and validate one REST page with Basic auth in an HTTP header. */
@@ -375,6 +739,7 @@ function calculateRevision_(datasets) {
       columns: dataset.columns.map(function (column) { return column.key; }),
       rows: dataset.rows,
       pages: dataset.pageRevisions,
+      datasetRevision: dataset.datasetRevision,
     };
   });
   const digest = Utilities.computeDigest(
@@ -992,10 +1357,12 @@ function stageSelectedProducts() {
   const sourceIndexes = {
     sync_key: sourceKeys.indexOf('sync_key'),
     patris_code: sourceKeys.indexOf('patris_code'),
+    reconciliation_status: sourceKeys.indexOf('reconciliation_status'),
     expected_record_revision: sourceKeys.indexOf('record_revision'),
   };
-  if (sourceIndexes.sync_key < 0 || sourceIndexes.patris_code < 0 || sourceIndexes.expected_record_revision < 0) {
-    throw new Error('Products is missing sync_key, patris_code, or record_revision. Sync the catalog first.');
+  if (sourceIndexes.sync_key < 0 || sourceIndexes.patris_code < 0
+    || sourceIndexes.reconciliation_status < 0 || sourceIndexes.expected_record_revision < 0) {
+    throw new Error('Products is missing its reconciliation identity or revision columns. Sync the catalog first.');
   }
 
   const sourceRows = source.getRange(selection.getRow(), 1, selection.getNumRows(), source.getLastColumn()).getValues();
@@ -1016,8 +1383,12 @@ function stageSelectedProducts() {
   sourceRows.forEach(function (row) {
     const syncKey = String(restoreNeutralizedSheetText_(row[sourceIndexes.sync_key]) || '').trim();
     const patrisCode = String(restoreNeutralizedSheetText_(row[sourceIndexes.patris_code]) || '').trim();
+    const reconciliationStatus = restoreNeutralizedSheetText_(row[sourceIndexes.reconciliation_status]);
     const revision = String(restoreNeutralizedSheetText_(row[sourceIndexes.expected_record_revision]) || '').trim();
-    if (!syncKey || syncKey !== patrisCode || !/^sha256:[a-f0-9]{64}$/i.test(revision)) {
+    if (!isMatchedReconciledProduct_(reconciliationStatus)
+      || !/^woo:[1-9][0-9]*$/.test(syncKey)
+      || !patrisCode
+      || !/^sha256:[a-f0-9]{64}$/i.test(revision)) {
       return;
     }
     if (stagedByKey[syncKey]) {
@@ -1044,11 +1415,16 @@ function stageSelectedProducts() {
   });
 
   if (!stagedCount) {
-    throw new Error('No selected Product row had matching Product Code and sync keys with a valid record revision.');
+    throw new Error('No selected Product row was an exact matched reconciliation row with a valid Woo row key and revision.');
   }
   spreadsheet.setActiveSheet(workspace.changes);
   spreadsheet.toast(stagedCount + ' product row(s) staged. Edit fields, then select rows to preview.', 'Digitalogic', 7);
   return stagedCount;
+}
+
+/** Only exact one-to-one Patris/Woo reconciliations may enter writeback. */
+function isMatchedReconciledProduct_(status) {
+  return String(status === null || typeof status === 'undefined' ? '' : status).trim().toLowerCase() === 'matched';
 }
 
 /** Find the first blank managed row by its key column, ignoring side-panel content. */
@@ -1305,8 +1681,8 @@ function buildWritebackRequest_(rows, mode, idempotencyKey, maximumChanges) {
     const syncKey = normalizeIdentifier_(row.sync_key, 'sync_key');
     const patrisCode = normalizeIdentifier_(row.patris_code, 'patris_code');
     const expectedRevision = String(row.expected_record_revision || '').trim().toLowerCase();
-    if (syncKey !== patrisCode) {
-      throw new Error('sync_key and patris_code must be exactly equal for ' + syncKey + '.');
+    if (!/^woo:[1-9][0-9]*$/.test(syncKey) && syncKey !== patrisCode) {
+      throw new Error('A stable woo:<id> sync_key or deprecated exact-code compatibility key is required for ' + patrisCode + '.');
     }
     if (!/^sha256:[a-f0-9]{64}$/.test(expectedRevision)) {
       throw new Error('A sha256 record revision is required for ' + syncKey + '.');
@@ -1345,7 +1721,7 @@ function normalizeEditableField_(field, rawValue, specification) {
     return { present: false };
   }
   if (typeof text === 'string' && text.toLowerCase() === '<clear>') {
-    if (['sale_price', 'shipping_method_id', 'profit_percent'].indexOf(field) < 0) {
+    if (['shipping_method_id'].indexOf(field) < 0) {
       throw new Error(field + ' cannot be cleared.');
     }
     return { present: true, value: null };
@@ -1791,6 +2167,7 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     auditRowsFromResponse_: auditRowsFromResponse_,
     boundedJson_: boundedJson_,
+    buildPricingSettingsRequest_: buildPricingSettingsRequest_,
     buildWritebackRequest_: buildWritebackRequest_,
     createWritebackHttpError_: createWritebackHttpError_,
     detectStructuredLayout_: detectStructuredLayout_,
@@ -1799,6 +2176,7 @@ if (typeof module !== 'undefined' && module.exports) {
     getSpreadsheet_: getSpreadsheet_,
     getStateProperties_: getStateProperties_,
     getOrCreateIdempotencyKey_: getOrCreateIdempotencyKey_,
+    isMatchedReconciledProduct_: isMatchedReconciledProduct_,
     isSelected_: isSelected_,
     mergeRows_: mergeRows_,
     normalizeApiBase_: normalizeApiBase_,
@@ -1811,8 +2189,12 @@ if (typeof module !== 'undefined' && module.exports) {
     restrictProtectionToOperator_: restrictProtectionToOperator_,
     restoreNeutralizedSheetText_: restoreNeutralizedSheetText_,
     rowToSheetValues_: rowToSheetValues_,
+    pricingSettingText_: pricingSettingText_,
     syncCatalog: syncCatalog,
     validateCatalogPage_: validateCatalogPage_,
+    validateCatalogSnapshotPage_: validateCatalogSnapshotPage_,
+    validateCompleteCatalogSnapshot_: validateCompleteCatalogSnapshot_,
+    validatePricingSettingsState_: validatePricingSettingsState_,
     validateWritebackResponse_: validateWritebackResponse_,
     updateDashboard_: updateDashboard_,
     writebackFailureResponse_: writebackFailureResponse_,

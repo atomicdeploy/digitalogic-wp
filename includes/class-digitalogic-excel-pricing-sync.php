@@ -1,6 +1,6 @@
 <?php
 /**
- * Safe, source-scoped Excel pricing-settings synchronization.
+ * Safe, component-scoped ecosystem pricing-settings synchronization.
  *
  * @package Digitalogic
  */
@@ -10,16 +10,22 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 /**
- * Coordinates the local Patris companion with versioned WooCommerce pricing
- * inputs. Product prices remain derived and are never accepted by this API.
+ * Coordinates trusted Digitalogic components with versioned WooCommerce
+ * pricing inputs. The historical class name is retained for binary/API
+ * compatibility; the remote contract is not owned by Microsoft Excel.
  */
 final class Digitalogic_Excel_Pricing_Sync {
 
-	public const REQUEST_SCHEMA  = 'digitalogic.excel-pricing-sync-request/v1';
-	public const STATE_SCHEMA    = 'digitalogic.excel-pricing-sync-state/v1';
-	public const PREVIEW_SCHEMA  = 'digitalogic.excel-pricing-sync-preview/v1';
-	public const APPLY_SCHEMA    = 'digitalogic.excel-pricing-sync-apply/v1';
-	public const SETTINGS_SCHEMA = 'digitalogic.excel-pricing-settings/v1';
+	public const REQUEST_SCHEMA  = 'digitalogic.pricing-sync-request/v1';
+	public const STATE_SCHEMA    = 'digitalogic.pricing-sync-state/v1';
+	public const PREVIEW_SCHEMA  = 'digitalogic.pricing-sync-preview/v1';
+	public const APPLY_SCHEMA    = 'digitalogic.pricing-sync-apply/v1';
+	public const SETTINGS_SCHEMA = 'digitalogic.pricing-settings/v1';
+
+	public const LEGACY_REQUEST_SCHEMA = 'digitalogic.excel-pricing-sync-request/v1';
+	public const LEGACY_STATE_SCHEMA   = 'digitalogic.excel-pricing-sync-state/v1';
+	public const LEGACY_PREVIEW_SCHEMA = 'digitalogic.excel-pricing-sync-preview/v1';
+	public const LEGACY_APPLY_SCHEMA   = 'digitalogic.excel-pricing-sync-apply/v1';
 
 	public const SETTINGS_OPTION = 'digitalogic_excel_pricing_sync_settings';
 	public const AUDIT_OPTION    = 'digitalogic_excel_pricing_sync_audit';
@@ -84,6 +90,289 @@ final class Digitalogic_Excel_Pricing_Sync {
 	}
 
 	/**
+	 * Return the complete canonical settings needed by the pricing coordinator.
+	 *
+	 * @param mixed|null $profit_fallback Exact margin used only when no stored margin exists.
+	 * @return array|WP_Error
+	 */
+	public function current_canonical_settings( $profit_fallback = null ) {
+		$state = $this->current_canonical_state( $profit_fallback );
+
+		return is_wp_error( $state ) ? $state : $state['settings'];
+	}
+
+	/**
+	 * Return canonical settings with revision and freshness metadata.
+	 *
+	 * This is the shared read contract for Excel, Google Sheets, WordPress, and
+	 * any other trusted client that must compare before writing.
+	 *
+	 * @param mixed|null $profit_fallback Exact profit used only when no default exists.
+	 * @return array|WP_Error
+	 */
+	public function current_canonical_state( $profit_fallback = null ) {
+		$globals = $this->read_globals();
+		if ( is_wp_error( $globals ) ) {
+			return $globals;
+		}
+		if (
+			null === $globals['currency']['dollar_price']
+			|| null === $globals['currency']['yuan_price']
+			|| null === $globals['currency']['usd_effective_date']
+			|| null === $globals['currency']['cny_effective_date']
+		) {
+			return $this->error(
+				'digitalogic_pricing_current_currency_invalid',
+				'نرخ دلار، نرخ یوآن و تاریخ مؤثر فعلی باید پیش از هماهنگ‌سازی معتبر باشند.',
+				409
+			);
+		}
+		$profit = ! empty( $globals['default_markup']['configured'] )
+			? $globals['default_markup']['profit_percent']
+			: $profit_fallback;
+		if ( null === $profit ) {
+			return $this->error(
+				'digitalogic_pricing_current_profit_required',
+				'حاشیه سود مشترک فعلی برای بازتولید قیمت‌ها تنظیم نشده است.',
+				409
+			);
+		}
+
+		$settings = $this->normalize_settings(
+			array(
+				'dollar_price'              => $globals['currency']['dollar_price'],
+				'yuan_price'                => $globals['currency']['yuan_price'],
+				'effective_date'            => $globals['currency']['effective_date'],
+				'usd_effective_date'        => $globals['currency']['usd_effective_date'],
+				'cny_effective_date'        => $globals['currency']['cny_effective_date'],
+				'profit_margin_percent'     => $profit,
+				'air_express_price_per_kg'  => $globals['shipping']['price_per_kg'],
+				'air_express_currency'      => $globals['shipping']['currency'],
+				'shipping_catalog_revision' => $globals['shipping']['catalog_revision'],
+			)
+		);
+		if ( is_wp_error( $settings ) ) {
+			return $settings;
+		}
+		return array(
+			'schema'           => self::STATE_SCHEMA,
+			'state_revision'   => $globals['state_revision'],
+			'settings'         => $settings,
+			'freshness'        => array(
+				'effective_date'   => $globals['currency']['effective_date'],
+				'age_days'         => $globals['currency']['age_days'],
+				'stale'            => (bool) $globals['currency']['stale'],
+				'stale_after'      => self::STALE_AFTER_DAYS,
+				'stale_currencies' => $globals['currency']['stale_currencies'],
+				'usd'              => $globals['currency']['freshness']['usd'],
+				'cny'              => $globals['currency']['freshness']['cny'],
+			),
+			'rate_provenance'  => $globals['currency']['rate_provenance'],
+			'profit_margin'    => array(
+				'profit_margin_percent' => $settings['profit_margin_percent'],
+				'updated_at'            => $globals['default_markup']['updated_at'],
+			),
+			'shipping'         => $globals['shipping'],
+			'attribute_owners' => $this->attribute_owners(),
+		);
+	}
+
+	/**
+	 * Apply trusted WordPress-origin settings and derived prices atomically.
+	 *
+	 * Admin, REST, AJAX/command-dispatcher, and other internal surfaces use
+	 * this path instead of mutating currency/profit-margin options directly.
+	 *
+	 * @param mixed       $settings          Complete settings.
+	 * @param string      $source            Bounded internal source label.
+	 * @param string|null $expected_revision Optional optimistic state revision.
+	 * @return array|WP_Error
+	 */
+	public function apply_internal_settings( $settings, $source = 'wp', $expected_revision = null ) {
+		$settings = $this->normalize_settings( $settings );
+		if ( is_wp_error( $settings ) ) {
+			return $settings;
+		}
+		if (
+			null !== $expected_revision
+			&& (
+				! is_string( $expected_revision )
+				|| 1 !== preg_match( '/\Asha256:[a-f0-9]{64}\z/D', $expected_revision )
+			)
+		) {
+			return $this->error(
+				'digitalogic_pricing_expected_revision_invalid',
+				'شناسه نسخهٔ مورد انتظار تنظیمات قیمت معتبر نیست.',
+				400
+			);
+		}
+		$source          = sanitize_key( (string) $source );
+		$source          = '' === $source ? 'wp' : substr( $source, 0, 64 );
+		$source_identity = array(
+			'id'       => 'digitalogic-wp',
+			'dataset'  => 'pricing-settings',
+			'revision' => $this->revision(
+				array(
+					'source'   => $source,
+					'settings' => $settings,
+				)
+			),
+		);
+
+		return $this->with_lock(
+			function () use ( $settings, $source, $source_identity, $expected_revision ) {
+				$current = $this->read_globals();
+				if ( is_wp_error( $current ) ) {
+					return $current;
+				}
+				if (
+					null !== $expected_revision
+					&& ! hash_equals( $expected_revision, $current['state_revision'] )
+				) {
+					return $this->error(
+						'digitalogic_pricing_state_revision_conflict',
+						'تنظیمات قیمت پس از آخرین خواندن تغییر کرده است؛ ابتدا تازه‌سازی کنید.',
+						409,
+						array( 'current_state_revision' => $current['state_revision'] )
+					);
+				}
+				$desired = $this->globals_from_settings( $settings );
+				if ( is_wp_error( $desired ) ) {
+					return $desired;
+				}
+				$changed = ! hash_equals( $current['state_revision'], $desired['state_revision'] );
+				$context = array(
+					'id'                 => $source_identity['id'],
+					'dataset'            => $source_identity['dataset'],
+					'submitted_revision' => $source_identity['revision'],
+					'current_revision'   => $source_identity['revision'],
+					'matches_current'    => true,
+				);
+
+				$transaction = $this->run_coordinated_pricing_transaction(
+					function () use ( $settings, $source, $source_identity, $context, $current, $desired, $changed ) {
+						foreach (
+							array(
+								'dollar_price',
+								'options_dollar_price',
+								'yuan_price',
+								'options_yuan_price',
+								'update_date',
+								'options_update_date',
+								Digitalogic_Shipping_Method_Service::METHODS_OPTION,
+								Digitalogic_Shipping_Method_Service::DEFAULT_MARKUP_OPTION,
+								self::SETTINGS_OPTION,
+								self::AUDIT_OPTION,
+							) as $option_name
+						) {
+							$this->read_option_db( $option_name, true );
+						}
+
+						$locked_current = $this->read_globals();
+						if ( is_wp_error( $locked_current ) ) {
+							return $locked_current;
+						}
+						if ( $changed ) {
+							$options = $this->desired_option_values(
+								$source_identity,
+								$settings,
+								$locked_current,
+								$desired
+							);
+							if ( is_wp_error( $options ) ) {
+								return $options;
+							}
+							foreach ( $options as $name => $value ) {
+								$stored = $this->store_option_verified( $name, $value );
+								if ( is_wp_error( $stored ) ) {
+									return $stored;
+								}
+							}
+
+							$audit_key = 'internal:' . hash(
+								'sha256',
+								$source . '|' . $locked_current['state_revision'] . '|' . $desired['state_revision']
+							);
+							$audit     = $this->append_audit_entry(
+								$source_identity,
+								$context,
+								$audit_key,
+								'internal',
+								$locked_current,
+								$desired,
+								$settings,
+								array(
+									'client_id'  => 'digitalogic-wp',
+									'channel'    => $source,
+									'request_id' => $audit_key,
+								)
+							);
+							if ( is_wp_error( $audit ) ) {
+								return $audit;
+							}
+						}
+
+						$readback = $this->read_globals();
+						if (
+							is_wp_error( $readback )
+							|| ! hash_equals( $desired['state_revision'], $readback['state_revision'] )
+						) {
+							return is_wp_error( $readback )
+								? $readback
+								: $this->error(
+									'digitalogic_pricing_settings_readback_failed',
+									'خواندن مجدد تنظیمات قیمت با مقدار درخواستی یکسان نیست.',
+									500
+								);
+						}
+
+						$repricing = Digitalogic_Pricing_Coordinator::instance()->reprice_open_transaction(
+							$settings,
+							$locked_current['shipping']['catalog_revision']
+						);
+						if ( is_wp_error( $repricing ) ) {
+							return $repricing;
+						}
+
+						return array(
+							'readback'  => $readback,
+							'repricing' => $repricing,
+						);
+					}
+				);
+				Digitalogic_Pricing_Coordinator::instance()->flush_repricing_caches();
+				if ( is_wp_error( $transaction ) ) {
+					return $transaction;
+				}
+
+				Digitalogic_Pricing_Coordinator::instance()->publish_repricing_result(
+					$transaction['repricing']
+				);
+				$response_settings = $this->settings_from_globals( $transaction['readback'] );
+				if ( $changed ) {
+					$this->emit_after_apply(
+						$source_identity,
+						$current['state_revision'],
+						$current,
+						$transaction['readback'],
+						$response_settings
+					);
+				}
+
+				return array(
+					'schema'           => 'digitalogic.pricing-coordinator-result/v1',
+					'status'           => $changed ? 'applied' : 'reconciled',
+					'source'           => $source,
+					'state_revision'   => $transaction['readback']['state_revision'],
+					'settings'         => $response_settings,
+					'pricing_results'  => $transaction['repricing'],
+					'settings_changed' => $changed,
+				);
+			}
+		);
+	}
+
+	/**
 	 * Authorize the exact Excel sync machine surface.
 	 *
 	 * The existing Patris product-sync secret is reused, but this surface is
@@ -145,10 +434,12 @@ final class Digitalogic_Excel_Pricing_Sync {
 
 		$catalog = Digitalogic_Google_Sheets_Catalog::instance()->get_page(
 			array(
-				'dataset' => 'products',
-				'locale'  => 'fa',
-				'page'    => $page,
-				'limit'   => $limit,
+				'dataset'        => 'reconciled_products',
+				'locale'         => 'fa',
+				'page'           => $page,
+				'limit'          => $limit,
+				'source_id'      => $source_context['id'],
+				'source_dataset' => $source_context['dataset'],
 			)
 		);
 		if ( is_wp_error( $catalog ) ) {
@@ -162,14 +453,48 @@ final class Digitalogic_Excel_Pricing_Sync {
 		}
 
 		return array(
-			'schema'         => self::STATE_SCHEMA,
-			'state_revision' => $globals['state_revision'],
-			'generated_at'   => $this->now_iso8601(),
-			'source'         => $source_context,
-			'warnings'       => $warnings,
-			'currency'       => $globals['currency'],
-			'default_markup' => $globals['default_markup'],
-			'catalog'        => $catalog,
+			'schema'             => self::STATE_SCHEMA,
+			'state_revision'     => $globals['state_revision'],
+			'generated_at'       => $this->now_iso8601(),
+			'source'             => $source_context,
+			'client_id'          => $payload['client_id'],
+			'channel'            => $payload['channel'],
+			'request_id'         => $payload['request_id'],
+			'warnings'           => $warnings,
+			'settings'           => array(
+				'dollar_price'              => $globals['currency']['dollar_price'],
+				'yuan_price'                => $globals['currency']['yuan_price'],
+				'effective_date'            => $globals['currency']['cny_effective_date'],
+				'usd_effective_date'        => $globals['currency']['usd_effective_date'],
+				'cny_effective_date'        => $globals['currency']['cny_effective_date'],
+				'profit_margin_percent'     => $globals['default_markup']['profit_percent'],
+				'air_express_price_per_kg'  => $globals['shipping']['price_per_kg'],
+				'air_express_currency'      => $globals['shipping']['currency'],
+				'shipping_catalog_revision' => $globals['shipping']['catalog_revision'],
+			),
+			'currency'           => $globals['currency'],
+			'profit_margin'      => array(
+				'configured'            => (bool) $globals['default_markup']['configured'],
+				'profit_margin_percent' => $globals['default_markup']['profit_percent'],
+				'revision'              => $globals['default_markup']['revision'],
+				'updated_at'            => $globals['default_markup']['updated_at'],
+			),
+			'shipping'           => $globals['shipping'],
+			'default_markup'     => array_merge(
+				$globals['default_markup'],
+				array(
+					'deprecated'  => true,
+					'replacement' => 'profit_margin',
+				)
+			),
+			'deprecated_aliases' => array(
+				'default_markup' => array(
+					'replacement' => 'profit_margin',
+					'equivalence' => 'default_markup.profit_percent == profit_margin.profit_margin_percent',
+				),
+			),
+			'attribute_owners'   => $this->attribute_owners(),
+			'catalog'            => $catalog,
 		);
 	}
 
@@ -202,6 +527,9 @@ final class Digitalogic_Excel_Pricing_Sync {
 				'idempotency_key'         => $headers['idempotency_key'],
 				'expected_state_revision' => $headers['expected_state_revision'],
 				'settings'                => $settings,
+				'client_id'               => $payload['client_id'],
+				'channel'                 => $payload['channel'],
+				'request_id'              => $payload['request_id'],
 			)
 		);
 
@@ -225,7 +553,8 @@ final class Digitalogic_Excel_Pricing_Sync {
 				$result = $this->build_preview(
 					$payload['source'],
 					$headers['expected_state_revision'],
-					$settings
+					$settings,
+					$this->request_context( $payload )
 				);
 				if ( is_wp_error( $result ) ) {
 					$this->release_idempotency( 'preview', $headers['idempotency_key'] );
@@ -302,6 +631,9 @@ final class Digitalogic_Excel_Pricing_Sync {
 				'settings'                => $settings,
 				'preview_digest'          => $preview_digest,
 				'confirmation'            => 'APPLY',
+				'client_id'               => $payload['client_id'],
+				'channel'                 => $payload['channel'],
+				'request_id'              => $payload['request_id'],
 			)
 		);
 
@@ -369,7 +701,8 @@ final class Digitalogic_Excel_Pricing_Sync {
 					$headers['expected_state_revision'],
 					$settings,
 					$preview_digest,
-					$preview
+					$preview,
+					$this->request_context( $payload )
 				);
 				if ( is_wp_error( $result ) ) {
 					$this->release_idempotency( 'apply', $headers['idempotency_key'] );
@@ -404,9 +737,10 @@ final class Digitalogic_Excel_Pricing_Sync {
 	 * @param array  $source                    Exact current source.
 	 * @param string $expected_state_revision   Expected settings revision.
 	 * @param array  $settings                  Proposed settings.
+	 * @param array  $request_context           Nonsecret client trace context.
 	 * @return array|WP_Error
 	 */
-	private function build_preview( $source, $expected_state_revision, $settings ) {
+	private function build_preview( $source, $expected_state_revision, $settings, $request_context ) {
 		$source_context = $this->validate_current_source( $source );
 		if ( is_wp_error( $source_context ) ) {
 			return $source_context;
@@ -418,6 +752,10 @@ final class Digitalogic_Excel_Pricing_Sync {
 		}
 		if ( ! hash_equals( $current['state_revision'], $expected_state_revision ) ) {
 			return $this->revision_conflict( $current['state_revision'] );
+		}
+		$desired = $this->globals_from_settings( $settings );
+		if ( is_wp_error( $desired ) ) {
+			return $desired;
 		}
 
 		$warnings       = $this->comparison_warnings( $current, $settings );
@@ -431,6 +769,7 @@ final class Digitalogic_Excel_Pricing_Sync {
 			'source'                  => $source,
 			'expected_state_revision' => $expected_state_revision,
 			'settings'                => $settings,
+			'request_context'         => $request_context,
 			'expires_at'              => $expires,
 		);
 		$digest   = 'sha256:' . hash_hmac(
@@ -461,6 +800,9 @@ final class Digitalogic_Excel_Pricing_Sync {
 			'status'          => empty( $warnings ) ? 'ready' : 'confirmation_required',
 			'state_revision'  => $current['state_revision'],
 			'source'          => $source_context,
+			'client_id'       => $request_context['client_id'],
+			'channel'         => $request_context['channel'],
+			'request_id'      => $request_context['request_id'],
 			'preview_digest'  => $digest,
 			'expires_at'      => gmdate( 'c', $expires ),
 			'warnings'        => $warnings,
@@ -478,20 +820,24 @@ final class Digitalogic_Excel_Pricing_Sync {
 	 * @param array  $settings                  Canonical settings.
 	 * @param string $preview_digest            Bound preview digest.
 	 * @param array  $preview                   Stored preview.
+	 * @param array  $request_context           Nonsecret client trace context.
 	 * @return array|WP_Error
 	 */
-	private function apply_locked( $source, $source_context, $idempotency_key, $expected_state_revision, $settings, $preview_digest, $preview ) {
+	private function apply_locked( $source, $source_context, $idempotency_key, $expected_state_revision, $settings, $preview_digest, $preview, $request_context ) {
 		$current = $this->read_globals();
 		if ( is_wp_error( $current ) ) {
 			return $current;
 		}
 
 		$desired = $this->globals_from_settings( $settings );
+		if ( is_wp_error( $desired ) ) {
+			return $desired;
+		}
 		$changed = ! hash_equals( $current['state_revision'], $desired['state_revision'] );
 
 		if ( $changed ) {
-			$result = $this->run_transaction(
-				function () use ( $source, $source_context, $idempotency_key, $expected_state_revision, $settings, $preview_digest, $desired ) {
+			$result = $this->run_coordinated_pricing_transaction(
+				function () use ( $source, $source_context, $idempotency_key, $expected_state_revision, $settings, $preview_digest, $desired, $request_context ) {
 					foreach (
 						array(
 							'dollar_price',
@@ -500,6 +846,7 @@ final class Digitalogic_Excel_Pricing_Sync {
 							'options_yuan_price',
 							'update_date',
 							'options_update_date',
+							Digitalogic_Shipping_Method_Service::METHODS_OPTION,
 							Digitalogic_Shipping_Method_Service::DEFAULT_MARKUP_OPTION,
 							self::SETTINGS_OPTION,
 							self::AUDIT_OPTION,
@@ -517,6 +864,9 @@ final class Digitalogic_Excel_Pricing_Sync {
 					}
 
 					$options = $this->desired_option_values( $source, $settings, $locked_current, $desired );
+					if ( is_wp_error( $options ) ) {
+						return $options;
+					}
 					foreach ( $options as $name => $value ) {
 						$stored = $this->store_option_verified( $name, $value );
 						if ( is_wp_error( $stored ) ) {
@@ -531,7 +881,8 @@ final class Digitalogic_Excel_Pricing_Sync {
 						$preview_digest,
 						$locked_current,
 						$desired,
-						$settings
+						$settings,
+						$request_context
 					);
 					if ( is_wp_error( $audit ) ) {
 						return $audit;
@@ -553,16 +904,42 @@ final class Digitalogic_Excel_Pricing_Sync {
 						);
 					}
 
-					return $readback;
+					$repricing = Digitalogic_Pricing_Coordinator::instance()->reprice_open_transaction(
+						$settings,
+						$locked_current['shipping']['catalog_revision']
+					);
+					if ( is_wp_error( $repricing ) ) {
+						return $repricing;
+					}
+
+					return array(
+						'readback'  => $readback,
+						'repricing' => $repricing,
+					);
 				}
 			);
+			Digitalogic_Pricing_Coordinator::instance()->flush_repricing_caches();
 			if ( is_wp_error( $result ) ) {
 				return $result;
 			}
 
-			$readback = $result;
+			$readback  = $result['readback'];
+			$repricing = $result['repricing'];
 		} else {
 			$readback = $current;
+			$result   = $this->run_coordinated_pricing_transaction(
+				function () use ( $settings, $current ) {
+					return Digitalogic_Pricing_Coordinator::instance()->reprice_open_transaction(
+						$settings,
+						$current['shipping']['catalog_revision']
+					);
+				}
+			);
+			Digitalogic_Pricing_Coordinator::instance()->flush_repricing_caches();
+			if ( is_wp_error( $result ) ) {
+				return $result;
+			}
+			$repricing = $result;
 		}
 
 		$warnings       = isset( $preview['warnings'] ) && is_array( $preview['warnings'] )
@@ -582,25 +959,56 @@ final class Digitalogic_Excel_Pricing_Sync {
 			array_unshift( $warnings, $source_warning );
 		}
 		$warnings[] = $this->warning(
-			'patris_regeneration_required',
-			'تنظیمات سراسری تأیید شد؛ companion باید قیمت‌های مشتق‌شده را بازتولید و ارسال کند.',
-			'info'
+			'pricing_reconciled',
+			'تنظیمات و قیمت نهایی کالاهای موجود با خواندن مجدد ووکامرس هماهنگ شد.',
+			'info',
+			array(
+				'updated_products' => (int) $repricing['updated_products'],
+				'deferred_missing' => (int) $repricing['deferred_missing'],
+			)
 		);
+		foreach ( (array) ( $repricing['warnings'] ?? array() ) as $pricing_warning ) {
+			if (
+				! is_array( $pricing_warning )
+				|| empty( $pricing_warning['code'] )
+				|| empty( $pricing_warning['message'] )
+			) {
+				continue;
+			}
+			$warnings[] = $this->warning(
+				(string) $pricing_warning['code'],
+				(string) $pricing_warning['message'],
+				'warning',
+				array_intersect_key(
+					$pricing_warning,
+					array(
+						'product_code'   => true,
+						'woocommerce_id' => true,
+					)
+				)
+			);
+		}
 
-		$response = array(
+		$response_settings = $this->settings_from_globals( $readback );
+		$response          = array(
 			'schema'          => self::APPLY_SCHEMA,
 			'mode'            => 'apply',
-			'status'          => $changed ? 'applied' : 'unchanged',
+			'status'          => $changed ? 'applied' : 'reconciled',
 			'state_revision'  => $readback['state_revision'],
 			'source'          => $source_context,
+			'client_id'       => $request_context['client_id'],
+			'channel'         => $request_context['channel'],
+			'request_id'      => $request_context['request_id'],
+			'settings'        => $response_settings,
 			'preview_digest'  => $preview_digest,
 			'expires_at'      => gmdate( 'c', (int) $preview['expires_at'] ),
 			'warnings'        => $warnings,
-			'product_results' => array(),
+			'product_results' => $repricing['sources'],
 		);
 
+		Digitalogic_Pricing_Coordinator::instance()->publish_repricing_result( $repricing );
 		if ( $changed ) {
-			$this->emit_after_apply( $source, $expected_state_revision, $current, $readback, $settings );
+			$this->emit_after_apply( $source, $expected_state_revision, $current, $readback, $response_settings, $request_context );
 		}
 
 		return $response;
@@ -631,6 +1039,9 @@ final class Digitalogic_Excel_Pricing_Sync {
 			'page',
 			'limit',
 			'locale',
+			'client_id',
+			'channel',
+			'request_id',
 			'idempotency_key',
 			'expected_state_revision',
 			'settings',
@@ -649,13 +1060,17 @@ final class Digitalogic_Excel_Pricing_Sync {
 			);
 		}
 
-		if ( ! isset( $payload['schema'] ) || self::REQUEST_SCHEMA !== $payload['schema'] ) {
+		if (
+			! isset( $payload['schema'] )
+			|| ! in_array( $payload['schema'], array( self::REQUEST_SCHEMA, self::LEGACY_REQUEST_SCHEMA ), true )
+		) {
 			return $this->error(
 				'digitalogic_excel_sync_schema_unsupported',
 				'نسخهٔ قرارداد همگام‌سازی پشتیبانی نمی‌شود.',
 				422
 			);
 		}
+		$payload['request_schema_deprecated'] = self::LEGACY_REQUEST_SCHEMA === $payload['schema'];
 		if ( isset( $payload['schema_version'] ) && 1 !== (int) $payload['schema_version'] ) {
 			return $this->error(
 				'digitalogic_excel_sync_schema_version_unsupported',
@@ -677,6 +1092,12 @@ final class Digitalogic_Excel_Pricing_Sync {
 		}
 		$payload['source'] = $source;
 
+		$request_context = $this->normalize_request_context( $payload, $operation );
+		if ( is_wp_error( $request_context ) ) {
+			return $request_context;
+		}
+		$payload = array_merge( $payload, $request_context );
+
 		if ( isset( $payload['locale'] ) && ! in_array( $payload['locale'], array( 'fa', 'fa_IR' ), true ) ) {
 			return $this->error(
 				'digitalogic_excel_sync_locale_invalid',
@@ -694,6 +1115,65 @@ final class Digitalogic_Excel_Pricing_Sync {
 		}
 
 		return $payload;
+	}
+
+	/**
+	 * Validate bounded, nonsecret client provenance for audit attribution.
+	 *
+	 * Primary clients should send all three fields. Missing values remain
+	 * explicit for backward compatibility instead of being guessed from auth.
+	 *
+	 * @param array  $payload   Request payload.
+	 * @param string $operation state, preview, or apply.
+	 * @return array|WP_Error
+	 */
+	private function normalize_request_context( $payload, $operation ) {
+		$defaults = array(
+			'client_id'  => 'unidentified-client',
+			'channel'    => ! empty( $payload['request_schema_deprecated'] ) ? 'legacy' : 'api',
+			'request_id' => isset( $payload['idempotency_key'] ) && is_string( $payload['idempotency_key'] )
+				? $payload['idempotency_key']
+				: $operation . '-not-provided',
+		);
+		$limits   = array(
+			'client_id'  => array( 1, 64 ),
+			'channel'    => array( 1, 32 ),
+			'request_id' => array( 8, 128 ),
+		);
+		$result   = array();
+		foreach ( $limits as $field => $bounds ) {
+			$value = $payload[ $field ] ?? $defaults[ $field ];
+			if (
+				! is_string( $value )
+				|| strlen( $value ) < $bounds[0]
+				|| strlen( $value ) > $bounds[1]
+				|| 1 !== preg_match( '/\A[A-Za-z0-9][A-Za-z0-9._:-]*\z/D', $value )
+			) {
+				return $this->error(
+					'digitalogic_pricing_request_context_invalid',
+					'Pricing request provenance must use bounded nonsecret identifiers.',
+					400,
+					array( 'field' => $field )
+				);
+			}
+			$result[ $field ] = $value;
+		}
+
+		return $result;
+	}
+
+	/**
+	 * Select the normalized client trace fields from a validated request.
+	 *
+	 * @param array $payload Validated request.
+	 * @return array
+	 */
+	private function request_context( $payload ) {
+		return array(
+			'client_id'  => $payload['client_id'],
+			'channel'    => $payload['channel'],
+			'request_id' => $payload['request_id'],
+		);
 	}
 
 	/**
@@ -871,14 +1351,16 @@ final class Digitalogic_Excel_Pricing_Sync {
 	/**
 	 * Normalize a complete settings document.
 	 *
-	 * Canonical keys are dollar_price, yuan_price, effective_date, and
-	 * default_profit_percent. Narrow USD/CNY aliases are accepted so older
-	 * companion builds can migrate without putting compatibility in VBA.
+	 * The legacy four-field document remains readable and inherits the current
+	 * shipping dependency without changing it. New clients submit the exact
+	 * air_express rate, currency, and catalog revision together with currency
+	 * rates, dates, and the one shared profit margin.
 	 *
-	 * @param mixed $settings Raw settings.
+	 * @param mixed      $settings Raw settings.
+	 * @param array|null $current  Current globals used for legacy date mapping.
 	 * @return array|WP_Error
 	 */
-	private function normalize_settings( $settings ) {
+	private function normalize_settings( $settings, $current = null ) {
 		if ( ! is_array( $settings ) || array_is_list( $settings ) ) {
 			return $this->error(
 				'digitalogic_excel_sync_settings_invalid',
@@ -888,9 +1370,10 @@ final class Digitalogic_Excel_Pricing_Sync {
 		}
 
 		$aliases = array(
-			'usd_irt'        => 'dollar_price',
-			'cny_irt'        => 'yuan_price',
-			'profit_percent' => 'default_profit_percent',
+			'usd_irt'                => 'dollar_price',
+			'cny_irt'                => 'yuan_price',
+			'profit_percent'         => 'profit_margin_percent',
+			'default_profit_percent' => 'profit_margin_percent',
 		);
 		foreach ( $aliases as $alias => $canonical ) {
 			if ( ! array_key_exists( $alias, $settings ) ) {
@@ -908,16 +1391,40 @@ final class Digitalogic_Excel_Pricing_Sync {
 			unset( $settings[ $alias ] );
 		}
 
-		$required = array( 'dollar_price', 'yuan_price', 'effective_date', 'default_profit_percent' );
+		$required         = array( 'dollar_price', 'yuan_price', 'effective_date', 'profit_margin_percent' );
+		$shipping_fields  = array( 'air_express_price_per_kg', 'air_express_currency', 'shipping_catalog_revision' );
+		$shipping_present = array_values( array_intersect( $shipping_fields, array_keys( $settings ) ) );
+		if ( $shipping_present && count( $shipping_present ) !== count( $shipping_fields ) ) {
+			return $this->error(
+				'digitalogic_pricing_shipping_settings_incomplete',
+				'air_express price, currency, and shipping-catalog revision must be submitted together.',
+				400,
+				array( 'missing' => array_values( array_diff( $shipping_fields, $shipping_present ) ) )
+			);
+		}
+		$independent_dates = array( 'usd_effective_date', 'cny_effective_date' );
+		$has_usd_date      = array_key_exists( 'usd_effective_date', $settings );
+		$has_cny_date      = array_key_exists( 'cny_effective_date', $settings );
+		if ( $has_usd_date !== $has_cny_date ) {
+			return $this->error(
+				'digitalogic_excel_sync_currency_dates_incomplete',
+				'تاریخ مؤثر دلار و یوآن باید با هم ارسال شوند.',
+				400
+			);
+		}
+		$allowed = $has_usd_date ? array_merge( $required, $independent_dates ) : $required;
+		if ( $shipping_present ) {
+			$allowed = array_merge( $allowed, $shipping_fields );
+		}
 		if (
 			! empty( array_diff( $required, array_keys( $settings ) ) )
-			|| ! empty( array_diff( array_keys( $settings ), $required ) )
+			|| ! empty( array_diff( array_keys( $settings ), $allowed ) )
 		) {
 			$missing = array_values( array_diff( $required, array_keys( $settings ) ) );
-			$unknown = array_values( array_diff( array_keys( $settings ), $required ) );
+			$unknown = array_values( array_diff( array_keys( $settings ), $allowed ) );
 			return $this->error(
 				'digitalogic_excel_sync_settings_shape_invalid',
-				'سند تنظیمات باید هر چهار مقدار سراسری را دقیقاً یک‌بار داشته باشد.',
+				'سند تنظیمات باید نرخ‌ها، تاریخ‌ها، حاشیه سود و مجموعه کامل تنظیمات حمل را داشته باشد.',
 				400,
 				array(
 					'missing' => $missing,
@@ -934,20 +1441,93 @@ final class Digitalogic_Excel_Pricing_Sync {
 		if ( is_wp_error( $yuan ) ) {
 			return $yuan;
 		}
-		$date = $this->canonical_date( $settings['effective_date'] );
-		if ( is_wp_error( $date ) ) {
-			return $date;
+		$legacy_date = $this->canonical_date( $settings['effective_date'] );
+		if ( is_wp_error( $legacy_date ) ) {
+			return $legacy_date;
 		}
-		$profit = $this->canonical_profit( $settings['default_profit_percent'] );
+		$profit = $this->canonical_profit( $settings['profit_margin_percent'] );
 		if ( is_wp_error( $profit ) ) {
 			return $profit;
 		}
 
+		if ( $has_usd_date ) {
+			$usd_date = $this->canonical_date( $settings['usd_effective_date'] );
+			if ( is_wp_error( $usd_date ) ) {
+				return $usd_date;
+			}
+			$cny_date = $this->canonical_date( $settings['cny_effective_date'] );
+			if ( is_wp_error( $cny_date ) ) {
+				return $cny_date;
+			}
+			if ( $legacy_date !== $cny_date ) {
+				return $this->error(
+					'digitalogic_excel_sync_effective_date_conflict',
+					'تاریخ قدیمی effective_date باید با تاریخ مؤثر یوآن یکسان باشد.',
+					400
+				);
+			}
+		} else {
+			$current = is_array( $current ) ? $current : $this->read_globals();
+			if ( is_wp_error( $current ) ) {
+				return $current;
+			}
+			$usd_date = $current['currency']['usd_effective_date'] ?? $legacy_date;
+			$cny_date = $current['currency']['cny_effective_date'] ?? $legacy_date;
+
+			$dollar_changed = null === ( $current['currency']['dollar_price'] ?? null )
+				|| $current['currency']['dollar_price'] !== $dollar;
+			$yuan_changed   = null === ( $current['currency']['yuan_price'] ?? null )
+				|| $current['currency']['yuan_price'] !== $yuan;
+			if ( $dollar_changed ) {
+				$usd_date = $legacy_date;
+			}
+			if ( $yuan_changed || ! $dollar_changed ) {
+				$cny_date = $legacy_date;
+			}
+		}
+		$current = is_array( $current ) ? $current : $this->read_globals();
+		if ( is_wp_error( $current ) ) {
+			return $current;
+		}
+		if ( $shipping_present ) {
+			$shipping_price = $this->canonical_shipping_price( $settings['air_express_price_per_kg'] );
+			if ( is_wp_error( $shipping_price ) ) {
+				return $shipping_price;
+			}
+			$shipping_currency = $settings['air_express_currency'];
+			if ( ! is_string( $shipping_currency ) || ! in_array( $shipping_currency, array( 'CNY', 'IRR' ), true ) ) {
+				return $this->error(
+					'digitalogic_pricing_shipping_currency_invalid',
+					'air_express currency must be CNY or IRR.',
+					400,
+					array( 'field' => 'settings.air_express_currency' )
+				);
+			}
+			$shipping_revision = $settings['shipping_catalog_revision'];
+			if ( ! is_string( $shipping_revision ) || ! $this->is_revision( $shipping_revision ) ) {
+				return $this->error(
+					'digitalogic_pricing_shipping_revision_invalid',
+					'Shipping-catalog revision is invalid.',
+					400,
+					array( 'field' => 'settings.shipping_catalog_revision' )
+				);
+			}
+		} else {
+			$shipping_price    = $current['shipping']['price_per_kg'];
+			$shipping_currency = $current['shipping']['currency'];
+			$shipping_revision = $current['shipping']['catalog_revision'];
+		}
+
 		return array(
-			'dollar_price'           => $dollar,
-			'yuan_price'             => $yuan,
-			'effective_date'         => $date,
-			'default_profit_percent' => $profit,
+			'dollar_price'              => $dollar,
+			'yuan_price'                => $yuan,
+			'effective_date'            => $cny_date,
+			'usd_effective_date'        => $usd_date,
+			'cny_effective_date'        => $cny_date,
+			'profit_margin_percent'     => $profit,
+			'air_express_price_per_kg'  => $shipping_price,
+			'air_express_currency'      => $shipping_currency,
+			'shipping_catalog_revision' => $shipping_revision,
 		);
 	}
 
@@ -991,6 +1571,42 @@ final class Digitalogic_Excel_Pricing_Sync {
 	}
 
 	/**
+	 * Canonicalize the exact positive air_express price per kilogram.
+	 *
+	 * @param mixed $value Raw decimal value.
+	 * @return string|WP_Error
+	 */
+	private function canonical_shipping_price( $value ) {
+		if ( is_int( $value ) ) {
+			$text = (string) $value;
+		} elseif ( is_string( $value ) ) {
+			$text = trim( $value );
+		} else {
+			$text = '';
+		}
+		if ( 1 !== preg_match( '/\A(0|[1-9][0-9]{0,17})(?:\.([0-9]{1,12}))?\z/D', $text, $matches ) ) {
+			return $this->error(
+				'digitalogic_pricing_shipping_price_invalid',
+				'air_express price_per_kg must be a positive base-10 decimal with at most 12 fractional digits.',
+				400,
+				array( 'field' => 'settings.air_express_price_per_kg' )
+			);
+		}
+		$fraction = isset( $matches[2] ) ? rtrim( $matches[2], '0' ) : '';
+		$result   = $matches[1] . ( '' === $fraction ? '' : '.' . $fraction );
+		if ( '0' === $result ) {
+			return $this->error(
+				'digitalogic_pricing_shipping_price_invalid',
+				'air_express price_per_kg must be greater than zero.',
+				400,
+				array( 'field' => 'settings.air_express_price_per_kg' )
+			);
+		}
+
+		return $result;
+	}
+
+	/**
 	 * Canonicalize the global percentage markup.
 	 *
 	 * @param mixed $value Raw value.
@@ -1009,9 +1625,9 @@ final class Digitalogic_Excel_Pricing_Sync {
 		if ( ! is_string( $text ) || strlen( $text ) > 64 || 1 !== preg_match( '/\A[+]?[0-9]+(?:\.[0-9]+)?\z/D', $text ) ) {
 			return $this->error(
 				'digitalogic_excel_sync_profit_invalid',
-				'درصد سود باید یک عدد ده‌دهی نامنفی باشد.',
+				'حاشیه سود باید یک عدد ده‌دهی نامنفی باشد.',
 				400,
-				array( 'field' => 'settings.default_profit_percent' )
+				array( 'field' => 'settings.profit_margin_percent' )
 			);
 		}
 
@@ -1023,7 +1639,7 @@ final class Digitalogic_Excel_Pricing_Sync {
 		if ( strlen( $fraction ) > self::MAX_PROFIT_SCALE ) {
 			return $this->error(
 				'digitalogic_excel_sync_profit_scale_invalid',
-				'دقت اعشاری درصد سود بیش از حد مجاز است.',
+				'دقت اعشاری حاشیه سود بیش از حد مجاز است.',
 				400
 			);
 		}
@@ -1037,7 +1653,7 @@ final class Digitalogic_Excel_Pricing_Sync {
 		) {
 			return $this->error(
 				'digitalogic_excel_sync_profit_out_of_range',
-				'درصد سود باید بین صفر و ۱۰۰۰ باشد.',
+				'حاشیه سود باید بین صفر و ۱۰۰۰ درصد باشد.',
 				400
 			);
 		}
@@ -1076,18 +1692,19 @@ final class Digitalogic_Excel_Pricing_Sync {
 	 * @return array|WP_Error
 	 */
 	private function read_globals() {
-		$for_update = $this->transaction_active;
-		$dollar_row = $this->authoritative_currency_option(
+		$for_update   = $this->transaction_active;
+		$dollar_row   = $this->authoritative_currency_option(
 			'options_dollar_price',
 			'dollar_price',
 			$for_update
 		);
-		$yuan_row   = $this->authoritative_currency_option(
+		$yuan_row     = $this->authoritative_currency_option(
 			'options_yuan_price',
 			'yuan_price',
 			$for_update
 		);
-		$date_row   = $this->read_option_db( 'options_update_date', $for_update );
+		$date_row     = $this->read_option_db( 'options_update_date', $for_update );
+		$metadata_row = $this->read_option_db( self::SETTINGS_OPTION, $for_update );
 		if ( ! $date_row['exists'] ) {
 			$date_row = $this->read_option_db( 'update_date', $for_update );
 		}
@@ -1097,22 +1714,90 @@ final class Digitalogic_Excel_Pricing_Sync {
 			$date_row['exists'] ? $date_row['value'] : null
 		);
 
-		$effective_date = null;
-		$age_days       = null;
-		$stale          = true;
+		$legacy_effective_date = null;
 		if ( $date instanceof DateTimeImmutable ) {
-			$effective_date = $date->format( 'Y-m-d' );
-			$today          = new DateTimeImmutable( 'today', $date->getTimezone() );
-			$age_days       = (int) $date->setTime( 0, 0 )->diff( $today )->format( '%r%a' );
-			$stale          = $age_days < 0 || $age_days > self::STALE_AFTER_DAYS;
+			$legacy_effective_date = $date->format( 'Y-m-d' );
 		}
-		if ( null === $dollar || null === $yuan ) {
-			$stale = true;
+
+		$metadata         = $metadata_row['exists'] && is_array( $metadata_row['value'] )
+			? $metadata_row['value']
+			: array();
+		$has_usd_metadata = array_key_exists( 'usd_effective_date', $metadata );
+		$has_cny_metadata = array_key_exists( 'cny_effective_date', $metadata );
+		if ( $has_usd_metadata !== $has_cny_metadata ) {
+			return $this->error(
+				'digitalogic_pricing_currency_date_metadata_invalid',
+				'فرادادهٔ تاریخ ارز ناقص است؛ تاریخ دلار و یوآن باید با هم ثبت شوند.',
+				500
+			);
+		}
+		$usd_effective_date = $legacy_effective_date;
+		$cny_effective_date = $legacy_effective_date;
+		if ( $has_usd_metadata ) {
+			$usd_effective_date = $this->canonical_date( $metadata['usd_effective_date'] );
+			$cny_effective_date = $this->canonical_date( $metadata['cny_effective_date'] );
+			if ( is_wp_error( $usd_effective_date ) || is_wp_error( $cny_effective_date ) ) {
+				return $this->error(
+					'digitalogic_pricing_currency_date_metadata_invalid',
+					'فرادادهٔ تاریخ ارز معتبر نیست.',
+					500
+				);
+			}
+			if (
+				isset( $metadata['effective_date'] )
+				&& $metadata['effective_date'] !== $cny_effective_date
+			) {
+				return $this->error(
+					'digitalogic_pricing_currency_date_metadata_invalid',
+					'تاریخ قدیمی ارز با تاریخ مؤثر یوآن یکسان نیست.',
+					500
+				);
+			}
+			if (
+				null !== $legacy_effective_date
+				&& $legacy_effective_date !== $cny_effective_date
+			) {
+				return $this->error(
+					'digitalogic_pricing_currency_date_metadata_invalid',
+					'تاریخ مؤثر یوآن با تاریخ قدیمی ذخیره‌شده یکسان نیست.',
+					500
+				);
+			}
+		}
+
+		$rate_provenance  = $this->installed_rate_provenance(
+			$metadata,
+			$has_usd_metadata ? 'metadata' : 'legacy_shared'
+		);
+		$usd_age_days     = null === $usd_effective_date ? null : $this->age_days( $usd_effective_date );
+		$cny_age_days     = null === $cny_effective_date ? null : $this->age_days( $cny_effective_date );
+		$usd_stale        = null === $dollar
+			|| null === $usd_age_days
+			|| $usd_age_days < 0
+			|| $usd_age_days > self::STALE_AFTER_DAYS;
+		$cny_stale        = null === $yuan
+			|| null === $cny_age_days
+			|| $cny_age_days < 0
+			|| $cny_age_days > self::STALE_AFTER_DAYS;
+		$stale_currencies = array();
+		if ( $usd_stale ) {
+			$stale_currencies[] = 'USD';
+		}
+		if ( $cny_stale ) {
+			$stale_currencies[] = 'CNY';
 		}
 
 		$markup = Digitalogic_Shipping_Method_Service::instance()->get_default_percentage_markup();
 		if ( is_wp_error( $markup ) ) {
 			return $markup;
+		}
+		$shipping_catalog = Digitalogic_Shipping_Method_Service::instance()->get_integration_catalog();
+		if ( is_wp_error( $shipping_catalog ) ) {
+			return $shipping_catalog;
+		}
+		$shipping = $this->installed_air_express_shipping( $shipping_catalog );
+		if ( is_wp_error( $shipping ) ) {
+			return $shipping;
 		}
 		$markup_revision   = isset( $markup['revision'] ) && is_string( $markup['revision'] )
 			? $markup['revision']
@@ -1120,22 +1805,44 @@ final class Digitalogic_Excel_Pricing_Sync {
 		$profit            = ! empty( $markup['configured'] ) && isset( $markup['profit_percent'] )
 			? (string) $markup['profit_percent']
 			: null;
-		$currency          = array(
-			'dollar_price'   => $dollar,
-			'yuan_price'     => $yuan,
-			'effective_date' => $effective_date,
+		$currency_material = array(
+			'dollar_price'       => $dollar,
+			'yuan_price'         => $yuan,
+			'usd_effective_date' => $usd_effective_date,
+			'cny_effective_date' => $cny_effective_date,
 		);
 		$currency_revision = $this->revision(
 			array_merge(
 				array( 'schema' => self::SETTINGS_SCHEMA . '/currency' ),
-				$currency
+				$currency_material
 			)
 		);
 
-		$currency['revision'] = $currency_revision;
-		$currency['age_days'] = $age_days;
-		$currency['stale']    = $stale;
-		$default_markup       = array(
+		$currency       = array(
+			'dollar_price'       => $dollar,
+			'yuan_price'         => $yuan,
+			'effective_date'     => $cny_effective_date,
+			'usd_effective_date' => $usd_effective_date,
+			'cny_effective_date' => $cny_effective_date,
+			'revision'           => $currency_revision,
+			'age_days'           => $cny_age_days,
+			'stale'              => $usd_stale || $cny_stale,
+			'stale_currencies'   => $stale_currencies,
+			'freshness'          => array(
+				'usd' => array(
+					'effective_date' => $usd_effective_date,
+					'age_days'       => $usd_age_days,
+					'stale'          => $usd_stale,
+				),
+				'cny' => array(
+					'effective_date' => $cny_effective_date,
+					'age_days'       => $cny_age_days,
+					'stale'          => $cny_stale,
+				),
+			),
+			'rate_provenance'    => $rate_provenance,
+		);
+		$default_markup = array(
 			'configured'     => ! empty( $markup['configured'] ),
 			'profit_percent' => $profit,
 			'revision'       => $markup_revision,
@@ -1147,13 +1854,87 @@ final class Digitalogic_Excel_Pricing_Sync {
 		return array(
 			'state_revision' => $this->revision(
 				array(
-					'schema'                  => self::SETTINGS_SCHEMA,
-					'currency_revision'       => $currency_revision,
-					'default_markup_revision' => $markup_revision,
+					'schema'                    => self::SETTINGS_SCHEMA,
+					'currency_revision'         => $currency_revision,
+					'default_markup_revision'   => $markup_revision,
+					'shipping_catalog_revision' => $shipping['catalog_revision'],
 				)
 			),
 			'currency'       => $currency,
 			'default_markup' => $default_markup,
+			'shipping'       => $shipping,
+		);
+	}
+
+	/**
+	 * Project post-readback globals into the primary composite settings shape.
+	 *
+	 * @param array $globals Validated global pricing state.
+	 * @return array
+	 */
+	private function settings_from_globals( $globals ) {
+		return array(
+			'dollar_price'              => $globals['currency']['dollar_price'],
+			'yuan_price'                => $globals['currency']['yuan_price'],
+			'effective_date'            => $globals['currency']['cny_effective_date'],
+			'usd_effective_date'        => $globals['currency']['usd_effective_date'],
+			'cny_effective_date'        => $globals['currency']['cny_effective_date'],
+			'profit_margin_percent'     => $globals['default_markup']['profit_percent'],
+			'air_express_price_per_kg'  => $globals['shipping']['price_per_kg'],
+			'air_express_currency'      => $globals['shipping']['currency'],
+			'shipping_catalog_revision' => $globals['shipping']['catalog_revision'],
+		);
+	}
+
+	/**
+	 * Read the canonical air_express pricing dependency from the catalog.
+	 *
+	 * @param array $catalog Integration catalog.
+	 * @return array|WP_Error
+	 */
+	private function installed_air_express_shipping( $catalog ) {
+		$revision = isset( $catalog['revision'] ) && is_string( $catalog['revision'] )
+			? $catalog['revision']
+			: '';
+		if ( ! $this->is_revision( $revision ) ) {
+			return $this->error(
+				'digitalogic_pricing_shipping_catalog_invalid',
+				'Shipping catalog revision is missing or invalid.',
+				500
+			);
+		}
+		$method = null;
+		foreach ( (array) ( $catalog['shipping_methods'] ?? array() ) as $candidate ) {
+			if ( is_array( $candidate ) && 'air_express' === (string) ( $candidate['id'] ?? '' ) ) {
+				$method = $candidate;
+				break;
+			}
+		}
+		if ( ! is_array( $method ) || empty( $method['enabled'] ) ) {
+			return $this->error(
+				'digitalogic_pricing_air_express_required',
+				'The enabled air_express shipping method is required for canonical pricing.',
+				409
+			);
+		}
+		$price = $this->canonical_shipping_price( $method['price_per_kg'] ?? null );
+		if ( is_wp_error( $price ) ) {
+			return $price;
+		}
+		$currency = $method['currency'] ?? null;
+		if ( ! is_string( $currency ) || ! in_array( $currency, array( 'CNY', 'IRR' ), true ) ) {
+			return $this->error(
+				'digitalogic_pricing_shipping_currency_invalid',
+				'air_express currency must be CNY or IRR.',
+				500
+			);
+		}
+
+		return array(
+			'method_id'        => 'air_express',
+			'price_per_kg'     => $price,
+			'currency'         => $currency,
+			'catalog_revision' => $revision,
 		);
 	}
 
@@ -1164,15 +1945,20 @@ final class Digitalogic_Excel_Pricing_Sync {
 	 * @return array
 	 */
 	private function globals_from_settings( $settings ) {
-		$currency          = array(
-			'dollar_price'   => $settings['dollar_price'],
-			'yuan_price'     => $settings['yuan_price'],
-			'effective_date' => $settings['effective_date'],
+		$shipping = $this->shipping_projection_from_settings( $settings );
+		if ( is_wp_error( $shipping ) ) {
+			return $shipping;
+		}
+		$currency_material = array(
+			'dollar_price'       => $settings['dollar_price'],
+			'yuan_price'         => $settings['yuan_price'],
+			'usd_effective_date' => $settings['usd_effective_date'],
+			'cny_effective_date' => $settings['cny_effective_date'],
 		);
 		$currency_revision = $this->revision(
 			array_merge(
 				array( 'schema' => self::SETTINGS_SCHEMA . '/currency' ),
-				$currency
+				$currency_material
 			)
 		);
 		$markup_identity   = array(
@@ -1180,31 +1966,140 @@ final class Digitalogic_Excel_Pricing_Sync {
 			'configured'     => true,
 			'type'           => 'percentage',
 			'source'         => 'global_default',
-			'profit_percent' => $settings['default_profit_percent'],
+			'profit_percent' => $settings['profit_margin_percent'],
 		);
 		$markup_revision   = $this->default_markup_revision( $markup_identity );
 
-		$currency['revision'] = $currency_revision;
-		$age_days             = $this->age_days( $settings['effective_date'] );
-		$currency['age_days'] = $age_days;
-		$currency['stale']    = null === $age_days || $age_days < 0 || $age_days > self::STALE_AFTER_DAYS;
+		$usd_age_days = $this->age_days( $settings['usd_effective_date'] );
+		$cny_age_days = $this->age_days( $settings['cny_effective_date'] );
+		$usd_stale    = null === $usd_age_days || $usd_age_days < 0 || $usd_age_days > self::STALE_AFTER_DAYS;
+		$cny_stale    = null === $cny_age_days || $cny_age_days < 0 || $cny_age_days > self::STALE_AFTER_DAYS;
+		$currency     = array(
+			'dollar_price'       => $settings['dollar_price'],
+			'yuan_price'         => $settings['yuan_price'],
+			'effective_date'     => $settings['cny_effective_date'],
+			'usd_effective_date' => $settings['usd_effective_date'],
+			'cny_effective_date' => $settings['cny_effective_date'],
+			'revision'           => $currency_revision,
+			'age_days'           => $cny_age_days,
+			'stale'              => $usd_stale || $cny_stale,
+			'stale_currencies'   => array_values(
+				array_filter(
+					array(
+						$usd_stale ? 'USD' : null,
+						$cny_stale ? 'CNY' : null,
+					)
+				)
+			),
+			'freshness'          => array(
+				'usd' => array(
+					'effective_date' => $settings['usd_effective_date'],
+					'age_days'       => $usd_age_days,
+					'stale'          => $usd_stale,
+				),
+				'cny' => array(
+					'effective_date' => $settings['cny_effective_date'],
+					'age_days'       => $cny_age_days,
+					'stale'          => $cny_stale,
+				),
+			),
+		);
 
 		return array(
 			'state_revision'  => $this->revision(
 				array(
-					'schema'                  => self::SETTINGS_SCHEMA,
-					'currency_revision'       => $currency_revision,
-					'default_markup_revision' => $markup_revision,
+					'schema'                    => self::SETTINGS_SCHEMA,
+					'currency_revision'         => $currency_revision,
+					'default_markup_revision'   => $markup_revision,
+					'shipping_catalog_revision' => $shipping['catalog_revision'],
 				)
 			),
 			'currency'        => $currency,
 			'default_markup'  => array(
 				'configured'     => true,
-				'profit_percent' => $settings['default_profit_percent'],
+				'profit_percent' => $settings['profit_margin_percent'],
 				'revision'       => $markup_revision,
 				'updated_at'     => current_time( 'mysql', true ),
 			),
+			'shipping'        => $shipping,
 			'markup_identity' => $markup_identity,
+		);
+	}
+
+	/**
+	 * Project the desired composite shipping catalog without writing it.
+	 *
+	 * @param array $settings Canonical composite settings.
+	 * @return array|WP_Error
+	 */
+	private function shipping_projection_from_settings( $settings ) {
+		$catalog = Digitalogic_Shipping_Method_Service::instance()->get_integration_catalog();
+		if ( is_wp_error( $catalog ) ) {
+			return $catalog;
+		}
+		$current = $this->installed_air_express_shipping( $catalog );
+		if ( is_wp_error( $current ) ) {
+			return $current;
+		}
+		if ( ! hash_equals( $current['catalog_revision'], $settings['shipping_catalog_revision'] ) ) {
+			return $this->error(
+				'digitalogic_pricing_shipping_revision_conflict',
+				'Shipping catalog changed after it was read; refresh state before applying.',
+				409,
+				array( 'current_shipping_catalog_revision' => $current['catalog_revision'] )
+			);
+		}
+
+		$methods = array_values( (array) ( $catalog['shipping_methods'] ?? array() ) );
+		$found   = false;
+		foreach ( $methods as &$method ) {
+			if ( ! is_array( $method ) || 'air_express' !== (string) ( $method['id'] ?? '' ) ) {
+				continue;
+			}
+			$method['price_per_kg'] = $settings['air_express_price_per_kg'];
+			$method['currency']     = $settings['air_express_currency'];
+			$found                  = true;
+			break;
+		}
+		unset( $method );
+		if ( ! $found ) {
+			return $this->error(
+				'digitalogic_pricing_air_express_required',
+				'air_express is missing from the shipping catalog.',
+				409
+			);
+		}
+
+		$currency                 = is_array( $catalog['currency'] ?? null ) ? $catalog['currency'] : array();
+		$currency['warnings']     = array_values(
+			array_diff( (array) ( $currency['warnings'] ?? array() ), array( 'cny_to_local_missing_or_invalid' ) )
+		);
+		$currency['cny_to_local'] = $settings['yuan_price'];
+		if ( 'IRT' === (string) ( $currency['local'] ?? '' ) ) {
+			$currency['cny_to_irt'] = $settings['yuan_price'];
+		} else {
+			unset( $currency['cny_to_irt'] );
+		}
+		$currency['effective_date'] = $settings['cny_effective_date'];
+
+		$identity = array(
+			'schema'              => (string) ( $catalog['schema'] ?? Digitalogic_Shipping_Method_Service::CATALOG_SCHEMA ),
+			'currency'            => $currency,
+			'pricing'             => is_array( $catalog['pricing'] ?? null ) ? $catalog['pricing'] : array(),
+			'selected_warehouses' => is_array( $catalog['selected_warehouses'] ?? null )
+				? $catalog['selected_warehouses']
+				: array(),
+			'shipping_methods'    => $methods,
+		);
+
+		return array(
+			'method_id'        => 'air_express',
+			'price_per_kg'     => $settings['air_express_price_per_kg'],
+			'currency'         => $settings['air_express_currency'],
+			'catalog_revision' => 'sha256:' . hash(
+				'sha256',
+				wp_json_encode( $identity, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES )
+			),
 		);
 	}
 
@@ -1222,17 +2117,31 @@ final class Digitalogic_Excel_Pricing_Sync {
 				'current_currency_stale',
 				'نرخ ارز فعلی سایت بیش از ۷ روز قدمت دارد یا تاریخ آن معتبر نیست.',
 				'critical',
-				array( 'age_days' => $current['currency']['age_days'] )
+				array(
+					'age_days'         => $current['currency']['age_days'],
+					'stale_currencies' => $current['currency']['stale_currencies'],
+				)
 			);
 		}
 
-		$proposed_age = $this->age_days( $settings['effective_date'] );
-		if ( null === $proposed_age || $proposed_age < 0 || $proposed_age > self::STALE_AFTER_DAYS ) {
+		$proposed_stale = array();
+		foreach (
+			array(
+				'USD' => $settings['usd_effective_date'],
+				'CNY' => $settings['cny_effective_date'],
+			) as $currency_code => $effective_date
+		) {
+			$proposed_age = $this->age_days( $effective_date );
+			if ( null === $proposed_age || $proposed_age < 0 || $proposed_age > self::STALE_AFTER_DAYS ) {
+				$proposed_stale[] = $currency_code;
+			}
+		}
+		if ( $proposed_stale ) {
 			$warnings[] = $this->warning(
 				'proposed_currency_stale',
 				'تاریخ مؤثر نرخ پیشنهادی خارج از بازهٔ ۷ روزه است.',
 				'critical',
-				array( 'age_days' => $proposed_age )
+				array( 'stale_currencies' => $proposed_stale )
 			);
 		}
 
@@ -1266,7 +2175,7 @@ final class Digitalogic_Excel_Pricing_Sync {
 		}
 
 		$current_profit  = $current['default_markup']['profit_percent'];
-		$proposed_profit = $settings['default_profit_percent'];
+		$proposed_profit = $settings['profit_margin_percent'];
 		if ( null === $current_profit || $current_profit !== $proposed_profit ) {
 			$drift      = null === $current_profit
 				? null
@@ -1274,20 +2183,61 @@ final class Digitalogic_Excel_Pricing_Sync {
 			$warnings[] = $this->warning(
 				null !== $drift && $drift > self::DRIFT_PERCENT
 					? 'profit_drift_over_7_percent'
-					: 'default_profit_changed',
+					: 'profit_margin_changed',
 				null === $current_profit
-					? 'درصد سود پیش‌فرض در سایت تنظیم نشده است.'
+					? 'حاشیه سود مشترک در سایت تنظیم نشده است.'
 					: ( null !== $drift && $drift > self::DRIFT_PERCENT
-						? 'درصد سود پیشنهادی بیش از ۷٪ با سایت اختلاف دارد.'
-						: 'درصد سود پیشنهادی با سایت یکسان نیست.' ),
+						? 'حاشیه سود پیشنهادی بیش از ۷٪ با سایت اختلاف دارد.'
+						: 'حاشیه سود پیشنهادی با سایت یکسان نیست.' ),
 				null === $current_profit || ( null !== $drift && $drift > self::DRIFT_PERCENT )
 					? 'critical'
 					: 'warning',
 				array(
-					'field'         => 'default_profit_percent',
-					'current'       => $current_profit,
-					'proposed'      => $proposed_profit,
-					'drift_percent' => $drift,
+					'field'           => 'profit_margin_percent',
+					'current'         => $current_profit,
+					'proposed'        => $proposed_profit,
+					'drift_percent'   => $drift,
+					'deprecated_code' => 'default_profit_changed',
+				)
+			);
+		}
+
+		$current_shipping  = $current['shipping'];
+		$proposed_shipping = array(
+			'price_per_kg' => $settings['air_express_price_per_kg'],
+			'currency'     => $settings['air_express_currency'],
+		);
+		if ( $current_shipping['currency'] !== $proposed_shipping['currency'] ) {
+			$warnings[] = $this->warning(
+				'shipping_currency_changed',
+				'واحد پول نرخ حمل هوایی سریع با مقدار فعلی سایت یکسان نیست.',
+				'critical',
+				array(
+					'field'    => 'air_express_currency',
+					'current'  => $current_shipping['currency'],
+					'proposed' => $proposed_shipping['currency'],
+				)
+			);
+		}
+		if ( $current_shipping['price_per_kg'] !== $proposed_shipping['price_per_kg'] ) {
+			$shipping_drift = $this->drift_percent(
+				(float) $current_shipping['price_per_kg'],
+				(float) $proposed_shipping['price_per_kg']
+			);
+			$warnings[]     = $this->warning(
+				null !== $shipping_drift && $shipping_drift > self::DRIFT_PERCENT
+					? 'shipping_drift_over_7_percent'
+					: 'shipping_price_changed',
+				null !== $shipping_drift && $shipping_drift > self::DRIFT_PERCENT
+					? 'نرخ حمل هوایی سریع بیش از ۷٪ با سایت اختلاف دارد.'
+					: 'نرخ حمل هوایی سریع با مقدار فعلی سایت یکسان نیست.',
+				null !== $shipping_drift && $shipping_drift > self::DRIFT_PERCENT ? 'critical' : 'warning',
+				array(
+					'field'             => 'air_express_price_per_kg',
+					'current'           => $current_shipping['price_per_kg'],
+					'proposed'          => $proposed_shipping['price_per_kg'],
+					'drift_percent'     => $shipping_drift,
+					'threshold_percent' => self::DRIFT_PERCENT,
 				)
 			);
 		}
@@ -1303,6 +2253,17 @@ final class Digitalogic_Excel_Pricing_Sync {
 				)
 			);
 		}
+		if ( $current['currency']['usd_effective_date'] !== $settings['usd_effective_date'] ) {
+			$warnings[] = $this->warning(
+				'usd_effective_date_changed',
+				'تاریخ مؤثر نرخ دلار تغییر می‌کند.',
+				'warning',
+				array(
+					'current'  => $current['currency']['usd_effective_date'],
+					'proposed' => $settings['usd_effective_date'],
+				)
+			);
+		}
 
 		return $warnings;
 	}
@@ -1314,12 +2275,16 @@ final class Digitalogic_Excel_Pricing_Sync {
 	 * @param array $settings Canonical settings.
 	 * @param array $current  Current globals.
 	 * @param array $desired  Desired globals.
-	 * @return array
+	 * @return array|WP_Error
 	 */
 	private function desired_option_values( $source, $settings, $current, $desired ) {
-		$legacy_date = substr( $settings['effective_date'], 2, 2 )
-			. substr( $settings['effective_date'], 5, 2 )
-			. substr( $settings['effective_date'], 8, 2 );
+		$shipping_methods = $this->desired_shipping_methods_option( $settings );
+		if ( is_wp_error( $shipping_methods ) ) {
+			return $shipping_methods;
+		}
+		$legacy_date = substr( $settings['cny_effective_date'], 2, 2 )
+			. substr( $settings['cny_effective_date'], 5, 2 )
+			. substr( $settings['cny_effective_date'], 8, 2 );
 		$markup      = array_merge(
 			$desired['markup_identity'],
 			array(
@@ -1332,19 +2297,46 @@ final class Digitalogic_Excel_Pricing_Sync {
 		$generation  = is_array( $previous['value'] ?? null )
 			? absint( $previous['value']['generation'] ?? 0 ) + 1
 			: 1;
-		$metadata    = array(
-			'schema'                  => self::SETTINGS_SCHEMA,
-			'generation'              => $generation,
-			'revision'                => $desired['state_revision'],
-			'currency_revision'       => $desired['currency']['revision'],
-			'default_markup_revision' => $desired['default_markup']['revision'],
-			'dollar_price'            => $settings['dollar_price'],
-			'yuan_price'              => $settings['yuan_price'],
-			'effective_date'          => $settings['effective_date'],
-			'default_profit_percent'  => $settings['default_profit_percent'],
-			'source'                  => $source,
-			'updated_at'              => current_time( 'mysql', true ),
-			'previous_revision'       => $current['state_revision'],
+		$provenance  = $current['currency']['rate_provenance'];
+		$recorded_at = $this->now_iso8601();
+		foreach (
+			array(
+				'usd' => array( 'dollar_price', 'usd_effective_date' ),
+				'cny' => array( 'yuan_price', 'cny_effective_date' ),
+			) as $currency_code => $fields
+		) {
+			list( $rate_field, $date_field ) = $fields;
+			if (
+				$current['currency'][ $rate_field ] !== $settings[ $rate_field ]
+				|| $current['currency'][ $date_field ] !== $settings[ $date_field ]
+			) {
+				$provenance[ $currency_code ] = array(
+					'source'      => $source,
+					'channel'     => isset( $source['dataset'] ) ? sanitize_key( $source['dataset'] ) : 'pricing_settings',
+					'recorded_at' => $recorded_at,
+					'date_basis'  => 'submitted',
+				);
+			}
+		}
+		$metadata = array(
+			'schema'                    => self::SETTINGS_SCHEMA,
+			'generation'                => $generation,
+			'revision'                  => $desired['state_revision'],
+			'currency_revision'         => $desired['currency']['revision'],
+			'default_markup_revision'   => $desired['default_markup']['revision'],
+			'shipping_catalog_revision' => $desired['shipping']['catalog_revision'],
+			'dollar_price'              => $settings['dollar_price'],
+			'yuan_price'                => $settings['yuan_price'],
+			'effective_date'            => $settings['cny_effective_date'],
+			'usd_effective_date'        => $settings['usd_effective_date'],
+			'cny_effective_date'        => $settings['cny_effective_date'],
+			'rate_provenance'           => $provenance,
+			'profit_margin_percent'     => $settings['profit_margin_percent'],
+			'air_express_price_per_kg'  => $settings['air_express_price_per_kg'],
+			'air_express_currency'      => $settings['air_express_currency'],
+			'source'                    => $source,
+			'updated_at'                => current_time( 'mysql', true ),
+			'previous_revision'         => $current['state_revision'],
 		);
 
 		return array(
@@ -1354,9 +2346,61 @@ final class Digitalogic_Excel_Pricing_Sync {
 			'options_yuan_price'   => (string) $settings['yuan_price'],
 			'update_date'          => $legacy_date,
 			'options_update_date'  => $legacy_date,
+			Digitalogic_Shipping_Method_Service::METHODS_OPTION => $shipping_methods,
 			Digitalogic_Shipping_Method_Service::DEFAULT_MARKUP_OPTION => $markup,
 			self::SETTINGS_OPTION  => $metadata,
 		);
+	}
+
+	/**
+	 * Return the exact shipping-method option with only air_express pricing changed.
+	 *
+	 * @param array $settings Canonical composite settings.
+	 * @return array|WP_Error
+	 */
+	private function desired_shipping_methods_option( $settings ) {
+		$stored  = $this->read_option_db( Digitalogic_Shipping_Method_Service::METHODS_OPTION, true );
+		$methods = $stored['exists']
+			? $stored['value']
+			: Digitalogic_Shipping_Method_Service::instance()->list_methods( true );
+		if ( ! is_array( $methods ) ) {
+			return $this->error(
+				'digitalogic_pricing_shipping_storage_invalid',
+				'Shipping-method storage is invalid.',
+				500
+			);
+		}
+
+		if ( array_is_list( $methods ) ) {
+			$keyed = array();
+			foreach ( $methods as $method ) {
+				if ( ! is_array( $method ) || ! isset( $method['id'] ) || ! is_string( $method['id'] ) ) {
+					continue;
+				}
+				unset( $method['assigned_products'], $method['changed'], $method['delivery_warnings'] );
+				$keyed[ $method['id'] ] = $method;
+			}
+			$methods = $keyed;
+		}
+
+		if (
+			! isset( $methods['air_express'] )
+			|| ! is_array( $methods['air_express'] )
+			|| 'air_express' !== (string) ( $methods['air_express']['id'] ?? '' )
+			|| empty( $methods['air_express']['enabled'] )
+		) {
+			return $this->error(
+				'digitalogic_pricing_air_express_required',
+				'The enabled air_express shipping method is required for canonical pricing.',
+				409
+			);
+		}
+
+		$methods['air_express']['price_per_kg'] = $settings['air_express_price_per_kg'];
+		$methods['air_express']['currency']     = $settings['air_express_currency'];
+		ksort( $methods, SORT_STRING );
+
+		return $methods;
 	}
 
 	/**
@@ -1369,22 +2413,34 @@ final class Digitalogic_Excel_Pricing_Sync {
 	 * @param array  $before          Previous globals.
 	 * @param array  $after           Desired globals.
 	 * @param array  $settings        Applied settings.
+	 * @param array  $request_context Nonsecret client trace context.
 	 * @return true|WP_Error
 	 */
-	private function append_audit_entry( $source, $source_context, $idempotency_key, $preview_digest, $before, $after, $settings ) {
-		$row       = $this->read_option_db( self::AUDIT_OPTION, true );
-		$entries   = $row['exists'] && is_array( $row['value'] ) ? array_values( $row['value'] ) : array();
-		$entries[] = array(
+	private function append_audit_entry( $source, $source_context, $idempotency_key, $preview_digest, $before, $after, $settings, $request_context = array() ) {
+		$request_context = wp_parse_args(
+			$request_context,
+			array(
+				'client_id'  => 'digitalogic-wp',
+				'channel'    => 'internal',
+				'request_id' => $idempotency_key,
+			)
+		);
+		$row             = $this->read_option_db( self::AUDIT_OPTION, true );
+		$entries         = $row['exists'] && is_array( $row['value'] ) ? array_values( $row['value'] ) : array();
+		$entries[]       = array(
 			'applied_at'              => current_time( 'mysql', true ),
 			'source'                  => $source,
 			'source_revision_context' => $source_context,
 			'idempotency_key'         => $idempotency_key,
+			'client_id'               => $request_context['client_id'],
+			'channel'                 => $request_context['channel'],
+			'request_id'              => $request_context['request_id'],
 			'preview_digest'          => $preview_digest,
 			'previous_revision'       => $before['state_revision'],
 			'state_revision'          => $after['state_revision'],
 			'settings'                => $settings,
 		);
-		$entries   = array_slice( $entries, -self::MAX_AUDIT_ENTRIES );
+		$entries         = array_slice( $entries, -self::MAX_AUDIT_ENTRIES );
 
 		$stored = $this->store_option_verified( self::AUDIT_OPTION, $entries );
 		return is_wp_error( $stored ) ? $stored : true;
@@ -1629,6 +2685,20 @@ final class Digitalogic_Excel_Pricing_Sync {
 		$prefix = isset( $wpdb->prefix ) ? (string) $wpdb->prefix : 'wp_';
 		$name   = substr( self::LOCK_NAME . '_' . md5( $prefix ), 0, 64 );
 		$wpdb->get_var( $wpdb->prepare( 'SELECT RELEASE_LOCK(%s)', $name ) );
+	}
+
+	/**
+	 * Keep the receiver lock held through this transaction's terminal query.
+	 *
+	 * @param callable $callback Transaction callback.
+	 * @return mixed|WP_Error
+	 */
+	private function run_coordinated_pricing_transaction( $callback ) {
+		return Digitalogic_Pricing_Coordinator::instance()->with_repricing_lock(
+			function () use ( $callback ) {
+				return $this->run_transaction( $callback );
+			}
+		);
 	}
 
 	/**
@@ -1877,12 +2947,16 @@ final class Digitalogic_Excel_Pricing_Sync {
 	 * @param array  $previous          Previous globals.
 	 * @param array  $readback          Readback globals.
 	 * @param array  $settings          Applied settings.
+	 * @param array  $request_context   Nonsecret client trace context.
 	 * @return void
 	 */
-	private function emit_after_apply( $source, $previous_revision, $previous, $readback, $settings ) {
+	private function emit_after_apply( $source, $previous_revision, $previous, $readback, $settings, $request_context = array() ) {
 		$result = array(
 			'schema'            => self::SETTINGS_SCHEMA,
 			'source'            => $source,
+			'client_id'         => $request_context['client_id'] ?? 'digitalogic-wp',
+			'channel'           => $request_context['channel'] ?? 'internal',
+			'request_id'        => $request_context['request_id'] ?? 'internal-not-provided',
 			'previous_revision' => $previous_revision,
 			'state_revision'    => $readback['state_revision'],
 			'settings'          => $settings,
@@ -1898,10 +2972,35 @@ final class Digitalogic_Excel_Pricing_Sync {
 					'digitalogic_shipping_default_markup_updated',
 					array(
 						'configured'     => true,
-						'profit_percent' => $settings['default_profit_percent'],
+						'profit_percent' => $settings['profit_margin_percent'],
 						'revision'       => $readback['default_markup']['revision'],
 						'changed'        => true,
 					)
+				);
+			} catch ( Throwable $exception ) {
+				unset( $exception );
+			}
+		}
+		if ( ! hash_equals( $previous['shipping']['catalog_revision'], $readback['shipping']['catalog_revision'] ) ) {
+			try {
+				$method = Digitalogic_Shipping_Method_Service::instance()->get_method( 'air_express' );
+				if ( is_wp_error( $method ) ) {
+					$method = array(
+						'id'           => 'air_express',
+						'name'         => 'Air (Express)',
+						'enabled'      => true,
+						'price_per_kg' => $readback['shipping']['price_per_kg'],
+						'currency'     => $readback['shipping']['currency'],
+					);
+				}
+				$method['revision']   = $readback['shipping']['catalog_revision'];
+				$method['changed']    = true;
+				$method['client_id']  = $result['client_id'];
+				$method['channel']    = $result['channel'];
+				$method['request_id'] = $result['request_id'];
+				do_action(
+					'digitalogic_shipping_method_updated',
+					$method
 				);
 			} catch ( Throwable $exception ) {
 				unset( $exception );
@@ -1920,6 +3019,25 @@ final class Digitalogic_Excel_Pricing_Sync {
 		} catch ( Throwable $exception ) {
 			unset( $exception );
 		}
+	}
+
+	/**
+	 * Describe the single component that owns each pricing-domain attribute.
+	 *
+	 * This is an ownership map, not a precedence list. Excel and Google Sheets
+	 * are interfaces over the contract and never become persistent authorities.
+	 *
+	 * @return array
+	 */
+	private function attribute_owners() {
+		return array(
+			'currency_rates'       => 'digitalogic_pricing_coordinator',
+			'air_express_shipping' => 'digitalogic_pricing_coordinator',
+			'profit_margin'        => 'digitalogic_pricing_coordinator',
+			'product_inputs'       => 'patris_kala',
+			'woocommerce_record'   => 'woocommerce',
+			'selling_price'        => 'digitalogic_pricing_coordinator',
+		);
 	}
 
 	/**
@@ -1956,6 +3074,60 @@ final class Digitalogic_Excel_Pricing_Sync {
 		}
 
 		return (int) $number;
+	}
+
+	/**
+	 * Return bounded per-currency provenance from settings metadata.
+	 *
+	 * @param array  $metadata       Installed settings metadata.
+	 * @param string $fallback_basis Basis used by legacy installations.
+	 * @return array
+	 */
+	private function installed_rate_provenance( $metadata, $fallback_basis ) {
+		$default = array(
+			'source'      => null,
+			'channel'     => 'legacy',
+			'recorded_at' => null,
+			'date_basis'  => $fallback_basis,
+		);
+		$result  = array(
+			'usd' => $default,
+			'cny' => $default,
+		);
+		$stored  = isset( $metadata['rate_provenance'] ) && is_array( $metadata['rate_provenance'] )
+			? $metadata['rate_provenance']
+			: array();
+
+		foreach ( array( 'usd', 'cny' ) as $currency_code ) {
+			if ( ! isset( $stored[ $currency_code ] ) || ! is_array( $stored[ $currency_code ] ) ) {
+				continue;
+			}
+			$entry                    = $stored[ $currency_code ];
+			$source                   = isset( $entry['source'] ) && is_array( $entry['source'] )
+				? array_intersect_key(
+					$entry['source'],
+					array(
+						'id'       => true,
+						'dataset'  => true,
+						'revision' => true,
+					)
+				)
+				: null;
+			$result[ $currency_code ] = array(
+				'source'      => $source,
+				'channel'     => isset( $entry['channel'] ) && is_string( $entry['channel'] )
+					? substr( sanitize_key( $entry['channel'] ), 0, 64 )
+					: $default['channel'],
+				'recorded_at' => isset( $entry['recorded_at'] ) && is_string( $entry['recorded_at'] )
+					? substr( $entry['recorded_at'], 0, 40 )
+					: null,
+				'date_basis'  => isset( $entry['date_basis'] ) && is_string( $entry['date_basis'] )
+					? substr( sanitize_key( $entry['date_basis'] ), 0, 32 )
+					: $fallback_basis,
+			);
+		}
+
+		return $result;
 	}
 
 	/**

@@ -235,6 +235,34 @@ final class Digitalogic_Shipping_Method_Service {
      * @return array|WP_Error
      */
     public function update_default_percentage_markup($value) {
+        if (
+            class_exists('Digitalogic_Pricing_Coordinator')
+            && Digitalogic_Pricing_Coordinator::instance()->has_managed_pricing_state()
+        ) {
+            $previous = $this->load_default_percentage_markup();
+            if (is_wp_error($previous)) {
+                return $previous;
+            }
+            $coordinated = Digitalogic_Pricing_Coordinator::instance()->update_profit_margin(
+                $value,
+                'legacy_shipping_service'
+            );
+            if (is_wp_error($coordinated)) {
+                return $coordinated;
+            }
+
+            $current = $this->load_default_percentage_markup();
+            if (is_wp_error($current)) {
+                return $current;
+            }
+            $current['changed'] = !empty($coordinated['settings_changed']);
+            $current['previous_revision'] = isset($previous['revision'])
+                ? (string) $previous['revision']
+                : '';
+
+            return $current;
+        }
+
         $clear = is_null($value);
         $canonical = null;
         if (!$clear) {

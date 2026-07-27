@@ -53,7 +53,7 @@ final class Digitalogic_Product_Sync_JSON_Decoder {
 
     public static function decode($json) {
         $decoder = new self((string) $json);
-        $value = $decoder->parse_value(0);
+        $value   = $decoder->parse_value(0);
         $decoder->skip_whitespace();
         if ($decoder->position !== $decoder->length) {
             throw new RuntimeException('Unexpected data after the JSON document.');
@@ -63,7 +63,7 @@ final class Digitalogic_Product_Sync_JSON_Decoder {
     }
 
     private function __construct($json) {
-        $this->json = $json;
+        $this->json   = $json;
         $this->length = strlen($json);
     }
 
@@ -196,7 +196,7 @@ final class Digitalogic_Product_Sync_JSON_Decoder {
         )) {
             throw new RuntimeException('Invalid JSON value.');
         }
-        $token = $matches[0];
+        $token           = $matches[0];
         $this->position += strlen($token);
 
         return new Digitalogic_Product_Sync_JSON_Number($token);
@@ -232,24 +232,24 @@ final class Digitalogic_Product_Sync_JSON_Decoder {
 }
 
 class Digitalogic_Product_Sync_Receiver {
-    public const STATE_OPTION = 'digitalogic_product_sync_state';
+    public const STATE_OPTION  = 'digitalogic_product_sync_state';
     public const CONTRACT_NAME = 'patris.product-sync';
-    public const FORMULA_ID = 'landed_price';
+    public const FORMULA_ID    = 'landed_price';
 
-    private const LOCK_NAME = 'digitalogic_product_sync';
-    private const LOCK_TIMEOUT_SECONDS = 15;
-    private const MAX_BODY_BYTES = 8388608;
-    private const MAX_STATE_BYTES = 16777216;
-    private const MAX_PRODUCTS = 10000;
-    private const MAX_CATEGORIES = 10000;
-    private const MAX_SOURCES = 16;
-    private const MAX_RECENT_EVENTS = 128;
-    private const MAX_RESULT_ERRORS = 100;
-    private const MAX_DEFERRED_PRODUCTS = self::MAX_PRODUCTS;
-    private const MAX_CODE_LENGTH = 191;
+    private const LOCK_NAME                  = 'digitalogic_product_sync';
+    private const LOCK_TIMEOUT_SECONDS       = 15;
+    private const MAX_BODY_BYTES             = 8388608;
+    private const MAX_STATE_BYTES            = 16777216;
+    private const MAX_PRODUCTS               = 10000;
+    private const MAX_CATEGORIES             = 10000;
+    private const MAX_SOURCES                = 16;
+    private const MAX_RECENT_EVENTS          = 128;
+    private const MAX_RESULT_ERRORS          = 100;
+    private const MAX_DEFERRED_PRODUCTS      = self::MAX_PRODUCTS;
+    private const MAX_CODE_LENGTH            = 191;
     private const MAX_FORMULA_INTEGER_DIGITS = 15;
-    private const MAX_FORMULA_SCALE = 12;
-    private const MAX_MARKUP_PERCENT = '1000';
+    private const MAX_FORMULA_SCALE          = 12;
+    private const MAX_MARKUP_PERCENT         = '1000';
 
     private const ENVELOPE_FIELDS = array(
         'schema',
@@ -383,6 +383,26 @@ class Digitalogic_Product_Sync_Receiver {
     private static $instance = null;
 
     private $lock_depth = 0;
+
+    // phpcs:disable -- New coordinator state follows this legacy receiver's established formatting.
+    /**
+     * Nesting depth while a caller-owned pricing transaction is active.
+     *
+     * The normal receiver owns its short state transaction. The pricing
+     * coordinator instead needs the receiver state, WooCommerce price writes,
+     * and global settings to share one caller-owned transaction.
+     *
+     * @var int
+     */
+    private $coordinated_transaction_depth = 0;
+
+    /**
+     * Product IDs whose caches must be cleared after the outer commit/rollback.
+     *
+     * @var array<int,bool>
+     */
+    private $coordinated_product_ids = array();
+    // phpcs:enable
 
     public static function instance() {
         if (is_null(self::$instance)) {
@@ -677,8 +697,956 @@ class Digitalogic_Product_Sync_Receiver {
     }
     // phpcs:enable
 
+    // phpcs:disable -- Coordinator methods follow this legacy receiver's established formatting.
+    /**
+     * Reprice the stored Patris snapshot inside a caller-owned DB transaction.
+     *
+     * This is the only local repricing path. It reuses the receiver's exact
+     * decimal landed-price evaluator, canonical record/source identities,
+     * WooCommerce writer, durable delivery sets, and post-save readback.
+     *
+     * @param array $settings         Complete canonical global settings.
+     * @param array $profit_overrides Optional Product Code => percentage/null.
+     * @param array $scope_codes      Optional exact Product Codes to reprice.
+     * @param string|null $previous_catalog_revision Catalog revision before the caller's atomic write.
+     * @return array|WP_Error
+     */
+    public function reprice_pricing_state($settings, $profit_overrides = array(), $scope_codes = array(), $previous_catalog_revision = null) {
+        if (
+            null !== $previous_catalog_revision
+            && (
+                !is_string($previous_catalog_revision)
+                || 1 !== preg_match('/\Asha256:[a-f0-9]{64}\z/D', $previous_catalog_revision)
+            )
+        ) {
+            return $this->error(
+                'digitalogic_pricing_previous_catalog_revision_invalid',
+                'Previous shipping-catalog revision is invalid.',
+                400
+            );
+        }
+        $normalized = $this->normalize_coordinated_pricing_inputs(
+            $settings,
+            $profit_overrides,
+            $scope_codes
+        );
+        if (is_wp_error($normalized)) {
+            return $normalized;
+        }
+
+        $locked = $this->acquire_lock();
+        if (is_wp_error($locked)) {
+            return $locked;
+        }
+
+        ++$this->coordinated_transaction_depth;
+        try {
+            return $this->reprice_pricing_state_locked(
+                $normalized['settings'],
+                $normalized['profit_overrides'],
+                $normalized['scope_codes'],
+                $previous_catalog_revision
+            );
+        } catch (Throwable $exception) {
+            return $this->error(
+                'digitalogic_pricing_reconciliation_failed',
+                'هماهنگ‌سازی اتمیک قیمت‌های Patris انجام نشد.',
+                500,
+                array('exception' => get_class($exception))
+            );
+        } finally {
+            --$this->coordinated_transaction_depth;
+            $this->release_lock();
+        }
+    }
+
+    /**
+     * Hold the receiver advisory lock across a caller-owned transaction.
+     *
+     * The callback must not return until its database COMMIT or ROLLBACK has
+     * completed. Nested receiver calls reuse the same in-process lock depth.
+     *
+     * @param callable $callback Transaction owner.
+     * @return mixed|WP_Error
+     */
+    public function with_coordinated_pricing_lock($callback) {
+        if (!is_callable($callback)) {
+            return $this->error(
+                'digitalogic_pricing_lock_callback_invalid',
+                'Pricing lock callback is invalid.',
+                500
+            );
+        }
+        $locked = $this->acquire_lock();
+        if (is_wp_error($locked)) {
+            return $locked;
+        }
+
+        try {
+            return call_user_func($callback);
+        } finally {
+            $this->release_lock();
+        }
+    }
+
+    /**
+     * Clear receiver and WooCommerce caches after the caller commits/rolls back.
+     *
+     * @return void
+     */
+    public function flush_coordinated_pricing_caches() {
+        $this->invalidate_state_cache();
+        $product_ids = array_keys($this->coordinated_product_ids);
+        $this->coordinated_product_ids = array();
+        foreach ($product_ids as $product_id) {
+            $product_id = (int) $product_id;
+            if (function_exists('clean_post_cache')) {
+                clean_post_cache($product_id);
+            }
+            if (function_exists('wc_delete_product_transients')) {
+                wc_delete_product_transients($product_id);
+            }
+        }
+    }
+
+    /**
+     * Publish a committed nonsecret reconciliation summary.
+     *
+     * @param array $result Repricing result.
+     * @return void
+     */
+    public function publish_coordinated_pricing_result($result) {
+        if (!is_array($result)) {
+            return;
+        }
+        try {
+            do_action('digitalogic_pricing_reconciled', $result);
+        } catch (Throwable $exception) {
+            unset($exception);
+        }
+        try {
+            Digitalogic_Logger::instance()->log(
+                'pricing_reconciled',
+                'patris_feed',
+                null,
+                null,
+                array(
+                    'source_count' => (int) ($result['source_count'] ?? 0),
+                    'updated_products' => (int) ($result['updated_products'] ?? 0),
+                    'deferred_missing' => (int) ($result['deferred_missing'] ?? 0),
+                ),
+                'Patris-managed WooCommerce prices reconciled atomically.'
+            );
+        } catch (Throwable $exception) {
+            unset($exception);
+        }
+    }
+
+    /**
+     * Validate coordinator inputs without binary floating-point conversion.
+     *
+     * @param mixed $settings         Complete settings.
+     * @param mixed $profit_overrides Product overrides.
+     * @param mixed $scope_codes      Product scope.
+     * @return array|WP_Error
+     */
+    private function normalize_coordinated_pricing_inputs($settings, $profit_overrides, $scope_codes) {
+        $required = array('dollar_price', 'yuan_price', 'effective_date', 'profit_margin_percent');
+        if (
+            !is_array($settings)
+            || array_is_list($settings)
+            || !empty(array_diff($required, array_keys($settings)))
+            || !empty(array_diff(array_keys($settings), $required))
+        ) {
+            return $this->error(
+                'digitalogic_pricing_settings_invalid',
+                'چهار مقدار کامل نرخ دلار، نرخ یوآن، تاریخ مؤثر و حاشیه سود لازم است.',
+                400
+            );
+        }
+
+        $dollar = $this->formula_decimal_parts($settings['dollar_price']);
+        $yuan = $this->formula_decimal_parts($settings['yuan_price']);
+        $profit = $this->formula_decimal_parts($settings['profit_margin_percent']);
+        if (
+            isset($dollar['error'])
+            || isset($yuan['error'])
+            || isset($profit['error'])
+            || $this->decimal_compare($dollar, $this->formula_decimal_parts('0')) <= 0
+            || $this->decimal_compare($yuan, $this->formula_decimal_parts('0')) <= 0
+            || $this->decimal_compare($profit, $this->formula_decimal_parts(self::MAX_MARKUP_PERCENT)) > 0
+        ) {
+            return $this->error(
+                'digitalogic_pricing_settings_decimal_invalid',
+                'نرخ‌های ارز و حاشیه سود باید اعشار ده‌دهی معتبر و در محدوده مجاز باشند.',
+                400
+            );
+        }
+        if (
+            !is_string($settings['effective_date'])
+            || 1 !== preg_match('/\A\d{4}-\d{2}-\d{2}\z/D', $settings['effective_date'])
+        ) {
+            return $this->error(
+                'digitalogic_pricing_effective_date_invalid',
+                'تاریخ مؤثر قیمت باید به‌شکل YYYY-MM-DD باشد.',
+                400
+            );
+        }
+        $date = DateTimeImmutable::createFromFormat('!Y-m-d', $settings['effective_date']);
+        $date_errors = DateTimeImmutable::getLastErrors();
+        if (
+            false === $date
+            || (is_array($date_errors) && ($date_errors['warning_count'] > 0 || $date_errors['error_count'] > 0))
+            || $date->format('Y-m-d') !== $settings['effective_date']
+        ) {
+            return $this->error(
+                'digitalogic_pricing_effective_date_invalid',
+                'تاریخ مؤثر قیمت معتبر نیست.',
+                400
+            );
+        }
+
+        if (!is_array($profit_overrides) || !empty($profit_overrides)) {
+            return $this->error(
+                'digitalogic_pricing_product_profit_forbidden',
+                'حاشیه سود یک مقدار مشترک اکوسیستم است؛ حاشیه سود اختصاصی کالا پشتیبانی نمی‌شود.',
+                409
+            );
+        }
+        $normalized_overrides = array();
+
+        if (!is_array($scope_codes) || !array_is_list($scope_codes)) {
+            return $this->field_error('scope_codes', 'must be an array');
+        }
+        $normalized_scope = array();
+        foreach ($scope_codes as $product_code) {
+            if (
+                !is_string($product_code)
+                || '' === trim($product_code)
+                || trim($product_code) !== $product_code
+                || strlen($product_code) > self::MAX_CODE_LENGTH
+            ) {
+                return $this->field_error('scope_codes', 'contains an invalid Product Code');
+            }
+            $normalized_scope[$product_code] = true;
+        }
+        ksort($normalized_scope, SORT_STRING);
+
+        return array(
+            'settings' => array(
+                'dollar_price' => $this->decimal_parts_to_string($dollar),
+                'yuan_price' => $this->decimal_parts_to_string($yuan),
+                'effective_date' => $settings['effective_date'],
+                'profit_margin_percent' => $this->decimal_parts_to_string($profit),
+            ),
+            'profit_overrides' => $normalized_overrides,
+            'scope_codes' => $normalized_scope,
+        );
+    }
+
+    /**
+     * Reprice current source state while both receiver lock and DB transaction are held.
+     *
+     * @param array $settings         Canonical settings.
+     * @param array $profit_overrides Canonical Product Code overrides.
+     * @param array $scope_codes      Product Code set, or empty for all.
+     * @param string|null $previous_catalog_revision Catalog revision before the atomic write.
+     * @return array|WP_Error
+     */
+    private function reprice_pricing_state_locked($settings, $profit_overrides, $scope_codes, $previous_catalog_revision) {
+        $state = $this->load_state();
+        if (empty($state['sources'])) {
+            return $this->error(
+                'digitalogic_pricing_source_state_required',
+                'پیش از تغییر تنظیمات قیمت، یک snapshot معتبر Patris لازم است.',
+                409
+            );
+        }
+
+        $before_state = $this->state_digest($state);
+        $pricing_revision = $this->hash_identity(
+            $this->encode_go_json(
+                array(
+                    'schema' => 'digitalogic.pricing-coordinator/v1',
+                    'dollar_price' => $settings['dollar_price'],
+                    'yuan_price' => $settings['yuan_price'],
+                    'effective_date' => $settings['effective_date'],
+                    'profit_margin_percent' => $settings['profit_margin_percent'],
+                )
+            )
+        );
+        $catalog = Digitalogic_Shipping_Method_Service::instance()->get_integration_catalog();
+        if (is_wp_error($catalog)) {
+            return $catalog;
+        }
+        $catalog_revision = $this->coordinated_pricing_catalog_revision($settings, $catalog);
+        if (is_wp_error($catalog_revision)) {
+            return $catalog_revision;
+        }
+        $resolution_cache = array();
+        $found_scope = array();
+        $product_code_sources = array();
+        $pricing_sources = array();
+        $changed_total = 0;
+
+        foreach ($state['sources'] as $source_key => &$source_state) {
+            if (!is_array($source_state)) {
+                continue;
+            }
+            $products = is_array($source_state['products'] ?? null) ? $source_state['products'] : array();
+            if (empty($products)) {
+                if (empty($scope_codes)) {
+                    $pricing_sources[$source_key] = array(
+                        'source' => is_array($source_state['source'] ?? null)
+                            ? $source_state['source']
+                            : array(),
+                        'target_codes' => array(),
+                        'event_id' => (string) ($source_state['last_event_id'] ?? ''),
+                    );
+                }
+                continue;
+            }
+            if (
+                'IRT' !== (string) ($source_state['local_currency'] ?? '')
+                || self::FORMULA_ID !== (string) ($source_state['formula_id'] ?? '')
+            ) {
+                continue;
+            }
+
+            $changed_products = array();
+            $target_codes = array();
+            foreach ($products as $code_key => $product) {
+                $product_code = $this->delivery_product_code($products, $code_key);
+                if (null === $product_code || (!empty($scope_codes) && !isset($scope_codes[$product_code]))) {
+                    continue;
+                }
+                if (
+                    isset($product_code_sources[$product_code])
+                    && $product_code_sources[$product_code] !== (string) $source_key
+                ) {
+                    return $this->error(
+                        'digitalogic_pricing_product_source_ambiguous',
+                        'یک کد کالا در بیش از یک منبع فعال قیمت‌گذاری وجود دارد؛ هیچ تغییری ثبت نشد.',
+                        409,
+                        array('product_code' => $product_code)
+                    );
+                }
+                $product_code_sources[$product_code] = (string) $source_key;
+                $found_scope[$product_code] = true;
+                $target_codes[$product_code] = true;
+                $markup = $this->coordinated_markup_percent(
+                    $product_code,
+                    $product,
+                    $settings['profit_margin_percent'],
+                    $profit_overrides,
+                    $resolution_cache
+                );
+                if (is_wp_error($markup)) {
+                    return $markup;
+                }
+                $repriced = $this->coordinated_product_record(
+                    $product,
+                    $settings,
+                    $catalog,
+                    $catalog_revision,
+                    $markup,
+                    $previous_catalog_revision
+                );
+                if (is_wp_error($repriced)) {
+                    return $repriced;
+                }
+                $products[$code_key] = $repriced;
+                if (
+                    !isset($product['record_hash'])
+                    || !hash_equals((string) $product['record_hash'], (string) $repriced['record_hash'])
+                ) {
+                    $changed_products[] = $repriced;
+                    ++$changed_total;
+                }
+            }
+            if (empty($target_codes)) {
+                continue;
+            }
+
+            $source = is_array($source_state['source'] ?? null) ? $source_state['source'] : array();
+            $categories = is_array($source_state['categories'] ?? null) ? $source_state['categories'] : array();
+            $excluded_codes = is_array($source_state['excluded_codes'] ?? null) ? $source_state['excluded_codes'] : array();
+            $quarantined_codes = is_array($source_state['quarantined_codes'] ?? null) ? $source_state['quarantined_codes'] : array();
+            $source['revision'] = $this->source_revision(
+                $products,
+                $categories,
+                $excluded_codes,
+                $quarantined_codes
+            );
+            $generated_at = (string) ($source_state['generated_at'] ?? '');
+            $event_id = $this->hash_identity(
+                $this->encode_go_json(
+                    array(
+                        'schema' => 'digitalogic.pricing-reconcile/v1',
+                        'source' => $source,
+                        'generated_at' => $generated_at,
+                        'pricing_revision' => $pricing_revision,
+                    )
+                )
+            );
+            $delivery = $this->build_delivery_state(
+                $products,
+                $changed_products,
+                array('event_id' => $event_id),
+                $source_state
+            );
+
+            foreach (array_keys($target_codes) as $product_code) {
+                $product = $products[$product_code];
+                $resolved = $this->coordinated_resolution($product_code, $resolution_cache);
+                if (is_wp_error($resolved)) {
+                    $reason = $this->terminal_resolution_reason($resolved->get_error_code());
+                    if ('missing' === $reason) {
+                        if (isset($delivery['pending_products'][$product_code])) {
+                            $delivery['pending_products'][$product_code]['pricing_only'] = true;
+                        }
+                        continue;
+                    }
+                    return $this->error(
+                        'digitalogic_pricing_product_identity_ambiguous',
+                        'هویت یکی از کالاهای Patris در ووکامرس یکتا نیست؛ هیچ تغییری ثبت نشد.',
+                        409,
+                        array('product_code' => $product_code, 'code' => $resolved->get_error_code())
+                    );
+                }
+                $woocommerce_id = (int) $resolved['woocommerce_id'];
+                $this->coordinated_product_ids[$woocommerce_id] = true;
+                if ($this->coordinated_price_readback_matches($woocommerce_id, $product)) {
+                    continue;
+                }
+                unset($delivery['applied_products'][$product_code], $delivery['deferred_products'][$product_code]);
+                $delivery['pending_products'][$product_code] = array(
+                    'product_code' => $product_code,
+                    'record_hash' => $product['record_hash'],
+                    'queued_event_id' => $event_id,
+                    'attempts' => 0,
+                    'force_apply' => true,
+                    'pricing_only' => true,
+                );
+            }
+
+            $source_state['source'] = $source;
+            $source_state['products'] = $products;
+            $source_state['applied_products'] = $delivery['applied_products'];
+            $source_state['pending_products'] = $delivery['pending_products'];
+            $source_state['deferred_products'] = $delivery['deferred_products'];
+            $pricing_sources[$source_key] = array(
+                'source' => $source,
+                'target_codes' => array_keys($target_codes),
+                'event_id' => $event_id,
+            );
+        }
+        unset($source_state);
+
+        if (empty($pricing_sources)) {
+            return $this->error(
+                'digitalogic_pricing_active_source_required',
+                'هیچ منبع فعال landed_price برای هماهنگ‌سازی قیمت پیدا نشد.',
+                409
+            );
+        }
+        if (!empty($scope_codes)) {
+            $missing_scope = array_values(array_diff(array_keys($scope_codes), array_keys($found_scope)));
+            if (!empty($missing_scope)) {
+                return $this->error(
+                    'digitalogic_pricing_product_not_in_source',
+                    'کد کالا در snapshot فعلی Patris وجود ندارد.',
+                    409,
+                    array('product_codes' => $missing_scope)
+                );
+            }
+        }
+
+        if (!hash_equals($before_state, $this->state_digest($state))) {
+            $stored = $this->persist_and_read_back($state);
+            if (is_wp_error($stored)) {
+                return $stored;
+            }
+            $state = $stored;
+        }
+
+        $updated_total = 0;
+        $already_total = 0;
+        $missing_total = 0;
+        $source_results = array();
+        $pricing_warnings = array();
+        $before_delivery = $this->state_digest($state);
+        foreach ($pricing_sources as $source_key => $context) {
+            $woo = $this->drain_delivery_products($state['sources'][$source_key], true, true);
+            $deferred = $this->deferred_summary($state['sources'][$source_key]['deferred_products'] ?? array());
+            $pending_count = count($state['sources'][$source_key]['pending_products'] ?? array());
+            if ($pending_count > 0 || (int) $deferred['ambiguous'] > 0) {
+                return $this->error(
+                    'digitalogic_pricing_delivery_incomplete',
+                    'خواندن مجدد قیمت‌های ووکامرس کامل نشد؛ تراکنش قیمت بازگردانده می‌شود.',
+                    502,
+                    array(
+                        'source' => $context['source'],
+                        'pending_products' => $pending_count,
+                        'deferred_missing' => (int) $deferred['missing'],
+                        'deferred_ambiguous' => (int) $deferred['ambiguous'],
+                        'woocommerce' => $woo,
+                    )
+                );
+            }
+            foreach ($context['target_codes'] as $product_code) {
+                $resolved = $this->coordinated_resolution($product_code, $resolution_cache);
+                if (is_wp_error($resolved)) {
+                    if ('missing' === $this->terminal_resolution_reason($resolved->get_error_code())) {
+                        continue;
+                    }
+                    return $this->error(
+                        'digitalogic_pricing_delivery_readback_failed',
+                        'هویت کالا هنگام خواندن مجدد تغییر کرد؛ تراکنش بازگردانده می‌شود.',
+                        502,
+                        array('product_code' => $product_code)
+                    );
+                }
+                $product = $state['sources'][$source_key]['products'][$product_code];
+                if (!$this->coordinated_price_readback_matches((int) $resolved['woocommerce_id'], $product)) {
+                    return $this->error(
+                        'digitalogic_pricing_delivery_readback_failed',
+                        'قیمت نهایی کالا پس از ذخیره با مقدار محاسبه‌شده یکسان نیست.',
+                        502,
+                        array(
+                            'product_code' => $product_code,
+                            'woocommerce_id' => (int) $resolved['woocommerce_id'],
+                        )
+                    );
+                }
+                if (!array_key_exists('final_price', $product)) {
+                    $woo_product = wc_get_product((int) $resolved['woocommerce_id']);
+                    if (
+                        $woo_product
+                        && 'canonical_missing_preserved' === (string) $woo_product->get_meta(
+                            Digitalogic_Patris_Price_Policy::STATUS_META,
+                            true
+                        )
+                    ) {
+                        $pricing_warnings[] = array(
+                            'code' => 'canonical_missing_preserved',
+                            'message' => Digitalogic_Patris_Price_Policy::MISSING_WEIGHT_WARNING,
+                            'product_code' => $product_code,
+                            'woocommerce_id' => (int) $resolved['woocommerce_id'],
+                        );
+                    }
+                }
+            }
+            $updated_total += (int) $woo['updated'];
+            $already_total += (int) $woo['already_applied'];
+            $missing_total += (int) $deferred['missing'];
+            $source_results[] = array(
+                'source' => $context['source'],
+                'event_id' => $context['event_id'],
+                'target_products' => count($context['target_codes']),
+                'woocommerce' => $woo,
+                'deferred_reconciliation' => $deferred,
+            );
+        }
+
+        if (!hash_equals($before_delivery, $this->state_digest($state))) {
+            $stored = $this->persist_and_read_back($state);
+            if (is_wp_error($stored)) {
+                return $stored;
+            }
+        }
+
+        return array(
+            'schema' => 'digitalogic.pricing-reconcile-result/v1',
+            'status' => 'reconciled',
+            'pricing_revision' => $pricing_revision,
+            'source_count' => count($source_results),
+            'changed_products' => $changed_total,
+            'updated_products' => $updated_total,
+            'already_current_products' => $already_total,
+            'deferred_missing' => $missing_total,
+            'deferred_ambiguous' => 0,
+            'pending_products' => 0,
+            'warning_count' => count($pricing_warnings),
+            'warnings' => $pricing_warnings,
+            'sources' => $source_results,
+        );
+    }
+
+    /**
+     * Resolve effective percentage markup for one stored product.
+     *
+     * @return string|null|WP_Error
+     */
+    private function coordinated_markup_percent(
+        $product_code,
+        $product,
+        $profit_margin,
+        $profit_overrides,
+        &$resolution_cache
+    ) {
+        unset($product_code, $product, $profit_overrides, $resolution_cache);
+
+        return $profit_margin;
+    }
+
+    /**
+     * Build one canonical repriced stored product.
+     *
+     * @return array|WP_Error
+     */
+    private function coordinated_product_record($product, $settings, $catalog, $catalog_revision, $markup_percent, $previous_catalog_revision = null) {
+        if (!is_array($product)) {
+            return $this->field_error('products', 'contains invalid stored data');
+        }
+        if (
+            !isset(
+                $product['pricing_catalog_revision'],
+                $product['irt_per_cny'],
+                $product['currency_effective_date']
+            )
+        ) {
+            return $this->error(
+                'digitalogic_pricing_catalog_provenance_required',
+                'هویت کاتالوگ قیمت قبلی کالا کامل نیست؛ هیچ تغییری ثبت نشد.',
+                409,
+                array('product_code' => (string) ($product['product_code'] ?? ''))
+            );
+        }
+        $prior_catalog_revision = null !== $previous_catalog_revision
+            ? $previous_catalog_revision
+            : $this->coordinated_pricing_catalog_revision(
+                array(
+                    'yuan_price' => $product['irt_per_cny'],
+                    'effective_date' => $product['currency_effective_date'],
+                ),
+                $catalog
+            );
+        if (
+            is_wp_error($prior_catalog_revision)
+            || !hash_equals(
+                (string) $product['pricing_catalog_revision'],
+                (string) $prior_catalog_revision
+            )
+        ) {
+            return is_wp_error($prior_catalog_revision)
+                ? $prior_catalog_revision
+                : $this->error(
+                    'digitalogic_pricing_shipping_catalog_changed',
+                    'کاتالوگ حمل پس از snapshot کالا تغییر کرده است؛ ابتدا بازتولید Patris لازم است.',
+                    409,
+                    array('product_code' => (string) ($product['product_code'] ?? ''))
+                );
+        }
+        $shipping = $this->coordinated_shipping_method($product, $catalog);
+        if (is_wp_error($shipping)) {
+            return $shipping;
+        }
+        $product['irt_per_cny'] = $settings['yuan_price'];
+        $product['markup_percent'] = $markup_percent;
+        $product['currency_effective_date'] = $settings['effective_date'];
+        $product['pricing_catalog_revision'] = $catalog_revision;
+        $product['shipping_price_per_kg'] = $shipping['price_per_kg'];
+        $product['shipping_price_per_kg_currency'] = $shipping['currency'];
+
+        $calculated = $this->evaluate_final_price_formula($product, 'products.' . ($product['product_code'] ?? ''));
+        if (is_wp_error($calculated)) {
+            return $calculated;
+        }
+        if (empty($calculated['available'])) {
+            unset($product['final_price']);
+        } else {
+            $product['final_price'] = $calculated['value'];
+        }
+        $product['record_hash'] = $this->record_hash_from_storage($product);
+
+        return $product;
+    }
+
+    /**
+     * Resolve the product's exact fixed-rate shipping dependency.
+     *
+     * The landed-price formula has no tier/minimum/volumetric implementation.
+     * Any such method therefore fails closed instead of silently applying the
+     * flat-rate branch to a variable shipping contract.
+     *
+     * @param array $product Stored product record.
+     * @param array $catalog Current integration catalog.
+     * @return array|WP_Error
+     */
+    private function coordinated_shipping_method($product, $catalog) {
+        $product_code = (string) ($product['product_code'] ?? '');
+        $method_id = isset($product['shipping_method_id']) && is_string($product['shipping_method_id'])
+            ? $product['shipping_method_id']
+            : '';
+        if ('' === $method_id) {
+            return $this->error(
+                'digitalogic_pricing_shipping_method_required',
+                'روش حمل قطعی کالا برای بازتولید قیمت لازم است؛ هیچ تغییری ثبت نشد.',
+                409,
+                array('product_code' => $product_code)
+            );
+        }
+
+        $selected = null;
+        foreach ((array) ($catalog['shipping_methods'] ?? array()) as $method) {
+            if (is_array($method) && $method_id === (string) ($method['id'] ?? '')) {
+                $selected = $method;
+                break;
+            }
+        }
+        if (!is_array($selected) || empty($selected['enabled'])) {
+            return $this->error(
+                'digitalogic_pricing_shipping_method_unavailable',
+                'روش حمل کالا در کاتالوگ فعال حمل موجود نیست؛ هیچ تغییری ثبت نشد.',
+                409,
+                array(
+                    'product_code' => $product_code,
+                    'shipping_method_id' => $method_id,
+                )
+            );
+        }
+        if (
+            !empty($selected['tiered_rates'])
+            || (array_key_exists('minimum_charge', $selected) && null !== $selected['minimum_charge'])
+            || (
+                array_key_exists('volumetric_divisor_cm3_per_kg', $selected)
+                && null !== $selected['volumetric_divisor_cm3_per_kg']
+            )
+        ) {
+            return $this->error(
+                'digitalogic_pricing_variable_shipping_unsupported',
+                'فرمول فعلی قیمت از حمل پلکانی، حداقل کرایه یا وزن حجمی پشتیبانی نمی‌کند؛ هیچ تغییری ثبت نشد.',
+                409,
+                array(
+                    'product_code' => $product_code,
+                    'shipping_method_id' => $method_id,
+                )
+            );
+        }
+
+        $price = $this->formula_decimal_parts($selected['price_per_kg'] ?? null);
+        if (
+            isset($price['error'])
+            || $this->decimal_compare($price, $this->formula_decimal_parts('0')) <= 0
+        ) {
+            return $this->error(
+                'digitalogic_pricing_shipping_rate_invalid',
+                'نرخ قطعی روش حمل کالا معتبر نیست؛ هیچ تغییری ثبت نشد.',
+                409,
+                array(
+                    'product_code' => $product_code,
+                    'shipping_method_id' => $method_id,
+                )
+            );
+        }
+        $currency = $selected['currency'] ?? null;
+        if (!is_string($currency) || !in_array($currency, array('CNY', 'IRR'), true)) {
+            return $this->error(
+                'digitalogic_pricing_shipping_currency_invalid',
+                'واحد پول روش حمل کالا معتبر نیست؛ هیچ تغییری ثبت نشد.',
+                409,
+                array(
+                    'product_code' => $product_code,
+                    'shipping_method_id' => $method_id,
+                )
+            );
+        }
+
+        return array(
+            'price_per_kg' => $this->decimal_parts_to_string($price),
+            'currency' => $currency,
+        );
+    }
+
+    /**
+     * Rebuild the shipping catalog identity with the transaction's desired rate.
+     *
+     * @param array $settings Canonical desired settings.
+     * @param array $catalog  Current integration catalog.
+     * @return string|WP_Error
+     */
+    private function coordinated_pricing_catalog_revision($settings, $catalog) {
+        $currency = is_array($catalog['currency'] ?? null) ? $catalog['currency'] : array();
+        $warnings = is_array($currency['warnings'] ?? null) ? $currency['warnings'] : array();
+        $currency['warnings'] = array_values(
+            array_diff($warnings, array('cny_to_local_missing_or_invalid'))
+        );
+        $currency['cny_to_local'] = (int) $settings['yuan_price'];
+        if ('IRT' === (string) ($currency['local'] ?? '')) {
+            $currency['cny_to_irt'] = (int) $settings['yuan_price'];
+        } else {
+            unset($currency['cny_to_irt']);
+        }
+        $currency['effective_date'] = $settings['effective_date'];
+
+        return $this->hash_identity(
+            wp_json_encode(
+                array(
+                    'schema' => (string) ($catalog['schema'] ?? Digitalogic_Shipping_Method_Service::CATALOG_SCHEMA),
+                    'currency' => $currency,
+                    'pricing' => is_array($catalog['pricing'] ?? null) ? $catalog['pricing'] : array(),
+                    'selected_warehouses' => is_array($catalog['selected_warehouses'] ?? null)
+                        ? $catalog['selected_warehouses']
+                        : array(),
+                    'shipping_methods' => is_array($catalog['shipping_methods'] ?? null)
+                        ? $catalog['shipping_methods']
+                        : array(),
+                ),
+                JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+            )
+        );
+    }
+
+    /**
+     * Resolve one Product Code once per coordinated transaction.
+     *
+     * @return array|WP_Error
+     */
+    private function coordinated_resolution($product_code, &$resolution_cache) {
+        if (!array_key_exists($product_code, $resolution_cache)) {
+            $resolution_cache[$product_code] = Digitalogic_Product_Identifier_Resolver::instance()->resolve(
+                array('patris_code' => $product_code)
+            );
+        }
+
+        return $resolution_cache[$product_code];
+    }
+
+    /**
+     * Verify canonical metadata and Woo selling/customer prices exactly.
+     *
+     * @param int   $woocommerce_id Product ID.
+     * @param array $product         Canonical stored product.
+     * @return bool
+     */
+    private function coordinated_price_readback_matches($woocommerce_id, $product) {
+        $record_hash = (string) get_post_meta($woocommerce_id, '_digitalogic_patris_record_hash', true);
+        if (
+            !isset($product['record_hash'])
+            || '' === $record_hash
+            || !hash_equals((string) $product['record_hash'], $record_hash)
+        ) {
+            return false;
+        }
+        $pricing_meta = array(
+            'markup_percent' => '_digitalogic_patris_markup_percent',
+            'irt_per_cny' => '_digitalogic_patris_irt_per_cny',
+            'pricing_catalog_revision' => '_digitalogic_patris_pricing_catalog_revision',
+            'pricing_catalog_status' => '_digitalogic_patris_pricing_catalog_status',
+            'currency_effective_date' => '_digitalogic_patris_currency_effective_date',
+        );
+        foreach ($pricing_meta as $field => $meta_key) {
+            if (!array_key_exists($field, $product) || null === $product[$field]) {
+                if (metadata_exists('post', $woocommerce_id, $meta_key)) {
+                    return false;
+                }
+                continue;
+            }
+            if ((string) get_post_meta($woocommerce_id, $meta_key, true) !== (string) $product[$field]) {
+                return false;
+            }
+        }
+        if (!array_key_exists('final_price', $product)) {
+            if (metadata_exists('post', $woocommerce_id, '_digitalogic_patris_final_price')) {
+                return false;
+            }
+            $woo_product = wc_get_product($woocommerce_id);
+            if (!$woo_product) {
+                return false;
+            }
+            if ($woo_product->is_type('variable')) {
+                return false;
+            }
+
+            $regular = trim((string) $woo_product->get_regular_price());
+            $visible = trim((string) $woo_product->get_price());
+            $sale = trim((string) $woo_product->get_sale_price());
+            $status = (string) $woo_product->get_meta(Digitalogic_Patris_Price_Policy::STATUS_META, true);
+            if ('canonical_missing_preserved' === $status) {
+                return '' !== $regular
+                    && is_numeric($regular)
+                    && (float) $regular > 0
+                    && $regular === $visible
+                    && '' === $sale
+                    && Digitalogic_Patris_Price_Policy::MISSING_WEIGHT_WARNING
+                        === (string) $woo_product->get_meta(Digitalogic_Patris_Price_Policy::WARNING_META, true);
+            }
+
+            return '' === $regular && '' === $visible && '' === $sale;
+        }
+
+        $final_price = (string) $product['final_price'];
+        if ((string) get_post_meta($woocommerce_id, '_digitalogic_patris_final_price', true) !== $final_price) {
+            return false;
+        }
+        $woo_product = wc_get_product($woocommerce_id);
+        if (!$woo_product) {
+            return false;
+        }
+        if ($woo_product->is_type('variable')) {
+            return false;
+        }
+
+        return (string) $woo_product->get_regular_price() === $final_price
+            && (string) $woo_product->get_price() === $final_price
+            && '' === trim((string) $woo_product->get_sale_price());
+    }
+
+    /**
+     * Turn exact decimal parts back into their normalized plain string.
+     *
+     * @param array $parts Decimal parts.
+     * @return string
+     */
+    private function decimal_parts_to_string($parts) {
+        $digits = $this->normalize_big_integer($parts['digits']);
+        $scale = (int) $parts['scale'];
+        if ($scale <= 0) {
+            return $digits . str_repeat('0', -$scale);
+        }
+        $padded = str_pad($digits, $scale + 1, '0', STR_PAD_LEFT);
+        $cut = strlen($padded) - $scale;
+
+        return substr($padded, 0, $cut) . '.' . substr($padded, $cut);
+    }
+
+    /**
+     * Rebuild a canonical wire-equivalent record hash from stored decimals.
+     *
+     * @param array $product Stored product.
+     * @return string
+     */
+    private function record_hash_from_storage($product) {
+        $wire = $product;
+        unset($wire['record_hash']);
+        foreach (self::PRODUCT_NULLABLE_NUMBER_FIELDS as $field) {
+            if (array_key_exists($field, $wire) && null !== $wire[$field] && is_string($wire[$field])) {
+                $wire[$field] = new Digitalogic_Product_Sync_JSON_Number($wire[$field]);
+            }
+        }
+        if (isset($wire['final_price']) && is_string($wire['final_price'])) {
+            $wire['final_price'] = new Digitalogic_Product_Sync_JSON_Number($wire['final_price']);
+        }
+        if (isset($wire['warehouse_stock']) && is_array($wire['warehouse_stock'])) {
+            foreach ($wire['warehouse_stock'] as $warehouse => $stock) {
+                if (is_string($stock)) {
+                    $wire['warehouse_stock'][$warehouse] = new Digitalogic_Product_Sync_JSON_Number($stock);
+                }
+            }
+        }
+
+        return $this->record_hash($wire);
+    }
+
+    // phpcs:enable
     // phpcs:disable -- Preserve the established receiver formatting while the legacy file remains baseline-managed.
     private function receive_locked($envelope) {
+        $margin_validation = $this->validate_shared_profit_margin($envelope);
+        if (is_wp_error($margin_validation)) {
+            return $margin_validation;
+        }
+
         $state = $this->load_state();
         $source_key = $this->source_key($envelope['source']['id'], $envelope['source']['dataset']);
         $existing = isset($state['sources'][$source_key]) && is_array($state['sources'][$source_key])
@@ -794,6 +1762,71 @@ class Digitalogic_Product_Sync_Receiver {
         return $this->emit_result($result, $envelope);
     }
 
+    /**
+     * Reject pricing rows generated with a stale or product-specific margin.
+     *
+     * The catalog-wide margin is owned by the pricing coordinator. A Patris
+     * payload may transport that value for deterministic formula verification,
+     * but it cannot introduce another value. An unconfigured installation may
+     * still accept its first source snapshot; once configured, mismatch fails
+     * before receiver state or WooCommerce is changed.
+     *
+     * @param array $envelope Validated product-sync envelope.
+     * @return true|WP_Error
+     */
+    private function validate_shared_profit_margin($envelope) {
+        if (empty($envelope['local_currency']) || empty($envelope['formula_id'])) {
+            return true;
+        }
+
+        $margin = Digitalogic_Shipping_Method_Service::instance()->get_default_percentage_markup();
+        if (is_wp_error($margin)) {
+            return $margin;
+        }
+        if (empty($margin['configured']) || null === ($margin['profit_percent'] ?? null)) {
+            return true;
+        }
+
+        $expected = $this->formula_decimal_parts($margin['profit_percent']);
+        if (isset($expected['error'])) {
+            return $this->error(
+                'digitalogic_product_sync_profit_margin_state_invalid',
+                'The configured shared profit margin is invalid.',
+                409
+            );
+        }
+
+        $mismatches = array();
+        foreach ($envelope['products'] as $product) {
+            if (!array_key_exists('markup_percent', $product) || null === $product['markup_percent']) {
+                continue;
+            }
+            $submitted = $this->formula_decimal_parts($product['markup_percent']);
+            if (
+                isset($submitted['error'])
+                || 0 !== $this->decimal_compare($submitted, $expected)
+            ) {
+                $mismatches[] = (string) $product['product_code'];
+                if (count($mismatches) >= 50) {
+                    break;
+                }
+            }
+        }
+        if (empty($mismatches)) {
+            return true;
+        }
+
+        return $this->error(
+            'digitalogic_product_sync_profit_margin_mismatch',
+            'Product pricing rows must use the current shared profit margin.',
+            409,
+            array(
+                'profit_margin_percent' => $this->decimal_parts_to_string($expected),
+                'product_codes' => $mismatches,
+            )
+        );
+    }
+
     private function retry_pending_locked($state, $source_key, $envelope, $existing) {
         $source_state = $existing;
         $before_delivery = $this->state_digest($source_state);
@@ -827,15 +1860,15 @@ class Digitalogic_Product_Sync_Receiver {
     private function emit_result($result, $envelope) {
         try {
             do_action('digitalogic_product_sync_applied', $result, array(
-                'schema' => $envelope['schema'],
-                'event_id' => $envelope['event_id'],
-                'event_type' => $envelope['event_type'],
-                'source' => $envelope['source'],
+                'schema'       => $envelope['schema'],
+                'event_id'     => $envelope['event_id'],
+                'event_type'   => $envelope['event_type'],
+                'source'       => $envelope['source'],
                 'generated_at' => $envelope['generated_at'],
             ));
         } catch (Throwable $exception) {
             $result['delivery_warnings'][] = array(
-                'code' => 'digitalogic_product_sync_listener_failed',
+                'code'      => 'digitalogic_product_sync_listener_failed',
                 'exception' => get_class($exception),
             );
         }
@@ -851,7 +1884,7 @@ class Digitalogic_Product_Sync_Receiver {
             );
         } catch (Throwable $exception) {
             $result['delivery_warnings'][] = array(
-                'code' => 'digitalogic_product_sync_log_failed',
+                'code'      => 'digitalogic_product_sync_log_failed',
                 'exception' => get_class($exception),
             );
         }
@@ -877,7 +1910,7 @@ class Digitalogic_Product_Sync_Receiver {
             'quarantined_codes',
             'warnings',
         );
-        $missing = array_values(array_diff($required, array_keys($payload)));
+        $missing  = array_values(array_diff($required, array_keys($payload)));
         if (!empty($missing)) {
             return $this->error('digitalogic_product_sync_missing_field', 'The envelope is missing required fields.', 422, array('fields' => $missing));
         }
@@ -894,7 +1927,7 @@ class Digitalogic_Product_Sync_Receiver {
             return $this->field_error('event_type', 'must be snapshot or update');
         }
         $has_currency = array_key_exists('local_currency', $payload);
-        $has_formula = array_key_exists('formula_id', $payload);
+        $has_formula  = array_key_exists('formula_id', $payload);
         if ($has_currency !== $has_formula) {
             return $this->field_error('formula_id', 'must be present exactly when local_currency is present');
         }
@@ -914,8 +1947,8 @@ class Digitalogic_Product_Sync_Receiver {
                     409,
                     array(
                         'woocommerce_base_currency' => $currency_status['code'],
-                        'required_currency' => Digitalogic_WooCommerce_Currency_Status::REQUIRED_CURRENCY,
-                        'warning' => Digitalogic_WooCommerce_Currency_Status::INCOMPATIBLE_WARNING,
+                        'required_currency'         => Digitalogic_WooCommerce_Currency_Status::REQUIRED_CURRENCY,
+                        'warning'                   => Digitalogic_WooCommerce_Currency_Status::INCOMPATIBLE_WARNING,
                     )
                 );
             }
@@ -939,7 +1972,7 @@ class Digitalogic_Product_Sync_Receiver {
             return $this->error('digitalogic_product_sync_product_limit', 'The event contains too many products.', 413);
         }
 
-        $products = array();
+        $products   = array();
         $seen_codes = array();
         foreach ($payload['products'] as $index => $product) {
             $validated = $this->validate_product($product, $index, $pricing_active);
@@ -953,7 +1986,7 @@ class Digitalogic_Product_Sync_Receiver {
             // PHP coerces canonical numeric-string array keys to integers. Keep
             // the validated string as the value whenever the map is projected.
             $seen_codes[$code] = $code;
-            $products[] = $validated;
+            $products[]        = $validated;
         }
 
         $categories = $this->validate_categories($payload['categories']);
@@ -1002,22 +2035,22 @@ class Digitalogic_Product_Sync_Receiver {
         }
 
         $envelope = array(
-            'schema' => $payload['schema'],
-            'event_type' => $payload['event_type'],
-            'event_id' => $payload['event_id'],
-            'source' => $source,
-            'generated_at' => $payload['generated_at'],
+            'schema'             => $payload['schema'],
+            'event_type'         => $payload['event_type'],
+            'event_id'           => $payload['event_id'],
+            'source'             => $source,
+            'generated_at'       => $payload['generated_at'],
             'generated_at_order' => $generated_at_order,
-            'products' => $products,
-            'categories' => $categories,
-            'excluded_codes' => $excluded_codes,
-            'deleted_codes' => $deleted_codes,
-            'quarantined_codes' => $quarantined_codes,
-            'warnings' => $warnings,
+            'products'           => $products,
+            'categories'         => $categories,
+            'excluded_codes'     => $excluded_codes,
+            'deleted_codes'      => $deleted_codes,
+            'quarantined_codes'  => $quarantined_codes,
+            'warnings'           => $warnings,
         );
         if ($pricing_active) {
             $envelope['local_currency'] = $payload['local_currency'];
-            $envelope['formula_id'] = $payload['formula_id'];
+            $envelope['formula_id']     = $payload['formula_id'];
         }
 
         $expected_event_id = $this->event_id($envelope);
@@ -1112,7 +2145,7 @@ class Digitalogic_Product_Sync_Receiver {
         ) {
             return $this->field_error($path . '.foreign_currency', 'must be CNY or explicit null');
         }
-        $has_shipping_price = array_key_exists('shipping_price_per_kg', $product);
+        $has_shipping_price    = array_key_exists('shipping_price_per_kg', $product);
         $has_shipping_currency = array_key_exists('shipping_price_per_kg_currency', $product);
         if ($has_shipping_price !== $has_shipping_currency) {
             return $this->error(
@@ -1405,7 +2438,7 @@ class Digitalogic_Product_Sync_Receiver {
             return $this->field_error('deleted_codes', 'is only valid on update events');
         }
         $result = array();
-        $seen = array();
+        $seen   = array();
         foreach ($values as $index => $value) {
             if (
                 !is_array($value)
@@ -1426,7 +2459,7 @@ class Digitalogic_Product_Sync_Receiver {
                 return $this->field_error('deleted_codes[' . $index . '].product_code', 'must be unique and within the code limit');
             }
             $seen[$value['product_code']] = true;
-            $result[] = array('product_code' => $value['product_code'], 'deleted' => true);
+            $result[]                     = array('product_code' => $value['product_code'], 'deleted' => true);
         }
         usort($result, static function($left, $right) {
             return strcmp($left['product_code'], $right['product_code']);
@@ -1440,7 +2473,7 @@ class Digitalogic_Product_Sync_Receiver {
             return $this->field_error($field, 'must be an array of unique strings');
         }
         $result = array();
-        $seen = array();
+        $seen   = array();
         foreach ($values as $index => $value) {
             if (!is_string($value) || '' === trim($value) || ($code_rules && trim($value) !== $value)) {
                 return $this->field_error($field . '[' . $index . ']', 'must be a non-empty string');
@@ -1450,7 +2483,7 @@ class Digitalogic_Product_Sync_Receiver {
                 return $this->field_error($field . '[' . $index . ']', 'must be unique and within the length limit');
             }
             $seen[$value] = true;
-            $result[] = $value;
+            $result[]     = $value;
         }
         sort($result, SORT_STRING);
 
@@ -1469,7 +2502,7 @@ class Digitalogic_Product_Sync_Receiver {
         }
         ksort($categories, SORT_STRING);
         $excluded_codes = $envelope['excluded_codes'];
-        $quarantined = array();
+        $quarantined    = array();
         foreach ($envelope['quarantined_codes'] as $quarantined_code) {
             $quarantined[$quarantined_code] = $quarantined_code;
         }
@@ -1535,11 +2568,11 @@ class Digitalogic_Product_Sync_Receiver {
         }
 
         return array(
-            'products' => $next,
-            'categories' => $categories,
-            'excluded_codes' => $excluded_codes,
-            'changed_products' => array_values($incoming),
-            'deleted_count' => 'snapshot' === $envelope['event_type']
+            'products'              => $next,
+            'categories'            => $categories,
+            'excluded_codes'        => $excluded_codes,
+            'changed_products'      => array_values($incoming),
+            'deleted_count'         => 'snapshot' === $envelope['event_type']
                 ? count(array_diff(array_keys($previous), array_merge(array_keys($next), $envelope['quarantined_codes'])))
                 : ($deleted ?? 0),
             'preserved_quarantined' => $preserved,
@@ -1665,6 +2698,7 @@ class Digitalogic_Product_Sync_Receiver {
             $delivery_entry['product_code'] = $product_code;
             $product_data = $products[$code_key];
             $record_hash = (string) $delivery_entry['record_hash'];
+            $force_apply = !empty($delivery_entry['force_apply']);
 
             $result['attempted']++;
             $resolved = Digitalogic_Product_Identifier_Resolver::instance()->resolve(array(
@@ -1701,6 +2735,8 @@ class Digitalogic_Product_Sync_Receiver {
             $woocommerce_id = (int) $resolved['woocommerce_id'];
             $applied_entry = is_array($applied[$code_key] ?? null) ? $applied[$code_key] : array();
             if (
+                !$force_apply
+                &&
                 isset($applied_entry['record_hash'], $applied_entry['woocommerce_id'])
                 && hash_equals((string) $applied_entry['record_hash'], $record_hash)
                 && (string) $applied_entry['woocommerce_id'] === (string) $woocommerce_id
@@ -1712,7 +2748,7 @@ class Digitalogic_Product_Sync_Receiver {
             }
 
             $persisted_hash = (string) get_post_meta($woocommerce_id, '_digitalogic_patris_record_hash', true);
-            if ('' !== $persisted_hash && hash_equals($record_hash, $persisted_hash)) {
+            if (!$force_apply && '' !== $persisted_hash && hash_equals($record_hash, $persisted_hash)) {
                 $applied[$code_key] = array(
                     'product_code' => $product_code,
                     'record_hash' => $record_hash,
@@ -1740,7 +2776,11 @@ class Digitalogic_Product_Sync_Receiver {
             }
 
             try {
-                Digitalogic_Patris_Feed::instance()->apply_product_feed($product, $product_data);
+                if (!empty($delivery_entry['pricing_only'])) {
+                    Digitalogic_Patris_Feed::instance()->apply_product_pricing($product, $product_data);
+                } else {
+                    Digitalogic_Patris_Feed::instance()->apply_product_feed($product, $product_data);
+                }
                 $persisted_hash = (string) get_post_meta($woocommerce_id, '_digitalogic_patris_record_hash', true);
                 if ('' === $persisted_hash || !hash_equals($record_hash, $persisted_hash)) {
                     throw new RuntimeException('WooCommerce record hash readback failed.');
@@ -1936,6 +2976,7 @@ class Digitalogic_Product_Sync_Receiver {
 
     private function persist_and_read_back($state) {
         global $wpdb;
+        $owns_transaction = $this->coordinated_transaction_depth <= 0;
         if (
             !is_object($wpdb)
             || !isset($wpdb->options)
@@ -1947,18 +2988,20 @@ class Digitalogic_Product_Sync_Receiver {
         ) {
             return $this->error('digitalogic_product_sync_storage_unavailable', 'The receiver storage service is unavailable.', 503);
         }
-        if (false === $wpdb->query('START TRANSACTION')) {
+        if ($owns_transaction && false === $wpdb->query('START TRANSACTION')) {
             return $this->error('digitalogic_product_sync_transaction_unavailable', 'The receiver could not start a storage transaction.', 503);
         }
 
         $serialized = maybe_serialize($state);
         if (!is_string($serialized) || strlen($serialized) > self::MAX_STATE_BYTES) {
-            $wpdb->query('ROLLBACK');
+            if ($owns_transaction) {
+                $wpdb->query('ROLLBACK');
+            }
 
             return $this->error('digitalogic_product_sync_state_too_large', 'The combined receiver state is too large.', 413);
         }
         $expected_digest = hash('sha256', $serialized);
-        $row = $wpdb->get_row($wpdb->prepare(
+        $row             = $wpdb->get_row($wpdb->prepare(
             "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s FOR UPDATE",
             self::STATE_OPTION
         ), ARRAY_A);
@@ -1974,39 +3017,43 @@ class Digitalogic_Product_Sync_Receiver {
             $written = $wpdb->insert(
                 $wpdb->options,
                 array(
-                    'option_name' => self::STATE_OPTION,
+                    'option_name'  => self::STATE_OPTION,
                     'option_value' => $serialized,
-                    'autoload' => 'no',
+                    'autoload'     => 'no',
                 ),
                 array('%s', '%s', '%s')
             );
         }
         if (false === $written || 0 === $written) {
-            $wpdb->query('ROLLBACK');
+            if ($owns_transaction) {
+                $wpdb->query('ROLLBACK');
+            }
             $this->invalidate_state_cache();
 
             return $this->error('digitalogic_product_sync_storage_failed', 'The receiver state could not be stored.', 500);
         }
 
-        $read_row = $wpdb->get_row($wpdb->prepare(
+        $read_row        = $wpdb->get_row($wpdb->prepare(
             "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s",
             self::STATE_OPTION
         ), ARRAY_A);
         $read_serialized = is_array($read_row) && is_string($read_row['option_value'] ?? null)
             ? $read_row['option_value']
             : null;
-        $read_back = is_string($read_serialized) ? maybe_unserialize($read_serialized) : null;
+        $read_back       = is_string($read_serialized) ? maybe_unserialize($read_serialized) : null;
         if (
             !is_array($read_back)
             || !is_string($read_serialized)
             || !hash_equals($expected_digest, hash('sha256', $read_serialized))
         ) {
-            $wpdb->query('ROLLBACK');
+            if ($owns_transaction) {
+                $wpdb->query('ROLLBACK');
+            }
             $this->invalidate_state_cache();
 
             return $this->error('digitalogic_product_sync_readback_failed', 'Stored receiver state did not pass readback verification.', 500);
         }
-        if (false === $wpdb->query('COMMIT')) {
+        if ($owns_transaction && false === $wpdb->query('COMMIT')) {
             $wpdb->query('ROLLBACK');
             $this->invalidate_state_cache();
 
@@ -2041,8 +3088,54 @@ class Digitalogic_Product_Sync_Receiver {
      * the only rounding is one half-up step to the final IRT integer.
      */
     private function validate_final_price_formula($product, $path) {
+        $calculated = $this->evaluate_final_price_formula($product, $path);
+        if (is_wp_error($calculated)) {
+            return $calculated;
+        }
+        if (empty($calculated['available'])) {
+            if (!array_key_exists('final_price', $product)) {
+                return true;
+            }
+
+            return $this->error(
+                'digitalogic_product_sync_final_price_mismatch',
+                'final_price must be omitted when landed_price inputs are incomplete.',
+                422,
+                array(
+                    'path'     => $path . '.final_price',
+                    'expected' => 'omitted',
+                    'missing'  => $calculated['missing'],
+                )
+            );
+        }
+        if (!array_key_exists('final_price', $product)) {
+            return $this->field_error($path . '.final_price', 'is required when all landed_price inputs are available');
+        }
+
+        $actual   = $this->number_to_storage($product['final_price']);
+        $expected = $calculated['value'];
+        if (!is_int($actual) || $actual !== $expected) {
+            return $this->error(
+                'digitalogic_product_sync_final_price_mismatch',
+                'final_price does not match independently evaluated landed_price.',
+                422,
+                array('path' => $path . '.final_price', 'expected' => $expected, 'actual' => $actual)
+            );
+        }
+
+        return true;
+    }
+
+    /**
+     * Evaluate landed_price with exact base-10 arithmetic.
+     *
+     * @param array  $product Canonical or stored product.
+     * @param string $path    Error path.
+     * @return array|WP_Error
+     */
+    private function evaluate_final_price_formula($product, $path) {
         $required = array('foreign_price', 'weight_grams', 'shipping_price_per_kg', 'markup_percent', 'irt_per_cny');
-        $missing = array();
+        $missing  = array();
         $decimals = array();
         foreach ($required as $field) {
             if (!array_key_exists($field, $product) || null === $product[$field]) {
@@ -2070,59 +3163,42 @@ class Digitalogic_Product_Sync_Receiver {
         }
 
         if (!empty($missing)) {
-            if (!array_key_exists('final_price', $product)) {
-                return true;
-            }
-
-            return $this->error(
-                'digitalogic_product_sync_final_price_mismatch',
-                'final_price must be omitted when landed_price inputs are incomplete.',
-                422,
-                array('path' => $path . '.final_price', 'expected' => 'omitted', 'missing' => $missing)
+            return array(
+                'available' => false,
+                'missing'   => $missing,
             );
-        }
-
-        if (!array_key_exists('final_price', $product)) {
-            return $this->field_error($path . '.final_price', 'is required when all landed_price inputs are available');
         }
 
         if ($this->decimal_compare($decimals['markup_percent'], $this->formula_decimal_parts(self::MAX_MARKUP_PERCENT)) > 0) {
             return $this->field_error($path . '.markup_percent', 'must not exceed ' . self::MAX_MARKUP_PERCENT);
         }
 
-        $goods_irt = $this->decimal_multiply($decimals['foreign_price'], $decimals['irt_per_cny']);
-        $shipping_cost = $this->decimal_multiply($decimals['weight_grams'], $decimals['shipping_price_per_kg']);
+        $goods_irt               = $this->decimal_multiply($decimals['foreign_price'], $decimals['irt_per_cny']);
+        $shipping_cost           = $this->decimal_multiply($decimals['weight_grams'], $decimals['shipping_price_per_kg']);
         $shipping_cost['scale'] += 3; // grams to kilograms, exactly.
         if ('CNY' === $product['shipping_price_per_kg_currency']) {
             $shipping_irt = $this->decimal_multiply($shipping_cost, $decimals['irt_per_cny']);
         } else {
-            $shipping_irt = $shipping_cost;
+            $shipping_irt           = $shipping_cost;
             $shipping_irt['scale'] += 1; // IRR to IRT, exactly.
         }
-        $landed_irt = $this->decimal_add($goods_irt, $shipping_irt);
-        $markup_multiplier = $this->decimal_add(
+        $landed_irt          = $this->decimal_add($goods_irt, $shipping_irt);
+        $markup_multiplier   = $this->decimal_add(
             $this->formula_decimal_parts('100'),
             $decimals['markup_percent']
         );
-        $marked_up = $this->decimal_multiply($landed_irt, $markup_multiplier);
+        $marked_up           = $this->decimal_multiply($landed_irt, $markup_multiplier);
         $marked_up['scale'] += 2; // percent to multiplier, exactly.
-        $rounded = $this->decimal_round_half_up_integer($marked_up);
+        $rounded             = $this->decimal_round_half_up_integer($marked_up);
         if ($this->big_integer_compare($rounded, (string) PHP_INT_MAX) > 0) {
             return $this->field_error($path . '.final_price', 'landed_price exceeds the supported IRT integer range');
         }
 
-        $actual = $this->number_to_storage($product['final_price']);
-        $expected = (int) $rounded;
-        if (!is_int($actual) || $actual !== $expected) {
-            return $this->error(
-                'digitalogic_product_sync_final_price_mismatch',
-                'final_price does not match independently evaluated landed_price.',
-                422,
-                array('path' => $path . '.final_price', 'expected' => $expected, 'actual' => $actual)
-            );
-        }
-
-        return true;
+        return array(
+            'available' => true,
+            'missing'   => array(),
+            'value'     => (int) $rounded,
+        );
     }
 
     private function formula_decimal_parts($value) {
@@ -2139,8 +3215,8 @@ class Digitalogic_Product_Sync_Receiver {
             return array('error' => 'must be a non-negative base-10 decimal without exponent notation');
         }
 
-        $integer = $matches[1];
-        $fraction = isset($matches[2]) ? $matches[2] : '';
+        $integer        = $matches[1];
+        $fraction       = isset($matches[2]) ? $matches[2] : '';
         $integer_digits = strlen(ltrim($integer, '0'));
         if (0 === $integer_digits) {
             $integer_digits = 1;
@@ -2152,7 +3228,7 @@ class Digitalogic_Product_Sync_Receiver {
             return array('error' => 'has too many fractional digits for landed_price');
         }
 
-        $scale = strlen($fraction);
+        $scale  = strlen($fraction);
         $digits = ltrim($integer . $fraction, '0');
         $digits = '' === $digits ? '0' : $digits;
         while ($scale > 0 && str_ends_with($digits, '0')) {
@@ -2161,15 +3237,15 @@ class Digitalogic_Product_Sync_Receiver {
         }
         if ('' === $digits) {
             $digits = '0';
-            $scale = 0;
+            $scale  = 0;
         }
 
         return array('digits' => $digits, 'scale' => $scale);
     }
 
     private function decimal_add($left, $right) {
-        $scale = max((int) $left['scale'], (int) $right['scale']);
-        $left_digits = $left['digits'] . str_repeat('0', $scale - (int) $left['scale']);
+        $scale        = max((int) $left['scale'], (int) $right['scale']);
+        $left_digits  = $left['digits'] . str_repeat('0', $scale - (int) $left['scale']);
         $right_digits = $right['digits'] . str_repeat('0', $scale - (int) $right['scale']);
 
         return array('digits' => $this->big_integer_add($left_digits, $right_digits), 'scale' => $scale);
@@ -2178,13 +3254,13 @@ class Digitalogic_Product_Sync_Receiver {
     private function decimal_multiply($left, $right) {
         return array(
             'digits' => $this->big_integer_multiply($left['digits'], $right['digits']),
-            'scale' => (int) $left['scale'] + (int) $right['scale'],
+            'scale'  => (int) $left['scale'] + (int) $right['scale'],
         );
     }
 
     private function decimal_compare($left, $right) {
-        $scale = max((int) $left['scale'], (int) $right['scale']);
-        $left_digits = $left['digits'] . str_repeat('0', $scale - (int) $left['scale']);
+        $scale        = max((int) $left['scale'], (int) $right['scale']);
+        $left_digits  = $left['digits'] . str_repeat('0', $scale - (int) $left['scale']);
         $right_digits = $right['digits'] . str_repeat('0', $scale - (int) $right['scale']);
 
         return $this->big_integer_compare($left_digits, $right_digits);
@@ -2192,13 +3268,13 @@ class Digitalogic_Product_Sync_Receiver {
 
     private function decimal_round_half_up_integer($decimal) {
         $digits = $this->normalize_big_integer($decimal['digits']);
-        $scale = (int) $decimal['scale'];
+        $scale  = (int) $decimal['scale'];
         if ($scale <= 0) {
             return $digits . str_repeat('0', -$scale);
         }
 
-        $padded = str_pad($digits, $scale + 1, '0', STR_PAD_LEFT);
-        $cut = strlen($padded) - $scale;
+        $padded  = str_pad($digits, $scale + 1, '0', STR_PAD_LEFT);
+        $cut     = strlen($padded) - $scale;
         $integer = $this->normalize_big_integer(substr($padded, 0, $cut));
         if ((int) $padded[$cut] >= 5) {
             $integer = $this->big_integer_add($integer, '1');
@@ -2208,17 +3284,17 @@ class Digitalogic_Product_Sync_Receiver {
     }
 
     private function big_integer_add($left, $right) {
-        $left = strrev($this->normalize_big_integer($left));
-        $right = strrev($this->normalize_big_integer($right));
+        $left   = strrev($this->normalize_big_integer($left));
+        $right  = strrev($this->normalize_big_integer($right));
         $length = max(strlen($left), strlen($right));
-        $carry = 0;
+        $carry  = 0;
         $result = '';
         for ($index = 0; $index < $length; $index++) {
-            $sum = ($index < strlen($left) ? (int) $left[$index] : 0)
+            $sum     = ($index < strlen($left) ? (int) $left[$index] : 0)
                 + ($index < strlen($right) ? (int) $right[$index] : 0)
                 + $carry;
             $result .= (string) ($sum % 10);
-            $carry = intdiv($sum, 10);
+            $carry   = intdiv($sum, 10);
         }
         if ($carry > 0) {
             $result .= (string) $carry;
@@ -2228,7 +3304,7 @@ class Digitalogic_Product_Sync_Receiver {
     }
 
     private function big_integer_multiply($left, $right) {
-        $left = $this->normalize_big_integer($left);
+        $left  = $this->normalize_big_integer($left);
         $right = $this->normalize_big_integer($right);
         if ('0' === $left || '0' === $right) {
             return '0';
@@ -2237,9 +3313,9 @@ class Digitalogic_Product_Sync_Receiver {
         $result = array_fill(0, strlen($left) + strlen($right), 0);
         for ($left_index = strlen($left) - 1; $left_index >= 0; $left_index--) {
             for ($right_index = strlen($right) - 1; $right_index >= 0; $right_index--) {
-                $position = $left_index + $right_index + 1;
-                $sum = $result[$position] + ((int) $left[$left_index] * (int) $right[$right_index]);
-                $result[$position] = $sum % 10;
+                $position               = $left_index + $right_index + 1;
+                $sum                    = $result[$position] + ((int) $left[$left_index] * (int) $right[$right_index]);
+                $result[$position]      = $sum % 10;
                 $result[$position - 1] += intdiv($sum, 10);
             }
         }
@@ -2248,7 +3324,7 @@ class Digitalogic_Product_Sync_Receiver {
     }
 
     private function big_integer_compare($left, $right) {
-        $left = $this->normalize_big_integer($left);
+        $left  = $this->normalize_big_integer($left);
         $right = $this->normalize_big_integer($right);
         if (strlen($left) !== strlen($right)) {
             return strlen($left) <=> strlen($right);
@@ -2387,7 +3463,7 @@ class Digitalogic_Product_Sync_Receiver {
         }
 
         $object = $value;
-        $items = array();
+        $items  = array();
         foreach ($object as $key => $item) {
             $items[] = $this->encode_go_json((string) $key) . ':' . $this->encode_go_json($item, $map_fields, (string) $key);
         }
@@ -2444,13 +3520,13 @@ class Digitalogic_Product_Sync_Receiver {
     }
 
     private function number_compare_zero($value) {
-        $text = $value instanceof Digitalogic_Product_Sync_JSON_Number ? $value->value : (string) $value;
-        $text = ltrim($text, '+');
+        $text     = $value instanceof Digitalogic_Product_Sync_JSON_Number ? $value->value : (string) $value;
+        $text     = ltrim($text, '+');
         $negative = str_starts_with($text, '-');
-        $text = ltrim($text, '-');
-        $parts = preg_split('/[eE]/', $text, 2);
-        $digits = str_replace('.', '', $parts[0]);
-        $nonzero = '' !== trim($digits, '0');
+        $text     = ltrim($text, '-');
+        $parts    = preg_split('/[eE]/', $text, 2);
+        $digits   = str_replace('.', '', $parts[0]);
+        $nonzero  = '' !== trim($digits, '0');
 
         return !$nonzero ? 0 : ($negative ? -1 : 1);
     }
@@ -2466,7 +3542,7 @@ class Digitalogic_Product_Sync_Receiver {
             }
         }
 
-        return (float) $value->value;
+        return $value->value;
     }
 
     private function decimal_to_storage($value) {
@@ -2493,8 +3569,8 @@ class Digitalogic_Product_Sync_Receiver {
         )) {
             return $this->field_error('generated_at', 'must be RFC3339 with up to nanosecond precision');
         }
-        $zone = 'Z' === $matches[3] ? '+00:00' : $matches[3];
-        $date = DateTimeImmutable::createFromFormat('!Y-m-d\TH:i:sP', $matches[1] . $zone);
+        $zone   = 'Z' === $matches[3] ? '+00:00' : $matches[3];
+        $date   = DateTimeImmutable::createFromFormat('!Y-m-d\TH:i:sP', $matches[1] . $zone);
         $errors = DateTimeImmutable::getLastErrors();
         if (false === $date || (is_array($errors) && ($errors['warning_count'] > 0 || $errors['error_count'] > 0))) {
             return $this->field_error('generated_at', 'must be a valid RFC3339 timestamp');
@@ -2535,9 +3611,9 @@ class Digitalogic_Product_Sync_Receiver {
         if (!is_object($wpdb) || !method_exists($wpdb, 'get_var') || !method_exists($wpdb, 'prepare')) {
             return $this->error('digitalogic_product_sync_lock_unavailable', 'The database lock service is unavailable.', 503);
         }
-        $prefix = isset($wpdb->prefix) ? (string) $wpdb->prefix : 'wp_';
+        $prefix    = isset($wpdb->prefix) ? (string) $wpdb->prefix : 'wp_';
         $lock_name = substr(self::LOCK_NAME . '_' . md5($prefix), 0, 64);
-        $locked = $wpdb->get_var($wpdb->prepare('SELECT GET_LOCK(%s, %d)', $lock_name, self::LOCK_TIMEOUT_SECONDS));
+        $locked    = $wpdb->get_var($wpdb->prepare('SELECT GET_LOCK(%s, %d)', $lock_name, self::LOCK_TIMEOUT_SECONDS));
         if ('1' !== (string) $locked) {
             return $this->error('digitalogic_product_sync_busy', 'Another product-sync event is being applied. Please retry.', 503, array('retryable' => true));
         }
@@ -2559,7 +3635,7 @@ class Digitalogic_Product_Sync_Receiver {
         if (!is_object($wpdb) || !method_exists($wpdb, 'get_var') || !method_exists($wpdb, 'prepare')) {
             return;
         }
-        $prefix = isset($wpdb->prefix) ? (string) $wpdb->prefix : 'wp_';
+        $prefix    = isset($wpdb->prefix) ? (string) $wpdb->prefix : 'wp_';
         $lock_name = substr(self::LOCK_NAME . '_' . md5($prefix), 0, 64);
         $wpdb->get_var($wpdb->prepare('SELECT RELEASE_LOCK(%s)', $lock_name));
     }
