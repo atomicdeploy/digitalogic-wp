@@ -409,7 +409,7 @@ function digitalogicBuildSettings_(sheet) {
     .setWrap(true)
     .setVerticalAlignment('middle')
     .setBorder(true, true, true, true, true, true, colors.gray, SpreadsheetApp.BorderStyle.SOLID);
-  sheet.getRange('A20:H24').merge()
+  sheet.getRange('A22:H26').merge()
     .setValue(
       'Safety rule: Products and Categories are synchronized reference snapshots. Stage exact Products rows into Changes, ' +
       'edit only allowlisted fields, tick Selected, run Preview, review the diff, then explicitly Apply. ' +

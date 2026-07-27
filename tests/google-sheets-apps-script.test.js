@@ -812,6 +812,8 @@ test('professional control center is credential-free, editable, and idempotently
   assert.match(professionalDashboardSource, /digitalogicProductsColumn_\('sync_status'\)/);
   assert.match(professionalDashboardSource, /placeholder\.getRange\('A1'\)\.isBlank\(\)/);
   assert.match(professionalDashboardSource, /Preview then explicit Apply/);
+  assert.match(professionalDashboardSource, /getRange\('A22:H26'\)\.merge\(\)/);
+  assert.doesNotMatch(professionalDashboardSource, /getRange\('A20:H24'\)\.merge\(\)/);
   assert.doesNotMatch(professionalDashboardSource, /\b25300\b|\b0\.30\b/);
   assert.match(source, /\/google-sheets\/pricing-settings/);
   assert.match(source, /function applyPricingSettings\(\)/);
