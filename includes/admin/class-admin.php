@@ -804,10 +804,10 @@ class Digitalogic_Admin {
                     break;
 
 				case 'update_price_rounding':
-					$result = $shipping_service->update_price_rounding_digits(
+					$result      = $shipping_service->update_price_rounding_digits(
 						$posted_value( 'price_rounding_digits' )
 					);
-					$notice = is_wp_error( $result )
+					$notice      = is_wp_error( $result )
 						? $result->get_error_message()
 						: __( 'The price-rounding policy was saved. WooCommerce prices were not changed.', 'digitalogic' );
 					$notice_type = is_wp_error( $result ) ? 'error' : 'success';

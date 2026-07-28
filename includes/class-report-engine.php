@@ -920,9 +920,9 @@ final class Digitalogic_Report_Engine {
 			'sale_price_source'              => '_digitalogic_patris_sale_price_source',
 			'foreign_currency'               => '_digitalogic_patris_foreign_currency',
 			'foreign_price'                  => '_digitalogic_patris_foreign_price',
-			'price_source_amount'             => '_digitalogic_patris_price_source_amount',
-			'price_source_currency'           => '_digitalogic_patris_price_source_currency',
-			'price_source_kind'               => '_digitalogic_patris_price_source_kind',
+			'price_source_amount'            => '_digitalogic_patris_price_source_amount',
+			'price_source_currency'          => '_digitalogic_patris_price_source_currency',
+			'price_source_kind'              => '_digitalogic_patris_price_source_kind',
 			'weight_grams'                   => '_digitalogic_patris_weight_grams',
 			'total_stock'                    => '_digitalogic_patris_total_stock',
 			'shipping_method_id'             => '_digitalogic_patris_shipping_method_id',
@@ -930,8 +930,8 @@ final class Digitalogic_Report_Engine {
 			'shipping_price_per_kg_currency' => '_digitalogic_patris_shipping_price_per_kg_currency',
 			'markup_percent'                 => '_digitalogic_patris_markup_percent',
 			'irt_per_cny'                    => '_digitalogic_patris_irt_per_cny',
-			'price_rounding_digits'           => '_digitalogic_patris_price_rounding_digits',
-			'price_rounding_mode'             => '_digitalogic_patris_price_rounding_mode',
+			'price_rounding_digits'          => '_digitalogic_patris_price_rounding_digits',
+			'price_rounding_mode'            => '_digitalogic_patris_price_rounding_mode',
 			'final_price'                    => '_digitalogic_patris_final_price',
 			'source_updated_at'              => '_digitalogic_patris_updated_at',
 			'record_hash'                    => '_digitalogic_patris_record_hash',
@@ -1085,10 +1085,30 @@ final class Digitalogic_Report_Engine {
 
 		if ( ! empty( $source['warnings'] ) && is_array( $source['warnings'] ) ) {
 			$row['source_warnings'] = array_values( $source['warnings'] );
+			$complete_partner_path  = 'partner_price' === $price_source_kind
+				&& 'IRR' === ( $source['price_source_currency'] ?? null )
+				&& array_key_exists( 'price_source_amount', $source )
+				&& is_numeric( $source['price_source_amount'] )
+				&& $this->decimal_compare_zero( $source['price_source_amount'] ) > 0
+				&& array_key_exists( 'final_price', $source )
+				&& is_numeric( $source['final_price'] )
+				&& $this->decimal_compare_zero( $source['final_price'] ) > 0;
+			$ignored_warnings       = $complete_partner_path
+				? array(
+					'partner_price_fallback_used',
+					'freight_not_applied_for_partner_price',
+					'foreign_price_missing',
+					'foreign_price_non_positive',
+					'weight_missing',
+					'weight_unparsed',
+					'weight_ambiguous',
+					'weight_source_conflict',
+				)
+				: array();
 			$attention_warnings     = array_values(
 				array_diff(
 					$row['source_warnings'],
-					array( 'partner_price_fallback_used', 'freight_not_applied_for_partner_price' )
+					$ignored_warnings
 				)
 			);
 			if ( $attention_warnings ) {
@@ -1377,15 +1397,15 @@ final class Digitalogic_Report_Engine {
 			'unexpected_foreign_currency' => array( __( 'Foreign currency is not CNY', 'digitalogic' ), 'warning' ),
 			'missing_foreign_price'       => array( __( 'Missing CNY price', 'digitalogic' ), 'warning' ),
 			'null_foreign_price'          => array( __( 'CNY price is explicitly null', 'digitalogic' ), 'warning' ),
-			'zero_foreign_price'          => array( __( 'CNY price is zero or non-positive', 'digitalogic' ), 'warning' ),
-			'missing_partner_price'       => array( __( 'Missing partner price', 'digitalogic' ), 'warning' ),
-			'null_partner_price'          => array( __( 'Partner price is explicitly null', 'digitalogic' ), 'warning' ),
-			'zero_partner_price'          => array( __( 'Partner price is zero or non-positive', 'digitalogic' ), 'warning' ),
-			'missing_price_source'        => array( __( 'No usable price source was selected', 'digitalogic' ), 'danger' ),
-			'incomplete_price_source'     => array( __( 'Selected price-source provenance is incomplete', 'digitalogic' ), 'danger' ),
-			'null_price_source'           => array( __( 'Selected price-source provenance contains explicit null', 'digitalogic' ), 'danger' ),
-			'invalid_price_source'        => array( __( 'Selected price-source provenance is invalid', 'digitalogic' ), 'danger' ),
-			'partner_price_fallback'      => array( __( 'Partner-price fallback selected', 'digitalogic' ), 'info' ),
+			'zero_foreign_price'                    => array( __( 'CNY price is zero or non-positive', 'digitalogic' ), 'warning' ),
+			'missing_partner_price'                 => array( __( 'Missing partner price', 'digitalogic' ), 'warning' ),
+			'null_partner_price'                    => array( __( 'Partner price is explicitly null', 'digitalogic' ), 'warning' ),
+			'zero_partner_price'                    => array( __( 'Partner price is zero or non-positive', 'digitalogic' ), 'warning' ),
+			'missing_price_source'                  => array( __( 'No usable price source was selected', 'digitalogic' ), 'danger' ),
+			'incomplete_price_source'               => array( __( 'Selected price-source provenance is incomplete', 'digitalogic' ), 'danger' ),
+			'null_price_source'                     => array( __( 'Selected price-source provenance contains explicit null', 'digitalogic' ), 'danger' ),
+			'invalid_price_source'                  => array( __( 'Selected price-source provenance is invalid', 'digitalogic' ), 'danger' ),
+			'partner_price_fallback'                => array( __( 'Partner-price fallback selected', 'digitalogic' ), 'info' ),
 			'missing_weight'              => array( __( 'Missing weight', 'digitalogic' ), 'warning' ),
 			'null_weight'                 => array( __( 'Weight is explicitly null', 'digitalogic' ), 'warning' ),
 			'missing_stock'               => array( __( 'Missing stock', 'digitalogic' ), 'warning' ),
@@ -1398,11 +1418,11 @@ final class Digitalogic_Report_Engine {
 			'null_markup'                 => array( __( 'Profit margin is explicitly null', 'digitalogic' ), 'warning' ),
 			'missing_exchange_rate'       => array( __( 'Missing CNY exchange rate', 'digitalogic' ), 'warning' ),
 			'null_exchange_rate'          => array( __( 'CNY exchange rate is explicitly null', 'digitalogic' ), 'warning' ),
-			'missing_rounding_digits'     => array( __( 'Missing price-rounding digits', 'digitalogic' ), 'warning' ),
-			'null_rounding_digits'        => array( __( 'Price-rounding digits are explicitly null', 'digitalogic' ), 'warning' ),
-			'missing_rounding_mode'       => array( __( 'Missing price-rounding mode', 'digitalogic' ), 'warning' ),
-			'null_rounding_mode'          => array( __( 'Price-rounding mode is explicitly null', 'digitalogic' ), 'warning' ),
-			'invalid_rounding_policy'     => array( __( 'Price-rounding policy is invalid', 'digitalogic' ), 'danger' ),
+			'missing_rounding_digits'               => array( __( 'Missing price-rounding digits', 'digitalogic' ), 'warning' ),
+			'null_rounding_digits'                  => array( __( 'Price-rounding digits are explicitly null', 'digitalogic' ), 'warning' ),
+			'missing_rounding_mode'                 => array( __( 'Missing price-rounding mode', 'digitalogic' ), 'warning' ),
+			'null_rounding_mode'                    => array( __( 'Price-rounding mode is explicitly null', 'digitalogic' ), 'warning' ),
+			'invalid_rounding_policy'               => array( __( 'Price-rounding policy is invalid', 'digitalogic' ), 'danger' ),
 			'invalid_source_value'        => array( __( 'Invalid source value', 'digitalogic' ), 'danger' ),
 			'zero_stock'                  => array( __( 'Zero or negative stock', 'digitalogic' ), 'info' ),
 			'zero_price'                  => array( __( 'Zero or negative calculated price', 'digitalogic' ), 'danger' ),
@@ -1415,7 +1435,7 @@ final class Digitalogic_Report_Engine {
 			'stock_status_drift'          => array( __( 'Stock availability differs from the current source', 'digitalogic' ), 'danger' ),
 			'weight_drift'                => array( __( 'Weight differs from the current source', 'digitalogic' ), 'danger' ),
 			'record_hash_drift'           => array( __( 'Record hash differs from the current source', 'digitalogic' ), 'danger' ),
-			'pricing_provenance_drift'    => array( __( 'Price-source provenance differs in WooCommerce', 'digitalogic' ), 'danger' ),
+			'pricing_provenance_drift'              => array( __( 'Price-source provenance differs in WooCommerce', 'digitalogic' ), 'danger' ),
 			'source_updated_at_drift'     => array( __( 'Source update time differs in WooCommerce', 'digitalogic' ), 'warning' ),
 		);
 	}

@@ -1127,7 +1127,7 @@ class Digitalogic_Product_Sync_Receiver {
         ) {
             return $this->field_error($path . '.foreign_currency', 'must be CNY or explicit null');
         }
-        $price_source_fields = array('price_source_amount', 'price_source_currency', 'price_source_kind');
+        $price_source_fields         = array('price_source_amount', 'price_source_currency', 'price_source_kind');
         $present_price_source_fields = array_values(array_intersect($price_source_fields, array_keys($product)));
         if (!empty($present_price_source_fields) && count($present_price_source_fields) !== count($price_source_fields)) {
             return $this->error(
@@ -2130,9 +2130,9 @@ class Digitalogic_Product_Sync_Receiver {
             );
         }
 
-        $source_fields = array('price_source_amount', 'price_source_currency', 'price_source_kind');
-        $has_source = count(array_intersect($source_fields, array_keys($product))) === count($source_fields);
-        $usable_cny = array_key_exists('foreign_price', $product)
+        $source_fields  = array('price_source_amount', 'price_source_currency', 'price_source_kind');
+        $has_source     = count(array_intersect($source_fields, array_keys($product))) === count($source_fields);
+        $usable_cny     = array_key_exists('foreign_price', $product)
             && null !== $product['foreign_price']
             && $this->number_compare_zero($product['foreign_price']) > 0
             && array_key_exists('foreign_currency', $product)
@@ -2255,25 +2255,25 @@ class Digitalogic_Product_Sync_Receiver {
         }
 
         if ('foreign_price' === $product['price_source_kind']) {
-            $goods_irt = $this->decimal_multiply($source_amount, $decimals['irt_per_cny']);
-            $shipping_cost = $this->decimal_multiply($decimals['weight_grams'], $decimals['shipping_price_per_kg']);
+            $goods_irt               = $this->decimal_multiply($source_amount, $decimals['irt_per_cny']);
+            $shipping_cost           = $this->decimal_multiply($decimals['weight_grams'], $decimals['shipping_price_per_kg']);
             $shipping_cost['scale'] += 3; // grams to kilograms, exactly.
             if ('CNY' === $product['shipping_price_per_kg_currency']) {
-                $shipping_irt = $this->decimal_multiply($shipping_cost, $decimals['irt_per_cny']);
+                $shipping_irt           = $this->decimal_multiply($shipping_cost, $decimals['irt_per_cny']);
             } else {
-                $shipping_irt = $shipping_cost;
+                $shipping_irt           = $shipping_cost;
                 $shipping_irt['scale'] += 1; // IRR to IRT, exactly.
             }
-            $base_irt = $this->decimal_add($goods_irt, $shipping_irt);
+            $base_irt               = $this->decimal_add($goods_irt, $shipping_irt);
         } else {
             $base_irt = $source_amount;
             $base_irt['scale'] += 1; // IRR to IRT, exactly.
         }
-        $markup_multiplier = $this->decimal_add(
+        $markup_multiplier     = $this->decimal_add(
             $this->formula_decimal_parts('100'),
             $decimals['markup_percent']
         );
-        $marked_up = $this->decimal_multiply($base_irt, $markup_multiplier);
+        $marked_up             = $this->decimal_multiply($base_irt, $markup_multiplier);
         $marked_up['scale'] += 2; // percent to multiplier, exactly.
         $rounding_digits = (int) $this->number_to_storage($product['price_rounding_digits']);
         $rounded = $this->decimal_round_half_up_to_digits($marked_up, $rounding_digits);
@@ -2378,9 +2378,9 @@ class Digitalogic_Product_Sync_Receiver {
     }
 
     private function decimal_round_half_up_to_digits($decimal, $digits) {
-        $scaled = $decimal;
+        $scaled           = $decimal;
         $scaled['scale'] += (int) $digits;
-        $rounded = $this->decimal_round_half_up_integer($scaled);
+        $rounded          = $this->decimal_round_half_up_integer($scaled);
 
         return $this->normalize_big_integer($rounded . str_repeat('0', (int) $digits));
     }

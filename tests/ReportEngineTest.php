@@ -227,6 +227,23 @@ final class ReportEngineTest extends TestCase {
 		$this->assertNotContains( 'missing_rounding_mode', $report['rows'][0]['issues'] );
 	}
 
+	public function test_partner_only_diagnostics_remain_attention_for_cny_price_source(): void {
+		$product             = $this->source_product( 'CNY-WARNING' );
+		$product['warnings'] = array( 'weight_missing' );
+		$this->store_source( array( 'CNY-WARNING' => $product ) );
+
+		$report = $this->engine->get_report( array( 'view' => 'price_list' ) );
+		$rows   = array_values(
+			array_filter(
+				$report['rows'],
+				static fn( $row ) => 'CNY-WARNING' === ( $row['product_code'] ?? '' )
+			)
+		);
+
+		$this->assertCount( 1, $rows );
+		$this->assertContains( 'source_warning', $rows[0]['issues'] );
+	}
+
 	private function report_cache_writes(): array {
 		return array_values(
 			array_filter(

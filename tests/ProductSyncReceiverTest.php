@@ -113,19 +113,19 @@ final class ProductSyncReceiverTest extends TestCase {
 
     public function test_cny_and_irr_freight_produce_the_same_final_irt_price(): void {
         $base                        = array(
-            'foreign_currency'   => 'CNY',
-            'foreign_price'      => 100,
-            'price_source_amount' => 100,
+            'foreign_currency'      => 'CNY',
+            'foreign_price'         => 100,
+            'price_source_amount'   => 100,
             'price_source_currency' => 'CNY',
-            'price_source_kind'  => 'foreign_price',
-            'weight_grams'       => 1000,
-            'shipping_method_id' => 'air_express',
-            'markup_percent'     => 30,
-            'irt_per_cny'        => 30000,
+            'price_source_kind'     => 'foreign_price',
+            'weight_grams'          => 1000,
+            'shipping_method_id'    => 'air_express',
+            'markup_percent'        => 30,
+            'irt_per_cny'           => 30000,
             'price_rounding_digits' => 2,
-            'price_rounding_mode' => 'nearest_half_up',
-            'final_price'        => 4680000,
-            'warnings'           => array(),
+            'price_rounding_mode'   => 'nearest_half_up',
+            'final_price'           => 4680000,
+            'warnings'              => array(),
         );
         $cny                         = array_merge($base, array(
             'product_code'                   => 'CNY-FREIGHT',
@@ -257,7 +257,7 @@ final class ProductSyncReceiverTest extends TestCase {
     }
 
     public function test_selected_price_source_is_atomic_exact_and_cny_first(): void {
-        $partial = array(
+        $partial                = array(
             'product_code'          => 'PARTIAL-SOURCE',
             'price_source_amount'   => 100,
             'price_source_currency' => 'IRR',
@@ -266,12 +266,12 @@ final class ProductSyncReceiverTest extends TestCase {
             'warnings'              => array(),
         );
         $partial['record_hash'] = $this->recordHash($partial, true);
-        $result = Digitalogic_Product_Sync_Receiver::instance()->receive(
+        $result                 = Digitalogic_Product_Sync_Receiver::instance()->receive(
             $this->snapshot(array($partial), array(), true)
         );
         $this->assertSame('digitalogic_product_sync_price_source_incomplete', $result->get_error_code());
 
-        $priority = array(
+        $priority                = array(
             'product_code'          => 'CNY-PRIORITY',
             'foreign_currency'      => 'CNY',
             'foreign_price'         => 10,
@@ -286,14 +286,14 @@ final class ProductSyncReceiverTest extends TestCase {
             'warnings'              => array(),
         );
         $priority['record_hash'] = $this->recordHash($priority, true);
-        $result = Digitalogic_Product_Sync_Receiver::instance()->receive(
+        $result                  = Digitalogic_Product_Sync_Receiver::instance()->receive(
             $this->snapshot(array($priority), array(), true)
         );
         $this->assertSame('digitalogic_product_sync_price_source_priority', $result->get_error_code());
     }
 
     public function test_explicit_null_rounding_is_preserved_and_withholds_final_price(): void {
-        $product = array(
+        $product                = array(
             'product_code'          => 'NULL-ROUNDING',
             'sale_price_source'     => 100000,
             'price_source_amount'   => 100000,
@@ -304,7 +304,7 @@ final class ProductSyncReceiverTest extends TestCase {
             'warnings'              => array('price_rounding_digits_explicit_null'),
         );
         $product['record_hash'] = $this->recordHash($product, true);
-        $result = Digitalogic_Product_Sync_Receiver::instance()->receive(
+        $result                 = Digitalogic_Product_Sync_Receiver::instance()->receive(
             $this->snapshot(array($product), array(), true)
         );
 
@@ -315,8 +315,8 @@ final class ProductSyncReceiverTest extends TestCase {
         $this->assertArrayNotHasKey('final_price', $state['products']['NULL-ROUNDING']);
 
         $product['price_rounding_mode'] = 'nearest_half_up';
-        $product['record_hash'] = $this->recordHash($product, true);
-        $result = Digitalogic_Product_Sync_Receiver::instance()->receive(
+        $product['record_hash']         = $this->recordHash($product, true);
+        $result                         = Digitalogic_Product_Sync_Receiver::instance()->receive(
             $this->snapshot(array($product), array(), true)
         );
         $this->assertSame('digitalogic_product_sync_field_invalid', $result->get_error_code());

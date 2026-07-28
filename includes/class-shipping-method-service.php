@@ -16,29 +16,29 @@ if (!class_exists('Digitalogic_Product_Identifier_Resolver')) {
 
 final class Digitalogic_Shipping_Method_Service {
 
-	public const METHODS_OPTION = 'digitalogic_shipping_methods';
-	public const DEFAULT_MARKUP_OPTION = 'digitalogic_pricing_default_percentage_markup';
+	public const METHODS_OPTION         = 'digitalogic_shipping_methods';
+	public const DEFAULT_MARKUP_OPTION  = 'digitalogic_pricing_default_percentage_markup';
 	public const ROUNDING_DIGITS_OPTION = 'digitalogic_pricing_rounding_digits';
-	public const PRODUCT_METHOD_META = '_digitalogic_shipping_method_id';
-    public const CATALOG_SCHEMA = 'digitalogic.integration-catalog';
-    public const FORMULA_ID = 'landed_price';
-    public const DEFAULT_MARKUP_SCHEMA = 'digitalogic.default-percentage-markup';
-	public const ROUNDING_MODE = 'nearest_half_up';
+	public const PRODUCT_METHOD_META    = '_digitalogic_shipping_method_id';
+    public const CATALOG_SCHEMA         = 'digitalogic.integration-catalog';
+    public const FORMULA_ID             = 'landed_price';
+    public const DEFAULT_MARKUP_SCHEMA  = 'digitalogic.default-percentage-markup';
+	public const ROUNDING_MODE          = 'nearest_half_up';
 
-	public const PRICING_ASSIGNMENT_BATCH_SCHEMA = 'digitalogic.pricing-assignment-batch';
+	public const PRICING_ASSIGNMENT_BATCH_SCHEMA   = 'digitalogic.pricing-assignment-batch';
 	public const MAX_PRICING_ASSIGNMENT_BATCH_SIZE = 500;
 
-    private const MAX_BATCH_SIZE = 500;
-	private const CATALOG_LOCK_NAME = 'digitalogic_shipping_method_catalog';
-    private const CATALOG_LOCK_TIMEOUT_SECONDS = 10;
-    private const DEFAULT_MARKUP_MAX_PERCENT = '1000';
-    private const DEFAULT_MARKUP_MAX_SCALE = 12;
-	private const MAX_ROUNDING_DIGITS = 9;
-	private const METHOD_DECIMAL_MAX_SCALE = 12;
+    private const MAX_BATCH_SIZE                    = 500;
+	private const CATALOG_LOCK_NAME                 = 'digitalogic_shipping_method_catalog';
+    private const CATALOG_LOCK_TIMEOUT_SECONDS      = 10;
+    private const DEFAULT_MARKUP_MAX_PERCENT        = '1000';
+    private const DEFAULT_MARKUP_MAX_SCALE          = 12;
+	private const MAX_ROUNDING_DIGITS               = 9;
+	private const METHOD_DECIMAL_MAX_SCALE          = 12;
 	private const METHOD_DECIMAL_MAX_INTEGER_DIGITS = 18;
-	private const CURRENCY_MIGRATION_OPTION = 'digitalogic_shipping_currency_migration_complete';
-	private const RETIRED_RATE_STORAGE_KEY = 'shipping_price_per_kg_cny';
-	private const RETIRED_MINIMUM_STORAGE_KEY = 'minimum_charge_cny';
+	private const CURRENCY_MIGRATION_OPTION          = 'digitalogic_shipping_currency_migration_complete';
+	private const RETIRED_RATE_STORAGE_KEY           = 'shipping_price_per_kg_cny';
+	private const RETIRED_MINIMUM_STORAGE_KEY        = 'minimum_charge_cny';
 
     private static $instance = null;
     private $catalog_lock_depth = 0;
@@ -1024,7 +1024,7 @@ final class Digitalogic_Shipping_Method_Service {
             'pricing' => array(
                 'formula_id' => self::FORMULA_ID,
 				'rounding_digits' => $rounding['rounding_digits'],
-				'rounding_mode' => self::ROUNDING_MODE,
+				'rounding_mode'   => self::ROUNDING_MODE,
             ),
             'selected_warehouses' => $warehouses,
 			'shipping_methods' => $catalog_methods,
@@ -2276,10 +2276,26 @@ final class Digitalogic_Shipping_Method_Service {
 			$text = strtr(
 				$text,
 				array(
-					'۰' => '0', '۱' => '1', '۲' => '2', '۳' => '3', '۴' => '4',
-					'۵' => '5', '۶' => '6', '۷' => '7', '۸' => '8', '۹' => '9',
-					'٠' => '0', '١' => '1', '٢' => '2', '٣' => '3', '٤' => '4',
-					'٥' => '5', '٦' => '6', '٧' => '7', '٨' => '8', '٩' => '9',
+					'۰' => '0',
+					'۱' => '1',
+					'۲' => '2',
+					'۳' => '3',
+					'۴' => '4',
+					'۵' => '5',
+					'۶' => '6',
+					'۷' => '7',
+					'۸' => '8',
+					'۹' => '9',
+					'٠' => '0',
+					'١' => '1',
+					'٢' => '2',
+					'٣' => '3',
+					'٤' => '4',
+					'٥' => '5',
+					'٦' => '6',
+					'٧' => '7',
+					'٨' => '8',
+					'٩' => '9',
 				)
 			);
 		} else {

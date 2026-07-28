@@ -16,8 +16,6 @@ final class Digitalogic_Patris_Catalog_Materializer {
 
 	public const MANIFEST_SCHEMA = 'digitalogic.patris-catalog-enrichment';
 
-	public const MANIFEST_SCHEMA_VERSION = '1.0';
-
 	public const CATEGORY_CODE_META    = Digitalogic_Product_Category_Slugs::CATEGORY_CODE_META;
 	public const CATEGORY_KEY_META     = '_digitalogic_catalog_category_key';
 	public const CATEGORY_TERM_META    = '_digitalogic_patris_category_term_id';
@@ -108,7 +106,7 @@ final class Digitalogic_Patris_Catalog_Materializer {
 		}
 
 		$required = array( 'schema', 'source', 'products', 'categories' );
-		$allowed  = array_merge( $required, array( 'schema_version', 'source_revision' ) );
+		$allowed  = array_merge( $required, array( 'source_revision' ) );
 		$shape    = $this->validate_object_shape( $manifest, $required, $allowed, 'root' );
 		if ( is_wp_error( $shape ) ) {
 			return $shape;
@@ -116,10 +114,6 @@ final class Digitalogic_Patris_Catalog_Materializer {
 		if ( self::MANIFEST_SCHEMA !== $manifest['schema'] ) {
 			return $this->manifest_error( 'schema', 'must identify the living enrichment manifest' );
 		}
-		if ( array_key_exists( 'schema_version', $manifest ) && self::MANIFEST_SCHEMA_VERSION !== $manifest['schema_version'] ) {
-			return $this->manifest_error( 'schema_version', 'must identify the supported manifest contract version' );
-		}
-
 		if ( ! is_array( $manifest['source'] ) || array_is_list( $manifest['source'] ) ) {
 			return $this->manifest_error( 'source', 'must be an object' );
 		}
@@ -151,12 +145,9 @@ final class Digitalogic_Patris_Catalog_Materializer {
 			return $categories;
 		}
 
-		$normalized = array(
+		$normalized               = array(
 			'schema' => self::MANIFEST_SCHEMA,
 		);
-		if ( array_key_exists( 'schema_version', $manifest ) ) {
-			$normalized['schema_version'] = self::MANIFEST_SCHEMA_VERSION;
-		}
 		$normalized['source']     = $manifest['source'];
 		$normalized['products']   = $products;
 		$normalized['categories'] = $categories;
@@ -1743,10 +1734,12 @@ final class Digitalogic_Patris_Catalog_Materializer {
 		$price_source_amount   = $this->number( $record['price_source_amount'] ?? null );
 		$is_cny_source         = 'foreign_price' === $price_source_kind && 'CNY' === $price_source_currency;
 		$is_partner_source     = 'partner_price' === $price_source_kind && 'IRR' === $price_source_currency;
+		$final_price           = $this->number( $record['final_price'] ?? null );
+		$complete_partner_path = $is_partner_source && $price_source_amount > 0 && $final_price > 0;
 		if ( ( ! $is_cny_source && ! $is_partner_source ) || $price_source_amount <= 0 ) {
 			$gates[] = 'price_source';
 		}
-		if ( $this->number( $record['final_price'] ?? null ) <= 0 ) {
+		if ( $final_price <= 0 ) {
 			$gates[] = 'final_price';
 		}
 		if (
@@ -1798,10 +1791,22 @@ final class Digitalogic_Patris_Catalog_Materializer {
 		) {
 			$gates[] = 'pricing_assignment';
 		}
+		$ignored_warnings  = $complete_partner_path
+			? array(
+				'partner_price_fallback_used',
+				'freight_not_applied_for_partner_price',
+				'foreign_price_missing',
+				'foreign_price_non_positive',
+				'weight_missing',
+				'weight_unparsed',
+				'weight_ambiguous',
+				'weight_source_conflict',
+			)
+			: array();
 		$blocking_warnings = array_values(
 			array_diff(
 				is_array( $record['warnings'] ?? null ) ? $record['warnings'] : array(),
-				array( 'partner_price_fallback_used', 'freight_not_applied_for_partner_price' )
+				$ignored_warnings
 			)
 		);
 		if ( $blocking_warnings ) {

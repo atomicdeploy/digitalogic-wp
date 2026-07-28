@@ -127,28 +127,17 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 		$this->assertSame( 'digitalogic_patris_materializer_manifest_shape', $rejected->get_error_code() );
 	}
 
-	/** Verify the producer's version marker remains optional but strictly typed. */
-	public function test_manifest_accepts_the_supported_optional_schema_version_and_rejects_other_versions(): void {
+	/** Verify version markers are outside the one living manifest shape. */
+	public function test_manifest_rejects_schema_version_marker(): void {
 		$service                    = Digitalogic_Patris_Catalog_Materializer::instance();
 		$manifest                   = $this->manifest();
-		$manifest['schema_version'] = Digitalogic_Patris_Catalog_Materializer::MANIFEST_SCHEMA_VERSION;
-		$validated                  = $service->validate_manifest( $manifest );
+		$manifest['schema_version'] = '1.0';
+		$rejected                   = $service->validate_manifest( $manifest );
 
-		$this->assertNotInstanceOf( WP_Error::class, $validated );
-		$this->assertSame(
-			array( 'schema', 'schema_version', 'source', 'products', 'categories' ),
-			array_keys( $validated )
-		);
-		$this->assertSame( '1.0', $validated['schema_version'] );
-
-		foreach ( array( null, 1.0, '1', '1.0 ', '2.0' ) as $unsupported ) {
-			$manifest['schema_version'] = $unsupported;
-			$rejected                   = $service->validate_manifest( $manifest );
-
-			$this->assertInstanceOf( WP_Error::class, $rejected );
-			$this->assertSame( 'digitalogic_patris_materializer_manifest_invalid', $rejected->get_error_code() );
-			$this->assertSame( 'schema_version', $rejected->get_error_data()['path'] );
-		}
+		$this->assertInstanceOf( WP_Error::class, $rejected );
+		$this->assertSame( 'digitalogic_patris_materializer_manifest_shape', $rejected->get_error_code() );
+		$this->assertSame( 'root', $rejected->get_error_data()['path'] );
+		$this->assertSame( array( 'schema_version' ), $rejected->get_error_data()['unknown'] );
 	}
 
 	/** Verify current Rank Math releases use their supported cache API. */
@@ -352,9 +341,9 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 		$product_id = (int) array_key_first( $GLOBALS['digitalogic_test_posts'] );
 		$this->attachReviewedImage( $product_id );
 
-		$state      = get_option( Digitalogic_Product_Sync_Receiver::STATE_OPTION, array() );
-		$source_key = array_key_first( $state['sources'] );
-		$record     = &$state['sources'][ $source_key ]['products']['101001001'];
+		$state                           = get_option( Digitalogic_Product_Sync_Receiver::STATE_OPTION, array() );
+		$source_key                      = array_key_first( $state['sources'] );
+		$record                          = &$state['sources'][ $source_key ]['products']['101001001'];
 		$record['sale_price_source']     = 100000;
 		$record['price_source_amount']   = '100000';
 		$record['price_source_currency'] = 'IRR';
@@ -363,7 +352,12 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 		$record['price_rounding_mode']   = 'nearest_half_up';
 		$record['markup_percent']        = '30';
 		$record['final_price']           = 13000;
-		$record['warnings']              = array( 'partner_price_fallback_used', 'freight_not_applied_for_partner_price' );
+		$record['warnings']              = array(
+			'foreign_price_non_positive',
+			'weight_missing',
+			'partner_price_fallback_used',
+			'freight_not_applied_for_partner_price',
+		);
 		unset(
 			$record['foreign_price'],
 			$record['weight_grams'],
@@ -463,6 +457,12 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 			'image warning'      => array(
 				static function ( &$record ) {
 					$record['warnings'] = array( 'missing_image' );
+				},
+				array( 'patris_warnings' ),
+			),
+			'partner warning'    => array(
+				static function ( &$record ) {
+					$record['warnings'] = array( 'weight_missing' );
 				},
 				array( 'patris_warnings' ),
 			),
