@@ -403,7 +403,7 @@ final class CurrentPatrisReportTest extends TestCase {
 				'_regular_price'                   => '4680000',
 				'_price'                           => '4680000',
 				'_sale_price'                      => '',
-				'_stock'                           => -3,
+				'_stock'                           => 0,
 				'_manage_stock'                    => 'yes',
 				'_stock_status'                    => 'outofstock',
 				'_weight'                          => '1',
