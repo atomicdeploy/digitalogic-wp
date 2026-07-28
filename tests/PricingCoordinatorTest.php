@@ -637,6 +637,40 @@ final class PricingCoordinatorTest extends TestCase {
 		);
 	}
 
+	/** Numeric-only Product Codes remain text identifiers during repricing. */
+	public function test_rounding_reprices_numeric_only_product_code_atomically(): void {
+		$product_code = '101001001';
+		$GLOBALS['digitalogic_test_posts'][901]['meta']['_digitalogic_patris_product_code'] = $product_code;
+		$GLOBALS['digitalogic_test_posts'][901]['meta']['_sku']                             = $product_code;
+		$GLOBALS['digitalogic_test_wc_products']                                            = array();
+
+		$received = Digitalogic_Product_Sync_Receiver::instance()->receive(
+			$this->snapshot(
+				array( $this->priced_product( $product_code ) ),
+				'2026-07-22T00:00:00Z'
+			)
+		);
+		$this->assertFalse(
+			is_wp_error( $received ),
+			is_wp_error( $received ) ? $received->get_error_code() . ': ' . $received->get_error_message() : ''
+		);
+
+		$result = Digitalogic_Pricing_Coordinator::instance()->update_price_rounding( 2, 'numeric_code_test' );
+
+		$this->assertFalse(
+			is_wp_error( $result ),
+			is_wp_error( $result ) ? $result->get_error_code() . ': ' . $result->get_error_message() : ''
+		);
+		$this->assertSame( 2, $result['settings']['price_rounding_digits'] );
+		$this->assertSame(
+			'2',
+			(string) $GLOBALS['digitalogic_test_posts'][901]['meta']['_digitalogic_patris_price_rounding_digits']
+		);
+		$state  = $GLOBALS['digitalogic_test_options'][ Digitalogic_Product_Sync_Receiver::STATE_OPTION ];
+		$source = reset( $state['sources'] );
+		$this->assertArrayHasKey( $product_code, $source['products'] );
+	}
+
 	/** A product write failure rolls the shipping option back with all settings. */
 	public function test_shipping_change_rolls_back_when_repricing_fails(): void {
 		$service                                      = Digitalogic_Excel_Pricing_Sync::instance();

@@ -1136,8 +1136,11 @@ class Digitalogic_Product_Sync_Receiver {
                 $source_state
             );
 
-            foreach (array_keys($target_codes) as $product_code) {
-                $product = $products[$product_code];
+            foreach (array_keys($target_codes) as $product_code_key) {
+                // PHP converts numeric-string array keys to integers. Product
+                // Codes remain text identifiers at every integration boundary.
+                $product_code = (string) $product_code_key;
+                $product = $products[$product_code_key];
                 $resolved = $this->coordinated_resolution($product_code, $resolution_cache);
                 if (is_wp_error($resolved)) {
                     $reason = $this->terminal_resolution_reason($resolved->get_error_code());
