@@ -88,6 +88,33 @@ final class ShippingMethodServiceTest extends TestCase {
 		}
 	}
 
+	public function test_domestic_method_is_canonical_zero_rate_irr_and_assignable(): void {
+		$domestic = $this->service->get_method( Digitalogic_Shipping_Method_Service::DOMESTIC_METHOD_ID );
+
+		$this->assertNotInstanceOf( WP_Error::class, $domestic );
+		$this->assertSame( 'domestic', $domestic['id'] );
+		$this->assertSame( 'خرید داخلی', $domestic['name'] );
+		$this->assertSame( 'IRR', $domestic['currency'] );
+		$this->assertSame( '0', $domestic['price_per_kg'] );
+
+		$GLOBALS['digitalogic_test_posts'][509] = array(
+			'post_type'   => 'product',
+			'post_status' => 'publish',
+			'meta'        => array( '_digitalogic_patris_product_code' => 'DOMESTIC-509' ),
+		);
+		$assigned = $this->service->assign_product_by_code( 'DOMESTIC-509', 'domestic' );
+
+		$this->assertNotInstanceOf( WP_Error::class, $assigned );
+		$this->assertSame( 'domestic', $assigned['shipping_method_id'] );
+		$this->assertSame( '0', $assigned['shipping_price_per_kg'] );
+		$this->assertSame( 'IRR', $assigned['shipping_price_per_kg_currency'] );
+
+		$update = $this->service->update_method( 'domestic', array( 'price_per_kg' => 1 ) );
+		$delete = $this->service->delete_method( 'domestic' );
+		$this->assertSame( 'digitalogic_shipping_domestic_method_immutable', $update->get_error_code() );
+		$this->assertSame( 'digitalogic_shipping_domestic_method_immutable', $delete->get_error_code() );
+	}
+
     public function test_canonical_shipping_fields_require_explicit_supported_currency(): void {
         $created = $this->service->create_method(array(
             'id'           => 'rail',

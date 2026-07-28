@@ -2640,3 +2640,31 @@ msgstr ""
 #, php-format
 msgid "Price-rounding digits must be a whole number from 0 through %d."
 msgstr ""
+
+#: includes/admin/views/patris-reports.php
+msgid "Source sale price (IRR)"
+msgstr ""
+
+#: includes/class-report-engine.php
+msgid "Missing source sale price"
+msgstr ""
+
+#: includes/class-report-engine.php
+msgid "Source sale price is explicitly null"
+msgstr ""
+
+#: includes/class-report-engine.php
+msgid "Direct source sale-price fallback selected"
+msgstr ""
+
+#: includes/class-report-engine.php
+msgid "Domestic price source must use the zero-rate domestic method in IRR"
+msgstr ""
+
+#: includes/class-shipping-method-service.php
+msgid "The canonical domestic method is immutable."
+msgstr ""
+
+#: includes/class-shipping-method-service.php
+msgid "The canonical domestic method cannot be deleted."
+msgstr ""

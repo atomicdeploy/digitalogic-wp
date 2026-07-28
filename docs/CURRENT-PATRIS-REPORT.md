@@ -42,11 +42,14 @@ Each row's `source` object retains the stored canonical shape:
 - the report never fills unavailable source fields with null placeholders.
 
 Warnings distinguish missing keys, explicit nulls, and explicit non-positive
-facts for CNY and partner prices. Each row exposes the atomic selected-price
-amount, currency, kind, rounding digits, and rounding mode. Weight, freight,
-and FX warnings apply only to the CNY landed-price path; a valid IRR partner
-fallback is not falsely reported as missing those unused inputs. The report
-also distinguishes missing/null rounding configuration and selected-source
+facts for CNY and the distinct partner price. Each row shows
+`partner_price_source` separately from Patris `sale_price_source`/`FOROSH` and
+exposes the atomic selected-price amount, currency, kind, rounding digits, and
+rounding mode. Weight, freight, and FX warnings apply only to the CNY
+landed-price path. A valid IRR partner or opt-in direct-sale fallback instead
+requires the canonical zero-rate domestic method and is not falsely reported
+as missing unused CNY inputs. The report also distinguishes missing/null
+rounding configuration, invalid domestic provenance, and selected-source
 metadata drift. It identifies source-only and
 positive-stock source-only products, WooCommerce-only products, duplicate exact
 Codes, upstream warnings, stale source timestamps, nonpositive stock/prices,

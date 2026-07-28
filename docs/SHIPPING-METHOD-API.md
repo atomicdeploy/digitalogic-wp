@@ -4,8 +4,12 @@ Supplier shipping methods are pricing inputs and are separate from WooCommerce c
 
 Management routes remain under `/wp-json/digitalogic/v1/shipping-methods`. Patris reads the integration routes documented in [PATRIS-PRODUCT-SYNC.md](PATRIS-PRODUCT-SYNC.md).
 
-Built-in defaults are `air_express`, `air_freight`, and `sea_freight`. Product assignments are stored only in `_digitalogic_shipping_method_id`. Catalog, assignment, panel, and webhook writes use the same canonical record without mirrored option or metadata keys.
+Built-in defaults are `air_express`, `air_freight`, `sea_freight`, and the
+required `domestic`/`خرید داخلی` method. Domestic procurement is always enabled
+with `price_per_kg=0` and `currency=IRR`. Product assignments are stored only in
+`_digitalogic_shipping_method_id`. Catalog, assignment, panel, and webhook
+writes use the same canonical record without mirrored option or metadata keys.
 
-`price_per_kg`, optional `minimum_charge`, optional volumetric divisor, and tier bounds/rates are canonical non-negative base-10 strings. They support up to 18 integer digits and 12 fractional digits; exponent and grouping notation are rejected. Tier objects inherit their method's required currency and cannot silently switch currencies. When calculating a CNY-sourced final IRT amount, a CNY freight rate is converted using the effective CNY-to-IRT rate and an IRR freight rate is divided by 10. Freight is not applied to the direct IRR partner-price fallback. Markup is applied once and the result is rounded once to the configured nearest IRT power of ten using half-up behavior.
+`price_per_kg`, optional `minimum_charge`, optional volumetric divisor, and tier bounds/rates are canonical non-negative base-10 strings. They support up to 18 integer digits and 12 fractional digits; exponent and grouping notation are rejected. Tier objects inherit their method's required currency and cannot silently switch currencies. When calculating a CNY-sourced final IRT amount, a CNY freight rate is converted using the effective CNY-to-IRT rate and an IRR freight rate is divided by 10. The partner and disabled-by-default direct-sale fallbacks carry `domestic` zero-rate provenance; neither calculation adds weight-based freight. Markup and rounding apply to partner price, while direct sale price consumes neither.
 
 Missing pricing input keys are omitted. An explicit source null remains distinguishable from missing data; public machine responses do not add null placeholders for unavailable values.

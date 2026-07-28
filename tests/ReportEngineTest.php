@@ -244,6 +244,57 @@ final class ReportEngineTest extends TestCase {
 		$this->assertContains( 'source_warning', $rows[0]['issues'] );
 	}
 
+	/** A stored zero weight remains visible but is invalid for foreign freight pricing. */
+	public function test_zero_weight_is_reported_as_invalid_for_cny_price_source(): void {
+		$product                 = $this->source_product( 'CNY-ZERO-WEIGHT' );
+		$product['weight_grams'] = '0';
+		$this->store_source( array( 'CNY-ZERO-WEIGHT' => $product ) );
+
+		$report = $this->engine->get_report( array( 'view' => 'warnings' ) );
+		$row    = $report['rows'][0];
+
+		$this->assertSame( '0', $row['source']['weight_grams'] );
+		$this->assertContains( 'invalid_source_value', $row['issues'] );
+		$this->assertContains( 'weight_grams', $row['issue_fields']['invalid_source_value'] );
+	}
+
+	public function test_direct_sale_fallback_is_reported_without_unused_pricing_requirements(): void {
+		$product                                   = $this->source_product( 'DIRECT-SALE' );
+		$product['sale_price_source']              = '100000';
+		$product['price_source_amount']            = '100000';
+		$product['price_source_currency']          = 'IRR';
+		$product['price_source_kind']              = 'sale_price_direct';
+		$product['shipping_method_id']             = 'domestic';
+		$product['shipping_price_per_kg']          = '0';
+		$product['shipping_price_per_kg_currency'] = 'IRR';
+		$product['final_price']                    = 10000;
+		$product['warnings']                       = array(
+			'sale_price_direct_fallback_used',
+			'freight_not_applied_for_sale_price_direct',
+			'weight_missing',
+		);
+		unset(
+			$product['foreign_currency'],
+			$product['foreign_price'],
+			$product['weight_grams'],
+			$product['markup_percent'],
+			$product['irt_per_cny'],
+			$product['price_rounding_digits'],
+			$product['price_rounding_mode']
+		);
+		$this->store_source( array( 'DIRECT-SALE' => $product ) );
+
+		$report = $this->engine->get_report( array( 'view' => 'price_list' ) );
+		$row    = $report['rows'][0];
+
+		$this->assertContains( 'sale_price_direct_fallback', $row['issues'] );
+		$this->assertNotContains( 'missing_markup', $row['issues'] );
+		$this->assertNotContains( 'missing_rounding_digits', $row['issues'] );
+		$this->assertNotContains( 'missing_shipping', $row['issues'] );
+		$this->assertNotContains( 'invalid_domestic_shipping', $row['issues'] );
+		$this->assertNotContains( 'source_warning', $row['issues'] );
+	}
+
 	private function report_cache_writes(): array {
 		return array_values(
 			array_filter(
@@ -319,7 +370,7 @@ final class ReportEngineTest extends TestCase {
 
 	private function static_envelope(): array {
 		return array(
-			'schema'       => 'digitalogic.patris.product-sync.v1',
+			'schema'       => 'patris.product-sync',
 			'event_id'     => 'sha256:static-event',
 			'event_type'   => 'snapshot',
 			'generated_at' => gmdate( 'c' ),

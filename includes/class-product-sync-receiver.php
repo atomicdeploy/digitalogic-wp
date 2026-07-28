@@ -274,6 +274,7 @@ class Digitalogic_Product_Sync_Receiver {
         'serial',
         'unit',
         'sale_price_source',
+        'partner_price_source',
         'purchase_price_source',
         'warehouse_stock',
         'total_stock',
@@ -343,6 +344,7 @@ class Digitalogic_Product_Sync_Receiver {
 
     private const PRODUCT_NULLABLE_NUMBER_FIELDS = array(
         'sale_price_source',
+        'partner_price_source',
         'purchase_price_source',
         'total_stock',
         'minimum_stock',
@@ -356,6 +358,7 @@ class Digitalogic_Product_Sync_Receiver {
 
     private const PRODUCT_DECIMAL_FIELDS = array(
         'foreign_price',
+        'partner_price_source',
         'price_source_amount',
         'weight_grams',
         'shipping_price_per_kg',
@@ -1146,10 +1149,11 @@ class Digitalogic_Product_Sync_Receiver {
             if (!in_array($product['price_source_currency'], array('CNY', 'IRR'), true)) {
                 return $this->field_error($path . '.price_source_currency', 'must be CNY or IRR');
             }
-            if (!in_array($product['price_source_kind'], array('foreign_price', 'partner_price'), true)) {
-                return $this->field_error($path . '.price_source_kind', 'must be foreign_price or partner_price');
+            if (!in_array($product['price_source_kind'], array('foreign_price', 'partner_price', 'sale_price_direct'), true)) {
+                return $this->field_error($path . '.price_source_kind', 'must be foreign_price, partner_price, or sale_price_direct');
             }
         }
+        $direct_sale_selected = $pricing_active && 'sale_price_direct' === ($product['price_source_kind'] ?? null);
         $has_shipping_price = array_key_exists('shipping_price_per_kg', $product);
         $has_shipping_currency = array_key_exists('shipping_price_per_kg_currency', $product);
         if ($has_shipping_price !== $has_shipping_currency) {
@@ -1193,10 +1197,42 @@ class Digitalogic_Product_Sync_Receiver {
                 return $this->field_error($path . '.' . $field, 'must be a base-10 decimal without exponent notation');
             }
         }
-        foreach (array('weight_grams', 'shipping_price_per_kg', 'irt_per_cny') as $field) {
-            if (array_key_exists($field, $product) && null !== $product[$field] && $this->number_compare_zero($product[$field]) <= 0) {
-                return $this->field_error($path . '.' . $field, 'must be greater than zero when provided');
+        if ($direct_sale_selected) {
+            $forbidden_direct_inputs = array_values(
+                array_intersect(
+                    array('markup_percent', 'price_rounding_digits', 'price_rounding_mode', 'irt_per_cny'),
+                    array_keys($product)
+                )
+            );
+            if (!empty($forbidden_direct_inputs)) {
+                return $this->error(
+                    'digitalogic_product_sync_direct_sale_inputs_forbidden',
+                    'sale_price_direct must omit markup, rounding, and foreign-exchange inputs.',
+                    422,
+                    array('path' => $path, 'fields' => $forbidden_direct_inputs)
+                );
             }
+        }
+        if (
+            array_key_exists('weight_grams', $product)
+            && null !== $product['weight_grams']
+            && $this->number_compare_zero($product['weight_grams']) < 0
+        ) {
+            return $this->field_error($path . '.weight_grams', 'must not be negative');
+        }
+        if (
+            array_key_exists('irt_per_cny', $product)
+            && null !== $product['irt_per_cny']
+            && $this->number_compare_zero($product['irt_per_cny']) <= 0
+        ) {
+            return $this->field_error($path . '.irt_per_cny', 'must be greater than zero when provided');
+        }
+        if (
+            array_key_exists('shipping_price_per_kg', $product)
+            && null !== $product['shipping_price_per_kg']
+            && $this->number_compare_zero($product['shipping_price_per_kg']) < 0
+        ) {
+            return $this->field_error($path . '.shipping_price_per_kg', 'must not be negative');
         }
         if (
             array_key_exists('foreign_price', $product)
@@ -1216,19 +1252,22 @@ class Digitalogic_Product_Sync_Receiver {
             return $this->field_error($path . '.markup_percent', 'must not be negative');
         }
         if ($pricing_active) {
-            if (!array_key_exists('price_rounding_digits', $product)) {
+            if (!$direct_sale_selected && !array_key_exists('price_rounding_digits', $product)) {
                 return $this->field_error($path . '.price_rounding_digits', 'is required when pricing is active');
             }
-            if (null === $product['price_rounding_digits']) {
+            if (!$direct_sale_selected && null === $product['price_rounding_digits']) {
                 if (array_key_exists('price_rounding_mode', $product)) {
                     return $this->field_error($path . '.price_rounding_mode', 'must be omitted when price_rounding_digits is explicitly null');
                 }
-            } elseif (
+            } elseif (!$direct_sale_selected && (
                 !$this->is_nonnegative_integer($product['price_rounding_digits'])
                 || (int) $this->number_to_storage($product['price_rounding_digits']) > 9
-            ) {
+            )) {
                 return $this->field_error($path . '.price_rounding_digits', 'must be an integer from 0 through 9');
-            } elseif (!array_key_exists('price_rounding_mode', $product) || 'nearest_half_up' !== $product['price_rounding_mode']) {
+            } elseif (
+                !$direct_sale_selected
+                && (!array_key_exists('price_rounding_mode', $product) || 'nearest_half_up' !== $product['price_rounding_mode'])
+            ) {
                 return $this->field_error($path . '.price_rounding_mode', 'must be nearest_half_up when pricing is active');
             }
         }
@@ -2107,17 +2146,21 @@ class Digitalogic_Product_Sync_Receiver {
     /**
      * Independently evaluate the selected living price formula.
      *
-     * A usable CNY source has priority and uses the landed-price formula with
-     * currency-qualified freight. The IRR partner-price fallback is converted
-     * directly to IRT and never consumes freight, weight, or FX inputs. Both
-     * paths apply markup once and then round once to the configured nearest
-     * IRT power of ten using deterministic half-up behavior.
+     * A complete CNY route has priority and uses the landed-price formula with
+     * currency-qualified freight. A CNY fact without usable weight and a
+     * selected freight method is not a selectable route, so the domestic IRR
+     * partner-price fallback may be used. That fallback consumes no freight,
+     * weight, or FX input; its canonical domestic method carries an explicit
+     * zero IRR rate. Foreign and partner paths apply markup once and then round
+     * once. The opt-in sale_price_direct last fallback only converts the raw IRR
+     * fact to contract IRT; it consumes no freight, markup, or rounding policy.
      */
     private function validate_final_price_formula($product, $path, $pricing_active) {
         if (!$pricing_active) {
             return true;
         }
-        if (null === $product['price_rounding_digits']) {
+        $direct_sale_selected = 'sale_price_direct' === ($product['price_source_kind'] ?? null);
+        if (!$direct_sale_selected && null === $product['price_rounding_digits']) {
             if (!array_key_exists('final_price', $product)) {
                 return true;
             }
@@ -2132,17 +2175,54 @@ class Digitalogic_Product_Sync_Receiver {
 
         $source_fields  = array('price_source_amount', 'price_source_currency', 'price_source_kind');
         $has_source     = count(array_intersect($source_fields, array_keys($product))) === count($source_fields);
-        $usable_cny     = array_key_exists('foreign_price', $product)
+        $complete_markup = false;
+        if (
+            array_key_exists('markup_percent', $product)
+            && null !== $product['markup_percent']
+            && $this->number_compare_zero($product['markup_percent']) >= 0
+        ) {
+            $markup_parts = $this->formula_decimal_parts($product['markup_percent']);
+            $complete_markup = !isset($markup_parts['error'])
+                && $this->decimal_compare($markup_parts, $this->formula_decimal_parts(self::MAX_MARKUP_PERCENT)) <= 0;
+        }
+        $complete_rounding = array_key_exists('price_rounding_digits', $product)
+            && null !== $product['price_rounding_digits']
+            && $this->is_nonnegative_integer($product['price_rounding_digits'])
+            && (int) $this->number_to_storage($product['price_rounding_digits']) <= 9
+            && array_key_exists('price_rounding_mode', $product)
+            && 'nearest_half_up' === $product['price_rounding_mode'];
+        $usable_cny_fact = array_key_exists('foreign_price', $product)
             && null !== $product['foreign_price']
             && $this->number_compare_zero($product['foreign_price']) > 0
             && array_key_exists('foreign_currency', $product)
             && 'CNY' === $product['foreign_currency'];
-        $usable_partner = array_key_exists('sale_price_source', $product)
-            && null !== $product['sale_price_source']
-            && $this->number_compare_zero($product['sale_price_source']) > 0;
+        $complete_cny_route = $usable_cny_fact
+            && array_key_exists('weight_grams', $product)
+            && null !== $product['weight_grams']
+            && $this->number_compare_zero($product['weight_grams']) > 0
+            && array_key_exists('shipping_method_id', $product)
+            && null !== $product['shipping_method_id']
+            && '' !== $product['shipping_method_id']
+            && Digitalogic_Shipping_Method_Service::DOMESTIC_METHOD_ID !== $product['shipping_method_id']
+            && array_key_exists('shipping_price_per_kg', $product)
+            && null !== $product['shipping_price_per_kg']
+            && $this->number_compare_zero($product['shipping_price_per_kg']) > 0
+            && array_key_exists('shipping_price_per_kg_currency', $product)
+            && in_array($product['shipping_price_per_kg_currency'], array('CNY', 'IRR'), true)
+            && array_key_exists('irt_per_cny', $product)
+            && null !== $product['irt_per_cny']
+            && $this->number_compare_zero($product['irt_per_cny']) > 0
+            && $complete_markup
+            && $complete_rounding;
+        $usable_partner = array_key_exists('partner_price_source', $product)
+            && null !== $product['partner_price_source']
+            && $this->number_compare_zero($product['partner_price_source']) > 0;
+        $complete_partner_route = $usable_partner
+            && $complete_markup
+            && $complete_rounding;
 
         if (!$has_source) {
-            if ($usable_cny || $usable_partner) {
+            if ($complete_cny_route || $complete_partner_route) {
                 return $this->error(
                     'digitalogic_product_sync_price_source_missing',
                     'A usable source price requires explicit selected-price provenance.',
@@ -2166,7 +2246,13 @@ class Digitalogic_Product_Sync_Receiver {
         if (isset($source_amount['error'])) {
             return $this->field_error($path . '.price_source_amount', $source_amount['error']);
         }
-        $raw_source_field = 'foreign_price' === $product['price_source_kind'] ? 'foreign_price' : 'sale_price_source';
+        if ('foreign_price' === $product['price_source_kind']) {
+            $raw_source_field = 'foreign_price';
+        } elseif ('partner_price' === $product['price_source_kind']) {
+            $raw_source_field = 'partner_price_source';
+        } else {
+            $raw_source_field = 'sale_price_source';
+        }
         if (!array_key_exists($raw_source_field, $product) || null === $product[$raw_source_field]) {
             return $this->field_error($path . '.' . $raw_source_field, 'must contain the selected source amount');
         }
@@ -2184,26 +2270,49 @@ class Digitalogic_Product_Sync_Receiver {
         }
 
         if ('foreign_price' === $product['price_source_kind']) {
+            if (
+                array_key_exists('weight_grams', $product)
+                && null !== $product['weight_grams']
+                && $this->number_compare_zero($product['weight_grams']) <= 0
+            ) {
+                return $this->field_error($path . '.weight_grams', 'must be greater than zero for foreign freight pricing');
+            }
             if ('CNY' !== $product['price_source_currency'] || 'CNY' !== ($product['foreign_currency'] ?? null)) {
                 return $this->field_error($path . '.price_source_currency', 'must be CNY for foreign_price');
             }
-        } else {
+        } elseif ('partner_price' === $product['price_source_kind']) {
             if ('IRR' !== $product['price_source_currency']) {
                 return $this->field_error($path . '.price_source_currency', 'must be IRR for partner_price');
             }
-            if ($usable_cny) {
+            if ($complete_cny_route) {
                 return $this->error(
                     'digitalogic_product_sync_price_source_priority',
-                    'A usable CNY source must be selected before the partner-price fallback.',
+                    'A complete CNY freight route must be selected before the domestic partner-price fallback.',
+                    422,
+                    array('path' => $path . '.price_source_kind')
+                );
+            }
+        } else {
+            if ('IRR' !== $product['price_source_currency']) {
+                return $this->field_error($path . '.price_source_currency', 'must be IRR for sale_price_direct');
+            }
+            if ($complete_cny_route || $complete_partner_route) {
+                return $this->error(
+                    'digitalogic_product_sync_price_source_priority',
+                    'sale_price_direct is the last fallback after complete foreign and partner routes.',
                     422,
                     array('path' => $path . '.price_source_kind')
                 );
             }
         }
 
-        $required = 'foreign_price' === $product['price_source_kind']
-            ? array('weight_grams', 'shipping_price_per_kg', 'markup_percent', 'irt_per_cny')
-            : array('markup_percent');
+        if ('foreign_price' === $product['price_source_kind']) {
+            $required = array('weight_grams', 'shipping_price_per_kg', 'markup_percent', 'irt_per_cny');
+        } elseif ('partner_price' === $product['price_source_kind']) {
+            $required = array('markup_percent');
+        } else {
+            $required = array();
+        }
         $missing = array();
         $decimals = array();
         foreach ($required as $field) {
@@ -2222,12 +2331,40 @@ class Digitalogic_Product_Sync_Receiver {
                 !array_key_exists('shipping_method_id', $product)
                 || null === $product['shipping_method_id']
                 || '' === $product['shipping_method_id']
+                || Digitalogic_Shipping_Method_Service::DOMESTIC_METHOD_ID === $product['shipping_method_id']
             ) {
                 $missing[] = 'shipping_method_id';
             }
             if (
+                array_key_exists('shipping_price_per_kg', $product)
+                && null !== $product['shipping_price_per_kg']
+                && $this->number_compare_zero($product['shipping_price_per_kg']) <= 0
+            ) {
+                $missing[] = 'shipping_price_per_kg';
+            }
+            if (
                 !array_key_exists('shipping_price_per_kg_currency', $product)
                 || null === $product['shipping_price_per_kg_currency']
+            ) {
+                $missing[] = 'shipping_price_per_kg_currency';
+            }
+        } else {
+            if (
+                !array_key_exists('shipping_method_id', $product)
+                || Digitalogic_Shipping_Method_Service::DOMESTIC_METHOD_ID !== $product['shipping_method_id']
+            ) {
+                $missing[] = 'shipping_method_id';
+            }
+            if (
+                !array_key_exists('shipping_price_per_kg', $product)
+                || null === $product['shipping_price_per_kg']
+                || 0 !== $this->number_compare_zero($product['shipping_price_per_kg'])
+            ) {
+                $missing[] = 'shipping_price_per_kg';
+            }
+            if (
+                !array_key_exists('shipping_price_per_kg_currency', $product)
+                || 'IRR' !== $product['shipping_price_per_kg_currency']
             ) {
                 $missing[] = 'shipping_price_per_kg_currency';
             }
@@ -2250,7 +2387,10 @@ class Digitalogic_Product_Sync_Receiver {
             return $this->field_error($path . '.final_price', 'is required when all landed_price inputs are available');
         }
 
-        if ($this->decimal_compare($decimals['markup_percent'], $this->formula_decimal_parts(self::MAX_MARKUP_PERCENT)) > 0) {
+        if (
+            'sale_price_direct' !== $product['price_source_kind']
+            && $this->decimal_compare($decimals['markup_percent'], $this->formula_decimal_parts(self::MAX_MARKUP_PERCENT)) > 0
+        ) {
             return $this->field_error($path . '.markup_percent', 'must not exceed ' . self::MAX_MARKUP_PERCENT);
         }
 
@@ -2265,9 +2405,41 @@ class Digitalogic_Product_Sync_Receiver {
                 $shipping_irt['scale'] += 1; // IRR to IRT, exactly.
             }
             $base_irt               = $this->decimal_add($goods_irt, $shipping_irt);
-        } else {
+        } elseif ('partner_price' === $product['price_source_kind']) {
             $base_irt = $source_amount;
             $base_irt['scale'] += 1; // IRR to IRT, exactly.
+        } else {
+            $direct_irt = $source_amount;
+            $direct_irt['scale'] += 1; // IRR to IRT, exactly.
+            while ($direct_irt['scale'] > 0 && str_ends_with($direct_irt['digits'], '0')) {
+                $direct_irt['digits'] = substr($direct_irt['digits'], 0, -1);
+                --$direct_irt['scale'];
+            }
+            if ($direct_irt['scale'] > 0) {
+                if (!array_key_exists('final_price', $product)) {
+                    return true;
+                }
+                return $this->error(
+                    'digitalogic_product_sync_final_price_mismatch',
+                    'sale_price_direct cannot represent a fractional IRT amount without modification.',
+                    422,
+                    array('path' => $path . '.final_price', 'expected' => 'omitted')
+                );
+            }
+            if ($this->big_integer_compare($direct_irt['digits'], (string) PHP_INT_MAX) > 0) {
+                return $this->field_error($path . '.final_price', 'sale_price_direct exceeds the supported IRT integer range');
+            }
+            $actual = $this->number_to_storage($product['final_price']);
+            $expected = (int) $direct_irt['digits'];
+            if (!is_int($actual) || $actual !== $expected) {
+                return $this->error(
+                    'digitalogic_product_sync_final_price_mismatch',
+                    'final_price does not match the direct source sale amount converted from IRR to IRT.',
+                    422,
+                    array('path' => $path . '.final_price', 'expected' => $expected, 'actual' => $actual)
+                );
+            }
+            return true;
         }
         $markup_multiplier     = $this->decimal_add(
             $this->formula_decimal_parts('100'),

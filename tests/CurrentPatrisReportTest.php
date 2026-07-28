@@ -14,22 +14,22 @@ final class CurrentPatrisReportTest extends TestCase {
 
 	/** Reset shared WordPress state before each report assertion. */
 	protected function setUp(): void {
-		$GLOBALS['digitalogic_test_options']         = array();
-		$GLOBALS['digitalogic_test_option_cache']    = array();
-		$GLOBALS['digitalogic_test_posts']           = array();
-		$GLOBALS['digitalogic_test_wc_products']     = array();
+		$GLOBALS['digitalogic_test_options']               = array();
+		$GLOBALS['digitalogic_test_option_cache']          = array();
+		$GLOBALS['digitalogic_test_posts']                 = array();
+		$GLOBALS['digitalogic_test_wc_products']           = array();
 		$GLOBALS['digitalogic_test_wc_product_query_args'] = array();
-		$GLOBALS['digitalogic_test_capabilities']    = array();
-		$GLOBALS['digitalogic_test_current_user_id'] = 0;
-		$GLOBALS['digitalogic_test_current_user']    = (object) array(
+		$GLOBALS['digitalogic_test_capabilities']          = array();
+		$GLOBALS['digitalogic_test_current_user_id']       = 0;
+		$GLOBALS['digitalogic_test_current_user']          = (object) array(
 			'ID'           => 0,
 			'user_login'   => '',
 			'display_name' => '',
 			'roles'        => array(),
 		);
-		$GLOBALS['wpdb']                             = new Digitalogic_Test_WPDB();
-		WP_CLI::$errors                              = array();
-		WP_CLI::$logs                                = array();
+		$GLOBALS['wpdb']                                   = new Digitalogic_Test_WPDB();
+		WP_CLI::$errors                                    = array();
+		WP_CLI::$logs                                      = array();
 		$this->reset_singleton( Digitalogic_Product_Sync_Receiver::class );
 		$this->reset_singleton( Digitalogic_Report_Engine::class );
 		$this->reset_singleton( Digitalogic_REST_API::class );
@@ -186,25 +186,29 @@ final class CurrentPatrisReportTest extends TestCase {
 		$this->store_source(
 			array(
 				'PARTNER-1' => array(
-					'product_code'          => 'PARTNER-1',
-					'name'                  => 'Partner priced source',
-					'sale_price_source'     => '949661',
-					'price_source_amount'   => '949661',
-					'price_source_currency' => 'IRR',
-					'price_source_kind'     => 'partner_price',
-					'markup_percent'        => '30',
-					'price_rounding_digits' => 2,
-					'price_rounding_mode'   => 'nearest_half_up',
-					'final_price'           => 123500,
-					'total_stock'           => 4,
-					'source_updated_at'     => $updated_at,
-					'warnings'              => array(
+					'product_code'                   => 'PARTNER-1',
+					'name'                           => 'Partner priced source',
+					'partner_price_source'           => '949661',
+					'sale_price_source'              => '1200000',
+					'price_source_amount'            => '949661',
+					'price_source_currency'          => 'IRR',
+					'price_source_kind'              => 'partner_price',
+					'shipping_method_id'             => 'domestic',
+					'shipping_price_per_kg'          => '0',
+					'shipping_price_per_kg_currency' => 'IRR',
+					'markup_percent'                 => '30',
+					'price_rounding_digits'          => 2,
+					'price_rounding_mode'            => 'nearest_half_up',
+					'final_price'                    => 123500,
+					'total_stock'                    => 4,
+					'source_updated_at'              => $updated_at,
+					'warnings'                       => array(
 						'foreign_price_non_positive',
 						'weight_missing',
 						'partner_price_fallback_used',
 						'freight_not_applied_for_partner_price',
 					),
-					'record_hash'           => 'sha256:partner-current',
+					'record_hash'                    => 'sha256:partner-current',
 				),
 			)
 		);
@@ -212,23 +216,27 @@ final class CurrentPatrisReportTest extends TestCase {
 			'simple',
 			'Partner priced target',
 			array(
-				'_digitalogic_patris_product_code'        => 'PARTNER-1',
-				'_regular_price'                          => '123500',
-				'_price'                                  => '123500',
-				'_stock'                                  => 4,
-				'_manage_stock'                           => 'yes',
-				'_stock_status'                           => 'instock',
-				'_digitalogic_patris_sale_price_source'   => '949661',
-				'_digitalogic_patris_price_source_amount' => '949661',
+				'_digitalogic_patris_product_code'         => 'PARTNER-1',
+				'_regular_price'                           => '123500',
+				'_price'                                   => '123500',
+				'_stock'                                   => 4,
+				'_manage_stock'                            => 'yes',
+				'_stock_status'                            => 'instock',
+				'_digitalogic_patris_partner_price_source' => '949661',
+				'_digitalogic_patris_sale_price_source'    => '1200000',
+				'_digitalogic_patris_price_source_amount'  => '949661',
 				'_digitalogic_patris_price_source_currency' => 'IRR',
-				'_digitalogic_patris_price_source_kind'   => 'partner_price',
-				'_digitalogic_patris_markup_percent'      => '30',
+				'_digitalogic_patris_price_source_kind'    => 'partner_price',
+				'_digitalogic_patris_shipping_method_id'   => 'domestic',
+				'_digitalogic_patris_shipping_price_per_kg' => '0',
+				'_digitalogic_patris_shipping_price_per_kg_currency' => 'IRR',
+				'_digitalogic_patris_markup_percent'       => '30',
 				'_digitalogic_patris_price_rounding_digits' => '2',
-				'_digitalogic_patris_price_rounding_mode' => 'nearest_half_up',
-				'_digitalogic_patris_final_price'         => '123500',
-				'_digitalogic_patris_total_stock'         => '4',
-				'_digitalogic_patris_record_hash'         => 'sha256:partner-current',
-				'_digitalogic_patris_updated_at'          => $updated_at,
+				'_digitalogic_patris_price_rounding_mode'  => 'nearest_half_up',
+				'_digitalogic_patris_final_price'          => '123500',
+				'_digitalogic_patris_total_stock'          => '4',
+				'_digitalogic_patris_record_hash'          => 'sha256:partner-current',
+				'_digitalogic_patris_updated_at'           => $updated_at,
 			)
 		);
 
@@ -237,10 +245,13 @@ final class CurrentPatrisReportTest extends TestCase {
 
 		$this->assertSame( 'partner_price', $row['source']['price_source_kind'] );
 		$this->assertSame( 'IRR', $row['source']['price_source_currency'] );
+		$this->assertSame( '949661', $row['source']['partner_price_source'] );
+		$this->assertSame( '1200000', $row['source']['sale_price_source'] );
 		$this->assertContains( 'partner_price_fallback', $row['issues'] );
 		$this->assertNotContains( 'missing_foreign_price', $row['issues'] );
 		$this->assertNotContains( 'missing_weight', $row['issues'] );
 		$this->assertNotContains( 'missing_shipping', $row['issues'] );
+		$this->assertNotContains( 'invalid_domestic_shipping', $row['issues'] );
 		$this->assertNotContains( 'missing_exchange_rate', $row['issues'] );
 		$this->assertNotContains( 'source_warning', $row['issues'] );
 		$this->assertNotContains( 'pricing_provenance_drift', $row['issues'] );

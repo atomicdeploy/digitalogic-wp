@@ -26,6 +26,7 @@ final class Digitalogic_Patris_Catalog_Materializer {
 	public const OWNER_CODE_META       = '_digitalogic_patris_owner_product_code';
 
 	private const SHIPPING_METHOD      = 'air_express';
+	private const DOMESTIC_METHOD      = Digitalogic_Shipping_Method_Service::DOMESTIC_METHOD_ID;
 	private const LOCK_NAME            = 'digitalogic_patris_catalog_materializer';
 	private const LOCK_TIMEOUT_SECONDS = 10;
 	private const MAX_MANIFEST_BYTES   = 8388608;
@@ -371,9 +372,14 @@ final class Digitalogic_Patris_Catalog_Materializer {
 				$selected_price_currency = (string) ( $record['price_source_currency'] ?? '' );
 				$selected_price_kind     = (string) ( $record['price_source_kind'] ?? '' );
 				$requires_air_express    = 'CNY' === $selected_price_currency && 'foreign_price' === $selected_price_kind;
+				$requires_domestic       = 'IRR' === $selected_price_currency
+					&& in_array( $selected_price_kind, array( 'partner_price', 'sale_price_direct' ), true );
+				$shipping_method         = $requires_air_express
+					? self::SHIPPING_METHOD
+					: ( $requires_domestic ? self::DOMESTIC_METHOD : '' );
 				$assignment              = Digitalogic_Shipping_Method_Service::instance()->assign_product_by_code(
 					$code,
-					$requires_air_express ? self::SHIPPING_METHOD : ''
+					$shipping_method
 				);
 				if ( is_wp_error( $assignment ) ) {
 					$this->append_detail( $result, $code, $assignment->get_error_code() );
@@ -383,6 +389,9 @@ final class Digitalogic_Patris_Catalog_Materializer {
 				if ( $requires_air_express ) {
 					$product->update_meta_data( Digitalogic_Shipping_Method_Service::PRODUCT_METHOD_META, self::SHIPPING_METHOD );
 					++$result['air_express_assigned'];
+				} elseif ( $requires_domestic ) {
+					$product->update_meta_data( Digitalogic_Shipping_Method_Service::PRODUCT_METHOD_META, self::DOMESTIC_METHOD );
+					++$result['domestic_assigned'];
 				} else {
 					$product->delete_meta_data( Digitalogic_Shipping_Method_Service::PRODUCT_METHOD_META );
 				}
@@ -1734,28 +1743,36 @@ final class Digitalogic_Patris_Catalog_Materializer {
 		$price_source_amount   = $this->number( $record['price_source_amount'] ?? null );
 		$is_cny_source         = 'foreign_price' === $price_source_kind && 'CNY' === $price_source_currency;
 		$is_partner_source     = 'partner_price' === $price_source_kind && 'IRR' === $price_source_currency;
+		$is_direct_sale_source = 'sale_price_direct' === $price_source_kind && 'IRR' === $price_source_currency;
 		$final_price           = $this->number( $record['final_price'] ?? null );
 		$complete_partner_path = $is_partner_source && $price_source_amount > 0 && $final_price > 0;
-		if ( ( ! $is_cny_source && ! $is_partner_source ) || $price_source_amount <= 0 ) {
+		$complete_direct_path  = $is_direct_sale_source && $price_source_amount > 0 && $final_price > 0;
+		if ( ( ! $is_cny_source && ! $is_partner_source && ! $is_direct_sale_source ) || $price_source_amount <= 0 ) {
 			$gates[] = 'price_source';
 		}
 		if ( $final_price <= 0 ) {
 			$gates[] = 'final_price';
 		}
 		if (
-			! array_key_exists( 'markup_percent', $record )
-			|| null === $record['markup_percent']
-			|| ! is_numeric( $record['markup_percent'] )
-			|| $this->number( $record['markup_percent'] ) < 0
+			! $is_direct_sale_source
+			&& (
+				! array_key_exists( 'markup_percent', $record )
+				|| null === $record['markup_percent']
+				|| ! is_numeric( $record['markup_percent'] )
+				|| $this->number( $record['markup_percent'] ) < 0
+			)
 		) {
 			$gates[] = 'markup_percent';
 		}
 		if (
-			! array_key_exists( 'price_rounding_digits', $record )
-			|| ! is_int( $record['price_rounding_digits'] )
-			|| $record['price_rounding_digits'] < 0
-			|| $record['price_rounding_digits'] > 9
-			|| 'nearest_half_up' !== ( $record['price_rounding_mode'] ?? null )
+			! $is_direct_sale_source
+			&& (
+				! array_key_exists( 'price_rounding_digits', $record )
+				|| ! is_int( $record['price_rounding_digits'] )
+				|| $record['price_rounding_digits'] < 0
+				|| $record['price_rounding_digits'] > 9
+				|| 'nearest_half_up' !== ( $record['price_rounding_mode'] ?? null )
+			)
 		) {
 			$gates[] = 'price_rounding';
 		}
@@ -1763,7 +1780,12 @@ final class Digitalogic_Patris_Catalog_Materializer {
 			if ( $this->number( $record['foreign_price'] ?? null ) <= 0 ) {
 				$gates[] = 'foreign_price';
 			}
-			if ( $this->number( $record['weight_grams'] ?? null ) <= 0 ) {
+			if (
+				! array_key_exists( 'weight_grams', $record )
+				|| null === $record['weight_grams']
+				|| ! is_numeric( $record['weight_grams'] )
+				|| $this->number( $record['weight_grams'] ) <= 0
+			) {
 				$gates[] = 'weight_grams';
 			}
 			if ( self::SHIPPING_METHOD !== (string) ( $record['shipping_method_id'] ?? '' ) ) {
@@ -1782,8 +1804,26 @@ final class Digitalogic_Patris_Catalog_Materializer {
 			if ( $this->number( $record['irt_per_cny'] ?? null ) <= 0 ) {
 				$gates[] = 'irt_per_cny';
 			}
-		} elseif ( $is_partner_source && $this->number( $record['sale_price_source'] ?? null ) <= 0 ) {
+		} elseif ( $is_partner_source && $this->number( $record['partner_price_source'] ?? null ) <= 0 ) {
 			$gates[] = 'partner_price';
+		} elseif ( $is_direct_sale_source && $this->number( $record['sale_price_source'] ?? null ) <= 0 ) {
+			$gates[] = 'sale_price_direct';
+		}
+		if ( $is_partner_source || $is_direct_sale_source ) {
+			if ( self::DOMESTIC_METHOD !== (string) ( $record['shipping_method_id'] ?? '' ) ) {
+				$gates[] = 'patris_domestic';
+			}
+			if (
+				! array_key_exists( 'shipping_price_per_kg', $record )
+				|| null === $record['shipping_price_per_kg']
+				|| ! is_numeric( $record['shipping_price_per_kg'] )
+				|| 0.0 !== (float) $record['shipping_price_per_kg']
+			) {
+				$gates[] = 'domestic_shipping_price_per_kg';
+			}
+			if ( 'IRR' !== ( $record['shipping_price_per_kg_currency'] ?? null ) ) {
+				$gates[] = 'domestic_shipping_price_per_kg_currency';
+			}
 		}
 		if (
 			'' === trim( (string) ( $record['pricing_catalog_revision'] ?? '' ) )
@@ -1803,6 +1843,21 @@ final class Digitalogic_Patris_Catalog_Materializer {
 				'weight_source_conflict',
 			)
 			: array();
+		if ( $complete_direct_path ) {
+			$ignored_warnings = array_merge(
+				$ignored_warnings,
+				array(
+					'sale_price_direct_fallback_used',
+					'freight_not_applied_for_sale_price_direct',
+					'foreign_price_missing',
+					'foreign_price_non_positive',
+					'weight_missing',
+					'weight_unparsed',
+					'weight_ambiguous',
+					'weight_source_conflict',
+				)
+			);
+		}
 		$blocking_warnings = array_values(
 			array_diff(
 				is_array( $record['warnings'] ?? null ) ? $record['warnings'] : array(),
@@ -1819,9 +1874,14 @@ final class Digitalogic_Patris_Catalog_Materializer {
 			if ( (string) get_post_meta( $product->get_id(), Digitalogic_Shipping_Method_Service::PRODUCT_METHOD_META, true ) !== self::SHIPPING_METHOD ) {
 				$gates[] = 'woocommerce_air_express';
 			}
-			if ( $this->number( $product->get_weight() ) <= 0 ) {
+			if ( '' === (string) $product->get_weight() || $this->number( $product->get_weight() ) <= 0 ) {
 				$gates[] = 'woocommerce_weight';
 			}
+		} elseif (
+			( $is_partner_source || $is_direct_sale_source )
+			&& (string) get_post_meta( $product->get_id(), Digitalogic_Shipping_Method_Service::PRODUCT_METHOD_META, true ) !== self::DOMESTIC_METHOD
+		) {
+			$gates[] = 'woocommerce_domestic';
 		}
 		if ( $this->number( $product->get_stock_quantity() ) <= 0 ) {
 			$gates[] = 'woocommerce_stock';
@@ -1899,6 +1959,7 @@ final class Digitalogic_Patris_Catalog_Materializer {
 			'adopted'                   => 0,
 			'reconciled'                => 0,
 			'air_express_assigned'      => 0,
+			'domestic_assigned'         => 0,
 			'publish_ready'             => 0,
 			'publish_blocked'           => 0,
 			'published'                 => 0,
