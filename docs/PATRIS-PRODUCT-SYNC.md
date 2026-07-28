@@ -53,22 +53,33 @@ The envelope contains:
 
 A product requires `product_code`, `warnings`, and `record_hash`. Its optional sparse superset is:
 
-`category_code`, `name`, `serial`, `unit`, `sale_price_source`, `purchase_price_source`, `warehouse_stock`, `total_stock`, `minimum_stock`, `foreign_currency`, `foreign_price`, `price_source_amount`, `price_source_currency`, `price_source_kind`, `weight_grams`, `location`, `shipping_method_id`, `shipping_price_per_kg`, `shipping_price_per_kg_currency`, `markup_percent`, `irt_per_cny`, `price_rounding_digits`, `price_rounding_mode`, `pricing_catalog_revision`, `pricing_catalog_status`, `currency_effective_date`, `final_price`, `source_updated_at`, and `warnings`.
+`category_code`, `name`, `serial`, `unit`, `sale_price_source`, `partner_price_source`, `purchase_price_source`, `warehouse_stock`, `total_stock`, `minimum_stock`, `foreign_currency`, `foreign_price`, `price_source_amount`, `price_source_currency`, `price_source_kind`, `weight_grams`, `location`, `shipping_method_id`, `shipping_price_per_kg`, `shipping_price_per_kg_currency`, `markup_percent`, `irt_per_cny`, `price_rounding_digits`, `price_rounding_mode`, `pricing_catalog_revision`, `pricing_catalog_status`, `currency_effective_date`, `final_price`, `source_updated_at`, and `warnings`.
 
 `shipping_price_per_kg` and `shipping_price_per_kg_currency` are a required key pair whenever either is present. A non-null currency is uppercase `CNY` or `IRR`. The two present values independently preserve explicit source nulls, so a numeric amount with null currency and a null amount with `CNY` or `IRR` are both valid representations. Either null makes calculation incomplete and therefore requires `final_price` to be omitted.
 
 `price_source_amount`, `price_source_currency`, and `price_source_kind` are an
 atomic selected-source triple: all three are present or all three are omitted.
 The selected fields are derived provenance and are never null. A positive CNY
-`foreign_price` has priority and selects `{CNY,foreign_price}`. Only when that
-source is unusable may a positive `sale_price_source` (`FOROSH`, the partner
-price in IRR) select `{IRR,partner_price}`. Raw missing, explicit-null, zero,
-and negative facts remain distinct even though none is selectable.
+`foreign_price` selects `{CNY,foreign_price}` only when strictly positive source
+weight and a usable non-domestic supplier method are both available. A raw zero
+weight remains representable but cannot select the foreign freight route. Otherwise
+the distinct positive `partner_price_source` fact selects
+`{IRR,partner_price}` and carries the canonical `domestic` method with a zero
+IRR rate. The last `{IRR,sale_price_direct}` route reads
+`sale_price_source`/`FOROSH`; it is produced only when the explicitly opt-in
+`use_sale_price_direct_fallback` setting is enabled and the preceding routes
+cannot calculate. Raw missing, explicit-null, zero, and negative facts remain
+distinct even though none is selectable.
 
-With pricing active, `price_rounding_digits` is an integer from 0 through 9 and
-`price_rounding_mode` is exactly `nearest_half_up`. An explicit source/config
-null for the digit count remains `price_rounding_digits: null`; in that state
-the mode and `final_price` are omitted.
+With pricing active, foreign and partner routes carry
+`price_rounding_digits` from 0 through 9 and
+`price_rounding_mode=nearest_half_up`. An explicit source/config null for the
+digit count remains `price_rounding_digits: null`; in that state the mode and
+`final_price` are omitted. A direct-sale row omits rounding, markup, freight FX,
+and CNY FX metadata because it does not consume them. A selected direct-sale
+row carrying `markup_percent`, `price_rounding_digits`,
+`price_rounding_mode`, or `irt_per_cny` is rejected rather than silently
+ignoring inputs that cannot affect its final price.
 
 A category requires `category_code`, `name`, `parent_code`, `depth`, `warnings`, and `record_hash`. `name` accepts a string or explicit null. `parent_code` and `depth` are derived non-null values; root `parent_code` is the empty string.
 
@@ -105,6 +116,17 @@ unrounded final IRT = (price_source_amount IRR / 10)
 Both paths round exactly once after markup to the nearest
 `10 ^ price_rounding_digits` IRT using half-up behavior. For example, 123,456
 with two rounding digits becomes 123,500.
+
+The disabled-by-default direct-sale fallback performs no commercial
+modification:
+
+```text
+final IRT = sale_price_source IRR / 10
+```
+
+It requires the canonical `domestic` supplier method, a zero
+`shipping_price_per_kg`, and `shipping_price_per_kg_currency=IRR`, but that
+zero-rate provenance is never added to the price.
 
 ## Catalog and assignments
 

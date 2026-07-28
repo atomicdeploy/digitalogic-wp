@@ -487,7 +487,7 @@ $retry_url = isset($_SERVER['REQUEST_URI']) ? (string) $_SERVER['REQUEST_URI'] :
                             <div v-if="!reports.rows.length" class="dlp-empty">{{ t.noRows }}</div>
                             <div v-else class="dlp-table-wrap">
                                 <table class="dlp-table dlp-report-table" :aria-label="reportView === 'price_list' ? t.priceList : t.problemRows">
-                                    <thead><tr><th scope="col">{{ t.sku }}</th><th scope="col">{{ t.reportState }}</th><th scope="col">{{ t.products }}</th><th scope="col">{{ t.sourceCatalog }}</th><th scope="col">{{ t.stock }}</th><th scope="col">{{ t.foreignPrice }}</th><th scope="col">{{ t.partnerPrice }}</th><th scope="col">{{ t.selectedPriceSource }}</th><th scope="col">{{ t.weight }}</th><th scope="col">{{ t.rounding }}</th><th scope="col">{{ t.finalPrice }}</th><th scope="col">{{ t.findings }}</th><th scope="col">{{ t.actions }}</th></tr></thead>
+                                    <thead><tr><th scope="col">{{ t.sku }}</th><th scope="col">{{ t.reportState }}</th><th scope="col">{{ t.products }}</th><th scope="col">{{ t.sourceCatalog }}</th><th scope="col">{{ t.stock }}</th><th scope="col">{{ t.foreignPrice }}</th><th scope="col">{{ t.partnerPrice }}</th><th scope="col">{{ t.salePriceSource }}</th><th scope="col">{{ t.selectedPriceSource }}</th><th scope="col">{{ t.weight }}</th><th scope="col">{{ t.rounding }}</th><th scope="col">{{ t.finalPrice }}</th><th scope="col">{{ t.findings }}</th><th scope="col">{{ t.actions }}</th></tr></thead>
                                     <tbody>
                                         <tr v-for="(item, itemIndex) in reports.rows" :key="item.status + ':' + (item.woo_id || item.product_code) + ':' + itemIndex">
                                             <td class="dlp-mono"><bdi dir="auto">{{ item.product_code }}</bdi></td>
@@ -496,6 +496,7 @@ $retry_url = isset($_SERVER['REQUEST_URI']) ? (string) $_SERVER['REQUEST_URI'] :
                                             <td><bdi dir="auto">{{ reportSparseValue(item.source, 'name') }}</bdi></td>
                                             <td class="dlp-cell-numeric"><bdi dir="auto">{{ reportSparseValue(item.source, 'total_stock') }} / {{ reportWooValue(item.woocommerce, 'stock_quantity') }}</bdi></td>
                                             <td class="dlp-cell-numeric"><bdi dir="auto">{{ reportSparseValue(item.source, 'foreign_price') }}</bdi></td>
+                                            <td class="dlp-cell-numeric"><bdi dir="auto">{{ reportSparseValue(item.source, 'partner_price_source') }}</bdi></td>
                                             <td class="dlp-cell-numeric"><bdi dir="auto">{{ reportSparseValue(item.source, 'sale_price_source') }}</bdi></td>
                                             <td><bdi dir="auto">{{ reportSparseValue(item.source, 'price_source_kind') }} / {{ reportSparseValue(item.source, 'price_source_currency') }} / {{ reportSparseValue(item.source, 'price_source_amount') }}</bdi></td>
                                             <td class="dlp-cell-numeric"><bdi dir="auto">{{ reportSparseValue(item.source, 'weight_grams') }}</bdi></td>

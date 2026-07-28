@@ -189,7 +189,7 @@ final class Digitalogic_Google_Sheets_Catalog {
 			$this->add_explicit_text_value( $row, 'woocommerce_weight_unit', $weight_unit, $warnings );
 			$this->add_number_field( $row, 'foreign_price', $product, 'patris_foreign_price', $warnings );
 			$this->add_text_field( $row, 'foreign_currency', $product, 'patris_foreign_currency', $warnings );
-			$this->add_number_field( $row, 'partner_price_irr', $product, 'patris_sale_price_source', $warnings );
+			$this->add_number_field( $row, 'partner_price_irr', $product, 'patris_partner_price_source', $warnings );
 			$this->add_number_field( $row, 'price_source_amount', $product, 'patris_price_source_amount', $warnings );
 			$this->add_text_field( $row, 'price_source_currency', $product, 'patris_price_source_currency', $warnings );
 			$this->add_text_field( $row, 'price_source_kind', $product, 'patris_price_source_kind', $warnings );
@@ -1021,6 +1021,7 @@ final class Digitalogic_Google_Sheets_Catalog {
 			'weight',
 			'patris_foreign_price',
 			'patris_sale_price_source',
+			'patris_partner_price_source',
 			'patris_price_source_amount',
 			'patris_price_rounding_digits',
 			'patris_warehouse_stock',

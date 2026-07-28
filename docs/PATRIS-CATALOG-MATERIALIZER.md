@@ -299,13 +299,19 @@ A leaf is publish-ready only when all of these remain true at apply time:
 - source and WooCommerce stock are positive;
 - a positive atomic selected-price source, calculated final price, and
   WooCommerce regular/effective price are present;
-- for a CNY `foreign_price` source only, source/WooCommerce weight is positive,
+- for a CNY `foreign_price` source only, source/WooCommerce weight is present
+  and strictly positive,
   the supplier method is exactly `air_express`, freight is positive with an
   explicit `CNY` or `IRR` currency, WooCommerce has the same assignment, and
   the CNY-to-IRT exchange rate is positive;
-- an IRR `partner_price` source instead uses positive `sale_price_source`
-  directly and does not require weight, freight, FX, or an air assignment;
-- markup is present and nonnegative, rounding digits/mode are valid, and
+- an IRR `partner_price` source instead uses the distinct positive
+  `partner_price_source`, applies markup without freight, and requires the
+  canonical `domestic` method with zero IRR freight;
+- the disabled-by-default IRR `sale_price_direct` last fallback uses positive
+  `sale_price_source`/`FOROSH` without markup or rounding and carries the same
+  zero-rate domestic provenance;
+- markup is present and nonnegative and rounding digits/mode are valid for the
+  foreign and partner routes, and
   pricing-catalog revision and status identify the resolved calculation;
 - the source has no attention-required Patris warnings; the informational
   partner-fallback and freight-not-applied notices do not block publication;

@@ -438,6 +438,7 @@ $report_status_titles = array(
 							<th><?php echo esc_html__('Stock: source / WooCommerce', 'digitalogic'); ?></th>
 							<th><?php echo esc_html__('CNY price', 'digitalogic'); ?></th>
 							<th><?php echo esc_html__('Partner price (IRR)', 'digitalogic'); ?></th>
+							<th><?php echo esc_html__('Source sale price (IRR)', 'digitalogic'); ?></th>
 							<th><?php echo esc_html__('Selected price source', 'digitalogic'); ?></th>
 							<th><?php echo esc_html__('Weight (g)', 'digitalogic'); ?></th>
 							<th><?php echo esc_html__('Rounding', 'digitalogic'); ?></th>
@@ -457,6 +458,7 @@ $report_status_titles = array(
 								<td><?php echo esc_html($sparse_value($source_row, 'name')); ?></td>
 								<td class="digitalogic-num"><span dir="ltr"><?php echo esc_html($sparse_value($source_row, 'total_stock') . ' / ' . (array_key_exists('stock_quantity', $woo_row) ? (null === $woo_row['stock_quantity'] ? 'null' : $woo_row['stock_quantity']) : '—')); ?></span></td>
 								<td class="digitalogic-num"><span dir="ltr"><?php echo esc_html($sparse_value($source_row, 'foreign_price')); ?></span></td>
+								<td class="digitalogic-num"><span dir="ltr"><?php echo esc_html($sparse_value($source_row, 'partner_price_source')); ?></span></td>
 								<td class="digitalogic-num"><span dir="ltr"><?php echo esc_html($sparse_value($source_row, 'sale_price_source')); ?></span></td>
 								<td><span dir="ltr"><?php echo esc_html($sparse_value($source_row, 'price_source_kind') . ' / ' . $sparse_value($source_row, 'price_source_currency') . ' / ' . $sparse_value($source_row, 'price_source_amount')); ?></span></td>
 								<td class="digitalogic-num"><span dir="ltr"><?php echo esc_html($sparse_value($source_row, 'weight_grams')); ?></span></td>

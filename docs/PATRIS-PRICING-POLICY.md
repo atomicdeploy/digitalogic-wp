@@ -4,9 +4,12 @@ Digitalogic keeps three commercial values separate:
 
 - **Canonical Patris final price** is stored in `_digitalogic_patris_final_price` and records the reviewed source calculation.
 - **Selected source provenance** stores the exact amount, `CNY` or `IRR`
-  currency, and `foreign_price` or `partner_price` kind used by that
-  calculation. CNY wins when usable; `sale_price_source`/`FOROSH` is the direct
-  IRR partner-price fallback.
+  currency, and `foreign_price`, `partner_price`, or `sale_price_direct` kind
+  used by that calculation. A complete CNY freight route wins. The distinct
+  `partner_price_source` fact is the margin-bearing IRR fallback. The final
+  `sale_price_direct` fallback reads `sale_price_source`/`FOROSH` unchanged
+  except for IRR-to-IRT unit conversion; its producer configuration
+  `use_sale_price_direct_fallback` is disabled by default.
 - **WooCommerce regular price** is the product or exact-code variation's normal storefront price.
 - **Effective storefront price** is selected by WooCommerce after promotion dates, product type, and variation pricing are evaluated.
 

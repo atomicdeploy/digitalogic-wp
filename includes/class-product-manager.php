@@ -379,6 +379,7 @@ class Digitalogic_Product_Manager {
                 'patris_serial' => $product->get_meta('_digitalogic_patris_serial', true),
                 'patris_unit' => $product->get_meta('_digitalogic_patris_unit', true),
                 'patris_sale_price_source'     => $product->get_meta('_digitalogic_patris_sale_price_source', true),
+                'patris_partner_price_source'  => $product->get_meta('_digitalogic_patris_partner_price_source', true),
                 'patris_foreign_currency'      => $product->get_meta('_digitalogic_patris_foreign_currency', true),
                 'patris_foreign_price' => $product->get_meta('_digitalogic_patris_foreign_price', true),
                 'patris_price_source_amount'   => $product->get_meta('_digitalogic_patris_price_source_amount', true),

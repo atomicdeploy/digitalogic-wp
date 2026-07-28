@@ -411,6 +411,7 @@ class Digitalogic_Patris_Feed {
             'unit' => $this->clean_string($row['unit'] ?? ''),
             'unit_id' => $this->clean_string($row['unit_id'] ?? ''),
             'sale_price_source' => $this->clean_number($row['sale_price_source'] ?? null),
+            'partner_price_source' => $this->clean_number($row['partner_price_source'] ?? null),
             'purchase_price_source' => $this->clean_number($row['purchase_price_source'] ?? null),
             'warehouse_stock' => array_map(array($this, 'clean_number'), $warehouse_stock),
             'total_stock' => $this->clean_number($row['total_stock'] ?? $row['stock'] ?? null),
@@ -505,6 +506,7 @@ class Digitalogic_Patris_Feed {
             'unit' => array('_digitalogic_patris_unit', false),
             'unit_id' => array('_digitalogic_patris_unit_id', false),
             'sale_price_source' => array('_digitalogic_patris_sale_price_source', false),
+            'partner_price_source' => array('_digitalogic_patris_partner_price_source', false),
             'purchase_price_source' => array('_digitalogic_patris_purchase_price_source', false),
             'warehouse_stock' => array('_digitalogic_patris_warehouse_stock', true),
             'total_stock' => array('_digitalogic_patris_total_stock', false),
@@ -558,14 +560,19 @@ class Digitalogic_Patris_Feed {
             $product->set_weight('');
         }
 
-        if (array_key_exists('total_stock', $data) && null !== $data['total_stock']) {
-            $product->set_manage_stock(true);
-            $product->set_stock_quantity((int) round($data['total_stock']));
-            $product->set_stock_status($data['total_stock'] > 0 ? 'instock' : 'outofstock');
-        } else {
-            $product->set_manage_stock(false);
-            $product->set_stock_quantity(null);
-            $product->delete_meta_data('_stock');
+        if (array_key_exists('total_stock', $data)) {
+            if (null === $data['total_stock']) {
+                $product->set_manage_stock(false);
+                $product->set_stock_quantity(null);
+                $product->delete_meta_data('_stock');
+            } else {
+                $stock_quantity = $data['total_stock'] > 0
+                    ? max(1, (int) floor((float) $data['total_stock']))
+                    : 0;
+                $product->set_manage_stock(true);
+                $product->set_stock_quantity($stock_quantity);
+                $product->set_stock_status($stock_quantity > 0 ? 'instock' : 'outofstock');
+            }
         }
 
         $price_policy = Digitalogic_Patris_Price_Policy::instance();

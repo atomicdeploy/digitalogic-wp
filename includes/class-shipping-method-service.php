@@ -20,6 +20,7 @@ final class Digitalogic_Shipping_Method_Service {
 	public const DEFAULT_MARKUP_OPTION  = 'digitalogic_pricing_default_percentage_markup';
 	public const ROUNDING_DIGITS_OPTION = 'digitalogic_pricing_rounding_digits';
 	public const PRODUCT_METHOD_META    = '_digitalogic_shipping_method_id';
+	public const DOMESTIC_METHOD_ID     = 'domestic';
     public const CATALOG_SCHEMA         = 'digitalogic.integration-catalog';
     public const FORMULA_ID             = 'landed_price';
     public const DEFAULT_MARKUP_SCHEMA  = 'digitalogic.default-percentage-markup';
@@ -466,6 +467,13 @@ final class Digitalogic_Shipping_Method_Service {
         if (is_wp_error($id)) {
             return $id;
         }
+        if (self::DOMESTIC_METHOD_ID === $id) {
+            return new WP_Error(
+                'digitalogic_shipping_domestic_method_immutable',
+                __('The canonical domestic method is immutable.', 'digitalogic'),
+                array('status' => 409)
+            );
+        }
 
         $changes = is_array($changes) ? $changes : array();
         if (isset($changes['id']) && (string) $changes['id'] !== $id) {
@@ -526,6 +534,13 @@ final class Digitalogic_Shipping_Method_Service {
         $id = $this->validate_method_id($id);
         if (is_wp_error($id)) {
             return $id;
+        }
+        if (self::DOMESTIC_METHOD_ID === $id) {
+            return new WP_Error(
+                'digitalogic_shipping_domestic_method_immutable',
+                __('The canonical domestic method cannot be deleted.', 'digitalogic'),
+                array('status' => 409)
+            );
         }
 
         return $this->with_catalog_lock(function() use ($id) {
@@ -1043,17 +1058,25 @@ final class Digitalogic_Shipping_Method_Service {
 
     private function default_methods() {
         $definitions = array(
+            self::DOMESTIC_METHOD_ID => array(
+				'name'          => 'خرید داخلی',
+				'fallback_rate' => 0,
+				'currency'      => 'IRR',
+            ),
             'air_express' => array(
 				'name' => 'Air (Express)',
                 'fallback_rate' => 85,
+				'currency' => 'CNY',
             ),
             'air_freight' => array(
 				'name' => 'Air',
                 'fallback_rate' => 80,
+				'currency' => 'CNY',
             ),
             'sea_freight' => array(
 				'name' => 'Sea/Ocean',
                 'fallback_rate' => 50,
+				'currency' => 'CNY',
             ),
         );
 
@@ -1063,7 +1086,7 @@ final class Digitalogic_Shipping_Method_Service {
                 'id' => $id,
                 'name' => $definition['name'],
                 'enabled' => true,
-                'currency' => 'CNY',
+                'currency' => $definition['currency'],
                 'price_per_kg' => $definition['fallback_rate'],
                 'minimum_charge' => null,
                 'billable_weight_rule' => 'actual',
@@ -1523,6 +1546,16 @@ final class Digitalogic_Shipping_Method_Service {
             }
             $valid[$id] = $method;
         }
+
+		// Domestic procurement is a contract invariant rather than an optional
+		// freight tariff. Overlay its canonical zero-rate record in memory for
+		// already-installed catalogs so partner-priced products can be assigned
+		// immediately without a request read mutating options or reviving any
+		// administrator-removed freight method.
+		$defaults = $this->default_methods();
+		if (isset($defaults[self::DOMESTIC_METHOD_ID]) && !is_wp_error($defaults[self::DOMESTIC_METHOD_ID])) {
+			$valid[self::DOMESTIC_METHOD_ID] = $defaults[self::DOMESTIC_METHOD_ID];
+		}
         ksort($valid, SORT_STRING);
 
         return $valid;

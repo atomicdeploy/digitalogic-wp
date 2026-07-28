@@ -127,7 +127,10 @@ being counted as newly published.
 A CNY-selected source record must carry `shipping_price_per_kg` together with
 an explicit `shipping_price_per_kg_currency` of `CNY` or `IRR`; no freight
 currency is inferred during materialization. An IRR `partner_price` source
-does not consume freight or weight.
+uses the distinct `partner_price_source`, adds margin only, and carries the
+zero-rate `domestic`/`خرید داخلی` method. The disabled-by-default
+`sale_price_direct` last fallback instead reads `sale_price_source`/`FOROSH`
+without margin or rounding and uses the same domestic provenance.
 
 ```bash
 wp digitalogic product-sync materialize \

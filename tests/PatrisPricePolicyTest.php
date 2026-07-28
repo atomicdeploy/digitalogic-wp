@@ -181,6 +181,36 @@ final class PatrisPricePolicyTest extends TestCase {
 		$this->assertSame( 'canonical_nonpositive_preserved', $product->get_meta( '_digitalogic_patris_price_status', true ) );
 	}
 
+	/** Sparse stock is a no-op while explicit quantities map deterministically. */
+	public function test_sparse_stock_preserves_woo_state_and_explicit_stock_is_floored(): void {
+		$this->addProduct(
+			810,
+			'simple',
+			array(
+				'_regular_price' => '700',
+				'_price'         => '700',
+				'_manage_stock'  => 'yes',
+				'_stock'         => 9,
+				'_stock_status'  => 'instock',
+			)
+		);
+
+		$this->feed->apply_product_feed( wc_get_product( 810 ), array( 'product_code' => 'STOCK-810' ) );
+		$product = wc_get_product( 810 );
+		$this->assertTrue( $product->get_manage_stock() );
+		$this->assertSame( 9, $product->get_stock_quantity() );
+		$this->assertSame( 'instock', $product->get_stock_status() );
+
+		$this->feed->apply_product_feed( $product, array( 'product_code' => 'STOCK-810', 'total_stock' => 0 ) );
+		$this->assertTrue( $product->get_manage_stock() );
+		$this->assertSame( 0, $product->get_stock_quantity() );
+		$this->assertSame( 'outofstock', $product->get_stock_status() );
+
+		$this->feed->apply_product_feed( $product, array( 'product_code' => 'STOCK-810', 'total_stock' => 1.9 ) );
+		$this->assertSame( 1, $product->get_stock_quantity() );
+		$this->assertSame( 'instock', $product->get_stock_status() );
+	}
+
 	/** Verify the product projection names every distinct price value. */
 	public function test_product_api_names_effective_price_and_policy_explicitly(): void {
 		$this->addProduct(
