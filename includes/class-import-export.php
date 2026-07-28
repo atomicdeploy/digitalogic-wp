@@ -274,7 +274,7 @@ class Digitalogic_Import_Export {
      * 
      * @param int $product_id Product ID
      * @param array $data Data containing dynamic pricing information
-     * @return true|WP_Error
+	 * @return true|WP_Error
      */
     private function update_dynamic_pricing($product_id, $data) {
         // Check if dynamic pricing is enabled (CSV/Excel format)
@@ -305,17 +305,17 @@ class Digitalogic_Import_Export {
         }
         
         if (!$enabled) {
-            return true;
-        }
+			return true;
+		}
 
-        $validation = $this->validate_dynamic_pricing_update($product_id, $data);
-        if (is_wp_error($validation)) {
-            return $validation;
+		$validation = $this->validate_dynamic_pricing_update( $product_id, $data );
+		if ( is_wp_error( $validation ) ) {
+			return $validation;
         }
         
         $product = wc_get_product($product_id);
         if (!$product) {
-            return new WP_Error('invalid_product', __('Product not found', 'digitalogic'));
+			return new WP_Error( 'invalid_product', __( 'Product not found', 'digitalogic' ) );
         }
         
         $product->update_meta_data('_digitalogic_dynamic_pricing', 'yes');
@@ -338,43 +338,43 @@ class Digitalogic_Import_Export {
         
         $product->save();
 
-        return true;
-    }
+		return true;
+	}
 
-    /**
-     * Reject legacy dynamic-pricing input for a receiver-owned product.
-     *
-     * Managed products must change their profit through the atomic pricing
-     * coordinator. Importing the legacy base/currency/markup bundle would
-     * otherwise create a second customer-visible formula beside Patris.
-     *
-     * @param int   $product_id Product ID.
-     * @param array $data       Imported row.
-     * @return true|WP_Error
-     */
-    private function validate_dynamic_pricing_update($product_id, $data) {
-        $enabled = (
-            !empty($data['Dynamic Pricing'])
-            && 'yes' === $data['Dynamic Pricing']
-        ) || (
-            isset($data['dynamic_pricing'])
-            && is_array($data['dynamic_pricing'])
-            && !empty($data['dynamic_pricing']['enabled'])
-            && 'yes' === $data['dynamic_pricing']['enabled']
-        );
-        if (
-            !$enabled
-            || !class_exists('Digitalogic_Patris_Price_Write_Guard')
-            || !Digitalogic_Patris_Price_Write_Guard::instance()->is_managed_product((int) $product_id)
-        ) {
-            return true;
-        }
+	/**
+	 * Reject legacy dynamic-pricing input for a receiver-owned product.
+	 *
+	 * Managed products must change their profit through the atomic pricing
+	 * coordinator. Importing the legacy base/currency/markup bundle would
+	 * otherwise create a second customer-visible formula beside Patris.
+	 *
+	 * @param int   $product_id Product ID.
+	 * @param array $data       Imported row.
+	 * @return true|WP_Error
+	 */
+	private function validate_dynamic_pricing_update( $product_id, $data ) {
+		$enabled = (
+			! empty( $data['Dynamic Pricing'] )
+			&& 'yes' === $data['Dynamic Pricing']
+		) || (
+			isset( $data['dynamic_pricing'] )
+			&& is_array( $data['dynamic_pricing'] )
+			&& ! empty( $data['dynamic_pricing']['enabled'] )
+			&& 'yes' === $data['dynamic_pricing']['enabled']
+		);
+		if (
+			! $enabled
+			|| ! class_exists( 'Digitalogic_Patris_Price_Write_Guard' )
+			|| ! Digitalogic_Patris_Price_Write_Guard::instance()->is_managed_product( (int) $product_id )
+		) {
+			return true;
+		}
 
-        return new WP_Error(
-            'digitalogic_patris_dynamic_pricing_managed',
-            __('برای کالای تحت مدیریت همگام‌ساز، ورود فیلدهای قدیمی قیمت‌گذاری پویا مجاز نیست. درصد سود را از تنظیمات قیمت همگام‌شده تغییر دهید.', 'digitalogic'),
-            array('status' => 409)
-        );
+		return new WP_Error(
+			'digitalogic_patris_dynamic_pricing_managed',
+			__( 'برای کالای تحت مدیریت همگام‌ساز، ورود فیلدهای قدیمی قیمت‌گذاری پویا مجاز نیست. درصد سود را از تنظیمات قیمت همگام‌شده تغییر دهید.', 'digitalogic' ),
+			array( 'status' => 409 )
+		);
     }
     
     /**
@@ -535,12 +535,12 @@ class Digitalogic_Import_Export {
             
             $product_id = intval($data['ID']);
 
-            $pricing_validation = $this->validate_dynamic_pricing_update($product_id, $data);
-            if (is_wp_error($pricing_validation)) {
-                $results['failed']++;
-                $results['errors'][] = $pricing_validation->get_error_message();
-                continue;
-            }
+			$pricing_validation = $this->validate_dynamic_pricing_update( $product_id, $data );
+			if ( is_wp_error( $pricing_validation ) ) {
+				++$results['failed'];
+				$results['errors'][] = $pricing_validation->get_error_message();
+				continue;
+			}
             
             $update_data = array(
                 'name' => $data['Name'],
@@ -567,13 +567,13 @@ class Digitalogic_Import_Export {
                 $results['errors'][] = $result->get_error_message();
             } else {
                 // Update dynamic pricing using helper method
-                $pricing_result = $this->update_dynamic_pricing($product_id, $data);
-                if (is_wp_error($pricing_result)) {
-                    $results['failed']++;
-                    $results['errors'][] = $pricing_result->get_error_message();
-                } else {
-                    $results['success']++;
-                }
+				$pricing_result = $this->update_dynamic_pricing( $product_id, $data );
+				if ( is_wp_error( $pricing_result ) ) {
+					++$results['failed'];
+					$results['errors'][] = $pricing_result->get_error_message();
+				} else {
+					++$results['success'];
+				}
             }
         }
         
@@ -617,12 +617,12 @@ class Digitalogic_Import_Export {
             
             $product_id = intval($product_data['id']);
 
-            $pricing_validation = $this->validate_dynamic_pricing_update($product_id, $product_data);
-            if (is_wp_error($pricing_validation)) {
-                $results['failed']++;
-                $results['errors'][] = $pricing_validation->get_error_message();
-                continue;
-            }
+			$pricing_validation = $this->validate_dynamic_pricing_update( $product_id, $product_data );
+			if ( is_wp_error( $pricing_validation ) ) {
+				++$results['failed'];
+				$results['errors'][] = $pricing_validation->get_error_message();
+				continue;
+			}
             
             $result = $manager->update_product($product_id, $product_data);
             
@@ -631,13 +631,13 @@ class Digitalogic_Import_Export {
                 $results['errors'][] = $result->get_error_message();
             } else {
                 // Update dynamic pricing using helper method
-                $pricing_result = $this->update_dynamic_pricing($product_id, $product_data);
-                if (is_wp_error($pricing_result)) {
-                    $results['failed']++;
-                    $results['errors'][] = $pricing_result->get_error_message();
-                } else {
-                    $results['success']++;
-                }
+				$pricing_result = $this->update_dynamic_pricing( $product_id, $product_data );
+				if ( is_wp_error( $pricing_result ) ) {
+					++$results['failed'];
+					$results['errors'][] = $pricing_result->get_error_message();
+				} else {
+					++$results['success'];
+				}
             }
         }
         
@@ -1040,20 +1040,20 @@ class Digitalogic_Import_Export {
                 }
 
                 $product_id  = intval($row_data['woocommerce_id']);
-                $pricing_data = array(
-                    'Dynamic Pricing' => $row_data['dynamic_pricing'] ?? '',
-                    'Currency Type'   => $row_data['currency_type'] ?? '',
-                    'Base Price'      => $row_data['base_price'] ?? '',
-                    'Markup'          => $row_data['markup'] ?? '',
-                    'Markup Type'     => $row_data['markup_type'] ?? '',
-                );
-                $pricing_validation = $this->validate_dynamic_pricing_update($product_id, $pricing_data);
-                if (is_wp_error($pricing_validation)) {
-                    ++$results['failed'];
-                    $results['errors'][] = sprintf('Row %d: %s', $current_row_num, $pricing_validation->get_error_message());
-                    ++$current_row_num;
-                    continue;
-                }
+				$pricing_data       = array(
+					'Dynamic Pricing' => $row_data['dynamic_pricing'] ?? '',
+					'Currency Type'   => $row_data['currency_type'] ?? '',
+					'Base Price'      => $row_data['base_price'] ?? '',
+					'Markup'          => $row_data['markup'] ?? '',
+					'Markup Type'     => $row_data['markup_type'] ?? '',
+				);
+				$pricing_validation = $this->validate_dynamic_pricing_update( $product_id, $pricing_data );
+				if ( is_wp_error( $pricing_validation ) ) {
+					++$results['failed'];
+					$results['errors'][] = sprintf( 'Row %d: %s', $current_row_num, $pricing_validation->get_error_message() );
+					++$current_row_num;
+					continue;
+				}
                 $update_data = array();
                 foreach ($row_data as $key => $value) {
                     $definition = Digitalogic_Product_Column_Schema::workbook_column_by_key($key);
@@ -1071,13 +1071,13 @@ class Digitalogic_Import_Export {
                     ++$results['failed'];
                     $results['errors'][] = sprintf('Row %d: %s', $current_row_num, $result->get_error_message());
                 } else {
-                    $pricing_result = $this->update_dynamic_pricing($product_id, $pricing_data);
-                    if (is_wp_error($pricing_result)) {
-                        ++$results['failed'];
-                        $results['errors'][] = sprintf('Row %d: %s', $current_row_num, $pricing_result->get_error_message());
-                    } else {
-                        ++$results['success'];
-                    }
+					$pricing_result = $this->update_dynamic_pricing( $product_id, $pricing_data );
+					if ( is_wp_error( $pricing_result ) ) {
+						++$results['failed'];
+						$results['errors'][] = sprintf( 'Row %d: %s', $current_row_num, $pricing_result->get_error_message() );
+					} else {
+						++$results['success'];
+					}
                 }
 
                 ++$current_row_num;

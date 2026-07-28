@@ -17,32 +17,32 @@ final class PricingCoordinatorTest extends TestCase {
 	 */
 	protected function setUp(): void {
 		parent::setUp();
-		$GLOBALS['digitalogic_test_capabilities']         = array();
-		$GLOBALS['digitalogic_test_filters']              = array();
-		$GLOBALS['digitalogic_test_routes']               = array();
-		$GLOBALS['digitalogic_test_option_cache']         = array();
-		$GLOBALS['digitalogic_test_transients']           = array();
-		$GLOBALS['digitalogic_test_transient_deletes']    = array();
-		$GLOBALS['digitalogic_test_actions']              = array();
-		$GLOBALS['digitalogic_test_action_callbacks']     = array();
-		$GLOBALS['digitalogic_test_update_failures']      = array();
-		$GLOBALS['digitalogic_test_transaction_failures'] = array();
-		$GLOBALS['digitalogic_test_cache_deletes']        = array();
+		$GLOBALS['digitalogic_test_capabilities']                 = array();
+		$GLOBALS['digitalogic_test_filters']                      = array();
+		$GLOBALS['digitalogic_test_routes']                       = array();
+		$GLOBALS['digitalogic_test_option_cache']                 = array();
+		$GLOBALS['digitalogic_test_transients']                   = array();
+		$GLOBALS['digitalogic_test_transient_deletes']            = array();
+		$GLOBALS['digitalogic_test_actions']                      = array();
+		$GLOBALS['digitalogic_test_action_callbacks']             = array();
+		$GLOBALS['digitalogic_test_update_failures']              = array();
+		$GLOBALS['digitalogic_test_transaction_failures']         = array();
+		$GLOBALS['digitalogic_test_cache_deletes']                = array();
 		$GLOBALS['digitalogic_test_cache_invalidation_suspended'] = false;
 		$GLOBALS['digitalogic_test_cache_invalidation_history']   = array();
-		$GLOBALS['digitalogic_test_post_meta_cache']      = array();
-		$GLOBALS['digitalogic_test_meta_update_failures'] = array();
-		$GLOBALS['digitalogic_test_meta_delete_failures'] = array();
-		$GLOBALS['digitalogic_test_wc_products']          = array();
-		$GLOBALS['digitalogic_test_wc_product_saves']     = array();
-		$GLOBALS['digitalogic_test_wc_save_failures']     = array();
-		$GLOBALS['digitalogic_test_wc_save_fail_once']    = array();
-		$GLOBALS['digitalogic_test_wc_after_save']        = null;
-		$GLOBALS['digitalogic_test_wc_currency']          = 'IRT';
-		$GLOBALS['digitalogic_test_remote_posts']         = array();
-		$GLOBALS['digitalogic_test_remote_post_results']  = array();
-		$GLOBALS['digitalogic_test_current_user_id']      = 0;
-		$GLOBALS['digitalogic_test_posts']                = array(
+		$GLOBALS['digitalogic_test_post_meta_cache']              = array();
+		$GLOBALS['digitalogic_test_meta_update_failures']         = array();
+		$GLOBALS['digitalogic_test_meta_delete_failures']         = array();
+		$GLOBALS['digitalogic_test_wc_products']                  = array();
+		$GLOBALS['digitalogic_test_wc_product_saves']             = array();
+		$GLOBALS['digitalogic_test_wc_save_failures']             = array();
+		$GLOBALS['digitalogic_test_wc_save_fail_once']            = array();
+		$GLOBALS['digitalogic_test_wc_after_save']                = null;
+		$GLOBALS['digitalogic_test_wc_currency']                  = 'IRT';
+		$GLOBALS['digitalogic_test_remote_posts']                 = array();
+		$GLOBALS['digitalogic_test_remote_post_results']          = array();
+		$GLOBALS['digitalogic_test_current_user_id']              = 0;
+		$GLOBALS['digitalogic_test_posts']                        = array(
 			901 => array(
 				'post_type'    => 'product',
 				'post_status'  => 'publish',
@@ -58,7 +58,7 @@ final class PricingCoordinatorTest extends TestCase {
 				),
 			),
 		);
-		$GLOBALS['digitalogic_test_options']              = array(
+		$GLOBALS['digitalogic_test_options']                      = array(
 			'dollar_price'            => '187891',
 			'options_dollar_price'    => '187891',
 			'yuan_price'              => '29500',
@@ -79,7 +79,7 @@ final class PricingCoordinatorTest extends TestCase {
 			Digitalogic_Shipping_Method_Service::DEFAULT_MARKUP_OPTION => $this->default_markup_state( '30' ),
 			Digitalogic_Shipping_Method_Service::ROUNDING_DIGITS_OPTION => 0,
 		);
-		$GLOBALS['wpdb']                                  = new Digitalogic_Test_WPDB();
+		$GLOBALS['wpdb'] = new Digitalogic_Test_WPDB();
 
 		foreach (
 			array(
@@ -245,9 +245,9 @@ final class PricingCoordinatorTest extends TestCase {
 				Digitalogic_Shipping_Method_Service::PRODUCT_METHOD_META => 'domestic',
 			),
 		);
-		$catalog                                  = Digitalogic_Shipping_Method_Service::instance()->get_integration_catalog();
+		$catalog                                = Digitalogic_Shipping_Method_Service::instance()->get_integration_catalog();
 		$this->assertFalse( is_wp_error( $catalog ) );
-		$partner                                  = array(
+		$partner                = array(
 			'product_code'                   => 'PARTNER-902',
 			'partner_price_source'           => 1234560,
 			'price_source_amount'            => 1234560,
@@ -264,8 +264,8 @@ final class PricingCoordinatorTest extends TestCase {
 			'final_price'                    => 160493,
 			'warnings'                       => array(),
 		);
-		$partner['record_hash']                   = $this->record_hash( $partner );
-		$received                                 = Digitalogic_Product_Sync_Receiver::instance()->receive(
+		$partner['record_hash'] = $this->record_hash( $partner );
+		$received               = Digitalogic_Product_Sync_Receiver::instance()->receive(
 			$this->snapshot( array( $partner ), '2026-07-22T01:00:00Z' )
 		);
 		$this->assertFalse(
@@ -274,12 +274,12 @@ final class PricingCoordinatorTest extends TestCase {
 		);
 		$GLOBALS['digitalogic_test_wc_products'] = array();
 
-		$service                                    = Digitalogic_Excel_Pricing_Sync::instance();
-		$before                                     = $service->current_canonical_state();
-		$settings                                   = $before['settings'];
-		$settings['profit_margin_percent']          = 0;
-		$settings['price_rounding_digits']          = 2;
-		$applied                                    = $service->apply_internal_settings(
+		$service                           = Digitalogic_Excel_Pricing_Sync::instance();
+		$before                            = $service->current_canonical_state();
+		$settings                          = $before['settings'];
+		$settings['profit_margin_percent'] = 0;
+		$settings['price_rounding_digits'] = 2;
+		$applied                           = $service->apply_internal_settings(
 			$settings,
 			'test_partner_route',
 			$before['state_revision']
@@ -300,8 +300,8 @@ final class PricingCoordinatorTest extends TestCase {
 		$this->assertSame( 'domestic', $GLOBALS['digitalogic_test_posts'][902]['meta'][ Digitalogic_Shipping_Method_Service::PRODUCT_METHOD_META ] );
 		$this->assertSame( '2', (string) $GLOBALS['digitalogic_test_posts'][902]['meta']['_digitalogic_patris_price_rounding_digits'] );
 
-		$state   = $GLOBALS['digitalogic_test_options'][ Digitalogic_Product_Sync_Receiver::STATE_OPTION ];
-		$stored  = reset( $state['sources'] )['products']['PARTNER-902'];
+		$state  = $GLOBALS['digitalogic_test_options'][ Digitalogic_Product_Sync_Receiver::STATE_OPTION ];
+		$stored = reset( $state['sources'] )['products']['PARTNER-902'];
 		$this->assertSame( '123500', (string) $stored['final_price'] );
 		$this->assertSame( '0', (string) $stored['markup_percent'] );
 		$this->assertSame( 2, $stored['price_rounding_digits'] );
@@ -325,7 +325,7 @@ final class PricingCoordinatorTest extends TestCase {
 				Digitalogic_Shipping_Method_Service::PRODUCT_METHOD_META => 'domestic',
 			),
 		);
-		$direct                                  = array(
+		$direct                                 = array(
 			'product_code'                   => 'DIRECT-903',
 			'sale_price_source'              => 1234560,
 			'price_source_amount'            => 1234560,
@@ -340,8 +340,8 @@ final class PricingCoordinatorTest extends TestCase {
 				'sale_price_direct_fallback_used',
 			),
 		);
-		$direct['record_hash']                   = $this->record_hash( $direct );
-		$received                                = Digitalogic_Product_Sync_Receiver::instance()->receive(
+		$direct['record_hash']                  = $this->record_hash( $direct );
+		$received                               = Digitalogic_Product_Sync_Receiver::instance()->receive(
 			$this->snapshot( array( $direct ), '2026-07-22T02:00:00Z' )
 		);
 		$this->assertFalse(
@@ -350,18 +350,18 @@ final class PricingCoordinatorTest extends TestCase {
 		);
 		$GLOBALS['digitalogic_test_wc_products'] = array();
 
-		$service                                      = Digitalogic_Excel_Pricing_Sync::instance();
-		$before                                       = $service->current_canonical_state();
-		$settings                                     = $before['settings'];
-		$settings['dollar_price']                     = 190000;
-		$settings['yuan_price']                       = 31000;
-		$settings['profit_margin_percent']            = 40;
-		$settings['price_rounding_digits']            = 3;
-		$settings['air_express_price_per_kg']         = 130;
-		$settings['effective_date']                   = '2026-07-27';
-		$settings['usd_effective_date']               = '2026-07-27';
-		$settings['cny_effective_date']               = '2026-07-27';
-		$applied                                      = $service->apply_internal_settings(
+		$service                              = Digitalogic_Excel_Pricing_Sync::instance();
+		$before                               = $service->current_canonical_state();
+		$settings                             = $before['settings'];
+		$settings['dollar_price']             = 190000;
+		$settings['yuan_price']               = 31000;
+		$settings['profit_margin_percent']    = 40;
+		$settings['price_rounding_digits']    = 3;
+		$settings['air_express_price_per_kg'] = 130;
+		$settings['effective_date']           = '2026-07-27';
+		$settings['usd_effective_date']       = '2026-07-27';
+		$settings['cny_effective_date']       = '2026-07-27';
+		$applied                              = $service->apply_internal_settings(
 			$settings,
 			'test_direct_route',
 			$before['state_revision']
@@ -402,7 +402,7 @@ final class PricingCoordinatorTest extends TestCase {
 				'_sale_price'                      => '',
 			),
 		);
-		$unpriced                                  = array(
+		$unpriced                               = array(
 			'product_code'          => 'NO-SOURCE-904',
 			'foreign_currency'      => 'CNY',
 			'foreign_price'         => 0,
@@ -410,8 +410,8 @@ final class PricingCoordinatorTest extends TestCase {
 			'price_rounding_mode'   => 'nearest_half_up',
 			'warnings'              => array(),
 		);
-		$unpriced['record_hash']                   = $this->record_hash( $unpriced );
-		$received                                  = Digitalogic_Product_Sync_Receiver::instance()->receive(
+		$unpriced['record_hash']                = $this->record_hash( $unpriced );
+		$received                               = Digitalogic_Product_Sync_Receiver::instance()->receive(
 			$this->snapshot( array( $unpriced ), '2026-07-22T03:00:00Z' )
 		);
 		$this->assertFalse(
@@ -420,15 +420,15 @@ final class PricingCoordinatorTest extends TestCase {
 		);
 		$GLOBALS['digitalogic_test_wc_products'] = array();
 
-		$service                                    = Digitalogic_Excel_Pricing_Sync::instance();
-		$before                                     = $service->current_canonical_state();
-		$settings                                   = $before['settings'];
-		$settings['yuan_price']                     = 31000;
-		$settings['profit_margin_percent']          = 0;
-		$settings['price_rounding_digits']          = 2;
-		$settings['effective_date']                 = '2026-07-27';
-		$settings['cny_effective_date']             = '2026-07-27';
-		$applied                                    = $service->apply_internal_settings(
+		$service                           = Digitalogic_Excel_Pricing_Sync::instance();
+		$before                            = $service->current_canonical_state();
+		$settings                          = $before['settings'];
+		$settings['yuan_price']            = 31000;
+		$settings['profit_margin_percent'] = 0;
+		$settings['price_rounding_digits'] = 2;
+		$settings['effective_date']        = '2026-07-27';
+		$settings['cny_effective_date']    = '2026-07-27';
+		$applied                           = $service->apply_internal_settings(
 			$settings,
 			'test_no_source_route',
 			$before['state_revision']
@@ -617,7 +617,7 @@ final class PricingCoordinatorTest extends TestCase {
 		);
 
 		$GLOBALS['digitalogic_test_wc_save_failures'] = array( 901 );
-		$rejected = $service->update_method(
+		$rejected                                     = $service->update_method(
 			'air_express',
 			array(
 				'price_per_kg' => '140',
@@ -646,7 +646,7 @@ final class PricingCoordinatorTest extends TestCase {
 		$product_code = '101001001';
 		$GLOBALS['digitalogic_test_posts'][901]['meta']['_digitalogic_patris_product_code'] = $product_code;
 		$GLOBALS['digitalogic_test_posts'][901]['meta']['_sku']                             = $product_code;
-		$GLOBALS['digitalogic_test_wc_products']                                            = array();
+		$GLOBALS['digitalogic_test_wc_products'] = array();
 
 		$received = Digitalogic_Product_Sync_Receiver::instance()->receive(
 			$this->snapshot(

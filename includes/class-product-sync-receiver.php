@@ -53,7 +53,7 @@ final class Digitalogic_Product_Sync_JSON_Decoder {
 
     public static function decode($json) {
         $decoder = new self((string) $json);
-        $value   = $decoder->parse_value(0);
+		$value   = $decoder->parse_value( 0 );
         $decoder->skip_whitespace();
         if ($decoder->position !== $decoder->length) {
             throw new RuntimeException('Unexpected data after the JSON document.');
@@ -63,7 +63,7 @@ final class Digitalogic_Product_Sync_JSON_Decoder {
     }
 
     private function __construct($json) {
-        $this->json   = $json;
+		$this->json   = $json;
         $this->length = strlen($json);
     }
 
@@ -196,7 +196,7 @@ final class Digitalogic_Product_Sync_JSON_Decoder {
         )) {
             throw new RuntimeException('Invalid JSON value.');
         }
-        $token           = $matches[0];
+		$token           = $matches[0];
         $this->position += strlen($token);
 
         return new Digitalogic_Product_Sync_JSON_Number($token);
@@ -232,24 +232,24 @@ final class Digitalogic_Product_Sync_JSON_Decoder {
 }
 
 class Digitalogic_Product_Sync_Receiver {
-    public const STATE_OPTION  = 'digitalogic_product_sync_state';
+	public const STATE_OPTION  = 'digitalogic_product_sync_state';
     public const CONTRACT_NAME = 'patris.product-sync';
-    public const FORMULA_ID    = 'landed_price';
+	public const FORMULA_ID    = 'landed_price';
 
-    private const LOCK_NAME                  = 'digitalogic_product_sync';
-    private const LOCK_TIMEOUT_SECONDS       = 15;
-    private const MAX_BODY_BYTES             = 8388608;
-    private const MAX_STATE_BYTES            = 16777216;
-    private const MAX_PRODUCTS               = 10000;
-    private const MAX_CATEGORIES             = 10000;
-    private const MAX_SOURCES                = 16;
-    private const MAX_RECENT_EVENTS          = 128;
-    private const MAX_RESULT_ERRORS          = 100;
-    private const MAX_DEFERRED_PRODUCTS      = self::MAX_PRODUCTS;
-    private const MAX_CODE_LENGTH            = 191;
+	private const LOCK_NAME                  = 'digitalogic_product_sync';
+	private const LOCK_TIMEOUT_SECONDS       = 15;
+	private const MAX_BODY_BYTES             = 8388608;
+	private const MAX_STATE_BYTES            = 16777216;
+	private const MAX_PRODUCTS               = 10000;
+	private const MAX_CATEGORIES             = 10000;
+	private const MAX_SOURCES                = 16;
+	private const MAX_RECENT_EVENTS          = 128;
+	private const MAX_RESULT_ERRORS          = 100;
+	private const MAX_DEFERRED_PRODUCTS      = self::MAX_PRODUCTS;
+	private const MAX_CODE_LENGTH            = 191;
     private const MAX_FORMULA_INTEGER_DIGITS = 15;
-    private const MAX_FORMULA_SCALE          = 12;
-    private const MAX_MARKUP_PERCENT         = '1000';
+	private const MAX_FORMULA_SCALE          = 12;
+	private const MAX_MARKUP_PERCENT         = '1000';
 
     private const ENVELOPE_FIELDS = array(
         'schema',
@@ -1760,6 +1760,18 @@ class Digitalogic_Product_Sync_Receiver {
         }
 
         if (is_array($existing) && isset($existing['recent_events'][$envelope['event_id']])) {
+            $existing_products = is_array($existing['products'] ?? null)
+                ? $existing['products']
+                : array();
+            $delivery = $this->build_delivery_state(
+                $existing_products,
+                array_values($existing_products),
+                $envelope,
+                $existing
+            );
+            $existing['applied_products'] = $delivery['applied_products'];
+            $existing['pending_products'] = $delivery['pending_products'];
+            $existing['deferred_products'] = $delivery['deferred_products'];
             if (empty($existing['pending_products'])) {
                 return $this->replay_result($envelope, $existing);
             }
@@ -1962,15 +1974,15 @@ class Digitalogic_Product_Sync_Receiver {
     private function emit_result($result, $envelope) {
         try {
             do_action('digitalogic_product_sync_applied', $result, array(
-                'schema'       => $envelope['schema'],
-                'event_id'     => $envelope['event_id'],
-                'event_type'   => $envelope['event_type'],
-                'source'       => $envelope['source'],
-                'generated_at' => $envelope['generated_at'],
+					'schema'       => $envelope['schema'],
+					'event_id'     => $envelope['event_id'],
+					'event_type'   => $envelope['event_type'],
+					'source'       => $envelope['source'],
+					'generated_at' => $envelope['generated_at'],
             ));
         } catch (Throwable $exception) {
             $result['delivery_warnings'][] = array(
-                'code'      => 'digitalogic_product_sync_listener_failed',
+				'code'      => 'digitalogic_product_sync_listener_failed',
                 'exception' => get_class($exception),
             );
         }
@@ -1986,7 +1998,7 @@ class Digitalogic_Product_Sync_Receiver {
             );
         } catch (Throwable $exception) {
             $result['delivery_warnings'][] = array(
-                'code'      => 'digitalogic_product_sync_log_failed',
+				'code'      => 'digitalogic_product_sync_log_failed',
                 'exception' => get_class($exception),
             );
         }
@@ -2012,7 +2024,7 @@ class Digitalogic_Product_Sync_Receiver {
             'quarantined_codes',
             'warnings',
         );
-        $missing  = array_values(array_diff($required, array_keys($payload)));
+		$missing  = array_values( array_diff( $required, array_keys( $payload ) ) );
         if (!empty($missing)) {
             return $this->error('digitalogic_product_sync_missing_field', 'The envelope is missing required fields.', 422, array('fields' => $missing));
         }
@@ -2029,7 +2041,7 @@ class Digitalogic_Product_Sync_Receiver {
             return $this->field_error('event_type', 'must be snapshot or update');
         }
         $has_currency = array_key_exists('local_currency', $payload);
-        $has_formula  = array_key_exists('formula_id', $payload);
+		$has_formula  = array_key_exists( 'formula_id', $payload );
         if ($has_currency !== $has_formula) {
             return $this->field_error('formula_id', 'must be present exactly when local_currency is present');
         }
@@ -2049,8 +2061,8 @@ class Digitalogic_Product_Sync_Receiver {
                     409,
                     array(
                         'woocommerce_base_currency' => $currency_status['code'],
-                        'required_currency'         => Digitalogic_WooCommerce_Currency_Status::REQUIRED_CURRENCY,
-                        'warning'                   => Digitalogic_WooCommerce_Currency_Status::INCOMPATIBLE_WARNING,
+						'required_currency'         => Digitalogic_WooCommerce_Currency_Status::REQUIRED_CURRENCY,
+						'warning'                   => Digitalogic_WooCommerce_Currency_Status::INCOMPATIBLE_WARNING,
                     )
                 );
             }
@@ -2074,7 +2086,7 @@ class Digitalogic_Product_Sync_Receiver {
             return $this->error('digitalogic_product_sync_product_limit', 'The event contains too many products.', 413);
         }
 
-        $products   = array();
+		$products   = array();
         $seen_codes = array();
         foreach ($payload['products'] as $index => $product) {
             $validated = $this->validate_product($product, $index, $pricing_active);
@@ -2088,7 +2100,7 @@ class Digitalogic_Product_Sync_Receiver {
             // PHP coerces canonical numeric-string array keys to integers. Keep
             // the validated string as the value whenever the map is projected.
             $seen_codes[$code] = $code;
-            $products[]        = $validated;
+			$products[]          = $validated;
         }
 
         $categories = $this->validate_categories($payload['categories']);
@@ -2137,22 +2149,22 @@ class Digitalogic_Product_Sync_Receiver {
         }
 
         $envelope = array(
-            'schema'             => $payload['schema'],
-            'event_type'         => $payload['event_type'],
-            'event_id'           => $payload['event_id'],
-            'source'             => $source,
-            'generated_at'       => $payload['generated_at'],
+			'schema'             => $payload['schema'],
+			'event_type'         => $payload['event_type'],
+			'event_id'           => $payload['event_id'],
+			'source'             => $source,
+			'generated_at'       => $payload['generated_at'],
             'generated_at_order' => $generated_at_order,
-            'products'           => $products,
-            'categories'         => $categories,
-            'excluded_codes'     => $excluded_codes,
-            'deleted_codes'      => $deleted_codes,
-            'quarantined_codes'  => $quarantined_codes,
-            'warnings'           => $warnings,
+			'products'           => $products,
+			'categories'         => $categories,
+			'excluded_codes'     => $excluded_codes,
+			'deleted_codes'      => $deleted_codes,
+			'quarantined_codes'  => $quarantined_codes,
+			'warnings'           => $warnings,
         );
         if ($pricing_active) {
             $envelope['local_currency'] = $payload['local_currency'];
-            $envelope['formula_id']     = $payload['formula_id'];
+			$envelope['formula_id']     = $payload['formula_id'];
         }
 
         $expected_event_id = $this->event_id($envelope);
@@ -2632,7 +2644,7 @@ class Digitalogic_Product_Sync_Receiver {
             return $this->field_error('deleted_codes', 'is only valid on update events');
         }
         $result = array();
-        $seen   = array();
+		$seen   = array();
         foreach ($values as $index => $value) {
             if (
                 !is_array($value)
@@ -2653,7 +2665,10 @@ class Digitalogic_Product_Sync_Receiver {
                 return $this->field_error('deleted_codes[' . $index . '].product_code', 'must be unique and within the code limit');
             }
             $seen[$value['product_code']] = true;
-            $result[]                     = array('product_code' => $value['product_code'], 'deleted' => true);
+			$result[]                       = array(
+				'product_code' => $value['product_code'],
+				'deleted'      => true,
+			);
         }
         usort($result, static function($left, $right) {
             return strcmp($left['product_code'], $right['product_code']);
@@ -2667,7 +2682,7 @@ class Digitalogic_Product_Sync_Receiver {
             return $this->field_error($field, 'must be an array of unique strings');
         }
         $result = array();
-        $seen   = array();
+		$seen   = array();
         foreach ($values as $index => $value) {
             if (!is_string($value) || '' === trim($value) || ($code_rules && trim($value) !== $value)) {
                 return $this->field_error($field . '[' . $index . ']', 'must be a non-empty string');
@@ -2677,7 +2692,7 @@ class Digitalogic_Product_Sync_Receiver {
                 return $this->field_error($field . '[' . $index . ']', 'must be unique and within the length limit');
             }
             $seen[$value] = true;
-            $result[]     = $value;
+			$result[]       = $value;
         }
         sort($result, SORT_STRING);
 
@@ -2696,7 +2711,7 @@ class Digitalogic_Product_Sync_Receiver {
         }
         ksort($categories, SORT_STRING);
         $excluded_codes = $envelope['excluded_codes'];
-        $quarantined    = array();
+		$quarantined    = array();
         foreach ($envelope['quarantined_codes'] as $quarantined_code) {
             $quarantined[$quarantined_code] = $quarantined_code;
         }
@@ -2762,11 +2777,11 @@ class Digitalogic_Product_Sync_Receiver {
         }
 
         return array(
-            'products'              => $next,
-            'categories'            => $categories,
-            'excluded_codes'        => $excluded_codes,
-            'changed_products'      => array_values($incoming),
-            'deleted_count'         => 'snapshot' === $envelope['event_type']
+			'products'              => $next,
+			'categories'            => $categories,
+			'excluded_codes'        => $excluded_codes,
+			'changed_products'      => array_values( $incoming ),
+			'deleted_count'         => 'snapshot' === $envelope['event_type']
                 ? count(array_diff(array_keys($previous), array_merge(array_keys($next), $envelope['quarantined_codes'])))
                 : ($deleted ?? 0),
             'preserved_quarantined' => $preserved,
@@ -2796,9 +2811,18 @@ class Digitalogic_Product_Sync_Receiver {
             $record_hash = $product['record_hash'];
             $applied_entry = is_array($applied[$code] ?? null) ? $applied[$code] : array();
             if (isset($applied_entry['record_hash']) && hash_equals((string) $applied_entry['record_hash'], $record_hash)) {
-                unset($pending[$code]);
-                unset($deferred[$code]);
-                continue;
+                $woocommerce_id = isset($applied_entry['woocommerce_id'])
+                    ? (int) $applied_entry['woocommerce_id']
+                    : 0;
+                if (
+                    $woocommerce_id > 0
+                    && $this->delivery_price_projection_matches($woocommerce_id, $product)
+                ) {
+                    unset($pending[$code]);
+                    unset($deferred[$code]);
+                    continue;
+                }
+                unset($applied[$code]);
             }
 
             $pending_entry = is_array($pending[$code] ?? null) ? $pending[$code] : array();
@@ -2947,6 +2971,7 @@ class Digitalogic_Product_Sync_Receiver {
                 isset($applied_entry['record_hash'], $applied_entry['woocommerce_id'])
                 && hash_equals((string) $applied_entry['record_hash'], $record_hash)
                 && (string) $applied_entry['woocommerce_id'] === (string) $woocommerce_id
+                && $this->delivery_price_projection_matches($woocommerce_id, $product_data)
             ) {
                 unset($pending[$code_key]);
                 unset($deferred[$code_key]);
@@ -2955,7 +2980,12 @@ class Digitalogic_Product_Sync_Receiver {
             }
 
             $persisted_hash = (string) get_post_meta($woocommerce_id, '_digitalogic_patris_record_hash', true);
-            if (!$force_apply && '' !== $persisted_hash && hash_equals($record_hash, $persisted_hash)) {
+            if (
+                !$force_apply
+                && '' !== $persisted_hash
+                && hash_equals($record_hash, $persisted_hash)
+                && $this->delivery_price_projection_matches($woocommerce_id, $product_data)
+            ) {
                 $applied[$code_key] = array(
                     'product_code' => $product_code,
                     'record_hash' => $record_hash,
@@ -3066,6 +3096,95 @@ class Digitalogic_Product_Sync_Receiver {
         }
 
         return $product_code;
+    }
+
+    /**
+     * Verify the canonical/source price projection before trusting a stored hash.
+     *
+     * A matching receiver/applied record hash only proves what should have been
+     * written. It cannot prove that Woo metadata and customer prices still match
+     * after a failed or legacy write. Sparse unpriced rows remain compatible:
+     * they may preserve one valid Woo fallback, but never gain a fabricated
+     * canonical Patris price.
+     *
+     * @param int   $woocommerce_id WooCommerce product ID.
+     * @param array $product         Canonical stored product.
+     * @return bool
+     */
+    private function delivery_price_projection_matches($woocommerce_id, $product) {
+        if (
+            $woocommerce_id <= 0
+            || !is_array($product)
+            || (string) get_post_meta($woocommerce_id, '_digitalogic_patris_product_code', true)
+                !== (string) ($product['product_code'] ?? '')
+        ) {
+            return false;
+        }
+
+        $source_meta = array(
+            'price_source_amount' => '_digitalogic_patris_price_source_amount',
+            'price_source_currency' => '_digitalogic_patris_price_source_currency',
+            'price_source_kind' => '_digitalogic_patris_price_source_kind',
+        );
+        foreach ($source_meta as $field => $meta_key) {
+            if (!array_key_exists($field, $product) || null === $product[$field]) {
+                if (metadata_exists('post', $woocommerce_id, $meta_key)) {
+                    return false;
+                }
+                continue;
+            }
+            if (
+                !metadata_exists('post', $woocommerce_id, $meta_key)
+                || (string) get_post_meta($woocommerce_id, $meta_key, true) !== (string) $product[$field]
+            ) {
+                return false;
+            }
+        }
+
+        $has_final_price = array_key_exists('final_price', $product) && null !== $product['final_price'];
+        if (!$has_final_price) {
+            if (metadata_exists('post', $woocommerce_id, '_digitalogic_patris_final_price')) {
+                return false;
+            }
+        } elseif (
+            !metadata_exists('post', $woocommerce_id, '_digitalogic_patris_final_price')
+            || (string) get_post_meta($woocommerce_id, '_digitalogic_patris_final_price', true)
+                !== (string) $product['final_price']
+        ) {
+            return false;
+        }
+
+        $woo_product = wc_get_product($woocommerce_id);
+        if (!$woo_product) {
+            return false;
+        }
+        if ($woo_product->is_type('variable')) {
+            return true;
+        }
+
+        $regular = trim((string) $woo_product->get_regular_price());
+        $visible = trim((string) $woo_product->get_price());
+        $sale = trim((string) $woo_product->get_sale_price());
+        if ($has_final_price) {
+            $final_price = (string) $product['final_price'];
+            return $regular === $final_price && $visible === $final_price && '' === $sale;
+        }
+
+        $status = (string) $woo_product->get_meta(Digitalogic_Patris_Price_Policy::STATUS_META, true);
+        if ('canonical_missing_preserved' === $status) {
+            return '' !== $regular
+                && is_numeric($regular)
+                && (float) $regular > 0
+                && $regular === $visible
+                && '' === $sale
+                && Digitalogic_Patris_Price_Policy::MISSING_WEIGHT_WARNING
+                    === (string) $woo_product->get_meta(Digitalogic_Patris_Price_Policy::WARNING_META, true);
+        }
+
+        return 'canonical_missing_unpriced' === $status
+            && '' === $regular
+            && '' === $visible
+            && '' === $sale;
     }
 
     private function prune_delivery_set($products, $delivery_set) {
@@ -3183,7 +3302,7 @@ class Digitalogic_Product_Sync_Receiver {
 
     private function persist_and_read_back($state) {
         global $wpdb;
-        $owns_transaction = $this->coordinated_transaction_depth <= 0;
+		$owns_transaction = $this->coordinated_transaction_depth <= 0;
         if (
             !is_object($wpdb)
             || !isset($wpdb->options)
@@ -3195,15 +3314,15 @@ class Digitalogic_Product_Sync_Receiver {
         ) {
             return $this->error('digitalogic_product_sync_storage_unavailable', 'The receiver storage service is unavailable.', 503);
         }
-        if ($owns_transaction && false === $wpdb->query('START TRANSACTION')) {
+		if ( $owns_transaction && false === $wpdb->query( 'START TRANSACTION' ) ) {
             return $this->error('digitalogic_product_sync_transaction_unavailable', 'The receiver could not start a storage transaction.', 503);
         }
 
         $serialized = maybe_serialize($state);
         if (!is_string($serialized) || strlen($serialized) > self::MAX_STATE_BYTES) {
-            if ($owns_transaction) {
-                $wpdb->query('ROLLBACK');
-            }
+			if ( $owns_transaction ) {
+				$wpdb->query( 'ROLLBACK' );
+			}
 
             return $this->error('digitalogic_product_sync_state_too_large', 'The combined receiver state is too large.', 413);
         }
@@ -3224,7 +3343,7 @@ class Digitalogic_Product_Sync_Receiver {
             $written = $wpdb->insert(
                 $wpdb->options,
                 array(
-                    'option_name'  => self::STATE_OPTION,
+					'option_name'  => self::STATE_OPTION,
                     'option_value' => $serialized,
                     'autoload'     => 'no',
                 ),
@@ -3232,9 +3351,9 @@ class Digitalogic_Product_Sync_Receiver {
             );
         }
         if (false === $written || 0 === $written) {
-            if ($owns_transaction) {
-                $wpdb->query('ROLLBACK');
-            }
+			if ( $owns_transaction ) {
+				$wpdb->query( 'ROLLBACK' );
+			}
             $this->invalidate_state_cache();
 
             return $this->error('digitalogic_product_sync_storage_failed', 'The receiver state could not be stored.', 500);
@@ -3247,14 +3366,14 @@ class Digitalogic_Product_Sync_Receiver {
         $read_serialized = is_array($read_row) && is_string($read_row['option_value'] ?? null)
             ? $read_row['option_value']
             : null;
-        $read_back       = is_string($read_serialized) ? maybe_unserialize($read_serialized) : null;
+		$read_back       = is_string( $read_serialized ) ? maybe_unserialize( $read_serialized ) : null;
         if (
             !is_array($read_back)
             || !is_string($read_serialized)
             || !hash_equals($expected_digest, hash('sha256', $read_serialized))
         ) {
             if ($owns_transaction) {
-                $wpdb->query('ROLLBACK');
+				$wpdb->query( 'ROLLBACK' );
             }
             $this->invalidate_state_cache();
 
@@ -3450,248 +3569,248 @@ class Digitalogic_Product_Sync_Receiver {
             }
         }
 
-        $evaluated = $this->evaluate_final_price_formula($product, $path);
-        if (is_wp_error($evaluated)) {
-            return $evaluated;
-        }
-        if (empty($evaluated['available'])) {
-            if (!array_key_exists('final_price', $product)) {
-                return true;
-            }
+		$evaluated = $this->evaluate_final_price_formula( $product, $path );
+		if ( is_wp_error( $evaluated ) ) {
+			return $evaluated;
+		}
+		if ( empty( $evaluated['available'] ) ) {
+			if ( ! array_key_exists( 'final_price', $product ) ) {
+				return true;
+			}
 
-            return $this->error(
+			return $this->error(
                 'digitalogic_product_sync_final_price_mismatch',
-                'final_price must be omitted when selected-price inputs are incomplete.',
-                422,
-                array(
-                    'path' => $path . '.final_price',
-                    'expected' => 'omitted',
+				'final_price must be omitted when selected-price inputs are incomplete.',
+				422,
+				array(
+					'path'     => $path . '.final_price',
+					'expected' => 'omitted',
                     'missing' => $evaluated['missing'],
-                )
-            );
-        }
-        if (!array_key_exists('final_price', $product)) {
-            return $this->field_error($path . '.final_price', 'is required when all selected-price inputs are available');
-        }
+				)
+			);
+		}
+		if ( ! array_key_exists( 'final_price', $product ) ) {
+			return $this->field_error( $path . '.final_price', 'is required when all selected-price inputs are available' );
+		}
 
-        $actual = $this->number_to_storage($product['final_price']);
-        if (!is_int($actual) || $actual !== $evaluated['value']) {
-            $message = 'sale_price_direct' === $product['price_source_kind']
-                ? 'final_price does not match the direct source sale amount converted from IRR to IRT.'
+		$actual = $this->number_to_storage( $product['final_price'] );
+		if ( ! is_int( $actual ) || $actual !== $evaluated['value'] ) {
+			$message = 'sale_price_direct' === $product['price_source_kind']
+				? 'final_price does not match the direct source sale amount converted from IRR to IRT.'
                 : 'final_price does not match independently evaluated landed_price.';
 
-            return $this->error(
+			return $this->error(
                 'digitalogic_product_sync_final_price_mismatch',
-                $message,
-                422,
-                array(
-                    'path' => $path . '.final_price',
-                    'expected' => $evaluated['value'],
-                    'actual' => $actual,
-                )
-            );
-        }
+				$message,
+				422,
+				array(
+					'path'     => $path . '.final_price',
+					'expected' => $evaluated['value'],
+					'actual'   => $actual,
+				)
+			);
+		}
 
-        return true;
-    }
+		return true;
+	}
 
-    /**
-     * Evaluate one selected route without choosing a source on the caller's behalf.
-     *
-     * Foreign CNY pricing adds exact item and weight-based freight costs, converts
-     * them to IRT, applies markup once, then rounds once. Partner IRR pricing uses
-     * the canonical zero-rate domestic route before markup and rounding. Direct
-     * sale pricing only performs an exact IRR-to-IRT division and is deliberately
-     * independent from freight, FX, markup, and rounding settings.
-     *
-     * @param array  $product Canonical product record.
-     * @param string $path    Error path.
-     * @return array|WP_Error
-     */
+	/**
+	 * Evaluate one selected route without choosing a source on the caller's behalf.
+	 *
+	 * Foreign CNY pricing adds exact item and weight-based freight costs, converts
+	 * them to IRT, applies markup once, then rounds once. Partner IRR pricing uses
+	 * the canonical zero-rate domestic route before markup and rounding. Direct
+	 * sale pricing only performs an exact IRR-to-IRT division and is deliberately
+	 * independent from freight, FX, markup, and rounding settings.
+	 *
+	 * @param array  $product Canonical product record.
+	 * @param string $path    Error path.
+	 * @return array|WP_Error
+	 */
     private function evaluate_final_price_formula($product, $path) {
-        $kind = isset($product['price_source_kind']) && is_string($product['price_source_kind'])
-            ? $product['price_source_kind']
-            : '';
-        if ('' === $kind) {
-            return array(
-                'available' => false,
-                'missing' => array('price_source_kind'),
-            );
+		$kind = isset( $product['price_source_kind'] ) && is_string( $product['price_source_kind'] )
+			? $product['price_source_kind']
+			: '';
+		if ( '' === $kind ) {
+			return array(
+				'available' => false,
+				'missing'   => array( 'price_source_kind' ),
+			);
         }
-        if (!in_array($kind, array('foreign_price', 'partner_price', 'sale_price_direct'), true)) {
-            return $this->field_error($path . '.price_source_kind', 'contains an unsupported selected price source');
-        }
+		if ( ! in_array( $kind, array( 'foreign_price', 'partner_price', 'sale_price_direct' ), true ) ) {
+			return $this->field_error( $path . '.price_source_kind', 'contains an unsupported selected price source' );
+		}
 
         $source_fields = array('price_source_amount', 'price_source_currency', 'price_source_kind');
         $missing = array();
-        foreach ($source_fields as $field) {
-            if (!array_key_exists($field, $product) || null === $product[$field] || '' === $product[$field]) {
+		foreach ( $source_fields as $field ) {
+			if ( ! array_key_exists( $field, $product ) || null === $product[ $field ] || '' === $product[ $field ] ) {
                 $missing[] = $field;
             }
-        }
-        if (!empty($missing)) {
+		}
+		if ( ! empty( $missing ) ) {
             return array(
-                'available' => false,
-                'missing' => $missing,
-            );
-        }
+				'available' => false,
+				'missing'   => $missing,
+			);
+		}
 
-        $source_amount = $this->formula_decimal_parts($product['price_source_amount']);
-        if (isset($source_amount['error'])) {
-            return $this->field_error($path . '.price_source_amount', $source_amount['error']);
-        }
-        if ($this->decimal_compare($source_amount, $this->formula_decimal_parts('0')) <= 0) {
-            return $this->field_error($path . '.price_source_amount', 'must be greater than zero when selected');
-        }
+		$source_amount = $this->formula_decimal_parts( $product['price_source_amount'] );
+		if ( isset( $source_amount['error'] ) ) {
+			return $this->field_error( $path . '.price_source_amount', $source_amount['error'] );
+		}
+		if ( $this->decimal_compare( $source_amount, $this->formula_decimal_parts( '0' ) ) <= 0 ) {
+			return $this->field_error( $path . '.price_source_amount', 'must be greater than zero when selected' );
+		}
 
-        if ('foreign_price' === $kind) {
-            if ('CNY' !== $product['price_source_currency']) {
-                return $this->field_error($path . '.price_source_currency', 'must be CNY for foreign_price');
-            }
-            $required = array(
-                'weight_grams',
-                'shipping_method_id',
-                'shipping_price_per_kg',
-                'shipping_price_per_kg_currency',
-                'markup_percent',
-                'irt_per_cny',
-                'price_rounding_digits',
-                'price_rounding_mode',
-            );
-        } elseif ('partner_price' === $kind) {
-            if ('IRR' !== $product['price_source_currency']) {
-                return $this->field_error($path . '.price_source_currency', 'must be IRR for partner_price');
-            }
-            $required = array(
-                'shipping_method_id',
-                'shipping_price_per_kg',
-                'shipping_price_per_kg_currency',
-                'markup_percent',
-                'price_rounding_digits',
-                'price_rounding_mode',
-            );
-        } else {
-            if ('IRR' !== $product['price_source_currency']) {
+		if ( 'foreign_price' === $kind ) {
+			if ( 'CNY' !== $product['price_source_currency'] ) {
+				return $this->field_error( $path . '.price_source_currency', 'must be CNY for foreign_price' );
+			}
+			$required = array(
+				'weight_grams',
+				'shipping_method_id',
+				'shipping_price_per_kg',
+				'shipping_price_per_kg_currency',
+				'markup_percent',
+				'irt_per_cny',
+				'price_rounding_digits',
+				'price_rounding_mode',
+			);
+		} elseif ( 'partner_price' === $kind ) {
+			if ( 'IRR' !== $product['price_source_currency'] ) {
+				return $this->field_error( $path . '.price_source_currency', 'must be IRR for partner_price' );
+			}
+			$required = array(
+				'shipping_method_id',
+				'shipping_price_per_kg',
+				'shipping_price_per_kg_currency',
+				'markup_percent',
+				'price_rounding_digits',
+				'price_rounding_mode',
+			);
+		} else {
+			if ( 'IRR' !== $product['price_source_currency'] ) {
                 return $this->field_error($path . '.price_source_currency', 'must be IRR for sale_price_direct');
             }
-            $required = array(
-                'shipping_method_id',
-                'shipping_price_per_kg',
-                'shipping_price_per_kg_currency',
-            );
+			$required = array(
+				'shipping_method_id',
+				'shipping_price_per_kg',
+				'shipping_price_per_kg_currency',
+			);
         }
-        foreach ($required as $field) {
-            if (!array_key_exists($field, $product) || null === $product[$field] || '' === $product[$field]) {
-                $missing[] = $field;
+		foreach ( $required as $field ) {
+			if ( ! array_key_exists( $field, $product ) || null === $product[ $field ] || '' === $product[ $field ] ) {
+				$missing[] = $field;
             }
-        }
+		}
 
-        if ('foreign_price' === $kind) {
+		if ( 'foreign_price' === $kind ) {
             if (
-                array_key_exists('shipping_method_id', $product)
-                && (
-                    '' === $product['shipping_method_id']
-                    || Digitalogic_Shipping_Method_Service::DOMESTIC_METHOD_ID === $product['shipping_method_id']
-                )
+				array_key_exists( 'shipping_method_id', $product )
+				&& (
+					'' === $product['shipping_method_id']
+					|| Digitalogic_Shipping_Method_Service::DOMESTIC_METHOD_ID === $product['shipping_method_id']
+				)
             ) {
-                $missing[] = 'shipping_method_id';
+				$missing[] = 'shipping_method_id';
             }
             if (
-                array_key_exists('shipping_price_per_kg_currency', $product)
-                && !in_array($product['shipping_price_per_kg_currency'], array('CNY', 'IRR'), true)
+				array_key_exists( 'shipping_price_per_kg_currency', $product )
+				&& ! in_array( $product['shipping_price_per_kg_currency'], array( 'CNY', 'IRR' ), true )
             ) {
-                return $this->field_error(
-                    $path . '.shipping_price_per_kg_currency',
-                    'must be CNY or IRR for foreign freight pricing'
-                );
+				return $this->field_error(
+					$path . '.shipping_price_per_kg_currency',
+					'must be CNY or IRR for foreign freight pricing'
+				);
             }
         } else {
             if (
-                array_key_exists('shipping_method_id', $product)
-                && Digitalogic_Shipping_Method_Service::DOMESTIC_METHOD_ID !== $product['shipping_method_id']
+				array_key_exists( 'shipping_method_id', $product )
+				&& Digitalogic_Shipping_Method_Service::DOMESTIC_METHOD_ID !== $product['shipping_method_id']
             ) {
                 $missing[] = 'shipping_method_id';
             }
             if (
                 array_key_exists('shipping_price_per_kg_currency', $product)
-                && 'IRR' !== $product['shipping_price_per_kg_currency']
+				&& 'IRR' !== $product['shipping_price_per_kg_currency']
             ) {
                 $missing[] = 'shipping_price_per_kg_currency';
             }
         }
-        $missing = array_values(array_unique($missing));
+		$missing = array_values( array_unique( $missing ) );
         if (!empty($missing)) {
-            return array(
-                'available' => false,
-                'missing' => $missing,
+			return array(
+				'available' => false,
+				'missing'   => $missing,
             );
         }
 
-        $shipping_rate = $this->formula_decimal_parts($product['shipping_price_per_kg']);
-        if (isset($shipping_rate['error'])) {
-            return $this->field_error($path . '.shipping_price_per_kg', $shipping_rate['error']);
+		$shipping_rate = $this->formula_decimal_parts( $product['shipping_price_per_kg'] );
+		if ( isset( $shipping_rate['error'] ) ) {
+			return $this->field_error( $path . '.shipping_price_per_kg', $shipping_rate['error'] );
         }
-        if ('foreign_price' === $kind) {
-            if ($this->decimal_compare($shipping_rate, $this->formula_decimal_parts('0')) <= 0) {
-                return array(
-                    'available' => false,
-                    'missing' => array('shipping_price_per_kg'),
-                );
-            }
-            $weight = $this->formula_decimal_parts($product['weight_grams']);
-            $markup = $this->formula_decimal_parts($product['markup_percent']);
-            $irt_per_cny = $this->formula_decimal_parts($product['irt_per_cny']);
-            foreach (
-                array(
-                    'weight_grams' => $weight,
-                    'markup_percent' => $markup,
-                    'irt_per_cny' => $irt_per_cny,
-                ) as $field => $decimal
-            ) {
+		if ( 'foreign_price' === $kind ) {
+			if ( $this->decimal_compare( $shipping_rate, $this->formula_decimal_parts( '0' ) ) <= 0 ) {
+				return array(
+					'available' => false,
+					'missing'   => array( 'shipping_price_per_kg' ),
+				);
+			}
+			$weight      = $this->formula_decimal_parts( $product['weight_grams'] );
+			$markup      = $this->formula_decimal_parts( $product['markup_percent'] );
+			$irt_per_cny = $this->formula_decimal_parts( $product['irt_per_cny'] );
+			foreach (
+				array(
+					'weight_grams'   => $weight,
+					'markup_percent' => $markup,
+					'irt_per_cny'    => $irt_per_cny,
+				) as $field => $decimal
+			) {
                 if (isset($decimal['error'])) {
-                    return $this->field_error($path . '.' . $field, $decimal['error']);
-                }
-            }
-            if ($this->decimal_compare($weight, $this->formula_decimal_parts('0')) <= 0) {
-                return array(
-                    'available' => false,
-                    'missing' => array('weight_grams'),
-                );
-            }
-            if ($this->decimal_compare($irt_per_cny, $this->formula_decimal_parts('0')) <= 0) {
-                return $this->field_error($path . '.irt_per_cny', 'must be greater than zero');
-            }
+					return $this->field_error( $path . '.' . $field, $decimal['error'] );
+				}
+			}
+			if ( $this->decimal_compare( $weight, $this->formula_decimal_parts( '0' ) ) <= 0 ) {
+				return array(
+					'available' => false,
+					'missing'   => array( 'weight_grams' ),
+				);
+			}
+			if ( $this->decimal_compare( $irt_per_cny, $this->formula_decimal_parts( '0' ) ) <= 0 ) {
+				return $this->field_error( $path . '.irt_per_cny', 'must be greater than zero' );
+			}
 
-            $goods_irt = $this->decimal_multiply($source_amount, $irt_per_cny);
-            $shipping_cost = $this->decimal_multiply($weight, $shipping_rate);
+			$goods_irt               = $this->decimal_multiply( $source_amount, $irt_per_cny );
+			$shipping_cost           = $this->decimal_multiply( $weight, $shipping_rate );
             $shipping_cost['scale'] += 3; // grams to kilograms, exactly.
             if ('CNY' === $product['shipping_price_per_kg_currency']) {
-                $shipping_irt = $this->decimal_multiply($shipping_cost, $irt_per_cny);
+				$shipping_irt = $this->decimal_multiply( $shipping_cost, $irt_per_cny );
             } else {
-                $shipping_irt = $shipping_cost;
+				$shipping_irt           = $shipping_cost;
                 $shipping_irt['scale'] += 1; // IRR to IRT, exactly.
             }
-            $base_irt = $this->decimal_add($goods_irt, $shipping_irt);
-        } elseif ('partner_price' === $kind) {
-            if (0 !== $this->decimal_compare($shipping_rate, $this->formula_decimal_parts('0'))) {
-                return array(
-                    'available' => false,
-                    'missing' => array('shipping_price_per_kg'),
-                );
-            }
-            $markup = $this->formula_decimal_parts($product['markup_percent']);
-            if (isset($markup['error'])) {
-                return $this->field_error($path . '.markup_percent', $markup['error']);
-            }
+			$base_irt = $this->decimal_add( $goods_irt, $shipping_irt );
+		} elseif ( 'partner_price' === $kind ) {
+			if ( 0 !== $this->decimal_compare( $shipping_rate, $this->formula_decimal_parts( '0' ) ) ) {
+				return array(
+					'available' => false,
+					'missing'   => array( 'shipping_price_per_kg' ),
+				);
+			}
+			$markup = $this->formula_decimal_parts( $product['markup_percent'] );
+			if ( isset( $markup['error'] ) ) {
+				return $this->field_error( $path . '.markup_percent', $markup['error'] );
+			}
             $base_irt = $source_amount;
             $base_irt['scale'] += 1; // IRR to IRT, exactly.
         } else {
-            if (0 !== $this->decimal_compare($shipping_rate, $this->formula_decimal_parts('0'))) {
-                return array(
-                    'available' => false,
-                    'missing' => array('shipping_price_per_kg'),
-                );
-            }
+			if ( 0 !== $this->decimal_compare( $shipping_rate, $this->formula_decimal_parts( '0' ) ) ) {
+				return array(
+					'available' => false,
+					'missing'   => array( 'shipping_price_per_kg' ),
+				);
+			}
             $direct_irt = $source_amount;
             $direct_irt['scale'] += 1; // IRR to IRT, exactly.
             while ($direct_irt['scale'] > 0 && str_ends_with($direct_irt['digits'], '0')) {
@@ -3699,8 +3818,8 @@ class Digitalogic_Product_Sync_Receiver {
                 --$direct_irt['scale'];
             }
             if ($direct_irt['scale'] > 0) {
-                return array(
-                    'available' => false,
+				return array(
+					'available' => false,
                     'missing' => array('integer_irt_amount'),
                 );
             }
@@ -3708,32 +3827,32 @@ class Digitalogic_Product_Sync_Receiver {
                 return $this->field_error($path . '.final_price', 'sale_price_direct exceeds the supported IRT integer range');
             }
 
-            return array(
-                'available' => true,
-                'missing' => array(),
-                'value' => (int) $direct_irt['digits'],
-            );
-        }
+			return array(
+				'available' => true,
+				'missing'   => array(),
+				'value'     => (int) $direct_irt['digits'],
+			);
+		}
 
         if ($this->decimal_compare($markup, $this->formula_decimal_parts(self::MAX_MARKUP_PERCENT)) > 0) {
-            return $this->field_error($path . '.markup_percent', 'must not exceed ' . self::MAX_MARKUP_PERCENT);
-        }
-        if (
-            !$this->is_nonnegative_integer($product['price_rounding_digits'])
-            || (int) $this->number_to_storage($product['price_rounding_digits']) > 9
-            || 'nearest_half_up' !== $product['price_rounding_mode']
-        ) {
-            return array(
-                'available' => false,
-                'missing' => array('price_rounding_digits', 'price_rounding_mode'),
-            );
+			return $this->field_error( $path . '.markup_percent', 'must not exceed ' . self::MAX_MARKUP_PERCENT );
+		}
+		if (
+			! $this->is_nonnegative_integer( $product['price_rounding_digits'] )
+			|| (int) $this->number_to_storage( $product['price_rounding_digits'] ) > 9
+			|| 'nearest_half_up' !== $product['price_rounding_mode']
+		) {
+			return array(
+				'available' => false,
+				'missing'   => array( 'price_rounding_digits', 'price_rounding_mode' ),
+			);
         }
 
-        $markup_multiplier = $this->decimal_add(
+		$markup_multiplier   = $this->decimal_add(
             $this->formula_decimal_parts('100'),
-            $markup
+			$markup
         );
-        $marked_up = $this->decimal_multiply($base_irt, $markup_multiplier);
+		$marked_up           = $this->decimal_multiply( $base_irt, $markup_multiplier );
         $marked_up['scale'] += 2; // percent to multiplier, exactly.
         $rounding_digits = (int) $this->number_to_storage($product['price_rounding_digits']);
         $rounded = $this->decimal_round_half_up_to_digits($marked_up, $rounding_digits);
@@ -3741,11 +3860,11 @@ class Digitalogic_Product_Sync_Receiver {
             return $this->field_error($path . '.final_price', 'landed_price exceeds the supported IRT integer range');
         }
 
-        return array(
-            'available' => true,
-            'missing' => array(),
-            'value' => (int) $rounded,
-        );
+		return array(
+			'available' => true,
+			'missing'   => array(),
+			'value'     => (int) $rounded,
+		);
     }
 
     private function formula_decimal_parts($value) {
@@ -3762,8 +3881,8 @@ class Digitalogic_Product_Sync_Receiver {
             return array('error' => 'must be a non-negative base-10 decimal without exponent notation');
         }
 
-        $integer        = $matches[1];
-        $fraction       = isset($matches[2]) ? $matches[2] : '';
+		$integer        = $matches[1];
+		$fraction       = isset( $matches[2] ) ? $matches[2] : '';
         $integer_digits = strlen(ltrim($integer, '0'));
         if (0 === $integer_digits) {
             $integer_digits = 1;
@@ -3775,7 +3894,7 @@ class Digitalogic_Product_Sync_Receiver {
             return array('error' => 'has too many fractional digits for landed_price');
         }
 
-        $scale  = strlen($fraction);
+		$scale  = strlen( $fraction );
         $digits = ltrim($integer . $fraction, '0');
         $digits = '' === $digits ? '0' : $digits;
         while ($scale > 0 && str_ends_with($digits, '0')) {
@@ -3792,7 +3911,7 @@ class Digitalogic_Product_Sync_Receiver {
 
     private function decimal_add($left, $right) {
         $scale        = max((int) $left['scale'], (int) $right['scale']);
-        $left_digits  = $left['digits'] . str_repeat('0', $scale - (int) $left['scale']);
+		$left_digits  = $left['digits'] . str_repeat( '0', $scale - (int) $left['scale'] );
         $right_digits = $right['digits'] . str_repeat('0', $scale - (int) $right['scale']);
 
         return array('digits' => $this->big_integer_add($left_digits, $right_digits), 'scale' => $scale);
@@ -3801,13 +3920,13 @@ class Digitalogic_Product_Sync_Receiver {
     private function decimal_multiply($left, $right) {
         return array(
             'digits' => $this->big_integer_multiply($left['digits'], $right['digits']),
-            'scale'  => (int) $left['scale'] + (int) $right['scale'],
+			'scale'  => (int) $left['scale'] + (int) $right['scale'],
         );
     }
 
     private function decimal_compare($left, $right) {
         $scale        = max((int) $left['scale'], (int) $right['scale']);
-        $left_digits  = $left['digits'] . str_repeat('0', $scale - (int) $left['scale']);
+		$left_digits  = $left['digits'] . str_repeat( '0', $scale - (int) $left['scale'] );
         $right_digits = $right['digits'] . str_repeat('0', $scale - (int) $right['scale']);
 
         return $this->big_integer_compare($left_digits, $right_digits);
@@ -3815,12 +3934,12 @@ class Digitalogic_Product_Sync_Receiver {
 
     private function decimal_round_half_up_integer($decimal) {
         $digits = $this->normalize_big_integer($decimal['digits']);
-        $scale  = (int) $decimal['scale'];
+		$scale  = (int) $decimal['scale'];
         if ($scale <= 0) {
             return $digits . str_repeat('0', -$scale);
         }
 
-        $padded  = str_pad($digits, $scale + 1, '0', STR_PAD_LEFT);
+		$padded  = str_pad( $digits, $scale + 1, '0', STR_PAD_LEFT );
         $cut     = strlen($padded) - $scale;
         $integer = $this->normalize_big_integer(substr($padded, 0, $cut));
         if ((int) $padded[$cut] >= 5) {
@@ -3839,17 +3958,17 @@ class Digitalogic_Product_Sync_Receiver {
     }
 
     private function big_integer_add($left, $right) {
-        $left   = strrev($this->normalize_big_integer($left));
-        $right  = strrev($this->normalize_big_integer($right));
+		$left   = strrev( $this->normalize_big_integer( $left ) );
+		$right  = strrev( $this->normalize_big_integer( $right ) );
         $length = max(strlen($left), strlen($right));
-        $carry  = 0;
+		$carry  = 0;
         $result = '';
         for ($index = 0; $index < $length; $index++) {
-            $sum     = ($index < strlen($left) ? (int) $left[$index] : 0)
+			$sum     = ( $index < strlen( $left ) ? (int) $left[ $index ] : 0 )
                 + ($index < strlen($right) ? (int) $right[$index] : 0)
                 + $carry;
             $result .= (string) ($sum % 10);
-            $carry   = intdiv($sum, 10);
+			$carry   = intdiv( $sum, 10 );
         }
         if ($carry > 0) {
             $result .= (string) $carry;
@@ -3859,7 +3978,7 @@ class Digitalogic_Product_Sync_Receiver {
     }
 
     private function big_integer_multiply($left, $right) {
-        $left  = $this->normalize_big_integer($left);
+		$left  = $this->normalize_big_integer( $left );
         $right = $this->normalize_big_integer($right);
         if ('0' === $left || '0' === $right) {
             return '0';
@@ -3868,9 +3987,9 @@ class Digitalogic_Product_Sync_Receiver {
         $result = array_fill(0, strlen($left) + strlen($right), 0);
         for ($left_index = strlen($left) - 1; $left_index >= 0; $left_index--) {
             for ($right_index = strlen($right) - 1; $right_index >= 0; $right_index--) {
-                $position               = $left_index + $right_index + 1;
-                $sum                    = $result[$position] + ((int) $left[$left_index] * (int) $right[$right_index]);
-                $result[$position]      = $sum % 10;
+				$position                 = $left_index + $right_index + 1;
+				$sum                      = $result[ $position ] + ( (int) $left[ $left_index ] * (int) $right[ $right_index ] );
+				$result[ $position ]      = $sum % 10;
                 $result[$position - 1] += intdiv($sum, 10);
             }
         }
@@ -4018,7 +4137,7 @@ class Digitalogic_Product_Sync_Receiver {
         }
 
         $object = $value;
-        $items  = array();
+		$items  = array();
         foreach ($object as $key => $item) {
             $items[] = $this->encode_go_json((string) $key) . ':' . $this->encode_go_json($item, $map_fields, (string) $key);
         }
@@ -4075,13 +4194,13 @@ class Digitalogic_Product_Sync_Receiver {
     }
 
     private function number_compare_zero($value) {
-        $text     = $value instanceof Digitalogic_Product_Sync_JSON_Number ? $value->value : (string) $value;
-        $text     = ltrim($text, '+');
+		$text     = $value instanceof Digitalogic_Product_Sync_JSON_Number ? $value->value : (string) $value;
+		$text     = ltrim( $text, '+' );
         $negative = str_starts_with($text, '-');
-        $text     = ltrim($text, '-');
-        $parts    = preg_split('/[eE]/', $text, 2);
-        $digits   = str_replace('.', '', $parts[0]);
-        $nonzero  = '' !== trim($digits, '0');
+		$text     = ltrim( $text, '-' );
+		$parts    = preg_split( '/[eE]/', $text, 2 );
+		$digits   = str_replace( '.', '', $parts[0] );
+		$nonzero  = '' !== trim( $digits, '0' );
 
         return !$nonzero ? 0 : ($negative ? -1 : 1);
     }
@@ -4097,7 +4216,7 @@ class Digitalogic_Product_Sync_Receiver {
             }
         }
 
-        return $value->value;
+		return $value->value;
     }
 
     private function decimal_to_storage($value) {
@@ -4124,8 +4243,8 @@ class Digitalogic_Product_Sync_Receiver {
         )) {
             return $this->field_error('generated_at', 'must be RFC3339 with up to nanosecond precision');
         }
-        $zone   = 'Z' === $matches[3] ? '+00:00' : $matches[3];
-        $date   = DateTimeImmutable::createFromFormat('!Y-m-d\TH:i:sP', $matches[1] . $zone);
+		$zone   = 'Z' === $matches[3] ? '+00:00' : $matches[3];
+		$date   = DateTimeImmutable::createFromFormat( '!Y-m-d\TH:i:sP', $matches[1] . $zone );
         $errors = DateTimeImmutable::getLastErrors();
         if (false === $date || (is_array($errors) && ($errors['warning_count'] > 0 || $errors['error_count'] > 0))) {
             return $this->field_error('generated_at', 'must be a valid RFC3339 timestamp');
@@ -4166,9 +4285,9 @@ class Digitalogic_Product_Sync_Receiver {
         if (!is_object($wpdb) || !method_exists($wpdb, 'get_var') || !method_exists($wpdb, 'prepare')) {
             return $this->error('digitalogic_product_sync_lock_unavailable', 'The database lock service is unavailable.', 503);
         }
-        $prefix    = isset($wpdb->prefix) ? (string) $wpdb->prefix : 'wp_';
+		$prefix    = isset( $wpdb->prefix ) ? (string) $wpdb->prefix : 'wp_';
         $lock_name = substr(self::LOCK_NAME . '_' . md5($prefix), 0, 64);
-        $locked    = $wpdb->get_var($wpdb->prepare('SELECT GET_LOCK(%s, %d)', $lock_name, self::LOCK_TIMEOUT_SECONDS));
+		$locked    = $wpdb->get_var( $wpdb->prepare( 'SELECT GET_LOCK(%s, %d)', $lock_name, self::LOCK_TIMEOUT_SECONDS ) );
         if ('1' !== (string) $locked) {
             return $this->error('digitalogic_product_sync_busy', 'Another product-sync event is being applied. Please retry.', 503, array('retryable' => true));
         }
