@@ -325,6 +325,18 @@ final class Digitalogic_Google_Sheets_Catalog {
 		if ( is_wp_error( $report ) ) {
 			return $report;
 		}
+		$integrity_warnings = array_values( (array) ( $report['integrity']['warnings'] ?? array() ) );
+		if ( ! empty( $integrity_warnings ) ) {
+			return new WP_Error(
+				'digitalogic_reconciled_projection_integrity_failed',
+				__( 'The reconciled catalog failed its product-type integrity check; retry after cache repair.', 'digitalogic' ),
+				array(
+					'status'      => 503,
+					'retry_after' => 1,
+					'warnings'    => $integrity_warnings,
+				)
+			);
+		}
 
 		$first_report     = $report;
 		$dataset_revision = is_string( $report['snapshot_revision'] ?? null )
@@ -397,8 +409,10 @@ final class Digitalogic_Google_Sheets_Catalog {
 
 		$response['dataset_revision'] = $dataset_revision;
 		$response['reconciliation']   = array(
-			'status' => (string) ( $first_report['status'] ?? '' ),
-			'counts' => $this->reconciliation_counts( (array) ( $first_report['counts'] ?? array() ), $total ),
+			'status'           => (string) ( $first_report['status'] ?? '' ),
+			'integrity_status' => (string) ( $first_report['integrity']['status'] ?? '' ),
+			'warnings'         => array_values( (array) ( $first_report['integrity']['warnings'] ?? array() ) ),
+			'counts'           => $this->reconciliation_counts( (array) ( $first_report['counts'] ?? array() ), $total ),
 		);
 		if ( is_array( $first_report['source'] ?? null ) ) {
 			$response['reconciliation']['source'] = $first_report['source'];

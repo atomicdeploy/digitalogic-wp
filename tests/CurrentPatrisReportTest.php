@@ -117,6 +117,52 @@ final class CurrentPatrisReportTest extends TestCase {
 		$this->assertContains( 'missing_product_code', $woo_only['issues'] );
 	}
 
+	/** Durable taxonomy wins and cache drift blocks shared catalog consumers. */
+	public function test_stale_product_type_cache_is_excluded_and_reported_as_projection_integrity_drift(): void {
+		$this->store_source(
+			array(
+				'LEAF' => array(
+					'product_code' => 'LEAF',
+					'name'         => 'Leaf',
+					'warnings'     => array(),
+					'record_hash'  => 'sha256:leaf',
+				),
+			)
+		);
+		$GLOBALS['digitalogic_test_posts'][150] = $this->woo_post(
+			'simple',
+			'Stale cached variable parent',
+			array( '_digitalogic_patris_product_code' => 'PARENT' )
+		);
+		$GLOBALS['digitalogic_test_posts'][150]['taxonomy_product_type'] = 'variable';
+		$GLOBALS['digitalogic_test_posts'][151] = $this->woo_post(
+			'simple',
+			'Leaf',
+			array( '_digitalogic_patris_product_code' => 'LEAF' )
+		);
+
+		$report = Digitalogic_Report_Engine::instance()->get_report( array( 'view' => 'price_list' ) );
+
+		$this->assertSame( 1, $report['counts']['variable_parents_excluded'] );
+		$this->assertSame( 1, $report['counts']['woocommerce_products'] );
+		$this->assertSame( 'warning', $report['integrity']['status'] );
+		$this->assertSame( 'product_type_cache_drift', $report['integrity']['warnings'][0]['code'] );
+		$this->assertSame( 150, $report['integrity']['warnings'][0]['woocommerce_id'] );
+		$this->assertSame( 'variable', $report['integrity']['warnings'][0]['durable_type'] );
+		$this->assertSame( 'simple', $report['integrity']['warnings'][0]['object_type'] );
+
+		$catalog = Digitalogic_Google_Sheets_Catalog::instance()->get_page(
+			array(
+				'dataset' => 'reconciled_products',
+				'locale'  => 'fa',
+				'page'    => 1,
+				'limit'   => 100,
+			)
+		);
+		$this->assertInstanceOf( WP_Error::class, $catalog );
+		$this->assertSame( 'digitalogic_reconciled_projection_integrity_failed', $catalog->get_error_code() );
+	}
+
 	/** Current persisted price, stock, weight, timestamp, and hash drift is visible. */
 	public function test_reports_source_warnings_and_all_operational_drift_fields(): void {
 		$updated_at = gmdate( 'c' );

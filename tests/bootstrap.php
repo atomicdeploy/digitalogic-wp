@@ -2209,6 +2209,42 @@ function wp_get_object_terms($object_ids, $taxonomies, $args = array()) {
     if (in_array($object_id, $GLOBALS['digitalogic_test_object_term_readback_failures'] ?? array(), true)) {
         return new WP_Error('injected_term_readback_failure', 'Injected object-term readback failure.');
     }
+    if ('product_type' === $taxonomy) {
+        $terms = array();
+        foreach ($ids as $id) {
+            $id = (int) $id;
+            if (!isset($GLOBALS['digitalogic_test_posts'][$id])) {
+                continue;
+            }
+            $type = (string) (
+                $GLOBALS['digitalogic_test_posts'][$id]['taxonomy_product_type']
+                ?? $GLOBALS['digitalogic_test_posts'][$id]['product_type']
+                ?? ''
+            );
+            if ('' === $type || 'variation' === $type) {
+                continue;
+            }
+            if ('all_with_object_id' === ($args['fields'] ?? '')) {
+                $terms[] = (object) array(
+                    'term_id'  => 1,
+                    'name'     => $type,
+                    'slug'     => $type,
+                    'taxonomy' => 'product_type',
+                    'object_id' => $id,
+                );
+            } elseif ('ids' === ($args['fields'] ?? '')) {
+                $terms[] = 1;
+            } else {
+                $terms[] = (object) array(
+                    'term_id' => 1,
+                    'name' => $type,
+                    'slug' => $type,
+                    'taxonomy' => 'product_type',
+                );
+            }
+        }
+        return $terms;
+    }
     if ('product_cat' !== $taxonomy) {
         return array();
     }

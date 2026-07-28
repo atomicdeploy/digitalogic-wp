@@ -274,6 +274,7 @@ final class Digitalogic_Report_Engine {
 					'source'      => $source,
 					'products'    => $products,
 					'woocommerce' => $woo_rows,
+					'integrity'   => $woo_result['integrity_warnings'],
 				),
 				JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
 			)
@@ -464,6 +465,10 @@ final class Digitalogic_Report_Engine {
 			),
 			'filters'           => array(
 				'category' => $args['category'],
+			),
+			'integrity'         => array(
+				'status'   => empty( $woo_result['integrity_warnings'] ) ? 'current' : 'warning',
+				'warnings' => $woo_result['integrity_warnings'],
 			),
 			'rows'              => $page_rows,
 			'categories'        => array_values( $categories ),
@@ -861,11 +866,18 @@ final class Digitalogic_Report_Engine {
 	 * Variable parents are intentionally excluded: only purchasable leaf records
 	 * participate in Code matching and drift checks.
 	 *
-	 * @return array{products:array,variable_parents_excluded:int,truncated:bool}
+	 * Product objects can carry a stale WooCommerce product-type cache even
+	 * after their durable product_type taxonomy relationship is correct. The
+	 * projection therefore classifies parents from an uncached taxonomy
+	 * readback and reports every object/taxonomy disagreement as an integrity
+	 * warning. Consumers must not accept a catalog while such a warning exists.
+	 *
+	 * @return array{products:array,variable_parents_excluded:int,truncated:bool,integrity_warnings:array}
 	 */
 	private function get_woocommerce_products() {
 		$rows              = array();
 		$variable_excluded = 0;
+		$integrity_warnings = array();
 		$fetched           = 0;
 		$page              = 1;
 		$truncated         = false;
@@ -894,6 +906,15 @@ final class Digitalogic_Report_Engine {
 				break;
 			}
 			$batch_count = count( $batch );
+			$type_readback = $this->uncached_product_types( $batch );
+			if ( is_wp_error( $type_readback ) ) {
+				$integrity_warnings[] = array(
+					'code'     => 'projection_integrity_product_type_readback_failed',
+					'severity' => 'critical',
+					'message'  => $type_readback->get_error_message(),
+				);
+				$type_readback = array();
+			}
 
 			foreach ( $batch as $product ) {
 				++$fetched;
@@ -904,7 +925,27 @@ final class Digitalogic_Report_Engine {
 				if ( ! $product instanceof WC_Product ) {
 					continue;
 				}
-				if ( $product->is_type( 'variable' ) ) {
+				$product_id   = (int) $product->get_id();
+				$object_type  = (string) $product->get_type();
+				$durable_type = isset( $type_readback[ $product_id ] )
+					? (string) $type_readback[ $product_id ]['type']
+					: $object_type;
+				$type_issues  = isset( $type_readback[ $product_id ] )
+					? (array) $type_readback[ $product_id ]['issues']
+					: array();
+				foreach ( $type_issues as $type_issue ) {
+					$integrity_warnings[] = $type_issue;
+				}
+				if ( $durable_type !== $object_type ) {
+					$integrity_warnings[] = array(
+						'code'          => 'product_type_cache_drift',
+						'severity'      => 'critical',
+						'woocommerce_id' => $product_id,
+						'durable_type'  => $durable_type,
+						'object_type'   => $object_type,
+					);
+				}
+				if ( 'variable' === $durable_type ) {
 					++$variable_excluded;
 					continue;
 				}
@@ -923,7 +964,89 @@ final class Digitalogic_Report_Engine {
 			'products'                  => $rows,
 			'variable_parents_excluded' => $variable_excluded,
 			'truncated'                 => $truncated,
+			'integrity_warnings'        => array_values( $integrity_warnings ),
 		);
+	}
+
+	/**
+	 * Resolve durable product types without consulting relationship caches.
+	 *
+	 * @param WC_Product[] $products Current WooCommerce batch.
+	 * @return array|WP_Error Map keyed by product ID.
+	 */
+	private function uncached_product_types( $products ) {
+		$ids = array();
+		foreach ( (array) $products as $product ) {
+			if ( $product instanceof WC_Product && $product->get_id() > 0 ) {
+				$ids[] = (int) $product->get_id();
+			}
+		}
+		$ids = array_values( array_unique( $ids ) );
+		if ( empty( $ids ) ) {
+			return array();
+		}
+
+		$terms = wp_get_object_terms(
+			$ids,
+			'product_type',
+			array(
+				'fields'  => 'all_with_object_id',
+				'orderby' => 'none',
+			)
+		);
+		if ( is_wp_error( $terms ) ) {
+			return $terms;
+		}
+
+		$term_types = array();
+		foreach ( (array) $terms as $term ) {
+			if ( ! is_object( $term ) || ! isset( $term->object_id ) ) {
+				continue;
+			}
+			$product_id = (int) $term->object_id;
+			$type       = sanitize_title( (string) ( $term->slug ?? $term->name ?? '' ) );
+			if ( $product_id > 0 && '' !== $type ) {
+				$term_types[ $product_id ][ $type ] = true;
+			}
+		}
+
+		$result = array();
+		foreach ( $ids as $product_id ) {
+			$post_type = (string) get_post_type( $product_id );
+			$issues    = array();
+			if ( 'product_variation' === $post_type ) {
+				$durable_type = 'variation';
+			} elseif ( 'product' === $post_type ) {
+				$types = array_keys( $term_types[ $product_id ] ?? array() );
+				sort( $types, SORT_STRING );
+				if ( count( $types ) > 1 ) {
+					$issues[] = array(
+						'code'           => 'projection_integrity_product_type_taxonomy_ambiguous',
+						'severity'       => 'critical',
+						'woocommerce_id' => $product_id,
+						'durable_types'  => $types,
+					);
+				}
+				$durable_type = in_array( 'variable', $types, true )
+					? 'variable'
+					: ( empty( $types ) ? 'simple' : reset( $types ) );
+			} else {
+				$durable_type = '';
+				$issues[]     = array(
+					'code'           => 'projection_integrity_product_post_type_invalid',
+					'severity'       => 'critical',
+					'woocommerce_id' => $product_id,
+					'post_type'      => $post_type,
+				);
+			}
+
+			$result[ $product_id ] = array(
+				'type'   => $durable_type,
+				'issues' => $issues,
+			);
+		}
+
+		return $result;
 	}
 
 	/** Release per-batch WordPress runtime objects when the cache supports it. */

@@ -402,6 +402,8 @@ final class GoogleSheetsCatalogTest extends TestCase {
 			),
 			$first['reconciliation']['counts']
 		);
+		$this->assertSame( 'current', $first['reconciliation']['integrity_status'] );
+		$this->assertSame( array(), $first['reconciliation']['warnings'] );
 	}
 
 	/** A legitimate exact Product Code beginning with woo: is never mistaken for a sentinel. */

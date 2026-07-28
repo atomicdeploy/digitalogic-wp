@@ -1530,10 +1530,7 @@ final class Digitalogic_Patris_Catalog_Materializer {
 		if ( is_wp_error( $changed ) ) {
 			return $changed;
 		}
-		if ( function_exists( 'wc_delete_product_transients' ) ) {
-			wc_delete_product_transients( $product_id );
-		}
-		clean_post_cache( $product_id );
+		$this->flush_product_caches( $product_id );
 
 		try {
 			return new WC_Product_Simple( $product_id );
