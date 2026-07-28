@@ -553,6 +553,7 @@ final class Digitalogic_Report_Engine {
 				'digitalogic_patris_feed_customers',
 				'digitalogic_shipping_methods',
 				'digitalogic_pricing_default_percentage_markup',
+				'digitalogic_pricing_rounding_digits',
 				'dollar_price',
 				'yuan_price',
 				'options_dollar_price',
@@ -1103,8 +1104,13 @@ final class Digitalogic_Report_Engine {
 		$missing = $this->decode_string_list( $product->get_meta( '_digitalogic_patris_missing_fields', true ) );
 		$mapping = array(
 			'name'                           => '_digitalogic_patris_name',
+			'sale_price_source'              => '_digitalogic_patris_sale_price_source',
+			'partner_price_source'           => '_digitalogic_patris_partner_price_source',
 			'foreign_currency'               => '_digitalogic_patris_foreign_currency',
 			'foreign_price'                  => '_digitalogic_patris_foreign_price',
+			'price_source_amount'            => '_digitalogic_patris_price_source_amount',
+			'price_source_currency'          => '_digitalogic_patris_price_source_currency',
+			'price_source_kind'              => '_digitalogic_patris_price_source_kind',
 			'weight_grams'                   => '_digitalogic_patris_weight_grams',
 			'total_stock'                    => '_digitalogic_patris_total_stock',
 			'shipping_method_id'             => '_digitalogic_patris_shipping_method_id',
@@ -1112,6 +1118,8 @@ final class Digitalogic_Report_Engine {
 			'shipping_price_per_kg_currency' => '_digitalogic_patris_shipping_price_per_kg_currency',
 			'markup_percent'                 => '_digitalogic_patris_markup_percent',
 			'irt_per_cny'                    => '_digitalogic_patris_irt_per_cny',
+			'price_rounding_digits'          => '_digitalogic_patris_price_rounding_digits',
+			'price_rounding_mode'            => '_digitalogic_patris_price_rounding_mode',
 			'final_price'                    => '_digitalogic_patris_final_price',
 			'source_updated_at'              => '_digitalogic_patris_updated_at',
 			'record_hash'                    => '_digitalogic_patris_record_hash',
@@ -1161,7 +1169,7 @@ final class Digitalogic_Report_Engine {
 			'source'       => $source,
 			'issues'       => array(),
 		);
-		foreach ( array( 'name', 'foreign_currency', 'foreign_price', 'weight_grams', 'final_price' ) as $field ) {
+		foreach ( array( 'name', 'sale_price_source', 'partner_price_source', 'foreign_currency', 'foreign_price', 'price_source_amount', 'price_source_currency', 'price_source_kind', 'weight_grams', 'price_rounding_digits', 'price_rounding_mode', 'final_price' ) as $field ) {
 			if ( array_key_exists( $field, $source ) ) {
 				$row[ $field ] = $source[ $field ];
 			}
@@ -1219,35 +1227,40 @@ final class Digitalogic_Report_Engine {
 	 * @return void
 	 */
 	private function append_source_issues( &$row, $source, $stale_hours ) {
-		$this->append_required_number_issue( $row, $source, 'foreign_price', 'missing_foreign_price', 'null_foreign_price', true );
-		$this->append_required_number_issue( $row, $source, 'weight_grams', 'missing_weight', 'null_weight', true );
+		$price_source_fields  = array( 'price_source_amount', 'price_source_currency', 'price_source_kind' );
+		$present_price_fields = array_values( array_intersect( $price_source_fields, array_keys( $source ) ) );
+		$price_source_kind    = count( $present_price_fields ) === count( $price_source_fields )
+			? (string) $source['price_source_kind']
+			: '';
+
+		if ( empty( $present_price_fields ) ) {
+			$this->add_issue( $row, 'missing_price_source' );
+			$this->append_unselected_price_fact_issues( $row, $source );
+		} elseif ( count( $present_price_fields ) !== count( $price_source_fields ) ) {
+			$this->add_issue( $row, 'incomplete_price_source', array_values( array_diff( $price_source_fields, $present_price_fields ) ) );
+		} elseif ( in_array( null, array_intersect_key( $source, array_flip( $price_source_fields ) ), true ) ) {
+			$this->add_issue( $row, 'null_price_source' );
+		} elseif ( 'foreign_price' === $price_source_kind && 'CNY' === ( $source['price_source_currency'] ?? null ) ) {
+			$this->append_required_number_issue( $row, $source, 'foreign_price', 'missing_foreign_price', 'null_foreign_price', true );
+			$this->append_required_number_issue( $row, $source, 'weight_grams', 'missing_weight', 'null_weight', true );
+			$this->append_cny_price_issues( $row, $source );
+		} elseif ( 'partner_price' === $price_source_kind && 'IRR' === ( $source['price_source_currency'] ?? null ) ) {
+			$this->append_required_number_issue( $row, $source, 'partner_price_source', 'missing_partner_price', 'null_partner_price', true );
+			$this->append_domestic_price_issues( $row, $source );
+			$this->add_issue( $row, 'partner_price_fallback' );
+		} elseif ( 'sale_price_direct' === $price_source_kind && 'IRR' === ( $source['price_source_currency'] ?? null ) ) {
+			$this->append_required_number_issue( $row, $source, 'sale_price_source', 'missing_sale_price_source', 'null_sale_price_source', true );
+			$this->append_domestic_price_issues( $row, $source );
+			$this->add_issue( $row, 'sale_price_direct_fallback' );
+		} else {
+			$this->add_issue( $row, 'invalid_price_source', $price_source_fields );
+		}
+
 		$this->append_required_number_issue( $row, $source, 'total_stock', 'missing_stock', 'null_stock', false );
 		$this->append_required_number_issue( $row, $source, 'final_price', 'missing_final_price', 'null_final_price', true );
-		$this->append_required_number_issue( $row, $source, 'markup_percent', 'missing_markup', 'null_markup', false );
-		$this->append_required_number_issue( $row, $source, 'irt_per_cny', 'missing_exchange_rate', 'null_exchange_rate', true );
-
-		$shipping_missing = array();
-		$shipping_null    = array();
-		foreach ( array( 'shipping_method_id', 'shipping_price_per_kg', 'shipping_price_per_kg_currency' ) as $field ) {
-			if ( ! array_key_exists( $field, $source ) ) {
-				$shipping_missing[] = $field;
-			} elseif ( null === $source[ $field ] ) {
-				$shipping_null[] = $field;
-			}
-		}
-		if ( $shipping_missing ) {
-			$this->add_issue( $row, 'missing_shipping', $shipping_missing );
-		}
-		if ( $shipping_null ) {
-			$this->add_issue( $row, 'null_shipping', $shipping_null );
-		}
-
-		if ( ! array_key_exists( 'foreign_currency', $source ) ) {
-			$this->add_issue( $row, 'missing_foreign_currency' );
-		} elseif ( null === $source['foreign_currency'] ) {
-			$this->add_issue( $row, 'null_foreign_currency' );
-		} elseif ( 'CNY' !== $source['foreign_currency'] ) {
-			$this->add_issue( $row, 'unexpected_foreign_currency' );
+		if ( 'sale_price_direct' !== $price_source_kind ) {
+			$this->append_required_number_issue( $row, $source, 'markup_percent', 'missing_markup', 'null_markup', false );
+			$this->append_rounding_issues( $row, $source );
 		}
 
 		if ( array_key_exists( 'total_stock', $source ) && is_numeric( $source['total_stock'] ) && (float) $source['total_stock'] <= 0 ) {
@@ -1267,7 +1280,212 @@ final class Digitalogic_Report_Engine {
 
 		if ( ! empty( $source['warnings'] ) && is_array( $source['warnings'] ) ) {
 			$row['source_warnings'] = array_values( $source['warnings'] );
-			$this->add_issue( $row, 'source_warning' );
+			$complete_partner_path  = 'partner_price' === $price_source_kind
+				&& 'IRR' === ( $source['price_source_currency'] ?? null )
+				&& array_key_exists( 'price_source_amount', $source )
+				&& is_numeric( $source['price_source_amount'] )
+				&& $this->decimal_compare_zero( $source['price_source_amount'] ) > 0
+				&& array_key_exists( 'final_price', $source )
+				&& is_numeric( $source['final_price'] )
+				&& $this->decimal_compare_zero( $source['final_price'] ) > 0;
+			$complete_direct_path   = 'sale_price_direct' === $price_source_kind
+				&& 'IRR' === ( $source['price_source_currency'] ?? null )
+				&& array_key_exists( 'price_source_amount', $source )
+				&& is_numeric( $source['price_source_amount'] )
+				&& $this->decimal_compare_zero( $source['price_source_amount'] ) > 0
+				&& array_key_exists( 'final_price', $source )
+				&& is_numeric( $source['final_price'] )
+				&& $this->decimal_compare_zero( $source['final_price'] ) > 0;
+			$ignored_warnings       = $complete_partner_path
+				? array(
+					'partner_price_fallback_used',
+					'freight_not_applied_for_partner_price',
+					'foreign_price_missing',
+					'foreign_price_non_positive',
+					'weight_missing',
+					'weight_unparsed',
+					'weight_ambiguous',
+					'weight_source_conflict',
+				)
+				: array();
+			if ( $complete_direct_path ) {
+				$ignored_warnings = array_merge(
+					$ignored_warnings,
+					array(
+						'sale_price_direct_fallback_used',
+						'freight_not_applied_for_sale_price_direct',
+						'foreign_price_missing',
+						'foreign_price_non_positive',
+						'weight_missing',
+						'weight_unparsed',
+						'weight_ambiguous',
+						'weight_source_conflict',
+					)
+				);
+			}
+			$attention_warnings     = array_values(
+				array_diff(
+					$row['source_warnings'],
+					$ignored_warnings
+				)
+			);
+			if ( $attention_warnings ) {
+				$this->add_issue( $row, 'source_warning' );
+			}
+		}
+	}
+
+	/**
+	 * Explain why no selected price source could be produced.
+	 *
+	 * @param array $row Mutable report row.
+	 * @param array $source Sparse source product.
+	 * @return void
+	 */
+	private function append_unselected_price_fact_issues( &$row, $source ) {
+		if ( ! array_key_exists( 'foreign_price', $source ) ) {
+			$this->add_issue( $row, 'missing_foreign_price' );
+		} elseif ( null === $source['foreign_price'] ) {
+			$this->add_issue( $row, 'null_foreign_price' );
+		} elseif ( ! is_numeric( $source['foreign_price'] ) || $this->decimal_compare_zero( $source['foreign_price'] ) <= 0 ) {
+			$this->add_issue( $row, 'zero_foreign_price' );
+		}
+
+		if ( ! array_key_exists( 'partner_price_source', $source ) ) {
+			$this->add_issue( $row, 'missing_partner_price' );
+		} elseif ( null === $source['partner_price_source'] ) {
+			$this->add_issue( $row, 'null_partner_price' );
+		} elseif ( ! is_numeric( $source['partner_price_source'] ) || $this->decimal_compare_zero( $source['partner_price_source'] ) <= 0 ) {
+			$this->add_issue( $row, 'zero_partner_price' );
+		}
+
+		if (
+			array_key_exists( 'foreign_price', $source )
+			&& null !== $source['foreign_price']
+			&& is_numeric( $source['foreign_price'] )
+			&& $this->decimal_compare_zero( $source['foreign_price'] ) > 0
+		) {
+			$this->append_required_number_issue( $row, $source, 'weight_grams', 'missing_weight', 'null_weight', true );
+			$this->append_cny_price_issues( $row, $source );
+		}
+	}
+
+	/**
+	 * Add the inputs that only the CNY landed-price path consumes.
+	 *
+	 * @param array $row Mutable report row.
+	 * @param array $source Sparse source product.
+	 * @return void
+	 */
+	private function append_cny_price_issues( &$row, $source ) {
+		$this->append_foreign_currency_issue( $row, $source );
+		$this->append_required_number_issue( $row, $source, 'irt_per_cny', 'missing_exchange_rate', 'null_exchange_rate', true );
+
+		$shipping_missing = array();
+		$shipping_null    = array();
+		foreach ( array( 'shipping_method_id', 'shipping_price_per_kg', 'shipping_price_per_kg_currency' ) as $field ) {
+			if ( ! array_key_exists( $field, $source ) ) {
+				$shipping_missing[] = $field;
+			} elseif ( null === $source[ $field ] ) {
+				$shipping_null[] = $field;
+			}
+		}
+		if ( $shipping_missing ) {
+			$this->add_issue( $row, 'missing_shipping', $shipping_missing );
+		}
+		if ( $shipping_null ) {
+			$this->add_issue( $row, 'null_shipping', $shipping_null );
+		}
+	}
+
+	/**
+	 * Require the explicit zero-rate domestic route selected for partner price.
+	 *
+	 * @param array $row Mutable report row.
+	 * @param array $source Sparse source product.
+	 * @return void
+	 */
+	private function append_domestic_price_issues( &$row, $source ) {
+		$fields  = array( 'shipping_method_id', 'shipping_price_per_kg', 'shipping_price_per_kg_currency' );
+		$missing = array_values( array_diff( $fields, array_keys( $source ) ) );
+		$nulls   = array();
+		foreach ( array_intersect( $fields, array_keys( $source ) ) as $field ) {
+			if ( null === $source[ $field ] ) {
+				$nulls[] = $field;
+			}
+		}
+		if ( $missing ) {
+			$this->add_issue( $row, 'missing_shipping', $missing );
+		}
+		if ( $nulls ) {
+			$this->add_issue( $row, 'null_shipping', $nulls );
+		}
+		if ( $missing || $nulls ) {
+			return;
+		}
+
+		$invalid = array();
+		if ( Digitalogic_Shipping_Method_Service::DOMESTIC_METHOD_ID !== $source['shipping_method_id'] ) {
+			$invalid[] = 'shipping_method_id';
+		}
+		if ( ! is_numeric( $source['shipping_price_per_kg'] ) || 0 !== $this->decimal_compare_zero( $source['shipping_price_per_kg'] ) ) {
+			$invalid[] = 'shipping_price_per_kg';
+		}
+		if ( 'IRR' !== $source['shipping_price_per_kg_currency'] ) {
+			$invalid[] = 'shipping_price_per_kg_currency';
+		}
+		if ( $invalid ) {
+			$this->add_issue( $row, 'invalid_domestic_shipping', $invalid );
+		}
+	}
+
+	/**
+	 * Preserve absent, explicit-null, and invalid currency states.
+	 *
+	 * @param array $row Mutable report row.
+	 * @param array $source Sparse source product.
+	 * @return void
+	 */
+	private function append_foreign_currency_issue( &$row, $source ) {
+		if ( ! array_key_exists( 'foreign_currency', $source ) ) {
+			$this->add_issue( $row, 'missing_foreign_currency' );
+		} elseif ( null === $source['foreign_currency'] ) {
+			$this->add_issue( $row, 'null_foreign_currency' );
+		} elseif ( 'CNY' !== $source['foreign_currency'] ) {
+			$this->add_issue( $row, 'unexpected_foreign_currency' );
+		}
+	}
+
+	/**
+	 * Report the exact living rounding policy carried by every priced snapshot.
+	 *
+	 * @param array $row Mutable report row.
+	 * @param array $source Sparse source product.
+	 * @return void
+	 */
+	private function append_rounding_issues( &$row, $source ) {
+		if ( ! array_key_exists( 'price_rounding_digits', $source ) ) {
+			$this->add_issue( $row, 'missing_rounding_digits' );
+		} elseif ( null === $source['price_rounding_digits'] ) {
+			$this->add_issue( $row, 'null_rounding_digits' );
+			if ( array_key_exists( 'price_rounding_mode', $source ) ) {
+				if ( null === $source['price_rounding_mode'] ) {
+					$this->add_issue( $row, 'null_rounding_mode' );
+				} else {
+					$this->add_issue( $row, 'invalid_rounding_policy', array( 'price_rounding_mode' ) );
+				}
+			}
+			return;
+		} elseif ( ! is_int( $source['price_rounding_digits'] ) || $source['price_rounding_digits'] < 0 || $source['price_rounding_digits'] > 9 ) {
+			$this->add_issue( $row, 'invalid_rounding_policy', array( 'price_rounding_digits' ) );
+		}
+
+		if ( ! array_key_exists( 'price_rounding_mode', $source ) ) {
+			$this->add_issue( $row, 'missing_rounding_mode' );
+		} elseif ( null === $source['price_rounding_mode'] ) {
+			$this->add_issue( $row, 'null_rounding_mode' );
+		} elseif ( 'nearest_half_up' !== $source['price_rounding_mode'] ) {
+			$this->add_issue( $row, 'invalid_rounding_policy', array( 'price_rounding_mode' ) );
 		}
 	}
 
@@ -1332,9 +1550,12 @@ final class Digitalogic_Report_Engine {
 		}
 
 		if ( array_key_exists( 'total_stock', $source ) ) {
-			$expected_woo_stock = null === $source['total_stock'] || ! is_numeric( $source['total_stock'] )
-				? null
-				: (int) round( (float) $source['total_stock'] );
+			$expected_woo_stock = null;
+			if ( null !== $source['total_stock'] && is_numeric( $source['total_stock'] ) ) {
+				$expected_woo_stock = $this->decimal_compare_zero( $source['total_stock'] ) <= 0
+					? 0
+					: max( 1, (int) floor( (float) $source['total_stock'] ) );
+			}
 			$drift              = ! $this->values_equal( $expected_woo_stock, $woo['stock_quantity'] );
 			$drift              = $drift || ! array_key_exists( 'total_stock', $canonical ) || ! $this->values_equal( $source['total_stock'], $canonical['total_stock'] );
 			if ( $drift ) {
@@ -1373,6 +1594,31 @@ final class Digitalogic_Report_Engine {
 			}
 		}
 
+		$provenance_fields = array(
+			'sale_price_source',
+			'partner_price_source',
+			'price_source_amount',
+			'price_source_currency',
+			'price_source_kind',
+			'shipping_method_id',
+			'shipping_price_per_kg',
+			'shipping_price_per_kg_currency',
+			'price_rounding_digits',
+			'price_rounding_mode',
+		);
+		$provenance_drift  = array();
+		foreach ( $provenance_fields as $field ) {
+			if (
+				array_key_exists( $field, $source )
+				&& ( ! array_key_exists( $field, $canonical ) || ! $this->values_equal( $source[ $field ], $canonical[ $field ] ) )
+			) {
+				$provenance_drift[] = 'canonical.' . $field;
+			}
+		}
+		if ( $provenance_drift ) {
+			$this->add_issue( $row, 'pricing_provenance_drift', $provenance_drift );
+		}
+
 		if ( array_key_exists( 'source_updated_at', $source ) ) {
 			if ( ! array_key_exists( 'source_updated_at', $canonical ) || ! $this->values_equal( $source['source_updated_at'], $canonical['source_updated_at'] ) ) {
 				$this->add_issue( $row, 'source_updated_at_drift' );
@@ -1409,40 +1655,59 @@ final class Digitalogic_Report_Engine {
 		return array(
 			'missing_in_woocommerce'                => array( __( 'In source but missing in WooCommerce', 'digitalogic' ), 'danger' ),
 			'positive_stock_missing_in_woocommerce' => array( __( 'Positive-stock product missing in WooCommerce', 'digitalogic' ), 'danger' ),
-			'missing_in_patris'                     => array( __( 'In WooCommerce but missing in source', 'digitalogic' ), 'warning' ),
-			'missing_product_code'                  => array( __( 'Missing exact product Code metadata', 'digitalogic' ), 'danger' ),
-			'duplicate_product_code'                => array( __( 'Duplicate exact product Code metadata', 'digitalogic' ), 'danger' ),
-			'source_warning'                        => array( __( 'Source warnings require attention', 'digitalogic' ), 'warning' ),
-			'missing_foreign_currency'              => array( __( 'Missing foreign currency', 'digitalogic' ), 'warning' ),
-			'null_foreign_currency'                 => array( __( 'Foreign currency is explicitly null', 'digitalogic' ), 'warning' ),
-			'unexpected_foreign_currency'           => array( __( 'Foreign currency is not CNY', 'digitalogic' ), 'warning' ),
-			'missing_foreign_price'                 => array( __( 'Missing CNY price', 'digitalogic' ), 'warning' ),
-			'null_foreign_price'                    => array( __( 'CNY price is explicitly null', 'digitalogic' ), 'warning' ),
-			'missing_weight'                        => array( __( 'Missing weight', 'digitalogic' ), 'warning' ),
-			'null_weight'                           => array( __( 'Weight is explicitly null', 'digitalogic' ), 'warning' ),
-			'missing_stock'                         => array( __( 'Missing stock', 'digitalogic' ), 'warning' ),
-			'null_stock'                            => array( __( 'Stock is explicitly null', 'digitalogic' ), 'warning' ),
-			'missing_final_price'                   => array( __( 'Missing calculated price', 'digitalogic' ), 'danger' ),
-			'null_final_price'                      => array( __( 'Calculated price is explicitly null', 'digitalogic' ), 'danger' ),
-			'missing_shipping'                      => array( __( 'Missing shipping price inputs', 'digitalogic' ), 'warning' ),
-			'null_shipping'                         => array( __( 'Shipping price inputs contain explicit null', 'digitalogic' ), 'warning' ),
-			'missing_markup'                        => array( __( 'Missing profit margin', 'digitalogic' ), 'warning' ),
-			'null_markup'                           => array( __( 'Profit margin is explicitly null', 'digitalogic' ), 'warning' ),
-			'missing_exchange_rate'                 => array( __( 'Missing CNY exchange rate', 'digitalogic' ), 'warning' ),
-			'null_exchange_rate'                    => array( __( 'CNY exchange rate is explicitly null', 'digitalogic' ), 'warning' ),
-			'invalid_source_value'                  => array( __( 'Invalid source value', 'digitalogic' ), 'danger' ),
-			'zero_stock'                            => array( __( 'Zero or negative stock', 'digitalogic' ), 'info' ),
-			'zero_price'                            => array( __( 'Zero or negative calculated price', 'digitalogic' ), 'danger' ),
-			'missing_source_updated_at'             => array( __( 'Missing source update time', 'digitalogic' ), 'warning' ),
-			'null_source_updated_at'                => array( __( 'Source update time is explicitly null', 'digitalogic' ), 'warning' ),
-			'stale_source'                          => array( __( 'Stale source data', 'digitalogic' ), 'warning' ),
-			'price_drift'                           => array( __( 'Price differs from the current source', 'digitalogic' ), 'danger' ),
-			'stock_drift'                           => array( __( 'Stock differs from the current source', 'digitalogic' ), 'danger' ),
-			'stock_management_drift'                => array( __( 'Stock management differs from the current source', 'digitalogic' ), 'danger' ),
-			'stock_status_drift'                    => array( __( 'Stock availability differs from the current source', 'digitalogic' ), 'danger' ),
-			'weight_drift'                          => array( __( 'Weight differs from the current source', 'digitalogic' ), 'danger' ),
-			'record_hash_drift'                     => array( __( 'Record hash differs from the current source', 'digitalogic' ), 'danger' ),
-			'source_updated_at_drift'               => array( __( 'Source update time differs in WooCommerce', 'digitalogic' ), 'warning' ),
+			'missing_in_patris'           => array( __( 'In WooCommerce but missing in source', 'digitalogic' ), 'warning' ),
+			'missing_product_code'        => array( __( 'Missing exact product Code metadata', 'digitalogic' ), 'danger' ),
+			'duplicate_product_code'      => array( __( 'Duplicate exact product Code metadata', 'digitalogic' ), 'danger' ),
+			'source_warning'              => array( __( 'Source warnings require attention', 'digitalogic' ), 'warning' ),
+			'missing_foreign_currency'    => array( __( 'Missing foreign currency', 'digitalogic' ), 'warning' ),
+			'null_foreign_currency'       => array( __( 'Foreign currency is explicitly null', 'digitalogic' ), 'warning' ),
+			'unexpected_foreign_currency' => array( __( 'Foreign currency is not CNY', 'digitalogic' ), 'warning' ),
+			'missing_foreign_price'       => array( __( 'Missing CNY price', 'digitalogic' ), 'warning' ),
+			'null_foreign_price'          => array( __( 'CNY price is explicitly null', 'digitalogic' ), 'warning' ),
+			'zero_foreign_price'                    => array( __( 'CNY price is zero or non-positive', 'digitalogic' ), 'warning' ),
+			'missing_partner_price'                 => array( __( 'Missing partner price', 'digitalogic' ), 'warning' ),
+			'null_partner_price'                    => array( __( 'Partner price is explicitly null', 'digitalogic' ), 'warning' ),
+			'zero_partner_price'                    => array( __( 'Partner price is zero or non-positive', 'digitalogic' ), 'warning' ),
+			'missing_sale_price_source'             => array( __( 'Missing source sale price', 'digitalogic' ), 'warning' ),
+			'null_sale_price_source'                => array( __( 'Source sale price is explicitly null', 'digitalogic' ), 'warning' ),
+			'missing_price_source'                  => array( __( 'No usable price source was selected', 'digitalogic' ), 'danger' ),
+			'incomplete_price_source'               => array( __( 'Selected price-source provenance is incomplete', 'digitalogic' ), 'danger' ),
+			'null_price_source'                     => array( __( 'Selected price-source provenance contains explicit null', 'digitalogic' ), 'danger' ),
+			'invalid_price_source'                  => array( __( 'Selected price-source provenance is invalid', 'digitalogic' ), 'danger' ),
+			'partner_price_fallback'                => array( __( 'Partner-price fallback selected', 'digitalogic' ), 'info' ),
+			'sale_price_direct_fallback'            => array( __( 'Direct source sale-price fallback selected', 'digitalogic' ), 'info' ),
+			'missing_weight'              => array( __( 'Missing weight', 'digitalogic' ), 'warning' ),
+			'null_weight'                 => array( __( 'Weight is explicitly null', 'digitalogic' ), 'warning' ),
+			'missing_stock'               => array( __( 'Missing stock', 'digitalogic' ), 'warning' ),
+			'null_stock'                  => array( __( 'Stock is explicitly null', 'digitalogic' ), 'warning' ),
+			'missing_final_price'         => array( __( 'Missing calculated price', 'digitalogic' ), 'danger' ),
+			'null_final_price'            => array( __( 'Calculated price is explicitly null', 'digitalogic' ), 'danger' ),
+			'missing_shipping'            => array( __( 'Missing shipping price inputs', 'digitalogic' ), 'warning' ),
+			'null_shipping'               => array( __( 'Shipping price inputs contain explicit null', 'digitalogic' ), 'warning' ),
+			'invalid_domestic_shipping'   => array( __( 'Domestic price source must use the zero-rate domestic method in IRR', 'digitalogic' ), 'danger' ),
+			'missing_markup'              => array( __( 'Missing profit margin', 'digitalogic' ), 'warning' ),
+			'null_markup'                 => array( __( 'Profit margin is explicitly null', 'digitalogic' ), 'warning' ),
+			'missing_exchange_rate'       => array( __( 'Missing CNY exchange rate', 'digitalogic' ), 'warning' ),
+			'null_exchange_rate'          => array( __( 'CNY exchange rate is explicitly null', 'digitalogic' ), 'warning' ),
+			'missing_rounding_digits'               => array( __( 'Missing price-rounding digits', 'digitalogic' ), 'warning' ),
+			'null_rounding_digits'                  => array( __( 'Price-rounding digits are explicitly null', 'digitalogic' ), 'warning' ),
+			'missing_rounding_mode'                 => array( __( 'Missing price-rounding mode', 'digitalogic' ), 'warning' ),
+			'null_rounding_mode'                    => array( __( 'Price-rounding mode is explicitly null', 'digitalogic' ), 'warning' ),
+			'invalid_rounding_policy'               => array( __( 'Price-rounding policy is invalid', 'digitalogic' ), 'danger' ),
+			'invalid_source_value'        => array( __( 'Invalid source value', 'digitalogic' ), 'danger' ),
+			'zero_stock'                  => array( __( 'Zero or negative stock', 'digitalogic' ), 'info' ),
+			'zero_price'                  => array( __( 'Zero or negative calculated price', 'digitalogic' ), 'danger' ),
+			'missing_source_updated_at'   => array( __( 'Missing source update time', 'digitalogic' ), 'warning' ),
+			'null_source_updated_at'      => array( __( 'Source update time is explicitly null', 'digitalogic' ), 'warning' ),
+			'stale_source'                => array( __( 'Stale source data', 'digitalogic' ), 'warning' ),
+			'price_drift'                 => array( __( 'Price differs from the current source', 'digitalogic' ), 'danger' ),
+			'stock_drift'                 => array( __( 'Stock differs from the current source', 'digitalogic' ), 'danger' ),
+			'stock_management_drift'      => array( __( 'Stock management differs from the current source', 'digitalogic' ), 'danger' ),
+			'stock_status_drift'          => array( __( 'Stock availability differs from the current source', 'digitalogic' ), 'danger' ),
+			'weight_drift'                => array( __( 'Weight differs from the current source', 'digitalogic' ), 'danger' ),
+			'record_hash_drift'           => array( __( 'Record hash differs from the current source', 'digitalogic' ), 'danger' ),
+			'pricing_provenance_drift'              => array( __( 'Price-source provenance differs in WooCommerce', 'digitalogic' ), 'danger' ),
+			'source_updated_at_drift'     => array( __( 'Source update time differs in WooCommerce', 'digitalogic' ), 'warning' ),
 		);
 	}
 

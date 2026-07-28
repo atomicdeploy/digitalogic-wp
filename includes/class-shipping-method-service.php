@@ -16,26 +16,30 @@ if (!class_exists('Digitalogic_Product_Identifier_Resolver')) {
 
 final class Digitalogic_Shipping_Method_Service {
 
-	public const METHODS_OPTION = 'digitalogic_shipping_methods';
-	public const DEFAULT_MARKUP_OPTION = 'digitalogic_pricing_default_percentage_markup';
-	public const PRODUCT_METHOD_META = '_digitalogic_shipping_method_id';
-    public const CATALOG_SCHEMA = 'digitalogic.integration-catalog';
-    public const FORMULA_ID = 'landed_price';
-    public const DEFAULT_MARKUP_SCHEMA = 'digitalogic.default-percentage-markup';
+	public const METHODS_OPTION         = 'digitalogic_shipping_methods';
+	public const DEFAULT_MARKUP_OPTION  = 'digitalogic_pricing_default_percentage_markup';
+	public const ROUNDING_DIGITS_OPTION = 'digitalogic_pricing_rounding_digits';
+	public const PRODUCT_METHOD_META    = '_digitalogic_shipping_method_id';
+	public const DOMESTIC_METHOD_ID     = 'domestic';
+    public const CATALOG_SCHEMA         = 'digitalogic.integration-catalog';
+    public const FORMULA_ID             = 'landed_price';
+    public const DEFAULT_MARKUP_SCHEMA  = 'digitalogic.default-percentage-markup';
+	public const ROUNDING_MODE          = 'nearest_half_up';
 
-	public const PRICING_ASSIGNMENT_BATCH_SCHEMA = 'digitalogic.pricing-assignment-batch';
+	public const PRICING_ASSIGNMENT_BATCH_SCHEMA   = 'digitalogic.pricing-assignment-batch';
 	public const MAX_PRICING_ASSIGNMENT_BATCH_SIZE = 500;
 
-    private const MAX_BATCH_SIZE = 500;
-	private const CATALOG_LOCK_NAME = 'digitalogic_shipping_method_catalog';
-    private const CATALOG_LOCK_TIMEOUT_SECONDS = 10;
-    private const DEFAULT_MARKUP_MAX_PERCENT = '1000';
-    private const DEFAULT_MARKUP_MAX_SCALE = 12;
-	private const METHOD_DECIMAL_MAX_SCALE = 12;
+    private const MAX_BATCH_SIZE                    = 500;
+	private const CATALOG_LOCK_NAME                 = 'digitalogic_shipping_method_catalog';
+    private const CATALOG_LOCK_TIMEOUT_SECONDS      = 10;
+    private const DEFAULT_MARKUP_MAX_PERCENT        = '1000';
+    private const DEFAULT_MARKUP_MAX_SCALE          = 12;
+	private const MAX_ROUNDING_DIGITS               = 9;
+	private const METHOD_DECIMAL_MAX_SCALE          = 12;
 	private const METHOD_DECIMAL_MAX_INTEGER_DIGITS = 18;
-	private const CURRENCY_MIGRATION_OPTION = 'digitalogic_shipping_currency_migration_complete';
-	private const RETIRED_RATE_STORAGE_KEY = 'shipping_price_per_kg_cny';
-	private const RETIRED_MINIMUM_STORAGE_KEY = 'minimum_charge_cny';
+	private const CURRENCY_MIGRATION_OPTION          = 'digitalogic_shipping_currency_migration_complete';
+	private const RETIRED_RATE_STORAGE_KEY           = 'shipping_price_per_kg_cny';
+	private const RETIRED_MINIMUM_STORAGE_KEY        = 'minimum_charge_cny';
 
     private static $instance = null;
     private $catalog_lock_depth = 0;
@@ -316,6 +320,71 @@ final class Digitalogic_Shipping_Method_Service {
         });
     }
 
+	/**
+	 * Return the exact effective price-rounding policy.
+	 *
+	 * An absent option intentionally means zero digits, preserving whole-IRT
+	 * rounding. Invalid stored state fails closed instead of silently changing
+	 * product prices.
+	 *
+	 * @return array|WP_Error
+	 */
+	public function get_price_rounding_policy() {
+		return $this->load_price_rounding_policy();
+	}
+
+	/**
+	 * Set the nearest-half-up IRT rounding digits.
+	 *
+	 * @param mixed $value Integer digit count from zero through nine.
+	 * @return array|WP_Error
+	 */
+	public function update_price_rounding_digits( $value ) {
+		$digits = $this->canonical_rounding_digits( $value );
+		if ( is_wp_error( $digits ) ) {
+			return $digits;
+		}
+
+		return $this->with_catalog_lock(
+			function () use ( $digits ) {
+				$previous = $this->load_price_rounding_policy();
+				if ( is_wp_error( $previous ) ) {
+					return $previous;
+				}
+				if ( ! empty( $previous['configured'] ) && $digits === $previous['rounding_digits'] ) {
+					$previous['changed'] = false;
+					return $previous;
+				}
+
+				$stored = $this->run_transaction(
+					function () use ( $digits ) {
+						return $this->store_option_verified(
+							self::ROUNDING_DIGITS_OPTION,
+							$digits,
+							'digitalogic_price_rounding_write_failed'
+						);
+					}
+				);
+				if ( is_wp_error( $stored ) ) {
+					return $stored;
+				}
+
+				$result = $this->load_price_rounding_policy();
+				if ( is_wp_error( $result ) || $digits !== $result['rounding_digits'] ) {
+					return new WP_Error(
+						'digitalogic_price_rounding_readback_failed',
+						__( 'The price-rounding setting did not pass exact database readback.', 'digitalogic' ),
+						array( 'status' => 500 )
+					);
+				}
+				$result['changed'] = true;
+				do_action( 'digitalogic_price_rounding_updated', $result, $previous );
+
+				return $result;
+			}
+		);
+	}
+
     /**
      * Fetch one method.
      *
@@ -426,6 +495,13 @@ final class Digitalogic_Shipping_Method_Service {
         if (is_wp_error($id)) {
             return $id;
         }
+        if (self::DOMESTIC_METHOD_ID === $id) {
+            return new WP_Error(
+                'digitalogic_shipping_domestic_method_immutable',
+                __('The canonical domestic method is immutable.', 'digitalogic'),
+                array('status' => 409)
+            );
+        }
 
         $changes = is_array($changes) ? $changes : array();
         if (isset($changes['id']) && (string) $changes['id'] !== $id) {
@@ -486,6 +562,13 @@ final class Digitalogic_Shipping_Method_Service {
         $id = $this->validate_method_id($id);
         if (is_wp_error($id)) {
             return $id;
+        }
+        if (self::DOMESTIC_METHOD_ID === $id) {
+            return new WP_Error(
+                'digitalogic_shipping_domestic_method_immutable',
+                __('The canonical domestic method cannot be deleted.', 'digitalogic'),
+                array('status' => 409)
+            );
         }
 
         return $this->with_catalog_lock(function() use ($id) {
@@ -921,6 +1004,10 @@ final class Digitalogic_Shipping_Method_Service {
         if (is_wp_error($methods)) {
             return $methods;
         }
+		$rounding = $this->load_price_rounding_policy();
+		if ( is_wp_error( $rounding ) ) {
+			return $rounding;
+		}
 		$catalog_methods = array();
 		foreach ($methods as $method) {
 			$catalog_method = array(
@@ -979,6 +1066,8 @@ final class Digitalogic_Shipping_Method_Service {
             'currency' => $currency,
             'pricing' => array(
                 'formula_id' => self::FORMULA_ID,
+				'rounding_digits' => $rounding['rounding_digits'],
+				'rounding_mode'   => self::ROUNDING_MODE,
             ),
             'selected_warehouses' => $warehouses,
 			'shipping_methods' => $catalog_methods,
@@ -997,17 +1086,25 @@ final class Digitalogic_Shipping_Method_Service {
 
     private function default_methods() {
         $definitions = array(
+            self::DOMESTIC_METHOD_ID => array(
+				'name'          => 'خرید داخلی',
+				'fallback_rate' => 0,
+				'currency'      => 'IRR',
+            ),
             'air_express' => array(
 				'name' => 'Air (Express)',
                 'fallback_rate' => 85,
+				'currency' => 'CNY',
             ),
             'air_freight' => array(
 				'name' => 'Air',
                 'fallback_rate' => 80,
+				'currency' => 'CNY',
             ),
             'sea_freight' => array(
 				'name' => 'Sea/Ocean',
                 'fallback_rate' => 50,
+				'currency' => 'CNY',
             ),
         );
 
@@ -1017,7 +1114,7 @@ final class Digitalogic_Shipping_Method_Service {
                 'id' => $id,
                 'name' => $definition['name'],
                 'enabled' => true,
-                'currency' => 'CNY',
+                'currency' => $definition['currency'],
                 'price_per_kg' => $definition['fallback_rate'],
                 'minimum_charge' => null,
                 'billable_weight_rule' => 'actual',
@@ -1477,6 +1574,16 @@ final class Digitalogic_Shipping_Method_Service {
             }
             $valid[$id] = $method;
         }
+
+		// Domestic procurement is a contract invariant rather than an optional
+		// freight tariff. Overlay its canonical zero-rate record in memory for
+		// already-installed catalogs so partner-priced products can be assigned
+		// immediately without a request read mutating options or reviving any
+		// administrator-removed freight method.
+		$defaults = $this->default_methods();
+		if (isset($defaults[self::DOMESTIC_METHOD_ID]) && !is_wp_error($defaults[self::DOMESTIC_METHOD_ID])) {
+			$valid[self::DOMESTIC_METHOD_ID] = $defaults[self::DOMESTIC_METHOD_ID];
+		}
         ksort($valid, SORT_STRING);
 
         return $valid;
@@ -2180,6 +2287,95 @@ final class Digitalogic_Shipping_Method_Service {
             'warnings' => array(),
         ));
     }
+
+	/**
+	 * Read and validate the effective rounding policy directly from MySQL.
+	 *
+	 * @return array|WP_Error
+	 */
+	private function load_price_rounding_policy() {
+		$row = $this->read_option_db( self::ROUNDING_DIGITS_OPTION );
+		if ( ! $row['exists'] ) {
+			return array(
+				'configured'      => false,
+				'rounding_digits' => 0,
+				'rounding_mode'   => self::ROUNDING_MODE,
+				'bounds'          => array( 'minimum' => 0, 'maximum' => self::MAX_ROUNDING_DIGITS ),
+				'warnings'        => array(),
+			);
+		}
+
+		$digits = $this->canonical_rounding_digits( $row['value'] );
+		if ( is_wp_error( $digits ) ) {
+			return new WP_Error(
+				'digitalogic_price_rounding_storage_invalid',
+				__( 'The stored price-rounding setting is invalid.', 'digitalogic' ),
+				array( 'status' => 500 )
+			);
+		}
+
+		return array(
+			'configured'      => true,
+			'rounding_digits' => $digits,
+			'rounding_mode'   => self::ROUNDING_MODE,
+			'bounds'          => array( 'minimum' => 0, 'maximum' => self::MAX_ROUNDING_DIGITS ),
+			'warnings'        => array(),
+		);
+	}
+
+	/**
+	 * Normalize Persian/Arabic digits while rejecting fractions and grouping.
+	 *
+	 * @param mixed $value Candidate digit count.
+	 * @return int|WP_Error
+	 */
+	private function canonical_rounding_digits( $value ) {
+		if ( is_int( $value ) ) {
+			$text = (string) $value;
+		} elseif ( is_string( $value ) ) {
+			$text = trim( wp_unslash( $value ) );
+			$text = strtr(
+				$text,
+				array(
+					'۰' => '0',
+					'۱' => '1',
+					'۲' => '2',
+					'۳' => '3',
+					'۴' => '4',
+					'۵' => '5',
+					'۶' => '6',
+					'۷' => '7',
+					'۸' => '8',
+					'۹' => '9',
+					'٠' => '0',
+					'١' => '1',
+					'٢' => '2',
+					'٣' => '3',
+					'٤' => '4',
+					'٥' => '5',
+					'٦' => '6',
+					'٧' => '7',
+					'٨' => '8',
+					'٩' => '9',
+				)
+			);
+		} else {
+			$text = '';
+		}
+		if ( 1 !== preg_match( '/^[0-9]$/', $text ) ) {
+			return new WP_Error(
+				'digitalogic_price_rounding_invalid',
+				sprintf(
+					/* translators: %d: maximum supported rounding digits. */
+					__( 'Price-rounding digits must be a whole number from 0 through %d.', 'digitalogic' ),
+					self::MAX_ROUNDING_DIGITS
+				),
+				array( 'status' => 400 )
+			);
+		}
+
+		return (int) $text;
+	}
 
     private function new_default_percentage_markup_state($canonical) {
         $identity = $this->default_percentage_markup_identity(true, $canonical, 'global_default');

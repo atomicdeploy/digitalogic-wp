@@ -213,6 +213,88 @@ final class ReportEngineTest extends TestCase {
 		$this->assertSame( 400, $report->get_error_data()['status'] );
 	}
 
+	public function test_explicit_null_rounding_digits_does_not_report_the_required_absent_mode_as_missing(): void {
+		$product                          = $this->source_product( 'NULL-ROUNDING' );
+		$product['price_rounding_digits'] = null;
+		unset( $product['price_rounding_mode'], $product['final_price'] );
+		$this->store_source( array( 'NULL-ROUNDING' => $product ) );
+
+		$report = $this->engine->get_report( array( 'view' => 'warnings' ) );
+
+		$this->assertNotInstanceOf( WP_Error::class, $report );
+		$this->assertCount( 1, $report['rows'] );
+		$this->assertContains( 'null_rounding_digits', $report['rows'][0]['issues'] );
+		$this->assertNotContains( 'missing_rounding_mode', $report['rows'][0]['issues'] );
+	}
+
+	public function test_partner_only_diagnostics_remain_attention_for_cny_price_source(): void {
+		$product             = $this->source_product( 'CNY-WARNING' );
+		$product['warnings'] = array( 'weight_missing' );
+		$this->store_source( array( 'CNY-WARNING' => $product ) );
+
+		$report = $this->engine->get_report( array( 'view' => 'price_list' ) );
+		$rows   = array_values(
+			array_filter(
+				$report['rows'],
+				static fn( $row ) => 'CNY-WARNING' === ( $row['product_code'] ?? '' )
+			)
+		);
+
+		$this->assertCount( 1, $rows );
+		$this->assertContains( 'source_warning', $rows[0]['issues'] );
+	}
+
+	/** A stored zero weight remains visible but is invalid for foreign freight pricing. */
+	public function test_zero_weight_is_reported_as_invalid_for_cny_price_source(): void {
+		$product                 = $this->source_product( 'CNY-ZERO-WEIGHT' );
+		$product['weight_grams'] = '0';
+		$this->store_source( array( 'CNY-ZERO-WEIGHT' => $product ) );
+
+		$report = $this->engine->get_report( array( 'view' => 'warnings' ) );
+		$row    = $report['rows'][0];
+
+		$this->assertSame( '0', $row['source']['weight_grams'] );
+		$this->assertContains( 'invalid_source_value', $row['issues'] );
+		$this->assertContains( 'weight_grams', $row['issue_fields']['invalid_source_value'] );
+	}
+
+	public function test_direct_sale_fallback_is_reported_without_unused_pricing_requirements(): void {
+		$product                                   = $this->source_product( 'DIRECT-SALE' );
+		$product['sale_price_source']              = '100000';
+		$product['price_source_amount']            = '100000';
+		$product['price_source_currency']          = 'IRR';
+		$product['price_source_kind']              = 'sale_price_direct';
+		$product['shipping_method_id']             = 'domestic';
+		$product['shipping_price_per_kg']          = '0';
+		$product['shipping_price_per_kg_currency'] = 'IRR';
+		$product['final_price']                    = 10000;
+		$product['warnings']                       = array(
+			'sale_price_direct_fallback_used',
+			'freight_not_applied_for_sale_price_direct',
+			'weight_missing',
+		);
+		unset(
+			$product['foreign_currency'],
+			$product['foreign_price'],
+			$product['weight_grams'],
+			$product['markup_percent'],
+			$product['irt_per_cny'],
+			$product['price_rounding_digits'],
+			$product['price_rounding_mode']
+		);
+		$this->store_source( array( 'DIRECT-SALE' => $product ) );
+
+		$report = $this->engine->get_report( array( 'view' => 'price_list' ) );
+		$row    = $report['rows'][0];
+
+		$this->assertContains( 'sale_price_direct_fallback', $row['issues'] );
+		$this->assertNotContains( 'missing_markup', $row['issues'] );
+		$this->assertNotContains( 'missing_rounding_digits', $row['issues'] );
+		$this->assertNotContains( 'missing_shipping', $row['issues'] );
+		$this->assertNotContains( 'invalid_domestic_shipping', $row['issues'] );
+		$this->assertNotContains( 'source_warning', $row['issues'] );
+	}
+
 	private function report_cache_writes(): array {
 		return array_values(
 			array_filter(
@@ -267,6 +349,9 @@ final class ReportEngineTest extends TestCase {
 			'name'                           => 'Cache product ' . $code,
 			'foreign_currency'               => 'CNY',
 			'foreign_price'                  => '10',
+			'price_source_amount'            => '10',
+			'price_source_currency'          => 'CNY',
+			'price_source_kind'              => 'foreign_price',
 			'weight_grams'                   => '100',
 			'total_stock'                    => 5,
 			'shipping_method_id'             => 'air_express',
@@ -274,6 +359,8 @@ final class ReportEngineTest extends TestCase {
 			'shipping_price_per_kg_currency' => 'CNY',
 			'markup_percent'                 => '30',
 			'irt_per_cny'                    => '30000',
+			'price_rounding_digits'          => 0,
+			'price_rounding_mode'            => 'nearest_half_up',
 			'final_price'                    => 468000,
 			'source_updated_at'              => gmdate( 'c' ),
 			'warnings'                       => array(),
@@ -283,7 +370,7 @@ final class ReportEngineTest extends TestCase {
 
 	private function static_envelope(): array {
 		return array(
-			'schema'       => 'digitalogic.patris.product-sync.v1',
+			'schema'       => 'patris.product-sync',
 			'event_id'     => 'sha256:static-event',
 			'event_type'   => 'snapshot',
 			'generated_at' => gmdate( 'c' ),

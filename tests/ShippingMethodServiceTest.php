@@ -43,7 +43,14 @@ final class ShippingMethodServiceTest extends TestCase {
             array_keys($catalog)
         );
         $this->assertSame('digitalogic.integration-catalog', $catalog['schema']);
-        $this->assertSame(array('formula_id' => 'landed_price'), $catalog['pricing']);
+        $this->assertSame(
+            array(
+                'formula_id'      => 'landed_price',
+                'rounding_digits' => 0,
+                'rounding_mode'   => 'nearest_half_up',
+            ),
+            $catalog['pricing']
+        );
         $this->assertSame(array('shenzhen', 'tehran'), $catalog['selected_warehouses']);
         $this->assertSame(
             array('id', 'name', 'enabled', 'currency', 'price_per_kg'),
@@ -53,6 +60,60 @@ final class ShippingMethodServiceTest extends TestCase {
         $this->assertStringNotContainsString('null', json_encode($catalog));
         $this->assertArrayNotHasKey(Digitalogic_Shipping_Method_Service::METHODS_OPTION, $GLOBALS['digitalogic_test_options']);
     }
+
+	public function test_rounding_digits_are_configurable_exact_and_part_of_catalog_identity(): void {
+		$default = $this->service->get_price_rounding_policy();
+		$this->assertFalse( $default['configured'] );
+		$this->assertSame( 0, $default['rounding_digits'] );
+		$this->assertSame( 'nearest_half_up', $default['rounding_mode'] );
+
+		$before_revision = $this->service->get_integration_catalog()['revision'];
+		$updated         = $this->service->update_price_rounding_digits( '۲' );
+		$this->assertNotInstanceOf( WP_Error::class, $updated );
+		$this->assertTrue( $updated['configured'] );
+		$this->assertSame( 2, $updated['rounding_digits'] );
+		$this->assertTrue( $updated['changed'] );
+
+		$catalog = $this->service->get_integration_catalog();
+		$this->assertSame( 2, $catalog['pricing']['rounding_digits'] );
+		$this->assertSame( 'nearest_half_up', $catalog['pricing']['rounding_mode'] );
+		$this->assertNotSame( $before_revision, $catalog['revision'] );
+
+		$same = $this->service->update_price_rounding_digits( 2 );
+		$this->assertFalse( $same['changed'] );
+		foreach ( array( null, '', '10', '2.0', -1, 1.5 ) as $invalid_value ) {
+			$invalid = $this->service->update_price_rounding_digits( $invalid_value );
+			$this->assertInstanceOf( WP_Error::class, $invalid );
+			$this->assertSame( 'digitalogic_price_rounding_invalid', $invalid->get_error_code() );
+		}
+	}
+
+	public function test_domestic_method_is_canonical_zero_rate_irr_and_assignable(): void {
+		$domestic = $this->service->get_method( Digitalogic_Shipping_Method_Service::DOMESTIC_METHOD_ID );
+
+		$this->assertNotInstanceOf( WP_Error::class, $domestic );
+		$this->assertSame( 'domestic', $domestic['id'] );
+		$this->assertSame( 'خرید داخلی', $domestic['name'] );
+		$this->assertSame( 'IRR', $domestic['currency'] );
+		$this->assertSame( '0', $domestic['price_per_kg'] );
+
+		$GLOBALS['digitalogic_test_posts'][509] = array(
+			'post_type'   => 'product',
+			'post_status' => 'publish',
+			'meta'        => array( '_digitalogic_patris_product_code' => 'DOMESTIC-509' ),
+		);
+		$assigned = $this->service->assign_product_by_code( 'DOMESTIC-509', 'domestic' );
+
+		$this->assertNotInstanceOf( WP_Error::class, $assigned );
+		$this->assertSame( 'domestic', $assigned['shipping_method_id'] );
+		$this->assertSame( '0', $assigned['shipping_price_per_kg'] );
+		$this->assertSame( 'IRR', $assigned['shipping_price_per_kg_currency'] );
+
+		$update = $this->service->update_method( 'domestic', array( 'price_per_kg' => 1 ) );
+		$delete = $this->service->delete_method( 'domestic' );
+		$this->assertSame( 'digitalogic_shipping_domestic_method_immutable', $update->get_error_code() );
+		$this->assertSame( 'digitalogic_shipping_domestic_method_immutable', $delete->get_error_code() );
+	}
 
     public function test_canonical_shipping_fields_require_explicit_supported_currency(): void {
         $created = $this->service->create_method(array(

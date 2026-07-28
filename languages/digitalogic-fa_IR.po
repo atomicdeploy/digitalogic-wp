@@ -2515,3 +2515,115 @@ msgstr "کد کالا هنگام اعمال به کالای دیگری منته�
 #: includes/class-digitalogic-google-sheets-writeback.php
 msgid "Editable rows require an exact, unique Product Code."
 msgstr "ردیف‌های قابل ویرایش به کد کالای دقیق و یکتا نیاز دارند."
+msgid "The price-rounding policy was saved. WooCommerce prices were not changed."
+msgstr "سیاست گردکردن قیمت ذخیره شد. قیمت‌های ووکامرس تغییر نکردند."
+
+msgid "Final-price rounding"
+msgstr "گردکردن قیمت نهایی"
+
+msgid "Rounds the calculated IRT amount once to the nearest power of ten. For example, two digits rounds 123,456 to 123,500 using half-up behavior."
+msgstr "مبلغ محاسبه‌شده به تومان یک‌بار به نزدیک‌ترین توان ده گرد می‌شود. برای نمونه، با دو رقم گردکردن، ۱۲۳٬۴۵۶ به ۱۲۳٬۵۰۰ تبدیل می‌شود."
+
+msgid "Rounding digits"
+msgstr "تعداد ارقام گردکردن"
+
+msgid "Save rounding"
+msgstr "ذخیره گردکردن"
+
+#. translators: 1: rounding mode, 2: minimum digits, 3: maximum digits.
+#, php-format
+msgid "Mode: %1$s. Allowed digits: %2$d–%3$d. Zero rounds to the nearest whole IRT."
+msgstr "روش: %1$s. تعداد رقم مجاز: %2$d تا %3$d. صفر، مبلغ را به نزدیک‌ترین واحد کامل تومان گرد می‌کند."
+
+msgid "Partner price (IRR)"
+msgstr "قیمت همکار (ریال)"
+
+msgid "Selected price source"
+msgstr "منبع قیمت منتخب"
+
+msgid "Rounding"
+msgstr "گردکردن"
+
+msgid "CNY price is zero or non-positive"
+msgstr "قیمت یوان صفر یا منفی است"
+
+msgid "Missing partner price"
+msgstr "قیمت همکار موجود نیست"
+
+msgid "Partner price is explicitly null"
+msgstr "قیمت همکار صراحتاً null است"
+
+msgid "Partner price is zero or non-positive"
+msgstr "قیمت همکار صفر یا منفی است"
+
+msgid "No usable price source was selected"
+msgstr "هیچ منبع قیمت قابل استفاده‌ای انتخاب نشده است"
+
+msgid "Selected price-source provenance is incomplete"
+msgstr "اطلاعات منبع قیمت منتخب ناقص است"
+
+msgid "Selected price-source provenance contains explicit null"
+msgstr "اطلاعات منبع قیمت منتخب دارای null صریح است"
+
+msgid "Selected price-source provenance is invalid"
+msgstr "اطلاعات منبع قیمت منتخب نامعتبر است"
+
+msgid "Partner-price fallback selected"
+msgstr "قیمت همکار به‌عنوان منبع جایگزین انتخاب شده است"
+
+msgid "Missing price-rounding digits"
+msgstr "تعداد ارقام گردکردن قیمت موجود نیست"
+
+msgid "Price-rounding digits are explicitly null"
+msgstr "تعداد ارقام گردکردن قیمت صراحتاً null است"
+
+msgid "Missing price-rounding mode"
+msgstr "روش گردکردن قیمت موجود نیست"
+
+msgid "Price-rounding mode is explicitly null"
+msgstr "روش گردکردن قیمت صراحتاً null است"
+
+msgid "Price-rounding policy is invalid"
+msgstr "سیاست گردکردن قیمت نامعتبر است"
+
+msgid "Price-source provenance differs in WooCommerce"
+msgstr "اطلاعات منبع قیمت در ووکامرس مغایرت دارد"
+
+msgid "The price-rounding setting did not pass exact database readback."
+msgstr "تنظیم گردکردن قیمت در بازخوانی دقیق پایگاه داده تأیید نشد."
+
+msgid "The stored price-rounding setting is invalid."
+msgstr "تنظیم ذخیره‌شده گردکردن قیمت نامعتبر است."
+
+#. translators: %d: maximum supported rounding digits.
+#, php-format
+msgid "Price-rounding digits must be a whole number from 0 through %d."
+msgstr "تعداد ارقام گردکردن قیمت باید عدد صحیحی از ۰ تا %d باشد."
+
+#: includes/admin/views/patris-reports.php
+msgid "Source sale price (IRR)"
+msgstr "فی فروش منبع (ریال)"
+
+#: includes/class-report-engine.php
+msgid "Missing source sale price"
+msgstr "فی فروش منبع موجود نیست"
+
+#: includes/class-report-engine.php
+msgid "Source sale price is explicitly null"
+msgstr "فی فروش منبع صراحتاً null است"
+
+#: includes/class-report-engine.php
+msgid "Direct source sale-price fallback selected"
+msgstr "فی فروش منبع مستقیماً به‌عنوان آخرین منبع جایگزین انتخاب شده است"
+
+#: includes/class-report-engine.php
+msgid "Domestic price source must use the zero-rate domestic method in IRR"
+msgstr "منبع قیمت داخلی باید از روش خرید داخلی با نرخ صفر و ارز ریال استفاده کند"
+
+#: includes/class-shipping-method-service.php
+msgid "The canonical domestic method is immutable."
+msgstr "روش استاندارد خرید داخلی قابل تغییر نیست."
+
+#: includes/class-shipping-method-service.php
+msgid "The canonical domestic method cannot be deleted."
+msgstr "روش استاندارد خرید داخلی قابل حذف نیست."

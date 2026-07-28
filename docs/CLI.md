@@ -124,9 +124,13 @@ every readiness gate passes. An exact reviewed target that was already
 published keeps that status and is reported as `preserved_published` instead of
 being counted as newly published.
 
-The current source record must carry `shipping_price_per_kg` together with an
-explicit `shipping_price_per_kg_currency` of `CNY` or `IRR`; no freight currency
-is inferred during materialization.
+A CNY-selected source record must carry `shipping_price_per_kg` together with
+an explicit `shipping_price_per_kg_currency` of `CNY` or `IRR`; no freight
+currency is inferred during materialization. An IRR `partner_price` source
+uses the distinct `partner_price_source`, adds margin only, and carries the
+zero-rate `domestic`/`خرید داخلی` method. The disabled-by-default
+`sale_price_direct` last fallback instead reads `sale_price_source`/`FOROSH`
+without margin or rounding and uses the same domestic provenance.
 
 ```bash
 wp digitalogic product-sync materialize \

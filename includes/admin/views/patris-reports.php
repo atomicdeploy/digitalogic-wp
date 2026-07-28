@@ -9,6 +9,7 @@
  * @var string $notice_type
  * @var array  $shipping_methods
  * @var array  $default_markup
+ * @var array  $price_rounding
  * @var array  $currency_status
  * @var array|null $shipping_assignment
  */
@@ -187,6 +188,50 @@ $report_status_titles = array(
                 </tr>
             </table>
         </div>
+
+		<h3><?php echo esc_html__( 'Final-price rounding', 'digitalogic' ); ?></h3>
+		<p class="description">
+			<?php echo esc_html__( 'Rounds the calculated IRT amount once to the nearest power of ten. For example, two digits rounds 123,456 to 123,500 using half-up behavior.', 'digitalogic' ); ?>
+		</p>
+		<div class="digitalogic-report-table-wrap">
+			<table class="form-table" role="presentation">
+				<tr>
+					<th scope="row"><label for="digitalogic-price-rounding-digits"><?php echo esc_html__( 'Rounding digits', 'digitalogic' ); ?></label></th>
+					<td>
+						<form method="post" class="digitalogic-inline-form">
+							<?php wp_nonce_field( 'digitalogic_shipping_admin' ); ?>
+							<input type="hidden" name="digitalogic_shipping_action" value="update_price_rounding">
+							<input
+								id="digitalogic-price-rounding-digits"
+								class="small-text code"
+								type="number"
+								name="price_rounding_digits"
+								min="<?php echo esc_attr( $price_rounding['bounds']['minimum'] ); ?>"
+								max="<?php echo esc_attr( $price_rounding['bounds']['maximum'] ); ?>"
+								step="1"
+								value="<?php echo esc_attr( $price_rounding['rounding_digits'] ); ?>"
+								required
+								dir="ltr"
+							>
+							<button type="submit" class="button button-primary"><?php echo esc_html__( 'Save rounding', 'digitalogic' ); ?></button>
+						</form>
+						<p class="description">
+							<?php
+							echo esc_html(
+								sprintf(
+									/* translators: 1: rounding mode, 2: minimum digits, 3: maximum digits. */
+									__( 'Mode: %1$s. Allowed digits: %2$d–%3$d. Zero rounds to the nearest whole IRT.', 'digitalogic' ),
+									$price_rounding['rounding_mode'],
+									$price_rounding['bounds']['minimum'],
+									$price_rounding['bounds']['maximum']
+								)
+							);
+							?>
+						</p>
+					</td>
+				</tr>
+			</table>
+		</div>
 
 		<h3><?php echo esc_html__('Shipping methods', 'digitalogic'); ?></h3>
         <div class="digitalogic-report-table-wrap">
@@ -385,7 +430,11 @@ $report_status_titles = array(
 							<th><?php echo esc_html__('Source', 'digitalogic'); ?></th>
 							<th><?php echo esc_html__('Stock: source / WooCommerce', 'digitalogic'); ?></th>
 							<th><?php echo esc_html__('CNY price', 'digitalogic'); ?></th>
+							<th><?php echo esc_html__('Partner price (IRR)', 'digitalogic'); ?></th>
+							<th><?php echo esc_html__('Source sale price (IRR)', 'digitalogic'); ?></th>
+							<th><?php echo esc_html__('Selected price source', 'digitalogic'); ?></th>
 							<th><?php echo esc_html__('Weight (g)', 'digitalogic'); ?></th>
+							<th><?php echo esc_html__('Rounding', 'digitalogic'); ?></th>
 							<th><?php echo esc_html__('Price: source / WooCommerce', 'digitalogic'); ?></th>
 							<th><?php echo esc_html__('Source updated', 'digitalogic'); ?></th>
 							<th><?php echo esc_html__('Findings', 'digitalogic'); ?></th>
@@ -402,7 +451,11 @@ $report_status_titles = array(
 								<td><?php echo esc_html($sparse_value($source_row, 'name')); ?></td>
 								<td class="digitalogic-num"><span dir="ltr"><?php echo esc_html($sparse_value($source_row, 'total_stock') . ' / ' . (array_key_exists('stock_quantity', $woo_row) ? (null === $woo_row['stock_quantity'] ? 'null' : $woo_row['stock_quantity']) : '—')); ?></span></td>
 								<td class="digitalogic-num"><span dir="ltr"><?php echo esc_html($sparse_value($source_row, 'foreign_price')); ?></span></td>
+								<td class="digitalogic-num"><span dir="ltr"><?php echo esc_html($sparse_value($source_row, 'partner_price_source')); ?></span></td>
+								<td class="digitalogic-num"><span dir="ltr"><?php echo esc_html($sparse_value($source_row, 'sale_price_source')); ?></span></td>
+								<td><span dir="ltr"><?php echo esc_html($sparse_value($source_row, 'price_source_kind') . ' / ' . $sparse_value($source_row, 'price_source_currency') . ' / ' . $sparse_value($source_row, 'price_source_amount')); ?></span></td>
 								<td class="digitalogic-num"><span dir="ltr"><?php echo esc_html($sparse_value($source_row, 'weight_grams')); ?></span></td>
+								<td><span dir="ltr"><?php echo esc_html($sparse_value($source_row, 'price_rounding_mode') . ' / ' . $sparse_value($source_row, 'price_rounding_digits')); ?></span></td>
 								<td class="digitalogic-num"><span dir="ltr"><?php echo esc_html($sparse_value($source_row, 'final_price') . ' / ' . ($woo_row['active_price'] ?? '—')); ?></span></td>
 								<td><span dir="ltr"><?php echo esc_html($sparse_value($source_row, 'source_updated_at')); ?></span></td>
 								<td>

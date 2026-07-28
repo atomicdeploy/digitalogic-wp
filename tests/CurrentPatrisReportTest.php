@@ -14,22 +14,22 @@ final class CurrentPatrisReportTest extends TestCase {
 
 	/** Reset shared WordPress state before each report assertion. */
 	protected function setUp(): void {
-		$GLOBALS['digitalogic_test_options']         = array();
-		$GLOBALS['digitalogic_test_option_cache']    = array();
-		$GLOBALS['digitalogic_test_posts']           = array();
-		$GLOBALS['digitalogic_test_wc_products']     = array();
+		$GLOBALS['digitalogic_test_options']               = array();
+		$GLOBALS['digitalogic_test_option_cache']          = array();
+		$GLOBALS['digitalogic_test_posts']                 = array();
+		$GLOBALS['digitalogic_test_wc_products']           = array();
 		$GLOBALS['digitalogic_test_wc_product_query_args'] = array();
-		$GLOBALS['digitalogic_test_capabilities']    = array();
-		$GLOBALS['digitalogic_test_current_user_id'] = 0;
-		$GLOBALS['digitalogic_test_current_user']    = (object) array(
+		$GLOBALS['digitalogic_test_capabilities']          = array();
+		$GLOBALS['digitalogic_test_current_user_id']       = 0;
+		$GLOBALS['digitalogic_test_current_user']          = (object) array(
 			'ID'           => 0,
 			'user_login'   => '',
 			'display_name' => '',
 			'roles'        => array(),
 		);
-		$GLOBALS['wpdb']                             = new Digitalogic_Test_WPDB();
-		WP_CLI::$errors                              = array();
-		WP_CLI::$logs                                = array();
+		$GLOBALS['wpdb']                                   = new Digitalogic_Test_WPDB();
+		WP_CLI::$errors                                    = array();
+		WP_CLI::$logs                                      = array();
 		$this->reset_singleton( Digitalogic_Product_Sync_Receiver::class );
 		$this->reset_singleton( Digitalogic_Report_Engine::class );
 		$this->reset_singleton( Digitalogic_REST_API::class );
@@ -106,7 +106,7 @@ final class CurrentPatrisReportTest extends TestCase {
 		$this->assertNull( $matched['source']['foreign_price'] );
 		$this->assertArrayNotHasKey( 'weight_grams', $matched['source'] );
 		$this->assertContains( 'null_foreign_price', $matched['issues'] );
-		$this->assertContains( 'missing_weight', $matched['issues'] );
+		$this->assertContains( 'missing_price_source', $matched['issues'] );
 
 		$source_only = $this->find_row( $report['rows'], 'CODE-B', 'source_only' );
 		$this->assertContains( 'missing_in_woocommerce', $source_only['issues'] );
@@ -173,6 +173,9 @@ final class CurrentPatrisReportTest extends TestCase {
 					'name'                           => 'Drift source',
 					'foreign_currency'               => 'CNY',
 					'foreign_price'                  => '100',
+					'price_source_amount'            => '100',
+					'price_source_currency'          => 'CNY',
+					'price_source_kind'              => 'foreign_price',
 					'weight_grams'                   => '1000',
 					'total_stock'                    => 10,
 					'shipping_method_id'             => 'air_express',
@@ -180,6 +183,8 @@ final class CurrentPatrisReportTest extends TestCase {
 					'shipping_price_per_kg_currency' => 'CNY',
 					'markup_percent'                 => '30',
 					'irt_per_cny'                    => '30000',
+					'price_rounding_digits'          => 0,
+					'price_rounding_mode'            => 'nearest_half_up',
 					'final_price'                    => 4680000,
 					'source_updated_at'              => $updated_at,
 					'warnings'                       => array( 'review_source_row' ),
@@ -219,6 +224,84 @@ final class CurrentPatrisReportTest extends TestCase {
 		$this->assertContains( 'record_hash_drift', $row['issues'] );
 		$this->assertContains( 'source_updated_at_drift', $row['issues'] );
 		$this->assertSame( 1, $report['counts']['drift_products'] );
+	}
+
+	/** The IRR fallback is complete without CNY freight, weight, or FX inputs. */
+	public function test_partner_price_provenance_is_visible_without_false_cny_input_warnings(): void {
+		$updated_at = gmdate( 'c' );
+		$this->store_source(
+			array(
+				'PARTNER-1' => array(
+					'product_code'                   => 'PARTNER-1',
+					'name'                           => 'Partner priced source',
+					'partner_price_source'           => '949661',
+					'sale_price_source'              => '1200000',
+					'price_source_amount'            => '949661',
+					'price_source_currency'          => 'IRR',
+					'price_source_kind'              => 'partner_price',
+					'shipping_method_id'             => 'domestic',
+					'shipping_price_per_kg'          => '0',
+					'shipping_price_per_kg_currency' => 'IRR',
+					'markup_percent'                 => '30',
+					'price_rounding_digits'          => 2,
+					'price_rounding_mode'            => 'nearest_half_up',
+					'final_price'                    => 123500,
+					'total_stock'                    => 4,
+					'source_updated_at'              => $updated_at,
+					'warnings'                       => array(
+						'foreign_price_non_positive',
+						'weight_missing',
+						'partner_price_fallback_used',
+						'freight_not_applied_for_partner_price',
+					),
+					'record_hash'                    => 'sha256:partner-current',
+				),
+			)
+		);
+		$GLOBALS['digitalogic_test_posts'][225] = $this->woo_post(
+			'simple',
+			'Partner priced target',
+			array(
+				'_digitalogic_patris_product_code'         => 'PARTNER-1',
+				'_regular_price'                           => '123500',
+				'_price'                                   => '123500',
+				'_stock'                                   => 4,
+				'_manage_stock'                            => 'yes',
+				'_stock_status'                            => 'instock',
+				'_digitalogic_patris_partner_price_source' => '949661',
+				'_digitalogic_patris_sale_price_source'    => '1200000',
+				'_digitalogic_patris_price_source_amount'  => '949661',
+				'_digitalogic_patris_price_source_currency' => 'IRR',
+				'_digitalogic_patris_price_source_kind'    => 'partner_price',
+				'_digitalogic_patris_shipping_method_id'   => 'domestic',
+				'_digitalogic_patris_shipping_price_per_kg' => '0',
+				'_digitalogic_patris_shipping_price_per_kg_currency' => 'IRR',
+				'_digitalogic_patris_markup_percent'       => '30',
+				'_digitalogic_patris_price_rounding_digits' => '2',
+				'_digitalogic_patris_price_rounding_mode'  => 'nearest_half_up',
+				'_digitalogic_patris_final_price'          => '123500',
+				'_digitalogic_patris_total_stock'          => '4',
+				'_digitalogic_patris_record_hash'          => 'sha256:partner-current',
+				'_digitalogic_patris_updated_at'           => $updated_at,
+			)
+		);
+
+		$report = Digitalogic_Report_Engine::instance()->get_report( array( 'view' => 'price_list' ) );
+		$row    = $this->find_row( $report['rows'], 'PARTNER-1', 'matched' );
+
+		$this->assertSame( 'partner_price', $row['source']['price_source_kind'] );
+		$this->assertSame( 'IRR', $row['source']['price_source_currency'] );
+		$this->assertSame( '949661', $row['source']['partner_price_source'] );
+		$this->assertSame( '1200000', $row['source']['sale_price_source'] );
+		$this->assertContains( 'partner_price_fallback', $row['issues'] );
+		$this->assertNotContains( 'missing_foreign_price', $row['issues'] );
+		$this->assertNotContains( 'missing_weight', $row['issues'] );
+		$this->assertNotContains( 'missing_shipping', $row['issues'] );
+		$this->assertNotContains( 'invalid_domestic_shipping', $row['issues'] );
+		$this->assertNotContains( 'missing_exchange_rate', $row['issues'] );
+		$this->assertNotContains( 'source_warning', $row['issues'] );
+		$this->assertNotContains( 'pricing_provenance_drift', $row['issues'] );
+		$this->assertNotContains( 'price_drift', $row['issues'] );
 	}
 
 	/** Active/sale prices and operational stock state cannot hide behind correct canonical values. */
@@ -266,6 +349,9 @@ final class CurrentPatrisReportTest extends TestCase {
 			'product_code'                   => 'CURRENT-0',
 			'foreign_currency'               => 'CNY',
 			'foreign_price'                  => '100',
+			'price_source_amount'            => '100',
+			'price_source_currency'          => 'CNY',
+			'price_source_kind'              => 'foreign_price',
 			'weight_grams'                   => '1000',
 			'total_stock'                    => 0,
 			'shipping_method_id'             => 'air_express',
@@ -273,6 +359,8 @@ final class CurrentPatrisReportTest extends TestCase {
 			'shipping_price_per_kg_currency' => 'CNY',
 			'markup_percent'                 => '30',
 			'irt_per_cny'                    => '30000',
+			'price_rounding_digits'          => 0,
+			'price_rounding_mode'            => 'nearest_half_up',
 			'final_price'                    => 4680000,
 			'source_updated_at'              => $updated_at,
 			'warnings'                       => array(),

@@ -297,15 +297,24 @@ records, global attribute values, and product categories.
 A leaf is publish-ready only when all of these remain true at apply time:
 
 - source and WooCommerce stock are positive;
-- source foreign price, calculated final price, WooCommerce regular/effective
-  price, source weight, and WooCommerce weight are positive;
-- the source supplier shipping method is exactly `air_express`, its freight
-  price is positive and paired with an explicit `CNY` or `IRR` currency, and
-  WooCommerce has the same canonical assignment;
-- markup is present and nonnegative, the CNY-to-IRT exchange rate is positive,
-  and pricing-catalog revision and status identify the resolved assignment;
-- the source has no Patris warnings, including missing image, pricing,
-  assignment, freight, weight, or exchange-rate warnings;
+- a positive atomic selected-price source, calculated final price, and
+  WooCommerce regular/effective price are present;
+- for a CNY `foreign_price` source only, source/WooCommerce weight is present
+  and strictly positive,
+  the supplier method is exactly `air_express`, freight is positive with an
+  explicit `CNY` or `IRR` currency, WooCommerce has the same assignment, and
+  the CNY-to-IRT exchange rate is positive;
+- an IRR `partner_price` source instead uses the distinct positive
+  `partner_price_source`, applies markup without freight, and requires the
+  canonical `domestic` method with zero IRR freight;
+- the disabled-by-default IRR `sale_price_direct` last fallback uses positive
+  `sale_price_source`/`FOROSH` without markup or rounding and carries the same
+  zero-rate domestic provenance;
+- markup is present and nonnegative and rounding digits/mode are valid for the
+  foreign and partner routes, and
+  pricing-catalog revision and status identify the resolved calculation;
+- the source has no attention-required Patris warnings; the informational
+  partner-fallback and freight-not-applied notices do not block publication;
 - WooCommerce has a featured image whose attachment still resolves;
 - a reviewed category is available and assigned;
 - Persian name, short description, SEO title, SEO description, focus keyword,

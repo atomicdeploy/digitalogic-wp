@@ -404,13 +404,14 @@ class Digitalogic_Patris_Feed {
         $row             = is_array($row) ? $row : array();
         $warehouse_stock = isset($row['warehouse_stock']) && is_array($row['warehouse_stock']) ? $row['warehouse_stock'] : array();
 
-        return array(
-            'product_code'          => $this->clean_string($row['product_code'] ?? $row['code'] ?? ''),
-            'name'                  => $this->clean_string($row['name'] ?? ''),
-            'serial'                => $this->clean_string($row['serial'] ?? ''),
-            'unit'                  => $this->clean_string($row['unit'] ?? ''),
-            'unit_id'               => $this->clean_string($row['unit_id'] ?? ''),
-            'sale_price_source'     => $this->clean_number($row['sale_price_source'] ?? null),
+        $product = array(
+            'product_code' => $this->clean_string($row['product_code'] ?? $row['code'] ?? ''),
+            'name' => $this->clean_string($row['name'] ?? ''),
+            'serial' => $this->clean_string($row['serial'] ?? ''),
+            'unit' => $this->clean_string($row['unit'] ?? ''),
+            'unit_id' => $this->clean_string($row['unit_id'] ?? ''),
+            'sale_price_source' => $this->clean_number($row['sale_price_source'] ?? null),
+            'partner_price_source' => $this->clean_number($row['partner_price_source'] ?? null),
             'purchase_price_source' => $this->clean_number($row['purchase_price_source'] ?? null),
             'warehouse_stock'       => array_map(array($this, 'clean_number'), $warehouse_stock),
             'total_stock'           => $this->clean_number($row['total_stock'] ?? $row['stock'] ?? null),
@@ -425,6 +426,31 @@ class Digitalogic_Patris_Feed {
             'flags'                 => isset($row['flags']) && is_array($row['flags']) ? array_values(array_map('sanitize_key', $row['flags'])) : array(),
             'raw'                   => $row,
         );
+
+        foreach (array('price_source_amount', 'price_rounding_digits') as $field) {
+            if (array_key_exists($field, $row)) {
+                if (null === $row[$field]) {
+                    $product[$field] = null;
+                    continue;
+                }
+                $value = $this->clean_number($row[$field]);
+                if (null !== $value) {
+                    $product[$field] = $value;
+                }
+            }
+        }
+        foreach (array('price_source_currency', 'price_source_kind', 'price_rounding_mode') as $field) {
+            if (array_key_exists($field, $row)) {
+                $product[$field] = null === $row[$field]
+                    ? null
+                    : $this->clean_string($row[$field]);
+            }
+        }
+        if (isset($product['price_source_currency'])) {
+            $product['price_source_currency'] = strtoupper($product['price_source_currency']);
+        }
+
+        return $product;
     }
 
     private function normalize_customers($customers) {
@@ -527,35 +553,41 @@ class Digitalogic_Patris_Feed {
         $data = is_array($data) ? $data : array();
         $product->update_meta_data('_digitalogic_patris_product_code', (string) ($data['product_code'] ?? ''));
 
-        $meta_fields    = array(
-            'category_code'                  => array('_digitalogic_patris_category_code', false),
-            'name'                           => array('_digitalogic_patris_name', false),
-            'serial'                         => array('_digitalogic_patris_serial', false),
-            'unit'                           => array('_digitalogic_patris_unit', false),
-            'unit_id'                        => array('_digitalogic_patris_unit_id', false),
-            'sale_price_source'              => array('_digitalogic_patris_sale_price_source', false),
-            'purchase_price_source'          => array('_digitalogic_patris_purchase_price_source', false),
-            'warehouse_stock'                => array('_digitalogic_patris_warehouse_stock', true),
-            'total_stock'                    => array('_digitalogic_patris_total_stock', false),
-            'minimum_stock'                  => array('_digitalogic_patris_minimum_stock', false),
-            'foreign_currency'               => array('_digitalogic_patris_foreign_currency', false),
-            'foreign_price'                  => array('_digitalogic_patris_foreign_price', false),
-            'weight_grams'                   => array('_digitalogic_patris_weight_grams', false),
-            'location'                       => array('_digitalogic_patris_location', false),
-            'shipping_method_id'             => array('_digitalogic_patris_shipping_method_id', false),
-            'shipping_price_per_kg'          => array('_digitalogic_patris_shipping_price_per_kg', false),
+        $meta_fields = array(
+            'category_code' => array('_digitalogic_patris_category_code', false),
+            'name' => array('_digitalogic_patris_name', false),
+            'serial' => array('_digitalogic_patris_serial', false),
+            'unit' => array('_digitalogic_patris_unit', false),
+            'unit_id' => array('_digitalogic_patris_unit_id', false),
+            'sale_price_source' => array('_digitalogic_patris_sale_price_source', false),
+            'partner_price_source' => array('_digitalogic_patris_partner_price_source', false),
+            'purchase_price_source' => array('_digitalogic_patris_purchase_price_source', false),
+            'warehouse_stock' => array('_digitalogic_patris_warehouse_stock', true),
+            'total_stock' => array('_digitalogic_patris_total_stock', false),
+            'minimum_stock' => array('_digitalogic_patris_minimum_stock', false),
+            'foreign_currency' => array('_digitalogic_patris_foreign_currency', false),
+            'foreign_price' => array('_digitalogic_patris_foreign_price', false),
+            'price_source_amount'            => array('_digitalogic_patris_price_source_amount', false),
+            'price_source_currency'          => array('_digitalogic_patris_price_source_currency', false),
+            'price_source_kind'              => array('_digitalogic_patris_price_source_kind', false),
+            'weight_grams' => array('_digitalogic_patris_weight_grams', false),
+            'location' => array('_digitalogic_patris_location', false),
+            'shipping_method_id' => array('_digitalogic_patris_shipping_method_id', false),
+            'shipping_price_per_kg' => array('_digitalogic_patris_shipping_price_per_kg', false),
             'shipping_price_per_kg_currency' => array('_digitalogic_patris_shipping_price_per_kg_currency', false),
-            'markup_percent'                 => array('_digitalogic_patris_markup_percent', false),
-            'irt_per_cny'                    => array('_digitalogic_patris_irt_per_cny', false),
-            'pricing_catalog_revision'       => array('_digitalogic_patris_pricing_catalog_revision', false),
-            'pricing_catalog_status'         => array('_digitalogic_patris_pricing_catalog_status', false),
-            'currency_effective_date'        => array('_digitalogic_patris_currency_effective_date', false),
-            'final_price'                    => array('_digitalogic_patris_final_price', false),
-            'source_updated_at'              => array('_digitalogic_patris_updated_at', false),
-            'warnings'                       => array('_digitalogic_patris_warnings', true),
-            'record_hash'                    => array('_digitalogic_patris_record_hash', false),
-            'flags'                          => array('_digitalogic_patris_flags', true),
-            'raw'                            => array('_digitalogic_patris_last_feed', true),
+            'markup_percent' => array('_digitalogic_patris_markup_percent', false),
+            'irt_per_cny' => array('_digitalogic_patris_irt_per_cny', false),
+            'price_rounding_digits'          => array('_digitalogic_patris_price_rounding_digits', false),
+            'price_rounding_mode'            => array('_digitalogic_patris_price_rounding_mode', false),
+            'pricing_catalog_revision' => array('_digitalogic_patris_pricing_catalog_revision', false),
+            'pricing_catalog_status' => array('_digitalogic_patris_pricing_catalog_status', false),
+            'currency_effective_date' => array('_digitalogic_patris_currency_effective_date', false),
+            'final_price' => array('_digitalogic_patris_final_price', false),
+            'source_updated_at' => array('_digitalogic_patris_updated_at', false),
+            'warnings' => array('_digitalogic_patris_warnings', true),
+            'record_hash' => array('_digitalogic_patris_record_hash', false),
+            'flags' => array('_digitalogic_patris_flags', true),
+            'raw' => array('_digitalogic_patris_last_feed', true),
         );
         $null_fields    = array();
         $missing_fields = array();
@@ -582,14 +614,19 @@ class Digitalogic_Patris_Feed {
             $product->set_weight('');
         }
 
-        if (array_key_exists('total_stock', $data) && null !== $data['total_stock']) {
-            $product->set_manage_stock(true);
-            $product->set_stock_quantity((int) round($data['total_stock']));
-            $product->set_stock_status($data['total_stock'] > 0 ? 'instock' : 'outofstock');
-        } else {
-            $product->set_manage_stock(false);
-            $product->set_stock_quantity(null);
-            $product->delete_meta_data('_stock');
+        if (array_key_exists('total_stock', $data)) {
+            if (null === $data['total_stock']) {
+                $product->set_manage_stock(false);
+                $product->set_stock_quantity(null);
+                $product->delete_meta_data('_stock');
+            } else {
+                $stock_quantity = $data['total_stock'] > 0
+                    ? max(1, (int) floor((float) $data['total_stock']))
+                    : 0;
+                $product->set_manage_stock(true);
+                $product->set_stock_quantity($stock_quantity);
+                $product->set_stock_status($stock_quantity > 0 ? 'instock' : 'outofstock');
+            }
         }
 
         $price_policy = Digitalogic_Patris_Price_Policy::instance();
