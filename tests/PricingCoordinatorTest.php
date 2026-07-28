@@ -48,6 +48,7 @@ final class PricingCoordinatorTest extends TestCase {
 				'product_type' => 'simple',
 				'meta'         => array(
 					'_digitalogic_patris_product_code' => 'PRICE-901',
+					Digitalogic_Shipping_Method_Service::PRODUCT_METHOD_META => 'air_express',
 					'_sku'                             => 'PRICE-901',
 					'_regular_price'                   => '1',
 					'_price'                           => '1',
@@ -74,6 +75,7 @@ final class PricingCoordinatorTest extends TestCase {
 				),
 			),
 			Digitalogic_Shipping_Method_Service::DEFAULT_MARKUP_OPTION => $this->default_markup_state( '30' ),
+			Digitalogic_Shipping_Method_Service::ROUNDING_DIGITS_OPTION => 0,
 		);
 		$GLOBALS['wpdb']                                  = new Digitalogic_Test_WPDB();
 
@@ -143,6 +145,7 @@ final class PricingCoordinatorTest extends TestCase {
 		$wire    = $stored;
 		$numeric = array(
 			'foreign_price',
+			'price_source_amount',
 			'weight_grams',
 			'shipping_price_per_kg',
 			'markup_percent',
@@ -197,6 +200,254 @@ final class PricingCoordinatorTest extends TestCase {
 		$this->assertSame( '9086000', (string) $GLOBALS['digitalogic_test_posts'][901]['meta']['_digitalogic_patris_final_price'] );
 	}
 
+	/** The public rounding service delegates to the shared atomic repricer. */
+	public function test_rounding_service_updates_policy_and_product_provenance_atomically(): void {
+		$result = Digitalogic_Shipping_Method_Service::instance()->update_price_rounding_digits( 2 );
+
+		$this->assertFalse(
+			is_wp_error( $result ),
+			is_wp_error( $result ) ? $result->get_error_code() . ': ' . $result->get_error_message() : ''
+		);
+		$this->assertTrue( $result['changed'] );
+		$this->assertSame( 2, $result['rounding_digits'] );
+		$this->assertSame(
+			'2',
+			$GLOBALS['digitalogic_test_options'][ Digitalogic_Shipping_Method_Service::ROUNDING_DIGITS_OPTION ]
+		);
+		$this->assertSame(
+			'2',
+			(string) $GLOBALS['digitalogic_test_posts'][901]['meta']['_digitalogic_patris_price_rounding_digits']
+		);
+		$this->assertSame(
+			Digitalogic_Shipping_Method_Service::ROUNDING_MODE,
+			$GLOBALS['digitalogic_test_posts'][901]['meta']['_digitalogic_patris_price_rounding_mode']
+		);
+		$this->assertSame( '8437000', (string) $GLOBALS['digitalogic_test_posts'][901]['meta']['_regular_price'] );
+	}
+
+	/** Partner IRR repricing applies shared markup and rounds 123456 up to 123500. */
+	public function test_partner_route_reprices_with_domestic_zero_shipping_and_half_up_boundary(): void {
+		$GLOBALS['digitalogic_test_posts'][902] = array(
+			'post_type'    => 'product',
+			'post_status'  => 'publish',
+			'post_title'   => 'Partner pricing product',
+			'product_type' => 'simple',
+			'meta'         => array(
+				'_digitalogic_patris_product_code' => 'PARTNER-902',
+				'_sku'                             => 'PARTNER-902',
+				'_regular_price'                   => '1',
+				'_price'                           => '1',
+				'_sale_price'                      => '',
+				Digitalogic_Shipping_Method_Service::PRODUCT_METHOD_META => 'domestic',
+			),
+		);
+		$catalog                                  = Digitalogic_Shipping_Method_Service::instance()->get_integration_catalog();
+		$this->assertFalse( is_wp_error( $catalog ) );
+		$partner                                  = array(
+			'product_code'                   => 'PARTNER-902',
+			'partner_price_source'           => 1234560,
+			'price_source_amount'            => 1234560,
+			'price_source_currency'          => 'IRR',
+			'price_source_kind'              => 'partner_price',
+			'shipping_method_id'             => 'domestic',
+			'shipping_price_per_kg'          => 0,
+			'shipping_price_per_kg_currency' => 'IRR',
+			'markup_percent'                 => 30,
+			'price_rounding_digits'          => 0,
+			'price_rounding_mode'            => 'nearest_half_up',
+			'pricing_catalog_revision'       => $catalog['revision'],
+			'pricing_catalog_status'         => 'ready',
+			'final_price'                    => 160493,
+			'warnings'                       => array(),
+		);
+		$partner['record_hash']                   = $this->record_hash( $partner );
+		$received                                 = Digitalogic_Product_Sync_Receiver::instance()->receive(
+			$this->snapshot( array( $partner ), '2026-07-22T01:00:00Z' )
+		);
+		$this->assertFalse(
+			is_wp_error( $received ),
+			is_wp_error( $received ) ? $received->get_error_code() . ': ' . $received->get_error_message() : ''
+		);
+		$GLOBALS['digitalogic_test_wc_products'] = array();
+
+		$service                                    = Digitalogic_Excel_Pricing_Sync::instance();
+		$before                                     = $service->current_canonical_state();
+		$settings                                   = $before['settings'];
+		$settings['profit_margin_percent']          = 0;
+		$settings['price_rounding_digits']          = 2;
+		$applied                                    = $service->apply_internal_settings(
+			$settings,
+			'test_partner_route',
+			$before['state_revision']
+		);
+
+		$this->assertFalse(
+			is_wp_error( $applied ),
+			is_wp_error( $applied ) ? $applied->get_error_code() . ': ' . $applied->get_error_message() : ''
+		);
+		$this->assertSame( '123500', (string) $GLOBALS['digitalogic_test_posts'][902]['meta']['_regular_price'] );
+		$this->assertSame( '123500', (string) $GLOBALS['digitalogic_test_posts'][902]['meta']['_price'] );
+		$this->assertSame( '', (string) $GLOBALS['digitalogic_test_posts'][902]['meta']['_sale_price'] );
+		$this->assertSame( 'partner_price', $GLOBALS['digitalogic_test_posts'][902]['meta']['_digitalogic_patris_price_source_kind'] );
+		$this->assertSame( '1234560', (string) $GLOBALS['digitalogic_test_posts'][902]['meta']['_digitalogic_patris_price_source_amount'] );
+		$this->assertSame( 'domestic', $GLOBALS['digitalogic_test_posts'][902]['meta']['_digitalogic_patris_shipping_method_id'] );
+		$this->assertSame( '0', (string) $GLOBALS['digitalogic_test_posts'][902]['meta']['_digitalogic_patris_shipping_price_per_kg'] );
+		$this->assertSame( 'IRR', $GLOBALS['digitalogic_test_posts'][902]['meta']['_digitalogic_patris_shipping_price_per_kg_currency'] );
+		$this->assertSame( 'domestic', $GLOBALS['digitalogic_test_posts'][902]['meta'][ Digitalogic_Shipping_Method_Service::PRODUCT_METHOD_META ] );
+		$this->assertSame( '2', (string) $GLOBALS['digitalogic_test_posts'][902]['meta']['_digitalogic_patris_price_rounding_digits'] );
+
+		$state   = $GLOBALS['digitalogic_test_options'][ Digitalogic_Product_Sync_Receiver::STATE_OPTION ];
+		$stored  = reset( $state['sources'] )['products']['PARTNER-902'];
+		$this->assertSame( '123500', (string) $stored['final_price'] );
+		$this->assertSame( '0', (string) $stored['markup_percent'] );
+		$this->assertSame( 2, $stored['price_rounding_digits'] );
+		$this->assertArrayNotHasKey( 'irt_per_cny', $stored );
+		$this->assertArrayNotHasKey( 'currency_effective_date', $stored );
+	}
+
+	/** Direct sale pricing remains exact IRR/10 across every unrelated global change. */
+	public function test_direct_sale_route_is_immune_to_fx_markup_rounding_and_shipping_changes(): void {
+		$GLOBALS['digitalogic_test_posts'][903] = array(
+			'post_type'    => 'product',
+			'post_status'  => 'publish',
+			'post_title'   => 'Direct sale pricing product',
+			'product_type' => 'simple',
+			'meta'         => array(
+				'_digitalogic_patris_product_code' => 'DIRECT-903',
+				'_sku'                             => 'DIRECT-903',
+				'_regular_price'                   => '1',
+				'_price'                           => '1',
+				'_sale_price'                      => '',
+				Digitalogic_Shipping_Method_Service::PRODUCT_METHOD_META => 'domestic',
+			),
+		);
+		$direct                                  = array(
+			'product_code'                   => 'DIRECT-903',
+			'sale_price_source'              => 1234560,
+			'price_source_amount'            => 1234560,
+			'price_source_currency'          => 'IRR',
+			'price_source_kind'              => 'sale_price_direct',
+			'shipping_method_id'             => 'domestic',
+			'shipping_price_per_kg'          => 0,
+			'shipping_price_per_kg_currency' => 'IRR',
+			'final_price'                    => 123456,
+			'warnings'                       => array(
+				'freight_not_applied_for_sale_price_direct',
+				'sale_price_direct_fallback_used',
+			),
+		);
+		$direct['record_hash']                   = $this->record_hash( $direct );
+		$received                                = Digitalogic_Product_Sync_Receiver::instance()->receive(
+			$this->snapshot( array( $direct ), '2026-07-22T02:00:00Z' )
+		);
+		$this->assertFalse(
+			is_wp_error( $received ),
+			is_wp_error( $received ) ? $received->get_error_code() . ': ' . $received->get_error_message() : ''
+		);
+		$GLOBALS['digitalogic_test_wc_products'] = array();
+
+		$service                                      = Digitalogic_Excel_Pricing_Sync::instance();
+		$before                                       = $service->current_canonical_state();
+		$settings                                     = $before['settings'];
+		$settings['dollar_price']                     = 190000;
+		$settings['yuan_price']                       = 31000;
+		$settings['profit_margin_percent']            = 40;
+		$settings['price_rounding_digits']            = 3;
+		$settings['air_express_price_per_kg']         = 130;
+		$settings['effective_date']                   = '2026-07-27';
+		$settings['usd_effective_date']               = '2026-07-27';
+		$settings['cny_effective_date']               = '2026-07-27';
+		$applied                                      = $service->apply_internal_settings(
+			$settings,
+			'test_direct_route',
+			$before['state_revision']
+		);
+
+		$this->assertFalse(
+			is_wp_error( $applied ),
+			is_wp_error( $applied ) ? $applied->get_error_code() . ': ' . $applied->get_error_message() : ''
+		);
+		$this->assertSame( '123456', (string) $GLOBALS['digitalogic_test_posts'][903]['meta']['_regular_price'] );
+		$this->assertSame( '123456', (string) $GLOBALS['digitalogic_test_posts'][903]['meta']['_digitalogic_patris_final_price'] );
+		$this->assertSame( 'sale_price_direct', $GLOBALS['digitalogic_test_posts'][903]['meta']['_digitalogic_patris_price_source_kind'] );
+		$this->assertSame( 'domestic', $GLOBALS['digitalogic_test_posts'][903]['meta'][ Digitalogic_Shipping_Method_Service::PRODUCT_METHOD_META ] );
+		$this->assertArrayNotHasKey( '_digitalogic_patris_markup_percent', $GLOBALS['digitalogic_test_posts'][903]['meta'] );
+		$this->assertArrayNotHasKey( '_digitalogic_patris_irt_per_cny', $GLOBALS['digitalogic_test_posts'][903]['meta'] );
+		$this->assertArrayNotHasKey( '_digitalogic_patris_price_rounding_digits', $GLOBALS['digitalogic_test_posts'][903]['meta'] );
+
+		$state  = $GLOBALS['digitalogic_test_options'][ Digitalogic_Product_Sync_Receiver::STATE_OPTION ];
+		$stored = reset( $state['sources'] )['products']['DIRECT-903'];
+		$this->assertSame( 123456, $stored['final_price'] );
+		$this->assertArrayNotHasKey( 'markup_percent', $stored );
+		$this->assertArrayNotHasKey( 'irt_per_cny', $stored );
+		$this->assertArrayNotHasKey( 'price_rounding_digits', $stored );
+	}
+
+	/** A row without an upstream-selected source remains unpriced after reconciliation. */
+	public function test_no_source_route_does_not_invent_price_or_provenance(): void {
+		$GLOBALS['digitalogic_test_posts'][904] = array(
+			'post_type'    => 'product',
+			'post_status'  => 'publish',
+			'post_title'   => 'No source pricing product',
+			'product_type' => 'simple',
+			'meta'         => array(
+				'_digitalogic_patris_product_code' => 'NO-SOURCE-904',
+				'_sku'                             => 'NO-SOURCE-904',
+				'_regular_price'                   => '',
+				'_price'                           => '',
+				'_sale_price'                      => '',
+			),
+		);
+		$unpriced                                  = array(
+			'product_code'          => 'NO-SOURCE-904',
+			'foreign_currency'      => 'CNY',
+			'foreign_price'         => 0,
+			'price_rounding_digits' => 0,
+			'price_rounding_mode'   => 'nearest_half_up',
+			'warnings'              => array(),
+		);
+		$unpriced['record_hash']                   = $this->record_hash( $unpriced );
+		$received                                  = Digitalogic_Product_Sync_Receiver::instance()->receive(
+			$this->snapshot( array( $unpriced ), '2026-07-22T03:00:00Z' )
+		);
+		$this->assertFalse(
+			is_wp_error( $received ),
+			is_wp_error( $received ) ? $received->get_error_code() . ': ' . $received->get_error_message() : ''
+		);
+		$GLOBALS['digitalogic_test_wc_products'] = array();
+
+		$service                                    = Digitalogic_Excel_Pricing_Sync::instance();
+		$before                                     = $service->current_canonical_state();
+		$settings                                   = $before['settings'];
+		$settings['yuan_price']                     = 31000;
+		$settings['profit_margin_percent']          = 0;
+		$settings['price_rounding_digits']          = 2;
+		$settings['effective_date']                 = '2026-07-27';
+		$settings['cny_effective_date']             = '2026-07-27';
+		$applied                                    = $service->apply_internal_settings(
+			$settings,
+			'test_no_source_route',
+			$before['state_revision']
+		);
+
+		$this->assertFalse(
+			is_wp_error( $applied ),
+			is_wp_error( $applied ) ? $applied->get_error_code() . ': ' . $applied->get_error_message() : ''
+		);
+		$this->assertSame( '', (string) $GLOBALS['digitalogic_test_posts'][904]['meta']['_regular_price'] );
+		$this->assertSame( '', (string) $GLOBALS['digitalogic_test_posts'][904]['meta']['_price'] );
+		$this->assertArrayNotHasKey( '_digitalogic_patris_final_price', $GLOBALS['digitalogic_test_posts'][904]['meta'] );
+
+		$state  = $GLOBALS['digitalogic_test_options'][ Digitalogic_Product_Sync_Receiver::STATE_OPTION ];
+		$stored = reset( $state['sources'] )['products']['NO-SOURCE-904'];
+		$this->assertArrayNotHasKey( 'price_source_amount', $stored );
+		$this->assertArrayNotHasKey( 'price_source_currency', $stored );
+		$this->assertArrayNotHasKey( 'price_source_kind', $stored );
+		$this->assertArrayNotHasKey( 'final_price', $stored );
+		$this->assertArrayNotHasKey( 'markup_percent', $stored );
+		$this->assertArrayNotHasKey( 'irt_per_cny', $stored );
+	}
+
 	/** A stale or product-specific incoming margin is rejected before writes. */
 	public function test_product_sync_cannot_introduce_profit_margin_drift(): void {
 		$before_state              = $GLOBALS['digitalogic_test_options'][ Digitalogic_Product_Sync_Receiver::STATE_OPTION ];
@@ -236,6 +487,8 @@ final class PricingCoordinatorTest extends TestCase {
 		$this->assertSame( '29500', (string) $state['settings']['yuan_price'] );
 		$this->assertSame( '120', (string) $state['settings']['air_express_price_per_kg'] );
 		$this->assertSame( '30', $state['settings']['profit_margin_percent'] );
+		$this->assertSame( 0, $state['settings']['price_rounding_digits'] );
+		$this->assertSame( 'nearest_half_up', $state['settings']['price_rounding_mode'] );
 		$this->assertSame( 7, $state['freshness']['stale_after'] );
 
 		$settings               = $state['settings'];
@@ -334,6 +587,54 @@ final class PricingCoordinatorTest extends TestCase {
 		$this->assertSame( '8820500', (string) $GLOBALS['digitalogic_test_posts'][901]['meta']['_price'] );
 		$this->assertNotEmpty( $GLOBALS['digitalogic_test_actions']['digitalogic_shipping_method_updated'] );
 		$this->assertContains( 'COMMIT', $GLOBALS['wpdb']->queries );
+	}
+
+	/** The public shipping service cannot write a live freight rate outside repricing. */
+	public function test_legacy_air_express_method_update_cannot_bypass_repricing(): void {
+		$service = Digitalogic_Shipping_Method_Service::instance();
+		$result  = $service->update_method(
+			'air_express',
+			array(
+				'price_per_kg' => '130',
+				'currency'     => 'CNY',
+			)
+		);
+
+		$this->assertFalse(
+			is_wp_error( $result ),
+			is_wp_error( $result ) ? $result->get_error_code() . ': ' . $result->get_error_message() : ''
+		);
+		$this->assertTrue( $result['changed'] );
+		$this->assertSame( '130', (string) $result['price_per_kg'] );
+		$this->assertSame( '8820500', (string) $GLOBALS['digitalogic_test_posts'][901]['meta']['_regular_price'] );
+		$this->assertSame(
+			'130',
+			(string) $GLOBALS['digitalogic_test_options'][ Digitalogic_Shipping_Method_Service::METHODS_OPTION ]['air_express']['price_per_kg']
+		);
+
+		$GLOBALS['digitalogic_test_wc_save_failures'] = array( 901 );
+		$rejected = $service->update_method(
+			'air_express',
+			array(
+				'price_per_kg' => '140',
+				'currency'     => 'CNY',
+			)
+		);
+
+		$this->assertTrue( is_wp_error( $rejected ) );
+		$this->assertSame( 'digitalogic_pricing_delivery_incomplete', $rejected->get_error_code() );
+		$this->assertSame(
+			'130',
+			(string) $GLOBALS['digitalogic_test_options'][ Digitalogic_Shipping_Method_Service::METHODS_OPTION ]['air_express']['price_per_kg']
+		);
+		$this->assertSame( '8820500', (string) $GLOBALS['digitalogic_test_posts'][901]['meta']['_regular_price'] );
+
+		$disabled = $service->update_method( 'air_express', array( 'enabled' => false ) );
+		$this->assertTrue( is_wp_error( $disabled ) );
+		$this->assertSame( 'digitalogic_pricing_air_express_required', $disabled->get_error_code() );
+		$this->assertTrue(
+			$GLOBALS['digitalogic_test_options'][ Digitalogic_Shipping_Method_Service::METHODS_OPTION ]['air_express']['enabled']
+		);
 	}
 
 	/** A product write failure rolls the shipping option back with all settings. */
@@ -462,6 +763,7 @@ final class PricingCoordinatorTest extends TestCase {
 			'post_title'  => 'Managed variation',
 			'meta'        => array(
 				'_digitalogic_patris_product_code' => 'VAR-902',
+				Digitalogic_Shipping_Method_Service::PRODUCT_METHOD_META => 'air_express',
 				'_sku'                             => 'VAR-902',
 				'_regular_price'                   => '1',
 				'_sale_price'                      => '2',
@@ -714,7 +1016,14 @@ final class PricingCoordinatorTest extends TestCase {
 	/** An unavailable formula clears every old customer price instead of preserving drift. */
 	public function test_missing_final_price_clears_old_woo_price(): void {
 		$unpriced = $this->priced_product( 'PRICE-901' );
-		unset( $unpriced['foreign_price'], $unpriced['final_price'], $unpriced['record_hash'] );
+		unset(
+			$unpriced['foreign_price'],
+			$unpriced['price_source_amount'],
+			$unpriced['price_source_currency'],
+			$unpriced['price_source_kind'],
+			$unpriced['final_price'],
+			$unpriced['record_hash']
+		);
 		$unpriced['record_hash'] = $this->record_hash( $unpriced );
 		$received                = Digitalogic_Product_Sync_Receiver::instance()->receive(
 			$this->snapshot(
@@ -843,6 +1152,29 @@ final class PricingCoordinatorTest extends TestCase {
 		$this->assertTrue( is_wp_error( $result ) );
 		$this->assertSame( 'digitalogic_pricing_delivery_readback_failed', $result->get_error_code() );
 		$this->assertSame( '29500', (string) $GLOBALS['digitalogic_test_options']['options_yuan_price'] );
+		$this->assertContains( 'ROLLBACK', $GLOBALS['wpdb']->queries );
+	}
+
+	/** Readback fails closed when the live site-owned shipping assignment drifts. */
+	public function test_shipping_assignment_drift_blocks_global_pricing_commit(): void {
+		$GLOBALS['digitalogic_test_posts'][901]['meta'][ Digitalogic_Shipping_Method_Service::PRODUCT_METHOD_META ] = 'domestic';
+		$GLOBALS['digitalogic_test_wc_products'] = array();
+
+		$result = Digitalogic_Pricing_Coordinator::instance()->update_currency(
+			array(
+				'yuan_price'     => '31000',
+				'effective_date' => '2026-07-27',
+			),
+			'test_shipping_assignment_mismatch'
+		);
+
+		$this->assertTrue( is_wp_error( $result ) );
+		$this->assertSame( 'digitalogic_pricing_delivery_readback_failed', $result->get_error_code() );
+		$this->assertSame( '29500', (string) $GLOBALS['digitalogic_test_options']['options_yuan_price'] );
+		$this->assertSame(
+			'domestic',
+			$GLOBALS['digitalogic_test_posts'][901]['meta'][ Digitalogic_Shipping_Method_Service::PRODUCT_METHOD_META ]
+		);
 		$this->assertContains( 'ROLLBACK', $GLOBALS['wpdb']->queries );
 	}
 
@@ -1043,12 +1375,17 @@ final class PricingCoordinatorTest extends TestCase {
 			'product_code'                   => $product_code,
 			'foreign_currency'               => 'CNY',
 			'foreign_price'                  => 100,
+			'price_source_amount'            => 100,
+			'price_source_currency'          => 'CNY',
+			'price_source_kind'              => 'foreign_price',
 			'weight_grams'                   => 1000,
 			'shipping_method_id'             => 'air_express',
 			'shipping_price_per_kg'          => 120,
 			'shipping_price_per_kg_currency' => 'CNY',
 			'markup_percent'                 => 30,
 			'irt_per_cny'                    => 29500,
+			'price_rounding_digits'          => 0,
+			'price_rounding_mode'            => 'nearest_half_up',
 			'pricing_catalog_revision'       => $catalog['revision'],
 			'pricing_catalog_status'         => 'ready',
 			'currency_effective_date'        => '2026-07-21',

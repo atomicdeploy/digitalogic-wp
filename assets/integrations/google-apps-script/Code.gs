@@ -40,6 +40,8 @@ const DIGITALOGIC_PRICING_SETTINGS_CELLS = Object.freeze({
   stateRevision: 'B18',
   shippingRevision: 'B19',
   syncStatus: 'B20',
+  roundingDigits: 'B21',
+  roundingMode: 'B22',
 });
 const DIGITALOGIC_SUPPORT_LAYOUTS = Object.freeze([
   Object.freeze({ id: 'professional', machineHeaderRow: 5, displayHeaderRow: 6, dataStartRow: 7 }),
@@ -174,7 +176,7 @@ function syncCatalog() {
   }
 }
 
-/** Refresh only the four canonical pricing settings and their status. */
+/** Refresh the canonical pricing settings and their status. */
 function syncPricingSettings() {
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
@@ -214,8 +216,8 @@ function applyPricingSettings() {
     localize_(config.locale, 'Apply pricing settings', 'اعمال تنظیمات قیمت'),
     localize_(
       config.locale,
-      'Apply CNY, USD, their separate effective dates, air-express shipping, and the shared profit margin to the site and reprice every managed product?',
-      'نرخ یوآن، دلار، تاریخ مؤثر جداگانهٔ هر ارز، نرخ حمل هوایی سریع و حاشیه سود در سایت ثبت و قیمت همهٔ کالاهای مدیریت‌شده دوباره محاسبه شود؟'
+      'Apply CNY, USD, their separate effective dates, air-express shipping, the shared profit margin, and price rounding to the site and reprice every managed product?',
+      'نرخ یوآن، دلار، تاریخ مؤثر جداگانهٔ هر ارز، نرخ حمل هوایی سریع، حاشیه سود و تنظیم گردکردن قیمت در سایت ثبت و قیمت همهٔ کالاهای مدیریت‌شده دوباره محاسبه شود؟'
     ),
     ui.ButtonSet.YES_NO
   );
@@ -297,6 +299,8 @@ function validatePricingSettingsState_(state) {
     || !/^(?:0|[1-9][0-9]{0,17})(?:\.[0-9]{1,12})?$/.test(pricingSettingText_(settings.air_express_price_per_kg))
     || compareSheetDecimals_(pricingSettingText_(settings.air_express_price_per_kg), '0') <= 0
     || !/^(?:CNY|IRR)$/.test(String(settings.air_express_currency || ''))
+    || !/^(?:0|[1-9])$/.test(pricingSettingText_(settings.price_rounding_digits))
+    || String(settings.price_rounding_mode || '') !== 'nearest_half_up'
     || !/^sha256:[a-f0-9]{64}$/.test(String(settings.shipping_catalog_revision || ''))
     || !state.freshness || typeof state.freshness !== 'object' || Array.isArray(state.freshness)) {
     throw new Error('Malformed Digitalogic pricing settings response.');
@@ -319,7 +323,7 @@ function upsertPricingSettings_(spreadsheet, state, locale) {
     if (typeof digitalogicBuildSettings_ === 'function') {
       digitalogicBuildSettings_(sheet);
     } else {
-      sheet.getRange('A6:B20').setValues([
+      sheet.getRange('A6:B22').setValues([
         ['Setting', 'Value'],
         ['CNY to IRT', ''],
         ['Air express shipping / kg', ''],
@@ -335,6 +339,8 @@ function upsertPricingSettings_(spreadsheet, state, locale) {
         ['State revision', ''],
         ['Shipping catalog revision', ''],
         ['Sync status', ''],
+        ['Price rounding digits', ''],
+        ['Price rounding mode', 'nearest_half_up'],
       ]);
     }
   }
@@ -356,6 +362,12 @@ function upsertPricingSettings_(spreadsheet, state, locale) {
       ? localize_(locale, 'STALE: older than 7 days', 'هشدار: نرخ‌ها بیش از ۷ روز قدمت دارند')
       : localize_(locale, 'CURRENT', 'به‌روز')
   );
+  sheet.getRange(DIGITALOGIC_PRICING_SETTINGS_CELLS.roundingDigits)
+    .setNumberFormat('0')
+    .setValue(Number(settings.price_rounding_digits));
+  sheet.getRange(DIGITALOGIC_PRICING_SETTINGS_CELLS.roundingMode)
+    .setNumberFormat('@')
+    .setValue(settings.price_rounding_mode);
   return true;
 }
 
@@ -388,6 +400,14 @@ function buildPricingSettingsRequest_(sheet) {
   const shippingRevision = String(
     sheet.getRange(DIGITALOGIC_PRICING_SETTINGS_CELLS.shippingRevision).getDisplayValue() || ''
   ).trim();
+  const roundingDigits = normalizeSheetDecimal_(
+    sheet.getRange(DIGITALOGIC_PRICING_SETTINGS_CELLS.roundingDigits).getDisplayValue()
+  );
+  const roundingMode = String(
+    restoreNeutralizedSheetText_(
+      sheet.getRange(DIGITALOGIC_PRICING_SETTINGS_CELLS.roundingMode).getDisplayValue()
+    ) || ''
+  ).trim();
   if (cny === null || compareSheetDecimals_(cny, '1') < 0 || compareSheetDecimals_(cny, '1000000000') > 0) {
     throw new Error('CNY to IRT is outside its allowed range.');
   }
@@ -413,6 +433,12 @@ function buildPricingSettingsRequest_(sheet) {
   if (!/^sha256:[a-f0-9]{64}$/.test(shippingRevision)) {
     throw new Error('Refresh the shipping catalog before applying edits.');
   }
+  if (roundingDigits === null || !/^(?:0|[1-9])$/.test(roundingDigits)) {
+    throw new Error('Price rounding digits must be a whole number from 0 through 9.');
+  }
+  if (roundingMode !== 'nearest_half_up') {
+    throw new Error('Price rounding mode must be nearest_half_up.');
+  }
 
   return {
     expected_state_revision: revision,
@@ -426,6 +452,8 @@ function buildPricingSettingsRequest_(sheet) {
       air_express_price_per_kg: shippingPrice,
       air_express_currency: shippingCurrency,
       shipping_catalog_revision: shippingRevision,
+      price_rounding_digits: Number(roundingDigits),
+      price_rounding_mode: roundingMode,
     },
   };
 }

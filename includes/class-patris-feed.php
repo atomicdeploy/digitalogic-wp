@@ -518,13 +518,21 @@ class Digitalogic_Patris_Feed {
             function () use ($product, $data) {
                 $data        = is_array($data) ? $data : array();
                 $meta_fields = array(
-                    'markup_percent'           => '_digitalogic_patris_markup_percent',
-                    'irt_per_cny'              => '_digitalogic_patris_irt_per_cny',
-                    'pricing_catalog_revision' => '_digitalogic_patris_pricing_catalog_revision',
-                    'pricing_catalog_status'   => '_digitalogic_patris_pricing_catalog_status',
-                    'currency_effective_date'  => '_digitalogic_patris_currency_effective_date',
-                    'final_price'              => '_digitalogic_patris_final_price',
-                    'record_hash'              => '_digitalogic_patris_record_hash',
+                    'price_source_amount'            => '_digitalogic_patris_price_source_amount',
+                    'price_source_currency'          => '_digitalogic_patris_price_source_currency',
+                    'price_source_kind'              => '_digitalogic_patris_price_source_kind',
+                    'shipping_method_id'             => '_digitalogic_patris_shipping_method_id',
+                    'shipping_price_per_kg'          => '_digitalogic_patris_shipping_price_per_kg',
+                    'shipping_price_per_kg_currency' => '_digitalogic_patris_shipping_price_per_kg_currency',
+                    'markup_percent'                 => '_digitalogic_patris_markup_percent',
+                    'irt_per_cny'                    => '_digitalogic_patris_irt_per_cny',
+                    'price_rounding_digits'          => '_digitalogic_patris_price_rounding_digits',
+                    'price_rounding_mode'            => '_digitalogic_patris_price_rounding_mode',
+                    'pricing_catalog_revision'       => '_digitalogic_patris_pricing_catalog_revision',
+                    'pricing_catalog_status'         => '_digitalogic_patris_pricing_catalog_status',
+                    'currency_effective_date'        => '_digitalogic_patris_currency_effective_date',
+                    'final_price'                    => '_digitalogic_patris_final_price',
+                    'record_hash'                    => '_digitalogic_patris_record_hash',
                 );
                 foreach ($meta_fields as $field => $meta_key) {
                     if (!array_key_exists($field, $data) || null === $data[$field]) {

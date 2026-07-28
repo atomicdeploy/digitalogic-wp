@@ -95,6 +95,8 @@ test('canonical pricing settings require the complete composite contract', () =>
       air_express_price_per_kg: '120',
       air_express_currency: 'CNY',
       shipping_catalog_revision: `sha256:${'c'.repeat(64)}`,
+      price_rounding_digits: 2,
+      price_rounding_mode: 'nearest_half_up',
     },
     freshness: {
       effective_date: '2026-07-27',
@@ -107,12 +109,22 @@ test('canonical pricing settings require the complete composite contract', () =>
   assert.equal(validate(state), state);
   const zeroProfit = { ...state, settings: { ...state.settings, profit_margin_percent: 0 } };
   assert.equal(validate(zeroProfit), zeroProfit);
+  const zeroRounding = { ...state, settings: { ...state.settings, price_rounding_digits: 0 } };
+  assert.equal(validate(zeroRounding), zeroRounding);
   assert.throws(
     () => validate({ ...state, settings: { ...state.settings, yuan_price: '' } }),
     /Malformed Digitalogic pricing settings response/
   );
   assert.throws(
     () => validate({ ...state, state_revision: 'stale-local-copy' }),
+    /Malformed Digitalogic pricing settings response/
+  );
+  assert.throws(
+    () => validate({ ...state, settings: { ...state.settings, price_rounding_digits: 10 } }),
+    /Malformed Digitalogic pricing settings response/
+  );
+  assert.throws(
+    () => validate({ ...state, settings: { ...state.settings, price_rounding_mode: 'bankers' } }),
     /Malformed Digitalogic pricing settings response/
   );
 });
@@ -161,6 +173,8 @@ test('Settings edits build one optimistic full-state request without float price
     B17: '2026-07-27',
     B18: `sha256:${'b'.repeat(64)}`,
     B19: `sha256:${'c'.repeat(64)}`,
+    B21: '2',
+    B22: 'nearest_half_up',
   };
   const sheet = {
     getRange(cell) {
@@ -184,8 +198,22 @@ test('Settings edits build one optimistic full-state request without float price
         air_express_price_per_kg: '120',
         air_express_currency: 'CNY',
         shipping_catalog_revision: `sha256:${'c'.repeat(64)}`,
+        price_rounding_digits: 2,
+        price_rounding_mode: 'nearest_half_up',
       },
     }
+  );
+
+  values.B21 = '10';
+  assert.throws(
+    () => sandbox.module.exports.buildPricingSettingsRequest_(sheet),
+    /Price rounding digits must be a whole number from 0 through 9/
+  );
+  values.B21 = '2';
+  values.B22 = 'bankers';
+  assert.throws(
+    () => sandbox.module.exports.buildPricingSettingsRequest_(sheet),
+    /Price rounding mode must be nearest_half_up/
   );
 });
 
@@ -850,8 +878,12 @@ test('professional control center is credential-free, editable, and idempotently
   assert.match(professionalDashboardSource, /digitalogicProductsColumn_\('sync_status'\)/);
   assert.match(professionalDashboardSource, /placeholder\.getRange\('A1'\)\.isBlank\(\)/);
   assert.match(professionalDashboardSource, /Preview then explicit Apply/);
-  assert.match(professionalDashboardSource, /getRange\('A22:H26'\)\.merge\(\)/);
-  assert.doesNotMatch(professionalDashboardSource, /getRange\('A20:H24'\)\.merge\(\)/);
+  assert.match(professionalDashboardSource, /getRange\('A24:H28'\)\.merge\(\)/);
+  assert.doesNotMatch(professionalDashboardSource, /getRange\('A22:H26'\)\.merge\(\)/);
+  assert.match(professionalDashboardSource, /ROUND\([\s\S]*?,-Settings!\$B\$21\)/);
+  assert.match(professionalDashboardSource, /Settings!\$B\$22<>"nearest_half_up"/);
+  assert.match(source, /price_rounding_digits: Number\(roundingDigits\)/);
+  assert.match(source, /price_rounding_mode: roundingMode/);
   assert.doesNotMatch(professionalDashboardSource, /\b25300\b|\b0\.30\b/);
   assert.match(source, /\/google-sheets\/pricing-settings/);
   assert.match(source, /function applyPricingSettings\(\)/);

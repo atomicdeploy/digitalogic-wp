@@ -49,6 +49,12 @@ final class Digitalogic_Pricing_Coordinator {
 				3
 			);
 		}
+		add_filter(
+			'pre_update_option_' . Digitalogic_Shipping_Method_Service::ROUNDING_DIGITS_OPTION,
+			array( $this, 'intercept_legacy_rounding_option_write' ),
+			10,
+			3
+		);
 	}
 
 	/**
@@ -169,6 +175,28 @@ final class Digitalogic_Pricing_Coordinator {
 	}
 
 	/**
+	 * Apply the canonical air-express rate and reprice before committing.
+	 *
+	 * @param mixed  $price_per_kg Exact non-negative freight rate.
+	 * @param mixed  $currency     CNY or IRR.
+	 * @param string $source       Bounded internal source label.
+	 * @return array|WP_Error
+	 */
+	public function update_air_express_shipping( $price_per_kg, $currency, $source = 'wp' ) {
+		$settings = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_settings();
+		if ( is_wp_error( $settings ) ) {
+			return $settings;
+		}
+		$settings['air_express_price_per_kg'] = $price_per_kg;
+		$settings['air_express_currency']     = $currency;
+
+		return Digitalogic_Excel_Pricing_Sync::instance()->apply_internal_settings(
+			$settings,
+			$this->source_label( $source )
+		);
+	}
+
+	/**
 	 * Apply the one shared profit margin and reprice before committing.
 	 *
 	 * Clearing the default is deliberately rejected while canonical prices
@@ -192,6 +220,27 @@ final class Digitalogic_Pricing_Coordinator {
 			return $settings;
 		}
 		$settings['profit_margin_percent'] = $value;
+
+		return Digitalogic_Excel_Pricing_Sync::instance()->apply_internal_settings(
+			$settings,
+			$this->source_label( $source )
+		);
+	}
+
+	/**
+	 * Apply the one shared final-price rounding policy and reprice atomically.
+	 *
+	 * @param mixed  $digits Trailing IRT digit count from zero through nine.
+	 * @param string $source Bounded internal source label.
+	 * @return array|WP_Error
+	 */
+	public function update_price_rounding( $digits, $source = 'wp' ) {
+		$settings = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_settings();
+		if ( is_wp_error( $settings ) ) {
+			return $settings;
+		}
+		$settings['price_rounding_digits'] = $digits;
+		$settings['price_rounding_mode']   = Digitalogic_Shipping_Method_Service::ROUNDING_MODE;
 
 		return Digitalogic_Excel_Pricing_Sync::instance()->apply_internal_settings(
 			$settings,
@@ -276,6 +325,8 @@ final class Digitalogic_Pricing_Coordinator {
 			'yuan_price'            => $settings['yuan_price'],
 			'effective_date'        => $settings['cny_effective_date'] ?? $settings['effective_date'],
 			'profit_margin_percent' => $settings['profit_margin_percent'],
+			'price_rounding_digits' => $settings['price_rounding_digits'],
+			'price_rounding_mode'   => $settings['price_rounding_mode'],
 		);
 	}
 
@@ -437,6 +488,45 @@ final class Digitalogic_Pricing_Coordinator {
 		}
 
 		return $settings[ $field ];
+	}
+
+	/**
+	 * Route raw rounding-option writes through the same atomic repricer.
+	 *
+	 * @param mixed  $value     Proposed option value.
+	 * @param mixed  $old_value Previous option value.
+	 * @param string $option    Exact option name.
+	 * @return mixed
+	 */
+	public function intercept_legacy_rounding_option_write( $value, $old_value, $option ) {
+		if (
+			$this->legacy_option_write_depth > 0
+			|| ! $this->has_managed_pricing_state()
+			|| (string) $value === (string) $old_value
+		) {
+			return $value;
+		}
+
+		++$this->legacy_option_write_depth;
+		try {
+			$result = $this->update_price_rounding( $value, 'legacy_option' );
+		} finally {
+			--$this->legacy_option_write_depth;
+		}
+		if ( is_wp_error( $result ) ) {
+			$this->publish_legacy_write_failure( $option, $result->get_error_code() );
+
+			return $old_value;
+		}
+
+		$settings = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_settings();
+		if ( is_wp_error( $settings ) ) {
+			$this->publish_legacy_write_failure( $option, $settings->get_error_code() );
+
+			return $old_value;
+		}
+
+		return $settings['price_rounding_digits'];
 	}
 
 	/**

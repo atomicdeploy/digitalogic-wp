@@ -75,6 +75,7 @@ final class ExcelPricingSyncTest extends TestCase {
 				),
 			),
 			Digitalogic_Shipping_Method_Service::DEFAULT_MARKUP_OPTION => $markup,
+			Digitalogic_Shipping_Method_Service::ROUNDING_DIGITS_OPTION => 0,
 			'digitalogic_shipping_currency_migration_complete' => 'complete',
 			'woocommerce_weight_unit' => 'kg',
 		);
@@ -174,7 +175,7 @@ final class ExcelPricingSyncTest extends TestCase {
 		$this->assertSame( 200, $response->get_status() );
 		$state = $response->get_data();
 		$this->assertSame(
-			array( 'schema', 'state_revision', 'generated_at', 'source', 'client_id', 'channel', 'request_id', 'warnings', 'settings', 'currency', 'profit_margin', 'shipping', 'default_markup', 'deprecated_aliases', 'attribute_owners', 'catalog' ),
+			array( 'schema', 'state_revision', 'generated_at', 'source', 'client_id', 'channel', 'request_id', 'warnings', 'settings', 'currency', 'profit_margin', 'price_rounding', 'shipping', 'default_markup', 'deprecated_aliases', 'attribute_owners', 'catalog' ),
 			array_keys( $state )
 		);
 		$this->assertSame( Digitalogic_Excel_Pricing_Sync::STATE_SCHEMA, $state['schema'] );
@@ -200,8 +201,12 @@ final class ExcelPricingSyncTest extends TestCase {
 			$state['settings']['shipping_catalog_revision']
 		);
 		$this->assertSame( '30', $state['profit_margin']['profit_margin_percent'] );
+		$this->assertSame( 0, $state['settings']['price_rounding_digits'] );
+		$this->assertSame( 'nearest_half_up', $state['settings']['price_rounding_mode'] );
+		$this->assertSame( 0, $state['price_rounding']['rounding_digits'] );
 		$this->assertSame( 'digitalogic_pricing_coordinator', $state['attribute_owners']['selling_price'] );
 		$this->assertSame( 'digitalogic_pricing_coordinator', $state['attribute_owners']['air_express_shipping'] );
+		$this->assertSame( 'digitalogic_pricing_coordinator', $state['attribute_owners']['price_rounding'] );
 		$this->assertSame(
 			array(
 				'dollar_price',
@@ -571,6 +576,7 @@ final class ExcelPricingSyncTest extends TestCase {
 		$this->assertContains( 'current_currency_stale', $codes );
 		$this->assertContains( 'currency_drift_over_7_percent', $codes );
 		$this->assertContains( 'shipping_drift_over_7_percent', $codes );
+		$this->assertContains( 'price_rounding_changed', $codes );
 		$this->assertContains( 'effective_date_changed', $codes );
 		$this->assertSame( array(), $preview['product_results'] );
 	}
@@ -687,6 +693,10 @@ final class ExcelPricingSyncTest extends TestCase {
 			$GLOBALS['digitalogic_test_options'][ Digitalogic_Shipping_Method_Service::DEFAULT_MARKUP_OPTION ]['profit_percent']
 		);
 		$this->assertSame(
+			'2',
+			$GLOBALS['digitalogic_test_options'][ Digitalogic_Shipping_Method_Service::ROUNDING_DIGITS_OPTION ]
+		);
+		$this->assertSame(
 			$applied['state_revision'],
 			$GLOBALS['digitalogic_test_options'][ Digitalogic_Excel_Pricing_Sync::SETTINGS_OPTION ]['revision']
 		);
@@ -737,6 +747,7 @@ final class ExcelPricingSyncTest extends TestCase {
 		$this->assertSame( '187891', $GLOBALS['digitalogic_test_options']['dollar_price'] );
 		$this->assertSame( '29500', $GLOBALS['digitalogic_test_options']['options_yuan_price'] );
 		$this->assertSame( '30', $GLOBALS['digitalogic_test_options'][ Digitalogic_Shipping_Method_Service::DEFAULT_MARKUP_OPTION ]['profit_percent'] );
+		$this->assertSame( 0, $GLOBALS['digitalogic_test_options'][ Digitalogic_Shipping_Method_Service::ROUNDING_DIGITS_OPTION ] );
 		$this->assertArrayNotHasKey( Digitalogic_Excel_Pricing_Sync::AUDIT_OPTION, $GLOBALS['digitalogic_test_options'] );
 		$this->assertContains( 'ROLLBACK', $GLOBALS['wpdb']->queries );
 	}
@@ -774,6 +785,8 @@ final class ExcelPricingSyncTest extends TestCase {
 				'usd_effective_date'       => gmdate( 'Y-m-d' ),
 				'cny_effective_date'       => gmdate( 'Y-m-d' ),
 				'profit_margin_percent'    => '35',
+				'price_rounding_digits'    => 2,
+				'price_rounding_mode'      => 'nearest_half_up',
 				'air_express_price_per_kg' => '132',
 				'air_express_currency'     => 'CNY',
 			)

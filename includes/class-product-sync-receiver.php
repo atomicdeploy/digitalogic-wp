@@ -869,7 +869,14 @@ class Digitalogic_Product_Sync_Receiver {
      * @return array|WP_Error
      */
     private function normalize_coordinated_pricing_inputs($settings, $profit_overrides, $scope_codes) {
-        $required = array('dollar_price', 'yuan_price', 'effective_date', 'profit_margin_percent');
+        $required = array(
+            'dollar_price',
+            'yuan_price',
+            'effective_date',
+            'profit_margin_percent',
+            'price_rounding_digits',
+            'price_rounding_mode',
+        );
         if (
             !is_array($settings)
             || array_is_list($settings)
@@ -878,7 +885,7 @@ class Digitalogic_Product_Sync_Receiver {
         ) {
             return $this->error(
                 'digitalogic_pricing_settings_invalid',
-                'چهار مقدار کامل نرخ دلار، نرخ یوآن، تاریخ مؤثر و حاشیه سود لازم است.',
+                'نرخ‌های ارز، تاریخ مؤثر، حاشیه سود و سیاست گردکردن کامل لازم است.',
                 400
             );
         }
@@ -907,6 +914,17 @@ class Digitalogic_Product_Sync_Receiver {
             return $this->error(
                 'digitalogic_pricing_effective_date_invalid',
                 'تاریخ مؤثر قیمت باید به‌شکل YYYY-MM-DD باشد.',
+                400
+            );
+        }
+        if (
+            !$this->is_nonnegative_integer($settings['price_rounding_digits'])
+            || (int) $this->number_to_storage($settings['price_rounding_digits']) > 9
+            || Digitalogic_Shipping_Method_Service::ROUNDING_MODE !== $settings['price_rounding_mode']
+        ) {
+            return $this->error(
+                'digitalogic_pricing_rounding_invalid',
+                'تعداد ارقام گردکردن باید عدد صحیح صفر تا ۹ و روش آن nearest_half_up باشد.',
                 400
             );
         }
@@ -956,6 +974,8 @@ class Digitalogic_Product_Sync_Receiver {
                 'yuan_price' => $this->decimal_parts_to_string($yuan),
                 'effective_date' => $settings['effective_date'],
                 'profit_margin_percent' => $this->decimal_parts_to_string($profit),
+                'price_rounding_digits' => (int) $this->number_to_storage($settings['price_rounding_digits']),
+                'price_rounding_mode' => Digitalogic_Shipping_Method_Service::ROUNDING_MODE,
             ),
             'profit_overrides' => $normalized_overrides,
             'scope_codes' => $normalized_scope,
@@ -990,6 +1010,8 @@ class Digitalogic_Product_Sync_Receiver {
                     'yuan_price' => $settings['yuan_price'],
                     'effective_date' => $settings['effective_date'],
                     'profit_margin_percent' => $settings['profit_margin_percent'],
+                    'price_rounding_digits' => $settings['price_rounding_digits'],
+                    'price_rounding_mode' => $settings['price_rounding_mode'],
                 )
             )
         );
@@ -1317,13 +1339,40 @@ class Digitalogic_Product_Sync_Receiver {
         if (!is_array($product)) {
             return $this->field_error('products', 'contains invalid stored data');
         }
-        if (
-            !isset(
-                $product['pricing_catalog_revision'],
-                $product['irt_per_cny'],
-                $product['currency_effective_date']
-            )
-        ) {
+        $path = 'products.' . ($product['product_code'] ?? '');
+        $price_source_kind = (string) ($product['price_source_kind'] ?? '');
+        if ('' === $price_source_kind) {
+            $calculated = $this->evaluate_final_price_formula($product, $path);
+            if (is_wp_error($calculated)) {
+                return $calculated;
+            }
+            unset($product['final_price']);
+            $product['record_hash'] = $this->record_hash_from_storage($product);
+
+            return $product;
+        }
+        if (!in_array($price_source_kind, array('foreign_price', 'partner_price', 'sale_price_direct'), true)) {
+            return $this->field_error($path . '.price_source_kind', 'contains an unsupported selected price source');
+        }
+        if ('sale_price_direct' === $price_source_kind) {
+            $calculated = $this->evaluate_final_price_formula($product, $path);
+            if (is_wp_error($calculated)) {
+                return $calculated;
+            }
+            if (empty($calculated['available'])) {
+                unset($product['final_price']);
+            } else {
+                $product['final_price'] = $calculated['value'];
+            }
+            $validated = $this->validate_final_price_formula($product, $path, true);
+            if (is_wp_error($validated)) {
+                return $validated;
+            }
+            $product['record_hash'] = $this->record_hash_from_storage($product);
+
+            return $product;
+        }
+        if (!isset($product['pricing_catalog_revision'])) {
             return $this->error(
                 'digitalogic_pricing_catalog_provenance_required',
                 'هویت کاتالوگ قیمت قبلی کالا کامل نیست؛ هیچ تغییری ثبت نشد.',
@@ -1331,43 +1380,38 @@ class Digitalogic_Product_Sync_Receiver {
                 array('product_code' => (string) ($product['product_code'] ?? ''))
             );
         }
-        $prior_catalog_revision = null !== $previous_catalog_revision
-            ? $previous_catalog_revision
-            : $this->coordinated_pricing_catalog_revision(
-                array(
-                    'yuan_price' => $product['irt_per_cny'],
-                    'effective_date' => $product['currency_effective_date'],
-                ),
-                $catalog
-            );
         if (
-            is_wp_error($prior_catalog_revision)
+            null === $previous_catalog_revision
             || !hash_equals(
                 (string) $product['pricing_catalog_revision'],
-                (string) $prior_catalog_revision
+                (string) $previous_catalog_revision
             )
         ) {
-            return is_wp_error($prior_catalog_revision)
-                ? $prior_catalog_revision
-                : $this->error(
-                    'digitalogic_pricing_shipping_catalog_changed',
-                    'کاتالوگ حمل پس از snapshot کالا تغییر کرده است؛ ابتدا بازتولید Patris لازم است.',
-                    409,
-                    array('product_code' => (string) ($product['product_code'] ?? ''))
-                );
+            return $this->error(
+                'digitalogic_pricing_shipping_catalog_changed',
+                'کاتالوگ حمل پس از snapshot کالا تغییر کرده است؛ ابتدا بازتولید Patris لازم است.',
+                409,
+                array('product_code' => (string) ($product['product_code'] ?? ''))
+            );
         }
         $shipping = $this->coordinated_shipping_method($product, $catalog);
         if (is_wp_error($shipping)) {
             return $shipping;
         }
-        $product['irt_per_cny'] = $settings['yuan_price'];
         $product['markup_percent'] = $markup_percent;
-        $product['currency_effective_date'] = $settings['effective_date'];
+        $product['price_rounding_digits'] = $settings['price_rounding_digits'];
+        $product['price_rounding_mode'] = $settings['price_rounding_mode'];
         $product['pricing_catalog_revision'] = $catalog_revision;
         $product['shipping_price_per_kg'] = $shipping['price_per_kg'];
         $product['shipping_price_per_kg_currency'] = $shipping['currency'];
+        if ('foreign_price' === $price_source_kind) {
+            $product['irt_per_cny'] = $settings['yuan_price'];
+            $product['currency_effective_date'] = $settings['effective_date'];
+        } else {
+            unset($product['irt_per_cny'], $product['currency_effective_date']);
+        }
 
-        $calculated = $this->evaluate_final_price_formula($product, 'products.' . ($product['product_code'] ?? ''));
+        $calculated = $this->evaluate_final_price_formula($product, $path);
         if (is_wp_error($calculated)) {
             return $calculated;
         }
@@ -1375,6 +1419,10 @@ class Digitalogic_Product_Sync_Receiver {
             unset($product['final_price']);
         } else {
             $product['final_price'] = $calculated['value'];
+        }
+        $validated = $this->validate_final_price_formula($product, $path, true);
+        if (is_wp_error($validated)) {
+            return $validated;
         }
         $product['record_hash'] = $this->record_hash_from_storage($product);
 
@@ -1444,9 +1492,17 @@ class Digitalogic_Product_Sync_Receiver {
         }
 
         $price = $this->formula_decimal_parts($selected['price_per_kg'] ?? null);
+        $domestic = Digitalogic_Shipping_Method_Service::DOMESTIC_METHOD_ID === $method_id;
         if (
             isset($price['error'])
-            || $this->decimal_compare($price, $this->formula_decimal_parts('0')) <= 0
+            || (
+                $domestic
+                && 0 !== $this->decimal_compare($price, $this->formula_decimal_parts('0'))
+            )
+            || (
+                !$domestic
+                && $this->decimal_compare($price, $this->formula_decimal_parts('0')) <= 0
+            )
         ) {
             return $this->error(
                 'digitalogic_pricing_shipping_rate_invalid',
@@ -1459,7 +1515,11 @@ class Digitalogic_Product_Sync_Receiver {
             );
         }
         $currency = $selected['currency'] ?? null;
-        if (!is_string($currency) || !in_array($currency, array('CNY', 'IRR'), true)) {
+        if (
+            !is_string($currency)
+            || !in_array($currency, array('CNY', 'IRR'), true)
+            || ($domestic && 'IRR' !== $currency)
+        ) {
             return $this->error(
                 'digitalogic_pricing_shipping_currency_invalid',
                 'واحد پول روش حمل کالا معتبر نیست؛ هیچ تغییری ثبت نشد.',
@@ -1548,8 +1608,16 @@ class Digitalogic_Product_Sync_Receiver {
             return false;
         }
         $pricing_meta = array(
+            'price_source_amount' => '_digitalogic_patris_price_source_amount',
+            'price_source_currency' => '_digitalogic_patris_price_source_currency',
+            'price_source_kind' => '_digitalogic_patris_price_source_kind',
+            'shipping_method_id' => '_digitalogic_patris_shipping_method_id',
+            'shipping_price_per_kg' => '_digitalogic_patris_shipping_price_per_kg',
+            'shipping_price_per_kg_currency' => '_digitalogic_patris_shipping_price_per_kg_currency',
             'markup_percent' => '_digitalogic_patris_markup_percent',
             'irt_per_cny' => '_digitalogic_patris_irt_per_cny',
+            'price_rounding_digits' => '_digitalogic_patris_price_rounding_digits',
+            'price_rounding_mode' => '_digitalogic_patris_price_rounding_mode',
             'pricing_catalog_revision' => '_digitalogic_patris_pricing_catalog_revision',
             'pricing_catalog_status' => '_digitalogic_patris_pricing_catalog_status',
             'currency_effective_date' => '_digitalogic_patris_currency_effective_date',
@@ -1564,6 +1632,19 @@ class Digitalogic_Product_Sync_Receiver {
             if ((string) get_post_meta($woocommerce_id, $meta_key, true) !== (string) $product[$field]) {
                 return false;
             }
+        }
+        $assigned_shipping_method = (string) get_post_meta(
+            $woocommerce_id,
+            Digitalogic_Shipping_Method_Service::PRODUCT_METHOD_META,
+            true
+        );
+        if (
+            array_key_exists('shipping_method_id', $product)
+            && null !== $product['shipping_method_id']
+            && '' !== $product['shipping_method_id']
+            && $assigned_shipping_method !== (string) $product['shipping_method_id']
+        ) {
+            return false;
         }
         if (!array_key_exists('final_price', $product)) {
             if (metadata_exists('post', $woocommerce_id, '_digitalogic_patris_final_price')) {
@@ -3353,71 +3434,11 @@ class Digitalogic_Product_Sync_Receiver {
             }
         }
 
-        if ('foreign_price' === $product['price_source_kind']) {
-            $required = array('weight_grams', 'shipping_price_per_kg', 'markup_percent', 'irt_per_cny');
-        } elseif ('partner_price' === $product['price_source_kind']) {
-            $required = array('markup_percent');
-        } else {
-            $required = array();
+        $evaluated = $this->evaluate_final_price_formula($product, $path);
+        if (is_wp_error($evaluated)) {
+            return $evaluated;
         }
-        $missing = array();
-        $decimals = array();
-        foreach ($required as $field) {
-            if (!array_key_exists($field, $product) || null === $product[$field]) {
-                $missing[] = $field;
-                continue;
-            }
-            $parts = $this->formula_decimal_parts($product[$field]);
-            if (isset($parts['error'])) {
-                return $this->field_error($path . '.' . $field, $parts['error']);
-            }
-            $decimals[$field] = $parts;
-        }
-        if ('foreign_price' === $product['price_source_kind']) {
-            if (
-                !array_key_exists('shipping_method_id', $product)
-                || null === $product['shipping_method_id']
-                || '' === $product['shipping_method_id']
-                || Digitalogic_Shipping_Method_Service::DOMESTIC_METHOD_ID === $product['shipping_method_id']
-            ) {
-                $missing[] = 'shipping_method_id';
-            }
-            if (
-                array_key_exists('shipping_price_per_kg', $product)
-                && null !== $product['shipping_price_per_kg']
-                && $this->number_compare_zero($product['shipping_price_per_kg']) <= 0
-            ) {
-                $missing[] = 'shipping_price_per_kg';
-            }
-            if (
-                !array_key_exists('shipping_price_per_kg_currency', $product)
-                || null === $product['shipping_price_per_kg_currency']
-            ) {
-                $missing[] = 'shipping_price_per_kg_currency';
-            }
-        } else {
-            if (
-                !array_key_exists('shipping_method_id', $product)
-                || Digitalogic_Shipping_Method_Service::DOMESTIC_METHOD_ID !== $product['shipping_method_id']
-            ) {
-                $missing[] = 'shipping_method_id';
-            }
-            if (
-                !array_key_exists('shipping_price_per_kg', $product)
-                || null === $product['shipping_price_per_kg']
-                || 0 !== $this->number_compare_zero($product['shipping_price_per_kg'])
-            ) {
-                $missing[] = 'shipping_price_per_kg';
-            }
-            if (
-                !array_key_exists('shipping_price_per_kg_currency', $product)
-                || 'IRR' !== $product['shipping_price_per_kg_currency']
-            ) {
-                $missing[] = 'shipping_price_per_kg_currency';
-            }
-        }
-
-        if (!empty($missing)) {
+        if (empty($evaluated['available'])) {
             if (!array_key_exists('final_price', $product)) {
                 return true;
             }
@@ -3426,36 +3447,235 @@ class Digitalogic_Product_Sync_Receiver {
                 'digitalogic_product_sync_final_price_mismatch',
                 'final_price must be omitted when selected-price inputs are incomplete.',
                 422,
-                array('path' => $path . '.final_price', 'expected' => 'omitted', 'missing' => $missing)
+                array(
+                    'path' => $path . '.final_price',
+                    'expected' => 'omitted',
+                    'missing' => $evaluated['missing'],
+                )
+            );
+        }
+        if (!array_key_exists('final_price', $product)) {
+            return $this->field_error($path . '.final_price', 'is required when all selected-price inputs are available');
+        }
+
+        $actual = $this->number_to_storage($product['final_price']);
+        if (!is_int($actual) || $actual !== $evaluated['value']) {
+            $message = 'sale_price_direct' === $product['price_source_kind']
+                ? 'final_price does not match the direct source sale amount converted from IRR to IRT.'
+                : 'final_price does not match independently evaluated landed_price.';
+
+            return $this->error(
+                'digitalogic_product_sync_final_price_mismatch',
+                $message,
+                422,
+                array(
+                    'path' => $path . '.final_price',
+                    'expected' => $evaluated['value'],
+                    'actual' => $actual,
+                )
             );
         }
 
-        if (!array_key_exists('final_price', $product)) {
-            return $this->field_error($path . '.final_price', 'is required when all landed_price inputs are available');
+        return true;
+    }
+
+    /**
+     * Evaluate one selected route without choosing a source on the caller's behalf.
+     *
+     * Foreign CNY pricing adds exact item and weight-based freight costs, converts
+     * them to IRT, applies markup once, then rounds once. Partner IRR pricing uses
+     * the canonical zero-rate domestic route before markup and rounding. Direct
+     * sale pricing only performs an exact IRR-to-IRT division and is deliberately
+     * independent from freight, FX, markup, and rounding settings.
+     *
+     * @param array  $product Canonical product record.
+     * @param string $path    Error path.
+     * @return array|WP_Error
+     */
+    private function evaluate_final_price_formula($product, $path) {
+        $kind = isset($product['price_source_kind']) && is_string($product['price_source_kind'])
+            ? $product['price_source_kind']
+            : '';
+        if ('' === $kind) {
+            return array(
+                'available' => false,
+                'missing' => array('price_source_kind'),
+            );
+        }
+        if (!in_array($kind, array('foreign_price', 'partner_price', 'sale_price_direct'), true)) {
+            return $this->field_error($path . '.price_source_kind', 'contains an unsupported selected price source');
         }
 
-        if (
-            'sale_price_direct' !== $product['price_source_kind']
-            && $this->decimal_compare($decimals['markup_percent'], $this->formula_decimal_parts(self::MAX_MARKUP_PERCENT)) > 0
-        ) {
-            return $this->field_error($path . '.markup_percent', 'must not exceed ' . self::MAX_MARKUP_PERCENT);
+        $source_fields = array('price_source_amount', 'price_source_currency', 'price_source_kind');
+        $missing = array();
+        foreach ($source_fields as $field) {
+            if (!array_key_exists($field, $product) || null === $product[$field] || '' === $product[$field]) {
+                $missing[] = $field;
+            }
+        }
+        if (!empty($missing)) {
+            return array(
+                'available' => false,
+                'missing' => $missing,
+            );
         }
 
-        if ('foreign_price' === $product['price_source_kind']) {
-            $goods_irt               = $this->decimal_multiply($source_amount, $decimals['irt_per_cny']);
-            $shipping_cost           = $this->decimal_multiply($decimals['weight_grams'], $decimals['shipping_price_per_kg']);
+        $source_amount = $this->formula_decimal_parts($product['price_source_amount']);
+        if (isset($source_amount['error'])) {
+            return $this->field_error($path . '.price_source_amount', $source_amount['error']);
+        }
+        if ($this->decimal_compare($source_amount, $this->formula_decimal_parts('0')) <= 0) {
+            return $this->field_error($path . '.price_source_amount', 'must be greater than zero when selected');
+        }
+
+        if ('foreign_price' === $kind) {
+            if ('CNY' !== $product['price_source_currency']) {
+                return $this->field_error($path . '.price_source_currency', 'must be CNY for foreign_price');
+            }
+            $required = array(
+                'weight_grams',
+                'shipping_method_id',
+                'shipping_price_per_kg',
+                'shipping_price_per_kg_currency',
+                'markup_percent',
+                'irt_per_cny',
+                'price_rounding_digits',
+                'price_rounding_mode',
+            );
+        } elseif ('partner_price' === $kind) {
+            if ('IRR' !== $product['price_source_currency']) {
+                return $this->field_error($path . '.price_source_currency', 'must be IRR for partner_price');
+            }
+            $required = array(
+                'shipping_method_id',
+                'shipping_price_per_kg',
+                'shipping_price_per_kg_currency',
+                'markup_percent',
+                'price_rounding_digits',
+                'price_rounding_mode',
+            );
+        } else {
+            if ('IRR' !== $product['price_source_currency']) {
+                return $this->field_error($path . '.price_source_currency', 'must be IRR for sale_price_direct');
+            }
+            $required = array(
+                'shipping_method_id',
+                'shipping_price_per_kg',
+                'shipping_price_per_kg_currency',
+            );
+        }
+        foreach ($required as $field) {
+            if (!array_key_exists($field, $product) || null === $product[$field] || '' === $product[$field]) {
+                $missing[] = $field;
+            }
+        }
+
+        if ('foreign_price' === $kind) {
+            if (
+                array_key_exists('shipping_method_id', $product)
+                && (
+                    '' === $product['shipping_method_id']
+                    || Digitalogic_Shipping_Method_Service::DOMESTIC_METHOD_ID === $product['shipping_method_id']
+                )
+            ) {
+                $missing[] = 'shipping_method_id';
+            }
+            if (
+                array_key_exists('shipping_price_per_kg_currency', $product)
+                && !in_array($product['shipping_price_per_kg_currency'], array('CNY', 'IRR'), true)
+            ) {
+                return $this->field_error(
+                    $path . '.shipping_price_per_kg_currency',
+                    'must be CNY or IRR for foreign freight pricing'
+                );
+            }
+        } else {
+            if (
+                array_key_exists('shipping_method_id', $product)
+                && Digitalogic_Shipping_Method_Service::DOMESTIC_METHOD_ID !== $product['shipping_method_id']
+            ) {
+                $missing[] = 'shipping_method_id';
+            }
+            if (
+                array_key_exists('shipping_price_per_kg_currency', $product)
+                && 'IRR' !== $product['shipping_price_per_kg_currency']
+            ) {
+                $missing[] = 'shipping_price_per_kg_currency';
+            }
+        }
+        $missing = array_values(array_unique($missing));
+        if (!empty($missing)) {
+            return array(
+                'available' => false,
+                'missing' => $missing,
+            );
+        }
+
+        $shipping_rate = $this->formula_decimal_parts($product['shipping_price_per_kg']);
+        if (isset($shipping_rate['error'])) {
+            return $this->field_error($path . '.shipping_price_per_kg', $shipping_rate['error']);
+        }
+        if ('foreign_price' === $kind) {
+            if ($this->decimal_compare($shipping_rate, $this->formula_decimal_parts('0')) <= 0) {
+                return array(
+                    'available' => false,
+                    'missing' => array('shipping_price_per_kg'),
+                );
+            }
+            $weight = $this->formula_decimal_parts($product['weight_grams']);
+            $markup = $this->formula_decimal_parts($product['markup_percent']);
+            $irt_per_cny = $this->formula_decimal_parts($product['irt_per_cny']);
+            foreach (
+                array(
+                    'weight_grams' => $weight,
+                    'markup_percent' => $markup,
+                    'irt_per_cny' => $irt_per_cny,
+                ) as $field => $decimal
+            ) {
+                if (isset($decimal['error'])) {
+                    return $this->field_error($path . '.' . $field, $decimal['error']);
+                }
+            }
+            if ($this->decimal_compare($weight, $this->formula_decimal_parts('0')) <= 0) {
+                return array(
+                    'available' => false,
+                    'missing' => array('weight_grams'),
+                );
+            }
+            if ($this->decimal_compare($irt_per_cny, $this->formula_decimal_parts('0')) <= 0) {
+                return $this->field_error($path . '.irt_per_cny', 'must be greater than zero');
+            }
+
+            $goods_irt = $this->decimal_multiply($source_amount, $irt_per_cny);
+            $shipping_cost = $this->decimal_multiply($weight, $shipping_rate);
             $shipping_cost['scale'] += 3; // grams to kilograms, exactly.
             if ('CNY' === $product['shipping_price_per_kg_currency']) {
-                $shipping_irt           = $this->decimal_multiply($shipping_cost, $decimals['irt_per_cny']);
+                $shipping_irt = $this->decimal_multiply($shipping_cost, $irt_per_cny);
             } else {
-                $shipping_irt           = $shipping_cost;
+                $shipping_irt = $shipping_cost;
                 $shipping_irt['scale'] += 1; // IRR to IRT, exactly.
             }
-            $base_irt               = $this->decimal_add($goods_irt, $shipping_irt);
-        } elseif ('partner_price' === $product['price_source_kind']) {
+            $base_irt = $this->decimal_add($goods_irt, $shipping_irt);
+        } elseif ('partner_price' === $kind) {
+            if (0 !== $this->decimal_compare($shipping_rate, $this->formula_decimal_parts('0'))) {
+                return array(
+                    'available' => false,
+                    'missing' => array('shipping_price_per_kg'),
+                );
+            }
+            $markup = $this->formula_decimal_parts($product['markup_percent']);
+            if (isset($markup['error'])) {
+                return $this->field_error($path . '.markup_percent', $markup['error']);
+            }
             $base_irt = $source_amount;
             $base_irt['scale'] += 1; // IRR to IRT, exactly.
         } else {
+            if (0 !== $this->decimal_compare($shipping_rate, $this->formula_decimal_parts('0'))) {
+                return array(
+                    'available' => false,
+                    'missing' => array('shipping_price_per_kg'),
+                );
+            }
             $direct_irt = $source_amount;
             $direct_irt['scale'] += 1; // IRR to IRT, exactly.
             while ($direct_irt['scale'] > 0 && str_ends_with($direct_irt['digits'], '0')) {
@@ -3463,36 +3683,41 @@ class Digitalogic_Product_Sync_Receiver {
                 --$direct_irt['scale'];
             }
             if ($direct_irt['scale'] > 0) {
-                if (!array_key_exists('final_price', $product)) {
-                    return true;
-                }
-                return $this->error(
-                    'digitalogic_product_sync_final_price_mismatch',
-                    'sale_price_direct cannot represent a fractional IRT amount without modification.',
-                    422,
-                    array('path' => $path . '.final_price', 'expected' => 'omitted')
+                return array(
+                    'available' => false,
+                    'missing' => array('integer_irt_amount'),
                 );
             }
             if ($this->big_integer_compare($direct_irt['digits'], (string) PHP_INT_MAX) > 0) {
                 return $this->field_error($path . '.final_price', 'sale_price_direct exceeds the supported IRT integer range');
             }
-            $actual = $this->number_to_storage($product['final_price']);
-            $expected = (int) $direct_irt['digits'];
-            if (!is_int($actual) || $actual !== $expected) {
-                return $this->error(
-                    'digitalogic_product_sync_final_price_mismatch',
-                    'final_price does not match the direct source sale amount converted from IRR to IRT.',
-                    422,
-                    array('path' => $path . '.final_price', 'expected' => $expected, 'actual' => $actual)
-                );
-            }
-            return true;
+
+            return array(
+                'available' => true,
+                'missing' => array(),
+                'value' => (int) $direct_irt['digits'],
+            );
         }
-        $markup_multiplier     = $this->decimal_add(
+
+        if ($this->decimal_compare($markup, $this->formula_decimal_parts(self::MAX_MARKUP_PERCENT)) > 0) {
+            return $this->field_error($path . '.markup_percent', 'must not exceed ' . self::MAX_MARKUP_PERCENT);
+        }
+        if (
+            !$this->is_nonnegative_integer($product['price_rounding_digits'])
+            || (int) $this->number_to_storage($product['price_rounding_digits']) > 9
+            || 'nearest_half_up' !== $product['price_rounding_mode']
+        ) {
+            return array(
+                'available' => false,
+                'missing' => array('price_rounding_digits', 'price_rounding_mode'),
+            );
+        }
+
+        $markup_multiplier = $this->decimal_add(
             $this->formula_decimal_parts('100'),
-            $decimals['markup_percent']
+            $markup
         );
-        $marked_up             = $this->decimal_multiply($base_irt, $markup_multiplier);
+        $marked_up = $this->decimal_multiply($base_irt, $markup_multiplier);
         $marked_up['scale'] += 2; // percent to multiplier, exactly.
         $rounding_digits = (int) $this->number_to_storage($product['price_rounding_digits']);
         $rounded = $this->decimal_round_half_up_to_digits($marked_up, $rounding_digits);
@@ -3502,8 +3727,8 @@ class Digitalogic_Product_Sync_Receiver {
 
         return array(
             'available' => true,
-            'missing'   => array(),
-            'value'     => (int) $rounded,
+            'missing' => array(),
+            'value' => (int) $rounded,
         );
     }
 

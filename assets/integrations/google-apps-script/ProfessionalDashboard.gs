@@ -326,7 +326,7 @@ function digitalogicBuildCalculator_(sheet) {
   sheet.getRange('B12').setFormula('=IFERROR(IF(INDEX(Products!$A:$ZZ,MATCH($B$7,Products!$A:$A,0),MATCH("shipping_price_per_kg_currency",Products!$1:$1,0))="",Settings!$B$9,UPPER(INDEX(Products!$A:$ZZ,MATCH($B$7,Products!$A:$A,0),MATCH("shipping_price_per_kg_currency",Products!$1:$1,0)))),Settings!$B$9)');
   sheet.getRange('B13').setFormula('=IFERROR(IF(INDEX(Products!$A:$ZZ,MATCH($B$7,Products!$A:$A,0),MATCH("profit_margin_percent",Products!$1:$1,0))="",Settings!$B$10/100,INDEX(Products!$A:$ZZ,MATCH($B$7,Products!$A:$A,0),MATCH("profit_margin_percent",Products!$1:$1,0))/100),Settings!$B$10/100)');
   sheet.getRange('B14').setFormula('=Settings!$B$7');
-  sheet.getRange('B15').setFormula('=IF(OR(B9<=0,B10<=0,B11<=0,B13<0,B14<=0,AND(B12<>"CNY",B12<>"IRR")),"INPUT REQUIRED",ROUND((B10*B14+(B9/1000)*IF(B12="CNY",B11*B14,B11/10))*(1+B13),0))');
+  sheet.getRange('B15').setFormula('=IF(OR(B9<=0,B10<=0,B11<=0,B13<0,B14<=0,AND(B12<>"CNY",B12<>"IRR"),NOT(ISNUMBER(Settings!$B$21)),Settings!$B$21<0,Settings!$B$21>9,Settings!$B$21<>INT(Settings!$B$21),Settings!$B$22<>"nearest_half_up"),"INPUT REQUIRED",ROUND((B10*B14+(B9/1000)*IF(B12="CNY",B11*B14,B11/10))*(1+B13),-Settings!$B$21))');
   sheet.getRange('B7:B12').setNumberFormat('@');
   sheet.getRange('B9:B11').setNumberFormat('#,##0.########');
   sheet.getRange('B13').setNumberFormat('0.0%');
@@ -340,9 +340,9 @@ function digitalogicBuildCalculator_(sheet) {
     .setBorder(true, true, true, true, false, false, colors.green, SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
   sheet.getRange('D6:J15').merge()
     .setValue(
-      'FORMULA\n\nROUND((Foreign price × CNY→IRT + Weight kg × freight in IRT) × (1 + Profit %), 0)\n\n' +
+      'FORMULA\n\nROUND((Foreign price × CNY→IRT + Weight kg × freight in IRT) × (1 + Profit %), -Price rounding digits)\n\n' +
       'CNY freight is converted by the FX rate. IRR freight is divided by 10 to reach IRT. ' +
-      'One final rounding step is applied after freight and profit. Missing or invalid inputs return INPUT REQUIRED.'
+      'One final nearest-half-up rounding step is applied after freight and profit. Missing or invalid inputs return INPUT REQUIRED.'
     )
     .setBackground(colors.cyanSoft)
     .setFontColor('#075985')
@@ -386,6 +386,10 @@ function digitalogicBuildSettings_(sheet) {
     ['Shipping catalog revision (managed)', ''],
     ['Pricing sync status (managed)', ''],
   ]);
+  sheet.getRange('A21:B22').setValues([
+    ['Price rounding digits | تعداد رقم گردکردن قیمت', ''],
+    ['Price rounding mode (managed) | روش گردکردن قیمت (مدیریت‌شده)', 'nearest_half_up'],
+  ]);
   digitalogicHeader_(sheet.getRange('A6:B6'));
   sheet.getRange('B7:B8').setNumberFormat('#,##0.########');
   sheet.getRange('B9').setDataValidation(SpreadsheetApp.newDataValidation().requireValueInList(['CNY', 'IRR'], true).setAllowInvalid(false).build());
@@ -393,6 +397,22 @@ function digitalogicBuildSettings_(sheet) {
   sheet.getRange('B15').setNumberFormat('#,##0.########');
   sheet.getRange('B16:B20').setNumberFormat('@');
   sheet.getRange('B18:B20').setBackground(colors.graySoft).setFontColor(colors.slate);
+  sheet.getRange('B21').setNumberFormat('0').setDataValidation(
+    SpreadsheetApp.newDataValidation()
+      .requireFormulaSatisfied('=AND(ISNUMBER(B21),B21=INT(B21),B21>=0,B21<=9)')
+      .setAllowInvalid(false)
+      .build()
+  );
+  sheet.getRange('B22')
+    .setNumberFormat('@')
+    .setDataValidation(
+      SpreadsheetApp.newDataValidation()
+        .requireValueInList(['nearest_half_up'], true)
+        .setAllowInvalid(false)
+        .build()
+    )
+    .setBackground(colors.graySoft)
+    .setFontColor(colors.slate);
   sheet.getRange('D6:H13').setValues([
     ['Connection', 'Endpoint / identity', 'Mode', 'Owner', 'Status'],
     ['Digitalogic WordPress', 'https://digitalogic.ir', 'Living catalog', 'Digitalogic', 'Connected'],
@@ -409,7 +429,7 @@ function digitalogicBuildSettings_(sheet) {
     .setWrap(true)
     .setVerticalAlignment('middle')
     .setBorder(true, true, true, true, true, true, colors.gray, SpreadsheetApp.BorderStyle.SOLID);
-  sheet.getRange('A22:H26').merge()
+  sheet.getRange('A24:H28').merge()
     .setValue(
       'Safety rule: Products and Categories are synchronized reference snapshots. Stage exact Products rows into Changes, ' +
       'edit only allowlisted fields, tick Selected, run Preview, review the diff, then explicitly Apply. ' +
@@ -447,7 +467,7 @@ function digitalogicBuildHelp_(sheet) {
     ['5. Verify', 'Read Audit, refresh Products, and confirm the new record revision. On conflict, refresh and create a new proposal instead of forcing it.'],
     ['6. Recover', 'If Google authorization expires, run syncCatalog and approve it again. Reinstall a stale trigger with removeScheduledSync then installScheduledSync.'],
     ['Identity', 'Product matching uses exact, case-sensitive Product Code. A woo:<id> display key keeps unmatched WooCommerce rows visible; SKU is never fallback identity.'],
-    ['Pricing', 'Final price combines foreign price, weight-based freight, FX conversion, and profit, then applies one final rounding step. Missing inputs stay visibly blocked.'],
+    ['Pricing', 'Final price combines foreign price, weight-based freight, FX conversion, and profit, then applies one final nearest-half-up step using the shared rounding-digits setting. Missing inputs stay visibly blocked.'],
     ['Publishing', 'Shipping assignment does not mean readiness. Missing Code, weight, price, images, descriptions, categories, or variation review remains a stop condition.'],
     ['Support', 'Digitalogic: https://digitalogic.ir  |  Automation: https://automation.digitalogic.ir  |  GitHub issue: atomicdeploy/digitalogic-wp#99'],
   ];

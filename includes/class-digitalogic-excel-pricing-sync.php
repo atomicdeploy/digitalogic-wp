@@ -146,6 +146,8 @@ final class Digitalogic_Excel_Pricing_Sync {
 				'usd_effective_date'        => $globals['currency']['usd_effective_date'],
 				'cny_effective_date'        => $globals['currency']['cny_effective_date'],
 				'profit_margin_percent'     => $profit,
+				'price_rounding_digits'     => $globals['price_rounding']['rounding_digits'],
+				'price_rounding_mode'       => $globals['price_rounding']['rounding_mode'],
 				'air_express_price_per_kg'  => $globals['shipping']['price_per_kg'],
 				'air_express_currency'      => $globals['shipping']['currency'],
 				'shipping_catalog_revision' => $globals['shipping']['catalog_revision'],
@@ -172,6 +174,7 @@ final class Digitalogic_Excel_Pricing_Sync {
 				'profit_margin_percent' => $settings['profit_margin_percent'],
 				'updated_at'            => $globals['default_markup']['updated_at'],
 			),
+			'price_rounding'   => $globals['price_rounding'],
 			'shipping'         => $globals['shipping'],
 			'attribute_owners' => $this->attribute_owners(),
 		);
@@ -261,6 +264,7 @@ final class Digitalogic_Excel_Pricing_Sync {
 								'options_update_date',
 								Digitalogic_Shipping_Method_Service::METHODS_OPTION,
 								Digitalogic_Shipping_Method_Service::DEFAULT_MARKUP_OPTION,
+								Digitalogic_Shipping_Method_Service::ROUNDING_DIGITS_OPTION,
 								self::SETTINGS_OPTION,
 								self::AUDIT_OPTION,
 							) as $option_name
@@ -468,6 +472,8 @@ final class Digitalogic_Excel_Pricing_Sync {
 				'usd_effective_date'        => $globals['currency']['usd_effective_date'],
 				'cny_effective_date'        => $globals['currency']['cny_effective_date'],
 				'profit_margin_percent'     => $globals['default_markup']['profit_percent'],
+				'price_rounding_digits'     => $globals['price_rounding']['rounding_digits'],
+				'price_rounding_mode'       => $globals['price_rounding']['rounding_mode'],
 				'air_express_price_per_kg'  => $globals['shipping']['price_per_kg'],
 				'air_express_currency'      => $globals['shipping']['currency'],
 				'shipping_catalog_revision' => $globals['shipping']['catalog_revision'],
@@ -479,6 +485,7 @@ final class Digitalogic_Excel_Pricing_Sync {
 				'revision'              => $globals['default_markup']['revision'],
 				'updated_at'            => $globals['default_markup']['updated_at'],
 			),
+			'price_rounding'     => $globals['price_rounding'],
 			'shipping'           => $globals['shipping'],
 			'default_markup'     => array_merge(
 				$globals['default_markup'],
@@ -848,6 +855,7 @@ final class Digitalogic_Excel_Pricing_Sync {
 							'options_update_date',
 							Digitalogic_Shipping_Method_Service::METHODS_OPTION,
 							Digitalogic_Shipping_Method_Service::DEFAULT_MARKUP_OPTION,
+							Digitalogic_Shipping_Method_Service::ROUNDING_DIGITS_OPTION,
 							self::SETTINGS_OPTION,
 							self::AUDIT_OPTION,
 						) as $option_name
@@ -1352,9 +1360,10 @@ final class Digitalogic_Excel_Pricing_Sync {
 	 * Normalize a complete settings document.
 	 *
 	 * The legacy four-field document remains readable and inherits the current
-	 * shipping dependency without changing it. New clients submit the exact
-	 * air_express rate, currency, and catalog revision together with currency
-	 * rates, dates, and the one shared profit margin.
+	 * shipping and rounding dependencies without changing them. New clients
+	 * submit the exact air_express rate, currency, catalog revision, and
+	 * nearest-half-up rounding policy together with currency rates, dates, and
+	 * the one shared profit margin.
 	 *
 	 * @param mixed      $settings Raw settings.
 	 * @param array|null $current  Current globals used for legacy date mapping.
@@ -1402,6 +1411,16 @@ final class Digitalogic_Excel_Pricing_Sync {
 				array( 'missing' => array_values( array_diff( $shipping_fields, $shipping_present ) ) )
 			);
 		}
+		$rounding_fields  = array( 'price_rounding_digits', 'price_rounding_mode' );
+		$rounding_present = array_values( array_intersect( $rounding_fields, array_keys( $settings ) ) );
+		if ( $rounding_present && count( $rounding_present ) !== count( $rounding_fields ) ) {
+			return $this->error(
+				'digitalogic_pricing_rounding_settings_incomplete',
+				'Price-rounding digits and mode must be submitted together.',
+				400,
+				array( 'missing' => array_values( array_diff( $rounding_fields, $rounding_present ) ) )
+			);
+		}
 		$independent_dates = array( 'usd_effective_date', 'cny_effective_date' );
 		$has_usd_date      = array_key_exists( 'usd_effective_date', $settings );
 		$has_cny_date      = array_key_exists( 'cny_effective_date', $settings );
@@ -1415,6 +1434,9 @@ final class Digitalogic_Excel_Pricing_Sync {
 		$allowed = $has_usd_date ? array_merge( $required, $independent_dates ) : $required;
 		if ( $shipping_present ) {
 			$allowed = array_merge( $allowed, $shipping_fields );
+		}
+		if ( $rounding_present ) {
+			$allowed = array_merge( $allowed, $rounding_fields );
 		}
 		if (
 			! empty( array_diff( $required, array_keys( $settings ) ) )
@@ -1517,6 +1539,27 @@ final class Digitalogic_Excel_Pricing_Sync {
 			$shipping_currency = $current['shipping']['currency'];
 			$shipping_revision = $current['shipping']['catalog_revision'];
 		}
+		if ( $rounding_present ) {
+			$rounding_digits = $this->canonical_rounding_digits( $settings['price_rounding_digits'] );
+			if ( is_wp_error( $rounding_digits ) ) {
+				return $rounding_digits;
+			}
+			if (
+				! is_string( $settings['price_rounding_mode'] )
+				|| Digitalogic_Shipping_Method_Service::ROUNDING_MODE !== $settings['price_rounding_mode']
+			) {
+				return $this->error(
+					'digitalogic_pricing_rounding_mode_invalid',
+					'Price-rounding mode must be nearest_half_up.',
+					400,
+					array( 'field' => 'settings.price_rounding_mode' )
+				);
+			}
+			$rounding_mode = $settings['price_rounding_mode'];
+		} else {
+			$rounding_digits = $current['price_rounding']['rounding_digits'];
+			$rounding_mode   = $current['price_rounding']['rounding_mode'];
+		}
 
 		return array(
 			'dollar_price'              => $dollar,
@@ -1525,6 +1568,8 @@ final class Digitalogic_Excel_Pricing_Sync {
 			'usd_effective_date'        => $usd_date,
 			'cny_effective_date'        => $cny_date,
 			'profit_margin_percent'     => $profit,
+			'price_rounding_digits'     => $rounding_digits,
+			'price_rounding_mode'       => $rounding_mode,
 			'air_express_price_per_kg'  => $shipping_price,
 			'air_express_currency'      => $shipping_currency,
 			'shipping_catalog_revision' => $shipping_revision,
@@ -1568,6 +1613,57 @@ final class Digitalogic_Excel_Pricing_Sync {
 		}
 
 		return $value;
+	}
+
+	/**
+	 * Canonicalize the nearest-half-up trailing IRT digit count.
+	 *
+	 * @param mixed $value Raw value.
+	 * @return int|WP_Error
+	 */
+	private function canonical_rounding_digits( $value ) {
+		if ( is_int( $value ) ) {
+			$text = (string) $value;
+		} elseif ( is_string( $value ) ) {
+			$text = trim( $value );
+			$text = strtr(
+				$text,
+				array(
+					'۰' => '0',
+					'۱' => '1',
+					'۲' => '2',
+					'۳' => '3',
+					'۴' => '4',
+					'۵' => '5',
+					'۶' => '6',
+					'۷' => '7',
+					'۸' => '8',
+					'۹' => '9',
+					'٠' => '0',
+					'١' => '1',
+					'٢' => '2',
+					'٣' => '3',
+					'٤' => '4',
+					'٥' => '5',
+					'٦' => '6',
+					'٧' => '7',
+					'٨' => '8',
+					'٩' => '9',
+				)
+			);
+		} else {
+			$text = '';
+		}
+		if ( 1 !== preg_match( '/\A[0-9]\z/D', $text ) ) {
+			return $this->error(
+				'digitalogic_pricing_rounding_digits_invalid',
+				'Price-rounding digits must be an integer from 0 through 9.',
+				400,
+				array( 'field' => 'settings.price_rounding_digits' )
+			);
+		}
+
+		return (int) $text;
 	}
 
 	/**
@@ -1791,6 +1887,10 @@ final class Digitalogic_Excel_Pricing_Sync {
 		if ( is_wp_error( $markup ) ) {
 			return $markup;
 		}
+		$price_rounding = Digitalogic_Shipping_Method_Service::instance()->get_price_rounding_policy();
+		if ( is_wp_error( $price_rounding ) ) {
+			return $price_rounding;
+		}
 		$shipping_catalog = Digitalogic_Shipping_Method_Service::instance()->get_integration_catalog();
 		if ( is_wp_error( $shipping_catalog ) ) {
 			return $shipping_catalog;
@@ -1805,6 +1905,13 @@ final class Digitalogic_Excel_Pricing_Sync {
 		$profit            = ! empty( $markup['configured'] ) && isset( $markup['profit_percent'] )
 			? (string) $markup['profit_percent']
 			: null;
+		$rounding_revision = $this->revision(
+			array(
+				'rounding_digits' => $price_rounding['rounding_digits'],
+				'rounding_mode'   => $price_rounding['rounding_mode'],
+			)
+		);
+		$price_rounding['revision'] = $rounding_revision;
 		$currency_material = array(
 			'dollar_price'       => $dollar,
 			'yuan_price'         => $yuan,
@@ -1857,11 +1964,13 @@ final class Digitalogic_Excel_Pricing_Sync {
 					'schema'                    => self::SETTINGS_SCHEMA,
 					'currency_revision'         => $currency_revision,
 					'default_markup_revision'   => $markup_revision,
+					'price_rounding_revision'   => $rounding_revision,
 					'shipping_catalog_revision' => $shipping['catalog_revision'],
 				)
 			),
 			'currency'       => $currency,
 			'default_markup' => $default_markup,
+			'price_rounding' => $price_rounding,
 			'shipping'       => $shipping,
 		);
 	}
@@ -1880,6 +1989,8 @@ final class Digitalogic_Excel_Pricing_Sync {
 			'usd_effective_date'        => $globals['currency']['usd_effective_date'],
 			'cny_effective_date'        => $globals['currency']['cny_effective_date'],
 			'profit_margin_percent'     => $globals['default_markup']['profit_percent'],
+			'price_rounding_digits'     => $globals['price_rounding']['rounding_digits'],
+			'price_rounding_mode'       => $globals['price_rounding']['rounding_mode'],
 			'air_express_price_per_kg'  => $globals['shipping']['price_per_kg'],
 			'air_express_currency'      => $globals['shipping']['currency'],
 			'shipping_catalog_revision' => $globals['shipping']['catalog_revision'],
@@ -1969,6 +2080,12 @@ final class Digitalogic_Excel_Pricing_Sync {
 			'profit_percent' => $settings['profit_margin_percent'],
 		);
 		$markup_revision   = $this->default_markup_revision( $markup_identity );
+		$rounding_revision = $this->revision(
+			array(
+				'rounding_digits' => $settings['price_rounding_digits'],
+				'rounding_mode'   => $settings['price_rounding_mode'],
+			)
+		);
 
 		$usd_age_days = $this->age_days( $settings['usd_effective_date'] );
 		$cny_age_days = $this->age_days( $settings['cny_effective_date'] );
@@ -2011,6 +2128,7 @@ final class Digitalogic_Excel_Pricing_Sync {
 					'schema'                    => self::SETTINGS_SCHEMA,
 					'currency_revision'         => $currency_revision,
 					'default_markup_revision'   => $markup_revision,
+					'price_rounding_revision'   => $rounding_revision,
 					'shipping_catalog_revision' => $shipping['catalog_revision'],
 				)
 			),
@@ -2020,6 +2138,14 @@ final class Digitalogic_Excel_Pricing_Sync {
 				'profit_percent' => $settings['profit_margin_percent'],
 				'revision'       => $markup_revision,
 				'updated_at'     => current_time( 'mysql', true ),
+			),
+			'price_rounding' => array(
+				'configured'      => true,
+				'rounding_digits' => $settings['price_rounding_digits'],
+				'rounding_mode'   => $settings['price_rounding_mode'],
+				'revision'        => $rounding_revision,
+				'bounds'          => array( 'minimum' => 0, 'maximum' => 9 ),
+				'warnings'        => array(),
 			),
 			'shipping'        => $shipping,
 			'markup_identity' => $markup_identity,
@@ -2081,11 +2207,14 @@ final class Digitalogic_Excel_Pricing_Sync {
 			unset( $currency['cny_to_irt'] );
 		}
 		$currency['effective_date'] = $settings['cny_effective_date'];
+		$pricing                    = is_array( $catalog['pricing'] ?? null ) ? $catalog['pricing'] : array();
+		$pricing['rounding_digits'] = $settings['price_rounding_digits'];
+		$pricing['rounding_mode']   = $settings['price_rounding_mode'];
 
 		$identity = array(
 			'schema'              => (string) ( $catalog['schema'] ?? Digitalogic_Shipping_Method_Service::CATALOG_SCHEMA ),
 			'currency'            => $currency,
-			'pricing'             => is_array( $catalog['pricing'] ?? null ) ? $catalog['pricing'] : array(),
+			'pricing'             => $pricing,
 			'selected_warehouses' => is_array( $catalog['selected_warehouses'] ?? null )
 				? $catalog['selected_warehouses']
 				: array(),
@@ -2198,6 +2327,23 @@ final class Digitalogic_Excel_Pricing_Sync {
 					'proposed'        => $proposed_profit,
 					'drift_percent'   => $drift,
 					'deprecated_code' => 'default_profit_changed',
+				)
+			);
+		}
+		if (
+			$current['price_rounding']['rounding_digits'] !== $settings['price_rounding_digits']
+			|| $current['price_rounding']['rounding_mode'] !== $settings['price_rounding_mode']
+		) {
+			$warnings[] = $this->warning(
+				'price_rounding_changed',
+				'The final-price rounding policy differs from the current site setting.',
+				'warning',
+				array(
+					'field'            => 'price_rounding_digits',
+					'current_digits'   => $current['price_rounding']['rounding_digits'],
+					'proposed_digits'  => $settings['price_rounding_digits'],
+					'current_mode'     => $current['price_rounding']['rounding_mode'],
+					'proposed_mode'    => $settings['price_rounding_mode'],
 				)
 			);
 		}
@@ -2324,6 +2470,7 @@ final class Digitalogic_Excel_Pricing_Sync {
 			'revision'                  => $desired['state_revision'],
 			'currency_revision'         => $desired['currency']['revision'],
 			'default_markup_revision'   => $desired['default_markup']['revision'],
+			'price_rounding_revision'   => $desired['price_rounding']['revision'],
 			'shipping_catalog_revision' => $desired['shipping']['catalog_revision'],
 			'dollar_price'              => $settings['dollar_price'],
 			'yuan_price'                => $settings['yuan_price'],
@@ -2332,6 +2479,8 @@ final class Digitalogic_Excel_Pricing_Sync {
 			'cny_effective_date'        => $settings['cny_effective_date'],
 			'rate_provenance'           => $provenance,
 			'profit_margin_percent'     => $settings['profit_margin_percent'],
+			'price_rounding_digits'     => $settings['price_rounding_digits'],
+			'price_rounding_mode'       => $settings['price_rounding_mode'],
 			'air_express_price_per_kg'  => $settings['air_express_price_per_kg'],
 			'air_express_currency'      => $settings['air_express_currency'],
 			'source'                    => $source,
@@ -2348,6 +2497,7 @@ final class Digitalogic_Excel_Pricing_Sync {
 			'options_update_date'  => $legacy_date,
 			Digitalogic_Shipping_Method_Service::METHODS_OPTION => $shipping_methods,
 			Digitalogic_Shipping_Method_Service::DEFAULT_MARKUP_OPTION => $markup,
+			Digitalogic_Shipping_Method_Service::ROUNDING_DIGITS_OPTION => $settings['price_rounding_digits'],
 			self::SETTINGS_OPTION  => $metadata,
 		);
 	}
@@ -2981,6 +3131,20 @@ final class Digitalogic_Excel_Pricing_Sync {
 				unset( $exception );
 			}
 		}
+		if ( ! hash_equals( $previous['price_rounding']['revision'], $readback['price_rounding']['revision'] ) ) {
+			try {
+				do_action(
+					'digitalogic_price_rounding_updated',
+					array_merge(
+						$readback['price_rounding'],
+						array( 'changed' => true )
+					),
+					$previous['price_rounding']
+				);
+			} catch ( Throwable $exception ) {
+				unset( $exception );
+			}
+		}
 		if ( ! hash_equals( $previous['shipping']['catalog_revision'], $readback['shipping']['catalog_revision'] ) ) {
 			try {
 				$method = Digitalogic_Shipping_Method_Service::instance()->get_method( 'air_express' );
@@ -3034,6 +3198,7 @@ final class Digitalogic_Excel_Pricing_Sync {
 			'currency_rates'       => 'digitalogic_pricing_coordinator',
 			'air_express_shipping' => 'digitalogic_pricing_coordinator',
 			'profit_margin'        => 'digitalogic_pricing_coordinator',
+			'price_rounding'       => 'digitalogic_pricing_coordinator',
 			'product_inputs'       => 'patris_kala',
 			'woocommerce_record'   => 'woocommerce',
 			'selling_price'        => 'digitalogic_pricing_coordinator',

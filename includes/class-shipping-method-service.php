@@ -345,6 +345,31 @@ final class Digitalogic_Shipping_Method_Service {
 			return $digits;
 		}
 
+		if (
+			class_exists( 'Digitalogic_Pricing_Coordinator' )
+			&& Digitalogic_Pricing_Coordinator::instance()->has_managed_pricing_state()
+		) {
+			$previous = $this->load_price_rounding_policy();
+			if ( is_wp_error( $previous ) ) {
+				return $previous;
+			}
+			$coordinated = Digitalogic_Pricing_Coordinator::instance()->update_price_rounding(
+				$digits,
+				'legacy_shipping_service'
+			);
+			if ( is_wp_error( $coordinated ) ) {
+				return $coordinated;
+			}
+
+			$current = $this->load_price_rounding_policy();
+			if ( is_wp_error( $current ) ) {
+				return $current;
+			}
+			$current['changed'] = ! empty( $coordinated['settings_changed'] );
+
+			return $current;
+		}
+
 		return $this->with_catalog_lock(
 			function () use ( $digits ) {
 				$previous = $this->load_price_rounding_policy();
@@ -510,6 +535,59 @@ final class Digitalogic_Shipping_Method_Service {
 				__('Shipping method IDs are immutable.', 'digitalogic'),
                 array('status' => 400)
             );
+        }
+
+        if (
+            'air_express' === $id
+            && class_exists('Digitalogic_Pricing_Coordinator')
+            && Digitalogic_Pricing_Coordinator::instance()->has_managed_pricing_state()
+        ) {
+            $methods = $this->load_methods();
+            if (!isset($methods[$id])) {
+                return new WP_Error(
+                    'digitalogic_shipping_method_not_found',
+					__('Shipping method not found.', 'digitalogic'),
+                    array('status' => 404)
+                );
+            }
+            $candidate = $this->sanitize_method(
+                array_merge($methods[$id], $changes, array('id' => $id)),
+                $methods[$id]
+            );
+            if (is_wp_error($candidate)) {
+                return $candidate;
+            }
+            if (empty($candidate['enabled'])) {
+                return new WP_Error(
+                    'digitalogic_pricing_air_express_required',
+                    __('The enabled air-express method is required for canonical pricing.', 'digitalogic'),
+                    array('status' => 409)
+                );
+            }
+
+            $pricing_changed = $candidate['price_per_kg'] !== $methods[$id]['price_per_kg']
+                || $candidate['currency'] !== $methods[$id]['currency'];
+            if ($pricing_changed) {
+                $coordinated = Digitalogic_Pricing_Coordinator::instance()->update_air_express_shipping(
+                    $candidate['price_per_kg'],
+                    $candidate['currency'],
+                    'legacy_shipping_service'
+                );
+                if (is_wp_error($coordinated)) {
+                    return $coordinated;
+                }
+
+                unset($changes['id'], $changes['price_per_kg'], $changes['currency']);
+                if (empty($changes)) {
+                    $current = $this->get_method($id);
+                    if (is_wp_error($current)) {
+                        return $current;
+                    }
+                    $current['changed'] = !empty($coordinated['settings_changed']);
+
+                    return $current;
+                }
+            }
         }
 
         return $this->with_catalog_lock(function() use ($id, $changes) {

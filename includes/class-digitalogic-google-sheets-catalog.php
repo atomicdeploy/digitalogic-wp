@@ -626,6 +626,12 @@ final class Digitalogic_Google_Sheets_Catalog {
 			'weight_grams'                   => 'weight_grams',
 			'foreign_price'                  => 'foreign_price',
 			'foreign_currency'               => 'foreign_currency',
+			'partner_price_irr'               => 'partner_price_source',
+			'price_source_amount'             => 'price_source_amount',
+			'price_source_currency'           => 'price_source_currency',
+			'price_source_kind'               => 'price_source_kind',
+			'price_rounding_digits'           => 'price_rounding_digits',
+			'price_rounding_mode'             => 'price_rounding_mode',
 			'shipping_method_id'             => 'shipping_method_id',
 			'shipping_price_per_kg'          => 'shipping_price_per_kg',
 			'shipping_price_per_kg_currency' => 'shipping_price_per_kg_currency',
@@ -637,7 +643,7 @@ final class Digitalogic_Google_Sheets_Catalog {
 				$value          = $source[ $field ];
 				$row[ $target ] = is_numeric( $value ) && ! in_array(
 					$target,
-					array( 'shipping_price_per_kg', 'shipping_price_per_kg_currency', 'foreign_currency', 'shipping_method_id', 'patris_location', 'updated_at', 'name' ),
+					array( 'shipping_price_per_kg', 'shipping_price_per_kg_currency', 'foreign_currency', 'price_source_currency', 'price_source_kind', 'price_rounding_mode', 'shipping_method_id', 'patris_location', 'updated_at', 'name' ),
 					true
 				)
 					? $this->number_or_text( $value )['value']

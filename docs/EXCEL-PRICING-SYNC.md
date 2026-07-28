@@ -45,7 +45,8 @@ The secret never enters the workbook, a cell, VBA, an audit row, or logs.
 - WooCommerce owns public product identity, publication state, URL, and the
   persisted storefront record.
 - The pricing coordinator owns USD/CNY rates, their effective dates, the one
-  shared profit margin, and the derived selling price.
+  shared profit margin, the shared final-price rounding policy, and the derived
+  selling price.
 - Excel and Google Sheets are synchronized view/edit interfaces, not competing
   authorities.
 - The `source` envelope identifies the exact component/dataset and revision for
@@ -117,6 +118,8 @@ The state data has this stable top-level shape:
     "profit_margin_percent": "30",
     "air_express_price_per_kg": "120",
     "air_express_currency": "CNY",
+    "price_rounding_digits": 2,
+    "price_rounding_mode": "nearest_half_up",
     "shipping_catalog_revision": "sha256:SHIPPING_CATALOG_REVISION"
   },
   "currency": {
@@ -141,6 +144,12 @@ The state data has this stable top-level shape:
     "currency": "CNY",
     "catalog_revision": "sha256:SHIPPING_CATALOG_REVISION"
   },
+  "price_rounding": {
+    "configured": true,
+    "rounding_digits": 2,
+    "rounding_mode": "nearest_half_up",
+    "revision": "sha256:PRICE_ROUNDING_REVISION"
+  },
   "default_markup": {
     "configured": true,
     "profit_percent": "30",
@@ -161,12 +170,14 @@ The state data has this stable top-level shape:
 
 ## Preview
 
-Preview requires the complete nine-field settings document shown below. Rates
+Preview requires the complete eleven-field settings document shown below. Rates
 are positive integer IRT values, dates are strict Gregorian `YYYY-MM-DD`,
 `effective_date` equals `cny_effective_date`, and
 `profit_margin_percent` is a base-10 percentage from 0 through 1000. The
 air-express price, currency, and shipping-catalog revision are submitted
-together.
+together. `price_rounding_digits` is an integer from 0 through 9 and
+`price_rounding_mode` is exactly `nearest_half_up`; rounding is applied once,
+after markup, to a quantum of `10^price_rounding_digits` IRT.
 
 The `Idempotency-Key` header must exactly equal body `idempotency_key`.
 `If-Match` must contain the quoted body revision, for example
@@ -193,6 +204,8 @@ The `Idempotency-Key` header must exactly equal body `idempotency_key`.
     "profit_margin_percent": "30",
     "air_express_price_per_kg": "120",
     "air_express_currency": "CNY",
+    "price_rounding_digits": 2,
+    "price_rounding_mode": "nearest_half_up",
     "shipping_catalog_revision": "sha256:SHIPPING_CATALOG_REVISION"
   },
   "product_changes": []
@@ -212,6 +225,11 @@ equivalent or the request fails. New responses and clients use only
 `profit_margin_percent`; the state-only `default_markup.profit_percent` output
 is explicitly marked deprecated and equals
 `profit_margin.profit_margin_percent`.
+
+For compatibility, a legacy client may omit both rounding fields and inherit
+the current site policy. Supplying only one of them is rejected. New clients
+must always submit both fields so preview and apply are bound to the same
+explicit rounding policy.
 
 ## Apply
 
@@ -240,6 +258,8 @@ string `APPLY`.
     "profit_margin_percent": "30",
     "air_express_price_per_kg": "120",
     "air_express_currency": "CNY",
+    "price_rounding_digits": 2,
+    "price_rounding_mode": "nearest_half_up",
     "shipping_catalog_revision": "sha256:SHIPPING_CATALOG_REVISION"
   },
   "product_changes": [],
@@ -251,8 +271,9 @@ string `APPLY`.
 Apply uses a site-scoped database advisory lock and one SQL transaction. It
 updates the direct and ACF-compatible currency options, legacy currency date,
 the compatibility storage record for the shared profit margin, version
-metadata, and a bounded nonsecret audit together. Every option is read back
-exactly before commit. A failed write/readback rolls the transaction back.
+metadata, the final-price rounding option, and a bounded nonsecret audit
+together. Every option is read back exactly before commit. A failed
+write/readback rolls the transaction back.
 
 Preview and apply response data use:
 

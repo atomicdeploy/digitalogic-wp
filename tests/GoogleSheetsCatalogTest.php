@@ -222,6 +222,12 @@ final class GoogleSheetsCatalogTest extends TestCase {
 					'name'                           => 'Source matched name',
 					'foreign_currency'               => 'CNY',
 					'foreign_price'                  => '120',
+					'partner_price_source'           => '500000',
+					'price_source_amount'            => '120',
+					'price_source_currency'          => 'CNY',
+					'price_source_kind'              => 'foreign_price',
+					'price_rounding_digits'          => 0,
+					'price_rounding_mode'            => 'nearest_half_up',
 					'weight_grams'                   => '350',
 					'total_stock'                    => '11',
 					'location'                       => 'Shenzhen',
@@ -344,6 +350,12 @@ final class GoogleSheetsCatalogTest extends TestCase {
 				'woocommerce_weight_unit',
 				'foreign_price',
 				'foreign_currency',
+				'partner_price_irr',
+				'price_source_amount',
+				'price_source_currency',
+				'price_source_kind',
+				'price_rounding_digits',
+				'price_rounding_mode',
 				'shipping_method_id',
 				'shipping_method_name_en',
 				'shipping_method_name_fa',
@@ -378,6 +390,12 @@ final class GoogleSheetsCatalogTest extends TestCase {
 		$this->assertSame( 'Shenzhen', $matched['patris_location'] );
 		$this->assertSame( 350, $matched['weight_grams'] );
 		$this->assertSame( 120, $matched['foreign_price'] );
+		$this->assertSame( 500000, $matched['partner_price_irr'] );
+		$this->assertSame( 120, $matched['price_source_amount'] );
+		$this->assertSame( 'CNY', $matched['price_source_currency'] );
+		$this->assertSame( 'foreign_price', $matched['price_source_kind'] );
+		$this->assertSame( 0, $matched['price_rounding_digits'] );
+		$this->assertSame( 'nearest_half_up', $matched['price_rounding_mode'] );
 		$this->assertSame( 11, $matched['patris_total_stock'] );
 		$this->assertSame( 5100000, $matched['patris_final_price'] );
 		$this->assertSame( 5000000, $matched['effective_price'] );
