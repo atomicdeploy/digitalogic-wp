@@ -1,13 +1,13 @@
 {
   "schema": "patris.product-sync",
   "event_type": "snapshot",
-  "event_id": "sha256:9dc582fb1fa27fca5ec27bd50c55833a7dace0ffecc550a3e12092a1ac50eaca",
+  "event_id": "sha256:712c5bc2f8ebbf41269fa05395cd436c5b230b10e9ace25f9cebae05086ea7be",
   "local_currency": "IRT",
   "formula_id": "landed_price",
   "source": {
     "id": "synthetic-fixture",
     "dataset": "synthetic-kala.db",
-    "revision": "sha256:d5a2f123bb8fdf56f9c985d4f7b5e97d07157d89f8e4c30924f64798b4ea744c"
+    "revision": "sha256:620cbae32451ffb1f67b87b99a326eba79fc33f8f4b25fc057e84178aacd9349"
   },
   "generated_at": "2026-01-02T03:04:05Z",
   "products": [
@@ -27,17 +27,22 @@
       "minimum_stock": 1,
       "foreign_currency": "CNY",
       "foreign_price": 24.5,
+      "price_source_amount": 24.5,
+      "price_source_currency": "CNY",
+      "price_source_kind": "foreign_price",
       "weight_grams": 240,
       "location": "TEST-A",
       "markup_percent": 30,
       "irt_per_cny": 29000,
+      "price_rounding_digits": 0,
+      "price_rounding_mode": "nearest_half_up",
       "pricing_catalog_revision": "synthetic-catalog-current",
       "pricing_catalog_status": "static",
       "currency_effective_date": "2026-01-01",
       "final_price": 2009410,
       "source_updated_at": "2026-01-01T00:00:00Z",
       "warnings": [],
-      "record_hash": "sha256:a5e0a0f5443a20b17fb33c5f0349c5022d46d2786925515ae8aa717281c67b35",
+      "record_hash": "sha256:a9cd3f15f28e696eb26a4d8ef576be572a2d377a2486c8ca065da4e5506ab37a",
       "shipping_method_id": "synthetic-air",
       "shipping_price_per_kg": 120,
       "shipping_price_per_kg_currency": "CNY"
@@ -62,6 +67,8 @@
       "location": "weight unavailable",
       "markup_percent": null,
       "irt_per_cny": 29000,
+      "price_rounding_digits": 0,
+      "price_rounding_mode": "nearest_half_up",
       "pricing_catalog_revision": "synthetic-catalog-current",
       "pricing_catalog_status": "static",
       "currency_effective_date": "2026-01-01",
@@ -75,7 +82,7 @@
         "shipping_price_per_kg_missing",
         "weight_missing"
       ],
-      "record_hash": "sha256:a6fa1f634200bbc625da1cea14f0811f8a6559477684d1d41d8e80d9e6dc769e",
+      "record_hash": "sha256:252b747d06f7be7d98b828d424b62aac75e57dab7c10e764117e8b5fc0a16eb4",
       "shipping_method_id": "",
       "shipping_price_per_kg": null,
       "shipping_price_per_kg_currency": null

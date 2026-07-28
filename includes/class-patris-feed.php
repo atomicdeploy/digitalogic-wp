@@ -404,7 +404,7 @@ class Digitalogic_Patris_Feed {
         $row = is_array($row) ? $row : array();
         $warehouse_stock = isset($row['warehouse_stock']) && is_array($row['warehouse_stock']) ? $row['warehouse_stock'] : array();
 
-        return array(
+        $product = array(
             'product_code' => $this->clean_string($row['product_code'] ?? $row['code'] ?? ''),
             'name' => $this->clean_string($row['name'] ?? ''),
             'serial' => $this->clean_string($row['serial'] ?? ''),
@@ -425,6 +425,31 @@ class Digitalogic_Patris_Feed {
             'flags' => isset($row['flags']) && is_array($row['flags']) ? array_values(array_map('sanitize_key', $row['flags'])) : array(),
             'raw' => $row,
         );
+
+        foreach (array('price_source_amount', 'price_rounding_digits') as $field) {
+            if (array_key_exists($field, $row)) {
+                if (null === $row[$field]) {
+                    $product[$field] = null;
+                    continue;
+                }
+                $value = $this->clean_number($row[$field]);
+                if (null !== $value) {
+                    $product[$field] = $value;
+                }
+            }
+        }
+        foreach (array('price_source_currency', 'price_source_kind', 'price_rounding_mode') as $field) {
+            if (array_key_exists($field, $row)) {
+                $product[$field] = null === $row[$field]
+                    ? null
+                    : $this->clean_string($row[$field]);
+            }
+        }
+        if (isset($product['price_source_currency'])) {
+            $product['price_source_currency'] = strtoupper($product['price_source_currency']);
+        }
+
+        return $product;
     }
 
     private function normalize_customers($customers) {
@@ -486,6 +511,9 @@ class Digitalogic_Patris_Feed {
             'minimum_stock' => array('_digitalogic_patris_minimum_stock', false),
             'foreign_currency' => array('_digitalogic_patris_foreign_currency', false),
             'foreign_price' => array('_digitalogic_patris_foreign_price', false),
+            'price_source_amount'            => array('_digitalogic_patris_price_source_amount', false),
+            'price_source_currency'          => array('_digitalogic_patris_price_source_currency', false),
+            'price_source_kind'              => array('_digitalogic_patris_price_source_kind', false),
             'weight_grams' => array('_digitalogic_patris_weight_grams', false),
             'location' => array('_digitalogic_patris_location', false),
             'shipping_method_id' => array('_digitalogic_patris_shipping_method_id', false),
@@ -493,6 +521,8 @@ class Digitalogic_Patris_Feed {
             'shipping_price_per_kg_currency' => array('_digitalogic_patris_shipping_price_per_kg_currency', false),
             'markup_percent' => array('_digitalogic_patris_markup_percent', false),
             'irt_per_cny' => array('_digitalogic_patris_irt_per_cny', false),
+            'price_rounding_digits'          => array('_digitalogic_patris_price_rounding_digits', false),
+            'price_rounding_mode'            => array('_digitalogic_patris_price_rounding_mode', false),
             'pricing_catalog_revision' => array('_digitalogic_patris_pricing_catalog_revision', false),
             'pricing_catalog_status' => array('_digitalogic_patris_pricing_catalog_status', false),
             'currency_effective_date' => array('_digitalogic_patris_currency_effective_date', false),

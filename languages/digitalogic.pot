@@ -2556,3 +2556,87 @@ msgstr ""
 #: includes/class-digitalogic-google-sheets-writeback.php
 msgid "Editable rows require an exact, unique Product Code."
 msgstr ""
+msgid "The price-rounding policy was saved. WooCommerce prices were not changed."
+msgstr ""
+
+msgid "Final-price rounding"
+msgstr ""
+
+msgid "Rounds the calculated IRT amount once to the nearest power of ten. For example, two digits rounds 123,456 to 123,500 using half-up behavior."
+msgstr ""
+
+msgid "Rounding digits"
+msgstr ""
+
+msgid "Save rounding"
+msgstr ""
+
+#. translators: 1: rounding mode, 2: minimum digits, 3: maximum digits.
+#, php-format
+msgid "Mode: %1$s. Allowed digits: %2$d–%3$d. Zero rounds to the nearest whole IRT."
+msgstr ""
+
+msgid "Partner price (IRR)"
+msgstr ""
+
+msgid "Selected price source"
+msgstr ""
+
+msgid "Rounding"
+msgstr ""
+
+msgid "CNY price is zero or non-positive"
+msgstr ""
+
+msgid "Missing partner price"
+msgstr ""
+
+msgid "Partner price is explicitly null"
+msgstr ""
+
+msgid "Partner price is zero or non-positive"
+msgstr ""
+
+msgid "No usable price source was selected"
+msgstr ""
+
+msgid "Selected price-source provenance is incomplete"
+msgstr ""
+
+msgid "Selected price-source provenance contains explicit null"
+msgstr ""
+
+msgid "Selected price-source provenance is invalid"
+msgstr ""
+
+msgid "Partner-price fallback selected"
+msgstr ""
+
+msgid "Missing price-rounding digits"
+msgstr ""
+
+msgid "Price-rounding digits are explicitly null"
+msgstr ""
+
+msgid "Missing price-rounding mode"
+msgstr ""
+
+msgid "Price-rounding mode is explicitly null"
+msgstr ""
+
+msgid "Price-rounding policy is invalid"
+msgstr ""
+
+msgid "Price-source provenance differs in WooCommerce"
+msgstr ""
+
+msgid "The price-rounding setting did not pass exact database readback."
+msgstr ""
+
+msgid "The stored price-rounding setting is invalid."
+msgstr ""
+
+#. translators: %d: maximum supported rounding digits.
+#, php-format
+msgid "Price-rounding digits must be a whole number from 0 through %d."
+msgstr ""

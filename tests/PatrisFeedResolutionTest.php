@@ -130,6 +130,72 @@ final class PatrisFeedResolutionTest extends TestCase {
         $this->assertSame('invalid-snapshot', $snapshot[$invalid_code]['raw']['source_marker']);
     }
 
+    public function test_selected_price_fields_preserve_missing_and_explicit_null_as_distinct_states(): void {
+        $GLOBALS['digitalogic_test_posts'] = array(
+            706 => array(
+                'post_type' => 'product',
+                'meta'      => array('_digitalogic_patris_product_code' => 'SPARSE-MISSING'),
+            ),
+            707 => array(
+                'post_type' => 'product',
+                'meta'      => array('_digitalogic_patris_product_code' => 'SPARSE-NULL'),
+            ),
+            708 => array(
+                'post_type' => 'product',
+                'meta'      => array('_digitalogic_patris_product_code' => 'SPARSE-INVALID'),
+            ),
+        );
+        $selected_fields                   = array(
+            'price_source_amount',
+            'price_source_currency',
+            'price_source_kind',
+            'price_rounding_digits',
+            'price_rounding_mode',
+        );
+        $explicit_null                     = array('product_code' => 'SPARSE-NULL');
+        foreach ($selected_fields as $field) {
+            $explicit_null[$field] = null;
+        }
+
+        $result = $this->feed->import_payload(
+            array(
+                'products' => array(
+                    array('product_code' => 'SPARSE-MISSING'),
+                    $explicit_null,
+                    array(
+                        'product_code'          => 'SPARSE-INVALID',
+                        'price_source_amount'   => 'not-a-number',
+                        'price_rounding_digits' => '',
+                    ),
+                ),
+            ),
+            'test'
+        );
+
+        $this->assertSame(3, $result['updated']);
+        $snapshot       = get_option('digitalogic_patris_feed_products');
+        $missing_fields = json_decode(
+            $GLOBALS['digitalogic_test_posts'][706]['meta']['_digitalogic_patris_missing_fields'],
+            true,
+            512,
+            JSON_THROW_ON_ERROR
+        );
+        $null_fields    = json_decode(
+            $GLOBALS['digitalogic_test_posts'][707]['meta']['_digitalogic_patris_null_fields'],
+            true,
+            512,
+            JSON_THROW_ON_ERROR
+        );
+        foreach ($selected_fields as $field) {
+            $this->assertArrayNotHasKey($field, $snapshot['SPARSE-MISSING']);
+            $this->assertContains($field, $missing_fields);
+            $this->assertArrayHasKey($field, $snapshot['SPARSE-NULL']);
+            $this->assertNull($snapshot['SPARSE-NULL'][$field]);
+            $this->assertContains($field, $null_fields);
+            $this->assertArrayNotHasKey($field, $snapshot['SPARSE-INVALID']);
+        }
+    }
+
     private function resetSingleton($class) {
         $property = new ReflectionProperty($class, 'instance');
         $property->setValue(null, null);

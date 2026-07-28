@@ -16,8 +16,6 @@ final class Digitalogic_Patris_Catalog_Materializer {
 
 	public const MANIFEST_SCHEMA = 'digitalogic.patris-catalog-enrichment';
 
-	public const MANIFEST_SCHEMA_VERSION = '1.0';
-
 	public const CATEGORY_CODE_META    = Digitalogic_Product_Category_Slugs::CATEGORY_CODE_META;
 	public const CATEGORY_KEY_META     = '_digitalogic_catalog_category_key';
 	public const CATEGORY_TERM_META    = '_digitalogic_patris_category_term_id';
@@ -108,7 +106,7 @@ final class Digitalogic_Patris_Catalog_Materializer {
 		}
 
 		$required = array( 'schema', 'source', 'products', 'categories' );
-		$allowed  = array_merge( $required, array( 'schema_version', 'source_revision' ) );
+		$allowed  = array_merge( $required, array( 'source_revision' ) );
 		$shape    = $this->validate_object_shape( $manifest, $required, $allowed, 'root' );
 		if ( is_wp_error( $shape ) ) {
 			return $shape;
@@ -116,10 +114,6 @@ final class Digitalogic_Patris_Catalog_Materializer {
 		if ( self::MANIFEST_SCHEMA !== $manifest['schema'] ) {
 			return $this->manifest_error( 'schema', 'must identify the living enrichment manifest' );
 		}
-		if ( array_key_exists( 'schema_version', $manifest ) && self::MANIFEST_SCHEMA_VERSION !== $manifest['schema_version'] ) {
-			return $this->manifest_error( 'schema_version', 'must identify the supported manifest contract version' );
-		}
-
 		if ( ! is_array( $manifest['source'] ) || array_is_list( $manifest['source'] ) ) {
 			return $this->manifest_error( 'source', 'must be an object' );
 		}
@@ -151,12 +145,9 @@ final class Digitalogic_Patris_Catalog_Materializer {
 			return $categories;
 		}
 
-		$normalized = array(
+		$normalized               = array(
 			'schema' => self::MANIFEST_SCHEMA,
 		);
-		if ( array_key_exists( 'schema_version', $manifest ) ) {
-			$normalized['schema_version'] = self::MANIFEST_SCHEMA_VERSION;
-		}
 		$normalized['source']     = $manifest['source'];
 		$normalized['products']   = $products;
 		$normalized['categories'] = $categories;
@@ -377,17 +368,24 @@ final class Digitalogic_Patris_Catalog_Materializer {
 					continue;
 				}
 
-				$assignment = Digitalogic_Shipping_Method_Service::instance()->assign_product_by_code(
+				$selected_price_currency = (string) ( $record['price_source_currency'] ?? '' );
+				$selected_price_kind     = (string) ( $record['price_source_kind'] ?? '' );
+				$requires_air_express    = 'CNY' === $selected_price_currency && 'foreign_price' === $selected_price_kind;
+				$assignment              = Digitalogic_Shipping_Method_Service::instance()->assign_product_by_code(
 					$code,
-					self::SHIPPING_METHOD
+					$requires_air_express ? self::SHIPPING_METHOD : ''
 				);
 				if ( is_wp_error( $assignment ) ) {
 					$this->append_detail( $result, $code, $assignment->get_error_code() );
 					++$result['failed'];
 					continue;
 				}
-				$product->update_meta_data( Digitalogic_Shipping_Method_Service::PRODUCT_METHOD_META, self::SHIPPING_METHOD );
-				++$result['air_express_assigned'];
+				if ( $requires_air_express ) {
+					$product->update_meta_data( Digitalogic_Shipping_Method_Service::PRODUCT_METHOD_META, self::SHIPPING_METHOD );
+					++$result['air_express_assigned'];
+				} else {
+					$product->delete_meta_data( Digitalogic_Shipping_Method_Service::PRODUCT_METHOD_META );
+				}
 
 				$gates = $this->publish_gates( $product, $record, $enrichment, $category_term );
 				if ( empty( $gates ) ) {
@@ -1731,27 +1729,18 @@ final class Digitalogic_Patris_Catalog_Materializer {
 		if ( $this->number( $record['total_stock'] ?? null ) <= 0 ) {
 			$gates[] = 'positive_stock';
 		}
-		if ( $this->number( $record['foreign_price'] ?? null ) <= 0 ) {
-			$gates[] = 'foreign_price';
+		$price_source_kind     = (string) ( $record['price_source_kind'] ?? '' );
+		$price_source_currency = (string) ( $record['price_source_currency'] ?? '' );
+		$price_source_amount   = $this->number( $record['price_source_amount'] ?? null );
+		$is_cny_source         = 'foreign_price' === $price_source_kind && 'CNY' === $price_source_currency;
+		$is_partner_source     = 'partner_price' === $price_source_kind && 'IRR' === $price_source_currency;
+		$final_price           = $this->number( $record['final_price'] ?? null );
+		$complete_partner_path = $is_partner_source && $price_source_amount > 0 && $final_price > 0;
+		if ( ( ! $is_cny_source && ! $is_partner_source ) || $price_source_amount <= 0 ) {
+			$gates[] = 'price_source';
 		}
-		if ( $this->number( $record['weight_grams'] ?? null ) <= 0 ) {
-			$gates[] = 'weight_grams';
-		}
-		if ( $this->number( $record['final_price'] ?? null ) <= 0 ) {
+		if ( $final_price <= 0 ) {
 			$gates[] = 'final_price';
-		}
-		if ( self::SHIPPING_METHOD !== (string) ( $record['shipping_method_id'] ?? '' ) ) {
-			$gates[] = 'patris_air_express';
-		}
-		if ( $this->number( $record['shipping_price_per_kg'] ?? null ) <= 0 ) {
-			$gates[] = 'shipping_price_per_kg';
-		}
-		if (
-			! isset( $record['shipping_price_per_kg_currency'] )
-			|| ! is_string( $record['shipping_price_per_kg_currency'] )
-			|| ! in_array( $record['shipping_price_per_kg_currency'], array( 'CNY', 'IRR' ), true )
-		) {
-			$gates[] = 'shipping_price_per_kg_currency';
 		}
 		if (
 			! array_key_exists( 'markup_percent', $record )
@@ -1761,8 +1750,40 @@ final class Digitalogic_Patris_Catalog_Materializer {
 		) {
 			$gates[] = 'markup_percent';
 		}
-		if ( $this->number( $record['irt_per_cny'] ?? null ) <= 0 ) {
-			$gates[] = 'irt_per_cny';
+		if (
+			! array_key_exists( 'price_rounding_digits', $record )
+			|| ! is_int( $record['price_rounding_digits'] )
+			|| $record['price_rounding_digits'] < 0
+			|| $record['price_rounding_digits'] > 9
+			|| 'nearest_half_up' !== ( $record['price_rounding_mode'] ?? null )
+		) {
+			$gates[] = 'price_rounding';
+		}
+		if ( $is_cny_source ) {
+			if ( $this->number( $record['foreign_price'] ?? null ) <= 0 ) {
+				$gates[] = 'foreign_price';
+			}
+			if ( $this->number( $record['weight_grams'] ?? null ) <= 0 ) {
+				$gates[] = 'weight_grams';
+			}
+			if ( self::SHIPPING_METHOD !== (string) ( $record['shipping_method_id'] ?? '' ) ) {
+				$gates[] = 'patris_air_express';
+			}
+			if ( $this->number( $record['shipping_price_per_kg'] ?? null ) <= 0 ) {
+				$gates[] = 'shipping_price_per_kg';
+			}
+			if (
+				! isset( $record['shipping_price_per_kg_currency'] )
+				|| ! is_string( $record['shipping_price_per_kg_currency'] )
+				|| ! in_array( $record['shipping_price_per_kg_currency'], array( 'CNY', 'IRR' ), true )
+			) {
+				$gates[] = 'shipping_price_per_kg_currency';
+			}
+			if ( $this->number( $record['irt_per_cny'] ?? null ) <= 0 ) {
+				$gates[] = 'irt_per_cny';
+			}
+		} elseif ( $is_partner_source && $this->number( $record['sale_price_source'] ?? null ) <= 0 ) {
+			$gates[] = 'partner_price';
 		}
 		if (
 			'' === trim( (string) ( $record['pricing_catalog_revision'] ?? '' ) )
@@ -1770,17 +1791,37 @@ final class Digitalogic_Patris_Catalog_Materializer {
 		) {
 			$gates[] = 'pricing_assignment';
 		}
-		if ( ! empty( $record['warnings'] ) ) {
+		$ignored_warnings  = $complete_partner_path
+			? array(
+				'partner_price_fallback_used',
+				'freight_not_applied_for_partner_price',
+				'foreign_price_missing',
+				'foreign_price_non_positive',
+				'weight_missing',
+				'weight_unparsed',
+				'weight_ambiguous',
+				'weight_source_conflict',
+			)
+			: array();
+		$blocking_warnings = array_values(
+			array_diff(
+				is_array( $record['warnings'] ?? null ) ? $record['warnings'] : array(),
+				$ignored_warnings
+			)
+		);
+		if ( $blocking_warnings ) {
 			$gates[] = 'patris_warnings';
 		}
 		if ( $category_term <= 0 ) {
 			$gates[] = 'category';
 		}
-		if ( (string) get_post_meta( $product->get_id(), Digitalogic_Shipping_Method_Service::PRODUCT_METHOD_META, true ) !== self::SHIPPING_METHOD ) {
-			$gates[] = 'woocommerce_air_express';
-		}
-		if ( $this->number( $product->get_weight() ) <= 0 ) {
-			$gates[] = 'woocommerce_weight';
+		if ( $is_cny_source ) {
+			if ( (string) get_post_meta( $product->get_id(), Digitalogic_Shipping_Method_Service::PRODUCT_METHOD_META, true ) !== self::SHIPPING_METHOD ) {
+				$gates[] = 'woocommerce_air_express';
+			}
+			if ( $this->number( $product->get_weight() ) <= 0 ) {
+				$gates[] = 'woocommerce_weight';
+			}
 		}
 		if ( $this->number( $product->get_stock_quantity() ) <= 0 ) {
 			$gates[] = 'woocommerce_stock';

@@ -656,6 +656,11 @@ class Digitalogic_CLI_Commands {
 					'Source stock'     => $this->current_patris_sparse_value( $source, 'total_stock' ),
 					'Woo stock'        => array_key_exists( 'stock_quantity', $woo ) ? ( null === $woo['stock_quantity'] ? 'null' : (string) $woo['stock_quantity'] ) : '[missing]',
 					'CNY price'        => $this->current_patris_sparse_value( $source, 'foreign_price' ),
+					'Partner IRR'      => $this->current_patris_sparse_value( $source, 'sale_price_source' ),
+					'Price source'     => $this->current_patris_sparse_value( $source, 'price_source_kind' ),
+					'Source currency'  => $this->current_patris_sparse_value( $source, 'price_source_currency' ),
+					'Source amount'    => $this->current_patris_sparse_value( $source, 'price_source_amount' ),
+					'Rounding digits'  => $this->current_patris_sparse_value( $source, 'price_rounding_digits' ),
 					'Weight (g)'       => $this->current_patris_sparse_value( $source, 'weight_grams' ),
 					'Findings'         => implode( ',', array_map( 'strval', (array) ( $row['issues'] ?? array() ) ) ),
 				);
@@ -663,7 +668,7 @@ class Digitalogic_CLI_Commands {
 			WP_CLI\Utils\format_items(
 				$format,
 				$items,
-				array( 'Code', 'State', 'Source price', 'Woo active price', 'Source stock', 'Woo stock', 'CNY price', 'Weight (g)', 'Findings' )
+				array( 'Code', 'State', 'Source price', 'Woo active price', 'Source stock', 'Woo stock', 'CNY price', 'Partner IRR', 'Price source', 'Source currency', 'Source amount', 'Rounding digits', 'Weight (g)', 'Findings' )
 			);
 			return;
 		}
