@@ -2835,15 +2835,28 @@ class Digitalogic_Product_Sync_Receiver {
      * @return array
      */
     private function drain_delivery_products(&$source_state, $include_pending, $include_deferred) {
-        return Digitalogic_Webhooks::instance()->without_product_change_webhooks(
-            function () use (&$source_state, $include_pending, $include_deferred) {
-                return $this->drain_delivery_products_without_product_change_webhooks(
-                    $source_state,
-                    $include_pending,
-                    $include_deferred
-                );
+        $suspend_cache_invalidation = $this->coordinated_transaction_depth > 0
+            && function_exists('wp_suspend_cache_invalidation');
+        $previous_cache_invalidation = false;
+        if ($suspend_cache_invalidation) {
+            $previous_cache_invalidation = wp_suspend_cache_invalidation(true);
+        }
+
+        try {
+            return Digitalogic_Webhooks::instance()->without_product_change_webhooks(
+                function () use (&$source_state, $include_pending, $include_deferred) {
+                    return $this->drain_delivery_products_without_product_change_webhooks(
+                        $source_state,
+                        $include_pending,
+                        $include_deferred
+                    );
+                }
+            );
+        } finally {
+            if ($suspend_cache_invalidation) {
+                wp_suspend_cache_invalidation($previous_cache_invalidation);
             }
-        );
+        }
     }
 
     /**

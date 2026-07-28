@@ -47,6 +47,8 @@ $GLOBALS['digitalogic_test_meta_update_failures'] = array();
 $GLOBALS['digitalogic_test_meta_delete_failures'] = array();
 $GLOBALS['digitalogic_test_transaction_failures'] = array();
 $GLOBALS['digitalogic_test_cache_deletes'] = array();
+$GLOBALS['digitalogic_test_cache_invalidation_suspended'] = false;
+$GLOBALS['digitalogic_test_cache_invalidation_history'] = array();
 $GLOBALS['digitalogic_test_remote_posts'] = array();
 $GLOBALS['digitalogic_test_remote_post_results'] = array();
 $GLOBALS['digitalogic_test_wc_products'] = array();
@@ -781,7 +783,19 @@ function wp_cache_delete($key, $group = '') {
     return true;
 }
 
+function wp_suspend_cache_invalidation($suspend = true) {
+    $current = (bool) $GLOBALS['digitalogic_test_cache_invalidation_suspended'];
+    $GLOBALS['digitalogic_test_cache_invalidation_suspended'] = (bool) $suspend;
+    $GLOBALS['digitalogic_test_cache_invalidation_history'][] = (bool) $suspend;
+
+    return $current;
+}
+
 function clean_post_cache($post_id) {
+    if ($GLOBALS['digitalogic_test_cache_invalidation_suspended']) {
+        return;
+    }
+
     return wp_cache_delete((int) $post_id, 'post_meta');
 }
 
