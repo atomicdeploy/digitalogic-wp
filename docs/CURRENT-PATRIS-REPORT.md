@@ -41,9 +41,13 @@ Each row's `source` object retains the stored canonical shape:
 - empty strings and arrays remain present;
 - the report never fills unavailable source fields with null placeholders.
 
-Warnings distinguish missing keys from explicit nulls for CNY price, currency,
-weight, stock, freight inputs, profit margin, exchange rate, calculated price,
-and `source_updated_at`. The report also identifies source-only and
+Warnings distinguish missing keys, explicit nulls, and explicit non-positive
+facts for CNY and partner prices. Each row exposes the atomic selected-price
+amount, currency, kind, rounding digits, and rounding mode. Weight, freight,
+and FX warnings apply only to the CNY landed-price path; a valid IRR partner
+fallback is not falsely reported as missing those unused inputs. The report
+also distinguishes missing/null rounding configuration and selected-source
+metadata drift. It identifies source-only and
 positive-stock source-only products, WooCommerce-only products, duplicate exact
 Codes, upstream warnings, stale source timestamps, nonpositive stock/prices,
 and active/regular/sale price, stock quantity, stock-management, availability,

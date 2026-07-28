@@ -803,6 +803,16 @@ class Digitalogic_Admin {
                     $notice_type = is_wp_error($result) ? 'error' : 'success';
                     break;
 
+				case 'update_price_rounding':
+					$result = $shipping_service->update_price_rounding_digits(
+						$posted_value( 'price_rounding_digits' )
+					);
+					$notice = is_wp_error( $result )
+						? $result->get_error_message()
+						: __( 'The price-rounding policy was saved. WooCommerce prices were not changed.', 'digitalogic' );
+					$notice_type = is_wp_error( $result ) ? 'error' : 'success';
+					break;
+
                 default:
 					$notice = __('Unknown shipping-method action.', 'digitalogic');
                     $notice_type = 'error';
@@ -856,6 +866,17 @@ class Digitalogic_Admin {
                 'bounds' => array('minimum' => '0', 'maximum' => '1000', 'maximum_fraction_digits' => 12),
             );
         }
+		$price_rounding = $shipping_service->get_price_rounding_policy();
+		if ( is_wp_error( $price_rounding ) ) {
+			$notice         = $price_rounding->get_error_message();
+			$notice_type    = 'error';
+			$price_rounding = array(
+				'configured'      => false,
+				'rounding_digits' => 0,
+				'rounding_mode'   => Digitalogic_Shipping_Method_Service::ROUNDING_MODE,
+				'bounds'          => array( 'minimum' => 0, 'maximum' => 9 ),
+			);
+		}
         $currency_status = Digitalogic_WooCommerce_Currency_Status::instance()->get_status();
 
         include DIGITALOGIC_PLUGIN_DIR . 'includes/admin/views/patris-reports.php';

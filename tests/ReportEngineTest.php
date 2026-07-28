@@ -213,6 +213,20 @@ final class ReportEngineTest extends TestCase {
 		$this->assertSame( 400, $report->get_error_data()['status'] );
 	}
 
+	public function test_explicit_null_rounding_digits_does_not_report_the_required_absent_mode_as_missing(): void {
+		$product                          = $this->source_product( 'NULL-ROUNDING' );
+		$product['price_rounding_digits'] = null;
+		unset( $product['price_rounding_mode'], $product['final_price'] );
+		$this->store_source( array( 'NULL-ROUNDING' => $product ) );
+
+		$report = $this->engine->get_report( array( 'view' => 'warnings' ) );
+
+		$this->assertNotInstanceOf( WP_Error::class, $report );
+		$this->assertCount( 1, $report['rows'] );
+		$this->assertContains( 'null_rounding_digits', $report['rows'][0]['issues'] );
+		$this->assertNotContains( 'missing_rounding_mode', $report['rows'][0]['issues'] );
+	}
+
 	private function report_cache_writes(): array {
 		return array_values(
 			array_filter(
@@ -267,6 +281,9 @@ final class ReportEngineTest extends TestCase {
 			'name'                           => 'Cache product ' . $code,
 			'foreign_currency'               => 'CNY',
 			'foreign_price'                  => '10',
+			'price_source_amount'            => '10',
+			'price_source_currency'          => 'CNY',
+			'price_source_kind'              => 'foreign_price',
 			'weight_grams'                   => '100',
 			'total_stock'                    => 5,
 			'shipping_method_id'             => 'air_express',
@@ -274,6 +291,8 @@ final class ReportEngineTest extends TestCase {
 			'shipping_price_per_kg_currency' => 'CNY',
 			'markup_percent'                 => '30',
 			'irt_per_cny'                    => '30000',
+			'price_rounding_digits'          => 0,
+			'price_rounding_mode'            => 'nearest_half_up',
 			'final_price'                    => 468000,
 			'source_updated_at'              => gmdate( 'c' ),
 			'warnings'                       => array(),

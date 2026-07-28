@@ -3,6 +3,10 @@
 Digitalogic keeps three commercial values separate:
 
 - **Canonical Patris final price** is stored in `_digitalogic_patris_final_price` and records the reviewed source calculation.
+- **Selected source provenance** stores the exact amount, `CNY` or `IRR`
+  currency, and `foreign_price` or `partner_price` kind used by that
+  calculation. CNY wins when usable; `sale_price_source`/`FOROSH` is the direct
+  IRR partner-price fallback.
 - **WooCommerce regular price** is the product or exact-code variation's normal storefront price.
 - **Effective storefront price** is selected by WooCommerce after promotion dates, product type, and variation pricing are evaluated.
 
@@ -31,3 +35,9 @@ The audit reports canonical, regular, sale, and effective values separately,
 along with the price source, active policy, and review status. The product panel
 uses the same explicit projection and exposes effective price, policy status,
 and promotion policy as read-only columns.
+
+The global rounding digit count is managed in **Digitalogic → Patris Reports**.
+It accepts 0–9 and rounds once, after markup, to the nearest
+`10 ^ digits` IRT using `nearest_half_up`. Changing the configuration alone
+does not rewrite WooCommerce prices; the next reviewed source calculation and
+sync carries the new value and its provenance.
