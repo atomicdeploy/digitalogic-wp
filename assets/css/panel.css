@@ -2204,6 +2204,61 @@ code {
     display: none;
 }
 
+.dlp-work-hub {
+    display: grid;
+    gap: 18px;
+}
+
+.dlp-work-hub-intro {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+    padding: 18px;
+}
+
+.dlp-work-hub-intro strong {
+    color: var(--dlp-heading);
+    font-size: 18px;
+}
+
+.dlp-work-hub-intro p,
+.dlp-work-hub-card p {
+    margin: 8px 0 0;
+    color: var(--dlp-text-soft);
+    line-height: 1.8;
+}
+
+.dlp-work-hub-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+}
+
+.dlp-work-hub-card {
+    display: grid;
+    align-content: start;
+    gap: 14px;
+    min-width: 0;
+}
+
+.dlp-work-hub-card p {
+    min-height: 3.6em;
+    margin: 0;
+}
+
+.dlp-work-hub-card-actions {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: auto;
+}
+
+.dlp-work-hub-card-actions .dlp-button {
+    min-height: 42px;
+}
+
 @media (max-width: 1080px) {
     .dlp-layout {
         grid-template-columns: 1fr;
@@ -2219,6 +2274,10 @@ code {
     }
 
     .dlp-report-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .dlp-work-hub-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
@@ -2274,8 +2333,14 @@ code {
 
     .dlp-grid,
     .dlp-field-grid,
-    .dlp-report-grid {
+    .dlp-report-grid,
+    .dlp-work-hub-grid {
         grid-template-columns: 1fr;
+    }
+
+    .dlp-work-hub-intro {
+        align-items: flex-start;
+        flex-direction: column;
     }
 
     .dlp-field-row {

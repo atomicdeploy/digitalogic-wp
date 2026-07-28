@@ -72,6 +72,7 @@ class Digitalogic_Webhooks {
         // Hook into currency updates
         add_action('update_option_dollar_price', array($this, 'currency_updated'), 10, 3);
         add_action('update_option_yuan_price', array($this, 'currency_updated'), 10, 3);
+        add_action('digitalogic_excel_pricing_settings_updated', array($this, 'coordinated_pricing_updated'), 10, 1);
         add_action('digitalogic_woocommerce_currency_changed', array($this, 'woocommerce_currency_changed'), 10, 3);
 
         // Committed transformed Patris outcomes are optional observer events.
@@ -373,6 +374,22 @@ class Digitalogic_Webhooks {
         $data = Digitalogic_Command_Dispatcher::instance()->get_currency();
         $data['changed_option'] = $option;
         
+        $this->trigger_webhook('currency.updated', $data);
+    }
+
+    /**
+     * Publish one post-commit event for an atomic pricing-settings change.
+     *
+     * @param array $result Coordinated settings result.
+     * @return void
+     */
+    public function coordinated_pricing_updated($result) {
+        $data = Digitalogic_Command_Dispatcher::instance()->get_currency();
+        $data['changed_option'] = 'coordinated_pricing_settings';
+        if (is_array($result) && isset($result['state_revision'])) {
+            $data['state_revision'] = (string) $result['state_revision'];
+        }
+
         $this->trigger_webhook('currency.updated', $data);
     }
 

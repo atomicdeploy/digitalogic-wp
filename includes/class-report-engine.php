@@ -14,10 +14,10 @@ if ( ! defined( 'ABSPATH' ) ) {
  */
 final class Digitalogic_Report_Engine {
 
-	private const MAX_SOURCE_PRODUCTS = 10000;
-	private const MAX_WOO_PRODUCTS    = 10000;
-	private const WOO_BATCH_SIZE      = 100;
-	private const MAX_PAGE_SIZE       = 100;
+	private const MAX_SOURCE_PRODUCTS  = 10000;
+	private const MAX_WOO_PRODUCTS     = 10000;
+	private const WOO_BATCH_SIZE       = 100;
+	private const MAX_PAGE_SIZE        = 100;
 	private const CACHE_GROUP          = 'digitalogic_reports';
 	private const CACHE_TTL            = 300;
 	private const CACHE_GENERATION_KEY = 'generation-v1';
@@ -35,8 +35,8 @@ final class Digitalogic_Report_Engine {
 	 *
 	 * @var string
 	 */
-	private $build_lock_token = '';
-	private $active_build_lock_key = '';
+	private $build_lock_token       = '';
+	private $active_build_lock_key  = '';
 	private $local_cache_generation = 'initial';
 
 	/** Register every source mutation that can make a report stale. */
@@ -127,6 +127,56 @@ final class Digitalogic_Report_Engine {
 	}
 
 	/**
+	 * Return one exact product from the same current source selection used by reports.
+	 *
+	 * This read-only helper lets mutation adapters prove that a uniquely resolved
+	 * Woo leaf is still a current matched row before accepting a write.
+	 *
+	 * @param string $product_code Exact Product Code, including leading zeros.
+	 * @return array|WP_Error
+	 */
+	public function get_current_source_product( $product_code ) {
+		if ( ! is_string( $product_code ) || '' === $product_code ) {
+			return new WP_Error(
+				'digitalogic_report_product_code_invalid',
+				__( 'An exact Product Code is required.', 'digitalogic' ),
+				array( 'status' => 400 )
+			);
+		}
+
+		$args      = $this->normalize_args( array( 'view' => 'price_list' ) );
+		$selection = $this->select_source_state( $args );
+		if ( ! in_array( $selection['status'], array( 'current', 'static' ), true ) ) {
+			return new WP_Error(
+				'digitalogic_report_source_unavailable',
+				__( 'The current source state is unavailable.', 'digitalogic' ),
+				array( 'status' => 409 )
+			);
+		}
+
+		$products = is_array( $selection['state']['products'] ?? null )
+			? $selection['state']['products']
+			: array();
+		$product  = $products[ $product_code ] ?? null;
+		if (
+			! is_array( $product )
+			|| ! is_string( $product['product_code'] ?? null )
+			|| $product_code !== $product['product_code']
+		) {
+			return new WP_Error(
+				'digitalogic_report_product_not_in_current_source',
+				__( 'The Product Code is not present in the current source state.', 'digitalogic' ),
+				array( 'status' => 409 )
+			);
+		}
+
+		return array(
+			'source'  => $selection['source'],
+			'product' => $product,
+		);
+	}
+
+	/**
 	 * Compare one already-validated static envelope without mutating receiver state.
 	 *
 	 * The receiver owns validation. This method only projects its canonical,
@@ -163,7 +213,7 @@ final class Digitalogic_Report_Engine {
 		}
 		ksort( $products, SORT_STRING );
 
-		$state = array(
+		$state  = array(
 			'source'          => $envelope['source'],
 			'generated_at'    => $envelope['generated_at'] ?? '',
 			'last_event_id'   => $envelope['event_id'] ?? '',
@@ -207,16 +257,29 @@ final class Digitalogic_Report_Engine {
 	 * @return array
 	 */
 	private function build_report( $args, $selection ) {
-		$state       = $selection['state'];
-		$source      = $selection['source'];
-		$products    = is_array( $state['products'] ?? null ) ? $state['products'] : array();
-		$truncated   = count( $products ) > self::MAX_SOURCE_PRODUCTS;
-		$products    = array_slice( $products, 0, self::MAX_SOURCE_PRODUCTS, true );
-		$settings    = Digitalogic_Patris_Feed::instance()->get_settings();
-		$stale_hours = max( 1, absint( $settings['stale_after_hours'] ?? 48 ) );
-		$woo_result  = $this->get_woocommerce_products();
-		$woo_rows    = $woo_result['products'];
-		$woo_by_code = array();
+		$state             = $selection['state'];
+		$source            = $selection['source'];
+		$products          = is_array( $state['products'] ?? null ) ? $state['products'] : array();
+		$truncated         = count( $products ) > self::MAX_SOURCE_PRODUCTS;
+		$products          = array_slice( $products, 0, self::MAX_SOURCE_PRODUCTS, true );
+		$settings          = Digitalogic_Patris_Feed::instance()->get_settings();
+		$stale_hours       = max( 1, absint( $settings['stale_after_hours'] ?? 48 ) );
+		$woo_result        = $this->get_woocommerce_products();
+		$woo_rows          = $woo_result['products'];
+		$snapshot_revision = 'sha256:' . hash(
+			'sha256',
+			wp_json_encode(
+				array(
+					'generation'  => $this->cache_generation(),
+					'source'      => $source,
+					'products'    => $products,
+					'woocommerce' => $woo_rows,
+					'integrity'   => $woo_result['integrity_warnings'],
+				),
+				JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+			)
+		);
+		$woo_by_code       = array();
 
 		foreach ( $woo_rows as $woo ) {
 			if ( ! isset( $woo['product_code'] ) || '' === $woo['product_code'] ) {
@@ -367,42 +430,48 @@ final class Digitalogic_Report_Engine {
 		}
 
 		$report = array(
-			'generated_at' => current_time( 'mysql' ),
-			'status'       => $selection['status'],
-			'brand'        => array(
+			'generated_at'      => current_time( 'mysql' ),
+			'snapshot_revision' => $snapshot_revision,
+			'status'            => $selection['status'],
+			'brand'             => array(
 				'en' => 'Digitalogic',
 				'fa' => 'دیجیتالاجیک',
 			),
-			'view'         => $args['view'],
-			'counts'       => array(
-				'woocommerce_products'      => count( $woo_rows ),
-				'patris_products'           => count( $products ),
-				'matched_products'          => $matched,
-				'source_only_products'      => $source_only,
+			'view'              => $args['view'],
+			'counts'            => array(
+				'woocommerce_products_raw'      => count( $woo_rows ) + $woo_result['variable_parents_excluded'],
+				'woocommerce_products'          => count( $woo_rows ),
+				'patris_products'               => count( $products ),
+				'matched_products'              => $matched,
+				'source_only_products'          => $source_only,
 				'positive_source_only_products' => $positive_only,
-				'woocommerce_only_products' => $woo_only,
-				'ambiguous_codes'           => $ambiguous,
-				'warning_products'          => $warning_products,
-				'drift_products'            => $drift_products,
-				'variable_parents_excluded' => $woo_result['variable_parents_excluded'],
+				'woocommerce_only_products'     => $woo_only,
+				'ambiguous_codes'               => $ambiguous,
+				'warning_products'              => $warning_products,
+				'drift_products'                => $drift_products,
+				'variable_parents_excluded'     => $woo_result['variable_parents_excluded'],
 			),
-			'pagination'   => array(
+			'pagination'        => array(
 				'page'     => $page,
 				'per_page' => $args['per_page'],
 				'total'    => $total,
 				'pages'    => $pages,
 			),
-			'limits'       => array(
+			'limits'            => array(
 				'max_source_products'      => self::MAX_SOURCE_PRODUCTS,
 				'max_woocommerce_products' => self::MAX_WOO_PRODUCTS,
 				'source_truncated'         => $truncated,
 				'woocommerce_truncated'    => $woo_result['truncated'],
 			),
-			'filters'      => array(
+			'filters'           => array(
 				'category' => $args['category'],
 			),
-			'rows'         => $page_rows,
-			'categories'   => array_values( $categories ),
+			'integrity'         => array(
+				'status'   => empty( $woo_result['integrity_warnings'] ) ? 'current' : 'warning',
+				'warnings' => $woo_result['integrity_warnings'],
+			),
+			'rows'              => $page_rows,
+			'categories'        => array_values( $categories ),
 		);
 
 		if ( ! empty( $source ) ) {
@@ -632,7 +701,7 @@ final class Digitalogic_Report_Engine {
 			'source_id' => (string) $args['source_id'],
 			'dataset'   => (string) $args['dataset'],
 		);
-		$json = function_exists( 'wp_json_encode' ) ? wp_json_encode( $shape ) : json_encode( $shape );
+		$json  = function_exists( 'wp_json_encode' ) ? wp_json_encode( $shape ) : json_encode( $shape );
 
 		return 'current-v3-' . md5( (string) $json );
 	}
@@ -798,11 +867,18 @@ final class Digitalogic_Report_Engine {
 	 * Variable parents are intentionally excluded: only purchasable leaf records
 	 * participate in Code matching and drift checks.
 	 *
-	 * @return array{products:array,variable_parents_excluded:int,truncated:bool}
+	 * Product objects can carry a stale WooCommerce product-type cache even
+	 * after their durable product_type taxonomy relationship is correct. The
+	 * projection therefore classifies parents from an uncached taxonomy
+	 * readback and reports every object/taxonomy disagreement as an integrity
+	 * warning. Consumers must not accept a catalog while such a warning exists.
+	 *
+	 * @return array{products:array,variable_parents_excluded:int,truncated:bool,integrity_warnings:array}
 	 */
 	private function get_woocommerce_products() {
 		$rows              = array();
 		$variable_excluded = 0;
+		$integrity_warnings = array();
 		$fetched           = 0;
 		$page              = 1;
 		$truncated         = false;
@@ -831,6 +907,15 @@ final class Digitalogic_Report_Engine {
 				break;
 			}
 			$batch_count = count( $batch );
+			$type_readback = $this->uncached_product_types( $batch );
+			if ( is_wp_error( $type_readback ) ) {
+				$integrity_warnings[] = array(
+					'code'     => 'projection_integrity_product_type_readback_failed',
+					'severity' => 'critical',
+					'message'  => $type_readback->get_error_message(),
+				);
+				$type_readback = array();
+			}
 
 			foreach ( $batch as $product ) {
 				++$fetched;
@@ -841,7 +926,27 @@ final class Digitalogic_Report_Engine {
 				if ( ! $product instanceof WC_Product ) {
 					continue;
 				}
-				if ( $product->is_type( 'variable' ) ) {
+				$product_id   = (int) $product->get_id();
+				$object_type  = (string) $product->get_type();
+				$durable_type = isset( $type_readback[ $product_id ] )
+					? (string) $type_readback[ $product_id ]['type']
+					: $object_type;
+				$type_issues  = isset( $type_readback[ $product_id ] )
+					? (array) $type_readback[ $product_id ]['issues']
+					: array();
+				foreach ( $type_issues as $type_issue ) {
+					$integrity_warnings[] = $type_issue;
+				}
+				if ( $durable_type !== $object_type ) {
+					$integrity_warnings[] = array(
+						'code'          => 'product_type_cache_drift',
+						'severity'      => 'critical',
+						'woocommerce_id' => $product_id,
+						'durable_type'  => $durable_type,
+						'object_type'   => $object_type,
+					);
+				}
+				if ( 'variable' === $durable_type ) {
 					++$variable_excluded;
 					continue;
 				}
@@ -860,7 +965,89 @@ final class Digitalogic_Report_Engine {
 			'products'                  => $rows,
 			'variable_parents_excluded' => $variable_excluded,
 			'truncated'                 => $truncated,
+			'integrity_warnings'        => array_values( $integrity_warnings ),
 		);
+	}
+
+	/**
+	 * Resolve durable product types without consulting relationship caches.
+	 *
+	 * @param WC_Product[] $products Current WooCommerce batch.
+	 * @return array|WP_Error Map keyed by product ID.
+	 */
+	private function uncached_product_types( $products ) {
+		$ids = array();
+		foreach ( (array) $products as $product ) {
+			if ( $product instanceof WC_Product && $product->get_id() > 0 ) {
+				$ids[] = (int) $product->get_id();
+			}
+		}
+		$ids = array_values( array_unique( $ids ) );
+		if ( empty( $ids ) ) {
+			return array();
+		}
+
+		$terms = wp_get_object_terms(
+			$ids,
+			'product_type',
+			array(
+				'fields'  => 'all_with_object_id',
+				'orderby' => 'none',
+			)
+		);
+		if ( is_wp_error( $terms ) ) {
+			return $terms;
+		}
+
+		$term_types = array();
+		foreach ( (array) $terms as $term ) {
+			if ( ! is_object( $term ) || ! isset( $term->object_id ) ) {
+				continue;
+			}
+			$product_id = (int) $term->object_id;
+			$type       = sanitize_title( (string) ( $term->slug ?? $term->name ?? '' ) );
+			if ( $product_id > 0 && '' !== $type ) {
+				$term_types[ $product_id ][ $type ] = true;
+			}
+		}
+
+		$result = array();
+		foreach ( $ids as $product_id ) {
+			$post_type = (string) get_post_type( $product_id );
+			$issues    = array();
+			if ( 'product_variation' === $post_type ) {
+				$durable_type = 'variation';
+			} elseif ( 'product' === $post_type ) {
+				$types = array_keys( $term_types[ $product_id ] ?? array() );
+				sort( $types, SORT_STRING );
+				if ( count( $types ) > 1 ) {
+					$issues[] = array(
+						'code'           => 'projection_integrity_product_type_taxonomy_ambiguous',
+						'severity'       => 'critical',
+						'woocommerce_id' => $product_id,
+						'durable_types'  => $types,
+					);
+				}
+				$durable_type = in_array( 'variable', $types, true )
+					? 'variable'
+					: ( empty( $types ) ? 'simple' : reset( $types ) );
+			} else {
+				$durable_type = '';
+				$issues[]     = array(
+					'code'           => 'projection_integrity_product_post_type_invalid',
+					'severity'       => 'critical',
+					'woocommerce_id' => $product_id,
+					'post_type'      => $post_type,
+				);
+			}
+
+			$result[ $product_id ] = array(
+				'type'   => $durable_type,
+				'issues' => $issues,
+			);
+		}
+
+		return $result;
 	}
 
 	/** Release per-batch WordPress runtime objects when the cache supports it. */
@@ -1338,21 +1525,20 @@ final class Digitalogic_Report_Engine {
 	private function append_drift_issues( &$row, $source, $woo ) {
 		$canonical = is_array( $woo['canonical'] ?? null ) ? $woo['canonical'] : array();
 
-		if ( array_key_exists( 'final_price', $source ) && null !== $source['final_price'] ) {
-			$stock_unavailable  = array_key_exists( 'total_stock', $source )
-				&& null !== $source['total_stock']
-				&& is_numeric( $source['total_stock'] )
-				&& $this->decimal_compare_zero( $source['total_stock'] ) <= 0;
-			$expected_woo_price = $this->decimal_compare_zero( $source['final_price'] ) <= 0 || $stock_unavailable
-				? '0'
-				: $source['final_price'];
-			$price_fields = array();
+		if (
+			array_key_exists( 'final_price', $source )
+			&& null !== $source['final_price']
+			&& is_numeric( $source['final_price'] )
+			&& $this->decimal_compare_zero( $source['final_price'] ) > 0
+		) {
+			$expected_woo_price = $source['final_price'];
+			$price_fields       = array();
 			foreach ( array( 'regular_price', 'active_price' ) as $field ) {
 				if ( ! $this->values_equal( $expected_woo_price, $woo[ $field ] ) ) {
 					$price_fields[] = $field;
 				}
 			}
-			if ( '' !== $woo['sale_price'] && ! $this->values_equal( $expected_woo_price, $woo['sale_price'] ) ) {
+			if ( '' !== trim( (string) $woo['sale_price'] ) ) {
 				$price_fields[] = 'sale_price';
 			}
 			if ( ! array_key_exists( 'final_price', $canonical ) || ! $this->values_equal( $source['final_price'], $canonical['final_price'] ) ) {
@@ -1467,7 +1653,7 @@ final class Digitalogic_Report_Engine {
 	 */
 	private function category_definitions() {
 		return array(
-			'missing_in_woocommerce'      => array( __( 'In source but missing in WooCommerce', 'digitalogic' ), 'danger' ),
+			'missing_in_woocommerce'                => array( __( 'In source but missing in WooCommerce', 'digitalogic' ), 'danger' ),
 			'positive_stock_missing_in_woocommerce' => array( __( 'Positive-stock product missing in WooCommerce', 'digitalogic' ), 'danger' ),
 			'missing_in_patris'           => array( __( 'In WooCommerce but missing in source', 'digitalogic' ), 'warning' ),
 			'missing_product_code'        => array( __( 'Missing exact product Code metadata', 'digitalogic' ), 'danger' ),

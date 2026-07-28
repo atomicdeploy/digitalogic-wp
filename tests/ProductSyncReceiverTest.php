@@ -98,6 +98,102 @@ final class ProductSyncReceiverTest extends TestCase {
         $this->assertNull($state['categories']['ROOT']['name']);
     }
 
+	/** Same-hash snapshots repair canonical metadata without inventing an unpriced canonical value. */
+	public function test_same_hash_snapshot_repairs_priced_canonical_meta_without_erasing_unpriced_fallback(): void {
+		$GLOBALS['digitalogic_test_posts'][711] = array(
+			'post_type'   => 'product',
+			'post_status' => 'publish',
+			'meta'        => array(
+				'_digitalogic_patris_product_code' => '101002006',
+				'_digitalogic_shipping_method_id'  => 'domestic',
+				'_regular_price'                   => '1',
+				'_sale_price'                      => '',
+				'_price'                           => '1',
+			),
+		);
+		$GLOBALS['digitalogic_test_posts'][712] = array(
+			'post_type'   => 'product',
+			'post_status' => 'publish',
+			'meta'        => array(
+				'_digitalogic_patris_product_code' => 'UNPRICED-712',
+				'_regular_price'                   => '777',
+				'_sale_price'                      => '',
+				'_price'                           => '777',
+			),
+		);
+
+		$priced                  = array(
+			'product_code'                   => '101002006',
+			'partner_price_source'           => 949661,
+			'price_source_amount'            => 949661,
+			'price_source_currency'          => 'IRR',
+			'price_source_kind'              => 'partner_price',
+			'shipping_method_id'             => 'domestic',
+			'shipping_price_per_kg'          => 0,
+			'shipping_price_per_kg_currency' => 'IRR',
+			'markup_percent'                 => 30,
+			'price_rounding_digits'          => 2,
+			'price_rounding_mode'            => 'nearest_half_up',
+			'final_price'                    => 123500,
+			'warnings'                       => array(),
+		);
+		$priced['record_hash']   = $this->recordHash( $priced, true );
+		$unpriced                = array(
+			'product_code'          => 'UNPRICED-712',
+			'price_rounding_digits' => 2,
+			'price_rounding_mode'   => 'nearest_half_up',
+			'warnings'              => array( 'missing_weight' ),
+		);
+		$unpriced['record_hash'] = $this->recordHash( $unpriced, true );
+		$products                = array( $priced, $unpriced );
+
+		$first = Digitalogic_Product_Sync_Receiver::instance()->receive(
+			$this->snapshot( $products, array(), true )
+		);
+		$this->assertNotInstanceOf( WP_Error::class, $first );
+		$this->assertSame( '123500', (string) get_post_meta( 711, '_digitalogic_patris_final_price', true ) );
+		$this->assertSame( 'canonical_missing_preserved', get_post_meta( 712, '_digitalogic_patris_price_status', true ) );
+
+		unset(
+			$GLOBALS['digitalogic_test_posts'][711]['meta']['_digitalogic_patris_final_price'],
+			$GLOBALS['digitalogic_test_posts'][711]['meta']['_digitalogic_patris_price_source_amount'],
+			$GLOBALS['digitalogic_test_wc_products'][711]->meta['_digitalogic_patris_final_price'],
+			$GLOBALS['digitalogic_test_wc_products'][711]->meta['_digitalogic_patris_price_source_amount']
+		);
+
+		$second = Digitalogic_Product_Sync_Receiver::instance()->receive(
+			$this->snapshot( $products, array(), true, '2026-07-20T00:01:00Z' )
+		);
+
+		$this->assertNotInstanceOf( WP_Error::class, $second );
+		$this->assertSame( 1, $second['woocommerce']['updated'] );
+		$this->assertSame( '123500', (string) get_post_meta( 711, '_digitalogic_patris_final_price', true ) );
+		$this->assertSame( '949661', (string) get_post_meta( 711, '_digitalogic_patris_price_source_amount', true ) );
+		$this->assertSame( '123500', wc_get_product( 711 )->get_regular_price() );
+		$this->assertSame( '123500', wc_get_product( 711 )->get_price() );
+		$this->assertSame( '', wc_get_product( 711 )->get_sale_price() );
+		$this->assertFalse( metadata_exists( 'post', 712, '_digitalogic_patris_final_price' ) );
+		$this->assertSame( '777', wc_get_product( 712 )->get_regular_price() );
+		$this->assertSame( '777', wc_get_product( 712 )->get_price() );
+		$this->assertSame( '', wc_get_product( 712 )->get_sale_price() );
+		$this->assertSame( 'canonical_missing_preserved', get_post_meta( 712, '_digitalogic_patris_price_status', true ) );
+
+		unset(
+			$GLOBALS['digitalogic_test_posts'][711]['meta']['_digitalogic_patris_final_price'],
+			$GLOBALS['digitalogic_test_posts'][711]['meta']['_digitalogic_patris_price_source_amount'],
+			$GLOBALS['digitalogic_test_wc_products'][711]->meta['_digitalogic_patris_final_price'],
+			$GLOBALS['digitalogic_test_wc_products'][711]->meta['_digitalogic_patris_price_source_amount']
+		);
+		$replay = Digitalogic_Product_Sync_Receiver::instance()->receive(
+			$this->snapshot( $products, array(), true, '2026-07-20T00:01:00Z' )
+		);
+
+		$this->assertNotInstanceOf( WP_Error::class, $replay );
+		$this->assertSame( 'recovered', $replay['status'] );
+		$this->assertSame( 1, $replay['woocommerce']['updated'] );
+		$this->assertSame( '123500', (string) get_post_meta( 711, '_digitalogic_patris_final_price', true ) );
+	}
+
     public function test_rejects_removed_contract_fields_and_null_final_price(): void {
         $payload                   = $this->snapshot();
         $payload['obsolete_field'] = 'anything';
@@ -577,7 +673,21 @@ final class ProductSyncReceiverTest extends TestCase {
         $this->assertSame('digitalogic_product_sync_field_invalid', $result->get_error_code());
     }
 
-    private function snapshot($products = array(), $categories = array(), $pricing = false): array {
+	/**
+	 * Build a deterministic source snapshot.
+	 *
+	 * @param array  $products     Product records.
+	 * @param array  $categories   Category records.
+	 * @param bool   $pricing      Whether pricing context is active.
+	 * @param string $generated_at Event generation timestamp.
+	 * @return array
+	 */
+	private function snapshot(
+		$products = array(),
+		$categories = array(),
+		$pricing = false,
+		$generated_at = '2026-07-20T00:00:00Z'
+	): array {
         $material = array();
         foreach ($products as $product) {
             $material[] = $product['product_code'] . '=' . $product['record_hash'];
@@ -600,7 +710,7 @@ final class ProductSyncReceiverTest extends TestCase {
             $identity['formula_id']     = 'landed_price';
         }
         $identity['source']            = $source;
-        $identity['generated_at']      = '2026-07-20T00:00:00Z';
+        $identity['generated_at']      = $generated_at;
         $identity['products']          = array_map(static fn($product) => $product['product_code'] . '=' . $product['record_hash'], $products);
         $identity['categories']        = array_map(static fn($category) => $category['category_code'] . '=' . $category['record_hash'], $categories);
         $identity['excluded_codes']    = array();
@@ -613,7 +723,7 @@ final class ProductSyncReceiverTest extends TestCase {
             'event_type'        => 'snapshot',
             'event_id'          => 'sha256:' . hash('sha256', json_encode($identity, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)),
             'source'            => $source,
-            'generated_at'      => '2026-07-20T00:00:00Z',
+            'generated_at'      => $generated_at,
             'products'          => $products,
             'categories'        => $categories,
             'excluded_codes'    => array(),

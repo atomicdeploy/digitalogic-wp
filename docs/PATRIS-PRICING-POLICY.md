@@ -1,8 +1,11 @@
-# Patris storefront pricing policy
+# Managed storefront pricing policy
 
-Digitalogic keeps three commercial values separate:
+Digitalogic has one customer-visible selling price for every managed simple
+product or exact-code variation:
 
-- **Canonical Patris final price** is stored in `_digitalogic_patris_final_price` and records the reviewed source calculation.
+- **Canonical Patris final price** is stored in
+  `_digitalogic_patris_final_price` and records the coordinator's reviewed
+  source calculation.
 - **Selected source provenance** stores the exact amount, `CNY` or `IRR`
   currency, and `foreign_price`, `partner_price`, or `sale_price_direct` kind
   used by that calculation. A complete CNY freight route wins. The distinct
@@ -10,25 +13,26 @@ Digitalogic keeps three commercial values separate:
   `sale_price_direct` fallback reads `sale_price_source`/`FOROSH` unchanged
   except for IRR-to-IRT unit conversion; its producer configuration
   `use_sale_price_direct_fallback` is disabled by default.
-- **WooCommerce regular price** is the product or exact-code variation's normal storefront price.
-- **Effective storefront price** is selected by WooCommerce after promotion dates, product type, and variation pricing are evaluated.
+- WooCommerce `_regular_price` equals that canonical result.
+- WooCommerce `_price` equals `_regular_price`.
+- WooCommerce `_sale_price` is empty.
+- Therefore the effective storefront price is always the same canonical price
+  for each managed simple product or exact-code variation.
 
-The safe default is `preserve_sale`. A Patris sync may update the regular price,
-but it does not clear or override an existing promotion and never writes a
-misleading variable-parent `_price`. A variation is priced only when it is the
-exact resolved Patris Code target.
-
-`replace_sale` is an explicit administrator policy for removing existing sale
-prices as canonical Patris prices are applied. Read or change the policy with:
+The fixed policy identifier is `canonical_sale`. The historical
+`preserve_sale` and `replace_sale` settings are ignored and cannot change this
+invariant. The CLI command is read-only:
 
 ```text
 wp digitalogic pricing policy
-wp digitalogic pricing policy --set=replace_sale --user=<administrator>
-wp digitalogic pricing policy --set=preserve_sale --user=<administrator>
 ```
 
-Changing the policy does not rewrite existing products. Inspect a bounded page
-without mutation before any reviewed reconciliation:
+Passing `--set` fails without changing state. Variable parents remain
+fail-closed: their storefront price is derived by WooCommerce from exact
+variations, and the coordinator never copies a parent lookup price into a
+canonical product row.
+
+Inspect a bounded page without mutation:
 
 ```text
 wp digitalogic pricing audit --limit=100 --page=1 --format=table
@@ -38,6 +42,11 @@ The audit reports canonical, regular, sale, and effective values separately,
 along with the price source, active policy, and review status. The product panel
 uses the same explicit projection and exposes effective price, policy status,
 and promotion policy as read-only columns.
+
+A managed simple product or variation matches only when canonical, regular,
+and effective values are equal and the sale field is empty. Missing or invalid
+formula inputs clear all three WooCommerce price fields so an old customer
+price cannot survive.
 
 The global rounding digit count is managed in **Digitalogic → Patris Reports**.
 It accepts 0–9 and rounds once, after markup, to the nearest

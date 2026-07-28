@@ -43,6 +43,37 @@ final class RestApiPermissionsTest extends TestCase {
         $this->assertSame(0, $GLOBALS['digitalogic_test_current_user_can_calls']);
     }
 
+    public function test_google_pricing_settings_write_requires_optimistic_revision() {
+        $result = $this->api->update_google_sheets_pricing_settings(
+            new WP_REST_Request(
+                array(),
+                array(
+                    'settings' => array(
+                        'dollar_price' => '170000',
+                        'yuan_price' => '29500',
+                        'effective_date' => '2026-07-27',
+                        'profit_margin_percent' => '30',
+                    ),
+                )
+            )
+        );
+
+        $this->assertTrue(is_wp_error($result));
+        $this->assertSame('digitalogic_pricing_expected_revision_required', $result->get_error_code());
+
+        $null_revision = $this->api->update_google_sheets_pricing_settings(
+            new WP_REST_Request(
+                array(),
+                array(
+                    'expected_state_revision' => null,
+                    'settings' => array(),
+                )
+            )
+        );
+        $this->assertTrue(is_wp_error($null_revision));
+        $this->assertSame('digitalogic_pricing_expected_revision_required', $null_revision->get_error_code());
+    }
+
     #[DataProvider('rolePolicyProvider')]
     public function test_role_capability_policy($role, $capabilities, $expected) {
         $GLOBALS['digitalogic_test_capabilities'] = $capabilities;
@@ -269,16 +300,23 @@ final class RestApiPermissionsTest extends TestCase {
             'POST /pricing/recalculate' => 'check_write_permission',
             'GET /export' => 'check_diagnostic_permission',
 			'GET /google-sheets/catalog' => 'check_read_permission',
+			'GET /google-sheets/pricing-settings' => 'check_read_permission',
+			'POST /google-sheets/pricing-settings' => 'check_write_permission',
 			'POST /google-sheets/writeback/preview' => 'check_write_permission',
 			'POST /google-sheets/writeback/apply' => 'check_write_permission',
             'GET /reports' => 'check_diagnostic_permission',
             'POST /patris/product-sync' => 'check_patris_product_sync_permission',
+			'POST /pricing/sync/state' => 'check_pricing_sync_permission',
 			'POST /excel/pricing-sync/state' => 'check_excel_pricing_sync_permission',
+			'POST /pricing/sync/preview' => 'check_pricing_sync_permission',
 			'POST /excel/pricing-sync/preview' => 'check_excel_pricing_sync_permission',
+			'POST /pricing/sync/apply' => 'check_pricing_sync_permission',
 			'POST /excel/pricing-sync/apply' => 'check_excel_pricing_sync_permission',
             'GET /integration/catalog' => 'check_pricing_input_permission',
             'GET /pricing/default-markup' => 'check_read_permission',
             'PUT /pricing/default-markup' => 'check_write_permission',
+            'GET /pricing/profit-margin' => 'check_read_permission',
+            'PUT /pricing/profit-margin' => 'check_write_permission',
 			'GET /shipping-methods' => 'check_read_permission',
 			'POST /shipping-methods' => 'check_write_permission',
 			'GET /shipping-methods/(?P<id>[a-z][a-z0-9_]{1,63})' => 'check_read_permission',

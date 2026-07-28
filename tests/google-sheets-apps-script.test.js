@@ -80,6 +80,143 @@ test('catalog pages are validated by their living response structure', () => {
   );
 });
 
+test('canonical pricing settings require the complete composite contract', () => {
+  const validate = sandbox.module.exports.validatePricingSettingsState_;
+  const state = {
+    schema: 'digitalogic.pricing-sync-state/v1',
+    state_revision: `sha256:${'a'.repeat(64)}`,
+    settings: {
+      dollar_price: '187891',
+      yuan_price: '29500',
+      effective_date: '2026-07-27',
+      usd_effective_date: '2026-07-26',
+      cny_effective_date: '2026-07-27',
+      profit_margin_percent: '30',
+      air_express_price_per_kg: '120',
+      air_express_currency: 'CNY',
+      shipping_catalog_revision: `sha256:${'c'.repeat(64)}`,
+      price_rounding_digits: 2,
+      price_rounding_mode: 'nearest_half_up',
+    },
+    freshness: {
+      effective_date: '2026-07-27',
+      age_days: 0,
+      stale: false,
+      stale_after: 7,
+    },
+  };
+
+  assert.equal(validate(state), state);
+  const zeroProfit = { ...state, settings: { ...state.settings, profit_margin_percent: 0 } };
+  assert.equal(validate(zeroProfit), zeroProfit);
+  const zeroRounding = { ...state, settings: { ...state.settings, price_rounding_digits: 0 } };
+  assert.equal(validate(zeroRounding), zeroRounding);
+  assert.throws(
+    () => validate({ ...state, settings: { ...state.settings, yuan_price: '' } }),
+    /Malformed Digitalogic pricing settings response/
+  );
+  assert.throws(
+    () => validate({ ...state, state_revision: 'stale-local-copy' }),
+    /Malformed Digitalogic pricing settings response/
+  );
+  assert.throws(
+    () => validate({ ...state, settings: { ...state.settings, price_rounding_digits: 10 } }),
+    /Malformed Digitalogic pricing settings response/
+  );
+  assert.throws(
+    () => validate({ ...state, settings: { ...state.settings, price_rounding_mode: 'bankers' } }),
+    /Malformed Digitalogic pricing settings response/
+  );
+});
+
+test('reconciled catalog pages require one immutable dataset revision, schema, total, and unique union', () => {
+  const validatePage = sandbox.module.exports.validateCatalogSnapshotPage_;
+  const validateComplete = sandbox.module.exports.validateCompleteCatalogSnapshot_;
+  const revision = `sha256:${'d'.repeat(64)}`;
+  const first = {
+    dataset_revision: revision,
+    columns: [{ key: 'sync_key' }, { key: 'reconciliation_status' }],
+    pagination: { page: 1, total: 2 },
+  };
+  const expected = validatePage(first, 'reconciled_products', 1, null);
+  assert.equal(validatePage({
+    ...first,
+    pagination: { page: 2, total: 2 },
+  }, 'reconciled_products', 2, expected), expected);
+  assert.equal(validateComplete([
+    { sync_key: 'woo:1' },
+    { sync_key: 'patris:0002' },
+  ], expected, 'reconciled_products'), true);
+
+  assert.throws(
+    () => validatePage({ ...first, dataset_revision: `sha256:${'e'.repeat(64)}`, pagination: { page: 2, total: 2 } }, 'reconciled_products', 2, expected),
+    /changed while pages were being fetched/
+  );
+  assert.throws(
+    () => validatePage({ ...first, columns: [{ key: 'sync_key' }], pagination: { page: 2, total: 2 } }, 'reconciled_products', 2, expected),
+    /changed while pages were being fetched/
+  );
+  assert.throws(
+    () => validateComplete([{ sync_key: 'woo:1' }, { sync_key: 'woo:1' }], expected, 'reconciled_products'),
+    /missing or duplicate sync_key/
+  );
+});
+
+test('Settings edits build one optimistic full-state request without float price math', () => {
+  const values = {
+    B7: '29,500',
+    B8: '120',
+    B9: 'CNY',
+    B10: '30',
+    B15: '187,891',
+    B16: '2026-07-26',
+    B17: '2026-07-27',
+    B18: `sha256:${'b'.repeat(64)}`,
+    B19: `sha256:${'c'.repeat(64)}`,
+    B21: '2',
+    B22: 'nearest_half_up',
+  };
+  const sheet = {
+    getRange(cell) {
+      return {
+        getDisplayValue() { return values[cell] || ''; },
+      };
+    },
+  };
+
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(sandbox.module.exports.buildPricingSettingsRequest_(sheet))),
+    {
+      expected_state_revision: `sha256:${'b'.repeat(64)}`,
+      settings: {
+        dollar_price: '187891',
+        yuan_price: '29500',
+        effective_date: '2026-07-27',
+        usd_effective_date: '2026-07-26',
+        cny_effective_date: '2026-07-27',
+        profit_margin_percent: '30',
+        air_express_price_per_kg: '120',
+        air_express_currency: 'CNY',
+        shipping_catalog_revision: `sha256:${'c'.repeat(64)}`,
+        price_rounding_digits: 2,
+        price_rounding_mode: 'nearest_half_up',
+      },
+    }
+  );
+
+  values.B21 = '10';
+  assert.throws(
+    () => sandbox.module.exports.buildPricingSettingsRequest_(sheet),
+    /Price rounding digits must be a whole number from 0 through 9/
+  );
+  values.B21 = '2';
+  values.B22 = 'bankers';
+  assert.throws(
+    () => sandbox.module.exports.buildPricingSettingsRequest_(sheet),
+    /Price rounding mode must be nearest_half_up/
+  );
+});
+
 test('sparse rows render missing and explicit null as blank without changing real values', () => {
   const render = sandbox.module.exports.rowToSheetValues_;
   const keys = ['sync_key', 'missing', 'explicit_null', 'zero', 'disabled'];
@@ -112,14 +249,11 @@ test('Apps Script renders customer-facing Product Code labels without source bra
 });
 
 test('Dashboard warnings use sync status and cannot be changed by shipping metadata', () => {
-  const catalogHealth = professionalDashboardSource.match(
-    /sheet\.getRange\('A11:B16'\)\.setValues\(\[[\s\S]*?sheet\.getRange\('B12:B16'\)\.setFormulas\(\[[\s\S]*?\.setNumberFormat\('#,##0'\);/
-  );
-
-  assert.ok(catalogHealth, 'catalog health values and formulas must remain one bounded dashboard block');
-  assert.match(catalogHealth[0], /\['Warnings \| هشدارها', ''\]/);
-  assert.match(catalogHealth[0], /\['=COUNTIF\(Products!\$AU\$3:\$AU,"warning"\)'\]/);
-  assert.doesNotMatch(catalogHealth[0], /Products!\$AL\$3:\$AL/);
+  assert.match(professionalDashboardSource, /digitalogicProductsColumn_\('sync_status'\)/);
+  assert.match(professionalDashboardSource, /digitalogicProductsColumn_\('effective_price'\)/);
+  assert.match(professionalDashboardSource, /digitalogicProductsColumn_\('publication_status'\)/);
+  assert.match(professionalDashboardSource, /MATCH\("' \+ key \+ '",Products!\$1:\$1,0\)/);
+  assert.doesNotMatch(professionalDashboardSource, /Products!\$[A-Z]+\$3:\$[A-Z]+/);
 });
 
 test('explicit spreadsheet destinations remain supported for scheduled standalone sync', () => {
@@ -181,6 +315,24 @@ test('standalone scheduled sync uses script state and leaves writeback workspace
     rows: [],
     pageRevisions: [],
   });
+  standalone.fetchPricingSettings_ = () => ({
+    schema: 'digitalogic.pricing-sync-state/v1',
+    state_revision: `sha256:${'2'.repeat(64)}`,
+    settings: {
+      dollar_price: '187891',
+      yuan_price: '29500',
+      effective_date: '2026-07-27',
+      usd_effective_date: '2026-07-26',
+      cny_effective_date: '2026-07-27',
+      profit_margin_percent: '30',
+      air_express_price_per_kg: '120',
+      air_express_currency: 'CNY',
+      shipping_catalog_revision: `sha256:${'3'.repeat(64)}`,
+    },
+    freshness: { effective_date: '2026-07-27', age_days: 0, stale: false, stale_after: 7 },
+  });
+  let pricingUpserts = 0;
+  standalone.upsertPricingSettings_ = () => { pricingUpserts += 1; };
   standalone.calculateRevision_ = () => `sha256:${'1'.repeat(64)}`;
   standalone.upsertDataset_ = (target, dataset) => upserts.push([target, dataset.id]);
   standalone.ensureWritebackWorkspace_ = () => {
@@ -195,7 +347,9 @@ test('standalone scheduled sync uses script state and leaves writeback workspace
   assert.equal(documentPropertyCalls, 0);
   assert.equal(workspaceCalls, 0);
   assert.equal(upserts.length, 2);
+  assert.equal(pricingUpserts, 1);
   assert.equal(state.DIGITALOGIC_CATALOG_REVISION, result.revision);
+  assert.equal(state.DIGITALOGIC_PRICING_STATE_REVISION, `sha256:${'2'.repeat(64)}`);
   assert.equal(state.DIGITALOGIC_LAST_SYNC_STATUS, 'ok');
   assert.equal(released, true);
 });
@@ -229,7 +383,7 @@ test('writeback request defaults to preview and emits only bounded typed fields'
     {
       _rowNumber: 7,
       selected: true,
-      sync_key: '00123',
+      sync_key: 'woo:123',
       patris_code: '00123',
       expected_record_revision: revision,
       regular_price: '۱٬۲۵۰٫۵',
@@ -248,37 +402,34 @@ test('writeback request defaults to preview and emits only bounded typed fields'
     idempotency_key: 'digitalogic:preview:test-001',
     mode: 'preview',
     changes: [{
-      sync_key: '00123',
+      sync_key: 'woo:123',
       patris_code: '00123',
       expected_record_revision: revision,
       fields: {
-        regular_price: '1250.5',
-        sale_price: null,
-        stock_quantity: 0,
-        stock_status: 'instock',
         shipping_method_id: 'air',
-        profit_percent: null,
       },
     }],
   });
 });
 
-test('writeback request requires idempotency, equal Patris keys, revisions, and literal values', () => {
+test('writeback request requires idempotency, durable Woo keys, revisions, and literal values', () => {
   const build = sandbox.module.exports.buildWritebackRequest_;
   const revision = `sha256:${'b'.repeat(64)}`;
   const valid = {
     selected: true,
-    sync_key: 'P-1',
+    sync_key: 'woo:1',
     patris_code: 'P-1',
     expected_record_revision: revision,
-    regular_price: 100,
+    shipping_method_id: 'air',
   };
 
   assert.throws(() => build([valid], 'preview', '', 50), /idempotency key is required/);
   assert.throws(
-    () => build([{ ...valid, patris_code: 'P-2' }], 'preview', 'digitalogic:preview:test', 50),
-    /must be exactly equal/
+    () => build([{ ...valid, sync_key: 'OTHER' }], 'preview', 'digitalogic:preview:test', 50),
+    /deprecated exact-code compatibility key/
   );
+  const legacy = build([{ ...valid, sync_key: 'P-1' }], 'preview', 'digitalogic:preview:legacy', 50);
+  assert.equal(legacy.changes[0].sync_key, 'P-1');
   assert.throws(
     () => build([{ ...valid, expected_record_revision: 'stale' }], 'preview', 'digitalogic:preview:test', 50),
     /sha256 record revision is required/
@@ -288,20 +439,12 @@ test('writeback request requires idempotency, equal Patris keys, revisions, and 
     /contains a formula/
   );
   assert.throws(
-    () => build([{ ...valid, regular_price: '<clear>' }], 'preview', 'digitalogic:preview:test', 50),
-    /regular_price cannot be cleared/
-  );
-  assert.throws(
-    () => build([{ ...valid, regular_price: 0 }], 'preview', 'digitalogic:preview:test', 50),
-    /regular_price is outside its allowed numeric range/
-  );
-  assert.throws(
-    () => build([{ ...valid, regular_price: 1.1234567 }], 'preview', 'digitalogic:preview:test', 50),
-    /regular_price is outside its allowed numeric range/
-  );
-  assert.throws(
-    () => build([{ ...valid, regular_price: '', shipping_method_id: 'Air Freight' }], 'preview', 'digitalogic:preview:test', 50),
+    () => build([{ ...valid, shipping_method_id: 'Air Freight' }], 'preview', 'digitalogic:preview:test', 50),
     /shipping_method_id is empty, too long, or contains control characters/
+  );
+  assert.throws(
+    () => build([{ ...valid, shipping_method_id: '' }], 'preview', 'digitalogic:preview:test', 50),
+    /No editable field was supplied/
   );
   assert.throws(
     () => build([{ ...valid }, { ...valid }], 'apply', 'digitalogic:apply:test', 50),
@@ -310,36 +453,35 @@ test('writeback request requires idempotency, equal Patris keys, revisions, and 
   assert.throws(
     () => build(Array.from({ length: 2 }, (_, index) => ({
       ...valid,
-      sync_key: `P-${index}`,
+      sync_key: `woo:${index + 1}`,
       patris_code: `P-${index}`,
     })), 'preview', 'digitalogic:preview:test', 1),
     /bounded limit of 1 rows/
   );
 });
 
-test('writeback decimals remain exact canonical text near the 15-digit ceiling', () => {
+test('writeback excludes feed-owned stock fields and keeps site-owned shipping', () => {
   const build = sandbox.module.exports.buildWritebackRequest_;
   const revision = `sha256:${'9'.repeat(64)}`;
   const base = {
     selected: true,
-    sync_key: 'P-EXACT',
+    sync_key: 'woo:99',
     patris_code: 'P-EXACT',
     expected_record_revision: revision,
   };
   const exact = build([{
     ...base,
-    regular_price: '999999999999998.000001',
-    sale_price: '999999999999998.000000',
-  }], 'preview', 'digitalogic:preview:exact-decimal', 50);
+    stock_quantity: '999999999',
+    shipping_method_id: 'air_express',
+  }], 'preview', 'digitalogic:preview:exact-stock', 50);
 
-  assert.equal(exact.changes[0].fields.regular_price, '999999999999998.000001');
-  assert.equal(exact.changes[0].fields.sale_price, '999999999999998');
+  assert.deepEqual(JSON.parse(JSON.stringify(exact.changes[0].fields)), { shipping_method_id: 'air_express' });
   assert.throws(
     () => build([{
       ...base,
-      regular_price: '999999999999999.000001',
-    }], 'preview', 'digitalogic:preview:decimal-overflow', 50),
-    /outside its allowed numeric range/
+      stock_quantity: '1000000001',
+    }], 'preview', 'digitalogic:preview:stock-overflow', 50),
+    /No editable field was supplied/
   );
 });
 
@@ -458,12 +600,12 @@ test('catalog and audit text neutralize formulas while exact identifiers round-t
 
   const request = build([{
     selected: true,
-    sync_key: "'+CODE",
+    sync_key: 'woo:42',
     patris_code: "'+CODE",
     expected_record_revision: revision,
-    regular_price: 10,
+    shipping_method_id: 'air',
   }], 'preview', 'digitalogic:preview:formula-safe', 50);
-  assert.equal(request.changes[0].sync_key, '+CODE');
+  assert.equal(request.changes[0].sync_key, 'woo:42');
   assert.equal(request.changes[0].patris_code, '+CODE');
 
   const audit = sandbox.module.exports.auditRowsFromResponse_(
@@ -512,8 +654,7 @@ test('Apps Script exposes only an explicit preview-then-apply workflow on separa
 test('support tabs detect machine row 5, display row 6, and data row 7 without losing legacy support', () => {
   const detect = sandbox.module.exports.detectStructuredLayout_;
   const keys = [
-    'selected', 'sync_key', 'patris_code', 'expected_record_revision', 'regular_price',
-    'sale_price', 'stock_quantity', 'stock_status', 'shipping_method_id', 'profit_percent',
+    'selected', 'sync_key', 'patris_code', 'expected_record_revision', 'shipping_method_id',
   ];
   const professional = detect({ 5: keys, 1: ['workbook title'] }, keys);
   const legacy = detect({ 5: [], 1: keys }, keys);
@@ -527,12 +668,50 @@ test('support tabs detect machine row 5, display row 6, and data row 7 without l
   assert.equal(detect({ 5: ['wrong'], 1: ['wrong'] }, keys), null);
 });
 
+test('retired Changes schema migrates only when every staged row is empty', () => {
+  const canMigrate = sandbox.module.exports.canMigrateEmptyLegacyChanges_;
+  const retiredHeader = [
+    'selected',
+    'sync_key',
+    'patris_code',
+    'expected_record_revision',
+    'regular_price',
+    'sale_price',
+    'stock_quantity',
+    'stock_status',
+    'shipping_method_id',
+    'profit_percent',
+  ];
+
+  assert.equal(canMigrate(retiredHeader, [[false, '', '', '', '', '', '', '', '', '']]), true);
+  assert.equal(canMigrate(retiredHeader, [[true, '', '', '', '', '', '', '', '', '']]), false);
+  assert.equal(canMigrate(retiredHeader, [[false, 'woo:11079', '', '', '', '', '', '', '', '']]), false);
+  assert.equal(canMigrate([...retiredHeader.slice(0, 9), 'unexpected'], []), false);
+  assert.match(source, /migrateEmptyLegacyChanges_\(sheet, defaultLayout\)/);
+});
+
+test('Changes styling does not target fields removed from the editable contract', () => {
+  const start = source.indexOf('function styleChangesSheet_');
+  const end = source.indexOf('function styleAuditSheet_', start);
+  const styleChangesSource = source.slice(start, end);
+  const ensureStart = source.indexOf('function ensureStructuredSheet_');
+  const ensureEnd = source.indexOf('function styleChangesSheet_', ensureStart);
+  const ensureStructuredSource = source.slice(ensureStart, ensureEnd);
+
+  assert.ok(start >= 0 && end > start);
+  assert.doesNotMatch(styleChangesSource, /stock_status|requireValueInList/);
+  assert.match(styleChangesSource, /site-owned shipping method field/);
+  assert.doesNotMatch(ensureStructuredSource, /setFrozenColumns\(1\)/);
+});
+
 test('professional support tabs have reserved titles, workflow guidance, and legacy-safe styling', () => {
   assert.match(source, /CHANGES \| SAFE PRODUCT UPDATE QUEUE/);
   assert.match(source, /AUDIT \| WRITEBACK ACTIVITY & RECOVERY/);
   assert.match(source, /CONTROLLED WRITEBACK/);
   assert.match(source, /layout\.id !== 'professional'/);
   assert.match(source, /sheet\.setFrozenColumns\(0\)/);
+  assert.match(source, /getRange\(1, 1, 4, sheet\.getMaxColumns\(\)\)\.breakApart\(\)/);
+  assert.doesNotMatch(source, /getRange\(1, 1, 4, columnCount\)\.breakApart\(\)/);
   assert.match(source, /protection\.setRange\(sheet\.getRange\(1, 1, machineHeaderRow, sheet\.getLastColumn\(\)\)\)/);
 });
 
@@ -695,10 +874,19 @@ test('professional control center is credential-free, editable, and idempotently
   assert.match(professionalDashboardSource, /'Help'/);
   assert.match(professionalDashboardSource, /newChart\(\)[\s\S]*?\.asPieChart\(\)/);
   assert.match(professionalDashboardSource, /newChart\(\)[\s\S]*?\.asColumnChart\(\)/);
-  assert.match(professionalDashboardSource, /=COUNTA\(Products!\$A\$3:\$A\)/);
-  assert.match(professionalDashboardSource, /Products!\$AU\$3:\$AU/);
+  assert.match(professionalDashboardSource, /digitalogicProductsColumn_\('sync_key'\)/);
+  assert.match(professionalDashboardSource, /digitalogicProductsColumn_\('sync_status'\)/);
   assert.match(professionalDashboardSource, /placeholder\.getRange\('A1'\)\.isBlank\(\)/);
   assert.match(professionalDashboardSource, /Preview then explicit Apply/);
+  assert.match(professionalDashboardSource, /getRange\('A24:H28'\)\.merge\(\)/);
+  assert.doesNotMatch(professionalDashboardSource, /getRange\('A22:H26'\)\.merge\(\)/);
+  assert.match(professionalDashboardSource, /ROUND\([\s\S]*?,-Settings!\$B\$21\)/);
+  assert.match(professionalDashboardSource, /Settings!\$B\$22<>"nearest_half_up"/);
+  assert.match(source, /price_rounding_digits: Number\(roundingDigits\)/);
+  assert.match(source, /price_rounding_mode: roundingMode/);
+  assert.doesNotMatch(professionalDashboardSource, /\b25300\b|\b0\.30\b/);
+  assert.match(source, /\/google-sheets\/pricing-settings/);
+  assert.match(source, /function applyPricingSettings\(\)/);
   assert.match(professionalDashboardSource, /محاسبه قیمت نهایی/);
   assert.doesNotMatch(
     professionalDashboardSource,

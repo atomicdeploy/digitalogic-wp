@@ -371,8 +371,10 @@ final class Digitalogic_Google_Sheets_Writeback {
 		if ( null === $sync_key || null === $patris_code ) {
 			return $this->prepared_error( $index, (string) ( $sync_key ?? '' ), (string) ( $patris_code ?? '' ), 'invalid', 'identity_invalid', __( 'sync_key and patris_code must be non-empty exact strings.', 'digitalogic' ) );
 		}
-		if ( $sync_key !== $patris_code ) {
-			return $this->prepared_error( $index, $sync_key, $patris_code, 'invalid', 'identity_mismatch', __( 'sync_key must exactly equal patris_code for editable rows.', 'digitalogic' ) );
+		$is_new_key    = 1 === preg_match( '/^woo:[1-9][0-9]*$/', $sync_key );
+		$is_legacy_key = hash_equals( $patris_code, $sync_key );
+		if ( ! $is_new_key && ! $is_legacy_key ) {
+			return $this->prepared_error( $index, $sync_key, $patris_code, 'invalid', 'identity_mismatch', __( 'Editable rows require a stable woo:<id> sync_key, or the deprecated exact-code compatibility key.', 'digitalogic' ) );
 		}
 		if ( $is_duplicate ) {
 			return $this->prepared_error( $index, $sync_key, $patris_code, 'invalid', 'duplicate_sync_key', __( 'Duplicate sync_key values are not allowed in one change set.', 'digitalogic' ) );
@@ -396,12 +398,81 @@ final class Digitalogic_Google_Sheets_Writeback {
 			return $this->prepared_error_from_wp_error( $index, $sync_key, $patris_code, $desired );
 		}
 
+		$current_source = Digitalogic_Report_Engine::instance()->get_current_source_product( $patris_code );
+		if ( is_wp_error( $current_source ) ) {
+			return $this->prepared_error(
+				$index,
+				$sync_key,
+				$patris_code,
+				'invalid',
+				'reconciliation_not_matched',
+				__( 'Writeback is allowed only while the exact Product Code is a current one-to-one Patris/Woo match.', 'digitalogic' ),
+				array( 'reconciliation_error' => $current_source->get_error_code() )
+			);
+		}
 		$projected = $this->project_product( $patris_code );
 		if ( is_wp_error( $projected ) ) {
-			return $this->prepared_error_from_wp_error( $index, $sync_key, $patris_code, $projected );
+			$projection_code = (string) $projected->get_error_code();
+			$projection_data = $projected->get_error_data();
+			$projection_http = is_array( $projection_data ) ? (int) ( $projection_data['status'] ?? 0 ) : 0;
+			if ( 'reconciliation_not_leaf' === $projection_code || ! in_array( $projection_http, array( 404, 409 ), true ) ) {
+				return $this->prepared_error_from_wp_error( $index, $sync_key, $patris_code, $projected );
+			}
+			return $this->prepared_error(
+				$index,
+				$sync_key,
+				$patris_code,
+				'invalid',
+				'reconciliation_not_matched',
+				__( 'Writeback is allowed only while the exact Product Code is a current one-to-one Patris/Woo match.', 'digitalogic' ),
+				array( 'reconciliation_error' => $projection_code )
+			);
 		}
-		if ( $projected['row']['sync_key'] !== $sync_key || ( $projected['row']['patris_code'] ?? null ) !== $patris_code ) {
+		$resolved_woo_key    = 'woo:' . $projected['product_id'];
+		$resolved_new_key    = hash_equals( $resolved_woo_key, $sync_key );
+		$resolved_legacy_key = hash_equals( (string) ( $projected['row']['sync_key'] ?? '' ), $sync_key );
+		if (
+			( ! $resolved_new_key && ! $resolved_legacy_key )
+			|| ( $projected['row']['patris_code'] ?? null ) !== $patris_code
+		) {
 			return $this->prepared_error( $index, $sync_key, $patris_code, 'invalid', 'resolved_identity_mismatch', __( 'The exact Product Code did not resolve to the requested catalog row.', 'digitalogic' ) );
+		}
+		$source_owned_fields = array_values(
+			array_intersect(
+				array_keys( $desired ),
+				array( 'regular_price', 'sale_price', 'stock_quantity', 'stock_status', 'profit_percent' )
+			)
+		);
+		if ( $source_owned_fields ) {
+			return $this->prepared_error(
+				$index,
+				$sync_key,
+				$patris_code,
+				'invalid',
+				'digitalogic_sheets_writeback_source_owned_field_forbidden',
+				__( 'Matched price, profit margin, and stock fields are source-owned and cannot be changed only in WooCommerce.', 'digitalogic' ),
+				array( 'forbidden_fields' => $source_owned_fields )
+			);
+		}
+		$managed_price_fields = array_values(
+			array_intersect(
+				array_keys( $desired ),
+				array( 'regular_price', 'sale_price', 'profit_percent' )
+			)
+		);
+		if (
+			$managed_price_fields
+			&& Digitalogic_Patris_Price_Write_Guard::instance()->is_managed_product( $projected['product'] )
+		) {
+			return $this->prepared_error(
+				$index,
+				$sync_key,
+				$patris_code,
+				'invalid',
+				'digitalogic_sheets_writeback_managed_pricing_forbidden',
+				__( 'Managed selling prices are derived, and profit margin is shared. Use the global pricing settings contract.', 'digitalogic' ),
+				array( 'forbidden_fields' => $managed_price_fields )
+			);
 		}
 
 		$current_revision = (string) $projected['row']['record_revision'];
@@ -534,6 +605,103 @@ final class Digitalogic_Google_Sheets_Writeback {
 	 * @return array
 	 */
 	private function apply_prepared_change_locked( $prepared, $idempotency_key ) {
+		$needs_pricing_transaction = in_array( 'profit_percent', $prepared['changed_fields'], true )
+			&& Digitalogic_Pricing_Coordinator::instance()->is_managed_product( $prepared['product_id'] );
+		if ( ! $needs_pricing_transaction ) {
+			return $this->apply_prepared_change_locked_core( $prepared, $idempotency_key );
+		}
+
+		$result = Digitalogic_Pricing_Coordinator::instance()->with_repricing_lock(
+			function () use ( $prepared, $idempotency_key ) {
+				return Digitalogic_Webhooks::instance()->without_product_change_webhooks(
+					function () use ( $prepared, $idempotency_key ) {
+						return $this->apply_prepared_pricing_transaction( $prepared, $idempotency_key );
+					}
+				);
+			}
+		);
+		if ( is_array( $result ) && 'applied' === ( $result['status'] ?? '' ) ) {
+			Digitalogic_Webhooks::instance()->product_updated( $prepared['product_id'] );
+		}
+
+		return $result;
+	}
+
+	/**
+	 * Apply one managed-profit row while both pricing locks are held.
+	 *
+	 * @param array  $prepared        Prepared row.
+	 * @param string $idempotency_key Request key for audit correlation.
+	 * @return array
+	 */
+	private function apply_prepared_pricing_transaction( $prepared, $idempotency_key ) {
+		global $wpdb;
+		$result = $prepared['result'];
+		// phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Atomic apply requires explicit transaction boundaries.
+		if ( ! is_object( $wpdb ) || ! method_exists( $wpdb, 'query' ) || false === $wpdb->query( 'START TRANSACTION' ) ) {
+			$result['status']    = 'failed';
+			$result['code']      = 'pricing_transaction_unavailable';
+			$result['message']   = __( 'تراکنش اتمیک قیمت در دسترس نیست؛ هیچ تغییری انجام نشد.', 'digitalogic' );
+			$result['retryable'] = true;
+
+			return $result;
+		}
+
+		try {
+			$result    = $this->apply_prepared_change_locked_core( $prepared, $idempotency_key );
+			$repricing = isset( $result['_pricing_reconciliation'] ) && is_array( $result['_pricing_reconciliation'] )
+				? $result['_pricing_reconciliation']
+				: null;
+			unset( $result['_pricing_reconciliation'] );
+			if ( 'applied' !== ( $result['status'] ?? '' ) ) {
+				$wpdb->query( 'ROLLBACK' );
+				Digitalogic_Pricing_Coordinator::instance()->flush_repricing_caches();
+				$result['rollback'] = array(
+					'available'     => true,
+					'transactional' => true,
+				);
+
+				return $result;
+			}
+			if ( false === $wpdb->query( 'COMMIT' ) ) {
+				$wpdb->query( 'ROLLBACK' );
+				Digitalogic_Pricing_Coordinator::instance()->flush_repricing_caches();
+				$result['status']    = 'failed';
+				$result['code']      = 'pricing_transaction_commit_failed';
+				$result['message']   = __( 'ثبت نهایی قیمت انجام نشد؛ تراکنش بازگردانده شد.', 'digitalogic' );
+				$result['retryable'] = true;
+
+				return $result;
+			}
+
+			Digitalogic_Pricing_Coordinator::instance()->flush_repricing_caches();
+			if ( is_array( $repricing ) ) {
+				Digitalogic_Pricing_Coordinator::instance()->publish_repricing_result( $repricing );
+				$result['pricing_reconciliation'] = $repricing;
+			}
+
+			return $result;
+		} catch ( Throwable $throwable ) {
+			$wpdb->query( 'ROLLBACK' );
+			Digitalogic_Pricing_Coordinator::instance()->flush_repricing_caches();
+			$result['status']    = 'failed';
+			$result['code']      = 'pricing_transaction_failed';
+			$result['message']   = __( 'هماهنگ‌سازی اتمیک قیمت انجام نشد؛ تراکنش بازگردانده شد.', 'digitalogic' );
+			$result['retryable'] = true;
+
+			return $result;
+		}
+		// phpcs:enable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+	}
+
+	/**
+	 * Apply one row while any required caller-owned transaction is active.
+	 *
+	 * @param array  $prepared        Prepared row.
+	 * @param string $idempotency_key Request key for audit correlation.
+	 * @return array
+	 */
+	private function apply_prepared_change_locked_core( $prepared, $idempotency_key ) {
 		$result      = $prepared['result'];
 		$patris_code = $result['patris_code'];
 		$projected   = $this->project_product( $patris_code );
@@ -574,6 +742,21 @@ final class Digitalogic_Google_Sheets_Writeback {
 					$failure = $shipping;
 				} elseif ( ! empty( $shipping['changed'] ) ) {
 					$applied_fields[] = 'shipping_method_id';
+				}
+			}
+			if (
+				! is_wp_error( $failure )
+				&& in_array( 'profit_percent', $prepared['changed_fields'], true )
+				&& Digitalogic_Pricing_Coordinator::instance()->is_managed_product( $prepared['product_id'] )
+			) {
+				$repricing = Digitalogic_Pricing_Coordinator::instance()->reprice_product_open_transaction(
+					$patris_code,
+					$prepared['desired']['profit_percent']
+				);
+				if ( is_wp_error( $repricing ) ) {
+					$failure = $repricing;
+				} else {
+					$result['_pricing_reconciliation'] = $repricing;
 				}
 			}
 		} catch ( Throwable $throwable ) {
@@ -668,7 +851,7 @@ final class Digitalogic_Google_Sheets_Writeback {
 			|| $this->profit_state_is_allowlist_representable( $this->snapshot_profit_state( $snapshot ) );
 		$result['rollback']        = array(
 			'available'                => $profit_recovery_available,
-			'sync_key'                 => $patris_code,
+			'sync_key'                 => $result['sync_key'],
 			'patris_code'              => $patris_code,
 			'expected_record_revision' => (string) $after['row']['record_revision'],
 			'fields'                   => $this->rollback_values( $snapshot, $prepared['changed_fields'] ),
@@ -735,6 +918,13 @@ final class Digitalogic_Google_Sheets_Writeback {
 					break;
 				case 'sale_price':
 					$value = $this->decimal( $value, true, 'sale_price', '0.000001', '999999999999999' );
+					if ( ! is_wp_error( $value ) && null !== $value ) {
+						$value = $this->error(
+							'sale_price_forbidden',
+							__( 'sale_price must remain empty; the customer-visible price always equals the canonical regular price.', 'digitalogic' ),
+							400
+						);
+					}
 					break;
 				case 'profit_percent':
 					$value = $this->decimal( $value, true, 'profit_percent', '0', '1000' );
@@ -784,6 +974,28 @@ final class Digitalogic_Google_Sheets_Writeback {
 	private function validate_product_context( $product, $desired, $changed_fields ) {
 		$price_fields = array_intersect( $changed_fields, array( 'regular_price', 'sale_price' ) );
 		$stock_fields = array_intersect( $changed_fields, array( 'stock_quantity', 'stock_status' ) );
+		$managed      = Digitalogic_Pricing_Coordinator::instance()->is_managed_product( $product );
+		if (
+			$managed
+			&& in_array( 'profit_percent', $changed_fields, true )
+			&& in_array( 'shipping_method_id', $changed_fields, true )
+		) {
+			return $this->error(
+				'patris_pricing_change_must_be_separate',
+				__( 'برای کالای Patris، درصد سود و روش حمل را در دو ویرایش جداگانه ثبت کنید تا هر تراکنش قیمت اتمیک بماند.', 'digitalogic' ),
+				409
+			);
+		}
+		if (
+			in_array( 'regular_price', $changed_fields, true )
+			&& $managed
+		) {
+			return $this->error(
+				'patris_regular_price_managed',
+				__( 'قیمت عادی این کالا از Patris محاسبه می‌شود؛ نرخ ارز یا درصد سود را تغییر دهید تا قیمت به‌صورت اتمیک بازتولید شود.', 'digitalogic' ),
+				409
+			);
+		}
 		if ( ( $price_fields || $stock_fields ) && ! in_array( $product->get_type(), array( 'simple', 'variation' ), true ) ) {
 			return $this->error(
 				'product_type_not_editable',
@@ -802,9 +1014,13 @@ final class Digitalogic_Google_Sheets_Writeback {
 		$regular = array_key_exists( 'regular_price', $desired )
 			? $desired['regular_price']
 			: $this->canonical_existing_decimal( $product->get_regular_price() );
-		$sale    = array_key_exists( 'sale_price', $desired )
-			? $desired['sale_price']
-			: $this->canonical_existing_decimal( $product->get_sale_price() );
+		$sale    = in_array( 'regular_price', $changed_fields, true )
+			? null
+			: (
+				array_key_exists( 'sale_price', $desired )
+					? $desired['sale_price']
+					: $this->canonical_existing_decimal( $product->get_sale_price() )
+			);
 		if ( null !== $sale && '' !== $sale && ( null === $regular || '' === $regular || 0 < $this->compare_canonical_decimals( $sale, $regular ) ) ) {
 			return $this->error(
 				'sale_price_exceeds_regular_price',
@@ -838,10 +1054,13 @@ final class Digitalogic_Google_Sheets_Writeback {
 		$product_changed = false;
 		if ( in_array( 'regular_price', $changed_fields, true ) ) {
 			$product->set_regular_price( $desired['regular_price'] );
+			$product->set_sale_price( '' );
+			$product->set_price( $desired['regular_price'] );
 			$product_changed = true;
 		}
 		if ( in_array( 'sale_price', $changed_fields, true ) ) {
-			$product->set_sale_price( $desired['sale_price'] ?? '' );
+			$product->set_sale_price( '' );
+			$product->set_price( $product->get_regular_price() );
 			$product_changed = true;
 		}
 		if ( in_array( 'stock_quantity', $changed_fields, true ) ) {
@@ -891,6 +1110,13 @@ final class Digitalogic_Google_Sheets_Writeback {
 		if ( ! $product || ! is_array( $canonical ) ) {
 			return $this->error( 'product_unavailable', __( 'The resolved product is no longer available.', 'digitalogic' ), 404 );
 		}
+		if ( $product->is_type( 'variable' ) ) {
+			return $this->error(
+				'reconciliation_not_leaf',
+				__( 'Variable parents are not reconciled writeback rows; edit an exact leaf variation instead.', 'digitalogic' ),
+				409
+			);
+		}
 
 		$projection = Digitalogic_Google_Sheets_Catalog::instance()->transform_products( array( $canonical ) );
 		if ( is_wp_error( $projection ) ) {
@@ -899,7 +1125,6 @@ final class Digitalogic_Google_Sheets_Writeback {
 		if ( 1 !== count( $projection['rows'] ?? array() ) ) {
 			return $this->error( 'catalog_projection_failed', __( 'The exact product could not be projected into the Sheets catalog.', 'digitalogic' ), 500 );
 		}
-
 		return array(
 			'product_id' => $product_id,
 			'product'    => $product,

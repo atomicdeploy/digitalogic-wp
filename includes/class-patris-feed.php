@@ -20,11 +20,11 @@ if (!class_exists('Digitalogic_Product_Identifier_Resolver')) {
 
 class Digitalogic_Patris_Feed {
 
-    private const SETTINGS_OPTION = 'digitalogic_patris_feed_settings';
-    private const PRODUCTS_OPTION = 'digitalogic_patris_feed_products';
-    private const CUSTOMERS_OPTION = 'digitalogic_patris_feed_customers';
-    private const LAST_SYNC_OPTION = 'digitalogic_patris_feed_last_sync';
-    private const TOKEN_OPTION = 'digitalogic_patris_feed_push_token';
+    private const SETTINGS_OPTION           = 'digitalogic_patris_feed_settings';
+    private const PRODUCTS_OPTION           = 'digitalogic_patris_feed_products';
+    private const CUSTOMERS_OPTION          = 'digitalogic_patris_feed_customers';
+    private const LAST_SYNC_OPTION          = 'digitalogic_patris_feed_last_sync';
+    private const TOKEN_OPTION              = 'digitalogic_patris_feed_push_token';
     public const PRODUCT_SYNC_SECRET_OPTION = 'digitalogic_product_sync_secret';
     public const PRODUCT_SYNC_SCOPES_OPTION = 'digitalogic_product_sync_source_scopes';
 
@@ -47,18 +47,18 @@ class Digitalogic_Patris_Feed {
         $settings = is_array($settings) ? $settings : array();
 
         $settings = wp_parse_args($settings, array(
-            'api_url' => '',
-            'api_token' => '',
-            'selected_warehouses' => array(),
-            'legacy_url_replacements' => array(),
+            'api_url'                  => '',
+            'api_token'                => '',
+            'selected_warehouses'      => array(),
+            'legacy_url_replacements'  => array(),
             'image_quality_thresholds' => array(
-                'very_low' => 180,
-                'low' => 250,
-                'review' => 350,
+                'very_low'    => 180,
+                'low'         => 250,
+                'review'      => 350,
                 'soft_review' => 450,
             ),
-            'stale_after_hours' => 48,
-            'sync_interval' => '',
+            'stale_after_hours'        => 48,
+            'sync_interval'            => '',
         ));
 
         unset($settings['shipping_methods']);
@@ -67,7 +67,7 @@ class Digitalogic_Patris_Feed {
 
     public function update_settings($settings) {
         $current = $this->get_settings();
-        $next = is_array($settings) ? $settings : array();
+        $next    = is_array($settings) ? $settings : array();
 
         // Supplier shipping methods are managed by Digitalogic_Shipping_Method_Service.
         // Never revive the former unvalidated, free-form shipping_methods blob.
@@ -78,7 +78,7 @@ class Digitalogic_Patris_Feed {
         }
 
         if (isset($next['legacy_url_replacements']) && is_string($next['legacy_url_replacements'])) {
-            $decoded = json_decode($next['legacy_url_replacements'], true);
+            $decoded                         = json_decode($next['legacy_url_replacements'], true);
             $next['legacy_url_replacements'] = is_array($decoded) ? $decoded : array();
         }
 
@@ -197,7 +197,7 @@ class Digitalogic_Patris_Feed {
             return new WP_Error('digitalogic_patris_invalid_payload', __('Source payload must be an object.', 'digitalogic'));
         }
 
-        $products = $this->extract_list($payload, 'products');
+        $products  = $this->extract_list($payload, 'products');
         $customers = $this->extract_list($payload, 'customers');
 
         if (empty($products) && empty($customers)) {
@@ -205,15 +205,15 @@ class Digitalogic_Patris_Feed {
         }
 
         $normalized_products = array();
-        $results = array(
-            'source' => $source,
-            'total' => 0,
-            'updated' => 0,
+        $results             = array(
+            'source'                 => $source,
+            'total'                  => 0,
+            'updated'                => 0,
             'missing_in_woocommerce' => 0,
-            'customers_imported' => 0,
-            'failed' => 0,
-            'errors' => array(),
-            'synced_at' => current_time('mysql'),
+            'customers_imported'     => 0,
+            'failed'                 => 0,
+            'errors'                 => array(),
+            'synced_at'              => current_time('mysql'),
         );
 
         foreach ($products as $row) {
@@ -258,7 +258,7 @@ class Digitalogic_Patris_Feed {
             $results['updated']++;
         }
 
-        $normalized_customers = $this->normalize_customers($customers);
+        $normalized_customers          = $this->normalize_customers($customers);
         $results['customers_imported'] = count($normalized_customers);
 
         if (!empty($products)) {
@@ -344,12 +344,12 @@ class Digitalogic_Patris_Feed {
      */
     public function get_product_sync_source_scopes() {
         $configured = get_option(self::PRODUCT_SYNC_SCOPES_OPTION, array());
-        $scopes = array();
+        $scopes     = array();
         foreach ((array) $configured as $scope) {
             if (!is_array($scope)) {
                 continue;
             }
-            $id = isset($scope['id']) && is_string($scope['id']) ? trim($scope['id']) : '';
+            $id      = isset($scope['id']) && is_string($scope['id']) ? trim($scope['id']) : '';
             $dataset = isset($scope['dataset']) && is_string($scope['dataset']) ? trim($scope['dataset']) : '';
             if ('' === $id || '' === $dataset || strlen($id) > 191 || strlen($dataset) > 191) {
                 continue;
@@ -377,7 +377,7 @@ class Digitalogic_Patris_Feed {
         }
 
         $configured_scopes = get_option(self::PRODUCT_SYNC_SCOPES_OPTION, array());
-        $scopes = $this->get_product_sync_source_scopes();
+        $scopes            = $this->get_product_sync_source_scopes();
         if (empty($configured_scopes)) {
             return true;
         }
@@ -385,12 +385,12 @@ class Digitalogic_Patris_Feed {
             return false;
         }
 
-        $payload = $request->get_json_params();
-        $source = is_array($payload) && isset($payload['source']) && is_array($payload['source'])
+        $payload   = $request->get_json_params();
+        $source    = is_array($payload) && isset($payload['source']) && is_array($payload['source'])
             ? $payload['source']
             : array();
         $source_id = isset($source['id']) && is_string($source['id']) ? $source['id'] : '';
-        $dataset = isset($source['dataset']) && is_string($source['dataset']) ? $source['dataset'] : '';
+        $dataset   = isset($source['dataset']) && is_string($source['dataset']) ? $source['dataset'] : '';
         foreach ($scopes as $scope) {
             if (hash_equals($scope['id'], $source_id) && hash_equals($scope['dataset'], $dataset)) {
                 return true;
@@ -401,7 +401,7 @@ class Digitalogic_Patris_Feed {
     }
 
     private function normalize_product($row) {
-        $row = is_array($row) ? $row : array();
+        $row             = is_array($row) ? $row : array();
         $warehouse_stock = isset($row['warehouse_stock']) && is_array($row['warehouse_stock']) ? $row['warehouse_stock'] : array();
 
         $product = array(
@@ -413,18 +413,18 @@ class Digitalogic_Patris_Feed {
             'sale_price_source' => $this->clean_number($row['sale_price_source'] ?? null),
             'partner_price_source' => $this->clean_number($row['partner_price_source'] ?? null),
             'purchase_price_source' => $this->clean_number($row['purchase_price_source'] ?? null),
-            'warehouse_stock' => array_map(array($this, 'clean_number'), $warehouse_stock),
-            'total_stock' => $this->clean_number($row['total_stock'] ?? $row['stock'] ?? null),
-            'minimum_stock' => $this->clean_number($row['minimum_stock'] ?? null),
-            'foreign_currency' => strtoupper($this->clean_string($row['foreign_currency'] ?? '')),
-            'foreign_price' => $this->clean_number($row['foreign_price'] ?? null),
-            'weight_grams' => $this->clean_number($row['weight_grams'] ?? null),
-            'location' => $this->clean_string($row['location'] ?? ''),
-            'final_price' => $this->clean_number($row['final_price'] ?? null),
-            'description' => wp_kses_post((string) ($row['description'] ?? '')),
-            'source_updated_at' => $this->clean_string($row['source_updated_at'] ?? $row['updated_at'] ?? ''),
-            'flags' => isset($row['flags']) && is_array($row['flags']) ? array_values(array_map('sanitize_key', $row['flags'])) : array(),
-            'raw' => $row,
+            'warehouse_stock'       => array_map(array($this, 'clean_number'), $warehouse_stock),
+            'total_stock'           => $this->clean_number($row['total_stock'] ?? $row['stock'] ?? null),
+            'minimum_stock'         => $this->clean_number($row['minimum_stock'] ?? null),
+            'foreign_currency'      => strtoupper($this->clean_string($row['foreign_currency'] ?? '')),
+            'foreign_price'         => $this->clean_number($row['foreign_price'] ?? null),
+            'weight_grams'          => $this->clean_number($row['weight_grams'] ?? null),
+            'location'              => $this->clean_string($row['location'] ?? ''),
+            'final_price'           => $this->clean_number($row['final_price'] ?? null),
+            'description'           => wp_kses_post((string) ($row['description'] ?? '')),
+            'source_updated_at'     => $this->clean_string($row['source_updated_at'] ?? $row['updated_at'] ?? ''),
+            'flags'                 => isset($row['flags']) && is_array($row['flags']) ? array_values(array_map('sanitize_key', $row['flags'])) : array(),
+            'raw'                   => $row,
         );
 
         foreach (array('price_source_amount', 'price_rounding_digits') as $field) {
@@ -468,16 +468,16 @@ class Digitalogic_Patris_Feed {
 
             $normalized[$code] = array(
                 'customer_code' => $code,
-                'name' => $this->clean_string($row['name'] ?? ''),
-                'tel' => $this->clean_string($row['tel'] ?? ''),
-                'phone' => $this->clean_string($row['phone'] ?? ''),
-                'mobile' => $this->clean_string($row['mobile'] ?? ''),
-                'email' => sanitize_email($row['email'] ?? ''),
-                'address' => $this->clean_string($row['address'] ?? ''),
+                'name'          => $this->clean_string($row['name'] ?? ''),
+                'tel'           => $this->clean_string($row['tel'] ?? ''),
+                'phone'         => $this->clean_string($row['phone'] ?? ''),
+                'mobile'        => $this->clean_string($row['mobile'] ?? ''),
+                'email'         => sanitize_email($row['email'] ?? ''),
+                'address'       => $this->clean_string($row['address'] ?? ''),
                 'national_code' => $this->clean_string($row['national_code'] ?? ''),
-                'postal_code' => $this->clean_string($row['postal_code'] ?? ''),
-                'updated_at' => $this->clean_string($row['updated_at'] ?? ''),
-                'raw' => $row,
+                'postal_code'   => $this->clean_string($row['postal_code'] ?? ''),
+                'updated_at'    => $this->clean_string($row['updated_at'] ?? ''),
+                'raw'           => $row,
             );
         }
 
@@ -492,10 +492,72 @@ class Digitalogic_Patris_Feed {
      * parallel implementations. Canonical callers do not pass a raw payload.
      *
      * @param WC_Product $product WooCommerce product.
-     * @param array      $data    Validated normalized product.
+    * @param array      $data    Validated normalized product.
      * @return void
      */
     public function apply_product_feed(WC_Product $product, $data) {
+        return Digitalogic_Patris_Price_Write_Guard::instance()->with_authorized_write(
+            function () use ($product, $data) {
+                $this->apply_product_feed_authorized($product, $data);
+            }
+        );
+    }
+
+    /**
+     * Apply only canonical pricing projection fields.
+     *
+     * Currency/profit reconciliation must not replay snapshot stock, weight,
+     * or other operational fields that may have changed after import.
+     *
+     * @param WC_Product $product WooCommerce product.
+     * @param array      $data    Canonical repriced product.
+     * @return void
+     */
+    public function apply_product_pricing(WC_Product $product, $data) {
+        return Digitalogic_Patris_Price_Write_Guard::instance()->with_authorized_write(
+            function () use ($product, $data) {
+                $data        = is_array($data) ? $data : array();
+                $meta_fields = array(
+                    'price_source_amount'            => '_digitalogic_patris_price_source_amount',
+                    'price_source_currency'          => '_digitalogic_patris_price_source_currency',
+                    'price_source_kind'              => '_digitalogic_patris_price_source_kind',
+                    'shipping_method_id'             => '_digitalogic_patris_shipping_method_id',
+                    'shipping_price_per_kg'          => '_digitalogic_patris_shipping_price_per_kg',
+                    'shipping_price_per_kg_currency' => '_digitalogic_patris_shipping_price_per_kg_currency',
+                    'markup_percent'                 => '_digitalogic_patris_markup_percent',
+                    'irt_per_cny'                    => '_digitalogic_patris_irt_per_cny',
+                    'price_rounding_digits'          => '_digitalogic_patris_price_rounding_digits',
+                    'price_rounding_mode'            => '_digitalogic_patris_price_rounding_mode',
+                    'pricing_catalog_revision'       => '_digitalogic_patris_pricing_catalog_revision',
+                    'pricing_catalog_status'         => '_digitalogic_patris_pricing_catalog_status',
+                    'currency_effective_date'        => '_digitalogic_patris_currency_effective_date',
+                    'final_price'                    => '_digitalogic_patris_final_price',
+                    'record_hash'                    => '_digitalogic_patris_record_hash',
+                );
+                foreach ($meta_fields as $field => $meta_key) {
+                    if (!array_key_exists($field, $data) || null === $data[$field]) {
+                        $product->delete_meta_data($meta_key);
+                    } else {
+                        $product->update_meta_data($meta_key, $data[$field]);
+                    }
+                }
+
+                $price_policy = Digitalogic_Patris_Price_Policy::instance();
+                $price_policy->apply($product, $data);
+                $product->save();
+                $price_policy->invalidate($product);
+            }
+        );
+    }
+
+    /**
+     * Apply a normalized Patris product while the canonical price guard is open.
+     *
+     * @param WC_Product $product WooCommerce product.
+     * @param array      $data    Validated normalized product.
+     * @return void
+     */
+    private function apply_product_feed_authorized(WC_Product $product, $data) {
         $data = is_array($data) ? $data : array();
         $product->update_meta_data('_digitalogic_patris_product_code', (string) ($data['product_code'] ?? ''));
 
@@ -535,7 +597,7 @@ class Digitalogic_Patris_Feed {
             'flags' => array('_digitalogic_patris_flags', true),
             'raw' => array('_digitalogic_patris_last_feed', true),
         );
-        $null_fields = array();
+        $null_fields    = array();
         $missing_fields = array();
         foreach ($meta_fields as $field => $definition) {
             $this->sync_product_meta(

@@ -689,6 +689,66 @@ class Digitalogic_Product_Manager {
         if (!$product) {
             return new WP_Error('invalid_product', __('Product not found', 'digitalogic'));
         }
+        $managed_customer_price_fields = array_values(
+            array_intersect(array('regular_price', 'sale_price', 'price'), array_keys((array) $data))
+        );
+        if (
+            !empty($managed_customer_price_fields)
+            && Digitalogic_Patris_Price_Write_Guard::instance()->is_managed_product($product)
+        ) {
+            return new WP_Error(
+                'digitalogic_patris_regular_price_managed',
+                __('قیمت فروش و قیمت قابل مشاهدهٔ این کالا فقط از مسیر هماهنگ‌ساز قیمت دیجیتالاجیک قابل تغییر است.', 'digitalogic'),
+                array(
+                    'status' => 409,
+                    'fields' => $managed_customer_price_fields,
+                )
+            );
+        }
+        if (
+            array_key_exists('sale_price', (array) $data)
+            && '' !== trim((string) $data['sale_price'])
+        ) {
+            return new WP_Error(
+                'digitalogic_sale_price_forbidden',
+                __('قیمت قابل مشاهدهٔ مشتری باید دقیقاً با قیمت فروش یکسان باشد؛ قیمت تخفیفی جداگانه پشتیبانی نمی‌شود.', 'digitalogic'),
+                array('status' => 409, 'field' => 'sale_price')
+            );
+        }
+        if (array_key_exists('price', (array) $data)) {
+            $regular = array_key_exists('regular_price', (array) $data)
+                ? trim((string) $data['regular_price'])
+                : trim((string) $product->get_regular_price());
+            if (!hash_equals($regular, trim((string) $data['price']))) {
+                return new WP_Error(
+                    'digitalogic_visible_price_mismatch',
+                    __('قیمت قابل مشاهدهٔ مشتری باید دقیقاً با قیمت فروش یکسان باشد.', 'digitalogic'),
+                    array('status' => 409, 'field' => 'price')
+                );
+            }
+        }
+        $managed_pricing_fields = array_intersect(
+            array_keys((array) $data),
+            array(
+                'patris_foreign_currency',
+                'patris_foreign_price',
+                'patris_weight_grams',
+                'patris_final_price',
+            )
+        );
+        if (
+            !empty($managed_pricing_fields)
+            && Digitalogic_Patris_Price_Write_Guard::instance()->is_managed_product($product)
+        ) {
+            return new WP_Error(
+                'digitalogic_patris_pricing_inputs_managed',
+                __('ورودی‌های قیمت این کالا در اختیار snapshot معتبر Patris است و از ویرایش مستقیم پشتیبانی نمی‌کند.', 'digitalogic'),
+                array(
+                    'status' => 409,
+                    'fields' => array_values($managed_pricing_fields),
+                )
+            );
+        }
         
         // The audit snapshot does not need a fresh derived lookup read for every bulk-update row.
         $old_data = $this->format_product_data($product, 0, false, null);
@@ -711,12 +771,18 @@ class Digitalogic_Product_Manager {
             }
             
             // Update pricing
-            if (isset($data['regular_price'])) {
-                $product->set_regular_price($data['regular_price']);
-            }
-            
-            if (isset($data['sale_price'])) {
-                $product->set_sale_price($data['sale_price']);
+            if (array_key_exists('regular_price', (array) $data)) {
+                $regular_price = trim((string) $data['regular_price']);
+                $product->set_regular_price($regular_price);
+                $product->set_sale_price('');
+                $product->set_price($regular_price);
+            } elseif (
+                array_key_exists('sale_price', (array) $data)
+                || array_key_exists('price', (array) $data)
+            ) {
+                $regular_price = trim((string) $product->get_regular_price());
+                $product->set_sale_price('');
+                $product->set_price($regular_price);
             }
             
             // Update stock

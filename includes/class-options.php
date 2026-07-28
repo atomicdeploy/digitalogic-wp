@@ -62,6 +62,12 @@ class Digitalogic_Options {
         
         // Check if this is one of our currency fields
         $field_name = isset($field['name']) ? $field['name'] : (isset($field['key']) ? $field['key'] : '');
+
+        // The outer ACF option write is intercepted atomically once Patris owns
+        // pricing. Do not issue a second, independently committed alias write.
+        if ($this->managed_pricing_active()) {
+            return $value;
+        }
         
         // Prevent infinite loops
         static $updating = array();
@@ -153,6 +159,15 @@ class Digitalogic_Options {
      * @return bool
      */
     public function set_dollar_price($price) {
+        if ($this->managed_pricing_active()) {
+            $result = Digitalogic_Pricing_Coordinator::instance()->update_currency(
+                array('dollar_price' => $price),
+                'legacy_options_api'
+            );
+
+            return !is_wp_error($result);
+        }
+
         $price = (float) $price;
         
         // Update ACF storage if ACF is available (options_ prefix)
@@ -206,6 +221,15 @@ class Digitalogic_Options {
      * @return bool
      */
     public function set_yuan_price($price) {
+        if ($this->managed_pricing_active()) {
+            $result = Digitalogic_Pricing_Coordinator::instance()->update_currency(
+                array('yuan_price' => $price),
+                'legacy_options_api'
+            );
+
+            return !is_wp_error($result);
+        }
+
         $price = (float) $price;
         
         // Update ACF storage if ACF is available (options_ prefix)
@@ -316,6 +340,16 @@ class Digitalogic_Options {
         // Always update direct option (works with or without ACF)
         return update_option('update_date', $date);
     }
+
+    /**
+     * Whether live transformed Patris rows require coordinated writes.
+     *
+     * @return bool
+     */
+    private function managed_pricing_active() {
+        return class_exists('Digitalogic_Pricing_Coordinator')
+            && Digitalogic_Pricing_Coordinator::instance()->has_managed_pricing_state();
+    }
 }
 
 /**
@@ -352,6 +386,13 @@ add_filter('pre_option_update_date', function($pre_option, $option, $default) {
  * to ensure proper synchronization with ACF storage and logging.
  */
 add_action('update_option_dollar_price', function($old_value, $value, $option) {
+    if (
+        class_exists('Digitalogic_Pricing_Coordinator')
+        && Digitalogic_Pricing_Coordinator::instance()->has_managed_pricing_state()
+    ) {
+        return;
+    }
+
     // Prevent infinite loop by checking if we're already in our method
     static $updating = false;
     if ($updating) {
@@ -367,6 +408,13 @@ add_action('update_option_dollar_price', function($old_value, $value, $option) {
 }, 10, 3);
 
 add_action('update_option_yuan_price', function($old_value, $value, $option) {
+    if (
+        class_exists('Digitalogic_Pricing_Coordinator')
+        && Digitalogic_Pricing_Coordinator::instance()->has_managed_pricing_state()
+    ) {
+        return;
+    }
+
     // Prevent infinite loop by checking if we're already in our method
     static $updating = false;
     if ($updating) {
@@ -382,6 +430,13 @@ add_action('update_option_yuan_price', function($old_value, $value, $option) {
 }, 10, 3);
 
 add_action('update_option_update_date', function($old_value, $value, $option) {
+    if (
+        class_exists('Digitalogic_Pricing_Coordinator')
+        && Digitalogic_Pricing_Coordinator::instance()->has_managed_pricing_state()
+    ) {
+        return;
+    }
+
     // Synchronize to ACF storage (options_ prefix)
     // Don't use plugin method here to avoid recursion
     static $updating = false;

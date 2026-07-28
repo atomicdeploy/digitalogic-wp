@@ -47,6 +47,8 @@ $GLOBALS['digitalogic_test_meta_update_failures'] = array();
 $GLOBALS['digitalogic_test_meta_delete_failures'] = array();
 $GLOBALS['digitalogic_test_transaction_failures'] = array();
 $GLOBALS['digitalogic_test_cache_deletes'] = array();
+$GLOBALS['digitalogic_test_cache_invalidation_suspended'] = false;
+$GLOBALS['digitalogic_test_cache_invalidation_history'] = array();
 $GLOBALS['digitalogic_test_remote_posts'] = array();
 $GLOBALS['digitalogic_test_remote_post_results'] = array();
 $GLOBALS['digitalogic_test_wc_products'] = array();
@@ -693,6 +695,8 @@ function update_option($name, $value, $autoload = null) {
 
     $exists = array_key_exists($name, $GLOBALS['digitalogic_test_options']);
     $old_value = $exists ? $GLOBALS['digitalogic_test_options'][$name] : null;
+    $value = apply_filters('pre_update_option_' . $name, $value, $old_value, $name);
+    $value = apply_filters('pre_update_option', $value, $name, $old_value);
     $changed = !$exists || $old_value !== $value;
     $GLOBALS['digitalogic_test_options'][$name] = $value;
     $GLOBALS['digitalogic_test_option_cache'][$name] = $value;
@@ -779,8 +783,26 @@ function wp_cache_delete($key, $group = '') {
     return true;
 }
 
+function wp_suspend_cache_invalidation($suspend = true) {
+    $current = (bool) $GLOBALS['digitalogic_test_cache_invalidation_suspended'];
+    $GLOBALS['digitalogic_test_cache_invalidation_suspended'] = (bool) $suspend;
+    $GLOBALS['digitalogic_test_cache_invalidation_history'][] = (bool) $suspend;
+
+    return $current;
+}
+
 function clean_post_cache($post_id) {
+    if ($GLOBALS['digitalogic_test_cache_invalidation_suspended']) {
+        return;
+    }
+
     return wp_cache_delete((int) $post_id, 'post_meta');
+}
+
+function clean_object_term_cache($object_ids, $object_type) {
+    foreach ((array) $object_ids as $object_id) {
+        $GLOBALS['digitalogic_test_object_term_cache_cleans'][] = array((int) $object_id, (string) $object_type);
+    }
 }
 
 function is_wp_error($value) {
@@ -1183,6 +1205,7 @@ class Digitalogic_Test_WPDB {
     public $option_read_counts = array();
     // phpcs:disable -- Deterministic lifecycle-interleaving hooks for focused tests.
     public $before_get_lock = null;
+    public $before_release_lock = null;
     public $after_option_write = null;
     public $lock_timeouts = array();
     // phpcs:enable
@@ -1220,6 +1243,11 @@ class Digitalogic_Test_WPDB {
         }
 
         if (strpos($query, 'RELEASE_LOCK') !== false) {
+            $callback = $this->before_release_lock;
+            $this->before_release_lock = null;
+            if (is_callable($callback)) {
+                call_user_func($callback, $this);
+            }
             $this->release_count++;
             return 1;
         }
@@ -2187,6 +2215,57 @@ function wp_set_object_terms($object_id, $terms, $taxonomy, $append = false) {
     return array((int) $object_id);
 }
 
+function wp_get_object_terms($object_ids, $taxonomies, $args = array()) {
+    $ids = (array) $object_ids;
+    $object_id = (int) reset($ids);
+    $taxonomy = is_array($taxonomies) ? (string) reset($taxonomies) : (string) $taxonomies;
+    $GLOBALS['digitalogic_test_object_term_readbacks'][] = array($object_id, $taxonomy, $args);
+    if (in_array($object_id, $GLOBALS['digitalogic_test_object_term_readback_failures'] ?? array(), true)) {
+        return new WP_Error('injected_term_readback_failure', 'Injected object-term readback failure.');
+    }
+    if ('product_type' === $taxonomy) {
+        $terms = array();
+        foreach ($ids as $id) {
+            $id = (int) $id;
+            if (!isset($GLOBALS['digitalogic_test_posts'][$id])) {
+                continue;
+            }
+            $type = (string) (
+                $GLOBALS['digitalogic_test_posts'][$id]['taxonomy_product_type']
+                ?? $GLOBALS['digitalogic_test_posts'][$id]['product_type']
+                ?? ''
+            );
+            if ('' === $type || 'variation' === $type) {
+                continue;
+            }
+            if ('all_with_object_id' === ($args['fields'] ?? '')) {
+                $terms[] = (object) array(
+                    'term_id'  => 1,
+                    'name'     => $type,
+                    'slug'     => $type,
+                    'taxonomy' => 'product_type',
+                    'object_id' => $id,
+                );
+            } elseif ('ids' === ($args['fields'] ?? '')) {
+                $terms[] = 1;
+            } else {
+                $terms[] = (object) array(
+                    'term_id' => 1,
+                    'name' => $type,
+                    'slug' => $type,
+                    'taxonomy' => 'product_type',
+                );
+            }
+        }
+        return $terms;
+    }
+    if ('product_cat' !== $taxonomy) {
+        return array();
+    }
+
+    return array_values($GLOBALS['digitalogic_test_posts'][$object_id]['category_ids'] ?? array());
+}
+
 function wc_delete_product_transients($product_id = 0) {
     if ((int) $product_id > 0) {
         $GLOBALS['digitalogic_test_wc_transient_deletes'][] = (int) $product_id;
@@ -2462,6 +2541,7 @@ require_once dirname(__DIR__) . '/includes/class-digitalogic-patris-price-policy
 require_once dirname(__DIR__) . '/includes/class-digitalogic-product-column-schema.php'; // phpcs:ignore
 require_once dirname(__DIR__) . '/includes/class-digitalogic-product-metadata-inspector.php'; // phpcs:ignore
 require_once dirname(__DIR__) . '/includes/class-digitalogic-product-write-lock.php'; // phpcs:ignore
+require_once dirname(__DIR__) . '/includes/class-digitalogic-patris-price-write-guard.php'; // phpcs:ignore
 require_once dirname(__DIR__) . '/includes/class-product-manager.php'; // phpcs:ignore
 require_once dirname(__DIR__) . '/includes/admin/class-digitalogic-product-table.php'; // phpcs:ignore
 require_once dirname(__DIR__) . '/includes/class-digitalogic-pricing-input-credential.php'; // phpcs:ignore
@@ -2472,6 +2552,7 @@ require_once dirname(__DIR__) . '/includes/class-patris-catalog-materializer.php
 require_once dirname(__DIR__) . '/includes/class-digitalogic-google-sheets-catalog.php';
 require_once dirname(__DIR__) . '/includes/class-digitalogic-google-sheets-writeback.php';
 require_once dirname(__DIR__) . '/includes/class-digitalogic-excel-pricing-sync.php';
+require_once dirname(__DIR__) . '/includes/class-digitalogic-pricing-coordinator.php';
 require_once dirname(__DIR__) . '/includes/class-command-dispatcher.php';
 require_once dirname(__DIR__) . '/includes/api/class-rest-api.php';
 require_once dirname(__DIR__) . '/includes/api/class-webhooks.php';

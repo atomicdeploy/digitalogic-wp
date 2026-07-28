@@ -27,8 +27,8 @@ const DIGITALOGIC_DASHBOARD_COLORS = Object.freeze({
 
 /** Build, synchronize, protect, and schedule the complete workbook. */
 function initializeDigitalogicControlCenter() {
-  syncCatalog();
   buildProfessionalDashboard();
+  syncCatalog();
   setupEditableWorkspace();
   installScheduledSync();
 
@@ -162,8 +162,23 @@ function digitalogicKpi_(sheet, titleA1, valueA1, title, formula, accent) {
     .setBorder(true, true, true, true, false, false, colors.gray, SpreadsheetApp.BorderStyle.SOLID);
 }
 
+/** Resolve a Products data column by its stable machine header, never by letter. */
+function digitalogicProductsColumn_(key) {
+  if (!/^[a-z][a-z0-9_]*$/.test(String(key || ''))) {
+    throw new Error('Invalid Products machine column key.');
+  }
+  return 'INDEX(Products!$A:$ZZ,0,MATCH("' + key + '",Products!$1:$1,0))';
+}
+
 function digitalogicBuildDashboard_(sheet) {
   const colors = DIGITALOGIC_DASHBOARD_COLORS;
+  const syncKeyColumn = digitalogicProductsColumn_('sync_key');
+  const productCodeColumn = digitalogicProductsColumn_('patris_code');
+  const effectivePriceColumn = digitalogicProductsColumn_('effective_price');
+  const publicationStatusColumn = digitalogicProductsColumn_('publication_status');
+  const syncStatusColumn = digitalogicProductsColumn_('sync_status');
+  const stockStatusColumn = digitalogicProductsColumn_('stock_status');
+  const sourceStockColumn = digitalogicProductsColumn_('patris_total_stock');
   digitalogicTitle_(
     sheet,
     16,
@@ -171,10 +186,10 @@ function digitalogicBuildDashboard_(sheet) {
     'Digitalogic WordPress + Google Sheets + n8n | مرکز مدیریت کالا، قیمت و موجودی'
   );
 
-  digitalogicKpi_(sheet, 'A5:D5', 'A6:D8', 'TOTAL PRODUCTS | کل کالاها', '=COUNTA(Products!$A$3:$A)', colors.blue);
-  digitalogicKpi_(sheet, 'E5:H5', 'E6:H8', 'PRICED PRODUCTS | کالاهای قیمت‌دار', '=COUNTIFS(Products!$A$3:$A,"<>",Products!$O$3:$O,">0")', colors.teal);
-  digitalogicKpi_(sheet, 'I5:L5', 'I6:L8', 'AVG EFFECTIVE PRICE | میانگین قیمت', '=IFERROR(AVERAGEIF(Products!$O$3:$O,">0"),0)', colors.green);
-  digitalogicKpi_(sheet, 'M5:P5', 'M6:P8', 'MISSING PRODUCT CODE | کد کالا ناقص', '=COUNTIFS(Products!$A$3:$A,"<>",Products!$B$3:$B,"")', colors.amber);
+  digitalogicKpi_(sheet, 'A5:D5', 'A6:D8', 'TOTAL PRODUCTS | کل کالاها', '=MAX(0,COUNTA(' + syncKeyColumn + ')-2)', colors.blue);
+  digitalogicKpi_(sheet, 'E5:H5', 'E6:H8', 'PRICED PRODUCTS | کالاهای قیمت‌دار', '=COUNTIFS(' + syncKeyColumn + ',"<>",' + effectivePriceColumn + ',">0")', colors.teal);
+  digitalogicKpi_(sheet, 'I5:L5', 'I6:L8', 'AVG EFFECTIVE PRICE | میانگین قیمت', '=IFERROR(AVERAGEIF(' + effectivePriceColumn + ',">0"),0)', colors.green);
+  digitalogicKpi_(sheet, 'M5:P5', 'M6:P8', 'MISSING PRODUCT CODE | کد کالا ناقص', '=COUNTIFS(' + syncKeyColumn + ',"<>",' + productCodeColumn + ',"")', colors.amber);
   sheet.getRange('I6:L8').setNumberFormat('#,##0 "IRT"');
 
   digitalogicSection_(sheet, 'A10:D10', 'CATALOG HEALTH | سلامت فهرست', colors.blue);
@@ -188,11 +203,11 @@ function digitalogicBuildDashboard_(sheet) {
   ]);
   digitalogicHeader_(sheet.getRange('A11:B11'));
   sheet.getRange('B12:B16').setFormulas([
-    ['=COUNTIFS(Products!$A$3:$A,"<>",Products!$O$3:$O,">0")'],
-    ['=COUNTIFS(Products!$A$3:$A,"<>",Products!$B$3:$B,"")'],
-    ['=COUNTIF(Products!$F$3:$F,"draft")'],
-    ['=COUNTIF(Products!$F$3:$F,"publish")'],
-    ['=COUNTIF(Products!$AU$3:$AU,"warning")'],
+    ['=COUNTIFS(' + syncKeyColumn + ',"<>",' + effectivePriceColumn + ',">0")'],
+    ['=COUNTIFS(' + syncKeyColumn + ',"<>",' + productCodeColumn + ',"")'],
+    ['=COUNTIF(' + publicationStatusColumn + ',"draft")'],
+    ['=COUNTIF(' + publicationStatusColumn + ',"publish")'],
+    ['=COUNTIF(' + syncStatusColumn + ',"warning")'],
   ]).setNumberFormat('#,##0');
   sheet.getRange('A11:B16').setBorder(true, true, true, true, true, true, colors.gray, SpreadsheetApp.BorderStyle.SOLID);
 
@@ -202,14 +217,14 @@ function digitalogicBuildDashboard_(sheet) {
     ['In stock', ''],
     ['Out of stock', ''],
     ['On backorder', ''],
-    ['Source total stock', ''],
+    ['Total stock | موجودی کل', ''],
   ]);
   digitalogicHeader_(sheet.getRange('E11:F11'));
   sheet.getRange('F12:F15').setFormulas([
-    ['=COUNTIF(Products!$S$3:$S,"instock")'],
-    ['=COUNTIF(Products!$S$3:$S,"outofstock")'],
-    ['=COUNTIF(Products!$S$3:$S,"onbackorder")'],
-    ['=SUM(Products!$T$3:$T)'],
+    ['=COUNTIF(' + stockStatusColumn + ',"instock")'],
+    ['=COUNTIF(' + stockStatusColumn + ',"outofstock")'],
+    ['=COUNTIF(' + stockStatusColumn + ',"onbackorder")'],
+    ['=SUM(' + sourceStockColumn + ')'],
   ]).setNumberFormat('#,##0');
   sheet.getRange('E11:F15').setBorder(true, true, true, true, true, true, colors.gray, SpreadsheetApp.BorderStyle.SOLID);
 
@@ -288,7 +303,7 @@ function digitalogicBuildCalculator_(sheet) {
     sheet,
     10,
     'DIGITALOGIC | LANDED PRICE CALCULATOR',
-    'Auditable source pricing scenario | محاسبه قیمت نهایی با ورودی‌های شفاف و قابل بررسی'
+    'Auditable price calculation | محاسبه قیمت نهایی با ورودی‌های شفاف و قابل بررسی'
   );
   digitalogicSection_(sheet, 'A5:J5', 'SCENARIO INPUTS | ورودی‌های سناریو', colors.green);
   sheet.getRange('A6:B15').setValues([
@@ -309,9 +324,9 @@ function digitalogicBuildCalculator_(sheet) {
   sheet.getRange('B10').setFormula('=IFERROR(INDEX(Products!$A:$ZZ,MATCH($B$7,Products!$A:$A,0),MATCH("foreign_price",Products!$1:$1,0)),"")');
   sheet.getRange('B11').setFormula('=IFERROR(IF(INDEX(Products!$A:$ZZ,MATCH($B$7,Products!$A:$A,0),MATCH("shipping_price_per_kg",Products!$1:$1,0))="",Settings!$B$8,INDEX(Products!$A:$ZZ,MATCH($B$7,Products!$A:$A,0),MATCH("shipping_price_per_kg",Products!$1:$1,0))),Settings!$B$8)');
   sheet.getRange('B12').setFormula('=IFERROR(IF(INDEX(Products!$A:$ZZ,MATCH($B$7,Products!$A:$A,0),MATCH("shipping_price_per_kg_currency",Products!$1:$1,0))="",Settings!$B$9,UPPER(INDEX(Products!$A:$ZZ,MATCH($B$7,Products!$A:$A,0),MATCH("shipping_price_per_kg_currency",Products!$1:$1,0)))),Settings!$B$9)');
-  sheet.getRange('B13').setFormula('=IFERROR(IF(INDEX(Products!$A:$ZZ,MATCH($B$7,Products!$A:$A,0),MATCH("profit_percent",Products!$1:$1,0))="",Settings!$B$10,INDEX(Products!$A:$ZZ,MATCH($B$7,Products!$A:$A,0),MATCH("profit_percent",Products!$1:$1,0))/100),Settings!$B$10)');
+  sheet.getRange('B13').setFormula('=IFERROR(IF(INDEX(Products!$A:$ZZ,MATCH($B$7,Products!$A:$A,0),MATCH("profit_margin_percent",Products!$1:$1,0))="",Settings!$B$10/100,INDEX(Products!$A:$ZZ,MATCH($B$7,Products!$A:$A,0),MATCH("profit_margin_percent",Products!$1:$1,0))/100),Settings!$B$10/100)');
   sheet.getRange('B14').setFormula('=Settings!$B$7');
-  sheet.getRange('B15').setFormula('=IF(OR(B9<=0,B10<=0,B11<=0,B13<0,B14<=0,AND(B12<>"CNY",B12<>"IRR")),"INPUT REQUIRED",ROUND((B10*B14+(B9/1000)*IF(B12="CNY",B11*B14,B11/10))*(1+B13),0))');
+  sheet.getRange('B15').setFormula('=IF(OR(B9<=0,B10<=0,B11<=0,B13<0,B14<=0,AND(B12<>"CNY",B12<>"IRR"),NOT(ISNUMBER(Settings!$B$21)),Settings!$B$21<0,Settings!$B$21>9,Settings!$B$21<>INT(Settings!$B$21),Settings!$B$22<>"nearest_half_up"),"INPUT REQUIRED",ROUND((B10*B14+(B9/1000)*IF(B12="CNY",B11*B14,B11/10))*(1+B13),-Settings!$B$21))');
   sheet.getRange('B7:B12').setNumberFormat('@');
   sheet.getRange('B9:B11').setNumberFormat('#,##0.########');
   sheet.getRange('B13').setNumberFormat('0.0%');
@@ -325,9 +340,9 @@ function digitalogicBuildCalculator_(sheet) {
     .setBorder(true, true, true, true, false, false, colors.green, SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
   sheet.getRange('D6:J15').merge()
     .setValue(
-      'FORMULA\n\nROUND((Foreign price × CNY→IRT + Weight kg × freight in IRT) × (1 + Profit %), 0)\n\n' +
+      'FORMULA\n\nROUND((Foreign price × CNY→IRT + Weight kg × freight in IRT) × (1 + Profit %), -Price rounding digits)\n\n' +
       'CNY freight is converted by the FX rate. IRR freight is divided by 10 to reach IRT. ' +
-      'One final rounding step is applied after freight and profit. Missing or invalid inputs return INPUT REQUIRED.'
+      'One final nearest-half-up rounding step is applied after freight and profit. Missing or invalid inputs return INPUT REQUIRED.'
     )
     .setBackground(colors.cyanSoft)
     .setFontColor('#075985')
@@ -354,25 +369,56 @@ function digitalogicBuildSettings_(sheet) {
   digitalogicSection_(sheet, 'A5:H5', 'LIVE CONNECTIONS & BUSINESS ASSUMPTIONS | تنظیمات و اتصال‌ها', colors.slate);
   sheet.getRange('A6:B14').setValues([
     ['Setting', 'Value'],
-    ['CNY to IRT (editable)', 25300],
-    ['Scenario shipping / kg', ''],
-    ['Scenario shipping currency', 'CNY'],
-    ['Scenario profit margin', 0.30],
+    ['CNY to IRT (canonical)', ''],
+    ['Air express shipping / kg | نرخ حمل هوایی سریع', ''],
+    ['Air express shipping currency | ارز نرخ حمل', 'CNY'],
+    ['Shared profit margin (%) | حاشیه سود مشترک (درصد)', ''],
     ['Sync locale (managed)', 'bilingual'],
     ['Schedule (managed)', 'Every 6 hours'],
     ['Writeback policy', 'Preview then explicit Apply'],
     ['Publishing policy', 'Quality-gated; never automatic'],
   ]);
+  sheet.getRange('A15:B20').setValues([
+    ['USD to IRT (canonical)', ''],
+    ['USD effective date (YYYY-MM-DD)', ''],
+    ['CNY effective date (YYYY-MM-DD)', ''],
+    ['Pricing state revision (managed)', ''],
+    ['Shipping catalog revision (managed)', ''],
+    ['Pricing sync status (managed)', ''],
+  ]);
+  sheet.getRange('A21:B22').setValues([
+    ['Price rounding digits | تعداد رقم گردکردن قیمت', ''],
+    ['Price rounding mode (managed) | روش گردکردن قیمت (مدیریت‌شده)', 'nearest_half_up'],
+  ]);
   digitalogicHeader_(sheet.getRange('A6:B6'));
   sheet.getRange('B7:B8').setNumberFormat('#,##0.########');
   sheet.getRange('B9').setDataValidation(SpreadsheetApp.newDataValidation().requireValueInList(['CNY', 'IRR'], true).setAllowInvalid(false).build());
-  sheet.getRange('B10').setNumberFormat('0.0%');
+  sheet.getRange('B10').setNumberFormat('0.0"%"');
+  sheet.getRange('B15').setNumberFormat('#,##0.########');
+  sheet.getRange('B16:B20').setNumberFormat('@');
+  sheet.getRange('B18:B20').setBackground(colors.graySoft).setFontColor(colors.slate);
+  sheet.getRange('B21').setNumberFormat('0').setDataValidation(
+    SpreadsheetApp.newDataValidation()
+      .requireFormulaSatisfied('=AND(ISNUMBER(B21),B21=INT(B21),B21>=0,B21<=9)')
+      .setAllowInvalid(false)
+      .build()
+  );
+  sheet.getRange('B22')
+    .setNumberFormat('@')
+    .setDataValidation(
+      SpreadsheetApp.newDataValidation()
+        .requireValueInList(['nearest_half_up'], true)
+        .setAllowInvalid(false)
+        .build()
+    )
+    .setBackground(colors.graySoft)
+    .setFontColor(colors.slate);
   sheet.getRange('D6:H13').setValues([
     ['Connection', 'Endpoint / identity', 'Mode', 'Owner', 'Status'],
     ['Digitalogic WordPress', 'https://digitalogic.ir', 'Living catalog', 'Digitalogic', 'Connected'],
     ['Catalog API', '/google-sheets/catalog', 'Read', 'WordPress', 'Live'],
     ['Writeback API', 'n8n → guarded WordPress endpoint', 'Preview / Apply', 'Digitalogic', 'Guarded'],
-    ['Source integration', 'Exact Product Code identity', 'Source + pricing', 'Catalog source', 'Connected'],
+    ['Catalog integration', 'Exact Product Code identity', 'Catalog + pricing', 'Catalog records', 'Connected'],
     ['n8n', 'https://automation.digitalogic.ir', 'Approval bridge', 'Digitalogic', 'Active'],
     ['Google owner', 'mahdielector@gmail.com', 'Editor', 'Mahdi Shokri', 'Signed in'],
     ['Secrets', 'Never stored in cells', 'Protected', 'Apps Script / n8n', 'Configured'],
@@ -383,7 +429,7 @@ function digitalogicBuildSettings_(sheet) {
     .setWrap(true)
     .setVerticalAlignment('middle')
     .setBorder(true, true, true, true, true, true, colors.gray, SpreadsheetApp.BorderStyle.SOLID);
-  sheet.getRange('A16:H20').merge()
+  sheet.getRange('A24:H28').merge()
     .setValue(
       'Safety rule: Products and Categories are synchronized reference snapshots. Stage exact Products rows into Changes, ' +
       'edit only allowlisted fields, tick Selected, run Preview, review the diff, then explicitly Apply. ' +
@@ -421,7 +467,7 @@ function digitalogicBuildHelp_(sheet) {
     ['5. Verify', 'Read Audit, refresh Products, and confirm the new record revision. On conflict, refresh and create a new proposal instead of forcing it.'],
     ['6. Recover', 'If Google authorization expires, run syncCatalog and approve it again. Reinstall a stale trigger with removeScheduledSync then installScheduledSync.'],
     ['Identity', 'Product matching uses exact, case-sensitive Product Code. A woo:<id> display key keeps unmatched WooCommerce rows visible; SKU is never fallback identity.'],
-    ['Pricing', 'Final price combines foreign price, weight-based freight, FX conversion, and profit, then applies one final rounding step. Missing inputs stay visibly blocked.'],
+    ['Pricing', 'Final price combines foreign price, weight-based freight, FX conversion, and profit, then applies one final nearest-half-up step using the shared rounding-digits setting. Missing inputs stay visibly blocked.'],
     ['Publishing', 'Shipping assignment does not mean readiness. Missing Code, weight, price, images, descriptions, categories, or variation review remains a stop condition.'],
     ['Support', 'Digitalogic: https://digitalogic.ir  |  Automation: https://automation.digitalogic.ir  |  GitHub issue: atomicdeploy/digitalogic-wp#99'],
   ];

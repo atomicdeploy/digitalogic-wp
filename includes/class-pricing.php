@@ -34,6 +34,15 @@ class Digitalogic_Pricing {
      * @return float
      */
     public function calculate_dynamic_price($price, $product) {
+        // Managed catalog prices have one canonical writer. Legacy runtime
+        // formulas must not create a second customer-visible value.
+        if (
+            class_exists('Digitalogic_Patris_Price_Write_Guard')
+            && Digitalogic_Patris_Price_Write_Guard::instance()->is_managed_product($product)
+        ) {
+            return $price;
+        }
+
         // Check if dynamic pricing is enabled for this product
         $enable_dynamic = $product->get_meta('_digitalogic_dynamic_pricing', true);
         
@@ -105,6 +114,12 @@ class Digitalogic_Pricing {
         $product = wc_get_product($product_id);
         
         if (!$product) {
+            return false;
+        }
+        if (
+            class_exists('Digitalogic_Patris_Price_Write_Guard')
+            && Digitalogic_Patris_Price_Write_Guard::instance()->is_managed_product($product)
+        ) {
             return false;
         }
         
