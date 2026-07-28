@@ -303,6 +303,14 @@ same request returns the recorded result; reusing it with another request is a
 state again after apply, regenerate canonical products, send product sync, and
 perform final WooCommerce storefront readback.
 
+When that exact companion (`digitalogic-price-calculator` on
+`excel-workbook`) applies settings that already match `state_revision`, the
+apply response uses the fast `reconciled` path and reports
+`settings_already_current`. It does not repeat a full direct catalog reprice:
+the mandatory canonical product sync and final storefront readback immediately
+after apply perform and verify that reconciliation. Other clients and internal
+settings writers retain direct unchanged-settings drift repair.
+
 That readback succeeds only when every managed simple product or exact-code
 variation has an empty WooCommerce sale field and identical canonical,
 regular, and effective selling prices. Unsupported variable-parent or shipping

@@ -629,6 +629,109 @@ final class ExcelPricingSyncTest extends TestCase {
 	}
 
 	/**
+	 * The companion skips duplicate catalog work when settings are unchanged.
+	 */
+	public function test_unchanged_companion_apply_defers_to_required_product_sync(): void {
+		$state    = $this->state_data();
+		$settings = $state['settings'];
+		$preview  = Digitalogic_Excel_Pricing_Sync::instance()->preview(
+			$this->mutation_request(
+				'preview',
+				'excel-preview-current-0001',
+				$state['state_revision'],
+				$settings,
+				array(
+					'client_id'  => 'digitalogic-price-calculator',
+					'channel'    => 'excel-workbook',
+					'request_id' => 'excel-preview-current-0001',
+				)
+			)
+		);
+		$this->assertFalse( is_wp_error( $preview ) );
+
+		$GLOBALS['wpdb']->queries                      = array();
+		$GLOBALS['digitalogic_test_cache_deletes']     = array();
+		$GLOBALS['digitalogic_test_transient_deletes'] = array();
+
+		$applied = Digitalogic_Excel_Pricing_Sync::instance()->apply(
+			$this->mutation_request(
+				'apply',
+				'excel-apply-current-000001',
+				$state['state_revision'],
+				$settings,
+				array(
+					'preview_digest' => $preview['preview_digest'],
+					'confirmation'   => 'APPLY',
+					'client_id'      => 'digitalogic-price-calculator',
+					'channel'        => 'excel-workbook',
+					'request_id'     => 'excel-apply-current-000001',
+				)
+			)
+		);
+
+		$this->assertFalse(
+			is_wp_error( $applied ),
+			is_wp_error( $applied ) ? $applied->get_error_code() . ': ' . $applied->get_error_message() : ''
+		);
+		$this->assertSame( 'reconciled', $applied['status'] );
+		$this->assertSame( $state['state_revision'], $applied['state_revision'] );
+		$this->assertSame( array(), $applied['product_results'] );
+		$this->assertNotContains( 'START TRANSACTION', $GLOBALS['wpdb']->queries );
+		$this->assertNotContains( 'COMMIT', $GLOBALS['wpdb']->queries );
+		$this->assertSame( array(), $GLOBALS['digitalogic_test_cache_deletes'] );
+		$this->assertSame( array(), $GLOBALS['digitalogic_test_transient_deletes'] );
+		$this->assertArrayNotHasKey(
+			Digitalogic_Excel_Pricing_Sync::AUDIT_OPTION,
+			$GLOBALS['digitalogic_test_options']
+		);
+		$warning_codes = array_column( $applied['warnings'], 'code' );
+		$this->assertContains( 'settings_already_current', $warning_codes );
+		$this->assertNotContains( 'pricing_reconciled', $warning_codes );
+	}
+
+	/**
+	 * Other API clients retain direct unchanged-settings drift repair.
+	 */
+	public function test_unchanged_non_companion_apply_still_reconciles_catalog(): void {
+		$state    = $this->state_data();
+		$settings = $state['settings'];
+		$preview  = Digitalogic_Excel_Pricing_Sync::instance()->preview(
+			$this->mutation_request(
+				'preview',
+				'excel-preview-generic-0001',
+				$state['state_revision'],
+				$settings
+			)
+		);
+		$this->assertFalse( is_wp_error( $preview ) );
+
+		$GLOBALS['wpdb']->queries = array();
+		$applied                  = Digitalogic_Excel_Pricing_Sync::instance()->apply(
+			$this->mutation_request(
+				'apply',
+				'excel-apply-generic-000001',
+				$state['state_revision'],
+				$settings,
+				array(
+					'preview_digest' => $preview['preview_digest'],
+					'confirmation'   => 'APPLY',
+				)
+			)
+		);
+
+		$this->assertFalse(
+			is_wp_error( $applied ),
+			is_wp_error( $applied ) ? $applied->get_error_code() . ': ' . $applied->get_error_message() : ''
+		);
+		$this->assertSame( 'reconciled', $applied['status'] );
+		$this->assertContains( 'START TRANSACTION', $GLOBALS['wpdb']->queries );
+		$this->assertContains( 'COMMIT', $GLOBALS['wpdb']->queries );
+		$warning_codes = array_column( $applied['warnings'], 'code' );
+		$this->assertContains( 'pricing_reconciled', $warning_codes );
+		$this->assertNotContains( 'settings_already_current', $warning_codes );
+	}
+
+	/**
 	 * Verify atomic apply, exact readback, audit, and idempotent replay.
 	 */
 	public function test_apply_is_atomic_audited_and_idempotent(): void {

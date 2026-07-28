@@ -840,7 +840,10 @@ final class Digitalogic_Excel_Pricing_Sync {
 		if ( is_wp_error( $desired ) ) {
 			return $desired;
 		}
-		$changed = ! hash_equals( $current['state_revision'], $desired['state_revision'] );
+		$changed              = ! hash_equals( $current['state_revision'], $desired['state_revision'] );
+		$companion_completion = 'digitalogic-price-calculator' === $request_context['client_id']
+			&& 'excel-workbook' === $request_context['channel'];
+		$repricing_performed  = false;
 
 		if ( $changed ) {
 			$result = $this->run_coordinated_pricing_transaction(
@@ -933,6 +936,16 @@ final class Digitalogic_Excel_Pricing_Sync {
 
 			$readback  = $result['readback'];
 			$repricing = $result['repricing'];
+
+			$repricing_performed = true;
+		} elseif ( $companion_completion ) {
+			$readback  = $current;
+			$repricing = array(
+				'updated_products' => 0,
+				'deferred_missing' => 0,
+				'warnings'         => array(),
+				'sources'          => array(),
+			);
 		} else {
 			$readback = $current;
 			$result   = $this->run_coordinated_pricing_transaction(
@@ -947,7 +960,8 @@ final class Digitalogic_Excel_Pricing_Sync {
 			if ( is_wp_error( $result ) ) {
 				return $result;
 			}
-			$repricing = $result;
+			$repricing           = $result;
+			$repricing_performed = true;
 		}
 
 		$warnings       = isset( $preview['warnings'] ) && is_array( $preview['warnings'] )
@@ -966,15 +980,26 @@ final class Digitalogic_Excel_Pricing_Sync {
 		if ( null !== $source_warning ) {
 			array_unshift( $warnings, $source_warning );
 		}
-		$warnings[] = $this->warning(
-			'pricing_reconciled',
-			'تنظیمات و قیمت نهایی کالاهای موجود با خواندن مجدد ووکامرس هماهنگ شد.',
-			'info',
-			array(
-				'updated_products' => (int) $repricing['updated_products'],
-				'deferred_missing' => (int) $repricing['deferred_missing'],
-			)
-		);
+		if ( $repricing_performed ) {
+			$warnings[] = $this->warning(
+				'pricing_reconciled',
+				'تنظیمات و قیمت نهایی کالاهای موجود با خواندن مجدد ووکامرس هماهنگ شد.',
+				'info',
+				array(
+					'updated_products' => (int) $repricing['updated_products'],
+					'deferred_missing' => (int) $repricing['deferred_missing'],
+				)
+			);
+		} else {
+			$warnings[] = $this->warning(
+				'settings_already_current',
+				'تنظیمات از قبل به‌روز است؛ همگام‌سازی اجباری کالاها و بازخوانی نهایی ووکامرس توسط برنامهٔ همراه ادامه می‌یابد.',
+				'info',
+				array(
+					'completion' => 'canonical_product_sync_and_storefront_readback',
+				)
+			);
+		}
 		foreach ( (array) ( $repricing['warnings'] ?? array() ) as $pricing_warning ) {
 			if (
 				! is_array( $pricing_warning )
@@ -1014,7 +1039,9 @@ final class Digitalogic_Excel_Pricing_Sync {
 			'product_results' => $repricing['sources'],
 		);
 
-		Digitalogic_Pricing_Coordinator::instance()->publish_repricing_result( $repricing );
+		if ( $repricing_performed ) {
+			Digitalogic_Pricing_Coordinator::instance()->publish_repricing_result( $repricing );
+		}
 		if ( $changed ) {
 			$this->emit_after_apply( $source, $expected_state_revision, $current, $readback, $response_settings, $request_context );
 		}
