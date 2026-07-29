@@ -23,7 +23,7 @@ Freight arrives as the inseparable `shipping_price_per_kg` and
   `--apply --publish-ready` and only when every publication gate passes.
 - Newly created leaves start as drafts. Exact reviewed targets preserve their
   pre-existing status, so adopting an already-published manual leaf never
-  removes it from the storefront merely because a new readiness gate is absent.
+  removes it from the storefront when a safety gate later fails.
 - Exact source ID and dataset are required. An optional `source_revision` pins
   the review to one product-sync snapshot.
 - Manifest JSON is limited to 8 MiB, parsed with duplicate-key rejection, and
@@ -45,9 +45,9 @@ Freight arrives as the inseparable `shipping_price_per_kg` and
 - An existing variable product may become a simple leaf only when the manifest
   explicitly sets `convert_empty_variable_to_simple` and the container still
   has zero children.
-- Product images are not imported or changed. Publication only reads the
-  existing WooCommerce featured-image reference and requires it to resolve to
-  media that was attached through the separate reviewed image workflow.
+- Product images are not imported or changed. A missing featured image is
+  informational and does not block publication; images may be attached later
+  through the separate reviewed image workflow.
 - Apply runs hold a named MySQL advisory lock and trigger receiver
   reconciliation after the reviewed writes finish.
 
@@ -297,34 +297,18 @@ records, global attribute values, and product categories.
 A leaf is publish-ready only when all of these remain true at apply time:
 
 - source and WooCommerce stock are positive;
-- a positive atomic selected-price source, calculated final price, and
-  WooCommerce regular/effective price are present;
-- for a CNY `foreign_price` source only, source/WooCommerce weight is present
-  and strictly positive,
-  the supplier method is exactly `air_express`, freight is positive with an
-  explicit `CNY` or `IRR` currency, WooCommerce has the same assignment, and
-  the CNY-to-IRT exchange rate is positive;
-- an IRR `partner_price` source instead uses the distinct positive
-  `partner_price_source`, applies markup without freight, and requires the
-  canonical `domestic` method with zero IRR freight;
-- the disabled-by-default IRR `sale_price_direct` last fallback uses positive
-  `sale_price_source`/`FOROSH` without markup or rounding and carries the same
-  zero-rate domestic provenance;
-- markup is present and nonnegative and rounding digits/mode are valid for the
-  foreign and partner routes, and
-  pricing-catalog revision and status identify the resolved calculation;
-- the source has no attention-required Patris warnings; the informational
-  partner-fallback and freight-not-applied notices do not block publication;
-- WooCommerce has a featured image whose attachment still resolves;
+- the source has no unreviewed or attention-required safety warning;
 - a reviewed category is available and assigned;
 - Persian name, short description, SEO title, SEO description, focus keyword,
   Patris Code, and matching SKU are present.
 
-Missing commerce or media values remain empty rather than being invented, and
-the managed leaf remains or returns to draft with hidden catalog visibility.
-Reconciliation may safely fill those fields later; publication must be
-requested again after every gate passes. A variable parent is not demoted when
-one child is blocked because another reviewed child may still be publishable.
+Missing price, pricing provenance, exchange rate, markup, rounding, freight,
+shipping method, weight, or image values are informational publication
+warnings. They remain empty rather than being invented and never block an
+otherwise reviewed positive-stock product. The exact reviewed warning-code
+allowlist is fail-closed: any new or unknown source warning still blocks a new
+publication until it is classified. A failed safety gate is reported but never
+demotes or hides an already-published simple product or variation.
 
 For variations, publication also requires the reviewed variable parent
 enrichment. The parent is published and made visible only after the child is
@@ -336,10 +320,10 @@ ready, while remaining Code-less and SKU-less.
 2. Run the materializer without `--apply` and review every planned action and
    skip reason.
 3. Apply a small Code allowlist without `--publish-ready`. Confirm products,
-   categories, variation structure, SEO fields, and the `air_express`
-   assignment in WooCommerce.
-4. Run a fresh Patris sync so landed prices are recalculated with the assigned
-   freight method.
+   categories, variation structure, SEO fields, and any available price,
+   weight, image, or shipping data in WooCommerce.
+4. Run a fresh Patris sync so any available landed prices are recalculated
+   with the reviewed freight method.
 5. Dry-run again, then rerun with `--apply --publish-ready`. Only rows with no
    publication gates are published.
 6. Re-run the same command to verify idempotency and inspect product-sync status
