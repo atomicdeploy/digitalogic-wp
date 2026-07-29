@@ -89,6 +89,7 @@ final class ProductIdentitySearchTest extends TestCase {
 		$this->assertSame( 'ATmega <Core>', $config['singleProductPatrisName'] );
 		$this->assertSame( 'PAT-12', $config['singleProductPatrisCode'] );
 		$this->assertSame( 'کد کالا', $config['codeLabel'] );
+		$this->assertSame( 'نام فنی کالا', $config['technicalNameLabel'] );
 		$this->assertFalse( $config['singleProductIsVariable'] );
 		$this->assertFalse( $config['singleProductLegacyChildReferences'] );
 		$this->assertSame( array(), $config['singleProductChildCodes'] );
@@ -117,6 +118,39 @@ final class ProductIdentitySearchTest extends TestCase {
 		$this->assertStringContainsString( 'کد کالا', $html );
 		$this->assertStringContainsString( 'PAT-&lt;10&gt;', $html );
 		$this->assertStringNotContainsString( 'PAT-<10>', $html );
+	}
+
+	/** Prefer the reviewed public name without mutating or exposing the raw source typo. */
+	public function test_public_technical_name_overrides_raw_source_name_everywhere_customer_facing(): void {
+		$GLOBALS['digitalogic_test_posts'][15]         = array(
+			'post_type'    => 'product',
+			'post_status'  => 'publish',
+			'product_type' => 'simple',
+			'post_title'   => 'عنوان فارسی بازبینی‌شده',
+			'meta'         => array(
+				'_sku'                               => '113007108',
+				'_digitalogic_patris_product_code'   => '113007108',
+				'_digitalogic_patris_name'           => 'LD060AJSA 30-1500MA CC MODULE',
+				'_digitalogic_public_technical_name' => 'LD06AJSA Adjustable Constant-Current LED Driver Module',
+			),
+		);
+		$GLOBALS['product']                            = wc_get_product( 15 );
+		$GLOBALS['digitalogic_test_is_product']        = true;
+		$GLOBALS['digitalogic_test_queried_object_id'] = 15;
+		$identity                                      = ( new ReflectionClass( Digitalogic_Product_Identity::class ) )->newInstanceWithoutConstructor();
+
+		ob_start();
+		$identity->render_single_patris_name();
+		$html = ob_get_clean();
+		$identity->enqueue_assets();
+		$config = $GLOBALS['digitalogic_test_localized_scripts']['digitalogic-product-identity']['digitalogicProductIdentity'];
+		$entity = $identity->add_product_schema_identity( array( '@type' => 'Product' ), $GLOBALS['product'] );
+
+		$this->assertStringContainsString( 'نام فنی کالا', $html );
+		$this->assertStringContainsString( 'LD06AJSA Adjustable Constant-Current LED Driver Module', $html );
+		$this->assertStringNotContainsString( 'LD060AJSA', $html );
+		$this->assertSame( 'LD06AJSA Adjustable Constant-Current LED Driver Module', $config['singleProductPatrisName'] );
+		$this->assertSame( 'LD06AJSA Adjustable Constant-Current LED Driver Module', $entity['alternateName'] );
 	}
 
 	/** Ensure an exact Code remains visible without mislabeling an unrelated SKU. */
@@ -207,13 +241,14 @@ final class ProductIdentitySearchTest extends TestCase {
 			'product_type' => 'variation',
 			'post_parent'  => 10,
 			'meta'         => array(
-				'_sku'                             => 'PAT-11',
-				'_price'                           => '100',
-				'_regular_price'                   => '100',
-				'_digitalogic_patris_product_code' => 'PAT-11',
-				'_digitalogic_patris_name'         => 'Patris child',
-				'_digitalogic_persian_name'        => 'فرزند فارسی',
-				'_digitalogic_part_number'         => 'HC-06-DIP',
+				'_sku'                               => 'PAT-11',
+				'_price'                             => '100',
+				'_regular_price'                     => '100',
+				'_digitalogic_patris_product_code'   => 'PAT-11',
+				'_digitalogic_patris_name'           => 'Patris child',
+				'_digitalogic_public_technical_name' => 'Reviewed technical child',
+				'_digitalogic_persian_name'          => 'فرزند فارسی',
+				'_digitalogic_part_number'           => 'HC-06-DIP',
 			),
 		);
 		$variation                             = wc_get_product( 11 );
@@ -228,12 +263,12 @@ final class ProductIdentitySearchTest extends TestCase {
 			$variation
 		);
 
-		$this->assertSame( 'Patris child', $data['digitalogic_patris_name'] );
+		$this->assertSame( 'Reviewed technical child', $data['digitalogic_patris_name'] );
 		$this->assertSame( 'PAT-11', $data['digitalogic_patris_code'] );
 		$this->assertSame( 'فرزند فارسی', $data['digitalogic_persian_name'] );
 		$this->assertSame( 'PAT-11', $entity['sku'] );
 		$this->assertSame( 'HC-06-DIP', $entity['mpn'] );
-		$this->assertSame( 'Patris child', $entity['alternateName'] );
+		$this->assertSame( 'Reviewed technical child', $entity['alternateName'] );
 		$this->assertSame( array( 'price' => '100' ), $entity['offers'] );
 
 		ob_start();
@@ -639,6 +674,7 @@ final class ProductIdentitySearchTest extends TestCase {
 
 		foreach (
 			array(
+				'_digitalogic_public_technical_name',
 				'_digitalogic_patris_name',
 				'_digitalogic_persian_name',
 				'_digitalogic_patris_product_code',

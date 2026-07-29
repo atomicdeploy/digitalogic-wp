@@ -7,12 +7,27 @@
 }
 
 .digitalogic-patris-name {
+	align-items: baseline;
 	color: var(--wd-text-color, #5f6b7a);
-	display: block;
+	display: flex;
+	flex-wrap: wrap;
 	font-size: 0.875em;
 	font-weight: 500;
+	gap: 0.4rem;
 	line-height: 1.45;
 	overflow-wrap: anywhere;
+}
+
+.digitalogic-technical-name-label {
+	direction: rtl;
+	font-size: 0.88em;
+	font-weight: 700;
+	unicode-bidi: isolate;
+}
+
+.digitalogic-technical-name-value {
+	direction: ltr;
+	unicode-bidi: isolate;
 }
 
 .digitalogic-patris-code {

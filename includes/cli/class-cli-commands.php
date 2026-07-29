@@ -1586,8 +1586,8 @@ class Digitalogic_CLI_Commands {
 	 * : Apply the reviewed plan. Without this flag no writes occur.
 	 *
 	 * [--publish-ready]
-	 * : Publish only fully priced, freight-currency-qualified, weighted,
-	 * in-stock, SEO-enriched rows.
+	 * : Publish positive-stock, reviewed identity/category/mapping rows. Missing
+	 *   price, freight, shipping, weight, or image data remains informational.
 	 *
 	 * ## EXAMPLES
 	 *

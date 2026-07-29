@@ -9,8 +9,10 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 final class Digitalogic_Product_Identity {
 
-	private const PRODUCT_CODE_LABEL        = 'کد کالا';
-	private const LEGACY_PRODUCT_CODE_LABEL = 'کد پاتریس';
+	private const PRODUCT_CODE_LABEL         = 'کد کالا';
+	private const LEGACY_PRODUCT_CODE_LABEL  = 'کد پاتریس';
+	private const TECHNICAL_NAME_LABEL       = 'نام فنی کالا';
+	private const PUBLIC_TECHNICAL_NAME_META = '_digitalogic_public_technical_name';
 
 	private static $instance = null;
 
@@ -77,7 +79,7 @@ final class Digitalogic_Product_Identity {
 		if ( ! is_array( $data ) || ! $variation instanceof WC_Product ) {
 			return $data;
 		}
-		$data['digitalogic_patris_name']  = sanitize_text_field( (string) $variation->get_meta( '_digitalogic_patris_name', true ) );
+		$data['digitalogic_patris_name']  = sanitize_text_field( $this->get_product_patris_name( $variation ) );
 		$data['digitalogic_patris_code']  = sanitize_text_field( (string) $variation->get_meta( Digitalogic_Product_Identifier_Resolver::PATRIS_CODE_META, true ) );
 		$data['digitalogic_persian_name'] = sanitize_text_field( (string) $variation->get_meta( '_digitalogic_persian_name', true ) );
 
@@ -456,6 +458,7 @@ final class Digitalogic_Product_Identity {
 				'singleProductChildCodes'            => $child_codes,
 				'singleProductLegacyChildReferences' => ! $is_variable && ! empty( $child_codes ),
 				'codeLabel'                          => self::PRODUCT_CODE_LABEL,
+				'technicalNameLabel'                 => self::TECHNICAL_NAME_LABEL,
 				'selectModelLabel'                   => 'مدل رو انتخاب کن تا کد دقیقش بیاد',
 				'legacyChildNote'                    => 'این کدها فعلاً مرجع مدل‌ها هستن؛ برای انتخاب کد دقیق با پشتیبانی هماهنگ کن.',
 			)
@@ -499,7 +502,10 @@ final class Digitalogic_Product_Identity {
 		$output  = '<div class="digitalogic-product-identity" data-digitalogic-product-identity="' . esc_attr( $context ) . '">';
 
 		if ( '' !== $patris_name ) {
-			$output .= '<div class="digitalogic-patris-name" dir="ltr" lang="en">' . esc_html( $patris_name ) . '</div>';
+			$output .= '<div class="digitalogic-patris-name">';
+			$output .= '<span class="digitalogic-technical-name-label" dir="rtl" lang="fa">' . esc_html( self::TECHNICAL_NAME_LABEL ) . '</span>';
+			$output .= '<bdi class="digitalogic-technical-name-value" dir="ltr" lang="en">' . esc_html( $patris_name ) . '</bdi>';
+			$output .= '</div>';
 		}
 
 		if ( '' !== $patris_code ) {
@@ -530,7 +536,10 @@ final class Digitalogic_Product_Identity {
 		if ( ! $product instanceof WC_Product ) {
 			return '';
 		}
-		$patris_name = (string) $product->get_meta( '_digitalogic_patris_name', true );
+		$patris_name = (string) $product->get_meta( self::PUBLIC_TECHNICAL_NAME_META, true );
+		if ( '' === trim( $patris_name ) ) {
+			$patris_name = (string) $product->get_meta( '_digitalogic_patris_name', true );
+		}
 		if ( '' === trim( $patris_name ) ) {
 			$patris_name = (string) $product->get_meta( '_digitalogic_patris_family_name', true );
 		}
