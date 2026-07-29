@@ -130,6 +130,22 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 		$this->assertSame( 'digitalogic_patris_materializer_manifest_shape', $rejected->get_error_code() );
 	}
 
+	/** Preserve old manifests while validating an explicitly reviewed public technical name. */
+	public function test_public_technical_name_is_optional_but_must_be_reviewed_when_supplied(): void {
+		$service  = Digitalogic_Patris_Catalog_Materializer::instance();
+		$manifest = $this->manifest();
+		unset( $manifest['products']['101001001']['technical_name_en'] );
+
+		$validated = $service->validate_manifest( $manifest );
+		$this->assertNotInstanceOf( WP_Error::class, $validated );
+		$this->assertNull( $validated['products']['101001001']['technical_name_en'] );
+
+		$manifest['products']['101001001']['technical_name_en'] = ' ';
+		$rejected = $service->validate_manifest( $manifest );
+		$this->assertInstanceOf( WP_Error::class, $rejected );
+		$this->assertSame( 'products.101001001.technical_name_en', $rejected->get_error_data()['path'] );
+	}
+
 	/** Verify version markers are outside the one living manifest shape. */
 	public function test_manifest_rejects_schema_version_marker(): void {
 		$service                    = Digitalogic_Patris_Catalog_Materializer::instance();
@@ -197,6 +213,7 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 		$this->assertSame( '101001001', $product->get_sku() );
 		$this->assertSame( '101001001', $product->get_meta( '_digitalogic_patris_product_code', true ) );
 		$this->assertSame( 'Synthetic priced product', $product->get_meta( '_digitalogic_patris_name', true ) );
+		$this->assertSame( 'Reviewed synthetic public technical name', $product->get_meta( '_digitalogic_public_technical_name', true ) );
 		$this->assertSame( 'air_express', get_post_meta( $product_id, Digitalogic_Shipping_Method_Service::PRODUCT_METHOD_META, true ) );
 		$this->assertSame( '2009410', $product->get_regular_price() );
 		$this->assertSame( 5, $product->get_stock_quantity() );
@@ -986,6 +1003,7 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 			'products'   => array(
 				'101001001' => array(
 					'patris_name'                      => 'Synthetic priced product',
+					'technical_name_en'                => 'Reviewed synthetic public technical name',
 					'target_product_id'                => null,
 					'target_parent_id'                 => null,
 					'convert_empty_variable_to_simple' => false,

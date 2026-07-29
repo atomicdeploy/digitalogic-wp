@@ -508,7 +508,7 @@ final class Digitalogic_Patris_Catalog_Materializer {
 			return $this->manifest_error( 'products', 'must be an object keyed by exact Patris Code' );
 		}
 
-		$fields             = array(
+		$required_fields    = array(
 			'patris_name',
 			'target_product_id',
 			'target_parent_id',
@@ -526,6 +526,7 @@ final class Digitalogic_Patris_Catalog_Materializer {
 			'part_number',
 			'model',
 		);
+		$allowed_fields     = array_merge( $required_fields, array( 'technical_name_en' ) );
 		$normalized         = array();
 		$target_ids         = array();
 		$parent_enrichments = array();
@@ -539,7 +540,7 @@ final class Digitalogic_Patris_Catalog_Materializer {
 			if ( ! is_array( $row ) || array_is_list( $row ) ) {
 				return $this->manifest_error( $path, 'must be an object' );
 			}
-			$shape = $this->validate_object_shape( $row, $fields, $fields, $path );
+			$shape = $this->validate_object_shape( $row, $required_fields, $allowed_fields, $path );
 			if ( is_wp_error( $shape ) ) {
 				return $shape;
 			}
@@ -550,6 +551,15 @@ final class Digitalogic_Patris_Catalog_Materializer {
 			}
 			if ( '' === trim( $row['patris_name'] ) || trim( $row['patris_name'] ) !== $row['patris_name'] ) {
 				return $this->manifest_error( $path . '.patris_name', 'must be the exact non-empty Patris name' );
+			}
+			if ( array_key_exists( 'technical_name_en', $row ) ) {
+				if (
+					! is_string( $row['technical_name_en'] )
+					|| '' === trim( wp_strip_all_tags( $row['technical_name_en'] ) )
+					|| trim( $row['technical_name_en'] ) !== $row['technical_name_en']
+				) {
+					return $this->manifest_error( $path . '.technical_name_en', 'must be a reviewed non-empty trimmed public technical name' );
+				}
 			}
 			foreach ( array( 'name_fa', 'short_description_fa', 'seo_title_fa', 'seo_description_fa', 'focus_keyword_fa' ) as $field ) {
 				if ( '' === trim( wp_strip_all_tags( $row[ $field ] ) ) || ! $this->contains_persian( wp_strip_all_tags( $row[ $field ] ) ) ) {
@@ -633,6 +643,7 @@ final class Digitalogic_Patris_Catalog_Materializer {
 			$row['attribute_term_id'] = $attribute_term_id;
 			$row['category_override'] = $category_override;
 			$row['parent_enrichment'] = $parent_enrichment;
+			$row['technical_name_en'] = array_key_exists( 'technical_name_en', $row ) ? $row['technical_name_en'] : null;
 			$normalized[ $code ]      = $row;
 		}
 		ksort( $normalized, SORT_STRING );
@@ -1610,6 +1621,9 @@ final class Digitalogic_Patris_Catalog_Materializer {
 			$product->update_meta_data( '_digitalogic_reviewed_category_key', (string) $reviewed_category_code );
 			$product->update_meta_data( '_digitalogic_part_number', sanitize_text_field( $enrichment['part_number'] ) );
 			$product->update_meta_data( '_digitalogic_model', sanitize_text_field( $enrichment['model'] ) );
+			if ( null !== $enrichment['technical_name_en'] ) {
+				$product->update_meta_data( '_digitalogic_public_technical_name', sanitize_text_field( $enrichment['technical_name_en'] ) );
+			}
 			$product->update_meta_data( '_digitalogic_variation_group', sanitize_text_field( $enrichment['variation_group'] ) );
 			$this->apply_product_seo_meta( $product, $enrichment );
 			$product->update_meta_data( 'rank_math_primary_product_cat', (string) $category_term );

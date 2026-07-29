@@ -1105,6 +1105,7 @@ class Digitalogic_Panel {
                     '_sku',
                     '_product_attributes',
                     'attribute_pa_model',
+                    '_digitalogic_public_technical_name',
                     '_digitalogic_patris_name',
                     '_digitalogic_patris_family_name',
                     '_digitalogic_patris_product_code',
@@ -1132,6 +1133,7 @@ class Digitalogic_Panel {
                         variation_meta.meta_key IN (
                             '_sku',
                             'attribute_pa_model',
+                            '_digitalogic_public_technical_name',
                             '_digitalogic_patris_name',
                             '_digitalogic_patris_product_code',
 							'_digitalogic_patris_serial',

@@ -29,9 +29,18 @@
 		if (name !== '') {
 			nameLine = document.createElement('div');
 			nameLine.className = 'digitalogic-patris-name';
-			nameLine.dir = 'ltr';
-			nameLine.lang = 'en';
-			nameLine.textContent = name;
+			label = document.createElement('span');
+			label.className = 'digitalogic-technical-name-label';
+			label.dir = 'rtl';
+			label.lang = 'fa';
+			label.textContent = text(settings.technicalNameLabel) || 'نام فنی کالا';
+			value = document.createElement('bdi');
+			value.className = 'digitalogic-technical-name-value';
+			value.dir = 'ltr';
+			value.lang = 'en';
+			value.textContent = name;
+			nameLine.appendChild(label);
+			nameLine.appendChild(value);
 			identity.appendChild(nameLine);
 		}
 
