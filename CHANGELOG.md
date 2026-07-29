@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Stopped optional price, pricing-provenance, freight, shipping, weight, and
+  image gaps from blocking reviewed positive-stock catalog publication, while
+  keeping identity, category, stock, exact-Code, and unknown-warning checks
+  fail-closed and preserving already-published products when a safety gate
+  later fails.
+
 ## [1.8.3] - 2026-07-27
 
 ### Fixed

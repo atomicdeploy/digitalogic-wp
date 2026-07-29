@@ -32,6 +32,31 @@ final class Digitalogic_Patris_Catalog_Materializer {
 	private const MAX_MANIFEST_BYTES   = 8388608;
 	private const MAX_DETAILS          = 100;
 
+	private const NON_BLOCKING_PUBLICATION_WARNINGS = array(
+		'exchange_rate_missing',
+		'final_price_unavailable',
+		'foreign_price_missing',
+		'foreign_price_non_positive',
+		'freight_not_applied_for_partner_price',
+		'freight_not_applied_for_sale_price_direct',
+		'freight_rate_missing',
+		'image_missing',
+		'import_freight_method_missing',
+		'markup_percent_missing',
+		'missing_image',
+		'partner_price_fallback_used',
+		'product_pricing_assignment_not_found',
+		'purchase_price_source_unavailable',
+		'sale_price_direct_fallback_used',
+		'shipping_method_missing',
+		'shipping_price_per_kg_currency_missing',
+		'shipping_price_per_kg_missing',
+		'weight_ambiguous',
+		'weight_missing',
+		'weight_source_conflict',
+		'weight_unparsed',
+	);
+
 	private static $instance = null;
 
 	/**
@@ -434,24 +459,6 @@ final class Digitalogic_Patris_Catalog_Materializer {
 				} else {
 					++$result['publish_blocked'];
 					$this->append_detail( $result, $code, 'publish_blocked', array( 'gates' => $gates ) );
-					if ( 'draft' !== (string) $product->get_status() ) {
-						$product->set_status( 'draft' );
-						if ( method_exists( $product, 'set_catalog_visibility' ) && ! $product->is_type( 'variation' ) ) {
-							$product->set_catalog_visibility( 'hidden' );
-						}
-						$product->delete_meta_data( '_digitalogic_patris_publish_ready_at' );
-						try {
-							$product->save();
-						} catch ( Throwable $exception ) {
-							$this->append_detail( $result, $code, 'draft_write_failed' );
-							++$result['failed'];
-							continue;
-						}
-						if ( $was_published ) {
-							--$result['preserved_published'];
-						}
-						$this->flush_product_caches( $product->get_id() );
-					}
 				}
 			}
 
@@ -1776,130 +1783,10 @@ final class Digitalogic_Patris_Catalog_Materializer {
 		if ( $this->number( $record['total_stock'] ?? null ) <= 0 ) {
 			$gates[] = 'positive_stock';
 		}
-		$price_source_kind     = (string) ( $record['price_source_kind'] ?? '' );
-		$price_source_currency = (string) ( $record['price_source_currency'] ?? '' );
-		$price_source_amount   = $this->number( $record['price_source_amount'] ?? null );
-		$is_cny_source         = 'foreign_price' === $price_source_kind && 'CNY' === $price_source_currency;
-		$is_partner_source     = 'partner_price' === $price_source_kind && 'IRR' === $price_source_currency;
-		$is_direct_sale_source = 'sale_price_direct' === $price_source_kind && 'IRR' === $price_source_currency;
-		$final_price           = $this->number( $record['final_price'] ?? null );
-		$complete_partner_path = $is_partner_source && $price_source_amount > 0 && $final_price > 0;
-		$complete_direct_path  = $is_direct_sale_source && $price_source_amount > 0 && $final_price > 0;
-		if ( ( ! $is_cny_source && ! $is_partner_source && ! $is_direct_sale_source ) || $price_source_amount <= 0 ) {
-			$gates[] = 'price_source';
-		}
-		if ( $final_price <= 0 ) {
-			$gates[] = 'final_price';
-		}
-		if (
-			! $is_direct_sale_source
-			&& (
-				! array_key_exists( 'markup_percent', $record )
-				|| null === $record['markup_percent']
-				|| ! is_numeric( $record['markup_percent'] )
-				|| $this->number( $record['markup_percent'] ) < 0
-			)
-		) {
-			$gates[] = 'markup_percent';
-		}
-		if (
-			! $is_direct_sale_source
-			&& (
-				! array_key_exists( 'price_rounding_digits', $record )
-				|| ! is_int( $record['price_rounding_digits'] )
-				|| $record['price_rounding_digits'] < 0
-				|| $record['price_rounding_digits'] > 9
-				|| 'nearest_half_up' !== ( $record['price_rounding_mode'] ?? null )
-			)
-		) {
-			$gates[] = 'price_rounding';
-		}
-		if ( $is_cny_source ) {
-			if ( $this->number( $record['foreign_price'] ?? null ) <= 0 ) {
-				$gates[] = 'foreign_price';
-			}
-			if (
-				! array_key_exists( 'weight_grams', $record )
-				|| null === $record['weight_grams']
-				|| ! is_numeric( $record['weight_grams'] )
-				|| $this->number( $record['weight_grams'] ) <= 0
-			) {
-				$gates[] = 'weight_grams';
-			}
-			if ( self::SHIPPING_METHOD !== (string) ( $record['shipping_method_id'] ?? '' ) ) {
-				$gates[] = 'patris_air_express';
-			}
-			if ( $this->number( $record['shipping_price_per_kg'] ?? null ) <= 0 ) {
-				$gates[] = 'shipping_price_per_kg';
-			}
-			if (
-				! isset( $record['shipping_price_per_kg_currency'] )
-				|| ! is_string( $record['shipping_price_per_kg_currency'] )
-				|| ! in_array( $record['shipping_price_per_kg_currency'], array( 'CNY', 'IRR' ), true )
-			) {
-				$gates[] = 'shipping_price_per_kg_currency';
-			}
-			if ( $this->number( $record['irt_per_cny'] ?? null ) <= 0 ) {
-				$gates[] = 'irt_per_cny';
-			}
-		} elseif ( $is_partner_source && $this->number( $record['partner_price_source'] ?? null ) <= 0 ) {
-			$gates[] = 'partner_price';
-		} elseif ( $is_direct_sale_source && $this->number( $record['sale_price_source'] ?? null ) <= 0 ) {
-			$gates[] = 'sale_price_direct';
-		}
-		if ( $is_partner_source || $is_direct_sale_source ) {
-			if ( self::DOMESTIC_METHOD !== (string) ( $record['shipping_method_id'] ?? '' ) ) {
-				$gates[] = 'patris_domestic';
-			}
-			if (
-				! array_key_exists( 'shipping_price_per_kg', $record )
-				|| null === $record['shipping_price_per_kg']
-				|| ! is_numeric( $record['shipping_price_per_kg'] )
-				|| 0.0 !== (float) $record['shipping_price_per_kg']
-			) {
-				$gates[] = 'domestic_shipping_price_per_kg';
-			}
-			if ( 'IRR' !== ( $record['shipping_price_per_kg_currency'] ?? null ) ) {
-				$gates[] = 'domestic_shipping_price_per_kg_currency';
-			}
-		}
-		if (
-			'' === trim( (string) ( $record['pricing_catalog_revision'] ?? '' ) )
-			|| '' === trim( (string) ( $record['pricing_catalog_status'] ?? '' ) )
-		) {
-			$gates[] = 'pricing_assignment';
-		}
-		$ignored_warnings  = $complete_partner_path
-			? array(
-				'partner_price_fallback_used',
-				'freight_not_applied_for_partner_price',
-				'foreign_price_missing',
-				'foreign_price_non_positive',
-				'weight_missing',
-				'weight_unparsed',
-				'weight_ambiguous',
-				'weight_source_conflict',
-			)
-			: array();
-		if ( $complete_direct_path ) {
-			$ignored_warnings = array_merge(
-				$ignored_warnings,
-				array(
-					'sale_price_direct_fallback_used',
-					'freight_not_applied_for_sale_price_direct',
-					'foreign_price_missing',
-					'foreign_price_non_positive',
-					'weight_missing',
-					'weight_unparsed',
-					'weight_ambiguous',
-					'weight_source_conflict',
-				)
-			);
-		}
 		$blocking_warnings = array_values(
 			array_diff(
 				is_array( $record['warnings'] ?? null ) ? $record['warnings'] : array(),
-				$ignored_warnings
+				self::NON_BLOCKING_PUBLICATION_WARNINGS
 			)
 		);
 		if ( $blocking_warnings ) {
@@ -1908,28 +1795,8 @@ final class Digitalogic_Patris_Catalog_Materializer {
 		if ( $category_term <= 0 ) {
 			$gates[] = 'category';
 		}
-		if ( $is_cny_source ) {
-			if ( (string) get_post_meta( $product->get_id(), Digitalogic_Shipping_Method_Service::PRODUCT_METHOD_META, true ) !== self::SHIPPING_METHOD ) {
-				$gates[] = 'woocommerce_air_express';
-			}
-			if ( '' === (string) $product->get_weight() || $this->number( $product->get_weight() ) <= 0 ) {
-				$gates[] = 'woocommerce_weight';
-			}
-		} elseif (
-			( $is_partner_source || $is_direct_sale_source )
-			&& (string) get_post_meta( $product->get_id(), Digitalogic_Shipping_Method_Service::PRODUCT_METHOD_META, true ) !== self::DOMESTIC_METHOD
-		) {
-			$gates[] = 'woocommerce_domestic';
-		}
 		if ( $this->number( $product->get_stock_quantity() ) <= 0 ) {
 			$gates[] = 'woocommerce_stock';
-		}
-		if ( $this->number( $product->get_regular_price() ) <= 0 || $this->number( $product->get_price() ) <= 0 ) {
-			$gates[] = 'woocommerce_price';
-		}
-		$image_id = (int) $product->get_image_id();
-		if ( $image_id <= 0 || false === wp_get_attachment_url( $image_id ) ) {
-			$gates[] = 'woocommerce_image';
 		}
 		foreach ( array( 'name_fa', 'short_description_fa', 'seo_title_fa', 'seo_description_fa', 'focus_keyword_fa' ) as $field ) {
 			if ( '' === trim( wp_strip_all_tags( $enrichment[ $field ] ) ) ) {

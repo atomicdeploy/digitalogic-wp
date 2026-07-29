@@ -124,6 +124,13 @@ every readiness gate passes. An exact reviewed target that was already
 published keeps that status and is reported as `preserved_published` instead of
 being counted as newly published.
 
+Missing price, pricing provenance, freight, shipping method, weight, or image
+data is informational: the materializer preserves the absent value and does
+not use it as a publication gate. Positive source and WooCommerce stock,
+reviewed identity/category/mapping, exact SKU and product Code, and the absence
+of unknown safety warnings remain mandatory. A failed safety gate is reported
+without demoting or hiding an already-published simple product or variation.
+
 A CNY-selected source record must carry `shipping_price_per_kg` together with
 an explicit `shipping_price_per_kg_currency` of `CNY` or `IRR`; no freight
 currency is inferred during materialization. An IRR `partner_price` source
