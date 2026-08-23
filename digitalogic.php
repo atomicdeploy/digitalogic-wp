@@ -157,6 +157,7 @@ final class Digitalogic {
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-label-overrides.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-auth-page.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-telegram-account-link.php';
+        require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-digitalogic-checkout-date-compatibility.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-digitalogic-sidebar-login.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-desktop-app.php';
 		require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-digitalogic-wp-rocket-etag.php';
@@ -201,6 +202,7 @@ final class Digitalogic {
         Digitalogic_Label_Overrides::init();
         Digitalogic_Plugin_Admin_Branding::init();
         Digitalogic_Plugin_Auth_Routes::init();
+        Digitalogic_Checkout_Date_Compatibility::init();
         Digitalogic_Sidebar_Login::init();
         Digitalogic_Desktop_App::init();
         Digitalogic_Frontend_Search::instance();
