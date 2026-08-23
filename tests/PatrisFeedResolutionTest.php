@@ -14,15 +14,124 @@ final class PatrisFeedResolutionTest extends TestCase {
         $GLOBALS['digitalogic_test_post_meta_cache'] = array();
         $GLOBALS['digitalogic_test_actions'] = array();
         $GLOBALS['digitalogic_test_action_callbacks'] = array();
+		$GLOBALS['digitalogic_test_filters'] = array();
         $GLOBALS['digitalogic_test_wc_products'] = array();
         $GLOBALS['digitalogic_test_wc_product_saves'] = array();
+        $GLOBALS['digitalogic_test_wc_after_save'] = null;
+        $GLOBALS['digitalogic_test_update_failures'] = array();
+        $GLOBALS['digitalogic_test_option_delete_failures'] = array();
+        $GLOBALS['digitalogic_test_capabilities'] = array(
+            'manage_woocommerce' => true,
+            'edit_post' => true,
+        );
+        $GLOBALS['digitalogic_test_current_user_id'] = 17;
         $GLOBALS['wpdb'] = new Digitalogic_Test_WPDB();
 
         $this->resetSingleton(Digitalogic_Product_Identifier_Resolver::class);
 		$this->resetSingleton( Digitalogic_Product_Sync_Receiver::class );
+		$this->resetSingleton( Digitalogic_Product_Code_Editor::class );
+		$this->resetSingleton( Digitalogic_Product_Code_Write_Guard::class );
+		Digitalogic_Product_Code_Write_Guard::instance();
         $this->resetSingleton(Digitalogic_Patris_Feed::class);
         $this->feed = Digitalogic_Patris_Feed::instance();
     }
+
+	/** Omitting products preserves ownership while an explicit empty list clears it. */
+	public function test_product_snapshot_absence_and_explicit_empty_list_have_distinct_semantics(): void {
+		$existing = array(
+			'LEGACY-KEEP' => array(
+				'product_code' => 'LEGACY-KEEP',
+				'name'         => 'Existing source row',
+			),
+		);
+		$GLOBALS['digitalogic_test_options']['digitalogic_patris_feed_products'] = $existing;
+
+		$customers_only = $this->feed->import_payload(
+			array(
+				'customers' => array(
+					array( 'customer_code' => 'SAFE-AGGREGATE-TEST' ),
+				),
+			),
+			'test'
+		);
+
+		$this->assertIsArray( $customers_only );
+		$this->assertSame( $existing, get_option( 'digitalogic_patris_feed_products' ) );
+
+		$explicit_empty = $this->feed->import_payload( array( 'products' => array() ), 'test' );
+
+		$this->assertIsArray( $explicit_empty );
+		$this->assertSame( array(), get_option( 'digitalogic_patris_feed_products' ) );
+		$this->assertSame( array(), $GLOBALS['digitalogic_test_wc_product_saves'] );
+	}
+
+	/** Snapshot persistence must verify before any canonical Product Code row write. */
+	public function test_snapshot_persistence_failure_stops_before_product_writes(): void {
+		$GLOBALS['digitalogic_test_options']['digitalogic_patris_feed_products'] = array(
+			'LEGACY-OLD' => array( 'product_code' => 'LEGACY-OLD' ),
+		);
+		$GLOBALS['digitalogic_test_posts'][712] = array(
+			'post_type'   => 'product',
+			'post_status' => 'publish',
+			'meta'        => array( '_digitalogic_patris_product_code' => 'LEGACY-NEW' ),
+		);
+		$GLOBALS['digitalogic_test_update_failures'][] = 'digitalogic_patris_feed_products';
+
+		$result = $this->feed->import_payload(
+			array(
+				'products' => array(
+					array( 'product_code' => 'LEGACY-NEW', 'name' => 'Must not write' ),
+				),
+			),
+			'test'
+		);
+
+		$this->assertInstanceOf( WP_Error::class, $result );
+		$this->assertSame( 'digitalogic_patris_products_snapshot_write_failed', $result->get_error_code() );
+		$this->assertSame( array(), $GLOBALS['digitalogic_test_wc_product_saves'] );
+		$this->assertSame(
+			array( 'LEGACY-OLD' => array( 'product_code' => 'LEGACY-OLD' ) ),
+			$GLOBALS['digitalogic_test_options']['digitalogic_patris_feed_products']
+		);
+	}
+
+	/** The accepted legacy ownership snapshot exists before the first row-save callback. */
+	public function test_nested_owner_edit_during_row_save_is_blocked_by_published_source_ownership(): void {
+		$GLOBALS['digitalogic_test_posts'][713] = array(
+			'post_type'   => 'product',
+			'post_status' => 'publish',
+			'meta'        => array( '_digitalogic_patris_product_code' => 'LEGACY-713' ),
+		);
+		$nested_result = null;
+		$GLOBALS['digitalogic_test_wc_after_save'] = static function () use ( &$nested_result ) {
+			$editor        = Digitalogic_Product_Code_Editor::instance();
+			$nested_result = $editor->edit(
+				array(
+					'product_id'    => 713,
+					'expected_code' => 'LEGACY-713',
+					'product_code'  => 'OWNER-713',
+					'if_match'      => $editor->revision_for( 713, 'LEGACY-713' ),
+					'request_id'    => 'product-code:713:nested-feed-attempt',
+				)
+			);
+		};
+
+		$result = $this->feed->import_payload(
+			array(
+				'products' => array(
+					array( 'product_code' => 'LEGACY-713', 'name' => 'Owned source row' ),
+				),
+			),
+			'test'
+		);
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 1, $result['updated'] );
+		$this->assertInstanceOf( WP_Error::class, $nested_result );
+		$this->assertSame( 'digitalogic_product_code_source_managed', $nested_result->get_error_code() );
+		$this->assertSame( 'LEGACY-713', get_post_meta( 713, '_digitalogic_patris_product_code', true ) );
+		$this->assertArrayHasKey( 'LEGACY-713', get_option( 'digitalogic_patris_feed_products' ) );
+	}
 
     public function test_patris_meta_only_match_updates_product_and_not_found_remains_in_normalized_snapshot(): void {
         $GLOBALS['digitalogic_test_posts'][701] = array(
@@ -106,23 +215,65 @@ final class PatrisFeedResolutionTest extends TestCase {
 			unset( $GLOBALS['digitalogic_test_wc_products'][709] );
 		};
 
-		$result = $this->feed->import_payload(
+		$product = wc_get_product( 709 );
+		$result  = $this->feed->apply_product_feed(
+			$product,
 			array(
-				'products' => array(
-					array(
-						'product_code' => 'SOURCE-709',
-						'name'         => 'Stale source row',
-					),
-				),
-			),
-			'test'
+				'product_code' => 'SOURCE-709',
+				'name'         => 'Stale source row',
+			)
 		);
 
-		$this->assertSame( 0, $result['updated'] );
-		$this->assertSame( 1, $result['failed'] );
-		$this->assertSame( array( 'digitalogic_patris_product_binding_changed' ), $result['errors'] );
+		$this->assertInstanceOf( WP_Error::class, $result );
+		$this->assertSame( 'digitalogic_patris_product_binding_changed', $result->get_error_code() );
 		$this->assertSame( 'OWNER-EDITED-709', $GLOBALS['digitalogic_test_posts'][709]['meta']['_digitalogic_patris_product_code'] );
 		$this->assertSame( array(), $GLOBALS['digitalogic_test_wc_product_saves'] );
+	}
+
+	/** A metadata short-circuit cannot be counted as a successful source write. */
+	public function test_feed_fails_when_canonical_write_does_not_pass_database_readback(): void {
+		$GLOBALS['digitalogic_test_posts'][710] = array(
+			'post_type'   => 'product',
+			'post_status' => 'publish',
+			'meta'        => array( '_digitalogic_patris_product_code' => 'SOURCE-710' ),
+		);
+		add_filter(
+			'update_post_metadata',
+			static function ( $check, $post_id, $key ) {
+				return 710 === (int) $post_id && '_digitalogic_patris_product_code' === $key ? false : $check;
+			},
+			0,
+			3
+		);
+
+		$result = $this->feed->apply_product_feed(
+			wc_get_product( 710 ),
+			array( 'product_code' => 'SOURCE-710-NEW', 'name' => 'Must fail exact readback' )
+		);
+
+		$this->assertInstanceOf( WP_Error::class, $result );
+		$this->assertSame( 'digitalogic_product_code_source_readback_failed', $result->get_error_code() );
+		$this->assertSame( 'SOURCE-710', get_post_meta( 710, '_digitalogic_patris_product_code', true ) );
+	}
+
+	/** Duplicate canonical rows injected at save are rejected before lock release. */
+	public function test_feed_fails_when_post_save_canonical_readback_is_duplicated(): void {
+		$GLOBALS['digitalogic_test_posts'][711] = array(
+			'post_type'   => 'product',
+			'post_status' => 'publish',
+			'meta'        => array( '_digitalogic_patris_product_code' => 'SOURCE-711' ),
+		);
+		$GLOBALS['digitalogic_test_wc_after_save'] = static function () {
+			$GLOBALS['digitalogic_test_posts'][711]['meta_rows']['_digitalogic_patris_product_code'] = array( 'SOURCE-711', 'SOURCE-711' );
+		};
+
+		$result = $this->feed->apply_product_feed(
+			wc_get_product( 711 ),
+			array( 'product_code' => 'SOURCE-711', 'name' => 'Duplicate readback' )
+		);
+
+		$this->assertInstanceOf( WP_Error::class, $result );
+		$this->assertSame( 'digitalogic_product_code_source_readback_failed', $result->get_error_code() );
 	}
 
     public function test_ambiguous_and_invalid_identifiers_fail_safely_without_product_writes_but_remain_reportable(): void {

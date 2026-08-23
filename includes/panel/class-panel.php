@@ -209,10 +209,18 @@ class Digitalogic_Panel {
             true
         );
 
-        wp_enqueue_script(
-            'digitalogic-panel',
+		wp_enqueue_script(
+			'digitalogic-product-code-contract',
+			DIGITALOGIC_PLUGIN_URL . 'assets/js/product-code-contract.js',
+			array(),
+			filemtime(DIGITALOGIC_PLUGIN_DIR . 'assets/js/product-code-contract.js') ?: DIGITALOGIC_VERSION,
+			true
+		);
+
+		wp_enqueue_script(
+			'digitalogic-panel',
             DIGITALOGIC_PLUGIN_URL . 'assets/js/panel-app.js',
-            array('vue', 'digitalogic-product-query'),
+			array('vue', 'digitalogic-product-query', 'digitalogic-product-code-contract'),
             filemtime(DIGITALOGIC_PLUGIN_DIR . 'assets/js/panel-app.js') ?: DIGITALOGIC_VERSION,
             true
         );
@@ -1640,6 +1648,11 @@ class Digitalogic_Panel {
 			'productCodeMetadataConflict'    => 'This Product Code has conflicting metadata rows and must be reconciled first.',
 			'productCodeStateChanged'        => 'This Product Code changed while the row was loading; reload before editing.',
 			'productCodeStateUnavailable'    => 'The exact Product Code or source state is unavailable; retry after reloading.',
+			'productCodePermissionDenied'     => 'You do not have permission to edit this product or variation.',
+			'productCodeRecoveryUnavailable' => 'The earlier Product Code request cannot be loaded safely.',
+			'productCodeOutcomeUnknown'      => 'The exact Product Code outcome is unknown; stop editing and reconcile the database with the audit record.',
+			'productCodeRecoveryRequired'    => 'An earlier Product Code edit is incomplete; retry its exact value first.',
+			'productCodeResponseAmbiguous'   => 'The Product Code response could not be verified; retry the same value.',
 			'sku'                            => 'SKU',
 			// phpcs:enable WordPress.Arrays.MultipleStatementAlignment.DoubleArrowNotAligned
             'status' => 'Status',
@@ -1956,6 +1969,11 @@ class Digitalogic_Panel {
 			'productCodeMetadataConflict'    => 'ردیف‌های متادیتای این کد کالا متناقض است و ابتدا باید تطبیق داده شود.',
 			'productCodeStateChanged'        => 'کد کالا هنگام بارگذاری ردیف تغییر کرده است؛ پیش از ویرایش دوباره بارگذاری کنید.',
 			'productCodeStateUnavailable'    => 'وضعیت دقیق کد کالا یا منبع در دسترس نیست؛ صفحه را دوباره بارگذاری و تلاش کنید.',
+			'productCodePermissionDenied'     => 'اجازهٔ ویرایش این کالا یا تنوع را ندارید.',
+			'productCodeRecoveryUnavailable' => 'درخواست قبلی کد کالا با ایمنی کافی قابل بازیابی نیست.',
+			'productCodeOutcomeUnknown'      => 'نتیجه دقیق ویرایش کد کالا نامشخص است؛ ویرایش را متوقف و وضعیت پایگاه‌داده را با سابقه ممیزی تطبیق دهید.',
+			'productCodeRecoveryRequired'    => 'ویرایش قبلی کد کالا کامل نشده است؛ ابتدا همان مقدار را دوباره امتحان کنید.',
+			'productCodeResponseAmbiguous'   => 'پاسخ ویرایش کد کالا قابل راستی‌آزمایی نبود؛ همان مقدار را دوباره امتحان کنید.',
 			'sku'                            => 'SKU',
 			// phpcs:enable WordPress.Arrays.MultipleStatementAlignment.DoubleArrowNotAligned
             'status' => 'وضعیت',

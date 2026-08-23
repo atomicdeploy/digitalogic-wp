@@ -958,6 +958,29 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 		);
 	}
 
+	/** Materialization never reports success for a denied canonical metadata write. */
+	public function test_product_identity_write_requires_exact_database_readback(): void {
+		$this->receiveFixture();
+		add_filter(
+			'update_post_metadata',
+			static function ( $check, $post_id, $meta_key ) {
+				unset( $post_id );
+				return Digitalogic_Product_Code_Editor::META_KEY === $meta_key ? false : $check;
+			},
+			2,
+			3
+		);
+
+		$result = Digitalogic_Patris_Catalog_Materializer::instance()->run( $this->manifest(), array( 'apply' => true ) );
+
+		$this->assertNotInstanceOf( WP_Error::class, $result );
+		$this->assertSame( 1, $result['failed'] );
+		$this->assertContains(
+			'digitalogic_product_code_source_readback_failed',
+			array_column( $result['details'], 'reason' )
+		);
+	}
+
 	public function test_referenced_synthetic_category_is_created_under_a_reviewed_manual_parent(): void {
 		$this->receiveFixture();
 		$this->addTerm( 80, 'تجهیزات پزشکی', 0 );

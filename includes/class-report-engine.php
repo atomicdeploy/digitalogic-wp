@@ -117,6 +117,69 @@ final class Digitalogic_Report_Engine {
 		return false;
 	}
 
+	/** Read the persistent projection generation without an option-cache layer. */
+	public function current_projection_generation() {
+		global $wpdb;
+		if ( ! is_object( $wpdb ) || ! method_exists( $wpdb, 'prepare' ) || ! method_exists( $wpdb, 'get_row' ) ) {
+			return new WP_Error(
+				'digitalogic_report_generation_unavailable',
+				__( 'The report projection generation is unavailable.', 'digitalogic' ),
+				array( 'status' => 503 )
+			);
+		}
+		$options = isset( $wpdb->options ) ? $wpdb->options : $wpdb->prefix . 'options';
+		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- wpdb-owned table name cannot be a placeholder.
+		$query = $wpdb->prepare(
+			"/* digitalogic_report_generation_readback */ SELECT option_value FROM {$options} WHERE option_name = %s LIMIT 1",
+			self::CACHE_GENERATION_OPTION
+		);
+		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Exact post-write generation readback is required.
+		$row = false === $query ? null : $wpdb->get_row( $query, ARRAY_A );
+		if ( ! is_array( $row ) || ! array_key_exists( 'option_value', $row ) ) {
+			return new WP_Error(
+				'digitalogic_report_generation_unavailable',
+				__( 'The report projection generation is unavailable.', 'digitalogic' ),
+				array( 'status' => 503 )
+			);
+		}
+		$generation = maybe_unserialize( $row['option_value'] );
+		if ( ! is_string( $generation ) || '' === $generation ) {
+			return new WP_Error(
+				'digitalogic_report_generation_unavailable',
+				__( 'The report projection generation is unavailable.', 'digitalogic' ),
+				array( 'status' => 503 )
+			);
+		}
+
+		return $generation;
+	}
+
+	/** Ensure one product mutation advanced the persistent projection generation. */
+	public function ensure_projection_invalidated( $previous_generation ) {
+		$current = $this->current_projection_generation();
+		if ( ! is_wp_error( $current ) && ! hash_equals( (string) $previous_generation, $current ) ) {
+			return $current;
+		}
+		if ( ! $this->invalidate_cache() ) {
+			return new WP_Error(
+				'digitalogic_report_invalidation_unavailable',
+				__( 'The report projection could not be invalidated.', 'digitalogic' ),
+				array( 'status' => 503 )
+			);
+		}
+		$current = $this->current_projection_generation();
+		if ( is_wp_error( $current ) || hash_equals( (string) $previous_generation, (string) $current ) ) {
+			return new WP_Error(
+				'digitalogic_report_invalidation_unavailable',
+				__( 'The report projection invalidation did not pass exact readback.', 'digitalogic' ),
+				array( 'status' => 503 )
+			);
+		}
+
+		return $current;
+	}
+
 	/**
 	 * Return a cheap revision for every input that can change report output.
 	 *

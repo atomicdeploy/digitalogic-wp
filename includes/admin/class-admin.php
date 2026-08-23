@@ -354,8 +354,9 @@ class Digitalogic_Admin {
         // Plugin styles
         wp_enqueue_style('digitalogic-admin', DIGITALOGIC_PLUGIN_URL . 'assets/css/admin.css', array(), DIGITALOGIC_VERSION);
         
-        // Plugin scripts
-        wp_enqueue_script('digitalogic-admin', DIGITALOGIC_PLUGIN_URL . 'assets/js/admin.js', array('jquery', 'datatables'), DIGITALOGIC_VERSION, true);
+		// Plugin scripts
+		wp_enqueue_script('digitalogic-product-code-contract', DIGITALOGIC_PLUGIN_URL . 'assets/js/product-code-contract.js', array(), DIGITALOGIC_VERSION, true);
+		wp_enqueue_script('digitalogic-admin', DIGITALOGIC_PLUGIN_URL . 'assets/js/admin.js', array('jquery', 'datatables', 'digitalogic-product-code-contract'), DIGITALOGIC_VERSION, true);
         
         // Localize script
         wp_localize_script('digitalogic-admin', 'digitalogic', array(
@@ -386,6 +387,17 @@ class Digitalogic_Admin {
 				'product_code_metadata_conflict'  => __( 'This Product Code has conflicting metadata rows and must be reconciled first.', 'digitalogic' ),
 				'product_code_state_changed'      => __( 'This Product Code changed while the row was loading; reload before editing.', 'digitalogic' ),
 				'product_code_state_unavailable'  => __( 'The exact Product Code or source state is unavailable; retry after reloading.', 'digitalogic' ),
+				'product_code_permission_denied'   => __( 'You do not have permission to edit this product or variation.', 'digitalogic' ),
+				'product_code_recovery_unavailable' => __( 'The earlier Product Code request cannot be loaded safely.', 'digitalogic' ),
+				'product_code_outcome_unknown'      => __( 'The exact Product Code outcome is unknown; stop editing and reconcile the database with the audit record.', 'digitalogic' ),
+				'product_code_recovery_required'   => __( 'An earlier Product Code edit is incomplete and must be recovered first.', 'digitalogic' ),
+				'product_code_request_failed'      => __( 'The Product Code request did not complete.', 'digitalogic' ),
+				'product_code_response_ambiguous'  => __( 'The Product Code response could not be verified; retry the same value.', 'digitalogic' ),
+				'product_code_retry_same_request'  => __( 'Retry the same value; the original request identity will be reused.', 'digitalogic' ),
+				'product_code_reload'              => __( 'Reload the row and review the current value before trying again.', 'digitalogic' ),
+				'product_code_correct_source'       => __( 'Correct the code in its catalog source and deliver the reviewed source revision.', 'digitalogic' ),
+				'product_code_manual_reconcile'     => __( 'Stop editing and reconcile the exact database state with the audit record.', 'digitalogic' ),
+				'product_code_resolve_conflict'     => __( 'Resolve the duplicate or conflicting Product Code before retrying.', 'digitalogic' ),
 				// phpcs:enable WordPress.Arrays.MultipleStatementAlignment.DoubleArrowNotAligned
             )
         ));

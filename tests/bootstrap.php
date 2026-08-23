@@ -47,6 +47,7 @@ $GLOBALS['digitalogic_test_next_term_id'] = 1;
 $GLOBALS['digitalogic_test_update_failures'] = array();
 $GLOBALS['digitalogic_test_meta_update_failures'] = array();
 $GLOBALS['digitalogic_test_meta_delete_failures'] = array();
+$GLOBALS['digitalogic_test_option_delete_failures'] = array();
 $GLOBALS['digitalogic_test_transaction_failures'] = array();
 $GLOBALS['digitalogic_test_cache_deletes'] = array();
 $GLOBALS['digitalogic_test_cache_invalidation_suspended'] = false;
@@ -768,6 +769,9 @@ function add_option($name, $value = '', $deprecated = '', $autoload = 'yes') {
 }
 
 function delete_option($name) {
+	if (in_array($name, $GLOBALS['digitalogic_test_option_delete_failures'] ?? array(), true)) {
+		return false;
+	}
     if (!array_key_exists($name, $GLOBALS['digitalogic_test_options'])) {
         return false;
     }
@@ -1022,6 +1026,10 @@ function metadata_exists($meta_type, $object_id, $meta_key) {
 }
 
 function update_post_meta($post_id, $key, $value) {
+	$guarded = apply_filters('update_post_metadata', null, $post_id, $key, $value, '');
+	if (null !== $guarded) {
+		return $guarded;
+	}
     $failure_key = (int) $post_id . ':' . $key;
     if (in_array($failure_key, $GLOBALS['digitalogic_test_meta_update_failures'], true)) {
         return false;
@@ -1047,6 +1055,10 @@ function update_post_meta($post_id, $key, $value) {
 }
 
 function delete_post_meta($post_id, $key, $value = '') {
+	$guarded = apply_filters('delete_post_metadata', null, $post_id, $key, $value, false);
+	if (null !== $guarded) {
+		return $guarded;
+	}
     $failure_key = (int) $post_id . ':' . $key;
     if (in_array($failure_key, $GLOBALS['digitalogic_test_meta_delete_failures'], true)) {
         return false;
@@ -1064,6 +1076,40 @@ function delete_post_meta($post_id, $key, $value = '') {
     do_action('deleted_post_meta', array(1), $post_id, $key, $old);
 
     return true;
+}
+
+function wp_delete_post($post_id, $force_delete = false) {
+	unset($force_delete);
+	$post_id = (int) $post_id;
+	$post = get_post($post_id);
+	if (!$post) {
+		return false;
+	}
+	do_action('before_delete_post', $post_id, $post);
+	foreach (array_keys($GLOBALS['digitalogic_test_posts'][$post_id]['meta'] ?? array()) as $index => $key) {
+		$meta_id = ($post_id * 1000) + $index + 1;
+		$GLOBALS['digitalogic_test_meta_by_mid'][$meta_id] = array(
+			'post_id' => $post_id,
+			'meta_key' => $key,
+		);
+		$guarded = apply_filters('delete_post_metadata_by_mid', null, $meta_id);
+		if (null === $guarded) {
+			unset($GLOBALS['digitalogic_test_posts'][$post_id]['meta'][$key]);
+		}
+		unset($GLOBALS['digitalogic_test_meta_by_mid'][$meta_id]);
+	}
+	do_action('delete_post', $post_id, $post);
+	unset($GLOBALS['digitalogic_test_posts'][$post_id]);
+	do_action('deleted_post', $post_id, $post);
+	return $post;
+}
+
+function get_metadata_by_mid($meta_type, $meta_id) {
+	if ('post' !== $meta_type) {
+		return false;
+	}
+	$row = $GLOBALS['digitalogic_test_meta_by_mid'][(int) $meta_id] ?? null;
+	return is_array($row) ? (object) $row : false;
 }
 
 function get_posts($args = array()) {
@@ -1573,7 +1619,7 @@ class Digitalogic_Test_WPDB {
 					continue;
 				}
 				$status = (string) ( $post['post_status'] ?? 'publish' );
-				if ( in_array( $status, array( 'trash', 'auto-draft' ), true ) ) {
+				if ( 'auto-draft' === $status ) {
 					continue;
 				}
 				$values = isset( $post['meta_rows']['_digitalogic_patris_product_code'] )
@@ -2315,7 +2361,25 @@ class WC_Product {
             unset($GLOBALS['digitalogic_test_wc_save_fail_once'][$this->id]);
             throw new RuntimeException('Injected one-time WooCommerce save failure.');
         }
-        $this->save_count++;
+		$previous_code_exists = isset($GLOBALS['digitalogic_test_posts'][$this->id]['meta'])
+			&& array_key_exists('_digitalogic_patris_product_code', $GLOBALS['digitalogic_test_posts'][$this->id]['meta']);
+		$previous_code = $previous_code_exists
+			? $GLOBALS['digitalogic_test_posts'][$this->id]['meta']['_digitalogic_patris_product_code']
+			: null;
+		$next_code_exists = array_key_exists('_digitalogic_patris_product_code', $this->meta);
+		$next_code = $next_code_exists ? $this->meta['_digitalogic_patris_product_code'] : null;
+		if ($previous_code_exists !== $next_code_exists || $previous_code !== $next_code) {
+			$hook = $next_code_exists ? 'update_post_metadata' : 'delete_post_metadata';
+			$guarded = apply_filters($hook, null, $this->id, '_digitalogic_patris_product_code', $next_code, '');
+			if (null !== $guarded) {
+				if ($previous_code_exists) {
+					$this->meta['_digitalogic_patris_product_code'] = $previous_code;
+				} else {
+					unset($this->meta['_digitalogic_patris_product_code']);
+				}
+			}
+		}
+		$this->save_count++;
         $GLOBALS['digitalogic_test_posts'][$this->id]['meta'] = $this->meta;
         $GLOBALS['digitalogic_test_wc_product_saves'][] = $this->id;
         $after_save = $GLOBALS['digitalogic_test_wc_after_save'] ?? null;
@@ -2946,6 +3010,7 @@ require_once dirname(__DIR__) . '/includes/class-digitalogic-pricing-input-crede
 require_once dirname(__DIR__) . '/includes/class-patris-feed.php';
 require_once dirname(__DIR__) . '/includes/class-product-sync-receiver.php';
 require_once dirname( __DIR__ ) . '/includes/class-digitalogic-product-code-editor.php';
+require_once dirname( __DIR__ ) . '/includes/class-digitalogic-product-code-write-guard.php';
 require_once dirname(__DIR__) . '/includes/class-shipping-method-service.php';
 require_once dirname(__DIR__) . '/includes/class-patris-catalog-materializer.php';
 require_once dirname(__DIR__) . '/includes/class-digitalogic-google-sheets-catalog.php';

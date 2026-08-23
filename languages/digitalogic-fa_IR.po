@@ -2627,3 +2627,95 @@ msgstr "روش استاندارد خرید داخلی قابل تغییر نیس
 #: includes/class-shipping-method-service.php
 msgid "The canonical domestic method cannot be deleted."
 msgstr "روش استاندارد خرید داخلی قابل حذف نیست."
+
+#: includes/admin/class-admin.php
+msgid "This Product Code is managed by the catalog source; correct it in the source."
+msgstr "این کد کالا توسط منبع کاتالوگ مدیریت می‌شود؛ آن را در منبع اصلاح کنید."
+
+#: includes/admin/class-admin.php
+msgid "This Product Code has conflicting metadata rows and must be reconciled first."
+msgstr "این کد کالا دارای ردیف‌های متادیتای متعارض است و ابتدا باید تطبیق داده شود."
+
+#: includes/admin/class-admin.php
+msgid "This Product Code changed while the row was loading; reload before editing."
+msgstr "کد کالا هنگام بارگذاری ردیف تغییر کرده است؛ پیش از ویرایش دوباره بارگذاری کنید."
+
+#: includes/admin/class-admin.php
+msgid "The exact Product Code or source state is unavailable; retry after reloading."
+msgstr "وضعیت دقیق کد کالا یا منبع در دسترس نیست؛ پس از بارگذاری دوباره تلاش کنید."
+
+#: includes/admin/class-admin.php
+msgid "You do not have permission to edit this product or variation."
+msgstr "اجازه ویرایش این کالا یا تنوع را ندارید."
+
+#: includes/admin/class-admin.php
+msgid "The earlier Product Code request cannot be loaded safely."
+msgstr "درخواست قبلی کد کالا با ایمنی کافی قابل بازیابی نیست."
+
+#: includes/admin/class-admin.php
+msgid "The exact Product Code outcome is unknown; stop editing and reconcile the database with the audit record."
+msgstr "نتیجه دقیق ویرایش کد کالا نامشخص است؛ ویرایش را متوقف و پایگاه‌داده را با سابقه ممیزی تطبیق دهید."
+
+#: includes/admin/class-admin.php
+msgid "An earlier Product Code edit is incomplete and must be recovered first."
+msgstr "ویرایش قبلی کد کالا کامل نشده است و ابتدا باید بازیابی شود."
+
+#: includes/admin/class-admin.php
+msgid "The Product Code request did not complete."
+msgstr "درخواست ویرایش کد کالا کامل نشد."
+
+#: includes/admin/class-admin.php
+msgid "The Product Code response could not be verified; retry the same value."
+msgstr "پاسخ ویرایش کد کالا قابل راستی‌آزمایی نبود؛ همان مقدار را دوباره امتحان کنید."
+
+#: includes/admin/class-admin.php
+msgid "Retry the same value; the original request identity will be reused."
+msgstr "همان مقدار را دوباره امتحان کنید؛ شناسه اصلی درخواست دوباره استفاده می‌شود."
+
+#: includes/admin/class-admin.php
+msgid "Reload the row and review the current value before trying again."
+msgstr "ردیف را دوباره بارگذاری و مقدار فعلی را پیش از تلاش بعدی بررسی کنید."
+
+#: includes/admin/class-admin.php
+msgid "Correct the code in its catalog source and deliver the reviewed source revision."
+msgstr "کد را در منبع کاتالوگ اصلاح و بازبینی منبع را تحویل دهید."
+
+#: includes/admin/class-admin.php
+msgid "Stop editing and reconcile the exact database state with the audit record."
+msgstr "ویرایش را متوقف و وضعیت دقیق پایگاه‌داده را با سابقه ممیزی تطبیق دهید."
+
+#: includes/admin/class-admin.php
+msgid "Resolve the duplicate or conflicting Product Code before retrying."
+msgstr "پیش از تلاش دوباره، کد کالای تکراری یا متعارض را رفع کنید."
+
+#: includes/class-digitalogic-product-code-write-guard.php
+msgid "Product Code changes must use the dedicated audited operation."
+msgstr "تغییر کد کالا باید فقط از عملیات اختصاصی و ممیزی‌شده انجام شود."
+
+#: includes/class-digitalogic-product-code-editor.php
+msgid "You are not allowed to edit Product Codes."
+msgstr "اجازه ویرایش کد کالا را ندارید."
+
+#: includes/class-digitalogic-product-code-editor.php
+msgid "You are not allowed to edit this product or variation."
+msgstr "اجازه ویرایش این کالا یا تنوع را ندارید."
+
+#: includes/class-digitalogic-product-code-editor.php
+msgid "The Product Code outcome requires recovery with the same request_id."
+msgstr "نتیجه ویرایش کد کالا باید با همان شناسه درخواست بازیابی شود."
+
+#: includes/class-digitalogic-product-code-editor.php
+msgid "The Product Code write did not pass exact database readback."
+msgstr "ثبت کد کالا در بازخوانی دقیق پایگاه‌داده تأیید نشد."
+
+#: includes/class-digitalogic-product-code-editor.php
+msgid "The exact source Product Code readback requires the shared identity lock."
+msgstr "بازخوانی دقیق کد کالای منبع به قفل مشترک هویت نیاز دارد."
+
+#: includes/class-digitalogic-product-code-editor.php
+msgid "The source Product Code write did not pass exact database readback."
+msgstr "ثبت کد کالای منبع در بازخوانی دقیق پایگاه‌داده تأیید نشد."
+
+#: includes/class-digitalogic-product-code-editor.php
+msgid "The source Product Code readback conflicts with another product or variation."
+msgstr "بازخوانی کد کالای منبع با کالا یا تنوع دیگری تعارض دارد."

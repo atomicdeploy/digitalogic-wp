@@ -5,6 +5,53 @@ const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
 const vm = require('node:vm');
+const {createHash, webcrypto} = require('node:crypto');
+
+function sha256(value) {
+    return 'sha256:' + createHash('sha256').update(value, 'utf8').digest('hex');
+}
+
+function productCodeResult(request, overrides = {}) {
+    const requestMaterial = JSON.stringify({
+        schema: 'digitalogic.product-code-edit',
+        product_id: String(request.product_id),
+        expected_code: String(request.expected_code),
+        product_code: String(request.product_code),
+        if_match: String(request.if_match)
+    });
+    const revisionMaterial = JSON.stringify({
+        schema: 'digitalogic.product-code-edit',
+        product_id: String(request.product_id),
+        product_code: String(request.product_code)
+    });
+    return Object.assign({
+        schema: 'digitalogic.product-code-edit',
+        status: 'applied',
+        changed: true,
+        replayed: false,
+        product_id: request.product_id,
+        previous_product_code: request.expected_code,
+        product_code: request.product_code,
+        previous_revision: request.if_match,
+        revision: sha256(revisionMaterial),
+        request_id: request.request_id,
+        request_fingerprint: sha256(requestMaterial),
+        backup_reference: 'sha256:' + 'b'.repeat(64),
+        governance_evidence_fingerprint: 'sha256:' + 'c'.repeat(64),
+        verification: {
+            database_readback: true,
+            cache_bypassed: true,
+            unique: true,
+            source_governance: true,
+            projection_current: true
+        },
+        projection: {
+            generation_before_hash: 'sha256:' + 'd'.repeat(64),
+            generation_after_hash: 'sha256:' + 'e'.repeat(64),
+            state_revision_event_durable: true
+        }
+    }, overrides);
+}
 
 function loadPanel(fetchImpl) {
     const timers = new Map();
@@ -53,7 +100,11 @@ function loadPanel(fetchImpl) {
         location: {href: 'https://example.test/panel/', origin: 'https://example.test', pathname: '/panel/'},
         localStorage: {getItem() { return null; }, setItem() {}},
         console: {error() {}, warn() {}, info() {}, log() {}},
-        crypto: {getRandomValues(values) { randomCounter++; values[0] = randomCounter; values[1] = randomCounter + 1; return values; }},
+        crypto: {
+            subtle: webcrypto.subtle,
+            getRandomValues(values) { randomCounter++; values[0] = randomCounter; values[1] = randomCounter + 1; return values; }
+        },
+        TextEncoder,
         addEventListener() {},
         setInterval() { return 1; },
         clearInterval() {},
@@ -80,6 +131,8 @@ function loadPanel(fetchImpl) {
         Object,
         Array,
         JSON,
+		Uint8Array,
+		TextEncoder,
         Intl,
         navigator: {},
         encodeURIComponent,
@@ -87,6 +140,11 @@ function loadPanel(fetchImpl) {
         setTimeout: window.setTimeout,
         clearTimeout: window.clearTimeout
     });
+	vm.runInContext(
+		fs.readFileSync(path.join(__dirname, '..', 'assets', 'js', 'product-code-contract.js'), 'utf8'),
+		context,
+		{filename: 'product-code-contract.js'}
+	);
     vm.runInContext(
         fs.readFileSync(path.join(__dirname, '..', 'assets', 'js', 'panel-app.js'), 'utf8'),
         context,
@@ -95,6 +153,7 @@ function loadPanel(fetchImpl) {
 
     return {
         appOptions,
+		contract: window.DigitalogicProductCodeContract,
         fireNextTimer() {
             const item = timers.entries().next();
             assert.equal(item.done, false, 'Expected one pending deadline timer.');
@@ -104,9 +163,28 @@ function loadPanel(fetchImpl) {
         },
         wasAborted() {
             return aborted;
+        },
+        pendingTimerCount() {
+            return timers.size;
         }
     };
 }
+
+test('classic request registry rejects a second intent and ignores reverse stale completion', () => {
+    const harness = loadPanel(() => new Promise(() => {}));
+    const registry = harness.contract.createRequestRegistry();
+    const first = {request_id: 'product-code:741:first'};
+    const second = {request_id: 'product-code:741:second'};
+
+    assert.equal(registry.begin(741, first), true);
+    assert.equal(registry.begin(741, second), false);
+    assert.equal(registry.isCurrent(741, first), true);
+    assert.equal(registry.finish(741, second), false);
+    assert.equal(registry.isCurrent(741, first), true);
+    assert.equal(registry.size(), 1);
+    assert.equal(registry.finish(741, first), true);
+    assert.equal(registry.begin(741, second), true);
+});
 
 test('panel AJAX deadline aborts a hung request with a typed retryable timeout', async () => {
     const harness = loadPanel(() => new Promise(() => {}));
@@ -115,7 +193,7 @@ test('panel AJAX deadline aborts a hung request with a typed retryable timeout',
         state,
         'digitalogic_update_product_code',
         {request_id: 'product-code:741:deadline'},
-        {ajaxOnly: true, silentError: true}
+        {ajaxOnly: true, bounded: true, silentError: true}
     );
 
     harness.fireNextTimer();
@@ -128,6 +206,19 @@ test('panel AJAX deadline aborts a hung request with a typed retryable timeout',
     });
     assert.equal(harness.wasAborted(), true);
     assert.equal(state.transport, 'ajax');
+});
+
+test('legacy AJAX commands are not given a new client abort contract', () => {
+    const harness = loadPanel(() => new Promise(() => {}));
+    harness.appOptions.methods.run.call(
+        {transport: ''},
+        'digitalogic_export_products',
+        {},
+        {ajaxOnly: true, silentError: true}
+    );
+
+    assert.equal(harness.pendingTimerCount(), 0);
+    assert.equal(harness.wasAborted(), false);
 });
 
 test('panel preserves one idempotency key after timeout and rotates it after 412 state refresh', async () => {
@@ -143,10 +234,11 @@ test('panel preserves one idempotency key after timeout and rotates it after 412
         selectedProduct: null,
         run(command, data, options) {
             sent.push({command, data: Object.assign({}, data), options});
-            return Promise.resolve({});
+			return Promise.resolve(productCodeResult(data));
         },
         loadProducts() {},
-        loadProduct() {}
+        loadProduct() {},
+		hydrateProductCodeRecovery: methods.hydrateProductCodeRecovery
     };
     const product = {
         id: 741,
@@ -179,6 +271,44 @@ test('panel preserves one idempotency key after timeout and rotates it after 412
     assert.equal(sent[2].data.if_match, 'sha256:' + 'b'.repeat(64));
     assert.notEqual(sent[2].data.request_id, firstRequestId);
     assert.equal(sent[2].options.ajaxOnly, true);
+    assert.equal(sent[2].options.bounded, true);
+});
+
+test('panel preserves one idempotency key after an ambiguous server failure', async () => {
+    const harness = loadPanel(() => Promise.resolve({
+        status: 200,
+        json: () => Promise.resolve({success: true, data: {}})
+    }));
+    const methods = harness.appOptions.methods;
+    const sent = [];
+    const state = {
+        productCodeIntents: {},
+        edits: {741: {patris_product_code: '000742'}},
+        selectedProduct: null,
+        run(command, data, options) {
+            sent.push({command, data: Object.assign({}, data), options});
+			return Promise.resolve(productCodeResult(data));
+        },
+        loadProducts() {},
+        loadProduct() {},
+		hydrateProductCodeRecovery: methods.hydrateProductCodeRecovery
+    };
+    const product = {
+        id: 741,
+        patris_product_code: '000741',
+        patris_product_code_revision: 'sha256:' + 'a'.repeat(64)
+    };
+
+    await methods.saveProductCode.call(state, product, '000742');
+    const firstRequestId = sent[0].data.request_id;
+    methods.handleProductCodeSaveError.call(state, product, {
+        code: 'digitalogic_request_failed',
+        status: 502,
+        data: {}
+    });
+    await methods.saveProductCode.call(state, product, '000742');
+
+    assert.equal(sent[1].data.request_id, firstRequestId);
 });
 
 test('structured 409 response reaches the panel without losing machine fields', async () => {
@@ -210,4 +340,87 @@ test('structured 409 response reaches the panel without losing machine fields', 
             return true;
         }
     );
+});
+
+test('invalid JSON with HTTP 200 is an ambiguous retryable response', async () => {
+	const harness = loadPanel(() => Promise.resolve({
+		status: 200,
+		json: () => Promise.reject(new SyntaxError('invalid json'))
+	}));
+
+	await assert.rejects(
+		harness.appOptions.methods.run.call(
+			{transport: ''},
+			'digitalogic_update_product_code',
+			{},
+			{ajaxOnly: true, bounded: true, silentError: true}
+		),
+		(error) => {
+			assert.equal(error.code, 'digitalogic_response_ambiguous');
+			assert.equal(error.status, 0);
+			assert.equal(error.data.retryable, true);
+			return true;
+		}
+	);
+});
+
+test('empty or mismatched HTTP 200 success keeps the exact idempotency identity', async () => {
+	const harness = loadPanel(() => Promise.resolve({status: 200, json: () => Promise.resolve({success: true, data: {}})}));
+	const methods = harness.appOptions.methods;
+	const sent = [];
+	let mode = 'empty';
+	const state = {
+		productCodeIntents: {},
+		edits: {741: {patris_product_code: '000742'}},
+		selectedProduct: null,
+		t: {error: 'error', productCodeRecoveryRequired: 'recover'},
+		hydrateProductCodeRecovery: methods.hydrateProductCodeRecovery,
+		run(command, data) {
+			sent.push(Object.assign({}, data));
+			if (mode === 'empty') return Promise.resolve({});
+			if (mode === 'mismatch') return Promise.resolve(productCodeResult(data, {request_id: 'different-request'}));
+			return Promise.resolve(productCodeResult(data));
+		}
+	};
+	const product = {
+		id: 741,
+		patris_product_code: '000741',
+		patris_product_code_revision: 'sha256:' + 'a'.repeat(64)
+	};
+
+	await assert.rejects(methods.saveProductCode.call(state, product, '000742'), (error) => error.code === 'digitalogic_response_ambiguous');
+	const requestId = state.productCodeIntents[741].request_id;
+	mode = 'mismatch';
+	await assert.rejects(methods.saveProductCode.call(state, product, '000742'), (error) => error.code === 'digitalogic_response_ambiguous');
+	assert.equal(state.productCodeIntents[741].request_id, requestId);
+
+	mode = 'valid';
+	const result = await methods.saveProductCode.call(state, product, '000742');
+	assert.equal(result.request_id, requestId);
+	assert.equal(sent[0].request_id, requestId);
+	assert.equal(sent[1].request_id, requestId);
+	assert.equal(sent[2].request_id, requestId);
+});
+
+test('outcome_unknown reload is read-only and never offers same-request retry', () => {
+	const harness = loadPanel(() => Promise.resolve({status: 200, json: () => Promise.resolve({success: true, data: {}})}));
+	const methods = harness.appOptions.methods;
+	const product = {
+		id: 741,
+		patris_product_code_recovery: {
+			status: 'outcome_unknown',
+			request_id: 'product-code:741:unknown',
+			expected_code: '000741',
+			product_code: '000742',
+			if_match: 'sha256:' + 'a'.repeat(64),
+			request_fingerprint: 'sha256:' + 'b'.repeat(64)
+		}
+	};
+	const state = {productCodeIntents: {741: {request_id: 'old'}}};
+
+	methods.hydrateProductCodeRecovery.call(state, product);
+
+	assert.equal(state.productCodeIntents[741], undefined);
+	assert.equal(product.patris_product_code_editable, false);
+	assert.equal(product.patris_product_code_edit_reason, 'outcome_unknown');
 });

@@ -192,101 +192,236 @@ class Digitalogic_Patris_Feed {
         return $this->import_payload($payload, 'pull');
     }
 
-    public function import_payload($payload, $source = 'push') {
-        if (!is_array($payload)) {
-            return new WP_Error('digitalogic_patris_invalid_payload', __('Source payload must be an object.', 'digitalogic'));
-        }
+	public function import_payload( $payload, $source = 'push' ) {
+		if ( ! is_array( $payload ) ) {
+			return new WP_Error( 'digitalogic_patris_invalid_payload', __( 'Source payload must be an object.', 'digitalogic' ) );
+		}
+		if ( array_key_exists( 'products', $payload ) && ! is_array( $payload['products'] ) ) {
+			return new WP_Error( 'digitalogic_patris_invalid_products', __( 'The source products snapshot must be a list.', 'digitalogic' ) );
+		}
 
-        $products  = $this->extract_list($payload, 'products');
-        $customers = $this->extract_list($payload, 'customers');
+		$products_supplied = array_key_exists( 'products', $payload ) || ( ! empty( $payload ) && array_is_list( $payload ) );
+		$products          = $this->extract_list( $payload, 'products' );
+		$customers         = $this->extract_list( $payload, 'customers' );
 
-        if (empty($products) && empty($customers)) {
-            return new WP_Error('digitalogic_patris_empty_payload', __('Source payload did not contain products or customers.', 'digitalogic'));
-        }
+		if ( ! $products_supplied && empty( $customers ) ) {
+			return new WP_Error( 'digitalogic_patris_empty_payload', __( 'Source payload did not contain products or customers.', 'digitalogic' ) );
+		}
 
-        $normalized_products = array();
-        $results             = array(
-            'source'                 => $source,
-            'total'                  => 0,
-            'updated'                => 0,
-            'missing_in_woocommerce' => 0,
-            'customers_imported'     => 0,
-            'failed'                 => 0,
-            'errors'                 => array(),
-            'synced_at'              => current_time('mysql'),
-        );
+		$normalized_products = array();
+		$results             = array(
+			'source'                 => $source,
+			'total'                  => 0,
+			'updated'                => 0,
+			'missing_in_woocommerce' => 0,
+			'customers_imported'     => 0,
+			'failed'                 => 0,
+			'errors'                 => array(),
+			'synced_at'              => current_time( 'mysql' ),
+		);
 
-        foreach ($products as $row) {
-            $product_data = $this->normalize_product($row);
-            if (empty($product_data['product_code'])) {
-                $results['failed']++;
-                $results['errors'][] = __('Skipped product without product_code.', 'digitalogic');
-                continue;
-            }
-
-            $results['total']++;
-            // Keep the complete normalized upstream snapshot for reporting and
-            // reconciliation even when no unique WooCommerce target exists.
-            // Resolution failures below must never turn into product writes.
-            $normalized_products[$product_data['product_code']] = $product_data;
-
-            $resolved = Digitalogic_Product_Identifier_Resolver::instance()->resolve(array(
-                'patris_code' => $product_data['product_code'],
-            ));
-            if (is_wp_error($resolved)) {
-                if ('digitalogic_product_identifier_not_found' === $resolved->get_error_code()) {
-                    $results['missing_in_woocommerce']++;
-                } else {
-                    $results['failed']++;
-                    $results['errors'][] = 'digitalogic_product_identifier_ambiguous' === $resolved->get_error_code()
-                        ? __('Skipped product because its exact Product Code is ambiguous.', 'digitalogic')
-                        : __('Skipped product because its Product Code could not be resolved.', 'digitalogic');
-                }
-                continue;
-            }
-
-            $product_id = (int) $resolved['woocommerce_id'];
-
-            $product = wc_get_product($product_id);
-            if (!$product) {
-                $results['failed']++;
-                $results['errors'][] = sprintf(__('WooCommerce product for %s could not be loaded.', 'digitalogic'), $product_data['product_code']);
-                continue;
-            }
-
-			$applied = $this->apply_product_feed( $product, $product_data );
-			if ( is_wp_error( $applied ) ) {
-				++$results['failed'];
-				$results['errors'][] = $applied->get_error_code();
-				continue;
+		if ( $products_supplied ) {
+			$receiver = Digitalogic_Product_Sync_Receiver::instance();
+			$locked   = $receiver->acquire_source_identity_lock( 0 );
+			if ( is_wp_error( $locked ) ) {
+				return $locked;
 			}
-            $results['updated']++;
-        }
 
-        $normalized_customers          = $this->normalize_customers($customers);
-        $results['customers_imported'] = count($normalized_customers);
+			try {
+				foreach ( $products as $row ) {
+					$product_data = $this->normalize_product( $row );
+					if ( empty( $product_data['product_code'] ) ) {
+						++$results['failed'];
+						$results['errors'][] = __( 'Skipped product without product_code.', 'digitalogic' );
+						continue;
+					}
 
-        if (!empty($products)) {
-            update_option(self::PRODUCTS_OPTION, $normalized_products, false);
-        }
-        if (!empty($customers)) {
-            update_option(self::CUSTOMERS_OPTION, $normalized_customers, false);
-        }
-        update_option(self::LAST_SYNC_OPTION, $results, false);
+					++$results['total'];
+					$normalized_products[ $product_data['product_code'] ] = $product_data;
+				}
 
-        Digitalogic_Logger::instance()->log(
-            'patris_feed_sync',
-            'patris_feed',
-            null,
-            null,
-            wp_json_encode($results),
-            'Source feed synchronized'
-        );
+				// Publish and verify the accepted ownership snapshot before any row
+				// write. The same source lock remains held for the complete pass.
+				$stored = $this->replace_products_snapshot( $normalized_products );
+				if ( is_wp_error( $stored ) ) {
+					return $stored;
+				}
 
-        do_action('digitalogic_patris_feed_synced', $results);
+				foreach ( $normalized_products as $product_data ) {
+					$resolved = Digitalogic_Product_Identifier_Resolver::instance()->resolve(
+						array( 'patris_code' => $product_data['product_code'] )
+					);
+					if ( is_wp_error( $resolved ) ) {
+						if ( 'digitalogic_product_identifier_not_found' === $resolved->get_error_code() ) {
+							++$results['missing_in_woocommerce'];
+						} else {
+							++$results['failed'];
+							$results['errors'][] = 'digitalogic_product_identifier_ambiguous' === $resolved->get_error_code()
+								? __( 'Skipped product because its exact Product Code is ambiguous.', 'digitalogic' )
+								: __( 'Skipped product because its Product Code could not be resolved.', 'digitalogic' );
+						}
+						continue;
+					}
 
-        return $results;
-    }
+					$product_id = (int) $resolved['woocommerce_id'];
+					$product    = wc_get_product( $product_id );
+					if ( ! $product ) {
+						++$results['failed'];
+						$results['errors'][] = sprintf(
+							__( 'WooCommerce product for %s could not be loaded.', 'digitalogic' ),
+							$product_data['product_code']
+						);
+						continue;
+					}
+
+					$applied = $this->apply_product_feed( $product, $product_data );
+					if ( is_wp_error( $applied ) ) {
+						++$results['failed'];
+						$results['errors'][] = $applied->get_error_code();
+						continue;
+					}
+					++$results['updated'];
+				}
+			} finally {
+				$receiver->release_source_identity_lock();
+			}
+		}
+
+		$normalized_customers          = $this->normalize_customers( $customers );
+		$results['customers_imported'] = count( $normalized_customers );
+		if ( ! empty( $customers ) ) {
+			update_option( self::CUSTOMERS_OPTION, $normalized_customers, false );
+		}
+		update_option( self::LAST_SYNC_OPTION, $results, false );
+
+		Digitalogic_Logger::instance()->log(
+			'patris_feed_sync',
+			'patris_feed',
+			null,
+			null,
+			wp_json_encode( $results ),
+			'Source feed synchronized'
+		);
+
+		do_action( 'digitalogic_patris_feed_synced', $results );
+
+		return $results;
+	}
+
+	/**
+	 * Replace and verify the active normalized product-source snapshot.
+	 *
+	 * This runs before row writes while the shared source-identity lock is held.
+	 *
+	 * @param array $products Complete accepted normalized product map.
+	 * @return true|WP_Error
+	 */
+	private function replace_products_snapshot( $products ) {
+		$before = $this->read_exact_products_snapshot();
+		if ( is_wp_error( $before ) ) {
+			return $before;
+		}
+
+		try {
+			update_option( self::PRODUCTS_OPTION, $products, false );
+			wp_cache_delete( self::PRODUCTS_OPTION, 'options' );
+			$after = $this->read_exact_products_snapshot();
+			if ( ! is_wp_error( $after ) && $after['exists'] && $after['value'] === $products ) {
+				return true;
+			}
+		} catch ( Throwable $exception ) {
+			unset( $exception );
+		}
+
+		$rollback_verified = $this->restore_products_snapshot( $before );
+		return new WP_Error(
+			$rollback_verified ? 'digitalogic_patris_products_snapshot_write_failed' : 'digitalogic_patris_products_snapshot_outcome_unknown',
+			$rollback_verified
+				? __( 'The source product snapshot could not be verified and was restored.', 'digitalogic' )
+				: __( 'The source product snapshot outcome requires exact reconciliation.', 'digitalogic' ),
+			array(
+				'status'            => $rollback_verified ? 503 : 409,
+				'retryable'         => $rollback_verified,
+				'rollback_verified' => $rollback_verified,
+			)
+		);
+	}
+
+	/**
+	 * Read the active product-source snapshot directly from the database.
+	 *
+	 * @return array|WP_Error Exact exists/value pair or a typed failure.
+	 */
+	private function read_exact_products_snapshot() {
+		global $wpdb;
+		if ( ! is_object( $wpdb ) || ! method_exists( $wpdb, 'prepare' ) || ! method_exists( $wpdb, 'get_row' ) ) {
+			return new WP_Error( 'digitalogic_patris_products_snapshot_unavailable', __( 'The source product snapshot is unavailable.', 'digitalogic' ) );
+		}
+		$options = isset( $wpdb->options ) ? $wpdb->options : $wpdb->prefix . 'options';
+		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- wpdb-owned table name cannot be a placeholder.
+		$query = $wpdb->prepare(
+			"/* digitalogic_patris_products_snapshot */
+			SELECT option_value
+			FROM {$options}
+			WHERE option_name = %s
+			LIMIT 1",
+			self::PRODUCTS_OPTION
+		);
+		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		if ( false === $query ) {
+			return new WP_Error( 'digitalogic_patris_products_snapshot_unavailable', __( 'The source product snapshot is unavailable.', 'digitalogic' ) );
+		}
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Source ownership readback must bypass object caches.
+		$row = $wpdb->get_row( $query, ARRAY_A );
+		if ( null === $row ) {
+			if ( isset( $wpdb->last_error ) && '' !== trim( (string) $wpdb->last_error ) ) {
+				return new WP_Error( 'digitalogic_patris_products_snapshot_unavailable', __( 'The source product snapshot is unavailable.', 'digitalogic' ) );
+			}
+
+			return array(
+				'exists' => false,
+				'value'  => array(),
+			);
+		}
+		if ( ! is_array( $row ) || ! array_key_exists( 'option_value', $row ) ) {
+			return new WP_Error( 'digitalogic_patris_products_snapshot_unavailable', __( 'The source product snapshot is unavailable.', 'digitalogic' ) );
+		}
+		$value = maybe_unserialize( $row['option_value'] );
+		if ( ! is_array( $value ) ) {
+			return new WP_Error( 'digitalogic_patris_products_snapshot_malformed', __( 'The source product snapshot is malformed.', 'digitalogic' ) );
+		}
+
+		return array(
+			'exists' => true,
+			'value'  => $value,
+		);
+	}
+
+	/**
+	 * Restore and verify the exact prior product-source snapshot.
+	 *
+	 * @param array $before Exact prior exists/value pair.
+	 * @return bool
+	 */
+	private function restore_products_snapshot( $before ) {
+		try {
+			if ( $before['exists'] ) {
+				update_option( self::PRODUCTS_OPTION, $before['value'], false );
+			} else {
+				delete_option( self::PRODUCTS_OPTION );
+			}
+			wp_cache_delete( self::PRODUCTS_OPTION, 'options' );
+			$restored = $this->read_exact_products_snapshot();
+		} catch ( Throwable $exception ) {
+			unset( $exception );
+			return false;
+		}
+
+		return ! is_wp_error( $restored )
+			&& $restored['exists'] === $before['exists']
+			&& $restored['value'] === $before['value'];
+	}
 
     private function extract_list($payload, $key) {
         if (isset($payload[$key]) && is_array($payload[$key])) {
@@ -626,11 +761,26 @@ class Digitalogic_Patris_Feed {
 				return $desired_binding;
 			}
 
-			return Digitalogic_Patris_Price_Write_Guard::instance()->with_authorized_write(
+			$applied = Digitalogic_Product_Code_Write_Guard::instance()->with_authorized_write(
+				'legacy_feed',
+				array(
+					'product_id' => $expected_product_id,
+					'operation'  => 'set',
+					'value'      => $product_code,
+				),
 				function () use ( $product, $data ) {
-					$this->apply_product_feed_authorized( $product, $data );
+					return Digitalogic_Patris_Price_Write_Guard::instance()->with_authorized_write(
+						function () use ( $product, $data ) {
+							return $this->apply_product_feed_authorized( $product, $data );
+						}
+					);
 				}
 			);
+			if ( is_wp_error( $applied ) ) {
+				return $applied;
+			}
+
+			return Digitalogic_Product_Code_Editor::instance()->verify_canonical_source_write( $expected_product_id, $product_code );
 		} finally {
 			$receiver->release_source_identity_lock();
 		}

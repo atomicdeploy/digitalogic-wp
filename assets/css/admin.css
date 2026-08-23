@@ -273,6 +273,30 @@ table.dataTable input[type="number"] {
     cursor: not-allowed;
 }
 
+.digitalogic-product-code-notice {
+    display: grid;
+    gap: 3px;
+    margin-top: 6px;
+    padding: 7px 9px;
+    max-width: 360px;
+    border-inline-start: 3px solid #b32d2e;
+    background: #fcf0f1;
+    color: #3c434a;
+    font-size: 12px;
+    line-height: 1.55;
+    white-space: normal;
+}
+
+.digitalogic-product-code-notice code {
+    direction: ltr;
+    font-size: 10px;
+    word-break: break-all;
+}
+
+.digitalogic-product-code-notice small {
+    font-weight: 600;
+}
+
 .digitalogic-cell-input.changed,
 .digitalogic-editable-cell.changed {
     border-color: #dba617;

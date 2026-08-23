@@ -465,6 +465,11 @@ class Digitalogic_Product_Sync_Receiver {
 		$this->release_lock();
 	}
 
+	/** Return whether this request currently owns the shared source lock. */
+	public function source_identity_lock_is_owned() {
+		return $this->lock_depth > 0;
+	}
+
     private function __construct() {}
 
     /**

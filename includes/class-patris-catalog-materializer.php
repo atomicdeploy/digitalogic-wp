@@ -1467,7 +1467,10 @@ final class Digitalogic_Patris_Catalog_Materializer {
 			$variation->set_sku( $code );
 			$variation->set_attributes( array( $taxonomy => (string) $term->slug ) );
 			$this->stage_managed_identity( $variation, $code, $source_id, $dataset );
-			$product_id = $variation->save();
+			$product_id = $this->save_managed_identity( $variation );
+			if ( is_wp_error( $product_id ) ) {
+				return $product_id;
+			}
 			if ( (int) $product_id <= 0 ) {
 				throw new RuntimeException( 'WooCommerce returned an invalid variation ID.' );
 			}
@@ -1573,7 +1576,10 @@ final class Digitalogic_Patris_Catalog_Materializer {
 				$product->set_catalog_visibility( 'hidden' );
 			}
 			$this->stage_managed_identity( $product, $code, $source_id, $dataset );
-			$product_id = $product->save();
+			$product_id = $this->save_managed_identity( $product );
+			if ( is_wp_error( $product_id ) ) {
+				return $product_id;
+			}
 			if ( (int) $product_id <= 0 ) {
 				throw new RuntimeException( 'WooCommerce returned an invalid product ID.' );
 			}
@@ -1613,7 +1619,10 @@ final class Digitalogic_Patris_Catalog_Materializer {
 			$this->apply_product_seo_meta( $product, $enrichment );
 			$product->update_meta_data( 'rank_math_primary_product_cat', (string) $category_term );
 			$category_product_id = $this->assign_product_category( $product, $category_term );
-			$product->save();
+			$saved = $this->save_managed_identity( $product );
+			if ( is_wp_error( $saved ) ) {
+				return $saved;
+			}
 		} catch ( Throwable $exception ) {
 			return $this->error( 'digitalogic_patris_materializer_product_write_failed', 'The reviewed product enrichment could not be saved.' );
 		}
@@ -1622,10 +1631,13 @@ final class Digitalogic_Patris_Catalog_Materializer {
 		if ( is_wp_error( $category_readback ) ) {
 			return $category_readback;
 		}
+		$identity_readback = Digitalogic_Product_Code_Editor::instance()->verify_canonical_source_write( $product->get_id(), $code );
+		if ( is_wp_error( $identity_readback ) ) {
+			return $identity_readback;
+		}
 
 		if (
-			(string) get_post_meta( $product->get_id(), Digitalogic_Product_Identifier_Resolver::PATRIS_CODE_META, true ) !== $code
-			|| (string) get_post_meta( $product->get_id(), Digitalogic_Product_Identifier_Resolver::SKU_META, true ) !== $code
+			(string) get_post_meta( $product->get_id(), Digitalogic_Product_Identifier_Resolver::SKU_META, true ) !== $code
 		) {
 			return $this->error( 'digitalogic_patris_materializer_identity_readback_failed', 'The Patris Code/SKU identity failed readback verification.' );
 		}
@@ -1647,6 +1659,21 @@ final class Digitalogic_Patris_Catalog_Materializer {
 		$product->update_meta_data( self::OWNER_SOURCE_META, $source_id );
 		$product->update_meta_data( self::OWNER_DATASET_META, $dataset );
 		$product->update_meta_data( self::OWNER_CODE_META, $code );
+	}
+
+	/** Persist one staged canonical identity under the shared writer boundary. */
+	private function save_managed_identity( $product ) {
+		return Digitalogic_Product_Code_Write_Guard::instance()->with_authorized_write(
+			'materializer',
+			array(
+				'product'   => $product,
+				'operation' => 'set',
+				'value'     => (string) $product->get_meta( Digitalogic_Product_Identifier_Resolver::PATRIS_CODE_META, true ),
+			),
+			static function () use ( $product ) {
+				return $product->save();
+			}
+		);
 	}
 
 	/**

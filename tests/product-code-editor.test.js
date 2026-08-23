@@ -41,14 +41,14 @@ test('canonical Product Code edits use only the dedicated idempotent command', (
     assert.match(saveMethod[1], /if_match:\s*intent\.if_match/);
     assert.match(saveMethod[1], /request_id:\s*intent\.request_id/);
     assert.match(saveMethod[1], /intent\.signature\s*!==\s*signature/);
-	assert.match(saveMethod[1], /\{ajaxOnly:\s*true\}/);
+	assert.match(saveMethod[1], /\{ajaxOnly:\s*true,\s*bounded:\s*true\}/);
     assert.doesNotMatch(saveMethod[1], /digitalogic_update_product['"]/);
     assert.match(admin, /fieldName\s*===\s*'patris_product_code'/);
     assert.match(admin, /digitalogic_update_product_code/);
     assert.match(admin, /expected_code:\s*intent\.expected_code/);
     assert.match(admin, /if_match:\s*intent\.if_match/);
     assert.match(admin, /request_id:\s*intent\.request_id/);
-	assert.match(admin, /\{ajaxOnly:\s*true\}/);
+	assert.match(admin, /\{ajaxOnly:\s*true,\s*bounded:\s*true\}/);
 });
 
 test('Product Code requests have bounded transports and never auto-replay across transports', () => {
@@ -59,9 +59,21 @@ test('Product Code requests have bounded transports and never auto-replay across
 	assert.match(panel, /Promise\.race\(\[fetchRequest, timeoutRequest\]\)/);
 	assert.match(panel, /controller\.abort\(\)/);
 	assert.match(panel, /digitalogic_request_timeout/);
-	assert.match(panel, /saveProductCode:[\s\S]*?\{ajaxOnly:\s*true\}/);
-	assert.match(admin, /timeout:\s*Math\.max\(1000, Math\.min\(30000/);
-	assert.match(admin, /digitalogic_update_product_code[\s\S]*?\{ajaxOnly:\s*true\}/);
+	assert.match(panel, /saveProductCode:[\s\S]*?\{ajaxOnly:\s*true,\s*bounded:\s*true\}/);
+	assert.match(admin, /requestOptions\.timeout\s*=\s*Math\.max\(1000,\s*Math\.min\(30000/);
+	assert.match(admin, /digitalogic_update_product_code[\s\S]*?\{ajaxOnly:\s*true,\s*bounded:\s*true\}/);
+});
+
+test('classic Product Code requests remain serialized across redraws and stale callbacks', () => {
+	const contract = source('assets/js/product-code-contract.js');
+	const admin = source('assets/js/admin.js');
+
+	assert.match(contract, /createRequestRegistry/);
+	assert.match(admin, /productCodeRequests\.begin\(productId, requestSnapshot\)/);
+	assert.match(admin, /productCodeRequests\.isCurrent\(productId, requestSnapshot\)/);
+	assert.match(admin, /productCodeRequests\.finish\(productId, requestSnapshot\)/);
+	assert.match(admin, /productCodeRequests\.has\(row\.id\)/);
+	assert.match(admin, /productCodeRequests\.size\(\)\s*===\s*0/);
 });
 
 test('structured precondition errors rotate state while unknown and retryable outcomes remain safe', () => {
@@ -82,8 +94,8 @@ test('structured precondition errors rotate state while unknown and retryable ou
 		assert.match(js, /intent\.request_id\s*=\s*''/);
 		assert.match(js, /digitalogic_product_code_outcome_unknown/);
 	}
-	assert.match(panel, /Number\(error\.status\)\s*===\s*503/);
-	assert.match(admin, /status\s*!==\s*503/);
+	assert.match(panel, /status\s*>=\s*500/);
+	assert.match(admin, /status\s*>=\s*500/);
 });
 
 test('source-managed rows are visibly read-only while the backend remains authoritative', () => {
@@ -94,7 +106,7 @@ test('source-managed rows are visibly read-only while the backend remains author
 
 	assert.match(manager, /'patris_product_code_editable'\s*=>/);
 	assert.match(manager, /'patris_product_code_edit_reason'\s*=>/);
-	assert.match(manager, /editability_for\(\s*\$product_id,\s*\$product_code\s*\)/);
+	assert.match(manager, /editability_for\(\s*\$product_id,\s*\$cached_product_code\s*\)/);
 	assert.match(panel, /isProductColumnEditable:\s*function/);
 	assert.match(panel, /product\.patris_product_code_editable\s*!==\s*false/);
 	assert.match(template, /isProductColumnEditable\(product, column\)/);
@@ -110,6 +122,21 @@ test('source-managed rows are visibly read-only while the backend remains author
 	}
 });
 
+test('both admin surfaces verify the exact terminal schema and request fingerprint', () => {
+	const contract = source('assets/js/product-code-contract.js');
+	const panel = source('assets/js/panel-app.js');
+	const admin = source('assets/js/admin.js');
+
+	assert.match(contract, /schema:\s*SCHEMA/);
+	assert.match(contract, /constantTimeEqual\(result\.request_id,\s*request\.request_id\)/);
+	assert.match(contract, /constantTimeEqual\(result\.request_fingerprint,\s*fingerprint\)/);
+	assert.match(contract, /constantTimeEqual\(result\.revision,\s*revision\)/);
+	assert.match(contract, /verification\.database_readback\s*===\s*true/);
+	assert.match(contract, /verification\.source_governance\s*===\s*true/);
+	assert.match(panel, /contract\.validateResult\(result,\s*prepared\)/);
+	assert.match(admin, /contract\.validateResult\(result,\s*prepared\)/);
+});
+
 test('every supported canonical-code writer shares the source identity lock', () => {
 	const editor = source('includes/class-digitalogic-product-code-editor.php');
 	const receiver = source('includes/class-product-sync-receiver.php');
@@ -121,6 +148,17 @@ test('every supported canonical-code writer shares the source identity lock', ()
 	assert.match(editor, /acquire_source_identity_lock\(\s*0\s*\)/);
 	assert.match(feed, /function apply_product_feed[\s\S]*?acquire_source_identity_lock\(\s*0\s*\)/);
 	assert.match(materializer, /\$source_identity_locked\s*=\s*Digitalogic_Product_Sync_Receiver::instance\(\)->acquire_source_identity_lock\(\s*0\s*\)/);
+});
+
+test('soft-deleted products retain exact Product Code ownership until permanent deletion', () => {
+	const editor = source('includes/class-digitalogic-product-code-editor.php');
+	const conflictQuery = editor.match(
+		/\/\* digitalogic_product_code_conflicts \*\/[\s\S]*?LIMIT 3/
+	);
+
+	assert.ok(conflictQuery, 'The exact conflict query must remain identifiable.');
+	assert.match(conflictQuery[0], /p\.post_status\s*<>\s*'auto-draft'/);
+	assert.doesNotMatch(conflictQuery[0], /post_status[^\n]*trash/);
 });
 
 test('the dispatcher and direct admin AJAX surface expose the same Living command', () => {

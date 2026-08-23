@@ -343,8 +343,19 @@ class Digitalogic_Product_Manager {
                 $image_url = wp_get_attachment_url($public_product->get_image_id());
             }
             $pricing_policy = Digitalogic_Patris_Price_Policy::instance()->project($product);
-			$product_code             = (string) $product->get_meta( '_digitalogic_patris_product_code', true );
-			$product_code_editability = Digitalogic_Product_Code_Editor::instance()->editability_for( $product_id, $product_code );
+			$cached_product_code       = (string) $product->get_meta( '_digitalogic_patris_product_code', true );
+			$product_code_editability = Digitalogic_Product_Code_Editor::instance()->editability_for( $product_id, $cached_product_code );
+			$product_code             = (string) $product_code_editability['product_code'];
+			$product_code_recovery    = Digitalogic_Product_Code_Editor::instance()->recovery_intent_for( $product_id );
+			if ( is_wp_error( $product_code_recovery ) ) {
+				$product_code_editability['editable'] = false;
+				$product_code_editability['reason']   = 'recovery_unavailable';
+				$product_code_recovery                = array();
+			}
+			if ( is_array( $product_code_recovery ) && 'outcome_unknown' === (string) ( $product_code_recovery['status'] ?? '' ) ) {
+				$product_code_editability['editable'] = false;
+				$product_code_editability['reason']   = 'outcome_unknown';
+			}
 
             $data = array(
                 'id' => $product_id,
@@ -380,12 +391,11 @@ class Digitalogic_Product_Manager {
                 'revision_count' => $list_context ? null : count(wp_get_post_revisions($public_product->get_id())),
 				// phpcs:disable WordPress.Arrays.MultipleStatementAlignment.DoubleArrowNotAligned -- Keep this focused addition out of the legacy array's formatting debt.
 				'patris_product_code'             => $product_code,
-				'patris_product_code_revision'    => Digitalogic_Product_Code_Editor::instance()->revision_for(
-					$product_id,
-					$product_code
-				),
+				'patris_product_code_revision'    => (string) $product_code_editability['revision'],
 				'patris_product_code_editable'    => $product_code_editability['editable'],
 				'patris_product_code_edit_reason' => $product_code_editability['reason'],
+				'patris_product_code_cache_mismatch' => $product_code_editability['cache_mismatch'],
+				'patris_product_code_recovery'        => $product_code_recovery,
 				// phpcs:enable WordPress.Arrays.MultipleStatementAlignment.DoubleArrowNotAligned
                 'patris_name' => $product->get_meta('_digitalogic_patris_name', true),
                 'patris_serial' => $product->get_meta('_digitalogic_patris_serial', true),

@@ -2668,3 +2668,95 @@ msgstr ""
 #: includes/class-shipping-method-service.php
 msgid "The canonical domestic method cannot be deleted."
 msgstr ""
+
+#: includes/admin/class-admin.php
+msgid "This Product Code is managed by the catalog source; correct it in the source."
+msgstr ""
+
+#: includes/admin/class-admin.php
+msgid "This Product Code has conflicting metadata rows and must be reconciled first."
+msgstr ""
+
+#: includes/admin/class-admin.php
+msgid "This Product Code changed while the row was loading; reload before editing."
+msgstr ""
+
+#: includes/admin/class-admin.php
+msgid "The exact Product Code or source state is unavailable; retry after reloading."
+msgstr ""
+
+#: includes/admin/class-admin.php
+msgid "You do not have permission to edit this product or variation."
+msgstr ""
+
+#: includes/admin/class-admin.php
+msgid "The earlier Product Code request cannot be loaded safely."
+msgstr ""
+
+#: includes/admin/class-admin.php
+msgid "The exact Product Code outcome is unknown; stop editing and reconcile the database with the audit record."
+msgstr ""
+
+#: includes/admin/class-admin.php
+msgid "An earlier Product Code edit is incomplete and must be recovered first."
+msgstr ""
+
+#: includes/admin/class-admin.php
+msgid "The Product Code request did not complete."
+msgstr ""
+
+#: includes/admin/class-admin.php
+msgid "The Product Code response could not be verified; retry the same value."
+msgstr ""
+
+#: includes/admin/class-admin.php
+msgid "Retry the same value; the original request identity will be reused."
+msgstr ""
+
+#: includes/admin/class-admin.php
+msgid "Reload the row and review the current value before trying again."
+msgstr ""
+
+#: includes/admin/class-admin.php
+msgid "Correct the code in its catalog source and deliver the reviewed source revision."
+msgstr ""
+
+#: includes/admin/class-admin.php
+msgid "Stop editing and reconcile the exact database state with the audit record."
+msgstr ""
+
+#: includes/admin/class-admin.php
+msgid "Resolve the duplicate or conflicting Product Code before retrying."
+msgstr ""
+
+#: includes/class-digitalogic-product-code-write-guard.php
+msgid "Product Code changes must use the dedicated audited operation."
+msgstr ""
+
+#: includes/class-digitalogic-product-code-editor.php
+msgid "You are not allowed to edit Product Codes."
+msgstr ""
+
+#: includes/class-digitalogic-product-code-editor.php
+msgid "You are not allowed to edit this product or variation."
+msgstr ""
+
+#: includes/class-digitalogic-product-code-editor.php
+msgid "The Product Code outcome requires recovery with the same request_id."
+msgstr ""
+
+#: includes/class-digitalogic-product-code-editor.php
+msgid "The Product Code write did not pass exact database readback."
+msgstr ""
+
+#: includes/class-digitalogic-product-code-editor.php
+msgid "The exact source Product Code readback requires the shared identity lock."
+msgstr ""
+
+#: includes/class-digitalogic-product-code-editor.php
+msgid "The source Product Code write did not pass exact database readback."
+msgstr ""
+
+#: includes/class-digitalogic-product-code-editor.php
+msgid "The source Product Code readback conflicts with another product or variation."
+msgstr ""
