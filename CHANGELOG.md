@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.4] - 2026-08-23
+
+### Added
+- Added an authenticated composite pricing revision plus asynchronous,
+  single-flight WooCommerce/Patris projection snapshots with immutable bulk and
+  fixed-page reads, ETags, progress, cancellation, integrity digests, bounded
+  retry semantics, and backwards-compatible existing pricing routes.
+- Added persistent catalog-generation invalidation for pricing applies and the
+  WooCommerce, Patris, category, attachment, metadata, URL, weight, currency,
+  shipping, and pricing inputs consumed by the `excel-v1` projection.
+- Added focused snapshot lifecycle, rollback, replay, conditional request,
+  corruption, freshness, exact-schema, route-permission, and
+  production-consistency fixture tests.
+- Added an exact-source, header-authenticated, read-only pricing WebSocket
+  principal with ordered durable replay, cursor-gap signaling, a persistent
+  retry outbox, and at-least-once composite revision events for committed
+  WordPress pricing/catalog mutations.
+- Added post-commit source change/removal events and one replaceable one-shot
+  action for currency-effective, currency-stale, and source-stale revision
+  boundaries, with activation/deactivation cleanup and no recurring poll.
+- Replaced the WebSocket daemon's periodic durable-queue catch-up with a
+  persistent, coalesced one-shot Redis-wake retry; replay now occurs only on a
+  pushed wake, client connection, or Redis reconnection.
+- Invalidated WooCommerce's versioned per-product cache group after
+  `product_type` taxonomy writes and Patris materialization, preventing stale
+  runtime `simple` types from contradicting canonical variable products.
+- Added a bounded, administrator-only product-type cache repair command that
+  derives candidates from a fresh integrity report, verifies variable
+  taxonomy and variation readback, and invalidates only exact WooCommerce
+  per-product cache prefixes with idempotent post-repair evidence.
+
 ## [1.8.3] - 2026-07-27
 
 ### Fixed

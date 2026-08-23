@@ -32,7 +32,11 @@ final class PatrisPricePolicyTest extends TestCase {
 		$GLOBALS['digitalogic_test_wc_product_saves']     = array();
 		$GLOBALS['digitalogic_test_wc_set_price_calls']   = array();
 		$GLOBALS['digitalogic_test_wc_transient_deletes'] = array();
-		$GLOBALS['wpdb']                                  = new Digitalogic_Test_WPDB();
+
+		$GLOBALS['digitalogic_test_wc_cache_group_invalidations'] = array();
+		$GLOBALS['digitalogic_test_object_term_cache_cleans']     = array();
+
+		$GLOBALS['wpdb'] = new Digitalogic_Test_WPDB();
 
 		$this->resetSingleton( Digitalogic_Product_Identifier_Resolver::class );
 		$this->resetSingleton( Digitalogic_Patris_Price_Policy::class );
@@ -62,6 +66,8 @@ final class PatrisPricePolicyTest extends TestCase {
 		$this->assertSame( array( array( 801, '200' ) ), $GLOBALS['digitalogic_test_wc_set_price_calls'] );
 		$this->assertSame( array( 801 ), $GLOBALS['digitalogic_test_wc_transient_deletes'] );
 		$this->assertContains( array( 801, 'post_meta' ), $GLOBALS['digitalogic_test_cache_deletes'] );
+		$this->assertSame( array( 'product_801' ), $GLOBALS['digitalogic_test_wc_cache_group_invalidations'] );
+		$this->assertSame( array( array( 801, 'product' ) ), $GLOBALS['digitalogic_test_object_term_cache_cleans'] );
 	}
 
 	/** Verify a stale promotion is removed and cannot override the selling price. */

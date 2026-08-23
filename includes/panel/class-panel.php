@@ -19,6 +19,9 @@ class Digitalogic_Panel {
     private const EVENT_SEQUENCE_OPTION = 'digitalogic_panel_event_sequence';
     private const EVENT_LOCK_NAME = 'digitalogic_panel_events_v1';
     private const EVENT_LIMIT = 200;
+	private const EVENT_WAKE_OPTION      = 'digitalogic_panel_event_wake_outbox_v1';
+	private const EVENT_WAKE_RETRY_HOOK  = 'digitalogic_panel_event_wake_retry_v1';
+	private const EVENT_WAKE_RETRY_DELAY = 2;
 
     private static $reported_delivery_failures = array();
 
@@ -49,6 +52,8 @@ class Digitalogic_Panel {
         add_action('updated_option', array($this, 'record_option_event'), 20, 3);
         add_action('user_register', array($this, 'record_user_event'), 20, 1);
         add_action('profile_update', array($this, 'record_user_event'), 20, 1);
+		add_action(self::EVENT_WAKE_RETRY_HOOK, array( __CLASS__, 'retry_event_wake_delivery' ));
+		add_action('admin_init', array( __CLASS__, 'install_event_wake_retry' ), 30);
         add_filter('posts_search', array($this, 'extend_product_search'), 10, 2);
         add_action('wp_footer', array($this, 'hide_wp_armour_honeypot_notice'), 1000);
         add_action('admin_footer', array($this, 'hide_wp_armour_honeypot_notice'), 1000);
@@ -918,6 +923,13 @@ class Digitalogic_Panel {
 
         if (!self::publish_event($event_envelope)) {
             $delivery_warnings[] = 'panel_redis_delivery_failed';
+			if ( ! self::store_event_wake($event_envelope) ) {
+				$delivery_warnings[] = 'panel_wake_outbox_write_failed';
+			} elseif ( ! self::schedule_event_wake_retry() ) {
+				$delivery_warnings[] = 'panel_wake_retry_schedule_failed';
+			}
+		} else {
+			self::acknowledge_event_wake( (int) $event_envelope['id']);
         }
 
         return array(
@@ -925,6 +937,134 @@ class Digitalogic_Panel {
             'delivery_warnings' => array_values(array_unique($delivery_warnings)),
         );
     }
+
+	/** Repair a missing one-shot Redis wake retry without polling event state. */
+	public static function install_event_wake_retry() {
+		$wake = get_option(self::EVENT_WAKE_OPTION, array());
+		if ( ! is_array($wake) || ! is_array($wake['event'] ?? null) ) {
+			return true;
+		}
+
+		return self::schedule_event_wake_retry();
+	}
+
+	/** Remove only the pending one-shot wake action while retaining its outbox. */
+	public static function deactivate_event_wake_retry() {
+		if ( function_exists('wp_clear_scheduled_hook') ) {
+			wp_clear_scheduled_hook(self::EVENT_WAKE_RETRY_HOOK, array());
+		}
+	}
+
+	/** Publish the newest durable wake once; the daemon then drains its queue. */
+	public static function retry_event_wake_delivery() {
+		self::refresh_event_option_cache(true);
+		$wake     = get_option(self::EVENT_WAKE_OPTION, array());
+		$event    = is_array($wake) && is_array($wake['event'] ?? null) ? $wake['event'] : array();
+		$event_id = absint($event['id'] ?? 0);
+		if ( $event_id <= 0 ) {
+			return;
+		}
+
+		if ( self::publish_event($event) ) {
+			self::acknowledge_event_wake($event_id);
+			return;
+		}
+
+		self::schedule_event_wake_retry();
+	}
+
+	/** Store only the newest failed Redis wake under the global event mutex. */
+	private static function store_event_wake( $event ) {
+		$event    = is_array($event) ? $event : array();
+		$event_id = absint($event['id'] ?? 0);
+		if ( $event_id <= 0 ) {
+			return false;
+		}
+
+		$lock = self::acquire_event_lock();
+		if ( $lock === false ) {
+			self::report_event_delivery_failure('Could not acquire the event wake outbox lock.');
+			return false;
+		}
+		try {
+			self::refresh_event_option_cache(true);
+			$current    = get_option(self::EVENT_WAKE_OPTION, array());
+			$current_id = is_array($current) && is_array($current['event'] ?? null)
+				? absint($current['event']['id'] ?? 0)
+				: 0;
+			if ( $current_id >= $event_id ) {
+				return true;
+			}
+			$record  = array(
+				'event'      => $event,
+				'updated_at' => gmdate('c'),
+			);
+			$updated = update_option(self::EVENT_WAKE_OPTION, $record, false);
+
+			return $updated || $record === get_option(self::EVENT_WAKE_OPTION, array());
+		} finally {
+			self::release_event_lock($lock);
+		}
+	}
+
+	/** Clear a failed wake only when no newer event superseded this delivery. */
+	private static function acknowledge_event_wake( $delivered_id ) {
+		$current = get_option(self::EVENT_WAKE_OPTION, null);
+		if ( ! is_array($current) || ! is_array($current['event'] ?? null) ) {
+			return true;
+		}
+
+		$lock = self::acquire_event_lock();
+		if ( $lock === false ) {
+			return false;
+		}
+		$cleared = false;
+		try {
+			self::refresh_event_option_cache(true);
+			$current    = get_option(self::EVENT_WAKE_OPTION, null);
+			$current_id = is_array($current) && is_array($current['event'] ?? null)
+				? absint($current['event']['id'] ?? 0)
+				: 0;
+			if ( $current_id > (int) $delivered_id ) {
+				self::schedule_event_wake_retry();
+				return true;
+			}
+			if ( $current_id > 0 ) {
+				delete_option(self::EVENT_WAKE_OPTION);
+			}
+			$cleared = null === get_option(self::EVENT_WAKE_OPTION, null);
+		} finally {
+			self::release_event_lock($lock);
+		}
+		if ( $cleared && function_exists('wp_clear_scheduled_hook') ) {
+			wp_clear_scheduled_hook(self::EVENT_WAKE_RETRY_HOOK, array());
+		}
+
+		return $cleared;
+	}
+
+	/** Schedule one non-recurring wake retry, coalesced across event writers. */
+	private static function schedule_event_wake_retry() {
+		if ( ! function_exists('wp_schedule_single_event') ) {
+			self::report_event_delivery_failure('The one-shot panel event wake scheduler is unavailable.');
+			return false;
+		}
+		if ( function_exists('wp_next_scheduled') && false !== wp_next_scheduled(self::EVENT_WAKE_RETRY_HOOK, array()) ) {
+			return true;
+		}
+		$scheduled = wp_schedule_single_event(
+			time() + self::EVENT_WAKE_RETRY_DELAY,
+			self::EVENT_WAKE_RETRY_HOOK,
+			array(),
+			true
+		);
+		$scheduled = ! is_wp_error($scheduled) && false !== $scheduled;
+		if ( ! $scheduled ) {
+			self::report_event_delivery_failure('The one-shot panel event wake retry could not be scheduled.');
+		}
+
+		return $scheduled;
+	}
 
     /**
      * Acquire a database-wide lock around sequence allocation and queue writes.
@@ -974,14 +1114,15 @@ class Digitalogic_Panel {
 
         wp_cache_delete(self::EVENT_OPTION, 'options');
         wp_cache_delete(self::EVENT_SEQUENCE_OPTION, 'options');
+		wp_cache_delete(self::EVENT_WAKE_OPTION, 'options');
     }
 
     /**
      * Publish the already-persisted envelope to Redis for immediate delivery.
      *
      * A zero subscriber count is a successful Redis PUBLISH reply. Any false
-     * connection/auth/select/publish response is reported while the option
-     * queue and the browser's polling loop remain the delivery fallback.
+     * connection/auth/select/publish response is reported while the durable
+     * queue and one-shot wake outbox remain the delivery fallback.
      *
      * @param array $event_envelope Stored event envelope.
      * @return bool

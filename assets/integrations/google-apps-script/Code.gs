@@ -134,8 +134,12 @@ function syncCatalog() {
     const previousRevision = stateProperties.getProperty('DIGITALOGIC_CATALOG_REVISION');
 
     if (previousRevision === revision) {
-      stateProperties.setProperty('DIGITALOGIC_LAST_SYNC_AT', new Date().toISOString());
-      stateProperties.setProperty('DIGITALOGIC_PRICING_STATE_REVISION', pricingState.state_revision);
+      stateProperties.setProperties({
+        DIGITALOGIC_LAST_SYNC_AT: new Date().toISOString(),
+        DIGITALOGIC_LAST_SYNC_STATUS: 'ok',
+        DIGITALOGIC_LAST_SYNC_ERROR: '',
+        DIGITALOGIC_PRICING_STATE_REVISION: pricingState.state_revision,
+      });
       if (dashboard) {
         updateDashboard_(dashboard, stateProperties);
       }

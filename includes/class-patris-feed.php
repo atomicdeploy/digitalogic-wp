@@ -369,10 +369,52 @@ class Digitalogic_Patris_Feed {
      * @return bool
      */
     public function verify_product_sync_request(WP_REST_Request $request) {
-        $expected = $this->get_product_sync_secret();
-        $provided = $request->get_header('x-patris-product-sync-secret');
+		$payload = $request->get_json_params();
+		$source  = is_array( $payload ) && isset( $payload['source'] ) && is_array( $payload['source'] )
+			? $payload['source']
+			: array();
 
-        if (!is_string($provided) || '' === $provided || '' === $expected || !hash_equals($expected, $provided)) {
+		return $this->verify_product_sync_request_for_source( $request, $source );
+	}
+
+	/**
+	 * Authenticate the receiver secret against an explicit source scope.
+	 *
+	 * Token-addressed GET/HEAD routes cannot safely depend on a JSON request
+	 * body. Keeping this override explicit preserves the existing verifier while
+	 * allowing those routes to bind authorization to stored snapshot identity.
+	 *
+	 * @param WP_REST_Request $request Current request.
+	 * @param array           $source            Exact source identity.
+	 * @param bool            $allow_generation Whether initial setup may create a secret.
+	 * @return bool
+	 */
+	public function verify_product_sync_request_for_source( WP_REST_Request $request, $source, $allow_generation = true ) {
+		return $this->verify_product_sync_credential_for_source(
+			$request->get_header( 'x-patris-product-sync-secret' ),
+			$source,
+			$allow_generation
+		);
+	}
+
+	/**
+	 * Authenticate one raw header credential against an exact source scope.
+	 *
+	 * The credential remains server-side and is never returned to callers. This
+	 * helper lets the outbound WebSocket subscriber reuse the same narrow scope
+	 * without manufacturing a REST body or widening command privileges.
+	 *
+	 * @param mixed $provided         Header credential supplied by the caller.
+	 * @param array $source           Exact source identity.
+	 * @param bool  $allow_generation Whether initial setup may create a secret.
+	 * @return bool
+	 */
+	public function verify_product_sync_credential_for_source( $provided, $source, $allow_generation = true ) {
+		$expected = $allow_generation
+			? $this->get_product_sync_secret()
+			: (string) get_option( self::PRODUCT_SYNC_SECRET_OPTION, '' );
+
+		if ( ! is_string( $provided ) || '' === $provided || '' === $expected || ! hash_equals( $expected, $provided ) ) {
             return false;
         }
 
@@ -384,11 +426,7 @@ class Digitalogic_Patris_Feed {
         if (empty($scopes)) {
             return false;
         }
-
-        $payload   = $request->get_json_params();
-        $source    = is_array($payload) && isset($payload['source']) && is_array($payload['source'])
-            ? $payload['source']
-            : array();
+		$source    = is_array( $source ) ? $source : array();
         $source_id = isset($source['id']) && is_string($source['id']) ? $source['id'] : '';
         $dataset   = isset($source['dataset']) && is_string($source['dataset']) ? $source['dataset'] : '';
         foreach ($scopes as $scope) {
@@ -397,8 +435,36 @@ class Digitalogic_Patris_Feed {
             }
         }
 
-        return false;
-    }
+		return false;
+	}
+
+	/**
+	 * Return a nonsecret in-memory fingerprint for one currently authorized scope.
+	 *
+	 * Long-running WebSocket workers use this value to revoke existing service
+	 * sockets after the secret or exact configured scope changes. The raw secret
+	 * never leaves this service and the fingerprint is never serialized.
+	 *
+	 * @param array $source Exact source identity.
+	 * @return string Empty when the credential or scope is unavailable.
+	 */
+	public function product_sync_credential_fingerprint_for_source( $source ) {
+		$expected = (string) get_option( self::PRODUCT_SYNC_SECRET_OPTION, '' );
+		$scopes   = $this->get_product_sync_source_scopes();
+		$source   = is_array( $source ) ? $source : array();
+		$id       = isset( $source['id'] ) && is_string( $source['id'] ) ? $source['id'] : '';
+		$dataset  = isset( $source['dataset'] ) && is_string( $source['dataset'] ) ? $source['dataset'] : '';
+		if ( '' === $expected || '' === $id || '' === $dataset || empty( $scopes ) ) {
+			return '';
+		}
+		foreach ( $scopes as $scope ) {
+			if ( hash_equals( $scope['id'], $id ) && hash_equals( $scope['dataset'], $dataset ) ) {
+				return hash( 'sha256', self::PRODUCT_SYNC_SECRET_OPTION . "\0" . $expected . "\0" . $id . "\0" . $dataset );
+			}
+		}
+
+		return '';
+	}
 
     private function normalize_product($row) {
         $row             = is_array($row) ? $row : array();

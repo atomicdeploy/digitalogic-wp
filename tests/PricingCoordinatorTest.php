@@ -30,6 +30,8 @@ final class PricingCoordinatorTest extends TestCase {
 		$GLOBALS['digitalogic_test_cache_deletes']                = array();
 		$GLOBALS['digitalogic_test_cache_invalidation_suspended'] = false;
 		$GLOBALS['digitalogic_test_cache_invalidation_history']   = array();
+		$GLOBALS['digitalogic_test_wc_cache_group_invalidations'] = array();
+		$GLOBALS['digitalogic_test_object_term_cache_cleans']     = array();
 		$GLOBALS['digitalogic_test_post_meta_cache']              = array();
 		$GLOBALS['digitalogic_test_meta_update_failures']         = array();
 		$GLOBALS['digitalogic_test_meta_delete_failures']         = array();
@@ -227,6 +229,8 @@ final class PricingCoordinatorTest extends TestCase {
 		$this->assertSame( '8437000', (string) $GLOBALS['digitalogic_test_posts'][901]['meta']['_regular_price'] );
 		$this->assertSame( array( true, false ), $GLOBALS['digitalogic_test_cache_invalidation_history'] );
 		$this->assertFalse( $GLOBALS['digitalogic_test_cache_invalidation_suspended'] );
+		$this->assertContains( 'product_901', $GLOBALS['digitalogic_test_wc_cache_group_invalidations'] );
+		$this->assertContains( array( 901, 'product' ), $GLOBALS['digitalogic_test_object_term_cache_cleans'] );
 	}
 
 	/** Partner IRR repricing applies shared markup and rounds 123456 up to 123500. */

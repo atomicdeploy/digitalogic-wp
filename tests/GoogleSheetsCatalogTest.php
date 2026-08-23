@@ -413,6 +413,7 @@ final class GoogleSheetsCatalogTest extends TestCase {
 				'woocommerce_leaves'        => 5,
 				'union_rows'                => 6,
 				'matched'                   => 2,
+				'source_only'               => 1,
 				'patris_only'               => 1,
 				'woo_only'                  => 1,
 				'ambiguous_codes'           => 1,

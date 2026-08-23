@@ -3,7 +3,7 @@
  * Plugin Name: Digitalogic WooCommerce Extension
  * Plugin URI: https://github.com/atomicdeploy/digitalogic-wp
  * Description: Custom dynamic pricing, stock manager, and POS integration for Digitalogic electronic components shop. Supports bulk operations, import/export, and external API integration.
- * Version: 1.8.3
+ * Version: 1.8.4
  * Author: Digitalogic
  * Author URI: https://digitalogic.ir
  * Text Domain: digitalogic
@@ -22,7 +22,7 @@ if (!defined('ABSPATH')) {
 }
 
 // Define plugin constants
-define( 'DIGITALOGIC_VERSION', '1.8.3' );
+define( 'DIGITALOGIC_VERSION', '1.8.4' );
 define( 'DIGITALOGIC_PBX_SCHEMA_VERSION', '3' );
 define( 'DIGITALOGIC_EVENT_MESH_SCHEMA_VERSION', '1' );
 define( 'DIGITALOGIC_ASSISTANT_ACCOUNT_SCHEMA_VERSION', '2' );
@@ -141,6 +141,7 @@ final class Digitalogic {
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-excel-pricing-sync.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-pricing-coordinator.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-report-engine.php';
+		require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-pricing-snapshot.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-command-dispatcher.php';
 
         // WebSocket support
@@ -185,6 +186,7 @@ final class Digitalogic {
         // WP-CLI
         if (defined('WP_CLI') && WP_CLI) {
             require_once DIGITALOGIC_PLUGIN_DIR . 'includes/cli/class-cli-commands.php';
+			require_once DIGITALOGIC_PLUGIN_DIR . 'includes/cli/class-digitalogic-product-type-cache-cli.php';
             require_once DIGITALOGIC_PLUGIN_DIR . 'includes/cli/class-digitalogic-product-supplier-links-cli.php';
             require_once DIGITALOGIC_PLUGIN_DIR . 'includes/cli/class-digitalogic-seo-monitor-status-cli.php';
         }
@@ -246,6 +248,7 @@ final class Digitalogic {
         Digitalogic_Excel_Pricing_Sync::instance();
         Digitalogic_Pricing_Coordinator::instance();
         Digitalogic_Report_Engine::instance();
+		Digitalogic_Pricing_Snapshot::instance();
         Digitalogic_Command_Dispatcher::instance();
         Digitalogic_WebSocket::instance();
         Digitalogic_Laravel_Bridge::instance();
@@ -333,9 +336,12 @@ final class Digitalogic {
 		Digitalogic_Event_Mesh::install();
 		Digitalogic_Telegram_Account_Link::install();
 		Digitalogic_Telegram_Account_Link::register_account_endpoint();
+		Digitalogic_Report_Engine::instance()->install_cache_generation();
 
         // Set default options
         $this->set_default_options();
+		Digitalogic_Pricing_Snapshot::instance()->install_freshness_boundary_schedule();
+		Digitalogic_Panel::install_event_wake_retry();
 
         // Flush rewrite rules
         flush_rewrite_rules();
@@ -366,6 +372,8 @@ final class Digitalogic {
      * Plugin deactivation
      */
     public function deactivate() {
+		Digitalogic_Pricing_Snapshot::instance()->deactivate_freshness_boundary_schedule();
+		Digitalogic_Panel::deactivate_event_wake_retry();
         Digitalogic_Telegram_Account_Link::deactivate();
         flush_rewrite_rules();
     }

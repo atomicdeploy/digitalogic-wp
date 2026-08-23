@@ -102,6 +102,37 @@ number formatting, row banding, and status highlighting.
 The `Products` and `Categories` tabs are integration-managed. Put notes or
 manual formulas on a different tab so a synchronization cannot replace them.
 
+## Post-deployment refresh and readback
+
+The supplied Apps Script currently reads the established paginated
+`/google-sheets/catalog` and `/google-sheets/pricing-settings` routes. It does
+not yet consume the separate pricing snapshot API or the Patris WebSocket
+stream. Deploying the WordPress snapshot/event code therefore does not itself
+write or refresh a spreadsheet.
+
+After an explicitly authorized Sheet refresh, run `syncCatalog` once from the
+Apps Script editor or choose **Digitalogic Sync -> Sync now**. Treat the refresh
+as successful only after all of these readbacks agree:
+
+- the function returns `updated` or idempotent `unchanged` with a lowercase
+  `sha256:` catalog revision;
+- Script Properties contain that value in
+  `DIGITALOGIC_CATALOG_REVISION`, a current ISO timestamp in
+  `DIGITALOGIC_LAST_SYNC_AT`, `DIGITALOGIC_LAST_SYNC_STATUS=ok`, and an empty
+  `DIGITALOGIC_LAST_SYNC_ERROR`;
+- `DIGITALOGIC_PRICING_STATE_REVISION` is a lowercase `sha256:` revision and
+  equals the canonical `/google-sheets/pricing-settings` readback;
+- the managed `Products` and `Categories` row counts equal their validated API
+  totals, their machine-key rows match the returned columns, and every
+  `sync_key` is nonempty and unique.
+
+`DIGITALOGIC_CATALOG_REVISION` is the Apps Script's deterministic digest of
+the two complete paginated datasets. `DIGITALOGIC_PRICING_STATE_REVISION` is
+the established pricing-settings revision. Neither value is an alias for the
+new snapshot API's composite `state_revision`; compare each revision only to
+its own source contract. Scheduled Google triggers remain optional and are
+independent of the event-driven Patris/Excel refresh path.
+
 ## REST and WP-CLI examples
 
 Keep credentials in environment variables and use an authorization header:
@@ -118,7 +149,8 @@ wp digitalogic google-sheets catalog --dataset=categories --locale=fa --page=1 -
 
 Supported query values:
 
-- `dataset`: `products` or `categories`;
+- `dataset`: `products`, `reconciled_products`, or `categories` (the supplied
+  Apps Script uses `reconciled_products` for its managed Products tab);
 - `locale`: `en`, `fa`, or `bilingual`;
 - `page`: one-based positive integer;
 - `limit`: `1` through `250`.

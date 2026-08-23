@@ -90,6 +90,47 @@ wp digitalogic patris ingest \
 without `--yes` it exits without mutation. See
 [Current Patris Report](CURRENT-PATRIS-REPORT.md).
 
+## Repair stale product-type cache prefixes
+
+First run the administrator-only command without `--apply`. It rebuilds the
+current report and prints the exact candidates plus their factory class,
+durable `product_type` taxonomy, and variation IDs. It does not accept product
+IDs, so an old historical list can never become a repair input.
+
+```bash
+wp digitalogic product-type-cache repair \
+  --source-id=patris-office \
+  --dataset=kala.db \
+  --user=<administrator>
+```
+
+After the dry-run count and source scope have been reviewed, apply a ceiling
+equal to that reviewed count:
+
+```bash
+wp digitalogic product-type-cache repair \
+  --source-id=patris-office \
+  --dataset=kala.db \
+  --apply \
+  --max-candidates=15 \
+  --user=<administrator>
+```
+
+The example ceiling reflects one reviewed deployment and is not a universal ID
+or count. The command refuses truncated/non-current reports, an unexpected
+source, unrelated integrity warnings, unsupported drift shapes, more
+candidates than the ceiling, non-product posts, anything other than exactly
+one durable `variable` term, and parents without a bounded variation readback.
+It validates every candidate before the first cache change.
+
+Apply invalidates only `WC_Cache_Helper`'s `product_<id>` prefix. It does not
+write a post, term relationship, product type, variation, price, or product
+metadata. JSON output records before/after factory class and type, durable type,
+variation IDs, exact invalidated groups, zero catalog-write counts, and the
+remaining drift count from a fresh report. Repeating the bounded command after
+a successful repair reports zero candidates and performs no further cache
+invalidation.
+
 ## Update one product
 
 ```bash

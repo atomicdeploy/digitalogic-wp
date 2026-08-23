@@ -810,12 +810,14 @@ final class ExcelPricingSyncTest extends TestCase {
 		$this->assertSame( 'workbook-apply-000002', $audit['request_id'] );
 		$this->assertContains( 'START TRANSACTION', $GLOBALS['wpdb']->queries );
 		$this->assertContains( 'COMMIT', $GLOBALS['wpdb']->queries );
+		$this->assertCount( 1, $GLOBALS['digitalogic_test_actions']['digitalogic_excel_pricing_apply_committed'] ?? array() );
 
 		$replayed = $service->apply( $request );
 		$this->assertFalse( is_wp_error( $replayed ) );
 		$this->assertSame( 'replayed', $replayed['status'] );
 		$this->assertSame( $applied['state_revision'], $replayed['state_revision'] );
 		$this->assertCount( 1, $GLOBALS['digitalogic_test_options'][ Digitalogic_Excel_Pricing_Sync::AUDIT_OPTION ] );
+		$this->assertCount( 1, $GLOBALS['digitalogic_test_actions']['digitalogic_excel_pricing_apply_committed'] ?? array() );
 	}
 
 	/**

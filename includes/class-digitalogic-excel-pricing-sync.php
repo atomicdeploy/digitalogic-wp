@@ -38,7 +38,7 @@ final class Digitalogic_Excel_Pricing_Sync {
 	private const MAX_RATE                  = 1000000000;
 	private const MAX_PROFIT_PERCENT        = '1000';
 	private const MAX_PROFIT_SCALE          = 12;
-	private const STALE_AFTER_DAYS          = 7;
+	public const STALE_AFTER_DAYS           = 7;
 	private const DRIFT_PERCENT             = 7.0;
 
 	/**
@@ -410,6 +410,59 @@ final class Digitalogic_Excel_Pricing_Sync {
 	}
 
 	/**
+	 * Validate an exact, currently materialized source for immutable snapshots.
+	 *
+	 * Settings synchronization deliberately tolerates a newer submitted source
+	 * revision. A snapshot cannot: its token must identify the exact Patris data
+	 * that was reconciled with WooCommerce.
+	 *
+	 * @param mixed $source Raw source identity.
+	 * @return array|WP_Error Normalized source and current context.
+	 */
+	public function validate_snapshot_source( $source ) {
+		$normalized = $this->normalize_snapshot_source( $source );
+		if ( is_wp_error( $normalized ) ) {
+			return $normalized;
+		}
+
+		$context = $this->validate_current_source( $normalized );
+		if ( is_wp_error( $context ) ) {
+			return $context;
+		}
+		if ( empty( $context['revision_matches_current'] ) ) {
+			return $this->error(
+				'digitalogic_pricing_snapshot_source_revision_conflict',
+				'The requested source revision is not the revision currently materialized in WordPress.',
+				409,
+				array(
+					'retryable'                 => false,
+					'submitted_source_revision' => $context['submitted_revision'],
+					'current_source_revision'   => $context['current_revision'],
+				)
+			);
+		}
+
+		return array(
+			'source'  => $normalized,
+			'context' => $context,
+		);
+	}
+
+	/**
+	 * Normalize an immutable snapshot source without requiring it to be current.
+	 *
+	 * Token-addressed snapshot reads use this syntax-only surface so an older,
+	 * already-built snapshot remains readable until its own expiry. New builds
+	 * must continue through validate_snapshot_source() above.
+	 *
+	 * @param mixed $source Raw source identity.
+	 * @return array|WP_Error
+	 */
+	public function normalize_snapshot_source( $source ) {
+		return $this->normalize_source( $source );
+	}
+
+	/**
 	 * Build one paged Persian state response.
 	 *
 	 * @param WP_REST_Request $request Current request.
@@ -731,6 +784,15 @@ final class Digitalogic_Excel_Pricing_Sync {
 						'ثبت نتیجهٔ تکرارپذیر کامل نشد؛ پیش از تلاش دوباره state را بخوانید.',
 						'warning'
 					);
+				}
+
+				// This action is emitted only for the original terminal apply. An
+				// idempotent replay returns above and cannot invalidate projection
+				// generations or create any new external effect.
+				try {
+					do_action( 'digitalogic_excel_pricing_apply_committed', $result );
+				} catch ( Throwable $exception ) {
+					unset( $exception );
 				}
 
 				return $result;
@@ -1909,6 +1971,12 @@ final class Digitalogic_Excel_Pricing_Sync {
 		if ( $cny_stale ) {
 			$stale_currencies[] = 'CNY';
 		}
+		$currency_freshness_revision = $this->revision(
+			array(
+				'schema'           => self::SETTINGS_SCHEMA . '/currency-freshness',
+				'stale_currencies' => $stale_currencies,
+			)
+		);
 
 		$markup = Digitalogic_Shipping_Method_Service::instance()->get_default_percentage_markup();
 		if ( is_wp_error( $markup ) ) {
@@ -1990,6 +2058,7 @@ final class Digitalogic_Excel_Pricing_Sync {
 				array(
 					'schema'                    => self::SETTINGS_SCHEMA,
 					'currency_revision'         => $currency_revision,
+					'currency_freshness_revision' => $currency_freshness_revision,
 					'default_markup_revision'   => $markup_revision,
 					'price_rounding_revision'   => $rounding_revision,
 					'shipping_catalog_revision' => $shipping['catalog_revision'],
@@ -2118,6 +2187,20 @@ final class Digitalogic_Excel_Pricing_Sync {
 		$cny_age_days = $this->age_days( $settings['cny_effective_date'] );
 		$usd_stale    = null === $usd_age_days || $usd_age_days < 0 || $usd_age_days > self::STALE_AFTER_DAYS;
 		$cny_stale    = null === $cny_age_days || $cny_age_days < 0 || $cny_age_days > self::STALE_AFTER_DAYS;
+		$stale_currencies            = array_values(
+			array_filter(
+				array(
+					$usd_stale ? 'USD' : null,
+					$cny_stale ? 'CNY' : null,
+				)
+			)
+		);
+		$currency_freshness_revision = $this->revision(
+			array(
+				'schema'           => self::SETTINGS_SCHEMA . '/currency-freshness',
+				'stale_currencies' => $stale_currencies,
+			)
+		);
 		$currency     = array(
 			'dollar_price'       => $settings['dollar_price'],
 			'yuan_price'         => $settings['yuan_price'],
@@ -2127,14 +2210,7 @@ final class Digitalogic_Excel_Pricing_Sync {
 			'revision'           => $currency_revision,
 			'age_days'           => $cny_age_days,
 			'stale'              => $usd_stale || $cny_stale,
-			'stale_currencies'   => array_values(
-				array_filter(
-					array(
-						$usd_stale ? 'USD' : null,
-						$cny_stale ? 'CNY' : null,
-					)
-				)
-			),
+			'stale_currencies'   => $stale_currencies,
 			'freshness'          => array(
 				'usd' => array(
 					'effective_date' => $settings['usd_effective_date'],
@@ -2154,6 +2230,7 @@ final class Digitalogic_Excel_Pricing_Sync {
 				array(
 					'schema'                    => self::SETTINGS_SCHEMA,
 					'currency_revision'         => $currency_revision,
+					'currency_freshness_revision' => $currency_freshness_revision,
 					'default_markup_revision'   => $markup_revision,
 					'price_rounding_revision'   => $rounding_revision,
 					'shipping_catalog_revision' => $shipping['catalog_revision'],

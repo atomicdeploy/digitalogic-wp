@@ -56,6 +56,38 @@ final class ProductSyncReceiverTest extends TestCase {
         $this->assertSame('digitalogic_product_sync_missing_field', $invalid->get_error_code());
     }
 
+	/** Receiver state listeners run only after a verified owning transaction commits. */
+	public function test_source_state_commit_hook_runs_after_commit_and_not_after_commit_failure(): void {
+		$observed = array();
+		add_action(
+			'digitalogic_product_sync_state_committed',
+			static function ( $before, $after ) use ( &$observed ) {
+				$observed[] = array(
+					'commit_visible' => in_array( 'COMMIT', $GLOBALS['wpdb']->queries, true ),
+					'before'         => $before,
+					'after'          => $after,
+				);
+			},
+			10,
+			2
+		);
+
+		$accepted = Digitalogic_Product_Sync_Receiver::instance()->receive( $this->snapshot() );
+		$this->assertNotInstanceOf( WP_Error::class, $accepted );
+		$this->assertCount( 1, $observed );
+		$this->assertTrue( $observed[0]['commit_visible'] );
+		$this->assertSame( array(), $observed[0]['before']['sources'] );
+		$this->assertCount( 1, $observed[0]['after']['sources'] );
+
+		$GLOBALS['digitalogic_test_transaction_failures'] = array( 'COMMIT' );
+		$failed = Digitalogic_Product_Sync_Receiver::instance()->receive(
+			$this->snapshot( array(), array(), false, '2026-07-20T00:01:00Z' )
+		);
+		$this->assertInstanceOf( WP_Error::class, $failed );
+		$this->assertSame( 'digitalogic_product_sync_commit_failed', $failed->get_error_code() );
+		$this->assertCount( 1, $observed );
+	}
+
     public function test_sparse_null_empty_and_missing_values_remain_distinct(): void {
         $GLOBALS['digitalogic_test_posts'][701] = array(
             'post_type'   => 'product',

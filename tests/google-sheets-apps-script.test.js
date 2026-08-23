@@ -354,6 +354,58 @@ test('standalone scheduled sync uses script state and leaves writeback workspace
   assert.equal(released, true);
 });
 
+test('unchanged catalog readback clears an earlier sync error and records pricing revision', () => {
+  const standalone = { module: { exports: {} }, exports: {} };
+  vm.runInNewContext(source, standalone, { filename: sourcePath });
+  const catalogRevision = `sha256:${'1'.repeat(64)}`;
+  const pricingRevision = `sha256:${'2'.repeat(64)}`;
+  const state = {
+    DIGITALOGIC_CATALOG_REVISION: catalogRevision,
+    DIGITALOGIC_LAST_SYNC_STATUS: 'error',
+    DIGITALOGIC_LAST_SYNC_ERROR: 'earlier failure',
+  };
+  const properties = {
+    getProperty(key) { return state[key] ?? null; },
+    setProperties(update) { Object.assign(state, update); },
+  };
+  let released = false;
+  standalone.PropertiesService = {
+    getScriptProperties() { return properties; },
+  };
+  standalone.LockService = {
+    getScriptLock() {
+      return {
+        waitLock(timeout) { assert.equal(timeout, 30000); },
+        releaseLock() { released = true; },
+      };
+    },
+  };
+  standalone.getConfig_ = () => ({ spreadsheetId: 'sheet-123', locale: 'en' });
+  standalone.getSpreadsheet_ = () => ({
+    getSheetByName(name) {
+      assert.equal(name, 'Dashboard');
+      return null;
+    },
+    toast() {},
+  });
+  standalone.fetchDataset_ = (config, dataset) => ({ id: dataset.id, columns: [], rows: [], pageRevisions: [] });
+  standalone.fetchPricingSettings_ = () => ({ state_revision: pricingRevision });
+  standalone.upsertPricingSettings_ = () => {};
+  standalone.calculateRevision_ = () => catalogRevision;
+  standalone.upsertDataset_ = () => { throw new Error('unchanged sync must not rewrite managed tabs'); };
+
+  const result = standalone.module.exports.syncCatalog();
+
+  assert.equal(result.status, 'unchanged');
+  assert.equal(result.revision, catalogRevision);
+  assert.equal(state.DIGITALOGIC_CATALOG_REVISION, catalogRevision);
+  assert.equal(state.DIGITALOGIC_PRICING_STATE_REVISION, pricingRevision);
+  assert.equal(state.DIGITALOGIC_LAST_SYNC_STATUS, 'ok');
+  assert.equal(state.DIGITALOGIC_LAST_SYNC_ERROR, '');
+  assert.match(state.DIGITALOGIC_LAST_SYNC_AT, /^\d{4}-\d{2}-\d{2}T/);
+  assert.equal(released, true);
+});
+
 test('managed protections retain only the executing owner and disable domain edits', () => {
   const owner = { getEmail() { return 'owner@example.com'; } };
   const collaborator = { getEmail() { return 'editor@example.com'; } };

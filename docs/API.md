@@ -92,6 +92,12 @@ optimistic concurrency, preview confirmation, idempotency,
 seven-day/seven-percent warnings, transaction behavior, and credential
 boundary.
 
+For large catalog reads, the additive pricing projection snapshot API exposes a
+cheap composite revision, asynchronous single-flight build, immutable bulk and
+fixed-page payloads, ETags, progress, cancellation, and fast capacity errors.
+It leaves the existing state/preview/apply routes unchanged. See [Pricing
+projection snapshot API](PRICING-SNAPSHOT-API.md).
+
 ### List Products
 
 **GET** `/products`
@@ -333,6 +339,19 @@ ExecStart=/usr/local/bin/wp digitalogic websocket serve --host=127.0.0.1 --port=
 Restart=always
 RestartSec=5
 ```
+
+Patris pricing refresh uses a separate least-privilege service principal on
+the same WSS endpoint. It requires subprotocol `digitalogic.pricing.v1`, the
+server-held product-sync secret plus exact source ID/dataset in headers, and an
+optional `Last-Event-ID`. It receives only scoped composite-state and
+source-change/removal events, plus explicit cursor-gap resets, and cannot run
+shared commands. Source lifecycle outbox entries drain before the composite
+state derived from them. Time-derived currency/source freshness uses only the
+next one-shot scheduler action; no recurring refresh poll is installed.
+On every connect, reconnect, or cursor reset, the companion performs one
+conditional `/pricing/sync/revision` validation and then follows WebSocket
+events; Excel does not poll WordPress. See
+[PRICING-SNAPSHOT-API.md](PRICING-SNAPSHOT-API.md).
 
 Smoke test with `websocat`:
 ```bash

@@ -38,6 +38,21 @@ available. The corrected boundary is:
 
 The secret never enters the workbook, a cell, VBA, an audit row, or logs.
 
+## Additive immutable projection snapshots
+
+The WordPress side also provides an optional revision/snapshot transport for a
+large reconciled catalog. It computes the complete WooCommerce/Patris union
+once per exact composite revision, then serves immutable bulk or 250-row pages
+with ETags, progress, cancellation, and fast `429`/`503` responses. This does
+not replace or change the three mutation routes above.
+
+The Patris companion must translate this remote contract into its local
+workbook schema; VBA must still never receive the remote credential. Until that
+separate adapter release is installed and proven, the companion may retain its
+existing paged state fallback. See [Pricing projection snapshot
+API](PRICING-SNAPSHOT-API.md) for the exact routes, revision meanings,
+idempotency, integrity fields, and adapter mapping requirements.
+
 ## Ownership
 
 - Patris `kala` owns product code, foreign price, weight, stock, and other

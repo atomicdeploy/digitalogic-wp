@@ -824,6 +824,15 @@ class Digitalogic_Product_Sync_Receiver {
             if (function_exists('wc_delete_product_transients')) {
                 wc_delete_product_transients($product_id);
             }
+            if (
+                class_exists('WC_Cache_Helper')
+                && is_callable(array('WC_Cache_Helper', 'invalidate_cache_group'))
+            ) {
+                WC_Cache_Helper::invalidate_cache_group('product_' . $product_id);
+            }
+            if (function_exists('clean_object_term_cache')) {
+                clean_object_term_cache($product_id, 'product');
+            }
         }
     }
 
@@ -3331,6 +3340,10 @@ class Digitalogic_Product_Sync_Receiver {
             "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s FOR UPDATE",
             self::STATE_OPTION
         ), ARRAY_A);
+		$previous_state  = is_array( $row ) && is_string( $row['option_value'] ?? null )
+			? maybe_unserialize( $row['option_value'] )
+			: array( 'sources' => array() );
+		$previous_state  = is_array( $previous_state ) ? $previous_state : array( 'sources' => array() );
         if (is_array($row)) {
             $written = $wpdb->update(
                 $wpdb->options,
@@ -3387,6 +3400,9 @@ class Digitalogic_Product_Sync_Receiver {
         }
 
         $this->invalidate_state_cache();
+		if ( $owns_transaction ) {
+			do_action( 'digitalogic_product_sync_state_committed', $previous_state, $read_back );
+		}
 
         return $read_back;
     }

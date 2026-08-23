@@ -14,8 +14,56 @@ if ( ! defined( 'ABSPATH' ) ) {
  */
 final class Digitalogic_Google_Sheets_Catalog {
 
-	public const MAX_PAGE_SIZE            = 250;
-	private const PRODUCT_QUERY_PAGE_SIZE = 100;
+	public const MAX_PAGE_SIZE             = 250;
+	private const PRODUCT_QUERY_PAGE_SIZE  = 100;
+	private const RECONCILED_EXCEL_V1_KEYS = array(
+		'sync_key',
+		'reconciliation_status',
+		'patris_code',
+		'woocommerce_id',
+		'parent_id',
+		'product_type',
+		'publication_status',
+		'name',
+		'part_number',
+		'sku',
+		'categories',
+		'category_ids',
+		'currency',
+		'regular_price',
+		'sale_price',
+		'effective_price',
+		'patris_final_price',
+		'price_status',
+		'stock_quantity',
+		'stock_status',
+		'patris_total_stock',
+		'patris_minimum_stock',
+		'patris_location',
+		'weight_grams',
+		'woocommerce_weight',
+		'woocommerce_weight_unit',
+		'foreign_price',
+		'foreign_currency',
+		'partner_price_irr',
+		'price_source_amount',
+		'price_source_currency',
+		'price_source_kind',
+		'price_rounding_digits',
+		'price_rounding_mode',
+		'shipping_method_id',
+		'shipping_method_name_en',
+		'shipping_method_name_fa',
+		'shipping_price_per_kg',
+		'shipping_price_per_kg_currency',
+		'profit_margin_percent',
+		'permalink',
+		'image_url',
+		'updated_at',
+		'sync_status',
+		'sync_error',
+		'record_revision',
+	);
 
 	/**
 	 * Shared instance.
@@ -58,6 +106,218 @@ final class Digitalogic_Google_Sheets_Catalog {
 		}
 
 		return $this->get_products_page( $args );
+	}
+
+	/**
+	 * Build the complete reconciled catalog once for snapshot storage.
+	 *
+	 * The public paged catalog contract remains unchanged. This trusted service
+	 * method lets the pricing snapshot worker reconcile WooCommerce and Patris
+	 * once, then persist inexpensive immutable transport pages.
+	 *
+	 * @param array         $args       Trusted locale and exact source arguments.
+	 * @param callable|null $checkpoint Optional cancellation/progress checkpoint.
+	 * @return array|WP_Error
+	 */
+	public function get_reconciled_products_snapshot( $args = array(), $checkpoint = null ) {
+		$args            = is_array( $args ) ? $args : array();
+		$args['dataset'] = 'reconciled_products';
+		$args            = $this->normalize_args( $args );
+		if ( is_wp_error( $args ) ) {
+			return $args;
+		}
+
+		$report_args = array(
+			'view' => 'price_list',
+		);
+		if ( '' !== $args['source_id'] && '' !== $args['source_dataset'] ) {
+			$report_args['source_id'] = $args['source_id'];
+			$report_args['dataset']   = $args['source_dataset'];
+		}
+
+		if ( is_callable( $checkpoint ) && false === call_user_func( $checkpoint, 'reconciling', 5, 0, 0 ) ) {
+			return $this->snapshot_cancelled_error();
+		}
+
+		$report = Digitalogic_Report_Engine::instance()->get_complete_report( $report_args, $checkpoint );
+		if ( is_wp_error( $report ) ) {
+			return $report;
+		}
+
+		$integrity_warnings = array_values( (array) ( $report['integrity']['warnings'] ?? array() ) );
+		if ( 'current' !== (string) ( $report['status'] ?? '' ) ) {
+			return new WP_Error(
+				'digitalogic_reconciled_projection_source_not_current',
+				__( 'The exact reconciled source is not current.', 'digitalogic' ),
+				array(
+					'status'    => 409,
+					'retryable' => false,
+				)
+			);
+		}
+		if ( ! empty( $report['limits']['source_truncated'] ) || ! empty( $report['limits']['woocommerce_truncated'] ) ) {
+			return new WP_Error(
+				'digitalogic_reconciled_projection_truncated',
+				__( 'The complete reconciled projection exceeded a bounded source limit.', 'digitalogic' ),
+				array(
+					'status'    => 503,
+					'retryable' => false,
+					'limits'    => (array) $report['limits'],
+				)
+			);
+		}
+		if ( $integrity_warnings ) {
+			return new WP_Error(
+				'digitalogic_reconciled_projection_integrity_failed',
+				__( 'The reconciled catalog failed its product-type integrity check; retry after cache repair.', 'digitalogic' ),
+				array(
+					'status'      => 503,
+					'retry_after' => 2,
+					'retryable'   => true,
+					'warnings'    => $integrity_warnings,
+				)
+			);
+		}
+
+		$dataset_revision = is_string( $report['snapshot_revision'] ?? null )
+			? $report['snapshot_revision']
+			: '';
+		if ( 1 !== preg_match( '/\Asha256:[a-f0-9]{64}\z/D', $dataset_revision ) ) {
+			return new WP_Error(
+				'digitalogic_reconciled_snapshot_revision_invalid',
+				__( 'The reconciled catalog has no valid snapshot revision.', 'digitalogic' ),
+				array(
+					'status'      => 503,
+					'retry_after' => 2,
+					'retryable'   => true,
+				)
+			);
+		}
+
+		$total       = absint( $report['pagination']['total'] ?? 0 );
+		$report_rows = array_values( (array) ( $report['rows'] ?? array() ) );
+		if ( count( $report_rows ) !== $total ) {
+			return new WP_Error(
+				'digitalogic_reconciled_snapshot_incomplete',
+				__( 'The complete reconciled catalog row count is inconsistent.', 'digitalogic' ),
+				array(
+					'status'      => 503,
+					'retry_after' => 2,
+					'retryable'   => true,
+				)
+			);
+		}
+
+		$integration_catalog = Digitalogic_Shipping_Method_Service::instance()->get_integration_catalog();
+		if ( is_wp_error( $integration_catalog ) ) {
+			return $integration_catalog;
+		}
+
+		$projection  = array(
+			'columns' => null,
+			'rows'    => array(),
+		);
+		$chunks      = array_chunk( $report_rows, 100 );
+		$chunk_total = max( 1, count( $chunks ) );
+		foreach ( $chunks as $index => $chunk ) {
+			if (
+				is_callable( $checkpoint )
+				&& false === call_user_func( $checkpoint, 'transforming', 55 + (int) floor( 35 * $index / $chunk_total ), count( $projection['rows'] ), $total )
+			) {
+				return $this->snapshot_cancelled_error();
+			}
+
+			$chunk_projection = $this->transform_reconciled_products( $chunk, $integration_catalog );
+			if ( is_wp_error( $chunk_projection ) ) {
+				return $chunk_projection;
+			}
+			if ( null === $projection['columns'] ) {
+				$projection['columns'] = $chunk_projection['columns'];
+			} elseif ( $projection['columns'] !== $chunk_projection['columns'] ) {
+				return new WP_Error(
+					'digitalogic_reconciled_snapshot_schema_changed',
+					__( 'The reconciled catalog schema changed while the snapshot was transformed.', 'digitalogic' ),
+					array(
+						'status'      => 503,
+						'retry_after' => 2,
+						'retryable'   => true,
+					)
+				);
+			}
+			$projection['rows'] = array_merge( $projection['rows'], $chunk_projection['rows'] );
+		}
+		if ( null === $projection['columns'] ) {
+			$projection['columns'] = $this->reconciled_product_columns();
+		}
+		$column_keys = array_column( $projection['columns'], 'key' );
+		if ( self::RECONCILED_EXCEL_V1_KEYS !== $column_keys ) {
+			return new WP_Error(
+				'digitalogic_reconciled_snapshot_schema_changed',
+				__( 'The reconciled catalog no longer matches the pinned excel-v1 column contract.', 'digitalogic' ),
+				array(
+					'status'    => 503,
+					'retryable' => false,
+				)
+			);
+		}
+
+		$allowed_fields = array_fill_keys( self::RECONCILED_EXCEL_V1_KEYS, true );
+		$canonical_rows = array();
+		foreach ( $projection['rows'] as $row ) {
+			$unexpected = array_diff_key( (array) $row, $allowed_fields );
+			if ( $unexpected ) {
+				return new WP_Error(
+					'digitalogic_reconciled_snapshot_row_schema_changed',
+					__( 'A reconciled row contains fields outside the pinned excel-v1 contract.', 'digitalogic' ),
+					array(
+						'status'            => 503,
+						'retryable'         => false,
+						'unexpected_fields' => array_values( array_keys( $unexpected ) ),
+					)
+				);
+			}
+
+			$canonical = array();
+			foreach ( self::RECONCILED_EXCEL_V1_KEYS as $field ) {
+				$canonical[ $field ] = array_key_exists( $field, $row ) ? $row[ $field ] : null;
+			}
+			$canonical_rows[] = $canonical;
+		}
+		$projection['rows'] = $canonical_rows;
+		if ( count( $projection['rows'] ) !== $total ) {
+			return new WP_Error(
+				'digitalogic_reconciled_snapshot_transform_incomplete',
+				__( 'The reconciled catalog transform did not preserve every row.', 'digitalogic' ),
+				array(
+					'status'      => 503,
+					'retry_after' => 2,
+					'retryable'   => true,
+				)
+			);
+		}
+
+		$response_args                = $args;
+		$response_args['page']        = 1;
+		$response_args['limit']       = max( 1, $total );
+		$response                     = $this->response_envelope(
+			$response_args,
+			$projection['columns'],
+			$projection['rows'],
+			$total,
+			1
+		);
+		$response['dataset_revision'] = $dataset_revision;
+		$response['reconciliation']   = array(
+			'status'           => (string) ( $report['status'] ?? '' ),
+			'integrity_status' => (string) ( $report['integrity']['status'] ?? '' ),
+			'warnings'         => $integrity_warnings,
+			'counts'           => $this->reconciliation_counts( (array) ( $report['counts'] ?? array() ), $total ),
+		);
+		if ( is_array( $report['source'] ?? null ) ) {
+			$response['reconciliation']['source'] = $report['source'];
+		}
+
+		return $response;
 	}
 
 	/**
@@ -434,13 +694,16 @@ final class Digitalogic_Google_Sheets_Catalog {
 	 * byte-for-byte compatible with the optimistic writeback service. Source
 	 * fields are then overlaid for display without changing that Woo revision.
 	 *
-	 * @param array $report_rows Report Engine rows.
+	 * @param array      $report_rows Report Engine rows.
+	 * @param array|null $integration_catalog Preloaded pricing integration catalog.
 	 * @return array|WP_Error
 	 */
-	private function transform_reconciled_products( $report_rows ) {
+	private function transform_reconciled_products( $report_rows, $integration_catalog = null ) {
 		$report_rows         = array_values( (array) $report_rows );
 		$canonical_by_id     = array();
-		$integration_catalog = Digitalogic_Shipping_Method_Service::instance()->get_integration_catalog();
+		$integration_catalog = null === $integration_catalog
+			? Digitalogic_Shipping_Method_Service::instance()->get_integration_catalog()
+			: $integration_catalog;
 		if ( is_wp_error( $integration_catalog ) ) {
 			return $integration_catalog;
 		}
@@ -557,6 +820,18 @@ final class Digitalogic_Google_Sheets_Catalog {
 		);
 	}
 
+	/** Return a stable cooperative-cancellation error for snapshot workers. */
+	private function snapshot_cancelled_error() {
+		return new WP_Error(
+			'digitalogic_pricing_snapshot_cancelled',
+			__( 'The pricing snapshot build was cancelled.', 'digitalogic' ),
+			array(
+				'status'    => 409,
+				'retryable' => false,
+			)
+		);
+	}
+
 	/**
 	 * Create a bounded row when no canonical Woo catalog row is available.
 	 *
@@ -626,12 +901,12 @@ final class Digitalogic_Google_Sheets_Catalog {
 			'weight_grams'                   => 'weight_grams',
 			'foreign_price'                  => 'foreign_price',
 			'foreign_currency'               => 'foreign_currency',
-			'partner_price_irr'               => 'partner_price_source',
-			'price_source_amount'             => 'price_source_amount',
-			'price_source_currency'           => 'price_source_currency',
-			'price_source_kind'               => 'price_source_kind',
-			'price_rounding_digits'           => 'price_rounding_digits',
-			'price_rounding_mode'             => 'price_rounding_mode',
+			'partner_price_irr'              => 'partner_price_source',
+			'price_source_amount'            => 'price_source_amount',
+			'price_source_currency'          => 'price_source_currency',
+			'price_source_kind'              => 'price_source_kind',
+			'price_rounding_digits'          => 'price_rounding_digits',
+			'price_rounding_mode'            => 'price_rounding_mode',
 			'shipping_method_id'             => 'shipping_method_id',
 			'shipping_price_per_kg'          => 'shipping_price_per_kg',
 			'shipping_price_per_kg_currency' => 'shipping_price_per_kg_currency',
@@ -736,6 +1011,7 @@ final class Digitalogic_Google_Sheets_Catalog {
 			'woocommerce_leaves'        => absint( $counts['woocommerce_products'] ?? 0 ),
 			'union_rows'                => absint( $total ),
 			'matched'                   => absint( $counts['matched_products'] ?? 0 ),
+			'source_only'               => absint( $counts['source_only_products'] ?? 0 ),
 			'patris_only'               => absint( $counts['source_only_products'] ?? 0 ),
 			'woo_only'                  => absint( $counts['woocommerce_only_products'] ?? 0 ),
 			'ambiguous_codes'           => absint( $counts['ambiguous_codes'] ?? 0 ),

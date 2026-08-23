@@ -1738,6 +1738,12 @@ final class Digitalogic_Patris_Catalog_Materializer {
 	}
 
 	private function flush_product_caches( $product_id ) {
+		if (
+			class_exists( 'WC_Cache_Helper' )
+			&& is_callable( array( 'WC_Cache_Helper', 'invalidate_cache_group' ) )
+		) {
+			WC_Cache_Helper::invalidate_cache_group( 'product_' . (int) $product_id );
+		}
 		if ( function_exists( 'wc_delete_product_transients' ) ) {
 			wc_delete_product_transients( (int) $product_id );
 		}

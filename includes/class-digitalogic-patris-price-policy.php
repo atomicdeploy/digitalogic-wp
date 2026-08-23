@@ -143,6 +143,13 @@ final class Digitalogic_Patris_Price_Policy {
 		$product_id = (int) $product->get_id();
 		wc_delete_product_transients( $product_id );
 		clean_post_cache( $product_id );
+		if (
+			class_exists( 'WC_Cache_Helper' )
+			&& is_callable( array( 'WC_Cache_Helper', 'invalidate_cache_group' ) )
+		) {
+			WC_Cache_Helper::invalidate_cache_group( 'product_' . $product_id );
+		}
+		clean_object_term_cache( $product_id, 'product' );
 	}
 
 	/**

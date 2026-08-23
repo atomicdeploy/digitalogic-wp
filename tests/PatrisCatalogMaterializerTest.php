@@ -51,6 +51,7 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 				'digitalogic_test_object_term_cache_cleans',
 				'digitalogic_test_object_term_readbacks',
 				'digitalogic_test_object_term_readback_failures',
+				'digitalogic_test_wc_cache_group_invalidations',
 			) as $global_name
 		) {
 			$GLOBALS[ $global_name ] = array();
@@ -204,6 +205,7 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 		$this->assertCount( 1, $product->get_category_ids() );
 		$this->assertSame( (string) $product->get_category_ids()[0], $product->get_meta( 'rank_math_primary_product_cat', true ) );
 		$this->assertContains( array( $product_id, 'product' ), $GLOBALS['digitalogic_test_object_term_cache_cleans'] );
+		$this->assertContains( 'product_' . $product_id, $GLOBALS['digitalogic_test_wc_cache_group_invalidations'] );
 		$this->assertNotEmpty( $GLOBALS['digitalogic_test_object_term_readbacks'] );
 		$this->assertSame( $product_id, $GLOBALS['digitalogic_test_object_term_readbacks'][0][0] );
 		$this->assertSame( 'product_cat', $GLOBALS['digitalogic_test_object_term_readbacks'][0][1] );

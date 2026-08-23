@@ -49,6 +49,7 @@ $GLOBALS['digitalogic_test_transaction_failures'] = array();
 $GLOBALS['digitalogic_test_cache_deletes'] = array();
 $GLOBALS['digitalogic_test_cache_invalidation_suspended'] = false;
 $GLOBALS['digitalogic_test_cache_invalidation_history'] = array();
+$GLOBALS['digitalogic_test_wc_cache_group_invalidations'] = array();
 $GLOBALS['digitalogic_test_remote_posts'] = array();
 $GLOBALS['digitalogic_test_remote_post_results'] = array();
 $GLOBALS['digitalogic_test_wc_products'] = array();
@@ -68,6 +69,7 @@ $GLOBALS['digitalogic_test_primed_post_ids'] = array();
 $GLOBALS['digitalogic_test_wc_currency'] = 'IRT';
 $GLOBALS['digitalogic_test_transients'] = array(); // phpcs:ignore
 $GLOBALS['digitalogic_test_transient_deletes'] = array(); // phpcs:ignore
+$GLOBALS['digitalogic_test_transient_set_callback'] = null; // phpcs:ignore
 $GLOBALS['digitalogic_test_rewrite_rules'] = array(); // phpcs:ignore
 $GLOBALS['digitalogic_test_rewrite_flushes'] = array(); // phpcs:ignore
 $GLOBALS['digitalogic_test_registered_post_types'] = array(); // phpcs:ignore
@@ -301,6 +303,22 @@ function wp_schedule_event($timestamp, $recurrence, $hook, $args = array(), $wp_
         'recurrence' => (string) $recurrence,
     );
     return true;
+}
+
+function wp_clear_scheduled_hook($hook, $args = array(), $wp_error = false) {
+	$before = count($GLOBALS['digitalogic_test_scheduled_events']);
+	$GLOBALS['digitalogic_test_scheduled_events'] = array_values(array_filter(
+		$GLOBALS['digitalogic_test_scheduled_events'],
+		static function($event) use ($hook, $args) {
+			return $event['hook'] !== (string) $hook || $event['args'] !== array_values((array) $args);
+		}
+	));
+	$removed = $before - count($GLOBALS['digitalogic_test_scheduled_events']);
+	if ($removed > 0) {
+		return $removed;
+	}
+
+	return $wp_error ? new WP_Error('schedule_not_found', 'schedule not found') : false;
 }
 // phpcs:enable
 
@@ -727,8 +745,11 @@ function delete_option($name) {
         return false;
     }
 
+	do_action('delete_option', $name);
     unset($GLOBALS['digitalogic_test_options'][$name]);
     unset($GLOBALS['digitalogic_test_option_cache'][$name]);
+	do_action('delete_option_' . $name, $name);
+	do_action('deleted_option', $name);
     return true;
 }
 
@@ -748,6 +769,12 @@ function get_transient($name) {
 }
 
 function set_transient($name, $value, $expiration = 0) {
+	if (is_callable($GLOBALS['digitalogic_test_transient_set_callback'] ?? null)) {
+		$result = call_user_func($GLOBALS['digitalogic_test_transient_set_callback'], $name, $value, $expiration);
+		if (false === $result) {
+			return false;
+		}
+	}
     $GLOBALS['digitalogic_test_transients'][$name] = array(
         'value' => $value,
         'expires' => $expiration > 0 ? time() + (int) $expiration : 0,
@@ -1593,6 +1620,12 @@ class Digitalogic_Logger {
         $this->entries[] = $args;
         return true;
     }
+}
+
+class WC_Cache_Helper {
+	public static function invalidate_cache_group( $group ) {
+		$GLOBALS['digitalogic_test_wc_cache_group_invalidations'][] = (string) $group;
+	}
 }
 
 class WC_Product {
@@ -2557,6 +2590,7 @@ require_once dirname(__DIR__) . '/includes/class-command-dispatcher.php';
 require_once dirname(__DIR__) . '/includes/api/class-rest-api.php';
 require_once dirname(__DIR__) . '/includes/api/class-webhooks.php';
 require_once dirname(__DIR__) . '/includes/class-report-engine.php';
+require_once dirname( __DIR__ ) . '/includes/class-digitalogic-pricing-snapshot.php';
 require_once dirname(__DIR__) . '/includes/integrations/class-laravel-bridge.php';
 require_once dirname(__DIR__) . '/includes/panel/class-panel.php';
 require_once dirname(__DIR__) . '/includes/integrations/class-digitalogic-event-mesh.php';
@@ -2564,8 +2598,11 @@ require_once dirname(__DIR__) . '/includes/integrations/class-label-overrides.ph
 require_once dirname(__DIR__) . '/includes/integrations/class-product-identity.php';
 require_once dirname(__DIR__) . '/includes/integrations/class-digitalogic-product-resources.php';
 require_once dirname(__DIR__) . '/includes/integrations/class-homepage-showcase.php';
+require_once dirname(__DIR__) . '/includes/websocket/class-websocket.php';
+require_once dirname(__DIR__) . '/includes/websocket/class-websocket-auth.php';
 require_once dirname(__DIR__) . '/includes/websocket/class-websocket-server.php';
 require_once dirname(__DIR__) . '/includes/admin/class-digitalogic-product-supplier-links-admin.php';
 require_once dirname(__DIR__) . '/includes/cli/class-cli-commands.php';
+require_once dirname( __DIR__ ) . '/includes/cli/class-digitalogic-product-type-cache-cli.php';
 require_once dirname(__DIR__) . '/includes/cli/class-digitalogic-product-supplier-links-cli.php';
 require_once dirname(__DIR__) . '/includes/cli/class-digitalogic-seo-monitor-status-cli.php';
