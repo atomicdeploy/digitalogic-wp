@@ -45,6 +45,8 @@ final class Digitalogic_Pricing_Snapshot {
 	private const ADMISSION_LOCK_NAME               = 'digitalogic_pricing_snapshot_admission_v1';
 	private const STATE_EVENT_SCHEDULE_LOCK_NAME    = 'digitalogic_pricing_state_event_schedule_v1';
 	private const TERMINAL_EVENT_SCHEDULE_LOCK_NAME = 'digitalogic_pricing_terminal_event_schedule_v1';
+	private const STATE_EVENT_RECEIPT_TTL           = HOUR_IN_SECONDS;
+	private const STATE_EVENT_RECEIPT_LIMIT         = 200;
 	private const SNAPSHOT_TTL                      = 900;
 	private const METADATA_TTL                      = 1800;
 	private const BUILD_TTL                         = 1800;
@@ -53,7 +55,7 @@ final class Digitalogic_Pricing_Snapshot {
 	private const RETRY_AFTER                       = 2;
 	private const DEFAULT_PAGE_SIZE                 = 250;
 	private const MAX_PAGE_SIZE                     = 250;
-	private const MAX_ROWS                          = 20000;
+	private const MAX_ROWS                       = 20000;
 
 	/**
 	 * Shared snapshot service.
@@ -1161,8 +1163,16 @@ final class Digitalogic_Pricing_Snapshot {
 			$source_outbox  = is_array( $source_outbox ) ? $source_outbox : array();
 			$source_drained = true;
 			foreach ( $source_outbox as $event_key => $entry ) {
-				$name   = (string) ( $entry['name'] ?? '' );
-				$data   = is_array( $entry['data'] ?? null ) ? $entry['data'] : array();
+				$name = (string) ( $entry['name'] ?? '' );
+				$data = is_array( $entry['data'] ?? null ) ? $entry['data'] : array();
+				if ( 'pricing.source.removed' === $name && ! $this->remove_state_event_receipt_for_source( $data['source'] ?? array() ) ) {
+					$source_outbox[ $event_key ]['attempts']   = min( 1000, 1 + (int) ( $entry['attempts'] ?? 0 ) );
+					$source_outbox[ $event_key ]['updated_at'] = gmdate( 'c' );
+					$source_drained                            = false;
+					$retry                                     = true;
+					do_action( 'digitalogic_pricing_state_event_failed', 'digitalogic_pricing_state_receipt_unavailable', (array) ( $data['source'] ?? array() ) );
+					break;
+				}
 				$result = Digitalogic_Panel::record_event_result( $name, $data );
 				if ( is_wp_error( $result ) ) {
 					$source_outbox[ $event_key ]['attempts']   = min( 1000, 1 + (int) ( $entry['attempts'] ?? 0 ) );
@@ -1213,10 +1223,21 @@ final class Digitalogic_Pricing_Snapshot {
 						break;
 					}
 
-					$idempotency_key = $this->state_event_idempotency_key( $source, $current['state_revision'] );
-					$receipt_exists  = $this->state_event_receipt_matches( $source_key, $current['state_revision'], $idempotency_key );
-					$panel_has_event = ! $receipt_exists && $this->panel_has_state_event( $source, $current['state_revision'], $idempotency_key );
-					if ( $receipt_exists || $panel_has_event ) {
+					$idempotency_key  = $this->state_event_idempotency_key( $source, $current['state_revision'] );
+					$receipt_exists   = $this->state_event_receipt_matches( $source_key, $current['state_revision'], $idempotency_key );
+					$outbox_delivered = ! $receipt_exists && $this->state_event_outbox_delivery_matches( $entry, $current['state_revision'], $idempotency_key );
+					$panel_has_event  = ! $receipt_exists && ! $outbox_delivered && $this->panel_has_state_event( $source, $current['state_revision'], $idempotency_key );
+					if ( $receipt_exists || $outbox_delivered || $panel_has_event ) {
+						if ( ! $receipt_exists && ! $outbox_delivered ) {
+							$outbox[ $source_key ] = $this->mark_state_event_outbox_delivered( $entry, $current['state_revision'], $idempotency_key );
+							if ( ! $this->store_option_verified( self::STATE_EVENT_OUTBOX, $outbox ) ) {
+								$outbox[ $source_key ]['attempts']   = min( 1000, 1 + (int) ( $entry['attempts'] ?? 0 ) );
+								$outbox[ $source_key ]['updated_at'] = gmdate( 'c' );
+								$retry                               = true;
+								do_action( 'digitalogic_pricing_state_event_failed', 'digitalogic_pricing_state_outbox_unavailable', $source );
+								break;
+							}
+						}
 						if ( ! $receipt_exists && ! $this->persist_state_event_receipt( $source_key, $current['state_revision'], $idempotency_key ) ) {
 							$outbox[ $source_key ]['attempts']   = min( 1000, 1 + (int) ( $entry['attempts'] ?? 0 ) );
 							$outbox[ $source_key ]['updated_at'] = gmdate( 'c' );
@@ -1257,6 +1278,14 @@ final class Digitalogic_Pricing_Snapshot {
 						$outbox[ $source_key ]['updated_at'] = gmdate( 'c' );
 						$retry                               = true;
 						do_action( 'digitalogic_pricing_state_event_failed', $result->get_error_code(), $source );
+						break;
+					}
+					$outbox[ $source_key ] = $this->mark_state_event_outbox_delivered( $entry, $current['state_revision'], $idempotency_key );
+					if ( ! $this->store_option_verified( self::STATE_EVENT_OUTBOX, $outbox ) ) {
+						$outbox[ $source_key ]['attempts']   = min( 1000, 1 + (int) ( $entry['attempts'] ?? 0 ) );
+						$outbox[ $source_key ]['updated_at'] = gmdate( 'c' );
+						$retry                               = true;
+						do_action( 'digitalogic_pricing_state_event_failed', 'digitalogic_pricing_state_outbox_unavailable', $source );
 						break;
 					}
 					if ( ! $this->persist_state_event_receipt( $source_key, $current['state_revision'], $idempotency_key ) ) {
@@ -1759,10 +1788,28 @@ final class Digitalogic_Pricing_Snapshot {
 		);
 	}
 
+	/** Return whether the durable outbox records this exact panel delivery. */
+	private function state_event_outbox_delivery_matches( $entry, $state_revision, $idempotency_key ) {
+		$entry = is_array( $entry ) ? $entry : array();
+
+		return '' !== (string) ( $entry['delivered_state_revision'] ?? '' )
+			&& hash_equals( (string) $entry['delivered_state_revision'], (string) $state_revision )
+			&& hash_equals( (string) ( $entry['delivered_idempotency_key'] ?? '' ), (string) $idempotency_key );
+	}
+
+	/** Carry the exact delivered identity in the outbox until its receipt is durable. */
+	private function mark_state_event_outbox_delivered( $entry, $state_revision, $idempotency_key ) {
+		$entry                              = is_array( $entry ) ? $entry : array();
+		$entry['delivered_state_revision']  = (string) $state_revision;
+		$entry['delivered_idempotency_key'] = (string) $idempotency_key;
+		$entry['delivered_at']              = gmdate( 'c' );
+
+		return $entry;
+	}
+
 	/** Check the bounded durable receipt for one exact state-event identity. */
 	private function state_event_receipt_matches( $source_key, $state_revision, $idempotency_key ) {
-		$receipts = get_option( self::STATE_EVENT_RECEIPTS, array() );
-		$receipts = is_array( $receipts ) ? $receipts : array();
+		$receipts = $this->normalize_state_event_receipts( get_option( self::STATE_EVENT_RECEIPTS, array() ) );
 		$receipt  = is_array( $receipts[ $source_key ] ?? null ) ? $receipts[ $source_key ] : array();
 
 		return '' !== (string) ( $receipt['state_revision'] ?? '' )
@@ -1772,15 +1819,70 @@ final class Digitalogic_Pricing_Snapshot {
 
 	/** Store the newest delivered event identity for each exact source. */
 	private function persist_state_event_receipt( $source_key, $state_revision, $idempotency_key ) {
-		$receipts                = get_option( self::STATE_EVENT_RECEIPTS, array() );
-		$receipts                = is_array( $receipts ) ? $receipts : array();
+		$receipts                = $this->normalize_state_event_receipts( get_option( self::STATE_EVENT_RECEIPTS, array() ) );
 		$receipts[ $source_key ] = array(
 			'state_revision'  => (string) $state_revision,
 			'idempotency_key' => (string) $idempotency_key,
 			'recorded_at'     => gmdate( 'c' ),
 		);
+		$receipts                = $this->normalize_state_event_receipts( $receipts );
 
 		return $this->store_option_verified( self::STATE_EVENT_RECEIPTS, $receipts );
+	}
+
+	/** Remove a retired source receipt before its lifecycle removal is published. */
+	private function remove_state_event_receipt_for_source( $source ) {
+		$source     = is_array( $source ) ? $source : array();
+		$source_key = (string) ( $source['id'] ?? '' ) . "\n" . (string) ( $source['dataset'] ?? '' );
+		$stored     = get_option( self::STATE_EVENT_RECEIPTS, null );
+		if ( null === $stored ) {
+			return true;
+		}
+
+		$receipts = $this->normalize_state_event_receipts( $stored );
+		if ( ! isset( $receipts[ $source_key ] ) ) {
+			return true;
+		}
+
+		unset( $receipts[ $source_key ] );
+
+		return $this->store_option_verified( self::STATE_EVENT_RECEIPTS, $receipts );
+	}
+
+	/** Remove expired or malformed receipts and retain the newest bounded set. */
+	private function normalize_state_event_receipts( $receipts ) {
+		$receipts   = is_array( $receipts ) ? $receipts : array();
+		$cutoff     = time() - self::STATE_EVENT_RECEIPT_TTL;
+		$normalized = array();
+		foreach ( $receipts as $source_key => $receipt ) {
+			$receipt       = is_array( $receipt ) ? $receipt : array();
+			$recorded_at   = (string) ( $receipt['recorded_at'] ?? '' );
+			$recorded_time = '' === $recorded_at ? false : strtotime( $recorded_at );
+			if (
+				false === $recorded_time
+				|| $recorded_time < $cutoff
+				|| ! $this->is_revision( $receipt['state_revision'] ?? null )
+				|| ! $this->is_revision( $receipt['idempotency_key'] ?? null )
+			) {
+				continue;
+			}
+			$normalized[ (string) $source_key ] = array(
+				'state_revision'  => (string) $receipt['state_revision'],
+				'idempotency_key' => (string) $receipt['idempotency_key'],
+				'recorded_at'     => gmdate( 'c', $recorded_time ),
+			);
+		}
+		uasort(
+			$normalized,
+			static function ( $left, $right ) {
+				return strtotime( (string) $left['recorded_at'] ) <=> strtotime( (string) $right['recorded_at'] );
+			}
+		);
+		if ( count( $normalized ) > self::STATE_EVENT_RECEIPT_LIMIT ) {
+			$normalized = array_slice( $normalized, -self::STATE_EVENT_RECEIPT_LIMIT, null, true );
+		}
+
+		return $normalized;
 	}
 
 	/** Find an already durable panel event before appending a duplicate. */
@@ -1844,14 +1946,20 @@ final class Digitalogic_Pricing_Snapshot {
 			$outbox = is_array( $outbox ) ? $outbox : array();
 			$now    = gmdate( 'c' );
 			foreach ( $sources as $source_key => $source ) {
-				$first_seen            = (string) ( $outbox[ $source_key ]['first_seen_at'] ?? $now );
+				$existing              = is_array( $outbox[ $source_key ] ?? null ) ? $outbox[ $source_key ] : array();
+				$first_seen            = (string) ( $existing['first_seen_at'] ?? $now );
 				$outbox[ $source_key ] = array(
 					'source'        => $source,
 					'first_seen_at' => $first_seen,
 					'updated_at'    => $now,
-					'attempts'      => (int) ( $outbox[ $source_key ]['attempts'] ?? 0 ),
+					'attempts'      => (int) ( $existing['attempts'] ?? 0 ),
 					'cause'         => $cause,
 				);
+				if ( $this->is_revision( $existing['delivered_state_revision'] ?? null ) && $this->is_revision( $existing['delivered_idempotency_key'] ?? null ) ) {
+					$outbox[ $source_key ]['delivered_state_revision']  = (string) $existing['delivered_state_revision'];
+					$outbox[ $source_key ]['delivered_idempotency_key'] = (string) $existing['delivered_idempotency_key'];
+					$outbox[ $source_key ]['delivered_at']              = (string) ( $existing['delivered_at'] ?? $now );
+				}
 			}
 
 			return $this->store_option_verified( self::STATE_EVENT_OUTBOX, $outbox );
@@ -2113,9 +2221,13 @@ final class Digitalogic_Pricing_Snapshot {
 		$fallback_sources       = is_array( $fallback_sources ) ? array_values( $fallback_sources ) : array();
 		$fallback_source_events = is_array( $fallback_source_events ) ? array_values( $fallback_source_events ) : array();
 		$args                   = array( $fallback_sources, $fallback_source_events );
-		$locked                 = $this->acquire_state_event_schedule_lock();
+		$lock_name              = $this->state_event_schedule_lock_name( $args );
+		$locked                 = $this->acquire_state_event_schedule_lock( $lock_name );
 		if ( ! $locked ) {
 			$scheduled = $this->state_event_retry_is_pending( $args );
+			if ( ! $scheduled ) {
+				$scheduled = $this->schedule_state_event_retry_without_lock( $args );
+			}
 			if ( ! $scheduled ) {
 				do_action( 'digitalogic_pricing_state_event_failed', 'digitalogic_pricing_state_retry_unavailable', array() );
 			}
@@ -2139,7 +2251,7 @@ final class Digitalogic_Pricing_Snapshot {
 			}
 			$scheduled = $scheduled || $this->state_event_retry_is_pending( $args );
 		} finally {
-			$this->release_state_event_schedule_lock();
+			$this->release_state_event_schedule_lock( $lock_name );
 		}
 		if ( ! $scheduled ) {
 			do_action( 'digitalogic_pricing_state_event_failed', 'digitalogic_pricing_state_retry_unavailable', array() );
@@ -2162,7 +2274,9 @@ final class Digitalogic_Pricing_Snapshot {
 				'ids'
 			);
 
-			return ! empty( $actions );
+			if ( ! empty( $actions ) ) {
+				return true;
+			}
 		}
 		if ( function_exists( 'wp_next_scheduled' ) ) {
 			return false !== wp_next_scheduled( self::STATE_EVENT_HOOK, $args );
@@ -2171,27 +2285,54 @@ final class Digitalogic_Pricing_Snapshot {
 		return false;
 	}
 
+	/** Preserve one exact fallback through WP-Cron when its scheduler lock times out. */
+	private function schedule_state_event_retry_without_lock( $args ) {
+		$timestamp = time() + self::RETRY_AFTER;
+		if ( function_exists( 'wp_schedule_single_event' ) ) {
+			$scheduled = wp_schedule_single_event( $timestamp, self::STATE_EVENT_HOOK, $args, true );
+			$scheduled = ! is_wp_error( $scheduled ) && false !== $scheduled;
+			if ( $scheduled || ( function_exists( 'wp_next_scheduled' ) && false !== wp_next_scheduled( self::STATE_EVENT_HOOK, $args ) ) ) {
+				return true;
+			}
+		}
+		if ( function_exists( 'as_schedule_single_action' ) && function_exists( 'as_get_scheduled_actions' ) ) {
+			$scheduled = (bool) as_schedule_single_action( $timestamp, self::STATE_EVENT_HOOK, $args, self::ACTION_GROUP, false );
+
+			return $scheduled || $this->state_event_retry_is_pending( $args );
+		}
+
+		return false;
+	}
+
+	/** Return the database-lock identity for one exact fallback argument set. */
+	private function state_event_schedule_lock_name( $args ) {
+		$encoded = wp_json_encode( $args );
+		$digest  = hash( 'sha256', false === $encoded ? '' : $encoded );
+
+		return self::STATE_EVENT_SCHEDULE_LOCK_NAME . ':' . substr( $digest, 0, 16 );
+	}
+
 	/** Serialize exact pending-action readback and insertion across PHP requests. */
-	private function acquire_state_event_schedule_lock() {
+	private function acquire_state_event_schedule_lock( $lock_name ) {
 		global $wpdb;
 		if ( ! is_object( $wpdb ) || ! method_exists( $wpdb, 'get_var' ) || ! method_exists( $wpdb, 'prepare' ) ) {
 			return false;
 		}
 
-		$acquired = $wpdb->get_var( $wpdb->prepare( 'SELECT GET_LOCK(%s, %d)', self::STATE_EVENT_SCHEDULE_LOCK_NAME, 1 ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.NotPrepared -- Bounded advisory mutex; prepared above.
+		$acquired = $wpdb->get_var( $wpdb->prepare( 'SELECT GET_LOCK(%s, %d)', (string) $lock_name, 1 ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.NotPrepared -- Bounded advisory mutex; prepared above.
 
 		return 1 === (int) $acquired;
 	}
 
 	/** Release the state-event scheduler mutex owned by this request. */
-	private function release_state_event_schedule_lock() {
+	private function release_state_event_schedule_lock( $lock_name ) {
 		global $wpdb;
 		if ( ! is_object( $wpdb ) || ! method_exists( $wpdb, 'get_var' ) || ! method_exists( $wpdb, 'prepare' ) ) {
 			return;
 		}
 
 		try {
-			$wpdb->get_var( $wpdb->prepare( 'SELECT RELEASE_LOCK(%s)', self::STATE_EVENT_SCHEDULE_LOCK_NAME ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.NotPrepared -- Bounded advisory mutex; prepared above.
+			$wpdb->get_var( $wpdb->prepare( 'SELECT RELEASE_LOCK(%s)', (string) $lock_name ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.NotPrepared -- Bounded advisory mutex; prepared above.
 		} catch ( Throwable $error ) {
 			unset( $error );
 		}

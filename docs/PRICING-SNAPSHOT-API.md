@@ -167,11 +167,15 @@ source-lifecycle outbox after commit. Source lifecycle entries are drained in
 insertion order before the composite state entry derived from them. A failed
 head entry remains durable and blocks later entries until the bounded
 asynchronous retry succeeds, preserving causal order. State-event retries use
-one exact pending action across PHP requests; the scheduler mutex permits a
-running worker to create one replacement without parallel retry chains. A
-bounded per-source receipt plus the retained panel identity fences late
-fallback actions after delivery, so they cannot repersist or append the same
-composite idempotency key. Redis is only a
+one exact pending action across PHP requests; a per-fallback scheduler mutex
+permits a running worker to create one replacement without parallel retry
+chains, while a lock-timeout WP-Cron fallback preserves an otherwise
+unscheduled identity. The outbox carries the exact delivered identity until its
+one-hour receipt commits. Receipts retain only the newest 200 source identities,
+and exact source removal clears its receipt before the ordered lifecycle event
+is published. The retained panel identity is a secondary fence, so late
+fallback actions cannot repersist or append the same composite idempotency key
+after panel rotation. Redis is only a
 low-latency wake-up. If that publish fails, the newest failed wake is retained
 in a persistent outbox and retried by one coalesced, non-recurring WP-Cron
 action. Any valid wake makes the WebSocket process drain the ordered durable
