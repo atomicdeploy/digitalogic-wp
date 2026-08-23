@@ -99,6 +99,27 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 		$this->assertSame( array(), $GLOBALS['digitalogic_test_terms'] );
 	}
 
+	/** Materialization refuses to stage identity while another identity writer owns the shared lock. */
+	public function test_apply_fails_fast_on_shared_source_identity_lock_before_any_catalog_write(): void {
+		$this->receiveFixture();
+		$GLOBALS['wpdb']->acquire_results = array( 0 );
+
+		$result = Digitalogic_Patris_Catalog_Materializer::instance()->run(
+			$this->manifest(),
+			array( 'apply' => true )
+		);
+
+		$this->assertInstanceOf( WP_Error::class, $result );
+		$this->assertSame( 'digitalogic_product_sync_busy', $result->get_error_code() );
+		$this->assertSame( 0, end( $GLOBALS['wpdb']->lock_timeouts ) );
+		$this->assertSame(
+			Digitalogic_Product_Sync_Receiver::source_identity_lock_name( 'wp_' ),
+			end( $GLOBALS['wpdb']->lock_names )
+		);
+		$this->assertSame( array(), $GLOBALS['digitalogic_test_posts'] );
+		$this->assertSame( array(), $GLOBALS['digitalogic_test_terms'] );
+	}
+
 	public function test_fixture_uses_the_living_contract_and_currency_qualified_freight(): void {
 		$this->assertSame( 'patris.product-sync', self::$fixture['schema'] );
 
@@ -759,7 +780,7 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 
 		$this->assertInstanceOf( WP_Error::class, $result );
 		$this->assertSame( 'digitalogic_patris_materializer_source_changed_during_apply', $result->get_error_code() );
-		$this->assertSame( $release_count + 1, $GLOBALS['wpdb']->release_count );
+		$this->assertSame( $release_count + 2, $GLOBALS['wpdb']->release_count );
 		$this->assertSame( array(), $GLOBALS['digitalogic_test_posts'] );
 	}
 

@@ -254,7 +254,12 @@ class Digitalogic_Patris_Feed {
                 continue;
             }
 
-            $this->apply_product_feed($product, $product_data);
+			$applied = $this->apply_product_feed( $product, $product_data );
+			if ( is_wp_error( $applied ) ) {
+				++$results['failed'];
+				$results['errors'][] = $applied->get_error_code();
+				continue;
+			}
             $results['updated']++;
         }
 
@@ -563,14 +568,72 @@ class Digitalogic_Patris_Feed {
 	 *
 	 * @param WC_Product $product WooCommerce product.
 	 * @param array      $data    Validated normalized product.
-	 * @return mixed Guard callback result.
+	 * @return mixed|WP_Error Guard callback result or a bounded identity error.
 	 */
 	public function apply_product_feed( WC_Product $product, $data ) {
-		return Digitalogic_Patris_Price_Write_Guard::instance()->with_authorized_write(
-			function () use ( $product, $data ) {
-				$this->apply_product_feed_authorized( $product, $data );
+		$expected_product_id   = (int) $product->get_id();
+		$expected_product_code = (string) $product->get_meta( Digitalogic_Product_Identifier_Resolver::PATRIS_CODE_META, true );
+		$receiver              = Digitalogic_Product_Sync_Receiver::instance();
+		$locked                = $receiver->acquire_source_identity_lock( 0 );
+		if ( is_wp_error( $locked ) ) {
+			return $locked;
+		}
+
+		try {
+			$data         = is_array( $data ) ? $data : array();
+			$product_code = is_string( $data['product_code'] ?? null ) ? $data['product_code'] : '';
+			if ( '' === $product_code ) {
+				return new WP_Error(
+					'digitalogic_patris_product_code_invalid',
+					__( 'The source product requires an exact string Product Code.', 'digitalogic' ),
+					array( 'status' => 422 )
+				);
 			}
-		);
+
+			// The caller may have resolved and loaded this object before waiting on
+			// the source lock. Re-read the exact current binding while the lock is
+			// held so an owner edit cannot be overwritten by a stale product object.
+			$resolver = Digitalogic_Product_Identifier_Resolver::instance();
+			$resolved = $resolver->resolve(
+				array( 'woocommerce_id' => (string) $expected_product_id )
+			);
+			if ( is_wp_error( $resolved ) ) {
+				return $resolved;
+			}
+			if (
+				(int) ( $resolved['woocommerce_id'] ?? 0 ) !== $expected_product_id
+				|| ! hash_equals( $expected_product_code, (string) ( $resolved['patris_code'] ?? '' ) )
+			) {
+				return new WP_Error(
+					'digitalogic_patris_product_binding_changed',
+					__( 'The exact Product Code binding changed before the source write.', 'digitalogic' ),
+					array(
+						'status'    => 409,
+						'retryable' => true,
+					)
+				);
+			}
+
+			$desired_binding = $resolver->resolve( array( 'patris_code' => $product_code ) );
+			if ( ! is_wp_error( $desired_binding ) && (int) ( $desired_binding['woocommerce_id'] ?? 0 ) !== $expected_product_id ) {
+				return new WP_Error(
+					'digitalogic_patris_product_code_conflict',
+					__( 'The exact Product Code belongs to another WooCommerce product or variation.', 'digitalogic' ),
+					array( 'status' => 409 )
+				);
+			}
+			if ( is_wp_error( $desired_binding ) && 'digitalogic_product_identifier_not_found' !== $desired_binding->get_error_code() ) {
+				return $desired_binding;
+			}
+
+			return Digitalogic_Patris_Price_Write_Guard::instance()->with_authorized_write(
+				function () use ( $product, $data ) {
+					$this->apply_product_feed_authorized( $product, $data );
+				}
+			);
+		} finally {
+			$receiver->release_source_identity_lock();
+		}
 	}
 
 	/**

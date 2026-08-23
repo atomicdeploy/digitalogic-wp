@@ -434,6 +434,37 @@ class Digitalogic_Product_Sync_Receiver {
         return self::$instance;
     }
 
+	/**
+	 * Return the site-scoped source-identity lock shared by sync and bounded
+	 * canonical identity edits.
+	 *
+	 * @param string $table_prefix WordPress database table prefix.
+	 * @return string
+	 */
+	public static function source_identity_lock_name( $table_prefix ) {
+		return substr( self::LOCK_NAME . '_' . md5( (string) $table_prefix ), 0, 64 );
+	}
+
+	/**
+	 * Acquire the shared source/identity writer lock with a bounded wait.
+	 *
+	 * Canonical identity writers outside this receiver must use this pair so a
+	 * source delivery, materialization, legacy feed, and explicit owner edit
+	 * cannot interleave their identity checks and writes. Nested calls on this
+	 * receiver instance reuse the already-owned database lock.
+	 *
+	 * @param int $timeout_seconds Maximum database wait in whole seconds.
+	 * @return true|WP_Error
+	 */
+	public function acquire_source_identity_lock( $timeout_seconds = 0 ) {
+		return $this->acquire_lock( $timeout_seconds );
+	}
+
+	/** Release one nesting level of the shared source/identity writer lock. */
+	public function release_source_identity_lock() {
+		$this->release_lock();
+	}
+
     private function __construct() {}
 
     /**
@@ -3214,7 +3245,10 @@ class Digitalogic_Product_Sync_Receiver {
                 if (!empty($delivery_entry['pricing_only'])) {
                     Digitalogic_Patris_Feed::instance()->apply_product_pricing($product, $product_data);
                 } else {
-                    Digitalogic_Patris_Feed::instance()->apply_product_feed($product, $product_data);
+					$feed_write = Digitalogic_Patris_Feed::instance()->apply_product_feed( $product, $product_data );
+					if ( is_wp_error( $feed_write ) ) {
+						throw new RuntimeException( $feed_write->get_error_code() );
+					}
                 }
                 $persisted_hash = (string) get_post_meta($woocommerce_id, '_digitalogic_patris_record_hash', true);
                 if ('' === $persisted_hash || !hash_equals($record_hash, $persisted_hash)) {
@@ -4675,19 +4709,30 @@ class Digitalogic_Product_Sync_Receiver {
         wp_cache_delete('alloptions', 'options');
     }
 
-    private function acquire_lock() {
+	/**
+	 * Acquire the re-entrant source identity lock.
+	 *
+	 * @param int|null $timeout_seconds Maximum bounded wait, or the receiver default.
+	 * @return true|WP_Error
+	 */
+	private function acquire_lock( $timeout_seconds = null ) {
         if ($this->lock_depth > 0) {
             $this->lock_depth++;
             return true;
         }
+
+		$timeout_seconds = null === $timeout_seconds
+			? self::LOCK_TIMEOUT_SECONDS
+			: max( 0, min( self::LOCK_TIMEOUT_SECONDS, (int) $timeout_seconds ) );
 
         global $wpdb;
         if (!is_object($wpdb) || !method_exists($wpdb, 'get_var') || !method_exists($wpdb, 'prepare')) {
             return $this->error('digitalogic_product_sync_lock_unavailable', 'The database lock service is unavailable.', 503);
         }
 		$prefix    = isset( $wpdb->prefix ) ? (string) $wpdb->prefix : 'wp_';
-        $lock_name = substr(self::LOCK_NAME . '_' . md5($prefix), 0, 64);
-		$locked    = $wpdb->get_var( $wpdb->prepare( 'SELECT GET_LOCK(%s, %d)', $lock_name, self::LOCK_TIMEOUT_SECONDS ) );
+		$lock_name = self::source_identity_lock_name( $prefix );
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Named advisory lock is connection state.
+		$locked = $wpdb->get_var( $wpdb->prepare( 'SELECT GET_LOCK(%s, %d)', $lock_name, $timeout_seconds ) );
         if ('1' !== (string) $locked) {
             return $this->error('digitalogic_product_sync_busy', 'Another product-sync event is being applied. Please retry.', 503, array('retryable' => true));
         }
@@ -4709,8 +4754,8 @@ class Digitalogic_Product_Sync_Receiver {
         if (!is_object($wpdb) || !method_exists($wpdb, 'get_var') || !method_exists($wpdb, 'prepare')) {
             return;
         }
-        $prefix    = isset($wpdb->prefix) ? (string) $wpdb->prefix : 'wp_';
-        $lock_name = substr(self::LOCK_NAME . '_' . md5($prefix), 0, 64);
+		$prefix    = isset( $wpdb->prefix ) ? (string) $wpdb->prefix : 'wp_';
+		$lock_name = self::source_identity_lock_name( $prefix );
         $wpdb->get_var($wpdb->prepare('SELECT RELEASE_LOCK(%s)', $lock_name));
     }
 

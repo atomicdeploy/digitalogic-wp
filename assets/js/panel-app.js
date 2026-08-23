@@ -259,6 +259,22 @@
                         : error);
                 });
             });
+			var timeoutHandle;
+			var timeoutRequest = new Promise(function(resolve, reject) {
+				timeoutHandle = window.setTimeout(function() {
+					var timeoutError = commandError(
+						{code: 'digitalogic_request_timeout', data: {retryable: true}},
+						'The request timed out. Retry the unchanged request.',
+						0
+					);
+					if (controller) controller.abort();
+					reject(timeoutError);
+				}, timeoutMs);
+			});
+
+			return Promise.race([fetchRequest, timeoutRequest]).finally(function() {
+				window.clearTimeout(timeoutHandle);
+			});
         }
 
         connect();
@@ -274,6 +290,19 @@
             }
         };
     }
+
+	function commandError(payload, fallbackMessage, httpStatus) {
+		var normalized = payload && typeof payload === 'object' ? payload : {};
+		var details = normalized.data && typeof normalized.data === 'object' ? normalized.data : {};
+		var message = typeof normalized.message === 'string'
+			? normalized.message
+			: (typeof payload === 'string' ? payload : fallbackMessage);
+		var error = new Error(message || 'Request failed');
+		error.code = String(normalized.code || 'digitalogic_request_failed');
+		error.data = details;
+		error.status = Number(normalized.status || details.status || httpStatus || 0);
+		return error;
+	}
 
     function stored(key, fallback) {
         return window.localStorage.getItem(key) || fallback;
@@ -350,6 +379,7 @@
             {key: 'id', label: 'ID', field: 'id', width: 76, visible: true, sortable: true, editable: false, mono: true, filter: 'text', icon: 'dashicons-tag', priority: 1},
             {key: 'name', labelKey: 'productTitle', field: 'name', width: 340, visible: true, sortable: true, editable: true, filter: 'text', icon: 'dashicons-products', priority: 1},
             {key: 'part_number', labelKey: 'partNumber', field: 'part_number', width: 150, visible: false, sortable: false, editable: false, mono: true, filter: 'text', icon: 'dashicons-tag', priority: 3},
+            {key: 'patris_product_code', labelKey: 'productCode', field: 'patris_product_code', width: 140, visible: true, sortable: false, editable: true, mono: true, filter: 'text', icon: 'dashicons-tag', priority: 1},
             {key: 'sku', labelKey: 'sku', field: 'sku', width: 140, visible: true, sortable: true, editable: true, mono: true, filter: 'text', icon: 'dashicons-editor-code', priority: 1},
             {key: 'type', labelKey: 'productType', field: 'type', width: 122, visible: false, sortable: false, editable: false, type: 'select', filter: 'select', icon: 'dashicons-category', priority: 3},
             {key: 'regular_price', labelKey: 'regularPrice', field: 'regular_price', width: 132, visible: true, sortable: true, editable: true, numeric: true, filter: 'numeric', icon: 'dashicons-money-alt', priority: 2},
@@ -462,6 +492,7 @@
                 productAutosave: stored('digitalogic_panel_product_autosave', '1') !== '0',
                 userSearch: '',
                 edits: {},
+                productCodeIntents: {},
                 userEdits: {},
                 editingCell: null,
                 currencyDraft: {dollar_price: '', yuan_price: ''},
@@ -1304,8 +1335,33 @@
                 if (column.warehouse) return this.lang === 'fa' ? column.labelFa : column.labelEn;
                 return column.label;
             },
+			isProductColumnEditable: function(product, column) {
+				if (!column || !column.editable) return false;
+				return column.field !== 'patris_product_code' || !product || product.patris_product_code_editable !== false;
+			},
+			productColumnEditReason: function(product, column) {
+				if (
+					column &&
+					column.field === 'patris_product_code' &&
+					product &&
+					product.patris_product_code_editable === false
+				) {
+					var reasonKeys = {
+						source_managed: 'productCodeSourceManaged',
+						metadata_conflict: 'productCodeMetadataConflict',
+						state_changed: 'productCodeStateChanged',
+						state_unavailable: 'productCodeStateUnavailable',
+						source_state_unavailable: 'productCodeStateUnavailable'
+					};
+					var reasonKey = reasonKeys[product.patris_product_code_edit_reason] || 'productCodeStateUnavailable';
+					return this.t[reasonKey] || '';
+				}
+
+				return '';
+			},
             startCellEdit: function(kind, row, column, event) {
                 if (!column.editable) return;
+				if (kind === 'product' && !this.isProductColumnEditable(row, column)) return;
                 if (kind === 'product' && !this.productEditMode) return;
                 if (column.type === 'select') return;
                 if (event && typeof event.button === 'number' && event.button !== 0) return;
@@ -1350,11 +1406,13 @@
             onGridCellKeydown: function(event, product, column) {
                 var editKeys = ['Enter', 'F2'];
                 if (column.type === 'select' && editKeys.concat([' ']).indexOf(event.key) !== -1) {
+					if (!this.isProductColumnEditable(product, column)) return;
                     event.preventDefault();
                     this.openSelectCell('product', product, column, event);
                     return;
                 }
                 if (editKeys.indexOf(event.key) !== -1) {
+					if (!this.isProductColumnEditable(product, column)) return;
                     event.preventDefault();
                     this.startCellEdit('product', product, column);
                     return;
@@ -1405,7 +1463,16 @@
             },
             editProduct: function(product, field, value) {
                 if (!this.productEditMode || !product || !product.id) return;
+				if (field === 'patris_product_code' && product.patris_product_code_editable === false) return;
                 if (!this.edits[product.id]) this.edits[product.id] = {};
+                if (field === 'patris_product_code' && !this.productCodeIntents[product.id]) {
+                    this.productCodeIntents[product.id] = {
+                        expected_code: String(product.patris_product_code || ''),
+                        if_match: String(product.patris_product_code_revision || ''),
+                        request_id: '',
+                        signature: ''
+                    };
+                }
                 this.edits[product.id][field] = value;
                 product[field] = value;
                 this.scheduleProductSave(product);
@@ -1459,12 +1526,40 @@
 
                 var snapshot = Object.assign({}, self.edits[productId] || {});
                 if (!Object.keys(snapshot).length) return Promise.resolve();
+                var productCodeEdit = Object.prototype.hasOwnProperty.call(snapshot, 'patris_product_code');
+                var requestSnapshot = productCodeEdit
+                    ? {patris_product_code: snapshot.patris_product_code}
+                    : snapshot;
                 self.saveState['product:' + productId] = 'saving';
-                var savePromise = self.run('digitalogic_update_product', {product_id: productId, data: snapshot}).then(function(response) {
-                    var remaining = productQuery.reconcileEdits(self.edits[productId], snapshot);
+                var operation = productCodeEdit
+                    ? self.saveProductCode(product, requestSnapshot.patris_product_code)
+                    : self.run('digitalogic_update_product', {product_id: productId, data: requestSnapshot});
+                var savePromise = operation.then(function(response) {
+                    var remaining = productQuery.reconcileEdits(self.edits[productId], requestSnapshot);
                     if (Object.keys(remaining).length) self.edits[productId] = remaining;
                     else delete self.edits[productId];
-                    if (response && response.product) {
+                    if (productCodeEdit && response && response.product_code !== undefined) {
+                        product.patris_product_code = response.product_code;
+                        product.patris_product_code_revision = response.revision;
+                        if (self.selectedProduct && Number(self.selectedProduct.id) === productId) {
+                            self.selectedProduct.patris_product_code = response.product_code;
+                            self.selectedProduct.patris_product_code_revision = response.revision;
+                        }
+                        if (remaining.patris_product_code !== undefined) {
+                            product.patris_product_code = remaining.patris_product_code;
+                            if (self.selectedProduct && Number(self.selectedProduct.id) === productId) {
+                                self.selectedProduct.patris_product_code = remaining.patris_product_code;
+                            }
+                            self.productCodeIntents[productId] = {
+                                expected_code: String(response.product_code || ''),
+                                if_match: String(response.revision || ''),
+                                request_id: '',
+                                signature: ''
+                            };
+                        } else {
+                            delete self.productCodeIntents[productId];
+                        }
+                    } else if (response && response.product) {
                         Object.assign(product, response.product);
                         Object.assign(product, remaining);
                         if (self.selectedProduct && Number(self.selectedProduct.id) === productId) {
@@ -1479,14 +1574,114 @@
                         window.opener.postMessage({type: 'digitalogic-product-updated', productId: productId}, window.location.origin);
                     }
                 }).catch(function(error) {
+					if (productCodeEdit) {
+						self.handleProductCodeSaveError(product, error);
+					}
                     self.saveState['product:' + productId] = 'error';
                     self.error = error.message || self.t.error;
                     throw error;
                 }).finally(function() {
                     delete self.savePromises[productId];
+                }).then(function() {
+                    return self.edits[productId] && Object.keys(self.edits[productId]).length
+                        ? self.saveProduct(product)
+                        : undefined;
                 });
                 self.savePromises[productId] = savePromise;
                 return savePromise;
+            },
+            saveProductCode: function(product, desiredCode) {
+                var productId = product && Number(product.id);
+                var intent = this.productCodeIntents[productId] || {
+                    expected_code: String(product.patris_product_code || ''),
+                    if_match: String(product.patris_product_code_revision || ''),
+                    request_id: '',
+                    signature: ''
+                };
+                var signature = [productId, intent.expected_code, String(desiredCode), intent.if_match].join('\u0000');
+                if (!intent.request_id || intent.signature !== signature) {
+                    var random = '';
+                    if (window.crypto && typeof window.crypto.getRandomValues === 'function') {
+                        var bytes = new Uint32Array(2);
+                        window.crypto.getRandomValues(bytes);
+                        random = Array.prototype.map.call(bytes, function(value) {
+                            return value.toString(16);
+                        }).join('');
+                    } else {
+                        random = Math.random().toString(16).slice(2);
+                    }
+                    intent.request_id = 'product-code:' + productId + ':' + Date.now() + ':' + random;
+                    intent.signature = signature;
+                }
+                this.productCodeIntents[productId] = intent;
+
+				return this.run('digitalogic_update_product_code', {
+                    product_id: productId,
+                    expected_code: intent.expected_code,
+                    product_code: String(desiredCode),
+                    if_match: intent.if_match,
+                    request_id: intent.request_id
+				}, {ajaxOnly: true});
+			},
+			handleProductCodeSaveError: function(product, error) {
+				var productId = product && Number(product.id);
+				var intent = this.productCodeIntents[productId];
+				if (!intent) return;
+				var details = error && error.data && typeof error.data === 'object' ? error.data : {};
+				if (
+					error &&
+					error.code === 'digitalogic_product_code_precondition_failed' &&
+					typeof details.current_code === 'string' &&
+					typeof details.current_revision === 'string'
+				) {
+					intent.expected_code = details.current_code;
+					intent.if_match = details.current_revision;
+					intent.request_id = '';
+					intent.signature = '';
+					product.patris_product_code_revision = details.current_revision;
+					if (this.selectedProduct && Number(this.selectedProduct.id) === productId) {
+						this.selectedProduct.patris_product_code_revision = details.current_revision;
+					}
+					return;
+				}
+				if (
+					(error && error.code === 'digitalogic_request_timeout') ||
+					(error && Number(error.status) === 503) ||
+					details.retryable === true
+				) {
+					return;
+				}
+
+				if (this.edits[productId]) {
+					delete this.edits[productId].patris_product_code;
+					if (!Object.keys(this.edits[productId]).length) delete this.edits[productId];
+				}
+				product.patris_product_code = intent.expected_code;
+				product.patris_product_code_revision = intent.if_match;
+				if (
+					error &&
+					(
+						error.code === 'digitalogic_product_code_source_managed' ||
+						error.code === 'digitalogic_product_code_meta_conflict'
+					)
+				) {
+					product.patris_product_code_editable = false;
+					product.patris_product_code_edit_reason = error.code === 'digitalogic_product_code_source_managed'
+						? 'source_managed'
+						: 'metadata_conflict';
+					if (this.selectedProduct && Number(this.selectedProduct.id) === productId) {
+						this.selectedProduct.patris_product_code_editable = false;
+						this.selectedProduct.patris_product_code_edit_reason = product.patris_product_code_edit_reason;
+					}
+					this.loadProducts(this.productPage);
+				}
+				delete this.productCodeIntents[productId];
+				if (error && error.code === 'digitalogic_product_code_outcome_unknown') {
+					this.loadProducts(this.productPage);
+					if (this.selectedProduct && Number(this.selectedProduct.id) === productId) {
+						this.loadProduct(productId);
+					}
+				}
             },
             saveAllProductEdits: function() {
                 var self = this;

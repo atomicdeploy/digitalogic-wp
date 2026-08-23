@@ -246,10 +246,16 @@ final class Digitalogic_Patris_Catalog_Materializer {
 			return $result;
 		}
 
-		$locked = false;
+		$locked                 = false;
+		$source_identity_locked = false;
 		if ( $apply ) {
+			$source_identity_locked = Digitalogic_Product_Sync_Receiver::instance()->acquire_source_identity_lock( 0 );
+			if ( is_wp_error( $source_identity_locked ) ) {
+				return $source_identity_locked;
+			}
 			$locked = $this->acquire_lock();
 			if ( is_wp_error( $locked ) ) {
+				Digitalogic_Product_Sync_Receiver::instance()->release_source_identity_lock();
 				return $locked;
 			}
 		}
@@ -362,7 +368,10 @@ final class Digitalogic_Patris_Catalog_Materializer {
 				}
 
 				try {
-					Digitalogic_Patris_Feed::instance()->apply_product_feed( $product, $record );
+					$feed_write = Digitalogic_Patris_Feed::instance()->apply_product_feed( $product, $record );
+					if ( is_wp_error( $feed_write ) ) {
+						throw new RuntimeException( $feed_write->get_error_code() );
+					}
 				} catch ( Throwable $exception ) {
 					$this->append_detail( $result, $code, 'woocommerce_feed_write_failed' );
 					++$result['failed'];
@@ -477,6 +486,9 @@ final class Digitalogic_Patris_Catalog_Materializer {
 		} finally {
 			if ( $locked ) {
 				$this->release_lock();
+			}
+			if ( $source_identity_locked ) {
+				Digitalogic_Product_Sync_Receiver::instance()->release_source_identity_lock();
 			}
 		}
 

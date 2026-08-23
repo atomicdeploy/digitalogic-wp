@@ -19,6 +19,7 @@ final class PatrisFeedResolutionTest extends TestCase {
         $GLOBALS['wpdb'] = new Digitalogic_Test_WPDB();
 
         $this->resetSingleton(Digitalogic_Product_Identifier_Resolver::class);
+		$this->resetSingleton( Digitalogic_Product_Sync_Receiver::class );
         $this->resetSingleton(Digitalogic_Patris_Feed::class);
         $this->feed = Digitalogic_Patris_Feed::instance();
     }
@@ -91,6 +92,38 @@ final class PatrisFeedResolutionTest extends TestCase {
         $this->assertSame('Exact Patris target', $GLOBALS['digitalogic_test_posts'][703]['meta']['_digitalogic_patris_name']);
         $this->assertSame('Exact Patris target', get_option('digitalogic_patris_feed_products')['COLLISION']['name']);
     }
+
+	/** A stale pre-lock resolution cannot overwrite an intervening owner identity edit. */
+	public function test_feed_revalidates_exact_binding_after_acquiring_source_lock(): void {
+		$GLOBALS['digitalogic_test_posts'][709] = array(
+			'post_type'   => 'product',
+			'post_status' => 'publish',
+			'meta'        => array( '_digitalogic_patris_product_code' => 'SOURCE-709' ),
+		);
+
+		$GLOBALS['wpdb']->before_get_lock = static function () {
+			$GLOBALS['digitalogic_test_posts'][709]['meta']['_digitalogic_patris_product_code'] = 'OWNER-EDITED-709';
+			unset( $GLOBALS['digitalogic_test_wc_products'][709] );
+		};
+
+		$result = $this->feed->import_payload(
+			array(
+				'products' => array(
+					array(
+						'product_code' => 'SOURCE-709',
+						'name'         => 'Stale source row',
+					),
+				),
+			),
+			'test'
+		);
+
+		$this->assertSame( 0, $result['updated'] );
+		$this->assertSame( 1, $result['failed'] );
+		$this->assertSame( array( 'digitalogic_patris_product_binding_changed' ), $result['errors'] );
+		$this->assertSame( 'OWNER-EDITED-709', $GLOBALS['digitalogic_test_posts'][709]['meta']['_digitalogic_patris_product_code'] );
+		$this->assertSame( array(), $GLOBALS['digitalogic_test_wc_product_saves'] );
+	}
 
     public function test_ambiguous_and_invalid_identifiers_fail_safely_without_product_writes_but_remain_reportable(): void {
         $GLOBALS['digitalogic_test_posts'] = array(

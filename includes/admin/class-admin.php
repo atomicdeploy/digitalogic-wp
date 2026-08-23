@@ -35,6 +35,7 @@ class Digitalogic_Admin {
         add_action('admin_footer', array($this, 'remove_unwanted_admin_notices'), 1000);
         add_action('wp_ajax_digitalogic_get_products', array($this, 'ajax_get_products'));
         add_action('wp_ajax_digitalogic_update_product', array($this, 'ajax_update_product'));
+		add_action( 'wp_ajax_digitalogic_update_product_code', array( $this, 'ajax_update_product_code' ) );
         add_action('wp_ajax_digitalogic_bulk_update', array($this, 'ajax_bulk_update'));
         add_action('wp_ajax_digitalogic_update_currency', array($this, 'ajax_update_currency'));
         add_action('wp_ajax_digitalogic_export', array($this, 'ajax_export'));
@@ -380,6 +381,12 @@ class Digitalogic_Admin {
                 'entries_text' => __('entries', 'digitalogic'),
                 'no_records' => __('No matching records found', 'digitalogic'),
                 'filtered' => __('(filtered from _MAX_ total entries)', 'digitalogic'),
+				// phpcs:disable WordPress.Arrays.MultipleStatementAlignment.DoubleArrowNotAligned -- Keep this focused addition out of the legacy array's formatting debt.
+				'product_code_source_managed'     => __( 'This Product Code is managed by the catalog source; correct it in the source.', 'digitalogic' ),
+				'product_code_metadata_conflict'  => __( 'This Product Code has conflicting metadata rows and must be reconciled first.', 'digitalogic' ),
+				'product_code_state_changed'      => __( 'This Product Code changed while the row was loading; reload before editing.', 'digitalogic' ),
+				'product_code_state_unavailable'  => __( 'The exact Product Code or source state is unavailable; retry after reloading.', 'digitalogic' ),
+				// phpcs:enable WordPress.Arrays.MultipleStatementAlignment.DoubleArrowNotAligned
             )
         ));
     }
@@ -1069,6 +1076,12 @@ class Digitalogic_Admin {
     public function ajax_update_product() {
         $this->send_command_response('digitalogic_update_product', $_POST);
     }
+
+	/** AJAX: Update the canonical Product Code through its dedicated contract. */
+	public function ajax_update_product_code() {
+		// phpcs:ignore WordPress.Security.NonceVerification.Missing -- send_command_response verifies the shared admin nonce before dispatch.
+		$this->send_command_response( 'digitalogic_update_product_code', $_POST );
+	}
     
     /**
      * AJAX: Bulk update
@@ -1172,6 +1185,18 @@ class Digitalogic_Admin {
             if ($retry_after > 0 && !headers_sent()) {
                 header('Retry-After: ' . $retry_after);
             }
+			if ( 'digitalogic_update_product_code' === $command ) {
+				$status = max( 400, min( 599, $status ) );
+				wp_send_json_error(
+					array(
+						'code'    => $result->get_error_code(),
+						'message' => $result->get_error_message(),
+						'data'    => $details,
+						'status'  => $status,
+					),
+					$status
+				);
+			}
             wp_send_json_error(
                 array(
                     'code' => $result->get_error_code(),

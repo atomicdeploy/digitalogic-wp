@@ -11,6 +11,7 @@
     var productsTable;
     var logsTable;
     var changedProducts = {};
+    var productCodeIntents = {};
     var websocket;
     var websocketReady = false;
     var websocketConnecting = false;
@@ -48,6 +49,23 @@
 
     function editableCell(row, field, value, inputType, step) {
         return '<button type="button" class="digitalogic-editable-cell" data-id="' + row.id + '" data-field="' + field + '" data-type="' + (inputType || 'text') + '" data-step="' + (step || '') + '">' + escapeHtml(value) + '</button>';
+    }
+
+    function productCodeCell(row, value) {
+        if (row.patris_product_code_editable === false) {
+			var reason = row.patris_product_code_edit_reason || 'state_unavailable';
+			var reasonKeys = {
+				source_managed: 'product_code_source_managed',
+				metadata_conflict: 'product_code_metadata_conflict',
+				state_changed: 'product_code_state_changed',
+				state_unavailable: 'product_code_state_unavailable',
+				source_state_unavailable: 'product_code_state_unavailable'
+			};
+			var reasonKey = reasonKeys[reason] || 'product_code_state_unavailable';
+			return '<span class="digitalogic-editable-cell is-readonly" aria-disabled="true" title="' + escapeHtml((digitalogic.i18n && digitalogic.i18n[reasonKey]) || '') + '">' + escapeHtml(value) + '</span>';
+        }
+
+        return editableCell(row, 'patris_product_code', value, 'text');
     }
     
     $(document).ready(function() {
@@ -146,10 +164,11 @@
     /**
      * Run a Digitalogic command over WebSocket, falling back to admin-ajax.
      */
-    function digitalogicRequest(action, data) {
+    function digitalogicRequest(action, data, options) {
         data = data || {};
+		options = options || {};
 
-        if (websocketReady && websocket && websocket.readyState === WebSocket.OPEN) {
+		if (!options.ajaxOnly && websocketReady && websocket && websocket.readyState === WebSocket.OPEN) {
             var deferred = $.Deferred();
             var id = 'req_' + (++websocketRequestId);
             websocketRequests[id] = {
@@ -174,6 +193,7 @@
         return $.ajax({
             url: digitalogic.ajax_url,
             type: 'POST',
+			timeout: Math.max(1000, Math.min(30000, Number(digitalogic.request_timeout) || 12000)),
             data: $.extend({
                 action: action,
                 nonce: digitalogic.nonce
@@ -254,6 +274,14 @@
                     }
                 },
                 { data: 'name' },
+                {
+                    data: 'patris_product_code',
+                    render: function(data, type, row) {
+                        return type === 'display'
+							? productCodeCell(row, data)
+                            : data;
+                    }
+                },
                 { data: 'sku' },
                 {
                     data: 'regular_price',
@@ -321,6 +349,9 @@
         });
 
         $('#products-table').on('click keydown', '.digitalogic-editable-cell', function(event) {
+			if ($(this).hasClass('is-readonly')) {
+				return;
+			}
             if (event.type === 'keydown' && event.key !== 'Enter' && event.key !== 'F2') {
                 return;
             }
@@ -380,15 +411,66 @@
     function saveProductField(productId, fieldName, value, $field) {
         var data = {};
         data[fieldName] = $field.data('type') === 'number' ? normalizeNumber(value) : value;
-        $field.addClass('is-saving');
+        $field.addClass('is-saving').prop('disabled', true).attr('aria-busy', 'true');
 
-        digitalogicRequest('digitalogic_update_product', {
-            product_id: productId,
-            data: data
-        }).done(function(response) {
+        var request;
+        if (fieldName === 'patris_product_code') {
+            var row = productsTable.row($field.closest('tr')).data() || {};
+            var intent = productCodeIntents[productId] || {
+                expected_code: String(row.patris_product_code || ''),
+                if_match: String(row.patris_product_code_revision || ''),
+                request_id: '',
+                signature: ''
+            };
+            var desiredCode = String(value);
+            var signature = [productId, intent.expected_code, desiredCode, intent.if_match].join('\u0000');
+            if (!intent.request_id || intent.signature !== signature) {
+                var random = '';
+                if (window.crypto && typeof window.crypto.getRandomValues === 'function') {
+                    var bytes = new Uint32Array(2);
+                    window.crypto.getRandomValues(bytes);
+                    random = Array.prototype.map.call(bytes, function(item) {
+                        return item.toString(16);
+                    }).join('');
+                } else {
+                    random = Math.random().toString(16).slice(2);
+                }
+                intent.request_id = 'product-code:' + productId + ':' + Date.now() + ':' + random;
+                intent.signature = signature;
+            }
+            productCodeIntents[productId] = intent;
+			request = digitalogicRequest('digitalogic_update_product_code', {
+                product_id: productId,
+                expected_code: intent.expected_code,
+                product_code: desiredCode,
+                if_match: intent.if_match,
+                request_id: intent.request_id
+			}, {ajaxOnly: true});
+        } else {
+            request = digitalogicRequest('digitalogic_update_product', {
+                product_id: productId,
+                data: data
+            });
+        }
+
+        request.done(function(response) {
             if (!response || response.success === false) {
                 $field.addClass('is-error');
                 return;
+            }
+
+            if (fieldName === 'patris_product_code') {
+                var result = response.data || response;
+                if (!result || typeof result.product_code !== 'string' || typeof result.revision !== 'string') {
+                    $field.addClass('is-error');
+                    return;
+                }
+                var productRow = productsTable.row($field.closest('tr')).data();
+                if (productRow) {
+                    productRow.patris_product_code = result.product_code;
+                    productRow.patris_product_code_revision = result.revision;
+                }
+                delete productCodeIntents[productId];
             }
 
             if (changedProducts[productId]) {
@@ -402,10 +484,61 @@
             setTimeout(function() {
                 $field.removeClass('is-saved');
             }, 1200);
-        }).fail(function() {
+		}).fail(function(xhr, textStatus, errorThrown) {
+			if (fieldName === 'patris_product_code') {
+				var response = xhr && xhr.responseJSON;
+				var payload = response && response.data && typeof response.data === 'object' ? response.data : {};
+				var details = payload.data && typeof payload.data === 'object' ? payload.data : {};
+				var status = Number(payload.status || details.status || (xhr && xhr.status) || 0);
+				var timedOut = textStatus === 'timeout';
+				var errorCode = timedOut ? 'digitalogic_request_timeout' : String(payload.code || 'digitalogic_product_code_request_failed');
+				var intent = productCodeIntents[productId];
+				if (
+					intent &&
+					errorCode === 'digitalogic_product_code_precondition_failed' &&
+					typeof details.current_code === 'string' &&
+					typeof details.current_revision === 'string'
+				) {
+					intent.expected_code = details.current_code;
+					intent.if_match = details.current_revision;
+					intent.request_id = '';
+					intent.signature = '';
+					var staleRow = productsTable.row($field.closest('tr')).data();
+					if (staleRow) {
+						staleRow.patris_product_code = details.current_code;
+						staleRow.patris_product_code_revision = details.current_revision;
+					}
+				} else if (errorCode === 'digitalogic_product_code_outcome_unknown') {
+					delete productCodeIntents[productId];
+					if (changedProducts[productId]) {
+						delete changedProducts[productId][fieldName];
+					}
+					productsTable.ajax.reload(null, false);
+				} else if (
+					errorCode === 'digitalogic_product_code_source_managed' ||
+					errorCode === 'digitalogic_product_code_meta_conflict'
+				) {
+					delete productCodeIntents[productId];
+					if (changedProducts[productId]) {
+						delete changedProducts[productId][fieldName];
+					}
+					var guardedRow = productsTable.row($field.closest('tr')).data();
+					if (guardedRow) {
+						guardedRow.patris_product_code_editable = false;
+						guardedRow.patris_product_code_edit_reason = errorCode === 'digitalogic_product_code_source_managed'
+							? 'source_managed'
+							: 'metadata_conflict';
+						productsTable.row($field.closest('tr')).data(guardedRow).invalidate();
+						productsTable.draw(false);
+					}
+					productsTable.ajax.reload(null, false);
+				} else if (!timedOut && status !== 503 && details.retryable !== true) {
+					delete productCodeIntents[productId];
+				}
+			}
             $field.addClass('is-error');
         }).always(function() {
-            $field.removeClass('is-saving');
+            $field.removeClass('is-saving').prop('disabled', false).removeAttr('aria-busy');
         });
     }
     

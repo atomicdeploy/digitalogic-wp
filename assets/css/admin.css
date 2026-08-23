@@ -265,6 +265,14 @@ table.dataTable input[type="number"] {
     outline: none;
 }
 
+.digitalogic-editable-cell.is-readonly,
+.digitalogic-editable-cell.is-readonly:hover,
+.digitalogic-editable-cell.is-readonly:focus {
+    border-color: transparent;
+    background: transparent;
+    cursor: not-allowed;
+}
+
 .digitalogic-cell-input.changed,
 .digitalogic-editable-cell.changed {
     border-color: #dba617;

@@ -1518,6 +1518,83 @@ class Digitalogic_Test_WPDB {
 			}
 			return $rows;
 		}
+		if ( false !== strpos( $query, 'digitalogic_product_code_readback' ) ) {
+			$product_id = isset( $args[2] ) ? (int) $args[2] : 0;
+			$post       = $GLOBALS['digitalogic_test_posts'][ $product_id ] ?? null;
+			if ( ! is_array( $post ) || ! in_array( $post['post_type'] ?? '', array( 'product', 'product_variation' ), true ) ) {
+				return array();
+			}
+			$status = (string) ( $post['post_status'] ?? 'publish' );
+			if ( in_array( $status, array( 'trash', 'auto-draft' ), true ) ) {
+				return array();
+			}
+
+			$rows = array();
+			// phpcs:disable WordPress.DB.SlowDBQuery -- Test fixture mirrors the service's exact metadata query.
+			foreach ( array( '_digitalogic_patris_product_code', '_digitalogic_patris_record_hash' ) as $meta_key ) {
+				$values = array();
+				if ( isset( $post['meta_rows'][ $meta_key ] ) && is_array( $post['meta_rows'][ $meta_key ] ) ) {
+					$values = array_values( $post['meta_rows'][ $meta_key ] );
+				} elseif ( array_key_exists( $meta_key, $post['meta'] ?? array() ) ) {
+					$values = array( $post['meta'][ $meta_key ] );
+				}
+				foreach ( $values as $index => $value ) {
+					$rows[] = array(
+						'ID'          => $product_id,
+						'post_type'   => $post['post_type'],
+						'post_status' => $status,
+						'meta_id'     => $index + 1,
+						'meta_key'    => $meta_key,
+						'meta_value'  => (string) $value,
+					);
+				}
+			}
+			if ( empty( $rows ) ) {
+				$rows[] = array(
+					'ID'          => $product_id,
+					'post_type'   => $post['post_type'],
+					'post_status' => $status,
+					'meta_id'     => null,
+					'meta_key'    => null,
+					'meta_value'  => null,
+				);
+			}
+			// phpcs:enable WordPress.DB.SlowDBQuery
+
+			return $rows;
+		}
+		if ( false !== strpos( $query, 'digitalogic_product_code_conflicts' ) ) {
+			$product_code = isset( $args[1] ) ? (string) $args[1] : '';
+			$excluded_id  = isset( $args[2] ) ? (int) $args[2] : 0;
+			$rows         = array();
+			// phpcs:disable WordPress.DB.SlowDBQuery -- Test fixture mirrors the service's exact metadata query.
+			foreach ( $GLOBALS['digitalogic_test_posts'] as $post_id => $post ) {
+				if ( (int) $post_id === $excluded_id || ! in_array( $post['post_type'] ?? '', array( 'product', 'product_variation' ), true ) ) {
+					continue;
+				}
+				$status = (string) ( $post['post_status'] ?? 'publish' );
+				if ( in_array( $status, array( 'trash', 'auto-draft' ), true ) ) {
+					continue;
+				}
+				$values = isset( $post['meta_rows']['_digitalogic_patris_product_code'] )
+					? array_values( (array) $post['meta_rows']['_digitalogic_patris_product_code'] )
+					: ( array_key_exists( '_digitalogic_patris_product_code', $post['meta'] ?? array() )
+						? array( $post['meta']['_digitalogic_patris_product_code'] )
+						: array() );
+				if ( in_array( $product_code, array_map( 'strval', $values ), true ) ) {
+					$rows[] = array(
+						'ID'        => (string) $post_id,
+						'post_type' => $post['post_type'],
+					);
+				}
+				if ( count( $rows ) >= 3 ) {
+					break;
+				}
+			}
+			// phpcs:enable WordPress.DB.SlowDBQuery
+
+			return $rows;
+		}
 		if ( strpos( $query, 'digitalogic_identifier:' ) === false ) {
 			return array();
 		}
@@ -2868,6 +2945,7 @@ require_once dirname(__DIR__) . '/includes/admin/class-digitalogic-product-table
 require_once dirname(__DIR__) . '/includes/class-digitalogic-pricing-input-credential.php'; // phpcs:ignore
 require_once dirname(__DIR__) . '/includes/class-patris-feed.php';
 require_once dirname(__DIR__) . '/includes/class-product-sync-receiver.php';
+require_once dirname( __DIR__ ) . '/includes/class-digitalogic-product-code-editor.php';
 require_once dirname(__DIR__) . '/includes/class-shipping-method-service.php';
 require_once dirname(__DIR__) . '/includes/class-patris-catalog-materializer.php';
 require_once dirname(__DIR__) . '/includes/class-digitalogic-google-sheets-catalog.php';
