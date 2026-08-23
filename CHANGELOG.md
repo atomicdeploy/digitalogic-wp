@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.8] - 2026-08-23
+
+### Fixed
+- Scheduled every pricing-snapshot build, retry, and random-token watchdog on
+  independent Action Scheduler and WP-Cron one-shot paths. The existing worker
+  lease and terminal-state fences make the first runner authoritative while a
+  late sibling becomes a no-op.
+- Cleared both scheduler paths for the exact build and watchdog arguments after
+  ready, failed, cancelled, expired, or deleted jobs. Admission remains
+  fail-closed only when neither durable activation path can be verified.
+
 ## [1.8.7] - 2026-08-23
 
 ### Fixed

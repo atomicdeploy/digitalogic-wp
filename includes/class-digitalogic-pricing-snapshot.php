@@ -361,6 +361,7 @@ final class Digitalogic_Pricing_Snapshot {
 					return $this->terminal_event_storage_error();
 				}
 				$this->unschedule_build_watchdog( $job );
+				$this->unschedule_build_activation( $job );
 				$this->publish_scheduled_terminal_events();
 
 				return $this->job_transport( $job, false );
@@ -503,9 +504,7 @@ final class Digitalogic_Pricing_Snapshot {
 				return $this->terminal_event_storage_error();
 			}
 			$this->unschedule_build_watchdog( $job );
-			if ( function_exists( 'as_unschedule_action' ) ) {
-				as_unschedule_action( self::BUILD_HOOK, array( $job['build_id'] ), self::ACTION_GROUP );
-			}
+			$this->unschedule_build_activation( $job );
 			if ( 'queued' === $previous_status ) {
 				$this->release_build_slot( $job['build_id'] );
 			}
@@ -735,6 +734,7 @@ final class Digitalogic_Pricing_Snapshot {
 			}
 			if ( in_array( (string) ( $job['status'] ?? '' ), array( 'ready', 'failed', 'cancelled' ), true ) ) {
 				$this->unschedule_build_watchdog( $job );
+				$this->unschedule_build_activation( $job );
 				return;
 			}
 
@@ -1268,14 +1268,15 @@ final class Digitalogic_Pricing_Snapshot {
 						$outbox[ $event_key ]['updated_at']   = gmdate( 'c' );
 						$changed                              = true;
 						$this->unschedule_build_watchdog( $job );
+						$this->unschedule_build_activation( $job );
 						continue;
 					}
 
 					$created_at = (int) ( $entry['created_at'] ?? 0 );
 					if ( $created_at <= 0 ) {
-						$created_at                          = time();
+						$created_at                         = time();
 						$outbox[ $event_key ]['created_at'] = $created_at;
-						$changed                             = true;
+						$changed                            = true;
 					}
 					if ( $created_at > 0 && $created_at + self::BUILD_TTL <= time() ) {
 						unset( $outbox[ $event_key ] );
@@ -2161,6 +2162,7 @@ final class Digitalogic_Pricing_Snapshot {
 				return $this->terminal_event_storage_error();
 			}
 			$this->unschedule_build_watchdog( $latest );
+			$this->unschedule_build_activation( $latest );
 			$this->release_build_slot( $job['build_id'] );
 			$this->publish_scheduled_terminal_events();
 
@@ -2468,7 +2470,7 @@ final class Digitalogic_Pricing_Snapshot {
 		);
 	}
 
-	/** Schedule only through Action Scheduler; never create a slow fallback queue. */
+	/** Schedule a build and watchdog through independent durable one-shot paths. */
 	private function enqueue_build( $build_id ) {
 		$job = $this->read_job( $build_id );
 		if (
@@ -2482,23 +2484,28 @@ final class Digitalogic_Pricing_Snapshot {
 			return $this->watchdog_unavailable_error();
 		}
 		$override = apply_filters( 'digitalogic_pricing_snapshot_enqueue', null, $build_id );
+		$as_path  = null;
 		if ( null !== $override ) {
-			return $override
-				? true
-				: $this->error( 'digitalogic_pricing_snapshot_scheduler_unavailable', 'The snapshot worker is unavailable.', 503, true, array(), 30 );
+			$as_path = static function () use ( $override ) {
+				return (bool) $override;
+			};
 		}
-		if ( ! function_exists( 'as_enqueue_async_action' ) ) {
-			return $this->error( 'digitalogic_pricing_snapshot_scheduler_unavailable', 'Action Scheduler is unavailable.', 503, true, array(), 30 );
-		}
-		$action_id = as_enqueue_async_action( self::BUILD_HOOK, array( $build_id ), self::ACTION_GROUP, false );
-		if ( ! $action_id ) {
+		if (
+			! $this->schedule_dual_one_shot(
+				self::BUILD_HOOK,
+				array( (string) $build_id ),
+				time() + 1,
+				'async',
+				$as_path
+			)
+		) {
 			return $this->error( 'digitalogic_pricing_snapshot_scheduler_unavailable', 'The snapshot worker could not be scheduled.', 503, true, array(), 30 );
 		}
 
 		return true;
 	}
 
-	/** Schedule one source/job-fenced watchdog through AS with WP-Cron fallback. */
+	/** Schedule one source/job-fenced watchdog through both durable paths. */
 	private function schedule_build_watchdog( $build_id, $watchdog_token, $timestamp ) {
 		if (
 			1 !== preg_match( '/\Abuild_[a-f0-9]{32}\z/D', (string) $build_id )
@@ -2506,23 +2513,11 @@ final class Digitalogic_Pricing_Snapshot {
 		) {
 			return false;
 		}
-		$args      = array( (string) $build_id, (string) $watchdog_token );
-		$timestamp = max( time() + 1, (int) $timestamp );
-		if ( function_exists( 'as_schedule_single_action' ) ) {
-			$scheduled = (bool) as_schedule_single_action( $timestamp, self::BUILD_WATCHDOG_HOOK, $args, self::ACTION_GROUP, false );
-			if ( $scheduled ) {
-				return true;
-			}
-		}
-		if ( function_exists( 'wp_schedule_single_event' ) ) {
-			$scheduled = wp_schedule_single_event( $timestamp, self::BUILD_WATCHDOG_HOOK, $args, true );
-			if ( ! is_wp_error( $scheduled ) && false !== $scheduled ) {
-				return true;
-			}
-			return function_exists( 'wp_next_scheduled' ) && false !== wp_next_scheduled( self::BUILD_WATCHDOG_HOOK, $args );
-		}
-
-		return false;
+		return $this->schedule_dual_one_shot(
+			self::BUILD_WATCHDOG_HOOK,
+			array( (string) $build_id, (string) $watchdog_token ),
+			max( time() + 1, (int) $timestamp )
+		);
 	}
 
 	/** Remove only this exact build's pending watchdog actions. */
@@ -2542,21 +2537,72 @@ final class Digitalogic_Pricing_Snapshot {
 		}
 	}
 
-	/** Schedule one checked, non-unique retry when worker admission was contended. */
-	private function retry_worker( $build_id ) {
-		if ( function_exists( 'as_schedule_single_action' ) ) {
-			$action_id = as_schedule_single_action(
-				time() + self::RETRY_AFTER,
-				self::BUILD_HOOK,
-				array( $build_id ),
-				self::ACTION_GROUP,
-				false
-			);
+	/** Remove only this exact build's pending activation actions. */
+	private function unschedule_build_activation( $job ) {
+		$args = array( (string) ( $job['build_id'] ?? '' ) );
+		if ( '' === $args[0] ) {
+			return;
+		}
+		if ( function_exists( 'as_unschedule_all_actions' ) ) {
+			as_unschedule_all_actions( self::BUILD_HOOK, $args, self::ACTION_GROUP );
+		}
+		if ( function_exists( 'wp_clear_scheduled_hook' ) ) {
+			wp_clear_scheduled_hook( self::BUILD_HOOK, $args );
+		}
+	}
 
-			return ! empty( $action_id );
+	/**
+	 * Attempt Action Scheduler and WP-Cron independently for one exact action.
+	 *
+	 * Optional callables are used only by focused tests to exercise the complete
+	 * durability matrix without making Action Scheduler a global test fixture.
+	 */
+	private function schedule_dual_one_shot( $hook, $args, $timestamp, $action_scheduler_mode = 'single', $action_scheduler = null, $wp_cron = null ) {
+		$args      = array_values( (array) $args );
+		$timestamp = max( time() + 1, (int) $timestamp );
+		$as_ok     = false;
+		$cron_ok   = false;
+
+		try {
+			if ( is_callable( $action_scheduler ) ) {
+				$as_result = call_user_func( $action_scheduler, $hook, $args, $timestamp, $action_scheduler_mode );
+				$as_ok     = ! is_wp_error( $as_result ) && (bool) $as_result;
+			} elseif ( 'async' === $action_scheduler_mode && function_exists( 'as_enqueue_async_action' ) ) {
+				$as_result = as_enqueue_async_action( $hook, $args, self::ACTION_GROUP, false );
+				$as_ok     = ! is_wp_error( $as_result ) && (bool) $as_result;
+			} elseif ( 'single' === $action_scheduler_mode && function_exists( 'as_schedule_single_action' ) ) {
+				$as_result = as_schedule_single_action( $timestamp, $hook, $args, self::ACTION_GROUP, false );
+				$as_ok     = ! is_wp_error( $as_result ) && (bool) $as_result;
+			}
+		} catch ( Throwable $error ) {
+			$as_ok = false;
 		}
 
-		return false;
+		try {
+			if ( is_callable( $wp_cron ) ) {
+				$cron_result = call_user_func( $wp_cron, $hook, $args, $timestamp );
+				$cron_ok     = ! is_wp_error( $cron_result ) && false !== $cron_result;
+			} elseif ( function_exists( 'wp_schedule_single_event' ) ) {
+				$cron_result = wp_schedule_single_event( $timestamp, $hook, $args, true );
+				$cron_ok     = ! is_wp_error( $cron_result ) && false !== $cron_result;
+				if ( ! $cron_ok && function_exists( 'wp_next_scheduled' ) ) {
+					$cron_ok = false !== wp_next_scheduled( $hook, $args );
+				}
+			}
+		} catch ( Throwable $error ) {
+			$cron_ok = false;
+		}
+
+		return $as_ok || $cron_ok;
+	}
+
+	/** Schedule one checked, non-unique retry when worker admission was contended. */
+	private function retry_worker( $build_id ) {
+		return $this->schedule_dual_one_shot(
+			self::BUILD_HOOK,
+			array( (string) $build_id ),
+			time() + self::RETRY_AFTER
+		);
 	}
 
 	/**
@@ -2839,6 +2885,7 @@ final class Digitalogic_Pricing_Snapshot {
 					return false;
 				}
 				$this->unschedule_build_watchdog( $job );
+				$this->unschedule_build_activation( $job );
 				$this->publish_scheduled_terminal_events();
 				return true;
 			}
@@ -2884,6 +2931,7 @@ final class Digitalogic_Pricing_Snapshot {
 				return false;
 			}
 			$this->unschedule_build_watchdog( $job );
+			$this->unschedule_build_activation( $job );
 			$this->release_build_slot( $build_id );
 			$this->publish_scheduled_terminal_events();
 
@@ -2913,6 +2961,7 @@ final class Digitalogic_Pricing_Snapshot {
 			return $this->terminal_event_storage_error();
 		}
 		$this->unschedule_build_watchdog( $job );
+		$this->unschedule_build_activation( $job );
 		$this->publish_scheduled_terminal_events();
 
 		return $job;
@@ -3521,6 +3570,13 @@ final class Digitalogic_Pricing_Snapshot {
 
 	/** Delete only one request-local job record. */
 	private function delete_job( $build_id ) {
+		$job = $this->read_job( $build_id );
+		if ( is_array( $job ) ) {
+			$this->unschedule_build_watchdog( $job );
+			$this->unschedule_build_activation( $job );
+		} else {
+			$this->unschedule_build_activation( array( 'build_id' => (string) $build_id ) );
+		}
 		delete_transient( $this->job_key( $build_id ) );
 	}
 

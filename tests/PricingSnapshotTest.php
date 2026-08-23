@@ -476,6 +476,152 @@ final class PricingSnapshotTest extends TestCase {
 		$this->assertSame( 409, $cancel_ready->get_status() );
 	}
 
+	/** Admission persists independent build/watchdog paths and sibling delivery is a no-op. */
+	public function test_cold_admission_uses_wp_cron_when_action_scheduler_is_unavailable_and_cleans_sibling_actions(): void {
+		$revision = $this->revision_response()->get_data()['state_revision'];
+		$started  = $this->start_response( 'snapshot-dual-path-0001', $revision, 0 );
+		$build_id = $started->get_data()['build_id'];
+		$job_key  = $this->invoke_snapshot( 'job_key', array( $build_id ) );
+		$job      = $GLOBALS['digitalogic_test_transients'][ $job_key ]['value'];
+
+		$this->assertSame( 202, $started->get_status() );
+		$this->assertCount( 1, $this->scheduled_events_for( 'digitalogic_pricing_snapshot_build_v1' ) );
+		$this->assertSame(
+			array( $build_id ),
+			$this->scheduled_events_for( 'digitalogic_pricing_snapshot_build_v1' )[0]['args']
+		);
+		$this->assertCount( 1, $this->scheduled_events_for( 'digitalogic_pricing_snapshot_build_watchdog_v1' ) );
+		$this->assertSame(
+			array( $build_id, $job['watchdog_token'] ),
+			$this->scheduled_events_for( 'digitalogic_pricing_snapshot_build_watchdog_v1' )[0]['args']
+		);
+
+		Digitalogic_Pricing_Snapshot::instance()->run_build( $build_id );
+		$this->assertCount( 1, $this->terminal_events() );
+		$this->assertCount( 0, $this->scheduled_events_for( 'digitalogic_pricing_snapshot_build_v1' ) );
+		$this->assertCount( 0, $this->scheduled_events_for( 'digitalogic_pricing_snapshot_build_watchdog_v1' ) );
+
+		Digitalogic_Pricing_Snapshot::instance()->run_build( $build_id );
+		$this->assertCount( 1, $this->terminal_events() );
+	}
+
+	/** Both schedulers are attempted and either durable path is sufficient. */
+	public function test_dual_one_shot_scheduler_exercises_complete_durability_matrix(): void {
+		$cases = array(
+			array( true, true, true ),
+			array( true, false, true ),
+			array( false, true, true ),
+			array( false, false, false ),
+		);
+		foreach ( $cases as $case ) {
+			$attempts         = array();
+			$action_scheduler = static function ( $hook, $args, $timestamp, $mode ) use ( &$attempts, $case ) {
+				$attempts[] = array( 'action_scheduler', $hook, $args, $timestamp, $mode );
+				return $case[0];
+			};
+			$wp_cron          = static function ( $hook, $args, $timestamp ) use ( &$attempts, $case ) {
+				$attempts[] = array( 'wp_cron', $hook, $args, $timestamp );
+				return $case[1];
+			};
+			$result           = $this->invoke_snapshot(
+				'schedule_dual_one_shot',
+				array(
+					'digitalogic_pricing_snapshot_test_v1',
+					array( 'build_fixture' ),
+					time() + 5,
+					'async',
+					$action_scheduler,
+					$wp_cron,
+				)
+			);
+
+			$this->assertSame( $case[2], $result );
+			$this->assertCount( 2, $attempts );
+			$this->assertSame( 'action_scheduler', $attempts[0][0] );
+			$this->assertSame( 'wp_cron', $attempts[1][0] );
+			$this->assertSame( 'async', $attempts[0][4] );
+			$this->assertSame( $attempts[0][1], $attempts[1][1] );
+			$this->assertSame( $attempts[0][2], $attempts[1][2] );
+			$this->assertSame( $attempts[0][3], $attempts[1][3] );
+		}
+	}
+
+	/** One scheduler adapter failure cannot suppress the independent path. */
+	public function test_dual_one_shot_scheduler_isolates_adapter_errors(): void {
+		$attempts      = array();
+		$throwing_as   = static function () use ( &$attempts ) {
+			$attempts[] = 'action_scheduler';
+			throw new RuntimeException( 'synthetic Action Scheduler failure' );
+		};
+		$successful_wp = static function () use ( &$attempts ) {
+			$attempts[] = 'wp_cron';
+			return true;
+		};
+		$this->assertTrue(
+			$this->invoke_snapshot(
+				'schedule_dual_one_shot',
+				array( 'digitalogic_pricing_snapshot_test_v1', array( 'build_fixture' ), time() + 5, 'async', $throwing_as, $successful_wp )
+			)
+		);
+		$this->assertSame( array( 'action_scheduler', 'wp_cron' ), $attempts );
+
+		$attempts    = array();
+		$wp_error_as = static function () use ( &$attempts ) {
+			$attempts[] = 'action_scheduler';
+			return new WP_Error( 'synthetic_action_scheduler_failure', 'synthetic failure' );
+		};
+		$throwing_wp = static function () use ( &$attempts ) {
+			$attempts[] = 'wp_cron';
+			throw new RuntimeException( 'synthetic WP-Cron failure' );
+		};
+		$this->assertFalse(
+			$this->invoke_snapshot(
+				'schedule_dual_one_shot',
+				array( 'digitalogic_pricing_snapshot_test_v1', array( 'build_fixture' ), time() + 5, 'single', $wp_error_as, $throwing_wp )
+			)
+		);
+		$this->assertSame( array( 'action_scheduler', 'wp_cron' ), $attempts );
+	}
+
+	/** A contended-worker retry is dual scheduled and a late sibling is harmless. */
+	public function test_retry_worker_dual_schedules_and_late_sibling_is_noop(): void {
+		$revision = $this->revision_response()->get_data()['state_revision'];
+		$started  = $this->start_response( 'snapshot-retry-dual-0001', $revision, 0 );
+		$build_id = $started->get_data()['build_id'];
+
+		$this->assertTrue( $this->invoke_snapshot( 'retry_worker', array( $build_id ) ) );
+		$this->assertCount( 2, $this->scheduled_events_for( 'digitalogic_pricing_snapshot_build_v1' ) );
+
+		Digitalogic_Pricing_Snapshot::instance()->run_build( $build_id );
+		$this->assertCount( 1, $this->terminal_events() );
+		$this->assertCount( 0, $this->scheduled_events_for( 'digitalogic_pricing_snapshot_build_v1' ) );
+		$this->assertCount( 0, $this->scheduled_events_for( 'digitalogic_pricing_snapshot_build_watchdog_v1' ) );
+
+		Digitalogic_Pricing_Snapshot::instance()->run_build( $build_id );
+		$this->assertCount( 1, $this->terminal_events() );
+	}
+
+	/** A test/host AS-path override cannot bypass the independent WP-Cron record. */
+	public function test_enqueue_override_cannot_bypass_wp_cron_build_activation(): void {
+		add_filter(
+			'digitalogic_pricing_snapshot_enqueue',
+			static function () {
+				return true;
+			}
+		);
+		$revision = $this->revision_response()->get_data()['state_revision'];
+		$started  = $this->start_response( 'snapshot-override-dual-0001', $revision, 0 );
+		$build_id = $started->get_data()['build_id'];
+
+		$this->assertSame( 202, $started->get_status() );
+		$this->assertCount( 1, $this->scheduled_events_for( 'digitalogic_pricing_snapshot_build_v1' ) );
+		$this->assertCount( 1, $this->scheduled_events_for( 'digitalogic_pricing_snapshot_build_watchdog_v1' ) );
+
+		$this->cancel_response( $build_id );
+		$this->assertCount( 0, $this->scheduled_events_for( 'digitalogic_pricing_snapshot_build_v1' ) );
+		$this->assertCount( 0, $this->scheduled_events_for( 'digitalogic_pricing_snapshot_build_watchdog_v1' ) );
+	}
+
 	/** A cold ready build emits one exact, scoped, secret-free terminal frame. */
 	public function test_cold_build_publishes_exact_durable_terminal_event(): void {
 		add_filter(
@@ -643,6 +789,7 @@ final class PricingSnapshotTest extends TestCase {
 		$events = $this->terminal_events();
 		$this->assertCount( 1, $events );
 		$this->assertSame( 'failed', $events[0]['data']['status'] );
+		$this->assertCount( 0, $this->scheduled_events_for( 'digitalogic_pricing_snapshot_build_v1' ) );
 		$this->assertCount( 0, $this->scheduled_events_for( 'digitalogic_pricing_snapshot_build_watchdog_v1' ) );
 	}
 
@@ -678,6 +825,8 @@ final class PricingSnapshotTest extends TestCase {
 		$events = $this->terminal_events();
 		$this->assertCount( 1, $events );
 		$this->assertSame( 'digitalogic_pricing_snapshot_worker_stalled', $events[0]['data']['code'] );
+		$this->assertCount( 0, $this->scheduled_events_for( 'digitalogic_pricing_snapshot_build_v1' ) );
+		$this->assertCount( 0, $this->scheduled_events_for( 'digitalogic_pricing_snapshot_build_watchdog_v1' ) );
 	}
 
 	/** An uncaught worker throwable becomes one durable request-bound terminal. */
@@ -711,6 +860,8 @@ final class PricingSnapshotTest extends TestCase {
 		$this->assertCount( 1, $events );
 		$this->assertSame( 'digitalogic_pricing_snapshot_worker_exception', $events[0]['data']['code'] );
 		$this->assertArrayNotHasKey( 'message', $events[0]['data'] );
+		$this->assertCount( 0, $this->scheduled_events_for( 'digitalogic_pricing_snapshot_build_v1' ) );
+		$this->assertCount( 0, $this->scheduled_events_for( 'digitalogic_pricing_snapshot_build_watchdog_v1' ) );
 	}
 
 	/** Every coalesced request and cancellation receives one request-bound terminal. */
@@ -767,6 +918,8 @@ final class PricingSnapshotTest extends TestCase {
 		$cancelled = $this->cancel_response( $build_id );
 		$this->assertSame( 200, $cancelled->get_status() );
 		$this->assertSame( 'cancelled', $cancelled->get_data()['status'] );
+		$this->assertCount( 0, $this->scheduled_events_for( 'digitalogic_pricing_snapshot_build_v1' ) );
+		$this->assertCount( 0, $this->scheduled_events_for( 'digitalogic_pricing_snapshot_build_watchdog_v1' ) );
 		$repeated = $this->cancel_response( $build_id );
 		$this->assertSame( 200, $repeated->get_status() );
 		$this->assertSame( 'cancelled', $repeated->get_data()['status'] );
