@@ -169,11 +169,14 @@ head entry remains durable and blocks later entries until the bounded
 asynchronous retry succeeds, preserving causal order. State-event retries use
 one exact pending action across PHP requests; a per-fallback scheduler mutex
 permits a running worker to create one replacement without parallel retry
-chains, while a lock-timeout WP-Cron fallback preserves an otherwise
-unscheduled identity. The outbox carries the exact delivered identity until its
-one-hour receipt commits. Receipts retain only the newest 200 source identities,
-and exact source removal clears its receipt before the ordered lifecycle event
-is published. The retained panel identity is a secondary fence, so late
+chains. After a mutex timeout, WP-Cron is accepted only after exact persisted
+readback; if that path is unavailable, Action Scheduler atomically coalesces the
+exact fallback in a content-addressed group without evicting a distinct identity.
+The outbox carries the exact delivered identity until its one-hour receipt
+commits. Receipts retain only the newest 200 source identities, and exact source
+removal durably clears both its normalized receipt and delivered-state outbox
+marker before the ordered lifecycle event is published. The retained panel
+identity is a secondary fence, so late
 fallback actions cannot repersist or append the same composite idempotency key
 after panel rotation. Redis is only a
 low-latency wake-up. If that publish fails, the newest failed wake is retained

@@ -1165,12 +1165,12 @@ final class Digitalogic_Pricing_Snapshot {
 			foreach ( $source_outbox as $event_key => $entry ) {
 				$name = (string) ( $entry['name'] ?? '' );
 				$data = is_array( $entry['data'] ?? null ) ? $entry['data'] : array();
-				if ( 'pricing.source.removed' === $name && ! $this->remove_state_event_receipt_for_source( $data['source'] ?? array() ) ) {
+				if ( 'pricing.source.removed' === $name && ! $this->retire_state_event_delivery_for_source( $data['source'] ?? array() ) ) {
 					$source_outbox[ $event_key ]['attempts']   = min( 1000, 1 + (int) ( $entry['attempts'] ?? 0 ) );
 					$source_outbox[ $event_key ]['updated_at'] = gmdate( 'c' );
 					$source_drained                            = false;
 					$retry                                     = true;
-					do_action( 'digitalogic_pricing_state_event_failed', 'digitalogic_pricing_state_receipt_unavailable', (array) ( $data['source'] ?? array() ) );
+					do_action( 'digitalogic_pricing_state_event_failed', 'digitalogic_pricing_state_retirement_unavailable', (array) ( $data['source'] ?? array() ) );
 					break;
 				}
 				$result = Digitalogic_Panel::record_event_result( $name, $data );
@@ -1830,23 +1830,33 @@ final class Digitalogic_Pricing_Snapshot {
 		return $this->store_option_verified( self::STATE_EVENT_RECEIPTS, $receipts );
 	}
 
-	/** Remove a retired source receipt before its lifecycle removal is published. */
-	private function remove_state_event_receipt_for_source( $source ) {
+	/** Retire every durable state-delivery identity before source removal is published. */
+	private function retire_state_event_delivery_for_source( $source ) {
 		$source     = is_array( $source ) ? $source : array();
 		$source_key = (string) ( $source['id'] ?? '' ) . "\n" . (string) ( $source['dataset'] ?? '' );
-		$stored     = get_option( self::STATE_EVENT_RECEIPTS, null );
-		if ( null === $stored ) {
-			return true;
+		if ( '' === (string) ( $source['id'] ?? '' ) || '' === (string) ( $source['dataset'] ?? '' ) ) {
+			return false;
 		}
 
-		$receipts = $this->normalize_state_event_receipts( $stored );
-		if ( ! isset( $receipts[ $source_key ] ) ) {
-			return true;
+		$stored_receipts = get_option( self::STATE_EVENT_RECEIPTS, null );
+		if ( null !== $stored_receipts ) {
+			$receipts = $this->normalize_state_event_receipts( $stored_receipts );
+			unset( $receipts[ $source_key ] );
+			if ( $stored_receipts !== $receipts && ! $this->store_option_verified( self::STATE_EVENT_RECEIPTS, $receipts ) ) {
+				return false;
+			}
 		}
 
-		unset( $receipts[ $source_key ] );
+		$stored_outbox = get_option( self::STATE_EVENT_OUTBOX, null );
+		if ( null !== $stored_outbox ) {
+			$outbox = is_array( $stored_outbox ) ? $stored_outbox : array();
+			unset( $outbox[ $source_key ] );
+			if ( $stored_outbox !== $outbox && ! $this->store_option_verified( self::STATE_EVENT_OUTBOX, $outbox ) ) {
+				return false;
+			}
+		}
 
-		return $this->store_option_verified( self::STATE_EVENT_RECEIPTS, $receipts );
+		return true;
 	}
 
 	/** Remove expired or malformed receipts and retain the newest bounded set. */
@@ -2244,12 +2254,14 @@ final class Digitalogic_Pricing_Snapshot {
 			$scheduled = false;
 			if ( function_exists( 'as_schedule_single_action' ) && function_exists( 'as_get_scheduled_actions' ) ) {
 				// The dedicated lock plus exact pending readback permits one replacement while the current action is running.
-				$scheduled = (bool) as_schedule_single_action( $timestamp, self::STATE_EVENT_HOOK, $args, self::ACTION_GROUP, false );
+				as_schedule_single_action( $timestamp, self::STATE_EVENT_HOOK, $args, $this->state_event_action_group( $args ), false );
+				$scheduled = $this->state_event_retry_is_pending( $args );
 			} elseif ( function_exists( 'wp_schedule_single_event' ) ) {
-				$scheduled = wp_schedule_single_event( $timestamp, self::STATE_EVENT_HOOK, $args, true );
-				$scheduled = ! is_wp_error( $scheduled ) && false !== $scheduled;
+				$scheduled = $this->schedule_wp_cron_state_event_retry( $timestamp, $args );
 			}
-			$scheduled = $scheduled || $this->state_event_retry_is_pending( $args );
+			if ( ! $scheduled ) {
+				$scheduled = $this->state_event_retry_is_pending( $args );
+			}
 		} finally {
 			$this->release_state_event_schedule_lock( $lock_name );
 		}
@@ -2263,19 +2275,22 @@ final class Digitalogic_Pricing_Snapshot {
 	/** Return whether one exact state-event retry is already pending. */
 	private function state_event_retry_is_pending( $args ) {
 		if ( function_exists( 'as_get_scheduled_actions' ) ) {
-			$actions = as_get_scheduled_actions(
-				array(
-					'hook'     => self::STATE_EVENT_HOOK,
-					'args'     => $args,
-					'group'    => self::ACTION_GROUP,
-					'status'   => 'pending',
-					'per_page' => 1,
-				),
-				'ids'
-			);
+			$groups = array_unique( array( $this->state_event_action_group( $args ), self::ACTION_GROUP ) );
+			foreach ( $groups as $group ) {
+				$actions = as_get_scheduled_actions(
+					array(
+						'hook'     => self::STATE_EVENT_HOOK,
+						'args'     => $args,
+						'group'    => $group,
+						'status'   => 'pending',
+						'per_page' => 1,
+					),
+					'ids'
+				);
 
-			if ( ! empty( $actions ) ) {
-				return true;
+				if ( ! empty( $actions ) ) {
+					return true;
+				}
 			}
 		}
 		if ( function_exists( 'wp_next_scheduled' ) ) {
@@ -2289,27 +2304,42 @@ final class Digitalogic_Pricing_Snapshot {
 	private function schedule_state_event_retry_without_lock( $args ) {
 		$timestamp = time() + self::RETRY_AFTER;
 		if ( function_exists( 'wp_schedule_single_event' ) ) {
-			$scheduled = wp_schedule_single_event( $timestamp, self::STATE_EVENT_HOOK, $args, true );
-			$scheduled = ! is_wp_error( $scheduled ) && false !== $scheduled;
-			if ( $scheduled || ( function_exists( 'wp_next_scheduled' ) && false !== wp_next_scheduled( self::STATE_EVENT_HOOK, $args ) ) ) {
+			if ( $this->schedule_wp_cron_state_event_retry( $timestamp, $args ) ) {
 				return true;
 			}
 		}
 		if ( function_exists( 'as_schedule_single_action' ) && function_exists( 'as_get_scheduled_actions' ) ) {
-			$scheduled = (bool) as_schedule_single_action( $timestamp, self::STATE_EVENT_HOOK, $args, self::ACTION_GROUP, false );
+			// Native uniqueness is atomic across requests; the content-addressed group also supports pre-4.0 stores.
+			as_schedule_single_action( $timestamp, self::STATE_EVENT_HOOK, $args, $this->state_event_action_group( $args ), true );
 
-			return $scheduled || $this->state_event_retry_is_pending( $args );
+			return $this->state_event_retry_is_pending( $args );
 		}
 
 		return false;
 	}
 
+	/** Schedule WP-Cron and accept it only after exact persisted readback. */
+	private function schedule_wp_cron_state_event_retry( $timestamp, $args ) {
+		wp_schedule_single_event( $timestamp, self::STATE_EVENT_HOOK, $args, true );
+
+		return function_exists( 'wp_next_scheduled' ) && false !== wp_next_scheduled( self::STATE_EVENT_HOOK, $args );
+	}
+
+	/** Return the Action Scheduler group dedicated to one exact fallback identity. */
+	private function state_event_action_group( $args ) {
+		return self::ACTION_GROUP . '-state-' . substr( $this->state_event_schedule_digest( $args ), 0, 16 );
+	}
+
+	/** Return a stable scheduler identity digest for one exact fallback argument set. */
+	private function state_event_schedule_digest( $args ) {
+		$encoded = wp_json_encode( $args );
+
+		return hash( 'sha256', false === $encoded ? '' : $encoded );
+	}
+
 	/** Return the database-lock identity for one exact fallback argument set. */
 	private function state_event_schedule_lock_name( $args ) {
-		$encoded = wp_json_encode( $args );
-		$digest  = hash( 'sha256', false === $encoded ? '' : $encoded );
-
-		return self::STATE_EVENT_SCHEDULE_LOCK_NAME . ':' . substr( $digest, 0, 16 );
+		return self::STATE_EVENT_SCHEDULE_LOCK_NAME . ':' . substr( $this->state_event_schedule_digest( $args ), 0, 16 );
 	}
 
 	/** Serialize exact pending-action readback and insertion across PHP requests. */

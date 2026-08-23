@@ -16,11 +16,21 @@
  * @return int
  */
 function as_schedule_single_action( $timestamp, $hook, $args = array(), $group = '', $unique = false ) {
-	unset( $unique );
-	$actions                                = isset( $GLOBALS['digitalogic_test_as_actions'] ) && is_array( $GLOBALS['digitalogic_test_as_actions'] )
+	$actions = isset( $GLOBALS['digitalogic_test_as_actions'] ) && is_array( $GLOBALS['digitalogic_test_as_actions'] )
 		? $GLOBALS['digitalogic_test_as_actions']
 		: array();
-	$id                                     = count( $actions ) + 1;
+	if ( $unique ) {
+		foreach ( $actions as $action ) {
+			if (
+				(string) $action['hook'] === (string) $hook
+				&& (string) $action['group'] === (string) $group
+				&& in_array( (string) $action['status'], array( 'pending', 'in-progress' ), true )
+			) {
+				return 0;
+			}
+		}
+	}
+	$id                                     = empty( $actions ) ? 1 : 1 + max( array_column( $actions, 'id' ) );
 	$actions[]                              = array(
 		'id'        => $id,
 		'timestamp' => (int) $timestamp,
@@ -28,6 +38,7 @@ function as_schedule_single_action( $timestamp, $hook, $args = array(), $group =
 		'args'      => array_values( (array) $args ),
 		'group'     => (string) $group,
 		'status'    => 'pending',
+		'unique'    => (bool) $unique,
 	);
 	$GLOBALS['digitalogic_test_as_actions'] = $actions;
 

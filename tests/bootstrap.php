@@ -286,6 +286,16 @@ function wp_schedule_single_event($timestamp, $hook, $args = array(), $wp_error 
     if (!empty($GLOBALS['digitalogic_test_schedule_failure'])) {
         return $wp_error ? new WP_Error('schedule_failed', 'schedule failed') : false;
     }
+	$event = (object) array(
+		'hook' => (string) $hook,
+		'timestamp' => (int) $timestamp,
+		'schedule' => false,
+		'args' => array_values((array) $args),
+	);
+	$pre = apply_filters('pre_schedule_event', null, $event, $wp_error);
+	if (null !== $pre) {
+		return $pre;
+	}
     $GLOBALS['digitalogic_test_scheduled_events'][] = array(
         'timestamp' => (int) $timestamp,
         'hook' => (string) $hook,
