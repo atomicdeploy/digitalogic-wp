@@ -56,6 +56,42 @@ final class ProductSyncReceiverTest extends TestCase {
         $this->assertSame('digitalogic_product_sync_missing_field', $invalid->get_error_code());
     }
 
+	/** Unchanged terminal reconciliation waits for the explicit retry surface. */
+	public function test_unchanged_deferred_product_is_not_retried_by_normal_delivery(): void {
+		$product                = array(
+			'product_code' => 'DEFERRED-MISSING',
+			'warnings'     => array(),
+		);
+		$product['record_hash'] = $this->recordHash( $product, true );
+		$receiver               = Digitalogic_Product_Sync_Receiver::instance();
+
+		$first = $receiver->receive(
+			$this->snapshot( array( $product ) )
+		);
+		$this->assertNotInstanceOf( WP_Error::class, $first );
+		$this->assertSame( 1, $first['woocommerce']['attempted'] );
+		$this->assertSame( 1, $first['woocommerce']['missing'] );
+		$this->assertSame( 0, $first['pending_products'] );
+		$this->assertSame( 1, $first['deferred_products'] );
+
+		$unchanged = $receiver->receive(
+			$this->snapshot( array( $product ), array(), false, '2026-07-20T00:01:00Z' )
+		);
+		$this->assertNotInstanceOf( WP_Error::class, $unchanged );
+		$this->assertSame( 'already_current', $unchanged['status'] );
+		$this->assertSame( 0, $unchanged['woocommerce']['attempted'] );
+		$this->assertSame( 0, $unchanged['woocommerce']['missing'] );
+		$this->assertSame( 0, $unchanged['pending_products'] );
+		$this->assertSame( 1, $unchanged['deferred_products'] );
+
+		$reconciled = $receiver->reconcile( 'tests', 'ALLANBAR' );
+		$this->assertNotInstanceOf( WP_Error::class, $reconciled );
+		$this->assertSame( 1, $reconciled['sources'][0]['woocommerce']['attempted'] );
+		$this->assertSame( 1, $reconciled['sources'][0]['woocommerce']['missing'] );
+		$this->assertSame( 0, $reconciled['pending_products'] );
+		$this->assertSame( 1, $reconciled['deferred_products'] );
+	}
+
 	/** Receiver state listeners run only after a verified owning transaction commits. */
 	public function test_source_state_commit_hook_runs_after_commit_and_not_after_commit_failure(): void {
 		$observed = array();
