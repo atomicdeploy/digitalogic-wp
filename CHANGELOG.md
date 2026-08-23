@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Preserved Gregorian ASCII machine-date values only inside Iconic Woo Delivery
+  Slots calculations while leaving WP-Parsidate customer-facing Jalali dates
+  enabled, preventing the checkout document from terminating during `wp_head`.
+
 ## [1.8.6] - 2026-08-23
 
 ### Added
