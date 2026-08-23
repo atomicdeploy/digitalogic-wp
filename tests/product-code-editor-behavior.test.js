@@ -171,6 +171,54 @@ function loadPanel(fetchImpl) {
     };
 }
 
+function loadClassicBoundedRequest(prepareImpl) {
+	const admin = fs.readFileSync(path.join(__dirname, '..', 'assets', 'js', 'admin.js'), 'utf8');
+	const functions = admin.match(/function rejectProductCodeDeferred[\s\S]*?(?=\n\s*function rejectWebSocketRequests)/);
+	assert.ok(functions, 'Expected the bounded classic Product Code request functions.');
+	const timers = new Map();
+	let nextTimer = 0;
+	let transportCount = 0;
+
+	function Deferred() {
+		let state = 'pending';
+		let args = [];
+		const callbacks = {done: [], fail: [], always: []};
+		const promise = {
+			done(callback) { if (state === 'resolved') callback.apply(null, args); else if (state === 'pending') callbacks.done.push(callback); return promise; },
+			fail(callback) { if (state === 'rejected') callback.apply(null, args); else if (state === 'pending') callbacks.fail.push(callback); return promise; },
+			always(callback) { if (state !== 'pending') callback.apply(null, args); else callbacks.always.push(callback); return promise; }
+		};
+		return {
+			resolve() { if (state !== 'pending') return; state = 'resolved'; args = Array.from(arguments); callbacks.done.concat(callbacks.always).forEach((callback) => callback.apply(null, args)); },
+			reject() { if (state !== 'pending') return; state = 'rejected'; args = Array.from(arguments); callbacks.fail.concat(callbacks.always).forEach((callback) => callback.apply(null, args)); },
+			promise() { return promise; }
+		};
+	}
+
+	const context = vm.createContext({
+		window: {DigitalogicProductCodeContract: {prepare: prepareImpl, validateResult() { throw new Error('No response validation expected.'); }}},
+		digitalogic: {request_timeout: 1000},
+		$: {Deferred},
+		Promise,
+		setTimeout(callback) { const id = ++nextTimer; timers.set(id, callback); return id; },
+		clearTimeout(id) { timers.delete(id); },
+		digitalogicRequest() { transportCount++; throw new Error('Late Product Code transport started after timeout.'); }
+	});
+	const request = vm.runInContext('(function(){' + functions[0] + '; return boundedProductCodeRequest;})()', context);
+
+	return {
+		request,
+		fireNextTimer() {
+			const item = timers.entries().next();
+			assert.equal(item.done, false, 'Expected one classic deadline timer.');
+			const [id, callback] = item.value;
+			timers.delete(id);
+			callback();
+		},
+		transportCount() { return transportCount; }
+	};
+}
+
 test('classic request registry rejects a second intent and ignores reverse stale completion', () => {
     const harness = loadPanel(() => new Promise(() => {}));
     const registry = harness.contract.createRequestRegistry();
@@ -229,11 +277,12 @@ test('panel AJAX deadline aborts a hung request with a typed retryable timeout',
     assert.equal(state.transport, 'ajax');
 });
 
-test('one Product Code deadline bounds a WebCrypto prepare that never settles', async () => {
+test('one Product Code deadline blocks a late WebCrypto prepare from starting panel transport', async () => {
 	const harness = loadPanel(() => {
 		throw new Error('Transport must not start before request verification.');
 	});
-	harness.window.crypto.subtle.digest = () => new Promise(() => {});
+	let resolveDigest;
+	harness.window.crypto.subtle.digest = () => new Promise((resolve) => { resolveDigest = resolve; });
 	const methods = harness.appOptions.methods;
 	let runCount = 0;
 	const state = {
@@ -251,9 +300,37 @@ test('one Product Code deadline bounds a WebCrypto prepare that never settles', 
 	harness.fireNextTimer();
 
 	await assert.rejects(pending, (error) => error.code === 'digitalogic_request_timeout' && error.data.retryable === true);
+	resolveDigest(new Uint8Array(32).buffer);
+	await new Promise((resolve) => setImmediate(resolve));
 	assert.equal(runCount, 0);
 	assert.equal(harness.wasAborted(), true);
 	assert.ok(state.productCodeIntents[741].request_id);
+});
+
+test('classic deadline blocks a late prepare from sending the timed-out request', async () => {
+	let resolvePrepare;
+	const prepare = new Promise((resolve) => { resolvePrepare = resolve; });
+	const harness = loadClassicBoundedRequest(() => prepare);
+	const snapshot = {
+		product_id: 741,
+		expected_code: '000741',
+		product_code: '000742',
+		if_match: 'sha256:' + 'a'.repeat(64),
+		request_id: 'product-code:741:late-prepare'
+	};
+	const intent = {request_id: snapshot.request_id, request_fingerprint: ''};
+	let failureStatus = '';
+	const pending = harness.request(snapshot, intent);
+	pending.fail((xhr, textStatus) => { failureStatus = textStatus; });
+	harness.fireNextTimer();
+	assert.equal(failureStatus, 'timeout');
+
+	resolvePrepare(Object.assign({}, snapshot, {request_fingerprint: 'sha256:' + 'b'.repeat(64)}));
+	await new Promise((resolve) => setImmediate(resolve));
+
+	assert.equal(harness.transportCount(), 0);
+	assert.equal(intent.request_id, snapshot.request_id);
+	assert.equal(intent.request_fingerprint, '');
 });
 
 test('the same deadline bounds WebCrypto terminal validation after transport', async () => {

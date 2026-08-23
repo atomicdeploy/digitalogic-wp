@@ -307,6 +307,7 @@
 		}
 
 		contract.prepare(snapshot).then(function(prepared) {
+			if (settled) return;
 			intent.request_fingerprint = prepared.request_fingerprint;
 			transport = digitalogicRequest('digitalogic_update_product_code', {
 				product_id: prepared.product_id,
@@ -316,6 +317,7 @@
 				request_id: prepared.request_id
 			}, {ajaxOnly: true, bounded: true});
 			transport.done(function(response) {
+				if (settled) return;
 				if (response && response.success === false) {
 					var payload = response.data && typeof response.data === 'object' ? response.data : {};
 					rejectOnce({

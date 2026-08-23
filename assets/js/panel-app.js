@@ -1666,8 +1666,16 @@
 				}
 
 				var pipelineController = typeof window.AbortController === 'function' ? new window.AbortController() : null;
+				var pipelineActive = true;
 				return contract.withDeadline(function() {
 					return contract.prepare(request).then(function(prepared) {
+						if (!pipelineActive) {
+							throw commandError(
+								{code: 'digitalogic_request_timeout', data: {retryable: true}},
+								'The Product Code request timed out. Retry the unchanged request.',
+								0
+							);
+						}
 						intent.request_fingerprint = prepared.request_fingerprint;
 						return self.run('digitalogic_update_product_code', {
 							product_id: prepared.product_id,
@@ -1685,6 +1693,7 @@
 						});
 					});
 				}, config.request_timeout, function() {
+					pipelineActive = false;
 					if (pipelineController) pipelineController.abort();
 				}).catch(function(error) {
 					if (error && error.code === 'digitalogic_response_ambiguous') {
@@ -1695,6 +1704,8 @@
 						);
 					}
 					throw error;
+				}).finally(function() {
+					pipelineActive = false;
 				});
 			},
 			handleProductCodeSaveError: function(product, error) {
