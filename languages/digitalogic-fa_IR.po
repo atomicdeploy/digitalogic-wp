@@ -2673,6 +2673,14 @@ msgid "Retry the same value; the original request identity will be reused."
 msgstr "همان مقدار را دوباره امتحان کنید؛ شناسه اصلی درخواست دوباره استفاده می‌شود."
 
 #: includes/admin/class-admin.php
+msgid "Retry the pending Product Code change"
+msgstr "تلاش دوباره برای تغییر در انتظار کد کالا"
+
+#: includes/admin/class-admin.php
+msgid "The Product Code response verifier is unavailable; reload this page."
+msgstr "راستی‌آزمایی پاسخ کد کالا در دسترس نیست؛ صفحه را دوباره بارگذاری کنید."
+
+#: includes/admin/class-admin.php
 msgid "Reload the row and review the current value before trying again."
 msgstr "ردیف را دوباره بارگذاری و مقدار فعلی را پیش از تلاش بعدی بررسی کنید."
 
@@ -2775,3 +2783,99 @@ msgstr "نوشتن و بازگردانی کالای منبع به تطبیق د�
 #: includes/class-digitalogic-product-code-write-guard.php
 msgid "The source identity lock was lost after a database reconnect. Retry the unchanged request."
 msgstr "قفل هویت منبع پس از اتصال دوباره پایگاه‌داده از دست رفت؛ همان درخواست بدون تغییر را دوباره امتحان کنید."
+
+#: includes/class-digitalogic-product-code-editor.php
+msgid "An existing product or variation is required for exact Product Code provenance."
+msgstr "برای بررسی دقیق منبع کد کالا، یک کالا یا تنوع موجود لازم است."
+
+#: includes/class-digitalogic-product-code-editor.php
+msgid "The Product Code operation lost its database lock. Retry the unchanged request so its exact outcome can be recovered."
+msgstr "قفل پایگاه‌داده عملیات کد کالا از دست رفت؛ همان درخواست بدون تغییر را دوباره اجرا کنید تا نتیجه دقیق بازیابی شود."
+
+#: includes/class-digitalogic-product-code-editor.php
+msgid "The Product Code operation was not found."
+msgstr "عملیات کد کالا یافت نشد."
+
+#: includes/class-digitalogic-product-code-editor.php
+msgid "The Product Code reconciliation identity is invalid."
+msgstr "شناسه تطبیق عملیات کد کالا نامعتبر است."
+
+#: includes/class-digitalogic-product-code-editor.php
+msgid "The Product Code reconciliation lock was lost; retry the dry-run."
+msgstr "قفل تطبیق کد کالا از دست رفت؛ پیش‌نمایش را دوباره اجرا کنید."
+
+#: includes/class-digitalogic-product-code-editor.php
+msgid "The Product Code reconciliation manifest must be an object."
+msgstr "مانیفست تطبیق کد کالا باید یک شیء باشد."
+
+#: includes/class-digitalogic-product-code-editor.php
+msgid "The Product Code reconciliation manifest no longer matches the exact dry-run."
+msgstr "مانیفست تطبیق کد کالا دیگر با پیش‌نمایش دقیق مطابقت ندارد."
+
+#: includes/class-digitalogic-product-code-editor.php
+msgid "The catalog revision service is unavailable, so the Product Code edit was stopped."
+msgstr "سرویس بازبینی کاتالوگ در دسترس نیست؛ ویرایش کد کالا متوقف شد."
+
+#: includes/class-patris-feed.php
+msgid "The exact Product Code belongs to another WooCommerce product or variation."
+msgstr "کد کالای دقیق متعلق به کالا یا تنوع دیگری در ووکامرس است."
+
+#: includes/class-patris-feed.php
+msgid "The exact Product Code binding changed before the source write."
+msgstr "اتصال دقیق کد کالا پیش از نوشتن منبع تغییر کرد."
+
+#: includes/class-digitalogic-product-code-editor.php
+msgid "The exact Product Code state cannot be reconciled safely."
+msgstr "وضعیت دقیق کد کالا را نمی‌توان با ایمنی تطبیق داد."
+
+#: includes/class-digitalogic-product-code-editor.php
+msgid "The intended Product Code is now source-managed and cannot be confirmed as an applied owner edit."
+msgstr "کد کالای موردنظر اکنون تحت مدیریت منبع است و نمی‌توان آن را به‌عنوان ویرایش اعمال‌شده مالک تأیید کرد."
+
+#: includes/class-digitalogic-product-code-editor.php
+msgid "The observed Product Code is not unique and cannot be reconciled."
+msgstr "کد کالای مشاهده‌شده یکتا نیست و قابل تطبیق نیست."
+
+#: includes/class-digitalogic-product-code-editor.php
+msgid "The observed Product Code matches neither the exact backup nor the intended result."
+msgstr "کد کالای مشاهده‌شده نه با پشتیبان دقیق و نه با نتیجه موردنظر مطابقت دارد."
+
+#: includes/class-report-engine.php
+msgid "The report invalidation probe is invalid."
+msgstr "نشانه بررسی بی‌اعتبارسازی گزارش نامعتبر است."
+
+#: includes/class-patris-feed.php
+msgid "The source product projection could not be verified."
+msgstr "برون‌نمای کالای منبع قابل تأیید نبود."
+
+#: includes/class-patris-feed.php
+msgid "The source product projection did not pass exact database readback."
+msgstr "برون‌نمای کالای منبع در بازخوانی دقیق پایگاه‌داده تأیید نشد."
+
+#: includes/class-patris-feed.php
+msgid "The source product requires an exact string Product Code."
+msgstr "کالای منبع به کد کالای دقیق از نوع رشته نیاز دارد."
+
+#: includes/class-patris-feed.php
+msgid "The source product write lost its lock and requires exact reconciliation."
+msgstr "قفل نوشتن کالای منبع از دست رفت و به تطبیق دقیق نیاز دارد."
+
+#: includes/class-digitalogic-product-code-editor.php
+msgid "This Product Code operation does not require manual reconciliation."
+msgstr "این عملیات کد کالا به تطبیق دستی نیاز ندارد."
+
+#: includes/class-digitalogic-product-code-editor.php
+msgid "This Product Code operation has no reconciliation record."
+msgstr "این عملیات کد کالا سابقه تطبیق ندارد."
+
+#: includes/class-digitalogic-product-code-editor.php
+msgid "This request was reconciled as having no Product Code effect; start a new edit from the current row."
+msgstr "این درخواست بدون اثر بر کد کالا تطبیق داده شد؛ ویرایش تازه‌ای را از ردیف فعلی آغاز کنید."
+
+#: includes/class-digitalogic-product-code-editor.php
+msgid "You are not allowed to reconcile Product Code operations."
+msgstr "اجازه تطبیق عملیات کد کالا را ندارید."
+
+#: includes/class-digitalogic-product-code-editor.php
+msgid "You are not allowed to reconcile this product or variation."
+msgstr "اجازه تطبیق این کالا یا تنوع را ندارید."

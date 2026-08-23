@@ -1653,6 +1653,8 @@ class Digitalogic_Panel {
 			'productCodeOutcomeUnknown'      => 'The exact Product Code outcome is unknown; stop editing and reconcile the database with the audit record.',
 			'productCodeRecoveryRequired'    => 'An earlier Product Code edit is incomplete; retry its exact value first.',
 			'productCodeResponseAmbiguous'   => 'The Product Code response could not be verified; retry the same value.',
+			'productCodeRetryPending'        => 'Retry the pending Product Code change',
+			'productCodeVerifierUnavailable' => 'The Product Code response verifier is unavailable; reload this page.',
 			'sku'                            => 'SKU',
 			// phpcs:enable WordPress.Arrays.MultipleStatementAlignment.DoubleArrowNotAligned
             'status' => 'Status',
@@ -1974,6 +1976,8 @@ class Digitalogic_Panel {
 			'productCodeOutcomeUnknown'      => 'نتیجه دقیق ویرایش کد کالا نامشخص است؛ ویرایش را متوقف و وضعیت پایگاه‌داده را با سابقه ممیزی تطبیق دهید.',
 			'productCodeRecoveryRequired'    => 'ویرایش قبلی کد کالا کامل نشده است؛ ابتدا همان مقدار را دوباره امتحان کنید.',
 			'productCodeResponseAmbiguous'   => 'پاسخ ویرایش کد کالا قابل راستی‌آزمایی نبود؛ همان مقدار را دوباره امتحان کنید.',
+			'productCodeRetryPending'        => 'تلاش دوباره برای تغییر در انتظار کد کالا',
+			'productCodeVerifierUnavailable' => 'راستی‌آزمایی پاسخ کد کالا در دسترس نیست؛ صفحه را دوباره بارگذاری کنید.',
 			'sku'                            => 'SKU',
 			// phpcs:enable WordPress.Arrays.MultipleStatementAlignment.DoubleArrowNotAligned
             'status' => 'وضعیت',

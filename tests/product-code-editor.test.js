@@ -76,6 +76,22 @@ test('classic Product Code requests remain serialized across redraws and stale c
 	assert.match(admin, /productCodeRequests\.size\(\)\s*===\s*0/);
 });
 
+test('both surfaces expose an explicit pending-proposal retry and fail closed without the verifier', () => {
+	const panel = source('assets/js/panel-app.js');
+	const template = source('includes/panel/views/app.php');
+	const admin = source('assets/js/admin.js');
+
+	assert.match(panel, /retryPendingProductCode:\s*function/);
+	assert.match(panel, /pending_proposal:\s*recovery\.product_code/);
+	assert.match(panel, /intent\.pending_mode\s*=\s*'new_request'/);
+	assert.match(template, /productCodePendingProposal\(product\)/);
+	assert.match(template, /retryPendingProductCode\(product\)/);
+	assert.match(admin, /digitalogic-product-code-retry/);
+	assert.match(admin, /retryPendingProductCode\(\$\(this\)\.data\('id'\)\)/);
+	assert.match(admin, /digitalogic_product_code_verifier_unavailable[\s\S]*?is-readonly/);
+	assert.doesNotMatch(admin, /if \(!productCodeRequests \|\| productCodeRequests\.has\(row\.id\)\)/);
+});
+
 test('structured precondition errors rotate state while unknown and retryable outcomes remain safe', () => {
 	const panel = source('assets/js/panel-app.js');
 	const admin = source('assets/js/admin.js');
@@ -173,4 +189,33 @@ test('the dispatcher and direct admin AJAX surface expose the same Living comman
     assert.match(service, /public const SCHEMA\s*=\s*'digitalogic\.product-code-edit'/);
     assert.doesNotMatch(service, /(?:^|[^A-Za-z0-9])v[0-9]+(?:[^A-Za-z0-9]|$)/i);
 	assert.doesNotMatch(service, /(?:\/v[0-9]+|-v[0-9]+|_v[0-9]+)/i);
+});
+
+test('manual outcome reconciliation is versionless, documented, translated, and dry-run first', () => {
+	const service = source('includes/class-digitalogic-product-code-editor.php');
+	const cli = source('includes/cli/class-cli-commands.php');
+	const docs = source('docs/PRODUCT-CODE-EDIT.md');
+	const pot = source('languages/digitalogic.pot');
+	const fa = source('languages/digitalogic-fa_IR.po');
+
+	assert.match(service, /RECONCILIATION_SCHEMA\s*=\s*'digitalogic\.product-code-reconciliation'/);
+	assert.match(cli, /'digitalogic product-code reconcile'/);
+	assert.match(cli, /'apply'\s*=>\s*isset\(\s*\$assoc_args\['apply'\]\s*\)/);
+	assert.match(docs, /wp digitalogic product-code reconcile/);
+	assert.match(docs, /Reconciliation never changes Product Code\./);
+	for (const catalog of [pot, fa]) {
+		assert.match(catalog, /msgid "The Product Code reconciliation manifest no longer matches the exact dry-run\."/);
+		assert.match(catalog, /msgid "You are not allowed to reconcile Product Code operations\."/);
+	}
+	assert.doesNotMatch(service, /(?:\/v[0-9]+|-v[0-9]+|_v[0-9]+)/i);
+	assert.doesNotMatch(cli.match(/public function product_code_reconcile[\s\S]*?\n\t\}/)[0], /(?:\/v[0-9]+|-v[0-9]+|_v[0-9]+)/i);
+});
+
+test('classic Product Code assets use content-sensitive cache busting', () => {
+	const admin = source('includes/admin/class-admin.php');
+
+	assert.match(admin, /\$product_code_contract_version\s*=\s*filemtime\(/);
+	assert.match(admin, /\$admin_script_version\s*=\s*filemtime\(/);
+	assert.match(admin, /digitalogic-product-code-contract[^\n]+\$product_code_contract_version/);
+	assert.match(admin, /digitalogic-admin[^\n]+\$admin_script_version/);
 });

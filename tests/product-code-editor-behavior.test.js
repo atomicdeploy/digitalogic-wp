@@ -611,3 +611,118 @@ test('outcome_unknown reload is read-only and never offers same-request retry', 
 	assert.equal(product.patris_product_code_editable, false);
 	assert.equal(product.patris_product_code_edit_reason, 'outcome_unknown');
 });
+
+test('reload recovery exposes one manual same-key retry of the exact pending proposal', async () => {
+	const harness = loadPanel(() => Promise.resolve({status: 200, json: () => Promise.resolve({success: true, data: {}})}));
+	const methods = harness.appOptions.methods;
+	let saveCount = 0;
+	let savedProposal = '';
+	const state = {
+		productCodeIntents: {},
+		edits: {},
+		savePromises: {},
+		hydrateProductCodeRecovery: methods.hydrateProductCodeRecovery,
+		productCodePendingProposal: methods.productCodePendingProposal,
+		saveProduct(product) {
+			saveCount++;
+			savedProposal = this.edits[product.id].patris_product_code;
+			return Promise.resolve();
+		}
+	};
+	const product = {
+		id: 741,
+		patris_product_code: '000741',
+		patris_product_code_recovery: {
+			status: 'failed_retryable',
+			request_id: 'product-code:741:reload-recovery',
+			expected_code: '000741',
+			product_code: '000742',
+			if_match: 'sha256:' + 'a'.repeat(64),
+			request_fingerprint: 'sha256:' + 'b'.repeat(64),
+			takeover_required: true
+		}
+	};
+
+	methods.hydrateProductCodeRecovery.call(state, product);
+	const originalRequestId = state.productCodeIntents[741].request_id;
+	assert.equal(methods.productCodePendingProposal.call(state, product), '000742');
+	assert.equal(saveCount, 0, 'Hydration must never auto-submit a recovery request.');
+
+	await methods.retryPendingProductCode.call(state, product);
+
+	assert.equal(saveCount, 1);
+	assert.equal(savedProposal, '000742');
+	assert.equal(state.productCodeIntents[741].request_id, originalRequestId);
+});
+
+test('a 412 keeps current state separate from the proposal and rotates only on manual retry', () => {
+	const harness = loadPanel(() => Promise.resolve({status: 200, json: () => Promise.resolve({success: true, data: {}})}));
+	const methods = harness.appOptions.methods;
+	const state = {
+		productCodeIntents: {
+			741: {
+				expected_code: '000741',
+				if_match: 'sha256:' + 'a'.repeat(64),
+				request_id: 'product-code:741:stale',
+				request_fingerprint: 'sha256:' + 'b'.repeat(64),
+				signature: 'stale'
+			}
+		},
+		edits: {741: {patris_product_code: '000742'}},
+		selectedProduct: null,
+		loadProducts() {},
+		loadProduct() {}
+	};
+	const product = {id: 741, patris_product_code: '000742', patris_product_code_revision: 'sha256:' + 'a'.repeat(64)};
+
+	methods.handleProductCodeSaveError.call(state, product, {
+		code: 'digitalogic_product_code_precondition_failed',
+		status: 412,
+		data: {current_code: '000740', current_revision: 'sha256:' + 'c'.repeat(64), retryable: false}
+	});
+
+	assert.equal(product.patris_product_code, '000740');
+	assert.equal(product.patris_product_code_revision, 'sha256:' + 'c'.repeat(64));
+	assert.equal(state.productCodeIntents[741].pending_proposal, '000742');
+	assert.equal(state.productCodeIntents[741].pending_mode, 'new_request');
+	assert.equal(state.productCodeIntents[741].request_id, '');
+	assert.equal(state.edits[741].patris_product_code, '000742');
+});
+
+test('a terminal Product Code conflict clears the hidden draft and generic bulk cannot resubmit it', () => {
+	const harness = loadPanel(() => Promise.resolve({status: 200, json: () => Promise.resolve({success: true, data: {}})}));
+	const methods = harness.appOptions.methods;
+	const state = {
+		productCodeIntents: {741: {expected_code: '000741', if_match: 'sha256:' + 'a'.repeat(64), request_id: 'product-code:741:duplicate'}},
+		edits: {741: {patris_product_code: '000742'}},
+		selectedProduct: null,
+		loadProducts() {},
+		loadProduct() {}
+	};
+	const product = {id: 741, patris_product_code: '000742', patris_product_code_revision: 'sha256:' + 'b'.repeat(64)};
+
+	methods.handleProductCodeSaveError.call(state, product, {
+		code: 'digitalogic_product_code_not_unique',
+		status: 409,
+		data: {retryable: false}
+	});
+
+	assert.equal(state.productCodeIntents[741], undefined);
+	assert.equal(state.edits[741], undefined);
+	assert.equal(product.patris_product_code, '000741');
+	assert.equal(product.patris_product_code_revision, 'sha256:' + 'a'.repeat(64));
+});
+
+test('missing verifier is a typed read-only state rather than an endless saving state', () => {
+	const harness = loadPanel(() => Promise.resolve({status: 200, json: () => Promise.resolve({success: true, data: {}})}));
+	const methods = harness.appOptions.methods;
+	const contract = harness.window.DigitalogicProductCodeContract;
+	delete harness.window.DigitalogicProductCodeContract;
+	const state = {t: {productCodeVerifierUnavailable: 'verifier unavailable'}};
+	const product = {id: 741, patris_product_code_editable: true};
+	const column = {field: 'patris_product_code', editable: true};
+
+	assert.equal(methods.isProductColumnEditable.call(state, product, column), false);
+	assert.equal(methods.productColumnEditReason.call(state, product, column), 'verifier unavailable');
+	harness.window.DigitalogicProductCodeContract = contract;
+});

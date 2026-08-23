@@ -112,3 +112,44 @@ keeps the same idempotency identity. Classic bulk save and manual refresh never
 route or discard a pending Product Code intent through the generic bulk writer:
 they preserve it for the dedicated operation and report that pending state
 separately.
+
+## Exact manual reconciliation
+
+An `outcome_unknown` pointer is a hard, product-scoped gate, not a permanent
+dead end. An administrator can inspect it with the versionless command below;
+the default invocation is read-only and does not clear the gate:
+
+```console
+wp digitalogic product-code reconcile \
+  --product-id=741 \
+  --request-id=product-code:741:example \
+  --user=<administrator>
+```
+
+The dry-run takes the same source, operation, and product locks and returns the
+exact observed Product Code/revision, original record fingerprint, source
+evidence fingerprint, `before|after` resolution, and preview digest. It refuses
+duplicate, malformed, unresolved, or source-managed after-state evidence. To
+terminalize the record, repeat the command with `--apply` and every exact
+assertion returned by that dry-run:
+
+```console
+wp digitalogic product-code reconcile \
+  --product-id=741 \
+  --request-id=product-code:741:example \
+  --apply \
+  --record-fingerprint=sha256:... \
+  --observed-product-code=000741 \
+  --observed-revision=sha256:... \
+  --resolution=before \
+  --preview-digest=sha256:... \
+  --user=<administrator>
+```
+
+Reconciliation never changes Product Code. An exact before-state becomes a
+durable audited `reconciled_no_effect` terminal record. An exact unmanaged
+after-state completes the original request only after fresh source/uniqueness
+checks and a durable Living projection revision/event. A stale assertion fails
+with `412`; a replay is effect-free and returns a fresh cache-bypassed current
+row. The original actor remains effect attribution and a different recovering
+administrator is recorded separately.

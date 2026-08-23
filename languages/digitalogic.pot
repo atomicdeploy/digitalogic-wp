@@ -2714,6 +2714,14 @@ msgid "Retry the same value; the original request identity will be reused."
 msgstr ""
 
 #: includes/admin/class-admin.php
+msgid "Retry the pending Product Code change"
+msgstr ""
+
+#: includes/admin/class-admin.php
+msgid "The Product Code response verifier is unavailable; reload this page."
+msgstr ""
+
+#: includes/admin/class-admin.php
 msgid "Reload the row and review the current value before trying again."
 msgstr ""
 
@@ -2815,4 +2823,100 @@ msgstr ""
 
 #: includes/class-digitalogic-product-code-write-guard.php
 msgid "The source identity lock was lost after a database reconnect. Retry the unchanged request."
+msgstr ""
+
+#: includes/class-digitalogic-product-code-editor.php
+msgid "An existing product or variation is required for exact Product Code provenance."
+msgstr ""
+
+#: includes/class-digitalogic-product-code-editor.php
+msgid "The Product Code operation lost its database lock. Retry the unchanged request so its exact outcome can be recovered."
+msgstr ""
+
+#: includes/class-digitalogic-product-code-editor.php
+msgid "The Product Code operation was not found."
+msgstr ""
+
+#: includes/class-digitalogic-product-code-editor.php
+msgid "The Product Code reconciliation identity is invalid."
+msgstr ""
+
+#: includes/class-digitalogic-product-code-editor.php
+msgid "The Product Code reconciliation lock was lost; retry the dry-run."
+msgstr ""
+
+#: includes/class-digitalogic-product-code-editor.php
+msgid "The Product Code reconciliation manifest must be an object."
+msgstr ""
+
+#: includes/class-digitalogic-product-code-editor.php
+msgid "The Product Code reconciliation manifest no longer matches the exact dry-run."
+msgstr ""
+
+#: includes/class-digitalogic-product-code-editor.php
+msgid "The catalog revision service is unavailable, so the Product Code edit was stopped."
+msgstr ""
+
+#: includes/class-patris-feed.php
+msgid "The exact Product Code belongs to another WooCommerce product or variation."
+msgstr ""
+
+#: includes/class-patris-feed.php
+msgid "The exact Product Code binding changed before the source write."
+msgstr ""
+
+#: includes/class-digitalogic-product-code-editor.php
+msgid "The exact Product Code state cannot be reconciled safely."
+msgstr ""
+
+#: includes/class-digitalogic-product-code-editor.php
+msgid "The intended Product Code is now source-managed and cannot be confirmed as an applied owner edit."
+msgstr ""
+
+#: includes/class-digitalogic-product-code-editor.php
+msgid "The observed Product Code is not unique and cannot be reconciled."
+msgstr ""
+
+#: includes/class-digitalogic-product-code-editor.php
+msgid "The observed Product Code matches neither the exact backup nor the intended result."
+msgstr ""
+
+#: includes/class-report-engine.php
+msgid "The report invalidation probe is invalid."
+msgstr ""
+
+#: includes/class-patris-feed.php
+msgid "The source product projection could not be verified."
+msgstr ""
+
+#: includes/class-patris-feed.php
+msgid "The source product projection did not pass exact database readback."
+msgstr ""
+
+#: includes/class-patris-feed.php
+msgid "The source product requires an exact string Product Code."
+msgstr ""
+
+#: includes/class-patris-feed.php
+msgid "The source product write lost its lock and requires exact reconciliation."
+msgstr ""
+
+#: includes/class-digitalogic-product-code-editor.php
+msgid "This Product Code operation does not require manual reconciliation."
+msgstr ""
+
+#: includes/class-digitalogic-product-code-editor.php
+msgid "This Product Code operation has no reconciliation record."
+msgstr ""
+
+#: includes/class-digitalogic-product-code-editor.php
+msgid "This request was reconciled as having no Product Code effect; start a new edit from the current row."
+msgstr ""
+
+#: includes/class-digitalogic-product-code-editor.php
+msgid "You are not allowed to reconcile Product Code operations."
+msgstr ""
+
+#: includes/class-digitalogic-product-code-editor.php
+msgid "You are not allowed to reconcile this product or variation."
 msgstr ""

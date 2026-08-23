@@ -27,6 +27,15 @@ final class Digitalogic_Product_Code_Write_Guard {
 	/** @var array<int,int> Source-lock nesting acquired for permanent deletion. */
 	private $deletion_source_locks = array();
 
+	/** @var array<int,int> Product-lock nesting acquired for permanent deletion. */
+	private $deletion_product_locks = array();
+
+	/** @var array<string,array<int,array{source:int,product:int}>> Trash/untrash lock scopes. */
+	private $status_transition_locks = array(
+		'trash'   => array(),
+		'untrash' => array(),
+	);
+
 	/** Return the shared guard. */
 	public static function instance() {
 		if ( null === self::$instance ) {
@@ -48,7 +57,11 @@ final class Digitalogic_Product_Code_Write_Guard {
 		add_filter( 'pre_delete_post', array( $this, 'acquire_for_post_deletion' ), 1, 3 );
 		add_action( 'before_delete_post', array( $this, 'begin_post_deletion' ), PHP_INT_MAX, 2 );
 		add_action( 'deleted_post', array( $this, 'finish_post_deletion' ), 1, 2 );
-		add_action( 'shutdown', array( $this, 'release_deletion_locks' ), PHP_INT_MAX );
+		add_filter( 'pre_trash_post', array( $this, 'acquire_for_post_trash' ), 1, 3 );
+		add_filter( 'pre_untrash_post', array( $this, 'acquire_for_post_untrash' ), 1, 3 );
+		add_action( 'trashed_post', array( $this, 'finish_post_trash' ), 1, 2 );
+		add_action( 'untrashed_post', array( $this, 'finish_post_untrash' ), 1, 2 );
+		add_action( 'shutdown', array( $this, 'release_lifecycle_locks' ), PHP_INT_MAX );
 	}
 
 	/**
@@ -186,9 +199,11 @@ final class Digitalogic_Product_Code_Write_Guard {
 			$id = absint( $post_id );
 			if (
 				empty( $this->deletion_source_locks[ $id ] )
+				|| empty( $this->deletion_product_locks[ $id ] )
 				|| ! Digitalogic_Product_Sync_Receiver::instance()->source_identity_lock_is_owned()
+				|| ! Digitalogic_Product_Write_Lock::instance()->is_owned( $id )
 			) {
-				throw new RuntimeException( 'Canonical Product Code deletion lost its shared identity lock.' );
+				throw new RuntimeException( 'Canonical Product Code deletion lost its shared identity or product lock.' );
 			}
 			$this->deletion_scopes[ $id ] = (int) ( $this->deletion_scopes[ $id ] ?? 0 ) + 1;
 		}
@@ -208,7 +223,7 @@ final class Digitalogic_Product_Code_Write_Guard {
 		$this->release_post_deletion_lock( $id );
 	}
 
-	/** Acquire the shared source lock before WordPress begins permanent deletion. */
+	/** Acquire source then product lock before WordPress begins permanent deletion. */
 	public function acquire_for_post_deletion( $delete, $post, $force_delete ) {
 		if ( null !== $delete || ! $force_delete || ! is_object( $post ) ) {
 			return $delete;
@@ -222,17 +237,79 @@ final class Digitalogic_Product_Code_Write_Guard {
 		if ( is_wp_error( $locked ) ) {
 			return false;
 		}
+		$product_locked = Digitalogic_Product_Write_Lock::instance()->acquire( $id, 0 );
+		if ( is_wp_error( $product_locked ) ) {
+			Digitalogic_Product_Sync_Receiver::instance()->release_source_identity_lock();
+			return false;
+		}
 		$this->deletion_source_locks[ $id ] = (int) ( $this->deletion_source_locks[ $id ] ?? 0 ) + 1;
+		$this->deletion_product_locks[ $id ] = (int) ( $this->deletion_product_locks[ $id ] ?? 0 ) + 1;
 
 		return $delete;
+	}
+
+	/** Acquire the same source-to-product lock order before a soft-trash transition. */
+	public function acquire_for_post_trash( $trash, $post, $previous_status = '' ) {
+		unset( $previous_status );
+		return $this->acquire_for_status_transition( 'trash', $trash, $post );
+	}
+
+	/** Acquire the same source-to-product lock order before an untrash transition. */
+	public function acquire_for_post_untrash( $untrash, $post, $previous_status = '' ) {
+		unset( $previous_status );
+		return $this->acquire_for_status_transition( 'untrash', $untrash, $post );
+	}
+
+	/** Release the exact soft-trash locks after WordPress commits the transition. */
+	public function finish_post_trash( $post_id, $previous_status = '' ) {
+		unset( $previous_status );
+		$this->release_status_transition_lock( 'trash', $post_id );
+	}
+
+	/** Release the exact untrash locks after WordPress commits the transition. */
+	public function finish_post_untrash( $post_id, $previous_status = '' ) {
+		unset( $previous_status );
+		$this->release_status_transition_lock( 'untrash', $post_id );
+	}
+
+	/** Acquire one fail-fast lifecycle scope without changing a pre-filter override. */
+	private function acquire_for_status_transition( $transition, $override, $post ) {
+		if ( null !== $override || ! is_object( $post ) ) {
+			return $override;
+		}
+		$type = (string) ( $post->post_type ?? '' );
+		$id   = absint( $post->ID ?? 0 );
+		if ( $id <= 0 || ! in_array( $type, array( 'product', 'product_variation' ), true ) ) {
+			return $override;
+		}
+		$source_locked = Digitalogic_Product_Sync_Receiver::instance()->acquire_source_identity_lock( 0 );
+		if ( is_wp_error( $source_locked ) ) {
+			return false;
+		}
+		$product_locked = Digitalogic_Product_Write_Lock::instance()->acquire( $id, 0 );
+		if ( is_wp_error( $product_locked ) ) {
+			Digitalogic_Product_Sync_Receiver::instance()->release_source_identity_lock();
+			return false;
+		}
+		$this->status_transition_locks[ $transition ][ $id ] = array(
+			'source'  => (int) ( $this->status_transition_locks[ $transition ][ $id ]['source'] ?? 0 ) + 1,
+			'product' => (int) ( $this->status_transition_locks[ $transition ][ $id ]['product'] ?? 0 ) + 1,
+		);
+
+		return $override;
 	}
 
 	/** Release one exact permanent-deletion source lock. */
 	private function release_post_deletion_lock( $post_id ) {
 		$post_id = absint( $post_id );
-		if ( empty( $this->deletion_source_locks[ $post_id ] ) ) {
+		if ( empty( $this->deletion_source_locks[ $post_id ] ) || empty( $this->deletion_product_locks[ $post_id ] ) ) {
 			return;
 		}
+		--$this->deletion_product_locks[ $post_id ];
+		if ( $this->deletion_product_locks[ $post_id ] <= 0 ) {
+			unset( $this->deletion_product_locks[ $post_id ] );
+		}
+		Digitalogic_Product_Write_Lock::instance()->release( $post_id );
 		--$this->deletion_source_locks[ $post_id ];
 		if ( $this->deletion_source_locks[ $post_id ] <= 0 ) {
 			unset( $this->deletion_source_locks[ $post_id ] );
@@ -240,11 +317,36 @@ final class Digitalogic_Product_Code_Write_Guard {
 		Digitalogic_Product_Sync_Receiver::instance()->release_source_identity_lock();
 	}
 
-	/** Drain deletion locks if WordPress exits before deleted_post fires. */
-	public function release_deletion_locks() {
+	/** Release one exact trash/untrash scope in reverse lock order. */
+	private function release_status_transition_lock( $transition, $post_id ) {
+		$post_id = absint( $post_id );
+		$scope   = $this->status_transition_locks[ $transition ][ $post_id ] ?? null;
+		if ( ! is_array( $scope ) || empty( $scope['source'] ) || empty( $scope['product'] ) ) {
+			return;
+		}
+		Digitalogic_Product_Write_Lock::instance()->release( $post_id );
+		Digitalogic_Product_Sync_Receiver::instance()->release_source_identity_lock();
+		--$scope['source'];
+		--$scope['product'];
+		if ( $scope['source'] <= 0 || $scope['product'] <= 0 ) {
+			unset( $this->status_transition_locks[ $transition ][ $post_id ] );
+		} else {
+			$this->status_transition_locks[ $transition ][ $post_id ] = $scope;
+		}
+	}
+
+	/** Drain lifecycle locks if WordPress exits before its terminal action fires. */
+	public function release_lifecycle_locks() {
 		foreach ( array_keys( $this->deletion_source_locks ) as $post_id ) {
 			while ( ! empty( $this->deletion_source_locks[ $post_id ] ) ) {
 				$this->release_post_deletion_lock( $post_id );
+			}
+		}
+		foreach ( array( 'trash', 'untrash' ) as $transition ) {
+			foreach ( array_keys( $this->status_transition_locks[ $transition ] ) as $post_id ) {
+				while ( ! empty( $this->status_transition_locks[ $transition ][ $post_id ] ) ) {
+					$this->release_status_transition_lock( $transition, $post_id );
+				}
 			}
 		}
 		$this->deletion_scopes = array();
@@ -279,7 +381,9 @@ final class Digitalogic_Product_Code_Write_Guard {
 		return $id > 0
 			&& ! empty( $this->deletion_scopes[ $id ] )
 			&& ! empty( $this->deletion_source_locks[ $id ] )
-			&& Digitalogic_Product_Sync_Receiver::instance()->source_identity_lock_is_owned();
+			&& ! empty( $this->deletion_product_locks[ $id ] )
+			&& Digitalogic_Product_Sync_Receiver::instance()->source_identity_lock_is_owned()
+			&& Digitalogic_Product_Write_Lock::instance()->is_owned( $id );
 	}
 
 	/** Resolve by-mid metadata identity without trusting request input. */

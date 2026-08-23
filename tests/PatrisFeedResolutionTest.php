@@ -12,6 +12,7 @@ final class PatrisFeedResolutionTest extends TestCase {
         $GLOBALS['digitalogic_test_option_cache'] = array();
         $GLOBALS['digitalogic_test_posts'] = array();
         $GLOBALS['digitalogic_test_post_meta_cache'] = array();
+		$GLOBALS['digitalogic_test_cache_delete_failures'] = array();
         $GLOBALS['digitalogic_test_actions'] = array();
         $GLOBALS['digitalogic_test_action_callbacks'] = array();
 		$GLOBALS['digitalogic_test_filters'] = array();
@@ -19,6 +20,8 @@ final class PatrisFeedResolutionTest extends TestCase {
         $GLOBALS['digitalogic_test_wc_product_saves'] = array();
         $GLOBALS['digitalogic_test_wc_after_save'] = null;
         $GLOBALS['digitalogic_test_update_failures'] = array();
+		$GLOBALS['digitalogic_test_meta_update_failures'] = array();
+		$GLOBALS['digitalogic_test_meta_delete_failures'] = array();
         $GLOBALS['digitalogic_test_option_delete_failures'] = array();
         $GLOBALS['digitalogic_test_capabilities'] = array(
             'manage_woocommerce' => true,
@@ -31,6 +34,7 @@ final class PatrisFeedResolutionTest extends TestCase {
 		$this->resetSingleton( Digitalogic_Product_Sync_Receiver::class );
 		$this->resetSingleton( Digitalogic_Product_Code_Editor::class );
 		$this->resetSingleton( Digitalogic_Product_Code_Write_Guard::class );
+		$this->resetSingleton( Digitalogic_Product_Write_Lock::class );
 		Digitalogic_Product_Code_Write_Guard::instance();
         $this->resetSingleton(Digitalogic_Patris_Feed::class);
         $this->feed = Digitalogic_Patris_Feed::instance();
@@ -334,6 +338,85 @@ final class PatrisFeedResolutionTest extends TestCase {
 		$this->assertTrue( $result->get_error_data()['rollback_verified'] );
 		$this->assertSame( array(), $GLOBALS['digitalogic_test_posts'][711]['meta_rows']['_digitalogic_patris_product_code'] ?? array() );
 		$this->assertSame( 'SOURCE-711', get_post_meta( 711, '_digitalogic_patris_product_code', true ) );
+	}
+
+	/** Backup, effect, exact readback, and rollback remain one fail-fast product-lock phase. */
+	public function test_feed_rollback_cannot_clobber_an_interleaving_writer_and_restores_multi_row_meta(): void {
+		$GLOBALS['digitalogic_test_posts'][716] = array(
+			'post_type'   => 'product',
+			'post_status' => 'publish',
+			'meta'        => array(
+				Digitalogic_Product_Code_Editor::META_KEY => 'SOURCE-716',
+				'_digitalogic_patris_name'               => 'Original first name',
+			),
+			'meta_rows'   => array(
+				'_digitalogic_patris_name' => array( 'Original first name', 'Original second name' ),
+			),
+		);
+		$GLOBALS['digitalogic_test_post_meta_cache'][716] = array(
+			Digitalogic_Product_Code_Editor::META_KEY => 'STALE-CODE',
+			'_digitalogic_patris_name'               => 'Stale cached name',
+		);
+		$GLOBALS['digitalogic_test_cache_delete_failures'][] = 'post_meta:716';
+		$writer_result = null;
+		$GLOBALS['digitalogic_test_wc_after_save'] = static function () use ( &$writer_result ) {
+			$database       = $GLOBALS['wpdb'];
+			$connection_id  = $database->connection_id;
+			$reflection     = new ReflectionClass( Digitalogic_Product_Write_Lock::class );
+			$separate_writer = $reflection->newInstanceWithoutConstructor();
+			try {
+				$database->connection_id = 2002;
+				$writer_result           = $separate_writer->with_product_lock(
+					716,
+					static function () {
+						update_post_meta( 716, '_outside_writer', 'must-not-run' );
+						return true;
+					},
+					0
+				);
+			} finally {
+				$database->connection_id = $connection_id;
+			}
+			$GLOBALS['digitalogic_test_posts'][716]['meta_rows'][ Digitalogic_Product_Code_Editor::META_KEY ] = array( 'SOURCE-716', 'SOURCE-716' );
+		};
+
+		$result = $this->feed->apply_product_feed(
+			wc_get_product( 716 ),
+			array( 'product_code' => 'SOURCE-716', 'name' => 'Transient replacement' )
+		);
+
+		$this->assertInstanceOf( WP_Error::class, $writer_result );
+		$this->assertSame( 'product_write_lock_busy', $writer_result->get_error_code() );
+		$this->assertInstanceOf( WP_Error::class, $result );
+		$this->assertTrue( $result->get_error_data()['rollback_verified'] );
+		$this->assertSame( '', get_post_meta( 716, '_outside_writer', true ) );
+		$this->assertSame(
+			array( 'Original first name', 'Original second name' ),
+			get_post_meta( 716, '_digitalogic_patris_name', false )
+		);
+	}
+
+	/** A database backup failure stops before the legacy source writer can mutate WooCommerce. */
+	public function test_feed_exact_metadata_backup_query_failure_is_fail_closed(): void {
+		$GLOBALS['digitalogic_test_posts'][717] = array(
+			'post_type'   => 'product',
+			'post_status' => 'publish',
+			'meta'        => array(
+				Digitalogic_Product_Code_Editor::META_KEY => 'SOURCE-717',
+				'_digitalogic_patris_name'               => 'Original name',
+			),
+		);
+		$GLOBALS['wpdb']->exact_meta_query_failure = true;
+
+		$result = $this->feed->apply_product_feed(
+			wc_get_product( 717 ),
+			array( 'product_code' => 'SOURCE-717', 'name' => 'Must not apply' )
+		);
+
+		$this->assertInstanceOf( WP_Error::class, $result );
+		$this->assertSame( 'digitalogic_patris_product_backup_unavailable', $result->get_error_code() );
+		$this->assertSame( 'Original name', $GLOBALS['digitalogic_test_posts'][717]['meta']['_digitalogic_patris_name'] );
+		$this->assertSame( array(), $GLOBALS['digitalogic_test_wc_product_saves'] );
 	}
 
     public function test_ambiguous_and_invalid_identifiers_fail_safely_without_product_writes_but_remain_reportable(): void {

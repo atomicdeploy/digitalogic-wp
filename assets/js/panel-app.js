@@ -1323,7 +1323,14 @@
             },
 			isProductColumnEditable: function(product, column) {
 				if (!column || !column.editable) return false;
-				return column.field !== 'patris_product_code' || !product || product.patris_product_code_editable !== false;
+				if (column.field !== 'patris_product_code') return true;
+				var contract = window.DigitalogicProductCodeContract;
+				return Boolean(
+					contract &&
+					typeof contract.prepare === 'function' &&
+					typeof contract.validateResult === 'function' &&
+					(!product || product.patris_product_code_editable !== false)
+				);
 			},
 			hydrateProductCodeRecovery: function(product) {
 				var recovery = product && product.patris_product_code_recovery;
@@ -1348,11 +1355,37 @@
 						request_fingerprint: String(recovery.request_fingerprint || ''),
 						signature: [product.id, recovery.expected_code, recovery.product_code, recovery.if_match].join('\u0000'),
 						recovery_required: true,
-						recovery_product_code: recovery.product_code
+						recovery_product_code: recovery.product_code,
+						pending_proposal: recovery.product_code,
+						pending_mode: 'same_request'
 					};
 				}
 			},
+			productCodePendingProposal: function(product) {
+				var productId = product && Number(product.id);
+				var intent = productId ? this.productCodeIntents[productId] : null;
+				return intent && typeof intent.pending_proposal === 'string' ? intent.pending_proposal : '';
+			},
+			retryPendingProductCode: function(product) {
+				var productId = product && Number(product.id);
+				if (!productId || this.savePromises[productId]) return Promise.resolve();
+				this.hydrateProductCodeRecovery(product);
+				var proposal = this.productCodePendingProposal(product);
+				if (proposal === '') return Promise.resolve();
+				if (!this.edits[productId]) this.edits[productId] = {};
+				this.edits[productId].patris_product_code = proposal;
+				return this.saveProduct(product).catch(function() {});
+			},
 			productColumnEditReason: function(product, column) {
+				if (
+					column &&
+					column.field === 'patris_product_code' &&
+					(
+						!window.DigitalogicProductCodeContract ||
+						typeof window.DigitalogicProductCodeContract.prepare !== 'function' ||
+						typeof window.DigitalogicProductCodeContract.validateResult !== 'function'
+					)
+				) return this.t.productCodeVerifierUnavailable || '';
 				if (
 					column &&
 					column.field === 'patris_product_code' &&
@@ -1727,7 +1760,9 @@
 						request_fingerprint: String(recovery.request_fingerprint || ''),
 						signature: [productId, String(recovery.expected_code || ''), String(recovery.product_code || ''), String(recovery.if_match || '')].join('\u0000'),
 						recovery_required: true,
-						recovery_product_code: String(recovery.product_code || '')
+						recovery_product_code: String(recovery.product_code || ''),
+						pending_proposal: String(recovery.product_code || ''),
+						pending_mode: 'same_request'
 					};
 					return;
 				}
@@ -1742,8 +1777,16 @@
 					intent.request_id = '';
 					intent.request_fingerprint = '';
 					intent.signature = '';
+					intent.recovery_required = false;
+					intent.recovery_product_code = '';
+					intent.pending_proposal = this.edits[productId] && typeof this.edits[productId].patris_product_code === 'string'
+						? this.edits[productId].patris_product_code
+						: String(product.patris_product_code || '');
+					intent.pending_mode = 'new_request';
+					product.patris_product_code = details.current_code;
 					product.patris_product_code_revision = details.current_revision;
 					if (this.selectedProduct && Number(this.selectedProduct.id) === productId) {
+						this.selectedProduct.patris_product_code = details.current_code;
 						this.selectedProduct.patris_product_code_revision = details.current_revision;
 					}
 					return;
@@ -1757,6 +1800,10 @@
 					status >= 500 ||
 					details.retryable === true
 				) {
+					if (this.edits[productId] && typeof this.edits[productId].patris_product_code === 'string') {
+						intent.pending_proposal = this.edits[productId].patris_product_code;
+						intent.pending_mode = 'same_request';
+					}
 					return;
 				}
 

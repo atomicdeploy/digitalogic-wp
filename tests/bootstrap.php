@@ -50,6 +50,7 @@ $GLOBALS['digitalogic_test_meta_delete_failures'] = array();
 $GLOBALS['digitalogic_test_option_delete_failures'] = array();
 $GLOBALS['digitalogic_test_transaction_failures'] = array();
 $GLOBALS['digitalogic_test_cache_deletes'] = array();
+$GLOBALS['digitalogic_test_cache_delete_failures'] = array();
 $GLOBALS['digitalogic_test_cache_invalidation_suspended'] = false;
 $GLOBALS['digitalogic_test_cache_invalidation_history'] = array();
 $GLOBALS['digitalogic_test_wc_cache_group_invalidations'] = array();
@@ -826,6 +827,9 @@ function delete_transient($name) {
 
 function wp_cache_delete($key, $group = '') {
     $GLOBALS['digitalogic_test_cache_deletes'][] = array($key, $group);
+	if (in_array((string) $group . ':' . (string) $key, (array) ($GLOBALS['digitalogic_test_cache_delete_failures'] ?? array()), true)) {
+		return false;
+	}
 
     if ('options' === $group) {
         if ('alloptions' === $key || 'notoptions' === $key) {
@@ -985,6 +989,12 @@ function get_post($post_id) {
     );
 }
 
+function get_the_title($post_id = 0) {
+	$post = get_post($post_id);
+
+	return $post ? (string) ($post->post_title ?? '') : '';
+}
+
 function get_post_thumbnail_id($post_id) {
     return 0;
 }
@@ -1057,6 +1067,33 @@ function update_post_meta($post_id, $key, $value) {
     return 1;
 }
 
+function add_post_meta($post_id, $key, $value, $unique = false) {
+	$guarded = apply_filters('add_post_metadata', null, $post_id, $key, $value, $unique);
+	if (null !== $guarded) {
+		return $guarded;
+	}
+	if (!isset($GLOBALS['digitalogic_test_posts'][$post_id])) {
+		$GLOBALS['digitalogic_test_posts'][$post_id] = array('post_type' => 'product', 'meta' => array());
+	}
+	if ($unique && metadata_exists('post', $post_id, $key)) {
+		return false;
+	}
+
+	$rows = array_values(get_post_meta($post_id, $key, false));
+	$rows[] = $value;
+	if (1 === count($rows)) {
+		$GLOBALS['digitalogic_test_posts'][$post_id]['meta'][$key] = $value;
+		unset($GLOBALS['digitalogic_test_posts'][$post_id]['meta_rows'][$key]);
+	} else {
+		$GLOBALS['digitalogic_test_posts'][$post_id]['meta'][$key] = reset($rows);
+		$GLOBALS['digitalogic_test_posts'][$post_id]['meta_rows'][$key] = $rows;
+	}
+	unset($GLOBALS['digitalogic_test_post_meta_cache'][$post_id]);
+	do_action('added_post_meta', count($rows), $post_id, $key, $value);
+
+	return count($rows);
+}
+
 function delete_post_meta($post_id, $key, $value = '') {
 	$guarded = apply_filters('delete_post_metadata', null, $post_id, $key, $value, false);
 	if (null !== $guarded) {
@@ -1112,6 +1149,43 @@ function wp_delete_post($post_id, $force_delete = false) {
 	do_action('delete_post', $post_id, $post);
 	unset($GLOBALS['digitalogic_test_posts'][$post_id]);
 	do_action('deleted_post', $post_id, $post);
+	return $post;
+}
+
+function wp_trash_post($post_id) {
+	$post_id = (int) $post_id;
+	$post = get_post($post_id);
+	if (!$post || 'trash' === (string) ($post->post_status ?? '')) {
+		return false;
+	}
+	$previous_status = (string) ($post->post_status ?? '');
+	$pre_trash = apply_filters('pre_trash_post', null, $post, $previous_status);
+	if (null !== $pre_trash) {
+		return $pre_trash;
+	}
+	$GLOBALS['digitalogic_test_posts'][$post_id]['post_status'] = 'trash';
+	do_action('wp_trash_post', $post_id, $previous_status);
+	do_action('trashed_post', $post_id, $previous_status);
+
+	return $post;
+}
+
+function wp_untrash_post($post_id) {
+	$post_id = (int) $post_id;
+	$post = get_post($post_id);
+	if (!$post || 'trash' !== (string) ($post->post_status ?? '')) {
+		return false;
+	}
+	$previous_status = 'trash';
+	$pre_untrash = apply_filters('pre_untrash_post', null, $post, $previous_status);
+	if (null !== $pre_untrash) {
+		return $pre_untrash;
+	}
+	$restored_status = (string) ($GLOBALS['digitalogic_test_posts'][$post_id]['meta']['_wp_trash_meta_status'] ?? 'draft');
+	$GLOBALS['digitalogic_test_posts'][$post_id]['post_status'] = '' !== $restored_status ? $restored_status : 'draft';
+	do_action('untrash_post', $post_id, $previous_status);
+	do_action('untrashed_post', $post_id, $previous_status);
+
 	return $post;
 }
 
@@ -1410,6 +1484,7 @@ class Digitalogic_Test_WPDB {
     // phpcs:disable -- Product metadata lookup controls are test-only database hooks.
     public $metadata_lookup_query_count = 0;
     public $metadata_lookup_query_failure = false;
+	public $exact_meta_query_failure = false;
     public $price_range_query_count = 0;
     // phpcs:enable
     public $last_error = '';
@@ -1419,6 +1494,7 @@ class Digitalogic_Test_WPDB {
     public $before_release_lock = null;
     public $after_option_write = null;
 	public $before_currency_job_cas = null;
+	public $after_option_delete = null;
     public $lock_timeouts = array();
 	public $connection_id = 1001;
 	public $used_locks = array();
@@ -1454,6 +1530,13 @@ class Digitalogic_Test_WPDB {
             }
             // phpcs:enable
 			$result = !empty($this->acquire_results) ? array_shift($this->acquire_results) : $this->acquire_result;
+			if (
+				1 === (int) $result
+				&& isset($args[0], $this->used_locks[(string) $args[0]])
+				&& (int) $this->used_locks[(string) $args[0]] !== (int) $this->connection_id
+			) {
+				$result = 0;
+			}
 			if (1 === (int) $result && isset($args[0])) {
 				$this->used_locks[(string) $args[0]] = (int) $this->connection_id;
 			}
@@ -1596,14 +1679,40 @@ class Digitalogic_Test_WPDB {
 			}
 			return $rows;
 		}
+		if ( false !== strpos( $query, 'digitalogic_exact_product_meta_rows' ) ) {
+			if ( $this->exact_meta_query_failure ) {
+				$this->last_error = 'Injected exact product metadata query failure.';
+				return null;
+			}
+			$this->last_error = '';
+			$post_id          = isset( $args[0] ) ? (int) $args[0] : 0;
+			$keys             = array_map( 'strval', array_slice( $args, 1 ) );
+			$post             = $GLOBALS['digitalogic_test_posts'][ $post_id ] ?? array();
+			$rows             = array();
+			$meta_id          = 1;
+			foreach ( $keys as $key ) {
+				$values = isset( $post['meta_rows'][ $key ] ) && is_array( $post['meta_rows'][ $key ] )
+					? array_values( $post['meta_rows'][ $key ] )
+					: ( array_key_exists( $key, $post['meta'] ?? array() ) ? array( $post['meta'][ $key ] ) : array() );
+				foreach ( $values as $value ) {
+					$rows[] = array(
+						'meta_id'    => $meta_id++,
+						'meta_key'   => $key,
+						'meta_value' => $this->database_raw_value( $value ),
+					);
+				}
+			}
+
+			return $rows;
+		}
 		if ( false !== strpos( $query, 'digitalogic_product_code_readback' ) ) {
-			$product_id = isset( $args[2] ) ? (int) $args[2] : 0;
+			$product_id = isset( $args[5] ) ? (int) $args[5] : 0;
 			$post       = $GLOBALS['digitalogic_test_posts'][ $product_id ] ?? null;
 			if ( ! is_array( $post ) || ! in_array( $post['post_type'] ?? '', array( 'product', 'product_variation' ), true ) ) {
 				return array();
 			}
 			$status = (string) ( $post['post_status'] ?? 'publish' );
-			if ( in_array( $status, array( 'trash', 'auto-draft' ), true ) ) {
+			if ( 'auto-draft' === $status ) {
 				return array();
 			}
 
@@ -1614,6 +1723,9 @@ class Digitalogic_Test_WPDB {
 				if (
 					0 !== strcasecmp( (string) $meta_key, '_digitalogic_patris_product_code' )
 					&& 0 !== strcasecmp( (string) $meta_key, '_digitalogic_patris_record_hash' )
+					&& 0 !== strcasecmp( (string) $meta_key, '_digitalogic_patris_owner_source_id' )
+					&& 0 !== strcasecmp( (string) $meta_key, '_digitalogic_patris_owner_dataset' )
+					&& 0 !== strcasecmp( (string) $meta_key, '_digitalogic_patris_owner_product_code' )
 				) {
 					continue;
 				}
@@ -1851,6 +1963,13 @@ class Digitalogic_Test_WPDB {
                 return 0;
             }
             unset($GLOBALS['digitalogic_test_options'][$name]);
+			// phpcs:disable -- Deterministic terminal-pointer reconnect hook for focused tests.
+			$callback = $this->after_option_delete;
+			$this->after_option_delete = null;
+			if (is_callable($callback)) {
+				call_user_func($callback, $this, $name);
+			}
+			// phpcs:enable
             return 1;
         }
 
@@ -2410,8 +2529,14 @@ class WC_Product {
         if (in_array($this->id, $GLOBALS['digitalogic_test_wc_save_failures'] ?? array(), true)) {
             throw new RuntimeException('Injected WooCommerce save failure.');
         }
-        $fail_once_at = (int) ($GLOBALS['digitalogic_test_wc_save_fail_once'][$this->id] ?? 0);
-        if ($fail_once_at > 0 && $fail_once_at === $this->save_count + 1) {
+		$fail_once_at = (int) ($GLOBALS['digitalogic_test_wc_save_fail_once'][$this->id] ?? 0);
+		$product_save_count = count(
+			array_filter(
+				$GLOBALS['digitalogic_test_wc_product_saves'] ?? array(),
+				fn ($saved_id) => (int) $saved_id === (int) $this->id
+			)
+		);
+		if ($fail_once_at > 0 && $fail_once_at === $product_save_count + 1) {
             unset($GLOBALS['digitalogic_test_wc_save_fail_once'][$this->id]);
             throw new RuntimeException('Injected one-time WooCommerce save failure.');
         }
@@ -2749,7 +2874,8 @@ function clean_term_cache($ids, $taxonomy = '') {
 
 function wp_set_object_terms($object_id, $terms, $taxonomy, $append = false) {
     if ('product_type' === $taxonomy) {
-        $GLOBALS['digitalogic_test_posts'][(int) $object_id]['product_type'] = (string) $terms;
+		$type = is_array($terms) ? (string) (reset($terms) ?: '') : (string) $terms;
+		$GLOBALS['digitalogic_test_posts'][(int) $object_id]['product_type'] = $type;
     }
     return array((int) $object_id);
 }

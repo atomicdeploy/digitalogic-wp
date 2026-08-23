@@ -37,6 +37,7 @@ final class ProductCodeWriteGuardTest extends TestCase {
 		$GLOBALS['wpdb']                                  = new Digitalogic_Test_WPDB();
 
 		$this->reset_singleton( Digitalogic_Product_Code_Write_Guard::class );
+		$this->reset_singleton( Digitalogic_Product_Write_Lock::class );
 		$this->reset_singleton( Digitalogic_Product_Sync_Receiver::class );
 		Digitalogic_Product_Code_Write_Guard::instance();
 	}
@@ -244,10 +245,26 @@ final class ProductCodeWriteGuardTest extends TestCase {
 
 	/** Permanent product cleanup removes canonical metadata without opening a generic bypass. */
 	public function test_permanent_product_and_variation_deletion_leave_no_orphan_meta(): void {
+		$owned_during_delete = array();
+		add_action(
+			'before_delete_post',
+			static function ( $post_id ) use ( &$owned_during_delete ) {
+				$owned_during_delete[] = array(
+					Digitalogic_Product_Sync_Receiver::instance()->source_identity_lock_is_owned(),
+					Digitalogic_Product_Write_Lock::instance()->is_owned( (int) $post_id ),
+				);
+			},
+			10,
+			1
+		);
 		$this->assertNotFalse( wp_delete_post( 901, true ) );
 		$this->assertNotFalse( wp_delete_post( 902, true ) );
+		$this->assertSame( array( array( true, true ), array( true, true ) ), $owned_during_delete );
 		$this->assertArrayNotHasKey( 901, $GLOBALS['digitalogic_test_posts'] );
 		$this->assertArrayNotHasKey( 902, $GLOBALS['digitalogic_test_posts'] );
+		$this->assertFalse( Digitalogic_Product_Sync_Receiver::instance()->source_identity_lock_is_owned() );
+		$this->assertFalse( Digitalogic_Product_Write_Lock::instance()->is_owned( 901 ) );
+		$this->assertFalse( Digitalogic_Product_Write_Lock::instance()->is_owned( 902 ) );
 
 		$GLOBALS['digitalogic_test_posts'][903] = array(
 			'post_type'   => 'product',
@@ -266,6 +283,68 @@ final class ProductCodeWriteGuardTest extends TestCase {
 		$this->assertArrayHasKey( 901, $GLOBALS['digitalogic_test_posts'] );
 		$this->assertSame( '00901', get_post_meta( 901, Digitalogic_Product_Code_Editor::META_KEY, true ) );
 		$this->assertSame( array( 0 ), $GLOBALS['wpdb']->lock_timeouts );
+	}
+
+	/** Permanent deletion releases the source lock when the product lock is busy. */
+	public function test_permanent_deletion_is_blocked_when_product_lock_is_busy(): void {
+		$GLOBALS['wpdb']->acquire_results = array( 1, 0 );
+
+		$this->assertFalse( wp_delete_post( 901, true ) );
+		$this->assertArrayHasKey( 901, $GLOBALS['digitalogic_test_posts'] );
+		$this->assertSame( '00901', get_post_meta( 901, Digitalogic_Product_Code_Editor::META_KEY, true ) );
+		$this->assertFalse( Digitalogic_Product_Sync_Receiver::instance()->source_identity_lock_is_owned() );
+		$this->assertFalse( Digitalogic_Product_Write_Lock::instance()->is_owned( 901 ) );
+		$this->assertSame( array( 0, 0 ), $GLOBALS['wpdb']->lock_timeouts );
+	}
+
+	/** Trash and restore hold the same source-to-product locks through the status effect. */
+	public function test_soft_trash_and_untrash_are_serialized_with_identity_writers(): void {
+		$observed = array();
+		add_filter(
+			'pre_trash_post',
+			static function ( $override, $post ) use ( &$observed ) {
+				$observed['trash'] = array(
+					Digitalogic_Product_Sync_Receiver::instance()->source_identity_lock_is_owned(),
+					Digitalogic_Product_Write_Lock::instance()->is_owned( (int) $post->ID ),
+				);
+				return $override;
+			},
+			10,
+			2
+		);
+		$this->assertNotFalse( wp_trash_post( 901 ) );
+		$this->assertSame( 'trash', $GLOBALS['digitalogic_test_posts'][901]['post_status'] );
+		$this->assertSame( array( true, true ), $observed['trash'] );
+		$this->assertFalse( Digitalogic_Product_Sync_Receiver::instance()->source_identity_lock_is_owned() );
+		$this->assertFalse( Digitalogic_Product_Write_Lock::instance()->is_owned( 901 ) );
+
+		add_filter(
+			'pre_untrash_post',
+			static function ( $override, $post ) use ( &$observed ) {
+				$observed['untrash'] = array(
+					Digitalogic_Product_Sync_Receiver::instance()->source_identity_lock_is_owned(),
+					Digitalogic_Product_Write_Lock::instance()->is_owned( (int) $post->ID ),
+				);
+				return $override;
+			},
+			10,
+			2
+		);
+		$this->assertNotFalse( wp_untrash_post( 901 ) );
+		$this->assertSame( 'draft', $GLOBALS['digitalogic_test_posts'][901]['post_status'] );
+		$this->assertSame( array( true, true ), $observed['untrash'] );
+		$this->assertFalse( Digitalogic_Product_Sync_Receiver::instance()->source_identity_lock_is_owned() );
+		$this->assertFalse( Digitalogic_Product_Write_Lock::instance()->is_owned( 901 ) );
+	}
+
+	/** A busy product lock prevents trash before any post-status change. */
+	public function test_soft_trash_fails_closed_when_product_lock_is_busy(): void {
+		$GLOBALS['wpdb']->acquire_results = array( 1, 0 );
+
+		$this->assertFalse( wp_trash_post( 901 ) );
+		$this->assertSame( 'publish', $GLOBALS['digitalogic_test_posts'][901]['post_status'] );
+		$this->assertFalse( Digitalogic_Product_Sync_Receiver::instance()->source_identity_lock_is_owned() );
+		$this->assertFalse( Digitalogic_Product_Write_Lock::instance()->is_owned( 901 ) );
 	}
 
 	/** Reset one private singleton. */

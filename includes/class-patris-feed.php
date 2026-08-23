@@ -715,89 +715,15 @@ class Digitalogic_Patris_Feed {
 		}
 
 		try {
-			$data         = is_array( $data ) ? $data : array();
-			$product_code = is_string( $data['product_code'] ?? null ) ? $data['product_code'] : '';
-			if ( '' === $product_code ) {
-				return new WP_Error(
-					'digitalogic_patris_product_code_invalid',
-					__( 'The source product requires an exact string Product Code.', 'digitalogic' ),
-					array( 'status' => 422 )
-				);
-			}
+			$data = is_array( $data ) ? $data : array();
 
-			// The caller may have resolved and loaded this object before waiting on
-			// the source lock. Re-read the exact current binding while the lock is
-			// held so an owner edit cannot be overwritten by a stale product object.
-			$resolver = Digitalogic_Product_Identifier_Resolver::instance();
-			$resolved = $resolver->resolve(
-				array( 'woocommerce_id' => (string) $expected_product_id )
+			return Digitalogic_Product_Write_Lock::instance()->with_product_lock(
+				$expected_product_id,
+				function () use ( $expected_product_id, $expected_product_code, $data ) {
+					return $this->apply_product_feed_locked( $expected_product_id, $expected_product_code, $data );
+				},
+				0
 			);
-			if ( is_wp_error( $resolved ) ) {
-				return $resolved;
-			}
-			if (
-				(int) ( $resolved['woocommerce_id'] ?? 0 ) !== $expected_product_id
-				|| ! hash_equals( $expected_product_code, (string) ( $resolved['patris_code'] ?? '' ) )
-			) {
-				return new WP_Error(
-					'digitalogic_patris_product_binding_changed',
-					__( 'The exact Product Code binding changed before the source write.', 'digitalogic' ),
-					array(
-						'status'    => 409,
-						'retryable' => true,
-					)
-				);
-			}
-
-			$desired_binding = $resolver->resolve( array( 'patris_code' => $product_code ) );
-			if ( ! is_wp_error( $desired_binding ) && (int) ( $desired_binding['woocommerce_id'] ?? 0 ) !== $expected_product_id ) {
-				return new WP_Error(
-					'digitalogic_patris_product_code_conflict',
-					__( 'The exact Product Code belongs to another WooCommerce product or variation.', 'digitalogic' ),
-					array( 'status' => 409 )
-				);
-			}
-			if ( is_wp_error( $desired_binding ) && 'digitalogic_product_identifier_not_found' !== $desired_binding->get_error_code() ) {
-				return $desired_binding;
-			}
-			$preflight = Digitalogic_Product_Code_Editor::instance()->preflight_canonical_source_write( $expected_product_id, $product_code );
-			if ( is_wp_error( $preflight ) ) {
-				return $preflight;
-			}
-			$backup = $this->capture_product_feed_backup( $product );
-			if ( is_wp_error( $backup ) ) {
-				return $backup;
-			}
-
-			try {
-				$applied = Digitalogic_Product_Code_Write_Guard::instance()->with_authorized_write(
-					'legacy_feed',
-					array(
-						'product_id' => $expected_product_id,
-						'operation'  => 'set',
-						'value'      => $product_code,
-					),
-					function () use ( $product, $data ) {
-						return Digitalogic_Patris_Price_Write_Guard::instance()->with_authorized_write(
-							function () use ( $product, $data ) {
-								return $this->apply_product_feed_authorized( $product, $data );
-							}
-						);
-					}
-				);
-			} catch ( Throwable $exception ) {
-				$applied = new WP_Error(
-					'digitalogic_patris_product_write_failed',
-					__( 'The source product write failed and must be rolled back.', 'digitalogic' ),
-					array( 'status' => 503, 'retryable' => true )
-				);
-			}
-			if ( is_wp_error( $applied ) ) {
-				return $this->rollback_product_feed_failure( $product, $backup, $applied );
-			}
-
-			$verified = Digitalogic_Product_Code_Editor::instance()->verify_canonical_source_write( $expected_product_id, $product_code );
-			return is_wp_error( $verified ) ? $this->rollback_product_feed_failure( $product, $backup, $verified ) : true;
 		} finally {
 			$receiver->release_source_identity_lock();
 		}
@@ -823,6 +749,214 @@ class Digitalogic_Patris_Feed {
 		);
 	}
 
+	/**
+	 * Capture the bounded feed surface for an enclosing source transaction.
+	 *
+	 * The materializer uses this only while it already owns the shared source
+	 * and exact product locks. It deliberately does not acquire another lock or
+	 * expose any source payload.
+	 *
+	 * @return array|WP_Error
+	 */
+	public function capture_locked_product_feed_backup( WC_Product $product ) {
+		$product_id = (int) $product->get_id();
+		if ( ! $this->source_write_locks_are_owned( $product_id ) ) {
+			return $this->source_write_outcome_unknown( $product_id );
+		}
+
+		return $this->capture_product_feed_backup( $product );
+	}
+
+	/** Restore the bounded feed surface inside an enclosing source transaction. */
+	public function restore_locked_product_feed_backup( WC_Product $product, $backup ) {
+		$product_id = (int) $product->get_id();
+		if ( ! $this->source_write_locks_are_owned( $product_id ) ) {
+			return false;
+		}
+
+		return $this->restore_product_feed_backup( $product, $backup );
+	}
+
+	/** Apply one source row while both the source and exact product locks are owned. */
+	private function apply_product_feed_locked( $expected_product_id, $expected_product_code, $data ) {
+		$product_code = is_string( $data['product_code'] ?? null ) ? $data['product_code'] : '';
+		if ( '' === $product_code ) {
+			return new WP_Error(
+				'digitalogic_patris_product_code_invalid',
+				__( 'The source product requires an exact string Product Code.', 'digitalogic' ),
+				array( 'status' => 422 )
+			);
+		}
+
+		// The caller may have resolved and loaded this object before either lock.
+		// Start the critical section from a fresh WooCommerce object and exact DB
+		// identity so no stale stock, price, enrichment, or Code enters backup.
+		$product = $this->fresh_product_for_source_readback( $expected_product_id );
+		if ( ! $product instanceof WC_Product ) {
+			return new WP_Error(
+				'digitalogic_patris_product_binding_changed',
+				__( 'The exact Product Code binding changed before the source write.', 'digitalogic' ),
+				array( 'status' => 409, 'retryable' => true )
+			);
+		}
+		$current = Digitalogic_Product_Code_Editor::instance()->canonical_source_backup( $expected_product_id );
+		if ( is_wp_error( $current ) ) {
+			return $current;
+		}
+		$current_code = ! empty( $current['meta_exists'] ) ? (string) $current['product_code'] : '';
+		if ( ! hash_equals( $expected_product_code, $current_code ) ) {
+			return new WP_Error(
+				'digitalogic_patris_product_binding_changed',
+				__( 'The exact Product Code binding changed before the source write.', 'digitalogic' ),
+				array( 'status' => 409, 'retryable' => true )
+			);
+		}
+
+		$resolver = Digitalogic_Product_Identifier_Resolver::instance();
+		$resolved = $resolver->resolve( array( 'woocommerce_id' => (string) $expected_product_id ) );
+		if ( is_wp_error( $resolved ) ) {
+			return $resolved;
+		}
+		if (
+			(int) ( $resolved['woocommerce_id'] ?? 0 ) !== $expected_product_id
+			|| ! hash_equals( $current_code, (string) ( $resolved['patris_code'] ?? '' ) )
+		) {
+			return new WP_Error(
+				'digitalogic_patris_product_binding_changed',
+				__( 'The exact Product Code binding changed before the source write.', 'digitalogic' ),
+				array( 'status' => 409, 'retryable' => true )
+			);
+		}
+
+		$desired_binding = $resolver->resolve( array( 'patris_code' => $product_code ) );
+		if ( ! is_wp_error( $desired_binding ) && (int) ( $desired_binding['woocommerce_id'] ?? 0 ) !== $expected_product_id ) {
+			return new WP_Error(
+				'digitalogic_patris_product_code_conflict',
+				__( 'The exact Product Code belongs to another WooCommerce product or variation.', 'digitalogic' ),
+				array( 'status' => 409 )
+			);
+		}
+		if ( is_wp_error( $desired_binding ) && 'digitalogic_product_identifier_not_found' !== $desired_binding->get_error_code() ) {
+			return $desired_binding;
+		}
+		$preflight = Digitalogic_Product_Code_Editor::instance()->preflight_canonical_source_write( $expected_product_id, $product_code );
+		if ( is_wp_error( $preflight ) ) {
+			return $preflight;
+		}
+		$backup = $this->capture_product_feed_backup( $product );
+		if ( is_wp_error( $backup ) ) {
+			return $backup;
+		}
+
+		try {
+			$applied = Digitalogic_Product_Code_Write_Guard::instance()->with_authorized_write(
+				'legacy_feed',
+				array(
+					'product_id' => $expected_product_id,
+					'operation'  => 'set',
+					'value'      => $product_code,
+				),
+				function () use ( $product, $data ) {
+					return Digitalogic_Patris_Price_Write_Guard::instance()->with_authorized_write(
+						function () use ( $product, $data ) {
+							$this->apply_product_feed_authorized( $product, $data );
+
+							return $this->capture_product_feed_expected( $product, $data );
+						}
+					);
+				}
+			);
+		} catch ( Throwable $exception ) {
+			$applied = new WP_Error(
+				'digitalogic_patris_product_write_failed',
+				__( 'The source product write failed and must be rolled back.', 'digitalogic' ),
+				array( 'status' => 503, 'retryable' => true )
+			);
+		}
+		if ( is_wp_error( $applied ) ) {
+			if ( ! $this->source_write_locks_are_owned( $expected_product_id ) ) {
+				return $this->source_write_outcome_unknown( $expected_product_id, $applied );
+			}
+			return $this->rollback_product_feed_failure( $product, $backup, $applied );
+		}
+		if ( ! $this->source_write_locks_are_owned( $expected_product_id ) ) {
+			return $this->source_write_outcome_unknown( $expected_product_id );
+		}
+
+		$verified = Digitalogic_Product_Code_Editor::instance()->verify_canonical_source_write( $expected_product_id, $product_code );
+		if ( is_wp_error( $verified ) ) {
+			return $this->source_write_locks_are_owned( $expected_product_id )
+				? $this->rollback_product_feed_failure( $product, $backup, $verified )
+				: $this->source_write_outcome_unknown( $expected_product_id, $verified );
+		}
+		$projection_verified = $this->verify_product_feed_expected( $expected_product_id, $applied );
+		if ( is_wp_error( $projection_verified ) ) {
+			return $this->source_write_locks_are_owned( $expected_product_id )
+				? $this->rollback_product_feed_failure( $product, $backup, $projection_verified )
+				: $this->source_write_outcome_unknown( $expected_product_id, $projection_verified );
+		}
+
+		return $this->source_write_locks_are_owned( $expected_product_id )
+			? true
+			: $this->source_write_outcome_unknown( $expected_product_id );
+	}
+
+	/** Capture the exact bounded projection staged on the Woo object after save. */
+	private function capture_product_feed_expected( $product, $data ) {
+		$meta = array();
+		$direct_keys = array();
+		foreach ( $this->feed_meta_fields() as $field => $definition ) {
+			$direct_keys[ $definition[0] ] = array_key_exists( $field, $data ) && null !== $data[ $field ];
+		}
+		$direct_keys['_digitalogic_patris_null_fields']    = true;
+		$direct_keys['_digitalogic_patris_missing_fields'] = true;
+		foreach ( $this->feed_meta_keys() as $key ) {
+			$value        = $product->get_meta( $key, true );
+			$exists       = array_key_exists( $key, $direct_keys ) ? $direct_keys[ $key ] : '' !== $value;
+			$meta[ $key ] = $exists ? array( $value ) : array();
+		}
+
+		return array(
+			'meta'  => $meta,
+			'props' => array(
+				'weight'         => (string) $product->get_weight(),
+				'manage_stock'   => $product->get_manage_stock(),
+				'stock_quantity' => $product->get_stock_quantity(),
+				'stock_status'   => (string) $product->get_stock_status(),
+				'regular_price'  => (string) $product->get_regular_price(),
+				'sale_price'     => (string) $product->get_sale_price(),
+				'price'          => (string) $product->get_price(),
+			),
+		);
+	}
+
+	/** Verify every feed field from DB/fresh Woo state before terminal success. */
+	private function verify_product_feed_expected( $product_id, $expected ) {
+		if ( ! is_array( $expected ) || ! is_array( $expected['meta'] ?? null ) || ! is_array( $expected['props'] ?? null ) ) {
+			return new WP_Error(
+				'digitalogic_patris_product_projection_readback_failed',
+				__( 'The source product projection could not be verified.', 'digitalogic' ),
+				array( 'status' => 503, 'retryable' => true )
+			);
+		}
+		$meta = $this->read_exact_meta_rows( $product_id, array_keys( $expected['meta'] ) );
+		$fresh = $this->fresh_product_for_source_readback( $product_id );
+		if (
+			is_wp_error( $meta )
+			|| $meta !== $expected['meta']
+			|| ! $fresh instanceof WC_Product
+			|| ! $this->source_props_match( $fresh, $expected['props'] )
+		) {
+			return new WP_Error(
+				'digitalogic_patris_product_projection_readback_failed',
+				__( 'The source product projection did not pass exact database readback.', 'digitalogic' ),
+				array( 'status' => 503, 'retryable' => true )
+			);
+		}
+
+		return true;
+	}
+
 	/** Capture every field the legacy source writer can change. */
 	private function capture_product_feed_backup( $product ) {
 		$product_id = $product instanceof WC_Product ? (int) $product->get_id() : 0;
@@ -830,14 +964,9 @@ class Digitalogic_Patris_Feed {
 		if ( $product_id <= 0 || is_wp_error( $canonical ) ) {
 			return is_wp_error( $canonical ) ? $canonical : new WP_Error( 'digitalogic_patris_product_backup_unavailable', __( 'The source product backup is unavailable.', 'digitalogic' ) );
 		}
-		wp_cache_delete( $product_id, 'post_meta' );
-		$meta = array();
-		foreach ( $this->feed_meta_keys() as $key ) {
-			$exists       = metadata_exists( 'post', $product_id, $key );
-			$meta[ $key ] = array(
-				'exists' => $exists,
-				'value'  => $exists ? get_post_meta( $product_id, $key, true ) : null,
-			);
+		$meta = $this->read_exact_meta_rows( $product_id, $this->product_feed_backup_meta_keys() );
+		if ( is_wp_error( $meta ) ) {
+			return $meta;
 		}
 
 		return array(
@@ -871,14 +1000,14 @@ class Digitalogic_Patris_Feed {
 					'operation'  => $canonical['meta_exists'] ? 'set' : 'delete',
 					'value'      => (string) $canonical['product_code'],
 				),
-				function () use ( $product, $backup, $canonical ) {
-					return Digitalogic_Patris_Price_Write_Guard::instance()->with_authorized_write(
-						function () use ( $product, $backup, $canonical ) {
-							foreach ( $backup['meta'] as $key => $state ) {
-								if ( $state['exists'] ) {
-									$product->update_meta_data( $key, $state['value'] );
-								} else {
-									$product->delete_meta_data( $key );
+					function () use ( $product, $backup, $canonical, $product_id ) {
+						return Digitalogic_Patris_Price_Write_Guard::instance()->with_authorized_write(
+							function () use ( $product, $backup, $canonical, $product_id ) {
+								foreach ( $backup['meta'] as $key => $rows ) {
+									if ( ! empty( $rows ) ) {
+										$product->update_meta_data( $key, reset( $rows ) );
+									} else {
+										$product->delete_meta_data( $key );
 								}
 							}
 							if ( $canonical['meta_exists'] ) {
@@ -892,10 +1021,15 @@ class Digitalogic_Patris_Feed {
 							$product->set_stock_status( $backup['props']['stock_status'] );
 							$product->set_regular_price( $backup['props']['regular_price'] );
 							$product->set_sale_price( $backup['props']['sale_price'] );
-							$product->set_price( $backup['props']['price'] );
-							return $product->save();
-						}
-					);
+								$product->set_price( $backup['props']['price'] );
+								$saved = $product->save();
+								if ( ! $saved || ! $this->restore_exact_meta_rows( $product_id, $backup['meta'] ) ) {
+									return false;
+								}
+
+								return $saved;
+							}
+						);
 				}
 			);
 			if ( is_wp_error( $restored ) ) {
@@ -935,14 +1069,9 @@ class Digitalogic_Patris_Feed {
 		if ( is_wp_error( Digitalogic_Product_Code_Editor::instance()->verify_canonical_source_restore( $product_id, $canonical ) ) ) {
 			return false;
 		}
-		wp_cache_delete( $product_id, 'post_meta' );
-		foreach ( $backup['meta'] as $key => $state ) {
-			if ( metadata_exists( 'post', $product_id, $key ) !== $state['exists'] ) {
-				return false;
-			}
-			if ( $state['exists'] && get_post_meta( $product_id, $key, true ) !== $state['value'] ) {
-				return false;
-			}
+		$meta_readback = $this->read_exact_meta_rows( $product_id, array_keys( $backup['meta'] ) );
+		if ( is_wp_error( $meta_readback ) || $meta_readback !== $backup['meta'] ) {
+			return false;
 		}
 		$fresh = $this->fresh_product_for_source_readback( $product_id );
 		if ( ! $fresh instanceof WC_Product || ! $this->source_props_match( $fresh, $backup['props'] ) ) {
@@ -952,16 +1081,113 @@ class Digitalogic_Patris_Feed {
 		return true;
 	}
 
+	/** Restore the exact ordered value/count state for every touched non-canonical key. */
+	private function restore_exact_meta_rows( $product_id, $states ) {
+		foreach ( (array) $states as $key => $rows ) {
+			if ( ! $this->source_write_locks_are_owned( $product_id ) ) {
+				return false;
+			}
+			delete_post_meta( (int) $product_id, (string) $key );
+			foreach ( (array) $rows as $value ) {
+				if ( ! $this->source_write_locks_are_owned( $product_id ) ) {
+					return false;
+				}
+				if ( false === add_post_meta( (int) $product_id, (string) $key, $value, false ) ) {
+					return false;
+				}
+			}
+		}
+		wp_cache_delete( (int) $product_id, 'post_meta' );
+
+		if ( ! $this->source_write_locks_are_owned( $product_id ) ) {
+			return false;
+		}
+		$readback = $this->read_exact_meta_rows( $product_id, array_keys( (array) $states ) );
+
+		return ! is_wp_error( $readback ) && $readback === $states;
+	}
+
+	/**
+	 * Read ordered non-canonical metadata rows directly from MySQL.
+	 *
+	 * Metadata IDs are intentionally not restored: only the exact ordered value
+	 * sequence and row count for each bounded key are part of the source-writer
+	 * backup. Values are compared after WordPress unserialization so supported
+	 * arrays retain their canonical metadata semantics.
+	 */
+	private function read_exact_meta_rows( $product_id, $keys ) {
+		global $wpdb;
+		$product_id = absint( $product_id );
+		$keys       = array_values( array_unique( array_filter( array_map( 'strval', (array) $keys ), 'strlen' ) ) );
+		if (
+			$product_id <= 0
+			|| empty( $keys )
+			|| ! is_object( $wpdb )
+			|| ! method_exists( $wpdb, 'prepare' )
+			|| ! method_exists( $wpdb, 'get_results' )
+		) {
+			return new WP_Error(
+				'digitalogic_patris_product_backup_unavailable',
+				__( 'The source product backup is unavailable.', 'digitalogic' ),
+				array( 'status' => 503, 'retryable' => true )
+			);
+		}
+		$postmeta    = isset( $wpdb->postmeta ) ? $wpdb->postmeta : $wpdb->prefix . 'postmeta';
+		$placeholders = implode( ', ', array_fill( 0, count( $keys ), '%s' ) );
+		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Table and placeholder list are generated from wpdb and a bounded in-memory key list.
+		$query = $wpdb->prepare(
+			"/* digitalogic_exact_product_meta_rows */
+			SELECT meta_id, meta_key, meta_value
+			FROM {$postmeta}
+			WHERE post_id = %d
+				AND BINARY meta_key IN ({$placeholders})
+			ORDER BY meta_key ASC, meta_id ASC",
+			...array_merge( array( $product_id ), $keys )
+		);
+		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		if ( false === $query ) {
+			return new WP_Error( 'digitalogic_patris_product_backup_unavailable', __( 'The source product backup is unavailable.', 'digitalogic' ), array( 'status' => 503, 'retryable' => true ) );
+		}
+		$wpdb->last_error = '';
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Exact rollback backup must bypass metadata/object caches.
+		$rows = $wpdb->get_results( $query, ARRAY_A );
+		if ( ! is_array( $rows ) || '' !== (string) $wpdb->last_error ) {
+			return new WP_Error( 'digitalogic_patris_product_backup_unavailable', __( 'The source product backup is unavailable.', 'digitalogic' ), array( 'status' => 503, 'retryable' => true ) );
+		}
+
+		$result = array_fill_keys( $keys, array() );
+		foreach ( $rows as $row ) {
+			$key = (string) ( $row['meta_key'] ?? '' );
+			if ( ! array_key_exists( $key, $result ) ) {
+				return new WP_Error( 'digitalogic_patris_product_backup_unavailable', __( 'The source product backup is unavailable.', 'digitalogic' ), array( 'status' => 503, 'retryable' => true ) );
+			}
+			$result[ $key ][] = maybe_unserialize( $row['meta_value'] ?? '' );
+		}
+
+		return $result;
+	}
+
 	/** Read one product after narrowly invalidating only its object/meta caches. */
 	private function fresh_product_for_source_readback( $product_id ) {
 		$product_id = absint( $product_id );
 		wp_cache_delete( $product_id, 'post_meta' );
 		clean_post_cache( $product_id );
-		if ( function_exists( 'wc_delete_product_transients' ) ) {
-			wc_delete_product_transients( $product_id );
+		$product = wc_get_product( $product_id );
+		if ( ! $product instanceof WC_Product ) {
+			return false;
 		}
 
-		return wc_get_product( $product_id );
+		// A direct constructor forces the Woo data store to read this exact ID
+		// without deleting unrelated product transients. Custom product classes
+		// follow the same WooCommerce constructor contract; fail closed otherwise.
+		$class_name = get_class( $product );
+		try {
+			$fresh = new $class_name( $product_id );
+		} catch ( Throwable $exception ) {
+			return false;
+		}
+
+		return $fresh instanceof WC_Product && $product_id === (int) $fresh->get_id() ? $fresh : false;
 	}
 
 	/** Compare every WooCommerce property changed by the legacy feed. */
@@ -977,6 +1203,10 @@ class Digitalogic_Patris_Feed {
 
 	/** Return a typed failure whose exact rollback result is explicit. */
 	private function rollback_product_feed_failure( $product, $backup, $cause ) {
+		$product_id = (int) ( $backup['product_id'] ?? 0 );
+		if ( ! $this->source_write_locks_are_owned( $product_id ) ) {
+			return $this->source_write_outcome_unknown( $product_id, $cause );
+		}
 		$verified = $this->restore_product_feed_backup( $product, $backup );
 		if ( ! $verified ) {
 			return new WP_Error(
@@ -990,6 +1220,26 @@ class Digitalogic_Patris_Feed {
 		$data['rollback_verified'] = true;
 
 		return new WP_Error( $cause->get_error_code(), $cause->get_error_message(), $data );
+	}
+
+	/** Prove both advisory locks before readback, rollback, or terminal success. */
+	private function source_write_locks_are_owned( $product_id ) {
+		return Digitalogic_Product_Sync_Receiver::instance()->source_identity_lock_is_owned()
+			&& Digitalogic_Product_Write_Lock::instance()->is_owned( (int) $product_id );
+	}
+
+	/** Return a fail-closed result when a source effect cannot be attributed safely. */
+	private function source_write_outcome_unknown( $product_id, $cause = null ) {
+		return new WP_Error(
+			'digitalogic_patris_product_write_outcome_unknown',
+			__( 'The source product write lost its lock and requires exact reconciliation.', 'digitalogic' ),
+			array(
+				'status'     => 409,
+				'retryable'  => false,
+				'product_id' => (int) $product_id,
+				'cause'      => $cause instanceof WP_Error ? $cause->get_error_code() : 'lock_lost',
+			)
+		);
 	}
 
 	/** Metadata keys changed by apply_product_feed_authorized and price policy. */
@@ -1009,6 +1259,18 @@ class Digitalogic_Patris_Feed {
 			'_digitalogic_patris_flags', '_digitalogic_patris_last_feed', '_digitalogic_patris_null_fields',
 			'_digitalogic_patris_missing_fields', Digitalogic_Patris_Price_Policy::STATUS_META,
 			Digitalogic_Patris_Price_Policy::POLICY_META, Digitalogic_Patris_Price_Policy::WARNING_META,
+		);
+	}
+
+	/** Every non-canonical metadata key changed directly or through Woo props. */
+	private function product_feed_backup_meta_keys() {
+		return array_values(
+			array_unique(
+				array_merge(
+					$this->feed_meta_keys(),
+					array( '_weight', '_manage_stock', '_stock', '_stock_status', '_regular_price', '_sale_price', '_price' )
+				)
+			)
 		);
 	}
 
@@ -1371,42 +1633,7 @@ class Digitalogic_Patris_Feed {
 		$data = is_array( $data ) ? $data : array();
 		$product->update_meta_data( '_digitalogic_patris_product_code', (string) ( $data['product_code'] ?? '' ) );
 
-		$meta_fields    = array(
-			'category_code'                  => array( '_digitalogic_patris_category_code', false ),
-			'name'                           => array( '_digitalogic_patris_name', false ),
-			'serial'                         => array( '_digitalogic_patris_serial', false ),
-			'unit'                           => array( '_digitalogic_patris_unit', false ),
-			'unit_id'                        => array( '_digitalogic_patris_unit_id', false ),
-			'sale_price_source'              => array( '_digitalogic_patris_sale_price_source', false ),
-			'partner_price_source'           => array( '_digitalogic_patris_partner_price_source', false ),
-			'purchase_price_source'          => array( '_digitalogic_patris_purchase_price_source', false ),
-			'warehouse_stock'                => array( '_digitalogic_patris_warehouse_stock', true ),
-			'total_stock'                    => array( '_digitalogic_patris_total_stock', false ),
-			'minimum_stock'                  => array( '_digitalogic_patris_minimum_stock', false ),
-			'foreign_currency'               => array( '_digitalogic_patris_foreign_currency', false ),
-			'foreign_price'                  => array( '_digitalogic_patris_foreign_price', false ),
-			'price_source_amount'            => array( '_digitalogic_patris_price_source_amount', false ),
-			'price_source_currency'          => array( '_digitalogic_patris_price_source_currency', false ),
-			'price_source_kind'              => array( '_digitalogic_patris_price_source_kind', false ),
-			'weight_grams'                   => array( '_digitalogic_patris_weight_grams', false ),
-			'location'                       => array( '_digitalogic_patris_location', false ),
-			'shipping_method_id'             => array( '_digitalogic_patris_shipping_method_id', false ),
-			'shipping_price_per_kg'          => array( '_digitalogic_patris_shipping_price_per_kg', false ),
-			'shipping_price_per_kg_currency' => array( '_digitalogic_patris_shipping_price_per_kg_currency', false ),
-			'markup_percent'                 => array( '_digitalogic_patris_markup_percent', false ),
-			'irt_per_cny'                    => array( '_digitalogic_patris_irt_per_cny', false ),
-			'price_rounding_digits'          => array( '_digitalogic_patris_price_rounding_digits', false ),
-			'price_rounding_mode'            => array( '_digitalogic_patris_price_rounding_mode', false ),
-			'pricing_catalog_revision'       => array( '_digitalogic_patris_pricing_catalog_revision', false ),
-			'pricing_catalog_status'         => array( '_digitalogic_patris_pricing_catalog_status', false ),
-			'currency_effective_date'        => array( '_digitalogic_patris_currency_effective_date', false ),
-			'final_price'                    => array( '_digitalogic_patris_final_price', false ),
-			'source_updated_at'              => array( '_digitalogic_patris_updated_at', false ),
-			'warnings'                       => array( '_digitalogic_patris_warnings', true ),
-			'record_hash'                    => array( '_digitalogic_patris_record_hash', false ),
-			'flags'                          => array( '_digitalogic_patris_flags', true ),
-			'raw'                            => array( '_digitalogic_patris_last_feed', true ),
-		);
+		$meta_fields    = $this->feed_meta_fields();
 		$null_fields    = array();
 		$missing_fields = array();
 		foreach ( $meta_fields as $field => $definition ) {
@@ -1451,6 +1678,46 @@ class Digitalogic_Patris_Feed {
 		$price_policy->apply( $product, $data );
 		$product->save();
 		$price_policy->invalidate( $product );
+	}
+
+	/** Field-to-meta mapping shared by the writer and its exact verifier. */
+	private function feed_meta_fields() {
+		return array(
+			'category_code'                  => array( '_digitalogic_patris_category_code', false ),
+			'name'                           => array( '_digitalogic_patris_name', false ),
+			'serial'                         => array( '_digitalogic_patris_serial', false ),
+			'unit'                           => array( '_digitalogic_patris_unit', false ),
+			'unit_id'                        => array( '_digitalogic_patris_unit_id', false ),
+			'sale_price_source'              => array( '_digitalogic_patris_sale_price_source', false ),
+			'partner_price_source'           => array( '_digitalogic_patris_partner_price_source', false ),
+			'purchase_price_source'          => array( '_digitalogic_patris_purchase_price_source', false ),
+			'warehouse_stock'                => array( '_digitalogic_patris_warehouse_stock', true ),
+			'total_stock'                    => array( '_digitalogic_patris_total_stock', false ),
+			'minimum_stock'                  => array( '_digitalogic_patris_minimum_stock', false ),
+			'foreign_currency'               => array( '_digitalogic_patris_foreign_currency', false ),
+			'foreign_price'                  => array( '_digitalogic_patris_foreign_price', false ),
+			'price_source_amount'            => array( '_digitalogic_patris_price_source_amount', false ),
+			'price_source_currency'          => array( '_digitalogic_patris_price_source_currency', false ),
+			'price_source_kind'              => array( '_digitalogic_patris_price_source_kind', false ),
+			'weight_grams'                   => array( '_digitalogic_patris_weight_grams', false ),
+			'location'                       => array( '_digitalogic_patris_location', false ),
+			'shipping_method_id'             => array( '_digitalogic_patris_shipping_method_id', false ),
+			'shipping_price_per_kg'          => array( '_digitalogic_patris_shipping_price_per_kg', false ),
+			'shipping_price_per_kg_currency' => array( '_digitalogic_patris_shipping_price_per_kg_currency', false ),
+			'markup_percent'                 => array( '_digitalogic_patris_markup_percent', false ),
+			'irt_per_cny'                    => array( '_digitalogic_patris_irt_per_cny', false ),
+			'price_rounding_digits'          => array( '_digitalogic_patris_price_rounding_digits', false ),
+			'price_rounding_mode'            => array( '_digitalogic_patris_price_rounding_mode', false ),
+			'pricing_catalog_revision'       => array( '_digitalogic_patris_pricing_catalog_revision', false ),
+			'pricing_catalog_status'         => array( '_digitalogic_patris_pricing_catalog_status', false ),
+			'currency_effective_date'        => array( '_digitalogic_patris_currency_effective_date', false ),
+			'final_price'                    => array( '_digitalogic_patris_final_price', false ),
+			'source_updated_at'              => array( '_digitalogic_patris_updated_at', false ),
+			'warnings'                       => array( '_digitalogic_patris_warnings', true ),
+			'record_hash'                    => array( '_digitalogic_patris_record_hash', false ),
+			'flags'                          => array( '_digitalogic_patris_flags', true ),
+			'raw'                            => array( '_digitalogic_patris_last_feed', true ),
+		);
 	}
 
 	// phpcs:disable Squiz.Commenting.FunctionComment.MissingParamTag -- Legacy private normalization helpers predate the strict documentation ruleset.

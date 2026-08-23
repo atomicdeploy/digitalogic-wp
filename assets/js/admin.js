@@ -54,14 +54,18 @@
 				request_fingerprint: String(recovery.request_fingerprint || ''),
 				signature: signature,
 				recovery_required: true,
-				recovery_product_code: recovery.product_code
+				recovery_product_code: recovery.product_code,
+				pending_proposal: recovery.product_code,
+				pending_mode: 'same_request'
 			};
 		}
 		if (!productCodeNotices[row.id]) {
 			productCodeNotices[row.id] = {
 				code: 'digitalogic_product_code_recovery_required',
 				message: (digitalogic.i18n && digitalogic.i18n.product_code_recovery_required) || '',
-				action: (digitalogic.i18n && digitalogic.i18n.product_code_retry_same_request) || ''
+				action: (digitalogic.i18n && digitalogic.i18n.product_code_retry_same_request) || '',
+				retry_mode: 'same_request',
+				proposal: recovery.product_code
 			};
 		}
 	}
@@ -69,19 +73,52 @@
 	function productCodeNoticeHtml(productId) {
 		var notice = productCodeNotices[productId];
 		if (!notice) return '';
+		var retry = notice.retry_mode && typeof notice.proposal === 'string'
+			? '<button type="button" class="button button-small digitalogic-product-code-retry" data-id="' + Number(productId) + '" data-mode="' + escapeHtml(notice.retry_mode) + '">' +
+				'<span>' + escapeHtml((digitalogic.i18n && digitalogic.i18n.product_code_retry_pending) || '') + '</span> ' +
+				'<code dir="ltr">' + escapeHtml(notice.proposal) + '</code></button>'
+			: '';
 		return '<div class="digitalogic-product-code-notice" role="alert" aria-live="assertive">' +
 			'<span>' + escapeHtml(notice.message) + '</span>' +
 			'<code>' + escapeHtml(String(notice.code || '').replace(/[^a-z0-9_.:-]/gi, '').slice(0, 96)) + '</code>' +
 			'<small>' + escapeHtml(notice.action) + '</small>' +
+			retry +
 			'</div>';
 	}
 
-	function setProductCodeNotice(productId, code, message, actionKey) {
+	function setProductCodeNotice(productId, code, message, actionKey, retryMode, proposal) {
 		productCodeNotices[productId] = {
 			code: code,
 			message: message || ((digitalogic.i18n && digitalogic.i18n.product_code_request_failed) || ''),
-			action: (digitalogic.i18n && digitalogic.i18n[actionKey]) || ''
+			action: (digitalogic.i18n && digitalogic.i18n[actionKey]) || '',
+			retry_mode: retryMode || '',
+			proposal: typeof proposal === 'string' ? proposal : ''
 		};
+	}
+
+	/** Manually replay only the exact pending Product Code proposal. */
+	function retryPendingProductCode(productId) {
+		productId = Number(productId);
+		var intent = productCodeIntents[productId];
+		if (
+			!intent ||
+			!productCodeRequests ||
+			productCodeRequests.has(productId) ||
+			typeof intent.pending_proposal !== 'string'
+		) return;
+
+		var proposal = intent.pending_proposal;
+		if (!changedProducts[productId]) changedProducts[productId] = {};
+		changedProducts[productId].patris_product_code = proposal;
+		var $handoff = $('<button type="button">')
+			.attr('data-id', productId)
+			.attr('data-field', 'patris_product_code')
+			.attr('data-type', 'text');
+		saveProductField(productId, 'patris_product_code', proposal, $handoff);
+		if (productsTable) {
+			productsTable.rows().invalidate();
+			productsTable.draw(false);
+		}
 	}
 
 	function planBulkProductUpdates(updates) {
@@ -128,10 +165,19 @@
         return '<button type="button" class="digitalogic-editable-cell" data-id="' + row.id + '" data-field="' + field + '" data-type="' + (inputType || 'text') + '" data-step="' + (step || '') + '">' + escapeHtml(value) + '</button>';
     }
 
-    function productCodeCell(row, value) {
+	function productCodeCell(row, value) {
 		hydrateProductCodeRecovery(row);
+		if (!productCodeRequests) {
+			setProductCodeNotice(
+				row.id,
+				'digitalogic_product_code_verifier_unavailable',
+				(digitalogic.i18n && digitalogic.i18n.product_code_verifier_unavailable) || '',
+				'product_code_reload'
+			);
+			return '<span class="digitalogic-editable-cell is-readonly" aria-disabled="true" title="' + escapeHtml((digitalogic.i18n && digitalogic.i18n.product_code_verifier_unavailable) || '') + '">' + escapeHtml(value) + '</span>' + productCodeNoticeHtml(row.id);
+		}
 		var notice = productCodeNoticeHtml(row.id);
-		if (!productCodeRequests || productCodeRequests.has(row.id)) {
+		if (productCodeRequests.has(row.id)) {
 			return '<span class="digitalogic-editable-cell is-saving" aria-disabled="true" aria-busy="true">' + escapeHtml(value) + '</span>' + notice;
 		}
         if (row.patris_product_code_editable === false) {
@@ -612,7 +658,24 @@
     }
 
     function saveProductField(productId, fieldName, value, $field) {
-		if (fieldName === 'patris_product_code' && (!productCodeRequests || productCodeRequests.has(productId))) {
+		if (fieldName === 'patris_product_code' && !productCodeRequests) {
+			setProductCodeNotice(
+				productId,
+				'digitalogic_product_code_verifier_unavailable',
+				(digitalogic.i18n && digitalogic.i18n.product_code_verifier_unavailable) || '',
+				'product_code_reload'
+			);
+			if (changedProducts[productId]) {
+				delete changedProducts[productId][fieldName];
+				if (Object.keys(changedProducts[productId]).length === 0) delete changedProducts[productId];
+			}
+			if (productsTable) {
+				productsTable.rows().invalidate();
+				productsTable.draw(false);
+			}
+			return;
+		}
+		if (fieldName === 'patris_product_code' && productCodeRequests.has(productId)) {
 			return;
 		}
         var data = {};
@@ -754,11 +817,13 @@
 					productCodeIntents[productId] = {
 						expected_code: String(recovery.expected_code || ''),
 						if_match: String(recovery.if_match || ''),
-					request_id: recovery.request_id,
-					request_fingerprint: String(recovery.request_fingerprint || ''),
+						request_id: recovery.request_id,
+						request_fingerprint: String(recovery.request_fingerprint || ''),
 						signature: [productId, String(recovery.expected_code || ''), String(recovery.product_code || ''), String(recovery.if_match || '')].join('\u0000'),
 						recovery_required: true,
-						recovery_product_code: String(recovery.product_code || '')
+						recovery_product_code: String(recovery.product_code || ''),
+						pending_proposal: String(recovery.product_code || ''),
+						pending_mode: 'same_request'
 					};
 					intent = productCodeIntents[productId];
 				}
@@ -787,16 +852,29 @@
 					intent.request_id = '';
 					intent.request_fingerprint = '';
 					intent.signature = '';
+					intent.recovery_required = false;
+					intent.recovery_product_code = '';
+					intent.pending_proposal = requestSnapshot.desired_code;
+					intent.pending_mode = 'new_request';
 					var staleRowApi = productTableRow(productId, $field);
 					var staleRow = staleRowApi && staleRowApi.data ? staleRowApi.data() : null;
 					if (staleRow) {
 						staleRow.patris_product_code = details.current_code;
 						staleRow.patris_product_code_revision = details.current_revision;
 					}
+					setProductCodeNotice(
+						productId,
+						errorCode,
+						errorMessage,
+						'product_code_reload',
+						'new_request',
+						requestSnapshot.desired_code
+					);
 				} else if (errorCode === 'digitalogic_product_code_outcome_unknown') {
 					delete productCodeIntents[productId];
 					if (changedProducts[productId]) {
 						delete changedProducts[productId][fieldName];
+						if (Object.keys(changedProducts[productId]).length === 0) delete changedProducts[productId];
 					}
 					productsTable.ajax.reload(null, false);
 				} else if (
@@ -806,6 +884,7 @@
 					delete productCodeIntents[productId];
 					if (changedProducts[productId]) {
 						delete changedProducts[productId][fieldName];
+						if (Object.keys(changedProducts[productId]).length === 0) delete changedProducts[productId];
 					}
 					var guardedRowApi = productTableRow(productId, $field);
 					var guardedRow = guardedRowApi && guardedRowApi.data ? guardedRowApi.data() : null;
@@ -827,6 +906,27 @@
 					details.retryable !== true
 				) {
 					delete productCodeIntents[productId];
+					if (changedProducts[productId]) {
+						delete changedProducts[productId][fieldName];
+						if (Object.keys(changedProducts[productId]).length === 0) delete changedProducts[productId];
+					}
+					var rejectedRowApi = productTableRow(productId, $field);
+					var rejectedRow = rejectedRowApi && rejectedRowApi.data ? rejectedRowApi.data() : null;
+					if (rejectedRow && intent) {
+						rejectedRow.patris_product_code = intent.expected_code;
+						rejectedRow.patris_product_code_revision = intent.if_match;
+					}
+				} else if (intent) {
+					intent.pending_proposal = requestSnapshot.desired_code;
+					intent.pending_mode = 'same_request';
+					setProductCodeNotice(
+						productId,
+						errorCode,
+						errorMessage,
+						actionKey,
+						'same_request',
+						requestSnapshot.desired_code
+					);
 				}
 			}
             $field.addClass('is-error');
@@ -896,6 +996,12 @@
      * Initialize event handlers
      */
     function initEventHandlers() {
+		$('#products-table').on('click', '.digitalogic-product-code-retry', function(event) {
+			event.preventDefault();
+			event.stopPropagation();
+			retryPendingProductCode($(this).data('id'));
+		});
+
         // Select all checkbox
         $('#select-all').on('change', function() {
             $('.product-checkbox').prop('checked', $(this).prop('checked'));

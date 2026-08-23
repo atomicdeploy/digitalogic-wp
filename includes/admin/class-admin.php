@@ -355,8 +355,10 @@ class Digitalogic_Admin {
         wp_enqueue_style('digitalogic-admin', DIGITALOGIC_PLUGIN_URL . 'assets/css/admin.css', array(), DIGITALOGIC_VERSION);
         
 		// Plugin scripts
-		wp_enqueue_script('digitalogic-product-code-contract', DIGITALOGIC_PLUGIN_URL . 'assets/js/product-code-contract.js', array(), DIGITALOGIC_VERSION, true);
-		wp_enqueue_script('digitalogic-admin', DIGITALOGIC_PLUGIN_URL . 'assets/js/admin.js', array('jquery', 'datatables', 'digitalogic-product-code-contract'), DIGITALOGIC_VERSION, true);
+		$product_code_contract_version = filemtime( DIGITALOGIC_PLUGIN_DIR . 'assets/js/product-code-contract.js' ) ?: DIGITALOGIC_VERSION;
+		$admin_script_version          = filemtime( DIGITALOGIC_PLUGIN_DIR . 'assets/js/admin.js' ) ?: DIGITALOGIC_VERSION;
+		wp_enqueue_script('digitalogic-product-code-contract', DIGITALOGIC_PLUGIN_URL . 'assets/js/product-code-contract.js', array(), $product_code_contract_version, true);
+		wp_enqueue_script('digitalogic-admin', DIGITALOGIC_PLUGIN_URL . 'assets/js/admin.js', array('jquery', 'datatables', 'digitalogic-product-code-contract'), $admin_script_version, true);
         
         // Localize script
         wp_localize_script('digitalogic-admin', 'digitalogic', array(
@@ -395,6 +397,8 @@ class Digitalogic_Admin {
 				'product_code_bulk_pending'        => __( 'Product Code changes must finish through their dedicated save operation and are not sent by bulk update.', 'digitalogic' ),
 				'product_code_response_ambiguous'  => __( 'The Product Code response could not be verified; retry the same value.', 'digitalogic' ),
 				'product_code_retry_same_request'  => __( 'Retry the same value; the original request identity will be reused.', 'digitalogic' ),
+				'product_code_retry_pending'       => __( 'Retry the pending Product Code change', 'digitalogic' ),
+				'product_code_verifier_unavailable' => __( 'The Product Code response verifier is unavailable; reload this page.', 'digitalogic' ),
 				'product_code_reload'              => __( 'Reload the row and review the current value before trying again.', 'digitalogic' ),
 				'product_code_correct_source'       => __( 'Correct the code in its catalog source and deliver the reviewed source revision.', 'digitalogic' ),
 				'product_code_manual_reconcile'     => __( 'Stop editing and reconcile the exact database state with the audit record.', 'digitalogic' ),

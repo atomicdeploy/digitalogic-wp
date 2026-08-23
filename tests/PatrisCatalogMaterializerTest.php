@@ -39,6 +39,7 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 				'digitalogic_test_meta_delete_failures',
 				'digitalogic_test_transaction_failures',
 				'digitalogic_test_cache_deletes',
+				'digitalogic_test_cache_delete_failures',
 				'digitalogic_test_remote_posts',
 				'digitalogic_test_remote_post_results',
 				'digitalogic_test_product_updates',
@@ -83,6 +84,7 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 		$this->resetSingleton( Digitalogic_Patris_Feed::class );
 		$this->resetSingleton( Digitalogic_Product_Identifier_Resolver::class );
 		$this->resetSingleton( Digitalogic_WooCommerce_Currency_Status::class );
+		$this->resetSingleton( Digitalogic_Product_Write_Lock::class );
 	}
 
 	public function test_dry_run_plans_only_positive_stock_and_writes_nothing(): void {
@@ -830,6 +832,115 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 		$this->assertCount( 1, $GLOBALS['digitalogic_test_posts'] );
 	}
 
+	/** A feed-phase failure removes the whole newly planned shell, not just its identity. */
+	public function test_planned_create_feed_failure_removes_every_partial_row_effect(): void {
+		$this->receiveFixture();
+		// Shell save, identity save, then the injected feed save failure.
+		$GLOBALS['digitalogic_test_wc_save_fail_once'][1] = 3;
+
+		$result = Digitalogic_Patris_Catalog_Materializer::instance()->run( $this->manifest(), array( 'apply' => true ) );
+		$this->assertSame( 1, $result['failed'] );
+		$this->assertSame( 0, $result['created'] );
+		$this->assertSame( array(), $GLOBALS['digitalogic_test_posts'] );
+		$this->assertContains( 'digitalogic_patris_product_write_failed', array_column( $result['details'], 'reason' ) );
+	}
+
+	/** A shipping transaction failure restores feed, identity, and commercial fields exactly. */
+	public function test_existing_shipping_failure_rolls_back_the_entire_catalog_row(): void {
+		$this->receiveFixture();
+		$service = Digitalogic_Patris_Catalog_Materializer::instance();
+		$first   = $service->run( $this->manifest(), array( 'apply' => true ) );
+		$this->assertSame( 1, $first['created'] );
+		$product_id = (int) array_key_first( $GLOBALS['digitalogic_test_posts'] );
+		$before     = $GLOBALS['digitalogic_test_posts'][ $product_id ];
+
+		$state                                    = get_option( Digitalogic_Product_Sync_Receiver::STATE_OPTION, array() );
+		$source_key                               = array_key_first( $state['sources'] );
+		$record                                   = &$state['sources'][ $source_key ]['products']['101001001'];
+		$record['partner_price_source']           = 100000;
+		$record['price_source_amount']            = '100000';
+		$record['price_source_currency']          = 'IRR';
+		$record['price_source_kind']              = 'partner_price';
+		$record['shipping_method_id']             = 'domestic';
+		$record['shipping_price_per_kg']          = '0';
+		$record['shipping_price_per_kg_currency'] = 'IRR';
+		$record['final_price']                    = 13000;
+		$record['warnings']                       = array( 'partner_price_fallback_used', 'freight_not_applied_for_partner_price' );
+		unset( $record );
+		update_option( Digitalogic_Product_Sync_Receiver::STATE_OPTION, $state, false );
+		$GLOBALS['digitalogic_test_meta_update_failures'][] = $product_id . ':' . Digitalogic_Shipping_Method_Service::PRODUCT_METHOD_META;
+
+		$result = $service->run( $this->manifest(), array( 'apply' => true ) );
+
+		$this->assertSame( 1, $result['failed'] );
+		$this->assertEquals( $before, $GLOBALS['digitalogic_test_posts'][ $product_id ] );
+		$this->assertSame( 'air_express', get_post_meta( $product_id, Digitalogic_Shipping_Method_Service::PRODUCT_METHOD_META, true ) );
+	}
+
+	/** Publication failure occurs under the same product lock and restores all earlier phases. */
+	public function test_existing_publication_failure_rolls_back_feed_shipping_and_identity_under_one_lock(): void {
+		$this->receiveFixture();
+		$service = Digitalogic_Patris_Catalog_Materializer::instance();
+		$service->run( $this->manifest(), array( 'apply' => true ) );
+		$product_id = (int) array_key_first( $GLOBALS['digitalogic_test_posts'] );
+		$this->attachReviewedImage( $product_id );
+		$before = $GLOBALS['digitalogic_test_posts'][ $product_id ];
+
+		$state                                    = get_option( Digitalogic_Product_Sync_Receiver::STATE_OPTION, array() );
+		$source_key                               = array_key_first( $state['sources'] );
+		$record                                   = &$state['sources'][ $source_key ]['products']['101001001'];
+		$record['partner_price_source']           = 100000;
+		$record['price_source_amount']            = '100000';
+		$record['price_source_currency']          = 'IRR';
+		$record['price_source_kind']              = 'partner_price';
+		$record['shipping_method_id']             = 'domestic';
+		$record['shipping_price_per_kg']          = '0';
+		$record['shipping_price_per_kg_currency'] = 'IRR';
+		$record['final_price']                    = 13000;
+		$record['warnings']                       = array( 'partner_price_fallback_used', 'freight_not_applied_for_partner_price' );
+		unset( $record );
+		update_option( Digitalogic_Product_Sync_Receiver::STATE_OPTION, $state, false );
+
+		$outside_writer = null;
+		$failure_armed  = false;
+		add_action(
+			'digitalogic_product_shipping_method_updated',
+			static function ( $updated_product_id ) use ( $product_id, &$outside_writer, &$failure_armed ) {
+				if ( (int) $updated_product_id !== $product_id || $failure_armed ) {
+					return;
+				}
+				$failure_armed   = true;
+				$database        = $GLOBALS['wpdb'];
+				$connection_id   = $database->connection_id;
+				$reflection      = new ReflectionClass( Digitalogic_Product_Write_Lock::class );
+				$separate_writer = $reflection->newInstanceWithoutConstructor();
+				try {
+					$database->connection_id = 2002;
+					$outside_writer          = $separate_writer->with_product_lock( $product_id, static fn () => true, 0 );
+				} finally {
+					$database->connection_id = $connection_id;
+				}
+				$save_count = count(
+					array_filter(
+						$GLOBALS['digitalogic_test_wc_product_saves'],
+						static fn ( $saved_id ) => (int) $saved_id === $product_id
+					)
+				);
+				$GLOBALS['digitalogic_test_wc_save_fail_once'][ $product_id ] = $save_count + 1;
+			},
+			10,
+			1
+		);
+
+		$result = $service->run( $this->manifest(), array( 'apply' => true, 'publish_ready' => true ) );
+
+		$this->assertInstanceOf( WP_Error::class, $outside_writer );
+		$this->assertSame( 'product_write_lock_busy', $outside_writer->get_error_code() );
+		$this->assertSame( 1, $result['failed'] );
+		$this->assertEquals( $before, $GLOBALS['digitalogic_test_posts'][ $product_id ] );
+		$this->assertSame( 'air_express', get_post_meta( $product_id, Digitalogic_Shipping_Method_Service::PRODUCT_METHOD_META, true ) );
+	}
+
 	public function test_apply_aborts_and_releases_its_lock_if_the_source_changes_while_starting(): void {
 		$this->receiveFixture();
 		$release_count                    = $GLOBALS['wpdb']->release_count;
@@ -950,7 +1061,6 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 				'publish_ready' => true,
 			)
 		);
-
 		$this->assertSame( 1, $result['failed'] );
 		$this->assertSame( 0, $result['published'] );
 		$this->assertSame( 1, $result['preserved_published'] );
@@ -1074,6 +1184,72 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 		$this->assertSame( $old_terms, $fresh->get_category_ids() );
 		$this->assertSame( array(), $GLOBALS['digitalogic_test_posts'][ $product_id ]['meta_rows'][ Digitalogic_Product_Code_Editor::META_KEY ] ?? array() );
 		$this->assertSame( '101001001', get_post_meta( $product_id, Digitalogic_Product_Code_Editor::META_KEY, true ) );
+	}
+
+	/** A failed materializer readback cannot race and overwrite a normal Woo writer. */
+	public function test_materializer_rollback_holds_product_lock_and_restores_exact_multi_row_meta(): void {
+		$this->receiveFixture();
+		$service = Digitalogic_Patris_Catalog_Materializer::instance();
+		$first   = $service->run( $this->manifest(), array( 'apply' => true ) );
+		$this->assertSame( 1, $first['created'] );
+		$product_id = (int) array_key_first( $GLOBALS['digitalogic_test_posts'] );
+		$GLOBALS['digitalogic_test_posts'][ $product_id ]['meta']['rank_math_title'] = 'Original SEO first';
+		$GLOBALS['digitalogic_test_posts'][ $product_id ]['meta_rows']['rank_math_title'] = array( 'Original SEO first', 'Original SEO second' );
+		$GLOBALS['digitalogic_test_post_meta_cache'][ $product_id ] = array( 'rank_math_title' => 'Stale cached SEO' );
+		$GLOBALS['digitalogic_test_cache_delete_failures'][]        = 'post_meta:' . $product_id;
+		unset( $GLOBALS['digitalogic_test_wc_products'][ $product_id ] );
+		$writer_result = null;
+		$GLOBALS['digitalogic_test_wc_after_save'] = static function () use ( $product_id, &$writer_result ) {
+			$database        = $GLOBALS['wpdb'];
+			$connection_id   = $database->connection_id;
+			$reflection      = new ReflectionClass( Digitalogic_Product_Write_Lock::class );
+			$separate_writer = $reflection->newInstanceWithoutConstructor();
+			try {
+				$database->connection_id = 2002;
+				$writer_result           = $separate_writer->with_product_lock(
+					$product_id,
+					static function () use ( $product_id ) {
+						update_post_meta( $product_id, '_outside_writer', 'must-not-run' );
+						return true;
+					},
+					0
+				);
+			} finally {
+				$database->connection_id = $connection_id;
+			}
+			$GLOBALS['digitalogic_test_posts'][ $product_id ]['meta_rows'][ Digitalogic_Product_Code_Editor::META_KEY ] = array( '101001001', '101001001' );
+		};
+		$manifest = $this->manifest();
+
+		$result = $service->run( $manifest, array( 'apply' => true ) );
+
+		$this->assertInstanceOf( WP_Error::class, $writer_result );
+		$this->assertSame( 'product_write_lock_busy', $writer_result->get_error_code() );
+		$this->assertSame( 1, $result['failed'] );
+		$this->assertSame( '', get_post_meta( $product_id, '_outside_writer', true ) );
+		$this->assertSame(
+			array( 'Original SEO first', 'Original SEO second' ),
+			get_post_meta( $product_id, 'rank_math_title', false )
+		);
+	}
+
+	/** Exact DB metadata backup failure blocks an existing target before any enrichment effect. */
+	public function test_materializer_exact_metadata_backup_query_failure_is_fail_closed(): void {
+		$this->receiveFixture();
+		$service = Digitalogic_Patris_Catalog_Materializer::instance();
+		$first   = $service->run( $this->manifest(), array( 'apply' => true ) );
+		$this->assertSame( 1, $first['created'] );
+		$product_id   = (int) array_key_first( $GLOBALS['digitalogic_test_posts'] );
+		$before_posts = $GLOBALS['digitalogic_test_posts'];
+		$save_count   = count( $GLOBALS['digitalogic_test_wc_product_saves'] );
+		$GLOBALS['wpdb']->exact_meta_query_failure = true;
+
+		$result = $service->run( $this->manifest(), array( 'apply' => true ) );
+
+		$this->assertSame( 1, $result['failed'] );
+		$this->assertContains( 'digitalogic_patris_materializer_backup_unavailable', array_column( $result['details'], 'reason' ) );
+		$this->assertSame( $before_posts[ $product_id ], $GLOBALS['digitalogic_test_posts'][ $product_id ] );
+		$this->assertCount( $save_count, $GLOBALS['digitalogic_test_wc_product_saves'] );
 	}
 
 	public function test_referenced_synthetic_category_is_created_under_a_reviewed_manual_parent(): void {

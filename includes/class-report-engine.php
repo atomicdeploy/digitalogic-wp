@@ -44,6 +44,9 @@ final class Digitalogic_Report_Engine {
 	private $active_build_lock_key  = '';
 	private $local_cache_generation = 'initial';
 
+	/** @var array<string,array{object_id:int,meta_key:string,generation:string}> Request-local exact-effect probes. */
+	private $product_meta_invalidation_probes = array();
+
 	/** Register every source mutation that can make a report stale. */
 	private function __construct() {
 		$generation                   = get_option( self::CACHE_GENERATION_OPTION, null );
@@ -178,6 +181,53 @@ final class Digitalogic_Report_Engine {
 		}
 
 		return $current;
+	}
+
+	/**
+	 * Start one request-local probe for an exact product-meta invalidation.
+	 *
+	 * The opaque token is safe to persist in an in-progress recovery record. A
+	 * later request will intentionally find no live probe and must perform its
+	 * own explicit recovery invalidation.
+	 */
+	public function begin_product_meta_invalidation_probe( $object_id, $meta_key ) {
+		$object_id = absint( $object_id );
+		$meta_key  = (string) $meta_key;
+		if ( $object_id <= 0 || '' === $meta_key ) {
+			return new WP_Error(
+				'digitalogic_report_invalidation_probe_invalid',
+				__( 'The report invalidation probe is invalid.', 'digitalogic' ),
+				array( 'status' => 400 )
+			);
+		}
+		$token = function_exists( 'wp_generate_uuid4' )
+			? wp_generate_uuid4()
+			: hash( 'sha256', $object_id . '|' . $meta_key . '|' . microtime( true ) . '|' . wp_rand() );
+		$this->product_meta_invalidation_probes[ $token ] = array(
+			'object_id'  => $object_id,
+			'meta_key'   => $meta_key,
+			'generation' => '',
+		);
+
+		return $token;
+	}
+
+	/** Consume one probe and distinguish a live failed effect from a later request. */
+	public function consume_product_meta_invalidation_probe( $token ) {
+		$token = (string) $token;
+		if ( '' === $token || ! array_key_exists( $token, $this->product_meta_invalidation_probes ) ) {
+			return array(
+				'known'      => false,
+				'generation' => '',
+			);
+		}
+		$probe = $this->product_meta_invalidation_probes[ $token ];
+		unset( $this->product_meta_invalidation_probes[ $token ] );
+
+		return array(
+			'known'      => true,
+			'generation' => (string) ( $probe['generation'] ?? '' ),
+		);
 	}
 
 	/**
@@ -1116,7 +1166,18 @@ final class Digitalogic_Report_Engine {
 			( in_array( $meta_key, $consumed, true ) || str_starts_with( $meta_key, 'attribute_' ) )
 			&& in_array( get_post_type( $object_id ), array( 'product', 'product_variation', 'attachment' ), true )
 		) {
-			$this->invalidate_cache();
+			$invalidated = $this->invalidate_cache();
+			if ( $invalidated ) {
+				$generation = $this->current_projection_generation();
+				if ( ! is_wp_error( $generation ) ) {
+					foreach ( $this->product_meta_invalidation_probes as &$probe ) {
+						if ( (int) $probe['object_id'] === (int) $object_id && hash_equals( (string) $probe['meta_key'], $meta_key ) ) {
+							$probe['generation'] = $generation;
+						}
+					}
+					unset( $probe );
+				}
+			}
 		}
 	}
 

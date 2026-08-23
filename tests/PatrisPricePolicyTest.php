@@ -183,6 +183,7 @@ final class PatrisPricePolicyTest extends TestCase {
 		$this->assertSame( 'canonical_missing_unpriced', $product->get_meta( '_digitalogic_patris_price_status', true ) );
 
 		$this->feed->apply_product_feed( $product, $this->row( 'MISSING-807', 0 ) );
+		$product = wc_get_product( 807 );
 		$this->assertSame( '', $product->get_regular_price() );
 		$this->assertSame( '', $product->get_sale_price() );
 		$this->assertSame( '', $product->get_price() );
@@ -241,11 +242,13 @@ final class PatrisPricePolicyTest extends TestCase {
 		$this->assertSame( 'instock', $product->get_stock_status() );
 
 		$this->feed->apply_product_feed( $product, array( 'product_code' => 'STOCK-810', 'total_stock' => 0 ) );
+		$product = wc_get_product( 810 );
 		$this->assertTrue( $product->get_manage_stock() );
 		$this->assertSame( 0, $product->get_stock_quantity() );
 		$this->assertSame( 'outofstock', $product->get_stock_status() );
 
 		$this->feed->apply_product_feed( $product, array( 'product_code' => 'STOCK-810', 'total_stock' => 1.9 ) );
+		$product = wc_get_product( 810 );
 		$this->assertSame( 1, $product->get_stock_quantity() );
 		$this->assertSame( 'instock', $product->get_stock_status() );
 	}

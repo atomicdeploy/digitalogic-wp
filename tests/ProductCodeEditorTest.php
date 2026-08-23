@@ -386,6 +386,8 @@ final class ProductCodeEditorTest extends TestCase {
 				}
 				$interleaved                = true;
 				$editor_db                  = $GLOBALS['wpdb'];
+				$receiver_property           = new ReflectionProperty( Digitalogic_Product_Sync_Receiver::class, 'instance' );
+				$editor_receiver             = $receiver_property->getValue();
 				$writer_db                  = new Digitalogic_Test_WPDB();
 				$writer_db->acquire_results = array( 0 );
 				$GLOBALS['wpdb']            = $writer_db;
@@ -397,6 +399,7 @@ final class ProductCodeEditorTest extends TestCase {
 					);
 				} finally {
 					$GLOBALS['wpdb'] = $editor_db;
+					$receiver_property->setValue( null, $editor_receiver );
 				}
 			},
 			10,
@@ -449,6 +452,42 @@ final class ProductCodeEditorTest extends TestCase {
 		$this->assertArrayNotHasKey( 'updated_post_meta', $GLOBALS['digitalogic_test_actions'] );
 	}
 
+	/** Durable materializer ownership survives source rotation and remains immutable here. */
+	public function test_materializer_owner_trio_without_record_hash_is_source_managed(): void {
+		$GLOBALS['digitalogic_test_posts'][741]['meta']['_digitalogic_patris_owner_source_id']    = 'retired-source';
+		$GLOBALS['digitalogic_test_posts'][741]['meta']['_digitalogic_patris_owner_dataset']      = 'retired-dataset';
+		$GLOBALS['digitalogic_test_posts'][741]['meta']['_digitalogic_patris_owner_product_code'] = '000741';
+
+		$result = $this->editor->edit( $this->request( '000742', 'product-code:741:materializer-owner' ) );
+
+		$this->assertSame( 'digitalogic_product_code_source_managed', $result->get_error_code() );
+		$this->assertContains( 'managed_materializer_owner', $result->get_error_data()['reasons'] );
+		$this->assertSame( '000741', get_post_meta( 741, Digitalogic_Product_Code_Editor::META_KEY, true ) );
+		$this->assertArrayNotHasKey( 'updated_post_meta', $GLOBALS['digitalogic_test_actions'] );
+	}
+
+	/** Partial, duplicate, and case-variant materializer provenance all fail closed. */
+	public function test_malformed_materializer_owner_provenance_is_rejected_before_effect(): void {
+		$GLOBALS['digitalogic_test_posts'][741]['meta']['_digitalogic_patris_owner_source_id'] = 'partial-source';
+		$partial = $this->editor->edit( $this->request( '000742', 'product-code:741:owner-partial' ) );
+		$this->assertSame( 'digitalogic_product_code_source_managed', $partial->get_error_code() );
+		$this->assertContains( 'partial_materializer_owner_provenance', $partial->get_error_data()['reasons'] );
+
+		$GLOBALS['digitalogic_test_posts'][741]['meta']['_digitalogic_patris_owner_dataset']      = 'dataset';
+		$GLOBALS['digitalogic_test_posts'][741]['meta']['_digitalogic_patris_owner_product_code'] = '000741';
+		$GLOBALS['digitalogic_test_posts'][741]['meta_rows']['_digitalogic_patris_owner_dataset'] = array( 'dataset', 'dataset' );
+		$duplicate = $this->editor->edit( $this->request( '000742', 'product-code:741:owner-duplicate' ) );
+		$this->assertSame( 'digitalogic_product_code_source_managed', $duplicate->get_error_code() );
+		$this->assertContains( 'duplicate_materializer_owner_provenance', $duplicate->get_error_data()['reasons'] );
+
+		unset( $GLOBALS['digitalogic_test_posts'][741]['meta_rows']['_digitalogic_patris_owner_dataset'] );
+		$GLOBALS['digitalogic_test_posts'][741]['meta']['_DIGITALOGIC_PATRIS_OWNER_DATASET'] = 'variant';
+		$variant = $this->editor->edit( $this->request( '000742', 'product-code:741:owner-variant' ) );
+		$this->assertSame( 'digitalogic_product_code_meta_conflict', $variant->get_error_code() );
+		$this->assertSame( '000741', get_post_meta( 741, Digitalogic_Product_Code_Editor::META_KEY, true ) );
+		$this->assertArrayNotHasKey( 'updated_post_meta', $GLOBALS['digitalogic_test_actions'] );
+	}
+
 	/** An unbound Woo row still cannot claim a code present in the live source. */
 	public function test_desired_code_in_product_sync_snapshot_is_blocked(): void {
 		$GLOBALS['digitalogic_test_options'][ Digitalogic_Product_Sync_Receiver::STATE_OPTION ] = array(
@@ -479,6 +518,37 @@ final class ProductCodeEditorTest extends TestCase {
 		$this->assertSame( 'digitalogic_product_code_source_managed', $result->get_error_code() );
 		$this->assertContains( 'desired_code_in_source', $result->get_error_data()['reasons'] );
 		$this->assertSame( 'patris-office', $result->get_error_data()['sources'][0]['id'] );
+	}
+
+	/** A delivery-only row still proves source ownership of the current code. */
+	public function test_current_code_in_delivery_only_state_is_source_governed(): void {
+		$GLOBALS['digitalogic_test_options'][ Digitalogic_Product_Sync_Receiver::STATE_OPTION ] = array(
+			'sources' => array(
+				'fixture' => array(
+					'source'            => array(
+						'id'       => 'patris-office',
+						'dataset'  => 'kala.db',
+						'revision' => 'sha256:' . str_repeat( 'c', 64 ),
+					),
+					'products'          => array(),
+					'applied_products'  => array(),
+					'pending_products'  => array(
+						'000741' => array(
+							'product_code' => '000741',
+							'record_hash'  => 'sha256:' . str_repeat( 'd', 64 ),
+						),
+					),
+					'deferred_products' => array(),
+				),
+			),
+		);
+
+		$result = $this->editor->edit( $this->request( '000742', 'product-code:741:delivery-current' ) );
+
+		$this->assertSame( 'digitalogic_product_code_source_managed', $result->get_error_code() );
+		$this->assertContains( 'current_code_in_delivery_state', $result->get_error_data()['reasons'] );
+		$this->assertSame( '000741', get_post_meta( 741, Digitalogic_Product_Code_Editor::META_KEY, true ) );
+		$this->assertArrayNotHasKey( 'updated_post_meta', $GLOBALS['digitalogic_test_actions'] );
 	}
 
 	/** Legacy feed rows govern both their bound product and an unbound desired code. */
@@ -744,6 +814,103 @@ final class ProductCodeEditorTest extends TestCase {
 		$this->assertTrue( $result->get_error_data()['retryable'] );
 	}
 
+	/** A reconnect after the SQL effect never produces a false terminal record. */
+	public function test_connection_loss_after_meta_effect_requires_same_key_recovery(): void {
+		$request = $this->request( '000742', 'product-code:741:effect-lock-loss' );
+		add_action(
+			'updated_post_meta',
+			static function ( $meta_id, $product_id, $meta_key ) {
+				unset( $meta_id );
+				if ( 741 === (int) $product_id && Digitalogic_Product_Code_Editor::META_KEY === $meta_key ) {
+					$GLOBALS['wpdb']->connection_id = 2002;
+				}
+			},
+			10,
+			3
+		);
+
+		$result = $this->editor->edit( $request );
+
+		$this->assertInstanceOf( WP_Error::class, $result );
+		$this->assertSame( 'digitalogic_product_code_recovery_pending', $result->get_error_code() );
+		$this->assertSame( $request['request_id'], $result->get_error_data()['request_id'] );
+		$this->assertSame( '000742', $GLOBALS['digitalogic_test_posts'][741]['meta'][ Digitalogic_Product_Code_Editor::META_KEY ] );
+		$record = $GLOBALS['digitalogic_test_options'][ $this->operation_option_name( $request['request_id'] ) ];
+		$this->assertSame( 'in_progress', $record['status'] );
+		$this->assertArrayNotHasKey( 'result', $record );
+		$this->assertSame( $request['request_id'], $this->editor->recovery_intent_for( 741 )['request_id'] );
+
+		$GLOBALS['wpdb'] = new Digitalogic_Test_WPDB();
+		$this->reset_singleton( Digitalogic_Product_Write_Lock::class );
+		$this->reset_singleton( Digitalogic_Product_Sync_Receiver::class );
+		$GLOBALS['digitalogic_test_action_callbacks']['updated_post_meta'] = array();
+
+		$recovered = $this->editor->edit( $request );
+		$this->assertIsArray( $recovered );
+		$this->assertTrue( $recovered['recovered'] );
+		$this->assertSame( '000742', $recovered['product_code'] );
+		$record = $GLOBALS['digitalogic_test_options'][ $this->operation_option_name( $request['request_id'] ) ];
+		$this->assertSame( 'completed', $record['status'] );
+	}
+
+	/** A terminal record proven after reconnect remains a valid successful effect. */
+	public function test_reconnect_during_terminal_operation_write_returns_proven_completion(): void {
+		$request        = $this->request( '000742', 'product-code:741:terminal-write-reconnect' );
+		$operation_name = $this->operation_option_name( $request['request_id'] );
+		$callback       = null;
+		$callback       = static function ( $database, $option_name ) use ( &$callback, $operation_name ) {
+			$record = $GLOBALS['digitalogic_test_options'][ $option_name ] ?? array();
+			if ( $operation_name === $option_name && 'completed' === (string) ( $record['status'] ?? '' ) ) {
+				$database->connection_id = 2002;
+				return;
+			}
+			$database->after_option_write = $callback;
+		};
+		$GLOBALS['wpdb']->after_option_write = $callback;
+
+		$result = $this->editor->edit( $request );
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 'applied', $result['status'] );
+		$this->assertSame( '000742', $result['product_code'] );
+		$record = $GLOBALS['digitalogic_test_options'][ $operation_name ];
+		$this->assertSame( 'completed', $record['status'] );
+		$this->assertSame( array(), $this->editor->recovery_intent_for( 741 ) );
+
+		$GLOBALS['wpdb'] = new Digitalogic_Test_WPDB();
+		$this->reset_singleton( Digitalogic_Product_Write_Lock::class );
+		$this->reset_singleton( Digitalogic_Product_Sync_Receiver::class );
+		$replay = $this->editor->edit( $request );
+		$this->assertIsArray( $replay );
+		$this->assertTrue( $replay['replayed'] );
+		$this->assertSame( '000742', $replay['current_product_code'] );
+	}
+
+	/** Reconnect during physical pointer cleanup cannot hide a terminal request. */
+	public function test_reconnect_during_terminal_pointer_clear_remains_reload_safe(): void {
+		$request       = $this->request( '000742', 'product-code:741:pointer-clear-reconnect' );
+		$recovery_name = $this->recovery_option_name( 741 );
+		$GLOBALS['wpdb']->after_option_delete = static function ( $database, $option_name ) use ( $recovery_name ) {
+			if ( $recovery_name === $option_name ) {
+				$database->connection_id = 2002;
+			}
+		};
+
+		$result = $this->editor->edit( $request );
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 'applied', $result['status'] );
+		$this->assertArrayNotHasKey( $recovery_name, $GLOBALS['digitalogic_test_options'] );
+		$this->assertSame( 'completed', $GLOBALS['digitalogic_test_options'][ $this->operation_option_name( $request['request_id'] ) ]['status'] );
+
+		$GLOBALS['wpdb'] = new Digitalogic_Test_WPDB();
+		$this->reset_singleton( Digitalogic_Product_Write_Lock::class );
+		$this->reset_singleton( Digitalogic_Product_Sync_Receiver::class );
+		$this->assertSame( array(), $this->editor->recovery_intent_for( 741 ) );
+		$replay = $this->editor->edit( $request );
+		$this->assertTrue( $replay['replayed'] );
+	}
+
 	/** A readback race triggers exact rollback and a resumable failure record. */
 	public function test_failed_readback_rolls_back_to_exact_backup(): void {
 		$interfered = false;
@@ -908,7 +1075,9 @@ final class ProductCodeEditorTest extends TestCase {
 		$this->assertSame( '000742', $recovery['product_code'] );
 		$GLOBALS['digitalogic_test_current_user_id'] = 23;
 		$private_recovery                            = $this->editor->recovery_intent_for( 741 );
-		$this->assertSame( 'digitalogic_product_code_recovery_in_progress', $private_recovery->get_error_code() );
+		$this->assertIsArray( $private_recovery );
+		$this->assertTrue( $private_recovery['takeover_required'] );
+		$this->assertSame( $request['request_id'], $private_recovery['request_id'] );
 		$other_actor = $this->editor->edit( $this->request( '000743', 'product-code:741:other-actor' ) );
 		$this->assertSame( 'digitalogic_product_code_busy', $other_actor->get_error_code() );
 		$this->assertArrayNotHasKey( 'recovery', $other_actor->get_error_data() );
@@ -1004,6 +1173,175 @@ final class ProductCodeEditorTest extends TestCase {
 		$this->assertIsArray( $result );
 		$this->assertSame( 17, $record['actor_id'] );
 		$this->assertSame( 23, $record['recovered_by'] );
+	}
+
+	/** Dry-run and exact apply clear a restored-before outcome without a code write. */
+	public function test_outcome_unknown_before_state_has_audited_no_effect_reconciliation(): void {
+		$request = $this->request( '000742', 'product-code:741:reconcile-before' );
+		$GLOBALS['digitalogic_test_options'][ $this->operation_option_name( $request['request_id'] ) ] = $this->interrupted_record( $request );
+		$GLOBALS['digitalogic_test_posts'][741]['meta'][ Digitalogic_Product_Code_Editor::META_KEY ]   = 'UNRESOLVED';
+		$unknown = $this->editor->edit( $request );
+		$this->assertSame( 'digitalogic_product_code_outcome_unknown', $unknown->get_error_code() );
+
+		$GLOBALS['digitalogic_test_posts'][741]['meta'][ Digitalogic_Product_Code_Editor::META_KEY ] = '000741';
+		$preview = $this->editor->reconcile_outcome(
+			array(
+				'product_id' => 741,
+				'request_id' => $request['request_id'],
+			)
+		);
+		$this->assertIsArray( $preview );
+		$this->assertSame( 'digitalogic.product-code-reconciliation', $preview['schema'] );
+		$this->assertSame( 'dry_run', $preview['status'] );
+		$this->assertSame( 'before', $preview['resolution'] );
+		$this->assertSame( '000741', $preview['observed_product_code'] );
+		$this->assertMatchesRegularExpression( '/\Asha256:[a-f0-9]{64}\z/', $preview['record_fingerprint'] );
+		$this->assertMatchesRegularExpression( '/\Asha256:[a-f0-9]{64}\z/', $preview['preview_digest'] );
+
+		$action_count    = count( $GLOBALS['digitalogic_test_actions']['updated_post_meta'] ?? array() );
+		$apply           = $preview;
+		$apply['apply']  = true;
+		$result          = $this->editor->reconcile_outcome( $apply );
+		$this->assertIsArray( $result );
+		$this->assertSame( 'reconciled_no_effect', $result['status'] );
+		$this->assertFalse( $result['changed'] );
+		$this->assertTrue( $result['verification']['no_code_write'] );
+		$this->assertSame( $action_count, count( $GLOBALS['digitalogic_test_actions']['updated_post_meta'] ?? array() ) );
+		$this->assertSame( '000741', get_post_meta( 741, Digitalogic_Product_Code_Editor::META_KEY, true ) );
+		$this->assertSame( array(), $this->editor->recovery_intent_for( 741 ) );
+
+		$record = $GLOBALS['digitalogic_test_options'][ $this->operation_option_name( $request['request_id'] ) ];
+		$this->assertSame( 'reconciled_no_effect', $record['status'] );
+		$this->assertSame( 17, $record['reconciliation']['reconciled_by'] );
+		$replay = $this->editor->reconcile_outcome( $apply );
+		$this->assertTrue( $replay['replayed'] );
+		$this->assertSame( '000741', $replay['current_product_code'] );
+
+		$new_request = $this->request( '000743', 'product-code:741:after-reconcile-before' );
+		$this->assertSame( 'applied', $this->editor->edit( $new_request )['status'] );
+	}
+
+	/** Exact after-state reconciliation finalizes once and never rewrites the code. */
+	public function test_outcome_unknown_after_state_reconciliation_is_idempotent(): void {
+		$request = $this->request( '000742', 'product-code:741:reconcile-after' );
+		$GLOBALS['digitalogic_test_options'][ $this->operation_option_name( $request['request_id'] ) ] = $this->interrupted_record( $request );
+		$GLOBALS['digitalogic_test_posts'][741]['meta'][ Digitalogic_Product_Code_Editor::META_KEY ]   = 'UNRESOLVED';
+		$this->assertSame( 'digitalogic_product_code_outcome_unknown', $this->editor->edit( $request )->get_error_code() );
+		$GLOBALS['digitalogic_test_posts'][741]['meta'][ Digitalogic_Product_Code_Editor::META_KEY ] = '000742';
+
+		$preview = $this->editor->reconcile_outcome(
+			array(
+				'product_id' => 741,
+				'request_id' => $request['request_id'],
+			)
+		);
+		$this->assertSame( 'after', $preview['resolution'] );
+		$this->assertSame( 'unmanaged', $preview['source_status'] );
+		$action_count    = count( $GLOBALS['digitalogic_test_actions']['updated_post_meta'] ?? array() );
+		$apply           = $preview;
+		$apply['apply']  = true;
+		$result          = $this->editor->reconcile_outcome( $apply );
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 'applied', $result['status'] );
+		$this->assertTrue( $result['recovered'] );
+		$this->assertSame( '000742', $result['product_code'] );
+		$this->assertSame( $action_count, count( $GLOBALS['digitalogic_test_actions']['updated_post_meta'] ?? array() ) );
+		$record = $GLOBALS['digitalogic_test_options'][ $this->operation_option_name( $request['request_id'] ) ];
+		$this->assertSame( 'completed', $record['status'] );
+		$this->assertSame( $result['reconciliation_evidence_fingerprint'], $record['reconciliation']['evidence_fingerprint'] );
+
+		$replay = $this->editor->reconcile_outcome( $apply );
+		$this->assertTrue( $replay['replayed'] );
+		$this->assertSame( '000742', $replay['current_product_code'] );
+		$this->assertSame( $action_count, count( $GLOBALS['digitalogic_test_actions']['updated_post_meta'] ?? array() ) );
+	}
+
+	/** Apply fails before any terminalization when a dry-run assertion is stale. */
+	public function test_outcome_reconciliation_requires_exact_preview_manifest(): void {
+		$request = $this->request( '000742', 'product-code:741:reconcile-stale' );
+		$GLOBALS['digitalogic_test_options'][ $this->operation_option_name( $request['request_id'] ) ] = $this->interrupted_record( $request );
+		$GLOBALS['digitalogic_test_posts'][741]['meta'][ Digitalogic_Product_Code_Editor::META_KEY ]   = 'UNRESOLVED';
+		$this->editor->edit( $request );
+		$GLOBALS['digitalogic_test_posts'][741]['meta'][ Digitalogic_Product_Code_Editor::META_KEY ] = '000741';
+		$preview = $this->editor->reconcile_outcome(
+			array(
+				'product_id' => 741,
+				'request_id' => $request['request_id'],
+			)
+		);
+		$preview['apply']             = true;
+		$preview['observed_revision'] = 'sha256:' . str_repeat( 'f', 64 );
+
+		$result = $this->editor->reconcile_outcome( $preview );
+
+		$this->assertSame( 'digitalogic_product_code_reconciliation_manifest_stale', $result->get_error_code() );
+		$this->assertSame( 'observed_revision', $result->get_error_data()['failed_field'] );
+		$this->assertSame( 'outcome_unknown', $GLOBALS['digitalogic_test_options'][ $this->operation_option_name( $request['request_id'] ) ]['status'] );
+		$this->assertNotSame( array(), $this->editor->recovery_intent_for( 741 ) );
+	}
+
+	/** A source revision change invalidates the dry-run even when the code is unchanged. */
+	public function test_outcome_reconciliation_binds_the_exact_source_state_revision(): void {
+		$request = $this->request( '000742', 'product-code:741:reconcile-source-revision' );
+		$GLOBALS['digitalogic_test_options'][ $this->operation_option_name( $request['request_id'] ) ] = $this->interrupted_record( $request );
+		$GLOBALS['digitalogic_test_posts'][741]['meta'][ Digitalogic_Product_Code_Editor::META_KEY ]   = 'UNRESOLVED';
+		$this->editor->edit( $request );
+		$GLOBALS['digitalogic_test_posts'][741]['meta'][ Digitalogic_Product_Code_Editor::META_KEY ] = '000741';
+		$preview = $this->editor->reconcile_outcome(
+			array(
+				'product_id' => 741,
+				'request_id' => $request['request_id'],
+			)
+		);
+
+		$source_key = array_key_first( $GLOBALS['digitalogic_test_options'][ Digitalogic_Product_Sync_Receiver::STATE_OPTION ]['sources'] );
+		$GLOBALS['digitalogic_test_options'][ Digitalogic_Product_Sync_Receiver::STATE_OPTION ]['sources'][ $source_key ]['source']['revision'] = 'sha256:' . str_repeat( 'd', 64 );
+		$preview['apply'] = true;
+		$result           = $this->editor->reconcile_outcome( $preview );
+
+		$this->assertSame( 'digitalogic_product_code_reconciliation_manifest_stale', $result->get_error_code() );
+		$this->assertSame( 'preview_digest', $result->get_error_data()['failed_field'] );
+		$this->assertSame( 'outcome_unknown', $GLOBALS['digitalogic_test_options'][ $this->operation_option_name( $request['request_id'] ) ]['status'] );
+	}
+
+	/** An after-state that has become source-owned is never terminalized as an owner edit. */
+	public function test_outcome_reconciliation_rejects_a_source_managed_after_state(): void {
+		$request = $this->request( '000742', 'product-code:741:reconcile-after-managed' );
+		$GLOBALS['digitalogic_test_options'][ $this->operation_option_name( $request['request_id'] ) ] = $this->interrupted_record( $request );
+		$GLOBALS['digitalogic_test_posts'][741]['meta'][ Digitalogic_Product_Code_Editor::META_KEY ]   = 'UNRESOLVED';
+		$this->editor->edit( $request );
+		$GLOBALS['digitalogic_test_posts'][741]['meta'][ Digitalogic_Product_Code_Editor::META_KEY ]     = '000742';
+		$GLOBALS['digitalogic_test_posts'][741]['meta']['_digitalogic_patris_record_hash']               = 'sha256:' . str_repeat( 'e', 64 );
+
+		$result = $this->editor->reconcile_outcome(
+			array(
+				'product_id' => 741,
+				'request_id' => $request['request_id'],
+			)
+		);
+
+		$this->assertSame( 'digitalogic_product_code_reconciliation_source_managed', $result->get_error_code() );
+		$this->assertMatchesRegularExpression( '/\Asha256:[a-f0-9]{64}\z/', $result->get_error_data()['source_evidence_fingerprint'] );
+		$this->assertSame( 'outcome_unknown', $GLOBALS['digitalogic_test_options'][ $this->operation_option_name( $request['request_id'] ) ]['status'] );
+	}
+
+	/** Reconciliation evidence is bound to its exact terminal audit record. */
+	public function test_reconciliation_evidence_tamper_is_not_replayable(): void {
+		$request = $this->request( '000742', 'product-code:741:reconcile-evidence-tamper' );
+		$GLOBALS['digitalogic_test_options'][ $this->operation_option_name( $request['request_id'] ) ] = $this->interrupted_record( $request );
+		$GLOBALS['digitalogic_test_posts'][741]['meta'][ Digitalogic_Product_Code_Editor::META_KEY ]   = 'UNRESOLVED';
+		$this->editor->edit( $request );
+		$GLOBALS['digitalogic_test_posts'][741]['meta'][ Digitalogic_Product_Code_Editor::META_KEY ] = '000741';
+		$preview          = $this->editor->reconcile_outcome( array( 'product_id' => 741, 'request_id' => $request['request_id'] ) );
+		$preview['apply'] = true;
+		$this->assertSame( 'reconciled_no_effect', $this->editor->reconcile_outcome( $preview )['status'] );
+
+		$name = $this->operation_option_name( $request['request_id'] );
+		$GLOBALS['digitalogic_test_options'][ $name ]['reconciliation']['source_evidence_fingerprint'] = 'sha256:' . str_repeat( 'f', 64 );
+		$result = $this->editor->reconcile_outcome( $preview );
+
+		$this->assertSame( 'digitalogic_product_code_audit_unavailable', $result->get_error_code() );
 	}
 
 	/** A tampered governance proof makes completed replay fail closed. */
@@ -1148,7 +1486,7 @@ final class ProductCodeEditorTest extends TestCase {
 		$guard_method      = new ReflectionMethod( Digitalogic_Product_Code_Editor::class, 'source_guard' );
 		$governance        = $guard_method->invoke( $this->editor, 741, $request['expected_code'], $request['product_code'], $before );
 		$projection_method = new ReflectionMethod( Digitalogic_Product_Code_Editor::class, 'projection_checkpoint' );
-		$projection        = $projection_method->invoke( $this->editor );
+		$projection        = $projection_method->invoke( $this->editor, 741 );
 		$backup_method     = new ReflectionMethod( Digitalogic_Product_Code_Editor::class, 'backup_reference' );
 		$backup_reference  = $backup_method->invoke( $this->editor, $validated, $before, $governance['proof'] );
 
