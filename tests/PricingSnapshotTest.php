@@ -267,30 +267,171 @@ final class PricingSnapshotTest extends TestCase {
 		$this->assertArrayNotHasKey( 'digitalogic_pricing_state_event_outbox_v1', $GLOBALS['digitalogic_test_options'] );
 	}
 
+	/** Cross-request invalidations retain one exact pending fallback action. */
+	public function test_state_event_retry_coalesces_same_fallback_across_requests(): void {
+		$GLOBALS['digitalogic_test_update_failures'][] = 'digitalogic_pricing_state_event_outbox_v1';
+
+		for ( $attempt = 0; $attempt < 50; ++$attempt ) {
+			$this->reset_singleton( Digitalogic_Pricing_Snapshot::class );
+			Digitalogic_Pricing_Snapshot::instance()->schedule_state_revision_event();
+		}
+
+		$scheduled = $this->scheduled_events_for( 'digitalogic_pricing_state_event_delivery_v1' );
+		$this->assertCount( 1, $scheduled );
+		$this->assertSame( array( $this->source ), $scheduled[0]['args'][0] );
+		$this->assertSame( array(), $scheduled[0]['args'][1] );
+		$this->assertArrayNotHasKey( 'digitalogic_pricing_state_event_outbox_v1', $GLOBALS['digitalogic_test_options'] );
+	}
+
+	/** Exact coalescing retains independent fallback identities. */
+	public function test_state_event_retry_coalescing_does_not_evict_distinct_fallbacks(): void {
+		$other_source       = $this->source;
+		$other_source['id'] = 'patris-backup';
+		$first_args         = array( array( $this->source ), array() );
+		$other_args         = array( array( $other_source ), array() );
+		$this->assertTrue( $this->invoke_snapshot( 'schedule_state_revision_event_retry', $first_args ) );
+		$this->assertTrue( $this->invoke_snapshot( 'schedule_state_revision_event_retry', $first_args ) );
+		$this->assertTrue( $this->invoke_snapshot( 'schedule_state_revision_event_retry', $other_args ) );
+
+		$scheduled = $this->scheduled_events_for( 'digitalogic_pricing_state_event_delivery_v1' );
+		$this->assertCount( 2, $scheduled );
+		$this->assertSame( $first_args, $scheduled[0]['args'] );
+		$this->assertSame( $other_args, $scheduled[1]['args'] );
+	}
+
+	/** A lock-contending request accepts the exact pending action created by its peer. */
+	public function test_state_event_retry_lock_contender_does_not_insert_a_duplicate(): void {
+		$args = array( array( $this->source ), array() );
+		$this->assertTrue(
+			wp_schedule_single_event(
+				time() + 2,
+				'digitalogic_pricing_state_event_delivery_v1',
+				$args,
+				true
+			)
+		);
+		$GLOBALS['digitalogic_test_update_failures'][] = 'digitalogic_pricing_state_event_outbox_v1';
+		$GLOBALS['wpdb']->acquire_results              = array( 1, 0 );
+
+		Digitalogic_Pricing_Snapshot::instance()->schedule_state_revision_event();
+
+		$this->assertCount( 1, $this->scheduled_events_for( 'digitalogic_pricing_state_event_delivery_v1' ) );
+		$this->assertContains( 'digitalogic_pricing_snapshot_admission_v1', $GLOBALS['wpdb']->lock_names );
+		$this->assertContains( 'digitalogic_pricing_state_event_schedule_v1', $GLOBALS['wpdb']->lock_names );
+		$this->assertSame( 1, $GLOBALS['wpdb']->release_count );
+	}
+
+	/** Action Scheduler uses an exact pending-only readback under a global mutex. */
+	public function test_state_event_retry_action_scheduler_path_is_cross_request_safe(): void {
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Read-only local source fixture for a production-path guard.
+		$source = file_get_contents( dirname( __DIR__ ) . '/includes/class-digitalogic-pricing-snapshot.php' );
+		$this->assertIsString( $source );
+		$this->assertStringContainsString( 'STATE_EVENT_SCHEDULE_LOCK_NAME', $source );
+		$this->assertStringContainsString( "function_exists( 'as_get_scheduled_actions' )", $source );
+		$this->assertStringContainsString( "'status'   => 'pending'", $source );
+		$this->assertStringNotContainsString( 'state_event_retry_scheduled', $source );
+	}
+
+	/** Stale fallback actions cannot replay one recorded state or evict diversity. */
+	public function test_stale_state_event_fallback_is_fenced_by_exact_recorded_identity(): void {
+		$GLOBALS['digitalogic_test_update_failures'][] = 'digitalogic_pricing_state_event_outbox_v1';
+		Digitalogic_Pricing_Snapshot::instance()->schedule_state_revision_event();
+		$scheduled        = $this->scheduled_events_for( 'digitalogic_pricing_state_event_delivery_v1' );
+		$fallback_sources = $scheduled[0]['args'][0];
+
+		$diverse = array();
+		for ( $index = 1; $index <= 199; ++$index ) {
+			$diverse[] = array(
+				'id'    => $index,
+				'event' => 'diversity_probe',
+				'name'  => 'diversity.probe.' . $index,
+				'data'  => array( 'probe' => $index ),
+				'time'  => '2026-08-24 00:00:00',
+			);
+		}
+		$GLOBALS['digitalogic_test_options']['digitalogic_panel_events']         = $diverse;
+		$GLOBALS['digitalogic_test_options']['digitalogic_panel_event_sequence'] = 199;
+		$GLOBALS['digitalogic_test_update_failures']                             = array();
+
+		Digitalogic_Pricing_Snapshot::instance()->run_state_revision_event_delivery( $fallback_sources );
+		$events = $GLOBALS['digitalogic_test_options']['digitalogic_panel_events'];
+		$this->assertCount( 200, $events );
+		$this->assertCount( 1, array_filter( $events, static fn( $event ) => 'pricing.state.changed' === (string) ( $event['name'] ?? '' ) ) );
+		$this->assertSame( 'diversity.probe.1', $events[0]['name'] );
+		$this->assertArrayHasKey( 'digitalogic_pricing_state_event_receipts_v1', $GLOBALS['digitalogic_test_options'] );
+
+		for ( $attempt = 0; $attempt < 50; ++$attempt ) {
+			delete_option( 'digitalogic_pricing_state_event_receipts_v1' );
+			$this->reset_singleton( Digitalogic_Pricing_Snapshot::class );
+			Digitalogic_Pricing_Snapshot::instance()->run_state_revision_event_delivery( $fallback_sources );
+			$this->assertArrayNotHasKey( 'digitalogic_pricing_state_event_outbox_v1', $GLOBALS['digitalogic_test_options'] );
+		}
+
+		$events = $GLOBALS['digitalogic_test_options']['digitalogic_panel_events'];
+		$this->assertCount( 200, $events );
+		$this->assertCount( 1, array_filter( $events, static fn( $event ) => 'pricing.state.changed' === (string) ( $event['name'] ?? '' ) ) );
+		$this->assertSame( 'diversity.probe.1', $events[0]['name'] );
+	}
+
+	/** A panel-delivered fallback stays durable until its exact receipt can be stored. */
+	public function test_stale_state_event_fallback_retries_receipt_without_replaying_panel_event(): void {
+		$GLOBALS['digitalogic_test_update_failures'][] = 'digitalogic_pricing_state_event_outbox_v1';
+		Digitalogic_Pricing_Snapshot::instance()->schedule_state_revision_event();
+		$scheduled                                   = $this->scheduled_events_for( 'digitalogic_pricing_state_event_delivery_v1' );
+		$fallback_sources                            = $scheduled[0]['args'][0];
+		$GLOBALS['digitalogic_test_update_failures'] = array();
+
+		Digitalogic_Pricing_Snapshot::instance()->run_state_revision_event_delivery( $fallback_sources );
+		$this->assertCount( 1, $GLOBALS['digitalogic_test_options']['digitalogic_panel_events'] );
+		$this->assertArrayHasKey( 'digitalogic_pricing_state_event_receipts_v1', $GLOBALS['digitalogic_test_options'] );
+
+		delete_option( 'digitalogic_pricing_state_event_receipts_v1' );
+		$GLOBALS['digitalogic_test_update_failures'][] = 'digitalogic_pricing_state_event_receipts_v1';
+		$this->reset_singleton( Digitalogic_Pricing_Snapshot::class );
+		Digitalogic_Pricing_Snapshot::instance()->run_state_revision_event_delivery( $fallback_sources );
+		$this->assertCount( 1, $GLOBALS['digitalogic_test_options']['digitalogic_panel_events'] );
+		$this->assertArrayHasKey( 'digitalogic_pricing_state_event_outbox_v1', $GLOBALS['digitalogic_test_options'] );
+		$this->assertArrayNotHasKey( 'digitalogic_pricing_state_event_receipts_v1', $GLOBALS['digitalogic_test_options'] );
+
+		$GLOBALS['digitalogic_test_update_failures'] = array();
+		$this->reset_singleton( Digitalogic_Pricing_Snapshot::class );
+		Digitalogic_Pricing_Snapshot::instance()->run_state_revision_event_delivery( $fallback_sources );
+		$this->assertCount( 1, $GLOBALS['digitalogic_test_options']['digitalogic_panel_events'] );
+		$this->assertArrayNotHasKey( 'digitalogic_pricing_state_event_outbox_v1', $GLOBALS['digitalogic_test_options'] );
+		$this->assertArrayHasKey( 'digitalogic_pricing_state_event_receipts_v1', $GLOBALS['digitalogic_test_options'] );
+	}
+
 	/** Store exactly one non-recurring next boundary and replace it when dates move. */
 	public function test_freshness_boundary_is_one_shot_and_rescheduled_when_effective_date_changes(): void {
-		$GLOBALS['digitalogic_test_options']['digitalogic_patris_feed_settings'] = array(
-			'stale_after_hours' => 1000,
-		);
-		$snapshot = Digitalogic_Pricing_Snapshot::instance();
+		$state = $GLOBALS['digitalogic_test_options'][ Digitalogic_Product_Sync_Receiver::STATE_OPTION ];
+		foreach ( $state['sources'] as &$source_state ) {
+			$source_state['products'] = array();
+		}
+		unset( $source_state );
+		$GLOBALS['digitalogic_test_options'][ Digitalogic_Product_Sync_Receiver::STATE_OPTION ] = $state;
+		$GLOBALS['digitalogic_test_options']['options_update_date']                             = '2099-01-15';
+		$GLOBALS['digitalogic_test_options']['update_date']                                     = '2099-01-15';
+		$initial_boundary = new DateTimeImmutable( '2099-01-15 00:00:00', wp_timezone() );
+		$moved_boundary   = new DateTimeImmutable( '2099-01-16 00:00:00', wp_timezone() );
+		$snapshot         = Digitalogic_Pricing_Snapshot::instance();
 
 		$this->assertTrue( $snapshot->install_freshness_boundary_schedule() );
 		$initial = $this->scheduled_events_for( 'digitalogic_pricing_freshness_boundary_v1' );
 		$this->assertCount( 1, $initial );
 		$this->assertSame( '', $initial[0]['recurrence'] );
 		$this->assertCount( 2, $initial[0]['args'] );
-		$this->assertGreaterThan( time(), $initial[0]['timestamp'] );
+		$this->assertSame( $initial_boundary->getTimestamp(), $initial[0]['timestamp'] );
 
 		$this->assertTrue( $snapshot->install_freshness_boundary_schedule() );
 		$this->assertCount( 1, $this->scheduled_events_for( 'digitalogic_pricing_freshness_boundary_v1' ) );
 
-		$tomorrow = gmdate( 'ymd', strtotime( '+1 day' ) );
-		$this->assertTrue( update_option( 'options_update_date', $tomorrow, false ) );
-		$this->assertTrue( update_option( 'update_date', $tomorrow, false ) );
+		$this->assertTrue( update_option( 'options_update_date', '2099-01-16', false ) );
+		$this->assertTrue( update_option( 'update_date', '2099-01-16', false ) );
 		$rescheduled = $this->scheduled_events_for( 'digitalogic_pricing_freshness_boundary_v1' );
 		$this->assertCount( 1, $rescheduled );
 		$this->assertSame( '', $rescheduled[0]['recurrence'] );
-		$this->assertLessThan( $initial[0]['timestamp'], $rescheduled[0]['timestamp'] );
+		$this->assertSame( $moved_boundary->getTimestamp(), $rescheduled[0]['timestamp'] );
+		$this->assertGreaterThan( $initial[0]['timestamp'], $rescheduled[0]['timestamp'] );
 
 		$snapshot->deactivate_freshness_boundary_schedule();
 		$this->assertCount( 0, $this->scheduled_events_for( 'digitalogic_pricing_freshness_boundary_v1' ) );
