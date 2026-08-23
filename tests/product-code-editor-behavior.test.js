@@ -395,17 +395,22 @@ test('historical replay exposes only its exact current readback to the row', asy
 	);
 });
 
-test('legacy AJAX commands are not given a new client abort contract', () => {
+test('legacy AJAX commands retain the integration baseline hard deadline', async () => {
     const harness = loadPanel(() => new Promise(() => {}));
-    harness.appOptions.methods.run.call(
+    const pending = harness.appOptions.methods.run.call(
         {transport: ''},
         'digitalogic_export_products',
         {},
         {ajaxOnly: true, silentError: true}
     );
 
-    assert.equal(harness.pendingTimerCount(), 0);
-    assert.equal(harness.wasAborted(), false);
+    assert.equal(harness.pendingTimerCount(), 1);
+    harness.fireNextTimer();
+    await assert.rejects(
+        pending,
+        (error) => error.code === 'digitalogic_transport_outcome_unknown' && error.outcome_unknown === true
+    );
+    assert.equal(harness.wasAborted(), true);
 });
 
 test('panel preserves one idempotency key after timeout and rotates it after 412 state refresh', async () => {

@@ -96,9 +96,9 @@ final class ProductCodeEditorTest extends TestCase {
 		$this->assertSame( '000741', $result['previous_product_code'] );
 		$this->assertSame( '000742', $result['product_code'] );
 		$this->assertSame( '000742', $GLOBALS['digitalogic_test_posts'][741]['meta']['_digitalogic_patris_product_code'] );
-		$this->assertSame( array( 0, 0, 0, 1 ), $GLOBALS['wpdb']->lock_timeouts );
-		$this->assertSame( 4, $GLOBALS['wpdb']->acquire_count );
-		$this->assertSame( 4, $GLOBALS['wpdb']->release_count );
+		$this->assertSame( array( 0, 0, 0, 1, 1 ), $GLOBALS['wpdb']->lock_timeouts );
+		$this->assertSame( 5, $GLOBALS['wpdb']->acquire_count );
+		$this->assertSame( 5, $GLOBALS['wpdb']->release_count );
 		$this->assertSame(
 			Digitalogic_Product_Sync_Receiver::source_identity_lock_name( 'wp_' ),
 			$GLOBALS['wpdb']->lock_names[0]
@@ -134,7 +134,7 @@ final class ProductCodeEditorTest extends TestCase {
 		$this->assertSame( $first['product_code'], $replay['product_code'] );
 		$this->assertTrue( $replay['replayed'] );
 		$this->assertSame( $actions, count( $GLOBALS['digitalogic_test_actions']['updated_post_meta'] ?? array() ) );
-		$this->assertSame( 6, $GLOBALS['wpdb']->acquire_count, 'Replay adds only the shared source and short operation locks.' );
+		$this->assertSame( 7, $GLOBALS['wpdb']->acquire_count, 'Replay adds only the shared source and short operation locks.' );
 	}
 
 	/** Historical replay returns a separate DB-fresh current row projection. */

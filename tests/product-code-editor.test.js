@@ -56,7 +56,9 @@ test('Product Code requests have bounded transports and never auto-replay across
 	const admin = source('assets/js/admin.js');
 
 	assert.match(panel, /typeof window\.AbortController === 'function'/);
-	assert.match(panel, /Promise\.race\(\[fetchRequest, timeoutRequest\]\)/);
+	assert.match(panel, /requestOptions\.transportDeadline\s*!==\s*false/);
+	assert.match(panel, /requestOptions\.controller/);
+	assert.match(panel, /contract\.withDeadline/);
 	assert.match(panel, /controller\.abort\(\)/);
 	assert.match(panel, /digitalogic_request_timeout/);
 	assert.match(panel, /saveProductCode:[\s\S]*?ajaxOnly:\s*true,[\s\S]*?bounded:\s*true,[\s\S]*?transportDeadline:\s*false/);

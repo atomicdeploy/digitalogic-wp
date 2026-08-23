@@ -182,8 +182,9 @@
             };
         }
 
-        function request(command, data) {
+        function request(command, data, requestOptions) {
             data = data || {};
+            requestOptions = requestOptions || {};
             if (ready && socket && socket.readyState === window.WebSocket.OPEN) {
                 return new Promise(function(resolve, reject) {
                     var id = 'panel_' + (++requestId);
@@ -199,31 +200,57 @@
                     };
 
                     socket.send(JSON.stringify({id: id, command: command, data: data}));
-                }).catch(function() {
-                    return ajax(command, data);
+                }).catch(function(error) {
+                    if (requestOptions.noAutoReplay) throw error;
+                    return ajax(command, data, requestOptions);
                 });
             }
 
-            return ajax(command, data);
+            return ajax(command, data, requestOptions);
         }
 
-        function ajax(command, data) {
+        function ajax(command, data, requestOptions) {
+            requestOptions = requestOptions || {};
             var body = new URLSearchParams();
-            var controller = typeof window.AbortController === 'function' ? new window.AbortController() : null;
-            var timeoutMs = Math.max(1000, Number(config.ajax_request_timeout || 12000));
             body.set('action', 'digitalogic_panel_command');
             body.set('nonce', config.nonce || '');
             body.set('command', command);
             body.set('data', JSON.stringify(data || {}));
-
+            var controller = requestOptions.controller || (
+                typeof window.AbortController === 'function' ? new window.AbortController() : null
+            );
+            var useTransportDeadline = requestOptions.transportDeadline !== false;
+            var timeoutMs = Math.max(1000, Number(requestOptions.timeout || config.ajax_request_timeout || 12000));
+            var timedOut = false;
             return new Promise(function(resolve, reject) {
                 var settled = false;
-                var timeout = window.setTimeout(function() {
+                var timeout = useTransportDeadline
+                    ? window.setTimeout(function() {
+                        if (settled) return;
+                        timedOut = true;
+                        settled = true;
+                        if (controller) controller.abort();
+                        if (command === 'digitalogic_update_product_code' && requestOptions.bounded) {
+                            reject(commandError(
+                                {code: 'digitalogic_request_timeout', data: {retryable: true}},
+                                'The Product Code request timed out. Retry the unchanged request.',
+                                0
+                            ));
+                            return;
+                        }
+                        reject(transportError(
+                            {code: 'digitalogic_panel_request_timeout'},
+                            'مهلت پاسخ پنل تمام شد؛ صفحه آزاد است و می‌توانید وضعیت را دوباره بررسی کنید.'
+                        ));
+                    }, timeoutMs)
+                    : null;
+
+                function finish(callback, value) {
                     if (settled) return;
                     settled = true;
-                    if (controller) controller.abort();
-                    reject(transportError({code: 'digitalogic_panel_request_timeout'}, 'مهلت پاسخ پنل تمام شد؛ صفحه آزاد است و می‌توانید وضعیت را دوباره بررسی کنید.'));
-                }, timeoutMs);
+                    if (timeout !== null) window.clearTimeout(timeout);
+                    callback(value);
+                }
                 var options = {
                     method: 'POST',
                     credentials: 'same-origin',
@@ -238,25 +265,38 @@
                         try {
                             json = JSON.parse(text);
                         } catch (error) {
+                            if (command === 'digitalogic_update_product_code') {
+                                throw commandError(
+                                    {code: 'digitalogic_response_ambiguous', data: {retryable: true}},
+                                    'The Product Code response could not be verified. Retry the unchanged request.',
+                                    0
+                                );
+                            }
                             throw transportError({code: 'digitalogic_panel_response_invalid'}, 'پاسخ پنل قابل خواندن نبود؛ دوباره تلاش کنید.');
                         }
                         if (!response.ok || !json || !json.success) {
+                            if (command === 'digitalogic_update_product_code' && json && json.data && typeof json.data === 'object') {
+                                throw commandError(json.data, json.data.message || 'AJAX failed', response.status);
+                            }
                             throw transportError(json && json.data, 'AJAX failed');
                         }
                         return json.data;
                     });
                 }).then(function(value) {
-                    if (settled) return;
-                    settled = true;
-                    window.clearTimeout(timeout);
-                    resolve(value);
+                    finish(resolve, value);
                 }).catch(function(error) {
-                    if (settled) return;
-                    settled = true;
-                    window.clearTimeout(timeout);
-                    reject(error && error.name === 'AbortError'
-                        ? transportError({code: 'digitalogic_panel_request_timeout'}, 'مهلت پاسخ پنل تمام شد؛ صفحه آزاد است.')
-                        : error);
+                    if (settled || timedOut) return;
+                    if (error && error.name === 'AbortError') {
+                        finish(reject, command === 'digitalogic_update_product_code' && requestOptions.bounded
+                            ? commandError(
+                                {code: 'digitalogic_request_timeout', data: {retryable: true}},
+                                'The Product Code request timed out. Retry the unchanged request.',
+                                0
+                            )
+                            : transportError({code: 'digitalogic_panel_request_timeout'}, 'مهلت پاسخ پنل تمام شد؛ صفحه آزاد است.'));
+                        return;
+                    }
+                    finish(reject, error);
                 });
             });
         }
@@ -973,7 +1013,9 @@
                 var ajaxOnly = !!(options && options.ajaxOnly);
                 var silentError = !!(options && options.silentError);
                 this.transport = ajaxOnly ? 'ajax' : (transport.isReady() ? 'websocket' : 'ajax');
-                var request = ajaxOnly ? transport.requestAjax(command, data || {}) : transport.request(command, data || {});
+                var request = ajaxOnly
+                    ? transport.requestAjax(command, data || {}, options || {})
+                    : transport.request(command, data || {}, options || {});
                 return request.catch(function(error) {
                     if (!silentError) {
                         reportPanelError('Command failed: ' + command, error, {transport: ajaxOnly ? 'ajax' : 'automatic'});
