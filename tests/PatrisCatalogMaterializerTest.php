@@ -885,7 +885,6 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 		$product_id = (int) array_key_first( $GLOBALS['digitalogic_test_posts'] );
 		$this->attachReviewedImage( $product_id );
 		$before = $GLOBALS['digitalogic_test_posts'][ $product_id ];
-
 		$state                                    = get_option( Digitalogic_Product_Sync_Receiver::STATE_OPTION, array() );
 		$source_key                               = array_key_first( $state['sources'] );
 		$record                                   = &$state['sources'][ $source_key ]['products']['101001001'];
@@ -939,6 +938,24 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 		$this->assertSame( 1, $result['failed'] );
 		$this->assertEquals( $before, $GLOBALS['digitalogic_test_posts'][ $product_id ] );
 		$this->assertSame( 'air_express', get_post_meta( $product_id, Digitalogic_Shipping_Method_Service::PRODUCT_METHOD_META, true ) );
+	}
+
+	/** A late Woo save cannot clobber an earlier identity field and still report success. */
+	public function test_final_readback_rolls_back_late_identity_clobber(): void {
+		$this->assertLateMaterializerClobberRollsBack(
+			'rank_math_title',
+			'Late clobbered SEO title',
+			'digitalogic_patris_materializer_projection_readback_failed'
+		);
+	}
+
+	/** A late Woo save cannot clobber an earlier feed field and still report success. */
+	public function test_final_readback_rolls_back_late_feed_clobber(): void {
+		$this->assertLateMaterializerClobberRollsBack(
+			'_digitalogic_patris_name',
+			'Late clobbered source title',
+			'digitalogic_patris_product_projection_readback_failed'
+		);
 	}
 
 	public function test_apply_aborts_and_releases_its_lock_if_the_source_changes_while_starting(): void {
@@ -1354,6 +1371,51 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 	private function receiveFixture(): void {
 		$result = Digitalogic_Product_Sync_Receiver::instance()->receive_json( self::$fixture_json );
 		$this->assertNotInstanceOf( WP_Error::class, $result );
+	}
+
+	/**
+	 * Assert that a mutation injected after the last row save is detected and rolled back.
+	 *
+	 * @param string $meta_key Meta key to overwrite.
+	 * @param string $meta_value Replacement value.
+	 * @param string $error_code Expected failure code.
+	 */
+	private function assertLateMaterializerClobberRollsBack( string $meta_key, string $meta_value, string $error_code ): void {
+		$this->receiveFixture();
+		$service = Digitalogic_Patris_Catalog_Materializer::instance();
+		$first   = $service->run( $this->manifest(), array( 'apply' => true ) );
+		$this->assertSame( 1, $first['created'] );
+		$product_id = (int) array_key_first( $GLOBALS['digitalogic_test_posts'] );
+		$this->attachReviewedImage( $product_id );
+		$before = $GLOBALS['digitalogic_test_posts'][ $product_id ];
+		$state  = get_option( Digitalogic_Product_Sync_Receiver::STATE_OPTION, array() );
+		$source = array_key_first( $state['sources'] );
+		$state['sources'][ $source ]['products']['101001001']['shipping_method_id']             = 'air_express';
+		$state['sources'][ $source ]['products']['101001001']['shipping_price_per_kg']          = '34800000';
+		$state['sources'][ $source ]['products']['101001001']['shipping_price_per_kg_currency'] = 'IRR';
+		update_option( Digitalogic_Product_Sync_Receiver::STATE_OPTION, $state, false );
+
+		$late_save                                 = null;
+		$late_save                                 = static function ( $saved_product ) use ( &$late_save, $product_id, $meta_key, $meta_value ) {
+			if ( (int) $saved_product->get_id() !== $product_id || 'publish' !== (string) $saved_product->get_status() ) {
+				$GLOBALS['digitalogic_test_wc_after_save'] = $late_save;
+				return;
+			}
+			$GLOBALS['digitalogic_test_posts'][ $product_id ]['meta'][ $meta_key ] = $meta_value;
+		};
+		$GLOBALS['digitalogic_test_wc_after_save'] = $late_save;
+
+		$result = $service->run(
+			$this->manifest(),
+			array(
+				'apply'         => true,
+				'publish_ready' => true,
+			)
+		);
+
+		$this->assertSame( 1, $result['failed'] );
+		$this->assertContains( $error_code, array_column( $result['details'], 'reason' ) );
+		$this->assertEquals( $before, $GLOBALS['digitalogic_test_posts'][ $product_id ] );
 	}
 
 	private function manifest(): array {

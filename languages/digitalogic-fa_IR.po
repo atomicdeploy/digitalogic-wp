@@ -2879,3 +2879,11 @@ msgstr "اجازه تطبیق عملیات کد کالا را ندارید."
 #: includes/class-digitalogic-product-code-editor.php
 msgid "You are not allowed to reconcile this product or variation."
 msgstr "اجازه تطبیق این کالا یا تنوع را ندارید."
+
+#: includes/class-digitalogic-product-code-editor.php
+msgid "The Product Code admin read batch exceeded its bounded size."
+msgstr "اندازه دسته خواندن کد کالا در مدیریت از حد مجاز بیشتر است."
+
+#: includes/class-digitalogic-product-code-editor.php
+msgid "The Product Code row was not prepared for this exact admin response. Reload the page."
+msgstr "ردیف کد کالا برای این پاسخ دقیق مدیریت آماده نشده است؛ صفحه را دوباره بارگذاری کنید."

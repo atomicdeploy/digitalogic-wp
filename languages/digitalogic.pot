@@ -2920,3 +2920,11 @@ msgstr ""
 #: includes/class-digitalogic-product-code-editor.php
 msgid "You are not allowed to reconcile this product or variation."
 msgstr ""
+
+#: includes/class-digitalogic-product-code-editor.php
+msgid "The Product Code admin read batch exceeded its bounded size."
+msgstr ""
+
+#: includes/class-digitalogic-product-code-editor.php
+msgid "The Product Code row was not prepared for this exact admin response. Reload the page."
+msgstr ""

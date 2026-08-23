@@ -1485,6 +1485,10 @@ class Digitalogic_Test_WPDB {
     public $metadata_lookup_query_count = 0;
     public $metadata_lookup_query_failure = false;
 	public $exact_meta_query_failure = false;
+	public $product_code_meta_key_binary_collation = false;
+	public $product_code_meta_value_case_insensitive_collation = false;
+	public $product_code_readback_batch_query_count = 0;
+	public $product_code_options_batch_query_count = 0;
     public $price_range_query_count = 0;
     // phpcs:enable
     public $last_error = '';
@@ -1679,6 +1683,21 @@ class Digitalogic_Test_WPDB {
 			}
 			return $rows;
 		}
+		if ( false !== strpos( $query, 'digitalogic_product_code_options_batch' ) ) {
+			++$this->product_code_options_batch_query_count;
+			$rows = array();
+			foreach ( $args as $option_name ) {
+				$option_name = (string) $option_name;
+				if ( array_key_exists( $option_name, $GLOBALS['digitalogic_test_options'] ) ) {
+					$rows[] = array(
+						'option_name'  => $option_name,
+						'option_value' => $this->database_raw_value( $GLOBALS['digitalogic_test_options'][ $option_name ] ),
+					);
+				}
+			}
+
+			return $rows;
+		}
 		if ( false !== strpos( $query, 'digitalogic_exact_product_meta_rows' ) ) {
 			if ( $this->exact_meta_query_failure ) {
 				$this->last_error = 'Injected exact product metadata query failure.';
@@ -1706,54 +1725,58 @@ class Digitalogic_Test_WPDB {
 			return $rows;
 		}
 		if ( false !== strpos( $query, 'digitalogic_product_code_readback' ) ) {
-			$product_id = isset( $args[5] ) ? (int) $args[5] : 0;
-			$post       = $GLOBALS['digitalogic_test_posts'][ $product_id ] ?? null;
-			if ( ! is_array( $post ) || ! in_array( $post['post_type'] ?? '', array( 'product', 'product_variation' ), true ) ) {
-				return array();
-			}
-			$status = (string) ( $post['post_status'] ?? 'publish' );
-			if ( 'auto-draft' === $status ) {
-				return array();
-			}
-
+			++$this->product_code_readback_batch_query_count;
 			$rows = array();
-			// phpcs:disable WordPress.DB.SlowDBQuery -- Test fixture mirrors the service's exact metadata query.
-			$readback_keys = array_unique( array_merge( array_keys( (array) ( $post['meta_rows'] ?? array() ) ), array_keys( (array) ( $post['meta'] ?? array() ) ) ) );
-			foreach ( $readback_keys as $meta_key ) {
-				if (
-					0 !== strcasecmp( (string) $meta_key, '_digitalogic_patris_product_code' )
-					&& 0 !== strcasecmp( (string) $meta_key, '_digitalogic_patris_record_hash' )
-					&& 0 !== strcasecmp( (string) $meta_key, '_digitalogic_patris_owner_source_id' )
-					&& 0 !== strcasecmp( (string) $meta_key, '_digitalogic_patris_owner_dataset' )
-					&& 0 !== strcasecmp( (string) $meta_key, '_digitalogic_patris_owner_product_code' )
-				) {
+			foreach ( array_slice( $args, 5 ) as $raw_product_id ) {
+				$product_id = (int) $raw_product_id;
+				$post       = $GLOBALS['digitalogic_test_posts'][ $product_id ] ?? null;
+				if ( ! is_array( $post ) || ! in_array( $post['post_type'] ?? '', array( 'product', 'product_variation' ), true ) ) {
 					continue;
 				}
-				$values = isset( $post['meta_rows'][ $meta_key ] ) && is_array( $post['meta_rows'][ $meta_key ] )
-					? array_values( $post['meta_rows'][ $meta_key ] )
-					: array( $post['meta'][ $meta_key ] );
-				foreach ( $values as $index => $value ) {
-					$rows[] = array(
+				$status = (string) ( $post['post_status'] ?? 'publish' );
+				if ( 'auto-draft' === $status ) {
+					continue;
+				}
+				$product_rows = array();
+				// phpcs:disable WordPress.DB.SlowDBQuery -- Test fixture mirrors the service's exact metadata query.
+				$readback_keys = array_unique( array_merge( array_keys( (array) ( $post['meta_rows'] ?? array() ) ), array_keys( (array) ( $post['meta'] ?? array() ) ) ) );
+				foreach ( $readback_keys as $meta_key ) {
+					if (
+						0 !== strcasecmp( (string) $meta_key, '_digitalogic_patris_product_code' )
+						&& 0 !== strcasecmp( (string) $meta_key, '_digitalogic_patris_record_hash' )
+						&& 0 !== strcasecmp( (string) $meta_key, '_digitalogic_patris_owner_source_id' )
+						&& 0 !== strcasecmp( (string) $meta_key, '_digitalogic_patris_owner_dataset' )
+						&& 0 !== strcasecmp( (string) $meta_key, '_digitalogic_patris_owner_product_code' )
+					) {
+						continue;
+					}
+					$values = isset( $post['meta_rows'][ $meta_key ] ) && is_array( $post['meta_rows'][ $meta_key ] )
+						? array_values( $post['meta_rows'][ $meta_key ] )
+						: array( $post['meta'][ $meta_key ] );
+					foreach ( $values as $index => $value ) {
+						$product_rows[] = array(
+							'ID'          => $product_id,
+							'post_type'   => $post['post_type'],
+							'post_status' => $status,
+							'meta_id'     => $index + 1,
+							'meta_key'    => $meta_key,
+							'meta_value'  => (string) $value,
+						);
+					}
+				}
+				if ( empty( $product_rows ) ) {
+					$product_rows[] = array(
 						'ID'          => $product_id,
 						'post_type'   => $post['post_type'],
 						'post_status' => $status,
-						'meta_id'     => $index + 1,
-						'meta_key'    => $meta_key,
-						'meta_value'  => (string) $value,
+						'meta_id'     => null,
+						'meta_key'    => null,
+						'meta_value'  => null,
 					);
 				}
+				$rows = array_merge( $rows, $product_rows );
+				// phpcs:enable WordPress.DB.SlowDBQuery
 			}
-			if ( empty( $rows ) ) {
-				$rows[] = array(
-					'ID'          => $product_id,
-					'post_type'   => $post['post_type'],
-					'post_status' => $status,
-					'meta_id'     => null,
-					'meta_key'    => null,
-					'meta_value'  => null,
-				);
-			}
-			// phpcs:enable WordPress.DB.SlowDBQuery
 
 			return $rows;
 		}
@@ -1761,6 +1784,8 @@ class Digitalogic_Test_WPDB {
 			$product_code = isset( $args[1] ) ? (string) $args[1] : '';
 			$excluded_id  = isset( $args[2] ) ? (int) $args[2] : 0;
 			$rows         = array();
+			$explicit_fold = false !== strpos( $query, 'LOWER(CONVERT(pm.meta_key USING utf8mb4))' );
+			$binary_value  = false !== strpos( $query, 'BINARY pm.meta_value = BINARY' );
 			// phpcs:disable WordPress.DB.SlowDBQuery -- Test fixture mirrors the service's exact metadata query.
 			foreach ( $GLOBALS['digitalogic_test_posts'] as $post_id => $post ) {
 				if ( (int) $post_id === $excluded_id || ! in_array( $post['post_type'] ?? '', array( 'product', 'product_variation' ), true ) ) {
@@ -1770,12 +1795,36 @@ class Digitalogic_Test_WPDB {
 				if ( 'auto-draft' === $status ) {
 					continue;
 				}
-				$values = isset( $post['meta_rows']['_digitalogic_patris_product_code'] )
-					? array_values( (array) $post['meta_rows']['_digitalogic_patris_product_code'] )
-					: ( array_key_exists( '_digitalogic_patris_product_code', $post['meta'] ?? array() )
-						? array( $post['meta']['_digitalogic_patris_product_code'] )
-						: array() );
-				if ( in_array( $product_code, array_map( 'strval', $values ), true ) ) {
+				$values    = array();
+				$meta_keys = array_unique(
+					array_merge(
+						array_keys( (array) ( $post['meta'] ?? array() ) ),
+						array_keys( (array) ( $post['meta_rows'] ?? array() ) )
+					)
+				);
+				foreach ( $meta_keys as $meta_key ) {
+					$key_matches = $explicit_fold || ! $this->product_code_meta_key_binary_collation
+						? 0 === strcasecmp( (string) $meta_key, '_digitalogic_patris_product_code' )
+						: '_digitalogic_patris_product_code' === (string) $meta_key;
+					if ( ! $key_matches ) {
+						continue;
+					}
+					$key_values = isset( $post['meta_rows'][ $meta_key ] )
+						? array_values( (array) $post['meta_rows'][ $meta_key ] )
+						: ( array_key_exists( $meta_key, $post['meta'] ?? array() ) ? array( $post['meta'][ $meta_key ] ) : array() );
+					$values     = array_merge( $values, $key_values );
+				}
+				$value_matches = in_array( $product_code, array_map( 'strval', $values ), true );
+				if ( $this->product_code_meta_value_case_insensitive_collation && ! $binary_value ) {
+					$value_matches = false;
+					foreach ( array_map( 'strval', $values ) as $value ) {
+						if ( 0 === strcasecmp( $product_code, $value ) ) {
+							$value_matches = true;
+							break;
+						}
+					}
+				}
+				if ( $value_matches ) {
 					$rows[] = array(
 						'ID'        => (string) $post_id,
 						'post_type' => $post['post_type'],

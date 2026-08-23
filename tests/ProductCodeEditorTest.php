@@ -374,6 +374,24 @@ final class ProductCodeEditorTest extends TestCase {
 		$this->assertSame( '000741', $GLOBALS['digitalogic_test_posts'][741]['meta']['_digitalogic_patris_product_code'] );
 	}
 
+	/** Uniqueness includes canonical-equivalent meta keys even on a binary-collated table. */
+	public function test_duplicate_case_variant_key_is_rejected_independent_of_database_collation(): void {
+		$GLOBALS['wpdb']->product_code_meta_key_binary_collation = true;
+
+		$GLOBALS['digitalogic_test_posts'][842] = array(
+			'post_type'   => 'product_variation',
+			'post_status' => 'trash',
+			'meta'        => array( '_DIGITALOGIC_PATRIS_PRODUCT_CODE' => '000842' ),
+		);
+
+		$result = $this->editor->edit( $this->request( '000842', 'product-code:741:binary-collation-duplicate' ) );
+
+		$this->assertInstanceOf( WP_Error::class, $result );
+		$this->assertSame( 'digitalogic_product_code_not_unique', $result->get_error_code() );
+		$this->assertSame( array( '842' ), $result->get_error_data()['woocommerce_ids'] );
+		$this->assertSame( '000741', $GLOBALS['digitalogic_test_posts'][741]['meta']['_digitalogic_patris_product_code'] );
+	}
+
 	/** A supported source writer cannot interleave after the editor uniqueness check. */
 	public function test_concurrent_feed_writer_fails_fast_while_editor_holds_shared_identity_lock(): void {
 		$GLOBALS['digitalogic_test_posts'][842] = array(
@@ -586,8 +604,7 @@ final class ProductCodeEditorTest extends TestCase {
 		$this->assertSame( 1, $import['updated'] );
 		$this->assertSame( 1, $import['missing_in_woocommerce'] );
 		$this->assertArrayNotHasKey( '_digitalogic_patris_record_hash', $GLOBALS['digitalogic_test_posts'][741]['meta'] );
-		$this->editor->reset_editability_cache();
-		$editability = $this->editor->editability_for( 741, '000741' );
+		$editability = $this->admin_editability( 741, '000741' );
 		$this->assertFalse( $editability['editable'] );
 		$this->assertSame( 'source_managed', $editability['reason'] );
 
@@ -632,10 +649,253 @@ final class ProductCodeEditorTest extends TestCase {
 			),
 		);
 
-		$editability = $this->editor->editability_for( 741, '000741' );
+		$editability = $this->admin_editability( 741, '000741' );
 
 		$this->assertFalse( $editability['editable'] );
 		$this->assertSame( 'source_managed', $editability['reason'] );
+	}
+
+	/** Admin lookup cost is constant for one or one hundred prepared rows. */
+	public function test_admin_read_batch_has_constant_query_count_and_o1_row_lookups(): void {
+		for ( $product_id = 742; $product_id <= 840; ++$product_id ) {
+			$GLOBALS['digitalogic_test_posts'][ $product_id ] = array(
+				'post_type'   => 0 === $product_id % 2 ? 'product' : 'product_variation',
+				'post_status' => 'publish',
+				'meta'        => array( Digitalogic_Product_Code_Editor::META_KEY => 'BATCH-' . $product_id ),
+			);
+		}
+		$ids = range( 741, 840 );
+
+		$this->editor->reset_editability_cache();
+		$this->assertTrue( $this->editor->prepare_admin_read_batch( array( 741 ) ) );
+		$this->assertTrue( $this->editor->editability_for( 741, '000741' )['editable'] );
+		$this->assertSame( array(), $this->editor->recovery_intent_for( 741 ) );
+		$one_readback_queries = $GLOBALS['wpdb']->product_code_readback_batch_query_count;
+		$one_option_queries   = $GLOBALS['wpdb']->product_code_options_batch_query_count;
+
+		$this->editor->reset_editability_cache();
+		$before_readbacks = $GLOBALS['wpdb']->product_code_readback_batch_query_count;
+		$before_options   = $GLOBALS['wpdb']->product_code_options_batch_query_count;
+		$this->assertTrue( $this->editor->prepare_admin_read_batch( $ids ) );
+		foreach ( $ids as $product_id ) {
+			$cached_code = 741 === $product_id ? '000741' : 'BATCH-' . $product_id;
+			$this->assertTrue( $this->editor->editability_for( $product_id, $cached_code )['editable'] );
+			$this->assertSame( array(), $this->editor->recovery_intent_for( $product_id ) );
+		}
+		$this->assertSame( $one_readback_queries, $GLOBALS['wpdb']->product_code_readback_batch_query_count - $before_readbacks );
+		$this->assertSame( $one_option_queries, $GLOBALS['wpdb']->product_code_options_batch_query_count - $before_options );
+		$builds = new ReflectionProperty( Digitalogic_Product_Code_Editor::class, 'editability_source_index_builds' );
+		$this->assertSame( 1, $builds->getValue( $this->editor ) );
+	}
+
+	/** UI source hints are never trusted by the locked mutation path. */
+	public function test_mutation_rereads_source_governance_after_a_stale_admin_batch(): void {
+		$this->editor->reset_editability_cache();
+		$this->assertTrue( $this->editor->prepare_admin_read_batch( array( 741 ) ) );
+		$this->assertTrue( $this->editor->editability_for( 741, '000741' )['editable'] );
+		$source_key = array_key_first( $GLOBALS['digitalogic_test_options'][ Digitalogic_Product_Sync_Receiver::STATE_OPTION ]['sources'] );
+		$GLOBALS['digitalogic_test_options'][ Digitalogic_Product_Sync_Receiver::STATE_OPTION ]['sources'][ $source_key ]['products']['000742'] = array(
+			'product_code' => '000742',
+			'record_hash'  => 'sha256:' . str_repeat( 'f', 64 ),
+		);
+
+		$result = $this->editor->edit( $this->request( '000742', 'product-code:741:stale-admin-index' ) );
+
+		$this->assertSame( 'digitalogic_product_code_source_managed', $result->get_error_code() );
+		$this->assertContains( 'desired_code_in_source', $result->get_error_data()['reasons'] );
+		$this->assertSame( '000741', get_post_meta( 741, Digitalogic_Product_Code_Editor::META_KEY, true ) );
+	}
+
+	/** Unprepared or actor-mismatched admin reads fail closed without fallback queries. */
+	public function test_admin_read_requires_the_exact_prepared_actor_and_product_set(): void {
+		$unprepared = $this->editor->editability_for( 741, '000741' );
+		$this->assertFalse( $unprepared['editable'] );
+		$this->assertSame( 'state_unavailable', $unprepared['reason'] );
+		$this->assertSame( 0, $GLOBALS['wpdb']->product_code_readback_batch_query_count );
+
+		$this->assertTrue( $this->editor->prepare_admin_read_batch( array( 741 ) ) );
+		$GLOBALS['digitalogic_test_current_user_id'] = 23;
+
+		$mismatched = $this->editor->recovery_intent_for( 741 );
+		$this->assertSame( 'digitalogic_product_code_admin_read_unprepared', $mismatched->get_error_code() );
+	}
+
+	/** A source outage keeps editability closed without hiding a durable retry key. */
+	public function test_source_state_failure_does_not_hide_a_valid_recovery_handoff(): void {
+		$request = $this->request( '000742', 'product-code:741:source-outage-recovery' );
+		add_action(
+			'updated_post_meta',
+			static function ( $meta_id, $product_id, $meta_key ) {
+				unset( $meta_id );
+				if ( 741 === (int) $product_id && Digitalogic_Product_Code_Editor::META_KEY === $meta_key ) {
+					throw new RuntimeException( 'Injected ambiguous result.' );
+				}
+			},
+			10,
+			3
+		);
+		$this->assertSame( 'digitalogic_product_code_retry_required', $this->editor->edit( $request )->get_error_code() );
+		$GLOBALS['digitalogic_test_options'][ Digitalogic_Product_Sync_Receiver::STATE_OPTION ] = array( 'sources' => 'unavailable' );
+
+		$this->editor->reset_editability_cache();
+		$prepared    = $this->editor->prepare_admin_read_batch( array( 741 ) );
+		$editability = $this->editor->editability_for( 741, '000742' );
+		$recovery    = $this->editor->recovery_intent_for( 741 );
+
+		$this->assertInstanceOf( WP_Error::class, $prepared );
+		$this->assertFalse( $editability['editable'] );
+		$this->assertSame( 'state_unavailable', $editability['reason'] );
+		$this->assertIsArray( $recovery );
+		$this->assertSame( $request['request_id'], $recovery['request_id'] );
+		$this->assertSame( '000742', $recovery['product_code'] );
+	}
+
+	/** A valid pointer stored under another product is rejected before hydration. */
+	public function test_recovery_batch_rejects_a_cross_product_pointer(): void {
+		$request   = $this->request( '000742', 'product-code:741:cross-product-pointer' );
+		$validate  = new ReflectionMethod( Digitalogic_Product_Code_Editor::class, 'validate_request' );
+		$validated = $validate->invoke( $this->editor, $request );
+		$pointer   = array(
+			'schema'              => Digitalogic_Product_Code_Editor::SCHEMA,
+			'kind'                => 'recovery-index',
+			'status'              => 'in_progress',
+			'actor_id'            => 17,
+			'product_id'          => 741,
+			'expected_code'       => $request['expected_code'],
+			'product_code'        => $request['product_code'],
+			'if_match'            => $request['if_match'],
+			'request_id'          => $request['request_id'],
+			'request_fingerprint' => $validated['fingerprint'],
+			'updated_at'          => gmdate( 'c' ),
+		);
+
+		// Store the foreign row separately from the recovery-pointer fixture below.
+		$GLOBALS['digitalogic_test_posts'][742]                                    = array(
+			'post_type'   => 'product',
+			'post_status' => 'publish',
+			'meta'        => array( Digitalogic_Product_Code_Editor::META_KEY => 'WOO-742' ),
+		);
+		$GLOBALS['digitalogic_test_options'][ $this->recovery_option_name( 742 ) ] = $pointer;
+
+		$GLOBALS['digitalogic_test_options'][ $this->operation_option_name( $request['request_id'] ) ] = $this->interrupted_record( $request );
+
+		$this->editor->reset_editability_cache();
+		$this->assertTrue( $this->editor->prepare_admin_read_batch( array( 742 ) ) );
+		$recovery = $this->editor->recovery_intent_for( 742 );
+
+		$this->assertInstanceOf( WP_Error::class, $recovery );
+		$this->assertSame( 'digitalogic_product_code_audit_unavailable', $recovery->get_error_code() );
+		$fresh = $this->editor->edit(
+			array(
+				'product_id'    => 742,
+				'expected_code' => 'WOO-742',
+				'product_code'  => 'WOO-743',
+				'if_match'      => $this->editor->revision_for( 742, 'WOO-742' ),
+				'request_id'    => 'product-code:742:blocked-cross-product-pointer',
+			)
+		);
+		$this->assertSame( 'digitalogic_product_code_audit_unavailable', $fresh->get_error_code() );
+		$this->assertArrayNotHasKey( 'recovery', $fresh->get_error_data() );
+		$this->assertSame( 'WOO-742', get_post_meta( 742, Digitalogic_Product_Code_Editor::META_KEY, true ) );
+		$this->assertArrayNotHasKey( 'updated_post_meta', $GLOBALS['digitalogic_test_actions'] );
+	}
+
+	/** Missing operation records are safe only for an explicit pre-claim reservation. */
+	public function test_missing_operation_records_fail_closed_for_every_effect_capable_pointer_status(): void {
+		$validate = new ReflectionMethod( Digitalogic_Product_Code_Editor::class, 'validate_request' );
+		foreach ( array( 'in_progress', 'failed_retryable', 'outcome_unknown' ) as $status ) {
+			$request   = $this->request( '000742', 'product-code:741:missing-operation:' . $status );
+			$validated = $validate->invoke( $this->editor, $request );
+			$GLOBALS['digitalogic_test_options'][ $this->recovery_option_name( 741 ) ] = array(
+				'schema'              => Digitalogic_Product_Code_Editor::SCHEMA,
+				'kind'                => 'recovery-index',
+				'status'              => $status,
+				'actor_id'            => 17,
+				'product_id'          => 741,
+				'expected_code'       => $request['expected_code'],
+				'product_code'        => $request['product_code'],
+				'if_match'            => $request['if_match'],
+				'request_id'          => $request['request_id'],
+				'request_fingerprint' => $validated['fingerprint'],
+				'updated_at'          => gmdate( 'c' ),
+			);
+			$this->editor->reset_editability_cache();
+			$this->assertTrue( $this->editor->prepare_admin_read_batch( array( 741 ) ) );
+			$this->assertSame( 'digitalogic_product_code_audit_unavailable', $this->editor->recovery_intent_for( 741 )->get_error_code() );
+			$result = $this->editor->edit( $request );
+			$this->assertSame( 'digitalogic_product_code_audit_unavailable', $result->get_error_code() );
+			$this->assertSame( '000741', get_post_meta( 741, Digitalogic_Product_Code_Editor::META_KEY, true ) );
+		}
+
+		$request   = $this->request( '000742', 'product-code:741:missing-operation:reservation' );
+		$validated = $validate->invoke( $this->editor, $request );
+		$GLOBALS['digitalogic_test_options'][ $this->recovery_option_name( 741 ) ] = array(
+			'schema'              => Digitalogic_Product_Code_Editor::SCHEMA,
+			'kind'                => 'recovery-index',
+			'status'              => 'reservation_pending',
+			'actor_id'            => 17,
+			'product_id'          => 741,
+			'expected_code'       => $request['expected_code'],
+			'product_code'        => $request['product_code'],
+			'if_match'            => $request['if_match'],
+			'request_id'          => $request['request_id'],
+			'request_fingerprint' => $validated['fingerprint'],
+			'updated_at'          => gmdate( 'c' ),
+		);
+		$this->editor->reset_editability_cache();
+		$this->assertTrue( $this->editor->prepare_admin_read_batch( array( 741 ) ) );
+		$this->assertSame( 'reservation_pending', $this->editor->recovery_intent_for( 741 )['status'] );
+	}
+
+	/** A durable claim is promoted before effect and cannot masquerade as a reservation. */
+	public function test_real_claim_pointer_is_in_progress_and_missing_operation_never_reapplies(): void {
+		$request = $this->request( '000742', 'product-code:741:claimed-operation-loss' );
+		add_action(
+			'updated_post_meta',
+			static function ( $meta_id, $product_id, $meta_key ) {
+				unset( $meta_id );
+				if ( 741 === (int) $product_id && Digitalogic_Product_Code_Editor::META_KEY === $meta_key ) {
+					throw new RuntimeException( 'Injected ambiguous result after effect.' );
+				}
+			},
+			10,
+			3
+		);
+
+		$this->assertSame( 'digitalogic_product_code_retry_required', $this->editor->edit( $request )->get_error_code() );
+		$pointer_name = $this->recovery_option_name( 741 );
+		$this->assertSame( 'in_progress', $GLOBALS['digitalogic_test_options'][ $pointer_name ]['status'] );
+		unset( $GLOBALS['digitalogic_test_options'][ $this->operation_option_name( $request['request_id'] ) ] );
+		$effect_count = count( $GLOBALS['digitalogic_test_actions']['updated_post_meta'] ?? array() );
+
+		$this->editor->reset_editability_cache();
+		$this->assertTrue( $this->editor->prepare_admin_read_batch( array( 741 ) ) );
+		$this->assertSame( 'digitalogic_product_code_audit_unavailable', $this->editor->recovery_intent_for( 741 )->get_error_code() );
+		$this->assertSame( 'digitalogic_product_code_audit_unavailable', $this->editor->edit( $request )->get_error_code() );
+		$this->assertSame( '000742', get_post_meta( 741, Digitalogic_Product_Code_Editor::META_KEY, true ) );
+		$this->assertSame( $effect_count, count( $GLOBALS['digitalogic_test_actions']['updated_post_meta'] ?? array() ) );
+	}
+
+	/** Failure to promote a reservation stops before the canonical effect. */
+	public function test_claim_pointer_promotion_failure_has_no_product_code_effect(): void {
+		$request      = $this->request( '000742', 'product-code:741:pointer-promotion-failure' );
+		$pointer_name = $this->recovery_option_name( 741 );
+		add_action(
+			'updated_option_' . $pointer_name,
+			static function () use ( $pointer_name ) {
+				$GLOBALS['digitalogic_test_update_failures'][] = $pointer_name;
+			},
+			10,
+			0
+		);
+
+		$result = $this->editor->edit( $request );
+
+		$this->assertSame( 'digitalogic_product_code_audit_unavailable', $result->get_error_code() );
+		$this->assertSame( 'reservation_pending', $GLOBALS['digitalogic_test_options'][ $pointer_name ]['status'] );
+		$this->assertSame( 'in_progress', $GLOBALS['digitalogic_test_options'][ $this->operation_option_name( $request['request_id'] ) ]['status'] );
+		$this->assertSame( '000741', get_post_meta( 741, Digitalogic_Product_Code_Editor::META_KEY, true ) );
+		$this->assertArrayNotHasKey( 'updated_post_meta', $GLOBALS['digitalogic_test_actions'] );
 	}
 
 	/** Admin output uses exact DB state even when the WC product object is stale. */
@@ -844,7 +1104,7 @@ final class ProductCodeEditorTest extends TestCase {
 		$record = $GLOBALS['digitalogic_test_options'][ $this->operation_option_name( $request['request_id'] ) ];
 		$this->assertSame( 'in_progress', $record['status'] );
 		$this->assertArrayNotHasKey( 'result', $record );
-		$this->assertSame( $request['request_id'], $this->editor->recovery_intent_for( 741 )['request_id'] );
+		$this->assertSame( $request['request_id'], $this->admin_recovery_intent( 741 )['request_id'] );
 
 		$GLOBALS['wpdb'] = new Digitalogic_Test_WPDB();
 		$this->reset_singleton( Digitalogic_Product_Write_Lock::class );
@@ -881,7 +1141,7 @@ final class ProductCodeEditorTest extends TestCase {
 		$this->assertSame( '000742', $result['product_code'] );
 		$record = $GLOBALS['digitalogic_test_options'][ $operation_name ];
 		$this->assertSame( 'completed', $record['status'] );
-		$this->assertSame( array(), $this->editor->recovery_intent_for( 741 ) );
+		$this->assertSame( array(), $this->admin_recovery_intent( 741 ) );
 
 		$GLOBALS['wpdb'] = new Digitalogic_Test_WPDB();
 		$this->reset_singleton( Digitalogic_Product_Write_Lock::class );
@@ -912,7 +1172,7 @@ final class ProductCodeEditorTest extends TestCase {
 		$GLOBALS['wpdb'] = new Digitalogic_Test_WPDB();
 		$this->reset_singleton( Digitalogic_Product_Write_Lock::class );
 		$this->reset_singleton( Digitalogic_Product_Sync_Receiver::class );
-		$this->assertSame( array(), $this->editor->recovery_intent_for( 741 ) );
+		$this->assertSame( array(), $this->admin_recovery_intent( 741 ) );
 		$replay = $this->editor->edit( $request );
 		$this->assertTrue( $replay['replayed'] );
 	}
@@ -1057,6 +1317,77 @@ final class ProductCodeEditorTest extends TestCase {
 		$this->assertSame( '000742', get_post_meta( 842, Digitalogic_Product_Code_Editor::META_KEY, true ) );
 	}
 
+	/** Exact conflicts ignore DB collation for key casing, object type, and status. */
+	public function test_uniqueness_matrix_folds_meta_key_but_keeps_values_byte_exact(): void {
+		$GLOBALS['wpdb']->product_code_meta_key_binary_collation = true;
+
+		$GLOBALS['wpdb']->product_code_meta_value_case_insensitive_collation = true;
+		$matrix = array(
+			842 => array( 'product', 'publish', 'MATRIX-PRODUCT-PUBLISH' ),
+			843 => array( 'product', 'trash', 'MATRIX-PRODUCT-TRASH' ),
+			844 => array( 'product_variation', 'publish', 'MATRIX-VARIATION-PUBLISH' ),
+			845 => array( 'product_variation', 'trash', 'MATRIX-VARIATION-TRASH' ),
+		);
+		foreach ( $matrix as $owner_id => $fixture ) {
+			$GLOBALS['digitalogic_test_posts'][ $owner_id ] = array(
+				'post_type'   => $fixture[0],
+				'post_status' => $fixture[1],
+				'meta'        => array( strtoupper( Digitalogic_Product_Code_Editor::META_KEY ) => $fixture[2] ),
+			);
+			$result = $this->editor->edit( $this->request( $fixture[2], 'product-code:741:matrix:' . $owner_id ) );
+			$this->assertSame( 'digitalogic_product_code_not_unique', $result->get_error_code(), $fixture[0] . ':' . $fixture[1] );
+			$this->assertSame( '000741', get_post_meta( 741, Digitalogic_Product_Code_Editor::META_KEY, true ) );
+		}
+
+		$GLOBALS['digitalogic_test_posts'][846] = array(
+			'post_type'   => 'product_variation',
+			'post_status' => 'trash',
+			'meta'        => array( strtoupper( Digitalogic_Product_Code_Editor::META_KEY ) => 'CaseSensitiveCode' ),
+		);
+
+		$case_variant = $this->editor->edit( $this->request( 'casesensitivecode', 'product-code:741:value-case-exact' ) );
+		$this->assertSame( 'applied', $case_variant['status'] );
+		$this->assertSame( 'casesensitivecode', get_post_meta( 741, Digitalogic_Product_Code_Editor::META_KEY, true ) );
+	}
+
+	/** Permanent deletion releases exact ownership for products and variations. */
+	public function test_permanent_delete_releases_product_and_variation_codes_for_reuse(): void {
+		$GLOBALS['digitalogic_test_posts'][742] = array(
+			'post_type'   => 'product',
+			'post_status' => 'publish',
+			'meta'        => array( Digitalogic_Product_Code_Editor::META_KEY => 'WOO-742' ),
+		);
+		$GLOBALS['digitalogic_test_posts'][842] = array(
+			'post_type'   => 'product',
+			'post_status' => 'trash',
+			'meta'        => array( Digitalogic_Product_Code_Editor::META_KEY => 'REUSE-PRODUCT' ),
+		);
+		$GLOBALS['digitalogic_test_posts'][843] = array(
+			'post_type'   => 'product_variation',
+			'post_status' => 'trash',
+			'meta'        => array( Digitalogic_Product_Code_Editor::META_KEY => 'REUSE-VARIATION' ),
+		);
+
+		$this->assertSame(
+			'digitalogic_product_code_not_unique',
+			$this->editor->edit( $this->request( 'REUSE-PRODUCT', 'product-code:741:reuse-product-blocked' ) )->get_error_code()
+		);
+		$this->assertNotFalse( wp_delete_post( 842, true ) );
+		$this->assertSame( 'applied', $this->editor->edit( $this->request( 'REUSE-PRODUCT', 'product-code:741:reuse-product-applied' ) )['status'] );
+
+		$variation_request = array(
+			'product_id'    => 742,
+			'expected_code' => 'WOO-742',
+			'product_code'  => 'REUSE-VARIATION',
+			'if_match'      => $this->editor->revision_for( 742, 'WOO-742' ),
+			'request_id'    => 'product-code:742:reuse-variation-blocked',
+		);
+		$this->assertSame( 'digitalogic_product_code_not_unique', $this->editor->edit( $variation_request )->get_error_code() );
+		$this->assertNotFalse( wp_delete_post( 843, true ) );
+		$variation_request['request_id'] = 'product-code:742:reuse-variation-applied';
+		$this->assertSame( 'applied', $this->editor->edit( $variation_request )['status'] );
+	}
+
 	/** A timeout survives a page/service reload and forces the original key. */
 	public function test_server_recovery_index_survives_reload_and_blocks_a_fresh_key(): void {
 		$request = $this->request( '000742', 'product-code:741:reload-recovery' );
@@ -1076,11 +1407,11 @@ final class ProductCodeEditorTest extends TestCase {
 
 		$this->reset_singleton( Digitalogic_Product_Code_Editor::class );
 		$this->editor = Digitalogic_Product_Code_Editor::instance();
-		$recovery     = $this->editor->recovery_intent_for( 741 );
+		$recovery     = $this->admin_recovery_intent( 741 );
 		$this->assertSame( $request['request_id'], $recovery['request_id'] );
 		$this->assertSame( '000742', $recovery['product_code'] );
 		$GLOBALS['digitalogic_test_current_user_id'] = 23;
-		$private_recovery                            = $this->editor->recovery_intent_for( 741 );
+		$private_recovery                            = $this->admin_recovery_intent( 741 );
 		$this->assertIsArray( $private_recovery );
 		$this->assertTrue( $private_recovery['takeover_required'] );
 		$this->assertSame( $request['request_id'], $private_recovery['request_id'] );
@@ -1103,7 +1434,7 @@ final class ProductCodeEditorTest extends TestCase {
 		$recovered = $this->editor->edit( $request );
 		$this->assertIsArray( $recovered );
 		$this->assertTrue( $recovered['recovered'] );
-		$this->assertSame( array(), $this->editor->recovery_intent_for( 741 ) );
+		$this->assertSame( array(), $this->admin_recovery_intent( 741 ) );
 	}
 
 	/** A pointer failure occurs before any claim, so no undiscoverable operation remains. */
@@ -1135,7 +1466,7 @@ final class ProductCodeEditorTest extends TestCase {
 		$this->assertArrayNotHasKey( $claim, $GLOBALS['digitalogic_test_options'] );
 		$this->reset_singleton( Digitalogic_Product_Code_Editor::class );
 		$this->editor = Digitalogic_Product_Code_Editor::instance();
-		$recovery     = $this->editor->recovery_intent_for( 741 );
+		$recovery     = $this->admin_recovery_intent( 741 );
 		$this->assertSame( 'reservation_pending', $recovery['status'] );
 		$this->assertSame( $request['request_id'], $recovery['request_id'] );
 
@@ -1153,7 +1484,7 @@ final class ProductCodeEditorTest extends TestCase {
 		$this->assertSame( 'applied', $first['status'] );
 		$this->assertArrayHasKey( $pointer, $GLOBALS['digitalogic_test_options'] );
 		$GLOBALS['digitalogic_test_current_user_id'] = 23;
-		$this->assertSame( array(), $this->editor->recovery_intent_for( 741 ) );
+		$this->assertSame( array(), $this->admin_recovery_intent( 741 ) );
 
 		$second = array(
 			'product_id'    => 741,
@@ -1214,7 +1545,7 @@ final class ProductCodeEditorTest extends TestCase {
 		$this->assertTrue( $result['verification']['no_code_write'] );
 		$this->assertSame( $action_count, count( $GLOBALS['digitalogic_test_actions']['updated_post_meta'] ?? array() ) );
 		$this->assertSame( '000741', get_post_meta( 741, Digitalogic_Product_Code_Editor::META_KEY, true ) );
-		$this->assertSame( array(), $this->editor->recovery_intent_for( 741 ) );
+		$this->assertSame( array(), $this->admin_recovery_intent( 741 ) );
 
 		$record = $GLOBALS['digitalogic_test_options'][ $this->operation_option_name( $request['request_id'] ) ];
 		$this->assertSame( 'reconciled_no_effect', $record['status'] );
@@ -1225,6 +1556,52 @@ final class ProductCodeEditorTest extends TestCase {
 
 		$new_request = $this->request( '000743', 'product-code:741:after-reconcile-before' );
 		$this->assertSame( 'applied', $this->editor->edit( $new_request )['status'] );
+	}
+
+	/** A genuinely absent before-state can be reconciled without inventing a metadata row. */
+	public function test_outcome_unknown_absent_before_state_has_audited_no_effect_reconciliation(): void {
+		unset(
+			$GLOBALS['digitalogic_test_posts'][741]['meta'][ Digitalogic_Product_Code_Editor::META_KEY ],
+			$GLOBALS['digitalogic_test_posts'][741]['meta_rows'][ Digitalogic_Product_Code_Editor::META_KEY ]
+		);
+		$request = array(
+			'product_id'    => 741,
+			'expected_code' => '',
+			'product_code'  => '000742',
+			'if_match'      => $this->editor->revision_for( 741, '' ),
+			'request_id'    => 'product-code:741:reconcile-absent-before',
+		);
+		$GLOBALS['digitalogic_test_options'][ $this->operation_option_name( $request['request_id'] ) ] = $this->interrupted_record( $request );
+		$GLOBALS['digitalogic_test_posts'][741]['meta'][ Digitalogic_Product_Code_Editor::META_KEY ]   = 'UNRESOLVED';
+		$unknown = $this->editor->edit( $request );
+		$this->assertSame( 'digitalogic_product_code_outcome_unknown', $unknown->get_error_code() );
+
+		unset(
+			$GLOBALS['digitalogic_test_posts'][741]['meta'][ Digitalogic_Product_Code_Editor::META_KEY ],
+			$GLOBALS['digitalogic_test_posts'][741]['meta_rows'][ Digitalogic_Product_Code_Editor::META_KEY ]
+		);
+		$preview = $this->editor->reconcile_outcome(
+			array(
+				'product_id' => 741,
+				'request_id' => $request['request_id'],
+			)
+		);
+		$this->assertIsArray( $preview );
+		$this->assertSame( 'before', $preview['resolution'] );
+		$this->assertSame( '', $preview['observed_product_code'] );
+		$action_count   = count( $GLOBALS['digitalogic_test_actions']['updated_post_meta'] ?? array() );
+		$apply          = $preview;
+		$apply['apply'] = true;
+		$result         = $this->editor->reconcile_outcome( $apply );
+		$this->assertSame( 'reconciled_no_effect', $result['status'] );
+		$this->assertTrue( $result['verification']['no_code_write'] );
+		$this->assertSame( $action_count, count( $GLOBALS['digitalogic_test_actions']['updated_post_meta'] ?? array() ) );
+		$this->assertArrayNotHasKey( Digitalogic_Product_Code_Editor::META_KEY, $GLOBALS['digitalogic_test_posts'][741]['meta'] );
+		$this->assertSame( array(), $this->admin_recovery_intent( 741 ) );
+
+		$replay = $this->editor->reconcile_outcome( $apply );
+		$this->assertTrue( $replay['replayed'] );
+		$this->assertSame( '', $replay['current_product_code'] );
 	}
 
 	/** Exact after-state reconciliation finalizes once and never rewrites the code. */
@@ -1284,7 +1661,7 @@ final class ProductCodeEditorTest extends TestCase {
 		$this->assertSame( 'digitalogic_product_code_reconciliation_manifest_stale', $result->get_error_code() );
 		$this->assertSame( 'observed_revision', $result->get_error_data()['failed_field'] );
 		$this->assertSame( 'outcome_unknown', $GLOBALS['digitalogic_test_options'][ $this->operation_option_name( $request['request_id'] ) ]['status'] );
-		$this->assertNotSame( array(), $this->editor->recovery_intent_for( 741 ) );
+		$this->assertNotSame( array(), $this->admin_recovery_intent( 741 ) );
 	}
 
 	/** A source revision change invalidates the dry-run even when the code is unchanged. */
@@ -1484,6 +1861,33 @@ final class ProductCodeEditorTest extends TestCase {
 	}
 
 	/**
+	 * Prepare and return one exact request-scoped editability hint.
+	 *
+	 * @param int    $product_id Product or variation ID.
+	 * @param string $cached_code Cached Product Code.
+	 * @return array
+	 */
+	private function admin_editability( $product_id, $cached_code ) {
+		$this->editor->reset_editability_cache();
+		$this->editor->prepare_admin_read_batch( array( $product_id ) );
+
+		return $this->editor->editability_for( $product_id, $cached_code );
+	}
+
+	/**
+	 * Prepare and return one exact request-scoped recovery handoff.
+	 *
+	 * @param int $product_id Product or variation ID.
+	 * @return array|WP_Error
+	 */
+	private function admin_recovery_intent( $product_id ) {
+		$this->editor->reset_editability_cache();
+		$this->editor->prepare_admin_read_batch( array( $product_id ) );
+
+		return $this->editor->recovery_intent_for( $product_id );
+	}
+
+	/**
 	 * Build a complete valid interrupted-operation fixture.
 	 *
 	 * @param array $request Complete request.
@@ -1511,9 +1915,9 @@ final class ProductCodeEditorTest extends TestCase {
 			'if_match'            => $request['if_match'],
 			'backup_reference'    => $backup_reference,
 			'rollback_data'       => array(
-				'meta_exists'  => true,
-				'product_code' => $request['expected_code'],
-				'revision'     => $request['if_match'],
+				'meta_exists'  => (bool) $before['meta_exists'],
+				'product_code' => (string) $before['product_code'],
+				'revision'     => $this->editor->revision_for( 741, (string) $before['product_code'] ),
 			),
 			'actor_id'            => 17,
 			'governance_proof'    => $governance['proof'],

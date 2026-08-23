@@ -160,13 +160,14 @@ class Digitalogic_Product_Manager {
 		}
 
 		if ( isset( $args['limit'] ) && -1 === intval( $args['limit'] ) ) {
+			Digitalogic_Product_Code_Editor::instance()->reset_editability_cache();
 			$products            = array();
 			$batch_args          = $args;
 			$batch_args['limit'] = 100;
 			$batch_args['page']  = 1;
 
 			do {
-				$result   = $this->query_products( $batch_args );
+				$result   = $this->query_products_page( $batch_args );
 				$products = array_merge( $products, $result['products'] );
 				++$batch_args['page'];
 			} while (
@@ -193,12 +194,24 @@ class Digitalogic_Product_Manager {
 	 * @return array
 	 */
 	public function query_products( $args = array() ) {
-		$normalized = Digitalogic_Product_Query::normalize_args( $args );
 		Digitalogic_Product_Code_Editor::instance()->reset_editability_cache();
+
+		return $this->query_products_page( $args );
+	}
+
+	/**
+	 * Execute one page without discarding the outer export's source index.
+	 *
+	 * @param array $args Normalized product query arguments.
+	 * @return array
+	 */
+	private function query_products_page( $args ) {
+		$normalized = Digitalogic_Product_Query::normalize_args( $args );
 
 		try {
 			$query       = new WP_Query( Digitalogic_Product_Query::build_wp_query_args( $normalized ) );
 			$product_ids = array_values( array_filter( array_map( 'absint', (array) $query->posts ) ) );
+			Digitalogic_Product_Code_Editor::instance()->prepare_admin_read_batch( $product_ids );
 			$filtered    = max( 0, (int) $query->found_posts );
 			$products    = $this->format_product_list( $product_ids );
 			$total       = Digitalogic_Product_Query::has_active_filters( $normalized )
@@ -499,6 +512,7 @@ class Digitalogic_Product_Manager {
         if ($product->is_type('variable')) {
             $product_ids = array_merge($product_ids, array_slice($product->get_children(), 0, 100));
         }
+		Digitalogic_Product_Code_Editor::instance()->prepare_admin_read_batch( $product_ids );
 
         return $this->format_product_data(
             $product,

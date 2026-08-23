@@ -57,13 +57,102 @@ final class Digitalogic_Product_Code_Editor {
 	 */
 	private $editability_source_state_loaded = false;
 
-	/** @var string Active site-wide operation lock name for mid-effect verification. */
+	/**
+	 * Request-scoped O(1) source ownership index.
+	 *
+	 * @var array|WP_Error|null
+	 */
+	private $editability_source_index = null;
+
+	/**
+	 * Whether the request-scoped source ownership index was built.
+	 *
+	 * @var bool
+	 */
+	private $editability_source_index_loaded = false;
+
+	/**
+	 * Number of full source-index builds in the current admin batch.
+	 *
+	 * @var int
+	 */
+	private $editability_source_index_builds = 0;
+
+	/**
+	 * Cache-bypassed recovery pointers prefetched for admin rows.
+	 *
+	 * @var array<int,array|WP_Error>
+	 */
+	private $editability_recovery_pointers = array();
+
+	/**
+	 * Cache-bypassed operation records prefetched for pending rows.
+	 *
+	 * @var array<string,array|WP_Error>
+	 */
+	private $editability_recovery_operations = array();
+
+	/**
+	 * Exact product IDs authorized for the current admin read batch.
+	 *
+	 * @var array<int,bool>
+	 */
+	private $editability_prepared_ids = array();
+
+	/**
+	 * Exact metadata/provenance rows for the current admin batch.
+	 *
+	 * @var array<int,array|WP_Error>
+	 */
+	private $editability_readbacks = array();
+
+	/**
+	 * Actor bound to the current admin read batch.
+	 *
+	 * @var int
+	 */
+	private $editability_actor_id = 0;
+
+	/**
+	 * Blog bound to the current admin read batch.
+	 *
+	 * @var int
+	 */
+	private $editability_blog_id = 0;
+
+	/**
+	 * Shared fail-closed batch preparation error.
+	 *
+	 * @var WP_Error|null
+	 */
+	private $editability_batch_error = null;
+
+	/**
+	 * Recovery-prefetch failure, isolated from source/readback health.
+	 *
+	 * @var WP_Error|null
+	 */
+	private $editability_recovery_error = null;
+
+	/**
+	 * Active site-wide operation lock name for mid-effect verification.
+	 *
+	 * @var string
+	 */
 	private $active_operation_lock_name = '';
 
-	/** @var int Active operation-lock connection ID. */
+	/**
+	 * Active operation-lock connection ID.
+	 *
+	 * @var int
+	 */
 	private $active_operation_connection_id = 0;
 
-	/** @var Digitalogic_Product_Sync_Receiver|null Exact receiver instance owning the active source lock. */
+	/**
+	 * Exact receiver instance owning the active source lock.
+	 *
+	 * @var Digitalogic_Product_Sync_Receiver|null
+	 */
 	private $active_source_lock_receiver = null;
 
 	/** Return the shared editor. */
@@ -282,8 +371,9 @@ final class Digitalogic_Product_Code_Editor {
 	 * @return array{editable:bool,reason:string,product_code:string,revision:string,meta_exists:bool,cache_mismatch:bool}
 	 */
 	public function editability_for( $product_id, $product_code ) {
+		$product_id   = absint( $product_id );
 		$product_code = (string) $product_code;
-		$readback     = $this->read_exact_product_code( $product_id );
+		$readback     = $this->admin_readback_for( $product_id );
 		if ( is_wp_error( $readback ) || ! $readback['product_exists'] ) {
 			return array(
 				'editable'       => false,
@@ -297,6 +387,9 @@ final class Digitalogic_Product_Code_Editor {
 		$exact_code     = $readback['product_code'];
 		$exact_revision = $this->revision_for( $product_id, $exact_code );
 		$cache_mismatch = ! hash_equals( $product_code, $exact_code );
+		if ( $cache_mismatch ) {
+			$this->invalidate_product_identity_cache( $product_id );
+		}
 		if ( $readback['duplicate_rows'] || ! empty( $readback['invalid_key_rows'] ) ) {
 			return array(
 				'editable'       => false,
@@ -306,9 +399,6 @@ final class Digitalogic_Product_Code_Editor {
 				'meta_exists'    => $readback['meta_exists'],
 				'cache_mismatch' => $cache_mismatch,
 			);
-		}
-		if ( $cache_mismatch ) {
-			$this->invalidate_product_identity_cache( $product_id );
 		}
 		if ( ! current_user_can( 'manage_woocommerce' ) || ! current_user_can( 'edit_post', $product_id ) ) {
 			return array(
@@ -321,10 +411,6 @@ final class Digitalogic_Product_Code_Editor {
 			);
 		}
 
-		if ( ! $this->editability_source_state_loaded ) {
-			$this->editability_source_state        = $this->read_exact_source_state();
-			$this->editability_source_state_loaded = true;
-		}
 		if ( is_wp_error( $this->editability_source_state ) ) {
 			return array(
 				'editable'       => false,
@@ -336,19 +422,26 @@ final class Digitalogic_Product_Code_Editor {
 			);
 		}
 
-		$guard = $this->source_guard(
-			$product_id,
-			$exact_code,
-			$exact_code,
-			$readback,
-			$this->editability_source_state
-		);
-		if ( is_wp_error( $guard ) ) {
+		$provenance = $this->editability_provenance_status( $readback );
+		if ( is_wp_error( $this->editability_source_index ) || is_wp_error( $provenance ) ) {
 			return array(
 				'editable'       => false,
-				'reason'         => 'digitalogic_product_code_source_managed' === $guard->get_error_code()
-					? 'source_managed'
-					: 'source_state_unavailable',
+				'reason'         => 'source_state_unavailable',
+				'product_code'   => $exact_code,
+				'revision'       => $exact_revision,
+				'meta_exists'    => $readback['meta_exists'],
+				'cache_mismatch' => $cache_mismatch,
+			);
+		}
+		$code_key = hash( 'sha256', $exact_code );
+		if (
+			'managed' === $provenance
+			|| ! empty( $this->editability_source_index['codes'][ $code_key ] )
+			|| ! empty( $this->editability_source_index['product_ids'][ (string) $product_id ] )
+		) {
+			return array(
+				'editable'       => false,
+				'reason'         => 'source_managed',
 				'product_code'   => $exact_code,
 				'revision'       => $exact_revision,
 				'meta_exists'    => $readback['meta_exists'],
@@ -370,6 +463,151 @@ final class Digitalogic_Product_Code_Editor {
 	public function reset_editability_cache() {
 		$this->editability_source_state        = null;
 		$this->editability_source_state_loaded = false;
+		$this->editability_source_index        = null;
+		$this->editability_source_index_loaded = false;
+		$this->editability_source_index_builds = 0;
+		$this->editability_recovery_pointers   = array();
+		$this->editability_recovery_operations = array();
+		$this->editability_prepared_ids        = array();
+		$this->editability_readbacks           = array();
+		$this->editability_actor_id            = 0;
+		$this->editability_blog_id             = 0;
+		$this->editability_batch_error         = null;
+		$this->editability_recovery_error      = null;
+	}
+
+	/**
+	 * Prepare one bounded, cache-bypassed admin read model.
+	 *
+	 * The source-governance index is retained across successive pages in the
+	 * same actor/blog request. Row metadata and recovery state are replaced for
+	 * every page, so later lookups are O(1) and cannot silently fall back to a
+	 * per-row database/source scan. Mutation never consumes this UI-only state.
+	 *
+	 * @param int[] $product_ids Product and variation IDs rendered together.
+	 * @return true|WP_Error
+	 */
+	public function prepare_admin_read_batch( $product_ids ) {
+		$product_ids = array_values( array_unique( array_filter( array_map( 'absint', (array) $product_ids ) ) ) );
+		$actor_id    = get_current_user_id();
+		$blog_id     = function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 0;
+		if ( count( $product_ids ) > 101 ) {
+			$error                         = $this->error(
+				'digitalogic_product_code_admin_batch_too_large',
+				__( 'The Product Code admin read batch exceeded its bounded size.', 'digitalogic' ),
+				503,
+				array( 'retryable' => true )
+			);
+			$this->editability_batch_error = $error;
+			return $error;
+		}
+
+		if (
+			$this->editability_source_index_loaded
+			&& ( $this->editability_actor_id !== $actor_id || $this->editability_blog_id !== $blog_id )
+		) {
+			$this->reset_editability_cache();
+		}
+
+		$this->editability_actor_id            = $actor_id;
+		$this->editability_blog_id             = $blog_id;
+		$this->editability_prepared_ids        = array_fill_keys( $product_ids, true );
+		$this->editability_readbacks           = array();
+		$this->editability_recovery_pointers   = array();
+		$this->editability_recovery_operations = array();
+		$this->editability_batch_error         = null;
+		$this->editability_recovery_error      = null;
+
+		if ( empty( $product_ids ) ) {
+			return true;
+		}
+
+		$readbacks = $this->read_exact_product_codes( $product_ids );
+		if ( is_wp_error( $readbacks ) ) {
+			$this->editability_batch_error = $readbacks;
+		} else {
+			$this->editability_readbacks = $readbacks;
+		}
+
+		if ( ! $this->editability_source_index_loaded ) {
+			$this->editability_source_state        = $this->read_exact_source_state();
+			$this->editability_source_state_loaded = true;
+			$this->editability_source_index        = is_wp_error( $this->editability_source_state )
+				? $this->editability_source_state
+				: $this->build_editability_source_index( $this->editability_source_state );
+			$this->editability_source_index_loaded = true;
+		}
+		if ( is_wp_error( $this->editability_source_index ) ) {
+			if ( ! is_wp_error( $this->editability_batch_error ) ) {
+				$this->editability_batch_error = $this->editability_source_index;
+			}
+		}
+
+		$recovery = $this->prefetch_admin_recovery_batch( $product_ids );
+		if ( is_wp_error( $recovery ) ) {
+			$this->editability_recovery_error = $recovery;
+		}
+
+		if ( is_wp_error( $this->editability_batch_error ) ) {
+			return $this->editability_batch_error;
+		}
+		return is_wp_error( $this->editability_recovery_error ) ? $this->editability_recovery_error : true;
+	}
+
+	/**
+	 * Prefetch recovery pointers and operations in at most two DB reads.
+	 *
+	 * @param int[] $product_ids Prepared product and variation IDs.
+	 * @return true|WP_Error
+	 */
+	private function prefetch_admin_recovery_batch( $product_ids ) {
+		$names = array();
+		foreach ( $product_ids as $product_id ) {
+			$names[ $product_id ] = $this->recovery_option_name( $product_id );
+		}
+
+		$stored = $this->read_exact_options( array_values( $names ) );
+		if ( is_wp_error( $stored ) ) {
+			foreach ( array_keys( $names ) as $product_id ) {
+				$this->editability_recovery_pointers[ $product_id ] = $stored;
+			}
+			return $stored;
+		}
+
+		$operation_names = array();
+		foreach ( $names as $product_id => $option_name ) {
+			$entry   = $stored[ $option_name ];
+			$pointer = $entry['exists'] && is_array( $entry['value'] ) ? $entry['value'] : ( $entry['exists'] ? $this->audit_unavailable() : array() );
+			$this->editability_recovery_pointers[ $product_id ] = $pointer;
+			if ( empty( $pointer ) || is_wp_error( $pointer ) ) {
+				continue;
+			}
+			$request = $this->request_from_recovery_index( $pointer, $product_id );
+			if ( is_wp_error( $request ) ) {
+				$this->editability_recovery_pointers[ $product_id ] = $request;
+				continue;
+			}
+			$operation_names[ $request['request_id'] ] = $this->operation_option_name( $request['request_id'] );
+		}
+		if ( empty( $operation_names ) ) {
+			return true;
+		}
+
+		$operations = $this->read_exact_options( array_values( $operation_names ) );
+		if ( is_wp_error( $operations ) ) {
+			foreach ( array_keys( $operation_names ) as $request_id ) {
+				$this->editability_recovery_operations[ $request_id ] = $operations;
+			}
+			return $operations;
+		}
+		foreach ( $operation_names as $request_id => $option_name ) {
+			$entry = $operations[ $option_name ];
+			$this->editability_recovery_operations[ $request_id ] = $entry['exists'] && is_array( $entry['value'] )
+				? $entry['value']
+				: ( $entry['exists'] ? $this->audit_unavailable() : array() );
+		}
+
+		return true;
 	}
 
 	/**
@@ -392,16 +630,24 @@ final class Digitalogic_Product_Code_Editor {
 			);
 		}
 
+		$context = $this->admin_read_context_error( $product_id );
+		if ( is_wp_error( $context ) ) {
+			return $context;
+		}
+		if ( is_wp_error( $this->editability_recovery_error ) ) {
+			return $this->editability_recovery_error;
+		}
+
 		$actor_id = get_current_user_id();
-		$index    = $this->recovery_index( $product_id );
+		$index    = $this->editability_recovery_pointers[ $product_id ] ?? array();
 		if ( is_wp_error( $index ) || empty( $index ) ) {
 			return $index;
 		}
-		$request = $this->request_from_recovery_index( $index );
+		$request = $this->request_from_recovery_index( $index, $product_id );
 		if ( is_wp_error( $request ) ) {
 			return $request;
 		}
-		$operation = $this->operation_record( $request['request_id'] );
+		$operation = $this->editability_recovery_operations[ $request['request_id'] ] ?? array();
 		$status    = is_array( $operation ) ? (string) ( $operation['status'] ?? '' ) : '';
 		if ( is_wp_error( $operation ) ) {
 			return $this->audit_unavailable();
@@ -416,10 +662,12 @@ final class Digitalogic_Product_Code_Editor {
 			return $this->audit_unavailable();
 		}
 		if ( in_array( $status, array( 'completed', 'reconciled_no_effect' ), true ) ) {
-			$this->clear_recovery_index( $request );
 			return array();
 		}
 		$takeover_required = (int) ( $index['actor_id'] ?? 0 ) !== $actor_id;
+		if ( empty( $operation ) && 'reservation_pending' !== (string) ( $index['status'] ?? '' ) ) {
+			return $this->audit_unavailable();
+		}
 		if ( empty( $operation ) ) {
 			$status = 'reservation_pending';
 		}
@@ -773,11 +1021,29 @@ final class Digitalogic_Product_Code_Editor {
 			return $pending;
 		}
 		if ( ! empty( $pending ) ) {
-			$pending_request = $this->request_from_recovery_index( $pending );
+			$pending_request = $this->request_from_recovery_index( $pending, $request['product_id'] );
 			if ( is_wp_error( $pending_request ) ) {
 				return $pending_request;
 			}
 			$pending_operation = $this->operation_record( $pending_request['request_id'] );
+			if ( is_wp_error( $pending_operation ) ) {
+				return $pending_operation;
+			}
+			if (
+				empty( $pending_operation )
+				&& 'reservation_pending' !== (string) ( $pending['status'] ?? '' )
+			) {
+				return $this->audit_unavailable();
+			}
+			if (
+				! empty( $pending_operation )
+				&& (
+					! $this->operation_record_is_valid( $pending_operation, $pending_request, (string) ( $pending_operation['status'] ?? '' ) )
+					|| (int) ( $pending_operation['actor_id'] ?? 0 ) !== (int) ( $pending['actor_id'] ?? 0 )
+				)
+			) {
+				return $this->audit_unavailable();
+			}
 			if (
 				is_array( $pending_operation )
 				&& in_array( (string) ( $pending_operation['status'] ?? '' ), array( 'completed', 'reconciled_no_effect' ), true )
@@ -790,7 +1056,7 @@ final class Digitalogic_Product_Code_Editor {
 			}
 		}
 		if ( ! empty( $pending ) ) {
-			$pending_request = $this->request_from_recovery_index( $pending );
+			$pending_request = $this->request_from_recovery_index( $pending, $request['product_id'] );
 			if ( ! hash_equals( $pending_request['request_id'], $request['request_id'] ) ) {
 				if ( (int) ( $pending['actor_id'] ?? 0 ) !== get_current_user_id() ) {
 					return $this->error(
@@ -961,13 +1227,19 @@ final class Digitalogic_Product_Code_Editor {
 		// Publish the per-product recovery pointer before the per-request claim.
 		// If the second durable write fails, reload can still recover the exact
 		// request and retry the claim; there is never an undiscoverable orphan.
-		$indexed = $this->store_recovery_index( $request, $claim );
+		$reservation           = $claim;
+		$reservation['status'] = 'reservation_pending';
+		$indexed               = $this->store_recovery_index( $request, $reservation );
 		if ( is_wp_error( $indexed ) ) {
 			return $indexed;
 		}
 		$stored = $this->store_operation( $request['request_id'], $claim );
 		if ( is_wp_error( $stored ) ) {
 			return $stored;
+		}
+		$promoted = $this->store_recovery_index( $request, $claim );
+		if ( is_wp_error( $promoted ) ) {
+			return $promoted;
 		}
 
 		$updated = Digitalogic_Product_Code_Write_Guard::instance()->with_authorized_write(
@@ -1273,7 +1545,7 @@ final class Digitalogic_Product_Code_Editor {
 		if ( is_wp_error( $pointer ) ) {
 			return $pointer;
 		}
-		$pointer_request = $this->request_from_recovery_index( $pointer );
+		$pointer_request = $this->request_from_recovery_index( $pointer, $product_id );
 		if (
 			is_wp_error( $pointer_request )
 			|| ! hash_equals( $request['request_id'], $pointer_request['request_id'] )
@@ -1282,11 +1554,21 @@ final class Digitalogic_Product_Code_Editor {
 			return $this->audit_unavailable();
 		}
 
-		$current = $this->read_exact_product_code( $product_id );
+		$current             = $this->read_exact_product_code( $product_id );
+		$rollback_meta       = true === ( $existing['rollback_data']['meta_exists'] ?? null );
+		$rollback_code       = (string) ( $existing['rollback_data']['product_code'] ?? '' );
+		$rollback_revision   = (string) ( $existing['rollback_data']['revision'] ?? '' );
+		$current_revision    = is_array( $current ) && ! empty( $current['product_exists'] )
+			? $this->revision_for( $product_id, (string) ( $current['product_code'] ?? '' ) )
+			: '';
+		$exact_absent_before = ! $rollback_meta
+			&& '' === $rollback_code
+			&& $this->readback_is_exact_absent_identity( $current )
+			&& hash_equals( $rollback_revision, $current_revision );
 		if (
 			is_wp_error( $current )
 			|| ! $current['product_exists']
-			|| ! $current['meta_exists']
+			|| ( ! $current['meta_exists'] && ! $exact_absent_before )
 			|| $current['duplicate_rows']
 			|| ! empty( $current['invalid_key_rows'] )
 		) {
@@ -1297,11 +1579,12 @@ final class Digitalogic_Product_Code_Editor {
 				array( 'retryable' => false )
 			);
 		}
-		$current_revision  = $this->revision_for( $product_id, $current['product_code'] );
-		$rollback_code     = (string) ( $existing['rollback_data']['product_code'] ?? '' );
-		$rollback_revision = (string) ( $existing['rollback_data']['revision'] ?? '' );
-		$resolution        = '';
-		if ( hash_equals( $rollback_code, $current['product_code'] ) && hash_equals( $rollback_revision, $current_revision ) ) {
+		$resolution = '';
+		if (
+			$rollback_meta === (bool) $current['meta_exists']
+			&& hash_equals( $rollback_code, $current['product_code'] )
+			&& hash_equals( $rollback_revision, $current_revision )
+		) {
 			$resolution = 'before';
 		} elseif ( $this->readback_matches( $current, $request['product_code'] ) ) {
 			$resolution = 'after';
@@ -1318,7 +1601,9 @@ final class Digitalogic_Product_Code_Editor {
 			);
 		}
 
-		$conflicts = $this->find_code_conflicts( $product_id, $current['product_code'] );
+		$conflicts = $current['meta_exists']
+			? $this->find_code_conflicts( $product_id, $current['product_code'] )
+			: array();
 		if ( is_wp_error( $conflicts ) ) {
 			return $conflicts;
 		}
@@ -1656,6 +1941,181 @@ final class Digitalogic_Product_Code_Editor {
 				'backup_reference' => (string) ( $existing['backup_reference'] ?? '' ),
 			)
 		);
+	}
+
+	/**
+	 * Return a typed error unless the product belongs to the current admin batch.
+	 *
+	 * @param int $product_id Product or variation ID.
+	 * @return null|WP_Error
+	 */
+	private function admin_read_context_error( $product_id ) {
+		$actor_id = get_current_user_id();
+		$blog_id  = function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 0;
+		if (
+			$product_id <= 0
+			|| ! isset( $this->editability_prepared_ids[ $product_id ] )
+			|| $this->editability_actor_id !== $actor_id
+			|| $this->editability_blog_id !== $blog_id
+		) {
+			return $this->error(
+				'digitalogic_product_code_admin_read_unprepared',
+				__( 'The Product Code row was not prepared for this exact admin response. Reload the page.', 'digitalogic' ),
+				503,
+				array( 'retryable' => true )
+			);
+		}
+		return null;
+	}
+
+	/**
+	 * Return one exact prepared metadata/provenance row without a fallback query.
+	 *
+	 * @param int $product_id Product or variation ID.
+	 * @return array|WP_Error
+	 */
+	private function admin_readback_for( $product_id ) {
+		$context = $this->admin_read_context_error( $product_id );
+		if ( is_wp_error( $context ) ) {
+			return $context;
+		}
+		if ( is_wp_error( $this->editability_batch_error ) ) {
+			return $this->editability_batch_error;
+		}
+		if ( ! array_key_exists( $product_id, $this->editability_readbacks ) ) {
+			return $this->database_unavailable();
+		}
+
+		return $this->editability_readbacks[ $product_id ];
+	}
+
+	/**
+	 * Build one validated source ownership index for the complete admin response.
+	 *
+	 * @param array $state Exact source state.
+	 * @return array|WP_Error
+	 */
+	private function build_editability_source_index( $state ) {
+		++$this->editability_source_index_builds;
+		if (
+			! is_array( $state )
+			|| ! is_array( $state['sources'] ?? null )
+			|| ! is_array( $state['legacy_feed_products'] ?? null )
+		) {
+			return $this->source_state_malformed( 'sources' );
+		}
+
+		$index = array(
+			'codes'       => array(),
+			'product_ids' => array(),
+		);
+		foreach ( array_values( $state['sources'] ) as $source_index => $source_state ) {
+			if ( ! is_array( $source_state ) || ! is_array( $source_state['source'] ?? null ) ) {
+				return $this->source_state_malformed( 'sources[' . $source_index . ']' );
+			}
+			foreach ( array( 'id', 'dataset', 'revision' ) as $source_field ) {
+				$value = $source_state['source'][ $source_field ] ?? null;
+				if ( ! is_string( $value ) || '' === $value ) {
+					return $this->source_state_malformed( 'sources[' . $source_index . '].source.' . $source_field );
+				}
+			}
+			if ( 1 !== preg_match( self::REVISION_PATTERN, $source_state['source']['revision'] ) ) {
+				return $this->source_state_malformed( 'sources[' . $source_index . '].source.revision' );
+			}
+			if ( ! is_array( $source_state['products'] ?? null ) ) {
+				return $this->source_state_malformed( 'sources[' . $source_index . '].products' );
+			}
+			foreach ( $source_state['products'] as $product_index => $source_product ) {
+				if (
+					! is_array( $source_product )
+					|| ! is_string( $source_product['product_code'] ?? null )
+					|| '' === $source_product['product_code']
+					|| ! hash_equals( (string) $product_index, $source_product['product_code'] )
+					|| ! is_string( $source_product['record_hash'] ?? null )
+					|| 1 !== preg_match( self::RECORD_HASH_PATTERN, $source_product['record_hash'] )
+				) {
+					return $this->source_state_malformed( 'sources[' . $source_index . '].products[' . $product_index . ']' );
+				}
+				$index['codes'][ hash( 'sha256', $source_product['product_code'] ) ] = true;
+			}
+			foreach ( array( 'applied_products', 'pending_products', 'deferred_products' ) as $set_name ) {
+				if ( ! is_array( $source_state[ $set_name ] ?? null ) ) {
+					return $this->source_state_malformed( 'sources[' . $source_index . '].' . $set_name );
+				}
+				foreach ( $source_state[ $set_name ] as $entry_index => $entry ) {
+					if (
+						! is_array( $entry )
+						|| ! is_string( $entry['product_code'] ?? null )
+						|| '' === $entry['product_code']
+						|| ! hash_equals( (string) $entry_index, $entry['product_code'] )
+						|| ! is_string( $entry['record_hash'] ?? null )
+						|| 1 !== preg_match( self::RECORD_HASH_PATTERN, $entry['record_hash'] )
+					) {
+						return $this->source_state_malformed( 'sources[' . $source_index . '].' . $set_name . '[' . $entry_index . ']' );
+					}
+					$entry_id = is_int( $entry['woocommerce_id'] ?? null ) || is_string( $entry['woocommerce_id'] ?? null )
+						? (string) $entry['woocommerce_id']
+						: '';
+					if (
+						( 'applied_products' === $set_name || array_key_exists( 'woocommerce_id', $entry ) )
+						&& ( 1 !== preg_match( '/\A[1-9][0-9]*\z/D', $entry_id ) || (string) absint( $entry_id ) !== $entry_id )
+					) {
+						return $this->source_state_malformed( 'sources[' . $source_index . '].' . $set_name . '[' . $entry_index . '].woocommerce_id' );
+					}
+					$index['codes'][ hash( 'sha256', $entry['product_code'] ) ] = true;
+					$product_id = absint( $entry_id );
+					if ( $product_id > 0 ) {
+						$index['product_ids'][ (string) $product_id ] = true;
+					}
+				}
+			}
+		}
+		foreach ( $state['legacy_feed_products'] as $legacy_index => $legacy_product ) {
+			if (
+				! is_array( $legacy_product )
+				|| ! is_string( $legacy_product['product_code'] ?? null )
+				|| '' === $legacy_product['product_code']
+				|| ! hash_equals( (string) $legacy_index, $legacy_product['product_code'] )
+			) {
+				return $this->source_state_malformed( 'legacy_feed_products[' . $legacy_index . ']' );
+			}
+			$index['codes'][ hash( 'sha256', $legacy_product['product_code'] ) ] = true;
+		}
+
+		return $index;
+	}
+
+	/**
+	 * Classify exact on-product provenance without walking the shared source snapshot.
+	 *
+	 * @param array $readback Exact database readback.
+	 * @return string|WP_Error
+	 */
+	private function editability_provenance_status( $readback ) {
+		$owner        = is_array( $readback['owner'] ?? null ) ? $readback['owner'] : null;
+		$owner_counts = is_array( $readback['owner_row_counts'] ?? null ) ? $readback['owner_row_counts'] : null;
+		$hash_count   = (int) ( $readback['record_hash_row_count'] ?? -1 );
+		$hash_value   = $readback['record_hash'] ?? null;
+		if ( null === $owner || null === $owner_counts || $hash_count < 0 || ! is_string( $hash_value ) ) {
+			return $this->source_state_malformed( 'product_provenance' );
+		}
+		if ( $hash_count > 0 ) {
+			return 'managed';
+		}
+		if ( '' !== $hash_value ) {
+			return $this->source_state_malformed( 'product_provenance.record_hash' );
+		}
+		$managed = false;
+		foreach ( array( 'source_id', 'dataset', 'product_code' ) as $field ) {
+			$count = (int) ( $owner_counts[ $field ] ?? -1 );
+			$value = $owner[ $field ] ?? null;
+			if ( $count < 0 || ! is_string( $value ) || ( 0 === $count && '' !== $value ) ) {
+				return $this->source_state_malformed( 'product_owner_provenance.' . $field );
+			}
+			$managed = $managed || $count > 0;
+		}
+
+		return $managed ? 'managed' : 'unmanaged';
 	}
 
 	/**
@@ -2009,32 +2469,67 @@ final class Digitalogic_Product_Code_Editor {
 	 * @return array|WP_Error
 	 */
 	private function read_exact_product_code( $product_id ) {
+		$product_id = absint( $product_id );
+		$readbacks  = $this->read_exact_product_codes( array( $product_id ) );
+		if ( is_wp_error( $readbacks ) ) {
+			return $readbacks;
+		}
+
+		return $readbacks[ $product_id ] ?? $this->empty_exact_product_code_readback();
+	}
+
+	/**
+	 * Read one bounded set of Product Code/provenance rows in a single query.
+	 *
+	 * @param int[] $product_ids Exact product and variation IDs.
+	 * @return array<int,array>|WP_Error
+	 */
+	private function read_exact_product_codes( $product_ids ) {
 		global $wpdb;
 		if ( ! is_object( $wpdb ) || ! method_exists( $wpdb, 'prepare' ) || ! method_exists( $wpdb, 'get_results' ) ) {
 			return $this->database_unavailable();
 		}
-		$posts    = isset( $wpdb->posts ) ? $wpdb->posts : $wpdb->prefix . 'posts';
-		$postmeta = isset( $wpdb->postmeta ) ? $wpdb->postmeta : $wpdb->prefix . 'postmeta';
-		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- wpdb-owned table names cannot be placeholders.
+		$product_ids = array_values( array_unique( array_filter( array_map( 'absint', (array) $product_ids ) ) ) );
+		if ( empty( $product_ids ) ) {
+			return array();
+		}
+		if ( count( $product_ids ) > 101 ) {
+			return $this->database_unavailable();
+		}
+		$posts           = isset( $wpdb->posts ) ? $wpdb->posts : $wpdb->prefix . 'posts';
+		$postmeta        = isset( $wpdb->postmeta ) ? $wpdb->postmeta : $wpdb->prefix . 'postmeta';
+		$id_placeholders = implode( ', ', array_fill( 0, count( $product_ids ), '%d' ) );
+		$params          = array_merge(
+			array(
+				self::META_KEY,
+				'_digitalogic_patris_record_hash',
+				self::OWNER_SOURCE_META,
+				self::OWNER_DATASET_META,
+				self::OWNER_CODE_META,
+			),
+			$product_ids
+		);
+		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- wpdb-owned tables and a bounded variadic placeholder list cannot be expressed statically.
 		$query = $wpdb->prepare(
-			"/* digitalogic_product_code_readback */
+			"/* digitalogic_product_code_readback_batch */
 			SELECT p.ID, p.post_type, p.post_status, pm.meta_id, pm.meta_key, pm.meta_value
 			FROM {$posts} p
 			LEFT JOIN {$postmeta} pm
 				ON pm.post_id = p.ID
-				AND LOWER(pm.meta_key) IN (LOWER(%s), LOWER(%s), LOWER(%s), LOWER(%s), LOWER(%s))
-			WHERE p.ID = %d
+				AND (
+					LOWER(CONVERT(pm.meta_key USING utf8mb4)) COLLATE utf8mb4_bin = LOWER(CONVERT(%s USING utf8mb4)) COLLATE utf8mb4_bin
+					OR LOWER(CONVERT(pm.meta_key USING utf8mb4)) COLLATE utf8mb4_bin = LOWER(CONVERT(%s USING utf8mb4)) COLLATE utf8mb4_bin
+					OR LOWER(CONVERT(pm.meta_key USING utf8mb4)) COLLATE utf8mb4_bin = LOWER(CONVERT(%s USING utf8mb4)) COLLATE utf8mb4_bin
+					OR LOWER(CONVERT(pm.meta_key USING utf8mb4)) COLLATE utf8mb4_bin = LOWER(CONVERT(%s USING utf8mb4)) COLLATE utf8mb4_bin
+					OR LOWER(CONVERT(pm.meta_key USING utf8mb4)) COLLATE utf8mb4_bin = LOWER(CONVERT(%s USING utf8mb4)) COLLATE utf8mb4_bin
+				)
+			WHERE p.ID IN ({$id_placeholders})
 				AND p.post_type IN ('product', 'product_variation')
 				AND p.post_status <> 'auto-draft'
-			ORDER BY pm.meta_key ASC, pm.meta_id ASC",
-			self::META_KEY,
-			'_digitalogic_patris_record_hash',
-			self::OWNER_SOURCE_META,
-			self::OWNER_DATASET_META,
-			self::OWNER_CODE_META,
-			$product_id
+			ORDER BY p.ID ASC, pm.meta_key ASC, pm.meta_id ASC",
+			...$params
 		);
-		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber
 		if ( false === $query ) {
 			return $this->database_unavailable();
 		}
@@ -2044,30 +2539,57 @@ final class Digitalogic_Product_Code_Editor {
 		if ( ! is_array( $rows ) ) {
 			return $this->database_unavailable();
 		}
-		if ( empty( $rows ) ) {
-			return array(
-				'product_exists'        => false,
-				'post_type'             => '',
-				'post_status'           => '',
-				'meta_exists'           => false,
-				'product_code'          => '',
-				'record_hash'           => '',
-				'record_hash_row_count' => 0,
-				'owner'                 => array(
-					'source_id'    => '',
-					'dataset'      => '',
-					'product_code' => '',
-				),
-				'owner_row_counts'      => array(
-					'source_id'    => 0,
-					'dataset'      => 0,
-					'product_code' => 0,
-				),
-				'row_count'             => 0,
-				'duplicate_rows'        => false,
-				'invalid_key_rows'      => 0,
-			);
+		$grouped = array_fill_keys( $product_ids, array() );
+		foreach ( $rows as $row ) {
+			$row_id = absint( $row['ID'] ?? 0 );
+			if ( ! array_key_exists( $row_id, $grouped ) ) {
+				return $this->database_unavailable();
+			}
+			$grouped[ $row_id ][] = $row;
 		}
+		$readbacks = array();
+		foreach ( $grouped as $product_id => $product_rows ) {
+			$readbacks[ $product_id ] = empty( $product_rows )
+				? $this->empty_exact_product_code_readback()
+				: $this->parse_exact_product_code_rows( $product_rows );
+		}
+
+		return $readbacks;
+	}
+
+	/** Return a canonical absent-product readback. */
+	private function empty_exact_product_code_readback() {
+		return array(
+			'product_exists'        => false,
+			'post_type'             => '',
+			'post_status'           => '',
+			'meta_exists'           => false,
+			'product_code'          => '',
+			'record_hash'           => '',
+			'record_hash_row_count' => 0,
+			'owner'                 => array(
+				'source_id'    => '',
+				'dataset'      => '',
+				'product_code' => '',
+			),
+			'owner_row_counts'      => array(
+				'source_id'    => 0,
+				'dataset'      => 0,
+				'product_code' => 0,
+			),
+			'row_count'             => 0,
+			'duplicate_rows'        => false,
+			'invalid_key_rows'      => 0,
+		);
+	}
+
+	/**
+	 * Parse one product's exact rows into the canonical readback shape.
+	 *
+	 * @param array[] $rows Exact metadata rows for one product.
+	 * @return array
+	 */
+	private function parse_exact_product_code_rows( $rows ) {
 
 		$code_rows        = array();
 		$record_hash_rows = array();
@@ -2144,7 +2666,8 @@ final class Digitalogic_Product_Code_Editor {
 			SELECT DISTINCT p.ID, p.post_type
 			FROM {$postmeta} pm
 			INNER JOIN {$posts} p ON p.ID = pm.post_id
-			WHERE pm.meta_key = %s
+			WHERE LOWER(CONVERT(pm.meta_key USING utf8mb4)) COLLATE utf8mb4_bin
+				= LOWER(CONVERT(%s USING utf8mb4)) COLLATE utf8mb4_bin
 				AND BINARY pm.meta_value = BINARY %s
 				AND p.ID <> %d
 				AND p.post_type IN ('product', 'product_variation')
@@ -2405,6 +2928,35 @@ final class Digitalogic_Product_Code_Editor {
 	}
 
 	/**
+	 * Verify a genuinely absent canonical identity with no orphan provenance.
+	 *
+	 * @param array $readback Exact database readback.
+	 * @return bool
+	 */
+	private function readback_is_exact_absent_identity( $readback ) {
+		if ( ! is_array( $readback ) ) {
+			return false;
+		}
+		$owner        = is_array( $readback['owner'] ?? null ) ? $readback['owner'] : array();
+		$owner_counts = is_array( $readback['owner_row_counts'] ?? null ) ? $readback['owner_row_counts'] : array();
+
+		return ! empty( $readback['product_exists'] )
+			&& empty( $readback['meta_exists'] )
+			&& '' === (string) ( $readback['product_code'] ?? '' )
+			&& 0 === (int) ( $readback['row_count'] ?? -1 )
+			&& empty( $readback['duplicate_rows'] )
+			&& empty( $readback['invalid_key_rows'] )
+			&& '' === (string) ( $readback['record_hash'] ?? '' )
+			&& 0 === (int) ( $readback['record_hash_row_count'] ?? -1 )
+			&& '' === (string) ( $owner['source_id'] ?? '' )
+			&& '' === (string) ( $owner['dataset'] ?? '' )
+			&& '' === (string) ( $owner['product_code'] ?? '' )
+			&& 0 === (int) ( $owner_counts['source_id'] ?? -1 )
+			&& 0 === (int) ( $owner_counts['dataset'] ?? -1 )
+			&& 0 === (int) ( $owner_counts['product_code'] ?? -1 );
+	}
+
+	/**
 	 * Build a stable backup reference without exposing unrelated data.
 	 *
 	 * @param array $request Validated request.
@@ -2552,14 +3104,20 @@ final class Digitalogic_Product_Code_Editor {
 		return is_array( $stored['value'] ) ? $stored['value'] : $this->audit_unavailable();
 	}
 
-	/** Rebuild and verify the exact request bound into a recovery index. */
-	private function request_from_recovery_index( $index ) {
+	/**
+	 * Rebuild and verify the exact request bound into a recovery index.
+	 *
+	 * @param array $index Recovery pointer.
+	 * @param int   $expected_product_id Product owning the pointer option.
+	 * @return array|WP_Error
+	 */
+	private function request_from_recovery_index( $index, $expected_product_id ) {
 		if (
 			! is_array( $index )
 			|| self::SCHEMA !== (string) ( $index['schema'] ?? '' )
 			|| 'recovery-index' !== (string) ( $index['kind'] ?? '' )
 			|| (int) ( $index['actor_id'] ?? 0 ) <= 0
-			|| ! in_array( (string) ( $index['status'] ?? '' ), array( 'in_progress', 'failed_retryable', 'outcome_unknown' ), true )
+			|| ! in_array( (string) ( $index['status'] ?? '' ), array( 'reservation_pending', 'in_progress', 'failed_retryable', 'outcome_unknown' ), true )
 		) {
 			return $this->audit_unavailable();
 		}
@@ -2574,6 +3132,7 @@ final class Digitalogic_Product_Code_Editor {
 		);
 		if (
 			is_wp_error( $request )
+			|| (int) ( $request['product_id'] ?? 0 ) !== absint( $expected_product_id )
 			|| ! hash_equals( (string) ( $index['request_fingerprint'] ?? '' ), (string) ( $request['fingerprint'] ?? '' ) )
 		) {
 			return $this->audit_unavailable();
@@ -3078,6 +3637,66 @@ final class Digitalogic_Product_Code_Editor {
 			'exists' => true,
 			'value'  => maybe_unserialize( $row['option_value'] ),
 		);
+	}
+
+	/**
+	 * Read a bounded option set in one cache-bypassed query.
+	 *
+	 * @param string[] $option_names Exact internal option names.
+	 * @return array<string,array{exists:bool,value:mixed}>|WP_Error
+	 */
+	private function read_exact_options( $option_names ) {
+		global $wpdb;
+		if ( ! is_object( $wpdb ) || ! method_exists( $wpdb, 'prepare' ) || ! method_exists( $wpdb, 'get_results' ) ) {
+			return $this->audit_unavailable();
+		}
+		$option_names = array_values( array_unique( array_map( 'strval', (array) $option_names ) ) );
+		if ( empty( $option_names ) ) {
+			return array();
+		}
+		if ( count( $option_names ) > 101 ) {
+			return $this->audit_unavailable();
+		}
+		$options      = isset( $wpdb->options ) ? $wpdb->options : $wpdb->prefix . 'options';
+		$placeholders = implode( ', ', array_fill( 0, count( $option_names ), '%s' ) );
+		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare -- wpdb-owned table and a bounded variadic placeholder list cannot be expressed statically.
+		$query = $wpdb->prepare(
+			"/* digitalogic_product_code_options_batch */
+			SELECT option_name, option_value
+			FROM {$options}
+			WHERE option_name IN ({$placeholders})
+			ORDER BY option_name ASC",
+			...$option_names
+		);
+		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare
+		if ( false === $query ) {
+			return $this->audit_unavailable();
+		}
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Exact recovery handoff must bypass object caches.
+		$rows = $wpdb->get_results( $query, ARRAY_A );
+		if ( ! is_array( $rows ) ) {
+			return $this->audit_unavailable();
+		}
+		$result = array_fill_keys(
+			$option_names,
+			array(
+				'exists' => false,
+				'value'  => null,
+			)
+		);
+		foreach ( $rows as $row ) {
+			$name = is_array( $row ) && is_string( $row['option_name'] ?? null ) ? $row['option_name'] : '';
+			if ( '' === $name || ! array_key_exists( $name, $result ) || $result[ $name ]['exists'] || ! array_key_exists( 'option_value', $row ) ) {
+				return $this->audit_unavailable();
+			}
+			$result[ $name ] = array(
+				'exists' => true,
+				'value'  => maybe_unserialize( $row['option_value'] ),
+			);
+		}
+
+		return $result;
 	}
 
 	/**

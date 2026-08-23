@@ -777,6 +777,49 @@ class Digitalogic_Patris_Feed {
 		return $this->restore_product_feed_backup( $product, $backup );
 	}
 
+	/**
+	 * Capture the exact feed projection while an enclosing source transaction owns the locks.
+	 *
+	 * @param int   $product_id Product or variation ID.
+	 * @param array $data Normalized source row.
+	 * @return array|WP_Error
+	 */
+	public function capture_locked_product_feed_expected( $product_id, $data ) {
+		$product_id = absint( $product_id );
+		if ( ! $this->source_write_locks_are_owned( $product_id ) ) {
+			return $this->source_write_outcome_unknown( $product_id );
+		}
+		$product = $this->fresh_product_for_source_readback( $product_id );
+		if ( ! $product instanceof WC_Product ) {
+			return new WP_Error(
+				'digitalogic_patris_product_projection_readback_failed',
+				__( 'The source product projection could not be verified.', 'digitalogic' ),
+				array(
+					'status'    => 503,
+					'retryable' => true,
+				)
+			);
+		}
+
+		return $this->capture_product_feed_expected( $product, is_array( $data ) ? $data : array() );
+	}
+
+	/**
+	 * Recheck a previously captured feed projection after every later row save.
+	 *
+	 * @param int   $product_id Product or variation ID.
+	 * @param array $expected Expected exact projection.
+	 * @return true|WP_Error
+	 */
+	public function verify_locked_product_feed_expected( $product_id, $expected ) {
+		$product_id = absint( $product_id );
+		if ( ! $this->source_write_locks_are_owned( $product_id ) ) {
+			return $this->source_write_outcome_unknown( $product_id );
+		}
+
+		return $this->verify_product_feed_expected( $product_id, $expected );
+	}
+
 	/** Apply one source row while both the source and exact product locks are owned. */
 	private function apply_product_feed_locked( $expected_product_id, $expected_product_code, $data ) {
 		$product_code = is_string( $data['product_code'] ?? null ) ? $data['product_code'] : '';

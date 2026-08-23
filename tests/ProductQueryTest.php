@@ -18,7 +18,16 @@ final class ProductQueryTest extends TestCase {
 	protected function setUp(): void {
 		$manager = new ReflectionProperty( Digitalogic_Product_Manager::class, 'instance' );
 		$manager->setValue( null, null );
+		$editor = new ReflectionProperty( Digitalogic_Product_Code_Editor::class, 'instance' );
+		$editor->setValue( null, null );
 		$GLOBALS['digitalogic_test_posts']            = array();
+		$GLOBALS['digitalogic_test_options']          = array();
+		$GLOBALS['digitalogic_test_option_cache']     = array();
+		$GLOBALS['digitalogic_test_current_user_id']  = 17;
+		$GLOBALS['digitalogic_test_capabilities']     = array(
+			'manage_woocommerce' => true,
+			'edit_post'          => true,
+		);
 		$GLOBALS['digitalogic_test_wp_query_args']    = array();
 		$GLOBALS['digitalogic_test_wp_query_results'] = array();
 		$GLOBALS['digitalogic_test_primed_post_ids']  = array();
@@ -305,6 +314,61 @@ final class ProductQueryTest extends TestCase {
 		$this->assertSame( '180.0000', $product['variations'][0]['min_price'] );
 		$this->assertSame( '180.0000', $product['variations'][0]['max_price'] );
 		$this->assertSame( 1, $GLOBALS['wpdb']->price_range_query_count );
+	}
+
+	/** A full 1093-row export builds source governance once across all pages. */
+	public function test_full_export_reuses_one_source_index_across_bounded_pages(): void {
+		$source_products = array();
+		$all_ids         = range( 1001, 2093 );
+		foreach ( $all_ids as $product_id ) {
+			$code = 'EXPORT-' . $product_id;
+			$GLOBALS['digitalogic_test_posts'][ $product_id ] = array(
+				'post_type'    => 'product',
+				'post_status'  => 'publish',
+				'post_title'   => 'Export product ' . $product_id,
+				'product_type' => 'simple',
+				'meta'         => array( Digitalogic_Product_Code_Editor::META_KEY => $code ),
+			);
+
+			$source_products[ $code ] = array(
+				'product_code' => $code,
+				'record_hash'  => 'sha256:' . hash( 'sha256', $code ),
+			);
+		}
+		$GLOBALS['digitalogic_test_options'][ Digitalogic_Product_Sync_Receiver::STATE_OPTION ] = array(
+			'sources' => array(
+				'export-fixture' => array(
+					'source'            => array(
+						'id'       => 'export-source',
+						'dataset'  => 'catalog',
+						'revision' => 'sha256:' . str_repeat( 'a', 64 ),
+					),
+					'products'          => $source_products,
+					'applied_products'  => array(),
+					'pending_products'  => array(),
+					'deferred_products' => array(),
+				),
+			),
+		);
+		foreach ( array_chunk( $all_ids, 100 ) as $page_ids ) {
+			$GLOBALS['digitalogic_test_wp_query_results'][] = array(
+				'posts'       => $page_ids,
+				'found_posts' => count( $all_ids ),
+			);
+		}
+
+		$products = Digitalogic_Product_Manager::instance()->get_products( array( 'limit' => -1 ) );
+
+		$this->assertCount( 1093, $products );
+		$this->assertSame( 11, $GLOBALS['wpdb']->product_code_readback_batch_query_count );
+		$this->assertSame( 11, $GLOBALS['wpdb']->product_code_options_batch_query_count );
+		$this->assertSame( 1, $GLOBALS['wpdb']->option_read_counts[ Digitalogic_Product_Sync_Receiver::STATE_OPTION ] ?? 0 );
+		$this->assertSame( 1, $GLOBALS['wpdb']->option_read_counts['digitalogic_patris_feed_products'] ?? 0 );
+
+		$builds = new ReflectionProperty( Digitalogic_Product_Code_Editor::class, 'editability_source_index_builds' );
+		$this->assertSame( 1, $builds->getValue( Digitalogic_Product_Code_Editor::instance() ) );
+		$this->assertFalse( $products[0]['patris_product_code_editable'] );
+		$this->assertSame( 'source_managed', $products[0]['patris_product_code_edit_reason'] );
 	}
 
 	/**
