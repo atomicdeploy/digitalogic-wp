@@ -283,6 +283,22 @@ final class PricingSnapshotTest extends TestCase {
 		$this->assertArrayNotHasKey( 'digitalogic_pricing_state_event_outbox_v1', $GLOBALS['digitalogic_test_options'] );
 	}
 
+	/** Exact coalescing retains independent fallback identities. */
+	public function test_state_event_retry_coalescing_does_not_evict_distinct_fallbacks(): void {
+		$other_source       = $this->source;
+		$other_source['id'] = 'patris-backup';
+		$first_args         = array( array( $this->source ), array() );
+		$other_args         = array( array( $other_source ), array() );
+		$this->assertTrue( $this->invoke_snapshot( 'schedule_state_revision_event_retry', $first_args ) );
+		$this->assertTrue( $this->invoke_snapshot( 'schedule_state_revision_event_retry', $first_args ) );
+		$this->assertTrue( $this->invoke_snapshot( 'schedule_state_revision_event_retry', $other_args ) );
+
+		$scheduled = $this->scheduled_events_for( 'digitalogic_pricing_state_event_delivery_v1' );
+		$this->assertCount( 2, $scheduled );
+		$this->assertSame( $first_args, $scheduled[0]['args'] );
+		$this->assertSame( $other_args, $scheduled[1]['args'] );
+	}
+
 	/** A lock-contending request accepts the exact pending action created by its peer. */
 	public function test_state_event_retry_lock_contender_does_not_insert_a_duplicate(): void {
 		$args = array( array( $this->source ), array() );
