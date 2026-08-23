@@ -159,6 +159,7 @@ final class Digitalogic {
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-telegram-account-link.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-digitalogic-sidebar-login.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-desktop-app.php';
+		require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-digitalogic-wp-rocket-etag.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-digitalogic-event-mesh.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-frontend-search.php';
 		require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-pbx-phone.php';
@@ -196,6 +197,7 @@ final class Digitalogic {
      * Register integrations that must hook before plugins_loaded.
      */
     private function init_early_integrations() {
+		Digitalogic_WP_Rocket_ETag::init();
         Digitalogic_Label_Overrides::init();
         Digitalogic_Plugin_Admin_Branding::init();
         Digitalogic_Plugin_Auth_Routes::init();

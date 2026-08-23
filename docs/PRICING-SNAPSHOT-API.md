@@ -34,6 +34,15 @@ provided its stored source identity still equals the request query.
 `ETag` without loading the WooCommerce product projection. `If-None-Match`
 returns `304` with the same private revalidation policy.
 
+WP Rocket normally writes a global `Header unset ETag` directive into its
+Apache marker. Digitalogic filters `rocket_htaccess_etag` so that exact stock
+directive remains active everywhere except the pricing revision request. The
+generated Apache 2.4 rule matches `THE_REQUEST`, rather than `REQUEST_URI`,
+because WordPress's per-directory rewrite can change the latter before response
+headers are finalized. WP Rocket's `FileETag None` static-file policy remains
+unchanged. If WP Rocket changes the expected generator shape, the filter leaves
+the complete upstream block untouched instead of broadening the exception.
+
 The persistent report generation is installed by plugin activation and the
 bounded admin migration hook. Revision GET/HEAD never creates that option (or
 the receiver secret); if installation has not completed, it fails closed with
