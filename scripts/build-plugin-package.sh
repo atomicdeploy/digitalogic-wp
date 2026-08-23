@@ -17,6 +17,15 @@ if [[ -z "$find_bin" ]] || [[ "${find_bin,,}" == *.exe ]]; then
     printf 'A Unix find implementation is required to build the plugin package.\n' >&2
     exit 1
 fi
+if [[ -x /usr/bin/sort ]]; then
+    sort_bin=/usr/bin/sort
+else
+    sort_bin="$(command -v sort || true)"
+fi
+if [[ -z "$sort_bin" ]] || [[ "${sort_bin,,}" == */windows/system32/sort* ]]; then
+    printf 'A Unix sort implementation is required to build the plugin package.\n' >&2
+    exit 1
+fi
 output="$1"
 if [[ "$output" != /* ]]; then
     output="$(pwd)/$output"
@@ -134,15 +143,33 @@ fi
 "$find_bin" "$stage" -type f -exec chmod 0644 {} +
 "$find_bin" "$stage" -exec touch -h -d "@$source_date_epoch" {} +
 
+zip_bin="$(command -v zip || true)"
+ziparchive_available=false
+if php -r 'exit(class_exists("ZipArchive") ? 0 : 1);'; then
+    ziparchive_available=true
+fi
+if [[ -z "$zip_bin" && "$ziparchive_available" != true ]]; then
+    printf 'A deterministic ZIP writer (zip or PHP ZipArchive) is required.\n' >&2
+    exit 1
+fi
+
 create_archive() {
     local destination="$1"
     rm -f -- "$destination"
+	# Reading a file can advance atime. Reset every staged timestamp before
+	# each independent build so libarchive's ZIP time fields stay reproducible.
+	"$find_bin" "$stage" -exec touch -h -d "@$source_date_epoch" {} +
     (
         cd "$work_dir/stage"
         export TZ=UTC
-        "$find_bin" "$plugin_slug" -type f -print0 |
-            LC_ALL=C sort -z |
-            xargs -0 zip -X -q "$destination"
+		if [[ -n "$zip_bin" ]]; then
+			"$find_bin" "$plugin_slug" -type f -print0 |
+				LC_ALL=C "$sort_bin" -z |
+				xargs -0 "$zip_bin" -X -q "$destination"
+		else
+			php "$root/scripts/create-deterministic-zip.php" \
+				"$work_dir/stage" "$destination" "$source_date_epoch"
+		fi
     )
 }
 
@@ -172,7 +199,7 @@ done
 mapfile -t archive_roots < <(
     printf '%s\n' "${archive_entries[@]}" |
         cut -d/ -f1 |
-        LC_ALL=C sort -u
+		LC_ALL=C "$sort_bin" -u
 )
 if (("${#archive_roots[@]}" != 1)) || [[ "${archive_roots[0]}" != "$plugin_slug" ]]; then
     printf 'Package must have exactly one %s/ root; found: %s\n' \
@@ -189,7 +216,7 @@ for required_entry in \
     fi
 done
 
-duplicates="$(printf '%s\n' "${archive_entries[@]}" | LC_ALL=C sort | uniq -d)"
+duplicates="$(printf '%s\n' "${archive_entries[@]}" | LC_ALL=C "$sort_bin" | uniq -d)"
 if [[ -n "$duplicates" ]]; then
     printf 'Package contains duplicate entries:\n%s\n' "$duplicates" >&2
     exit 1

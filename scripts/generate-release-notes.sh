@@ -52,7 +52,7 @@ mkdir -p -- "$(dirname -- "$output")"
 cat > "$output" <<EOF
 # Digitalogic WooCommerce Extension ${version}
 
-This release is an installable, production-only WordPress plugin package built and verified directly from source commit [\`${source_commit}\`](https://github.com/atomicdeploy/digitalogic-wp/commit/${source_commit}). It provides the Digitalogic product, pricing, currency, inventory, shipping-method, Patris integration, Excel and Google Sheets synchronization, REST, webhook, polling, and administrative panel capabilities documented in the repository.
+This release is an installable, production-only WordPress plugin package built and verified directly from source commit [\`${source_commit}\`](https://github.com/atomicdeploy/digitalogic-wp/commit/${source_commit}). It provides the Digitalogic product, pricing, currency, inventory, shipping-method, Patris integration, Excel and Google Sheets synchronization, REST, webhook, push-event, and administrative panel capabilities documented in the repository.
 
 ## Download and install
 
