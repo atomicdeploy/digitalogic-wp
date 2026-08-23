@@ -136,6 +136,109 @@ final class Digitalogic_Product_Code_Editor {
 	}
 
 	/**
+	 * Fail closed before a canonical source writer changes any product state.
+	 *
+	 * Unlike the general identifier resolver, this exact database check treats a
+	 * trashed product or variation as the continuing owner of its Product Code
+	 * until WordPress permanently deletes it. Callers must retain the shared
+	 * source-identity lock from this check through their write and readback.
+	 *
+	 * @param int    $product_id Target product ID, or zero before creating a draft.
+	 * @param string $product_code Desired canonical Product Code.
+	 * @return true|WP_Error
+	 */
+	public function preflight_canonical_source_write( $product_id, $product_code ) {
+		$product_id   = absint( $product_id );
+		$product_code = $this->normalize_code( $product_code, false );
+		if ( is_wp_error( $product_code ) ) {
+			return $product_code;
+		}
+		if (
+			! class_exists( 'Digitalogic_Product_Sync_Receiver' )
+			|| ! Digitalogic_Product_Sync_Receiver::instance()->source_identity_lock_is_owned()
+		) {
+			return $this->error(
+				'digitalogic_product_code_source_preflight_unavailable',
+				__( 'The exact source Product Code preflight requires the shared identity lock.', 'digitalogic' ),
+				503,
+				array( 'retryable' => true )
+			);
+		}
+
+		$conflicts = $this->find_code_conflicts( $product_id, $product_code );
+		if ( is_wp_error( $conflicts ) ) {
+			return $conflicts;
+		}
+		if ( ! empty( $conflicts ) ) {
+			return $this->error(
+				'digitalogic_product_code_source_not_unique',
+				__( 'The source Product Code belongs to another product or variation, including one in Trash.', 'digitalogic' ),
+				409,
+				array(
+					'conflicting_product_ids' => array_values( array_map( 'intval', array_column( $conflicts, 'ID' ) ) ),
+				)
+			);
+		}
+
+		return true;
+	}
+
+	/** Capture one exact, rollback-safe canonical state for a source writer. */
+	public function canonical_source_backup( $product_id ) {
+		$product_id = absint( $product_id );
+		if (
+			$product_id <= 0
+			|| ! Digitalogic_Product_Sync_Receiver::instance()->source_identity_lock_is_owned()
+		) {
+			return $this->error(
+				'digitalogic_product_code_source_backup_unavailable',
+				__( 'The exact source Product Code backup requires the shared identity lock.', 'digitalogic' ),
+				503,
+				array( 'retryable' => true )
+			);
+		}
+		$readback = $this->read_exact_product_code( $product_id );
+		if (
+			is_wp_error( $readback )
+			|| empty( $readback['product_exists'] )
+			|| ! empty( $readback['duplicate_rows'] )
+			|| ! empty( $readback['invalid_key_rows'] )
+		) {
+			return $this->error(
+				'digitalogic_product_code_source_backup_conflict',
+				__( 'The source Product Code cannot be backed up until its metadata conflict is reconciled.', 'digitalogic' ),
+				409
+			);
+		}
+
+		return array(
+			'meta_exists'  => (bool) $readback['meta_exists'],
+			'product_code' => (string) $readback['product_code'],
+		);
+	}
+
+	/** Verify that a source writer restored its exact prior canonical state. */
+	public function verify_canonical_source_restore( $product_id, $backup ) {
+		if ( ! is_array( $backup ) || ! array_key_exists( 'meta_exists', $backup ) || ! is_bool( $backup['meta_exists'] ) ) {
+			return $this->error( 'digitalogic_product_code_source_restore_invalid', __( 'The source Product Code rollback data is invalid.', 'digitalogic' ), 409 );
+		}
+		$readback = $this->canonical_source_backup( $product_id );
+		if (
+			is_wp_error( $readback )
+			|| $readback['meta_exists'] !== $backup['meta_exists']
+			|| ! hash_equals( (string) ( $backup['product_code'] ?? '' ), $readback['product_code'] )
+		) {
+			return $this->error(
+				'digitalogic_product_code_source_restore_failed',
+				__( 'The source Product Code rollback did not pass exact database readback.', 'digitalogic' ),
+				409
+			);
+		}
+
+		return true;
+	}
+
+	/**
 	 * Return fail-closed editability for one admin product row.
 	 *
 	 * This is a UI hint only. The mutation repeats every exact guard while the
@@ -161,7 +264,7 @@ final class Digitalogic_Product_Code_Editor {
 		$exact_code     = $readback['product_code'];
 		$exact_revision = $this->revision_for( $product_id, $exact_code );
 		$cache_mismatch = ! hash_equals( $product_code, $exact_code );
-		if ( $readback['duplicate_rows'] ) {
+		if ( $readback['duplicate_rows'] || ! empty( $readback['invalid_key_rows'] ) ) {
 			return array(
 				'editable'       => false,
 				'reason'         => 'metadata_conflict',
@@ -520,8 +623,28 @@ final class Digitalogic_Product_Code_Editor {
 			}
 			if ( 'completed' === $status ) {
 				$this->clear_recovery_index( $request );
+				$current = $this->read_exact_product_code( $request['product_id'] );
+				if (
+					is_wp_error( $current )
+					|| empty( $current['product_exists'] )
+					|| ! empty( $current['duplicate_rows'] )
+					|| ! empty( $current['invalid_key_rows'] )
+				) {
+					return $this->error(
+						'digitalogic_product_code_replay_readback_unavailable',
+						__( 'The completed Product Code edit is historical, but the current product state could not be read exactly.', 'digitalogic' ),
+						503,
+						array( 'retryable' => true )
+					);
+				}
 				$replay             = $existing['result'];
 				$replay['replayed'] = true;
+				$replay['current_product_code'] = (string) $current['product_code'];
+				$replay['current_revision']     = $this->revision_for( $request['product_id'], (string) $current['product_code'] );
+				$replay['current_readback']     = array(
+					'database_readback' => true,
+					'cache_bypassed'    => true,
+				);
 				return $replay;
 			}
 			if ( 'outcome_unknown' === $status ) {
@@ -622,12 +745,15 @@ final class Digitalogic_Product_Code_Editor {
 				404
 			);
 		}
-		if ( $before['duplicate_rows'] ) {
+		if ( $before['duplicate_rows'] || ! empty( $before['invalid_key_rows'] ) ) {
 			return $this->error(
 				'digitalogic_product_code_meta_conflict',
 				__( 'The product has conflicting Product Code metadata rows and must be reconciled before editing.', 'digitalogic' ),
 				409,
-				array( 'row_count' => $before['row_count'] )
+				array(
+					'row_count'        => $before['row_count'],
+					'invalid_key_rows' => (int) ( $before['invalid_key_rows'] ?? 0 ),
+				)
 			);
 		}
 
@@ -874,6 +1000,7 @@ final class Digitalogic_Product_Code_Editor {
 				'record_hash_row_count' => 0,
 				'row_count'             => 1,
 				'duplicate_rows'        => false,
+				'invalid_key_rows'      => 0,
 			);
 			$result              = $this->success_result(
 				$request,
@@ -1269,7 +1396,7 @@ final class Digitalogic_Product_Code_Editor {
 			FROM {$posts} p
 			LEFT JOIN {$postmeta} pm
 				ON pm.post_id = p.ID
-				AND pm.meta_key IN (%s, %s)
+				AND LOWER(pm.meta_key) IN (LOWER(%s), LOWER(%s))
 			WHERE p.ID = %d
 				AND p.post_type IN ('product', 'product_variation')
 				AND p.post_status <> 'auto-draft'
@@ -1297,16 +1424,24 @@ final class Digitalogic_Product_Code_Editor {
 				'record_hash_row_count' => 0,
 				'row_count'             => 0,
 				'duplicate_rows'        => false,
+				'invalid_key_rows'      => 0,
 			);
 		}
 
 		$code_rows        = array();
 		$record_hash_rows = array();
+		$invalid_key_rows = 0;
 		foreach ( $rows as $row ) {
-			if ( self::META_KEY === (string) ( $row['meta_key'] ?? '' ) ) {
+			$key = (string) ( $row['meta_key'] ?? '' );
+			if ( self::META_KEY === $key ) {
 				$code_rows[] = (string) ( $row['meta_value'] ?? '' );
-			} elseif ( '_digitalogic_patris_record_hash' === (string) ( $row['meta_key'] ?? '' ) ) {
+			} elseif ( '_digitalogic_patris_record_hash' === $key ) {
 				$record_hash_rows[] = (string) ( $row['meta_value'] ?? '' );
+			} elseif (
+				0 === strcasecmp( self::META_KEY, $key )
+				|| 0 === strcasecmp( '_digitalogic_patris_record_hash', $key )
+			) {
+				++$invalid_key_rows;
 			}
 		}
 
@@ -1318,6 +1453,7 @@ final class Digitalogic_Product_Code_Editor {
 			'record_hash_row_count' => count( $record_hash_rows ),
 			'row_count'             => count( $code_rows ),
 			'duplicate_rows'        => count( $code_rows ) > 1,
+			'invalid_key_rows'      => $invalid_key_rows,
 		);
 	}
 
@@ -1394,7 +1530,8 @@ final class Digitalogic_Product_Code_Editor {
 		return ! is_wp_error( $restored )
 			&& $restored['meta_exists'] === $before['meta_exists']
 			&& hash_equals( $before['product_code'], $restored['product_code'] )
-			&& ! $restored['duplicate_rows'];
+			&& ! $restored['duplicate_rows']
+			&& empty( $restored['invalid_key_rows'] );
 	}
 
 	/**
@@ -1531,6 +1668,7 @@ final class Digitalogic_Product_Code_Editor {
 			&& $readback['meta_exists']
 			&& 1 === $readback['row_count']
 			&& ! $readback['duplicate_rows']
+			&& empty( $readback['invalid_key_rows'] )
 			&& hash_equals( $product_code, $readback['product_code'] );
 	}
 
@@ -2247,16 +2385,51 @@ final class Digitalogic_Product_Code_Editor {
 				)
 			);
 		}
-
-		try {
-			return call_user_func( $callback );
-		} finally {
+		$connection_id = $wpdb->get_var( 'SELECT CONNECTION_ID()' ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Connection identity is live session state.
+		if ( ! $this->advisory_lock_is_owned( $lock_name, $connection_id ) ) {
 			$release = $wpdb->prepare( 'SELECT RELEASE_LOCK(%s)', $lock_name );
 			if ( false !== $release ) {
+				$wpdb->get_var( $release ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.NotPrepared -- Best-effort cleanup.
+			}
+			return $this->operation_lock_lost();
+		}
+
+		try {
+			$result = call_user_func( $callback );
+			return $this->advisory_lock_is_owned( $lock_name, $connection_id ) ? $result : $this->operation_lock_lost();
+		} finally {
+			$release = $wpdb->prepare( 'SELECT RELEASE_LOCK(%s)', $lock_name );
+			if ( false !== $release && $this->advisory_lock_is_owned( $lock_name, $connection_id ) ) {
 				// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Release the connection-scoped advisory lock.
 				$wpdb->get_var( $release );
 			}
 		}
+	}
+
+	/** Verify one named advisory lock still belongs to the acquiring connection. */
+	private function advisory_lock_is_owned( $lock_name, $connection_id ) {
+		global $wpdb;
+		if ( (int) $connection_id <= 0 || ! is_object( $wpdb ) || ! method_exists( $wpdb, 'prepare' ) || ! method_exists( $wpdb, 'get_var' ) ) {
+			return false;
+		}
+		$current     = $wpdb->get_var( 'SELECT CONNECTION_ID()' ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Connection identity is live session state.
+		$owner_query = $wpdb->prepare( 'SELECT IS_USED_LOCK(%s)', $lock_name );
+		$owner       = false !== $owner_query ? $wpdb->get_var( $owner_query ) : false; // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.NotPrepared -- Advisory ownership is live session state.
+
+		return (int) $connection_id === (int) $current && (int) $connection_id === (int) $owner;
+	}
+
+	/** Typed same-key retry result after a connection-scoped operation lock is lost. */
+	private function operation_lock_lost() {
+		return $this->error(
+			'digitalogic_product_code_operation_lock_lost',
+			__( 'The Product Code operation lock was lost after a database reconnect. Retry the unchanged request.', 'digitalogic' ),
+			503,
+			array(
+				'retryable'   => true,
+				'retry_after' => 1,
+			)
+		);
 	}
 
 	/** Typed database availability failure. */

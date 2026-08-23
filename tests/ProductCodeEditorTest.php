@@ -137,6 +137,33 @@ final class ProductCodeEditorTest extends TestCase {
 		$this->assertSame( 6, $GLOBALS['wpdb']->acquire_count, 'Replay adds only the shared source and short operation locks.' );
 	}
 
+	/** Historical replay returns a separate DB-fresh current row projection. */
+	public function test_historical_replay_cannot_replace_a_newer_current_row_state(): void {
+		$first_request = $this->request( '000742', 'product-code:741:historical-a' );
+		$first         = $this->editor->edit( $first_request );
+		$second        = $this->editor->edit(
+			array(
+				'product_id'    => 741,
+				'expected_code' => '000742',
+				'product_code'  => '000743',
+				'if_match'      => $this->editor->revision_for( 741, '000742' ),
+				'request_id'    => 'product-code:741:historical-b',
+			)
+		);
+		$write_count = count( $GLOBALS['digitalogic_test_actions']['updated_post_meta'] ?? array() );
+
+		$replay = $this->editor->edit( $first_request );
+
+		$this->assertSame( '000742', $first['product_code'] );
+		$this->assertSame( '000743', $second['product_code'] );
+		$this->assertTrue( $replay['replayed'] );
+		$this->assertSame( '000742', $replay['product_code'], 'The immutable audit result remains historical.' );
+		$this->assertSame( '000743', $replay['current_product_code'] );
+		$this->assertSame( $this->editor->revision_for( 741, '000743' ), $replay['current_revision'] );
+		$this->assertSame( array( 'database_readback' => true, 'cache_bypassed' => true ), $replay['current_readback'] );
+		$this->assertSame( $write_count, count( $GLOBALS['digitalogic_test_actions']['updated_post_meta'] ?? array() ) );
+	}
+
 	/** One edit advances the Living projection once; replay has no new effect. */
 	public function test_success_invalidates_projection_once_and_replay_is_effect_free(): void {
 		$request           = $this->request( '000742', 'product-code:741:living-invalidation' );
@@ -646,6 +673,37 @@ final class ProductCodeEditorTest extends TestCase {
 		$this->assertArrayNotHasKey( 'updated_post_meta', $GLOBALS['digitalogic_test_actions'] );
 	}
 
+	/** Case-variant legacy identity/provenance keys are malformed, never absent. */
+	public function test_case_variant_identity_and_provenance_rows_fail_closed_before_effect(): void {
+		$fixtures = array(
+			'variant-only' => array(
+				'meta'      => array( '_DIGITALOGIC_PATRIS_PRODUCT_CODE' => '000741' ),
+				'meta_rows' => array(),
+			),
+			'exact-plus-variant' => array(
+				'meta'      => array( '_digitalogic_patris_product_code' => '000741' ),
+				'meta_rows' => array( '_DIGITALOGIC_PATRIS_PRODUCT_CODE' => array( '000741' ) ),
+			),
+			'provenance-variant' => array(
+				'meta'      => array(
+					'_digitalogic_patris_product_code' => '000741',
+					'_DIGITALOGIC_PATRIS_RECORD_HASH'  => 'sha256:' . str_repeat( 'a', 64 ),
+				),
+				'meta_rows' => array(),
+			),
+		);
+		foreach ( $fixtures as $name => $fixture ) {
+			$GLOBALS['digitalogic_test_posts'][741]['meta']      = $fixture['meta'];
+			$GLOBALS['digitalogic_test_posts'][741]['meta_rows'] = $fixture['meta_rows'];
+			$result = $this->editor->edit( $this->request( '000742', 'product-code:741:case-' . $name ) );
+
+			$this->assertInstanceOf( WP_Error::class, $result, $name );
+			$this->assertSame( 'digitalogic_product_code_meta_conflict', $result->get_error_code(), $name );
+			$this->assertGreaterThanOrEqual( 1, $result->get_error_data()['invalid_key_rows'], $name );
+		}
+		$this->assertArrayNotHasKey( 'updated_post_meta', $GLOBALS['digitalogic_test_actions'] );
+	}
+
 	/** Coordinator, source, and product locks fail immediately instead of waiting. */
 	public function test_busy_locks_return_typed_retryable_errors_without_waiting(): void {
 		$GLOBALS['wpdb']->acquire_results = array( 0 );
@@ -668,6 +726,22 @@ final class ProductCodeEditorTest extends TestCase {
 		$this->assertSame( 'product_write_lock_busy', $result->get_error_code() );
 		$this->assertSame( array( 0, 0, 0 ), $GLOBALS['wpdb']->lock_timeouts );
 		$this->assertSame( 2, $GLOBALS['wpdb']->release_count, 'The acquired source and operation locks are released.' );
+	}
+
+	/** The coordinator detects a reconnect even when its callback returns normally. */
+	public function test_operation_lock_is_bound_to_the_acquiring_database_connection(): void {
+		$method = new ReflectionMethod( Digitalogic_Product_Code_Editor::class, 'with_operation_lock' );
+		$result = $method->invoke(
+			$this->editor,
+			static function () {
+				$GLOBALS['wpdb']->connection_id = 2002;
+				return 'must-not-be-terminal';
+			}
+		);
+
+		$this->assertInstanceOf( WP_Error::class, $result );
+		$this->assertSame( 'digitalogic_product_code_operation_lock_lost', $result->get_error_code() );
+		$this->assertTrue( $result->get_error_data()['retryable'] );
 	}
 
 	/** A readback race triggers exact rollback and a resumable failure record. */

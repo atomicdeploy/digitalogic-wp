@@ -84,6 +84,21 @@
 		};
 	}
 
+	function planBulkProductUpdates(updates) {
+		var contract = window.DigitalogicProductCodeContract;
+		if (contract && typeof contract.planBulkUpdates === 'function') {
+			return contract.planBulkUpdates(updates, productCodeIntents, productCodeRequests);
+		}
+		var pending = [];
+		Object.keys(updates || {}).forEach(function(productId) {
+			var fields = updates[productId] || {};
+			if (Object.prototype.hasOwnProperty.call(fields, 'patris_product_code') || productCodeIntents[productId]) {
+				pending.push(String(productId));
+			}
+		});
+		return {updates: {}, pendingProductIds: pending};
+	}
+
     function normalizeDigits(value) {
         return String(value || '').replace(/[\u06F0-\u06F9\u0660-\u0669]/g, function(digit) {
             var code = digit.charCodeAt(0);
@@ -255,9 +270,35 @@
 
 	function boundedProductCodeRequest(snapshot, intent) {
 		var deferred = $.Deferred();
+		var transport = null;
+		var settled = false;
+		var timeoutMs = Math.max(1000, Math.min(30000, Number(digitalogic.request_timeout) || 12000));
+		var timeoutHandle = setTimeout(function() {
+			if (settled) return;
+			settled = true;
+			if (transport && typeof transport.abort === 'function') transport.abort('timeout');
+			rejectProductCodeDeferred(deferred, {
+				code: 'digitalogic_request_timeout',
+				message: 'The Product Code request timed out. Retry the unchanged request.',
+				status: 0,
+				data: {retryable: true}
+			}, 'timeout');
+		}, timeoutMs);
+		function resolveOnce(response) {
+			if (settled) return;
+			settled = true;
+			clearTimeout(timeoutHandle);
+			deferred.resolve(response);
+		}
+		function rejectOnce(error, textStatus, fallback) {
+			if (settled) return;
+			settled = true;
+			clearTimeout(timeoutHandle);
+			rejectProductCodeDeferred(deferred, error, textStatus, fallback);
+		}
 		var contract = window.DigitalogicProductCodeContract;
 		if (!contract || typeof contract.prepare !== 'function' || typeof contract.validateResult !== 'function') {
-			rejectProductCodeDeferred(deferred, {
+			rejectOnce({
 				code: 'digitalogic_response_ambiguous',
 				message: 'The Product Code response verifier is unavailable.',
 				data: {retryable: true}
@@ -267,7 +308,7 @@
 
 		contract.prepare(snapshot).then(function(prepared) {
 			intent.request_fingerprint = prepared.request_fingerprint;
-			var transport = digitalogicRequest('digitalogic_update_product_code', {
+			transport = digitalogicRequest('digitalogic_update_product_code', {
 				product_id: prepared.product_id,
 				expected_code: prepared.expected_code,
 				product_code: prepared.product_code,
@@ -277,7 +318,7 @@
 			transport.done(function(response) {
 				if (response && response.success === false) {
 					var payload = response.data && typeof response.data === 'object' ? response.data : {};
-					rejectProductCodeDeferred(deferred, {
+					rejectOnce({
 						code: payload.code,
 						message: payload.message,
 						status: payload.status,
@@ -287,14 +328,17 @@
 				}
 				var result = response && response.data !== undefined ? response.data : response;
 				contract.validateResult(result, prepared).then(
-					function() { deferred.resolve(response); },
-					function(error) { rejectProductCodeDeferred(deferred, error); }
+					function() { resolveOnce(response); },
+					function(error) { rejectOnce(error); }
 				);
 			}).fail(function() {
+				if (settled) return;
+				settled = true;
+				clearTimeout(timeoutHandle);
 				deferred.reject.apply(deferred, arguments);
 			});
 		}, function(error) {
-			rejectProductCodeDeferred(deferred, error);
+			rejectOnce(error);
 		});
 
 		return deferred.promise();
@@ -654,11 +698,12 @@
                     $field.addClass('is-error');
                     return;
                 }
+				var currentResult = window.DigitalogicProductCodeContract.currentResult(result);
 				var productRowApi = productTableRow(productId, $field);
 				var productRow = productRowApi && productRowApi.data ? productRowApi.data() : null;
                 if (productRow) {
-                    productRow.patris_product_code = result.product_code;
-                    productRow.patris_product_code_revision = result.revision;
+					productRow.patris_product_code = currentResult.product_code;
+					productRow.patris_product_code_revision = currentResult.revision;
 					productRow.patris_product_code_recovery = {};
                 }
 				delete productCodeNotices[productId];
@@ -858,7 +903,10 @@
         $('#refresh-products').on('click', function() {
             if (productsTable) {
                 productsTable.ajax.reload();
-                changedProducts = {};
+				var refreshPlan = planBulkProductUpdates(changedProducts);
+				Object.keys(refreshPlan.updates).forEach(function(productId) {
+					delete changedProducts[productId];
+				});
             }
         });
         
@@ -876,6 +924,23 @@
                 alert('No changes to save');
                 return;
             }
+			var bulkPlan = planBulkProductUpdates(changedProducts);
+			bulkPlan.pendingProductIds.forEach(function(productId) {
+				setProductCodeNotice(
+					productId,
+					'digitalogic_product_code_dedicated_save_required',
+					(digitalogic.i18n && digitalogic.i18n.product_code_bulk_pending) || '',
+					'product_code_retry_same_request'
+				);
+			});
+			if (bulkPlan.pendingProductIds.length && productsTable) {
+				productsTable.rows().invalidate();
+				productsTable.draw(false);
+			}
+			if (Object.keys(bulkPlan.updates).length === 0) {
+				alert((digitalogic.i18n && digitalogic.i18n.product_code_bulk_pending) || 'Product Code changes must finish through their dedicated save operation.');
+				return;
+			}
             
             if (!confirm(digitalogic.i18n.confirm_bulk_update)) {
                 return;
@@ -885,14 +950,22 @@
             $btn.prop('disabled', true).text('Saving...');
             
             digitalogicRequest('digitalogic_bulk_update', {
-                updates: changedProducts
+				updates: bulkPlan.updates
             }).done(function(response) {
                 if (response.success) {
-                    alert(digitalogic.i18n.success + ': ' + response.data.success + ' products updated');
-                    changedProducts = {};
+					var pendingMessage = bulkPlan.pendingProductIds.length
+						? '\n' + ((digitalogic.i18n && digitalogic.i18n.product_code_bulk_pending) || '')
+						: '';
+                    alert(digitalogic.i18n.success + ': ' + response.data.success + ' products updated' + pendingMessage);
+					Object.keys(bulkPlan.updates).forEach(function(productId) {
+						delete changedProducts[productId];
+					});
                     $('.product-field').removeClass('changed');
-                    if (productsTable) {
+					if (productsTable && bulkPlan.pendingProductIds.length === 0 && (!productCodeRequests || productCodeRequests.size() === 0)) {
                         productsTable.ajax.reload();
+					} else if (productsTable) {
+						productsTable.rows().invalidate();
+						productsTable.draw(false);
                     }
                 } else {
                     alert(digitalogic.i18n.error + ': ' + response.data);

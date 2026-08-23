@@ -2719,3 +2719,59 @@ msgstr "ثبت کد کالای منبع در بازخوانی دقیق پایگ�
 #: includes/class-digitalogic-product-code-editor.php
 msgid "The source Product Code readback conflicts with another product or variation."
 msgstr "بازخوانی کد کالای منبع با کالا یا تنوع دیگری تعارض دارد."
+
+#: includes/admin/class-admin.php
+msgid "Product Code changes must finish through their dedicated save operation and are not sent by bulk update."
+msgstr "تغییر کد کالا باید از عملیات ذخیره اختصاصی خود تکمیل شود و با به‌روزرسانی گروهی ارسال نمی‌شود."
+
+#: includes/class-digitalogic-product-code-editor.php
+msgid "The exact source Product Code preflight requires the shared identity lock."
+msgstr "پیش‌بررسی دقیق کد کالای منبع به قفل مشترک هویت نیاز دارد."
+
+#: includes/class-digitalogic-product-code-editor.php
+msgid "The source Product Code belongs to another product or variation, including one in Trash."
+msgstr "کد کالای منبع متعلق به کالا یا تنوع دیگری، از جمله موردی در زباله‌دان، است."
+
+#: includes/class-digitalogic-product-code-editor.php
+msgid "The exact source Product Code backup requires the shared identity lock."
+msgstr "پشتیبان دقیق کد کالای منبع به قفل مشترک هویت نیاز دارد."
+
+#: includes/class-digitalogic-product-code-editor.php
+msgid "The source Product Code cannot be backed up until its metadata conflict is reconciled."
+msgstr "تا تعارض فراداده کد کالای منبع رفع نشود، تهیه پشتیبان از آن ممکن نیست."
+
+#: includes/class-digitalogic-product-code-editor.php
+msgid "The source Product Code rollback data is invalid."
+msgstr "داده بازگردانی کد کالای منبع نامعتبر است."
+
+#: includes/class-digitalogic-product-code-editor.php
+msgid "The source Product Code rollback did not pass exact database readback."
+msgstr "بازگردانی کد کالای منبع در بازخوانی دقیق پایگاه‌داده تأیید نشد."
+
+#: includes/class-digitalogic-product-code-editor.php
+msgid "The completed Product Code edit is historical, but the current product state could not be read exactly."
+msgstr "ویرایش تکمیل‌شده کد کالا تاریخی است، اما وضعیت فعلی کالا به‌طور دقیق قابل بازخوانی نبود."
+
+#: includes/class-digitalogic-product-code-editor.php
+msgid "The Product Code operation lock was lost after a database reconnect. Retry the unchanged request."
+msgstr "قفل عملیات کد کالا پس از اتصال دوباره پایگاه‌داده از دست رفت؛ همان درخواست بدون تغییر را دوباره امتحان کنید."
+
+#: includes/class-digitalogic-product-write-lock.php
+msgid "The product write lock was lost after a database reconnect. Retry the unchanged request."
+msgstr "قفل نوشتن کالا پس از اتصال دوباره پایگاه‌داده از دست رفت؛ همان درخواست بدون تغییر را دوباره امتحان کنید."
+
+#: includes/class-patris-feed.php
+msgid "The source product write failed and must be rolled back."
+msgstr "نوشتن کالای منبع ناموفق بود و باید بازگردانی شود."
+
+#: includes/class-patris-feed.php
+msgid "The source product backup is unavailable."
+msgstr "پشتیبان کالای منبع در دسترس نیست."
+
+#: includes/class-patris-feed.php
+msgid "The source product write and rollback require exact reconciliation."
+msgstr "نوشتن و بازگردانی کالای منبع به تطبیق دقیق نیاز دارد."
+
+#: includes/class-digitalogic-product-code-write-guard.php
+msgid "The source identity lock was lost after a database reconnect. Retry the unchanged request."
+msgstr "قفل هویت منبع پس از اتصال دوباره پایگاه‌داده از دست رفت؛ همان درخواست بدون تغییر را دوباره امتحان کنید."

@@ -68,6 +68,7 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 			'digitalogic_test_current_user_can_calls'  => 0,
 			'digitalogic_test_wc_currency'             => 'IRT',
 			'digitalogic_test_locale'                  => 'en_US',
+			'digitalogic_test_wc_defer_new_product_id' => false,
 		);
 		foreach ( $defaults as $global_name => $value ) {
 			$GLOBALS[ $global_name ] = $value;
@@ -118,6 +119,70 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 		);
 		$this->assertSame( array(), $GLOBALS['digitalogic_test_posts'] );
 		$this->assertSame( array(), $GLOBALS['digitalogic_test_terms'] );
+	}
+
+	/** Trash retains canonical ownership and blocks categories or draft creation. */
+	public function test_apply_preflight_rejects_a_code_owned_in_trash_before_any_side_effect(): void {
+		$this->receiveFixture();
+		$GLOBALS['digitalogic_test_posts'][10990] = array(
+			'post_type'   => 'product_variation',
+			'post_status' => 'trash',
+			'meta'        => array( Digitalogic_Product_Code_Editor::META_KEY => '101001001' ),
+		);
+
+		$result = Digitalogic_Patris_Catalog_Materializer::instance()->run( $this->manifest(), array( 'apply' => true ) );
+
+		$this->assertNotInstanceOf( WP_Error::class, $result );
+		$this->assertSame( 1, $result['skipped'] );
+		$this->assertSame( 0, $result['created'] );
+		$this->assertSame( 'digitalogic_product_code_source_not_unique', $result['details'][0]['reason'] );
+		$this->assertSame( array( 10990 ), array_keys( $GLOBALS['digitalogic_test_posts'] ) );
+		$this->assertSame( array(), $GLOBALS['digitalogic_test_terms'] );
+		$this->assertSame( array(), $GLOBALS['digitalogic_test_wc_product_saves'] );
+	}
+
+	/** New WooCommerce objects receive their stable ID before guarded identity. */
+	public function test_new_product_uses_two_phase_save_when_woocommerce_assigns_id_on_first_save(): void {
+		$this->receiveFixture();
+		$GLOBALS['digitalogic_test_wc_defer_new_product_id'] = true;
+
+		$result = Digitalogic_Patris_Catalog_Materializer::instance()->run( $this->manifest(), array( 'apply' => true ) );
+
+		$this->assertNotInstanceOf( WP_Error::class, $result );
+		$this->assertSame( 1, $result['created'] );
+		$this->assertArrayNotHasKey( 0, $GLOBALS['digitalogic_test_posts'] );
+		$product_id = (int) array_key_first( $GLOBALS['digitalogic_test_posts'] );
+		$this->assertGreaterThan( 0, $product_id );
+		$this->assertSame( '101001001', get_post_meta( $product_id, Digitalogic_Product_Code_Editor::META_KEY, true ) );
+		$this->assertGreaterThanOrEqual(
+			2,
+			count( array_filter( $GLOBALS['digitalogic_test_wc_product_saves'], static fn ( $id ) => $product_id === (int) $id ) )
+		);
+	}
+
+	/** New variations also obtain an ID before the guarded canonical write. */
+	public function test_new_variation_uses_two_phase_save_when_woocommerce_assigns_id_on_first_save(): void {
+		$this->receiveFixture();
+		$this->addProduct( 100, 'variable' );
+		$this->addTerm( 373, 'Reviewed sensor', 0, 'pa_model', 'reviewed-sensor' );
+		$manifest                  = $this->manifest();
+		$row                       = &$manifest['products']['101001001'];
+		$row['target_parent_id']   = '100';
+		$row['attribute_taxonomy'] = 'pa_model';
+		$row['attribute_term_id']  = '373';
+		$row['parent_enrichment']  = $this->parentEnrichment();
+		$row['variation_group']    = 'two-phase-variation';
+		$GLOBALS['digitalogic_test_wc_defer_new_product_id'] = true;
+
+		$result = Digitalogic_Patris_Catalog_Materializer::instance()->run( $manifest, array( 'apply' => true ) );
+
+		$this->assertNotInstanceOf( WP_Error::class, $result );
+		$this->assertSame( 1, $result['created_variations'] );
+		$this->assertArrayNotHasKey( 0, $GLOBALS['digitalogic_test_posts'] );
+		$children = wc_get_product( 100 )->get_children();
+		$this->assertCount( 1, $children );
+		$this->assertGreaterThan( 0, $children[0] );
+		$this->assertSame( '101001001', get_post_meta( $children[0], Digitalogic_Product_Code_Editor::META_KEY, true ) );
 	}
 
 	public function test_fixture_uses_the_living_contract_and_currency_qualified_freight(): void {
@@ -749,19 +814,18 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 		$this->assertSame( 'hidden', wc_get_product( 10803 )->get_catalog_visibility() );
 	}
 
-	public function test_partial_create_with_first_save_ownership_is_retryable(): void {
+	public function test_partial_create_failure_removes_the_draft_before_retry(): void {
 		$this->receiveFixture();
 		$GLOBALS['digitalogic_test_wc_save_fail_once'][1] = 2;
 		$service = Digitalogic_Patris_Catalog_Materializer::instance();
 
 		$failed = $service->run( $this->manifest(), array( 'apply' => true ) );
 		$this->assertSame( 1, $failed['failed'] );
-		$this->assertSame( '101001001', get_post_meta( 1, Digitalogic_Patris_Catalog_Materializer::OWNER_CODE_META, true ) );
-		$this->assertSame( '101001001', get_post_meta( 1, Digitalogic_Product_Identifier_Resolver::PATRIS_CODE_META, true ) );
+		$this->assertSame( array(), $GLOBALS['digitalogic_test_posts'] );
 
 		$retried = $service->run( $this->manifest(), array( 'apply' => true ) );
-		$this->assertSame( 0, $retried['created'] );
-		$this->assertSame( 1, $retried['reconciled'] );
+		$this->assertSame( 1, $retried['created'] );
+		$this->assertSame( 0, $retried['reconciled'] );
 		$this->assertSame( 0, $retried['failed'] );
 		$this->assertCount( 1, $GLOBALS['digitalogic_test_posts'] );
 	}
@@ -979,6 +1043,37 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 			'digitalogic_product_code_source_readback_failed',
 			array_column( $result['details'], 'reason' )
 		);
+	}
+
+	/** Existing product enrichment is restored when canonical readback becomes duplicated. */
+	public function test_existing_product_identity_failure_restores_enrichment_and_exact_canonical_row(): void {
+		$this->receiveFixture();
+		$service = Digitalogic_Patris_Catalog_Materializer::instance();
+		$first   = $service->run( $this->manifest(), array( 'apply' => true ) );
+		$this->assertSame( 1, $first['created'] );
+		$product_id = (int) array_key_first( $GLOBALS['digitalogic_test_posts'] );
+		$before     = wc_get_product( $product_id );
+		$old_name   = $before->get_name();
+		$old_seo    = $before->get_meta( 'rank_math_title', true );
+		$old_terms  = $before->get_category_ids();
+
+		$manifest = $this->manifest();
+		$manifest['products']['101001001']['name_fa']      = 'نام فارسی تازه که نباید باقی بماند';
+		$manifest['products']['101001001']['seo_title_fa'] = 'عنوان سئوی تازه که باید بازگردانی شود';
+		$GLOBALS['digitalogic_test_wc_after_save'] = static function () use ( $product_id ) {
+			$GLOBALS['digitalogic_test_posts'][ $product_id ]['meta_rows'][ Digitalogic_Product_Code_Editor::META_KEY ] = array( '101001001', '101001001' );
+		};
+
+		$result = $service->run( $manifest, array( 'apply' => true ) );
+
+		$this->assertSame( 1, $result['failed'] );
+		$this->assertContains( 'digitalogic_product_code_source_readback_failed', array_column( $result['details'], 'reason' ) );
+		$fresh = wc_get_product( $product_id );
+		$this->assertSame( $old_name, $fresh->get_name() );
+		$this->assertSame( $old_seo, $fresh->get_meta( 'rank_math_title', true ) );
+		$this->assertSame( $old_terms, $fresh->get_category_ids() );
+		$this->assertSame( array(), $GLOBALS['digitalogic_test_posts'][ $product_id ]['meta_rows'][ Digitalogic_Product_Code_Editor::META_KEY ] ?? array() );
+		$this->assertSame( '101001001', get_post_meta( $product_id, Digitalogic_Product_Code_Editor::META_KEY, true ) );
 	}
 
 	public function test_referenced_synthetic_category_is_created_under_a_reviewed_manual_parent(): void {

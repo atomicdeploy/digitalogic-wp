@@ -41,14 +41,14 @@ test('canonical Product Code edits use only the dedicated idempotent command', (
     assert.match(saveMethod[1], /if_match:\s*intent\.if_match/);
     assert.match(saveMethod[1], /request_id:\s*intent\.request_id/);
     assert.match(saveMethod[1], /intent\.signature\s*!==\s*signature/);
-	assert.match(saveMethod[1], /\{ajaxOnly:\s*true,\s*bounded:\s*true\}/);
+	assert.match(saveMethod[1], /\{[\s\S]*?ajaxOnly:\s*true,[\s\S]*?bounded:\s*true,[\s\S]*?transportDeadline:\s*false[\s\S]*?\}/);
     assert.doesNotMatch(saveMethod[1], /digitalogic_update_product['"]/);
     assert.match(admin, /fieldName\s*===\s*'patris_product_code'/);
     assert.match(admin, /digitalogic_update_product_code/);
     assert.match(admin, /expected_code:\s*intent\.expected_code/);
     assert.match(admin, /if_match:\s*intent\.if_match/);
     assert.match(admin, /request_id:\s*intent\.request_id/);
-	assert.match(admin, /\{ajaxOnly:\s*true,\s*bounded:\s*true\}/);
+	assert.match(admin, /\{[\s\S]*?ajaxOnly:\s*true,[\s\S]*?bounded:\s*true[\s\S]*?\}/);
 });
 
 test('Product Code requests have bounded transports and never auto-replay across transports', () => {
@@ -59,9 +59,9 @@ test('Product Code requests have bounded transports and never auto-replay across
 	assert.match(panel, /Promise\.race\(\[fetchRequest, timeoutRequest\]\)/);
 	assert.match(panel, /controller\.abort\(\)/);
 	assert.match(panel, /digitalogic_request_timeout/);
-	assert.match(panel, /saveProductCode:[\s\S]*?\{ajaxOnly:\s*true,\s*bounded:\s*true\}/);
+	assert.match(panel, /saveProductCode:[\s\S]*?ajaxOnly:\s*true,[\s\S]*?bounded:\s*true,[\s\S]*?transportDeadline:\s*false/);
 	assert.match(admin, /requestOptions\.timeout\s*=\s*Math\.max\(1000,\s*Math\.min\(30000/);
-	assert.match(admin, /digitalogic_update_product_code[\s\S]*?\{ajaxOnly:\s*true,\s*bounded:\s*true\}/);
+	assert.match(admin, /digitalogic_update_product_code[\s\S]*?ajaxOnly:\s*true,[\s\S]*?bounded:\s*true/);
 });
 
 test('classic Product Code requests remain serialized across redraws and stale callbacks', () => {

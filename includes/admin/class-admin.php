@@ -392,6 +392,7 @@ class Digitalogic_Admin {
 				'product_code_outcome_unknown'      => __( 'The exact Product Code outcome is unknown; stop editing and reconcile the database with the audit record.', 'digitalogic' ),
 				'product_code_recovery_required'   => __( 'An earlier Product Code edit is incomplete and must be recovered first.', 'digitalogic' ),
 				'product_code_request_failed'      => __( 'The Product Code request did not complete.', 'digitalogic' ),
+				'product_code_bulk_pending'        => __( 'Product Code changes must finish through their dedicated save operation and are not sent by bulk update.', 'digitalogic' ),
 				'product_code_response_ambiguous'  => __( 'The Product Code response could not be verified; retry the same value.', 'digitalogic' ),
 				'product_code_retry_same_request'  => __( 'Retry the same value; the original request identity will be reused.', 'digitalogic' ),
 				'product_code_reload'              => __( 'Reload the row and review the current value before trying again.', 'digitalogic' ),

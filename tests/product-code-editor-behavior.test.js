@@ -101,7 +101,7 @@ function loadPanel(fetchImpl) {
         localStorage: {getItem() { return null; }, setItem() {}},
         console: {error() {}, warn() {}, info() {}, log() {}},
         crypto: {
-            subtle: webcrypto.subtle,
+			subtle: {digest: webcrypto.subtle.digest.bind(webcrypto.subtle)},
             getRandomValues(values) { randomCounter++; values[0] = randomCounter; values[1] = randomCounter + 1; return values; }
         },
         TextEncoder,
@@ -154,6 +154,7 @@ function loadPanel(fetchImpl) {
     return {
         appOptions,
 		contract: window.DigitalogicProductCodeContract,
+		window,
         fireNextTimer() {
             const item = timers.entries().next();
             assert.equal(item.done, false, 'Expected one pending deadline timer.');
@@ -186,6 +187,26 @@ test('classic request registry rejects a second intent and ignores reverse stale
     assert.equal(registry.begin(741, second), true);
 });
 
+test('classic bulk planning never routes a timed-out Product Code intent through generic update', () => {
+	const harness = loadPanel(() => new Promise(() => {}));
+	const registry = harness.contract.createRequestRegistry();
+	const intent = {request_id: 'product-code:741:timed-out'};
+	const intents = {741: intent};
+	const changes = {
+		741: {patris_product_code: '000742'},
+		742: {weight: '2.5'}
+	};
+	registry.begin(741, intent);
+
+	const plan = harness.contract.planBulkUpdates(changes, intents, registry);
+
+	assert.deepEqual(Array.from(plan.pendingProductIds), ['741']);
+	assert.deepEqual(Object.keys(plan.updates), ['742']);
+	assert.equal(plan.updates[742].weight, '2.5');
+	assert.equal(intents[741], intent);
+	assert.equal(changes[741].patris_product_code, '000742');
+});
+
 test('panel AJAX deadline aborts a hung request with a typed retryable timeout', async () => {
     const harness = loadPanel(() => new Promise(() => {}));
     const state = {transport: ''};
@@ -206,6 +227,95 @@ test('panel AJAX deadline aborts a hung request with a typed retryable timeout',
     });
     assert.equal(harness.wasAborted(), true);
     assert.equal(state.transport, 'ajax');
+});
+
+test('one Product Code deadline bounds a WebCrypto prepare that never settles', async () => {
+	const harness = loadPanel(() => {
+		throw new Error('Transport must not start before request verification.');
+	});
+	harness.window.crypto.subtle.digest = () => new Promise(() => {});
+	const methods = harness.appOptions.methods;
+	let runCount = 0;
+	const state = {
+		productCodeIntents: {},
+		hydrateProductCodeRecovery: methods.hydrateProductCodeRecovery,
+		run() { runCount++; return Promise.resolve({}); }
+	};
+	const product = {
+		id: 741,
+		patris_product_code: '000741',
+		patris_product_code_revision: 'sha256:' + 'a'.repeat(64)
+	};
+	const pending = methods.saveProductCode.call(state, product, '000742');
+	await Promise.resolve();
+	harness.fireNextTimer();
+
+	await assert.rejects(pending, (error) => error.code === 'digitalogic_request_timeout' && error.data.retryable === true);
+	assert.equal(runCount, 0);
+	assert.equal(harness.wasAborted(), true);
+	assert.ok(state.productCodeIntents[741].request_id);
+});
+
+test('the same deadline bounds WebCrypto terminal validation after transport', async () => {
+	const harness = loadPanel(() => Promise.resolve({status: 200, json: () => Promise.resolve({success: true, data: {}})}));
+	const originalDigest = webcrypto.subtle.digest.bind(webcrypto.subtle);
+	let digestCalls = 0;
+	harness.window.crypto.subtle.digest = function() {
+		digestCalls++;
+		if (digestCalls === 1) return originalDigest.apply(null, arguments);
+		return new Promise(() => {});
+	};
+	const methods = harness.appOptions.methods;
+	const state = {
+		productCodeIntents: {},
+		hydrateProductCodeRecovery: methods.hydrateProductCodeRecovery,
+		run(command, data) { return Promise.resolve(productCodeResult(data)); }
+	};
+	const product = {
+		id: 741,
+		patris_product_code: '000741',
+		patris_product_code_revision: 'sha256:' + 'a'.repeat(64)
+	};
+	const pending = methods.saveProductCode.call(state, product, '000742');
+	for (let index = 0; index < 20 && digestCalls < 2; index++) {
+		await new Promise((resolve) => setImmediate(resolve));
+	}
+	assert.ok(digestCalls >= 2, 'Terminal validation must have started before the deadline fires.');
+	harness.fireNextTimer();
+
+	await assert.rejects(pending, (error) => error.code === 'digitalogic_request_timeout' && error.data.retryable === true);
+	assert.equal(harness.wasAborted(), true);
+	assert.ok(state.productCodeIntents[741].request_id);
+});
+
+test('historical replay exposes only its exact current readback to the row', async () => {
+	const harness = loadPanel(() => Promise.resolve({status: 200, json: () => Promise.resolve({success: true, data: {}})}));
+	const request = {
+		product_id: 741,
+		expected_code: '000741',
+		product_code: '000742',
+		if_match: 'sha256:' + 'a'.repeat(64),
+		request_id: 'product-code:741:historical'
+	};
+	const prepared = await harness.contract.prepare(request);
+	const currentCode = '000743';
+	const currentRevision = sha256(JSON.stringify({
+		schema: 'digitalogic.product-code-edit',
+		product_id: '741',
+		product_code: currentCode
+	}));
+	const replay = productCodeResult(prepared, {
+		replayed: true,
+		current_product_code: currentCode,
+		current_revision: currentRevision,
+		current_readback: {database_readback: true, cache_bypassed: true}
+	});
+
+	const validated = await harness.contract.validateResult(replay, prepared);
+	assert.deepEqual(
+		JSON.parse(JSON.stringify(harness.contract.currentResult(validated))),
+		{product_code: currentCode, revision: currentRevision}
+	);
 });
 
 test('legacy AJAX commands are not given a new client abort contract', () => {

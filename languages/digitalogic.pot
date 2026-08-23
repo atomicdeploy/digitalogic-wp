@@ -2760,3 +2760,59 @@ msgstr ""
 #: includes/class-digitalogic-product-code-editor.php
 msgid "The source Product Code readback conflicts with another product or variation."
 msgstr ""
+
+#: includes/admin/class-admin.php
+msgid "Product Code changes must finish through their dedicated save operation and are not sent by bulk update."
+msgstr ""
+
+#: includes/class-digitalogic-product-code-editor.php
+msgid "The exact source Product Code preflight requires the shared identity lock."
+msgstr ""
+
+#: includes/class-digitalogic-product-code-editor.php
+msgid "The source Product Code belongs to another product or variation, including one in Trash."
+msgstr ""
+
+#: includes/class-digitalogic-product-code-editor.php
+msgid "The exact source Product Code backup requires the shared identity lock."
+msgstr ""
+
+#: includes/class-digitalogic-product-code-editor.php
+msgid "The source Product Code cannot be backed up until its metadata conflict is reconciled."
+msgstr ""
+
+#: includes/class-digitalogic-product-code-editor.php
+msgid "The source Product Code rollback data is invalid."
+msgstr ""
+
+#: includes/class-digitalogic-product-code-editor.php
+msgid "The source Product Code rollback did not pass exact database readback."
+msgstr ""
+
+#: includes/class-digitalogic-product-code-editor.php
+msgid "The completed Product Code edit is historical, but the current product state could not be read exactly."
+msgstr ""
+
+#: includes/class-digitalogic-product-code-editor.php
+msgid "The Product Code operation lock was lost after a database reconnect. Retry the unchanged request."
+msgstr ""
+
+#: includes/class-digitalogic-product-write-lock.php
+msgid "The product write lock was lost after a database reconnect. Retry the unchanged request."
+msgstr ""
+
+#: includes/class-patris-feed.php
+msgid "The source product write failed and must be rolled back."
+msgstr ""
+
+#: includes/class-patris-feed.php
+msgid "The source product backup is unavailable."
+msgstr ""
+
+#: includes/class-patris-feed.php
+msgid "The source product write and rollback require exact reconciliation."
+msgstr ""
+
+#: includes/class-digitalogic-product-code-write-guard.php
+msgid "The source identity lock was lost after a database reconnect. Retry the unchanged request."
+msgstr ""

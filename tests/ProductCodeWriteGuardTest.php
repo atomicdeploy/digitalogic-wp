@@ -83,6 +83,45 @@ final class ProductCodeWriteGuardTest extends TestCase {
 		$this->assertSame( 'LOCKED', get_post_meta( 901, Digitalogic_Product_Code_Editor::META_KEY, true ) );
 	}
 
+	/** A database reconnect invalidates request-local depth before any effect. */
+	public function test_authorized_context_fails_closed_after_source_lock_connection_is_lost(): void {
+		$receiver = Digitalogic_Product_Sync_Receiver::instance();
+		$this->assertTrue( $receiver->acquire_source_identity_lock( 0 ) );
+		$GLOBALS['wpdb']->connection_id = 2002;
+
+		$result = Digitalogic_Product_Code_Write_Guard::instance()->with_authorized_write(
+			'editor',
+			array( 'product_id' => 901, 'operation' => 'set', 'value' => 'MUST-NOT-WRITE' ),
+			static function () {
+				return update_post_meta( 901, Digitalogic_Product_Code_Editor::META_KEY, 'MUST-NOT-WRITE' );
+			}
+		);
+
+		$this->assertInstanceOf( WP_Error::class, $result );
+		$this->assertFalse( $receiver->source_identity_lock_is_owned() );
+		$this->assertSame( '00901', get_post_meta( 901, Digitalogic_Product_Code_Editor::META_KEY, true ) );
+	}
+
+	/** A reconnect inside the writer callback cannot reuse its request-local scope. */
+	public function test_writer_scope_revalidates_connection_ownership_at_the_metadata_effect(): void {
+		$receiver = Digitalogic_Product_Sync_Receiver::instance();
+		$this->assertTrue( $receiver->acquire_source_identity_lock( 0 ) );
+
+		$result = Digitalogic_Product_Code_Write_Guard::instance()->with_authorized_write(
+			'editor',
+			array( 'product_id' => 901, 'operation' => 'set', 'value' => 'MUST-NOT-WRITE' ),
+			static function () {
+				$GLOBALS['wpdb']->connection_id = 2002;
+				return update_post_meta( 901, Digitalogic_Product_Code_Editor::META_KEY, 'MUST-NOT-WRITE' );
+			}
+		);
+
+		$this->assertInstanceOf( WP_Error::class, $result );
+		$this->assertSame( 'digitalogic_product_code_source_lock_lost', $result->get_error_code() );
+		$this->assertTrue( $result->get_error_data()['retryable'] );
+		$this->assertSame( '00901', get_post_meta( 901, Digitalogic_Product_Code_Editor::META_KEY, true ) );
+	}
+
 	/** Product and variation REST meta_data requests get the same typed refusal. */
 	public function test_product_and_variation_rest_meta_data_are_rejected_with_or_without_id(): void {
 		$guard = Digitalogic_Product_Code_Write_Guard::instance();
@@ -217,6 +256,16 @@ final class ProductCodeWriteGuardTest extends TestCase {
 		);
 		$this->assertFalse( delete_post_meta( 903, Digitalogic_Product_Code_Editor::META_KEY ) );
 		$this->assertSame( '00903', get_post_meta( 903, Digitalogic_Product_Code_Editor::META_KEY, true ) );
+	}
+
+	/** Permanent deletion fails immediately when another source writer owns the lock. */
+	public function test_permanent_deletion_is_blocked_before_lifecycle_effect_when_source_lock_is_busy(): void {
+		$GLOBALS['wpdb']->acquire_results = array( 0 );
+
+		$this->assertFalse( wp_delete_post( 901, true ) );
+		$this->assertArrayHasKey( 901, $GLOBALS['digitalogic_test_posts'] );
+		$this->assertSame( '00901', get_post_meta( 901, Digitalogic_Product_Code_Editor::META_KEY, true ) );
+		$this->assertSame( array( 0 ), $GLOBALS['wpdb']->lock_timeouts );
 	}
 
 	/** Reset one private singleton. */

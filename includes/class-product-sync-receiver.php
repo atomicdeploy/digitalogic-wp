@@ -403,6 +403,9 @@ class Digitalogic_Product_Sync_Receiver {
 
     private $lock_depth = 0;
 
+	/** @var int MySQL connection ID that acquired the advisory lock. */
+	private $lock_connection_id = 0;
+
     // phpcs:disable -- New coordinator state follows this legacy receiver's established formatting.
     /**
      * Nesting depth while a caller-owned pricing transaction is active.
@@ -467,7 +470,28 @@ class Digitalogic_Product_Sync_Receiver {
 
 	/** Return whether this request currently owns the shared source lock. */
 	public function source_identity_lock_is_owned() {
-		return $this->lock_depth > 0;
+		if ( $this->lock_depth <= 0 || $this->lock_connection_id <= 0 ) {
+			return false;
+		}
+		global $wpdb;
+		if ( ! is_object( $wpdb ) || ! method_exists( $wpdb, 'prepare' ) || ! method_exists( $wpdb, 'get_var' ) ) {
+			$this->forget_lost_lock();
+			return false;
+		}
+		$prefix        = isset( $wpdb->prefix ) ? (string) $wpdb->prefix : 'wp_';
+		$lock_name     = self::source_identity_lock_name( $prefix );
+		$connection_id = $wpdb->get_var( 'SELECT CONNECTION_ID()' ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Connection identity is live session state.
+		$owner_query   = $wpdb->prepare( 'SELECT IS_USED_LOCK(%s)', $lock_name );
+		$owner_id      = false !== $owner_query ? $wpdb->get_var( $owner_query ) : false; // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.NotPrepared -- Advisory lock ownership is live session state.
+		if (
+			$this->lock_connection_id !== (int) $connection_id
+			|| $this->lock_connection_id !== (int) $owner_id
+		) {
+			$this->forget_lost_lock();
+			return false;
+		}
+
+		return true;
 	}
 
     private function __construct() {}
@@ -4722,6 +4746,9 @@ class Digitalogic_Product_Sync_Receiver {
 	 */
 	private function acquire_lock( $timeout_seconds = null ) {
         if ($this->lock_depth > 0) {
+			if ( ! $this->source_identity_lock_is_owned() ) {
+				return $this->error( 'digitalogic_product_sync_lock_lost', 'The source identity lock was lost after a database reconnect. Retry safely.', 503, array( 'retryable' => true ) );
+			}
             $this->lock_depth++;
             return true;
         }
@@ -4741,7 +4768,16 @@ class Digitalogic_Product_Sync_Receiver {
         if ('1' !== (string) $locked) {
             return $this->error('digitalogic_product_sync_busy', 'Another product-sync event is being applied. Please retry.', 503, array('retryable' => true));
         }
-        $this->lock_depth = 1;
+		$connection_id = $wpdb->get_var( 'SELECT CONNECTION_ID()' ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Connection identity is live session state.
+		$owner_query   = $wpdb->prepare( 'SELECT IS_USED_LOCK(%s)', $lock_name );
+		$owner_id      = false !== $owner_query ? $wpdb->get_var( $owner_query ) : false; // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.NotPrepared -- Advisory lock ownership is live session state.
+		if ( (int) $connection_id <= 0 || (int) $connection_id !== (int) $owner_id ) {
+			$wpdb->get_var( $wpdb->prepare( 'SELECT RELEASE_LOCK(%s)', $lock_name ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.NotPrepared -- Best-effort cleanup of an unverified lock.
+			$this->forget_lost_lock();
+			return $this->error( 'digitalogic_product_sync_lock_unavailable', 'The source identity lock ownership could not be verified.', 503, array( 'retryable' => true ) );
+		}
+		$this->lock_connection_id = (int) $connection_id;
+		$this->lock_depth         = 1;
 
         return true;
     }
@@ -4750,6 +4786,9 @@ class Digitalogic_Product_Sync_Receiver {
         if ($this->lock_depth <= 0) {
             return;
         }
+		if ( ! $this->source_identity_lock_is_owned() ) {
+			return;
+		}
         $this->lock_depth--;
         if ($this->lock_depth > 0) {
             return;
@@ -4762,7 +4801,14 @@ class Digitalogic_Product_Sync_Receiver {
 		$prefix    = isset( $wpdb->prefix ) ? (string) $wpdb->prefix : 'wp_';
 		$lock_name = self::source_identity_lock_name( $prefix );
         $wpdb->get_var($wpdb->prepare('SELECT RELEASE_LOCK(%s)', $lock_name));
+		$this->lock_connection_id = 0;
     }
+
+	/** Forget request-local depth immediately after connection-scoped ownership is lost. */
+	private function forget_lost_lock() {
+		$this->lock_depth         = 0;
+		$this->lock_connection_id = 0;
+	}
 
     private function field_error($field, $reason) {
         return $this->error(

@@ -24,6 +24,9 @@ final class Digitalogic_Product_Code_Write_Guard {
 	/** @var array<int,int> Exact post IDs inside WordPress permanent-delete cleanup. */
 	private $deletion_scopes = array();
 
+	/** @var array<int,int> Source-lock nesting acquired for permanent deletion. */
+	private $deletion_source_locks = array();
+
 	/** Return the shared guard. */
 	public static function instance() {
 		if ( null === self::$instance ) {
@@ -42,8 +45,10 @@ final class Digitalogic_Product_Code_Write_Guard {
 		add_filter( 'delete_post_metadata_by_mid', array( $this, 'guard_mid_delete' ), 1, 2 );
 		add_filter( 'woocommerce_rest_pre_insert_product_object', array( $this, 'reject_rest_write' ), 1, 3 );
 		add_filter( 'woocommerce_rest_pre_insert_product_variation_object', array( $this, 'reject_rest_write' ), 1, 3 );
+		add_filter( 'pre_delete_post', array( $this, 'acquire_for_post_deletion' ), 1, 3 );
 		add_action( 'before_delete_post', array( $this, 'begin_post_deletion' ), PHP_INT_MAX, 2 );
 		add_action( 'deleted_post', array( $this, 'finish_post_deletion' ), 1, 2 );
+		add_action( 'shutdown', array( $this, 'release_deletion_locks' ), PHP_INT_MAX );
 	}
 
 	/**
@@ -90,7 +95,10 @@ final class Digitalogic_Product_Code_Write_Guard {
 			'value'      => 'set' === $operation ? $scope['value'] : null,
 		);
 		try {
-			return call_user_func( $callback );
+			$result = call_user_func( $callback );
+			return Digitalogic_Product_Sync_Receiver::instance()->source_identity_lock_is_owned()
+				? $result
+				: $this->lock_lost_error();
 		} finally {
 			array_pop( $this->writer_stack );
 		}
@@ -175,7 +183,13 @@ final class Digitalogic_Product_Code_Write_Guard {
 	public function begin_post_deletion( $post_id, $post = null ) {
 		$type = is_object( $post ) ? (string) ( $post->post_type ?? '' ) : (string) get_post_type( $post_id );
 		if ( in_array( $type, array( 'product', 'product_variation' ), true ) ) {
-			$id                           = absint( $post_id );
+			$id = absint( $post_id );
+			if (
+				empty( $this->deletion_source_locks[ $id ] )
+				|| ! Digitalogic_Product_Sync_Receiver::instance()->source_identity_lock_is_owned()
+			) {
+				throw new RuntimeException( 'Canonical Product Code deletion lost its shared identity lock.' );
+			}
 			$this->deletion_scopes[ $id ] = (int) ( $this->deletion_scopes[ $id ] ?? 0 ) + 1;
 		}
 	}
@@ -191,11 +205,58 @@ final class Digitalogic_Product_Code_Write_Guard {
 		if ( $this->deletion_scopes[ $id ] <= 0 ) {
 			unset( $this->deletion_scopes[ $id ] );
 		}
+		$this->release_post_deletion_lock( $id );
+	}
+
+	/** Acquire the shared source lock before WordPress begins permanent deletion. */
+	public function acquire_for_post_deletion( $delete, $post, $force_delete ) {
+		if ( null !== $delete || ! $force_delete || ! is_object( $post ) ) {
+			return $delete;
+		}
+		$type = (string) ( $post->post_type ?? '' );
+		$id   = absint( $post->ID ?? 0 );
+		if ( $id <= 0 || ! in_array( $type, array( 'product', 'product_variation' ), true ) ) {
+			return $delete;
+		}
+		$locked = Digitalogic_Product_Sync_Receiver::instance()->acquire_source_identity_lock( 0 );
+		if ( is_wp_error( $locked ) ) {
+			return false;
+		}
+		$this->deletion_source_locks[ $id ] = (int) ( $this->deletion_source_locks[ $id ] ?? 0 ) + 1;
+
+		return $delete;
+	}
+
+	/** Release one exact permanent-deletion source lock. */
+	private function release_post_deletion_lock( $post_id ) {
+		$post_id = absint( $post_id );
+		if ( empty( $this->deletion_source_locks[ $post_id ] ) ) {
+			return;
+		}
+		--$this->deletion_source_locks[ $post_id ];
+		if ( $this->deletion_source_locks[ $post_id ] <= 0 ) {
+			unset( $this->deletion_source_locks[ $post_id ] );
+		}
+		Digitalogic_Product_Sync_Receiver::instance()->release_source_identity_lock();
+	}
+
+	/** Drain deletion locks if WordPress exits before deleted_post fires. */
+	public function release_deletion_locks() {
+		foreach ( array_keys( $this->deletion_source_locks ) as $post_id ) {
+			while ( ! empty( $this->deletion_source_locks[ $post_id ] ) ) {
+				$this->release_post_deletion_lock( $post_id );
+			}
+		}
+		$this->deletion_scopes = array();
 	}
 
 	/** Return whether one explicit, lock-owned writer context is active. */
 	private function authorized( $operation, $object_id, $value ) {
-		if ( empty( $this->writer_stack ) ) {
+		if (
+			empty( $this->writer_stack )
+			|| ! class_exists( 'Digitalogic_Product_Sync_Receiver' )
+			|| ! Digitalogic_Product_Sync_Receiver::instance()->source_identity_lock_is_owned()
+		) {
 			return false;
 		}
 		$scope      = end( $this->writer_stack );
@@ -215,7 +276,10 @@ final class Digitalogic_Product_Code_Write_Guard {
 	/** Return whether WordPress is deleting this exact product or variation. */
 	private function is_lifecycle_deletion( $object_id ) {
 		$id = absint( $object_id );
-		return $id > 0 && ! empty( $this->deletion_scopes[ $id ] );
+		return $id > 0
+			&& ! empty( $this->deletion_scopes[ $id ] )
+			&& ! empty( $this->deletion_source_locks[ $id ] )
+			&& Digitalogic_Product_Sync_Receiver::instance()->source_identity_lock_is_owned();
 	}
 
 	/** Resolve by-mid metadata identity without trusting request input. */
@@ -240,6 +304,19 @@ final class Digitalogic_Product_Code_Write_Guard {
 			array(
 				'status' => 409,
 				'schema' => Digitalogic_Product_Code_Editor::SCHEMA,
+			)
+		);
+	}
+
+	/** Return a retryable result when MySQL reconnects inside a writer scope. */
+	private function lock_lost_error() {
+		return new WP_Error(
+			'digitalogic_product_code_source_lock_lost',
+			__( 'The source identity lock was lost after a database reconnect. Retry the unchanged request.', 'digitalogic' ),
+			array(
+				'status'      => 503,
+				'retryable'   => true,
+				'retry_after' => 1,
 			)
 		);
 	}

@@ -22,6 +22,9 @@ Codes must be strings. This preserves leading zeroes and rejects silent numeric
 coercion. `expected_code` and `if_match` must both match a fresh, cache-bypassed
 database read. `request_id` is bound to the normalized request and completed
 requests replay their stored terminal result before current-state validation.
+The immutable historical result remains in the audit response, while a replay
+also returns a separate exact current Product Code/revision readback so neither
+administrator surface can replace a newer row value with historical state.
 Every request has a hashed, non-autoloaded durable operation record which is
 never automatically pruned. That record is authoritative and is read directly
 from the database. A separate best-effort audit summary keeps the newest 1,024
@@ -38,7 +41,9 @@ and case-variant keys). Each supported internal writer receives an immutable,
 one-product, one-operation, one-value scope while holding the shared lock, then
 must prove one exact database row and global uniqueness before releasing it.
 Permanent product deletion has a separate exact-post cleanup scope; a soft
-deleted product continues to own its code until permanent deletion.
+deleted product continues to own its code until permanent deletion. Permanent
+deletion itself acquires the same source-identity lock before WordPress starts
+the lifecycle and holds it through metadata cleanup.
 
 The edit then takes a site edit/audit lock and the existing
 per-product write lock. All three use a zero-second wait. Exact uniqueness is
@@ -49,6 +54,22 @@ Living report projection generation and durably coalesces its pricing/catalog
 state-revision event. A successful replay creates neither a new generation nor
 a new event. No catalog refresh, product-sync delivery, price application,
 notification, or publication operation is invoked by this service.
+Because MySQL advisory locks are connection-scoped, each lock records the
+acquiring `CONNECTION_ID()` and verifies `IS_USED_LOCK()` before every
+authorized effect and final readback. A transparent database reconnect loses
+request-local ownership and produces a typed retryable failure; nesting depth
+alone is never accepted as proof of ownership.
+
+The two source writers use the same invariants. Legacy-feed writes capture and
+verify a targeted backup of every canonical/feed/stock/price field and roll it
+back if exact canonical readback fails. The materializer checks trash-inclusive
+uniqueness before category or draft effects. New WooCommerce objects are first
+saved as hidden drafts without canonical identity to obtain a real positive ID,
+then receive the guarded identity and exact readback; any later identity failure
+removes and verifies the draft cleanup. Existing-product identity/enrichment
+effects have a targeted before-state and verified rollback, including category
+assignment. A new variation updates its parent attribute only after its own
+identity is verified, with a targeted parent-attribute rollback on failure.
 
 An active source record, delivery binding, source-owned desired code, record
 hash, or malformed provenance stops the operation. Such an identity must be
@@ -85,3 +106,9 @@ match the submitted request. The UI always leaves its saving state after the
 bounded request settles. Source-managed and outcome-unknown rows are shown
 read-only; outcome-unknown offers manual reconciliation rather than an
 automatic retry loop. The exact backend guard remains authoritative.
+One deadline covers fingerprint preparation, transport, and terminal
+verification, including WebCrypto promises; aborting an ambiguous transport
+keeps the same idempotency identity. Classic bulk save and manual refresh never
+route or discard a pending Product Code intent through the generic bulk writer:
+they preserve it for the dedicated operation and report that pending state
+separately.

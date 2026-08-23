@@ -259,25 +259,6 @@
                         : error);
                 });
             });
-			if (!bounded) return fetchRequest;
-
-			var timeoutMs = Math.max(1000, Math.min(30000, Number(config.request_timeout) || 12000));
-			var timeoutHandle;
-			var timeoutRequest = new Promise(function(resolve, reject) {
-				timeoutHandle = window.setTimeout(function() {
-					var timeoutError = commandError(
-						{code: 'digitalogic_request_timeout', data: {retryable: true}},
-						'The request timed out. Retry the unchanged request.',
-						0
-					);
-					if (controller) controller.abort();
-					reject(timeoutError);
-				}, timeoutMs);
-			});
-
-			return Promise.race([fetchRequest, timeoutRequest]).finally(function() {
-				window.clearTimeout(timeoutHandle);
-			});
         }
 
         connect();
@@ -1575,12 +1556,13 @@
                     if (Object.keys(remaining).length) self.edits[productId] = remaining;
                     else delete self.edits[productId];
                     if (productCodeEdit && response && response.product_code !== undefined) {
-                        product.patris_product_code = response.product_code;
-                        product.patris_product_code_revision = response.revision;
+						var currentResult = window.DigitalogicProductCodeContract.currentResult(response);
+						product.patris_product_code = currentResult.product_code;
+						product.patris_product_code_revision = currentResult.revision;
 						product.patris_product_code_recovery = {};
                         if (self.selectedProduct && Number(self.selectedProduct.id) === productId) {
-                            self.selectedProduct.patris_product_code = response.product_code;
-                            self.selectedProduct.patris_product_code_revision = response.revision;
+							self.selectedProduct.patris_product_code = currentResult.product_code;
+							self.selectedProduct.patris_product_code_revision = currentResult.revision;
                         }
                         if (remaining.patris_product_code !== undefined) {
                             product.patris_product_code = remaining.patris_product_code;
@@ -1588,8 +1570,8 @@
                                 self.selectedProduct.patris_product_code = remaining.patris_product_code;
                             }
                             self.productCodeIntents[productId] = {
-                                expected_code: String(response.product_code || ''),
-                                if_match: String(response.revision || ''),
+								expected_code: String(currentResult.product_code || ''),
+								if_match: String(currentResult.revision || ''),
                                 request_id: '',
                                 signature: ''
                             };
@@ -1675,7 +1657,7 @@
 					request_fingerprint: String(intent.request_fingerprint || '')
 				};
 				var contract = window.DigitalogicProductCodeContract;
-				if (!contract || typeof contract.prepare !== 'function' || typeof contract.validateResult !== 'function') {
+				if (!contract || typeof contract.prepare !== 'function' || typeof contract.validateResult !== 'function' || typeof contract.withDeadline !== 'function') {
 					return Promise.reject(commandError(
 						{code: 'digitalogic_response_ambiguous', data: {retryable: true}},
 						this.t.error,
@@ -1683,17 +1665,27 @@
 					));
 				}
 
-				return contract.prepare(request).then(function(prepared) {
-					intent.request_fingerprint = prepared.request_fingerprint;
-					return self.run('digitalogic_update_product_code', {
-						product_id: prepared.product_id,
-						expected_code: prepared.expected_code,
-						product_code: prepared.product_code,
-						if_match: prepared.if_match,
-						request_id: prepared.request_id
-					}, {ajaxOnly: true, bounded: true}).then(function(result) {
-						return contract.validateResult(result, prepared);
+				var pipelineController = typeof window.AbortController === 'function' ? new window.AbortController() : null;
+				return contract.withDeadline(function() {
+					return contract.prepare(request).then(function(prepared) {
+						intent.request_fingerprint = prepared.request_fingerprint;
+						return self.run('digitalogic_update_product_code', {
+							product_id: prepared.product_id,
+							expected_code: prepared.expected_code,
+							product_code: prepared.product_code,
+							if_match: prepared.if_match,
+							request_id: prepared.request_id
+						}, {
+							ajaxOnly: true,
+							bounded: true,
+							controller: pipelineController,
+							transportDeadline: false
+						}).then(function(result) {
+							return contract.validateResult(result, prepared);
+						});
 					});
+				}, config.request_timeout, function() {
+					if (pipelineController) pipelineController.abort();
 				}).catch(function(error) {
 					if (error && error.code === 'digitalogic_response_ambiguous') {
 						throw commandError(

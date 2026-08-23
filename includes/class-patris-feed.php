@@ -760,27 +760,44 @@ class Digitalogic_Patris_Feed {
 			if ( is_wp_error( $desired_binding ) && 'digitalogic_product_identifier_not_found' !== $desired_binding->get_error_code() ) {
 				return $desired_binding;
 			}
-
-			$applied = Digitalogic_Product_Code_Write_Guard::instance()->with_authorized_write(
-				'legacy_feed',
-				array(
-					'product_id' => $expected_product_id,
-					'operation'  => 'set',
-					'value'      => $product_code,
-				),
-				function () use ( $product, $data ) {
-					return Digitalogic_Patris_Price_Write_Guard::instance()->with_authorized_write(
-						function () use ( $product, $data ) {
-							return $this->apply_product_feed_authorized( $product, $data );
-						}
-					);
-				}
-			);
-			if ( is_wp_error( $applied ) ) {
-				return $applied;
+			$preflight = Digitalogic_Product_Code_Editor::instance()->preflight_canonical_source_write( $expected_product_id, $product_code );
+			if ( is_wp_error( $preflight ) ) {
+				return $preflight;
+			}
+			$backup = $this->capture_product_feed_backup( $product );
+			if ( is_wp_error( $backup ) ) {
+				return $backup;
 			}
 
-			return Digitalogic_Product_Code_Editor::instance()->verify_canonical_source_write( $expected_product_id, $product_code );
+			try {
+				$applied = Digitalogic_Product_Code_Write_Guard::instance()->with_authorized_write(
+					'legacy_feed',
+					array(
+						'product_id' => $expected_product_id,
+						'operation'  => 'set',
+						'value'      => $product_code,
+					),
+					function () use ( $product, $data ) {
+						return Digitalogic_Patris_Price_Write_Guard::instance()->with_authorized_write(
+							function () use ( $product, $data ) {
+								return $this->apply_product_feed_authorized( $product, $data );
+							}
+						);
+					}
+				);
+			} catch ( Throwable $exception ) {
+				$applied = new WP_Error(
+					'digitalogic_patris_product_write_failed',
+					__( 'The source product write failed and must be rolled back.', 'digitalogic' ),
+					array( 'status' => 503, 'retryable' => true )
+				);
+			}
+			if ( is_wp_error( $applied ) ) {
+				return $this->rollback_product_feed_failure( $product, $backup, $applied );
+			}
+
+			$verified = Digitalogic_Product_Code_Editor::instance()->verify_canonical_source_write( $expected_product_id, $product_code );
+			return is_wp_error( $verified ) ? $this->rollback_product_feed_failure( $product, $backup, $verified ) : true;
 		} finally {
 			$receiver->release_source_identity_lock();
 		}
@@ -803,6 +820,195 @@ class Digitalogic_Patris_Feed {
 				$product->save();
 				Digitalogic_Patris_Price_Policy::instance()->invalidate( $product );
 			}
+		);
+	}
+
+	/** Capture every field the legacy source writer can change. */
+	private function capture_product_feed_backup( $product ) {
+		$product_id = $product instanceof WC_Product ? (int) $product->get_id() : 0;
+		$canonical  = Digitalogic_Product_Code_Editor::instance()->canonical_source_backup( $product_id );
+		if ( $product_id <= 0 || is_wp_error( $canonical ) ) {
+			return is_wp_error( $canonical ) ? $canonical : new WP_Error( 'digitalogic_patris_product_backup_unavailable', __( 'The source product backup is unavailable.', 'digitalogic' ) );
+		}
+		wp_cache_delete( $product_id, 'post_meta' );
+		$meta = array();
+		foreach ( $this->feed_meta_keys() as $key ) {
+			$exists       = metadata_exists( 'post', $product_id, $key );
+			$meta[ $key ] = array(
+				'exists' => $exists,
+				'value'  => $exists ? get_post_meta( $product_id, $key, true ) : null,
+			);
+		}
+
+		return array(
+			'product_id' => $product_id,
+			'canonical'  => $canonical,
+			'meta'       => $meta,
+			'props'      => array(
+				'weight'         => (string) $product->get_weight(),
+				'manage_stock'   => $product->get_manage_stock(),
+				'stock_quantity' => $product->get_stock_quantity(),
+				'stock_status'   => (string) $product->get_stock_status(),
+				'regular_price'  => (string) $product->get_regular_price(),
+				'sale_price'     => (string) $product->get_sale_price(),
+				'price'          => (string) $product->get_price(),
+			),
+		);
+	}
+
+	/** Restore and verify the targeted source-writer backup. */
+	private function restore_product_feed_backup( $product, $backup ) {
+		$product_id = (int) ( $backup['product_id'] ?? 0 );
+		if ( ! $product instanceof WC_Product || $product_id <= 0 || $product_id !== (int) $product->get_id() ) {
+			return false;
+		}
+		$canonical = $backup['canonical'];
+		try {
+			$restored = Digitalogic_Product_Code_Write_Guard::instance()->with_authorized_write(
+				'legacy_feed',
+				array(
+					'product_id' => $product_id,
+					'operation'  => $canonical['meta_exists'] ? 'set' : 'delete',
+					'value'      => (string) $canonical['product_code'],
+				),
+				function () use ( $product, $backup, $canonical ) {
+					return Digitalogic_Patris_Price_Write_Guard::instance()->with_authorized_write(
+						function () use ( $product, $backup, $canonical ) {
+							foreach ( $backup['meta'] as $key => $state ) {
+								if ( $state['exists'] ) {
+									$product->update_meta_data( $key, $state['value'] );
+								} else {
+									$product->delete_meta_data( $key );
+								}
+							}
+							if ( $canonical['meta_exists'] ) {
+								$product->update_meta_data( Digitalogic_Product_Code_Editor::META_KEY, $canonical['product_code'] );
+							} else {
+								$product->delete_meta_data( Digitalogic_Product_Code_Editor::META_KEY );
+							}
+							$product->set_weight( $backup['props']['weight'] );
+							$product->set_manage_stock( $backup['props']['manage_stock'] );
+							$product->set_stock_quantity( $backup['props']['stock_quantity'] );
+							$product->set_stock_status( $backup['props']['stock_status'] );
+							$product->set_regular_price( $backup['props']['regular_price'] );
+							$product->set_sale_price( $backup['props']['sale_price'] );
+							$product->set_price( $backup['props']['price'] );
+							return $product->save();
+						}
+					);
+				}
+			);
+			if ( is_wp_error( $restored ) ) {
+				return false;
+			}
+
+			$canonical_restored = Digitalogic_Product_Code_Editor::instance()->verify_canonical_source_restore( $product_id, $canonical );
+			if ( is_wp_error( $canonical_restored ) ) {
+				$deleted = Digitalogic_Product_Code_Write_Guard::instance()->with_authorized_write(
+					'legacy_feed',
+					array( 'product_id' => $product_id, 'operation' => 'delete' ),
+					static function () use ( $product_id ) {
+						return delete_post_meta( $product_id, Digitalogic_Product_Code_Editor::META_KEY );
+					}
+				);
+				if ( is_wp_error( $deleted ) ) {
+					return false;
+				}
+				if ( $canonical['meta_exists'] ) {
+					$written = Digitalogic_Product_Code_Write_Guard::instance()->with_authorized_write(
+						'legacy_feed',
+						array( 'product_id' => $product_id, 'operation' => 'set', 'value' => $canonical['product_code'] ),
+						static function () use ( $product_id, $canonical ) {
+							return update_post_meta( $product_id, Digitalogic_Product_Code_Editor::META_KEY, $canonical['product_code'] );
+						}
+					);
+					if ( is_wp_error( $written ) || false === $written ) {
+						return false;
+					}
+				}
+			}
+			Digitalogic_Patris_Price_Policy::instance()->invalidate( $product );
+		} catch ( Throwable $exception ) {
+			return false;
+		}
+
+		if ( is_wp_error( Digitalogic_Product_Code_Editor::instance()->verify_canonical_source_restore( $product_id, $canonical ) ) ) {
+			return false;
+		}
+		wp_cache_delete( $product_id, 'post_meta' );
+		foreach ( $backup['meta'] as $key => $state ) {
+			if ( metadata_exists( 'post', $product_id, $key ) !== $state['exists'] ) {
+				return false;
+			}
+			if ( $state['exists'] && get_post_meta( $product_id, $key, true ) !== $state['value'] ) {
+				return false;
+			}
+		}
+		$fresh = $this->fresh_product_for_source_readback( $product_id );
+		if ( ! $fresh instanceof WC_Product || ! $this->source_props_match( $fresh, $backup['props'] ) ) {
+			return false;
+		}
+
+		return true;
+	}
+
+	/** Read one product after narrowly invalidating only its object/meta caches. */
+	private function fresh_product_for_source_readback( $product_id ) {
+		$product_id = absint( $product_id );
+		wp_cache_delete( $product_id, 'post_meta' );
+		clean_post_cache( $product_id );
+		if ( function_exists( 'wc_delete_product_transients' ) ) {
+			wc_delete_product_transients( $product_id );
+		}
+
+		return wc_get_product( $product_id );
+	}
+
+	/** Compare every WooCommerce property changed by the legacy feed. */
+	private function source_props_match( $product, $expected ) {
+		return (string) $product->get_weight() === (string) $expected['weight']
+			&& $product->get_manage_stock() === $expected['manage_stock']
+			&& $product->get_stock_quantity() === $expected['stock_quantity']
+			&& (string) $product->get_stock_status() === (string) $expected['stock_status']
+			&& (string) $product->get_regular_price() === (string) $expected['regular_price']
+			&& (string) $product->get_sale_price() === (string) $expected['sale_price']
+			&& (string) $product->get_price() === (string) $expected['price'];
+	}
+
+	/** Return a typed failure whose exact rollback result is explicit. */
+	private function rollback_product_feed_failure( $product, $backup, $cause ) {
+		$verified = $this->restore_product_feed_backup( $product, $backup );
+		if ( ! $verified ) {
+			return new WP_Error(
+				'digitalogic_patris_product_rollback_unknown',
+				__( 'The source product write and rollback require exact reconciliation.', 'digitalogic' ),
+				array( 'status' => 409, 'retryable' => false, 'cause' => $cause->get_error_code() )
+			);
+		}
+		$data                     = is_array( $cause->get_error_data() ) ? $cause->get_error_data() : array();
+		$data['effect_attempted'] = true;
+		$data['rollback_verified'] = true;
+
+		return new WP_Error( $cause->get_error_code(), $cause->get_error_message(), $data );
+	}
+
+	/** Metadata keys changed by apply_product_feed_authorized and price policy. */
+	private function feed_meta_keys() {
+		return array(
+			'_digitalogic_patris_category_code', '_digitalogic_patris_name', '_digitalogic_patris_serial',
+			'_digitalogic_patris_unit', '_digitalogic_patris_unit_id', '_digitalogic_patris_sale_price_source',
+			'_digitalogic_patris_partner_price_source', '_digitalogic_patris_purchase_price_source',
+			'_digitalogic_patris_warehouse_stock', '_digitalogic_patris_total_stock', '_digitalogic_patris_minimum_stock',
+			'_digitalogic_patris_foreign_currency', '_digitalogic_patris_foreign_price', '_digitalogic_patris_price_source_amount',
+			'_digitalogic_patris_price_source_currency', '_digitalogic_patris_price_source_kind', '_digitalogic_patris_weight_grams',
+			'_digitalogic_patris_location', '_digitalogic_patris_shipping_method_id', '_digitalogic_patris_shipping_price_per_kg',
+			'_digitalogic_patris_shipping_price_per_kg_currency', '_digitalogic_patris_markup_percent', '_digitalogic_patris_irt_per_cny',
+			'_digitalogic_patris_price_rounding_digits', '_digitalogic_patris_price_rounding_mode', '_digitalogic_patris_pricing_catalog_revision',
+			'_digitalogic_patris_pricing_catalog_status', '_digitalogic_patris_currency_effective_date', '_digitalogic_patris_final_price',
+			'_digitalogic_patris_updated_at', '_digitalogic_patris_warnings', '_digitalogic_patris_record_hash',
+			'_digitalogic_patris_flags', '_digitalogic_patris_last_feed', '_digitalogic_patris_null_fields',
+			'_digitalogic_patris_missing_fields', Digitalogic_Patris_Price_Policy::STATUS_META,
+			Digitalogic_Patris_Price_Policy::POLICY_META, Digitalogic_Patris_Price_Policy::WARNING_META,
 		);
 	}
 

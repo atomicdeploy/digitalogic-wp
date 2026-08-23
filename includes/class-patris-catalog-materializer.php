@@ -279,6 +279,27 @@ final class Digitalogic_Patris_Catalog_Materializer {
 				$products     = is_array( $current_state['products'] ?? null ) ? $current_state['products'] : array();
 			}
 
+			if ( $apply ) {
+				foreach ( $selected as $code => $enrichment ) {
+					$target_id = null !== $enrichment['target_product_id'] ? (int) $enrichment['target_product_id'] : 0;
+					if ( 0 === $target_id ) {
+						$existing = Digitalogic_Product_Identifier_Resolver::instance()->resolve( array( 'code' => (string) $code ) );
+						if ( ! is_wp_error( $existing ) ) {
+							$target_id = (int) ( $existing['woocommerce_id'] ?? 0 );
+						}
+					}
+					$preflight = Digitalogic_Product_Code_Editor::instance()->preflight_canonical_source_write( $target_id, (string) $code );
+					if ( is_wp_error( $preflight ) ) {
+						$this->append_detail( $result, (string) $code, $preflight->get_error_code() );
+						++$result['skipped'];
+						unset( $selected[ $code ] );
+					}
+				}
+				if ( empty( $selected ) ) {
+					return $result;
+				}
+			}
+
 			$category_result      = $this->reconcile_categories( $source_state, $manifest, $selected, $apply );
 			$result['categories'] = $category_result['summary'];
 
@@ -324,7 +345,12 @@ final class Digitalogic_Patris_Catalog_Materializer {
 						: $this->create_simple_draft( $code, $enrichment, $source_id, $dataset );
 					if ( is_wp_error( $product ) ) {
 						$this->append_detail( $result, $code, $product->get_error_code() );
-						++$result['skipped'];
+						$error_data = $product->get_error_data();
+						if ( is_array( $error_data ) && ! empty( $error_data['effect_attempted'] ) ) {
+							++$result['failed'];
+						} else {
+							++$result['skipped'];
+						}
 						continue;
 					}
 					++$result['created'];
@@ -362,9 +388,30 @@ final class Digitalogic_Patris_Catalog_Materializer {
 					$category_code
 				);
 				if ( is_wp_error( $updated ) ) {
+					if ( $is_new_simple || $is_new_variation ) {
+						$updated = $this->rollback_failed_draft( $product, $updated );
+						$result['created'] = max( 0, $result['created'] - 1 );
+						if ( $is_new_variation ) {
+							$result['created_variations'] = max( 0, $result['created_variations'] - 1 );
+						}
+					}
 					$this->append_detail( $result, $code, $updated->get_error_code() );
 					++$result['failed'];
 					continue;
+				}
+				if ( $is_new_variation ) {
+					$parent  = wc_get_product( (int) $enrichment['target_parent_id'] );
+					$updated = $parent
+						? $this->add_parent_variation_attribute( $parent, $enrichment['attribute_taxonomy'], (int) $enrichment['attribute_term_id'] )
+						: $this->error( 'digitalogic_patris_materializer_variation_parent_invalid', 'The reviewed variation parent is unavailable.' );
+					if ( is_wp_error( $updated ) ) {
+						$updated = $this->rollback_failed_draft( $product, $updated );
+						$result['created'] = max( 0, $result['created'] - 1 );
+						$result['created_variations'] = max( 0, $result['created_variations'] - 1 );
+						$this->append_detail( $result, $code, $updated->get_error_code() );
+						++$result['failed'];
+						continue;
+					}
 				}
 
 				try {
@@ -1455,10 +1502,6 @@ final class Digitalogic_Patris_Catalog_Materializer {
 		$taxonomy = $enrichment['attribute_taxonomy'];
 		$term_id  = (int) $enrichment['attribute_term_id'];
 		$term     = get_term( $term_id, $taxonomy );
-		$updated  = $this->add_parent_variation_attribute( $parent, $taxonomy, $term_id );
-		if ( is_wp_error( $updated ) ) {
-			return $updated;
-		}
 
 		try {
 			$variation = new WC_Product_Variation();
@@ -1466,17 +1509,31 @@ final class Digitalogic_Patris_Catalog_Materializer {
 			$variation->set_status( 'draft' );
 			$variation->set_sku( $code );
 			$variation->set_attributes( array( $taxonomy => (string) $term->slug ) );
-			$this->stage_managed_identity( $variation, $code, $source_id, $dataset );
-			$product_id = $this->save_managed_identity( $variation );
-			if ( is_wp_error( $product_id ) ) {
-				return $product_id;
-			}
-			if ( (int) $product_id <= 0 ) {
+			$product_id = $variation->save();
+			if ( (int) $product_id <= 0 || (int) $variation->get_id() !== (int) $product_id ) {
 				throw new RuntimeException( 'WooCommerce returned an invalid variation ID.' );
 			}
-
+			$preflight = Digitalogic_Product_Code_Editor::instance()->preflight_canonical_source_write( (int) $product_id, $code );
+			if ( is_wp_error( $preflight ) ) {
+				return $this->rollback_failed_draft( $variation, $preflight );
+			}
+			$this->stage_managed_identity( $variation, $code, $source_id, $dataset );
+			$identity_id = $this->save_managed_identity( $variation );
+			if ( is_wp_error( $identity_id ) ) {
+				return $this->rollback_failed_draft( $variation, $identity_id );
+			}
+			$verified = Digitalogic_Product_Code_Editor::instance()->verify_canonical_source_write( (int) $product_id, $code );
+			if ( is_wp_error( $verified ) ) {
+				return $this->rollback_failed_draft( $variation, $verified );
+			}
 			return $variation;
 		} catch ( Throwable $exception ) {
+			if ( isset( $variation ) && $variation instanceof WC_Product && (int) $variation->get_id() > 0 ) {
+				return $this->rollback_failed_draft(
+					$variation,
+					$this->error( 'digitalogic_patris_materializer_variation_create_failed', 'The reviewed draft variation could not be created.' )
+				);
+			}
 			return $this->error( 'digitalogic_patris_materializer_variation_create_failed', 'The reviewed draft variation could not be created.' );
 		}
 	}
@@ -1487,8 +1544,9 @@ final class Digitalogic_Patris_Catalog_Materializer {
 	 * @return true|WP_Error
 	 */
 	private function add_parent_variation_attribute( $parent, $taxonomy, $term_id ) {
+		$backup = $this->clone_product_attributes( $parent->get_attributes() );
 		try {
-			$attributes = $parent->get_attributes();
+			$attributes = $this->clone_product_attributes( $backup );
 			$attribute  = $attributes[ $taxonomy ] ?? null;
 			if ( $attribute instanceof WC_Product_Attribute ) {
 				$options = array_map( 'intval', $attribute->get_options() );
@@ -1513,12 +1571,77 @@ final class Digitalogic_Patris_Catalog_Materializer {
 				$attributes[ $taxonomy ] = $attribute;
 			}
 			$parent->set_attributes( $attributes );
-			$parent->save();
+			if ( ! $parent->save() ) {
+				throw new RuntimeException( 'WooCommerce rejected the parent attribute save.' );
+			}
+			$this->flush_product_caches( (int) $parent->get_id() );
+			$fresh      = wc_get_product( (int) $parent->get_id() );
+			$readback   = $fresh instanceof WC_Product ? $fresh->get_attributes() : array();
+			$attribute  = $readback[ $taxonomy ] ?? null;
+			$options    = $attribute instanceof WC_Product_Attribute ? array_map( 'intval', $attribute->get_options() ) : array();
+			if ( ! in_array( (int) $term_id, $options, true ) ) {
+				throw new RuntimeException( 'The parent attribute readback did not contain the reviewed option.' );
+			}
 		} catch ( Throwable $exception ) {
-			return $this->error( 'digitalogic_patris_materializer_parent_attribute_failed', 'The reviewed parent attribute option could not be saved.' );
+			$cause = $this->error( 'digitalogic_patris_materializer_parent_attribute_failed', 'The reviewed parent attribute option could not be saved.' );
+			try {
+				$parent->set_attributes( $this->clone_product_attributes( $backup ) );
+				$restored = $parent->save();
+				if ( $restored ) {
+					$this->flush_product_caches( (int) $parent->get_id() );
+				}
+				$fresh    = $restored ? wc_get_product( (int) $parent->get_id() ) : false;
+			} catch ( Throwable $rollback_exception ) {
+				$fresh = false;
+			}
+			if ( ! $fresh instanceof WC_Product || ! $this->product_attributes_equal( $backup, $fresh->get_attributes() ) ) {
+				return $this->error( 'digitalogic_patris_materializer_parent_attribute_rollback_unknown', 'The parent attribute rollback requires exact reconciliation.' );
+			}
+			$data                      = is_array( $cause->get_error_data() ) ? $cause->get_error_data() : array();
+			$data['effect_attempted']  = true;
+			$data['rollback_verified'] = true;
+
+			return new WP_Error( $cause->get_error_code(), $cause->get_error_message(), $data );
 		}
 
 		return true;
+	}
+
+	/** Deep-clone the bounded WooCommerce attribute objects before mutation. */
+	private function clone_product_attributes( $attributes ) {
+		$cloned = array();
+		foreach ( (array) $attributes as $key => $attribute ) {
+			$cloned[ $key ] = is_object( $attribute ) ? clone $attribute : $attribute;
+		}
+
+		return $cloned;
+	}
+
+	/** Compare the semantic parent attribute state used by variation creation. */
+	private function product_attributes_equal( $left, $right ) {
+		$normalize = static function ( $attributes ) {
+			$normalized = array();
+			foreach ( (array) $attributes as $key => $attribute ) {
+				if ( $attribute instanceof WC_Product_Attribute ) {
+					$options = array_values( array_map( 'intval', $attribute->get_options() ) );
+					sort( $options, SORT_NUMERIC );
+					$normalized[ (string) $key ] = array(
+						'id'        => (int) $attribute->get_id(),
+						'name'      => (string) $attribute->get_name(),
+						'options'   => $options,
+						'visible'   => (bool) $attribute->get_visible(),
+						'variation' => (bool) $attribute->get_variation(),
+					);
+				} else {
+					$normalized[ (string) $key ] = $attribute;
+				}
+			}
+			ksort( $normalized, SORT_STRING );
+
+			return $normalized;
+		};
+
+		return $normalize( $left ) === $normalize( $right );
 	}
 
 	/**
@@ -1575,19 +1698,70 @@ final class Digitalogic_Patris_Catalog_Materializer {
 			if ( method_exists( $product, 'set_catalog_visibility' ) ) {
 				$product->set_catalog_visibility( 'hidden' );
 			}
-			$this->stage_managed_identity( $product, $code, $source_id, $dataset );
-			$product_id = $this->save_managed_identity( $product );
-			if ( is_wp_error( $product_id ) ) {
-				return $product_id;
-			}
-			if ( (int) $product_id <= 0 ) {
+			$product_id = $product->save();
+			if ( (int) $product_id <= 0 || (int) $product->get_id() !== (int) $product_id ) {
 				throw new RuntimeException( 'WooCommerce returned an invalid product ID.' );
+			}
+			$preflight = Digitalogic_Product_Code_Editor::instance()->preflight_canonical_source_write( (int) $product_id, $code );
+			if ( is_wp_error( $preflight ) ) {
+				return $this->rollback_failed_draft( $product, $preflight );
+			}
+			$this->stage_managed_identity( $product, $code, $source_id, $dataset );
+			$identity_id = $this->save_managed_identity( $product );
+			if ( is_wp_error( $identity_id ) ) {
+				return $this->rollback_failed_draft( $product, $identity_id );
+			}
+			$verified = Digitalogic_Product_Code_Editor::instance()->verify_canonical_source_write( (int) $product_id, $code );
+			if ( is_wp_error( $verified ) ) {
+				return $this->rollback_failed_draft( $product, $verified );
 			}
 
 			return $product;
 		} catch ( Throwable $exception ) {
+			if ( isset( $product ) && $product instanceof WC_Product && (int) $product->get_id() > 0 ) {
+				return $this->rollback_failed_draft(
+					$product,
+					$this->error( 'digitalogic_patris_materializer_create_failed', 'The draft product could not be created.' )
+				);
+			}
 			return $this->error( 'digitalogic_patris_materializer_create_failed', 'The draft product could not be created.' );
 		}
+	}
+
+	/**
+	 * Permanently remove a newly-created draft after any later identity failure.
+	 *
+	 * @param WC_Product $product Newly created draft leaf.
+	 * @param WP_Error   $cause Typed failure that triggered cleanup.
+	 * @return WP_Error Original failure or an outcome-unknown cleanup error.
+	 */
+	private function rollback_failed_draft( $product, $cause ) {
+		$product_id = $product instanceof WC_Product ? (int) $product->get_id() : 0;
+		if ( $product_id <= 0 || ! $cause instanceof WP_Error ) {
+			return $this->error( 'digitalogic_patris_materializer_draft_rollback_unknown', 'The failed draft identity requires exact reconciliation.' );
+		}
+		try {
+			$deleted = wp_delete_post( $product_id, true );
+		} catch ( Throwable $exception ) {
+			$deleted = false;
+		}
+		if ( $deleted && ! get_post( $product_id ) ) {
+			$data                     = is_array( $cause->get_error_data() ) ? $cause->get_error_data() : array();
+			$data['effect_attempted'] = true;
+			$data['rollback_verified'] = true;
+			return new WP_Error( $cause->get_error_code(), $cause->get_error_message(), $data );
+		}
+
+		return new WP_Error(
+			'digitalogic_patris_materializer_draft_rollback_unknown',
+			'The failed draft identity could not be removed and requires exact reconciliation.',
+			array(
+				'status'     => 409,
+				'retryable'  => false,
+				'product_id' => $product_id,
+				'cause'      => $cause->get_error_code(),
+			)
+		);
 	}
 
 	/**
@@ -1596,6 +1770,10 @@ final class Digitalogic_Patris_Catalog_Materializer {
 	 * @return true|WP_Error
 	 */
 	private function apply_identity_and_enrichment( $product, $code, $source_id, $dataset, $enrichment, $category_term, $reviewed_category_code ) {
+		$backup = $this->capture_identity_enrichment_backup( $product );
+		if ( is_wp_error( $backup ) ) {
+			return $backup;
+		}
 		try {
 			if ( '' === (string) $product->get_sku() ) {
 				$product->set_sku( $code );
@@ -1621,28 +1799,209 @@ final class Digitalogic_Patris_Catalog_Materializer {
 			$category_product_id = $this->assign_product_category( $product, $category_term );
 			$saved = $this->save_managed_identity( $product );
 			if ( is_wp_error( $saved ) ) {
-				return $saved;
+				return $this->rollback_identity_enrichment_failure( $product, $backup, $saved );
 			}
 		} catch ( Throwable $exception ) {
-			return $this->error( 'digitalogic_patris_materializer_product_write_failed', 'The reviewed product enrichment could not be saved.' );
+			return $this->rollback_identity_enrichment_failure(
+				$product,
+				$backup,
+				$this->error( 'digitalogic_patris_materializer_product_write_failed', 'The reviewed product enrichment could not be saved.' )
+			);
 		}
 
 		$category_readback = $this->verify_product_category( $category_product_id, $category_term );
 		if ( is_wp_error( $category_readback ) ) {
-			return $category_readback;
+			return $this->rollback_identity_enrichment_failure( $product, $backup, $category_readback );
 		}
 		$identity_readback = Digitalogic_Product_Code_Editor::instance()->verify_canonical_source_write( $product->get_id(), $code );
 		if ( is_wp_error( $identity_readback ) ) {
-			return $identity_readback;
+			return $this->rollback_identity_enrichment_failure( $product, $backup, $identity_readback );
 		}
 
 		if (
 			(string) get_post_meta( $product->get_id(), Digitalogic_Product_Identifier_Resolver::SKU_META, true ) !== $code
 		) {
-			return $this->error( 'digitalogic_patris_materializer_identity_readback_failed', 'The Patris Code/SKU identity failed readback verification.' );
+			return $this->rollback_identity_enrichment_failure(
+				$product,
+				$backup,
+				$this->error( 'digitalogic_patris_materializer_identity_readback_failed', 'The Patris Code/SKU identity failed readback verification.' )
+			);
 		}
 
 		return true;
+	}
+
+	/** Capture every product field changed by the identity/enrichment phase. */
+	private function capture_identity_enrichment_backup( $product ) {
+		$product_id = $product instanceof WC_Product ? (int) $product->get_id() : 0;
+		$canonical  = Digitalogic_Product_Code_Editor::instance()->canonical_source_backup( $product_id );
+		if ( $product_id <= 0 || is_wp_error( $canonical ) ) {
+			return is_wp_error( $canonical ) ? $canonical : $this->error( 'digitalogic_patris_materializer_backup_unavailable', 'The reviewed product backup is unavailable.' );
+		}
+		wp_cache_delete( $product_id, 'post_meta' );
+		clean_post_cache( $product_id );
+		$meta = array();
+		foreach ( $this->identity_enrichment_meta_keys() as $key ) {
+			$exists       = metadata_exists( 'post', $product_id, $key );
+			$meta[ $key ] = array(
+				'exists' => $exists,
+				'value'  => $exists ? get_post_meta( $product_id, $key, true ) : null,
+			);
+		}
+		$post            = get_post( $product_id );
+		$category_target = $product->is_type( 'variation' ) ? wc_get_product( $product->get_parent_id() ) : $product;
+		if ( ! $post || ! $category_target instanceof WC_Product ) {
+			return $this->error( 'digitalogic_patris_materializer_backup_unavailable', 'The reviewed product backup is unavailable.' );
+		}
+
+		return array(
+			'product_id'         => $product_id,
+			'canonical'          => $canonical,
+			'meta'               => $meta,
+			'name'               => (string) ( $post->post_title ?? '' ),
+			'short_description'  => (string) ( $post->post_excerpt ?? '' ),
+			'category_target_id' => (int) $category_target->get_id(),
+			'category_ids'       => array_values( array_map( 'intval', (array) $category_target->get_category_ids() ) ),
+		);
+	}
+
+	/** Restore and prove the exact identity/enrichment backup. */
+	private function restore_identity_enrichment_backup( $product, $backup ) {
+		$product_id = (int) ( $backup['product_id'] ?? 0 );
+		if ( ! $product instanceof WC_Product || $product_id <= 0 || $product_id !== (int) $product->get_id() ) {
+			return false;
+		}
+		$canonical = $backup['canonical'] ?? array();
+		try {
+			$product->set_name( $backup['name'] );
+			if ( method_exists( $product, 'set_short_description' ) ) {
+				$product->set_short_description( $backup['short_description'] );
+			}
+			foreach ( $backup['meta'] as $key => $state ) {
+				if ( $state['exists'] ) {
+					$product->update_meta_data( $key, $state['value'] );
+				} else {
+					$product->delete_meta_data( $key );
+				}
+			}
+			if ( $canonical['meta_exists'] ) {
+				$product->update_meta_data( Digitalogic_Product_Code_Editor::META_KEY, $canonical['product_code'] );
+			} else {
+				$product->delete_meta_data( Digitalogic_Product_Code_Editor::META_KEY );
+			}
+			$category_target = (int) $backup['category_target_id'] === $product_id
+				? $product
+				: wc_get_product( (int) $backup['category_target_id'] );
+			if ( ! $category_target instanceof WC_Product ) {
+				return false;
+			}
+			$category_target->set_category_ids( $backup['category_ids'] );
+			if ( $category_target->get_id() !== $product_id && ! $category_target->save() ) {
+				return false;
+			}
+			$saved = Digitalogic_Product_Code_Write_Guard::instance()->with_authorized_write(
+				'materializer',
+				array(
+					'product_id' => $product_id,
+					'operation'  => $canonical['meta_exists'] ? 'set' : 'delete',
+					'value'      => (string) ( $canonical['product_code'] ?? '' ),
+				),
+				static function () use ( $product ) {
+					return $product->save();
+				}
+			);
+			if ( is_wp_error( $saved ) || ! $saved ) {
+				return false;
+			}
+		} catch ( Throwable $exception ) {
+			return false;
+		}
+
+		$canonical_restored = Digitalogic_Product_Code_Editor::instance()->verify_canonical_source_restore( $product_id, $canonical );
+		if ( is_wp_error( $canonical_restored ) ) {
+			$deleted = Digitalogic_Product_Code_Write_Guard::instance()->with_authorized_write(
+				'materializer',
+				array( 'product_id' => $product_id, 'operation' => 'delete' ),
+				static function () use ( $product_id ) {
+					return delete_post_meta( $product_id, Digitalogic_Product_Code_Editor::META_KEY );
+				}
+			);
+			if ( is_wp_error( $deleted ) ) {
+				return false;
+			}
+			if ( $canonical['meta_exists'] ) {
+				$written = Digitalogic_Product_Code_Write_Guard::instance()->with_authorized_write(
+					'materializer',
+					array( 'product_id' => $product_id, 'operation' => 'set', 'value' => $canonical['product_code'] ),
+					static function () use ( $product_id, $canonical ) {
+						return update_post_meta( $product_id, Digitalogic_Product_Code_Editor::META_KEY, $canonical['product_code'] );
+					}
+				);
+				if ( is_wp_error( $written ) || false === $written ) {
+					return false;
+				}
+			}
+			if ( is_wp_error( Digitalogic_Product_Code_Editor::instance()->verify_canonical_source_restore( $product_id, $canonical ) ) ) {
+				return false;
+			}
+		}
+		$this->flush_product_caches( $product_id );
+		if ( (int) $backup['category_target_id'] !== $product_id ) {
+			$this->flush_product_caches( (int) $backup['category_target_id'] );
+		}
+		wp_cache_delete( $product_id, 'post_meta' );
+		clean_post_cache( $product_id );
+		foreach ( $backup['meta'] as $key => $state ) {
+			if ( metadata_exists( 'post', $product_id, $key ) !== $state['exists'] ) {
+				return false;
+			}
+			if ( $state['exists'] && get_post_meta( $product_id, $key, true ) !== $state['value'] ) {
+				return false;
+			}
+		}
+		$post = get_post( $product_id );
+		if ( ! $post || (string) ( $post->post_title ?? '' ) !== $backup['name'] || (string) ( $post->post_excerpt ?? '' ) !== $backup['short_description'] ) {
+			return false;
+		}
+		$category_target = wc_get_product( (int) $backup['category_target_id'] );
+		$category_ids    = $category_target instanceof WC_Product ? array_values( array_map( 'intval', (array) $category_target->get_category_ids() ) ) : array();
+		sort( $category_ids, SORT_NUMERIC );
+		$expected_category_ids = $backup['category_ids'];
+		sort( $expected_category_ids, SORT_NUMERIC );
+
+		return $category_ids === $expected_category_ids;
+	}
+
+	/** Convert any failed identity effect into a verified rollback or terminal reconciliation block. */
+	private function rollback_identity_enrichment_failure( $product, $backup, $cause ) {
+		if ( $cause instanceof WP_Error && $this->restore_identity_enrichment_backup( $product, $backup ) ) {
+			$data                      = is_array( $cause->get_error_data() ) ? $cause->get_error_data() : array();
+			$data['effect_attempted']  = true;
+			$data['rollback_verified'] = true;
+
+			return new WP_Error( $cause->get_error_code(), $cause->get_error_message(), $data );
+		}
+
+		return new WP_Error(
+			'digitalogic_patris_materializer_rollback_unknown',
+			'The reviewed product write and rollback require exact reconciliation.',
+			array(
+				'status'     => 409,
+				'retryable'  => false,
+				'product_id' => (int) ( $backup['product_id'] ?? 0 ),
+				'cause'      => $cause instanceof WP_Error ? $cause->get_error_code() : 'unknown',
+			)
+		);
+	}
+
+	/** Exact metadata surface changed by apply_identity_and_enrichment. */
+	private function identity_enrichment_meta_keys() {
+		return array(
+			'_sku', '_digitalogic_patris_materializer_version', self::OWNER_SOURCE_META, self::OWNER_DATASET_META,
+			self::OWNER_CODE_META, self::CATEGORY_TERM_META, '_digitalogic_reviewed_category_key', '_digitalogic_part_number',
+			'_digitalogic_model', '_digitalogic_variation_group', '_digitalogic_persian_name', '_digitalogic_short_description_fa',
+			'rank_math_title', 'rank_math_description', 'rank_math_focus_keyword', 'rank_math_primary_product_cat',
+		);
 	}
 
 	/**

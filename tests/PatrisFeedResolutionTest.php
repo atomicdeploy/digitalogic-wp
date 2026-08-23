@@ -230,12 +230,54 @@ final class PatrisFeedResolutionTest extends TestCase {
 		$this->assertSame( array(), $GLOBALS['digitalogic_test_wc_product_saves'] );
 	}
 
+	/** A trashed product remains the exact canonical owner until permanent deletion. */
+	public function test_feed_preflight_rejects_a_code_owned_by_a_trashed_product_without_writing(): void {
+		$GLOBALS['digitalogic_test_posts'][714] = array(
+			'post_type'   => 'product',
+			'post_status' => 'publish',
+			'meta'        => array(
+				'_digitalogic_patris_product_code' => 'SOURCE-714',
+				'_existing_sentinel'               => 'unchanged',
+			),
+		);
+		$GLOBALS['digitalogic_test_posts'][715] = array(
+			'post_type'   => 'product_variation',
+			'post_status' => 'trash',
+			'meta'        => array( '_digitalogic_patris_product_code' => 'TRASH-OWNER-715' ),
+		);
+
+		$result = $this->feed->apply_product_feed(
+			wc_get_product( 714 ),
+			array(
+				'product_code' => 'TRASH-OWNER-715',
+				'name'         => 'Must never be applied',
+			)
+		);
+
+		$this->assertInstanceOf( WP_Error::class, $result );
+		$this->assertSame( 'digitalogic_product_code_source_not_unique', $result->get_error_code() );
+		$this->assertSame( array( 715 ), $result->get_error_data()['conflicting_product_ids'] );
+		$this->assertSame( 'SOURCE-714', get_post_meta( 714, Digitalogic_Product_Code_Editor::META_KEY, true ) );
+		$this->assertSame( 'unchanged', get_post_meta( 714, '_existing_sentinel', true ) );
+		$this->assertSame( array(), $GLOBALS['digitalogic_test_wc_product_saves'] );
+	}
+
 	/** A metadata short-circuit cannot be counted as a successful source write. */
 	public function test_feed_fails_when_canonical_write_does_not_pass_database_readback(): void {
 		$GLOBALS['digitalogic_test_posts'][710] = array(
 			'post_type'   => 'product',
 			'post_status' => 'publish',
-			'meta'        => array( '_digitalogic_patris_product_code' => 'SOURCE-710' ),
+			'meta'        => array(
+				'_digitalogic_patris_product_code' => 'SOURCE-710',
+				'_digitalogic_patris_name'         => 'Existing source name',
+				'_weight'                           => '1.25',
+				'_manage_stock'                     => 'yes',
+				'_stock'                            => 9,
+				'_stock_status'                     => 'instock',
+				'_regular_price'                    => '875000',
+				'_sale_price'                       => '825000',
+				'_price'                            => '825000',
+			),
 		);
 		add_filter(
 			'update_post_metadata',
@@ -248,12 +290,27 @@ final class PatrisFeedResolutionTest extends TestCase {
 
 		$result = $this->feed->apply_product_feed(
 			wc_get_product( 710 ),
-			array( 'product_code' => 'SOURCE-710-NEW', 'name' => 'Must fail exact readback' )
+			array(
+				'product_code' => 'SOURCE-710-NEW',
+				'name'         => 'Must fail exact readback',
+				'weight_grams' => 3000,
+				'total_stock'  => 2,
+			)
 		);
 
 		$this->assertInstanceOf( WP_Error::class, $result );
 		$this->assertSame( 'digitalogic_product_code_source_readback_failed', $result->get_error_code() );
+		$this->assertTrue( $result->get_error_data()['effect_attempted'] );
+		$this->assertTrue( $result->get_error_data()['rollback_verified'] );
 		$this->assertSame( 'SOURCE-710', get_post_meta( 710, '_digitalogic_patris_product_code', true ) );
+		$this->assertSame( 'Existing source name', get_post_meta( 710, '_digitalogic_patris_name', true ) );
+		$this->assertSame( '1.25', get_post_meta( 710, '_weight', true ) );
+		$this->assertSame( 'yes', get_post_meta( 710, '_manage_stock', true ) );
+		$this->assertSame( 9, get_post_meta( 710, '_stock', true ) );
+		$this->assertSame( 'instock', get_post_meta( 710, '_stock_status', true ) );
+		$this->assertSame( '875000', get_post_meta( 710, '_regular_price', true ) );
+		$this->assertSame( '825000', get_post_meta( 710, '_sale_price', true ) );
+		$this->assertSame( '825000', get_post_meta( 710, '_price', true ) );
 	}
 
 	/** Duplicate canonical rows injected at save are rejected before lock release. */
@@ -274,6 +331,9 @@ final class PatrisFeedResolutionTest extends TestCase {
 
 		$this->assertInstanceOf( WP_Error::class, $result );
 		$this->assertSame( 'digitalogic_product_code_source_readback_failed', $result->get_error_code() );
+		$this->assertTrue( $result->get_error_data()['rollback_verified'] );
+		$this->assertSame( array(), $GLOBALS['digitalogic_test_posts'][711]['meta_rows']['_digitalogic_patris_product_code'] ?? array() );
+		$this->assertSame( 'SOURCE-711', get_post_meta( 711, '_digitalogic_patris_product_code', true ) );
 	}
 
     public function test_ambiguous_and_invalid_identifiers_fail_safely_without_product_writes_but_remain_reportable(): void {

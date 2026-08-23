@@ -15,6 +15,30 @@
         return error;
     }
 
+	function timeoutError() {
+		var error = new Error('The Product Code request timed out. Retry the unchanged request.');
+		error.code = 'digitalogic_request_timeout';
+		error.status = 0;
+		error.data = {retryable: true};
+		return error;
+	}
+
+	/** Bound prepare, transport, and terminal verification with one deadline. */
+	function withDeadline(work, timeoutMs, onTimeout) {
+		var timeout = Math.max(1000, Math.min(30000, Number(timeoutMs) || 12000));
+		var timeoutHandle;
+		var deadline = new Promise(function(resolve, reject) {
+			timeoutHandle = global.setTimeout(function() {
+				if (typeof onTimeout === 'function') onTimeout();
+				reject(timeoutError());
+			}, timeout);
+		});
+		var operation = Promise.resolve().then(work);
+		return Promise.race([operation, deadline]).finally(function() {
+			global.clearTimeout(timeoutHandle);
+		});
+	}
+
     function digest(material) {
         if (
             !global.crypto ||
@@ -122,9 +146,29 @@
             if (!valid) {
                 throw ambiguous();
             }
-            return result;
+			if (result.replayed !== true) return result;
+			if (
+				typeof result.current_product_code !== 'string' ||
+				!HASH_PATTERN.test(String(result.current_revision || '')) ||
+				!result.current_readback ||
+				result.current_readback.database_readback !== true ||
+				result.current_readback.cache_bypassed !== true
+			) {
+				throw ambiguous();
+			}
+			return digest(revisionMaterial(request.product_id, result.current_product_code)).then(function(currentRevision) {
+				if (!constantTimeEqual(result.current_revision, currentRevision)) throw ambiguous();
+				return result;
+			});
         });
     }
+
+	/** Return only the verified DB-fresh row state after a historical replay. */
+	function currentResult(result) {
+		return result && result.replayed === true
+			? {product_code: result.current_product_code, revision: result.current_revision}
+			: {product_code: result.product_code, revision: result.revision};
+	}
 
     /** Keep one exact classic-admin request active per product. */
     function createRequestRegistry() {
@@ -155,10 +199,34 @@
         };
     }
 
+	/** Keep dedicated Product Code intents out of the generic bulk writer. */
+	function planBulkUpdates(updates, intents, registry) {
+		var safe = {};
+		var pending = [];
+		Object.keys(updates || {}).forEach(function(productId) {
+			var fields = updates[productId];
+			if (!fields || typeof fields !== 'object') return;
+			var hasProductCode = Object.prototype.hasOwnProperty.call(fields, 'patris_product_code');
+			var hasIntent = Boolean(intents && intents[productId]);
+			var inFlight = Boolean(registry && typeof registry.has === 'function' && registry.has(productId));
+			if (hasProductCode || hasIntent || inFlight) {
+				pending.push(String(productId));
+				return;
+			}
+			safe[productId] = Object.assign({}, fields);
+		});
+		pending.sort();
+
+		return {updates: safe, pendingProductIds: pending};
+	}
+
     global.DigitalogicProductCodeContract = {
         schema: SCHEMA,
         prepare: prepare,
         validateResult: validateResult,
+		currentResult: currentResult,
+		withDeadline: withDeadline,
+		planBulkUpdates: planBulkUpdates,
         ambiguous: ambiguous,
         createRequestRegistry: createRequestRegistry
     };
