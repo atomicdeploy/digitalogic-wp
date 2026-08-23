@@ -476,6 +476,282 @@ final class PricingSnapshotTest extends TestCase {
 		$this->assertSame( 409, $cancel_ready->get_status() );
 	}
 
+	/** A cold ready build emits one exact, scoped, secret-free terminal frame. */
+	public function test_cold_build_publishes_exact_durable_terminal_event(): void {
+		add_filter(
+			'digitalogic_pricing_snapshot_enqueue',
+			static function () {
+				return true;
+			}
+		);
+		$request_id = 'sha256:' . str_repeat( '1', 64 );
+		$revision   = $this->revision_response()->get_data()['state_revision'];
+		$started    = $this->start_response( $request_id, $revision, 0 );
+		$build_id   = $started->get_data()['build_id'];
+
+		Digitalogic_Pricing_Snapshot::instance()->run_build( $build_id );
+		$ready  = $this->status_response( $build_id )->get_data();
+		$events = $this->terminal_events();
+		$this->assertCount( 1, $events );
+		$data = $events[0]['data'];
+		$this->assertSame( Digitalogic_Pricing_Snapshot::TERMINAL_EVENT_SCHEMA, $data['schema'] );
+		$this->assertSame( $build_id, $data['build_id'] );
+		$this->assertSame( $request_id, $data['request_id'] );
+		$this->assertSame( 'ready', $data['status'] );
+		$this->assertSame( $this->source, $data['source'] );
+		$this->assertSame( $revision, $data['state_revision'] );
+		$this->assertSame( $ready['snapshot_token'], $data['snapshot_token'] );
+		$this->assertSame( $ready['snapshot_revision'], $data['snapshot_revision'] );
+		$this->assertSame( $ready['digest'], $data['digest'] );
+		$this->assertSame( array( 'services' => array( 'patris_pricing' ) ), $data['audience'] );
+		$this->assertMatchesRegularExpression( '/\Asha256:[a-f0-9]{64}\z/D', $data['idempotency_key'] );
+		$this->assertArrayNotHasKey( 'settings', $data );
+		$this->assertArrayNotHasKey( 'rows', $data );
+		$this->assertArrayNotHasKey( 'client_id', $data );
+		$this->assertArrayNotHasKey( 'secret', $data );
+		$this->assertTrue( Digitalogic_Event_Mesh::event_visible_to( $events[0], 0, '', 'patris_pricing', $this->source ) );
+		$this->assertFalse( Digitalogic_Event_Mesh::event_visible_to( $events[0], 0, '' ) );
+
+		$wrong_source            = $this->source;
+		$wrong_source['dataset'] = 'other.db';
+		$this->assertFalse( Digitalogic_Event_Mesh::event_visible_to( $events[0], 0, '', 'patris_pricing', $wrong_source ) );
+		$leaking                   = $events[0];
+		$leaking['data']['secret'] = 'must-not-pass';
+		$this->assertFalse( Digitalogic_Event_Mesh::event_visible_to( $leaking, 0, '', 'patris_pricing', $this->source ) );
+		$nested_leak                             = $events[0];
+		$nested_leak['data']['source']['secret'] = 'must-not-pass';
+		$this->assertFalse( Digitalogic_Event_Mesh::event_visible_to( $nested_leak, 0, '', 'patris_pricing', $this->source ) );
+		$wrong_path                           = $events[0];
+		$wrong_path['data']['snapshot_path'] .= '&unexpected=1';
+		$this->assertFalse( Digitalogic_Event_Mesh::event_visible_to( $wrong_path, 0, '', 'patris_pricing', $this->source ) );
+		$this->assertArrayNotHasKey( 'digitalogic_pricing_snapshot_terminal_event_outbox_v1', $GLOBALS['digitalogic_test_options'] );
+
+		Digitalogic_Pricing_Snapshot::instance()->publish_scheduled_terminal_events();
+		$this->assertCount( 1, $this->terminal_events() );
+	}
+
+	/** A committed outbox survives job expiry and keeps stable at-least-once identity. */
+	public function test_terminal_event_outbox_survives_job_expiry_and_uses_stable_identity(): void {
+		add_filter(
+			'digitalogic_pricing_snapshot_enqueue',
+			static function () {
+				return true;
+			}
+		);
+		$request_id                                    = 'sha256:' . str_repeat( '2', 64 );
+		$revision                                      = $this->revision_response()->get_data()['state_revision'];
+		$started                                       = $this->start_response( $request_id, $revision, 0 );
+		$GLOBALS['digitalogic_test_update_failures'][] = 'digitalogic_panel_events';
+
+		$build_id = $started->get_data()['build_id'];
+		Digitalogic_Pricing_Snapshot::instance()->run_build( $build_id );
+		$this->assertCount( 0, $this->terminal_events() );
+		$this->assertArrayHasKey( 'digitalogic_pricing_snapshot_terminal_event_outbox_v1', $GLOBALS['digitalogic_test_options'] );
+		$outbox = $GLOBALS['digitalogic_test_options']['digitalogic_pricing_snapshot_terminal_event_outbox_v1'];
+		$this->assertTrue( reset( $outbox )['committed'] );
+		$this->assertNotEmpty( $this->scheduled_events_for( 'digitalogic_pricing_snapshot_terminal_event_delivery_v1' ) );
+		delete_transient( $this->invoke_snapshot( 'job_key', array( $build_id ) ) );
+
+		$GLOBALS['digitalogic_test_update_failures'] = array();
+		Digitalogic_Pricing_Snapshot::instance()->run_terminal_event_delivery();
+		$this->assertCount( 1, $this->terminal_events() );
+		$this->assertArrayNotHasKey( 'digitalogic_pricing_snapshot_terminal_event_outbox_v1', $GLOBALS['digitalogic_test_options'] );
+
+		$event = $this->terminal_events()[0];
+		update_option(
+			'digitalogic_pricing_snapshot_terminal_event_outbox_v1',
+			array(
+				$event['data']['idempotency_key'] => array(
+					'name'         => $event['name'],
+					'data'         => $event['data'],
+					'build_id'     => $event['data']['build_id'],
+					'request_id'   => $event['data']['request_id'],
+					'attempts'     => 1,
+					'created_at'   => time(),
+					'committed'    => true,
+					'committed_at' => time(),
+					'updated_at'   => gmdate( 'c' ),
+				),
+			),
+			false
+		);
+		Digitalogic_Pricing_Snapshot::instance()->run_terminal_event_delivery();
+		$this->assertCount( 1, $this->terminal_events() );
+		$this->assertArrayNotHasKey( 'digitalogic_pricing_snapshot_terminal_event_outbox_v1', $GLOBALS['digitalogic_test_options'] );
+
+		$rotated = array();
+		for ( $index = 1; $index <= 200; ++$index ) {
+			$rotated[] = array(
+				'id'    => 1000 + $index,
+				'event' => 'product_updated',
+				'name'  => 'product.updated',
+				'data'  => array( 'product_id' => $index ),
+				'time'  => '2026-08-23 01:00:00',
+			);
+		}
+		$GLOBALS['digitalogic_test_options']['digitalogic_panel_events'] = $rotated;
+		update_option(
+			'digitalogic_pricing_snapshot_terminal_event_outbox_v1',
+			array(
+				$event['data']['idempotency_key'] => array(
+					'name'         => $event['name'],
+					'data'         => $event['data'],
+					'build_id'     => $event['data']['build_id'],
+					'request_id'   => $event['data']['request_id'],
+					'attempts'     => 2,
+					'created_at'   => time(),
+					'committed'    => true,
+					'committed_at' => time(),
+					'updated_at'   => gmdate( 'c' ),
+				),
+			),
+			false
+		);
+		Digitalogic_Pricing_Snapshot::instance()->run_terminal_event_delivery();
+		$republished = $this->terminal_events();
+		$this->assertCount( 1, $republished );
+		$this->assertSame( $event['data']['idempotency_key'], $republished[0]['data']['idempotency_key'] );
+		$this->assertSame( $event['data'], $republished[0]['data'] );
+	}
+
+	/** The no-poll path autonomously terminalizes a missed queued worker. */
+	public function test_build_watchdog_is_job_fenced_and_publishes_queue_timeout(): void {
+		add_filter(
+			'digitalogic_pricing_snapshot_enqueue',
+			static function () {
+				return true;
+			}
+		);
+		$revision = $this->revision_response()->get_data()['state_revision'];
+		$started  = $this->start_response( 'snapshot-watchdog-0001', $revision, 0 );
+		$build_id = $started->get_data()['build_id'];
+		$job_key  = $this->invoke_snapshot( 'job_key', array( $build_id ) );
+		$job      = $GLOBALS['digitalogic_test_transients'][ $job_key ]['value'];
+		$this->assertMatchesRegularExpression( '/\A[a-f0-9]{32}\z/D', $job['watchdog_token'] );
+		$scheduled = $this->scheduled_events_for( 'digitalogic_pricing_snapshot_build_watchdog_v1' );
+		$this->assertCount( 1, $scheduled );
+		$this->assertSame( array( $build_id, $job['watchdog_token'] ), $scheduled[0]['args'] );
+
+		$GLOBALS['digitalogic_test_transients'][ $job_key ]['value']['start_deadline_at'] = gmdate( 'c', time() - 1 );
+		Digitalogic_Pricing_Snapshot::instance()->run_build_watchdog( $build_id, str_repeat( '0', 32 ) );
+		$this->assertSame( 'queued', $GLOBALS['digitalogic_test_transients'][ $job_key ]['value']['status'] );
+
+		Digitalogic_Pricing_Snapshot::instance()->run_build_watchdog( $build_id, $job['watchdog_token'] );
+		$status = $this->status_response( $build_id );
+		$this->assertSame( 503, $status->get_status() );
+		$this->assertSame( 'digitalogic_pricing_snapshot_scheduler_start_timeout', $status->get_data()['code'] );
+		$events = $this->terminal_events();
+		$this->assertCount( 1, $events );
+		$this->assertSame( 'failed', $events[0]['data']['status'] );
+		$this->assertCount( 0, $this->scheduled_events_for( 'digitalogic_pricing_snapshot_build_watchdog_v1' ) );
+	}
+
+	/** The watchdog terminalizes a crashed running worker after its exact lease expires. */
+	public function test_build_watchdog_publishes_stalled_worker_terminal_without_status_poll(): void {
+		add_filter(
+			'digitalogic_pricing_snapshot_enqueue',
+			static function () {
+				return true;
+			}
+		);
+		$revision = $this->revision_response()->get_data()['state_revision'];
+		$started  = $this->start_response( 'snapshot-watchdog-stalled-0001', $revision, 0 );
+		$build_id = $started->get_data()['build_id'];
+		$job_key  = $this->invoke_snapshot( 'job_key', array( $build_id ) );
+		$job      = $GLOBALS['digitalogic_test_transients'][ $job_key ]['value'];
+		$GLOBALS['digitalogic_test_transients'][ $job_key ]['value']['status'] = 'running';
+		add_option(
+			$this->invoke_snapshot( 'worker_key', array( $build_id ) ),
+			array(
+				'build_id'   => $build_id,
+				'token'      => str_repeat( 'a', 32 ),
+				'expires_at' => time() - 1,
+			),
+			'',
+			false
+		);
+
+		Digitalogic_Pricing_Snapshot::instance()->run_build_watchdog( $build_id, $job['watchdog_token'] );
+		$terminal = $GLOBALS['digitalogic_test_transients'][ $job_key ]['value'];
+		$this->assertSame( 'failed', $terminal['status'] );
+		$this->assertSame( 'digitalogic_pricing_snapshot_worker_stalled', $terminal['code'] );
+		$events = $this->terminal_events();
+		$this->assertCount( 1, $events );
+		$this->assertSame( 'digitalogic_pricing_snapshot_worker_stalled', $events[0]['data']['code'] );
+	}
+
+	/** An uncaught worker throwable becomes one durable request-bound terminal. */
+	public function test_worker_throwable_is_caught_and_published_as_failure(): void {
+		add_filter(
+			'digitalogic_pricing_snapshot_enqueue',
+			static function () {
+				return true;
+			}
+		);
+		$revision = $this->revision_response()->get_data()['state_revision'];
+		$started  = $this->start_response( 'snapshot-throwable-0001', $revision, 0 );
+		$build_id = $started->get_data()['build_id'];
+		$GLOBALS['digitalogic_test_transient_set_callback'] = static function ( $name, $value ) {
+			if (
+				str_starts_with( (string) $name, 'digitalogic_pricing_snapshot_job_' )
+				&& is_array( $value )
+				&& 'running' === (string) ( $value['status'] ?? '' )
+			) {
+				$GLOBALS['digitalogic_test_transient_set_callback'] = null;
+				throw new RuntimeException( 'synthetic worker throwable' );
+			}
+			return true;
+		};
+
+		Digitalogic_Pricing_Snapshot::instance()->run_build( $build_id );
+		$status = $this->status_response( $build_id );
+		$this->assertSame( 503, $status->get_status() );
+		$this->assertSame( 'digitalogic_pricing_snapshot_worker_exception', $status->get_data()['code'] );
+		$events = $this->terminal_events();
+		$this->assertCount( 1, $events );
+		$this->assertSame( 'digitalogic_pricing_snapshot_worker_exception', $events[0]['data']['code'] );
+		$this->assertArrayNotHasKey( 'message', $events[0]['data'] );
+	}
+
+	/** Every coalesced request and cancellation receives one request-bound terminal. */
+	public function test_coalesced_and_cancelled_builds_publish_request_bound_terminals(): void {
+		add_filter(
+			'digitalogic_pricing_snapshot_enqueue',
+			static function () {
+				return true;
+			}
+		);
+		$revision = $this->revision_response()->get_data()['state_revision'];
+		$first_id = 'sha256:' . str_repeat( '3', 64 );
+		$next_id  = 'sha256:' . str_repeat( '4', 64 );
+		$first    = $this->start_response( $first_id, $revision, 0 );
+		$next     = $this->start_response( $next_id, $revision, 0 );
+		$this->assertSame( $first->get_data()['build_id'], $next->get_data()['build_id'] );
+		$this->assertTrue( $next->get_data()['replayed'] );
+
+		Digitalogic_Pricing_Snapshot::instance()->run_build( $first->get_data()['build_id'] );
+		$events = $this->terminal_events();
+		$this->assertCount( 2, $events );
+		$this->assertSame( array( $first_id, $next_id ), array_column( array_column( $events, 'data' ), 'request_id' ) );
+		$this->assertSame( array( 'ready', 'ready' ), array_column( array_column( $events, 'data' ), 'status' ) );
+		$this->assertCount( 2, array_unique( array_column( array_column( $events, 'data' ), 'idempotency_key' ) ) );
+
+		do_action( 'digitalogic_excel_pricing_apply_committed', array( 'status' => 'applied' ) );
+		$cancel_revision = $this->revision_response()->get_data()['state_revision'];
+		$cancel_id       = 'sha256:' . str_repeat( '5', 64 );
+		$queued          = $this->start_response( $cancel_id, $cancel_revision, 0 );
+		$cancelled       = $this->cancel_response( $queued->get_data()['build_id'] );
+		$this->assertSame( 'cancelled', $cancelled->get_data()['status'] );
+		$events = $this->terminal_events();
+		$this->assertCount( 3, $events );
+		$this->assertSame( $cancel_id, $events[2]['data']['request_id'] );
+		$this->assertSame( 'cancelled', $events[2]['data']['status'] );
+		$this->assertSame( 'request_cancelled', $events[2]['data']['code'] );
+		$this->assertFalse( $events[2]['data']['retryable'] );
+		$this->assertArrayNotHasKey( 'snapshot_token', $events[2]['data'] );
+		$this->assertTrue( Digitalogic_Event_Mesh::event_visible_to( $events[2], 0, '', 'patris_pricing', $this->source ) );
+	}
+
 	/** Queued cancellation is terminal, repeatable, and releases build admission. */
 	public function test_queued_cancel_is_durable_and_idempotent(): void {
 		add_filter(
@@ -559,6 +835,13 @@ final class PricingSnapshotTest extends TestCase {
 		$this->assertSame( 'failed', $status->get_data()['status'] );
 		$this->assertSame( 'digitalogic_pricing_snapshot_build_timeout', $status->get_data()['code'] );
 		$this->assertCount( 0, $GLOBALS['digitalogic_test_wc_product_query_args'] );
+		$events = $this->terminal_events();
+		$this->assertCount( 1, $events );
+		$this->assertSame( 'failed', $events[0]['data']['status'] );
+		$this->assertSame( 'digitalogic_pricing_snapshot_build_timeout', $events[0]['data']['code'] );
+		$this->assertTrue( $events[0]['data']['retryable'] );
+		$this->assertArrayNotHasKey( 'snapshot_path', $events[0]['data'] );
+		$this->assertTrue( Digitalogic_Event_Mesh::event_visible_to( $events[0], 0, '', 'patris_pricing', $this->source ) );
 	}
 
 	/** Failed terminal status cannot be hidden by 304 and partial publication rolls back. */
@@ -600,6 +883,56 @@ final class PricingSnapshotTest extends TestCase {
 			$this->assertStringNotContainsString( 'digitalogic_pricing_snapshot_meta_', $key );
 			$this->assertStringNotContainsString( 'digitalogic_pricing_snapshot_page_', $key );
 		}
+	}
+
+	/** A known warm terminal-store abort removes its uncommitted outbox stage. */
+	public function test_warm_job_storage_failure_discards_uncommitted_terminal_stage(): void {
+		add_filter(
+			'digitalogic_pricing_snapshot_enqueue',
+			static function () {
+				return true;
+			}
+		);
+		$revision = $this->revision_response()->get_data()['state_revision'];
+		$cold     = $this->start_response( 'snapshot-warm-abort-0001', $revision, 0 );
+		Digitalogic_Pricing_Snapshot::instance()->run_build( $cold->get_data()['build_id'] );
+		$this->assertCount( 1, $this->terminal_events() );
+
+		$GLOBALS['digitalogic_test_transient_set_callback'] = static function ( $name, $value ) {
+			if (
+				str_starts_with( (string) $name, 'digitalogic_pricing_snapshot_job_' )
+				&& is_array( $value )
+				&& 'ready' === (string) ( $value['status'] ?? '' )
+				&& ! empty( $value['cached'] )
+			) {
+				$GLOBALS['digitalogic_test_transient_set_callback'] = null;
+				return false;
+			}
+			return true;
+		};
+		$warm = $this->start_response( 'snapshot-warm-abort-0002', $revision, 900 );
+		$this->assertSame( 503, $warm->get_status() );
+		$this->assertSame( 'digitalogic_pricing_snapshot_storage_unavailable', $warm->get_data()['code'] );
+		$this->assertArrayNotHasKey( 'digitalogic_pricing_snapshot_terminal_event_outbox_v1', $GLOBALS['digitalogic_test_options'] );
+		$this->assertCount( 1, $this->terminal_events() );
+	}
+
+	/** A cold request is rejected and fully released if no watchdog can persist. */
+	public function test_watchdog_schedule_failure_rejects_and_releases_build(): void {
+		add_filter(
+			'digitalogic_pricing_snapshot_enqueue',
+			static function () {
+				return true;
+			}
+		);
+		$GLOBALS['digitalogic_test_schedule_failure'] = true;
+		$revision                                     = $this->revision_response()->get_data()['state_revision'];
+		$failed                                       = $this->start_response( 'snapshot-no-watchdog-0001', $revision, 0 );
+		$this->assertSame( 503, $failed->get_status() );
+		$this->assertSame( 'digitalogic_pricing_snapshot_watchdog_unavailable', $failed->get_data()['code'] );
+		$this->assertArrayNotHasKey( 'digitalogic_pricing_snapshot_active_v1', $GLOBALS['digitalogic_test_options'] );
+		$this->assertArrayNotHasKey( 'digitalogic_pricing_snapshot_terminal_event_outbox_v1', $GLOBALS['digitalogic_test_options'] );
+		$this->assertCount( 0, $this->scheduled_events_for( 'digitalogic_pricing_snapshot_build_watchdog_v1' ) );
 	}
 
 	/** Corrupting one immutable page is rejected by bulk and page conditionals. */
@@ -679,6 +1012,18 @@ final class PricingSnapshotTest extends TestCase {
 		$this->assertArrayNotHasKey( 'source_dataset', $product_sync );
 		$this->assertArrayNotHasKey( 'source_revision', $product_sync );
 		$this->assertArrayNotHasKey( 'snapshot_revision', $report );
+	}
+
+	/** Return only durable snapshot terminal envelopes from the panel queue. */
+	private function terminal_events(): array {
+		return array_values(
+			array_filter(
+				(array) ( $GLOBALS['digitalogic_test_options']['digitalogic_panel_events'] ?? array() ),
+				static function ( $event ) {
+					return is_array( $event ) && 'pricing.snapshot.build.terminal' === (string) ( $event['name'] ?? '' );
+				}
+			)
+		);
 	}
 
 	/** Return the immutable ordered excel-v1 projection contract. */

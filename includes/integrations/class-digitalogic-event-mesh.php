@@ -657,7 +657,6 @@ final class Digitalogic_Event_Mesh {
 				|| Digitalogic_Pricing_Snapshot::PROJECTION !== (string) ( $data['projection'] ?? '' )
 				|| ! $is_revision( $event_source['revision'] ?? null )
 				|| ! $is_revision( $data['idempotency_key'] ?? null )
-				|| '/wp-json/digitalogic/pricing/sync/revision' !== (string) ( $data['revision_path'] ?? '' )
 				|| ! in_array( $service, (array) ( $audience['services'] ?? array() ), true )
 			) {
 				return false;
@@ -666,6 +665,7 @@ final class Digitalogic_Event_Mesh {
 				$state_revision = (string) ( $data['state_revision'] ?? '' );
 				if (
 					Digitalogic_Pricing_Snapshot::STATE_EVENT_SCHEMA !== (string) ( $data['schema'] ?? '' )
+					|| '/wp-json/digitalogic/pricing/sync/revision' !== (string) ( $data['revision_path'] ?? '' )
 					|| ! $is_revision( $state_revision )
 					|| '"' . $state_revision . '"' !== (string) ( $data['etag'] ?? '' )
 					|| ! $is_revision( $data['catalog_revision'] ?? null )
@@ -680,10 +680,78 @@ final class Digitalogic_Event_Mesh {
 				$previous = $data['previous_source_revision'] ?? null;
 				if (
 					Digitalogic_Pricing_Snapshot::SOURCE_EVENT_SCHEMA !== (string) ( $data['schema'] ?? '' )
+					|| '/wp-json/digitalogic/pricing/sync/revision' !== (string) ( $data['revision_path'] ?? '' )
 					|| ! in_array( $change, array( 'added', 'changed', 'removed' ), true )
 					|| ( 'pricing.source.removed' === $name ) !== ( 'removed' === $change )
 					|| ( null !== $previous && ! $is_revision( $previous ) )
 					|| empty( $data['revision_validation_required'] )
+				) {
+					return false;
+				}
+			} elseif ( 'pricing.snapshot.build.terminal' === $name ) {
+				$allowed_keys  = array(
+					'schema',
+					'schema_version',
+					'projection',
+					'build_id',
+					'request_id',
+					'status',
+					'source',
+					'state_revision',
+					'pricing_state_revision',
+					'catalog_revision',
+					'snapshot_token',
+					'snapshot_revision',
+					'digest',
+					'snapshot_path',
+					'code',
+					'retryable',
+					'idempotency_key',
+					'audience',
+				);
+				$status        = (string) ( $data['status'] ?? '' );
+				$expected_path = '/wp-json/digitalogic/pricing/sync/snapshots/'
+					. rawurlencode( (string) ( $data['snapshot_token'] ?? '' ) )
+					. '?source_id=' . rawurlencode( (string) ( $event_source['id'] ?? '' ) )
+					. '&source_dataset=' . rawurlencode( (string) ( $event_source['dataset'] ?? '' ) )
+					. '&source_revision=' . rawurlencode( (string) ( $event_source['revision'] ?? '' ) );
+				if (
+					Digitalogic_Pricing_Snapshot::TERMINAL_EVENT_SCHEMA !== (string) ( $data['schema'] ?? '' )
+					|| array_diff( array_keys( $data ), $allowed_keys )
+					|| 3 !== count( $event_source )
+					|| array_diff( array( 'id', 'dataset', 'revision' ), array_keys( $event_source ) )
+					|| array_diff( array_keys( $event_source ), array( 'id', 'dataset', 'revision' ) )
+					|| array( 'services' => array( 'patris_pricing' ) ) !== $audience
+					|| 1 !== preg_match( '/\Abuild_[a-f0-9]{32}\z/D', (string) ( $data['build_id'] ?? '' ) )
+					|| 1 !== preg_match( '/\A[A-Za-z0-9][A-Za-z0-9._:-]{7,127}\z/D', (string) ( $data['request_id'] ?? '' ) )
+					|| ! in_array( $status, array( 'ready', 'failed', 'cancelled' ), true )
+					|| ! $is_revision( $data['state_revision'] ?? null )
+					|| ! $is_revision( $data['pricing_state_revision'] ?? null )
+					|| ! $is_revision( $data['catalog_revision'] ?? null )
+					|| ! is_bool( $data['retryable'] ?? null )
+				) {
+					return false;
+				}
+				if ( 'ready' === $status ) {
+					if (
+						1 !== preg_match( '/\A[A-Za-z0-9][A-Za-z0-9._:-]{7,127}\z/D', (string) ( $data['snapshot_token'] ?? '' ) )
+						|| ! $is_revision( $data['snapshot_revision'] ?? null )
+						|| ! $is_revision( $data['digest'] ?? null )
+						|| ! hash_equals( (string) $data['snapshot_revision'], (string) $data['digest'] )
+						|| ! hash_equals( $expected_path, (string) ( $data['snapshot_path'] ?? '' ) )
+						|| '' !== (string) ( $data['code'] ?? '' )
+						|| ! empty( $data['retryable'] )
+					) {
+						return false;
+					}
+				} elseif (
+					'' === (string) ( $data['code'] ?? '' )
+					|| strlen( (string) $data['code'] ) > 128
+					|| 1 !== preg_match( '/\A[a-z0-9_:-]+\z/D', (string) $data['code'] )
+					|| isset( $data['snapshot_token'] )
+					|| isset( $data['snapshot_revision'] )
+					|| isset( $data['digest'] )
+					|| isset( $data['snapshot_path'] )
 				) {
 					return false;
 				}

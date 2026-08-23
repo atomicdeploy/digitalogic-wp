@@ -24,29 +24,33 @@ final class Digitalogic_Pricing_Snapshot {
 	public const PAGE_SCHEMA           = 'digitalogic.pricing-snapshot-page/v1';
 	public const STATE_EVENT_SCHEMA    = 'digitalogic.pricing-state-change/v1';
 	public const SOURCE_EVENT_SCHEMA   = 'digitalogic.pricing-source-change/v1';
+	public const TERMINAL_EVENT_SCHEMA = 'digitalogic.pricing-snapshot-build-event/v1';
 	public const PROJECTION            = 'excel-v1';
 	public const PROJECTION_SCHEMA     = 'digitalogic.pricing-projection/excel-v1';
 	public const PRICING_POLICY_SCHEMA = 'digitalogic.pricing-policy/v1';
 
-	private const BUILD_HOOK          = 'digitalogic_pricing_snapshot_build_v1';
-	private const CLEANUP_HOOK        = 'digitalogic_pricing_snapshot_cleanup_idempotency_v1';
-	private const STATE_EVENT_HOOK    = 'digitalogic_pricing_state_event_delivery_v1';
-	private const FRESHNESS_HOOK      = 'digitalogic_pricing_freshness_boundary_v1';
-	private const ACTION_GROUP        = 'digitalogic-pricing-snapshots';
-	private const ACTIVE_BUILD_OPTION = 'digitalogic_pricing_snapshot_active_v1';
-	private const STATE_EVENT_OUTBOX  = 'digitalogic_pricing_state_event_outbox_v1';
-	private const SOURCE_EVENT_OUTBOX = 'digitalogic_pricing_source_event_outbox_v1';
-	private const FRESHNESS_SCHEDULE  = 'digitalogic_pricing_freshness_boundary_schedule_v1';
-	private const ADMISSION_LOCK_NAME = 'digitalogic_pricing_snapshot_admission_v1';
-	private const SNAPSHOT_TTL        = 900;
-	private const METADATA_TTL        = 1800;
-	private const BUILD_TTL           = 1800;
-	private const QUEUE_START_TTL     = 30;
-	private const WORKER_LEASE_TTL    = 60;
-	private const RETRY_AFTER         = 2;
-	private const DEFAULT_PAGE_SIZE   = 250;
-	private const MAX_PAGE_SIZE       = 250;
-	private const MAX_ROWS            = 20000;
+	private const BUILD_HOOK            = 'digitalogic_pricing_snapshot_build_v1';
+	private const BUILD_WATCHDOG_HOOK   = 'digitalogic_pricing_snapshot_build_watchdog_v1';
+	private const CLEANUP_HOOK          = 'digitalogic_pricing_snapshot_cleanup_idempotency_v1';
+	private const STATE_EVENT_HOOK      = 'digitalogic_pricing_state_event_delivery_v1';
+	private const TERMINAL_EVENT_HOOK   = 'digitalogic_pricing_snapshot_terminal_event_delivery_v1';
+	private const FRESHNESS_HOOK        = 'digitalogic_pricing_freshness_boundary_v1';
+	private const ACTION_GROUP          = 'digitalogic-pricing-snapshots';
+	private const ACTIVE_BUILD_OPTION   = 'digitalogic_pricing_snapshot_active_v1';
+	private const STATE_EVENT_OUTBOX    = 'digitalogic_pricing_state_event_outbox_v1';
+	private const SOURCE_EVENT_OUTBOX   = 'digitalogic_pricing_source_event_outbox_v1';
+	private const TERMINAL_EVENT_OUTBOX = 'digitalogic_pricing_snapshot_terminal_event_outbox_v1';
+	private const FRESHNESS_SCHEDULE    = 'digitalogic_pricing_freshness_boundary_schedule_v1';
+	private const ADMISSION_LOCK_NAME   = 'digitalogic_pricing_snapshot_admission_v1';
+	private const SNAPSHOT_TTL          = 900;
+	private const METADATA_TTL          = 1800;
+	private const BUILD_TTL             = 1800;
+	private const QUEUE_START_TTL       = 30;
+	private const WORKER_LEASE_TTL      = 60;
+	private const RETRY_AFTER           = 2;
+	private const DEFAULT_PAGE_SIZE     = 250;
+	private const MAX_PAGE_SIZE         = 250;
+	private const MAX_ROWS              = 20000;
 
 	/**
 	 * Shared snapshot service.
@@ -105,6 +109,13 @@ final class Digitalogic_Pricing_Snapshot {
 	private $state_event_retry_scheduled = false;
 
 	/**
+	 * Whether this request already scheduled the durable terminal-event worker.
+	 *
+	 * @var bool
+	 */
+	private $terminal_event_retry_scheduled = false;
+
+	/**
 	 * Receiver state captured immediately before direct option deletion.
 	 *
 	 * @var array
@@ -121,8 +132,10 @@ final class Digitalogic_Pricing_Snapshot {
 	/** Register the asynchronous worker and exact invalidation hook. */
 	private function __construct() {
 		add_action( self::BUILD_HOOK, array( $this, 'run_build' ) );
+		add_action( self::BUILD_WATCHDOG_HOOK, array( $this, 'run_build_watchdog' ), 10, 2 );
 		add_action( self::CLEANUP_HOOK, array( $this, 'cleanup_idempotency' ), 10, 3 );
 		add_action( self::STATE_EVENT_HOOK, array( $this, 'run_state_revision_event_delivery' ), 10, 2 );
+		add_action( self::TERMINAL_EVENT_HOOK, array( $this, 'run_terminal_event_delivery' ) );
 		add_action( self::FRESHNESS_HOOK, array( $this, 'run_freshness_boundary' ), 10, 2 );
 		add_action( 'digitalogic_excel_pricing_apply_committed', array( $this, 'invalidate_after_apply' ) );
 		add_action( 'digitalogic_excel_pricing_settings_updated', array( $this, 'reschedule_freshness_boundary' ) );
@@ -135,6 +148,7 @@ final class Digitalogic_Pricing_Snapshot {
 		add_action( 'deleted_option', array( $this, 'capture_source_state_deletion' ), 20 );
 		add_action( 'admin_init', array( $this, 'install_freshness_boundary_schedule' ), 20 );
 		add_action( 'shutdown', array( $this, 'publish_scheduled_state_revision_events' ), 1000 );
+		add_action( 'shutdown', array( $this, 'publish_scheduled_terminal_events' ), 1001 );
 	}
 
 	/** Return the shared service. */
@@ -326,7 +340,12 @@ final class Digitalogic_Pricing_Snapshot {
 				$job['expires_at']        = $ready['expires_at'];
 				$job['cached']            = true;
 				$job['progress']          = $this->progress( 'ready', 100, $ready['row_count'], $ready['row_count'] );
+				if ( ! $this->persist_terminal_event_outbox( $job ) ) {
+					$this->release_idempotency( $payload['request_id'], $build_id );
+					return $this->terminal_event_storage_error();
+				}
 				if ( ! $this->store_job( $job ) ) {
+					$this->discard_staged_terminal_event_outbox( $job );
 					$this->delete_job( $job['build_id'] );
 					$this->release_idempotency( $payload['request_id'], $build_id );
 					return $this->error(
@@ -338,6 +357,11 @@ final class Digitalogic_Pricing_Snapshot {
 						self::RETRY_AFTER
 					);
 				}
+				if ( ! $this->commit_terminal_event_outbox( $job ) ) {
+					return $this->terminal_event_storage_error();
+				}
+				$this->unschedule_build_watchdog( $job );
+				$this->publish_scheduled_terminal_events();
 
 				return $this->job_transport( $job, false );
 			}
@@ -360,6 +384,11 @@ final class Digitalogic_Pricing_Snapshot {
 							array(),
 							self::RETRY_AFTER
 						);
+					}
+					$existing = $this->append_terminal_request_id( $existing, $payload['request_id'] );
+					if ( is_wp_error( $existing ) ) {
+						$this->release_idempotency( $payload['request_id'], $slot['build_id'] );
+						return $existing;
 					}
 					return $this->job_transport( $existing, true, $payload['request_id'] );
 				}
@@ -387,7 +416,11 @@ final class Digitalogic_Pricing_Snapshot {
 			$this->release_admission_lock();
 			$queued = $this->enqueue_build( $build_id );
 			if ( is_wp_error( $queued ) ) {
-				$this->fail_job( $build_id, $queued );
+				if ( ! $this->fail_job( $build_id, $queued ) ) {
+					$this->delete_job( $build_id );
+					$this->release_idempotency( $payload['request_id'], $build_id );
+					$this->release_build_slot( $build_id );
+				}
 				return $queued;
 			}
 
@@ -453,6 +486,9 @@ final class Digitalogic_Pricing_Snapshot {
 				(int) ( $job['progress']['completed'] ?? 0 ),
 				(int) ( $job['progress']['total'] ?? 0 )
 			);
+			if ( ! $this->persist_terminal_event_outbox( $job ) ) {
+				return $this->terminal_event_storage_error();
+			}
 			if ( ! $this->store_job( $job ) ) {
 				return $this->error(
 					'digitalogic_pricing_snapshot_storage_unavailable',
@@ -463,12 +499,17 @@ final class Digitalogic_Pricing_Snapshot {
 					self::RETRY_AFTER
 				);
 			}
+			if ( ! $this->commit_terminal_event_outbox( $job ) ) {
+				return $this->terminal_event_storage_error();
+			}
+			$this->unschedule_build_watchdog( $job );
 			if ( function_exists( 'as_unschedule_action' ) ) {
 				as_unschedule_action( self::BUILD_HOOK, array( $job['build_id'] ), self::ACTION_GROUP );
 			}
 			if ( 'queued' === $previous_status ) {
 				$this->release_build_slot( $job['build_id'] );
 			}
+			$this->publish_scheduled_terminal_events();
 
 			return $this->job_transport( $job, true );
 		} finally {
@@ -649,11 +690,89 @@ final class Digitalogic_Pricing_Snapshot {
 		$this->active_worker_error    = null;
 		try {
 			$this->run_build_with_lease( $build_id );
+		} catch ( Throwable $error ) {
+			$this->record_worker_failure( $build_id, $this->worker_exception_error() );
 		} finally {
 			$this->release_worker_lease( $build_id, $worker_token );
 			$this->active_worker_build_id = '';
 			$this->active_worker_token    = '';
 			$this->active_worker_error    = null;
+		}
+	}
+
+	/**
+	 * Terminalize or re-arm one exact nonterminal build without client polling.
+	 *
+	 * @param string $build_id      Exact build ID.
+	 * @param string $watchdog_token Per-job random fence.
+	 * @return void
+	 * @throws RuntimeException When neither a retry nor a durable terminal can be stored.
+	 */
+	public function run_build_watchdog( $build_id, $watchdog_token ) {
+		if (
+			1 !== preg_match( '/\Abuild_[a-f0-9]{32}\z/D', (string) $build_id )
+			|| 1 !== preg_match( '/\A[a-f0-9]{32}\z/D', (string) $watchdog_token )
+		) {
+			return;
+		}
+		$lock = $this->acquire_admission_lock( 1 );
+		if ( is_wp_error( $lock ) ) {
+			if ( ! $this->schedule_build_watchdog( $build_id, $watchdog_token, time() + self::RETRY_AFTER ) ) {
+				throw new RuntimeException( 'The snapshot watchdog could not reacquire admission or reschedule itself.' );
+			}
+			return;
+		}
+
+		$next_timestamp = 0;
+		try {
+			$job = $this->read_job( (string) $build_id );
+			if (
+				! is_array( $job )
+				|| ! is_string( $watchdog_token )
+				|| ! hash_equals( (string) ( $job['watchdog_token'] ?? '' ), $watchdog_token )
+			) {
+				return;
+			}
+			if ( in_array( (string) ( $job['status'] ?? '' ), array( 'ready', 'failed', 'cancelled' ), true ) ) {
+				$this->unschedule_build_watchdog( $job );
+				return;
+			}
+
+			if ( 'queued' === (string) $job['status'] ) {
+				$job = $this->refresh_queued_job( $job );
+			} elseif ( 'running' === (string) $job['status'] ) {
+				$job = $this->refresh_stalled_job( $job );
+			} else {
+				if ( ! $this->fail_job( $build_id, $this->worker_exception_error() ) ) {
+					throw new RuntimeException( 'The snapshot watchdog found invalid build state and could not terminalize it.' );
+				}
+				return;
+			}
+
+			if ( ! is_array( $job ) || in_array( (string) ( $job['status'] ?? '' ), array( 'ready', 'failed', 'cancelled' ), true ) ) {
+				return;
+			}
+
+			$worker          = get_option( $this->worker_key( $build_id ), null );
+			$worker_expires  = is_array( $worker ) ? (int) ( $worker['expires_at'] ?? 0 ) : 0;
+			$job_deadline    = strtotime( (string) ( $job['deadline_at'] ?? '' ) );
+			$queue_deadline  = strtotime( (string) ( $job['start_deadline_at'] ?? '' ) );
+			$next_candidates = array_filter(
+				array(
+					$worker_expires > time() ? $worker_expires + 1 : 0,
+					false !== $job_deadline && $job_deadline > time() ? $job_deadline + 1 : 0,
+					'queued' === (string) $job['status'] && false !== $queue_deadline && $queue_deadline > time() ? $queue_deadline + 1 : 0,
+				)
+			);
+			$next_timestamp  = $next_candidates ? min( $next_candidates ) : time() + self::RETRY_AFTER;
+		} finally {
+			$this->release_admission_lock();
+		}
+
+		if ( $next_timestamp > 0 && ! $this->schedule_build_watchdog( $build_id, $watchdog_token, $next_timestamp ) ) {
+			if ( ! $this->fail_job( $build_id, $this->watchdog_unavailable_error() ) ) {
+				throw new RuntimeException( 'The snapshot watchdog could neither reschedule nor terminalize its build.' );
+			}
 		}
 	}
 
@@ -1089,6 +1208,400 @@ final class Digitalogic_Pricing_Snapshot {
 		}
 	}
 
+	/** Retry the durable snapshot-terminal outbox from Action Scheduler or WP-Cron. */
+	public function run_terminal_event_delivery() {
+		$this->terminal_event_retry_scheduled = false;
+		$this->publish_scheduled_terminal_events();
+	}
+
+	/**
+	 * Publish committed build terminals at least once to the scoped pricing stream.
+	 *
+	 * Entries are staged before the terminal job write and promoted to a durable
+	 * committed phase only after that job can be re-read. A committed entry remains
+	 * deliverable after the short-lived job expires. Stable idempotency keys let the
+	 * Patris consumer deduplicate the rare queue-rotation crash window.
+	 */
+	public function publish_scheduled_terminal_events() {
+		$outbox = get_option( self::TERMINAL_EVENT_OUTBOX, array() );
+		$outbox = is_array( $outbox ) ? $outbox : array();
+		if ( empty( $outbox ) ) {
+			return;
+		}
+		if ( ! class_exists( 'Digitalogic_Panel' ) ) {
+			$this->schedule_terminal_event_retry();
+			return;
+		}
+
+		$lock = $this->acquire_admission_lock( 1 );
+		if ( is_wp_error( $lock ) ) {
+			$this->schedule_terminal_event_retry();
+			return;
+		}
+
+		$retry       = false;
+		$retry_delay = self::RETRY_AFTER;
+		try {
+			$outbox      = get_option( self::TERMINAL_EVENT_OUTBOX, array() );
+			$outbox      = is_array( $outbox ) ? $outbox : array();
+			$changed     = false;
+			$can_publish = true;
+			foreach ( $outbox as $event_key => $entry ) {
+				$build_id   = (string) ( $entry['build_id'] ?? '' );
+				$request_id = (string) ( $entry['request_id'] ?? '' );
+				if ( empty( $entry['committed'] ) ) {
+					$job = $this->read_job( $build_id );
+					if (
+						is_array( $job )
+						&& in_array( (string) ( $job['status'] ?? '' ), array( 'ready', 'failed', 'cancelled' ), true )
+						&& in_array( $request_id, $this->terminal_request_ids( $job ), true )
+					) {
+						$data = $this->terminal_event_data( $job, $request_id );
+						if ( ! is_array( $data ) || ! hash_equals( (string) $event_key, (string) $data['idempotency_key'] ) ) {
+							$retry = true;
+							do_action( 'digitalogic_pricing_terminal_event_failed', 'digitalogic_pricing_terminal_payload_invalid', $build_id );
+							break;
+						}
+						$outbox[ $event_key ]['data']         = $data;
+						$outbox[ $event_key ]['committed']    = true;
+						$outbox[ $event_key ]['committed_at'] = time();
+						$outbox[ $event_key ]['updated_at']   = gmdate( 'c' );
+						$changed                              = true;
+						$this->unschedule_build_watchdog( $job );
+						continue;
+					}
+
+					$created_at = (int) ( $entry['created_at'] ?? 0 );
+					if ( $created_at <= 0 ) {
+						$created_at                          = time();
+						$outbox[ $event_key ]['created_at'] = $created_at;
+						$changed                             = true;
+					}
+					if ( $created_at > 0 && $created_at + self::BUILD_TTL <= time() ) {
+						unset( $outbox[ $event_key ] );
+						$changed = true;
+						do_action( 'digitalogic_pricing_terminal_event_failed', 'digitalogic_pricing_terminal_stage_abandoned', $build_id );
+						continue;
+					}
+					$retry       = true;
+					$retry_delay = min( 60, max( self::RETRY_AFTER, $created_at > 0 ? $created_at + self::BUILD_TTL - time() : 60 ) );
+				}
+			}
+
+			if ( $changed && ! $this->store_terminal_event_outbox_state( $outbox ) ) {
+				$retry       = true;
+				$can_publish = false;
+				do_action( 'digitalogic_pricing_terminal_event_failed', 'digitalogic_pricing_terminal_outbox_unavailable', '' );
+			}
+
+			foreach ( $can_publish ? $outbox : array() as $event_key => $entry ) {
+				if ( empty( $entry['committed'] ) ) {
+					continue;
+				}
+				$build_id = (string) ( $entry['build_id'] ?? '' );
+				$data     = is_array( $entry['data'] ?? null ) ? $entry['data'] : array();
+				if (
+					! hash_equals( (string) $event_key, (string) ( $data['idempotency_key'] ?? '' ) )
+					|| ! $this->terminal_event_payload_is_visible( $data )
+				) {
+					$retry = true;
+					do_action( 'digitalogic_pricing_terminal_event_failed', 'digitalogic_pricing_terminal_payload_invalid', $build_id );
+					break;
+				}
+				$receipt = $this->terminal_panel_event_receipt( $data );
+				if ( is_wp_error( $receipt ) ) {
+					$retry = true;
+					do_action( 'digitalogic_pricing_terminal_event_failed', $receipt->get_error_code(), $build_id );
+					break;
+				}
+				if ( ! $receipt ) {
+					$result = Digitalogic_Panel::record_event_result( 'pricing.snapshot.build.terminal', $data );
+					if ( is_wp_error( $result ) ) {
+						$outbox[ $event_key ]['attempts']   = min( 1000, 1 + (int) ( $entry['attempts'] ?? 0 ) );
+						$outbox[ $event_key ]['updated_at'] = gmdate( 'c' );
+						$retry                              = true;
+						do_action( 'digitalogic_pricing_terminal_event_failed', $result->get_error_code(), $build_id );
+						break;
+					}
+				}
+				unset( $outbox[ $event_key ] );
+			}
+
+			if ( $can_publish && ! $this->store_terminal_event_outbox_state( $outbox ) ) {
+				$retry = true;
+				do_action( 'digitalogic_pricing_terminal_event_failed', 'digitalogic_pricing_terminal_outbox_unavailable', '' );
+			}
+		} finally {
+			$this->release_admission_lock();
+		}
+
+		if ( $retry && ! $this->schedule_terminal_event_retry( $retry_delay ) ) {
+			do_action( 'digitalogic_pricing_terminal_event_failed', 'digitalogic_pricing_terminal_retry_unavailable', '' );
+		}
+	}
+
+	/** Stage exact terminal envelopes before the corresponding job becomes terminal. */
+	private function persist_terminal_event_outbox( $job ) {
+		$status = (string) ( $job['status'] ?? '' );
+		if ( ! in_array( $status, array( 'ready', 'failed', 'cancelled' ), true ) ) {
+			return false;
+		}
+		$lock = $this->acquire_admission_lock( 1 );
+		if ( is_wp_error( $lock ) ) {
+			return false;
+		}
+		try {
+			$outbox = get_option( self::TERMINAL_EVENT_OUTBOX, array() );
+			$outbox = is_array( $outbox ) ? $outbox : array();
+			foreach ( $this->terminal_request_ids( $job ) as $request_id ) {
+				$data = $this->terminal_event_data( $job, $request_id );
+				if ( ! is_array( $data ) ) {
+					return false;
+				}
+				$event_key = (string) $data['idempotency_key'];
+				$previous  = is_array( $outbox[ $event_key ] ?? null ) ? $outbox[ $event_key ] : array();
+				if ( ! empty( $previous['committed'] ) && ( $previous['data'] ?? null ) !== $data ) {
+					do_action( 'digitalogic_pricing_terminal_event_failed', 'digitalogic_pricing_terminal_event_conflict', (string) $job['build_id'] );
+					return false;
+				}
+				$same_entry           = (string) ( $previous['build_id'] ?? '' ) === (string) $job['build_id']
+					&& (string) ( $previous['request_id'] ?? '' ) === $request_id;
+				$outbox[ $event_key ] = array(
+					'name'       => 'pricing.snapshot.build.terminal',
+					'data'       => $data,
+					'build_id'   => (string) $job['build_id'],
+					'request_id' => $request_id,
+					'attempts'   => (int) ( $previous['attempts'] ?? 0 ),
+					'created_at' => $same_entry ? (int) ( $previous['created_at'] ?? time() ) : time(),
+					'committed'  => $same_entry && ! empty( $previous['committed'] ),
+					'updated_at' => gmdate( 'c' ),
+				);
+				if ( $same_entry && ! empty( $previous['committed_at'] ) ) {
+					$outbox[ $event_key ]['committed_at'] = (int) $previous['committed_at'];
+				}
+			}
+			if (
+				empty( $outbox )
+				|| ! $this->schedule_terminal_event_retry()
+				|| ! $this->store_option_verified( self::TERMINAL_EVENT_OUTBOX, $outbox )
+			) {
+				do_action( 'digitalogic_pricing_terminal_event_failed', 'digitalogic_pricing_terminal_outbox_unavailable', (string) ( $job['build_id'] ?? '' ) );
+				return false;
+			}
+			return true;
+		} finally {
+			$this->release_admission_lock();
+		}
+	}
+
+	/** Promote staged terminal envelopes only after their exact terminal job commits. */
+	private function commit_terminal_event_outbox( $job ) {
+		$lock = $this->acquire_admission_lock( 1 );
+		if ( is_wp_error( $lock ) ) {
+			return false;
+		}
+		try {
+			$outbox = get_option( self::TERMINAL_EVENT_OUTBOX, array() );
+			$outbox = is_array( $outbox ) ? $outbox : array();
+			foreach ( $this->terminal_request_ids( $job ) as $request_id ) {
+				$data      = $this->terminal_event_data( $job, $request_id );
+				$event_key = is_array( $data ) ? (string) ( $data['idempotency_key'] ?? '' ) : '';
+				$entry     = is_array( $outbox[ $event_key ] ?? null ) ? $outbox[ $event_key ] : array();
+				if (
+					'' === $event_key
+					|| (string) ( $entry['build_id'] ?? '' ) !== (string) ( $job['build_id'] ?? '' )
+					|| (string) ( $entry['request_id'] ?? '' ) !== $request_id
+					|| ( $entry['data'] ?? null ) !== $data
+				) {
+					return false;
+				}
+				$outbox[ $event_key ]['committed']    = true;
+				$outbox[ $event_key ]['committed_at'] = time();
+				$outbox[ $event_key ]['updated_at']   = gmdate( 'c' );
+			}
+
+			return $this->store_option_verified( self::TERMINAL_EVENT_OUTBOX, $outbox );
+		} finally {
+			$this->release_admission_lock();
+		}
+	}
+
+	/** Remove only uncommitted staged envelopes after a known terminal-store abort. */
+	private function discard_staged_terminal_event_outbox( $job ) {
+		$lock = $this->acquire_admission_lock( 1 );
+		if ( is_wp_error( $lock ) ) {
+			return false;
+		}
+		try {
+			$outbox = get_option( self::TERMINAL_EVENT_OUTBOX, array() );
+			$outbox = is_array( $outbox ) ? $outbox : array();
+			foreach ( $outbox as $event_key => $entry ) {
+				if (
+					empty( $entry['committed'] )
+					&& (string) ( $entry['build_id'] ?? '' ) === (string) ( $job['build_id'] ?? '' )
+				) {
+					unset( $outbox[ $event_key ] );
+				}
+			}
+
+			return $this->store_terminal_event_outbox_state( $outbox );
+		} finally {
+			$this->release_admission_lock();
+		}
+	}
+
+	/** Persist or delete the complete terminal outbox with verified readback. */
+	private function store_terminal_event_outbox_state( $outbox ) {
+		if ( empty( $outbox ) ) {
+			delete_option( self::TERMINAL_EVENT_OUTBOX );
+			return null === get_option( self::TERMINAL_EVENT_OUTBOX, null );
+		}
+
+		return $this->store_option_verified( self::TERMINAL_EVENT_OUTBOX, $outbox );
+	}
+
+	/** Validate one committed payload through the same authenticated stream gate. */
+	private function terminal_event_payload_is_visible( $data ) {
+		$source = is_array( $data['source'] ?? null ) ? $data['source'] : array();
+		return class_exists( 'Digitalogic_Event_Mesh' )
+			&& Digitalogic_Event_Mesh::event_visible_to(
+				array(
+					'name' => 'pricing.snapshot.build.terminal',
+					'data' => $data,
+				),
+				0,
+				'',
+				'patris_pricing',
+				array(
+					'id'      => (string) ( $source['id'] ?? '' ),
+					'dataset' => (string) ( $source['dataset'] ?? '' ),
+				)
+			);
+	}
+
+	/** Build the secret-free terminal payload consumed by Patris pricing v1. */
+	private function terminal_event_data( $job, $request_id ) {
+		$build_id = (string) ( $job['build_id'] ?? '' );
+		$status   = (string) ( $job['status'] ?? '' );
+		$source   = is_array( $job['source'] ?? null ) ? $job['source'] : array();
+		if (
+			1 !== preg_match( '/\Abuild_[a-f0-9]{32}\z/D', $build_id )
+			|| 1 !== preg_match( '/\A[A-Za-z0-9][A-Za-z0-9._:-]{7,127}\z/D', (string) $request_id )
+			|| ! in_array( $status, array( 'ready', 'failed', 'cancelled' ), true )
+			|| '' === (string) ( $source['id'] ?? '' )
+			|| '' === (string) ( $source['dataset'] ?? '' )
+			|| ! $this->is_revision( $source['revision'] ?? null )
+			|| ! $this->is_revision( $job['state_revision'] ?? null )
+			|| ! $this->is_revision( $job['pricing_state_revision'] ?? null )
+			|| ! $this->is_revision( $job['catalog_revision'] ?? null )
+		) {
+			return null;
+		}
+
+		$data = array(
+			'schema'                 => self::TERMINAL_EVENT_SCHEMA,
+			'schema_version'         => self::SCHEMA_VERSION,
+			'projection'             => self::PROJECTION,
+			'build_id'               => $build_id,
+			'request_id'             => (string) $request_id,
+			'status'                 => $status,
+			'source'                 => $source,
+			'state_revision'         => (string) $job['state_revision'],
+			'pricing_state_revision' => (string) $job['pricing_state_revision'],
+			'catalog_revision'       => (string) $job['catalog_revision'],
+			'retryable'              => (bool) ( $job['retryable'] ?? false ),
+			'idempotency_key'        => $this->digest(
+				array(
+					'schema'     => self::TERMINAL_EVENT_SCHEMA,
+					'build_id'   => $build_id,
+					'request_id' => (string) $request_id,
+				)
+			),
+			'audience'               => array(
+				'services' => array( 'patris_pricing' ),
+			),
+		);
+		if ( 'ready' === $status ) {
+			if (
+				1 !== preg_match( '/\A[A-Za-z0-9][A-Za-z0-9._:-]{7,127}\z/D', (string) ( $job['snapshot_token'] ?? '' ) )
+				|| ! $this->is_revision( $job['snapshot_revision'] ?? null )
+				|| ! $this->is_revision( $job['digest'] ?? null )
+				|| ! hash_equals( (string) $job['snapshot_revision'], (string) $job['digest'] )
+			) {
+				return null;
+			}
+			$data['snapshot_token']    = (string) $job['snapshot_token'];
+			$data['snapshot_revision'] = (string) $job['snapshot_revision'];
+			$data['digest']            = (string) $job['digest'];
+			$data['snapshot_path']     = '/wp-json/digitalogic/pricing/sync/snapshots/' . rawurlencode( $job['snapshot_token'] ) . $this->source_query( $source );
+		} else {
+			$code = (string) ( $job['code'] ?? '' );
+			if ( '' === $code || strlen( $code ) > 128 || 1 !== preg_match( '/\A[a-z0-9_:-]+\z/D', $code ) ) {
+				return null;
+			}
+			$data['code'] = $code;
+		}
+
+		return $data;
+	}
+
+	/** Return every unique request ID attached to one single-flight build. */
+	private function terminal_request_ids( $job ) {
+		$request_ids   = isset( $job['terminal_request_ids'] ) && is_array( $job['terminal_request_ids'] )
+			? $job['terminal_request_ids']
+			: array();
+		$request_ids[] = (string) ( $job['request_id'] ?? '' );
+		$request_ids   = array_values(
+			array_unique(
+				array_filter(
+					array_map( 'strval', $request_ids ),
+					static function ( $request_id ) {
+						return 1 === preg_match( '/\A[A-Za-z0-9][A-Za-z0-9._:-]{7,127}\z/D', $request_id );
+					}
+				)
+			)
+		);
+
+		return array_slice( $request_ids, 0, 128 );
+	}
+
+	/** Find an exact durable panel receipt, rejecting an idempotency collision. */
+	private function terminal_panel_event_receipt( $data ) {
+		$events = get_option( 'digitalogic_panel_events', array() );
+		foreach ( is_array( $events ) ? $events : array() as $event ) {
+			$stored = is_array( $event['data'] ?? null ) ? $event['data'] : array();
+			if (
+				'pricing.snapshot.build.terminal' !== (string) ( $event['name'] ?? '' )
+				|| ! hash_equals( (string) ( $data['idempotency_key'] ?? '' ), (string) ( $stored['idempotency_key'] ?? '' ) )
+			) {
+				continue;
+			}
+			if ( $stored === $data ) {
+				return true;
+			}
+			return $this->error(
+				'digitalogic_pricing_terminal_event_conflict',
+				'A conflicting snapshot terminal event already owns this idempotency key.',
+				503,
+				false
+			);
+		}
+
+		return false;
+	}
+
+	/** Return one retryable error when terminal delivery cannot be made durable. */
+	private function terminal_event_storage_error() {
+		return $this->error(
+			'digitalogic_pricing_terminal_event_storage_unavailable',
+			'The snapshot terminal event could not be made durable.',
+			503,
+			true,
+			array(),
+			self::RETRY_AFTER
+		);
+	}
+
 	/** Merge every exact current source into the persistent state-event outbox. */
 	private function persist_state_revision_outbox( $candidate_sources = null, $cause = 'projection-invalidated' ) {
 		$candidate_sources = is_array( $candidate_sources ) ? $candidate_sources : $this->current_state_event_sources();
@@ -1396,6 +1909,31 @@ final class Digitalogic_Pricing_Snapshot {
 		return $scheduled;
 	}
 
+	/** Schedule one bounded retry for the persistent snapshot-terminal outbox. */
+	private function schedule_terminal_event_retry( $delay = self::RETRY_AFTER ) {
+		if ( $this->terminal_event_retry_scheduled ) {
+			return true;
+		}
+		$timestamp = time() + max( self::RETRY_AFTER, min( self::BUILD_TTL, (int) $delay ) );
+		$scheduled = false;
+		if ( function_exists( 'as_schedule_single_action' ) ) {
+			$scheduled = (bool) as_schedule_single_action( $timestamp, self::TERMINAL_EVENT_HOOK, array(), self::ACTION_GROUP, false );
+		}
+		if ( ! $scheduled && function_exists( 'wp_schedule_single_event' ) ) {
+			$scheduled = wp_schedule_single_event( $timestamp, self::TERMINAL_EVENT_HOOK, array(), true );
+			$scheduled = ! is_wp_error( $scheduled ) && false !== $scheduled;
+			if ( ! $scheduled && function_exists( 'wp_next_scheduled' ) ) {
+				$scheduled = false !== wp_next_scheduled( self::TERMINAL_EVENT_HOOK, array() );
+			}
+		}
+		$this->terminal_event_retry_scheduled = $scheduled;
+		if ( ! $scheduled ) {
+			do_action( 'digitalogic_pricing_terminal_event_failed', 'digitalogic_pricing_terminal_retry_unavailable', '' );
+		}
+
+		return $scheduled;
+	}
+
 	/** Remove one expired idempotency option only when its exact claim matches. */
 	public function cleanup_idempotency( $request_id, $fingerprint, $expires_at ) {
 		$lock = $this->acquire_admission_lock( 1 );
@@ -1600,6 +2138,12 @@ final class Digitalogic_Pricing_Snapshot {
 			$latest['page_count']        = $page_count;
 			$latest['expires_at']        = $meta['expires_at'];
 			$latest['progress']          = $this->progress( 'ready', 100, $row_count, $row_count );
+			if ( ! $this->persist_terminal_event_outbox( $latest ) ) {
+				delete_transient( $this->ready_key( $meta['state_revision'], $meta['locale'], $meta['page_size'] ) );
+				delete_transient( $this->meta_key( $token ) );
+				$this->delete_snapshot_pages( $token, $stored_pages );
+				return $this->terminal_event_storage_error();
+			}
 			if ( ! $this->store_job( $latest ) ) {
 				delete_transient( $this->ready_key( $meta['state_revision'], $meta['locale'], $meta['page_size'] ) );
 				delete_transient( $this->meta_key( $token ) );
@@ -1613,7 +2157,12 @@ final class Digitalogic_Pricing_Snapshot {
 					self::RETRY_AFTER
 				);
 			}
+			if ( ! $this->commit_terminal_event_outbox( $latest ) ) {
+				return $this->terminal_event_storage_error();
+			}
+			$this->unschedule_build_watchdog( $latest );
 			$this->release_build_slot( $job['build_id'] );
+			$this->publish_scheduled_terminal_events();
 
 			return $meta;
 		} finally {
@@ -1774,6 +2323,9 @@ final class Digitalogic_Pricing_Snapshot {
 		if ( $this->cancellation_requested( $build_id ) && ! in_array( $job['status'], array( 'ready', 'failed', 'cancelled' ), true ) ) {
 			$job = $this->mark_job_cancelled( $job );
 		}
+		if ( is_wp_error( $job ) ) {
+			return $job;
+		}
 		$source = $this->request_source( $request );
 		if ( is_wp_error( $source ) || $source !== $job['source'] ) {
 			return $this->error( 'digitalogic_pricing_snapshot_source_mismatch', 'The request source does not own this snapshot build.', 404, false );
@@ -1808,6 +2360,8 @@ final class Digitalogic_Pricing_Snapshot {
 			'schema_version'         => self::SCHEMA_VERSION,
 			'build_id'               => '' !== $build_id ? $build_id : 'build_' . $this->token(),
 			'request_id'             => $payload['request_id'],
+			'terminal_request_ids'   => array( $payload['request_id'] ),
+			'watchdog_token'         => $this->token(),
 			'client_id'              => $payload['client_id'],
 			'channel'                => $payload['channel'],
 			'source'                 => $payload['source'],
@@ -1825,6 +2379,31 @@ final class Digitalogic_Pricing_Snapshot {
 			'cached'                 => false,
 			'progress'               => $this->progress( 'queued', 0, 0, 0 ),
 		);
+	}
+
+	/** Persist one coalesced request so every waiter receives its own terminal frame. */
+	private function append_terminal_request_id( $job, $request_id ) {
+		$request_ids   = isset( $job['terminal_request_ids'] ) && is_array( $job['terminal_request_ids'] )
+			? $job['terminal_request_ids']
+			: array( (string) ( $job['request_id'] ?? '' ) );
+		$request_ids[] = (string) $request_id;
+		$request_ids   = array_values( array_unique( array_filter( $request_ids, 'is_string' ) ) );
+		if ( count( $request_ids ) > 128 ) {
+			return $this->busy_error();
+		}
+		$job['terminal_request_ids'] = $request_ids;
+		if ( ! $this->store_job( $job ) ) {
+			return $this->error(
+				'digitalogic_pricing_snapshot_storage_unavailable',
+				'The coalesced snapshot request could not be attached to its terminal event.',
+				503,
+				true,
+				array(),
+				self::RETRY_AFTER
+			);
+		}
+
+		return $job;
 	}
 
 	/** Store a bounded progress checkpoint and report whether work may continue. */
@@ -1891,6 +2470,17 @@ final class Digitalogic_Pricing_Snapshot {
 
 	/** Schedule only through Action Scheduler; never create a slow fallback queue. */
 	private function enqueue_build( $build_id ) {
+		$job = $this->read_job( $build_id );
+		if (
+			! is_array( $job )
+			|| ! $this->schedule_build_watchdog(
+				$build_id,
+				(string) ( $job['watchdog_token'] ?? '' ),
+				max( time() + 1, 1 + (int) strtotime( (string) ( $job['start_deadline_at'] ?? '' ) ) )
+			)
+		) {
+			return $this->watchdog_unavailable_error();
+		}
 		$override = apply_filters( 'digitalogic_pricing_snapshot_enqueue', null, $build_id );
 		if ( null !== $override ) {
 			return $override
@@ -1906,6 +2496,50 @@ final class Digitalogic_Pricing_Snapshot {
 		}
 
 		return true;
+	}
+
+	/** Schedule one source/job-fenced watchdog through AS with WP-Cron fallback. */
+	private function schedule_build_watchdog( $build_id, $watchdog_token, $timestamp ) {
+		if (
+			1 !== preg_match( '/\Abuild_[a-f0-9]{32}\z/D', (string) $build_id )
+			|| 1 !== preg_match( '/\A[a-f0-9]{32}\z/D', (string) $watchdog_token )
+		) {
+			return false;
+		}
+		$args      = array( (string) $build_id, (string) $watchdog_token );
+		$timestamp = max( time() + 1, (int) $timestamp );
+		if ( function_exists( 'as_schedule_single_action' ) ) {
+			$scheduled = (bool) as_schedule_single_action( $timestamp, self::BUILD_WATCHDOG_HOOK, $args, self::ACTION_GROUP, false );
+			if ( $scheduled ) {
+				return true;
+			}
+		}
+		if ( function_exists( 'wp_schedule_single_event' ) ) {
+			$scheduled = wp_schedule_single_event( $timestamp, self::BUILD_WATCHDOG_HOOK, $args, true );
+			if ( ! is_wp_error( $scheduled ) && false !== $scheduled ) {
+				return true;
+			}
+			return function_exists( 'wp_next_scheduled' ) && false !== wp_next_scheduled( self::BUILD_WATCHDOG_HOOK, $args );
+		}
+
+		return false;
+	}
+
+	/** Remove only this exact build's pending watchdog actions. */
+	private function unschedule_build_watchdog( $job ) {
+		$args = array(
+			(string) ( $job['build_id'] ?? '' ),
+			(string) ( $job['watchdog_token'] ?? '' ),
+		);
+		if ( '' === $args[0] || '' === $args[1] ) {
+			return;
+		}
+		if ( function_exists( 'as_unschedule_all_actions' ) ) {
+			as_unschedule_all_actions( self::BUILD_WATCHDOG_HOOK, $args, self::ACTION_GROUP );
+		}
+		if ( function_exists( 'wp_clear_scheduled_hook' ) ) {
+			wp_clear_scheduled_hook( self::BUILD_WATCHDOG_HOOK, $args );
+		}
 	}
 
 	/** Schedule one checked, non-unique retry when worker admission was contended. */
@@ -2198,6 +2832,14 @@ final class Digitalogic_Pricing_Snapshot {
 				if ( 'cancelled' === $job['status'] && hash_equals( $this->active_worker_build_id, (string) $build_id ) ) {
 					$this->release_build_slot( $build_id );
 				}
+				if ( ! $this->persist_terminal_event_outbox( $job ) ) {
+					return false;
+				}
+				if ( ! $this->commit_terminal_event_outbox( $job ) ) {
+					return false;
+				}
+				$this->unschedule_build_watchdog( $job );
+				$this->publish_scheduled_terminal_events();
 				return true;
 			}
 
@@ -2232,10 +2874,18 @@ final class Digitalogic_Pricing_Snapshot {
 					(int) ( $job['progress']['total'] ?? 0 )
 				);
 			}
+			if ( ! $this->persist_terminal_event_outbox( $job ) ) {
+				return false;
+			}
 			if ( ! $this->store_job( $job ) ) {
 				return false;
 			}
+			if ( ! $this->commit_terminal_event_outbox( $job ) ) {
+				return false;
+			}
+			$this->unschedule_build_watchdog( $job );
 			$this->release_build_slot( $build_id );
+			$this->publish_scheduled_terminal_events();
 
 			return true;
 		} finally {
@@ -2246,7 +2896,24 @@ final class Digitalogic_Pricing_Snapshot {
 	/** Persist a monotonic terminal cancellation marker. */
 	private function mark_job_cancelled( $job ) {
 		$job = $this->cancelled_job( $job );
-		$this->store_job( $job );
+		if ( ! $this->persist_terminal_event_outbox( $job ) ) {
+			return $this->terminal_event_storage_error();
+		}
+		if ( ! $this->store_job( $job ) ) {
+			return $this->error(
+				'digitalogic_pricing_snapshot_storage_unavailable',
+				'The completed cancellation state could not be stored.',
+				503,
+				true,
+				array(),
+				self::RETRY_AFTER
+			);
+		}
+		if ( ! $this->commit_terminal_event_outbox( $job ) ) {
+			return $this->terminal_event_storage_error();
+		}
+		$this->unschedule_build_watchdog( $job );
+		$this->publish_scheduled_terminal_events();
 
 		return $job;
 	}
@@ -2312,6 +2979,30 @@ final class Digitalogic_Pricing_Snapshot {
 		return $this->error(
 			'digitalogic_pricing_snapshot_scheduler_retry_unavailable',
 			'The contended snapshot worker could not schedule a bounded retry.',
+			503,
+			true,
+			array(),
+			30
+		);
+	}
+
+	/** Retryable terminal error for an uncaught worker failure. */
+	private function worker_exception_error() {
+		return $this->error(
+			'digitalogic_pricing_snapshot_worker_exception',
+			'The snapshot worker stopped before it could complete the build.',
+			503,
+			true,
+			array(),
+			30
+		);
+	}
+
+	/** Retryable terminal error when no autonomous watchdog can be scheduled. */
+	private function watchdog_unavailable_error() {
+		return $this->error(
+			'digitalogic_pricing_snapshot_watchdog_unavailable',
+			'The snapshot build watchdog could not be scheduled.',
 			503,
 			true,
 			array(),
