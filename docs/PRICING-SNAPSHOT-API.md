@@ -258,10 +258,12 @@ bound to the idempotency fingerprint.
 
 Only one cold projection build owns the bounded worker slot. An identical
 build coalesces to its leader; a different cold build receives fast `429` with
-`Retry-After`. Action Scheduler runs the cold work outside the HTTP request. If
-the worker cannot be scheduled, misses its 30-second start window, stops
-heartbeating, exceeds its fixed lifetime, or loses storage, the build becomes a
-machine-readable retryable `503` rather than waiting in an HTTP queue.
+`Retry-After`. Independent Action Scheduler and WP-Cron one-shots run the cold
+work outside the HTTP request. The existing worker lease makes the first runner
+authoritative and a late sibling a no-op. If neither activation path persists,
+the worker misses its 30-second start window, stops heartbeating, exceeds its
+fixed lifetime, or loses storage, the build becomes a machine-readable
+retryable `503` rather than waiting in an HTTP queue.
 
 Every coalesced request ID is persisted on the leader and receives its own
 request-bound terminal envelope. Before the job becomes terminal, all of those
@@ -272,13 +274,15 @@ and uses a retained panel event as a near-term receipt. The stream remains
 at-least-once: after receipt rotation, the companion deduplicates any replay by
 the stable `idempotency_key` before advancing its cursor.
 
-Admission also schedules one random-token, per-build watchdog before returning
-`202`. It is re-armed only at the next queue, lease, or fixed-build deadline and
-terminalizes a missed action, expired worker lease, or crashed process without a
-status request. The worker converts an uncaught throwable into the same bounded,
-secret-free failure path. Action Scheduler is preferred for both watchdog and
-terminal delivery; a one-shot WP-Cron fallback is required before terminal state
-can be committed.
+Admission also schedules the random-token, per-build watchdog independently on
+Action Scheduler and WP-Cron before returning `202`. It is re-armed only at the
+next queue, lease, or fixed-build deadline and terminalizes a missed action,
+expired worker lease, or crashed process without a status request. Exact
+build/token fencing makes the first watchdog authoritative, and every terminal
+path clears both build and watchdog schedules. The worker converts an uncaught
+throwable into the same bounded, secret-free failure path. Terminal-event
+delivery continues to require at least one durable one-shot retry path before
+terminal state can be committed.
 
 The worker obtains the complete report once, rejects truncation or non-current
 source state, and rejects every projection-integrity warning, including
