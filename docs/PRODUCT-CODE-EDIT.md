@@ -85,6 +85,14 @@ page reload and blocks every different actor/request until terminal state is
 proven. A terminal per-request record is authoritative, so failure to physically
 delete an old pointer never blocks a later edit. Recovery preserves the
 original effect actor and separately attributes a different recovery operator.
+An exact `reservation_pending` pointer with no per-request operation is proven
+to predate every claim and Product Code effect. The same request terminalizes
+it as a durable audited `reservation_released` no-effect record before physical
+pointer cleanup, after which a fresh request may evaluate the current row.
+Likewise, if a valid `in_progress` or `failed_retryable` operation is still at
+its exact before-state but a later source-ownership or desired-code conflict
+makes the old edit non-authorizable, it becomes an audited
+`reconciled_no_effect` terminal record instead of permanently gating the row.
 If the product after-state or its invariants cannot be verified, the service
 restores the exact prior presence/value and verifies that restoration. If the
 product after-state is exact but only the terminal audit readback is uncertain,

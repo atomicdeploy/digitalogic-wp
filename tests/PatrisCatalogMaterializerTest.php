@@ -958,6 +958,64 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 		);
 	}
 
+	/** A mutation after the last rollback save cannot be reported as verified. */
+	public function test_final_composite_rollback_readback_detects_a_late_feed_clobber(): void {
+		$this->receiveFixture();
+		$service = Digitalogic_Patris_Catalog_Materializer::instance();
+		$first   = $service->run( $this->manifest(), array( 'apply' => true ) );
+		$this->assertSame( 1, $first['created'] );
+		$product_id = (int) array_key_first( $GLOBALS['digitalogic_test_posts'] );
+		$this->attachReviewedImage( $product_id );
+		$state      = get_option( Digitalogic_Product_Sync_Receiver::STATE_OPTION, array() );
+		$source_key = array_key_first( $state['sources'] );
+		$state['sources'][ $source_key ]['products']['101001001']['shipping_method_id']             = 'air_express';
+		$state['sources'][ $source_key ]['products']['101001001']['shipping_price_per_kg']          = '34800000';
+		$state['sources'][ $source_key ]['products']['101001001']['shipping_price_per_kg_currency'] = 'IRR';
+		update_option( Digitalogic_Product_Sync_Receiver::STATE_OPTION, $state, false );
+
+		// phpcs:disable Generic.Formatting.MultipleStatementAlignment.NotSameWarning -- The self-rearming hook intentionally shares one compact state machine.
+		$phase = 0;
+		$hook  = null;
+		$hook  = static function ( $saved_product ) use ( &$hook, &$phase, $product_id ) {
+			if ( (int) $saved_product->get_id() !== $product_id ) {
+				$GLOBALS['digitalogic_test_wc_after_save'] = $hook;
+				return;
+			}
+			if ( 0 === $phase && 'publish' === (string) $saved_product->get_status() ) {
+				$GLOBALS['digitalogic_test_posts'][ $product_id ]['meta']['rank_math_title'] = 'Trigger exact final failure';
+				$phase = 1;
+				$GLOBALS['digitalogic_test_wc_after_save'] = $hook;
+				return;
+			}
+			if ( 1 === $phase ) {
+				$phase = 2;
+				$GLOBALS['digitalogic_test_wc_after_save'] = $hook;
+				return;
+			}
+			if ( 2 === $phase ) {
+				$GLOBALS['digitalogic_test_posts'][ $product_id ]['meta']['_digitalogic_patris_name'] = 'Late rollback feed clobber';
+				$phase = 3;
+				return;
+			}
+			$GLOBALS['digitalogic_test_wc_after_save'] = $hook;
+		};
+		$GLOBALS['digitalogic_test_wc_after_save'] = $hook;
+		// phpcs:enable Generic.Formatting.MultipleStatementAlignment.NotSameWarning
+
+		$result = $service->run(
+			$this->manifest(),
+			array(
+				'apply'         => true,
+				'publish_ready' => true,
+			)
+		);
+
+		$this->assertSame( 3, $phase );
+		$this->assertSame( 1, $result['failed'] );
+		$this->assertContains( 'digitalogic_patris_materializer_write_outcome_unknown', array_column( $result['details'], 'reason' ) );
+		$this->assertSame( 'Late rollback feed clobber', get_post_meta( $product_id, '_digitalogic_patris_name', true ) );
+	}
+
 	public function test_apply_aborts_and_releases_its_lock_if_the_source_changes_while_starting(): void {
 		$this->receiveFixture();
 		$release_count                    = $GLOBALS['wpdb']->release_count;
@@ -1018,6 +1076,76 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 		$this->assertSame( 'Synthetic sensor family', wc_get_product( 100 )->get_meta( '_digitalogic_patris_family_name', true ) );
 		$this->assertSame( '', wc_get_product( 100 )->get_meta( '_digitalogic_patris_product_code', true ) );
 		$this->assertContains( 100, WC_Product_Variable::$synced_ids );
+	}
+
+	/** A late child publication save cannot change the reviewed variation option. */
+	public function test_final_variation_readback_rolls_back_a_late_child_attribute_clobber(): void {
+		// phpcs:disable Generic.Formatting.MultipleStatementAlignment.NotSameWarning -- The hook remains intentionally adjacent to its fixtures.
+		$prepared  = $this->prepareReviewedVariationForPublication();
+		$service   = $prepared['service'];
+		$manifest  = $prepared['manifest'];
+		$child_id  = $prepared['child_id'];
+		$hook      = null;
+		$hook      = static function ( $saved_product ) use ( &$hook, $child_id ) {
+			if ( (int) $saved_product->get_id() === $child_id && 'publish' === (string) $saved_product->get_status() ) {
+				$GLOBALS['digitalogic_test_posts'][ $child_id ]['meta']['attribute_pa_model'] = 'late-wrong-option';
+				return;
+			}
+			$GLOBALS['digitalogic_test_wc_after_save'] = $hook;
+		};
+		$GLOBALS['digitalogic_test_wc_after_save'] = $hook;
+		// phpcs:enable Generic.Formatting.MultipleStatementAlignment.NotSameWarning
+
+		$result = $service->run(
+			$manifest,
+			array(
+				'apply'         => true,
+				'publish_ready' => true,
+			)
+		);
+
+		$this->assertSame( 1, $result['failed'] );
+		$this->assertSame( 0, $result['published'] );
+		$this->assertContains( 'digitalogic_patris_materializer_variation_identity_readback_failed', array_column( $result['details'], 'reason' ) );
+		$this->assertSame( 'raw-sensor', wc_get_product( $child_id )->get_variation_attributes()['attribute_pa_model'] );
+		$this->assertSame( 'draft', wc_get_product( $child_id )->get_status() );
+	}
+
+	/** A late parent publication save cannot change the reviewed option set. */
+	public function test_final_variation_readback_rolls_back_a_late_parent_attribute_clobber(): void {
+		// phpcs:disable Generic.Formatting.MultipleStatementAlignment.NotSameWarning -- The hook remains intentionally adjacent to its fixtures.
+		$prepared = $this->prepareReviewedVariationForPublication();
+		$service  = $prepared['service'];
+		$manifest = $prepared['manifest'];
+		$hook     = null;
+		$hook     = static function ( $saved_product ) use ( &$hook ) {
+			if ( 100 === (int) $saved_product->get_id() && 'publish' === (string) $saved_product->get_status() ) {
+				$attributes = $GLOBALS['digitalogic_test_posts'][100]['attributes'];
+				$attributes['pa_model']->set_options( array() );
+				$attributes['pa_model']->set_variation( false );
+				$GLOBALS['digitalogic_test_posts'][100]['attributes'] = $attributes;
+				return;
+			}
+			$GLOBALS['digitalogic_test_wc_after_save'] = $hook;
+		};
+		$GLOBALS['digitalogic_test_wc_after_save'] = $hook;
+		// phpcs:enable Generic.Formatting.MultipleStatementAlignment.NotSameWarning
+
+		$result = $service->run(
+			$manifest,
+			array(
+				'apply'         => true,
+				'publish_ready' => true,
+			)
+		);
+
+		$this->assertSame( 1, $result['failed'] );
+		$this->assertSame( 0, $result['published'] );
+		$this->assertContains( 'digitalogic_patris_materializer_variation_identity_readback_failed', array_column( $result['details'], 'reason' ) );
+		$attribute = wc_get_product( 100 )->get_attributes()['pa_model'];
+		$this->assertSame( array( 373 ), array_map( 'intval', $attribute->get_options() ) );
+		$this->assertTrue( $attribute->get_variation() );
+		$this->assertSame( 'publish', wc_get_product( 100 )->get_status() );
 	}
 
 	public function test_refuses_a_reviewed_variation_option_already_owned_by_an_existing_child(): void {
@@ -1366,6 +1494,42 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 		$invalid_evidence = $service->validate_manifest( $manifest );
 		$this->assertInstanceOf( WP_Error::class, $invalid_evidence );
 		$this->assertStringContainsString( 'evidence_urls.0', $invalid_evidence->get_error_data()['path'] );
+	}
+
+	/**
+	 * Create one reviewed draft variation and prepare its exact publication rerun.
+	 *
+	 * @return array{service:Digitalogic_Patris_Catalog_Materializer,manifest:array,child_id:int}
+	 */
+	private function prepareReviewedVariationForPublication(): array {
+		$this->receiveFixture();
+		$this->addProduct( 100, 'variable' );
+		$this->addTerm( 373, 'Reviewed sensor', 0, 'pa_model', 'raw-sensor' );
+		$manifest                  = $this->manifest();
+		$row                       = &$manifest['products']['101001001'];
+		$row['target_parent_id']   = '100';
+		$row['attribute_taxonomy'] = 'pa_model';
+		$row['attribute_term_id']  = '373';
+		$row['parent_enrichment']  = $this->parentEnrichment();
+		$row['variation_group']    = 'final-identity-sensors';
+		unset( $row );
+		$service = Digitalogic_Patris_Catalog_Materializer::instance();
+		$draft   = $service->run( $manifest, array( 'apply' => true ) );
+		$this->assertSame( 1, $draft['created_variations'] );
+		$children = wc_get_product( 100 )->get_children();
+		$this->assertCount( 1, $children );
+		$child_id = (int) $children[0];
+		$this->attachReviewedImage( $child_id );
+		$state      = get_option( Digitalogic_Product_Sync_Receiver::STATE_OPTION, array() );
+		$source_key = array_key_first( $state['sources'] );
+		$state['sources'][ $source_key ]['products']['101001001']['shipping_method_id'] = 'air_express';
+		update_option( Digitalogic_Product_Sync_Receiver::STATE_OPTION, $state, false );
+
+		return array(
+			'service'  => $service,
+			'manifest' => $manifest,
+			'child_id' => $child_id,
+		);
 	}
 
 	private function receiveFixture(): void {

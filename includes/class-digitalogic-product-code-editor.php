@@ -23,6 +23,7 @@ final class Digitalogic_Product_Code_Editor {
 
 	private const GOVERNANCE_SCHEMA           = 'digitalogic.product-code-governance';
 	private const RECONCILIATION_SCHEMA       = 'digitalogic.product-code-reconciliation';
+	private const RESERVATION_RELEASE_SCHEMA  = 'digitalogic.product-code-reservation-release';
 	private const AUDIT_OPTION                = 'digitalogic_product_code_edit_operations';
 	private const OPERATION_OPTION_STEM       = 'digitalogic_product_code_edit_';
 	private const RECOVERY_OPTION_STEM        = 'digitalogic_product_code_recovery_';
@@ -661,7 +662,7 @@ final class Digitalogic_Product_Code_Editor {
 		) {
 			return $this->audit_unavailable();
 		}
-		if ( in_array( $status, array( 'completed', 'reconciled_no_effect' ), true ) ) {
+		if ( in_array( $status, array( 'completed', 'reconciled_no_effect', 'reservation_released' ), true ) ) {
 			return array();
 		}
 		$takeover_required = (int) ( $index['actor_id'] ?? 0 ) !== $actor_id;
@@ -957,6 +958,7 @@ final class Digitalogic_Product_Code_Editor {
 	 * @return array|WP_Error
 	 */
 	private function edit_with_operation_lock( $request ) {
+		$reservation_without_operation = false;
 		$existing = $this->operation_record( $request['request_id'] );
 		if ( is_wp_error( $existing ) ) {
 			return $existing;
@@ -1000,6 +1002,10 @@ final class Digitalogic_Product_Code_Editor {
 					array( 'retryable' => false )
 				);
 			}
+			if ( 'reservation_released' === $status ) {
+				$this->clear_recovery_index( $request );
+				return $this->reconciled_no_effect_error( $request, $existing['result'] ?? array() );
+			}
 			if ( 'outcome_unknown' === $status ) {
 				return $this->error(
 					'digitalogic_product_code_outcome_unknown',
@@ -1035,6 +1041,9 @@ final class Digitalogic_Product_Code_Editor {
 			) {
 				return $this->audit_unavailable();
 			}
+			if ( empty( $pending_operation ) ) {
+				$reservation_without_operation = true;
+			}
 			if (
 				! empty( $pending_operation )
 				&& (
@@ -1046,7 +1055,7 @@ final class Digitalogic_Product_Code_Editor {
 			}
 			if (
 				is_array( $pending_operation )
-				&& in_array( (string) ( $pending_operation['status'] ?? '' ), array( 'completed', 'reconciled_no_effect' ), true )
+				&& in_array( (string) ( $pending_operation['status'] ?? '' ), array( 'completed', 'reconciled_no_effect', 'reservation_released' ), true )
 				&& $this->operation_record_is_valid( $pending_operation, $pending_request, (string) $pending_operation['status'] )
 			) {
 				// A terminal operation is authoritative even when physical pointer
@@ -1090,8 +1099,8 @@ final class Digitalogic_Product_Code_Editor {
 
 		$result = Digitalogic_Product_Write_Lock::instance()->with_product_lock(
 			$request['product_id'],
-			function () use ( $request, $existing ) {
-				return $this->edit_with_product_lock( $request, $existing );
+			function () use ( $request, $existing, $reservation_without_operation ) {
+				return $this->edit_with_product_lock( $request, $existing, $reservation_without_operation );
 			},
 			0
 		);
@@ -1122,12 +1131,16 @@ final class Digitalogic_Product_Code_Editor {
 	 *
 	 * @param array $request Validated request.
 	 * @param array $existing Existing retryable/in-progress record.
+	 * @param bool  $reservation_without_operation Whether the exact pointer predates every claim/effect.
 	 * @return array|WP_Error
 	 */
-	private function edit_with_product_lock( $request, $existing ) {
+	private function edit_with_product_lock( $request, $existing, $reservation_without_operation = false ) {
 		$before = $this->read_exact_product_code( $request['product_id'] );
 		if ( is_wp_error( $before ) ) {
 			return $before;
+		}
+		if ( $reservation_without_operation ) {
+			return $this->release_pre_effect_reservation( $request, $before );
 		}
 		if ( ! $before['product_exists'] ) {
 			return $this->error(
@@ -1149,11 +1162,13 @@ final class Digitalogic_Product_Code_Editor {
 		}
 
 		$current_revision = $this->revision_for( $request['product_id'], $before['product_code'] );
+		$operation_restored_exact_before = false;
 		if ( ! empty( $existing ) && in_array( (string) ( $existing['status'] ?? '' ), array( 'in_progress', 'failed_retryable' ), true ) ) {
 			$recovered = $this->recover_existing_operation( $request, $existing, $before, $current_revision );
 			if ( null !== $recovered ) {
 				return $recovered;
 			}
+			$operation_restored_exact_before = true;
 		}
 
 		if ( ! hash_equals( $request['expected_code'], $before['product_code'] ) ) {
@@ -1165,6 +1180,9 @@ final class Digitalogic_Product_Code_Editor {
 
 		$source_guard = $this->source_guard( $request['product_id'], $before['product_code'], $request['product_code'], $before );
 		if ( is_wp_error( $source_guard ) ) {
+			if ( $operation_restored_exact_before && 'digitalogic_product_code_source_managed' === $source_guard->get_error_code() ) {
+				return $this->terminalize_restored_before_operation( $request, $existing, $before, $current_revision );
+			}
 			return $source_guard;
 		}
 		$governance_proof = $source_guard['proof'];
@@ -1174,6 +1192,9 @@ final class Digitalogic_Product_Code_Editor {
 			return $conflicts;
 		}
 		if ( ! empty( $conflicts ) ) {
+			if ( $operation_restored_exact_before ) {
+				return $this->terminalize_restored_before_operation( $request, $existing, $before, $current_revision );
+			}
 			return $this->error(
 				'digitalogic_product_code_not_unique',
 				__( 'That exact Product Code already belongs to another product or variation.', 'digitalogic' ),
@@ -1482,13 +1503,236 @@ final class Digitalogic_Product_Code_Editor {
 			return is_wp_error( $stored ) ? $stored : $result;
 		}
 
-		$rollback_code = (string) ( $existing['rollback_data']['product_code'] ?? '' );
-		$rollback_rev  = (string) ( $existing['rollback_data']['revision'] ?? '' );
-		if ( hash_equals( $rollback_code, $current['product_code'] ) && hash_equals( $rollback_rev, $current_revision ) ) {
+		$rollback_code        = (string) ( $existing['rollback_data']['product_code'] ?? '' );
+		$rollback_rev         = (string) ( $existing['rollback_data']['revision'] ?? '' );
+		$rollback_meta_exists = ! empty( $existing['rollback_data']['meta_exists'] );
+		$current_meta_exists  = ! empty( $current['meta_exists'] );
+		$exact_absent         = $rollback_meta_exists || $this->readback_is_exact_absent_identity( $current );
+		if (
+			$rollback_meta_exists === $current_meta_exists
+			&& $exact_absent
+			&& hash_equals( $rollback_code, $current['product_code'] )
+			&& hash_equals( $rollback_rev, $current_revision )
+		) {
 			return null;
 		}
 
 		return $this->mark_operation_outcome_unknown( $request, $existing, $current, 'recovery_state_mismatch' );
+	}
+
+	/**
+	 * Terminalize a pointer that was durably reserved before any claim/effect.
+	 *
+	 * The operation record is intentionally written before pointer cleanup. A
+	 * failed physical delete therefore remains harmless: every later request can
+	 * prove the pointer is terminal and ignore it without repeating an effect.
+	 *
+	 * @param array $request Validated request.
+	 * @param array $current Exact cache-bypassed current state.
+	 * @return WP_Error
+	 */
+	private function release_pre_effect_reservation( $request, $current ) {
+		if ( ! $this->mutation_locks_are_owned( $request['product_id'] ) ) {
+			return $this->same_request_recovery_required( $request, '', 'reservation_release_lock_lost' );
+		}
+		$pointer = $this->recovery_index( $request['product_id'] );
+		if ( is_wp_error( $pointer ) ) {
+			return $pointer;
+		}
+		$pointer_request = $this->request_from_recovery_index( $pointer, $request['product_id'] );
+		$operation       = $this->operation_record( $request['request_id'] );
+		if (
+			is_wp_error( $pointer_request )
+			|| is_wp_error( $operation )
+			|| ! empty( $operation )
+			|| 'reservation_pending' !== (string) ( $pointer['status'] ?? '' )
+			|| ! hash_equals( $request['request_id'], (string) ( $pointer_request['request_id'] ?? '' ) )
+			|| ! hash_equals( $request['fingerprint'], (string) ( $pointer_request['fingerprint'] ?? '' ) )
+		) {
+			return $this->audit_unavailable();
+		}
+		if ( ! $this->mutation_locks_are_owned( $request['product_id'] ) ) {
+			return $this->same_request_recovery_required( $request, '', 'reservation_release_lock_lost' );
+		}
+
+		$released_at = gmdate( 'c' );
+
+		$evidence      = array(
+			'schema'              => self::RESERVATION_RELEASE_SCHEMA,
+			'product_id'          => $request['product_id'],
+			'request_id'          => $request['request_id'],
+			'request_fingerprint' => $request['fingerprint'],
+			'actor_id'            => (int) $pointer['actor_id'],
+			'released_by'         => get_current_user_id(),
+			'released_at'         => $released_at,
+			'no_effect'           => true,
+			'observed'            => array(
+				'product_exists'   => ! empty( $current['product_exists'] ),
+				'meta_exists'      => ! empty( $current['meta_exists'] ),
+				'product_code'     => (string) ( $current['product_code'] ?? '' ),
+				'revision'         => ! empty( $current['product_exists'] )
+					? $this->revision_for( $request['product_id'], (string) ( $current['product_code'] ?? '' ) )
+					: '',
+				'row_count'        => (int) ( $current['row_count'] ?? 0 ),
+				'duplicate_rows'   => ! empty( $current['duplicate_rows'] ),
+				'invalid_key_rows' => (int) ( $current['invalid_key_rows'] ?? 0 ),
+			),
+		);
+		$evidence_json = $this->canonical_json( $evidence );
+		if ( is_wp_error( $evidence_json ) ) {
+			return $evidence_json;
+		}
+		$evidence['evidence_fingerprint'] = 'sha256:' . hash( 'sha256', $evidence_json );
+
+		$result = array(
+			'schema'                       => self::RESERVATION_RELEASE_SCHEMA,
+			'status'                       => 'reservation_released',
+			'changed'                      => false,
+			'replayed'                     => false,
+			'product_id'                   => $request['product_id'],
+			'current_product_code'         => (string) ( $current['product_code'] ?? '' ),
+			'current_revision'             => (string) $evidence['observed']['revision'],
+			'request_id'                   => $request['request_id'],
+			'request_fingerprint'          => $request['fingerprint'],
+			'release_evidence_fingerprint' => $evidence['evidence_fingerprint'],
+			'verification'                 => array(
+				'database_readback'             => true,
+				'cache_bypassed'                => true,
+				'reservation_without_operation' => true,
+				'no_code_write'                 => true,
+			),
+		);
+
+		$terminal = array(
+			'schema'              => self::SCHEMA,
+			'status'              => 'reservation_released',
+			'request_fingerprint' => $request['fingerprint'],
+			'product_id'          => $request['product_id'],
+			'expected_code'       => $request['expected_code'],
+			'product_code'        => $request['product_code'],
+			'if_match'            => $request['if_match'],
+			'actor_id'            => (int) $pointer['actor_id'],
+			'attempts'            => 0,
+			'release'             => $evidence,
+			'result'              => $result,
+			'updated_at'          => $released_at,
+		);
+
+		$stored = $this->store_operation( $request['request_id'], $terminal );
+		if ( is_wp_error( $stored ) ) {
+			return $stored;
+		}
+		$this->clear_recovery_index( $request );
+
+		return $this->reconciled_no_effect_error( $request, $result );
+	}
+
+	/**
+	 * Terminalize an exact restored before-state that cannot be reauthorized.
+	 *
+	 * @param array  $request Validated request.
+	 * @param array  $existing Valid in-progress or failed-retryable operation.
+	 * @param array  $current Exact cache-bypassed current state.
+	 * @param string $current_revision Exact current revision.
+	 * @return WP_Error
+	 */
+	private function terminalize_restored_before_operation( $request, $existing, $current, $current_revision ) {
+		if ( ! $this->mutation_locks_are_owned( $request['product_id'] ) ) {
+			return $this->same_request_recovery_required(
+				$request,
+				(string) ( $existing['backup_reference'] ?? '' ),
+				'reconciliation_lock_lost'
+			);
+		}
+		$rollback_meta_exists = true === ( $existing['rollback_data']['meta_exists'] ?? null );
+		$rollback_code        = (string) ( $existing['rollback_data']['product_code'] ?? '' );
+		$rollback_revision    = (string) ( $existing['rollback_data']['revision'] ?? '' );
+		$exact_absent         = $rollback_meta_exists || $this->readback_is_exact_absent_identity( $current );
+		$current_meta_exists  = ! empty( $current['meta_exists'] );
+		if (
+			! in_array( (string) ( $existing['status'] ?? '' ), array( 'in_progress', 'failed_retryable' ), true )
+			|| $current_meta_exists !== $rollback_meta_exists
+			|| ! $exact_absent
+			|| ! hash_equals( $rollback_code, (string) ( $current['product_code'] ?? '' ) )
+			|| ! hash_equals( $rollback_revision, $current_revision )
+		) {
+			return $this->mark_operation_outcome_unknown( $request, $existing, $current, 'reauthorization_state_mismatch' );
+		}
+
+		$current_conflicts = ! empty( $current['meta_exists'] )
+			? $this->find_code_conflicts( $request['product_id'], (string) $current['product_code'] )
+			: array();
+		if ( is_wp_error( $current_conflicts ) ) {
+			return $current_conflicts;
+		}
+		if ( ! empty( $current_conflicts ) ) {
+			return $this->mark_operation_outcome_unknown( $request, $existing, $current, 'reauthorization_before_not_unique' );
+		}
+		$source = $this->reconciliation_source_evidence( $request, $current );
+		if ( is_wp_error( $source ) ) {
+			return $source;
+		}
+		$record_fingerprint = $this->operation_record_fingerprint( $existing );
+		if ( is_wp_error( $record_fingerprint ) ) {
+			return $record_fingerprint;
+		}
+		$preview = $this->reconciliation_preview(
+			$request,
+			$record_fingerprint,
+			(string) $current['product_code'],
+			$current_revision,
+			'before',
+			$source
+		);
+		if ( is_wp_error( $preview ) ) {
+			return $preview;
+		}
+		$evidence = $this->reconciliation_evidence( $preview );
+		if ( is_wp_error( $evidence ) ) {
+			return $evidence;
+		}
+		if ( ! $this->mutation_locks_are_owned( $request['product_id'] ) ) {
+			return $this->same_request_recovery_required(
+				$request,
+				(string) ( $existing['backup_reference'] ?? '' ),
+				'reconciliation_lock_lost'
+			);
+		}
+
+		$terminal                   = $existing;
+		$terminal['status']         = 'reconciled_no_effect';
+		$terminal['reconciliation'] = $evidence;
+		$terminal['result']         = $this->reconciliation_no_effect_result( $request, $preview, $evidence );
+		$terminal['updated_at']     = gmdate( 'c' );
+		$stored                     = $this->store_operation( $request['request_id'], $terminal );
+		if ( is_wp_error( $stored ) ) {
+			return $stored;
+		}
+		$this->clear_recovery_index( $request );
+
+		return $this->reconciled_no_effect_error( $request, $terminal['result'] );
+	}
+
+	/**
+	 * Return the stable terminal error used by the edit UI after no-effect resolution.
+	 *
+	 * @param array $request Validated request.
+	 * @param array $result Terminal no-effect result.
+	 * @return WP_Error
+	 */
+	private function reconciled_no_effect_error( $request, $result ) {
+		return $this->error(
+			'digitalogic_product_code_reconciled_no_effect',
+			__( 'This request was reconciled as having no Product Code effect; start a new edit from the current row.', 'digitalogic' ),
+			409,
+			array(
+				'retryable'           => false,
+				'request_id'          => $request['request_id'],
+				'request_fingerprint' => $request['fingerprint'],
+				'current_code'        => (string) ( $result['current_product_code'] ?? $result['product_code'] ?? '' ),
+				'current_revision'    => (string) ( $result['current_revision'] ?? $result['revision'] ?? '' ),
+			)
+		);
 	}
 
 	/** Build or apply one exact reconciliation while all identity locks are held. */
@@ -1532,6 +1776,9 @@ final class Digitalogic_Product_Code_Editor {
 		}
 		if ( in_array( $status, array( 'completed', 'reconciled_no_effect' ), true ) ) {
 			return $this->replayed_reconciliation_result( $existing, $request );
+		}
+		if ( 'reservation_released' === $status ) {
+			return $this->reconciled_no_effect_error( $request, $existing['result'] ?? array() );
 		}
 		if ( 'outcome_unknown' !== $status ) {
 			return $this->error(
@@ -3214,6 +3461,9 @@ final class Digitalogic_Product_Code_Editor {
 	 * @return bool
 	 */
 	private function operation_record_is_valid( $record, $request, $status ) {
+		if ( 'reservation_released' === $status ) {
+			return $this->reservation_release_record_is_valid( $record, $request );
+		}
 		if (
 			! is_array( $record )
 			|| self::SCHEMA !== (string) ( $record['schema'] ?? '' )
@@ -3364,6 +3614,88 @@ final class Digitalogic_Product_Code_Editor {
 			&& true === ( $verification['unique'] ?? null )
 			&& true === ( $verification['source_governance'] ?? null )
 			&& true === ( $verification['projection_current'] ?? null );
+	}
+
+	/**
+	 * Validate and rehash one terminal pre-effect reservation release.
+	 *
+	 * @param array $record Stored terminal record.
+	 * @param array $request Validated request.
+	 * @return bool
+	 */
+	private function reservation_release_record_is_valid( $record, $request ) {
+		$release  = is_array( $record['release'] ?? null ) ? $record['release'] : null;
+		$result   = is_array( $record['result'] ?? null ) ? $record['result'] : null;
+		$observed = is_array( $release['observed'] ?? null ) ? $release['observed'] : null;
+		if (
+			! is_array( $record )
+			|| self::SCHEMA !== (string) ( $record['schema'] ?? '' )
+			|| 'reservation_released' !== (string) ( $record['status'] ?? '' )
+			|| ! is_int( $record['actor_id'] ?? null )
+			|| (int) $record['actor_id'] <= 0
+			|| 0 !== (int) ( $record['attempts'] ?? -1 )
+			|| (int) ( $record['product_id'] ?? 0 ) !== $request['product_id']
+			|| ! hash_equals( $request['fingerprint'], (string) ( $record['request_fingerprint'] ?? '' ) )
+			|| ! hash_equals( $request['expected_code'], (string) ( $record['expected_code'] ?? '' ) )
+			|| ! hash_equals( $request['product_code'], (string) ( $record['product_code'] ?? '' ) )
+			|| ! hash_equals( $request['if_match'], (string) ( $record['if_match'] ?? '' ) )
+			|| ! is_array( $release )
+			|| ! is_array( $result )
+			|| ! is_array( $observed )
+			|| self::RESERVATION_RELEASE_SCHEMA !== (string) ( $release['schema'] ?? '' )
+			|| (int) ( $release['product_id'] ?? 0 ) !== $request['product_id']
+			|| ! hash_equals( $request['request_id'], (string) ( $release['request_id'] ?? '' ) )
+			|| ! hash_equals( $request['fingerprint'], (string) ( $release['request_fingerprint'] ?? '' ) )
+			|| (int) ( $release['actor_id'] ?? 0 ) !== (int) $record['actor_id']
+			|| ! is_int( $release['released_by'] ?? null )
+			|| (int) $release['released_by'] <= 0
+			|| true !== ( $release['no_effect'] ?? null )
+			|| ! is_string( $release['released_at'] ?? null )
+			|| '' === (string) $release['released_at']
+			|| ! hash_equals( (string) $release['released_at'], (string) ( $record['updated_at'] ?? '' ) )
+			|| ! is_bool( $observed['product_exists'] ?? null )
+			|| ! is_bool( $observed['meta_exists'] ?? null )
+			|| ! is_string( $observed['product_code'] ?? null )
+			|| ! is_string( $observed['revision'] ?? null )
+			|| ! is_int( $observed['row_count'] ?? null )
+			|| (int) $observed['row_count'] < 0
+			|| ! is_bool( $observed['duplicate_rows'] ?? null )
+			|| ! is_int( $observed['invalid_key_rows'] ?? null )
+			|| (int) $observed['invalid_key_rows'] < 0
+			|| ( (int) $observed['row_count'] > 0 ) !== (bool) $observed['meta_exists']
+			|| ( (int) $observed['row_count'] > 1 ) !== (bool) $observed['duplicate_rows']
+			|| ( ! $observed['product_exists'] && ( $observed['meta_exists'] || 0 !== $observed['row_count'] ) )
+			|| ( $observed['product_exists'] && 1 !== preg_match( self::REVISION_PATTERN, $observed['revision'] ) )
+			|| ( ! $observed['product_exists'] && '' !== $observed['revision'] )
+			|| self::RESERVATION_RELEASE_SCHEMA !== (string) ( $result['schema'] ?? '' )
+			|| 'reservation_released' !== (string) ( $result['status'] ?? '' )
+			|| false !== ( $result['changed'] ?? null )
+			|| false !== ( $result['replayed'] ?? null )
+			|| (int) ( $result['product_id'] ?? 0 ) !== $request['product_id']
+			|| ! hash_equals( (string) $observed['product_code'], (string) ( $result['current_product_code'] ?? '' ) )
+			|| ! hash_equals( (string) $observed['revision'], (string) ( $result['current_revision'] ?? '' ) )
+			|| ! hash_equals( $request['request_id'], (string) ( $result['request_id'] ?? '' ) )
+			|| ! hash_equals( $request['fingerprint'], (string) ( $result['request_fingerprint'] ?? '' ) )
+			|| true !== ( $result['verification']['database_readback'] ?? null )
+			|| true !== ( $result['verification']['cache_bypassed'] ?? null )
+			|| true !== ( $result['verification']['reservation_without_operation'] ?? null )
+			|| true !== ( $result['verification']['no_code_write'] ?? null )
+		) {
+			return false;
+		}
+		$evidence_fingerprint = (string) ( $release['evidence_fingerprint'] ?? '' );
+		if (
+			1 !== preg_match( self::REVISION_PATTERN, $evidence_fingerprint )
+			|| ! hash_equals( $evidence_fingerprint, (string) ( $result['release_evidence_fingerprint'] ?? '' ) )
+		) {
+			return false;
+		}
+		$material = $release;
+		unset( $material['evidence_fingerprint'] );
+		$json = $this->canonical_json( $material );
+
+		return ! is_wp_error( $json )
+			&& hash_equals( 'sha256:' . hash( 'sha256', $json ), $evidence_fingerprint );
 	}
 
 	/** Validate and recompute one exact manual-reconciliation proof. */
