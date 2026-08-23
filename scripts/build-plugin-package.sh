@@ -52,6 +52,8 @@ fi
 source_date_epoch=$((source_date_epoch - (source_date_epoch % 2)))
 
 bash "$root/scripts/check-public-tree.sh" "$root"
+npm --prefix "$root/ops/wordpress-cron" run check
+npm --prefix "$root/ops/wordpress-cron" test
 
 # The PHP snippets are intentionally single quoted so Bash cannot interpolate
 # PHP variables before they reach the interpreter.

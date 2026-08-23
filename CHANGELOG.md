@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.9] - 2026-08-23
+
+### Fixed
+- Required exact `wp_next_scheduled()` readback before treating a WP-Cron
+  one-shot as durable, including when a scheduling filter reports success.
+- Added a source-controlled, non-overlapping systemd timer for production
+  WordPress due-event execution every 10 seconds under the WordPress runtime
+  identity. This removes snapshot activation's dependency on later web traffic
+  or a server-origin loopback that can be rejected by the public WAF. The unit
+  requires built-in web cron to be disabled, preventing concurrent all-due
+  runners after the core lock expires.
+
 ## [1.8.8] - 2026-08-23
 
 ### Fixed

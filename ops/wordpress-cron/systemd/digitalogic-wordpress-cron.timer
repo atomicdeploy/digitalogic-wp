@@ -1,0 +1,12 @@
+[Unit]
+Description=Run due Digitalogic WordPress events without web traffic
+
+[Timer]
+OnActiveSec=2s
+OnUnitInactiveSec=10s
+AccuracySec=1s
+RandomizedDelaySec=0
+Unit=digitalogic-wordpress-cron.service
+
+[Install]
+WantedBy=timers.target

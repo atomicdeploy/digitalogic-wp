@@ -2557,7 +2557,7 @@ final class Digitalogic_Pricing_Snapshot {
 	 * Optional callables are used only by focused tests to exercise the complete
 	 * durability matrix without making Action Scheduler a global test fixture.
 	 */
-	private function schedule_dual_one_shot( $hook, $args, $timestamp, $action_scheduler_mode = 'single', $action_scheduler = null, $wp_cron = null ) {
+	private function schedule_dual_one_shot( $hook, $args, $timestamp, $action_scheduler_mode = 'single', $action_scheduler = null, $wp_cron = null, $wp_cron_verifier = null ) {
 		$args      = array_values( (array) $args );
 		$timestamp = max( time() + 1, (int) $timestamp );
 		$as_ok     = false;
@@ -2582,11 +2582,17 @@ final class Digitalogic_Pricing_Snapshot {
 			if ( is_callable( $wp_cron ) ) {
 				$cron_result = call_user_func( $wp_cron, $hook, $args, $timestamp );
 				$cron_ok     = ! is_wp_error( $cron_result ) && false !== $cron_result;
+				if ( is_callable( $wp_cron_verifier ) ) {
+					$cron_readback = call_user_func( $wp_cron_verifier, $hook, $args );
+					$cron_ok       = is_numeric( $cron_readback ) && (int) $cron_readback > 0;
+				}
 			} elseif ( function_exists( 'wp_schedule_single_event' ) ) {
 				$cron_result = wp_schedule_single_event( $timestamp, $hook, $args, true );
-				$cron_ok     = ! is_wp_error( $cron_result ) && false !== $cron_result;
-				if ( ! $cron_ok && function_exists( 'wp_next_scheduled' ) ) {
-					$cron_ok = false !== wp_next_scheduled( $hook, $args );
+				if ( function_exists( 'wp_next_scheduled' ) ) {
+					$cron_readback = wp_next_scheduled( $hook, $args );
+					$cron_ok       = is_numeric( $cron_readback ) && (int) $cron_readback > 0;
+				} else {
+					$cron_ok = ! is_wp_error( $cron_result ) && false !== $cron_result;
 				}
 			}
 		} catch ( Throwable $error ) {

@@ -265,6 +265,14 @@ the worker misses its 30-second start window, stops heartbeating, exceeds its
 fixed lifetime, or loses storage, the build becomes a machine-readable
 retryable `503` rather than waiting in an HTTP queue.
 
+Production also installs the source-controlled
+`digitalogic-wordpress-cron.timer`. Its non-overlapping oneshot executes due
+WordPress events under the WordPress runtime identity every 10 seconds. This is
+the autonomous no-traffic runner for the durable WP-Cron record; it does not
+poll pricing state or invoke the snapshot worker directly. Production disables
+built-in visit-triggered WP-Cron so this non-overlapping timer is the sole core
+cron executor; the Action Scheduler record remains an independent wake path.
+
 Every coalesced request ID is persisted on the leader and receives its own
 request-bound terminal envelope. Before the job becomes terminal, all of those
 envelopes are staged in a persistent outbox. After the exact job commits, they
