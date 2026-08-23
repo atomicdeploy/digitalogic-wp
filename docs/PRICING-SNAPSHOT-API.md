@@ -108,6 +108,9 @@ WordPress command. It receives only these exact-source event kinds:
 - `pricing.state.changed` with schema
   `digitalogic.pricing-state-change/v1` and cause
   `projection-invalidated` or `freshness-boundary`;
+- `pricing.snapshot.build.terminal` with schema
+  `digitalogic.pricing-snapshot-build-event/v1` when a request-bound snapshot
+  build becomes `ready`, `failed`, or `cancelled`;
 - `pricing.stream.reset` with schema
   `digitalogic.pricing-stream-reset/v1` when durable replay has a gap.
 
@@ -121,6 +124,14 @@ nonsecret and carry `audience.services=["patris_pricing"]`. A removal retains
 the last valid source identity so an exact-source subscriber can consume the
 terminal event; the following conditional revision request is authoritative
 and fails closed because that source is no longer current.
+
+A snapshot terminal envelope contains the exact `build_id`, request-bound
+`request_id`, source, composite/pricing/catalog revisions, stable
+`idempotency_key`, and boolean `retryable`. A `ready` envelope additionally
+contains `snapshot_token`, equal `snapshot_revision`/`digest`, and the exact
+source-bound `snapshot_path`; `failed` and `cancelled` envelopes contain only a
+bounded machine `code` instead of snapshot fields. The envelope permits no
+additional top-level or nested source fields.
 
 The initial frame is exactly a normal JSON WebSocket message shaped as:
 
@@ -174,8 +185,10 @@ across event kinds and Redis delivery order never defines the cursor.
 The companion performs one conditional revision `HEAD`/`GET` after every
 initial connection, reconnect, or cursor reset, then follows WSS events
 continuously. This request closes delivery gaps; it is not a polling loop.
-Excel never polls WordPress. Build-status requests are allowed only after an
-event or initial validation starts an asynchronous snapshot build.
+Excel never polls WordPress. Before starting an asynchronous build, the Patris
+companion registers its request-bound terminal waiter; a `202` response is then
+completed only by the durable terminal event. Build-status routes remain for
+diagnostics and backwards-compatible clients, not for that production wait.
 
 The daemon sends no timer-driven WSS heartbeat in schema v1. It replies to a
 WebSocket control Ping with Pong and also accepts the read-only JSON
@@ -249,6 +262,23 @@ build coalesces to its leader; a different cold build receives fast `429` with
 the worker cannot be scheduled, misses its 30-second start window, stops
 heartbeating, exceeds its fixed lifetime, or loses storage, the build becomes a
 machine-readable retryable `503` rather than waiting in an HTTP queue.
+
+Every coalesced request ID is persisted on the leader and receives its own
+request-bound terminal envelope. Before the job becomes terminal, all of those
+envelopes are staged in a persistent outbox. After the exact job commits, they
+are promoted to a job-independent committed phase, so delivery survives expiry
+of the short-lived build record. Delivery rejects request or payload mismatch
+and uses a retained panel event as a near-term receipt. The stream remains
+at-least-once: after receipt rotation, the companion deduplicates any replay by
+the stable `idempotency_key` before advancing its cursor.
+
+Admission also schedules one random-token, per-build watchdog before returning
+`202`. It is re-armed only at the next queue, lease, or fixed-build deadline and
+terminalizes a missed action, expired worker lease, or crashed process without a
+status request. The worker converts an uncaught throwable into the same bounded,
+secret-free failure path. Action Scheduler is preferred for both watchdog and
+terminal delivery; a one-shot WP-Cron fallback is required before terminal state
+can be committed.
 
 The worker obtains the complete report once, rejects truncation or non-current
 source state, and rejects every projection-integrity warning, including
@@ -344,27 +374,19 @@ measurement after deployment:
 
 ## Patris-Export adapter compatibility
 
-The WordPress API is additive and does not change the current Patris local API.
-The companion must be updated separately before using it:
+The production Patris companion uses the additive WordPress snapshot API while
+preserving its existing local Excel/VBA contract. It subscribes to the
+versioned pricing WSS stream, persists a cursor only after local acceptance,
+validates the composite revision on connect/reconnect/reset, registers the
+request-bound terminal waiter before the snapshot POST, and consumes the bulk
+snapshot only after a matching `ready` event. A cold build therefore uses no
+legacy paged `/pricing/sync/state` calls and no build-status polling.
 
-1. subscribe outbound to the versioned pricing WSS stream, persist its cursor
-   only after local enqueue, and use one conditional revision validation on
-   connect/reconnect/reset rather than polling WordPress;
-2. distinguish composite `state_revision` from pricing-only
-   `pricing_state_revision`;
-3. translate the WordPress request/build/payload schemas into the existing
-   local Patris/VBA schemas;
-4. translate `build_id`, queued status, progress, URLs, mutation paths, and
-   ETag semantics;
-5. inject the protected secret on every same-origin remote call without
-   exposing it to VBA;
-6. consume bulk mode first, or validate the complete metadata included with
-   each page;
-7. preserve the existing legacy paged `/pricing/sync/state` fallback until the
-   remote snapshot path is proven.
-
-No credential belongs in the workbook. The current Patris-Export checkout is a
-separate moving worktree and is not modified by this WordPress change.
+The companion distinguishes composite `state_revision` from pricing-only
+`pricing_state_revision`, validates exact source/build/request/revision and
+ETag identities, and injects the protected credential only on same-origin
+remote calls. No credential belongs in the workbook, VBA, event payload, or
+log.
 
 ## Backwards compatibility
 
@@ -375,5 +397,6 @@ These existing routes and schemas remain unchanged:
 - `POST /wp-json/digitalogic/pricing/sync/apply`
 - deprecated `/wp-json/digitalogic/excel/pricing-sync/*` aliases
 
-Snapshot routes are an optional optimization. Existing clients can continue
-using paged state while a companion release adds the translation layer.
+Existing clients can continue using paged state. The production Patris pricing
+companion uses the snapshot and terminal-event path without changing those
+legacy route contracts.

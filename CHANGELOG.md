@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.6] - 2026-08-23
+
+### Added
+- Added the durable `pricing.snapshot.build.terminal` v1 event required by the
+  Patris pricing companion. Ready, failed, and cancelled builds now publish an
+  exact-source, service-only, secret-free terminal envelope for every request
+  attached to a single-flight build.
+
+### Fixed
+- Staged snapshot terminal events before committing terminal build state, then
+  promoted them to a job-independent persistent outbox before delivery. Queue
+  failures and process interruption recover without a false terminal frame;
+  stable idempotency supports the stream's existing at-least-once semantics.
+- Added a random-token, per-build one-shot watchdog and uncaught-worker failure
+  boundary so missed actions, expired leases, process crashes, and thrown errors
+  become request-bound terminal events without build-status polling.
+- Restricted snapshot terminal replay to the authenticated `patris_pricing`
+  principal and its exact source, with fail-closed schema, path, audience, and
+  no-extra-field validation.
+
 ## [1.8.5] - 2026-08-23
 
 ### Fixed

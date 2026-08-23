@@ -690,6 +690,81 @@ final class WebSocketLifecycleTest extends TestCase {
 		fclose($pair[1]);
 	}
 
+
+	public function test_pricing_terminal_replay_is_dotted_and_exact_source_only(): void {
+		$pairs = array();
+		for ( $index = 0; $index < 3; ++$index ) {
+			$pair = @stream_socket_pair( STREAM_PF_UNIX, STREAM_SOCK_STREAM, STREAM_IPPROTO_IP );
+			if ( false === $pair ) {
+				$pair = @stream_socket_pair( STREAM_PF_INET, STREAM_SOCK_STREAM, STREAM_IPPROTO_IP );
+			}
+			if ( false === $pair ) {
+				$this->markTestSkipped( 'Stream socket pairs are unavailable on this platform.' );
+			}
+			stream_set_timeout( $pair[1], 1 );
+			$pairs[] = $pair;
+		}
+
+		$source = array( 'id' => 'fixture-source', 'dataset' => 'fixture.db' );
+		$event  = $this->pricing_terminal_event( 301, $source );
+		$GLOBALS['digitalogic_test_options']['digitalogic_panel_events']         = array( $event );
+		$GLOBALS['digitalogic_test_options']['digitalogic_panel_event_sequence'] = 301;
+		$server = new Digitalogic_WebSocket_Server();
+		$this->write_private(
+			$server,
+			'clients',
+			array(
+				41 => array(
+					'socket'        => $pairs[0][0],
+					'handshake'     => true,
+					'last_event_id' => 300,
+					'user_id'       => 0,
+					'device_id'     => '',
+					'principal'     => 'patris_pricing',
+					'source'        => $source,
+				),
+				42 => array(
+					'socket'        => $pairs[1][0],
+					'handshake'     => true,
+					'last_event_id' => 300,
+					'user_id'       => 0,
+					'device_id'     => '',
+					'principal'     => 'patris_pricing',
+					'source'        => array( 'id' => $source['id'], 'dataset' => 'other.db' ),
+				),
+				43 => array(
+					'socket'        => $pairs[2][0],
+					'handshake'     => true,
+					'last_event_id' => 300,
+					'user_id'       => 1,
+					'device_id'     => '',
+					'principal'     => 'wordpress_user',
+					'source'        => array(),
+				),
+			)
+		);
+
+		$this->invoke_private( $server, 'send_missed_panel_events' );
+		$payload = $this->decode_websocket_frame( fread( $pairs[0][1], 8192 ) );
+		$this->assertSame( 'pricing.snapshot.build.terminal', $payload['event'] );
+		$this->assertSame( 'pricing.snapshot.build.terminal', $payload['name'] );
+		$this->assertSame( 301, $payload['id'] );
+		$this->assertSame( $event['data'], $payload['data'] );
+
+		stream_set_blocking( $pairs[1][1], false );
+		stream_set_blocking( $pairs[2][1], false );
+		$this->assertSame( '', fread( $pairs[1][1], 8192 ) );
+		$this->assertSame( '', fread( $pairs[2][1], 8192 ) );
+		$clients = $this->read_private( $server, 'clients' );
+		$this->assertSame( 301, $clients[42]['last_event_id'] );
+		$this->assertSame( 301, $clients[43]['last_event_id'] );
+
+		foreach ( $pairs as $pair ) {
+			fclose( $pair[0] );
+			fclose( $pair[1] );
+		}
+	}
+
 	public function test_connected_pricing_service_receives_explicit_reset_when_cursor_falls_outside_retention(): void {
 		$pair = @stream_socket_pair(STREAM_PF_UNIX, STREAM_SOCK_STREAM, STREAM_IPPROTO_IP);
 		if ( false === $pair ) {
@@ -1002,6 +1077,41 @@ final class WebSocketLifecycleTest extends TestCase {
 				'idempotency_key'         => 'sha256:' . str_repeat('f', 64),
 				'revision_path'           => '/wp-json/digitalogic/pricing/sync/revision',
 				'audience'                => array( 'services' => array( 'patris_pricing' ) ),
+			),
+			'time'  => '2026-08-23 01:00:00',
+		);
+	}
+
+	private function pricing_terminal_event( $id, array $source ): array {
+		$source['revision'] = 'sha256:' . str_repeat( 'a', 64 );
+		$token              = 'snap_' . str_repeat( '1', 32 );
+		$revision           = 'sha256:' . str_repeat( 'b', 64 );
+
+		return array(
+			'id'    => (int) $id,
+			'event' => 'pricing_snapshot_build_terminal',
+			'name'  => 'pricing.snapshot.build.terminal',
+			'data'  => array(
+				'schema'                 => Digitalogic_Pricing_Snapshot::TERMINAL_EVENT_SCHEMA,
+				'schema_version'         => Digitalogic_Pricing_Snapshot::SCHEMA_VERSION,
+				'projection'             => Digitalogic_Pricing_Snapshot::PROJECTION,
+				'build_id'               => 'build_' . str_repeat( '2', 32 ),
+				'request_id'             => 'sha256:' . str_repeat( '3', 64 ),
+				'status'                 => 'ready',
+				'source'                 => $source,
+				'state_revision'         => 'sha256:' . str_repeat( '4', 64 ),
+				'pricing_state_revision' => 'sha256:' . str_repeat( '5', 64 ),
+				'catalog_revision'       => 'sha256:' . str_repeat( '6', 64 ),
+				'snapshot_token'         => $token,
+				'snapshot_revision'      => $revision,
+				'digest'                 => $revision,
+				'snapshot_path'          => '/wp-json/digitalogic/pricing/sync/snapshots/' . $token
+					. '?source_id=' . rawurlencode( $source['id'] )
+					. '&source_dataset=' . rawurlencode( $source['dataset'] )
+					. '&source_revision=' . rawurlencode( $source['revision'] ),
+				'retryable'              => false,
+				'idempotency_key'        => 'sha256:' . str_repeat( '7', 64 ),
+				'audience'               => array( 'services' => array( 'patris_pricing' ) ),
 			),
 			'time'  => '2026-08-23 01:00:00',
 		);

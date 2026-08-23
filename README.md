@@ -89,11 +89,11 @@
 
 ## Installation
 
-Current source-built release: [v1.8.5](https://github.com/atomicdeploy/digitalogic-wp/releases/tag/v1.8.5).
-It contains the reviewed product-sync acknowledgement fix from `main`, with
-immutable source and package provenance.
+Current source-built release: [v1.8.6](https://github.com/atomicdeploy/digitalogic-wp/releases/tag/v1.8.6).
+It contains the durable, exact-source snapshot terminal-event publisher used by
+the Patris pricing companion, with immutable source and package provenance.
 Use the stable install ZIP below and verify it against the release
-[`SHA256SUMS`](https://github.com/atomicdeploy/digitalogic-wp/releases/download/v1.8.5/SHA256SUMS)
+[`SHA256SUMS`](https://github.com/atomicdeploy/digitalogic-wp/releases/download/v1.8.6/SHA256SUMS)
 manifest. The WordPress package contains production plugin files and
 dependencies; reviewed PBX, n8n, RouterOS, and workstation deployment assets
 remain available in the immutable source tag.
