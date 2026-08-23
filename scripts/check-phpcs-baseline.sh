@@ -21,7 +21,7 @@ set +e
 php -d memory_limit=512M "$phpcs" \
     --standard=WordPress \
     --extensions=php \
-    --ignore=vendor/ \
+    --ignore=vendor/,build/ \
     --report=json \
     --report-file="$report" \
     "$root"

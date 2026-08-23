@@ -65,7 +65,26 @@ final class GoogleSheetsWritebackTest extends TestCase {
 				),
 			),
 		);
-		$GLOBALS['wpdb']                                  = new Digitalogic_Test_WPDB();
+		$GLOBALS['digitalogic_test_options'][ Digitalogic_Product_Sync_Receiver::STATE_OPTION ] = array(
+			'sources' => array(
+				'test-source' => array(
+					'source'       => array(
+						'id'       => 'patris-export',
+						'dataset'  => 'ALLANBAR',
+						'revision' => 'sha256:test-source',
+					),
+					'generated_at' => gmdate( 'c' ),
+					'products'     => array(
+						'000741' => array(
+							'product_code' => '000741',
+							'name'         => 'Controlled Product',
+							'warnings'     => array(),
+						),
+					),
+				),
+			),
+		);
+		$GLOBALS['wpdb'] = new Digitalogic_Test_WPDB();
 
 		foreach (
 			array(
@@ -76,6 +95,8 @@ final class GoogleSheetsWritebackTest extends TestCase {
 				Digitalogic_WooCommerce_Currency_Status::class,
 				Digitalogic_Google_Sheets_Catalog::class,
 				Digitalogic_Google_Sheets_Writeback::class,
+				Digitalogic_Product_Sync_Receiver::class,
+				Digitalogic_Report_Engine::class,
 				Digitalogic_Logger::class,
 			) as $class_name
 		) {
@@ -89,14 +110,11 @@ final class GoogleSheetsWritebackTest extends TestCase {
 		$revision = $this->current_row()['record_revision'];
 		$changes  = array(
 			array(
-				'sync_key'                 => '000741',
+				'sync_key'                 => 'woo:741',
 				'patris_code'              => '000741',
 				'expected_record_revision' => $revision,
 				'fields'                   => array(
-					'regular_price'  => '120.00',
-					'sale_price'     => '110',
-					'stock_quantity' => 6,
-					'profit_percent' => '30',
+					'shipping_method_id' => 'air_express',
 				),
 			),
 		);
@@ -119,10 +137,13 @@ final class GoogleSheetsWritebackTest extends TestCase {
 		$applied = $this->service->apply( $payload );
 		$this->assertSame( 'applied', $applied['results'][0]['status'] );
 		$this->assertSame( 1, $applied['summary']['applied'] );
-		$this->assertSame( '120', wc_get_product( 741 )->get_regular_price() );
-		$this->assertSame( '110', wc_get_product( 741 )->get_sale_price() );
-		$this->assertSame( 6, wc_get_product( 741 )->get_stock_quantity() );
-		$this->assertSame( '30', (string) wc_get_product( 741 )->get_meta( '_digitalogic_markup', true ) );
+		$this->assertSame( '100', wc_get_product( 741 )->get_regular_price() );
+		$this->assertSame( '', wc_get_product( 741 )->get_sale_price() );
+		$this->assertSame( '100', wc_get_product( 741 )->get_price() );
+		$this->assertSame(
+			'air_express',
+			get_post_meta( 741, Digitalogic_Shipping_Method_Service::PRODUCT_METHOD_META, true )
+		);
 		$this->assertCount( 1, Digitalogic_Logger::instance()->entries );
 		$this->assertNotSame( $revision, $applied['results'][0]['record_revision'] );
 		$this->assertTrue( $applied['results'][0]['rollback']['available'] );
@@ -133,7 +154,7 @@ final class GoogleSheetsWritebackTest extends TestCase {
 		$this->assertSame( $save_count, count( $GLOBALS['digitalogic_test_wc_product_saves'] ) );
 		$this->assertCount( 1, Digitalogic_Logger::instance()->entries );
 
-		$payload['changes'][0]['fields']['regular_price'] = '130';
+		$payload['changes'][0]['fields']['shipping_method_id'] = 'sea_freight';
 		$reused = $this->service->apply( $payload );
 		$this->assertInstanceOf( WP_Error::class, $reused );
 		$this->assertSame( 'idempotency_key_reused', $reused->get_error_code() );
@@ -150,7 +171,7 @@ final class GoogleSheetsWritebackTest extends TestCase {
 		$save_count = count( $GLOBALS['digitalogic_test_wc_product_saves'] );
 
 		$result = $this->service->apply(
-			$this->payload( 'apply-conflict-000741', $revision, array( 'regular_price' => '120' ) )
+			$this->payload( 'apply-conflict-000741', $revision, array( 'shipping_method_id' => 'air_express' ) )
 		);
 		$this->assertSame( 'conflict', $result['results'][0]['status'] );
 		$this->assertSame( 'record_revision_conflict', $result['results'][0]['code'] );
@@ -160,29 +181,26 @@ final class GoogleSheetsWritebackTest extends TestCase {
 		$this->assertCount( 0, Digitalogic_Logger::instance()->entries );
 	}
 
-	/** Nullable fields clear overrides and shipping uses its canonical service. */
-	public function test_nullable_fields_clear_and_shipping_assignment_apply() {
+	/** Shipping assignment remains the only row-level editable integration field. */
+	public function test_shipping_assignment_apply() {
 		$revision = $this->current_row()['record_revision'];
 		$result   = $this->service->apply(
 			$this->payload(
 				'apply-clear-fields-000741',
 				$revision,
 				array(
-					'sale_price'         => null,
 					'shipping_method_id' => 'air_express',
-					'profit_percent'     => null,
 				)
 			)
 		);
 
 		$this->assertSame( 'applied', $result['results'][0]['status'] );
 		$this->assertSame( '', wc_get_product( 741 )->get_sale_price() );
-		$this->assertSame( '', wc_get_product( 741 )->get_meta( '_digitalogic_markup', true ) );
+		$this->assertSame( '25', wc_get_product( 741 )->get_meta( '_digitalogic_markup', true ) );
 		$this->assertSame(
 			'air_express',
 			get_post_meta( 741, Digitalogic_Shipping_Method_Service::PRODUCT_METHOD_META, true )
 		);
-		$this->assertNull( $result['results'][0]['after']['profit_percent'] );
 		$this->assertSame( 'air_express', $result['results'][0]['after']['shipping_method_id'] );
 	}
 
@@ -195,7 +213,6 @@ final class GoogleSheetsWritebackTest extends TestCase {
 				'apply-compensate-000741',
 				$revision,
 				array(
-					'regular_price'      => 120,
 					'shipping_method_id' => 'air_express',
 				)
 			)
@@ -209,35 +226,34 @@ final class GoogleSheetsWritebackTest extends TestCase {
 		$this->assertCount( 0, Digitalogic_Logger::instance()->entries );
 	}
 
-	/** A shipping CAS conflict compensates product fields without touching the concurrent assignment. */
-	public function test_shipping_apply_conflict_preserves_concurrent_assignment() {
-		$revision                                  = $this->current_row()['record_revision'];
-		$GLOBALS['digitalogic_test_wc_after_save'] = static function ( $product ) {
-			Digitalogic_Shipping_Method_Service::instance()->assign_product_by_code( '000741', 'sea_freight' );
-			// The lightweight WC double stores a whole meta array on save; mirror the
-			// cache invalidation/reload that real WooCommerce performs for direct meta.
-			$product->meta[ Digitalogic_Shipping_Method_Service::PRODUCT_METHOD_META ] = 'sea_freight';
-		};
-		$result                                    = $this->service->apply(
-			$this->payload(
-				'apply-shipping-cas-conflict-000741',
-				$revision,
-				array(
-					'regular_price'      => 120,
-					'shipping_method_id' => 'air_express',
-				)
+	/** Variable parents are never writable reconciliation rows. */
+	public function test_variable_parent_is_rejected_as_non_leaf() {
+		$GLOBALS['digitalogic_test_posts'][743] = $this->product_fixture( 'VAR-PARENT', 'variable' );
+		$source_products                        = $this->source_products();
+		$source_products['VAR-PARENT']          = array(
+			'product_code' => 'VAR-PARENT',
+			'name'         => 'Variable parent',
+			'warnings'     => array(),
+		);
+		$this->set_source_products( $source_products );
+		$revision = $this->current_row( 743 )['record_revision'];
+		$result   = $this->service->preview(
+			array(
+				'idempotency_key' => 'preview-variable-parent',
+				'changes'         => array(
+					array(
+						'sync_key'                 => 'woo:743',
+						'patris_code'              => 'VAR-PARENT',
+						'expected_record_revision' => $revision,
+						'fields'                   => array( 'shipping_method_id' => 'air_express' ),
+					),
+				),
 			)
 		);
 
 		$this->assertSame( 'conflict', $result['results'][0]['status'] );
-		$this->assertSame( 'digitalogic_shipping_assignment_conflict', $result['results'][0]['code'] );
-		$this->assertSame( '100', wc_get_product( 741 )->get_regular_price() );
-		$this->assertSame(
-			'sea_freight',
-			get_post_meta( 741, Digitalogic_Shipping_Method_Service::PRODUCT_METHOD_META, true )
-		);
-		$this->assertNotContains( 'shipping_method_id', $result['results'][0]['rollback']['restored_fields'] );
-		$this->assertArrayNotHasKey( 'shipping_method_id', $result['results'][0]['rollback']['skipped_fields'] );
+		$this->assertSame( 'reconciliation_not_leaf', $result['results'][0]['code'] );
+		$this->assertSame( 0, count( $GLOBALS['digitalogic_test_wc_product_saves'] ) );
 	}
 
 	/** Compensation uses shipping CAS and never overwrites a later assignment. */
@@ -273,8 +289,8 @@ final class GoogleSheetsWritebackTest extends TestCase {
 		$this->assertSame( 'current_value_changed', $result['results'][0]['rollback']['skipped_fields']['shipping_method_id'] );
 	}
 
-	/** Clearing a legacy fixed markup is a real change with truthful recovery metadata. */
-	public function test_null_profit_clears_fixed_markup_and_marks_manual_rollback_unavailable() {
+	/** Shared profit margin cannot be overridden from an individual catalog row. */
+	public function test_row_profit_override_is_rejected() {
 		$product = wc_get_product( 741 );
 		$product->update_meta_data( '_digitalogic_markup', '25' );
 		$product->update_meta_data( '_digitalogic_markup_type', 'fixed' );
@@ -283,15 +299,11 @@ final class GoogleSheetsWritebackTest extends TestCase {
 		$payload  = $this->payload( 'preview-fixed-profit-000741', $revision, array( 'profit_percent' => null ) );
 		$preview  = $this->service->preview( $payload );
 
-		$this->assertSame( 'ready', $preview['results'][0]['status'] );
-		$this->assertSame( 'fixed', $preview['results'][0]['before']['profit_percent_state']['markup_type'] );
-		$payload['idempotency_key'] = 'apply-fixed-profit-000741';
-		$applied                    = $this->service->apply( $payload );
-		$this->assertSame( 'applied', $applied['results'][0]['status'] );
-		$this->assertSame( '', $product->get_meta( '_digitalogic_markup', true ) );
-		$this->assertSame( '', $product->get_meta( '_digitalogic_markup_type', true ) );
-		$this->assertFalse( $applied['results'][0]['rollback']['available'] );
-		$this->assertSame( 'legacy_profit_state_not_representable', $applied['results'][0]['rollback']['unavailable_reason'] );
+		$this->assertSame( 'invalid', $preview['results'][0]['status'] );
+		$this->assertSame( 'digitalogic_sheets_writeback_source_owned_field_forbidden', $preview['results'][0]['code'] );
+		$this->assertSame( array( 'profit_percent' ), $preview['results'][0]['forbidden_fields'] );
+		$this->assertSame( '25', $product->get_meta( '_digitalogic_markup', true ) );
+		$this->assertSame( 'fixed', $product->get_meta( '_digitalogic_markup_type', true ) );
 	}
 
 	/** Compensation must preserve a concurrent change to a field this request did not own. */
@@ -308,7 +320,6 @@ final class GoogleSheetsWritebackTest extends TestCase {
 				'apply-preserve-stock-000741',
 				$revision,
 				array(
-					'regular_price'      => 120,
 					'shipping_method_id' => 'air_express',
 				)
 			)
@@ -320,33 +331,102 @@ final class GoogleSheetsWritebackTest extends TestCase {
 		$this->assertNotContains( 'stock_quantity', $result['results'][0]['rollback']['restored_fields'] );
 	}
 
-	/** Compensation must not overwrite a concurrent change to the same requested field. */
-	public function test_compensation_skips_requested_field_changed_by_another_writer() {
-		$revision                        = $this->current_row()['record_revision'];
-		$GLOBALS['wpdb']->after_rollback = static function () {
-			$product = wc_get_product( 741 );
-			$product->set_regular_price( '150' );
-			$product->save();
-		};
-		$GLOBALS['digitalogic_test_transaction_failures'] = array( 'COMMIT' );
-		$result = $this->service->apply(
-			$this->payload(
-				'apply-preserve-price-000741',
-				$revision,
-				array(
-					'regular_price'      => 120,
-					'shipping_method_id' => 'air_express',
-				)
+	/** The deprecated exact-code key remains a bounded compatibility path. */
+	public function test_legacy_exact_code_key_remains_compatible() {
+		$revision                          = $this->current_row()['record_revision'];
+		$payload                           = $this->payload( 'preview-legacy-key-000741', $revision, array( 'shipping_method_id' => 'air_express' ) );
+		$payload['changes'][0]['sync_key'] = '000741';
+		$result                            = $this->service->preview( $payload );
+
+		$this->assertSame( 'ready', $result['results'][0]['status'] );
+		$this->assertSame( 741, $result['results'][0]['woocommerce_id'] );
+		$this->assertSame( '000741', $result['results'][0]['sync_key'] );
+	}
+
+	/** A legitimate exact Product Code resembling a new key is disambiguated by current Woo identity. */
+	public function test_legacy_code_that_looks_like_woo_key_is_not_misrouted() {
+		$GLOBALS['digitalogic_test_posts'][744] = $this->product_fixture( 'woo:999' );
+		$source_products                        = $this->source_products();
+		$source_products['woo:999']             = array(
+			'product_code' => 'woo:999',
+			'name'         => 'Prefixed exact code',
+			'warnings'     => array(),
+		);
+		$this->set_source_products( $source_products );
+		$revision = $this->current_row( 744 )['record_revision'];
+		$result   = $this->service->preview(
+			array(
+				'idempotency_key' => 'preview-prefixed-exact-code',
+				'changes'         => array(
+					array(
+						'sync_key'                 => 'woo:999',
+						'patris_code'              => 'woo:999',
+						'expected_record_revision' => $revision,
+						'fields'                   => array( 'shipping_method_id' => 'air_express' ),
+					),
+				),
 			)
 		);
 
-		$this->assertSame( '150', wc_get_product( 741 )->get_regular_price() );
-		$this->assertFalse( $result['results'][0]['rollback']['success'] );
-		$this->assertSame( 'current_value_changed', $result['results'][0]['rollback']['skipped_fields']['regular_price'] );
+		$this->assertSame( 'ready', $result['results'][0]['status'] );
+		$this->assertSame( 744, $result['results'][0]['woocommerce_id'] );
+		$this->assertSame( 'woo:999', $result['results'][0]['patris_code'] );
 	}
 
-	/** WooCommerce, not this bridge, owns effective _price and sale scheduling. */
-	public function test_sale_write_never_manually_sets_effective_price() {
+	/** Patris-only and ambiguous identities remain visible but cannot accept writes. */
+	public function test_unmatched_and_ambiguous_reconciliation_rows_fail_closed() {
+		$source_products                        = $this->source_products();
+		$source_products['PATRIS-ONLY']         = array(
+			'product_code' => 'PATRIS-ONLY',
+			'name'         => 'Patris only',
+			'warnings'     => array(),
+		);
+		$source_products['DUPLICATE']           = array(
+			'product_code' => 'DUPLICATE',
+			'name'         => 'Ambiguous',
+			'warnings'     => array(),
+		);
+		$GLOBALS['digitalogic_test_posts'][745] = $this->product_fixture( 'DUPLICATE' );
+		$GLOBALS['digitalogic_test_posts'][746] = $this->product_fixture( 'DUPLICATE' );
+		$this->set_source_products( $source_products );
+
+		$patris_only        = $this->service->preview(
+			array(
+				'idempotency_key' => 'preview-patris-only-row',
+				'changes'         => array(
+					array(
+						'sync_key'                 => 'PATRIS-ONLY',
+						'patris_code'              => 'PATRIS-ONLY',
+						'expected_record_revision' => 'sha256:' . str_repeat( 'a', 64 ),
+						'fields'                   => array( 'shipping_method_id' => 'air_express' ),
+					),
+				),
+			)
+		);
+		$ambiguous_revision = $this->current_row( 745 )['record_revision'];
+		$ambiguous          = $this->service->preview(
+			array(
+				'idempotency_key' => 'preview-ambiguous-row',
+				'changes'         => array(
+					array(
+						'sync_key'                 => 'woo:745',
+						'patris_code'              => 'DUPLICATE',
+						'expected_record_revision' => $ambiguous_revision,
+						'fields'                   => array( 'shipping_method_id' => 'air_express' ),
+					),
+				),
+			)
+		);
+
+		$this->assertSame( 'invalid', $patris_only['results'][0]['status'] );
+		$this->assertSame( 'reconciliation_not_matched', $patris_only['results'][0]['code'] );
+		$this->assertSame( 'invalid', $ambiguous['results'][0]['status'] );
+		$this->assertSame( 'reconciliation_not_matched', $ambiguous['results'][0]['code'] );
+		$this->assertSame( 0, count( $GLOBALS['digitalogic_test_wc_product_saves'] ) );
+	}
+
+	/** Sale price is always blank because customer-visible and canonical price are identical. */
+	public function test_sale_write_is_rejected_and_price_tuple_is_unchanged() {
 		$GLOBALS['digitalogic_test_posts'][741]['meta']['_sale_price_dates_from'] = time() + 86400;
 		$GLOBALS['digitalogic_test_posts'][741]['meta']['_sale_price_dates_to']   = time() + 172800;
 		unset( $GLOBALS['digitalogic_test_wc_products'][741] );
@@ -355,35 +435,39 @@ final class GoogleSheetsWritebackTest extends TestCase {
 			$this->payload( 'apply-scheduled-sale-000741', $revision, array( 'sale_price' => 80 ) )
 		);
 
-		$this->assertSame( 'applied', $result['results'][0]['status'] );
+		$this->assertSame( 'invalid', $result['results'][0]['status'] );
+		$this->assertSame( 'sale_price_forbidden', $result['results'][0]['code'] );
 		$this->assertSame( array(), $GLOBALS['digitalogic_test_wc_set_price_calls'] );
+		$this->assertSame( '', $GLOBALS['digitalogic_test_posts'][741]['meta']['_sale_price'] );
 		$this->assertSame( '100', $GLOBALS['digitalogic_test_posts'][741]['meta']['_price'] );
 	}
 
-	/** Decimal bounds and price ordering remain exact beyond IEEE-754 precision. */
-	public function test_decimal_boundaries_and_sale_order_do_not_use_float_comparisons() {
-		$product = wc_get_product( 741 );
-		$product->set_regular_price( '999999999999998.000001' );
-		$product->save();
+	/** All matched source-owned values fail closed instead of creating ecosystem drift. */
+	public function test_all_source_owned_row_fields_are_rejected() {
 		$revision = $this->current_row()['record_revision'];
-		$sale     = $this->service->preview(
-			$this->payload( 'preview-exact-sale-000741', $revision, array( 'sale_price' => '999999999999998.000002' ) )
+		$result   = $this->service->preview(
+			$this->payload(
+				'preview-source-owned-000741',
+				$revision,
+				array(
+					'regular_price'  => '120',
+					'sale_price'     => null,
+					'stock_quantity' => 6,
+					'stock_status'   => 'instock',
+					'profit_percent' => '30',
+				)
+			)
 		);
-		$this->assertSame( 'conflict', $sale['results'][0]['status'] );
-		$this->assertSame( 'sale_price_exceeds_regular_price', $sale['results'][0]['code'] );
-		$this->assertNull( $sale['results'][0]['before']['sale_price'] );
 
-		$maximum = $this->service->preview(
-			$this->payload( 'preview-exact-maximum-000741', $revision, array( 'regular_price' => '999999999999999.000001' ) )
+		$this->assertSame( 'invalid', $result['results'][0]['status'] );
+		$this->assertSame( 'digitalogic_sheets_writeback_source_owned_field_forbidden', $result['results'][0]['code'] );
+		$this->assertSame(
+			array( 'profit_percent', 'regular_price', 'sale_price', 'stock_quantity', 'stock_status' ),
+			$result['results'][0]['forbidden_fields']
 		);
-		$this->assertSame( 'invalid', $maximum['results'][0]['status'] );
-		$this->assertSame( 'regular_price_out_of_range', $maximum['results'][0]['code'] );
-
-		$exact = $this->service->preview(
-			$this->payload( 'preview-exact-output-000741', $revision, array( 'regular_price' => '999999999999998.000002' ) )
-		);
-		$this->assertSame( '999999999999998.000001', $exact['results'][0]['before']['regular_price'] );
-		$this->assertSame( '999999999999998.000002', $exact['results'][0]['after']['regular_price'] );
+		$this->assertSame( '100', wc_get_product( 741 )->get_regular_price() );
+		$this->assertSame( '', wc_get_product( 741 )->get_sale_price() );
+		$this->assertSame( '100', wc_get_product( 741 )->get_price() );
 	}
 
 	/** Distinct exact prices must invalidate an older optimistic revision. */
@@ -399,7 +483,7 @@ final class GoogleSheetsWritebackTest extends TestCase {
 			$this->payload(
 				'apply-stale-exact-decimal-000741',
 				$revision,
-				array( 'regular_price' => '999999999999998.000003' )
+				array( 'shipping_method_id' => 'air_express' )
 			)
 		);
 
@@ -414,44 +498,38 @@ final class GoogleSheetsWritebackTest extends TestCase {
 		$GLOBALS['wpdb']->identifier_query_failure    = true;
 		$GLOBALS['wpdb']->identifier_query_last_error = 'SECRET DSN /var/private/mysql.sock';
 		$result                                       = $this->service->preview(
-			$this->payload( 'preview-db-failure-000741', $revision, array( 'regular_price' => 120 ) )
+			$this->payload( 'preview-db-failure-000741', $revision, array( 'shipping_method_id' => 'air_express' ) )
 		);
 
 		$this->assertSame( 'failed', $result['results'][0]['status'] );
 		$this->assertStringNotContainsString( 'SECRET', wp_json_encode( $result['results'][0] ) );
 
-		$GLOBALS['wpdb']->identifier_query_failure    = false;
-		$GLOBALS['wpdb']->identifier_query_last_error = '';
-		$GLOBALS['digitalogic_test_wc_save_failures'] = array( 741 );
-		$failed                                       = $this->service->apply(
-			$this->payload( 'apply-save-failure-000741', $revision, array( 'regular_price' => 120 ) )
+		$GLOBALS['wpdb']->identifier_query_failure        = false;
+		$GLOBALS['wpdb']->identifier_query_last_error     = '';
+		$GLOBALS['digitalogic_test_transaction_failures'] = array( 'COMMIT' );
+		$failed = $this->service->apply(
+			$this->payload( 'apply-save-failure-000741', $revision, array( 'shipping_method_id' => 'air_express' ) )
 		);
 		$this->assertSame( 'failed', $failed['results'][0]['status'] );
-		$this->assertStringNotContainsString( 'Injected', wp_json_encode( $failed['results'][0] ) );
-		$this->assertContains( 'product_restore_failed', $failed['results'][0]['rollback']['errors'] );
+		$this->assertSame( 'digitalogic_shipping_commit_failed', $failed['results'][0]['code'] );
+		$this->assertStringNotContainsString( 'SECRET', wp_json_encode( $failed['results'][0] ) );
 	}
 
-	/** Canonical field order and numeric spellings replay under one request key. */
-	public function test_idempotency_hash_uses_canonical_field_values_and_key_order() {
+	/** Canonical nullable shipping values replay under one request key. */
+	public function test_idempotency_hash_uses_canonical_field_values() {
 		$revision = $this->current_row()['record_revision'];
 		$first    = $this->service->preview(
 			$this->payload(
 				'preview-canonical-000741',
 				$revision,
-				array(
-					'regular_price'  => '120.00',
-					'profit_percent' => '30.0',
-				)
+				array( 'shipping_method_id' => '' )
 			)
 		);
 		$second   = $this->service->preview(
 			$this->payload(
 				'preview-canonical-000741',
 				$revision,
-				array(
-					'profit_percent' => 30,
-					'regular_price'  => 120,
-				)
+				array( 'shipping_method_id' => null )
 			)
 		);
 
@@ -480,7 +558,7 @@ final class GoogleSheetsWritebackTest extends TestCase {
 		$revision                         = $this->current_row()['record_revision'];
 		$GLOBALS['wpdb']->acquire_results = array( 1, 1, 1, 1, 0 );
 		$result                           = $this->service->apply(
-			$this->payload( 'apply-sync-lock-000741', $revision, array( 'regular_price' => 120 ) )
+			$this->payload( 'apply-sync-lock-000741', $revision, array( 'shipping_method_id' => 'air_express' ) )
 		);
 
 		$this->assertSame( 'failed', $result['results'][0]['status'] );
@@ -490,38 +568,49 @@ final class GoogleSheetsWritebackTest extends TestCase {
 		$this->assertCount( 0, $GLOBALS['digitalogic_test_wc_product_saves'] );
 	}
 
-	/** A save hook overwrite is detected and preserved instead of reported applied. */
-	public function test_post_write_verification_detects_and_preserves_hook_overwrite() {
-		$revision                                  = $this->current_row()['record_revision'];
-		$GLOBALS['digitalogic_test_wc_after_save'] = static function ( $product ) {
-			$product->set_regular_price( '130' );
-			$product->save();
-		};
-		$result                                    = $this->service->apply(
-			$this->payload( 'apply-hook-overwrite-000741', $revision, array( 'regular_price' => 120 ) )
+	/** Woo-only rows are visible in the union but cannot be forged into matched writeback rows. */
+	public function test_woo_only_row_is_rejected_by_current_reconciliation() {
+		$GLOBALS['digitalogic_test_posts'][742] = $this->product_fixture( 'WOO-ONLY' );
+		$revision                               = $this->current_row( 742 )['record_revision'];
+		$payload                                = array(
+			'idempotency_key' => 'preview-woo-only-row',
+			'changes'         => array(
+				array(
+					'sync_key'                 => 'woo:742',
+					'patris_code'              => 'WOO-ONLY',
+					'expected_record_revision' => $revision,
+					'fields'                   => array( 'shipping_method_id' => 'air_express' ),
+				),
+			),
 		);
+		$result                                 = $this->service->preview( $payload );
 
-		$this->assertSame( 'conflict', $result['results'][0]['status'] );
-		$this->assertSame( 'post_apply_value_conflict', $result['results'][0]['code'] );
-		$this->assertSame( '130', wc_get_product( 741 )->get_regular_price() );
-		$this->assertSame( 'current_value_changed', $result['results'][0]['rollback']['skipped_fields']['regular_price'] );
-		$this->assertCount( 0, Digitalogic_Logger::instance()->entries );
+		$this->assertSame( 'invalid', $result['results'][0]['status'] );
+		$this->assertSame( 'reconciliation_not_matched', $result['results'][0]['code'] );
+		$this->assertSame( 0, count( $GLOBALS['digitalogic_test_wc_product_saves'] ) );
 	}
 
 	/** A maximum-size preview refreshes its owner heartbeat throughout the batch. */
 	public function test_maximum_batch_heartbeats_reservation_per_row() {
-		$changes = array();
+		$changes         = array();
+		$source_products = $this->source_products();
 		for ( $offset = 0; $offset < Digitalogic_Google_Sheets_Writeback::MAX_CHANGES; $offset++ ) {
 			$product_id                                       = 800 + $offset;
 			$patris_code                                      = sprintf( 'P%04d', $product_id );
 			$GLOBALS['digitalogic_test_posts'][ $product_id ] = $this->product_fixture( $patris_code );
+			$source_products[ $patris_code ]                  = array(
+				'product_code' => $patris_code,
+				'name'         => 'Heartbeat Product ' . $patris_code,
+				'warnings'     => array(),
+			);
 			$changes[]                                        = array(
-				'sync_key'                 => $patris_code,
+				'sync_key'                 => 'woo:' . $product_id,
 				'patris_code'              => $patris_code,
 				'expected_record_revision' => $this->current_row( $product_id )['record_revision'],
-				'fields'                   => array( 'regular_price' => 120 ),
+				'fields'                   => array( 'shipping_method_id' => 'air_express' ),
 			);
 		}
+		$this->set_source_products( $source_products );
 		$result = $this->service->preview(
 			array(
 				'idempotency_key' => 'preview-heartbeat-fifty',
@@ -570,7 +659,7 @@ final class GoogleSheetsWritebackTest extends TestCase {
 	/** Requests are bounded before any product resolution or mutation. */
 	public function test_batch_limit_is_enforced_at_the_envelope() {
 		$change                             = array(
-			'sync_key'                 => '000741',
+			'sync_key'                 => 'woo:741',
 			'patris_code'              => '000741',
 			'expected_record_revision' => str_repeat( 'a', 64 ),
 			'fields'                   => array( 'regular_price' => 120 ),
@@ -601,7 +690,7 @@ final class GoogleSheetsWritebackTest extends TestCase {
 		$revision = $this->current_row()['record_revision'];
 		$request  = new WP_REST_Request(
 			array(),
-			$this->payload( 'preview-rest-000741', $revision, array( 'regular_price' => 120 ) )
+			$this->payload( 'preview-rest-000741', $revision, array( 'shipping_method_id' => 'air_express' ) )
 		);
 		$response = $api->preview_google_sheets_writeback( $request );
 		$this->assertSame( 200, $response->get_status() );
@@ -627,14 +716,15 @@ final class GoogleSheetsWritebackTest extends TestCase {
 	 * Build another simple product for bounded-batch tests.
 	 *
 	 * @param string $patris_code Exact Patris Code.
+	 * @param string $product_type WooCommerce product type.
 	 * @return array
 	 */
-	private function product_fixture( $patris_code ) {
+	private function product_fixture( $patris_code, $product_type = 'simple' ) {
 		return array(
 			'post_type'    => 'product',
 			'post_status'  => 'publish',
 			'post_title'   => 'Heartbeat Product ' . $patris_code,
-			'product_type' => 'simple',
+			'product_type' => $product_type,
 			'meta'         => array(
 				'_digitalogic_patris_product_code' => $patris_code,
 				'_sku'                             => 'SKU-' . $patris_code,
@@ -646,6 +736,34 @@ final class GoogleSheetsWritebackTest extends TestCase {
 				'_stock_status'                    => 'instock',
 			),
 		);
+	}
+
+	/**
+	 * Return the current exact-source product map.
+	 *
+	 * @return array
+	 */
+	private function source_products() {
+		$state      = get_option( Digitalogic_Product_Sync_Receiver::STATE_OPTION, array() );
+		$source_key = array_key_first( $state['sources'] ?? array() );
+
+		return null === $source_key ? array() : (array) ( $state['sources'][ $source_key ]['products'] ?? array() );
+	}
+
+	/**
+	 * Replace exact-source fixtures and invalidate stateful readers.
+	 *
+	 * @param array $products Product map keyed by exact Product Code.
+	 * @return void
+	 */
+	private function set_source_products( $products ) {
+		$state      = get_option( Digitalogic_Product_Sync_Receiver::STATE_OPTION, array() );
+		$source_key = array_key_first( $state['sources'] ?? array() );
+		$this->assertNotNull( $source_key );
+		$state['sources'][ $source_key ]['products'] = $products;
+		update_option( Digitalogic_Product_Sync_Receiver::STATE_OPTION, $state, false );
+		$this->reset_singleton( Digitalogic_Product_Sync_Receiver::class );
+		$this->reset_singleton( Digitalogic_Report_Engine::class );
 	}
 
 	/**
@@ -661,7 +779,7 @@ final class GoogleSheetsWritebackTest extends TestCase {
 			'idempotency_key' => $idempotency_key,
 			'changes'         => array(
 				array(
-					'sync_key'                 => '000741',
+					'sync_key'                 => 'woo:741',
 					'patris_code'              => '000741',
 					'expected_record_revision' => $revision,
 					'fields'                   => $fields,

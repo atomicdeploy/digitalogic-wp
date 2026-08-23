@@ -1,14 +1,20 @@
-# Excel pricing-settings synchronization
+# Excel adapter and universal pricing synchronization
 
 The canonical Digitalogic workbook synchronizes global pricing inputs through
 the local Patris companion. Excel/VBA never stores a WordPress, WooCommerce, or
 Patris credential.
 
-The companion calls three POST-only routes:
+The local `/api/excel` path is intentionally Excel-specific: it translates
+workbook/VBA actions into a transport-neutral request. The companion then calls
+three universal, POST-only WordPress routes:
 
-- `/wp-json/digitalogic/excel/pricing-sync/state`
-- `/wp-json/digitalogic/excel/pricing-sync/preview`
-- `/wp-json/digitalogic/excel/pricing-sync/apply`
+- `/wp-json/digitalogic/pricing/sync/state`
+- `/wp-json/digitalogic/pricing/sync/preview`
+- `/wp-json/digitalogic/pricing/sync/apply`
+
+The old remote `/wp-json/digitalogic/excel/pricing-sync/*` paths are deprecated
+compatibility aliases. They return `Deprecation: true` and a successor `Link`
+header; new clients must use `/pricing/sync/*`.
 
 These routes accept only the existing `X-Patris-Product-Sync-Secret`. The
 secret must have a non-empty exact `{id, dataset}` source scope, and every
@@ -20,22 +26,54 @@ as a non-blocking Persian warning; it is not an authentication failure. There
 is no WordPress-session, WooCommerce-key, or administrator-capability fallback
 on this machine surface.
 
+The earlier workbook “credentials missing” error was expected fail-closed
+behavior: the workbook intentionally had no secret, and the trusted companion
+runtime either was bypassed or did not have its server-side product-sync secret
+available. The corrected boundary is:
+
+1. VBA calls the loopback Patris `/api/excel` adapter without a WordPress secret.
+2. The companion reads the secret from protected runtime configuration.
+3. The companion calls `/wp-json/digitalogic/pricing/sync/*` with
+   `X-Patris-Product-Sync-Secret` and the exact configured `{id,dataset}` scope.
+
+The secret never enters the workbook, a cell, VBA, an audit row, or logs.
+
+## Additive immutable projection snapshots
+
+The WordPress side also provides an optional revision/snapshot transport for a
+large reconciled catalog. It computes the complete WooCommerce/Patris union
+once per exact composite revision, then serves immutable bulk or 250-row pages
+with ETags, progress, cancellation, and fast `429`/`503` responses. This does
+not replace or change the three mutation routes above.
+
+The Patris companion must translate this remote contract into its local
+workbook schema; VBA must still never receive the remote credential. Until that
+separate adapter release is installed and proven, the companion may retain its
+existing paged state fallback. See [Pricing projection snapshot
+API](PRICING-SNAPSHOT-API.md) for the exact routes, revision meanings,
+idempotency, integrity fields, and adapter mapping requirements.
+
 ## Ownership
 
-- Patris owns product code, foreign price, weight, stock, and other upstream
-  product facts.
-- WooCommerce owns the public product, URL, and deliberate sale/promotion
-  state.
-- This API versions the shared dollar rate, yuan rate, effective date, and
-  catalog-wide default percentage profit.
-- Final product prices are derived. They are never accepted through the Excel
-  settings API. After a successful settings apply, the companion regenerates
-  the canonical Patris product payload and sends it through the normal product
-  sync receiver.
+- Patris `kala` owns product code, foreign price, weight, stock, and other
+  upstream product facts.
+- WooCommerce owns public product identity, publication state, URL, and the
+  persisted storefront record.
+- The pricing coordinator owns USD/CNY rates, their effective dates, the one
+  shared profit margin, the shared final-price rounding policy, and the derived
+  selling price.
+- Excel and Google Sheets are synchronized view/edit interfaces, not competing
+  authorities.
+- The `source` envelope identifies the exact component/dataset and revision for
+  replay protection; it does not express source precedence.
+- Final product prices are derived and never accepted as direct workbook
+  settings. For each managed simple product or exact-code variation,
+  `_regular_price == _price == canonical selling price` and `_sale_price` is
+  empty.
 
 ## Request envelope
 
-The request schema is `digitalogic.excel-pricing-sync-request/v1`.
+The request schema is `digitalogic.pricing-sync-request/v1`.
 `schema_version` is `1`, `operation` matches the route name, and `source`
 contains exactly `id`, `dataset`, and a `sha256:` revision.
 
@@ -45,7 +83,7 @@ locale values.
 
 ```json
 {
-  "schema": "digitalogic.excel-pricing-sync-request/v1",
+  "schema": "digitalogic.pricing-sync-request/v1",
   "schema_version": 1,
   "operation": "state",
   "source": {
@@ -63,7 +101,7 @@ The state data has this stable top-level shape:
 
 ```json
 {
-  "schema": "digitalogic.excel-pricing-sync-state/v1",
+  "schema": "digitalogic.pricing-sync-state/v1",
   "state_revision": "sha256:GLOBAL_SETTINGS_REVISION",
   "generated_at": "2026-07-26T12:00:00+00:00",
   "source": {
@@ -86,22 +124,57 @@ The state data has this stable top-level shape:
       }
     }
   ],
+  "settings": {
+    "dollar_price": 170000,
+    "yuan_price": 25300,
+    "effective_date": "2026-07-26",
+    "usd_effective_date": "2026-07-25",
+    "cny_effective_date": "2026-07-26",
+    "profit_margin_percent": "30",
+    "air_express_price_per_kg": "120",
+    "air_express_currency": "CNY",
+    "price_rounding_digits": 2,
+    "price_rounding_mode": "nearest_half_up",
+    "shipping_catalog_revision": "sha256:SHIPPING_CATALOG_REVISION"
+  },
   "currency": {
     "dollar_price": 170000,
     "yuan_price": 25300,
     "effective_date": "2026-06-29",
+    "usd_effective_date": "2026-06-28",
+    "cny_effective_date": "2026-06-29",
     "revision": "sha256:CURRENCY_REVISION",
     "age_days": 27,
     "stale": true
+  },
+  "profit_margin": {
+    "configured": true,
+    "profit_margin_percent": "30",
+    "revision": "sha256:MARKUP_REVISION",
+    "updated_at": "2026-06-29 12:00:00"
+  },
+  "shipping": {
+    "method_id": "air_express",
+    "price_per_kg": "120",
+    "currency": "CNY",
+    "catalog_revision": "sha256:SHIPPING_CATALOG_REVISION"
+  },
+  "price_rounding": {
+    "configured": true,
+    "rounding_digits": 2,
+    "rounding_mode": "nearest_half_up",
+    "revision": "sha256:PRICE_ROUNDING_REVISION"
   },
   "default_markup": {
     "configured": true,
     "profit_percent": "30",
     "revision": "sha256:MARKUP_REVISION",
-    "updated_at": "2026-06-29 12:00:00"
+    "updated_at": "2026-06-29 12:00:00",
+    "deprecated": true,
+    "replacement": "profit_margin"
   },
   "catalog": {
-    "dataset": "products",
+    "dataset": "reconciled_products",
     "locale": "fa",
     "columns": [],
     "rows": [],
@@ -112,9 +185,14 @@ The state data has this stable top-level shape:
 
 ## Preview
 
-Preview requires a complete settings document. Rates are positive integer
-IRT values, the date is strict Gregorian `YYYY-MM-DD`, and default profit is a
-base-10 percentage from 0 through 1000.
+Preview requires the complete eleven-field settings document shown below. Rates
+are positive integer IRT values, dates are strict Gregorian `YYYY-MM-DD`,
+`effective_date` equals `cny_effective_date`, and
+`profit_margin_percent` is a base-10 percentage from 0 through 1000. The
+air-express price, currency, and shipping-catalog revision are submitted
+together. `price_rounding_digits` is an integer from 0 through 9 and
+`price_rounding_mode` is exactly `nearest_half_up`; rounding is applied once,
+after markup, to a quantum of `10^price_rounding_digits` IRT.
 
 The `Idempotency-Key` header must exactly equal body `idempotency_key`.
 `If-Match` must contain the quoted body revision, for example
@@ -122,7 +200,7 @@ The `Idempotency-Key` header must exactly equal body `idempotency_key`.
 
 ```json
 {
-  "schema": "digitalogic.excel-pricing-sync-request/v1",
+  "schema": "digitalogic.pricing-sync-request/v1",
   "schema_version": 1,
   "operation": "preview",
   "source": {
@@ -136,7 +214,14 @@ The `Idempotency-Key` header must exactly equal body `idempotency_key`.
     "dollar_price": 170000,
     "yuan_price": 25300,
     "effective_date": "2026-07-26",
-    "default_profit_percent": "30"
+    "usd_effective_date": "2026-07-25",
+    "cny_effective_date": "2026-07-26",
+    "profit_margin_percent": "30",
+    "air_express_price_per_kg": "120",
+    "air_express_currency": "CNY",
+    "price_rounding_digits": 2,
+    "price_rounding_mode": "nearest_half_up",
+    "shipping_catalog_revision": "sha256:SHIPPING_CATALOG_REVISION"
   },
   "product_changes": []
 }
@@ -149,6 +234,18 @@ a currency or profit difference above seven percent are surfaced as critical
 warnings. When source revisions differ, `source_revision_out_of_sync` exposes
 both submitted and current revisions without blocking preview.
 
+The old request field `default_profit_percent` is accepted only as a deprecated
+alias of `profit_margin_percent`. If both are present they must be exactly
+equivalent or the request fails. New responses and clients use only
+`profit_margin_percent`; the state-only `default_markup.profit_percent` output
+is explicitly marked deprecated and equals
+`profit_margin.profit_margin_percent`.
+
+For compatibility, a legacy client may omit both rounding fields and inherit
+the current site policy. Supplying only one of them is rejected. New clients
+must always submit both fields so preview and apply are bound to the same
+explicit rounding policy.
+
 ## Apply
 
 Apply repeats the exact source, expected revision, and settings used by the
@@ -157,7 +254,7 @@ string `APPLY`.
 
 ```json
 {
-  "schema": "digitalogic.excel-pricing-sync-request/v1",
+  "schema": "digitalogic.pricing-sync-request/v1",
   "schema_version": 1,
   "operation": "apply",
   "source": {
@@ -171,7 +268,14 @@ string `APPLY`.
     "dollar_price": 170000,
     "yuan_price": 25300,
     "effective_date": "2026-07-26",
-    "default_profit_percent": "30"
+    "usd_effective_date": "2026-07-25",
+    "cny_effective_date": "2026-07-26",
+    "profit_margin_percent": "30",
+    "air_express_price_per_kg": "120",
+    "air_express_currency": "CNY",
+    "price_rounding_digits": 2,
+    "price_rounding_mode": "nearest_half_up",
+    "shipping_catalog_revision": "sha256:SHIPPING_CATALOG_REVISION"
   },
   "product_changes": [],
   "preview_digest": "sha256:PREVIEW_DIGEST",
@@ -181,15 +285,16 @@ string `APPLY`.
 
 Apply uses a site-scoped database advisory lock and one SQL transaction. It
 updates the direct and ACF-compatible currency options, legacy currency date,
-the established default-markup contract, version metadata, and a bounded
-nonsecret audit together. Every option is read back exactly before commit. A
-failed write/readback rolls the transaction back.
+the compatibility storage record for the shared profit margin, version
+metadata, the final-price rounding option, and a bounded nonsecret audit
+together. Every option is read back exactly before commit. A failed
+write/readback rolls the transaction back.
 
 Preview and apply response data use:
 
 ```json
 {
-  "schema": "digitalogic.excel-pricing-sync-preview/v1",
+  "schema": "digitalogic.pricing-sync-preview/v1",
   "mode": "preview",
   "status": "confirmation_required",
   "state_revision": "sha256:GLOBAL_SETTINGS_REVISION",
@@ -212,6 +317,19 @@ same request returns the recorded result; reusing it with another request is a
 `409` conflict. A stale settings revision is `412`. The companion must fetch
 state again after apply, regenerate canonical products, send product sync, and
 perform final WooCommerce storefront readback.
+
+When that exact companion (`digitalogic-price-calculator` on
+`excel-workbook`) applies settings that already match `state_revision`, the
+apply response uses the fast `reconciled` path and reports
+`settings_already_current`. It does not repeat a full direct catalog reprice:
+the mandatory canonical product sync and final storefront readback immediately
+after apply perform and verify that reconciliation. Other clients and internal
+settings writers retain direct unchanged-settings drift repair.
+
+That readback succeeds only when every managed simple product or exact-code
+variation has an empty WooCommerce sale field and identical canonical,
+regular, and effective selling prices. Unsupported variable-parent or shipping
+states fail closed instead of retaining a stale customer price.
 
 ## Security and logging
 

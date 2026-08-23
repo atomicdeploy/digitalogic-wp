@@ -29,7 +29,7 @@ if ( ! function_exists( 'wp_cache_set' ) ) {
 		}
 
 		if ( isset( $GLOBALS['digitalogic_test_cache_set_callback'] ) && is_callable( $GLOBALS['digitalogic_test_cache_set_callback'] ) ) {
-			$callback = $GLOBALS['digitalogic_test_cache_set_callback'];
+			$callback                                       = $GLOBALS['digitalogic_test_cache_set_callback'];
 			$GLOBALS['digitalogic_test_cache_set_callback'] = null;
 			$callback( $key, $data, $group, $expire );
 		}
@@ -70,24 +70,27 @@ final class ReportEngineTest extends TestCase {
 	protected function setUp(): void {
 		parent::setUp();
 
-		$GLOBALS['digitalogic_test_object_cache_enabled'] = true;
-		$GLOBALS['digitalogic_test_object_cache']         = array();
-		$GLOBALS['digitalogic_test_object_cache_sets']    = array();
-		$GLOBALS['digitalogic_test_cache_add_callback']   = null;
-		$GLOBALS['digitalogic_test_cache_set_callback']   = null;
-		$GLOBALS['digitalogic_test_cache_deletes']        = array();
-		$GLOBALS['digitalogic_test_options']              = array(
-			'digitalogic_patris_feed_settings' => array( 'stale_after_hours' => 48 ),
+		$GLOBALS['digitalogic_test_object_cache_enabled']         = true;
+		$GLOBALS['digitalogic_test_object_cache']                 = array();
+		$GLOBALS['digitalogic_test_object_cache_sets']            = array();
+		$GLOBALS['digitalogic_test_cache_add_callback']           = null;
+		$GLOBALS['digitalogic_test_cache_set_callback']           = null;
+		$GLOBALS['digitalogic_test_cache_deletes']                = array();
+		$GLOBALS['digitalogic_test_wc_cache_group_invalidations'] = array();
+		$GLOBALS['digitalogic_test_object_term_cache_cleans']     = array();
+		$GLOBALS['digitalogic_test_options']                      = array(
+			'digitalogic_patris_feed_settings'       => array( 'stale_after_hours' => 48 ),
+			'digitalogic_report_cache_generation_v1' => 'test-report-generation',
 		);
-		$GLOBALS['digitalogic_test_option_cache']         = array();
-		$GLOBALS['digitalogic_test_posts']                = array();
-		$GLOBALS['digitalogic_test_post_meta_cache']      = array();
-		$GLOBALS['digitalogic_test_wc_products']          = array();
+		$GLOBALS['digitalogic_test_option_cache']                 = array();
+		$GLOBALS['digitalogic_test_posts']                        = array();
+		$GLOBALS['digitalogic_test_post_meta_cache']              = array();
+		$GLOBALS['digitalogic_test_wc_products']                  = array();
 		$GLOBALS['digitalogic_test_wc_product_query_args'] = array();
-		$GLOBALS['digitalogic_test_actions']              = array();
-		$GLOBALS['digitalogic_test_action_callbacks']     = array();
-		$GLOBALS['digitalogic_test_filters']              = array();
-		$GLOBALS['wpdb']                                  = new Digitalogic_Test_WPDB();
+		$GLOBALS['digitalogic_test_actions']                      = array();
+		$GLOBALS['digitalogic_test_action_callbacks']             = array();
+		$GLOBALS['digitalogic_test_filters']                      = array();
+		$GLOBALS['wpdb'] = new Digitalogic_Test_WPDB();
 
 		$this->reset_singleton( Digitalogic_Product_Sync_Receiver::class );
 		$this->reset_singleton( Digitalogic_Patris_Feed::class );
@@ -105,7 +108,11 @@ final class ReportEngineTest extends TestCase {
 	}
 
 	public function test_cache_is_request_shaped_and_force_refresh_is_explicit(): void {
-		$args    = array( 'view' => 'price_list', 'page' => 1, 'per_page' => 25 );
+		$args    = array(
+			'view'     => 'price_list',
+			'page'     => 1,
+			'per_page' => 25,
+		);
 		$initial = $this->engine->get_report( $args );
 		$this->assertSame( 1, $initial['counts']['patris_products'] );
 		$this->assertCount( 1, $this->report_cache_writes() );
@@ -120,14 +127,30 @@ final class ReportEngineTest extends TestCase {
 	}
 
 	public function test_distinct_normalized_requests_use_distinct_cache_entries(): void {
-		$this->engine->get_report( array( 'view' => 'warnings', 'page' => 1, 'per_page' => 25 ) );
-		$this->engine->get_report( array( 'view' => 'price_list', 'page' => 1, 'per_page' => 50 ) );
+		$this->engine->get_report(
+			array(
+				'view'     => 'warnings',
+				'page'     => 1,
+				'per_page' => 25,
+			)
+		);
+		$this->engine->get_report(
+			array(
+				'view'     => 'price_list',
+				'page'     => 1,
+				'per_page' => 50,
+			)
+		);
 
 		$this->assertCount( 2, $this->report_cache_keys() );
 	}
 
 	public function test_generation_invalidation_rebuilds_an_existing_request_shape(): void {
-		$args = array( 'view' => 'price_list', 'page' => 1, 'per_page' => 25 );
+		$args = array(
+			'view'     => 'price_list',
+			'page'     => 1,
+			'per_page' => 25,
+		);
 		$this->assertSame( 1, $this->engine->get_report( $args )['counts']['patris_products'] );
 
 		$this->add_source_without_invalidation( 'CACHE-2' );
@@ -136,6 +159,75 @@ final class ReportEngineTest extends TestCase {
 
 		$this->assertSame( 2, $refreshed['counts']['patris_products'] );
 		$this->assertArrayHasKey( 'digitalogic_reports:generation-v1', $GLOBALS['digitalogic_test_object_cache'] );
+	}
+
+	/** Reject a cached report when source freshness crosses its threshold. */
+	public function test_freshness_transition_rejects_a_cached_report_without_generation_change(): void {
+		$args    = array(
+			'view'     => 'price_list',
+			'page'     => 1,
+			'per_page' => 25,
+		);
+		$initial = $this->engine->get_report( $args );
+		$this->assertNotContains( 'stale_source', $initial['rows'][0]['issues'] );
+		$generation = $this->invoke_private( 'cache_generation' );
+
+		$option = Digitalogic_Product_Sync_Receiver::STATE_OPTION;
+		$GLOBALS['digitalogic_test_options'][ $option ]['sources'][ $this->source_state_key() ]['products']['CACHE-1']['source_updated_at'] = gmdate( 'c', time() - 49 * HOUR_IN_SECONDS );
+		unset( $GLOBALS['digitalogic_test_option_cache'][ $option ] );
+		$refreshed = $this->engine->get_report( $args );
+
+		$this->assertSame( $generation, $this->invoke_private( 'cache_generation' ) );
+		$this->assertContains( 'stale_source', $refreshed['rows'][0]['issues'] );
+		$this->assertCount( 2, $this->report_cache_writes() );
+	}
+
+	/** Invalidate the projection for model attribute and taxonomy mutations. */
+	public function test_model_attribute_mutations_advance_projection_generation(): void {
+		$GLOBALS['digitalogic_test_posts'][77] = array(
+			'post_type' => 'product',
+			'meta'      => array(),
+		);
+		$before                                = $this->invoke_private( 'cache_generation' );
+
+		$this->engine->invalidate_cache_for_product_meta( 1, 77, '_product_attributes' );
+		$after_meta = $this->invoke_private( 'cache_generation' );
+		$this->assertNotSame( $before, $after_meta );
+
+		$this->engine->invalidate_cache_for_product_terms( 77, array(), array(), 'pa_model' );
+		$this->assertNotSame( $after_meta, $this->invoke_private( 'cache_generation' ) );
+		$this->assertTrue( has_action( 'created_pa_model' ) );
+		$this->assertTrue( has_action( 'edited_pa_model' ) );
+		$this->assertTrue( has_action( 'delete_pa_model' ) );
+	}
+
+	/** Product-type taxonomy writes rotate WooCommerce's versioned type cache. */
+	public function test_product_type_mutation_invalidates_exact_woocommerce_product_cache_group(): void {
+		$GLOBALS['digitalogic_test_posts'][77] = array(
+			'post_type' => 'product',
+			'meta'      => array(),
+		);
+
+		$this->engine->invalidate_cache_for_product_terms( 77, array(), array(), 'product_type' );
+
+		$this->assertSame( array( array( 77, 'product' ) ), $GLOBALS['digitalogic_test_object_term_cache_cleans'] );
+		$this->assertSame( array( 'product_77' ), $GLOBALS['digitalogic_test_wc_cache_group_invalidations'] );
+	}
+
+	/** Keep report-generation installation explicit and outside construction. */
+	public function test_generation_install_is_explicit_and_constructor_is_read_only(): void {
+		unset( $GLOBALS['digitalogic_test_options']['digitalogic_report_cache_generation_v1'] );
+		$this->reset_singleton( Digitalogic_Report_Engine::class );
+		$engine = Digitalogic_Report_Engine::instance();
+
+		$this->assertArrayNotHasKey( 'digitalogic_report_cache_generation_v1', $GLOBALS['digitalogic_test_options'] );
+		$revision = $engine->projection_revision( 'patris-export', 'ALLANBAR' );
+		$this->assertInstanceOf( WP_Error::class, $revision );
+		$this->assertSame( 'digitalogic_report_generation_uninitialized', $revision->get_error_code() );
+
+		$this->assertTrue( $engine->install_cache_generation() );
+		$this->assertIsString( $GLOBALS['digitalogic_test_options']['digitalogic_report_cache_generation_v1'] );
+		$this->assertNotSame( '', $GLOBALS['digitalogic_test_options']['digitalogic_report_cache_generation_v1'] );
 	}
 
 	public function test_lock_loser_receives_a_retryable_error(): void {
@@ -163,24 +255,38 @@ final class ReportEngineTest extends TestCase {
 	}
 
 	public function test_cache_is_double_checked_after_lock_acquisition(): void {
-		$args      = $this->normalized_args( array( 'view' => 'price_list', 'per_page' => 25 ) );
-		$fresh     = $this->engine->get_report_from_validated_envelope( $this->static_envelope(), $args );
-		$cache_key = 'digitalogic_reports:' . $this->invoke_private( 'cache_key', array( $args ) );
-		$fresh['_cache_generation'] = 'initial';
-		$GLOBALS['digitalogic_test_cache_add_callback'] = static function( $key, $data, $group ) use ( $fresh, $cache_key ) {
+		$args                               = $this->normalized_args(
+			array(
+				'view'     => 'price_list',
+				'per_page' => 25,
+			)
+		);
+		$fresh                              = $this->engine->get_report_from_validated_envelope( $this->static_envelope(), $args );
+		$cache_key                          = 'digitalogic_reports:' . $this->invoke_private( 'cache_key', array( $args ) );
+		$fresh['_cache_generation']         = $this->invoke_private( 'cache_generation' );
+		$fresh['_cache_freshness_revision'] = $this->invoke_private(
+			'cache_freshness_revision',
+			array( $args )
+		);
+		$GLOBALS['digitalogic_test_cache_add_callback'] = static function ( $key, $data, $group ) use ( $fresh, $cache_key ) {
 			if ( 'digitalogic_reports' === $group && str_starts_with( (string) $key, 'build-lock-v3-' ) ) {
 				$GLOBALS['digitalogic_test_object_cache'][ $cache_key ] = $fresh;
 			}
 		};
 
-		$report = $this->engine->get_report( array( 'view' => 'price_list', 'per_page' => 25 ) );
+		$report = $this->engine->get_report(
+			array(
+				'view'     => 'price_list',
+				'per_page' => 25,
+			)
+		);
 
 		$this->assertSame( 'static', $report['status'] );
 		$this->assertCount( 0, $this->report_cache_writes() );
 	}
 
 	public function test_invalidation_during_cache_publish_rejects_stale_output(): void {
-		$GLOBALS['digitalogic_test_cache_set_callback'] = function( $key, $data, $group ) {
+		$GLOBALS['digitalogic_test_cache_set_callback'] = function ( $key, $data, $group ) {
 			if ( 'digitalogic_reports' === $group && str_starts_with( (string) $key, 'current-v3-' ) ) {
 				$this->engine->invalidate_cache();
 			}
@@ -324,15 +430,19 @@ final class ReportEngineTest extends TestCase {
 
 	private function add_source_without_invalidation( $code ): void {
 		$option = Digitalogic_Product_Sync_Receiver::STATE_OPTION;
-		$GLOBALS['digitalogic_test_options'][ $option ]['sources']['test-source']['products'][ $code ] = $this->source_product( $code );
+		$GLOBALS['digitalogic_test_options'][ $option ]['sources'][ $this->source_state_key() ]['products'][ $code ] = $this->source_product( $code );
 		unset( $GLOBALS['digitalogic_test_option_cache'][ $option ] );
 	}
 
 	private function store_source( $products ): void {
 		$GLOBALS['digitalogic_test_options'][ Digitalogic_Product_Sync_Receiver::STATE_OPTION ] = array(
 			'sources' => array(
-				'test-source' => array(
-					'source'          => array( 'id' => 'patris-export', 'dataset' => 'ALLANBAR', 'revision' => 'sha256:test-source' ),
+				$this->source_state_key() => array(
+					'source'          => array(
+						'id'       => 'patris-export',
+						'dataset'  => 'ALLANBAR',
+						'revision' => 'sha256:test-source',
+					),
 					'generated_at'    => gmdate( 'c' ),
 					'received_at'     => current_time( 'mysql' ),
 					'last_event_id'   => 'sha256:test-event',
@@ -341,6 +451,11 @@ final class ReportEngineTest extends TestCase {
 				),
 			),
 		);
+	}
+
+	/** Return the receiver-state key for the exact test source. */
+	private function source_state_key(): string {
+		return hash( 'sha256', "patris-export\nALLANBAR" );
 	}
 
 	private function source_product( $code ): array {
@@ -374,7 +489,11 @@ final class ReportEngineTest extends TestCase {
 			'event_id'     => 'sha256:static-event',
 			'event_type'   => 'snapshot',
 			'generated_at' => gmdate( 'c' ),
-			'source'       => array( 'id' => 'patris-static', 'dataset' => 'ALLANBAR', 'revision' => 'sha256:static' ),
+			'source'       => array(
+				'id'       => 'patris-static',
+				'dataset'  => 'ALLANBAR',
+				'revision' => 'sha256:static',
+			),
 			'products'     => array( $this->source_product( 'STATIC-1' ) ),
 		);
 	}

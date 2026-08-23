@@ -1,0 +1,25 @@
+{
+  "evidence_class": "synthetic_count_algebra",
+  "report": {
+    "status": "current",
+    "woo_raw": 8,
+    "woo_usable": 7,
+    "patris": 5,
+    "matched": 3,
+    "source_only": 2,
+    "woo_only": 4,
+    "variable_parents_excluded": 1,
+    "ambiguous": 0,
+    "integrity_warnings": []
+  },
+  "product_sync": {
+    "applied": 3,
+    "pending": 0,
+    "deferred": 2
+  },
+  "expected_snapshot": {
+    "row_count": 9,
+    "distinct_sync_keys": 9,
+    "remote_total": 9
+  }
+}

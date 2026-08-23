@@ -96,7 +96,18 @@ final class Digitalogic_Event_Mesh {
 		) {$charset_collate};";
 
 		dbDelta( $sql );
+
+		/*
+		 * A stale `notoptions` entry can survive a deployment that creates the
+		 * schema marker outside the request that first looked it up. Clear the
+		 * negative cache before and after the idempotent write so the current
+		 * request verifies the durable database value instead of repeatedly
+		 * running dbDelta.
+		 */
+		wp_cache_delete( 'notoptions', 'options' );
 		update_option( 'digitalogic_event_mesh_schema_version', DIGITALOGIC_EVENT_MESH_SCHEMA_VERSION, false );
+		wp_cache_delete( 'digitalogic_event_mesh_schema_version', 'options' );
+		wp_cache_delete( 'notoptions', 'options' );
 
 		return DIGITALOGIC_EVENT_MESH_SCHEMA_VERSION === (string) get_option( 'digitalogic_event_mesh_schema_version', '' );
 	}
@@ -625,7 +636,7 @@ final class Digitalogic_Event_Mesh {
 		);
 	}
 
-	public static function event_visible_to( array $event, int $user_id, string $device_id = '' ): bool {
+	public static function event_visible_to( array $event, int $user_id, string $device_id = '', string $service = '', array $service_source = array() ): bool {
 		$name = (string) ( $event['name'] ?? $event['event'] ?? '' );
 		$data = isset( $event['data'] ) && is_array( $event['data'] ) ? $event['data'] : array();
 		if ( 'workstation.notification' === $name ) {
@@ -634,11 +645,61 @@ final class Digitalogic_Event_Mesh {
 				return false;
 			}
 		}
-		if ( ! isset( $data['audience'] ) || ! is_array( $data['audience'] ) ) {
+		$audience = isset( $data['audience'] ) && is_array( $data['audience'] ) ? $data['audience'] : array();
+		if ( '' !== $service ) {
+			$event_source = isset( $data['source'] ) && is_array( $data['source'] ) ? $data['source'] : array();
+			$is_revision  = static function ( $value ) {
+				return is_string( $value ) && 1 === preg_match( '/\Asha256:[a-f0-9]{64}\z/D', $value );
+			};
+			if (
+				'patris_pricing' !== $service
+				|| Digitalogic_Pricing_Snapshot::SCHEMA_VERSION !== (int) ( $data['schema_version'] ?? 0 )
+				|| Digitalogic_Pricing_Snapshot::PROJECTION !== (string) ( $data['projection'] ?? '' )
+				|| ! $is_revision( $event_source['revision'] ?? null )
+				|| ! $is_revision( $data['idempotency_key'] ?? null )
+				|| '/wp-json/digitalogic/pricing/sync/revision' !== (string) ( $data['revision_path'] ?? '' )
+				|| ! in_array( $service, (array) ( $audience['services'] ?? array() ), true )
+			) {
+				return false;
+			}
+			if ( 'pricing.state.changed' === $name ) {
+				$state_revision = (string) ( $data['state_revision'] ?? '' );
+				if (
+					Digitalogic_Pricing_Snapshot::STATE_EVENT_SCHEMA !== (string) ( $data['schema'] ?? '' )
+					|| ! $is_revision( $state_revision )
+					|| '"' . $state_revision . '"' !== (string) ( $data['etag'] ?? '' )
+					|| ! $is_revision( $data['catalog_revision'] ?? null )
+					|| ! $is_revision( $data['pricing_state_revision'] ?? null )
+					|| ! $is_revision( $data['pricing_policy_revision'] ?? null )
+					|| ! in_array( (string) ( $data['cause'] ?? '' ), array( 'projection-invalidated', 'freshness-boundary' ), true )
+				) {
+					return false;
+				}
+			} elseif ( in_array( $name, array( 'pricing.source.changed', 'pricing.source.removed' ), true ) ) {
+				$change   = (string) ( $data['change'] ?? '' );
+				$previous = $data['previous_source_revision'] ?? null;
+				if (
+					Digitalogic_Pricing_Snapshot::SOURCE_EVENT_SCHEMA !== (string) ( $data['schema'] ?? '' )
+					|| ! in_array( $change, array( 'added', 'changed', 'removed' ), true )
+					|| ( 'pricing.source.removed' === $name ) !== ( 'removed' === $change )
+					|| ( null !== $previous && ! $is_revision( $previous ) )
+					|| empty( $data['revision_validation_required'] )
+				) {
+					return false;
+				}
+			} else {
+				return false;
+			}
+
+			return '' !== (string) ( $service_source['id'] ?? '' )
+				&& '' !== (string) ( $service_source['dataset'] ?? '' )
+				&& hash_equals( (string) $service_source['id'], (string) ( $event_source['id'] ?? '' ) )
+				&& hash_equals( (string) $service_source['dataset'], (string) ( $event_source['dataset'] ?? '' ) );
+		}
+		if ( ! $audience ) {
 			return true;
 		}
 
-		$audience = $data['audience'];
 		if ( ! empty( $audience['broadcast'] ) ) {
 			return true;
 		}

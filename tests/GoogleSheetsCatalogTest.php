@@ -22,7 +22,7 @@ final class GoogleSheetsCatalogTest extends TestCase {
 	/** Prepare isolated catalog fixtures. */
 	protected function setUp(): void {
 		parent::setUp();
-		$GLOBALS['digitalogic_test_options']              = array(
+		$GLOBALS['digitalogic_test_options']               = array(
 			'woocommerce_weight_unit'          => 'kg',
 			'options_yuan_price'               => '30000',
 			'options_update_date'              => '260720',
@@ -30,19 +30,23 @@ final class GoogleSheetsCatalogTest extends TestCase {
 				'selected_warehouses' => array( 'تهران' ),
 			),
 		);
-		$GLOBALS['digitalogic_test_terms']                = array();
-		$GLOBALS['digitalogic_test_posts']                = array();
-		$GLOBALS['digitalogic_test_option_cache']         = array();
-		$GLOBALS['digitalogic_test_post_meta_cache']      = array();
-		$GLOBALS['digitalogic_test_meta_update_failures'] = array();
-		$GLOBALS['digitalogic_test_meta_delete_failures'] = array();
-		$GLOBALS['digitalogic_test_transaction_failures'] = array();
-		$GLOBALS['digitalogic_test_wp_query_results']     = array();
-		$GLOBALS['digitalogic_test_wp_query_args']        = array();
-		$GLOBALS['digitalogic_test_wc_currency']          = 'IRT';
-		$GLOBALS['wpdb']                                  = new Digitalogic_Test_WPDB();
+		$GLOBALS['digitalogic_test_terms']                 = array();
+		$GLOBALS['digitalogic_test_posts']                 = array();
+		$GLOBALS['digitalogic_test_wc_products']           = array();
+		$GLOBALS['digitalogic_test_option_cache']          = array();
+		$GLOBALS['digitalogic_test_post_meta_cache']       = array();
+		$GLOBALS['digitalogic_test_meta_update_failures']  = array();
+		$GLOBALS['digitalogic_test_meta_delete_failures']  = array();
+		$GLOBALS['digitalogic_test_transaction_failures']  = array();
+		$GLOBALS['digitalogic_test_wp_query_results']      = array();
+		$GLOBALS['digitalogic_test_wp_query_args']         = array();
+		$GLOBALS['digitalogic_test_wc_product_query_args'] = array();
+		$GLOBALS['digitalogic_test_wc_currency']           = 'IRT';
+		$GLOBALS['wpdb']                                   = new Digitalogic_Test_WPDB();
 		$this->reset_singleton( Digitalogic_Shipping_Method_Service::class );
 		$this->reset_singleton( Digitalogic_WooCommerce_Currency_Status::class );
+		$this->reset_singleton( Digitalogic_Product_Sync_Receiver::class );
+		$this->reset_singleton( Digitalogic_Report_Engine::class );
 		$this->catalog = Digitalogic_Google_Sheets_Catalog::instance();
 	}
 
@@ -195,7 +199,8 @@ final class GoogleSheetsCatalogTest extends TestCase {
 		$this->assertSame( 'حمل هوایی (اکسپرس)', $row['shipping_method_name_fa'] );
 		$this->assertSame( '85', $row['shipping_price_per_kg'] );
 		$this->assertSame( 'CNY', $row['shipping_price_per_kg_currency'] );
-		$this->assertSame( 30, $row['profit_percent'] );
+		$this->assertSame( 30, $row['profit_margin_percent'] );
+		$this->assertArrayNotHasKey( 'profit_percent_source', $row );
 		$this->assertSame( 7, $row[ 'warehouse_stock:' . rawurlencode( 'تهران' ) ] );
 		$this->assertSame( 5, $row['warehouse_stock:Shenzhen'] );
 		$this->assertSame( 'ok', $row['sync_status'] );
@@ -205,6 +210,249 @@ final class GoogleSheetsCatalogTest extends TestCase {
 		$this->assertContains( 'warehouse_stock:' . rawurlencode( 'تهران' ), $keys );
 		$this->assertContains( 'warehouse_stock:Shenzhen', $keys );
 		$this->assertArrayNotHasKey( 'schema', $result );
+	}
+
+	/** The reconciled union is leaf-only, page-stable, and uses durable row identities. */
+	public function test_reconciled_products_union_has_stable_keys_columns_and_source_woo_ownership() {
+		$updated_at = '2026-07-27T08:00:00Z';
+		$this->store_source(
+			array(
+				'000123' => array(
+					'product_code'                   => '000123',
+					'name'                           => 'Source matched name',
+					'foreign_currency'               => 'CNY',
+					'foreign_price'                  => '120',
+					'partner_price_source'           => '500000',
+					'price_source_amount'            => '120',
+					'price_source_currency'          => 'CNY',
+					'price_source_kind'              => 'foreign_price',
+					'price_rounding_digits'          => 0,
+					'price_rounding_mode'            => 'nearest_half_up',
+					'weight_grams'                   => '350',
+					'total_stock'                    => '11',
+					'location'                       => 'Shenzhen',
+					'warehouse_stock'                => array( 'Shenzhen' => 11 ),
+					'shipping_method_id'             => 'air_express',
+					'shipping_price_per_kg'          => '120',
+					'shipping_price_per_kg_currency' => 'CNY',
+					'markup_percent'                 => '30',
+					'final_price'                    => '5100000',
+					'source_updated_at'              => $updated_at,
+					'warnings'                       => array(),
+				),
+				'DUP'    => array(
+					'product_code' => 'DUP',
+					'name'         => 'Ambiguous source',
+					'warnings'     => array(),
+				),
+				'ONLY-P' => array(
+					'product_code' => 'ONLY-P',
+					'name'         => 'Patris only',
+					'location'     => 'Guangzhou',
+					'warnings'     => array(),
+				),
+				'VAR'    => array(
+					'product_code' => 'VAR',
+					'name'         => 'Variation source',
+					'warnings'     => array(),
+				),
+			)
+		);
+		$GLOBALS['digitalogic_test_terms']     = array(
+			8 => array(
+				'term_id'  => 8,
+				'taxonomy' => 'product_cat',
+				'name'     => 'Reviewed category',
+				'slug'     => 'reviewed-category',
+				'parent'   => 0,
+			),
+		);
+		$GLOBALS['digitalogic_test_posts'][41] = $this->woo_post(
+			'simple',
+			'Woo matched name',
+			array(
+				'_digitalogic_patris_product_code' => '000123',
+				'_regular_price'                   => '5000000',
+				'_price'                           => '5000000',
+				'_sale_price'                      => '',
+				'_stock'                           => 11,
+				'_stock_status'                    => 'instock',
+			),
+			array( 'category_ids' => array( 8 ) )
+		);
+		$GLOBALS['digitalogic_test_posts'][42] = $this->woo_post( 'simple', 'Woo only', array() );
+		$GLOBALS['digitalogic_test_posts'][43] = $this->woo_post( 'simple', 'Duplicate A', array( '_digitalogic_patris_product_code' => 'DUP' ) );
+		$GLOBALS['digitalogic_test_posts'][44] = $this->woo_post( 'simple', 'Duplicate B', array( '_digitalogic_patris_product_code' => 'DUP' ) );
+		$GLOBALS['digitalogic_test_posts'][50] = $this->woo_post(
+			'variable',
+			'Variable parent',
+			array(),
+			array( 'category_ids' => array( 8 ) )
+		);
+		$GLOBALS['digitalogic_test_posts'][51] = $this->woo_post(
+			'variation',
+			'Variation leaf',
+			array( '_digitalogic_patris_product_code' => 'VAR' ),
+			array( 'post_parent' => 50 )
+		);
+
+		$first  = $this->catalog->get_page(
+			array(
+				'dataset' => 'reconciled_products',
+				'locale'  => 'fa',
+				'page'    => 1,
+				'limit'   => 3,
+			)
+		);
+		$second = $this->catalog->get_page(
+			array(
+				'dataset' => 'reconciled_products',
+				'locale'  => 'fa',
+				'page'    => 2,
+				'limit'   => 3,
+			)
+		);
+
+		$this->assertFalse( is_wp_error( $first ) );
+		$this->assertFalse( is_wp_error( $second ) );
+		$this->assertSame( 6, $first['pagination']['total'] );
+		$this->assertSame( 2, $first['pagination']['pages'] );
+		$this->assertSame( $first['dataset_revision'], $second['dataset_revision'] );
+		$this->assertMatchesRegularExpression( '/^sha256:[a-f0-9]{64}$/', $first['dataset_revision'] );
+		$this->assertSame( array_column( $first['columns'], 'key' ), array_column( $second['columns'], 'key' ) );
+		$this->assertSame(
+			array(
+				'sync_key',
+				'reconciliation_status',
+				'patris_code',
+				'woocommerce_id',
+				'parent_id',
+				'product_type',
+				'publication_status',
+				'name',
+				'part_number',
+				'sku',
+				'categories',
+				'category_ids',
+				'currency',
+				'regular_price',
+				'sale_price',
+				'effective_price',
+				'patris_final_price',
+				'price_status',
+				'stock_quantity',
+				'stock_status',
+				'patris_total_stock',
+				'patris_minimum_stock',
+				'patris_location',
+				'weight_grams',
+				'woocommerce_weight',
+				'woocommerce_weight_unit',
+				'foreign_price',
+				'foreign_currency',
+				'partner_price_irr',
+				'price_source_amount',
+				'price_source_currency',
+				'price_source_kind',
+				'price_rounding_digits',
+				'price_rounding_mode',
+				'shipping_method_id',
+				'shipping_method_name_en',
+				'shipping_method_name_fa',
+				'shipping_price_per_kg',
+				'shipping_price_per_kg_currency',
+				'profit_margin_percent',
+				'permalink',
+				'image_url',
+				'updated_at',
+				'sync_status',
+				'sync_error',
+				'record_revision',
+			),
+			array_column( $first['columns'], 'key' )
+		);
+		$this->assertNotContains( Digitalogic_Product_Column_Schema::warehouse_key( 'Shenzhen' ), array_column( $first['columns'], 'key' ) );
+
+		$rows = array_merge( $first['rows'], $second['rows'] );
+		$this->assertCount( 6, $rows );
+		$this->assertSame( 6, count( array_unique( array_column( $rows, 'sync_key' ) ) ) );
+		$this->assertContains( 'patris:ONLY-P', array_column( $rows, 'sync_key' ) );
+		$this->assertContains( 'woo:43', array_column( $rows, 'sync_key' ) );
+		$this->assertContains( 'woo:44', array_column( $rows, 'sync_key' ) );
+		$this->assertNotContains( 'woo:50', array_column( $rows, 'sync_key' ) );
+		$this->assertNotContains( '000123', array_column( $rows, 'sync_key' ) );
+
+		$matched = $this->find_catalog_row( $rows, 'woo:41' );
+		$this->assertSame( 'matched', $matched['reconciliation_status'] );
+		$this->assertSame( '000123', $matched['patris_code'] );
+		$this->assertSame( 41, $matched['woocommerce_id'] );
+		$this->assertSame( 'Source matched name', $matched['name'] );
+		$this->assertSame( 'Shenzhen', $matched['patris_location'] );
+		$this->assertSame( 350, $matched['weight_grams'] );
+		$this->assertSame( 120, $matched['foreign_price'] );
+		$this->assertSame( 500000, $matched['partner_price_irr'] );
+		$this->assertSame( 120, $matched['price_source_amount'] );
+		$this->assertSame( 'CNY', $matched['price_source_currency'] );
+		$this->assertSame( 'foreign_price', $matched['price_source_kind'] );
+		$this->assertSame( 0, $matched['price_rounding_digits'] );
+		$this->assertSame( 'nearest_half_up', $matched['price_rounding_mode'] );
+		$this->assertSame( 11, $matched['patris_total_stock'] );
+		$this->assertSame( 5100000, $matched['patris_final_price'] );
+		$this->assertSame( 5000000, $matched['effective_price'] );
+		$this->assertStringContainsString( 'price_drift', $matched['sync_error'] );
+		$this->assertSame( 'publish', $matched['publication_status'] );
+		$this->assertSame( 'Reviewed category', $matched['categories'] );
+		$this->assertSame( '8', $matched['category_ids'] );
+		$this->assertSame( 'https://digitalogic.test/product/41', $matched['permalink'] );
+		$this->assertArrayNotHasKey( Digitalogic_Product_Column_Schema::warehouse_key( 'Shenzhen' ), $matched );
+
+		$this->assertSame(
+			array(
+				'patris_products'           => 4,
+				'woocommerce_raw'           => 6,
+				'woocommerce_leaves'        => 5,
+				'union_rows'                => 6,
+				'matched'                   => 2,
+				'source_only'               => 1,
+				'patris_only'               => 1,
+				'woo_only'                  => 1,
+				'ambiguous_codes'           => 1,
+				'variable_parents_excluded' => 1,
+			),
+			$first['reconciliation']['counts']
+		);
+		$this->assertSame( 'current', $first['reconciliation']['integrity_status'] );
+		$this->assertSame( array(), $first['reconciliation']['warnings'] );
+	}
+
+	/** A legitimate exact Product Code beginning with woo: is never mistaken for a sentinel. */
+	public function test_reconciled_product_code_may_begin_with_woo_prefix() {
+		$this->store_source(
+			array(
+				'woo:ABC' => array(
+					'product_code' => 'woo:ABC',
+					'name'         => 'Prefixed exact code',
+					'warnings'     => array(),
+				),
+			)
+		);
+		$GLOBALS['digitalogic_test_posts'][61] = $this->woo_post(
+			'simple',
+			'Prefixed exact code',
+			array( '_digitalogic_patris_product_code' => 'woo:ABC' )
+		);
+
+		$result = $this->catalog->get_page(
+			array(
+				'dataset' => 'reconciled_products',
+				'page'    => 1,
+				'limit'   => 10,
+			)
+		);
+		$row    = $this->find_catalog_row( $result['rows'], 'woo:61' );
+
+		$this->assertSame( 'matched', $row['reconciliation_status'] );
+		$this->assertSame( 'woo:ABC', $row['patris_code'] );
 	}
 
 	/** Preserve the canonical shipping decimal in the numeric Sheets column. */
@@ -446,6 +694,73 @@ final class GoogleSheetsCatalogTest extends TestCase {
 				'meta'        => array(),
 			);
 		}
+	}
+
+	/**
+	 * Store one deterministic living receiver source.
+	 *
+	 * @param array $products Sparse canonical source products.
+	 */
+	private function store_source( $products ) {
+		update_option(
+			Digitalogic_Product_Sync_Receiver::STATE_OPTION,
+			array(
+				'sources' => array(
+					'test-source' => array(
+						'source'          => array(
+							'id'       => 'patris-export',
+							'dataset'  => 'ALLANBAR',
+							'revision' => 'sha256:test-source',
+						),
+						'generated_at'    => gmdate( 'c' ),
+						'received_at'     => current_time( 'mysql' ),
+						'last_event_id'   => 'sha256:test-event',
+						'last_event_type' => 'snapshot',
+						'products'        => $products,
+					),
+				),
+			),
+			false
+		);
+	}
+
+	/**
+	 * Create one WooCommerce test post.
+	 *
+	 * @param string $type Product type.
+	 * @param string $title Product title.
+	 * @param array  $meta Product metadata.
+	 * @param array  $extra Additional post fields.
+	 * @return array
+	 */
+	private function woo_post( $type, $title, $meta, $extra = array() ) {
+		return array_merge(
+			array(
+				'post_type'    => 'variation' === $type ? 'product_variation' : 'product',
+				'post_status'  => 'publish',
+				'product_type' => $type,
+				'post_title'   => $title,
+				'meta'         => $meta,
+			),
+			$extra
+		);
+	}
+
+	/**
+	 * Find one catalog row by stable sync key.
+	 *
+	 * @param array  $rows Catalog rows.
+	 * @param string $sync_key Stable row key.
+	 * @return array
+	 */
+	private function find_catalog_row( $rows, $sync_key ) {
+		foreach ( $rows as $row ) {
+			if ( ( $row['sync_key'] ?? null ) === $sync_key ) {
+				return $row;
+			}
+		}
+
+		$this->fail( 'Catalog row not found: ' . $sync_key );
 	}
 
 	/**

@@ -48,6 +48,10 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 				'digitalogic_test_transients',
 				'digitalogic_test_transient_deletes',
 				'digitalogic_test_rank_math_invalidations',
+				'digitalogic_test_object_term_cache_cleans',
+				'digitalogic_test_object_term_readbacks',
+				'digitalogic_test_object_term_readback_failures',
+				'digitalogic_test_wc_cache_group_invalidations',
 			) as $global_name
 		) {
 			$GLOBALS[ $global_name ] = array();
@@ -200,6 +204,11 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 		$this->assertGreaterThan( 0, (float) $product->get_weight() );
 		$this->assertCount( 1, $product->get_category_ids() );
 		$this->assertSame( (string) $product->get_category_ids()[0], $product->get_meta( 'rank_math_primary_product_cat', true ) );
+		$this->assertContains( array( $product_id, 'product' ), $GLOBALS['digitalogic_test_object_term_cache_cleans'] );
+		$this->assertContains( 'product_' . $product_id, $GLOBALS['digitalogic_test_wc_cache_group_invalidations'] );
+		$this->assertNotEmpty( $GLOBALS['digitalogic_test_object_term_readbacks'] );
+		$this->assertSame( $product_id, $GLOBALS['digitalogic_test_object_term_readbacks'][0][0] );
+		$this->assertSame( 'product_cat', $GLOBALS['digitalogic_test_object_term_readbacks'][0][1] );
 		foreach ( array( '101', '101001' ) as $category_code ) {
 			$term = Digitalogic_Product_Category_Slugs::instance()->find_by_category_code( $category_code );
 			$this->assertIsObject( $term );
@@ -903,6 +912,29 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 		$this->assertSame( 0, $result['categories']['needed'] );
 		$this->assertSame( array( 70 ), $product->get_category_ids() );
 		$this->assertSame( '70', $product->get_meta( 'rank_math_primary_product_cat', true ) );
+
+		$second = Digitalogic_Patris_Catalog_Materializer::instance()->run( $manifest, array( 'apply' => true ) );
+		$product = wc_get_product( $product->get_id() );
+		$this->assertNotInstanceOf( WP_Error::class, $second );
+		$this->assertSame( array( 70 ), $product->get_category_ids() );
+		$this->assertSame( '70', $product->get_meta( 'rank_math_primary_product_cat', true ) );
+		$this->assertContains( array( $product->get_id(), 'product' ), $GLOBALS['digitalogic_test_object_term_cache_cleans'] );
+	}
+
+	/** A taxonomy readback failure prevents a false-success materialization. */
+	public function test_product_category_assignment_fails_closed_when_readback_fails(): void {
+		$this->receiveFixture();
+		$manifest = $this->manifest();
+		$GLOBALS['digitalogic_test_object_term_readback_failures'] = array( 1 );
+
+		$result = Digitalogic_Patris_Catalog_Materializer::instance()->run( $manifest, array( 'apply' => true ) );
+
+		$this->assertNotInstanceOf( WP_Error::class, $result );
+		$this->assertSame( 1, $result['failed'] );
+		$this->assertContains(
+			'digitalogic_patris_materializer_category_readback_failed',
+			array_column( $result['details'], 'reason' )
+		);
 	}
 
 	public function test_referenced_synthetic_category_is_created_under_a_reviewed_manual_parent(): void {

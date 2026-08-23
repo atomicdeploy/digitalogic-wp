@@ -90,6 +90,7 @@ $retry_url = isset($_SERVER['REQUEST_URI']) ? (string) $_SERVER['REQUEST_URI'] :
                 </div>
                 <nav class="dlp-nav">
                     <a class="dlp-nav-link" :class="{'is-active': currentPage === 'dashboard'}" :href="routeHref('/')" data-route="/" @click="navigateClick('/', $event)"><span class="dlp-nav-label"><span class="dashicons dashicons-dashboard"></span>{{ t.dashboard }}</span></a>
+                    <a class="dlp-nav-link" :class="{'is-active': currentPage === 'assistant'}" :href="routeHref('/assistant')" data-route="/assistant" @click="navigateClick('/assistant', $event)"><span class="dlp-nav-label"><span class="dashicons dashicons-screenoptions"></span>{{ t.assistant }}</span></a>
                     <a class="dlp-nav-link" :class="{'is-active': currentPage === 'products'}" :href="routeHref('/products')" data-route="/products" @click="navigateClick('/products', $event)"><span class="dlp-nav-label"><span class="dashicons dashicons-products"></span>{{ t.products }}</span></a>
                     <a class="dlp-nav-link" :class="{'is-active': currentPage === 'users'}" :href="routeHref('/users')" data-route="/users" @click="navigateClick('/users', $event)"><span class="dlp-nav-label"><span class="dashicons dashicons-admin-users"></span>{{ t.users }}</span></a>
                     <a class="dlp-nav-link" :class="{'is-active': currentPage === 'reports'}" :href="routeHref('/reports')" data-route="/reports" @click="navigateClick('/reports', $event)"><span class="dlp-nav-label"><span class="dashicons dashicons-chart-bar"></span>{{ t.reports }}</span></a>
@@ -515,6 +516,26 @@ $retry_url = isset($_SERVER['REQUEST_URI']) ? (string) $_SERVER['REQUEST_URI'] :
                             </nav>
                     </div>
                     <div v-else class="dlp-panel"><div class="dlp-empty">{{ loading ? t.loading : (error || t.noRows) }}</div></div>
+                </section>
+                <section v-if="currentPage === 'assistant'" class="dlp-work-hub">
+                    <div class="dlp-panel dlp-work-hub-intro">
+                        <div>
+                            <strong>{{ t.workHubIntro }}</strong>
+                            <p>{{ t.workHubText }}</p>
+                        </div>
+                        <span class="dlp-pill is-ok"><span class="dlp-status-dot" aria-hidden="true"></span>{{ t.currentSession }}</span>
+                    </div>
+                    <div class="dlp-work-hub-grid">
+                        <article v-for="card in operatorHubCards" :key="card.key" class="dlp-card dlp-work-hub-card">
+                            <div class="dlp-card-head">
+                                <span class="dlp-card-label"><span :class="icon(card.icon)"></span>{{ card.label }}</span>
+                            </div>
+                            <p>{{ card.description }}</p>
+                            <div class="dlp-work-hub-card-actions">
+                                <a class="dlp-button dlp-primary" :href="routeHref(card.route)" :data-route="card.route" @click="navigateClick(card.route, $event)"><span class="dashicons dashicons-arrow-left-alt2"></span>{{ t.openSection }}</a>
+                            </div>
+                        </article>
+                    </div>
                 </section>
                 <section v-if="currentPage === 'cli'" class="dlp-panel"><div class="dlp-panel-head"><strong>{{ t.commandUsage }}</strong></div><div class="dlp-field-grid"><div class="dlp-field" v-for="(command, key) in commands" :key="key"><span>{{ key }}</span><code class="dlp-code">{{ command }}</code><button class="dlp-button" @click="copy(command)"><span class="dashicons dashicons-clipboard"></span>{{ t.copy }}</button></div></div></section>
                 <section v-if="currentPage === 'sync'" class="dlp-panel"><div class="dlp-panel-head"><strong>{{ t.patrisSync }}</strong></div><div class="dlp-field-grid"><div class="dlp-field"><span>{{ t.syncPage.repository }}</span><strong>{{ t.syncPage.serviceValue }}</strong></div><div class="dlp-field"><span>{{ t.syncPage.mode }}</span><strong>{{ t.syncPage.modeValue }}</strong></div><div class="dlp-field"><span>{{ t.syncPage.endpoint }}</span><strong>{{ t.syncPage.endpointValue }}</strong><code class="dlp-code" dir="ltr">{{ patris.suggested_bridge }}</code></div></div></section>

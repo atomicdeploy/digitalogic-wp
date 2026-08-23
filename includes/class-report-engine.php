@@ -14,14 +14,15 @@ if ( ! defined( 'ABSPATH' ) ) {
  */
 final class Digitalogic_Report_Engine {
 
-	private const MAX_SOURCE_PRODUCTS = 10000;
-	private const MAX_WOO_PRODUCTS    = 10000;
-	private const WOO_BATCH_SIZE      = 100;
-	private const MAX_PAGE_SIZE       = 100;
-	private const CACHE_GROUP          = 'digitalogic_reports';
-	private const CACHE_TTL            = 300;
-	private const CACHE_GENERATION_KEY = 'generation-v1';
-	private const BUILD_LOCK_TTL       = 180;
+	private const MAX_SOURCE_PRODUCTS     = 10000;
+	private const MAX_WOO_PRODUCTS        = 10000;
+	private const WOO_BATCH_SIZE          = 100;
+	private const MAX_PAGE_SIZE           = 100;
+	private const CACHE_GROUP             = 'digitalogic_reports';
+	private const CACHE_TTL               = 300;
+	private const CACHE_GENERATION_KEY    = 'generation-v1';
+	private const CACHE_GENERATION_OPTION = 'digitalogic_report_cache_generation_v1';
+	private const BUILD_LOCK_TTL          = 180;
 
 	/**
 	 * Shared report engine.
@@ -35,14 +36,34 @@ final class Digitalogic_Report_Engine {
 	 *
 	 * @var string
 	 */
-	private $build_lock_token = '';
-	private $active_build_lock_key = '';
+	private $build_lock_token       = '';
+	private $active_build_lock_key  = '';
 	private $local_cache_generation = 'initial';
 
 	/** Register every source mutation that can make a report stale. */
 	private function __construct() {
+		$generation                   = get_option( self::CACHE_GENERATION_OPTION, null );
+		$this->local_cache_generation = is_string( $generation ) && '' !== $generation ? $generation : '';
+
+		add_action( 'admin_init', array( $this, 'install_cache_generation' ) );
 		add_action( 'save_post_product', array( $this, 'invalidate_cache' ) );
+		add_action( 'save_post_product_variation', array( $this, 'invalidate_cache' ) );
+		add_action( 'save_post_attachment', array( $this, 'invalidate_cache' ) );
+		add_action( 'edit_attachment', array( $this, 'invalidate_cache' ) );
+		add_action( 'delete_attachment', array( $this, 'invalidate_cache' ) );
 		add_action( 'woocommerce_update_product', array( $this, 'invalidate_cache' ) );
+		add_action( 'woocommerce_update_product_variation', array( $this, 'invalidate_cache' ) );
+		add_action( 'before_delete_post', array( $this, 'invalidate_cache_for_deleted_product' ) );
+		add_action( 'set_object_terms', array( $this, 'invalidate_cache_for_product_terms' ), 10, 4 );
+		add_action( 'added_post_meta', array( $this, 'invalidate_cache_for_product_meta' ), 10, 3 );
+		add_action( 'updated_post_meta', array( $this, 'invalidate_cache_for_product_meta' ), 10, 3 );
+		add_action( 'deleted_post_meta', array( $this, 'invalidate_cache_for_product_meta' ), 10, 3 );
+		add_action( 'created_product_cat', array( $this, 'invalidate_cache' ) );
+		add_action( 'edited_product_cat', array( $this, 'invalidate_cache' ) );
+		add_action( 'delete_product_cat', array( $this, 'invalidate_cache' ) );
+		add_action( 'created_pa_model', array( $this, 'invalidate_cache' ) );
+		add_action( 'edited_pa_model', array( $this, 'invalidate_cache' ) );
+		add_action( 'delete_pa_model', array( $this, 'invalidate_cache' ) );
 		add_action( 'digitalogic_product_updated', array( $this, 'invalidate_cache' ) );
 		add_action( 'digitalogic_product_sync_applied', array( $this, 'invalidate_cache' ) );
 		add_action( 'digitalogic_patris_feed_synced', array( $this, 'invalidate_cache' ) );
@@ -66,6 +87,71 @@ final class Digitalogic_Report_Engine {
 	}
 
 	/**
+	 * Install the persistent generation outside read-only REST requests.
+	 *
+	 * Activation and admin migration paths call this method. Revision GET/HEAD
+	 * never creates the option and fails closed until installation succeeds.
+	 *
+	 * @return bool Whether a persistent nonempty generation was verified.
+	 */
+	public function install_cache_generation() {
+		$generation = get_option( self::CACHE_GENERATION_OPTION, null );
+		if ( is_string( $generation ) && '' !== $generation ) {
+			$this->local_cache_generation = $generation;
+			return true;
+		}
+
+		$candidate = $this->new_cache_token();
+		add_option( self::CACHE_GENERATION_OPTION, $candidate, '', false );
+		$generation = get_option( self::CACHE_GENERATION_OPTION, null );
+		if ( is_string( $generation ) && '' !== $generation ) {
+			$this->local_cache_generation = $generation;
+			return true;
+		}
+
+		return false;
+	}
+
+	/**
+	 * Return a cheap revision for every input that can change report output.
+	 *
+	 * This is an invalidation revision, not the full dataset digest. It lets a
+	 * client decide whether a cached immutable snapshot may still be reused
+	 * without rebuilding the WooCommerce/Patris union.
+	 *
+	 * @param string $source_id Exact source ID.
+	 * @param string $dataset   Exact source dataset.
+	 * @return string
+	 */
+	public function projection_revision( $source_id, $dataset ) {
+		$generation = $this->cache_generation();
+		if ( '' === $generation ) {
+			return new WP_Error(
+				'digitalogic_report_generation_uninitialized',
+				__( 'The report projection generation has not been installed.', 'digitalogic' ),
+				array(
+					'status'    => 503,
+					'retryable' => false,
+				)
+			);
+		}
+
+		return 'sha256:' . hash(
+			'sha256',
+			wp_json_encode(
+				array(
+					'schema'             => 'digitalogic.report-projection-generation/v1',
+					'generation'         => $generation,
+					'source_id'          => (string) $source_id,
+					'dataset'            => (string) $dataset,
+					'freshness_revision' => $this->source_freshness_revision( $source_id, $dataset ),
+				),
+				JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+			)
+		);
+	}
+
+	/**
 	 * Build one bounded page of the current report.
 	 *
 	 * Supported arguments are view, category, page, per_page, source_id and
@@ -84,6 +170,43 @@ final class Digitalogic_Report_Engine {
 			return $args;
 		}
 
+		return $this->get_normalized_report( $args, $force_refresh );
+	}
+
+	/**
+	 * Build the complete report projection once for an immutable snapshot.
+	 *
+	 * This internal service surface intentionally bypasses public page-size
+	 * limits. Callers must persist and page the result instead of rebuilding the
+	 * WooCommerce/Patris union for every transport page.
+	 *
+	 * @param array         $args       Trusted report arguments.
+	 * @param callable|null $checkpoint Optional cancellation/progress checkpoint.
+	 * @return array|WP_Error
+	 */
+	public function get_complete_report( $args = array(), $checkpoint = null ) {
+		$raw_args      = is_array( $args ) ? $args : array();
+		$force_refresh = $this->is_truthy( $raw_args['force_refresh'] ?? false );
+		$args          = $this->normalize_args( $raw_args );
+		if ( is_wp_error( $args ) ) {
+			return $args;
+		}
+
+		$args['complete'] = true;
+		$args['page']     = 1;
+
+		return $this->get_normalized_report( $args, $force_refresh, $checkpoint );
+	}
+
+	/**
+	 * Read or atomically build one normalized report shape.
+	 *
+	 * @param array         $args          Normalized report arguments.
+	 * @param bool          $force_refresh Whether to bypass a cached value.
+	 * @param callable|null $checkpoint    Optional cancellation/progress checkpoint.
+	 * @return array|WP_Error
+	 */
+	private function get_normalized_report( $args, $force_refresh, $checkpoint = null ) {
 		$cached_report = $this->get_cached_report( $args );
 		$report        = $force_refresh ? null : $cached_report;
 		if ( is_array( $report ) ) {
@@ -99,7 +222,11 @@ final class Digitalogic_Report_Engine {
 			return new WP_Error(
 				'digitalogic_report_build_in_progress',
 				__( 'Another report build is already running. Please retry shortly.', 'digitalogic' ),
-				array( 'status' => 503, 'retry_after' => 2 )
+				array(
+					'status'      => 503,
+					'retry_after' => 2,
+					'retryable'   => true,
+				)
 			);
 		}
 
@@ -108,14 +235,25 @@ final class Digitalogic_Report_Engine {
 			// request was waiting for the atomic lock.
 			$report = $force_refresh ? null : $this->get_cached_report( $args );
 			if ( ! is_array( $report ) ) {
+				if ( is_callable( $checkpoint ) && false === call_user_func( $checkpoint, 'reconciling', 10, 0, 0 ) ) {
+					return $this->snapshot_cancelled_error();
+				}
 				$build_generation = $this->cache_generation();
+				$build_freshness  = $this->cache_freshness_revision( $args );
 				$selection        = $this->select_source_state( $args );
-				$report           = $this->build_report( $args, $selection );
-				if ( ! $this->set_cached_report( $args, $report, $build_generation ) ) {
+				$report           = $this->build_report( $args, $selection, $checkpoint );
+				if ( is_wp_error( $report ) ) {
+					return $report;
+				}
+				if ( ! $this->set_cached_report( $args, $report, $build_generation, $build_freshness ) ) {
 					return new WP_Error(
 						'digitalogic_report_source_changed',
 						__( 'Report source data changed while the report was being built. Please retry.', 'digitalogic' ),
-						array( 'status' => 503, 'retry_after' => 1 )
+						array(
+							'status'      => 503,
+							'retry_after' => 1,
+							'retryable'   => true,
+						)
 					);
 				}
 			}
@@ -124,6 +262,56 @@ final class Digitalogic_Report_Engine {
 		}
 
 		return $report;
+	}
+
+	/**
+	 * Return one exact product from the same current source selection used by reports.
+	 *
+	 * This read-only helper lets mutation adapters prove that a uniquely resolved
+	 * Woo leaf is still a current matched row before accepting a write.
+	 *
+	 * @param string $product_code Exact Product Code, including leading zeros.
+	 * @return array|WP_Error
+	 */
+	public function get_current_source_product( $product_code ) {
+		if ( ! is_string( $product_code ) || '' === $product_code ) {
+			return new WP_Error(
+				'digitalogic_report_product_code_invalid',
+				__( 'An exact Product Code is required.', 'digitalogic' ),
+				array( 'status' => 400 )
+			);
+		}
+
+		$args      = $this->normalize_args( array( 'view' => 'price_list' ) );
+		$selection = $this->select_source_state( $args );
+		if ( ! in_array( $selection['status'], array( 'current', 'static' ), true ) ) {
+			return new WP_Error(
+				'digitalogic_report_source_unavailable',
+				__( 'The current source state is unavailable.', 'digitalogic' ),
+				array( 'status' => 409 )
+			);
+		}
+
+		$products = is_array( $selection['state']['products'] ?? null )
+			? $selection['state']['products']
+			: array();
+		$product  = $products[ $product_code ] ?? null;
+		if (
+			! is_array( $product )
+			|| ! is_string( $product['product_code'] ?? null )
+			|| $product_code !== $product['product_code']
+		) {
+			return new WP_Error(
+				'digitalogic_report_product_not_in_current_source',
+				__( 'The Product Code is not present in the current source state.', 'digitalogic' ),
+				array( 'status' => 409 )
+			);
+		}
+
+		return array(
+			'source'  => $selection['source'],
+			'product' => $product,
+		);
 	}
 
 	/**
@@ -163,7 +351,7 @@ final class Digitalogic_Report_Engine {
 		}
 		ksort( $products, SORT_STRING );
 
-		$state = array(
+		$state  = array(
 			'source'          => $envelope['source'],
 			'generated_at'    => $envelope['generated_at'] ?? '',
 			'last_event_id'   => $envelope['event_id'] ?? '',
@@ -202,11 +390,12 @@ final class Digitalogic_Report_Engine {
 	/**
 	 * Build a bounded report from one selected canonical source.
 	 *
-	 * @param array $args Normalized report arguments.
-	 * @param array $selection Selected source state.
-	 * @return array
+	 * @param array         $args Normalized report arguments.
+	 * @param array         $selection Selected source state.
+	 * @param callable|null $checkpoint Optional cancellation/progress checkpoint.
+	 * @return array|WP_Error
 	 */
-	private function build_report( $args, $selection ) {
+	private function build_report( $args, $selection, $checkpoint = null ) {
 		$state       = $selection['state'];
 		$source      = $selection['source'];
 		$products    = is_array( $state['products'] ?? null ) ? $state['products'] : array();
@@ -214,9 +403,28 @@ final class Digitalogic_Report_Engine {
 		$products    = array_slice( $products, 0, self::MAX_SOURCE_PRODUCTS, true );
 		$settings    = Digitalogic_Patris_Feed::instance()->get_settings();
 		$stale_hours = max( 1, absint( $settings['stale_after_hours'] ?? 48 ) );
-		$woo_result  = $this->get_woocommerce_products();
-		$woo_rows    = $woo_result['products'];
-		$woo_by_code = array();
+		$woo_result  = $this->get_woocommerce_products( $checkpoint );
+		if ( is_wp_error( $woo_result ) ) {
+			return $woo_result;
+		}
+		$woo_rows = $woo_result['products'];
+		if ( is_callable( $checkpoint ) && false === call_user_func( $checkpoint, 'reconciling', 25, 0, count( $products ) + count( $woo_rows ) ) ) {
+			return $this->snapshot_cancelled_error();
+		}
+		$snapshot_revision = 'sha256:' . hash(
+			'sha256',
+			wp_json_encode(
+				array(
+					'generation'  => $this->cache_generation(),
+					'source'      => $source,
+					'products'    => $products,
+					'woocommerce' => $woo_rows,
+					'integrity'   => $woo_result['integrity_warnings'],
+				),
+				JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+			)
+		);
+		$woo_by_code       = array();
 
 		foreach ( $woo_rows as $woo ) {
 			if ( ! isset( $woo['product_code'] ) || '' === $woo['product_code'] ) {
@@ -234,7 +442,16 @@ final class Digitalogic_Report_Engine {
 		$source_code_index = array();
 
 		$source_available = in_array( $selection['status'], array( 'current', 'static' ), true );
+		$source_processed = 0;
 		foreach ( $source_available ? $products : array() as $key => $product ) {
+			++$source_processed;
+			if (
+				0 === $source_processed % 250
+				&& is_callable( $checkpoint )
+				&& false === call_user_func( $checkpoint, 'reconciling', 30, $source_processed, count( $products ) + count( $woo_rows ) )
+			) {
+				return $this->snapshot_cancelled_error();
+			}
 			if ( ! is_array( $product ) || ! is_string( $product['product_code'] ?? null ) ) {
 				continue;
 			}
@@ -284,8 +501,17 @@ final class Digitalogic_Report_Engine {
 			}
 		}
 
-		$woo_only = 0;
+		$woo_only      = 0;
+		$woo_processed = 0;
 		foreach ( $source_available ? $woo_rows : array() as $woo ) {
+			++$woo_processed;
+			if (
+				0 === $woo_processed % 250
+				&& is_callable( $checkpoint )
+				&& false === call_user_func( $checkpoint, 'reconciling', 40, count( $products ) + $woo_processed, count( $products ) + count( $woo_rows ) )
+			) {
+				return $this->snapshot_cancelled_error();
+			}
 			if ( isset( $matched_woo_ids[ $woo['id'] ] ) ) {
 				continue;
 			}
@@ -309,6 +535,9 @@ final class Digitalogic_Report_Engine {
 				return 0 !== $code ? $code : (int) ( $left['woo_id'] ?? 0 ) <=> (int) ( $right['woo_id'] ?? 0 );
 			}
 		);
+		if ( is_callable( $checkpoint ) && false === call_user_func( $checkpoint, 'reconciling', 50, count( $rows ), count( $rows ) ) ) {
+			return $this->snapshot_cancelled_error();
+		}
 
 		$definitions = $this->category_definitions();
 		$categories  = array();
@@ -354,9 +583,13 @@ final class Digitalogic_Report_Engine {
 			)
 		);
 		$total         = count( $selected_rows );
-		$pages         = max( 1, (int) ceil( $total / $args['per_page'] ) );
-		$page          = min( $args['page'], $pages );
-		$page_rows     = array_slice( $selected_rows, ( $page - 1 ) * $args['per_page'], $args['per_page'] );
+		$complete      = ! empty( $args['complete'] );
+		$per_page      = $complete ? max( 1, $total ) : $args['per_page'];
+		$pages         = $complete ? 1 : max( 1, (int) ceil( $total / $per_page ) );
+		$page          = $complete ? 1 : min( $args['page'], $pages );
+		$page_rows     = $complete
+			? $selected_rows
+			: array_slice( $selected_rows, ( $page - 1 ) * $per_page, $per_page );
 
 		foreach ( $page_rows as $row ) {
 			foreach ( $row['issues'] as $issue ) {
@@ -367,42 +600,48 @@ final class Digitalogic_Report_Engine {
 		}
 
 		$report = array(
-			'generated_at' => current_time( 'mysql' ),
-			'status'       => $selection['status'],
-			'brand'        => array(
+			'generated_at'      => current_time( 'mysql' ),
+			'snapshot_revision' => $snapshot_revision,
+			'status'            => $selection['status'],
+			'brand'             => array(
 				'en' => 'Digitalogic',
 				'fa' => 'دیجیتالاجیک',
 			),
-			'view'         => $args['view'],
-			'counts'       => array(
-				'woocommerce_products'      => count( $woo_rows ),
-				'patris_products'           => count( $products ),
-				'matched_products'          => $matched,
-				'source_only_products'      => $source_only,
+			'view'              => $args['view'],
+			'counts'            => array(
+				'woocommerce_products_raw'      => count( $woo_rows ) + $woo_result['variable_parents_excluded'],
+				'woocommerce_products'          => count( $woo_rows ),
+				'patris_products'               => count( $products ),
+				'matched_products'              => $matched,
+				'source_only_products'          => $source_only,
 				'positive_source_only_products' => $positive_only,
-				'woocommerce_only_products' => $woo_only,
-				'ambiguous_codes'           => $ambiguous,
-				'warning_products'          => $warning_products,
-				'drift_products'            => $drift_products,
-				'variable_parents_excluded' => $woo_result['variable_parents_excluded'],
+				'woocommerce_only_products'     => $woo_only,
+				'ambiguous_codes'               => $ambiguous,
+				'warning_products'              => $warning_products,
+				'drift_products'                => $drift_products,
+				'variable_parents_excluded'     => $woo_result['variable_parents_excluded'],
 			),
-			'pagination'   => array(
+			'pagination'        => array(
 				'page'     => $page,
-				'per_page' => $args['per_page'],
+				'per_page' => $per_page,
 				'total'    => $total,
 				'pages'    => $pages,
 			),
-			'limits'       => array(
+			'limits'            => array(
 				'max_source_products'      => self::MAX_SOURCE_PRODUCTS,
 				'max_woocommerce_products' => self::MAX_WOO_PRODUCTS,
 				'source_truncated'         => $truncated,
 				'woocommerce_truncated'    => $woo_result['truncated'],
 			),
-			'filters'      => array(
+			'filters'           => array(
 				'category' => $args['category'],
 			),
-			'rows'         => $page_rows,
-			'categories'   => array_values( $categories ),
+			'integrity'         => array(
+				'status'   => empty( $woo_result['integrity_warnings'] ) ? 'current' : 'warning',
+				'warnings' => $woo_result['integrity_warnings'],
+			),
+			'rows'              => $page_rows,
+			'categories'        => array_values( $categories ),
 		);
 
 		if ( ! empty( $source ) ) {
@@ -410,6 +649,18 @@ final class Digitalogic_Report_Engine {
 		}
 
 		return $report;
+	}
+
+	/** Return a stable cooperative-cancellation error for snapshot workers. */
+	private function snapshot_cancelled_error() {
+		return new WP_Error(
+			'digitalogic_pricing_snapshot_cancelled',
+			__( 'The pricing snapshot build was cancelled.', 'digitalogic' ),
+			array(
+				'status'    => 409,
+				'retryable' => false,
+			)
+		);
 	}
 
 	/**
@@ -429,13 +680,24 @@ final class Digitalogic_Report_Engine {
 		} catch ( Throwable $error ) {
 			return null;
 		}
-		if ( ! $found || ! is_array( $report ) || ! isset( $report['_cache_generation'] ) ) {
+		if (
+			! $found
+			|| ! is_array( $report )
+			|| ! isset( $report['_cache_generation'], $report['_cache_freshness_revision'] )
+		) {
 			return null;
 		}
 
 		$cached_generation = (string) $report['_cache_generation'];
-		unset( $report['_cache_generation'] );
-		if ( ! hash_equals( $this->cache_generation(), $cached_generation ) ) {
+		$cached_freshness  = (string) $report['_cache_freshness_revision'];
+		unset( $report['_cache_generation'], $report['_cache_freshness_revision'] );
+		if (
+			! hash_equals( $this->cache_generation(), $cached_generation )
+			|| ! hash_equals(
+				$this->cache_freshness_revision( $args ),
+				$cached_freshness
+			)
+		) {
 			$this->delete_cached_report( $args );
 			return null;
 		}
@@ -445,15 +707,37 @@ final class Digitalogic_Report_Engine {
 
 	/** Invalidate every request-shaped report without requiring a key registry. */
 	public function invalidate_cache() {
-		$token                        = $this->new_cache_token();
-		$this->local_cache_generation = $token;
+		$token  = $this->new_cache_token();
+		$stored = update_option( self::CACHE_GENERATION_OPTION, $token, false )
+			|| get_option( self::CACHE_GENERATION_OPTION, null ) === $token;
+		if ( ! $stored ) {
+			$stored = add_option( self::CACHE_GENERATION_OPTION, $token, '', false )
+				|| get_option( self::CACHE_GENERATION_OPTION, null ) === $token;
+		}
+		if ( $stored ) {
+			$this->local_cache_generation = $token;
+		}
 		if ( function_exists( 'wp_cache_set' ) ) {
 			try {
-				wp_cache_set( self::CACHE_GENERATION_KEY, $token, self::CACHE_GROUP, 0 );
+				if ( function_exists( 'wp_cache_delete' ) ) {
+					wp_cache_delete( self::CACHE_GENERATION_KEY, self::CACHE_GROUP );
+				}
+				wp_cache_set(
+					self::CACHE_GENERATION_KEY,
+					$this->local_cache_generation,
+					self::CACHE_GROUP,
+					0
+				);
 			} catch ( Throwable $error ) {
 				// A cache backend outage must not make product writes fail.
+				unset( $error );
 			}
 		}
+		if ( $stored ) {
+			do_action( 'digitalogic_report_projection_invalidated', $token );
+		}
+
+		return $stored;
 	}
 
 	/** Invalidate reports when an option that feeds reconciliation changes. */
@@ -473,6 +757,95 @@ final class Digitalogic_Report_Engine {
 		$this->invalidate_cache_for_option( $option );
 	}
 
+	/** Invalidate when a WooCommerce leaf or parent is about to be deleted. */
+	public function invalidate_cache_for_deleted_product( $post_id ) {
+		if ( in_array( get_post_type( $post_id ), array( 'product', 'product_variation' ), true ) ) {
+			$this->invalidate_cache();
+		}
+	}
+
+	/** Invalidate taxonomy-only changes that alter product identity/projection. */
+	public function invalidate_cache_for_product_terms( $object_id, $terms, $tt_ids, $taxonomy ) {
+		unset( $terms, $tt_ids );
+		if (
+			'product_type' === (string) $taxonomy
+			&& 'product' === get_post_type( $object_id )
+			&& class_exists( 'WC_Cache_Helper' )
+			&& is_callable( array( 'WC_Cache_Helper', 'invalidate_cache_group' ) )
+		) {
+			if ( function_exists( 'clean_object_term_cache' ) ) {
+				clean_object_term_cache( (int) $object_id, 'product' );
+			}
+			WC_Cache_Helper::invalidate_cache_group( 'product_' . (int) $object_id );
+		}
+		if (
+			in_array( (string) $taxonomy, array( 'product_type', 'product_cat', 'pa_model' ), true )
+			&& in_array( get_post_type( $object_id ), array( 'product', 'product_variation' ), true )
+		) {
+			$this->invalidate_cache();
+		}
+	}
+
+	/** Invalidate direct assignment/meta writes consumed by excel-v1 rows. */
+	public function invalidate_cache_for_product_meta( $meta_id, $object_id, $meta_key ) {
+		unset( $meta_id );
+		$meta_key = (string) $meta_key;
+		$consumed = array(
+			'_sku',
+			'_product_attributes',
+			'_regular_price',
+			'_price',
+			'_sale_price',
+			'_stock',
+			'_manage_stock',
+			'_stock_status',
+			'_weight',
+			'_thumbnail_id',
+			'_digitalogic_shipping_method_id',
+			'_digitalogic_markup',
+			'_digitalogic_markup_type',
+			'_digitalogic_patris_product_code',
+			'_digitalogic_patris_name',
+			'_digitalogic_patris_serial',
+			'_digitalogic_patris_unit',
+			'_digitalogic_patris_sale_price_source',
+			'_digitalogic_patris_partner_price_source',
+			'_digitalogic_patris_foreign_currency',
+			'_digitalogic_patris_foreign_price',
+			'_digitalogic_patris_price_source_amount',
+			'_digitalogic_patris_price_source_currency',
+			'_digitalogic_patris_price_source_kind',
+			'_digitalogic_patris_weight_grams',
+			'_digitalogic_patris_total_stock',
+			'_digitalogic_patris_minimum_stock',
+			'_digitalogic_patris_warehouse_stock',
+			'_digitalogic_patris_location',
+			'_digitalogic_patris_shipping_method_id',
+			'_digitalogic_patris_shipping_price_per_kg',
+			'_digitalogic_patris_shipping_price_per_kg_currency',
+			'_digitalogic_patris_markup_percent',
+			'_digitalogic_patris_irt_per_cny',
+			'_digitalogic_patris_final_price',
+			'_digitalogic_patris_price_rounding_digits',
+			'_digitalogic_patris_price_rounding_mode',
+			'_digitalogic_patris_price_status',
+			'_digitalogic_patris_updated_at',
+			'_digitalogic_patris_flags',
+			'_digitalogic_patris_null_fields',
+			'_digitalogic_patris_missing_fields',
+			'_digitalogic_patris_record_hash',
+			'attribute_pa_model',
+			'_wp_attached_file',
+			'_wp_attachment_metadata',
+		);
+		if (
+			( in_array( $meta_key, $consumed, true ) || str_starts_with( $meta_key, 'attribute_' ) )
+			&& in_array( get_post_type( $object_id ), array( 'product', 'product_variation', 'attachment' ), true )
+		) {
+			$this->invalidate_cache();
+		}
+	}
+
 	/** Return whether an option contributes to report output. */
 	private function is_report_option( $option ) {
 		return in_array(
@@ -489,10 +862,65 @@ final class Digitalogic_Report_Engine {
 				'yuan_price',
 				'options_dollar_price',
 				'options_yuan_price',
+				'options_update_date',
+				'update_date',
+				Digitalogic_Excel_Pricing_Sync::SETTINGS_OPTION,
 				'woocommerce_currency',
+				'woocommerce_weight_unit',
+				'home',
+				'siteurl',
+				'permalink_structure',
+				'upload_path',
+				'upload_url_path',
 			),
 			true
 		);
+	}
+
+	/**
+	 * Hash the exact source rows whose time-relative freshness warning is active.
+	 *
+	 * This bounded metadata pass avoids a WooCommerce/report rebuild while still
+	 * changing the cheap composite revision at every stale-source transition.
+	 */
+	private function source_freshness_revision( $source_id, $dataset ) {
+		$state       = Digitalogic_Product_Sync_Receiver::instance()->get_source_state( (string) $source_id, (string) $dataset );
+		$products    = is_array( $state['products'] ?? null ) ? $state['products'] : array();
+		$settings    = Digitalogic_Patris_Feed::instance()->get_settings();
+		$stale_hours = max( 1, absint( $settings['stale_after_hours'] ?? 48 ) );
+		$stale_keys  = array();
+		foreach ( $products as $key => $product ) {
+			$updated_at = is_array( $product ) ? ( $product['source_updated_at'] ?? null ) : null;
+			if ( $this->is_stale( $updated_at, $stale_hours ) ) {
+				$stale_keys[] = (string) $key;
+			}
+		}
+		sort( $stale_keys, SORT_STRING );
+
+		return 'sha256:' . hash(
+			'sha256',
+			wp_json_encode(
+				array(
+					'stale_after_hours' => $stale_hours,
+					'stale_keys'        => $stale_keys,
+				),
+				JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+			)
+		);
+	}
+
+	/** Resolve the exact source selected by a report shape and hash freshness. */
+	private function cache_freshness_revision( $args ) {
+		$source_id = (string) ( $args['source_id'] ?? '' );
+		$dataset   = (string) ( $args['dataset'] ?? '' );
+		if ( '' === $source_id && '' === $dataset ) {
+			$selection = $this->select_source_state( $args );
+			$source    = is_array( $selection['source'] ?? null ) ? $selection['source'] : array();
+			$source_id = (string) ( $source['id'] ?? '' );
+			$dataset   = (string) ( $source['dataset'] ?? '' );
+		}
+
+		return $this->source_freshness_revision( $source_id, $dataset );
 	}
 
 	/** Acquire the lock for this exact normalized report page. */
@@ -552,25 +980,39 @@ final class Digitalogic_Report_Engine {
 	}
 
 	/** Publish a cache entry only if no source mutation raced the build. */
-	private function set_cached_report( $args, $report, $build_generation ) {
+	private function set_cached_report( $args, $report, $build_generation, $build_freshness ) {
 		if ( ! function_exists( 'wp_cache_set' ) || ! is_array( $report ) ) {
 			return true;
 		}
 
 		$build_generation = (string) $build_generation;
-		if ( ! hash_equals( $build_generation, $this->cache_generation() ) ) {
+		$build_freshness  = (string) $build_freshness;
+		if (
+			! hash_equals( $build_generation, $this->cache_generation() )
+			|| ! hash_equals(
+				$build_freshness,
+				$this->cache_freshness_revision( $args )
+			)
+		) {
 			return false;
 		}
 
-		$cached_report                      = $report;
-		$cached_report['_cache_generation'] = $build_generation;
+		$cached_report                              = $report;
+		$cached_report['_cache_generation']         = $build_generation;
+		$cached_report['_cache_freshness_revision'] = $build_freshness;
 		try {
 			wp_cache_set( $this->cache_key( $args ), $cached_report, self::CACHE_GROUP, self::CACHE_TTL );
 		} catch ( Throwable $error ) {
 			return true;
 		}
 
-		if ( ! hash_equals( $build_generation, $this->cache_generation() ) ) {
+		if (
+			! hash_equals( $build_generation, $this->cache_generation() )
+			|| ! hash_equals(
+				$build_freshness,
+				$this->cache_freshness_revision( $args )
+			)
+		) {
 			$this->delete_cached_report( $args );
 			return false;
 		}
@@ -580,20 +1022,16 @@ final class Digitalogic_Report_Engine {
 
 	/** Read the current source-generation token. */
 	private function cache_generation() {
-		if ( ! function_exists( 'wp_cache_get' ) ) {
-			return $this->local_cache_generation;
+		$generation = get_option( self::CACHE_GENERATION_OPTION, '' );
+		if ( is_string( $generation ) && '' !== $generation ) {
+			$this->local_cache_generation = $generation;
+
+			return $generation;
 		}
 
-		$found = false;
-		try {
-			$generation = wp_cache_get( self::CACHE_GENERATION_KEY, self::CACHE_GROUP, false, $found );
-		} catch ( Throwable $error ) {
-			return $this->local_cache_generation;
-		}
+		$this->local_cache_generation = '';
 
-		return $found && is_string( $generation ) && '' !== $generation
-			? $generation
-			: $this->local_cache_generation;
+		return '';
 	}
 
 	/** Create an ownership/generation token. */
@@ -629,10 +1067,11 @@ final class Digitalogic_Report_Engine {
 			'category'  => (string) $args['category'],
 			'page'      => (int) $args['page'],
 			'per_page'  => (int) $args['per_page'],
+			'complete'  => ! empty( $args['complete'] ),
 			'source_id' => (string) $args['source_id'],
 			'dataset'   => (string) $args['dataset'],
 		);
-		$json = function_exists( 'wp_json_encode' ) ? wp_json_encode( $shape ) : json_encode( $shape );
+		$json  = function_exists( 'wp_json_encode' ) ? wp_json_encode( $shape ) : json_encode( $shape );
 
 		return 'current-v3-' . md5( (string) $json );
 	}
@@ -798,25 +1237,40 @@ final class Digitalogic_Report_Engine {
 	 * Variable parents are intentionally excluded: only purchasable leaf records
 	 * participate in Code matching and drift checks.
 	 *
-	 * @return array{products:array,variable_parents_excluded:int,truncated:bool}
+	 * Product objects can carry a stale WooCommerce product-type cache even
+	 * after their durable product_type taxonomy relationship is correct. The
+	 * projection therefore classifies parents from an uncached taxonomy
+	 * readback and reports every object/taxonomy disagreement as an integrity
+	 * warning. Consumers must not accept a catalog while such a warning exists.
+	 *
+	 * @param callable|null $checkpoint Optional cancellation/progress checkpoint.
+	 * @return array{products:array,variable_parents_excluded:int,truncated:bool,integrity_warnings:array}|WP_Error
 	 */
-	private function get_woocommerce_products() {
-		$rows              = array();
-		$variable_excluded = 0;
-		$fetched           = 0;
-		$page              = 1;
-		$truncated         = false;
-		$statuses          = array( 'publish', 'draft', 'pending', 'private' );
-		$product_types     = function_exists( 'wc_get_product_types' )
+	private function get_woocommerce_products( $checkpoint = null ) {
+		$rows               = array();
+		$variable_excluded  = 0;
+		$integrity_warnings = array();
+		$fetched            = 0;
+		$page               = 1;
+		$truncated          = false;
+		$statuses           = array( 'publish', 'draft', 'pending', 'private' );
+		$product_types      = function_exists( 'wc_get_product_types' )
 			? array_keys( (array) wc_get_product_types() )
 			: array( 'simple', 'grouped', 'external', 'variable' );
-		$product_types[]   = 'variation';
-		$product_types     = array_values( array_unique( $product_types ) );
+		$product_types[]    = 'variation';
+		$product_types      = array_values( array_unique( $product_types ) );
 
 		while ( $fetched <= self::MAX_WOO_PRODUCTS ) {
-			$remaining = self::MAX_WOO_PRODUCTS + 1 - $fetched;
-			$limit     = min( self::WOO_BATCH_SIZE, $remaining );
-			$batch     = wc_get_products(
+			if (
+				is_callable( $checkpoint )
+				&& false === call_user_func( $checkpoint, 'loading_woocommerce', 12 + min( 12, (int) floor( 12 * $fetched / self::MAX_WOO_PRODUCTS ) ), $fetched, self::MAX_WOO_PRODUCTS )
+			) {
+				return $this->snapshot_cancelled_error();
+			}
+			// Keep page size fixed. Changing `limit` on the sentinel request would
+			// change the page offset and re-read an earlier product at the 10k cap.
+			$limit = self::WOO_BATCH_SIZE;
+			$batch = wc_get_products(
 				array(
 					'status'  => $statuses,
 					'type'    => $product_types,
@@ -826,11 +1280,20 @@ final class Digitalogic_Report_Engine {
 					'order'   => 'ASC',
 				)
 			);
-			$batch     = is_array( $batch ) ? $batch : array();
+			$batch = is_array( $batch ) ? $batch : array();
 			if ( empty( $batch ) ) {
 				break;
 			}
-			$batch_count = count( $batch );
+			$batch_count   = count( $batch );
+			$type_readback = $this->uncached_product_types( $batch );
+			if ( is_wp_error( $type_readback ) ) {
+				$integrity_warnings[] = array(
+					'code'     => 'projection_integrity_product_type_readback_failed',
+					'severity' => 'critical',
+					'message'  => $type_readback->get_error_message(),
+				);
+				$type_readback        = array();
+			}
 
 			foreach ( $batch as $product ) {
 				++$fetched;
@@ -841,7 +1304,27 @@ final class Digitalogic_Report_Engine {
 				if ( ! $product instanceof WC_Product ) {
 					continue;
 				}
-				if ( $product->is_type( 'variable' ) ) {
+				$product_id   = (int) $product->get_id();
+				$object_type  = (string) $product->get_type();
+				$durable_type = isset( $type_readback[ $product_id ] )
+					? (string) $type_readback[ $product_id ]['type']
+					: $object_type;
+				$type_issues  = isset( $type_readback[ $product_id ] )
+					? (array) $type_readback[ $product_id ]['issues']
+					: array();
+				foreach ( $type_issues as $type_issue ) {
+					$integrity_warnings[] = $type_issue;
+				}
+				if ( $durable_type !== $object_type ) {
+					$integrity_warnings[] = array(
+						'code'           => 'product_type_cache_drift',
+						'severity'       => 'critical',
+						'woocommerce_id' => $product_id,
+						'durable_type'   => $durable_type,
+						'object_type'    => $object_type,
+					);
+				}
+				if ( 'variable' === $durable_type ) {
 					++$variable_excluded;
 					continue;
 				}
@@ -860,7 +1343,89 @@ final class Digitalogic_Report_Engine {
 			'products'                  => $rows,
 			'variable_parents_excluded' => $variable_excluded,
 			'truncated'                 => $truncated,
+			'integrity_warnings'        => array_values( $integrity_warnings ),
 		);
+	}
+
+	/**
+	 * Resolve durable product types without consulting relationship caches.
+	 *
+	 * @param WC_Product[] $products Current WooCommerce batch.
+	 * @return array|WP_Error Map keyed by product ID.
+	 */
+	private function uncached_product_types( $products ) {
+		$ids = array();
+		foreach ( (array) $products as $product ) {
+			if ( $product instanceof WC_Product && $product->get_id() > 0 ) {
+				$ids[] = (int) $product->get_id();
+			}
+		}
+		$ids = array_values( array_unique( $ids ) );
+		if ( empty( $ids ) ) {
+			return array();
+		}
+
+		$terms = wp_get_object_terms(
+			$ids,
+			'product_type',
+			array(
+				'fields'  => 'all_with_object_id',
+				'orderby' => 'none',
+			)
+		);
+		if ( is_wp_error( $terms ) ) {
+			return $terms;
+		}
+
+		$term_types = array();
+		foreach ( (array) $terms as $term ) {
+			if ( ! is_object( $term ) || ! isset( $term->object_id ) ) {
+				continue;
+			}
+			$product_id = (int) $term->object_id;
+			$type       = sanitize_title( (string) ( $term->slug ?? $term->name ?? '' ) );
+			if ( $product_id > 0 && '' !== $type ) {
+				$term_types[ $product_id ][ $type ] = true;
+			}
+		}
+
+		$result = array();
+		foreach ( $ids as $product_id ) {
+			$post_type = (string) get_post_type( $product_id );
+			$issues    = array();
+			if ( 'product_variation' === $post_type ) {
+				$durable_type = 'variation';
+			} elseif ( 'product' === $post_type ) {
+				$types = array_keys( $term_types[ $product_id ] ?? array() );
+				sort( $types, SORT_STRING );
+				if ( count( $types ) > 1 ) {
+					$issues[] = array(
+						'code'           => 'projection_integrity_product_type_taxonomy_ambiguous',
+						'severity'       => 'critical',
+						'woocommerce_id' => $product_id,
+						'durable_types'  => $types,
+					);
+				}
+				$durable_type = in_array( 'variable', $types, true )
+					? 'variable'
+					: ( empty( $types ) ? 'simple' : reset( $types ) );
+			} else {
+				$durable_type = '';
+				$issues[]     = array(
+					'code'           => 'projection_integrity_product_post_type_invalid',
+					'severity'       => 'critical',
+					'woocommerce_id' => $product_id,
+					'post_type'      => $post_type,
+				);
+			}
+
+			$result[ $product_id ] = array(
+				'type'   => $durable_type,
+				'issues' => $issues,
+			);
+		}
+
+		return $result;
 	}
 
 	/** Release per-batch WordPress runtime objects when the cache supports it. */
@@ -1136,7 +1701,7 @@ final class Digitalogic_Report_Engine {
 					)
 				);
 			}
-			$attention_warnings     = array_values(
+			$attention_warnings = array_values(
 				array_diff(
 					$row['source_warnings'],
 					$ignored_warnings
@@ -1338,21 +1903,20 @@ final class Digitalogic_Report_Engine {
 	private function append_drift_issues( &$row, $source, $woo ) {
 		$canonical = is_array( $woo['canonical'] ?? null ) ? $woo['canonical'] : array();
 
-		if ( array_key_exists( 'final_price', $source ) && null !== $source['final_price'] ) {
-			$stock_unavailable  = array_key_exists( 'total_stock', $source )
-				&& null !== $source['total_stock']
-				&& is_numeric( $source['total_stock'] )
-				&& $this->decimal_compare_zero( $source['total_stock'] ) <= 0;
-			$expected_woo_price = $this->decimal_compare_zero( $source['final_price'] ) <= 0 || $stock_unavailable
-				? '0'
-				: $source['final_price'];
-			$price_fields = array();
+		if (
+			array_key_exists( 'final_price', $source )
+			&& null !== $source['final_price']
+			&& is_numeric( $source['final_price'] )
+			&& $this->decimal_compare_zero( $source['final_price'] ) > 0
+		) {
+			$expected_woo_price = $source['final_price'];
+			$price_fields       = array();
 			foreach ( array( 'regular_price', 'active_price' ) as $field ) {
 				if ( ! $this->values_equal( $expected_woo_price, $woo[ $field ] ) ) {
 					$price_fields[] = $field;
 				}
 			}
-			if ( '' !== $woo['sale_price'] && ! $this->values_equal( $expected_woo_price, $woo['sale_price'] ) ) {
+			if ( '' !== trim( (string) $woo['sale_price'] ) ) {
 				$price_fields[] = 'sale_price';
 			}
 			if ( ! array_key_exists( 'final_price', $canonical ) || ! $this->values_equal( $source['final_price'], $canonical['final_price'] ) ) {
@@ -1370,8 +1934,8 @@ final class Digitalogic_Report_Engine {
 					? 0
 					: max( 1, (int) floor( (float) $source['total_stock'] ) );
 			}
-			$drift              = ! $this->values_equal( $expected_woo_stock, $woo['stock_quantity'] );
-			$drift              = $drift || ! array_key_exists( 'total_stock', $canonical ) || ! $this->values_equal( $source['total_stock'], $canonical['total_stock'] );
+			$drift = ! $this->values_equal( $expected_woo_stock, $woo['stock_quantity'] );
+			$drift = $drift || ! array_key_exists( 'total_stock', $canonical ) || ! $this->values_equal( $source['total_stock'], $canonical['total_stock'] );
 			if ( $drift ) {
 				$this->add_issue( $row, 'stock_drift' );
 			}
@@ -1467,17 +2031,17 @@ final class Digitalogic_Report_Engine {
 	 */
 	private function category_definitions() {
 		return array(
-			'missing_in_woocommerce'      => array( __( 'In source but missing in WooCommerce', 'digitalogic' ), 'danger' ),
+			'missing_in_woocommerce'                => array( __( 'In source but missing in WooCommerce', 'digitalogic' ), 'danger' ),
 			'positive_stock_missing_in_woocommerce' => array( __( 'Positive-stock product missing in WooCommerce', 'digitalogic' ), 'danger' ),
-			'missing_in_patris'           => array( __( 'In WooCommerce but missing in source', 'digitalogic' ), 'warning' ),
-			'missing_product_code'        => array( __( 'Missing exact product Code metadata', 'digitalogic' ), 'danger' ),
-			'duplicate_product_code'      => array( __( 'Duplicate exact product Code metadata', 'digitalogic' ), 'danger' ),
-			'source_warning'              => array( __( 'Source warnings require attention', 'digitalogic' ), 'warning' ),
-			'missing_foreign_currency'    => array( __( 'Missing foreign currency', 'digitalogic' ), 'warning' ),
-			'null_foreign_currency'       => array( __( 'Foreign currency is explicitly null', 'digitalogic' ), 'warning' ),
-			'unexpected_foreign_currency' => array( __( 'Foreign currency is not CNY', 'digitalogic' ), 'warning' ),
-			'missing_foreign_price'       => array( __( 'Missing CNY price', 'digitalogic' ), 'warning' ),
-			'null_foreign_price'          => array( __( 'CNY price is explicitly null', 'digitalogic' ), 'warning' ),
+			'missing_in_patris'                     => array( __( 'In WooCommerce but missing in source', 'digitalogic' ), 'warning' ),
+			'missing_product_code'                  => array( __( 'Missing exact product Code metadata', 'digitalogic' ), 'danger' ),
+			'duplicate_product_code'                => array( __( 'Duplicate exact product Code metadata', 'digitalogic' ), 'danger' ),
+			'source_warning'                        => array( __( 'Source warnings require attention', 'digitalogic' ), 'warning' ),
+			'missing_foreign_currency'              => array( __( 'Missing foreign currency', 'digitalogic' ), 'warning' ),
+			'null_foreign_currency'                 => array( __( 'Foreign currency is explicitly null', 'digitalogic' ), 'warning' ),
+			'unexpected_foreign_currency'           => array( __( 'Foreign currency is not CNY', 'digitalogic' ), 'warning' ),
+			'missing_foreign_price'                 => array( __( 'Missing CNY price', 'digitalogic' ), 'warning' ),
+			'null_foreign_price'                    => array( __( 'CNY price is explicitly null', 'digitalogic' ), 'warning' ),
 			'zero_foreign_price'                    => array( __( 'CNY price is zero or non-positive', 'digitalogic' ), 'warning' ),
 			'missing_partner_price'                 => array( __( 'Missing partner price', 'digitalogic' ), 'warning' ),
 			'null_partner_price'                    => array( __( 'Partner price is explicitly null', 'digitalogic' ), 'warning' ),
@@ -1490,38 +2054,38 @@ final class Digitalogic_Report_Engine {
 			'invalid_price_source'                  => array( __( 'Selected price-source provenance is invalid', 'digitalogic' ), 'danger' ),
 			'partner_price_fallback'                => array( __( 'Partner-price fallback selected', 'digitalogic' ), 'info' ),
 			'sale_price_direct_fallback'            => array( __( 'Direct source sale-price fallback selected', 'digitalogic' ), 'info' ),
-			'missing_weight'              => array( __( 'Missing weight', 'digitalogic' ), 'warning' ),
-			'null_weight'                 => array( __( 'Weight is explicitly null', 'digitalogic' ), 'warning' ),
-			'missing_stock'               => array( __( 'Missing stock', 'digitalogic' ), 'warning' ),
-			'null_stock'                  => array( __( 'Stock is explicitly null', 'digitalogic' ), 'warning' ),
-			'missing_final_price'         => array( __( 'Missing calculated price', 'digitalogic' ), 'danger' ),
-			'null_final_price'            => array( __( 'Calculated price is explicitly null', 'digitalogic' ), 'danger' ),
-			'missing_shipping'            => array( __( 'Missing shipping price inputs', 'digitalogic' ), 'warning' ),
-			'null_shipping'               => array( __( 'Shipping price inputs contain explicit null', 'digitalogic' ), 'warning' ),
-			'invalid_domestic_shipping'   => array( __( 'Domestic price source must use the zero-rate domestic method in IRR', 'digitalogic' ), 'danger' ),
-			'missing_markup'              => array( __( 'Missing profit margin', 'digitalogic' ), 'warning' ),
-			'null_markup'                 => array( __( 'Profit margin is explicitly null', 'digitalogic' ), 'warning' ),
-			'missing_exchange_rate'       => array( __( 'Missing CNY exchange rate', 'digitalogic' ), 'warning' ),
-			'null_exchange_rate'          => array( __( 'CNY exchange rate is explicitly null', 'digitalogic' ), 'warning' ),
+			'missing_weight'                        => array( __( 'Missing weight', 'digitalogic' ), 'warning' ),
+			'null_weight'                           => array( __( 'Weight is explicitly null', 'digitalogic' ), 'warning' ),
+			'missing_stock'                         => array( __( 'Missing stock', 'digitalogic' ), 'warning' ),
+			'null_stock'                            => array( __( 'Stock is explicitly null', 'digitalogic' ), 'warning' ),
+			'missing_final_price'                   => array( __( 'Missing calculated price', 'digitalogic' ), 'danger' ),
+			'null_final_price'                      => array( __( 'Calculated price is explicitly null', 'digitalogic' ), 'danger' ),
+			'missing_shipping'                      => array( __( 'Missing shipping price inputs', 'digitalogic' ), 'warning' ),
+			'null_shipping'                         => array( __( 'Shipping price inputs contain explicit null', 'digitalogic' ), 'warning' ),
+			'invalid_domestic_shipping'             => array( __( 'Domestic price source must use the zero-rate domestic method in IRR', 'digitalogic' ), 'danger' ),
+			'missing_markup'                        => array( __( 'Missing profit margin', 'digitalogic' ), 'warning' ),
+			'null_markup'                           => array( __( 'Profit margin is explicitly null', 'digitalogic' ), 'warning' ),
+			'missing_exchange_rate'                 => array( __( 'Missing CNY exchange rate', 'digitalogic' ), 'warning' ),
+			'null_exchange_rate'                    => array( __( 'CNY exchange rate is explicitly null', 'digitalogic' ), 'warning' ),
 			'missing_rounding_digits'               => array( __( 'Missing price-rounding digits', 'digitalogic' ), 'warning' ),
 			'null_rounding_digits'                  => array( __( 'Price-rounding digits are explicitly null', 'digitalogic' ), 'warning' ),
 			'missing_rounding_mode'                 => array( __( 'Missing price-rounding mode', 'digitalogic' ), 'warning' ),
 			'null_rounding_mode'                    => array( __( 'Price-rounding mode is explicitly null', 'digitalogic' ), 'warning' ),
 			'invalid_rounding_policy'               => array( __( 'Price-rounding policy is invalid', 'digitalogic' ), 'danger' ),
-			'invalid_source_value'        => array( __( 'Invalid source value', 'digitalogic' ), 'danger' ),
-			'zero_stock'                  => array( __( 'Zero or negative stock', 'digitalogic' ), 'info' ),
-			'zero_price'                  => array( __( 'Zero or negative calculated price', 'digitalogic' ), 'danger' ),
-			'missing_source_updated_at'   => array( __( 'Missing source update time', 'digitalogic' ), 'warning' ),
-			'null_source_updated_at'      => array( __( 'Source update time is explicitly null', 'digitalogic' ), 'warning' ),
-			'stale_source'                => array( __( 'Stale source data', 'digitalogic' ), 'warning' ),
-			'price_drift'                 => array( __( 'Price differs from the current source', 'digitalogic' ), 'danger' ),
-			'stock_drift'                 => array( __( 'Stock differs from the current source', 'digitalogic' ), 'danger' ),
-			'stock_management_drift'      => array( __( 'Stock management differs from the current source', 'digitalogic' ), 'danger' ),
-			'stock_status_drift'          => array( __( 'Stock availability differs from the current source', 'digitalogic' ), 'danger' ),
-			'weight_drift'                => array( __( 'Weight differs from the current source', 'digitalogic' ), 'danger' ),
-			'record_hash_drift'           => array( __( 'Record hash differs from the current source', 'digitalogic' ), 'danger' ),
+			'invalid_source_value'                  => array( __( 'Invalid source value', 'digitalogic' ), 'danger' ),
+			'zero_stock'                            => array( __( 'Zero or negative stock', 'digitalogic' ), 'info' ),
+			'zero_price'                            => array( __( 'Zero or negative calculated price', 'digitalogic' ), 'danger' ),
+			'missing_source_updated_at'             => array( __( 'Missing source update time', 'digitalogic' ), 'warning' ),
+			'null_source_updated_at'                => array( __( 'Source update time is explicitly null', 'digitalogic' ), 'warning' ),
+			'stale_source'                          => array( __( 'Stale source data', 'digitalogic' ), 'warning' ),
+			'price_drift'                           => array( __( 'Price differs from the current source', 'digitalogic' ), 'danger' ),
+			'stock_drift'                           => array( __( 'Stock differs from the current source', 'digitalogic' ), 'danger' ),
+			'stock_management_drift'                => array( __( 'Stock management differs from the current source', 'digitalogic' ), 'danger' ),
+			'stock_status_drift'                    => array( __( 'Stock availability differs from the current source', 'digitalogic' ), 'danger' ),
+			'weight_drift'                          => array( __( 'Weight differs from the current source', 'digitalogic' ), 'danger' ),
+			'record_hash_drift'                     => array( __( 'Record hash differs from the current source', 'digitalogic' ), 'danger' ),
 			'pricing_provenance_drift'              => array( __( 'Price-source provenance differs in WooCommerce', 'digitalogic' ), 'danger' ),
-			'source_updated_at_drift'     => array( __( 'Source update time differs in WooCommerce', 'digitalogic' ), 'warning' ),
+			'source_updated_at_drift'               => array( __( 'Source update time differs in WooCommerce', 'digitalogic' ), 'warning' ),
 		);
 	}
 

@@ -2,8 +2,9 @@
 /**
  * Explicit Patris-to-WooCommerce storefront price policy.
  *
- * Canonical Patris price metadata, WooCommerce regular price, and the
- * effective storefront price are deliberately kept as separate values.
+ * The canonical calculated selling price is written as WooCommerce regular and
+ * effective price. WooCommerce's separate promotion field is always empty, so
+ * it can never make the customer-visible value diverge from the selling price.
  *
  * @package Digitalogic
  */
@@ -20,9 +21,16 @@ final class Digitalogic_Patris_Price_Policy {
 	public const OPTION_NAME    = 'digitalogic_patris_sale_policy';
 	public const PRESERVE_SALE  = 'preserve_sale';
 	public const REPLACE_SALE   = 'replace_sale';
+	public const CANONICAL_SALE = 'canonical_sale';
 	public const CANONICAL_META = '_digitalogic_patris_final_price';
 	public const STATUS_META    = '_digitalogic_patris_price_status';
 	public const POLICY_META    = '_digitalogic_patris_sale_policy';
+	public const WARNING_META   = '_digitalogic_patris_price_warning';
+
+	/**
+	 * Operator-visible warning used when weight is the missing price input.
+	 */
+	public const MISSING_WEIGHT_WARNING = 'وزن نامشخص؛ قیمت قبلی حفظ شد';
 
 	/**
 	 * Shared service instance.
@@ -45,26 +53,25 @@ final class Digitalogic_Patris_Price_Policy {
 	}
 
 	/**
-	 * Resolve the only supported active-sale policies.
+	 * Return the single managed-product sale policy.
 	 *
-	 * Unknown or missing values always fail back to promotion preservation.
+	 * The old option and constants remain readable for compatibility with
+	 * existing audit tooling, but they no longer select storefront behavior.
 	 *
 	 * @return string
 	 */
 	public function get_sale_policy() {
-		$policy = sanitize_key( (string) get_option( self::OPTION_NAME, self::PRESERVE_SALE ) );
-		$policy = apply_filters( 'digitalogic_patris_sale_policy', $policy );
-
-		return self::REPLACE_SALE === $policy ? self::REPLACE_SALE : self::PRESERVE_SALE;
+		return self::CANONICAL_SALE;
 	}
 
 	/**
-	 * Apply a canonical Patris price without conflating WooCommerce values.
+	 * Apply the canonical calculated selling price to Woo price projections.
 	 *
-	 * Variable containers remain canonical-only. Missing and non-positive
-	 * canonical prices never erase an existing commercial price. Promotions
-	 * are preserved unless an administrator has explicitly selected the
-	 * replacement policy.
+	 * Variable containers remain fail-closed because their variation prices
+	 * require a separate reconciliation. When weight is the only unavailable
+	 * price dependency, an already-valid regular/effective price pair is
+	 * preserved with an explicit warning until weight is supplied. Other
+	 * missing or non-positive canonical values clear the simple/variation price.
 	 *
 	 * @param WC_Product $product WooCommerce product or variation.
 	 * @param array      $data    Normalized Patris row.
@@ -78,6 +85,7 @@ final class Digitalogic_Patris_Price_Policy {
 		$is_variable = $product->is_type( 'variable' );
 
 		$product->update_meta_data( self::POLICY_META, $policy );
+		$product->delete_meta_data( self::WARNING_META );
 
 		if ( $is_variable ) {
 			$status = $has_price ? 'canonical_only_variable' : 'canonical_missing_variable';
@@ -87,31 +95,38 @@ final class Digitalogic_Patris_Price_Policy {
 		}
 
 		if ( ! $has_price || ! is_numeric( $canonical ) ) {
-			$status = 'canonical_missing_preserved';
+			if ( $this->weight_is_missing( $data ) && $this->has_preservable_storefront_price( $product ) ) {
+				$status = 'canonical_missing_preserved';
+				$product->update_meta_data( self::STATUS_META, $status );
+				$product->update_meta_data( self::WARNING_META, self::MISSING_WEIGHT_WARNING );
+
+				return $this->project( $product, null, $status, $policy );
+			}
+
+			$product->set_regular_price( '' );
+			$product->set_sale_price( '' );
+			$product->set_price( '' );
+			$status = 'canonical_missing_unpriced';
 			$product->update_meta_data( self::STATUS_META, $status );
 
 			return $this->project( $product, null, $status, $policy );
 		}
 
 		if ( (float) $canonical <= 0 ) {
-			$status = 'canonical_nonpositive_preserved';
+			$product->set_regular_price( '' );
+			$product->set_sale_price( '' );
+			$product->set_price( '' );
+			$status = 'canonical_nonpositive_unpriced';
 			$product->update_meta_data( self::STATUS_META, $status );
 
 			return $this->project( $product, $canonical, $status, $policy );
 		}
 
 		$canonical_string = $this->decimal_string( $canonical );
-		$had_sale         = '' !== trim( (string) $product->get_sale_price() );
 		$product->set_regular_price( $canonical_string );
-
-		if ( $had_sale && self::REPLACE_SALE === $policy ) {
-			$product->set_sale_price( '' );
-			$status = 'priced_sale_replaced';
-		} elseif ( $had_sale ) {
-			$status = 'priced_sale_preserved';
-		} else {
-			$status = 'priced';
-		}
+		$product->set_sale_price( '' );
+		$product->set_price( $canonical_string );
+		$status = 'priced';
 
 		$product->update_meta_data( self::STATUS_META, $status );
 
@@ -128,6 +143,13 @@ final class Digitalogic_Patris_Price_Policy {
 		$product_id = (int) $product->get_id();
 		wc_delete_product_transients( $product_id );
 		clean_post_cache( $product_id );
+		if (
+			class_exists( 'WC_Cache_Helper' )
+			&& is_callable( array( 'WC_Cache_Helper', 'invalidate_cache_group' ) )
+		) {
+			WC_Cache_Helper::invalidate_cache_group( 'product_' . $product_id );
+		}
+		clean_object_term_cache( $product_id, 'product' );
 	}
 
 	/**
@@ -148,7 +170,7 @@ final class Digitalogic_Patris_Price_Policy {
 		}
 		if ( null === $policy ) {
 			$stored_policy = (string) $product->get_meta( self::POLICY_META, true );
-			$policy        = in_array( $stored_policy, array( self::PRESERVE_SALE, self::REPLACE_SALE ), true )
+			$policy        = in_array( $stored_policy, array( self::CANONICAL_SALE ), true )
 				? $stored_policy
 				: $this->get_sale_policy();
 		}
@@ -156,21 +178,26 @@ final class Digitalogic_Patris_Price_Policy {
 		$regular   = (string) $product->get_regular_price();
 		$sale      = (string) $product->get_sale_price();
 		$effective = (string) $product->get_price();
+		$warning   = (string) $product->get_meta( self::WARNING_META, true );
 		$on_sale   = method_exists( $product, 'is_on_sale' )
 			? (bool) $product->is_on_sale()
 			: ( '' !== $sale && $this->prices_equal( $sale, $effective ) );
 
 		return array(
-			'canonical_patris_price'    => '' === (string) $canonical ? null : (string) $canonical,
-			'woo_regular_price'         => $regular,
-			'woo_sale_price'            => $sale,
-			'woo_effective_price'       => $effective,
-			'sale_policy'               => $policy,
-			'sale_active'               => $on_sale,
-			'price_source'              => $product->is_type( 'variable' ) ? 'variations' : ( $on_sale ? 'sale' : 'regular' ),
-			'policy_status'             => $status,
-			'canonical_matches_regular' => '' !== (string) $canonical && $this->prices_equal( $canonical, $regular ),
-			'canonical_only_variable'   => $product->is_type( 'variable' ),
+			'canonical_patris_price'     => '' === (string) $canonical ? null : (string) $canonical,
+			'woo_regular_price'          => $regular,
+			'woo_sale_price'             => $sale,
+			'woo_effective_price'        => $effective,
+			'sale_policy'                => $policy,
+			'sale_active'                => $on_sale,
+			'price_source'               => $product->is_type( 'variable' ) ? 'variations' : ( $on_sale ? 'sale' : 'regular' ),
+			'policy_status'              => $status,
+			'canonical_matches_regular'  => '' !== (string) $canonical && $this->prices_equal( $canonical, $regular ),
+			'canonical_matches_visible'  => '' !== (string) $canonical && $this->prices_equal( $canonical, $effective ),
+			'woo_sale_price_cleared'     => '' === trim( $sale ),
+			'canonical_only_variable'    => $product->is_type( 'variable' ),
+			'preserved_storefront_price' => 'canonical_missing_preserved' === $status,
+			'policy_warning'             => '' === $warning ? null : $warning,
 		);
 	}
 
@@ -201,13 +228,19 @@ final class Digitalogic_Patris_Price_Policy {
 			}
 			$projection = $this->project( $product );
 			$canonical  = $projection['canonical_patris_price'];
-			if ( null === $canonical ) {
+			if ( 'canonical_missing_preserved' === $projection['policy_status'] ) {
+				$audit_status = 'canonical_missing_preserved';
+			} elseif ( null === $canonical ) {
 				$audit_status = 'missing_canonical';
 			} elseif ( $projection['canonical_only_variable'] ) {
 				$audit_status = 'canonical_only_variable';
 			} elseif ( (float) $canonical <= 0 ) {
 				$audit_status = 'nonpositive_canonical';
-			} elseif ( $projection['canonical_matches_regular'] ) {
+			} elseif (
+				$projection['canonical_matches_regular']
+				&& $projection['canonical_matches_visible']
+				&& $projection['woo_sale_price_cleared']
+			) {
 				$audit_status = 'match';
 			} else {
 				$audit_status = 'different';
@@ -223,7 +256,7 @@ final class Digitalogic_Patris_Price_Policy {
 				'sale_policy'      => $projection['sale_policy'],
 				'price_source'     => $projection['price_source'],
 				'audit_status'     => $audit_status,
-				'needs_review'     => in_array( $audit_status, array( 'missing_canonical', 'different', 'nonpositive_canonical' ), true ) ? 'yes' : 'no',
+				'needs_review'     => in_array( $audit_status, array( 'canonical_missing_preserved', 'missing_canonical', 'different', 'nonpositive_canonical' ), true ) ? 'yes' : 'no',
 			);
 		}
 
@@ -243,6 +276,37 @@ final class Digitalogic_Patris_Price_Policy {
 		}
 
 		return rtrim( rtrim( sprintf( '%.14F', (float) $value ), '0' ), '.' );
+	}
+
+	/**
+	 * Whether weight is unavailable for the landed-price calculation.
+	 *
+	 * @param array $data Normalized Patris row.
+	 * @return bool
+	 */
+	private function weight_is_missing( $data ) {
+		return ! array_key_exists( 'weight_grams', $data )
+			|| null === $data['weight_grams']
+			|| ! is_numeric( $data['weight_grams'] )
+			|| (float) $data['weight_grams'] <= 0;
+	}
+
+	/**
+	 * Whether the current storefront price already satisfies the managed rule.
+	 *
+	 * @param WC_Product $product WooCommerce product or variation.
+	 * @return bool
+	 */
+	private function has_preservable_storefront_price( WC_Product $product ) {
+		$regular   = trim( (string) $product->get_regular_price() );
+		$effective = trim( (string) $product->get_price() );
+		$sale      = trim( (string) $product->get_sale_price() );
+
+		return '' !== $regular
+			&& is_numeric( $regular )
+			&& (float) $regular > 0
+			&& $this->prices_equal( $regular, $effective )
+			&& '' === $sale;
 	}
 
 	/**

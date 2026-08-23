@@ -140,7 +140,7 @@ This example creates a new simple draft:
   "name_fa": "آی سی آپ امپ دو کاناله LM358P",
   "short_description_fa": "آی سی تقویت کننده عملیاتی دو کاناله LM358P مناسب مدارهای آنالوگ و پروژه های الکترونیکی.",
   "seo_title_fa": "خرید آی سی آپ امپ LM358P دو کاناله",
-  "seo_description_fa": "مشخصات، موجودی و قیمت آی سی آپ امپ دو کاناله LM358P را در دیجیتالوجیک بررسی کنید.",
+  "seo_description_fa": "مشخصات، موجودی و قیمت آی سی آپ امپ دو کاناله LM358P را در دیجیتالاجیک بررسی کنید.",
   "focus_keyword_fa": "آی سی LM358P",
   "part_number": "LM358P",
   "model": "LM358P"

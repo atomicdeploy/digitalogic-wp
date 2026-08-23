@@ -7,6 +7,8 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
+// phpcs:disable WordPress.WP.AlternativeFunctions, WordPress.PHP.NoSilencedErrors -- A nonblocking WebSocket/Redis daemon requires native stream sockets and result-aware suppressed probes.
+
 class Digitalogic_WebSocket_Server {
 
     private $clients = array();
@@ -83,6 +85,9 @@ class Digitalogic_WebSocket_Server {
             'headers' => '',
             'buffer' => '',
             'user_id' => 0,
+			'principal'              => '',
+			'source'                 => array(),
+			'credential_fingerprint' => '',
             'device_id'     => '',
             'last_event_id' => class_exists('Digitalogic_Panel') ? Digitalogic_Panel::get_latest_event_id() : (int) round(microtime(true) * 1000),
         );
@@ -103,27 +108,114 @@ class Digitalogic_WebSocket_Server {
         }
 
         list($headers, $query) = $this->parse_request($this->clients[$id]['headers']);
-        $user_id = Digitalogic_WebSocket_Auth::authenticate($headers, $query);
-        if (!$user_id || empty($headers['sec-websocket-key'])) {
+		$pricing_header_names      = array(
+			'x-patris-product-sync-secret',
+			'x-patris-source-id',
+			'x-patris-source-dataset',
+			'last-event-id',
+			'sec-websocket-key',
+			'sec-websocket-protocol',
+		);
+		$pricing_header_attempted  = isset($headers['x-patris-product-sync-secret'])
+			|| isset($headers['x-patris-source-id'])
+			|| isset($headers['x-patris-source-dataset']);
+		$duplicate_headers         = isset($headers['__digitalogic_duplicate_headers'])
+			&& is_array($headers['__digitalogic_duplicate_headers'])
+			? $headers['__digitalogic_duplicate_headers']
+			: array();
+		$ambiguous_pricing_headers = $pricing_header_attempted
+			&& ! empty(array_intersect($pricing_header_names, $duplicate_headers));
+		$auth                      = $ambiguous_pricing_headers
+			? array( 'authenticated' => false, 'principal' => '' )
+			: Digitalogic_WebSocket_Auth::authenticate_context($headers, $query);
+		$protocols                 = isset($headers['sec-websocket-protocol'])
+			? array_map('trim', explode(',', (string) $headers['sec-websocket-protocol']))
+			: array();
+		$pricing_service           = 'patris_pricing' === (string) ( $auth['principal'] ?? '' );
+		$invalid_pricing_cursor    = $pricing_service
+			&& isset($headers['last-event-id'])
+			&& ! $this->valid_event_cursor($headers['last-event-id']);
+		if (
+			empty($auth['authenticated'])
+			|| empty($headers['sec-websocket-key'])
+			|| $invalid_pricing_cursor
+			|| ( $pricing_service && ! in_array('digitalogic.pricing.v1', $protocols, true) )
+		) {
             @fwrite($this->clients[$id]['socket'], "HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
             $this->close($id);
             return;
         }
+		$user_id = (int) ( $auth['user_id'] ?? 0 );
 
         $accept = base64_encode(sha1($headers['sec-websocket-key'] . '258EAFA5-E914-47DA-95CA-C5AB0DC85B11', true));
         $response = "HTTP/1.1 101 Switching Protocols\r\n"
             . "Upgrade: websocket\r\n"
             . "Connection: Upgrade\r\n"
-            . "Sec-WebSocket-Accept: " . $accept . "\r\n\r\n";
+			. "Sec-WebSocket-Accept: " . $accept . "\r\n"
+			. ( $pricing_service ? "Sec-WebSocket-Protocol: digitalogic.pricing.v1\r\n" : '' )
+			. "\r\n";
 
-        @fwrite($this->clients[$id]['socket'], $response);
+		$written = @fwrite($this->clients[ $id ]['socket'], $response);
+		if ( $written !== strlen($response) ) {
+			$this->close($id);
+			return;
+		}
         $this->clients[$id]['handshake'] = true;
         $this->clients[$id]['user_id'] = $user_id;
-        $this->send_json($id, array(
+		$this->clients[ $id ]['principal']              = (string) ( $auth['principal'] ?? '' );
+		$this->clients[ $id ]['source']                 = isset($auth['source']) && is_array($auth['source']) ? $auth['source'] : array();
+		$this->clients[ $id ]['credential_fingerprint'] = (string) ( $auth['credential_fingerprint'] ?? '' );
+		$cursor_reset_required                        = false;
+		$oldest_event_id                              = 0;
+		$latest_event_id                              = isset($this->clients[ $id ]['last_event_id'])
+			? absint($this->clients[ $id ]['last_event_id'])
+			: 0;
+		if (
+			'patris_pricing' === $this->clients[ $id ]['principal']
+			&& isset($headers['last-event-id'])
+			&& preg_match('/\A[0-9]{1,20}\z/D', (string) $headers['last-event-id'])
+		) {
+			$requested_cursor = absint($headers['last-event-id']);
+			$window           = $this->durable_event_window();
+			$oldest_event_id  = $window['oldest_event_id'];
+			$latest_event_id  = $window['latest_event_id'];
+			if ( $requested_cursor > $latest_event_id ) {
+				$requested_cursor      = $latest_event_id;
+				$cursor_reset_required = true;
+			} elseif ( $oldest_event_id > 0 && $requested_cursor < ( $oldest_event_id - 1 ) ) {
+				$requested_cursor      = $oldest_event_id - 1;
+				$cursor_reset_required = true;
+			} elseif ( 0 === $oldest_event_id && $requested_cursor < $latest_event_id ) {
+				$requested_cursor      = $latest_event_id;
+				$cursor_reset_required = true;
+			}
+			$this->clients[ $id ]['last_event_id'] = $requested_cursor;
+		} elseif ( $pricing_service ) {
+			$window                              = $this->durable_event_window();
+			$oldest_event_id                     = $window['oldest_event_id'];
+			$latest_event_id                     = $window['latest_event_id'];
+			$this->clients[ $id ]['last_event_id'] = $latest_event_id;
+		}
+		$this->clients[ $id ]['headers'] = '';
+		$connected                     = array(
             'event' => 'connected',
             'success' => true,
-            'data' => array('user_id' => max(0, $user_id)),
-        ));
+			'data'    => array(
+				'user_id'   => max(0, $user_id),
+				'principal' => $this->clients[ $id ]['principal'],
+			),
+		);
+		if ( $pricing_service ) {
+			$connected['data']['cursor']                       = absint($this->clients[ $id ]['last_event_id']);
+			$connected['data']['oldest_event_id']              = $oldest_event_id;
+			$connected['data']['latest_event_id']              = $latest_event_id;
+			$connected['data']['cursor_reset_required']        = $cursor_reset_required;
+			$connected['data']['revision_validation_required'] = true;
+			$connected['data']['revision_path']                = '/wp-json/digitalogic/pricing/sync/revision';
+		}
+		if ( ! $this->send_json($id, $connected) ) {
+			return;
+		}
         $this->send_missed_panel_events($id);
     }
 
@@ -176,6 +268,11 @@ class Digitalogic_WebSocket_Server {
             $this->send_json($id, array('id' => $request_id, 'event' => 'pong', 'success' => true));
             return;
         }
+
+		if ( 'patris_pricing' === (string) ( $this->clients[ $id ]['principal'] ?? '' ) ) {
+			$this->send_error($id, $request_id, 'digitalogic_pricing_stream_read_only', __('The pricing event stream does not accept commands.', 'digitalogic'));
+			return;
+		}
 
         wp_set_current_user(max(0, (int) $this->clients[$id]['user_id']));
         if ($command === 'digitalogic_panel_events' && class_exists('Digitalogic_Panel')) {
@@ -241,10 +338,10 @@ class Digitalogic_WebSocket_Server {
     }
 
     private function send_json($id, $payload) {
-        $this->send_frame($id, wp_json_encode($payload), 1);
+		return $this->send_frame($id, wp_json_encode($payload), 1);
     }
 
-    private function send_missed_panel_events($client_id = null) {
+	private function send_missed_panel_events( $client_id = null, $revalidate_service = false ) {
         if (!class_exists('Digitalogic_Panel')) {
             return;
         }
@@ -258,7 +355,44 @@ class Digitalogic_WebSocket_Server {
                 continue;
             }
 
+			$pricing_service = 'patris_pricing' === (string) ( $client['principal'] ?? '' );
+			if (
+				$pricing_service
+				&& $revalidate_service
+				&& ! Digitalogic_WebSocket_Auth::pricing_service_context_is_current($client)
+			) {
+				$this->close($id);
+				continue;
+			}
+
             $last_id = isset($client['last_event_id']) ? absint($client['last_event_id']) : 0;
+			if ( $pricing_service ) {
+				$window = $this->durable_event_window();
+				$gap    = $last_id > $window['latest_event_id']
+					|| ( $window['oldest_event_id'] > 0 && $last_id < ( $window['oldest_event_id'] - 1 ) )
+					|| ( 0 === $window['oldest_event_id'] && $last_id < $window['latest_event_id'] );
+				if ( $gap ) {
+					$reset_cursor = $window['latest_event_id'];
+					$sent         = $this->send_json($id, array(
+						'event'   => 'pricing.stream.reset',
+						'success' => true,
+						'data'    => array(
+							'schema'                       => 'digitalogic.pricing-stream-reset/v1',
+							'schema_version'               => 1,
+							'reason'                       => 'cursor_gap',
+							'cursor'                       => $reset_cursor,
+							'oldest_event_id'              => $window['oldest_event_id'],
+							'latest_event_id'              => $window['latest_event_id'],
+							'revision_validation_required' => true,
+							'revision_path'                => '/wp-json/digitalogic/pricing/sync/revision',
+						),
+					));
+					if ( $sent && isset($this->clients[ $id ]) ) {
+						$this->clients[ $id ]['last_event_id'] = $reset_cursor;
+					}
+					continue;
+				}
+			}
             $events = Digitalogic_Panel::get_events_since($last_id);
             foreach ($events as $event) {
                 $this->send_panel_event($id, $event);
@@ -285,27 +419,39 @@ class Digitalogic_WebSocket_Server {
             return;
         }
 
-        if (
-            class_exists('Digitalogic_Event_Mesh')
-            && !Digitalogic_Event_Mesh::event_visible_to(
-                $event,
-                max(0, (int) ($this->clients[$id]['user_id'] ?? 0)),
-                (string) ($this->clients[$id]['device_id'] ?? '')
-            )
-        ) {
-            return;
-        }
-
         $event_id = isset($event['id']) ? absint($event['id']) : 0;
         if ($event_id && isset($this->clients[$id]['last_event_id']) && $event_id <= absint($this->clients[$id]['last_event_id'])) {
             return;
         }
 
-        if ($event_id) {
-            $this->clients[$id]['last_event_id'] = max(absint($this->clients[$id]['last_event_id']), $event_id);
+		$pricing_service = 'patris_pricing' === (string) ( $this->clients[ $id ]['principal'] ?? '' );
+		$visible         = true;
+		if ( $pricing_service ) {
+			$visible = class_exists('Digitalogic_Event_Mesh')
+				&& Digitalogic_Event_Mesh::event_visible_to(
+					$event,
+					0,
+					'',
+					'patris_pricing',
+					isset($this->clients[ $id ]['source']) && is_array($this->clients[ $id ]['source'])
+						? $this->clients[ $id ]['source']
+						: array()
+				);
+		} elseif ( class_exists('Digitalogic_Event_Mesh') ) {
+			$visible = Digitalogic_Event_Mesh::event_visible_to(
+				$event,
+				max(0, (int) ( $this->clients[ $id ]['user_id'] ?? 0 )),
+				(string) ( $this->clients[ $id ]['device_id'] ?? '' )
+			);
+		}
+		if ( ! $visible ) {
+			if ( $event_id ) {
+				$this->clients[ $id ]['last_event_id'] = $event_id;
+			}
+			return;
         }
 
-        $this->send_json($id, array(
+		$sent = $this->send_json($id, array(
             'event' => isset($event['name']) ? $event['name'] : (isset($event['event']) ? $event['event'] : 'panel.event'),
             'name' => isset($event['name']) ? $event['name'] : '',
             'success' => true,
@@ -313,6 +459,9 @@ class Digitalogic_WebSocket_Server {
             'time' => isset($event['time']) ? $event['time'] : '',
             'id' => $event_id,
         ));
+		if ( $sent && $event_id && isset($this->clients[ $id ]) ) {
+			$this->clients[ $id ]['last_event_id'] = max(absint($this->clients[ $id ]['last_event_id']), $event_id);
+		}
     }
 
     private function maybe_connect_redis_subscriber() {
@@ -380,7 +529,7 @@ class Digitalogic_WebSocket_Server {
         stream_set_blocking($this->redis_socket, false);
         stream_set_timeout($this->redis_socket, 0);
         $this->redis_next_connect_at = 0;
-        $this->send_missed_panel_events();
+		$this->send_missed_panel_events(null, true);
         $this->process_redis_buffer();
 
         if (defined('WP_CLI') && WP_CLI) {
@@ -526,7 +675,10 @@ class Digitalogic_WebSocket_Server {
             return;
         }
 
-        $this->broadcast_panel_event($event);
+		// Redis is only the low-latency wake-up. The durable queue owns global
+		// ordering, so every client drains from its exact cursor instead of
+		// trusting publish order across concurrent PHP requests.
+		$this->send_missed_panel_events(null, true);
     }
 
     private function pop_redis_reply() {
@@ -610,7 +762,7 @@ class Digitalogic_WebSocket_Server {
 
     private function send_frame($id, $payload, $opcode = 1) {
         if (!isset($this->clients[$id])) {
-            return;
+			return false;
         }
 
         $length = strlen($payload);
@@ -623,7 +775,49 @@ class Digitalogic_WebSocket_Server {
             $header .= chr(127) . $this->pack_uint64($length);
         }
 
-        @fwrite($this->clients[$id]['socket'], $header . $payload);
+		$frame   = $header . $payload;
+		$written = @fwrite($this->clients[ $id ]['socket'], $frame);
+		if ( $written !== strlen($frame) ) {
+			$this->close($id);
+			return false;
+		}
+
+		return true;
+	}
+
+	/** Return the bounded durable cursor window without exposing event payloads. */
+	private function durable_event_window() {
+		if ( ! class_exists('Digitalogic_Panel') ) {
+			return array( 'oldest_event_id' => 0, 'latest_event_id' => 0 );
+		}
+		$events = Digitalogic_Panel::get_events_since(0);
+		$oldest = 0;
+		foreach ( $events as $event ) {
+			$event_id = is_array($event) ? absint($event['id'] ?? 0) : 0;
+			if ( $event_id > 0 && ( 0 === $oldest || $event_id < $oldest ) ) {
+				$oldest = $event_id;
+			}
+		}
+
+		return array(
+			'oldest_event_id' => $oldest,
+			'latest_event_id' => Digitalogic_Panel::get_latest_event_id(),
+		);
+	}
+
+	/** Validate one nonnegative decimal cursor without integer overflow. */
+	private function valid_event_cursor( $cursor ) {
+		$cursor = is_string($cursor) ? $cursor : '';
+		if ( ! preg_match('/\A[0-9]{1,20}\z/D', $cursor) ) {
+			return false;
+		}
+
+		$normalized = ltrim($cursor, '0');
+		$normalized = '' === $normalized ? '0' : $normalized;
+		$maximum    = (string) PHP_INT_MAX;
+
+		return strlen($normalized) < strlen($maximum)
+			|| ( strlen($normalized) === strlen($maximum) && strcmp($normalized, $maximum) <= 0 );
     }
 
     private function decode_frames($buffer) {
@@ -684,6 +878,7 @@ class Digitalogic_WebSocket_Server {
         $lines = preg_split('/\r\n/', trim($request));
         $request_line = array_shift($lines);
         $headers = array();
+		$duplicates   = array();
         $query = array();
 
         if (preg_match('#^GET\s+([^\s]+)#', $request_line, $matches)) {
@@ -699,7 +894,14 @@ class Digitalogic_WebSocket_Server {
             }
 
             list($name, $value) = explode(':', $line, 2);
-            $headers[strtolower(trim($name))] = trim($value);
+			$name               = strtolower(trim($name));
+			if ( array_key_exists($name, $headers) ) {
+				$duplicates[ $name ] = true;
+			}
+			$headers[ $name ] = trim($value);
+		}
+		if ( $duplicates ) {
+			$headers['__digitalogic_duplicate_headers'] = array_keys($duplicates);
         }
 
         return array($headers, $query);

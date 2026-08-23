@@ -117,6 +117,52 @@ final class CurrentPatrisReportTest extends TestCase {
 		$this->assertContains( 'missing_product_code', $woo_only['issues'] );
 	}
 
+	/** Durable taxonomy wins and cache drift blocks shared catalog consumers. */
+	public function test_stale_product_type_cache_is_excluded_and_reported_as_projection_integrity_drift(): void {
+		$this->store_source(
+			array(
+				'LEAF' => array(
+					'product_code' => 'LEAF',
+					'name'         => 'Leaf',
+					'warnings'     => array(),
+					'record_hash'  => 'sha256:leaf',
+				),
+			)
+		);
+		$GLOBALS['digitalogic_test_posts'][150] = $this->woo_post(
+			'simple',
+			'Stale cached variable parent',
+			array( '_digitalogic_patris_product_code' => 'PARENT' )
+		);
+		$GLOBALS['digitalogic_test_posts'][150]['taxonomy_product_type'] = 'variable';
+		$GLOBALS['digitalogic_test_posts'][151] = $this->woo_post(
+			'simple',
+			'Leaf',
+			array( '_digitalogic_patris_product_code' => 'LEAF' )
+		);
+
+		$report = Digitalogic_Report_Engine::instance()->get_report( array( 'view' => 'price_list' ) );
+
+		$this->assertSame( 1, $report['counts']['variable_parents_excluded'] );
+		$this->assertSame( 1, $report['counts']['woocommerce_products'] );
+		$this->assertSame( 'warning', $report['integrity']['status'] );
+		$this->assertSame( 'product_type_cache_drift', $report['integrity']['warnings'][0]['code'] );
+		$this->assertSame( 150, $report['integrity']['warnings'][0]['woocommerce_id'] );
+		$this->assertSame( 'variable', $report['integrity']['warnings'][0]['durable_type'] );
+		$this->assertSame( 'simple', $report['integrity']['warnings'][0]['object_type'] );
+
+		$catalog = Digitalogic_Google_Sheets_Catalog::instance()->get_page(
+			array(
+				'dataset' => 'reconciled_products',
+				'locale'  => 'fa',
+				'page'    => 1,
+				'limit'   => 100,
+			)
+		);
+		$this->assertInstanceOf( WP_Error::class, $catalog );
+		$this->assertSame( 'digitalogic_reconciled_projection_integrity_failed', $catalog->get_error_code() );
+	}
+
 	/** Current persisted price, stock, weight, timestamp, and hash drift is visible. */
 	public function test_reports_source_warnings_and_all_operational_drift_fields(): void {
 		$updated_at = gmdate( 'c' );
@@ -296,8 +342,8 @@ final class CurrentPatrisReportTest extends TestCase {
 		$this->assertNotContains( 'stock_drift', $row['issues'] );
 	}
 
-	/** Out-of-stock operational zeroing is not a false price drift. */
-	public function test_expected_out_of_stock_price_zero_and_store_weight_are_current(): void {
+	/** Zero/negative stock never changes the expected canonical selling price. */
+	public function test_out_of_stock_and_negative_stock_keep_canonical_price_current(): void {
 		$updated_at = gmdate( 'c' );
 		$source     = array(
 			'product_code'                   => 'CURRENT-0',
@@ -320,14 +366,24 @@ final class CurrentPatrisReportTest extends TestCase {
 			'warnings'                       => array(),
 			'record_hash'                    => 'sha256:current-zero',
 		);
-		$this->store_source( array( 'CURRENT-0' => $source ) );
+		$negative_source                = $source;
+		$negative_source['product_code'] = 'CURRENT-NEG';
+		$negative_source['total_stock']  = -3;
+		$negative_source['record_hash']  = 'sha256:current-negative';
+		$this->store_source(
+			array(
+				'CURRENT-0'   => $source,
+				'CURRENT-NEG' => $negative_source,
+			)
+		);
 		$GLOBALS['digitalogic_test_posts'][301] = $this->woo_post(
 			'simple',
 			'Current zero-stock product',
 			array(
 				'_digitalogic_patris_product_code' => 'CURRENT-0',
-				'_regular_price'                   => '0',
-				'_price'                           => '0',
+				'_regular_price'                   => '4680000',
+				'_price'                           => '4680000',
+				'_sale_price'                      => '',
 				'_stock'                           => 0,
 				'_manage_stock'                    => 'yes',
 				'_stock_status'                    => 'outofstock',
@@ -339,15 +395,36 @@ final class CurrentPatrisReportTest extends TestCase {
 				'_digitalogic_patris_updated_at'   => $updated_at,
 			)
 		);
+		$GLOBALS['digitalogic_test_posts'][302] = $this->woo_post(
+			'simple',
+			'Current negative-stock product',
+			array(
+				'_digitalogic_patris_product_code' => 'CURRENT-NEG',
+				'_regular_price'                   => '4680000',
+				'_price'                           => '4680000',
+				'_sale_price'                      => '',
+				'_stock'                           => 0,
+				'_manage_stock'                    => 'yes',
+				'_stock_status'                    => 'outofstock',
+				'_weight'                          => '1',
+				'_digitalogic_patris_final_price'  => '4680000',
+				'_digitalogic_patris_total_stock'  => '-3',
+				'_digitalogic_patris_weight_grams' => '1000',
+				'_digitalogic_patris_record_hash'  => 'sha256:current-negative',
+				'_digitalogic_patris_updated_at'   => $updated_at,
+			)
+		);
 
 		$report = Digitalogic_Report_Engine::instance()->get_report( array( 'view' => 'price_list' ) );
-		$row    = $this->find_row( $report['rows'], 'CURRENT-0', 'matched' );
-		$this->assertContains( 'zero_stock', $row['issues'] );
-		$this->assertNotContains( 'price_drift', $row['issues'] );
-		$this->assertNotContains( 'stock_drift', $row['issues'] );
-		$this->assertNotContains( 'stock_management_drift', $row['issues'] );
-		$this->assertNotContains( 'stock_status_drift', $row['issues'] );
-		$this->assertNotContains( 'weight_drift', $row['issues'] );
+		foreach ( array( 'CURRENT-0', 'CURRENT-NEG' ) as $product_code ) {
+			$row = $this->find_row( $report['rows'], $product_code, 'matched' );
+			$this->assertContains( 'zero_stock', $row['issues'] );
+			$this->assertNotContains( 'price_drift', $row['issues'] );
+			$this->assertNotContains( 'stock_drift', $row['issues'] );
+			$this->assertNotContains( 'stock_management_drift', $row['issues'] );
+			$this->assertNotContains( 'stock_status_drift', $row['issues'] );
+			$this->assertNotContains( 'weight_drift', $row['issues'] );
+		}
 	}
 
 	/** Missing receiver state withholds reconciliation instead of inventing Woo-only findings. */

@@ -7,6 +7,91 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.4] - 2026-08-23
+
+### Added
+- Added an authenticated composite pricing revision plus asynchronous,
+  single-flight WooCommerce/Patris projection snapshots with immutable bulk and
+  fixed-page reads, ETags, progress, cancellation, integrity digests, bounded
+  retry semantics, and backwards-compatible existing pricing routes.
+- Added persistent catalog-generation invalidation for pricing applies and the
+  WooCommerce, Patris, category, attachment, metadata, URL, weight, currency,
+  shipping, and pricing inputs consumed by the `excel-v1` projection.
+- Added focused snapshot lifecycle, rollback, replay, conditional request,
+  corruption, freshness, exact-schema, route-permission, and
+  production-consistency fixture tests.
+- Added an exact-source, header-authenticated, read-only pricing WebSocket
+  principal with ordered durable replay, cursor-gap signaling, a persistent
+  retry outbox, and at-least-once composite revision events for committed
+  WordPress pricing/catalog mutations.
+- Added post-commit source change/removal events and one replaceable one-shot
+  action for currency-effective, currency-stale, and source-stale revision
+  boundaries, with activation/deactivation cleanup and no recurring poll.
+- Replaced the WebSocket daemon's periodic durable-queue catch-up with a
+  persistent, coalesced one-shot Redis-wake retry; replay now occurs only on a
+  pushed wake, client connection, or Redis reconnection.
+- Invalidated WooCommerce's versioned per-product cache group after
+  `product_type` taxonomy writes and Patris materialization, preventing stale
+  runtime `simple` types from contradicting canonical variable products.
+- Added a bounded, administrator-only product-type cache repair command that
+  derives candidates from a fresh integrity report, verifies variable
+  taxonomy and variation readback, and invalidates only exact WooCommerce
+  per-product cache prefixes with idempotent post-repair evidence.
+- Extended that cache-only repair and the product-type mutation hook to clear
+  the exact product term-relationship cache, and remove WooCommerce's optional
+  product-object cache entry, before rotating the per-product prefix.
+
+## [1.8.3] - 2026-07-27
+
+### Fixed
+- Coordinated USD, CNY, effective-date, and shared profit-margin changes with exact
+  Patris repricing and WooCommerce readback in one database transaction.
+- Repriced managed Google Sheets profit edits atomically and rejected direct
+  regular-price writes for receiver-owned products.
+- Added one revisioned Google Sheets settings contract for USD, CNY, effective
+  date, and shared profit margin, with optimistic writes and post-commit readback.
+- Tracked USD and CNY effective dates and freshness independently while keeping
+  the legacy effective date as the CNY/storefront-compatible alias.
+- Routed legacy option, ACF, admin, REST, command, CLI, and public profit-margin
+  setters through the same transaction once managed Patris pricing exists.
+- Deferred managed-product webhooks until the pricing transaction commits and
+  failed closed when an active promotion or variable-product price cannot be
+  proven equal to the customer-visible final price.
+- Rejected legacy dynamic-pricing imports and setters for receiver-owned
+  products so a second pricing formula cannot silently bypass Patris.
+- Preserved Go-compatible numeric record hashes while regenerating stored
+  product-sync pricing state without binary floating-point price arithmetic.
+
+## [1.8.2] - 2026-07-27
+
+### Added
+- Added a Persian WooCommerce account flow for linking registered customers to
+  the Digitalogic assistant with ten-minute single-use tokens, transactional
+  one-account/one-identity bindings, signed replay-protected server checks,
+  live account eligibility validation, rate limits, and pseudonymous audit.
+- Added a locale-aware operator work center at `/panel/assistant/` that links
+  only to existing same-origin panel destinations and retains the current
+  WordPress session and capability boundary.
+
+### Security
+- Kept customer linking inside the normal WordPress cookie and nonce boundary,
+  returned no customer contact or login fields to the external consumer, and
+  left `/panel/` capabilities unchanged.
+- Serialized issuance, status, consume, and revoke operations with stable
+  account-row locks and a unique pending-token slot; verified exact index
+  uniqueness and column order rather than index names alone.
+- Added scheduled bounded retention, WordPress privacy export/erasure support,
+  an explicit customer/staff role allow-list with customer-only assistant
+  scope, and a fail-closed single-site topology guard.
+- Kept cleanup, deletion, and privacy hooks active during a WooCommerce outage
+  while leaving customer UI and signed API operations unavailable.
+- Strengthened schema readiness to require exact column type, length,
+  nullability, defaults, extra attributes, and exact indexes; schema-v1
+  pending codes are atomically superseded and cannot be consumed after upgrade.
+- Added signed-boundary identity rate limits of 60 status checks per minute and
+  10 consume attempts per ten minutes, storing only re-keyed fingerprints and
+  returning a bounded Persian HTTP 429 response.
+
 ## [1.8.1] - 2026-07-27
 
 ### Changed
@@ -82,7 +167,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added an opt-in Google Sheets product/pricing control workspace with bounded preview/apply writeback, exact Patris identity and revisions, append-only audit rows, guarded WooCommerce product writes, and an inactive credential-placeholder n8n proxy template.
 - Added an idempotent professional Google Sheets control-center builder with live catalog KPIs, charts, a landed-price calculator, bilingual guidance, editable non-secret settings, protected reference tabs, and one-command synchronization and scheduling.
 - Added a source-scoped Excel pricing-settings state/preview/apply contract with
-  Persian catalog pages, versioned dollar/yuan/default-profit inputs, bounded
+  Persian catalog pages, versioned dollar/yuan/profit-margin inputs, bounded
   audit history, and companion-triggered canonical product regeneration.
 
 ### Security

@@ -32,7 +32,11 @@ final class PatrisPricePolicyTest extends TestCase {
 		$GLOBALS['digitalogic_test_wc_product_saves']     = array();
 		$GLOBALS['digitalogic_test_wc_set_price_calls']   = array();
 		$GLOBALS['digitalogic_test_wc_transient_deletes'] = array();
-		$GLOBALS['wpdb']                                  = new Digitalogic_Test_WPDB();
+
+		$GLOBALS['digitalogic_test_wc_cache_group_invalidations'] = array();
+		$GLOBALS['digitalogic_test_object_term_cache_cleans']     = array();
+
+		$GLOBALS['wpdb'] = new Digitalogic_Test_WPDB();
 
 		$this->resetSingleton( Digitalogic_Product_Identifier_Resolver::class );
 		$this->resetSingleton( Digitalogic_Patris_Price_Policy::class );
@@ -41,8 +45,8 @@ final class PatrisPricePolicyTest extends TestCase {
 		$this->feed = Digitalogic_Patris_Feed::instance();
 	}
 
-	/** Verify canonical price becomes regular price without a direct effective-price write. */
-	public function test_simple_product_uses_canonical_regular_price_without_forcing_effective_price(): void {
+	/** Verify canonical price becomes both regular and customer-effective price. */
+	public function test_simple_product_uses_canonical_regular_and_effective_price(): void {
 		$this->addProduct(
 			801,
 			'simple',
@@ -56,16 +60,18 @@ final class PatrisPricePolicyTest extends TestCase {
 
 		$product = wc_get_product( 801 );
 		$this->assertSame( '200', $product->get_regular_price() );
-		$this->assertSame( '100', $product->get_price() );
+		$this->assertSame( '200', $product->get_price() );
 		$this->assertSame( '', $product->get_sale_price() );
 		$this->assertSame( 'priced', $product->get_meta( '_digitalogic_patris_price_status', true ) );
-		$this->assertSame( array(), $GLOBALS['digitalogic_test_wc_set_price_calls'] );
+		$this->assertSame( array( array( 801, '200' ) ), $GLOBALS['digitalogic_test_wc_set_price_calls'] );
 		$this->assertSame( array( 801 ), $GLOBALS['digitalogic_test_wc_transient_deletes'] );
 		$this->assertContains( array( 801, 'post_meta' ), $GLOBALS['digitalogic_test_cache_deletes'] );
+		$this->assertSame( array( 'product_801' ), $GLOBALS['digitalogic_test_wc_cache_group_invalidations'] );
+		$this->assertSame( array( array( 801, 'product' ) ), $GLOBALS['digitalogic_test_object_term_cache_cleans'] );
 	}
 
-	/** Verify a real promotion remains the effective storefront price by default. */
-	public function test_active_sale_is_preserved_by_default_and_remains_effective(): void {
+	/** Verify a stale promotion is removed and cannot override the selling price. */
+	public function test_active_sale_is_cleared_and_customer_price_matches_selling_price(): void {
 		$this->addProduct(
 			802,
 			'simple',
@@ -81,17 +87,17 @@ final class PatrisPricePolicyTest extends TestCase {
 		$product    = wc_get_product( 802 );
 		$projection = Digitalogic_Patris_Price_Policy::instance()->project( $product );
 		$this->assertSame( '600', $product->get_regular_price() );
-		$this->assertSame( '250', $product->get_sale_price() );
-		$this->assertSame( '250', $product->get_price() );
-		$this->assertSame( 'priced_sale_preserved', $projection['policy_status'] );
-		$this->assertSame( Digitalogic_Patris_Price_Policy::PRESERVE_SALE, $projection['sale_policy'] );
-		$this->assertTrue( $projection['sale_active'] );
-		$this->assertSame( 'sale', $projection['price_source'] );
-		$this->assertSame( array(), $GLOBALS['digitalogic_test_wc_set_price_calls'] );
+		$this->assertSame( '', $product->get_sale_price() );
+		$this->assertSame( '600', $product->get_price() );
+		$this->assertSame( 'priced', $projection['policy_status'] );
+		$this->assertSame( Digitalogic_Patris_Price_Policy::CANONICAL_SALE, $projection['sale_policy'] );
+		$this->assertFalse( $projection['sale_active'] );
+		$this->assertSame( 'regular', $projection['price_source'] );
+		$this->assertSame( array( array( 802, '600' ) ), $GLOBALS['digitalogic_test_wc_set_price_calls'] );
 	}
 
-	/** Verify only the explicit replacement policy clears a promotion. */
-	public function test_explicit_replacement_policy_clears_the_sale(): void {
+	/** Verify a retired policy option cannot restore split pricing. */
+	public function test_legacy_replacement_policy_cannot_change_canonical_behavior(): void {
 		$GLOBALS['digitalogic_test_options'][ Digitalogic_Patris_Price_Policy::OPTION_NAME ] = Digitalogic_Patris_Price_Policy::REPLACE_SALE;
 		$this->addProduct(
 			803,
@@ -108,9 +114,9 @@ final class PatrisPricePolicyTest extends TestCase {
 		$product = wc_get_product( 803 );
 		$this->assertSame( '600', $product->get_regular_price() );
 		$this->assertSame( '', $product->get_sale_price() );
-		$this->assertSame( '250', $product->get_price() );
-		$this->assertSame( 'priced_sale_replaced', $product->get_meta( '_digitalogic_patris_price_status', true ) );
-		$this->assertSame( Digitalogic_Patris_Price_Policy::REPLACE_SALE, $product->get_meta( '_digitalogic_patris_sale_policy', true ) );
+		$this->assertSame( '600', $product->get_price() );
+		$this->assertSame( 'priced', $product->get_meta( '_digitalogic_patris_price_status', true ) );
+		$this->assertSame( Digitalogic_Patris_Price_Policy::CANONICAL_SALE, $product->get_meta( '_digitalogic_patris_sale_policy', true ) );
 	}
 
 	/** Verify variable containers remain canonical-only. */
@@ -153,12 +159,12 @@ final class PatrisPricePolicyTest extends TestCase {
 		$product = wc_get_product( 806 );
 		$this->assertSame( 'variation', $product->get_type() );
 		$this->assertSame( '345', $product->get_regular_price() );
-		$this->assertSame( '100', $product->get_price() );
+		$this->assertSame( '345', $product->get_price() );
 		$this->assertSame( 'priced', $product->get_meta( '_digitalogic_patris_price_status', true ) );
 	}
 
-	/** Verify incomplete source values never erase commercial prices. */
-	public function test_missing_and_nonpositive_canonical_values_never_erase_commercial_prices(): void {
+	/** Verify missing/nonpositive canonical values cannot leave a stale customer price. */
+	public function test_missing_and_nonpositive_canonical_values_clear_all_customer_prices(): void {
 		$this->addProduct(
 			807,
 			'simple',
@@ -171,14 +177,47 @@ final class PatrisPricePolicyTest extends TestCase {
 
 		$this->feed->apply_product_feed( wc_get_product( 807 ), array( 'product_code' => 'MISSING-807' ) );
 		$product = wc_get_product( 807 );
-		$this->assertSame( '700', $product->get_regular_price() );
-		$this->assertSame( '650', $product->get_sale_price() );
-		$this->assertSame( 'canonical_missing_preserved', $product->get_meta( '_digitalogic_patris_price_status', true ) );
+		$this->assertSame( '', $product->get_regular_price() );
+		$this->assertSame( '', $product->get_sale_price() );
+		$this->assertSame( '', $product->get_price() );
+		$this->assertSame( 'canonical_missing_unpriced', $product->get_meta( '_digitalogic_patris_price_status', true ) );
 
 		$this->feed->apply_product_feed( $product, $this->row( 'MISSING-807', 0 ) );
-		$this->assertSame( '700', $product->get_regular_price() );
-		$this->assertSame( '650', $product->get_sale_price() );
-		$this->assertSame( 'canonical_nonpositive_preserved', $product->get_meta( '_digitalogic_patris_price_status', true ) );
+		$this->assertSame( '', $product->get_regular_price() );
+		$this->assertSame( '', $product->get_sale_price() );
+		$this->assertSame( '', $product->get_price() );
+		$this->assertSame( 'canonical_nonpositive_unpriced', $product->get_meta( '_digitalogic_patris_price_status', true ) );
+	}
+
+	/** A missing weight preserves an already-consistent storefront price with a warning. */
+	public function test_missing_weight_preserves_valid_existing_storefront_price(): void {
+		$this->addProduct(
+			812,
+			'simple',
+			array(
+				'_regular_price' => '1150000',
+				'_sale_price'    => '',
+				'_price'         => '1150000',
+			)
+		);
+
+		$this->feed->apply_product_feed(
+			wc_get_product( 812 ),
+			array(
+				'product_code'  => 'MISSING-WEIGHT-812',
+				'foreign_price' => 32,
+				'total_stock'   => 1,
+			)
+		);
+
+		$product    = wc_get_product( 812 );
+		$projection = Digitalogic_Patris_Price_Policy::instance()->project( $product );
+		$this->assertSame( '1150000', $product->get_regular_price() );
+		$this->assertSame( '1150000', $product->get_price() );
+		$this->assertSame( '', $product->get_sale_price() );
+		$this->assertSame( 'canonical_missing_preserved', $projection['policy_status'] );
+		$this->assertTrue( $projection['preserved_storefront_price'] );
+		$this->assertSame( Digitalogic_Patris_Price_Policy::MISSING_WEIGHT_WARNING, $projection['policy_warning'] );
 	}
 
 	/** Sparse stock is a no-op while explicit quantities map deterministically. */
@@ -233,7 +272,7 @@ final class PatrisPricePolicyTest extends TestCase {
 		$this->assertSame( '450', $data['sale_price'] );
 		$this->assertSame( '450', $data['effective_price'] );
 		$this->assertSame( 'sale', $data['price_source'] );
-		$this->assertSame( 'preserve_sale', $data['patris_sale_policy'] );
+		$this->assertSame( 'canonical_sale', $data['patris_sale_policy'] );
 	}
 
 	/** Verify audit results are useful and strictly non-mutating. */
@@ -274,12 +313,12 @@ final class PatrisPricePolicyTest extends TestCase {
 		$this->assertSame( $before, $GLOBALS['digitalogic_test_posts'] );
 	}
 
-	/** Verify invalid configuration fails safe and both CLI entrypoints exist. */
-	public function test_unknown_policy_falls_back_to_preserve_and_cli_commands_are_registered(): void {
+	/** Verify old configuration cannot change the fixed policy and CLI stays discoverable. */
+	public function test_unknown_policy_cannot_change_canonical_behavior_and_cli_commands_are_registered(): void {
 		$GLOBALS['digitalogic_test_options'][ Digitalogic_Patris_Price_Policy::OPTION_NAME ] = 'unsafe_unknown_policy';
 
 		$this->assertSame(
-			Digitalogic_Patris_Price_Policy::PRESERVE_SALE,
+			Digitalogic_Patris_Price_Policy::CANONICAL_SALE,
 			Digitalogic_Patris_Price_Policy::instance()->get_sale_policy()
 		);
 		$this->assertArrayHasKey( 'digitalogic pricing audit', WP_CLI::$commands );

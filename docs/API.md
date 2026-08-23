@@ -74,16 +74,29 @@ source/reference value; a present `null` records an explicit upstream null.
 Products without a Patris Code use `woo:<id>` only as a display/upsert key, and
 SKU is never used as a Patris matching fallback.
 
-### Excel pricing-settings synchronization
+### Universal pricing synchronization
 
-The local Patris companion uses the POST-only
-`/wp-json/digitalogic/excel/pricing-sync/{state,preview,apply}` machine
-contract. It is separate from the general `digitalogic/v1` management
-permission scopes and accepts only the existing source-scoped product-sync
-secret. See [Excel pricing-settings synchronization](EXCEL-PRICING-SYNC.md)
-for the complete request shape, optimistic concurrency, preview confirmation,
-idempotency, seven-day/seven-percent warnings, transaction behavior, and
-credential boundary.
+Trusted Digitalogic components use the POST-only
+`/wp-json/digitalogic/pricing/sync/{state,preview,apply}` machine contract.
+It is not Excel-specific. The local Patris `/api/excel` route remains a
+software-specific workbook/VBA adapter and forwards to this universal
+WordPress contract.
+
+The remote machine surface is separate from the general `digitalogic/v1`
+management permission scopes and accepts only the existing exact
+`{id,dataset}`-scoped product-sync secret. The deprecated
+`/wp-json/digitalogic/excel/pricing-sync/*` paths remain temporary,
+header-marked aliases. See [Excel pricing adapter and universal pricing
+synchronization](EXCEL-PRICING-SYNC.md) for the complete request shape,
+optimistic concurrency, preview confirmation, idempotency,
+seven-day/seven-percent warnings, transaction behavior, and credential
+boundary.
+
+For large catalog reads, the additive pricing projection snapshot API exposes a
+cheap composite revision, asynchronous single-flight build, immutable bulk and
+fixed-page payloads, ETags, progress, cancellation, and fast capacity errors.
+It leaves the existing state/preview/apply routes unchanged. See [Pricing
+projection snapshot API](PRICING-SNAPSHOT-API.md).
 
 ### List Products
 
@@ -198,6 +211,21 @@ than being converted or changed automatically.
 }
 ```
 
+## Shared Profit Margin
+
+`GET|PUT /pricing/profit-margin` reads or updates the single ecosystem-wide
+margin. The canonical request field is `profit_margin_percent`. Updating it
+recalculates every managed product in the same coordinated transaction.
+
+`GET|PUT /pricing/default-markup` and the request field `profit_percent` are
+deprecated compatibility aliases. Alias responses carry `Deprecation: true`
+and a successor `Link` header. Managed products never accept a per-product
+profit override.
+
+For a managed product, customer-visible selling price is one value:
+WooCommerce `_regular_price` and `_price` both equal the coordinator's
+canonical selling price, while `_sale_price` is empty.
+
 ---
 
 ## Supplier Shipping Method Integration
@@ -311,6 +339,19 @@ ExecStart=/usr/local/bin/wp digitalogic websocket serve --host=127.0.0.1 --port=
 Restart=always
 RestartSec=5
 ```
+
+Patris pricing refresh uses a separate least-privilege service principal on
+the same WSS endpoint. It requires subprotocol `digitalogic.pricing.v1`, the
+server-held product-sync secret plus exact source ID/dataset in headers, and an
+optional `Last-Event-ID`. It receives only scoped composite-state and
+source-change/removal events, plus explicit cursor-gap resets, and cannot run
+shared commands. Source lifecycle outbox entries drain before the composite
+state derived from them. Time-derived currency/source freshness uses only the
+next one-shot scheduler action; no recurring refresh poll is installed.
+On every connect, reconnect, or cursor reset, the companion performs one
+conditional `/pricing/sync/revision` validation and then follows WebSocket
+events; Excel does not poll WordPress. See
+[PRICING-SNAPSHOT-API.md](PRICING-SNAPSHOT-API.md).
 
 Smoke test with `websocat`:
 ```bash

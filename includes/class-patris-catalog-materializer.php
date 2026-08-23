@@ -1537,10 +1537,7 @@ final class Digitalogic_Patris_Catalog_Materializer {
 		if ( is_wp_error( $changed ) ) {
 			return $changed;
 		}
-		if ( function_exists( 'wc_delete_product_transients' ) ) {
-			wc_delete_product_transients( $product_id );
-		}
-		clean_post_cache( $product_id );
+		$this->flush_product_caches( $product_id );
 
 		try {
 			return new WC_Product_Simple( $product_id );
@@ -1603,10 +1600,15 @@ final class Digitalogic_Patris_Catalog_Materializer {
 			$product->update_meta_data( '_digitalogic_variation_group', sanitize_text_field( $enrichment['variation_group'] ) );
 			$this->apply_product_seo_meta( $product, $enrichment );
 			$product->update_meta_data( 'rank_math_primary_product_cat', (string) $category_term );
-			$this->assign_product_category( $product, $category_term );
+			$category_product_id = $this->assign_product_category( $product, $category_term );
 			$product->save();
 		} catch ( Throwable $exception ) {
 			return $this->error( 'digitalogic_patris_materializer_product_write_failed', 'The reviewed product enrichment could not be saved.' );
+		}
+
+		$category_readback = $this->verify_product_category( $category_product_id, $category_term );
+		if ( is_wp_error( $category_readback ) ) {
+			return $category_readback;
 		}
 
 		if (
@@ -1637,6 +1639,8 @@ final class Digitalogic_Patris_Catalog_Materializer {
 
 	/**
 	 * Preserve manual categories and add the managed leaf to the public parent.
+	 *
+	 * @return int Product ID that owns the product_cat terms.
 	 */
 	private function assign_product_category( $product, $term_id ) {
 		$target = $product;
@@ -1654,6 +1658,39 @@ final class Digitalogic_Patris_Catalog_Materializer {
 		if ( $target->get_id() !== $product->get_id() ) {
 			$target->save();
 		}
+
+		return (int) $target->get_id();
+	}
+
+	/**
+	 * Flush product taxonomy caches and verify the exact assigned term.
+	 *
+	 * @param int $product_id Product or variation-parent ID.
+	 * @param int $term_id    Reviewed product_cat term ID.
+	 * @return true|WP_Error
+	 */
+	private function verify_product_category( $product_id, $term_id ) {
+		$this->flush_product_caches( $product_id );
+		$term_ids = wp_get_object_terms(
+			(int) $product_id,
+			'product_cat',
+			array( 'fields' => 'ids' )
+		);
+		if ( is_wp_error( $term_ids ) ) {
+			return $this->error(
+				'digitalogic_patris_materializer_category_readback_failed',
+				'The reviewed product category could not be read back after assignment.'
+			);
+		}
+		$term_ids = array_map( 'intval', (array) $term_ids );
+		if ( ! in_array( (int) $term_id, $term_ids, true ) ) {
+			return $this->error(
+				'digitalogic_patris_materializer_category_readback_failed',
+				'The reviewed product category failed readback verification.'
+			);
+		}
+
+		return true;
 	}
 
 	/**
@@ -1701,9 +1738,16 @@ final class Digitalogic_Patris_Catalog_Materializer {
 	}
 
 	private function flush_product_caches( $product_id ) {
+		if (
+			class_exists( 'WC_Cache_Helper' )
+			&& is_callable( array( 'WC_Cache_Helper', 'invalidate_cache_group' ) )
+		) {
+			WC_Cache_Helper::invalidate_cache_group( 'product_' . (int) $product_id );
+		}
 		if ( function_exists( 'wc_delete_product_transients' ) ) {
 			wc_delete_product_transients( (int) $product_id );
 		}
+		clean_object_term_cache( (int) $product_id, 'product' );
 		clean_post_cache( (int) $product_id );
 	}
 
