@@ -29,28 +29,30 @@ final class Digitalogic_Pricing_Snapshot {
 	public const PROJECTION_SCHEMA     = 'digitalogic.pricing-projection/excel-v1';
 	public const PRICING_POLICY_SCHEMA = 'digitalogic.pricing-policy/v1';
 
-	private const BUILD_HOOK            = 'digitalogic_pricing_snapshot_build_v1';
-	private const BUILD_WATCHDOG_HOOK   = 'digitalogic_pricing_snapshot_build_watchdog_v1';
-	private const CLEANUP_HOOK          = 'digitalogic_pricing_snapshot_cleanup_idempotency_v1';
-	private const STATE_EVENT_HOOK      = 'digitalogic_pricing_state_event_delivery_v1';
-	private const TERMINAL_EVENT_HOOK   = 'digitalogic_pricing_snapshot_terminal_event_delivery_v1';
-	private const FRESHNESS_HOOK        = 'digitalogic_pricing_freshness_boundary_v1';
-	private const ACTION_GROUP          = 'digitalogic-pricing-snapshots';
-	private const ACTIVE_BUILD_OPTION   = 'digitalogic_pricing_snapshot_active_v1';
-	private const STATE_EVENT_OUTBOX    = 'digitalogic_pricing_state_event_outbox_v1';
-	private const SOURCE_EVENT_OUTBOX   = 'digitalogic_pricing_source_event_outbox_v1';
-	private const TERMINAL_EVENT_OUTBOX = 'digitalogic_pricing_snapshot_terminal_event_outbox_v1';
-	private const FRESHNESS_SCHEDULE    = 'digitalogic_pricing_freshness_boundary_schedule_v1';
-	private const ADMISSION_LOCK_NAME   = 'digitalogic_pricing_snapshot_admission_v1';
-	private const SNAPSHOT_TTL          = 900;
-	private const METADATA_TTL          = 1800;
-	private const BUILD_TTL             = 1800;
-	private const QUEUE_START_TTL       = 30;
-	private const WORKER_LEASE_TTL      = 60;
-	private const RETRY_AFTER           = 2;
-	private const DEFAULT_PAGE_SIZE     = 250;
-	private const MAX_PAGE_SIZE         = 250;
-	private const MAX_ROWS              = 20000;
+	private const BUILD_HOOK                     = 'digitalogic_pricing_snapshot_build_v1';
+	private const BUILD_WATCHDOG_HOOK            = 'digitalogic_pricing_snapshot_build_watchdog_v1';
+	private const CLEANUP_HOOK                   = 'digitalogic_pricing_snapshot_cleanup_idempotency_v1';
+	private const STATE_EVENT_HOOK               = 'digitalogic_pricing_state_event_delivery_v1';
+	private const TERMINAL_EVENT_HOOK            = 'digitalogic_pricing_snapshot_terminal_event_delivery_v1';
+	private const FRESHNESS_HOOK                 = 'digitalogic_pricing_freshness_boundary_v1';
+	private const ACTION_GROUP                   = 'digitalogic-pricing-snapshots';
+	private const ACTIVE_BUILD_OPTION            = 'digitalogic_pricing_snapshot_active_v1';
+	private const STATE_EVENT_OUTBOX             = 'digitalogic_pricing_state_event_outbox_v1';
+	private const STATE_EVENT_RECEIPTS           = 'digitalogic_pricing_state_event_receipts_v1';
+	private const SOURCE_EVENT_OUTBOX            = 'digitalogic_pricing_source_event_outbox_v1';
+	private const TERMINAL_EVENT_OUTBOX          = 'digitalogic_pricing_snapshot_terminal_event_outbox_v1';
+	private const FRESHNESS_SCHEDULE             = 'digitalogic_pricing_freshness_boundary_schedule_v1';
+	private const ADMISSION_LOCK_NAME            = 'digitalogic_pricing_snapshot_admission_v1';
+	private const STATE_EVENT_SCHEDULE_LOCK_NAME = 'digitalogic_pricing_state_event_schedule_v1';
+	private const SNAPSHOT_TTL                   = 900;
+	private const METADATA_TTL                   = 1800;
+	private const BUILD_TTL                      = 1800;
+	private const QUEUE_START_TTL                = 30;
+	private const WORKER_LEASE_TTL               = 60;
+	private const RETRY_AFTER                    = 2;
+	private const DEFAULT_PAGE_SIZE              = 250;
+	private const MAX_PAGE_SIZE                  = 250;
+	private const MAX_ROWS                       = 20000;
 
 	/**
 	 * Shared snapshot service.
@@ -100,13 +102,6 @@ final class Digitalogic_Pricing_Snapshot {
 	 * @var array
 	 */
 	private $emitted_state_revisions = array();
-
-	/**
-	 * Whether this request already scheduled the durable outbox worker.
-	 *
-	 * @var bool
-	 */
-	private $state_event_retry_scheduled = false;
 
 	/**
 	 * Whether this request already scheduled the durable terminal-event worker.
@@ -1054,9 +1049,8 @@ final class Digitalogic_Pricing_Snapshot {
 
 	/** Retry a durable state-event outbox from Action Scheduler or WP-Cron. */
 	public function run_state_revision_event_delivery( $fallback_sources = array(), $fallback_source_events = array() ) {
-		$this->state_event_retry_scheduled = false;
-		$fallback_sources                  = is_array( $fallback_sources ) ? $fallback_sources : array();
-		$fallback_source_events            = is_array( $fallback_source_events ) ? $fallback_source_events : array();
+		$fallback_sources       = is_array( $fallback_sources ) ? $fallback_sources : array();
+		$fallback_source_events = is_array( $fallback_source_events ) ? $fallback_source_events : array();
 		if ( empty( get_option( self::SOURCE_EVENT_OUTBOX, array() ) ) && ! empty( $fallback_source_events ) ) {
 			if ( ! $this->persist_source_event_outbox( $fallback_source_events ) ) {
 				$this->schedule_state_revision_event_retry( $fallback_sources, $fallback_source_events );
@@ -1064,6 +1058,7 @@ final class Digitalogic_Pricing_Snapshot {
 			}
 		}
 		if ( empty( get_option( self::STATE_EVENT_OUTBOX, array() ) ) ) {
+			$fallback_sources = $this->pending_state_event_fallback_sources( $fallback_sources );
 			if ( ! empty( $fallback_sources ) && ! $this->persist_state_revision_outbox( $fallback_sources ) ) {
 				$this->schedule_state_revision_event_retry( $fallback_sources, $fallback_source_events );
 				return;
@@ -1145,18 +1140,26 @@ final class Digitalogic_Pricing_Snapshot {
 						break;
 					}
 
-					$idempotency_key = $this->digest(
-						array(
-							'schema'         => self::STATE_EVENT_SCHEMA,
-							'source_id'      => $source['id'],
-							'source_dataset' => $source['dataset'],
-							'state_revision' => $current['state_revision'],
-						)
-					);
-					$cause           = 'freshness-boundary' === (string) ( $entry['cause'] ?? '' )
+					$idempotency_key = $this->state_event_idempotency_key( $source, $current['state_revision'] );
+					$receipt_exists  = $this->state_event_receipt_matches( $source_key, $current['state_revision'], $idempotency_key );
+					$panel_has_event = ! $receipt_exists && $this->panel_has_state_event( $source, $current['state_revision'], $idempotency_key );
+					if ( $receipt_exists || $panel_has_event ) {
+						if ( ! $receipt_exists && ! $this->persist_state_event_receipt( $source_key, $current['state_revision'], $idempotency_key ) ) {
+							$outbox[ $source_key ]['attempts']   = min( 1000, 1 + (int) ( $entry['attempts'] ?? 0 ) );
+							$outbox[ $source_key ]['updated_at'] = gmdate( 'c' );
+							$retry                               = true;
+							do_action( 'digitalogic_pricing_state_event_failed', 'digitalogic_pricing_state_receipt_unavailable', $source );
+							break;
+						}
+
+						$this->emitted_state_revisions[ $source_key ] = $current['state_revision'];
+						unset( $outbox[ $source_key ] );
+						continue;
+					}
+					$cause  = 'freshness-boundary' === (string) ( $entry['cause'] ?? '' )
 						? 'freshness-boundary'
 						: 'projection-invalidated';
-					$result          = Digitalogic_Panel::record_event_result(
+					$result = Digitalogic_Panel::record_event_result(
 						'pricing.state.changed',
 						array(
 							'schema'                  => self::STATE_EVENT_SCHEMA,
@@ -1181,6 +1184,13 @@ final class Digitalogic_Pricing_Snapshot {
 						$outbox[ $source_key ]['updated_at'] = gmdate( 'c' );
 						$retry                               = true;
 						do_action( 'digitalogic_pricing_state_event_failed', $result->get_error_code(), $source );
+						break;
+					}
+					if ( ! $this->persist_state_event_receipt( $source_key, $current['state_revision'], $idempotency_key ) ) {
+						$outbox[ $source_key ]['attempts']   = min( 1000, 1 + (int) ( $entry['attempts'] ?? 0 ) );
+						$outbox[ $source_key ]['updated_at'] = gmdate( 'c' );
+						$retry                               = true;
+						do_action( 'digitalogic_pricing_state_event_failed', 'digitalogic_pricing_state_receipt_unavailable', $source );
 						break;
 					}
 
@@ -1603,6 +1613,117 @@ final class Digitalogic_Pricing_Snapshot {
 		);
 	}
 
+	/** Drop fallback sources whose exact current state was already recorded. */
+	private function pending_state_event_fallback_sources( $fallback_sources ) {
+		$fallback_sources = is_array( $fallback_sources ) ? array_values( $fallback_sources ) : array();
+		$lock             = $this->acquire_admission_lock( 1 );
+		if ( is_wp_error( $lock ) ) {
+			return $fallback_sources;
+		}
+
+		try {
+			$current_sources = array();
+			foreach ( $this->current_state_event_sources() as $current_source ) {
+				$key                     = (string) $current_source['id'] . "\n" . (string) $current_source['dataset'];
+				$current_sources[ $key ] = $current_source;
+			}
+
+			$pending = array();
+			foreach ( $fallback_sources as $candidate ) {
+				$source     = is_array( $candidate ) ? $candidate : array();
+				$source_key = (string) ( $source['id'] ?? '' ) . "\n" . (string) ( $source['dataset'] ?? '' );
+				if ( ! isset( $current_sources[ $source_key ] ) ) {
+					continue;
+				}
+
+				$source  = $current_sources[ $source_key ];
+				$current = $this->current_revision_data( $source );
+				if ( is_wp_error( $current ) ) {
+					$pending[ $source_key ] = $source;
+					continue;
+				}
+
+				$idempotency_key = $this->state_event_idempotency_key( $source, $current['state_revision'] );
+				if ( $this->state_event_receipt_matches( $source_key, $current['state_revision'], $idempotency_key ) ) {
+					continue;
+				}
+				if ( $this->panel_has_state_event( $source, $current['state_revision'], $idempotency_key ) ) {
+					if ( ! $this->persist_state_event_receipt( $source_key, $current['state_revision'], $idempotency_key ) ) {
+						do_action( 'digitalogic_pricing_state_event_failed', 'digitalogic_pricing_state_receipt_unavailable', $source );
+						$pending[ $source_key ] = $source;
+					}
+					continue;
+				}
+
+				$pending[ $source_key ] = $source;
+			}
+
+			return array_values( $pending );
+		} finally {
+			$this->release_admission_lock();
+		}
+	}
+
+	/** Return the stable event identity for one exact source and composite revision. */
+	private function state_event_idempotency_key( $source, $state_revision ) {
+		return $this->digest(
+			array(
+				'schema'         => self::STATE_EVENT_SCHEMA,
+				'source_id'      => (string) ( $source['id'] ?? '' ),
+				'source_dataset' => (string) ( $source['dataset'] ?? '' ),
+				'state_revision' => (string) $state_revision,
+			)
+		);
+	}
+
+	/** Check the bounded durable receipt for one exact state-event identity. */
+	private function state_event_receipt_matches( $source_key, $state_revision, $idempotency_key ) {
+		$receipts = get_option( self::STATE_EVENT_RECEIPTS, array() );
+		$receipts = is_array( $receipts ) ? $receipts : array();
+		$receipt  = is_array( $receipts[ $source_key ] ?? null ) ? $receipts[ $source_key ] : array();
+
+		return '' !== (string) ( $receipt['state_revision'] ?? '' )
+			&& hash_equals( (string) $receipt['state_revision'], (string) $state_revision )
+			&& hash_equals( (string) ( $receipt['idempotency_key'] ?? '' ), (string) $idempotency_key );
+	}
+
+	/** Store the newest delivered event identity for each exact source. */
+	private function persist_state_event_receipt( $source_key, $state_revision, $idempotency_key ) {
+		$receipts                = get_option( self::STATE_EVENT_RECEIPTS, array() );
+		$receipts                = is_array( $receipts ) ? $receipts : array();
+		$receipts[ $source_key ] = array(
+			'state_revision'  => (string) $state_revision,
+			'idempotency_key' => (string) $idempotency_key,
+			'recorded_at'     => gmdate( 'c' ),
+		);
+
+		return $this->store_option_verified( self::STATE_EVENT_RECEIPTS, $receipts );
+	}
+
+	/** Find an already durable panel event before appending a duplicate. */
+	private function panel_has_state_event( $source, $state_revision, $idempotency_key ) {
+		if ( ! class_exists( 'Digitalogic_Panel' ) || ! method_exists( 'Digitalogic_Panel', 'get_events_since' ) ) {
+			return false;
+		}
+
+		foreach ( Digitalogic_Panel::get_events_since( 0 ) as $event ) {
+			$data         = is_array( $event['data'] ?? null ) ? $event['data'] : array();
+			$event_source = is_array( $data['source'] ?? null ) ? $data['source'] : array();
+			if (
+				'pricing.state.changed' === (string) ( $event['name'] ?? '' )
+				&& self::STATE_EVENT_SCHEMA === (string) ( $data['schema'] ?? '' )
+				&& hash_equals( (string) $idempotency_key, (string) ( $data['idempotency_key'] ?? '' ) )
+				&& hash_equals( (string) $state_revision, (string) ( $data['state_revision'] ?? '' ) )
+				&& hash_equals( (string) ( $source['id'] ?? '' ), (string) ( $event_source['id'] ?? '' ) )
+				&& hash_equals( (string) ( $source['dataset'] ?? '' ), (string) ( $event_source['dataset'] ?? '' ) )
+			) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
 	/** Merge every exact current source into the persistent state-event outbox. */
 	private function persist_state_revision_outbox( $candidate_sources = null, $cause = 'projection-invalidated' ) {
 		$candidate_sources = is_array( $candidate_sources ) ? $candidate_sources : $this->current_state_event_sources();
@@ -1891,23 +2012,89 @@ final class Digitalogic_Pricing_Snapshot {
 	private function schedule_state_revision_event_retry( $fallback_sources = array(), $fallback_source_events = array() ) {
 		$fallback_sources       = is_array( $fallback_sources ) ? array_values( $fallback_sources ) : array();
 		$fallback_source_events = is_array( $fallback_source_events ) ? array_values( $fallback_source_events ) : array();
-		if ( $this->state_event_retry_scheduled && empty( $fallback_sources ) && empty( $fallback_source_events ) ) {
-			return true;
+		$args                   = array( $fallback_sources, $fallback_source_events );
+		$locked                 = $this->acquire_state_event_schedule_lock();
+		if ( ! $locked ) {
+			$scheduled = $this->state_event_retry_is_pending( $args );
+			if ( ! $scheduled ) {
+				do_action( 'digitalogic_pricing_state_event_failed', 'digitalogic_pricing_state_retry_unavailable', array() );
+			}
+
+			return $scheduled;
 		}
-		$timestamp = time() + self::RETRY_AFTER;
-		$scheduled = false;
-		if ( function_exists( 'as_schedule_single_action' ) ) {
-			$scheduled = (bool) as_schedule_single_action( $timestamp, self::STATE_EVENT_HOOK, array( $fallback_sources, $fallback_source_events ), self::ACTION_GROUP, false );
-		} elseif ( function_exists( 'wp_schedule_single_event' ) ) {
-			$scheduled = wp_schedule_single_event( $timestamp, self::STATE_EVENT_HOOK, array( $fallback_sources, $fallback_source_events ), true );
-			$scheduled = ! is_wp_error( $scheduled ) && false !== $scheduled;
+
+		try {
+			if ( $this->state_event_retry_is_pending( $args ) ) {
+				return true;
+			}
+
+			$timestamp = time() + self::RETRY_AFTER;
+			$scheduled = false;
+			if ( function_exists( 'as_schedule_single_action' ) && function_exists( 'as_get_scheduled_actions' ) ) {
+				// The dedicated lock plus exact pending readback permits one replacement while the current action is running.
+				$scheduled = (bool) as_schedule_single_action( $timestamp, self::STATE_EVENT_HOOK, $args, self::ACTION_GROUP, false );
+			} elseif ( function_exists( 'wp_schedule_single_event' ) ) {
+				$scheduled = wp_schedule_single_event( $timestamp, self::STATE_EVENT_HOOK, $args, true );
+				$scheduled = ! is_wp_error( $scheduled ) && false !== $scheduled;
+			}
+			$scheduled = $scheduled || $this->state_event_retry_is_pending( $args );
+		} finally {
+			$this->release_state_event_schedule_lock();
 		}
-		$this->state_event_retry_scheduled = $scheduled;
 		if ( ! $scheduled ) {
 			do_action( 'digitalogic_pricing_state_event_failed', 'digitalogic_pricing_state_retry_unavailable', array() );
 		}
 
 		return $scheduled;
+	}
+
+	/** Return whether one exact state-event retry is already pending. */
+	private function state_event_retry_is_pending( $args ) {
+		if ( function_exists( 'as_get_scheduled_actions' ) ) {
+			$actions = as_get_scheduled_actions(
+				array(
+					'hook'     => self::STATE_EVENT_HOOK,
+					'args'     => $args,
+					'group'    => self::ACTION_GROUP,
+					'status'   => 'pending',
+					'per_page' => 1,
+				),
+				'ids'
+			);
+
+			return ! empty( $actions );
+		}
+		if ( function_exists( 'wp_next_scheduled' ) ) {
+			return false !== wp_next_scheduled( self::STATE_EVENT_HOOK, $args );
+		}
+
+		return false;
+	}
+
+	/** Serialize exact pending-action readback and insertion across PHP requests. */
+	private function acquire_state_event_schedule_lock() {
+		global $wpdb;
+		if ( ! is_object( $wpdb ) || ! method_exists( $wpdb, 'get_var' ) || ! method_exists( $wpdb, 'prepare' ) ) {
+			return false;
+		}
+
+		$acquired = $wpdb->get_var( $wpdb->prepare( 'SELECT GET_LOCK(%s, %d)', self::STATE_EVENT_SCHEDULE_LOCK_NAME, 1 ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.NotPrepared -- Bounded advisory mutex; prepared above.
+
+		return 1 === (int) $acquired;
+	}
+
+	/** Release the state-event scheduler mutex owned by this request. */
+	private function release_state_event_schedule_lock() {
+		global $wpdb;
+		if ( ! is_object( $wpdb ) || ! method_exists( $wpdb, 'get_var' ) || ! method_exists( $wpdb, 'prepare' ) ) {
+			return;
+		}
+
+		try {
+			$wpdb->get_var( $wpdb->prepare( 'SELECT RELEASE_LOCK(%s)', self::STATE_EVENT_SCHEDULE_LOCK_NAME ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.NotPrepared -- Bounded advisory mutex; prepared above.
+		} catch ( Throwable $error ) {
+			unset( $error );
+		}
 	}
 
 	/** Schedule one bounded retry for the persistent snapshot-terminal outbox. */

@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.10] - 2026-08-24
+
+### Fixed
+- Coalesced pricing state-event retries across PHP requests with an exact
+  pending-action readback protected by a dedicated database mutex. A running
+  worker may still schedule one replacement without creating parallel retry
+  chains.
+- Added a bounded per-source delivery receipt and retained-panel identity
+  check. Late fallback actions can no longer repersist or replay a composite
+  revision that already reached the durable panel queue, preserving the
+  200-event replay window for distinct events.
+
 ## [1.8.9] - 2026-08-23
 
 ### Fixed
