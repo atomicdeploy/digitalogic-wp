@@ -622,7 +622,10 @@ final class WebSocketLifecycleTest extends TestCase {
 	public function test_pricing_service_redis_wakeup_drains_durable_events_in_id_order_and_rejects_commands(): void {
 		$pair = @stream_socket_pair(STREAM_PF_UNIX, STREAM_SOCK_STREAM, STREAM_IPPROTO_IP);
 		if ( false === $pair ) {
-			$this->markTestSkipped('Unix socket pairs are unavailable on this platform.');
+			$pair = @stream_socket_pair( STREAM_PF_INET, STREAM_SOCK_STREAM, STREAM_IPPROTO_IP );
+		}
+		if ( false === $pair ) {
+			$this->markTestSkipped( 'Stream socket pairs are unavailable on this platform.' );
 		}
 		$this->assertIsArray($pair);
 		stream_set_timeout($pair[1], 1);
@@ -636,6 +639,18 @@ final class WebSocketLifecycleTest extends TestCase {
 			'data'  => array( 'id' => 55 ),
 			'time'  => '2026-08-23 01:00:01',
 		);
+		$GLOBALS['digitalogic_test_options'][ Digitalogic_Patris_Feed::PRODUCT_SYNC_SECRET_OPTION ] = 'receiver-secret';
+		$GLOBALS['digitalogic_test_options'][ Digitalogic_Patris_Feed::PRODUCT_SYNC_SCOPES_OPTION ] = array( $source );
+		$auth = Digitalogic_WebSocket_Auth::authenticate_context(
+			array(
+				'X-Patris-Product-Sync-Secret' => 'receiver-secret',
+				'X-Patris-Source-Id'           => $source['id'],
+				'X-Patris-Source-Dataset'      => $source['dataset'],
+			),
+			array()
+		);
+		$this->assertTrue( $auth['authenticated'] );
+
 		$GLOBALS['digitalogic_test_options']['digitalogic_panel_events'] = array(
 			$pricing_event,
 			$later_unrelated_event,
@@ -644,13 +659,14 @@ final class WebSocketLifecycleTest extends TestCase {
 		$server = new Digitalogic_WebSocket_Server();
 		$this->write_private($server, 'clients', array(
 			42 => array(
-				'socket'        => $pair[0],
-				'handshake'     => true,
-				'last_event_id' => 100,
-				'user_id'       => 0,
-				'device_id'     => '',
-				'principal'     => 'patris_pricing',
-				'source'        => $source,
+				'socket'                 => $pair[0],
+				'handshake'              => true,
+				'last_event_id'          => 100,
+				'user_id'                => 0,
+				'device_id'              => '',
+				'principal'              => $auth['principal'],
+				'source'                 => $auth['source'],
+				'credential_fingerprint' => $auth['credential_fingerprint'],
 			),
 		));
 
