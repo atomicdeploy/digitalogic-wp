@@ -34,6 +34,7 @@ final class Digitalogic_Pricing_Snapshot {
 	private const CLEANUP_HOOK                      = 'digitalogic_pricing_snapshot_cleanup_idempotency_v1';
 	private const STATE_EVENT_HOOK                  = 'digitalogic_pricing_state_event_delivery_v1';
 	private const STATE_EVENT_HANDOFF_HOOK          = 'digitalogic_pricing_state_event_handoff_v1';
+	private const STATE_EVENT_RECOVERY_HOOK         = 'digitalogic_pricing_state_event_recovery_v1';
 	private const TERMINAL_EVENT_HOOK               = 'digitalogic_pricing_snapshot_terminal_event_delivery_v1';
 	private const FRESHNESS_HOOK                    = 'digitalogic_pricing_freshness_boundary_v1';
 	private const ACTION_GROUP                      = 'digitalogic-pricing-snapshots';
@@ -128,6 +129,7 @@ final class Digitalogic_Pricing_Snapshot {
 		add_action( self::CLEANUP_HOOK, array( $this, 'cleanup_idempotency' ), 10, 3 );
 		add_action( self::STATE_EVENT_HOOK, array( $this, 'run_state_revision_event_delivery' ), 10, 2 );
 		add_action( self::STATE_EVENT_HANDOFF_HOOK, array( $this, 'run_state_revision_event_handoff' ), 10, 2 );
+		add_action( self::STATE_EVENT_RECOVERY_HOOK, array( $this, 'run_state_revision_event_handoff' ), 10, 2 );
 		add_action( self::TERMINAL_EVENT_HOOK, array( $this, 'run_terminal_event_delivery' ) );
 		add_action( self::FRESHNESS_HOOK, array( $this, 'run_freshness_boundary' ), 10, 2 );
 		add_action( 'digitalogic_excel_pricing_apply_committed', array( $this, 'invalidate_after_apply' ) );
@@ -1147,32 +1149,14 @@ final class Digitalogic_Pricing_Snapshot {
 		if ( ! $locked ) {
 			$scheduled = $this->state_event_retry_is_pending( $args );
 			if ( ! $scheduled ) {
-				do_action( 'digitalogic_pricing_state_event_failed', 'digitalogic_pricing_state_retry_unavailable', array() );
+				$scheduled = $this->schedule_state_event_retry_without_lock( $args );
 			}
-
-			return $scheduled;
-		}
-
-		try {
-			if ( $this->state_event_retry_is_pending( $args ) ) {
-				return true;
+		} else {
+			try {
+				$scheduled = $this->schedule_state_event_retry_under_lock( $args );
+			} finally {
+				$this->release_state_event_schedule_lock( $lock_name );
 			}
-			$timestamp = time() + self::RETRY_AFTER;
-			$scheduled = false;
-			if ( function_exists( 'as_schedule_single_action' ) && function_exists( 'as_get_scheduled_actions' ) ) {
-				try {
-					// The handoff and normal scheduler share this mutex, so exactly one may insert the successor.
-					as_schedule_single_action( $timestamp, self::STATE_EVENT_HOOK, $args, $this->state_event_action_group( $args ), false );
-					$scheduled = $this->state_event_retry_is_pending( $args );
-				} catch ( Throwable $error ) {
-					$scheduled = false;
-				}
-			}
-			if ( ! $scheduled && function_exists( 'wp_schedule_single_event' ) ) {
-				$scheduled = $this->schedule_wp_cron_state_event_retry( $timestamp, $args );
-			}
-		} finally {
-			$this->release_state_event_schedule_lock( $lock_name );
 		}
 		if ( ! $scheduled ) {
 			do_action( 'digitalogic_pricing_state_event_failed', 'digitalogic_pricing_state_retry_unavailable', array() );
@@ -2305,6 +2289,9 @@ final class Digitalogic_Pricing_Snapshot {
 		$locked                 = $this->acquire_state_event_schedule_lock( $lock_name );
 		if ( ! $locked ) {
 			$scheduled = $this->state_event_retry_is_pending( $args );
+			if ( ! $scheduled && true === $this->state_event_handoff_is_running( $args ) ) {
+				$scheduled = true;
+			}
 			if ( ! $scheduled ) {
 				$scheduled = $this->schedule_state_event_retry_without_lock( $args );
 			}
@@ -2316,27 +2303,7 @@ final class Digitalogic_Pricing_Snapshot {
 		}
 
 		try {
-			if ( $this->state_event_retry_is_pending( $args ) ) {
-				return true;
-			}
-
-			$timestamp = time() + self::RETRY_AFTER;
-			$scheduled = false;
-			if ( function_exists( 'as_schedule_single_action' ) && function_exists( 'as_get_scheduled_actions' ) ) {
-				try {
-					// The dedicated lock plus exact pending readback permits one replacement while the current action is running.
-					as_schedule_single_action( $timestamp, self::STATE_EVENT_HOOK, $args, $this->state_event_action_group( $args ), false );
-					$scheduled = $this->state_event_retry_is_pending( $args );
-				} catch ( Throwable $error ) {
-					$scheduled = false;
-				}
-			}
-			if ( ! $scheduled && function_exists( 'wp_schedule_single_event' ) ) {
-				$scheduled = $this->schedule_wp_cron_state_event_retry( $timestamp, $args );
-			}
-			if ( ! $scheduled ) {
-				$scheduled = $this->state_event_retry_is_pending( $args );
-			}
+			$scheduled = $this->schedule_state_event_retry_under_lock( $args );
 		} finally {
 			$this->release_state_event_schedule_lock( $lock_name );
 		}
@@ -2347,12 +2314,44 @@ final class Digitalogic_Pricing_Snapshot {
 		return $scheduled;
 	}
 
+	/** Schedule one exact successor while the caller owns its content-addressed mutex. */
+	private function schedule_state_event_retry_under_lock( $args ) {
+		$pending_state = $this->state_event_retry_pending_state( $args );
+		if ( true === $pending_state ) {
+			return true;
+		}
+		if ( null === $pending_state ) {
+			return $this->schedule_state_event_retry_without_lock( $args );
+		}
+
+		$timestamp = time() + self::RETRY_AFTER;
+		if ( function_exists( 'as_schedule_single_action' ) ) {
+			try {
+				// Exact absence plus this mutex permits one non-unique replacement while the primary is running.
+				$result = as_schedule_single_action( $timestamp, self::STATE_EVENT_HOOK, $args, $this->state_event_action_group( $args ), false );
+				if ( $this->state_event_action_result_succeeded( $result ) ) {
+					return true;
+				}
+			} catch ( Throwable $error ) {
+				unset( $error );
+			}
+		}
+
+		return $this->schedule_state_event_retry_without_lock( $args );
+	}
+
 	/** Return whether one exact state-event retry is already pending. */
 	private function state_event_retry_is_pending( $args ) {
+		return true === $this->state_event_retry_pending_state( $args );
+	}
+
+	/** Return true/false for exact pending state, or null when a scheduler cannot be read. */
+	private function state_event_retry_pending_state( $args ) {
+		$known = true;
 		if ( function_exists( 'as_get_scheduled_actions' ) ) {
 			try {
 				$groups = array_unique( array( $this->state_event_action_group( $args ), self::ACTION_GROUP ) );
-				$hooks  = array( self::STATE_EVENT_HOOK, self::STATE_EVENT_HANDOFF_HOOK );
+				$hooks  = array( self::STATE_EVENT_HOOK, self::STATE_EVENT_HANDOFF_HOOK, self::STATE_EVENT_RECOVERY_HOOK );
 				foreach ( $hooks as $hook ) {
 					foreach ( $groups as $group ) {
 						$actions = as_get_scheduled_actions(
@@ -2372,16 +2371,53 @@ final class Digitalogic_Pricing_Snapshot {
 					}
 				}
 			} catch ( Throwable $error ) {
-				unset( $error );
+				$known = false;
 			}
 		}
 		if ( function_exists( 'wp_next_scheduled' ) ) {
 			try {
-				return false !== wp_next_scheduled( self::STATE_EVENT_HOOK, $args )
-					|| false !== wp_next_scheduled( self::STATE_EVENT_HANDOFF_HOOK, $args );
+				if (
+					false !== wp_next_scheduled( self::STATE_EVENT_HOOK, $args )
+					|| false !== wp_next_scheduled( self::STATE_EVENT_HANDOFF_HOOK, $args )
+					|| false !== wp_next_scheduled( self::STATE_EVENT_RECOVERY_HOOK, $args )
+				) {
+					return true;
+				}
 			} catch ( Throwable $error ) {
-				unset( $error );
+				$known = false;
 			}
+		}
+
+		return $known ? false : null;
+	}
+
+	/** Return whether an exact handoff/recovery is already executing, or null if unreadable. */
+	private function state_event_handoff_is_running( $args ) {
+		if ( ! function_exists( 'as_get_scheduled_actions' ) ) {
+			return false;
+		}
+		try {
+			$groups = array_unique( array( $this->state_event_action_group( $args ), self::ACTION_GROUP ) );
+			$hooks  = array( self::STATE_EVENT_HANDOFF_HOOK, self::STATE_EVENT_RECOVERY_HOOK );
+			foreach ( $hooks as $hook ) {
+				foreach ( $groups as $group ) {
+					$actions = as_get_scheduled_actions(
+						array(
+							'hook'     => $hook,
+							'args'     => $args,
+							'group'    => $group,
+							'status'   => 'in-progress',
+							'per_page' => 1,
+						),
+						'ids'
+					);
+					if ( ! empty( $actions ) ) {
+						return true;
+					}
+				}
+			}
+		} catch ( Throwable $error ) {
+			return null;
 		}
 
 		return false;
@@ -2395,27 +2431,30 @@ final class Digitalogic_Pricing_Snapshot {
 				return true;
 			}
 		}
-		if ( function_exists( 'as_schedule_single_action' ) && function_exists( 'as_get_scheduled_actions' ) ) {
-			try {
-				// Native uniqueness is atomic across requests; the content-addressed group also supports pre-4.0 stores.
-				as_schedule_single_action( $timestamp, self::STATE_EVENT_HOOK, $args, $this->state_event_action_group( $args ), true );
-			} catch ( Throwable $error ) {
-				unset( $error );
+		if ( function_exists( 'as_schedule_single_action' ) ) {
+			$hooks = array( self::STATE_EVENT_HOOK, self::STATE_EVENT_HANDOFF_HOOK, self::STATE_EVENT_RECOVERY_HOOK );
+			foreach ( $hooks as $hook ) {
+				try {
+					// Native uniqueness is atomic; alternate hooks cover an already-running predecessor.
+					$result = as_schedule_single_action( $timestamp, $hook, $args, $this->state_event_action_group( $args ), true );
+					if ( $this->state_event_action_result_succeeded( $result ) ) {
+						return true;
+					}
+				} catch ( Throwable $error ) {
+					unset( $error );
+				}
+				if ( $this->state_event_retry_is_pending( $args ) ) {
+					return true;
+				}
 			}
-			if ( $this->state_event_retry_is_pending( $args ) ) {
-				return true;
-			}
-			try {
-				// A different hook can become the one durable successor while the primary hook is in-progress.
-				as_schedule_single_action( $timestamp, self::STATE_EVENT_HANDOFF_HOOK, $args, $this->state_event_action_group( $args ), true );
-			} catch ( Throwable $error ) {
-				unset( $error );
-			}
-
-			return $this->state_event_retry_is_pending( $args );
 		}
 
-		return false;
+		return $this->state_event_retry_is_pending( $args );
+	}
+
+	/** Return whether Action Scheduler confirmed insertion of one exact action. */
+	private function state_event_action_result_succeeded( $result ) {
+		return ! is_wp_error( $result ) && is_numeric( $result ) && 0 < (int) $result;
 	}
 
 	/** Schedule WP-Cron and accept it only after exact persisted readback. */

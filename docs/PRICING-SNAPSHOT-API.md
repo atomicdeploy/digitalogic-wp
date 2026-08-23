@@ -176,7 +176,17 @@ If that group's primary action is already in progress, one alternate
 content-addressed handoff remains pending and converts under the same exact
 scheduler mutex to one primary successor without contending on the
 already-running hook. A throwing Action Scheduler, WP-Cron, or mutex adapter is
-isolated so the other verified scheduler path can still retain the intent.
+isolated so the other verified scheduler path can still retain the intent. If
+the handoff mutex itself is unavailable, one additional atomic recovery relay
+retains the exact arguments until a later transition can insert the primary.
+Pending readback is tri-state: an unreadable scheduler never enables a
+non-unique insert, and persistent degraded retries remain bounded by the three
+content-addressed primary/handoff/recovery hooks without collapsing identities.
+Deployment preflight and post-deploy readback must count the primary, handoff,
+and recovery hooks in both Action Scheduler and WP-Cron. A rollback to a plugin
+version that does not register the relay hooks must preserve any residual rows
+as incident evidence until an operator reviews their exact arguments and state;
+cleanup is deliberate, not an automatic or wildcard deletion.
 The outbox carries the exact delivered identity until its one-hour receipt
 commits. Receipts retain only the newest 200 source identities, and exact source
 removal durably clears both its normalized receipt and delivered-state outbox

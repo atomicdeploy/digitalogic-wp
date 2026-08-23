@@ -398,13 +398,12 @@ final class PricingSnapshotTest extends TestCase {
 		$this->assertSame( $args, $GLOBALS['digitalogic_test_as_actions'][0]['args'] );
 	}
 
-	/** Throwing AS query/insertion adapters fail over to exact WP-Cron readback. */
+	/** A throwing AS insertion adapter fails over to exact WP-Cron readback. */
 	#[RunInSeparateProcess]
-	public function test_state_event_handoff_survives_throwing_action_scheduler_and_uses_wp_cron(): void {
+	public function test_state_event_handoff_survives_throwing_action_scheduler_insert_and_uses_wp_cron(): void {
 		require_once __DIR__ . '/fixtures/action-scheduler-state-event-stubs.php';
 		$args = array( array( $this->source ), array() );
 
-		$GLOBALS['digitalogic_test_as_query_exceptions']    = 1;
 		$GLOBALS['digitalogic_test_as_schedule_exceptions'] = array( 'digitalogic_pricing_state_event_delivery_v1' );
 
 		$snapshot = Digitalogic_Pricing_Snapshot::instance();
@@ -440,6 +439,163 @@ final class PricingSnapshotTest extends TestCase {
 		$this->assertSame( $args, $GLOBALS['digitalogic_test_as_actions'][0]['args'] );
 		$this->assertTrue( $GLOBALS['digitalogic_test_as_actions'][0]['unique'] );
 		$this->assertSame( 0, $GLOBALS['wpdb']->release_count );
+	}
+
+	/** A throwing/contended handoff mutex retains one exact verified WP-Cron successor. */
+	#[RunInSeparateProcess]
+	public function test_state_event_handoff_lock_failure_uses_one_verified_wp_cron_successor(): void {
+		require_once __DIR__ . '/fixtures/action-scheduler-state-event-stubs.php';
+		$args  = array( array( $this->source ), array() );
+		$group = $this->invoke_snapshot( 'state_event_action_group', array( $args ) );
+
+		$GLOBALS['digitalogic_test_as_actions'] = array(
+			array(
+				'id'        => 1,
+				'timestamp' => time(),
+				'hook'      => 'digitalogic_pricing_state_event_delivery_v1',
+				'args'      => $args,
+				'group'     => $group,
+				'status'    => 'in-progress',
+				'unique'    => false,
+			),
+			array(
+				'id'        => 2,
+				'timestamp' => time(),
+				'hook'      => 'digitalogic_pricing_state_event_handoff_v1',
+				'args'      => $args,
+				'group'     => $group,
+				'status'    => 'in-progress',
+				'unique'    => true,
+			),
+		);
+		$GLOBALS['wpdb']->before_get_lock       = static function () {
+			throw new RuntimeException( 'Injected handoff mutex adapter failure.' );
+		};
+		$GLOBALS['wpdb']->acquire_result        = 0;
+		$snapshot                               = Digitalogic_Pricing_Snapshot::instance();
+
+		for ( $attempt = 0; $attempt < 50; ++$attempt ) {
+			$this->assertTrue( $snapshot->run_state_revision_event_handoff( $args[0], $args[1] ) );
+		}
+		$scheduled = $this->scheduled_events_for( 'digitalogic_pricing_state_event_delivery_v1' );
+		$this->assertCount( 1, $scheduled );
+		$this->assertSame( $args, $scheduled[0]['args'] );
+		$this->assertCount( 2, $GLOBALS['digitalogic_test_as_actions'] );
+		$this->assertSame( 0, $GLOBALS['wpdb']->release_count );
+	}
+
+	/** With WP-Cron unavailable, one recovery relay survives handoff mutex timeout. */
+	#[RunInSeparateProcess]
+	public function test_state_event_handoff_lock_timeout_uses_one_unique_recovery_relay(): void {
+		require_once __DIR__ . '/fixtures/action-scheduler-state-event-stubs.php';
+		$args  = array( array( $this->source ), array() );
+		$group = $this->invoke_snapshot( 'state_event_action_group', array( $args ) );
+
+		$GLOBALS['digitalogic_test_as_actions']       = array(
+			array(
+				'id'        => 1,
+				'timestamp' => time(),
+				'hook'      => 'digitalogic_pricing_state_event_delivery_v1',
+				'args'      => $args,
+				'group'     => $group,
+				'status'    => 'in-progress',
+				'unique'    => false,
+			),
+			array(
+				'id'        => 2,
+				'timestamp' => time(),
+				'hook'      => 'digitalogic_pricing_state_event_handoff_v1',
+				'args'      => $args,
+				'group'     => $group,
+				'status'    => 'in-progress',
+				'unique'    => true,
+			),
+		);
+		$GLOBALS['digitalogic_test_schedule_failure'] = true;
+		$GLOBALS['wpdb']->acquire_result              = 0;
+		$snapshot                                     = Digitalogic_Pricing_Snapshot::instance();
+
+		for ( $attempt = 0; $attempt < 50; ++$attempt ) {
+			$this->assertTrue( $snapshot->run_state_revision_event_handoff( $args[0], $args[1] ) );
+		}
+		$pending = array_values(
+			array_filter(
+				$GLOBALS['digitalogic_test_as_actions'],
+				static fn( $action ) => 'pending' === (string) $action['status']
+			)
+		);
+		$this->assertCount( 1, $pending );
+		$this->assertSame( 'digitalogic_pricing_state_event_recovery_v1', $pending[0]['hook'] );
+		$this->assertSame( $args, $pending[0]['args'] );
+		$this->assertTrue( $pending[0]['unique'] );
+
+		foreach ( $GLOBALS['digitalogic_test_as_actions'] as &$action ) {
+			$action['status'] = 'digitalogic_pricing_state_event_recovery_v1' === $action['hook'] ? 'in-progress' : 'complete';
+		}
+		unset( $action );
+		$GLOBALS['digitalogic_test_schedule_failure'] = false;
+		$GLOBALS['wpdb']->acquire_result              = 1;
+		$this->assertTrue( $snapshot->run_state_revision_event_handoff( $args[0], $args[1] ) );
+		$pending = array_values(
+			array_filter(
+				$GLOBALS['digitalogic_test_as_actions'],
+				static fn( $action ) => 'pending' === (string) $action['status']
+			)
+		);
+		$this->assertCount( 1, $pending );
+		$this->assertSame( 'digitalogic_pricing_state_event_delivery_v1', $pending[0]['hook'] );
+		$this->assertFalse( $pending[0]['unique'] );
+	}
+
+	/** Persistent AS read failure uses verified WP-Cron without non-unique insert storms. */
+	#[RunInSeparateProcess]
+	public function test_persistent_action_scheduler_query_failure_retains_one_wp_cron_action_per_identity(): void {
+		require_once __DIR__ . '/fixtures/action-scheduler-state-event-stubs.php';
+		$args               = array( array( $this->source ), array() );
+		$other_source       = $this->source;
+		$other_source['id'] = 'patris-query-failure-peer';
+		$other_args         = array( array( $other_source ), array() );
+
+		$GLOBALS['digitalogic_test_as_query_exceptions'] = 1000;
+		for ( $attempt = 0; $attempt < 50; ++$attempt ) {
+			$this->assertTrue( $this->invoke_snapshot( 'schedule_state_revision_event_retry', $args ) );
+			$this->assertTrue( $this->invoke_snapshot( 'schedule_state_revision_event_retry', $other_args ) );
+		}
+		$scheduled = $this->scheduled_events_for( 'digitalogic_pricing_state_event_delivery_v1' );
+		$this->assertCount( 2, $scheduled );
+		$this->assertSame( array( $args, $other_args ), array_column( $scheduled, 'args' ) );
+		$this->assertCount( 0, $GLOBALS['digitalogic_test_as_actions'] ?? array() );
+	}
+
+	/** Persistent unreadable AS plus failed WP-Cron remains bounded by unique relay hooks. */
+	#[RunInSeparateProcess]
+	public function test_persistent_scheduler_read_failure_bounds_atomic_relays_and_retains_diversity(): void {
+		require_once __DIR__ . '/fixtures/action-scheduler-state-event-stubs.php';
+		$args               = array( array( $this->source ), array() );
+		$other_source       = $this->source;
+		$other_source['id'] = 'patris-query-failure-degraded-peer';
+		$other_args         = array( array( $other_source ), array() );
+
+		$GLOBALS['digitalogic_test_as_query_exceptions'] = 5000;
+		$GLOBALS['digitalogic_test_schedule_failure']    = true;
+		for ( $attempt = 0; $attempt < 50; ++$attempt ) {
+			$this->invoke_snapshot( 'schedule_state_revision_event_retry', $args );
+			$this->invoke_snapshot( 'schedule_state_revision_event_retry', $other_args );
+		}
+		$this->assertCount( 6, $GLOBALS['digitalogic_test_as_actions'] );
+		$this->assertSame(
+			array(
+				'digitalogic_pricing_state_event_delivery_v1',
+				'digitalogic_pricing_state_event_delivery_v1',
+				'digitalogic_pricing_state_event_handoff_v1',
+				'digitalogic_pricing_state_event_handoff_v1',
+				'digitalogic_pricing_state_event_recovery_v1',
+				'digitalogic_pricing_state_event_recovery_v1',
+			),
+			array_column( $GLOBALS['digitalogic_test_as_actions'], 'hook' )
+		);
+		$this->assertSame( array( true, true, true, true, true, true ), array_column( $GLOBALS['digitalogic_test_as_actions'], 'unique' ) );
+		$this->assertCount( 2, array_unique( array_column( $GLOBALS['digitalogic_test_as_actions'], 'group' ) ) );
 	}
 
 	/** Atomic AS uniqueness coalesces degraded contenders without evicting another identity. */
@@ -541,7 +697,7 @@ final class PricingSnapshotTest extends TestCase {
 			$contending_scheduler_result = $this->invoke_snapshot( 'schedule_state_revision_event_retry', $args );
 		};
 		$this->assertTrue( $snapshot->run_state_revision_event_handoff( $args[0], $args[1] ) );
-		$this->assertFalse( $contending_scheduler_result );
+		$this->assertTrue( $contending_scheduler_result );
 		$this->assertTrue( $snapshot->run_state_revision_event_handoff( $other_args[0], $other_args[1] ) );
 		for ( $attempt = 0; $attempt < 25; ++$attempt ) {
 			$this->assertTrue( $snapshot->run_state_revision_event_handoff( $args[0], $args[1] ) );
