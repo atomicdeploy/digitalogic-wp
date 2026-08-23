@@ -59,7 +59,11 @@ final class ProductCodeWriteGuardTest extends TestCase {
 		$guard  = Digitalogic_Product_Code_Write_Guard::instance();
 		$denied = $guard->with_authorized_write(
 			'editor',
-			array( 'product_id' => 901, 'operation' => 'set', 'value' => 'LOCKLESS' ),
+			array(
+				'product_id' => 901,
+				'operation'  => 'set',
+				'value'      => 'LOCKLESS',
+			),
 			static function () {
 				return update_post_meta( 901, Digitalogic_Product_Code_Editor::META_KEY, 'LOCKLESS' );
 			}
@@ -72,7 +76,11 @@ final class ProductCodeWriteGuardTest extends TestCase {
 		try {
 			$written = $guard->with_authorized_write(
 				'editor',
-				array( 'product_id' => 901, 'operation' => 'set', 'value' => 'LOCKED' ),
+				array(
+					'product_id' => 901,
+					'operation'  => 'set',
+					'value'      => 'LOCKED',
+				),
 				static function () {
 					return update_post_meta( 901, Digitalogic_Product_Code_Editor::META_KEY, 'LOCKED' );
 				}
@@ -92,7 +100,11 @@ final class ProductCodeWriteGuardTest extends TestCase {
 
 		$result = Digitalogic_Product_Code_Write_Guard::instance()->with_authorized_write(
 			'editor',
-			array( 'product_id' => 901, 'operation' => 'set', 'value' => 'MUST-NOT-WRITE' ),
+			array(
+				'product_id' => 901,
+				'operation'  => 'set',
+				'value'      => 'MUST-NOT-WRITE',
+			),
 			static function () {
 				return update_post_meta( 901, Digitalogic_Product_Code_Editor::META_KEY, 'MUST-NOT-WRITE' );
 			}
@@ -110,7 +122,11 @@ final class ProductCodeWriteGuardTest extends TestCase {
 
 		$result = Digitalogic_Product_Code_Write_Guard::instance()->with_authorized_write(
 			'editor',
-			array( 'product_id' => 901, 'operation' => 'set', 'value' => 'MUST-NOT-WRITE' ),
+			array(
+				'product_id' => 901,
+				'operation'  => 'set',
+				'value'      => 'MUST-NOT-WRITE',
+			),
 			static function () {
 				$GLOBALS['wpdb']->connection_id = 2002;
 				return update_post_meta( 901, Digitalogic_Product_Code_Editor::META_KEY, 'MUST-NOT-WRITE' );
@@ -127,8 +143,15 @@ final class ProductCodeWriteGuardTest extends TestCase {
 	public function test_product_and_variation_rest_meta_data_are_rejected_with_or_without_id(): void {
 		$guard = Digitalogic_Product_Code_Write_Guard::instance();
 		$rows  = array(
-			array( 'key' => Digitalogic_Product_Code_Editor::META_KEY, 'value' => 'REST' ),
-			array( 'id' => 77, 'key' => Digitalogic_Product_Code_Editor::META_KEY, 'value' => 'REST-MID' ),
+			array(
+				'key'   => Digitalogic_Product_Code_Editor::META_KEY,
+				'value' => 'REST',
+			),
+			array(
+				'id'    => 77,
+				'key'   => Digitalogic_Product_Code_Editor::META_KEY,
+				'value' => 'REST-MID',
+			),
 		);
 		foreach ( array( 901, 902 ) as $product_id ) {
 			foreach ( $rows as $row ) {
@@ -169,7 +192,11 @@ final class ProductCodeWriteGuardTest extends TestCase {
 		try {
 			$result = Digitalogic_Product_Code_Write_Guard::instance()->with_authorized_write(
 				'editor',
-				array( 'product_id' => 901, 'operation' => 'set', 'value' => 'EXACT' ),
+				array(
+					'product_id' => 901,
+					'operation'  => 'set',
+					'value'      => 'EXACT',
+				),
 				static function () {
 					$other = update_post_meta( 902, Digitalogic_Product_Code_Editor::META_KEY, 'EXACT' );
 					$wrong = update_post_meta( 901, Digitalogic_Product_Code_Editor::META_KEY, 'WRONG' );
@@ -194,7 +221,11 @@ final class ProductCodeWriteGuardTest extends TestCase {
 		try {
 			$result = Digitalogic_Product_Code_Write_Guard::instance()->with_authorized_write(
 				'editor',
-				array( 'product' => $product, 'operation' => 'set', 'value' => 'IMMUTABLE' ),
+				array(
+					'product'   => $product,
+					'operation' => 'set',
+					'value'     => 'IMMUTABLE',
+				),
 				static function () use ( $product ) {
 					$property = new ReflectionProperty( WC_Product::class, 'id' );
 					$property->setValue( $product, 902 );
@@ -216,7 +247,20 @@ final class ProductCodeWriteGuardTest extends TestCase {
 		$this->assertFalse( $guard->guard_key_delete( null, 901, $upper, '', false ) );
 		$this->assertInstanceOf(
 			WP_Error::class,
-			$guard->reject_rest_write( new WC_Product( 901 ), new WP_REST_Request( array( 'meta_data' => array( array( 'key' => $upper, 'value' => 'CASE' ) ) ) ), false )
+			$guard->reject_rest_write(
+				new WC_Product( 901 ),
+				new WP_REST_Request(
+					array(
+						'meta_data' => array(
+							array(
+								'key'   => $upper,
+								'value' => 'CASE',
+							),
+						),
+					)
+				),
+				false
+			)
 		);
 
 		$GLOBALS['digitalogic_test_meta_by_mid'][79] = array(
@@ -231,7 +275,10 @@ final class ProductCodeWriteGuardTest extends TestCase {
 		try {
 			$result = $guard->with_authorized_write(
 				'editor',
-				array( 'product_id' => 901, 'operation' => 'delete' ),
+				array(
+					'product_id' => 901,
+					'operation'  => 'delete',
+				),
 				static function () use ( $guard ) {
 					return $guard->guard_key_delete( null, 901, Digitalogic_Product_Code_Editor::META_KEY, '', true );
 				}
@@ -347,7 +394,12 @@ final class ProductCodeWriteGuardTest extends TestCase {
 		$this->assertFalse( Digitalogic_Product_Write_Lock::instance()->is_owned( 901 ) );
 	}
 
-	/** Reset one private singleton. */
+	/**
+	 * Reset one private singleton.
+	 *
+	 * @param class-string $class_name Singleton class name.
+	 * @return void
+	 */
 	private function reset_singleton( $class_name ) {
 		$property = new ReflectionProperty( $class_name, 'instance' );
 		$property->setValue( null, null );

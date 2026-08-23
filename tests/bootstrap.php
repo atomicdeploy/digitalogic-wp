@@ -1079,13 +1079,13 @@ function add_post_meta($post_id, $key, $value, $unique = false) {
 		return false;
 	}
 
-	$rows = array_values(get_post_meta($post_id, $key, false));
+	$rows   = array_values(get_post_meta($post_id, $key, false));
 	$rows[] = $value;
 	if (1 === count($rows)) {
 		$GLOBALS['digitalogic_test_posts'][$post_id]['meta'][$key] = $value;
 		unset($GLOBALS['digitalogic_test_posts'][$post_id]['meta_rows'][$key]);
 	} else {
-		$GLOBALS['digitalogic_test_posts'][$post_id]['meta'][$key] = reset($rows);
+		$GLOBALS['digitalogic_test_posts'][$post_id]['meta'][$key]      = reset($rows);
 		$GLOBALS['digitalogic_test_posts'][$post_id]['meta_rows'][$key] = $rows;
 	}
 	unset($GLOBALS['digitalogic_test_post_meta_cache'][$post_id]);
@@ -1125,7 +1125,7 @@ function delete_post_meta($post_id, $key, $value = '') {
 
 function wp_delete_post($post_id, $force_delete = false) {
 	$post_id = (int) $post_id;
-	$post = get_post($post_id);
+	$post    = get_post($post_id);
 	if (!$post) {
 		return false;
 	}
@@ -1137,7 +1137,7 @@ function wp_delete_post($post_id, $force_delete = false) {
 	foreach (array_keys($GLOBALS['digitalogic_test_posts'][$post_id]['meta'] ?? array()) as $index => $key) {
 		$meta_id = ($post_id * 1000) + $index + 1;
 		$GLOBALS['digitalogic_test_meta_by_mid'][$meta_id] = array(
-			'post_id' => $post_id,
+			'post_id'  => $post_id,
 			'meta_key' => $key,
 		);
 		$guarded = apply_filters('delete_post_metadata_by_mid', null, $meta_id);
@@ -1154,12 +1154,12 @@ function wp_delete_post($post_id, $force_delete = false) {
 
 function wp_trash_post($post_id) {
 	$post_id = (int) $post_id;
-	$post = get_post($post_id);
+	$post    = get_post($post_id);
 	if (!$post || 'trash' === (string) ($post->post_status ?? '')) {
 		return false;
 	}
 	$previous_status = (string) ($post->post_status ?? '');
-	$pre_trash = apply_filters('pre_trash_post', null, $post, $previous_status);
+	$pre_trash       = apply_filters('pre_trash_post', null, $post, $previous_status);
 	if (null !== $pre_trash) {
 		return $pre_trash;
 	}
@@ -1172,12 +1172,12 @@ function wp_trash_post($post_id) {
 
 function wp_untrash_post($post_id) {
 	$post_id = (int) $post_id;
-	$post = get_post($post_id);
+	$post    = get_post($post_id);
 	if (!$post || 'trash' !== (string) ($post->post_status ?? '')) {
 		return false;
 	}
 	$previous_status = 'trash';
-	$pre_untrash = apply_filters('pre_untrash_post', null, $post, $previous_status);
+	$pre_untrash     = apply_filters('pre_untrash_post', null, $post, $previous_status);
 	if (null !== $pre_untrash) {
 		return $pre_untrash;
 	}
@@ -1554,8 +1554,8 @@ class Digitalogic_Test_WPDB {
 		}
 
         if (strpos($query, 'RELEASE_LOCK') !== false) {
-			$args = is_array($prepared) && isset($prepared['args']) ? $prepared['args'] : array();
-			$name = isset($args[0]) ? (string) $args[0] : '';
+			$args                      = is_array($prepared) && isset($prepared['args']) ? $prepared['args'] : array();
+			$name                      = isset($args[0]) ? (string) $args[0] : '';
             $callback = $this->before_release_lock;
             $this->before_release_lock = null;
             if (is_callable($callback)) {
@@ -2456,7 +2456,7 @@ class WC_Product {
     }
 
     public function set_manage_stock($value) {
-        $this->manage_stock = 'parent' === $value ? 'parent' : (bool) $value;
+        $this->manage_stock          = 'parent' === $value ? 'parent' : (bool) $value;
         $this->meta['_manage_stock'] = 'parent' === $value ? 'parent' : ($value ? 'yes' : 'no'); // phpcs:ignore -- Keep test product metadata synchronized.
     }
 
@@ -2514,22 +2514,22 @@ class WC_Product {
 				$id++;
 			}
 			$pending = $GLOBALS['digitalogic_test_posts'][0] ?? array(
-				'post_type' => 'product',
-				'post_status' => 'draft',
+				'post_type'    => 'product',
+				'post_status'  => 'draft',
 				'product_type' => 'simple',
-				'post_title' => '',
+				'post_title'   => '',
 				'post_excerpt' => '',
-				'meta' => array(),
+				'meta'         => array(),
 			);
 			unset($GLOBALS['digitalogic_test_posts'][0]);
-			$this->id = $id;
+			$this->id                                 = $id;
 			$GLOBALS['digitalogic_test_next_post_id'] = $id + 1;
-			$GLOBALS['digitalogic_test_posts'][$id] = $pending;
+			$GLOBALS['digitalogic_test_posts'][$id]   = $pending;
 		}
         if (in_array($this->id, $GLOBALS['digitalogic_test_wc_save_failures'] ?? array(), true)) {
             throw new RuntimeException('Injected WooCommerce save failure.');
         }
-		$fail_once_at = (int) ($GLOBALS['digitalogic_test_wc_save_fail_once'][$this->id] ?? 0);
+		$fail_once_at       = (int) ($GLOBALS['digitalogic_test_wc_save_fail_once'][$this->id] ?? 0);
 		$product_save_count = count(
 			array_filter(
 				$GLOBALS['digitalogic_test_wc_product_saves'] ?? array(),
@@ -2542,13 +2542,13 @@ class WC_Product {
         }
 		$previous_code_exists = isset($GLOBALS['digitalogic_test_posts'][$this->id]['meta'])
 			&& array_key_exists('_digitalogic_patris_product_code', $GLOBALS['digitalogic_test_posts'][$this->id]['meta']);
-		$previous_code = $previous_code_exists
+		$previous_code        = $previous_code_exists
 			? $GLOBALS['digitalogic_test_posts'][$this->id]['meta']['_digitalogic_patris_product_code']
 			: null;
-		$next_code_exists = array_key_exists('_digitalogic_patris_product_code', $this->meta);
-		$next_code = $next_code_exists ? $this->meta['_digitalogic_patris_product_code'] : null;
+		$next_code_exists     = array_key_exists('_digitalogic_patris_product_code', $this->meta);
+		$next_code            = $next_code_exists ? $this->meta['_digitalogic_patris_product_code'] : null;
 		if ($previous_code_exists !== $next_code_exists || $previous_code !== $next_code) {
-			$hook = $next_code_exists ? 'update_post_metadata' : 'delete_post_metadata';
+			$hook    = $next_code_exists ? 'update_post_metadata' : 'delete_post_metadata';
 			$guarded = apply_filters($hook, null, $this->id, '_digitalogic_patris_product_code', $next_code, '');
 			if (null !== $guarded) {
 				if ($previous_code_exists) {
@@ -2574,12 +2574,12 @@ class WC_Product_Simple extends WC_Product {
     public function __construct($id = 0) {
 		if ((int) $id <= 0 && !empty($GLOBALS['digitalogic_test_wc_defer_new_product_id'])) {
 			$GLOBALS['digitalogic_test_posts'][0] = array(
-				'post_type' => 'product',
-				'post_status' => 'draft',
+				'post_type'    => 'product',
+				'post_status'  => 'draft',
 				'product_type' => 'simple',
-				'post_title' => '',
+				'post_title'   => '',
 				'post_excerpt' => '',
-				'meta' => array(),
+				'meta'         => array(),
 			);
 			parent::__construct(0);
 			return;
@@ -2608,12 +2608,12 @@ class WC_Product_Variation extends WC_Product {
     public function __construct($id = 0) {
 		if ((int) $id <= 0 && !empty($GLOBALS['digitalogic_test_wc_defer_new_product_id'])) {
 			$GLOBALS['digitalogic_test_posts'][0] = array(
-				'post_type' => 'product_variation',
-				'post_status' => 'draft',
+				'post_type'    => 'product_variation',
+				'post_status'  => 'draft',
 				'product_type' => 'variation',
-				'post_parent' => 0,
-				'post_title' => '',
-				'meta' => array(),
+				'post_parent'  => 0,
+				'post_title'   => '',
+				'meta'         => array(),
 			);
 			parent::__construct(0);
 			return;

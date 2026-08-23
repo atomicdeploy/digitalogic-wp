@@ -12,22 +12,22 @@ final class PatrisFeedResolutionTest extends TestCase {
         $GLOBALS['digitalogic_test_option_cache'] = array();
         $GLOBALS['digitalogic_test_posts'] = array();
         $GLOBALS['digitalogic_test_post_meta_cache'] = array();
-		$GLOBALS['digitalogic_test_cache_delete_failures'] = array();
+		$GLOBALS['digitalogic_test_cache_delete_failures']  = array();
         $GLOBALS['digitalogic_test_actions'] = array();
         $GLOBALS['digitalogic_test_action_callbacks'] = array();
-		$GLOBALS['digitalogic_test_filters'] = array();
+		$GLOBALS['digitalogic_test_filters']                = array();
         $GLOBALS['digitalogic_test_wc_products'] = array();
         $GLOBALS['digitalogic_test_wc_product_saves'] = array();
-        $GLOBALS['digitalogic_test_wc_after_save'] = null;
-        $GLOBALS['digitalogic_test_update_failures'] = array();
-		$GLOBALS['digitalogic_test_meta_update_failures'] = array();
-		$GLOBALS['digitalogic_test_meta_delete_failures'] = array();
+        $GLOBALS['digitalogic_test_wc_after_save']          = null;
+        $GLOBALS['digitalogic_test_update_failures']        = array();
+		$GLOBALS['digitalogic_test_meta_update_failures']   = array();
+		$GLOBALS['digitalogic_test_meta_delete_failures']   = array();
         $GLOBALS['digitalogic_test_option_delete_failures'] = array();
-        $GLOBALS['digitalogic_test_capabilities'] = array(
+        $GLOBALS['digitalogic_test_capabilities']           = array(
             'manage_woocommerce' => true,
-            'edit_post' => true,
+            'edit_post'          => true,
         );
-        $GLOBALS['digitalogic_test_current_user_id'] = 17;
+        $GLOBALS['digitalogic_test_current_user_id']        = 17;
         $GLOBALS['wpdb'] = new Digitalogic_Test_WPDB();
 
         $this->resetSingleton(Digitalogic_Product_Identifier_Resolver::class);
@@ -74,12 +74,12 @@ final class PatrisFeedResolutionTest extends TestCase {
 		$GLOBALS['digitalogic_test_options']['digitalogic_patris_feed_products'] = array(
 			'LEGACY-OLD' => array( 'product_code' => 'LEGACY-OLD' ),
 		);
-		$GLOBALS['digitalogic_test_posts'][712] = array(
+		$GLOBALS['digitalogic_test_posts'][712]                                  = array(
 			'post_type'   => 'product',
 			'post_status' => 'publish',
 			'meta'        => array( '_digitalogic_patris_product_code' => 'LEGACY-NEW' ),
 		);
-		$GLOBALS['digitalogic_test_update_failures'][] = 'digitalogic_patris_feed_products';
+		$GLOBALS['digitalogic_test_update_failures'][]                           = 'digitalogic_patris_feed_products';
 
 		$result = $this->feed->import_payload(
 			array(
@@ -101,12 +101,12 @@ final class PatrisFeedResolutionTest extends TestCase {
 
 	/** The accepted legacy ownership snapshot exists before the first row-save callback. */
 	public function test_nested_owner_edit_during_row_save_is_blocked_by_published_source_ownership(): void {
-		$GLOBALS['digitalogic_test_posts'][713] = array(
+		$GLOBALS['digitalogic_test_posts'][713]    = array(
 			'post_type'   => 'product',
 			'post_status' => 'publish',
 			'meta'        => array( '_digitalogic_patris_product_code' => 'LEGACY-713' ),
 		);
-		$nested_result = null;
+		$nested_result                             = null;
 		$GLOBALS['digitalogic_test_wc_after_save'] = static function () use ( &$nested_result ) {
 			$editor        = Digitalogic_Product_Code_Editor::instance();
 			$nested_result = $editor->edit(
@@ -274,13 +274,13 @@ final class PatrisFeedResolutionTest extends TestCase {
 			'meta'        => array(
 				'_digitalogic_patris_product_code' => 'SOURCE-710',
 				'_digitalogic_patris_name'         => 'Existing source name',
-				'_weight'                           => '1.25',
-				'_manage_stock'                     => 'yes',
-				'_stock'                            => 9,
-				'_stock_status'                     => 'instock',
-				'_regular_price'                    => '875000',
-				'_sale_price'                       => '825000',
-				'_price'                            => '825000',
+				'_weight'                          => '1.25',
+				'_manage_stock'                    => 'yes',
+				'_stock'                           => 9,
+				'_stock_status'                    => 'instock',
+				'_regular_price'                   => '875000',
+				'_sale_price'                      => '825000',
+				'_price'                           => '825000',
 			),
 		);
 		add_filter(
@@ -319,7 +319,7 @@ final class PatrisFeedResolutionTest extends TestCase {
 
 	/** Duplicate canonical rows injected at save are rejected before lock release. */
 	public function test_feed_fails_when_post_save_canonical_readback_is_duplicated(): void {
-		$GLOBALS['digitalogic_test_posts'][711] = array(
+		$GLOBALS['digitalogic_test_posts'][711]    = array(
 			'post_type'   => 'product',
 			'post_status' => 'publish',
 			'meta'        => array( '_digitalogic_patris_product_code' => 'SOURCE-711' ),
@@ -342,27 +342,27 @@ final class PatrisFeedResolutionTest extends TestCase {
 
 	/** Backup, effect, exact readback, and rollback remain one fail-fast product-lock phase. */
 	public function test_feed_rollback_cannot_clobber_an_interleaving_writer_and_restores_multi_row_meta(): void {
-		$GLOBALS['digitalogic_test_posts'][716] = array(
+		$GLOBALS['digitalogic_test_posts'][716]              = array(
 			'post_type'   => 'product',
 			'post_status' => 'publish',
 			'meta'        => array(
 				Digitalogic_Product_Code_Editor::META_KEY => 'SOURCE-716',
-				'_digitalogic_patris_name'               => 'Original first name',
+				'_digitalogic_patris_name'                => 'Original first name',
 			),
 			'meta_rows'   => array(
 				'_digitalogic_patris_name' => array( 'Original first name', 'Original second name' ),
 			),
 		);
-		$GLOBALS['digitalogic_test_post_meta_cache'][716] = array(
+		$GLOBALS['digitalogic_test_post_meta_cache'][716]    = array(
 			Digitalogic_Product_Code_Editor::META_KEY => 'STALE-CODE',
-			'_digitalogic_patris_name'               => 'Stale cached name',
+			'_digitalogic_patris_name'                => 'Stale cached name',
 		);
 		$GLOBALS['digitalogic_test_cache_delete_failures'][] = 'post_meta:716';
-		$writer_result = null;
-		$GLOBALS['digitalogic_test_wc_after_save'] = static function () use ( &$writer_result ) {
-			$database       = $GLOBALS['wpdb'];
-			$connection_id  = $database->connection_id;
-			$reflection     = new ReflectionClass( Digitalogic_Product_Write_Lock::class );
+		$writer_result                                       = null;
+		$GLOBALS['digitalogic_test_wc_after_save']           = static function () use ( &$writer_result ) {
+			$database        = $GLOBALS['wpdb'];
+			$connection_id   = $database->connection_id;
+			$reflection      = new ReflectionClass( Digitalogic_Product_Write_Lock::class );
 			$separate_writer = $reflection->newInstanceWithoutConstructor();
 			try {
 				$database->connection_id = 2002;
@@ -398,12 +398,12 @@ final class PatrisFeedResolutionTest extends TestCase {
 
 	/** A database backup failure stops before the legacy source writer can mutate WooCommerce. */
 	public function test_feed_exact_metadata_backup_query_failure_is_fail_closed(): void {
-		$GLOBALS['digitalogic_test_posts'][717] = array(
+		$GLOBALS['digitalogic_test_posts'][717]    = array(
 			'post_type'   => 'product',
 			'post_status' => 'publish',
 			'meta'        => array(
 				Digitalogic_Product_Code_Editor::META_KEY => 'SOURCE-717',
-				'_digitalogic_patris_name'               => 'Original name',
+				'_digitalogic_patris_name'                => 'Original name',
 			),
 		);
 		$GLOBALS['wpdb']->exact_meta_query_failure = true;

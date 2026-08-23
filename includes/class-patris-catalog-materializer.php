@@ -1542,14 +1542,14 @@ final class Digitalogic_Patris_Catalog_Materializer {
 			return $is_new ? $this->rollback_failed_draft_locked( $product, $preflight ) : $preflight;
 		}
 
-		$target_backup = $this->capture_identity_enrichment_backup(
+		$target_backup   = $this->capture_identity_enrichment_backup(
 			$product,
 			! empty( $enrichment['convert_empty_variable_to_simple'] ) && $product->is_type( 'variable' ),
 			! empty( $enrichment['convert_empty_variable_to_simple'] ) && $product->is_type( 'variable' )
 		);
-		$feed_backup   = Digitalogic_Patris_Feed::instance()->capture_locked_product_feed_backup( $product );
-		$parent        = $parent_id > 0 ? wc_get_product( $parent_id ) : null;
-		$parent_backup = $parent instanceof WC_Product
+		$feed_backup     = Digitalogic_Patris_Feed::instance()->capture_locked_product_feed_backup( $product );
+		$parent          = $parent_id > 0 ? wc_get_product( $parent_id ) : null;
+		$parent_backup   = $parent instanceof WC_Product
 			? $this->capture_identity_enrichment_backup( $parent, $is_new && $product->is_type( 'variation' ), false )
 			: null;
 		$shipping_before = is_array( $target_backup ) ? $this->shipping_method_from_backup( $target_backup ) : null;
@@ -1854,9 +1854,9 @@ final class Digitalogic_Patris_Catalog_Materializer {
 			return $this->row_outcome_unknown_after_target_restore( $product_id, $cause, $target_backup );
 		}
 
-		$data                      = is_array( $cause->get_error_data() ) ? $cause->get_error_data() : array();
-		$data['effect_attempted']  = true;
-		$data['rollback_verified'] = true;
+		$data                        = is_array( $cause->get_error_data() ) ? $cause->get_error_data() : array();
+		$data['effect_attempted']    = true;
+		$data['rollback_verified']   = true;
 		$data['preserved_published'] = 'publish' === (string) ( $target_backup['status'] ?? '' );
 
 		return new WP_Error( $cause->get_error_code(), $cause->get_error_message(), $data );
@@ -1864,9 +1864,9 @@ final class Digitalogic_Patris_Catalog_Materializer {
 
 	/** Preserve exact target-status attribution even when a parent rollback is uncertain. */
 	private function row_outcome_unknown_after_target_restore( $product_id, $cause, $target_backup ) {
-		$error    = $this->source_write_outcome_unknown( $product_id, $cause );
-		$readback = Digitalogic_Product_Code_Editor::instance()->canonical_source_provenance_readback( $product_id );
-		$data     = is_array( $error->get_error_data() ) ? $error->get_error_data() : array();
+		$error                       = $this->source_write_outcome_unknown( $product_id, $cause );
+		$readback                    = Digitalogic_Product_Code_Editor::instance()->canonical_source_provenance_readback( $product_id );
+		$data                        = is_array( $error->get_error_data() ) ? $error->get_error_data() : array();
 		$data['preserved_published'] = 'publish' === (string) ( $target_backup['status'] ?? '' )
 			&& is_array( $readback )
 			&& 'publish' === (string) ( $readback['post_status'] ?? '' );
@@ -1933,19 +1933,19 @@ final class Digitalogic_Patris_Catalog_Materializer {
 		if ( ! $parent instanceof WC_Product || ! $parent->is_type( 'variable' ) ) {
 			return $this->error( 'digitalogic_patris_materializer_parent_publish_readback_failed', 'The reviewed variable parent failed exact publication readback.' );
 		}
-		$keys = array(
+		$keys     = array(
 			'_digitalogic_patris_family_name', '_digitalogic_variation_group', 'rank_math_title',
 			'rank_math_description', 'rank_math_focus_keyword', 'rank_math_primary_product_cat',
 		);
-		$meta = $this->read_exact_meta_rows( $parent_id, $keys );
-		$post = get_post( $parent_id );
+		$meta     = $this->read_exact_meta_rows( $parent_id, $keys );
+		$post     = get_post( $parent_id );
 		$expected = array(
 			'_digitalogic_patris_family_name' => array( sanitize_text_field( $enrichment['patris_family_name'] ) ),
 			'_digitalogic_variation_group'    => array( sanitize_text_field( $variation->get_meta( '_digitalogic_variation_group', true ) ) ),
-			'rank_math_title'                  => array( sanitize_text_field( $enrichment['seo_title_fa'] ) ),
-			'rank_math_description'            => array( sanitize_text_field( $enrichment['seo_description_fa'] ) ),
-			'rank_math_focus_keyword'          => array( sanitize_text_field( $enrichment['focus_keyword_fa'] ) ),
-			'rank_math_primary_product_cat'    => array( (string) $category_term ),
+			'rank_math_title'                 => array( sanitize_text_field( $enrichment['seo_title_fa'] ) ),
+			'rank_math_description'           => array( sanitize_text_field( $enrichment['seo_description_fa'] ) ),
+			'rank_math_focus_keyword'         => array( sanitize_text_field( $enrichment['focus_keyword_fa'] ) ),
+			'rank_math_primary_product_cat'   => array( (string) $category_term ),
 		);
 		if (
 			is_wp_error( $meta )
@@ -2083,10 +2083,10 @@ final class Digitalogic_Patris_Catalog_Materializer {
 				throw new RuntimeException( 'WooCommerce rejected the parent attribute save.' );
 			}
 			$this->flush_product_caches( (int) $parent->get_id() );
-			$fresh      = wc_get_product( (int) $parent->get_id() );
-			$readback   = $fresh instanceof WC_Product ? $fresh->get_attributes() : array();
-			$attribute  = $readback[ $taxonomy ] ?? null;
-			$options    = $attribute instanceof WC_Product_Attribute ? array_map( 'intval', $attribute->get_options() ) : array();
+			$fresh     = wc_get_product( (int) $parent->get_id() );
+			$readback  = $fresh instanceof WC_Product ? $fresh->get_attributes() : array();
+			$attribute = $readback[ $taxonomy ] ?? null;
+			$options   = $attribute instanceof WC_Product_Attribute ? array_map( 'intval', $attribute->get_options() ) : array();
 			if ( ! in_array( (int) $term_id, $options, true ) ) {
 				throw new RuntimeException( 'The parent attribute readback did not contain the reviewed option.' );
 			}
@@ -2104,7 +2104,7 @@ final class Digitalogic_Patris_Catalog_Materializer {
 				if ( $restored ) {
 					$this->flush_product_caches( (int) $parent->get_id() );
 				}
-				$fresh    = $restored ? wc_get_product( (int) $parent->get_id() ) : false;
+				$fresh = $restored ? wc_get_product( (int) $parent->get_id() ) : false;
 			} catch ( Throwable $rollback_exception ) {
 				$fresh = false;
 			}
@@ -2213,8 +2213,8 @@ final class Digitalogic_Patris_Catalog_Materializer {
 			$deleted = false;
 		}
 		if ( $deleted && ! get_post( $product_id ) && Digitalogic_Product_Sync_Receiver::instance()->source_identity_lock_is_owned() ) {
-			$data                     = is_array( $cause->get_error_data() ) ? $cause->get_error_data() : array();
-			$data['effect_attempted'] = true;
+			$data                      = is_array( $cause->get_error_data() ) ? $cause->get_error_data() : array();
+			$data['effect_attempted']  = true;
 			$data['rollback_verified'] = true;
 			return new WP_Error( $cause->get_error_code(), $cause->get_error_message(), $data );
 		}
@@ -2309,7 +2309,7 @@ final class Digitalogic_Patris_Catalog_Materializer {
 			$this->apply_product_seo_meta( $product, $enrichment );
 			$product->update_meta_data( 'rank_math_primary_product_cat', (string) $category_term );
 			$category_product_id = $this->assign_product_category( $product, $category_term );
-			$saved = $this->save_managed_identity( $product );
+			$saved               = $this->save_managed_identity( $product );
 			if ( is_wp_error( $saved ) ) {
 				return $this->rollback_identity_enrichment_failure( $product, $backup, $saved, $lock_ids );
 			}
@@ -2555,7 +2555,7 @@ final class Digitalogic_Patris_Catalog_Materializer {
 		if ( ! $post || (string) ( $post->post_title ?? '' ) !== $backup['name'] || (string) ( $post->post_excerpt ?? '' ) !== $backup['short_description'] ) {
 			return false;
 		}
-		$fresh = wc_get_product( $product_id );
+		$fresh        = wc_get_product( $product_id );
 		$product_type = null !== $backup['product_type'] ? $this->product_type_term( $product_id ) : null;
 		if (
 			! $fresh instanceof WC_Product

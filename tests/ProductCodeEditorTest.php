@@ -150,7 +150,7 @@ final class ProductCodeEditorTest extends TestCase {
 				'request_id'    => 'product-code:741:historical-b',
 			)
 		);
-		$write_count = count( $GLOBALS['digitalogic_test_actions']['updated_post_meta'] ?? array() );
+		$write_count   = count( $GLOBALS['digitalogic_test_actions']['updated_post_meta'] ?? array() );
 
 		$replay = $this->editor->edit( $first_request );
 
@@ -160,7 +160,13 @@ final class ProductCodeEditorTest extends TestCase {
 		$this->assertSame( '000742', $replay['product_code'], 'The immutable audit result remains historical.' );
 		$this->assertSame( '000743', $replay['current_product_code'] );
 		$this->assertSame( $this->editor->revision_for( 741, '000743' ), $replay['current_revision'] );
-		$this->assertSame( array( 'database_readback' => true, 'cache_bypassed' => true ), $replay['current_readback'] );
+		$this->assertSame(
+			array(
+				'database_readback' => true,
+				'cache_bypassed'    => true,
+			),
+			$replay['current_readback']
+		);
 		$this->assertSame( $write_count, count( $GLOBALS['digitalogic_test_actions']['updated_post_meta'] ?? array() ) );
 	}
 
@@ -386,8 +392,8 @@ final class ProductCodeEditorTest extends TestCase {
 				}
 				$interleaved                = true;
 				$editor_db                  = $GLOBALS['wpdb'];
-				$receiver_property           = new ReflectionProperty( Digitalogic_Product_Sync_Receiver::class, 'instance' );
-				$editor_receiver             = $receiver_property->getValue();
+				$receiver_property          = new ReflectionProperty( Digitalogic_Product_Sync_Receiver::class, 'instance' );
+				$editor_receiver            = $receiver_property->getValue();
 				$writer_db                  = new Digitalogic_Test_WPDB();
 				$writer_db->acquire_results = array( 0 );
 				$GLOBALS['wpdb']            = $writer_db;
@@ -746,7 +752,7 @@ final class ProductCodeEditorTest extends TestCase {
 	/** Case-variant legacy identity/provenance keys are malformed, never absent. */
 	public function test_case_variant_identity_and_provenance_rows_fail_closed_before_effect(): void {
 		$fixtures = array(
-			'variant-only' => array(
+			'variant-only'       => array(
 				'meta'      => array( '_DIGITALOGIC_PATRIS_PRODUCT_CODE' => '000741' ),
 				'meta_rows' => array(),
 			),
@@ -855,10 +861,10 @@ final class ProductCodeEditorTest extends TestCase {
 
 	/** A terminal record proven after reconnect remains a valid successful effect. */
 	public function test_reconnect_during_terminal_operation_write_returns_proven_completion(): void {
-		$request        = $this->request( '000742', 'product-code:741:terminal-write-reconnect' );
-		$operation_name = $this->operation_option_name( $request['request_id'] );
-		$callback       = null;
-		$callback       = static function ( $database, $option_name ) use ( &$callback, $operation_name ) {
+		$request                             = $this->request( '000742', 'product-code:741:terminal-write-reconnect' );
+		$operation_name                      = $this->operation_option_name( $request['request_id'] );
+		$callback                            = null;
+		$callback                            = static function ( $database, $option_name ) use ( &$callback, $operation_name ) {
 			$record = $GLOBALS['digitalogic_test_options'][ $option_name ] ?? array();
 			if ( $operation_name === $option_name && 'completed' === (string) ( $record['status'] ?? '' ) ) {
 				$database->connection_id = 2002;
@@ -888,8 +894,8 @@ final class ProductCodeEditorTest extends TestCase {
 
 	/** Reconnect during physical pointer cleanup cannot hide a terminal request. */
 	public function test_reconnect_during_terminal_pointer_clear_remains_reload_safe(): void {
-		$request       = $this->request( '000742', 'product-code:741:pointer-clear-reconnect' );
-		$recovery_name = $this->recovery_option_name( 741 );
+		$request                              = $this->request( '000742', 'product-code:741:pointer-clear-reconnect' );
+		$recovery_name                        = $this->recovery_option_name( 741 );
 		$GLOBALS['wpdb']->after_option_delete = static function ( $database, $option_name ) use ( $recovery_name ) {
 			if ( $recovery_name === $option_name ) {
 				$database->connection_id = 2002;
@@ -1198,10 +1204,10 @@ final class ProductCodeEditorTest extends TestCase {
 		$this->assertMatchesRegularExpression( '/\Asha256:[a-f0-9]{64}\z/', $preview['record_fingerprint'] );
 		$this->assertMatchesRegularExpression( '/\Asha256:[a-f0-9]{64}\z/', $preview['preview_digest'] );
 
-		$action_count    = count( $GLOBALS['digitalogic_test_actions']['updated_post_meta'] ?? array() );
-		$apply           = $preview;
-		$apply['apply']  = true;
-		$result          = $this->editor->reconcile_outcome( $apply );
+		$action_count   = count( $GLOBALS['digitalogic_test_actions']['updated_post_meta'] ?? array() );
+		$apply          = $preview;
+		$apply['apply'] = true;
+		$result         = $this->editor->reconcile_outcome( $apply );
 		$this->assertIsArray( $result );
 		$this->assertSame( 'reconciled_no_effect', $result['status'] );
 		$this->assertFalse( $result['changed'] );
@@ -1237,10 +1243,10 @@ final class ProductCodeEditorTest extends TestCase {
 		);
 		$this->assertSame( 'after', $preview['resolution'] );
 		$this->assertSame( 'unmanaged', $preview['source_status'] );
-		$action_count    = count( $GLOBALS['digitalogic_test_actions']['updated_post_meta'] ?? array() );
-		$apply           = $preview;
-		$apply['apply']  = true;
-		$result          = $this->editor->reconcile_outcome( $apply );
+		$action_count   = count( $GLOBALS['digitalogic_test_actions']['updated_post_meta'] ?? array() );
+		$apply          = $preview;
+		$apply['apply'] = true;
+		$result         = $this->editor->reconcile_outcome( $apply );
 
 		$this->assertIsArray( $result );
 		$this->assertSame( 'applied', $result['status'] );
@@ -1264,7 +1270,7 @@ final class ProductCodeEditorTest extends TestCase {
 		$GLOBALS['digitalogic_test_posts'][741]['meta'][ Digitalogic_Product_Code_Editor::META_KEY ]   = 'UNRESOLVED';
 		$this->editor->edit( $request );
 		$GLOBALS['digitalogic_test_posts'][741]['meta'][ Digitalogic_Product_Code_Editor::META_KEY ] = '000741';
-		$preview = $this->editor->reconcile_outcome(
+		$preview                      = $this->editor->reconcile_outcome(
 			array(
 				'product_id' => 741,
 				'request_id' => $request['request_id'],
@@ -1311,8 +1317,8 @@ final class ProductCodeEditorTest extends TestCase {
 		$GLOBALS['digitalogic_test_options'][ $this->operation_option_name( $request['request_id'] ) ] = $this->interrupted_record( $request );
 		$GLOBALS['digitalogic_test_posts'][741]['meta'][ Digitalogic_Product_Code_Editor::META_KEY ]   = 'UNRESOLVED';
 		$this->editor->edit( $request );
-		$GLOBALS['digitalogic_test_posts'][741]['meta'][ Digitalogic_Product_Code_Editor::META_KEY ]     = '000742';
-		$GLOBALS['digitalogic_test_posts'][741]['meta']['_digitalogic_patris_record_hash']               = 'sha256:' . str_repeat( 'e', 64 );
+		$GLOBALS['digitalogic_test_posts'][741]['meta'][ Digitalogic_Product_Code_Editor::META_KEY ] = '000742';
+		$GLOBALS['digitalogic_test_posts'][741]['meta']['_digitalogic_patris_record_hash']           = 'sha256:' . str_repeat( 'e', 64 );
 
 		$result = $this->editor->reconcile_outcome(
 			array(
@@ -1333,7 +1339,12 @@ final class ProductCodeEditorTest extends TestCase {
 		$GLOBALS['digitalogic_test_posts'][741]['meta'][ Digitalogic_Product_Code_Editor::META_KEY ]   = 'UNRESOLVED';
 		$this->editor->edit( $request );
 		$GLOBALS['digitalogic_test_posts'][741]['meta'][ Digitalogic_Product_Code_Editor::META_KEY ] = '000741';
-		$preview          = $this->editor->reconcile_outcome( array( 'product_id' => 741, 'request_id' => $request['request_id'] ) );
+		$preview          = $this->editor->reconcile_outcome(
+			array(
+				'product_id' => 741,
+				'request_id' => $request['request_id'],
+			)
+		);
 		$preview['apply'] = true;
 		$this->assertSame( 'reconciled_no_effect', $this->editor->reconcile_outcome( $preview )['status'] );
 
@@ -1522,7 +1533,12 @@ final class ProductCodeEditorTest extends TestCase {
 		return 'digitalogic_product_code_edit_' . hash( 'sha256', (string) $request_id );
 	}
 
-	/** Return the durable per-product recovery pointer name. */
+	/**
+	 * Return the durable per-product recovery pointer name.
+	 *
+	 * @param int $product_id Product or variation identifier.
+	 * @return string
+	 */
 	private function recovery_option_name( $product_id ) {
 		return 'digitalogic_product_code_recovery_' . hash(
 			'sha256',

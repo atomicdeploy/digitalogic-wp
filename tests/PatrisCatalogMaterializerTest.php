@@ -1167,10 +1167,10 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 		$old_seo    = $before->get_meta( 'rank_math_title', true );
 		$old_terms  = $before->get_category_ids();
 
-		$manifest = $this->manifest();
-		$manifest['products']['101001001']['name_fa']      = 'نام فارسی تازه که نباید باقی بماند';
+		$manifest                                     = $this->manifest();
+		$manifest['products']['101001001']['name_fa'] = 'نام فارسی تازه که نباید باقی بماند';
 		$manifest['products']['101001001']['seo_title_fa'] = 'عنوان سئوی تازه که باید بازگردانی شود';
-		$GLOBALS['digitalogic_test_wc_after_save'] = static function () use ( $product_id ) {
+		$GLOBALS['digitalogic_test_wc_after_save']         = static function () use ( $product_id ) {
 			$GLOBALS['digitalogic_test_posts'][ $product_id ]['meta_rows'][ Digitalogic_Product_Code_Editor::META_KEY ] = array( '101001001', '101001001' );
 		};
 
@@ -1193,12 +1193,12 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 		$first   = $service->run( $this->manifest(), array( 'apply' => true ) );
 		$this->assertSame( 1, $first['created'] );
 		$product_id = (int) array_key_first( $GLOBALS['digitalogic_test_posts'] );
-		$GLOBALS['digitalogic_test_posts'][ $product_id ]['meta']['rank_math_title'] = 'Original SEO first';
+		$GLOBALS['digitalogic_test_posts'][ $product_id ]['meta']['rank_math_title']      = 'Original SEO first';
 		$GLOBALS['digitalogic_test_posts'][ $product_id ]['meta_rows']['rank_math_title'] = array( 'Original SEO first', 'Original SEO second' );
-		$GLOBALS['digitalogic_test_post_meta_cache'][ $product_id ] = array( 'rank_math_title' => 'Stale cached SEO' );
-		$GLOBALS['digitalogic_test_cache_delete_failures'][]        = 'post_meta:' . $product_id;
+		$GLOBALS['digitalogic_test_post_meta_cache'][ $product_id ]                       = array( 'rank_math_title' => 'Stale cached SEO' );
+		$GLOBALS['digitalogic_test_cache_delete_failures'][]                              = 'post_meta:' . $product_id;
 		unset( $GLOBALS['digitalogic_test_wc_products'][ $product_id ] );
-		$writer_result = null;
+		$writer_result                             = null;
 		$GLOBALS['digitalogic_test_wc_after_save'] = static function () use ( $product_id, &$writer_result ) {
 			$database        = $GLOBALS['wpdb'];
 			$connection_id   = $database->connection_id;
@@ -1219,7 +1219,7 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 			}
 			$GLOBALS['digitalogic_test_posts'][ $product_id ]['meta_rows'][ Digitalogic_Product_Code_Editor::META_KEY ] = array( '101001001', '101001001' );
 		};
-		$manifest = $this->manifest();
+		$manifest                                  = $this->manifest();
 
 		$result = $service->run( $manifest, array( 'apply' => true ) );
 
@@ -1239,9 +1239,9 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 		$service = Digitalogic_Patris_Catalog_Materializer::instance();
 		$first   = $service->run( $this->manifest(), array( 'apply' => true ) );
 		$this->assertSame( 1, $first['created'] );
-		$product_id   = (int) array_key_first( $GLOBALS['digitalogic_test_posts'] );
-		$before_posts = $GLOBALS['digitalogic_test_posts'];
-		$save_count   = count( $GLOBALS['digitalogic_test_wc_product_saves'] );
+		$product_id                                = (int) array_key_first( $GLOBALS['digitalogic_test_posts'] );
+		$before_posts                              = $GLOBALS['digitalogic_test_posts'];
+		$save_count                                = count( $GLOBALS['digitalogic_test_wc_product_saves'] );
 		$GLOBALS['wpdb']->exact_meta_query_failure = true;
 
 		$result = $service->run( $this->manifest(), array( 'apply' => true ) );

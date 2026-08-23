@@ -242,7 +242,7 @@ final class Digitalogic_Product_Code_Write_Guard {
 			Digitalogic_Product_Sync_Receiver::instance()->release_source_identity_lock();
 			return false;
 		}
-		$this->deletion_source_locks[ $id ] = (int) ( $this->deletion_source_locks[ $id ] ?? 0 ) + 1;
+		$this->deletion_source_locks[ $id ]  = (int) ( $this->deletion_source_locks[ $id ] ?? 0 ) + 1;
 		$this->deletion_product_locks[ $id ] = (int) ( $this->deletion_product_locks[ $id ] ?? 0 ) + 1;
 
 		return $delete;

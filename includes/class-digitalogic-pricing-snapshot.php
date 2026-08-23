@@ -1095,7 +1095,6 @@ final class Digitalogic_Pricing_Snapshot {
 				)
 			);
 		}
-
 		return true;
 	}
 

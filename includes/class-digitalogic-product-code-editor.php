@@ -1162,8 +1162,16 @@ final class Digitalogic_Product_Code_Editor {
 				'product_code'          => (string) ( $existing['rollback_data']['product_code'] ?? $request['expected_code'] ),
 				'record_hash'           => '',
 				'record_hash_row_count' => 0,
-				'owner'                 => array( 'source_id' => '', 'dataset' => '', 'product_code' => '' ),
-				'owner_row_counts'      => array( 'source_id' => 0, 'dataset' => 0, 'product_code' => 0 ),
+				'owner'                 => array(
+					'source_id'    => '',
+					'dataset'      => '',
+					'product_code' => '',
+				),
+				'owner_row_counts'      => array(
+					'source_id'    => 0,
+					'dataset'      => 0,
+					'product_code' => 0,
+				),
 				'row_count'             => 1,
 				'duplicate_rows'        => false,
 				'invalid_key_rows'      => 0,
@@ -1390,7 +1398,7 @@ final class Digitalogic_Product_Code_Editor {
 			$terminal['reconciliation'] = $evidence;
 			$terminal['result']         = $this->reconciliation_no_effect_result( $request, $preview, $evidence );
 			$terminal['updated_at']     = gmdate( 'c' );
-			$stored = $this->store_operation( $request['request_id'], $terminal );
+			$stored                     = $this->store_operation( $request['request_id'], $terminal );
 			if ( is_wp_error( $stored ) ) {
 				return $stored;
 			}
@@ -1416,19 +1424,27 @@ final class Digitalogic_Product_Code_Editor {
 				array( 'retryable' => true )
 			);
 		}
-		$before = array(
+		$before              = array(
 			'product_exists'        => true,
 			'meta_exists'           => ! empty( $existing['rollback_data']['meta_exists'] ),
 			'product_code'          => $request['expected_code'],
 			'record_hash'           => '',
 			'record_hash_row_count' => 0,
-			'owner'                 => array( 'source_id' => '', 'dataset' => '', 'product_code' => '' ),
-			'owner_row_counts'      => array( 'source_id' => 0, 'dataset' => 0, 'product_code' => 0 ),
+			'owner'                 => array(
+				'source_id'    => '',
+				'dataset'      => '',
+				'product_code' => '',
+			),
+			'owner_row_counts'      => array(
+				'source_id'    => 0,
+				'dataset'      => 0,
+				'product_code' => 0,
+			),
 			'row_count'             => 1,
 			'duplicate_rows'        => false,
 			'invalid_key_rows'      => 0,
 		);
-		$result = $this->success_result(
+		$result              = $this->success_result(
 			$request,
 			$before,
 			$current,
@@ -1437,13 +1453,13 @@ final class Digitalogic_Product_Code_Editor {
 			$existing['governance_proof'],
 			$projection
 		);
-		$result['recovered']                                   = true;
+		$result['recovered'] = true;
 		$result['recovery_governance_evidence_fingerprint'] = $source_guard['proof']['evidence_fingerprint'];
-		$result['reconciliation_evidence_fingerprint']       = $evidence['evidence_fingerprint'];
-		$context                                               = $existing;
-		$context['recovery_governance_proof']                  = $source_guard['proof'];
-		$context['projection']                                 = $projection;
-		$context['reconciliation']                             = $evidence;
+		$result['reconciliation_evidence_fingerprint']      = $evidence['evidence_fingerprint'];
+		$context                              = $existing;
+		$context['recovery_governance_proof'] = $source_guard['proof'];
+		$context['projection']                = $projection;
+		$context['reconciliation']            = $evidence;
 		if ( (int) ( $existing['actor_id'] ?? 0 ) !== get_current_user_id() ) {
 			$context['recovered_by'] = get_current_user_id();
 		}
@@ -1463,7 +1479,7 @@ final class Digitalogic_Product_Code_Editor {
 			return $state_json;
 		}
 		$source_state_fingerprint = 'sha256:' . hash( 'sha256', $state_json );
-		$guard = $this->source_guard(
+		$guard                    = $this->source_guard(
 			$request['product_id'],
 			$request['expected_code'],
 			$request['product_code'],
@@ -1479,8 +1495,8 @@ final class Digitalogic_Product_Code_Editor {
 		if ( 'digitalogic_product_code_source_managed' !== $guard->get_error_code() ) {
 			return $guard;
 		}
-		$data     = is_array( $guard->get_error_data() ) ? $guard->get_error_data() : array();
-		$reasons  = array_values( array_filter( array_map( 'sanitize_key', (array) ( $data['reasons'] ?? array() ) ) ) );
+		$data    = is_array( $guard->get_error_data() ) ? $guard->get_error_data() : array();
+		$reasons = array_values( array_filter( array_map( 'sanitize_key', (array) ( $data['reasons'] ?? array() ) ) ) );
 		sort( $reasons, SORT_STRING );
 		$material = $this->canonical_json(
 			array(
@@ -1546,11 +1562,11 @@ final class Digitalogic_Product_Code_Editor {
 			'source_status'               => (string) $preview['source_status'],
 			'source_evidence_fingerprint' => (string) $preview['source_evidence_fingerprint'],
 			'unique'                      => true,
-			'preview_digest'               => (string) $preview['preview_digest'],
-			'reconciled_by'                => get_current_user_id(),
-			'reconciled_at'                => gmdate( 'c' ),
+			'preview_digest'              => (string) $preview['preview_digest'],
+			'reconciled_by'               => get_current_user_id(),
+			'reconciled_at'               => gmdate( 'c' ),
 		);
-		$json = $this->canonical_json( $evidence );
+		$json     = $this->canonical_json( $evidence );
 		if ( is_wp_error( $json ) ) {
 			return $json;
 		}
@@ -2037,8 +2053,16 @@ final class Digitalogic_Product_Code_Editor {
 				'product_code'          => '',
 				'record_hash'           => '',
 				'record_hash_row_count' => 0,
-				'owner'                 => array( 'source_id' => '', 'dataset' => '', 'product_code' => '' ),
-				'owner_row_counts'      => array( 'source_id' => 0, 'dataset' => 0, 'product_code' => 0 ),
+				'owner'                 => array(
+					'source_id'    => '',
+					'dataset'      => '',
+					'product_code' => '',
+				),
+				'owner_row_counts'      => array(
+					'source_id'    => 0,
+					'dataset'      => 0,
+					'product_code' => 0,
+				),
 				'row_count'             => 0,
 				'duplicate_rows'        => false,
 				'invalid_key_rows'      => 0,
@@ -2199,7 +2223,7 @@ final class Digitalogic_Product_Code_Editor {
 				'rollback_lock_lost'
 			);
 		}
-		$rollback_checkpoint   = $this->projection_checkpoint( $request['product_id'] );
+		$rollback_checkpoint = $this->projection_checkpoint( $request['product_id'] );
 		if ( is_wp_error( $rollback_checkpoint ) || ! $this->mutation_locks_are_owned( $request['product_id'] ) ) {
 			return $this->same_request_recovery_required(
 				$request,
@@ -2207,7 +2231,7 @@ final class Digitalogic_Product_Code_Editor {
 				'rollback_lock_lost'
 			);
 		}
-		$rollback_verified     = $this->restore_backup( $before, $request['product_id'] );
+		$rollback_verified = $this->restore_backup( $before, $request['product_id'] );
 		if ( ! $this->mutation_locks_are_owned( $request['product_id'] ) ) {
 			return $this->same_request_recovery_required(
 				$request,
@@ -2303,7 +2327,7 @@ final class Digitalogic_Product_Code_Editor {
 		return array(
 			'generation_before'      => $generation,
 			'generation_before_hash' => 'sha256:' . hash( 'sha256', $generation ),
-			'effect_probe'            => $probe,
+			'effect_probe'           => $probe,
 			'verified'               => false,
 		);
 	}
@@ -2324,8 +2348,8 @@ final class Digitalogic_Product_Code_Editor {
 				array( 'retryable' => true )
 			);
 		}
-		$engine = Digitalogic_Report_Engine::instance();
-		$effect = $engine->consume_product_meta_invalidation_probe( $probe );
+		$engine            = Digitalogic_Report_Engine::instance();
+		$effect            = $engine->consume_product_meta_invalidation_probe( $probe );
 		$effect_generation = is_array( $effect ) ? (string) ( $effect['generation'] ?? '' ) : '';
 		if ( '' === $effect_generation && $allow_recovery_invalidation ) {
 			$recovery_before = $engine->current_projection_generation();
@@ -2747,7 +2771,7 @@ final class Digitalogic_Product_Code_Editor {
 					(string) $record['reconciliation']['evidence_fingerprint'],
 					(string) ( $result['reconciliation_evidence_fingerprint'] ?? '' )
 				);
-		$projection_valid = ! $changed || (
+		$projection_valid     = ! $changed || (
 			$this->projection_record_is_valid( $record['projection'] ?? null, true )
 			&& is_array( $result['projection'] ?? null )
 			&& hash_equals( (string) $record['projection']['generation_before_hash'], (string) ( $result['projection']['generation_before_hash'] ?? '' ) )
@@ -2824,7 +2848,7 @@ final class Digitalogic_Product_Code_Editor {
 			'source_evidence_fingerprint' => (string) $evidence['source_evidence_fingerprint'],
 			'unique'                      => true,
 		);
-		$preview_json = $this->canonical_json( $preview_material );
+		$preview_json     = $this->canonical_json( $preview_material );
 		if (
 			is_wp_error( $preview_json )
 			|| ! hash_equals( 'sha256:' . hash( 'sha256', $preview_json ), (string) $evidence['preview_digest'] )
@@ -3166,7 +3190,7 @@ final class Digitalogic_Product_Code_Editor {
 			);
 		}
 
-		$previous_receiver                  = $this->active_source_lock_receiver;
+		$previous_receiver                 = $this->active_source_lock_receiver;
 		$this->active_source_lock_receiver = $receiver;
 		try {
 			return call_user_func( $callback );
@@ -3212,10 +3236,10 @@ final class Digitalogic_Product_Code_Editor {
 			return $this->operation_lock_lost();
 		}
 
-		$previous_lock_name      = $this->active_operation_lock_name;
-		$previous_connection_id  = $this->active_operation_connection_id;
-		$this->active_operation_lock_name       = $lock_name;
-		$this->active_operation_connection_id   = (int) $connection_id;
+		$previous_lock_name                   = $this->active_operation_lock_name;
+		$previous_connection_id               = $this->active_operation_connection_id;
+		$this->active_operation_lock_name     = $lock_name;
+		$this->active_operation_connection_id = (int) $connection_id;
 
 		try {
 			$result = call_user_func( $callback );
@@ -3234,7 +3258,7 @@ final class Digitalogic_Product_Code_Editor {
 		} finally {
 			$this->active_operation_lock_name     = $previous_lock_name;
 			$this->active_operation_connection_id = $previous_connection_id;
-			$release = $wpdb->prepare( 'SELECT RELEASE_LOCK(%s)', $lock_name );
+			$release                              = $wpdb->prepare( 'SELECT RELEASE_LOCK(%s)', $lock_name );
 			if ( false !== $release && $this->advisory_lock_is_owned( $lock_name, $connection_id ) ) {
 				// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Release the connection-scoped advisory lock.
 				$wpdb->get_var( $release );
@@ -3370,12 +3394,12 @@ final class Digitalogic_Product_Code_Editor {
 			__( 'The Product Code operation lost its database lock. Retry the unchanged request so its exact outcome can be recovered.', 'digitalogic' ),
 			503,
 			array(
-				'retryable'          => true,
-				'retry_after'        => 1,
-				'request_id'         => (string) $request['request_id'],
-				'request_fingerprint'=> (string) $request['fingerprint'],
-				'backup_reference'   => (string) $backup_reference,
-				'reason'             => sanitize_key( (string) $reason ),
+				'retryable'           => true,
+				'retry_after'         => 1,
+				'request_id'          => (string) $request['request_id'],
+				'request_fingerprint' => (string) $request['fingerprint'],
+				'backup_reference'    => (string) $backup_reference,
+				'reason'              => sanitize_key( (string) $reason ),
 			)
 		);
 	}

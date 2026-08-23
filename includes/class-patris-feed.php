@@ -903,7 +903,7 @@ class Digitalogic_Patris_Feed {
 
 	/** Capture the exact bounded projection staged on the Woo object after save. */
 	private function capture_product_feed_expected( $product, $data ) {
-		$meta = array();
+		$meta        = array();
 		$direct_keys = array();
 		foreach ( $this->feed_meta_fields() as $field => $definition ) {
 			$direct_keys[ $definition[0] ] = array_key_exists( $field, $data ) && null !== $data[ $field ];
@@ -939,7 +939,7 @@ class Digitalogic_Patris_Feed {
 				array( 'status' => 503, 'retryable' => true )
 			);
 		}
-		$meta = $this->read_exact_meta_rows( $product_id, array_keys( $expected['meta'] ) );
+		$meta  = $this->read_exact_meta_rows( $product_id, array_keys( $expected['meta'] ) );
 		$fresh = $this->fresh_product_for_source_readback( $product_id );
 		if (
 			is_wp_error( $meta )
@@ -1132,7 +1132,7 @@ class Digitalogic_Patris_Feed {
 				array( 'status' => 503, 'retryable' => true )
 			);
 		}
-		$postmeta    = isset( $wpdb->postmeta ) ? $wpdb->postmeta : $wpdb->prefix . 'postmeta';
+		$postmeta     = isset( $wpdb->postmeta ) ? $wpdb->postmeta : $wpdb->prefix . 'postmeta';
 		$placeholders = implode( ', ', array_fill( 0, count( $keys ), '%s' ) );
 		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Table and placeholder list are generated from wpdb and a bounded in-memory key list.
 		$query = $wpdb->prepare(
@@ -1215,8 +1215,8 @@ class Digitalogic_Patris_Feed {
 				array( 'status' => 409, 'retryable' => false, 'cause' => $cause->get_error_code() )
 			);
 		}
-		$data                     = is_array( $cause->get_error_data() ) ? $cause->get_error_data() : array();
-		$data['effect_attempted'] = true;
+		$data                      = is_array( $cause->get_error_data() ) ? $cause->get_error_data() : array();
+		$data['effect_attempted']  = true;
 		$data['rollback_verified'] = true;
 
 		return new WP_Error( $cause->get_error_code(), $cause->get_error_message(), $data );

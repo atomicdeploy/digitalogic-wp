@@ -343,7 +343,7 @@ class Digitalogic_Product_Manager {
                 $image_url = wp_get_attachment_url($public_product->get_image_id());
             }
             $pricing_policy = Digitalogic_Patris_Price_Policy::instance()->project($product);
-			$cached_product_code       = (string) $product->get_meta( '_digitalogic_patris_product_code', true );
+			$cached_product_code      = (string) $product->get_meta( '_digitalogic_patris_product_code', true );
 			$product_code_editability = Digitalogic_Product_Code_Editor::instance()->editability_for( $product_id, $cached_product_code );
 			$product_code             = (string) $product_code_editability['product_code'];
 			$product_code_recovery    = Digitalogic_Product_Code_Editor::instance()->recovery_intent_for( $product_id );
