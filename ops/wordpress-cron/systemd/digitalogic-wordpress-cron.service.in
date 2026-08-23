@@ -1,0 +1,21 @@
+[Unit]
+Description=Digitalogic WordPress due-event runner
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=__WORDPRESS_ROOT__/wp-config.php
+
+[Service]
+Type=oneshot
+User=__RUNTIME_USER__
+Group=__RUNTIME_GROUP__
+WorkingDirectory=__WORDPRESS_ROOT__
+ExecStartPre=__WP_CLI__ eval "exit(defined('DISABLE_WP_CRON') && DISABLE_WP_CRON ? 0 : 1);"
+ExecStart=__WP_CLI__ cron event run --due-now --quiet
+TimeoutStartSec=35min
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+UMask=0027

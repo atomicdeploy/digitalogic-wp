@@ -583,6 +583,35 @@ final class PricingSnapshotTest extends TestCase {
 		$this->assertSame( array( 'action_scheduler', 'wp_cron' ), $attempts );
 	}
 
+	/** A reported WP-Cron write is durable only after exact readback. */
+	public function test_dual_one_shot_scheduler_requires_exact_wp_cron_readback(): void {
+		$scheduled = static function () {
+			return true;
+		};
+		$existing  = static function () {
+			return time() + 5;
+		};
+
+		foreach ( array( false, null, true, new WP_Error( 'filtered_schedule' ) ) as $invalid_readback ) {
+			$invalid = static function () use ( $invalid_readback ) {
+				return $invalid_readback;
+			};
+
+			$this->assertFalse(
+				$this->invoke_snapshot(
+					'schedule_dual_one_shot',
+					array( 'digitalogic_pricing_snapshot_test_v1', array( 'build_fixture' ), time() + 5, 'single', null, $scheduled, $invalid )
+				)
+			);
+		}
+		$this->assertTrue(
+			$this->invoke_snapshot(
+				'schedule_dual_one_shot',
+				array( 'digitalogic_pricing_snapshot_test_v1', array( 'build_fixture' ), time() + 5, 'single', null, $scheduled, $existing )
+			)
+		);
+	}
+
 	/** A contended-worker retry is dual scheduled and a late sibling is harmless. */
 	public function test_retry_worker_dual_schedules_and_late_sibling_is_noop(): void {
 		$revision = $this->revision_response()->get_data()['state_revision'];

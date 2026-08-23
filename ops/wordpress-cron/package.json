@@ -1,0 +1,10 @@
+{
+  "name": "digitalogic-wordpress-cron-operations",
+  "version": "1.0.0",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "check": "node --check render-units.cjs && node --check verify-units.cjs && node --check test/render-units.test.cjs && node verify-units.cjs",
+    "test": "node --test test/*.test.cjs"
+  }
+}
