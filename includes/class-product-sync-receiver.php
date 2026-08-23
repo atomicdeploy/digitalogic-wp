@@ -1855,7 +1855,12 @@ class Digitalogic_Product_Sync_Receiver {
         }
 
         $before_delivery = $this->state_digest($source_state);
-        $woo = $this->drain_delivery_products($source_state, true, true);
+        // A normal source delivery retries transient pending work only. Terminal
+        // missing/ambiguous reconciliation stays durable until its source record
+        // changes or an administrator explicitly runs product-sync reconcile.
+        // Rechecking every unchanged deferred record here can keep the HTTP
+        // acknowledgement open long after receiver state has committed.
+        $woo = $this->drain_delivery_products($source_state, true, false);
         $state['sources'][$source_key] = $source_state;
         if (!hash_equals($before_delivery, $this->state_digest($source_state))) {
             $delivery_stored = $this->persist_and_read_back($state);

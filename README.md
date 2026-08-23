@@ -89,12 +89,11 @@
 
 ## Installation
 
-Current source-built release: [v1.8.1](https://github.com/atomicdeploy/digitalogic-wp/releases/tag/v1.8.1).
-It supersedes an untagged production-only `1.8.0` build with the reviewed
-semantic superset from `main`, preserving monotonic WordPress versioning while
-restoring immutable source and package provenance.
+Current source-built release: [v1.8.5](https://github.com/atomicdeploy/digitalogic-wp/releases/tag/v1.8.5).
+It contains the reviewed product-sync acknowledgement fix from `main`, with
+immutable source and package provenance.
 Use the stable install ZIP below and verify it against the release
-[`SHA256SUMS`](https://github.com/atomicdeploy/digitalogic-wp/releases/download/v1.8.1/SHA256SUMS)
+[`SHA256SUMS`](https://github.com/atomicdeploy/digitalogic-wp/releases/download/v1.8.5/SHA256SUMS)
 manifest. The WordPress package contains production plugin files and
 dependencies; reviewed PBX, n8n, RouterOS, and workstation deployment assets
 remain available in the immutable source tag.

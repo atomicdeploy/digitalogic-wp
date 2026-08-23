@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.5] - 2026-08-23
+
+### Fixed
+- Kept unchanged terminal product-sync reconciliation out of the normal source
+  delivery acknowledgement path. Missing or ambiguous products remain durable
+  for explicit reconciliation, while changed records and transient pending
+  writes still retry normally, preventing a committed receiver update from
+  being reported as a transport failure after a long deferred scan.
+
 ## [1.8.4] - 2026-08-23
 
 ### Added
