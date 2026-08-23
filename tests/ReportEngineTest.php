@@ -77,6 +77,7 @@ final class ReportEngineTest extends TestCase {
 		$GLOBALS['digitalogic_test_cache_set_callback']           = null;
 		$GLOBALS['digitalogic_test_cache_deletes']                = array();
 		$GLOBALS['digitalogic_test_wc_cache_group_invalidations'] = array();
+		$GLOBALS['digitalogic_test_object_term_cache_cleans']     = array();
 		$GLOBALS['digitalogic_test_options']                      = array(
 			'digitalogic_patris_feed_settings'       => array( 'stale_after_hours' => 48 ),
 			'digitalogic_report_cache_generation_v1' => 'test-report-generation',
@@ -209,6 +210,7 @@ final class ReportEngineTest extends TestCase {
 
 		$this->engine->invalidate_cache_for_product_terms( 77, array(), array(), 'product_type' );
 
+		$this->assertSame( array( array( 77, 'product' ) ), $GLOBALS['digitalogic_test_object_term_cache_cleans'] );
 		$this->assertSame( array( 'product_77' ), $GLOBALS['digitalogic_test_wc_cache_group_invalidations'] );
 	}
 

@@ -37,6 +37,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   derives candidates from a fresh integrity report, verifies variable
   taxonomy and variation readback, and invalidates only exact WooCommerce
   per-product cache prefixes with idempotent post-repair evidence.
+- Extended that cache-only repair and the product-type mutation hook to clear
+  the exact product term-relationship cache, and remove WooCommerce's optional
+  product-object cache entry, before rotating the per-product prefix.
 
 ## [1.8.3] - 2026-07-27
 

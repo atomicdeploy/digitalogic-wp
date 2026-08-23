@@ -123,8 +123,12 @@ candidates than the ceiling, non-product posts, anything other than exactly
 one durable `variable` term, and parents without a bounded variation readback.
 It validates every candidate before the first cache change.
 
-Apply invalidates only `WC_Cache_Helper`'s `product_<id>` prefix. It does not
-write a post, term relationship, product type, variation, price, or product
+Apply removes the optional WooCommerce product-object cache entry, clears the
+WordPress product term-relationship cache, and rotates only
+`WC_Cache_Helper`'s `product_<id>` prefix. Clearing the term cache matters on
+WooCommerce 10.8 because a fresh product-type prefix can otherwise be
+repopulated from an older cached `product_type` relationship. The command does
+not write a post, term relationship, product type, variation, price, or product
 metadata. JSON output records before/after factory class and type, durable type,
 variation IDs, exact invalidated groups, zero catalog-write counts, and the
 remaining drift count from a fresh report. Repeating the bounded command after

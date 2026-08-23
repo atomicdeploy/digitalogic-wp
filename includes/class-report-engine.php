@@ -773,6 +773,9 @@ final class Digitalogic_Report_Engine {
 			&& class_exists( 'WC_Cache_Helper' )
 			&& is_callable( array( 'WC_Cache_Helper', 'invalidate_cache_group' ) )
 		) {
+			if ( function_exists( 'clean_object_term_cache' ) ) {
+				clean_object_term_cache( (int) $object_id, 'product' );
+			}
 			WC_Cache_Helper::invalidate_cache_group( 'product_' . (int) $object_id );
 		}
 		if (

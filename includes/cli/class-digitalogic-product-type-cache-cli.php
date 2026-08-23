@@ -445,7 +445,47 @@ class Digitalogic_Product_Type_Cache_CLI {
 		if ( ! is_callable( array( 'WC_Cache_Helper', 'invalidate_cache_group' ) ) ) {
 			return new WP_Error( 'digitalogic_product_type_cache_unavailable', 'WooCommerce cache-prefix invalidation is unavailable.' );
 		}
+
+		$instance_cache = $this->remove_product_instance_cache( $product_id );
+		if ( is_wp_error( $instance_cache ) ) {
+			return $instance_cache;
+		}
+
+		if ( function_exists( 'clean_object_term_cache' ) ) {
+			clean_object_term_cache( $product_id, 'product' );
+		}
 		WC_Cache_Helper::invalidate_cache_group( 'product_' . $product_id );
+
+		return true;
+	}
+
+	/**
+	 * Remove WooCommerce's optional product-object cache entry.
+	 *
+	 * WooCommerce 10.5 introduced an independent ProductCache in front of the
+	 * product-type data-store cache. Absence is a successful no-op; an actual
+	 * container/cache failure remains fail closed so readback is never claimed.
+	 *
+	 * @param int $product_id Product ID.
+	 * @return true|WP_Error
+	 */
+	protected function remove_product_instance_cache( $product_id ) {
+		$class = 'Automattic\\WooCommerce\\Internal\\Caches\\ProductCache';
+		if ( ! class_exists( $class ) || ! function_exists( 'wc_get_container' ) ) {
+			return true;
+		}
+
+		try {
+			$cache = wc_get_container()->get( $class );
+			if ( ! is_object( $cache ) || ! is_callable( array( $cache, 'remove' ) ) ) {
+				return new WP_Error( 'digitalogic_product_type_cache_unavailable', 'WooCommerce product-object cache invalidation is unavailable.' );
+			}
+			$cache->remove( (int) $product_id );
+		} catch ( Throwable $error ) {
+			unset( $error );
+
+			return new WP_Error( 'digitalogic_product_type_cache_unavailable', 'WooCommerce product-object cache invalidation failed.' );
+		}
 
 		return true;
 	}

@@ -13,10 +13,12 @@ use PHPUnit\Framework\TestCase;
 final class ProductTypeCacheCliTest extends TestCase {
 	/** Reset command and capability fixtures. */
 	protected function setUp(): void {
-		$GLOBALS['digitalogic_test_capabilities'] = array( 'manage_options' => true );
-		WP_CLI::$errors                           = array();
-		WP_CLI::$logs                             = array();
-		WP_CLI::$warnings                         = array();
+		$GLOBALS['digitalogic_test_capabilities']             = array( 'manage_options' => true );
+		$GLOBALS['digitalogic_test_object_term_cache_cleans'] = array();
+
+		WP_CLI::$errors   = array();
+		WP_CLI::$logs     = array();
+		WP_CLI::$warnings = array();
 	}
 
 	/** The exact production command is registered. */
@@ -149,7 +151,7 @@ final class ProductTypeCacheCliTest extends TestCase {
 		$this->assertSame( array(), WP_CLI::$logs );
 	}
 
-	/** The production mutation seam changes only the exact Woo cache prefix. */
+	/** The production seam clears every exact Woo type cache without catalog writes. */
 	public function test_production_invalidator_changes_no_catalog_fixture(): void {
 		$GLOBALS['digitalogic_test_wc_cache_group_invalidations'] = array();
 		$GLOBALS['digitalogic_test_posts'][902]                   = array(
@@ -160,12 +162,13 @@ final class ProductTypeCacheCliTest extends TestCase {
 			'meta'                  => array( '_regular_price' => '123' ),
 		);
 		$before  = $GLOBALS['digitalogic_test_posts'][902];
-		$command = new Digitalogic_Product_Type_Cache_CLI();
-		$method  = new ReflectionMethod( $command, 'invalidate_product_cache_prefix' );
+		$command = new Digitalogic_Test_Production_Product_Type_Cache_CLI();
 
-		$result = $method->invoke( $command, 902 );
+		$result = $command->invalidate_for_test( 902 );
 
 		$this->assertTrue( $result );
+		$this->assertSame( array( 902 ), $command->instance_cache_removals );
+		$this->assertSame( array( array( 902, 'product' ) ), $GLOBALS['digitalogic_test_object_term_cache_cleans'] );
 		$this->assertSame( array( 'product_902' ), $GLOBALS['digitalogic_test_wc_cache_group_invalidations'] );
 		$this->assertSame( $before, $GLOBALS['digitalogic_test_posts'][902] );
 	}
@@ -175,6 +178,38 @@ final class ProductTypeCacheCliTest extends TestCase {
 		$this->assertNotEmpty( WP_CLI::$logs );
 
 		return json_decode( (string) end( WP_CLI::$logs ), true, 512, JSON_THROW_ON_ERROR );
+	}
+}
+
+/** Expose the production invalidation path while recording its container seam. */
+final class Digitalogic_Test_Production_Product_Type_Cache_CLI extends Digitalogic_Product_Type_Cache_CLI {
+	/**
+	 * Product-object cache removals.
+	 *
+	 * @var int[]
+	 */
+	public $instance_cache_removals = array();
+
+	/**
+	 * Invoke the protected production cache invalidator.
+	 *
+	 * @param int $product_id Product ID.
+	 * @return true|WP_Error
+	 */
+	public function invalidate_for_test( $product_id ) {
+		return $this->invalidate_product_cache_prefix( $product_id );
+	}
+
+	/**
+	 * Record the optional WooCommerce product-object cache removal.
+	 *
+	 * @param int $product_id Product ID.
+	 * @return true
+	 */
+	protected function remove_product_instance_cache( $product_id ) {
+		$this->instance_cache_removals[] = (int) $product_id;
+
+		return true;
 	}
 }
 
