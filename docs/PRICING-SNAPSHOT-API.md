@@ -173,8 +173,10 @@ chains. After a mutex timeout, WP-Cron is accepted only after exact persisted
 readback; if that path is unavailable, Action Scheduler atomically coalesces the
 exact fallback in a content-addressed group without evicting a distinct identity.
 If that group's primary action is already in progress, one alternate
-content-addressed handoff remains pending and converts to one primary successor
-without contending on the already-running hook.
+content-addressed handoff remains pending and converts under the same exact
+scheduler mutex to one primary successor without contending on the
+already-running hook. A throwing Action Scheduler, WP-Cron, or mutex adapter is
+isolated so the other verified scheduler path can still retain the intent.
 The outbox carries the exact delivered identity until its one-hour receipt
 commits. Receipts retain only the newest 200 source identities, and exact source
 removal durably clears both its normalized receipt and delivered-state outbox

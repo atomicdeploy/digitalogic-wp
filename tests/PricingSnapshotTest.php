@@ -398,6 +398,50 @@ final class PricingSnapshotTest extends TestCase {
 		$this->assertSame( $args, $GLOBALS['digitalogic_test_as_actions'][0]['args'] );
 	}
 
+	/** Throwing AS query/insertion adapters fail over to exact WP-Cron readback. */
+	#[RunInSeparateProcess]
+	public function test_state_event_handoff_survives_throwing_action_scheduler_and_uses_wp_cron(): void {
+		require_once __DIR__ . '/fixtures/action-scheduler-state-event-stubs.php';
+		$args = array( array( $this->source ), array() );
+
+		$GLOBALS['digitalogic_test_as_query_exceptions']    = 1;
+		$GLOBALS['digitalogic_test_as_schedule_exceptions'] = array( 'digitalogic_pricing_state_event_delivery_v1' );
+
+		$snapshot = Digitalogic_Pricing_Snapshot::instance();
+
+		$this->assertTrue( $snapshot->run_state_revision_event_handoff( $args[0], $args[1] ) );
+		$scheduled = $this->scheduled_events_for( 'digitalogic_pricing_state_event_delivery_v1' );
+		$this->assertCount( 1, $scheduled );
+		$this->assertSame( $args, $scheduled[0]['args'] );
+		$this->assertCount( 0, $GLOBALS['digitalogic_test_as_actions'] ?? array() );
+		$this->assertSame( 1, $GLOBALS['wpdb']->release_count );
+	}
+
+	/** Throwing lock/WP-Cron adapters fail over to one atomic Action Scheduler action. */
+	#[RunInSeparateProcess]
+	public function test_state_event_retry_survives_throwing_lock_and_wp_cron_adapters(): void {
+		require_once __DIR__ . '/fixtures/action-scheduler-state-event-stubs.php';
+		$args = array( array( $this->source ), array() );
+
+		$GLOBALS['wpdb']->before_get_lock = static function () {
+			throw new RuntimeException( 'Injected scheduler mutex adapter failure.' );
+		};
+		add_filter(
+			'pre_schedule_event',
+			static function () {
+				throw new RuntimeException( 'Injected WP-Cron adapter failure.' );
+			}
+		);
+
+		$this->assertTrue( $this->invoke_snapshot( 'schedule_state_revision_event_retry', $args ) );
+		$this->assertCount( 0, $this->scheduled_events_for( 'digitalogic_pricing_state_event_delivery_v1' ) );
+		$this->assertCount( 1, $GLOBALS['digitalogic_test_as_actions'] );
+		$this->assertSame( 'digitalogic_pricing_state_event_delivery_v1', $GLOBALS['digitalogic_test_as_actions'][0]['hook'] );
+		$this->assertSame( $args, $GLOBALS['digitalogic_test_as_actions'][0]['args'] );
+		$this->assertTrue( $GLOBALS['digitalogic_test_as_actions'][0]['unique'] );
+		$this->assertSame( 0, $GLOBALS['wpdb']->release_count );
+	}
+
 	/** Atomic AS uniqueness coalesces degraded contenders without evicting another identity. */
 	#[RunInSeparateProcess]
 	public function test_action_scheduler_unlocked_fallback_coalesces_contention_and_retains_diversity(): void {
@@ -489,7 +533,16 @@ final class PricingSnapshotTest extends TestCase {
 			}
 		}
 		unset( $action );
-		$snapshot = Digitalogic_Pricing_Snapshot::instance();
+		$snapshot                                       = Digitalogic_Pricing_Snapshot::instance();
+		$GLOBALS['wpdb']->acquire_result                = 1;
+		$GLOBALS['wpdb']->acquire_results               = array( 1, 0 );
+		$contending_scheduler_result                    = null;
+		$GLOBALS['digitalogic_test_as_before_schedule'] = function () use ( &$contending_scheduler_result, $args ) {
+			$contending_scheduler_result = $this->invoke_snapshot( 'schedule_state_revision_event_retry', $args );
+		};
+		$this->assertTrue( $snapshot->run_state_revision_event_handoff( $args[0], $args[1] ) );
+		$this->assertFalse( $contending_scheduler_result );
+		$this->assertTrue( $snapshot->run_state_revision_event_handoff( $other_args[0], $other_args[1] ) );
 		for ( $attempt = 0; $attempt < 25; ++$attempt ) {
 			$this->assertTrue( $snapshot->run_state_revision_event_handoff( $args[0], $args[1] ) );
 			$this->assertTrue( $snapshot->run_state_revision_event_handoff( $other_args[0], $other_args[1] ) );
@@ -508,6 +561,7 @@ final class PricingSnapshotTest extends TestCase {
 		$this->assertSame( array( $args, $other_args ), array_column( $pending, 'args' ) );
 		$this->assertSame( array( false, false ), array_column( $pending, 'unique' ) );
 		$this->assertCount( 6, $GLOBALS['digitalogic_test_as_actions'] );
+		$this->assertSame( 52, $GLOBALS['wpdb']->release_count );
 	}
 
 	/** Action Scheduler uses an exact pending-only readback under a per-identity mutex. */

@@ -14,8 +14,37 @@
  * @param string $group     Action group.
  * @param bool   $unique    Native uniqueness request.
  * @return int
+ * @throws RuntimeException Injected test-only adapter failure.
  */
 function as_schedule_single_action( $timestamp, $hook, $args = array(), $group = '', $unique = false ) {
+	$exceptions = isset( $GLOBALS['digitalogic_test_as_schedule_exceptions'] ) && is_array( $GLOBALS['digitalogic_test_as_schedule_exceptions'] )
+		? $GLOBALS['digitalogic_test_as_schedule_exceptions']
+		: array();
+	if ( ! empty( $exceptions ) && ( '*' === (string) $exceptions[0] || (string) $exceptions[0] === (string) $hook ) ) {
+		array_shift( $exceptions );
+		$GLOBALS['digitalogic_test_as_schedule_exceptions'] = $exceptions;
+		throw new RuntimeException( 'Injected Action Scheduler insertion failure.' );
+	}
+	$actions = isset( $GLOBALS['digitalogic_test_as_actions'] ) && is_array( $GLOBALS['digitalogic_test_as_actions'] )
+		? $GLOBALS['digitalogic_test_as_actions']
+		: array();
+	if ( $unique ) {
+		foreach ( $actions as $action ) {
+			if (
+				(string) $action['hook'] === (string) $hook
+				&& (string) $action['group'] === (string) $group
+				&& in_array( (string) $action['status'], array( 'pending', 'in-progress' ), true )
+			) {
+				return 0;
+			}
+		}
+	}
+	$before_schedule = $GLOBALS['digitalogic_test_as_before_schedule'] ?? null;
+
+	$GLOBALS['digitalogic_test_as_before_schedule'] = null;
+	if ( is_callable( $before_schedule ) ) {
+		call_user_func( $before_schedule, $timestamp, $hook, $args, $group, $unique );
+	}
 	$actions = isset( $GLOBALS['digitalogic_test_as_actions'] ) && is_array( $GLOBALS['digitalogic_test_as_actions'] )
 		? $GLOBALS['digitalogic_test_as_actions']
 		: array();
@@ -51,8 +80,13 @@ function as_schedule_single_action( $timestamp, $hook, $args = array(), $group =
  * @param array  $query         Action query.
  * @param string $return_format Requested return format.
  * @return array
+ * @throws RuntimeException Injected test-only adapter failure.
  */
 function as_get_scheduled_actions( $query = array(), $return_format = 'objects' ) {
+	if ( ! empty( $GLOBALS['digitalogic_test_as_query_exceptions'] ) ) {
+		--$GLOBALS['digitalogic_test_as_query_exceptions'];
+		throw new RuntimeException( 'Injected Action Scheduler query failure.' );
+	}
 	$actions = isset( $GLOBALS['digitalogic_test_as_actions'] ) && is_array( $GLOBALS['digitalogic_test_as_actions'] )
 		? $GLOBALS['digitalogic_test_as_actions']
 		: array();
