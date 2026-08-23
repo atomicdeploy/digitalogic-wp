@@ -16,7 +16,7 @@ final class Digitalogic_Google_Sheets_Catalog {
 
 	public const MAX_PAGE_SIZE             = 250;
 	private const PRODUCT_QUERY_PAGE_SIZE  = 100;
-	private const RECONCILED_EXCEL_V1_KEYS = array(
+	private const RECONCILED_EXCEL_KEYS = array(
 		'sync_key',
 		'reconciliation_status',
 		'patris_code',
@@ -286,10 +286,10 @@ final class Digitalogic_Google_Sheets_Catalog {
 			$projection['columns'] = $this->reconciled_product_columns();
 		}
 		$column_keys = array_column( $projection['columns'], 'key' );
-		if ( self::RECONCILED_EXCEL_V1_KEYS !== $column_keys ) {
+		if ( self::RECONCILED_EXCEL_KEYS !== $column_keys ) {
 			return new WP_Error(
 				'digitalogic_reconciled_snapshot_schema_changed',
-				__( 'The reconciled catalog no longer matches the pinned excel-v1 column contract.', 'digitalogic' ),
+				__( 'The reconciled catalog no longer matches the pinned Excel column contract.', 'digitalogic' ),
 				array(
 					'status'    => 503,
 					'retryable' => false,
@@ -297,14 +297,14 @@ final class Digitalogic_Google_Sheets_Catalog {
 			);
 		}
 
-		$allowed_fields = array_fill_keys( self::RECONCILED_EXCEL_V1_KEYS, true );
+		$allowed_fields = array_fill_keys( self::RECONCILED_EXCEL_KEYS, true );
 		$canonical_rows = array();
 		foreach ( $projection['rows'] as $row ) {
 			$unexpected = array_diff_key( (array) $row, $allowed_fields );
 			if ( $unexpected ) {
 				return new WP_Error(
 					'digitalogic_reconciled_snapshot_row_schema_changed',
-					__( 'A reconciled row contains fields outside the pinned excel-v1 contract.', 'digitalogic' ),
+					__( 'A reconciled row contains fields outside the pinned Excel contract.', 'digitalogic' ),
 					array(
 						'status'            => 503,
 						'retryable'         => false,
@@ -314,7 +314,7 @@ final class Digitalogic_Google_Sheets_Catalog {
 			}
 
 			$canonical = array();
-			foreach ( self::RECONCILED_EXCEL_V1_KEYS as $field ) {
+			foreach ( self::RECONCILED_EXCEL_KEYS as $field ) {
 				$canonical[ $field ] = array_key_exists( $field, $row ) ? $row[ $field ] : null;
 			}
 			$canonical_rows[] = $canonical;

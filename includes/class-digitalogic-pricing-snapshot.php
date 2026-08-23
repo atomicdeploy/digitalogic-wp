@@ -16,37 +16,36 @@ if ( ! defined( 'ABSPATH' ) ) {
  */
 final class Digitalogic_Pricing_Snapshot {
 
-	public const SCHEMA_VERSION        = 1;
-	public const REVISION_SCHEMA       = 'digitalogic.pricing-sync-revision/v1';
-	public const REQUEST_SCHEMA        = 'digitalogic.pricing-snapshot-request/v1';
-	public const BUILD_SCHEMA          = 'digitalogic.pricing-snapshot-build/v1';
-	public const SNAPSHOT_SCHEMA       = 'digitalogic.pricing-snapshot/v1';
-	public const PAGE_SCHEMA           = 'digitalogic.pricing-snapshot-page/v1';
-	public const STATE_EVENT_SCHEMA    = 'digitalogic.pricing-state-change/v1';
-	public const SOURCE_EVENT_SCHEMA   = 'digitalogic.pricing-source-change/v1';
-	public const TERMINAL_EVENT_SCHEMA = 'digitalogic.pricing-snapshot-build-event/v1';
-	public const PROJECTION            = 'excel-v1';
-	public const PROJECTION_SCHEMA     = 'digitalogic.pricing-projection/excel-v1';
-	public const PRICING_POLICY_SCHEMA = 'digitalogic.pricing-policy/v1';
+	public const REVISION_SCHEMA       = 'digitalogic.pricing-sync-revision';
+	public const REQUEST_SCHEMA        = 'digitalogic.pricing-snapshot-request';
+	public const BUILD_SCHEMA          = 'digitalogic.pricing-snapshot-build';
+	public const SNAPSHOT_SCHEMA       = 'digitalogic.pricing-snapshot';
+	public const PAGE_SCHEMA           = 'digitalogic.pricing-snapshot-page';
+	public const STATE_EVENT_SCHEMA    = 'digitalogic.pricing-state-change';
+	public const SOURCE_EVENT_SCHEMA   = 'digitalogic.pricing-source-change';
+	public const TERMINAL_EVENT_SCHEMA = 'digitalogic.pricing-snapshot-build-event';
+	public const PROJECTION            = 'excel';
+	public const PROJECTION_SCHEMA     = 'digitalogic.pricing-projection/excel';
+	public const PRICING_POLICY_SCHEMA = 'digitalogic.pricing-policy';
 
-	private const BUILD_HOOK                        = 'digitalogic_pricing_snapshot_build_v1';
-	private const BUILD_WATCHDOG_HOOK               = 'digitalogic_pricing_snapshot_build_watchdog_v1';
-	private const CLEANUP_HOOK                      = 'digitalogic_pricing_snapshot_cleanup_idempotency_v1';
-	private const STATE_EVENT_HOOK                  = 'digitalogic_pricing_state_event_delivery_v1';
-	private const STATE_EVENT_HANDOFF_HOOK          = 'digitalogic_pricing_state_event_handoff_v1';
-	private const STATE_EVENT_RECOVERY_HOOK         = 'digitalogic_pricing_state_event_recovery_v1';
-	private const TERMINAL_EVENT_HOOK               = 'digitalogic_pricing_snapshot_terminal_event_delivery_v1';
-	private const FRESHNESS_HOOK                    = 'digitalogic_pricing_freshness_boundary_v1';
+	private const BUILD_HOOK                        = 'digitalogic_pricing_snapshot_build';
+	private const BUILD_WATCHDOG_HOOK               = 'digitalogic_pricing_snapshot_build_watchdog';
+	private const CLEANUP_HOOK                      = 'digitalogic_pricing_snapshot_cleanup_idempotency';
+	private const STATE_EVENT_HOOK                  = 'digitalogic_pricing_state_event_delivery';
+	private const STATE_EVENT_HANDOFF_HOOK          = 'digitalogic_pricing_state_event_handoff';
+	private const STATE_EVENT_RECOVERY_HOOK         = 'digitalogic_pricing_state_event_recovery';
+	private const TERMINAL_EVENT_HOOK               = 'digitalogic_pricing_snapshot_terminal_event_delivery';
+	private const FRESHNESS_HOOK                    = 'digitalogic_pricing_freshness_boundary';
 	private const ACTION_GROUP                      = 'digitalogic-pricing-snapshots';
-	private const ACTIVE_BUILD_OPTION               = 'digitalogic_pricing_snapshot_active_v1';
-	private const STATE_EVENT_OUTBOX                = 'digitalogic_pricing_state_event_outbox_v1';
-	private const STATE_EVENT_RECEIPTS              = 'digitalogic_pricing_state_event_receipts_v1';
-	private const SOURCE_EVENT_OUTBOX               = 'digitalogic_pricing_source_event_outbox_v1';
-	private const TERMINAL_EVENT_OUTBOX             = 'digitalogic_pricing_snapshot_terminal_event_outbox_v1';
-	private const FRESHNESS_SCHEDULE                = 'digitalogic_pricing_freshness_boundary_schedule_v1';
-	private const ADMISSION_LOCK_NAME               = 'digitalogic_pricing_snapshot_admission_v1';
-	private const STATE_EVENT_SCHEDULE_LOCK_NAME    = 'digitalogic_pricing_state_event_schedule_v1';
-	private const TERMINAL_EVENT_SCHEDULE_LOCK_NAME = 'digitalogic_pricing_terminal_event_schedule_v1';
+	private const ACTIVE_BUILD_OPTION               = 'digitalogic_pricing_snapshot_active';
+	private const STATE_EVENT_OUTBOX                = 'digitalogic_pricing_state_event_outbox';
+	private const STATE_EVENT_RECEIPTS              = 'digitalogic_pricing_state_event_receipts';
+	private const SOURCE_EVENT_OUTBOX               = 'digitalogic_pricing_source_event_outbox';
+	private const TERMINAL_EVENT_OUTBOX             = 'digitalogic_pricing_snapshot_terminal_event_outbox';
+	private const FRESHNESS_SCHEDULE                = 'digitalogic_pricing_freshness_boundary_schedule';
+	private const ADMISSION_LOCK_NAME               = 'digitalogic_pricing_snapshot_admission';
+	private const STATE_EVENT_SCHEDULE_LOCK_NAME    = 'digitalogic_pricing_state_event_schedule';
+	private const TERMINAL_EVENT_SCHEDULE_LOCK_NAME = 'digitalogic_pricing_terminal_event_schedule';
 	private const STATE_EVENT_RECEIPT_TTL           = HOUR_IN_SECONDS;
 	private const STATE_EVENT_RECEIPT_LIMIT         = 200;
 	private const SNAPSHOT_TTL                      = 900;
@@ -58,6 +57,34 @@ final class Digitalogic_Pricing_Snapshot {
 	private const DEFAULT_PAGE_SIZE                 = 250;
 	private const MAX_PAGE_SIZE                     = 250;
 	private const MAX_ROWS                          = 20000;
+	private const PROJECTION_FIELDS                 = array(
+		'sync_key',
+		'reconciliation_status',
+		'patris_code',
+		'woocommerce_id',
+		'sku',
+		'weight_grams',
+		'foreign_price',
+		'patris_location',
+		'categories',
+		'foreign_currency',
+		'shipping_price_per_kg',
+		'shipping_price_per_kg_currency',
+		'profit_margin_percent',
+		'price_source_amount',
+		'price_source_currency',
+		'price_source_kind',
+		'effective_price',
+		'patris_total_stock',
+		'stock_quantity',
+		'name',
+		'updated_at',
+		'record_revision',
+		'permalink',
+		'patris_final_price',
+		'sale_price',
+		'publication_status',
+	);
 
 	/**
 	 * Shared snapshot service.
@@ -203,16 +230,6 @@ final class Digitalogic_Pricing_Snapshot {
 		if ( is_wp_error( $page_size ) ) {
 			return $page_size;
 		}
-		$schema_version = $request->get_param( 'schema_version' );
-		if ( null !== $schema_version && self::SCHEMA_VERSION !== (int) $schema_version ) {
-			return $this->error(
-				'digitalogic_pricing_snapshot_schema_version_unsupported',
-				'Only pricing snapshot schema_version 1 is supported.',
-				422,
-				false
-			);
-		}
-
 		$current = $this->current_revision_data( $source );
 		if ( is_wp_error( $current ) ) {
 			return $current;
@@ -231,7 +248,6 @@ final class Digitalogic_Pricing_Snapshot {
 
 		$data    = array(
 			'schema'                  => self::REVISION_SCHEMA,
-			'schema_version'          => self::SCHEMA_VERSION,
 			'projection'              => self::PROJECTION,
 			'projection_schema'       => self::PROJECTION_SCHEMA,
 			'state_revision'          => $current['state_revision'],
@@ -241,6 +257,8 @@ final class Digitalogic_Pricing_Snapshot {
 			'pricing_policy_revision' => $current['pricing_policy_revision'],
 			'locale'                  => $locale,
 			'page_size'               => $page_size,
+			'capabilities'            => $this->capabilities(),
+			'diagnostics'             => array(),
 		);
 		$headers = array(
 			'ETag'          => $etag,
@@ -267,7 +285,6 @@ final class Digitalogic_Pricing_Snapshot {
 
 		$fingerprint = $this->digest(
 			array(
-				'schema_version'          => self::SCHEMA_VERSION,
 				'projection'              => self::PROJECTION,
 				'source'                  => $payload['source'],
 				'locale'                  => $payload['locale'],
@@ -618,7 +635,6 @@ final class Digitalogic_Pricing_Snapshot {
 
 		$data = array(
 			'schema'                  => self::PAGE_SCHEMA,
-			'schema_version'          => self::SCHEMA_VERSION,
 			'projection'              => self::PROJECTION,
 			'projection_schema'       => self::PROJECTION_SCHEMA,
 			'snapshot_token'          => $meta['snapshot_token'],
@@ -944,7 +960,7 @@ final class Digitalogic_Pricing_Snapshot {
 		$timestamp   = (int) $boundary['timestamp'];
 		$fingerprint = $this->digest(
 			array(
-				'schema'    => 'digitalogic.pricing-freshness-boundary/v1',
+				'schema'    => 'digitalogic.pricing-freshness-boundary',
 				'timestamp' => $timestamp,
 				'reasons'   => $boundary['reasons'],
 			)
@@ -1288,7 +1304,6 @@ final class Digitalogic_Pricing_Snapshot {
 						'pricing.state.changed',
 						array(
 							'schema'                  => self::STATE_EVENT_SCHEMA,
-							'schema_version'          => self::SCHEMA_VERSION,
 							'projection'              => self::PROJECTION,
 							'source'                  => $current['source'],
 							'state_revision'          => $current['state_revision'],
@@ -1654,7 +1669,6 @@ final class Digitalogic_Pricing_Snapshot {
 
 		$data = array(
 			'schema'                 => self::TERMINAL_EVENT_SCHEMA,
-			'schema_version'         => self::SCHEMA_VERSION,
 			'projection'             => self::PROJECTION,
 			'build_id'               => $build_id,
 			'request_id'             => (string) $request_id,
@@ -2063,7 +2077,6 @@ final class Digitalogic_Pricing_Snapshot {
 				'name' => $name,
 				'data' => array(
 					'schema'                       => self::SOURCE_EVENT_SCHEMA,
-					'schema_version'               => self::SCHEMA_VERSION,
 					'projection'                   => self::PROJECTION,
 					'change'                       => $change,
 					'source'                       => $source,
@@ -2627,6 +2640,10 @@ final class Digitalogic_Pricing_Snapshot {
 		if ( $this->cancellation_requested( $job['build_id'] ) || ! $this->active_worker_lease_owned( $job['build_id'] ) ) {
 			return $this->cancelled_error();
 		}
+		$catalog = $this->project_excel_catalog( $catalog );
+		if ( is_wp_error( $catalog ) ) {
+			return $catalog;
+		}
 		$rows = array_values( (array) ( $catalog['rows'] ?? array() ) );
 		if ( count( $rows ) > self::MAX_ROWS ) {
 			return $this->error(
@@ -2657,7 +2674,6 @@ final class Digitalogic_Pricing_Snapshot {
 		$token      = 'snap_' . $this->token();
 		$meta       = array(
 			'schema'                  => self::SNAPSHOT_SCHEMA,
-			'schema_version'          => self::SCHEMA_VERSION,
 			'projection'              => self::PROJECTION,
 			'projection_schema'       => self::PROJECTION_SCHEMA,
 			'snapshot_token'          => $token,
@@ -2843,33 +2859,6 @@ final class Digitalogic_Pricing_Snapshot {
 		if ( ! is_array( $payload ) || array_is_list( $payload ) ) {
 			return $this->error( 'digitalogic_pricing_snapshot_payload_invalid', 'The snapshot request must be a JSON object.', 400, false );
 		}
-		$allowed = array(
-			'schema',
-			'schema_version',
-			'operation',
-			'client_id',
-			'channel',
-			'request_id',
-			'idempotency_key',
-			'source',
-			'locale',
-			'page_size',
-			'max_age_seconds',
-			'expected_state_revision',
-		);
-		$unknown = array_diff( array_keys( $payload ), $allowed );
-		if ( $unknown ) {
-			return $this->error(
-				'digitalogic_pricing_snapshot_unknown_fields',
-				'The snapshot request contains unsupported fields.',
-				400,
-				false,
-				array( 'fields' => array_values( $unknown ) )
-			);
-		}
-		if ( self::REQUEST_SCHEMA !== ( $payload['schema'] ?? null ) || self::SCHEMA_VERSION !== (int) ( $payload['schema_version'] ?? 0 ) ) {
-			return $this->error( 'digitalogic_pricing_snapshot_schema_unsupported', 'The pricing snapshot request schema is unsupported.', 422, false );
-		}
 		if ( 'snapshot' !== ( $payload['operation'] ?? null ) ) {
 			return $this->error( 'digitalogic_pricing_snapshot_operation_invalid', 'The snapshot operation must be exactly snapshot.', 400, false );
 		}
@@ -2952,8 +2941,7 @@ final class Digitalogic_Pricing_Snapshot {
 		);
 		$state_revision          = $this->digest(
 			array(
-				'schema_version'          => self::SCHEMA_VERSION,
-				'projection_schema'       => self::PROJECTION_SCHEMA,
+				'contract'                => 'living',
 				'source_revision'         => $validated['source']['revision'],
 				'catalog_revision'        => $catalog_revision,
 				'pricing_policy_revision' => $pricing_policy_revision,
@@ -3024,7 +3012,6 @@ final class Digitalogic_Pricing_Snapshot {
 		$created = time();
 		return array(
 			'schema'                 => self::BUILD_SCHEMA,
-			'schema_version'         => self::SCHEMA_VERSION,
 			'build_id'               => '' !== $build_id ? $build_id : 'build_' . $this->token(),
 			'request_id'             => $payload['request_id'],
 			'terminal_request_ids'   => array( $payload['request_id'] ),
@@ -3831,7 +3818,6 @@ final class Digitalogic_Pricing_Snapshot {
 			array_fill_keys(
 				array(
 					'schema',
-					'schema_version',
 					'build_id',
 					'request_id',
 					'status',
@@ -3850,9 +3836,7 @@ final class Digitalogic_Pricing_Snapshot {
 					'retryable',
 					'retry_after',
 					'snapshot_token',
-					'revision',
 					'snapshot_revision',
-					'digest',
 					'row_count',
 					'page_count',
 					'expires_at',
@@ -3908,13 +3892,10 @@ final class Digitalogic_Pricing_Snapshot {
 	private function snapshot_payload( $meta, $rows ) {
 		return array(
 			'schema'                  => self::SNAPSHOT_SCHEMA,
-			'schema_version'          => self::SCHEMA_VERSION,
 			'projection'              => self::PROJECTION,
 			'projection_schema'       => self::PROJECTION_SCHEMA,
 			'snapshot_token'          => $meta['snapshot_token'],
-			'revision'                => $meta['revision'],
 			'snapshot_revision'       => $meta['revision'],
-			'digest'                  => $meta['digest'],
 			'state_revision'          => $meta['state_revision'],
 			'pricing_state_revision'  => $meta['pricing_state_revision'],
 			'pricing_policy_revision' => $meta['pricing_policy_revision'],
@@ -3925,7 +3906,6 @@ final class Digitalogic_Pricing_Snapshot {
 			'expires_at'              => $meta['expires_at'],
 			'row_count'               => $meta['row_count'],
 			'distinct_sync_keys'      => $meta['distinct_sync_keys'],
-			'remote_total'            => $meta['row_count'],
 			'page_size'               => $meta['page_size'],
 			'page_count'              => $meta['page_count'],
 			'page_digests'            => $meta['page_digests'],
@@ -3933,6 +3913,8 @@ final class Digitalogic_Pricing_Snapshot {
 			'mutation_guard'          => $meta['mutation_guard'],
 			'settings'                => $meta['settings'],
 			'reconciliation'          => $meta['reconciliation'],
+			'capabilities'            => $this->capabilities(),
+			'diagnostics'             => array(),
 			'catalog'                 => array(
 				'dataset'          => 'reconciled_products',
 				'locale'           => $meta['locale'],
@@ -3951,11 +3933,62 @@ final class Digitalogic_Pricing_Snapshot {
 		);
 	}
 
+	/** Select only the workbook-owned fields from the canonical catalog. */
+	private function project_excel_catalog( $catalog ) {
+		$columns_by_key = array();
+		foreach ( (array) ( $catalog['columns'] ?? array() ) as $column ) {
+			$key = is_array( $column ) ? (string) ( $column['key'] ?? '' ) : '';
+			if ( '' === $key || isset( $columns_by_key[ $key ] ) ) {
+				return $this->projection_schema_error();
+			}
+			$columns_by_key[ $key ] = $column;
+		}
+
+		$columns = array();
+		foreach ( self::PROJECTION_FIELDS as $field ) {
+			if ( ! isset( $columns_by_key[ $field ] ) ) {
+				return $this->projection_schema_error();
+			}
+			$columns[] = $columns_by_key[ $field ];
+		}
+
+		$rows = array();
+		foreach ( (array) ( $catalog['rows'] ?? array() ) as $row ) {
+			if ( ! is_array( $row ) ) {
+				return $this->projection_schema_error();
+			}
+			$projected = array();
+			foreach ( self::PROJECTION_FIELDS as $field ) {
+				if ( ! array_key_exists( $field, $row ) ) {
+					return $this->projection_schema_error();
+				}
+				$projected[ $field ] = $row[ $field ];
+			}
+			$rows[] = $projected;
+		}
+
+		$catalog['columns'] = $columns;
+		$catalog['rows']    = $rows;
+
+		return $catalog;
+	}
+
+	/** Fail closed when a required workbook field has no canonical value. */
+	private function projection_schema_error() {
+		return $this->error(
+			'digitalogic_pricing_snapshot_projection_schema_invalid',
+			'The canonical catalog cannot satisfy the Excel projection.',
+			503,
+			false,
+			array( 'required_fields' => self::PROJECTION_FIELDS )
+		);
+	}
+
 	/** Hash the stable snapshot representation, excluding token and timestamps. */
 	private function snapshot_digest( $meta, $rows ) {
 		return $this->digest(
 			array(
-				'schema_version'          => self::SCHEMA_VERSION,
+				'contract'                => 'living',
 				'state_revision'          => $meta['state_revision'],
 				'pricing_state_revision'  => $meta['pricing_state_revision'],
 				'pricing_policy_revision' => $meta['pricing_policy_revision'],
@@ -3989,6 +4022,20 @@ final class Digitalogic_Pricing_Snapshot {
 				'requires_if_match'        => true,
 				'confirmation'             => 'APPLY',
 			),
+		);
+	}
+
+	/** Advertise optional transport capabilities without negotiating a version. */
+	private function capabilities() {
+		return array(
+			'revision'            => true,
+			'conditional_request' => true,
+			'etag'                => true,
+			'incremental_sync'    => false,
+			'events'              => true,
+			'delete_tracking'     => true,
+			'digest_algorithms'   => array( 'sha256' ),
+			'recovery_order'      => array( 'events', 'conditional_request', 'polling' ),
 		);
 	}
 
@@ -4062,10 +4109,10 @@ final class Digitalogic_Pricing_Snapshot {
 	/** Normalize the immutable transport page size. */
 	private function normalize_page_size( $page_size ) {
 		$page_size = null === $page_size || '' === $page_size ? self::DEFAULT_PAGE_SIZE : (int) $page_size;
-		if ( self::DEFAULT_PAGE_SIZE !== $page_size ) {
+		if ( $page_size < 1 || $page_size > self::MAX_PAGE_SIZE ) {
 			return $this->error(
 				'digitalogic_pricing_snapshot_page_size_invalid',
-				'pricing projection excel-v1 uses the fixed page_size 250.',
+				'Pricing snapshot page_size must be between 1 and 250.',
 				400,
 				false
 			);
@@ -4360,9 +4407,13 @@ final class Digitalogic_Pricing_Snapshot {
 	/** Create a stable machine-readable error. */
 	private function error( $code, $message, $status, $retryable, $details = array(), $retry_after = null ) {
 		$data = array(
-			'status'    => (int) $status,
-			'retryable' => (bool) $retryable,
-			'details'   => is_array( $details ) ? $details : array(),
+			'status'          => (int) $status,
+			'severity'        => 'error',
+			'blocking'        => ! $retryable,
+			'reason'          => (string) $message,
+			'retryable'       => (bool) $retryable,
+			'recovery_action' => $retryable ? 'retry_after_delay' : 'refresh_or_review_input',
+			'details'         => is_array( $details ) ? $details : array(),
 		);
 		if ( null !== $retry_after ) {
 			$data['retry_after'] = max( 1, (int) $retry_after );

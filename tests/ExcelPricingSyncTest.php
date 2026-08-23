@@ -124,14 +124,11 @@ final class ExcelPricingSyncTest extends TestCase {
 
 		foreach ( array( 'state', 'preview', 'apply' ) as $mode ) {
 			$universal_key = 'digitalogic/pricing/sync/' . $mode;
-			$legacy_key    = 'digitalogic/excel/pricing-sync/' . $mode;
 			$this->assertArrayHasKey( $universal_key, $routes );
 			$this->assertSame( 'POST', $routes[ $universal_key ]['methods'] );
 			$this->assertSame( array( $api, 'pricing_sync_' . $mode ), $routes[ $universal_key ]['callback'] );
 			$this->assertSame( array( $api, 'check_pricing_sync_permission' ), $routes[ $universal_key ]['permission_callback'] );
-			$this->assertArrayHasKey( $legacy_key, $routes );
-			$this->assertSame( 'POST', $routes[ $legacy_key ]['methods'] );
-			$this->assertSame( array( $api, 'check_excel_pricing_sync_permission' ), $routes[ $legacy_key ]['permission_callback'] );
+			$this->assertArrayNotHasKey( 'digitalogic/excel/pricing-sync/' . $mode, $routes );
 		}
 		$this->assertSame( 'POST', $routes['digitalogic/pricing/sync/ack']['methods'] );
 		$this->assertSame( array( $api, 'pricing_sync_ack' ), $routes['digitalogic/pricing/sync/ack']['callback'] );
@@ -152,22 +149,22 @@ final class ExcelPricingSyncTest extends TestCase {
 			array(),
 			array( 'X-Patris-Product-Sync-Secret' => 'receiver-secret' )
 		);
-		$this->assertTrue( $api->check_excel_pricing_sync_permission( $request ) );
+		$this->assertTrue( $api->check_pricing_sync_permission( $request ) );
 
 		$missing_secret = $this->request( 'state' );
-		$denied         = $api->check_excel_pricing_sync_permission( $missing_secret );
+		$denied         = $api->check_pricing_sync_permission( $missing_secret );
 		$this->assertSame( 'digitalogic_excel_sync_unauthorized', $denied->get_error_code() );
 
 		$GLOBALS['digitalogic_test_options'][ Digitalogic_Patris_Feed::PRODUCT_SYNC_SCOPES_OPTION ] = array();
 		$GLOBALS['digitalogic_test_option_cache'] = array();
-		$unscoped                                 = $api->check_excel_pricing_sync_permission( $request );
+		$unscoped                                 = $api->check_pricing_sync_permission( $request );
 		$this->assertSame( 'digitalogic_excel_sync_scope_required', $unscoped->get_error_code() );
 	}
 
 	/**
 	 * Verify the requested stable state shape and Persian paged catalog.
 	 */
-	public function test_state_is_versioned_persian_and_reports_staleness(): void {
+	public function test_state_is_living_persian_and_reports_staleness(): void {
 		$request  = $this->request(
 			'state',
 			array(
@@ -276,23 +273,6 @@ final class ExcelPricingSyncTest extends TestCase {
 		$this->assertStringStartsWith( 'sha256:', $state['state_revision'] );
 		$this->assertArrayHasKey( 'confirmation', $state );
 	}
-
-	/** The old Excel route and schema remain a marked compatibility alias. */
-	public function test_excel_route_returns_legacy_schema_with_successor_headers(): void {
-		$request  = $this->request( 'state' );
-		$response = Digitalogic_REST_API::instance()->excel_pricing_sync_state( $request );
-		$state    = $response->get_data();
-
-		$this->assertSame( 200, $response->get_status() );
-		$this->assertSame( Digitalogic_Excel_Pricing_Sync::LEGACY_STATE_SCHEMA, $state['schema'] );
-		$this->assertSame( 'true', $response->get_headers()['Deprecation'] );
-		$this->assertStringContainsString( '/pricing/sync/state', $response->get_headers()['Link'] );
-		$this->assertSame(
-			$state['profit_margin']['profit_margin_percent'],
-			$state['default_markup']['profit_percent']
-		);
-	}
-
 	/** Default-markup REST remains a marked alias of the shared margin read. */
 	public function test_default_markup_route_is_deprecated_and_equivalent_to_profit_margin(): void {
 		$api        = Digitalogic_REST_API::instance();
@@ -347,20 +327,8 @@ final class ExcelPricingSyncTest extends TestCase {
 		$this->assertSame( 'legacy_shared', $metadata['rate_provenance']['cny']['date_basis'] );
 	}
 
-	/** Legacy schema and margin-field aliases are exact, deprecated equivalents. */
-	public function test_legacy_schema_and_profit_alias_are_equivalent_and_conflicts_fail(): void {
-		$legacy_payload = array(
-			'schema'         => Digitalogic_Excel_Pricing_Sync::LEGACY_REQUEST_SCHEMA,
-			'schema_version' => 1,
-			'source'         => $this->source,
-			'operation'      => 'state',
-		);
-		$legacy_state   = Digitalogic_Excel_Pricing_Sync::instance()->state(
-			new WP_REST_Request( array(), $legacy_payload )
-		);
-		$this->assertFalse( is_wp_error( $legacy_state ) );
-		$this->assertSame( Digitalogic_Excel_Pricing_Sync::STATE_SCHEMA, $legacy_state['schema'] );
-
+	/** Margin-field aliases are exact deprecated equivalents and conflicts fail. */
+	public function test_profit_alias_is_equivalent_and_conflicts_fail(): void {
 		$primary = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_settings();
 		$legacy  = $primary;
 		unset( $legacy['profit_margin_percent'] );
@@ -704,8 +672,8 @@ final class ExcelPricingSyncTest extends TestCase {
 		$this->assertSame( array(), $applied['product_results'] );
 		$this->assertNotContains( 'START TRANSACTION', $GLOBALS['wpdb']->queries );
 		$this->assertNotContains( 'COMMIT', $GLOBALS['wpdb']->queries );
-		$this->assertSame(
-			array( array( 'generation-v1', 'digitalogic_reports' ) ),
+		$this->assertContains(
+			array( 'generation', 'digitalogic_reports' ),
 			$GLOBALS['digitalogic_test_cache_deletes']
 		);
 		$this->assertSame( array(), $GLOBALS['digitalogic_test_transient_deletes'] );
@@ -1087,10 +1055,9 @@ final class ExcelPricingSyncTest extends TestCase {
 	private function request( $operation, $extra = array(), $headers = array() ) {
 		$payload = array_merge(
 			array(
-				'schema'         => Digitalogic_Excel_Pricing_Sync::REQUEST_SCHEMA,
-				'schema_version' => 1,
-				'source'         => $this->source,
-				'operation'      => $operation,
+				'schema'    => Digitalogic_Excel_Pricing_Sync::REQUEST_SCHEMA,
+				'source'    => $this->source,
+				'operation' => $operation,
 			),
 			$extra
 		);

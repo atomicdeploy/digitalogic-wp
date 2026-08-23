@@ -200,7 +200,7 @@ final class WebSocketLifecycleTest extends TestCase {
 			. "Upgrade: websocket\r\n"
 			. "Connection: Upgrade\r\n"
 			. "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
-			. "Sec-WebSocket-Protocol: digitalogic.pricing.v1\r\n"
+			. "Sec-WebSocket-Protocol: digitalogic.pricing\r\n"
 			. "Last-Event-ID: 1\r\n"
 			. "X-Patris-Product-Sync-Secret: receiver-secret\r\n"
 			. "X-Patris-Source-Id: patris-office\r\n"
@@ -211,7 +211,7 @@ final class WebSocketLifecycleTest extends TestCase {
 		$raw   = fread($pair[1], 16384);
 		$parts = explode("\r\n\r\n", $raw, 2);
 		$this->assertStringContainsString('101 Switching Protocols', $parts[0]);
-		$this->assertStringContainsString('Sec-WebSocket-Protocol: digitalogic.pricing.v1', $parts[0]);
+		$this->assertStringContainsString('Sec-WebSocket-Protocol: digitalogic.pricing', $parts[0]);
 		$connected = $this->decode_websocket_frame($parts[1]);
 		$this->assertSame('patris_pricing', $connected['data']['principal']);
 		$this->assertSame(100, $connected['data']['cursor']);
@@ -229,7 +229,7 @@ final class WebSocketLifecycleTest extends TestCase {
 		fclose($pair[1]);
 	}
 
-	public function test_pricing_service_handshake_rejects_missing_versioned_subprotocol(): void {
+	public function test_pricing_service_handshake_rejects_missing_required_subprotocol(): void {
 		$pair = @stream_socket_pair(STREAM_PF_UNIX, STREAM_SOCK_STREAM, STREAM_IPPROTO_IP);
 		if ( false === $pair ) {
 			$this->markTestSkipped('Unix socket pairs are unavailable on this platform.');
@@ -298,7 +298,7 @@ final class WebSocketLifecycleTest extends TestCase {
 				$pair[1],
 				"GET /wordpress-ws HTTP/1.1\r\n"
 				. "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
-				. "Sec-WebSocket-Protocol: digitalogic.pricing.v1\r\n"
+				. "Sec-WebSocket-Protocol: digitalogic.pricing\r\n"
 				. $scenario
 				. "X-Patris-Source-Id: patris-office\r\n"
 				. "X-Patris-Source-Dataset: kala.db\r\n\r\n"
@@ -467,41 +467,41 @@ final class WebSocketLifecycleTest extends TestCase {
 		$this->assertIsArray( $first );
 		$this->assertIsArray( $second );
 		$this->assertContains( 'panel_redis_delivery_failed', $first['delivery_warnings'] );
-		$wake = $GLOBALS['digitalogic_test_options']['digitalogic_panel_event_wake_outbox_v1'];
+		$wake = $GLOBALS['digitalogic_test_options']['digitalogic_panel_event_wake_outbox'];
 		$this->assertSame( $second['event'], $wake['event'] );
 		$scheduled = array_values(
 			array_filter(
 				$GLOBALS['digitalogic_test_scheduled_events'],
 				static function ( $event ) {
-					return 'digitalogic_panel_event_wake_retry_v1' === $event['hook'];
+					return 'digitalogic_panel_event_wake_retry' === $event['hook'];
 				}
 			)
 		);
 		$this->assertCount( 1, $scheduled );
 		$this->assertSame( '', $scheduled[0]['recurrence'] );
 		Digitalogic_Panel::deactivate_event_wake_retry();
-		$this->assertArrayHasKey( 'digitalogic_panel_event_wake_outbox_v1', $GLOBALS['digitalogic_test_options'] );
+		$this->assertArrayHasKey( 'digitalogic_panel_event_wake_outbox', $GLOBALS['digitalogic_test_options'] );
 		$this->assertCount( 0, array_filter(
 			$GLOBALS['digitalogic_test_scheduled_events'],
 			static function ( $event ) {
-				return 'digitalogic_panel_event_wake_retry_v1' === $event['hook'];
+				return 'digitalogic_panel_event_wake_retry' === $event['hook'];
 			}
 		) );
 		$this->assertTrue( Digitalogic_Panel::install_event_wake_retry() );
 		$this->assertCount( 1, array_filter(
 			$GLOBALS['digitalogic_test_scheduled_events'],
 			static function ( $event ) {
-				return 'digitalogic_panel_event_wake_retry_v1' === $event['hook'];
+				return 'digitalogic_panel_event_wake_retry' === $event['hook'];
 			}
 		) );
 
 		$this->redis->publish_result = 0;
 		Digitalogic_Panel::retry_event_wake_delivery();
-		$this->assertArrayNotHasKey( 'digitalogic_panel_event_wake_outbox_v1', $GLOBALS['digitalogic_test_options'] );
+		$this->assertArrayNotHasKey( 'digitalogic_panel_event_wake_outbox', $GLOBALS['digitalogic_test_options'] );
 		$this->assertCount( 0, array_filter(
 			$GLOBALS['digitalogic_test_scheduled_events'],
 			static function ( $event ) {
-				return 'digitalogic_panel_event_wake_retry_v1' === $event['hook'];
+				return 'digitalogic_panel_event_wake_retry' === $event['hook'];
 			}
 		) );
 		$this->assertSame( $second['event'], json_decode( end( $this->redis->published )[1], true ) );
@@ -820,7 +820,7 @@ final class WebSocketLifecycleTest extends TestCase {
 		$reset = $this->decode_websocket_frame(fread($pair[1], 8192));
 
 		$this->assertSame('pricing.stream.reset', $reset['event']);
-		$this->assertSame('digitalogic.pricing-stream-reset/v1', $reset['data']['schema']);
+		$this->assertSame('digitalogic.pricing-stream-reset', $reset['data']['schema']);
 		$this->assertSame(202, $reset['data']['cursor']);
 		$this->assertSame(201, $reset['data']['oldest_event_id']);
 		$this->assertTrue($reset['data']['revision_validation_required']);
@@ -1077,6 +1077,7 @@ final class WebSocketLifecycleTest extends TestCase {
 
 	private function pricing_state_event( $id, array $source ): array {
 		$state_revision = 'sha256:' . str_repeat('b', 64);
+		$scoped_source  = $source + array( 'revision' => 'sha256:' . str_repeat('a', 64) );
 
 		return array(
 			'id'    => (int) $id,
@@ -1084,9 +1085,8 @@ final class WebSocketLifecycleTest extends TestCase {
 			'name'  => 'pricing.state.changed',
 			'data'  => array(
 				'schema'                  => Digitalogic_Pricing_Snapshot::STATE_EVENT_SCHEMA,
-				'schema_version'          => Digitalogic_Pricing_Snapshot::SCHEMA_VERSION,
 				'projection'              => Digitalogic_Pricing_Snapshot::PROJECTION,
-				'source'                  => $source + array( 'revision' => 'sha256:' . str_repeat('a', 64) ),
+				'source'                  => $scoped_source,
 				'state_revision'          => $state_revision,
 				'etag'                    => '"' . $state_revision . '"',
 				'catalog_revision'        => 'sha256:' . str_repeat('c', 64),
@@ -1111,15 +1111,16 @@ final class WebSocketLifecycleTest extends TestCase {
 			'event' => 'pricing_snapshot_build_terminal',
 			'name'  => 'pricing.snapshot.build.terminal',
 			'data'  => array(
-				'schema'                 => Digitalogic_Pricing_Snapshot::TERMINAL_EVENT_SCHEMA,
-				'schema_version'         => Digitalogic_Pricing_Snapshot::SCHEMA_VERSION,
+				'schema'                 => Digitalogic_Pricing_Snapshot::BUILD_EVENT_SCHEMA,
 				'projection'             => Digitalogic_Pricing_Snapshot::PROJECTION,
 				'build_id'               => 'build_' . str_repeat( '2', 32 ),
-				'request_id'             => 'sha256:' . str_repeat( '3', 64 ),
+				'request_id'             => 'snapshot-request-0001',
 				'status'                 => 'ready',
 				'source'                 => $source,
 				'state_revision'         => 'sha256:' . str_repeat( '4', 64 ),
+				'etag'                   => '"sha256:' . str_repeat( '4', 64 ) . '"',
 				'pricing_state_revision' => 'sha256:' . str_repeat( '5', 64 ),
+				'pricing_policy_revision'=> 'sha256:' . str_repeat( '8', 64 ),
 				'catalog_revision'       => 'sha256:' . str_repeat( '6', 64 ),
 				'snapshot_token'         => $token,
 				'snapshot_revision'      => $revision,
@@ -1127,9 +1128,11 @@ final class WebSocketLifecycleTest extends TestCase {
 				'snapshot_path'          => '/wp-json/digitalogic/pricing/sync/snapshots/' . $token
 					. '?source_id=' . rawurlencode( $source['id'] )
 					. '&source_dataset=' . rawurlencode( $source['dataset'] )
-					. '&source_revision=' . rawurlencode( $source['revision'] ),
+					. '&source_revision=' . rawurlencode( $source['revision'] )
+					. '&projection=' . rawurlencode( Digitalogic_Pricing_Snapshot::PROJECTION ),
 				'retryable'              => false,
 				'idempotency_key'        => 'sha256:' . str_repeat( '7', 64 ),
+				'revision_path'          => '/wp-json/digitalogic/pricing/sync/revision',
 				'audience'               => array( 'services' => array( 'patris_pricing' ) ),
 			),
 			'time'  => '2026-08-23 01:00:00',

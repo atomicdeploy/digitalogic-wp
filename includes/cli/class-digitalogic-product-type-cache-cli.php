@@ -17,7 +17,7 @@ if ( ! defined( 'WP_CLI' ) || ! WP_CLI ) {
  * Repair only product cache prefixes selected by the current drift report.
  */
 class Digitalogic_Product_Type_Cache_CLI {
-	private const OUTPUT_SCHEMA             = 'digitalogic.product-type-cache-repair/v1';
+	private const OUTPUT_SCHEMA             = 'digitalogic.product-type-cache-repair';
 	private const MAX_CANDIDATES            = 100;
 	private const MAX_VARIATIONS_PER_PARENT = 1000;
 
@@ -442,21 +442,12 @@ class Digitalogic_Product_Type_Cache_CLI {
 	 * @return true|WP_Error
 	 */
 	protected function invalidate_product_cache_prefix( $product_id ) {
-		if ( ! is_callable( array( 'WC_Cache_Helper', 'invalidate_cache_group' ) ) ) {
-			return new WP_Error( 'digitalogic_product_type_cache_unavailable', 'WooCommerce cache-prefix invalidation is unavailable.' );
-		}
-
-		$instance_cache = $this->remove_product_instance_cache( $product_id );
-		if ( is_wp_error( $instance_cache ) ) {
-			return $instance_cache;
-		}
-
-		if ( function_exists( 'clean_object_term_cache' ) ) {
-			clean_object_term_cache( $product_id, 'product' );
-		}
-		WC_Cache_Helper::invalidate_cache_group( 'product_' . $product_id );
-
-		return true;
+		return Digitalogic_Report_Engine::invalidate_product_type_caches(
+			$product_id,
+			function ( $id ) {
+				return $this->remove_product_instance_cache( $id );
+			}
+		);
 	}
 
 	/**

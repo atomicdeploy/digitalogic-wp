@@ -322,7 +322,7 @@ final class Digitalogic_Pricing_Coordinator {
 	}
 
 	/**
-	 * Project additive canonical settings onto the receiver's strict v1 shape.
+	 * Project additive canonical settings onto the receiver's strict Living shape.
 	 *
 	 * @param array $settings Canonical pricing settings.
 	 * @return array

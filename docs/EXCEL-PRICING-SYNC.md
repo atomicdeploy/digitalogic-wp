@@ -4,7 +4,7 @@ The canonical Digitalogic workbook synchronizes global pricing inputs through
 the local Patris companion. Excel/VBA never stores a WordPress, WooCommerce, or
 Patris credential.
 
-The local `/api/excel` path is intentionally Excel-specific: it translates
+The local `/api/pricing-sync` path is intentionally Excel-specific: it translates
 workbook/VBA actions into a transport-neutral request. The companion then calls
 three universal, POST-only WordPress routes:
 
@@ -12,9 +12,8 @@ three universal, POST-only WordPress routes:
 - `/wp-json/digitalogic/pricing/sync/preview`
 - `/wp-json/digitalogic/pricing/sync/apply`
 
-The old remote `/wp-json/digitalogic/excel/pricing-sync/*` paths are deprecated
-compatibility aliases. They return `Deprecation: true` and a successor `Link`
-header; new clients must use `/pricing/sync/*`.
+There is one Living remote surface. No versioned or deprecated pricing-sync
+alias is registered; clients must use `/pricing/sync/*`.
 
 These routes accept only the existing `X-Patris-Product-Sync-Secret`. The
 secret must have a non-empty exact `{id, dataset}` source scope, and every
@@ -31,7 +30,7 @@ behavior: the workbook intentionally had no secret, and the trusted companion
 runtime either was bypassed or did not have its server-side product-sync secret
 available. The corrected boundary is:
 
-1. VBA calls the loopback Patris `/api/excel` adapter without a WordPress secret.
+1. VBA calls the loopback Patris `/api/pricing-sync` adapter without a WordPress secret.
 2. The companion reads the secret from protected runtime configuration.
 3. The companion calls `/wp-json/digitalogic/pricing/sync/*` with
    `X-Patris-Product-Sync-Secret` and the exact configured `{id,dataset}` scope.
@@ -73,9 +72,10 @@ idempotency, integrity fields, and adapter mapping requirements.
 
 ## Request envelope
 
-The request schema is `digitalogic.pricing-sync-request/v1`.
-`schema_version` is `1`, `operation` matches the route name, and `source`
-contains exactly `id`, `dataset`, and a `sha256:` revision.
+The Living request schema is `digitalogic.pricing-sync-request`.
+`operation` matches the route name, and `source` contains exactly `id`,
+`dataset`, and a `sha256:` revision. Versioned schemas and `schema_version`
+selectors are rejected.
 
 State accepts optional `page` and `limit`; the maximum page size is 250.
 Catalog locale is always Persian. `fa` and `fa_IR` are accepted as request
@@ -83,8 +83,7 @@ locale values.
 
 ```json
 {
-  "schema": "digitalogic.pricing-sync-request/v1",
-  "schema_version": 1,
+  "schema": "digitalogic.pricing-sync-request",
   "operation": "state",
   "source": {
     "id": "configured-source-id",
@@ -101,7 +100,7 @@ The state data has this stable top-level shape:
 
 ```json
 {
-  "schema": "digitalogic.pricing-sync-state/v1",
+  "schema": "digitalogic.pricing-sync-state",
   "state_revision": "sha256:GLOBAL_SETTINGS_REVISION",
   "generated_at": "2026-07-26T12:00:00+00:00",
   "source": {
@@ -200,8 +199,7 @@ The `Idempotency-Key` header must exactly equal body `idempotency_key`.
 
 ```json
 {
-  "schema": "digitalogic.pricing-sync-request/v1",
-  "schema_version": 1,
+  "schema": "digitalogic.pricing-sync-request",
   "operation": "preview",
   "source": {
     "id": "configured-source-id",
@@ -254,8 +252,7 @@ string `APPLY`.
 
 ```json
 {
-  "schema": "digitalogic.pricing-sync-request/v1",
-  "schema_version": 1,
+  "schema": "digitalogic.pricing-sync-request",
   "operation": "apply",
   "source": {
     "id": "configured-source-id",
@@ -294,7 +291,7 @@ Preview and apply response data use:
 
 ```json
 {
-  "schema": "digitalogic.pricing-sync-preview/v1",
+  "schema": "digitalogic.pricing-sync-preview",
   "mode": "preview",
   "status": "confirmation_required",
   "state_revision": "sha256:GLOBAL_SETTINGS_REVISION",

@@ -132,6 +132,15 @@ class Digitalogic_WebSocket_Server {
 			? array_map('trim', explode(',', (string) $headers['sec-websocket-protocol']))
 			: array();
 		$pricing_service           = 'patris_pricing' === (string) ( $auth['principal'] ?? '' );
+		$pricing_protocol          = '';
+		if ( $pricing_service ) {
+			foreach ( $protocols as $protocol ) {
+				if ( 'digitalogic.pricing' === $protocol ) {
+					$pricing_protocol = $protocol;
+					break;
+				}
+			}
+		}
 		$invalid_pricing_cursor    = $pricing_service
 			&& isset($headers['last-event-id'])
 			&& ! $this->valid_event_cursor($headers['last-event-id']);
@@ -139,7 +148,7 @@ class Digitalogic_WebSocket_Server {
 			empty($auth['authenticated'])
 			|| empty($headers['sec-websocket-key'])
 			|| $invalid_pricing_cursor
-			|| ( $pricing_service && ! in_array('digitalogic.pricing.v1', $protocols, true) )
+			|| ( $pricing_service && '' === $pricing_protocol )
 		) {
             @fwrite($this->clients[$id]['socket'], "HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
             $this->close($id);
@@ -152,7 +161,7 @@ class Digitalogic_WebSocket_Server {
             . "Upgrade: websocket\r\n"
             . "Connection: Upgrade\r\n"
 			. "Sec-WebSocket-Accept: " . $accept . "\r\n"
-			. ( $pricing_service ? "Sec-WebSocket-Protocol: digitalogic.pricing.v1\r\n" : '' )
+			. ( $pricing_service ? "Sec-WebSocket-Protocol: " . $pricing_protocol . "\r\n" : '' )
 			. "\r\n";
 
 		$written = @fwrite($this->clients[ $id ]['socket'], $response);
@@ -212,6 +221,7 @@ class Digitalogic_WebSocket_Server {
 			$connected['data']['cursor_reset_required']        = $cursor_reset_required;
 			$connected['data']['revision_validation_required'] = true;
 			$connected['data']['revision_path']                = '/wp-json/digitalogic/pricing/sync/revision';
+			$connected['data']['projection']                   = Digitalogic_Pricing_Snapshot::PROJECTION;
 		}
 		if ( ! $this->send_json($id, $connected) ) {
 			return;
@@ -376,16 +386,7 @@ class Digitalogic_WebSocket_Server {
 					$sent         = $this->send_json($id, array(
 						'event'   => 'pricing.stream.reset',
 						'success' => true,
-						'data'    => array(
-							'schema'                       => 'digitalogic.pricing-stream-reset/v1',
-							'schema_version'               => 1,
-							'reason'                       => 'cursor_gap',
-							'cursor'                       => $reset_cursor,
-							'oldest_event_id'              => $window['oldest_event_id'],
-							'latest_event_id'              => $window['latest_event_id'],
-							'revision_validation_required' => true,
-							'revision_path'                => '/wp-json/digitalogic/pricing/sync/revision',
-						),
+						'data'    => $this->pricing_reset_data( $id, 'cursor_gap', $reset_cursor, $window ),
 					));
 					if ( $sent && isset($this->clients[ $id ]) ) {
 						$this->clients[ $id ]['last_event_id'] = $reset_cursor;
@@ -445,6 +446,11 @@ class Digitalogic_WebSocket_Server {
 			);
 		}
 		if ( ! $visible ) {
+			if ( $pricing_service && 'targeted' === $this->pricing_event_relevance( $id, $event ) ) {
+				$this->send_pricing_stream_reset( $id, 'invalid_event', $event_id );
+				$this->close( $id );
+				return;
+			}
 			if ( $event_id ) {
 				$this->clients[ $id ]['last_event_id'] = $event_id;
 			}
@@ -463,6 +469,59 @@ class Digitalogic_WebSocket_Server {
 			$this->clients[ $id ]['last_event_id'] = max(absint($this->clients[ $id ]['last_event_id']), $event_id);
 		}
     }
+
+	/** Classify reserved pricing events without treating other-source events as malformed. */
+	private function pricing_event_relevance( $id, $event ) {
+		$name = (string) ( $event['name'] ?? $event['event'] ?? '' );
+		if ( 0 !== strpos( $name, 'pricing.' ) ) {
+			return 'irrelevant';
+		}
+		$data          = isset($event['data']) && is_array($event['data']) ? $event['data'] : array();
+		$event_source  = isset($data['source']) && is_array($data['source']) ? $data['source'] : array();
+		$client_source = isset($this->clients[ $id ]['source']) && is_array($this->clients[ $id ]['source'])
+			? $this->clients[ $id ]['source']
+			: array();
+		if (
+			'' !== (string) ( $event_source['id'] ?? '' )
+			&& '' !== (string) ( $event_source['dataset'] ?? '' )
+			&& (
+				! hash_equals( (string) ( $client_source['id'] ?? '' ), (string) $event_source['id'] )
+				|| ! hash_equals( (string) ( $client_source['dataset'] ?? '' ), (string) $event_source['dataset'] )
+			)
+		) {
+			return 'irrelevant';
+		}
+
+		return 'targeted';
+	}
+
+	/** Return reset data in the Living stream contract. */
+	private function pricing_reset_data( $id, $reason, $cursor, $window ) {
+		unset( $id );
+		return array(
+			'schema'                       => 'digitalogic.pricing-stream-reset',
+			'reason'                       => (string) $reason,
+			'cursor'                       => absint( $cursor ),
+			'oldest_event_id'              => absint( $window['oldest_event_id'] ?? 0 ),
+			'latest_event_id'              => absint( $window['latest_event_id'] ?? 0 ),
+			'revision_validation_required' => true,
+			'revision_path'                => '/wp-json/digitalogic/pricing/sync/revision',
+		);
+	}
+
+	/** Send one authoritative reset without mutating the server cursor. */
+	private function send_pricing_stream_reset( $id, $reason, $cursor ) {
+		$window = $this->durable_event_window();
+
+		return $this->send_json(
+			$id,
+			array(
+				'event'   => 'pricing.stream.reset',
+				'success' => true,
+				'data'    => $this->pricing_reset_data( $id, $reason, $cursor, $window ),
+			)
+		);
+	}
 
     private function maybe_connect_redis_subscriber() {
         if (is_resource($this->redis_socket) || microtime(true) < $this->redis_next_connect_at) {

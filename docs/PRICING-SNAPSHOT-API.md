@@ -3,8 +3,8 @@
 This additive machine API lets a trusted Patris companion validate pricing
 state cheaply, build the reconciled WooCommerce/Patris projection once, and
 then download immutable bulk or paged data without rebuilding the union for
-each page. Existing pricing state, preview, apply, and deprecated Excel aliases
-are unchanged.
+each page. Pricing state, preview, apply, snapshot, and event delivery form one
+Living contract; no versioned compatibility alias is retained.
 
 ## Security and credential boundary
 
@@ -21,7 +21,6 @@ parameters:
 - `source_revision` as lowercase `sha256:` plus 64 hexadecimal characters
 - `locale=fa` (the `fa_IR` alias normalizes to `fa`)
 - `page_size=250`
-- `schema_version=1`
 
 The revision and build-start surfaces require the submitted source revision to
 equal the revision currently materialized in WordPress. An already-created
@@ -55,17 +54,16 @@ The composite `state_revision` binds:
 2. the persistent catalog/report generation, including bounded source
    freshness state;
 3. the pricing settings revision and pricing-policy schema;
-4. the `excel-v1` projection schema version.
+4. the stable Living `excel` projection schema identity.
 
 Locale and the fixed transport page size are part of the build key, while the
 state revision itself represents pricing-relevant state.
 
 ```json
 {
-  "schema": "digitalogic.pricing-sync-revision/v1",
-  "schema_version": 1,
-  "projection": "excel-v1",
-  "projection_schema": "digitalogic.pricing-projection/excel-v1",
+  "schema": "digitalogic.pricing-sync-revision",
+  "projection": "excel",
+  "projection_schema": "digitalogic.pricing-projection/excel",
   "state_revision": "sha256:COMPOSITE_STATE",
   "source": {
     "id": "patris-office",
@@ -84,7 +82,7 @@ state revision itself represents pricing-relevant state.
 
 The Patris companion subscribes outbound to
 `wss://digitalogic.ir/wordpress-ws` with WebSocket subprotocol
-`digitalogic.pricing.v1`. It supplies the existing product-sync credential and
+`digitalogic.pricing`. It supplies the existing product-sync credential and
 exact source scope only in these handshake headers:
 
 - `X-Patris-Product-Sync-Secret`
@@ -103,16 +101,16 @@ query string, workbook, VBA, event, response, or log. The resulting
 WordPress command. It receives only these exact-source event kinds:
 
 - `pricing.source.changed` with change `added` or `changed` and schema
-  `digitalogic.pricing-source-change/v1`;
+  `digitalogic.pricing-source-change`;
 - `pricing.source.removed` with change `removed` and the same source schema;
 - `pricing.state.changed` with schema
-  `digitalogic.pricing-state-change/v1` and cause
+  `digitalogic.pricing-state-change` and cause
   `projection-invalidated` or `freshness-boundary`;
 - `pricing.snapshot.build.terminal` with schema
-  `digitalogic.pricing-snapshot-build-event/v1` when a request-bound snapshot
+  `digitalogic.pricing-snapshot-build-event` when a request-bound snapshot
   build becomes `ready`, `failed`, or `cancelled`;
 - `pricing.stream.reset` with schema
-  `digitalogic.pricing-stream-reset/v1` when durable replay has a gap.
+  `digitalogic.pricing-stream-reset` when durable replay has a gap.
 
 Every data event has the globally increasing durable panel `id`. Source
 lifecycle envelopes contain `source`, `previous_source_revision`,
@@ -218,9 +216,9 @@ continuously. This request closes delivery gaps; it is not a polling loop.
 Excel never polls WordPress. Before starting an asynchronous build, the Patris
 companion registers its request-bound terminal waiter; a `202` response is then
 completed only by the durable terminal event. Build-status routes remain for
-diagnostics and backwards-compatible clients, not for that production wait.
+diagnostics and recovery, not for that production wait.
 
-The daemon sends no timer-driven WSS heartbeat in schema v1. It replies to a
+The daemon sends no timer-driven WSS heartbeat. It replies to a
 WebSocket control Ping with Pong and also accepts the read-only JSON
 `{"id":"...","command":"ping"}` form, replying with event `pong`; the
 companion owns its idle-timeout, disconnect, exponential-backoff reconnect,
@@ -262,8 +260,7 @@ use the legacy query-token WebSocket example for the Patris pricing principal.
 
 ```json
 {
-  "schema": "digitalogic.pricing-snapshot-request/v1",
-  "schema_version": 1,
+  "schema": "digitalogic.pricing-snapshot-request",
   "operation": "snapshot",
   "client_id": "patris-export",
   "channel": "excel-workbook",
@@ -358,10 +355,21 @@ reconciliation counts, ordered page digests, schema, columns, pagination, and
 integrity fields. The server recomputes a page digest before considering a
 conditional `304`; corrupt or missing cache state fails closed.
 
-The `excel-v1` projection pins the exact established order and names of all 46
-Excel catalog columns. Any shared-schema addition, removal, reordering, or
-unexpected row field fails closed until the projection schema is deliberately
-versioned. Top-level integrity metadata includes:
+The Living `excel` projection pins exactly the 26 fields consumed by the
+Excel calculator, in this order:
+
+`sync_key`, `reconciliation_status`, `patris_code`, `woocommerce_id`, `sku`,
+`weight_grams`, `foreign_price`, `patris_location`, `categories`,
+`foreign_currency`, `shipping_price_per_kg`,
+`shipping_price_per_kg_currency`, `profit_margin_percent`,
+`price_source_amount`, `price_source_currency`, `price_source_kind`,
+`effective_price`, `patris_total_stock`, `stock_quantity`, `name`,
+`updated_at`, `record_revision`, `permalink`, `patris_final_price`,
+`sale_price`, `publication_status`.
+
+The wider canonical reconciliation surface remains an internal input. Missing,
+duplicated, reordered, or unexpected public projection fields fail closed until
+a compatible contract migration is reviewed. Top-level integrity metadata includes:
 
 - `row_count`
 - `distinct_sync_keys`
@@ -416,13 +424,13 @@ measurement after deployment:
 
 ## Patris-Export adapter compatibility
 
-The production Patris companion uses the additive WordPress snapshot API while
-preserving its existing local Excel/VBA contract. It subscribes to the
-versioned pricing WSS stream, persists a cursor only after local acceptance,
+The production Patris companion uses the WordPress snapshot API while
+preserving its local Excel/VBA boundary. It subscribes to the Living pricing
+WSS stream, persists a cursor only after local acceptance,
 validates the composite revision on connect/reconnect/reset, registers the
 request-bound terminal waiter before the snapshot POST, and consumes the bulk
 snapshot only after a matching `ready` event. A cold build therefore uses no
-legacy paged `/pricing/sync/state` calls and no build-status polling.
+paged `/pricing/sync/state` fallback and no build-status polling.
 
 The companion distinguishes composite `state_revision` from pricing-only
 `pricing_state_revision`, validates exact source/build/request/revision and
@@ -430,15 +438,12 @@ ETag identities, and injects the protected credential only on same-origin
 remote calls. No credential belongs in the workbook, VBA, event payload, or
 log.
 
-## Backwards compatibility
+## Living contract migration
 
-These existing routes and schemas remain unchanged:
-
-- `POST /wp-json/digitalogic/pricing/sync/state`
-- `POST /wp-json/digitalogic/pricing/sync/preview`
-- `POST /wp-json/digitalogic/pricing/sync/apply`
-- deprecated `/wp-json/digitalogic/excel/pricing-sync/*` aliases
-
-Existing clients can continue using paged state. The production Patris pricing
-companion uses the snapshot and terminal-event path without changing those
-legacy route contracts.
+Deployment removes the former versioned schemas, subprotocol, option/action
+identifiers, and `/excel/pricing-sync/*` aliases in one coordinated cutover.
+The migration first backs up exact state, cancels the former scheduled actions,
+deletes only their exact derived queue/cache records, deploys WordPress and the
+Patris companion together, and verifies the single Living routes and WSS event
+stream. Rollback restores the exact plugin and companion packages plus the
+captured state; production must not run mixed contracts.

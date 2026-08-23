@@ -22,7 +22,7 @@ final class Digitalogic_Pricing_Input_Credential {
 	private const FAILURE_WINDOW       = 60;
 	private const FAILURE_BLOCK_PERIOD = 300;
 	private const THROTTLE_PREFIX      = 'digitalogic_pricing_input_auth_';
-	private const LOCK_NAME            = 'digitalogic_pricing_input_credential_v1';
+	private const LOCK_NAME            = 'digitalogic_pricing_input_credential';
 	private const LOCK_TIMEOUT_SECONDS = 3;
 
 	/**

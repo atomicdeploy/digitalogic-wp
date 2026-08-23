@@ -81,7 +81,7 @@ final class ReportEngineTest extends TestCase {
 		$GLOBALS['digitalogic_test_update_failures']              = array();
 		$GLOBALS['digitalogic_test_options']                      = array(
 			'digitalogic_patris_feed_settings'       => array( 'stale_after_hours' => 48 ),
-			'digitalogic_report_cache_generation_v1' => 'test-report-generation',
+			'digitalogic_report_cache_generation' => 'test-report-generation',
 		);
 		$GLOBALS['digitalogic_test_option_cache']                 = array();
 		$GLOBALS['digitalogic_test_posts']                        = array();
@@ -159,7 +159,7 @@ final class ReportEngineTest extends TestCase {
 		$refreshed = $this->engine->get_report( $args );
 
 		$this->assertSame( 2, $refreshed['counts']['patris_products'] );
-		$this->assertArrayHasKey( 'digitalogic_reports:generation-v1', $GLOBALS['digitalogic_test_object_cache'] );
+		$this->assertArrayHasKey( 'digitalogic_reports:generation', $GLOBALS['digitalogic_test_object_cache'] );
 	}
 
 	/** One committed effect owns one deterministic generation across every replay. */
@@ -270,18 +270,18 @@ final class ReportEngineTest extends TestCase {
 
 	/** Keep report-generation installation explicit and outside construction. */
 	public function test_generation_install_is_explicit_and_constructor_is_read_only(): void {
-		unset( $GLOBALS['digitalogic_test_options']['digitalogic_report_cache_generation_v1'] );
+		unset( $GLOBALS['digitalogic_test_options']['digitalogic_report_cache_generation'] );
 		$this->reset_singleton( Digitalogic_Report_Engine::class );
 		$engine = Digitalogic_Report_Engine::instance();
 
-		$this->assertArrayNotHasKey( 'digitalogic_report_cache_generation_v1', $GLOBALS['digitalogic_test_options'] );
+		$this->assertArrayNotHasKey( 'digitalogic_report_cache_generation', $GLOBALS['digitalogic_test_options'] );
 		$revision = $engine->projection_revision( 'patris-export', 'ALLANBAR' );
 		$this->assertInstanceOf( WP_Error::class, $revision );
 		$this->assertSame( 'digitalogic_report_generation_uninitialized', $revision->get_error_code() );
 
 		$this->assertTrue( $engine->install_cache_generation() );
-		$this->assertIsString( $GLOBALS['digitalogic_test_options']['digitalogic_report_cache_generation_v1'] );
-		$this->assertNotSame( '', $GLOBALS['digitalogic_test_options']['digitalogic_report_cache_generation_v1'] );
+		$this->assertIsString( $GLOBALS['digitalogic_test_options']['digitalogic_report_cache_generation'] );
+		$this->assertNotSame( '', $GLOBALS['digitalogic_test_options']['digitalogic_report_cache_generation'] );
 	}
 
 	public function test_lock_loser_receives_a_retryable_error(): void {

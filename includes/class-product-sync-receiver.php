@@ -1146,7 +1146,7 @@ class Digitalogic_Product_Sync_Receiver {
         $pricing_revision = $this->hash_identity(
             $this->encode_go_json(
                 array(
-                    'schema' => 'digitalogic.pricing-coordinator/v1',
+                    'schema' => 'digitalogic.pricing-coordinator',
                     'dollar_price' => $settings['dollar_price'],
                     'yuan_price' => $settings['yuan_price'],
                     'effective_date' => $settings['effective_date'],
@@ -1306,7 +1306,7 @@ class Digitalogic_Product_Sync_Receiver {
             $event_id = $this->hash_identity(
                 $this->encode_go_json(
                     array(
-                        'schema' => 'digitalogic.pricing-reconcile/v1',
+                        'schema' => 'digitalogic.pricing-reconcile',
                         'source' => $source,
                         'generated_at' => $generated_at,
                         'pricing_revision' => $pricing_revision,
@@ -1506,7 +1506,7 @@ class Digitalogic_Product_Sync_Receiver {
         }
 
         return array(
-            'schema' => 'digitalogic.pricing-reconcile-result/v1',
+            'schema' => 'digitalogic.pricing-reconcile-result',
             'status' => 'reconciled',
             'pricing_revision' => $pricing_revision,
             'source_count' => count($source_results),
