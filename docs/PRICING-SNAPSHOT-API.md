@@ -172,10 +172,16 @@ permits a running worker to create one replacement without parallel retry
 chains. After a mutex timeout, WP-Cron is accepted only after exact persisted
 readback; if that path is unavailable, Action Scheduler atomically coalesces the
 exact fallback in a content-addressed group without evicting a distinct identity.
+If that group's primary action is already in progress, one alternate
+content-addressed handoff remains pending and converts to one primary successor
+without contending on the already-running hook.
 The outbox carries the exact delivered identity until its one-hour receipt
 commits. Receipts retain only the newest 200 source identities, and exact source
 removal durably clears both its normalized receipt and delivered-state outbox
-marker before the ordered lifecycle event is published. The retained panel
+marker before the ordered lifecycle event is published. If the same source is
+already current again, removal instead rebuilds its current outbox entry without
+the retired delivered marker, preserving ordered removal/addition before the
+fresh composite event. The retained panel
 identity is a secondary fence, so late
 fallback actions cannot repersist or append the same composite idempotency key
 after panel rotation. Redis is only a

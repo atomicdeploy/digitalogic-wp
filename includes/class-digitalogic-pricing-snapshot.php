@@ -33,6 +33,7 @@ final class Digitalogic_Pricing_Snapshot {
 	private const BUILD_WATCHDOG_HOOK               = 'digitalogic_pricing_snapshot_build_watchdog_v1';
 	private const CLEANUP_HOOK                      = 'digitalogic_pricing_snapshot_cleanup_idempotency_v1';
 	private const STATE_EVENT_HOOK                  = 'digitalogic_pricing_state_event_delivery_v1';
+	private const STATE_EVENT_HANDOFF_HOOK          = 'digitalogic_pricing_state_event_handoff_v1';
 	private const TERMINAL_EVENT_HOOK               = 'digitalogic_pricing_snapshot_terminal_event_delivery_v1';
 	private const FRESHNESS_HOOK                    = 'digitalogic_pricing_freshness_boundary_v1';
 	private const ACTION_GROUP                      = 'digitalogic-pricing-snapshots';
@@ -126,6 +127,7 @@ final class Digitalogic_Pricing_Snapshot {
 		add_action( self::BUILD_WATCHDOG_HOOK, array( $this, 'run_build_watchdog' ), 10, 2 );
 		add_action( self::CLEANUP_HOOK, array( $this, 'cleanup_idempotency' ), 10, 3 );
 		add_action( self::STATE_EVENT_HOOK, array( $this, 'run_state_revision_event_delivery' ), 10, 2 );
+		add_action( self::STATE_EVENT_HANDOFF_HOOK, array( $this, 'run_state_revision_event_handoff' ), 10, 2 );
 		add_action( self::TERMINAL_EVENT_HOOK, array( $this, 'run_terminal_event_delivery' ) );
 		add_action( self::FRESHNESS_HOOK, array( $this, 'run_freshness_boundary' ), 10, 2 );
 		add_action( 'digitalogic_excel_pricing_apply_committed', array( $this, 'invalidate_after_apply' ) );
@@ -1134,6 +1136,33 @@ final class Digitalogic_Pricing_Snapshot {
 		$this->publish_scheduled_state_revision_events();
 	}
 
+	/** Convert one unique degraded handoff into one primary pending delivery. */
+	public function run_state_revision_event_handoff( $fallback_sources = array(), $fallback_source_events = array() ) {
+		$args = array(
+			is_array( $fallback_sources ) ? array_values( $fallback_sources ) : array(),
+			is_array( $fallback_source_events ) ? array_values( $fallback_source_events ) : array(),
+		);
+		if ( $this->state_event_retry_is_pending( $args ) ) {
+			return true;
+		}
+
+		$timestamp = time() + self::RETRY_AFTER;
+		if ( function_exists( 'as_schedule_single_action' ) && function_exists( 'as_get_scheduled_actions' ) ) {
+			// The handoff is already unique for these exact args, so it alone may insert this running-worker replacement.
+			as_schedule_single_action( $timestamp, self::STATE_EVENT_HOOK, $args, $this->state_event_action_group( $args ), false );
+			if ( $this->state_event_retry_is_pending( $args ) ) {
+				return true;
+			}
+		}
+		if ( function_exists( 'wp_schedule_single_event' ) && $this->schedule_wp_cron_state_event_retry( $timestamp, $args ) ) {
+			return true;
+		}
+
+		do_action( 'digitalogic_pricing_state_event_failed', 'digitalogic_pricing_state_retry_unavailable', array() );
+
+		return false;
+	}
+
 	/**
 	 * Publish the final cheap composite revision for every exact current source.
 	 *
@@ -1847,10 +1876,33 @@ final class Digitalogic_Pricing_Snapshot {
 			}
 		}
 
+		$current_source = null;
+		foreach ( $this->current_state_event_sources() as $candidate ) {
+			$candidate_key = (string) $candidate['id'] . "\n" . (string) $candidate['dataset'];
+			if ( hash_equals( $source_key, $candidate_key ) ) {
+				$current_source = $candidate;
+				break;
+			}
+		}
+
 		$stored_outbox = get_option( self::STATE_EVENT_OUTBOX, null );
-		if ( null !== $stored_outbox ) {
+		if ( null !== $stored_outbox || null !== $current_source ) {
 			$outbox = is_array( $stored_outbox ) ? $stored_outbox : array();
-			unset( $outbox[ $source_key ] );
+			if ( null !== $current_source ) {
+				$existing              = is_array( $outbox[ $source_key ] ?? null ) ? $outbox[ $source_key ] : array();
+				$now                   = gmdate( 'c' );
+				$outbox[ $source_key ] = array(
+					'source'        => $current_source,
+					'first_seen_at' => (string) ( $existing['first_seen_at'] ?? $now ),
+					'updated_at'    => $now,
+					'attempts'      => (int) ( $existing['attempts'] ?? 0 ),
+					'cause'         => 'freshness-boundary' === (string) ( $existing['cause'] ?? '' )
+						? 'freshness-boundary'
+						: 'projection-invalidated',
+				);
+			} else {
+				unset( $outbox[ $source_key ] );
+			}
 			if ( $stored_outbox !== $outbox && ! $this->store_option_verified( self::STATE_EVENT_OUTBOX, $outbox ) ) {
 				return false;
 			}
@@ -2276,25 +2328,29 @@ final class Digitalogic_Pricing_Snapshot {
 	private function state_event_retry_is_pending( $args ) {
 		if ( function_exists( 'as_get_scheduled_actions' ) ) {
 			$groups = array_unique( array( $this->state_event_action_group( $args ), self::ACTION_GROUP ) );
-			foreach ( $groups as $group ) {
-				$actions = as_get_scheduled_actions(
-					array(
-						'hook'     => self::STATE_EVENT_HOOK,
-						'args'     => $args,
-						'group'    => $group,
-						'status'   => 'pending',
-						'per_page' => 1,
-					),
-					'ids'
-				);
+			$hooks  = array( self::STATE_EVENT_HOOK, self::STATE_EVENT_HANDOFF_HOOK );
+			foreach ( $hooks as $hook ) {
+				foreach ( $groups as $group ) {
+					$actions = as_get_scheduled_actions(
+						array(
+							'hook'     => $hook,
+							'args'     => $args,
+							'group'    => $group,
+							'status'   => 'pending',
+							'per_page' => 1,
+						),
+						'ids'
+					);
 
-				if ( ! empty( $actions ) ) {
-					return true;
+					if ( ! empty( $actions ) ) {
+						return true;
+					}
 				}
 			}
 		}
 		if ( function_exists( 'wp_next_scheduled' ) ) {
-			return false !== wp_next_scheduled( self::STATE_EVENT_HOOK, $args );
+			return false !== wp_next_scheduled( self::STATE_EVENT_HOOK, $args )
+				|| false !== wp_next_scheduled( self::STATE_EVENT_HANDOFF_HOOK, $args );
 		}
 
 		return false;
@@ -2311,6 +2367,11 @@ final class Digitalogic_Pricing_Snapshot {
 		if ( function_exists( 'as_schedule_single_action' ) && function_exists( 'as_get_scheduled_actions' ) ) {
 			// Native uniqueness is atomic across requests; the content-addressed group also supports pre-4.0 stores.
 			as_schedule_single_action( $timestamp, self::STATE_EVENT_HOOK, $args, $this->state_event_action_group( $args ), true );
+			if ( $this->state_event_retry_is_pending( $args ) ) {
+				return true;
+			}
+			// A different hook can become the one durable successor while the primary hook is in-progress.
+			as_schedule_single_action( $timestamp, self::STATE_EVENT_HANDOFF_HOOK, $args, $this->state_event_action_group( $args ), true );
 
 			return $this->state_event_retry_is_pending( $args );
 		}

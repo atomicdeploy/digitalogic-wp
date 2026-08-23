@@ -420,6 +420,96 @@ final class PricingSnapshotTest extends TestCase {
 		$this->assertSame( array( true, true ), array_column( $GLOBALS['digitalogic_test_as_actions'], 'unique' ) );
 	}
 
+	/** A running primary gets one alternate pending handoff after hard or filtered WP-Cron failure. */
+	#[RunInSeparateProcess]
+	public function test_action_scheduler_unlocked_running_worker_retains_one_handoff(): void {
+		require_once __DIR__ . '/fixtures/action-scheduler-state-event-stubs.php';
+		$args               = array( array( $this->source ), array() );
+		$other_source       = $this->source;
+		$other_source['id'] = 'patris-filtered-peer';
+		$other_args         = array( array( $other_source ), array() );
+		$group              = $this->invoke_snapshot( 'state_event_action_group', array( $args ) );
+		$other_group        = $this->invoke_snapshot( 'state_event_action_group', array( $other_args ) );
+
+		$GLOBALS['digitalogic_test_as_actions']       = array(
+			array(
+				'id'        => 1,
+				'timestamp' => time(),
+				'hook'      => 'digitalogic_pricing_state_event_delivery_v1',
+				'args'      => $args,
+				'group'     => $group,
+				'status'    => 'in-progress',
+				'unique'    => false,
+			),
+			array(
+				'id'        => 2,
+				'timestamp' => time(),
+				'hook'      => 'digitalogic_pricing_state_event_delivery_v1',
+				'args'      => $other_args,
+				'group'     => $other_group,
+				'status'    => 'in-progress',
+				'unique'    => false,
+			),
+		);
+		$GLOBALS['wpdb']->acquire_result              = 0;
+		$GLOBALS['digitalogic_test_schedule_failure'] = true;
+		$this->assertTrue( $this->invoke_snapshot( 'schedule_state_revision_event_retry', $args ) );
+
+		$GLOBALS['digitalogic_test_schedule_failure'] = false;
+		add_filter(
+			'pre_schedule_event',
+			static function () {
+				return true;
+			}
+		);
+		$this->assertTrue( $this->invoke_snapshot( 'schedule_state_revision_event_retry', $other_args ) );
+		for ( $attempt = 0; $attempt < 25; ++$attempt ) {
+			$this->assertTrue( $this->invoke_snapshot( 'schedule_state_revision_event_retry', $args ) );
+			$this->assertTrue( $this->invoke_snapshot( 'schedule_state_revision_event_retry', $other_args ) );
+		}
+
+		$pending = array_values(
+			array_filter(
+				$GLOBALS['digitalogic_test_as_actions'],
+				static fn( $action ) => 'pending' === (string) $action['status']
+			)
+		);
+		$this->assertCount( 2, $pending );
+		$this->assertSame(
+			array( 'digitalogic_pricing_state_event_handoff_v1', 'digitalogic_pricing_state_event_handoff_v1' ),
+			array_column( $pending, 'hook' )
+		);
+		$this->assertSame( array( $args, $other_args ), array_column( $pending, 'args' ) );
+		$this->assertSame( array( true, true ), array_column( $pending, 'unique' ) );
+		$this->assertCount( 4, $GLOBALS['digitalogic_test_as_actions'] );
+
+		foreach ( $GLOBALS['digitalogic_test_as_actions'] as &$action ) {
+			if ( 'digitalogic_pricing_state_event_handoff_v1' === $action['hook'] ) {
+				$action['status'] = 'in-progress';
+			}
+		}
+		unset( $action );
+		$snapshot = Digitalogic_Pricing_Snapshot::instance();
+		for ( $attempt = 0; $attempt < 25; ++$attempt ) {
+			$this->assertTrue( $snapshot->run_state_revision_event_handoff( $args[0], $args[1] ) );
+			$this->assertTrue( $snapshot->run_state_revision_event_handoff( $other_args[0], $other_args[1] ) );
+		}
+		$pending = array_values(
+			array_filter(
+				$GLOBALS['digitalogic_test_as_actions'],
+				static fn( $action ) => 'pending' === (string) $action['status']
+			)
+		);
+		$this->assertCount( 2, $pending );
+		$this->assertSame(
+			array( 'digitalogic_pricing_state_event_delivery_v1', 'digitalogic_pricing_state_event_delivery_v1' ),
+			array_column( $pending, 'hook' )
+		);
+		$this->assertSame( array( $args, $other_args ), array_column( $pending, 'args' ) );
+		$this->assertSame( array( false, false ), array_column( $pending, 'unique' ) );
+		$this->assertCount( 6, $GLOBALS['digitalogic_test_as_actions'] );
+	}
+
 	/** Action Scheduler uses an exact pending-only readback under a per-identity mutex. */
 	public function test_state_event_retry_action_scheduler_path_is_cross_request_safe(): void {
 		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Read-only local source fixture for a production-path guard.
@@ -643,6 +733,16 @@ final class PricingSnapshotTest extends TestCase {
 		}
 		$this->assertCount( 2, $GLOBALS['digitalogic_test_options']['digitalogic_panel_events'] );
 		$this->assertArrayNotHasKey( 'digitalogic_pricing_state_event_outbox_v1', $GLOBALS['digitalogic_test_options'] );
+	}
+
+	/** Rapid reintroduction preserves the fresh state after a normal prior receipt. */
+	public function test_rapid_source_reintroduction_preserves_fresh_state_after_receipt(): void {
+		$this->assert_rapid_source_reintroduction_sequence( false );
+	}
+
+	/** Rapid reintroduction clears a stale delivered marker without deleting fresh state. */
+	public function test_rapid_source_reintroduction_preserves_fresh_state_after_marker_failure(): void {
+		$this->assert_rapid_source_reintroduction_sequence( true );
 	}
 
 	/** Store exactly one non-recurring next boundary and replace it when dates move. */
@@ -1854,6 +1954,60 @@ final class PricingSnapshotTest extends TestCase {
 				'updated_by' => 0,
 			)
 		);
+	}
+
+	/** Assert ordered remove/re-add delivery with or without a durable old marker. */
+	private function assert_rapid_source_reintroduction_sequence( $fail_receipt ) {
+		$snapshot = Digitalogic_Pricing_Snapshot::instance();
+		$snapshot->schedule_state_revision_event();
+		if ( $fail_receipt ) {
+			$GLOBALS['digitalogic_test_update_failures'][] = 'digitalogic_pricing_state_event_receipts_v1';
+		}
+		$snapshot->publish_scheduled_state_revision_events();
+		$old_event = $GLOBALS['digitalogic_test_options']['digitalogic_panel_events'][0];
+		$this->assertSame( 'pricing.state.changed', $old_event['name'] );
+
+		$source_key = $this->source['id'] . "\n" . $this->source['dataset'];
+		if ( $fail_receipt ) {
+			$this->assertArrayHasKey(
+				'delivered_state_revision',
+				$GLOBALS['digitalogic_test_options']['digitalogic_pricing_state_event_outbox_v1'][ $source_key ]
+			);
+		} else {
+			$this->assertArrayHasKey(
+				$source_key,
+				$GLOBALS['digitalogic_test_options']['digitalogic_pricing_state_event_receipts_v1']
+			);
+		}
+
+		$state = $GLOBALS['digitalogic_test_options'][ Digitalogic_Product_Sync_Receiver::STATE_OPTION ];
+		$this->assertTrue( delete_option( Digitalogic_Product_Sync_Receiver::STATE_OPTION ) );
+		$this->assertTrue( add_option( Digitalogic_Product_Sync_Receiver::STATE_OPTION, $state, '', 'no' ) );
+		$GLOBALS['digitalogic_test_update_failures'] = array();
+		$this->assertTrue( Digitalogic_Report_Engine::instance()->invalidate_cache() );
+		$snapshot->publish_scheduled_state_revision_events();
+
+		$events = $GLOBALS['digitalogic_test_options']['digitalogic_panel_events'];
+		$this->assertSame(
+			array( 'pricing.state.changed', 'pricing.source.removed', 'pricing.source.changed', 'pricing.state.changed' ),
+			array_column( $events, 'name' )
+		);
+		$this->assertSame( 'removed', $events[1]['data']['change'] );
+		$this->assertSame( 'added', $events[2]['data']['change'] );
+		$this->assertNotSame( $events[0]['data']['idempotency_key'], $events[3]['data']['idempotency_key'] );
+		$this->assertArrayNotHasKey( 'digitalogic_pricing_source_event_outbox_v1', $GLOBALS['digitalogic_test_options'] );
+		$this->assertArrayNotHasKey( 'digitalogic_pricing_state_event_outbox_v1', $GLOBALS['digitalogic_test_options'] );
+		$this->assertArrayHasKey(
+			$source_key,
+			$GLOBALS['digitalogic_test_options']['digitalogic_pricing_state_event_receipts_v1']
+		);
+
+		for ( $attempt = 0; $attempt < 10; ++$attempt ) {
+			$this->reset_singleton( Digitalogic_Pricing_Snapshot::class );
+			Digitalogic_Pricing_Snapshot::instance()->run_state_revision_event_delivery( array( $this->source ) );
+		}
+		$this->assertCount( 4, $GLOBALS['digitalogic_test_options']['digitalogic_panel_events'] );
+		$this->assertArrayNotHasKey( 'digitalogic_pricing_state_event_outbox_v1', $GLOBALS['digitalogic_test_options'] );
 	}
 
 	/** Invoke one private snapshot helper for deterministic lifecycle setup. */
