@@ -214,6 +214,7 @@
 
 	function applyProductCodeNoEffectReadback(productId, fieldName, $field, details) {
 		delete productCodeIntents[productId];
+		delete productCodeNotices[productId];
 		if (changedProducts[productId]) {
 			delete changedProducts[productId][fieldName];
 			if (Object.keys(changedProducts[productId]).length === 0) delete changedProducts[productId];

@@ -742,6 +742,7 @@ test('classic no-effect replay never restores a historical expected state', () =
 	};
 	const context = vm.createContext({
 		productCodeIntents: {741: {expected_code: '000741'}},
+		productCodeNotices: {741: {code: 'digitalogic_request_timeout', retry_mode: 'same_request'}},
 		changedProducts: {741: {patris_product_code: '000742'}},
 		productTableRow() { return rowApi; },
 		productsTable: {draw() { draws++; }, ajax: {reload() { reloads++; }}},
@@ -757,6 +758,7 @@ test('classic no-effect replay never restores a historical expected state', () =
 	assert.equal(row.patris_product_code, '000745');
 	assert.equal(row.patris_product_code_revision, 'sha256:' + 'c'.repeat(64));
 	assert.equal(context.productCodeIntents[741], undefined);
+	assert.equal(context.productCodeNotices[741], undefined);
 	assert.equal(context.changedProducts[741], undefined);
 	assert.equal(draws, 1);
 	assert.equal(reloads, 1);
@@ -778,6 +780,7 @@ test('classic failure handler stops after applying a fresh no-effect readback', 
 	const context = vm.createContext({
 		productCodeRequests: {isCurrent() { return true; }},
 		productCodeIntents: {741: {expected_code: '000741', if_match: 'sha256:' + 'a'.repeat(64), request_id: 'historical'}},
+		productCodeNotices: {741: {code: 'digitalogic_request_timeout', retry_mode: 'same_request', proposal: '000742'}},
 		changedProducts: {741: {patris_product_code: '000742'}},
 		productTableRow() { return rowApi; },
 		productsTable: {draw() {}, ajax: {reload() { reloads++; }}},
@@ -817,6 +820,7 @@ test('classic failure handler stops after applying a fresh no-effect readback', 
 	assert.equal(row.patris_product_code, '000745');
 	assert.equal(row.patris_product_code_revision, 'sha256:' + 'c'.repeat(64));
 	assert.equal(context.productCodeIntents[741], undefined);
+	assert.equal(context.productCodeNotices[741], undefined);
 	assert.equal(context.changedProducts[741], undefined);
 	assert.equal(reloads, 1);
 	assert.equal(errorClasses, 0, 'The handled terminal branch must not fall through to generic failure UI.');
