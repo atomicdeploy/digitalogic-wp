@@ -4057,9 +4057,13 @@ final class Digitalogic_Product_Code_Editor {
 		if ( in_array( $status, array( 'completed', 'reconciled_no_effect', 'reservation_released' ), true ) ) {
 			return $before === $next;
 		}
+		$forward = array(
+			'in_progress'      => array( 'in_progress', 'failed_retryable', 'outcome_unknown', 'completed', 'reconciled_no_effect' ),
+			'failed_retryable' => array( 'failed_retryable', 'in_progress', 'outcome_unknown', 'completed', 'reconciled_no_effect' ),
+			'outcome_unknown'  => array( 'outcome_unknown', 'completed', 'reconciled_no_effect' ),
+		);
 
-		return in_array( $status, array( 'in_progress', 'failed_retryable', 'outcome_unknown' ), true )
-			&& 'reservation_released' !== $next_status;
+		return in_array( $next_status, $forward[ $status ] ?? array(), true );
 	}
 
 	/**

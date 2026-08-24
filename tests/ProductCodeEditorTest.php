@@ -1256,6 +1256,31 @@ final class ProductCodeEditorTest extends TestCase {
 		);
 	}
 
+	/** An unknown outcome may only remain unknown or advance through verified manual reconciliation. */
+	public function test_outcome_unknown_transition_graph_never_reenters_automatic_retry(): void {
+		// phpcs:disable Generic.Formatting.MultipleStatementAlignment.NotSameWarning -- Transition fixtures are grouped by semantic state.
+		$request    = $this->request( '000742', 'product-code:741:unknown-transition-graph' );
+		$transition = new ReflectionMethod( Digitalogic_Product_Code_Editor::class, 'operation_transition_is_allowed' );
+		$unknown    = $this->interrupted_record( $request );
+		$unknown['status'] = 'outcome_unknown';
+		$current = array(
+			'exists' => true,
+			'value'  => $unknown,
+		);
+		// phpcs:enable Generic.Formatting.MultipleStatementAlignment.NotSameWarning
+
+		foreach ( array( 'in_progress', 'failed_retryable', 'reservation_released' ) as $forbidden_status ) {
+			$next           = $unknown;
+			$next['status'] = $forbidden_status;
+			$this->assertFalse( $transition->invoke( $this->editor, $current, $next ), $forbidden_status );
+		}
+		foreach ( array( 'outcome_unknown', 'completed', 'reconciled_no_effect' ) as $allowed_status ) {
+			$next           = $unknown;
+			$next['status'] = $allowed_status;
+			$this->assertTrue( $transition->invoke( $this->editor, $current, $next ), $allowed_status );
+		}
+	}
+
 	/** Compare-delete cleanup never removes a newer request installed for the product. */
 	public function test_terminal_pointer_cleanup_preserves_a_concurrent_newer_request(): void {
 		$request_a    = $this->request( '000742', 'product-code:741:pointer-cleanup-a' );
