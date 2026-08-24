@@ -2093,40 +2093,49 @@ final class Digitalogic_Patris_Catalog_Materializer {
 	 * @return array|WP_Error
 	 */
 	private function capture_variation_identity_expected( $product_id, $enrichment ) {
-		$taxonomy  = (string) ( $enrichment['attribute_taxonomy'] ?? '' );
-		$term_id   = (int) ( $enrichment['attribute_term_id'] ?? 0 );
-		$parent_id = (int) ( $enrichment['target_parent_id'] ?? 0 );
-		$term      = $taxonomy && $term_id > 0 ? get_term( $term_id, $taxonomy ) : null;
+		$taxonomy              = (string) ( $enrichment['attribute_taxonomy'] ?? '' );
+		$term_id               = (int) ( $enrichment['attribute_term_id'] ?? 0 );
+		$parent_id             = (int) ( $enrichment['target_parent_id'] ?? 0 );
+		$reviewed_new_identity = '' !== $taxonomy || $term_id > 0;
+		$term                  = $reviewed_new_identity && $taxonomy && $term_id > 0 ? get_term( $term_id, $taxonomy ) : null;
 		$this->flush_product_caches( $product_id );
 		$this->flush_product_caches( $parent_id );
 		$variation = wc_get_product( $product_id );
 		$parent    = wc_get_product( $parent_id );
-		$key       = 'attribute_' . $taxonomy;
 		$children  = $variation instanceof WC_Product ? $variation->get_variation_attributes() : array();
 		$parents   = $parent instanceof WC_Product ? $parent->get_attributes() : array();
-		$attribute = $parents[ $taxonomy ] ?? null;
-		$options   = $attribute instanceof WC_Product_Attribute ? array_map( 'intval', $attribute->get_options() ) : array();
 		if (
 			! $variation instanceof WC_Product
 			|| ! $variation->is_type( 'variation' )
 			|| (int) $variation->get_parent_id() !== $parent_id
 			|| ! $parent instanceof WC_Product
 			|| ! $parent->is_type( 'variable' )
-			|| ! is_object( $term )
-			|| '' === (string) ( $term->slug ?? '' )
-			|| (string) ( $children[ $key ] ?? '' ) !== (string) $term->slug
-			|| ! $attribute instanceof WC_Product_Attribute
-			|| ! in_array( $term_id, $options, true )
-			|| ! $attribute->get_variation()
 		) {
 			return $this->error( 'digitalogic_patris_materializer_variation_identity_readback_failed', 'The reviewed variation identity failed exact readback.' );
+		}
+		if ( $reviewed_new_identity ) {
+			$key       = 'attribute_' . $taxonomy;
+			$attribute = $parents[ $taxonomy ] ?? null;
+			$options   = $attribute instanceof WC_Product_Attribute ? array_map( 'intval', $attribute->get_options() ) : array();
+			if (
+				'' === $taxonomy
+				|| $term_id <= 0
+				|| ! is_object( $term )
+				|| '' === (string) ( $term->slug ?? '' )
+				|| (string) ( $children[ $key ] ?? '' ) !== (string) $term->slug
+				|| ! $attribute instanceof WC_Product_Attribute
+				|| ! in_array( $term_id, $options, true )
+				|| ! $attribute->get_variation()
+			) {
+				return $this->error( 'digitalogic_patris_materializer_variation_identity_readback_failed', 'The reviewed variation identity failed exact readback.' );
+			}
 		}
 
 		return array(
 			'parent_id'         => $parent_id,
 			'taxonomy'          => $taxonomy,
 			'term_id'           => $term_id,
-			'term_slug'         => (string) $term->slug,
+			'term_slug'         => $reviewed_new_identity ? (string) $term->slug : '',
 			'child_attributes'  => $children,
 			'parent_attributes' => $this->clone_product_attributes( $parents ),
 		);

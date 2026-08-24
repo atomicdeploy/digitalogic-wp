@@ -1499,6 +1499,8 @@ class Digitalogic_Test_WPDB {
     public $after_option_write = null;
 	public $before_currency_job_cas = null;
 	public $after_option_delete = null;
+	public $before_exact_option_cas = null;
+	public $before_exact_option_delete = null;
     public $lock_timeouts = array();
 	public $connection_id = 1001;
 	public $used_locks = array();
@@ -2099,6 +2101,81 @@ class Digitalogic_Test_WPDB {
 
 			return 1;
 		}
+
+	// phpcs:disable -- Test-only exact-option SQL emulator follows this legacy bootstrap's compact fixture style.
+		if (strpos($raw_query, 'digitalogic_product_code_option_cas') !== false) {
+			$next     = $args[0] ?? null;
+			$name     = (string) ($args[1] ?? '');
+			$expected = $args[2] ?? null;
+			if (in_array($name, $GLOBALS['digitalogic_test_update_failures'], true)) {
+				return false;
+			}
+			$callback = $this->before_exact_option_cas;
+			$this->before_exact_option_cas = null;
+			if (is_callable($callback)) {
+				call_user_func($callback, $this, $name, $expected, $next);
+			}
+			if (!array_key_exists($name, $GLOBALS['digitalogic_test_options'])) {
+				return 0;
+			}
+			$current = $this->database_raw_value($GLOBALS['digitalogic_test_options'][$name]);
+			if ((string) $current !== (string) $expected) {
+				return 0;
+			}
+			$GLOBALS['digitalogic_test_options'][$name] = $this->stored_database_value($next);
+			$callback = $this->after_option_write;
+			$this->after_option_write = null;
+			if (is_callable($callback)) {
+				call_user_func($callback, $this, $name);
+			}
+			return 1;
+		}
+		if (strpos($raw_query, 'digitalogic_product_code_option_insert') !== false) {
+			$name     = (string) ($args[0] ?? '');
+			$next     = $args[1] ?? null;
+			if (in_array($name, $GLOBALS['digitalogic_test_update_failures'], true)) {
+				return false;
+			}
+			$callback = $this->before_exact_option_cas;
+			$this->before_exact_option_cas = null;
+			if (is_callable($callback)) {
+				call_user_func($callback, $this, $name, null, $next);
+			}
+			if (array_key_exists($name, $GLOBALS['digitalogic_test_options'])) {
+				return 0;
+			}
+			$GLOBALS['digitalogic_test_options'][$name] = $this->stored_database_value($next);
+			$callback = $this->after_option_write;
+			$this->after_option_write = null;
+			if (is_callable($callback)) {
+				call_user_func($callback, $this, $name);
+			}
+			return 1;
+		}
+		if (strpos($raw_query, 'digitalogic_product_code_option_compare_delete') !== false) {
+			$name     = (string) ($args[0] ?? '');
+			$expected = $args[1] ?? null;
+			$callback = $this->before_exact_option_delete;
+			$this->before_exact_option_delete = null;
+			if (is_callable($callback)) {
+				call_user_func($callback, $this, $name, $expected);
+			}
+			if (
+				in_array($name, $GLOBALS['digitalogic_test_option_delete_failures'] ?? array(), true)
+				|| !array_key_exists($name, $GLOBALS['digitalogic_test_options'])
+				|| (string) $this->database_raw_value($GLOBALS['digitalogic_test_options'][$name]) !== (string) $expected
+			) {
+				return 0;
+			}
+			unset($GLOBALS['digitalogic_test_options'][$name]);
+			$callback = $this->after_option_delete;
+			$this->after_option_delete = null;
+			if (is_callable($callback)) {
+				call_user_func($callback, $this, $name);
+			}
+			return 1;
+		}
+	// phpcs:enable
 
         if ('START TRANSACTION' === $normalized) {
             $this->transaction_snapshot = array(

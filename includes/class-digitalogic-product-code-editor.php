@@ -995,16 +995,11 @@ final class Digitalogic_Product_Code_Editor {
 			}
 			if ( 'reconciled_no_effect' === $status ) {
 				$this->clear_recovery_index( $request );
-				return $this->error(
-					'digitalogic_product_code_reconciled_no_effect',
-					__( 'This request was reconciled as having no Product Code effect; start a new edit from the current row.', 'digitalogic' ),
-					409,
-					array( 'retryable' => false )
-				);
+				return $this->reconciled_no_effect_error( $request );
 			}
 			if ( 'reservation_released' === $status ) {
 				$this->clear_recovery_index( $request );
-				return $this->reconciled_no_effect_error( $request, $existing['result'] ?? array() );
+				return $this->reconciled_no_effect_error( $request );
 			}
 			if ( 'outcome_unknown' === $status ) {
 				return $this->error(
@@ -1120,6 +1115,21 @@ final class Digitalogic_Product_Code_Editor {
 					(string) ( $record['backup_reference'] ?? '' ),
 					'product_lock_lost'
 				);
+			}
+			$pointer = $this->recovery_index( $request['product_id'] );
+			if ( is_array( $pointer ) && ! empty( $pointer ) ) {
+				$pointer_request = $this->request_from_recovery_index( $pointer, $request['product_id'] );
+				if (
+					! is_wp_error( $pointer_request )
+					&& hash_equals( $request['request_id'], $pointer_request['request_id'] )
+					&& hash_equals( $request['fingerprint'], $pointer_request['fingerprint'] )
+				) {
+					return $this->same_request_recovery_required(
+						$request,
+						(string) ( is_array( $record ) ? ( $record['backup_reference'] ?? '' ) : '' ),
+						'product_lock_lost'
+					);
+				}
 			}
 		}
 
@@ -1245,22 +1255,36 @@ final class Digitalogic_Product_Code_Editor {
 			'attempts'            => $attempts,
 			'updated_at'          => gmdate( 'c' ),
 		);
-		// Publish the per-product recovery pointer before the per-request claim.
-		// If the second durable write fails, reload can still recover the exact
-		// request and retry the claim; there is never an undiscoverable orphan.
-		$reservation           = $claim;
-		$reservation['status'] = 'reservation_pending';
-		$indexed               = $this->store_recovery_index( $request, $reservation );
-		if ( is_wp_error( $indexed ) ) {
-			return $indexed;
+		if ( empty( $existing ) ) {
+			// Publish the per-product recovery pointer before a new per-request
+			// claim. A retryable existing claim never regresses its pointer to the
+			// pre-claim reservation state.
+			$reservation           = $claim;
+			$reservation['status'] = 'reservation_pending';
+			if ( ! $this->mutation_locks_are_owned( $request['product_id'] ) ) {
+				return $this->same_request_recovery_required( $request, $backup_reference, 'reservation_lock_lost' );
+			}
+			$indexed = $this->store_recovery_index( $request, $reservation );
+			if ( is_wp_error( $indexed ) ) {
+				return $indexed;
+			}
+			if ( ! $this->mutation_locks_are_owned( $request['product_id'] ) ) {
+				return $this->same_request_recovery_required( $request, $backup_reference, 'reservation_lock_lost' );
+			}
 		}
 		$stored = $this->store_operation( $request['request_id'], $claim );
 		if ( is_wp_error( $stored ) ) {
 			return $stored;
 		}
+		if ( ! $this->mutation_locks_are_owned( $request['product_id'] ) ) {
+			return $this->same_request_recovery_required( $request, $backup_reference, 'claim_lock_lost' );
+		}
 		$promoted = $this->store_recovery_index( $request, $claim );
 		if ( is_wp_error( $promoted ) ) {
 			return $promoted;
+		}
+		if ( ! $this->mutation_locks_are_owned( $request['product_id'] ) ) {
+			return $this->same_request_recovery_required( $request, $backup_reference, 'claim_lock_lost' );
 		}
 
 		$updated = Digitalogic_Product_Code_Write_Guard::instance()->with_authorized_write(
@@ -1624,7 +1648,7 @@ final class Digitalogic_Product_Code_Editor {
 		}
 		$this->clear_recovery_index( $request );
 
-		return $this->reconciled_no_effect_error( $request, $result );
+		return $this->reconciled_no_effect_error( $request );
 	}
 
 	/**
@@ -1710,17 +1734,37 @@ final class Digitalogic_Product_Code_Editor {
 		}
 		$this->clear_recovery_index( $request );
 
-		return $this->reconciled_no_effect_error( $request, $terminal['result'] );
+		return $this->reconciled_no_effect_error( $request );
 	}
 
 	/**
 	 * Return the stable terminal error used by the edit UI after no-effect resolution.
 	 *
 	 * @param array $request Validated request.
-	 * @param array $result Terminal no-effect result.
 	 * @return WP_Error
 	 */
-	private function reconciled_no_effect_error( $request, $result ) {
+	private function reconciled_no_effect_error( $request ) {
+		$current = $this->read_exact_product_code( $request['product_id'] );
+		if (
+			is_wp_error( $current )
+			|| empty( $current['product_exists'] )
+			|| ! empty( $current['duplicate_rows'] )
+			|| ! empty( $current['invalid_key_rows'] )
+		) {
+			return $this->error(
+				'digitalogic_product_code_replay_readback_unavailable',
+				__( 'The no-effect Product Code result is historical, but the current product state could not be read exactly.', 'digitalogic' ),
+				503,
+				array(
+					'retryable'           => true,
+					'retry_after'         => 1,
+					'request_id'          => $request['request_id'],
+					'request_fingerprint' => $request['fingerprint'],
+				)
+			);
+		}
+		$current_code     = (string) $current['product_code'];
+		$current_revision = $this->revision_for( $request['product_id'], $current_code );
 		return $this->error(
 			'digitalogic_product_code_reconciled_no_effect',
 			__( 'This request was reconciled as having no Product Code effect; start a new edit from the current row.', 'digitalogic' ),
@@ -1729,8 +1773,12 @@ final class Digitalogic_Product_Code_Editor {
 				'retryable'           => false,
 				'request_id'          => $request['request_id'],
 				'request_fingerprint' => $request['fingerprint'],
-				'current_code'        => (string) ( $result['current_product_code'] ?? $result['product_code'] ?? '' ),
-				'current_revision'    => (string) ( $result['current_revision'] ?? $result['revision'] ?? '' ),
+				'current_code'        => $current_code,
+				'current_revision'    => $current_revision,
+				'current_readback'    => array(
+					'database_readback' => true,
+					'cache_bypassed'    => true,
+				),
 			)
 		);
 	}
@@ -1778,7 +1826,7 @@ final class Digitalogic_Product_Code_Editor {
 			return $this->replayed_reconciliation_result( $existing, $request );
 		}
 		if ( 'reservation_released' === $status ) {
-			return $this->reconciled_no_effect_error( $request, $existing['result'] ?? array() );
+			return $this->reconciled_no_effect_error( $request );
 		}
 		if ( 'outcome_unknown' !== $status ) {
 			return $this->error(
@@ -3404,24 +3452,80 @@ final class Digitalogic_Product_Code_Editor {
 			'request_fingerprint' => $request['fingerprint'],
 			'updated_at'          => gmdate( 'c' ),
 		);
-		$name     = $this->recovery_option_name( $request['product_id'] );
-		$written  = update_option( $name, $index, false );
-		wp_cache_delete( $name, 'options' );
-		$readback = $this->read_exact_option( $name );
-		if (
-			is_wp_error( $readback )
-			|| ! $readback['exists']
-			|| $readback['value'] !== $index
-			|| ( false === $written && ! $readback['exists'] )
-		) {
+		$product_id = (int) $request['product_id'];
+		if ( ! $this->mutation_locks_are_owned( $product_id ) ) {
+			return $this->same_request_recovery_required( $request, (string) ( $record['backup_reference'] ?? '' ), 'recovery_pointer_lock_lost' );
+		}
+		$name    = $this->recovery_option_name( $product_id );
+		$current = $this->read_exact_option( $name );
+		if ( is_wp_error( $current ) || ( $current['exists'] && ! is_array( $current['value'] ) ) ) {
 			return $this->audit_unavailable();
+		}
+		if ( $current['exists'] && $current['value'] !== $index ) {
+			$allowed = $this->recovery_pointer_transition_is_allowed( $current['value'], $index, $product_id );
+			if ( is_wp_error( $allowed ) ) {
+				return $allowed;
+			}
+			if ( ! $allowed ) {
+				return $this->same_request_recovery_required( $request, (string) ( $record['backup_reference'] ?? '' ), 'recovery_pointer_conflict' );
+			}
+		}
+		if ( $current['exists'] && $current['value'] === $index ) {
+			return true;
+		}
+		if ( ! $this->mutation_locks_are_owned( $product_id ) ) {
+			return $this->same_request_recovery_required( $request, (string) ( $record['backup_reference'] ?? '' ), 'recovery_pointer_lock_lost' );
+		}
+		$written = $this->compare_and_swap_exact_option( $name, $current, $index );
+		if ( is_wp_error( $written ) ) {
+			return $this->same_request_recovery_required( $request, (string) ( $record['backup_reference'] ?? '' ), 'recovery_pointer_conflict' );
+		}
+		if ( ! $this->mutation_locks_are_owned( $product_id ) ) {
+			return $this->same_request_recovery_required( $request, (string) ( $record['backup_reference'] ?? '' ), 'recovery_pointer_lock_lost' );
 		}
 
 		return true;
 	}
 
+	/**
+	 * Allow only same-request forward progress or replacement of a proven terminal stale pointer.
+	 *
+	 * @param array $before Existing recovery pointer.
+	 * @param array $next Proposed recovery pointer.
+	 * @param int   $product_id Owning product ID.
+	 * @return bool|WP_Error
+	 */
+	private function recovery_pointer_transition_is_allowed( $before, $next, $product_id ) {
+		$before_request = $this->request_from_recovery_index( $before, $product_id );
+		$next_request   = $this->request_from_recovery_index( $next, $product_id );
+		if ( is_wp_error( $before_request ) || is_wp_error( $next_request ) ) {
+			return $this->audit_unavailable();
+		}
+		if ( hash_equals( $before_request['request_id'], $next_request['request_id'] ) ) {
+			$before_status = (string) $before['status'];
+			$next_status   = (string) $next['status'];
+			$forward       = array(
+				'reservation_pending' => array( 'reservation_pending', 'in_progress' ),
+				'in_progress'         => array( 'in_progress', 'failed_retryable', 'outcome_unknown' ),
+				'failed_retryable'    => array( 'failed_retryable', 'in_progress', 'outcome_unknown' ),
+				'outcome_unknown'     => array( 'outcome_unknown' ),
+			);
+
+			return in_array( $next_status, $forward[ $before_status ] ?? array(), true );
+		}
+		$operation = $this->operation_record( $before_request['request_id'] );
+		$status    = is_array( $operation ) ? (string) ( $operation['status'] ?? '' ) : '';
+
+		return ! is_wp_error( $operation )
+			&& in_array( $status, array( 'completed', 'reconciled_no_effect', 'reservation_released' ), true )
+			&& $this->operation_record_is_valid( $operation, $before_request, $status );
+	}
+
 	/** Clear only the exact request's recovery handoff after terminal readback. */
 	private function clear_recovery_index( $request ) {
+		if ( ! $this->mutation_locks_are_owned( $request['product_id'] ) ) {
+			return false;
+		}
 		$name    = $this->recovery_option_name( $request['product_id'] );
 		$current = $this->read_exact_option( $name );
 		if ( is_wp_error( $current ) || ! $current['exists'] ) {
@@ -3435,11 +3539,18 @@ final class Digitalogic_Product_Code_Editor {
 		) {
 			return false;
 		}
-		delete_option( $name );
-		wp_cache_delete( $name, 'options' );
+		if ( ! $this->mutation_locks_are_owned( $request['product_id'] ) ) {
+			return false;
+		}
+		$deleted = $this->compare_and_delete_exact_option( $name, $current );
+		if ( is_wp_error( $deleted ) ) {
+			return false;
+		}
 		$readback = $this->read_exact_option( $name );
 
-		return ! is_wp_error( $readback ) && ! $readback['exists'];
+		return $this->mutation_locks_are_owned( $request['product_id'] )
+			&& ! is_wp_error( $readback )
+			&& ! $readback['exists'];
 	}
 
 	/** Delete a pre-effect claim when its required recovery index cannot persist. */
@@ -3853,22 +3964,35 @@ final class Digitalogic_Product_Code_Editor {
 	 * @return true|WP_Error
 	 */
 	private function store_operation( $request_id, $record ) {
-		$key             = hash( 'sha256', $request_id );
-		$operation_name  = $this->operation_option_name( $request_id );
-		$operation_write = update_option( $operation_name, $record, false );
-		wp_cache_delete( $operation_name, 'options' );
-		$operation_readback = $this->read_exact_option( $operation_name );
+		$key            = hash( 'sha256', $request_id );
+		$operation_name = $this->operation_option_name( $request_id );
+		$product_id     = (int) ( $record['product_id'] ?? 0 );
+		if ( 0 >= $product_id || ! $this->mutation_locks_are_owned( $product_id ) ) {
+			return $this->operation_transition_pending( $request_id, $record, 'operation_lock_lost' );
+		}
+		$current = $this->read_exact_option( $operation_name );
 		if (
-			is_wp_error( $operation_readback )
-			|| ! $operation_readback['exists']
-			|| ! is_array( $operation_readback['value'] )
-			|| $operation_readback['value'] !== $record
-			|| ( false === $operation_write && ! $operation_readback['exists'] )
+			is_wp_error( $current )
+			|| ( $current['exists'] && ! is_array( $current['value'] ) )
+			|| ! $this->operation_transition_is_allowed( $current, $record )
 		) {
-			return $this->audit_unavailable();
+			return $this->operation_transition_pending( $request_id, $record, 'operation_transition_conflict' );
+		}
+		if ( $current['exists'] && $current['value'] === $record ) {
+			return true;
+		}
+		if ( ! $this->mutation_locks_are_owned( $product_id ) ) {
+			return $this->operation_transition_pending( $request_id, $record, 'operation_lock_lost' );
+		}
+		$operation_write = $this->compare_and_swap_exact_option( $operation_name, $current, $record );
+		if ( is_wp_error( $operation_write ) ) {
+			return $this->operation_transition_pending( $request_id, $record, 'operation_transition_conflict' );
+		}
+		if ( ! $this->mutation_locks_are_owned( $product_id ) ) {
+			return $this->operation_transition_pending( $request_id, $record, 'operation_lock_lost' );
 		}
 		if ( in_array( (string) ( $record['status'] ?? '' ), array( 'failed_retryable', 'outcome_unknown' ), true ) ) {
-			$this->store_recovery_index(
+			$indexed = $this->store_recovery_index(
 				array(
 					'product_id'    => (int) $record['product_id'],
 					'expected_code' => (string) $record['expected_code'],
@@ -3879,6 +4003,9 @@ final class Digitalogic_Product_Code_Editor {
 				),
 				$record
 			);
+			if ( is_wp_error( $indexed ) ) {
+				return $indexed;
+			}
 		}
 
 		$ledger = $this->read_exact_audit_ledger();
@@ -3899,6 +4026,64 @@ final class Digitalogic_Product_Code_Editor {
 		update_option( self::AUDIT_OPTION, $next, false );
 		wp_cache_delete( self::AUDIT_OPTION, 'options' );
 		return true;
+	}
+
+	/**
+	 * Never regress a terminal idempotency record to another operation state.
+	 *
+	 * @param array $current Exact current option envelope.
+	 * @param array $next Proposed operation record.
+	 * @return bool
+	 */
+	private function operation_transition_is_allowed( $current, $next ) {
+		$next_status = (string) ( $next['status'] ?? '' );
+		$known       = array( 'in_progress', 'failed_retryable', 'outcome_unknown', 'completed', 'reconciled_no_effect', 'reservation_released' );
+		if ( ! in_array( $next_status, $known, true ) ) {
+			return false;
+		}
+		if ( empty( $current['exists'] ) ) {
+			return true;
+		}
+		$before = $current['value'];
+		if ( ! is_array( $before ) ) {
+			return false;
+		}
+		foreach ( array( 'schema', 'request_fingerprint', 'product_id', 'expected_code', 'product_code', 'if_match', 'actor_id' ) as $field ) {
+			if ( ! array_key_exists( $field, $before ) || ! array_key_exists( $field, $next ) || $before[ $field ] !== $next[ $field ] ) {
+				return false;
+			}
+		}
+		$status = (string) ( $before['status'] ?? '' );
+		if ( in_array( $status, array( 'completed', 'reconciled_no_effect', 'reservation_released' ), true ) ) {
+			return $before === $next;
+		}
+
+		return in_array( $status, array( 'in_progress', 'failed_retryable', 'outcome_unknown' ), true )
+			&& 'reservation_released' !== $next_status;
+	}
+
+	/**
+	 * Preserve the same idempotency identity when a durable CAS cannot be proven.
+	 *
+	 * @param string $request_id Exact request ID.
+	 * @param array  $record Proposed operation record.
+	 * @param string $reason Sanitized recovery reason.
+	 * @return WP_Error
+	 */
+	private function operation_transition_pending( $request_id, $record, $reason ) {
+		return $this->error(
+			'digitalogic_product_code_recovery_pending',
+			__( 'The Product Code operation needs same-request recovery before another effect can run.', 'digitalogic' ),
+			503,
+			array(
+				'retryable'           => true,
+				'retry_after'         => 1,
+				'request_id'          => (string) $request_id,
+				'request_fingerprint' => (string) ( $record['request_fingerprint'] ?? '' ),
+				'backup_reference'    => (string) ( $record['backup_reference'] ?? '' ),
+				'reason'              => sanitize_key( (string) $reason ),
+			)
+		);
 	}
 
 	/**
@@ -3969,6 +4154,113 @@ final class Digitalogic_Product_Code_Editor {
 			'exists' => true,
 			'value'  => maybe_unserialize( $row['option_value'] ),
 		);
+	}
+
+	/**
+	 * Atomically replace one exact option value, or insert only while absent.
+	 *
+	 * @param string $option_name Exact option name.
+	 * @param array  $expected Exact current option envelope.
+	 * @param mixed  $next_value Proposed value.
+	 * @return true|WP_Error
+	 */
+	private function compare_and_swap_exact_option( $option_name, $expected, $next_value ) {
+		global $wpdb;
+		if (
+			! is_object( $wpdb )
+			|| ! method_exists( $wpdb, 'prepare' )
+			|| ! method_exists( $wpdb, 'query' )
+			|| ! is_array( $expected )
+			|| ! array_key_exists( 'exists', $expected )
+		) {
+			return $this->audit_unavailable();
+		}
+		$options = isset( $wpdb->options ) ? $wpdb->options : $wpdb->prefix . 'options';
+		$next    = maybe_serialize( $next_value );
+		if ( ! empty( $expected['exists'] ) ) {
+			$before = maybe_serialize( $expected['value'] );
+			// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- wpdb-owned table name cannot be a placeholder.
+			$query = $wpdb->prepare(
+				"/* digitalogic_product_code_option_cas */
+				UPDATE {$options}
+				SET option_value = %s
+				WHERE option_name = %s
+				AND BINARY option_value = BINARY %s",
+				$next,
+				(string) $option_name,
+				$before
+			);
+			// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		} else {
+			// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- wpdb-owned table name cannot be a placeholder.
+			$query = $wpdb->prepare(
+				"/* digitalogic_product_code_option_insert */
+				INSERT IGNORE INTO {$options} (option_name, option_value, autoload)
+				VALUES (%s, %s, 'no')",
+				(string) $option_name,
+				$next
+			);
+			// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		}
+		if ( false === $query ) {
+			return $this->audit_unavailable();
+		}
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.NotPrepared -- Exact compare-and-set is the idempotency boundary.
+		$written = $wpdb->query( $query );
+		wp_cache_delete( $option_name, 'options' );
+		$readback = $this->read_exact_option( $option_name );
+		if (
+			false === $written
+			|| is_wp_error( $readback )
+			|| ! $readback['exists']
+			|| $readback['value'] !== $next_value
+		) {
+			return $this->audit_unavailable();
+		}
+
+		return true;
+	}
+
+	/**
+	 * Delete one pointer only if its serialized value is still the exact observed value.
+	 *
+	 * @param string $option_name Exact option name.
+	 * @param array  $expected Exact current option envelope.
+	 * @return true|WP_Error
+	 */
+	private function compare_and_delete_exact_option( $option_name, $expected ) {
+		global $wpdb;
+		if (
+			! is_object( $wpdb )
+			|| ! method_exists( $wpdb, 'prepare' )
+			|| ! method_exists( $wpdb, 'query' )
+			|| empty( $expected['exists'] )
+		) {
+			return $this->audit_unavailable();
+		}
+		$options = isset( $wpdb->options ) ? $wpdb->options : $wpdb->prefix . 'options';
+		$before  = maybe_serialize( $expected['value'] );
+		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- wpdb-owned table name cannot be a placeholder.
+		$query = $wpdb->prepare(
+			"/* digitalogic_product_code_option_compare_delete */
+			DELETE FROM {$options}
+			WHERE option_name = %s
+			AND BINARY option_value = BINARY %s",
+			(string) $option_name,
+			$before
+		);
+		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		if ( false === $query ) {
+			return $this->audit_unavailable();
+		}
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.NotPrepared -- Exact compare-and-delete cannot race a newer pointer.
+		$deleted = $wpdb->query( $query );
+		wp_cache_delete( $option_name, 'options' );
+		if ( false === $deleted ) {
+			return $this->audit_unavailable();
+		}
+
+		return true;
 	}
 
 	/**

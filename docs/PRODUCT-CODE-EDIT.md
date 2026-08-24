@@ -82,8 +82,13 @@ reference, terminal readback, retry/recovery state, and rollback verification.
 Before any possible product effect, a per-product recovery pointer is persisted
 and exactly read back. It makes an incomplete request discoverable after a full
 page reload and blocks every different actor/request until terminal state is
-proven. A terminal per-request record is authoritative, so failure to physically
-delete an old pointer never blocks a later edit. Recovery preserves the
+proven. Pointer and operation transitions use byte-exact conditional writes
+against the previously read serialized record, or insert only when the record is
+absent. A terminal operation can therefore never regress to a stale claim after
+a database reconnect. Pointer cleanup is an exact compare-and-delete while all
+three mutation locks are still proven; a newer request cannot be deleted by an
+older worker. A terminal per-request record is authoritative, so failure to
+physically delete an old pointer never blocks a later edit. Recovery preserves the
 original effect actor and separately attributes a different recovery operator.
 An exact `reservation_pending` pointer with no per-request operation is proven
 to predate every claim and Product Code effect. The same request terminalizes

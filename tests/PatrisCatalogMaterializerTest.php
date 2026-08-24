@@ -1148,6 +1148,55 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 		$this->assertSame( 'publish', wc_get_product( 100 )->get_status() );
 	}
 
+	/** Explicit existing variations can be adopted and then reconciled without creation-only fields. */
+	public function test_existing_variation_supports_planned_adopt_and_planned_reconcile(): void {
+		$prepared = $this->prepareExistingVariationTarget();
+		$service  = $prepared['service'];
+		$manifest = $prepared['manifest'];
+		$child_id = $prepared['child_id'];
+
+		$adopt_plan = $service->run( $manifest );
+		$this->assertSame( 1, $adopt_plan['planned_adopt'] );
+		$adopted = $service->run( $manifest, array( 'apply' => true ) );
+
+		$this->assertSame( 1, $adopted['adopted'], wp_json_encode( $adopted ) );
+		$this->assertSame( 0, $adopted['failed'] );
+		$this->assertSame( 'legacy-option', wc_get_product( $child_id )->get_variation_attributes()['attribute_pa_model'] );
+
+		$reconcile_plan = $service->run( $manifest );
+		$this->assertSame( 1, $reconcile_plan['planned_reconcile'] );
+		$reconciled = $service->run( $manifest, array( 'apply' => true ) );
+
+		$this->assertSame( 1, $reconciled['reconciled'], wp_json_encode( $reconciled ) );
+		$this->assertSame( 0, $reconciled['failed'] );
+		$this->assertSame( 'legacy-option', wc_get_product( $child_id )->get_variation_attributes()['attribute_pa_model'] );
+	}
+
+	/** A late save cannot clobber an existing variation identity captured without creation-only fields. */
+	public function test_existing_variation_late_attribute_clobber_rolls_back(): void {
+		$prepared = $this->prepareExistingVariationTarget();
+		$service  = $prepared['service'];
+		$manifest = $prepared['manifest'];
+		$child_id = $prepared['child_id'];
+
+		// phpcs:ignore Generic.Formatting.MultipleStatementAlignment.NotSameWarning -- Self-referential deterministic hook.
+		$hook = static function ( $saved_product ) use ( &$hook, $child_id ) {
+			if ( (int) $saved_product->get_id() === $child_id && 'draft' === (string) $saved_product->get_status() ) {
+				$GLOBALS['digitalogic_test_posts'][ $child_id ]['meta']['attribute_pa_model'] = 'late-wrong-option';
+				return;
+			}
+			$GLOBALS['digitalogic_test_wc_after_save'] = $hook;
+		};
+		$GLOBALS['digitalogic_test_wc_after_save'] = $hook;
+
+		$result = $service->run( $manifest, array( 'apply' => true ) );
+
+		$this->assertSame( 1, $result['failed'] );
+		$this->assertContains( 'digitalogic_patris_materializer_variation_identity_readback_failed', array_column( $result['details'], 'reason' ) );
+		$this->assertSame( 'legacy-option', wc_get_product( $child_id )->get_variation_attributes()['attribute_pa_model'] );
+		$this->assertSame( 'publish', wc_get_product( $child_id )->get_status() );
+	}
+
 	public function test_refuses_a_reviewed_variation_option_already_owned_by_an_existing_child(): void {
 		$this->receiveFixture();
 		$this->addProduct( 100, 'variable' );
@@ -1529,6 +1578,47 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 			'service'  => $service,
 			'manifest' => $manifest,
 			'child_id' => $child_id,
+		);
+	}
+
+	/** Build an unowned, explicitly reviewed existing variation target. */
+	private function prepareExistingVariationTarget(): array {
+		$this->receiveFixture();
+		$this->addProduct( 100, 'variable' );
+		$attribute = new WC_Product_Attribute();
+		$attribute->set_id( 7 );
+		$attribute->set_name( 'pa_model' );
+		$attribute->set_options( array( 373 ) );
+		$attribute->set_visible( true );
+		$attribute->set_variation( true );
+		$GLOBALS['digitalogic_test_posts'][100]['attributes'] = array( 'pa_model' => $attribute );
+		$GLOBALS['digitalogic_test_posts'][200]               = array(
+			'post_type'    => 'product_variation',
+			'post_status'  => 'publish',
+			'product_type' => 'variation',
+			'post_parent'  => 100,
+			'post_title'   => 'Existing variation target',
+			'meta'         => array( 'attribute_pa_model' => 'legacy-option' ),
+		);
+
+		$GLOBALS['digitalogic_test_next_post_id'] = max( $GLOBALS['digitalogic_test_next_post_id'], 201 );
+
+		$manifest = $this->manifest();
+		$row      = &$manifest['products']['101001001'];
+
+		$row['target_product_id'] = '200';
+
+		$row['target_parent_id'] = '100';
+
+		$row['parent_enrichment'] = $this->parentEnrichment();
+
+		$row['variation_group'] = 'existing-variation';
+		unset( $row );
+
+		return array(
+			'service'  => Digitalogic_Patris_Catalog_Materializer::instance(),
+			'manifest' => $manifest,
+			'child_id' => 200,
 		);
 	}
 

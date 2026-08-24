@@ -694,6 +694,74 @@ test('a 412 keeps current state separate from the proposal and rotates only on m
 	assert.equal(state.edits[741].patris_product_code, '000742');
 });
 
+test('panel no-effect replay uses fresh current state and discards only the historical intent', () => {
+	const harness = loadPanel(() => Promise.resolve({status: 200, json: () => Promise.resolve({success: true, data: {}})}));
+	const methods = harness.appOptions.methods;
+	let listReloads = 0;
+	let detailReloads = 0;
+	const state = {
+		productCodeIntents: {741: {expected_code: '000741', if_match: 'sha256:' + 'a'.repeat(64), request_id: 'historical'}},
+		edits: {741: {patris_product_code: '000742'}},
+		selectedProduct: {id: 741, patris_product_code: '000742', patris_product_code_revision: 'sha256:' + 'b'.repeat(64)},
+		productPage: 3,
+		loadProducts(page) { assert.equal(page, 3); listReloads++; },
+		loadProduct(id) { assert.equal(id, 741); detailReloads++; }
+	};
+	const product = {id: 741, patris_product_code: '000742', patris_product_code_revision: 'sha256:' + 'b'.repeat(64)};
+
+	methods.handleProductCodeSaveError.call(state, product, {
+		code: 'digitalogic_product_code_reconciled_no_effect',
+		status: 409,
+		data: {
+			current_code: '000745',
+			current_revision: 'sha256:' + 'c'.repeat(64),
+			current_readback: {database_readback: true, cache_bypassed: true},
+			retryable: false
+		}
+	});
+
+	assert.equal(product.patris_product_code, '000745');
+	assert.equal(product.patris_product_code_revision, 'sha256:' + 'c'.repeat(64));
+	assert.equal(state.selectedProduct.patris_product_code, '000745');
+	assert.equal(state.productCodeIntents[741], undefined);
+	assert.equal(state.edits[741], undefined);
+	assert.equal(listReloads, 1);
+	assert.equal(detailReloads, 1);
+});
+
+test('classic no-effect replay never restores a historical expected state', () => {
+	const admin = fs.readFileSync(path.join(__dirname, '..', 'assets', 'js', 'admin.js'), 'utf8');
+	const match = admin.match(/function applyProductCodeNoEffectReadback[\s\S]*?(?=\n\s*\$\(document\)\.ready)/);
+	assert.ok(match, 'Expected the classic no-effect readback helper.');
+	const row = {id: 741, patris_product_code: '000742', patris_product_code_revision: 'sha256:' + 'b'.repeat(64)};
+	let draws = 0;
+	let reloads = 0;
+	const rowApi = {
+		data(value) { if (value) { Object.assign(row, value); return this; } return row; },
+		invalidate() { return this; }
+	};
+	const context = vm.createContext({
+		productCodeIntents: {741: {expected_code: '000741'}},
+		changedProducts: {741: {patris_product_code: '000742'}},
+		productTableRow() { return rowApi; },
+		productsTable: {draw() { draws++; }, ajax: {reload() { reloads++; }}},
+		Object
+	});
+	const applyReadback = vm.runInContext('(function(){' + match[0] + '; return applyProductCodeNoEffectReadback;})()', context);
+
+	applyReadback(741, 'patris_product_code', {}, {
+		current_code: '000745',
+		current_revision: 'sha256:' + 'c'.repeat(64)
+	});
+
+	assert.equal(row.patris_product_code, '000745');
+	assert.equal(row.patris_product_code_revision, 'sha256:' + 'c'.repeat(64));
+	assert.equal(context.productCodeIntents[741], undefined);
+	assert.equal(context.changedProducts[741], undefined);
+	assert.equal(draws, 1);
+	assert.equal(reloads, 1);
+});
+
 test('a terminal Product Code conflict clears the hidden draft and generic bulk cannot resubmit it', () => {
 	const harness = loadPanel(() => Promise.resolve({status: 200, json: () => Promise.resolve({success: true, data: {}})}));
 	const methods = harness.appOptions.methods;

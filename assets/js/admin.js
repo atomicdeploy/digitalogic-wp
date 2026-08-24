@@ -199,7 +199,7 @@
 		return editableCell(row, 'patris_product_code', value, 'text') + notice;
     }
 
-    function productTableRow(productId, $field) {
+	function productTableRow(productId, $field) {
 		if (!productsTable) return null;
 		if ($field && $field.closest('tr').length) {
 			var direct = productsTable.row($field.closest('tr'));
@@ -210,6 +210,27 @@
 		return productsTable.row(function(index, data) {
 			return data && String(data.id) === String(productId);
 		});
+	}
+
+	function applyProductCodeNoEffectReadback(productId, fieldName, $field, details) {
+		delete productCodeIntents[productId];
+		if (changedProducts[productId]) {
+			delete changedProducts[productId][fieldName];
+			if (Object.keys(changedProducts[productId]).length === 0) delete changedProducts[productId];
+		}
+		var rowApi = productTableRow(productId, $field);
+		var row = rowApi && rowApi.data ? rowApi.data() : null;
+		if (
+			row &&
+			typeof details.current_code === 'string' &&
+			typeof details.current_revision === 'string'
+		) {
+			row.patris_product_code = details.current_code;
+			row.patris_product_code_revision = details.current_revision;
+			rowApi.data(row).invalidate();
+			productsTable.draw(false);
+		}
+		productsTable.ajax.reload(null, false);
 	}
     
     $(document).ready(function() {
@@ -832,6 +853,8 @@
 					actionKey = 'product_code_retry_same_request';
 				} else if (errorCode === 'digitalogic_product_code_source_managed') {
 					actionKey = 'product_code_correct_source';
+				} else if (errorCode === 'digitalogic_product_code_reconciled_no_effect') {
+					applyProductCodeNoEffectReadback(productId, fieldName, $field, details);
 				} else if (errorCode === 'digitalogic_product_code_outcome_unknown') {
 					actionKey = 'product_code_manual_reconcile';
 				} else if (errorCode === 'digitalogic_product_code_not_unique' || errorCode === 'digitalogic_product_code_meta_conflict') {

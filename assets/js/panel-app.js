@@ -1833,6 +1833,26 @@
 					}
 					return;
 				}
+				if (error && error.code === 'digitalogic_product_code_reconciled_no_effect') {
+					if (this.edits[productId]) {
+						delete this.edits[productId].patris_product_code;
+						if (!Object.keys(this.edits[productId]).length) delete this.edits[productId];
+					}
+					delete this.productCodeIntents[productId];
+					if (typeof details.current_code === 'string' && typeof details.current_revision === 'string') {
+						product.patris_product_code = details.current_code;
+						product.patris_product_code_revision = details.current_revision;
+						if (this.selectedProduct && Number(this.selectedProduct.id) === productId) {
+							this.selectedProduct.patris_product_code = details.current_code;
+							this.selectedProduct.patris_product_code_revision = details.current_revision;
+						}
+					}
+					this.loadProducts(this.productPage);
+					if (this.selectedProduct && Number(this.selectedProduct.id) === productId) {
+						this.loadProduct(productId);
+					}
+					return;
+				}
 				var status = error ? Number(error.status || 0) : 0;
 				if (
 					(error && error.code === 'digitalogic_request_timeout') ||

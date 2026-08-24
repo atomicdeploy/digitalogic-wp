@@ -265,7 +265,6 @@ final class ProductCodeEditorTest extends TestCase {
 
 	/** Summary eviction never deletes the durable per-request replay record. */
 	public function test_audit_summary_eviction_cannot_make_an_old_request_executable_again(): void {
-		$store          = new ReflectionMethod( Digitalogic_Product_Code_Editor::class, 'store_operation' );
 		$old_request_id = 'product-code:retention:0';
 		$old_record     = array( 'sequence' => 0 );
 		$GLOBALS['digitalogic_test_options'][ $this->operation_option_name( $old_request_id ) ] = $old_record;
@@ -278,14 +277,10 @@ final class ProductCodeEditorTest extends TestCase {
 			'operations' => $seed,
 		);
 
-		$result = $store->invoke(
-			$this->editor,
-			'product-code:retention:1024',
-			array( 'sequence' => 1024 )
-		);
+		$result = $this->editor->edit( $this->request( '000741', 'product-code:retention:1024' ) );
 
 		$operations = $GLOBALS['digitalogic_test_options']['digitalogic_product_code_edit_operations']['operations'];
-		$this->assertTrue( $result );
+		$this->assertSame( 'unchanged', $result['status'] );
 		$this->assertCount( 1024, $operations );
 		$this->assertArrayHasKey( hash( 'sha256', 'product-code:retention:1024' ), $operations );
 		$this->assertArrayNotHasKey( hash( 'sha256', 'product-code:retention:0' ), $operations );
@@ -320,18 +315,20 @@ final class ProductCodeEditorTest extends TestCase {
 	public function test_terminal_audit_readback_failure_preserves_after_state_for_same_key_recovery(): void {
 		$request        = $this->request( '000742', 'product-code:741:terminal-readback' );
 		$operation_name = $this->operation_option_name( $request['request_id'] );
-		add_action(
-			'updated_option_' . $operation_name,
-			static function ( $old_value, $value ) use ( $operation_name ) {
-				unset( $old_value );
+
+		// phpcs:ignore Generic.Formatting.MultipleStatementAlignment.NotSameWarning -- Self-referential deterministic hook.
+		$hook = static function ( $database, $option_name ) use ( &$hook, $operation_name ) {
+			if ( $operation_name === $option_name ) {
+				$value = $GLOBALS['digitalogic_test_options'][ $option_name ] ?? array();
 				if ( 'completed' === (string) ( $value['status'] ?? '' ) ) {
 					unset( $GLOBALS['digitalogic_test_options'][ $operation_name ] );
-					$GLOBALS['wpdb']->last_error = 'Injected terminal readback failure.';
+					$database->last_error = 'Injected terminal readback failure.';
+					return;
 				}
-			},
-			10,
-			2
-		);
+			}
+			$database->after_option_write = $hook;
+		};
+		$GLOBALS['wpdb']->after_option_write = $hook;
 
 		$result = $this->editor->edit( $request );
 
@@ -880,18 +877,15 @@ final class ProductCodeEditorTest extends TestCase {
 	public function test_claim_pointer_promotion_failure_has_no_product_code_effect(): void {
 		$request      = $this->request( '000742', 'product-code:741:pointer-promotion-failure' );
 		$pointer_name = $this->recovery_option_name( 741 );
-		add_action(
-			'updated_option_' . $pointer_name,
-			static function () use ( $pointer_name ) {
+		$GLOBALS['wpdb']->after_option_write = static function ( $database, $option_name ) use ( $pointer_name ) {
+			if ( $pointer_name === $option_name ) {
 				$GLOBALS['digitalogic_test_update_failures'][] = $pointer_name;
-			},
-			10,
-			0
-		);
+			}
+		};
 
 		$result = $this->editor->edit( $request );
 
-		$this->assertSame( 'digitalogic_product_code_audit_unavailable', $result->get_error_code() );
+		$this->assertSame( 'digitalogic_product_code_recovery_pending', $result->get_error_code() );
 		$this->assertSame( 'reservation_pending', $GLOBALS['digitalogic_test_options'][ $pointer_name ]['status'] );
 		$this->assertSame( 'in_progress', $GLOBALS['digitalogic_test_options'][ $this->operation_option_name( $request['request_id'] ) ]['status'] );
 		$this->assertSame( '000741', get_post_meta( 741, Digitalogic_Product_Code_Editor::META_KEY, true ) );
@@ -1141,6 +1135,11 @@ final class ProductCodeEditorTest extends TestCase {
 		$this->assertSame( '000742', $result['product_code'] );
 		$record = $GLOBALS['digitalogic_test_options'][ $operation_name ];
 		$this->assertSame( 'completed', $record['status'] );
+		$this->assertArrayHasKey(
+			$this->recovery_option_name( 741 ),
+			$GLOBALS['digitalogic_test_options'],
+			'A reconnect leaves the harmless terminal pointer for a later locked cleanup instead of deleting without ownership.'
+		);
 		$this->assertSame( array(), $this->admin_recovery_intent( 741 ) );
 
 		$GLOBALS['wpdb'] = new Digitalogic_Test_WPDB();
@@ -1150,6 +1149,142 @@ final class ProductCodeEditorTest extends TestCase {
 		$this->assertIsArray( $replay );
 		$this->assertTrue( $replay['replayed'] );
 		$this->assertSame( '000742', $replay['current_product_code'] );
+	}
+
+	/** A reconnect while reserving cannot advance to a claim or canonical effect. */
+	public function test_reconnect_during_initial_pointer_write_stops_before_claim_and_effect(): void {
+		$request      = $this->request( '000742', 'product-code:741:reservation-write-reconnect' );
+		$pointer_name = $this->recovery_option_name( 741 );
+		$operation    = $this->operation_option_name( $request['request_id'] );
+
+		$GLOBALS['wpdb']->after_option_write = static function ( $database, $option_name ) use ( $pointer_name ) {
+			if ( $pointer_name === $option_name ) {
+				$database->connection_id = 2002;
+			}
+		};
+
+		$result = $this->editor->edit( $request );
+
+		$this->assertInstanceOf( WP_Error::class, $result );
+		$this->assertSame( 'digitalogic_product_code_recovery_pending', $result->get_error_code() );
+		$this->assertSame( 'product_lock_lost', $result->get_error_data()['reason'] );
+		$this->assertSame( $request['request_id'], $result->get_error_data()['request_id'] );
+		$this->assertArrayHasKey( $pointer_name, $GLOBALS['digitalogic_test_options'] );
+		$this->assertSame( 'reservation_pending', $GLOBALS['digitalogic_test_options'][ $pointer_name ]['status'] );
+		$this->assertArrayNotHasKey( $operation, $GLOBALS['digitalogic_test_options'] );
+		$this->assertSame( '000741', get_post_meta( 741, Digitalogic_Product_Code_Editor::META_KEY, true ) );
+	}
+
+	/** An atomic initial reservation cannot overwrite another worker's pointer. */
+	public function test_initial_pointer_cas_preserves_a_concurrent_request(): void {
+		$request_a    = $this->request( '000742', 'product-code:741:initial-pointer-a' );
+		$request_b    = $this->request( '000743', 'product-code:741:initial-pointer-b' );
+		$pointer_name = $this->recovery_option_name( 741 );
+		$pointer_b    = $this->recovery_pointer( $request_b, 'in_progress' );
+
+		$GLOBALS['wpdb']->before_exact_option_cas = static function ( $database, $option_name ) use ( $pointer_name, $pointer_b ) {
+			unset( $database );
+			if ( $pointer_name === $option_name ) {
+				$GLOBALS['digitalogic_test_options'][ $pointer_name ] = $pointer_b;
+			}
+		};
+
+		$result = $this->editor->edit( $request_a );
+
+		$this->assertInstanceOf( WP_Error::class, $result );
+		$this->assertSame( 'digitalogic_product_code_recovery_pending', $result->get_error_code() );
+		$this->assertSame( 'recovery_pointer_conflict', $result->get_error_data()['reason'] );
+		$this->assertSame( $pointer_b, $GLOBALS['digitalogic_test_options'][ $pointer_name ] );
+		$this->assertArrayNotHasKey( $this->operation_option_name( $request_a['request_id'] ), $GLOBALS['digitalogic_test_options'] );
+		$this->assertSame( '000741', get_post_meta( 741, Digitalogic_Product_Code_Editor::META_KEY, true ) );
+	}
+
+	/** A concurrent terminal record can never be regressed to a stale claim or unknown outcome. */
+	public function test_operation_cas_preserves_a_terminal_record_against_stale_transitions(): void {
+		$request        = $this->request( '000742', 'product-code:741:terminal-operation-cas' );
+		$operation_name = $this->operation_option_name( $request['request_id'] );
+		$pointer_name   = $this->recovery_option_name( 741 );
+
+		$GLOBALS['digitalogic_test_update_failures'][] = $operation_name;
+		$this->assertSame( 'digitalogic_product_code_recovery_pending', $this->editor->edit( $request )->get_error_code() );
+		$GLOBALS['digitalogic_test_update_failures'] = array();
+		$this->assertSame( 'digitalogic_product_code_reconciled_no_effect', $this->editor->edit( $request )->get_error_code() );
+		$terminal = $GLOBALS['digitalogic_test_options'][ $operation_name ];
+		$this->assertSame( 'reservation_released', $terminal['status'] );
+
+		unset( $GLOBALS['digitalogic_test_options'][ $operation_name ], $GLOBALS['digitalogic_test_options'][ $pointer_name ] );
+		// phpcs:ignore Generic.Formatting.MultipleStatementAlignment.NotSameWarning -- Self-referential deterministic hook.
+		$callback = static function ( $database, $option_name ) use ( &$callback, $operation_name, $terminal ) {
+			if ( $operation_name === $option_name ) {
+				$GLOBALS['digitalogic_test_options'][ $operation_name ] = $terminal;
+				return;
+			}
+			$database->before_exact_option_cas = $callback;
+		};
+		$GLOBALS['wpdb']->before_exact_option_cas = $callback;
+
+		$stale = $this->editor->edit( $request );
+
+		$this->assertInstanceOf( WP_Error::class, $stale );
+		$this->assertSame( 'digitalogic_product_code_recovery_pending', $stale->get_error_code() );
+		$this->assertSame( 'operation_transition_conflict', $stale->get_error_data()['reason'] );
+		$this->assertSame( $terminal, $GLOBALS['digitalogic_test_options'][ $operation_name ] );
+		$this->assertSame( '000741', get_post_meta( 741, Digitalogic_Product_Code_Editor::META_KEY, true ) );
+
+		$transition = new ReflectionMethod( Digitalogic_Product_Code_Editor::class, 'operation_transition_is_allowed' );
+		$unknown    = $terminal;
+
+		$unknown['status'] = 'outcome_unknown';
+		unset( $unknown['result'] );
+		$this->assertFalse(
+			$transition->invoke(
+				$this->editor,
+				array(
+					'exists' => true,
+					'value'  => $terminal,
+				),
+				$unknown
+			)
+		);
+
+		$replay = $this->editor->edit( $request );
+		$this->assertSame( 'digitalogic_product_code_reconciled_no_effect', $replay->get_error_code() );
+		$this->assertArrayHasKey( $pointer_name, $GLOBALS['digitalogic_test_options'] );
+		$this->assertSame(
+			'applied',
+			$this->editor->edit( $this->request( '000743', 'product-code:741:fresh-after-terminal-cas' ) )['status']
+		);
+	}
+
+	/** Compare-delete cleanup never removes a newer request installed for the product. */
+	public function test_terminal_pointer_cleanup_preserves_a_concurrent_newer_request(): void {
+		$request_a    = $this->request( '000742', 'product-code:741:pointer-cleanup-a' );
+		$request_b    = array(
+			'product_id'    => 741,
+			'expected_code' => '000742',
+			'product_code'  => '000743',
+			'if_match'      => $this->editor->revision_for( 741, '000742' ),
+			'request_id'    => 'product-code:741:pointer-cleanup-b',
+		);
+		$pointer_name = $this->recovery_option_name( 741 );
+		$pointer_b    = $this->recovery_pointer( $request_b, 'in_progress' );
+
+		$GLOBALS['wpdb']->before_exact_option_delete = static function ( $database, $option_name ) use ( $pointer_name, $pointer_b ) {
+			unset( $database );
+			if ( $pointer_name === $option_name ) {
+				$GLOBALS['digitalogic_test_options'][ $pointer_name ] = $pointer_b;
+			}
+		};
+
+		$result = $this->editor->edit( $request_a );
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 'applied', $result['status'] );
+		$this->assertSame( $pointer_b, $GLOBALS['digitalogic_test_options'][ $pointer_name ] );
+		$GLOBALS['digitalogic_test_options'][ $this->operation_option_name( $request_b['request_id'] ) ] = $this->interrupted_record( $request_b );
+		$recovery = $this->admin_recovery_intent( 741 );
+		$this->assertSame( $request_b['request_id'], $recovery['request_id'] );
+		$this->assertSame( '000743', $recovery['product_code'] );
 	}
 
 	/** Reconnect during physical pointer cleanup cannot hide a terminal request. */
@@ -1493,7 +1628,7 @@ final class ProductCodeEditorTest extends TestCase {
 
 		$failed = $this->editor->edit( $request );
 
-		$this->assertSame( 'digitalogic_product_code_audit_unavailable', $failed->get_error_code() );
+		$this->assertSame( 'digitalogic_product_code_recovery_pending', $failed->get_error_code() );
 		$this->assertArrayNotHasKey( $this->operation_option_name( $request['request_id'] ), $GLOBALS['digitalogic_test_options'] );
 		$this->assertArrayNotHasKey( $pointer, $GLOBALS['digitalogic_test_options'] );
 		$this->assertSame( '000741', get_post_meta( 741, Digitalogic_Product_Code_Editor::META_KEY, true ) );
@@ -1509,7 +1644,7 @@ final class ProductCodeEditorTest extends TestCase {
 		$GLOBALS['digitalogic_test_update_failures'][] = $claim;
 
 		$failed = $this->editor->edit( $request );
-		$this->assertSame( 'digitalogic_product_code_audit_unavailable', $failed->get_error_code() );
+		$this->assertSame( 'digitalogic_product_code_recovery_pending', $failed->get_error_code() );
 		$this->assertArrayHasKey( $this->recovery_option_name( 741 ), $GLOBALS['digitalogic_test_options'] );
 		$this->assertArrayNotHasKey( $claim, $GLOBALS['digitalogic_test_options'] );
 		$this->reset_singleton( Digitalogic_Product_Code_Editor::class );
@@ -1538,7 +1673,7 @@ final class ProductCodeEditorTest extends TestCase {
 		$request = $this->request( '000742', 'product-code:741:reservation-code-changed' );
 		$claim   = $this->operation_option_name( $request['request_id'] );
 		$GLOBALS['digitalogic_test_update_failures'][] = $claim;
-		$this->assertSame( 'digitalogic_product_code_audit_unavailable', $this->editor->edit( $request )->get_error_code() );
+		$this->assertSame( 'digitalogic_product_code_recovery_pending', $this->editor->edit( $request )->get_error_code() );
 		$GLOBALS['digitalogic_test_update_failures'] = array();
 		$GLOBALS['digitalogic_test_posts'][741]['meta'][ Digitalogic_Product_Code_Editor::META_KEY ] = '000744';
 		array_push( $GLOBALS['digitalogic_test_option_delete_failures'], $this->recovery_option_name( 741 ) );
@@ -1563,6 +1698,11 @@ final class ProductCodeEditorTest extends TestCase {
 		);
 		$this->assertSame( 'applied', $this->editor->edit( $fresh )['status'] );
 		$this->assertSame( '000745', get_post_meta( 741, Digitalogic_Product_Code_Editor::META_KEY, true ) );
+		$historical = $this->editor->edit( $request );
+		$this->assertSame( 'digitalogic_product_code_reconciled_no_effect', $historical->get_error_code() );
+		$this->assertSame( '000745', $historical->get_error_data()['current_code'] );
+		$this->assertSame( $this->editor->revision_for( 741, '000745' ), $historical->get_error_data()['current_revision'] );
+		$this->assertTrue( $historical->get_error_data()['current_readback']['database_readback'] );
 	}
 
 	/** A pre-effect reservation is released before newly managed source guards run. */
@@ -1570,7 +1710,7 @@ final class ProductCodeEditorTest extends TestCase {
 		$request = $this->request( '000742', 'product-code:741:reservation-source-changed' );
 		$claim   = $this->operation_option_name( $request['request_id'] );
 		$GLOBALS['digitalogic_test_update_failures'][] = $claim;
-		$this->assertSame( 'digitalogic_product_code_audit_unavailable', $this->editor->edit( $request )->get_error_code() );
+		$this->assertSame( 'digitalogic_product_code_recovery_pending', $this->editor->edit( $request )->get_error_code() );
 		$GLOBALS['digitalogic_test_update_failures'] = array();
 
 		$GLOBALS['digitalogic_test_posts'][741]['meta']['_digitalogic_patris_record_hash'] = 'sha256:' . str_repeat( 'a', 64 );
