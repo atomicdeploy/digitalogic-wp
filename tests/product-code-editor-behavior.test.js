@@ -762,6 +762,66 @@ test('classic no-effect replay never restores a historical expected state', () =
 	assert.equal(reloads, 1);
 });
 
+test('classic failure handler stops after applying a fresh no-effect readback', () => {
+	const admin = fs.readFileSync(path.join(__dirname, '..', 'assets', 'js', 'admin.js'), 'utf8');
+	const helper = admin.match(/function applyProductCodeNoEffectReadback[\s\S]*?(?=\n\s*\$\(document\)\.ready)/);
+	const failure = admin.match(/\.fail\(function\(xhr, textStatus, errorThrown\) \{([\s\S]*?)\n\s*\}\)\.always\(function\(\) \{/);
+	assert.ok(helper, 'Expected the classic no-effect helper.');
+	assert.ok(failure, 'Expected the complete classic Product Code failure handler.');
+	const row = {id: 741, patris_product_code: '000742', patris_product_code_revision: 'sha256:' + 'b'.repeat(64)};
+	let reloads = 0;
+	let errorClasses = 0;
+	const rowApi = {
+		data(value) { if (value) { Object.assign(row, value); return this; } return row; },
+		invalidate() { return this; }
+	};
+	const context = vm.createContext({
+		productCodeRequests: {isCurrent() { return true; }},
+		productCodeIntents: {741: {expected_code: '000741', if_match: 'sha256:' + 'a'.repeat(64), request_id: 'historical'}},
+		changedProducts: {741: {patris_product_code: '000742'}},
+		productTableRow() { return rowApi; },
+		productsTable: {draw() {}, ajax: {reload() { reloads++; }}},
+		setProductCodeNotice() {},
+		digitalogic: {i18n: {}},
+		Object,
+		String,
+		Number
+	});
+	const factory = vm.runInContext(
+		'(function(productId, fieldName, $field, requestSnapshot){' + helper[0] + '; return function(xhr, textStatus, errorThrown){' + failure[1] + '\n};})',
+		context
+	);
+	const handler = factory(
+		741,
+		'patris_product_code',
+		{addClass() { errorClasses++; }},
+		{desired_code: '000742'}
+	);
+
+	handler({
+		status: 409,
+		responseJSON: {
+			data: {
+				code: 'digitalogic_product_code_reconciled_no_effect',
+				status: 409,
+				data: {
+					current_code: '000745',
+					current_revision: 'sha256:' + 'c'.repeat(64),
+					current_readback: {database_readback: true, cache_bypassed: true},
+					retryable: false
+				}
+			}
+		}
+	}, 'error', 'terminal no effect');
+
+	assert.equal(row.patris_product_code, '000745');
+	assert.equal(row.patris_product_code_revision, 'sha256:' + 'c'.repeat(64));
+	assert.equal(context.productCodeIntents[741], undefined);
+	assert.equal(context.changedProducts[741], undefined);
+	assert.equal(reloads, 1);
+	assert.equal(errorClasses, 0, 'The handled terminal branch must not fall through to generic failure UI.');
+});
+
 test('a terminal Product Code conflict clears the hidden draft and generic bulk cannot resubmit it', () => {
 	const harness = loadPanel(() => Promise.resolve({status: 200, json: () => Promise.resolve({success: true, data: {}})}));
 	const methods = harness.appOptions.methods;

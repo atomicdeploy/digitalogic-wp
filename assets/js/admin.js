@@ -855,6 +855,7 @@
 					actionKey = 'product_code_correct_source';
 				} else if (errorCode === 'digitalogic_product_code_reconciled_no_effect') {
 					applyProductCodeNoEffectReadback(productId, fieldName, $field, details);
+					return;
 				} else if (errorCode === 'digitalogic_product_code_outcome_unknown') {
 					actionKey = 'product_code_manual_reconcile';
 				} else if (errorCode === 'digitalogic_product_code_not_unique' || errorCode === 'digitalogic_product_code_meta_conflict') {
