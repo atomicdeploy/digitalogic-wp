@@ -404,6 +404,24 @@ class Digitalogic_REST_API {
 				)
 			);
 		}
+		register_rest_route(
+			'digitalogic',
+			'/pricing/sync/ack',
+			array(
+				'methods'             => 'POST',
+				'callback'            => array( $this, 'pricing_sync_ack' ),
+				'permission_callback' => array( $this, 'check_pricing_sync_permission' ),
+			)
+		);
+		register_rest_route(
+			'digitalogic',
+			'/excel/pricing-sync/ack',
+			array(
+				'methods'             => 'POST',
+				'callback'            => array( $this, 'excel_pricing_sync_ack' ),
+				'permission_callback' => array( $this, 'check_excel_pricing_sync_permission' ),
+			)
+		);
 
 		register_rest_route(
 			'digitalogic',
@@ -922,6 +940,18 @@ class Digitalogic_REST_API {
 		);
 	}
 
+	/**
+	 * POST /pricing/sync/ack.
+	 *
+	 * @param WP_REST_Request $request REST request.
+	 * @return WP_REST_Response
+	 */
+	public function pricing_sync_ack( WP_REST_Request $request ) {
+		return $this->pricing_sync_response(
+			Digitalogic_Excel_Pricing_Sync::instance()->ack( $request )
+		);
+	}
+
 	/** GET/HEAD /pricing/sync/revision */
 	public function pricing_sync_revision( WP_REST_Request $request ) {
 		return $this->pricing_sync_response(
@@ -1000,6 +1030,19 @@ class Digitalogic_REST_API {
 		return $this->deprecated_excel_pricing_sync_response(
 			Digitalogic_Excel_Pricing_Sync::instance()->apply( $request ),
 			'apply'
+		);
+	}
+
+	/**
+	 * Deprecated Excel-prefixed acknowledgement alias.
+	 *
+	 * @param WP_REST_Request $request REST request.
+	 * @return WP_REST_Response
+	 */
+	public function excel_pricing_sync_ack( WP_REST_Request $request ) {
+		return $this->deprecated_excel_pricing_sync_response(
+			Digitalogic_Excel_Pricing_Sync::instance()->ack( $request ),
+			'ack'
 		);
 	}
 

@@ -25,9 +25,11 @@ final class PricingCoordinatorTest extends TestCase {
 		$GLOBALS['digitalogic_test_transient_deletes']            = array();
 		$GLOBALS['digitalogic_test_actions']                      = array();
 		$GLOBALS['digitalogic_test_action_callbacks']             = array();
+		$GLOBALS['digitalogic_test_scheduled_events']             = array();
 		$GLOBALS['digitalogic_test_update_failures']              = array();
 		$GLOBALS['digitalogic_test_transaction_failures']         = array();
 		$GLOBALS['digitalogic_test_cache_deletes']                = array();
+		$GLOBALS['digitalogic_test_cache_delete_multiple']        = array();
 		$GLOBALS['digitalogic_test_cache_invalidation_suspended'] = false;
 		$GLOBALS['digitalogic_test_cache_invalidation_history']   = array();
 		$GLOBALS['digitalogic_test_wc_cache_group_invalidations'] = array();
@@ -61,6 +63,13 @@ final class PricingCoordinatorTest extends TestCase {
 			),
 		);
 		$GLOBALS['digitalogic_test_options']                      = array(
+			Digitalogic_Patris_Feed::PRODUCT_SYNC_SECRET_OPTION => 'receiver-secret',
+			Digitalogic_Patris_Feed::PRODUCT_SYNC_SCOPES_OPTION => array(
+				array(
+					'id'      => 'pricing-tests',
+					'dataset' => 'kala',
+				),
+			),
 			'dollar_price'            => '187891',
 			'options_dollar_price'    => '187891',
 			'yuan_price'              => '29500',
@@ -980,6 +989,70 @@ final class PricingCoordinatorTest extends TestCase {
 		);
 	}
 
+	/** A one-thousand-row no-op reconcile is bounded and performs no Woo writes. */
+	public function test_large_unchanged_reconcile_is_one_query_zero_write_and_under_five_seconds(): void {
+		$this->seed_large_pricing_snapshot( 1000 );
+		$GLOBALS['wpdb']->identifier_query_count                  = 0;
+		$GLOBALS['wpdb']->queries                                 = array();
+		$GLOBALS['digitalogic_test_wc_product_saves']             = array();
+		$GLOBALS['digitalogic_test_cache_delete_multiple']        = array();
+		$GLOBALS['digitalogic_test_wc_cache_group_invalidations'] = array();
+
+		$started = microtime( true );
+		$result  = Digitalogic_Pricing_Coordinator::instance()->update_currency(
+			array(
+				'dollar_price' => '187891',
+				'yuan_price'   => '29500',
+			),
+			'performance_noop'
+		);
+		$elapsed = microtime( true ) - $started;
+
+		$this->assertFalse( is_wp_error( $result ) );
+		$this->assertLessThan( 5.0, $elapsed );
+		$this->assertSame( 1, $GLOBALS['wpdb']->identifier_query_count );
+		$this->assertSame( 0, $result['pricing_results']['changed_products'] );
+		$this->assertSame( 0, $result['pricing_results']['updated_products'] );
+		$this->assertSame( array(), $GLOBALS['digitalogic_test_wc_product_saves'] );
+		$this->assertSame( array(), $GLOBALS['digitalogic_test_cache_delete_multiple'] );
+		$this->assertSame( array(), $GLOBALS['digitalogic_test_wc_cache_group_invalidations'] );
+	}
+
+	/** A production-sized CNY change is batched, query-bounded, and save-free. */
+	public function test_large_changed_reconcile_batches_838_products_under_thirty_seconds(): void {
+		$this->seed_large_pricing_snapshot( 838 );
+		$GLOBALS['wpdb']->identifier_query_count           = 0;
+		$GLOBALS['wpdb']->queries                          = array();
+		$GLOBALS['digitalogic_test_wc_product_saves']      = array();
+		$GLOBALS['digitalogic_test_cache_delete_multiple'] = array();
+
+		$started = microtime( true );
+		$result  = Digitalogic_Pricing_Coordinator::instance()->update_currency(
+			array(
+				'yuan_price'     => '29501',
+				'effective_date' => '2026-07-27',
+			),
+			'performance_changed'
+		);
+		$elapsed = microtime( true ) - $started;
+
+		$this->assertFalse(
+			is_wp_error( $result ),
+			is_wp_error( $result ) ? $result->get_error_code() . ': ' . $result->get_error_message() : ''
+		);
+		$this->assertLessThan( 30.0, $elapsed );
+		$this->assertSame( 1, $GLOBALS['wpdb']->identifier_query_count );
+		$this->assertSame( 838, $result['pricing_results']['changed_products'] );
+		$this->assertSame( 838, $result['pricing_results']['updated_products'] );
+		$this->assertSame( array(), $GLOBALS['digitalogic_test_wc_product_saves'] );
+		$source = $result['pricing_results']['sources'][0]['woocommerce'];
+		$this->assertSame( 5, $source['batch_count'] );
+		$this->assertLessThanOrEqual( 20, count( $GLOBALS['wpdb']->queries ) );
+		$this->assertCount( 2, $GLOBALS['digitalogic_test_cache_delete_multiple'] );
+		$this->assertSame( '8437286', (string) $GLOBALS['digitalogic_test_posts'][20000]['meta']['_price'] );
+		$this->assertSame( '8437286', (string) $GLOBALS['digitalogic_test_wc_lookup_rows'][20000]['min_price'] );
+	}
+
 	/** Missing Woo pages are terminal-safe; they do not block existing prices. */
 	public function test_terminal_missing_product_is_reported_but_does_not_fail_commit(): void {
 		$this->seed_snapshot( true );
@@ -1375,6 +1448,50 @@ final class PricingCoordinatorTest extends TestCase {
 		$this->assertFalse(
 			is_wp_error( $result ),
 			is_wp_error( $result ) ? $result->get_error_code() . ': ' . $result->get_error_message() : ''
+		);
+		$GLOBALS['digitalogic_test_wc_products'] = array();
+	}
+
+	/**
+	 * Seed a deterministic production-sized pricing source and Woo projection.
+	 *
+	 * @param int $count Product count.
+	 * @return void
+	 */
+	private function seed_large_pricing_snapshot( $count ) {
+		$count     = (int) $count;
+		$prototype = $this->priced_product( 'PERF-0000' );
+		$products  = array();
+		for ( $offset = 0; $offset < $count; ++$offset ) {
+			$product_id                                       = 20000 + $offset;
+			$product_code                                     = 'PERF-' . str_pad( (string) $offset, 4, '0', STR_PAD_LEFT );
+			$GLOBALS['digitalogic_test_posts'][ $product_id ] = array(
+				'post_type'    => 'product',
+				'post_status'  => 'publish',
+				'post_title'   => 'Performance product ' . $offset,
+				'product_type' => 'simple',
+				'meta'         => array(
+					'_digitalogic_patris_product_code' => $product_code,
+					Digitalogic_Shipping_Method_Service::PRODUCT_METHOD_META => 'air_express',
+					'_sku'                             => $product_code,
+					'_regular_price'                   => '8437000',
+					'_price'                           => '8437000',
+					'_sale_price'                      => '',
+				),
+			);
+			$product                 = $prototype;
+			$product['product_code'] = $product_code;
+			unset( $product['record_hash'] );
+			$product['record_hash'] = $this->record_hash( $product );
+			$products[]             = $product;
+		}
+
+		$received = Digitalogic_Product_Sync_Receiver::instance()->receive(
+			$this->snapshot( $products, '2026-07-23T00:00:00Z' )
+		);
+		$this->assertFalse(
+			is_wp_error( $received ),
+			is_wp_error( $received ) ? $received->get_error_code() . ': ' . $received->get_error_message() : ''
 		);
 		$GLOBALS['digitalogic_test_wc_products'] = array();
 	}
