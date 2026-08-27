@@ -39,8 +39,8 @@ final class Digitalogic_Excel_Pricing_Sync {
 	private const PREVIEW_TTL_SECONDS       = 600;
 	private const APPLY_IDEMPOTENCY_SECONDS = 86400;
 	private const CONFIRMATION_TIMEOUT_HOOK = 'digitalogic_pricing_confirmation_timeout_v1';
-	private const ACK_TARGET_SECONDS        = 10;
-	private const ACK_RECOVERY_SECONDS      = 60;
+	private const ACK_TARGET_SECONDS        = 90;
+	private const ACK_RECOVERY_SECONDS      = 180;
 	private const ROLLBACK_LEASE_SECONDS    = 5;
 	private const MAX_CONFIRMATIONS         = 50;
 	private const REQUIRED_CONSUMER_ID      = 'digitalogic-price-calculator';

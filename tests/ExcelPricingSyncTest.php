@@ -875,6 +875,7 @@ final class ExcelPricingSyncTest extends TestCase {
 		$this->assertSame( 'applied', $committed['status'] );
 		$this->assertSame( 29501, $committed['settings']['yuan_price'] );
 		$this->assertSame( 'awaiting_ack', $committed['confirmation']['status'] );
+		$this->assertGreaterThanOrEqual( 90, $committed['confirmation']['ack_deadline'] - time() );
 		$this->assertNotEmpty( $GLOBALS['digitalogic_test_scheduled_events'] );
 		$events = $GLOBALS['digitalogic_test_actions']['digitalogic_pricing_confirmation_event'] ?? array();
 		$this->assertCount( 1, $events );
