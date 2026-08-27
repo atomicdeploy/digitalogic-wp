@@ -419,7 +419,7 @@ final class Digitalogic_Excel_Pricing_Sync {
 					);
 				}
 
-				return array(
+				$result = array(
 					'schema'           => 'digitalogic.pricing-coordinator-result/v1',
 					'status'           => $changed ? 'applied' : 'reconciled',
 					'source'           => $source,
@@ -429,6 +429,15 @@ final class Digitalogic_Excel_Pricing_Sync {
 					'settings_changed' => $changed,
 					'confirmation'     => $transaction['confirmation'] ?? $this->current_confirmation_projection(),
 				);
+				if ( $changed ) {
+					try {
+						do_action( 'digitalogic_excel_pricing_apply_committed', $result );
+					} catch ( Throwable $exception ) {
+						unset( $exception );
+					}
+				}
+
+				return $result;
 			}
 		);
 	}
@@ -541,23 +550,27 @@ final class Digitalogic_Excel_Pricing_Sync {
 			return $globals;
 		}
 
-		$page  = isset( $payload['page'] ) ? absint( $payload['page'] ) : 1;
-		$limit = isset( $payload['limit'] ) ? absint( $payload['limit'] ) : Digitalogic_Google_Sheets_Catalog::MAX_PAGE_SIZE;
-		$page  = max( 1, $page );
-		$limit = max( 1, min( Digitalogic_Google_Sheets_Catalog::MAX_PAGE_SIZE, $limit ) );
+		$projection = isset( $payload['projection'] ) ? (string) $payload['projection'] : 'catalog';
+		$catalog    = null;
+		if ( 'settings' !== $projection ) {
+			$page  = isset( $payload['page'] ) ? absint( $payload['page'] ) : 1;
+			$limit = isset( $payload['limit'] ) ? absint( $payload['limit'] ) : Digitalogic_Google_Sheets_Catalog::MAX_PAGE_SIZE;
+			$page  = max( 1, $page );
+			$limit = max( 1, min( Digitalogic_Google_Sheets_Catalog::MAX_PAGE_SIZE, $limit ) );
 
-		$catalog = Digitalogic_Google_Sheets_Catalog::instance()->get_page(
-			array(
-				'dataset'        => 'reconciled_products',
-				'locale'         => 'fa',
-				'page'           => $page,
-				'limit'          => $limit,
-				'source_id'      => $source_context['id'],
-				'source_dataset' => $source_context['dataset'],
-			)
-		);
-		if ( is_wp_error( $catalog ) ) {
-			return $catalog;
+			$catalog = Digitalogic_Google_Sheets_Catalog::instance()->get_page(
+				array(
+					'dataset'        => 'reconciled_products',
+					'locale'         => 'fa',
+					'page'           => $page,
+					'limit'          => $limit,
+					'source_id'      => $source_context['id'],
+					'source_dataset' => $source_context['dataset'],
+				)
+			);
+			if ( is_wp_error( $catalog ) ) {
+				return $catalog;
+			}
 		}
 
 		$warnings       = array();
@@ -566,7 +579,7 @@ final class Digitalogic_Excel_Pricing_Sync {
 			$warnings[] = $source_warning;
 		}
 
-		return array(
+		$response = array(
 			'schema'             => self::STATE_SCHEMA,
 			'state_revision'     => $globals['state_revision'],
 			'generated_at'       => $this->now_iso8601(),
@@ -612,8 +625,12 @@ final class Digitalogic_Excel_Pricing_Sync {
 				),
 			),
 			'attribute_owners'   => $this->attribute_owners(),
-			'catalog'            => $catalog,
 		);
+		if ( null !== $catalog ) {
+			$response['catalog'] = $catalog;
+		}
+
+		return $response;
 	}
 
 	/**
@@ -1453,6 +1470,7 @@ final class Digitalogic_Excel_Pricing_Sync {
 			'page',
 			'limit',
 			'locale',
+			'projection',
 			'client_id',
 			'channel',
 			'request_id',
@@ -1516,6 +1534,19 @@ final class Digitalogic_Excel_Pricing_Sync {
 			return $this->error(
 				'digitalogic_excel_sync_locale_invalid',
 				'خروجی این قرارداد فقط به زبان فارسی ارائه می‌شود.',
+				400
+			);
+		}
+		if (
+			isset( $payload['projection'] )
+			&& (
+				'state' !== $operation
+				|| ! in_array( $payload['projection'], array( 'catalog', 'settings' ), true )
+			)
+		) {
+			return $this->error(
+				'digitalogic_excel_sync_projection_invalid',
+				'نوع خروجی state معتبر نیست.',
 				400
 			);
 		}

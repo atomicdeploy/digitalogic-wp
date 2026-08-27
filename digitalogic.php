@@ -3,7 +3,7 @@
  * Plugin Name: Digitalogic WooCommerce Extension
  * Plugin URI: https://github.com/atomicdeploy/digitalogic-wp
  * Description: Custom dynamic pricing, stock manager, and POS integration for Digitalogic electronic components shop. Supports bulk operations, import/export, and external API integration.
- * Version: 1.8.12
+ * Version: 1.8.29
  * Author: Digitalogic
  * Author URI: https://digitalogic.ir
  * Text Domain: digitalogic
@@ -22,7 +22,7 @@ if (!defined('ABSPATH')) {
 }
 
 // Define plugin constants
-define( 'DIGITALOGIC_VERSION', '1.8.12' );
+define( 'DIGITALOGIC_VERSION', '1.8.29' );
 define( 'DIGITALOGIC_PBX_SCHEMA_VERSION', '3' );
 define( 'DIGITALOGIC_EVENT_MESH_SCHEMA_VERSION', '1' );
 define( 'DIGITALOGIC_ASSISTANT_ACCOUNT_SCHEMA_VERSION', '2' );
@@ -140,6 +140,7 @@ final class Digitalogic {
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-google-sheets-writeback.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-excel-pricing-sync.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-pricing-coordinator.php';
+        require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-currency-admin-async.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-report-engine.php';
 		require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-pricing-snapshot.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-command-dispatcher.php';
@@ -251,6 +252,7 @@ final class Digitalogic {
         Digitalogic_Google_Sheets_Writeback::instance();
         Digitalogic_Excel_Pricing_Sync::instance();
         Digitalogic_Pricing_Coordinator::instance();
+        Digitalogic_Currency_Admin_Async::instance();
         Digitalogic_Report_Engine::instance();
 		Digitalogic_Pricing_Snapshot::instance();
         Digitalogic_Command_Dispatcher::instance();

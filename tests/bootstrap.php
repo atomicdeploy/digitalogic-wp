@@ -822,6 +822,9 @@ function wp_cache_delete_multiple( $keys, $group = '' ) {
 		'keys'  => array_values( array_map( 'intval', (array) $keys ) ),
 		'group' => (string) $group,
 	);
+	if ( is_callable( $GLOBALS['digitalogic_test_cache_delete_multiple_callback'] ?? null ) ) {
+		return call_user_func( $GLOBALS['digitalogic_test_cache_delete_multiple_callback'], $keys, $group );
+	}
 	foreach ( (array) $keys as $key ) {
 		wp_cache_delete( $key, $group );
 	}
@@ -2731,6 +2734,7 @@ require_once dirname(__DIR__) . '/includes/class-digitalogic-google-sheets-catal
 require_once dirname(__DIR__) . '/includes/class-digitalogic-google-sheets-writeback.php';
 require_once dirname(__DIR__) . '/includes/class-digitalogic-excel-pricing-sync.php';
 require_once dirname(__DIR__) . '/includes/class-digitalogic-pricing-coordinator.php';
+require_once dirname(__DIR__) . '/includes/class-digitalogic-currency-admin-async.php';
 require_once dirname(__DIR__) . '/includes/class-command-dispatcher.php';
 require_once dirname(__DIR__) . '/includes/api/class-rest-api.php';
 require_once dirname(__DIR__) . '/includes/api/class-webhooks.php';

@@ -199,6 +199,12 @@
             return false;
         }
 
+        // ACF validation depends on its native admin-ajax lifecycle and exact
+        // response framing. Never proxy it through the generic command bridge.
+        if (payload.action.indexOf('acf/') === 0) {
+            return false;
+        }
+
         return true;
     }
 

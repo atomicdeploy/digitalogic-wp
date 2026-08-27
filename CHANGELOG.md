@@ -7,6 +7,76 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.29] - 2026-08-27
+
+- Let the authenticated ACF AJAX request claim and run its already-durable currency job directly, keeping the browser responsive while removing WP-Cron queue latency from the rate-change critical path.
+- Give the asynchronous submit request a bounded 45-second network window while retaining the existing 120-second terminal status deadline and rollback behavior.
+
+## [1.8.28] - 2026-08-27
+
+- Rebase and retry an ACF currency change when a concurrent Patris delivery leaves only safe durable pending work, while keeping ambiguous identity and true price-readback mismatches blocking and visible.
+- Persist the current ACF apply attempt before repricing and convert unexpected background exceptions into a terminal Persian failure instead of leaving the page on an unexplained running state.
+
+## [1.8.27] - 2026-08-27
+
+- Yield large Patris product deliveries after 25 products with durable pending-state readback, allowing the website-first currency repricer to commit between continuously arriving catalog batches without mixing revisions or overwriting newer pricing.
+
+## [1.8.26] - 2026-08-27
+
+- Retry transient Patris product-sync lock contention with bounded, visible Persian progress instead of leaving the currency settings page on an endless spinner.
+
+## [1.8.25] - 2026-08-27
+
+- Clear delivered pricing-event outboxes through verified storage when a persistent option cache does not observe deletion, keeping the terminal queue empty without duplicating events.
+
+## [1.8.24] - 2026-08-27
+
+- Rebase pending pricing-revision events onto the newest exact Patris source revision with a bounded retry, so continuous source changes cannot starve Excel notification.
+
+## [1.8.23] - 2026-08-27
+
+- Flush the committed pricing-revision event after the ACF background job releases the pricing lock, allowing the open Excel workbook to apply and ACK without waiting for cron.
+
+## [1.8.22] - 2026-08-27
+
+- Publish the small committed pricing-revision event immediately from the background ACF job, so an open Excel workbook can apply and acknowledge it without waiting for delayed cron.
+
+## [1.8.21] - 2026-08-27
+
+- Dispatch the queued ACF pricing job through the server-local HTTPS origin while preserving the production Host header, avoiding external DNS/proxy latency without blocking the browser request.
+
+## [1.8.20] - 2026-08-27
+
+- Emit the same committed projection-invalidation event for authenticated ACF changes as for Excel-originated applies, so the existing live pricing stream wakes the open workbook immediately.
+
+## [1.8.19] - 2026-08-27
+
+- Dispatch the bounded ACF pricing job through an explicit non-blocking cron loopback, so disabled automatic cron or a busy shared Action Scheduler cannot leave the settings page waiting.
+
+## [1.8.18] - 2026-08-27
+
+- Keep the authenticated ACF currency page responsive by queueing website-first repricing outside the browser request, with live Persian status through commit, Excel acknowledgement, or rollback.
+
+## [1.8.17] - 2026-08-27
+
+- Invalidate WooCommerce's actual plural `products` raw metadata cache group after committed batch repricing, so independent audits do not read a previous canonical value beside the new public price.
+
+## [1.8.16] - 2026-08-27
+
+- Fall back to exact per-product cache cleanup when a persistent object cache only partially completes a bulk delete.
+
+## [1.8.15] - 2026-08-27
+
+- Add a settings-only pricing-state projection so Excel proposal, ACK, and parity readback no longer rebuild a catalog page; normal product refresh remains unchanged.
+
+## [1.8.14] - 2026-08-27
+
+- Complete a full pricing change with one atomic product-state persist and reuse in-transaction price readback for already-current rows, removing duplicate catalog storage and verification from the website-first Excel flow.
+
+## [1.8.13] - 2026-08-27
+
+- Keep ACF validation on native `admin-ajax.php` so the currency settings page can save and complete its website-first confirmation flow instead of hanging behind the generic WebSocket proxy.
+
 ## [1.8.12] - 2026-08-27
 
 - Give the configured Excel consumer a bounded 90-second ACK window after a full catalog repricing, with a 180-second recovery boundary, so a successful website commit is not rolled back before the confirmed workbook can read it back.

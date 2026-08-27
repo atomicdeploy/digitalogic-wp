@@ -257,6 +257,26 @@ final class ExcelPricingSyncTest extends TestCase {
 		$this->assertMatchesRegularExpression( '/[^\x00-\x7F]/', $state['catalog']['columns'][0]['header'] );
 	}
 
+	/** Pricing writeback can read only current settings without building the product catalog. */
+	public function test_settings_projection_omits_catalog_but_keeps_confirmation_and_revision(): void {
+		$response = Digitalogic_REST_API::instance()->pricing_sync_state(
+			$this->request(
+				'state',
+				array(
+					'projection' => 'settings',
+					'locale'     => 'fa',
+				)
+			)
+		);
+
+		$this->assertSame( 200, $response->get_status() );
+		$state = $response->get_data();
+		$this->assertArrayNotHasKey( 'catalog', $state );
+		$this->assertSame( '29500', (string) $state['settings']['yuan_price'] );
+		$this->assertStringStartsWith( 'sha256:', $state['state_revision'] );
+		$this->assertArrayHasKey( 'confirmation', $state );
+	}
+
 	/** The old Excel route and schema remain a marked compatibility alias. */
 	public function test_excel_route_returns_legacy_schema_with_successor_headers(): void {
 		$request  = $this->request( 'state' );
@@ -875,6 +895,7 @@ final class ExcelPricingSyncTest extends TestCase {
 		$this->assertSame( 'applied', $committed['status'] );
 		$this->assertSame( 29501, $committed['settings']['yuan_price'] );
 		$this->assertSame( 'awaiting_ack', $committed['confirmation']['status'] );
+		$this->assertCount( 1, $GLOBALS['digitalogic_test_actions']['digitalogic_excel_pricing_apply_committed'] ?? array() );
 		$this->assertGreaterThanOrEqual( 90, $committed['confirmation']['ack_deadline'] - time() );
 		$this->assertNotEmpty( $GLOBALS['digitalogic_test_scheduled_events'] );
 		$events = $GLOBALS['digitalogic_test_actions']['digitalogic_pricing_confirmation_event'] ?? array();

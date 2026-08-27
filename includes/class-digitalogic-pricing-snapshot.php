@@ -1131,7 +1131,18 @@ final class Digitalogic_Pricing_Snapshot {
 				$outbox = is_array( $outbox ) ? $outbox : array();
 				foreach ( $outbox as $source_key => $entry ) {
 					$source  = is_array( $entry['source'] ?? null ) ? $entry['source'] : array();
-					$current = $this->current_revision_data( $source );
+					$current = null;
+					for ( $rebase_attempt = 0; $rebase_attempt < 3; ++$rebase_attempt ) {
+						$source  = $this->latest_state_event_source( $source );
+						$current = $this->current_revision_data( $source );
+						if (
+							! is_wp_error( $current )
+							|| 'digitalogic_pricing_snapshot_source_revision_conflict' !== $current->get_error_code()
+						) {
+							break;
+						}
+					}
+					$outbox[ $source_key ]['source'] = $source;
 					if ( is_wp_error( $current ) ) {
 						$outbox[ $source_key ]['attempts']   = min( 1000, 1 + (int) ( $entry['attempts'] ?? 0 ) );
 						$outbox[ $source_key ]['updated_at'] = gmdate( 'c' );
@@ -1200,7 +1211,13 @@ final class Digitalogic_Pricing_Snapshot {
 
 				if ( empty( $outbox ) ) {
 					delete_option( self::STATE_EVENT_OUTBOX );
-					if ( null !== get_option( self::STATE_EVENT_OUTBOX, null ) ) {
+					if ( function_exists( 'wp_cache_delete' ) ) {
+						wp_cache_delete( self::STATE_EVENT_OUTBOX, 'options' );
+					}
+					if (
+						null !== get_option( self::STATE_EVENT_OUTBOX, null )
+						&& ! $this->store_option_verified( self::STATE_EVENT_OUTBOX, array() )
+					) {
 						$retry = true;
 						do_action( 'digitalogic_pricing_state_event_failed', 'digitalogic_pricing_state_outbox_unavailable', array() );
 					}
@@ -2011,6 +2028,23 @@ final class Digitalogic_Pricing_Snapshot {
 		}
 
 		return $sources;
+	}
+
+	/** Rebase one durable event envelope onto the newest exact source identity. */
+	private function latest_state_event_source( $source ) {
+		$source  = is_array( $source ) ? $source : array();
+		$id      = (string) ( $source['id'] ?? '' );
+		$dataset = (string) ( $source['dataset'] ?? '' );
+		foreach ( $this->current_state_event_sources() as $candidate ) {
+			if (
+				hash_equals( $id, (string) ( $candidate['id'] ?? '' ) )
+				&& hash_equals( $dataset, (string) ( $candidate['dataset'] ?? '' ) )
+			) {
+				return $candidate;
+			}
+		}
+
+		return $source;
 	}
 
 	/** Schedule one bounded asynchronous retry for the persistent event outbox. */

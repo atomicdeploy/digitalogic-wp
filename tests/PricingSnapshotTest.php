@@ -219,6 +219,34 @@ final class PricingSnapshotTest extends TestCase {
 		$this->assertCount( 1, $GLOBALS['digitalogic_test_options']['digitalogic_panel_events'] );
 	}
 
+	/** A pending pricing event rebases to the newest Patris revision before delivery. */
+	public function test_projection_event_rebases_continuously_changing_source_revision(): void {
+		$redis = new Digitalogic_Test_Redis_Client();
+		add_filter(
+			'digitalogic_panel_redis_client',
+			static function () use ( $redis ) {
+				return $redis;
+			}
+		);
+		$snapshot = Digitalogic_Pricing_Snapshot::instance();
+		$this->assertTrue( Digitalogic_Report_Engine::instance()->invalidate_cache() );
+
+		$source_key    = hash( 'sha256', $this->source['id'] . "\n" . $this->source['dataset'] );
+		$latest_source = $this->source;
+
+		$latest_source['revision'] = 'sha256:' . str_repeat( '8', 64 );
+		$GLOBALS['digitalogic_test_options'][ Digitalogic_Product_Sync_Receiver::STATE_OPTION ]['sources'][ $source_key ]['source'] = $latest_source;
+		unset( $GLOBALS['digitalogic_test_option_cache'][ Digitalogic_Product_Sync_Receiver::STATE_OPTION ] );
+
+		$snapshot->run_state_revision_event_delivery();
+
+		$events = $GLOBALS['digitalogic_test_options']['digitalogic_panel_events'];
+		$this->assertCount( 1, $events );
+		$this->assertSame( $latest_source, $events[0]['data']['source'] );
+		$this->assertArrayNotHasKey( 'digitalogic_pricing_state_event_outbox_v1', $GLOBALS['digitalogic_test_options'] );
+		$this->assertCount( 1, $redis->published );
+	}
+
 	/** A committed invalidation remains durable until the panel queue accepts it. */
 	public function test_projection_event_outbox_retries_failed_queue_write_without_losing_or_duplicating_revision(): void {
 		$snapshot = Digitalogic_Pricing_Snapshot::instance();

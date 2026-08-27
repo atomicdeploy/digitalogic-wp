@@ -91,6 +91,7 @@ final class PricingCoordinatorTest extends TestCase {
 			Digitalogic_Shipping_Method_Service::ROUNDING_DIGITS_OPTION => 0,
 		);
 		$GLOBALS['wpdb'] = new Digitalogic_Test_WPDB();
+		unset( $GLOBALS['digitalogic_test_cache_delete_multiple_callback'] );
 
 		foreach (
 			array(
@@ -104,6 +105,9 @@ final class PricingCoordinatorTest extends TestCase {
 				Digitalogic_Google_Sheets_Writeback::class,
 				Digitalogic_Excel_Pricing_Sync::class,
 				Digitalogic_Pricing_Coordinator::class,
+				Digitalogic_Currency_Admin_Async::class,
+				Digitalogic_Pricing_Snapshot::class,
+				Digitalogic_Report_Engine::class,
 				Digitalogic_Logger::class,
 				Digitalogic_Webhooks::class,
 			) as $class_name
@@ -606,6 +610,33 @@ final class PricingCoordinatorTest extends TestCase {
 		$this->assertContains( 'COMMIT', $GLOBALS['wpdb']->queries );
 	}
 
+	/** A live Patris revision does not require a quiet window for a safe CNY reprice. */
+	public function test_cny_change_rebases_product_from_newer_live_catalog_revision(): void {
+		$state      = $GLOBALS['digitalogic_test_options'][ Digitalogic_Product_Sync_Receiver::STATE_OPTION ];
+		$source_key = array_key_first( $state['sources'] );
+		$product    = $state['sources'][ $source_key ]['products']['PRICE-901'];
+		$product['pricing_catalog_revision'] = 'sha256:' . str_repeat( 'd', 64 );
+		unset( $product['record_hash'] );
+		$product['record_hash'] = $this->record_hash( $product );
+		$state['sources'][ $source_key ]['products']['PRICE-901'] = $product;
+		$GLOBALS['digitalogic_test_options'][ Digitalogic_Product_Sync_Receiver::STATE_OPTION ] = $state;
+
+		$result = Digitalogic_Pricing_Coordinator::instance()->update_currency(
+			array( 'yuan_price' => '31000' ),
+			'test_live_patris_rebase'
+		);
+
+		$this->assertFalse(
+			is_wp_error( $result ),
+			is_wp_error( $result ) ? $result->get_error_code() . ': ' . $result->get_error_message() : ''
+		);
+		$this->assertSame( '31000', (string) $result['settings']['yuan_price'] );
+		$updated_state   = $GLOBALS['digitalogic_test_options'][ Digitalogic_Product_Sync_Receiver::STATE_OPTION ];
+		$updated_product = $updated_state['sources'][ $source_key ]['products']['PRICE-901'];
+		$this->assertSame( $result['settings']['shipping_catalog_revision'], $updated_product['pricing_catalog_revision'] );
+		$this->assertSame( '8866000', (string) $GLOBALS['digitalogic_test_posts'][901]['meta']['_regular_price'] );
+	}
+
 	/** The public shipping service cannot write a live freight rate outside repricing. */
 	public function test_legacy_air_express_method_update_cannot_bypass_repricing(): void {
 		$service = Digitalogic_Shipping_Method_Service::instance();
@@ -1025,6 +1056,7 @@ final class PricingCoordinatorTest extends TestCase {
 		$GLOBALS['wpdb']->queries                          = array();
 		$GLOBALS['digitalogic_test_wc_product_saves']      = array();
 		$GLOBALS['digitalogic_test_cache_delete_multiple'] = array();
+		$GLOBALS['digitalogic_test_primed_post_ids']       = array();
 
 		$started = microtime( true );
 		$result  = Digitalogic_Pricing_Coordinator::instance()->update_currency(
@@ -1045,12 +1077,162 @@ final class PricingCoordinatorTest extends TestCase {
 		$this->assertSame( 838, $result['pricing_results']['changed_products'] );
 		$this->assertSame( 838, $result['pricing_results']['updated_products'] );
 		$this->assertSame( array(), $GLOBALS['digitalogic_test_wc_product_saves'] );
+		$this->assertCount( 1, $GLOBALS['digitalogic_test_primed_post_ids'] );
+		$this->assertCount( 838, $GLOBALS['digitalogic_test_primed_post_ids'][0] );
 		$source = $result['pricing_results']['sources'][0]['woocommerce'];
 		$this->assertSame( 5, $source['batch_count'] );
 		$this->assertLessThanOrEqual( 20, count( $GLOBALS['wpdb']->queries ) );
 		$this->assertCount( 2, $GLOBALS['digitalogic_test_cache_delete_multiple'] );
+		$this->assertContains( 'products', $GLOBALS['digitalogic_test_wc_cache_group_invalidations'] );
 		$this->assertSame( '8437286', (string) $GLOBALS['digitalogic_test_posts'][20000]['meta']['_price'] );
 		$this->assertSame( '8437286', (string) $GLOBALS['digitalogic_test_wc_lookup_rows'][20000]['min_price'] );
+	}
+
+	/** The ACF page queues a changed CNY rate without mutating the confirmed option inline. */
+	public function test_currency_admin_async_queue_keeps_confirmed_rate_until_background_job(): void {
+		$before = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_settings();
+		$job    = Digitalogic_Currency_Admin_Async::instance()->enqueue( '29501' );
+
+		$this->assertFalse( is_wp_error( $job ) );
+		$this->assertSame( 'queued', $job['status'] );
+		$this->assertSame( 29501, $job['desired_value'] );
+		$this->assertSame( 29500, $job['confirmed_value'] );
+		$after = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_settings();
+		$this->assertSame( $before['yuan_price'], $after['yuan_price'] );
+		$this->assertNotFalse( wp_next_scheduled( 'digitalogic_currency_admin_async_apply_v1', array( $job['job_id'] ) ) );
+		$this->assertSame( 1, $job['dispatch_attempts'] );
+		$this->assertNotEmpty( $GLOBALS['digitalogic_test_remote_posts'] );
+		$dispatch = end( $GLOBALS['digitalogic_test_remote_posts'] );
+		$this->assertStringStartsWith( 'https://127.0.0.1/wp-cron.php?doing_wp_cron=', $dispatch['url'] );
+		$this->assertFalse( $dispatch['args']['blocking'] );
+		$this->assertFalse( $dispatch['args']['sslverify'] );
+		$this->assertSame( 1.0, $dispatch['args']['timeout'] );
+		$this->assertSame( 'digitalogic.test', $dispatch['args']['headers']['Host'] );
+	}
+
+	/** The authenticated ACF request can claim its job directly without WP-Cron latency. */
+	public function test_currency_admin_async_direct_enqueue_does_not_depend_on_cron_dispatch(): void {
+		$async = Digitalogic_Currency_Admin_Async::instance();
+		$job   = $async->enqueue( '29501', false );
+
+		$this->assertFalse( is_wp_error( $job ) );
+		$this->assertSame( 'queued', $job['status'] );
+		$this->assertSame( 0, $job['dispatch_attempts'] );
+		$this->assertEmpty( $GLOBALS['digitalogic_test_remote_posts'] );
+
+		$async->run_job( $job['job_id'] );
+		$status = $async->status();
+		$this->assertContains( $status['status'], array( 'awaiting_excel', 'confirmed' ) );
+		$this->assertSame( 1, $status['apply_attempts'] );
+	}
+
+	/** The background ACF job flushes its revision event after releasing the pricing lock. */
+	public function test_currency_admin_async_job_wakes_excel_without_waiting_for_cron(): void {
+		$redis = new Digitalogic_Test_Redis_Client();
+		add_filter(
+			'digitalogic_panel_redis_client',
+			static function () use ( $redis ) {
+				return $redis;
+			}
+		);
+		Digitalogic_Pricing_Snapshot::instance();
+		$async = Digitalogic_Currency_Admin_Async::instance();
+		$job   = $async->enqueue( '29501' );
+
+		$this->assertFalse( is_wp_error( $job ) );
+		$async->run_job( $job['job_id'] );
+		$status = $async->status();
+		$this->assertContains( $status['status'], array( 'awaiting_excel', 'confirmed' ) );
+
+		$events = $GLOBALS['digitalogic_test_options']['digitalogic_panel_events'];
+		$this->assertCount( 1, $events );
+		$this->assertSame( 'pricing.state.changed', $events[0]['name'] );
+		$this->assertCount( 1, $redis->published );
+	}
+
+	/** A changing Patris source is retried in the background without failing the ACF request. */
+	public function test_currency_admin_async_job_retries_transient_product_sync_lock(): void {
+		$async = Digitalogic_Currency_Admin_Async::instance();
+		$job   = $async->enqueue( '29501' );
+		$this->assertFalse( is_wp_error( $job ) );
+
+		// Each attempt first acquires the pricing transaction lock, then the
+		// product-sync lock whose short-lived contention is retryable.
+		$GLOBALS['wpdb']->acquire_results = array( 1, 0, 1, 0, 1, 1 );
+		$async->run_job( $job['job_id'] );
+		$status = $async->status();
+
+		$this->assertContains( $status['status'], array( 'awaiting_excel', 'confirmed' ) );
+		$this->assertSame( 3, $status['apply_attempts'] );
+		$this->assertGreaterThanOrEqual( 3, $GLOBALS['wpdb']->acquire_count );
+		$this->assertStringNotContainsString( 'ثبت نرخ کامل نشد', $status['message_fa'] );
+	}
+
+	/** ACF retries only safe pending drift and still blocks ambiguous/readback failures. */
+	public function test_currency_admin_async_retry_classifier_is_safety_bounded(): void {
+		$async  = Digitalogic_Currency_Admin_Async::instance();
+		$method = new ReflectionMethod( $async, 'is_retryable_apply_error' );
+
+		$this->assertTrue(
+			$method->invoke(
+				$async,
+				new WP_Error( 'digitalogic_product_sync_busy', 'busy' )
+			)
+		);
+		$this->assertTrue(
+			$method->invoke(
+				$async,
+				new WP_Error(
+					'digitalogic_pricing_delivery_incomplete',
+					'pending',
+					array( 'pending_products' => 25, 'deferred_ambiguous' => 0 )
+				)
+			)
+		);
+		$this->assertFalse(
+			$method->invoke(
+				$async,
+				new WP_Error(
+					'digitalogic_pricing_delivery_incomplete',
+					'ambiguous',
+					array( 'pending_products' => 25, 'deferred_ambiguous' => 1 )
+				)
+			)
+		);
+		$this->assertFalse(
+			$method->invoke(
+				$async,
+				new WP_Error( 'digitalogic_pricing_delivery_readback_failed', 'unsafe mismatch' )
+			)
+		);
+	}
+
+	/** Failed persistent-cache multi-delete keys fall back to exact cache cleanup. */
+	public function test_large_changed_reconcile_repairs_partial_persistent_cache_delete(): void {
+		$this->seed_large_pricing_snapshot( 3 );
+		$GLOBALS['digitalogic_test_cache_deletes']                  = array();
+		$GLOBALS['digitalogic_test_cache_delete_multiple_callback'] = static function ( $keys, $group ) {
+			$results = array_fill_keys( (array) $keys, true );
+			$failed  = (int) end( $keys );
+			foreach ( (array) $keys as $key ) {
+				if ( (int) $key !== $failed ) {
+					wp_cache_delete( $key, $group );
+				}
+			}
+			$results[ $failed ] = false;
+			return $results;
+		};
+
+		$result = Digitalogic_Pricing_Coordinator::instance()->update_currency(
+			array( 'yuan_price' => '29501' ),
+			'cache_fallback'
+		);
+
+		$this->assertFalse( is_wp_error( $result ) );
+		$this->assertContains(
+			array( 20002, 'post_meta' ),
+			$GLOBALS['digitalogic_test_cache_deletes']
+		);
 	}
 
 	/** Missing Woo pages are terminal-safe; they do not block existing prices. */
@@ -1486,13 +1668,21 @@ final class PricingCoordinatorTest extends TestCase {
 			$products[]             = $product;
 		}
 
-		$received = Digitalogic_Product_Sync_Receiver::instance()->receive(
-			$this->snapshot( $products, '2026-07-23T00:00:00Z' )
-		);
-		$this->assertFalse(
-			is_wp_error( $received ),
-			is_wp_error( $received ) ? $received->get_error_code() . ': ' . $received->get_error_message() : ''
-		);
+		$receiver = Digitalogic_Product_Sync_Receiver::instance();
+		$snapshot = $this->snapshot( $products, '2026-07-23T00:00:00Z' );
+		$received = null;
+		for ( $attempt = 0; $attempt <= (int) ceil( $count / 25 ); ++$attempt ) {
+			$received = $receiver->receive( $snapshot );
+			$this->assertFalse(
+				is_wp_error( $received ),
+				is_wp_error( $received ) ? $received->get_error_code() . ': ' . $received->get_error_message() : ''
+			);
+			if ( 0 === (int) ( $received['pending_products'] ?? 0 ) ) {
+				break;
+			}
+			$this->assertTrue( (bool) ( $received['retryable'] ?? false ) );
+		}
+		$this->assertSame( 0, (int) ( $received['pending_products'] ?? -1 ) );
 		$GLOBALS['digitalogic_test_wc_products'] = array();
 	}
 
