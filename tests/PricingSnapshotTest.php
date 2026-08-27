@@ -944,6 +944,44 @@ final class PricingSnapshotTest extends TestCase {
 		);
 	}
 
+	/** A conflicting accepted terminal is preserved without retrying forever. */
+	public function test_terminal_event_conflict_is_removed_from_retry_outbox(): void {
+		$revision   = $this->revision_response()->get_data()['state_revision'];
+		$started    = $this->start_response( 'terminal-conflict-0001', $revision, 0 );
+		$build_id   = $started->get_data()['build_id'];
+		$request_id = 'terminal-conflict-0001';
+		Digitalogic_Pricing_Snapshot::instance()->run_build( $build_id );
+		$event = $this->terminal_events()[0];
+		$data  = $event['data'];
+		unset( $data['snapshot_token'], $data['snapshot_revision'], $data['digest'], $data['snapshot_path'] );
+		$data['status'] = 'cancelled';
+		$data['code']   = 'request_cancelled';
+		$GLOBALS['digitalogic_test_options']['digitalogic_panel_events'][0]['data'] = $data;
+
+		update_option(
+			'digitalogic_pricing_snapshot_terminal_event_outbox_v1',
+			array(
+				$event['data']['idempotency_key'] => array(
+					'name'         => $event['name'],
+					'data'         => $event['data'],
+					'build_id'     => $build_id,
+					'request_id'   => $request_id,
+					'attempts'     => 0,
+					'created_at'   => time(),
+					'committed'    => true,
+					'committed_at' => time(),
+					'updated_at'   => gmdate( 'c' ),
+				),
+			),
+			false
+		);
+
+		Digitalogic_Pricing_Snapshot::instance()->run_terminal_event_delivery();
+
+		$this->assertCount( 1, $this->terminal_events() );
+		$this->assertArrayNotHasKey( 'digitalogic_pricing_snapshot_terminal_event_outbox_v1', $GLOBALS['digitalogic_test_options'] );
+	}
+
 	/** The no-poll path autonomously terminalizes a missed queued worker. */
 	public function test_build_watchdog_is_job_fenced_and_publishes_queue_timeout(): void {
 		add_filter(

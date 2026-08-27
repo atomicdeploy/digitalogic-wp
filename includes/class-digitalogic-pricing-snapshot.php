@@ -1321,6 +1321,11 @@ final class Digitalogic_Pricing_Snapshot {
 				}
 				$receipt = $this->terminal_panel_event_receipt( $data );
 				if ( is_wp_error( $receipt ) ) {
+					if ( 'digitalogic_pricing_terminal_event_conflict' === $receipt->get_error_code() ) {
+						unset( $outbox[ $event_key ] );
+						do_action( 'digitalogic_pricing_terminal_event_failed', $receipt->get_error_code(), $build_id );
+						continue;
+					}
 					$retry = true;
 					do_action( 'digitalogic_pricing_terminal_event_failed', $receipt->get_error_code(), $build_id );
 					break;
