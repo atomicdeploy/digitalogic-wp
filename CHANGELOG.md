@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.11] - 2026-08-27
+
+- Keep the website-first CNY transaction readback consistent when WordPress still exposes the pre-commit shipping catalog through its option cache; all other revision mismatches remain blocking and are revalidated after commit.
+
 ## [1.8.10] - 2026-08-24
 
 ### Fixed

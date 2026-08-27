@@ -345,6 +345,11 @@ final class Digitalogic_Excel_Pricing_Sync {
 						}
 
 						$readback = $this->read_globals();
+						$readback = $this->transaction_consistent_readback(
+							$readback,
+							$desired,
+							$locked_current
+						);
 						if (
 							is_wp_error( $readback )
 							|| ! hash_equals( $desired['state_revision'], $readback['state_revision'] )
@@ -1250,6 +1255,11 @@ final class Digitalogic_Excel_Pricing_Sync {
 					if ( is_wp_error( $readback ) ) {
 						return $readback;
 					}
+					$readback = $this->transaction_consistent_readback(
+						$readback,
+						$desired,
+						$locked_current
+					);
 					if ( ! hash_equals( $desired['state_revision'], $readback['state_revision'] ) ) {
 						return $this->error(
 							'digitalogic_excel_sync_readback_failed',
@@ -2555,12 +2565,58 @@ final class Digitalogic_Excel_Pricing_Sync {
 				'rounding_digits' => $settings['price_rounding_digits'],
 				'rounding_mode'   => $settings['price_rounding_mode'],
 				'revision'        => $rounding_revision,
-				'bounds'          => array( 'minimum' => 0, 'maximum' => 9 ),
+				'bounds'          => array(
+					'minimum' => 0,
+					'maximum' => 9,
+				),
 				'warnings'        => array(),
 			),
 			'shipping'        => $shipping,
 			'markup_identity' => $markup_identity,
 		);
+	}
+
+	/**
+	 * Resolve the one safe readback difference caused by WordPress option cache.
+	 *
+	 * Every option has already been written and verified directly against the
+	 * transaction's database connection at this point. The shipping integration
+	 * catalog, however, uses get_option() and can still expose the pre-transaction
+	 * currency rate until commit invalidates that process cache. Accept that
+	 * representation only when all independently read currency, markup, and
+	 * rounding revisions match the desired state and shipping is exactly the
+	 * locked pre-transaction revision. Any other difference remains blocking.
+	 *
+	 * @param array|WP_Error $readback      Transaction readback.
+	 * @param array          $desired       Deterministic desired projection.
+	 * @param array          $locked_current Pre-transaction projection.
+	 * @return array|WP_Error
+	 */
+	private function transaction_consistent_readback( $readback, $desired, $locked_current ) {
+		if ( is_wp_error( $readback ) || ! is_array( $readback ) ) {
+			return $readback;
+		}
+		if (
+			! hash_equals( (string) $desired['currency']['revision'], (string) $readback['currency']['revision'] )
+			|| ! hash_equals( (string) $desired['default_markup']['revision'], (string) $readback['default_markup']['revision'] )
+			|| ! hash_equals( (string) $desired['price_rounding']['revision'], (string) $readback['price_rounding']['revision'] )
+		) {
+			return $readback;
+		}
+
+		$actual_shipping  = (string) ( $readback['shipping']['catalog_revision'] ?? '' );
+		$desired_shipping = (string) ( $desired['shipping']['catalog_revision'] ?? '' );
+		$locked_shipping  = (string) ( $locked_current['shipping']['catalog_revision'] ?? '' );
+		if ( hash_equals( $desired_shipping, $actual_shipping ) ) {
+			return $readback;
+		}
+		if ( '' === $locked_shipping || ! hash_equals( $locked_shipping, $actual_shipping ) ) {
+			return $readback;
+		}
+
+		$readback['shipping']       = $desired['shipping'];
+		$readback['state_revision'] = $desired['state_revision'];
+		return $readback;
 	}
 
 	/**

@@ -901,6 +901,39 @@ final class ExcelPricingSyncTest extends TestCase {
 		$this->assertSame( 'replayed', $replayed['status'] );
 	}
 
+	/**
+	 * The transaction may still see the pre-write shipping catalog through the
+	 * WordPress option cache even after every SQL option write was verified.
+	 */
+	public function test_transaction_readback_normalizes_only_exact_stale_shipping_cache(): void {
+		$service    = Digitalogic_Excel_Pricing_Sync::instance();
+		$reflection = new ReflectionClass( $service );
+		$read       = $reflection->getMethod( 'read_globals' );
+		$desired_m  = $reflection->getMethod( 'globals_from_settings' );
+		$normalize  = $reflection->getMethod( 'transaction_consistent_readback' );
+		$read->setAccessible( true );
+		$desired_m->setAccessible( true );
+		$normalize->setAccessible( true );
+
+		$current                 = $read->invoke( $service );
+		$settings                = $service->current_canonical_settings();
+		$settings['yuan_price']  = (int) $settings['yuan_price'] + 1;
+		$desired                 = $desired_m->invoke( $service, $settings );
+		$stale                   = $desired;
+		$stale['shipping']       = $current['shipping'];
+		$stale['state_revision'] = 'sha256:' . str_repeat( 'a', 64 );
+
+		$resolved = $normalize->invoke( $service, $stale, $desired, $current );
+		$this->assertSame( $desired['state_revision'], $resolved['state_revision'] );
+		$this->assertSame( $desired['shipping'], $resolved['shipping'] );
+
+		$unsafe             = $stale;
+		$unsafe['currency'] = $current['currency'];
+		$rejected           = $normalize->invoke( $service, $unsafe, $desired, $current );
+		$this->assertSame( $stale['state_revision'], $rejected['state_revision'] );
+		$this->assertSame( $current['shipping'], $rejected['shipping'] );
+	}
+
 	/** Missing workbook ACK rolls the website and recalculated prices back exactly once. */
 	public function test_ack_timeout_rolls_back_website_first_commit_and_is_restart_idempotent(): void {
 		$service                = Digitalogic_Excel_Pricing_Sync::instance();
