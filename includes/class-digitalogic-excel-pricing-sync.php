@@ -27,13 +27,24 @@ final class Digitalogic_Excel_Pricing_Sync {
 	public const LEGACY_PREVIEW_SCHEMA = 'digitalogic.excel-pricing-sync-preview/v1';
 	public const LEGACY_APPLY_SCHEMA   = 'digitalogic.excel-pricing-sync-apply/v1';
 
-	public const SETTINGS_OPTION = 'digitalogic_excel_pricing_sync_settings';
-	public const AUDIT_OPTION    = 'digitalogic_excel_pricing_sync_audit';
+	public const SETTINGS_OPTION            = 'digitalogic_excel_pricing_sync_settings';
+	public const AUDIT_OPTION               = 'digitalogic_excel_pricing_sync_audit';
+	public const CONFIRMATION_SCHEMA        = 'digitalogic.pricing-confirmation/v1';
+	public const ACK_SCHEMA                 = 'digitalogic.pricing-sync-ack/v1';
+	public const CONFIRMATIONS_OPTION       = 'digitalogic_pricing_confirmation_transactions_v1';
+	public const CONFIRMATION_OUTBOX_OPTION = 'digitalogic_pricing_confirmation_outbox_v1';
 
 	private const LOCK_NAME                 = 'digitalogic_excel_pricing_sync_v1';
 	private const LOCK_TIMEOUT_SECONDS      = 5;
 	private const PREVIEW_TTL_SECONDS       = 600;
 	private const APPLY_IDEMPOTENCY_SECONDS = 86400;
+	private const CONFIRMATION_TIMEOUT_HOOK = 'digitalogic_pricing_confirmation_timeout_v1';
+	private const ACK_TARGET_SECONDS        = 90;
+	private const ACK_RECOVERY_SECONDS      = 180;
+	private const ROLLBACK_LEASE_SECONDS    = 5;
+	private const MAX_CONFIRMATIONS         = 50;
+	private const REQUIRED_CONSUMER_ID      = 'digitalogic-price-calculator';
+	private const REQUIRED_CONSUMER_CHANNEL = 'excel-workbook';
 	private const MAX_AUDIT_ENTRIES         = 50;
 	private const MAX_RATE                  = 1000000000;
 	private const MAX_PROFIT_PERCENT        = '1000';
@@ -75,6 +86,22 @@ final class Digitalogic_Excel_Pricing_Sync {
 	 * @var array
 	 */
 	private $transaction_option_events = array();
+
+	/**
+	 * Suppress a second proposal while restoring a timed-out commit.
+	 *
+	 * @var int
+	 */
+	private $confirmation_rollback_depth = 0;
+
+	/**
+	 * Register durable confirmation recovery and timeout handling.
+	 */
+	private function __construct() {
+		add_action( self::CONFIRMATION_TIMEOUT_HOOK, array( $this, 'run_confirmation_timeout' ), 10, 1 );
+		add_action( 'init', array( $this, 'recover_pending_confirmation' ), 20 );
+		add_action( 'shutdown', array( $this, 'publish_confirmation_outbox' ), 1002 );
+	}
 
 	/**
 	 * Return the shared service.
@@ -176,6 +203,7 @@ final class Digitalogic_Excel_Pricing_Sync {
 			),
 			'price_rounding'   => $globals['price_rounding'],
 			'shipping'         => $globals['shipping'],
+			'confirmation'     => $this->current_confirmation_projection(),
 			'attribute_owners' => $this->attribute_owners(),
 		);
 	}
@@ -317,6 +345,11 @@ final class Digitalogic_Excel_Pricing_Sync {
 						}
 
 						$readback = $this->read_globals();
+						$readback = $this->transaction_consistent_readback(
+							$readback,
+							$desired,
+							$locked_current
+						);
 						if (
 							is_wp_error( $readback )
 							|| ! hash_equals( $desired['state_revision'], $readback['state_revision'] )
@@ -337,10 +370,29 @@ final class Digitalogic_Excel_Pricing_Sync {
 						if ( is_wp_error( $repricing ) ) {
 							return $repricing;
 						}
+						$confirmation = null;
+						if ( $changed && $this->confirmation_rollback_depth <= 0 ) {
+							$confirmation = $this->stage_confirmation_open_transaction(
+								$locked_current,
+								$readback,
+								$this->settings_from_globals( $locked_current ),
+								$this->settings_from_globals( $readback ),
+								$this->current_ack_consumer(),
+								array(
+									'client_id'  => 'digitalogic-wp',
+									'channel'    => $source,
+									'request_id' => $audit_key,
+								)
+							);
+							if ( is_wp_error( $confirmation ) ) {
+								return $confirmation;
+							}
+						}
 
 						return array(
-							'readback'  => $readback,
-							'repricing' => $repricing,
+							'readback'     => $readback,
+							'repricing'    => $repricing,
+							'confirmation' => $confirmation,
 						);
 					}
 				);
@@ -352,6 +404,10 @@ final class Digitalogic_Excel_Pricing_Sync {
 				Digitalogic_Pricing_Coordinator::instance()->publish_repricing_result(
 					$transaction['repricing']
 				);
+				if ( ! empty( $transaction['confirmation'] ) ) {
+					$this->schedule_confirmation_timeout( $transaction['confirmation'] );
+					$this->publish_confirmation_outbox();
+				}
 				$response_settings = $this->settings_from_globals( $transaction['readback'] );
 				if ( $changed ) {
 					$this->emit_after_apply(
@@ -363,7 +419,7 @@ final class Digitalogic_Excel_Pricing_Sync {
 					);
 				}
 
-				return array(
+				$result = array(
 					'schema'           => 'digitalogic.pricing-coordinator-result/v1',
 					'status'           => $changed ? 'applied' : 'reconciled',
 					'source'           => $source,
@@ -371,7 +427,17 @@ final class Digitalogic_Excel_Pricing_Sync {
 					'settings'         => $response_settings,
 					'pricing_results'  => $transaction['repricing'],
 					'settings_changed' => $changed,
+					'confirmation'     => $transaction['confirmation'] ?? $this->current_confirmation_projection(),
 				);
+				if ( $changed ) {
+					try {
+						do_action( 'digitalogic_excel_pricing_apply_committed', $result );
+					} catch ( Throwable $exception ) {
+						unset( $exception );
+					}
+				}
+
+				return $result;
 			}
 		);
 	}
@@ -484,23 +550,27 @@ final class Digitalogic_Excel_Pricing_Sync {
 			return $globals;
 		}
 
-		$page  = isset( $payload['page'] ) ? absint( $payload['page'] ) : 1;
-		$limit = isset( $payload['limit'] ) ? absint( $payload['limit'] ) : Digitalogic_Google_Sheets_Catalog::MAX_PAGE_SIZE;
-		$page  = max( 1, $page );
-		$limit = max( 1, min( Digitalogic_Google_Sheets_Catalog::MAX_PAGE_SIZE, $limit ) );
+		$projection = isset( $payload['projection'] ) ? (string) $payload['projection'] : 'catalog';
+		$catalog    = null;
+		if ( 'settings' !== $projection ) {
+			$page  = isset( $payload['page'] ) ? absint( $payload['page'] ) : 1;
+			$limit = isset( $payload['limit'] ) ? absint( $payload['limit'] ) : Digitalogic_Google_Sheets_Catalog::MAX_PAGE_SIZE;
+			$page  = max( 1, $page );
+			$limit = max( 1, min( Digitalogic_Google_Sheets_Catalog::MAX_PAGE_SIZE, $limit ) );
 
-		$catalog = Digitalogic_Google_Sheets_Catalog::instance()->get_page(
-			array(
-				'dataset'        => 'reconciled_products',
-				'locale'         => 'fa',
-				'page'           => $page,
-				'limit'          => $limit,
-				'source_id'      => $source_context['id'],
-				'source_dataset' => $source_context['dataset'],
-			)
-		);
-		if ( is_wp_error( $catalog ) ) {
-			return $catalog;
+			$catalog = Digitalogic_Google_Sheets_Catalog::instance()->get_page(
+				array(
+					'dataset'        => 'reconciled_products',
+					'locale'         => 'fa',
+					'page'           => $page,
+					'limit'          => $limit,
+					'source_id'      => $source_context['id'],
+					'source_dataset' => $source_context['dataset'],
+				)
+			);
+			if ( is_wp_error( $catalog ) ) {
+				return $catalog;
+			}
 		}
 
 		$warnings       = array();
@@ -509,7 +579,7 @@ final class Digitalogic_Excel_Pricing_Sync {
 			$warnings[] = $source_warning;
 		}
 
-		return array(
+		$response = array(
 			'schema'             => self::STATE_SCHEMA,
 			'state_revision'     => $globals['state_revision'],
 			'generated_at'       => $this->now_iso8601(),
@@ -518,6 +588,7 @@ final class Digitalogic_Excel_Pricing_Sync {
 			'channel'            => $payload['channel'],
 			'request_id'         => $payload['request_id'],
 			'warnings'           => $warnings,
+			'confirmation'       => $this->current_confirmation_projection(),
 			'settings'           => array(
 				'dollar_price'              => $globals['currency']['dollar_price'],
 				'yuan_price'                => $globals['currency']['yuan_price'],
@@ -554,8 +625,12 @@ final class Digitalogic_Excel_Pricing_Sync {
 				),
 			),
 			'attribute_owners'   => $this->attribute_owners(),
-			'catalog'            => $catalog,
 		);
+		if ( null !== $catalog ) {
+			$response['catalog'] = $catalog;
+		}
+
+		return $response;
 	}
 
 	/**
@@ -801,6 +876,238 @@ final class Digitalogic_Excel_Pricing_Sync {
 	}
 
 	/**
+	 * Acknowledge that the configured workbook applied the exact website commit.
+	 *
+	 * Authentication remains source scoped in authorize(); this method then
+	 * binds the durable acknowledgement to the configured consumer identity,
+	 * transaction, committed state revision, complete value, and value digest.
+	 *
+	 * @param WP_REST_Request $request Current request.
+	 * @return array|WP_Error
+	 */
+	public function ack( WP_REST_Request $request ) {
+		$payload = $request->get_json_params();
+		if ( ! is_array( $payload ) || array_is_list( $payload ) ) {
+			return $this->error(
+				'digitalogic_pricing_confirmation_ack_invalid',
+				'The acknowledgement body must be a JSON object.',
+				400
+			);
+		}
+		$allowed = array(
+			'schema',
+			'schema_version',
+			'operation',
+			'transaction_id',
+			'consumer_id',
+			'channel',
+			'source',
+			'committed_state_revision',
+			'confirmed_settings',
+			'confirmed_settings_digest',
+			'idempotency_key',
+		);
+		$unknown = array_diff( array_keys( $payload ), $allowed );
+		if ( $unknown ) {
+			return $this->error(
+				'digitalogic_pricing_confirmation_ack_unknown_fields',
+				'The acknowledgement contains unsupported fields.',
+				400,
+				array( 'fields' => array_values( $unknown ) )
+			);
+		}
+		if (
+			self::ACK_SCHEMA !== ( $payload['schema'] ?? null )
+			|| ( isset( $payload['schema_version'] ) && 1 !== (int) $payload['schema_version'] )
+			|| ( isset( $payload['operation'] ) && 'ack' !== $payload['operation'] )
+		) {
+			return $this->error(
+				'digitalogic_pricing_confirmation_ack_schema_invalid',
+				'The acknowledgement schema or operation is not supported.',
+				422
+			);
+		}
+
+		$transaction_id     = is_string( $payload['transaction_id'] ?? null )
+			? trim( $payload['transaction_id'] )
+			: '';
+		$consumer_id        = is_string( $payload['consumer_id'] ?? null )
+			? trim( $payload['consumer_id'] )
+			: '';
+		$channel            = is_string( $payload['channel'] ?? null )
+			? trim( $payload['channel'] )
+			: '';
+		$committed_revision = is_string( $payload['committed_state_revision'] ?? null )
+			? trim( $payload['committed_state_revision'] )
+			: '';
+		$submitted_digest   = is_string( $payload['confirmed_settings_digest'] ?? null )
+			? trim( $payload['confirmed_settings_digest'] )
+			: '';
+		$idempotency_key    = is_string( $payload['idempotency_key'] ?? null )
+			? trim( $payload['idempotency_key'] )
+			: '';
+		$header_key         = trim( (string) $request->get_header( 'idempotency-key' ) );
+		if (
+			1 !== preg_match( '/\Aptx_[a-f0-9]{32}\z/D', $transaction_id )
+			|| ! $this->is_revision( $committed_revision )
+			|| ! $this->is_revision( $submitted_digest )
+			|| strlen( $idempotency_key ) < 8
+			|| strlen( $idempotency_key ) > 128
+			|| ( '' !== $header_key && ! hash_equals( $idempotency_key, $header_key ) )
+		) {
+			return $this->error(
+				'digitalogic_pricing_confirmation_ack_invalid',
+				'The acknowledgement identifiers are invalid.',
+				400
+			);
+		}
+		$source = $this->normalize_source( $payload['source'] ?? null );
+		if ( is_wp_error( $source ) ) {
+			return $source;
+		}
+		$confirmed_settings = $this->normalize_settings( $payload['confirmed_settings'] ?? null );
+		if ( is_wp_error( $confirmed_settings ) ) {
+			return $confirmed_settings;
+		}
+		$computed_digest = $this->revision( $confirmed_settings );
+		if ( ! hash_equals( $computed_digest, $submitted_digest ) ) {
+			return $this->error(
+				'digitalogic_pricing_confirmation_ack_digest_mismatch',
+				'The acknowledged settings do not match their digest.',
+				409
+			);
+		}
+
+		$ack        = array(
+			'transaction_id'            => $transaction_id,
+			'consumer_id'               => $consumer_id,
+			'channel'                   => $channel,
+			'source'                    => $source,
+			'committed_state_revision'  => $committed_revision,
+			'confirmed_settings'        => $confirmed_settings,
+			'confirmed_settings_digest' => $computed_digest,
+			'idempotency_key'           => $idempotency_key,
+		);
+		$ack_digest = $this->revision( $ack );
+
+		$result = $this->with_lock(
+			function () use ( $ack, $ack_digest ) {
+				return $this->run_transaction(
+					function () use ( $ack, $ack_digest ) {
+						$row          = $this->read_option_db( self::CONFIRMATIONS_OPTION, true );
+						$ledger       = is_array( $row['value'] ?? null ) ? $row['value'] : array();
+						$transactions = is_array( $ledger['transactions'] ?? null ) ? $ledger['transactions'] : array();
+						$id           = $ack['transaction_id'];
+						$record       = is_array( $transactions[ $id ] ?? null ) ? $transactions[ $id ] : null;
+						if ( ! is_array( $record ) ) {
+							return $this->error(
+								'digitalogic_pricing_confirmation_not_found',
+								'The pricing confirmation transaction does not exist.',
+								404
+							);
+						}
+						if ( 'acknowledged' === ( $record['status'] ?? '' ) ) {
+							if (
+								hash_equals( (string) ( $record['ack_idempotency_key'] ?? '' ), $ack['idempotency_key'] )
+								&& hash_equals( (string) ( $record['ack_digest'] ?? '' ), $ack_digest )
+							) {
+								$projection           = $this->confirmation_projection( $record );
+								$projection['status'] = 'replayed';
+								return $projection;
+							}
+
+							return $this->error(
+								'digitalogic_pricing_confirmation_ack_conflict',
+								'This transaction was acknowledged with different content.',
+								409
+							);
+						}
+						if ( 'awaiting_ack' !== ( $record['status'] ?? '' ) ) {
+							return $this->error(
+								'digitalogic_pricing_confirmation_ack_closed',
+								'This pricing confirmation can no longer be acknowledged.',
+								409,
+								array( 'status' => (string) ( $record['status'] ?? 'unknown' ) )
+							);
+						}
+						if ( time() > (int) ( $record['ack_deadline'] ?? 0 ) ) {
+							return $this->error(
+								'digitalogic_pricing_confirmation_ack_expired',
+								'The workbook acknowledgement deadline has expired.',
+								409
+							);
+						}
+						$consumer = is_array( $record['consumer'] ?? null ) ? $record['consumer'] : array();
+						$matches  = self::REQUIRED_CONSUMER_ID === $ack['consumer_id']
+							&& self::REQUIRED_CONSUMER_CHANNEL === $ack['channel']
+							&& hash_equals( (string) ( $consumer['consumer_id'] ?? '' ), $ack['consumer_id'] )
+							&& hash_equals( (string) ( $consumer['channel'] ?? '' ), $ack['channel'] )
+							&& 'pricing_settings_ack' === (string) ( $consumer['capability'] ?? '' )
+							&& hash_equals( (string) ( $consumer['source_id'] ?? '' ), $ack['source']['id'] )
+							&& hash_equals( (string) ( $consumer['dataset'] ?? '' ), $ack['source']['dataset'] )
+							&& hash_equals( (string) $record['committed_revision'], $ack['committed_state_revision'] )
+							&& hash_equals( (string) $record['committed_settings_digest'], $ack['confirmed_settings_digest'] )
+							&& hash_equals( $this->revision( $record['committed_settings'] ), $this->revision( $ack['confirmed_settings'] ) );
+						if ( ! $matches ) {
+							return $this->error(
+								'digitalogic_pricing_confirmation_ack_mismatch',
+								'The acknowledgement does not match the configured workbook or website commit.',
+								409
+							);
+						}
+						$current = $this->read_globals();
+						if ( is_wp_error( $current ) ) {
+							return $current;
+						}
+						if ( ! hash_equals( (string) $record['committed_revision'], $current['state_revision'] ) ) {
+							return $this->error(
+								'digitalogic_pricing_confirmation_state_conflict',
+								'The website pricing state changed before acknowledgement.',
+								409,
+								array( 'current_state_revision' => $current['state_revision'] )
+							);
+						}
+
+						$record['status']              = 'acknowledged';
+						$record['acknowledged_at']     = time();
+						$record['ack_idempotency_key'] = $ack['idempotency_key'];
+						$record['ack_digest']          = $ack_digest;
+						$transactions[ $id ]           = $record;
+						$ledger['active']              = null;
+						$ledger['transactions']        = $transactions;
+						$stored                        = $this->store_option_verified( self::CONFIRMATIONS_OPTION, $ledger );
+						if ( is_wp_error( $stored ) ) {
+							return $stored;
+						}
+
+						return $this->confirmation_projection( $record );
+					}
+				);
+			}
+		);
+		if ( is_wp_error( $result ) ) {
+			if ( 'digitalogic_pricing_confirmation_ack_expired' === $result->get_error_code() ) {
+				$this->schedule_confirmation_timeout(
+					array(
+						'transaction_id' => $transaction_id,
+						'ack_deadline'   => time(),
+					)
+				);
+			}
+			return $result;
+		}
+
+		wp_clear_scheduled_hook( self::CONFIRMATION_TIMEOUT_HOOK, array( $transaction_id ) );
+		try {
+			do_action( 'digitalogic_pricing_confirmation_acknowledged', $result );
+		} catch ( Throwable $exception ) {
+			unset( $exception );
+		}
+
+		return $result;
+	}
+
+	/**
 	 * Build a preview while holding the synchronization lock.
 	 *
 	 * @param array  $source                    Exact current source.
@@ -965,6 +1272,11 @@ final class Digitalogic_Excel_Pricing_Sync {
 					if ( is_wp_error( $readback ) ) {
 						return $readback;
 					}
+					$readback = $this->transaction_consistent_readback(
+						$readback,
+						$desired,
+						$locked_current
+					);
 					if ( ! hash_equals( $desired['state_revision'], $readback['state_revision'] ) ) {
 						return $this->error(
 							'digitalogic_excel_sync_readback_failed',
@@ -984,10 +1296,24 @@ final class Digitalogic_Excel_Pricing_Sync {
 					if ( is_wp_error( $repricing ) ) {
 						return $repricing;
 					}
+					$confirmation = $this->stage_confirmation_open_transaction(
+						$locked_current,
+						$readback,
+						$this->settings_from_globals( $locked_current ),
+						$this->settings_from_globals( $readback ),
+						$this->current_ack_consumer(),
+						$request_context,
+						$idempotency_key,
+						$preview_digest
+					);
+					if ( is_wp_error( $confirmation ) ) {
+						return $confirmation;
+					}
 
 					return array(
-						'readback'  => $readback,
-						'repricing' => $repricing,
+						'readback'     => $readback,
+						'repricing'    => $repricing,
+						'confirmation' => $confirmation,
 					);
 				}
 			);
@@ -996,12 +1322,14 @@ final class Digitalogic_Excel_Pricing_Sync {
 				return $result;
 			}
 
-			$readback  = $result['readback'];
-			$repricing = $result['repricing'];
+			$readback     = $result['readback'];
+			$repricing    = $result['repricing'];
+			$confirmation = $result['confirmation'] ?? null;
 
 			$repricing_performed = true;
 		} elseif ( $companion_completion ) {
-			$readback  = $current;
+			$readback     = $current;
+			$confirmation = null;
 			$repricing = array(
 				'updated_products' => 0,
 				'deferred_missing' => 0,
@@ -1009,7 +1337,8 @@ final class Digitalogic_Excel_Pricing_Sync {
 				'sources'          => array(),
 			);
 		} else {
-			$readback = $current;
+			$readback     = $current;
+			$confirmation = null;
 			$result   = $this->run_coordinated_pricing_transaction(
 				function () use ( $settings, $current ) {
 					return Digitalogic_Pricing_Coordinator::instance()->reprice_open_transaction(
@@ -1099,6 +1428,7 @@ final class Digitalogic_Excel_Pricing_Sync {
 			'expires_at'      => gmdate( 'c', (int) $preview['expires_at'] ),
 			'warnings'        => $warnings,
 			'product_results' => $repricing['sources'],
+			'confirmation'    => $confirmation ?? $this->current_confirmation_projection(),
 		);
 
 		if ( $repricing_performed ) {
@@ -1106,6 +1436,10 @@ final class Digitalogic_Excel_Pricing_Sync {
 		}
 		if ( $changed ) {
 			$this->emit_after_apply( $source, $expected_state_revision, $current, $readback, $response_settings, $request_context );
+			if ( ! empty( $confirmation ) ) {
+				$this->schedule_confirmation_timeout( $confirmation );
+				$this->publish_confirmation_outbox();
+			}
 		}
 
 		return $response;
@@ -1136,6 +1470,7 @@ final class Digitalogic_Excel_Pricing_Sync {
 			'page',
 			'limit',
 			'locale',
+			'projection',
 			'client_id',
 			'channel',
 			'request_id',
@@ -1199,6 +1534,19 @@ final class Digitalogic_Excel_Pricing_Sync {
 			return $this->error(
 				'digitalogic_excel_sync_locale_invalid',
 				'خروجی این قرارداد فقط به زبان فارسی ارائه می‌شود.',
+				400
+			);
+		}
+		if (
+			isset( $payload['projection'] )
+			&& (
+				'state' !== $operation
+				|| ! in_array( $payload['projection'], array( 'catalog', 'settings' ), true )
+			)
+		) {
+			return $this->error(
+				'digitalogic_excel_sync_projection_invalid',
+				'نوع خروجی state معتبر نیست.',
 				400
 			);
 		}
@@ -2248,12 +2596,58 @@ final class Digitalogic_Excel_Pricing_Sync {
 				'rounding_digits' => $settings['price_rounding_digits'],
 				'rounding_mode'   => $settings['price_rounding_mode'],
 				'revision'        => $rounding_revision,
-				'bounds'          => array( 'minimum' => 0, 'maximum' => 9 ),
+				'bounds'          => array(
+					'minimum' => 0,
+					'maximum' => 9,
+				),
 				'warnings'        => array(),
 			),
 			'shipping'        => $shipping,
 			'markup_identity' => $markup_identity,
 		);
+	}
+
+	/**
+	 * Resolve the one safe readback difference caused by WordPress option cache.
+	 *
+	 * Every option has already been written and verified directly against the
+	 * transaction's database connection at this point. The shipping integration
+	 * catalog, however, uses get_option() and can still expose the pre-transaction
+	 * currency rate until commit invalidates that process cache. Accept that
+	 * representation only when all independently read currency, markup, and
+	 * rounding revisions match the desired state and shipping is exactly the
+	 * locked pre-transaction revision. Any other difference remains blocking.
+	 *
+	 * @param array|WP_Error $readback      Transaction readback.
+	 * @param array          $desired       Deterministic desired projection.
+	 * @param array          $locked_current Pre-transaction projection.
+	 * @return array|WP_Error
+	 */
+	private function transaction_consistent_readback( $readback, $desired, $locked_current ) {
+		if ( is_wp_error( $readback ) || ! is_array( $readback ) ) {
+			return $readback;
+		}
+		if (
+			! hash_equals( (string) $desired['currency']['revision'], (string) $readback['currency']['revision'] )
+			|| ! hash_equals( (string) $desired['default_markup']['revision'], (string) $readback['default_markup']['revision'] )
+			|| ! hash_equals( (string) $desired['price_rounding']['revision'], (string) $readback['price_rounding']['revision'] )
+		) {
+			return $readback;
+		}
+
+		$actual_shipping  = (string) ( $readback['shipping']['catalog_revision'] ?? '' );
+		$desired_shipping = (string) ( $desired['shipping']['catalog_revision'] ?? '' );
+		$locked_shipping  = (string) ( $locked_current['shipping']['catalog_revision'] ?? '' );
+		if ( hash_equals( $desired_shipping, $actual_shipping ) ) {
+			return $readback;
+		}
+		if ( '' === $locked_shipping || ! hash_equals( $locked_shipping, $actual_shipping ) ) {
+			return $readback;
+		}
+
+		$readback['shipping']       = $desired['shipping'];
+		$readback['state_revision'] = $desired['state_revision'];
+		return $readback;
 	}
 
 	/**
@@ -3189,6 +3583,596 @@ final class Digitalogic_Excel_Pricing_Sync {
 				}
 			} catch ( Throwable $exception ) {
 				unset( $exception );
+			}
+		}
+	}
+
+	/** Return the one explicitly configured workbook consumer allowed to ACK. */
+	private function current_ack_consumer() {
+		$scopes = Digitalogic_Patris_Feed::instance()->get_product_sync_source_scopes();
+		if ( 1 !== count( $scopes ) ) {
+			return $this->error(
+				'digitalogic_pricing_confirmation_consumer_ambiguous',
+				'Exactly one source-scoped Excel pricing consumer must be configured.',
+				409
+			);
+		}
+		$scope = reset( $scopes );
+
+		return array(
+			'consumer_id' => self::REQUIRED_CONSUMER_ID,
+			'channel'     => self::REQUIRED_CONSUMER_CHANNEL,
+			'capability'  => 'pricing_settings_ack',
+			'source_id'   => (string) $scope['id'],
+			'dataset'     => (string) $scope['dataset'],
+		);
+	}
+
+	/**
+	 * Stage the durable commit/ACK transaction and event before SQL COMMIT.
+	 *
+	 * @param array  $previous           Previous canonical state.
+	 * @param array  $committed          Committed canonical state.
+	 * @param array  $previous_settings  Previous canonical settings.
+	 * @param array  $committed_settings Committed canonical settings.
+	 * @param array  $consumer           Required configured consumer.
+	 * @param array  $request_context    Nonsecret mutation context.
+	 * @param string $idempotency_key    Optional apply idempotency key.
+	 * @param string $request_hash       Optional apply request digest.
+	 * @return array|WP_Error
+	 */
+	private function stage_confirmation_open_transaction(
+		$previous,
+		$committed,
+		$previous_settings,
+		$committed_settings,
+		$consumer,
+		$request_context,
+		$idempotency_key = '',
+		$request_hash = ''
+	) {
+		if ( is_wp_error( $consumer ) ) {
+			return $consumer;
+		}
+		if ( ! $this->transaction_active ) {
+			return $this->error(
+				'digitalogic_pricing_confirmation_transaction_required',
+				'Pricing confirmation staging requires the active pricing transaction.',
+				500
+			);
+		}
+		$row          = $this->read_option_db( self::CONFIRMATIONS_OPTION, true );
+		$ledger       = is_array( $row['value'] ?? null ) ? $row['value'] : array();
+		$transactions = is_array( $ledger['transactions'] ?? null ) ? $ledger['transactions'] : array();
+		$active_id    = is_string( $ledger['active'] ?? null ) ? $ledger['active'] : '';
+		if ( '' !== $active_id && 'awaiting_ack' === ( $transactions[ $active_id ]['status'] ?? '' ) ) {
+			$active = $transactions[ $active_id ];
+			if (
+				hash_equals( (string) $active['committed_revision'], (string) $committed['state_revision'] )
+				&& '' !== (string) $idempotency_key
+				&& hash_equals( (string) ( $active['apply_idempotency_key'] ?? '' ), (string) $idempotency_key )
+			) {
+				return $this->confirmation_projection( $active );
+			}
+
+			return $this->error(
+				'digitalogic_pricing_confirmation_pending',
+				'A prior website pricing commit is still awaiting the configured Excel consumer.',
+				409,
+				array( 'transaction_id' => $active_id )
+			);
+		}
+
+		$now                             = time();
+		$request_context                 = is_array( $request_context ) ? $request_context : array();
+		$sequence                        = max( 1, (int) ( $ledger['next_sequence'] ?? 1 ) );
+		$seed                            = implode(
+			'|',
+			array(
+				(string) $previous['state_revision'],
+				(string) $committed['state_revision'],
+				(string) ( $request_context['request_id'] ?? 'internal' ),
+				(string) $idempotency_key,
+				(string) $sequence,
+			)
+		);
+		$transaction_id                  = 'ptx_' . substr( hash( 'sha256', $seed ), 0, 32 );
+		$record                          = array(
+			'schema'                    => self::CONFIRMATION_SCHEMA,
+			'transaction_id'            => $transaction_id,
+			'status'                    => 'awaiting_ack',
+			'previous_revision'         => (string) $previous['state_revision'],
+			'committed_revision'        => (string) $committed['state_revision'],
+			'previous_settings'         => $previous_settings,
+			'committed_settings'        => $committed_settings,
+			'previous_settings_digest'  => $this->revision( $previous_settings ),
+			'committed_settings_digest' => $this->revision( $committed_settings ),
+			'consumer'                  => $consumer,
+			'origin'                    => array(
+				'client_id'  => (string) ( $request_context['client_id'] ?? 'digitalogic-wp' ),
+				'channel'    => (string) ( $request_context['channel'] ?? 'internal' ),
+				'request_id' => (string) ( $request_context['request_id'] ?? 'internal' ),
+			),
+			'apply_idempotency_key'     => (string) $idempotency_key,
+			'apply_request_hash'        => (string) $request_hash,
+			'committed_at'              => $now,
+			'ack_deadline'              => $now + self::ACK_TARGET_SECONDS,
+			'recovery_deadline'         => $now + self::ACK_RECOVERY_SECONDS,
+		);
+		$transactions[ $transaction_id ] = $record;
+		$transaction_count               = count( $transactions );
+		while ( $transaction_count > self::MAX_CONFIRMATIONS ) {
+			$oldest = array_key_first( $transactions );
+			if ( $oldest === $transaction_id ) {
+				break;
+			}
+			unset( $transactions[ $oldest ] );
+			--$transaction_count;
+		}
+		$ledger = array(
+			'schema'        => self::CONFIRMATION_SCHEMA,
+			'active'        => $transaction_id,
+			'next_sequence' => $sequence + 1,
+			'transactions'  => $transactions,
+		);
+		$stored = $this->store_option_verified( self::CONFIRMATIONS_OPTION, $ledger );
+		if ( is_wp_error( $stored ) ) {
+			return $stored;
+		}
+		$event  = $this->confirmation_event( 'committed', $record );
+		$staged = $this->stage_confirmation_event_open_transaction( $event );
+		if ( is_wp_error( $staged ) ) {
+			return $staged;
+		}
+
+		return $this->confirmation_projection( $record );
+	}
+
+	/**
+	 * Store one durable confirmation event in the active transaction.
+	 *
+	 * @param array $event Nonsecret companion event.
+	 * @return array|WP_Error
+	 */
+	private function stage_confirmation_event_open_transaction( $event ) {
+		$row                                   = $this->read_option_db( self::CONFIRMATION_OUTBOX_OPTION, true );
+		$outbox                                = is_array( $row['value'] ?? null ) ? $row['value'] : array();
+		$outbox[ (string) $event['event_id'] ] = $event;
+
+		return $this->store_option_verified( self::CONFIRMATION_OUTBOX_OPTION, $outbox );
+	}
+
+	/**
+	 * Build the exact companion event required to apply or restore the workbook.
+	 *
+	 * @param string $phase  Commit or rollback phase.
+	 * @param array  $record Durable confirmation record.
+	 * @return array
+	 */
+	private function confirmation_event( $phase, $record ) {
+		$phase                     = 'rolled_back' === $phase ? 'rolled_back' : 'committed';
+		$event_id                  = 'sha256:' . hash( 'sha256', $record['transaction_id'] . '|' . $phase );
+		$confirmed_settings        = 'rolled_back' === $phase
+			? ( $record['restored_settings'] ?? $record['previous_settings'] )
+			: $record['committed_settings'];
+		$confirmed_settings_digest = 'rolled_back' === $phase
+			? ( $record['restored_settings_digest'] ?? $record['previous_settings_digest'] )
+			: $record['committed_settings_digest'];
+
+		return array(
+			'schema'                    => 'digitalogic.pricing-confirmation-event/v1',
+			'event_id'                  => $event_id,
+			'event_type'                => 'pricing.settings.' . $phase,
+			'transaction_id'            => (string) $record['transaction_id'],
+			'previous_revision'         => (string) $record['previous_revision'],
+			'committed_revision'        => (string) $record['committed_revision'],
+			'current_revision'          => 'rolled_back' === $phase
+				? (string) ( $record['restored_revision'] ?? $record['previous_revision'] )
+				: (string) $record['committed_revision'],
+			'confirmed_settings'        => $confirmed_settings,
+			'confirmed_settings_digest' => (string) $confirmed_settings_digest,
+			'ack_deadline'              => (int) $record['ack_deadline'],
+			'ack_path'                  => '/wp-json/digitalogic/pricing/sync/ack',
+			'consumer_id'               => (string) $record['consumer']['consumer_id'],
+			'channel'                   => (string) $record['consumer']['channel'],
+			'source'                    => array(
+				'id'      => (string) $record['consumer']['source_id'],
+				'dataset' => (string) $record['consumer']['dataset'],
+			),
+			'reason'                    => 'rolled_back' === $phase ? 'ack_timeout' : null,
+		);
+	}
+
+	/** Return bounded confirmation state for APIs and callers. */
+	private function current_confirmation_projection() {
+		$ledger    = get_option( self::CONFIRMATIONS_OPTION, array() );
+		$active_id = is_array( $ledger ) && is_string( $ledger['active'] ?? null ) ? $ledger['active'] : '';
+		$record    = '' !== $active_id && is_array( $ledger['transactions'][ $active_id ] ?? null )
+			? $ledger['transactions'][ $active_id ]
+			: null;
+
+		return is_array( $record )
+			? $this->confirmation_projection( $record )
+			: array(
+				'schema' => self::CONFIRMATION_SCHEMA,
+				'status' => 'clear',
+			);
+	}
+
+	/**
+	 * Strip private ledger data from one confirmation record.
+	 *
+	 * @param array $record Durable confirmation record.
+	 * @return array
+	 */
+	private function confirmation_projection( $record ) {
+		return array(
+			'schema'                    => self::CONFIRMATION_SCHEMA,
+			'status'                    => (string) ( $record['status'] ?? 'clear' ),
+			'transaction_id'            => (string) ( $record['transaction_id'] ?? '' ),
+			'previous_revision'         => (string) ( $record['previous_revision'] ?? '' ),
+			'committed_revision'        => (string) ( $record['committed_revision'] ?? '' ),
+			'current_revision'          => (string) ( $record['restored_revision'] ?? $record['committed_revision'] ?? '' ),
+			'committed_settings_digest' => (string) ( $record['committed_settings_digest'] ?? '' ),
+			'ack_deadline'              => (int) ( $record['ack_deadline'] ?? 0 ),
+			'recovery_deadline'         => (int) ( $record['recovery_deadline'] ?? 0 ),
+			'ack_path'                  => '/wp-json/digitalogic/pricing/sync/ack',
+			'consumer_id'               => (string) ( $record['consumer']['consumer_id'] ?? '' ),
+			'channel'                   => (string) ( $record['consumer']['channel'] ?? '' ),
+		);
+	}
+
+	/**
+	 * Schedule the exact pending transaction once.
+	 *
+	 * @param array $confirmation Bounded confirmation projection.
+	 * @return bool
+	 */
+	private function schedule_confirmation_timeout( $confirmation ) {
+		$transaction_id = (string) ( $confirmation['transaction_id'] ?? '' );
+		$deadline       = (int) ( $confirmation['ack_deadline'] ?? 0 );
+		if ( '' === $transaction_id || $deadline <= 0 ) {
+			return false;
+		}
+		$args = array( $transaction_id );
+		if ( false !== wp_next_scheduled( self::CONFIRMATION_TIMEOUT_HOOK, $args ) ) {
+			return true;
+		}
+
+		return true === wp_schedule_single_event(
+			max( time() + 1, $deadline ),
+			self::CONFIRMATION_TIMEOUT_HOOK,
+			$args,
+			true
+		);
+	}
+
+	/** Repair a missing timeout schedule after process/plugin restart. */
+	public function recover_pending_confirmation() {
+		$confirmation = $this->current_confirmation_projection();
+		if ( in_array( (string) ( $confirmation['status'] ?? '' ), array( 'awaiting_ack', 'rolling_back', 'rollback_pending', 'recovery_required' ), true ) ) {
+			$this->schedule_confirmation_timeout( $confirmation );
+		}
+	}
+
+	/**
+	 * Roll back one unacknowledged website-first commit under durable CAS.
+	 *
+	 * @param string $transaction_id Durable transaction identifier.
+	 * @return array|WP_Error
+	 */
+	public function run_confirmation_timeout( $transaction_id ) {
+		$transaction_id = is_string( $transaction_id ) ? trim( $transaction_id ) : '';
+		if ( 1 !== preg_match( '/\Aptx_[a-f0-9]{32}\z/D', $transaction_id ) ) {
+			return $this->error(
+				'digitalogic_pricing_confirmation_id_invalid',
+				'The pricing confirmation transaction identifier is invalid.',
+				400
+			);
+		}
+
+		$claim = $this->claim_confirmation_rollback( $transaction_id );
+		if ( is_wp_error( $claim ) ) {
+			return $claim;
+		}
+		if ( empty( $claim['claimed'] ) ) {
+			if ( ! empty( $claim['retry_at'] ) ) {
+				$this->reschedule_confirmation_timeout( $transaction_id, (int) $claim['retry_at'] );
+			}
+			return $claim['confirmation'] ?? $claim;
+		}
+
+		$record           = $claim['record'];
+		$owner            = (string) $claim['owner'];
+		$current_settings = $this->current_canonical_settings();
+		if ( is_wp_error( $current_settings ) ) {
+			$this->mark_confirmation_rollback_pending( $transaction_id, $owner, $current_settings->get_error_code() );
+			$this->reschedule_confirmation_timeout( $transaction_id, time() + 2 );
+			return $current_settings;
+		}
+		$restore_settings                              = $record['previous_settings'];
+		$restore_settings['shipping_catalog_revision'] = $current_settings['shipping_catalog_revision'];
+
+		++$this->confirmation_rollback_depth;
+		try {
+			$restored = $this->apply_internal_settings(
+				$restore_settings,
+				'excel_ack_timeout_rollback',
+				(string) $record['committed_revision']
+			);
+		} finally {
+			--$this->confirmation_rollback_depth;
+		}
+		if ( is_wp_error( $restored ) ) {
+			$this->mark_confirmation_rollback_pending( $transaction_id, $owner, $restored->get_error_code() );
+			$this->reschedule_confirmation_timeout( $transaction_id, time() + 2 );
+			return $restored;
+		}
+
+		$finished = $this->finalize_confirmation_rollback(
+			$transaction_id,
+			$owner,
+			(string) $restored['state_revision'],
+			$restored['settings'],
+			$restored['pricing_results'] ?? array()
+		);
+		if ( is_wp_error( $finished ) ) {
+			$this->reschedule_confirmation_timeout( $transaction_id, time() + 2 );
+			return $finished;
+		}
+
+		wp_clear_scheduled_hook( self::CONFIRMATION_TIMEOUT_HOOK, array( $transaction_id ) );
+		$this->publish_confirmation_outbox();
+		return $finished;
+	}
+
+	/**
+	 * Claim rollback ownership, or finish a crash-recovered rollback atomically.
+	 *
+	 * @param string $transaction_id Durable transaction identifier.
+	 * @return array|WP_Error
+	 */
+	private function claim_confirmation_rollback( $transaction_id ) {
+		return $this->with_lock(
+			function () use ( $transaction_id ) {
+				return $this->run_transaction(
+					function () use ( $transaction_id ) {
+						$row          = $this->read_option_db( self::CONFIRMATIONS_OPTION, true );
+						$ledger       = is_array( $row['value'] ?? null ) ? $row['value'] : array();
+						$transactions = is_array( $ledger['transactions'] ?? null ) ? $ledger['transactions'] : array();
+						$record       = is_array( $transactions[ $transaction_id ] ?? null ) ? $transactions[ $transaction_id ] : null;
+						if ( ! is_array( $record ) ) {
+							return $this->error(
+								'digitalogic_pricing_confirmation_not_found',
+								'The pricing confirmation transaction does not exist.',
+								404
+							);
+						}
+						$status = (string) ( $record['status'] ?? '' );
+						if ( in_array( $status, array( 'acknowledged', 'rolled_back' ), true ) ) {
+							return array(
+								'claimed'      => false,
+								'confirmation' => $this->confirmation_projection( $record ),
+							);
+						}
+						$now = time();
+						if ( 'awaiting_ack' === $status && $now < (int) $record['ack_deadline'] ) {
+							return array(
+								'claimed'      => false,
+								'retry_at'     => (int) $record['ack_deadline'],
+								'confirmation' => $this->confirmation_projection( $record ),
+							);
+						}
+						if (
+							'rolling_back' === $status
+							&& $now < (int) ( $record['rollback_lease_until'] ?? 0 )
+						) {
+							return array(
+								'claimed'      => false,
+								'retry_at'     => (int) $record['rollback_lease_until'],
+								'confirmation' => $this->confirmation_projection( $record ),
+							);
+						}
+
+						$current = $this->read_globals();
+						if ( is_wp_error( $current ) ) {
+							return $current;
+						}
+						if ( hash_equals( (string) $record['previous_revision'], $current['state_revision'] ) ) {
+							$record['status']                   = 'rolled_back';
+							$record['restored_revision']        = $current['state_revision'];
+							$record['restored_settings']        = $this->settings_from_globals( $current );
+							$record['restored_settings_digest'] = $this->revision( $record['restored_settings'] );
+							$record['rolled_back_at']           = $now;
+							$transactions[ $transaction_id ]    = $record;
+							$ledger['active']                   = null;
+							$ledger['transactions']             = $transactions;
+							$stored                             = $this->store_option_verified( self::CONFIRMATIONS_OPTION, $ledger );
+							if ( is_wp_error( $stored ) ) {
+								return $stored;
+							}
+							$staged = $this->stage_confirmation_event_open_transaction( $this->confirmation_event( 'rolled_back', $record ) );
+							if ( is_wp_error( $staged ) ) {
+								return $staged;
+							}
+
+							return array(
+								'claimed'      => false,
+								'confirmation' => $this->confirmation_projection( $record ),
+							);
+						}
+						if ( ! hash_equals( (string) $record['committed_revision'], $current['state_revision'] ) ) {
+							$record['status']                = 'recovery_required';
+							$record['last_error']            = 'website_state_cas_conflict';
+							$transactions[ $transaction_id ] = $record;
+							$ledger['transactions']          = $transactions;
+							$stored                          = $this->store_option_verified( self::CONFIRMATIONS_OPTION, $ledger );
+							if ( is_wp_error( $stored ) ) {
+								return $stored;
+							}
+
+							return $this->error(
+								'digitalogic_pricing_confirmation_state_conflict',
+								'Rollback did not overwrite a website state owned by another revision.',
+								409,
+								array( 'current_state_revision' => $current['state_revision'] )
+							);
+						}
+
+						$owner                           = 'rollback_' . substr( hash( 'sha256', $transaction_id . '|' . microtime( true ) . '|' . wp_salt( 'nonce' ) ), 0, 32 );
+						$record['status']                = 'rolling_back';
+						$record['rollback_owner']        = $owner;
+						$record['rollback_started_at']   = $now;
+						$record['rollback_lease_until']  = $now + self::ROLLBACK_LEASE_SECONDS;
+						$record['rollback_attempts']     = (int) ( $record['rollback_attempts'] ?? 0 ) + 1;
+						$transactions[ $transaction_id ] = $record;
+						$ledger['transactions']          = $transactions;
+						$stored                          = $this->store_option_verified( self::CONFIRMATIONS_OPTION, $ledger );
+						if ( is_wp_error( $stored ) ) {
+							return $stored;
+						}
+
+						return array(
+							'claimed' => true,
+							'owner'   => $owner,
+							'record'  => $record,
+						);
+					}
+				);
+			}
+		);
+	}
+
+	/**
+	 * Finalize the rollback only for the owner that performed the CAS write.
+	 *
+	 * @param string $transaction_id    Durable transaction identifier.
+	 * @param string $owner             Exact rollback lease owner.
+	 * @param string $restored_revision Verified website revision after rollback.
+	 * @param array  $restored_settings Verified canonical settings after rollback.
+	 * @param array  $pricing_results   Terminal repricing result.
+	 * @return array|WP_Error
+	 */
+	private function finalize_confirmation_rollback( $transaction_id, $owner, $restored_revision, $restored_settings, $pricing_results ) {
+		return $this->with_lock(
+			function () use ( $transaction_id, $owner, $restored_revision, $restored_settings, $pricing_results ) {
+				return $this->run_transaction(
+					function () use ( $transaction_id, $owner, $restored_revision, $restored_settings, $pricing_results ) {
+						$row          = $this->read_option_db( self::CONFIRMATIONS_OPTION, true );
+						$ledger       = is_array( $row['value'] ?? null ) ? $row['value'] : array();
+						$transactions = is_array( $ledger['transactions'] ?? null ) ? $ledger['transactions'] : array();
+						$record       = is_array( $transactions[ $transaction_id ] ?? null ) ? $transactions[ $transaction_id ] : null;
+						if ( ! is_array( $record ) || ! hash_equals( (string) ( $record['rollback_owner'] ?? '' ), (string) $owner ) ) {
+							return $this->error(
+								'digitalogic_pricing_confirmation_rollback_owner_conflict',
+								'Rollback ownership changed before finalization.',
+								409
+							);
+						}
+						$current = $this->read_globals();
+						if ( is_wp_error( $current ) ) {
+							return $current;
+						}
+						if ( ! hash_equals( $restored_revision, $current['state_revision'] ) ) {
+							return $this->error(
+								'digitalogic_pricing_confirmation_rollback_readback_failed',
+								'Rollback state readback did not match the completed write.',
+								500
+							);
+						}
+						$record['status']                   = 'rolled_back';
+						$record['restored_revision']        = $restored_revision;
+						$record['restored_settings']        = $restored_settings;
+						$record['restored_settings_digest'] = $this->revision( $restored_settings );
+						$record['rollback_pricing_results'] = $pricing_results;
+						$record['rolled_back_at']           = time();
+						$transactions[ $transaction_id ]    = $record;
+						$ledger['active']                   = null;
+						$ledger['transactions']             = $transactions;
+						$stored                             = $this->store_option_verified( self::CONFIRMATIONS_OPTION, $ledger );
+						if ( is_wp_error( $stored ) ) {
+							return $stored;
+						}
+						$staged = $this->stage_confirmation_event_open_transaction( $this->confirmation_event( 'rolled_back', $record ) );
+						if ( is_wp_error( $staged ) ) {
+							return $staged;
+						}
+
+						return $this->confirmation_projection( $record );
+					}
+				);
+			}
+		);
+	}
+
+	/**
+	 * Persist a failed attempt for bounded restart recovery without releasing CAS.
+	 *
+	 * @param string $transaction_id Durable transaction identifier.
+	 * @param string $owner          Exact rollback lease owner.
+	 * @param string $error_code     Bounded terminal error code.
+	 * @return array|WP_Error|false
+	 */
+	private function mark_confirmation_rollback_pending( $transaction_id, $owner, $error_code ) {
+		return $this->with_lock(
+			function () use ( $transaction_id, $owner, $error_code ) {
+				return $this->run_transaction(
+					function () use ( $transaction_id, $owner, $error_code ) {
+						$row          = $this->read_option_db( self::CONFIRMATIONS_OPTION, true );
+						$ledger       = is_array( $row['value'] ?? null ) ? $row['value'] : array();
+						$transactions = is_array( $ledger['transactions'] ?? null ) ? $ledger['transactions'] : array();
+						$record       = is_array( $transactions[ $transaction_id ] ?? null ) ? $transactions[ $transaction_id ] : null;
+						if ( ! is_array( $record ) || ! hash_equals( (string) ( $record['rollback_owner'] ?? '' ), (string) $owner ) ) {
+							return false;
+						}
+						$record['status']                = 'rollback_pending';
+						$record['last_error']            = sanitize_key( (string) $error_code );
+						$record['last_error_at']         = time();
+						$transactions[ $transaction_id ] = $record;
+						$ledger['transactions']          = $transactions;
+
+						return $this->store_option_verified( self::CONFIRMATIONS_OPTION, $ledger );
+					}
+				);
+			}
+		);
+	}
+
+	/**
+	 * Replace one timeout schedule with a bounded recovery attempt.
+	 *
+	 * @param string $transaction_id Durable transaction identifier.
+	 * @param int    $timestamp      Next attempt timestamp.
+	 * @return bool
+	 */
+	private function reschedule_confirmation_timeout( $transaction_id, $timestamp ) {
+		$args = array( $transaction_id );
+		wp_clear_scheduled_hook( self::CONFIRMATION_TIMEOUT_HOOK, $args );
+
+		return true === wp_schedule_single_event(
+			max( time() + 1, (int) $timestamp ),
+			self::CONFIRMATION_TIMEOUT_HOOK,
+			$args,
+			true
+		);
+	}
+
+	/** Deliver staged commit/rollback events once; failures remain durable. */
+	public function publish_confirmation_outbox() {
+		$outbox = get_option( self::CONFIRMATION_OUTBOX_OPTION, array() );
+		if ( ! is_array( $outbox ) || empty( $outbox ) ) {
+			return;
+		}
+		foreach ( $outbox as $event_id => $event ) {
+			try {
+				do_action( 'digitalogic_pricing_confirmation_event', $event );
+			} catch ( Throwable $exception ) {
+				unset( $exception );
+				break;
+			}
+			unset( $outbox[ $event_id ] );
+			if ( ! update_option( self::CONFIRMATION_OUTBOX_OPTION, $outbox, false ) && get_option( self::CONFIRMATION_OUTBOX_OPTION, null ) !== $outbox ) {
+				break;
 			}
 		}
 	}

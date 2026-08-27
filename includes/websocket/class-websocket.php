@@ -62,6 +62,7 @@ class Digitalogic_WebSocket {
                 'heartbeat',
                 'wp-auth-check',
                 'upload-attachment',
+                'acf/validate_save_post',
             )),
         ));
     }

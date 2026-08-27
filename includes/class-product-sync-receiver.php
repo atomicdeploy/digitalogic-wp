@@ -246,6 +246,7 @@ class Digitalogic_Product_Sync_Receiver {
 	private const MAX_RECENT_EVENTS          = 128;
 	private const MAX_RESULT_ERRORS          = 100;
 	private const MAX_DEFERRED_PRODUCTS      = self::MAX_PRODUCTS;
+	private const MAX_DELIVERY_PRODUCTS_PER_REQUEST = 25;
 	private const MAX_CODE_LENGTH            = 191;
     private const MAX_FORMULA_INTEGER_DIGITS = 15;
 	private const MAX_FORMULA_SCALE          = 12;
@@ -420,6 +421,9 @@ class Digitalogic_Product_Sync_Receiver {
      * @var array<int,bool>
      */
     private $coordinated_product_ids = array();
+
+    /** @var bool Whether pricing-only SQL batches need bounded cache flushing. */
+    private $coordinated_batch_write = false;
     // phpcs:enable
 
     public static function instance() {
@@ -816,6 +820,47 @@ class Digitalogic_Product_Sync_Receiver {
         $this->invalidate_state_cache();
         $product_ids = array_keys($this->coordinated_product_ids);
         $this->coordinated_product_ids = array();
+        if ($this->coordinated_batch_write) {
+            $this->coordinated_batch_write = false;
+            $product_ids = array_values(array_unique(array_map('intval', $product_ids)));
+            if (!empty($product_ids) && function_exists('wp_cache_delete_multiple')) {
+                $post_results = wp_cache_delete_multiple($product_ids, 'posts');
+                $meta_results = wp_cache_delete_multiple($product_ids, 'post_meta');
+                foreach ($product_ids as $product_id) {
+                    $post_deleted = is_array($post_results)
+                        && !empty($post_results[$product_id]);
+                    $meta_deleted = is_array($meta_results)
+                        && !empty($meta_results[$product_id]);
+                    if ((!$post_deleted || !$meta_deleted) && function_exists('clean_post_cache')) {
+                        // A persistent cache may accept a multi-delete while
+                        // failing individual keys. Fall back only for those
+                        // products so the committed canonical metadata cannot
+                        // remain stale while Woo's public price is current.
+                        clean_post_cache($product_id);
+                    }
+                }
+            } else {
+                foreach ($product_ids as $product_id) {
+                    if (function_exists('clean_post_cache')) {
+                        clean_post_cache($product_id);
+                    }
+                }
+            }
+            if (function_exists('wc_delete_product_transients')) {
+                wc_delete_product_transients();
+            }
+            if (
+                class_exists('WC_Cache_Helper')
+                && is_callable(array('WC_Cache_Helper', 'invalidate_cache_group'))
+            ) {
+                // WC_Product stores raw object metadata in the plural
+                // "products" cache group. The singular product_* prefixes
+                // cover per-object projections, but cannot invalidate the
+                // shared raw-meta cache populated by wc_get_products().
+                WC_Cache_Helper::invalidate_cache_group('products');
+            }
+            return;
+        }
         foreach ($product_ids as $product_id) {
             $product_id = (int) $product_id;
             if (function_exists('clean_post_cache')) {
@@ -1032,10 +1077,53 @@ class Digitalogic_Product_Sync_Receiver {
         if (is_wp_error($catalog_revision)) {
             return $catalog_revision;
         }
-        $resolution_cache = array();
+        $bulk_codes = array();
+        foreach ($state['sources'] as $candidate_source) {
+            if (
+                !is_array($candidate_source)
+                || 'IRT' !== (string) ($candidate_source['local_currency'] ?? '')
+                || self::FORMULA_ID !== (string) ($candidate_source['formula_id'] ?? '')
+            ) {
+                continue;
+            }
+            $candidate_products = is_array($candidate_source['products'] ?? null)
+                ? $candidate_source['products']
+                : array();
+            foreach ($candidate_products as $candidate_key => $candidate_product) {
+                $candidate_code = $this->delivery_product_code($candidate_products, $candidate_key);
+                if (
+                    null !== $candidate_code
+                    && (empty($scope_codes) || isset($scope_codes[$candidate_code]))
+                ) {
+                    $bulk_codes[$candidate_code] = $candidate_code;
+                }
+            }
+        }
+        $resolution_cache = Digitalogic_Product_Identifier_Resolver::instance()->resolve_patris_codes(
+            array_values($bulk_codes)
+        );
+        $resolved_product_ids = array();
+        foreach ($resolution_cache as $resolved_product) {
+            if (!is_wp_error($resolved_product) && !empty($resolved_product['woocommerce_id'])) {
+                $resolved_product_ids[(int) $resolved_product['woocommerce_id']] = true;
+            }
+        }
+        if (!empty($resolved_product_ids)) {
+            $resolved_product_ids = array_keys($resolved_product_ids);
+            if (function_exists('_prime_post_caches')) {
+                // wc_get_product() needs the post, pricing metadata, and product
+                // type terms. Priming only postmeta left a production-sized rate
+                // change doing one taxonomy/object load per product, turning one
+                // bounded SQL batch into minutes of PHP/DB round trips.
+                _prime_post_caches($resolved_product_ids, true, true);
+            } elseif (function_exists('update_meta_cache')) {
+                update_meta_cache('post', $resolved_product_ids);
+            }
+        }
         $found_scope = array();
         $product_code_sources = array();
         $pricing_sources = array();
+        $initially_verified_codes = array();
         $changed_total = 0;
 
         foreach ($state['sources'] as $source_key => &$source_state) {
@@ -1157,6 +1245,9 @@ class Digitalogic_Product_Sync_Receiver {
                         if (isset($delivery['pending_products'][$product_code])) {
                             $delivery['pending_products'][$product_code]['pricing_only'] = true;
                         }
+                        if (isset($delivery['deferred_products'][$product_code])) {
+                            $delivery['deferred_products'][$product_code]['pricing_only'] = true;
+                        }
                         continue;
                     }
                     return $this->error(
@@ -1167,10 +1258,11 @@ class Digitalogic_Product_Sync_Receiver {
                     );
                 }
                 $woocommerce_id = (int) $resolved['woocommerce_id'];
-                $this->coordinated_product_ids[$woocommerce_id] = true;
                 if ($this->coordinated_price_readback_matches($woocommerce_id, $product)) {
+                    $initially_verified_codes[$source_key][(string) $product_code] = true;
                     continue;
                 }
+                $this->coordinated_product_ids[$woocommerce_id] = true;
                 unset($delivery['applied_products'][$product_code], $delivery['deferred_products'][$product_code]);
                 $delivery['pending_products'][$product_code] = array(
                     'product_code' => $product_code,
@@ -1214,24 +1306,27 @@ class Digitalogic_Product_Sync_Receiver {
             }
         }
 
-        if (!hash_equals($before_state, $this->state_digest($state))) {
-            $stored = $this->persist_and_read_back($state);
-            if (is_wp_error($stored)) {
-                return $stored;
-            }
-            $state = $stored;
-        }
-
         $updated_total = 0;
         $already_total = 0;
         $missing_total = 0;
         $source_results = array();
         $pricing_warnings = array();
-        $before_delivery = $this->state_digest($state);
         foreach ($pricing_sources as $source_key => $context) {
-            $woo = $this->drain_delivery_products($state['sources'][$source_key], true, true);
+            $woo = $this->drain_delivery_products(
+                $state['sources'][$source_key],
+                true,
+                true,
+                $resolution_cache
+            );
             $deferred = $this->deferred_summary($state['sources'][$source_key]['deferred_products'] ?? array());
             $pending_count = count($state['sources'][$source_key]['pending_products'] ?? array());
+            if ('digitalogic_pricing_delivery_readback_failed' === ($woo['fatal_error_code'] ?? '')) {
+                return $this->error(
+                    'digitalogic_pricing_delivery_readback_failed',
+                    'قیمت نهایی کالا پس از ذخیره با مقدار محاسبه‌شده یکسان نیست.',
+                    502
+                );
+            }
             if ($pending_count > 0 || (int) $deferred['ambiguous'] > 0) {
                 return $this->error(
                     'digitalogic_pricing_delivery_incomplete',
@@ -1246,7 +1341,22 @@ class Digitalogic_Product_Sync_Receiver {
                     )
                 );
             }
+            $verified_codes = array_fill_keys(
+                array_map('strval', (array) ($woo['verified_product_codes'] ?? array())),
+                true
+            );
+            foreach (array_keys($initially_verified_codes[$source_key] ?? array()) as $verified_code) {
+                $verified_codes[(string) $verified_code] = true;
+            }
+            foreach ((array) ($woo['pricing_warnings'] ?? array()) as $batch_warning) {
+                if (is_array($batch_warning)) {
+                    $pricing_warnings[] = $batch_warning;
+                }
+            }
             foreach ($context['target_codes'] as $product_code) {
+                if (isset($verified_codes[(string) $product_code])) {
+                    continue;
+                }
                 $resolved = $this->coordinated_resolution($product_code, $resolution_cache);
                 if (is_wp_error($resolved)) {
                     if ('missing' === $this->terminal_resolution_reason($resolved->get_error_code())) {
@@ -1301,7 +1411,7 @@ class Digitalogic_Product_Sync_Receiver {
             );
         }
 
-        if (!hash_equals($before_delivery, $this->state_digest($state))) {
+        if (!hash_equals($before_state, $this->state_digest($state))) {
             $stored = $this->persist_and_read_back($state);
             if (is_wp_error($stored)) {
                 return $stored;
@@ -1394,18 +1504,22 @@ class Digitalogic_Product_Sync_Receiver {
         }
         if (
             null === $previous_catalog_revision
-            || !hash_equals(
-                (string) $product['pricing_catalog_revision'],
-                (string) $previous_catalog_revision
-            )
+            || 1 !== preg_match('/\Asha256:[a-f0-9]{64}\z/D', (string) $product['pricing_catalog_revision'])
         ) {
             return $this->error(
-                'digitalogic_pricing_shipping_catalog_changed',
-                'کاتالوگ حمل پس از snapshot کالا تغییر کرده است؛ ابتدا بازتولید Patris لازم است.',
+                'digitalogic_pricing_catalog_provenance_invalid',
+                'هویت کاتالوگ قیمت کالا معتبر نیست؛ هیچ تغییری ثبت نشد.',
                 409,
                 array('product_code' => (string) ($product['product_code'] ?? ''))
             );
         }
+        // Patris is a live source: a product may legitimately have been replaced
+        // by a newer coherent source revision after this website transaction read
+        // its settings. Rebase that product onto the current locked shipping
+        // catalog instead of requiring a quiet catalog window. Identity remains
+        // fail-closed below: the exact Product Code must resolve uniquely and its
+        // stored shipping method must still exist and satisfy the supported
+        // pricing contract before any WooCommerce write is allowed.
         $shipping = $this->coordinated_shipping_method($product, $catalog);
         if (is_wp_error($shipping)) {
             return $shipping;
@@ -2872,7 +2986,12 @@ class Digitalogic_Product_Sync_Receiver {
      * @param bool  $include_deferred Retry terminal reconciliation work.
      * @return array
      */
-    private function drain_delivery_products(&$source_state, $include_pending, $include_deferred) {
+    private function drain_delivery_products(
+        &$source_state,
+        $include_pending,
+        $include_deferred,
+        $resolution_cache = null
+    ) {
         $suspend_cache_invalidation = $this->coordinated_transaction_depth > 0
             && function_exists('wp_suspend_cache_invalidation');
         $previous_cache_invalidation = false;
@@ -2882,11 +3001,12 @@ class Digitalogic_Product_Sync_Receiver {
 
         try {
             return Digitalogic_Webhooks::instance()->without_product_change_webhooks(
-                function () use (&$source_state, $include_pending, $include_deferred) {
+                function () use (&$source_state, $include_pending, $include_deferred, $resolution_cache) {
                     return $this->drain_delivery_products_without_product_change_webhooks(
                         $source_state,
                         $include_pending,
-                        $include_deferred
+                        $include_deferred,
+                        $resolution_cache
                     );
                 }
             );
@@ -2908,7 +3028,8 @@ class Digitalogic_Product_Sync_Receiver {
     private function drain_delivery_products_without_product_change_webhooks(
         &$source_state,
         $include_pending,
-        $include_deferred
+        $include_deferred,
+        $resolution_cache = null
     ) {
         $result = array(
             'attempted' => 0,
@@ -2933,7 +3054,27 @@ class Digitalogic_Product_Sync_Receiver {
         }
         ksort($work, SORT_STRING);
 
+        if ($this->coordinated_transaction_depth > 0 && !empty($work)) {
+            $pricing_only = true;
+            foreach ($work as $delivery_entry) {
+                if (empty($delivery_entry['pricing_only'])) {
+                    $pricing_only = false;
+                    break;
+                }
+            }
+            if ($pricing_only) {
+                return $this->drain_coordinated_pricing_batch(
+                    $source_state,
+                    $work,
+                    is_array($resolution_cache) ? $resolution_cache : array()
+                );
+            }
+        }
+
         foreach ($work as $code_key => $delivery_entry) {
+            if ($result['attempted'] >= self::MAX_DELIVERY_PRODUCTS_PER_REQUEST) {
+                break;
+            }
             $product_code = $this->valid_delivery_product_code($products, $code_key, $delivery_entry);
             if (null === $product_code) {
                 unset($pending[$code_key]);
@@ -2946,9 +3087,11 @@ class Digitalogic_Product_Sync_Receiver {
             $force_apply = !empty($delivery_entry['force_apply']);
 
             $result['attempted']++;
-            $resolved = Digitalogic_Product_Identifier_Resolver::instance()->resolve(array(
-                'patris_code' => $product_code,
-            ));
+            $resolved = is_array($resolution_cache) && array_key_exists($product_code, $resolution_cache)
+                ? $resolution_cache[$product_code]
+                : Digitalogic_Product_Identifier_Resolver::instance()->resolve(array(
+                    'patris_code' => $product_code,
+                ));
             if (is_wp_error($resolved)) {
                 $error_code = $resolved->get_error_code();
                 $deferred_reason = $this->terminal_resolution_reason($error_code);
@@ -3055,6 +3198,177 @@ class Digitalogic_Product_Sync_Receiver {
                     'code' => 'digitalogic_product_sync_woocommerce_write_failed',
                     'retryable' => true,
                 ));
+            }
+        }
+
+        ksort($pending, SORT_STRING);
+        ksort($deferred, SORT_STRING);
+        ksort($applied, SORT_STRING);
+        $source_state['pending_products'] = $pending;
+        $source_state['deferred_products'] = array_slice($deferred, 0, self::MAX_DEFERRED_PRODUCTS, true);
+        $source_state['applied_products'] = $applied;
+        $result['pending'] = count($pending);
+        $result['deferred'] = count($source_state['deferred_products']);
+
+        return $result;
+    }
+
+    /**
+     * Drain a pricing-only coordinated transaction with one bounded SQL writer.
+     *
+     * @param array $source_state      Source state, updated in place.
+     * @param array $work              Durable pricing delivery entries.
+     * @param array $resolution_cache  Bulk exact identity results.
+     * @return array
+     */
+    private function drain_coordinated_pricing_batch(&$source_state, $work, $resolution_cache) {
+        $result = array(
+            'attempted' => 0,
+            'updated' => 0,
+            'already_applied' => 0,
+            'missing' => 0,
+            'ambiguous' => 0,
+            'failed' => 0,
+            'errors' => array(),
+            'errors_truncated' => 0,
+            'batch_count' => 0,
+            'batch_meta_rows' => 0,
+            'verified_product_codes' => array(),
+        );
+        $products = is_array($source_state['products'] ?? null) ? $source_state['products'] : array();
+        $pending = is_array($source_state['pending_products'] ?? null) ? $source_state['pending_products'] : array();
+        $deferred = is_array($source_state['deferred_products'] ?? null) ? $source_state['deferred_products'] : array();
+        $applied = is_array($source_state['applied_products'] ?? null) ? $source_state['applied_products'] : array();
+        $batch_items = array();
+        $batch_entries = array();
+
+        foreach ($work as $code_key => $delivery_entry) {
+            $product_code = $this->valid_delivery_product_code($products, $code_key, $delivery_entry);
+            if (null === $product_code) {
+                unset($pending[$code_key], $deferred[$code_key]);
+                continue;
+            }
+            $delivery_entry['product_code'] = $product_code;
+            $product_data = $products[$code_key];
+            $record_hash = (string) $delivery_entry['record_hash'];
+            ++$result['attempted'];
+            $resolved = array_key_exists($product_code, $resolution_cache)
+                ? $resolution_cache[$product_code]
+                : Digitalogic_Product_Identifier_Resolver::instance()->resolve(
+                    array('patris_code' => $product_code)
+                );
+            if (is_wp_error($resolved)) {
+                $error_code = $resolved->get_error_code();
+                $deferred_reason = $this->terminal_resolution_reason($error_code);
+                if ('missing' === $deferred_reason) {
+                    ++$result['missing'];
+                } elseif ('ambiguous' === $deferred_reason) {
+                    ++$result['ambiguous'];
+                } else {
+                    ++$result['failed'];
+                }
+                $this->mark_delivery_failure($delivery_entry, $error_code);
+                if (null !== $deferred_reason) {
+                    $delivery_entry['reason'] = $deferred_reason;
+                    $deferred[$code_key] = $delivery_entry;
+                    unset($pending[$code_key]);
+                } else {
+                    unset($delivery_entry['reason']);
+                    $pending[$code_key] = $delivery_entry;
+                    unset($deferred[$code_key]);
+                }
+                $this->append_woo_error(
+                    $result,
+                    array(
+                        'product_code' => $product_code,
+                        'code' => $error_code,
+                        'retryable' => null === $deferred_reason,
+                    )
+                );
+                continue;
+            }
+
+            $woocommerce_id = (int) $resolved['woocommerce_id'];
+            $product = wc_get_product($woocommerce_id);
+            if (!$product) {
+                ++$result['failed'];
+                $this->mark_delivery_failure(
+                    $delivery_entry,
+                    'digitalogic_product_sync_woocommerce_product_unavailable'
+                );
+                unset($delivery_entry['reason']);
+                $pending[$code_key] = $delivery_entry;
+                unset($deferred[$code_key]);
+                $this->append_woo_error(
+                    $result,
+                    array(
+                        'product_code' => $product_code,
+                        'code' => 'digitalogic_product_sync_woocommerce_product_unavailable',
+                        'retryable' => true,
+                    )
+                );
+                continue;
+            }
+            $batch_items[] = array(
+                'product' => $product,
+                'data' => $product_data,
+                'product_code' => $product_code,
+            );
+            $batch_entries[] = array(
+                'code_key' => $code_key,
+                'product_code' => $product_code,
+                'record_hash' => $record_hash,
+                'woocommerce_id' => $woocommerce_id,
+                'delivery_entry' => $delivery_entry,
+            );
+        }
+
+        if (!empty($batch_items)) {
+            $written = Digitalogic_Patris_Feed::instance()->apply_product_pricing_batch($batch_items);
+            if (is_wp_error($written)) {
+                if (
+                    in_array(
+                        $written->get_error_code(),
+                        array(
+                            'digitalogic_pricing_batch_product_unsupported',
+                            'digitalogic_pricing_batch_shipping_assignment_mismatch',
+                        ),
+                        true
+                    )
+                ) {
+                    $result['fatal_error_code'] = 'digitalogic_pricing_delivery_readback_failed';
+                }
+                foreach ($batch_entries as $entry) {
+                    ++$result['failed'];
+                    $delivery_entry = $entry['delivery_entry'];
+                    $this->mark_delivery_failure($delivery_entry, $written->get_error_code());
+                    unset($delivery_entry['reason']);
+                    $pending[$entry['code_key']] = $delivery_entry;
+                    unset($deferred[$entry['code_key']]);
+                    $this->append_woo_error(
+                        $result,
+                        array(
+                            'product_code' => $entry['product_code'],
+                            'code' => $written->get_error_code(),
+                            'retryable' => true,
+                        )
+                    );
+                }
+            } else {
+                $this->coordinated_batch_write = true;
+                $result['batch_count'] = (int) ($written['batches'] ?? 0);
+                $result['batch_meta_rows'] = (int) ($written['meta_rows'] ?? 0);
+                $result['pricing_warnings'] = array_values((array) ($written['warnings'] ?? array()));
+                foreach ($batch_entries as $entry) {
+                    $applied[$entry['code_key']] = array(
+                        'product_code' => $entry['product_code'],
+                        'record_hash' => $entry['record_hash'],
+                        'woocommerce_id' => (string) $entry['woocommerce_id'],
+                    );
+                    unset($pending[$entry['code_key']], $deferred[$entry['code_key']]);
+                    ++$result['updated'];
+                    $result['verified_product_codes'][] = $entry['product_code'];
+                }
             }
         }
 

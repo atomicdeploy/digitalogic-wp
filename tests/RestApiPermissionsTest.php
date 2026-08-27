@@ -312,6 +312,8 @@ final class RestApiPermissionsTest extends TestCase {
 			'POST /excel/pricing-sync/preview' => 'check_excel_pricing_sync_permission',
 			'POST /pricing/sync/apply' => 'check_pricing_sync_permission',
 			'POST /excel/pricing-sync/apply' => 'check_excel_pricing_sync_permission',
+			'POST /pricing/sync/ack' => 'check_pricing_sync_permission',
+			'POST /excel/pricing-sync/ack' => 'check_excel_pricing_sync_permission',
 			'GET /pricing/sync/revision' => 'check_pricing_snapshot_permission',
 			'HEAD /pricing/sync/revision' => 'check_pricing_snapshot_permission',
 			'POST /pricing/sync/snapshots' => 'check_pricing_snapshot_permission',

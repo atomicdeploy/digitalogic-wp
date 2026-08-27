@@ -93,68 +93,134 @@ final class Digitalogic_Product_Identifier_Resolver {
         $current_patris = "COALESCE((SELECT pm_patris_match.meta_value FROM {$postmeta} pm_patris_match
             WHERE pm_patris_match.post_id = p.ID AND pm_patris_match.meta_key = '" . self::PATRIS_CODE_META . "'
             ORDER BY pm_patris_match.meta_id DESC LIMIT 1), '')";
-        $rows = $this->query_rows(
-            'code',
-            "(BINARY {$current_sku} = BINARY %s OR BINARY {$current_patris} = BINARY %s)",
-            array($code, $code)
-        );
-        if (is_wp_error($rows)) {
-            return $rows;
-        }
+		$rows           = $this->query_rows(
+			'code',
+			"(BINARY {$current_sku} = BINARY %s OR BINARY {$current_patris} = BINARY %s)",
+			array( $code, $code )
+		);
+		if ( is_wp_error( $rows ) ) {
+			return $rows;
+		}
 
-        $sku_matches = array();
-        $patris_matches = array();
-        foreach ((array) $rows as $row) {
-            if ((string) $row['sku'] === $code) {
-                $sku_matches[] = $row;
-            }
-            if ((string) $row['patris_code'] === $code) {
-                $patris_matches[] = $row;
-            }
-        }
+		$sku_matches    = array();
+		$patris_matches = array();
+		foreach ( (array) $rows as $row ) {
+			if ( (string) $row['sku'] === $code ) {
+				$sku_matches[] = $row;
+			}
+			if ( (string) $row['patris_code'] === $code ) {
+				$patris_matches[] = $row;
+			}
+		}
 
-        if (!empty($patris_matches)) {
-            if (count($patris_matches) > 1) {
-                return $this->ambiguous($patris_matches, 'patris_code', 'duplicate_patris_code');
-            }
+		if ( ! empty( $patris_matches ) ) {
+			if ( count( $patris_matches ) > 1 ) {
+				return $this->ambiguous( $patris_matches, 'patris_code', 'duplicate_patris_code' );
+			}
 
-            $patris_match = reset($patris_matches);
-            $distinct_sku_matches = array_values(array_filter($sku_matches, static function($row) use ($patris_match) {
-                return (string) $row['ID'] !== (string) $patris_match['ID'];
-            }));
-            if (!empty($distinct_sku_matches)) {
-                return $this->ambiguous(
-                    array_merge(array($patris_match), $distinct_sku_matches),
-                    'patris_code',
-                    'cross_namespace_collision'
-                );
-            }
+			$patris_match         = reset( $patris_matches );
+			$distinct_sku_matches = array_values(
+				array_filter(
+					$sku_matches,
+					static function ( $row ) use ( $patris_match ) {
+						return (string) $row['ID'] !== (string) $patris_match['ID'];
+					}
+				)
+			);
+			if ( ! empty( $distinct_sku_matches ) ) {
+				return $this->ambiguous(
+					array_merge( array( $patris_match ), $distinct_sku_matches ),
+					'patris_code',
+					'cross_namespace_collision'
+				);
+			}
 
-            return $this->format_match($patris_match, 'patris_code', $code);
-        }
-        if (!empty($sku_matches)) {
-            return $this->one_or_ambiguous($sku_matches, 'sku_fallback', $code);
-        }
+			return $this->format_match( $patris_match, 'patris_code', $code );
+		}
+		if ( ! empty( $sku_matches ) ) {
+			return $this->one_or_ambiguous( $sku_matches, 'sku_fallback', $code );
+		}
 
-        return $this->not_found('No product has that exact Code or SKU.');
-    }
+		return $this->not_found( 'No product has that exact Code or SKU.' );
+	}
 
-    private function resolve_woocommerce_id($woocommerce_id) {
-        $rows = $this->query_rows('woocommerce_id', 'p.ID = %d', array((int) $woocommerce_id));
-        if (is_wp_error($rows)) {
-            return $rows;
-        }
-        if (empty($rows)) {
-            return $this->not_found('No product or variation has that exact WooCommerce ID.');
-        }
+	/**
+	 * Resolve a bounded set of exact Patris Codes with one database query.
+	 *
+	 * Currency reconciliation used to execute the scalar correlated-subquery
+	 * resolver once for every catalog row. On the production catalog that made
+	 * identity lookup alone take roughly one hundred seconds. Fetching the
+	 * current Patris identity projection once preserves the same exact and
+	 * ambiguity-safe semantics without one query per product.
+	 *
+	 * @param array $codes Patris Codes as strings.
+	 * @return array<string,array|WP_Error> Result keyed by the submitted code.
+	 */
+	public function resolve_patris_codes( $codes ) {
+		if ( ! is_array( $codes ) ) {
+			return array();
+		}
 
-        return $this->format_match(reset($rows), 'woocommerce_id', $woocommerce_id);
-    }
+		$normalized = array();
+		$results    = array();
+		foreach ( $codes as $code ) {
+			$value = $this->normalize_identifier( $code, 'Patris Code' );
+			if ( is_wp_error( $value ) ) {
+				$results[ (string) $code ] = $value;
+				continue;
+			}
+			$normalized[ $value ] = true;
+		}
+		if ( empty( $normalized ) ) {
+			return $results;
+		}
 
-    private function resolve_meta($meta_key, $resolved_by, $value) {
-        global $wpdb;
-        $postmeta = isset($wpdb->postmeta) ? $wpdb->postmeta : $wpdb->prefix . 'postmeta';
-        $current_value = "COALESCE((SELECT pm_match.meta_value FROM {$postmeta} pm_match
+		$rows = $this->query_patris_rows_bulk();
+		if ( is_wp_error( $rows ) ) {
+			foreach ( array_keys( $normalized ) as $code ) {
+				$results[ $code ] = $rows;
+			}
+			return $results;
+		}
+
+		$matches = array();
+		foreach ( $rows as $row ) {
+			$patris_code = isset( $row['patris_code'] ) ? (string) $row['patris_code'] : '';
+			if ( '' === $patris_code || ! isset( $normalized[ $patris_code ] ) ) {
+				continue;
+			}
+			$matches[ $patris_code ][] = $row;
+		}
+
+		foreach ( array_keys( $normalized ) as $code ) {
+			$code_rows        = $matches[ $code ] ?? array();
+			$results[ $code ] = empty( $code_rows )
+				? $this->not_found( 'No product has that exact identifier.' )
+				: $this->one_or_ambiguous( $code_rows, 'patris_code', $code );
+		}
+
+		return $results;
+	}
+
+	// phpcs:disable Squiz.Commenting.FunctionComment.MissingParamTag -- Legacy private resolver helpers predate the strict documentation ruleset.
+	/** Resolve one exact WooCommerce object ID. */
+	private function resolve_woocommerce_id( $woocommerce_id ) { // phpcs:ignore Squiz.Commenting.FunctionComment.MissingParamTag, Squiz.Commenting.FunctionComment.MissingReturn -- Legacy private helper.
+		$rows = $this->query_rows( 'woocommerce_id', 'p.ID = %d', array( (int) $woocommerce_id ) );
+		if ( is_wp_error( $rows ) ) {
+			return $rows;
+		}
+		if ( empty( $rows ) ) {
+			return $this->not_found( 'No product or variation has that exact WooCommerce ID.' );
+		}
+
+		return $this->format_match( reset( $rows ), 'woocommerce_id', $woocommerce_id );
+	}
+
+	/** Resolve one exact latest metadata value. */
+	private function resolve_meta( $meta_key, $resolved_by, $value ) { // phpcs:ignore Squiz.Commenting.FunctionComment.MissingParamTag, Squiz.Commenting.FunctionComment.MissingReturn -- Legacy private helper.
+		global $wpdb;
+		$postmeta      = isset( $wpdb->postmeta ) ? $wpdb->postmeta : $wpdb->prefix . 'postmeta';
+		$current_value = "COALESCE((SELECT pm_match.meta_value FROM {$postmeta} pm_match
             WHERE pm_match.post_id = p.ID AND pm_match.meta_key = %s
             ORDER BY pm_match.meta_id DESC LIMIT 1), '')";
         $rows = $this->query_rows(
@@ -209,107 +275,182 @@ final class Digitalogic_Product_Identifier_Resolver {
                 AND {$predicate}
             ORDER BY p.ID ASC";
 
-        try {
-            $prepared = $wpdb->prepare($query, ...$args);
-            if (false === $prepared || null === $prepared || '' === $prepared) {
-                return $this->query_failed();
-            }
-            $rows = $wpdb->get_results($prepared, ARRAY_A);
-        } catch (Throwable) {
-            return $this->query_failed();
-        }
+		try {
+			// phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- The predicate is internal-only and every external value remains placeholder-bound in $args.
+			$prepared = $wpdb->prepare( $query, ...$args );
+			if ( false === $prepared || null === $prepared || '' === $prepared ) {
+				return $this->query_failed();
+			}
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Exact identity resolution requires authoritative prepared readback.
+			$rows = $wpdb->get_results( $prepared, ARRAY_A );
+		} catch ( Throwable ) {
+			return $this->query_failed();
+		}
 
-        if (!is_array($rows) || '' !== trim((string) ($wpdb->last_error ?? ''))) {
-            return $this->query_failed();
-        }
+		if ( ! is_array( $rows ) || '' !== trim( (string) ( $wpdb->last_error ?? '' ) ) ) {
+			return $this->query_failed();
+		}
 
-        return $rows;
-    }
+		return $rows;
+	}
 
-    private function one_or_ambiguous($rows, $resolved_by, $value) {
-        if (count($rows) > 1) {
-            return $this->ambiguous($rows, $resolved_by, 'duplicate_identifier');
-        }
+	/**
+	 * Fetch the latest exact Patris Code row for every Woo product in one pass.
+	 *
+	 * Duplicate metadata is deliberately retained until PHP selects the latest
+	 * meta_id per product. Duplicate current values across products therefore
+	 * remain an explicit ambiguous identity, matching the scalar resolver.
+	 *
+	 * @return array|WP_Error
+	 */
+	private function query_patris_rows_bulk() {
+		global $wpdb;
+		if ( ! is_object( $wpdb ) || ! method_exists( $wpdb, 'prepare' ) || ! method_exists( $wpdb, 'get_results' ) ) {
+			return $this->query_failed();
+		}
+		$posts    = isset( $wpdb->posts ) ? $wpdb->posts : $wpdb->prefix . 'posts';
+		$postmeta = isset( $wpdb->postmeta ) ? $wpdb->postmeta : $wpdb->prefix . 'postmeta';
+		$query    = "/* digitalogic_identifier:patris_codes_bulk */
+            SELECT p.ID, p.post_type, pm.meta_id, '' AS sku, pm.meta_value AS patris_code
+            FROM {$postmeta} pm
+            INNER JOIN {$posts} p ON p.ID = pm.post_id
+            WHERE pm.meta_key = %s
+              AND p.post_type IN ('product', 'product_variation')
+              AND p.post_status NOT IN ('trash', 'auto-draft')
+            ORDER BY p.ID ASC, pm.meta_id ASC";
+		try {
+			// phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- Table identifiers are supplied by $wpdb and the metadata key remains placeholder-bound.
+			$prepared = $wpdb->prepare( $query, self::PATRIS_CODE_META );
+		} catch ( Throwable $exception ) {
+			unset( $exception );
+			return $this->query_failed();
+		}
+		if ( ! is_string( $prepared ) && ! is_array( $prepared ) ) {
+			return $this->query_failed();
+		}
+		try {
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Bulk exact identity resolution requires authoritative prepared readback.
+			$rows = $wpdb->get_results( $prepared, ARRAY_A );
+		} catch ( Throwable $exception ) {
+			unset( $exception );
+			return $this->query_failed();
+		}
+		if ( ! is_array( $rows ) || '' !== trim( (string) ( $wpdb->last_error ?? '' ) ) ) {
+			return $this->query_failed();
+		}
 
-        return $this->format_match(reset($rows), $resolved_by, $value);
-    }
+		$current = array();
+		foreach ( $rows as $row ) {
+			$product_id = isset( $row['ID'] ) ? (int) $row['ID'] : 0;
+			if ( $product_id <= 0 ) {
+				continue;
+			}
+			$current[ $product_id ] = $row;
+		}
 
-    private function ambiguous($rows, $resolved_by, $reason) {
-        $ids = array_values(array_unique(array_map(static function($row) {
-            return (string) $row['ID'];
-        }, $rows)));
-        sort($ids, SORT_STRING);
+		return array_values( $current );
+	}
 
-        return new WP_Error(
-            'digitalogic_product_identifier_ambiguous',
-            __('More than one product has that exact identifier.', 'digitalogic'),
-            array(
-                'status' => 409,
-                'resolved_by' => $resolved_by,
-                'reason' => (string) $reason,
-                'woocommerce_ids' => $ids,
-            )
-        );
-    }
+	/** Return the one exact row or an ambiguity error. */
+	private function one_or_ambiguous( $rows, $resolved_by, $value ) { // phpcs:ignore Squiz.Commenting.FunctionComment.MissingParamTag, Squiz.Commenting.FunctionComment.MissingReturn -- Legacy private helper.
+		if ( count( $rows ) > 1 ) {
+			return $this->ambiguous( $rows, $resolved_by, 'duplicate_identifier' );
+		}
 
-    private function format_match($row, $resolved_by, $identifier) {
-        return array(
-            'woocommerce_id' => (string) $row['ID'],
-            'post_type' => (string) $row['post_type'],
-            'sku' => isset($row['sku']) ? (string) $row['sku'] : '',
-            'patris_code' => isset($row['patris_code']) ? (string) $row['patris_code'] : '',
-            'identifier' => (string) $identifier,
-            'resolved_by' => (string) $resolved_by,
-        );
-    }
+		return $this->format_match( reset( $rows ), $resolved_by, $value );
+	}
 
-    private function normalize_identifier($value, $label, $allow_integer = false) {
-        if (!is_string($value) && !($allow_integer && is_int($value))) {
-            return $this->invalid($label . ' must be a string.');
-        }
+	/** Build one exact-identity ambiguity error. */
+	private function ambiguous( $rows, $resolved_by, $reason ) { // phpcs:ignore Squiz.Commenting.FunctionComment.MissingParamTag, Squiz.Commenting.FunctionComment.MissingReturn -- Legacy private helper.
+		$ids = array_values(
+			array_unique(
+				array_map(
+					static function ( $row ) {
+						return (string) $row['ID'];
+					},
+					$rows
+				)
+			)
+		);
+		sort( $ids, SORT_STRING );
 
-        $value = trim((string) $value);
-        if ($value === '' || strlen($value) > 191 || preg_match('/[\x00-\x1F\x7F]/', $value)) {
-            return $this->invalid($label . ' is empty or invalid.');
-        }
+		return new WP_Error(
+			'digitalogic_product_identifier_ambiguous',
+			__( 'More than one product has that exact identifier.', 'digitalogic' ),
+			array(
+				'status'          => 409,
+				'resolved_by'     => $resolved_by,
+				'reason'          => (string) $reason,
+				'woocommerce_ids' => $ids,
+			)
+		);
+	}
 
-        return $value;
-    }
+	/** Format one exact resolved identity. */
+	private function format_match( $row, $resolved_by, $identifier ) { // phpcs:ignore Squiz.Commenting.FunctionComment.MissingParamTag, Squiz.Commenting.FunctionComment.MissingReturn -- Legacy private helper.
+		return array(
+			'woocommerce_id' => (string) $row['ID'],
+			'post_type'      => (string) $row['post_type'],
+			'sku'            => isset( $row['sku'] ) ? (string) $row['sku'] : '',
+			'patris_code'    => isset( $row['patris_code'] ) ? (string) $row['patris_code'] : '',
+			'identifier'     => (string) $identifier,
+			'resolved_by'    => (string) $resolved_by,
+		);
+	}
 
-    private function is_canonical_positive_integer($value) {
-        if (!preg_match('/^[1-9][0-9]*$/', $value)) {
-            return false;
-        }
+	/** Normalize one external identifier without broad matching. */
+	private function normalize_identifier( $value, $label, $allow_integer = false ) { // phpcs:ignore Squiz.Commenting.FunctionComment.MissingParamTag, Squiz.Commenting.FunctionComment.MissingReturn -- Legacy private helper.
+		if ( ! is_string( $value ) && ! ( $allow_integer && is_int( $value ) ) ) {
+			return $this->invalid( $label . ' must be a string.' );
+		}
 
-        $maximum = (string) PHP_INT_MAX;
-        return strlen($value) < strlen($maximum)
-            || (strlen($value) === strlen($maximum) && strcmp($value, $maximum) <= 0);
-    }
+		$value = trim( (string) $value );
+		if ( '' === $value || strlen( $value ) > 191 || preg_match( '/[\x00-\x1F\x7F]/', $value ) ) {
+			return $this->invalid( $label . ' is empty or invalid.' );
+		}
 
-    private function invalid($message) {
-        return new WP_Error(
-            'digitalogic_invalid_product_identifier',
-            __($message, 'digitalogic'),
-            array('status' => 400)
-        );
-    }
+		return $value;
+	}
 
-    private function not_found($message) {
-        return new WP_Error(
-            'digitalogic_product_identifier_not_found',
-            __($message, 'digitalogic'),
-            array('status' => 404)
-        );
-    }
+	/** Check one canonical positive integer string. */
+	private function is_canonical_positive_integer( $value ) { // phpcs:ignore Squiz.Commenting.FunctionComment.MissingParamTag, Squiz.Commenting.FunctionComment.MissingReturn -- Legacy private helper.
+		if ( ! preg_match( '/^[1-9][0-9]*$/', $value ) ) {
+			return false;
+		}
 
-    private function query_failed() {
-        return new WP_Error(
-            'digitalogic_product_identifier_query_failed',
-            __('The product identifier lookup could not be completed.', 'digitalogic'),
-            array(
-                'status' => 503,
-                'retryable' => true,
-            )
-        );
-    }
+		$maximum = (string) PHP_INT_MAX;
+		return strlen( $value ) < strlen( $maximum )
+			|| ( strlen( $value ) === strlen( $maximum ) && strcmp( $value, $maximum ) <= 0 );
+	}
+
+	/** Build an invalid-identifier response. */
+	private function invalid( $message ) { // phpcs:ignore Squiz.Commenting.FunctionComment.MissingParamTag, Squiz.Commenting.FunctionComment.MissingReturn -- Legacy private helper.
+		return new WP_Error(
+			'digitalogic_invalid_product_identifier',
+			(string) $message,
+			array( 'status' => 400 )
+		);
+	}
+
+	/** Build an exact-identifier not-found response. */
+	private function not_found( $message ) { // phpcs:ignore Squiz.Commenting.FunctionComment.MissingParamTag, Squiz.Commenting.FunctionComment.MissingReturn -- Legacy private helper.
+		return new WP_Error(
+			'digitalogic_product_identifier_not_found',
+			(string) $message,
+			array( 'status' => 404 )
+		);
+	}
+
+	/** Build an authoritative-query failure response. */
+	private function query_failed() { // phpcs:ignore Squiz.Commenting.FunctionComment.MissingReturn -- Legacy private helper.
+		return new WP_Error(
+			'digitalogic_product_identifier_query_failed',
+			__( 'The product identifier lookup could not be completed.', 'digitalogic' ),
+			array(
+				'status'    => 503,
+				'retryable' => true,
+			)
+		);
+	}
+	// phpcs:enable Squiz.Commenting.FunctionComment.MissingParamTag
 }

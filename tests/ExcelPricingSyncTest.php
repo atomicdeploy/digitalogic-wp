@@ -87,6 +87,7 @@ final class ExcelPricingSyncTest extends TestCase {
 		$GLOBALS['digitalogic_test_cache_deletes']        = array();
 		$GLOBALS['digitalogic_test_transients']           = array();
 		$GLOBALS['digitalogic_test_transient_deletes']    = array();
+		$GLOBALS['digitalogic_test_scheduled_events']     = array();
 		$GLOBALS['digitalogic_test_posts']                = array();
 		$GLOBALS['digitalogic_test_wc_products']          = array();
 		$GLOBALS['digitalogic_test_wp_query_results']     = array();
@@ -132,6 +133,11 @@ final class ExcelPricingSyncTest extends TestCase {
 			$this->assertSame( 'POST', $routes[ $legacy_key ]['methods'] );
 			$this->assertSame( array( $api, 'check_excel_pricing_sync_permission' ), $routes[ $legacy_key ]['permission_callback'] );
 		}
+		$this->assertSame( 'POST', $routes['digitalogic/pricing/sync/ack']['methods'] );
+		$this->assertSame( array( $api, 'pricing_sync_ack' ), $routes['digitalogic/pricing/sync/ack']['callback'] );
+		$this->assertSame( array( $api, 'check_pricing_sync_permission' ), $routes['digitalogic/pricing/sync/ack']['permission_callback'] );
+		$this->assertSame( 'POST', $routes['digitalogic/excel/pricing-sync/ack']['methods'] );
+		$this->assertSame( array( $api, 'excel_pricing_sync_ack' ), $routes['digitalogic/excel/pricing-sync/ack']['callback'] );
 		$this->assertSame(
 			array( $api, 'get_profit_margin' ),
 			$routes['digitalogic/v1/pricing/profit-margin'][0]['callback']
@@ -175,7 +181,7 @@ final class ExcelPricingSyncTest extends TestCase {
 		$this->assertSame( 200, $response->get_status() );
 		$state = $response->get_data();
 		$this->assertSame(
-			array( 'schema', 'state_revision', 'generated_at', 'source', 'client_id', 'channel', 'request_id', 'warnings', 'settings', 'currency', 'profit_margin', 'price_rounding', 'shipping', 'default_markup', 'deprecated_aliases', 'attribute_owners', 'catalog' ),
+			array( 'schema', 'state_revision', 'generated_at', 'source', 'client_id', 'channel', 'request_id', 'warnings', 'confirmation', 'settings', 'currency', 'profit_margin', 'price_rounding', 'shipping', 'default_markup', 'deprecated_aliases', 'attribute_owners', 'catalog' ),
 			array_keys( $state )
 		);
 		$this->assertSame( Digitalogic_Excel_Pricing_Sync::STATE_SCHEMA, $state['schema'] );
@@ -249,6 +255,26 @@ final class ExcelPricingSyncTest extends TestCase {
 		$this->assertSame( 250, $state['catalog']['pagination']['limit'] );
 		$this->assertNotEmpty( $state['catalog']['columns'] );
 		$this->assertMatchesRegularExpression( '/[^\x00-\x7F]/', $state['catalog']['columns'][0]['header'] );
+	}
+
+	/** Pricing writeback can read only current settings without building the product catalog. */
+	public function test_settings_projection_omits_catalog_but_keeps_confirmation_and_revision(): void {
+		$response = Digitalogic_REST_API::instance()->pricing_sync_state(
+			$this->request(
+				'state',
+				array(
+					'projection' => 'settings',
+					'locale'     => 'fa',
+				)
+			)
+		);
+
+		$this->assertSame( 200, $response->get_status() );
+		$state = $response->get_data();
+		$this->assertArrayNotHasKey( 'catalog', $state );
+		$this->assertSame( '29500', (string) $state['settings']['yuan_price'] );
+		$this->assertStringStartsWith( 'sha256:', $state['state_revision'] );
+		$this->assertArrayHasKey( 'confirmation', $state );
 	}
 
 	/** The old Excel route and schema remain a marked compatibility alias. */
@@ -857,6 +883,115 @@ final class ExcelPricingSyncTest extends TestCase {
 		$this->assertContains( 'ROLLBACK', $GLOBALS['wpdb']->queries );
 	}
 
+	/** Website commits first and only the configured workbook may ACK its exact value. */
+	public function test_website_first_commit_requires_exact_configured_workbook_ack(): void {
+		$service                = Digitalogic_Excel_Pricing_Sync::instance();
+		$previous               = $service->current_canonical_state();
+		$settings               = $previous['settings'];
+		$settings['yuan_price'] = 29501;
+		$committed              = $service->apply_internal_settings( $settings, 'acf_currency_settings', $previous['state_revision'] );
+
+		$this->assertFalse( is_wp_error( $committed ) );
+		$this->assertSame( 'applied', $committed['status'] );
+		$this->assertSame( 29501, $committed['settings']['yuan_price'] );
+		$this->assertSame( 'awaiting_ack', $committed['confirmation']['status'] );
+		$this->assertCount( 1, $GLOBALS['digitalogic_test_actions']['digitalogic_excel_pricing_apply_committed'] ?? array() );
+		$this->assertGreaterThanOrEqual( 90, $committed['confirmation']['ack_deadline'] - time() );
+		$this->assertNotEmpty( $GLOBALS['digitalogic_test_scheduled_events'] );
+		$events = $GLOBALS['digitalogic_test_actions']['digitalogic_pricing_confirmation_event'] ?? array();
+		$this->assertCount( 1, $events );
+		$this->assertSame( 'pricing.settings.committed', $events[0][0]['event_type'] );
+		$this->assertSame( 29501, $events[0][0]['confirmed_settings']['yuan_price'] );
+
+		$mismatch = $service->ack(
+			$this->ack_request(
+				$committed,
+				array( 'consumer_id' => 'unconfigured-workbook' )
+			)
+		);
+		$this->assertSame( 'digitalogic_pricing_confirmation_ack_mismatch', $mismatch->get_error_code() );
+		$this->assertSame( 29501, $service->current_canonical_settings()['yuan_price'] );
+
+		$acknowledged = $service->ack( $this->ack_request( $committed ) );
+		$this->assertFalse( is_wp_error( $acknowledged ) );
+		$this->assertSame( 'acknowledged', $acknowledged['status'] );
+		$this->assertSame( 'clear', $service->current_canonical_state()['confirmation']['status'] );
+		$this->assertSame( array(), $GLOBALS['digitalogic_test_scheduled_events'] );
+
+		$replayed = $service->ack( $this->ack_request( $committed ) );
+		$this->assertFalse( is_wp_error( $replayed ) );
+		$this->assertSame( 'replayed', $replayed['status'] );
+	}
+
+	/**
+	 * The transaction may still see the pre-write shipping catalog through the
+	 * WordPress option cache even after every SQL option write was verified.
+	 */
+	public function test_transaction_readback_normalizes_only_exact_stale_shipping_cache(): void {
+		$service    = Digitalogic_Excel_Pricing_Sync::instance();
+		$reflection = new ReflectionClass( $service );
+		$read       = $reflection->getMethod( 'read_globals' );
+		$desired_m  = $reflection->getMethod( 'globals_from_settings' );
+		$normalize  = $reflection->getMethod( 'transaction_consistent_readback' );
+		$read->setAccessible( true );
+		$desired_m->setAccessible( true );
+		$normalize->setAccessible( true );
+
+		$current                 = $read->invoke( $service );
+		$settings                = $service->current_canonical_settings();
+		$settings['yuan_price']  = (int) $settings['yuan_price'] + 1;
+		$desired                 = $desired_m->invoke( $service, $settings );
+		$stale                   = $desired;
+		$stale['shipping']       = $current['shipping'];
+		$stale['state_revision'] = 'sha256:' . str_repeat( 'a', 64 );
+
+		$resolved = $normalize->invoke( $service, $stale, $desired, $current );
+		$this->assertSame( $desired['state_revision'], $resolved['state_revision'] );
+		$this->assertSame( $desired['shipping'], $resolved['shipping'] );
+
+		$unsafe             = $stale;
+		$unsafe['currency'] = $current['currency'];
+		$rejected           = $normalize->invoke( $service, $unsafe, $desired, $current );
+		$this->assertSame( $stale['state_revision'], $rejected['state_revision'] );
+		$this->assertSame( $current['shipping'], $rejected['shipping'] );
+	}
+
+	/** Missing workbook ACK rolls the website and recalculated prices back exactly once. */
+	public function test_ack_timeout_rolls_back_website_first_commit_and_is_restart_idempotent(): void {
+		$service                = Digitalogic_Excel_Pricing_Sync::instance();
+		$previous               = $service->current_canonical_state();
+		$settings               = $previous['settings'];
+		$settings['yuan_price'] = 29501;
+		$committed              = $service->apply_internal_settings( $settings, 'acf_currency_settings', $previous['state_revision'] );
+		$this->assertFalse( is_wp_error( $committed ) );
+		$id = $committed['confirmation']['transaction_id'];
+
+		$ledger                                        = $GLOBALS['digitalogic_test_options'][ Digitalogic_Excel_Pricing_Sync::CONFIRMATIONS_OPTION ];
+		$ledger['transactions'][ $id ]['ack_deadline'] = time() - 1;
+		$GLOBALS['digitalogic_test_options'][ Digitalogic_Excel_Pricing_Sync::CONFIRMATIONS_OPTION ] = $ledger;
+		$GLOBALS['digitalogic_test_option_cache'] = array();
+
+		$rolled_back = $service->run_confirmation_timeout( $id );
+		$this->assertFalse(
+			is_wp_error( $rolled_back ),
+			is_wp_error( $rolled_back ) ? $rolled_back->get_error_code() . ': ' . $rolled_back->get_error_message() : ''
+		);
+		$this->assertSame( 'rolled_back', $rolled_back['status'] );
+		$this->assertSame( 29500, $service->current_canonical_settings()['yuan_price'] );
+		$this->assertSame( $previous['state_revision'], $service->current_canonical_state()['state_revision'] );
+		$this->assertSame( array(), $GLOBALS['digitalogic_test_scheduled_events'] );
+		$events = $GLOBALS['digitalogic_test_actions']['digitalogic_pricing_confirmation_event'] ?? array();
+		$this->assertCount( 2, $events );
+		$this->assertSame( 'pricing.settings.rolled_back', $events[1][0]['event_type'] );
+		$this->assertSame( 29500, $events[1][0]['confirmed_settings']['yuan_price'] );
+
+		$again = $service->run_confirmation_timeout( $id );
+		$this->assertFalse( is_wp_error( $again ) );
+		$this->assertSame( 'rolled_back', $again['status'] );
+		$this->assertSame( 29500, $service->current_canonical_settings()['yuan_price'] );
+		$this->assertCount( 2, $GLOBALS['digitalogic_test_actions']['digitalogic_pricing_confirmation_event'] ?? array() );
+	}
+
 	/**
 	 * Return one exact state result.
 	 *
@@ -951,6 +1086,41 @@ final class ExcelPricingSyncTest extends TestCase {
 				'Idempotency-Key' => $idempotency_key,
 				'If-Match'        => '"' . $revision . '"',
 			)
+		);
+	}
+
+	/**
+	 * Build an acknowledgement bound to the exact committed website value.
+	 *
+	 * @param array $committed Committed coordinator response.
+	 * @param array $overrides Optional acknowledgement overrides.
+	 * @return WP_REST_Request
+	 */
+	private function ack_request( $committed, $overrides = array() ) {
+		$settings = $committed['settings'];
+		$key      = 'excel-ack-00000001';
+		$payload  = array_merge(
+			array(
+				'schema'                    => Digitalogic_Excel_Pricing_Sync::ACK_SCHEMA,
+				'schema_version'            => 1,
+				'operation'                 => 'ack',
+				'transaction_id'            => $committed['confirmation']['transaction_id'],
+				'consumer_id'               => 'digitalogic-price-calculator',
+				'channel'                   => 'excel-workbook',
+				'source'                    => $this->source,
+				'committed_state_revision'  => $committed['state_revision'],
+				'confirmed_settings'        => $settings,
+				'confirmed_settings_digest' => $committed['confirmation']['committed_settings_digest'],
+				'idempotency_key'           => $key,
+			),
+			$overrides
+		);
+
+		return new WP_REST_Request(
+			array(),
+			$payload,
+			array( 'Idempotency-Key' => $key ),
+			wp_json_encode( $payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES )
 		);
 	}
 

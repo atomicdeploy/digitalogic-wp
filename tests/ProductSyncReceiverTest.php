@@ -124,6 +124,45 @@ final class ProductSyncReceiverTest extends TestCase {
 		$this->assertCount( 1, $observed );
 	}
 
+	/** Large deliveries yield the global receiver lock and resume from durable pending work. */
+	public function test_large_delivery_is_bounded_and_same_event_replay_drains_pending_products(): void {
+		$products = array();
+		for ( $index = 1; $index <= 30; $index++ ) {
+			$product_code = sprintf( 'BATCH-%03d', $index );
+			$product_id   = 8000 + $index;
+			$GLOBALS['digitalogic_test_posts'][ $product_id ] = array(
+				'post_type'   => 'product',
+				'post_status' => 'publish',
+				'meta'        => array( '_digitalogic_patris_product_code' => $product_code ),
+			);
+			$product                = array(
+				'product_code' => $product_code,
+				'name'         => 'Batch product ' . $index,
+				'warnings'     => array(),
+			);
+			$product['record_hash'] = $this->recordHash( $product, true );
+			$products[]             = $product;
+		}
+
+		$receiver = Digitalogic_Product_Sync_Receiver::instance();
+		$payload  = $this->snapshot( $products );
+		$first    = $receiver->receive( $payload );
+
+		$this->assertNotInstanceOf( WP_Error::class, $first );
+		$this->assertSame( 'partially_applied', $first['status'] );
+		$this->assertTrue( $first['retryable'] );
+		$this->assertSame( 25, $first['woocommerce']['attempted'] );
+		$this->assertSame( 5, $first['pending_products'] );
+
+		$replay = $receiver->receive( $payload );
+
+		$this->assertNotInstanceOf( WP_Error::class, $replay );
+		$this->assertSame( 'recovered', $replay['status'] );
+		$this->assertFalse( $replay['retryable'] );
+		$this->assertSame( 5, $replay['woocommerce']['attempted'] );
+		$this->assertSame( 0, $replay['pending_products'] );
+	}
+
     public function test_sparse_null_empty_and_missing_values_remain_distinct(): void {
         $GLOBALS['digitalogic_test_posts'][701] = array(
             'post_type'   => 'product',

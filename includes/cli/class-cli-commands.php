@@ -49,58 +49,83 @@ class Digitalogic_CLI_Commands {
         if (!$base['compatible']) {
             WP_CLI::warning(
 				__( 'WooCommerce must use IRT (Toman) before transformed Patris prices can be applied.', 'digitalogic' )
-            );
-        }
-    }
-    
-    /**
-     * Update currency rates
-     * 
-     * ## OPTIONS
-     * 
-     * [--usd=<price>]
-     * : USD price in local currency
-     * 
-     * [--cny=<price>]
-     * : CNY price in local currency
-     * 
-     * [--recalculate]
-     * : Recalculate all product prices
-     * 
-     * ## EXAMPLES
-     * 
-     *     wp digitalogic currency update --usd=42000 --cny=6000
-     *     wp digitalogic currency update --usd=42000 --recalculate
-     * 
-     * @when after_wp_load
-     */
-    public function currency_update($args, $assoc_args) {
-        unset($args);
-        $values = array();
-        if (isset($assoc_args['usd'])) {
-            $values['dollar_price'] = $assoc_args['usd'];
-        }
-        if (isset($assoc_args['cny'])) {
-            $values['yuan_price'] = $assoc_args['cny'];
-        }
-        if (empty($values)) {
-            WP_CLI::error('No currency rates provided. Use --usd or --cny');
-            return;
-        }
+			);
+		}
+	}
 
-        $result = Digitalogic_Pricing_Coordinator::instance()->update_currency(
-            $values,
-            'wp_cli_currency'
-        );
-        if (is_wp_error($result)) {
-            WP_CLI::error($result->get_error_message());
-            return;
-        }
+	/**
+	 * Update currency rates
+	 *
+	 * ## OPTIONS
+	 *
+	 * [--usd=<price>]
+	 * : USD price in local currency
+	 *
+	 * [--cny=<price>]
+	 * : CNY price in local currency
+	 *
+	 * [--recalculate]
+	 * : Recalculate all product prices
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     wp digitalogic currency update --usd=42000 --cny=6000
+	 *     wp digitalogic currency update --usd=42000 --recalculate
+	 *
+	 * @param array $args       Positional WP-CLI arguments.
+	 * @param array $assoc_args Named WP-CLI arguments.
+	 * @return void
+	 * @when after_wp_load
+	 */
+	public function currency_update( $args, $assoc_args ) {
+		unset( $args );
+		$values            = array();
+		$force_recalculate = array_key_exists( 'recalculate', (array) $assoc_args );
+		if ( isset( $assoc_args['usd'] ) ) {
+			$values['dollar_price'] = $assoc_args['usd'];
+		}
+		if ( isset( $assoc_args['cny'] ) ) {
+			$values['yuan_price'] = $assoc_args['cny'];
+		}
+		if ( empty( $values ) && ! $force_recalculate ) {
+			WP_CLI::error( 'No currency rates provided. Use --usd, --cny, or --recalculate' );
+			return;
+		}
 
-        WP_CLI::success(
-            'Currency settings and ' .
-            (int) ($result['pricing_results']['updated_products'] ?? 0) .
-            ' Patris-managed prices reconciled.'
+		$result = empty( $values )
+			? Digitalogic_Pricing_Coordinator::instance()->reconcile_current( 'wp_cli_currency_recalculate' )
+			: Digitalogic_Pricing_Coordinator::instance()->update_currency(
+				$values,
+				$force_recalculate ? 'wp_cli_currency_recalculate' : 'wp_cli_currency'
+			);
+		if ( is_wp_error( $result ) ) {
+			WP_CLI::error( $result->get_error_message() );
+			return;
+		}
+		$pricing    = is_array( $result['pricing_results'] ?? null ) ? $result['pricing_results'] : array();
+		$applicable = 0;
+		foreach ( (array) ( $pricing['sources'] ?? array() ) as $source_result ) {
+			$applicable += (int) ( $source_result['target_products'] ?? 0 );
+		}
+		$succeeded    = (int) ( $pricing['updated_products'] ?? 0 )
+			+ (int) ( $pricing['already_current_products'] ?? 0 );
+		$deferred     = (int) ( $pricing['deferred_missing'] ?? 0 )
+			+ (int) ( $pricing['deferred_ambiguous'] ?? 0 );
+		$confirmation = is_array( $result['confirmation'] ?? null )
+			? (string) ( $result['confirmation']['status'] ?? 'clear' )
+			: 'clear';
+
+		WP_CLI::success(
+			sprintf(
+				'Currency reconciliation complete (mode=%s, applicable=%d, succeeded=%d, updated=%d, failed=0, deferred=%d, pending=%d, confirmation=%s).',
+				$force_recalculate ? 'explicit' : 'automatic',
+				$applicable,
+				$succeeded,
+				(int) ( $pricing['updated_products'] ?? 0 ),
+				$deferred,
+				(int) ( $pricing['pending_products'] ?? 0 ),
+				$confirmation
+			)
         );
     }
     

@@ -36,6 +36,30 @@ final class WebSocketLifecycleTest extends TestCase {
         };
     }
 
+    public function test_acf_validation_stays_on_native_admin_ajax(): void {
+        $config = file_get_contents(dirname(__DIR__) . '/includes/websocket/class-websocket.php');
+        $proxy = file_get_contents(dirname(__DIR__) . '/assets/js/ajax-proxy.js');
+
+        $this->assertStringContainsString("'acf/validate_save_post'", $config);
+        $this->assertStringContainsString("payload.action.indexOf('acf/') === 0", $proxy);
+        $async = file_get_contents(dirname(__DIR__) . '/assets/js/currency-admin-async.js');
+        $this->assertStringContainsString("event.preventDefault()", $async);
+        $this->assertStringContainsString("digitalogic_currency_async_submit", $async);
+        $this->assertStringContainsString("digitalogic_currency_async_status", $async);
+		$this->assertStringContainsString("terminalDeadline = Date.now() + 120000", $async);
+		$this->assertStringContainsString("controller.abort()", $async);
+		$this->assertStringContainsString("button.addEventListener('click', beginAsyncUpdate, true)", $async);
+		$this->assertStringContainsString("button.addEventListener('pointerdown', beginAsyncUpdate, true)", $async);
+		$this->assertStringContainsString("button.addEventListener('mousedown', beginAsyncUpdate, true)", $async);
+		$this->assertStringContainsString("button.addEventListener('keydown', beginAsyncUpdateFromKey, true)", $async);
+		$this->assertStringContainsString("document.readyState === 'loading'", $async);
+		$this->assertStringContainsString("document.addEventListener('DOMContentLoaded', initialize, {once: true})", $async);
+		$this->assertStringContainsString('initialize();', $async);
+		$this->assertStringContainsString("form.addEventListener('submit', beginAsyncUpdate, true)", $async);
+		$this->assertStringContainsString('event.stopImmediatePropagation()', $async);
+		$this->assertStringContainsString('updateInProgress = true', $async);
+    }
+
     public function test_latest_event_id_uses_queue_and_durable_sequence(): void {
         $GLOBALS['digitalogic_test_options']['digitalogic_panel_events'] = array(
             array('id' => 120),

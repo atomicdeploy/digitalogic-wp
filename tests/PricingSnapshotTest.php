@@ -219,6 +219,34 @@ final class PricingSnapshotTest extends TestCase {
 		$this->assertCount( 1, $GLOBALS['digitalogic_test_options']['digitalogic_panel_events'] );
 	}
 
+	/** A pending pricing event rebases to the newest Patris revision before delivery. */
+	public function test_projection_event_rebases_continuously_changing_source_revision(): void {
+		$redis = new Digitalogic_Test_Redis_Client();
+		add_filter(
+			'digitalogic_panel_redis_client',
+			static function () use ( $redis ) {
+				return $redis;
+			}
+		);
+		$snapshot = Digitalogic_Pricing_Snapshot::instance();
+		$this->assertTrue( Digitalogic_Report_Engine::instance()->invalidate_cache() );
+
+		$source_key    = hash( 'sha256', $this->source['id'] . "\n" . $this->source['dataset'] );
+		$latest_source = $this->source;
+
+		$latest_source['revision'] = 'sha256:' . str_repeat( '8', 64 );
+		$GLOBALS['digitalogic_test_options'][ Digitalogic_Product_Sync_Receiver::STATE_OPTION ]['sources'][ $source_key ]['source'] = $latest_source;
+		unset( $GLOBALS['digitalogic_test_option_cache'][ Digitalogic_Product_Sync_Receiver::STATE_OPTION ] );
+
+		$snapshot->run_state_revision_event_delivery();
+
+		$events = $GLOBALS['digitalogic_test_options']['digitalogic_panel_events'];
+		$this->assertCount( 1, $events );
+		$this->assertSame( $latest_source, $events[0]['data']['source'] );
+		$this->assertArrayNotHasKey( 'digitalogic_pricing_state_event_outbox_v1', $GLOBALS['digitalogic_test_options'] );
+		$this->assertCount( 1, $redis->published );
+	}
+
 	/** A committed invalidation remains durable until the panel queue accepts it. */
 	public function test_projection_event_outbox_retries_failed_queue_write_without_losing_or_duplicating_revision(): void {
 		$snapshot = Digitalogic_Pricing_Snapshot::instance();
@@ -928,6 +956,58 @@ final class PricingSnapshotTest extends TestCase {
 		$this->assertCount( 1, $republished );
 		$this->assertSame( $event['data']['idempotency_key'], $republished[0]['data']['idempotency_key'] );
 		$this->assertSame( $event['data'], $republished[0]['data'] );
+	}
+
+	/** Cross-request retries must coalesce to one Action Scheduler job. */
+	public function test_terminal_event_retry_uses_action_scheduler_uniqueness_guard(): void {
+		$source = implode( '', iterator_to_array( new SplFileObject( dirname( __DIR__ ) . '/includes/class-digitalogic-pricing-snapshot.php' ) ) );
+		$this->assertIsString( $source );
+		$this->assertMatchesRegularExpression(
+			'/as_has_scheduled_action\(\s*self::TERMINAL_EVENT_HOOK,\s*array\(\),\s*self::ACTION_GROUP\s*\)/s',
+			$source
+		);
+		$this->assertMatchesRegularExpression(
+			'/as_schedule_single_action\(\s*\$timestamp,\s*self::TERMINAL_EVENT_HOOK,\s*array\(\),\s*self::ACTION_GROUP,\s*true\s*\)/s',
+			$source
+		);
+	}
+
+	/** A conflicting accepted terminal is preserved without retrying forever. */
+	public function test_terminal_event_conflict_is_removed_from_retry_outbox(): void {
+		$revision   = $this->revision_response()->get_data()['state_revision'];
+		$started    = $this->start_response( 'terminal-conflict-0001', $revision, 0 );
+		$build_id   = $started->get_data()['build_id'];
+		$request_id = 'terminal-conflict-0001';
+		Digitalogic_Pricing_Snapshot::instance()->run_build( $build_id );
+		$event = $this->terminal_events()[0];
+		$data  = $event['data'];
+		unset( $data['snapshot_token'], $data['snapshot_revision'], $data['digest'], $data['snapshot_path'] );
+		$data['status'] = 'cancelled';
+		$data['code']   = 'request_cancelled';
+		$GLOBALS['digitalogic_test_options']['digitalogic_panel_events'][0]['data'] = $data;
+
+		update_option(
+			'digitalogic_pricing_snapshot_terminal_event_outbox_v1',
+			array(
+				$event['data']['idempotency_key'] => array(
+					'name'         => $event['name'],
+					'data'         => $event['data'],
+					'build_id'     => $build_id,
+					'request_id'   => $request_id,
+					'attempts'     => 0,
+					'created_at'   => time(),
+					'committed'    => true,
+					'committed_at' => time(),
+					'updated_at'   => gmdate( 'c' ),
+				),
+			),
+			false
+		);
+
+		Digitalogic_Pricing_Snapshot::instance()->run_terminal_event_delivery();
+
+		$this->assertCount( 1, $this->terminal_events() );
+		$this->assertArrayNotHasKey( 'digitalogic_pricing_snapshot_terminal_event_outbox_v1', $GLOBALS['digitalogic_test_options'] );
 	}
 
 	/** The no-poll path autonomously terminalizes a missed queued worker. */
