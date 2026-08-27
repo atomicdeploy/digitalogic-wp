@@ -930,6 +930,20 @@ final class PricingSnapshotTest extends TestCase {
 		$this->assertSame( $event['data'], $republished[0]['data'] );
 	}
 
+	/** Cross-request retries must coalesce to one Action Scheduler job. */
+	public function test_terminal_event_retry_uses_action_scheduler_uniqueness_guard(): void {
+		$source = implode( '', iterator_to_array( new SplFileObject( dirname( __DIR__ ) . '/includes/class-digitalogic-pricing-snapshot.php' ) ) );
+		$this->assertIsString( $source );
+		$this->assertMatchesRegularExpression(
+			'/as_has_scheduled_action\(\s*self::TERMINAL_EVENT_HOOK,\s*array\(\),\s*self::ACTION_GROUP\s*\)/s',
+			$source
+		);
+		$this->assertMatchesRegularExpression(
+			'/as_schedule_single_action\(\s*\$timestamp,\s*self::TERMINAL_EVENT_HOOK,\s*array\(\),\s*self::ACTION_GROUP,\s*true\s*\)/s',
+			$source
+		);
+	}
+
 	/** The no-poll path autonomously terminalizes a missed queued worker. */
 	public function test_build_watchdog_is_job_fenced_and_publishes_queue_timeout(): void {
 		add_filter(

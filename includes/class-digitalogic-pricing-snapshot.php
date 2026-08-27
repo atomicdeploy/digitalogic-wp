@@ -2104,8 +2104,11 @@ final class Digitalogic_Pricing_Snapshot {
 		}
 		$timestamp = time() + max( self::RETRY_AFTER, min( self::BUILD_TTL, (int) $delay ) );
 		$scheduled = false;
-		if ( function_exists( 'as_schedule_single_action' ) ) {
-			$scheduled = (bool) as_schedule_single_action( $timestamp, self::TERMINAL_EVENT_HOOK, array(), self::ACTION_GROUP, false );
+		if ( function_exists( 'as_has_scheduled_action' ) ) {
+			$scheduled = false !== as_has_scheduled_action( self::TERMINAL_EVENT_HOOK, array(), self::ACTION_GROUP );
+		}
+		if ( ! $scheduled && function_exists( 'as_schedule_single_action' ) ) {
+			$scheduled = 0 !== as_schedule_single_action( $timestamp, self::TERMINAL_EVENT_HOOK, array(), self::ACTION_GROUP, true );
 		}
 		if ( ! $scheduled && function_exists( 'wp_schedule_single_event' ) ) {
 			$scheduled = wp_schedule_single_event( $timestamp, self::TERMINAL_EVENT_HOOK, array(), true );
