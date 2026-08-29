@@ -1431,27 +1431,31 @@ final class PricingCoordinatorTest extends TestCase {
 
 			return $field;
 		};
-		add_filter( 'acf/prepare_field', $late_contamination, 100 );
 		$prepared = apply_filters(
-			'acf/prepare_field',
+			'acf/pre_render_field',
 			array(
 				'_name' => 'update_date',
 				'name'  => 'acf[field_date_rotated]',
 				'value' => '19700104',
-			)
+			),
+			'options'
 		);
+		add_filter( 'acf/prepare_field', $late_contamination, 100 );
+		$prepared = apply_filters( 'acf/prepare_field', $prepared );
 		remove_filter( 'acf/prepare_field', $late_contamination );
 		$this->assertSame( '20260721', $prepared['value'] );
+		$options_alias = apply_filters(
+			'acf/pre_render_field',
+			array(
+				'_name' => 'options_update_date',
+				'name'  => 'acf[field_date_rotated]',
+				'value' => '19700104',
+			),
+			'options'
+		);
 		$this->assertSame(
 			'20260721',
-			apply_filters(
-				'acf/prepare_field',
-				array(
-					'_name' => 'options_update_date',
-					'name'  => 'acf[field_date_rotated]',
-					'value' => '19700104',
-				)
-			)['value']
+			apply_filters( 'acf/prepare_field', $options_alias )['value']
 		);
 		$this->assertSame(
 			'20260721',
@@ -1466,18 +1470,17 @@ final class PricingCoordinatorTest extends TestCase {
 				'options'
 			)['value']
 		);
-		$this->assertSame(
-			'19700104',
-			apply_filters(
-				'acf/pre_render_field',
-				array(
-					'_name' => 'update_date',
-					'name'  => 'acf[field_unrelated]',
-					'value' => '19700104',
-				),
-				901
-			)['value']
+		$unrelated_post = apply_filters(
+			'acf/pre_render_field',
+			array(
+				'_name' => 'update_date',
+				'name'  => 'acf[field_unrelated]',
+				'value' => '19700104',
+			),
+			901
 		);
+		$unrelated_post = apply_filters( 'acf/prepare_field', $unrelated_post );
+		$this->assertSame( '19700104', $unrelated_post['value'] );
 		$_GET['page'] = 'post.php';
 		$this->assertSame(
 			'19700104',
@@ -1491,6 +1494,12 @@ final class PricingCoordinatorTest extends TestCase {
 			)['value']
 		);
 		$_GET['page'] = 'currency-settings';
+		$GLOBALS['digitalogic_test_option_cache']['options_update_date'] = '260720';
+		$this->assertSame(
+			'20260721',
+			$async->load_acf_effective_date( '19700104', 'options', array( 'name' => 'update_date' ) )
+		);
+		$GLOBALS['digitalogic_test_option_cache'] = array();
 		$GLOBALS['digitalogic_test_options'][ Digitalogic_Excel_Pricing_Sync::SETTINGS_OPTION ] = array(
 			'effective_date'     => '2026-07-21',
 			'usd_effective_date' => '2026-07-21',

@@ -25,6 +25,7 @@ final class Digitalogic_Currency_Admin_Async {
 	private const PUBLICATION_RETRY_MAX_SECONDS  = 60;
 	private const JOB_TTL_SECONDS                = 300;
 	private const LEASE_SECONDS                  = 120;
+	private const ACF_OPTIONS_CONTEXT            = '_digitalogic_currency_options_context';
 
 	/**
 	 * Singleton instance.
@@ -223,8 +224,15 @@ final class Digitalogic_Currency_Admin_Async {
 		if (
 			! in_array( $field_name, array( 'update_date', 'options_update_date' ), true )
 			|| ! $this->is_currency_admin_page()
-			|| ( null !== $post_id && 'option' !== $post_id && 'options' !== $post_id )
 		) {
+			return $field;
+		}
+		if ( null !== $post_id ) {
+			if ( 'option' !== $post_id && 'options' !== $post_id ) {
+				return $field;
+			}
+			$field[ self::ACF_OPTIONS_CONTEXT ] = true;
+		} elseif ( empty( $field[ self::ACF_OPTIONS_CONTEXT ] ) ) {
 			return $field;
 		}
 
@@ -232,24 +240,23 @@ final class Digitalogic_Currency_Admin_Async {
 		if ( null !== $date ) {
 			$field['value'] = $date->format( 'Ymd' );
 		}
+		if ( null === $post_id ) {
+			unset( $field[ self::ACF_OPTIONS_CONTEXT ] );
+		}
 
 		return $field;
 	}
 
 	/** Resolve a trusted effective date without traversing ACF option filters. */
 	private function canonical_acf_effective_date() {
-		$formatter = Digitalogic_Currency_Date_Formatter::instance();
-		$date      = $formatter->parse( $formatter->get_raw_update_date() );
-		if ( null !== $date ) {
-			return $date;
-		}
-
 		$state = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
 		if ( is_wp_error( $state ) ) {
 			return null;
 		}
 
-		return $formatter->parse( (string) ( $state['settings']['cny_effective_date'] ?? '' ) );
+		return Digitalogic_Currency_Date_Formatter::instance()->parse(
+			(string) ( $state['settings']['cny_effective_date'] ?? '' )
+		);
 	}
 
 	/** Whether this request is rendering one of the managed currency screens. */
