@@ -57,6 +57,8 @@ final class Digitalogic_Currency_Admin_Async {
 		add_filter( 'acf/update_value/name=options_update_date', array( $this, 'route_acf_currency_update' ), 1, 3 );
 		add_filter( 'acf/load_value/name=update_date', array( $this, 'load_acf_effective_date' ), 1, 3 );
 		add_filter( 'acf/load_value/name=options_update_date', array( $this, 'load_acf_effective_date' ), 1, 3 );
+		add_filter( 'acf/pre_render_field', array( $this, 'prepare_acf_effective_date_field' ), PHP_INT_MAX, 2 );
+		add_filter( 'acf/prepare_field', array( $this, 'prepare_acf_effective_date_field' ), PHP_INT_MAX, 1 );
 		foreach ( array( 'dollar_price', 'options_dollar_price', 'yuan_price', 'options_yuan_price', 'update_date', 'options_update_date' ) as $option_name ) {
 			add_filter(
 				'pre_update_option_' . $option_name,
@@ -192,13 +194,74 @@ final class Digitalogic_Currency_Admin_Async {
 			return $value;
 		}
 
-		$state = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
-		$date  = is_wp_error( $state ) ? '' : (string) ( $state['settings']['cny_effective_date'] ?? '' );
-		if ( 1 !== preg_match( '/\A[0-9]{4}-[0-9]{2}-[0-9]{2}\z/D', $date ) ) {
+		$date = $this->canonical_acf_effective_date();
+		if ( null === $date ) {
 			return $value;
 		}
 
-		return str_replace( '-', '', $date );
+		return $date->format( 'Ymd' );
+	}
+
+	/**
+	 * Repair a value that ACFE loaded before this plugin registered load filters.
+	 *
+	 * Some options-page integrations hydrate field values while plugins are still
+	 * booting. The pre-render hook provides the real options context even for an
+	 * already-prepared field; the outer prepare hook then runs after ACF's type,
+	 * name, and key variations. Together they replace the epoch projection without
+	 * relying on JavaScript or a generated field key.
+	 *
+	 * @param array|mixed     $field   ACF field definition.
+	 * @param int|string|null $post_id ACF render context when available.
+	 * @return array|mixed
+	 */
+	public function prepare_acf_effective_date_field( $field, $post_id = null ) {
+		if ( ! is_array( $field ) ) {
+			return $field;
+		}
+		$field_name = (string) ( $field['_name'] ?? $field['name'] ?? '' );
+		if (
+			! in_array( $field_name, array( 'update_date', 'options_update_date' ), true )
+			|| ! $this->is_currency_admin_page()
+			|| ( null !== $post_id && 'option' !== $post_id && 'options' !== $post_id )
+		) {
+			return $field;
+		}
+
+		$date = $this->canonical_acf_effective_date();
+		if ( null !== $date ) {
+			$field['value'] = $date->format( 'Ymd' );
+		}
+
+		return $field;
+	}
+
+	/** Resolve a trusted effective date without traversing ACF option filters. */
+	private function canonical_acf_effective_date() {
+		$formatter = Digitalogic_Currency_Date_Formatter::instance();
+		$date      = $formatter->parse( $formatter->get_raw_update_date() );
+		if ( null !== $date ) {
+			return $date;
+		}
+
+		$state = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
+		if ( is_wp_error( $state ) ) {
+			return null;
+		}
+
+		return $formatter->parse( (string) ( $state['settings']['cny_effective_date'] ?? '' ) );
+	}
+
+	/** Whether this request is rendering one of the managed currency screens. */
+	private function is_currency_admin_page() {
+		$page    = sanitize_key( (string) ( $_GET['page'] ?? '' ) ); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only screen routing.
+		$screens = apply_filters(
+			'digitalogic_currency_async_admin_pages',
+			array( 'currency-settings', 'price-settings' )
+		);
+		$screens = array_map( 'sanitize_key', is_array( $screens ) ? $screens : array() );
+
+		return in_array( $page, $screens, true );
 	}
 
 	/** Render a server-owned optimistic revision inside every authorized ACF form. */
