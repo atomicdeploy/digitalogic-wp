@@ -39,6 +39,14 @@ test('pricing refresh clears stale numeric validation before writing exact shipp
   );
 });
 
+test('catalog fetch retries bounded transient failures without retrying client errors', () => {
+  assert.match(source, /function fetchCatalogResponseWithRetry_\(url, options\)/);
+  assert.match(source, /attempt <= 3/);
+  assert.match(source, /status !== 429 && status < 500/);
+  assert.match(source, /Utilities\.sleep\(250 \* attempt\)/);
+  assert.match(source, /fetchCatalogResponseWithRetry_\(config\.apiBase/);
+});
+
 test('key-based merge updates matches, appends new rows, and removes stale rows', () => {
   const mergeRows = sandbox.module.exports.mergeRows_;
   const actual = mergeRows(

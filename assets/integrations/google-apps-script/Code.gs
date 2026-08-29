@@ -755,7 +755,7 @@ function fetchPage_(config, dataset, page) {
     'page=' + encodeURIComponent(page),
     'limit=' + encodeURIComponent(DIGITALOGIC_PAGE_SIZE),
   ].join('&');
-  const response = UrlFetchApp.fetch(config.apiBase + '/google-sheets/catalog?' + query, {
+  const response = fetchCatalogResponseWithRetry_(config.apiBase + '/google-sheets/catalog?' + query, {
     method: 'get',
     headers: {
       Authorization: 'Basic ' + Utilities.base64Encode(config.consumerKey + ':' + config.consumerSecret),
@@ -778,6 +778,27 @@ function fetchPage_(config, dataset, page) {
   }
 
   return payload.data;
+}
+
+/** Retry only transient transport, throttling, and server failures. */
+function fetchCatalogResponseWithRetry_(url, options) {
+  let lastError = null;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      const response = UrlFetchApp.fetch(url, options);
+      const status = response.getResponseCode();
+      if (status !== 429 && status < 500) {
+        return response;
+      }
+      lastError = new Error('Digitalogic transient HTTP ' + status + '.');
+    } catch (error) {
+      lastError = error;
+    }
+    if (attempt < 3) {
+      Utilities.sleep(250 * attempt);
+    }
+  }
+  throw lastError || new Error('Digitalogic catalog request failed.');
 }
 
 /** Compute one stable revision from machine columns and complete row data. */
