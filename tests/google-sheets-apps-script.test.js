@@ -32,6 +32,13 @@ const appsScriptManifest = JSON.parse(fs.readFileSync(
 const sandbox = { module: { exports: {} }, exports: {} };
 vm.runInNewContext(source, sandbox, { filename: sourcePath });
 
+test('pricing refresh clears stale numeric validation before writing exact shipping text', () => {
+  assert.match(
+    source,
+    /DIGITALOGIC_PRICING_SETTINGS_CELLS\.shippingPrice\)[\s\S]*?\.clearDataValidations\(\)[\s\S]*?\.setNumberFormat\('@'\)[\s\S]*?\.setValue\(String\(settings\.air_express_price_per_kg\)\)/
+  );
+});
+
 test('key-based merge updates matches, appends new rows, and removes stale rows', () => {
   const mergeRows = sandbox.module.exports.mergeRows_;
   const actual = mergeRows(
