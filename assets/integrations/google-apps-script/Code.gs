@@ -351,6 +351,11 @@ function upsertPricingSettings_(spreadsheet, state, locale) {
   const settings = state.settings;
   sheet.getRange(DIGITALOGIC_PRICING_SETTINGS_CELLS.cny).setValue(Number(settings.yuan_price));
   sheet.getRange(DIGITALOGIC_PRICING_SETTINGS_CELLS.shippingPrice)
+    // Older control-center revisions left a strict numeric validation on B8.
+    // The canonical decimal is intentionally written as text so its exact
+    // representation survives round trips; remove that stale validator before
+    // writing or a catalog refresh can fail before replacing any managed rows.
+    .clearDataValidations()
     .setNumberFormat('@')
     .setValue(String(settings.air_express_price_per_kg));
   sheet.getRange(DIGITALOGIC_PRICING_SETTINGS_CELLS.shippingCurrency).setValue(settings.air_express_currency);
