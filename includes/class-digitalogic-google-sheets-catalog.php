@@ -166,15 +166,16 @@ final class Digitalogic_Google_Sheets_Catalog {
 				)
 			);
 		}
-		if ( $integrity_warnings ) {
+		$blocking_integrity_warnings = $this->blocking_integrity_warnings( $integrity_warnings );
+		if ( $blocking_integrity_warnings ) {
 			return new WP_Error(
 				'digitalogic_reconciled_projection_integrity_failed',
-				__( 'The reconciled catalog failed its product-type integrity check; retry after cache repair.', 'digitalogic' ),
+				__( 'The reconciled catalog contains an unsafe identity that cannot be projected.', 'digitalogic' ),
 				array(
 					'status'      => 503,
 					'retry_after' => 2,
 					'retryable'   => true,
-					'warnings'    => $integrity_warnings,
+					'warnings'    => $blocking_integrity_warnings,
 				)
 			);
 		}
@@ -593,14 +594,15 @@ final class Digitalogic_Google_Sheets_Catalog {
 			return $report;
 		}
 		$integrity_warnings = array_values( (array) ( $report['integrity']['warnings'] ?? array() ) );
-		if ( ! empty( $integrity_warnings ) ) {
+		$blocking_integrity_warnings = $this->blocking_integrity_warnings( $integrity_warnings );
+		if ( ! empty( $blocking_integrity_warnings ) ) {
 			return new WP_Error(
 				'digitalogic_reconciled_projection_integrity_failed',
-				__( 'The reconciled catalog failed its product-type integrity check; retry after cache repair.', 'digitalogic' ),
+				__( 'The reconciled catalog contains an unsafe identity that cannot be projected.', 'digitalogic' ),
 				array(
 					'status'      => 503,
 					'retry_after' => 1,
-					'warnings'    => $integrity_warnings,
+					'warnings'    => $blocking_integrity_warnings,
 				)
 			);
 		}
@@ -1830,6 +1832,29 @@ final class Digitalogic_Google_Sheets_Catalog {
 		}
 
 		return $stable;
+	}
+
+	/**
+	 * Return integrity failures that make even a read-only projection unsafe.
+	 *
+	 * A duplicated WooCommerce SKU remains quarantined from identity fallback and
+	 * writeback, but both records already have distinct immutable Woo IDs and
+	 * stable projection keys. Keep that diagnostic in the projection metadata
+	 * without starving every unrelated catalog row. All other integrity failures
+	 * continue to fail the projection closed.
+	 *
+	 * @param array $warnings Report integrity warnings.
+	 * @return array
+	 */
+	private function blocking_integrity_warnings( $warnings ) {
+		return array_values(
+			array_filter(
+				(array) $warnings,
+				static function ( $warning ) {
+					return 'projection_integrity_duplicate_woo_sku' !== (string) ( $warning['code'] ?? '' );
+				}
+			)
+		);
 	}
 
 	/**

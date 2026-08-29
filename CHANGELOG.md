@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.30] - 2026-08-29
+
+### Fixed
+- Keep duplicate WooCommerce SKU groups quarantined from identity fallback and writeback while allowing unrelated catalog rows to refresh with exact integrity diagnostics.
+
 ## [1.8.29] - 2026-08-27
 
 - Let the authenticated ACF AJAX request claim and run its already-durable currency job directly, keeping the browser responsive while removing WP-Cron queue latency from the rate-change critical path.
