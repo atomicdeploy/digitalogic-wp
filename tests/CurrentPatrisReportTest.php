@@ -221,6 +221,50 @@ final class CurrentPatrisReportTest extends TestCase {
 		$this->assertSame( 'digitalogic_reconciled_projection_integrity_failed', $catalog->get_error_code() );
 	}
 
+	/** Duplicate Woo SKUs stay diagnosed and writeback-quarantined without starving safe rows. */
+	public function test_duplicate_woo_sku_quarantine_does_not_block_read_only_projection(): void {
+		$this->store_source(
+			array(
+				'AUTH-CODE' => array(
+					'product_code' => 'AUTH-CODE',
+					'name'         => 'Authoritative source row',
+					'warnings'     => array(),
+				),
+			)
+		);
+		$GLOBALS['digitalogic_test_posts'][190] = $this->woo_post(
+			'simple',
+			'Authoritative Woo row',
+			array(
+				'_digitalogic_patris_product_code' => 'AUTH-CODE',
+				'_sku'                             => 'DUP-SKU',
+			)
+		);
+		$GLOBALS['digitalogic_test_posts'][191] = $this->woo_post(
+			'simple',
+			'Independent Woo-only row',
+			array( '_sku' => 'dup‐sku' )
+		);
+
+		$catalog = Digitalogic_Google_Sheets_Catalog::instance()->get_page(
+			array(
+				'dataset' => 'reconciled_products',
+				'locale'  => 'fa',
+				'page'    => 1,
+				'limit'   => 100,
+			)
+		);
+
+		$this->assertFalse( is_wp_error( $catalog ) );
+		$this->assertSame( 2, $catalog['pagination']['total'] );
+		$this->assertSame( 'warning', $catalog['reconciliation']['integrity_status'] );
+		$this->assertSame(
+			array( 'projection_integrity_duplicate_woo_sku' ),
+			array_column( $catalog['reconciliation']['warnings'], 'code' )
+		);
+		$this->assertSame( array( 'patris:AUTH-CODE', 'woo:191' ), array_column( $catalog['rows'], 'sync_key' ) );
+	}
+
 	/** Canonical source codes that differ only by normalization are quarantined. */
 	public function test_normalized_source_product_code_collision_blocks_projection(): void {
 		$this->store_source(
