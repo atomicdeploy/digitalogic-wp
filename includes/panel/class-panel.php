@@ -360,22 +360,38 @@ class Digitalogic_Panel {
 
         $result = Digitalogic_Command_Dispatcher::instance()->execute($command, $data, 'ajax');
         if (is_wp_error($result)) {
-            wp_send_json_error($result->get_error_message());
+            $details     = $result->get_error_data();
+            $details     = is_array($details) ? $details : array();
+            $retry_after = max(0, (int) ($details['retry_after'] ?? 0));
+            $status      = isset($details['status']) ? (int) $details['status'] : 409;
+            if ($retry_after > 0 && !isset($details['status'])) {
+                $status = 'digitalogic_currency_async_busy' === $result->get_error_code() ? 429 : 503;
+            }
+            if ($retry_after > 0 && !headers_sent()) {
+                header('Retry-After: ' . $retry_after);
+            }
+            wp_send_json_error(
+                array(
+                    'code' => $result->get_error_code(),
+                    'message' => $result->get_error_message(),
+                    'blocking' => (bool) ($details['blocking'] ?? false),
+                    'retry_after' => $retry_after,
+                    'details' => $details,
+                ),
+                $status
+            );
         }
 
-        wp_send_json_success($result);
+        wp_send_json_success($result, 'digitalogic_update_currency' === $command ? 202 : null);
     }
 
     public function summary_command() {
-        $options = Digitalogic_Options::instance();
+        $currency = Digitalogic_Command_Dispatcher::instance()->get_currency();
 
         return array(
             'products' => Digitalogic_Product_Manager::instance()->get_product_count(),
-            'currency' => array(
-                'dollar_price' => $options->get_dollar_price(),
-                'yuan_price' => $options->get_yuan_price(),
-                'updated_at' => $options->get_update_date_formatted(),
-            ),
+            'currency' => $currency,
+            'currency_job' => Digitalogic_Currency_Admin_Async::instance()->status('', 0, true),
             'cli' => array(
                 'websocket' => 'wp digitalogic websocket serve --host=127.0.0.1 --port=8090 --allow-root',
             'websocket_token' => 'wp digitalogic websocket token --allow-root',
@@ -408,15 +424,11 @@ class Digitalogic_Panel {
     }
 
     public function settings_command() {
-        $options = Digitalogic_Options::instance();
         $ws = Digitalogic_WebSocket::instance()->get_client_config();
+        $currency = Digitalogic_Command_Dispatcher::instance()->get_currency();
 
         return array(
-            'currency' => array(
-                'dollar_price' => $options->get_dollar_price(),
-                'yuan_price' => $options->get_yuan_price(),
-                'updated_at' => $options->get_update_date_formatted(),
-            ),
+            'currency' => $currency,
             'urls' => array(
                 'panel' => Digitalogic_Laravel_Bridge::instance()->get_panel_url(),
                 'legacy_panel' => home_url('/panell/'),

@@ -123,4 +123,33 @@ final class AdminCurrencyPostboxTest extends TestCase {
         $this->assertStringNotContainsString('class="postbox"', $view);
         $this->assertStringNotContainsString('<script', $view);
     }
+
+    public function test_native_currency_post_is_revision_bound_and_never_reprices_inline(): void {
+        $source = file_get_contents(dirname(__DIR__) . '/includes/admin/class-admin.php');
+        $start = strpos($source, 'public function render_currency_page()');
+        $end = strpos($source, 'public function register_currency_meta_boxes()', $start);
+        $method = substr($source, $start, $end - $start);
+        $view = file_get_contents(dirname(__DIR__) . '/includes/admin/views/currency.php');
+
+        $this->assertStringContainsString('enqueue_currency(', $method);
+        $this->assertStringContainsString("'native_admin'", $method);
+        $this->assertStringNotContainsString('Pricing_Coordinator::instance()->update_currency', $method);
+        $this->assertStringContainsString('name="pricing_state_revision"', $view);
+        $this->assertStringContainsString('id="digitalogic-currency-async-status"', $view);
+        $this->assertStringContainsString('min="1" step="1"', $source);
+    }
+
+    public function test_managed_options_currency_setters_only_enqueue_background_work(): void {
+        $source = file_get_contents(dirname(__DIR__) . '/includes/class-options.php');
+        $dollarStart = strpos($source, 'public function set_dollar_price');
+        $yuanStart = strpos($source, 'public function set_yuan_price');
+        $updateDateStart = strpos($source, 'public function get_update_date', $yuanStart);
+        $dollar = substr($source, $dollarStart, $yuanStart - $dollarStart);
+        $yuan = substr($source, $yuanStart, $updateDateStart - $yuanStart);
+
+        foreach (array($dollar, $yuan) as $setter) {
+            $this->assertStringContainsString('Currency_Admin_Async::instance()->enqueue_currency', $setter);
+            $this->assertStringNotContainsString('Pricing_Coordinator::instance()->update_currency', $setter);
+        }
+    }
 }

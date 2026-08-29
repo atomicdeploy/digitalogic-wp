@@ -22,6 +22,10 @@ final class Digitalogic_Report_Engine {
 	private const CACHE_TTL               = 300;
 	private const CACHE_GENERATION_KEY    = 'generation-v1';
 	private const CACHE_GENERATION_OPTION = 'digitalogic_report_cache_generation_v1';
+	private const CACHE_EFFECTS_OPTION    = 'digitalogic_report_cache_effects';
+	private const CACHE_GENERATION_LOCK   = 'digitalogic_report_cache_generation_lock';
+	private const MAX_EFFECT_RECEIPTS     = 100;
+	private const EFFECT_RETRY_HOOK       = 'digitalogic_report_effect_invalidation_retry';
 	private const BUILD_LOCK_TTL          = 180;
 
 	/**
@@ -71,6 +75,7 @@ final class Digitalogic_Report_Engine {
 		add_action( 'updated_option', array( $this, 'invalidate_cache_for_option' ), 10, 3 );
 		add_action( 'added_option', array( $this, 'invalidate_cache_for_added_option' ), 10, 2 );
 		add_action( 'deleted_option', array( $this, 'invalidate_cache_for_deleted_option' ) );
+		add_action( self::EFFECT_RETRY_HOOK, array( $this, 'retry_effect_invalidation' ) );
 	}
 
 	/**
@@ -750,37 +755,171 @@ final class Digitalogic_Report_Engine {
 
 	/** Invalidate every request-shaped report without requiring a key registry. */
 	public function invalidate_cache() {
-		$token  = $this->new_cache_token();
-		$stored = update_option( self::CACHE_GENERATION_OPTION, $token, false )
-			|| get_option( self::CACHE_GENERATION_OPTION, null ) === $token;
-		if ( ! $stored ) {
-			$stored = add_option( self::CACHE_GENERATION_OPTION, $token, '', false )
-				|| get_option( self::CACHE_GENERATION_OPTION, null ) === $token;
-		}
-		if ( $stored ) {
-			$this->local_cache_generation = $token;
-		}
-		if ( function_exists( 'wp_cache_set' ) ) {
-			try {
-				if ( function_exists( 'wp_cache_delete' ) ) {
-					wp_cache_delete( self::CACHE_GENERATION_KEY, self::CACHE_GROUP );
+		$result = $this->with_generation_lock(
+			function () {
+				$token = $this->new_cache_token();
+				if ( ! $this->store_generation_token( $token ) ) {
+					return false;
 				}
-				wp_cache_set(
-					self::CACHE_GENERATION_KEY,
-					$this->local_cache_generation,
-					self::CACHE_GROUP,
-					0
-				);
-			} catch ( Throwable $error ) {
-				// A cache backend outage must not make product writes fail.
-				unset( $error );
+				do_action( 'digitalogic_report_projection_invalidated', $token );
+
+				return true;
 			}
-		}
-		if ( $stored ) {
-			do_action( 'digitalogic_report_projection_invalidated', $token );
+		);
+
+		return true === $result;
+	}
+
+	/**
+	 * Invalidate the projection exactly once for one already-committed effect.
+	 *
+	 * A durable pending receipt is written before the generation changes. A
+	 * replay therefore either observes the same target generation, or notices
+	 * that a newer unrelated invalidation already won and never writes an older
+	 * token back over it.
+	 *
+	 * @param string $effect_id      Stable sha256 effect identity.
+	 * @param bool   $schedule_retry Schedule one bounded recovery attempt on failure.
+	 * @return array|WP_Error Verified receipt.
+	 */
+	public function invalidate_cache_for_effect( $effect_id, $schedule_retry = true ) {
+		$effect_id = (string) $effect_id;
+		if ( 1 !== preg_match( '/\Asha256:[a-f0-9]{64}\z/D', $effect_id ) ) {
+			return new WP_Error(
+				'digitalogic_report_effect_identity_invalid',
+				'شناسهٔ اثر تغییر گزارش معتبر نیست.',
+				array( 'blocking' => true )
+			);
 		}
 
-		return $stored;
+		$result = $this->with_generation_lock(
+			function () use ( $effect_id ) {
+				$receipts = get_option( self::CACHE_EFFECTS_OPTION, array() );
+				$receipts = is_array( $receipts ) ? $receipts : array();
+				$receipt  = is_array( $receipts[ $effect_id ] ?? null ) ? $receipts[ $effect_id ] : array();
+				if ( in_array( (string) ( $receipt['status'] ?? '' ), array( 'complete', 'superseded' ), true ) ) {
+					return $receipt;
+				}
+
+				$current = $this->cache_generation();
+				if ( ! $receipt ) {
+					$receipt = array(
+						'effect_id'           => $effect_id,
+						'status'              => 'pending',
+						'previous_generation' => $current,
+						'target_generation'   => 'sha256:' . hash( 'sha256', "report-effect\0" . $effect_id ),
+						'created_at'          => time(),
+						'completed_at'        => 0,
+					);
+					$receipts[ $effect_id ] = $receipt;
+					if ( ! $this->store_effect_receipts( $receipts ) ) {
+						return new WP_Error(
+							'digitalogic_report_effect_receipt_store_failed',
+							'ثبت رسید پایدار تغییر گزارش ممکن نشد.',
+							array( 'blocking' => false, 'retry_after' => 2 )
+						);
+					}
+				}
+
+				$previous = (string) ( $receipt['previous_generation'] ?? '' );
+				$target   = (string) ( $receipt['target_generation'] ?? '' );
+				$current  = $this->cache_generation();
+				if ( ! hash_equals( $target, $current ) ) {
+					if ( ! hash_equals( $previous, $current ) ) {
+						$receipt['status']       = 'superseded';
+						$receipt['completed_at'] = time();
+						$receipts[ $effect_id ]  = $receipt;
+						if ( ! $this->store_effect_receipts( $receipts ) ) {
+							return new WP_Error(
+								'digitalogic_report_effect_receipt_store_failed',
+								'ثبت پایان رسید تغییر گزارش ممکن نشد.',
+								array( 'blocking' => false, 'retry_after' => 2 )
+							);
+						}
+
+						return $receipt;
+					}
+					if ( ! $this->store_generation_token( $target ) ) {
+						return new WP_Error(
+							'digitalogic_report_effect_generation_store_failed',
+							'ثبت generation گزارش ممکن نشد.',
+							array( 'blocking' => false, 'retry_after' => 2 )
+						);
+					}
+				}
+
+				$receipt['status']       = 'complete';
+				$receipt['completed_at'] = time();
+				$receipts[ $effect_id ]  = $receipt;
+				if ( ! $this->store_effect_receipts( $receipts ) ) {
+					return new WP_Error(
+						'digitalogic_report_effect_receipt_store_failed',
+						'ثبت پایان رسید تغییر گزارش ممکن نشد.',
+						array( 'blocking' => false, 'retry_after' => 2 )
+					);
+				}
+
+				return $receipt;
+			}
+		);
+
+		if ( false === $result ) {
+			$result = new WP_Error(
+				'digitalogic_report_generation_lock_busy',
+				'تغییر دیگری در حال تازه‌سازی گزارش است.',
+				array( 'blocking' => false, 'retry_after' => 2 )
+			);
+		}
+		if ( is_wp_error( $result ) && $schedule_retry ) {
+			$data                       = $result->get_error_data();
+			$data                       = is_array( $data ) ? $data : array();
+			$data['retry_scheduled']     = $this->schedule_effect_invalidation_retry( $effect_id );
+			$data['retry_after']         = 2;
+			$data['recovery_attempts']   = 1;
+			$data['recovery_is_bounded'] = true;
+
+			return new WP_Error( $result->get_error_code(), $result->get_error_message(), $data );
+		}
+
+		return $result;
+	}
+
+	/** Execute the one bounded post-commit recovery attempt without recursion. */
+	public function retry_effect_invalidation( $effect_id ) {
+		$result = $this->invalidate_cache_for_effect( $effect_id, false );
+		if ( is_wp_error( $result ) ) {
+			do_action( 'digitalogic_report_effect_invalidation_failed', $effect_id, $result->get_error_code() );
+		}
+
+		return $result;
+	}
+
+	/** Persist at most one exact retry; no repeating loop can occupy WordPress. */
+	private function schedule_effect_invalidation_retry( $effect_id ) {
+		$args = array( (string) $effect_id );
+		if (
+			function_exists( 'as_has_scheduled_action' )
+			&& as_has_scheduled_action( self::EFFECT_RETRY_HOOK, $args, 'digitalogic-pricing' )
+		) {
+			return true;
+		}
+		if ( false !== wp_next_scheduled( self::EFFECT_RETRY_HOOK, $args ) ) {
+			return true;
+		}
+		$timestamp = time() + 2;
+		if ( function_exists( 'as_schedule_single_action' ) ) {
+			return (bool) as_schedule_single_action(
+				$timestamp,
+				self::EFFECT_RETRY_HOOK,
+				$args,
+				'digitalogic-pricing',
+				true
+			);
+		}
+
+		$scheduled = wp_schedule_single_event( $timestamp, self::EFFECT_RETRY_HOOK, $args, true );
+
+		return ! is_wp_error( $scheduled ) && false !== $scheduled;
 	}
 
 	/** Invalidate reports when an option that feeds reconciliation changes. */
@@ -1075,6 +1214,82 @@ final class Digitalogic_Report_Engine {
 		$this->local_cache_generation = '';
 
 		return '';
+	}
+
+	/** Persist and read back one exact generation token. */
+	private function store_generation_token( $token ) {
+		$token  = (string) $token;
+		$stored = update_option( self::CACHE_GENERATION_OPTION, $token, false )
+			|| get_option( self::CACHE_GENERATION_OPTION, null ) === $token;
+		if ( ! $stored ) {
+			$stored = add_option( self::CACHE_GENERATION_OPTION, $token, '', false )
+				|| get_option( self::CACHE_GENERATION_OPTION, null ) === $token;
+		}
+		if ( ! $stored ) {
+			return false;
+		}
+
+		$this->local_cache_generation = $token;
+		if ( function_exists( 'wp_cache_set' ) ) {
+			try {
+				if ( function_exists( 'wp_cache_delete' ) ) {
+					wp_cache_delete( self::CACHE_GENERATION_KEY, self::CACHE_GROUP );
+				}
+				wp_cache_set( self::CACHE_GENERATION_KEY, $token, self::CACHE_GROUP, 0 );
+			} catch ( Throwable $error ) {
+				// A cache backend outage cannot make the authoritative option stale.
+				unset( $error );
+			}
+		}
+
+		return true;
+	}
+
+	/** Persist a bounded, readback-verified map of effect receipts. */
+	private function store_effect_receipts( $receipts ) {
+		$receipts = is_array( $receipts ) ? $receipts : array();
+		if ( count( $receipts ) > self::MAX_EFFECT_RECEIPTS ) {
+			uasort(
+				$receipts,
+				static function ( $left, $right ) {
+					$left  = is_array( $left ) ? (int) ( $left['created_at'] ?? 0 ) : 0;
+					$right = is_array( $right ) ? (int) ( $right['created_at'] ?? 0 ) : 0;
+
+					return $left <=> $right;
+				}
+			);
+			$receipts = array_slice( $receipts, -self::MAX_EFFECT_RECEIPTS, null, true );
+		}
+
+		$stored = update_option( self::CACHE_EFFECTS_OPTION, $receipts, false )
+			|| get_option( self::CACHE_EFFECTS_OPTION, null ) === $receipts;
+		if ( ! $stored ) {
+			$stored = add_option( self::CACHE_EFFECTS_OPTION, $receipts, '', false )
+				|| get_option( self::CACHE_EFFECTS_OPTION, null ) === $receipts;
+		}
+
+		return $stored;
+	}
+
+	/** Run one generation transition under a zero-wait database mutex. */
+	private function with_generation_lock( $callback ) {
+		global $wpdb;
+
+		if ( ! is_object( $wpdb ) || ! method_exists( $wpdb, 'prepare' ) || ! method_exists( $wpdb, 'get_var' ) ) {
+			return false;
+		}
+		$prefix   = isset( $wpdb->prefix ) ? (string) $wpdb->prefix : 'wp_';
+		$lock     = substr( self::CACHE_GENERATION_LOCK . '_' . md5( $prefix ), 0, 64 );
+		$acquired = $wpdb->get_var( $wpdb->prepare( 'SELECT GET_LOCK(%s, %d)', $lock, 0 ) );
+		if ( 1 !== (int) $acquired ) {
+			return false;
+		}
+
+		try {
+			return call_user_func( $callback );
+		} finally {
+			$wpdb->get_var( $wpdb->prepare( 'SELECT RELEASE_LOCK(%s)', $lock ) );
+		}
 	}
 
 	/** Create an ownership/generation token. */

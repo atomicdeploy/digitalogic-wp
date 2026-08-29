@@ -160,9 +160,16 @@ class Digitalogic_Options {
      */
     public function set_dollar_price($price) {
         if ($this->managed_pricing_active()) {
-            $result = Digitalogic_Pricing_Coordinator::instance()->update_currency(
+            $state = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
+            if (is_wp_error($state)) {
+                return false;
+            }
+            $result = Digitalogic_Currency_Admin_Async::instance()->enqueue_currency(
                 array('dollar_price' => $price),
-                'legacy_options_api'
+                true,
+                false,
+                (string) $state['state_revision'],
+                'options_api'
             );
 
             return !is_wp_error($result);
@@ -222,9 +229,16 @@ class Digitalogic_Options {
      */
     public function set_yuan_price($price) {
         if ($this->managed_pricing_active()) {
-            $result = Digitalogic_Pricing_Coordinator::instance()->update_currency(
+            $state = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
+            if (is_wp_error($state)) {
+                return false;
+            }
+            $result = Digitalogic_Currency_Admin_Async::instance()->enqueue_currency(
                 array('yuan_price' => $price),
-                'legacy_options_api'
+                true,
+                false,
+                (string) $state['state_revision'],
+                'options_api'
             );
 
             return !is_wp_error($result);

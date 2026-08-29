@@ -102,6 +102,17 @@
         return;
     }
 
+    function transportError(payload, fallback) {
+        var details = payload && typeof payload === 'object' ? payload : {};
+        var message = details.message || details.message_fa || (typeof payload === 'string' ? payload : '') || fallback || 'Request failed';
+        var error = new Error(String(message));
+        error.code = details.code || details.error_code || '';
+        error.blocking = !!details.blocking;
+        error.retryAfter = Number(details.retry_after || 0);
+        error.details = details.details || {};
+        return error;
+    }
+
     function createTransport() {
         var socket = null;
         var ready = false;
@@ -145,7 +156,7 @@
                     var item = pending[response.id];
                     delete pending[response.id];
                     clearTimeout(item.timeout);
-                    response.success ? item.resolve(response.data) : item.reject(response.error || {message: 'WebSocket failed'});
+                    response.success ? item.resolve(response.data) : item.reject(transportError(response.error, 'WebSocket failed'));
                     return;
                 }
 
@@ -158,7 +169,7 @@
                 ready = false;
                 connecting = false;
                 Object.keys(pending).forEach(function(id) {
-                    pending[id].reject({message: 'WebSocket disconnected'});
+                    pending[id].reject(transportError({}, 'WebSocket disconnected'));
                     clearTimeout(pending[id].timeout);
                     delete pending[id];
                 });
@@ -181,7 +192,7 @@
                         reject: reject,
                         timeout: window.setTimeout(function() {
                             if (pending[id]) {
-                                pending[id].reject({message: 'WebSocket timeout'});
+                                pending[id].reject(transportError({}, 'WebSocket timeout'));
                                 delete pending[id];
                             }
                         }, (config.websocket && config.websocket.request_timeout) || 15000)
@@ -198,23 +209,55 @@
 
         function ajax(command, data) {
             var body = new URLSearchParams();
+            var controller = typeof window.AbortController === 'function' ? new window.AbortController() : null;
+            var timeoutMs = Math.max(1000, Number(config.ajax_request_timeout || 12000));
             body.set('action', 'digitalogic_panel_command');
             body.set('nonce', config.nonce || '');
             body.set('command', command);
             body.set('data', JSON.stringify(data || {}));
 
-            return window.fetch(config.ajax_url, {
-                method: 'POST',
-                credentials: 'same-origin',
-                headers: {'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'},
-                body: body.toString()
-            }).then(function(response) {
-                return response.json();
-            }).then(function(json) {
-                if (!json || !json.success) {
-                    throw new Error((json && json.data) || 'AJAX failed');
-                }
-                return json.data;
+            return new Promise(function(resolve, reject) {
+                var settled = false;
+                var timeout = window.setTimeout(function() {
+                    if (settled) return;
+                    settled = true;
+                    if (controller) controller.abort();
+                    reject(transportError({code: 'digitalogic_panel_request_timeout'}, 'مهلت پاسخ پنل تمام شد؛ صفحه آزاد است و می‌توانید وضعیت را دوباره بررسی کنید.'));
+                }, timeoutMs);
+                var options = {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: {'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'},
+                    body: body.toString()
+                };
+                if (controller) options.signal = controller.signal;
+
+                window.fetch(config.ajax_url, options).then(function(response) {
+                    return response.text().then(function(text) {
+                        var json;
+                        try {
+                            json = JSON.parse(text);
+                        } catch (error) {
+                            throw transportError({code: 'digitalogic_panel_response_invalid'}, 'پاسخ پنل قابل خواندن نبود؛ دوباره تلاش کنید.');
+                        }
+                        if (!response.ok || !json || !json.success) {
+                            throw transportError(json && json.data, 'AJAX failed');
+                        }
+                        return json.data;
+                    });
+                }).then(function(value) {
+                    if (settled) return;
+                    settled = true;
+                    window.clearTimeout(timeout);
+                    resolve(value);
+                }).catch(function(error) {
+                    if (settled) return;
+                    settled = true;
+                    window.clearTimeout(timeout);
+                    reject(error && error.name === 'AbortError'
+                        ? transportError({code: 'digitalogic_panel_request_timeout'}, 'مهلت پاسخ پنل تمام شد؛ صفحه آزاد است.')
+                        : error);
+                });
             });
         }
 
@@ -422,6 +465,9 @@
                 userEdits: {},
                 editingCell: null,
                 currencyDraft: {dollar_price: '', yuan_price: ''},
+                currencyJob: null,
+                currencyJobTimer: null,
+                currencyJobWatchDeadline: 0,
                 currencyEditOriginal: '',
                 currencyEditField: '',
                 transport: 'ajax',
@@ -817,6 +863,9 @@
             if (this.productQueryTimer) {
                 window.clearTimeout(this.productQueryTimer);
             }
+            if (this.currencyJobTimer) {
+                window.clearTimeout(this.currencyJobTimer);
+            }
             Object.keys(this.saveTimers).forEach(function(id) {
                 window.clearTimeout(this.saveTimers[id]);
             }, this);
@@ -935,6 +984,11 @@
                 return self.run('digitalogic_panel_summary').then(function(data) {
                     self.summary = data;
                     self.resetCurrencyDraft();
+                    if (data.currency_job && ['queued', 'running', 'publishing'].indexOf(data.currency_job.status) !== -1) {
+                        self.watchCurrencyJob(data.currency_job);
+                    } else if (data.currency_job && data.currency_job.status === 'publication_failed') {
+                        self.currencyJob = data.currency_job;
+                    }
                 }).catch(function(error) {
                     self.error = error.message || self.t.error;
                 });
@@ -1793,17 +1847,69 @@
                     };
                 }
                 if (!Object.keys(payload).length) return Promise.resolve();
+                payload.expected_state_revision = self.summary && self.summary.currency
+                    ? self.summary.currency.state_revision
+                    : '';
                 self.saving = true;
-                return self.run('digitalogic_update_currency', payload).then(function() {
+                self.error = '';
+                return self.run('digitalogic_update_currency', payload).then(function(job) {
                     self.editingCell = null;
                     self.currencyEditField = '';
                     self.currencyEditOriginal = '';
-                    return self.loadSummary();
+                    self.watchCurrencyJob(job);
+                    return job;
                 }).catch(function(error) {
                     self.error = error.message || self.t.error;
                 }).finally(function() {
                     self.saving = false;
                 });
+            },
+            watchCurrencyJob: function(job) {
+                var self = this;
+                if (!job || !job.job_id || !Number(job.generation)) {
+                    self.currencyJob = job || null;
+                    return;
+                }
+                if (self.currencyJobTimer) window.clearTimeout(self.currencyJobTimer);
+                self.currencyJob = job;
+                if (!self.currencyJobWatchDeadline) {
+                    self.currencyJobWatchDeadline = job.status === 'publishing'
+                        ? Date.now() + 180000
+                        : Math.min(Number(job.deadline_at || 0) * 1000 + 2000, Date.now() + 180000);
+                }
+                if (['confirmed', 'failed', 'publication_failed', 'superseded'].indexOf(job.status) !== -1) {
+                    self.currencyJobWatchDeadline = 0;
+                    self.addToast({
+                        message: job.message_fa || (job.status === 'confirmed' ? 'قیمت‌ها تأیید شدند.' : 'کار قیمت پایان یافت.'),
+                        level: job.status === 'confirmed' ? 'success' : (job.status === 'failed' ? 'error' : 'warning')
+                    });
+                    self.loadSummary();
+                    return;
+                }
+                if (Date.now() >= self.currencyJobWatchDeadline) {
+                    self.currencyJob = Object.assign({}, job, {
+                        status: 'observation_timeout',
+                        progress: Number(job.progress || 0),
+                        message_fa: 'پیگیری خودکار پایان یافت؛ اجرای پس‌زمینه متوقف نشده و صفحه آزاد است. وضعیت را تازه‌سازی کنید.'
+                    });
+                    self.currencyJobWatchDeadline = 0;
+                    return;
+                }
+                self.currencyJobTimer = window.setTimeout(function() {
+                    self.run('digitalogic_currency_job_status', {
+                        job_id: job.job_id,
+                        generation: Number(job.generation)
+                    }, {silentError: true}).then(function(status) {
+                        self.watchCurrencyJob(status);
+                    }).catch(function(error) {
+                        self.currencyJob = Object.assign({}, job, {
+                            message_fa: error.message || 'وضعیت کار موقتاً قابل دریافت نیست؛ دوباره تلاش می‌شود.'
+                        });
+                        self.currencyJobTimer = window.setTimeout(function() {
+                            self.watchCurrencyJob(job);
+                        }, Math.max(2000, Number(error.retryAfter || 0) * 1000));
+                    });
+                }, 1500);
             },
             routeHref: function(path) {
                 return (config.panel_url || '/panel/').replace(/\/+$/, '') + (path || '/');

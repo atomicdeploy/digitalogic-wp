@@ -29,30 +29,31 @@ final class Digitalogic_Pricing_Snapshot {
 	public const PROJECTION_SCHEMA     = 'digitalogic.pricing-projection/excel-v1';
 	public const PRICING_POLICY_SCHEMA = 'digitalogic.pricing-policy/v1';
 
-	private const BUILD_HOOK                     = 'digitalogic_pricing_snapshot_build_v1';
-	private const BUILD_WATCHDOG_HOOK            = 'digitalogic_pricing_snapshot_build_watchdog_v1';
-	private const CLEANUP_HOOK                   = 'digitalogic_pricing_snapshot_cleanup_idempotency_v1';
-	private const STATE_EVENT_HOOK               = 'digitalogic_pricing_state_event_delivery_v1';
-	private const TERMINAL_EVENT_HOOK            = 'digitalogic_pricing_snapshot_terminal_event_delivery_v1';
-	private const FRESHNESS_HOOK                 = 'digitalogic_pricing_freshness_boundary_v1';
-	private const ACTION_GROUP                   = 'digitalogic-pricing-snapshots';
-	private const ACTIVE_BUILD_OPTION            = 'digitalogic_pricing_snapshot_active_v1';
-	private const STATE_EVENT_OUTBOX             = 'digitalogic_pricing_state_event_outbox_v1';
-	private const STATE_EVENT_RECEIPTS           = 'digitalogic_pricing_state_event_receipts_v1';
-	private const SOURCE_EVENT_OUTBOX            = 'digitalogic_pricing_source_event_outbox_v1';
-	private const TERMINAL_EVENT_OUTBOX          = 'digitalogic_pricing_snapshot_terminal_event_outbox_v1';
-	private const FRESHNESS_SCHEDULE             = 'digitalogic_pricing_freshness_boundary_schedule_v1';
-	private const ADMISSION_LOCK_NAME            = 'digitalogic_pricing_snapshot_admission_v1';
-	private const STATE_EVENT_SCHEDULE_LOCK_NAME = 'digitalogic_pricing_state_event_schedule_v1';
-	private const SNAPSHOT_TTL                   = 900;
-	private const METADATA_TTL                   = 1800;
-	private const BUILD_TTL                      = 1800;
-	private const QUEUE_START_TTL                = 30;
-	private const WORKER_LEASE_TTL               = 60;
-	private const RETRY_AFTER                    = 2;
-	private const DEFAULT_PAGE_SIZE              = 250;
-	private const MAX_PAGE_SIZE                  = 250;
-	private const MAX_ROWS                       = 20000;
+	private const BUILD_HOOK                        = 'digitalogic_pricing_snapshot_build_v1';
+	private const BUILD_WATCHDOG_HOOK               = 'digitalogic_pricing_snapshot_build_watchdog_v1';
+	private const CLEANUP_HOOK                      = 'digitalogic_pricing_snapshot_cleanup_idempotency_v1';
+	private const STATE_EVENT_HOOK                  = 'digitalogic_pricing_state_event_delivery_v1';
+	private const TERMINAL_EVENT_HOOK               = 'digitalogic_pricing_snapshot_terminal_event_delivery_v1';
+	private const FRESHNESS_HOOK                    = 'digitalogic_pricing_freshness_boundary_v1';
+	private const ACTION_GROUP                      = 'digitalogic-pricing-snapshots';
+	private const ACTIVE_BUILD_OPTION               = 'digitalogic_pricing_snapshot_active_v1';
+	private const STATE_EVENT_OUTBOX                = 'digitalogic_pricing_state_event_outbox_v1';
+	private const STATE_EVENT_RECEIPTS              = 'digitalogic_pricing_state_event_receipts_v1';
+	private const SOURCE_EVENT_OUTBOX               = 'digitalogic_pricing_source_event_outbox_v1';
+	private const TERMINAL_EVENT_OUTBOX             = 'digitalogic_pricing_snapshot_terminal_event_outbox_v1';
+	private const FRESHNESS_SCHEDULE                = 'digitalogic_pricing_freshness_boundary_schedule_v1';
+	private const ADMISSION_LOCK_NAME               = 'digitalogic_pricing_snapshot_admission_v1';
+	private const STATE_EVENT_SCHEDULE_LOCK_NAME    = 'digitalogic_pricing_state_event_schedule_v1';
+	private const TERMINAL_EVENT_SCHEDULE_LOCK_NAME = 'digitalogic_pricing_terminal_event_schedule_v1';
+	private const SNAPSHOT_TTL                      = 900;
+	private const METADATA_TTL                      = 1800;
+	private const BUILD_TTL                         = 1800;
+	private const QUEUE_START_TTL                   = 30;
+	private const WORKER_LEASE_TTL                  = 60;
+	private const RETRY_AFTER                       = 2;
+	private const DEFAULT_PAGE_SIZE                 = 250;
+	private const MAX_PAGE_SIZE                     = 250;
+	private const MAX_ROWS                          = 20000;
 
 	/**
 	 * Shared snapshot service.
@@ -104,13 +105,6 @@ final class Digitalogic_Pricing_Snapshot {
 	private $emitted_state_revisions = array();
 
 	/**
-	 * Whether this request already scheduled the durable terminal-event worker.
-	 *
-	 * @var bool
-	 */
-	private $terminal_event_retry_scheduled = false;
-
-	/**
 	 * Receiver state captured immediately before direct option deletion.
 	 *
 	 * @var array
@@ -143,7 +137,6 @@ final class Digitalogic_Pricing_Snapshot {
 		add_action( 'deleted_option', array( $this, 'capture_source_state_deletion' ), 20 );
 		add_action( 'admin_init', array( $this, 'install_freshness_boundary_schedule' ), 20 );
 		add_action( 'shutdown', array( $this, 'publish_scheduled_state_revision_events' ), 1000 );
-		add_action( 'shutdown', array( $this, 'publish_scheduled_terminal_events' ), 1001 );
 	}
 
 	/** Return the shared service. */
@@ -869,9 +862,35 @@ final class Digitalogic_Pricing_Snapshot {
 		}
 	}
 
-	/** Explicitly invalidate the cheap catalog generation after a committed apply. */
-	public function invalidate_after_apply() {
-		Digitalogic_Report_Engine::instance()->invalidate_cache();
+	/**
+	 * Durably stage the report/state effect for one committed pricing change.
+	 *
+	 * @param array $result Versionless committed result.
+	 * @return true|WP_Error
+	 */
+	public function invalidate_after_apply( $result = array() ) {
+		$result    = is_array( $result ) ? $result : array();
+		$effect_id = (string) ( $result['effect_id'] ?? '' );
+		if ( 1 !== preg_match( '/\Asha256:[a-f0-9]{64}\z/D', $effect_id ) ) {
+			$effect_id = 'sha256:' . hash(
+				'sha256',
+				"pricing-effect\0"
+				. (string) ( $result['state_revision'] ?? '' ) . "\0"
+				. (string) ( $result['previous_revision'] ?? '' ) . "\0"
+				. (string) ( $result['request_id'] ?? '' )
+			);
+		}
+
+		$state_event = $this->ensure_state_revision_event();
+		$invalidated = Digitalogic_Report_Engine::instance()->invalidate_cache_for_effect( $effect_id );
+		if ( is_wp_error( $state_event ) ) {
+			return $state_event;
+		}
+		if ( is_wp_error( $invalidated ) ) {
+			return $invalidated;
+		}
+
+		return true;
 	}
 
 	/** Install or repair the single next time-derived revision transition. */
@@ -1038,13 +1057,56 @@ final class Digitalogic_Pricing_Snapshot {
 
 	/** Mark this request for one final, coalesced pricing revision event. */
 	public function schedule_state_revision_event() {
+		$result = $this->ensure_state_revision_event();
+		if ( is_wp_error( $result ) ) {
+			do_action( 'digitalogic_pricing_state_event_failed', $result->get_error_code(), array() );
+		}
+	}
+
+	/** Persist and schedule one readback-verified composite state event. */
+	public function ensure_state_revision_event() {
 		$this->state_revision_event_pending = true;
 		$sources                            = $this->current_state_event_sources();
 		$persisted                          = $this->persist_state_revision_outbox( $sources );
 		if ( ! $persisted ) {
-			do_action( 'digitalogic_pricing_state_event_failed', 'digitalogic_pricing_state_outbox_unavailable', array() );
+			$this->schedule_state_revision_event_retry( $sources );
+			return new WP_Error(
+				'digitalogic_pricing_state_outbox_unavailable',
+				'ثبت صف پایدار رویداد وضعیت قیمت ممکن نشد.',
+				array(
+					'blocking'    => false,
+					'retry_after' => 2,
+				)
+			);
 		}
-		$this->schedule_state_revision_event_retry( $persisted ? array() : $sources );
+		if ( ! $this->schedule_state_revision_event_retry() ) {
+			return new WP_Error(
+				'digitalogic_pricing_state_retry_unavailable',
+				'اجرای دوبارهٔ رویداد وضعیت قیمت زمان‌بندی نشد.',
+				array(
+					'blocking'    => false,
+					'retry_after' => 2,
+				)
+			);
+		}
+
+		return true;
+	}
+
+	/** Persist and schedule the exact source revision transition from repricing. */
+	public function ensure_source_lifecycle_event( $before, $after ) {
+		if ( ! $this->persist_source_lifecycle_transition( $before, $after ) ) {
+			return new WP_Error(
+				'digitalogic_pricing_source_outbox_unavailable',
+				'ثبت صف پایدار تغییر منبع قیمت ممکن نشد.',
+				array(
+					'blocking'    => false,
+					'retry_after' => 2,
+				)
+			);
+		}
+
+		return true;
 	}
 
 	/** Retry a durable state-event outbox from Action Scheduler or WP-Cron. */
@@ -1237,7 +1299,6 @@ final class Digitalogic_Pricing_Snapshot {
 
 	/** Retry the durable snapshot-terminal outbox from Action Scheduler or WP-Cron. */
 	public function run_terminal_event_delivery() {
-		$this->terminal_event_retry_scheduled = false;
 		$this->publish_scheduled_terminal_events();
 	}
 
@@ -2138,30 +2199,87 @@ final class Digitalogic_Pricing_Snapshot {
 
 	/** Schedule one bounded retry for the persistent snapshot-terminal outbox. */
 	private function schedule_terminal_event_retry( $delay = self::RETRY_AFTER ) {
-		if ( $this->terminal_event_retry_scheduled ) {
-			return true;
-		}
-		$timestamp = time() + max( self::RETRY_AFTER, min( self::BUILD_TTL, (int) $delay ) );
-		$scheduled = false;
-		if ( function_exists( 'as_has_scheduled_action' ) ) {
-			$scheduled = false !== as_has_scheduled_action( self::TERMINAL_EVENT_HOOK, array(), self::ACTION_GROUP );
-		}
-		if ( ! $scheduled && function_exists( 'as_schedule_single_action' ) ) {
-			$scheduled = 0 !== as_schedule_single_action( $timestamp, self::TERMINAL_EVENT_HOOK, array(), self::ACTION_GROUP, true );
-		}
-		if ( ! $scheduled && function_exists( 'wp_schedule_single_event' ) ) {
-			$scheduled = wp_schedule_single_event( $timestamp, self::TERMINAL_EVENT_HOOK, array(), true );
-			$scheduled = ! is_wp_error( $scheduled ) && false !== $scheduled;
-			if ( ! $scheduled && function_exists( 'wp_next_scheduled' ) ) {
-				$scheduled = false !== wp_next_scheduled( self::TERMINAL_EVENT_HOOK, array() );
+		$locked = $this->acquire_terminal_event_schedule_lock();
+		if ( ! $locked ) {
+			$scheduled = $this->terminal_event_retry_is_pending();
+			if ( ! $scheduled ) {
+				do_action( 'digitalogic_pricing_terminal_event_failed', 'digitalogic_pricing_terminal_retry_unavailable', '' );
 			}
+
+			return $scheduled;
 		}
-		$this->terminal_event_retry_scheduled = $scheduled;
+
+		$timestamp = time() + max( self::RETRY_AFTER, min( self::BUILD_TTL, (int) $delay ) );
+		try {
+			if ( $this->terminal_event_retry_is_pending() ) {
+				return true;
+			}
+
+			$scheduled = false;
+			if ( function_exists( 'as_schedule_single_action' ) && function_exists( 'as_get_scheduled_actions' ) ) {
+				$scheduled = (bool) as_schedule_single_action( $timestamp, self::TERMINAL_EVENT_HOOK, array(), self::ACTION_GROUP, false );
+			} elseif ( function_exists( 'wp_schedule_single_event' ) ) {
+				$scheduled = wp_schedule_single_event( $timestamp, self::TERMINAL_EVENT_HOOK, array(), true );
+				$scheduled = ! is_wp_error( $scheduled ) && false !== $scheduled;
+			}
+			$scheduled = $scheduled || $this->terminal_event_retry_is_pending();
+		} finally {
+			$this->release_terminal_event_schedule_lock();
+		}
 		if ( ! $scheduled ) {
 			do_action( 'digitalogic_pricing_terminal_event_failed', 'digitalogic_pricing_terminal_retry_unavailable', '' );
 		}
 
 		return $scheduled;
+	}
+
+	/** Return whether one exact terminal-event retry is already pending. */
+	private function terminal_event_retry_is_pending() {
+		if ( function_exists( 'as_get_scheduled_actions' ) ) {
+			$actions = as_get_scheduled_actions(
+				array(
+					'hook'     => self::TERMINAL_EVENT_HOOK,
+					'args'     => array(),
+					'group'    => self::ACTION_GROUP,
+					'status'   => 'pending',
+					'per_page' => 1,
+				),
+				'ids'
+			);
+
+			return ! empty( $actions );
+		}
+		if ( function_exists( 'wp_next_scheduled' ) ) {
+			return false !== wp_next_scheduled( self::TERMINAL_EVENT_HOOK, array() );
+		}
+
+		return false;
+	}
+
+	/** Serialize terminal retry readback and insertion across PHP requests. */
+	private function acquire_terminal_event_schedule_lock() {
+		global $wpdb;
+		if ( ! is_object( $wpdb ) || ! method_exists( $wpdb, 'get_var' ) || ! method_exists( $wpdb, 'prepare' ) ) {
+			return false;
+		}
+
+		$acquired = $wpdb->get_var( $wpdb->prepare( 'SELECT GET_LOCK(%s, %d)', self::TERMINAL_EVENT_SCHEDULE_LOCK_NAME, 1 ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.NotPrepared -- Bounded advisory mutex; prepared above.
+
+		return 1 === (int) $acquired;
+	}
+
+	/** Release the terminal-event scheduler mutex owned by this request. */
+	private function release_terminal_event_schedule_lock() {
+		global $wpdb;
+		if ( ! is_object( $wpdb ) || ! method_exists( $wpdb, 'get_var' ) || ! method_exists( $wpdb, 'prepare' ) ) {
+			return;
+		}
+
+		try {
+			$wpdb->get_var( $wpdb->prepare( 'SELECT RELEASE_LOCK(%s)', self::TERMINAL_EVENT_SCHEDULE_LOCK_NAME ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.NotPrepared -- Bounded advisory mutex; prepared above.
+		} catch ( Throwable $error ) {
+			unset( $error );
+		}
 	}
 
 	/** Remove one expired idempotency option only when its exact claim matches. */

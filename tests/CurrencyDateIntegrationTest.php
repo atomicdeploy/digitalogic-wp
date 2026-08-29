@@ -73,12 +73,14 @@ final class CurrencyDateIntegrationTest extends TestCase {
         $admin = file_get_contents(dirname(__DIR__) . '/includes/admin/class-admin.php');
         $status = file_get_contents(dirname(__DIR__) . '/includes/admin/views/status.php');
         $panel = file_get_contents(dirname(__DIR__) . '/includes/panel/class-panel.php');
+        $dispatcher = file_get_contents(dirname(__DIR__) . '/includes/class-command-dispatcher.php');
         $options = file_get_contents(dirname(__DIR__) . '/includes/class-options.php');
         $shortcodes = file_get_contents(dirname(__DIR__) . '/includes/class-digitalogic-currency-shortcodes.php');
 
         $this->assertSame(2, substr_count($admin, 'get_update_date_formatted()'));
         $this->assertSame(1, substr_count($status, 'get_update_date_formatted()'));
-        $this->assertSame(2, substr_count($panel, 'get_update_date_formatted()'));
+        $this->assertSame(0, substr_count($panel, 'get_update_date_formatted()'));
+        $this->assertSame(1, substr_count($dispatcher, 'get_update_date_formatted()'));
         $this->assertStringContainsString('Digitalogic_Currency_Date_Formatter::instance()->format(', $options);
         $this->assertStringContainsString('$this->options->get_update_date_formatted( $date_format )', $shortcodes);
         $this->assertStringNotContainsString('parsidate', $shortcodes);

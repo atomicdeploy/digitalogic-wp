@@ -54,11 +54,14 @@ jobs:
           node --check assets/js/panel-app.js
           node --check assets/js/desktop-app.js
           node --check assets/js/currency-postboxes.js
+          node --check assets/js/currency-admin-async.js
           node --check assets/js/branding/admin-branding.js
           node --check assets/js/sidebar-login.js
           node --test tests/product-query.test.js
           node --test tests/admin-branding-auth-nav.test.js
           node --test tests/sidebar-login-style.test.js
+          node --test tests/js/currency-admin-async.test.js
+          node --test tests/panel-currency-async.test.js
           npm --prefix ops/event-mesh run check
           npm --prefix ops/event-mesh test
           npm --prefix ops/n8n-nodes-digitalogic test

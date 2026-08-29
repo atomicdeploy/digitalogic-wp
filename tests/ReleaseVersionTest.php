@@ -19,7 +19,7 @@ final class ReleaseVersionTest extends TestCase {
 		$this->assertSame( 1, preg_match( '/^[ \t]*\*[ \t]+Version:[ \t]*([^\s]+)/m', $plugin, $header ) );
 		$this->assertSame( 1, preg_match( "/define\([ \t]*'DIGITALOGIC_VERSION',[ \t]*'([^']+)'[ \t]*\)/", $plugin, $constant ) );
 		$this->assertSame( $header[1], $constant[1] );
-		$this->assertTrue( version_compare( $header[1], '1.8.3', '>' ) );
+		$this->assertTrue( version_compare( $header[1], '1.8.30', '>' ) );
 		$this->assertMatchesRegularExpression(
 			'/^## \[' . preg_quote( $header[1], '/' ) . '\](?: - \d{4}-\d{2}-\d{2})?$/m',
 			$changelog

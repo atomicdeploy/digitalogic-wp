@@ -79,6 +79,7 @@ class Digitalogic_Command_Dispatcher {
             'digitalogic_bulk_update'                      => array($this, 'bulk_update'),
             'digitalogic_update_currency'                  => array($this, 'update_currency'),
             'digitalogic_get_currency'                     => array($this, 'get_currency'),
+            'digitalogic_currency_job_status'              => array($this, 'get_currency_job_status'),
             'digitalogic_export'                           => array($this, 'export'),
             'digitalogic_get_logs'                         => array($this, 'get_logs'),
             'digitalogic_get_reports'                      => array($this, 'get_reports'),
@@ -157,7 +158,7 @@ class Digitalogic_Command_Dispatcher {
         return Digitalogic_Product_Manager::instance()->bulk_update( $sanitized );
     }
 
-    public function update_currency($payload) {
+    public function update_currency($payload, $transport = 'command') {
         $values = array();
         foreach (array('dollar_price', 'yuan_price', 'effective_date', 'usd_effective_date', 'cny_effective_date') as $field) {
             if (is_array($payload) && array_key_exists($field, $payload)) {
@@ -165,10 +166,33 @@ class Digitalogic_Command_Dispatcher {
             }
         }
 
-        return Digitalogic_Pricing_Coordinator::instance()->update_currency(
+        $expected_revision = is_array($payload) && isset($payload['expected_state_revision'])
+            ? sanitize_text_field((string) $payload['expected_state_revision'])
+            : '';
+        if (1 !== preg_match('/\Asha256:[a-f0-9]{64}\z/D', $expected_revision)) {
+            return new WP_Error(
+                'digitalogic_currency_expected_revision_required',
+                'پیش از تغییر نرخ، وضعیت فعلی قیمت را تازه‌سازی کنید.',
+                array('status' => 428, 'blocking' => true)
+            );
+        }
+
+        return Digitalogic_Currency_Admin_Async::instance()->enqueue_currency(
             $values,
-            'command_dispatcher'
+            true,
+            false,
+            $expected_revision,
+            'command_' . sanitize_key((string) $transport)
         );
+    }
+
+    /** Return one exact async currency job to Ajax/WebSocket/panel consumers. */
+    public function get_currency_job_status($payload) {
+        $payload    = is_array($payload) ? $payload : array();
+        $job_id     = sanitize_text_field((string) ($payload['job_id'] ?? ''));
+        $generation = absint($payload['generation'] ?? 0);
+
+        return Digitalogic_Currency_Admin_Async::instance()->status($job_id, $generation);
     }
 
     public function get_currency() {
@@ -177,6 +201,7 @@ class Digitalogic_Command_Dispatcher {
             'dollar_price'     => $options->get_dollar_price(),
             'yuan_price'       => $options->get_yuan_price(),
             'update_date'      => $options->get_update_date(),
+            'updated_at'       => $options->get_update_date_formatted(),
             'woocommerce_base' => Digitalogic_WooCommerce_Currency_Status::instance()->get_status(),
         );
         $state   = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();

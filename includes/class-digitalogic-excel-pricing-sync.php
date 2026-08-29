@@ -214,12 +214,13 @@ final class Digitalogic_Excel_Pricing_Sync {
 	 * Admin, REST, AJAX/command-dispatcher, and other internal surfaces use
 	 * this path instead of mutating currency/profit-margin options directly.
 	 *
-	 * @param mixed       $settings          Complete settings.
-	 * @param string      $source            Bounded internal source label.
-	 * @param string|null $expected_revision Optional optimistic state revision.
+	 * @param mixed         $settings          Complete settings.
+	 * @param string        $source            Bounded internal source label.
+	 * @param string|null   $expected_revision Optional optimistic state revision.
+	 * @param callable|null $actuation_guard   Optional safety guard called before writes and immediately before commit.
 	 * @return array|WP_Error
 	 */
-	public function apply_internal_settings( $settings, $source = 'wp', $expected_revision = null ) {
+	public function apply_internal_settings( $settings, $source = 'wp', $expected_revision = null, $actuation_guard = null ) {
 		$settings = $this->normalize_settings( $settings );
 		if ( is_wp_error( $settings ) ) {
 			return $settings;
@@ -237,6 +238,13 @@ final class Digitalogic_Excel_Pricing_Sync {
 				400
 			);
 		}
+		if ( null !== $actuation_guard && ! is_callable( $actuation_guard ) ) {
+			return $this->error(
+				'digitalogic_pricing_actuation_guard_invalid',
+				'کنترل ایمنی اجرای قیمت معتبر نیست.',
+				500
+			);
+		}
 		$source          = sanitize_key( (string) $source );
 		$source          = '' === $source ? 'wp' : substr( $source, 0, 64 );
 		$source_identity = array(
@@ -249,9 +257,16 @@ final class Digitalogic_Excel_Pricing_Sync {
 				)
 			),
 		);
+		$effect_id       = 'sha256:' . hash(
+			'sha256',
+			"internal-pricing-effect\0"
+			. $source . "\0"
+			. wp_generate_uuid4() . "\0"
+			. sprintf( '%.6F', microtime( true ) )
+		);
 
 		return $this->with_lock(
-			function () use ( $settings, $source, $source_identity, $expected_revision ) {
+			function () use ( $settings, $source, $source_identity, $expected_revision, $actuation_guard, $effect_id ) {
 				$current = $this->read_globals();
 				if ( is_wp_error( $current ) ) {
 					return $current;
@@ -281,7 +296,7 @@ final class Digitalogic_Excel_Pricing_Sync {
 				);
 
 				$transaction = $this->run_coordinated_pricing_transaction(
-					function () use ( $settings, $source, $source_identity, $context, $current, $desired, $changed ) {
+					function () use ( $settings, $source, $source_identity, $context, $current, $desired, $changed, $expected_revision, $actuation_guard, $effect_id ) {
 						foreach (
 							array(
 								'dollar_price',
@@ -303,6 +318,37 @@ final class Digitalogic_Excel_Pricing_Sync {
 						$locked_current = $this->read_globals();
 						if ( is_wp_error( $locked_current ) ) {
 							return $locked_current;
+						}
+						if (
+							null !== $expected_revision
+							&& ! hash_equals( $expected_revision, $locked_current['state_revision'] )
+						) {
+							return $this->error(
+								'digitalogic_pricing_state_revision_conflict',
+								'تنظیمات قیمت پس از آخرین خواندن تغییر کرده است؛ ابتدا تازه‌سازی کنید.',
+								409,
+								array( 'current_state_revision' => $locked_current['state_revision'] )
+							);
+						}
+						if ( null !== $actuation_guard ) {
+							$guarded = call_user_func( $actuation_guard, 'before_write' );
+							if ( is_wp_error( $guarded ) ) {
+								return $guarded;
+							}
+							if ( true !== $guarded ) {
+								return $this->error(
+									'digitalogic_pricing_actuation_guard_rejected',
+									'مالکیت ایمن کار قیمت پیش از ثبت از دست رفت.',
+									409
+								);
+							}
+						}
+						$superseded_confirmation_id = $this->supersede_active_confirmation_open_transaction(
+							$source,
+							(string) $desired['state_revision']
+						);
+						if ( is_wp_error( $superseded_confirmation_id ) ) {
+							return $superseded_confirmation_id;
 						}
 						if ( $changed ) {
 							$options = $this->desired_option_values(
@@ -370,75 +416,205 @@ final class Digitalogic_Excel_Pricing_Sync {
 						if ( is_wp_error( $repricing ) ) {
 							return $repricing;
 						}
-						$confirmation = null;
-						if ( $changed && $this->confirmation_rollback_depth <= 0 ) {
-							$confirmation = $this->stage_confirmation_open_transaction(
-								$locked_current,
-								$readback,
-								$this->settings_from_globals( $locked_current ),
-								$this->settings_from_globals( $readback ),
-								$this->current_ack_consumer(),
-								array(
-									'client_id'  => 'digitalogic-wp',
-									'channel'    => $source,
-									'request_id' => $audit_key,
-								)
-							);
-							if ( is_wp_error( $confirmation ) ) {
-								return $confirmation;
-							}
-						}
-
+						$cache_plan        = Digitalogic_Pricing_Coordinator::instance()->repricing_cache_plan();
+						$response_settings = $this->settings_from_globals( $readback );
 						return array(
 							'readback'     => $readback,
 							'repricing'    => $repricing,
-							'confirmation' => $confirmation,
+							// WordPress-origin changes are terminal website commits. Only
+							// explicit Excel apply() requests stage an ACK/rollback ledger.
+							'confirmation' => null,
+							'publication'  => array(
+								'effect_id'         => $effect_id,
+								'source_identity'   => $source_identity,
+								'source'            => $source,
+								'previous_revision' => (string) $current['state_revision'],
+								'previous'          => $current,
+								'readback'          => $readback,
+								'settings'          => $response_settings,
+								'repricing'         => $repricing,
+								'cache_plan'        => $cache_plan,
+								'settings_changed'  => (bool) $changed,
+								'products_updated'  => (int) ( $repricing['updated_products'] ?? 0 ) > 0,
+								'superseded_confirmation_id' => (string) $superseded_confirmation_id,
+							),
 						);
-					}
+					},
+					null === $actuation_guard
+						? null
+						: static function ( $transaction_result ) use ( $actuation_guard ) {
+							return call_user_func( $actuation_guard, 'before_commit', $transaction_result );
+						}
 				);
-				Digitalogic_Pricing_Coordinator::instance()->flush_repricing_caches();
 				if ( is_wp_error( $transaction ) ) {
+					// Rollback or an ambiguous post-COMMIT failure must clear any
+					// request-local objects. A committed worker marker owns the
+					// durable cache plan and will replay it in a fresh process.
+					Digitalogic_Pricing_Coordinator::instance()->flush_repricing_caches();
 					return $transaction;
 				}
 
-				Digitalogic_Pricing_Coordinator::instance()->publish_repricing_result(
-					$transaction['repricing']
-				);
-				if ( ! empty( $transaction['confirmation'] ) ) {
-					$this->schedule_confirmation_timeout( $transaction['confirmation'] );
-					$this->publish_confirmation_outbox();
-				}
-				$response_settings = $this->settings_from_globals( $transaction['readback'] );
-				if ( $changed ) {
-					$this->emit_after_apply(
-						$source_identity,
-						$current['state_revision'],
-						$current,
-						$transaction['readback'],
-						$response_settings
-					);
+				$publication = is_array( $transaction['publication'] ?? null )
+					? $transaction['publication']
+					: array();
+				if ( null !== $actuation_guard ) {
+					// The worker's transaction marker owns durable publication. It
+					// will replay this semantic payload after a process crash without
+					// ever re-running pricing actuation.
+					return $this->internal_publication_result( $publication );
 				}
 
-				$result = array(
-					'schema'           => 'digitalogic.pricing-coordinator-result/v1',
-					'status'           => $changed ? 'applied' : 'reconciled',
-					'source'           => $source,
-					'state_revision'   => $transaction['readback']['state_revision'],
-					'settings'         => $response_settings,
-					'pricing_results'  => $transaction['repricing'],
-					'settings_changed' => $changed,
-					'confirmation'     => $transaction['confirmation'] ?? $this->current_confirmation_projection(),
-				);
-				if ( $changed ) {
-					try {
-						do_action( 'digitalogic_excel_pricing_apply_committed', $result );
-					} catch ( Throwable $exception ) {
-						unset( $exception );
-					}
-				}
-
-				return $result;
+				return $this->publish_internal_settings_effect( $publication );
 			}
+		);
+	}
+
+	/**
+	 * Publish one already-committed internal effect without re-running pricing.
+	 *
+	 * This method is intentionally replay-safe: callers provide a stable
+	 * effect_id, webhooks reuse it, cache invalidation is monotonic, and durable
+	 * snapshot event handoff is keyed by canonical state.
+	 *
+	 * @param array  $publication      Committed nonsecret semantic result.
+	 * @param bool   $superseded       Whether a later legitimate revision already won.
+	 * @param string $current_revision Current canonical revision when superseded.
+	 * @return array|WP_Error
+	 */
+	public function publish_internal_settings_effect( $publication, $superseded = false, $current_revision = '' ) {
+		if ( ! is_array( $publication ) ) {
+			return $this->error(
+				'digitalogic_pricing_publication_invalid',
+				'اطلاعات انتشار نتیجهٔ قیمت معتبر نیست.',
+				500
+			);
+		}
+		$result = $this->internal_publication_result( $publication );
+		if ( is_wp_error( $result ) ) {
+			return $result;
+		}
+		$superseded_confirmation_id = (string) ( $publication['superseded_confirmation_id'] ?? '' );
+		if ( 1 === preg_match( '/\Aptx_[a-f0-9]{32}\z/D', $superseded_confirmation_id ) ) {
+			wp_clear_scheduled_hook( self::CONFIRMATION_TIMEOUT_HOOK, array( $superseded_confirmation_id ) );
+		}
+
+		$settings_changed = ! empty( $publication['settings_changed'] );
+		$products_updated = ! empty( $publication['products_updated'] );
+		if ( $settings_changed || $products_updated || $superseded ) {
+			$option_cache_names = is_array( $publication['option_cache_names'] ?? null )
+				? $publication['option_cache_names']
+				: array();
+			$this->invalidate_option_caches(
+				array_values(
+					array_unique(
+						array_merge(
+							$option_cache_names,
+							array(
+								'dollar_price',
+								'options_dollar_price',
+								'yuan_price',
+								'options_yuan_price',
+								'update_date',
+								'options_update_date',
+								Digitalogic_Shipping_Method_Service::METHODS_OPTION,
+								Digitalogic_Shipping_Method_Service::DEFAULT_MARKUP_OPTION,
+								Digitalogic_Shipping_Method_Service::ROUNDING_DIGITS_OPTION,
+								self::SETTINGS_OPTION,
+								self::AUDIT_OPTION,
+							)
+						)
+					)
+				)
+			);
+			Digitalogic_Pricing_Coordinator::instance()->flush_repricing_caches(
+				is_array( $publication['cache_plan'] ?? null ) ? $publication['cache_plan'] : array()
+			);
+		}
+
+		$repricing    = is_array( $publication['repricing'] ?? null ) ? $publication['repricing'] : array();
+		$source_event = Digitalogic_Pricing_Snapshot::instance()->ensure_source_lifecycle_event(
+			(array) ( $repricing['source_state_before'] ?? array() ),
+			(array) ( $repricing['source_state_after'] ?? array() )
+		);
+		if ( is_wp_error( $source_event ) ) {
+			return $source_event;
+		}
+		$snapshot = Digitalogic_Pricing_Snapshot::instance()->invalidate_after_apply( $result );
+		if ( is_wp_error( $snapshot ) ) {
+			return $snapshot;
+		}
+		if ( $superseded ) {
+			$result['effect_state_revision']        = $result['state_revision'];
+			$result['state_revision']               = (string) $current_revision;
+			$result['superseded_by_state_revision'] = (string) $current_revision;
+			$result['status']                       = 'superseded';
+			try {
+				do_action( 'digitalogic_excel_pricing_apply_committed', $result );
+			} catch ( Throwable $exception ) {
+				unset( $exception );
+			}
+
+			return $result;
+		}
+
+		$repricing['effect_id'] = $result['effect_id'];
+		Digitalogic_Pricing_Coordinator::instance()->publish_repricing_result( $repricing );
+		if ( ! empty( $publication['settings_changed'] ) ) {
+			$this->emit_after_apply(
+				(array) $publication['source_identity'],
+				(string) $publication['previous_revision'],
+				(array) $publication['previous'],
+				(array) $publication['readback'],
+				(array) $publication['settings'],
+				array( 'effect_id' => $result['effect_id'] )
+			);
+		}
+		if ( ! empty( $publication['settings_changed'] ) || ! empty( $publication['products_updated'] ) ) {
+			try {
+				do_action( 'digitalogic_excel_pricing_apply_committed', $result );
+			} catch ( Throwable $exception ) {
+				unset( $exception );
+			}
+		}
+
+		return $result;
+	}
+
+	/**
+	 * Build the established coordinator result for one committed internal publication.
+	 *
+	 * @param array $publication Committed semantic publication payload.
+	 * @return array|WP_Error
+	 */
+	private function internal_publication_result( array $publication ) {
+		$readback = is_array( $publication['readback'] ?? null ) ? $publication['readback'] : array();
+		$revision = (string) ( $readback['state_revision'] ?? '' );
+		if ( 1 !== preg_match( '/\Asha256:[a-f0-9]{64}\z/D', $revision ) ) {
+			return $this->error(
+				'digitalogic_pricing_publication_revision_invalid',
+				'شناسهٔ نتیجهٔ ثبت‌شدهٔ قیمت معتبر نیست.',
+				500
+			);
+		}
+		$effect_id = sanitize_text_field( (string) ( $publication['effect_id'] ?? '' ) );
+		if ( 1 !== preg_match( '/\Asha256:[a-f0-9]{64}\z/D', $effect_id ) ) {
+			$effect_id = 'sha256:' . hash(
+				'sha256',
+				(string) ( $publication['source'] ?? 'wp' ) . "\0"
+				. (string) ( $publication['previous_revision'] ?? '' ) . "\0" . $revision
+			);
+		}
+
+		return array(
+			'schema'           => 'digitalogic.pricing-coordinator-result/v1',
+			'effect_id'        => $effect_id,
+			'status'           => ! empty( $publication['settings_changed'] ) ? 'applied' : 'reconciled',
+			'source'           => sanitize_key( (string) ( $publication['source'] ?? 'wp' ) ),
+			'state_revision'   => $revision,
+			'settings'         => (array) ( $publication['settings'] ?? array() ),
+			'pricing_results'  => (array) ( $publication['repricing'] ?? array() ),
+			'settings_changed' => ! empty( $publication['settings_changed'] ),
+			'confirmation'     => array( 'status' => 'clear' ),
 		);
 	}
 
@@ -842,6 +1018,37 @@ final class Digitalogic_Excel_Pricing_Sync {
 				if ( is_wp_error( $result ) ) {
 					$this->release_idempotency( 'apply', $headers['idempotency_key'] );
 					return $result;
+				}
+				$result['effect_id']         = 'sha256:' . hash(
+					'sha256',
+					"excel-pricing-apply\0" . $headers['idempotency_key'] . "\0" . $request_hash
+				);
+				$result['previous_revision'] = $headers['expected_state_revision'];
+				try {
+					$invalidated = Digitalogic_Pricing_Snapshot::instance()->invalidate_after_apply( $result );
+				} catch ( Throwable $exception ) {
+					$invalidated = $this->error(
+						'digitalogic_excel_sync_projection_invalidation_exception',
+						'تنظیمات ثبت شد اما انتشار تغییر projection به بازیابی محدود نیاز دارد.',
+						500,
+						array(
+							'retry_scheduled' => false,
+							'exception_class' => get_class( $exception ),
+						)
+					);
+				}
+				if ( is_wp_error( $invalidated ) ) {
+					$details              = $invalidated->get_error_data();
+					$details              = is_array( $details ) ? $details : array();
+					$result['warnings'][] = $this->warning(
+						'projection_invalidation_pending',
+						'تنظیمات ثبت شد؛ تازه‌سازی projection در صف بازیابی محدود قرار گرفت.',
+						'warning',
+						array(
+							'error_code'      => $invalidated->get_error_code(),
+							'retry_scheduled' => (bool) ( $details['retry_scheduled'] ?? false ),
+						)
+					);
 				}
 
 				$stored = $this->complete_idempotency(
@@ -1330,7 +1537,7 @@ final class Digitalogic_Excel_Pricing_Sync {
 		} elseif ( $companion_completion ) {
 			$readback     = $current;
 			$confirmation = null;
-			$repricing = array(
+			$repricing    = array(
 				'updated_products' => 0,
 				'deferred_missing' => 0,
 				'warnings'         => array(),
@@ -1339,7 +1546,7 @@ final class Digitalogic_Excel_Pricing_Sync {
 		} else {
 			$readback     = $current;
 			$confirmation = null;
-			$result   = $this->run_coordinated_pricing_transaction(
+			$result       = $this->run_coordinated_pricing_transaction(
 				function () use ( $settings, $current ) {
 					return Digitalogic_Pricing_Coordinator::instance()->reprice_open_transaction(
 						$settings,
@@ -1410,6 +1617,18 @@ final class Digitalogic_Excel_Pricing_Sync {
 						'woocommerce_id' => true,
 					)
 				)
+			);
+		}
+		$source_event = Digitalogic_Pricing_Snapshot::instance()->ensure_source_lifecycle_event(
+			(array) ( $repricing['source_state_before'] ?? array() ),
+			(array) ( $repricing['source_state_after'] ?? array() )
+		);
+		if ( is_wp_error( $source_event ) ) {
+			$warnings[] = $this->warning(
+				'pricing_source_event_pending',
+				'تغییر منبع قیمت ثبت شد؛ انتشار رویداد منبع در صف بازیابی باقی ماند.',
+				'warning',
+				array( 'error_code' => $source_event->get_error_code() )
 			);
 		}
 
@@ -2342,26 +2561,26 @@ final class Digitalogic_Excel_Pricing_Sync {
 		if ( is_wp_error( $shipping ) ) {
 			return $shipping;
 		}
-		$markup_revision   = isset( $markup['revision'] ) && is_string( $markup['revision'] )
+		$markup_revision            = isset( $markup['revision'] ) && is_string( $markup['revision'] )
 			? $markup['revision']
 			: $this->revision( array( 'configured' => false ) );
-		$profit            = ! empty( $markup['configured'] ) && isset( $markup['profit_percent'] )
+		$profit                     = ! empty( $markup['configured'] ) && isset( $markup['profit_percent'] )
 			? (string) $markup['profit_percent']
 			: null;
-		$rounding_revision = $this->revision(
+		$rounding_revision          = $this->revision(
 			array(
 				'rounding_digits' => $price_rounding['rounding_digits'],
 				'rounding_mode'   => $price_rounding['rounding_mode'],
 			)
 		);
 		$price_rounding['revision'] = $rounding_revision;
-		$currency_material = array(
+		$currency_material          = array(
 			'dollar_price'       => $dollar,
 			'yuan_price'         => $yuan,
 			'usd_effective_date' => $usd_effective_date,
 			'cny_effective_date' => $cny_effective_date,
 		);
-		$currency_revision = $this->revision(
+		$currency_revision          = $this->revision(
 			array_merge(
 				array( 'schema' => self::SETTINGS_SCHEMA . '/currency' ),
 				$currency_material
@@ -2404,12 +2623,12 @@ final class Digitalogic_Excel_Pricing_Sync {
 		return array(
 			'state_revision' => $this->revision(
 				array(
-					'schema'                    => self::SETTINGS_SCHEMA,
-					'currency_revision'         => $currency_revision,
+					'schema'                      => self::SETTINGS_SCHEMA,
+					'currency_revision'           => $currency_revision,
 					'currency_freshness_revision' => $currency_freshness_revision,
-					'default_markup_revision'   => $markup_revision,
-					'price_rounding_revision'   => $rounding_revision,
-					'shipping_catalog_revision' => $shipping['catalog_revision'],
+					'default_markup_revision'     => $markup_revision,
+					'price_rounding_revision'     => $rounding_revision,
+					'shipping_catalog_revision'   => $shipping['catalog_revision'],
 				)
 			),
 			'currency'       => $currency,
@@ -2531,10 +2750,10 @@ final class Digitalogic_Excel_Pricing_Sync {
 			)
 		);
 
-		$usd_age_days = $this->age_days( $settings['usd_effective_date'] );
-		$cny_age_days = $this->age_days( $settings['cny_effective_date'] );
-		$usd_stale    = null === $usd_age_days || $usd_age_days < 0 || $usd_age_days > self::STALE_AFTER_DAYS;
-		$cny_stale    = null === $cny_age_days || $cny_age_days < 0 || $cny_age_days > self::STALE_AFTER_DAYS;
+		$usd_age_days                = $this->age_days( $settings['usd_effective_date'] );
+		$cny_age_days                = $this->age_days( $settings['cny_effective_date'] );
+		$usd_stale                   = null === $usd_age_days || $usd_age_days < 0 || $usd_age_days > self::STALE_AFTER_DAYS;
+		$cny_stale                   = null === $cny_age_days || $cny_age_days < 0 || $cny_age_days > self::STALE_AFTER_DAYS;
 		$stale_currencies            = array_values(
 			array_filter(
 				array(
@@ -2549,7 +2768,7 @@ final class Digitalogic_Excel_Pricing_Sync {
 				'stale_currencies' => $stale_currencies,
 			)
 		);
-		$currency     = array(
+		$currency                    = array(
 			'dollar_price'       => $settings['dollar_price'],
 			'yuan_price'         => $settings['yuan_price'],
 			'effective_date'     => $settings['cny_effective_date'],
@@ -2576,12 +2795,12 @@ final class Digitalogic_Excel_Pricing_Sync {
 		return array(
 			'state_revision'  => $this->revision(
 				array(
-					'schema'                    => self::SETTINGS_SCHEMA,
-					'currency_revision'         => $currency_revision,
+					'schema'                      => self::SETTINGS_SCHEMA,
+					'currency_revision'           => $currency_revision,
 					'currency_freshness_revision' => $currency_freshness_revision,
-					'default_markup_revision'   => $markup_revision,
-					'price_rounding_revision'   => $rounding_revision,
-					'shipping_catalog_revision' => $shipping['catalog_revision'],
+					'default_markup_revision'     => $markup_revision,
+					'price_rounding_revision'     => $rounding_revision,
+					'shipping_catalog_revision'   => $shipping['catalog_revision'],
 				)
 			),
 			'currency'        => $currency,
@@ -2591,7 +2810,7 @@ final class Digitalogic_Excel_Pricing_Sync {
 				'revision'       => $markup_revision,
 				'updated_at'     => current_time( 'mysql', true ),
 			),
-			'price_rounding' => array(
+			'price_rounding'  => array(
 				'configured'      => true,
 				'rounding_digits' => $settings['price_rounding_digits'],
 				'rounding_mode'   => $settings['price_rounding_mode'],
@@ -2837,11 +3056,11 @@ final class Digitalogic_Excel_Pricing_Sync {
 				'The final-price rounding policy differs from the current site setting.',
 				'warning',
 				array(
-					'field'            => 'price_rounding_digits',
-					'current_digits'   => $current['price_rounding']['rounding_digits'],
-					'proposed_digits'  => $settings['price_rounding_digits'],
-					'current_mode'     => $current['price_rounding']['rounding_mode'],
-					'proposed_mode'    => $settings['price_rounding_mode'],
+					'field'           => 'price_rounding_digits',
+					'current_digits'  => $current['price_rounding']['rounding_digits'],
+					'proposed_digits' => $settings['price_rounding_digits'],
+					'current_mode'    => $current['price_rounding']['rounding_mode'],
+					'proposed_mode'   => $settings['price_rounding_mode'],
 				)
 			);
 		}
@@ -3338,13 +3557,14 @@ final class Digitalogic_Excel_Pricing_Sync {
 	/**
 	 * Keep the receiver lock held through this transaction's terminal query.
 	 *
-	 * @param callable $callback Transaction callback.
+	 * @param callable      $callback         Transaction callback.
+	 * @param callable|null $pre_commit_guard Optional final transaction guard.
 	 * @return mixed|WP_Error
 	 */
-	private function run_coordinated_pricing_transaction( $callback ) {
+	private function run_coordinated_pricing_transaction( $callback, $pre_commit_guard = null ) {
 		return Digitalogic_Pricing_Coordinator::instance()->with_repricing_lock(
-			function () use ( $callback ) {
-				return $this->run_transaction( $callback );
+			function () use ( $callback, $pre_commit_guard ) {
+				return $this->run_transaction( $callback, $pre_commit_guard, true );
 			}
 		);
 	}
@@ -3352,10 +3572,12 @@ final class Digitalogic_Excel_Pricing_Sync {
 	/**
 	 * Run an atomic option transaction.
 	 *
-	 * @param callable $callback Transaction callback.
+	 * @param callable      $callback         Transaction callback.
+	 * @param callable|null $pre_commit_guard Optional final safety check.
+	 * @param bool          $marker_owned_events Suppress raw option hooks in favor of one canonical effect.
 	 * @return mixed|WP_Error
 	 */
-	private function run_transaction( $callback ) {
+	private function run_transaction( $callback, $pre_commit_guard = null, $marker_owned_events = false ) {
 		global $wpdb;
 		if (
 			$this->transaction_active
@@ -3389,14 +3611,58 @@ final class Digitalogic_Excel_Pricing_Sync {
 			$rollback = $this->rollback_transaction();
 			return is_wp_error( $rollback ) ? $rollback : $result;
 		}
-		if ( false === $wpdb->query( 'COMMIT' ) ) {
-			$rollback = $this->rollback_transaction();
+		if (
+			$marker_owned_events
+			&& is_array( $result )
+			&& is_array( $result['publication'] ?? null )
+		) {
+			$result['publication']['option_cache_names'] = array_keys( $this->transaction_option_names );
+		}
+		if ( null !== $pre_commit_guard ) {
+			try {
+				$guarded = call_user_func( $pre_commit_guard, $result );
+			} catch ( Throwable $exception ) {
+				$guarded = $this->error(
+					'digitalogic_pricing_actuation_guard_exception',
+					'کنترل نهایی ایمنی قیمت اجرا نشد.',
+					500,
+					array( 'exception' => get_class( $exception ) )
+				);
+			}
+			if ( true !== $guarded ) {
+				if ( ! is_wp_error( $guarded ) ) {
+					$guarded = $this->error(
+						'digitalogic_pricing_actuation_guard_rejected',
+						'مالکیت ایمن کار قیمت پیش از ثبت نهایی از دست رفت.',
+						409
+					);
+				}
+				$rollback = $this->rollback_transaction();
+
+				return is_wp_error( $rollback ) ? $rollback : $guarded;
+			}
+		}
+		$commit_exception = null;
+		try {
+			$commit = $wpdb->query( 'COMMIT' );
+		} catch ( Throwable $exception ) {
+			$commit           = false;
+			$commit_exception = $exception;
+		}
+		if ( false === $commit ) {
+			$rollback  = $this->rollback_transaction();
+			$ambiguous = $commit_exception instanceof Throwable;
 			return is_wp_error( $rollback )
 				? $rollback
 				: $this->error(
-					'digitalogic_excel_sync_commit_failed',
-					'ثبت نهایی تراکنش تنظیمات ممکن نیست.',
-					500
+					$ambiguous ? 'digitalogic_excel_sync_commit_ambiguous' : 'digitalogic_excel_sync_commit_failed',
+					$ambiguous
+						? 'پاسخ ثبت نهایی تراکنش نامشخص بود؛ نتیجه از نشانگر اتمیک بازیابی می‌شود.'
+						: 'ثبت نهایی تراکنش تنظیمات ممکن نیست.',
+					500,
+					array(
+						'exception' => $commit_exception instanceof Throwable ? get_class( $commit_exception ) : '',
+					)
 				);
 		}
 
@@ -3406,7 +3672,9 @@ final class Digitalogic_Excel_Pricing_Sync {
 		$this->transaction_option_names  = array();
 		$this->transaction_option_events = array();
 		$this->invalidate_option_caches( $names );
-		$this->dispatch_option_events( $events );
+		if ( ! $marker_owned_events ) {
+			$this->dispatch_option_events( $events );
+		}
 
 		return $result;
 	}
@@ -3542,14 +3810,18 @@ final class Digitalogic_Excel_Pricing_Sync {
 	/**
 	 * Invalidate exact option caches.
 	 *
-	 * @param array $names Changed option map.
+	 * @param array $names Changed option names or name-keyed map.
 	 * @return void
 	 */
 	private function invalidate_option_caches( $names ) {
 		if ( ! function_exists( 'wp_cache_delete' ) ) {
 			return;
 		}
-		foreach ( array_keys( $names ) as $name ) {
+		foreach ( $names as $key => $value ) {
+			$name = is_int( $key ) ? (string) $value : (string) $key;
+			if ( '' === $name ) {
+				continue;
+			}
 			wp_cache_delete( $name, 'options' );
 		}
 		wp_cache_delete( 'alloptions', 'options' );
@@ -3823,6 +4095,60 @@ final class Digitalogic_Excel_Pricing_Sync {
 	}
 
 	/**
+	 * Atomically close an older Excel rollback lease before a legitimate WP commit.
+	 *
+	 * This runs inside the same settings transaction. Even if the process dies
+	 * before its scheduled hook is cleared, the timeout observes a terminal
+	 * superseded record and cannot write the older settings back.
+	 *
+	 * @param string $source           Current trusted WordPress source.
+	 * @param string $state_revision   Exact revision that this transaction will own.
+	 * @return string|WP_Error Superseded transaction id, empty string, or error.
+	 */
+	private function supersede_active_confirmation_open_transaction( $source, $state_revision ) {
+		if ( 0 < $this->confirmation_rollback_depth ) {
+			return '';
+		}
+		$row    = $this->read_option_db( self::CONFIRMATIONS_OPTION, true );
+		$ledger = is_array( $row['value'] ?? null ) ? $row['value'] : array();
+		$id     = (string) ( $ledger['active'] ?? '' );
+		if ( 1 !== preg_match( '/\Aptx_[a-f0-9]{32}\z/D', $id ) ) {
+			return '';
+		}
+		$transactions = is_array( $ledger['transactions'] ?? null ) ? $ledger['transactions'] : array();
+		$record       = is_array( $transactions[ $id ] ?? null ) ? $transactions[ $id ] : array();
+		$status       = (string) ( $record['status'] ?? '' );
+		if ( in_array( $status, array( 'acknowledged', 'rolled_back', 'superseded' ), true ) ) {
+			$ledger['active'] = null;
+			$stored           = $this->store_option_verified( self::CONFIRMATIONS_OPTION, $ledger );
+			if ( is_wp_error( $stored ) ) {
+				return $stored;
+			}
+
+			return $id;
+		}
+		if ( ! in_array( $status, array( 'awaiting_ack', 'rolling_back', 'rollback_pending', 'recovery_required' ), true ) ) {
+			return '';
+		}
+
+		$record['status']                 = 'superseded';
+		$record['superseded_at']          = time();
+		$record['superseded_by_source']   = sanitize_key( (string) $source );
+		$record['superseded_by_revision'] = (string) $state_revision;
+		$record['rollback_owner']         = '';
+		$record['rollback_lease_until']   = 0;
+		$transactions[ $id ]              = $record;
+		$ledger['active']                 = null;
+		$ledger['transactions']           = $transactions;
+		$stored                           = $this->store_option_verified( self::CONFIRMATIONS_OPTION, $ledger );
+		if ( is_wp_error( $stored ) ) {
+			return $stored;
+		}
+
+		return $id;
+	}
+
+	/**
 	 * Schedule the exact pending transaction once.
 	 *
 	 * @param array $confirmation Bounded confirmation projection.
@@ -3949,7 +4275,7 @@ final class Digitalogic_Excel_Pricing_Sync {
 							);
 						}
 						$status = (string) ( $record['status'] ?? '' );
-						if ( in_array( $status, array( 'acknowledged', 'rolled_back' ), true ) ) {
+						if ( in_array( $status, array( 'acknowledged', 'rolled_back', 'superseded' ), true ) ) {
 							return array(
 								'claimed'      => false,
 								'confirmation' => $this->confirmation_projection( $record ),
@@ -4199,6 +4525,9 @@ final class Digitalogic_Excel_Pricing_Sync {
 			'state_revision'    => $readback['state_revision'],
 			'settings'          => $settings,
 		);
+		if ( ! empty( $request_context['effect_id'] ) ) {
+			$result['effect_id'] = (string) $request_context['effect_id'];
+		}
 		try {
 			do_action( 'digitalogic_excel_pricing_settings_updated', $result );
 		} catch ( Throwable $exception ) {

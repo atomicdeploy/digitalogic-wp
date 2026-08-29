@@ -292,6 +292,16 @@ class Digitalogic_REST_API {
 
 		register_rest_route(
 			'digitalogic/v1',
+			'/currency/jobs/(?P<job_id>[a-f0-9]{32})/(?P<generation>[1-9][0-9]*)',
+			array(
+				'methods'             => 'GET',
+				'callback'            => array( $this, 'get_currency_job' ),
+				'permission_callback' => array( $this, 'check_read_permission' ),
+			)
+		);
+
+		register_rest_route(
+			'digitalogic/v1',
 			'/currency',
 			array(
 				'methods'             => 'POST',
@@ -1409,50 +1419,136 @@ class Digitalogic_REST_API {
 	 */
 	public function update_currency( WP_REST_Request $request ) {
 		$data = $request->get_json_params();
+		$data = is_array( $data ) ? $data : array();
+
+		$expected_revision = $this->currency_expected_revision( $request, $data );
+		if ( is_wp_error( $expected_revision ) ) {
+			return $this->currency_job_response( $expected_revision );
+		}
 
 		$values = array();
 		foreach ( array( 'dollar_price', 'yuan_price', 'effective_date', 'usd_effective_date', 'cny_effective_date' ) as $field ) {
-			if ( is_array( $data ) && array_key_exists( $field, $data ) ) {
+			if ( array_key_exists( $field, $data ) ) {
 				$values[ $field ] = $data[ $field ];
 			}
 		}
-		$result = Digitalogic_Pricing_Coordinator::instance()->update_currency(
+		$result = Digitalogic_Currency_Admin_Async::instance()->enqueue_currency(
 			$values,
+			true,
+			false,
+			$expected_revision,
 			'rest_currency'
 		);
-		if ( is_wp_error( $result ) ) {
-			return $result;
-		}
 
-		return new WP_REST_Response(
-			array(
-				'success' => true,
-				'message' => 'نرخ‌های ارز و قیمت‌های ووکامرس هماهنگ شدند.',
-				'data'    => $result,
-			),
-			200
-		);
+		return $this->currency_job_response( $result, 202 );
 	}
 
 	/**
 	 * POST /pricing/recalculate
 	 */
 	public function recalculate_prices( WP_REST_Request $request ) {
-		unset( $request );
-		$results = Digitalogic_Pricing_Coordinator::instance()->reconcile_current(
-			'rest_pricing_recalculate'
-		);
-		if ( is_wp_error( $results ) ) {
-			return $results;
+		$data              = $request->get_json_params();
+		$data              = is_array( $data ) ? $data : array();
+		$expected_revision = $this->currency_expected_revision( $request, $data );
+		if ( is_wp_error( $expected_revision ) ) {
+			return $this->currency_job_response( $expected_revision );
 		}
 
-		return new WP_REST_Response(
+		$state = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
+		if ( is_wp_error( $state ) ) {
+			return $this->currency_job_response( $state );
+		}
+		$result = Digitalogic_Currency_Admin_Async::instance()->enqueue_currency(
+			array(
+				'dollar_price' => (string) $state['settings']['dollar_price'],
+				'yuan_price'   => (string) $state['settings']['yuan_price'],
+			),
+			true,
+			true,
+			$expected_revision,
+			'rest_pricing_recalculate'
+		);
+
+		return $this->currency_job_response( $result, 202 );
+	}
+
+	/** Return one exact currency worker status without mutating or waking it. */
+	public function get_currency_job( WP_REST_Request $request ) {
+		$result = Digitalogic_Currency_Admin_Async::instance()->status(
+			sanitize_text_field( (string) $request['job_id'] ),
+			absint( $request['generation'] )
+		);
+
+		return $this->currency_job_response( $result, 200 );
+	}
+
+	/**
+	 * Require an exact optimistic revision for every remote currency mutation.
+	 *
+	 * @param WP_REST_Request $request Current request.
+	 * @param array           $payload Parsed JSON object.
+	 * @return string|WP_Error
+	 */
+	private function currency_expected_revision( WP_REST_Request $request, array $payload ) {
+		$revision = $payload['expected_state_revision'] ?? null;
+		$if_match = (string) $request->get_header( 'if-match' );
+		if (
+			! is_string( $revision )
+			|| 1 !== preg_match( '/\Asha256:[a-f0-9]{64}\z/D', $revision )
+			|| '"' . $revision . '"' !== $if_match
+		) {
+			return new WP_Error(
+				'digitalogic_currency_if_match_required',
+				'expected_state_revision و هدر If-Match نقل‌قول‌شده باید دقیقاً یکسان باشند.',
+				array(
+					'status'   => 428,
+					'blocking' => true,
+				)
+			);
+		}
+
+		return $revision;
+	}
+
+	/** Convert async currency jobs and failures to a bounded machine-readable response. */
+	private function currency_job_response( $result, $success_status = 202 ) {
+		if ( is_wp_error( $result ) ) {
+			$details     = $result->get_error_data();
+			$details     = is_array( $details ) ? $details : array();
+			$retry_after = max( 0, (int) ( $details['retry_after'] ?? 0 ) );
+			$status      = isset( $details['status'] ) ? (int) $details['status'] : 409;
+			if ( 0 < $retry_after && ! isset( $details['status'] ) ) {
+				$status = 'digitalogic_currency_async_busy' === $result->get_error_code() ? 429 : 503;
+			}
+			$response = new WP_REST_Response(
+				array(
+					'success'     => false,
+					'code'        => $result->get_error_code(),
+					'message'     => $result->get_error_message(),
+					'blocking'    => (bool) ( $details['blocking'] ?? false ),
+					'retry_after' => $retry_after,
+					'details'     => $details,
+				),
+				$status
+			);
+			if ( 0 < $retry_after ) {
+				$response->header( 'Retry-After', (string) $retry_after );
+			}
+			$response->header( 'Cache-Control', 'no-store' );
+
+			return $response;
+		}
+
+		$response = new WP_REST_Response(
 			array(
 				'success' => true,
-				'data'    => $results,
+				'data'    => $result,
 			),
-			200
+			$success_status
 		);
+		$response->header( 'Cache-Control', 'no-store' );
+
+		return $response;
 	}
 
 	/**

@@ -704,7 +704,10 @@ final class ExcelPricingSyncTest extends TestCase {
 		$this->assertSame( array(), $applied['product_results'] );
 		$this->assertNotContains( 'START TRANSACTION', $GLOBALS['wpdb']->queries );
 		$this->assertNotContains( 'COMMIT', $GLOBALS['wpdb']->queries );
-		$this->assertSame( array(), $GLOBALS['digitalogic_test_cache_deletes'] );
+		$this->assertSame(
+			array( array( 'generation-v1', 'digitalogic_reports' ) ),
+			$GLOBALS['digitalogic_test_cache_deletes']
+		);
 		$this->assertSame( array(), $GLOBALS['digitalogic_test_transient_deletes'] );
 		$this->assertArrayNotHasKey(
 			Digitalogic_Excel_Pricing_Sync::AUDIT_OPTION,
@@ -837,6 +840,12 @@ final class ExcelPricingSyncTest extends TestCase {
 		$this->assertContains( 'START TRANSACTION', $GLOBALS['wpdb']->queries );
 		$this->assertContains( 'COMMIT', $GLOBALS['wpdb']->queries );
 		$this->assertCount( 1, $GLOBALS['digitalogic_test_actions']['digitalogic_excel_pricing_apply_committed'] ?? array() );
+		$this->assertSame( 'awaiting_ack', $applied['confirmation']['status'] );
+		$this->assertGreaterThanOrEqual( 90, $applied['confirmation']['ack_deadline'] - time() );
+		$this->assertNotEmpty( $GLOBALS['digitalogic_test_scheduled_events'] );
+		$this->assertCount( 1, $GLOBALS['digitalogic_test_actions']['digitalogic_pricing_confirmation_event'] ?? array() );
+		$scheduled_before_replay = $GLOBALS['digitalogic_test_scheduled_events'];
+		$events_before_replay    = $GLOBALS['digitalogic_test_actions']['digitalogic_pricing_confirmation_event'];
 
 		$replayed = $service->apply( $request );
 		$this->assertFalse( is_wp_error( $replayed ) );
@@ -844,6 +853,8 @@ final class ExcelPricingSyncTest extends TestCase {
 		$this->assertSame( $applied['state_revision'], $replayed['state_revision'] );
 		$this->assertCount( 1, $GLOBALS['digitalogic_test_options'][ Digitalogic_Excel_Pricing_Sync::AUDIT_OPTION ] );
 		$this->assertCount( 1, $GLOBALS['digitalogic_test_actions']['digitalogic_excel_pricing_apply_committed'] ?? array() );
+		$this->assertSame( $scheduled_before_replay, $GLOBALS['digitalogic_test_scheduled_events'] );
+		$this->assertSame( $events_before_replay, $GLOBALS['digitalogic_test_actions']['digitalogic_pricing_confirmation_event'] );
 	}
 
 	/**
@@ -883,44 +894,52 @@ final class ExcelPricingSyncTest extends TestCase {
 		$this->assertContains( 'ROLLBACK', $GLOBALS['wpdb']->queries );
 	}
 
-	/** Website commits first and only the configured workbook may ACK its exact value. */
-	public function test_website_first_commit_requires_exact_configured_workbook_ack(): void {
+	/** Internal admin commits are terminal and never depend on a workbook ACK. */
+	public function test_internal_admin_commit_is_terminal_and_never_stages_excel_ack(): void {
 		$service                = Digitalogic_Excel_Pricing_Sync::instance();
 		$previous               = $service->current_canonical_state();
 		$settings               = $previous['settings'];
 		$settings['yuan_price'] = 29501;
-		$committed              = $service->apply_internal_settings( $settings, 'acf_currency_settings', $previous['state_revision'] );
+		$committed              = $service->apply_internal_settings( $settings, 'admin_async', $previous['state_revision'] );
 
 		$this->assertFalse( is_wp_error( $committed ) );
 		$this->assertSame( 'applied', $committed['status'] );
 		$this->assertSame( 29501, $committed['settings']['yuan_price'] );
-		$this->assertSame( 'awaiting_ack', $committed['confirmation']['status'] );
+		$this->assertSame( 'clear', $committed['confirmation']['status'] );
 		$this->assertCount( 1, $GLOBALS['digitalogic_test_actions']['digitalogic_excel_pricing_apply_committed'] ?? array() );
-		$this->assertGreaterThanOrEqual( 90, $committed['confirmation']['ack_deadline'] - time() );
-		$this->assertNotEmpty( $GLOBALS['digitalogic_test_scheduled_events'] );
-		$events = $GLOBALS['digitalogic_test_actions']['digitalogic_pricing_confirmation_event'] ?? array();
-		$this->assertCount( 1, $events );
-		$this->assertSame( 'pricing.settings.committed', $events[0][0]['event_type'] );
-		$this->assertSame( 29501, $events[0][0]['confirmed_settings']['yuan_price'] );
-
-		$mismatch = $service->ack(
-			$this->ack_request(
-				$committed,
-				array( 'consumer_id' => 'unconfigured-workbook' )
-			)
+		$this->assertArrayNotHasKey( Digitalogic_Excel_Pricing_Sync::CONFIRMATIONS_OPTION, $GLOBALS['digitalogic_test_options'] );
+		$this->assertSame(
+			array( 'digitalogic_pricing_state_event_delivery_v1' ),
+			array_values( array_unique( array_column( $GLOBALS['digitalogic_test_scheduled_events'], 'hook' ) ) )
 		);
-		$this->assertSame( 'digitalogic_pricing_confirmation_ack_mismatch', $mismatch->get_error_code() );
+		$this->assertEmpty( $GLOBALS['digitalogic_test_actions']['digitalogic_pricing_confirmation_event'] ?? array() );
 		$this->assertSame( 29501, $service->current_canonical_settings()['yuan_price'] );
+		$this->assertNull( $service->recover_pending_confirmation() );
+	}
 
-		$acknowledged = $service->ack( $this->ack_request( $committed ) );
-		$this->assertFalse( is_wp_error( $acknowledged ) );
-		$this->assertSame( 'acknowledged', $acknowledged['status'] );
-		$this->assertSame( 'clear', $service->current_canonical_state()['confirmation']['status'] );
-		$this->assertSame( array(), $GLOBALS['digitalogic_test_scheduled_events'] );
+	/** Repeating the same semantic A-to-B transition is a new effect, not a dedupe replay. */
+	public function test_repeated_internal_rate_cycle_uses_distinct_effect_ids(): void {
+		$service          = Digitalogic_Excel_Pricing_Sync::instance();
+		$state            = $service->current_canonical_state();
+		$up               = $state['settings'];
+		$up['yuan_price'] = 29501;
+		$first            = $service->apply_internal_settings( $up, 'admin_async', $state['state_revision'] );
+		$this->assertFalse( is_wp_error( $first ) );
 
-		$replayed = $service->ack( $this->ack_request( $committed ) );
-		$this->assertFalse( is_wp_error( $replayed ) );
-		$this->assertSame( 'replayed', $replayed['status'] );
+		$state              = $service->current_canonical_state();
+		$down               = $state['settings'];
+		$down['yuan_price'] = 29500;
+		$second             = $service->apply_internal_settings( $down, 'admin_async', $state['state_revision'] );
+		$this->assertFalse( is_wp_error( $second ) );
+
+		$state            = $service->current_canonical_state();
+		$up               = $state['settings'];
+		$up['yuan_price'] = 29501;
+		$third            = $service->apply_internal_settings( $up, 'admin_async', $state['state_revision'] );
+		$this->assertFalse( is_wp_error( $third ) );
+
+		$this->assertNotSame( $first['effect_id'], $third['effect_id'] );
+		$this->assertSame( $first['state_revision'], $third['state_revision'] );
 	}
 
 	/**
@@ -956,14 +975,35 @@ final class ExcelPricingSyncTest extends TestCase {
 		$this->assertSame( $current['shipping'], $rejected['shipping'] );
 	}
 
-	/** Missing workbook ACK rolls the website and recalculated prices back exactly once. */
-	public function test_ack_timeout_rolls_back_website_first_commit_and_is_restart_idempotent(): void {
+	/** Missing ACK rolls back only an explicit Excel apply, exactly once. */
+	public function test_ack_timeout_rolls_back_explicit_excel_apply_and_is_restart_idempotent(): void {
 		$service                = Digitalogic_Excel_Pricing_Sync::instance();
 		$previous               = $service->current_canonical_state();
 		$settings               = $previous['settings'];
 		$settings['yuan_price'] = 29501;
-		$committed              = $service->apply_internal_settings( $settings, 'acf_currency_settings', $previous['state_revision'] );
+		$preview                = $service->preview(
+			$this->mutation_request(
+				'preview',
+				'excel-preview-timeout-0001',
+				$previous['state_revision'],
+				$settings
+			)
+		);
+		$this->assertFalse( is_wp_error( $preview ) );
+		$committed = $service->apply(
+			$this->mutation_request(
+				'apply',
+				'excel-apply-timeout-000001',
+				$previous['state_revision'],
+				$settings,
+				array(
+					'preview_digest' => $preview['preview_digest'],
+					'confirmation'   => 'APPLY',
+				)
+			)
+		);
 		$this->assertFalse( is_wp_error( $committed ) );
+		$this->assertSame( 'awaiting_ack', $committed['confirmation']['status'] );
 		$id = $committed['confirmation']['transaction_id'];
 
 		$ledger                                        = $GLOBALS['digitalogic_test_options'][ Digitalogic_Excel_Pricing_Sync::CONFIRMATIONS_OPTION ];
@@ -979,7 +1019,10 @@ final class ExcelPricingSyncTest extends TestCase {
 		$this->assertSame( 'rolled_back', $rolled_back['status'] );
 		$this->assertSame( 29500, $service->current_canonical_settings()['yuan_price'] );
 		$this->assertSame( $previous['state_revision'], $service->current_canonical_state()['state_revision'] );
-		$this->assertSame( array(), $GLOBALS['digitalogic_test_scheduled_events'] );
+		$this->assertSame(
+			array( 'digitalogic_pricing_state_event_delivery_v1' ),
+			array_values( array_unique( array_column( $GLOBALS['digitalogic_test_scheduled_events'], 'hook' ) ) )
+		);
 		$events = $GLOBALS['digitalogic_test_actions']['digitalogic_pricing_confirmation_event'] ?? array();
 		$this->assertCount( 2, $events );
 		$this->assertSame( 'pricing.settings.rolled_back', $events[1][0]['event_type'] );
