@@ -2715,6 +2715,8 @@ require_once dirname(__DIR__) . '/includes/class-digitalogic-woocommerce-currenc
 require_once dirname( __DIR__ ) . '/includes/class-digitalogic-access-control.php';
 require_once dirname( __DIR__ ) . '/includes/panel/class-digitalogic-panel-error-page.php';
 require_once dirname(__DIR__) . '/includes/class-product-identifier-resolver.php';
+require_once dirname(__DIR__) . '/includes/class-digitalogic-canonical-catalog-identity.php';
+require_once dirname(__DIR__) . '/includes/class-digitalogic-catalog-identity-reconciler.php';
 require_once dirname(__DIR__) . '/includes/class-digitalogic-product-category-slugs.php';
 require_once dirname(__DIR__) . '/includes/class-digitalogic-product-supplier-links.php';
 require_once dirname(__DIR__) . '/includes/class-digitalogic-product-query.php';

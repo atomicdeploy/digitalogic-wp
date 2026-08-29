@@ -347,6 +347,16 @@ final class Digitalogic_Report_Engine {
 			if ( ! is_string( $code ) || '' === $code ) {
 				return new WP_Error( 'digitalogic_report_static_product_invalid', __( 'The static product snapshot contains an invalid product.', 'digitalogic' ) );
 			}
+			if ( isset( $products[ $code ] ) ) {
+				return new WP_Error(
+					'digitalogic_report_static_duplicate_product_code',
+					__( 'The static product snapshot contains a duplicate Product Code.', 'digitalogic' ),
+					array(
+						'status'       => 409,
+						'product_code' => $code,
+					)
+				);
+			}
 			$products[ $code ] = $product;
 		}
 		ksort( $products, SORT_STRING );
@@ -407,7 +417,11 @@ final class Digitalogic_Report_Engine {
 		if ( is_wp_error( $woo_result ) ) {
 			return $woo_result;
 		}
-		$woo_rows = $woo_result['products'];
+		$woo_rows             = $woo_result['products'];
+		$provider_identities  = $this->provider_identity_diagnostics( $products, $woo_rows );
+		$woo_result['integrity_warnings'] = array_values(
+			array_merge( $woo_result['integrity_warnings'], $provider_identities['integrity_warnings'] )
+		);
 		if ( is_callable( $checkpoint ) && false === call_user_func( $checkpoint, 'reconciling', 25, 0, count( $products ) + count( $woo_rows ) ) ) {
 			return $this->snapshot_cancelled_error();
 		}
@@ -528,6 +542,26 @@ final class Digitalogic_Report_Engine {
 			$rows[] = $row;
 		}
 
+		foreach ( $rows as &$identity_row ) {
+			$source_code = is_scalar( $identity_row['source']['product_code'] ?? null )
+				? (string) $identity_row['source']['product_code']
+				: '';
+			$woo_id      = absint( $identity_row['woocommerce']['id'] ?? 0 );
+			foreach ( (array) ( $provider_identities['source_issues'][ $source_code ] ?? array() ) as $identity_issue ) {
+				$this->add_issue( $identity_row, $identity_issue );
+			}
+			foreach ( (array) ( $provider_identities['woo_issues'][ $woo_id ] ?? array() ) as $identity_issue ) {
+				$this->add_issue( $identity_row, $identity_issue );
+			}
+		}
+		unset( $identity_row );
+
+		$identity_reconciliation          = Digitalogic_Catalog_Identity_Reconciler::instance()->annotate_rows( $rows );
+		$rows                             = $identity_reconciliation['rows'];
+		$woo_result['integrity_warnings'] = array_values(
+			array_merge( $woo_result['integrity_warnings'], $identity_reconciliation['integrity_warnings'] )
+		);
+
 		usort(
 			$rows,
 			static function ( $left, $right ) {
@@ -620,6 +654,15 @@ final class Digitalogic_Report_Engine {
 				'warning_products'              => $warning_products,
 				'drift_products'                => $drift_products,
 				'variable_parents_excluded'     => $woo_result['variable_parents_excluded'],
+				'quarantined_identity_groups'   => $identity_reconciliation['counts']['quarantined_identity_groups'],
+				'quarantined_source_rows'       => $identity_reconciliation['counts']['quarantined_source_rows'],
+				'quarantined_woo_rows'          => $identity_reconciliation['counts']['quarantined_woo_rows'],
+				'one_to_one_split_candidates'   => $identity_reconciliation['counts']['one_to_one_split_candidates'],
+				'identity_collision_groups'     => $identity_reconciliation['counts']['identity_collision_groups'],
+				'source_code_collision_groups'  => $provider_identities['counts']['source_code_collision_groups'],
+				'woo_code_collision_groups'     => $provider_identities['counts']['woo_code_collision_groups'],
+				'woo_sku_collision_groups'      => $provider_identities['counts']['woo_sku_collision_groups'],
+				'unsafe_identity_groups'        => $identity_reconciliation['counts']['quarantined_identity_groups'] + $provider_identities['counts']['provider_identity_collision_groups'],
 			),
 			'pagination'        => array(
 				'page'     => $page,
@@ -1448,6 +1491,8 @@ final class Digitalogic_Report_Engine {
 			'id'             => $id,
 			'name'           => (string) $product->get_name(),
 			'type'           => (string) $product->get_type(),
+			'parent_id'      => (int) $product->get_parent_id(),
+			'sku'            => (string) $product->get_sku(),
 			'status'         => (string) $product->get_status(),
 			'regular_price'  => (string) $product->get_regular_price(),
 			'active_price'   => (string) $product->get_price(),
@@ -1711,6 +1756,141 @@ final class Digitalogic_Report_Engine {
 				$this->add_issue( $row, 'source_warning' );
 			}
 		}
+	}
+
+	/**
+	 * Detect provider-local identity collisions before any projection is built.
+	 *
+	 * Optional fields are ignored when absent. Every detected collision is
+	 * blocking and carries the exact provider records needed for remediation.
+	 *
+	 * @param array $products Canonical source products keyed by Product Code.
+	 * @param array $woo_rows Provider-neutral WooCommerce leaf rows.
+	 * @return array{integrity_warnings:array,source_issues:array,woo_issues:array,counts:array}
+	 */
+	private function provider_identity_diagnostics( array $products, array $woo_rows ): array {
+		$warnings     = array();
+		$source_issues = array();
+		$woo_issues    = array();
+		$counts        = array(
+			'provider_identity_collision_groups' => 0,
+			'source_code_collision_groups'       => 0,
+			'woo_code_collision_groups'          => 0,
+			'woo_sku_collision_groups'           => 0,
+		);
+
+		$source_groups = array();
+		foreach ( $products as $product ) {
+			$code = is_scalar( $product['product_code'] ?? null ) ? trim( (string) $product['product_code'] ) : '';
+			if ( '' === $code ) {
+				continue;
+			}
+			$source_groups[ Digitalogic_Catalog_Identity_Reconciler::normalize_identifier( $code ) ][ $code ] = array(
+				'product_code' => $code,
+				'name'         => is_scalar( $product['name'] ?? null ) ? trim( (string) $product['name'] ) : '',
+			);
+		}
+		foreach ( $source_groups as $normalized => $records_by_code ) {
+			if ( count( $records_by_code ) < 2 ) {
+				continue;
+			}
+			$records = array_values( $records_by_code );
+			usort( $records, static fn( $left, $right ) => strcmp( $left['product_code'], $right['product_code'] ) );
+			foreach ( array_keys( $records_by_code ) as $code ) {
+				$source_issues[ $code ][] = 'duplicate_normalized_source_product_code';
+			}
+			$warnings[] = $this->provider_identity_warning(
+				'projection_integrity_duplicate_source_product_code',
+				$normalized,
+				$records,
+				'Give every canonical source product a unique normalized Product Code before refreshing.'
+			);
+			++$counts['provider_identity_collision_groups'];
+			++$counts['source_code_collision_groups'];
+		}
+
+		foreach (
+			array(
+				'product_code' => array(
+					'code'        => 'projection_integrity_duplicate_woo_product_code',
+					'issue'       => 'duplicate_normalized_woo_product_code',
+					'count'       => 'woo_code_collision_groups',
+					'remediation' => 'Keep the authoritative Product Code on exactly one WooCommerce product or variation.',
+				),
+				'sku'          => array(
+					'code'        => 'projection_integrity_duplicate_woo_sku',
+					'issue'       => 'duplicate_normalized_woo_sku',
+					'count'       => 'woo_sku_collision_groups',
+					'remediation' => 'Give each WooCommerce product or variation a unique SKU, or clear the non-authoritative SKU.',
+				),
+			) as $field => $definition
+		) {
+			$groups = array();
+			foreach ( $woo_rows as $woo ) {
+				$value = is_scalar( $woo[ $field ] ?? null ) ? trim( (string) $woo[ $field ] ) : '';
+				$id    = absint( $woo['id'] ?? 0 );
+				if ( '' === $value || ! $id ) {
+					continue;
+				}
+				$groups[ Digitalogic_Catalog_Identity_Reconciler::normalize_identifier( $value ) ][ $id ] = array(
+					'woocommerce_id' => $id,
+					'product_code'   => is_scalar( $woo['product_code'] ?? null ) ? trim( (string) $woo['product_code'] ) : '',
+					'sku'            => is_scalar( $woo['sku'] ?? null ) ? trim( (string) $woo['sku'] ) : '',
+					'name'           => is_scalar( $woo['name'] ?? null ) ? trim( (string) $woo['name'] ) : '',
+					'type'           => is_scalar( $woo['type'] ?? null ) ? trim( (string) $woo['type'] ) : '',
+					'parent_id'      => absint( $woo['parent_id'] ?? 0 ),
+				);
+			}
+			foreach ( $groups as $normalized => $records_by_id ) {
+				if ( count( $records_by_id ) < 2 ) {
+					continue;
+				}
+				$records = array_values( $records_by_id );
+				usort( $records, static fn( $left, $right ) => $left['woocommerce_id'] <=> $right['woocommerce_id'] );
+				foreach ( array_keys( $records_by_id ) as $id ) {
+					$woo_issues[ $id ][] = $definition['issue'];
+				}
+				$warnings[] = $this->provider_identity_warning(
+					$definition['code'],
+					$normalized,
+					$records,
+					$definition['remediation']
+				);
+				++$counts['provider_identity_collision_groups'];
+				++$counts[ $definition['count'] ];
+			}
+		}
+
+		return array(
+			'integrity_warnings' => $warnings,
+			'source_issues'      => $source_issues,
+			'woo_issues'         => $woo_issues,
+			'counts'             => $counts,
+		);
+	}
+
+	/** Build one stable provider-local quarantine warning. */
+	private function provider_identity_warning( string $code, string $normalized, array $records, string $remediation ): array {
+		$quarantine_id = 'sha256:' . hash(
+			'sha256',
+			wp_json_encode(
+				array(
+					'code'       => $code,
+					'normalized' => $normalized,
+					'records'    => $records,
+				),
+				JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+			)
+		);
+
+		return array(
+			'code'            => $code,
+			'severity'        => 'critical',
+			'quarantine_id'   => $quarantine_id,
+			'normalized_value' => $normalized,
+			'records'         => $records,
+			'remediation'     => $remediation,
+		);
 	}
 
 	/**
@@ -2031,6 +2211,12 @@ final class Digitalogic_Report_Engine {
 	 */
 	private function category_definitions() {
 		return array(
+			'duplicate_normalized_source_product_code' => array( __( 'Duplicate normalized Product Code in canonical source', 'digitalogic' ), 'danger' ),
+			'duplicate_normalized_woo_product_code'    => array( __( 'Duplicate normalized Product Code in WooCommerce', 'digitalogic' ), 'danger' ),
+			'duplicate_normalized_woo_sku'             => array( __( 'Duplicate normalized WooCommerce SKU', 'digitalogic' ), 'danger' ),
+			'identity_quarantined'                  => array( __( 'Unsafe catalog identity is quarantined', 'digitalogic' ), 'danger' ),
+			'split_identity_candidate'              => array( __( 'Possible split source and WooCommerce identity', 'digitalogic' ), 'danger' ),
+			'normalized_identity_collision'         => array( __( 'More than one normalized identity candidate exists', 'digitalogic' ), 'danger' ),
 			'missing_in_woocommerce'                => array( __( 'In source but missing in WooCommerce', 'digitalogic' ), 'danger' ),
 			'positive_stock_missing_in_woocommerce' => array( __( 'Positive-stock product missing in WooCommerce', 'digitalogic' ), 'danger' ),
 			'missing_in_patris'                     => array( __( 'In WooCommerce but missing in source', 'digitalogic' ), 'warning' ),
