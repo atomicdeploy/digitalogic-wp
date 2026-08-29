@@ -1240,6 +1240,7 @@ class Digitalogic_Test_WPDB {
     public $queries = array();
     public $mysql_string_roundtrip = false;
     public $after_rollback = null;
+	public $after_commit = null;
     public $identifier_query_count = 0;
     public $identifier_prepare_failure = false;
     public $identifier_query_failure = false;
@@ -1255,6 +1256,7 @@ class Digitalogic_Test_WPDB {
     public $before_get_lock = null;
     public $before_release_lock = null;
     public $after_option_write = null;
+	public $before_currency_job_cas = null;
     public $lock_timeouts = array();
     // phpcs:enable
     private $transaction_snapshot = null;
@@ -1640,6 +1642,32 @@ class Digitalogic_Test_WPDB {
 			return false;
 		}
 
+		if ( strpos( $raw_query, 'digitalogic_currency_job_cas' ) !== false ) {
+			$callback                      = $this->before_currency_job_cas;
+			$this->before_currency_job_cas = null;
+			if ( is_callable( $callback ) ) {
+				call_user_func( $callback, $this );
+			}
+			$new_raw      = isset( $args[0] ) ? (string) $args[0] : '';
+			$option_name  = isset( $args[1] ) ? (string) $args[1] : '';
+			$expected_raw = isset( $args[2] ) ? (string) $args[2] : '';
+			if ( ! array_key_exists( $option_name, $GLOBALS['digitalogic_test_options'] ) ) {
+				return 0;
+			}
+			$current_raw = (string) $this->database_raw_value( $GLOBALS['digitalogic_test_options'][ $option_name ] );
+			if ( ! hash_equals( $expected_raw, $current_raw ) ) {
+				return 0;
+			}
+			$GLOBALS['digitalogic_test_options'][ $option_name ] = $this->stored_database_value( $new_raw );
+			$after_write = $this->after_option_write;
+			$this->after_option_write = null;
+			if ( is_callable( $after_write ) ) {
+				call_user_func( $after_write, $this, $option_name );
+			}
+
+			return 1;
+		}
+
         if ('START TRANSACTION' === $normalized) {
             $this->transaction_snapshot = array(
                 'options' => $GLOBALS['digitalogic_test_options'],
@@ -1666,6 +1694,11 @@ class Digitalogic_Test_WPDB {
         }
         if ('COMMIT' === $normalized) {
             $this->transaction_snapshot = null;
+			$after_commit       = $this->after_commit;
+			$this->after_commit = null;
+			if ( is_callable( $after_commit ) ) {
+				call_user_func( $after_commit, $this );
+			}
             return 1;
         }
 

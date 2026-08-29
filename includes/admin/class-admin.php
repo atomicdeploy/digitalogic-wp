@@ -482,14 +482,25 @@ class Digitalogic_Admin {
      */
     public function render_currency_page() {
         $options = Digitalogic_Options::instance();
-        
+        $async = Digitalogic_Currency_Admin_Async::instance();
+        $canonical_state = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
+
         if (isset($_POST['submit']) && check_admin_referer('digitalogic_currency_update')) {
-            $result = Digitalogic_Pricing_Coordinator::instance()->update_currency(
-                array(
-                    'dollar_price' => wp_unslash($_POST['dollar_price'] ?? ''),
-                    'yuan_price' => wp_unslash($_POST['yuan_price'] ?? ''),
-                ),
-                'admin_currency'
+            $values = array(
+                'dollar_price' => wp_unslash($_POST['dollar_price'] ?? ''),
+                'yuan_price' => wp_unslash($_POST['yuan_price'] ?? ''),
+            );
+            $reconcile = false;
+            if (!is_wp_error($canonical_state) && isset($_POST['recalculate_prices'])) {
+                $reconcile = (int) $canonical_state['settings']['dollar_price'] === (int) $values['dollar_price']
+                    && (int) $canonical_state['settings']['yuan_price'] === (int) $values['yuan_price'];
+            }
+            $result = $async->enqueue_currency(
+                $values,
+                true,
+                $reconcile,
+                sanitize_text_field(wp_unslash($_POST['pricing_state_revision'] ?? '')),
+                'native_admin'
             );
             if (is_wp_error($result)) {
                 echo '<div class="notice notice-error"><p>' .
@@ -497,26 +508,28 @@ class Digitalogic_Admin {
                     '</p></div>';
             } else {
                 echo '<div class="notice notice-success"><p>' .
-                    esc_html(
-                        sprintf(
-                            /* translators: %d: reconciled WooCommerce products. */
-                            __('Currency rates and %d Patris-managed prices were synchronized.', 'digitalogic'),
-                            (int) ($result['pricing_results']['updated_products'] ?? 0)
-                        )
-                    ) .
+                    esc_html((string) ($result['message_fa'] ?? __('Currency update queued.', 'digitalogic'))) .
                     '</p></div>';
             }
         }
-        
-        $dollar_price = $options->get_dollar_price();
-        $yuan_price = $options->get_yuan_price();
+
+        $canonical_state = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
+        $dollar_price = is_wp_error($canonical_state)
+            ? $options->get_dollar_price()
+            : $canonical_state['settings']['dollar_price'];
+        $yuan_price = is_wp_error($canonical_state)
+            ? $options->get_yuan_price()
+            : $canonical_state['settings']['yuan_price'];
         $update_date = $options->get_update_date_formatted();
         $update_date_relative = $options->get_update_date_relative();
         $currency_status = Digitalogic_WooCommerce_Currency_Status::instance()->get_status();
+        $pricing_job = $async->status('', 0, true);
 
         $this->currency_page_data = array(
             'dollar_price' => $dollar_price,
             'yuan_price' => $yuan_price,
+            'pricing_state_revision' => is_wp_error($canonical_state) ? '' : $canonical_state['state_revision'],
+            'pricing_job' => $pricing_job,
             'update_date' => $update_date,
             'update_date_relative' => $update_date_relative,
             'currency_status' => $currency_status,
@@ -650,7 +663,7 @@ class Digitalogic_Admin {
                     <label for="dollar_price"><?php esc_html_e('USD Price (in local currency)', 'digitalogic'); ?></label>
                 </th>
                 <td>
-                    <input type="number" min="0" step="0.01" name="dollar_price" id="dollar_price" value="<?php echo esc_attr($this->currency_page_value('dollar_price')); ?>" class="regular-text" inputmode="decimal">
+                    <input type="number" min="1" step="1" name="dollar_price" id="dollar_price" value="<?php echo esc_attr($this->currency_page_value('dollar_price')); ?>" class="regular-text" inputmode="numeric">
                     <p class="description"><?php esc_html_e('The exchange rate for 1 USD in your local currency', 'digitalogic'); ?></p>
                 </td>
             </tr>
@@ -659,7 +672,7 @@ class Digitalogic_Admin {
                     <label for="yuan_price"><?php esc_html_e('CNY/Yuan Price (in local currency)', 'digitalogic'); ?></label>
                 </th>
                 <td>
-                    <input type="number" min="0" step="0.01" name="yuan_price" id="yuan_price" value="<?php echo esc_attr($this->currency_page_value('yuan_price')); ?>" class="regular-text" inputmode="decimal">
+                    <input type="number" min="1" step="1" name="yuan_price" id="yuan_price" value="<?php echo esc_attr($this->currency_page_value('yuan_price')); ?>" class="regular-text" inputmode="numeric">
                     <p class="description"><?php esc_html_e('The exchange rate for 1 CNY in your local currency', 'digitalogic'); ?></p>
                 </td>
             </tr>
@@ -1149,9 +1162,28 @@ class Digitalogic_Admin {
 
         $result = Digitalogic_Command_Dispatcher::instance()->execute($command, $payload, 'ajax');
         if (is_wp_error($result)) {
-            wp_send_json_error($result->get_error_message());
+            $details     = $result->get_error_data();
+            $details     = is_array($details) ? $details : array();
+            $retry_after = max(0, (int) ($details['retry_after'] ?? 0));
+            $status      = isset($details['status']) ? (int) $details['status'] : 409;
+            if ($retry_after > 0 && !isset($details['status'])) {
+                $status = 'digitalogic_currency_async_busy' === $result->get_error_code() ? 429 : 503;
+            }
+            if ($retry_after > 0 && !headers_sent()) {
+                header('Retry-After: ' . $retry_after);
+            }
+            wp_send_json_error(
+                array(
+                    'code' => $result->get_error_code(),
+                    'message' => $result->get_error_message(),
+                    'blocking' => (bool) ($details['blocking'] ?? false),
+                    'retry_after' => $retry_after,
+                    'details' => $details,
+                ),
+                $status
+            );
         }
 
-        wp_send_json_success($result);
+        wp_send_json_success($result, 'digitalogic_update_currency' === $command ? 202 : null);
     }
 }

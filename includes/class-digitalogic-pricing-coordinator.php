@@ -73,11 +73,13 @@ final class Digitalogic_Pricing_Coordinator {
 	/**
 	 * Apply one partial currency change and reprice before committing.
 	 *
-	 * @param array  $values Currency rates and optional legacy/independent dates.
-	 * @param string $source Bounded internal source label.
+	 * @param array         $values            Currency rates and optional legacy/independent dates.
+	 * @param string        $source            Bounded internal source label.
+	 * @param string|null   $expected_revision Optional optimistic state revision.
+	 * @param callable|null $actuation_guard   Optional worker-fence guard invoked inside the pricing transaction.
 	 * @return array|WP_Error
 	 */
-	public function update_currency( $values, $source = 'wp' ) {
+	public function update_currency( $values, $source = 'wp', $expected_revision = null, $actuation_guard = null ) {
 		if ( ! is_array( $values ) || array_is_list( $values ) ) {
 			return $this->error(
 				'digitalogic_pricing_currency_payload_invalid',
@@ -170,7 +172,9 @@ final class Digitalogic_Pricing_Coordinator {
 
 		return Digitalogic_Excel_Pricing_Sync::instance()->apply_internal_settings(
 			$settings,
-			$this->source_label( $source )
+			$this->source_label( $source ),
+			$expected_revision,
+			$actuation_guard
 		);
 	}
 
@@ -264,10 +268,12 @@ final class Digitalogic_Pricing_Coordinator {
 	/**
 	 * Reconcile current canonical settings without changing them.
 	 *
-	 * @param string $source Bounded internal source label.
+	 * @param string        $source            Bounded internal source label.
+	 * @param string|null   $expected_revision Optional optimistic state revision.
+	 * @param callable|null $actuation_guard   Optional worker-fence guard invoked inside the pricing transaction.
 	 * @return array|WP_Error
 	 */
-	public function reconcile_current( $source = 'wp_reconcile' ) {
+	public function reconcile_current( $source = 'wp_reconcile', $expected_revision = null, $actuation_guard = null ) {
 		$settings = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_settings();
 		if ( is_wp_error( $settings ) ) {
 			return $settings;
@@ -275,7 +281,9 @@ final class Digitalogic_Pricing_Coordinator {
 
 		return Digitalogic_Excel_Pricing_Sync::instance()->apply_internal_settings(
 			$settings,
-			$this->source_label( $source )
+			$this->source_label( $source ),
+			$expected_revision,
+			$actuation_guard
 		);
 	}
 
@@ -372,8 +380,13 @@ final class Digitalogic_Pricing_Coordinator {
 	 *
 	 * @return void
 	 */
-	public function flush_repricing_caches() {
-		Digitalogic_Product_Sync_Receiver::instance()->flush_coordinated_pricing_caches();
+	public function flush_repricing_caches( $persisted_plan = array() ) {
+		Digitalogic_Product_Sync_Receiver::instance()->flush_coordinated_pricing_caches( $persisted_plan );
+	}
+
+	/** Return the bounded product-cache plan while the pricing transaction is open. */
+	public function repricing_cache_plan() {
+		return Digitalogic_Product_Sync_Receiver::instance()->coordinated_pricing_cache_plan();
 	}
 
 	/**

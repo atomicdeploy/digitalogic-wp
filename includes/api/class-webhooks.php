@@ -386,11 +386,13 @@ class Digitalogic_Webhooks {
     public function coordinated_pricing_updated($result) {
         $data = Digitalogic_Command_Dispatcher::instance()->get_currency();
         $data['changed_option'] = 'coordinated_pricing_settings';
+		$effect_id = '';
         if (is_array($result) && isset($result['state_revision'])) {
             $data['state_revision'] = (string) $result['state_revision'];
+			$effect_id = (string) ($result['effect_id'] ?? '');
         }
 
-        $this->trigger_webhook('currency.updated', $data);
+		$this->trigger_webhook('currency.updated', $data, false, $effect_id);
     }
 
     /**
@@ -667,7 +669,7 @@ class Digitalogic_Webhooks {
     /**
      * Trigger webhook
      */
-    private function trigger_webhook($event, $data, $blocking = false) {
+    private function trigger_webhook($event, $data, $blocking = false, $effect_id = '') {
         $webhook_urls = get_option('digitalogic_webhook_urls', array());
         
         if (empty($webhook_urls)) {
@@ -681,9 +683,12 @@ class Digitalogic_Webhooks {
         
         $secret = get_option('digitalogic_webhook_secret', '');
         
+        $event_id = is_string($effect_id) && preg_match('/\A(?:sha256:)?[a-f0-9]{64}\z/D', $effect_id)
+			? $effect_id
+			: wp_generate_uuid4();
         $payload = array(
             'event' => $event,
-            'event_id' => wp_generate_uuid4(),
+            'event_id' => $event_id,
             'timestamp' => time(),
             'site' => array(
                 'name' => get_bloginfo('name'),

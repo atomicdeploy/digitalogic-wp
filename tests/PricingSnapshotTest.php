@@ -958,18 +958,18 @@ final class PricingSnapshotTest extends TestCase {
 		$this->assertSame( $event['data'], $republished[0]['data'] );
 	}
 
-	/** Cross-request retries must coalesce to one Action Scheduler job. */
-	public function test_terminal_event_retry_uses_action_scheduler_uniqueness_guard(): void {
+	/** Cross-request retries use one pending-only readback under a database mutex. */
+	public function test_terminal_event_retry_is_atomic_and_pending_only(): void {
+		$this->assertTrue( $this->invoke_snapshot( 'schedule_terminal_event_retry' ) );
+		$this->assertTrue( $this->invoke_snapshot( 'schedule_terminal_event_retry' ) );
+		$this->assertCount( 1, $this->scheduled_events_for( 'digitalogic_pricing_snapshot_terminal_event_delivery_v1' ) );
+		$this->assertContains( 'digitalogic_pricing_terminal_event_schedule_v1', $GLOBALS['wpdb']->lock_names );
+
 		$source = implode( '', iterator_to_array( new SplFileObject( dirname( __DIR__ ) . '/includes/class-digitalogic-pricing-snapshot.php' ) ) );
 		$this->assertIsString( $source );
-		$this->assertMatchesRegularExpression(
-			'/as_has_scheduled_action\(\s*self::TERMINAL_EVENT_HOOK,\s*array\(\),\s*self::ACTION_GROUP\s*\)/s',
-			$source
-		);
-		$this->assertMatchesRegularExpression(
-			'/as_schedule_single_action\(\s*\$timestamp,\s*self::TERMINAL_EVENT_HOOK,\s*array\(\),\s*self::ACTION_GROUP,\s*true\s*\)/s',
-			$source
-		);
+		$this->assertStringContainsString( 'TERMINAL_EVENT_SCHEDULE_LOCK_NAME', $source );
+		$this->assertStringContainsString( "'status'   => 'pending'", $source );
+		$this->assertStringNotContainsString( "add_action( 'shutdown', array( \$this, 'publish_scheduled_terminal_events' )", $source );
 	}
 
 	/** A conflicting accepted terminal is preserved without retrying forever. */

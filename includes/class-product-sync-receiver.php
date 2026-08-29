@@ -811,18 +811,44 @@ class Digitalogic_Product_Sync_Receiver {
         }
     }
 
+    /** Return a durable, bounded cache plan before the transaction owner commits. */
+    public function coordinated_pricing_cache_plan() {
+        return array(
+            'product_ids' => array_values(array_map('intval', array_keys($this->coordinated_product_ids))),
+            'batch_write' => (bool) $this->coordinated_batch_write,
+        );
+    }
+
     /**
      * Clear receiver and WooCommerce caches after the caller commits/rolls back.
      *
+     * An explicit plan survives a process loss after COMMIT. It is merged with
+     * any request-local plan so recovery cannot omit a product whose SQL write
+     * already landed.
+     *
+     * @param array $persisted_plan Optional transaction marker cache plan.
      * @return void
      */
-    public function flush_coordinated_pricing_caches() {
+    public function flush_coordinated_pricing_caches($persisted_plan = array()) {
         $this->invalidate_state_cache();
-        $product_ids = array_keys($this->coordinated_product_ids);
+        $persisted_ids = is_array($persisted_plan['product_ids'] ?? null)
+            ? $persisted_plan['product_ids']
+            : array();
+        $product_ids = array_merge(array_keys($this->coordinated_product_ids), $persisted_ids);
+        $product_ids = array_values(
+            array_unique(
+                array_filter(
+                    array_map('absint', array_slice($product_ids, 0, self::MAX_PRODUCTS)),
+                    static function ($product_id) {
+                        return $product_id > 0;
+                    }
+                )
+            )
+        );
         $this->coordinated_product_ids = array();
-        if ($this->coordinated_batch_write) {
-            $this->coordinated_batch_write = false;
-            $product_ids = array_values(array_unique(array_map('intval', $product_ids)));
+        $batch_write = $this->coordinated_batch_write || !empty($persisted_plan['batch_write']);
+        $this->coordinated_batch_write = false;
+        if ($batch_write) {
             if (!empty($product_ids) && function_exists('wp_cache_delete_multiple')) {
                 $post_results = wp_cache_delete_multiple($product_ids, 'posts');
                 $meta_results = wp_cache_delete_multiple($product_ids, 'post_meta');
@@ -1055,6 +1081,7 @@ class Digitalogic_Product_Sync_Receiver {
             );
         }
 
+        $previous_source_identities = $this->source_identity_state($state);
         $before_state = $this->state_digest($state);
         $pricing_revision = $this->hash_identity(
             $this->encode_go_json(
@@ -1432,6 +1459,8 @@ class Digitalogic_Product_Sync_Receiver {
             'warning_count' => count($pricing_warnings),
             'warnings' => $pricing_warnings,
             'sources' => $source_results,
+            'source_state_before' => $previous_source_identities,
+            'source_state_after' => $this->source_identity_state($state),
         );
     }
 
@@ -3618,6 +3647,30 @@ class Digitalogic_Product_Sync_Receiver {
             'deferred_reconciliation' => $this->deferred_summary($deferred),
         );
     }
+
+	/** Return only exact source identities safe to persist in a pricing marker. */
+	private function source_identity_state( $state ) {
+		$identities = array( 'sources' => array() );
+		foreach ( (array) ( is_array( $state ) ? ( $state['sources'] ?? array() ) : array() ) as $key => $entry ) {
+			$source = is_array( $entry ) && is_array( $entry['source'] ?? null ) ? $entry['source'] : array();
+			if (
+				'' === (string) ( $source['id'] ?? '' )
+				|| '' === (string) ( $source['dataset'] ?? '' )
+				|| 1 !== preg_match( '/\Asha256:[a-f0-9]{64}\z/D', (string) ( $source['revision'] ?? '' ) )
+			) {
+				continue;
+			}
+			$identities['sources'][ (string) $key ] = array(
+				'source' => array(
+					'id'       => (string) $source['id'],
+					'dataset'  => (string) $source['dataset'],
+					'revision' => (string) $source['revision'],
+				),
+			);
+		}
+
+		return $identities;
+	}
 
     private function source_status($source_state) {
         $source = is_array($source_state['source'] ?? null) ? $source_state['source'] : array();

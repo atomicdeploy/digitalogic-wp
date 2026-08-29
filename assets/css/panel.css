@@ -2162,6 +2162,28 @@ code {
     color: var(--dlp-danger);
 }
 
+.dlp-job-status {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin: 18px;
+    padding: 12px 16px;
+    border: 1px solid color-mix(in srgb, var(--dlp-accent) 36%, transparent);
+    border-radius: 14px;
+    background: color-mix(in srgb, var(--dlp-accent-soft) 62%, transparent);
+    color: var(--dlp-heading);
+}
+
+.dlp-job-status.is-confirmed {
+    border-color: color-mix(in srgb, var(--dlp-success) 46%, transparent);
+}
+
+.dlp-job-status.is-failed,
+.dlp-job-status.is-observation_timeout {
+    border-color: color-mix(in srgb, var(--dlp-danger) 46%, transparent);
+}
+
 .dlp-empty,
 .dlp-error {
     margin: 18px;

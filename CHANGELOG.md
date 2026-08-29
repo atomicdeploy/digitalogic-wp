@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.31] - 2026-08-30
+
+### Fixed
+- Route managed CNY writes to a bounded background job at the server option boundary, so missing JavaScript or rotated ACF field identifiers cannot run full repricing inside the admin save request.
+- Claim currency jobs under an atomic mutex with expiring leases, generation fences, idempotent terminal writes, and stale-completion rejection.
+- Require the exact current pricing revision on every admin, REST, option, and command mutation surface, and repair ACF's legacy YYMMDD date before it can round-trip as an epoch-era value.
+- Recover queued crash gaps, cap post-commit publication retries, and keep publishing or terminal operator status visible after an admin/panel reload.
+- Serialize snapshot-terminal retry scheduling under a database mutex and remove its every-request shutdown publisher, preventing concurrent retry storms in Action Scheduler.
+- Allow an explicit authenticated same-rate reconciliation job for safe worker/readback acceptance without changing the business rate.
+- Keep WordPress-origin pricing commits terminal on the website instead of rolling them back when an unrelated Excel acknowledgement is absent; explicit Excel applies retain their acknowledgement guard.
+- Emit pricing projection invalidation when unchanged settings repair real WooCommerce price drift, without emitting again for a no-op replay.
+
 ## [1.8.30] - 2026-08-29
 
 ### Fixed
