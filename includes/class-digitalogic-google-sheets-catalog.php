@@ -391,14 +391,15 @@ final class Digitalogic_Google_Sheets_Catalog {
 			$patris_code       = $identifier;
 			$product_id        = absint( $product['id'] ?? 0 );
 			$warnings          = array();
-			$sync_key          = '' !== $patris_code
-				? $patris_code
-				: ( $product_id > 0 ? 'woo:' . $product_id : '' );
+			// The raw Products dataset is Woo-backed, so its immutable Woo ID is
+			// the row identity. Product Code is optional provider data and may be
+			// assigned later; it must not rename an existing synchronized row.
+			$sync_key = $product_id > 0 ? 'woo:' . $product_id : '';
 
 			if ( '' === $sync_key ) {
 				return new WP_Error(
 					'digitalogic_sheets_sync_key_missing',
-					__( 'Every catalog product must have a Product Code or a positive WooCommerce ID.', 'digitalogic' ),
+					__( 'Every raw catalog product must have a positive WooCommerce ID.', 'digitalogic' ),
 					array( 'status' => 500 )
 				);
 			}
@@ -752,9 +753,11 @@ final class Digitalogic_Google_Sheets_Catalog {
 			$product_code    = is_scalar( $report_row['product_code'] ?? null )
 				? trim( (string) $report_row['product_code'] )
 				: '';
-			$sync_key        = $woocommerce_id
-				? 'woo:' . $woocommerce_id
-				: ( 'patris_only' === $status && '' !== $product_code ? 'patris:' . $product_code : '' );
+			// Source-backed rows retain one identity while moving from Patris-only
+			// to matched. Woo-only rows remain anchored to their immutable Woo ID.
+			$sync_key = $source && '' !== $product_code && 'ambiguous' !== $status
+				? 'patris:' . $product_code
+				: ( $woocommerce_id ? 'woo:' . $woocommerce_id : '' );
 
 			if ( '' === $sync_key || isset( $seen[ $sync_key ] ) ) {
 				return new WP_Error(
@@ -1006,16 +1009,25 @@ final class Digitalogic_Google_Sheets_Catalog {
 	 */
 	private function reconciliation_counts( $counts, $total ) {
 		return array(
-			'patris_products'           => absint( $counts['patris_products'] ?? 0 ),
-			'woocommerce_raw'           => absint( $counts['woocommerce_products_raw'] ?? 0 ),
-			'woocommerce_leaves'        => absint( $counts['woocommerce_products'] ?? 0 ),
-			'union_rows'                => absint( $total ),
-			'matched'                   => absint( $counts['matched_products'] ?? 0 ),
-			'source_only'               => absint( $counts['source_only_products'] ?? 0 ),
-			'patris_only'               => absint( $counts['source_only_products'] ?? 0 ),
-			'woo_only'                  => absint( $counts['woocommerce_only_products'] ?? 0 ),
-			'ambiguous_codes'           => absint( $counts['ambiguous_codes'] ?? 0 ),
-			'variable_parents_excluded' => absint( $counts['variable_parents_excluded'] ?? 0 ),
+			'patris_products'             => absint( $counts['patris_products'] ?? 0 ),
+			'woocommerce_raw'             => absint( $counts['woocommerce_products_raw'] ?? 0 ),
+			'woocommerce_leaves'          => absint( $counts['woocommerce_products'] ?? 0 ),
+			'union_rows'                  => absint( $total ),
+			'matched'                     => absint( $counts['matched_products'] ?? 0 ),
+			'source_only'                 => absint( $counts['source_only_products'] ?? 0 ),
+			'patris_only'                 => absint( $counts['source_only_products'] ?? 0 ),
+			'woo_only'                    => absint( $counts['woocommerce_only_products'] ?? 0 ),
+			'ambiguous_codes'             => absint( $counts['ambiguous_codes'] ?? 0 ),
+			'variable_parents_excluded'   => absint( $counts['variable_parents_excluded'] ?? 0 ),
+			'quarantined_identity_groups' => absint( $counts['quarantined_identity_groups'] ?? 0 ),
+			'quarantined_source_rows'     => absint( $counts['quarantined_source_rows'] ?? 0 ),
+			'quarantined_woo_rows'        => absint( $counts['quarantined_woo_rows'] ?? 0 ),
+			'one_to_one_split_candidates' => absint( $counts['one_to_one_split_candidates'] ?? 0 ),
+			'identity_collision_groups'   => absint( $counts['identity_collision_groups'] ?? 0 ),
+			'source_code_collision_groups' => absint( $counts['source_code_collision_groups'] ?? 0 ),
+			'woo_code_collision_groups'    => absint( $counts['woo_code_collision_groups'] ?? 0 ),
+			'woo_sku_collision_groups'     => absint( $counts['woo_sku_collision_groups'] ?? 0 ),
+			'unsafe_identity_groups'       => absint( $counts['unsafe_identity_groups'] ?? 0 ),
 		);
 	}
 

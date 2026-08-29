@@ -3052,7 +3052,19 @@ class Digitalogic_Product_Sync_Receiver {
         if ($include_pending) {
             $work = array_replace($work, $pending);
         }
-        ksort($work, SORT_STRING);
+        if ($include_deferred && $include_pending) {
+            // Reconciliation must not retry the same low-code terminal misses
+            // forever while higher-code pending or newly resolvable records
+            // starve behind the per-request delivery bound. Least-attempted
+            // work wins, with exact Product Code as the stable tie-breaker.
+            uksort($work, static function($left, $right) use ($work) {
+                $left_attempts = max(0, (int) ($work[$left]['attempts'] ?? 0));
+                $right_attempts = max(0, (int) ($work[$right]['attempts'] ?? 0));
+                return $left_attempts <=> $right_attempts ?: strcmp((string) $left, (string) $right);
+            });
+        } else {
+            ksort($work, SORT_STRING);
+        }
 
         if ($this->coordinated_transaction_depth > 0 && !empty($work)) {
             $pricing_only = true;

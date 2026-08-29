@@ -183,7 +183,7 @@ final class GoogleSheetsCatalogTest extends TestCase {
 		$this->assertFalse( is_wp_error( $result ) );
 		$this->assertCount( 1, $result['rows'] );
 		$row = $result['rows'][0];
-		$this->assertSame( '000123', $row['sync_key'] );
+		$this->assertSame( 'woo:41', $row['sync_key'] );
 		$this->assertSame( '000123', $row['patris_code'] );
 		$code_column = array_values(
 			array_filter(
@@ -240,11 +240,6 @@ final class GoogleSheetsCatalogTest extends TestCase {
 					'source_updated_at'              => $updated_at,
 					'warnings'                       => array(),
 				),
-				'DUP'    => array(
-					'product_code' => 'DUP',
-					'name'         => 'Ambiguous source',
-					'warnings'     => array(),
-				),
 				'ONLY-P' => array(
 					'product_code' => 'ONLY-P',
 					'name'         => 'Patris only',
@@ -281,8 +276,6 @@ final class GoogleSheetsCatalogTest extends TestCase {
 			array( 'category_ids' => array( 8 ) )
 		);
 		$GLOBALS['digitalogic_test_posts'][42] = $this->woo_post( 'simple', 'Woo only', array() );
-		$GLOBALS['digitalogic_test_posts'][43] = $this->woo_post( 'simple', 'Duplicate A', array( '_digitalogic_patris_product_code' => 'DUP' ) );
-		$GLOBALS['digitalogic_test_posts'][44] = $this->woo_post( 'simple', 'Duplicate B', array( '_digitalogic_patris_product_code' => 'DUP' ) );
 		$GLOBALS['digitalogic_test_posts'][50] = $this->woo_post(
 			'variable',
 			'Variable parent',
@@ -315,7 +308,7 @@ final class GoogleSheetsCatalogTest extends TestCase {
 
 		$this->assertFalse( is_wp_error( $first ) );
 		$this->assertFalse( is_wp_error( $second ) );
-		$this->assertSame( 6, $first['pagination']['total'] );
+		$this->assertSame( 4, $first['pagination']['total'] );
 		$this->assertSame( 2, $first['pagination']['pages'] );
 		$this->assertSame( $first['dataset_revision'], $second['dataset_revision'] );
 		$this->assertMatchesRegularExpression( '/^sha256:[a-f0-9]{64}$/', $first['dataset_revision'] );
@@ -374,15 +367,14 @@ final class GoogleSheetsCatalogTest extends TestCase {
 		$this->assertNotContains( Digitalogic_Product_Column_Schema::warehouse_key( 'Shenzhen' ), array_column( $first['columns'], 'key' ) );
 
 		$rows = array_merge( $first['rows'], $second['rows'] );
-		$this->assertCount( 6, $rows );
-		$this->assertSame( 6, count( array_unique( array_column( $rows, 'sync_key' ) ) ) );
+		$this->assertCount( 4, $rows );
+		$this->assertSame( 4, count( array_unique( array_column( $rows, 'sync_key' ) ) ) );
 		$this->assertContains( 'patris:ONLY-P', array_column( $rows, 'sync_key' ) );
-		$this->assertContains( 'woo:43', array_column( $rows, 'sync_key' ) );
-		$this->assertContains( 'woo:44', array_column( $rows, 'sync_key' ) );
 		$this->assertNotContains( 'woo:50', array_column( $rows, 'sync_key' ) );
 		$this->assertNotContains( '000123', array_column( $rows, 'sync_key' ) );
 
-		$matched = $this->find_catalog_row( $rows, 'woo:41' );
+		$this->assertContains( 'patris:000123', array_column( $rows, 'sync_key' ) );
+		$matched = $this->find_catalog_row( $rows, 'patris:000123' );
 		$this->assertSame( 'matched', $matched['reconciliation_status'] );
 		$this->assertSame( '000123', $matched['patris_code'] );
 		$this->assertSame( 41, $matched['woocommerce_id'] );
@@ -408,16 +400,25 @@ final class GoogleSheetsCatalogTest extends TestCase {
 
 		$this->assertSame(
 			array(
-				'patris_products'           => 4,
-				'woocommerce_raw'           => 6,
-				'woocommerce_leaves'        => 5,
-				'union_rows'                => 6,
-				'matched'                   => 2,
-				'source_only'               => 1,
-				'patris_only'               => 1,
-				'woo_only'                  => 1,
-				'ambiguous_codes'           => 1,
-				'variable_parents_excluded' => 1,
+				'patris_products'             => 3,
+				'woocommerce_raw'             => 4,
+				'woocommerce_leaves'          => 3,
+				'union_rows'                  => 4,
+				'matched'                     => 2,
+				'source_only'                 => 1,
+				'patris_only'                 => 1,
+				'woo_only'                    => 1,
+				'ambiguous_codes'             => 0,
+				'variable_parents_excluded'   => 1,
+				'quarantined_identity_groups' => 0,
+				'quarantined_source_rows'     => 0,
+				'quarantined_woo_rows'        => 0,
+				'one_to_one_split_candidates' => 0,
+				'identity_collision_groups'   => 0,
+				'source_code_collision_groups' => 0,
+				'woo_code_collision_groups'    => 0,
+				'woo_sku_collision_groups'     => 0,
+				'unsafe_identity_groups'       => 0,
 			),
 			$first['reconciliation']['counts']
 		);
@@ -449,7 +450,7 @@ final class GoogleSheetsCatalogTest extends TestCase {
 				'limit'   => 10,
 			)
 		);
-		$row    = $this->find_catalog_row( $result['rows'], 'woo:61' );
+		$row    = $this->find_catalog_row( $result['rows'], 'patris:woo:ABC' );
 
 		$this->assertSame( 'matched', $row['reconciliation_status'] );
 		$this->assertSame( 'woo:ABC', $row['patris_code'] );

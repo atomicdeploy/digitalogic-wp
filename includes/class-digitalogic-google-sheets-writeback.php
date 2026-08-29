@@ -430,7 +430,10 @@ final class Digitalogic_Google_Sheets_Writeback {
 		}
 		$resolved_woo_key    = 'woo:' . $projected['product_id'];
 		$resolved_new_key    = hash_equals( $resolved_woo_key, $sync_key );
-		$resolved_legacy_key = hash_equals( (string) ( $projected['row']['sync_key'] ?? '' ), $sync_key );
+		// Legacy clients used the exact Product Code as the row key. Keep that
+		// compatibility check independent of the current projection key so the
+		// raw Woo dataset can move to immutable woo:<id> identities safely.
+		$resolved_legacy_key = $is_legacy_key && hash_equals( $patris_code, $sync_key );
 		if (
 			( ! $resolved_new_key && ! $resolved_legacy_key )
 			|| ( $projected['row']['patris_code'] ?? null ) !== $patris_code

@@ -126,6 +126,8 @@ final class Digitalogic {
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-import-export.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-unit-converter.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-product-identifier-resolver.php';
+        require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-canonical-catalog-identity.php';
+        require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-catalog-identity-reconciler.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-product-category-slugs.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-product-supplier-links.php';
 		require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-product-metadata-inspector.php';

@@ -163,6 +163,138 @@ final class CurrentPatrisReportTest extends TestCase {
 		$this->assertSame( 'digitalogic_reconciled_projection_integrity_failed', $catalog->get_error_code() );
 	}
 
+	/** Exact Product Code duplicates and normalized SKU duplicates fail closed. */
+	public function test_provider_local_product_and_variation_identity_collisions_block_projection(): void {
+		$this->store_source(
+			array(
+				'DUP-CODE' => array(
+					'product_code' => 'DUP-CODE',
+					'name'         => 'Duplicate code source',
+					'warnings'     => array(),
+				),
+			)
+		);
+		$GLOBALS['digitalogic_test_posts'][180] = $this->woo_post(
+			'simple',
+			'Duplicate code A',
+			array(
+				'_digitalogic_patris_product_code' => 'DUP-CODE',
+				'_sku'                             => 'SKU‐۱۲۳',
+			)
+		);
+		$GLOBALS['digitalogic_test_posts'][181] = $this->woo_post(
+			'variation',
+			'Duplicate code variation',
+			array(
+				'_digitalogic_patris_product_code' => 'DUP-CODE',
+				'_sku'                             => 'sku-123',
+			)
+		);
+
+		$report = Digitalogic_Report_Engine::instance()->get_report( array( 'view' => 'price_list' ) );
+
+		$this->assertSame( 1, $report['counts']['ambiguous_codes'] );
+		$this->assertSame( 1, $report['counts']['woo_code_collision_groups'] );
+		$this->assertSame( 1, $report['counts']['woo_sku_collision_groups'] );
+		$this->assertSame( 2, $report['counts']['unsafe_identity_groups'] );
+		$this->assertSame(
+			array(
+				'projection_integrity_duplicate_woo_product_code',
+				'projection_integrity_duplicate_woo_sku',
+			),
+			array_column( $report['integrity']['warnings'], 'code' )
+		);
+		foreach ( $report['rows'] as $row ) {
+			$this->assertContains( 'duplicate_normalized_woo_product_code', $row['issues'] );
+			$this->assertContains( 'duplicate_normalized_woo_sku', $row['issues'] );
+		}
+
+		$catalog = Digitalogic_Google_Sheets_Catalog::instance()->get_page(
+			array(
+				'dataset' => 'reconciled_products',
+				'locale'  => 'fa',
+				'page'    => 1,
+				'limit'   => 100,
+			)
+		);
+		$this->assertInstanceOf( WP_Error::class, $catalog );
+		$this->assertSame( 'digitalogic_reconciled_projection_integrity_failed', $catalog->get_error_code() );
+	}
+
+	/** Canonical source codes that differ only by normalization are quarantined. */
+	public function test_normalized_source_product_code_collision_blocks_projection(): void {
+		$this->store_source(
+			array(
+				'CODE-۱۲۳' => array(
+					'product_code' => 'CODE-۱۲۳',
+					'name'         => 'Persian digits',
+					'warnings'     => array(),
+				),
+				'code‐123' => array(
+					'product_code' => 'code‐123',
+					'name'         => 'Latin digits',
+					'warnings'     => array(),
+				),
+			)
+		);
+
+		$report = Digitalogic_Report_Engine::instance()->get_report( array( 'view' => 'price_list' ) );
+
+		$this->assertSame( 1, $report['counts']['source_code_collision_groups'] );
+		$this->assertSame( 1, $report['counts']['unsafe_identity_groups'] );
+		$this->assertSame( 'projection_integrity_duplicate_source_product_code', $report['integrity']['warnings'][0]['code'] );
+		$this->assertSame( 'CODE-123', $report['integrity']['warnings'][0]['normalized_value'] );
+		foreach ( $report['rows'] as $row ) {
+			$this->assertContains( 'duplicate_normalized_source_product_code', $row['issues'] );
+		}
+	}
+
+	/** A unique name alias is quarantined and blocks every shared projection. */
+	public function test_xy_s100h_split_identity_is_detected_without_guessing_or_duplicate_refresh(): void {
+		$this->store_source(
+			array(
+				'113006024' => array(
+					'product_code'     => '113006024',
+					'name'             => 'XY-S100H',
+					'foreign_currency' => 'CNY',
+					'foreign_price'    => '67',
+					'weight_grams'     => '227',
+					'total_stock'      => 5,
+					'warnings'         => array( 'product_pricing_assignment_not_found' ),
+				),
+			)
+		);
+		$GLOBALS['digitalogic_test_posts'][11160] = $this->woo_post( 'simple', 'XY-S100H', array() );
+
+		$report = Digitalogic_Report_Engine::instance()->get_report( array( 'view' => 'price_list' ) );
+
+		$this->assertSame( 1, $report['counts']['source_only_products'] );
+		$this->assertSame( 1, $report['counts']['woocommerce_only_products'] );
+		$this->assertSame( 1, $report['counts']['quarantined_identity_groups'] );
+		$this->assertSame( 1, $report['counts']['one_to_one_split_candidates'] );
+		$this->assertSame( 'warning', $report['integrity']['status'] );
+		$this->assertSame( 'projection_integrity_identity_quarantine', $report['integrity']['warnings'][0]['code'] );
+		$this->assertSame( array( '113006024' ), $report['integrity']['warnings'][0]['source_product_codes'] );
+		$this->assertSame( array( 11160 ), $report['integrity']['warnings'][0]['woocommerce_ids'] );
+		foreach ( $report['rows'] as $row ) {
+			$this->assertContains( 'identity_quarantined', $row['issues'] );
+			$this->assertContains( 'split_identity_candidate', $row['issues'] );
+		}
+		$source = $this->find_row( $report['rows'], '113006024', 'source_only' );
+		$this->assertContains( 'missing_final_price', $source['issues'] );
+
+		$catalog = Digitalogic_Google_Sheets_Catalog::instance()->get_page(
+			array(
+				'dataset' => 'reconciled_products',
+				'locale'  => 'fa',
+				'page'    => 1,
+				'limit'   => 100,
+			)
+		);
+		$this->assertInstanceOf( WP_Error::class, $catalog );
+		$this->assertSame( 'digitalogic_reconciled_projection_integrity_failed', $catalog->get_error_code() );
+	}
+
 	/** Current persisted price, stock, weight, timestamp, and hash drift is visible. */
 	public function test_reports_source_warnings_and_all_operational_drift_fields(): void {
 		$updated_at = gmdate( 'c' );
@@ -526,6 +658,27 @@ final class CurrentPatrisReportTest extends TestCase {
 		$this->assertSame( 1, $rest_report['pagination']['per_page'] );
 		$this->assertSame( 2, $rest_report['pagination']['page'] );
 		$this->assertCount( 1, $rest_report['rows'] );
+	}
+
+	/** Static snapshots reject exact duplicate Product Codes instead of collapsing them. */
+	public function test_static_snapshot_duplicate_product_code_is_rejected(): void {
+		$result = Digitalogic_Report_Engine::instance()->get_report_from_validated_envelope(
+			array(
+				'source'   => array(
+					'id'      => 'patris-office',
+					'dataset' => 'kala.db',
+				),
+				'products' => array(
+					array( 'product_code' => 'DUP-STATIC' ),
+					array( 'product_code' => 'DUP-STATIC' ),
+				),
+			),
+			array( 'view' => 'price_list' )
+		);
+
+		$this->assertInstanceOf( WP_Error::class, $result );
+		$this->assertSame( 'digitalogic_report_static_duplicate_product_code', $result->get_error_code() );
+		$this->assertSame( 'DUP-STATIC', $result->get_error_data()['product_code'] );
 	}
 
 	/** Static inspection is read-only; separately named ingestion requires confirmation. */

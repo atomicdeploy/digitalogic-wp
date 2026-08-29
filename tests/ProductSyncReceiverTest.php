@@ -92,6 +92,40 @@ final class ProductSyncReceiverTest extends TestCase {
 		$this->assertSame( 1, $reconciled['deferred_products'] );
 	}
 
+	/** Bounded reconciliation advances past repeatedly missing low Codes. */
+	public function test_reconciliation_prioritizes_least_attempted_work_to_prevent_starvation(): void {
+		$products = array();
+		for ( $index = 1; $index <= 30; $index++ ) {
+			$product                = array(
+				'product_code' => sprintf( 'MISSING-%02d', $index ),
+				'warnings'     => array(),
+			);
+			$product['record_hash'] = $this->recordHash( $product, true );
+			$products[]             = $product;
+		}
+		$receiver = Digitalogic_Product_Sync_Receiver::instance();
+
+		$first = $receiver->receive( $this->snapshot( $products ) );
+		$this->assertNotInstanceOf( WP_Error::class, $first );
+		$this->assertSame( 25, $first['woocommerce']['attempted'] );
+		$this->assertSame( 5, $first['pending_products'] );
+		$this->assertSame( 25, $first['deferred_products'] );
+
+		$retry = $receiver->reconcile( 'tests', 'ALLANBAR' );
+		$this->assertNotInstanceOf( WP_Error::class, $retry );
+		$this->assertSame( 25, $retry['sources'][0]['woocommerce']['attempted'] );
+		$this->assertSame( 0, $retry['pending_products'] );
+		$this->assertSame( 30, $retry['deferred_products'] );
+
+		$state = $receiver->get_source_state( 'tests', 'ALLANBAR' );
+		foreach ( $state['deferred_products'] as $code => $entry ) {
+			$expected_attempts = in_array( $code, array( 'MISSING-26', 'MISSING-27', 'MISSING-28', 'MISSING-29', 'MISSING-30' ), true ) ? 1 : null;
+			if ( null !== $expected_attempts ) {
+				$this->assertSame( $expected_attempts, $entry['attempts'], $code );
+			}
+		}
+	}
+
 	/** Receiver state listeners run only after a verified owning transaction commits. */
 	public function test_source_state_commit_hook_runs_after_commit_and_not_after_commit_failure(): void {
 		$observed = array();
