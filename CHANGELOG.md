@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.32] - 2026-08-30
+
+### Fixed
+- Repair the canonical currency effective date again at ACF's final server-side field preparation phase, covering options-page integrations that hydrate values before normal ACF load filters are registered.
+
 ## [1.8.31] - 2026-08-30
 
 ### Fixed

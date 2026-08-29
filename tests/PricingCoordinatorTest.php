@@ -1415,6 +1415,7 @@ final class PricingCoordinatorTest extends TestCase {
 	public function test_acf_epoch_date_projection_is_repaired_and_never_enqueued(): void {
 		$async = Digitalogic_Currency_Admin_Async::instance();
 		$state = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
+		$_GET['page'] = 'currency-settings';
 		$this->assertSame(
 			'20260721',
 			$async->load_acf_effective_date(
@@ -1423,6 +1424,96 @@ final class PricingCoordinatorTest extends TestCase {
 				array( 'name' => 'update_date' )
 			)
 		);
+		$late_contamination = static function ( $field ) {
+			if ( is_array( $field ) && 'update_date' === (string) ( $field['_name'] ?? '' ) ) {
+				$field['value'] = '19700104';
+			}
+
+			return $field;
+		};
+		$prepared = apply_filters(
+			'acf/pre_render_field',
+			array(
+				'_name' => 'update_date',
+				'name'  => 'acf[field_date_rotated]',
+				'value' => '19700104',
+			),
+			'options'
+		);
+		add_filter( 'acf/prepare_field', $late_contamination, 100 );
+		$prepared = apply_filters( 'acf/prepare_field', $prepared );
+		remove_filter( 'acf/prepare_field', $late_contamination );
+		$this->assertSame( '20260721', $prepared['value'] );
+		$options_alias = apply_filters(
+			'acf/pre_render_field',
+			array(
+				'_name' => 'options_update_date',
+				'name'  => 'acf[field_date_rotated]',
+				'value' => '19700104',
+			),
+			'options'
+		);
+		$this->assertSame(
+			'20260721',
+			apply_filters( 'acf/prepare_field', $options_alias )['value']
+		);
+		$this->assertSame(
+			'20260721',
+			apply_filters(
+				'acf/pre_render_field',
+				array(
+					'_name'    => 'update_date',
+					'_prepare' => true,
+					'name'     => 'acf[field_date_rotated]',
+					'value'    => '19700104',
+				),
+				'options'
+			)['value']
+		);
+		$unrelated_post = apply_filters(
+			'acf/pre_render_field',
+			array(
+				'_name' => 'update_date',
+				'name'  => 'acf[field_unrelated]',
+				'value' => '19700104',
+			),
+			901
+		);
+		$unrelated_post = apply_filters( 'acf/prepare_field', $unrelated_post );
+		$this->assertSame( '19700104', $unrelated_post['value'] );
+		$_GET['page'] = 'post.php';
+		$this->assertSame(
+			'19700104',
+			apply_filters(
+				'acf/prepare_field',
+				array(
+					'_name' => 'update_date',
+					'name'  => 'acf[field_unrelated]',
+					'value' => '19700104',
+				)
+			)['value']
+		);
+		$_GET['page'] = 'currency-settings';
+		$GLOBALS['digitalogic_test_option_cache']['options_update_date'] = '260720';
+		$this->assertSame(
+			'20260721',
+			$async->load_acf_effective_date( '19700104', 'options', array( 'name' => 'update_date' ) )
+		);
+		$GLOBALS['digitalogic_test_option_cache'] = array();
+		$GLOBALS['digitalogic_test_options'][ Digitalogic_Excel_Pricing_Sync::SETTINGS_OPTION ] = array(
+			'effective_date'     => '2026-07-21',
+			'usd_effective_date' => '2026-07-21',
+			'cny_effective_date' => '2026-07-21',
+		);
+		$GLOBALS['digitalogic_test_options']['options_update_date'] = 'invalid';
+		$GLOBALS['digitalogic_test_option_cache']                   = array();
+		$this->assertSame(
+			'20260721',
+			$async->load_acf_effective_date( '19700104', 'options', array( 'name' => 'update_date' ) )
+		);
+		unset( $GLOBALS['digitalogic_test_options'][ Digitalogic_Excel_Pricing_Sync::SETTINGS_OPTION ] );
+		$GLOBALS['digitalogic_test_options']['options_update_date'] = '260721';
+		$GLOBALS['digitalogic_test_option_cache']                   = array();
 
 		$_POST['acf']                                = array(
 			'field_cny_rotated'  => '29501',
