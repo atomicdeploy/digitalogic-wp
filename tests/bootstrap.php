@@ -428,6 +428,9 @@ function as_get_scheduled_actions($query_args = array(), $return_format = 'OBJEC
         if (isset($query_args['status']) && (string) $query_args['status'] !== $action['status']) {
             continue;
         }
+        if (isset($query_args['args']) && array_values((array) $query_args['args']) !== $action['args']) {
+            continue;
+        }
         if (isset($query_args['claimed']) && (bool) $query_args['claimed'] !== (bool) $action['claimed']) {
             continue;
         }

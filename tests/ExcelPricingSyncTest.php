@@ -88,6 +88,9 @@ final class ExcelPricingSyncTest extends TestCase {
 		$GLOBALS['digitalogic_test_transients']           = array();
 		$GLOBALS['digitalogic_test_transient_deletes']    = array();
 		$GLOBALS['digitalogic_test_scheduled_events']     = array();
+		$GLOBALS['digitalogic_test_action_scheduler_actions'] = array();
+		$GLOBALS['digitalogic_test_action_scheduler_next_id'] = 1;
+		$GLOBALS['digitalogic_test_action_scheduler_available'] = true;
 		$GLOBALS['digitalogic_test_posts']                = array();
 		$GLOBALS['digitalogic_test_wc_products']          = array();
 		$GLOBALS['digitalogic_test_wp_query_results']     = array();
@@ -109,6 +112,12 @@ final class ExcelPricingSyncTest extends TestCase {
 		) {
 			$this->reset_singleton( $class_name );
 		}
+	}
+
+	/** Restore Action Scheduler availability for unrelated test classes. */
+	protected function tearDown(): void {
+		$GLOBALS['digitalogic_test_action_scheduler_available'] = false;
+		parent::tearDown();
 	}
 
 	/**
@@ -189,6 +198,7 @@ final class ExcelPricingSyncTest extends TestCase {
 				'submitted_revision'       => $this->source['revision'],
 				'current_revision'         => $this->source['revision'],
 				'revision_matches_current' => true,
+				'revision_capability'      => true,
 			),
 			$state['source']
 		);

@@ -1662,6 +1662,7 @@ final class Digitalogic_Pricing_Snapshot {
 			|| ! $this->is_revision( $source['revision'] ?? null )
 			|| ! $this->is_revision( $job['state_revision'] ?? null )
 			|| ! $this->is_revision( $job['pricing_state_revision'] ?? null )
+			|| ! $this->is_revision( $job['pricing_policy_revision'] ?? null )
 			|| ! $this->is_revision( $job['catalog_revision'] ?? null )
 		) {
 			return null;
@@ -1675,7 +1676,9 @@ final class Digitalogic_Pricing_Snapshot {
 			'status'                 => $status,
 			'source'                 => $source,
 			'state_revision'         => (string) $job['state_revision'],
+			'etag'                   => $this->etag( (string) $job['state_revision'] ),
 			'pricing_state_revision' => (string) $job['pricing_state_revision'],
+			'pricing_policy_revision' => (string) $job['pricing_policy_revision'],
 			'catalog_revision'       => (string) $job['catalog_revision'],
 			'retryable'              => (bool) ( $job['retryable'] ?? false ),
 			'idempotency_key'        => $this->digest(
@@ -1685,6 +1688,7 @@ final class Digitalogic_Pricing_Snapshot {
 					'request_id' => (string) $request_id,
 				)
 			),
+			'revision_path'          => '/wp-json/digitalogic/pricing/sync/revision',
 			'audience'               => array(
 				'services' => array( 'patris_pricing' ),
 			),
@@ -2549,9 +2553,10 @@ final class Digitalogic_Pricing_Snapshot {
 			$scheduled = false;
 			if ( function_exists( 'as_schedule_single_action' ) && function_exists( 'as_get_scheduled_actions' ) ) {
 				$scheduled = (bool) as_schedule_single_action( $timestamp, self::TERMINAL_EVENT_HOOK, array(), self::ACTION_GROUP, false );
-			} elseif ( function_exists( 'wp_schedule_single_event' ) ) {
-				$scheduled = wp_schedule_single_event( $timestamp, self::TERMINAL_EVENT_HOOK, array(), true );
-				$scheduled = ! is_wp_error( $scheduled ) && false !== $scheduled;
+			}
+			if ( ! $scheduled && function_exists( 'wp_schedule_single_event' ) ) {
+				$cron_result = wp_schedule_single_event( $timestamp, self::TERMINAL_EVENT_HOOK, array(), true );
+				$scheduled   = ! is_wp_error( $cron_result ) && false !== $cron_result;
 			}
 			$scheduled = $scheduled || $this->terminal_event_retry_is_pending();
 		} finally {
@@ -2578,7 +2583,9 @@ final class Digitalogic_Pricing_Snapshot {
 				'ids'
 			);
 
-			return ! empty( $actions );
+			if ( ! empty( $actions ) ) {
+				return true;
+			}
 		}
 		if ( function_exists( 'wp_next_scheduled' ) ) {
 			return false !== wp_next_scheduled( self::TERMINAL_EVENT_HOOK, array() );
@@ -3023,6 +3030,7 @@ final class Digitalogic_Pricing_Snapshot {
 			'page_size'              => $payload['page_size'],
 			'state_revision'         => $current['state_revision'],
 			'pricing_state_revision' => $current['pricing_state_revision'],
+			'pricing_policy_revision' => $current['pricing_policy_revision'],
 			'catalog_revision'       => $current['catalog_revision'],
 			'build_key'              => $build_key,
 			'status'                 => $status,
@@ -4128,7 +4136,8 @@ final class Digitalogic_Pricing_Snapshot {
 	private function source_query( $source ) {
 		return '?source_id=' . rawurlencode( $source['id'] )
 			. '&source_dataset=' . rawurlencode( $source['dataset'] )
-			. '&source_revision=' . rawurlencode( $source['revision'] );
+			. '&source_revision=' . rawurlencode( $source['revision'] )
+			. '&projection=' . rawurlencode( self::PROJECTION );
 	}
 
 	/** Return a non-queueing capacity error. */

@@ -199,7 +199,7 @@ final class ReportEngineTest extends TestCase {
 
 		$this->assertIsArray( $completed );
 		$this->assertSame( 'complete', $completed['status'] );
-		$this->assertSame( $pending['target_generation'], $GLOBALS['digitalogic_test_options']['digitalogic_report_cache_generation_v1'] );
+		$this->assertSame( $pending['target_generation'], $GLOBALS['digitalogic_test_options']['digitalogic_report_cache_generation'] );
 	}
 
 	/** Replaying an old complete effect never replaces a newer generation. */
@@ -207,12 +207,12 @@ final class ReportEngineTest extends TestCase {
 		$effect = 'sha256:' . str_repeat( 'c', 64 );
 		$this->assertIsArray( $this->engine->invalidate_cache_for_effect( $effect ) );
 		$this->assertTrue( $this->engine->invalidate_cache() );
-		$newer = $GLOBALS['digitalogic_test_options']['digitalogic_report_cache_generation_v1'];
+		$newer = $GLOBALS['digitalogic_test_options']['digitalogic_report_cache_generation'];
 
 		$replayed = $this->engine->invalidate_cache_for_effect( $effect );
 
 		$this->assertSame( 'complete', $replayed['status'] );
-		$this->assertSame( $newer, $GLOBALS['digitalogic_test_options']['digitalogic_report_cache_generation_v1'] );
+		$this->assertSame( $newer, $GLOBALS['digitalogic_test_options']['digitalogic_report_cache_generation'] );
 	}
 
 	/** Reject a cached report when source freshness crosses its threshold. */

@@ -1050,13 +1050,16 @@ final class Digitalogic_Report_Engine {
 		}
 		$timestamp = time() + 2;
 		if ( function_exists( 'as_schedule_single_action' ) ) {
-			return (bool) as_schedule_single_action(
+			$scheduled = (bool) as_schedule_single_action(
 				$timestamp,
 				self::EFFECT_RETRY_HOOK,
 				$args,
 				'digitalogic-pricing',
 				true
 			);
+			if ( $scheduled ) {
+				return true;
+			}
 		}
 
 		$scheduled = wp_schedule_single_event( $timestamp, self::EFFECT_RETRY_HOOK, $args, true );

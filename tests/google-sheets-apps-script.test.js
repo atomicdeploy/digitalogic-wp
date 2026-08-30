@@ -224,7 +224,7 @@ test('accepted pricing revision stays current when its business effective date i
     },
   };
   const state = {
-    schema: 'digitalogic.pricing-sync-state/v1',
+		schema: 'digitalogic.pricing-sync-state',
     state_revision: `sha256:${'a'.repeat(64)}`,
     settings: {
       dollar_price: '187891',
