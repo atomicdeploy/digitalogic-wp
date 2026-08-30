@@ -290,13 +290,13 @@ final class Digitalogic_Storefront_Realtime {
 	 * @param WP_REST_Request $request Current SSE request.
 	 */
 	private function serve_stream( $request ) {
+		$this->disable_output_buffering();
 		if ( ! headers_sent() ) {
 			header( 'Content-Type: text/event-stream; charset=utf-8' );
 			header( 'Cache-Control: no-cache, no-store, must-revalidate' );
 			header( 'X-Accel-Buffering: no' );
 			header( 'Content-Encoding: identity' );
 		}
-		$this->disable_output_buffering();
 
 		@set_time_limit( self::STREAM_SECONDS + 5 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
 		ignore_user_abort( true );
@@ -412,6 +412,15 @@ final class Digitalogic_Storefront_Realtime {
 			// phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged, WordPress.PHP.IniSet.Risky
 			@ini_set( 'zlib.output_compression', '0' );
 		}
-		$this->flush_output();
+		// A gzip output handler can already be active when WordPress reaches the
+		// REST server. Flushing it emits a gzip member before the identity-coded
+		// SSE frames, which makes EventSource reject the response. No response
+		// body has been written yet, so discard and close every inherited buffer.
+		while ( function_exists( 'ob_get_level' ) && ob_get_level() > 0 ) {
+			if ( ! @ob_end_clean() ) { // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+				break;
+			}
+		}
+		flush();
 	}
 }

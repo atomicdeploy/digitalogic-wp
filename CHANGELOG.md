@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.44] - 2026-08-30
+
+### Fixed
+- Discard inherited gzip output buffers before sending SSE headers so browsers
+  receive parseable identity-coded event frames immediately instead of a
+  compressed prefix followed by the live stream.
+
 ## [1.8.43] - 2026-08-30
 
 ### Fixed
