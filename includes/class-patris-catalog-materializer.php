@@ -329,6 +329,14 @@ final class Digitalogic_Patris_Catalog_Materializer {
 						$product->set_regular_price( '' );
 						$product->set_sale_price( '' );
 						$product->set_price( '' );
+						// WooCommerce derives stock status from managed quantity during
+						// validation. A positive source quantity would therefore turn an
+						// unpriced product back to "instock" while it is being published.
+						// Preserve the exact source quantity in Patris metadata, but keep
+						// operational Woo stock at zero until a canonical price arrives.
+						if ( $product->get_manage_stock() && 0 !== (int) $product->get_stock_quantity() ) {
+							$product->set_stock_quantity( 0 );
+						}
 						$product->set_stock_status( 'outofstock' );
 					}
 					if ( ! $product->save() ) {
