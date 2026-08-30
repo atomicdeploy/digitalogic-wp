@@ -37,6 +37,8 @@ test('SSE server is bounded, non-buffered, and public-event allowlisted', () => 
     assert.match(php, /ob_end_flush/);
     assert.match(php, /zlib\.output_compression/);
     assert.match(php, /apache_setenv\( 'no-gzip'/);
+    assert.match(php, /INITIAL_PADDING_BYTES\s*=\s*8192/);
+    assert.match(php, /str_repeat\( ' ', self::INITIAL_PADDING_BYTES \)/);
     assert.match(php, /STREAM_SECONDS\s*=\s*20/);
     assert.match(php, /PUBLIC_EVENT_NAMES/);
     assert.match(php, /product\.stock\.changed/);

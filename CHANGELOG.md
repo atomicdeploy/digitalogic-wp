@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.38] - 2026-08-30
+
+### Fixed
+- Send an ignored 8 KiB SSE comment before the first event so Apache FastCGI and intermediary response buffers release the live stream immediately.
+
 ## [1.8.37] - 2026-08-30
 
 ### Fixed
