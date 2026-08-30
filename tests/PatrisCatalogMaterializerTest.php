@@ -85,6 +85,12 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 		$this->resetSingleton( Digitalogic_Product_Identifier_Resolver::class );
 		$this->resetSingleton( Digitalogic_WooCommerce_Currency_Status::class );
 		$this->resetSingleton( Digitalogic_Product_Write_Lock::class );
+		add_filter(
+			'digitalogic_patris_auto_materialize_source_product',
+			static function () {
+				return false;
+			}
+		);
 	}
 
 	public function test_dry_run_plans_only_positive_stock_and_writes_nothing(): void {
@@ -100,6 +106,30 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 		$this->assertSame( 2, $result['categories']['planned_create'] );
 		$this->assertSame( array(), $GLOBALS['digitalogic_test_posts'] );
 		$this->assertSame( array(), $GLOBALS['digitalogic_test_terms'] );
+	}
+
+	/** CLI planning includes safe zero-stock/zero-price rows instead of silently filtering them. */
+	public function test_dry_run_plans_incomplete_source_rows_alongside_positive_stock_rows(): void {
+		$this->receiveFixture();
+		$manifest                         = $this->manifest();
+		$incomplete                       = $manifest['products']['101001001'];
+		$incomplete['patris_name']        = 'Synthetic incomplete product';
+		$incomplete['name_fa']            = 'محصول آزمایشی ناقص';
+		$incomplete['seo_title_fa']       = 'محصول آزمایشی ناقص';
+		$incomplete['seo_description_fa'] = 'اطلاعات تکمیلی این محصول هنوز در منبع موجود نیست.';
+		$incomplete['focus_keyword_fa']   = 'محصول ناقص';
+		$incomplete['part_number']        = '';
+		$incomplete['model']              = '';
+
+		$manifest['products']['101001002'] = $incomplete;
+
+		$result = Digitalogic_Patris_Catalog_Materializer::instance()->run( $manifest );
+
+		$this->assertNotInstanceOf( WP_Error::class, $result );
+		$this->assertSame( 2, $result['selected_products'] );
+		$this->assertSame( 1, $result['selected_positive_stock'] );
+		$this->assertSame( 2, $result['planned_create'] );
+		$this->assertSame( array(), $GLOBALS['digitalogic_test_posts'] );
 	}
 
 	/** Materialization refuses to stage identity while another identity writer owns the shared lock. */
@@ -799,7 +829,8 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 		$this->assertSame( 'products.101001001.parent_enrichment.focus_keyword_fa', $parent_error->get_error_data()['path'] );
 	}
 
-	public function test_demotes_a_published_managed_target_when_publication_gates_are_incomplete(): void {
+	/** An incomplete reviewed apply never demotes an already-public source leaf. */
+	public function test_preserves_a_published_managed_target_when_completeness_warnings_remain(): void {
 		$this->receiveFixture();
 		$this->addProduct( 10803, 'simple' );
 		$manifest = $this->manifest();
@@ -808,12 +839,13 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 		$result = Digitalogic_Patris_Catalog_Materializer::instance()->run( $manifest, array( 'apply' => true ) );
 
 		$this->assertSame( 1, $result['adopted'] );
-		$this->assertSame( 0, $result['preserved_published'] );
+		$this->assertSame( 1, $result['preserved_published'] );
 		$this->assertSame( 0, $result['published'] );
-		$this->assertSame( 1, $result['publish_blocked'] );
+		$this->assertSame( 0, $result['publish_blocked'] );
+		$this->assertSame( 1, $result['published_incomplete'] );
 		$this->assertSame( 0, $result['publish_ready'] );
-		$this->assertSame( 'draft', wc_get_product( 10803 )->get_status() );
-		$this->assertSame( 'hidden', wc_get_product( 10803 )->get_catalog_visibility() );
+		$this->assertSame( 'publish', wc_get_product( 10803 )->get_status() );
+		$this->assertSame( 'visible', wc_get_product( 10803 )->get_catalog_visibility() );
 	}
 
 	public function test_partial_create_failure_removes_the_draft_before_retry(): void {
@@ -1179,11 +1211,15 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 		$manifest = $prepared['manifest'];
 		$child_id = $prepared['child_id'];
 
+		$child_saves = 0;
 		// phpcs:ignore Generic.Formatting.MultipleStatementAlignment.NotSameWarning -- Self-referential deterministic hook.
-		$hook = static function ( $saved_product ) use ( &$hook, $child_id ) {
-			if ( (int) $saved_product->get_id() === $child_id && 'draft' === (string) $saved_product->get_status() ) {
-				$GLOBALS['digitalogic_test_posts'][ $child_id ]['meta']['attribute_pa_model'] = 'late-wrong-option';
-				return;
+		$hook = static function ( $saved_product ) use ( &$hook, &$child_saves, $child_id ) {
+			if ( (int) $saved_product->get_id() === $child_id ) {
+				++$child_saves;
+				if ( $child_saves >= 3 ) {
+					$GLOBALS['digitalogic_test_posts'][ $child_id ]['meta']['attribute_pa_model'] = 'late-wrong-option';
+					return;
+				}
 			}
 			$GLOBALS['digitalogic_test_wc_after_save'] = $hook;
 		};
@@ -1191,7 +1227,7 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 
 		$result = $service->run( $manifest, array( 'apply' => true ) );
 
-		$this->assertSame( 1, $result['failed'] );
+		$this->assertSame( 1, $result['failed'], wp_json_encode( $result, JSON_UNESCAPED_UNICODE ) );
 		$this->assertContains( 'digitalogic_patris_materializer_variation_identity_readback_failed', array_column( $result['details'], 'reason' ) );
 		$this->assertSame( 'legacy-option', wc_get_product( $child_id )->get_variation_attributes()['attribute_pa_model'] );
 		$this->assertSame( 'publish', wc_get_product( $child_id )->get_status() );

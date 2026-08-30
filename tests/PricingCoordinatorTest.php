@@ -3059,9 +3059,19 @@ final class PricingCoordinatorTest extends TestCase {
 		);
 	}
 
-	/** Missing Woo pages are terminal-safe; they do not block existing prices. */
-	public function test_terminal_missing_product_is_reported_but_does_not_fail_commit(): void {
+	/** An identity-safe source row gets a Woo page and joins later repricing. */
+	public function test_identity_safe_missing_product_is_materialized_and_repriced(): void {
 		$this->seed_snapshot( true );
+		$resolved = Digitalogic_Product_Identifier_Resolver::instance()->resolve(
+			array( 'patris_code' => 'MISSING-902' )
+		);
+		$this->assertFalse( is_wp_error( $resolved ) );
+		$materialized_id = (int) $resolved['woocommerce_id'];
+		$this->assertGreaterThan( 0, $materialized_id );
+		$this->assertSame(
+			'air_express',
+			(string) $GLOBALS['digitalogic_test_posts'][ $materialized_id ]['meta'][ Digitalogic_Shipping_Method_Service::PRODUCT_METHOD_META ]
+		);
 		$result = Digitalogic_Pricing_Coordinator::instance()->update_currency(
 			array(
 				'yuan_price'     => '31000',
@@ -3074,9 +3084,10 @@ final class PricingCoordinatorTest extends TestCase {
 			is_wp_error( $result ),
 			is_wp_error( $result ) ? $result->get_error_code() . ': ' . $result->get_error_message() : ''
 		);
-		$this->assertSame( 1, $result['pricing_results']['deferred_missing'] );
+		$this->assertSame( 0, $result['pricing_results']['deferred_missing'] );
 		$this->assertSame( 0, $result['pricing_results']['deferred_ambiguous'] );
 		$this->assertSame( '8866000', (string) $GLOBALS['digitalogic_test_posts'][901]['meta']['_regular_price'] );
+		$this->assertSame( '8866000', (string) $GLOBALS['digitalogic_test_posts'][ $materialized_id ]['meta']['_regular_price'] );
 	}
 
 	/** Ambiguous Woo identities fail closed and roll back the settings change. */

@@ -397,6 +397,59 @@ final class ProductIdentitySearchTest extends TestCase {
 		$this->assertArrayNotHasKey( 'offers', $entity );
 	}
 
+	/** Canonical unpriced products omit Rank Math price tags without losing availability. */
+	public function test_canonical_unpriced_product_omits_rank_math_price_and_offer_but_preserves_other_metadata(): void {
+		$GLOBALS['digitalogic_test_posts'][18] = array(
+			'post_type'    => 'product',
+			'post_status'  => 'publish',
+			'product_type' => 'simple',
+			'post_title'   => 'Canonical unpriced product',
+			'meta'         => array(
+				'_sku'                             => 'PAT-18',
+				'_price'                           => '',
+				'_regular_price'                   => '',
+				'_digitalogic_patris_product_code' => 'PAT-18',
+				'_digitalogic_patris_price_status' => 'canonical_missing_unpriced',
+			),
+		);
+		// phpcs:disable Generic.Formatting.MultipleStatementAlignment -- The test intentionally combines a global and local reflection handle.
+		$GLOBALS['product'] = wc_get_product( 18 );
+		$instance          = new ReflectionProperty( Digitalogic_Product_Identity::class, 'instance' );
+		$instance->setValue( null, null );
+		$identity = Digitalogic_Product_Identity::instance();
+		// phpcs:enable Generic.Formatting.MultipleStatementAlignment
+
+		// phpcs:disable WordPress.NamingConventions.ValidHookName.UseUnderscores -- Rank Math's public hook names contain slashes.
+		$this->assertFalse( apply_filters( 'rank_math/woocommerce/og_price', '0' ) );
+		$this->assertFalse( apply_filters( 'rank_math/opengraph/twitter/twitter_label1', 'قیمت' ) );
+		$this->assertFalse( apply_filters( 'rank_math/opengraph/twitter/twitter_data1', '0 تومان' ) );
+		$this->assertSame( 'وضعیت', apply_filters( 'rank_math/opengraph/twitter/twitter_label2', 'وضعیت' ) );
+		$this->assertSame( 'ناموجود', apply_filters( 'rank_math/opengraph/twitter/twitter_data2', 'ناموجود' ) );
+		$this->assertSame( 'Canonical unpriced product', apply_filters( 'rank_math/opengraph/twitter/twitter_title', 'Canonical unpriced product' ) );
+		$entity = $identity->add_product_schema_identity(
+			array(
+				'@type'  => 'Product',
+				'name'   => 'Canonical unpriced product',
+				'offers' => array(
+					'price'         => '0',
+					'priceCurrency' => 'IRT',
+				),
+			),
+			$GLOBALS['product']
+		);
+		$this->assertSame( 'Canonical unpriced product', $entity['name'] );
+		$this->assertArrayNotHasKey( 'offers', $entity );
+
+		$GLOBALS['digitalogic_test_posts'][18]['meta']['_price']                           = '125000';
+		$GLOBALS['digitalogic_test_posts'][18]['meta']['_regular_price']                   = '125000';
+		$GLOBALS['digitalogic_test_posts'][18]['meta']['_digitalogic_patris_price_status'] = 'priced';
+		unset( $GLOBALS['digitalogic_test_wc_products'][18] );
+		$GLOBALS['product'] = wc_get_product( 18 );
+		$this->assertSame( '125000', apply_filters( 'rank_math/woocommerce/og_price', '125000' ) );
+		$this->assertSame( '1,250,000 ریال', apply_filters( 'rank_math/opengraph/twitter/twitter_data1', '1,250,000 ریال' ) );
+		// phpcs:enable WordPress.NamingConventions.ValidHookName.UseUnderscores
+	}
+
 	public function test_zero_priced_product_does_not_emit_an_offer(): void {
 		$GLOBALS['digitalogic_test_posts'][16] = array(
 			'post_type'    => 'product',

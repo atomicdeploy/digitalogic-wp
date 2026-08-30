@@ -221,8 +221,8 @@ final class PatrisPricePolicyTest extends TestCase {
 		$this->assertSame( Digitalogic_Patris_Price_Policy::MISSING_WEIGHT_WARNING, $projection['policy_warning'] );
 	}
 
-	/** Sparse stock is a no-op while explicit quantities map deterministically. */
-	public function test_sparse_stock_preserves_woo_state_and_explicit_stock_is_floored(): void {
+	/** Sparse stock is conservatively unavailable while explicit quantities map deterministically. */
+	public function test_sparse_stock_clears_stale_inventory_and_explicit_stock_is_floored(): void {
 		$this->addProduct(
 			810,
 			'simple',
@@ -237,9 +237,9 @@ final class PatrisPricePolicyTest extends TestCase {
 
 		$this->feed->apply_product_feed( wc_get_product( 810 ), array( 'product_code' => 'STOCK-810' ) );
 		$product = wc_get_product( 810 );
-		$this->assertTrue( $product->get_manage_stock() );
-		$this->assertSame( 9, $product->get_stock_quantity() );
-		$this->assertSame( 'instock', $product->get_stock_status() );
+		$this->assertFalse( $product->get_manage_stock() );
+		$this->assertNull( $product->get_stock_quantity() );
+		$this->assertSame( 'outofstock', $product->get_stock_status() );
 
 		$this->feed->apply_product_feed( $product, array( 'product_code' => 'STOCK-810', 'total_stock' => 0 ) );
 		$product = wc_get_product( 810 );
