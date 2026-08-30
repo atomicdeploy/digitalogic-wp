@@ -23,9 +23,12 @@ const DIGITALOGIC_DATASETS = Object.freeze([
   Object.freeze({ id: 'reconciled_products', sheetName: 'Products', tabColor: '#1a73e8' }),
   Object.freeze({ id: 'categories', sheetName: 'Categories', tabColor: '#34a853' }),
 ]);
-const DIGITALOGIC_PAGE_SIZE = 100;
+const DIGITALOGIC_PAGE_SIZE = 250;
 const DIGITALOGIC_MAX_PAGES = 10000;
+const DIGITALOGIC_FETCH_ALL_BATCH_SIZE = 50;
 const DIGITALOGIC_MANAGED_HEADER_ROWS = 2;
+const DIGITALOGIC_SOURCE_REVISION_PROPERTY = 'DIGITALOGIC_CATALOG_SOURCE_REVISION';
+const DIGITALOGIC_PROJECTION_REVISION_PROPERTY = 'DIGITALOGIC_CATALOG_PROJECTION_REVISION';
 const DIGITALOGIC_WRITEBACK_PATH = '/google-sheets/writeback/';
 const DIGITALOGIC_PRICING_SETTINGS_PATH = '/google-sheets/pricing-settings';
 const DIGITALOGIC_WRITEBACK_MAX_LIMIT = 50;
@@ -124,16 +127,22 @@ function syncCatalog() {
     const config = getConfig_();
     const spreadsheet = getSpreadsheet_(config);
     const dashboard = spreadsheet.getSheetByName(DIGITALOGIC_SUPPORT_SHEETS.dashboard.sheetName);
-    const fetched = DIGITALOGIC_DATASETS.map(function (dataset) {
-      return fetchDataset_(config, dataset);
-    });
-    const pricingState = fetchPricingSettings_(config);
-    upsertPricingSettings_(spreadsheet, pricingState, config.locale);
-    const revision = calculateRevision_(fetched);
     stateProperties = getStateProperties_(config);
+    const heads = fetchCatalogHeads_(config);
+    const pricingState = fetchPricingSettings_(config);
     const previousRevision = stateProperties.getProperty('DIGITALOGIC_CATALOG_REVISION');
+    const sourceRevision = calculateCatalogSourceRevision_(heads);
+    const previousSourceRevision = stateProperties.getProperty(DIGITALOGIC_SOURCE_REVISION_PROPERTY);
+    const previousProjectionRevision = stateProperties.getProperty(DIGITALOGIC_PROJECTION_REVISION_PROPERTY);
+    const previousPricingRevision = stateProperties.getProperty('DIGITALOGIC_PRICING_STATE_REVISION');
 
-    if (previousRevision === revision) {
+    if (/^sha256:[a-f0-9]{64}$/.test(String(previousRevision || ''))
+      && sourceRevision
+      && previousSourceRevision === sourceRevision
+      && previousPricingRevision === pricingState.state_revision
+      && previousProjectionRevision
+      && calculateManagedSheetRevision_(spreadsheet) === previousProjectionRevision) {
+      upsertPricingSettings_(spreadsheet, pricingState, config.locale);
       stateProperties.setProperties({
         DIGITALOGIC_LAST_SYNC_AT: new Date().toISOString(),
         DIGITALOGIC_LAST_SYNC_STATUS: 'ok',
@@ -144,15 +153,24 @@ function syncCatalog() {
         updateDashboard_(dashboard, stateProperties);
       }
       spreadsheet.toast(localize_(config.locale, 'Catalog is already current.', 'فهرست محصولات به‌روز است.'), 'Digitalogic', 5);
-      return { status: 'unchanged', revision: revision };
+      return { status: 'unchanged', revision: previousRevision, source_revision: sourceRevision };
     }
+
+    const fetched = heads.map(function (head) {
+      return fetchDataset_(config, head.dataset, head.response);
+    });
+    const revision = calculateRevision_(fetched);
 
     fetched.forEach(function (dataset) {
       upsertDataset_(spreadsheet, dataset, config.locale);
     });
+    upsertPricingSettings_(spreadsheet, pricingState, config.locale);
+    const projectionRevision = calculateManagedSheetRevision_(spreadsheet);
 
     stateProperties.setProperties({
       DIGITALOGIC_CATALOG_REVISION: revision,
+      DIGITALOGIC_CATALOG_SOURCE_REVISION: sourceRevision,
+      DIGITALOGIC_CATALOG_PROJECTION_REVISION: projectionRevision,
       DIGITALOGIC_LAST_SYNC_AT: new Date().toISOString(),
       DIGITALOGIC_LAST_SYNC_STATUS: 'ok',
       DIGITALOGIC_LAST_SYNC_ERROR: '',
@@ -163,7 +181,12 @@ function syncCatalog() {
     }
     spreadsheet.toast(localize_(config.locale, 'Products and categories synchronized.', 'محصولات و دسته‌بندی‌ها همگام شدند.'), 'Digitalogic', 7);
 
-    return { status: 'updated', revision: revision };
+    return {
+      status: 'updated',
+      revision: revision,
+      source_revision: sourceRevision,
+      projection_revision: projectionRevision,
+    };
   } catch (error) {
     try {
       (stateProperties || getStateProperties_(null)).setProperties({
@@ -632,20 +655,26 @@ function getSpreadsheet_(config) {
 }
 
 /** Fetch every bounded page for one dataset and union dynamic warehouse columns. */
-function fetchDataset_(config, dataset) {
+function fetchDataset_(config, dataset, firstPage) {
   const pages = [];
   const columns = [];
   const columnKeys = Object.create(null);
   const rows = [];
   let snapshot = null;
-  let page = 1;
-  let hasMore = true;
+  const first = validateCatalogPage_(firstPage || fetchPage_(config, dataset.id, 1), dataset.id);
+  const reportedPages = Number(first.pagination && first.pagination.pages);
+  if (!Number.isInteger(reportedPages) || reportedPages < 0 || reportedPages > DIGITALOGIC_MAX_PAGES) {
+    throw new Error('Catalog pagination exceeded the safety limit for ' + dataset.id + '.');
+  }
+  const finalPage = Math.max(1, reportedPages);
+  if (Boolean(first.pagination.has_more) !== (finalPage > 1)) {
+    throw new Error('Malformed ' + dataset.id + ' catalog pagination.');
+  }
+  const pagePayloads = [first].concat(fetchCatalogPages_(config, dataset.id, 2, finalPage));
 
-  while (hasMore) {
-    if (page > DIGITALOGIC_MAX_PAGES) {
-      throw new Error('Catalog pagination exceeded the safety limit for ' + dataset.id + '.');
-    }
-    const response = validateCatalogPage_(fetchPage_(config, dataset.id, page), dataset.id);
+  pagePayloads.forEach(function (pagePayload, pageIndex) {
+    const page = pageIndex + 1;
+    const response = validateCatalogPage_(pagePayload, dataset.id);
     snapshot = validateCatalogSnapshotPage_(response, dataset.id, page, snapshot);
 
     response.columns.forEach(function (column) {
@@ -659,9 +688,7 @@ function fetchDataset_(config, dataset) {
       rows.push(row);
     });
     pages.push(String(response.page_revision || ''));
-    hasMore = Boolean(response.pagination && response.pagination.has_more);
-    page += 1;
-  }
+  });
   validateCompleteCatalogSnapshot_(rows, snapshot, dataset.id);
 
   return {
@@ -673,6 +700,120 @@ function fetchDataset_(config, dataset) {
     pageRevisions: pages,
     datasetRevision: snapshot.datasetRevision,
   };
+}
+
+/** Fetch a bounded range of remaining catalog pages in parallel batches. */
+function fetchCatalogPages_(config, dataset, firstPage, finalPage) {
+  if (firstPage > finalPage) {
+    return [];
+  }
+  const payloads = [];
+  for (let batchStart = firstPage; batchStart <= finalPage; batchStart += DIGITALOGIC_FETCH_ALL_BATCH_SIZE) {
+    const batchEnd = Math.min(finalPage, batchStart + DIGITALOGIC_FETCH_ALL_BATCH_SIZE - 1);
+    const requests = [];
+    for (let page = batchStart; page <= batchEnd; page += 1) {
+      requests.push(buildCatalogPageRequest_(config, dataset, page));
+    }
+    let responses = null;
+    try {
+      responses = UrlFetchApp.fetchAll(requests.map(function (request) {
+        return Object.assign({ url: request.url }, request.options);
+      }));
+    } catch (error) {
+      responses = null;
+    }
+    requests.forEach(function (request, index) {
+      let response = responses && responses[index] ? responses[index] : null;
+      const status = response ? response.getResponseCode() : 0;
+      if (!response || status === 429 || status >= 500) {
+        response = fetchCatalogResponseWithRetry_(request.url, request.options);
+      }
+      payloads.push(parseCatalogHttpResponse_(response));
+    });
+  }
+  return payloads;
+}
+
+/** Fetch the first page of every dataset concurrently for a safe fast no-op gate. */
+function fetchCatalogHeads_(config) {
+  const requests = DIGITALOGIC_DATASETS.map(function (dataset) {
+    return buildCatalogPageRequest_(config, dataset.id, 1);
+  });
+  let responses = null;
+  try {
+    responses = UrlFetchApp.fetchAll(requests.map(function (request) {
+      return Object.assign({ url: request.url }, request.options);
+    }));
+  } catch (error) {
+    responses = null;
+  }
+
+  return DIGITALOGIC_DATASETS.map(function (dataset, index) {
+    const request = requests[index];
+    let response = responses && responses[index] ? responses[index] : null;
+    const status = response ? response.getResponseCode() : 0;
+    if (!response || status === 429 || status >= 500) {
+      response = fetchCatalogResponseWithRetry_(request.url, request.options);
+    }
+    const payload = validateCatalogPage_(parseCatalogHttpResponse_(response), dataset.id);
+    const snapshot = validateCatalogSnapshotPage_(payload, dataset.id, 1, null);
+    return { dataset: dataset, response: payload, snapshot: snapshot };
+  });
+}
+
+/** Hash immutable source heads; single-page datasets use their complete page revision. */
+function calculateCatalogSourceRevision_(heads) {
+  const material = [];
+  for (let index = 0; index < heads.length; index += 1) {
+    const head = heads[index];
+    const response = head && head.response;
+    const snapshot = head && head.snapshot;
+    if (!head || !head.dataset || !response || !snapshot) {
+      return '';
+    }
+    let immutableRevision = String(snapshot.datasetRevision || '');
+    if (!/^sha256:[a-f0-9]{64}$/.test(immutableRevision)) {
+      const pageRevision = String(response.page_revision || '');
+      const completeSinglePage = response.pagination
+        && response.pagination.has_more === false
+        && Number(response.pagination.total) === response.rows.length;
+      if (!completeSinglePage || !/^sha256:[a-f0-9]{64}$/.test(pageRevision)) {
+        return '';
+      }
+      immutableRevision = pageRevision;
+    }
+    material.push({
+      id: head.dataset.id,
+      total: snapshot.total,
+      columns: snapshot.columns,
+      revision: immutableRevision,
+    });
+  }
+  return calculateSha256Revision_(material);
+}
+
+/** Hash the complete managed destination so a no-op can never hide sheet drift. */
+function calculateManagedSheetRevision_(spreadsheet) {
+  const material = DIGITALOGIC_DATASETS.map(function (dataset) {
+    const sheet = spreadsheet.getSheetByName(dataset.sheetName);
+    if (!sheet || sheet.getLastRow() < DIGITALOGIC_MANAGED_HEADER_ROWS || sheet.getLastColumn() < 1) {
+      throw new Error(dataset.sheetName + ' managed projection is missing.');
+    }
+    const values = sheet.getRange(1, 1, sheet.getLastRow(), sheet.getLastColumn()).getValues();
+    if (!values[0] || String(values[0][0] || '') !== 'sync_key') {
+      throw new Error(dataset.sheetName + ' managed projection has an invalid identity column.');
+    }
+    const seen = Object.create(null);
+    values.slice(DIGITALOGIC_MANAGED_HEADER_ROWS).forEach(function (row) {
+      const key = String(row[0] || '').trim();
+      if (!key || seen[key]) {
+        throw new Error(dataset.sheetName + ' managed projection contains a missing or duplicate sync_key.');
+      }
+      seen[key] = true;
+    });
+    return { id: dataset.id, values: values };
+  });
+  return calculateSha256Revision_(material);
 }
 
 /** Validate the living response by its required structure. */
@@ -749,21 +890,35 @@ function validateCompleteCatalogSnapshot_(rows, snapshot, dataset) {
 
 /** Fetch and validate one REST page with Basic auth in an HTTP header. */
 function fetchPage_(config, dataset, page) {
+  const request = buildCatalogPageRequest_(config, dataset, page);
+  const response = fetchCatalogResponseWithRetry_(request.url, request.options);
+  return parseCatalogHttpResponse_(response);
+}
+
+/** Build one authenticated catalog page request for fetch or fetchAll. */
+function buildCatalogPageRequest_(config, dataset, page) {
   const query = [
     'dataset=' + encodeURIComponent(dataset),
     'locale=' + encodeURIComponent(config.locale),
     'page=' + encodeURIComponent(page),
     'limit=' + encodeURIComponent(DIGITALOGIC_PAGE_SIZE),
   ].join('&');
-  const response = fetchCatalogResponseWithRetry_(config.apiBase + '/google-sheets/catalog?' + query, {
-    method: 'get',
-    headers: {
-      Authorization: 'Basic ' + Utilities.base64Encode(config.consumerKey + ':' + config.consumerSecret),
-      Accept: 'application/json',
+  return {
+    url: config.apiBase + '/google-sheets/catalog?' + query,
+    options: {
+      method: 'get',
+      headers: {
+        Authorization: 'Basic ' + Utilities.base64Encode(config.consumerKey + ':' + config.consumerSecret),
+        Accept: 'application/json',
+      },
+      followRedirects: false,
+      muteHttpExceptions: true,
     },
-    followRedirects: false,
-    muteHttpExceptions: true,
-  });
+  };
+}
+
+/** Decode one catalog HTTP response without coupling downstream code to the raw payload. */
+function parseCatalogHttpResponse_(response) {
   const status = response.getResponseCode();
   let payload;
 
@@ -812,6 +967,11 @@ function calculateRevision_(datasets) {
       datasetRevision: dataset.datasetRevision,
     };
   });
+  return calculateSha256Revision_(material);
+}
+
+/** Produce one lowercase sha256 revision for a JSON-safe canonical value. */
+function calculateSha256Revision_(material) {
   const digest = Utilities.computeDigest(
     Utilities.DigestAlgorithm.SHA_256,
     JSON.stringify(material),
@@ -2319,6 +2479,8 @@ if (typeof module !== 'undefined' && module.exports) {
     validateCatalogPage_: validateCatalogPage_,
     validateCatalogSnapshotPage_: validateCatalogSnapshotPage_,
     validateCompleteCatalogSnapshot_: validateCompleteCatalogSnapshot_,
+    calculateCatalogSourceRevision_: calculateCatalogSourceRevision_,
+    calculateManagedSheetRevision_: calculateManagedSheetRevision_,
     validatePricingSettingsState_: validatePricingSettingsState_,
     validateWritebackResponse_: validateWritebackResponse_,
     updateDashboard_: updateDashboard_,

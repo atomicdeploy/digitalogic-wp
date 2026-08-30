@@ -44,7 +44,8 @@ test('catalog fetch retries bounded transient failures without retrying client e
   assert.match(source, /attempt <= 3/);
   assert.match(source, /status !== 429 && status < 500/);
   assert.match(source, /Utilities\.sleep\(250 \* attempt\)/);
-  assert.match(source, /fetchCatalogResponseWithRetry_\(config\.apiBase/);
+  assert.match(source, /UrlFetchApp\.fetchAll/);
+  assert.match(source, /fetchCatalogResponseWithRetry_\(request\.url, request\.options\)/);
 });
 
 test('key-based merge updates matches, appends new rows, and removes stale rows', () => {
@@ -177,6 +178,51 @@ test('reconciled catalog pages require one immutable dataset revision, schema, t
   );
 });
 
+test('fast source fingerprint is fail-closed for incomplete unversioned datasets', () => {
+  sandbox.Utilities = {
+    DigestAlgorithm: { SHA_256: 'SHA_256' },
+    Charset: { UTF_8: 'UTF_8' },
+    computeDigest() { return Array.from({ length: 32 }, (_, index) => index); },
+  };
+  const calculate = sandbox.module.exports.calculateCatalogSourceRevision_;
+  const heads = [
+    {
+      dataset: { id: 'reconciled_products' },
+      snapshot: { datasetRevision: `sha256:${'a'.repeat(64)}`, total: 1131, columns: '["sync_key"]' },
+      response: { rows: [{ sync_key: 'a' }], page_revision: `sha256:${'b'.repeat(64)}`, pagination: { total: 1131, has_more: true } },
+    },
+    {
+      dataset: { id: 'categories' },
+      snapshot: { datasetRevision: '', total: 1, columns: '["sync_key"]' },
+      response: { rows: [{ sync_key: 'category:1' }], page_revision: `sha256:${'c'.repeat(64)}`, pagination: { total: 1, has_more: false } },
+    },
+  ];
+
+  assert.match(calculate(heads), /^sha256:[a-f0-9]{64}$/);
+  heads[1].response.pagination = { total: 101, has_more: true };
+  assert.equal(calculate(heads), '');
+});
+
+test('managed destination fingerprint rejects duplicate stable row identities', () => {
+  sandbox.Utilities = {
+    DigestAlgorithm: { SHA_256: 'SHA_256' },
+    Charset: { UTF_8: 'UTF_8' },
+    computeDigest() { return Array(32).fill(1); },
+  };
+  const sheet = {
+    getLastRow() { return 4; },
+    getLastColumn() { return 1; },
+    getRange() {
+      return { getValues() { return [['sync_key'], ['Sync Key'], ['same'], ['same']]; } };
+    },
+  };
+  const spreadsheet = { getSheetByName() { return sheet; } };
+  assert.throws(
+    () => sandbox.module.exports.calculateManagedSheetRevision_(spreadsheet),
+    /missing or duplicate sync_key/
+  );
+});
+
 test('Settings edits build one optimistic full-state request without float price math', () => {
   const values = {
     B7: '29,500',
@@ -299,6 +345,8 @@ test('standalone scheduled sync uses script state and leaves writeback workspace
   let workspaceCalls = 0;
   let released = false;
   const upserts = [];
+  const sourceRevision = `sha256:${'4'.repeat(64)}`;
+  const projectionRevision = `sha256:${'5'.repeat(64)}`;
   const spreadsheet = {
     getSheetByName(name) {
       assert.equal(name, 'Dashboard');
@@ -324,6 +372,11 @@ test('standalone scheduled sync uses script state and leaves writeback workspace
   };
   standalone.getConfig_ = () => ({ spreadsheetId: 'sheet-123', locale: 'en' });
   standalone.getSpreadsheet_ = () => spreadsheet;
+  standalone.fetchCatalogHeads_ = () => [
+    { dataset: { id: 'reconciled_products' }, response: { page: 1 } },
+    { dataset: { id: 'categories' }, response: { page: 1 } },
+  ];
+  standalone.calculateCatalogSourceRevision_ = () => sourceRevision;
   standalone.fetchDataset_ = (config, dataset) => ({
     id: dataset.id,
     columns: [{ key: 'sync_key' }],
@@ -349,6 +402,7 @@ test('standalone scheduled sync uses script state and leaves writeback workspace
   let pricingUpserts = 0;
   standalone.upsertPricingSettings_ = () => { pricingUpserts += 1; };
   standalone.calculateRevision_ = () => `sha256:${'1'.repeat(64)}`;
+  standalone.calculateManagedSheetRevision_ = () => projectionRevision;
   standalone.upsertDataset_ = (target, dataset) => upserts.push([target, dataset.id]);
   standalone.ensureWritebackWorkspace_ = () => {
     workspaceCalls += 1;
@@ -364,6 +418,8 @@ test('standalone scheduled sync uses script state and leaves writeback workspace
   assert.equal(upserts.length, 2);
   assert.equal(pricingUpserts, 1);
   assert.equal(state.DIGITALOGIC_CATALOG_REVISION, result.revision);
+  assert.equal(state.DIGITALOGIC_CATALOG_SOURCE_REVISION, sourceRevision);
+  assert.equal(state.DIGITALOGIC_CATALOG_PROJECTION_REVISION, projectionRevision);
   assert.equal(state.DIGITALOGIC_PRICING_STATE_REVISION, `sha256:${'2'.repeat(64)}`);
   assert.equal(state.DIGITALOGIC_LAST_SYNC_STATUS, 'ok');
   assert.equal(released, true);
@@ -374,8 +430,13 @@ test('unchanged catalog readback clears an earlier sync error and records pricin
   vm.runInNewContext(source, standalone, { filename: sourcePath });
   const catalogRevision = `sha256:${'1'.repeat(64)}`;
   const pricingRevision = `sha256:${'2'.repeat(64)}`;
+  const sourceRevision = `sha256:${'3'.repeat(64)}`;
+  const projectionRevision = `sha256:${'4'.repeat(64)}`;
   const state = {
     DIGITALOGIC_CATALOG_REVISION: catalogRevision,
+    DIGITALOGIC_CATALOG_SOURCE_REVISION: sourceRevision,
+    DIGITALOGIC_CATALOG_PROJECTION_REVISION: projectionRevision,
+    DIGITALOGIC_PRICING_STATE_REVISION: pricingRevision,
     DIGITALOGIC_LAST_SYNC_STATUS: 'error',
     DIGITALOGIC_LAST_SYNC_ERROR: 'earlier failure',
   };
@@ -403,10 +464,15 @@ test('unchanged catalog readback clears an earlier sync error and records pricin
     },
     toast() {},
   });
-  standalone.fetchDataset_ = (config, dataset) => ({ id: dataset.id, columns: [], rows: [], pageRevisions: [] });
+  standalone.fetchCatalogHeads_ = () => [
+    { dataset: { id: 'reconciled_products' }, response: { page: 1 } },
+    { dataset: { id: 'categories' }, response: { page: 1 } },
+  ];
+  standalone.calculateCatalogSourceRevision_ = () => sourceRevision;
+  standalone.calculateManagedSheetRevision_ = () => projectionRevision;
+  standalone.fetchDataset_ = () => { throw new Error('unchanged sync must not fetch remaining pages'); };
   standalone.fetchPricingSettings_ = () => ({ state_revision: pricingRevision });
   standalone.upsertPricingSettings_ = () => {};
-  standalone.calculateRevision_ = () => catalogRevision;
   standalone.upsertDataset_ = () => { throw new Error('unchanged sync must not rewrite managed tabs'); };
 
   const result = standalone.module.exports.syncCatalog();

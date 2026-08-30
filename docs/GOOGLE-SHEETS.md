@@ -91,10 +91,13 @@ To use it:
 6. Reload the spreadsheet. Use **Digitalogic Sync -> Sync now** for a manual
    refresh, or **Enable scheduled sync** for the configured interval.
 
-The bundled script fetches 100 rows per request, follows server pagination,
-unions dynamic warehouse columns, and calculates an idempotent catalog
-revision. The catalog endpoint accepts up to 250 rows per response for clients
-that need fewer round trips. An unchanged revision avoids rewriting the tabs.
+The bundled script fetches up to 250 rows per request, validates the immutable
+first-page snapshot metadata, and fetches remaining pages in bounded parallel
+batches. It unions dynamic warehouse columns and calculates an idempotent
+catalog revision. An unchanged source and pricing revision takes a fast no-op
+path only when a fresh digest of the complete managed Sheet projection still
+matches the previously accepted digest; drift or ambiguous metadata forces a
+complete fail-closed refresh instead of being hidden.
 Each managed tab uses a hidden machine-key row, a localized visible header row,
 filters, frozen headers and first column, text formatting for identifiers,
 number formatting, row banding, and status highlighting.
@@ -120,6 +123,9 @@ as successful only after all of these readbacks agree:
   `DIGITALOGIC_CATALOG_REVISION`, a current ISO timestamp in
   `DIGITALOGIC_LAST_SYNC_AT`, `DIGITALOGIC_LAST_SYNC_STATUS=ok`, and an empty
   `DIGITALOGIC_LAST_SYNC_ERROR`;
+- `DIGITALOGIC_CATALOG_SOURCE_REVISION` matches the immutable dataset-head
+  fingerprint and `DIGITALOGIC_CATALOG_PROJECTION_REVISION` matches a fresh
+  digest of every managed Products and Categories cell;
 - `DIGITALOGIC_PRICING_STATE_REVISION` is a lowercase `sha256:` revision and
   equals the canonical `/google-sheets/pricing-settings` readback;
 - the managed `Products` and `Categories` row counts equal their validated API
