@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.39] - 2026-08-30
+
+### Fixed
+- Place each meaningful SSE frame before its ignored FastCGI padding so ready, update, and heartbeat data are included in the server's immediately released response slice.
+
 ## [1.8.38] - 2026-08-30
 
 ### Fixed
