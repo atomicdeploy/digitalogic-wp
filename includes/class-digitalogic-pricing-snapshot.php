@@ -308,16 +308,14 @@ final class Digitalogic_Pricing_Snapshot {
 			$build_key = $this->build_key( $current['state_revision'], $payload['locale'], $payload['page_size'] );
 			$ready     = $this->current_snapshot_meta( $current['state_revision'], $payload['locale'], $payload['page_size'] );
 			if ( is_array( $ready ) && $this->snapshot_age( $ready ) <= $payload['max_age_seconds'] ) {
-				$job                      = $this->new_job( $payload, $current, $build_key, 'ready', $build_id );
-				$job['snapshot_token']    = $ready['snapshot_token'];
-				$job['revision']          = $ready['revision'];
-				$job['snapshot_revision'] = $ready['revision'];
-				$job['digest']            = $ready['digest'];
-				$job['row_count']         = $ready['row_count'];
-				$job['page_count']        = $ready['page_count'];
-				$job['expires_at']        = $ready['expires_at'];
-				$job['cached']            = true;
-				$job['progress']          = $this->progress( 'ready', 100, $ready['row_count'], $ready['row_count'] );
+				$job                   = $this->new_job( $payload, $current, $build_key, 'ready', $build_id );
+				$job['snapshot_token'] = $ready['snapshot_token'];
+				$job['revision']       = $ready['revision'];
+				$job['row_count']      = $ready['row_count'];
+				$job['page_count']     = $ready['page_count'];
+				$job['expires_at']     = $ready['expires_at'];
+				$job['cached']         = true;
+				$job['progress']       = $this->progress( 'ready', 100, $ready['row_count'], $ready['row_count'] );
 				if ( ! $this->persist_terminal_event_outbox( $job ) ) {
 					$this->release_idempotency( $payload['request_id'], $build_id );
 					return $this->terminal_event_storage_error();
@@ -500,7 +498,7 @@ final class Digitalogic_Pricing_Snapshot {
 		if ( is_wp_error( $meta ) ) {
 			return $meta;
 		}
-		$etag = $this->etag( $meta['digest'] );
+		$etag = $this->etag( $meta['revision'] );
 
 		$rows = array();
 		for ( $page = 1; $page <= $meta['page_count']; ++$page ) {
@@ -517,10 +515,14 @@ final class Digitalogic_Pricing_Snapshot {
 			}
 			$rows = array_merge( $rows, $page_rows );
 		}
-		if ( count( $rows ) !== $meta['row_count'] || ! hash_equals( $meta['digest'], $this->snapshot_digest( $meta, $rows ) ) ) {
+		if (
+			! $this->is_revision( $meta['revision'] ?? null )
+			|| count( $rows ) !== $meta['row_count']
+			|| ! hash_equals( $meta['revision'], $this->snapshot_digest( $meta, $rows ) )
+		) {
 			return $this->error(
-				'digitalogic_pricing_snapshot_digest_mismatch',
-				'The cached pricing snapshot failed its integrity check.',
+				'digitalogic_pricing_snapshot_revision_mismatch',
+				'The cached pricing snapshot does not match its canonical revision.',
 				503,
 				true,
 				array(),
@@ -606,8 +608,6 @@ final class Digitalogic_Pricing_Snapshot {
 			'projection_schema'       => self::PROJECTION_SCHEMA,
 			'snapshot_token'          => $meta['snapshot_token'],
 			'revision'                => $meta['revision'],
-			'snapshot_revision'       => $meta['revision'],
-			'digest'                  => $meta['digest'],
 			'page_digest'             => $page_digest,
 			'state_revision'          => $meta['state_revision'],
 			'pricing_state_revision'  => $meta['pricing_state_revision'],
@@ -618,11 +618,10 @@ final class Digitalogic_Pricing_Snapshot {
 			'expires_at'              => $meta['expires_at'],
 			'row_count'               => $meta['row_count'],
 			'distinct_sync_keys'      => $meta['distinct_sync_keys'],
-			'remote_total'            => $meta['row_count'],
 			'page_size'               => $meta['page_size'],
 			'page_count'              => $meta['page_count'],
 			'page_digests'            => $meta['page_digests'],
-			'integrity'               => $meta['integrity'],
+			'integrity'               => $this->public_integrity( $meta['integrity'] ?? array() ),
 			'mutation_guard'          => $meta['mutation_guard'],
 			'settings'                => $meta['settings'],
 			'reconciliation'          => $meta['reconciliation'],
@@ -1666,16 +1665,16 @@ final class Digitalogic_Pricing_Snapshot {
 		if ( 'ready' === $status ) {
 			if (
 				1 !== preg_match( '/\A[A-Za-z0-9][A-Za-z0-9._:-]{7,127}\z/D', (string) ( $job['snapshot_token'] ?? '' ) )
-				|| ! $this->is_revision( $job['snapshot_revision'] ?? null )
-				|| ! $this->is_revision( $job['digest'] ?? null )
-				|| ! hash_equals( (string) $job['snapshot_revision'], (string) $job['digest'] )
+				|| ! $this->is_revision( $job['revision'] ?? null )
+				|| ! is_int( $job['row_count'] ?? null )
+				|| $job['row_count'] < 0
 			) {
 				return null;
 			}
-			$data['snapshot_token']    = (string) $job['snapshot_token'];
-			$data['snapshot_revision'] = (string) $job['snapshot_revision'];
-			$data['digest']            = (string) $job['digest'];
-			$data['snapshot_path']     = '/wp-json/digitalogic/pricing/sync/snapshots/' . rawurlencode( $job['snapshot_token'] ) . $this->source_query( $source );
+			$data['snapshot_token'] = (string) $job['snapshot_token'];
+			$data['revision']       = (string) $job['revision'];
+			$data['row_count']      = $job['row_count'];
+			$data['snapshot_path']  = '/wp-json/digitalogic/pricing/sync/snapshots/' . rawurlencode( $job['snapshot_token'] ) . $this->source_query( $source );
 		} else {
 			$code = (string) ( $job['code'] ?? '' );
 			if ( '' === $code || strlen( $code ) > 128 || 1 !== preg_match( '/\A[a-z0-9_:-]+\z/D', $code ) ) {
@@ -2695,10 +2694,8 @@ final class Digitalogic_Pricing_Snapshot {
 				)
 			);
 		}
-		$meta['page_digests']    = $page_digests;
-		$meta['digest']          = $this->snapshot_digest( $meta, $rows );
-		$meta['revision']        = $meta['digest'];
-		$meta['etag']            = $this->etag( $meta['digest'] );
+		$meta['page_digests'] = $page_digests;
+		$meta['revision']     = $this->snapshot_digest( $meta, $rows );
 		$catalog_metadata_digest = $this->digest(
 			array(
 				'dataset_revision' => $meta['dataset_revision'],
@@ -2709,14 +2706,12 @@ final class Digitalogic_Pricing_Snapshot {
 		);
 		$meta['integrity']       = array(
 			'algorithm'               => 'sha256',
-			'payload_digest'          => $meta['digest'],
 			'state_digest'            => $this->digest( array( $meta['pricing_state_revision'], $meta['settings'], $meta['mutation_guard'] ) ),
 			'catalog_metadata_digest' => $catalog_metadata_digest,
 			'page_revisions_digest'   => $this->digest( $page_digests ),
 			'dataset_revision'        => $meta['dataset_revision'],
 			'row_count'               => $row_count,
 			'distinct_sync_keys'      => count( $seen ),
-			'remote_total'            => $row_count,
 			'page_count'              => $page_count,
 			'warning_count'           => count( (array) ( $meta['reconciliation']['warnings'] ?? array() ) ),
 		);
@@ -2788,16 +2783,14 @@ final class Digitalogic_Pricing_Snapshot {
 				);
 			}
 
-			$latest['status']            = 'ready';
-			$latest['updated_at']        = gmdate( 'c' );
-			$latest['snapshot_token']    = $token;
-			$latest['revision']          = $meta['revision'];
-			$latest['snapshot_revision'] = $meta['revision'];
-			$latest['digest']            = $meta['digest'];
-			$latest['row_count']         = $row_count;
-			$latest['page_count']        = $page_count;
-			$latest['expires_at']        = $meta['expires_at'];
-			$latest['progress']          = $this->progress( 'ready', 100, $row_count, $row_count );
+			$latest['status']         = 'ready';
+			$latest['updated_at']     = gmdate( 'c' );
+			$latest['snapshot_token'] = $token;
+			$latest['revision']       = $meta['revision'];
+			$latest['row_count']      = $row_count;
+			$latest['page_count']     = $page_count;
+			$latest['expires_at']     = $meta['expires_at'];
+			$latest['progress']       = $this->progress( 'ready', 100, $row_count, $row_count );
 			if ( ! $this->persist_terminal_event_outbox( $latest ) ) {
 				delete_transient( $this->ready_key( $meta['state_revision'], $meta['locale'], $meta['page_size'] ) );
 				delete_transient( $this->meta_key( $token ) );
@@ -2995,6 +2988,16 @@ final class Digitalogic_Pricing_Snapshot {
 		}
 		if ( (int) $meta['expires_timestamp'] <= time() ) {
 			return $this->error( 'digitalogic_pricing_snapshot_expired', 'The immutable pricing snapshot has expired.', 410, false );
+		}
+		if ( ! $this->is_revision( $meta['revision'] ?? null ) ) {
+			return $this->error(
+				'digitalogic_pricing_snapshot_revision_invalid',
+				'The immutable pricing snapshot has no valid canonical revision.',
+				503,
+				true,
+				array(),
+				self::RETRY_AFTER
+			);
 		}
 
 		return $meta;
@@ -3830,7 +3833,7 @@ final class Digitalogic_Pricing_Snapshot {
 					'retryable',
 					'retry_after',
 					'snapshot_token',
-					'snapshot_revision',
+					'revision',
 					'row_count',
 					'page_count',
 					'expires_at',
@@ -3875,8 +3878,8 @@ final class Digitalogic_Pricing_Snapshot {
 				return $this->transport( null, 304, $headers );
 			}
 			$headers['ETag'] = $status_etag;
-		} elseif ( ! empty( $job['digest'] ) ) {
-			$headers['ETag'] = $this->etag( $job['digest'] );
+		} elseif ( ! empty( $job['revision'] ) ) {
+			$headers['ETag'] = $this->etag( $job['revision'] );
 		}
 
 		return $this->transport( $data, $status, $headers );
@@ -3890,8 +3893,6 @@ final class Digitalogic_Pricing_Snapshot {
 			'projection_schema'       => self::PROJECTION_SCHEMA,
 			'snapshot_token'          => $meta['snapshot_token'],
 			'revision'                => $meta['revision'],
-			'snapshot_revision'       => $meta['revision'],
-			'digest'                  => $meta['digest'],
 			'state_revision'          => $meta['state_revision'],
 			'pricing_state_revision'  => $meta['pricing_state_revision'],
 			'pricing_policy_revision' => $meta['pricing_policy_revision'],
@@ -3902,11 +3903,10 @@ final class Digitalogic_Pricing_Snapshot {
 			'expires_at'              => $meta['expires_at'],
 			'row_count'               => $meta['row_count'],
 			'distinct_sync_keys'      => $meta['distinct_sync_keys'],
-			'remote_total'            => $meta['row_count'],
 			'page_size'               => $meta['page_size'],
 			'page_count'              => $meta['page_count'],
 			'page_digests'            => $meta['page_digests'],
-			'integrity'               => $meta['integrity'],
+			'integrity'               => $this->public_integrity( $meta['integrity'] ?? array() ),
 			'mutation_guard'          => $meta['mutation_guard'],
 			'settings'                => $meta['settings'],
 			'reconciliation'          => $meta['reconciliation'],
@@ -3999,7 +3999,30 @@ final class Digitalogic_Pricing_Snapshot {
 
 		return array_intersect_key(
 			$meta,
-			array_fill_keys( array( 'snapshot_token', 'revision', 'digest', 'expires_at', 'row_count', 'page_size', 'page_count' ), true )
+			array_fill_keys( array( 'snapshot_token', 'revision', 'expires_at', 'row_count', 'page_size', 'page_count' ), true )
+		);
+	}
+
+	/** Return only canonical public integrity fields from current or cached metadata. */
+	private function public_integrity( $integrity ) {
+		$integrity = is_array( $integrity ) ? $integrity : array();
+
+		return array_intersect_key(
+			$integrity,
+			array_fill_keys(
+				array(
+					'algorithm',
+					'state_digest',
+					'catalog_metadata_digest',
+					'page_revisions_digest',
+					'dataset_revision',
+					'row_count',
+					'distinct_sync_keys',
+					'page_count',
+					'warning_count',
+				),
+				true
+			)
 		);
 	}
 

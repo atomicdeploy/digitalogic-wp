@@ -108,17 +108,12 @@ class Digitalogic_WebSocket_Server {
         }
 
         list($headers, $query) = $this->parse_request($this->clients[$id]['headers']);
-		$pricing_header_names      = array(
-			'x-patris-product-sync-secret',
-			'x-patris-source-id',
-			'x-patris-source-dataset',
-			'last-event-id',
-			'sec-websocket-key',
-			'sec-websocket-protocol',
+		$provider_header_names     = Digitalogic_WebSocket_Auth::pricing_protected_headers();
+		$pricing_header_names      = array_merge(
+			$provider_header_names,
+			array( 'last-event-id', 'sec-websocket-key', 'sec-websocket-protocol' )
 		);
-		$pricing_header_attempted  = isset($headers['x-patris-product-sync-secret'])
-			|| isset($headers['x-patris-source-id'])
-			|| isset($headers['x-patris-source-dataset']);
+		$pricing_header_attempted  = (bool) array_intersect( $provider_header_names, array_keys( $headers ) );
 		$duplicate_headers         = isset($headers['__digitalogic_duplicate_headers'])
 			&& is_array($headers['__digitalogic_duplicate_headers'])
 			? $headers['__digitalogic_duplicate_headers']
@@ -131,7 +126,7 @@ class Digitalogic_WebSocket_Server {
 		$protocols                 = isset($headers['sec-websocket-protocol'])
 			? array_map('trim', explode(',', (string) $headers['sec-websocket-protocol']))
 			: array();
-		$pricing_service           = 'patris_pricing' === (string) ( $auth['principal'] ?? '' );
+		$pricing_service           = Digitalogic_WebSocket_Auth::is_pricing_context( $auth );
 		$pricing_protocol          = '';
 		if ( $pricing_service ) {
 			foreach ( $protocols as $protocol ) {
@@ -180,7 +175,7 @@ class Digitalogic_WebSocket_Server {
 			? absint($this->clients[ $id ]['last_event_id'])
 			: 0;
 		if (
-			'patris_pricing' === $this->clients[ $id ]['principal']
+			Digitalogic_WebSocket_Auth::is_pricing_context( $this->clients[ $id ] )
 			&& isset($headers['last-event-id'])
 			&& preg_match('/\A[0-9]{1,20}\z/D', (string) $headers['last-event-id'])
 		) {
@@ -284,7 +279,7 @@ class Digitalogic_WebSocket_Server {
             return;
         }
 
-		if ( 'patris_pricing' === (string) ( $this->clients[ $id ]['principal'] ?? '' ) ) {
+		if ( Digitalogic_WebSocket_Auth::is_pricing_context( $this->clients[ $id ] ) ) {
 			$this->send_error($id, $request_id, 'digitalogic_pricing_stream_read_only', __('The pricing event stream does not accept commands.', 'digitalogic'));
 			return;
 		}
@@ -370,7 +365,7 @@ class Digitalogic_WebSocket_Server {
                 continue;
             }
 
-			$pricing_service = 'patris_pricing' === (string) ( $client['principal'] ?? '' );
+			$pricing_service = Digitalogic_WebSocket_Auth::is_pricing_context( $client );
 			if (
 				$pricing_service
 				&& $revalidate_service
@@ -441,14 +436,14 @@ class Digitalogic_WebSocket_Server {
             return;
         }
 
-		$pricing_service = 'patris_pricing' === (string) ( $this->clients[ $id ]['principal'] ?? '' );
+		$pricing_service = Digitalogic_WebSocket_Auth::is_pricing_context( $this->clients[ $id ] );
 		$visible         = true;
 		$delivery        = null;
 		if ( $pricing_service ) {
 			if ( class_exists('Digitalogic_Event_Mesh') ) {
 				$delivery = Digitalogic_Event_Mesh::pricing_event_delivery_decision(
 					$event,
-					'patris_pricing',
+					Digitalogic_WebSocket_Auth::pricing_principal(),
 					isset($this->clients[ $id ]['source']) && is_array($this->clients[ $id ]['source'])
 						? $this->clients[ $id ]['source']
 						: array()

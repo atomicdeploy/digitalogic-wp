@@ -29,7 +29,6 @@ final class Digitalogic_Event_Mesh {
 	private const MAX_ATTRIBUTE_VALUES     = 10;
 	private const PRESENCE_FRESH_SECONDS   = 600;
 	private const SESSION_FRESH_SECONDS    = 180;
-	private const PRICING_SERVICE          = 'patris_pricing';
 	private const PRICING_REVISION_PATH    = '/wp-json/digitalogic/pricing/sync/revision';
 	private const PRICING_EVENT_NAMES      = array(
 		'pricing.state.changed',
@@ -728,7 +727,7 @@ final class Digitalogic_Event_Mesh {
 			'diagnostics' => array(),
 			'recovery'    => self::pricing_recovery_plan( 'consume_event' ),
 		);
-		if ( self::PRICING_SERVICE !== $service || ! in_array( $name, self::PRICING_EVENT_NAMES, true ) ) {
+		if ( self::pricing_service() !== $service || ! in_array( $name, self::PRICING_EVENT_NAMES, true ) ) {
 			return $decision;
 		}
 		if ( ! isset( $event['data'] ) || ! is_array( $event['data'] ) ) {
@@ -842,7 +841,7 @@ final class Digitalogic_Event_Mesh {
 		} elseif ( in_array( $name, array( 'pricing.source.changed', 'pricing.source.removed' ), true ) ) {
 			$known = array_merge( $known, array( 'change', 'previous_source_revision', 'revision_validation_required', 'revision_path' ) );
 		} else {
-			$known = array_merge( $known, array( 'build_id', 'request_id', 'status', 'state_revision', 'pricing_state_revision', 'catalog_revision', 'snapshot_token', 'revision', 'row_count', 'snapshot_revision', 'digest', 'snapshot_path', 'code', 'retryable' ) );
+			$known = array_merge( $known, array( 'build_id', 'request_id', 'status', 'state_revision', 'etag', 'pricing_state_revision', 'pricing_policy_revision', 'catalog_revision', 'snapshot_token', 'revision', 'row_count', 'snapshot_revision', 'digest', 'snapshot_path', 'code', 'retryable', 'revision_path' ) );
 		}
 
 		$unknown = array_values( array_diff( array_map( 'strval', array_keys( $data ) ), $known ) );
@@ -923,7 +922,8 @@ final class Digitalogic_Event_Mesh {
 			self::append_optional_metadata_diagnostics( $diagnostics, $data, $previous_missing, array( 'revision_path' ) );
 		} else {
 			$component_missing = array();
-			self::normalize_optional_revisions( $data, array( 'state_revision', 'pricing_state_revision', 'catalog_revision' ), $component_missing );
+			self::normalize_optional_revisions( $data, array( 'state_revision', 'pricing_state_revision', 'pricing_policy_revision', 'catalog_revision' ), $component_missing );
+			self::normalize_optional_etag( $data, $component_missing, $diagnostics );
 			$status = isset( $data['status'] ) && is_string( $data['status'] ) ? $data['status'] : '';
 			if ( ! in_array( $status, array( 'ready', 'failed', 'cancelled' ), true ) ) {
 				unset( $data['status'] );
@@ -932,7 +932,7 @@ final class Digitalogic_Event_Mesh {
 			if ( 'ready' === $status ) {
 				self::normalize_terminal_snapshot_metadata( $data, $component_missing, $diagnostics );
 			}
-			self::append_optional_metadata_diagnostics( $diagnostics, $data, $component_missing, array() );
+			self::append_optional_metadata_diagnostics( $diagnostics, $data, $component_missing, array( 'revision_path' ) );
 		}
 
 		return $diagnostics;
@@ -1051,13 +1051,13 @@ final class Digitalogic_Event_Mesh {
 			unset( $data['revision'] );
 			$missing[] = 'revision';
 		}
-		if ( isset( $data['snapshot_revision'] ) && ! self::is_pricing_revision( $data['snapshot_revision'] ) ) {
+		if ( array_key_exists( 'snapshot_revision', $data ) ) {
 			unset( $data['snapshot_revision'] );
 			$diagnostics[] = self::pricing_diagnostic(
 				'metadata_warning',
 				'INFO',
 				false,
-				'A legacy projection revision was unusable and was ignored; canonical revision recovery remains available.',
+				'A retired duplicate revision label was ignored; canonical revision remains authoritative.',
 				false,
 				'consume_event',
 				array( 'fields' => array( 'snapshot_revision' ) )
@@ -1068,22 +1068,40 @@ final class Digitalogic_Event_Mesh {
 				'provider_capability_missing',
 				'INFO',
 				false,
-				'No negotiated snapshot digest was advertised; canonical identity and revision remain authoritative.',
+				'No distinct negotiated payload digest was advertised; canonical revision remains authoritative.',
 				false,
 				'consume_event',
-				array( 'capabilities' => array( 'digest' ) )
+				array( 'capabilities' => array( 'payload_digest' ) )
 			);
-		} elseif ( ! is_string( $data['digest'] ) || '' === trim( $data['digest'] ) || strlen( $data['digest'] ) > 256 || 1 === preg_match( '/[\x00-\x1F\x7F]/', $data['digest'] ) ) {
-			unset( $data['digest'] );
-			$diagnostics[] = self::pricing_diagnostic(
-				'metadata_warning',
-				'WARNING',
-				false,
-				'Optional digest metadata is unusable and was ignored; canonical identity and revision remain authoritative.',
-				false,
-				'consume_event',
-				array( 'fields' => array( 'digest' ) )
-			);
+		} else {
+			$capabilities = class_exists( 'Digitalogic_Pricing_Adapter_Registry' )
+				? Digitalogic_Pricing_Adapter_Registry::instance()->capabilities()
+				: array();
+			$algorithms   = array_map( 'strval', (array) ( $capabilities['digest_algorithms'] ?? array() ) );
+			$algorithm    = is_string( $data['digest'] ) && str_contains( $data['digest'], ':' )
+				? strtolower( strstr( $data['digest'], ':', true ) )
+				: '';
+			$duplicate    = isset( $data['revision'] )
+				&& is_string( $data['digest'] )
+				&& hash_equals( $data['revision'], $data['digest'] );
+			if ( ! self::is_pricing_revision( $data['digest'] ) || ! in_array( $algorithm, $algorithms, true ) || $duplicate ) {
+				unset( $data['digest'] );
+				$diagnostics[] = self::pricing_diagnostic(
+					'metadata_warning',
+					'INFO',
+					false,
+					$duplicate
+						? 'A digest that merely repeated canonical revision was ignored.'
+						: 'An unnegotiated optional digest was ignored; canonical revision remains authoritative.',
+					false,
+					'consume_event',
+					array( 'fields' => array( 'digest' ) )
+				);
+			}
+		}
+		if ( ! isset( $data['row_count'] ) || ! is_int( $data['row_count'] ) || $data['row_count'] < 0 ) {
+			unset( $data['row_count'] );
+			$missing[] = 'row_count';
 		}
 		if ( ! isset( $data['snapshot_path'] ) || ! self::safe_pricing_relative_path( $data['snapshot_path'] ) ) {
 			unset( $data['snapshot_path'] );
@@ -1181,6 +1199,11 @@ final class Digitalogic_Event_Mesh {
 			'max_attempts'    => 0,
 			'timeout_seconds' => 0,
 		);
+	}
+
+	/** Return the selected provider adapter's exact event principal. */
+	private static function pricing_service(): string {
+		return (string) Digitalogic_Pricing_Adapter_Registry::instance()->provider()->event_principal();
 	}
 
 	/**

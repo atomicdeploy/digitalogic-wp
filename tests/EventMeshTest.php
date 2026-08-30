@@ -230,12 +230,15 @@ final class EventMeshTest extends TestCase {
 				'status'                 => 'ready',
 				'source'                 => $source,
 				'state_revision'         => 'sha256:' . str_repeat( '3', 64 ),
+				'etag'                   => '"sha256:' . str_repeat( '3', 64 ) . '"',
 				'pricing_state_revision' => 'sha256:' . str_repeat( '4', 64 ),
+				'pricing_policy_revision' => 'sha256:' . str_repeat( '7', 64 ),
 				'catalog_revision'       => 'sha256:' . str_repeat( '5', 64 ),
 				'snapshot_token'         => 'snapshot-canonical-0001',
 				'revision'               => 'sha256:' . str_repeat( '6', 64 ),
 				'row_count'              => 757,
 				'snapshot_path'          => '/provider/snapshot/current',
+				'revision_path'          => '/provider/revision/current',
 				'audience'               => array( 'services' => array( 'patris_pricing' ) ),
 			),
 		);
@@ -248,7 +251,16 @@ final class EventMeshTest extends TestCase {
 		$this->assertContains( 'provider_capability_missing', array_column( $without_digest['diagnostics'], 'code' ) );
 		$this->assertSame( 'consume_event', $without_digest['recovery']['action'] );
 
-		$event['data']['digest'] = 'blake3:' . str_repeat( 'a', 64 );
+		$event['data']['snapshot_revision'] = $event['data']['revision'];
+		$event['data']['digest']            = $event['data']['revision'];
+		$without_duplicates                 = Digitalogic_Event_Mesh::pricing_event_delivery_decision( $event, 'patris_pricing', $source );
+		$this->assertTrue( $without_duplicates['visible'] );
+		$this->assertArrayNotHasKey( 'snapshot_revision', $without_duplicates['data'] );
+		$this->assertArrayNotHasKey( 'digest', $without_duplicates['data'] );
+		$this->assertContains( 'metadata_warning', array_column( $without_duplicates['diagnostics'], 'code' ) );
+
+		unset( $event['data']['snapshot_revision'] );
+		$event['data']['digest'] = 'sha256:' . str_repeat( 'a', 64 );
 		$with_distinct_digest    = Digitalogic_Event_Mesh::pricing_event_delivery_decision( $event, 'patris_pricing', $source );
 		$this->assertTrue( $with_distinct_digest['visible'] );
 		$this->assertSame( $event['data']['digest'], $with_distinct_digest['data']['digest'] );

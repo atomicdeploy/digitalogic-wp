@@ -1209,8 +1209,12 @@ final class PricingSnapshotTest extends TestCase {
 		$ready = $this->status_response( $build_id );
 		$this->assertSame( 200, $ready->get_status() );
 		$this->assertSame( 'ready', $ready->get_data()['status'] );
+		$this->assertMatchesRegularExpression( '/\Asha256:[a-f0-9]{64}\z/D', $ready->get_data()['revision'] );
 		$this->assertSame( 251, $ready->get_data()['row_count'] );
 		$this->assertSame( 2, $ready->get_data()['page_count'] );
+		foreach ( array( 'snapshot_revision', 'digest', 'remote_total' ) as $retired_field ) {
+			$this->assertArrayNotHasKey( $retired_field, $ready->get_data() );
+		}
 		$this->assertCount( 1, $GLOBALS['digitalogic_test_wc_product_query_args'] );
 
 		$token    = $ready->get_data()['snapshot_token'];
@@ -1219,8 +1223,13 @@ final class PricingSnapshotTest extends TestCase {
 		$payload = $snapshot->get_data();
 		$this->assertSame( 251, $payload['row_count'] );
 		$this->assertSame( 251, $payload['distinct_sync_keys'] );
-		$this->assertSame( 251, $payload['remote_total'] );
 		$this->assertSame( 251, $payload['integrity']['row_count'] );
+		foreach ( array( 'snapshot_revision', 'digest', 'remote_total' ) as $retired_field ) {
+			$this->assertArrayNotHasKey( $retired_field, $payload );
+		}
+		foreach ( array( 'payload_digest', 'remote_total' ) as $retired_field ) {
+			$this->assertArrayNotHasKey( $retired_field, $payload['integrity'] );
+		}
 		$this->assertSame( 251, $payload['reconciliation']['counts']['source_only'] );
 		$this->assertSame( 0, $payload['reconciliation']['counts']['ambiguous_codes'] );
 		$this->assertCount( 26, $payload['catalog']['columns'] );
@@ -1235,7 +1244,11 @@ final class PricingSnapshotTest extends TestCase {
 		$page_two = $this->page_response( $token, 2 );
 		$this->assertCount( 250, $page_one->get_data()['rows'] );
 		$this->assertCount( 1, $page_two->get_data()['rows'] );
-		$this->assertSame( $payload['digest'], $page_two->get_data()['digest'] );
+		$this->assertSame( $payload['revision'], $page_two->get_data()['revision'] );
+		$this->assertNotSame( $payload['revision'], $page_two->get_data()['page_digest'] );
+		foreach ( array( 'snapshot_revision', 'digest', 'remote_total' ) as $retired_field ) {
+			$this->assertArrayNotHasKey( $retired_field, $page_two->get_data() );
+		}
 		$this->assertCount( 1, $GLOBALS['digitalogic_test_wc_product_query_args'] );
 
 		$page_etag = $page_one->get_headers()['ETag'];
@@ -1473,6 +1486,11 @@ final class PricingSnapshotTest extends TestCase {
 		foreach ( $events as $event ) {
 			$this->assertSame( Digitalogic_Pricing_Snapshot::BUILD_EVENT_SCHEMA, $event['data']['schema'] );
 			$this->assertArrayNotHasKey( 'schema_version', $event['data'] );
+			$this->assertMatchesRegularExpression( '/\Asha256:[a-f0-9]{64}\z/D', $event['data']['revision'] );
+			$this->assertSame( 251, $event['data']['row_count'] );
+			foreach ( array( 'snapshot_revision', 'digest', 'remote_total' ) as $retired_field ) {
+				$this->assertArrayNotHasKey( $retired_field, $event['data'] );
+			}
 			$delivery = Digitalogic_Event_Mesh::pricing_event_delivery_decision(
 				$event,
 				'patris_pricing',
@@ -1507,7 +1525,7 @@ final class PricingSnapshotTest extends TestCase {
 		Digitalogic_Pricing_Snapshot::instance()->run_build( $build_id );
 		$event = $this->terminal_events()[0];
 		$data  = $event['data'];
-		unset( $data['snapshot_token'], $data['snapshot_revision'], $data['digest'], $data['snapshot_path'] );
+		unset( $data['snapshot_token'], $data['revision'], $data['row_count'], $data['snapshot_path'] );
 		$data['status'] = 'cancelled';
 		$data['code']   = 'request_cancelled';
 		$GLOBALS['digitalogic_test_options']['digitalogic_panel_events'][0]['data'] = $data;
@@ -1833,7 +1851,7 @@ final class PricingSnapshotTest extends TestCase {
 
 		$bulk_corrupt = $this->snapshot_response( $ready['snapshot_token'], array( 'If-None-Match' => $snapshot_etag ) );
 		$this->assertSame( 503, $bulk_corrupt->get_status() );
-		$this->assertSame( 'digitalogic_pricing_snapshot_digest_mismatch', $bulk_corrupt->get_data()['code'] );
+		$this->assertSame( 'digitalogic_pricing_snapshot_revision_mismatch', $bulk_corrupt->get_data()['code'] );
 
 		$corrupt = $this->page_response( $ready['snapshot_token'], 1, array( 'If-None-Match' => $etag ) );
 		$this->assertSame( 503, $corrupt->get_status() );
@@ -1864,7 +1882,6 @@ final class PricingSnapshotTest extends TestCase {
 			$expected['row_count']
 		);
 		$this->assertSame( $expected['row_count'], $expected['distinct_sync_keys'] );
-		$this->assertSame( $expected['row_count'], $expected['remote_total'] );
 		$this->assertSame( $report['patris'], $report['matched'] + $report['source_only'] );
 		$this->assertSame( $report['woo_usable'], $report['matched'] + $report['woo_only'] );
 		$this->assertSame(
@@ -1880,7 +1897,6 @@ final class PricingSnapshotTest extends TestCase {
 		$this->assertArrayNotHasKey( 'source_id', $product_sync );
 		$this->assertArrayNotHasKey( 'source_dataset', $product_sync );
 		$this->assertArrayNotHasKey( 'source_revision', $product_sync );
-		$this->assertArrayNotHasKey( 'snapshot_revision', $report );
 	}
 
 	/** Return the immutable ordered Excel projection contract. */

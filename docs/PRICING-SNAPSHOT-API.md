@@ -137,8 +137,8 @@ WordPress command. It receives only these exact-source event kinds:
 - `pricing.snapshot.build.terminal` with schema
   `digitalogic.pricing-snapshot-build-event` when a request-bound snapshot
   build becomes `ready`, `failed`, or `cancelled`;
-- `pricing.stream.reset` with schema
-  `digitalogic.pricing-stream-reset` when durable replay has a gap.
+- `pricing.stream.diagnostic` with bounded recovery guidance when durable replay
+  has a gap.
 
 Every data event has the globally increasing durable panel `id`. Source
 lifecycle envelopes contain `source`, `previous_source_revision`,
@@ -154,11 +154,14 @@ and fails closed because that source is no longer current.
 A snapshot terminal envelope contains the exact `build_id`, request-bound
 `request_id`, source, composite/pricing/catalog revisions, stable
 `idempotency_key`, and boolean `retryable`. A `ready` envelope additionally
-contains `snapshot_token`, the canonical snapshot `revision`, and the exact
-source-bound `snapshot_path`; `failed` and `cancelled` envelopes contain only a
-bounded machine `code` instead of snapshot fields. Unknown optional event
-metadata does not hide an authorized event or close the stream; unsafe or
-ambiguous source identity still does.
+contains `snapshot_token`, the canonical snapshot `revision`, `row_count`, and
+the exact source-bound `snapshot_path`; `failed` and `cancelled` envelopes
+contain only a bounded machine `code` instead of snapshot fields. The retired
+duplicate revision label and a digest that merely repeats `revision` are never
+emitted. A distinct optional digest is retained only when its algorithm is in
+the negotiated capability intersection. Unknown optional event metadata does
+not hide an authorized event or close the stream; unsafe or ambiguous source
+identity still does.
 
 The initial frame is exactly a normal JSON WebSocket message shaped as:
 
@@ -174,7 +177,8 @@ The initial frame is exactly a normal JSON WebSocket message shaped as:
     "latest_event_id": 123,
     "cursor_reset_required": false,
     "revision_validation_required": true,
-    "revision_path": "/wp-json/digitalogic/pricing/sync/revision"
+    "revision_path": "/wp-json/digitalogic/pricing/sync/revision",
+    "projection": "excel"
   }
 }
 ```
@@ -182,9 +186,10 @@ The initial frame is exactly a normal JSON WebSocket message shaped as:
 Each replay/live data frame uses
 `{event,name,success:true,data,time,id}`; `id` is the durable cursor and
 `event`/`name` are the dotted event kind above. A live gap uses event
-`pricing.stream.reset` with reason `cursor_gap`, the reset cursor and retained
-window, and `revision_validation_required=true`. The reset frame itself is a
-control message and does not allocate a new panel event ID.
+`pricing.stream.diagnostic` with reason `cursor_gap`, the reset cursor and
+retained window, a non-blocking diagnostic, a finite conditional-refresh then
+controlled-polling plan, and `revision_validation_required=true`. The frame is
+a control message and does not allocate a new panel event ID.
 
 Committed WordPress catalog, product, variation, attachment, category,
 shipping, currency, pricing, and source-sync mutations first advance the
@@ -385,6 +390,11 @@ validation: source, composite and pricing revisions, settings, mutation guard,
 reconciliation counts, ordered page digests, schema, columns, pagination, and
 integrity fields. The server recomputes a page digest before considering a
 conditional `304`; corrupt or missing cache state fails closed.
+
+Bulk, page, build-status, and terminal-event payloads expose exactly one
+canonical snapshot `revision` and one `row_count`. They do not repeat those
+values under compatibility aliases. `page_digest` and the named integrity
+digests remain because they identify distinct page or metadata representations.
 
 The Living `excel` projection pins exactly the 26 fields consumed by the
 Excel calculator, in this order:

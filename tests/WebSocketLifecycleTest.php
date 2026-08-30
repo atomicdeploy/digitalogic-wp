@@ -1218,8 +1218,8 @@ final class WebSocketLifecycleTest extends TestCase {
 				'pricing_policy_revision'=> 'sha256:' . str_repeat( '8', 64 ),
 				'catalog_revision'       => 'sha256:' . str_repeat( '6', 64 ),
 				'snapshot_token'         => $token,
-				'snapshot_revision'      => $revision,
-				'digest'                 => $revision,
+				'revision'               => $revision,
+				'row_count'              => 757,
 				'snapshot_path'          => '/wp-json/digitalogic/pricing/sync/snapshots/' . $token
 					. '?source_id=' . rawurlencode( $source['id'] )
 					. '&source_dataset=' . rawurlencode( $source['dataset'] )

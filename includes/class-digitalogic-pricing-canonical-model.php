@@ -25,6 +25,9 @@ interface Digitalogic_Pricing_Provider_Adapter_Interface {
 	public function source_state( $source_id, $dataset );
 	public function source_status();
 	public function event_principal();
+	public function websocket_protected_headers();
+	public function authenticate_websocket( $headers );
+	public function websocket_context_is_current( $context );
 	public function state_option_name();
 	public function settings_option_name();
 	public function stale_after_seconds();
@@ -305,6 +308,54 @@ final class Digitalogic_Patris_Pricing_Provider_Adapter implements Digitalogic_P
 		return 'patris_pricing';
 	}
 
+	public function websocket_protected_headers() {
+		return array(
+			'x-patris-product-sync-secret',
+			'x-patris-source-id',
+			'x-patris-source-dataset',
+		);
+	}
+
+	public function authenticate_websocket( $headers ) {
+		$headers = is_array( $headers ) ? array_change_key_case( $headers, CASE_LOWER ) : array();
+		$secret  = isset( $headers['x-patris-product-sync-secret'] )
+			? (string) $headers['x-patris-product-sync-secret']
+			: '';
+		$source  = array(
+			'id'      => isset( $headers['x-patris-source-id'] ) ? trim( (string) $headers['x-patris-source-id'] ) : '',
+			'dataset' => isset( $headers['x-patris-source-dataset'] ) ? trim( (string) $headers['x-patris-source-dataset'] ) : '',
+		);
+		$feed    = Digitalogic_Patris_Feed::instance();
+		$this->refresh_websocket_auth_options( $feed );
+		$scopes  = $feed->get_product_sync_source_scopes();
+		$allowed = '' !== $source['id']
+			&& '' !== $source['dataset']
+			&& ! empty( $scopes )
+			&& $feed->verify_product_sync_credential_for_source( $secret, $source, false );
+
+		return array(
+			'authenticated'          => (bool) $allowed,
+			'user_id'                => 0,
+			'principal'              => $allowed ? $this->event_principal() : '',
+			'source'                 => $allowed ? $source : array(),
+			'credential_fingerprint' => $allowed ? $feed->product_sync_credential_fingerprint_for_source( $source ) : '',
+		);
+	}
+
+	public function websocket_context_is_current( $context ) {
+		$context = is_array( $context ) ? $context : array();
+		$source  = isset( $context['source'] ) && is_array( $context['source'] ) ? $context['source'] : array();
+		$stored  = isset( $context['credential_fingerprint'] ) ? (string) $context['credential_fingerprint'] : '';
+		if ( '' === $stored ) {
+			return false;
+		}
+		$feed = Digitalogic_Patris_Feed::instance();
+		$this->refresh_websocket_auth_options( $feed );
+		$current = $feed->product_sync_credential_fingerprint_for_source( $source );
+
+		return '' !== $current && hash_equals( $stored, $current );
+	}
+
 	public function state_option_name() {
 		return Digitalogic_Product_Sync_Receiver::STATE_OPTION;
 	}
@@ -328,6 +379,16 @@ final class Digitalogic_Patris_Pricing_Provider_Adapter implements Digitalogic_P
 			'delete_tracking'     => true,
 			'digest_algorithms'   => array( 'sha256' ),
 		);
+	}
+
+	private function refresh_websocket_auth_options( $feed ) {
+		if ( ! function_exists( 'wp_cache_delete' ) ) {
+			return;
+		}
+		wp_cache_delete( 'alloptions', 'options' );
+		wp_cache_delete( 'notoptions', 'options' );
+		wp_cache_delete( Digitalogic_Patris_Feed::PRODUCT_SYNC_SECRET_OPTION, 'options' );
+		wp_cache_delete( Digitalogic_Patris_Feed::PRODUCT_SYNC_SCOPES_OPTION, 'options' );
 	}
 }
 
