@@ -42,6 +42,7 @@ final class Digitalogic_Product_Identity {
 		add_filter( 'rank_math/woocommerce/og_price', array( $this, 'suppress_unavailable_rank_math_price' ), 10, 1 );
 		add_filter( 'rank_math/opengraph/twitter/twitter_label1', array( $this, 'suppress_unavailable_rank_math_price' ), 10, 1 );
 		add_filter( 'rank_math/opengraph/twitter/twitter_data1', array( $this, 'suppress_unavailable_rank_math_price' ), 10, 1 );
+		add_filter( 'rank_math/opengraph/slack_enhanced_data', array( $this, 'suppress_unavailable_rank_math_slack_price' ), 10, 1 );
 		add_action( 'wp_enqueue_scripts', array( $this, 'enqueue_assets' ), 90 );
 	}
 
@@ -252,6 +253,28 @@ final class Digitalogic_Product_Identity {
 		$product = $this->current_product();
 
 		return $this->is_canonical_unpriced( $product ) ? false : $value;
+	}
+
+	/**
+	 * Remove Rank Math's Slack/Twitter price pair without losing availability.
+	 *
+	 * Rank Math emits its twitter:label/data product cards from the Slack
+	 * enhanced-data array, so its network-specific tag filters use `slack`
+	 * rather than `twitter`. Removing the translated Price entry before tag
+	 * numbering preserves every other enhanced field and avoids a zero-price
+	 * placeholder for canonical unpriced products.
+	 *
+	 * @param mixed $data Existing Rank Math enhanced-data map.
+	 * @return mixed
+	 */
+	public function suppress_unavailable_rank_math_slack_price( $data ) {
+		if ( ! is_array( $data ) || ! $this->is_canonical_unpriced( $this->current_product() ) ) {
+			return $data;
+		}
+
+		unset( $data[ __( 'Price', 'seo-by-rank-math' ) ], $data['Price'] );
+
+		return $data;
 	}
 
 	/** Return the exact current product without fabricating a request context. */
