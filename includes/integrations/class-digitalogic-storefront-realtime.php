@@ -303,7 +303,7 @@ final class Digitalogic_Storefront_Realtime {
 
 		$cursor  = $this->request_cursor( $request );
 		$latest  = Digitalogic_Panel::get_latest_event_id( true );
-		$user_id = get_current_user_id();
+		$user_id = $this->stream_user_id( $request );
 		if ( 0 === $cursor || $cursor > $latest ) {
 			$cursor = $latest;
 			$this->write_event(
@@ -350,6 +350,41 @@ final class Digitalogic_Storefront_Realtime {
 			$this->flush_output();
 			usleep( self::POLL_MICROSECONDS );
 		}
+	}
+
+	/**
+	 * Resolve the signed-in storefront audience for an EventSource request.
+	 *
+	 * WordPress REST cookie authentication can reset the current user to zero
+	 * before this streaming response is served. Revalidate the same logged-in
+	 * cookie and REST nonce explicitly so targeted events never fall back to the
+	 * guest audience and a cookie alone is never sufficient.
+	 *
+	 * @param WP_REST_Request $request Current SSE request.
+	 * @return int Authenticated WordPress user ID, or zero for guests.
+	 */
+	private function stream_user_id( $request ) {
+		$user_id = get_current_user_id();
+		if ( $user_id > 0 ) {
+			return $user_id;
+		}
+		if ( ! function_exists( 'wp_validate_auth_cookie' ) || ! function_exists( 'wp_set_current_user' ) ) {
+			return 0;
+		}
+
+		$nonce          = sanitize_text_field( (string) $request->get_param( '_wpnonce' ) );
+		$cookie_user_id = absint( wp_validate_auth_cookie( '', 'logged_in' ) );
+		if ( '' === $nonce || $cookie_user_id <= 0 ) {
+			return 0;
+		}
+
+		wp_set_current_user( $cookie_user_id );
+		if ( ! wp_verify_nonce( $nonce, 'wp_rest' ) ) {
+			wp_set_current_user( 0 );
+			return 0;
+		}
+
+		return $cookie_user_id;
 	}
 
 	/**
