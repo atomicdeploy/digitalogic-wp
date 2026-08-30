@@ -347,6 +347,17 @@ test('Dashboard warnings use sync status and cannot be changed by shipping metad
   assert.doesNotMatch(professionalDashboardSource, /Products!\$[A-Z]+\$3:\$[A-Z]+/);
 });
 
+test('localized catalog views refresh dynamic header-resolved bounds on full and unchanged syncs', () => {
+  assert.equal(sandbox.module.exports.columnNumberToA1_(1), 'A');
+  assert.equal(sandbox.module.exports.columnNumberToA1_(26), 'Z');
+  assert.equal(sandbox.module.exports.columnNumberToA1_(27), 'AA');
+  assert.throws(() => sandbox.module.exports.columnNumberToA1_(0), /positive integer/);
+  assert.equal((source.match(/refreshLocalizedCatalogViews_\(spreadsheet\);/g) || []).length, 2);
+  assert.match(source, /getDisplayValues\(\)\[0\]/);
+  assert.match(source, /const lastRow = Math\.max\(products\.getLastRow\(\), 3\)/);
+  assert.doesNotMatch(source, /Products!\$A\$3:\$A\$1103/);
+});
+
 test('explicit spreadsheet destinations remain supported for scheduled standalone sync', () => {
   const expected = { id: 'sheet-123' };
   sandbox.SpreadsheetApp = {
@@ -435,6 +446,7 @@ test('standalone scheduled sync uses script state and leaves writeback workspace
   standalone.calculateRevision_ = () => `sha256:${'1'.repeat(64)}`;
   standalone.calculateManagedSheetRevision_ = () => projectionRevision;
   standalone.upsertDataset_ = (target, dataset) => upserts.push([target, dataset.id]);
+  standalone.refreshLocalizedCatalogViews_ = () => false;
   standalone.ensureWritebackWorkspace_ = () => {
     workspaceCalls += 1;
     throw new Error('catalog sync must not create writeback tabs');
@@ -506,6 +518,7 @@ test('unchanged catalog readback clears an earlier sync error and records pricin
   standalone.fetchPricingSettings_ = () => ({ state_revision: pricingRevision });
   standalone.upsertPricingSettings_ = () => {};
   standalone.upsertDataset_ = () => { throw new Error('unchanged sync must not rewrite managed tabs'); };
+  standalone.refreshLocalizedCatalogViews_ = () => false;
 
   const result = standalone.module.exports.syncCatalog();
 
