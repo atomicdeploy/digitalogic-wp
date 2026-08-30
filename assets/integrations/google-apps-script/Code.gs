@@ -484,7 +484,7 @@ function fetchPricingSettings_(config) {
 function validatePricingSettingsState_(state) {
   const settings = state && state.settings;
   if (!state || typeof state !== 'object' || Array.isArray(state)
-    || state.schema !== 'digitalogic.pricing-sync-state'
+    || state.schema !== 'digitalogic.pricing-sync-state/v1'
     || !/^sha256:[a-f0-9]{64}$/.test(String(state.state_revision || ''))
     || !settings || typeof settings !== 'object' || Array.isArray(settings)
     || !/^(?:0|[1-9][0-9]{0,9})$/.test(pricingSettingText_(settings.dollar_price))
@@ -696,7 +696,7 @@ function postPricingSettings_(config, request) {
     throw new Error('Digitalogic pricing update HTTP ' + status + ': ' + code);
   }
   const data = payload.data;
-  if (!data || data.schema !== 'digitalogic.pricing-coordinator-result'
+  if (!data || data.schema !== 'digitalogic.pricing-coordinator-result/v1'
     || !/^sha256:[a-f0-9]{64}$/.test(String(data.state_revision || ''))
     || !data.settings || typeof data.settings !== 'object' || Array.isArray(data.settings)) {
     throw new Error('Malformed Digitalogic pricing update response.');

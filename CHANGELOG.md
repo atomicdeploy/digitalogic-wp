@@ -7,76 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.8.46] - 2026-08-30
+## [1.8.47] - 2026-08-31
 
 ### Fixed
-- Add a no-cache JSON event poll under the same single-tab leader as SSE, so
-  browsers that do not dispatch long-lived EventSource messages still receive
-  currency, product, and targeted notification updates within three seconds
-  and relay them to all matching tabs through BroadcastChannel/localStorage.
-
-## [1.8.45] - 2026-08-30
-
-### Fixed
-- Revalidate the signed-in WordPress cookie and REST nonce inside storefront
-  SSE requests so user-, role-, and attribute-targeted notifications resolve
-  the correct audience even when REST cookie authentication resets the current
-  user before the streaming response is served.
-
-## [1.8.44] - 2026-08-30
-
-### Fixed
-- Discard inherited gzip output buffers before sending SSE headers so browsers
-  receive parseable identity-coded event frames immediately instead of a
-  compressed prefix followed by the live stream.
-
-## [1.8.43] - 2026-08-30
-
-### Fixed
-- Authenticate signed-in storefront EventSource requests with a REST nonce so
-  user-, role-, and attribute-targeted notifications are projected to the
-  correct live audience without a page reload.
-
-## [1.8.42] - 2026-08-30
-
-### Fixed
+- Route missing or stale identity-safe pricing targets through the canonical
+  Patris feed writer, verify their exact source projection, and emit incomplete
+  product alerts only after the pricing lock is released.
 - Keep identity-safe products with positive physical stock public but
   non-purchasable when their canonical price is unavailable. The source stock
   remains in Patris metadata while WooCommerce operational stock stays zero
   until a valid price arrives, preventing automatic `instock` snapback and a
   permanently retrying product-sync queue.
-- Force each bounded storefront SSE poll to bypass WordPress's request-local
-  option cache, so currency, product, toast, and banner events committed after
-  the stream opened are delivered immediately instead of only after reconnect.
-
-## [1.8.41] - 2026-08-30
-
-### Fixed
+- Materialize every identity-safe Patris source leaf even when commerce or
+  enrichment data is incomplete, keeping unavailable prices blank and products
+  public but non-purchasable until canonical data arrives.
+- Omit unavailable Rank Math Open Graph, Twitter, and schema offer prices for
+  canonical unpriced products instead of exposing a zero-price placeholder.
 - Compare numeric Patris metadata using WordPress/MySQL scalar storage semantics
   during exact readback, without changing rollback backups or masking real late
   clobbers.
+- Preserve each exact pricing state-event retry through scheduler lock timeouts, running-worker handoffs, and bounded Action Scheduler or WP-Cron degradation without collapsing distinct fallback identities.
+- Keep a delivered state identity in the durable outbox until its bounded receipt commits, preventing replay after receipt failure or panel rotation.
+- Retire normalized receipts and delivered markers before ordered source removal, while preserving one fresh composite event when the same source is rapidly reintroduced.
 
 ## [1.8.40] - 2026-08-30
 
 ### Added
 - Deliver privacy-filtered, accessible storefront toasts and banners through the existing durable notification event, live SSE connection, Redis/WebSocket publisher, and cross-tab relay.
 - Support broadcast, user-ID, role, exact user-attribute, device, and operator audiences with `any`/`all` matching, server-side filtering, expiry, dismissal, severity, same-origin links, and text-only rendering.
-- Extend `wp digitalogic event-mesh notify` with inline storefront options and JSON receipts, and document the authenticated `digitalogic/v1` n8n notification endpoint.
-- Add bounded, audited Product Code editing with exact compare-and-swap, idempotent recovery, source-governance guards, uniqueness checks, and targeted rollback.
-- Add durable asynchronous currency and Excel pricing-apply jobs with exact request replay, status, cancellation, batches of at most 25 Product Codes, workbook acknowledgement, bounded compensation, and terminal outbox receipts.
-- Add provider, WooCommerce, and consumer adapter boundaries, canonical semantic pricing state, capability-aware recovery, and actionable non-blocking diagnostics for safe optional metadata differences.
-- Add transition-only Persian operator alerts for incomplete Patris products with explicit channel routing, bounded retry, repair, and provider-receipt validation.
-
-### Changed
-- Consolidate pricing state, preview, apply, projection snapshots, and the protected pricing WebSocket stream into one Living contract without version-suffixed schemas, subprotocols, private identifiers, or Excel-prefixed compatibility routes.
-- Reduce the public Excel projection to the exact 26 workbook fields while retaining the complete reconciled catalog as an internal build input.
-
-### Fixed
-- Materialize every identity-safe Patris source leaf even when commerce or enrichment data is incomplete, keeping unavailable prices blank and products public but non-purchasable until canonical data arrives.
-- Omit unavailable Rank Math Open Graph, Twitter, and schema offer prices for canonical unpriced products instead of exposing a zero-price placeholder.
-- Preserve exact pricing state-event retries through scheduler lock timeouts, running-worker handoffs, and bounded Action Scheduler or WP-Cron degradation without collapsing distinct fallback identities.
-- Keep delivered state identities in the durable outbox until their bounded receipts commit, preventing replay after receipt failure or panel rotation.
-- Retire normalized receipts and delivered markers before ordered source removal while preserving one fresh composite event when the same source is rapidly reintroduced.
+- Extend `wp digitalogic event-mesh notify` with inline storefront options and JSON receipts, and document the existing authenticated version-less n8n notification endpoint.
 
 ### Security
 - Partition browser coordination and cursors by an opaque signed-in audience key, reject secret-bearing attribute selectors, and omit audience criteria, workstation actions, response fields, sources, and credentials from the public SSE projection.
@@ -267,7 +226,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.8.6] - 2026-08-23
 
 ### Added
-- Added the durable `pricing.snapshot.build.terminal` event required by the
+- Added the durable `pricing.snapshot.build.terminal` v1 event required by the
   Patris pricing companion. Ready, failed, and cancelled builds now publish an
   exact-source, service-only, secret-free terminal envelope for every request
   attached to a single-flight build.
@@ -302,7 +261,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   retry semantics, and backwards-compatible existing pricing routes.
 - Added persistent catalog-generation invalidation for pricing applies and the
   WooCommerce, Patris, category, attachment, metadata, URL, weight, currency,
-  shipping, and pricing inputs consumed by the Living `excel` projection.
+  shipping, and pricing inputs consumed by the `excel-v1` projection.
 - Added focused snapshot lifecycle, rollback, replay, conditional request,
   corruption, freshness, exact-schema, route-permission, and
   production-consistency fixture tests.

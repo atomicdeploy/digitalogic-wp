@@ -115,13 +115,7 @@ final class EventMeshTest extends TestCase {
 		$this->assertSame( 'both', $result['display'] );
 		$this->assertSame( 60000, $result['duration_ms'] );
 		$this->assertFalse( $result['dismissible'] );
-		$this->assertSame(
-			array(
-				'href'  => '/shop/',
-				'label' => 'Shop',
-			),
-			$result['link']
-		);
+		$this->assertSame( array( 'href' => '/shop/', 'label' => 'Shop' ), $result['link'] );
 		$this->assertSame( array( 'customer' ), $result['audience']['roles'] );
 		$this->assertSame( array( 'billing_country' => array( 'IR' ) ), $result['audience']['attributes'] );
 		$this->assertSame( 'all', $result['audience']['match'] );
@@ -136,16 +130,16 @@ final class EventMeshTest extends TestCase {
 			'roles'        => array( 'customer' ),
 		);
 		$GLOBALS['digitalogic_test_user_meta'][42]   = array(
-			'billing_country'    => 'IR',
+			'billing_country'   => 'IR',
 			'preferred_language' => 'fa_IR',
 		);
-		$event                                       = array(
+		$event = array(
 			'name' => 'workstation.notification',
 			'data' => array(
 				'audience' => array(
 					'roles'           => array( 'customer' ),
 					'attributes'      => array(
-						'billing_country'    => array( 'IR' ),
+						'billing_country'   => array( 'IR' ),
 						'preferred_language' => array( 'fa_IR' ),
 					),
 					'match'           => 'all',
@@ -184,180 +178,6 @@ final class EventMeshTest extends TestCase {
 
 		$this->assertTrue( Digitalogic_Event_Mesh::event_visible_to( $event, 8, '' ) );
 		$this->assertFalse( Digitalogic_Event_Mesh::event_visible_to( $event, 9, '' ) );
-	}
-
-	/** A safe source-scoped event survives provider representation differences. */
-	public function test_pricing_source_authorization_is_independent_from_optional_representation(): void {
-		$source = array(
-			'id'      => 'patris-office',
-			'dataset' => 'kala.db',
-		);
-		$event  = array(
-			'id'   => 101,
-			'name' => 'pricing.state.changed',
-			'data' => array(
-				'source'             => $source + array( 'provider_label' => 'Office feed' ),
-				'provider_extension' => array( 'page_size' => 75 ),
-				'audience'           => array( 'services' => array( 'patris_pricing' ) ),
-			),
-		);
-
-		$decision = Digitalogic_Event_Mesh::pricing_event_delivery_decision( $event, 'patris_pricing', $source );
-		$this->assertTrue( $decision['visible'] );
-		$this->assertTrue( $decision['authorized'] );
-		$this->assertFalse( $decision['blocking'] );
-		$this->assertSame( 'conditional_refresh', $decision['recovery']['action'] );
-		$this->assertSame( 3, $decision['recovery']['max_attempts'] );
-		$this->assertSame( 30, $decision['recovery']['timeout_seconds'] );
-		$this->assertContains( 'metadata_warning', array_column( $decision['diagnostics'], 'code' ) );
-		$this->assertContains( 'provider_capability_missing', array_column( $decision['diagnostics'], 'code' ) );
-		$this->assertSame( $event['data']['provider_extension'], $decision['data']['provider_extension'] );
-		$this->assertTrue( Digitalogic_Event_Mesh::event_visible_to( $event, 0, '', 'patris_pricing', $source ) );
-
-		$other_source = array(
-			'id'      => $source['id'],
-			'dataset' => 'other.db',
-		);
-		$unrelated    = Digitalogic_Event_Mesh::pricing_event_delivery_decision( $event, 'patris_pricing', $other_source );
-		$this->assertFalse( $unrelated['visible'] );
-		$this->assertFalse( $unrelated['blocking'] );
-	}
-
-	/** Apply terminal delivery is source-scoped and does not require revision capability. */
-	public function test_pricing_apply_terminal_event_is_tolerant_and_source_scoped(): void {
-		$source = array(
-			'id'      => 'patris-office',
-			'dataset' => 'kala.db',
-		);
-		$job_id = 'job_' . str_repeat( '2', 32 );
-		$event  = array(
-			'id'   => 104,
-			'name' => 'pricing.apply.terminal',
-			'data' => array(
-				'schema'          => 'digitalogic.pricing-apply-terminal',
-				'job_id'          => $job_id,
-				'request_id'      => 'excel-apply-terminal-0001',
-				'status'          => 'completed',
-				'phase'           => 'terminal',
-				'source'          => $source,
-				'row_count'       => 757,
-				'code'            => 'completed',
-				'retryable'       => false,
-				'idempotency_key' => 'pricing-apply:' . $job_id,
-				'status_path'     => '/wp-json/digitalogic/pricing/sync/jobs/' . $job_id . '?source_id=patris-office&source_dataset=kala.db',
-				'revision_path'   => '/wp-json/digitalogic/pricing/sync/revision',
-				'audience'        => array( 'services' => array( 'patris_pricing' ) ),
-			),
-		);
-
-		$decision = Digitalogic_Event_Mesh::pricing_event_delivery_decision( $event, 'patris_pricing', $source );
-		$this->assertTrue( $decision['visible'] );
-		$this->assertTrue( $decision['authorized'] );
-		$this->assertFalse( $decision['blocking'] );
-		$this->assertSame( 'completed', $decision['data']['status'] );
-		$this->assertSame( 757, $decision['data']['row_count'] );
-		$this->assertArrayNotHasKey( 'state_revision', $decision['data'] );
-
-		$other_source = array(
-			'id'      => $source['id'],
-			'dataset' => 'other.db',
-		);
-		$unrelated    = Digitalogic_Event_Mesh::pricing_event_delivery_decision( $event, 'patris_pricing', $other_source );
-		$this->assertFalse( $unrelated['visible'] );
-		$this->assertFalse( $unrelated['blocking'] );
-
-		$event['data']['idempotency_key'] = 'pricing-apply:job_wrong';
-		$unsafe                           = Digitalogic_Event_Mesh::pricing_event_delivery_decision( $event, 'patris_pricing', $source );
-		$this->assertFalse( $unsafe['visible'] );
-		$this->assertTrue( $unsafe['blocking'] );
-		$this->assertSame( 'unsafe_event_identity', $unsafe['diagnostics'][0]['code'] );
-	}
-
-	/** Canonical revision is independent from an optional negotiated digest. */
-	public function test_terminal_event_uses_canonical_revision_and_optional_distinct_digest(): void {
-		$source = array(
-			'id'       => 'patris-office',
-			'dataset'  => 'kala.db',
-			'revision' => 'sha256:' . str_repeat( '1', 64 ),
-		);
-		$event  = array(
-			'id'   => 102,
-			'name' => 'pricing.snapshot.build.terminal',
-			'data' => array(
-				'schema'                  => 'provider.snapshot.ready',
-				'schema_version'          => 42,
-				'projection'              => 'canonical',
-				'build_id'                => 'build_' . str_repeat( '2', 32 ),
-				'request_id'              => 'request-canonical-0001',
-				'status'                  => 'ready',
-				'source'                  => $source,
-				'state_revision'          => 'sha256:' . str_repeat( '3', 64 ),
-				'etag'                    => '"sha256:' . str_repeat( '3', 64 ) . '"',
-				'pricing_state_revision'  => 'sha256:' . str_repeat( '4', 64 ),
-				'pricing_policy_revision' => 'sha256:' . str_repeat( '7', 64 ),
-				'catalog_revision'        => 'sha256:' . str_repeat( '5', 64 ),
-				'snapshot_token'          => 'snapshot-canonical-0001',
-				'revision'                => 'sha256:' . str_repeat( '6', 64 ),
-				'row_count'               => 757,
-				'snapshot_path'           => '/provider/snapshot/current',
-				'revision_path'           => '/provider/revision/current',
-				'audience'                => array( 'services' => array( 'patris_pricing' ) ),
-			),
-		);
-
-		$without_digest = Digitalogic_Event_Mesh::pricing_event_delivery_decision( $event, 'patris_pricing', $source );
-		$this->assertTrue( $without_digest['visible'] );
-		$this->assertFalse( $without_digest['blocking'] );
-		$this->assertArrayNotHasKey( 'snapshot_revision', $without_digest['data'] );
-		$this->assertSame( $event['data']['revision'], $without_digest['data']['revision'] );
-		$this->assertContains( 'provider_capability_missing', array_column( $without_digest['diagnostics'], 'code' ) );
-		$this->assertSame( 'consume_event', $without_digest['recovery']['action'] );
-
-		$event['data']['snapshot_revision'] = $event['data']['revision'];
-		$event['data']['digest']            = $event['data']['revision'];
-		$without_duplicates                 = Digitalogic_Event_Mesh::pricing_event_delivery_decision( $event, 'patris_pricing', $source );
-		$this->assertTrue( $without_duplicates['visible'] );
-		$this->assertArrayNotHasKey( 'snapshot_revision', $without_duplicates['data'] );
-		$this->assertArrayNotHasKey( 'digest', $without_duplicates['data'] );
-		$this->assertContains( 'metadata_warning', array_column( $without_duplicates['diagnostics'], 'code' ) );
-
-		unset( $event['data']['snapshot_revision'] );
-		$event['data']['digest'] = 'sha256:' . str_repeat( 'a', 64 );
-		$with_distinct_digest    = Digitalogic_Event_Mesh::pricing_event_delivery_decision( $event, 'patris_pricing', $source );
-		$this->assertTrue( $with_distinct_digest['visible'] );
-		$this->assertSame( $event['data']['digest'], $with_distinct_digest['data']['digest'] );
-		$this->assertNotContains( 'optional_digest_mismatch', array_column( $with_distinct_digest['diagnostics'], 'code' ) );
-	}
-
-	/** Unsafe identity or credential metadata remains a blocking secret-free result. */
-	public function test_pricing_unsafe_or_ambiguous_identity_is_blocking_without_leaking_values(): void {
-		$source = array(
-			'id'      => 'patris-office',
-			'dataset' => 'kala.db',
-		);
-		$event  = array(
-			'id'   => 103,
-			'name' => 'pricing.state.changed',
-			'data' => array(
-				'source'   => array( 'id' => $source['id'] ),
-				'audience' => array( 'services' => array( 'patris_pricing' ) ),
-			),
-		);
-
-		$ambiguous = Digitalogic_Event_Mesh::pricing_event_delivery_decision( $event, 'patris_pricing', $source );
-		$this->assertFalse( $ambiguous['visible'] );
-		$this->assertTrue( $ambiguous['blocking'] );
-		$this->assertSame( 'unsafe_source_identity', $ambiguous['diagnostics'][0]['code'] );
-		$this->assertSame( 'ERROR', $ambiguous['diagnostics'][0]['severity'] );
-		$this->assertTrue( $ambiguous['diagnostics'][0]['blocking'] );
-		$this->assertSame( 'stop_and_reauthorize', $ambiguous['recovery']['action'] );
-		$this->assertSame( array(), $ambiguous['data'] );
-
-		$event['data']['source'] = $source + array( 'secret' => 'must-not-pass' );
-		$sensitive               = Digitalogic_Event_Mesh::pricing_event_delivery_decision( $event, 'patris_pricing', $source );
-		$this->assertTrue( $sensitive['blocking'] );
-		$this->assertSame( 'unsafe_event_metadata', $sensitive['diagnostics'][0]['code'] );
-		$this->assertStringNotContainsString( 'must-not-pass', wp_json_encode( $sensitive ) );
 	}
 
 	public function test_presence_requires_combined_fresh_evidence_before_marking_away(): void {

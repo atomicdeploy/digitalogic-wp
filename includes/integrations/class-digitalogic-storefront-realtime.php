@@ -15,7 +15,6 @@ if ( ! defined( 'ABSPATH' ) ) {
 final class Digitalogic_Storefront_Realtime {
 
 	private const REST_ROUTE            = '/events/stream';
-	private const POLL_ROUTE            = '/events/poll';
 	private const STREAM_SECONDS        = 20;
 	private const POLL_MICROSECONDS     = 500000;
 	private const HEARTBEAT_SECONDS     = 8;
@@ -68,15 +67,6 @@ final class Digitalogic_Storefront_Realtime {
 				'permission_callback' => '__return_true',
 			)
 		);
-		register_rest_route(
-			'digitalogic/v1',
-			self::POLL_ROUTE,
-			array(
-				'methods'             => 'GET',
-				'callback'            => array( $this, 'poll_events' ),
-				'permission_callback' => '__return_true',
-			)
-		);
 	}
 
 	/**
@@ -86,39 +76,6 @@ final class Digitalogic_Storefront_Realtime {
 	 */
 	public function stream_descriptor() {
 		return new WP_REST_Response( array( 'stream' => true ), 200 );
-	}
-
-	/**
-	 * Return one bounded JSON projection as a browser compatibility fallback.
-	 *
-	 * @param WP_REST_Request $request Current poll request.
-	 * @return WP_REST_Response
-	 */
-	public function poll_events( $request ) {
-		$cursor    = $this->request_cursor( $request );
-		$user_id   = $this->stream_user_id( $request );
-		$events    = Digitalogic_Panel::get_events_since( $cursor, true );
-		$projected = array();
-		$latest    = $cursor;
-
-		foreach ( $events as $event ) {
-			$latest = max( $latest, absint( $event['id'] ?? 0 ) );
-			$public = self::project_public_event( $event, $user_id );
-			if ( null !== $public ) {
-				$projected[] = $public;
-			}
-		}
-
-		$response = new WP_REST_Response(
-			array(
-				'events'         => $projected,
-				'latestEventId'  => $latest,
-			),
-			200
-		);
-		$response->header( 'Cache-Control', 'no-cache, no-store, must-revalidate' );
-
-		return $response;
 	}
 
 	/**
@@ -169,21 +126,12 @@ final class Digitalogic_Storefront_Realtime {
 		$audience_key = $user_id > 0
 			? substr( hash_hmac( 'sha256', (string) $user_id, wp_salt( 'nonce' ) ), 0, 20 )
 			: 'guest';
-		$stream_url   = rest_url( 'digitalogic/v1' . self::REST_ROUTE );
-		$poll_url     = rest_url( 'digitalogic/v1' . self::POLL_ROUTE );
-		if ( $user_id > 0 ) {
-			// EventSource cannot set X-WP-Nonce. The query nonce lets REST cookie
-			// authentication preserve the signed-in audience for server projection.
-			$stream_url = add_query_arg( '_wpnonce', wp_create_nonce( 'wp_rest' ), $stream_url );
-			$poll_url   = add_query_arg( '_wpnonce', wp_create_nonce( 'wp_rest' ), $poll_url );
-		}
 
 		wp_localize_script(
 			'digitalogic-storefront-realtime',
 			'DigitalogicRealtime',
 			array(
-				'streamUrl'        => $stream_url,
-				'pollUrl'          => $poll_url,
+				'streamUrl'        => rest_url( 'digitalogic/v1' . self::REST_ROUTE ),
 				'currentProductId' => $product_id,
 				'initialEventId'   => Digitalogic_Panel::get_latest_event_id(),
 				'currency'         => self::currency_snapshot(),
@@ -191,7 +139,6 @@ final class Digitalogic_Storefront_Realtime {
 				'audienceKey'      => $audience_key,
 				'currencyTtlMs'    => 6 * HOUR_IN_SECONDS * 1000,
 				'leaderTtlMs'      => 12000,
-				'pollIntervalMs'   => 3000,
 			)
 		);
 	}
@@ -337,20 +284,20 @@ final class Digitalogic_Storefront_Realtime {
 	 * @param WP_REST_Request $request Current SSE request.
 	 */
 	private function serve_stream( $request ) {
-		$this->disable_output_buffering();
 		if ( ! headers_sent() ) {
 			header( 'Content-Type: text/event-stream; charset=utf-8' );
 			header( 'Cache-Control: no-cache, no-store, must-revalidate' );
 			header( 'X-Accel-Buffering: no' );
 			header( 'Content-Encoding: identity' );
 		}
+		$this->disable_output_buffering();
 
 		@set_time_limit( self::STREAM_SECONDS + 5 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
 		ignore_user_abort( true );
 
 		$cursor  = $this->request_cursor( $request );
-		$latest  = Digitalogic_Panel::get_latest_event_id( true );
-		$user_id = $this->stream_user_id( $request );
+		$latest  = Digitalogic_Panel::get_latest_event_id();
+		$user_id = get_current_user_id();
 		if ( 0 === $cursor || $cursor > $latest ) {
 			$cursor = $latest;
 			$this->write_event(
@@ -375,7 +322,7 @@ final class Digitalogic_Storefront_Realtime {
 
 		while ( ! connection_aborted() && microtime( true ) < $deadline ) {
 			$wrote_frame = false;
-			$events      = Digitalogic_Panel::get_events_since( $cursor, true );
+			$events      = Digitalogic_Panel::get_events_since( $cursor );
 			foreach ( $events as $event ) {
 				$cursor = max( $cursor, absint( $event['id'] ?? 0 ) );
 				$public = self::project_public_event( $event, $user_id );
@@ -397,41 +344,6 @@ final class Digitalogic_Storefront_Realtime {
 			$this->flush_output();
 			usleep( self::POLL_MICROSECONDS );
 		}
-	}
-
-	/**
-	 * Resolve the signed-in storefront audience for an EventSource request.
-	 *
-	 * WordPress REST cookie authentication can reset the current user to zero
-	 * before this streaming response is served. Revalidate the same logged-in
-	 * cookie and REST nonce explicitly so targeted events never fall back to the
-	 * guest audience and a cookie alone is never sufficient.
-	 *
-	 * @param WP_REST_Request $request Current SSE request.
-	 * @return int Authenticated WordPress user ID, or zero for guests.
-	 */
-	private function stream_user_id( $request ) {
-		$user_id = get_current_user_id();
-		if ( $user_id > 0 ) {
-			return $user_id;
-		}
-		if ( ! function_exists( 'wp_validate_auth_cookie' ) || ! function_exists( 'wp_set_current_user' ) ) {
-			return 0;
-		}
-
-		$nonce          = sanitize_text_field( (string) $request->get_param( '_wpnonce' ) );
-		$cookie_user_id = absint( wp_validate_auth_cookie( '', 'logged_in' ) );
-		if ( '' === $nonce || $cookie_user_id <= 0 ) {
-			return 0;
-		}
-
-		wp_set_current_user( $cookie_user_id );
-		if ( ! wp_verify_nonce( $nonce, 'wp_rest' ) ) {
-			wp_set_current_user( 0 );
-			return 0;
-		}
-
-		return $cookie_user_id;
 	}
 
 	/**
@@ -494,15 +406,6 @@ final class Digitalogic_Storefront_Realtime {
 			// phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged, WordPress.PHP.IniSet.Risky
 			@ini_set( 'zlib.output_compression', '0' );
 		}
-		// A gzip output handler can already be active when WordPress reaches the
-		// REST server. Flushing it emits a gzip member before the identity-coded
-		// SSE frames, which makes EventSource reject the response. No response
-		// body has been written yet, so discard and close every inherited buffer.
-		while ( function_exists( 'ob_get_level' ) && ob_get_level() > 0 ) {
-			if ( ! @ob_end_clean() ) { // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
-				break;
-			}
-		}
-		flush();
+		$this->flush_output();
 	}
 }

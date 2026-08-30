@@ -76,34 +76,27 @@ SKU is never used as a Patris matching fallback.
 
 ### Universal pricing synchronization
 
-Trusted Digitalogic components use the three POST operation routes
-`/wp-json/digitalogic/pricing/sync/{state,preview,apply}`, plus the source-scoped
-GET/DELETE job resource returned by an accepted apply.
-It is not Excel-specific. The local Patris `/api/pricing-sync` route is the
+Trusted Digitalogic components use the POST-only
+`/wp-json/digitalogic/pricing/sync/{state,preview,apply}` machine contract.
+It is not Excel-specific. The local Patris `/api/excel` route remains a
 software-specific workbook/VBA adapter and forwards to this universal
 WordPress contract.
 
 The remote machine surface is separate from the general `digitalogic/v1`
 management permission scopes and accepts only the existing exact
-`{id,dataset}`-scoped product-sync secret. It has one Living route and schema
-surface; versioned and Excel-prefixed remote aliases are not registered. See
-[Excel pricing adapter and universal pricing
+`{id,dataset}`-scoped product-sync secret. The deprecated
+`/wp-json/digitalogic/excel/pricing-sync/*` paths remain temporary,
+header-marked aliases. See [Excel pricing adapter and universal pricing
 synchronization](EXCEL-PRICING-SYNC.md) for the complete request shape,
 optimistic concurrency, preview confirmation, idempotency,
-seven-day/seven-percent warnings, durable asynchronous apply jobs, exact
-25-Product-Code batches, status/cancellation, compensation, and the credential
-boundary. `POST /pricing/sync/apply` returns `202`; clients then use the
-returned unversioned `GET|DELETE /pricing/sync/jobs/{request_id-or-job_id}` URL
-with the same exact source scope. Successful forward readback remains
-nonterminal at `awaiting_ack`; only the bound Excel acknowledgement can complete
-the job, while timeout enters the same bounded compensation path. Replaying the
-original POST identity is the only safe recovery after an unknown response.
+seven-day/seven-percent warnings, transaction behavior, and credential
+boundary.
 
 For large catalog reads, the additive pricing projection snapshot API exposes a
 cheap composite revision, asynchronous single-flight build, immutable bulk and
 fixed-page payloads, ETags, progress, cancellation, and fast capacity errors.
-It shares the same Living state/preview/apply contract. See [Pricing projection
-snapshot API](PRICING-SNAPSHOT-API.md).
+It leaves the existing state/preview/apply routes unchanged. See [Pricing
+projection snapshot API](PRICING-SNAPSHOT-API.md).
 
 ### List Products
 
@@ -348,7 +341,7 @@ RestartSec=5
 ```
 
 Patris pricing refresh uses a separate least-privilege service principal on
-the same WSS endpoint. It requires subprotocol `digitalogic.pricing`, the
+the same WSS endpoint. It requires subprotocol `digitalogic.pricing.v1`, the
 server-held product-sync secret plus exact source ID/dataset in headers, and an
 optional `Last-Event-ID`. It receives only scoped composite-state and
 source-change/removal events, plus explicit cursor-gap resets, and cannot run

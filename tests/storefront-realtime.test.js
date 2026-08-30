@@ -13,10 +13,6 @@ test('storefront client elects one SSE owner and relays through BroadcastChannel
     assert.match(source, /expiresAt/);
     assert.match(source, /writeLocal\(eventKey/);
     assert.match(source, /storageEvent\.key === eventKey/);
-    assert.match(source, /window\.fetch\(url\.toString\(\)/);
-    assert.match(source, /window\.setInterval\(pollEvents/);
-    assert.match(source, /if \(!config\.pollUrl \|\| !ownsLease\(\)/);
-    assert.match(source, /events\.forEach\(function \(event\) \{[\s\S]*relay\(event\)/);
 });
 
 test('storefront client uses persistent public cache and tab-scoped refresh guards', () => {
@@ -50,8 +46,7 @@ test('product updates refresh the live WooCommerce fragment and safely fall back
 test('SSE server is bounded, non-buffered, and public-event allowlisted', () => {
     assert.match(php, /Content-Type: text\/event-stream/);
     assert.match(php, /X-Accel-Buffering: no/);
-    assert.match(php, /ob_end_clean/);
-    assert.match(php, /disable_output_buffering\(\);[\s\S]*Content-Type: text\/event-stream/);
+    assert.match(php, /ob_end_flush/);
     assert.match(php, /zlib\.output_compression/);
     assert.match(php, /apache_setenv\( 'no-gzip'/);
     assert.match(php, /INITIAL_PADDING_BYTES\s*=\s*8192/);

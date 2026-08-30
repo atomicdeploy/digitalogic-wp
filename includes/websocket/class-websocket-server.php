@@ -108,12 +108,17 @@ class Digitalogic_WebSocket_Server {
         }
 
         list($headers, $query) = $this->parse_request($this->clients[$id]['headers']);
-		$provider_header_names     = Digitalogic_WebSocket_Auth::pricing_protected_headers();
-		$pricing_header_names      = array_merge(
-			$provider_header_names,
-			array( 'last-event-id', 'sec-websocket-key', 'sec-websocket-protocol' )
+		$pricing_header_names      = array(
+			'x-patris-product-sync-secret',
+			'x-patris-source-id',
+			'x-patris-source-dataset',
+			'last-event-id',
+			'sec-websocket-key',
+			'sec-websocket-protocol',
 		);
-		$pricing_header_attempted  = (bool) array_intersect( $provider_header_names, array_keys( $headers ) );
+		$pricing_header_attempted  = isset($headers['x-patris-product-sync-secret'])
+			|| isset($headers['x-patris-source-id'])
+			|| isset($headers['x-patris-source-dataset']);
 		$duplicate_headers         = isset($headers['__digitalogic_duplicate_headers'])
 			&& is_array($headers['__digitalogic_duplicate_headers'])
 			? $headers['__digitalogic_duplicate_headers']
@@ -126,16 +131,7 @@ class Digitalogic_WebSocket_Server {
 		$protocols                 = isset($headers['sec-websocket-protocol'])
 			? array_map('trim', explode(',', (string) $headers['sec-websocket-protocol']))
 			: array();
-		$pricing_service           = Digitalogic_WebSocket_Auth::is_pricing_context( $auth );
-		$pricing_protocol          = '';
-		if ( $pricing_service ) {
-			foreach ( $protocols as $protocol ) {
-				if ( 'digitalogic.pricing' === $protocol ) {
-					$pricing_protocol = $protocol;
-					break;
-				}
-			}
-		}
+		$pricing_service           = 'patris_pricing' === (string) ( $auth['principal'] ?? '' );
 		$invalid_pricing_cursor    = $pricing_service
 			&& isset($headers['last-event-id'])
 			&& ! $this->valid_event_cursor($headers['last-event-id']);
@@ -143,7 +139,7 @@ class Digitalogic_WebSocket_Server {
 			empty($auth['authenticated'])
 			|| empty($headers['sec-websocket-key'])
 			|| $invalid_pricing_cursor
-			|| ( $pricing_service && '' === $pricing_protocol )
+			|| ( $pricing_service && ! in_array('digitalogic.pricing.v1', $protocols, true) )
 		) {
             @fwrite($this->clients[$id]['socket'], "HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
             $this->close($id);
@@ -156,7 +152,7 @@ class Digitalogic_WebSocket_Server {
             . "Upgrade: websocket\r\n"
             . "Connection: Upgrade\r\n"
 			. "Sec-WebSocket-Accept: " . $accept . "\r\n"
-			. ( $pricing_service ? "Sec-WebSocket-Protocol: " . $pricing_protocol . "\r\n" : '' )
+			. ( $pricing_service ? "Sec-WebSocket-Protocol: digitalogic.pricing.v1\r\n" : '' )
 			. "\r\n";
 
 		$written = @fwrite($this->clients[ $id ]['socket'], $response);
@@ -175,7 +171,7 @@ class Digitalogic_WebSocket_Server {
 			? absint($this->clients[ $id ]['last_event_id'])
 			: 0;
 		if (
-			Digitalogic_WebSocket_Auth::is_pricing_context( $this->clients[ $id ] )
+			'patris_pricing' === $this->clients[ $id ]['principal']
 			&& isset($headers['last-event-id'])
 			&& preg_match('/\A[0-9]{1,20}\z/D', (string) $headers['last-event-id'])
 		) {
@@ -216,12 +212,6 @@ class Digitalogic_WebSocket_Server {
 			$connected['data']['cursor_reset_required']        = $cursor_reset_required;
 			$connected['data']['revision_validation_required'] = true;
 			$connected['data']['revision_path']                = '/wp-json/digitalogic/pricing/sync/revision';
-			$connected['data']['projection']                   = Digitalogic_Pricing_Snapshot::PROJECTION;
-			if ( $cursor_reset_required ) {
-				$delivery                         = $this->pricing_cursor_gap_delivery();
-				$connected['data']['diagnostics'] = $delivery['diagnostics'];
-				$connected['data']['recovery']    = $delivery['recovery'];
-			}
 		}
 		if ( ! $this->send_json($id, $connected) ) {
 			return;
@@ -279,7 +269,7 @@ class Digitalogic_WebSocket_Server {
             return;
         }
 
-		if ( Digitalogic_WebSocket_Auth::is_pricing_context( $this->clients[ $id ] ) ) {
+		if ( 'patris_pricing' === (string) ( $this->clients[ $id ]['principal'] ?? '' ) ) {
 			$this->send_error($id, $request_id, 'digitalogic_pricing_stream_read_only', __('The pricing event stream does not accept commands.', 'digitalogic'));
 			return;
 		}
@@ -365,7 +355,7 @@ class Digitalogic_WebSocket_Server {
                 continue;
             }
 
-			$pricing_service = Digitalogic_WebSocket_Auth::is_pricing_context( $client );
+			$pricing_service = 'patris_pricing' === (string) ( $client['principal'] ?? '' );
 			if (
 				$pricing_service
 				&& $revalidate_service
@@ -383,20 +373,18 @@ class Digitalogic_WebSocket_Server {
 					|| ( 0 === $window['oldest_event_id'] && $last_id < $window['latest_event_id'] );
 				if ( $gap ) {
 					$reset_cursor = $window['latest_event_id'];
-					$delivery     = $this->pricing_cursor_gap_delivery();
 					$sent         = $this->send_json($id, array(
-						'event'   => 'pricing.stream.diagnostic',
+						'event'   => 'pricing.stream.reset',
 						'success' => true,
-						'data'    => array_merge(
-							array(
+						'data'    => array(
+							'schema'                       => 'digitalogic.pricing-stream-reset/v1',
+							'schema_version'               => 1,
 							'reason'                       => 'cursor_gap',
 							'cursor'                       => $reset_cursor,
 							'oldest_event_id'              => $window['oldest_event_id'],
 							'latest_event_id'              => $window['latest_event_id'],
 							'revision_validation_required' => true,
 							'revision_path'                => '/wp-json/digitalogic/pricing/sync/revision',
-							),
-							$delivery
 						),
 					));
 					if ( $sent && isset($this->clients[ $id ]) ) {
@@ -436,22 +424,19 @@ class Digitalogic_WebSocket_Server {
             return;
         }
 
-		$pricing_service = Digitalogic_WebSocket_Auth::is_pricing_context( $this->clients[ $id ] );
+		$pricing_service = 'patris_pricing' === (string) ( $this->clients[ $id ]['principal'] ?? '' );
 		$visible         = true;
-		$delivery        = null;
 		if ( $pricing_service ) {
-			if ( class_exists('Digitalogic_Event_Mesh') ) {
-				$delivery = Digitalogic_Event_Mesh::pricing_event_delivery_decision(
+			$visible = class_exists('Digitalogic_Event_Mesh')
+				&& Digitalogic_Event_Mesh::event_visible_to(
 					$event,
-					Digitalogic_WebSocket_Auth::pricing_principal(),
+					0,
+					'',
+					'patris_pricing',
 					isset($this->clients[ $id ]['source']) && is_array($this->clients[ $id ]['source'])
 						? $this->clients[ $id ]['source']
 						: array()
 				);
-				$visible  = ! empty($delivery['visible']);
-			} else {
-				$visible = false;
-			}
 		} elseif ( class_exists('Digitalogic_Event_Mesh') ) {
 			$visible = Digitalogic_Event_Mesh::event_visible_to(
 				$event,
@@ -460,96 +445,24 @@ class Digitalogic_WebSocket_Server {
 			);
 		}
 		if ( ! $visible ) {
-			if ( $pricing_service && is_array($delivery) && ! empty($delivery['blocking']) ) {
-				$this->send_pricing_blocking_reset($id, $event_id, $delivery);
-				return;
-			}
 			if ( $event_id ) {
 				$this->clients[ $id ]['last_event_id'] = $event_id;
 			}
 			return;
         }
 
-		$payload = array(
+		$sent = $this->send_json($id, array(
             'event' => isset($event['name']) ? $event['name'] : (isset($event['event']) ? $event['event'] : 'panel.event'),
             'name' => isset($event['name']) ? $event['name'] : '',
             'success' => true,
-            'data' => $pricing_service && is_array($delivery) && isset($delivery['data']) && is_array($delivery['data'])
-				? $delivery['data']
-				: (isset($event['data']) && is_array($event['data']) ? $event['data'] : array()),
+            'data' => isset($event['data']) && is_array($event['data']) ? $event['data'] : array(),
             'time' => isset($event['time']) ? $event['time'] : '',
             'id' => $event_id,
-		);
-		if ( $pricing_service && is_array($delivery) && ! empty($delivery['diagnostics']) ) {
-			$payload['delivery'] = array(
-				'diagnostics' => $delivery['diagnostics'],
-				'recovery'    => $delivery['recovery'],
-			);
-		}
-		$sent = $this->send_json($id, $payload);
+        ));
 		if ( $sent && $event_id && isset($this->clients[ $id ]) ) {
 			$this->clients[ $id ]['last_event_id'] = max(absint($this->clients[ $id ]['last_event_id']), $event_id);
 		}
     }
-
-	/**
-	 * Send one secret-free blocking reset and close only the unsafe stream.
-	 *
-	 * @param int   $id       Client socket ID.
-	 * @param int   $event_id Durable event ID.
-	 * @param array $delivery Structured blocking delivery decision.
-	 * @return void
-	 */
-	private function send_pricing_blocking_reset($id, $event_id, array $delivery) {
-		$diagnostics = isset($delivery['diagnostics']) && is_array($delivery['diagnostics'])
-			? $delivery['diagnostics']
-			: array();
-		$reason      = isset($diagnostics[0]['code']) ? (string) $diagnostics[0]['code'] : 'unsafe_event_identity';
-		$this->send_json($id, array(
-			'event'   => 'pricing.stream.reset',
-			'success' => false,
-			'id'      => absint($event_id),
-			'data'    => array(
-				'reason'      => $reason,
-				'diagnostics' => $diagnostics,
-				'recovery'    => isset($delivery['recovery']) && is_array($delivery['recovery'])
-					? $delivery['recovery']
-					: array(),
-			),
-		));
-		if ( isset($this->clients[ $id ]) ) {
-			$this->close($id);
-		}
-	}
-
-	/**
-	 * Return finite non-blocking recovery for a durable cursor gap.
-	 *
-	 * @return array
-	 */
-	private function pricing_cursor_gap_delivery() {
-		return array(
-			'diagnostics' => array(
-				array(
-					'code'            => 'cursor_gap',
-					'severity'        => 'WARNING',
-					'blocking'        => false,
-					'reason'          => 'The durable event cursor is outside the retained window.',
-					'retryable'       => true,
-					'recovery_action' => 'conditional_refresh',
-				),
-			),
-			'recovery'    => array(
-				'action'                => 'conditional_refresh',
-				'retryable'             => true,
-				'max_attempts'          => 3,
-				'timeout_seconds'       => 30,
-				'revision_path'         => '/wp-json/digitalogic/pricing/sync/revision',
-				'fallback_action'       => 'controlled_polling',
-				'poll_interval_seconds' => 5,
-			),
-		);
-	}
 
     private function maybe_connect_redis_subscriber() {
         if (is_resource($this->redis_socket) || microtime(true) < $this->redis_next_connect_at) {

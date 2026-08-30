@@ -17,10 +17,10 @@ class Digitalogic_Panel {
     private const REWRITE_VERSION = '20260720-panel-self-heal';
     private const EVENT_OPTION = 'digitalogic_panel_events';
     private const EVENT_SEQUENCE_OPTION = 'digitalogic_panel_event_sequence';
-    private const EVENT_LOCK_NAME = 'digitalogic_panel_events';
+    private const EVENT_LOCK_NAME = 'digitalogic_panel_events_v1';
     private const EVENT_LIMIT = 200;
-	private const EVENT_WAKE_OPTION      = 'digitalogic_panel_event_wake_outbox';
-	private const EVENT_WAKE_RETRY_HOOK  = 'digitalogic_panel_event_wake_retry';
+	private const EVENT_WAKE_OPTION      = 'digitalogic_panel_event_wake_outbox_v1';
+	private const EVENT_WAKE_RETRY_HOOK  = 'digitalogic_panel_event_wake_retry_v1';
 	private const EVENT_WAKE_RETRY_DELAY = 2;
 
     private static $reported_delivery_failures = array();
@@ -694,15 +694,8 @@ class Digitalogic_Panel {
         );
     }
 
-    /**
-     * Return events newer than one cursor.
-     *
-     * @param int  $since         Exclusive event cursor.
-     * @param bool $force_refresh Whether to bypass the request-local option cache.
-     * @return array
-     */
-    public static function get_events_since($since = 0, $force_refresh = false) {
-        self::refresh_event_option_cache($force_refresh);
+    public static function get_events_since($since = 0) {
+        self::refresh_event_option_cache();
         $events = get_option(self::EVENT_OPTION, array());
         $events = is_array($events) ? $events : array();
 
@@ -714,11 +707,10 @@ class Digitalogic_Panel {
     /**
      * Return the newest stored panel event ID.
      *
-     * @param bool $force_refresh Whether to bypass the request-local option cache.
      * @return int
      */
-    public static function get_latest_event_id($force_refresh = false) {
-        self::refresh_event_option_cache($force_refresh);
+    public static function get_latest_event_id() {
+        self::refresh_event_option_cache();
         $events = get_option(self::EVENT_OPTION, array());
         $latest_id = absint(get_option(self::EVENT_SEQUENCE_OPTION, 0));
 
@@ -984,7 +976,6 @@ class Digitalogic_Panel {
         $stored = false;
         $event_envelope = null;
         $delivery_warnings = array();
-		$delivery_confirmed = false;
 
         try {
             self::refresh_event_option_cache(true);
@@ -996,51 +987,28 @@ class Digitalogic_Panel {
                 if (is_array($stored_event) && isset($stored_event['id'])) {
                     $latest_id = max($latest_id, absint($stored_event['id']));
                 }
-				if (
-					is_array($stored_event)
-					&& 0 === strpos((string) $event, 'pricing.')
-					&& (string) ($stored_event['name'] ?? '') === (string) $event
-					&& is_array($stored_event['data'] ?? null)
-					&& is_array($data)
-					&& isset($data['idempotency_key'])
-					&& is_string($data['idempotency_key'])
-					&& hash_equals($data['idempotency_key'], (string) ($stored_event['data']['idempotency_key'] ?? ''))
-				) {
-					if ($stored_event['data'] !== $data) {
-						return new WP_Error(
-							'digitalogic_panel_event_idempotency_conflict',
-							__('The durable pricing event idempotency key is already bound to different data.', 'digitalogic')
-						);
-					}
-					$event_envelope = $stored_event;
-				}
             }
 
-			if ( is_array($event_envelope) ) {
-				$event_id = absint($event_envelope['id'] ?? 0);
-				$stored   = $event_id > 0;
-			} else {
-				$event_id = max((int) round(microtime(true) * 1000), $latest_id + 1);
-				$event_envelope = array(
-					'id' => $event_id,
-					'event' => sanitize_key(str_replace('.', '_', $event)),
-					'name' => sanitize_text_field($event),
-					'data' => is_array($data) ? $data : array(),
-					'time' => current_time('mysql'),
-				);
-				$events[] = $event_envelope;
+            $event_id = max((int) round(microtime(true) * 1000), $latest_id + 1);
+            $event_envelope = array(
+                'id' => $event_id,
+                'event' => sanitize_key(str_replace('.', '_', $event)),
+                'name' => sanitize_text_field($event),
+                'data' => is_array($data) ? $data : array(),
+                'time' => current_time('mysql'),
+            );
+            $events[] = $event_envelope;
 
-				if (count($events) > self::EVENT_LIMIT) {
-					$events = array_slice($events, -self::EVENT_LIMIT);
-				}
+            if (count($events) > self::EVENT_LIMIT) {
+                $events = array_slice($events, -self::EVENT_LIMIT);
+            }
 
-				if (!update_option(self::EVENT_SEQUENCE_OPTION, $event_id, false)) {
-					self::report_event_delivery_failure('The durable event sequence could not be updated.');
-					$delivery_warnings[] = 'panel_sequence_write_failed';
-				}
+            if (!update_option(self::EVENT_SEQUENCE_OPTION, $event_id, false)) {
+                self::report_event_delivery_failure('The durable event sequence could not be updated.');
+                $delivery_warnings[] = 'panel_sequence_write_failed';
+            }
 
-				$stored = update_option(self::EVENT_OPTION, $events, false);
-			}
+            $stored = update_option(self::EVENT_OPTION, $events, false);
         } finally {
             self::release_event_lock($lock);
         }
@@ -1055,25 +1023,18 @@ class Digitalogic_Panel {
 
         if (!self::publish_event($event_envelope)) {
             $delivery_warnings[] = 'panel_redis_delivery_failed';
-			$wake_stored = self::store_event_wake($event_envelope);
-			if ( ! $wake_stored ) {
+			if ( ! self::store_event_wake($event_envelope) ) {
 				$delivery_warnings[] = 'panel_wake_outbox_write_failed';
-			} else {
-				$wake_scheduled = self::schedule_event_wake_retry();
-				if ( ! $wake_scheduled ) {
+			} elseif ( ! self::schedule_event_wake_retry() ) {
 				$delivery_warnings[] = 'panel_wake_retry_schedule_failed';
-				}
-				$delivery_confirmed = $wake_scheduled;
 			}
 		} else {
-			$delivery_confirmed = true;
 			self::acknowledge_event_wake( (int) $event_envelope['id']);
         }
 
         return array(
             'event' => $event_envelope,
             'delivery_warnings' => array_values(array_unique($delivery_warnings)),
-			'delivery_confirmed' => $delivery_confirmed,
         );
     }
 

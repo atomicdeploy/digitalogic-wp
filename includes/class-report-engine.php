@@ -20,8 +20,8 @@ final class Digitalogic_Report_Engine {
 	private const MAX_PAGE_SIZE           = 100;
 	private const CACHE_GROUP             = 'digitalogic_reports';
 	private const CACHE_TTL               = 300;
-	private const CACHE_GENERATION_KEY    = 'generation';
-	private const CACHE_GENERATION_OPTION = 'digitalogic_report_cache_generation';
+	private const CACHE_GENERATION_KEY    = 'generation-v1';
+	private const CACHE_GENERATION_OPTION = 'digitalogic_report_cache_generation_v1';
 	private const CACHE_EFFECTS_OPTION    = 'digitalogic_report_cache_effects';
 	private const CACHE_GENERATION_LOCK   = 'digitalogic_report_cache_generation_lock';
 	private const MAX_EFFECT_RECEIPTS     = 100;
@@ -287,7 +287,7 @@ final class Digitalogic_Report_Engine {
 			'sha256',
 			wp_json_encode(
 				array(
-					'schema'             => 'digitalogic.report-projection-generation',
+					'schema'             => 'digitalogic.report-projection-generation/v1',
 					'generation'         => $generation,
 					'source_id'          => (string) $source_id,
 					'dataset'            => (string) $dataset,
@@ -1050,16 +1050,13 @@ final class Digitalogic_Report_Engine {
 		}
 		$timestamp = time() + 2;
 		if ( function_exists( 'as_schedule_single_action' ) ) {
-			$scheduled = (bool) as_schedule_single_action(
+			return (bool) as_schedule_single_action(
 				$timestamp,
 				self::EFFECT_RETRY_HOOK,
 				$args,
 				'digitalogic-pricing',
 				true
 			);
-			if ( $scheduled ) {
-				return true;
-			}
 		}
 
 		$scheduled = wp_schedule_single_event( $timestamp, self::EFFECT_RETRY_HOOK, $args, true );
@@ -1097,8 +1094,13 @@ final class Digitalogic_Report_Engine {
 		if (
 			'product_type' === (string) $taxonomy
 			&& 'product' === get_post_type( $object_id )
+			&& class_exists( 'WC_Cache_Helper' )
+			&& is_callable( array( 'WC_Cache_Helper', 'invalidate_cache_group' ) )
 		) {
-			self::invalidate_product_type_caches( (int) $object_id );
+			if ( function_exists( 'clean_object_term_cache' ) ) {
+				clean_object_term_cache( (int) $object_id, 'product' );
+			}
+			WC_Cache_Helper::invalidate_cache_group( 'product_' . (int) $object_id );
 		}
 		if (
 			in_array( (string) $taxonomy, array( 'product_type', 'product_cat', 'pa_model' ), true )
@@ -1108,52 +1110,7 @@ final class Digitalogic_Report_Engine {
 		}
 	}
 
-	/**
-	 * Clear every WooCommerce cache layer that can retain a stale product type.
-	 *
-	 * @param int           $product_id       Product ID.
-	 * @param callable|null $instance_remover Optional fail-closed remover used by CLI tests.
-	 * @return true|WP_Error
-	 */
-	public static function invalidate_product_type_caches( $product_id, $instance_remover = null ) {
-		$product_id = absint( $product_id );
-		if ( $product_id < 1 || ! is_callable( array( 'WC_Cache_Helper', 'invalidate_cache_group' ) ) ) {
-			return new WP_Error( 'digitalogic_product_type_cache_unavailable', 'WooCommerce product cache invalidation is unavailable.' );
-		}
-
-		if ( is_callable( $instance_remover ) ) {
-			$removed = call_user_func( $instance_remover, $product_id );
-			if ( is_wp_error( $removed ) || false === $removed ) {
-				return is_wp_error( $removed )
-					? $removed
-					: new WP_Error( 'digitalogic_product_type_cache_unavailable', 'WooCommerce product-object cache invalidation failed.' );
-			}
-		} else {
-			$class = 'Automattic\\WooCommerce\\Internal\\Caches\\ProductCache';
-			if ( class_exists( $class ) && function_exists( 'wc_get_container' ) ) {
-				try {
-					$cache = wc_get_container()->get( $class );
-					if ( ! is_object( $cache ) || ! is_callable( array( $cache, 'remove' ) ) ) {
-						return new WP_Error( 'digitalogic_product_type_cache_unavailable', 'WooCommerce product-object cache invalidation is unavailable.' );
-					}
-					$cache->remove( $product_id );
-				} catch ( Throwable $error ) {
-					unset( $error );
-
-					return new WP_Error( 'digitalogic_product_type_cache_unavailable', 'WooCommerce product-object cache invalidation failed.' );
-				}
-			}
-		}
-
-		if ( function_exists( 'clean_object_term_cache' ) ) {
-			clean_object_term_cache( $product_id, 'product' );
-		}
-		WC_Cache_Helper::invalidate_cache_group( 'product_' . $product_id );
-
-		return true;
-	}
-
-	/** Invalidate direct assignment/meta writes consumed by Excel rows. */
+	/** Invalidate direct assignment/meta writes consumed by excel-v1 rows. */
 	public function invalidate_cache_for_product_meta( $meta_id, $object_id, $meta_key ) {
 		unset( $meta_id );
 		$meta_key = (string) $meta_key;

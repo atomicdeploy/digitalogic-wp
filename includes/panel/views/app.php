@@ -123,18 +123,7 @@ $retry_url = isset($_SERVER['REQUEST_URI']) ? (string) $_SERVER['REQUEST_URI'] :
                         <a class="dlp-icon-button" :href="config.logout_url" :aria-label="t.logout" :title="t.logout"><span class="dashicons dashicons-migrate"></span></a>
                     </div>
                 </header>
-                <section v-if="diagnostic" class="dlp-diagnostic" :class="'is-' + diagnostic.severity" :role="diagnostic.blocking ? 'alert' : 'status'" :aria-live="diagnostic.blocking ? 'assertive' : 'polite'">
-                    <div class="dlp-diagnostic-head">
-                        <code dir="ltr">{{ diagnostic.code }}</code>
-                        <span class="dlp-pill" :class="diagnostic.blocking ? 'is-warn' : 'is-ok'">{{ diagnostic.blocking ? (lang === 'fa' ? 'متوقف‌کننده' : 'Blocking') : (lang === 'fa' ? 'اطلاع' : 'Advisory') }}</span>
-                    </div>
-                    <p class="dlp-diagnostic-reason">{{ diagnostic.reason }}</p>
-                    <p class="dlp-diagnostic-recovery"><strong>{{ lang === 'fa' ? 'راه بازیابی' : 'Recovery action' }}:</strong> {{ diagnostic.recovery_action }}</p>
-                    <dl v-if="diagnosticDetailRows.length" class="dlp-diagnostic-details">
-                        <template v-for="row in diagnosticDetailRows" :key="row.key"><dt dir="ltr">{{ row.key }}</dt><dd>{{ row.value }}</dd></template>
-                    </dl>
-                </section>
-                <div v-else-if="error" class="dlp-error" role="alert">{{ error }}</div>
+                <div v-if="error" class="dlp-error">{{ error }}</div>
                 <div v-if="currencyJob && currencyJob.message_fa" class="dlp-job-status" :class="'is-' + currencyJob.status" role="status" aria-live="polite">
                     <span>{{ currencyJob.message_fa }}</span>
 					<button v-if="currencyJob.cancellable" type="button" class="dlp-button" :disabled="saving" @click="cancelCurrencyJob">{{ t.cancel || 'لغو' }}</button>
@@ -555,7 +544,7 @@ $retry_url = isset($_SERVER['REQUEST_URI']) ? (string) $_SERVER['REQUEST_URI'] :
                     </div>
                 </section>
                 <section v-if="currentPage === 'cli'" class="dlp-panel"><div class="dlp-panel-head"><strong>{{ t.commandUsage }}</strong></div><div class="dlp-field-grid"><div class="dlp-field" v-for="(command, key) in commands" :key="key"><span>{{ key }}</span><code class="dlp-code">{{ command }}</code><button class="dlp-button" @click="copy(command)"><span class="dashicons dashicons-clipboard"></span>{{ t.copy }}</button></div></div></section>
-                <section v-if="currentPage === 'sync'" class="dlp-panel"><div class="dlp-panel-head"><strong>{{ t.patrisSync }}</strong></div><div v-if="summaryLoading" class="dlp-empty" role="status" aria-live="polite">{{ t.loading }}</div><div v-else class="dlp-field-grid"><div class="dlp-field"><span>{{ t.syncPage.repository }}</span><strong>{{ t.syncPage.serviceValue }}</strong></div><div class="dlp-field"><span>{{ t.syncPage.mode }}</span><strong>{{ t.syncPage.modeValue }}</strong></div><div class="dlp-field"><span>{{ t.syncPage.endpoint }}</span><strong>{{ t.syncPage.endpointValue }}</strong><code class="dlp-code" dir="ltr">{{ patris.suggested_bridge }}</code></div></div></section>
+                <section v-if="currentPage === 'sync'" class="dlp-panel"><div class="dlp-panel-head"><strong>{{ t.patrisSync }}</strong></div><div class="dlp-field-grid"><div class="dlp-field"><span>{{ t.syncPage.repository }}</span><strong>{{ t.syncPage.serviceValue }}</strong></div><div class="dlp-field"><span>{{ t.syncPage.mode }}</span><strong>{{ t.syncPage.modeValue }}</strong></div><div class="dlp-field"><span>{{ t.syncPage.endpoint }}</span><strong>{{ t.syncPage.endpointValue }}</strong><code class="dlp-code" dir="ltr">{{ patris.suggested_bridge }}</code></div></div></section>
                 <section v-if="currentPage === 'settings'" class="dlp-settings">
                     <div class="dlp-panel">
                         <div class="dlp-panel-head"><strong>{{ t.interfaceSettings }}</strong></div>

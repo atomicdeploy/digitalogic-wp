@@ -21,8 +21,6 @@
     var channel = null;
     var source = null;
     var leaderTimer = null;
-    var pollTimer = null;
-    var pollInFlight = false;
     var refreshController = null;
     var lastProductEventId = Number(readSession(productEventKey) || 0);
     var lastNotificationEventId = Number(readSession(notificationEventKey) || 0);
@@ -468,42 +466,6 @@
         }
     }
 
-    function pollEvents() {
-        if (!config.pollUrl || !ownsLease() || pollInFlight || typeof window.fetch !== 'function') {
-            return;
-        }
-        var cursor = Number(readLocal(cursorKey) || config.initialEventId || 0);
-        var url = new URL(config.pollUrl, window.location.href);
-        if (cursor > 0) {
-            url.searchParams.set('last_event_id', String(cursor));
-        }
-        pollInFlight = true;
-        window.fetch(url.toString(), {
-            credentials: 'same-origin',
-            headers: {'Accept': 'application/json'},
-            cache: 'no-store'
-        }).then(function (response) {
-            if (!response.ok) {
-                throw new Error('realtime_poll_http_' + response.status);
-            }
-            return response.json();
-        }).then(function (payload) {
-            var events = payload && Array.isArray(payload.events) ? payload.events : [];
-            events.forEach(function (event) {
-                handleEvent(event);
-                relay(event);
-            });
-            var latest = Number(payload && payload.latestEventId || 0);
-            if (latest > Number(readLocal(cursorKey) || 0)) {
-                writeLocal(cursorKey, String(latest));
-            }
-        }).catch(function () {
-            // EventSource remains primary; the next bounded poll retries safely.
-        }).finally(function () {
-            pollInFlight = false;
-        });
-    }
-
     function lease() {
         return parseJson(readLocal(leaderKey));
     }
@@ -550,8 +512,6 @@
         });
         maintainLeadership();
         leaderTimer = window.setInterval(maintainLeadership, Math.floor(leaderTtl / 3));
-        pollEvents();
-        pollTimer = window.setInterval(pollEvents, Math.max(1500, Number(config.pollIntervalMs || 3000)));
     }
 
     document.addEventListener('visibilitychange', function () {
@@ -567,9 +527,6 @@
     window.addEventListener('pagehide', function () {
         if (leaderTimer) {
             window.clearInterval(leaderTimer);
-        }
-        if (pollTimer) {
-            window.clearInterval(pollTimer);
         }
         closeStream();
         if (channel) {

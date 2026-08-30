@@ -4,28 +4,22 @@ The canonical Digitalogic workbook synchronizes global pricing inputs through
 the local Patris companion. Excel/VBA never stores a WordPress, WooCommerce, or
 Patris credential.
 
-The local `/api/pricing-sync` path is intentionally Excel-specific: it translates
+The local `/api/excel` path is intentionally Excel-specific: it translates
 workbook/VBA actions into a transport-neutral request. The companion then calls
-three universal WordPress mutation routes:
+three universal, POST-only WordPress routes:
 
 - `/wp-json/digitalogic/pricing/sync/state`
 - `/wp-json/digitalogic/pricing/sync/preview`
 - `/wp-json/digitalogic/pricing/sync/apply`
 
-An accepted apply is observed or cancelled through the same unversioned Living
-surface:
+The old remote `/wp-json/digitalogic/excel/pricing-sync/*` paths are deprecated
+compatibility aliases. They return `Deprecation: true` and a successor `Link`
+header; new clients must use `/pricing/sync/*`.
 
-- `GET /wp-json/digitalogic/pricing/sync/jobs/{request_id-or-job_id}`
-- `DELETE /wp-json/digitalogic/pricing/sync/jobs/{request_id-or-job_id}`
-
-There is one Living remote surface. No versioned or deprecated pricing-sync
-alias is registered; clients must use `/pricing/sync/*`.
-
-The installed Patris provider adapter accepts only the existing
-`X-Patris-Product-Sync-Secret`. The secret must have a non-empty exact
-`{id, dataset}` source scope, and every request repeats that identity. A
-syntactically valid `sha256:` revision is optional when the provider does not
-advertise revision capability. When present, the revision remains bound
+These routes accept only the existing `X-Patris-Product-Sync-Secret`. The
+secret must have a non-empty exact `{id, dataset}` source scope, and every
+request must repeat that exact `{id, dataset}` plus a syntactically valid
+`sha256:` revision from the local canonical source. The revision remains bound
 to preview, idempotency, settings metadata, and audit records. A local revision
 that differs from the materialized WordPress product-sync revision is visible
 as a non-blocking Persian warning; it is not an authentication failure. There
@@ -37,7 +31,7 @@ behavior: the workbook intentionally had no secret, and the trusted companion
 runtime either was bypassed or did not have its server-side product-sync secret
 available. The corrected boundary is:
 
-1. VBA calls the loopback Patris `/api/pricing-sync` adapter without a WordPress secret.
+1. VBA calls the loopback Patris `/api/excel` adapter without a WordPress secret.
 2. The companion reads the secret from protected runtime configuration.
 3. The companion calls `/wp-json/digitalogic/pricing/sync/*` with
    `X-Patris-Product-Sync-Secret` and the exact configured `{id,dataset}` scope.
@@ -79,11 +73,9 @@ idempotency, integrity fields, and adapter mapping requirements.
 
 ## Request envelope
 
-The descriptive Living request schema is `digitalogic.pricing-sync-request`.
-`operation` matches the route name, and canonical `source` contains `id`,
-`dataset`, and an optional `sha256:` revision. Unknown bounded provider
-metadata and object-key order are tolerated. Versioned route/schema selectors
-are not registered as a second dialect.
+The request schema is `digitalogic.pricing-sync-request/v1`.
+`schema_version` is `1`, `operation` matches the route name, and `source`
+contains exactly `id`, `dataset`, and a `sha256:` revision.
 
 State accepts optional `page` and `limit`; the maximum page size is 250.
 Catalog locale is always Persian. `fa` and `fa_IR` are accepted as request
@@ -91,7 +83,8 @@ locale values.
 
 ```json
 {
-  "schema": "digitalogic.pricing-sync-request",
+  "schema": "digitalogic.pricing-sync-request/v1",
+  "schema_version": 1,
   "operation": "state",
   "source": {
     "id": "configured-source-id",
@@ -108,7 +101,7 @@ The state data has this stable top-level shape:
 
 ```json
 {
-  "schema": "digitalogic.pricing-sync-state",
+  "schema": "digitalogic.pricing-sync-state/v1",
   "state_revision": "sha256:GLOBAL_SETTINGS_REVISION",
   "generated_at": "2026-07-26T12:00:00+00:00",
   "source": {
@@ -172,6 +165,14 @@ The state data has this stable top-level shape:
     "rounding_mode": "nearest_half_up",
     "revision": "sha256:PRICE_ROUNDING_REVISION"
   },
+  "default_markup": {
+    "configured": true,
+    "profit_percent": "30",
+    "revision": "sha256:MARKUP_REVISION",
+    "updated_at": "2026-06-29 12:00:00",
+    "deprecated": true,
+    "replacement": "profit_margin"
+  },
   "catalog": {
     "dataset": "reconciled_products",
     "locale": "fa",
@@ -199,7 +200,8 @@ The `Idempotency-Key` header must exactly equal body `idempotency_key`.
 
 ```json
 {
-  "schema": "digitalogic.pricing-sync-request",
+  "schema": "digitalogic.pricing-sync-request/v1",
+  "schema_version": 1,
   "operation": "preview",
   "source": {
     "id": "configured-source-id",
@@ -232,9 +234,12 @@ a currency or profit difference above seven percent are surfaced as critical
 warnings. When source revisions differ, `source_revision_out_of_sync` exposes
 both submitted and current revisions without blocking preview.
 
-Only `profit_margin_percent` is part of the active request and response
-contract. The removed `default_profit_percent` and `default_markup` dialect is
-not accepted or emitted.
+The old request field `default_profit_percent` is accepted only as a deprecated
+alias of `profit_margin_percent`. If both are present they must be exactly
+equivalent or the request fails. New responses and clients use only
+`profit_margin_percent`; the state-only `default_markup.profit_percent` output
+is explicitly marked deprecated and equals
+`profit_margin.profit_margin_percent`.
 
 For compatibility, a legacy client may omit both rounding fields and inherit
 the current site policy. Supplying only one of them is rejected. New clients
@@ -249,7 +254,8 @@ string `APPLY`.
 
 ```json
 {
-  "schema": "digitalogic.pricing-sync-request",
+  "schema": "digitalogic.pricing-sync-request/v1",
+  "schema_version": 1,
   "operation": "apply",
   "source": {
     "id": "configured-source-id",
@@ -277,61 +283,18 @@ string `APPLY`.
 }
 ```
 
-Apply first persists a durable job and then returns HTTP `202 Accepted`; it does
-not update settings or WooCommerce products in the request process. The
-response has `Location`, `Retry-After`, and `Cache-Control: no-store` headers.
-Its body includes the stable `job_id`, original `request_id`, status and phase,
-bounded progress, and the same `status_url`/`cancel_url`:
+Apply uses a site-scoped database advisory lock and one SQL transaction. It
+updates the direct and ACF-compatible currency options, legacy currency date,
+the compatibility storage record for the shared profit margin, version
+metadata, the final-price rounding option, and a bounded nonsecret audit
+together. Every option is read back exactly before commit. A failed
+write/readback rolls the transaction back.
+
+Preview and apply response data use:
 
 ```json
 {
-  "schema": "digitalogic.pricing-apply-job",
-  "job_id": "job_0123456789abcdef0123456789abcdef",
-  "request_id": "excel-apply-20260726-0001",
-  "status": "queued",
-  "phase": "settings",
-  "terminal": false,
-  "progress": {
-    "total_products": 757,
-    "processed_products": 0,
-    "rollback_products": 0,
-    "completed_percent": 0
-  },
-  "status_url": "/wp-json/digitalogic/pricing/sync/jobs/excel-apply-20260726-0001?source_id=configured-source-id&source_dataset=configured-dataset&source_revision=sha256%3ACURRENT_SOURCE_REVISION",
-  "cancel_url": "/wp-json/digitalogic/pricing/sync/jobs/excel-apply-20260726-0001?source_id=configured-source-id&source_dataset=configured-dataset&source_revision=sha256%3ACURRENT_SOURCE_REVISION"
-}
-```
-
-The worker commits settings in one short transaction with an exact durable
-receipt, then reprices deterministic batches of at most 25 Product Codes. Each
-batch has its own receipt and exact readback before the cursor advances. The
-admitted Product Codes, receipts, results, and acknowledgement consumer are
-bound to the authenticated source ID and dataset; another configured source is
-neither actuated nor exposed. Stores that do not advertise the optional bounded
-job capability fail admission before any effect.
-
-After forward readback, the exact configured consumer receives the existing
-pricing confirmation transaction. The job remains nonterminal with
-`status`/`phase` equal to `awaiting_ack`; it does not report `completed` and no
-terminal event is emitted yet. The matching `POST /pricing/sync/ack` durably
-resumes that same job and only then permits `completed`. If the 90-second ACK
-deadline expires, the confirmation timeout signals the job instead of running a
-catalog-wide rollback. The same receipt-backed settings and at-most-25-code
-phases restore and verify every processed effect before `rolled_back` is
-published.
-
-A failure or cancellation after an effect starts likewise enters finite compensation;
-settings and every processed Product Code are restored and verified before a
-`rolled_back` or `cancelled` result is published. A killed worker is recovered
-by independent Action Scheduler and WP-Cron wakes. Unresolved outcomes fail
-closed with `outcome_unknown` and require authoritative readback before another
-fresh apply can be admitted.
-
-Preview response data uses:
-
-```json
-{
-  "schema": "digitalogic.pricing-sync-preview",
+  "schema": "digitalogic.pricing-sync-preview/v1",
   "mode": "preview",
   "status": "confirmation_required",
   "state_revision": "sha256:GLOBAL_SETTINGS_REVISION",
@@ -349,28 +312,19 @@ Preview response data uses:
 }
 ```
 
-The exact `request_id` must equal `Idempotency-Key`. An apply job and its replay
-record are retained for seven days. Repeating the identical POST returns the
-same job before any live source, state, or preview read; this is the recovery
-path after an unknown or lost HTTP response, even if the preview has since
-expired. Never invent a new request identity for that retry. Reusing the
-identity with different settings, source, preview binding, or expected revision
-is a `409` conflict. A fresh request with a stale settings revision is `412`.
+An apply idempotency result is retained for 24 hours. Reusing a key with the
+same request returns the recorded result; reusing it with another request is a
+`409` conflict. A stale settings revision is `412`. The companion must fetch
+state again after apply, regenerate canonical products, send product sync, and
+perform final WooCommerce storefront readback.
 
-Poll the returned URL with the same scoped secret and source query until HTTP
-`200` and `terminal: true`. Pending status is HTTP `202`. Only a completed job
-contains the established apply response in `result`, after exact settings and
-storefront readback, the Excel acknowledgement, and terminal-event persistence
-have all succeeded. While `awaiting_ack`, the confirmation identity is visible
-in job status but `result` remains absent. `DELETE` is cooperative: a pristine queued job remains
-effect-free, while an in-progress job compensates before becoming terminal.
-
-Every terminal outcome is durably recorded as `pricing.apply.terminal` in the
-existing notification/event system with the same job, request, source, and
-event identities. Even `outcome_unknown` retains a pending terminal event until
-durable storage acknowledges it. Provider revision stays optional; source ID and dataset are
-always exact, and a submitted revision is bound when the provider advertises
-that capability.
+When that exact companion (`digitalogic-price-calculator` on
+`excel-workbook`) applies settings that already match `state_revision`, the
+apply response uses the fast `reconciled` path and reports
+`settings_already_current`. It does not repeat a full direct catalog reprice:
+the mandatory canonical product sync and final storefront readback immediately
+after apply perform and verify that reconciliation. Other clients and internal
+settings writers retain direct unchanged-settings drift repair.
 
 That readback succeeds only when every managed simple product or exact-code
 variation has an empty WooCommerce sale field and identical canonical,
@@ -382,5 +336,5 @@ states fail closed instead of retaining a stale customer price.
 The companion injects the product-sync secret from its protected runtime
 configuration. The workbook receives neither the secret nor an authenticated
 WordPress cookie. Authorization headers and secrets must not be logged. Audit
-and job records contain source identity, request/job identity, preview digest,
-revisions, phase receipts, and applied nonsecret pricing settings only.
+records contain source identity, idempotency key, preview digest, revisions,
+and applied nonsecret pricing settings only.
