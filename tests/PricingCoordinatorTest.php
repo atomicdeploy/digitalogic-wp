@@ -1365,6 +1365,162 @@ final class PricingCoordinatorTest extends TestCase {
 		$this->assertEmpty( $GLOBALS['digitalogic_test_actions']['digitalogic_pricing_confirmation_event'] ?? array() );
 	}
 
+	/** A fully published terminal marker does not block a no-op successor or cause another actuation. */
+	public function test_currency_admin_async_confirmed_job_allows_noop_successor_without_repricing(): void {
+		$async = Digitalogic_Currency_Admin_Async::instance();
+		$first = $async->enqueue( '29501', false );
+		$this->assertFalse( is_wp_error( $first ) );
+		$async->run_job( $first['job_id'], $first['generation'] );
+		$first_terminal = $async->status( $first['job_id'], $first['generation'] );
+		$this->assertSame( 'confirmed', $first_terminal['status'] );
+		$this->assertNotSame( '', $first_terminal['committed_state_revision'] );
+		$price_before = (string) $GLOBALS['digitalogic_test_posts'][901]['meta']['_regular_price'];
+
+		$successor = $async->enqueue( '29501', false );
+
+		$this->assertFalse( is_wp_error( $successor ) );
+		$this->assertSame( (int) $first['generation'] + 1, $successor['generation'] );
+		$this->assertNotSame( $first['job_id'], $successor['job_id'] );
+		$this->assertSame( 'confirmed', $successor['status'] );
+		$this->assertSame( 0, $successor['apply_attempts'] );
+		$this->assertSame( $price_before, (string) $GLOBALS['digitalogic_test_posts'][901]['meta']['_regular_price'] );
+		$this->assertArrayNotHasKey(
+			'effect_state_revision',
+			$GLOBALS['digitalogic_test_options']['digitalogic_currency_admin_async_job']
+		);
+		$currency_events = array_filter(
+			$GLOBALS['digitalogic_test_scheduled_events'],
+			static fn( $event ) => str_starts_with( (string) $event['hook'], 'digitalogic_currency_admin_async_' )
+		);
+		$this->assertSame( array(), array_values( $currency_events ) );
+	}
+
+	/** A fully published terminal marker belongs to its generation and cannot block the next exact apply. */
+	public function test_currency_admin_async_confirmed_job_allows_exact_apply_successor_generation(): void {
+		$async = Digitalogic_Currency_Admin_Async::instance();
+		$first = $async->enqueue( '29501', false );
+		$this->assertFalse( is_wp_error( $first ) );
+		$async->run_job( $first['job_id'], $first['generation'] );
+		$first_terminal = $async->status( $first['job_id'], $first['generation'] );
+		$this->assertSame( 'confirmed', $first_terminal['status'] );
+		$this->assertNotSame( '', $first_terminal['committed_state_revision'] );
+
+		$state       = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
+		$price_before = (string) $GLOBALS['digitalogic_test_posts'][901]['meta']['_regular_price'];
+		$successor   = $async->enqueue_currency(
+			array(
+				'dollar_price' => (string) $state['settings']['dollar_price'],
+				'yuan_price'   => '29502',
+			),
+			false,
+			false,
+			(string) $state['state_revision'],
+			'sequential_acceptance'
+		);
+
+		$this->assertFalse( is_wp_error( $successor ) );
+		$this->assertSame( (int) $first['generation'] + 1, $successor['generation'] );
+		$this->assertNotSame( $first['job_id'], $successor['job_id'] );
+		$this->assertSame( 'queued', $successor['status'] );
+		$this->assertSame( 'apply', $successor['mode'] );
+		$this->assertArrayNotHasKey(
+			'effect_state_revision',
+			$GLOBALS['digitalogic_test_options']['digitalogic_currency_admin_async_job']
+		);
+
+		$async->run_job( $successor['job_id'], $successor['generation'] );
+		$successor_terminal = $async->status( $successor['job_id'], $successor['generation'] );
+		$this->assertSame( 'confirmed', $successor_terminal['status'] );
+		$this->assertSame( 1, $successor_terminal['apply_attempts'] );
+		$this->assertNotSame( $price_before, (string) $GLOBALS['digitalogic_test_posts'][901]['meta']['_regular_price'] );
+		$this->assertSame( '29502', (string) $GLOBALS['digitalogic_test_options']['options_yuan_price'] );
+	}
+
+	/** A stale transition within one generation still cannot clear its committed effect marker. */
+	public function test_currency_admin_async_same_generation_cannot_clear_commit_marker(): void {
+		$async = Digitalogic_Currency_Admin_Async::instance();
+		$job   = $async->enqueue( '29501', false );
+		$this->assertFalse( is_wp_error( $job ) );
+		$async->run_job( $job['job_id'], $job['generation'] );
+		$expected = $GLOBALS['digitalogic_test_options']['digitalogic_currency_admin_async_job'];
+		$marker   = (string) $expected['effect_state_revision'];
+		$desired  = $expected;
+		unset( $desired['effect_state_revision'], $desired['effect_committed_at'], $desired['committed_state_revision'] );
+		$desired['status'] = 'queued';
+		$method            = new ReflectionMethod( $async, 'store_job_open_lock' );
+
+		$result = $method->invoke( $async, $desired, $expected );
+
+		$this->assertTrue( is_wp_error( $result ) );
+		$this->assertSame( 'digitalogic_currency_async_job_cas_conflict', $result->get_error_code() );
+		$this->assertSame(
+			$marker,
+			$GLOBALS['digitalogic_test_options']['digitalogic_currency_admin_async_job']['effect_state_revision']
+		);
+		$this->assertSame( 'confirmed', $GLOBALS['digitalogic_test_options']['digitalogic_currency_admin_async_job']['status'] );
+	}
+
+	/** Only the exact next generation may replace a fully published terminal job. */
+	public function test_currency_admin_async_terminal_successor_guard_rejects_unsafe_variants(): void {
+		$async = Digitalogic_Currency_Admin_Async::instance();
+		$job   = $async->enqueue( '29501', false );
+		$this->assertFalse( is_wp_error( $job ) );
+		$async->run_job( $job['job_id'], $job['generation'] );
+		$terminal = $GLOBALS['digitalogic_test_options']['digitalogic_currency_admin_async_job'];
+		$marker   = (string) $terminal['effect_state_revision'];
+		$method   = new ReflectionMethod( $async, 'store_job_open_lock' );
+
+		$successor               = $terminal;
+		$successor['job_id']     = 'exact-successor-job';
+		$successor['generation'] = (int) $terminal['generation'] + 1;
+		$successor['status']     = 'queued';
+		unset( $successor['effect_state_revision'], $successor['effect_committed_at'], $successor['committed_state_revision'] );
+
+		$active_current           = $terminal;
+		$active_current['status'] = 'running';
+
+		$generation_jump               = $successor;
+		$generation_jump['generation'] = (int) $terminal['generation'] + 2;
+
+		$different_marker                          = $successor;
+		$different_marker['effect_state_revision'] = $marker . '-different';
+
+		$disallowed_status           = $successor;
+		$disallowed_status['status'] = 'running';
+
+		$cases = array(
+			'active current job'        => array(
+				'current' => $active_current,
+				'desired' => $successor,
+			),
+			'generation jump'           => array(
+				'current' => $terminal,
+				'desired' => $generation_jump,
+			),
+			'different desired marker'  => array(
+				'current' => $terminal,
+				'desired' => $different_marker,
+			),
+			'disallowed desired status' => array(
+				'current' => $terminal,
+				'desired' => $disallowed_status,
+			),
+		);
+
+		foreach ( $cases as $label => $case ) {
+			$GLOBALS['digitalogic_test_options']['digitalogic_currency_admin_async_job'] = $case['current'];
+			$result = $method->invoke( $async, $case['desired'], $case['current'] );
+
+			$this->assertTrue( is_wp_error( $result ), $label );
+			$this->assertSame( 'digitalogic_currency_async_job_cas_conflict', $result->get_error_code(), $label );
+			$this->assertSame(
+				$case['current'],
+				$GLOBALS['digitalogic_test_options']['digitalogic_currency_admin_async_job'],
+				$label
+			);
+		}
+	}
+
 	/** REST currency writes are revision-bound, return quickly, and never reprice inline. */
 	public function test_currency_rest_write_returns_async_job_without_inline_mutation(): void {
 		$state        = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();

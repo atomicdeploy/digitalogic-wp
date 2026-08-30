@@ -1825,9 +1825,20 @@ final class Digitalogic_Currency_Admin_Async {
 		if ( $current !== $expected ) {
 			return $this->job_cas_conflict();
 		}
-		$current_marker = (string) ( $current['effect_state_revision'] ?? '' );
-		$desired_marker = (string) ( $job['effect_state_revision'] ?? '' );
-		if ( '' !== $current_marker && ! hash_equals( $current_marker, $desired_marker ) ) {
+		$current_marker     = (string) ( $current['effect_state_revision'] ?? '' );
+		$desired_marker     = (string) ( $job['effect_state_revision'] ?? '' );
+		$terminal_successor = $this->is_terminal( $current )
+			&& '' === $desired_marker
+			&& '' !== (string) ( $job['job_id'] ?? '' )
+			&& ! hash_equals( (string) ( $current['job_id'] ?? '' ), (string) $job['job_id'] )
+			&& (int) ( $current['generation'] ?? 0 ) > 0
+			&& (int) ( $job['generation'] ?? 0 ) === (int) $current['generation'] + 1
+			&& in_array( (string) ( $job['status'] ?? '' ), array( 'queued', 'confirmed' ), true );
+		if (
+			'' !== $current_marker
+			&& ! hash_equals( $current_marker, $desired_marker )
+			&& ! $terminal_successor
+		) {
 			return $this->job_cas_conflict();
 		}
 
