@@ -445,6 +445,22 @@ class Digitalogic_REST_API {
 		}
 		register_rest_route(
 			'digitalogic',
+			'/pricing/sync/jobs/(?P<identifier>[a-zA-Z0-9._:-]{8,128})',
+			array(
+				array(
+					'methods'             => 'GET',
+					'callback'            => array( $this, 'pricing_sync_apply_status' ),
+					'permission_callback' => array( $this, 'check_pricing_snapshot_permission' ),
+				),
+				array(
+					'methods'             => 'DELETE',
+					'callback'            => array( $this, 'pricing_sync_apply_cancel' ),
+					'permission_callback' => array( $this, 'check_pricing_snapshot_permission' ),
+				),
+			)
+		);
+		register_rest_route(
+			'digitalogic',
 			'/pricing/sync/ack',
 			array(
 				'methods'             => 'POST',
@@ -966,6 +982,80 @@ class Digitalogic_REST_API {
 	public function pricing_sync_apply( WP_REST_Request $request ) {
 		return $this->pricing_sync_response(
 			Digitalogic_Excel_Pricing_Sync::instance()->apply( $request )
+		);
+	}
+
+	/**
+	 * GET /pricing/sync/jobs/{identifier}.
+	 *
+	 * @param WP_REST_Request $request REST request.
+	 * @return WP_REST_Response
+	 */
+	public function pricing_sync_apply_status( WP_REST_Request $request ) {
+		return $this->pricing_sync_apply_job_response(
+			Digitalogic_Pricing_Apply_Jobs::instance()->get(
+				(string) $request['identifier'],
+				$this->pricing_sync_job_source( $request )
+			)
+		);
+	}
+
+	/**
+	 * DELETE /pricing/sync/jobs/{identifier}.
+	 *
+	 * @param WP_REST_Request $request REST request.
+	 * @return WP_REST_Response
+	 */
+	public function pricing_sync_apply_cancel( WP_REST_Request $request ) {
+		return $this->pricing_sync_apply_job_response(
+			Digitalogic_Pricing_Apply_Jobs::instance()->cancel(
+				(string) $request['identifier'],
+				$this->pricing_sync_job_source( $request )
+			)
+		);
+	}
+
+	/**
+	 * Return the exact source scope carried by a machine job lookup.
+	 *
+	 * @param WP_REST_Request $request REST request.
+	 * @return array
+	 */
+	private function pricing_sync_job_source( WP_REST_Request $request ) {
+		return array(
+			'id'       => (string) $request->get_param( 'source_id' ),
+			'dataset'  => (string) $request->get_param( 'source_dataset' ),
+			'revision' => (string) $request->get_param( 'source_revision' ),
+		);
+	}
+
+	/**
+	 * Render source-scoped job GET/DELETE with non-cacheable transport.
+	 *
+	 * @param array|WP_Error $result Job service result.
+	 * @return WP_REST_Response
+	 */
+	private function pricing_sync_apply_job_response( $result ) {
+		if ( is_wp_error( $result ) ) {
+			return $this->pricing_sync_response( $result );
+		}
+		$status  = ! empty( $result['terminal'] ) ? 200 : 202;
+		$headers = array( 'Cache-Control' => 'no-store' );
+		if ( ! empty( $result['status_url'] ) ) {
+			$headers['Location'] = (string) $result['status_url'];
+		}
+		if ( 202 === $status ) {
+			$headers['Retry-After'] = (string) max( 1, (int) ( $result['retry_after'] ?? 2 ) );
+		}
+
+		return $this->pricing_sync_response(
+			array(
+				'__transport' => array(
+					'status'  => $status,
+					'headers' => $headers,
+				),
+				'data'        => $result,
+			)
 		);
 	}
 

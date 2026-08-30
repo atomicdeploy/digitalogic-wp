@@ -115,7 +115,13 @@ final class EventMeshTest extends TestCase {
 		$this->assertSame( 'both', $result['display'] );
 		$this->assertSame( 60000, $result['duration_ms'] );
 		$this->assertFalse( $result['dismissible'] );
-		$this->assertSame( array( 'href' => '/shop/', 'label' => 'Shop' ), $result['link'] );
+		$this->assertSame(
+			array(
+				'href'  => '/shop/',
+				'label' => 'Shop',
+			),
+			$result['link']
+		);
 		$this->assertSame( array( 'customer' ), $result['audience']['roles'] );
 		$this->assertSame( array( 'billing_country' => array( 'IR' ) ), $result['audience']['attributes'] );
 		$this->assertSame( 'all', $result['audience']['match'] );
@@ -182,7 +188,10 @@ final class EventMeshTest extends TestCase {
 
 	/** A safe source-scoped event survives provider representation differences. */
 	public function test_pricing_source_authorization_is_independent_from_optional_representation(): void {
-		$source = array( 'id' => 'patris-office', 'dataset' => 'kala.db' );
+		$source = array(
+			'id'      => 'patris-office',
+			'dataset' => 'kala.db',
+		);
 		$event  = array(
 			'id'   => 101,
 			'name' => 'pricing.state.changed',
@@ -205,10 +214,63 @@ final class EventMeshTest extends TestCase {
 		$this->assertSame( $event['data']['provider_extension'], $decision['data']['provider_extension'] );
 		$this->assertTrue( Digitalogic_Event_Mesh::event_visible_to( $event, 0, '', 'patris_pricing', $source ) );
 
-		$other_source = array( 'id' => $source['id'], 'dataset' => 'other.db' );
+		$other_source = array(
+			'id'      => $source['id'],
+			'dataset' => 'other.db',
+		);
 		$unrelated    = Digitalogic_Event_Mesh::pricing_event_delivery_decision( $event, 'patris_pricing', $other_source );
 		$this->assertFalse( $unrelated['visible'] );
 		$this->assertFalse( $unrelated['blocking'] );
+	}
+
+	/** Apply terminal delivery is source-scoped and does not require revision capability. */
+	public function test_pricing_apply_terminal_event_is_tolerant_and_source_scoped(): void {
+		$source = array(
+			'id'      => 'patris-office',
+			'dataset' => 'kala.db',
+		);
+		$job_id = 'job_' . str_repeat( '2', 32 );
+		$event  = array(
+			'id'   => 104,
+			'name' => 'pricing.apply.terminal',
+			'data' => array(
+				'schema'          => 'digitalogic.pricing-apply-terminal',
+				'job_id'          => $job_id,
+				'request_id'      => 'excel-apply-terminal-0001',
+				'status'          => 'completed',
+				'phase'           => 'terminal',
+				'source'          => $source,
+				'row_count'       => 757,
+				'code'            => 'completed',
+				'retryable'       => false,
+				'idempotency_key' => 'pricing-apply:' . $job_id,
+				'status_path'     => '/wp-json/digitalogic/pricing/sync/jobs/' . $job_id . '?source_id=patris-office&source_dataset=kala.db',
+				'revision_path'   => '/wp-json/digitalogic/pricing/sync/revision',
+				'audience'        => array( 'services' => array( 'patris_pricing' ) ),
+			),
+		);
+
+		$decision = Digitalogic_Event_Mesh::pricing_event_delivery_decision( $event, 'patris_pricing', $source );
+		$this->assertTrue( $decision['visible'] );
+		$this->assertTrue( $decision['authorized'] );
+		$this->assertFalse( $decision['blocking'] );
+		$this->assertSame( 'completed', $decision['data']['status'] );
+		$this->assertSame( 757, $decision['data']['row_count'] );
+		$this->assertArrayNotHasKey( 'state_revision', $decision['data'] );
+
+		$other_source = array(
+			'id'      => $source['id'],
+			'dataset' => 'other.db',
+		);
+		$unrelated    = Digitalogic_Event_Mesh::pricing_event_delivery_decision( $event, 'patris_pricing', $other_source );
+		$this->assertFalse( $unrelated['visible'] );
+		$this->assertFalse( $unrelated['blocking'] );
+
+		$event['data']['idempotency_key'] = 'pricing-apply:job_wrong';
+		$unsafe                           = Digitalogic_Event_Mesh::pricing_event_delivery_decision( $event, 'patris_pricing', $source );
+		$this->assertFalse( $unsafe['visible'] );
+		$this->assertTrue( $unsafe['blocking'] );
+		$this->assertSame( 'unsafe_event_identity', $unsafe['diagnostics'][0]['code'] );
 	}
 
 	/** Canonical revision is independent from an optional negotiated digest. */
@@ -269,7 +331,10 @@ final class EventMeshTest extends TestCase {
 
 	/** Unsafe identity or credential metadata remains a blocking secret-free result. */
 	public function test_pricing_unsafe_or_ambiguous_identity_is_blocking_without_leaking_values(): void {
-		$source = array( 'id' => 'patris-office', 'dataset' => 'kala.db' );
+		$source = array(
+			'id'      => 'patris-office',
+			'dataset' => 'kala.db',
+		);
 		$event  = array(
 			'id'   => 103,
 			'name' => 'pricing.state.changed',

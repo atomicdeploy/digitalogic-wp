@@ -6,11 +6,17 @@ Patris credential.
 
 The local `/api/pricing-sync` path is intentionally Excel-specific: it translates
 workbook/VBA actions into a transport-neutral request. The companion then calls
-three universal, POST-only WordPress routes:
+three universal WordPress mutation routes:
 
 - `/wp-json/digitalogic/pricing/sync/state`
 - `/wp-json/digitalogic/pricing/sync/preview`
 - `/wp-json/digitalogic/pricing/sync/apply`
+
+An accepted apply is observed or cancelled through the same unversioned Living
+surface:
+
+- `GET /wp-json/digitalogic/pricing/sync/jobs/{request_id-or-job_id}`
+- `DELETE /wp-json/digitalogic/pricing/sync/jobs/{request_id-or-job_id}`
 
 There is one Living remote surface. No versioned or deprecated pricing-sync
 alias is registered; clients must use `/pricing/sync/*`.
@@ -271,14 +277,57 @@ string `APPLY`.
 }
 ```
 
-Apply uses a site-scoped database advisory lock and one SQL transaction. It
-updates the direct and ACF-compatible currency options, legacy currency date,
-the compatibility storage record for the shared profit margin, version
-metadata, the final-price rounding option, and a bounded nonsecret audit
-together. Every option is read back exactly before commit. A failed
-write/readback rolls the transaction back.
+Apply first persists a durable job and then returns HTTP `202 Accepted`; it does
+not update settings or WooCommerce products in the request process. The
+response has `Location`, `Retry-After`, and `Cache-Control: no-store` headers.
+Its body includes the stable `job_id`, original `request_id`, status and phase,
+bounded progress, and the same `status_url`/`cancel_url`:
 
-Preview and apply response data use:
+```json
+{
+  "schema": "digitalogic.pricing-apply-job",
+  "job_id": "job_0123456789abcdef0123456789abcdef",
+  "request_id": "excel-apply-20260726-0001",
+  "status": "queued",
+  "phase": "settings",
+  "terminal": false,
+  "progress": {
+    "total_products": 757,
+    "processed_products": 0,
+    "rollback_products": 0,
+    "completed_percent": 0
+  },
+  "status_url": "/wp-json/digitalogic/pricing/sync/jobs/excel-apply-20260726-0001?source_id=configured-source-id&source_dataset=configured-dataset&source_revision=sha256%3ACURRENT_SOURCE_REVISION",
+  "cancel_url": "/wp-json/digitalogic/pricing/sync/jobs/excel-apply-20260726-0001?source_id=configured-source-id&source_dataset=configured-dataset&source_revision=sha256%3ACURRENT_SOURCE_REVISION"
+}
+```
+
+The worker commits settings in one short transaction with an exact durable
+receipt, then reprices deterministic batches of at most 25 Product Codes. Each
+batch has its own receipt and exact readback before the cursor advances. The
+admitted Product Codes, receipts, results, and acknowledgement consumer are
+bound to the authenticated source ID and dataset; another configured source is
+neither actuated nor exposed. Stores that do not advertise the optional bounded
+job capability fail admission before any effect.
+
+After forward readback, the exact configured consumer receives the existing
+pricing confirmation transaction. The job remains nonterminal with
+`status`/`phase` equal to `awaiting_ack`; it does not report `completed` and no
+terminal event is emitted yet. The matching `POST /pricing/sync/ack` durably
+resumes that same job and only then permits `completed`. If the 90-second ACK
+deadline expires, the confirmation timeout signals the job instead of running a
+catalog-wide rollback. The same receipt-backed settings and at-most-25-code
+phases restore and verify every processed effect before `rolled_back` is
+published.
+
+A failure or cancellation after an effect starts likewise enters finite compensation;
+settings and every processed Product Code are restored and verified before a
+`rolled_back` or `cancelled` result is published. A killed worker is recovered
+by independent Action Scheduler and WP-Cron wakes. Unresolved outcomes fail
+closed with `outcome_unknown` and require authoritative readback before another
+fresh apply can be admitted.
+
+Preview response data uses:
 
 ```json
 {
@@ -300,19 +349,28 @@ Preview and apply response data use:
 }
 ```
 
-An apply idempotency result is retained for 24 hours. Reusing a key with the
-same request returns the recorded result; reusing it with another request is a
-`409` conflict. A stale settings revision is `412`. The companion must fetch
-state again after apply, regenerate canonical products, send product sync, and
-perform final WooCommerce storefront readback.
+The exact `request_id` must equal `Idempotency-Key`. An apply job and its replay
+record are retained for seven days. Repeating the identical POST returns the
+same job before any live source, state, or preview read; this is the recovery
+path after an unknown or lost HTTP response, even if the preview has since
+expired. Never invent a new request identity for that retry. Reusing the
+identity with different settings, source, preview binding, or expected revision
+is a `409` conflict. A fresh request with a stale settings revision is `412`.
 
-When that exact companion (`digitalogic-price-calculator` on
-`excel-workbook`) applies settings that already match `state_revision`, the
-apply response uses the fast `reconciled` path and reports
-`settings_already_current`. It does not repeat a full direct catalog reprice:
-the mandatory canonical product sync and final storefront readback immediately
-after apply perform and verify that reconciliation. Other clients and internal
-settings writers retain direct unchanged-settings drift repair.
+Poll the returned URL with the same scoped secret and source query until HTTP
+`200` and `terminal: true`. Pending status is HTTP `202`. Only a completed job
+contains the established apply response in `result`, after exact settings and
+storefront readback, the Excel acknowledgement, and terminal-event persistence
+have all succeeded. While `awaiting_ack`, the confirmation identity is visible
+in job status but `result` remains absent. `DELETE` is cooperative: a pristine queued job remains
+effect-free, while an in-progress job compensates before becoming terminal.
+
+Every terminal outcome is durably recorded as `pricing.apply.terminal` in the
+existing notification/event system with the same job, request, source, and
+event identities. Even `outcome_unknown` retains a pending terminal event until
+durable storage acknowledges it. Provider revision stays optional; source ID and dataset are
+always exact, and a submitted revision is bound when the provider advertises
+that capability.
 
 That readback succeeds only when every managed simple product or exact-code
 variation has an empty WooCommerce sale field and identical canonical,
@@ -324,5 +382,5 @@ states fail closed instead of retaining a stale customer price.
 The companion injects the product-sync secret from its protected runtime
 configuration. The workbook receives neither the secret nor an authenticated
 WordPress cookie. Authorization headers and secrets must not be logged. Audit
-records contain source identity, idempotency key, preview digest, revisions,
-and applied nonsecret pricing settings only.
+and job records contain source identity, request/job identity, preview digest,
+revisions, phase receipts, and applied nonsecret pricing settings only.

@@ -35,6 +35,7 @@ final class Digitalogic_Event_Mesh {
 		'pricing.source.changed',
 		'pricing.source.removed',
 		'pricing.snapshot.build.terminal',
+		'pricing.apply.terminal',
 	);
 
 	/** @var self|null */
@@ -801,6 +802,21 @@ final class Digitalogic_Event_Mesh {
 					'The terminal pricing event has no unambiguous build and request identity.'
 				);
 			}
+		} elseif ( 'pricing.apply.terminal' === $name ) {
+			$job_id     = (string) ( $data['job_id'] ?? '' );
+			$request_id = (string) ( $data['request_id'] ?? '' );
+			$event_id   = (string) ( $data['idempotency_key'] ?? '' );
+			if (
+				1 !== preg_match( '/\Ajob_[a-f0-9]{32}\z/D', $job_id )
+				|| 1 !== preg_match( '/\A[A-Za-z0-9][A-Za-z0-9._:-]{7,127}\z/D', $request_id )
+				|| ! hash_equals( 'pricing-apply:' . $job_id, $event_id )
+			) {
+				return self::blocking_pricing_decision(
+					$decision,
+					'unsafe_event_identity',
+					'The terminal pricing apply has no unambiguous job and request identity.'
+				);
+			}
 		}
 
 		return $decision;
@@ -840,6 +856,8 @@ final class Digitalogic_Event_Mesh {
 			$known = array_merge( $known, array( 'state_revision', 'etag', 'catalog_revision', 'pricing_state_revision', 'pricing_policy_revision', 'cause', 'revision_path' ) );
 		} elseif ( in_array( $name, array( 'pricing.source.changed', 'pricing.source.removed' ), true ) ) {
 			$known = array_merge( $known, array( 'change', 'previous_source_revision', 'revision_validation_required', 'revision_path' ) );
+		} elseif ( 'pricing.apply.terminal' === $name ) {
+			$known = array_merge( $known, array( 'job_id', 'request_id', 'status', 'phase', 'state_revision', 'row_count', 'code', 'retryable', 'status_path', 'revision_path' ) );
 		} else {
 			$known = array_merge( $known, array( 'build_id', 'request_id', 'status', 'state_revision', 'etag', 'pricing_state_revision', 'pricing_policy_revision', 'catalog_revision', 'snapshot_token', 'revision', 'row_count', 'snapshot_revision', 'digest', 'snapshot_path', 'code', 'retryable', 'revision_path' ) );
 		}
@@ -920,6 +938,23 @@ final class Digitalogic_Event_Mesh {
 				$previous_missing[] = 'change';
 			}
 			self::append_optional_metadata_diagnostics( $diagnostics, $data, $previous_missing, array( 'revision_path' ) );
+		} elseif ( 'pricing.apply.terminal' === $name ) {
+			$component_missing = array();
+			self::normalize_optional_revisions( $data, array( 'state_revision' ), $component_missing );
+			$status = isset( $data['status'] ) && is_string( $data['status'] ) ? $data['status'] : '';
+			if ( ! in_array( $status, array( 'completed', 'cancelled', 'rolled_back', 'failed', 'outcome_unknown' ), true ) ) {
+				unset( $data['status'] );
+				$component_missing[] = 'status';
+			}
+			if ( ! isset( $data['row_count'] ) || ! is_int( $data['row_count'] ) || $data['row_count'] < 0 ) {
+				unset( $data['row_count'] );
+				$component_missing[] = 'row_count';
+			}
+			if ( isset( $data['code'] ) && ( ! is_string( $data['code'] ) || 1 !== preg_match( '/\A[a-z0-9_:-]{1,128}\z/D', $data['code'] ) ) ) {
+				unset( $data['code'] );
+				$component_missing[] = 'code';
+			}
+			self::append_optional_metadata_diagnostics( $diagnostics, $data, $component_missing, array( 'status_path', 'revision_path' ) );
 		} else {
 			$component_missing = array();
 			self::normalize_optional_revisions( $data, array( 'state_revision', 'pricing_state_revision', 'pricing_policy_revision', 'catalog_revision' ), $component_missing );

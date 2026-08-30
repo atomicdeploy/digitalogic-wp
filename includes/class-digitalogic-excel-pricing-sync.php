@@ -23,6 +23,7 @@ final class Digitalogic_Excel_Pricing_Sync {
 
 	public const SETTINGS_OPTION            = 'digitalogic_excel_pricing_sync_settings';
 	public const AUDIT_OPTION               = 'digitalogic_excel_pricing_sync_audit';
+	public const PHASE_RECEIPTS_OPTION      = 'digitalogic_pricing_phase_receipts';
 	public const CONFIRMATION_SCHEMA        = 'digitalogic.pricing-confirmation';
 	public const ACK_SCHEMA                 = 'digitalogic.pricing-sync-ack';
 	public const CONFIRMATIONS_OPTION       = 'digitalogic_pricing_confirmation_transactions';
@@ -31,13 +32,14 @@ final class Digitalogic_Excel_Pricing_Sync {
 	private const LOCK_NAME                 = 'digitalogic_pricing_sync';
 	private const LOCK_TIMEOUT_SECONDS      = 5;
 	private const PREVIEW_TTL_SECONDS       = 600;
-	private const APPLY_IDEMPOTENCY_SECONDS = 86400;
 	private const CONFIRMATION_TIMEOUT_HOOK = 'digitalogic_pricing_confirmation_timeout';
 	private const ACK_TARGET_SECONDS        = 90;
 	private const ACK_RECOVERY_SECONDS      = 180;
 	private const ROLLBACK_LEASE_SECONDS    = 5;
 	private const MAX_CONFIRMATIONS         = 50;
 	private const MAX_AUDIT_ENTRIES         = 50;
+	private const MAX_PHASE_RECEIPTS        = 256;
+	private const PHASE_RECEIPT_TTL         = 604800;
 	private const MAX_RATE                  = 1000000000;
 	private const MAX_PROFIT_PERCENT        = '1000';
 	private const MAX_PROFIT_SCALE          = 12;
@@ -198,6 +200,710 @@ final class Digitalogic_Excel_Pricing_Sync {
 			'confirmation'     => $this->current_confirmation_projection(),
 			'attribute_owners' => $this->attribute_owners(),
 		);
+	}
+
+	/**
+	 * Normalize complete pricing settings without starting an effect.
+	 *
+	 * @param mixed $settings Raw settings document.
+	 * @return array|WP_Error
+	 */
+	public function prepare_internal_settings( $settings ) {
+		return $this->normalize_settings( $settings );
+	}
+
+	/**
+	 * Return the exact source-bound Product Code scope for bounded jobs.
+	 *
+	 * @param mixed $source Exact source identity.
+	 * @return array|WP_Error
+	 */
+	public function pricing_apply_scope( $source ) {
+		$source = $this->normalize_source( $source );
+		if ( is_wp_error( $source ) ) {
+			return $source;
+		}
+		$store = Digitalogic_Pricing_Adapter_Registry::instance()->store();
+		if ( ! $store instanceof Digitalogic_Pricing_Bounded_Store_Adapter_Interface ) {
+			return $this->error(
+				'digitalogic_pricing_bounded_store_unsupported',
+				'The active pricing store does not support bounded apply jobs.',
+				409
+			);
+		}
+
+		return $store->pricing_scope( $source );
+	}
+
+	/**
+	 * Resolve and validate the exact workbook consumer before job admission.
+	 *
+	 * @param mixed $source Exact source identity.
+	 * @return array|WP_Error
+	 */
+	public function pricing_apply_ack_consumer( $source ) {
+		return $this->current_ack_consumer( $source );
+	}
+
+	/**
+	 * Commit only canonical settings in one short, receipt-backed transaction.
+	 *
+	 * Product repricing is deliberately split into bounded transactions. Raw
+	 * option/domain events remain in the durable receipt until every batch has
+	 * passed readback and the terminal outbox is published.
+	 *
+	 * @param mixed  $settings          Complete settings.
+	 * @param mixed  $source            Internal label or normalized provider source.
+	 * @param string $expected_revision Exact current state revision.
+	 * @param string $operation_id      Stable phase identity.
+	 * @param array  $request_context   Nonsecret caller context.
+	 * @param array  $source_context    Admitted provider revision context.
+	 * @return array|WP_Error
+	 */
+	public function commit_internal_settings_phase( $settings, $source, $expected_revision, $operation_id, $request_context = array(), $source_context = array() ) {
+		$settings = $this->normalize_settings( $settings );
+		if ( is_wp_error( $settings ) ) {
+			return $settings;
+		}
+		$validated = $this->validate_internal_phase_identity( $operation_id, $expected_revision );
+		if ( is_wp_error( $validated ) ) {
+			return $validated;
+		}
+
+		$source_label = 'pricing_sync_apply';
+		if ( is_array( $source ) ) {
+			$source_identity = $this->normalize_source( $source );
+			if ( is_wp_error( $source_identity ) ) {
+				return $source_identity;
+			}
+		} else {
+			$source_label    = sanitize_key( (string) $source );
+			$source_label    = '' === $source_label ? 'pricing_job' : substr( $source_label, 0, 64 );
+			$source_identity = array(
+				'id'       => 'digitalogic-wp',
+				'dataset'  => 'pricing-settings',
+				'revision' => $this->revision(
+					array(
+						'source'   => $source_label,
+						'settings' => $settings,
+					)
+				),
+			);
+		}
+		$request_context = $this->bounded_internal_request_context( $request_context, $operation_id, $source_label );
+
+		if ( empty( $source_context ) ) {
+			$source_context = array(
+				'id'                       => $source_identity['id'],
+				'dataset'                  => $source_identity['dataset'],
+				'submitted_revision'       => $source_identity['revision'],
+				'current_revision'         => $source_identity['revision'],
+				'revision_matches_current' => true,
+				'revision_capability'      => '' !== $source_identity['revision'],
+			);
+		}
+		if (
+			! is_array( $source_context )
+			|| array_is_list( $source_context )
+			|| ! hash_equals( $source_identity['id'], (string) ( $source_context['id'] ?? '' ) )
+			|| ! hash_equals( $source_identity['dataset'], (string) ( $source_context['dataset'] ?? '' ) )
+			|| ! $this->is_revision( $source_context['current_revision'] ?? null )
+			|| ! $this->is_revision( $source_context['submitted_revision'] ?? null )
+			|| ! is_bool( $source_context['revision_matches_current'] ?? null )
+			|| ! is_bool( $source_context['revision_capability'] ?? null )
+			|| (
+				! empty( $source_context['revision_capability'] )
+				&& ! hash_equals( $source_identity['revision'], (string) $source_context['submitted_revision'] )
+			)
+			|| hash_equals(
+				(string) $source_context['submitted_revision'],
+				(string) $source_context['current_revision']
+			) !== $source_context['revision_matches_current']
+		) {
+			return $this->error(
+				'digitalogic_pricing_source_context_invalid',
+				'The admitted pricing source context is invalid.',
+				400
+			);
+		}
+		$source_context = array(
+			'id'                       => (string) $source_context['id'],
+			'dataset'                  => (string) $source_context['dataset'],
+			'submitted_revision'       => (string) $source_context['submitted_revision'],
+			'current_revision'         => (string) $source_context['current_revision'],
+			'revision_matches_current' => (bool) $source_context['revision_matches_current'],
+			'revision_capability'      => (bool) $source_context['revision_capability'],
+		);
+		$fingerprint    = $this->revision(
+			array(
+				'operation_id'      => $operation_id,
+				'expected_revision' => $expected_revision,
+				'source'            => $source_identity,
+				'source_context'    => $source_context,
+				'settings'          => $settings,
+			)
+		);
+
+		return $this->with_lock(
+			function () use ( $settings, $expected_revision, $operation_id, $request_context, $source_identity, $source_context, $fingerprint ) {
+				$replay = $this->phase_receipt( $operation_id, $fingerprint );
+				if ( is_wp_error( $replay ) ) {
+					return $replay;
+				}
+				if ( is_array( $replay ) ) {
+					$replay['replayed'] = true;
+					return $replay;
+				}
+
+				$current = $this->read_globals();
+				if ( is_wp_error( $current ) ) {
+					return $current;
+				}
+				if ( ! hash_equals( $expected_revision, $current['state_revision'] ) ) {
+					return $this->revision_conflict( $current['state_revision'] );
+				}
+				$desired = $this->globals_from_settings( $settings );
+				if ( is_wp_error( $desired ) ) {
+					return $desired;
+				}
+
+				return $this->run_transaction(
+					function () use ( $settings, $expected_revision, $operation_id, $request_context, $source_identity, $source_context, $fingerprint, $desired ) {
+						foreach ( $this->pricing_option_names( true ) as $option_name ) {
+							$this->read_option_db( $option_name, true );
+						}
+						$replay = $this->phase_receipt( $operation_id, $fingerprint );
+						if ( is_wp_error( $replay ) || is_array( $replay ) ) {
+							return is_array( $replay ) ? array_merge( $replay, array( 'replayed' => true ) ) : $replay;
+						}
+
+						$locked_current = $this->read_globals();
+						if ( is_wp_error( $locked_current ) ) {
+							return $locked_current;
+						}
+						if ( ! hash_equals( $expected_revision, $locked_current['state_revision'] ) ) {
+							return $this->revision_conflict( $locked_current['state_revision'] );
+						}
+						$changed = ! hash_equals( $locked_current['state_revision'], $desired['state_revision'] );
+						if ( $changed ) {
+							$options = $this->desired_option_values( $source_identity, $settings, $locked_current, $desired );
+							if ( is_wp_error( $options ) ) {
+								return $options;
+							}
+							foreach ( $options as $name => $value ) {
+								$stored = $this->store_option_verified( $name, $value );
+								if ( is_wp_error( $stored ) ) {
+									return $stored;
+								}
+							}
+							$audit = $this->append_audit_entry(
+								$source_identity,
+								$source_context,
+								$operation_id,
+								'async',
+								$locked_current,
+								$desired,
+								$settings,
+								$request_context
+							);
+							if ( is_wp_error( $audit ) ) {
+								return $audit;
+							}
+						}
+
+						$readback = $this->read_globals();
+						$readback = $this->transaction_consistent_readback( $readback, $desired, $locked_current );
+						if ( is_wp_error( $readback ) ) {
+							return $readback;
+						}
+						if ( ! hash_equals( $desired['state_revision'], $readback['state_revision'] ) ) {
+							return $this->error(
+								'digitalogic_pricing_settings_readback_failed',
+								'Stored pricing settings failed exact readback.',
+								500,
+								array(
+									'expected_revision' => $desired['state_revision'],
+									'actual_revision'   => $readback['state_revision'],
+								)
+							);
+						}
+
+						$option_events = $this->transaction_option_events;
+						$result        = array(
+							'schema'                    => 'digitalogic.pricing-settings-phase',
+							'status'                    => $changed ? 'committed' : 'already_current',
+							'operation_id'              => $operation_id,
+							'fingerprint'               => $fingerprint,
+							'source'                    => $source_identity,
+							'source_context'            => $source_context,
+							'previous_state_revision'   => $locked_current['state_revision'],
+							'state_revision'            => $readback['state_revision'],
+							'previous_catalog_revision' => $locked_current['shipping']['catalog_revision'],
+							'catalog_revision'          => $readback['shipping']['catalog_revision'],
+							'previous'                  => $locked_current,
+							'readback'                  => $readback,
+							'settings'                  => $this->settings_from_globals( $readback ),
+							'settings_changed'          => $changed,
+							'option_events'             => $option_events,
+							'replayed'                  => false,
+						);
+						$stored        = $this->store_phase_receipt( $operation_id, $fingerprint, $result );
+
+						return is_wp_error( $stored ) ? $stored : $result;
+					},
+					null,
+					true
+				);
+			}
+		);
+	}
+
+	/**
+	 * Reprice one exact Product Code batch in a short receipt-backed transaction.
+	 *
+	 * @param array  $settings                   Complete canonical settings.
+	 * @param array  $scope_codes                Deterministic Product Code batch.
+	 * @param string $previous_catalog_revision  Catalog revision on stored rows.
+	 * @param string $expected_receiver_revision Exact internal pricing-scope revision.
+	 * @param string $expected_code_digest       Pinned complete Product Code digest.
+	 * @param string $operation_id               Stable batch identity.
+	 * @param array  $source                     Exact authenticated source scope.
+	 * @return array|WP_Error
+	 */
+	public function reprice_internal_batch( $settings, $scope_codes, $previous_catalog_revision, $expected_receiver_revision, $expected_code_digest, $operation_id, $source ) {
+		$settings = $this->normalize_settings( $settings );
+		if ( is_wp_error( $settings ) ) {
+			return $settings;
+		}
+		if ( ! is_array( $scope_codes ) || ! array_is_list( $scope_codes ) || empty( $scope_codes ) || count( $scope_codes ) > 25 ) {
+			return $this->error(
+				'digitalogic_pricing_batch_scope_invalid',
+				'A pricing batch must contain between 1 and 25 Product Codes.',
+				400
+			);
+		}
+		$validated = $this->validate_internal_phase_identity( $operation_id, $expected_receiver_revision );
+		if ( is_wp_error( $validated ) ) {
+			return $validated;
+		}
+		if ( ! $this->is_revision( $expected_code_digest ) || ! $this->is_revision( $previous_catalog_revision ) ) {
+			return $this->error(
+				'digitalogic_pricing_batch_pin_invalid',
+				'A pricing batch revision pin is invalid.',
+				400
+			);
+		}
+		$codes = array();
+		foreach ( $scope_codes as $code ) {
+			if ( ! is_string( $code ) || '' === $code || trim( $code ) !== $code || strlen( $code ) > 191 ) {
+				return $this->error(
+					'digitalogic_pricing_batch_scope_invalid',
+					'A pricing batch contains an invalid Product Code.',
+					400
+				);
+			}
+			$codes[ $code ] = true;
+		}
+		if ( count( $codes ) !== count( $scope_codes ) ) {
+			return $this->error(
+				'digitalogic_pricing_batch_scope_invalid',
+				'A pricing batch contains a duplicate Product Code.',
+				400
+			);
+		}
+		$codes = array_keys( $codes );
+		sort( $codes, SORT_STRING );
+		$source = $this->normalize_source( $source );
+		if ( is_wp_error( $source ) ) {
+			return $source;
+		}
+		$fingerprint = $this->revision(
+			array(
+				'operation_id'               => $operation_id,
+				'settings'                   => $settings,
+				'codes'                      => $codes,
+				'previous_catalog_revision'  => $previous_catalog_revision,
+				'expected_receiver_revision' => $expected_receiver_revision,
+				'expected_code_digest'       => $expected_code_digest,
+				'source'                     => $source,
+			)
+		);
+		$store       = Digitalogic_Pricing_Adapter_Registry::instance()->store();
+		if ( ! $store instanceof Digitalogic_Pricing_Bounded_Store_Adapter_Interface ) {
+			return $this->error(
+				'digitalogic_pricing_bounded_store_unsupported',
+				'The active pricing store does not support bounded apply jobs.',
+				409
+			);
+		}
+
+		$result = $this->with_lock(
+			function () use ( $store, $settings, $codes, $previous_catalog_revision, $expected_receiver_revision, $expected_code_digest, $operation_id, $fingerprint, $source ) {
+				$replay = $this->phase_receipt( $operation_id, $fingerprint );
+				if ( is_wp_error( $replay ) ) {
+					return $replay;
+				}
+				if ( is_array( $replay ) ) {
+					$replay['replayed'] = true;
+					return $replay;
+				}
+
+				return $this->run_coordinated_pricing_transaction(
+					function () use ( $store, $settings, $codes, $previous_catalog_revision, $expected_receiver_revision, $expected_code_digest, $operation_id, $fingerprint, $source ) {
+						$this->read_option_db( self::PHASE_RECEIPTS_OPTION, true );
+						$replay = $this->phase_receipt( $operation_id, $fingerprint );
+						if ( is_wp_error( $replay ) || is_array( $replay ) ) {
+							return is_array( $replay ) ? array_merge( $replay, array( 'replayed' => true ) ) : $replay;
+						}
+						$before = $store->pricing_scope( $source );
+						if ( is_wp_error( $before ) ) {
+							return $before;
+						}
+						if ( ! hash_equals( $expected_receiver_revision, (string) ( $before['state_revision'] ?? '' ) ) ) {
+							return $this->error(
+								'digitalogic_pricing_receiver_revision_conflict',
+								'The canonical pricing scope changed before this batch.',
+								409,
+								array( 'current_receiver_revision' => (string) ( $before['state_revision'] ?? '' ) )
+							);
+						}
+						if ( ! hash_equals( $expected_code_digest, (string) ( $before['code_digest'] ?? '' ) ) ) {
+							return $this->error(
+								'digitalogic_pricing_scope_changed',
+								'The canonical Product Code set changed before this batch.',
+								409
+							);
+						}
+						$repricing = $store->reprice_bounded_open_transaction( $settings, $previous_catalog_revision, $codes );
+						if ( is_wp_error( $repricing ) ) {
+							return $repricing;
+						}
+						$after = $store->pricing_scope( $source );
+						if ( is_wp_error( $after ) ) {
+							return $after;
+						}
+						if ( ! hash_equals( $expected_code_digest, (string) ( $after['code_digest'] ?? '' ) ) ) {
+							return $this->error(
+								'digitalogic_pricing_scope_changed',
+								'The canonical Product Code set changed during this batch.',
+								409
+							);
+						}
+						$result = array(
+							'schema'                   => 'digitalogic.pricing-batch-receipt',
+							'status'                   => 'committed',
+							'operation_id'             => $operation_id,
+							'fingerprint'              => $fingerprint,
+							'before_receiver_revision' => (string) $before['state_revision'],
+							'receiver_revision'        => (string) $after['state_revision'],
+							'code_digest'              => (string) $after['code_digest'],
+							'row_count'                => count( $codes ),
+							'codes_digest'             => $this->revision( $codes ),
+							'pricing_results'          => $repricing,
+							'cache_plan'               => $store->repricing_cache_plan(),
+							'replayed'                 => false,
+						);
+						$stored = $this->store_phase_receipt( $operation_id, $fingerprint, $result );
+
+						return is_wp_error( $stored ) ? $stored : $result;
+					}
+				);
+			}
+		);
+		$store->flush_repricing_caches( is_array( $result ) ? (array) ( $result['cache_plan'] ?? array() ) : array() );
+
+		return $result;
+	}
+
+	/**
+	 * Publish one resolved pricing-apply terminal intent through durable seams.
+	 *
+	 * The job registry retains and retries the same immutable snapshot until
+	 * this method acknowledges durable panel delivery. Replays reuse the same
+	 * effect/event identities and never re-run settings or product actuation.
+	 *
+	 * @param array $job Private durable job snapshot.
+	 * @return array|WP_Error
+	 */
+	public function publish_pricing_apply_outbox( $job ) {
+		$job_id            = is_array( $job ) ? (string) ( $job['job_id'] ?? '' ) : '';
+		$request_id        = is_array( $job ) ? (string) ( $job['request_id'] ?? '' ) : '';
+		$pending_terminal  = is_array( $job['pending_terminal'] ?? null ) ? $job['pending_terminal'] : array();
+		$terminal_status   = (string) ( $pending_terminal['status'] ?? '' );
+		$event_id          = (string) ( $job['outbox']['event_id'] ?? '' );
+		$expected_event_id = 'outcome_unknown' === $terminal_status
+			? 'pricing-apply-outcome-unknown:' . $job_id
+			: 'pricing-apply:' . $job_id;
+		if (
+			1 !== preg_match( '/\Ajob_[a-f0-9]{32}\z/D', $job_id )
+			|| 1 !== preg_match( '/\A[a-zA-Z0-9._:-]{8,128}\z/D', $request_id )
+			|| ! in_array( $terminal_status, array( 'completed', 'cancelled', 'rolled_back', 'failed', 'outcome_unknown' ), true )
+			|| ! hash_equals( $expected_event_id, $event_id )
+		) {
+			return $this->error(
+				'digitalogic_pricing_apply_outbox_invalid',
+				'The pricing apply terminal outbox is invalid.',
+				500
+			);
+		}
+
+		$binding = is_array( $job['operation_binding'] ?? null ) ? $job['operation_binding'] : array();
+		$source  = $this->normalize_source( $binding['source'] ?? null );
+		if ( is_wp_error( $source ) ) {
+			return $source;
+		}
+		$pinned_consumer = is_array( $job['ack_consumer'] ?? null ) ? $job['ack_consumer'] : array();
+		$context         = $this->bounded_internal_request_context(
+			(array) ( $job['request_context'] ?? array() ),
+			$request_id,
+			'pricing_sync_apply'
+		);
+		$effect_id       = 'sha256:' . hash(
+			'sha256',
+			"pricing-apply-terminal\0" . $event_id . "\0" . (string) ( $job['request_fingerprint'] ?? '' )
+		);
+		$aggregate       = is_array( $job['aggregate'] ?? null ) ? $job['aggregate'] : array();
+		$revision        = (string) ( $job['expected_state_revision'] ?? '' );
+		$result          = array(
+			'schema'          => 'digitalogic.pricing-apply-terminal',
+			'event_id'        => $event_id,
+			'effect_id'       => $effect_id,
+			'job_id'          => $job_id,
+			'request_id'      => $request_id,
+			'status'          => $terminal_status,
+			'terminal_reason' => sanitize_key( (string) ( $pending_terminal['reason'] ?? '' ) ),
+			'source'          => $source,
+			'state_revision'  => $revision,
+			'row_count'       => max( 0, (int) ( $job['source_pin']['row_count'] ?? 0 ) ),
+		);
+
+		if ( 'completed' === $terminal_status ) {
+			$settings_phase = is_array( $job['settings_phase'] ?? null ) ? $job['settings_phase'] : array();
+			if (
+				empty( $settings_phase )
+				|| ! $this->is_revision( $settings_phase['state_revision'] ?? null )
+				|| ! is_array( $settings_phase['previous'] ?? null )
+				|| ! is_array( $settings_phase['readback'] ?? null )
+				|| ! is_array( $settings_phase['settings'] ?? null )
+				|| (int) ( $job['forward_cursor'] ?? -1 ) !== count( (array) ( $job['codes'] ?? array() ) )
+				|| (int) ( $job['source_pin']['row_count'] ?? -1 ) !== count( (array) ( $job['codes'] ?? array() ) )
+			) {
+				return $this->error(
+					'digitalogic_pricing_apply_outbox_incomplete',
+					'The pricing apply cannot publish before every bounded phase is verified.',
+					503,
+					array( 'retryable' => true )
+				);
+			}
+			$current_consumer = $this->current_ack_consumer( $source );
+			if ( is_wp_error( $current_consumer ) ) {
+				return $current_consumer;
+			}
+			if ( ! $this->same_ack_consumer( $pinned_consumer, $current_consumer ) ) {
+				return $this->error(
+					'digitalogic_pricing_confirmation_consumer_changed',
+					'The pinned pricing consumer changed before acknowledgement staging.',
+					409,
+					array( 'retryable' => true )
+				);
+			}
+
+			$current = $this->read_globals();
+			if ( is_wp_error( $current ) ) {
+				return $current;
+			}
+			if ( ! hash_equals( (string) $settings_phase['state_revision'], (string) $current['state_revision'] ) ) {
+				return $this->error(
+					'digitalogic_pricing_apply_outbox_readback_conflict',
+					'Pricing settings changed before terminal publication.',
+					409,
+					array(
+						'current_state_revision' => (string) $current['state_revision'],
+						'retryable'              => true,
+					)
+				);
+			}
+			$revision    = (string) $current['state_revision'];
+			$publication = array(
+				'effect_id'         => $effect_id,
+				'source_identity'   => $source,
+				'source'            => 'pricing_sync_apply',
+				'previous_revision' => (string) $settings_phase['previous_state_revision'],
+				'previous'          => (array) $settings_phase['previous'],
+				'readback'          => (array) $settings_phase['readback'],
+				'settings'          => (array) $settings_phase['settings'],
+				'repricing'         => $aggregate,
+				'cache_plan'        => (array) ( $aggregate['cache_plan'] ?? array() ),
+				'settings_changed'  => ! empty( $settings_phase['settings_changed'] ),
+				'products_updated'  => (int) ( $job['source_pin']['row_count'] ?? 0 ) > 0,
+			);
+			$published   = $this->publish_internal_settings_effect( $publication );
+			if ( is_wp_error( $published ) ) {
+				return $published;
+			}
+
+			$bound_confirmation = is_array( $job['confirmation'] ?? null ) ? $job['confirmation'] : array();
+			$transaction_id     = (string) ( $bound_confirmation['transaction_id'] ?? '' );
+			if ( 1 === preg_match( '/\Aptx_[a-f0-9]{32}\z/D', $transaction_id ) ) {
+				$confirmation = $this->pricing_apply_confirmation_projection( $job_id, $transaction_id );
+			} else {
+				$confirmation = $this->with_lock(
+					function () use ( $settings_phase, $context, $request_id, $job, $pinned_consumer, $job_id ) {
+						return $this->run_transaction(
+							function () use ( $settings_phase, $context, $request_id, $job, $pinned_consumer, $job_id ) {
+								$this->read_option_db( self::CONFIRMATIONS_OPTION, true );
+								$this->read_option_db( self::CONFIRMATION_OUTBOX_OPTION, true );
+
+								return $this->stage_confirmation_open_transaction(
+									(array) $settings_phase['previous'],
+									(array) $settings_phase['readback'],
+									$this->settings_from_globals( (array) $settings_phase['previous'] ),
+									(array) $settings_phase['settings'],
+									$pinned_consumer,
+									$context,
+									$request_id,
+									(string) ( $job['request_fingerprint'] ?? '' ),
+									$job_id
+								);
+							},
+							null,
+							true
+						);
+					}
+				);
+			}
+			if ( is_wp_error( $confirmation ) ) {
+				return $confirmation;
+			}
+			if ( 'awaiting_ack' === (string) ( $confirmation['status'] ?? '' ) && ! $this->schedule_confirmation_timeout( $confirmation ) ) {
+				return $this->error(
+					'digitalogic_pricing_confirmation_schedule_failed',
+					'The pricing confirmation timeout could not be scheduled.',
+					503,
+					array( 'retryable' => true )
+				);
+			}
+			$this->publish_confirmation_outbox();
+
+			$metadata       = is_array( $job['operation_metadata'] ?? null ) ? $job['operation_metadata'] : array();
+			$source_context = is_array( $metadata['source_context'] ?? null ) ? $metadata['source_context'] : array();
+			$warnings       = array_values( (array) ( $metadata['warnings'] ?? array() ) );
+			$warnings       = array_values(
+				array_filter(
+					$warnings,
+					static function ( $warning ) {
+						return ! is_array( $warning ) || 'source_revision_out_of_sync' !== ( $warning['code'] ?? '' );
+					}
+				)
+			);
+			$source_warning = $this->source_revision_warning( $source_context );
+			if ( null !== $source_warning ) {
+				array_unshift( $warnings, $source_warning );
+			}
+			$warnings[] = $this->warning(
+				'pricing_reconciled',
+				'تنظیمات و قیمت نهایی کالاها در دسته‌های محدود ثبت و بازخوانی شد.',
+				'info',
+				array(
+					'updated_products' => (int) ( $aggregate['updated_products'] ?? 0 ),
+					'deferred_missing' => (int) ( $aggregate['deferred_missing'] ?? 0 ),
+					'row_count'        => (int) ( $job['source_pin']['row_count'] ?? 0 ),
+				)
+			);
+			$result     = array(
+				'schema'            => self::APPLY_SCHEMA,
+				'mode'              => 'apply',
+				'status'            => ! empty( $settings_phase['settings_changed'] ) ? 'applied' : 'reconciled',
+				'event_id'          => $event_id,
+				'effect_id'         => $effect_id,
+				'job_id'            => $job_id,
+				'state_revision'    => $revision,
+				'previous_revision' => (string) $settings_phase['previous_state_revision'],
+				'source'            => $source_context,
+				'client_id'         => $context['client_id'],
+				'channel'           => $context['channel'],
+				'request_id'        => $request_id,
+				'settings'          => (array) $settings_phase['settings'],
+				'preview_digest'    => (string) ( $binding['preview_digest'] ?? '' ),
+				'expires_at'        => gmdate( 'c', (int) ( $metadata['preview_expires_at'] ?? time() ) ),
+				'warnings'          => $warnings,
+				'product_results'   => array_values( (array) ( $aggregate['sources'] ?? array() ) ),
+				'confirmation'      => $confirmation,
+			);
+			if ( 'awaiting_ack' === (string) ( $confirmation['status'] ?? '' ) ) {
+				return array(
+					'awaiting_ack' => true,
+					'confirmation' => $confirmation,
+					'result'       => $result,
+				);
+			}
+			if ( 'acknowledged' !== (string) ( $confirmation['status'] ?? '' ) ) {
+				return $this->error(
+					'digitalogic_pricing_confirmation_state_invalid',
+					'The bound pricing confirmation is not acknowledged.',
+					409,
+					array( 'retryable' => true )
+				);
+			}
+		}
+		if (
+			! empty( $job['settings_restored'] )
+			&& in_array( $terminal_status, array( 'cancelled', 'rolled_back' ), true )
+			&& is_array( $job['confirmation'] ?? null )
+		) {
+			$closed = $this->finalize_pricing_apply_confirmation_rollback( $job );
+			if ( is_wp_error( $closed ) ) {
+				return $closed;
+			}
+			$result['confirmation'] = $closed;
+			$this->publish_confirmation_outbox();
+		}
+
+		$event_data = array(
+			'schema'          => 'digitalogic.pricing-apply-terminal',
+			'job_id'          => $job_id,
+			'request_id'      => $request_id,
+			'status'          => $terminal_status,
+			'phase'           => 'terminal',
+			'source'          => $source,
+			'state_revision'  => $revision,
+			'row_count'       => max( 0, (int) ( $job['source_pin']['row_count'] ?? 0 ) ),
+			'code'            => sanitize_key( (string) ( $pending_terminal['reason'] ?? $terminal_status ) ),
+			'retryable'       => false,
+			'idempotency_key' => $event_id,
+			'status_path'     => $this->pricing_apply_status_path( $job_id, $source ),
+			'revision_path'   => '/wp-json/digitalogic/pricing/sync/revision',
+			'audience'        => array(
+				'services' => array( Digitalogic_Pricing_Adapter_Registry::instance()->provider()->event_principal() ),
+			),
+		);
+		if ( ! class_exists( 'Digitalogic_Panel' ) ) {
+			return $this->error(
+				'digitalogic_pricing_apply_event_storage_unavailable',
+				'The pricing apply terminal event store is unavailable.',
+				503,
+				array( 'retryable' => true )
+			);
+		}
+		$delivery = Digitalogic_Panel::record_event_result( 'pricing.apply.terminal', $event_data );
+		if ( is_wp_error( $delivery ) ) {
+			return $this->error(
+				'digitalogic_pricing_apply_event_storage_unavailable',
+				'The pricing apply terminal event could not be made durable.',
+				503,
+				array(
+					'retryable'  => true,
+					'error_code' => $delivery->get_error_code(),
+				)
+			);
+		}
+		$result['event_delivery'] = array(
+			'durable'   => true,
+			'confirmed' => ! empty( $delivery['delivery_confirmed'] ),
+			'warnings'  => array_values( (array) ( $delivery['delivery_warnings'] ?? array() ) ),
+		);
+
+		return $result;
 	}
 
 	/**
@@ -916,162 +1622,122 @@ final class Digitalogic_Excel_Pricing_Sync {
 			);
 		}
 
-		$request_hash = $this->revision(
+		return $this->admit_pricing_apply_job( $payload, $headers, $settings, $preview_digest );
+	}
+
+	/**
+	 * Admit a validated apply to the bounded durable pricing saga.
+	 *
+	 * Exact replay deliberately precedes every mutable live-state and preview
+	 * read. A lost 202 response can therefore be recovered with the original
+	 * request identity even after the accepted preview expires.
+	 *
+	 * @param array  $payload        Validated request payload.
+	 * @param array  $headers        Validated mutation headers.
+	 * @param array  $settings       Canonical settings.
+	 * @param string $preview_digest Exact preview digest.
+	 * @return array|WP_Error
+	 */
+	private function admit_pricing_apply_job( $payload, $headers, $settings, $preview_digest ) {
+		if ( ! hash_equals( $headers['idempotency_key'], (string) $payload['request_id'] ) ) {
+			return $this->error(
+				'digitalogic_excel_sync_request_id_mismatch',
+				'request_id must exactly match Idempotency-Key for pricing apply.',
+				400
+			);
+		}
+
+		$binding = array(
+			'source'         => $payload['source'],
+			'preview_digest' => $preview_digest,
+			'confirmation'   => 'APPLY',
+			'client_id'      => $payload['client_id'],
+			'channel'        => $payload['channel'],
+		);
+		$context = $this->request_context( $payload );
+		$jobs    = Digitalogic_Pricing_Apply_Jobs::instance();
+		$replay  = $jobs->replay(
+			$settings,
+			$headers['expected_state_revision'],
+			$headers['idempotency_key'],
+			$binding,
+			$context
+		);
+		if ( is_wp_error( $replay ) || is_array( $replay ) ) {
+			return is_wp_error( $replay ) ? $replay : $this->pricing_apply_transport( $replay );
+		}
+
+		$source_context = $this->validate_current_source( $payload['source'] );
+		if ( is_wp_error( $source_context ) ) {
+			return $source_context;
+		}
+		$current = $this->read_globals();
+		if ( is_wp_error( $current ) ) {
+			return $current;
+		}
+		if ( ! hash_equals( $current['state_revision'], $headers['expected_state_revision'] ) ) {
+			return $this->revision_conflict( $current['state_revision'] );
+		}
+		$preview = $this->read_preview( $preview_digest );
+		if ( is_wp_error( $preview ) ) {
+			return $preview;
+		}
+		if (
+			! hash_equals( $preview['expected_state_revision'], $headers['expected_state_revision'] )
+			|| ! hash_equals( $this->revision( $preview['source'] ), $this->revision( $payload['source'] ) )
+			|| ! hash_equals( $this->revision( $preview['settings'] ), $this->revision( $settings ) )
+		) {
+			return $this->error(
+				'digitalogic_excel_sync_preview_mismatch',
+				'Pricing apply no longer matches the accepted preview.',
+				409
+			);
+		}
+
+		$admission = $jobs->admit(
+			$settings,
+			$headers['expected_state_revision'],
+			$headers['idempotency_key'],
+			$binding,
 			array(
-				'mode'                    => 'apply',
-				'source'                  => $payload['source'],
-				'idempotency_key'         => $headers['idempotency_key'],
-				'expected_state_revision' => $headers['expected_state_revision'],
-				'settings'                => $settings,
-				'preview_digest'          => $preview_digest,
-				'confirmation'            => 'APPLY',
-				'client_id'               => $payload['client_id'],
-				'channel'                 => $payload['channel'],
-				'request_id'              => $payload['request_id'],
-			)
+				'source_context'     => $source_context,
+				'preview_expires_at' => (int) $preview['expires_at'],
+				'warnings'           => array_values( (array) ( $preview['warnings'] ?? array() ) ),
+			),
+			$context
 		);
 
-		return $this->with_lock(
-			function () use ( $payload, $headers, $settings, $preview_digest, $request_hash ) {
-				$claim = $this->claim_idempotency(
-					'apply',
-					$headers['idempotency_key'],
-					$request_hash,
-					self::APPLY_IDEMPOTENCY_SECONDS
-				);
-				if ( is_wp_error( $claim ) ) {
-					return $claim;
-				}
-				if ( isset( $claim['response'] ) ) {
-					$replayed           = $claim['response'];
-					$replayed['status'] = 'replayed';
-					return $replayed;
-				}
+		return is_wp_error( $admission ) ? $admission : $this->pricing_apply_transport( $admission );
+	}
 
-				$source_context = $this->validate_current_source( $payload['source'] );
-				if ( is_wp_error( $source_context ) ) {
-					$this->release_idempotency( 'apply', $headers['idempotency_key'] );
-					return $source_context;
-				}
+	/**
+	 * Return suffix-free HTTP transport metadata for a public job status.
+	 *
+	 * @param array $status Public job status.
+	 * @return array
+	 */
+	private function pricing_apply_transport( $status ) {
+		$terminal    = ! empty( $status['terminal'] );
+		$http_status = $terminal ? 200 : 202;
+		if ( $terminal && empty( $status['accepted'] ) && 'failed' === (string) ( $status['status'] ?? '' ) ) {
+			$http_status = 503;
+		}
+		$headers = array( 'Cache-Control' => 'no-store' );
+		if ( ! empty( $status['status_url'] ) ) {
+			$headers['Location'] = (string) $status['status_url'];
+		}
+		if ( ! $terminal ) {
+			$headers['Retry-After'] = (string) max( 1, (int) ( $status['retry_after'] ?? 2 ) );
+		} elseif ( 503 === $http_status ) {
+			$headers['Retry-After'] = '2';
+		}
 
-				$current = $this->read_globals();
-				if ( is_wp_error( $current ) ) {
-					$this->release_idempotency( 'apply', $headers['idempotency_key'] );
-					return $current;
-				}
-				if ( ! hash_equals( $current['state_revision'], $headers['expected_state_revision'] ) ) {
-					$this->release_idempotency( 'apply', $headers['idempotency_key'] );
-					return $this->revision_conflict( $current['state_revision'] );
-				}
-
-				$preview = $this->read_preview( $preview_digest );
-				if ( is_wp_error( $preview ) ) {
-					$this->release_idempotency( 'apply', $headers['idempotency_key'] );
-					return $preview;
-				}
-				if (
-					! hash_equals( $preview['expected_state_revision'], $headers['expected_state_revision'] )
-					|| ! hash_equals(
-						$this->revision( $preview['source'] ),
-						$this->revision( $payload['source'] )
-					)
-					|| ! hash_equals(
-						$this->revision( $preview['settings'] ),
-						$this->revision( $settings )
-					)
-				) {
-					$this->release_idempotency( 'apply', $headers['idempotency_key'] );
-					return $this->error(
-						'digitalogic_excel_sync_preview_mismatch',
-						'درخواست اعمال با پیش‌نمایش تأییدشده یکسان نیست.',
-						409
-					);
-				}
-
-				if ( ! Digitalogic_Pricing_Adapter_Registry::instance()->store()->invalidate_projection() ) {
-					$this->release_idempotency( 'apply', $headers['idempotency_key'] );
-
-					return $this->error(
-						'digitalogic_excel_sync_projection_invalidation_failed',
-						'The pricing projection generation could not be invalidated; no pricing mutation was started.',
-						503
-					);
-				}
-
-				$result = $this->apply_locked(
-					$payload['source'],
-					$source_context,
-					$headers['idempotency_key'],
-					$headers['expected_state_revision'],
-					$settings,
-					$preview_digest,
-					$preview,
-					$this->request_context( $payload )
-				);
-				if ( is_wp_error( $result ) ) {
-					$this->release_idempotency( 'apply', $headers['idempotency_key'] );
-					return $result;
-				}
-				$result['effect_id']         = 'sha256:' . hash(
-					'sha256',
-					"excel-pricing-apply\0" . $headers['idempotency_key'] . "\0" . $request_hash
-				);
-				$result['previous_revision'] = $headers['expected_state_revision'];
-				try {
-					$invalidated = Digitalogic_Pricing_Snapshot::instance()->invalidate_after_apply( $result );
-				} catch ( Throwable $exception ) {
-					$invalidated = $this->error(
-						'digitalogic_excel_sync_projection_invalidation_exception',
-						'تنظیمات ثبت شد اما انتشار تغییر projection به بازیابی محدود نیاز دارد.',
-						500,
-						array(
-							'retry_scheduled' => false,
-							'exception_class' => get_class( $exception ),
-						)
-					);
-				}
-				if ( is_wp_error( $invalidated ) ) {
-					$details              = $invalidated->get_error_data();
-					$details              = is_array( $details ) ? $details : array();
-					$result['warnings'][] = $this->warning(
-						'projection_invalidation_pending',
-						'تنظیمات ثبت شد؛ تازه‌سازی projection در صف بازیابی محدود قرار گرفت.',
-						'warning',
-						array(
-							'error_code'      => $invalidated->get_error_code(),
-							'retry_scheduled' => (bool) ( $details['retry_scheduled'] ?? false ),
-						)
-					);
-				}
-
-				$stored = $this->complete_idempotency(
-					'apply',
-					$headers['idempotency_key'],
-					$request_hash,
-					$result,
-					self::APPLY_IDEMPOTENCY_SECONDS
-				);
-				if ( is_wp_error( $stored ) ) {
-					// The settings write is idempotent and already passed exact
-					// readback. Return success with an explicit retry warning.
-					$result['warnings'][] = $this->warning(
-						'idempotency_result_not_cached',
-						'ثبت نتیجهٔ تکرارپذیر کامل نشد؛ پیش از تلاش دوباره state را بخوانید.',
-						'warning'
-					);
-				}
-
-				// This action is emitted only for the original terminal apply. An
-				// idempotent replay returns above and cannot invalidate projection
-				// generations or create any new external effect.
-				try {
-					do_action( 'digitalogic_excel_pricing_apply_committed', $result );
-				} catch ( Throwable $exception ) {
-					unset( $exception );
-				}
-
-				return $result;
-			}
+		return array(
+			'__transport' => array(
+				'status'  => $http_status,
+				'headers' => $headers,
+			),
+			'data'        => $status,
 		);
 	}
 
@@ -1185,8 +1851,9 @@ final class Digitalogic_Excel_Pricing_Sync {
 								hash_equals( (string) ( $record['ack_idempotency_key'] ?? '' ), $ack['idempotency_key'] )
 								&& hash_equals( (string) ( $record['ack_digest'] ?? '' ), $ack_digest )
 							) {
-								$projection           = $this->confirmation_projection( $record );
-								$projection['status'] = 'replayed';
+								$projection                           = $this->confirmation_projection( $record );
+								$projection['status']                 = 'replayed';
+								$projection['__pricing_apply_job_id'] = (string) ( $record['pricing_apply_job_id'] ?? '' );
 								return $projection;
 							}
 
@@ -1255,7 +1922,10 @@ final class Digitalogic_Excel_Pricing_Sync {
 							return $stored;
 						}
 
-						return $this->confirmation_projection( $record );
+						$projection                           = $this->confirmation_projection( $record );
+						$projection['__pricing_apply_job_id'] = (string) ( $record['pricing_apply_job_id'] ?? '' );
+
+						return $projection;
 					}
 				);
 			}
@@ -1270,6 +1940,26 @@ final class Digitalogic_Excel_Pricing_Sync {
 				);
 			}
 			return $result;
+		}
+		$pricing_apply_job_id = (string) ( $result['__pricing_apply_job_id'] ?? '' );
+		unset( $result['__pricing_apply_job_id'] );
+		if ( 1 === preg_match( '/\Ajob_[a-f0-9]{32}\z/D', $pricing_apply_job_id ) ) {
+			if ( ! class_exists( 'Digitalogic_Pricing_Apply_Jobs' ) ) {
+				return $this->error(
+					'digitalogic_pricing_apply_job_unavailable',
+					'The durable pricing apply job service is unavailable.',
+					503,
+					array( 'retryable' => true )
+				);
+			}
+			$signaled = Digitalogic_Pricing_Apply_Jobs::instance()->acknowledge_confirmation(
+				$pricing_apply_job_id,
+				$transaction_id,
+				$result
+			);
+			if ( is_wp_error( $signaled ) ) {
+				return $signaled;
+			}
 		}
 
 		wp_clear_scheduled_hook( self::CONFIRMATION_TIMEOUT_HOOK, array( $transaction_id ) );
@@ -1361,277 +2051,6 @@ final class Digitalogic_Excel_Pricing_Sync {
 		);
 	}
 
-	/**
-	 * Apply settings under the synchronization lock.
-	 *
-	 * @param array  $source                    Exact current source.
-	 * @param array  $source_context             Submitted/current source revisions.
-	 * @param string $idempotency_key           Apply idempotency key.
-	 * @param string $expected_state_revision   Expected settings revision.
-	 * @param array  $settings                  Canonical settings.
-	 * @param string $preview_digest            Bound preview digest.
-	 * @param array  $preview                   Stored preview.
-	 * @param array  $request_context           Nonsecret client trace context.
-	 * @return array|WP_Error
-	 */
-	private function apply_locked( $source, $source_context, $idempotency_key, $expected_state_revision, $settings, $preview_digest, $preview, $request_context ) {
-		$current = $this->read_globals();
-		if ( is_wp_error( $current ) ) {
-			return $current;
-		}
-
-		$desired = $this->globals_from_settings( $settings );
-		if ( is_wp_error( $desired ) ) {
-			return $desired;
-		}
-		$changed              = ! hash_equals( $current['state_revision'], $desired['state_revision'] );
-		$consumer_identity    = Digitalogic_Pricing_Adapter_Registry::instance()->consumer()->identity();
-		$companion_completion = (string) $consumer_identity['consumer_id'] === $request_context['client_id']
-			&& (string) $consumer_identity['channel'] === $request_context['channel'];
-		$repricing_performed  = false;
-
-		if ( $changed ) {
-			$result = $this->run_coordinated_pricing_transaction(
-				function () use ( $source, $source_context, $idempotency_key, $expected_state_revision, $settings, $preview_digest, $desired, $request_context ) {
-					foreach (
-						array(
-							'dollar_price',
-							'options_dollar_price',
-							'yuan_price',
-							'options_yuan_price',
-							'update_date',
-							'options_update_date',
-							Digitalogic_Shipping_Method_Service::METHODS_OPTION,
-							Digitalogic_Shipping_Method_Service::DEFAULT_MARKUP_OPTION,
-							Digitalogic_Shipping_Method_Service::ROUNDING_DIGITS_OPTION,
-							self::SETTINGS_OPTION,
-							self::AUDIT_OPTION,
-						) as $option_name
-					) {
-						$this->read_option_db( $option_name, true );
-					}
-
-					$locked_current = $this->read_globals();
-					if ( is_wp_error( $locked_current ) ) {
-						return $locked_current;
-					}
-					if ( ! hash_equals( $expected_state_revision, $locked_current['state_revision'] ) ) {
-						return $this->revision_conflict( $locked_current['state_revision'] );
-					}
-
-					$options = $this->desired_option_values( $source, $settings, $locked_current, $desired );
-					if ( is_wp_error( $options ) ) {
-						return $options;
-					}
-					foreach ( $options as $name => $value ) {
-						$stored = $this->store_option_verified( $name, $value );
-						if ( is_wp_error( $stored ) ) {
-							return $stored;
-						}
-					}
-
-					$audit = $this->append_audit_entry(
-						$source,
-						$source_context,
-						$idempotency_key,
-						$preview_digest,
-						$locked_current,
-						$desired,
-						$settings,
-						$request_context
-					);
-					if ( is_wp_error( $audit ) ) {
-						return $audit;
-					}
-
-					$readback = $this->read_globals();
-					if ( is_wp_error( $readback ) ) {
-						return $readback;
-					}
-					$readback = $this->transaction_consistent_readback(
-						$readback,
-						$desired,
-						$locked_current
-					);
-					if ( ! hash_equals( $desired['state_revision'], $readback['state_revision'] ) ) {
-						return $this->error(
-							'digitalogic_excel_sync_readback_failed',
-							'مقادیر ذخیره‌شده با درخواست همگام‌سازی یکسان نیست.',
-							500,
-							array(
-								'expected_revision' => $desired['state_revision'],
-								'actual_revision'   => $readback['state_revision'],
-							)
-						);
-					}
-
-					$repricing = Digitalogic_Pricing_Adapter_Registry::instance()->store()->reprice_open_transaction(
-						$settings,
-						$locked_current['shipping']['catalog_revision']
-					);
-					if ( is_wp_error( $repricing ) ) {
-						return $repricing;
-					}
-					$confirmation = $this->stage_confirmation_open_transaction(
-						$locked_current,
-						$readback,
-						$this->settings_from_globals( $locked_current ),
-						$this->settings_from_globals( $readback ),
-						$this->current_ack_consumer(),
-						$request_context,
-						$idempotency_key,
-						$preview_digest
-					);
-					if ( is_wp_error( $confirmation ) ) {
-						return $confirmation;
-					}
-
-					return array(
-						'readback'     => $readback,
-						'repricing'    => $repricing,
-						'confirmation' => $confirmation,
-					);
-				}
-			);
-			Digitalogic_Pricing_Adapter_Registry::instance()->store()->flush_repricing_caches();
-			if ( is_wp_error( $result ) ) {
-				return $result;
-			}
-
-			$readback     = $result['readback'];
-			$repricing    = $result['repricing'];
-			$confirmation = $result['confirmation'] ?? null;
-
-			$repricing_performed = true;
-		} elseif ( $companion_completion ) {
-			$readback     = $current;
-			$confirmation = null;
-			$repricing    = array(
-				'updated_products' => 0,
-				'deferred_missing' => 0,
-				'warnings'         => array(),
-				'sources'          => array(),
-			);
-		} else {
-			$readback     = $current;
-			$confirmation = null;
-			$result       = $this->run_coordinated_pricing_transaction(
-				function () use ( $settings, $current ) {
-					return Digitalogic_Pricing_Adapter_Registry::instance()->store()->reprice_open_transaction(
-						$settings,
-						$current['shipping']['catalog_revision']
-					);
-				}
-			);
-			Digitalogic_Pricing_Adapter_Registry::instance()->store()->flush_repricing_caches();
-			if ( is_wp_error( $result ) ) {
-				return $result;
-			}
-			$repricing           = $result;
-			$repricing_performed = true;
-		}
-
-		$warnings       = isset( $preview['warnings'] ) && is_array( $preview['warnings'] )
-			? array_values( $preview['warnings'] )
-			: array();
-		$warnings       = array_values(
-			array_filter(
-				$warnings,
-				static function ( $warning ) {
-					return ! is_array( $warning )
-						|| 'source_revision_out_of_sync' !== ( $warning['code'] ?? '' );
-				}
-			)
-		);
-		$source_warning = $this->source_revision_warning( $source_context );
-		if ( null !== $source_warning ) {
-			array_unshift( $warnings, $source_warning );
-		}
-		if ( $repricing_performed ) {
-			$warnings[] = $this->warning(
-				'pricing_reconciled',
-				'تنظیمات و قیمت نهایی کالاهای موجود با خواندن مجدد ووکامرس هماهنگ شد.',
-				'info',
-				array(
-					'updated_products' => (int) $repricing['updated_products'],
-					'deferred_missing' => (int) $repricing['deferred_missing'],
-				)
-			);
-		} else {
-			$warnings[] = $this->warning(
-				'settings_already_current',
-				'تنظیمات از قبل به‌روز است؛ همگام‌سازی اجباری کالاها و بازخوانی نهایی ووکامرس توسط برنامهٔ همراه ادامه می‌یابد.',
-				'info',
-				array(
-					'completion' => 'canonical_product_sync_and_storefront_readback',
-				)
-			);
-		}
-		foreach ( (array) ( $repricing['warnings'] ?? array() ) as $pricing_warning ) {
-			if (
-				! is_array( $pricing_warning )
-				|| empty( $pricing_warning['code'] )
-				|| empty( $pricing_warning['message'] )
-			) {
-				continue;
-			}
-			$warnings[] = $this->warning(
-				(string) $pricing_warning['code'],
-				(string) $pricing_warning['message'],
-				'warning',
-				array_intersect_key(
-					$pricing_warning,
-					array(
-						'product_code'   => true,
-						'woocommerce_id' => true,
-					)
-				)
-			);
-		}
-		$source_event = Digitalogic_Pricing_Snapshot::instance()->ensure_source_lifecycle_event(
-			(array) ( $repricing['source_state_before'] ?? array() ),
-			(array) ( $repricing['source_state_after'] ?? array() )
-		);
-		if ( is_wp_error( $source_event ) ) {
-			$warnings[] = $this->warning(
-				'pricing_source_event_pending',
-				'تغییر منبع قیمت ثبت شد؛ انتشار رویداد منبع در صف بازیابی باقی ماند.',
-				'warning',
-				array( 'error_code' => $source_event->get_error_code() )
-			);
-		}
-
-		$response_settings = $this->settings_from_globals( $readback );
-		$response          = array(
-			'schema'          => self::APPLY_SCHEMA,
-			'mode'            => 'apply',
-			'status'          => $changed ? 'applied' : 'reconciled',
-			'state_revision'  => $readback['state_revision'],
-			'source'          => $source_context,
-			'client_id'       => $request_context['client_id'],
-			'channel'         => $request_context['channel'],
-			'request_id'      => $request_context['request_id'],
-			'settings'        => $response_settings,
-			'preview_digest'  => $preview_digest,
-			'expires_at'      => gmdate( 'c', (int) $preview['expires_at'] ),
-			'warnings'        => $warnings,
-			'product_results' => $repricing['sources'],
-			'confirmation'    => $confirmation ?? $this->current_confirmation_projection(),
-		);
-
-		if ( $repricing_performed ) {
-			Digitalogic_Pricing_Adapter_Registry::instance()->store()->publish_repricing_result( $repricing );
-		}
-		if ( $changed ) {
-			$this->emit_after_apply( $source, $expected_state_revision, $current, $readback, $response_settings, $request_context );
-			if ( ! empty( $confirmation ) ) {
-				$this->schedule_confirmation_timeout( $confirmation );
-				$this->publish_confirmation_outbox();
-			}
-		}
-
-		return $response;
-	}
 
 	/**
 	 * Validate one operation request envelope.
@@ -3293,6 +3712,180 @@ final class Digitalogic_Excel_Pricing_Sync {
 		delete_transient( $this->idempotency_key( $mode, $key ) );
 	}
 
+	/**
+	 * Validate a stable internal phase identity and optimistic revision.
+	 *
+	 * @param string $operation_id Stable phase identity.
+	 * @param string $revision     Expected canonical revision.
+	 * @return true|WP_Error
+	 */
+	private function validate_internal_phase_identity( $operation_id, $revision ) {
+		if ( ! is_string( $operation_id ) || 1 !== preg_match( '/\A[a-zA-Z0-9._:-]{8,128}\z/D', $operation_id ) ) {
+			return $this->error(
+				'digitalogic_pricing_phase_id_invalid',
+				'The pricing phase identifier is invalid.',
+				400
+			);
+		}
+		if ( ! $this->is_revision( $revision ) ) {
+			return $this->error(
+				'digitalogic_pricing_phase_revision_invalid',
+				'The pricing phase revision is invalid.',
+				400
+			);
+		}
+
+		return true;
+	}
+
+	/**
+	 * Normalize nonsecret internal trace context.
+	 *
+	 * @param mixed  $context      Raw trace context.
+	 * @param string $operation_id Stable phase identity.
+	 * @param string $source       Bounded source label.
+	 * @return array
+	 */
+	private function bounded_internal_request_context( $context, $operation_id, $source ) {
+		$context              = is_array( $context ) ? $context : array();
+		$result               = array(
+			'client_id'  => sanitize_key( (string) ( $context['client_id'] ?? 'digitalogic-wp' ) ),
+			'channel'    => sanitize_key( (string) ( $context['channel'] ?? $source ) ),
+			'request_id' => preg_replace( '/[^a-zA-Z0-9._:-]/', '', (string) ( $context['request_id'] ?? $operation_id ) ),
+		);
+		$result['client_id']  = '' === $result['client_id'] ? 'digitalogic-wp' : substr( $result['client_id'], 0, 64 );
+		$result['channel']    = '' === $result['channel'] ? 'pricing_job' : substr( $result['channel'], 0, 64 );
+		$result['request_id'] = '' === $result['request_id'] ? $operation_id : substr( $result['request_id'], 0, 128 );
+
+		return $result;
+	}
+
+	/**
+	 * Return settings option rows locked by a short phase transaction.
+	 *
+	 * @param bool $include_receipts Whether to include the phase receipt row.
+	 * @return array
+	 */
+	private function pricing_option_names( $include_receipts = false ) {
+		$names = array(
+			'dollar_price',
+			'options_dollar_price',
+			'yuan_price',
+			'options_yuan_price',
+			'update_date',
+			'options_update_date',
+			Digitalogic_Shipping_Method_Service::METHODS_OPTION,
+			Digitalogic_Shipping_Method_Service::DEFAULT_MARKUP_OPTION,
+			Digitalogic_Shipping_Method_Service::ROUNDING_DIGITS_OPTION,
+			self::SETTINGS_OPTION,
+			self::AUDIT_OPTION,
+		);
+		if ( $include_receipts ) {
+			$names[] = self::PHASE_RECEIPTS_OPTION;
+		}
+
+		return $names;
+	}
+
+	/**
+	 * Read an exact phase receipt or reject an identifier collision.
+	 *
+	 * @param string $operation_id Stable phase identity.
+	 * @param string $fingerprint  Exact semantic fingerprint.
+	 * @return array|WP_Error|null
+	 */
+	private function phase_receipt( $operation_id, $fingerprint ) {
+		$row      = $this->read_option_db( self::PHASE_RECEIPTS_OPTION, $this->transaction_active );
+		$receipts = $row['exists'] && is_array( $row['value'] ) ? $row['value'] : array();
+		$receipt  = $receipts[ $operation_id ] ?? null;
+		if ( ! is_array( $receipt ) ) {
+			return null;
+		}
+		if ( ! hash_equals( (string) ( $receipt['fingerprint'] ?? '' ), $fingerprint ) ) {
+			return $this->error(
+				'digitalogic_pricing_phase_id_conflict',
+				'The pricing phase identifier was already used for another request.',
+				409
+			);
+		}
+
+		return is_array( $receipt['result'] ?? null ) ? $receipt['result'] : null;
+	}
+
+	/**
+	 * Store a bounded phase receipt inside the active transaction.
+	 *
+	 * @param string $operation_id Stable phase identity.
+	 * @param string $fingerprint  Exact semantic fingerprint.
+	 * @param array  $result       Durable phase result.
+	 * @return true|WP_Error
+	 */
+	private function store_phase_receipt( $operation_id, $fingerprint, $result ) {
+		if ( ! $this->transaction_active ) {
+			return $this->error(
+				'digitalogic_pricing_phase_transaction_required',
+				'A phase receipt requires an active transaction.',
+				500
+			);
+		}
+		$row      = $this->read_option_db( self::PHASE_RECEIPTS_OPTION, true );
+		$receipts = $row['exists'] && is_array( $row['value'] ) ? $row['value'] : array();
+		$now      = time();
+		foreach ( $receipts as $key => $receipt ) {
+			if ( ! is_array( $receipt ) || (int) ( $receipt['expires_at'] ?? 0 ) <= $now ) {
+				unset( $receipts[ $key ] );
+			}
+		}
+		$receipts[ $operation_id ] = array(
+			'fingerprint' => $fingerprint,
+			'stored_at'   => $now,
+			'expires_at'  => $now + self::PHASE_RECEIPT_TTL,
+			'result'      => $result,
+		);
+		if ( count( $receipts ) > self::MAX_PHASE_RECEIPTS ) {
+			uasort(
+				$receipts,
+				static function ( $left, $right ) {
+					return (int) ( $left['stored_at'] ?? 0 ) <=> (int) ( $right['stored_at'] ?? 0 );
+				}
+			);
+			$receipts = array_slice( $receipts, -self::MAX_PHASE_RECEIPTS, null, true );
+		}
+		$stored = $this->store_option_verified( self::PHASE_RECEIPTS_OPTION, $receipts );
+
+		return is_wp_error( $stored ) ? $stored : true;
+	}
+
+	/** Probe both pricing advisory locks without waiting. */
+	public function lock_is_held() {
+		global $wpdb;
+		if ( ! is_object( $wpdb ) || ! method_exists( $wpdb, 'get_var' ) || ! method_exists( $wpdb, 'prepare' ) ) {
+			return $this->error(
+				'digitalogic_excel_sync_lock_probe_unavailable',
+				'The pricing locks cannot be inspected.',
+				503
+			);
+		}
+		$prefix = isset( $wpdb->prefix ) ? (string) $wpdb->prefix : 'wp_';
+		$name   = substr( self::LOCK_NAME . '_' . md5( $prefix ), 0, 64 );
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Nonblocking advisory-lock inspection must use the live connection.
+		$owner = $wpdb->get_var( $wpdb->prepare( 'SELECT IS_USED_LOCK(%s)', $name ) );
+		if ( null !== $owner && false !== $owner ) {
+			return true;
+		}
+
+		$store = Digitalogic_Pricing_Adapter_Registry::instance()->store();
+		if ( ! $store instanceof Digitalogic_Pricing_Bounded_Store_Adapter_Interface ) {
+			return $this->error(
+				'digitalogic_pricing_bounded_store_unsupported',
+				'The active pricing store does not support bounded apply jobs.',
+				409
+			);
+		}
+
+		return $store->pricing_lock_is_held();
+	}
+
 	// phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Advisory locks, one SQL transaction, and authoritative readback must use the same database connection and bypass object caches.
 
 	/**
@@ -3500,6 +4093,8 @@ final class Digitalogic_Excel_Pricing_Sync {
 					500,
 					array(
 						'exception' => $commit_exception instanceof Throwable ? get_class( $commit_exception ) : '',
+						'retryable' => $ambiguous,
+						'uncertain' => $ambiguous,
 					)
 				);
 		}
@@ -3537,7 +4132,11 @@ final class Digitalogic_Excel_Pricing_Sync {
 			? $this->error(
 				'digitalogic_excel_sync_rollback_failed',
 				'بازگردانی تراکنش تنظیمات ممکن نیست.',
-				500
+				500,
+				array(
+					'retryable' => true,
+					'uncertain' => true,
+				)
 			)
 			: true;
 	}
@@ -3697,21 +4296,55 @@ final class Digitalogic_Excel_Pricing_Sync {
 		}
 	}
 
-	/** Return the one explicitly configured workbook consumer allowed to ACK. */
-	private function current_ack_consumer() {
+	/**
+	 * Return the explicitly configured workbook consumer for one source scope.
+	 *
+	 * @param mixed $source Optional exact source identity.
+	 * @return array|WP_Error
+	 */
+	private function current_ack_consumer( $source = null ) {
 		$registry = Digitalogic_Pricing_Adapter_Registry::instance();
 		$scopes   = $registry->provider()->scopes();
+		if ( null !== $source ) {
+			$source = $this->normalize_source( $source );
+			if ( is_wp_error( $source ) ) {
+				return $source;
+			}
+			$scopes = array_values(
+				array_filter(
+					(array) $scopes,
+					static function ( $scope ) use ( $source ) {
+						return is_array( $scope )
+							&& hash_equals( (string) $source['id'], (string) ( $scope['id'] ?? '' ) )
+							&& hash_equals( (string) $source['dataset'], (string) ( $scope['dataset'] ?? '' ) );
+					}
+				)
+			);
+		}
 		if ( 1 !== count( $scopes ) ) {
 			return $this->error(
 				'digitalogic_pricing_confirmation_consumer_ambiguous',
-				'Exactly one source-scoped Excel pricing consumer must be configured.',
+				'Exactly one compatible source-scoped Excel pricing consumer must be configured.',
 				409
 			);
 		}
-		$scope = reset( $scopes );
+		$scope    = reset( $scopes );
+		$identity = $registry->consumer()->identity();
+		if (
+			! is_array( $identity )
+			|| '' === (string) ( $identity['consumer_id'] ?? '' )
+			|| '' === (string) ( $identity['channel'] ?? '' )
+			|| 'pricing_settings_ack' !== (string) ( $identity['capability'] ?? '' )
+		) {
+			return $this->error(
+				'digitalogic_pricing_confirmation_consumer_invalid',
+				'The configured pricing consumer cannot acknowledge settings.',
+				409
+			);
+		}
 
 		return array_merge(
-			$registry->consumer()->identity(),
+			$identity,
 			array(
 				'source_id' => (string) $scope['id'],
 				'dataset'   => (string) $scope['dataset'],
@@ -3730,6 +4363,7 @@ final class Digitalogic_Excel_Pricing_Sync {
 	 * @param array  $request_context    Nonsecret mutation context.
 	 * @param string $idempotency_key    Optional apply idempotency key.
 	 * @param string $request_hash       Optional apply request digest.
+	 * @param string $pricing_apply_job_id Optional durable pricing-apply owner.
 	 * @return array|WP_Error
 	 */
 	private function stage_confirmation_open_transaction(
@@ -3740,7 +4374,8 @@ final class Digitalogic_Excel_Pricing_Sync {
 		$consumer,
 		$request_context,
 		$idempotency_key = '',
-		$request_hash = ''
+		$request_hash = '',
+		$pricing_apply_job_id = ''
 	) {
 		if ( is_wp_error( $consumer ) ) {
 			return $consumer;
@@ -3762,6 +4397,7 @@ final class Digitalogic_Excel_Pricing_Sync {
 				hash_equals( (string) $active['committed_revision'], (string) $committed['state_revision'] )
 				&& '' !== (string) $idempotency_key
 				&& hash_equals( (string) ( $active['apply_idempotency_key'] ?? '' ), (string) $idempotency_key )
+				&& hash_equals( (string) ( $active['pricing_apply_job_id'] ?? '' ), (string) $pricing_apply_job_id )
 			) {
 				return $this->confirmation_projection( $active );
 			}
@@ -3806,6 +4442,7 @@ final class Digitalogic_Excel_Pricing_Sync {
 			),
 			'apply_idempotency_key'     => (string) $idempotency_key,
 			'apply_request_hash'        => (string) $request_hash,
+			'pricing_apply_job_id'      => (string) $pricing_apply_job_id,
 			'committed_at'              => $now,
 			'ack_deadline'              => $now + self::ACK_TARGET_SECONDS,
 			'recovery_deadline'         => $now + self::ACK_RECOVERY_SECONDS,
@@ -3892,6 +4529,153 @@ final class Digitalogic_Excel_Pricing_Sync {
 			),
 			'reason'                    => 'rolled_back' === $phase ? 'ack_timeout' : null,
 		);
+	}
+
+	/**
+	 * Read one exact job-owned confirmation without relying on the active pointer.
+	 *
+	 * @param string $job_id         Exact pricing-apply job identifier.
+	 * @param string $transaction_id Exact confirmation transaction identifier.
+	 * @return array|WP_Error
+	 */
+	private function pricing_apply_confirmation_projection( $job_id, $transaction_id ) {
+		$ledger = get_option( self::CONFIRMATIONS_OPTION, array() );
+		$record = is_array( $ledger ) && is_array( $ledger['transactions'][ $transaction_id ] ?? null )
+			? $ledger['transactions'][ $transaction_id ]
+			: null;
+		if ( ! is_array( $record ) || ! hash_equals( (string) $job_id, (string) ( $record['pricing_apply_job_id'] ?? '' ) ) ) {
+			return $this->error(
+				'digitalogic_pricing_confirmation_not_found',
+				'The job-owned pricing confirmation is unavailable.',
+				503,
+				array( 'retryable' => true )
+			);
+		}
+
+		return $this->confirmation_projection( $record );
+	}
+
+	/**
+	 * Close a job-owned confirmation only after bounded compensation readback.
+	 *
+	 * @param array $job Durable pricing-apply job snapshot.
+	 * @return array|WP_Error
+	 */
+	private function finalize_pricing_apply_confirmation_rollback( $job ) {
+		$job_id         = (string) ( $job['job_id'] ?? '' );
+		$transaction_id = (string) ( $job['confirmation']['transaction_id'] ?? '' );
+		if (
+			1 !== preg_match( '/\Ajob_[a-f0-9]{32}\z/D', $job_id )
+			|| 1 !== preg_match( '/\Aptx_[a-f0-9]{32}\z/D', $transaction_id )
+		) {
+			return $this->error(
+				'digitalogic_pricing_confirmation_job_binding_invalid',
+				'The pricing confirmation job binding is invalid.',
+				500
+			);
+		}
+
+		return $this->with_lock(
+			function () use ( $job, $job_id, $transaction_id ) {
+				return $this->run_transaction(
+					function () use ( $job, $job_id, $transaction_id ) {
+						$row          = $this->read_option_db( self::CONFIRMATIONS_OPTION, true );
+						$ledger       = is_array( $row['value'] ?? null ) ? $row['value'] : array();
+						$transactions = is_array( $ledger['transactions'] ?? null ) ? $ledger['transactions'] : array();
+						$record       = is_array( $transactions[ $transaction_id ] ?? null ) ? $transactions[ $transaction_id ] : null;
+						if ( ! is_array( $record ) || ! hash_equals( $job_id, (string) ( $record['pricing_apply_job_id'] ?? '' ) ) ) {
+							return $this->error(
+								'digitalogic_pricing_confirmation_not_found',
+								'The job-owned pricing confirmation is unavailable.',
+								503,
+								array( 'retryable' => true )
+							);
+						}
+						if ( 'rolled_back' === (string) ( $record['status'] ?? '' ) ) {
+							return $this->confirmation_projection( $record );
+						}
+						if ( 'acknowledged' === (string) ( $record['status'] ?? '' ) ) {
+							return $this->error(
+								'digitalogic_pricing_confirmation_ack_closed',
+								'An acknowledged pricing confirmation cannot be rolled back.',
+								409
+							);
+						}
+						$current = $this->read_globals();
+						if ( is_wp_error( $current ) ) {
+							return $current;
+						}
+						if ( ! hash_equals( (string) ( $job['expected_state_revision'] ?? '' ), (string) $current['state_revision'] ) ) {
+							return $this->error(
+								'digitalogic_pricing_confirmation_rollback_readback_failed',
+								'Bounded rollback state readback did not match the original revision.',
+								500,
+								array( 'retryable' => true )
+							);
+						}
+						$record['status']                   = 'rolled_back';
+						$record['restored_revision']        = (string) $current['state_revision'];
+						$record['restored_settings']        = $this->settings_from_globals( $current );
+						$record['restored_settings_digest'] = $this->revision( $record['restored_settings'] );
+						$record['rollback_pricing_results'] = (array) ( $job['aggregate'] ?? array() );
+						$record['rolled_back_at']           = time();
+						$transactions[ $transaction_id ]    = $record;
+						if ( hash_equals( $transaction_id, (string) ( $ledger['active'] ?? '' ) ) ) {
+							$ledger['active'] = null;
+						}
+						$ledger['transactions'] = $transactions;
+						$stored                 = $this->store_option_verified( self::CONFIRMATIONS_OPTION, $ledger );
+						if ( is_wp_error( $stored ) ) {
+							return $stored;
+						}
+						$this->read_option_db( self::CONFIRMATION_OUTBOX_OPTION, true );
+						$staged = $this->stage_confirmation_event_open_transaction( $this->confirmation_event( 'rolled_back', $record ) );
+
+						return is_wp_error( $staged ) ? $staged : $this->confirmation_projection( $record );
+					},
+					null,
+					true
+				);
+			}
+		);
+	}
+
+	/**
+	 * Compare one immutable acknowledgement consumer pin.
+	 *
+	 * @param mixed $left  First consumer pin.
+	 * @param mixed $right Second consumer pin.
+	 * @return bool
+	 */
+	private function same_ack_consumer( $left, $right ) {
+		if ( ! is_array( $left ) || ! is_array( $right ) ) {
+			return false;
+		}
+		foreach ( array( 'consumer_id', 'channel', 'capability', 'source_id', 'dataset' ) as $key ) {
+			if ( '' === (string) ( $left[ $key ] ?? '' ) || ! hash_equals( (string) $left[ $key ], (string) ( $right[ $key ] ?? '' ) ) ) {
+				return false;
+			}
+		}
+
+		return true;
+	}
+
+	/**
+	 * Build a directly usable source-scoped job status path.
+	 *
+	 * @param string $job_id Exact pricing-apply job identifier.
+	 * @param array  $source Exact source identity.
+	 * @return string
+	 */
+	private function pricing_apply_status_path( $job_id, $source ) {
+		$path = '/wp-json/digitalogic/pricing/sync/jobs/' . rawurlencode( (string) $job_id )
+			. '?source_id=' . rawurlencode( (string) ( $source['id'] ?? '' ) )
+			. '&source_dataset=' . rawurlencode( (string) ( $source['dataset'] ?? '' ) );
+		if ( '' !== (string) ( $source['revision'] ?? '' ) ) {
+			$path .= '&source_revision=' . rawurlencode( (string) $source['revision'] );
+		}
+
+		return $path;
 	}
 
 	/** Return bounded confirmation state for APIs and callers. */
@@ -4040,6 +4824,29 @@ final class Digitalogic_Excel_Pricing_Sync {
 		if ( is_wp_error( $claim ) ) {
 			return $claim;
 		}
+		$pricing_apply_job_id = (string) ( $claim['pricing_apply_job_id'] ?? '' );
+		if ( 1 === preg_match( '/\Ajob_[a-f0-9]{32}\z/D', $pricing_apply_job_id ) ) {
+			if ( ! class_exists( 'Digitalogic_Pricing_Apply_Jobs' ) ) {
+				$this->reschedule_confirmation_timeout( $transaction_id, time() + 2 );
+				return $this->error(
+					'digitalogic_pricing_apply_job_unavailable',
+					'The durable pricing apply job service is unavailable.',
+					503,
+					array( 'retryable' => true )
+				);
+			}
+			$signaled = Digitalogic_Pricing_Apply_Jobs::instance()->request_confirmation_rollback(
+				$pricing_apply_job_id,
+				$transaction_id,
+				'excel_ack_timeout'
+			);
+			if ( is_wp_error( $signaled ) ) {
+				$this->reschedule_confirmation_timeout( $transaction_id, time() + 2 );
+				return $signaled;
+			}
+
+			return $claim['confirmation'] ?? $signaled;
+		}
 		if ( empty( $claim['claimed'] ) ) {
 			if ( ! empty( $claim['retry_at'] ) ) {
 				$this->reschedule_confirmation_timeout( $transaction_id, (int) $claim['retry_at'] );
@@ -4136,6 +4943,24 @@ final class Digitalogic_Excel_Pricing_Sync {
 								'claimed'      => false,
 								'retry_at'     => (int) $record['rollback_lease_until'],
 								'confirmation' => $this->confirmation_projection( $record ),
+							);
+						}
+						$pricing_apply_job_id = (string) ( $record['pricing_apply_job_id'] ?? '' );
+						if ( 1 === preg_match( '/\Ajob_[a-f0-9]{32}\z/D', $pricing_apply_job_id ) ) {
+							$record['status']                = 'rollback_pending';
+							$record['last_error']            = 'excel_ack_timeout';
+							$record['last_error_at']         = $now;
+							$transactions[ $transaction_id ] = $record;
+							$ledger['transactions']          = $transactions;
+							$stored                          = $this->store_option_verified( self::CONFIRMATIONS_OPTION, $ledger );
+							if ( is_wp_error( $stored ) ) {
+								return $stored;
+							}
+
+							return array(
+								'claimed'              => false,
+								'pricing_apply_job_id' => $pricing_apply_job_id,
+								'confirmation'         => $this->confirmation_projection( $record ),
 							);
 						}
 
