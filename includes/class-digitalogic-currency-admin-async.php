@@ -20,7 +20,9 @@ final class Digitalogic_Currency_Admin_Async {
 	private const JOB_LOCK_NAME                  = 'digitalogic_currency_admin_async_job';
 	private const NONCE_ACTION                   = 'digitalogic_currency_admin_async';
 	private const MAX_APPLY_ATTEMPTS             = 6;
+	private const MAX_DISPATCH_ATTEMPTS          = 6;
 	private const MAX_PUBLICATION_ATTEMPTS       = 6;
+	private const DISPATCH_RETRY_SECONDS         = 65;
 	private const PUBLICATION_RETRY_BASE_SECONDS = 2;
 	private const PUBLICATION_RETRY_MAX_SECONDS  = 60;
 	private const JOB_TTL_SECONDS                = 300;
@@ -465,9 +467,10 @@ final class Digitalogic_Currency_Admin_Async {
 		$source = sanitize_key( (string) $source );
 		$source = '' === $source ? 'admin' : substr( $source, 0, 64 );
 
-		$reconcile = true === $reconcile;
-		$result    = $this->with_job_lock(
-			function () use ( $desired, $dispatch, $reconcile, $expected_revision, $source ) {
+		$reconcile   = true === $reconcile;
+		$should_wake = false;
+		$result      = $this->with_job_lock(
+			function () use ( $desired, $dispatch, $reconcile, $expected_revision, $source, &$should_wake ) {
 				$now             = time();
 				$existing        = $this->raw_job();
 				$existing_status = (string) ( $existing['status'] ?? '' );
@@ -519,7 +522,7 @@ final class Digitalogic_Currency_Admin_Async {
 						);
 					}
 					if ( $dispatch && 'queued' === $existing_status ) {
-						$this->wake_worker_open_lock( $existing );
+						$should_wake = $this->wake_worker_open_lock( $existing );
 					}
 
 					return $this->public_job( $existing );
@@ -628,12 +631,15 @@ final class Digitalogic_Currency_Admin_Async {
 					);
 				}
 				if ( $dispatch ) {
-					$this->wake_worker_open_lock( $job );
+					$should_wake = $this->wake_worker_open_lock( $job );
 				}
 
 				return $this->public_job( $job );
 			}
 		);
+		if ( $should_wake ) {
+			$this->wake_local_cron();
+		}
 
 		return $result;
 	}
@@ -832,6 +838,8 @@ final class Digitalogic_Currency_Admin_Async {
 				) {
 					return true;
 				}
+				$publication['schedule_failures']        = 0;
+				$publication['last_schedule_failure_at'] = 0;
 				$now = time();
 				if (
 					'published' !== (string) ( $publication['status'] ?? '' )
@@ -1014,9 +1022,10 @@ final class Digitalogic_Currency_Admin_Async {
 		if ( (int) $generation < 1 ) {
 			return;
 		}
-		$committed = array();
-		$result    = $this->with_job_lock(
-			function () use ( $job_id, $generation, $expected_fence, &$committed ) {
+		$committed   = array();
+		$should_wake = false;
+		$result      = $this->with_job_lock(
+			function () use ( $job_id, $generation, $expected_fence, &$committed, &$should_wake ) {
 				$job = $this->raw_job();
 				if ( ! $this->matches_job( $job, $job_id, $generation ) ) {
 					return null;
@@ -1071,11 +1080,14 @@ final class Digitalogic_Currency_Admin_Async {
 
 				$timestamp = max( $now, (int) ( $job['next_attempt_at'] ?? $now ) );
 				$this->schedule_action( self::APPLY_HOOK, $timestamp, $this->apply_args( $job ) );
-				$this->wake_worker_open_lock( $job );
+				$should_wake = $this->wake_worker_open_lock( $job );
 
 				return null;
 			}
 		);
+		if ( $should_wake ) {
+			$this->wake_local_cron();
+		}
 
 		if ( $this->is_job_transition_retryable( $result ) ) {
 			$this->schedule_action(
@@ -1211,40 +1223,168 @@ final class Digitalogic_Currency_Admin_Async {
 	 * @return bool Whether recovery was needed and could be scheduled.
 	 */
 	public function recover_committed_publication() {
-		$job         = $this->raw_job();
-		$revision    = (string) ( $job['effect_state_revision'] ?? '' );
-		$publication = is_array( $job['effect_publication'] ?? null ) ? $job['effect_publication'] : array();
+		$observed    = $this->raw_job();
+		$revision    = (string) ( $observed['effect_state_revision'] ?? '' );
+		$publication = is_array( $observed['effect_publication'] ?? null ) ? $observed['effect_publication'] : array();
 		if (
 			1 !== preg_match( '/\Asha256:[a-f0-9]{64}\z/D', $revision )
-			|| 'confirmed' === (string) ( $job['status'] ?? '' )
-			|| 'publication_failed' === (string) ( $job['status'] ?? '' )
+			|| 'confirmed' === (string) ( $observed['status'] ?? '' )
+			|| 'publication_failed' === (string) ( $observed['status'] ?? '' )
 			|| 'failed' === (string) ( $publication['status'] ?? '' )
-			|| '' === (string) ( $job['job_id'] ?? '' )
-			|| (int) ( $job['generation'] ?? 0 ) < 1
-			|| (int) ( $job['fence'] ?? 0 ) < 1
+			|| '' === (string) ( $observed['job_id'] ?? '' )
+			|| (int) ( $observed['generation'] ?? 0 ) < 1
+			|| (int) ( $observed['fence'] ?? 0 ) < 1
 		) {
 			return false;
 		}
 
 		$now       = time();
 		$timestamp = max( $now, (int) ( $publication['next_attempt_at'] ?? 0 ) );
-		$created   = false;
-		$scheduled = $this->ensure_action(
-			self::FINALIZE_HOOK,
-			$timestamp,
-			array(
-				(string) $job['job_id'],
-				(int) $job['generation'],
-				(int) $job['fence'],
-				$revision,
-			),
-			$created
+		$args      = array(
+			(string) $observed['job_id'],
+			(int) $observed['generation'],
+			(int) $observed['fence'],
+			$revision,
 		);
-		if ( $scheduled && $created && $timestamp <= $now ) {
+		$scheduled = $this->action_is_scheduled( self::FINALIZE_HOOK, $args );
+		if ( ! $scheduled ) {
+			$last_failure = max( 0, (int) ( $publication['last_schedule_failure_at'] ?? 0 ) );
+			if ( 0 < $last_failure && $now - $last_failure < self::PUBLICATION_RETRY_BASE_SECONDS ) {
+				return true;
+			}
+			$scheduled = $this->schedule_action( self::FINALIZE_HOOK, $timestamp, $args );
+			if ( ! $scheduled ) {
+				$result = $this->with_job_lock(
+					function () use ( $observed, $revision ) {
+						$job = $this->raw_job();
+						if (
+							! $this->matches_job( $job, (string) $observed['job_id'], (int) $observed['generation'] )
+							|| ! hash_equals( $revision, (string) ( $job['effect_state_revision'] ?? '' ) )
+							|| 'confirmed' === (string) ( $job['status'] ?? '' )
+							|| 'publication_failed' === (string) ( $job['status'] ?? '' )
+						) {
+							return false;
+						}
+						$publication = is_array( $job['effect_publication'] ?? null ) ? $job['effect_publication'] : array();
+						$now         = time();
+						$last        = max( 0, (int) ( $publication['last_schedule_failure_at'] ?? 0 ) );
+						if ( 0 < $last && $now - $last < self::PUBLICATION_RETRY_BASE_SECONDS ) {
+							return true;
+						}
+						$expected = $job;
+						$failures = max( 0, (int) ( $publication['schedule_failures'] ?? 0 ) ) + 1;
+						$terminal = $failures >= self::MAX_DISPATCH_ATTEMPTS;
+						$publication['schedule_failures']        = $failures;
+						$publication['last_schedule_failure_at'] = $now;
+						$publication['last_error']               = $terminal
+							? 'digitalogic_currency_async_publication_schedule_exhausted'
+							: 'digitalogic_currency_async_publication_schedule_failed';
+						$publication['status']                   = $terminal ? 'failed' : 'pending';
+						$publication['failed_at']                = $terminal ? $now : 0;
+						$publication['next_attempt_at']          = $terminal ? 0 : (int) ( $publication['next_attempt_at'] ?? $now );
+						$job['effect_publication']               = $publication;
+						$job['updated_at']                       = $now;
+						$job['error_code']                       = (string) $publication['last_error'];
+						$job['message_fa']                       = $terminal
+							? 'نرخ و قیمت‌های سایت ثبت شد، اما زمان‌بندی worker انتشار پس از تلاش‌های محدود ممکن نشد؛ مدیر سیستم باید صف زمان‌بندی را بررسی کند.'
+							: sprintf(
+								'نرخ و قیمت‌های سایت ثبت شد؛ زمان‌بندی انتشار در تلاش %1$d از %2$d دوباره بررسی می‌شود.',
+								$failures,
+								self::MAX_DISPATCH_ATTEMPTS
+							);
+						if ( $terminal ) {
+							$job['status']          = 'publication_failed';
+							$job['completed_at']    = $now;
+							$job['next_attempt_at'] = 0;
+							$job['owner_token']     = '';
+							$job['fence_token']     = '';
+							$job['lease_until']     = 0;
+						}
+						$stored = $this->store_job_open_lock( $job, $expected );
+						if ( $terminal && ! is_wp_error( $stored ) ) {
+							$this->unschedule_job( $job );
+						}
+
+						return $stored;
+					},
+					0
+				);
+
+				return ! is_wp_error( $result ) && false !== $result;
+			}
+		}
+		if ( $timestamp > $now ) {
+			return true;
+		}
+
+		$should_wake = false;
+		$result      = $this->with_job_lock(
+			function () use ( $observed, $revision, &$should_wake ) {
+				$job = $this->raw_job();
+				if (
+					! $this->matches_job( $job, (string) $observed['job_id'], (int) $observed['generation'] )
+					|| ! hash_equals( $revision, (string) ( $job['effect_state_revision'] ?? '' ) )
+					|| 'confirmed' === (string) ( $job['status'] ?? '' )
+					|| 'publication_failed' === (string) ( $job['status'] ?? '' )
+				) {
+					return false;
+				}
+				$publication = is_array( $job['effect_publication'] ?? null ) ? $job['effect_publication'] : array();
+				$now         = time();
+				if (
+					'failed' === (string) ( $publication['status'] ?? '' )
+					|| (int) ( $publication['next_attempt_at'] ?? 0 ) > $now
+				) {
+					return false;
+				}
+
+				$attempts = max( 0, (int) ( $publication['dispatch_attempts'] ?? 0 ) );
+				$last     = max( 0, (int) ( $publication['last_dispatch_at'] ?? 0 ) );
+				if ( $now - $last < self::DISPATCH_RETRY_SECONDS ) {
+					return true;
+				}
+				$expected = $job;
+				if ( $attempts >= self::MAX_DISPATCH_ATTEMPTS ) {
+					$publication['status']          = 'failed';
+					$publication['last_error']      = 'digitalogic_currency_async_publication_dispatch_exhausted';
+					$publication['next_attempt_at'] = 0;
+					$publication['failed_at']       = $now;
+					$job['effect_publication']      = $publication;
+					$job['status']                  = 'publication_failed';
+					$job['completed_at']            = $now;
+					$job['updated_at']              = $now;
+					$job['next_attempt_at']         = 0;
+					$job['owner_token']             = '';
+					$job['fence_token']             = '';
+					$job['lease_until']             = 0;
+					$job['error_code']              = 'digitalogic_currency_async_publication_dispatch_exhausted';
+					$job['message_fa']              = 'نرخ و قیمت‌های سایت ثبت شد، اما worker انتشار پس از تلاش‌های محدود بیدار نشد؛ مدیر سیستم باید مسیر cron را بررسی کند.';
+					$stored                         = $this->store_job_open_lock( $job, $expected );
+					if ( ! is_wp_error( $stored ) ) {
+						$this->unschedule_job( $job );
+					}
+
+					return $stored;
+				}
+
+				$publication['dispatch_attempts'] = $attempts + 1;
+				$publication['last_dispatch_at']  = $now;
+				$job['effect_publication']         = $publication;
+				$job['updated_at']                 = $now;
+				$stored                            = $this->store_job_open_lock( $job, $expected );
+				if ( ! is_wp_error( $stored ) ) {
+					$should_wake = true;
+				}
+
+				return $stored;
+			},
+			0
+		);
+		if ( $should_wake ) {
 			$this->wake_local_cron();
 		}
 
-		return $scheduled;
+		return ! is_wp_error( $result ) && false !== $result;
 	}
 
 	/**
@@ -1276,14 +1416,15 @@ final class Digitalogic_Currency_Admin_Async {
 		$watchdog_missing = ! $this->action_is_scheduled( self::WATCHDOG_HOOK, $watchdog_args );
 		$should_wake      = ! $deadline_due
 			&& $apply_at <= $now
-			&& (int) ( $observed['dispatch_attempts'] ?? 0 ) < 6
-			&& $now - (int) ( $observed['last_dispatch_at'] ?? 0 ) >= 2;
-		if ( ! $apply_missing && ! $watchdog_missing && ! $should_wake ) {
+			&& (int) ( $observed['dispatch_attempts'] ?? 0 ) < self::MAX_DISPATCH_ATTEMPTS
+			&& $now - (int) ( $observed['last_dispatch_at'] ?? 0 ) >= self::DISPATCH_RETRY_SECONDS;
+		if ( ! $deadline_due && ! $apply_missing && ! $watchdog_missing && ! $should_wake ) {
 			return false;
 		}
 
-		$result = $this->with_job_lock(
-			function () use ( $observed ) {
+		$should_wake = false;
+		$result      = $this->with_job_lock(
+			function () use ( $observed, &$should_wake ) {
 				$job = $this->raw_job();
 				if (
 					! $this->matches_job( $job, (string) $observed['job_id'], (int) $observed['generation'] )
@@ -1297,6 +1438,15 @@ final class Digitalogic_Currency_Admin_Async {
 				$deadline_at   = (int) ( $job['deadline_at'] ?? 0 );
 				$deadline_due  = $deadline_at <= $now;
 				$apply_at      = max( $now, (int) ( $job['next_attempt_at'] ?? $now ) );
+				if ( $deadline_due ) {
+					$this->fail_open_lock(
+						$job,
+						'digitalogic_currency_async_deadline_exceeded',
+						'مهلت تکمیل تغییر نرخ پایان یافت؛ مقدار تأییدشدهٔ قبلی حفظ شد.'
+					);
+
+					return true;
+				}
 				$apply_ready   = $deadline_due || $this->ensure_action( self::APPLY_HOOK, $apply_at, $this->apply_args( $job ) );
 				$watch_created = false;
 				$watch_ready   = $this->ensure_action(
@@ -1308,21 +1458,17 @@ final class Digitalogic_Currency_Admin_Async {
 				if ( ! $apply_ready || ! $watch_ready ) {
 					return false;
 				}
-				if ( $deadline_due ) {
-					if ( $watch_created ) {
-						$this->wake_local_cron();
-					}
-
-					return true;
-				}
 				if ( $apply_at <= $now ) {
-					$this->wake_worker_open_lock( $job );
+					$should_wake = $this->wake_worker_open_lock( $job );
 				}
 
 				return true;
 			},
 			0
 		);
+		if ( $should_wake ) {
+			$this->wake_local_cron();
+		}
 
 		return true === $result;
 	}
@@ -1558,12 +1704,16 @@ final class Digitalogic_Currency_Admin_Async {
 		$job['effect_state_revision'] = $state_revision;
 		$job['effect_committed_at']   = $now;
 		$job['effect_publication']    = array(
-			'status'          => 'pending',
-			'payload'         => $publication,
-			'attempts'        => 0,
-			'last_error'      => '',
-			'next_attempt_at' => $now,
-			'published_at'    => 0,
+			'status'                   => 'pending',
+			'payload'                  => $publication,
+			'attempts'                 => 0,
+			'dispatch_attempts'        => 0,
+			'last_dispatch_at'         => 0,
+			'schedule_failures'        => 0,
+			'last_schedule_failure_at' => 0,
+			'last_error'               => '',
+			'next_attempt_at'          => $now,
+			'published_at'             => 0,
 		);
 		$job['updated_at']            = $now;
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Same transaction and locked exact row; cache is invalidated below.
@@ -1881,19 +2031,19 @@ final class Digitalogic_Currency_Admin_Async {
 	}
 
 	/**
-	 * Persist a bounded dispatch attempt and wake local cron non-blockingly.
+	 * Persist a bounded dispatch attempt while the caller owns the job mutex.
 	 *
 	 * @param array $job Current private job, updated by reference.
-	 * @return void
+	 * @return bool Whether the caller should wake a runner after releasing the job mutex.
 	 */
 	private function wake_worker_open_lock( array &$job ) {
 		if ( 'queued' !== (string) ( $job['status'] ?? '' ) ) {
-			return;
+			return false;
 		}
 		$attempts      = (int) ( $job['dispatch_attempts'] ?? 0 );
 		$last_dispatch = (int) ( $job['last_dispatch_at'] ?? 0 );
-		if ( $attempts >= 6 || time() - $last_dispatch < 2 ) {
-			return;
+		if ( $attempts >= self::MAX_DISPATCH_ATTEMPTS || time() - $last_dispatch < self::DISPATCH_RETRY_SECONDS ) {
+			return false;
 		}
 
 		$expected                 = $job;
@@ -1901,32 +2051,26 @@ final class Digitalogic_Currency_Admin_Async {
 		$job['last_dispatch_at']  = time();
 		$job['updated_at']        = time();
 		if ( is_wp_error( $this->store_job_open_lock( $job, $expected ) ) ) {
-			return;
+			return false;
 		}
 
-		$this->wake_local_cron();
+		return true;
 	}
 
-	/** Wake the local cron endpoint without waiting for worker execution. */
+	/** Ask WordPress core to wake due jobs with its own lock/token protocol. */
 	private function wake_local_cron() {
-		$origin_host = (string) wp_parse_url( home_url( '/' ), PHP_URL_HOST );
-		$cron_url    = add_query_arg(
-			array( 'doing_wp_cron' => sprintf( '%.22F', microtime( true ) ) ),
-			'https://127.0.0.1/wp-cron.php'
-		);
-		wp_remote_post(
-			$cron_url,
-			array(
-				'timeout'   => 1.0,
-				'blocking'  => false,
-				'sslverify' => false,
-				'headers'   => array( 'Host' => $origin_host ),
-			)
-		);
+		if ( ! function_exists( 'spawn_cron' ) ) {
+			return;
+		}
+		try {
+			spawn_cron();
+		} catch ( Throwable $exception ) {
+			unset( $exception );
+		}
 	}
 
 	/**
-	 * Schedule through Action Scheduler when available, with WP-Cron fallback.
+	 * Schedule through Action Scheduler when available and retain an exact WP-Cron safety copy.
 	 *
 	 * @param string $hook      Exact hook.
 	 * @param int    $timestamp Due Unix timestamp.
@@ -1937,17 +2081,16 @@ final class Digitalogic_Currency_Admin_Async {
 		$timestamp = max( time(), (int) $timestamp );
 		if ( function_exists( 'as_schedule_single_action' ) ) {
 			try {
-				$action_id = as_schedule_single_action( $timestamp, $hook, $args, self::ACTION_GROUP, true );
-				if ( is_numeric( $action_id ) && (int) $action_id > 0 ) {
-					return true;
-				}
+				as_schedule_single_action( $timestamp, $hook, $args, self::ACTION_GROUP, true );
 			} catch ( Throwable $exception ) {
 				unset( $exception );
 			}
 		}
-		$scheduled = wp_schedule_single_event( $timestamp, $hook, $args, true );
+		if ( false === wp_next_scheduled( $hook, $args ) ) {
+			wp_schedule_single_event( $timestamp, $hook, $args, true );
+		}
 
-		return ! is_wp_error( $scheduled ) && false !== $scheduled && 0 !== $scheduled;
+		return false !== wp_next_scheduled( $hook, $args );
 	}
 
 	/**
@@ -1978,17 +2121,6 @@ final class Digitalogic_Currency_Admin_Async {
 	 * @return bool
 	 */
 	private function action_is_scheduled( $hook, array $args ) {
-		if ( function_exists( 'as_has_scheduled_action' ) ) {
-			try {
-				$action_id = as_has_scheduled_action( $hook, $args, self::ACTION_GROUP );
-				if ( false !== $action_id && 0 !== (int) $action_id ) {
-					return true;
-				}
-			} catch ( Throwable $exception ) {
-				unset( $exception );
-			}
-		}
-
 		return false !== wp_next_scheduled( $hook, $args );
 	}
 

@@ -52,6 +52,7 @@ $GLOBALS['digitalogic_test_cache_invalidation_history'] = array();
 $GLOBALS['digitalogic_test_wc_cache_group_invalidations'] = array();
 $GLOBALS['digitalogic_test_remote_posts'] = array();
 $GLOBALS['digitalogic_test_remote_post_results'] = array();
+$GLOBALS['digitalogic_test_spawn_cron_calls'] = array();
 $GLOBALS['digitalogic_test_wc_products'] = array();
 $GLOBALS['digitalogic_test_wc_product_saves'] = array();
 $GLOBALS['digitalogic_test_wc_save_failures'] = array();
@@ -1159,6 +1160,10 @@ function home_url($path = '') {
     return 'https://digitalogic.test' . $path;
 }
 
+function site_url($path = '') {
+    return 'https://digitalogic.test/' . ltrim((string) $path, '/');
+}
+
 function content_url($path = '') {
     return 'https://digitalogic.test/wp-content' . $path;
 }
@@ -1187,6 +1192,80 @@ function wp_remote_post($url, $args = array()) {
     }
 
     return array('response' => array('code' => 202));
+}
+
+/** Test WordPress core's lock/token-aware, non-blocking cron spawn. */
+function spawn_cron($gmt_time = 0) {
+    $gmt_time = $gmt_time > 0 ? (float) $gmt_time : microtime(true);
+    $has_due_event = false;
+    foreach ($GLOBALS['digitalogic_test_scheduled_events'] as $event) {
+        if ((int) $event['timestamp'] <= (int) floor($gmt_time)) {
+            $has_due_event = true;
+            break;
+        }
+    }
+    if (!$has_due_event) {
+        return false;
+    }
+
+    $lock = (float) get_transient('doing_cron');
+    if ($lock > 0 && $lock + 60 > $gmt_time) {
+        return false;
+    }
+    $token = sprintf('%.22F', $gmt_time);
+    set_transient('doing_cron', $token);
+    $url = add_query_arg(array('doing_wp_cron' => $token), site_url('wp-cron.php'));
+    $args = array(
+        'timeout' => 0.01,
+        'blocking' => false,
+        'sslverify' => false,
+    );
+    $GLOBALS['digitalogic_test_spawn_cron_calls'][] = array(
+        'time' => $gmt_time,
+        'token' => $token,
+        'url' => $url,
+        'args' => $args,
+        'job_lock_balance' => isset($GLOBALS['wpdb'])
+            ? (int) $GLOBALS['wpdb']->acquire_count - (int) $GLOBALS['wpdb']->release_count
+            : 0,
+    );
+
+    $response = wp_remote_post($url, $args);
+
+    return !is_wp_error($response);
+}
+
+/** Emulate wp-cron.php validating the core token and executing due exact hooks. */
+function digitalogic_test_run_spawned_cron() {
+    if (empty($GLOBALS['digitalogic_test_spawn_cron_calls'])) {
+        return false;
+    }
+    $call = end($GLOBALS['digitalogic_test_spawn_cron_calls']);
+    $query = (string) parse_url((string) $call['url'], PHP_URL_QUERY);
+    parse_str($query, $query_args);
+    $request_token = (string) ($query_args['doing_wp_cron'] ?? '');
+    $lock_token = (string) get_transient('doing_cron');
+    if ($request_token === '' || $lock_token === '' || !hash_equals($lock_token, $request_token)) {
+        return false;
+    }
+
+    $now = time();
+    $due = array();
+    $future = array();
+    foreach ($GLOBALS['digitalogic_test_scheduled_events'] as $event) {
+        if ((int) $event['timestamp'] <= $now) {
+            $due[] = $event;
+        } else {
+            $future[] = $event;
+        }
+    }
+    $GLOBALS['digitalogic_test_scheduled_events'] = $future;
+    foreach ($due as $event) {
+        do_action((string) $event['hook'], ...array_values((array) $event['args']));
+    }
+    delete_transient('doing_cron');
+
+    return count($due);
 }
 
 function wp_remote_retrieve_response_code($response) {
