@@ -75,6 +75,20 @@ final class StorefrontRealtimeTest extends TestCase {
         $this->assertMatchesRegularExpression('/ob_end_clean\(\)/', $source);
     }
 
+    public function test_sse_revalidates_cookie_and_nonce_before_targeted_projection(): void {
+        $source = file_get_contents((new ReflectionClass(Digitalogic_Storefront_Realtime::class))->getFileName());
+
+        $this->assertMatchesRegularExpression(
+            '/wp_validate_auth_cookie\(\s*[\'\"]{2}\s*,\s*[\'\"]logged_in[\'\"]\s*\)/',
+            $source
+        );
+        $this->assertMatchesRegularExpression(
+            '/wp_set_current_user\(\s*\$cookie_user_id\s*\).*?wp_verify_nonce\(\s*\$nonce\s*,\s*[\'\"]wp_rest[\'\"]\s*\)/s',
+            $source
+        );
+        $this->assertMatchesRegularExpression('/stream_user_id\(\s*\$request\s*\)/', $source);
+    }
+
     public function test_public_projection_exposes_currency_snapshot_without_internal_event_data(): void {
         $event = Digitalogic_Storefront_Realtime::project_public_event(array(
             'id' => 123,

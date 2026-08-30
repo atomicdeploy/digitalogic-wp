@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.45] - 2026-08-30
+
+### Fixed
+- Revalidate the signed-in WordPress cookie and REST nonce inside storefront
+  SSE requests so user-, role-, and attribute-targeted notifications resolve
+  the correct audience even when REST cookie authentication resets the current
+  user before the streaming response is served.
+
 ## [1.8.44] - 2026-08-30
 
 ### Fixed
