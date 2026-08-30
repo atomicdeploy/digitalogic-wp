@@ -14,7 +14,8 @@ final class WpRocketEtagTest extends TestCase {
 
 	/** Reset the isolated hook registry. */
 	protected function setUp(): void {
-		$GLOBALS['digitalogic_test_filters']['rocket_htaccess_etag'] = array();
+		$GLOBALS['digitalogic_test_filters']['rocket_htaccess_etag']        = array();
+		$GLOBALS['digitalogic_test_filters']['rocket_htaccess_mod_deflate'] = array();
 	}
 
 	/** The integration registers one late, one-argument generator filter. */
@@ -27,6 +28,12 @@ final class WpRocketEtagTest extends TestCase {
 		$this->assertSame( array( Digitalogic_WP_Rocket_ETag::class, 'scope_etag_removal' ), $filters[0]['callback'] );
 		$this->assertSame( 100, $filters[0]['priority'] );
 		$this->assertSame( 1, $filters[0]['accepted_args'] );
+
+		$deflate_filters = $GLOBALS['digitalogic_test_filters']['rocket_htaccess_mod_deflate'];
+		$this->assertCount( 1, $deflate_filters );
+		$this->assertSame( array( Digitalogic_WP_Rocket_ETag::class, 'disable_pricing_sync_compression' ), $deflate_filters[0]['callback'] );
+		$this->assertSame( 100, $deflate_filters[0]['priority'] );
+		$this->assertSame( 1, $deflate_filters[0]['accepted_args'] );
 	}
 
 	/** The exact stock directive is replaced without changing FileETag. */
@@ -37,7 +44,7 @@ final class WpRocketEtagTest extends TestCase {
 			. '</IfModule>' . PHP_EOL . PHP_EOL
 			. '# Static-file policy.' . PHP_EOL
 			. 'FileETag None' . PHP_EOL;
-		$expected_directive = 'Header unset ETag "expr=%{THE_REQUEST} !~ m#\\\\s/+wp-json/digitalogic/pricing/sync/revision(?:[/?\\\\s])#"';
+		$expected_directive = 'Header unset ETag "expr=%{THE_REQUEST} !~ m#\\\\s/+wp-json/digitalogic/pricing/sync/(?:revision|snapshots|builds)(?:[/?\\\\s])#"';
 
 		$filtered = Digitalogic_WP_Rocket_ETag::scope_etag_removal( $stock );
 
@@ -48,6 +55,21 @@ final class WpRocketEtagTest extends TestCase {
 		$this->assertStringNotContainsString( '%{REQUEST_URI}', $filtered );
 	}
 
+	/** Pricing sync is excluded from Apache compression before DEFLATE runs. */
+	public function test_pricing_sync_compression_is_disabled_once_for_the_full_contract(): void {
+		$stock     = '<IfModule mod_deflate.c>' . PHP_EOL
+			. 'SetOutputFilter DEFLATE' . PHP_EOL
+			. '</IfModule>' . PHP_EOL;
+		$directive = 'SetEnvIfNoCase Request_URI "^/wp-json/digitalogic/pricing/sync/(?:revision|snapshots|builds)(?:[/?]|$)" no-gzip dont-vary';
+
+		$filtered = Digitalogic_WP_Rocket_ETag::disable_pricing_sync_compression( $stock );
+
+		$this->assertStringContainsString( $directive, $filtered );
+		$this->assertLessThan( strpos( $filtered, 'SetOutputFilter DEFLATE' ), strpos( $filtered, $directive ) );
+		$this->assertSame( 1, substr_count( $filtered, $directive ) );
+		$this->assertSame( $filtered, Digitalogic_WP_Rocket_ETag::disable_pricing_sync_compression( $filtered ) );
+	}
+
 	/** Unexpected or ambiguous upstream rule shapes remain untouched. */
 	public function test_stock_shape_mismatch_is_unchanged(): void {
 		$missing   = "# No stock ETag directive.\nFileETag None\n";
@@ -55,5 +77,10 @@ final class WpRocketEtagTest extends TestCase {
 
 		$this->assertSame( $missing, Digitalogic_WP_Rocket_ETag::scope_etag_removal( $missing ) );
 		$this->assertSame( $duplicate, Digitalogic_WP_Rocket_ETag::scope_etag_removal( $duplicate ) );
+
+		$missing_deflate   = "# No mod_deflate block.\n";
+		$duplicate_deflate = '<IfModule mod_deflate.c>' . PHP_EOL . '<IfModule mod_deflate.c>' . PHP_EOL;
+		$this->assertSame( $missing_deflate, Digitalogic_WP_Rocket_ETag::disable_pricing_sync_compression( $missing_deflate ) );
+		$this->assertSame( $duplicate_deflate, Digitalogic_WP_Rocket_ETag::disable_pricing_sync_compression( $duplicate_deflate ) );
 	}
 }

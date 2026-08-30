@@ -284,6 +284,21 @@ final class ReportEngineTest extends TestCase {
 		$this->assertNotSame( '', $GLOBALS['digitalogic_test_options']['digitalogic_report_cache_generation_v1'] );
 	}
 
+	/** A stale persistent option cache cannot fork the public revision. */
+	public function test_projection_revision_uses_authoritative_database_generation(): void {
+		$expected = $this->engine->projection_revision( 'patris-export', 'ALLANBAR' );
+		$this->assertIsString( $expected );
+
+		$GLOBALS['digitalogic_test_option_cache']['digitalogic_report_cache_generation_v1'] = 'stale-worker-generation';
+		$actual = $this->engine->projection_revision( 'patris-export', 'ALLANBAR' );
+
+		$this->assertSame( $expected, $actual );
+		$this->assertSame(
+			'test-report-generation',
+			$this->engine->current_projection_generation()
+		);
+	}
+
 	public function test_lock_loser_receives_a_retryable_error(): void {
 		$args     = $this->normalized_args( array( 'view' => 'warnings' ) );
 		$lock_key = $this->invoke_private( 'build_lock_key', array( $args ) );

@@ -166,6 +166,26 @@ final class PricingSnapshotTest extends TestCase {
 		$this->assertArrayNotHasKey( Digitalogic_Patris_Feed::PRODUCT_SYNC_SECRET_OPTION, $GLOBALS['digitalogic_test_options'] );
 	}
 
+	/** Stale worker option caches cannot fork revision or conditional identity. */
+	public function test_revision_uses_authoritative_catalog_generation_across_workers(): void {
+		$first = $this->revision_response();
+		$this->assertSame( 200, $first->get_status() );
+		$first_data = $first->get_data();
+		$first_etag = $first->get_headers()['ETag'];
+
+		$GLOBALS['digitalogic_test_option_cache']['digitalogic_report_cache_generation_v1'] = 'stale-worker-generation';
+		$second = $this->revision_response();
+
+		$this->assertSame( 200, $second->get_status() );
+		$this->assertSame( $first_data['catalog_revision'], $second->get_data()['catalog_revision'] );
+		$this->assertSame( $first_data['state_revision'], $second->get_data()['state_revision'] );
+		$this->assertSame( $first_etag, $second->get_headers()['ETag'] );
+
+		$conditional = $this->revision_response( array( 'If-None-Match' => $first_etag ) );
+		$this->assertSame( 304, $conditional->get_status() );
+		$this->assertNull( $conditional->get_data() );
+	}
+
 	/** Coalesce mutations into one exact-source durable state-change event. */
 	public function test_projection_invalidations_publish_one_scoped_composite_revision_event(): void {
 		$redis = new Digitalogic_Test_Redis_Client();

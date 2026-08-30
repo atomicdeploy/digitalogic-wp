@@ -1357,8 +1357,14 @@ final class Digitalogic_Report_Engine {
 
 	/** Read the current source-generation token. */
 	private function cache_generation() {
-		$generation = get_option( self::CACHE_GENERATION_OPTION, '' );
-		if ( is_string( $generation ) && '' !== $generation ) {
+		// The generation is a revision input and a cache-admission fence, so an
+		// object-cache replica must never be allowed to supply it. Persistent
+		// option caches can briefly retain different historical values across PHP
+		// workers even after update_option() succeeds. Reading the authoritative
+		// option row keeps identical revision requests and snapshot workers bound
+		// to one exact database generation.
+		$generation = $this->current_projection_generation();
+		if ( ! is_wp_error( $generation ) ) {
 			$this->local_cache_generation = $generation;
 
 			return $generation;
