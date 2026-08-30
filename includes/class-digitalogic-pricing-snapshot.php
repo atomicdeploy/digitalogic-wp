@@ -57,7 +57,7 @@ final class Digitalogic_Pricing_Snapshot {
 	private const RETRY_AFTER                       = 2;
 	private const DEFAULT_PAGE_SIZE                 = 250;
 	private const MAX_PAGE_SIZE                     = 250;
-	private const MAX_ROWS                       = 20000;
+	private const MAX_ROWS                          = 20000;
 
 	/**
 	 * Shared snapshot service.

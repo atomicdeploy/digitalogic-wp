@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Preserve each exact pricing state-event retry through scheduler lock timeouts, running-worker handoffs, and bounded Action Scheduler or WP-Cron degradation without collapsing distinct fallback identities.
+- Keep a delivered state identity in the durable outbox until its bounded receipt commits, preventing replay after receipt failure or panel rotation.
+- Retire normalized receipts and delivered markers before ordered source removal, while preserving one fresh composite event when the same source is rapidly reintroduced.
+
 ## [1.8.40] - 2026-08-30
 
 ### Added
@@ -157,6 +162,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.8.11] - 2026-08-27
 
 - Keep the website-first CNY transaction readback consistent when WordPress still exposes the pre-commit shipping catalog through its option cache; all other revision mismatches remain blocking and are revalidated after commit.
+
 ## [1.8.10] - 2026-08-24
 
 ### Fixed
