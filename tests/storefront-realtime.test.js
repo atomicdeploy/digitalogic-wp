@@ -13,6 +13,10 @@ test('storefront client elects one SSE owner and relays through BroadcastChannel
     assert.match(source, /expiresAt/);
     assert.match(source, /writeLocal\(eventKey/);
     assert.match(source, /storageEvent\.key === eventKey/);
+    assert.match(source, /window\.fetch\(url\.toString\(\)/);
+    assert.match(source, /window\.setInterval\(pollEvents/);
+    assert.match(source, /if \(!config\.pollUrl \|\| !ownsLease\(\)/);
+    assert.match(source, /events\.forEach\(function \(event\) \{[\s\S]*relay\(event\)/);
 });
 
 test('storefront client uses persistent public cache and tab-scoped refresh guards', () => {
