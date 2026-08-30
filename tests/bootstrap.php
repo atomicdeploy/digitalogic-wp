@@ -3347,6 +3347,7 @@ require_once dirname(__DIR__) . '/includes/class-shipping-method-service.php';
 require_once dirname(__DIR__) . '/includes/class-patris-catalog-materializer.php';
 require_once dirname(__DIR__) . '/includes/class-digitalogic-google-sheets-catalog.php';
 require_once dirname(__DIR__) . '/includes/class-digitalogic-google-sheets-writeback.php';
+require_once dirname(__DIR__) . '/includes/class-digitalogic-pricing-diagnostic.php';
 require_once dirname( __DIR__ ) . '/includes/class-digitalogic-pricing-canonical-model.php';
 require_once dirname(__DIR__) . '/includes/class-digitalogic-excel-pricing-sync.php';
 require_once dirname(__DIR__) . '/includes/class-digitalogic-pricing-coordinator.php';

@@ -102,14 +102,130 @@
         return;
     }
 
+    function diagnosticValue(layers, keys, fallback) {
+        for (var layerIndex = 0; layerIndex < layers.length; layerIndex++) {
+            var layer = layers[layerIndex];
+            if (!layer || typeof layer !== 'object' || Array.isArray(layer)) continue;
+            for (var keyIndex = 0; keyIndex < keys.length; keyIndex++) {
+                if (Object.prototype.hasOwnProperty.call(layer, keys[keyIndex])) {
+                    return layer[keys[keyIndex]];
+                }
+            }
+        }
+        return fallback;
+    }
+
+    function diagnosticBoolean(value, fallback) {
+        if (value === true || value === 1 || value === '1' || value === 'true') return true;
+        if (value === false || value === 0 || value === '0' || value === 'false') return false;
+        return !!fallback;
+    }
+
+    function diagnosticText(value, fallback, maxLength) {
+        var text = (typeof value === 'string' || typeof value === 'number') ? String(value) : '';
+        text = text.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim();
+        if (!text) text = String(fallback || '');
+        return text.slice(0, maxLength);
+    }
+
+    function safeDiagnosticKey(key) {
+        key = String(key || '').toLowerCase().replace(/[^a-z0-9._:-]+/g, '_').replace(/^[._:-]+|[._:-]+$/g, '').slice(0, 64);
+        if (!key || /(?:^|[._:-])(?:authorization|auth|cookie|credential|nonce|pass|password|private|secret|session|token|api_key)(?:$|[._:-])/.test(key)) {
+            return '';
+        }
+        return key;
+    }
+
+    function collectDiagnosticDetails(source, target, depth) {
+        if (!source || typeof source !== 'object' || Array.isArray(source) || depth > 2) return;
+        Object.keys(source).slice(0, 20).forEach(function(key) {
+            if (['code', 'severity', 'blocking', 'reason', 'message', 'message_fa', 'retryable', 'recovery_action', 'status', 'retry_after', 'diagnostic'].indexOf(key) !== -1) {
+                return;
+            }
+            if (key === 'details') {
+                collectDiagnosticDetails(source[key], target, depth + 1);
+                return;
+            }
+            var safeKey = safeDiagnosticKey(key);
+            var value = source[key];
+            if (!safeKey) return;
+            if (value === null || typeof value === 'boolean' || typeof value === 'number') {
+                target[safeKey] = value;
+                return;
+            }
+            if (typeof value === 'string') {
+                target[safeKey] = diagnosticText(value, '', 256);
+                return;
+            }
+            if (value && typeof value === 'object' && depth < 2) {
+                var nested = {};
+                collectDiagnosticDetails(value, nested, depth + 1);
+                target[safeKey] = nested;
+            }
+        });
+    }
+
+    function normalizeDiagnostic(payload, fallback) {
+        var envelope = payload && typeof payload === 'object' ? payload : {};
+        var data = envelope.data && typeof envelope.data === 'object' ? envelope.data : {};
+        var details = envelope.details && typeof envelope.details === 'object' ? envelope.details : {};
+        var dataDetails = data.details && typeof data.details === 'object' ? data.details : {};
+        var nested = (envelope.diagnostic && typeof envelope.diagnostic === 'object' && envelope.diagnostic)
+            || (data.diagnostic && typeof data.diagnostic === 'object' && data.diagnostic)
+            || (details.diagnostic && typeof details.diagnostic === 'object' && details.diagnostic)
+            || (dataDetails.diagnostic && typeof dataDetails.diagnostic === 'object' && dataDetails.diagnostic)
+            || {};
+        var layers = [nested, envelope, data, details, dataDetails];
+        var blocking = diagnosticBoolean(diagnosticValue(layers, ['blocking'], true), true);
+        var severity = diagnosticText(diagnosticValue(layers, ['severity'], blocking ? 'error' : 'warning'), '', 16).toLowerCase();
+        if (['info', 'warning', 'error'].indexOf(severity) === -1) severity = blocking ? 'error' : 'warning';
+        if (blocking) severity = 'error';
+        var retryable = diagnosticBoolean(diagnosticValue(layers, ['retryable'], false), false);
+        var reason = diagnosticText(
+            diagnosticValue(layers, ['reason', 'message', 'message_fa'], typeof payload === 'string' ? payload : fallback),
+            fallback || 'Request failed',
+            512
+        );
+        var recoveryAction = diagnosticText(
+            diagnosticValue(layers, ['recovery_action'], ''),
+            retryable
+                ? 'Retry the unchanged request after the reported condition clears.'
+                : 'Resolve the reported condition before attempting the operation again.',
+            384
+        );
+        var safeDetails = {};
+        [dataDetails, details, data, envelope, nested].forEach(function(source) {
+            collectDiagnosticDetails(source, safeDetails, 0);
+        });
+
+        return {
+            code: diagnosticText(diagnosticValue(layers, ['code', 'error_code'], 'digitalogic_request_failed'), 'digitalogic_request_failed', 96),
+            severity: severity,
+            blocking: blocking,
+            reason: reason,
+            retryable: retryable,
+            recovery_action: recoveryAction,
+            details: safeDetails
+        };
+    }
+
     function transportError(payload, fallback) {
-        var details = payload && typeof payload === 'object' ? payload : {};
-        var message = details.message || details.message_fa || (typeof payload === 'string' ? payload : '') || fallback || 'Request failed';
-        var error = new Error(String(message));
-        error.code = details.code || details.error_code || '';
-        error.blocking = !!details.blocking;
-        error.retryAfter = Number(details.retry_after || 0);
-        error.details = details.details || {};
+        var diagnostic = normalizeDiagnostic(payload, fallback);
+        var layers = [
+            payload && typeof payload === 'object' ? payload : {},
+            payload && payload.details && typeof payload.details === 'object' ? payload.details : {},
+            payload && payload.data && typeof payload.data === 'object' ? payload.data : {}
+        ];
+        var error = new Error(diagnostic.reason);
+        error.code = diagnostic.code;
+        error.severity = diagnostic.severity;
+        error.blocking = diagnostic.blocking;
+        error.reason = diagnostic.reason;
+        error.retryable = diagnostic.retryable;
+        error.recoveryAction = diagnostic.recovery_action;
+        error.retryAfter = Number(diagnosticValue(layers, ['retry_after'], 0) || 0);
+        error.details = diagnostic.details;
+        error.diagnostic = diagnostic;
         return error;
     }
 
@@ -165,6 +281,11 @@
         error.outcome_unknown = outcomeUnknown;
         error.deliveryUnknown = outcomeUnknown;
         error.retryable = !outcomeUnknown;
+        error.diagnostic.retryable = error.retryable;
+        error.diagnostic.recovery_action = outcomeUnknown
+            ? 'Read the current state before deciding whether to retry the mutation.'
+            : 'Retry the unchanged request after the connection is available.';
+        error.recoveryAction = error.diagnostic.recovery_action;
         error.failure = kind;
         if (cause) error.cause = cause;
         return error;
@@ -213,7 +334,13 @@
                     var item = pending[response.id];
                     delete pending[response.id];
                     clearTimeout(item.timeout);
-                    response.success ? item.resolve(response.data) : item.reject(transportError(response.error, 'WebSocket failed'));
+                    if (response.success) {
+                        item.resolve(response.data);
+                    } else {
+                        var responseError = transportError(response.error, 'WebSocket failed');
+                        responseError.applicationError = true;
+                        item.reject(responseError);
+                    }
                     return;
                 }
 
@@ -258,7 +385,7 @@
 
                     socket.send(JSON.stringify({id: id, command: command, data: data}));
                 }).catch(function(error) {
-                    if (requestOptions.noAutoReplay) throw error;
+                    if (requestOptions.noAutoReplay || (error && error.applicationError)) throw error;
                     return ajax(command, data, requestOptions);
                 });
             }
@@ -354,8 +481,10 @@
                         if (command === 'digitalogic_update_product_code' && json && json.data && typeof json.data === 'object') {
                             throw commandError(json.data, message, response && response.status);
                         }
-                        var error = ajaxFailure('failed', command);
-                        error.message = message;
+                        var error = transportError(json && json.data ? json.data : {}, message);
+                        error.name = 'DigitalogicTransportError';
+                        error.command = String(command || '');
+                        error.transport = 'ajax';
                         error.status = Number(response && response.status || 0);
                         if (json && json.data) error.data = json.data;
                         throw error;
@@ -567,8 +696,10 @@
                 styleMode: normalizeStyleMode(stored('digitalogic_panel_style', 'modern')),
                 route: normalizePath(window.location.pathname),
                 loading: false,
+                summaryLoading: false,
                 saving: false,
                 error: '',
+                diagnostic: null,
                 notice: '',
                 summary: null,
                 settings: null,
@@ -663,6 +794,21 @@
                 if (this.route.indexOf('/sync') === 0) return 'sync';
                 if (this.route.indexOf('/settings') === 0) return 'settings';
                 return 'dashboard';
+            },
+            diagnosticDetailRows: function() {
+                var details = this.diagnostic && this.diagnostic.details;
+                if (!details || typeof details !== 'object' || Array.isArray(details)) return [];
+                return Object.keys(details).sort().slice(0, 20).map(function(key) {
+                    var value = details[key];
+                    if (value && typeof value === 'object') {
+                        try {
+                            value = JSON.stringify(value);
+                        } catch (ignored) {
+                            value = '';
+                        }
+                    }
+                    return {key: key, value: value === null ? 'null' : String(value)};
+                });
             },
             reportCategories: function() {
                 return ((this.reports && this.reports.categories) || []).filter(function(category) {
@@ -1091,21 +1237,38 @@
                 this.route = normalizePath(window.location.pathname);
             },
             run: function(command, data, options) {
+                var self = this;
                 var ajaxOnly = !!(options && options.ajaxOnly);
                 var silentError = !!(options && options.silentError);
                 this.transport = ajaxOnly ? 'ajax' : (transport.isReady() ? 'websocket' : 'ajax');
+                if (!silentError) {
+                    this.error = '';
+                    this.diagnostic = null;
+                }
                 var request = ajaxOnly
                     ? transport.requestAjax(command, data || {}, options || {})
                     : transport.request(command, data || {}, options || {});
                 return request.catch(function(error) {
                     if (!silentError) {
+                        if (typeof self.setDiagnostic === 'function') self.setDiagnostic(error);
                         reportPanelError('Command failed: ' + command, error, {transport: ajaxOnly ? 'ajax' : 'automatic'});
                     }
                     throw error;
                 });
             },
+            setDiagnostic: function(error) {
+                var diagnostic = error && error.diagnostic
+                    ? error.diagnostic
+                    : normalizeDiagnostic(error, error && error.message ? error.message : this.t.error);
+                this.diagnostic = diagnostic;
+                this.error = diagnostic.reason;
+                this.loading = false;
+                this.summaryLoading = false;
+                this.saving = false;
+            },
             loadRoute: function() {
                 this.error = '';
+                this.diagnostic = null;
                 if (!this.summary || ['dashboard', 'cli', 'sync', 'settings', 'reports'].indexOf(this.currentPage) !== -1) {
                     this.loadSummary();
                 }
@@ -1119,6 +1282,7 @@
             },
             loadSummary: function() {
                 var self = this;
+                self.summaryLoading = true;
                 return self.run('digitalogic_panel_summary').then(function(data) {
                     self.summary = data;
                     self.resetCurrencyDraft();
@@ -1129,6 +1293,8 @@
                     }
                 }).catch(function(error) {
                     self.error = error.message || self.t.error;
+                }).finally(function() {
+                    self.summaryLoading = false;
                 });
             },
             loadSettings: function() {
