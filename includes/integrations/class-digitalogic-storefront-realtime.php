@@ -26,6 +26,7 @@ final class Digitalogic_Storefront_Realtime {
 		'product.created',
 		'product.deleted',
 		'product.stock.changed',
+		'workstation.notification',
 	);
 
 	/**
@@ -114,6 +115,17 @@ final class Digitalogic_Storefront_Realtime {
 			DIGITALOGIC_VERSION,
 			true
 		);
+		wp_enqueue_style(
+			'digitalogic-storefront-realtime',
+			DIGITALOGIC_PLUGIN_URL . 'assets/css/storefront-realtime.css',
+			array(),
+			DIGITALOGIC_VERSION
+		);
+
+		$user_id      = get_current_user_id();
+		$audience_key = $user_id > 0
+			? substr( hash_hmac( 'sha256', (string) $user_id, wp_salt( 'nonce' ) ), 0, 20 )
+			: 'guest';
 
 		wp_localize_script(
 			'digitalogic-storefront-realtime',
@@ -123,6 +135,8 @@ final class Digitalogic_Storefront_Realtime {
 				'currentProductId' => $product_id,
 				'initialEventId'   => Digitalogic_Panel::get_latest_event_id(),
 				'currency'         => self::currency_snapshot(),
+				'notifications'    => self::active_notifications( $user_id ),
+				'audienceKey'      => $audience_key,
 				'currencyTtlMs'    => 6 * HOUR_IN_SECONDS * 1000,
 				'leaderTtlMs'      => 12000,
 			)
@@ -132,10 +146,11 @@ final class Digitalogic_Storefront_Realtime {
 	/**
 	 * Project one durable internal event onto the nonsecret public contract.
 	 *
-	 * @param array $event Durable panel event.
+	 * @param array    $event   Durable panel event.
+	 * @param int|null $user_id Current audience user ID, or null to resolve it.
 	 * @return array|null
 	 */
-	public static function project_public_event( $event ) {
+	public static function project_public_event( $event, $user_id = null ) {
 		if ( ! is_array( $event ) ) {
 			return null;
 		}
@@ -150,8 +165,46 @@ final class Digitalogic_Storefront_Realtime {
 			return null;
 		}
 
-		$data = array();
-		if ( 'currency.updated' === $name ) {
+		$data    = array();
+		$user_id = null === $user_id ? get_current_user_id() : absint( $user_id );
+		if ( 'workstation.notification' === $name ) {
+			if (
+				! class_exists( 'Digitalogic_Event_Mesh' )
+				|| ! Digitalogic_Event_Mesh::event_visible_to( $event, $user_id )
+			) {
+				return null;
+			}
+			$source = Digitalogic_Event_Mesh::sanitize_notification( $event['data'] ?? array() );
+			if ( is_wp_error( $source ) ) {
+				return null;
+			}
+			$source      = is_array( $source ) ? $source : array();
+			$display     = sanitize_key( (string) ( $source['display'] ?? 'toast' ) );
+			$level       = sanitize_key( (string) ( $source['level'] ?? 'info' ) );
+			$link        = is_array( $source['link'] ?? null ) ? $source['link'] : array();
+			$public_link = array();
+			if ( ! empty( $link['href'] ) && ! empty( $link['label'] ) ) {
+				$public_link = array(
+					'href'  => esc_url_raw( (string) $link['href'] ),
+					'label' => sanitize_text_field( (string) $link['label'] ),
+				);
+			}
+			$data = array(
+				'scope'        => 'notification',
+				'notification' => array(
+					'id'          => sanitize_text_field( (string) ( $source['notification_id'] ?? $event_id ) ),
+					'title'       => sanitize_text_field( (string) ( $source['title'] ?? '' ) ),
+					'message'     => sanitize_textarea_field( (string) ( $source['message'] ?? '' ) ),
+					'level'       => in_array( $level, array( 'info', 'success', 'warning', 'error' ), true ) ? $level : 'info',
+					'display'     => in_array( $display, array( 'toast', 'banner', 'both' ), true ) ? $display : 'toast',
+					'duration_ms' => max( 1000, min( 60000, absint( $source['duration_ms'] ?? 7000 ) ) ),
+					'dismissible' => ! empty( $source['dismissible'] ),
+					'link'        => $public_link,
+					'created_at'  => sanitize_text_field( (string) ( $source['created_at'] ?? '' ) ),
+					'expires_at'  => sanitize_text_field( (string) ( $source['expires_at'] ?? '' ) ),
+				),
+			);
+		} elseif ( 'currency.updated' === $name ) {
 			$data = array(
 				'scope'    => 'general',
 				'currency' => self::currency_snapshot(),
@@ -179,6 +232,31 @@ final class Digitalogic_Storefront_Realtime {
 			'time' => sanitize_text_field( (string) ( $event['time'] ?? '' ) ),
 			'data' => $data,
 		);
+	}
+
+	/**
+	 * Return recent unexpired notifications visible to this user.
+	 *
+	 * @param int $user_id Current audience user ID.
+	 * @return array
+	 */
+	private static function active_notifications( $user_id ) {
+		$events = Digitalogic_Panel::get_events_since( 0 );
+		$out    = array();
+		foreach ( array_reverse( is_array( $events ) ? $events : array() ) as $event ) {
+			if ( 'workstation.notification' !== (string) ( $event['name'] ?? '' ) ) {
+				continue;
+			}
+			$public = self::project_public_event( $event, $user_id );
+			if ( null !== $public ) {
+				$out[] = $public;
+			}
+			if ( count( $out ) >= 10 ) {
+				break;
+			}
+		}
+
+		return array_reverse( $out );
 	}
 
 	/** Return the current public currency display snapshot. */
@@ -217,8 +295,9 @@ final class Digitalogic_Storefront_Realtime {
 		@set_time_limit( self::STREAM_SECONDS + 5 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
 		ignore_user_abort( true );
 
-		$cursor = $this->request_cursor( $request );
-		$latest = Digitalogic_Panel::get_latest_event_id();
+		$cursor  = $this->request_cursor( $request );
+		$latest  = Digitalogic_Panel::get_latest_event_id();
+		$user_id = get_current_user_id();
 		if ( 0 === $cursor || $cursor > $latest ) {
 			$cursor = $latest;
 			$this->write_event(
@@ -227,8 +306,9 @@ final class Digitalogic_Storefront_Realtime {
 					'name' => 'realtime.ready',
 					'time' => current_time( 'mysql' ),
 					'data' => array(
-						'scope'    => 'general',
-						'currency' => self::currency_snapshot(),
+						'scope'         => 'general',
+						'currency'      => self::currency_snapshot(),
+						'notifications' => self::active_notifications( $user_id ),
 					),
 				)
 			);
@@ -245,7 +325,7 @@ final class Digitalogic_Storefront_Realtime {
 			$events      = Digitalogic_Panel::get_events_since( $cursor );
 			foreach ( $events as $event ) {
 				$cursor = max( $cursor, absint( $event['id'] ?? 0 ) );
-				$public = self::project_public_event( $event );
+				$public = self::project_public_event( $event, $user_id );
 				if ( null !== $public && $this->write_event( $public ) ) {
 					$wrote_frame = true;
 				}

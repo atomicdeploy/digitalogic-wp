@@ -21,6 +21,18 @@ test('storefront client uses persistent public cache and tab-scoped refresh guar
     assert.match(source, /currencyTtlMs/);
     assert.match(source, /lastProductEventId/);
     assert.match(source, /pending-product-event/);
+    assert.match(source, /dismissed-notifications/);
+    assert.match(source, /notification-event/);
+    assert.match(source, /config\.audienceKey/);
+});
+
+test('storefront client renders accessible text-only toasts and banners', () => {
+    assert.match(source, /digitalogic-realtime-banners/);
+    assert.match(source, /digitalogic-realtime-toasts/);
+    assert.match(source, /textContent = String\(notification\.message\)/);
+    assert.match(source, /showNotification\(event\)/);
+    assert.match(source, /digitalogic:notification/);
+    assert.doesNotMatch(source, /innerHTML\s*=/);
 });
 
 test('product updates refresh the live WooCommerce fragment and safely fall back to reload', () => {
@@ -44,4 +56,6 @@ test('SSE server is bounded, non-buffered, and public-event allowlisted', () => 
     assert.match(php, /STREAM_SECONDS\s*=\s*20/);
     assert.match(php, /PUBLIC_EVENT_NAMES/);
     assert.match(php, /product\.stock\.changed/);
+    assert.match(php, /workstation\.notification/);
+    assert.match(php, /event_visible_to/);
 });

@@ -25,6 +25,8 @@ final class Digitalogic_Event_Mesh {
 	private const MAX_NOTIFICATION_ACTIONS = 4;
 	private const MAX_NOTIFICATION_FIELDS  = 4;
 	private const MAX_FIELD_OPTIONS        = 20;
+	private const MAX_AUDIENCE_ATTRIBUTES  = 10;
+	private const MAX_ATTRIBUTE_VALUES     = 10;
 	private const PRESENCE_FRESH_SECONDS   = 600;
 	private const SESSION_FRESH_SECONDS    = 180;
 
@@ -771,15 +773,142 @@ final class Digitalogic_Event_Mesh {
 		if ( ! empty( $audience['broadcast'] ) ) {
 			return true;
 		}
-		if ( $user_id > 0 && in_array( $user_id, array_map( 'absint', (array) ( $audience['users'] ?? array() ) ), true ) ) {
-			return true;
+
+		$matches = array();
+		$users   = array_map( 'absint', (array) ( $audience['users'] ?? array() ) );
+		if ( $users ) {
+			$matches[] = $user_id > 0 && in_array( $user_id, $users, true );
 		}
 		$device_id = self::sanitize_device_id( $device_id );
-		if ( '' !== $device_id && in_array( $device_id, (array) ( $audience['devices'] ?? array() ), true ) ) {
-			return true;
+		$devices   = (array) ( $audience['devices'] ?? array() );
+		if ( $devices ) {
+			$matches[] = '' !== $device_id && in_array( $device_id, $devices, true );
 		}
 		$operator_key = '' !== $device_id ? self::operator_for_device( $device_id ) : '';
-		return '' !== $operator_key && in_array( $operator_key, (array) ( $audience['operators'] ?? array() ), true );
+		$operators    = (array) ( $audience['operators'] ?? array() );
+		if ( $operators ) {
+			$matches[] = '' !== $operator_key && in_array( $operator_key, $operators, true );
+		}
+		$roles = array_map( 'sanitize_key', (array) ( $audience['roles'] ?? array() ) );
+		if ( $roles ) {
+			$user_roles = self::user_roles( $user_id );
+			$matches[]  = (bool) array_intersect( $roles, $user_roles );
+		}
+		$attributes = is_array( $audience['attributes'] ?? null ) ? $audience['attributes'] : array();
+		if ( $attributes ) {
+			$matches[] = self::user_matches_attributes(
+				$user_id,
+				$attributes,
+				'any' === (string) ( $audience['attribute_match'] ?? 'all' ) ? 'any' : 'all'
+			);
+		}
+
+		if ( ! $matches ) {
+			return false;
+		}
+
+		return 'all' === (string) ( $audience['match'] ?? 'any' )
+			? ! in_array( false, $matches, true )
+			: in_array( true, $matches, true );
+	}
+
+	/**
+	 * Return normalized roles without exposing user records in event payloads.
+	 *
+	 * @param int $user_id WordPress user ID.
+	 * @return array
+	 */
+	private static function user_roles( int $user_id ): array {
+		$user = self::audience_user( $user_id );
+		return is_object( $user ) && isset( $user->roles )
+			? array_values( array_unique( array_filter( array_map( 'sanitize_key', (array) $user->roles ) ) ) )
+			: array();
+	}
+
+	/**
+	 * Match a bounded set of exact user attributes entirely on the server.
+	 *
+	 * @param int    $user_id    WordPress user ID.
+	 * @param array  $attributes Sanitized exact-match attributes.
+	 * @param string $match_mode any or all.
+	 * @return bool
+	 */
+	private static function user_matches_attributes( int $user_id, array $attributes, string $match_mode ): bool {
+		if ( $user_id < 1 ) {
+			return false;
+		}
+
+		$results = array();
+		foreach ( $attributes as $key => $allowed ) {
+			$key = sanitize_key( (string) $key );
+			if ( '' === $key || self::protected_audience_attribute( $key ) ) {
+				continue;
+			}
+			$actual  = self::user_attribute_values( $user_id, $key );
+			$allowed = array_map(
+				static function ( $value ) {
+					return self::text( $value, 191 );
+				},
+				(array) $allowed
+			);
+			$results[] = (bool) array_intersect( $allowed, $actual );
+		}
+
+		if ( ! $results ) {
+			return false;
+		}
+
+		return 'any' === $match_mode
+			? in_array( true, $results, true )
+			: ! in_array( false, $results, true );
+	}
+
+	/**
+	 * Resolve safe core attributes and user meta for exact audience matching.
+	 *
+	 * @param int    $user_id WordPress user ID.
+	 * @param string $key     Sanitized attribute key.
+	 * @return array
+	 */
+	private static function user_attribute_values( int $user_id, string $key ): array {
+		$user = self::audience_user( $user_id );
+		if ( is_object( $user ) && in_array( $key, array( 'user_login', 'display_name', 'locale' ), true ) ) {
+			if ( 'locale' === $key && function_exists( 'get_user_locale' ) ) {
+				$value = get_user_locale( $user_id );
+			} else {
+				$value = $user->{$key} ?? '';
+			}
+			return array( self::text( $value, 191 ) );
+		}
+
+		$value = function_exists( 'get_user_meta' ) ? get_user_meta( $user_id, $key, true ) : '';
+		$value = is_array( $value ) ? $value : array( $value );
+		return array_values(
+			array_unique(
+				array_map(
+					static function ( $item ) {
+						return ( is_scalar( $item ) || null === $item ) ? self::text( $item, 191 ) : '';
+					},
+					$value
+				)
+			)
+		);
+	}
+
+	/**
+	 * Resolve a user object for the current SSE/WS principal.
+	 *
+	 * @param int $user_id WordPress user ID.
+	 * @return object|null
+	 */
+	private static function audience_user( int $user_id ) {
+		if ( $user_id < 1 ) {
+			return null;
+		}
+		if ( get_current_user_id() === $user_id ) {
+			return wp_get_current_user();
+		}
+		return function_exists( 'get_userdata' ) ? get_userdata( $user_id ) : null;
 	}
 
 	public static function sanitize_notification( $payload ) {
@@ -791,7 +920,14 @@ final class Digitalogic_Event_Mesh {
 		}
 
 		$audience = self::sanitize_audience( $payload['audience'] ?? array() );
-		if ( empty( $audience['broadcast'] ) && empty( $audience['users'] ) && empty( $audience['devices'] ) && empty( $audience['operators'] ) ) {
+		if (
+			empty( $audience['broadcast'] )
+			&& empty( $audience['users'] )
+			&& empty( $audience['devices'] )
+			&& empty( $audience['operators'] )
+			&& empty( $audience['roles'] )
+			&& empty( $audience['attributes'] )
+		) {
 			return new WP_Error( 'digitalogic_notification_audience', __( 'A notification audience is required.', 'digitalogic' ), array( 'status' => 400 ) );
 		}
 
@@ -854,8 +990,11 @@ final class Digitalogic_Event_Mesh {
 			);
 		}
 
-		$level      = sanitize_key( (string) ( $payload['level'] ?? 'info' ) );
-		$expires_at = self::iso_time( $payload['expires_at'] ?? gmdate( 'c', time() + HOUR_IN_SECONDS ) );
+		$level       = sanitize_key( (string) ( $payload['level'] ?? 'info' ) );
+		$display     = sanitize_key( (string) ( $payload['display'] ?? $payload['presentation'] ?? 'toast' ) );
+		$duration_ms = max( 1000, min( 60000, absint( $payload['duration_ms'] ?? 7000 ) ) );
+		$expires_at  = self::iso_time( $payload['expires_at'] ?? gmdate( 'c', time() + HOUR_IN_SECONDS ) );
+		$link        = self::sanitize_notification_link( $payload['link'] ?? array() );
 
 		return array(
 			'notification_id' => self::identifier( $payload['notification_id'] ?? $correlation_id, 80 ),
@@ -866,6 +1005,10 @@ final class Digitalogic_Event_Mesh {
 			'audience'        => $audience,
 			'actions'         => $actions,
 			'fields'          => $fields,
+			'display'         => in_array( $display, array( 'toast', 'banner', 'both' ), true ) ? $display : 'toast',
+			'duration_ms'     => $duration_ms,
+			'dismissible'     => ! array_key_exists( 'dismissible', $payload ) || ! empty( $payload['dismissible'] ),
+			'link'            => $link,
 			'expires_at'      => $expires_at,
 			'source'          => self::identifier( $payload['source'] ?? 'digitalogic', 80 ),
 			'created_at'      => gmdate( 'c' ),
@@ -1156,13 +1299,92 @@ final class Digitalogic_Event_Mesh {
 	}
 
 	private static function sanitize_audience( $audience ): array {
-		$audience = is_array( $audience ) ? $audience : array();
-		return array(
-			'broadcast' => ! empty( $audience['broadcast'] ),
-			'users'     => array_values( array_unique( array_filter( array_map( 'absint', array_slice( (array) ( $audience['users'] ?? array() ), 0, 50 ) ) ) ) ),
-			'devices'   => array_values( array_unique( array_filter( array_map( array( __CLASS__, 'sanitize_device_id' ), array_slice( (array) ( $audience['devices'] ?? array() ), 0, 50 ) ) ) ) ),
-			'operators' => array_values( array_unique( array_filter( array_map( 'sanitize_key', array_slice( (array) ( $audience['operators'] ?? array() ), 0, 50 ) ) ) ) ),
+		$audience   = is_array( $audience ) ? $audience : array();
+		$roles      = array_values(
+			array_unique(
+				array_filter(
+					array_map( 'sanitize_key', array_slice( (array) ( $audience['roles'] ?? array() ), 0, 20 ) )
+				)
+			)
 		);
+		$attributes = array();
+		foreach ( array_slice( (array) ( $audience['attributes'] ?? array() ), 0, self::MAX_AUDIENCE_ATTRIBUTES, true ) as $key => $values ) {
+			$key = sanitize_key( (string) $key );
+			if ( '' === $key || self::protected_audience_attribute( $key ) ) {
+				continue;
+			}
+			$clean_values = array();
+			foreach ( array_slice( (array) $values, 0, self::MAX_ATTRIBUTE_VALUES ) as $value ) {
+				if ( is_scalar( $value ) || null === $value ) {
+					$clean_values[] = self::text( $value, 191 );
+				}
+			}
+			$clean_values = array_values( array_unique( $clean_values ) );
+			if ( $clean_values ) {
+				$attributes[ $key ] = $clean_values;
+			}
+		}
+		$match           = sanitize_key( (string) ( $audience['match'] ?? 'any' ) );
+		$attribute_match = sanitize_key( (string) ( $audience['attribute_match'] ?? 'all' ) );
+		return array(
+			'broadcast'       => ! empty( $audience['broadcast'] ),
+			'match'           => 'all' === $match ? 'all' : 'any',
+			'users'           => array_values( array_unique( array_filter( array_map( 'absint', array_slice( (array) ( $audience['users'] ?? array() ), 0, 50 ) ) ) ) ),
+			'devices'         => array_values( array_unique( array_filter( array_map( array( __CLASS__, 'sanitize_device_id' ), array_slice( (array) ( $audience['devices'] ?? array() ), 0, 50 ) ) ) ) ),
+			'operators'       => array_values( array_unique( array_filter( array_map( 'sanitize_key', array_slice( (array) ( $audience['operators'] ?? array() ), 0, 50 ) ) ) ) ),
+			'roles'           => $roles,
+			'attributes'      => $attributes,
+			'attribute_match' => 'any' === $attribute_match ? 'any' : 'all',
+		);
+	}
+
+	/**
+	 * Reject secret-bearing and WordPress authorization metadata as audience selectors.
+	 *
+	 * @param string $key Sanitized attribute key.
+	 * @return bool
+	 */
+	private static function protected_audience_attribute( string $key ): bool {
+		return 1 === preg_match( '/(?:pass|password|secret|token|session|capabilit|user_level|activation_key|api_key)/i', $key );
+	}
+
+	/**
+	 * Keep notification links same-origin and text-only.
+	 *
+	 * @param mixed $link Notification link input.
+	 * @return array
+	 */
+	private static function sanitize_notification_link( $link ): array {
+		$link  = is_array( $link ) ? $link : array();
+		$href  = trim( (string) ( $link['href'] ?? $link['url'] ?? '' ) );
+		$label = self::text( $link['label'] ?? '', 80 );
+		if ( '' === $href || '' === $label ) {
+			return array();
+		}
+
+		$home_parts = wp_parse_url( home_url( '/' ) );
+		$link_parts = wp_parse_url( $href );
+		if ( false === $link_parts ) {
+			return array();
+		}
+		if ( str_starts_with( $href, '/' ) && ! str_starts_with( $href, '//' ) ) {
+			return array(
+				'href'  => esc_url_raw( $href ),
+				'label' => $label,
+			);
+		}
+		if (
+			is_array( $home_parts )
+			&& isset( $home_parts['host'], $link_parts['host'] )
+			&& strtolower( (string) $home_parts['host'] ) === strtolower( (string) $link_parts['host'] )
+		) {
+			return array(
+				'href'  => esc_url_raw( $href ),
+				'label' => $label,
+			);
+		}
+
+		return array();
 	}
 
 	private static function sanitize_capabilities( $capabilities ): array {

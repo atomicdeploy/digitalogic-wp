@@ -6,7 +6,8 @@
         return;
     }
 
-    var prefix = 'digitalogic.realtime.v1.';
+    var audienceKey = String(config.audienceKey || 'guest').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 32) || 'guest';
+    var prefix = 'digitalogic.realtime.v1.' + audienceKey + '.';
     var channelName = prefix + 'channel';
     var leaderKey = prefix + 'leader';
     var eventKey = prefix + 'event';
@@ -14,12 +15,15 @@
     var currencyKey = prefix + 'currency';
     var tabKey = prefix + 'tab';
     var productEventKey = prefix + 'product-event';
+    var notificationEventKey = prefix + 'notification-event';
+    var dismissedKey = prefix + 'dismissed-notifications';
     var tabId = readSession(tabKey) || randomId();
     var channel = null;
     var source = null;
     var leaderTimer = null;
     var refreshController = null;
     var lastProductEventId = Number(readSession(productEventKey) || 0);
+    var lastNotificationEventId = Number(readSession(notificationEventKey) || 0);
     var currentProductId = Number(config.currentProductId || 0);
     var leaderTtl = Math.max(6000, Number(config.leaderTtlMs || 12000));
 
@@ -130,6 +134,157 @@
             return;
         }
         applyCurrency(config.currency || {}, Number(config.initialEventId || 0));
+    }
+
+    function notificationExpired(notification) {
+        var expiresAt = Date.parse(String(notification.expires_at || ''));
+        return Number.isFinite(expiresAt) && expiresAt < Date.now();
+    }
+
+    function dismissedNotifications() {
+        var stored = parseJson(readLocal(dismissedKey)) || {};
+        var current = {};
+        Object.keys(stored).slice(-50).forEach(function (id) {
+            if (Number(stored[id] || 0) > Date.now()) {
+                current[id] = Number(stored[id]);
+            }
+        });
+        return current;
+    }
+
+    function notificationDismissed(notification) {
+        return Boolean(dismissedNotifications()[String(notification.id || '')]);
+    }
+
+    function rememberDismissed(notification) {
+        var id = String(notification.id || '');
+        if (!id) {
+            return;
+        }
+        var stored = dismissedNotifications();
+        var expiresAt = Date.parse(String(notification.expires_at || ''));
+        stored[id] = Number.isFinite(expiresAt) ? expiresAt : Date.now() + 86400000;
+        var compact = {};
+        Object.keys(stored).slice(-50).forEach(function (key) {
+            compact[key] = stored[key];
+        });
+        writeLocal(dismissedKey, JSON.stringify(compact));
+    }
+
+    function notificationContainer(kind) {
+        var id = kind === 'banner' ? 'digitalogic-realtime-banners' : 'digitalogic-realtime-toasts';
+        var container = document.getElementById(id);
+        if (container) {
+            return container;
+        }
+        container = document.createElement('div');
+        container.id = id;
+        container.className = 'digitalogic-realtime-' + kind + 's';
+        container.setAttribute('aria-live', kind === 'banner' ? 'polite' : 'assertive');
+        container.setAttribute('aria-atomic', 'false');
+        if (kind === 'banner') {
+            document.body.insertBefore(container, document.body.firstChild);
+        } else {
+            document.body.appendChild(container);
+        }
+        return container;
+    }
+
+    function removeNotificationNodes(notificationId) {
+        document.querySelectorAll('[data-digitalogic-notification-id]').forEach(function (node) {
+            if (node.getAttribute('data-digitalogic-notification-id') === notificationId) {
+                node.remove();
+            }
+        });
+    }
+
+    function renderNotification(notification, kind) {
+        var id = String(notification.id || '');
+        if (!id || notificationExpired(notification) || notificationDismissed(notification)) {
+            return;
+        }
+        var container = notificationContainer(kind);
+        var duplicate = Array.from(container.querySelectorAll('[data-digitalogic-notification-id]')).some(function (node) {
+            return node.getAttribute('data-digitalogic-notification-id') === id;
+        });
+        if (duplicate) {
+            return;
+        }
+
+        var notice = document.createElement('section');
+        notice.className = 'digitalogic-realtime-notice digitalogic-realtime-notice--' + String(notification.level || 'info');
+        notice.setAttribute('data-digitalogic-notification-id', id);
+        notice.setAttribute('role', String(notification.level) === 'error' ? 'alert' : 'status');
+        notice.setAttribute('dir', 'rtl');
+
+        var content = document.createElement('div');
+        content.className = 'digitalogic-realtime-notice__content';
+        if (notification.title) {
+            var title = document.createElement('strong');
+            title.className = 'digitalogic-realtime-notice__title';
+            title.textContent = String(notification.title);
+            content.appendChild(title);
+        }
+        if (notification.message) {
+            var message = document.createElement('span');
+            message.className = 'digitalogic-realtime-notice__message';
+            message.textContent = String(notification.message);
+            content.appendChild(message);
+        }
+        if (notification.link && notification.link.href && notification.link.label) {
+            var link = document.createElement('a');
+            link.className = 'digitalogic-realtime-notice__link';
+            link.href = String(notification.link.href);
+            link.textContent = String(notification.link.label);
+            content.appendChild(link);
+        }
+        notice.appendChild(content);
+
+        if (notification.dismissible) {
+            var close = document.createElement('button');
+            close.type = 'button';
+            close.className = 'digitalogic-realtime-notice__close';
+            close.setAttribute('aria-label', 'بستن اعلان');
+            close.textContent = '×';
+            close.addEventListener('click', function () {
+                rememberDismissed(notification);
+                removeNotificationNodes(id);
+            });
+            notice.appendChild(close);
+        }
+        container.appendChild(notice);
+
+        if (kind === 'toast') {
+            window.setTimeout(function () {
+                if (notice.isConnected) {
+                    notice.remove();
+                }
+            }, Math.max(1000, Math.min(60000, Number(notification.duration_ms || 7000))));
+        }
+    }
+
+    function showNotification(event) {
+        var eventId = Number(event.id || 0);
+        var notification = event.data && event.data.notification;
+        if (!notification || eventId <= lastNotificationEventId) {
+            return;
+        }
+        lastNotificationEventId = eventId;
+        writeSession(notificationEventKey, eventId);
+        var display = String(notification.display || 'toast');
+        if (display === 'toast' || display === 'both') {
+            renderNotification(notification, 'toast');
+        }
+        if (display === 'banner' || display === 'both') {
+            renderNotification(notification, 'banner');
+        }
+        window.dispatchEvent(new CustomEvent('digitalogic:notification', {
+            detail: {event: event, notification: notification}
+        }));
+    }
+
+    function hydrateNotifications() {
+        (Array.isArray(config.notifications) ? config.notifications : []).forEach(showNotification);
     }
 
     function productMatches(data) {
@@ -260,6 +415,12 @@
         if (event.data && event.data.currency) {
             applyCurrency(event.data.currency, eventId);
         }
+        if (event.data && Array.isArray(event.data.notifications)) {
+            event.data.notifications.forEach(showNotification);
+        }
+        if (String(event.name || '') === 'workstation.notification') {
+            showNotification(event);
+        }
         if (String(event.name || '').indexOf('product.') === 0) {
             refreshProduct(event);
         }
@@ -377,5 +538,6 @@
     });
 
     hydrateCurrency();
+    hydrateNotifications();
     startCoordination();
 }());

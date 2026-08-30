@@ -28,7 +28,9 @@ $GLOBALS['digitalogic_test_current_user'] = (object) array(
 	'ID'           => 0,
 	'user_login'   => '',
 	'display_name' => '',
+	'roles'        => array(),
 );
+$GLOBALS['digitalogic_test_user_meta'] = array();
 $GLOBALS['digitalogic_test_status_headers'] = array();
 $GLOBALS['digitalogic_test_nocache_headers'] = 0;
 $GLOBALS['digitalogic_test_options'] = array();
@@ -459,6 +461,20 @@ function wp_is_post_revision( $post_id ) {
  */
 function wp_get_current_user() {
 	return $GLOBALS['digitalogic_test_current_user'];
+}
+
+/** Return exact test user metadata. */
+function get_user_meta( $user_id, $key = '', $single = false ) {
+	$value = $GLOBALS['digitalogic_test_user_meta'][ (int) $user_id ][ (string) $key ] ?? '';
+	if ( $single ) {
+		return $value;
+	}
+	return is_array( $value ) ? $value : array( $value );
+}
+
+/** Return the test user's locale. */
+function get_user_locale( $user_id = 0 ) {
+	return (string) ( $GLOBALS['digitalogic_test_user_meta'][ (int) $user_id ]['locale'] ?? 'en_US' );
 }
 
 /**

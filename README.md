@@ -89,12 +89,12 @@
 
 ## Installation
 
-Current source-built release: [v1.8.10](https://github.com/atomicdeploy/digitalogic-wp/releases/tag/v1.8.10).
-It contains the durable, exact-source snapshot terminal-event publisher used by
-the Patris pricing companion and the checkout machine-date compatibility guard,
-with immutable source and package provenance.
+Current source-built release: [v1.8.40](https://github.com/atomicdeploy/digitalogic-wp/releases/tag/v1.8.40).
+It contains the durable pricing/event pipeline, storefront currency and product
+SSE updates, and privacy-filtered frontend notifications with immutable source
+and package provenance.
 Use the stable install ZIP below and verify it against the release
-[`SHA256SUMS`](https://github.com/atomicdeploy/digitalogic-wp/releases/download/v1.8.10/SHA256SUMS)
+[`SHA256SUMS`](https://github.com/atomicdeploy/digitalogic-wp/releases/download/v1.8.40/SHA256SUMS)
 manifest. The WordPress package contains production plugin files and
 dependencies; reviewed PBX, n8n, RouterOS, and workstation deployment assets
 remain available in the immutable source tag.
@@ -120,7 +120,13 @@ the SSE connection and shares sanitized events with other open tabs through
 BroadcastChannel, with localStorage as the compatibility relay. Currency
 cards update in place; an open product page refreshes its current WooCommerce
 fragment and safely reloads only when the active theme cannot expose a
-compatible replacement fragment.
+compatible replacement fragment. Version 1.8.40 also renders text-only toasts
+and banners from the existing durable workstation notification event. Audience
+selection happens on the server and supports broadcast, user IDs, WordPress
+roles, exact user attributes, devices, and operators. The public projection
+never includes those selectors. See
+[Storefront notifications](docs/STOREFRONT-NOTIFICATIONS.md) for WP-CLI and n8n
+examples.
 
 ### Manual Installation
 
