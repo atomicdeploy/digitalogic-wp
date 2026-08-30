@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.34] - 2026-08-30
+
+### Fixed
+- Let a new exact generation replace a fully terminal pricing job without carrying the previous generation's committed effect marker, while retaining marker immutability for stale writes within the same generation.
+
 ## [1.8.33] - 2026-08-30
 
 ### Fixed
