@@ -111,6 +111,17 @@ remain available in the immutable source tag.
 wp plugin install /path/to/digitalogic-wp.zip --activate
 ```
 
+### Storefront real-time updates
+
+Version 1.8.36 adds a same-origin Server-Sent Events endpoint at
+`/wp-json/digitalogic/v1/events/stream`. The public browser client subscribes
+to committed currency and product identity events only. One elected tab owns
+the SSE connection and shares sanitized events with other open tabs through
+BroadcastChannel, with localStorage as the compatibility relay. Currency
+cards update in place; an open product page refreshes its current WooCommerce
+fragment and safely reloads only when the active theme cannot expose a
+compatible replacement fragment.
+
 ### Manual Installation
 
 1. Extract the plugin to `wp-content/plugins/digitalogic-wp`

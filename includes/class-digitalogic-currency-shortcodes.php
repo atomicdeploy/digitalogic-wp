@@ -98,7 +98,7 @@ final class Digitalogic_Currency_Shortcodes {
 		$flag_url    = apply_filters( 'digitalogic_currency_card_flag_url', $flag_url, $currency );
 
 		return sprintf(
-			'<div class="currency-box"><div class="flag-circle"><img src="%1$s" alt="%2$s" width="24" height="24"></div><div class="currency-info"><div dir="ltr" class="price">%3$s %4$s</div><div dir="ltr" class="date">%5$s</div></div></div>',
+			'<div class="currency-box" data-digitalogic-currency="%2$s"><div class="flag-circle"><img src="%1$s" alt="%2$s" width="24" height="24"></div><div class="currency-info"><div dir="ltr" class="price" data-digitalogic-currency-rate aria-live="polite" aria-atomic="true">%3$s %4$s</div><div dir="ltr" class="date" data-digitalogic-currency-date>%5$s</div></div></div>',
 			esc_url( $flag_url ),
 			esc_attr( $currency ),
 			esc_html( number_format( (float) $rate ) ),

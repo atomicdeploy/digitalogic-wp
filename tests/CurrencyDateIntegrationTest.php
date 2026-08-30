@@ -32,10 +32,10 @@ final class CurrencyDateIntegrationTest extends TestCase {
         $yuan = Digitalogic_Currency_Shortcodes::instance()->render_yuan_rate();
 
         $this->assertSame('2026/06/29', $date);
-        $this->assertStringContainsString('<div dir="ltr" class="price">71,500 $</div>', $dollar);
-        $this->assertStringContainsString('<div dir="ltr" class="price">9,875 ¥</div>', $yuan);
-        $this->assertStringContainsString('<div dir="ltr" class="date">' . $date . '</div>', $dollar);
-        $this->assertStringContainsString('<div dir="ltr" class="date">' . $date . '</div>', $yuan);
+        $this->assertStringContainsString('<div dir="ltr" class="price" data-digitalogic-currency-rate aria-live="polite" aria-atomic="true">71,500 $</div>', $dollar);
+        $this->assertStringContainsString('<div dir="ltr" class="price" data-digitalogic-currency-rate aria-live="polite" aria-atomic="true">9,875 ¥</div>', $yuan);
+        $this->assertStringContainsString('<div dir="ltr" class="date" data-digitalogic-currency-date>' . $date . '</div>', $dollar);
+        $this->assertStringContainsString('<div dir="ltr" class="date" data-digitalogic-currency-date>' . $date . '</div>', $yuan);
     }
 
     public function test_storefront_and_options_service_share_the_persian_jalali_formatter(): void {
@@ -45,7 +45,7 @@ final class CurrencyDateIntegrationTest extends TestCase {
         $output = Digitalogic_Currency_Shortcodes::instance()->render_yuan_rate();
 
         $this->assertSame('۱۴۰۵/۰۴/۰۸', $date);
-        $this->assertStringContainsString('<div dir="ltr" class="date">۱۴۰۵/۰۴/۰۸</div>', $output);
+        $this->assertStringContainsString('<div dir="ltr" class="date" data-digitalogic-currency-date>۱۴۰۵/۰۴/۰۸</div>', $output);
         $this->assertStringNotContainsString('۱۳۴۸', $output);
     }
 
@@ -54,7 +54,7 @@ final class CurrencyDateIntegrationTest extends TestCase {
 
         $this->assertSame('', Digitalogic_Options::instance()->get_update_date_formatted());
         $this->assertStringContainsString(
-            '<div dir="ltr" class="date"></div>',
+            '<div dir="ltr" class="date" data-digitalogic-currency-date></div>',
             Digitalogic_Currency_Shortcodes::instance()->render_dollar_rate()
         );
     }
@@ -63,6 +63,8 @@ final class CurrencyDateIntegrationTest extends TestCase {
         $output = Digitalogic_Currency_Shortcodes::instance()->render_dollar_rate();
 
         $this->assertStringContainsString('class="currency-box"', $output);
+        $this->assertStringContainsString('data-digitalogic-currency="USD"', $output);
+        $this->assertStringContainsString('aria-live="polite" aria-atomic="true"', $output);
         $this->assertStringContainsString('class="flag-circle"', $output);
         $this->assertStringContainsString('class="currency-info"', $output);
         $this->assertStringContainsString('https://digitalogic.test/wp-content/uploads/2025/10/us.svg', $output);
