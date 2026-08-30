@@ -15,6 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   remains in Patris metadata while WooCommerce operational stock stays zero
   until a valid price arrives, preventing automatic `instock` snapback and a
   permanently retrying product-sync queue.
+- Force each bounded storefront SSE poll to bypass WordPress's request-local
+  option cache, so currency, product, toast, and banner events committed after
+  the stream opened are delivered immediately instead of only after reconnect.
 
 ## [1.8.41] - 2026-08-30
 

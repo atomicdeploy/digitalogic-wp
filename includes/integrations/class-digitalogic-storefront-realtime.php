@@ -296,7 +296,7 @@ final class Digitalogic_Storefront_Realtime {
 		ignore_user_abort( true );
 
 		$cursor  = $this->request_cursor( $request );
-		$latest  = Digitalogic_Panel::get_latest_event_id();
+		$latest  = Digitalogic_Panel::get_latest_event_id( true );
 		$user_id = get_current_user_id();
 		if ( 0 === $cursor || $cursor > $latest ) {
 			$cursor = $latest;
@@ -322,7 +322,7 @@ final class Digitalogic_Storefront_Realtime {
 
 		while ( ! connection_aborted() && microtime( true ) < $deadline ) {
 			$wrote_frame = false;
-			$events      = Digitalogic_Panel::get_events_since( $cursor );
+			$events      = Digitalogic_Panel::get_events_since( $cursor, true );
 			foreach ( $events as $event ) {
 				$cursor = max( $cursor, absint( $event['id'] ?? 0 ) );
 				$public = self::project_public_event( $event, $user_id );
