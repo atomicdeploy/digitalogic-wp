@@ -129,6 +129,35 @@ final class Digitalogic_Report_Engine {
 	 * @return string
 	 */
 	public function projection_revision( $source_id, $dataset ) {
+		$source_id = (string) $source_id;
+		$dataset   = (string) $dataset;
+		if ( ( '' === $source_id ) !== ( '' === $dataset ) ) {
+			return new WP_Error(
+				'digitalogic_report_projection_scope_incomplete',
+				__( 'The report projection source ID and dataset must be supplied together.', 'digitalogic' ),
+				array(
+					'status'    => 400,
+					'retryable' => false,
+				)
+			);
+		}
+		if ( '' === $source_id ) {
+			$selection = $this->select_source_state( $this->normalize_args( array( 'view' => 'price_list' ) ) );
+			$source    = is_array( $selection['source'] ?? null ) ? $selection['source'] : array();
+			$source_id = (string) ( $source['id'] ?? '' );
+			$dataset   = (string) ( $source['dataset'] ?? '' );
+			if ( '' === $source_id || '' === $dataset ) {
+				return new WP_Error(
+					'digitalogic_report_projection_source_unavailable',
+					__( 'The current report projection source is unavailable.', 'digitalogic' ),
+					array(
+						'status'    => 503,
+						'retryable' => true,
+					)
+				);
+			}
+		}
+
 		$generation = $this->cache_generation();
 		if ( '' === $generation ) {
 			return new WP_Error(

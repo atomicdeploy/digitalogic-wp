@@ -91,8 +91,9 @@ To use it:
 6. Reload the spreadsheet. Use **Digitalogic Sync -> Sync now** for a manual
    refresh, or **Enable scheduled sync** for the configured interval.
 
-The bundled script fetches up to 250 rows per request, validates the immutable
-first-page snapshot metadata, and fetches remaining pages in bounded parallel
+The bundled script fetches up to 250 rows per request, uses the authenticated
+catalog invalidation revision for a cheap fail-closed no-op gate, validates the
+immutable first-page snapshot metadata, and fetches remaining pages in bounded parallel
 batches. It unions dynamic warehouse columns and calculates an idempotent
 catalog revision. An unchanged source and pricing revision takes a fast no-op
 path only when a fresh digest of the complete managed Sheet projection still
@@ -107,7 +108,8 @@ manual formulas on a different tab so a synchronization cannot replace them.
 
 ## Post-deployment refresh and readback
 
-The supplied Apps Script currently reads the established paginated
+The supplied Apps Script reads the lightweight
+`/google-sheets/catalog-revision` gate before the established paginated
 `/google-sheets/catalog` and `/google-sheets/pricing-settings` routes. It does
 not yet consume the separate pricing snapshot API or the Patris WebSocket
 stream. Deploying the WordPress snapshot/event code therefore does not itself

@@ -344,6 +344,16 @@ class Digitalogic_REST_API {
 
 		register_rest_route(
 			'digitalogic/v1',
+			'/google-sheets/catalog-revision',
+			array(
+				'methods'             => 'GET',
+				'callback'            => array( $this, 'get_google_sheets_catalog_revision' ),
+				'permission_callback' => array( $this, 'check_read_permission' ),
+			)
+		);
+
+		register_rest_route(
+			'digitalogic/v1',
 			'/google-sheets/pricing-settings',
 			array(
 				array(
@@ -824,6 +834,32 @@ class Digitalogic_REST_API {
 	 */
 	public function get_google_sheets_catalog( WP_REST_Request $request ) {
 		$result = Digitalogic_Google_Sheets_Catalog::instance()->get_page( $request->get_params() );
+		if ( is_wp_error( $result ) ) {
+			$data   = $result->get_error_data();
+			$status = is_array( $data ) && isset( $data['status'] ) ? (int) $data['status'] : 500;
+
+			return new WP_REST_Response(
+				array(
+					'success' => false,
+					'code'    => $result->get_error_code(),
+					'message' => $result->get_error_message(),
+				),
+				$status
+			);
+		}
+
+		return new WP_REST_Response(
+			array(
+				'success' => true,
+				'data'    => $result,
+			),
+			200
+		);
+	}
+
+	/** Return the cheap authoritative catalog invalidation revision. */
+	public function get_google_sheets_catalog_revision( WP_REST_Request $request ) {
+		$result = Digitalogic_Google_Sheets_Catalog::instance()->get_revision( $request->get_params() );
 		if ( is_wp_error( $result ) ) {
 			$data   = $result->get_error_data();
 			$status = is_array( $data ) && isset( $data['status'] ) ? (int) $data['status'] : 500;
