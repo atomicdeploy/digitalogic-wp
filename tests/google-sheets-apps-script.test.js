@@ -210,6 +210,49 @@ test('canonical pricing settings require the complete composite contract', () =>
   );
 });
 
+test('accepted pricing revision stays current when its business effective date is old', () => {
+  const values = {};
+  const range = (cell) => ({
+    clearDataValidations() { return this; },
+    setNumberFormat() { return this; },
+    setValue(value) { values[cell] = value; return this; },
+  });
+  const spreadsheet = {
+    getSheetByName(name) {
+      assert.equal(name, 'Settings');
+      return { getRange: range };
+    },
+  };
+  const state = {
+    schema: 'digitalogic.pricing-sync-state/v1',
+    state_revision: `sha256:${'a'.repeat(64)}`,
+    settings: {
+      dollar_price: '187891',
+      yuan_price: '31000',
+      effective_date: '2026-07-27',
+      usd_effective_date: '2026-07-27',
+      cny_effective_date: '2026-07-27',
+      profit_margin_percent: '30',
+      air_express_price_per_kg: '120',
+      air_express_currency: 'CNY',
+      shipping_catalog_revision: `sha256:${'c'.repeat(64)}`,
+      price_rounding_digits: 2,
+      price_rounding_mode: 'nearest_half_up',
+    },
+    freshness: {
+      effective_date: '2026-07-27',
+      age_days: 34,
+      stale: true,
+      stale_after: 7,
+    },
+  };
+
+  assert.equal(sandbox.module.exports.upsertPricingSettings_(spreadsheet, state, 'bilingual'), true);
+  assert.equal(values.B20, 'CURRENT');
+  assert.equal(values.B17, '2026-07-27');
+  assert.equal(values.B18, state.state_revision);
+});
+
 test('reconciled catalog pages require one immutable dataset revision, schema, total, and unique union', () => {
   const validatePage = sandbox.module.exports.validateCatalogSnapshotPage_;
   const validateComplete = sandbox.module.exports.validateCompleteCatalogSnapshot_;

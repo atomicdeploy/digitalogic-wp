@@ -560,11 +560,11 @@ function upsertPricingSettings_(spreadsheet, state, locale) {
   sheet.getRange(DIGITALOGIC_PRICING_SETTINGS_CELLS.stateRevision).setValue(state.state_revision);
   sheet.getRange(DIGITALOGIC_PRICING_SETTINGS_CELLS.shippingRevision)
     .setValue(settings.shipping_catalog_revision);
-  sheet.getRange(DIGITALOGIC_PRICING_SETTINGS_CELLS.syncStatus).setValue(
-    state.freshness.stale
-      ? localize_(locale, 'STALE: older than 7 days', 'هشدار: نرخ‌ها بیش از ۷ روز قدمت دارند')
-      : localize_(locale, 'CURRENT', 'به‌روز')
-  );
+  // Effective dates describe when the business rates took effect; they are not
+  // a freshness clock for this projection. Reaching this write means the
+  // authenticated canonical state and its revision were fetched and validated.
+  sheet.getRange(DIGITALOGIC_PRICING_SETTINGS_CELLS.syncStatus)
+    .setValue(localize_(locale, 'CURRENT', 'به‌روز'));
   sheet.getRange(DIGITALOGIC_PRICING_SETTINGS_CELLS.roundingDigits)
     .setNumberFormat('0')
     .setValue(Number(settings.price_rounding_digits));
@@ -2648,6 +2648,7 @@ if (typeof module !== 'undefined' && module.exports) {
     rowToSheetValues_: rowToSheetValues_,
     pricingSettingText_: pricingSettingText_,
     syncCatalog: syncCatalog,
+    upsertPricingSettings_: upsertPricingSettings_,
     validateCatalogPage_: validateCatalogPage_,
     validateCatalogSnapshotPage_: validateCatalogSnapshotPage_,
     validateCompleteCatalogSnapshot_: validateCompleteCatalogSnapshot_,

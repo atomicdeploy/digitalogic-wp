@@ -130,6 +130,9 @@ as successful only after all of these readbacks agree:
   digest of every managed Products and Categories cell;
 - `DIGITALOGIC_PRICING_STATE_REVISION` is a lowercase `sha256:` revision and
   equals the canonical `/google-sheets/pricing-settings` readback;
+- the managed pricing sync status is `CURRENT` only after that authenticated
+  state revision is fetched and validated. Currency effective dates remain the
+  business dates and do not make a current projection stale merely by aging;
 - the managed `Products` and `Categories` row counts equal their validated API
   totals, their machine-key rows match the returned columns, and every
   `sync_key` is nonempty and unique.
