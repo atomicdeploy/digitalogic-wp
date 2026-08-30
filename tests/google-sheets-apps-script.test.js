@@ -126,6 +126,41 @@ test('fast catalog revision accepts only the typed authoritative contract', () =
   assert.throws(() => fetchRevision(config), /catalog revision HTTP 200/);
 });
 
+test('fast catalog revision tolerates bounded transient transport failure', () => {
+  const revision = `sha256:${'8'.repeat(64)}`;
+  let attempts = 0;
+  const sleeps = [];
+  sandbox.Utilities = {
+    base64Encode(value) { return value; },
+    sleep(milliseconds) { sleeps.push(milliseconds); },
+  };
+  sandbox.UrlFetchApp = {
+    fetch() {
+      attempts += 1;
+      if (attempts < 3) {
+        throw new Error('Address unavailable');
+      }
+      return {
+        getResponseCode() { return 200; },
+        getContentText() {
+          return JSON.stringify({
+            success: true,
+            data: { schema: 'digitalogic.google-sheets-catalog-revision/v1', revision },
+          });
+        },
+      };
+    },
+  };
+
+  assert.equal(sandbox.module.exports.fetchCatalogRevision_({
+    apiBase: 'https://digitalogic.test',
+    consumerKey: 'key',
+    consumerSecret: 'secret',
+  }), revision);
+  assert.equal(attempts, 3);
+  assert.deepEqual(sleeps, [250, 500]);
+});
+
 test('canonical pricing settings require the complete composite contract', () => {
   const validate = sandbox.module.exports.validatePricingSettingsState_;
   const state = {

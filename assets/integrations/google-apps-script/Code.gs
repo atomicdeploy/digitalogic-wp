@@ -348,7 +348,7 @@ function columnNumberToA1_(columnNumber) {
 
 /** Fetch the cheap authoritative invalidation revision before any report page. */
 function fetchCatalogRevision_(config) {
-  const response = UrlFetchApp.fetch(config.apiBase + DIGITALOGIC_CATALOG_REVISION_PATH, {
+  const response = fetchCatalogResponseWithRetry_(config.apiBase + DIGITALOGIC_CATALOG_REVISION_PATH, {
     method: 'get',
     headers: {
       Authorization: 'Basic ' + Utilities.base64Encode(config.consumerKey + ':' + config.consumerSecret),
