@@ -570,6 +570,11 @@ class Digitalogic_Product_Sync_Receiver {
 		$this->materializer_committed_snapshots[ hash( 'sha256', $key ) ] = $snapshot;
 	}
 
+	/** Discard snapshots whose surrounding transaction did not commit. */
+	private function discard_materializer_product_committed() {
+		$this->materializer_committed_snapshots = array();
+	}
+
     private function __construct() {}
 
     /**
@@ -907,14 +912,14 @@ class Digitalogic_Product_Sync_Receiver {
 
         ++$this->coordinated_transaction_depth;
         try {
-            return $this->reprice_pricing_state_locked(
+            $result = $this->reprice_pricing_state_locked(
                 $normalized['settings'],
                 $normalized['profit_overrides'],
                 $normalized['scope_codes'],
                 $previous_catalog_revision
             );
         } catch (Throwable $exception) {
-            return $this->error(
+            $result = $this->error(
                 'digitalogic_pricing_reconciliation_failed',
                 'هماهنگ‌سازی اتمیک قیمت‌های Patris انجام نشد.',
                 500,
@@ -923,7 +928,14 @@ class Digitalogic_Product_Sync_Receiver {
         } finally {
             --$this->coordinated_transaction_depth;
             $this->release_lock();
+			if ( isset( $result ) && ! is_wp_error( $result ) ) {
+				$this->dispatch_materializer_product_committed();
+			} else {
+				$this->discard_materializer_product_committed();
+			}
         }
+
+		return $result;
     }
 
     /**
@@ -948,10 +960,19 @@ class Digitalogic_Product_Sync_Receiver {
             return $locked;
         }
 
+        $completed = false;
+        $result    = null;
         try {
-            return call_user_func($callback);
+            $result    = call_user_func($callback);
+            $completed = true;
+            return $result;
         } finally {
             $this->release_lock();
+			if ( $completed && ! is_wp_error( $result ) ) {
+				$this->dispatch_materializer_product_committed();
+			} else {
+				$this->discard_materializer_product_committed();
+			}
         }
     }
 
@@ -1409,16 +1430,25 @@ class Digitalogic_Product_Sync_Receiver {
                 // Codes remain text identifiers at every integration boundary.
                 $product_code = (string) $product_code_key;
                 $product = $products[$product_code_key];
+				$materialization_enabled = (bool) apply_filters(
+					'digitalogic_patris_auto_materialize_source_product',
+					true,
+					$product,
+					$source_state['source'] ?? array()
+				);
                 $resolved = $this->coordinated_resolution($product_code, $resolution_cache);
                 if (is_wp_error($resolved)) {
-                    $reason = $this->terminal_resolution_reason($resolved->get_error_code());
-                    if ('missing' === $reason) {
-                        if (isset($delivery['pending_products'][$product_code])) {
-                            $delivery['pending_products'][$product_code]['pricing_only'] = true;
-                        }
-                        if (isset($delivery['deferred_products'][$product_code])) {
-                            $delivery['deferred_products'][$product_code]['pricing_only'] = true;
-                        }
+					if ( 'digitalogic_product_identifier_not_found' === $resolved->get_error_code() ) {
+						unset( $delivery['applied_products'][ $product_code ], $delivery['deferred_products'][ $product_code ] );
+						$delivery['pending_products'][ $product_code ] = array(
+							'product_code'   => $product_code,
+							'record_hash'    => $product['record_hash'],
+							'queued_event_id' => $event_id,
+							'attempts'       => 0,
+							'force_apply'    => true,
+							'pricing_only'   => true,
+							'full_feed'      => true,
+						);
                         continue;
                     }
                     return $this->error(
@@ -1429,7 +1459,12 @@ class Digitalogic_Product_Sync_Receiver {
                     );
                 }
                 $woocommerce_id = (int) $resolved['woocommerce_id'];
-                if ($this->coordinated_price_readback_matches($woocommerce_id, $product)) {
+				$materialization_current = ! $materialization_enabled
+					|| $this->delivery_materialization_projection_matches(
+						$woocommerce_id,
+						$source_state['source'] ?? array()
+					);
+                if ($this->coordinated_price_readback_matches($woocommerce_id, $product) && $materialization_current) {
                     $initially_verified_codes[$source_key][(string) $product_code] = true;
                     continue;
                 }
@@ -1442,6 +1477,7 @@ class Digitalogic_Product_Sync_Receiver {
                     'attempts' => 0,
                     'force_apply' => true,
                     'pricing_only' => true,
+					'full_feed' => ! $materialization_current,
                 );
             }
 
@@ -1498,7 +1534,11 @@ class Digitalogic_Product_Sync_Receiver {
                     502
                 );
             }
-            if ($pending_count > 0 || (int) $deferred['ambiguous'] > 0) {
+            if (
+				$pending_count > 0
+				|| (int) $deferred['ambiguous'] > 0
+				|| (int) ( $deferred['identity_hazard'] ?? 0 ) > 0
+			) {
                 return $this->error(
                     'digitalogic_pricing_delivery_incomplete',
                     'خواندن مجدد قیمت‌های ووکامرس کامل نشد؛ تراکنش قیمت بازگردانده می‌شود.',
@@ -1508,6 +1548,7 @@ class Digitalogic_Product_Sync_Receiver {
                         'pending_products' => $pending_count,
                         'deferred_missing' => (int) $deferred['missing'],
                         'deferred_ambiguous' => (int) $deferred['ambiguous'],
+						'deferred_identity_hazard' => (int) ( $deferred['identity_hazard'] ?? 0 ),
                         'woocommerce' => $woo,
                     )
                 );
@@ -3215,6 +3256,7 @@ class Digitalogic_Product_Sync_Receiver {
             'failed' => 0,
             'errors' => array(),
             'errors_truncated' => 0,
+			'verified_product_codes' => array(),
         );
         $products = is_array($source_state['products'] ?? null) ? $source_state['products'] : array();
         $pending = is_array($source_state['pending_products'] ?? null) ? $source_state['pending_products'] : array();
@@ -3249,7 +3291,14 @@ class Digitalogic_Product_Sync_Receiver {
                     break;
                 }
             }
-            if ($pricing_only) {
+            if (
+				$pricing_only
+				&& $this->coordinated_pricing_batch_targets_are_safe(
+					$source_state,
+					$work,
+					is_array($resolution_cache) ? $resolution_cache : array()
+				)
+			) {
                 return $this->drain_coordinated_pricing_batch(
                     $source_state,
                     $work,
@@ -3408,11 +3457,14 @@ class Digitalogic_Product_Sync_Receiver {
                 ));
                 continue;
             }
+			$auto_materialized = $materialization_enabled
+				&& class_exists( 'Digitalogic_Patris_Catalog_Materializer' )
+				&& '1' === (string) $product->get_meta( Digitalogic_Patris_Catalog_Materializer::AUTO_MATERIALIZED_META, true );
+			$requires_full_feed = $created || $auto_materialized || ! empty( $delivery_entry['full_feed'] );
 
             try {
 				if (
-					$materialization_enabled
-					&& '1' === (string) $product->get_meta( Digitalogic_Patris_Catalog_Materializer::AUTO_MATERIALIZED_META, true )
+					$auto_materialized
 				) {
 					$shipping_method = array_key_exists( 'shipping_method_id', $product_data )
 						&& null !== $product_data['shipping_method_id']
@@ -3427,7 +3479,7 @@ class Digitalogic_Product_Sync_Receiver {
 						throw new RuntimeException( $assignment->get_error_code() );
 					}
 				}
-                if (!empty($delivery_entry['pricing_only'])) {
+                if (!empty($delivery_entry['pricing_only']) && ! $requires_full_feed) {
                     Digitalogic_Patris_Feed::instance()->apply_product_pricing($product, $product_data);
                 } else {
 					$feed_write = Digitalogic_Patris_Feed::instance()->apply_product_feed( $product, $product_data );
@@ -3450,6 +3502,18 @@ class Digitalogic_Product_Sync_Receiver {
                 if ('' === $persisted_hash || !hash_equals($record_hash, $persisted_hash)) {
                     throw new RuntimeException('WooCommerce record hash readback failed.');
                 }
+				if (
+					! $this->coordinated_price_readback_matches( $woocommerce_id, $product_data )
+					|| (
+						$materialization_enabled
+						&& ! $this->delivery_materialization_projection_matches(
+							$woocommerce_id,
+							$source_state['source'] ?? array()
+						)
+					)
+				) {
+					throw new RuntimeException( 'WooCommerce canonical projection readback failed.' );
+				}
                 $applied[$code_key] = array(
                     'product_code' => $product_code,
                     'record_hash' => $record_hash,
@@ -3458,6 +3522,7 @@ class Digitalogic_Product_Sync_Receiver {
                 unset($pending[$code_key]);
                 unset($deferred[$code_key]);
                 $result['updated']++;
+				$result['verified_product_codes'][] = $product_code;
 				if ( is_array( $committed ) ) {
 					$this->queue_materializer_product_committed( $committed );
 				}
@@ -3486,6 +3551,114 @@ class Digitalogic_Product_Sync_Receiver {
 
         return $result;
     }
+
+	/**
+	 * Keep the optimized pricing writer behind exact identity/materialization gates.
+	 *
+	 * Any missing target, stale public projection, auto-materialized leaf, or
+	 * identity hazard must use the canonical per-product writer so it can create,
+	 * validate, feed, publish, and emit its verified commit snapshot.
+	 *
+	 * @param array $source_state Source state.
+	 * @param array $work Pricing-only delivery entries.
+	 * @param array $resolution_cache Exact bulk resolver results.
+	 * @return bool
+	 */
+	private function coordinated_pricing_batch_targets_are_safe( $source_state, $work, $resolution_cache ) {
+		$products = is_array( $source_state['products'] ?? null ) ? $source_state['products'] : array();
+		$source   = is_array( $source_state['source'] ?? null ) ? $source_state['source'] : array();
+		foreach ( $work as $code_key => $delivery_entry ) {
+			$product_code = $this->valid_delivery_product_code( $products, $code_key, $delivery_entry );
+			if ( null === $product_code || ! empty( $delivery_entry['full_feed'] ) ) {
+				return false;
+			}
+			$product_data = $products[ $code_key ];
+			$enabled      = (bool) apply_filters(
+				'digitalogic_patris_auto_materialize_source_product',
+				true,
+				$product_data,
+				$source
+			);
+			$resolved     = array_key_exists( $product_code, $resolution_cache )
+				? $resolution_cache[ $product_code ]
+				: Digitalogic_Product_Identifier_Resolver::instance()->resolve(
+					array( 'patris_code' => $product_code )
+				);
+			if ( is_wp_error( $resolved ) ) {
+				return false;
+			}
+			$product_id = (int) ( $resolved['woocommerce_id'] ?? 0 );
+			$product    = $product_id > 0 ? wc_get_product( $product_id ) : false;
+			if ( ! $product instanceof WC_Product ) {
+				return false;
+			}
+			if ( ! $enabled ) {
+				continue;
+			}
+			if ( ! class_exists( 'Digitalogic_Patris_Catalog_Materializer' ) ) {
+				return false;
+			}
+			if (
+				'1' === (string) $product->get_meta( Digitalogic_Patris_Catalog_Materializer::AUTO_MATERIALIZED_META, true )
+				|| ! $product->is_type( 'simple' )
+				|| $product->get_parent_id() > 0
+			) {
+				return false;
+			}
+			$code_rows = array_values( (array) get_post_meta( $product_id, Digitalogic_Product_Identifier_Resolver::PATRIS_CODE_META, false ) );
+			$sku_rows  = array_values( (array) get_post_meta( $product_id, '_sku', false ) );
+			if (
+				1 !== count( $code_rows )
+				|| ! hash_equals( $product_code, (string) reset( $code_rows ) )
+				|| count( $sku_rows ) > 1
+				|| ( ! empty( $sku_rows ) && '' !== (string) reset( $sku_rows ) && ! hash_equals( $product_code, (string) reset( $sku_rows ) ) )
+			) {
+				return false;
+			}
+			$owner_keys = array(
+				Digitalogic_Patris_Catalog_Materializer::OWNER_SOURCE_META => (string) ( $source['id'] ?? '' ),
+				Digitalogic_Patris_Catalog_Materializer::OWNER_DATASET_META => (string) ( $source['dataset'] ?? '' ),
+				Digitalogic_Patris_Catalog_Materializer::OWNER_CODE_META => $product_code,
+			);
+			$owner_rows = 0;
+			foreach ( $owner_keys as $owner_key => $expected_owner ) {
+				$rows        = array_values( (array) get_post_meta( $product_id, $owner_key, false ) );
+				$owner_rows += count( $rows );
+				if ( ! empty( $rows ) && ( 1 !== count( $rows ) || ! hash_equals( $expected_owner, (string) reset( $rows ) ) ) ) {
+					return false;
+				}
+			}
+			if ( 0 !== $owner_rows && 3 !== $owner_rows ) {
+				return false;
+			}
+			$canonical_keys = array_fill_keys(
+				array_merge( array( Digitalogic_Product_Identifier_Resolver::PATRIS_CODE_META ), array_keys( $owner_keys ) ),
+				true
+			);
+			foreach ( array_keys( (array) get_post_meta( $product_id ) ) as $meta_key ) {
+				$normalized = strtolower( (string) $meta_key );
+				if ( isset( $canonical_keys[ $normalized ] ) && ! isset( $canonical_keys[ (string) $meta_key ] ) ) {
+					return false;
+				}
+			}
+			if (
+				'publish' !== (string) $product->get_status()
+				|| ( ! $product->is_type( 'variation' ) && 'visible' !== (string) $product->get_catalog_visibility() )
+				|| ! metadata_exists( 'post', $product_id, Digitalogic_Patris_Catalog_Materializer::MISSING_FIELDS_META )
+			) {
+				return false;
+			}
+			$missing = json_decode(
+				(string) get_post_meta( $product_id, Digitalogic_Patris_Catalog_Materializer::MISSING_FIELDS_META, true ),
+				true
+			);
+			if ( ! is_array( $missing ) || ! array_is_list( $missing ) ) {
+				return false;
+			}
+		}
+
+		return true;
+	}
 
     /**
      * Drain a pricing-only coordinated transaction with one bounded SQL writer.
@@ -3587,6 +3760,7 @@ class Digitalogic_Product_Sync_Receiver {
                 'product' => $product,
                 'data' => $product_data,
                 'product_code' => $product_code,
+				'materialization_source' => is_array( $source_state['source'] ?? null ) ? $source_state['source'] : array(),
             );
             $batch_entries[] = array(
                 'code_key' => $code_key,
@@ -3633,6 +3807,9 @@ class Digitalogic_Product_Sync_Receiver {
                 $result['batch_count'] = (int) ($written['batches'] ?? 0);
                 $result['batch_meta_rows'] = (int) ($written['meta_rows'] ?? 0);
                 $result['pricing_warnings'] = array_values((array) ($written['warnings'] ?? array()));
+				foreach ( (array) ( $written['commit_snapshots'] ?? array() ) as $snapshot ) {
+					$this->queue_materializer_product_committed( $snapshot );
+				}
                 foreach ($batch_entries as $entry) {
                     $applied[$entry['code_key']] = array(
                         'product_code' => $entry['product_code'],

@@ -995,7 +995,12 @@ class Digitalogic_Patris_Feed {
 		return (string) $value;
 	}
 
-	/** Normalize only a verification copy without changing rollback backups. */
+	/**
+	 * Normalize only a verification copy without changing rollback backups.
+	 *
+	 * @param array<string,array<int,mixed>> $projection Metadata projection.
+	 * @return array<string,array<int,mixed>> Normalized metadata projection.
+	 */
 	private function normalize_meta_readback_projection( $projection ) {
 		$normalized = array();
 		foreach ( (array) $projection as $key => $values ) {
@@ -1386,8 +1391,10 @@ class Digitalogic_Patris_Feed {
 					);
 				}
 
-				$plans    = array();
-				$warnings = array();
+				$plans                   = array();
+				$warnings                = array();
+				$commit_snapshots        = array();
+				$additional_managed_keys = array();
 				foreach ( $items as $item ) {
 					$product = $item['product'] ?? null;
 					$data    = is_array( $item['data'] ?? null ) ? $item['data'] : array();
@@ -1449,6 +1456,50 @@ class Digitalogic_Patris_Feed {
 					$meta['_regular_price'] = $regular;
 					$meta['_sale_price']    = $sale;
 					$meta['_price']         = $visible;
+					$materialization_source = is_array( $item['materialization_source'] ?? null )
+						? $item['materialization_source']
+						: array();
+					if ( ! empty( $materialization_source ) ) {
+						$source_id       = (string) ( $materialization_source['id'] ?? '' );
+						$dataset         = (string) ( $materialization_source['dataset'] ?? '' );
+						$source_revision = (string) ( $materialization_source['revision'] ?? '' );
+						if (
+							'' === $source_id
+							|| '' === $dataset
+							|| 1 !== preg_match( '/\Asha256:[a-f0-9]{64}\z/D', $source_revision )
+							|| ! class_exists( 'Digitalogic_Patris_Catalog_Materializer' )
+						) {
+							return new WP_Error(
+								'digitalogic_pricing_batch_materialization_source_invalid',
+								'A pricing batch contained an invalid materialization source.',
+								array( 'status' => 409 )
+							);
+						}
+						$missing = Digitalogic_Patris_Catalog_Materializer::instance()->canonical_missing_fields(
+							$product,
+							$data
+						);
+						$meta[ Digitalogic_Patris_Catalog_Materializer::SOURCE_REVISION_META ] = $source_revision;
+						$meta[ Digitalogic_Patris_Catalog_Materializer::MISSING_FIELDS_META ]  = wp_json_encode(
+							$missing,
+							JSON_UNESCAPED_SLASHES
+						);
+
+						$additional_managed_keys[ Digitalogic_Patris_Catalog_Materializer::SOURCE_REVISION_META ] = true;
+						$additional_managed_keys[ Digitalogic_Patris_Catalog_Materializer::MISSING_FIELDS_META ]  = true;
+						$commit_snapshots[] = array(
+							'product_id'      => $product_id,
+							'product_code'    => (string) ( $data['product_code'] ?? '' ),
+							'name'            => (string) $product->get_name(),
+							'source_id'       => $source_id,
+							'dataset'         => $dataset,
+							'source_revision' => $source_revision,
+							'missing_fields'  => $missing,
+							'visible'         => true,
+							'purchasable'     => ! in_array( 'price', $missing, true ) && 'outofstock' !== (string) $product->get_stock_status(),
+							'price_status'    => (string) $product->get_meta( Digitalogic_Patris_Price_Policy::STATUS_META, true ),
+						);
+					}
 					if (
 						'canonical_missing_preserved'
 						=== (string) $product->get_meta( Digitalogic_Patris_Price_Policy::STATUS_META, true )
@@ -1471,6 +1522,7 @@ class Digitalogic_Patris_Feed {
 					array_unique(
 						array_merge(
 							array_values( $this->pricing_meta_fields() ),
+							array_keys( $additional_managed_keys ),
 							array(
 								Digitalogic_Patris_Price_Policy::POLICY_META,
 								Digitalogic_Patris_Price_Policy::STATUS_META,
@@ -1545,10 +1597,11 @@ class Digitalogic_Patris_Feed {
 				}
 
 				return array(
-					'updated_ids' => array_map( 'intval', array_keys( $plans ) ),
-					'batches'     => $batch_count,
-					'meta_rows'   => $meta_row_count,
-					'warnings'    => $warnings,
+					'updated_ids'      => array_map( 'intval', array_keys( $plans ) ),
+					'batches'          => $batch_count,
+					'meta_rows'        => $meta_row_count,
+					'warnings'         => $warnings,
+					'commit_snapshots' => $commit_snapshots,
 				);
 			}
 		);

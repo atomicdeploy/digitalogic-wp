@@ -3,7 +3,7 @@
  * Plugin Name: Digitalogic WooCommerce Extension
  * Plugin URI: https://github.com/atomicdeploy/digitalogic-wp
  * Description: Custom dynamic pricing, stock manager, and POS integration for Digitalogic electronic components shop. Supports bulk operations, import/export, and external API integration.
- * Version: 1.8.42
+ * Version: 1.8.47
  * Author: Digitalogic
  * Author URI: https://digitalogic.ir
  * Text Domain: digitalogic
@@ -22,7 +22,7 @@ if (!defined('ABSPATH')) {
 }
 
 // Define plugin constants
-define( 'DIGITALOGIC_VERSION', '1.8.42' );
+define( 'DIGITALOGIC_VERSION', '1.8.47' );
 define( 'DIGITALOGIC_PBX_SCHEMA_VERSION', '3' );
 define( 'DIGITALOGIC_EVENT_MESH_SCHEMA_VERSION', '1' );
 define( 'DIGITALOGIC_ASSISTANT_ACCOUNT_SCHEMA_VERSION', '2' );
@@ -167,7 +167,7 @@ final class Digitalogic {
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-desktop-app.php';
 		require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-digitalogic-wp-rocket-etag.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-digitalogic-event-mesh.php';
-        require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-digitalogic-patris-incomplete-product-notifier.php';
+		require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-digitalogic-patris-incomplete-product-notifier.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-frontend-search.php';
 		require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-pbx-phone.php';
 		require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-call-verification.php';
@@ -269,7 +269,7 @@ final class Digitalogic {
         Digitalogic_Panel::instance();
         Digitalogic_Storefront_Realtime::instance();
         Digitalogic_Event_Mesh::instance();
-        Digitalogic_Patris_Incomplete_Product_Notifier::instance();
+		Digitalogic_Patris_Incomplete_Product_Notifier::instance();
         Digitalogic_Comment_Guard::instance();
         Digitalogic_Product_Resources::instance();
         Digitalogic_Storefront_Catalog::instance();

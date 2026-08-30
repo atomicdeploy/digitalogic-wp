@@ -3903,7 +3903,7 @@ final class Digitalogic_Patris_Catalog_Materializer {
 	 * @param array      $record Exact normalized product record.
 	 * @return array
 	 */
-	private function canonical_missing_fields( $product, $record ) {
+	public function canonical_missing_fields( $product, $record ) {
 		$missing = array();
 		$status  = (string) $product->get_meta( '_digitalogic_patris_price_status', true );
 		if (

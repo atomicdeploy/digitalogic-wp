@@ -7,7 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.47] - 2026-08-31
+
 ### Fixed
+- Route missing or stale identity-safe pricing targets through the canonical
+  Patris feed writer, verify their exact source projection, and emit incomplete
+  product alerts only after the pricing lock is released.
 - Keep identity-safe products with positive physical stock public but
   non-purchasable when their canonical price is unavailable. The source stock
   remains in Patris metadata while WooCommerce operational stock stays zero
