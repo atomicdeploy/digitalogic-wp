@@ -65,6 +65,16 @@ final class StorefrontRealtimeTest extends TestCase {
         );
     }
 
+    public function test_sse_discards_inherited_compression_buffer_before_headers(): void {
+        $source = file_get_contents((new ReflectionClass(Digitalogic_Storefront_Realtime::class))->getFileName());
+
+        $this->assertMatchesRegularExpression(
+            '/serve_stream\(\s*\$request\s*\).*?disable_output_buffering\(\);.*?Content-Type: text\/event-stream/s',
+            $source
+        );
+        $this->assertMatchesRegularExpression('/ob_end_clean\(\)/', $source);
+    }
+
     public function test_public_projection_exposes_currency_snapshot_without_internal_event_data(): void {
         $event = Digitalogic_Storefront_Realtime::project_public_event(array(
             'id' => 123,

@@ -46,7 +46,8 @@ test('product updates refresh the live WooCommerce fragment and safely fall back
 test('SSE server is bounded, non-buffered, and public-event allowlisted', () => {
     assert.match(php, /Content-Type: text\/event-stream/);
     assert.match(php, /X-Accel-Buffering: no/);
-    assert.match(php, /ob_end_flush/);
+    assert.match(php, /ob_end_clean/);
+    assert.match(php, /disable_output_buffering\(\);[\s\S]*Content-Type: text\/event-stream/);
     assert.match(php, /zlib\.output_compression/);
     assert.match(php, /apache_setenv\( 'no-gzip'/);
     assert.match(php, /INITIAL_PADDING_BYTES\s*=\s*8192/);
