@@ -84,7 +84,9 @@ final class ProductSyncReceiverTest extends TestCase {
 		$product                = array(
 			'product_code' => '101001001',
 			'name'         => 'Patris incomplete source product',
-			'total_stock'  => 0,
+			// Positive physical stock must not make an unpriced product
+			// purchasable or leave the receiver retrying forever.
+			'total_stock'  => 4,
 			'weight_grams' => null,
 			'warnings'     => array(
 				'final_price_unavailable',
@@ -121,10 +123,11 @@ final class ProductSyncReceiverTest extends TestCase {
 		$this->assertSame( '', $woo->get_sale_price() );
 		$this->assertSame( 0, $woo->get_stock_quantity() );
 		$this->assertSame( 'outofstock', $woo->get_stock_status() );
+		$this->assertSame( '4', (string) $woo->get_meta( '_digitalogic_patris_total_stock', true ) );
 		$this->assertSame( '', $woo->get_meta( Digitalogic_Shipping_Method_Service::PRODUCT_METHOD_META, true ) );
 		$this->assertSame( 'canonical_missing_unpriced', $woo->get_meta( '_digitalogic_patris_price_status', true ) );
 		$this->assertSame(
-			array( 'freight', 'image', 'markup', 'price', 'seo', 'stock', 'weight' ),
+			array( 'freight', 'image', 'markup', 'price', 'seo', 'weight' ),
 			json_decode( $woo->get_meta( Digitalogic_Patris_Catalog_Materializer::MISSING_FIELDS_META, true ), true, 512, JSON_THROW_ON_ERROR )
 		);
 		$this->resetSingleton( Digitalogic_Report_Engine::class );

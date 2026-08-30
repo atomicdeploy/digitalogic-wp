@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.42] - 2026-08-30
+
+### Fixed
+- Keep identity-safe products with positive physical stock public but
+  non-purchasable when their canonical price is unavailable. The source stock
+  remains in Patris metadata while WooCommerce operational stock stays zero
+  until a valid price arrives, preventing automatic `instock` snapback and a
+  permanently retrying product-sync queue.
+
 ## [1.8.41] - 2026-08-30
 
 ### Fixed
