@@ -169,6 +169,7 @@ final class Digitalogic {
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-desktop-app.php';
 		require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-digitalogic-wp-rocket-etag.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-digitalogic-event-mesh.php';
+        require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-digitalogic-patris-incomplete-product-notifier.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-frontend-search.php';
 		require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-pbx-phone.php';
 		require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-call-verification.php';
@@ -270,6 +271,7 @@ final class Digitalogic {
         Digitalogic_Panel::instance();
         Digitalogic_Storefront_Realtime::instance();
         Digitalogic_Event_Mesh::instance();
+        Digitalogic_Patris_Incomplete_Product_Notifier::instance();
         Digitalogic_Comment_Guard::instance();
         Digitalogic_Product_Resources::instance();
         Digitalogic_Storefront_Catalog::instance();
@@ -390,6 +392,7 @@ final class Digitalogic {
     public function deactivate() {
 		Digitalogic_Pricing_Snapshot::instance()->deactivate_freshness_boundary_schedule();
 		Digitalogic_Panel::deactivate_event_wake_retry();
+		Digitalogic_Patris_Incomplete_Product_Notifier::deactivate();
         Digitalogic_Telegram_Account_Link::deactivate();
         flush_rewrite_rules();
     }
