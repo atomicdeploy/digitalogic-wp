@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.40] - 2026-08-30
+
+### Added
+- Deliver privacy-filtered, accessible storefront toasts and banners through the existing durable notification event, live SSE connection, Redis/WebSocket publisher, and cross-tab relay.
+- Support broadcast, user-ID, role, exact user-attribute, device, and operator audiences with `any`/`all` matching, server-side filtering, expiry, dismissal, severity, same-origin links, and text-only rendering.
+- Extend `wp digitalogic event-mesh notify` with inline storefront options and JSON receipts, and document the existing authenticated version-less n8n notification endpoint.
+
+### Security
+- Partition browser coordination and cursors by an opaque signed-in audience key, reject secret-bearing attribute selectors, and omit audience criteria, workstation actions, response fields, sources, and credentials from the public SSE projection.
+
 ## [1.8.39] - 2026-08-30
 
 ### Fixed

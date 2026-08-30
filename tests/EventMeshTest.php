@@ -8,6 +8,13 @@ final class EventMeshTest extends TestCase {
 		$GLOBALS['digitalogic_test_options']         = array();
 		$GLOBALS['digitalogic_test_capabilities']    = array();
 		$GLOBALS['digitalogic_test_current_user_id'] = 0;
+		$GLOBALS['digitalogic_test_current_user']    = (object) array(
+			'ID'           => 0,
+			'user_login'   => '',
+			'display_name' => '',
+			'roles'        => array(),
+		);
+		$GLOBALS['digitalogic_test_user_meta']       = array();
 		$GLOBALS['wpdb']                             = new Digitalogic_Test_WPDB();
 	}
 
@@ -79,6 +86,74 @@ final class EventMeshTest extends TestCase {
 
 		$event['data']['audience']['broadcast'] = true;
 		$this->assertTrue( Digitalogic_Event_Mesh::event_visible_to( $event, 0, '' ) );
+	}
+
+	public function test_storefront_presentation_and_role_attribute_audience_are_bounded(): void {
+		$result = Digitalogic_Event_Mesh::sanitize_notification(
+			array(
+				'title'       => 'Customer notice',
+				'message'     => 'Updated delivery information.',
+				'display'     => 'both',
+				'duration_ms' => 90000,
+				'dismissible' => false,
+				'link'        => array(
+					'href'  => '/shop/',
+					'label' => 'Shop',
+				),
+				'audience'    => array(
+					'roles'      => array( 'customer' ),
+					'attributes' => array(
+						'billing_country' => array( 'IR' ),
+						'session_tokens'  => array( 'must-not-be-used' ),
+					),
+					'match'      => 'all',
+				),
+			)
+		);
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 'both', $result['display'] );
+		$this->assertSame( 60000, $result['duration_ms'] );
+		$this->assertFalse( $result['dismissible'] );
+		$this->assertSame( array( 'href' => '/shop/', 'label' => 'Shop' ), $result['link'] );
+		$this->assertSame( array( 'customer' ), $result['audience']['roles'] );
+		$this->assertSame( array( 'billing_country' => array( 'IR' ) ), $result['audience']['attributes'] );
+		$this->assertSame( 'all', $result['audience']['match'] );
+	}
+
+	public function test_role_and_attribute_targeting_is_server_side_and_supports_all_or_any(): void {
+		$GLOBALS['digitalogic_test_current_user_id'] = 42;
+		$GLOBALS['digitalogic_test_current_user']    = (object) array(
+			'ID'           => 42,
+			'user_login'   => 'customer-42',
+			'display_name' => 'Customer',
+			'roles'        => array( 'customer' ),
+		);
+		$GLOBALS['digitalogic_test_user_meta'][42]   = array(
+			'billing_country'   => 'IR',
+			'preferred_language' => 'fa_IR',
+		);
+		$event = array(
+			'name' => 'workstation.notification',
+			'data' => array(
+				'audience' => array(
+					'roles'           => array( 'customer' ),
+					'attributes'      => array(
+						'billing_country'   => array( 'IR' ),
+						'preferred_language' => array( 'fa_IR' ),
+					),
+					'match'           => 'all',
+					'attribute_match' => 'all',
+				),
+			),
+		);
+
+		$this->assertTrue( Digitalogic_Event_Mesh::event_visible_to( $event, 42 ) );
+		$event['data']['audience']['attributes']['billing_country'] = array( 'AE' );
+		$this->assertFalse( Digitalogic_Event_Mesh::event_visible_to( $event, 42 ) );
+		$event['data']['audience']['match'] = 'any';
+		$this->assertTrue( Digitalogic_Event_Mesh::event_visible_to( $event, 42 ) );
+		$this->assertFalse( Digitalogic_Event_Mesh::event_visible_to( $event, 0 ) );
 	}
 
 	public function test_expired_notification_is_not_visible(): void {

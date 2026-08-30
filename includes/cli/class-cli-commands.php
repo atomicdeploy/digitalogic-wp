@@ -1264,19 +1264,115 @@ class Digitalogic_CLI_Commands {
 	}
 
 	/**
-	 * Queue one targeted actionable notification from a reviewed JSON file.
+	 * Queue one targeted workstation and storefront notification.
 	 *
 	 * ## OPTIONS
 	 *
-	 * --file=<path>
-	 * : JSON notification file.
+	 * [--file=<path>]
+	 * : Reviewed JSON notification file. Inline options override matching file fields.
+	 *
+	 * [--title=<title>]
+	 * : Notification title.
+	 *
+	 * [--message=<message>]
+	 * : Notification body.
+	 *
+	 * [--display=<display>]
+	 * : toast, banner, or both.
+	 *
+	 * [--level=<level>]
+	 * : info, success, warning, or error.
+	 *
+	 * [--broadcast]
+	 * : Match every storefront visitor and workstation.
+	 *
+	 * [--users=<ids>]
+	 * : Comma-separated WordPress user IDs.
+	 *
+	 * [--roles=<roles>]
+	 * : Comma-separated WordPress role slugs.
+	 *
+	 * [--attributes=<json>]
+	 * : Exact user-attribute filters as a JSON object.
+	 *
+	 * [--match=<match>]
+	 * : any or all across supplied audience selector families.
+	 *
+	 * [--duration-ms=<milliseconds>]
+	 * : Toast visibility from 1000 to 60000 milliseconds.
+	 *
+	 * [--expires-at=<iso8601>]
+	 * : Notification expiry.
+	 *
+	 * [--link=<url>]
+	 * : Same-origin relative or absolute URL.
+	 *
+	 * [--link-label=<label>]
+	 * : Visible link label.
+	 *
+	 * [--format=<format>]
+	 * : text or json.
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     wp digitalogic event-mesh notify --title="اطلاعیه" --message="قیمت‌ها به‌روزرسانی شد" --display=toast --broadcast
+	 *     wp digitalogic event-mesh notify --file=/secure/notice.json --format=json
 	 *
 	 * @when after_wp_load
 	 */
 	public function event_mesh_notify( $args, $assoc_args ) {
 		$file = isset( $assoc_args['file'] ) ? realpath( (string) $assoc_args['file'] ) : false;
+		if ( isset( $assoc_args['file'] ) && ( false === $file || ! is_readable( $file ) ) ) {
+			WP_CLI::error( 'The notification JSON file is not readable.' );
+			return;
+		}
 		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Reads a reviewed local CLI input.
-		$payload      = false !== $file && is_readable( $file ) ? json_decode( (string) file_get_contents( $file ), true ) : null;
+		$payload = false !== $file && is_readable( $file ) ? json_decode( (string) file_get_contents( $file ), true ) : array();
+		if ( false !== $file && ! is_array( $payload ) ) {
+			WP_CLI::error( 'The notification file must contain one JSON object.' );
+			return;
+		}
+		$payload = is_array( $payload ) ? $payload : array();
+		foreach ( array( 'title', 'message', 'display', 'level' ) as $field ) {
+			if ( isset( $assoc_args[ $field ] ) ) {
+				$payload[ $field ] = (string) $assoc_args[ $field ];
+			}
+		}
+		if ( isset( $assoc_args['duration-ms'] ) ) {
+			$payload['duration_ms'] = absint( $assoc_args['duration-ms'] );
+		}
+		if ( isset( $assoc_args['expires-at'] ) ) {
+			$payload['expires_at'] = (string) $assoc_args['expires-at'];
+		}
+		if ( isset( $assoc_args['link'], $assoc_args['link-label'] ) ) {
+			$payload['link'] = array(
+				'href'  => (string) $assoc_args['link'],
+				'label' => (string) $assoc_args['link-label'],
+			);
+		}
+		$audience = is_array( $payload['audience'] ?? null ) ? $payload['audience'] : array();
+		if ( isset( $assoc_args['broadcast'] ) ) {
+			$audience['broadcast'] = true;
+		}
+		if ( isset( $assoc_args['users'] ) ) {
+			$audience['users'] = array_map( 'absint', explode( ',', (string) $assoc_args['users'] ) );
+		}
+		if ( isset( $assoc_args['roles'] ) ) {
+			$audience['roles'] = array_map( 'sanitize_key', explode( ',', (string) $assoc_args['roles'] ) );
+		}
+		if ( isset( $assoc_args['attributes'] ) ) {
+			$attributes = json_decode( (string) $assoc_args['attributes'], true );
+			if ( ! is_array( $attributes ) || array_is_list( $attributes ) ) {
+				WP_CLI::error( '--attributes must be a JSON object.' );
+				return;
+			}
+			$audience['attributes'] = $attributes;
+		}
+		if ( isset( $assoc_args['match'] ) ) {
+			$audience['match'] = (string) $assoc_args['match'];
+		}
+		$payload['audience'] = $audience;
+		$payload['source']   = (string) ( $payload['source'] ?? 'wp-cli' );
 		$notification = Digitalogic_Event_Mesh::sanitize_notification( $payload );
 		if ( is_wp_error( $notification ) ) {
 			WP_CLI::error( $notification->get_error_message() );
@@ -1287,7 +1383,17 @@ class Digitalogic_CLI_Commands {
 			WP_CLI::error( $result->get_error_message() );
 			return;
 		}
-		WP_CLI::success( 'Targeted workstation notification queued.' );
+		$output = array(
+			'accepted'          => true,
+			'event_id'          => absint( $result['event']['id'] ?? 0 ),
+			'notification_id'   => (string) $notification['notification_id'],
+			'delivery_warnings' => array_values( (array) ( $result['delivery_warnings'] ?? array() ) ),
+		);
+		if ( 'json' === (string) ( $assoc_args['format'] ?? 'text' ) ) {
+			WP_CLI::line( wp_json_encode( $output, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES ) );
+			return;
+		}
+		WP_CLI::success( sprintf( 'Notification %s queued as event %d.', $output['notification_id'], $output['event_id'] ) );
 	}
 
 	/**

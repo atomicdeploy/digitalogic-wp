@@ -100,7 +100,7 @@ class Digitalogic {
       group: ["transform"],
       version: 1,
       subtitle: "={{$parameter[\"operation\"]}}",
-      description: "Send actionable notifications and resolve Digitalogic presence or caller context",
+      description: "Send storefront or workstation notifications and resolve Digitalogic presence or caller context",
       defaults: { name: "Digitalogic" },
       inputs: ["main"],
       outputs: ["main"],
@@ -113,7 +113,7 @@ class Digitalogic {
           type: "options",
           noDataExpression: true,
           options: [
-            { name: "Send Actionable Notification", value: "notify", action: "Send an actionable notification" },
+            { name: "Send Notification", value: "notify", action: "Send a storefront or workstation notification" },
             { name: "Record Presence Evidence", value: "presenceEvidence", action: "Record presence evidence" },
             { name: "Get Presence", value: "getPresence", action: "Get presence" },
             { name: "Resolve Caller Context", value: "callerContext", action: "Resolve caller context" },
@@ -150,6 +150,57 @@ class Digitalogic {
           displayOptions: { show: { operation: ["notify"] } },
         },
         {
+          displayName: "Display",
+          name: "display",
+          type: "options",
+          options: [
+            { name: "Toast", value: "toast" },
+            { name: "Banner", value: "banner" },
+            { name: "Toast and Banner", value: "both" },
+          ],
+          default: "toast",
+          description: "Storefront presentation. Workstation clients continue to receive the same durable event.",
+          displayOptions: { show: { operation: ["notify"] } },
+        },
+        {
+          displayName: "Toast Duration (Milliseconds)",
+          name: "durationMs",
+          type: "number",
+          typeOptions: { minValue: 1000, maxValue: 60000 },
+          default: 7000,
+          displayOptions: { show: { operation: ["notify"] } },
+        },
+        {
+          displayName: "Dismissible",
+          name: "dismissible",
+          type: "boolean",
+          default: true,
+          displayOptions: { show: { operation: ["notify"] } },
+        },
+        {
+          displayName: "Expires At",
+          name: "expiresAt",
+          type: "dateTime",
+          default: "",
+          description: "Optional expiry. The server defaults to one hour.",
+          displayOptions: { show: { operation: ["notify"] } },
+        },
+        {
+          displayName: "Link URL",
+          name: "linkUrl",
+          type: "string",
+          default: "",
+          description: "Optional same-origin Digitalogic URL or relative path.",
+          displayOptions: { show: { operation: ["notify"] } },
+        },
+        {
+          displayName: "Link Label",
+          name: "linkLabel",
+          type: "string",
+          default: "",
+          displayOptions: { show: { operation: ["notify"] } },
+        },
+        {
           displayName: "Audience (JSON)",
           name: "audience",
           type: "json",
@@ -177,6 +228,14 @@ class Digitalogic {
           type: "string",
           default: "={{$json.correlation_id || $execution.id}}",
           displayOptions: { show: { operation: ["notify", "getResponse"] } },
+        },
+        {
+          displayName: "Notification ID",
+          name: "notificationId",
+          type: "string",
+          default: "={{$json.notification_id || $execution.id}}",
+          description: "Stable ID for retry correlation and client dismissal state.",
+          displayOptions: { show: { operation: ["notify"] } },
         },
         {
           displayName: "Operator Key",
@@ -263,16 +322,25 @@ class Digitalogic {
       const operation = this.getNodeParameter("operation", index);
       let result;
       if (operation === "notify") {
+        const linkUrl = String(this.getNodeParameter("linkUrl", index) || "").trim();
+        const linkLabel = String(this.getNodeParameter("linkLabel", index) || "").trim();
+        const expiresAt = String(this.getNodeParameter("expiresAt", index) || "").trim();
         const body = {
+          notification_id: this.getNodeParameter("notificationId", index),
           title: this.getNodeParameter("title", index),
           message: this.getNodeParameter("message", index),
           level: this.getNodeParameter("level", index),
+          display: this.getNodeParameter("display", index),
+          duration_ms: this.getNodeParameter("durationMs", index),
+          dismissible: this.getNodeParameter("dismissible", index),
           audience: parseObject(this.getNodeParameter("audience", index), {}),
           actions: parseArray(this.getNodeParameter("actions", index)),
           fields: parseArray(this.getNodeParameter("fields", index)),
           correlation_id: this.getNodeParameter("correlationId", index),
           source: "n8n",
         };
+        if (expiresAt) body.expires_at = expiresAt;
+        if (linkUrl && linkLabel) body.link = { href: linkUrl, label: linkLabel };
         result = await this.helpers.httpRequestWithAuthentication.call(this, "digitalogicApi", {
           method: "POST",
           url: `${baseUrl}/event-mesh/notify`,

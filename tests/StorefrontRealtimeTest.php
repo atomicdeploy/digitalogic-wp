@@ -12,7 +12,15 @@ final class StorefrontRealtimeTest extends TestCase {
         );
         $GLOBALS['digitalogic_test_option_cache'] = array();
         $GLOBALS['digitalogic_test_locale'] = 'en_US';
-		$GLOBALS['digitalogic_test_filters'] = array();
+        $GLOBALS['digitalogic_test_filters'] = array();
+        $GLOBALS['digitalogic_test_current_user_id'] = 0;
+        $GLOBALS['digitalogic_test_current_user'] = (object) array(
+            'ID' => 0,
+            'user_login' => '',
+            'display_name' => '',
+            'roles' => array(),
+        );
+        $GLOBALS['digitalogic_test_user_meta'] = array();
     }
 
     public function test_public_projection_exposes_currency_snapshot_without_internal_event_data(): void {
@@ -55,13 +63,57 @@ final class StorefrontRealtimeTest extends TestCase {
     }
 
     public function test_private_and_operational_events_are_never_projected(): void {
-        foreach (array('user.updated', 'order.updated', 'panel.toast', 'workstation.notification', 'pricing.state.changed') as $name) {
+        foreach (array('user.updated', 'order.updated', 'panel.toast', 'pricing.state.changed') as $name) {
             $this->assertNull(Digitalogic_Storefront_Realtime::project_public_event(array(
                 'id' => 999,
                 'name' => $name,
                 'data' => array('secret' => 'no'),
             )), $name);
         }
+    }
+
+    public function test_targeted_notification_projection_hides_private_audience_and_actions(): void {
+        $GLOBALS['digitalogic_test_current_user_id'] = 42;
+        $GLOBALS['digitalogic_test_current_user'] = (object) array(
+            'ID' => 42,
+            'user_login' => 'customer-42',
+            'display_name' => 'Customer',
+            'roles' => array('customer'),
+        );
+        $GLOBALS['digitalogic_test_user_meta'][42] = array('billing_country' => 'IR');
+        $notification = Digitalogic_Event_Mesh::sanitize_notification(array(
+            'notification_id' => 'notice-42',
+            'title' => 'Customer notice',
+            'message' => 'A safe public message.',
+            'display' => 'both',
+            'level' => 'warning',
+            'expires_at' => '2099-01-01T00:00:00Z',
+            'audience' => array(
+                'roles' => array('customer'),
+                'attributes' => array('billing_country' => array('IR')),
+                'match' => 'all',
+            ),
+            'actions' => array(array('id' => 'approve', 'label' => 'Approve')),
+            'source' => 'n8n-private-source',
+        ));
+        $notification['link'] = array('href' => 'https://example.com/private', 'label' => 'Unsafe');
+        $event = array(
+            'id' => 777,
+            'name' => 'workstation.notification',
+            'time' => '2026-08-30 12:02:00',
+            'data' => $notification,
+        );
+
+        $public = Digitalogic_Storefront_Realtime::project_public_event($event, 42);
+
+        $this->assertSame('notification', $public['data']['scope']);
+        $this->assertSame('notice-42', $public['data']['notification']['id']);
+        $this->assertSame('both', $public['data']['notification']['display']);
+        $this->assertSame(array(), $public['data']['notification']['link']);
+        $this->assertArrayNotHasKey('audience', $public['data']['notification']);
+        $this->assertArrayNotHasKey('actions', $public['data']['notification']);
+        $this->assertArrayNotHasKey('source', $public['data']['notification']);
+        $this->assertNull(Digitalogic_Storefront_Realtime::project_public_event($event, 0));
     }
 
     public function test_invalid_product_identity_is_rejected(): void {

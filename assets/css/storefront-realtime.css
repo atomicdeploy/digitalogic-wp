@@ -1,0 +1,135 @@
+.digitalogic-realtime-banners,
+.digitalogic-realtime-toasts {
+	box-sizing: border-box;
+	direction: rtl;
+	font-family: inherit;
+	z-index: 999999;
+}
+
+.digitalogic-realtime-banners {
+	left: 0;
+	position: fixed;
+	right: 0;
+	top: var(--wp-admin--admin-bar--height, 0);
+}
+
+.digitalogic-realtime-toasts {
+	bottom: 20px;
+	display: grid;
+	gap: 10px;
+	left: 20px;
+	max-width: min(420px, calc(100vw - 32px));
+	position: fixed;
+	width: 100%;
+}
+
+.digitalogic-realtime-notice {
+	align-items: flex-start;
+	background: #fff;
+	border: 1px solid #d8dee8;
+	border-right: 5px solid #2563eb;
+	box-shadow: 0 10px 28px rgb(15 23 42 / 18%);
+	box-sizing: border-box;
+	color: #172033;
+	display: flex;
+	gap: 16px;
+	justify-content: space-between;
+	line-height: 1.8;
+	padding: 14px 18px;
+	width: 100%;
+}
+
+.digitalogic-realtime-banners .digitalogic-realtime-notice {
+	border-left: 0;
+	border-radius: 0;
+	border-top: 0;
+	box-shadow: 0 4px 14px rgb(15 23 42 / 12%);
+}
+
+.digitalogic-realtime-toasts .digitalogic-realtime-notice {
+	border-radius: 10px;
+}
+
+.digitalogic-realtime-notice--success {
+	border-right-color: #16834b;
+}
+
+.digitalogic-realtime-notice--warning {
+	border-right-color: #d97706;
+}
+
+.digitalogic-realtime-notice--error {
+	border-right-color: #c81e1e;
+}
+
+.digitalogic-realtime-notice__content {
+	display: grid;
+	gap: 2px;
+}
+
+.digitalogic-realtime-notice__title {
+	font-size: 1rem;
+	font-weight: 700;
+}
+
+.digitalogic-realtime-notice__message {
+	font-size: 0.94rem;
+	white-space: pre-line;
+}
+
+.digitalogic-realtime-notice__link {
+	color: #165ec9;
+	font-weight: 700;
+	margin-top: 4px;
+	text-decoration: underline;
+	width: fit-content;
+}
+
+.digitalogic-realtime-notice__close {
+	appearance: none;
+	background: transparent;
+	border: 0;
+	color: inherit;
+	cursor: pointer;
+	font: inherit;
+	font-size: 1.55rem;
+	line-height: 1;
+	margin: -2px -4px 0 0;
+	padding: 4px 8px;
+}
+
+.digitalogic-realtime-notice__close:focus-visible,
+.digitalogic-realtime-notice__link:focus-visible {
+	outline: 3px solid #2563eb;
+	outline-offset: 2px;
+}
+
+@media (max-width: 600px) {
+	.digitalogic-realtime-toasts {
+		bottom: 12px;
+		left: 12px;
+		max-width: calc(100vw - 24px);
+	}
+
+	.digitalogic-realtime-notice {
+		padding: 12px 14px;
+	}
+}
+
+@media (prefers-reduced-motion: no-preference) {
+	.digitalogic-realtime-notice {
+		animation: digitalogic-realtime-enter 180ms ease-out;
+	}
+
+	@keyframes digitalogic-realtime-enter {
+		from {
+			opacity: 0;
+			transform: translateY(8px);
+		}
+
+		to {
+			opacity: 1;
+			transform: translateY(0);
+		}
+	}
+}

@@ -12,6 +12,7 @@ const {
   phoneDigits,
   readCdrHistory,
   safeBaseUrl,
+  Digitalogic,
 } = require("../dist/nodes/Digitalogic/Digitalogic.node");
 
 test("parses bounded configuration shapes", () => {
@@ -25,6 +26,16 @@ test("requires TLS for non-loopback Digitalogic APIs", () => {
   assert.equal(safeBaseUrl("https://digitalogic.ir/wp-json/digitalogic/v1/"), "https://digitalogic.ir/wp-json/digitalogic/v1");
   assert.equal(safeBaseUrl("http://127.0.0.1:8080/"), "http://127.0.0.1:8080");
   assert.throws(() => safeBaseUrl("http://example.com/api"), /HTTPS/);
+});
+
+test("notification operation exposes storefront presentation and targeted audience inputs", () => {
+  const node = new Digitalogic();
+  const properties = new Map(node.description.properties.map((property) => [property.name, property]));
+  assert.deepEqual(properties.get("display").options.map((option) => option.value), ["toast", "banner", "both"]);
+  assert.equal(properties.get("durationMs").typeOptions.maxValue, 60000);
+  assert.equal(properties.get("dismissible").default, true);
+  assert.equal(properties.get("audience").type, "json");
+  assert.equal(properties.get("notificationId").displayOptions.show.operation[0], "notify");
 });
 
 test("normalizes caller forms and parses quoted CDR rows", () => {
