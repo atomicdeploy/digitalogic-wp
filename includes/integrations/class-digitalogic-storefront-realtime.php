@@ -126,12 +126,18 @@ final class Digitalogic_Storefront_Realtime {
 		$audience_key = $user_id > 0
 			? substr( hash_hmac( 'sha256', (string) $user_id, wp_salt( 'nonce' ) ), 0, 20 )
 			: 'guest';
+		$stream_url   = rest_url( 'digitalogic/v1' . self::REST_ROUTE );
+		if ( $user_id > 0 ) {
+			// EventSource cannot set X-WP-Nonce. The query nonce lets REST cookie
+			// authentication preserve the signed-in audience for server projection.
+			$stream_url = add_query_arg( '_wpnonce', wp_create_nonce( 'wp_rest' ), $stream_url );
+		}
 
 		wp_localize_script(
 			'digitalogic-storefront-realtime',
 			'DigitalogicRealtime',
 			array(
-				'streamUrl'        => rest_url( 'digitalogic/v1' . self::REST_ROUTE ),
+				'streamUrl'        => $stream_url,
 				'currentProductId' => $product_id,
 				'initialEventId'   => Digitalogic_Panel::get_latest_event_id(),
 				'currency'         => self::currency_snapshot(),

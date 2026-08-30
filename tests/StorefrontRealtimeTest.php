@@ -52,6 +52,19 @@ final class StorefrontRealtimeTest extends TestCase {
         );
     }
 
+    public function test_signed_in_event_source_authenticates_rest_audience_with_nonce(): void {
+        $source = file_get_contents((new ReflectionClass(Digitalogic_Storefront_Realtime::class))->getFileName());
+
+        $this->assertMatchesRegularExpression(
+            '/if\s*\(\s*\$user_id\s*>\s*0\s*\).*?add_query_arg\(\s*[\'\"]_wpnonce[\'\"]\s*,\s*wp_create_nonce\(\s*[\'\"]wp_rest[\'\"]\s*\)/s',
+            $source
+        );
+        $this->assertMatchesRegularExpression(
+            '/[\'\"]streamUrl[\'\"]\s*=>\s*\$stream_url/',
+            $source
+        );
+    }
+
     public function test_public_projection_exposes_currency_snapshot_without_internal_event_data(): void {
         $event = Digitalogic_Storefront_Realtime::project_public_event(array(
             'id' => 123,
