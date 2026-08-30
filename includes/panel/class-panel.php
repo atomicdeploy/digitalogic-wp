@@ -25,6 +25,9 @@ class Digitalogic_Panel {
 
     private static $reported_delivery_failures = array();
 
+	/** @var array<string,bool> Request-local product event deduplication. */
+	private $recorded_product_events = array();
+
     private static $instance = null;
 
     public static function instance() {
@@ -49,6 +52,10 @@ class Digitalogic_Panel {
         add_action('digitalogic_product_updated', array($this, 'record_product_event'), 20, 1);
         add_action('woocommerce_update_product', array($this, 'record_product_event'), 20, 1);
         add_action('woocommerce_update_product_variation', array($this, 'record_product_event'), 20, 1);
+		add_action('woocommerce_new_product', array($this, 'record_product_created_event'), 20, 1);
+		add_action('before_delete_post', array($this, 'record_product_deleted_event'), 20, 2);
+		add_action('woocommerce_product_set_stock', array($this, 'record_product_stock_event'), 20, 1);
+		add_action('woocommerce_variation_set_stock', array($this, 'record_product_stock_event'), 20, 1);
         add_action('updated_option', array($this, 'record_option_event'), 20, 3);
         add_action('user_register', array($this, 'record_user_event'), 20, 1);
         add_action('profile_update', array($this, 'record_user_event'), 20, 1);
@@ -739,8 +746,68 @@ class Digitalogic_Panel {
     }
 
     public function record_product_event($product_id) {
-        self::record_event('product.updated', array('id' => absint($product_id)));
+		$this->record_public_product_event( 'product.updated', $product_id );
     }
+
+	/** Record a newly created product for public storefront subscribers. */
+	public function record_product_created_event( $product_id ) {
+		$this->record_public_product_event( 'product.created', $product_id );
+	}
+
+	/** Record a product deletion without exposing deleted content. */
+	public function record_product_deleted_event( $post_id, $post ) {
+		$post_type = is_object( $post ) && isset( $post->post_type ) ? (string) $post->post_type : '';
+		if ( ! in_array( $post_type, array( 'product', 'product_variation' ), true ) ) {
+			return;
+		}
+		$this->record_public_product_event( 'product.deleted', $post_id );
+	}
+
+	/** Record stock changes for simple products and variations. */
+	public function record_product_stock_event( $product ) {
+		if ( ! is_object( $product ) || ! method_exists( $product, 'get_id' ) ) {
+			return;
+		}
+		$this->record_public_product_event( 'product.stock.changed', $product );
+	}
+
+	/**
+	 * Persist one request-local deduplicated product envelope with parent context.
+	 *
+	 * @param string               $event   Public event name.
+	 * @param int|WC_Product|mixed $product Product object or ID.
+	 */
+	private function record_public_product_event( $event, $product ) {
+		$product_object = is_object( $product ) ? $product : null;
+		$product_id     = $product_object && method_exists( $product_object, 'get_id' )
+			? absint( $product_object->get_id() )
+			: absint( $product );
+		if ( $product_id <= 0 ) {
+			return;
+		}
+
+		if ( null === $product_object && function_exists( 'wc_get_product' ) ) {
+			$product_object = wc_get_product( $product_id );
+		}
+		$parent_id = $product_object && method_exists( $product_object, 'get_parent_id' )
+			? absint( $product_object->get_parent_id() )
+			: ( function_exists( 'wp_get_post_parent_id' ) ? absint( wp_get_post_parent_id( $product_id ) ) : 0 );
+		$public_id = $parent_id > 0 ? $parent_id : $product_id;
+		$signature = $event . ':' . $product_id . ':' . $public_id;
+		if ( isset( $this->recorded_product_events[ $signature ] ) ) {
+			return;
+		}
+		$this->recorded_product_events[ $signature ] = true;
+
+		self::record_event(
+			$event,
+			array(
+				'id'         => $product_id,
+				'product_id' => $public_id,
+				'parent_id'  => $parent_id,
+			)
+		);
+	}
 
     public function record_user_event($user_id) {
         self::record_event('user.updated', array('id' => absint($user_id)));

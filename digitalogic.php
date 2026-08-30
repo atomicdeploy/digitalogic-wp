@@ -3,7 +3,7 @@
  * Plugin Name: Digitalogic WooCommerce Extension
  * Plugin URI: https://github.com/atomicdeploy/digitalogic-wp
  * Description: Custom dynamic pricing, stock manager, and POS integration for Digitalogic electronic components shop. Supports bulk operations, import/export, and external API integration.
- * Version: 1.8.35
+ * Version: 1.8.36
  * Author: Digitalogic
  * Author URI: https://digitalogic.ir
  * Text Domain: digitalogic
@@ -22,7 +22,7 @@ if (!defined('ABSPATH')) {
 }
 
 // Define plugin constants
-define( 'DIGITALOGIC_VERSION', '1.8.35' );
+define( 'DIGITALOGIC_VERSION', '1.8.36' );
 define( 'DIGITALOGIC_PBX_SCHEMA_VERSION', '3' );
 define( 'DIGITALOGIC_EVENT_MESH_SCHEMA_VERSION', '1' );
 define( 'DIGITALOGIC_ASSISTANT_ACCOUNT_SCHEMA_VERSION', '2' );
@@ -175,6 +175,7 @@ final class Digitalogic {
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-homepage-showcase.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-storefront-product-table.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-storefront-order-forms.php';
+        require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-digitalogic-storefront-realtime.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/panel/class-panel.php';
 
         // Admin includes
@@ -261,6 +262,7 @@ final class Digitalogic {
         Digitalogic_WebSocket::instance();
         Digitalogic_Laravel_Bridge::instance();
         Digitalogic_Panel::instance();
+        Digitalogic_Storefront_Realtime::instance();
         Digitalogic_Event_Mesh::instance();
         Digitalogic_Comment_Guard::instance();
         Digitalogic_Product_Resources::instance();

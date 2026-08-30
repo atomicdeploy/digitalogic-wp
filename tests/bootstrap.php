@@ -2856,6 +2856,7 @@ require_once dirname(__DIR__) . '/includes/class-report-engine.php';
 require_once dirname( __DIR__ ) . '/includes/class-digitalogic-pricing-snapshot.php';
 require_once dirname(__DIR__) . '/includes/integrations/class-laravel-bridge.php';
 require_once dirname(__DIR__) . '/includes/panel/class-panel.php';
+require_once dirname(__DIR__) . '/includes/integrations/class-digitalogic-storefront-realtime.php';
 require_once dirname(__DIR__) . '/includes/integrations/class-digitalogic-event-mesh.php';
 require_once dirname(__DIR__) . '/includes/integrations/class-label-overrides.php';
 require_once dirname( __DIR__ ) . '/includes/integrations/class-digitalogic-checkout-date-compatibility.php';

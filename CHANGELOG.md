@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.36] - 2026-08-30
+
+### Added
+- Added a bounded public Server-Sent Events stream for committed USD/CNY and WooCommerce product changes, backed by the existing durable event queue and Redis wake-up publisher.
+- Added one browser stream leader per origin with BroadcastChannel fan-out, a localStorage compatibility relay and currency/cursor cache, and sessionStorage tab identity and product-refresh guards.
+- Added live storefront currency-card updates and product-page fragment refresh for title, description, price, gallery, variations, and availability, with a full-page safety fallback when the active theme cannot expose a compatible product fragment.
+
+### Security
+- Restricted the public stream to a minimal allowlist and projected product events to numeric identities only; user, order, workstation, panel, pricing-service, internal metadata, and webhook payloads remain private.
+
 ## [1.8.35] - 2026-08-30
 
 ### Fixed
