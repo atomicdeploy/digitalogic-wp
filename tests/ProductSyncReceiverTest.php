@@ -56,23 +56,86 @@ final class ProductSyncReceiverTest extends TestCase {
         $this->assertSame('digitalogic_product_sync_missing_field', $invalid->get_error_code());
     }
 
-	/** Unchanged terminal reconciliation waits for the explicit retry surface. */
-	public function test_unchanged_deferred_product_is_not_retried_by_normal_delivery(): void {
+	/** A 101001001-like incomplete row is public, exact, idempotent, and later promotable. */
+	public function test_incomplete_source_product_is_materialized_once_then_promoted_without_a_duplicate(): void {
+		$observed  = array();
+		$completed = 0;
+		add_action(
+			'digitalogic_patris_materializer_product_committed',
+			function ( $snapshot ) use ( &$observed ) {
+				$this->assertFalse( Digitalogic_Product_Sync_Receiver::instance()->source_identity_lock_is_owned() );
+				$observed[] = $snapshot;
+			}
+		);
+		add_action(
+			'digitalogic_patris_materializer_product_committed',
+			static function () {
+				throw new RuntimeException( 'Injected post-commit alert listener failure.' );
+			},
+			20
+		);
+		add_action(
+			'digitalogic_patris_materializer_product_commits_complete',
+			function () use ( &$completed ) {
+				$this->assertFalse( Digitalogic_Product_Sync_Receiver::instance()->source_identity_lock_is_owned() );
+				++$completed;
+			}
+		);
 		$product                = array(
-			'product_code' => 'DEFERRED-MISSING',
-			'warnings'     => array(),
+			'product_code' => '101001001',
+			'name'         => 'Patris incomplete source product',
+			'total_stock'  => 0,
+			'weight_grams' => null,
+			'warnings'     => array(
+				'final_price_unavailable',
+				'foreign_price_missing',
+				'markup_percent_missing',
+				'shipping_method_missing',
+				'weight_missing',
+			),
 		);
 		$product['record_hash'] = $this->recordHash( $product, true );
 		$receiver               = Digitalogic_Product_Sync_Receiver::instance();
 
-		$first = $receiver->receive(
-			$this->snapshot( array( $product ) )
-		);
+		$first = $receiver->receive( $this->snapshot( array( $product ) ) );
 		$this->assertNotInstanceOf( WP_Error::class, $first );
 		$this->assertSame( 1, $first['woocommerce']['attempted'] );
-		$this->assertSame( 1, $first['woocommerce']['missing'] );
+		$this->assertSame( 1, $first['woocommerce']['created'] );
+		$this->assertSame( 1, $first['woocommerce']['updated'] );
+		$this->assertSame( 0, $first['woocommerce']['missing'] );
 		$this->assertSame( 0, $first['pending_products'] );
-		$this->assertSame( 1, $first['deferred_products'] );
+		$this->assertSame( 0, $first['deferred_products'] );
+		$this->assertCount( 1, $GLOBALS['digitalogic_test_posts'] );
+		$product_id = (int) array_key_first( $GLOBALS['digitalogic_test_posts'] );
+		$woo        = wc_get_product( $product_id );
+		$this->assertSame( 'publish', $woo->get_status() );
+		$this->assertSame( 'visible', $woo->get_catalog_visibility() );
+		$this->assertSame( '101001001', $woo->get_sku() );
+		$this->assertSame( '101001001', $woo->get_meta( Digitalogic_Product_Identifier_Resolver::PATRIS_CODE_META, true ) );
+		$this->assertSame( 'tests', $woo->get_meta( Digitalogic_Patris_Catalog_Materializer::OWNER_SOURCE_META, true ) );
+		$this->assertSame( 'ALLANBAR', $woo->get_meta( Digitalogic_Patris_Catalog_Materializer::OWNER_DATASET_META, true ) );
+		$this->assertSame( '101001001', $woo->get_meta( Digitalogic_Patris_Catalog_Materializer::OWNER_CODE_META, true ) );
+		$this->assertSame( $product['record_hash'], $woo->get_meta( '_digitalogic_patris_record_hash', true ) );
+		$this->assertSame( '', $woo->get_regular_price() );
+		$this->assertSame( '', $woo->get_price() );
+		$this->assertSame( '', $woo->get_sale_price() );
+		$this->assertSame( 0, $woo->get_stock_quantity() );
+		$this->assertSame( 'outofstock', $woo->get_stock_status() );
+		$this->assertSame( '', $woo->get_meta( Digitalogic_Shipping_Method_Service::PRODUCT_METHOD_META, true ) );
+		$this->assertSame( 'canonical_missing_unpriced', $woo->get_meta( '_digitalogic_patris_price_status', true ) );
+		$this->assertSame(
+			array( 'freight', 'image', 'markup', 'price', 'seo', 'stock', 'weight' ),
+			json_decode( $woo->get_meta( Digitalogic_Patris_Catalog_Materializer::MISSING_FIELDS_META, true ), true, 512, JSON_THROW_ON_ERROR )
+		);
+		$this->resetSingleton( Digitalogic_Report_Engine::class );
+		$report = Digitalogic_Report_Engine::instance()->get_report( array( 'view' => 'price_list' ) );
+		$this->assertNotInstanceOf( WP_Error::class, $report );
+		$this->assertSame( 1, $report['counts']['matched_products'] );
+		$this->assertSame( 0, $report['counts']['source_only_products'] );
+		$this->assertCount( 1, $observed );
+		$this->assertSame( 1, $completed );
+		$this->assertSame( $product_id, $observed[0]['product_id'] );
+		$this->assertFalse( $observed[0]['purchasable'] );
 
 		$unchanged = $receiver->receive(
 			$this->snapshot( array( $product ), array(), false, '2026-07-20T00:01:00Z' )
@@ -80,20 +143,51 @@ final class ProductSyncReceiverTest extends TestCase {
 		$this->assertNotInstanceOf( WP_Error::class, $unchanged );
 		$this->assertSame( 'already_current', $unchanged['status'] );
 		$this->assertSame( 0, $unchanged['woocommerce']['attempted'] );
-		$this->assertSame( 0, $unchanged['woocommerce']['missing'] );
-		$this->assertSame( 0, $unchanged['pending_products'] );
-		$this->assertSame( 1, $unchanged['deferred_products'] );
+		$this->assertCount( 1, $GLOBALS['digitalogic_test_posts'] );
+		$this->assertCount( 1, $observed );
+		$this->assertSame( 1, $completed );
 
-		$reconciled = $receiver->reconcile( 'tests', 'ALLANBAR' );
-		$this->assertNotInstanceOf( WP_Error::class, $reconciled );
-		$this->assertSame( 1, $reconciled['sources'][0]['woocommerce']['attempted'] );
-		$this->assertSame( 1, $reconciled['sources'][0]['woocommerce']['missing'] );
-		$this->assertSame( 0, $reconciled['pending_products'] );
-		$this->assertSame( 1, $reconciled['deferred_products'] );
+		$complete                = array(
+			'product_code'                   => '101001001',
+			'name'                           => 'Patris complete source product',
+			'sale_price_source'              => 1234500,
+			'price_source_amount'            => 1234500,
+			'price_source_currency'          => 'IRR',
+			'price_source_kind'              => 'sale_price_direct',
+			'shipping_method_id'             => 'domestic',
+			'shipping_price_per_kg'          => 0,
+			'shipping_price_per_kg_currency' => 'IRR',
+			'weight_grams'                   => 100,
+			'total_stock'                    => 4,
+			'final_price'                    => 123450,
+			'warnings'                       => array(
+				'freight_not_applied_for_sale_price_direct',
+				'sale_price_direct_fallback_used',
+			),
+		);
+		$complete['record_hash'] = $this->recordHash( $complete, true );
+		$promoted                = $receiver->receive(
+			$this->snapshot( array( $complete ), array(), true, '2026-07-20T00:02:00Z' )
+		);
+		$this->assertNotInstanceOf( WP_Error::class, $promoted );
+		$this->assertSame( 0, $promoted['woocommerce']['created'] );
+		$this->assertSame( 1, $promoted['woocommerce']['updated'] );
+		$this->assertCount( 1, $GLOBALS['digitalogic_test_posts'] );
+		$woo = wc_get_product( $product_id );
+		$this->assertSame( '123450', $woo->get_regular_price() );
+		$this->assertSame( '123450', $woo->get_price() );
+		$this->assertSame( 4, $woo->get_stock_quantity() );
+		$this->assertSame( 'instock', $woo->get_stock_status() );
+		$this->assertSame( 'domestic', $woo->get_meta( Digitalogic_Shipping_Method_Service::PRODUCT_METHOD_META, true ) );
+		$this->assertSame( 'priced', $woo->get_meta( '_digitalogic_patris_price_status', true ) );
+		$this->assertSame( array( 'image', 'markup', 'seo' ), json_decode( $woo->get_meta( Digitalogic_Patris_Catalog_Materializer::MISSING_FIELDS_META, true ), true, 512, JSON_THROW_ON_ERROR ) );
+		$this->assertCount( 2, $observed );
+		$this->assertSame( 2, $completed );
+		$this->assertTrue( $observed[1]['purchasable'] );
 	}
 
-	/** Bounded reconciliation advances past repeatedly missing low Codes. */
-	public function test_reconciliation_prioritizes_least_attempted_work_to_prevent_starvation(): void {
+	/** Bounded reconciliation materializes every safe missing Code without starvation. */
+	public function test_reconciliation_materializes_a_bounded_backlog_without_deferral(): void {
 		$products = array();
 		for ( $index = 1; $index <= 30; $index++ ) {
 			$product                = array(
@@ -109,21 +203,215 @@ final class ProductSyncReceiverTest extends TestCase {
 		$this->assertNotInstanceOf( WP_Error::class, $first );
 		$this->assertSame( 25, $first['woocommerce']['attempted'] );
 		$this->assertSame( 5, $first['pending_products'] );
-		$this->assertSame( 25, $first['deferred_products'] );
+		$this->assertSame( 25, $first['woocommerce']['created'] );
+		$this->assertSame( 0, $first['deferred_products'] );
 
 		$retry = $receiver->reconcile( 'tests', 'ALLANBAR' );
 		$this->assertNotInstanceOf( WP_Error::class, $retry );
-		$this->assertSame( 25, $retry['sources'][0]['woocommerce']['attempted'] );
+		$this->assertSame( 5, $retry['sources'][0]['woocommerce']['attempted'] );
 		$this->assertSame( 0, $retry['pending_products'] );
-		$this->assertSame( 30, $retry['deferred_products'] );
+		$this->assertSame( 5, $retry['sources'][0]['woocommerce']['created'] );
+		$this->assertSame( 0, $retry['deferred_products'] );
+		$this->assertCount( 30, $GLOBALS['digitalogic_test_posts'] );
+	}
 
-		$state = $receiver->get_source_state( 'tests', 'ALLANBAR' );
-		foreach ( $state['deferred_products'] as $code => $entry ) {
-			$expected_attempts = in_array( $code, array( 'MISSING-26', 'MISSING-27', 'MISSING-28', 'MISSING-29', 'MISSING-30' ), true ) ? 1 : null;
-			if ( null !== $expected_attempts ) {
-				$this->assertSame( $expected_attempts, $entry['attempts'], $code );
+	/** A temporarily unavailable materializer remains retryable, never deferred as missing. */
+	public function test_unmaterialized_not_found_record_remains_pending_instead_of_deferred(): void {
+		add_filter(
+			'digitalogic_patris_auto_materialize_source_product',
+			static function () {
+				return false;
 			}
+		);
+		$product                = array(
+			'product_code' => 'SAFE-PENDING',
+			'name'         => 'Safe pending source leaf',
+			'warnings'     => array(),
+		);
+		$product['record_hash'] = $this->recordHash( $product, true );
+
+		$result = Digitalogic_Product_Sync_Receiver::instance()->receive( $this->snapshot( array( $product ) ) );
+
+		$this->assertNotInstanceOf( WP_Error::class, $result );
+		$this->assertSame( 1, $result['woocommerce']['missing'] );
+		$this->assertSame( 1, $result['pending_products'] );
+		$this->assertSame( 0, $result['deferred_products'] );
+		$this->assertTrue( $result['retryable'] );
+		$this->assertSame( array(), $GLOBALS['digitalogic_test_posts'] );
+	}
+
+	/** An exact metadata read failure is transient, not an identity-hazard deferral. */
+	public function test_identity_readback_failure_remains_pending_and_retryable(): void {
+		$GLOBALS['digitalogic_test_posts'][902]    = array(
+			'post_type'    => 'product',
+			'post_status'  => 'publish',
+			'product_type' => 'simple',
+			'post_title'   => 'Existing exact product',
+			'meta'         => array(
+				'_sku'                             => 'READBACK-RETRY',
+				'_digitalogic_patris_product_code' => 'READBACK-RETRY',
+			),
+		);
+		$GLOBALS['wpdb']->exact_meta_query_failure = true;
+
+		$product = array(
+			'product_code' => 'READBACK-RETRY',
+			'name'         => 'Existing exact product',
+			'warnings'     => array(),
+		);
+
+		$product['record_hash'] = $this->recordHash( $product, true );
+
+		$result = Digitalogic_Product_Sync_Receiver::instance()->receive( $this->snapshot( array( $product ) ) );
+
+		$this->assertNotInstanceOf( WP_Error::class, $result );
+		$this->assertSame( 1, $result['woocommerce']['failed'] );
+		$this->assertSame( 0, $result['woocommerce']['identity_hazard'] );
+		$this->assertSame( 1, $result['pending_products'] );
+		$this->assertSame( 0, $result['deferred_products'] );
+		$this->assertTrue( $result['retryable'] );
+		$this->assertSame( '', get_post_meta( 902, '_digitalogic_patris_record_hash', true ) );
+	}
+
+	/** An outer catalog lock delays the warning action until its final release. */
+	public function test_materializer_commit_hook_waits_for_the_outer_source_lock_release(): void {
+		$observed = array();
+		add_action(
+			'digitalogic_patris_materializer_product_committed',
+			function ( $snapshot ) use ( &$observed ) {
+				$this->assertFalse( Digitalogic_Product_Sync_Receiver::instance()->source_identity_lock_is_owned() );
+				$observed[] = $snapshot;
+			}
+		);
+		$product                = array(
+			'product_code' => 'OUTER-LOCK-COMMIT',
+			'name'         => 'Outer lock source leaf',
+			'warnings'     => array(),
+		);
+		$product['record_hash'] = $this->recordHash( $product, true );
+		$receiver               = Digitalogic_Product_Sync_Receiver::instance();
+
+		$this->assertTrue( $receiver->acquire_source_identity_lock( 0 ) );
+		$result = $receiver->receive( $this->snapshot( array( $product ) ) );
+		$this->assertNotInstanceOf( WP_Error::class, $result );
+		$this->assertSame( array(), $observed );
+
+		$receiver->release_source_identity_lock();
+		$this->assertCount( 1, $observed );
+		$this->assertSame( 'OUTER-LOCK-COMMIT', $observed[0]['product_code'] );
+	}
+
+	/** A unique SKU-only owner is a concrete identity hazard, never a duplicate-create hint. */
+	public function test_sku_only_identity_collision_stays_deferred_without_a_duplicate(): void {
+		$GLOBALS['digitalogic_test_posts'][900] = array(
+			'post_type'    => 'product',
+			'post_status'  => 'publish',
+			'product_type' => 'simple',
+			'post_title'   => 'Existing SKU-only product',
+			'meta'         => array( '_sku' => '101001001' ),
+		);
+
+		$product = array(
+			'product_code' => '101001001',
+			'name'         => 'Conflicting source product',
+			'total_stock'  => 0,
+			'warnings'     => array(),
+		);
+
+		$product['record_hash'] = $this->recordHash( $product, true );
+
+		$result = Digitalogic_Product_Sync_Receiver::instance()->receive( $this->snapshot( array( $product ) ) );
+
+		$this->assertNotInstanceOf( WP_Error::class, $result );
+		$this->assertSame( 1, $result['woocommerce']['attempted'] );
+		$this->assertSame( 0, $result['woocommerce']['created'] );
+		$this->assertSame( 1, $result['woocommerce']['identity_hazard'] );
+		$this->assertSame( 1, $result['deferred_products'] );
+		$this->assertSame( 1, $result['deferred_reconciliation']['identity_hazard'] );
+		$this->assertSame( 'identity_hazard', $result['deferred_reconciliation']['details'][0]['reason'] );
+		$this->assertCount( 1, $GLOBALS['digitalogic_test_posts'] );
+		$this->assertSame( '', get_post_meta( 900, Digitalogic_Product_Identifier_Resolver::PATRIS_CODE_META, true ) );
+
+		$retry = Digitalogic_Product_Sync_Receiver::instance()->reconcile( 'tests', 'ALLANBAR' );
+		$this->assertNotInstanceOf( WP_Error::class, $retry );
+		$this->assertSame( 1, $retry['deferred_products'] );
+		$this->assertCount( 1, $GLOBALS['digitalogic_test_posts'] );
+	}
+
+	/** A variable container can never become the exact owner of one source leaf. */
+	public function test_variable_parent_leaf_identity_is_deferred_as_a_hazard(): void {
+		$GLOBALS['digitalogic_test_posts'][901] = array(
+			'post_type'    => 'product',
+			'post_status'  => 'publish',
+			'product_type' => 'variable',
+			'post_title'   => 'Unsafe variable owner',
+			'meta'         => array(
+				'_sku'                             => 'VARIABLE-LEAF',
+				'_digitalogic_patris_product_code' => 'VARIABLE-LEAF',
+			),
+		);
+
+		$product = array(
+			'product_code' => 'VARIABLE-LEAF',
+			'name'         => 'Source leaf',
+			'warnings'     => array(),
+		);
+
+		$product['record_hash'] = $this->recordHash( $product, true );
+
+		$result = Digitalogic_Product_Sync_Receiver::instance()->receive( $this->snapshot( array( $product ) ) );
+
+		$this->assertNotInstanceOf( WP_Error::class, $result );
+		$this->assertSame( 1, $result['woocommerce']['identity_hazard'] );
+		$this->assertSame( 1, $result['deferred_products'] );
+		$this->assertSame( 0, $result['woocommerce']['updated'] );
+		$this->assertSame( '', get_post_meta( 901, '_digitalogic_patris_record_hash', true ) );
+	}
+
+	/** Automatic creation leaves the established 757 priced-leaf cohort byte-for-byte intact. */
+	public function test_incomplete_materialization_does_not_regress_the_757_priced_leaf_parity_cohort(): void {
+		$before = array();
+		for ( $index = 1; $index <= 757; ++$index ) {
+			$product_id   = 1000 + $index;
+			$product_code = sprintf( 'PRICED-%03d', $index );
+			$price        = (string) ( 100000 + $index );
+			$GLOBALS['digitalogic_test_posts'][ $product_id ] = array(
+				'post_type'    => 'product',
+				'post_status'  => 'publish',
+				'product_type' => 'simple',
+				'post_title'   => $product_code,
+				'meta'         => array(
+					'_sku'                             => $product_code,
+					'_regular_price'                   => $price,
+					'_price'                           => $price,
+					'_digitalogic_patris_product_code' => $product_code,
+					'_digitalogic_patris_price_status' => 'priced',
+				),
+			);
+			// phpcs:ignore Generic.Formatting.MultipleStatementAlignment -- Loop capture is independent of the fixture below.
+			$before[ $product_id ] = $GLOBALS['digitalogic_test_posts'][ $product_id ]['meta'];
 		}
+		// phpcs:ignore Generic.Formatting.MultipleStatementAlignment -- Fixture assignment is independent of the loop capture above.
+		$product = array(
+			'product_code' => '101001001',
+			'name'         => 'New incomplete leaf',
+			'total_stock'  => 0,
+			'warnings'     => array(),
+		);
+
+		$product['record_hash'] = $this->recordHash( $product, true );
+
+		$result = Digitalogic_Product_Sync_Receiver::instance()->receive( $this->snapshot( array( $product ) ) );
+
+		$this->assertNotInstanceOf( WP_Error::class, $result );
+		$this->assertSame( 1, $result['woocommerce']['created'] );
+		$this->assertCount( 758, $GLOBALS['digitalogic_test_posts'] );
+		$after = array();
+		foreach ( array_keys( $before ) as $product_id ) {
+			$after[ $product_id ] = $GLOBALS['digitalogic_test_posts'][ $product_id ]['meta'];
+		}
+		$this->assertCount( 757, $after );
+		$this->assertSame( $before, $after );
 	}
 
 	/** Receiver state listeners run only after a verified owning transaction commits. */
