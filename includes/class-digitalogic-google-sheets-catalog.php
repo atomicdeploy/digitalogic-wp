@@ -109,6 +109,41 @@ final class Digitalogic_Google_Sheets_Catalog {
 	}
 
 	/**
+	 * Return a cheap fail-closed revision for every catalog projection input.
+	 *
+	 * @param array $args Optional exact source arguments.
+	 * @return array|WP_Error
+	 */
+	public function get_revision( $args = array() ) {
+		$args = is_array( $args ) ? $args : array();
+		$source_id = isset( $args['source_id'] ) && is_scalar( $args['source_id'] )
+			? sanitize_text_field( (string) $args['source_id'] )
+			: '';
+		$source_dataset = isset( $args['source_dataset'] ) && is_scalar( $args['source_dataset'] )
+			? sanitize_text_field( (string) $args['source_dataset'] )
+			: '';
+		$revision = Digitalogic_Report_Engine::instance()->projection_revision( $source_id, $source_dataset );
+		if ( is_wp_error( $revision ) ) {
+			return $revision;
+		}
+		if ( 1 !== preg_match( '/\Asha256:[a-f0-9]{64}\z/D', (string) $revision ) ) {
+			return new WP_Error(
+				'digitalogic_sheets_catalog_revision_invalid',
+				__( 'The catalog projection revision is unavailable.', 'digitalogic' ),
+				array(
+					'status'    => 503,
+					'retryable' => true,
+				)
+			);
+		}
+
+		return array(
+			'schema'   => 'digitalogic.google-sheets-catalog-revision/v1',
+			'revision' => (string) $revision,
+		);
+	}
+
+	/**
 	 * Build the complete reconciled catalog once for snapshot storage.
 	 *
 	 * The public paged catalog contract remains unchanged. This trusted service

@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.35] - 2026-08-30
+
+### Fixed
+- Give Google Sheets a cheap authenticated catalog invalidation revision that covers WooCommerce, Patris, taxonomy, pricing, and source-freshness inputs, so unchanged native syncs fail closed against drift without rebuilding the full reconciled catalog.
+
 ## [1.8.34] - 2026-08-30
 
 ### Fixed

@@ -29,6 +29,7 @@ const DIGITALOGIC_FETCH_ALL_BATCH_SIZE = 50;
 const DIGITALOGIC_MANAGED_HEADER_ROWS = 2;
 const DIGITALOGIC_SOURCE_REVISION_PROPERTY = 'DIGITALOGIC_CATALOG_SOURCE_REVISION';
 const DIGITALOGIC_PROJECTION_REVISION_PROPERTY = 'DIGITALOGIC_CATALOG_PROJECTION_REVISION';
+const DIGITALOGIC_CATALOG_REVISION_PATH = '/google-sheets/catalog-revision';
 const DIGITALOGIC_WRITEBACK_PATH = '/google-sheets/writeback/';
 const DIGITALOGIC_PRICING_SETTINGS_PATH = '/google-sheets/pricing-settings';
 const DIGITALOGIC_WRITEBACK_MAX_LIMIT = 50;
@@ -128,10 +129,9 @@ function syncCatalog() {
     const spreadsheet = getSpreadsheet_(config);
     const dashboard = spreadsheet.getSheetByName(DIGITALOGIC_SUPPORT_SHEETS.dashboard.sheetName);
     stateProperties = getStateProperties_(config);
-    const heads = fetchCatalogHeads_(config);
+    const sourceRevision = fetchCatalogRevision_(config);
     const pricingState = fetchPricingSettings_(config);
     const previousRevision = stateProperties.getProperty('DIGITALOGIC_CATALOG_REVISION');
-    const sourceRevision = calculateCatalogSourceRevision_(heads);
     const previousSourceRevision = stateProperties.getProperty(DIGITALOGIC_SOURCE_REVISION_PROPERTY);
     const previousProjectionRevision = stateProperties.getProperty(DIGITALOGIC_PROJECTION_REVISION_PROPERTY);
     const previousPricingRevision = stateProperties.getProperty('DIGITALOGIC_PRICING_STATE_REVISION');
@@ -156,6 +156,7 @@ function syncCatalog() {
       return { status: 'unchanged', revision: previousRevision, source_revision: sourceRevision };
     }
 
+    const heads = fetchCatalogHeads_(config);
     const fetched = heads.map(function (head) {
       return fetchDataset_(config, head.dataset, head.response);
     });
@@ -201,6 +202,34 @@ function syncCatalog() {
   } finally {
     lock.releaseLock();
   }
+}
+
+/** Fetch the cheap authoritative invalidation revision before any report page. */
+function fetchCatalogRevision_(config) {
+  const response = UrlFetchApp.fetch(config.apiBase + DIGITALOGIC_CATALOG_REVISION_PATH, {
+    method: 'get',
+    headers: {
+      Authorization: 'Basic ' + Utilities.base64Encode(config.consumerKey + ':' + config.consumerSecret),
+      Accept: 'application/json',
+    },
+    followRedirects: false,
+    muteHttpExceptions: true,
+  });
+  const status = response.getResponseCode();
+  let payload;
+  try {
+    payload = JSON.parse(response.getContentText());
+  } catch (error) {
+    throw new Error('Digitalogic catalog revision returned non-JSON HTTP ' + status + '.');
+  }
+  const data = payload && payload.data;
+  if (status < 200 || status >= 300 || !payload || payload.success !== true
+    || !data || data.schema !== 'digitalogic.google-sheets-catalog-revision/v1'
+    || !/^sha256:[a-f0-9]{64}$/.test(String(data.revision || ''))) {
+    const code = payload && (payload.code || payload.message) ? (payload.code || payload.message) : 'request_failed';
+    throw new Error('Digitalogic catalog revision HTTP ' + status + ': ' + code);
+  }
+  return String(data.revision);
 }
 
 /** Refresh the canonical pricing settings and their status. */
@@ -2458,6 +2487,7 @@ if (typeof module !== 'undefined' && module.exports) {
     detectStructuredLayout_: detectStructuredLayout_,
     ensureDashboardSheet_: ensureDashboardSheet_,
     findFirstBlankStructuredRow_: findFirstBlankStructuredRow_,
+    fetchCatalogRevision_: fetchCatalogRevision_,
     getSpreadsheet_: getSpreadsheet_,
     getStateProperties_: getStateProperties_,
     getOrCreateIdempotencyKey_: getOrCreateIdempotencyKey_,

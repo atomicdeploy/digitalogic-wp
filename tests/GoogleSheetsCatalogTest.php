@@ -23,6 +23,7 @@ final class GoogleSheetsCatalogTest extends TestCase {
 	protected function setUp(): void {
 		parent::setUp();
 		$GLOBALS['digitalogic_test_options']               = array(
+			'digitalogic_report_cache_generation_v1' => 'test-generation',
 			'woocommerce_weight_unit'          => 'kg',
 			'options_yuan_price'               => '30000',
 			'options_update_date'              => '260720',
@@ -48,6 +49,28 @@ final class GoogleSheetsCatalogTest extends TestCase {
 		$this->reset_singleton( Digitalogic_Product_Sync_Receiver::class );
 		$this->reset_singleton( Digitalogic_Report_Engine::class );
 		$this->catalog = Digitalogic_Google_Sheets_Catalog::instance();
+	}
+
+	/** Cheap revision is typed and fails closed for an incomplete exact source scope. */
+	public function test_catalog_revision_is_typed_and_fail_closed() {
+		$this->store_source(
+			array(
+				'0001' => array(
+					'product_code'      => '0001',
+					'name'              => 'Current product',
+					'source_updated_at' => '2026-08-30T00:00:00Z',
+				),
+			)
+		);
+
+		$result = $this->catalog->get_revision();
+		$this->assertFalse( is_wp_error( $result ) );
+		$this->assertSame( 'digitalogic.google-sheets-catalog-revision/v1', $result['schema'] );
+		$this->assertMatchesRegularExpression( '/^sha256:[a-f0-9]{64}$/', $result['revision'] );
+
+		$invalid = $this->catalog->get_revision( array( 'source_id' => 'source-only' ) );
+		$this->assertTrue( is_wp_error( $invalid ) );
+		$this->assertSame( 'digitalogic_report_projection_scope_incomplete', $invalid->get_error_code() );
 	}
 
 	/** Oversized requests are capped at 250 rows assembled through 100-row DB queries. */

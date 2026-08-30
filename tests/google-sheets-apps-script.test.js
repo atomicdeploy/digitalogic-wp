@@ -96,6 +96,36 @@ test('catalog pages are validated by their living response structure', () => {
   );
 });
 
+test('fast catalog revision accepts only the typed authoritative contract', () => {
+  const revision = `sha256:${'7'.repeat(64)}`;
+  let body = JSON.stringify({
+    success: true,
+    data: { schema: 'digitalogic.google-sheets-catalog-revision/v1', revision },
+  });
+  sandbox.Utilities = { base64Encode(value) { return value; } };
+  sandbox.UrlFetchApp = {
+    fetch(url, options) {
+      assert.equal(url, 'https://digitalogic.test/google-sheets/catalog-revision');
+      assert.equal(options.method, 'get');
+      return {
+        getResponseCode() { return 200; },
+        getContentText() { return body; },
+      };
+    },
+  };
+  const fetchRevision = sandbox.module.exports.fetchCatalogRevision_;
+  const config = { apiBase: 'https://digitalogic.test', consumerKey: 'key', consumerSecret: 'secret' };
+
+  assert.equal(fetchRevision(config), revision);
+  body = JSON.stringify({ success: true, data: { schema: 'wrong', revision } });
+  assert.throws(() => fetchRevision(config), /catalog revision HTTP 200/);
+  body = JSON.stringify({
+    success: true,
+    data: { schema: 'digitalogic.google-sheets-catalog-revision/v1', revision: 'stale' },
+  });
+  assert.throws(() => fetchRevision(config), /catalog revision HTTP 200/);
+});
+
 test('canonical pricing settings require the complete composite contract', () => {
   const validate = sandbox.module.exports.validatePricingSettingsState_;
   const state = {
@@ -372,6 +402,7 @@ test('standalone scheduled sync uses script state and leaves writeback workspace
   };
   standalone.getConfig_ = () => ({ spreadsheetId: 'sheet-123', locale: 'en' });
   standalone.getSpreadsheet_ = () => spreadsheet;
+  standalone.fetchCatalogRevision_ = () => sourceRevision;
   standalone.fetchCatalogHeads_ = () => [
     { dataset: { id: 'reconciled_products' }, response: { page: 1 } },
     { dataset: { id: 'categories' }, response: { page: 1 } },
@@ -464,6 +495,7 @@ test('unchanged catalog readback clears an earlier sync error and records pricin
     },
     toast() {},
   });
+  standalone.fetchCatalogRevision_ = () => sourceRevision;
   standalone.fetchCatalogHeads_ = () => [
     { dataset: { id: 'reconciled_products' }, response: { page: 1 } },
     { dataset: { id: 'categories' }, response: { page: 1 } },
