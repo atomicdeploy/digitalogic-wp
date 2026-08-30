@@ -168,19 +168,19 @@ final class ReportEngineTest extends TestCase {
 		$first  = $this->engine->invalidate_cache_for_effect( $effect );
 		$this->assertIsArray( $first );
 		$this->assertSame( 'complete', $first['status'] );
-		$generation = $GLOBALS['digitalogic_test_options']['digitalogic_report_cache_generation_v1'];
+		$generation = $GLOBALS['digitalogic_test_options']['digitalogic_report_cache_generation'];
 
 		$replayed = $this->engine->invalidate_cache_for_effect( $effect );
 
 		$this->assertSame( $first, $replayed );
-		$this->assertSame( $generation, $GLOBALS['digitalogic_test_options']['digitalogic_report_cache_generation_v1'] );
+		$this->assertSame( $generation, $GLOBALS['digitalogic_test_options']['digitalogic_report_cache_generation'] );
 		$this->assertCount( 1, $GLOBALS['digitalogic_test_options']['digitalogic_report_cache_effects'] );
 	}
 
 	/** A generation write failure remains pending and converges without a new target. */
 	public function test_effect_invalidation_failure_cannot_report_false_success(): void {
 		$effect = 'sha256:' . str_repeat( 'b', 64 );
-		$GLOBALS['digitalogic_test_update_failures'][] = 'digitalogic_report_cache_generation_v1';
+		$GLOBALS['digitalogic_test_update_failures'][] = 'digitalogic_report_cache_generation';
 
 		$failed = $this->engine->invalidate_cache_for_effect( $effect );
 
@@ -192,7 +192,7 @@ final class ReportEngineTest extends TestCase {
 		);
 		$pending = $GLOBALS['digitalogic_test_options']['digitalogic_report_cache_effects'][ $effect ];
 		$this->assertSame( 'pending', $pending['status'] );
-		$this->assertSame( 'test-report-generation', $GLOBALS['digitalogic_test_options']['digitalogic_report_cache_generation_v1'] );
+		$this->assertSame( 'test-report-generation', $GLOBALS['digitalogic_test_options']['digitalogic_report_cache_generation'] );
 
 		$GLOBALS['digitalogic_test_update_failures'] = array();
 		$completed = $this->engine->retry_effect_invalidation( $effect );

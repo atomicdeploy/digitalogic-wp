@@ -23,7 +23,7 @@ final class Digitalogic_Pricing_Snapshot {
 	public const PAGE_SCHEMA           = 'digitalogic.pricing-snapshot-page';
 	public const STATE_EVENT_SCHEMA    = 'digitalogic.pricing-state-change';
 	public const SOURCE_EVENT_SCHEMA   = 'digitalogic.pricing-source-change';
-	public const TERMINAL_EVENT_SCHEMA = 'digitalogic.pricing-snapshot-build-event';
+	public const BUILD_EVENT_SCHEMA    = 'digitalogic.pricing-snapshot-build-event';
 	public const PROJECTION            = 'excel';
 	public const PROJECTION_SCHEMA     = 'digitalogic.pricing-projection/excel';
 	public const PRICING_POLICY_SCHEMA = 'digitalogic.pricing-policy';
@@ -1668,7 +1668,7 @@ final class Digitalogic_Pricing_Snapshot {
 		}
 
 		$data = array(
-			'schema'                 => self::TERMINAL_EVENT_SCHEMA,
+			'schema'                 => self::BUILD_EVENT_SCHEMA,
 			'projection'             => self::PROJECTION,
 			'build_id'               => $build_id,
 			'request_id'             => (string) $request_id,
@@ -1680,7 +1680,7 @@ final class Digitalogic_Pricing_Snapshot {
 			'retryable'              => (bool) ( $job['retryable'] ?? false ),
 			'idempotency_key'        => $this->digest(
 				array(
-					'schema'     => self::TERMINAL_EVENT_SCHEMA,
+					'schema'     => self::BUILD_EVENT_SCHEMA,
 					'build_id'   => $build_id,
 					'request_id' => (string) $request_id,
 				)
@@ -3895,7 +3895,9 @@ final class Digitalogic_Pricing_Snapshot {
 			'projection'              => self::PROJECTION,
 			'projection_schema'       => self::PROJECTION_SCHEMA,
 			'snapshot_token'          => $meta['snapshot_token'],
+			'revision'                => $meta['revision'],
 			'snapshot_revision'       => $meta['revision'],
+			'digest'                  => $meta['digest'],
 			'state_revision'          => $meta['state_revision'],
 			'pricing_state_revision'  => $meta['pricing_state_revision'],
 			'pricing_policy_revision' => $meta['pricing_policy_revision'],
@@ -3906,6 +3908,7 @@ final class Digitalogic_Pricing_Snapshot {
 			'expires_at'              => $meta['expires_at'],
 			'row_count'               => $meta['row_count'],
 			'distinct_sync_keys'      => $meta['distinct_sync_keys'],
+			'remote_total'            => $meta['row_count'],
 			'page_size'               => $meta['page_size'],
 			'page_count'              => $meta['page_count'],
 			'page_digests'            => $meta['page_digests'],
