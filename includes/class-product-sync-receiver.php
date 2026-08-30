@@ -1541,7 +1541,7 @@ class Digitalogic_Product_Sync_Receiver {
                 $product = $products[$product_code_key];
                 $resolved = $this->coordinated_resolution($product_code, $resolution_cache);
                 if (is_wp_error($resolved)) {
-                    $reason = $this->terminal_resolution_reason($resolved->get_error_code());
+                    $reason = $this->coordinated_resolution_reason($resolved->get_error_code());
                     if ('missing' === $reason) {
                         if (isset($delivery['pending_products'][$product_code])) {
                             $delivery['pending_products'][$product_code]['pricing_only'] = true;
@@ -1660,7 +1660,7 @@ class Digitalogic_Product_Sync_Receiver {
                 }
                 $resolved = $this->coordinated_resolution($product_code, $resolution_cache);
                 if (is_wp_error($resolved)) {
-                    if ('missing' === $this->terminal_resolution_reason($resolved->get_error_code())) {
+                    if ('missing' === $this->coordinated_resolution_reason($resolved->get_error_code())) {
                         continue;
                     }
                     return $this->error(
@@ -3676,7 +3676,7 @@ class Digitalogic_Product_Sync_Receiver {
                 );
             if (is_wp_error($resolved)) {
                 $error_code = $resolved->get_error_code();
-                $deferred_reason = $this->terminal_resolution_reason($error_code);
+                $deferred_reason = $this->coordinated_resolution_reason($error_code);
                 if ('missing' === $deferred_reason) {
                     ++$result['missing'];
                 } elseif ('ambiguous' === $deferred_reason) {
@@ -3996,6 +3996,24 @@ class Digitalogic_Product_Sync_Receiver {
 		}
 
         return null;
+    }
+
+    /**
+     * Preserve missing Woo targets as a tolerated bounded-pricing outcome.
+     *
+     * Normal source delivery can materialize a missing product before it
+     * reaches terminal classification. A caller-owned pricing transaction must
+     * not create catalog identities, so its missing target remains deferred.
+     *
+     * @param string $error_code Exact resolver error code.
+     * @return string|null
+     */
+    private function coordinated_resolution_reason($error_code) {
+        if ('digitalogic_product_identifier_not_found' === $error_code) {
+            return 'missing';
+        }
+
+        return $this->terminal_resolution_reason($error_code);
     }
 
     private function deferred_summary($deferred) {
