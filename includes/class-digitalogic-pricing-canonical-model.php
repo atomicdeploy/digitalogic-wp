@@ -52,6 +52,13 @@ interface Digitalogic_Pricing_Store_Adapter_Interface {
 	public function capabilities();
 }
 
+/** Optional capability for receipt-backed, bounded pricing-apply jobs. */
+interface Digitalogic_Pricing_Bounded_Store_Adapter_Interface {
+	public function pricing_scope( $source );
+	public function pricing_lock_is_held();
+	public function reprice_bounded_open_transaction( $settings, $shipping_revision, $scope_codes );
+}
+
 /** Downstream projection boundary. */
 interface Digitalogic_Pricing_Consumer_Adapter_Interface {
 	public function identity();
@@ -393,7 +400,7 @@ final class Digitalogic_Patris_Pricing_Provider_Adapter implements Digitalogic_P
 }
 
 /** WooCommerce/report projection adapter; store vocabulary is contained here. */
-final class Digitalogic_WooCommerce_Pricing_Store_Adapter implements Digitalogic_Pricing_Store_Adapter_Interface {
+final class Digitalogic_WooCommerce_Pricing_Store_Adapter implements Digitalogic_Pricing_Store_Adapter_Interface, Digitalogic_Pricing_Bounded_Store_Adapter_Interface {
 	public function pricing_state() {
 		return Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
 	}
@@ -422,6 +429,14 @@ final class Digitalogic_WooCommerce_Pricing_Store_Adapter implements Digitalogic
 		return Digitalogic_Google_Sheets_Catalog::MAX_PAGE_SIZE;
 	}
 
+	public function pricing_scope( $source ) {
+		return Digitalogic_Product_Sync_Receiver::instance()->pricing_state_snapshot( $source );
+	}
+
+	public function pricing_lock_is_held() {
+		return Digitalogic_Product_Sync_Receiver::instance()->coordinated_lock_is_held();
+	}
+
 	public function invalidate_projection( $effect_id = null ) {
 		return null === $effect_id
 			? Digitalogic_Report_Engine::instance()->invalidate_cache()
@@ -430,6 +445,10 @@ final class Digitalogic_WooCommerce_Pricing_Store_Adapter implements Digitalogic
 
 	public function reprice_open_transaction( $settings, $shipping_revision ) {
 		return Digitalogic_Pricing_Coordinator::instance()->reprice_open_transaction( $settings, $shipping_revision );
+	}
+
+	public function reprice_bounded_open_transaction( $settings, $shipping_revision, $scope_codes ) {
+		return Digitalogic_Pricing_Coordinator::instance()->reprice_open_transaction( $settings, $shipping_revision, $scope_codes );
 	}
 
 	public function repricing_cache_plan() {

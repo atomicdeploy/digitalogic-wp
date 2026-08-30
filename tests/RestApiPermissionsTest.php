@@ -314,6 +314,8 @@ final class RestApiPermissionsTest extends TestCase {
 			'POST /pricing/sync/state' => 'check_pricing_sync_permission',
 			'POST /pricing/sync/preview' => 'check_pricing_sync_permission',
 			'POST /pricing/sync/apply' => 'check_pricing_sync_permission',
+			'GET /pricing/sync/jobs/(?P<identifier>[a-zA-Z0-9._:-]{8,128})' => 'check_pricing_snapshot_permission',
+			'DELETE /pricing/sync/jobs/(?P<identifier>[a-zA-Z0-9._:-]{8,128})' => 'check_pricing_snapshot_permission',
 			'POST /pricing/sync/ack' => 'check_pricing_sync_permission',
 			'GET /pricing/sync/revision' => 'check_pricing_snapshot_permission',
 			'HEAD /pricing/sync/revision' => 'check_pricing_snapshot_permission',

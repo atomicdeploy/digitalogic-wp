@@ -3350,6 +3350,7 @@ require_once dirname(__DIR__) . '/includes/class-digitalogic-google-sheets-write
 require_once dirname(__DIR__) . '/includes/class-digitalogic-pricing-diagnostic.php';
 require_once dirname( __DIR__ ) . '/includes/class-digitalogic-pricing-canonical-model.php';
 require_once dirname(__DIR__) . '/includes/class-digitalogic-excel-pricing-sync.php';
+require_once dirname(__DIR__) . '/includes/class-digitalogic-pricing-apply-jobs.php';
 require_once dirname(__DIR__) . '/includes/class-digitalogic-pricing-coordinator.php';
 require_once dirname(__DIR__) . '/includes/class-digitalogic-currency-admin-async.php';
 require_once dirname(__DIR__) . '/includes/class-command-dispatcher.php';

@@ -292,13 +292,14 @@ final class Digitalogic_Pricing_Coordinator {
 	 *
 	 * @param array       $settings                  Complete canonical settings.
 	 * @param string|null $previous_catalog_revision Catalog revision before the atomic write.
+	 * @param array       $scope_codes               Exact Product Code batch; empty means the complete active scope.
 	 * @return array|WP_Error
 	 */
-	public function reprice_open_transaction( $settings, $previous_catalog_revision = null ) {
+	public function reprice_open_transaction( $settings, $previous_catalog_revision = null, $scope_codes = array() ) {
 		return Digitalogic_Product_Sync_Receiver::instance()->reprice_pricing_state(
 			$this->receiver_settings( $settings ),
 			array(),
-			array(),
+			$scope_codes,
 			$previous_catalog_revision
 		);
 	}

@@ -704,6 +704,136 @@ class Digitalogic_Product_Sync_Receiver {
     }
 
     /**
+     * Return the active canonical pricing scope without exposing product rows.
+     *
+     * The internal state revision and Product Code digest are safety pins for
+     * bounded worker batches. They are not optional peer-supplied metadata.
+     *
+     * @param array $bound_source Exact authenticated source ID and dataset.
+     * @return array|WP_Error
+     */
+    public function pricing_state_snapshot($bound_source) {
+        if (
+            !is_array($bound_source)
+            || array_is_list($bound_source)
+            || !is_string($bound_source['id'] ?? null)
+            || !is_string($bound_source['dataset'] ?? null)
+            || '' === trim($bound_source['id'])
+            || '' === trim($bound_source['dataset'])
+            || trim($bound_source['id']) !== $bound_source['id']
+            || trim($bound_source['dataset']) !== $bound_source['dataset']
+        ) {
+            return $this->error(
+                'digitalogic_pricing_source_scope_invalid',
+                'An exact pricing source ID and dataset are required.',
+                400
+            );
+        }
+        $state = $this->load_state();
+        if (empty($state['sources'])) {
+            return $this->error(
+                'digitalogic_pricing_source_state_required',
+                'A current pricing source is required.',
+                409
+            );
+        }
+
+        $codes = array();
+        $sources = array();
+        $pending_total = 0;
+        $deferred_ambiguous = 0;
+        $bound_key = $this->source_key($bound_source['id'], $bound_source['dataset']);
+        $scoped_state = array();
+        ksort($state['sources'], SORT_STRING);
+        foreach ($state['sources'] as $source_key => $source_state) {
+            if (
+                !is_array($source_state)
+                || 'IRT' !== (string) ($source_state['local_currency'] ?? '')
+                || self::FORMULA_ID !== (string) ($source_state['formula_id'] ?? '')
+            ) {
+                continue;
+            }
+            $source = is_array($source_state['source'] ?? null) ? $source_state['source'] : array();
+            if (
+                !hash_equals($bound_key, (string) $source_key)
+                || !hash_equals($bound_source['id'], (string) ($source['id'] ?? ''))
+                || !hash_equals($bound_source['dataset'], (string) ($source['dataset'] ?? ''))
+            ) {
+                continue;
+            }
+            $scoped_state[$source_key] = $source_state;
+            $source_codes = array();
+            $products = is_array($source_state['products'] ?? null) ? $source_state['products'] : array();
+            foreach ($products as $code_key => $product) {
+                $product_code = $this->delivery_product_code($products, $code_key);
+                if (null === $product_code) {
+                    return $this->error(
+                        'digitalogic_pricing_product_code_invalid',
+                        'The active pricing source contains an invalid Product Code.',
+                        409
+                    );
+                }
+                if (isset($codes[$product_code])) {
+                    return $this->error(
+                        'digitalogic_pricing_product_source_ambiguous',
+                        'A Product Code belongs to more than one active pricing source.',
+                        409,
+                        array('product_code' => $product_code)
+                    );
+                }
+                $codes[$product_code] = true;
+                $source_codes[] = $product_code;
+            }
+            sort($source_codes, SORT_STRING);
+            $deferred = $this->deferred_summary($source_state['deferred_products'] ?? array());
+            $pending_total += count(is_array($source_state['pending_products'] ?? null) ? $source_state['pending_products'] : array());
+            $deferred_ambiguous += (int) ($deferred['ambiguous'] ?? 0);
+            $sources[] = array(
+                'key' => (string) $source_key,
+                'id' => (string) ($source['id'] ?? ''),
+                'dataset' => (string) ($source['dataset'] ?? ''),
+                'revision' => (string) ($source['revision'] ?? ''),
+                'row_count' => count($source_codes),
+                'code_digest' => $this->hash_identity($this->encode_go_json($source_codes)),
+            );
+        }
+
+        if (empty($sources)) {
+            return $this->error(
+                'digitalogic_pricing_active_source_required',
+                'No active landed-price source is available.',
+                409
+            );
+        }
+        $codes = array_keys($codes);
+        sort($codes, SORT_STRING);
+
+        return array(
+            'schema' => 'digitalogic.pricing-scope',
+            'state_revision' => 'sha256:' . $this->state_digest($scoped_state),
+            'code_digest' => $this->hash_identity($this->encode_go_json($codes)),
+            'row_count' => count($codes),
+            'codes' => $codes,
+            'sources' => $sources,
+            'pending_products' => $pending_total,
+            'deferred_ambiguous' => $deferred_ambiguous,
+        );
+    }
+
+    /** Probe the receiver advisory lock without waiting. */
+    public function coordinated_lock_is_held() {
+        global $wpdb;
+        if (!is_object($wpdb) || !method_exists($wpdb, 'get_var') || !method_exists($wpdb, 'prepare')) {
+            return $this->error('digitalogic_product_sync_lock_probe_unavailable', 'The product-sync lock cannot be inspected.', 503);
+        }
+        $prefix = isset($wpdb->prefix) ? (string) $wpdb->prefix : 'wp_';
+        $name = substr(self::LOCK_NAME . '_' . md5($prefix), 0, 64);
+        $owner = $wpdb->get_var($wpdb->prepare('SELECT IS_USED_LOCK(%s)', $name));
+
+        return null !== $owner && false !== $owner;
+    }
+
+    /**
      * Return a bounded, nonsecret operational summary.
      *
      * @return array
@@ -1411,7 +1541,7 @@ class Digitalogic_Product_Sync_Receiver {
                 $product = $products[$product_code_key];
                 $resolved = $this->coordinated_resolution($product_code, $resolution_cache);
                 if (is_wp_error($resolved)) {
-                    $reason = $this->terminal_resolution_reason($resolved->get_error_code());
+                    $reason = $this->coordinated_resolution_reason($resolved->get_error_code());
                     if ('missing' === $reason) {
                         if (isset($delivery['pending_products'][$product_code])) {
                             $delivery['pending_products'][$product_code]['pricing_only'] = true;
@@ -1530,7 +1660,7 @@ class Digitalogic_Product_Sync_Receiver {
                 }
                 $resolved = $this->coordinated_resolution($product_code, $resolution_cache);
                 if (is_wp_error($resolved)) {
-                    if ('missing' === $this->terminal_resolution_reason($resolved->get_error_code())) {
+                    if ('missing' === $this->coordinated_resolution_reason($resolved->get_error_code())) {
                         continue;
                     }
                     return $this->error(
@@ -1589,6 +1719,19 @@ class Digitalogic_Product_Sync_Receiver {
             }
         }
 
+        $next_source_identities = $this->source_identity_state($state);
+        if (!empty($scope_codes)) {
+            $allowed_source_keys = array_fill_keys(array_keys($pricing_sources), true);
+            $previous_source_identities['sources'] = array_intersect_key(
+                (array) ($previous_source_identities['sources'] ?? array()),
+                $allowed_source_keys
+            );
+            $next_source_identities['sources'] = array_intersect_key(
+                (array) ($next_source_identities['sources'] ?? array()),
+                $allowed_source_keys
+            );
+        }
+
         return array(
             'schema' => 'digitalogic.pricing-reconcile-result',
             'status' => 'reconciled',
@@ -1604,7 +1747,7 @@ class Digitalogic_Product_Sync_Receiver {
             'warnings' => $pricing_warnings,
             'sources' => $source_results,
             'source_state_before' => $previous_source_identities,
-            'source_state_after' => $this->source_identity_state($state),
+            'source_state_after' => $next_source_identities,
         );
     }
 
@@ -3533,7 +3676,7 @@ class Digitalogic_Product_Sync_Receiver {
                 );
             if (is_wp_error($resolved)) {
                 $error_code = $resolved->get_error_code();
-                $deferred_reason = $this->terminal_resolution_reason($error_code);
+                $deferred_reason = $this->coordinated_resolution_reason($error_code);
                 if ('missing' === $deferred_reason) {
                     ++$result['missing'];
                 } elseif ('ambiguous' === $deferred_reason) {
@@ -3853,6 +3996,24 @@ class Digitalogic_Product_Sync_Receiver {
 		}
 
         return null;
+    }
+
+    /**
+     * Preserve missing Woo targets as a tolerated bounded-pricing outcome.
+     *
+     * Normal source delivery can materialize a missing product before it
+     * reaches terminal classification. A caller-owned pricing transaction must
+     * not create catalog identities, so its missing target remains deferred.
+     *
+     * @param string $error_code Exact resolver error code.
+     * @return string|null
+     */
+    private function coordinated_resolution_reason($error_code) {
+        if ('digitalogic_product_identifier_not_found' === $error_code) {
+            return 'missing';
+        }
+
+        return $this->terminal_resolution_reason($error_code);
     }
 
     private function deferred_summary($deferred) {

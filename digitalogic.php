@@ -145,6 +145,7 @@ final class Digitalogic {
 		require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-pricing-diagnostic.php';
 		require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-pricing-canonical-model.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-excel-pricing-sync.php';
+		require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-pricing-apply-jobs.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-pricing-coordinator.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-currency-admin-async.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-report-engine.php';
@@ -261,6 +262,7 @@ final class Digitalogic {
         Digitalogic_Google_Sheets_Catalog::instance();
         Digitalogic_Google_Sheets_Writeback::instance();
         Digitalogic_Excel_Pricing_Sync::instance();
+		Digitalogic_Pricing_Apply_Jobs::instance();
         Digitalogic_Pricing_Coordinator::instance();
         Digitalogic_Currency_Admin_Async::instance();
         Digitalogic_Report_Engine::instance();
@@ -390,6 +392,7 @@ final class Digitalogic {
      * Plugin deactivation
      */
     public function deactivate() {
+		Digitalogic_Pricing_Apply_Jobs::deactivate();
 		Digitalogic_Pricing_Snapshot::instance()->deactivate_freshness_boundary_schedule();
 		Digitalogic_Panel::deactivate_event_wake_retry();
 		Digitalogic_Patris_Incomplete_Product_Notifier::deactivate();
