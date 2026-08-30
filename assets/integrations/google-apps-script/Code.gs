@@ -143,6 +143,7 @@ function syncCatalog() {
       && previousProjectionRevision
       && calculateManagedSheetRevision_(spreadsheet) === previousProjectionRevision) {
       upsertPricingSettings_(spreadsheet, pricingState, config.locale);
+      refreshLocalizedCatalogViews_(spreadsheet);
       stateProperties.setProperties({
         DIGITALOGIC_LAST_SYNC_AT: new Date().toISOString(),
         DIGITALOGIC_LAST_SYNC_STATUS: 'ok',
@@ -166,6 +167,7 @@ function syncCatalog() {
       upsertDataset_(spreadsheet, dataset, config.locale);
     });
     upsertPricingSettings_(spreadsheet, pricingState, config.locale);
+    refreshLocalizedCatalogViews_(spreadsheet);
     const projectionRevision = calculateManagedSheetRevision_(spreadsheet);
 
     stateProperties.setProperties({
@@ -202,6 +204,118 @@ function syncCatalog() {
   } finally {
     lock.releaseLock();
   }
+}
+
+/**
+ * Keep the optional Persian consumer views aligned with the complete Products
+ * projection. Column positions are resolved from stable machine headers and the
+ * row bound is recomputed on every full or unchanged sync, so catalog growth
+ * cannot silently leave the visible projection behind.
+ */
+function refreshLocalizedCatalogViews_(spreadsheet) {
+  const products = spreadsheet.getSheetByName('Products');
+  if (!products || products.getLastRow() < 2) {
+    return false;
+  }
+
+  const headers = products.getRange(1, 1, 1, products.getLastColumn()).getDisplayValues()[0];
+  const columns = {};
+  headers.forEach(function (header, index) {
+    const key = String(header || '').trim();
+    if (key && !Object.prototype.hasOwnProperty.call(columns, key)) {
+      columns[key] = index + 1;
+    }
+  });
+  const requiredKeys = [
+    'sync_key', 'patris_code', 'woo_id', 'publication_status', 'name', 'categories',
+    'regular_price', 'effective_price', 'patris_total_stock', 'stock_quantity', 'storage_location',
+    'weight_grams', 'foreign_price', 'product_url', 'identity_source', 'sync_status',
+    'sync_warning', 'record_revision',
+  ];
+  const missingKeys = requiredKeys.filter(function (key) { return !columns[key]; });
+  if (missingKeys.length) {
+    throw new Error('Localized catalog view requires Products columns: ' + missingKeys.join(', ') + '.');
+  }
+
+  const lastRow = Math.max(products.getLastRow(), 3);
+  function dataRange(key) {
+    const letter = columnNumberToA1_(columns[key]);
+    return 'Products!$' + letter + '$3:$' + letter + '$' + lastRow;
+  }
+
+  const syncKey = dataRange('sync_key');
+  const stock = dataRange('stock_quantity');
+  const priceList = spreadsheet.getSheetByName('فهرست قیمت');
+  if (priceList) {
+    const dataRows = Math.max(lastRow - 2, 1);
+    const requiredRows = dataRows + 5;
+    if (priceList.getMaxRows() < requiredRows) {
+      priceList.insertRowsAfter(priceList.getMaxRows(), requiredRows - priceList.getMaxRows());
+    }
+    const weight = dataRange('weight_grams');
+    const location = dataRange('storage_location');
+    const sourceStock = dataRange('patris_total_stock');
+    const name = dataRange('name');
+    const url = dataRange('product_url');
+    const formulas = [[
+      '=ARRAYFORMULA(IF(' + syncKey + '="","",' + dataRange('effective_price') + '))',
+      '=ARRAYFORMULA(IF(' + syncKey + '="","",' + weight + '))',
+      '=ARRAYFORMULA(IF(' + syncKey + '="","",IF(' + weight + '<>"",' + weight + '&" گرم","")&IF((' + weight + '<>"")*(' + location + '<>"")," - ","")&' + location + '))',
+      '=ARRAYFORMULA(IF(' + syncKey + '="","",' + location + '))',
+      '=ARRAYFORMULA(IF(' + syncKey + '="","",' + dataRange('foreign_price') + '))',
+      '=ARRAYFORMULA(IF(' + syncKey + '="","",IF(' + stock + '<>"",' + stock + ',' + sourceStock + ')))',
+      '=ARRAYFORMULA(IF(' + syncKey + '="","",' + dataRange('patris_code') + '))',
+      '=ARRAYFORMULA(IF(' + syncKey + '="","",IF(' + url + '<>"",HYPERLINK(' + url + ',' + name + '),' + name + ')))',
+      '=ARRAYFORMULA(IF(' + syncKey + '="","",' + dataRange('woo_id') + '))',
+      '=ARRAYFORMULA(IF(' + syncKey + '="","",' + dataRange('categories') + '))',
+      '=ARRAYFORMULA(IF(' + syncKey + '="","",' + dataRange('publication_status') + '))',
+      '=ARRAYFORMULA(IF(' + syncKey + '="","",' + dataRange('identity_source') + '))',
+      '=ARRAYFORMULA(IF(' + syncKey + '="","",' + dataRange('sync_status') + '))',
+      '=ARRAYFORMULA(IF(' + syncKey + '="","",' + dataRange('sync_warning') + '))',
+      '=ARRAYFORMULA(IF(' + syncKey + '="","",' + dataRange('record_revision') + '))',
+      '=ARRAYFORMULA(IF(' + syncKey + '="","",' + syncKey + '))',
+    ]];
+    const formulaRange = priceList.getRange(6, 1, 1, formulas[0].length);
+    if (JSON.stringify(formulaRange.getFormulas()) !== JSON.stringify(formulas)) {
+      formulaRange.setFormulas(formulas);
+    }
+  }
+
+  const localizedDashboard = spreadsheet.getSheetByName('داشبورد');
+  if (localizedDashboard) {
+    const dashboardFormulas = {
+      A6: '=COUNTA(' + syncKey + ')',
+      D6: '=COUNTIF(' + dataRange('effective_price') + ',">0")',
+      G6: '=COUNTIF(' + stock + ',">0")',
+      J6: '=COUNTIFS(' + syncKey + ',"<>",' + dataRange('woo_id') + ',"")',
+      A17: '=COUNTIFS(' + syncKey + ',"<>",' + dataRange('effective_price') + ',"")',
+      D17: '=SUMPRODUCT((' + syncKey + '<>"")*(' + dataRange('effective_price') + '<>"")*(' + dataRange('regular_price') + '<>"")*(' + dataRange('regular_price') + '<>' + dataRange('effective_price') + '))',
+      G17: '=COUNTIFS(' + syncKey + ',"<>",' + dataRange('patris_code') + ',"")',
+      J17: '=COUNTIFS(' + syncKey + ',"<>",' + dataRange('woo_id') + ',"")',
+    };
+    Object.keys(dashboardFormulas).forEach(function (a1) {
+      const cell = localizedDashboard.getRange(a1);
+      if (cell.getFormula() !== dashboardFormulas[a1]) {
+        cell.setFormula(dashboardFormulas[a1]);
+      }
+    });
+  }
+  return Boolean(priceList || localizedDashboard);
+}
+
+/** Convert a one-based sheet column number to its A1 column label. */
+function columnNumberToA1_(columnNumber) {
+  let value = Number(columnNumber);
+  if (!Number.isInteger(value) || value < 1) {
+    throw new Error('Sheet column number must be a positive integer.');
+  }
+  let label = '';
+  while (value > 0) {
+    value -= 1;
+    label = String.fromCharCode(65 + (value % 26)) + label;
+    value = Math.floor(value / 26);
+  }
+  return label;
 }
 
 /** Fetch the cheap authoritative invalidation revision before any report page. */
@@ -2511,6 +2625,7 @@ if (typeof module !== 'undefined' && module.exports) {
     validateCompleteCatalogSnapshot_: validateCompleteCatalogSnapshot_,
     calculateCatalogSourceRevision_: calculateCatalogSourceRevision_,
     calculateManagedSheetRevision_: calculateManagedSheetRevision_,
+    columnNumberToA1_: columnNumberToA1_,
     validatePricingSettingsState_: validatePricingSettingsState_,
     validateWritebackResponse_: validateWritebackResponse_,
     updateDashboard_: updateDashboard_,
