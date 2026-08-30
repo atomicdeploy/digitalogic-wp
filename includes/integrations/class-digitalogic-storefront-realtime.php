@@ -14,12 +14,13 @@ if ( ! defined( 'ABSPATH' ) ) {
  */
 final class Digitalogic_Storefront_Realtime {
 
-	private const REST_ROUTE         = '/events/stream';
-	private const STREAM_SECONDS     = 20;
-	private const POLL_MICROSECONDS  = 500000;
-	private const HEARTBEAT_SECONDS  = 8;
-	private const MAX_CURSOR_DIGITS  = 20;
-	private const PUBLIC_EVENT_NAMES = array(
+	private const REST_ROUTE            = '/events/stream';
+	private const STREAM_SECONDS        = 20;
+	private const POLL_MICROSECONDS     = 500000;
+	private const HEARTBEAT_SECONDS     = 8;
+	private const INITIAL_PADDING_BYTES = 8192;
+	private const MAX_CURSOR_DIGITS     = 20;
+	private const PUBLIC_EVENT_NAMES    = array(
 		'currency.updated',
 		'product.updated',
 		'product.created',
@@ -215,6 +216,9 @@ final class Digitalogic_Storefront_Realtime {
 
 		@set_time_limit( self::STREAM_SECONDS + 5 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
 		ignore_user_abort( true );
+
+		// Cross common FastCGI/proxy response-buffer thresholds before the first flush.
+		echo ': ' . str_repeat( ' ', self::INITIAL_PADDING_BYTES ) . "\n\n"; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
 
 		$cursor = $this->request_cursor( $request );
 		$latest = Digitalogic_Panel::get_latest_event_id();
