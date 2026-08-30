@@ -7,31 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
-- Materialize every identity-safe Patris source leaf even when commerce or
-  enrichment data is incomplete, keeping unavailable prices blank and products
-  public but non-purchasable until canonical data arrives.
-- Omit unavailable Rank Math Open Graph, Twitter, and schema offer prices for
-  canonical unpriced products instead of exposing a zero-price placeholder.
-- Preserve each exact pricing state-event retry through scheduler lock timeouts, running-worker handoffs, and bounded Action Scheduler or WP-Cron degradation without collapsing distinct fallback identities.
-- Keep a delivered state identity in the durable outbox until its bounded receipt commits, preventing replay after receipt failure or panel rotation.
-- Retire normalized receipts and delivered markers before ordered source removal, while preserving one fresh composite event when the same source is rapidly reintroduced.
-
-### Changed
-- Consolidated pricing state, preview, apply, projection snapshots, and the
-  protected pricing WebSocket stream into one Living contract. Removed all
-  version-suffixed pricing schemas, projections, subprotocols, private
-  action/cache identifiers, and the Excel-prefixed remote compatibility routes.
-- Reduced the public Excel projection to the exact 26 fields consumed by the
-  workbook while retaining the complete reconciled catalog only as an internal
-  build input.
-
 ## [1.8.40] - 2026-08-30
 
 ### Added
 - Deliver privacy-filtered, accessible storefront toasts and banners through the existing durable notification event, live SSE connection, Redis/WebSocket publisher, and cross-tab relay.
 - Support broadcast, user-ID, role, exact user-attribute, device, and operator audiences with `any`/`all` matching, server-side filtering, expiry, dismissal, severity, same-origin links, and text-only rendering.
-- Extend `wp digitalogic event-mesh notify` with inline storefront options and JSON receipts, and document the existing authenticated version-less n8n notification endpoint.
+- Extend `wp digitalogic event-mesh notify` with inline storefront options and JSON receipts, and document the authenticated `digitalogic/v1` n8n notification endpoint.
+- Add bounded, audited Product Code editing with exact compare-and-swap, idempotent recovery, source-governance guards, uniqueness checks, and targeted rollback.
+- Add durable asynchronous currency and Excel pricing-apply jobs with exact request replay, status, cancellation, batches of at most 25 Product Codes, workbook acknowledgement, bounded compensation, and terminal outbox receipts.
+- Add provider, WooCommerce, and consumer adapter boundaries, canonical semantic pricing state, capability-aware recovery, and actionable non-blocking diagnostics for safe optional metadata differences.
+- Add transition-only Persian operator alerts for incomplete Patris products with explicit channel routing, bounded retry, repair, and provider-receipt validation.
+
+### Changed
+- Consolidate pricing state, preview, apply, projection snapshots, and the protected pricing WebSocket stream into one Living contract without version-suffixed schemas, subprotocols, private identifiers, or Excel-prefixed compatibility routes.
+- Reduce the public Excel projection to the exact 26 workbook fields while retaining the complete reconciled catalog as an internal build input.
+
+### Fixed
+- Materialize every identity-safe Patris source leaf even when commerce or enrichment data is incomplete, keeping unavailable prices blank and products public but non-purchasable until canonical data arrives.
+- Omit unavailable Rank Math Open Graph, Twitter, and schema offer prices for canonical unpriced products instead of exposing a zero-price placeholder.
+- Preserve exact pricing state-event retries through scheduler lock timeouts, running-worker handoffs, and bounded Action Scheduler or WP-Cron degradation without collapsing distinct fallback identities.
+- Keep delivered state identities in the durable outbox until their bounded receipts commit, preventing replay after receipt failure or panel rotation.
+- Retire normalized receipts and delivered markers before ordered source removal while preserving one fresh composite event when the same source is rapidly reintroduced.
 
 ### Security
 - Partition browser coordination and cursors by an opaque signed-in audience key, reject secret-bearing attribute selectors, and omit audience criteria, workstation actions, response fields, sources, and credentials from the public SSE projection.
