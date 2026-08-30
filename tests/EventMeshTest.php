@@ -130,16 +130,16 @@ final class EventMeshTest extends TestCase {
 			'roles'        => array( 'customer' ),
 		);
 		$GLOBALS['digitalogic_test_user_meta'][42]   = array(
-			'billing_country'   => 'IR',
+			'billing_country'    => 'IR',
 			'preferred_language' => 'fa_IR',
 		);
-		$event = array(
+		$event                                       = array(
 			'name' => 'workstation.notification',
 			'data' => array(
 				'audience' => array(
 					'roles'           => array( 'customer' ),
 					'attributes'      => array(
-						'billing_country'   => array( 'IR' ),
+						'billing_country'    => array( 'IR' ),
 						'preferred_language' => array( 'fa_IR' ),
 					),
 					'match'           => 'all',
@@ -222,24 +222,24 @@ final class EventMeshTest extends TestCase {
 			'id'   => 102,
 			'name' => 'pricing.snapshot.build.terminal',
 			'data' => array(
-				'schema'                 => 'provider.snapshot.ready',
-				'schema_version'         => 42,
-				'projection'             => 'canonical',
-				'build_id'               => 'build_' . str_repeat( '2', 32 ),
-				'request_id'             => 'request-canonical-0001',
-				'status'                 => 'ready',
-				'source'                 => $source,
-				'state_revision'         => 'sha256:' . str_repeat( '3', 64 ),
-				'etag'                   => '"sha256:' . str_repeat( '3', 64 ) . '"',
-				'pricing_state_revision' => 'sha256:' . str_repeat( '4', 64 ),
+				'schema'                  => 'provider.snapshot.ready',
+				'schema_version'          => 42,
+				'projection'              => 'canonical',
+				'build_id'                => 'build_' . str_repeat( '2', 32 ),
+				'request_id'              => 'request-canonical-0001',
+				'status'                  => 'ready',
+				'source'                  => $source,
+				'state_revision'          => 'sha256:' . str_repeat( '3', 64 ),
+				'etag'                    => '"sha256:' . str_repeat( '3', 64 ) . '"',
+				'pricing_state_revision'  => 'sha256:' . str_repeat( '4', 64 ),
 				'pricing_policy_revision' => 'sha256:' . str_repeat( '7', 64 ),
-				'catalog_revision'       => 'sha256:' . str_repeat( '5', 64 ),
-				'snapshot_token'         => 'snapshot-canonical-0001',
-				'revision'               => 'sha256:' . str_repeat( '6', 64 ),
-				'row_count'              => 757,
-				'snapshot_path'          => '/provider/snapshot/current',
-				'revision_path'          => '/provider/revision/current',
-				'audience'               => array( 'services' => array( 'patris_pricing' ) ),
+				'catalog_revision'        => 'sha256:' . str_repeat( '5', 64 ),
+				'snapshot_token'          => 'snapshot-canonical-0001',
+				'revision'                => 'sha256:' . str_repeat( '6', 64 ),
+				'row_count'               => 757,
+				'snapshot_path'           => '/provider/snapshot/current',
+				'revision_path'           => '/provider/revision/current',
+				'audience'                => array( 'services' => array( 'patris_pricing' ) ),
 			),
 		);
 

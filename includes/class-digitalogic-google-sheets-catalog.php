@@ -14,9 +14,9 @@ if ( ! defined( 'ABSPATH' ) ) {
  */
 final class Digitalogic_Google_Sheets_Catalog {
 
-	public const MAX_PAGE_SIZE             = 250;
-	private const PRODUCT_QUERY_PAGE_SIZE  = 100;
-	private const RECONCILED_EXCEL_KEYS = array(
+	public const MAX_PAGE_SIZE            = 250;
+	private const PRODUCT_QUERY_PAGE_SIZE = 100;
+	private const RECONCILED_EXCEL_KEYS   = array(
 		'sync_key',
 		'reconciliation_status',
 		'patris_code',
@@ -115,14 +115,14 @@ final class Digitalogic_Google_Sheets_Catalog {
 	 * @return array|WP_Error
 	 */
 	public function get_revision( $args = array() ) {
-		$args = is_array( $args ) ? $args : array();
-		$source_id = isset( $args['source_id'] ) && is_scalar( $args['source_id'] )
+		$args           = is_array( $args ) ? $args : array();
+		$source_id      = isset( $args['source_id'] ) && is_scalar( $args['source_id'] )
 			? sanitize_text_field( (string) $args['source_id'] )
 			: '';
 		$source_dataset = isset( $args['source_dataset'] ) && is_scalar( $args['source_dataset'] )
 			? sanitize_text_field( (string) $args['source_dataset'] )
 			: '';
-		$revision = Digitalogic_Report_Engine::instance()->projection_revision( $source_id, $source_dataset );
+		$revision       = Digitalogic_Report_Engine::instance()->projection_revision( $source_id, $source_dataset );
 		if ( is_wp_error( $revision ) ) {
 			return $revision;
 		}
@@ -628,7 +628,7 @@ final class Digitalogic_Google_Sheets_Catalog {
 		if ( is_wp_error( $report ) ) {
 			return $report;
 		}
-		$integrity_warnings = array_values( (array) ( $report['integrity']['warnings'] ?? array() ) );
+		$integrity_warnings          = array_values( (array) ( $report['integrity']['warnings'] ?? array() ) );
 		$blocking_integrity_warnings = $this->blocking_integrity_warnings( $integrity_warnings );
 		if ( ! empty( $blocking_integrity_warnings ) ) {
 			return new WP_Error(
@@ -1046,21 +1046,21 @@ final class Digitalogic_Google_Sheets_Catalog {
 	 */
 	private function reconciliation_counts( $counts, $total ) {
 		return array(
-			'patris_products'             => absint( $counts['patris_products'] ?? 0 ),
-			'woocommerce_raw'             => absint( $counts['woocommerce_products_raw'] ?? 0 ),
-			'woocommerce_leaves'          => absint( $counts['woocommerce_products'] ?? 0 ),
-			'union_rows'                  => absint( $total ),
-			'matched'                     => absint( $counts['matched_products'] ?? 0 ),
-			'source_only'                 => absint( $counts['source_only_products'] ?? 0 ),
-			'patris_only'                 => absint( $counts['source_only_products'] ?? 0 ),
-			'woo_only'                    => absint( $counts['woocommerce_only_products'] ?? 0 ),
-			'ambiguous_codes'             => absint( $counts['ambiguous_codes'] ?? 0 ),
-			'variable_parents_excluded'   => absint( $counts['variable_parents_excluded'] ?? 0 ),
-			'quarantined_identity_groups' => absint( $counts['quarantined_identity_groups'] ?? 0 ),
-			'quarantined_source_rows'     => absint( $counts['quarantined_source_rows'] ?? 0 ),
-			'quarantined_woo_rows'        => absint( $counts['quarantined_woo_rows'] ?? 0 ),
-			'one_to_one_split_candidates' => absint( $counts['one_to_one_split_candidates'] ?? 0 ),
-			'identity_collision_groups'   => absint( $counts['identity_collision_groups'] ?? 0 ),
+			'patris_products'              => absint( $counts['patris_products'] ?? 0 ),
+			'woocommerce_raw'              => absint( $counts['woocommerce_products_raw'] ?? 0 ),
+			'woocommerce_leaves'           => absint( $counts['woocommerce_products'] ?? 0 ),
+			'union_rows'                   => absint( $total ),
+			'matched'                      => absint( $counts['matched_products'] ?? 0 ),
+			'source_only'                  => absint( $counts['source_only_products'] ?? 0 ),
+			'patris_only'                  => absint( $counts['source_only_products'] ?? 0 ),
+			'woo_only'                     => absint( $counts['woocommerce_only_products'] ?? 0 ),
+			'ambiguous_codes'              => absint( $counts['ambiguous_codes'] ?? 0 ),
+			'variable_parents_excluded'    => absint( $counts['variable_parents_excluded'] ?? 0 ),
+			'quarantined_identity_groups'  => absint( $counts['quarantined_identity_groups'] ?? 0 ),
+			'quarantined_source_rows'      => absint( $counts['quarantined_source_rows'] ?? 0 ),
+			'quarantined_woo_rows'         => absint( $counts['quarantined_woo_rows'] ?? 0 ),
+			'one_to_one_split_candidates'  => absint( $counts['one_to_one_split_candidates'] ?? 0 ),
+			'identity_collision_groups'    => absint( $counts['identity_collision_groups'] ?? 0 ),
 			'source_code_collision_groups' => absint( $counts['source_code_collision_groups'] ?? 0 ),
 			'woo_code_collision_groups'    => absint( $counts['woo_code_collision_groups'] ?? 0 ),
 			'woo_sku_collision_groups'     => absint( $counts['woo_sku_collision_groups'] ?? 0 ),

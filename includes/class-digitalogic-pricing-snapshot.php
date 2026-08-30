@@ -1638,27 +1638,27 @@ final class Digitalogic_Pricing_Snapshot {
 		}
 
 		$data = array(
-			'schema'                 => self::BUILD_EVENT_SCHEMA,
-			'projection'             => self::PROJECTION,
-			'build_id'               => $build_id,
-			'request_id'             => (string) $request_id,
-			'status'                 => $status,
-			'source'                 => $source,
-			'state_revision'         => (string) $job['state_revision'],
-			'etag'                   => $this->etag( (string) $job['state_revision'] ),
-			'pricing_state_revision' => (string) $job['pricing_state_revision'],
+			'schema'                  => self::BUILD_EVENT_SCHEMA,
+			'projection'              => self::PROJECTION,
+			'build_id'                => $build_id,
+			'request_id'              => (string) $request_id,
+			'status'                  => $status,
+			'source'                  => $source,
+			'state_revision'          => (string) $job['state_revision'],
+			'etag'                    => $this->etag( (string) $job['state_revision'] ),
+			'pricing_state_revision'  => (string) $job['pricing_state_revision'],
 			'pricing_policy_revision' => (string) $job['pricing_policy_revision'],
-			'catalog_revision'       => (string) $job['catalog_revision'],
-			'retryable'              => (bool) ( $job['retryable'] ?? false ),
-			'idempotency_key'        => $this->digest(
+			'catalog_revision'        => (string) $job['catalog_revision'],
+			'retryable'               => (bool) ( $job['retryable'] ?? false ),
+			'idempotency_key'         => $this->digest(
 				array(
 					'schema'     => self::BUILD_EVENT_SCHEMA,
 					'build_id'   => $build_id,
 					'request_id' => (string) $request_id,
 				)
 			),
-			'revision_path'          => '/wp-json/digitalogic/pricing/sync/revision',
-			'audience'               => array(
+			'revision_path'           => '/wp-json/digitalogic/pricing/sync/revision',
+			'audience'                => array(
 				'services' => array( Digitalogic_Pricing_Adapter_Registry::instance()->provider()->event_principal() ),
 			),
 		);
@@ -2694,8 +2694,8 @@ final class Digitalogic_Pricing_Snapshot {
 				)
 			);
 		}
-		$meta['page_digests'] = $page_digests;
-		$meta['revision']     = $this->snapshot_digest( $meta, $rows );
+		$meta['page_digests']    = $page_digests;
+		$meta['revision']        = $this->snapshot_digest( $meta, $rows );
 		$catalog_metadata_digest = $this->digest(
 			array(
 				'dataset_revision' => $meta['dataset_revision'],
@@ -3007,28 +3007,28 @@ final class Digitalogic_Pricing_Snapshot {
 	private function new_job( $payload, $current, $build_key, $status, $build_id = '' ) {
 		$created = time();
 		return array(
-			'schema'                 => self::BUILD_SCHEMA,
-			'build_id'               => '' !== $build_id ? $build_id : 'build_' . $this->token(),
-			'request_id'             => $payload['request_id'],
-			'terminal_request_ids'   => array( $payload['request_id'] ),
-			'watchdog_token'         => $this->token(),
-			'client_id'              => $payload['client_id'],
-			'channel'                => $payload['channel'],
-			'source'                 => $payload['source'],
-			'locale'                 => $payload['locale'],
-			'page_size'              => $payload['page_size'],
-			'state_revision'         => $current['state_revision'],
-			'pricing_state_revision' => $current['pricing_state_revision'],
+			'schema'                  => self::BUILD_SCHEMA,
+			'build_id'                => '' !== $build_id ? $build_id : 'build_' . $this->token(),
+			'request_id'              => $payload['request_id'],
+			'terminal_request_ids'    => array( $payload['request_id'] ),
+			'watchdog_token'          => $this->token(),
+			'client_id'               => $payload['client_id'],
+			'channel'                 => $payload['channel'],
+			'source'                  => $payload['source'],
+			'locale'                  => $payload['locale'],
+			'page_size'               => $payload['page_size'],
+			'state_revision'          => $current['state_revision'],
+			'pricing_state_revision'  => $current['pricing_state_revision'],
 			'pricing_policy_revision' => $current['pricing_policy_revision'],
-			'catalog_revision'       => $current['catalog_revision'],
-			'build_key'              => $build_key,
-			'status'                 => $status,
-			'created_at'             => gmdate( 'c', $created ),
-			'updated_at'             => gmdate( 'c', $created ),
-			'start_deadline_at'      => gmdate( 'c', $created + self::QUEUE_START_TTL ),
-			'deadline_at'            => gmdate( 'c', $created + self::BUILD_TTL ),
-			'cached'                 => false,
-			'progress'               => $this->progress( 'queued', 0, 0, 0 ),
+			'catalog_revision'        => $current['catalog_revision'],
+			'build_key'               => $build_key,
+			'status'                  => $status,
+			'created_at'              => gmdate( 'c', $created ),
+			'updated_at'              => gmdate( 'c', $created ),
+			'start_deadline_at'       => gmdate( 'c', $created + self::QUEUE_START_TTL ),
+			'deadline_at'             => gmdate( 'c', $created + self::BUILD_TTL ),
+			'cached'                  => false,
+			'progress'                => $this->progress( 'queued', 0, 0, 0 ),
 		);
 	}
 

@@ -750,18 +750,18 @@ final class Digitalogic_Excel_Pricing_Sync {
 		}
 
 		$response = array(
-			'schema'             => self::STATE_SCHEMA,
-			'state_revision'     => $globals['state_revision'],
-			'capabilities'       => Digitalogic_Pricing_Adapter_Registry::instance()->capabilities(),
-			'diagnostics'        => Digitalogic_Pricing_Adapter_Registry::instance()->diagnostics(),
-			'generated_at'       => $this->now_iso8601(),
-			'source'             => $source_context,
-			'client_id'          => $payload['client_id'],
-			'channel'            => $payload['channel'],
-			'request_id'         => $payload['request_id'],
-			'warnings'           => $warnings,
-			'confirmation'       => $this->current_confirmation_projection(),
-			'settings'           => array(
+			'schema'           => self::STATE_SCHEMA,
+			'state_revision'   => $globals['state_revision'],
+			'capabilities'     => Digitalogic_Pricing_Adapter_Registry::instance()->capabilities(),
+			'diagnostics'      => Digitalogic_Pricing_Adapter_Registry::instance()->diagnostics(),
+			'generated_at'     => $this->now_iso8601(),
+			'source'           => $source_context,
+			'client_id'        => $payload['client_id'],
+			'channel'          => $payload['channel'],
+			'request_id'       => $payload['request_id'],
+			'warnings'         => $warnings,
+			'confirmation'     => $this->current_confirmation_projection(),
+			'settings'         => array(
 				'dollar_price'              => $globals['currency']['dollar_price'],
 				'yuan_price'                => $globals['currency']['yuan_price'],
 				'effective_date'            => $globals['currency']['cny_effective_date'],
@@ -774,16 +774,16 @@ final class Digitalogic_Excel_Pricing_Sync {
 				'air_express_currency'      => $globals['shipping']['currency'],
 				'shipping_catalog_revision' => $globals['shipping']['catalog_revision'],
 			),
-			'currency'           => $globals['currency'],
-			'profit_margin'      => array(
+			'currency'         => $globals['currency'],
+			'profit_margin'    => array(
 				'configured'            => (bool) $globals['default_markup']['configured'],
 				'profit_margin_percent' => $globals['default_markup']['profit_percent'],
 				'revision'              => $globals['default_markup']['revision'],
 				'updated_at'            => $globals['default_markup']['updated_at'],
 			),
-			'price_rounding'     => $globals['price_rounding'],
-			'shipping'           => $globals['shipping'],
-			'attribute_owners'   => $this->attribute_owners(),
+			'price_rounding'   => $globals['price_rounding'],
+			'shipping'         => $globals['shipping'],
+			'attribute_owners' => $this->attribute_owners(),
 		);
 		if ( null !== $catalog ) {
 			$response['catalog'] = $catalog;

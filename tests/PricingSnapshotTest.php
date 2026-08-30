@@ -67,12 +67,12 @@ final class PricingSnapshotTest extends TestCase {
 					),
 				),
 			),
-			'dollar_price'                           => '187891',
-			'options_dollar_price'                   => '187891',
-			'yuan_price'                             => '29500',
-			'options_yuan_price'                     => '29500',
-			'update_date'                            => gmdate( 'ymd' ),
-			'options_update_date'                    => gmdate( 'ymd' ),
+			'dollar_price'                        => '187891',
+			'options_dollar_price'                => '187891',
+			'yuan_price'                          => '29500',
+			'options_yuan_price'                  => '29500',
+			'update_date'                         => gmdate( 'ymd' ),
+			'options_update_date'                 => gmdate( 'ymd' ),
 			Digitalogic_Shipping_Method_Service::METHODS_OPTION => array(
 				'air_express' => array(
 					'id'           => 'air_express',
@@ -85,12 +85,12 @@ final class PricingSnapshotTest extends TestCase {
 			Digitalogic_Shipping_Method_Service::DEFAULT_MARKUP_OPTION => $this->default_markup_state(),
 			Digitalogic_Shipping_Method_Service::ROUNDING_DIGITS_OPTION => 0,
 			'digitalogic_shipping_currency_migration_complete' => 'complete',
-			'woocommerce_currency'                   => 'IRT',
-			'woocommerce_weight_unit'                => 'kg',
-			'home'                                   => 'https://digitalogic.test',
-			'siteurl'                                => 'https://digitalogic.test',
-			'permalink_structure'                    => '/%postname%/',
-			'digitalogic_report_cache_generation'    => 'snapshot-test-generation',
+			'woocommerce_currency'                => 'IRT',
+			'woocommerce_weight_unit'             => 'kg',
+			'home'                                => 'https://digitalogic.test',
+			'siteurl'                             => 'https://digitalogic.test',
+			'permalink_structure'                 => '/%postname%/',
+			'digitalogic_report_cache_generation' => 'snapshot-test-generation',
 		);
 		$GLOBALS['digitalogic_test_option_cache']           = array();
 		$GLOBALS['digitalogic_test_update_failures']        = array();
@@ -357,7 +357,7 @@ final class PricingSnapshotTest extends TestCase {
 		$this->assertArrayHasKey( 'digitalogic_pricing_state_event_outbox', $GLOBALS['digitalogic_test_options'] );
 
 		$GLOBALS['digitalogic_test_update_failures'] = array();
-		$successor = $pending[0];
+		$successor                                   = $pending[0];
 		wp_clear_scheduled_hook( 'digitalogic_pricing_state_event_delivery', $successor['args'] );
 		$snapshot->run_state_revision_event_delivery( ...$successor['args'] );
 
@@ -1388,13 +1388,13 @@ final class PricingSnapshotTest extends TestCase {
 
 	/** A reported WP-Cron write is durable only after exact readback. */
 	public function test_dual_one_shot_scheduler_requires_exact_wp_cron_readback(): void {
-		$scheduled = static function () {
+		$scheduled      = static function () {
 			return true;
 		};
 		$unavailable_as = static function () {
 			return false;
 		};
-		$existing  = static function () {
+		$existing       = static function () {
 			return time() + 5;
 		};
 
