@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.43] - 2026-08-30
+
+### Fixed
+- Authenticate signed-in storefront EventSource requests with a REST nonce so
+  user-, role-, and attribute-targeted notifications are projected to the
+  correct live audience without a page reload.
+
 ## [1.8.42] - 2026-08-30
 
 ### Fixed
