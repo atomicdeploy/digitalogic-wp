@@ -39,6 +39,9 @@ final class Digitalogic_Product_Identity {
 		add_filter( 'woocommerce_structured_data_product', array( $this, 'add_product_schema_identity' ), 10, 2 );
 		add_filter( 'rank_math/snippet/rich_snippet_product_entity', array( $this, 'normalize_product_schema_attribute_names' ), 9, 2 );
 		add_filter( 'rank_math/snippet/rich_snippet_product_entity', array( $this, 'add_product_schema_identity' ), 10, 2 );
+		add_filter( 'rank_math/woocommerce/og_price', array( $this, 'suppress_unavailable_rank_math_price' ), 10, 1 );
+		add_filter( 'rank_math/opengraph/twitter/twitter_label1', array( $this, 'suppress_unavailable_rank_math_price' ), 10, 1 );
+		add_filter( 'rank_math/opengraph/twitter/twitter_data1', array( $this, 'suppress_unavailable_rank_math_price' ), 10, 1 );
 		add_action( 'wp_enqueue_scripts', array( $this, 'enqueue_assets' ), 90 );
 	}
 
@@ -216,7 +219,7 @@ final class Digitalogic_Product_Identity {
 			$entity['alternateName'] = $patris_name;
 		}
 		$effective_price = trim( (string) $product->get_price() );
-		if ( '' === $effective_price || $this->is_zero_decimal( $effective_price ) ) {
+		if ( $this->is_canonical_unpriced( $product ) || '' === $effective_price || $this->is_zero_decimal( $effective_price ) ) {
 			unset( $entity['offers'] );
 		} elseif ( isset( $entity['offers'] ) ) {
 			$entity['offers'] = $this->normalize_toman_offer( $entity['offers'] );
@@ -233,6 +236,55 @@ final class Digitalogic_Product_Identity {
 		}
 
 		return $entity;
+	}
+
+	/**
+	 * Remove Rank Math price tags for a canonical product with no price.
+	 *
+	 * Returning false is Rank Math's supported way to omit WooCommerce OG price
+	 * metadata. Twitter label/data slot two (availability) is intentionally left
+	 * untouched.
+	 *
+	 * @param mixed $value Existing Rank Math tag value.
+	 * @return mixed
+	 */
+	public function suppress_unavailable_rank_math_price( $value ) {
+		$product = $this->current_product();
+
+		return $this->is_canonical_unpriced( $product ) ? false : $value;
+	}
+
+	/** Return the exact current product without fabricating a request context. */
+	private function current_product() {
+		if ( isset( $GLOBALS['product'] ) && $GLOBALS['product'] instanceof WC_Product ) {
+			return $GLOBALS['product'];
+		}
+		if ( function_exists( 'get_queried_object_id' ) ) {
+			$product_id = absint( get_queried_object_id() );
+			if ( $product_id > 0 ) {
+				$product = wc_get_product( $product_id );
+				if ( $product instanceof WC_Product ) {
+					return $product;
+				}
+			}
+		}
+
+		return null;
+	}
+
+	/**
+	 * Match only canonical unavailable-price states, never ordinary priced rows.
+	 *
+	 * @param WC_Product|null $product Product resolved from Rank Math context.
+	 * @return bool
+	 */
+	private function is_canonical_unpriced( $product ) {
+		return $product instanceof WC_Product
+			&& in_array(
+				(string) $product->get_meta( '_digitalogic_patris_price_status', true ),
+				array( 'canonical_missing_unpriced', 'canonical_nonpositive_unpriced' ),
+				true
+			);
 	}
 
 	/**

@@ -24,6 +24,46 @@ as a fallback for Patris integration traffic.
 
 The receiver stores the distinction between missing and explicit-null fields and clears stale WooCommerce operational values for both cases.
 
+## Automatic WooCommerce materialization
+
+Every exact, identity-safe source product is materialized during normal
+receiver delivery, even when price, stock, weight, freight, markup, image, or
+SEO data is missing. The receiver creates at most 25 products per request and
+keeps the remainder as retryable pending work for the next event or
+`wp digitalogic product-sync reconcile` run.
+
+The automatic path creates only a simple leaf with the exact source name, or the
+exact Code when the source name is absent, and exact Code/SKU. It does not infer
+taxonomy, a variable parent, Persian copy, an image, or SEO content. It then
+runs the canonical Patris feed writer, verifies the record hash and source
+ownership, and makes the product public and visible. If canonical price is
+missing or nonpositive, WooCommerce price fields remain blank and the product
+is out of stock and non-purchasable. Missing stock also resolves conservatively
+to out of stock instead of preserving stale inventory. A later complete record
+updates that same product ID and normal pricing/stock behavior resumes without
+creating a duplicate.
+
+Only concrete identity/corruption hazards remain deferred: duplicate or split
+Code/SKU ownership, quarantined or unsafe identity, and conflicting variable
+leaf/parent ownership. Resolver availability, database, lock, and write errors
+remain pending and retryable. Deployments upgrading from the former behavior
+must run bounded reconciliation until safe legacy `missing` entries and pending
+rows are zero; identity hazards require manual ownership repair.
+
+For canonical unpriced products, Rank Math price fields and schema `offers` are
+omitted rather than emitting a zero placeholder. Product title and availability
+remain present, and priced products retain normal social/schema price metadata.
+
+After a verified product commit and lock release, the receiver emits
+`digitalogic_patris_materializer_product_committed`. Its snapshot exposes only
+the product/source identity, revision, visibility, purchasability, price status,
+and the sorted canonical missing-field names `price`, `stock`, `weight`,
+`freight`, `markup`, `image`, and `seo`. Alert-listener failures cannot block or
+roll back product creation. Once a nonempty request-local commit batch has been
+dispatched, the receiver emits the no-payload
+`digitalogic_patris_materializer_product_commits_complete` action, also outside
+all source locks, so alert adapters can perform one durable batch flush.
+
 ## Product-sync envelope
 
 The envelope contains:

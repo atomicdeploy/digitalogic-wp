@@ -96,7 +96,11 @@ final class ProductSyncWebhookTest extends TestCase {
 
         $this->assertNotInstanceOf(WP_Error::class, $result);
         $this->assertSame(3, $result['woocommerce']['updated']);
-        $this->assertCount(3, $GLOBALS['digitalogic_test_wc_product_saves']);
+        $this->assertCount(6, $GLOBALS['digitalogic_test_wc_product_saves']);
+        $this->assertSame(
+            array(701, 701, 702, 702, 703, 703),
+            $GLOBALS['digitalogic_test_wc_product_saves']
+        );
         $this->assertCount(1, $GLOBALS['digitalogic_test_remote_posts']);
         $summary = json_decode(
             $GLOBALS['digitalogic_test_remote_posts'][0]['args']['body'],

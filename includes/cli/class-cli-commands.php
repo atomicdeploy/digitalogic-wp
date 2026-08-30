@@ -1786,8 +1786,9 @@ class Digitalogic_CLI_Commands {
 	/**
 	 * Plan or explicitly apply reviewed Patris catalog materialization.
 	 *
-	 * Dry-run is the default. --apply authorizes taxonomy/product writes, while
-	 * --publish-ready additionally promotes only rows that pass every gate.
+	 * Dry-run is the default. --apply authorizes reviewed taxonomy/product
+	 * writes. Source leaves are materialized by the receiver independently of
+	 * enrichment completeness; --publish-ready records reviewed readiness.
 	 *
 	 * ## OPTIONS
 	 *
@@ -1804,14 +1805,14 @@ class Digitalogic_CLI_Commands {
 	 * : Optional comma-separated exact Patris Codes.
 	 *
 	 * [--limit=<count>]
-	 * : Optional positive batch limit after exact Code sorting.
+	 * : Optional canonical nonnegative batch limit after exact Code sorting.
 	 *
 	 * [--apply]
 	 * : Apply the reviewed plan. Without this flag no writes occur.
 	 *
 	 * [--publish-ready]
-	 * : Publish only fully priced, freight-currency-qualified, weighted,
-	 * in-stock, SEO-enriched rows.
+	 * : Mark fully priced, freight-qualified, weighted, in-stock, image- and
+	 * SEO-enriched rows as reviewed-ready; never demote a public incomplete leaf.
 	 *
 	 * ## EXAMPLES
 	 *
