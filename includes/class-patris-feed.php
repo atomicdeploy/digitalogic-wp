@@ -956,7 +956,7 @@ class Digitalogic_Patris_Feed {
 		foreach ( $this->feed_meta_keys() as $key ) {
 			$value        = $product->get_meta( $key, true );
 			$exists       = array_key_exists( $key, $direct_keys ) ? $direct_keys[ $key ] : '' !== $value;
-			$meta[ $key ] = $exists ? array( $value ) : array();
+			$meta[ $key ] = $exists ? array( $this->normalize_meta_readback_value( $value ) ) : array();
 		}
 
 		return array(
@@ -973,6 +973,38 @@ class Digitalogic_Patris_Feed {
 		);
 	}
 
+	/**
+	 * Match WordPress/MySQL scalar metadata storage semantics for strict readback.
+	 *
+	 * WooCommerce keeps freshly assigned scalar metadata in its original PHP
+	 * type on the in-memory object, while wp_postmeta stores every non-serialized
+	 * scalar as text. Exact verification must therefore compare the value that a
+	 * fresh database read will return, not the transient object type.
+	 *
+	 * @param mixed $value In-memory metadata value after save.
+	 * @return mixed Database readback value.
+	 */
+	private function normalize_meta_readback_value( $value ) {
+		if ( is_array( $value ) || is_object( $value ) ) {
+			return $value;
+		}
+		if ( is_bool( $value ) ) {
+			return $value ? '1' : '';
+		}
+
+		return (string) $value;
+	}
+
+	/** Normalize only a verification copy without changing rollback backups. */
+	private function normalize_meta_readback_projection( $projection ) {
+		$normalized = array();
+		foreach ( (array) $projection as $key => $values ) {
+			$normalized[ $key ] = array_map( array( $this, 'normalize_meta_readback_value' ), (array) $values );
+		}
+
+		return $normalized;
+	}
+
 	/** Verify every feed field from DB/fresh Woo state before terminal success. */
 	private function verify_product_feed_expected( $product_id, $expected ) {
 		if ( ! is_array( $expected ) || ! is_array( $expected['meta'] ?? null ) || ! is_array( $expected['props'] ?? null ) ) {
@@ -986,7 +1018,7 @@ class Digitalogic_Patris_Feed {
 		$fresh = $this->fresh_product_for_source_readback( $product_id );
 		if (
 			is_wp_error( $meta )
-			|| $meta !== $expected['meta']
+			|| $this->normalize_meta_readback_projection( $meta ) !== $this->normalize_meta_readback_projection( $expected['meta'] )
 			|| ! $fresh instanceof WC_Product
 			|| ! $this->source_props_match( $fresh, $expected['props'] )
 		) {

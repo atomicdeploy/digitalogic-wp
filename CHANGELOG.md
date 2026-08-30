@@ -13,6 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   public but non-purchasable until canonical data arrives.
 - Omit unavailable Rank Math Open Graph, Twitter, and schema offer prices for
   canonical unpriced products instead of exposing a zero-price placeholder.
+- Compare numeric Patris metadata using WordPress/MySQL scalar storage semantics
+  during exact readback, without changing rollback backups or masking real late
+  clobbers.
 - Preserve each exact pricing state-event retry through scheduler lock timeouts, running-worker handoffs, and bounded Action Scheduler or WP-Cron degradation without collapsing distinct fallback identities.
 - Keep a delivered state identity in the durable outbox until its bounded receipt commits, preventing replay after receipt failure or panel rotation.
 - Retire normalized receipts and delivered markers before ordered source removal, while preserving one fresh composite event when the same source is rapidly reintroduced.
