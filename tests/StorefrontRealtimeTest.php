@@ -21,6 +21,35 @@ final class StorefrontRealtimeTest extends TestCase {
             'roles' => array(),
         );
         $GLOBALS['digitalogic_test_user_meta'] = array();
+        $GLOBALS['digitalogic_test_cache_deletes'] = array();
+    }
+
+    public function test_sse_poll_forces_fresh_durable_event_reads(): void {
+        $fresh = array(
+            array(
+                'id' => 222,
+                'name' => 'currency.updated',
+                'data' => array(),
+            ),
+        );
+        $GLOBALS['digitalogic_test_options']['digitalogic_panel_events'] = $fresh;
+        $GLOBALS['digitalogic_test_option_cache']['digitalogic_panel_events'] = array();
+
+        $this->assertSame($fresh, Digitalogic_Panel::get_events_since(0, true));
+        $this->assertContains(
+            array('digitalogic_panel_events', 'options'),
+            $GLOBALS['digitalogic_test_cache_deletes']
+        );
+
+        $source = file_get_contents((new ReflectionClass(Digitalogic_Storefront_Realtime::class))->getFileName());
+        $this->assertMatchesRegularExpression(
+            '/get_events_since\(\s*\$cursor,\s*true\s*\)/',
+            $source
+        );
+        $this->assertMatchesRegularExpression(
+            '/get_latest_event_id\(\s*true\s*\)/',
+            $source
+        );
     }
 
     public function test_public_projection_exposes_currency_snapshot_without_internal_event_data(): void {

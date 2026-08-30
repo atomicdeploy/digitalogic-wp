@@ -694,8 +694,15 @@ class Digitalogic_Panel {
         );
     }
 
-    public static function get_events_since($since = 0) {
-        self::refresh_event_option_cache();
+    /**
+     * Return events newer than one cursor.
+     *
+     * @param int  $since         Exclusive event cursor.
+     * @param bool $force_refresh Whether to bypass the request-local option cache.
+     * @return array
+     */
+    public static function get_events_since($since = 0, $force_refresh = false) {
+        self::refresh_event_option_cache($force_refresh);
         $events = get_option(self::EVENT_OPTION, array());
         $events = is_array($events) ? $events : array();
 
@@ -707,10 +714,11 @@ class Digitalogic_Panel {
     /**
      * Return the newest stored panel event ID.
      *
+     * @param bool $force_refresh Whether to bypass the request-local option cache.
      * @return int
      */
-    public static function get_latest_event_id() {
-        self::refresh_event_option_cache();
+    public static function get_latest_event_id($force_refresh = false) {
+        self::refresh_event_option_cache($force_refresh);
         $events = get_option(self::EVENT_OPTION, array());
         $latest_id = absint(get_option(self::EVENT_SEQUENCE_OPTION, 0));
 
