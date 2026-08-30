@@ -2795,8 +2795,8 @@ final class PricingCoordinatorTest extends TestCase {
 
 	/** A durable report-stage failure cannot make a committed job look terminal. */
 	public function test_currency_admin_async_publication_failure_retries_without_repricing(): void {
-		$GLOBALS['digitalogic_test_options']['digitalogic_report_cache_generation_v1'] = 'before-publication';
-		$GLOBALS['digitalogic_test_update_failures'][]                                 = 'digitalogic_report_cache_generation_v1';
+		$GLOBALS['digitalogic_test_options']['digitalogic_report_cache_generation'] = 'before-publication';
+		$GLOBALS['digitalogic_test_update_failures'][]                                 = 'digitalogic_report_cache_generation';
 		$async = Digitalogic_Currency_Admin_Async::instance();
 		$job   = $async->enqueue( '29501', false );
 		$this->assertFalse( is_wp_error( $job ) );
@@ -2831,8 +2831,8 @@ final class PricingCoordinatorTest extends TestCase {
 
 	/** Post-commit publication backoff terminalizes visibly and never re-actuates pricing. */
 	public function test_currency_admin_async_publication_retries_are_bounded_and_terminal(): void {
-		$GLOBALS['digitalogic_test_options']['digitalogic_report_cache_generation_v1'] = 'before-publication';
-		$GLOBALS['digitalogic_test_update_failures'][]                                 = 'digitalogic_report_cache_generation_v1';
+		$GLOBALS['digitalogic_test_options']['digitalogic_report_cache_generation'] = 'before-publication';
+		$GLOBALS['digitalogic_test_update_failures'][]                                 = 'digitalogic_report_cache_generation';
 		$async = Digitalogic_Currency_Admin_Async::instance();
 		$job   = $async->enqueue( '29501', false );
 		$this->assertFalse( is_wp_error( $job ) );

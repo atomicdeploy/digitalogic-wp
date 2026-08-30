@@ -23,7 +23,7 @@ final class GoogleSheetsCatalogTest extends TestCase {
 	protected function setUp(): void {
 		parent::setUp();
 		$GLOBALS['digitalogic_test_options']               = array(
-			'digitalogic_report_cache_generation_v1' => 'test-generation',
+			'digitalogic_report_cache_generation' => 'test-generation',
 			'woocommerce_weight_unit'          => 'kg',
 			'options_yuan_price'               => '30000',
 			'options_update_date'              => '260720',
