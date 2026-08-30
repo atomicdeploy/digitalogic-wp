@@ -57,34 +57,6 @@ final class Digitalogic_Pricing_Snapshot {
 	private const DEFAULT_PAGE_SIZE                 = 250;
 	private const MAX_PAGE_SIZE                     = 250;
 	private const MAX_ROWS                          = 20000;
-	private const PROJECTION_FIELDS                 = array(
-		'sync_key',
-		'reconciliation_status',
-		'patris_code',
-		'woocommerce_id',
-		'sku',
-		'weight_grams',
-		'foreign_price',
-		'patris_location',
-		'categories',
-		'foreign_currency',
-		'shipping_price_per_kg',
-		'shipping_price_per_kg_currency',
-		'profit_margin_percent',
-		'price_source_amount',
-		'price_source_currency',
-		'price_source_kind',
-		'effective_price',
-		'patris_total_stock',
-		'stock_quantity',
-		'name',
-		'updated_at',
-		'record_revision',
-		'permalink',
-		'patris_final_price',
-		'sale_price',
-		'publication_status',
-	);
 
 	/**
 	 * Shared snapshot service.
@@ -188,27 +160,22 @@ final class Digitalogic_Pricing_Snapshot {
 	 * @return true|WP_Error
 	 */
 	public function authorize( WP_REST_Request $request ) {
-		$feed = Digitalogic_Patris_Feed::instance();
-		if ( empty( $feed->get_product_sync_source_scopes() ) ) {
-			return $this->error(
-				'digitalogic_pricing_snapshot_scope_required',
-				'An exact Patris source scope is required for pricing snapshots.',
-				403,
-				false
-			);
-		}
-
 		$source = $this->request_source( $request );
-		if ( is_wp_error( $source ) || ! $feed->verify_product_sync_request_for_source( $request, $source, false ) ) {
-			return $this->error(
-				'digitalogic_pricing_snapshot_unauthorized',
-				'The pricing snapshot credential or source scope is invalid.',
-				401,
-				false
-			);
+		if ( is_wp_error( $source ) ) {
+			return $source;
 		}
+		$authorized = Digitalogic_Pricing_Adapter_Registry::instance()->provider()->authorize( $request, $source );
+		if ( ! is_wp_error( $authorized ) ) {
+			return true;
+		}
+		$status = (array) $authorized->get_error_data();
 
-		return true;
+		return $this->error(
+			403 === (int) ( $status['status'] ?? 0 ) ? 'digitalogic_pricing_snapshot_scope_required' : 'digitalogic_pricing_snapshot_unauthorized',
+			$authorized->get_error_message(),
+			(int) ( $status['status'] ?? 401 ),
+			false
+		);
 	}
 
 	/**
@@ -841,7 +808,7 @@ final class Digitalogic_Pricing_Snapshot {
 		$checkpoint = function ( $phase, $percent, $completed, $total ) use ( $build_id ) {
 			return $this->checkpoint( $build_id, $phase, $percent, $completed, $total );
 		};
-		$catalog    = Digitalogic_Google_Sheets_Catalog::instance()->get_reconciled_products_snapshot(
+		$catalog    = Digitalogic_Pricing_Adapter_Registry::instance()->store()->catalog_snapshot(
 			array(
 				'locale'         => $job['locale'],
 				'source_id'      => $job['source']['id'],
@@ -904,7 +871,7 @@ final class Digitalogic_Pricing_Snapshot {
 		}
 
 		$state_event = $this->ensure_state_revision_event();
-		$invalidated = Digitalogic_Report_Engine::instance()->invalidate_cache_for_effect( $effect_id );
+		$invalidated = Digitalogic_Pricing_Adapter_Registry::instance()->store()->invalidate_projection( $effect_id );
 		if ( is_wp_error( $state_event ) ) {
 			return $state_event;
 		}
@@ -1045,7 +1012,7 @@ final class Digitalogic_Pricing_Snapshot {
 
 	/** Capture direct receiver-option updates after WordPress commits them. */
 	public function capture_source_state_update( $option, $before, $after ) {
-		if ( Digitalogic_Product_Sync_Receiver::STATE_OPTION === (string) $option ) {
+		if ( Digitalogic_Pricing_Adapter_Registry::instance()->provider()->state_option_name() === (string) $option ) {
 			$this->persist_source_lifecycle_transition( $before, $after );
 		}
 		if ( $this->is_freshness_input_option( $option ) ) {
@@ -1060,15 +1027,16 @@ final class Digitalogic_Pricing_Snapshot {
 
 	/** Retain the old receiver identity until a direct deletion succeeds. */
 	public function capture_source_state_before_delete( $option ) {
-		if ( Digitalogic_Product_Sync_Receiver::STATE_OPTION === (string) $option ) {
-			$before                           = get_option( Digitalogic_Product_Sync_Receiver::STATE_OPTION, array() );
+		$state_option = Digitalogic_Pricing_Adapter_Registry::instance()->provider()->state_option_name();
+		if ( $state_option === (string) $option ) {
+			$before                           = get_option( $state_option, array() );
 			$this->source_state_before_delete = is_array( $before ) ? $before : array();
 		}
 	}
 
 	/** Publish terminal source removals only after direct option deletion. */
 	public function capture_source_state_deletion( $option ) {
-		if ( Digitalogic_Product_Sync_Receiver::STATE_OPTION === (string) $option ) {
+		if ( Digitalogic_Pricing_Adapter_Registry::instance()->provider()->state_option_name() === (string) $option ) {
 			$this->persist_source_lifecycle_transition( $this->source_state_before_delete, array( 'sources' => array() ) );
 			$this->source_state_before_delete = array();
 		}
@@ -1186,7 +1154,7 @@ final class Digitalogic_Pricing_Snapshot {
 	 *
 	 * The durable panel queue is written before its Redis delivery attempt. The
 	 * payload is intentionally noncommercial and secret-free; the WebSocket
-	 * server exposes it only to the exact scoped Patris pricing principal.
+	 * server exposes it only to the exact scoped provider principal.
 	 */
 	public function publish_scheduled_state_revision_events() {
 		if ( $this->state_revision_event_pending ) {
@@ -1315,7 +1283,7 @@ final class Digitalogic_Pricing_Snapshot {
 							'idempotency_key'         => $idempotency_key,
 							'revision_path'           => '/wp-json/digitalogic/pricing/sync/revision',
 							'audience'                => array(
-								'services' => array( 'patris_pricing' ),
+								'services' => array( Digitalogic_Pricing_Adapter_Registry::instance()->provider()->event_principal() ),
 							),
 						)
 					);
@@ -1640,7 +1608,7 @@ final class Digitalogic_Pricing_Snapshot {
 				),
 				0,
 				'',
-				'patris_pricing',
+				Digitalogic_Pricing_Adapter_Registry::instance()->provider()->event_principal(),
 				array(
 					'id'      => (string) ( $source['id'] ?? '' ),
 					'dataset' => (string) ( $source['dataset'] ?? '' ),
@@ -1648,7 +1616,7 @@ final class Digitalogic_Pricing_Snapshot {
 			);
 	}
 
-	/** Build the secret-free terminal payload consumed by Patris pricing v1. */
+	/** Build the secret-free terminal payload consumed by the provider adapter. */
 	private function terminal_event_data( $job, $request_id ) {
 		$build_id = (string) ( $job['build_id'] ?? '' );
 		$status   = (string) ( $job['status'] ?? '' );
@@ -1690,7 +1658,7 @@ final class Digitalogic_Pricing_Snapshot {
 			),
 			'revision_path'          => '/wp-json/digitalogic/pricing/sync/revision',
 			'audience'               => array(
-				'services' => array( 'patris_pricing' ),
+				'services' => array( Digitalogic_Pricing_Adapter_Registry::instance()->provider()->event_principal() ),
 			),
 		);
 		if ( 'ready' === $status ) {
@@ -2089,7 +2057,7 @@ final class Digitalogic_Pricing_Snapshot {
 					'revision_validation_required' => true,
 					'revision_path'                => '/wp-json/digitalogic/pricing/sync/revision',
 					'audience'                     => array(
-						'services' => array( 'patris_pricing' ),
+						'services' => array( Digitalogic_Pricing_Adapter_Registry::instance()->provider()->event_principal() ),
 					),
 				),
 			);
@@ -2174,7 +2142,7 @@ final class Digitalogic_Pricing_Snapshot {
 	private function next_freshness_boundary() {
 		$now        = time();
 		$candidates = array();
-		$pricing    = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
+		$pricing    = Digitalogic_Pricing_Adapter_Registry::instance()->store()->pricing_state();
 		if ( ! is_wp_error( $pricing ) ) {
 			foreach ( array( 'usd', 'cny' ) as $currency ) {
 				$date   = (string) ( $pricing['freshness'][ $currency ]['effective_date'] ?? '' );
@@ -2183,7 +2151,7 @@ final class Digitalogic_Pricing_Snapshot {
 					continue;
 				}
 				$effective = $parsed->setTime( 0, 0 )->getTimestamp();
-				$expires   = $parsed->setTime( 0, 0 )->modify( '+' . ( Digitalogic_Excel_Pricing_Sync::STALE_AFTER_DAYS + 1 ) . ' days' )->getTimestamp();
+				$expires   = $parsed->setTime( 0, 0 )->modify( '+' . ( Digitalogic_Pricing_Adapter_Registry::instance()->store()->pricing_stale_after_days() + 1 ) . ' days' )->getTimestamp();
 				if ( $effective > $now ) {
 					$candidates[ $effective ][] = 'currency-' . $currency . '-effective';
 				}
@@ -2193,10 +2161,10 @@ final class Digitalogic_Pricing_Snapshot {
 			}
 		}
 
-		$settings      = Digitalogic_Patris_Feed::instance()->get_settings();
-		$stale_seconds = max( 1, absint( $settings['stale_after_hours'] ?? 48 ) ) * HOUR_IN_SECONDS;
+		$provider      = Digitalogic_Pricing_Adapter_Registry::instance()->provider();
+		$stale_seconds = $provider->stale_after_seconds();
 		foreach ( $this->current_state_event_sources() as $source ) {
-			$state = Digitalogic_Product_Sync_Receiver::instance()->get_source_state( $source['id'], $source['dataset'] );
+			$state = $provider->source_state( $source['id'], $source['dataset'] );
 			foreach ( (array) ( $state['products'] ?? array() ) as $product ) {
 				$updated_at = is_array( $product ) ? (string) ( $product['source_updated_at'] ?? '' ) : '';
 				$updated    = '' === $updated_at ? false : strtotime( $updated_at );
@@ -2249,12 +2217,13 @@ final class Digitalogic_Pricing_Snapshot {
 
 	/** Return whether an option can move a future freshness transition. */
 	private function is_freshness_input_option( $option ) {
+		$provider = Digitalogic_Pricing_Adapter_Registry::instance()->provider();
 		return in_array(
 			(string) $option,
 			array(
-				Digitalogic_Product_Sync_Receiver::STATE_OPTION,
-				'digitalogic_patris_feed_settings',
-				Digitalogic_Excel_Pricing_Sync::SETTINGS_OPTION,
+				$provider->state_option_name(),
+				$provider->settings_option_name(),
+				Digitalogic_Pricing_Adapter_Registry::instance()->store()->pricing_settings_option(),
 				'options_update_date',
 				'update_date',
 			),
@@ -2264,7 +2233,7 @@ final class Digitalogic_Pricing_Snapshot {
 
 	/** Return only exact current source identities safe to persist in scheduler args. */
 	private function current_state_event_sources() {
-		$status  = Digitalogic_Product_Sync_Receiver::instance()->get_status();
+		$status  = Digitalogic_Pricing_Adapter_Registry::instance()->provider()->source_status();
 		$sources = array();
 		foreach ( (array) ( $status['sources'] ?? array() ) as $summary ) {
 			$source = is_array( $summary['source'] ?? null ) ? $summary['source'] : array();
@@ -2647,7 +2616,7 @@ final class Digitalogic_Pricing_Snapshot {
 		if ( $this->cancellation_requested( $job['build_id'] ) || ! $this->active_worker_lease_owned( $job['build_id'] ) ) {
 			return $this->cancelled_error();
 		}
-		$catalog = $this->project_excel_catalog( $catalog );
+		$catalog = $this->project_consumer_catalog( $catalog );
 		if ( is_wp_error( $catalog ) ) {
 			return $catalog;
 		}
@@ -2893,7 +2862,7 @@ final class Digitalogic_Pricing_Snapshot {
 		if ( ! $this->is_revision( $expected ) || '"' . $expected . '"' !== $request->get_header( 'if-match' ) ) {
 			return $this->error( 'digitalogic_pricing_snapshot_if_match_invalid', 'If-Match must exactly quote expected_state_revision.', 428, false );
 		}
-		$source = Digitalogic_Excel_Pricing_Sync::instance()->normalize_snapshot_source( $payload['source'] ?? null );
+		$source = Digitalogic_Pricing_Adapter_Registry::instance()->provider()->normalize_source( $payload['source'] ?? null );
 		if ( is_wp_error( $source ) ) {
 			return $source;
 		}
@@ -2924,18 +2893,33 @@ final class Digitalogic_Pricing_Snapshot {
 
 	/** Read every cheap revision component and bind them deterministically. */
 	private function current_revision_data( $source ) {
-		$validated = Digitalogic_Excel_Pricing_Sync::instance()->validate_snapshot_source( $source );
-		if ( is_wp_error( $validated ) ) {
-			return $validated;
+		$registry = Digitalogic_Pricing_Adapter_Registry::instance();
+		$source   = $registry->provider()->normalize_source( $source );
+		if ( is_wp_error( $source ) ) {
+			return $source;
 		}
-		$pricing = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
+		$context = $registry->provider()->current_source( $source );
+		if ( is_wp_error( $context ) ) {
+			return $context;
+		}
+		if ( empty( $context['revision_matches_current'] ) ) {
+			return $this->error(
+				'digitalogic_pricing_snapshot_source_revision_conflict',
+				'The requested source revision is not the revision currently materialized in WordPress.',
+				409,
+				false,
+				array(
+					'submitted_source_revision' => $context['submitted_revision'],
+					'current_source_revision'   => $context['current_revision'],
+				)
+			);
+		}
+		$source['revision'] = (string) $context['submitted_revision'];
+		$pricing            = $registry->store()->pricing_state();
 		if ( is_wp_error( $pricing ) ) {
 			return $pricing;
 		}
-		$catalog_revision = Digitalogic_Report_Engine::instance()->projection_revision(
-			$validated['source']['id'],
-			$validated['source']['dataset']
-		);
+		$catalog_revision = $registry->store()->catalog_revision( $source );
 		if ( is_wp_error( $catalog_revision ) ) {
 			return $catalog_revision;
 		}
@@ -2949,15 +2933,15 @@ final class Digitalogic_Pricing_Snapshot {
 		$state_revision          = $this->digest(
 			array(
 				'contract'                => 'living',
-				'source_revision'         => $validated['source']['revision'],
+				'source_revision'         => $source['revision'],
 				'catalog_revision'        => $catalog_revision,
 				'pricing_policy_revision' => $pricing_policy_revision,
 			)
 		);
 
 		return array(
-			'source'                  => $validated['source'],
-			'source_context'          => $validated['context'],
+			'source'                  => $source,
+			'source_context'          => $context,
 			'catalog_revision'        => $catalog_revision,
 			'pricing_state_revision'  => $pricing['state_revision'],
 			'pricing_policy_revision' => $pricing_policy_revision,
@@ -3945,54 +3929,8 @@ final class Digitalogic_Pricing_Snapshot {
 	}
 
 	/** Select only the workbook-owned fields from the canonical catalog. */
-	private function project_excel_catalog( $catalog ) {
-		$columns_by_key = array();
-		foreach ( (array) ( $catalog['columns'] ?? array() ) as $column ) {
-			$key = is_array( $column ) ? (string) ( $column['key'] ?? '' ) : '';
-			if ( '' === $key || isset( $columns_by_key[ $key ] ) ) {
-				return $this->projection_schema_error();
-			}
-			$columns_by_key[ $key ] = $column;
-		}
-
-		$columns = array();
-		foreach ( self::PROJECTION_FIELDS as $field ) {
-			if ( ! isset( $columns_by_key[ $field ] ) ) {
-				return $this->projection_schema_error();
-			}
-			$columns[] = $columns_by_key[ $field ];
-		}
-
-		$rows = array();
-		foreach ( (array) ( $catalog['rows'] ?? array() ) as $row ) {
-			if ( ! is_array( $row ) ) {
-				return $this->projection_schema_error();
-			}
-			$projected = array();
-			foreach ( self::PROJECTION_FIELDS as $field ) {
-				if ( ! array_key_exists( $field, $row ) ) {
-					return $this->projection_schema_error();
-				}
-				$projected[ $field ] = $row[ $field ];
-			}
-			$rows[] = $projected;
-		}
-
-		$catalog['columns'] = $columns;
-		$catalog['rows']    = $rows;
-
-		return $catalog;
-	}
-
-	/** Fail closed when a required workbook field has no canonical value. */
-	private function projection_schema_error() {
-		return $this->error(
-			'digitalogic_pricing_snapshot_projection_schema_invalid',
-			'The canonical catalog cannot satisfy the Excel projection.',
-			503,
-			false,
-			array( 'required_fields' => self::PROJECTION_FIELDS )
-		);
+	private function project_consumer_catalog( $catalog ) {
+		return Digitalogic_Pricing_Adapter_Registry::instance()->consumer()->project_catalog( $catalog );
 	}
 
 	/** Hash the stable snapshot representation, excluding token and timestamps. */
@@ -4038,16 +3976,7 @@ final class Digitalogic_Pricing_Snapshot {
 
 	/** Advertise optional transport capabilities without negotiating a version. */
 	private function capabilities() {
-		return array(
-			'revision'            => true,
-			'conditional_request' => true,
-			'etag'                => true,
-			'incremental_sync'    => false,
-			'events'              => true,
-			'delete_tracking'     => true,
-			'digest_algorithms'   => array( 'sha256' ),
-			'recovery_order'      => array( 'events', 'conditional_request', 'polling' ),
-		);
+		return Digitalogic_Pricing_Adapter_Registry::instance()->capabilities();
 	}
 
 	/** Return immutable snapshot headers. */
@@ -4102,7 +4031,7 @@ final class Digitalogic_Pricing_Snapshot {
 				'revision' => $request->get_param( 'source_revision' ),
 			);
 		}
-		$validated = Digitalogic_Excel_Pricing_Sync::instance()->normalize_snapshot_source( $source );
+		$validated = Digitalogic_Pricing_Adapter_Registry::instance()->provider()->normalize_source( $source );
 
 		return $validated;
 	}

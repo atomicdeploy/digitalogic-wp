@@ -15,10 +15,11 @@ three universal, POST-only WordPress routes:
 There is one Living remote surface. No versioned or deprecated pricing-sync
 alias is registered; clients must use `/pricing/sync/*`.
 
-These routes accept only the existing `X-Patris-Product-Sync-Secret`. The
-secret must have a non-empty exact `{id, dataset}` source scope, and every
-request must repeat that exact `{id, dataset}` plus a syntactically valid
-`sha256:` revision from the local canonical source. The revision remains bound
+The installed Patris provider adapter accepts only the existing
+`X-Patris-Product-Sync-Secret`. The secret must have a non-empty exact
+`{id, dataset}` source scope, and every request repeats that identity. A
+syntactically valid `sha256:` revision is optional when the provider does not
+advertise revision capability. When present, the revision remains bound
 to preview, idempotency, settings metadata, and audit records. A local revision
 that differs from the materialized WordPress product-sync revision is visible
 as a non-blocking Persian warning; it is not an authentication failure. There
@@ -72,10 +73,11 @@ idempotency, integrity fields, and adapter mapping requirements.
 
 ## Request envelope
 
-The Living request schema is `digitalogic.pricing-sync-request`.
-`operation` matches the route name, and `source` contains exactly `id`,
-`dataset`, and a `sha256:` revision. Versioned schemas and `schema_version`
-selectors are rejected.
+The descriptive Living request schema is `digitalogic.pricing-sync-request`.
+`operation` matches the route name, and canonical `source` contains `id`,
+`dataset`, and an optional `sha256:` revision. Unknown bounded provider
+metadata and object-key order are tolerated. Versioned route/schema selectors
+are not registered as a second dialect.
 
 State accepts optional `page` and `limit`; the maximum page size is 250.
 Catalog locale is always Persian. `fa` and `fa_IR` are accepted as request
@@ -164,14 +166,6 @@ The state data has this stable top-level shape:
     "rounding_mode": "nearest_half_up",
     "revision": "sha256:PRICE_ROUNDING_REVISION"
   },
-  "default_markup": {
-    "configured": true,
-    "profit_percent": "30",
-    "revision": "sha256:MARKUP_REVISION",
-    "updated_at": "2026-06-29 12:00:00",
-    "deprecated": true,
-    "replacement": "profit_margin"
-  },
   "catalog": {
     "dataset": "reconciled_products",
     "locale": "fa",
@@ -232,12 +226,9 @@ a currency or profit difference above seven percent are surfaced as critical
 warnings. When source revisions differ, `source_revision_out_of_sync` exposes
 both submitted and current revisions without blocking preview.
 
-The old request field `default_profit_percent` is accepted only as a deprecated
-alias of `profit_margin_percent`. If both are present they must be exactly
-equivalent or the request fails. New responses and clients use only
-`profit_margin_percent`; the state-only `default_markup.profit_percent` output
-is explicitly marked deprecated and equals
-`profit_margin.profit_margin_percent`.
+Only `profit_margin_percent` is part of the active request and response
+contract. The removed `default_profit_percent` and `default_markup` dialect is
+not accepted or emitted.
 
 For compatibility, a legacy client may omit both rounding fields and inherit
 the current site policy. Supplying only one of them is rejected. New clients

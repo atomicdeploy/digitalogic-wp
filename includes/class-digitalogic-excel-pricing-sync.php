@@ -37,8 +37,6 @@ final class Digitalogic_Excel_Pricing_Sync {
 	private const ACK_RECOVERY_SECONDS      = 180;
 	private const ROLLBACK_LEASE_SECONDS    = 5;
 	private const MAX_CONFIRMATIONS         = 50;
-	private const REQUIRED_CONSUMER_ID      = 'digitalogic-price-calculator';
-	private const REQUIRED_CONSUMER_CHANNEL = 'excel-workbook';
 	private const MAX_AUDIT_ENTRIES         = 50;
 	private const MAX_RATE                  = 1000000000;
 	private const MAX_PROFIT_PERCENT        = '1000';
@@ -403,14 +401,14 @@ final class Digitalogic_Excel_Pricing_Sync {
 								);
 						}
 
-						$repricing = Digitalogic_Pricing_Coordinator::instance()->reprice_open_transaction(
+						$repricing = Digitalogic_Pricing_Adapter_Registry::instance()->store()->reprice_open_transaction(
 							$settings,
 							$locked_current['shipping']['catalog_revision']
 						);
 						if ( is_wp_error( $repricing ) ) {
 							return $repricing;
 						}
-						$cache_plan        = Digitalogic_Pricing_Coordinator::instance()->repricing_cache_plan();
+						$cache_plan        = Digitalogic_Pricing_Adapter_Registry::instance()->store()->repricing_cache_plan();
 						$response_settings = $this->settings_from_globals( $readback );
 						return array(
 							'readback'     => $readback,
@@ -444,7 +442,7 @@ final class Digitalogic_Excel_Pricing_Sync {
 					// Rollback or an ambiguous post-COMMIT failure must clear any
 					// request-local objects. A committed worker marker owns the
 					// durable cache plan and will replay it in a fresh process.
-					Digitalogic_Pricing_Coordinator::instance()->flush_repricing_caches();
+					Digitalogic_Pricing_Adapter_Registry::instance()->store()->flush_repricing_caches();
 					return $transaction;
 				}
 
@@ -520,7 +518,7 @@ final class Digitalogic_Excel_Pricing_Sync {
 					)
 				)
 			);
-			Digitalogic_Pricing_Coordinator::instance()->flush_repricing_caches(
+			Digitalogic_Pricing_Adapter_Registry::instance()->store()->flush_repricing_caches(
 				is_array( $publication['cache_plan'] ?? null ) ? $publication['cache_plan'] : array()
 			);
 		}
@@ -552,7 +550,7 @@ final class Digitalogic_Excel_Pricing_Sync {
 		}
 
 		$repricing['effect_id'] = $result['effect_id'];
-		Digitalogic_Pricing_Coordinator::instance()->publish_repricing_result( $repricing );
+		Digitalogic_Pricing_Adapter_Registry::instance()->store()->publish_repricing_result( $repricing );
 		if ( ! empty( $publication['settings_changed'] ) ) {
 			$this->emit_after_apply(
 				(array) $publication['source_identity'],
@@ -623,8 +621,8 @@ final class Digitalogic_Excel_Pricing_Sync {
 	 * @return true|WP_Error
 	 */
 	public function authorize( WP_REST_Request $request ) {
-		$feed   = Digitalogic_Patris_Feed::instance();
-		$scopes = $feed->get_product_sync_source_scopes();
+		$provider = Digitalogic_Pricing_Adapter_Registry::instance()->provider();
+		$scopes   = $provider->scopes();
 
 		if ( empty( $scopes ) ) {
 			return $this->error(
@@ -634,7 +632,7 @@ final class Digitalogic_Excel_Pricing_Sync {
 			);
 		}
 
-		if ( ! $feed->verify_product_sync_request( $request ) ) {
+		if ( is_wp_error( $provider->authorize( $request ) ) ) {
 			return $this->error(
 				'digitalogic_excel_sync_unauthorized',
 				'اعتبار یا محدودهٔ منبع همگام‌سازی معتبر نیست.',
@@ -725,11 +723,12 @@ final class Digitalogic_Excel_Pricing_Sync {
 		$catalog    = null;
 		if ( 'settings' !== $projection ) {
 			$page  = isset( $payload['page'] ) ? absint( $payload['page'] ) : 1;
-			$limit = isset( $payload['limit'] ) ? absint( $payload['limit'] ) : Digitalogic_Google_Sheets_Catalog::MAX_PAGE_SIZE;
+			$store = Digitalogic_Pricing_Adapter_Registry::instance()->store();
+			$limit = isset( $payload['limit'] ) ? absint( $payload['limit'] ) : $store->max_page_size();
 			$page  = max( 1, $page );
-			$limit = max( 1, min( Digitalogic_Google_Sheets_Catalog::MAX_PAGE_SIZE, $limit ) );
+			$limit = max( 1, min( $store->max_page_size(), $limit ) );
 
-			$catalog = Digitalogic_Google_Sheets_Catalog::instance()->get_page(
+			$catalog = $store->catalog_page(
 				array(
 					'dataset'        => 'reconciled_products',
 					'locale'         => 'fa',
@@ -753,6 +752,7 @@ final class Digitalogic_Excel_Pricing_Sync {
 		$response = array(
 			'schema'             => self::STATE_SCHEMA,
 			'state_revision'     => $globals['state_revision'],
+			'capabilities'       => Digitalogic_Pricing_Adapter_Registry::instance()->capabilities(),
 			'generated_at'       => $this->now_iso8601(),
 			'source'             => $source_context,
 			'client_id'          => $payload['client_id'],
@@ -987,7 +987,7 @@ final class Digitalogic_Excel_Pricing_Sync {
 					);
 				}
 
-				if ( ! Digitalogic_Report_Engine::instance()->invalidate_cache() ) {
+				if ( ! Digitalogic_Pricing_Adapter_Registry::instance()->store()->invalidate_projection() ) {
 					$this->release_idempotency( 'apply', $headers['idempotency_key'] );
 
 					return $this->error(
@@ -1211,8 +1211,9 @@ final class Digitalogic_Excel_Pricing_Sync {
 							);
 						}
 						$consumer = is_array( $record['consumer'] ?? null ) ? $record['consumer'] : array();
-						$matches  = self::REQUIRED_CONSUMER_ID === $ack['consumer_id']
-							&& self::REQUIRED_CONSUMER_CHANNEL === $ack['channel']
+						$identity = Digitalogic_Pricing_Adapter_Registry::instance()->consumer()->identity();
+						$matches  = (string) $identity['consumer_id'] === $ack['consumer_id']
+							&& (string) $identity['channel'] === $ack['channel']
 							&& hash_equals( (string) ( $consumer['consumer_id'] ?? '' ), $ack['consumer_id'] )
 							&& hash_equals( (string) ( $consumer['channel'] ?? '' ), $ack['channel'] )
 							&& 'pricing_settings_ack' === (string) ( $consumer['capability'] ?? '' )
@@ -1383,8 +1384,9 @@ final class Digitalogic_Excel_Pricing_Sync {
 			return $desired;
 		}
 		$changed              = ! hash_equals( $current['state_revision'], $desired['state_revision'] );
-		$companion_completion = 'digitalogic-price-calculator' === $request_context['client_id']
-			&& 'excel-workbook' === $request_context['channel'];
+		$consumer_identity    = Digitalogic_Pricing_Adapter_Registry::instance()->consumer()->identity();
+		$companion_completion = (string) $consumer_identity['consumer_id'] === $request_context['client_id']
+			&& (string) $consumer_identity['channel'] === $request_context['channel'];
 		$repricing_performed  = false;
 
 		if ( $changed ) {
@@ -1462,7 +1464,7 @@ final class Digitalogic_Excel_Pricing_Sync {
 						);
 					}
 
-					$repricing = Digitalogic_Pricing_Coordinator::instance()->reprice_open_transaction(
+					$repricing = Digitalogic_Pricing_Adapter_Registry::instance()->store()->reprice_open_transaction(
 						$settings,
 						$locked_current['shipping']['catalog_revision']
 					);
@@ -1490,7 +1492,7 @@ final class Digitalogic_Excel_Pricing_Sync {
 					);
 				}
 			);
-			Digitalogic_Pricing_Coordinator::instance()->flush_repricing_caches();
+			Digitalogic_Pricing_Adapter_Registry::instance()->store()->flush_repricing_caches();
 			if ( is_wp_error( $result ) ) {
 				return $result;
 			}
@@ -1514,13 +1516,13 @@ final class Digitalogic_Excel_Pricing_Sync {
 			$confirmation = null;
 			$result       = $this->run_coordinated_pricing_transaction(
 				function () use ( $settings, $current ) {
-					return Digitalogic_Pricing_Coordinator::instance()->reprice_open_transaction(
+					return Digitalogic_Pricing_Adapter_Registry::instance()->store()->reprice_open_transaction(
 						$settings,
 						$current['shipping']['catalog_revision']
 					);
 				}
 			);
-			Digitalogic_Pricing_Coordinator::instance()->flush_repricing_caches();
+			Digitalogic_Pricing_Adapter_Registry::instance()->store()->flush_repricing_caches();
 			if ( is_wp_error( $result ) ) {
 				return $result;
 			}
@@ -1617,7 +1619,7 @@ final class Digitalogic_Excel_Pricing_Sync {
 		);
 
 		if ( $repricing_performed ) {
-			Digitalogic_Pricing_Coordinator::instance()->publish_repricing_result( $repricing );
+			Digitalogic_Pricing_Adapter_Registry::instance()->store()->publish_repricing_result( $repricing );
 		}
 		if ( $changed ) {
 			$this->emit_after_apply( $source, $expected_state_revision, $current, $readback, $response_settings, $request_context );
@@ -1817,49 +1819,7 @@ final class Digitalogic_Excel_Pricing_Sync {
 	 * @return array|WP_Error
 	 */
 	private function normalize_source( $source ) {
-		if ( ! is_array( $source ) || array_is_list( $source ) ) {
-			return $this->error(
-				'digitalogic_excel_sync_source_invalid',
-				'منبع باید یک شیء دارای id و dataset باشد.',
-				400
-			);
-		}
-		foreach ( array( 'id', 'dataset' ) as $field ) {
-			if ( ! isset( $source[ $field ] ) || ! is_string( $source[ $field ] ) || trim( $source[ $field ] ) !== $source[ $field ] ) {
-				return $this->error(
-					'digitalogic_excel_sync_source_invalid',
-					'هویت منبع معتبر نیست.',
-					400,
-					array( 'field' => 'source.' . $field )
-				);
-			}
-		}
-		if (
-			'' === $source['id']
-			|| '' === $source['dataset']
-			|| strlen( $source['id'] ) > 191
-			|| strlen( $source['dataset'] ) > 191
-		) {
-			return $this->error(
-				'digitalogic_excel_sync_source_invalid',
-				'هویت یا revision منبع معتبر نیست.',
-				400
-			);
-		}
-
-		$normalized = array(
-			'id'       => $source['id'],
-			'dataset'  => $source['dataset'],
-			'revision' => '',
-		);
-		if ( isset( $source['revision'] ) && '' !== $source['revision'] ) {
-			if ( ! is_string( $source['revision'] ) || trim( $source['revision'] ) !== $source['revision'] || ! $this->is_revision( $source['revision'] ) ) {
-				return $this->error( 'digitalogic_excel_sync_source_revision_invalid', 'revision منبع معتبر نیست.', 400 );
-			}
-			$normalized['revision'] = $source['revision'];
-		}
-
-		return $normalized;
+		return Digitalogic_Pricing_Adapter_Registry::instance()->provider()->normalize_source( $source );
 	}
 
 	/**
@@ -1874,47 +1834,18 @@ final class Digitalogic_Excel_Pricing_Sync {
 	 * @return array|WP_Error
 	 */
 	private function validate_current_source( $source ) {
-		$state   = Digitalogic_Product_Sync_Receiver::instance()
-			->get_source_state( $source['id'], $source['dataset'] );
-		$current = isset( $state['source'] ) && is_array( $state['source'] )
-			? $state['source']
-			: array();
-
-		if (
-			! isset( $current['id'], $current['dataset'], $current['revision'] )
-			|| ! is_string( $current['id'] )
-			|| ! is_string( $current['dataset'] )
-			|| ! is_string( $current['revision'] )
-			|| ! hash_equals( $current['id'], $source['id'] )
-			|| ! hash_equals( $current['dataset'], $source['dataset'] )
-			|| ! $this->is_revision( $current['revision'] )
-		) {
+		$current = Digitalogic_Pricing_Adapter_Registry::instance()->provider()->current_source( $source );
+		if ( is_wp_error( $current ) ) {
+			$data = (array) $current->get_error_data();
 			return $this->error(
 				'digitalogic_excel_sync_source_scope_conflict',
-				'شناسه یا مجموعهٔ منبع محلی با منبع ثبت‌شده در سایت یکسان نیست.',
+				$current->get_error_message(),
 				409,
-				array(
-					'current_source' => array(
-						'id'       => isset( $current['id'] ) ? (string) $current['id'] : '',
-						'dataset'  => isset( $current['dataset'] ) ? (string) $current['dataset'] : '',
-						'revision' => isset( $current['revision'] ) ? (string) $current['revision'] : '',
-					),
-				)
+				$data
 			);
 		}
 
-		$submitted_revision = '' !== (string) ( $source['revision'] ?? '' )
-			? (string) $source['revision']
-			: (string) $current['revision'];
-
-		return array(
-			'id'                       => $source['id'],
-			'dataset'                  => $source['dataset'],
-			'submitted_revision'       => $submitted_revision,
-			'current_revision'         => $current['revision'],
-			'revision_matches_current' => hash_equals( $current['revision'], $submitted_revision ),
-			'revision_capability'      => '' !== (string) ( $source['revision'] ?? '' ),
-		);
+		return $current;
 	}
 
 	/**
@@ -3254,22 +3185,13 @@ final class Digitalogic_Excel_Pricing_Sync {
 	}
 
 	/**
-	 * Resolve the explicit apply confirmation, including one narrow alias.
+	 * Resolve the explicit apply confirmation.
 	 *
 	 * @param array $payload Request payload.
 	 * @return string|WP_Error
 	 */
 	private function confirmation_value( $payload ) {
-		$canonical = $payload['confirmation'] ?? null;
-		$alias     = $payload['confirm'] ?? null;
-		if ( null !== $canonical && null !== $alias && $canonical !== $alias ) {
-			return $this->error(
-				'digitalogic_excel_sync_confirmation_conflict',
-				'مقادیر confirmation و confirm با هم تعارض دارند.',
-				400
-			);
-		}
-		$value = null !== $canonical ? $canonical : $alias;
+		$value = $payload['confirmation'] ?? null;
 
 		return is_string( $value ) ? $value : '';
 	}
@@ -3477,7 +3399,7 @@ final class Digitalogic_Excel_Pricing_Sync {
 	 * @return mixed|WP_Error
 	 */
 	private function run_coordinated_pricing_transaction( $callback, $pre_commit_guard = null ) {
-		return Digitalogic_Pricing_Coordinator::instance()->with_repricing_lock(
+		return Digitalogic_Pricing_Adapter_Registry::instance()->store()->with_repricing_lock(
 			function () use ( $callback, $pre_commit_guard ) {
 				return $this->run_transaction( $callback, $pre_commit_guard, true );
 			}
@@ -3776,7 +3698,8 @@ final class Digitalogic_Excel_Pricing_Sync {
 
 	/** Return the one explicitly configured workbook consumer allowed to ACK. */
 	private function current_ack_consumer() {
-		$scopes = Digitalogic_Patris_Feed::instance()->get_product_sync_source_scopes();
+		$registry = Digitalogic_Pricing_Adapter_Registry::instance();
+		$scopes   = $registry->provider()->scopes();
 		if ( 1 !== count( $scopes ) ) {
 			return $this->error(
 				'digitalogic_pricing_confirmation_consumer_ambiguous',
@@ -3786,12 +3709,12 @@ final class Digitalogic_Excel_Pricing_Sync {
 		}
 		$scope = reset( $scopes );
 
-		return array(
-			'consumer_id' => self::REQUIRED_CONSUMER_ID,
-			'channel'     => self::REQUIRED_CONSUMER_CHANNEL,
-			'capability'  => 'pricing_settings_ack',
-			'source_id'   => (string) $scope['id'],
-			'dataset'     => (string) $scope['dataset'],
+		return array_merge(
+			$registry->consumer()->identity(),
+			array(
+				'source_id' => (string) $scope['id'],
+				'dataset'   => (string) $scope['dataset'],
+			)
 		);
 	}
 
