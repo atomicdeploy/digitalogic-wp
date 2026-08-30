@@ -235,7 +235,7 @@ function refreshLocalizedCatalogViews_(spreadsheet) {
   };
   const requiredKeys = [
     'sync_key', 'patris_code', 'woo_id', 'publication_status', 'name', 'categories',
-    'regular_price', 'effective_price', 'patris_total_stock', 'stock_quantity', 'storage_location',
+    'regular_price', 'effective_price', 'price_status', 'patris_total_stock', 'stock_quantity', 'storage_location',
     'weight_grams', 'foreign_price', 'product_url', 'identity_source', 'sync_status',
     'sync_warning', 'record_revision',
   ];
@@ -301,7 +301,7 @@ function refreshLocalizedCatalogViews_(spreadsheet) {
   if (localizedDashboard) {
     const dashboardFormulas = {
       A6: '=COUNTA(' + syncKey + ')',
-      D6: '=COUNTIF(' + dataRange('effective_price') + ',">0")',
+      D6: '=COUNTIF(' + dataRange('price_status') + ',"priced")',
       G6: '=COUNTIF(' + stock + ',">0")',
       J6: '=COUNTIFS(' + syncKey + ',"<>",' + dataRange('woo_id') + ',"")',
       A17: '=COUNTIFS(' + syncKey + ',"<>",' + dataRange('effective_price') + ',"")',

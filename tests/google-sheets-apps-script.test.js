@@ -361,6 +361,7 @@ test('localized catalog views refresh dynamic header-resolved bounds on full and
   assert.match(source, /identity_source: \['reconciliation_status', 'identity_source'\]/);
   assert.match(source, /sync_warning: \['sync_error', 'sync_warning'\]/);
   assert.match(source, /const resolvedColumns = \{\}/);
+  assert.match(source, /D6: '=COUNTIF\(' \+ dataRange\('price_status'\) \+ ',"priced"\)'/);
   assert.doesNotMatch(source, /Products!\$A\$3:\$A\$1103/);
 });
 
