@@ -316,7 +316,19 @@ function refreshLocalizedCatalogViews_(spreadsheet) {
       }
     });
   }
-  return Boolean(priceList || localizedDashboard);
+
+  const controlDashboard = spreadsheet.getSheetByName('Dashboard');
+  if (controlDashboard
+    && controlDashboard.getRange('A1').getDisplayValue() === 'DIGITALOGIC | PRODUCT & PRICING CONTROL CENTER') {
+    const pricedFormula = '=COUNTIF(' + dataRange('price_status') + ',"priced")';
+    ['E6', 'B12'].forEach(function (a1) {
+      const cell = controlDashboard.getRange(a1);
+      if (cell.getFormula() !== pricedFormula) {
+        cell.setFormula(pricedFormula);
+      }
+    });
+  }
+  return Boolean(priceList || localizedDashboard || controlDashboard);
 }
 
 /** Convert a one-based sheet column number to its A1 column label. */

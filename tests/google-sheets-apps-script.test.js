@@ -362,6 +362,9 @@ test('localized catalog views refresh dynamic header-resolved bounds on full and
   assert.match(source, /sync_warning: \['sync_error', 'sync_warning'\]/);
   assert.match(source, /const resolvedColumns = \{\}/);
   assert.match(source, /D6: '=COUNTIF\(' \+ dataRange\('price_status'\) \+ ',"priced"\)'/);
+  assert.match(source, /\['E6', 'B12'\]/);
+  assert.match(professionalDashboardSource, /digitalogicProductsColumn_\('price_status'\)/);
+  assert.match(professionalDashboardSource, /'=COUNTIF\(' \+ priceStatusColumn \+ ',"priced"\)'/);
   assert.doesNotMatch(source, /Products!\$A\$3:\$A\$1103/);
 });
 

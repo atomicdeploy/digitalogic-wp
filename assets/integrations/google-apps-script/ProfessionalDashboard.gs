@@ -175,6 +175,7 @@ function digitalogicBuildDashboard_(sheet) {
   const syncKeyColumn = digitalogicProductsColumn_('sync_key');
   const productCodeColumn = digitalogicProductsColumn_('patris_code');
   const effectivePriceColumn = digitalogicProductsColumn_('effective_price');
+  const priceStatusColumn = digitalogicProductsColumn_('price_status');
   const publicationStatusColumn = digitalogicProductsColumn_('publication_status');
   const syncStatusColumn = digitalogicProductsColumn_('sync_status');
   const stockStatusColumn = digitalogicProductsColumn_('stock_status');
@@ -187,7 +188,7 @@ function digitalogicBuildDashboard_(sheet) {
   );
 
   digitalogicKpi_(sheet, 'A5:D5', 'A6:D8', 'TOTAL PRODUCTS | کل کالاها', '=MAX(0,COUNTA(' + syncKeyColumn + ')-2)', colors.blue);
-  digitalogicKpi_(sheet, 'E5:H5', 'E6:H8', 'PRICED PRODUCTS | کالاهای قیمت‌دار', '=COUNTIFS(' + syncKeyColumn + ',"<>",' + effectivePriceColumn + ',">0")', colors.teal);
+  digitalogicKpi_(sheet, 'E5:H5', 'E6:H8', 'PRICED PRODUCTS | کالاهای قیمت‌دار', '=COUNTIF(' + priceStatusColumn + ',"priced")', colors.teal);
   digitalogicKpi_(sheet, 'I5:L5', 'I6:L8', 'AVG EFFECTIVE PRICE | میانگین قیمت', '=IFERROR(AVERAGEIF(' + effectivePriceColumn + ',">0"),0)', colors.green);
   digitalogicKpi_(sheet, 'M5:P5', 'M6:P8', 'MISSING PRODUCT CODE | کد کالا ناقص', '=COUNTIFS(' + syncKeyColumn + ',"<>",' + productCodeColumn + ',"")', colors.amber);
   sheet.getRange('I6:L8').setNumberFormat('#,##0 "IRT"');
@@ -203,7 +204,7 @@ function digitalogicBuildDashboard_(sheet) {
   ]);
   digitalogicHeader_(sheet.getRange('A11:B11'));
   sheet.getRange('B12:B16').setFormulas([
-    ['=COUNTIFS(' + syncKeyColumn + ',"<>",' + effectivePriceColumn + ',">0")'],
+    ['=COUNTIF(' + priceStatusColumn + ',"priced")'],
     ['=COUNTIFS(' + syncKeyColumn + ',"<>",' + productCodeColumn + ',"")'],
     ['=COUNTIF(' + publicationStatusColumn + ',"draft")'],
     ['=COUNTIF(' + publicationStatusColumn + ',"publish")'],
