@@ -113,6 +113,62 @@
         return error;
     }
 
+    var digitalogicReadOnlyCommands = {
+        digitalogic_get_products: true,
+        digitalogic_get_product: true,
+        digitalogic_get_currency: true,
+        digitalogic_get_currency_job: true,
+        digitalogic_get_product_code_edit: true,
+        digitalogic_get_logs: true,
+        digitalogic_get_reports: true,
+        digitalogic_get_integration_catalog: true,
+        digitalogic_get_default_percentage_markup: true,
+        digitalogic_list_shipping_methods: true,
+        digitalogic_get_shipping_method: true,
+        digitalogic_get_product_shipping_method: true,
+        digitalogic_get_product_pricing: true,
+        digitalogic_get_pricing_assignments_batch: true,
+        digitalogic_panel_summary: true,
+        digitalogic_panel_users: true,
+        digitalogic_panel_user_orders: true,
+        digitalogic_panel_settings: true,
+        digitalogic_panel_events: true,
+        digitalogic_catalog_page: true
+    };
+
+    function isMutatingDigitalogicCommand(command) {
+        command = String(command || '');
+        return command.indexOf('digitalogic_') === 0 && !digitalogicReadOnlyCommands[command];
+    }
+
+    function ajaxFailure(kind, command, cause) {
+        var mutating = isMutatingDigitalogicCommand(command);
+        var outcomeUnknown = mutating && (kind === 'timeout' || kind === 'network_error');
+        var codes = {
+            timeout: 'digitalogic_panel_request_timeout',
+            invalid_response: 'digitalogic_panel_response_invalid'
+        };
+        var messages = {
+            timeout: 'AJAX request timed out',
+            network_error: 'AJAX request failed before the result was received',
+            invalid_response: 'AJAX returned an invalid response',
+            failed: 'AJAX request failed'
+        };
+        var error = transportError(
+            {code: outcomeUnknown ? 'digitalogic_transport_outcome_unknown' : (codes[kind] || 'digitalogic_ajax_' + kind)},
+            messages[kind] || messages.failed
+        );
+        error.name = 'DigitalogicTransportError';
+        error.command = String(command || '');
+        error.transport = 'ajax';
+        error.outcome_unknown = outcomeUnknown;
+        error.deliveryUnknown = outcomeUnknown;
+        error.retryable = !outcomeUnknown;
+        error.failure = kind;
+        if (cause) error.cause = cause;
+        return error;
+    }
+
     function createTransport() {
         var socket = null;
         var ready = false;
@@ -182,8 +238,9 @@
             };
         }
 
-        function request(command, data) {
+        function request(command, data, requestOptions) {
             data = data || {};
+            requestOptions = requestOptions || {};
             if (ready && socket && socket.readyState === window.WebSocket.OPEN) {
                 return new Promise(function(resolve, reject) {
                     var id = 'panel_' + (++requestId);
@@ -199,31 +256,54 @@
                     };
 
                     socket.send(JSON.stringify({id: id, command: command, data: data}));
-                }).catch(function() {
-                    return ajax(command, data);
+                }).catch(function(error) {
+                    if (requestOptions.noAutoReplay) throw error;
+                    return ajax(command, data, requestOptions);
                 });
             }
 
-            return ajax(command, data);
+            return ajax(command, data, requestOptions);
         }
 
-        function ajax(command, data) {
+        function ajax(command, data, requestOptions) {
+            requestOptions = requestOptions || {};
             var body = new URLSearchParams();
-            var controller = typeof window.AbortController === 'function' ? new window.AbortController() : null;
-            var timeoutMs = Math.max(1000, Number(config.ajax_request_timeout || 12000));
             body.set('action', 'digitalogic_panel_command');
             body.set('nonce', config.nonce || '');
             body.set('command', command);
             body.set('data', JSON.stringify(data || {}));
-
+            var controller = requestOptions.controller || (
+                typeof window.AbortController === 'function' ? new window.AbortController() : null
+            );
+            var useTransportDeadline = requestOptions.transportDeadline !== false;
+            var timeoutMs = Math.max(1000, Number(requestOptions.timeout || config.ajax_request_timeout || 12000));
+            var timedOut = false;
             return new Promise(function(resolve, reject) {
                 var settled = false;
-                var timeout = window.setTimeout(function() {
+                var timeout = useTransportDeadline
+                    ? window.setTimeout(function() {
+                        if (settled) return;
+                        timedOut = true;
+                        settled = true;
+                        if (controller) controller.abort();
+                        if (command === 'digitalogic_update_product_code' && requestOptions.bounded) {
+                            reject(commandError(
+                                {code: 'digitalogic_request_timeout', data: {retryable: true}},
+                                'The Product Code request timed out. Retry the unchanged request.',
+                                0
+                            ));
+                            return;
+                        }
+                        reject(ajaxFailure('timeout', command));
+                    }, timeoutMs)
+                    : null;
+
+                function finish(callback, value) {
                     if (settled) return;
                     settled = true;
-                    if (controller) controller.abort();
-                    reject(transportError({code: 'digitalogic_panel_request_timeout'}, 'مهلت پاسخ پنل تمام شد؛ صفحه آزاد است و می‌توانید وضعیت را دوباره بررسی کنید.'));
-                }, timeoutMs);
+                    if (timeout !== null) window.clearTimeout(timeout);
+                    callback(value);
+                }
                 var options = {
                     method: 'POST',
                     credentials: 'same-origin',
@@ -232,31 +312,70 @@
                 };
                 if (controller) options.signal = controller.signal;
 
-                window.fetch(config.ajax_url, options).then(function(response) {
-                    return response.text().then(function(text) {
-                        var json;
-                        try {
-                            json = JSON.parse(text);
-                        } catch (error) {
-                            throw transportError({code: 'digitalogic_panel_response_invalid'}, 'پاسخ پنل قابل خواندن نبود؛ دوباره تلاش کنید.');
+                var fetchPromise;
+                try {
+                    fetchPromise = window.fetch(config.ajax_url, options);
+                } catch (error) {
+                    finish(reject, ajaxFailure('network_error', command, error));
+                    return;
+                }
+
+                Promise.resolve(fetchPromise).then(function(response) {
+                    return Promise.resolve().then(function() {
+                        if (response && typeof response.text === 'function') {
+                            return response.text().then(function(text) {
+                                return JSON.parse(text);
+                            });
                         }
-                        if (!response.ok || !json || !json.success) {
-                            throw transportError(json && json.data, 'AJAX failed');
+                        if (response && typeof response.json === 'function') {
+                            return response.json();
                         }
-                        return json.data;
+                        throw new TypeError('AJAX response has no readable body');
+                    }).catch(function(error) {
+                        if (command === 'digitalogic_update_product_code') {
+                            throw commandError(
+                                {code: 'digitalogic_response_ambiguous', data: {retryable: true}},
+                                'The Product Code response could not be verified. Retry the unchanged request.',
+                                0
+                            );
+                        }
+                        throw ajaxFailure('invalid_response', command, error);
+                    }).then(function(json) {
+                        return {json: json, response: response};
                     });
-                }).then(function(value) {
-                    if (settled) return;
-                    settled = true;
-                    window.clearTimeout(timeout);
-                    resolve(value);
+                }).then(function(result) {
+                    var json = result.json;
+                    var response = result.response;
+                    if (!response || response.ok === false || !json || !json.success) {
+                        var message = json && json.data && json.data.message
+                            ? json.data.message
+                            : ((json && typeof json.data === 'string' && json.data) || 'AJAX request failed');
+                        if (command === 'digitalogic_update_product_code' && json && json.data && typeof json.data === 'object') {
+                            throw commandError(json.data, message, response && response.status);
+                        }
+                        var error = ajaxFailure('failed', command);
+                        error.message = message;
+                        error.status = Number(response && response.status || 0);
+                        if (json && json.data) error.data = json.data;
+                        throw error;
+                    }
+                    finish(resolve, json.data);
                 }).catch(function(error) {
-                    if (settled) return;
-                    settled = true;
-                    window.clearTimeout(timeout);
-                    reject(error && error.name === 'AbortError'
-                        ? transportError({code: 'digitalogic_panel_request_timeout'}, 'مهلت پاسخ پنل تمام شد؛ صفحه آزاد است.')
-                        : error);
+                    if (settled || timedOut) return;
+                    if (error && error.name === 'AbortError') {
+                        finish(reject, command === 'digitalogic_update_product_code' && requestOptions.bounded
+                            ? commandError(
+                                {code: 'digitalogic_request_timeout', data: {retryable: true}},
+                                'The Product Code request timed out. Retry the unchanged request.',
+                                0
+                            )
+                            : transportError({code: 'digitalogic_panel_request_timeout'}, 'مهلت پاسخ پنل تمام شد؛ صفحه آزاد است.'));
+                        return;
+                    }
+                    finish(reject, error && (
+                        error.name === 'DigitalogicTransportError' ||
+                        typeof error.code === 'string'
+                    ) ? error : ajaxFailure('network_error', command, error));
                 });
             });
         }
@@ -274,6 +393,19 @@
             }
         };
     }
+
+	function commandError(payload, fallbackMessage, httpStatus) {
+		var normalized = payload && typeof payload === 'object' ? payload : {};
+		var details = normalized.data && typeof normalized.data === 'object' ? normalized.data : {};
+		var message = typeof normalized.message === 'string'
+			? normalized.message
+			: (typeof payload === 'string' ? payload : fallbackMessage);
+		var error = new Error(message || 'Request failed');
+		error.code = String(normalized.code || 'digitalogic_request_failed');
+		error.data = details;
+		error.status = Number(normalized.status || details.status || httpStatus || 0);
+		return error;
+	}
 
     function stored(key, fallback) {
         return window.localStorage.getItem(key) || fallback;
@@ -350,6 +482,7 @@
             {key: 'id', label: 'ID', field: 'id', width: 76, visible: true, sortable: true, editable: false, mono: true, filter: 'text', icon: 'dashicons-tag', priority: 1},
             {key: 'name', labelKey: 'productTitle', field: 'name', width: 340, visible: true, sortable: true, editable: true, filter: 'text', icon: 'dashicons-products', priority: 1},
             {key: 'part_number', labelKey: 'partNumber', field: 'part_number', width: 150, visible: false, sortable: false, editable: false, mono: true, filter: 'text', icon: 'dashicons-tag', priority: 3},
+            {key: 'patris_product_code', labelKey: 'productCode', field: 'patris_product_code', width: 140, visible: true, sortable: false, editable: true, mono: true, filter: 'text', icon: 'dashicons-tag', priority: 1},
             {key: 'sku', labelKey: 'sku', field: 'sku', width: 140, visible: true, sortable: true, editable: true, mono: true, filter: 'text', icon: 'dashicons-editor-code', priority: 1},
             {key: 'type', labelKey: 'productType', field: 'type', width: 122, visible: false, sortable: false, editable: false, type: 'select', filter: 'select', icon: 'dashicons-category', priority: 3},
             {key: 'regular_price', labelKey: 'regularPrice', field: 'regular_price', width: 132, visible: true, sortable: true, editable: true, numeric: true, filter: 'numeric', icon: 'dashicons-money-alt', priority: 2},
@@ -462,6 +595,7 @@
                 productAutosave: stored('digitalogic_panel_product_autosave', '1') !== '0',
                 userSearch: '',
                 edits: {},
+                productCodeIntents: {},
                 userEdits: {},
                 editingCell: null,
                 currencyDraft: {dollar_price: '', yuan_price: ''},
@@ -958,7 +1092,9 @@
                 var ajaxOnly = !!(options && options.ajaxOnly);
                 var silentError = !!(options && options.silentError);
                 this.transport = ajaxOnly ? 'ajax' : (transport.isReady() ? 'websocket' : 'ajax');
-                var request = ajaxOnly ? transport.requestAjax(command, data || {}) : transport.request(command, data || {});
+                var request = ajaxOnly
+                    ? transport.requestAjax(command, data || {}, options || {})
+                    : transport.request(command, data || {}, options || {});
                 return request.catch(function(error) {
                     if (!silentError) {
                         reportPanelError('Command failed: ' + command, error, {transport: ajaxOnly ? 'ajax' : 'automatic'});
@@ -1104,6 +1240,7 @@
                     }
                     self.mergeWarehouseColumns(data.products);
                     self.products = productQuery.applyPendingEdits(data.products, self.edits);
+					self.products.forEach(function(product) { self.hydrateProductCodeRecovery(product); });
                     self.productPage = Math.max(1, Math.min(Number(data.page || requestedPage), Math.max(1, self.productTotalPages)));
                     if (self.selectedProduct && self.selectedProduct.id) {
                         var selected = self.productById(self.selectedProduct.id);
@@ -1142,6 +1279,7 @@
                         data.product ? [data.product] : [],
                         self.edits
                     )[0] || null;
+					self.hydrateProductCodeRecovery(self.selectedProduct);
                 }).catch(function(error) {
                     self.error = error.message || self.t.error;
                 });
@@ -1304,8 +1442,96 @@
                 if (column.warehouse) return this.lang === 'fa' ? column.labelFa : column.labelEn;
                 return column.label;
             },
+			isProductColumnEditable: function(product, column) {
+				if (!column || !column.editable) return false;
+				if (column.field !== 'patris_product_code') return true;
+				var contract = window.DigitalogicProductCodeContract;
+				return Boolean(
+					contract &&
+					typeof contract.prepare === 'function' &&
+					typeof contract.validateResult === 'function' &&
+					(!product || product.patris_product_code_editable !== false)
+				);
+			},
+			hydrateProductCodeRecovery: function(product) {
+				var recovery = product && product.patris_product_code_recovery;
+				if (!recovery || typeof recovery !== 'object' || typeof recovery.request_id !== 'string') return;
+				if (recovery.status === 'outcome_unknown') {
+					delete this.productCodeIntents[product.id];
+					product.patris_product_code_editable = false;
+					product.patris_product_code_edit_reason = 'outcome_unknown';
+					return;
+				}
+				if (
+					typeof recovery.expected_code !== 'string' ||
+					typeof recovery.product_code !== 'string' ||
+					typeof recovery.if_match !== 'string'
+				) return;
+				var current = this.productCodeIntents[product.id];
+				if (!current || current.request_id !== recovery.request_id) {
+					this.productCodeIntents[product.id] = {
+						expected_code: recovery.expected_code,
+						if_match: recovery.if_match,
+						request_id: recovery.request_id,
+						request_fingerprint: String(recovery.request_fingerprint || ''),
+						signature: [product.id, recovery.expected_code, recovery.product_code, recovery.if_match].join('\u0000'),
+						recovery_required: true,
+						recovery_product_code: recovery.product_code,
+						pending_proposal: recovery.product_code,
+						pending_mode: 'same_request'
+					};
+				}
+			},
+			productCodePendingProposal: function(product) {
+				var productId = product && Number(product.id);
+				var intent = productId ? this.productCodeIntents[productId] : null;
+				return intent && typeof intent.pending_proposal === 'string' ? intent.pending_proposal : '';
+			},
+			retryPendingProductCode: function(product) {
+				var productId = product && Number(product.id);
+				if (!productId || this.savePromises[productId]) return Promise.resolve();
+				this.hydrateProductCodeRecovery(product);
+				var proposal = this.productCodePendingProposal(product);
+				if (proposal === '') return Promise.resolve();
+				if (!this.edits[productId]) this.edits[productId] = {};
+				this.edits[productId].patris_product_code = proposal;
+				return this.saveProduct(product).catch(function() {});
+			},
+			productColumnEditReason: function(product, column) {
+				if (
+					column &&
+					column.field === 'patris_product_code' &&
+					(
+						!window.DigitalogicProductCodeContract ||
+						typeof window.DigitalogicProductCodeContract.prepare !== 'function' ||
+						typeof window.DigitalogicProductCodeContract.validateResult !== 'function'
+					)
+				) return this.t.productCodeVerifierUnavailable || '';
+				if (
+					column &&
+					column.field === 'patris_product_code' &&
+					product &&
+					product.patris_product_code_editable === false
+				) {
+					var reasonKeys = {
+						source_managed: 'productCodeSourceManaged',
+						metadata_conflict: 'productCodeMetadataConflict',
+						state_changed: 'productCodeStateChanged',
+						state_unavailable: 'productCodeStateUnavailable',
+						source_state_unavailable: 'productCodeStateUnavailable',
+						permission_denied: 'productCodePermissionDenied',
+						recovery_unavailable: 'productCodeRecoveryUnavailable',
+						outcome_unknown: 'productCodeOutcomeUnknown'
+					};
+					var reasonKey = reasonKeys[product.patris_product_code_edit_reason] || 'productCodeStateUnavailable';
+					return this.t[reasonKey] || '';
+				}
+
+				return '';
+			},
             startCellEdit: function(kind, row, column, event) {
                 if (!column.editable) return;
+				if (kind === 'product' && !this.isProductColumnEditable(row, column)) return;
                 if (kind === 'product' && !this.productEditMode) return;
                 if (column.type === 'select') return;
                 if (event && typeof event.button === 'number' && event.button !== 0) return;
@@ -1350,11 +1576,13 @@
             onGridCellKeydown: function(event, product, column) {
                 var editKeys = ['Enter', 'F2'];
                 if (column.type === 'select' && editKeys.concat([' ']).indexOf(event.key) !== -1) {
+					if (!this.isProductColumnEditable(product, column)) return;
                     event.preventDefault();
                     this.openSelectCell('product', product, column, event);
                     return;
                 }
                 if (editKeys.indexOf(event.key) !== -1) {
+					if (!this.isProductColumnEditable(product, column)) return;
                     event.preventDefault();
                     this.startCellEdit('product', product, column);
                     return;
@@ -1403,9 +1631,19 @@
                     if (next) next.focus({preventScroll: true});
                 });
             },
-            editProduct: function(product, field, value) {
+			editProduct: function(product, field, value) {
                 if (!this.productEditMode || !product || !product.id) return;
+				if (field === 'patris_product_code' && product.patris_product_code_editable === false) return;
                 if (!this.edits[product.id]) this.edits[product.id] = {};
+				if (field === 'patris_product_code') this.hydrateProductCodeRecovery(product);
+				if (field === 'patris_product_code' && !this.productCodeIntents[product.id]) {
+                    this.productCodeIntents[product.id] = {
+                        expected_code: String(product.patris_product_code || ''),
+                        if_match: String(product.patris_product_code_revision || ''),
+                        request_id: '',
+                        signature: ''
+                    };
+                }
                 this.edits[product.id][field] = value;
                 product[field] = value;
                 this.scheduleProductSave(product);
@@ -1459,12 +1697,42 @@
 
                 var snapshot = Object.assign({}, self.edits[productId] || {});
                 if (!Object.keys(snapshot).length) return Promise.resolve();
+                var productCodeEdit = Object.prototype.hasOwnProperty.call(snapshot, 'patris_product_code');
+                var requestSnapshot = productCodeEdit
+                    ? {patris_product_code: snapshot.patris_product_code}
+                    : snapshot;
                 self.saveState['product:' + productId] = 'saving';
-                var savePromise = self.run('digitalogic_update_product', {product_id: productId, data: snapshot}).then(function(response) {
-                    var remaining = productQuery.reconcileEdits(self.edits[productId], snapshot);
+                var operation = productCodeEdit
+                    ? self.saveProductCode(product, requestSnapshot.patris_product_code)
+                    : self.run('digitalogic_update_product', {product_id: productId, data: requestSnapshot});
+                var savePromise = operation.then(function(response) {
+                    var remaining = productQuery.reconcileEdits(self.edits[productId], requestSnapshot);
                     if (Object.keys(remaining).length) self.edits[productId] = remaining;
                     else delete self.edits[productId];
-                    if (response && response.product) {
+                    if (productCodeEdit && response && response.product_code !== undefined) {
+						var currentResult = window.DigitalogicProductCodeContract.currentResult(response);
+						product.patris_product_code = currentResult.product_code;
+						product.patris_product_code_revision = currentResult.revision;
+						product.patris_product_code_recovery = {};
+                        if (self.selectedProduct && Number(self.selectedProduct.id) === productId) {
+							self.selectedProduct.patris_product_code = currentResult.product_code;
+							self.selectedProduct.patris_product_code_revision = currentResult.revision;
+                        }
+                        if (remaining.patris_product_code !== undefined) {
+                            product.patris_product_code = remaining.patris_product_code;
+                            if (self.selectedProduct && Number(self.selectedProduct.id) === productId) {
+                                self.selectedProduct.patris_product_code = remaining.patris_product_code;
+                            }
+                            self.productCodeIntents[productId] = {
+								expected_code: String(currentResult.product_code || ''),
+								if_match: String(currentResult.revision || ''),
+                                request_id: '',
+                                signature: ''
+                            };
+                        } else {
+                            delete self.productCodeIntents[productId];
+                        }
+                    } else if (response && response.product) {
                         Object.assign(product, response.product);
                         Object.assign(product, remaining);
                         if (self.selectedProduct && Number(self.selectedProduct.id) === productId) {
@@ -1479,14 +1747,237 @@
                         window.opener.postMessage({type: 'digitalogic-product-updated', productId: productId}, window.location.origin);
                     }
                 }).catch(function(error) {
+					if (productCodeEdit) {
+						self.handleProductCodeSaveError(product, error);
+					}
                     self.saveState['product:' + productId] = 'error';
                     self.error = error.message || self.t.error;
                     throw error;
                 }).finally(function() {
                     delete self.savePromises[productId];
+                }).then(function() {
+                    return self.edits[productId] && Object.keys(self.edits[productId]).length
+                        ? self.saveProduct(product)
+                        : undefined;
                 });
                 self.savePromises[productId] = savePromise;
                 return savePromise;
+            },
+            saveProductCode: function(product, desiredCode) {
+                var productId = product && Number(product.id);
+				var self = this;
+				this.hydrateProductCodeRecovery(product);
+                var intent = this.productCodeIntents[productId] || {
+                    expected_code: String(product.patris_product_code || ''),
+                    if_match: String(product.patris_product_code_revision || ''),
+                    request_id: '',
+                    signature: ''
+                };
+				if (intent.recovery_required && String(desiredCode) !== intent.recovery_product_code) {
+					return Promise.reject(commandError(
+						{
+							code: 'digitalogic_product_code_recovery_required',
+							message: this.t.productCodeRecoveryRequired,
+							data: {retryable: true}
+						},
+						this.t.productCodeRecoveryRequired,
+						409
+					));
+				}
+                var signature = [productId, intent.expected_code, String(desiredCode), intent.if_match].join('\u0000');
+                if (!intent.request_id || intent.signature !== signature) {
+                    var random = '';
+                    if (window.crypto && typeof window.crypto.getRandomValues === 'function') {
+                        var bytes = new Uint32Array(2);
+                        window.crypto.getRandomValues(bytes);
+                        random = Array.prototype.map.call(bytes, function(value) {
+                            return value.toString(16);
+                        }).join('');
+                    } else {
+                        random = Math.random().toString(16).slice(2);
+                    }
+                    intent.request_id = 'product-code:' + productId + ':' + Date.now() + ':' + random;
+					intent.request_fingerprint = '';
+                    intent.signature = signature;
+                }
+                this.productCodeIntents[productId] = intent;
+
+				var request = {
+                    product_id: productId,
+                    expected_code: intent.expected_code,
+                    product_code: String(desiredCode),
+                    if_match: intent.if_match,
+					request_id: intent.request_id,
+					request_fingerprint: String(intent.request_fingerprint || '')
+				};
+				var contract = window.DigitalogicProductCodeContract;
+				if (!contract || typeof contract.prepare !== 'function' || typeof contract.validateResult !== 'function' || typeof contract.withDeadline !== 'function') {
+					return Promise.reject(commandError(
+						{code: 'digitalogic_response_ambiguous', data: {retryable: true}},
+						this.t.error,
+						0
+					));
+				}
+
+				var pipelineController = typeof window.AbortController === 'function' ? new window.AbortController() : null;
+				var pipelineActive = true;
+				return contract.withDeadline(function() {
+					return contract.prepare(request).then(function(prepared) {
+						if (!pipelineActive) {
+							throw commandError(
+								{code: 'digitalogic_request_timeout', data: {retryable: true}},
+								'The Product Code request timed out. Retry the unchanged request.',
+								0
+							);
+						}
+						intent.request_fingerprint = prepared.request_fingerprint;
+						return self.run('digitalogic_update_product_code', {
+							product_id: prepared.product_id,
+							expected_code: prepared.expected_code,
+							product_code: prepared.product_code,
+							if_match: prepared.if_match,
+							request_id: prepared.request_id
+						}, {
+							ajaxOnly: true,
+							bounded: true,
+							controller: pipelineController,
+							transportDeadline: false
+						}).then(function(result) {
+							return contract.validateResult(result, prepared);
+						});
+					});
+				}, config.request_timeout, function() {
+					pipelineActive = false;
+					if (pipelineController) pipelineController.abort();
+				}).catch(function(error) {
+					if (error && error.code === 'digitalogic_response_ambiguous') {
+						throw commandError(
+							{code: error.code, data: {retryable: true}},
+							self.t.productCodeResponseAmbiguous,
+							0
+						);
+					}
+					throw error;
+				}).finally(function() {
+					pipelineActive = false;
+				});
+			},
+			handleProductCodeSaveError: function(product, error) {
+				var productId = product && Number(product.id);
+				var intent = this.productCodeIntents[productId];
+				if (!intent) return;
+				var details = error && error.data && typeof error.data === 'object' ? error.data : {};
+				if (
+					error &&
+					error.code === 'digitalogic_product_code_recovery_required' &&
+					details.recovery &&
+					typeof details.recovery.request_id === 'string'
+				) {
+					var recovery = details.recovery;
+					this.productCodeIntents[productId] = {
+						expected_code: String(recovery.expected_code || ''),
+						if_match: String(recovery.if_match || ''),
+						request_id: recovery.request_id,
+						request_fingerprint: String(recovery.request_fingerprint || ''),
+						signature: [productId, String(recovery.expected_code || ''), String(recovery.product_code || ''), String(recovery.if_match || '')].join('\u0000'),
+						recovery_required: true,
+						recovery_product_code: String(recovery.product_code || ''),
+						pending_proposal: String(recovery.product_code || ''),
+						pending_mode: 'same_request'
+					};
+					return;
+				}
+				if (
+					error &&
+					error.code === 'digitalogic_product_code_precondition_failed' &&
+					typeof details.current_code === 'string' &&
+					typeof details.current_revision === 'string'
+				) {
+					intent.expected_code = details.current_code;
+					intent.if_match = details.current_revision;
+					intent.request_id = '';
+					intent.request_fingerprint = '';
+					intent.signature = '';
+					intent.recovery_required = false;
+					intent.recovery_product_code = '';
+					intent.pending_proposal = this.edits[productId] && typeof this.edits[productId].patris_product_code === 'string'
+						? this.edits[productId].patris_product_code
+						: String(product.patris_product_code || '');
+					intent.pending_mode = 'new_request';
+					product.patris_product_code = details.current_code;
+					product.patris_product_code_revision = details.current_revision;
+					if (this.selectedProduct && Number(this.selectedProduct.id) === productId) {
+						this.selectedProduct.patris_product_code = details.current_code;
+						this.selectedProduct.patris_product_code_revision = details.current_revision;
+					}
+					return;
+				}
+				if (error && error.code === 'digitalogic_product_code_reconciled_no_effect') {
+					if (this.edits[productId]) {
+						delete this.edits[productId].patris_product_code;
+						if (!Object.keys(this.edits[productId]).length) delete this.edits[productId];
+					}
+					delete this.productCodeIntents[productId];
+					if (typeof details.current_code === 'string' && typeof details.current_revision === 'string') {
+						product.patris_product_code = details.current_code;
+						product.patris_product_code_revision = details.current_revision;
+						if (this.selectedProduct && Number(this.selectedProduct.id) === productId) {
+							this.selectedProduct.patris_product_code = details.current_code;
+							this.selectedProduct.patris_product_code_revision = details.current_revision;
+						}
+					}
+					this.loadProducts(this.productPage);
+					if (this.selectedProduct && Number(this.selectedProduct.id) === productId) {
+						this.loadProduct(productId);
+					}
+					return;
+				}
+				var status = error ? Number(error.status || 0) : 0;
+				if (
+					(error && error.code === 'digitalogic_request_timeout') ||
+					status === 0 ||
+					status === 408 ||
+					status === 429 ||
+					status >= 500 ||
+					details.retryable === true
+				) {
+					if (this.edits[productId] && typeof this.edits[productId].patris_product_code === 'string') {
+						intent.pending_proposal = this.edits[productId].patris_product_code;
+						intent.pending_mode = 'same_request';
+					}
+					return;
+				}
+
+				if (this.edits[productId]) {
+					delete this.edits[productId].patris_product_code;
+					if (!Object.keys(this.edits[productId]).length) delete this.edits[productId];
+				}
+				product.patris_product_code = intent.expected_code;
+				product.patris_product_code_revision = intent.if_match;
+				if (
+					error &&
+					(
+						error.code === 'digitalogic_product_code_source_managed' ||
+						error.code === 'digitalogic_product_code_meta_conflict'
+					)
+				) {
+					product.patris_product_code_editable = false;
+					product.patris_product_code_edit_reason = error.code === 'digitalogic_product_code_source_managed'
+						? 'source_managed'
+						: 'metadata_conflict';
+					if (this.selectedProduct && Number(this.selectedProduct.id) === productId) {
+						this.selectedProduct.patris_product_code_editable = false;
+						this.selectedProduct.patris_product_code_edit_reason = product.patris_product_code_edit_reason;
+					}
+					this.loadProducts(this.productPage);
+				}
+				delete this.productCodeIntents[productId];
+				if (error && error.code === 'digitalogic_product_code_outcome_unknown') {
+					this.loadProducts(this.productPage);
+					if (this.selectedProduct && Number(this.selectedProduct.id) === productId) {
+						this.loadProduct(productId);
+					}
+				}
             },
             saveAllProductEdits: function() {
                 var self = this;

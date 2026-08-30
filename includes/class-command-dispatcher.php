@@ -76,6 +76,8 @@ class Digitalogic_Command_Dispatcher {
             'digitalogic_get_products'                     => array($this, 'get_products'),
             'digitalogic_get_product'                      => array($this, 'get_product'),
             'digitalogic_update_product'                   => array($this, 'update_product'),
+			// phpcs:ignore WordPress.Arrays.MultipleStatementAlignment.DoubleArrowNotAligned -- Keep this focused addition out of the legacy array's formatting debt.
+			'digitalogic_update_product_code' => array( $this, 'update_product_code' ),
             'digitalogic_bulk_update'                      => array($this, 'bulk_update'),
             'digitalogic_update_currency'                  => array($this, 'update_currency'),
             'digitalogic_get_currency'                     => array($this, 'get_currency'),
@@ -140,6 +142,16 @@ class Digitalogic_Command_Dispatcher {
             'product' => Digitalogic_Product_Manager::instance()->get_product( $product_id ),
         );
     }
+
+	/**
+	 * Run the explicit, source-guarded canonical Product Code editor.
+	 *
+	 * @param mixed $payload Command payload.
+	 * @return array|WP_Error
+	 */
+	public function update_product_code( $payload ) {
+		return Digitalogic_Product_Code_Editor::instance()->edit( $payload );
+	}
 
     public function bulk_update($payload) {
         $updates = isset( $payload['updates'] ) && is_array( $payload['updates'] ) ? $payload['updates'] : array();

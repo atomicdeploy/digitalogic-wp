@@ -35,6 +35,7 @@ class Digitalogic_Admin {
         add_action('admin_footer', array($this, 'remove_unwanted_admin_notices'), 1000);
         add_action('wp_ajax_digitalogic_get_products', array($this, 'ajax_get_products'));
         add_action('wp_ajax_digitalogic_update_product', array($this, 'ajax_update_product'));
+		add_action( 'wp_ajax_digitalogic_update_product_code', array( $this, 'ajax_update_product_code' ) );
         add_action('wp_ajax_digitalogic_bulk_update', array($this, 'ajax_bulk_update'));
         add_action('wp_ajax_digitalogic_update_currency', array($this, 'ajax_update_currency'));
         add_action('wp_ajax_digitalogic_export', array($this, 'ajax_export'));
@@ -353,8 +354,11 @@ class Digitalogic_Admin {
         // Plugin styles
         wp_enqueue_style('digitalogic-admin', DIGITALOGIC_PLUGIN_URL . 'assets/css/admin.css', array(), DIGITALOGIC_VERSION);
         
-        // Plugin scripts
-        wp_enqueue_script('digitalogic-admin', DIGITALOGIC_PLUGIN_URL . 'assets/js/admin.js', array('jquery', 'datatables'), DIGITALOGIC_VERSION, true);
+		// Plugin scripts
+		$product_code_contract_version = filemtime( DIGITALOGIC_PLUGIN_DIR . 'assets/js/product-code-contract.js' ) ?: DIGITALOGIC_VERSION;
+		$admin_script_version          = filemtime( DIGITALOGIC_PLUGIN_DIR . 'assets/js/admin.js' ) ?: DIGITALOGIC_VERSION;
+		wp_enqueue_script('digitalogic-product-code-contract', DIGITALOGIC_PLUGIN_URL . 'assets/js/product-code-contract.js', array(), $product_code_contract_version, true);
+		wp_enqueue_script('digitalogic-admin', DIGITALOGIC_PLUGIN_URL . 'assets/js/admin.js', array('jquery', 'datatables', 'digitalogic-product-code-contract'), $admin_script_version, true);
         
         // Localize script
         wp_localize_script('digitalogic-admin', 'digitalogic', array(
@@ -380,6 +384,26 @@ class Digitalogic_Admin {
                 'entries_text' => __('entries', 'digitalogic'),
                 'no_records' => __('No matching records found', 'digitalogic'),
                 'filtered' => __('(filtered from _MAX_ total entries)', 'digitalogic'),
+				// phpcs:disable WordPress.Arrays.MultipleStatementAlignment.DoubleArrowNotAligned -- Keep this focused addition out of the legacy array's formatting debt.
+				'product_code_source_managed'     => __( 'This Product Code is managed by the catalog source; correct it in the source.', 'digitalogic' ),
+				'product_code_metadata_conflict'  => __( 'This Product Code has conflicting metadata rows and must be reconciled first.', 'digitalogic' ),
+				'product_code_state_changed'      => __( 'This Product Code changed while the row was loading; reload before editing.', 'digitalogic' ),
+				'product_code_state_unavailable'  => __( 'The exact Product Code or source state is unavailable; retry after reloading.', 'digitalogic' ),
+				'product_code_permission_denied'   => __( 'You do not have permission to edit this product or variation.', 'digitalogic' ),
+				'product_code_recovery_unavailable' => __( 'The earlier Product Code request cannot be loaded safely.', 'digitalogic' ),
+				'product_code_outcome_unknown'      => __( 'The exact Product Code outcome is unknown; stop editing and reconcile the database with the audit record.', 'digitalogic' ),
+				'product_code_recovery_required'   => __( 'An earlier Product Code edit is incomplete and must be recovered first.', 'digitalogic' ),
+				'product_code_request_failed'      => __( 'The Product Code request did not complete.', 'digitalogic' ),
+				'product_code_bulk_pending'        => __( 'Product Code changes must finish through their dedicated save operation and are not sent by bulk update.', 'digitalogic' ),
+				'product_code_response_ambiguous'  => __( 'The Product Code response could not be verified; retry the same value.', 'digitalogic' ),
+				'product_code_retry_same_request'  => __( 'Retry the same value; the original request identity will be reused.', 'digitalogic' ),
+				'product_code_retry_pending'       => __( 'Retry the pending Product Code change', 'digitalogic' ),
+				'product_code_verifier_unavailable' => __( 'The Product Code response verifier is unavailable; reload this page.', 'digitalogic' ),
+				'product_code_reload'              => __( 'Reload the row and review the current value before trying again.', 'digitalogic' ),
+				'product_code_correct_source'       => __( 'Correct the code in its catalog source and deliver the reviewed source revision.', 'digitalogic' ),
+				'product_code_manual_reconcile'     => __( 'Stop editing and reconcile the exact database state with the audit record.', 'digitalogic' ),
+				'product_code_resolve_conflict'     => __( 'Resolve the duplicate or conflicting Product Code before retrying.', 'digitalogic' ),
+				// phpcs:enable WordPress.Arrays.MultipleStatementAlignment.DoubleArrowNotAligned
             )
         ));
     }
@@ -1069,6 +1093,12 @@ class Digitalogic_Admin {
     public function ajax_update_product() {
         $this->send_command_response('digitalogic_update_product', $_POST);
     }
+
+	/** AJAX: Update the canonical Product Code through its dedicated contract. */
+	public function ajax_update_product_code() {
+		// phpcs:ignore WordPress.Security.NonceVerification.Missing -- send_command_response verifies the shared admin nonce before dispatch.
+		$this->send_command_response( 'digitalogic_update_product_code', $_POST );
+	}
     
     /**
      * AJAX: Bulk update
@@ -1172,6 +1202,19 @@ class Digitalogic_Admin {
             if ($retry_after > 0 && !headers_sent()) {
                 header('Retry-After: ' . $retry_after);
             }
+			if ( 'digitalogic_update_product_code' === $command ) {
+				$error_data = $details;
+				$status     = max( 400, min( 599, $status ) );
+				wp_send_json_error(
+					array(
+						'code'    => $result->get_error_code(),
+						'message' => $result->get_error_message(),
+						'data'    => $error_data,
+						'status'  => $status,
+					),
+					$status
+				);
+			}
             wp_send_json_error(
                 array(
                     'code' => $result->get_error_code(),

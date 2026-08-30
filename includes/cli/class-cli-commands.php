@@ -1651,6 +1651,75 @@ class Digitalogic_CLI_Commands {
 	}
 
 	/**
+	 * Dry-run or explicitly resolve one outcome-unknown Product Code request.
+	 *
+	 * The command never writes the Product Code. Without --apply it returns the
+	 * exact observed state, record fingerprint, resolution, and preview digest.
+	 * Apply requires every returned assertion unchanged.
+	 *
+	 * ## OPTIONS
+	 *
+	 * --product-id=<id>
+	 * : Exact WooCommerce product or variation ID.
+	 *
+	 * --request-id=<id>
+	 * : Exact idempotency request ID from the recovery record.
+	 *
+	 * [--apply]
+	 * : Terminalize the inspected operation without changing Product Code.
+	 *
+	 * [--record-fingerprint=<hash>]
+	 * [--observed-product-code=<code>]
+	 * [--observed-revision=<hash>]
+	 * [--resolution=<before|after>]
+	 * [--preview-digest=<hash>]
+	 * : Exact assertions returned by the immediately preceding dry-run.
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     wp digitalogic product-code reconcile --product-id=741 --request-id=product-code:741:example --user=<administrator>
+	 *
+	 * @when after_wp_load
+	 *
+	 * @param array $args Positional arguments (unused).
+	 * @param array $assoc_args Named command arguments.
+	 * @return void
+	 */
+	public function product_code_reconcile( $args, $assoc_args ) {
+		unset( $args );
+		if ( ! $this->require_administrator() ) {
+			return;
+		}
+		$payload = array(
+			'product_id'            => $assoc_args['product-id'] ?? null,
+			'request_id'            => $assoc_args['request-id'] ?? null,
+			'apply'                 => isset( $assoc_args['apply'] ),
+			'record_fingerprint'    => $assoc_args['record-fingerprint'] ?? '',
+			'observed_product_code' => $assoc_args['observed-product-code'] ?? '',
+			'observed_revision'     => $assoc_args['observed-revision'] ?? '',
+			'resolution'            => $assoc_args['resolution'] ?? '',
+			'preview_digest'        => $assoc_args['preview-digest'] ?? '',
+		);
+		$result  = Digitalogic_Product_Code_Editor::instance()->reconcile_outcome( $payload );
+		if ( is_wp_error( $result ) ) {
+			$data = $result->get_error_data();
+			WP_CLI::error(
+				wp_json_encode(
+					array(
+						'code'    => $result->get_error_code(),
+						'message' => $result->get_error_message(),
+						'data'    => is_array( $data ) ? $data : array(),
+					),
+					JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+				)
+			);
+			return;
+		}
+
+		WP_CLI::line( wp_json_encode( $result, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES ) );
+	}
+
+	/**
 	 * Retry deferred and transient product-sync work without changing ordering.
 	 *
 	 * ## OPTIONS
@@ -1933,6 +2002,10 @@ WP_CLI::add_command(
 WP_CLI::add_command(
 	'digitalogic product-sync status',
 	array( 'Digitalogic_CLI_Commands', 'product_sync_status' )
+);
+WP_CLI::add_command(
+	'digitalogic product-code reconcile',
+	array( 'Digitalogic_CLI_Commands', 'product_code_reconcile' )
 );
 WP_CLI::add_command(
 	'digitalogic product-sync reconcile',

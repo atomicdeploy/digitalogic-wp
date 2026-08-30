@@ -44,6 +44,9 @@ final class Digitalogic_Report_Engine {
 	private $active_build_lock_key  = '';
 	private $local_cache_generation = 'initial';
 
+	/** @var array<string,array{object_id:int,meta_key:string,generation:string}> Request-local exact-effect probes. */
+	private $product_meta_invalidation_probes = array();
+
 	/** Register every source mutation that can make a report stale. */
 	private function __construct() {
 		$generation                   = get_option( self::CACHE_GENERATION_OPTION, null );
@@ -115,6 +118,116 @@ final class Digitalogic_Report_Engine {
 		}
 
 		return false;
+	}
+
+	/** Read the persistent projection generation without an option-cache layer. */
+	public function current_projection_generation() {
+		global $wpdb;
+		if ( ! is_object( $wpdb ) || ! method_exists( $wpdb, 'prepare' ) || ! method_exists( $wpdb, 'get_row' ) ) {
+			return new WP_Error(
+				'digitalogic_report_generation_unavailable',
+				__( 'The report projection generation is unavailable.', 'digitalogic' ),
+				array( 'status' => 503 )
+			);
+		}
+		$options = isset( $wpdb->options ) ? $wpdb->options : $wpdb->prefix . 'options';
+		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- wpdb-owned table name cannot be a placeholder.
+		$query = $wpdb->prepare(
+			"/* digitalogic_report_generation_readback */ SELECT option_value FROM {$options} WHERE option_name = %s LIMIT 1",
+			self::CACHE_GENERATION_OPTION
+		);
+		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Exact post-write generation readback is required.
+		$row = false === $query ? null : $wpdb->get_row( $query, ARRAY_A );
+		if ( ! is_array( $row ) || ! array_key_exists( 'option_value', $row ) ) {
+			return new WP_Error(
+				'digitalogic_report_generation_unavailable',
+				__( 'The report projection generation is unavailable.', 'digitalogic' ),
+				array( 'status' => 503 )
+			);
+		}
+		$generation = maybe_unserialize( $row['option_value'] );
+		if ( ! is_string( $generation ) || '' === $generation ) {
+			return new WP_Error(
+				'digitalogic_report_generation_unavailable',
+				__( 'The report projection generation is unavailable.', 'digitalogic' ),
+				array( 'status' => 503 )
+			);
+		}
+
+		return $generation;
+	}
+
+	/** Ensure one product mutation advanced the persistent projection generation. */
+	public function ensure_projection_invalidated( $previous_generation ) {
+		$current = $this->current_projection_generation();
+		if ( ! is_wp_error( $current ) && ! hash_equals( (string) $previous_generation, $current ) ) {
+			return $current;
+		}
+		if ( ! $this->invalidate_cache() ) {
+			return new WP_Error(
+				'digitalogic_report_invalidation_unavailable',
+				__( 'The report projection could not be invalidated.', 'digitalogic' ),
+				array( 'status' => 503 )
+			);
+		}
+		$current = $this->current_projection_generation();
+		if ( is_wp_error( $current ) || hash_equals( (string) $previous_generation, (string) $current ) ) {
+			return new WP_Error(
+				'digitalogic_report_invalidation_unavailable',
+				__( 'The report projection invalidation did not pass exact readback.', 'digitalogic' ),
+				array( 'status' => 503 )
+			);
+		}
+
+		return $current;
+	}
+
+	/**
+	 * Start one request-local probe for an exact product-meta invalidation.
+	 *
+	 * The opaque token is safe to persist in an in-progress recovery record. A
+	 * later request will intentionally find no live probe and must perform its
+	 * own explicit recovery invalidation.
+	 */
+	public function begin_product_meta_invalidation_probe( $object_id, $meta_key ) {
+		$object_id = absint( $object_id );
+		$meta_key  = (string) $meta_key;
+		if ( $object_id <= 0 || '' === $meta_key ) {
+			return new WP_Error(
+				'digitalogic_report_invalidation_probe_invalid',
+				__( 'The report invalidation probe is invalid.', 'digitalogic' ),
+				array( 'status' => 400 )
+			);
+		}
+		$token = function_exists( 'wp_generate_uuid4' )
+			? wp_generate_uuid4()
+			: hash( 'sha256', $object_id . '|' . $meta_key . '|' . microtime( true ) . '|' . wp_rand() );
+		$this->product_meta_invalidation_probes[ $token ] = array(
+			'object_id'  => $object_id,
+			'meta_key'   => $meta_key, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key -- Probe payload field, not a query argument.
+			'generation' => '',
+		);
+
+		return $token;
+	}
+
+	/** Consume one probe and distinguish a live failed effect from a later request. */
+	public function consume_product_meta_invalidation_probe( $token ) {
+		$token = (string) $token;
+		if ( '' === $token || ! array_key_exists( $token, $this->product_meta_invalidation_probes ) ) {
+			return array(
+				'known'      => false,
+				'generation' => '',
+			);
+		}
+		$probe = $this->product_meta_invalidation_probes[ $token ];
+		unset( $this->product_meta_invalidation_probes[ $token ] );
+
+		return array(
+			'known'      => true,
+			'generation' => (string) ( $probe['generation'] ?? '' ),
+		);
 	}
 
 	/**
@@ -1053,7 +1166,18 @@ final class Digitalogic_Report_Engine {
 			( in_array( $meta_key, $consumed, true ) || str_starts_with( $meta_key, 'attribute_' ) )
 			&& in_array( get_post_type( $object_id ), array( 'product', 'product_variation', 'attachment' ), true )
 		) {
-			$this->invalidate_cache();
+			$invalidated = $this->invalidate_cache();
+			if ( $invalidated ) {
+				$generation = $this->current_projection_generation();
+				if ( ! is_wp_error( $generation ) ) {
+					foreach ( $this->product_meta_invalidation_probes as &$probe ) {
+						if ( (int) $probe['object_id'] === (int) $object_id && hash_equals( (string) $probe['meta_key'], $meta_key ) ) {
+							$probe['generation'] = $generation;
+						}
+					}
+					unset( $probe );
+				}
+			}
 		}
 	}
 

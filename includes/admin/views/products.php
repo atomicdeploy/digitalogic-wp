@@ -38,6 +38,7 @@
 				<th><?php _e( 'Image', 'digitalogic' ); ?></th>
 				<th><?php _e( 'Name', 'digitalogic' ); ?></th>
 				<th><?php echo esc_html( is_rtl() ? 'کد کالا' : __( 'Product Code', 'digitalogic' ) ); ?></th>
+				<th><?php echo esc_html__( 'SKU', 'digitalogic' ); ?></th>
 				<th><?php _e( 'Regular Price', 'digitalogic' ); ?></th>
 				<th><?php _e( 'Sale Price', 'digitalogic' ); ?></th>
 				<th><?php _e( 'Stock', 'digitalogic' ); ?></th>

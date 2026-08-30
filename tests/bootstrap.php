@@ -47,8 +47,10 @@ $GLOBALS['digitalogic_test_next_term_id'] = 1;
 $GLOBALS['digitalogic_test_update_failures'] = array();
 $GLOBALS['digitalogic_test_meta_update_failures'] = array();
 $GLOBALS['digitalogic_test_meta_delete_failures'] = array();
+$GLOBALS['digitalogic_test_option_delete_failures'] = array();
 $GLOBALS['digitalogic_test_transaction_failures'] = array();
 $GLOBALS['digitalogic_test_cache_deletes'] = array();
+$GLOBALS['digitalogic_test_cache_delete_failures'] = array();
 $GLOBALS['digitalogic_test_cache_invalidation_suspended'] = false;
 $GLOBALS['digitalogic_test_cache_invalidation_history'] = array();
 $GLOBALS['digitalogic_test_wc_cache_group_invalidations'] = array();
@@ -62,6 +64,7 @@ $GLOBALS['digitalogic_test_wc_set_price_calls'] = array();
 $GLOBALS['digitalogic_test_wc_transient_deletes'] = array();
 $GLOBALS['digitalogic_test_wc_after_save'] = null;
 $GLOBALS['digitalogic_test_wc_save_fail_once'] = array();
+$GLOBALS['digitalogic_test_wc_defer_new_product_id'] = false;
 $GLOBALS['digitalogic_test_wc_lookup_rows'] = array();
 $GLOBALS['digitalogic_test_wc_data_store'] = null;
 $GLOBALS['digitalogic_test_wc_lookup_full_rebuilds'] = 0;
@@ -768,6 +771,9 @@ function add_option($name, $value = '', $deprecated = '', $autoload = 'yes') {
 }
 
 function delete_option($name) {
+	if (in_array($name, $GLOBALS['digitalogic_test_option_delete_failures'] ?? array(), true)) {
+		return false;
+	}
     if (!array_key_exists($name, $GLOBALS['digitalogic_test_options'])) {
         return false;
     }
@@ -821,6 +827,9 @@ function delete_transient($name) {
 
 function wp_cache_delete($key, $group = '') {
     $GLOBALS['digitalogic_test_cache_deletes'][] = array($key, $group);
+	if (in_array((string) $group . ':' . (string) $key, (array) ($GLOBALS['digitalogic_test_cache_delete_failures'] ?? array()), true)) {
+		return false;
+	}
 
     if ('options' === $group) {
         if ('alloptions' === $key || 'notoptions' === $key) {
@@ -980,6 +989,12 @@ function get_post($post_id) {
     );
 }
 
+function get_the_title($post_id = 0) {
+	$post = get_post($post_id);
+
+	return $post ? (string) ($post->post_title ?? '') : '';
+}
+
 function get_post_thumbnail_id($post_id) {
     return 0;
 }
@@ -1017,11 +1032,17 @@ function get_post_meta($post_id, $key = '', $single = false) {
 
 function metadata_exists($meta_type, $object_id, $meta_key) {
     return 'post' === $meta_type
-        && isset($GLOBALS['digitalogic_test_posts'][$object_id]['meta'])
-        && array_key_exists($meta_key, $GLOBALS['digitalogic_test_posts'][$object_id]['meta']);
+        && (
+            array_key_exists($meta_key, $GLOBALS['digitalogic_test_posts'][$object_id]['meta'] ?? array())
+            || !empty($GLOBALS['digitalogic_test_posts'][$object_id]['meta_rows'][$meta_key] ?? array())
+        );
 }
 
 function update_post_meta($post_id, $key, $value) {
+	$guarded = apply_filters('update_post_metadata', null, $post_id, $key, $value, '');
+	if (null !== $guarded) {
+		return $guarded;
+	}
     $failure_key = (int) $post_id . ':' . $key;
     if (in_array($failure_key, $GLOBALS['digitalogic_test_meta_update_failures'], true)) {
         return false;
@@ -1046,24 +1067,134 @@ function update_post_meta($post_id, $key, $value) {
     return 1;
 }
 
+function add_post_meta($post_id, $key, $value, $unique = false) {
+	$guarded = apply_filters('add_post_metadata', null, $post_id, $key, $value, $unique);
+	if (null !== $guarded) {
+		return $guarded;
+	}
+	if (!isset($GLOBALS['digitalogic_test_posts'][$post_id])) {
+		$GLOBALS['digitalogic_test_posts'][$post_id] = array('post_type' => 'product', 'meta' => array());
+	}
+	if ($unique && metadata_exists('post', $post_id, $key)) {
+		return false;
+	}
+
+	$rows   = array_values(get_post_meta($post_id, $key, false));
+	$rows[] = $value;
+	if (1 === count($rows)) {
+		$GLOBALS['digitalogic_test_posts'][$post_id]['meta'][$key] = $value;
+		unset($GLOBALS['digitalogic_test_posts'][$post_id]['meta_rows'][$key]);
+	} else {
+		$GLOBALS['digitalogic_test_posts'][$post_id]['meta'][$key]      = reset($rows);
+		$GLOBALS['digitalogic_test_posts'][$post_id]['meta_rows'][$key] = $rows;
+	}
+	unset($GLOBALS['digitalogic_test_post_meta_cache'][$post_id]);
+	do_action('added_post_meta', count($rows), $post_id, $key, $value);
+
+	return count($rows);
+}
+
 function delete_post_meta($post_id, $key, $value = '') {
+	$guarded = apply_filters('delete_post_metadata', null, $post_id, $key, $value, false);
+	if (null !== $guarded) {
+		return $guarded;
+	}
     $failure_key = (int) $post_id . ':' . $key;
     if (in_array($failure_key, $GLOBALS['digitalogic_test_meta_delete_failures'], true)) {
         return false;
     }
-    if (!isset($GLOBALS['digitalogic_test_posts'][$post_id]['meta'][$key])) {
+    $has_meta = array_key_exists($key, $GLOBALS['digitalogic_test_posts'][$post_id]['meta'] ?? array());
+    $has_rows = !empty($GLOBALS['digitalogic_test_posts'][$post_id]['meta_rows'][$key] ?? array());
+    if (!$has_meta && !$has_rows) {
         return false;
     }
 
-    $old = $GLOBALS['digitalogic_test_posts'][$post_id]['meta'][$key];
+    $old = $has_meta
+        ? $GLOBALS['digitalogic_test_posts'][$post_id]['meta'][$key]
+        : end($GLOBALS['digitalogic_test_posts'][$post_id]['meta_rows'][$key]);
     if (!isset($GLOBALS['digitalogic_test_post_meta_cache'][$post_id])) {
         $GLOBALS['digitalogic_test_post_meta_cache'][$post_id] = $GLOBALS['digitalogic_test_posts'][$post_id]['meta'];
     }
     unset($GLOBALS['digitalogic_test_posts'][$post_id]['meta'][$key]);
+    unset($GLOBALS['digitalogic_test_posts'][$post_id]['meta_rows'][$key]);
     unset($GLOBALS['digitalogic_test_post_meta_cache'][$post_id][$key]);
     do_action('deleted_post_meta', array(1), $post_id, $key, $old);
 
     return true;
+}
+
+function wp_delete_post($post_id, $force_delete = false) {
+	$post_id = (int) $post_id;
+	$post    = get_post($post_id);
+	if (!$post) {
+		return false;
+	}
+	$pre_delete = apply_filters('pre_delete_post', null, $post, (bool) $force_delete);
+	if (null !== $pre_delete) {
+		return $pre_delete;
+	}
+	do_action('before_delete_post', $post_id, $post);
+	foreach (array_keys($GLOBALS['digitalogic_test_posts'][$post_id]['meta'] ?? array()) as $index => $key) {
+		$meta_id = ($post_id * 1000) + $index + 1;
+		$GLOBALS['digitalogic_test_meta_by_mid'][$meta_id] = array(
+			'post_id'  => $post_id,
+			'meta_key' => $key, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key -- Test metadata row fixture.
+		);
+		$guarded = apply_filters('delete_post_metadata_by_mid', null, $meta_id);
+		if (null === $guarded) {
+			unset($GLOBALS['digitalogic_test_posts'][$post_id]['meta'][$key]);
+		}
+		unset($GLOBALS['digitalogic_test_meta_by_mid'][$meta_id]);
+	}
+	do_action('delete_post', $post_id, $post);
+	unset($GLOBALS['digitalogic_test_posts'][$post_id]);
+	do_action('deleted_post', $post_id, $post);
+	return $post;
+}
+
+function wp_trash_post($post_id) {
+	$post_id = (int) $post_id;
+	$post    = get_post($post_id);
+	if (!$post || 'trash' === (string) ($post->post_status ?? '')) {
+		return false;
+	}
+	$previous_status = (string) ($post->post_status ?? '');
+	$pre_trash       = apply_filters('pre_trash_post', null, $post, $previous_status);
+	if (null !== $pre_trash) {
+		return $pre_trash;
+	}
+	$GLOBALS['digitalogic_test_posts'][$post_id]['post_status'] = 'trash';
+	do_action('wp_trash_post', $post_id, $previous_status);
+	do_action('trashed_post', $post_id, $previous_status);
+
+	return $post;
+}
+
+function wp_untrash_post($post_id) {
+	$post_id = (int) $post_id;
+	$post    = get_post($post_id);
+	if (!$post || 'trash' !== (string) ($post->post_status ?? '')) {
+		return false;
+	}
+	$previous_status = 'trash';
+	$pre_untrash     = apply_filters('pre_untrash_post', null, $post, $previous_status);
+	if (null !== $pre_untrash) {
+		return $pre_untrash;
+	}
+	$restored_status = (string) ($GLOBALS['digitalogic_test_posts'][$post_id]['meta']['_wp_trash_meta_status'] ?? 'draft');
+	$GLOBALS['digitalogic_test_posts'][$post_id]['post_status'] = '' !== $restored_status ? $restored_status : 'draft';
+	do_action('untrash_post', $post_id, $previous_status);
+	do_action('untrashed_post', $post_id, $previous_status);
+
+	return $post;
+}
+
+function get_metadata_by_mid($meta_type, $meta_id) {
+	if ('post' !== $meta_type) {
+		return false;
+	}
+	$row = $GLOBALS['digitalogic_test_meta_by_mid'][(int) $meta_id] ?? null;
+	return is_array($row) ? (object) $row : false;
 }
 
 function get_posts($args = array()) {
@@ -1353,6 +1484,11 @@ class Digitalogic_Test_WPDB {
     // phpcs:disable -- Product metadata lookup controls are test-only database hooks.
     public $metadata_lookup_query_count = 0;
     public $metadata_lookup_query_failure = false;
+	public $exact_meta_query_failure = false;
+	public $product_code_meta_key_binary_collation = false;
+	public $product_code_meta_value_case_insensitive_collation = false;
+	public $product_code_readback_batch_query_count = 0;
+	public $product_code_options_batch_query_count = 0;
     public $price_range_query_count = 0;
     // phpcs:enable
     public $last_error = '';
@@ -1362,7 +1498,12 @@ class Digitalogic_Test_WPDB {
     public $before_release_lock = null;
     public $after_option_write = null;
 	public $before_currency_job_cas = null;
+	public $after_option_delete = null;
+	public $before_exact_option_cas = null;
+	public $before_exact_option_delete = null;
     public $lock_timeouts = array();
+	public $connection_id = 1001;
+	public $used_locks = array();
     // phpcs:enable
     private $transaction_snapshot = null;
     private $meta_ids = array();
@@ -1394,16 +1535,42 @@ class Digitalogic_Test_WPDB {
                 call_user_func($callback, $this);
             }
             // phpcs:enable
-            return !empty($this->acquire_results) ? array_shift($this->acquire_results) : $this->acquire_result;
+			$result = !empty($this->acquire_results) ? array_shift($this->acquire_results) : $this->acquire_result;
+			if (
+				1 === (int) $result
+				&& isset($args[0], $this->used_locks[(string) $args[0]])
+				&& (int) $this->used_locks[(string) $args[0]] !== (int) $this->connection_id
+			) {
+				$result = 0;
+			}
+			if (1 === (int) $result && isset($args[0])) {
+				$this->used_locks[(string) $args[0]] = (int) $this->connection_id;
+			}
+			return $result;
         }
 
+		if (strpos($query, 'CONNECTION_ID()') !== false) {
+			return (int) $this->connection_id;
+		}
+
+		if (strpos($query, 'IS_USED_LOCK') !== false) {
+			$args = is_array($prepared) && isset($prepared['args']) ? $prepared['args'] : array();
+			$name = isset($args[0]) ? (string) $args[0] : '';
+			return $this->used_locks[$name] ?? null;
+		}
+
         if (strpos($query, 'RELEASE_LOCK') !== false) {
+			$args                      = is_array($prepared) && isset($prepared['args']) ? $prepared['args'] : array();
+			$name                      = isset($args[0]) ? (string) $args[0] : '';
             $callback = $this->before_release_lock;
             $this->before_release_lock = null;
             if (is_callable($callback)) {
                 call_user_func($callback, $this);
             }
             $this->release_count++;
+			if (($this->used_locks[$name] ?? null) === (int) $this->connection_id) {
+				unset($this->used_locks[$name]);
+			}
             return 1;
         }
 
@@ -1516,6 +1683,161 @@ class Digitalogic_Test_WPDB {
 					'max_price'  => $lookup_row['max_price'] ?? null,
 				);
 			}
+			return $rows;
+		}
+		if ( false !== strpos( $query, 'digitalogic_product_code_options_batch' ) ) {
+			++$this->product_code_options_batch_query_count;
+			$rows = array();
+			foreach ( $args as $option_name ) {
+				$option_name = (string) $option_name;
+				if ( array_key_exists( $option_name, $GLOBALS['digitalogic_test_options'] ) ) {
+					$rows[] = array(
+						'option_name'  => $option_name,
+						'option_value' => $this->database_raw_value( $GLOBALS['digitalogic_test_options'][ $option_name ] ),
+					);
+				}
+			}
+
+			return $rows;
+		}
+		if ( false !== strpos( $query, 'digitalogic_exact_product_meta_rows' ) ) {
+			if ( $this->exact_meta_query_failure ) {
+				$this->last_error = 'Injected exact product metadata query failure.';
+				return null;
+			}
+			$this->last_error = '';
+			$post_id          = isset( $args[0] ) ? (int) $args[0] : 0;
+			$keys             = array_map( 'strval', array_slice( $args, 1 ) );
+			$post             = $GLOBALS['digitalogic_test_posts'][ $post_id ] ?? array();
+			$rows             = array();
+			$meta_id          = 1;
+			foreach ( $keys as $key ) {
+				$values = isset( $post['meta_rows'][ $key ] ) && is_array( $post['meta_rows'][ $key ] )
+					? array_values( $post['meta_rows'][ $key ] )
+					: ( array_key_exists( $key, $post['meta'] ?? array() ) ? array( $post['meta'][ $key ] ) : array() );
+				foreach ( $values as $value ) {
+					$rows[] = array(
+						'meta_id'    => $meta_id++,
+						'meta_key'   => $key, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key -- Test metadata row fixture.
+						'meta_value' => $this->database_raw_value( $value ), // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_value -- Test metadata row fixture.
+					);
+				}
+			}
+
+			return $rows;
+		}
+		if ( false !== strpos( $query, 'digitalogic_product_code_readback' ) ) {
+			++$this->product_code_readback_batch_query_count;
+			$rows = array();
+			foreach ( array_slice( $args, 5 ) as $raw_product_id ) {
+				$product_id = (int) $raw_product_id;
+				$post       = $GLOBALS['digitalogic_test_posts'][ $product_id ] ?? null;
+				if ( ! is_array( $post ) || ! in_array( $post['post_type'] ?? '', array( 'product', 'product_variation' ), true ) ) {
+					continue;
+				}
+				$status = (string) ( $post['post_status'] ?? 'publish' );
+				if ( 'auto-draft' === $status ) {
+					continue;
+				}
+				$product_rows = array();
+				// phpcs:disable WordPress.DB.SlowDBQuery -- Test fixture mirrors the service's exact metadata query.
+				$readback_keys = array_unique( array_merge( array_keys( (array) ( $post['meta_rows'] ?? array() ) ), array_keys( (array) ( $post['meta'] ?? array() ) ) ) );
+				foreach ( $readback_keys as $meta_key ) {
+					if (
+						0 !== strcasecmp( (string) $meta_key, '_digitalogic_patris_product_code' )
+						&& 0 !== strcasecmp( (string) $meta_key, '_digitalogic_patris_record_hash' )
+						&& 0 !== strcasecmp( (string) $meta_key, '_digitalogic_patris_owner_source_id' )
+						&& 0 !== strcasecmp( (string) $meta_key, '_digitalogic_patris_owner_dataset' )
+						&& 0 !== strcasecmp( (string) $meta_key, '_digitalogic_patris_owner_product_code' )
+					) {
+						continue;
+					}
+					$values = isset( $post['meta_rows'][ $meta_key ] ) && is_array( $post['meta_rows'][ $meta_key ] )
+						? array_values( $post['meta_rows'][ $meta_key ] )
+						: array( $post['meta'][ $meta_key ] );
+					foreach ( $values as $index => $value ) {
+						$product_rows[] = array(
+							'ID'          => $product_id,
+							'post_type'   => $post['post_type'],
+							'post_status' => $status,
+							'meta_id'     => $index + 1,
+							'meta_key'    => $meta_key,
+							'meta_value'  => (string) $value,
+						);
+					}
+				}
+				if ( empty( $product_rows ) ) {
+					$product_rows[] = array(
+						'ID'          => $product_id,
+						'post_type'   => $post['post_type'],
+						'post_status' => $status,
+						'meta_id'     => null,
+						'meta_key'    => null,
+						'meta_value'  => null,
+					);
+				}
+				$rows = array_merge( $rows, $product_rows );
+				// phpcs:enable WordPress.DB.SlowDBQuery
+			}
+
+			return $rows;
+		}
+		if ( false !== strpos( $query, 'digitalogic_product_code_conflicts' ) ) {
+			$product_code  = isset( $args[1] ) ? (string) $args[1] : '';
+			$excluded_id   = isset( $args[2] ) ? (int) $args[2] : 0;
+			$rows          = array();
+			$explicit_fold = false !== strpos( $query, 'LOWER(CONVERT(pm.meta_key USING utf8mb4))' );
+			$binary_value  = false !== strpos( $query, 'BINARY pm.meta_value = BINARY' );
+			// phpcs:disable WordPress.DB.SlowDBQuery -- Test fixture mirrors the service's exact metadata query.
+			foreach ( $GLOBALS['digitalogic_test_posts'] as $post_id => $post ) {
+				if ( (int) $post_id === $excluded_id || ! in_array( $post['post_type'] ?? '', array( 'product', 'product_variation' ), true ) ) {
+					continue;
+				}
+				$status = (string) ( $post['post_status'] ?? 'publish' );
+				if ( 'auto-draft' === $status ) {
+					continue;
+				}
+				$values    = array();
+				$meta_keys = array_unique(
+					array_merge(
+						array_keys( (array) ( $post['meta'] ?? array() ) ),
+						array_keys( (array) ( $post['meta_rows'] ?? array() ) )
+					)
+				);
+				foreach ( $meta_keys as $meta_key ) {
+					$key_matches = $explicit_fold || ! $this->product_code_meta_key_binary_collation
+						? 0 === strcasecmp( (string) $meta_key, '_digitalogic_patris_product_code' )
+						: '_digitalogic_patris_product_code' === (string) $meta_key;
+					if ( ! $key_matches ) {
+						continue;
+					}
+					$key_values = isset( $post['meta_rows'][ $meta_key ] )
+						? array_values( (array) $post['meta_rows'][ $meta_key ] )
+						: ( array_key_exists( $meta_key, $post['meta'] ?? array() ) ? array( $post['meta'][ $meta_key ] ) : array() );
+					$values     = array_merge( $values, $key_values );
+				}
+				$value_matches = in_array( $product_code, array_map( 'strval', $values ), true );
+				if ( $this->product_code_meta_value_case_insensitive_collation && ! $binary_value ) {
+					$value_matches = false;
+					foreach ( array_map( 'strval', $values ) as $value ) {
+						if ( 0 === strcasecmp( $product_code, $value ) ) {
+							$value_matches = true;
+							break;
+						}
+					}
+				}
+				if ( $value_matches ) {
+					$rows[] = array(
+						'ID'        => (string) $post_id,
+						'post_type' => $post['post_type'],
+					);
+				}
+				if ( count( $rows ) >= 3 ) {
+					break;
+				}
+			}
+			// phpcs:enable WordPress.DB.SlowDBQuery
+
 			return $rows;
 		}
 		if ( strpos( $query, 'digitalogic_identifier:' ) === false ) {
@@ -1692,6 +2014,13 @@ class Digitalogic_Test_WPDB {
                 return 0;
             }
             unset($GLOBALS['digitalogic_test_options'][$name]);
+			// phpcs:disable -- Deterministic terminal-pointer reconnect hook for focused tests.
+			$callback = $this->after_option_delete;
+			$this->after_option_delete = null;
+			if (is_callable($callback)) {
+				call_user_func($callback, $this, $name);
+			}
+			// phpcs:enable
             return 1;
         }
 
@@ -1772,6 +2101,81 @@ class Digitalogic_Test_WPDB {
 
 			return 1;
 		}
+
+	// phpcs:disable -- Test-only exact-option SQL emulator follows this legacy bootstrap's compact fixture style.
+		if (strpos($raw_query, 'digitalogic_product_code_option_cas') !== false) {
+			$next     = $args[0] ?? null;
+			$name     = (string) ($args[1] ?? '');
+			$expected = $args[2] ?? null;
+			if (in_array($name, $GLOBALS['digitalogic_test_update_failures'], true)) {
+				return false;
+			}
+			$callback = $this->before_exact_option_cas;
+			$this->before_exact_option_cas = null;
+			if (is_callable($callback)) {
+				call_user_func($callback, $this, $name, $expected, $next);
+			}
+			if (!array_key_exists($name, $GLOBALS['digitalogic_test_options'])) {
+				return 0;
+			}
+			$current = $this->database_raw_value($GLOBALS['digitalogic_test_options'][$name]);
+			if ((string) $current !== (string) $expected) {
+				return 0;
+			}
+			$GLOBALS['digitalogic_test_options'][$name] = $this->stored_database_value($next);
+			$callback = $this->after_option_write;
+			$this->after_option_write = null;
+			if (is_callable($callback)) {
+				call_user_func($callback, $this, $name);
+			}
+			return 1;
+		}
+		if (strpos($raw_query, 'digitalogic_product_code_option_insert') !== false) {
+			$name     = (string) ($args[0] ?? '');
+			$next     = $args[1] ?? null;
+			if (in_array($name, $GLOBALS['digitalogic_test_update_failures'], true)) {
+				return false;
+			}
+			$callback = $this->before_exact_option_cas;
+			$this->before_exact_option_cas = null;
+			if (is_callable($callback)) {
+				call_user_func($callback, $this, $name, null, $next);
+			}
+			if (array_key_exists($name, $GLOBALS['digitalogic_test_options'])) {
+				return 0;
+			}
+			$GLOBALS['digitalogic_test_options'][$name] = $this->stored_database_value($next);
+			$callback = $this->after_option_write;
+			$this->after_option_write = null;
+			if (is_callable($callback)) {
+				call_user_func($callback, $this, $name);
+			}
+			return 1;
+		}
+		if (strpos($raw_query, 'digitalogic_product_code_option_compare_delete') !== false) {
+			$name     = (string) ($args[0] ?? '');
+			$expected = $args[1] ?? null;
+			$callback = $this->before_exact_option_delete;
+			$this->before_exact_option_delete = null;
+			if (is_callable($callback)) {
+				call_user_func($callback, $this, $name, $expected);
+			}
+			if (
+				in_array($name, $GLOBALS['digitalogic_test_option_delete_failures'] ?? array(), true)
+				|| !array_key_exists($name, $GLOBALS['digitalogic_test_options'])
+				|| (string) $this->database_raw_value($GLOBALS['digitalogic_test_options'][$name]) !== (string) $expected
+			) {
+				return 0;
+			}
+			unset($GLOBALS['digitalogic_test_options'][$name]);
+			$callback = $this->after_option_delete;
+			$this->after_option_delete = null;
+			if (is_callable($callback)) {
+				call_user_func($callback, $this, $name);
+			}
+			return 1;
+		}
+	// phpcs:enable
 
         if ('START TRANSACTION' === $normalized) {
             $this->transaction_snapshot = array(
@@ -2178,8 +2582,8 @@ class WC_Product {
     }
 
     public function set_manage_stock($value) {
-        $this->manage_stock = (bool) $value;
-        $this->meta['_manage_stock'] = $value ? 'yes' : 'no'; // phpcs:ignore -- Keep test product metadata synchronized.
+        $this->manage_stock          = 'parent' === $value ? 'parent' : (bool) $value;
+        $this->meta['_manage_stock'] = 'parent' === $value ? 'parent' : ($value ? 'yes' : 'no'); // phpcs:ignore -- Keep test product metadata synchronized.
     }
 
     public function set_stock_quantity($value) {
@@ -2230,15 +2634,57 @@ class WC_Product {
     // phpcs:enable
 
     public function save() {
+		if ($this->id <= 0 && !empty($GLOBALS['digitalogic_test_wc_defer_new_product_id'])) {
+			$id = max(1, (int) ($GLOBALS['digitalogic_test_next_post_id'] ?? 1));
+			while (isset($GLOBALS['digitalogic_test_posts'][$id])) {
+				++$id;
+			}
+			$pending = $GLOBALS['digitalogic_test_posts'][0] ?? array(
+				'post_type'    => 'product',
+				'post_status'  => 'draft',
+				'product_type' => 'simple',
+				'post_title'   => '',
+				'post_excerpt' => '',
+				'meta'         => array(),
+			);
+			unset($GLOBALS['digitalogic_test_posts'][0]);
+			$this->id                                 = $id;
+			$GLOBALS['digitalogic_test_next_post_id'] = $id + 1;
+			$GLOBALS['digitalogic_test_posts'][$id]   = $pending;
+		}
         if (in_array($this->id, $GLOBALS['digitalogic_test_wc_save_failures'] ?? array(), true)) {
             throw new RuntimeException('Injected WooCommerce save failure.');
         }
-        $fail_once_at = (int) ($GLOBALS['digitalogic_test_wc_save_fail_once'][$this->id] ?? 0);
-        if ($fail_once_at > 0 && $fail_once_at === $this->save_count + 1) {
+		$fail_once_at       = (int) ($GLOBALS['digitalogic_test_wc_save_fail_once'][$this->id] ?? 0);
+		$product_save_count = count(
+			array_filter(
+				$GLOBALS['digitalogic_test_wc_product_saves'] ?? array(),
+				fn ($saved_id) => (int) $saved_id === (int) $this->id
+			)
+		);
+		if ($fail_once_at > 0 && $fail_once_at === $product_save_count + 1) {
             unset($GLOBALS['digitalogic_test_wc_save_fail_once'][$this->id]);
             throw new RuntimeException('Injected one-time WooCommerce save failure.');
         }
-        $this->save_count++;
+		$previous_code_exists = isset($GLOBALS['digitalogic_test_posts'][$this->id]['meta'])
+			&& array_key_exists('_digitalogic_patris_product_code', $GLOBALS['digitalogic_test_posts'][$this->id]['meta']);
+		$previous_code        = $previous_code_exists
+			? $GLOBALS['digitalogic_test_posts'][$this->id]['meta']['_digitalogic_patris_product_code']
+			: null;
+		$next_code_exists     = array_key_exists('_digitalogic_patris_product_code', $this->meta);
+		$next_code            = $next_code_exists ? $this->meta['_digitalogic_patris_product_code'] : null;
+		if ($previous_code_exists !== $next_code_exists || $previous_code !== $next_code) {
+			$hook    = $next_code_exists ? 'update_post_metadata' : 'delete_post_metadata';
+			$guarded = apply_filters($hook, null, $this->id, '_digitalogic_patris_product_code', $next_code, '');
+			if (null !== $guarded) {
+				if ($previous_code_exists) {
+					$this->meta['_digitalogic_patris_product_code'] = $previous_code;
+				} else {
+					unset($this->meta['_digitalogic_patris_product_code']);
+				}
+			}
+		}
+		++$this->save_count;
         $GLOBALS['digitalogic_test_posts'][$this->id]['meta'] = $this->meta;
         $GLOBALS['digitalogic_test_wc_product_saves'][] = $this->id;
         $after_save = $GLOBALS['digitalogic_test_wc_after_save'] ?? null;
@@ -2252,6 +2698,18 @@ class WC_Product {
 
 class WC_Product_Simple extends WC_Product {
     public function __construct($id = 0) {
+		if ((int) $id <= 0 && !empty($GLOBALS['digitalogic_test_wc_defer_new_product_id'])) {
+			$GLOBALS['digitalogic_test_posts'][0] = array(
+				'post_type'    => 'product',
+				'post_status'  => 'draft',
+				'product_type' => 'simple',
+				'post_title'   => '',
+				'post_excerpt' => '',
+				'meta'         => array(),
+			);
+			parent::__construct(0);
+			return;
+		}
         if ((int) $id <= 0) {
             $id = max(1, (int) ($GLOBALS['digitalogic_test_next_post_id'] ?? 1));
             while (isset($GLOBALS['digitalogic_test_posts'][$id])) {
@@ -2274,6 +2732,18 @@ class WC_Product_Simple extends WC_Product {
 
 class WC_Product_Variation extends WC_Product {
     public function __construct($id = 0) {
+		if ((int) $id <= 0 && !empty($GLOBALS['digitalogic_test_wc_defer_new_product_id'])) {
+			$GLOBALS['digitalogic_test_posts'][0] = array(
+				'post_type'    => 'product_variation',
+				'post_status'  => 'draft',
+				'product_type' => 'variation',
+				'post_parent'  => 0,
+				'post_title'   => '',
+				'meta'         => array(),
+			);
+			parent::__construct(0);
+			return;
+		}
         if ((int) $id <= 0) {
             $id = max(1, (int) ($GLOBALS['digitalogic_test_next_post_id'] ?? 1));
             while (isset($GLOBALS['digitalogic_test_posts'][$id])) {
@@ -2318,6 +2788,7 @@ class WC_Product_Attribute {
     public function set_position($value) { $this->position = (int) $value; }
     public function set_visible($value) { $this->visible = (bool) $value; }
     public function set_variation($value) { $this->variation = (bool) $value; }
+    public function get_id() { return $this->id; }
     public function get_name() { return $this->name; }
     public function get_options() { return $this->options; }
     public function get_visible() { return $this->visible; }
@@ -2529,7 +3000,8 @@ function clean_term_cache($ids, $taxonomy = '') {
 
 function wp_set_object_terms($object_id, $terms, $taxonomy, $append = false) {
     if ('product_type' === $taxonomy) {
-        $GLOBALS['digitalogic_test_posts'][(int) $object_id]['product_type'] = (string) $terms;
+		$type = is_array($terms) ? (string) (reset($terms) ?: '') : (string) $terms;
+		$GLOBALS['digitalogic_test_posts'][(int) $object_id]['product_type'] = $type;
     }
     return array((int) $object_id);
 }
@@ -2868,6 +3340,8 @@ require_once dirname(__DIR__) . '/includes/admin/class-digitalogic-product-table
 require_once dirname(__DIR__) . '/includes/class-digitalogic-pricing-input-credential.php'; // phpcs:ignore
 require_once dirname(__DIR__) . '/includes/class-patris-feed.php';
 require_once dirname(__DIR__) . '/includes/class-product-sync-receiver.php';
+require_once dirname( __DIR__ ) . '/includes/class-digitalogic-product-code-editor.php';
+require_once dirname( __DIR__ ) . '/includes/class-digitalogic-product-code-write-guard.php';
 require_once dirname(__DIR__) . '/includes/class-shipping-method-service.php';
 require_once dirname(__DIR__) . '/includes/class-patris-catalog-materializer.php';
 require_once dirname(__DIR__) . '/includes/class-digitalogic-google-sheets-catalog.php';

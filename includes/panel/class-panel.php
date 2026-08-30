@@ -209,10 +209,18 @@ class Digitalogic_Panel {
             true
         );
 
-        wp_enqueue_script(
-            'digitalogic-panel',
+		wp_enqueue_script(
+			'digitalogic-product-code-contract',
+			DIGITALOGIC_PLUGIN_URL . 'assets/js/product-code-contract.js',
+			array(),
+			filemtime(DIGITALOGIC_PLUGIN_DIR . 'assets/js/product-code-contract.js') ?: DIGITALOGIC_VERSION,
+			true
+		);
+
+		wp_enqueue_script(
+			'digitalogic-panel',
             DIGITALOGIC_PLUGIN_URL . 'assets/js/panel-app.js',
-            array('vue', 'digitalogic-product-query'),
+			array('vue', 'digitalogic-product-query', 'digitalogic-product-code-contract'),
             filemtime(DIGITALOGIC_PLUGIN_DIR . 'assets/js/panel-app.js') ?: DIGITALOGIC_VERSION,
             true
         );
@@ -377,6 +385,19 @@ class Digitalogic_Panel {
             if ($retry_after > 0 && !headers_sent()) {
                 header('Retry-After: ' . $retry_after);
             }
+			if ( 'digitalogic_update_product_code' === $command ) {
+				$error_data = $details;
+				$status     = max( 400, min( 599, $status ) );
+				wp_send_json_error(
+					array(
+						'code'    => $result->get_error_code(),
+						'message' => $result->get_error_message(),
+						'data'    => $error_data,
+						'status'  => $status,
+					),
+					$status
+				);
+			}
             wp_send_json_error(
                 array(
                     'code' => $result->get_error_code(),
@@ -1622,7 +1643,21 @@ class Digitalogic_Panel {
             'patrisSalePolicy'                        => 'Promotion policy',
             'minPrice' => 'Minimum price',
             'maxPrice' => 'Maximum price',
-            'sku' => 'Product code',
+			// phpcs:disable WordPress.Arrays.MultipleStatementAlignment.DoubleArrowNotAligned -- Keep this focused addition out of the legacy array's formatting debt.
+			'productCode'                    => 'Product Code',
+			'productCodeSourceManaged'       => 'This Product Code is managed by the catalog source; correct it in the source.',
+			'productCodeMetadataConflict'    => 'This Product Code has conflicting metadata rows and must be reconciled first.',
+			'productCodeStateChanged'        => 'This Product Code changed while the row was loading; reload before editing.',
+			'productCodeStateUnavailable'    => 'The exact Product Code or source state is unavailable; retry after reloading.',
+			'productCodePermissionDenied'     => 'You do not have permission to edit this product or variation.',
+			'productCodeRecoveryUnavailable' => 'The earlier Product Code request cannot be loaded safely.',
+			'productCodeOutcomeUnknown'      => 'The exact Product Code outcome is unknown; stop editing and reconcile the database with the audit record.',
+			'productCodeRecoveryRequired'    => 'An earlier Product Code edit is incomplete; retry its exact value first.',
+			'productCodeResponseAmbiguous'   => 'The Product Code response could not be verified; retry the same value.',
+			'productCodeRetryPending'        => 'Retry the pending Product Code change',
+			'productCodeVerifierUnavailable' => 'The Product Code response verifier is unavailable; reload this page.',
+			'sku'                            => 'SKU',
+			// phpcs:enable WordPress.Arrays.MultipleStatementAlignment.DoubleArrowNotAligned
             'status' => 'Status',
             'panelSettings' => 'Panel settings',
             'transport' => 'Transport',
@@ -1931,7 +1966,21 @@ class Digitalogic_Panel {
             'patrisSalePolicy'                        => 'سیاست تخفیف',
             'minPrice' => 'حداقل قیمت',
             'maxPrice' => 'حداکثر قیمت',
-            'sku' => 'کد کالا',
+			// phpcs:disable WordPress.Arrays.MultipleStatementAlignment.DoubleArrowNotAligned -- Keep this focused addition out of the legacy array's formatting debt.
+			'productCode'                    => 'کد کالا',
+			'productCodeSourceManaged'       => 'این کد کالا توسط منبع کاتالوگ مدیریت می‌شود؛ آن را در منبع اصلاح کنید.',
+			'productCodeMetadataConflict'    => 'ردیف‌های متادیتای این کد کالا متناقض است و ابتدا باید تطبیق داده شود.',
+			'productCodeStateChanged'        => 'کد کالا هنگام بارگذاری ردیف تغییر کرده است؛ پیش از ویرایش دوباره بارگذاری کنید.',
+			'productCodeStateUnavailable'    => 'وضعیت دقیق کد کالا یا منبع در دسترس نیست؛ صفحه را دوباره بارگذاری و تلاش کنید.',
+			'productCodePermissionDenied'     => 'اجازهٔ ویرایش این کالا یا تنوع را ندارید.',
+			'productCodeRecoveryUnavailable' => 'درخواست قبلی کد کالا با ایمنی کافی قابل بازیابی نیست.',
+			'productCodeOutcomeUnknown'      => 'نتیجه دقیق ویرایش کد کالا نامشخص است؛ ویرایش را متوقف و وضعیت پایگاه‌داده را با سابقه ممیزی تطبیق دهید.',
+			'productCodeRecoveryRequired'    => 'ویرایش قبلی کد کالا کامل نشده است؛ ابتدا همان مقدار را دوباره امتحان کنید.',
+			'productCodeResponseAmbiguous'   => 'پاسخ ویرایش کد کالا قابل راستی‌آزمایی نبود؛ همان مقدار را دوباره امتحان کنید.',
+			'productCodeRetryPending'        => 'تلاش دوباره برای تغییر در انتظار کد کالا',
+			'productCodeVerifierUnavailable' => 'راستی‌آزمایی پاسخ کد کالا در دسترس نیست؛ صفحه را دوباره بارگذاری کنید.',
+			'sku'                            => 'SKU',
+			// phpcs:enable WordPress.Arrays.MultipleStatementAlignment.DoubleArrowNotAligned
             'status' => 'وضعیت',
             'panelSettings' => 'تنظیمات پنل',
             'transport' => 'ارتباط',

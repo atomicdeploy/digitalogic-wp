@@ -39,6 +39,7 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 				'digitalogic_test_meta_delete_failures',
 				'digitalogic_test_transaction_failures',
 				'digitalogic_test_cache_deletes',
+				'digitalogic_test_cache_delete_failures',
 				'digitalogic_test_remote_posts',
 				'digitalogic_test_remote_post_results',
 				'digitalogic_test_product_updates',
@@ -68,6 +69,7 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 			'digitalogic_test_current_user_can_calls'  => 0,
 			'digitalogic_test_wc_currency'             => 'IRT',
 			'digitalogic_test_locale'                  => 'en_US',
+			'digitalogic_test_wc_defer_new_product_id' => false,
 		);
 		foreach ( $defaults as $global_name => $value ) {
 			$GLOBALS[ $global_name ] = $value;
@@ -82,6 +84,7 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 		$this->resetSingleton( Digitalogic_Patris_Feed::class );
 		$this->resetSingleton( Digitalogic_Product_Identifier_Resolver::class );
 		$this->resetSingleton( Digitalogic_WooCommerce_Currency_Status::class );
+		$this->resetSingleton( Digitalogic_Product_Write_Lock::class );
 	}
 
 	public function test_dry_run_plans_only_positive_stock_and_writes_nothing(): void {
@@ -97,6 +100,91 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 		$this->assertSame( 2, $result['categories']['planned_create'] );
 		$this->assertSame( array(), $GLOBALS['digitalogic_test_posts'] );
 		$this->assertSame( array(), $GLOBALS['digitalogic_test_terms'] );
+	}
+
+	/** Materialization refuses to stage identity while another identity writer owns the shared lock. */
+	public function test_apply_fails_fast_on_shared_source_identity_lock_before_any_catalog_write(): void {
+		$this->receiveFixture();
+		$GLOBALS['wpdb']->acquire_results = array( 0 );
+
+		$result = Digitalogic_Patris_Catalog_Materializer::instance()->run(
+			$this->manifest(),
+			array( 'apply' => true )
+		);
+
+		$this->assertInstanceOf( WP_Error::class, $result );
+		$this->assertSame( 'digitalogic_product_sync_busy', $result->get_error_code() );
+		$this->assertSame( 0, end( $GLOBALS['wpdb']->lock_timeouts ) );
+		$this->assertSame(
+			Digitalogic_Product_Sync_Receiver::source_identity_lock_name( 'wp_' ),
+			end( $GLOBALS['wpdb']->lock_names )
+		);
+		$this->assertSame( array(), $GLOBALS['digitalogic_test_posts'] );
+		$this->assertSame( array(), $GLOBALS['digitalogic_test_terms'] );
+	}
+
+	/** Trash retains canonical ownership and blocks categories or draft creation. */
+	public function test_apply_preflight_rejects_a_code_owned_in_trash_before_any_side_effect(): void {
+		$this->receiveFixture();
+		$GLOBALS['digitalogic_test_posts'][10990] = array(
+			'post_type'   => 'product_variation',
+			'post_status' => 'trash',
+			'meta'        => array( Digitalogic_Product_Code_Editor::META_KEY => '101001001' ),
+		);
+
+		$result = Digitalogic_Patris_Catalog_Materializer::instance()->run( $this->manifest(), array( 'apply' => true ) );
+
+		$this->assertNotInstanceOf( WP_Error::class, $result );
+		$this->assertSame( 1, $result['skipped'] );
+		$this->assertSame( 0, $result['created'] );
+		$this->assertSame( 'digitalogic_product_code_source_not_unique', $result['details'][0]['reason'] );
+		$this->assertSame( array( 10990 ), array_keys( $GLOBALS['digitalogic_test_posts'] ) );
+		$this->assertSame( array(), $GLOBALS['digitalogic_test_terms'] );
+		$this->assertSame( array(), $GLOBALS['digitalogic_test_wc_product_saves'] );
+	}
+
+	/** New WooCommerce objects receive their stable ID before guarded identity. */
+	public function test_new_product_uses_two_phase_save_when_woocommerce_assigns_id_on_first_save(): void {
+		$this->receiveFixture();
+		$GLOBALS['digitalogic_test_wc_defer_new_product_id'] = true;
+
+		$result = Digitalogic_Patris_Catalog_Materializer::instance()->run( $this->manifest(), array( 'apply' => true ) );
+
+		$this->assertNotInstanceOf( WP_Error::class, $result );
+		$this->assertSame( 1, $result['created'] );
+		$this->assertArrayNotHasKey( 0, $GLOBALS['digitalogic_test_posts'] );
+		$product_id = (int) array_key_first( $GLOBALS['digitalogic_test_posts'] );
+		$this->assertGreaterThan( 0, $product_id );
+		$this->assertSame( '101001001', get_post_meta( $product_id, Digitalogic_Product_Code_Editor::META_KEY, true ) );
+		$this->assertGreaterThanOrEqual(
+			2,
+			count( array_filter( $GLOBALS['digitalogic_test_wc_product_saves'], static fn ( $id ) => $product_id === (int) $id ) )
+		);
+	}
+
+	/** New variations also obtain an ID before the guarded canonical write. */
+	public function test_new_variation_uses_two_phase_save_when_woocommerce_assigns_id_on_first_save(): void {
+		$this->receiveFixture();
+		$this->addProduct( 100, 'variable' );
+		$this->addTerm( 373, 'Reviewed sensor', 0, 'pa_model', 'reviewed-sensor' );
+		$manifest                  = $this->manifest();
+		$row                       = &$manifest['products']['101001001'];
+		$row['target_parent_id']   = '100';
+		$row['attribute_taxonomy'] = 'pa_model';
+		$row['attribute_term_id']  = '373';
+		$row['parent_enrichment']  = $this->parentEnrichment();
+		$row['variation_group']    = 'two-phase-variation';
+		$GLOBALS['digitalogic_test_wc_defer_new_product_id'] = true;
+
+		$result = Digitalogic_Patris_Catalog_Materializer::instance()->run( $manifest, array( 'apply' => true ) );
+
+		$this->assertNotInstanceOf( WP_Error::class, $result );
+		$this->assertSame( 1, $result['created_variations'] );
+		$this->assertArrayNotHasKey( 0, $GLOBALS['digitalogic_test_posts'] );
+		$children = wc_get_product( 100 )->get_children();
+		$this->assertCount( 1, $children );
+		$this->assertGreaterThan( 0, $children[0] );
+		$this->assertSame( '101001001', get_post_meta( $children[0], Digitalogic_Product_Code_Editor::META_KEY, true ) );
 	}
 
 	public function test_fixture_uses_the_living_contract_and_currency_qualified_freight(): void {
@@ -728,21 +816,204 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 		$this->assertSame( 'hidden', wc_get_product( 10803 )->get_catalog_visibility() );
 	}
 
-	public function test_partial_create_with_first_save_ownership_is_retryable(): void {
+	public function test_partial_create_failure_removes_the_draft_before_retry(): void {
 		$this->receiveFixture();
 		$GLOBALS['digitalogic_test_wc_save_fail_once'][1] = 2;
 		$service = Digitalogic_Patris_Catalog_Materializer::instance();
 
 		$failed = $service->run( $this->manifest(), array( 'apply' => true ) );
 		$this->assertSame( 1, $failed['failed'] );
-		$this->assertSame( '101001001', get_post_meta( 1, Digitalogic_Patris_Catalog_Materializer::OWNER_CODE_META, true ) );
-		$this->assertSame( '101001001', get_post_meta( 1, Digitalogic_Product_Identifier_Resolver::PATRIS_CODE_META, true ) );
+		$this->assertSame( array(), $GLOBALS['digitalogic_test_posts'] );
 
 		$retried = $service->run( $this->manifest(), array( 'apply' => true ) );
-		$this->assertSame( 0, $retried['created'] );
-		$this->assertSame( 1, $retried['reconciled'] );
+		$this->assertSame( 1, $retried['created'] );
+		$this->assertSame( 0, $retried['reconciled'] );
 		$this->assertSame( 0, $retried['failed'] );
 		$this->assertCount( 1, $GLOBALS['digitalogic_test_posts'] );
+	}
+
+	/** A feed-phase failure removes the whole newly planned shell, not just its identity. */
+	public function test_planned_create_feed_failure_removes_every_partial_row_effect(): void {
+		$this->receiveFixture();
+		// Shell save, identity save, then the injected feed save failure.
+		$GLOBALS['digitalogic_test_wc_save_fail_once'][1] = 3;
+
+		$result = Digitalogic_Patris_Catalog_Materializer::instance()->run( $this->manifest(), array( 'apply' => true ) );
+		$this->assertSame( 1, $result['failed'] );
+		$this->assertSame( 0, $result['created'] );
+		$this->assertSame( array(), $GLOBALS['digitalogic_test_posts'] );
+		$this->assertContains( 'digitalogic_patris_product_write_failed', array_column( $result['details'], 'reason' ) );
+	}
+
+	/** A shipping transaction failure restores feed, identity, and commercial fields exactly. */
+	public function test_existing_shipping_failure_rolls_back_the_entire_catalog_row(): void {
+		$this->receiveFixture();
+		$service = Digitalogic_Patris_Catalog_Materializer::instance();
+		$first   = $service->run( $this->manifest(), array( 'apply' => true ) );
+		$this->assertSame( 1, $first['created'] );
+		$product_id = (int) array_key_first( $GLOBALS['digitalogic_test_posts'] );
+		$before     = $GLOBALS['digitalogic_test_posts'][ $product_id ];
+
+		$state                                    = get_option( Digitalogic_Product_Sync_Receiver::STATE_OPTION, array() );
+		$source_key                               = array_key_first( $state['sources'] );
+		$record                                   = &$state['sources'][ $source_key ]['products']['101001001'];
+		$record['partner_price_source']           = 100000;
+		$record['price_source_amount']            = '100000';
+		$record['price_source_currency']          = 'IRR';
+		$record['price_source_kind']              = 'partner_price';
+		$record['shipping_method_id']             = 'domestic';
+		$record['shipping_price_per_kg']          = '0';
+		$record['shipping_price_per_kg_currency'] = 'IRR';
+		$record['final_price']                    = 13000;
+		$record['warnings']                       = array( 'partner_price_fallback_used', 'freight_not_applied_for_partner_price' );
+		unset( $record );
+		update_option( Digitalogic_Product_Sync_Receiver::STATE_OPTION, $state, false );
+		$GLOBALS['digitalogic_test_meta_update_failures'][] = $product_id . ':' . Digitalogic_Shipping_Method_Service::PRODUCT_METHOD_META;
+
+		$result = $service->run( $this->manifest(), array( 'apply' => true ) );
+
+		$this->assertSame( 1, $result['failed'] );
+		$this->assertEquals( $before, $GLOBALS['digitalogic_test_posts'][ $product_id ] );
+		$this->assertSame( 'air_express', get_post_meta( $product_id, Digitalogic_Shipping_Method_Service::PRODUCT_METHOD_META, true ) );
+	}
+
+	/** Publication failure occurs under the same product lock and restores all earlier phases. */
+	public function test_existing_publication_failure_rolls_back_feed_shipping_and_identity_under_one_lock(): void {
+		$this->receiveFixture();
+		$service = Digitalogic_Patris_Catalog_Materializer::instance();
+		$service->run( $this->manifest(), array( 'apply' => true ) );
+		$product_id = (int) array_key_first( $GLOBALS['digitalogic_test_posts'] );
+		$this->attachReviewedImage( $product_id );
+		$before                                   = $GLOBALS['digitalogic_test_posts'][ $product_id ];
+		$state                                    = get_option( Digitalogic_Product_Sync_Receiver::STATE_OPTION, array() );
+		$source_key                               = array_key_first( $state['sources'] );
+		$record                                   = &$state['sources'][ $source_key ]['products']['101001001'];
+		$record['partner_price_source']           = 100000;
+		$record['price_source_amount']            = '100000';
+		$record['price_source_currency']          = 'IRR';
+		$record['price_source_kind']              = 'partner_price';
+		$record['shipping_method_id']             = 'domestic';
+		$record['shipping_price_per_kg']          = '0';
+		$record['shipping_price_per_kg_currency'] = 'IRR';
+		$record['final_price']                    = 13000;
+		$record['warnings']                       = array( 'partner_price_fallback_used', 'freight_not_applied_for_partner_price' );
+		unset( $record );
+		update_option( Digitalogic_Product_Sync_Receiver::STATE_OPTION, $state, false );
+
+		$outside_writer = null;
+		$failure_armed  = false;
+		add_action(
+			'digitalogic_product_shipping_method_updated',
+			static function ( $updated_product_id ) use ( $product_id, &$outside_writer, &$failure_armed ) {
+				if ( (int) $updated_product_id !== $product_id || $failure_armed ) {
+					return;
+				}
+				$failure_armed   = true;
+				$database        = $GLOBALS['wpdb'];
+				$connection_id   = $database->connection_id;
+				$reflection      = new ReflectionClass( Digitalogic_Product_Write_Lock::class );
+				$separate_writer = $reflection->newInstanceWithoutConstructor();
+				try {
+					$database->connection_id = 2002;
+					$outside_writer          = $separate_writer->with_product_lock( $product_id, static fn () => true, 0 );
+				} finally {
+					$database->connection_id = $connection_id;
+				}
+				$save_count = count(
+					array_filter(
+						$GLOBALS['digitalogic_test_wc_product_saves'],
+						static fn ( $saved_id ) => (int) $saved_id === $product_id
+					)
+				);
+				$GLOBALS['digitalogic_test_wc_save_fail_once'][ $product_id ] = $save_count + 1;
+			},
+			10,
+			1
+		);
+
+		$result = $service->run( $this->manifest(), array( 'apply' => true, 'publish_ready' => true ) );
+
+		$this->assertInstanceOf( WP_Error::class, $outside_writer );
+		$this->assertSame( 'product_write_lock_busy', $outside_writer->get_error_code() );
+		$this->assertSame( 1, $result['failed'] );
+		$this->assertEquals( $before, $GLOBALS['digitalogic_test_posts'][ $product_id ] );
+		$this->assertSame( 'air_express', get_post_meta( $product_id, Digitalogic_Shipping_Method_Service::PRODUCT_METHOD_META, true ) );
+	}
+
+	/** A late Woo save cannot clobber an earlier identity field and still report success. */
+	public function test_final_readback_rolls_back_late_identity_clobber(): void {
+		$this->assertLateMaterializerClobberRollsBack(
+			'rank_math_title',
+			'Late clobbered SEO title',
+			'digitalogic_patris_materializer_projection_readback_failed'
+		);
+	}
+
+	/** A late Woo save cannot clobber an earlier feed field and still report success. */
+	public function test_final_readback_rolls_back_late_feed_clobber(): void {
+		$this->assertLateMaterializerClobberRollsBack(
+			'_digitalogic_patris_name',
+			'Late clobbered source title',
+			'digitalogic_patris_product_projection_readback_failed'
+		);
+	}
+
+	/** A mutation after the last rollback save cannot be reported as verified. */
+	public function test_final_composite_rollback_readback_detects_a_late_feed_clobber(): void {
+		$this->receiveFixture();
+		$service = Digitalogic_Patris_Catalog_Materializer::instance();
+		$first   = $service->run( $this->manifest(), array( 'apply' => true ) );
+		$this->assertSame( 1, $first['created'] );
+		$product_id = (int) array_key_first( $GLOBALS['digitalogic_test_posts'] );
+		$this->attachReviewedImage( $product_id );
+		$state      = get_option( Digitalogic_Product_Sync_Receiver::STATE_OPTION, array() );
+		$source_key = array_key_first( $state['sources'] );
+		$state['sources'][ $source_key ]['products']['101001001']['shipping_method_id']             = 'air_express';
+		$state['sources'][ $source_key ]['products']['101001001']['shipping_price_per_kg']          = '34800000';
+		$state['sources'][ $source_key ]['products']['101001001']['shipping_price_per_kg_currency'] = 'IRR';
+		update_option( Digitalogic_Product_Sync_Receiver::STATE_OPTION, $state, false );
+
+		// phpcs:disable Generic.Formatting.MultipleStatementAlignment.NotSameWarning -- The self-rearming hook intentionally shares one compact state machine.
+		$phase = 0;
+		$hook  = null;
+		$hook  = static function ( $saved_product ) use ( &$hook, &$phase, $product_id ) {
+			if ( (int) $saved_product->get_id() !== $product_id ) {
+				$GLOBALS['digitalogic_test_wc_after_save'] = $hook;
+				return;
+			}
+			if ( 0 === $phase && 'publish' === (string) $saved_product->get_status() ) {
+				$GLOBALS['digitalogic_test_posts'][ $product_id ]['meta']['rank_math_title'] = 'Trigger exact final failure';
+				$phase = 1;
+				$GLOBALS['digitalogic_test_wc_after_save'] = $hook;
+				return;
+			}
+			if ( 1 === $phase ) {
+				$phase = 2;
+				$GLOBALS['digitalogic_test_wc_after_save'] = $hook;
+				return;
+			}
+			if ( 2 === $phase ) {
+				$GLOBALS['digitalogic_test_posts'][ $product_id ]['meta']['_digitalogic_patris_name'] = 'Late rollback feed clobber';
+				$phase = 3;
+				return;
+			}
+			$GLOBALS['digitalogic_test_wc_after_save'] = $hook;
+		};
+		$GLOBALS['digitalogic_test_wc_after_save'] = $hook;
+		// phpcs:enable Generic.Formatting.MultipleStatementAlignment.NotSameWarning
+
+		$result = $service->run(
+			$this->manifest(),
+			array(
+				'apply'         => true,
+				'publish_ready' => true,
+			)
+		);
+
+		$this->assertSame( 3, $phase );
+		$this->assertSame( 1, $result['failed'] );
+		$this->assertContains( 'digitalogic_patris_materializer_write_outcome_unknown', array_column( $result['details'], 'reason' ) );
+		$this->assertSame( 'Late rollback feed clobber', get_post_meta( $product_id, '_digitalogic_patris_name', true ) );
 	}
 
 	public function test_apply_aborts_and_releases_its_lock_if_the_source_changes_while_starting(): void {
@@ -759,7 +1030,7 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 
 		$this->assertInstanceOf( WP_Error::class, $result );
 		$this->assertSame( 'digitalogic_patris_materializer_source_changed_during_apply', $result->get_error_code() );
-		$this->assertSame( $release_count + 1, $GLOBALS['wpdb']->release_count );
+		$this->assertSame( $release_count + 2, $GLOBALS['wpdb']->release_count );
 		$this->assertSame( array(), $GLOBALS['digitalogic_test_posts'] );
 	}
 
@@ -805,6 +1076,125 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 		$this->assertSame( 'Synthetic sensor family', wc_get_product( 100 )->get_meta( '_digitalogic_patris_family_name', true ) );
 		$this->assertSame( '', wc_get_product( 100 )->get_meta( '_digitalogic_patris_product_code', true ) );
 		$this->assertContains( 100, WC_Product_Variable::$synced_ids );
+	}
+
+	/** A late child publication save cannot change the reviewed variation option. */
+	public function test_final_variation_readback_rolls_back_a_late_child_attribute_clobber(): void {
+		// phpcs:disable Generic.Formatting.MultipleStatementAlignment.NotSameWarning -- The hook remains intentionally adjacent to its fixtures.
+		$prepared  = $this->prepareReviewedVariationForPublication();
+		$service   = $prepared['service'];
+		$manifest  = $prepared['manifest'];
+		$child_id  = $prepared['child_id'];
+		$hook      = null;
+		$hook      = static function ( $saved_product ) use ( &$hook, $child_id ) {
+			if ( (int) $saved_product->get_id() === $child_id && 'publish' === (string) $saved_product->get_status() ) {
+				$GLOBALS['digitalogic_test_posts'][ $child_id ]['meta']['attribute_pa_model'] = 'late-wrong-option';
+				return;
+			}
+			$GLOBALS['digitalogic_test_wc_after_save'] = $hook;
+		};
+		$GLOBALS['digitalogic_test_wc_after_save'] = $hook;
+		// phpcs:enable Generic.Formatting.MultipleStatementAlignment.NotSameWarning
+
+		$result = $service->run(
+			$manifest,
+			array(
+				'apply'         => true,
+				'publish_ready' => true,
+			)
+		);
+
+		$this->assertSame( 1, $result['failed'] );
+		$this->assertSame( 0, $result['published'] );
+		$this->assertContains( 'digitalogic_patris_materializer_variation_identity_readback_failed', array_column( $result['details'], 'reason' ) );
+		$this->assertSame( 'raw-sensor', wc_get_product( $child_id )->get_variation_attributes()['attribute_pa_model'] );
+		$this->assertSame( 'draft', wc_get_product( $child_id )->get_status() );
+	}
+
+	/** A late parent publication save cannot change the reviewed option set. */
+	public function test_final_variation_readback_rolls_back_a_late_parent_attribute_clobber(): void {
+		// phpcs:disable Generic.Formatting.MultipleStatementAlignment.NotSameWarning -- The hook remains intentionally adjacent to its fixtures.
+		$prepared = $this->prepareReviewedVariationForPublication();
+		$service  = $prepared['service'];
+		$manifest = $prepared['manifest'];
+		$hook     = null;
+		$hook     = static function ( $saved_product ) use ( &$hook ) {
+			if ( 100 === (int) $saved_product->get_id() && 'publish' === (string) $saved_product->get_status() ) {
+				$attributes = $GLOBALS['digitalogic_test_posts'][100]['attributes'];
+				$attributes['pa_model']->set_options( array() );
+				$attributes['pa_model']->set_variation( false );
+				$GLOBALS['digitalogic_test_posts'][100]['attributes'] = $attributes;
+				return;
+			}
+			$GLOBALS['digitalogic_test_wc_after_save'] = $hook;
+		};
+		$GLOBALS['digitalogic_test_wc_after_save'] = $hook;
+		// phpcs:enable Generic.Formatting.MultipleStatementAlignment.NotSameWarning
+
+		$result = $service->run(
+			$manifest,
+			array(
+				'apply'         => true,
+				'publish_ready' => true,
+			)
+		);
+
+		$this->assertSame( 1, $result['failed'] );
+		$this->assertSame( 0, $result['published'] );
+		$this->assertContains( 'digitalogic_patris_materializer_variation_identity_readback_failed', array_column( $result['details'], 'reason' ) );
+		$attribute = wc_get_product( 100 )->get_attributes()['pa_model'];
+		$this->assertSame( array( 373 ), array_map( 'intval', $attribute->get_options() ) );
+		$this->assertTrue( $attribute->get_variation() );
+		$this->assertSame( 'publish', wc_get_product( 100 )->get_status() );
+	}
+
+	/** Explicit existing variations can be adopted and then reconciled without creation-only fields. */
+	public function test_existing_variation_supports_planned_adopt_and_planned_reconcile(): void {
+		$prepared = $this->prepareExistingVariationTarget();
+		$service  = $prepared['service'];
+		$manifest = $prepared['manifest'];
+		$child_id = $prepared['child_id'];
+
+		$adopt_plan = $service->run( $manifest );
+		$this->assertSame( 1, $adopt_plan['planned_adopt'] );
+		$adopted = $service->run( $manifest, array( 'apply' => true ) );
+
+		$this->assertSame( 1, $adopted['adopted'], wp_json_encode( $adopted ) );
+		$this->assertSame( 0, $adopted['failed'] );
+		$this->assertSame( 'legacy-option', wc_get_product( $child_id )->get_variation_attributes()['attribute_pa_model'] );
+
+		$reconcile_plan = $service->run( $manifest );
+		$this->assertSame( 1, $reconcile_plan['planned_reconcile'] );
+		$reconciled = $service->run( $manifest, array( 'apply' => true ) );
+
+		$this->assertSame( 1, $reconciled['reconciled'], wp_json_encode( $reconciled ) );
+		$this->assertSame( 0, $reconciled['failed'] );
+		$this->assertSame( 'legacy-option', wc_get_product( $child_id )->get_variation_attributes()['attribute_pa_model'] );
+	}
+
+	/** A late save cannot clobber an existing variation identity captured without creation-only fields. */
+	public function test_existing_variation_late_attribute_clobber_rolls_back(): void {
+		$prepared = $this->prepareExistingVariationTarget();
+		$service  = $prepared['service'];
+		$manifest = $prepared['manifest'];
+		$child_id = $prepared['child_id'];
+
+		// phpcs:ignore Generic.Formatting.MultipleStatementAlignment.NotSameWarning -- Self-referential deterministic hook.
+		$hook = static function ( $saved_product ) use ( &$hook, $child_id ) {
+			if ( (int) $saved_product->get_id() === $child_id && 'draft' === (string) $saved_product->get_status() ) {
+				$GLOBALS['digitalogic_test_posts'][ $child_id ]['meta']['attribute_pa_model'] = 'late-wrong-option';
+				return;
+			}
+			$GLOBALS['digitalogic_test_wc_after_save'] = $hook;
+		};
+		$GLOBALS['digitalogic_test_wc_after_save'] = $hook;
+
+		$result = $service->run( $manifest, array( 'apply' => true ) );
+
+		$this->assertSame( 1, $result['failed'] );
+		$this->assertContains( 'digitalogic_patris_materializer_variation_identity_readback_failed', array_column( $result['details'], 'reason' ) );
+		$this->assertSame( 'legacy-option', wc_get_product( $child_id )->get_variation_attributes()['attribute_pa_model'] );
+		$this->assertSame( 'publish', wc_get_product( $child_id )->get_status() );
 	}
 
 	public function test_refuses_a_reviewed_variation_option_already_owned_by_an_existing_child(): void {
@@ -865,7 +1255,6 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 				'publish_ready' => true,
 			)
 		);
-
 		$this->assertSame( 1, $result['failed'] );
 		$this->assertSame( 0, $result['published'] );
 		$this->assertSame( 1, $result['preserved_published'] );
@@ -935,6 +1324,126 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 			'digitalogic_patris_materializer_category_readback_failed',
 			array_column( $result['details'], 'reason' )
 		);
+	}
+
+	/** Materialization never reports success for a denied canonical metadata write. */
+	public function test_product_identity_write_requires_exact_database_readback(): void {
+		$this->receiveFixture();
+		add_filter(
+			'update_post_metadata',
+			static function ( $check, $post_id, $meta_key ) {
+				unset( $post_id );
+				return Digitalogic_Product_Code_Editor::META_KEY === $meta_key ? false : $check;
+			},
+			2,
+			3
+		);
+
+		$result = Digitalogic_Patris_Catalog_Materializer::instance()->run( $this->manifest(), array( 'apply' => true ) );
+
+		$this->assertNotInstanceOf( WP_Error::class, $result );
+		$this->assertSame( 1, $result['failed'] );
+		$this->assertContains(
+			'digitalogic_product_code_source_readback_failed',
+			array_column( $result['details'], 'reason' )
+		);
+	}
+
+	/** Existing product enrichment is restored when canonical readback becomes duplicated. */
+	public function test_existing_product_identity_failure_restores_enrichment_and_exact_canonical_row(): void {
+		$this->receiveFixture();
+		$service = Digitalogic_Patris_Catalog_Materializer::instance();
+		$first   = $service->run( $this->manifest(), array( 'apply' => true ) );
+		$this->assertSame( 1, $first['created'] );
+		$product_id = (int) array_key_first( $GLOBALS['digitalogic_test_posts'] );
+		$before     = wc_get_product( $product_id );
+		$old_name   = $before->get_name();
+		$old_seo    = $before->get_meta( 'rank_math_title', true );
+		$old_terms  = $before->get_category_ids();
+
+		$manifest                                     = $this->manifest();
+		$manifest['products']['101001001']['name_fa'] = 'نام فارسی تازه که نباید باقی بماند';
+		$manifest['products']['101001001']['seo_title_fa'] = 'عنوان سئوی تازه که باید بازگردانی شود';
+		$GLOBALS['digitalogic_test_wc_after_save']         = static function () use ( $product_id ) {
+			$GLOBALS['digitalogic_test_posts'][ $product_id ]['meta_rows'][ Digitalogic_Product_Code_Editor::META_KEY ] = array( '101001001', '101001001' );
+		};
+
+		$result = $service->run( $manifest, array( 'apply' => true ) );
+
+		$this->assertSame( 1, $result['failed'] );
+		$this->assertContains( 'digitalogic_product_code_source_readback_failed', array_column( $result['details'], 'reason' ) );
+		$fresh = wc_get_product( $product_id );
+		$this->assertSame( $old_name, $fresh->get_name() );
+		$this->assertSame( $old_seo, $fresh->get_meta( 'rank_math_title', true ) );
+		$this->assertSame( $old_terms, $fresh->get_category_ids() );
+		$this->assertSame( array(), $GLOBALS['digitalogic_test_posts'][ $product_id ]['meta_rows'][ Digitalogic_Product_Code_Editor::META_KEY ] ?? array() );
+		$this->assertSame( '101001001', get_post_meta( $product_id, Digitalogic_Product_Code_Editor::META_KEY, true ) );
+	}
+
+	/** A failed materializer readback cannot race and overwrite a normal Woo writer. */
+	public function test_materializer_rollback_holds_product_lock_and_restores_exact_multi_row_meta(): void {
+		$this->receiveFixture();
+		$service = Digitalogic_Patris_Catalog_Materializer::instance();
+		$first   = $service->run( $this->manifest(), array( 'apply' => true ) );
+		$this->assertSame( 1, $first['created'] );
+		$product_id = (int) array_key_first( $GLOBALS['digitalogic_test_posts'] );
+		$GLOBALS['digitalogic_test_posts'][ $product_id ]['meta']['rank_math_title']      = 'Original SEO first';
+		$GLOBALS['digitalogic_test_posts'][ $product_id ]['meta_rows']['rank_math_title'] = array( 'Original SEO first', 'Original SEO second' );
+		$GLOBALS['digitalogic_test_post_meta_cache'][ $product_id ]                       = array( 'rank_math_title' => 'Stale cached SEO' );
+		$GLOBALS['digitalogic_test_cache_delete_failures'][]                              = 'post_meta:' . $product_id;
+		unset( $GLOBALS['digitalogic_test_wc_products'][ $product_id ] );
+		$writer_result                             = null;
+		$GLOBALS['digitalogic_test_wc_after_save'] = static function () use ( $product_id, &$writer_result ) {
+			$database        = $GLOBALS['wpdb'];
+			$connection_id   = $database->connection_id;
+			$reflection      = new ReflectionClass( Digitalogic_Product_Write_Lock::class );
+			$separate_writer = $reflection->newInstanceWithoutConstructor();
+			try {
+				$database->connection_id = 2002;
+				$writer_result           = $separate_writer->with_product_lock(
+					$product_id,
+					static function () use ( $product_id ) {
+						update_post_meta( $product_id, '_outside_writer', 'must-not-run' );
+						return true;
+					},
+					0
+				);
+			} finally {
+				$database->connection_id = $connection_id;
+			}
+			$GLOBALS['digitalogic_test_posts'][ $product_id ]['meta_rows'][ Digitalogic_Product_Code_Editor::META_KEY ] = array( '101001001', '101001001' );
+		};
+		$manifest                                  = $this->manifest();
+
+		$result = $service->run( $manifest, array( 'apply' => true ) );
+
+		$this->assertInstanceOf( WP_Error::class, $writer_result );
+		$this->assertSame( 'product_write_lock_busy', $writer_result->get_error_code() );
+		$this->assertSame( 1, $result['failed'] );
+		$this->assertSame( '', get_post_meta( $product_id, '_outside_writer', true ) );
+		$this->assertSame(
+			array( 'Original SEO first', 'Original SEO second' ),
+			get_post_meta( $product_id, 'rank_math_title', false )
+		);
+	}
+
+	/** Exact DB metadata backup failure blocks an existing target before any enrichment effect. */
+	public function test_materializer_exact_metadata_backup_query_failure_is_fail_closed(): void {
+		$this->receiveFixture();
+		$service = Digitalogic_Patris_Catalog_Materializer::instance();
+		$first   = $service->run( $this->manifest(), array( 'apply' => true ) );
+		$this->assertSame( 1, $first['created'] );
+		$product_id                                = (int) array_key_first( $GLOBALS['digitalogic_test_posts'] );
+		$before_posts                              = $GLOBALS['digitalogic_test_posts'];
+		$save_count                                = count( $GLOBALS['digitalogic_test_wc_product_saves'] );
+		$GLOBALS['wpdb']->exact_meta_query_failure = true;
+
+		$result = $service->run( $this->manifest(), array( 'apply' => true ) );
+
+		$this->assertSame( 1, $result['failed'] );
+		$this->assertContains( 'digitalogic_patris_materializer_backup_unavailable', array_column( $result['details'], 'reason' ) );
+		$this->assertSame( $before_posts[ $product_id ], $GLOBALS['digitalogic_test_posts'][ $product_id ] );
+		$this->assertCount( $save_count, $GLOBALS['digitalogic_test_wc_product_saves'] );
 	}
 
 	public function test_referenced_synthetic_category_is_created_under_a_reviewed_manual_parent(): void {
@@ -1036,9 +1545,131 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 		$this->assertStringContainsString( 'evidence_urls.0', $invalid_evidence->get_error_data()['path'] );
 	}
 
+	/**
+	 * Create one reviewed draft variation and prepare its exact publication rerun.
+	 *
+	 * @return array{service:Digitalogic_Patris_Catalog_Materializer,manifest:array,child_id:int}
+	 */
+	private function prepareReviewedVariationForPublication(): array {
+		$this->receiveFixture();
+		$this->addProduct( 100, 'variable' );
+		$this->addTerm( 373, 'Reviewed sensor', 0, 'pa_model', 'raw-sensor' );
+		$manifest                  = $this->manifest();
+		$row                       = &$manifest['products']['101001001'];
+		$row['target_parent_id']   = '100';
+		$row['attribute_taxonomy'] = 'pa_model';
+		$row['attribute_term_id']  = '373';
+		$row['parent_enrichment']  = $this->parentEnrichment();
+		$row['variation_group']    = 'final-identity-sensors';
+		unset( $row );
+		$service = Digitalogic_Patris_Catalog_Materializer::instance();
+		$draft   = $service->run( $manifest, array( 'apply' => true ) );
+		$this->assertSame( 1, $draft['created_variations'] );
+		$children = wc_get_product( 100 )->get_children();
+		$this->assertCount( 1, $children );
+		$child_id = (int) $children[0];
+		$this->attachReviewedImage( $child_id );
+		$state      = get_option( Digitalogic_Product_Sync_Receiver::STATE_OPTION, array() );
+		$source_key = array_key_first( $state['sources'] );
+		$state['sources'][ $source_key ]['products']['101001001']['shipping_method_id'] = 'air_express';
+		update_option( Digitalogic_Product_Sync_Receiver::STATE_OPTION, $state, false );
+
+		return array(
+			'service'  => $service,
+			'manifest' => $manifest,
+			'child_id' => $child_id,
+		);
+	}
+
+	/** Build an unowned, explicitly reviewed existing variation target. */
+	private function prepareExistingVariationTarget(): array {
+		$this->receiveFixture();
+		$this->addProduct( 100, 'variable' );
+		$attribute = new WC_Product_Attribute();
+		$attribute->set_id( 7 );
+		$attribute->set_name( 'pa_model' );
+		$attribute->set_options( array( 373 ) );
+		$attribute->set_visible( true );
+		$attribute->set_variation( true );
+		$GLOBALS['digitalogic_test_posts'][100]['attributes'] = array( 'pa_model' => $attribute );
+		$GLOBALS['digitalogic_test_posts'][200]               = array(
+			'post_type'    => 'product_variation',
+			'post_status'  => 'publish',
+			'product_type' => 'variation',
+			'post_parent'  => 100,
+			'post_title'   => 'Existing variation target',
+			'meta'         => array( 'attribute_pa_model' => 'legacy-option' ),
+		);
+
+		$GLOBALS['digitalogic_test_next_post_id'] = max( $GLOBALS['digitalogic_test_next_post_id'], 201 );
+
+		$manifest = $this->manifest();
+		$row      = &$manifest['products']['101001001'];
+
+		$row['target_product_id'] = '200';
+
+		$row['target_parent_id'] = '100';
+
+		$row['parent_enrichment'] = $this->parentEnrichment();
+
+		$row['variation_group'] = 'existing-variation';
+		unset( $row );
+
+		return array(
+			'service'  => Digitalogic_Patris_Catalog_Materializer::instance(),
+			'manifest' => $manifest,
+			'child_id' => 200,
+		);
+	}
+
 	private function receiveFixture(): void {
 		$result = Digitalogic_Product_Sync_Receiver::instance()->receive_json( self::$fixture_json );
 		$this->assertNotInstanceOf( WP_Error::class, $result );
+	}
+
+	/**
+	 * Assert that a mutation injected after the last row save is detected and rolled back.
+	 *
+	 * @param string $meta_key Meta key to overwrite.
+	 * @param string $meta_value Replacement value.
+	 * @param string $error_code Expected failure code.
+	 */
+	private function assertLateMaterializerClobberRollsBack( string $meta_key, string $meta_value, string $error_code ): void {
+		$this->receiveFixture();
+		$service = Digitalogic_Patris_Catalog_Materializer::instance();
+		$first   = $service->run( $this->manifest(), array( 'apply' => true ) );
+		$this->assertSame( 1, $first['created'] );
+		$product_id = (int) array_key_first( $GLOBALS['digitalogic_test_posts'] );
+		$this->attachReviewedImage( $product_id );
+		$before = $GLOBALS['digitalogic_test_posts'][ $product_id ];
+		$state  = get_option( Digitalogic_Product_Sync_Receiver::STATE_OPTION, array() );
+		$source = array_key_first( $state['sources'] );
+		$state['sources'][ $source ]['products']['101001001']['shipping_method_id']             = 'air_express';
+		$state['sources'][ $source ]['products']['101001001']['shipping_price_per_kg']          = '34800000';
+		$state['sources'][ $source ]['products']['101001001']['shipping_price_per_kg_currency'] = 'IRR';
+		update_option( Digitalogic_Product_Sync_Receiver::STATE_OPTION, $state, false );
+
+		$late_save                                 = null;
+		$late_save                                 = static function ( $saved_product ) use ( &$late_save, $product_id, $meta_key, $meta_value ) {
+			if ( (int) $saved_product->get_id() !== $product_id || 'publish' !== (string) $saved_product->get_status() ) {
+				$GLOBALS['digitalogic_test_wc_after_save'] = $late_save;
+				return;
+			}
+			$GLOBALS['digitalogic_test_posts'][ $product_id ]['meta'][ $meta_key ] = $meta_value;
+		};
+		$GLOBALS['digitalogic_test_wc_after_save'] = $late_save;
+
+		$result = $service->run(
+			$this->manifest(),
+			array(
+				'apply'         => true,
+				'publish_ready' => true,
+			)
+		);
+
+		$this->assertSame( 1, $result['failed'] );
+		$this->assertContains( $error_code, array_column( $result['details'], 'reason' ) );
+		$this->assertEquals( $before, $GLOBALS['digitalogic_test_posts'][ $product_id ] );
 	}
 
 	private function manifest(): array {

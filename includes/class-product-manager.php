@@ -160,13 +160,14 @@ class Digitalogic_Product_Manager {
 		}
 
 		if ( isset( $args['limit'] ) && -1 === intval( $args['limit'] ) ) {
+			Digitalogic_Product_Code_Editor::instance()->reset_editability_cache();
 			$products            = array();
 			$batch_args          = $args;
 			$batch_args['limit'] = 100;
 			$batch_args['page']  = 1;
 
 			do {
-				$result   = $this->query_products( $batch_args );
+				$result   = $this->query_products_page( $batch_args );
 				$products = array_merge( $products, $result['products'] );
 				++$batch_args['page'];
 			} while (
@@ -193,11 +194,24 @@ class Digitalogic_Product_Manager {
 	 * @return array
 	 */
 	public function query_products( $args = array() ) {
+		Digitalogic_Product_Code_Editor::instance()->reset_editability_cache();
+
+		return $this->query_products_page( $args );
+	}
+
+	/**
+	 * Execute one page without discarding the outer export's source index.
+	 *
+	 * @param array $args Normalized product query arguments.
+	 * @return array
+	 */
+	private function query_products_page( $args ) {
 		$normalized = Digitalogic_Product_Query::normalize_args( $args );
 
 		try {
 			$query       = new WP_Query( Digitalogic_Product_Query::build_wp_query_args( $normalized ) );
 			$product_ids = array_values( array_filter( array_map( 'absint', (array) $query->posts ) ) );
+			Digitalogic_Product_Code_Editor::instance()->prepare_admin_read_batch( $product_ids );
 			$filtered    = max( 0, (int) $query->found_posts );
 			$products    = $this->format_product_list( $product_ids );
 			$total       = Digitalogic_Product_Query::has_active_filters( $normalized )
@@ -235,6 +249,7 @@ class Digitalogic_Product_Manager {
      * @return array|null
      */
     public function get_product($product_id) {
+		Digitalogic_Product_Code_Editor::instance()->reset_editability_cache();
         $product = wc_get_product($product_id);
         
         if (!$product) {
@@ -341,6 +356,19 @@ class Digitalogic_Product_Manager {
                 $image_url = wp_get_attachment_url($public_product->get_image_id());
             }
             $pricing_policy = Digitalogic_Patris_Price_Policy::instance()->project($product);
+			$cached_product_code      = (string) $product->get_meta( '_digitalogic_patris_product_code', true );
+			$product_code_editability = Digitalogic_Product_Code_Editor::instance()->editability_for( $product_id, $cached_product_code );
+			$product_code             = (string) $product_code_editability['product_code'];
+			$product_code_recovery    = Digitalogic_Product_Code_Editor::instance()->recovery_intent_for( $product_id );
+			if ( is_wp_error( $product_code_recovery ) ) {
+				$product_code_editability['editable'] = false;
+				$product_code_editability['reason']   = 'recovery_unavailable';
+				$product_code_recovery                = array();
+			}
+			if ( is_array( $product_code_recovery ) && 'outcome_unknown' === (string) ( $product_code_recovery['status'] ?? '' ) ) {
+				$product_code_editability['editable'] = false;
+				$product_code_editability['reason']   = 'outcome_unknown';
+			}
 
             $data = array(
                 'id' => $product_id,
@@ -374,7 +402,14 @@ class Digitalogic_Product_Manager {
                 'total_sales' => $public_product->get_total_sales(),
                 'date_modified' => $product->get_date_modified() ? $product->get_date_modified()->date_i18n('Y-m-d H:i') : '',
                 'revision_count' => $list_context ? null : count(wp_get_post_revisions($public_product->get_id())),
-                'patris_product_code' => $product->get_meta('_digitalogic_patris_product_code', true),
+				// phpcs:disable WordPress.Arrays.MultipleStatementAlignment.DoubleArrowNotAligned -- Keep this focused addition out of the legacy array's formatting debt.
+				'patris_product_code'             => $product_code,
+				'patris_product_code_revision'    => (string) $product_code_editability['revision'],
+				'patris_product_code_editable'    => $product_code_editability['editable'],
+				'patris_product_code_edit_reason' => $product_code_editability['reason'],
+				'patris_product_code_cache_mismatch' => $product_code_editability['cache_mismatch'],
+				'patris_product_code_recovery'        => $product_code_recovery,
+				// phpcs:enable WordPress.Arrays.MultipleStatementAlignment.DoubleArrowNotAligned
                 'patris_name' => $product->get_meta('_digitalogic_patris_name', true),
                 'patris_serial' => $product->get_meta('_digitalogic_patris_serial', true),
                 'patris_unit' => $product->get_meta('_digitalogic_patris_unit', true),
@@ -477,6 +512,7 @@ class Digitalogic_Product_Manager {
         if ($product->is_type('variable')) {
             $product_ids = array_merge($product_ids, array_slice($product->get_children(), 0, 100));
         }
+		Digitalogic_Product_Code_Editor::instance()->prepare_admin_read_batch( $product_ids );
 
         return $this->format_product_data(
             $product,

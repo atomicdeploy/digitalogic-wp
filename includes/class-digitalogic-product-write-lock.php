@@ -31,6 +31,9 @@ final class Digitalogic_Product_Write_Lock {
 	 */
 	private $depths = array();
 
+	/** @var array<int,int> MySQL connection IDs that own each product lock. */
+	private $connection_ids = array();
+
 	/**
 	 * Product lock stacks by WooCommerce object ID.
 	 *
@@ -79,7 +82,11 @@ final class Digitalogic_Product_Write_Lock {
 		}
 
 		try {
-			return call_user_func( $callback );
+			$result = call_user_func( $callback );
+			if ( ! $this->is_owned( $product_id ) ) {
+				return $this->lost_error();
+			}
+			return $result;
 		} finally {
 			while ( ( $this->depths[ $product_id ] ?? 0 ) > $baseline ) {
 				$this->release( $product_id );
@@ -104,6 +111,9 @@ final class Digitalogic_Product_Write_Lock {
 			);
 		}
 		if ( ( $this->depths[ $product_id ] ?? 0 ) > 0 ) {
+			if ( ! $this->is_owned( $product_id ) ) {
+				return $this->lost_error();
+			}
 			++$this->depths[ $product_id ];
 			return true;
 		}
@@ -138,7 +148,19 @@ final class Digitalogic_Product_Write_Lock {
 			);
 		}
 
-		$this->depths[ $product_id ] = 1;
+		$connection_id = $wpdb->get_var( 'SELECT CONNECTION_ID()' ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Connection identity is live session state.
+		$owner_query   = $wpdb->prepare( 'SELECT IS_USED_LOCK(%s)', $this->lock_name( $product_id ) );
+		$owner_id      = false !== $owner_query ? $wpdb->get_var( $owner_query ) : false; // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.NotPrepared -- Advisory ownership is live session state.
+		if ( (int) $connection_id <= 0 || (int) $connection_id !== (int) $owner_id ) {
+			$release = $wpdb->prepare( 'SELECT RELEASE_LOCK(%s)', $this->lock_name( $product_id ) );
+			if ( false !== $release ) {
+				$wpdb->get_var( $release ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.NotPrepared -- Best-effort cleanup.
+			}
+			return $this->lost_error();
+		}
+
+		$this->connection_ids[ $product_id ] = (int) $connection_id;
+		$this->depths[ $product_id ]         = 1;
 		return true;
 	}
 
@@ -153,12 +175,16 @@ final class Digitalogic_Product_Write_Lock {
 		if ( ( $this->depths[ $product_id ] ?? 0 ) <= 0 ) {
 			return;
 		}
+		if ( ! $this->is_owned( $product_id ) ) {
+			return;
+		}
 
 		--$this->depths[ $product_id ];
 		if ( $this->depths[ $product_id ] > 0 ) {
 			return;
 		}
 		unset( $this->depths[ $product_id ] );
+		unset( $this->connection_ids[ $product_id ] );
 
 		global $wpdb;
 		if ( ! is_object( $wpdb ) || ! method_exists( $wpdb, 'prepare' ) || ! method_exists( $wpdb, 'get_var' ) ) {
@@ -223,6 +249,46 @@ final class Digitalogic_Product_Write_Lock {
 			}
 		}
 		$this->hook_locks = array();
+	}
+
+	/** Verify that this request still owns one connection-scoped product lock. */
+	public function is_owned( $product_id ) {
+		$product_id = absint( $product_id );
+		$expected   = (int) ( $this->connection_ids[ $product_id ] ?? 0 );
+		if ( ( $this->depths[ $product_id ] ?? 0 ) <= 0 || $expected <= 0 ) {
+			return false;
+		}
+		global $wpdb;
+		if ( ! is_object( $wpdb ) || ! method_exists( $wpdb, 'prepare' ) || ! method_exists( $wpdb, 'get_var' ) ) {
+			$this->forget( $product_id );
+			return false;
+		}
+		$connection_id = $wpdb->get_var( 'SELECT CONNECTION_ID()' ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Connection identity is live session state.
+		$owner_query   = $wpdb->prepare( 'SELECT IS_USED_LOCK(%s)', $this->lock_name( $product_id ) );
+		$owner_id      = false !== $owner_query ? $wpdb->get_var( $owner_query ) : false; // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.NotPrepared -- Advisory ownership is live session state.
+		if ( $expected !== (int) $connection_id || $expected !== (int) $owner_id ) {
+			$this->forget( $product_id );
+			return false;
+		}
+
+		return true;
+	}
+
+	/** Clear stale request-local ownership for one product. */
+	private function forget( $product_id ) {
+		unset( $this->depths[ $product_id ], $this->connection_ids[ $product_id ] );
+	}
+
+	/** Return one typed reconnect/lost-lock failure. */
+	private function lost_error() {
+		return new WP_Error(
+			'product_write_lock_lost',
+			__( 'The product write lock was lost after a database reconnect. Retry the unchanged request.', 'digitalogic' ),
+			array(
+				'status'    => 503,
+				'retryable' => true,
+			)
+		);
 	}
 
 	/**
