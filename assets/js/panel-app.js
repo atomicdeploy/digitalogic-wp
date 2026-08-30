@@ -118,6 +118,7 @@
         digitalogic_get_product: true,
         digitalogic_get_currency: true,
         digitalogic_get_currency_job: true,
+		digitalogic_currency_job_status: true,
         digitalogic_get_product_code_edit: true,
         digitalogic_get_logs: true,
         digitalogic_get_reports: true,
@@ -602,6 +603,7 @@
                 currencyJob: null,
                 currencyJobTimer: null,
                 currencyJobWatchDeadline: 0,
+				currencyIntent: storedJson('digitalogic_panel_currency_intent', {}),
                 currencyEditOriginal: '',
                 currencyEditField: '',
                 transport: 'ajax',
@@ -1120,7 +1122,7 @@
                 return self.run('digitalogic_panel_summary').then(function(data) {
                     self.summary = data;
                     self.resetCurrencyDraft();
-                    if (data.currency_job && ['queued', 'running', 'publishing'].indexOf(data.currency_job.status) !== -1) {
+					if (data.currency_job && ['queued', 'running', 'cancelling', 'publishing'].indexOf(data.currency_job.status) !== -1) {
                         self.watchCurrencyJob(data.currency_job);
                     } else if (data.currency_job && data.currency_job.status === 'publication_failed') {
                         self.currencyJob = data.currency_job;
@@ -2341,20 +2343,62 @@
                 payload.expected_state_revision = self.summary && self.summary.currency
                     ? self.summary.currency.state_revision
                     : '';
+				var signature = JSON.stringify(payload);
+				if (!self.currencyIntent || self.currencyIntent.signature !== signature || !self.currencyIntent.request_id) {
+					var random = window.crypto && typeof window.crypto.getRandomValues === 'function'
+						? Array.prototype.map.call(window.crypto.getRandomValues(new Uint32Array(2)), function(value) { return value.toString(16); }).join('')
+						: Math.random().toString(16).slice(2);
+					self.currencyIntent = {
+						signature: signature,
+						request_id: 'currency:' + Date.now() + ':' + random
+					};
+					window.localStorage.setItem('digitalogic_panel_currency_intent', JSON.stringify(self.currencyIntent));
+				}
+				payload.request_id = self.currencyIntent.request_id;
                 self.saving = true;
                 self.error = '';
-                return self.run('digitalogic_update_currency', payload).then(function(job) {
+				return self.run('digitalogic_update_currency', payload, {noAutoReplay: true, timeout: 15000}).then(function(job) {
                     self.editingCell = null;
                     self.currencyEditField = '';
                     self.currencyEditOriginal = '';
                     self.watchCurrencyJob(job);
                     return job;
                 }).catch(function(error) {
-                    self.error = error.message || self.t.error;
+					return self.run('digitalogic_currency_job_status', {
+						request_id: payload.request_id
+					}, {ajaxOnly: true, silentError: true, timeout: 8000}).then(function(job) {
+						self.watchCurrencyJob(job);
+						return job;
+					}).catch(function() {
+						self.currencyJob = {
+							status: 'recoverable',
+							request_id: payload.request_id,
+							progress: 0,
+							message_fa: 'نتیجهٔ ارسال مشخص نشد؛ درخواست دوباره ارسال نشد. همان تغییر را برای بازیابی با شناسهٔ قبلی دوباره ذخیره کنید.'
+						};
+						self.error = error.message || self.t.error;
+					});
                 }).finally(function() {
                     self.saving = false;
                 });
             },
+			cancelCurrencyJob: function() {
+				var self = this;
+				var job = self.currencyJob || {};
+				if (!job.cancellable || (!job.request_id && (!job.job_id || !Number(job.generation)))) return;
+				self.saving = true;
+				return self.run('digitalogic_cancel_currency_job', {
+					job_id: job.job_id || '',
+					generation: Number(job.generation || 0),
+					request_id: job.request_id || ''
+				}, {noAutoReplay: true, timeout: 10000}).then(function(status) {
+					self.watchCurrencyJob(status);
+				}).catch(function(error) {
+					self.error = error.message || self.t.error;
+				}).finally(function() {
+					self.saving = false;
+				});
+			},
             watchCurrencyJob: function(job) {
                 var self = this;
                 if (!job || !job.job_id || !Number(job.generation)) {
@@ -2368,8 +2412,12 @@
                         ? Date.now() + 180000
                         : Math.min(Number(job.deadline_at || 0) * 1000 + 2000, Date.now() + 180000);
                 }
-                if (['confirmed', 'failed', 'publication_failed', 'superseded'].indexOf(job.status) !== -1) {
+				if (['confirmed', 'failed', 'cancelled', 'publication_failed', 'superseded'].indexOf(job.status) !== -1) {
                     self.currencyJobWatchDeadline = 0;
+					if (self.currencyIntent && self.currencyIntent.request_id === job.request_id) {
+						self.currencyIntent = {};
+						window.localStorage.removeItem('digitalogic_panel_currency_intent');
+					}
                     self.addToast({
                         message: job.message_fa || (job.status === 'confirmed' ? 'قیمت‌ها تأیید شدند.' : 'کار قیمت پایان یافت.'),
                         level: job.status === 'confirmed' ? 'success' : (job.status === 'failed' ? 'error' : 'warning')
@@ -2389,7 +2437,8 @@
                 self.currencyJobTimer = window.setTimeout(function() {
                     self.run('digitalogic_currency_job_status', {
                         job_id: job.job_id,
-                        generation: Number(job.generation)
+						generation: Number(job.generation),
+						request_id: job.request_id || ''
                     }, {silentError: true}).then(function(status) {
                         self.watchCurrencyJob(status);
                     }).catch(function(error) {

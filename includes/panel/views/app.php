@@ -126,6 +126,7 @@ $retry_url = isset($_SERVER['REQUEST_URI']) ? (string) $_SERVER['REQUEST_URI'] :
                 <div v-if="error" class="dlp-error">{{ error }}</div>
                 <div v-if="currencyJob && currencyJob.message_fa" class="dlp-job-status" :class="'is-' + currencyJob.status" role="status" aria-live="polite">
                     <span>{{ currencyJob.message_fa }}</span>
+					<button v-if="currencyJob.cancellable" type="button" class="dlp-button" :disabled="saving" @click="cancelCurrencyJob">{{ t.cancel || 'لغو' }}</button>
                     <strong>{{ formatNumber(currencyJob.progress || 0) }}%</strong>
                 </div>
                 <div class="dlp-toast-stack" aria-live="polite" aria-atomic="false">

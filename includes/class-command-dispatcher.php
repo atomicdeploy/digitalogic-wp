@@ -82,6 +82,7 @@ class Digitalogic_Command_Dispatcher {
             'digitalogic_update_currency'                  => array($this, 'update_currency'),
             'digitalogic_get_currency'                     => array($this, 'get_currency'),
             'digitalogic_currency_job_status'              => array($this, 'get_currency_job_status'),
+			'digitalogic_cancel_currency_job'              => array( $this, 'cancel_currency_job' ),
             'digitalogic_export'                           => array($this, 'export'),
             'digitalogic_get_logs'                         => array($this, 'get_logs'),
             'digitalogic_get_reports'                      => array($this, 'get_reports'),
@@ -188,13 +189,22 @@ class Digitalogic_Command_Dispatcher {
                 array('status' => 428, 'blocking' => true)
             );
         }
+		$request_id = is_array($payload) ? sanitize_text_field((string) ($payload['request_id'] ?? '')) : '';
+		if (1 !== preg_match('/\A[a-zA-Z0-9._:-]{8,128}\z/D', $request_id)) {
+			return new WP_Error(
+				'digitalogic_currency_request_id_required',
+				'برای هر تغییر نرخ یک شناسهٔ درخواست یکتا لازم است.',
+				array('status' => 428, 'blocking' => true)
+			);
+		}
 
         return Digitalogic_Currency_Admin_Async::instance()->enqueue_currency(
             $values,
             true,
             false,
             $expected_revision,
-            'command_' . sanitize_key((string) $transport)
+			'command_' . sanitize_key((string) $transport),
+			$request_id
         );
     }
 
@@ -204,8 +214,22 @@ class Digitalogic_Command_Dispatcher {
         $job_id     = sanitize_text_field((string) ($payload['job_id'] ?? ''));
         $generation = absint($payload['generation'] ?? 0);
 
-        return Digitalogic_Currency_Admin_Async::instance()->status($job_id, $generation);
-    }
+		$request_id = sanitize_text_field((string) ($payload['request_id'] ?? ''));
+
+		return '' !== $request_id
+			? Digitalogic_Currency_Admin_Async::instance()->status_by_request($request_id)
+			: Digitalogic_Currency_Admin_Async::instance()->status($job_id, $generation);
+	}
+
+	/** Request cooperative cancellation without replaying the original mutation. */
+	public function cancel_currency_job($payload) {
+		$payload    = is_array($payload) ? $payload : array();
+		$job_id     = sanitize_text_field((string) ($payload['job_id'] ?? ''));
+		$generation = absint($payload['generation'] ?? 0);
+		$request_id = sanitize_text_field((string) ($payload['request_id'] ?? ''));
+
+		return Digitalogic_Currency_Admin_Async::instance()->cancel($job_id, $generation, $request_id);
+	}
 
     public function get_currency() {
         $options = Digitalogic_Options::instance();

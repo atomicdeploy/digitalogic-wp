@@ -43,7 +43,18 @@
 		var status = job && job.status ? String(job.status) : 'idle';
 		var message = job && job.message_fa ? String(job.message_fa) : String(fallback || '');
 		statusNode.dataset.status = status;
-		statusNode.textContent = message;
+		statusNode.textContent = '';
+		var text = document.createElement('span');
+		text.textContent = message;
+		statusNode.appendChild(text);
+		if (job && job.cancellable && activeJob) {
+			var cancel = document.createElement('button');
+			cancel.type = 'button';
+			cancel.className = 'button button-secondary';
+			cancel.textContent = 'لغو';
+			cancel.addEventListener('click', cancelExactJob, {once: true});
+			statusNode.appendChild(cancel);
+		}
 		statusNode.hidden = status === 'idle' && !message;
 	}
 
@@ -74,7 +85,7 @@
 	}
 
 	function terminal(job) {
-		return ['confirmed', 'failed', 'publication_failed', 'superseded', 'invalid_identity'].indexOf(String(job.status || '')) !== -1;
+		return ['confirmed', 'failed', 'cancelled', 'publication_failed', 'superseded', 'invalid_identity'].indexOf(String(job.status || '')) !== -1;
 	}
 
 	function deadlineReached(job) {
@@ -91,6 +102,23 @@
 		window.setTimeout(pollExactJob, delay);
 	}
 
+	async function cancelExactJob() {
+		if (!activeJob) return;
+		try {
+			var job = await request({
+				action: 'digitalogic_currency_async_cancel',
+				job_id: activeJob.job_id,
+				generation: String(activeJob.generation),
+				request_id: activeJob.request_id || ''
+			});
+			activeJob = Object.assign({}, activeJob, job);
+			render(job);
+			if (!terminal(job)) schedulePoll(Number(config.pollIntervalMs) || 1000);
+		} catch (error) {
+			render(activeJob, error && error.message ? error.message : 'درخواست لغو قابل تأیید نبود؛ وضعیت را تازه‌سازی کنید.');
+		}
+	}
+
 	async function pollExactJob() {
 		if (!activeJob) {
 			return;
@@ -99,8 +127,10 @@
 			var job = await request({
 				action: 'digitalogic_currency_async_status',
 				job_id: activeJob.job_id,
-				generation: String(activeJob.generation)
+				generation: String(activeJob.generation),
+				request_id: activeJob.request_id || ''
 			});
+			activeJob = Object.assign({}, activeJob, job);
 			render(job);
 			if (terminal(job)) {
 				activeJob = null;
@@ -138,7 +168,7 @@
 				return;
 			}
 			if (
-				['queued', 'running', 'publishing'].indexOf(String(job.status || '')) === -1 ||
+				['queued', 'running', 'cancelling', 'publishing'].indexOf(String(job.status || '')) === -1 ||
 				!job.job_id ||
 				Number(job.generation || 0) < 1
 			) {
@@ -151,7 +181,9 @@
 				job_id: String(job.job_id),
 				generation: Number(job.generation),
 				deadline_at: Number(job.deadline_at || 0),
-				status: String(job.status)
+				status: String(job.status),
+				request_id: String(job.request_id || ''),
+				cancellable: !!job.cancellable
 			};
 			startedAt = Date.now();
 			render(job);

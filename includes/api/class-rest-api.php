@@ -294,9 +294,33 @@ class Digitalogic_REST_API {
 			'digitalogic/v1',
 			'/currency/jobs/(?P<job_id>[a-f0-9]{32})/(?P<generation>[1-9][0-9]*)',
 			array(
-				'methods'             => 'GET',
-				'callback'            => array( $this, 'get_currency_job' ),
-				'permission_callback' => array( $this, 'check_read_permission' ),
+				array(
+					'methods'             => 'GET',
+					'callback'            => array( $this, 'get_currency_job' ),
+					'permission_callback' => array( $this, 'check_read_permission' ),
+				),
+				array(
+					'methods'             => 'DELETE',
+					'callback'            => array( $this, 'cancel_currency_job' ),
+					'permission_callback' => array( $this, 'check_write_permission' ),
+				),
+			)
+		);
+
+		register_rest_route(
+			'digitalogic/v1',
+			'/currency/requests/(?P<request_id>[a-zA-Z0-9._:-]{8,128})',
+			array(
+				array(
+					'methods'             => 'GET',
+					'callback'            => array( $this, 'get_currency_request' ),
+					'permission_callback' => array( $this, 'check_read_permission' ),
+				),
+				array(
+					'methods'             => 'DELETE',
+					'callback'            => array( $this, 'cancel_currency_request' ),
+					'permission_callback' => array( $this, 'check_write_permission' ),
+				),
 			)
 		);
 
@@ -1461,6 +1485,10 @@ class Digitalogic_REST_API {
 		if ( is_wp_error( $expected_revision ) ) {
 			return $this->currency_job_response( $expected_revision );
 		}
+		$request_id = $this->currency_request_id( $request, $data );
+		if ( is_wp_error( $request_id ) ) {
+			return $this->currency_job_response( $request_id );
+		}
 
 		$values = array();
 		foreach ( array( 'dollar_price', 'yuan_price', 'effective_date', 'usd_effective_date', 'cny_effective_date' ) as $field ) {
@@ -1473,7 +1501,8 @@ class Digitalogic_REST_API {
 			true,
 			false,
 			$expected_revision,
-			'rest_currency'
+			'rest_currency',
+			$request_id
 		);
 
 		return $this->currency_job_response( $result, 202 );
@@ -1489,6 +1518,10 @@ class Digitalogic_REST_API {
 		if ( is_wp_error( $expected_revision ) ) {
 			return $this->currency_job_response( $expected_revision );
 		}
+		$request_id = $this->currency_request_id( $request, $data );
+		if ( is_wp_error( $request_id ) ) {
+			return $this->currency_job_response( $request_id );
+		}
 
 		$state = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
 		if ( is_wp_error( $state ) ) {
@@ -1502,7 +1535,8 @@ class Digitalogic_REST_API {
 			true,
 			true,
 			$expected_revision,
-			'rest_pricing_recalculate'
+			'rest_pricing_recalculate',
+			$request_id
 		);
 
 		return $this->currency_job_response( $result, 202 );
@@ -1516,6 +1550,36 @@ class Digitalogic_REST_API {
 		);
 
 		return $this->currency_job_response( $result, 200 );
+	}
+
+	/** Cancel one exact uncommitted currency worker generation. */
+	public function cancel_currency_job( WP_REST_Request $request ) {
+		$result = Digitalogic_Currency_Admin_Async::instance()->cancel(
+			sanitize_text_field( (string) $request['job_id'] ),
+			absint( $request['generation'] )
+		);
+
+		return $this->currency_job_response( $result, 202 );
+	}
+
+	/** Recover one unknown transport outcome by its original idempotency identity. */
+	public function get_currency_request( WP_REST_Request $request ) {
+		$result = Digitalogic_Currency_Admin_Async::instance()->status_by_request(
+			sanitize_text_field( (string) $request['request_id'] )
+		);
+
+		return $this->currency_job_response( $result, 200 );
+	}
+
+	/** Cancel one exact uncommitted currency request by idempotency identity. */
+	public function cancel_currency_request( WP_REST_Request $request ) {
+		$result = Digitalogic_Currency_Admin_Async::instance()->cancel(
+			'',
+			0,
+			sanitize_text_field( (string) $request['request_id'] )
+		);
+
+		return $this->currency_job_response( $result, 202 );
 	}
 
 	/**
@@ -1544,6 +1608,28 @@ class Digitalogic_REST_API {
 		}
 
 		return $revision;
+	}
+
+	/** Require one explicit idempotency identity on every remote currency mutation. */
+	private function currency_request_id( WP_REST_Request $request, array $payload ) {
+		$request_id = $payload['request_id'] ?? null;
+		$header     = (string) $request->get_header( 'idempotency-key' );
+		if (
+			! is_string( $request_id )
+			|| 1 !== preg_match( '/\A[a-zA-Z0-9._:-]{8,128}\z/D', $request_id )
+			|| ! hash_equals( $request_id, $header )
+		) {
+			return new WP_Error(
+				'digitalogic_currency_idempotency_key_required',
+				'request_id و هدر Idempotency-Key باید دقیقاً یکسان باشند.',
+				array(
+					'status'   => 428,
+					'blocking' => true,
+				)
+			);
+		}
+
+		return $request_id;
 	}
 
 	/** Convert async currency jobs and failures to a bounded machine-readable response. */
