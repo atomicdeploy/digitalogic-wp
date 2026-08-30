@@ -249,8 +249,8 @@ $wc_features['Plugin Compatible'] = $hpos_status['plugin_compatible'] ? 'Yes' : 
         <ul>
             <li><code>GET <?php echo esc_html(rest_url('digitalogic/v1/products')); ?></code></li>
             <li><code>POST <?php echo esc_html(rest_url('digitalogic/v1/products/batch')); ?></code></li>
-            <li><code>GET <?php echo esc_html(rest_url('digitalogic/v1/currency')); ?></code></li>
-            <li><code>POST <?php echo esc_html(rest_url('digitalogic/v1/currency')); ?></code></li>
+            <li><code>GET <?php echo esc_html(rest_url('digitalogic/currency')); ?></code></li>
+            <li><code>POST <?php echo esc_html(rest_url('digitalogic/currency')); ?></code></li>
             <li><code>POST <?php echo esc_html(rest_url('digitalogic/v1/pricing/recalculate')); ?></code></li>
             <li><code>GET <?php echo esc_html(rest_url('digitalogic/v1/export')); ?></code></li>
         </ul>

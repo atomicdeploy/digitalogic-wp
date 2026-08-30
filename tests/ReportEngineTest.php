@@ -81,7 +81,7 @@ final class ReportEngineTest extends TestCase {
 		$GLOBALS['digitalogic_test_update_failures']              = array();
 		$GLOBALS['digitalogic_test_options']                      = array(
 			'digitalogic_patris_feed_settings'       => array( 'stale_after_hours' => 48 ),
-			'digitalogic_report_cache_generation_v1' => 'test-report-generation',
+			'digitalogic_report_cache_generation' => 'test-report-generation',
 		);
 		$GLOBALS['digitalogic_test_option_cache']                 = array();
 		$GLOBALS['digitalogic_test_posts']                        = array();
@@ -159,7 +159,7 @@ final class ReportEngineTest extends TestCase {
 		$refreshed = $this->engine->get_report( $args );
 
 		$this->assertSame( 2, $refreshed['counts']['patris_products'] );
-		$this->assertArrayHasKey( 'digitalogic_reports:generation-v1', $GLOBALS['digitalogic_test_object_cache'] );
+		$this->assertArrayHasKey( 'digitalogic_reports:generation', $GLOBALS['digitalogic_test_object_cache'] );
 	}
 
 	/** One committed effect owns one deterministic generation across every replay. */
@@ -168,19 +168,19 @@ final class ReportEngineTest extends TestCase {
 		$first  = $this->engine->invalidate_cache_for_effect( $effect );
 		$this->assertIsArray( $first );
 		$this->assertSame( 'complete', $first['status'] );
-		$generation = $GLOBALS['digitalogic_test_options']['digitalogic_report_cache_generation_v1'];
+		$generation = $GLOBALS['digitalogic_test_options']['digitalogic_report_cache_generation'];
 
 		$replayed = $this->engine->invalidate_cache_for_effect( $effect );
 
 		$this->assertSame( $first, $replayed );
-		$this->assertSame( $generation, $GLOBALS['digitalogic_test_options']['digitalogic_report_cache_generation_v1'] );
+		$this->assertSame( $generation, $GLOBALS['digitalogic_test_options']['digitalogic_report_cache_generation'] );
 		$this->assertCount( 1, $GLOBALS['digitalogic_test_options']['digitalogic_report_cache_effects'] );
 	}
 
 	/** A generation write failure remains pending and converges without a new target. */
 	public function test_effect_invalidation_failure_cannot_report_false_success(): void {
 		$effect = 'sha256:' . str_repeat( 'b', 64 );
-		$GLOBALS['digitalogic_test_update_failures'][] = 'digitalogic_report_cache_generation_v1';
+		$GLOBALS['digitalogic_test_update_failures'][] = 'digitalogic_report_cache_generation';
 
 		$failed = $this->engine->invalidate_cache_for_effect( $effect );
 
@@ -192,14 +192,14 @@ final class ReportEngineTest extends TestCase {
 		);
 		$pending = $GLOBALS['digitalogic_test_options']['digitalogic_report_cache_effects'][ $effect ];
 		$this->assertSame( 'pending', $pending['status'] );
-		$this->assertSame( 'test-report-generation', $GLOBALS['digitalogic_test_options']['digitalogic_report_cache_generation_v1'] );
+		$this->assertSame( 'test-report-generation', $GLOBALS['digitalogic_test_options']['digitalogic_report_cache_generation'] );
 
 		$GLOBALS['digitalogic_test_update_failures'] = array();
 		$completed = $this->engine->retry_effect_invalidation( $effect );
 
 		$this->assertIsArray( $completed );
 		$this->assertSame( 'complete', $completed['status'] );
-		$this->assertSame( $pending['target_generation'], $GLOBALS['digitalogic_test_options']['digitalogic_report_cache_generation_v1'] );
+		$this->assertSame( $pending['target_generation'], $GLOBALS['digitalogic_test_options']['digitalogic_report_cache_generation'] );
 	}
 
 	/** Replaying an old complete effect never replaces a newer generation. */
@@ -207,12 +207,12 @@ final class ReportEngineTest extends TestCase {
 		$effect = 'sha256:' . str_repeat( 'c', 64 );
 		$this->assertIsArray( $this->engine->invalidate_cache_for_effect( $effect ) );
 		$this->assertTrue( $this->engine->invalidate_cache() );
-		$newer = $GLOBALS['digitalogic_test_options']['digitalogic_report_cache_generation_v1'];
+		$newer = $GLOBALS['digitalogic_test_options']['digitalogic_report_cache_generation'];
 
 		$replayed = $this->engine->invalidate_cache_for_effect( $effect );
 
 		$this->assertSame( 'complete', $replayed['status'] );
-		$this->assertSame( $newer, $GLOBALS['digitalogic_test_options']['digitalogic_report_cache_generation_v1'] );
+		$this->assertSame( $newer, $GLOBALS['digitalogic_test_options']['digitalogic_report_cache_generation'] );
 	}
 
 	/** Reject a cached report when source freshness crosses its threshold. */
@@ -270,18 +270,18 @@ final class ReportEngineTest extends TestCase {
 
 	/** Keep report-generation installation explicit and outside construction. */
 	public function test_generation_install_is_explicit_and_constructor_is_read_only(): void {
-		unset( $GLOBALS['digitalogic_test_options']['digitalogic_report_cache_generation_v1'] );
+		unset( $GLOBALS['digitalogic_test_options']['digitalogic_report_cache_generation'] );
 		$this->reset_singleton( Digitalogic_Report_Engine::class );
 		$engine = Digitalogic_Report_Engine::instance();
 
-		$this->assertArrayNotHasKey( 'digitalogic_report_cache_generation_v1', $GLOBALS['digitalogic_test_options'] );
+		$this->assertArrayNotHasKey( 'digitalogic_report_cache_generation', $GLOBALS['digitalogic_test_options'] );
 		$revision = $engine->projection_revision( 'patris-export', 'ALLANBAR' );
 		$this->assertInstanceOf( WP_Error::class, $revision );
 		$this->assertSame( 'digitalogic_report_generation_uninitialized', $revision->get_error_code() );
 
 		$this->assertTrue( $engine->install_cache_generation() );
-		$this->assertIsString( $GLOBALS['digitalogic_test_options']['digitalogic_report_cache_generation_v1'] );
-		$this->assertNotSame( '', $GLOBALS['digitalogic_test_options']['digitalogic_report_cache_generation_v1'] );
+		$this->assertIsString( $GLOBALS['digitalogic_test_options']['digitalogic_report_cache_generation'] );
+		$this->assertNotSame( '', $GLOBALS['digitalogic_test_options']['digitalogic_report_cache_generation'] );
 	}
 
 	public function test_lock_loser_receives_a_retryable_error(): void {

@@ -164,7 +164,7 @@ test('fast catalog revision tolerates bounded transient transport failure', () =
 test('canonical pricing settings require the complete composite contract', () => {
   const validate = sandbox.module.exports.validatePricingSettingsState_;
   const state = {
-    schema: 'digitalogic.pricing-sync-state/v1',
+    schema: 'digitalogic.pricing-sync-state',
     state_revision: `sha256:${'a'.repeat(64)}`,
     settings: {
       dollar_price: '187891',
@@ -224,7 +224,7 @@ test('accepted pricing revision stays current when its business effective date i
     },
   };
   const state = {
-    schema: 'digitalogic.pricing-sync-state/v1',
+		schema: 'digitalogic.pricing-sync-state',
     state_revision: `sha256:${'a'.repeat(64)}`,
     settings: {
       dollar_price: '187891',
@@ -514,7 +514,7 @@ test('standalone scheduled sync uses script state and leaves writeback workspace
     pageRevisions: [],
   });
   standalone.fetchPricingSettings_ = () => ({
-    schema: 'digitalogic.pricing-sync-state/v1',
+    schema: 'digitalogic.pricing-sync-state',
     state_revision: `sha256:${'2'.repeat(64)}`,
     settings: {
       dollar_price: '187891',

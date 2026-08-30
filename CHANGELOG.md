@@ -12,6 +12,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Keep a delivered state identity in the durable outbox until its bounded receipt commits, preventing replay after receipt failure or panel rotation.
 - Retire normalized receipts and delivered markers before ordered source removal, while preserving one fresh composite event when the same source is rapidly reintroduced.
 
+### Changed
+- Consolidated pricing state, preview, apply, projection snapshots, and the
+  protected pricing WebSocket stream into one Living contract. Removed all
+  version-suffixed pricing schemas, projections, subprotocols, private
+  action/cache identifiers, and the Excel-prefixed remote compatibility routes.
+- Reduced the public Excel projection to the exact 26 fields consumed by the
+  workbook while retaining the complete reconciled catalog only as an internal
+  build input.
+
 ## [1.8.40] - 2026-08-30
 
 ### Added
@@ -208,7 +217,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.8.6] - 2026-08-23
 
 ### Added
-- Added the durable `pricing.snapshot.build.terminal` v1 event required by the
+- Added the durable `pricing.snapshot.build.terminal` event required by the
   Patris pricing companion. Ready, failed, and cancelled builds now publish an
   exact-source, service-only, secret-free terminal envelope for every request
   attached to a single-flight build.
@@ -243,7 +252,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   retry semantics, and backwards-compatible existing pricing routes.
 - Added persistent catalog-generation invalidation for pricing applies and the
   WooCommerce, Patris, category, attachment, metadata, URL, weight, currency,
-  shipping, and pricing inputs consumed by the `excel-v1` projection.
+  shipping, and pricing inputs consumed by the Living `excel` projection.
 - Added focused snapshot lifecycle, rollback, replay, conditional request,
   corruption, freshness, exact-schema, route-permission, and
   production-consistency fixture tests.

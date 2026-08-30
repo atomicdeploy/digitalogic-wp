@@ -246,16 +246,9 @@ class Digitalogic_Command_Dispatcher {
             $data['yuan_price']             = $state['settings']['yuan_price'];
             $data['effective_date']         = $state['settings']['effective_date'];
             $data['usd_effective_date']     = $state['settings']['usd_effective_date'];
-            $data['cny_effective_date']     = $state['settings']['cny_effective_date'];
-            $data['profit_margin_percent']  = $state['settings']['profit_margin_percent'];
-            $data['default_profit_percent'] = $state['settings']['profit_margin_percent'];
-            $data['deprecated_aliases']     = array(
-                'default_profit_percent' => array(
-                    'replacement' => 'profit_margin_percent',
-                    'equivalent'  => true,
-                ),
-            );
-            $data['state_revision']         = $state['state_revision'];
+			$data['cny_effective_date']     = $state['settings']['cny_effective_date'];
+			$data['profit_margin_percent']  = $state['settings']['profit_margin_percent'];
+			$data['state_revision']         = $state['state_revision'];
             $data['freshness']              = $state['freshness'];
             $data['rate_provenance']        = $state['rate_provenance'];
         }
@@ -332,10 +325,6 @@ class Digitalogic_Command_Dispatcher {
 		return Digitalogic_Shipping_Method_Service::instance()->get_integration_catalog();
     }
 
-    public function get_default_percentage_markup($payload = array()) {
-		return Digitalogic_Shipping_Method_Service::instance()->get_default_percentage_markup();
-    }
-
     /**
      * Return the public shared-profit-margin contract.
      *
@@ -358,9 +347,7 @@ class Digitalogic_Command_Dispatcher {
     }
 
     /**
-     * Update the one shared ecosystem profit margin.
-     *
-     * `profit_percent` is accepted only as the deprecated default-markup alias.
+	 * Update the one shared ecosystem profit margin.
      *
      * @param mixed $payload Request payload.
      * @return array|WP_Error
@@ -369,26 +356,16 @@ class Digitalogic_Command_Dispatcher {
         if (!is_array($payload)) {
             $payload = array();
         }
-        $has_primary = array_key_exists('profit_margin_percent', $payload);
-        $has_legacy  = array_key_exists('profit_percent', $payload);
-        if (!$has_primary && !$has_legacy) {
-            return new WP_Error(
+		if (!array_key_exists('profit_margin_percent', $payload)) {
+			return new WP_Error(
                 'digitalogic_profit_margin_required',
                 __('The profit_margin_percent field is required.', 'digitalogic'),
                 array('status' => 400)
             );
         }
-        if ($has_primary && $has_legacy && (string) $payload['profit_margin_percent'] !== (string) $payload['profit_percent']) {
-            return new WP_Error(
-                'digitalogic_profit_margin_alias_conflict',
-                __('profit_margin_percent and deprecated profit_percent must be exactly equivalent.', 'digitalogic'),
-                array('status' => 400)
-            );
-        }
-
-        $result = Digitalogic_Pricing_Coordinator::instance()->update_profit_margin(
-            $has_primary ? $payload['profit_margin_percent'] : $payload['profit_percent'],
-            'command_dispatcher'
+		$result = Digitalogic_Pricing_Coordinator::instance()->update_profit_margin(
+			$payload['profit_margin_percent'],
+			'command_dispatcher'
         );
         if (is_wp_error($result)) {
             return $result;
@@ -399,29 +376,8 @@ class Digitalogic_Command_Dispatcher {
             return $state;
         }
         $state['changed'] = !empty($result['settings_changed']);
-        if ($has_legacy && !$has_primary) {
-            $state['deprecated_input'] = array(
-                'profit_percent' => 'profit_margin_percent',
-            );
-        }
-
-        return $state;
-    }
-
-    public function update_default_percentage_markup($payload) {
-        if (!is_array( $payload ) || !array_key_exists( 'profit_percent', $payload )) {
-            return new WP_Error(
-                'digitalogic_shipping_default_markup_required',
-                __( 'The profit_percent field is required; use null to clear the default explicitly.', 'digitalogic' ),
-                array('status' => 400)
-            );
-        }
-
-		return Digitalogic_Pricing_Coordinator::instance()->update_profit_margin(
-            $payload['profit_percent'],
-            'command_dispatcher'
-        );
-    }
+		return $state;
+	}
 
 	public function list_shipping_methods($payload = array()) {
         $include_disabled = !isset( $payload['include_disabled'] )

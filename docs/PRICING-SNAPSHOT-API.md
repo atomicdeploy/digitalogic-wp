@@ -1,10 +1,13 @@
 # Pricing projection snapshot API
 
-This additive machine API lets a trusted Patris companion validate pricing
-state cheaply, build the reconciled WooCommerce/Patris projection once, and
-then download immutable bulk or paged data without rebuilding the union for
-each page. Existing pricing state, preview, apply, and deprecated Excel aliases
-are unchanged.
+This machine API lets a trusted provider adapter validate canonical pricing
+state cheaply, build the reconciled store projection once, and then download
+immutable bulk or paged data without rebuilding the union for each page.
+Pricing state, preview, apply, snapshot, and event delivery form one Living
+contract; no versioned compatibility alias is retained. The installed adapters
+are Patris for provider transport, WooCommerce for the store, and Excel for the
+26-column consumer projection. Core orchestration depends only on their
+interfaces and the canonical model.
 
 ## Security and credential boundary
 
@@ -18,13 +21,14 @@ parameters:
 
 - `source_id`
 - `source_dataset`
-- `source_revision` as lowercase `sha256:` plus 64 hexadecimal characters
+- optional `source_revision` as lowercase `sha256:` plus 64 hexadecimal characters
 - `locale=fa` (the `fa_IR` alias normalizes to `fa`)
 - `page_size=250`
-- `schema_version=1`
 
-The revision and build-start surfaces require the submitted source revision to
-equal the revision currently materialized in WordPress. An already-created
+When supplied, the revision and build-start surfaces require the submitted
+source revision to equal the revision currently materialized in WordPress. If
+the provider cannot supply a revision, the adapter binds the current
+materialized revision and emits non-blocking capability diagnostics. An already-created
 build or snapshot remains readable until its own expiry after the source moves,
 provided its stored source identity still equals the request query.
 
@@ -32,7 +36,9 @@ provided its stored source identity still equals the request query.
 
 `GET` or `HEAD /wp-json/digitalogic/pricing/sync/revision` returns a strong
 `ETag` without loading the WooCommerce product projection. `If-None-Match`
-returns `304` with the same private revalidation policy.
+returns `304` with the same private revalidation policy. ETag is an optional
+read capability: if a proxy strips it, clients use the body `state_revision`.
+Mutation `If-Match` remains mandatory and exact.
 
 WP Rocket normally writes a global `Header unset ETag` directive into its
 Apache marker. Digitalogic filters `rocket_htaccess_etag` so that exact stock
@@ -51,21 +57,41 @@ unstable request-local revision.
 
 The composite `state_revision` binds:
 
-1. the exact canonical Patris source revision;
+1. the canonical source revision selected by the provider adapter;
 2. the persistent catalog/report generation, including bounded source
    freshness state;
-3. the pricing settings revision and pricing-policy schema;
-4. the `excel-v1` projection schema version.
+3. the pricing settings revision and pricing-policy semantics.
 
 Locale and the fixed transport page size are part of the build key, while the
-state revision itself represents pricing-relevant state.
+state revision itself represents only canonical pricing-relevant state. The
+consumer projection digest is separate and cannot change core state identity.
+
+## Canonical adapters and capabilities
+
+The flow is `provider frame -> provider adapter -> canonical model -> store
+adapter -> consumer adapter`. Provider authentication, headers, cursors, and
+extensions stay in the provider adapter. Store queries, repricing, cache
+invalidation, and projection generation stay in the WooCommerce adapter. The
+Excel adapter alone owns its ordered 26 fields.
+
+Unknown bounded fields, key order, descriptive schema labels, bounded page
+sizes, and absent optional metadata are ignored or reported as INFO/WARNING.
+Canonical hashing normalizes semantic numbers, dates, Unicode, and object-key
+order. Missing or ambiguous identity, unsafe overwrite/revision conflict, and
+proven immutable-cache corruption remain blocking ERRORs.
+
+The suffix-free capability document advertises `revision`,
+`conditional_request`, `etag`, `incremental_sync`, `events`,
+`delete_tracking`, and shared digest algorithms. Missing flags mean
+unavailable, not incompatible. The bounded recovery plan tries events, then
+incremental or conditional refresh, and finally at most five controlled polls
+within 30 seconds.
 
 ```json
 {
-  "schema": "digitalogic.pricing-sync-revision/v1",
-  "schema_version": 1,
-  "projection": "excel-v1",
-  "projection_schema": "digitalogic.pricing-projection/excel-v1",
+  "schema": "digitalogic.pricing-sync-revision",
+  "projection": "excel",
+  "projection_schema": "digitalogic.pricing-projection/excel",
   "state_revision": "sha256:COMPOSITE_STATE",
   "source": {
     "id": "patris-office",
@@ -84,7 +110,7 @@ state revision itself represents pricing-relevant state.
 
 The Patris companion subscribes outbound to
 `wss://digitalogic.ir/wordpress-ws` with WebSocket subprotocol
-`digitalogic.pricing.v1`. It supplies the existing product-sync credential and
+`digitalogic.pricing`. It supplies the existing product-sync credential and
 exact source scope only in these handshake headers:
 
 - `X-Patris-Product-Sync-Secret`
@@ -103,22 +129,22 @@ query string, workbook, VBA, event, response, or log. The resulting
 WordPress command. It receives only these exact-source event kinds:
 
 - `pricing.source.changed` with change `added` or `changed` and schema
-  `digitalogic.pricing-source-change/v1`;
+  `digitalogic.pricing-source-change`;
 - `pricing.source.removed` with change `removed` and the same source schema;
 - `pricing.state.changed` with schema
-  `digitalogic.pricing-state-change/v1` and cause
+  `digitalogic.pricing-state-change` and cause
   `projection-invalidated` or `freshness-boundary`;
 - `pricing.snapshot.build.terminal` with schema
-  `digitalogic.pricing-snapshot-build-event/v1` when a request-bound snapshot
+  `digitalogic.pricing-snapshot-build-event` when a request-bound snapshot
   build becomes `ready`, `failed`, or `cancelled`;
-- `pricing.stream.reset` with schema
-  `digitalogic.pricing-stream-reset/v1` when durable replay has a gap.
+- `pricing.stream.diagnostic` with bounded recovery guidance when durable replay
+  has a gap.
 
 Every data event has the globally increasing durable panel `id`. Source
 lifecycle envelopes contain `source`, `previous_source_revision`,
 `idempotency_key`, `revision_validation_required=true`, and `revision_path`.
-A state envelope additionally contains the composite `state_revision`, its
-exact quoted strong `etag`, and the component `catalog_revision`,
+A state envelope additionally contains the composite `state_revision`, an
+optional normalized `etag`, and the component `catalog_revision`,
 `pricing_state_revision`, and `pricing_policy_revision`. All envelopes are
 nonsecret and carry `audience.services=["patris_pricing"]`. A removal retains
 the last valid source identity so an exact-source subscriber can consume the
@@ -128,10 +154,14 @@ and fails closed because that source is no longer current.
 A snapshot terminal envelope contains the exact `build_id`, request-bound
 `request_id`, source, composite/pricing/catalog revisions, stable
 `idempotency_key`, and boolean `retryable`. A `ready` envelope additionally
-contains `snapshot_token`, equal `snapshot_revision`/`digest`, and the exact
-source-bound `snapshot_path`; `failed` and `cancelled` envelopes contain only a
-bounded machine `code` instead of snapshot fields. The envelope permits no
-additional top-level or nested source fields.
+contains `snapshot_token`, the canonical snapshot `revision`, `row_count`, and
+the exact source-bound `snapshot_path`; `failed` and `cancelled` envelopes
+contain only a bounded machine `code` instead of snapshot fields. The retired
+duplicate revision label and a digest that merely repeats `revision` are never
+emitted. A distinct optional digest is retained only when its algorithm is in
+the negotiated capability intersection. Unknown optional event metadata does
+not hide an authorized event or close the stream; unsafe or ambiguous source
+identity still does.
 
 The initial frame is exactly a normal JSON WebSocket message shaped as:
 
@@ -147,7 +177,8 @@ The initial frame is exactly a normal JSON WebSocket message shaped as:
     "latest_event_id": 123,
     "cursor_reset_required": false,
     "revision_validation_required": true,
-    "revision_path": "/wp-json/digitalogic/pricing/sync/revision"
+    "revision_path": "/wp-json/digitalogic/pricing/sync/revision",
+    "projection": "excel"
   }
 }
 ```
@@ -155,9 +186,10 @@ The initial frame is exactly a normal JSON WebSocket message shaped as:
 Each replay/live data frame uses
 `{event,name,success:true,data,time,id}`; `id` is the durable cursor and
 `event`/`name` are the dotted event kind above. A live gap uses event
-`pricing.stream.reset` with reason `cursor_gap`, the reset cursor and retained
-window, and `revision_validation_required=true`. The reset frame itself is a
-control message and does not allocate a new panel event ID.
+`pricing.stream.diagnostic` with reason `cursor_gap`, the reset cursor and
+retained window, a non-blocking diagnostic, a finite conditional-refresh then
+controlled-polling plan, and `revision_validation_required=true`. The frame is
+a control message and does not allocate a new panel event ID.
 
 Committed WordPress catalog, product, variation, attachment, category,
 shipping, currency, pricing, and source-sync mutations first advance the
@@ -213,14 +245,16 @@ empty, is clamped safely and explicitly requires validation. The global panel
 queue retains at most 200 data events; event IDs remain strictly increasing
 across event kinds and Redis delivery order never defines the cursor.
 The companion performs one conditional revision `HEAD`/`GET` after every
-initial connection, reconnect, or cursor reset, then follows WSS events
-continuously. This request closes delivery gaps; it is not a polling loop.
-Excel never polls WordPress. Before starting an asynchronous build, the Patris
+initial connection, reconnect, or cursor reset, then follows WSS events when
+that capability is available. This request closes delivery gaps. If events are
+unavailable, the negotiated plan uses incremental or conditional refresh and
+finally finite controlled polling; Excel itself never owns the credential or a
+free-running WordPress poll. Before starting an asynchronous build, the Patris
 companion registers its request-bound terminal waiter; a `202` response is then
-completed only by the durable terminal event. Build-status routes remain for
-diagnostics and backwards-compatible clients, not for that production wait.
+normally completed by the durable terminal event. Build-status routes remain
+available for diagnostics and the bounded fallback plan.
 
-The daemon sends no timer-driven WSS heartbeat in schema v1. It replies to a
+The daemon sends no timer-driven WSS heartbeat. It replies to a
 WebSocket control Ping with Pong and also accepts the read-only JSON
 `{"id":"...","command":"ping"}` form, replying with event `pong`; the
 companion owns its idle-timeout, disconnect, exponential-backoff reconnect,
@@ -262,8 +296,7 @@ use the legacy query-token WebSocket example for the Patris pricing principal.
 
 ```json
 {
-  "schema": "digitalogic.pricing-snapshot-request/v1",
-  "schema_version": 1,
+  "schema": "digitalogic.pricing-snapshot-request",
   "operation": "snapshot",
   "client_id": "patris-export",
   "channel": "excel-workbook",
@@ -358,23 +391,39 @@ reconciliation counts, ordered page digests, schema, columns, pagination, and
 integrity fields. The server recomputes a page digest before considering a
 conditional `304`; corrupt or missing cache state fails closed.
 
-The `excel-v1` projection pins the exact established order and names of all 46
-Excel catalog columns. Any shared-schema addition, removal, reordering, or
-unexpected row field fails closed until the projection schema is deliberately
-versioned. Top-level integrity metadata includes:
+Bulk, page, build-status, and terminal-event payloads expose exactly one
+canonical snapshot `revision` and one `row_count`. They do not repeat those
+values under compatibility aliases. `page_digest` and the named integrity
+digests remain because they identify distinct page or metadata representations.
+
+The Living `excel` projection pins exactly the 26 fields consumed by the
+Excel calculator, in this order:
+
+`sync_key`, `reconciliation_status`, `patris_code`, `woocommerce_id`, `sku`,
+`weight_grams`, `foreign_price`, `patris_location`, `categories`,
+`foreign_currency`, `shipping_price_per_kg`,
+`shipping_price_per_kg_currency`, `profit_margin_percent`,
+`price_source_amount`, `price_source_currency`, `price_source_kind`,
+`effective_price`, `patris_total_stock`, `stock_quantity`, `name`,
+`updated_at`, `record_revision`, `permalink`, `patris_final_price`,
+`sale_price`, `publication_status`.
+
+The wider canonical reconciliation surface remains an internal input. The
+consumer adapter accepts reordered input and ignores bounded extra fields, then
+emits the one stable order above. Missing or duplicated required identity fields
+remain blocking. Top-level integrity metadata includes:
 
 - `row_count`
 - `distinct_sync_keys`
-- `remote_total`
-- `digest` and `snapshot_revision`
+- canonical snapshot `revision`
 - `dataset_revision`
 - `page_count` and ordered `page_digests`
 - `state_digest`, `catalog_metadata_digest`, and `page_revisions_digest`
 - reconciliation counts and warning count
 - `created_at` and `expires_at`
 
-For a healthy union, `row_count`, `distinct_sync_keys`, and `remote_total` must
-be equal. Counts are computed from the current immutable build and are never
+For a healthy union, `row_count` and `distinct_sync_keys` must be equal. Counts
+are computed from the current immutable build and are never
 frozen from a production observation. The synthetic algebra fixture proves
 that the projected union equals `matched + source_only + woo_only`, source rows
 equal `matched + source_only`, usable WooCommerce rows equal
@@ -402,9 +451,11 @@ stale threshold transition cannot reuse a pre-transition report.
 
 ## Machine errors and SLO targets
 
-Errors retain a root lowercase `code`, `message`, `retryable`, optional
-`retry_after`, and bounded `details`. `429` and retryable `503` responses include
-the HTTP `Retry-After` header.
+Diagnostics retain a root lowercase `code`, `severity`, `blocking`, exact
+`reason`, `retryable`, bounded `recovery_action`, optional `retry_after`, and
+safe bounded `details`. `429` and retryable `503` responses include the HTTP
+`Retry-After` header. UI consumers always terminate loading before presenting
+the recovery action.
 
 The implementation is designed for these service targets, which require live
 measurement after deployment:
@@ -416,29 +467,27 @@ measurement after deployment:
 
 ## Patris-Export adapter compatibility
 
-The production Patris companion uses the additive WordPress snapshot API while
-preserving its existing local Excel/VBA contract. It subscribes to the
-versioned pricing WSS stream, persists a cursor only after local acceptance,
+The production Patris companion uses the WordPress snapshot API while
+preserving its local Excel/VBA boundary. It subscribes to the Living pricing
+WSS stream, persists a cursor only after local acceptance,
 validates the composite revision on connect/reconnect/reset, registers the
 request-bound terminal waiter before the snapshot POST, and consumes the bulk
 snapshot only after a matching `ready` event. A cold build therefore uses no
-legacy paged `/pricing/sync/state` calls and no build-status polling.
+paged `/pricing/sync/state` fallback and no build-status polling.
 
 The companion distinguishes composite `state_revision` from pricing-only
-`pricing_state_revision`, validates exact source/build/request/revision and
-ETag identities, and injects the protected credential only on same-origin
-remote calls. No credential belongs in the workbook, VBA, event payload, or
-log.
+`pricing_state_revision`, validates safety-critical source/build/request and
+revision identities, and injects the protected credential only on same-origin
+remote calls. Optional ETag/digest absence or algorithm mismatch degrades via
+capabilities and diagnostics; it does not reject otherwise safe canonical
+data. No credential belongs in the workbook, VBA, event payload, or log.
 
-## Backwards compatibility
+## Living contract migration
 
-These existing routes and schemas remain unchanged:
-
-- `POST /wp-json/digitalogic/pricing/sync/state`
-- `POST /wp-json/digitalogic/pricing/sync/preview`
-- `POST /wp-json/digitalogic/pricing/sync/apply`
-- deprecated `/wp-json/digitalogic/excel/pricing-sync/*` aliases
-
-Existing clients can continue using paged state. The production Patris pricing
-companion uses the snapshot and terminal-event path without changing those
-legacy route contracts.
+Deployment removes the former versioned schemas, subprotocol, option/action
+identifiers, and `/excel/pricing-sync/*` aliases in one coordinated cutover.
+The migration first backs up exact state, cancels the former scheduled actions,
+deletes only their exact derived queue/cache records, deploys WordPress and the
+Patris companion together, and verifies the single Living routes and WSS event
+stream. Rollback restores the exact plugin and companion packages plus the
+captured state; production must not run mixed contracts.

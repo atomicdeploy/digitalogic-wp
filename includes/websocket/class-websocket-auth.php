@@ -12,41 +12,15 @@ class Digitalogic_WebSocket_Auth {
 	/**
      * Authenticate a WebSocket handshake and retain its least-privilege role.
      *
-     * Patris uses its existing exact-source credential in headers only. The
+     * The provider adapter owns its exact-source credential headers. The
      * resulting principal can receive pricing events but cannot dispatch any
      * generic WordPress command.
      */
 	public static function authenticate_context( $headers, $query ) {
-		$headers          = is_array($headers) ? array_change_key_case($headers, CASE_LOWER) : array();
-		$secret           = isset($headers['x-patris-product-sync-secret'])
-			? (string) $headers['x-patris-product-sync-secret']
-			: '';
-		$source           = array(
-			'id'      => isset($headers['x-patris-source-id']) ? trim( (string) $headers['x-patris-source-id']) : '',
-			'dataset' => isset($headers['x-patris-source-dataset']) ? trim( (string) $headers['x-patris-source-dataset']) : '',
-		);
-		$patris_attempted = '' !== $secret || '' !== $source['id'] || '' !== $source['dataset'];
-		if ( $patris_attempted ) {
-			$feed = class_exists( 'Digitalogic_Patris_Feed' ) ? Digitalogic_Patris_Feed::instance() : null;
-			self::refresh_pricing_auth_options( $feed );
-			$scopes  = $feed ? $feed->get_product_sync_source_scopes() : array();
-			$allowed = '' !== $source['id']
-				&& '' !== $source['dataset']
-				&& ! empty( $scopes )
-				&& $feed
-				&& $feed->verify_product_sync_credential_for_source(
-					$secret,
-					$source,
-					false
-				);
-
-			return array(
-				'authenticated'          => (bool) $allowed,
-				'user_id'                => 0,
-				'principal'              => $allowed ? 'patris_pricing' : '',
-				'source'                 => $allowed ? $source : array(),
-				'credential_fingerprint' => $allowed ? $feed->product_sync_credential_fingerprint_for_source( $source ) : '',
-			);
+		$headers   = is_array($headers) ? array_change_key_case($headers, CASE_LOWER) : array();
+		$protected = self::pricing_protected_headers();
+		if ( array_intersect( $protected, array_keys( $headers ) ) ) {
+			return Digitalogic_Pricing_Adapter_Registry::instance()->provider()->authenticate_websocket( $headers );
 		}
 
 		$user_id = self::authenticate($headers, $query);
@@ -62,28 +36,34 @@ class Digitalogic_WebSocket_Auth {
 
 	/** Revalidate one already-connected pricing principal without retaining its secret. */
 	public static function pricing_service_context_is_current( $context ) {
-		$context = is_array( $context ) ? $context : array();
-		$source  = isset( $context['source'] ) && is_array( $context['source'] ) ? $context['source'] : array();
-		$stored  = isset( $context['credential_fingerprint'] ) ? (string) $context['credential_fingerprint'] : '';
-		$feed    = class_exists( 'Digitalogic_Patris_Feed' ) ? Digitalogic_Patris_Feed::instance() : null;
-		if ( ! $feed || '' === $stored ) {
-			return false;
-		}
-		self::refresh_pricing_auth_options( $feed );
-		$current = $feed->product_sync_credential_fingerprint_for_source( $source );
-
-		return '' !== $current && hash_equals( $stored, $current );
+		return Digitalogic_Pricing_Adapter_Registry::instance()->provider()->websocket_context_is_current( $context );
 	}
 
-	/** Purge only authentication options cached by this long-running daemon. */
-	private static function refresh_pricing_auth_options( $feed ) {
-		if ( ! $feed || ! function_exists( 'wp_cache_delete' ) ) {
-			return;
-		}
-		wp_cache_delete( 'alloptions', 'options' );
-		wp_cache_delete( 'notoptions', 'options' );
-		wp_cache_delete( Digitalogic_Patris_Feed::PRODUCT_SYNC_SECRET_OPTION, 'options' );
-		wp_cache_delete( Digitalogic_Patris_Feed::PRODUCT_SYNC_SCOPES_OPTION, 'options' );
+	/** Return the selected provider's exact pricing principal. */
+	public static function pricing_principal() {
+		return (string) Digitalogic_Pricing_Adapter_Registry::instance()->provider()->event_principal();
+	}
+
+	/** Return the selected provider's protected handshake header names. */
+	public static function pricing_protected_headers() {
+		return array_values(
+			array_unique(
+				array_map(
+					static function ( $header ) {
+						return strtolower( trim( (string) $header ) );
+					},
+					(array) Digitalogic_Pricing_Adapter_Registry::instance()->provider()->websocket_protected_headers()
+				)
+			)
+		);
+	}
+
+	/** Return whether one context belongs to the selected pricing provider. */
+	public static function is_pricing_context( $context ) {
+		$context = is_array( $context ) ? $context : array();
+		$principal = self::pricing_principal();
+
+		return '' !== $principal && hash_equals( $principal, (string) ( $context['principal'] ?? '' ) );
 	}
 
     public static function authenticate($headers, $query) {

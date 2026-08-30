@@ -19,7 +19,6 @@
   },
   "expected_snapshot": {
     "row_count": 9,
-    "distinct_sync_keys": 9,
-    "remote_total": 9
+    "distinct_sync_keys": 9
   }
 }

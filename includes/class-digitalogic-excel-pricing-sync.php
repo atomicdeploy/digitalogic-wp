@@ -10,41 +10,33 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 /**
- * Coordinates trusted Digitalogic components with versioned WooCommerce
- * pricing inputs. The historical class name is retained for binary/API
- * compatibility; the remote contract is not owned by Microsoft Excel.
+ * Coordinates trusted Digitalogic components with the Living WooCommerce
+ * pricing contract. The remote contract is not owned by Microsoft Excel.
  */
 final class Digitalogic_Excel_Pricing_Sync {
 
-	public const REQUEST_SCHEMA  = 'digitalogic.pricing-sync-request/v1';
-	public const STATE_SCHEMA    = 'digitalogic.pricing-sync-state/v1';
-	public const PREVIEW_SCHEMA  = 'digitalogic.pricing-sync-preview/v1';
-	public const APPLY_SCHEMA    = 'digitalogic.pricing-sync-apply/v1';
-	public const SETTINGS_SCHEMA = 'digitalogic.pricing-settings/v1';
-
-	public const LEGACY_REQUEST_SCHEMA = 'digitalogic.excel-pricing-sync-request/v1';
-	public const LEGACY_STATE_SCHEMA   = 'digitalogic.excel-pricing-sync-state/v1';
-	public const LEGACY_PREVIEW_SCHEMA = 'digitalogic.excel-pricing-sync-preview/v1';
-	public const LEGACY_APPLY_SCHEMA   = 'digitalogic.excel-pricing-sync-apply/v1';
+	public const REQUEST_SCHEMA  = 'digitalogic.pricing-sync-request';
+	public const STATE_SCHEMA    = 'digitalogic.pricing-sync-state';
+	public const PREVIEW_SCHEMA  = 'digitalogic.pricing-sync-preview';
+	public const APPLY_SCHEMA    = 'digitalogic.pricing-sync-apply';
+	public const SETTINGS_SCHEMA = 'digitalogic.pricing-settings';
 
 	public const SETTINGS_OPTION            = 'digitalogic_excel_pricing_sync_settings';
 	public const AUDIT_OPTION               = 'digitalogic_excel_pricing_sync_audit';
-	public const CONFIRMATION_SCHEMA        = 'digitalogic.pricing-confirmation/v1';
-	public const ACK_SCHEMA                 = 'digitalogic.pricing-sync-ack/v1';
-	public const CONFIRMATIONS_OPTION       = 'digitalogic_pricing_confirmation_transactions_v1';
-	public const CONFIRMATION_OUTBOX_OPTION = 'digitalogic_pricing_confirmation_outbox_v1';
+	public const CONFIRMATION_SCHEMA        = 'digitalogic.pricing-confirmation';
+	public const ACK_SCHEMA                 = 'digitalogic.pricing-sync-ack';
+	public const CONFIRMATIONS_OPTION       = 'digitalogic_pricing_confirmation_transactions';
+	public const CONFIRMATION_OUTBOX_OPTION = 'digitalogic_pricing_confirmation_outbox';
 
-	private const LOCK_NAME                 = 'digitalogic_excel_pricing_sync_v1';
+	private const LOCK_NAME                 = 'digitalogic_pricing_sync';
 	private const LOCK_TIMEOUT_SECONDS      = 5;
 	private const PREVIEW_TTL_SECONDS       = 600;
 	private const APPLY_IDEMPOTENCY_SECONDS = 86400;
-	private const CONFIRMATION_TIMEOUT_HOOK = 'digitalogic_pricing_confirmation_timeout_v1';
+	private const CONFIRMATION_TIMEOUT_HOOK = 'digitalogic_pricing_confirmation_timeout';
 	private const ACK_TARGET_SECONDS        = 90;
 	private const ACK_RECOVERY_SECONDS      = 180;
 	private const ROLLBACK_LEASE_SECONDS    = 5;
 	private const MAX_CONFIRMATIONS         = 50;
-	private const REQUIRED_CONSUMER_ID      = 'digitalogic-price-calculator';
-	private const REQUIRED_CONSUMER_CHANNEL = 'excel-workbook';
 	private const MAX_AUDIT_ENTRIES         = 50;
 	private const MAX_RATE                  = 1000000000;
 	private const MAX_PROFIT_PERCENT        = '1000';
@@ -409,14 +401,14 @@ final class Digitalogic_Excel_Pricing_Sync {
 								);
 						}
 
-						$repricing = Digitalogic_Pricing_Coordinator::instance()->reprice_open_transaction(
+						$repricing = Digitalogic_Pricing_Adapter_Registry::instance()->store()->reprice_open_transaction(
 							$settings,
 							$locked_current['shipping']['catalog_revision']
 						);
 						if ( is_wp_error( $repricing ) ) {
 							return $repricing;
 						}
-						$cache_plan        = Digitalogic_Pricing_Coordinator::instance()->repricing_cache_plan();
+						$cache_plan        = Digitalogic_Pricing_Adapter_Registry::instance()->store()->repricing_cache_plan();
 						$response_settings = $this->settings_from_globals( $readback );
 						return array(
 							'readback'     => $readback,
@@ -450,7 +442,7 @@ final class Digitalogic_Excel_Pricing_Sync {
 					// Rollback or an ambiguous post-COMMIT failure must clear any
 					// request-local objects. A committed worker marker owns the
 					// durable cache plan and will replay it in a fresh process.
-					Digitalogic_Pricing_Coordinator::instance()->flush_repricing_caches();
+					Digitalogic_Pricing_Adapter_Registry::instance()->store()->flush_repricing_caches();
 					return $transaction;
 				}
 
@@ -526,7 +518,7 @@ final class Digitalogic_Excel_Pricing_Sync {
 					)
 				)
 			);
-			Digitalogic_Pricing_Coordinator::instance()->flush_repricing_caches(
+			Digitalogic_Pricing_Adapter_Registry::instance()->store()->flush_repricing_caches(
 				is_array( $publication['cache_plan'] ?? null ) ? $publication['cache_plan'] : array()
 			);
 		}
@@ -558,7 +550,7 @@ final class Digitalogic_Excel_Pricing_Sync {
 		}
 
 		$repricing['effect_id'] = $result['effect_id'];
-		Digitalogic_Pricing_Coordinator::instance()->publish_repricing_result( $repricing );
+		Digitalogic_Pricing_Adapter_Registry::instance()->store()->publish_repricing_result( $repricing );
 		if ( ! empty( $publication['settings_changed'] ) ) {
 			$this->emit_after_apply(
 				(array) $publication['source_identity'],
@@ -606,7 +598,7 @@ final class Digitalogic_Excel_Pricing_Sync {
 		}
 
 		return array(
-			'schema'           => 'digitalogic.pricing-coordinator-result/v1',
+			'schema'           => 'digitalogic.pricing-coordinator-result',
 			'effect_id'        => $effect_id,
 			'status'           => ! empty( $publication['settings_changed'] ) ? 'applied' : 'reconciled',
 			'source'           => sanitize_key( (string) ( $publication['source'] ?? 'wp' ) ),
@@ -629,8 +621,8 @@ final class Digitalogic_Excel_Pricing_Sync {
 	 * @return true|WP_Error
 	 */
 	public function authorize( WP_REST_Request $request ) {
-		$feed   = Digitalogic_Patris_Feed::instance();
-		$scopes = $feed->get_product_sync_source_scopes();
+		$provider = Digitalogic_Pricing_Adapter_Registry::instance()->provider();
+		$scopes   = $provider->scopes();
 
 		if ( empty( $scopes ) ) {
 			return $this->error(
@@ -640,7 +632,7 @@ final class Digitalogic_Excel_Pricing_Sync {
 			);
 		}
 
-		if ( ! $feed->verify_product_sync_request( $request ) ) {
+		if ( is_wp_error( $provider->authorize( $request ) ) ) {
 			return $this->error(
 				'digitalogic_excel_sync_unauthorized',
 				'اعتبار یا محدودهٔ منبع همگام‌سازی معتبر نیست.',
@@ -683,6 +675,7 @@ final class Digitalogic_Excel_Pricing_Sync {
 				)
 			);
 		}
+		$normalized['revision'] = (string) $context['submitted_revision'];
 
 		return array(
 			'source'  => $normalized,
@@ -730,11 +723,12 @@ final class Digitalogic_Excel_Pricing_Sync {
 		$catalog    = null;
 		if ( 'settings' !== $projection ) {
 			$page  = isset( $payload['page'] ) ? absint( $payload['page'] ) : 1;
-			$limit = isset( $payload['limit'] ) ? absint( $payload['limit'] ) : Digitalogic_Google_Sheets_Catalog::MAX_PAGE_SIZE;
+			$store = Digitalogic_Pricing_Adapter_Registry::instance()->store();
+			$limit = isset( $payload['limit'] ) ? absint( $payload['limit'] ) : $store->max_page_size();
 			$page  = max( 1, $page );
-			$limit = max( 1, min( Digitalogic_Google_Sheets_Catalog::MAX_PAGE_SIZE, $limit ) );
+			$limit = max( 1, min( $store->max_page_size(), $limit ) );
 
-			$catalog = Digitalogic_Google_Sheets_Catalog::instance()->get_page(
+			$catalog = $store->catalog_page(
 				array(
 					'dataset'        => 'reconciled_products',
 					'locale'         => 'fa',
@@ -756,16 +750,18 @@ final class Digitalogic_Excel_Pricing_Sync {
 		}
 
 		$response = array(
-			'schema'             => self::STATE_SCHEMA,
-			'state_revision'     => $globals['state_revision'],
-			'generated_at'       => $this->now_iso8601(),
-			'source'             => $source_context,
-			'client_id'          => $payload['client_id'],
-			'channel'            => $payload['channel'],
-			'request_id'         => $payload['request_id'],
-			'warnings'           => $warnings,
-			'confirmation'       => $this->current_confirmation_projection(),
-			'settings'           => array(
+			'schema'           => self::STATE_SCHEMA,
+			'state_revision'   => $globals['state_revision'],
+			'capabilities'     => Digitalogic_Pricing_Adapter_Registry::instance()->capabilities(),
+			'diagnostics'      => Digitalogic_Pricing_Adapter_Registry::instance()->diagnostics(),
+			'generated_at'     => $this->now_iso8601(),
+			'source'           => $source_context,
+			'client_id'        => $payload['client_id'],
+			'channel'          => $payload['channel'],
+			'request_id'       => $payload['request_id'],
+			'warnings'         => $warnings,
+			'confirmation'     => $this->current_confirmation_projection(),
+			'settings'         => array(
 				'dollar_price'              => $globals['currency']['dollar_price'],
 				'yuan_price'                => $globals['currency']['yuan_price'],
 				'effective_date'            => $globals['currency']['cny_effective_date'],
@@ -778,29 +774,16 @@ final class Digitalogic_Excel_Pricing_Sync {
 				'air_express_currency'      => $globals['shipping']['currency'],
 				'shipping_catalog_revision' => $globals['shipping']['catalog_revision'],
 			),
-			'currency'           => $globals['currency'],
-			'profit_margin'      => array(
+			'currency'         => $globals['currency'],
+			'profit_margin'    => array(
 				'configured'            => (bool) $globals['default_markup']['configured'],
 				'profit_margin_percent' => $globals['default_markup']['profit_percent'],
 				'revision'              => $globals['default_markup']['revision'],
 				'updated_at'            => $globals['default_markup']['updated_at'],
 			),
-			'price_rounding'     => $globals['price_rounding'],
-			'shipping'           => $globals['shipping'],
-			'default_markup'     => array_merge(
-				$globals['default_markup'],
-				array(
-					'deprecated'  => true,
-					'replacement' => 'profit_margin',
-				)
-			),
-			'deprecated_aliases' => array(
-				'default_markup' => array(
-					'replacement' => 'profit_margin',
-					'equivalence' => 'default_markup.profit_percent == profit_margin.profit_margin_percent',
-				),
-			),
-			'attribute_owners'   => $this->attribute_owners(),
+			'price_rounding'   => $globals['price_rounding'],
+			'shipping'         => $globals['shipping'],
+			'attribute_owners' => $this->attribute_owners(),
 		);
 		if ( null !== $catalog ) {
 			$response['catalog'] = $catalog;
@@ -1005,6 +988,16 @@ final class Digitalogic_Excel_Pricing_Sync {
 					);
 				}
 
+				if ( ! Digitalogic_Pricing_Adapter_Registry::instance()->store()->invalidate_projection() ) {
+					$this->release_idempotency( 'apply', $headers['idempotency_key'] );
+
+					return $this->error(
+						'digitalogic_excel_sync_projection_invalidation_failed',
+						'The pricing projection generation could not be invalidated; no pricing mutation was started.',
+						503
+					);
+				}
+
 				$result = $this->apply_locked(
 					$payload['source'],
 					$source_context,
@@ -1101,37 +1094,11 @@ final class Digitalogic_Excel_Pricing_Sync {
 				400
 			);
 		}
-		$allowed = array(
-			'schema',
-			'schema_version',
-			'operation',
-			'transaction_id',
-			'consumer_id',
-			'channel',
-			'source',
-			'committed_state_revision',
-			'confirmed_settings',
-			'confirmed_settings_digest',
-			'idempotency_key',
-		);
-		$unknown = array_diff( array_keys( $payload ), $allowed );
-		if ( $unknown ) {
+		if ( isset( $payload['operation'] ) && 'ack' !== $payload['operation'] ) {
 			return $this->error(
-				'digitalogic_pricing_confirmation_ack_unknown_fields',
-				'The acknowledgement contains unsupported fields.',
-				400,
-				array( 'fields' => array_values( $unknown ) )
-			);
-		}
-		if (
-			self::ACK_SCHEMA !== ( $payload['schema'] ?? null )
-			|| ( isset( $payload['schema_version'] ) && 1 !== (int) $payload['schema_version'] )
-			|| ( isset( $payload['operation'] ) && 'ack' !== $payload['operation'] )
-		) {
-			return $this->error(
-				'digitalogic_pricing_confirmation_ack_schema_invalid',
-				'The acknowledgement schema or operation is not supported.',
-				422
+				'digitalogic_pricing_confirmation_ack_operation_invalid',
+				'The acknowledgement operation is invalid.',
+				400
 			);
 		}
 
@@ -1245,8 +1212,9 @@ final class Digitalogic_Excel_Pricing_Sync {
 							);
 						}
 						$consumer = is_array( $record['consumer'] ?? null ) ? $record['consumer'] : array();
-						$matches  = self::REQUIRED_CONSUMER_ID === $ack['consumer_id']
-							&& self::REQUIRED_CONSUMER_CHANNEL === $ack['channel']
+						$identity = Digitalogic_Pricing_Adapter_Registry::instance()->consumer()->identity();
+						$matches  = (string) $identity['consumer_id'] === $ack['consumer_id']
+							&& (string) $identity['channel'] === $ack['channel']
 							&& hash_equals( (string) ( $consumer['consumer_id'] ?? '' ), $ack['consumer_id'] )
 							&& hash_equals( (string) ( $consumer['channel'] ?? '' ), $ack['channel'] )
 							&& 'pricing_settings_ack' === (string) ( $consumer['capability'] ?? '' )
@@ -1417,8 +1385,9 @@ final class Digitalogic_Excel_Pricing_Sync {
 			return $desired;
 		}
 		$changed              = ! hash_equals( $current['state_revision'], $desired['state_revision'] );
-		$companion_completion = 'digitalogic-price-calculator' === $request_context['client_id']
-			&& 'excel-workbook' === $request_context['channel'];
+		$consumer_identity    = Digitalogic_Pricing_Adapter_Registry::instance()->consumer()->identity();
+		$companion_completion = (string) $consumer_identity['consumer_id'] === $request_context['client_id']
+			&& (string) $consumer_identity['channel'] === $request_context['channel'];
 		$repricing_performed  = false;
 
 		if ( $changed ) {
@@ -1496,7 +1465,7 @@ final class Digitalogic_Excel_Pricing_Sync {
 						);
 					}
 
-					$repricing = Digitalogic_Pricing_Coordinator::instance()->reprice_open_transaction(
+					$repricing = Digitalogic_Pricing_Adapter_Registry::instance()->store()->reprice_open_transaction(
 						$settings,
 						$locked_current['shipping']['catalog_revision']
 					);
@@ -1524,7 +1493,7 @@ final class Digitalogic_Excel_Pricing_Sync {
 					);
 				}
 			);
-			Digitalogic_Pricing_Coordinator::instance()->flush_repricing_caches();
+			Digitalogic_Pricing_Adapter_Registry::instance()->store()->flush_repricing_caches();
 			if ( is_wp_error( $result ) ) {
 				return $result;
 			}
@@ -1548,13 +1517,13 @@ final class Digitalogic_Excel_Pricing_Sync {
 			$confirmation = null;
 			$result       = $this->run_coordinated_pricing_transaction(
 				function () use ( $settings, $current ) {
-					return Digitalogic_Pricing_Coordinator::instance()->reprice_open_transaction(
+					return Digitalogic_Pricing_Adapter_Registry::instance()->store()->reprice_open_transaction(
 						$settings,
 						$current['shipping']['catalog_revision']
 					);
 				}
 			);
-			Digitalogic_Pricing_Coordinator::instance()->flush_repricing_caches();
+			Digitalogic_Pricing_Adapter_Registry::instance()->store()->flush_repricing_caches();
 			if ( is_wp_error( $result ) ) {
 				return $result;
 			}
@@ -1651,7 +1620,7 @@ final class Digitalogic_Excel_Pricing_Sync {
 		);
 
 		if ( $repricing_performed ) {
-			Digitalogic_Pricing_Coordinator::instance()->publish_repricing_result( $repricing );
+			Digitalogic_Pricing_Adapter_Registry::instance()->store()->publish_repricing_result( $repricing );
 		}
 		if ( $changed ) {
 			$this->emit_after_apply( $source, $expected_state_revision, $current, $readback, $response_settings, $request_context );
@@ -1681,54 +1650,6 @@ final class Digitalogic_Excel_Pricing_Sync {
 			);
 		}
 
-		$allowed = array(
-			'schema',
-			'schema_version',
-			'source',
-			'operation',
-			'page',
-			'limit',
-			'locale',
-			'projection',
-			'client_id',
-			'channel',
-			'request_id',
-			'idempotency_key',
-			'expected_state_revision',
-			'settings',
-			'product_changes',
-			'preview_digest',
-			'confirmation',
-			'confirm',
-		);
-		$unknown = array_diff( array_keys( $payload ), $allowed );
-		if ( $unknown ) {
-			return $this->error(
-				'digitalogic_excel_sync_unknown_fields',
-				'بدنهٔ درخواست دارای فیلد پشتیبانی‌نشده است.',
-				400,
-				array( 'fields' => array_values( $unknown ) )
-			);
-		}
-
-		if (
-			! isset( $payload['schema'] )
-			|| ! in_array( $payload['schema'], array( self::REQUEST_SCHEMA, self::LEGACY_REQUEST_SCHEMA ), true )
-		) {
-			return $this->error(
-				'digitalogic_excel_sync_schema_unsupported',
-				'نسخهٔ قرارداد همگام‌سازی پشتیبانی نمی‌شود.',
-				422
-			);
-		}
-		$payload['request_schema_deprecated'] = self::LEGACY_REQUEST_SCHEMA === $payload['schema'];
-		if ( isset( $payload['schema_version'] ) && 1 !== (int) $payload['schema_version'] ) {
-			return $this->error(
-				'digitalogic_excel_sync_schema_version_unsupported',
-				'فقط schema_version برابر ۱ پشتیبانی می‌شود.',
-				422
-			);
-		}
 		if ( isset( $payload['operation'] ) && $operation !== $payload['operation'] ) {
 			return $this->error(
 				'digitalogic_excel_sync_operation_mismatch',
@@ -1794,7 +1715,7 @@ final class Digitalogic_Excel_Pricing_Sync {
 	private function normalize_request_context( $payload, $operation ) {
 		$defaults = array(
 			'client_id'  => 'unidentified-client',
-			'channel'    => ! empty( $payload['request_schema_deprecated'] ) ? 'legacy' : 'api',
+			'channel'    => 'api',
 			'request_id' => isset( $payload['idempotency_key'] ) && is_string( $payload['idempotency_key'] )
 				? $payload['idempotency_key']
 				: $operation . '-not-provided',
@@ -1892,49 +1813,14 @@ final class Digitalogic_Excel_Pricing_Sync {
 	}
 
 	/**
-	 * Normalize the exact current Patris source identity.
+	 * Normalize a source identity while tolerating provider metadata and an
+	 * unavailable source-revision capability.
 	 *
 	 * @param mixed $source Raw source.
 	 * @return array|WP_Error
 	 */
 	private function normalize_source( $source ) {
-		if (
-			! is_array( $source )
-			|| array_is_list( $source )
-			|| ! empty( array_diff( array( 'id', 'dataset', 'revision' ), array_keys( $source ) ) )
-			|| ! empty( array_diff( array_keys( $source ), array( 'id', 'dataset', 'revision' ) ) )
-		) {
-			return $this->error(
-				'digitalogic_excel_sync_source_invalid',
-				'منبع باید دقیقاً شامل id، dataset و revision باشد.',
-				400
-			);
-		}
-		foreach ( array( 'id', 'dataset', 'revision' ) as $field ) {
-			if ( ! is_string( $source[ $field ] ) || trim( $source[ $field ] ) !== $source[ $field ] ) {
-				return $this->error(
-					'digitalogic_excel_sync_source_invalid',
-					'هویت منبع معتبر نیست.',
-					400,
-					array( 'field' => 'source.' . $field )
-				);
-			}
-		}
-		if (
-			'' === $source['id']
-			|| '' === $source['dataset']
-			|| strlen( $source['id'] ) > 191
-			|| strlen( $source['dataset'] ) > 191
-			|| ! $this->is_revision( $source['revision'] )
-		) {
-			return $this->error(
-				'digitalogic_excel_sync_source_invalid',
-				'هویت یا revision منبع معتبر نیست.',
-				400
-			);
-		}
-
-		return $source;
+		return Digitalogic_Pricing_Adapter_Registry::instance()->provider()->normalize_source( $source );
 	}
 
 	/**
@@ -1949,42 +1835,18 @@ final class Digitalogic_Excel_Pricing_Sync {
 	 * @return array|WP_Error
 	 */
 	private function validate_current_source( $source ) {
-		$state   = Digitalogic_Product_Sync_Receiver::instance()
-			->get_source_state( $source['id'], $source['dataset'] );
-		$current = isset( $state['source'] ) && is_array( $state['source'] )
-			? $state['source']
-			: array();
-
-		if (
-			! isset( $current['id'], $current['dataset'], $current['revision'] )
-			|| ! is_string( $current['id'] )
-			|| ! is_string( $current['dataset'] )
-			|| ! is_string( $current['revision'] )
-			|| ! hash_equals( $current['id'], $source['id'] )
-			|| ! hash_equals( $current['dataset'], $source['dataset'] )
-			|| ! $this->is_revision( $current['revision'] )
-		) {
+		$current = Digitalogic_Pricing_Adapter_Registry::instance()->provider()->current_source( $source );
+		if ( is_wp_error( $current ) ) {
+			$data = (array) $current->get_error_data();
 			return $this->error(
 				'digitalogic_excel_sync_source_scope_conflict',
-				'شناسه یا مجموعهٔ منبع محلی با منبع ثبت‌شده در سایت یکسان نیست.',
+				$current->get_error_message(),
 				409,
-				array(
-					'current_source' => array(
-						'id'       => isset( $current['id'] ) ? (string) $current['id'] : '',
-						'dataset'  => isset( $current['dataset'] ) ? (string) $current['dataset'] : '',
-						'revision' => isset( $current['revision'] ) ? (string) $current['revision'] : '',
-					),
-				)
+				$data
 			);
 		}
 
-		return array(
-			'id'                       => $source['id'],
-			'dataset'                  => $source['dataset'],
-			'submitted_revision'       => $source['revision'],
-			'current_revision'         => $current['revision'],
-			'revision_matches_current' => hash_equals( $current['revision'], $source['revision'] ),
-		);
+		return $current;
 	}
 
 	/**
@@ -1995,6 +1857,17 @@ final class Digitalogic_Excel_Pricing_Sync {
 	 * @return array|null
 	 */
 	private function source_revision_warning( $source_context ) {
+		if ( empty( $source_context['revision_capability'] ) ) {
+			return $this->warning(
+				'source_revision_unavailable',
+				'منبع قابلیت revision را اعلام نکرد؛ هویت منبع و نسل فعلی سایت برای کنترل ایمنی استفاده شد.',
+				'info',
+				array(
+					'source_id' => $source_context['id'],
+					'dataset'   => $source_context['dataset'],
+				)
+			);
+		}
 		if ( ! empty( $source_context['revision_matches_current'] ) ) {
 			return null;
 		}
@@ -2032,28 +1905,6 @@ final class Digitalogic_Excel_Pricing_Sync {
 				'تنظیمات باید یک شیء JSON کامل باشد.',
 				400
 			);
-		}
-
-		$aliases = array(
-			'usd_irt'                => 'dollar_price',
-			'cny_irt'                => 'yuan_price',
-			'profit_percent'         => 'profit_margin_percent',
-			'default_profit_percent' => 'profit_margin_percent',
-		);
-		foreach ( $aliases as $alias => $canonical ) {
-			if ( ! array_key_exists( $alias, $settings ) ) {
-				continue;
-			}
-			if ( array_key_exists( $canonical, $settings ) && $settings[ $canonical ] !== $settings[ $alias ] ) {
-				return $this->error(
-					'digitalogic_excel_sync_settings_alias_conflict',
-					'مقادیر نام‌های هم‌معنی تنظیمات با هم تعارض دارند.',
-					400,
-					array( 'field' => $canonical )
-				);
-			}
-			$settings[ $canonical ] = $settings[ $alias ];
-			unset( $settings[ $alias ] );
 		}
 
 		$required         = array( 'dollar_price', 'yuan_price', 'effective_date', 'profit_margin_percent' );
@@ -2094,22 +1945,18 @@ final class Digitalogic_Excel_Pricing_Sync {
 		if ( $rounding_present ) {
 			$allowed = array_merge( $allowed, $rounding_fields );
 		}
-		if (
-			! empty( array_diff( $required, array_keys( $settings ) ) )
-			|| ! empty( array_diff( array_keys( $settings ), $allowed ) )
-		) {
+		if ( ! empty( array_diff( $required, array_keys( $settings ) ) ) ) {
 			$missing = array_values( array_diff( $required, array_keys( $settings ) ) );
-			$unknown = array_values( array_diff( array_keys( $settings ), $allowed ) );
 			return $this->error(
 				'digitalogic_excel_sync_settings_shape_invalid',
 				'سند تنظیمات باید نرخ‌ها، تاریخ‌ها، حاشیه سود و مجموعه کامل تنظیمات حمل را داشته باشد.',
 				400,
 				array(
 					'missing' => $missing,
-					'unknown' => $unknown,
 				)
 			);
 		}
+		$settings = array_intersect_key( $settings, array_fill_keys( $allowed, true ) );
 
 		$dollar = $this->canonical_rate( $settings['dollar_price'], 'dollar_price' );
 		if ( is_wp_error( $dollar ) ) {
@@ -3339,22 +3186,13 @@ final class Digitalogic_Excel_Pricing_Sync {
 	}
 
 	/**
-	 * Resolve the explicit apply confirmation, including one narrow alias.
+	 * Resolve the explicit apply confirmation.
 	 *
 	 * @param array $payload Request payload.
 	 * @return string|WP_Error
 	 */
 	private function confirmation_value( $payload ) {
-		$canonical = $payload['confirmation'] ?? null;
-		$alias     = $payload['confirm'] ?? null;
-		if ( null !== $canonical && null !== $alias && $canonical !== $alias ) {
-			return $this->error(
-				'digitalogic_excel_sync_confirmation_conflict',
-				'مقادیر confirmation و confirm با هم تعارض دارند.',
-				400
-			);
-		}
-		$value = null !== $canonical ? $canonical : $alias;
+		$value = $payload['confirmation'] ?? null;
 
 		return is_string( $value ) ? $value : '';
 	}
@@ -3562,7 +3400,7 @@ final class Digitalogic_Excel_Pricing_Sync {
 	 * @return mixed|WP_Error
 	 */
 	private function run_coordinated_pricing_transaction( $callback, $pre_commit_guard = null ) {
-		return Digitalogic_Pricing_Coordinator::instance()->with_repricing_lock(
+		return Digitalogic_Pricing_Adapter_Registry::instance()->store()->with_repricing_lock(
 			function () use ( $callback, $pre_commit_guard ) {
 				return $this->run_transaction( $callback, $pre_commit_guard, true );
 			}
@@ -3861,7 +3699,8 @@ final class Digitalogic_Excel_Pricing_Sync {
 
 	/** Return the one explicitly configured workbook consumer allowed to ACK. */
 	private function current_ack_consumer() {
-		$scopes = Digitalogic_Patris_Feed::instance()->get_product_sync_source_scopes();
+		$registry = Digitalogic_Pricing_Adapter_Registry::instance();
+		$scopes   = $registry->provider()->scopes();
 		if ( 1 !== count( $scopes ) ) {
 			return $this->error(
 				'digitalogic_pricing_confirmation_consumer_ambiguous',
@@ -3871,12 +3710,12 @@ final class Digitalogic_Excel_Pricing_Sync {
 		}
 		$scope = reset( $scopes );
 
-		return array(
-			'consumer_id' => self::REQUIRED_CONSUMER_ID,
-			'channel'     => self::REQUIRED_CONSUMER_CHANNEL,
-			'capability'  => 'pricing_settings_ack',
-			'source_id'   => (string) $scope['id'],
-			'dataset'     => (string) $scope['dataset'],
+		return array_merge(
+			$registry->consumer()->identity(),
+			array(
+				'source_id' => (string) $scope['id'],
+				'dataset'   => (string) $scope['dataset'],
+			)
 		);
 	}
 
@@ -4032,7 +3871,7 @@ final class Digitalogic_Excel_Pricing_Sync {
 			: $record['committed_settings_digest'];
 
 		return array(
-			'schema'                    => 'digitalogic.pricing-confirmation-event/v1',
+			'schema'                    => 'digitalogic.pricing-confirmation-event',
 			'event_id'                  => $event_id,
 			'event_type'                => 'pricing.settings.' . $phase,
 			'transaction_id'            => (string) $record['transaction_id'],
@@ -4754,14 +4593,16 @@ final class Digitalogic_Excel_Pricing_Sync {
 	 * @return array
 	 */
 	private function warning( $code, $message_fa, $severity, $details = array() ) {
-		$warning = array(
-			'code'       => $code,
-			'severity'   => $severity,
-			'message_fa' => $message_fa,
+		$warning               = Digitalogic_Pricing_Diagnostic::make(
+			$code,
+			'info' === $severity ? 'info' : 'warning',
+			false,
+			$message_fa,
+			false,
+			'continue_with_reduced_assurance',
+			$details
 		);
-		if ( $details ) {
-			$warning['details'] = $details;
-		}
+		$warning['message_fa'] = $message_fa;
 
 		return $warning;
 	}
@@ -4891,10 +4732,20 @@ final class Digitalogic_Excel_Pricing_Sync {
 	 * @return WP_Error
 	 */
 	private function error( $code, $message, $status, $details = array() ) {
-		return new WP_Error(
+		$retryable = ! empty( $details['retryable'] );
+		$recovery  = is_string( $details['recovery_action'] ?? null )
+			? $details['recovery_action']
+			: ( $retryable ? 'retry_after_delay' : 'refresh_or_review_input' );
+
+		return Digitalogic_Pricing_Diagnostic::error(
 			$code,
 			$message,
-			array_merge( array( 'status' => $status ), $details )
+			$status,
+			$retryable,
+			$recovery,
+			$details,
+			true,
+			'error'
 		);
 	}
 }

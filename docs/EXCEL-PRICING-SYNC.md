@@ -4,7 +4,7 @@ The canonical Digitalogic workbook synchronizes global pricing inputs through
 the local Patris companion. Excel/VBA never stores a WordPress, WooCommerce, or
 Patris credential.
 
-The local `/api/excel` path is intentionally Excel-specific: it translates
+The local `/api/pricing-sync` path is intentionally Excel-specific: it translates
 workbook/VBA actions into a transport-neutral request. The companion then calls
 three universal, POST-only WordPress routes:
 
@@ -12,14 +12,14 @@ three universal, POST-only WordPress routes:
 - `/wp-json/digitalogic/pricing/sync/preview`
 - `/wp-json/digitalogic/pricing/sync/apply`
 
-The old remote `/wp-json/digitalogic/excel/pricing-sync/*` paths are deprecated
-compatibility aliases. They return `Deprecation: true` and a successor `Link`
-header; new clients must use `/pricing/sync/*`.
+There is one Living remote surface. No versioned or deprecated pricing-sync
+alias is registered; clients must use `/pricing/sync/*`.
 
-These routes accept only the existing `X-Patris-Product-Sync-Secret`. The
-secret must have a non-empty exact `{id, dataset}` source scope, and every
-request must repeat that exact `{id, dataset}` plus a syntactically valid
-`sha256:` revision from the local canonical source. The revision remains bound
+The installed Patris provider adapter accepts only the existing
+`X-Patris-Product-Sync-Secret`. The secret must have a non-empty exact
+`{id, dataset}` source scope, and every request repeats that identity. A
+syntactically valid `sha256:` revision is optional when the provider does not
+advertise revision capability. When present, the revision remains bound
 to preview, idempotency, settings metadata, and audit records. A local revision
 that differs from the materialized WordPress product-sync revision is visible
 as a non-blocking Persian warning; it is not an authentication failure. There
@@ -31,7 +31,7 @@ behavior: the workbook intentionally had no secret, and the trusted companion
 runtime either was bypassed or did not have its server-side product-sync secret
 available. The corrected boundary is:
 
-1. VBA calls the loopback Patris `/api/excel` adapter without a WordPress secret.
+1. VBA calls the loopback Patris `/api/pricing-sync` adapter without a WordPress secret.
 2. The companion reads the secret from protected runtime configuration.
 3. The companion calls `/wp-json/digitalogic/pricing/sync/*` with
    `X-Patris-Product-Sync-Secret` and the exact configured `{id,dataset}` scope.
@@ -73,9 +73,11 @@ idempotency, integrity fields, and adapter mapping requirements.
 
 ## Request envelope
 
-The request schema is `digitalogic.pricing-sync-request/v1`.
-`schema_version` is `1`, `operation` matches the route name, and `source`
-contains exactly `id`, `dataset`, and a `sha256:` revision.
+The descriptive Living request schema is `digitalogic.pricing-sync-request`.
+`operation` matches the route name, and canonical `source` contains `id`,
+`dataset`, and an optional `sha256:` revision. Unknown bounded provider
+metadata and object-key order are tolerated. Versioned route/schema selectors
+are not registered as a second dialect.
 
 State accepts optional `page` and `limit`; the maximum page size is 250.
 Catalog locale is always Persian. `fa` and `fa_IR` are accepted as request
@@ -83,8 +85,7 @@ locale values.
 
 ```json
 {
-  "schema": "digitalogic.pricing-sync-request/v1",
-  "schema_version": 1,
+  "schema": "digitalogic.pricing-sync-request",
   "operation": "state",
   "source": {
     "id": "configured-source-id",
@@ -101,7 +102,7 @@ The state data has this stable top-level shape:
 
 ```json
 {
-  "schema": "digitalogic.pricing-sync-state/v1",
+  "schema": "digitalogic.pricing-sync-state",
   "state_revision": "sha256:GLOBAL_SETTINGS_REVISION",
   "generated_at": "2026-07-26T12:00:00+00:00",
   "source": {
@@ -165,14 +166,6 @@ The state data has this stable top-level shape:
     "rounding_mode": "nearest_half_up",
     "revision": "sha256:PRICE_ROUNDING_REVISION"
   },
-  "default_markup": {
-    "configured": true,
-    "profit_percent": "30",
-    "revision": "sha256:MARKUP_REVISION",
-    "updated_at": "2026-06-29 12:00:00",
-    "deprecated": true,
-    "replacement": "profit_margin"
-  },
   "catalog": {
     "dataset": "reconciled_products",
     "locale": "fa",
@@ -200,8 +193,7 @@ The `Idempotency-Key` header must exactly equal body `idempotency_key`.
 
 ```json
 {
-  "schema": "digitalogic.pricing-sync-request/v1",
-  "schema_version": 1,
+  "schema": "digitalogic.pricing-sync-request",
   "operation": "preview",
   "source": {
     "id": "configured-source-id",
@@ -234,12 +226,9 @@ a currency or profit difference above seven percent are surfaced as critical
 warnings. When source revisions differ, `source_revision_out_of_sync` exposes
 both submitted and current revisions without blocking preview.
 
-The old request field `default_profit_percent` is accepted only as a deprecated
-alias of `profit_margin_percent`. If both are present they must be exactly
-equivalent or the request fails. New responses and clients use only
-`profit_margin_percent`; the state-only `default_markup.profit_percent` output
-is explicitly marked deprecated and equals
-`profit_margin.profit_margin_percent`.
+Only `profit_margin_percent` is part of the active request and response
+contract. The removed `default_profit_percent` and `default_markup` dialect is
+not accepted or emitted.
 
 For compatibility, a legacy client may omit both rounding fields and inherit
 the current site policy. Supplying only one of them is rejected. New clients
@@ -254,8 +243,7 @@ string `APPLY`.
 
 ```json
 {
-  "schema": "digitalogic.pricing-sync-request/v1",
-  "schema_version": 1,
+  "schema": "digitalogic.pricing-sync-request",
   "operation": "apply",
   "source": {
     "id": "configured-source-id",
@@ -294,7 +282,7 @@ Preview and apply response data use:
 
 ```json
 {
-  "schema": "digitalogic.pricing-sync-preview/v1",
+  "schema": "digitalogic.pricing-sync-preview",
   "mode": "preview",
   "status": "confirmation_required",
   "state_revision": "sha256:GLOBAL_SETTINGS_REVISION",
