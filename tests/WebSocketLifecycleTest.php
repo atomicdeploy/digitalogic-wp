@@ -219,6 +219,10 @@ final class WebSocketLifecycleTest extends TestCase {
 		$this->assertSame(102, $connected['data']['latest_event_id']);
 		$this->assertTrue($connected['data']['cursor_reset_required']);
 		$this->assertTrue($connected['data']['revision_validation_required']);
+		$this->assertSame('cursor_gap', $connected['data']['diagnostics'][0]['code']);
+		$this->assertFalse($connected['data']['diagnostics'][0]['blocking']);
+		$this->assertSame('conditional_refresh', $connected['data']['recovery']['action']);
+		$this->assertSame(3, $connected['data']['recovery']['max_attempts']);
 		$client = $this->read_private($server, 'clients')[42];
 		$this->assertSame('patris_pricing', $client['principal']);
 		$this->assertSame($source, $client['source']);
@@ -709,6 +713,90 @@ final class WebSocketLifecycleTest extends TestCase {
 		fclose($pair[1]);
 	}
 
+	/** Optional metadata warnings are delivered without closing a safe stream. */
+	public function test_pricing_optional_metadata_is_delivered_with_recovery_without_closing_stream(): void {
+		$socket = fopen('php://temp', 'w+b');
+		$this->assertIsResource($socket);
+		$source = array( 'id' => 'patris-office', 'dataset' => 'kala.db' );
+		$event  = $this->pricing_state_event(101, $source);
+		unset(
+			$event['data']['schema'],
+			$event['data']['schema_version'],
+			$event['data']['projection'],
+			$event['data']['source']['revision'],
+			$event['data']['state_revision'],
+			$event['data']['etag'],
+			$event['data']['catalog_revision'],
+			$event['data']['pricing_state_revision'],
+			$event['data']['pricing_policy_revision'],
+			$event['data']['revision_path']
+		);
+		$event['data']['provider_extension'] = array( 'page_size' => 75 );
+		$server = new Digitalogic_WebSocket_Server();
+		$this->write_private($server, 'clients', array(
+			42 => array(
+				'socket'        => $socket,
+				'handshake'     => true,
+				'last_event_id' => 100,
+				'user_id'       => 0,
+				'device_id'     => '',
+				'principal'     => 'patris_pricing',
+				'source'        => $source,
+			),
+		));
+
+		$this->invoke_private($server, 'send_panel_event', array( 42, $event ));
+		rewind($socket);
+		$payload = $this->decode_websocket_frame(stream_get_contents($socket));
+
+		$this->assertArrayHasKey(42, $this->read_private($server, 'clients'));
+		$this->assertSame(101, $this->read_private($server, 'clients')[42]['last_event_id']);
+		$this->assertSame('pricing.state.changed', $payload['event']);
+		$this->assertSame($event['data']['provider_extension'], $payload['data']['provider_extension']);
+		$this->assertContains('metadata_warning', array_column($payload['delivery']['diagnostics'], 'code'));
+		$this->assertContains('provider_capability_missing', array_column($payload['delivery']['diagnostics'], 'code'));
+		$this->assertSame('conditional_refresh', $payload['delivery']['recovery']['action']);
+		$this->assertSame(30, $payload['delivery']['recovery']['timeout_seconds']);
+		fclose($socket);
+	}
+
+	/** Ambiguous source identity resets and closes only the affected stream. */
+	public function test_pricing_ambiguous_event_identity_sends_blocking_reset_and_closes_only_that_stream(): void {
+		$pair = @stream_socket_pair(STREAM_PF_UNIX, STREAM_SOCK_STREAM, STREAM_IPPROTO_IP);
+		if ( false === $pair ) {
+			$this->markTestSkipped('Unix socket pairs are unavailable on this platform.');
+		}
+		$this->assertIsArray($pair);
+		stream_set_timeout($pair[1], 1);
+		$source = array( 'id' => 'patris-office', 'dataset' => 'kala.db' );
+		$event  = $this->pricing_state_event(101, $source);
+		unset($event['data']['source']['dataset']);
+		$server = new Digitalogic_WebSocket_Server();
+		$this->write_private($server, 'clients', array(
+			42 => array(
+				'socket'        => $pair[0],
+				'handshake'     => true,
+				'last_event_id' => 100,
+				'user_id'       => 0,
+				'device_id'     => '',
+				'principal'     => 'patris_pricing',
+				'source'        => $source,
+			),
+		));
+
+		$this->invoke_private($server, 'send_panel_event', array( 42, $event ));
+		$reset = $this->decode_websocket_frame(fread($pair[1], 8192));
+
+		$this->assertSame('pricing.stream.reset', $reset['event']);
+		$this->assertFalse($reset['success']);
+		$this->assertSame('unsafe_source_identity', $reset['data']['reason']);
+		$this->assertSame('ERROR', $reset['data']['diagnostics'][0]['severity']);
+		$this->assertTrue($reset['data']['diagnostics'][0]['blocking']);
+		$this->assertSame('stop_and_reauthorize', $reset['data']['recovery']['action']);
+		$this->assertArrayNotHasKey(42, $this->read_private($server, 'clients'));
+		fclose($pair[1]);
+	}
+
 
 	public function test_pricing_terminal_replay_is_dotted_and_exact_source_only(): void {
 		$pairs = array();
@@ -784,7 +872,8 @@ final class WebSocketLifecycleTest extends TestCase {
 		}
 	}
 
-	public function test_connected_pricing_service_receives_explicit_reset_when_cursor_falls_outside_retention(): void {
+	/** A retention gap produces finite recovery guidance without a blocking reset. */
+	public function test_connected_pricing_service_receives_nonblocking_recovery_when_cursor_falls_outside_retention(): void {
 		$pair = @stream_socket_pair(STREAM_PF_UNIX, STREAM_SOCK_STREAM, STREAM_IPPROTO_IP);
 		if ( false === $pair ) {
 			$this->markTestSkipped('Unix socket pairs are unavailable on this platform.');
@@ -819,8 +908,11 @@ final class WebSocketLifecycleTest extends TestCase {
 		$this->invoke_private($server, 'send_missed_panel_events');
 		$reset = $this->decode_websocket_frame(fread($pair[1], 8192));
 
-		$this->assertSame('pricing.stream.reset', $reset['event']);
-		$this->assertSame('digitalogic.pricing-stream-reset', $reset['data']['schema']);
+		$this->assertSame('pricing.stream.diagnostic', $reset['event']);
+		$this->assertSame('cursor_gap', $reset['data']['diagnostics'][0]['code']);
+		$this->assertFalse($reset['data']['diagnostics'][0]['blocking']);
+		$this->assertSame('conditional_refresh', $reset['data']['recovery']['action']);
+		$this->assertSame(3, $reset['data']['recovery']['max_attempts']);
 		$this->assertSame(202, $reset['data']['cursor']);
 		$this->assertSame(201, $reset['data']['oldest_event_id']);
 		$this->assertTrue($reset['data']['revision_validation_required']);
@@ -830,7 +922,8 @@ final class WebSocketLifecycleTest extends TestCase {
 		fclose($pair[1]);
 	}
 
-	public function test_connected_pricing_service_resets_when_sequence_survives_but_retained_queue_is_empty(): void {
+	/** An empty retained queue reports the same bounded non-blocking recovery. */
+	public function test_connected_pricing_service_recovers_when_sequence_survives_but_retained_queue_is_empty(): void {
 		$socket = fopen('php://temp', 'w+b');
 		$this->assertIsResource($socket);
 		$GLOBALS['digitalogic_test_options']['digitalogic_panel_events']         = array();
@@ -852,8 +945,10 @@ final class WebSocketLifecycleTest extends TestCase {
 		rewind($socket);
 		$reset = $this->decode_websocket_frame(stream_get_contents($socket));
 
-		$this->assertSame('pricing.stream.reset', $reset['event']);
+		$this->assertSame('pricing.stream.diagnostic', $reset['event']);
 		$this->assertSame('cursor_gap', $reset['data']['reason']);
+		$this->assertFalse($reset['data']['diagnostics'][0]['blocking']);
+		$this->assertSame('controlled_polling', $reset['data']['recovery']['fallback_action']);
 		$this->assertSame(0, $reset['data']['oldest_event_id']);
 		$this->assertSame(202, $reset['data']['latest_event_id']);
 		$this->assertSame(202, $reset['data']['cursor']);

@@ -237,9 +237,11 @@ final class PricingSnapshotTest extends TestCase {
 		);
 		$malformed = $events[0];
 		unset( $malformed['data']['etag'] );
-		$this->assertFalse(
-			Digitalogic_Event_Mesh::event_visible_to( $malformed, 0, '', 'patris_pricing', $this->source )
-		);
+		$delivery = Digitalogic_Event_Mesh::pricing_event_delivery_decision( $malformed, 'patris_pricing', $this->source );
+		$this->assertTrue( $delivery['visible'] );
+		$this->assertFalse( $delivery['blocking'] );
+		$this->assertContains( 'provider_capability_missing', array_column( $delivery['diagnostics'], 'code' ) );
+		$this->assertSame( 'conditional_refresh', $delivery['recovery']['action'] );
 
 		$snapshot->publish_scheduled_state_revision_events();
 		$this->assertCount( 1, $GLOBALS['digitalogic_test_options']['digitalogic_panel_events'] );
@@ -1471,6 +1473,14 @@ final class PricingSnapshotTest extends TestCase {
 		foreach ( $events as $event ) {
 			$this->assertSame( Digitalogic_Pricing_Snapshot::BUILD_EVENT_SCHEMA, $event['data']['schema'] );
 			$this->assertArrayNotHasKey( 'schema_version', $event['data'] );
+			$delivery = Digitalogic_Event_Mesh::pricing_event_delivery_decision(
+				$event,
+				'patris_pricing',
+				$this->source
+			);
+			$this->assertTrue( $delivery['visible'] );
+			$this->assertTrue( $delivery['authorized'] );
+			$this->assertFalse( $delivery['blocking'] );
 		}
 	}
 

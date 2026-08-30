@@ -222,6 +222,11 @@ class Digitalogic_WebSocket_Server {
 			$connected['data']['revision_validation_required'] = true;
 			$connected['data']['revision_path']                = '/wp-json/digitalogic/pricing/sync/revision';
 			$connected['data']['projection']                   = Digitalogic_Pricing_Snapshot::PROJECTION;
+			if ( $cursor_reset_required ) {
+				$delivery                         = $this->pricing_cursor_gap_delivery();
+				$connected['data']['diagnostics'] = $delivery['diagnostics'];
+				$connected['data']['recovery']    = $delivery['recovery'];
+			}
 		}
 		if ( ! $this->send_json($id, $connected) ) {
 			return;
@@ -383,10 +388,21 @@ class Digitalogic_WebSocket_Server {
 					|| ( 0 === $window['oldest_event_id'] && $last_id < $window['latest_event_id'] );
 				if ( $gap ) {
 					$reset_cursor = $window['latest_event_id'];
+					$delivery     = $this->pricing_cursor_gap_delivery();
 					$sent         = $this->send_json($id, array(
-						'event'   => 'pricing.stream.reset',
+						'event'   => 'pricing.stream.diagnostic',
 						'success' => true,
-						'data'    => $this->pricing_reset_data( $id, 'cursor_gap', $reset_cursor, $window ),
+						'data'    => array_merge(
+							array(
+							'reason'                       => 'cursor_gap',
+							'cursor'                       => $reset_cursor,
+							'oldest_event_id'              => $window['oldest_event_id'],
+							'latest_event_id'              => $window['latest_event_id'],
+							'revision_validation_required' => true,
+							'revision_path'                => '/wp-json/digitalogic/pricing/sync/revision',
+							),
+							$delivery
+						),
 					));
 					if ( $sent && isset($this->clients[ $id ]) ) {
 						$this->clients[ $id ]['last_event_id'] = $reset_cursor;
@@ -427,17 +443,20 @@ class Digitalogic_WebSocket_Server {
 
 		$pricing_service = 'patris_pricing' === (string) ( $this->clients[ $id ]['principal'] ?? '' );
 		$visible         = true;
+		$delivery        = null;
 		if ( $pricing_service ) {
-			$visible = class_exists('Digitalogic_Event_Mesh')
-				&& Digitalogic_Event_Mesh::event_visible_to(
+			if ( class_exists('Digitalogic_Event_Mesh') ) {
+				$delivery = Digitalogic_Event_Mesh::pricing_event_delivery_decision(
 					$event,
-					0,
-					'',
 					'patris_pricing',
 					isset($this->clients[ $id ]['source']) && is_array($this->clients[ $id ]['source'])
 						? $this->clients[ $id ]['source']
 						: array()
 				);
+				$visible  = ! empty($delivery['visible']);
+			} else {
+				$visible = false;
+			}
 		} elseif ( class_exists('Digitalogic_Event_Mesh') ) {
 			$visible = Digitalogic_Event_Mesh::event_visible_to(
 				$event,
@@ -446,9 +465,8 @@ class Digitalogic_WebSocket_Server {
 			);
 		}
 		if ( ! $visible ) {
-			if ( $pricing_service && 'targeted' === $this->pricing_event_relevance( $id, $event ) ) {
-				$this->send_pricing_stream_reset( $id, 'invalid_event', $event_id );
-				$this->close( $id );
+			if ( $pricing_service && is_array($delivery) && ! empty($delivery['blocking']) ) {
+				$this->send_pricing_blocking_reset($id, $event_id, $delivery);
 				return;
 			}
 			if ( $event_id ) {
@@ -457,69 +475,84 @@ class Digitalogic_WebSocket_Server {
 			return;
         }
 
-		$sent = $this->send_json($id, array(
+		$payload = array(
             'event' => isset($event['name']) ? $event['name'] : (isset($event['event']) ? $event['event'] : 'panel.event'),
             'name' => isset($event['name']) ? $event['name'] : '',
             'success' => true,
-            'data' => isset($event['data']) && is_array($event['data']) ? $event['data'] : array(),
+            'data' => $pricing_service && is_array($delivery) && isset($delivery['data']) && is_array($delivery['data'])
+				? $delivery['data']
+				: (isset($event['data']) && is_array($event['data']) ? $event['data'] : array()),
             'time' => isset($event['time']) ? $event['time'] : '',
             'id' => $event_id,
-        ));
+		);
+		if ( $pricing_service && is_array($delivery) && ! empty($delivery['diagnostics']) ) {
+			$payload['delivery'] = array(
+				'diagnostics' => $delivery['diagnostics'],
+				'recovery'    => $delivery['recovery'],
+			);
+		}
+		$sent = $this->send_json($id, $payload);
 		if ( $sent && $event_id && isset($this->clients[ $id ]) ) {
 			$this->clients[ $id ]['last_event_id'] = max(absint($this->clients[ $id ]['last_event_id']), $event_id);
 		}
     }
 
-	/** Classify reserved pricing events without treating other-source events as malformed. */
-	private function pricing_event_relevance( $id, $event ) {
-		$name = (string) ( $event['name'] ?? $event['event'] ?? '' );
-		if ( 0 !== strpos( $name, 'pricing.' ) ) {
-			return 'irrelevant';
-		}
-		$data          = isset($event['data']) && is_array($event['data']) ? $event['data'] : array();
-		$event_source  = isset($data['source']) && is_array($data['source']) ? $data['source'] : array();
-		$client_source = isset($this->clients[ $id ]['source']) && is_array($this->clients[ $id ]['source'])
-			? $this->clients[ $id ]['source']
+	/**
+	 * Send one secret-free blocking reset and close only the unsafe stream.
+	 *
+	 * @param int   $id       Client socket ID.
+	 * @param int   $event_id Durable event ID.
+	 * @param array $delivery Structured blocking delivery decision.
+	 * @return void
+	 */
+	private function send_pricing_blocking_reset($id, $event_id, array $delivery) {
+		$diagnostics = isset($delivery['diagnostics']) && is_array($delivery['diagnostics'])
+			? $delivery['diagnostics']
 			: array();
-		if (
-			'' !== (string) ( $event_source['id'] ?? '' )
-			&& '' !== (string) ( $event_source['dataset'] ?? '' )
-			&& (
-				! hash_equals( (string) ( $client_source['id'] ?? '' ), (string) $event_source['id'] )
-				|| ! hash_equals( (string) ( $client_source['dataset'] ?? '' ), (string) $event_source['dataset'] )
-			)
-		) {
-			return 'irrelevant';
+		$reason      = isset($diagnostics[0]['code']) ? (string) $diagnostics[0]['code'] : 'unsafe_event_identity';
+		$this->send_json($id, array(
+			'event'   => 'pricing.stream.reset',
+			'success' => false,
+			'id'      => absint($event_id),
+			'data'    => array(
+				'reason'      => $reason,
+				'diagnostics' => $diagnostics,
+				'recovery'    => isset($delivery['recovery']) && is_array($delivery['recovery'])
+					? $delivery['recovery']
+					: array(),
+			),
+		));
+		if ( isset($this->clients[ $id ]) ) {
+			$this->close($id);
 		}
-
-		return 'targeted';
 	}
 
-	/** Return reset data in the Living stream contract. */
-	private function pricing_reset_data( $id, $reason, $cursor, $window ) {
-		unset( $id );
+	/**
+	 * Return finite non-blocking recovery for a durable cursor gap.
+	 *
+	 * @return array
+	 */
+	private function pricing_cursor_gap_delivery() {
 		return array(
-			'schema'                       => 'digitalogic.pricing-stream-reset',
-			'reason'                       => (string) $reason,
-			'cursor'                       => absint( $cursor ),
-			'oldest_event_id'              => absint( $window['oldest_event_id'] ?? 0 ),
-			'latest_event_id'              => absint( $window['latest_event_id'] ?? 0 ),
-			'revision_validation_required' => true,
-			'revision_path'                => '/wp-json/digitalogic/pricing/sync/revision',
-		);
-	}
-
-	/** Send one authoritative reset without mutating the server cursor. */
-	private function send_pricing_stream_reset( $id, $reason, $cursor ) {
-		$window = $this->durable_event_window();
-
-		return $this->send_json(
-			$id,
-			array(
-				'event'   => 'pricing.stream.reset',
-				'success' => true,
-				'data'    => $this->pricing_reset_data( $id, $reason, $cursor, $window ),
-			)
+			'diagnostics' => array(
+				array(
+					'code'            => 'cursor_gap',
+					'severity'        => 'WARNING',
+					'blocking'        => false,
+					'reason'          => 'The durable event cursor is outside the retained window.',
+					'retryable'       => true,
+					'recovery_action' => 'conditional_refresh',
+				),
+			),
+			'recovery'    => array(
+				'action'                => 'conditional_refresh',
+				'retryable'             => true,
+				'max_attempts'          => 3,
+				'timeout_seconds'       => 30,
+				'revision_path'         => '/wp-json/digitalogic/pricing/sync/revision',
+				'fallback_action'       => 'controlled_polling',
+				'poll_interval_seconds' => 5,
+			),
 		);
 	}
 

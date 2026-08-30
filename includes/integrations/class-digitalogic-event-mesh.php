@@ -29,6 +29,14 @@ final class Digitalogic_Event_Mesh {
 	private const MAX_ATTRIBUTE_VALUES     = 10;
 	private const PRESENCE_FRESH_SECONDS   = 600;
 	private const SESSION_FRESH_SECONDS    = 180;
+	private const PRICING_SERVICE          = 'patris_pricing';
+	private const PRICING_REVISION_PATH    = '/wp-json/digitalogic/pricing/sync/revision';
+	private const PRICING_EVENT_NAMES      = array(
+		'pricing.state.changed',
+		'pricing.source.changed',
+		'pricing.source.removed',
+		'pricing.snapshot.build.terminal',
+	);
 
 	/** @var self|null */
 	private static $instance = null;
@@ -649,125 +657,8 @@ final class Digitalogic_Event_Mesh {
 		}
 		$audience = isset( $data['audience'] ) && is_array( $data['audience'] ) ? $data['audience'] : array();
 		if ( '' !== $service ) {
-			$event_source = isset( $data['source'] ) && is_array( $data['source'] ) ? $data['source'] : array();
-			$is_revision  = static function ( $value ) {
-				return is_string( $value ) && 1 === preg_match( '/\Asha256:[a-f0-9]{64}\z/D', $value );
-			};
-			if (
-				'patris_pricing' !== $service
-				|| Digitalogic_Pricing_Snapshot::PROJECTION !== (string) ( $data['projection'] ?? '' )
-				|| ! $is_revision( $event_source['revision'] ?? null )
-				|| ! $is_revision( $data['idempotency_key'] ?? null )
-				|| '/wp-json/digitalogic/pricing/sync/revision' !== (string) ( $data['revision_path'] ?? '' )
-				|| ! in_array( $service, (array) ( $audience['services'] ?? array() ), true )
-			) {
-				return false;
-			}
-			if ( 'pricing.state.changed' === $name ) {
-				$state_revision = (string) ( $data['state_revision'] ?? '' );
-				if (
-					Digitalogic_Pricing_Snapshot::STATE_EVENT_SCHEMA !== (string) ( $data['schema'] ?? '' )
-					|| ! $is_revision( $state_revision )
-					|| '"' . $state_revision . '"' !== (string) ( $data['etag'] ?? '' )
-					|| ! $is_revision( $data['catalog_revision'] ?? null )
-					|| ! $is_revision( $data['pricing_state_revision'] ?? null )
-					|| ! $is_revision( $data['pricing_policy_revision'] ?? null )
-					|| ! in_array( (string) ( $data['cause'] ?? '' ), array( 'projection-invalidated', 'freshness-boundary' ), true )
-				) {
-					return false;
-				}
-			} elseif ( in_array( $name, array( 'pricing.source.changed', 'pricing.source.removed' ), true ) ) {
-				$change   = (string) ( $data['change'] ?? '' );
-				$previous = $data['previous_source_revision'] ?? null;
-				if (
-					Digitalogic_Pricing_Snapshot::SOURCE_EVENT_SCHEMA !== (string) ( $data['schema'] ?? '' )
-					|| ! in_array( $change, array( 'added', 'changed', 'removed' ), true )
-					|| ( 'pricing.source.removed' === $name ) !== ( 'removed' === $change )
-					|| ( null !== $previous && ! $is_revision( $previous ) )
-					|| empty( $data['revision_validation_required'] )
-				) {
-					return false;
-				}
-			} elseif ( 'pricing.snapshot.build.terminal' === $name ) {
-				$allowed_keys  = array(
-					'schema',
-					'projection',
-					'build_id',
-					'request_id',
-					'status',
-					'source',
-					'state_revision',
-					'etag',
-					'pricing_state_revision',
-					'pricing_policy_revision',
-					'catalog_revision',
-					'snapshot_token',
-					'snapshot_revision',
-					'digest',
-					'snapshot_path',
-					'code',
-					'retryable',
-					'idempotency_key',
-					'revision_path',
-					'audience',
-				);
-				$status        = (string) ( $data['status'] ?? '' );
-				$expected_path = '/wp-json/digitalogic/pricing/sync/snapshots/'
-					. rawurlencode( (string) ( $data['snapshot_token'] ?? '' ) )
-					. '?source_id=' . rawurlencode( (string) ( $event_source['id'] ?? '' ) )
-					. '&source_dataset=' . rawurlencode( (string) ( $event_source['dataset'] ?? '' ) )
-					. '&source_revision=' . rawurlencode( (string) ( $event_source['revision'] ?? '' ) )
-					. '&projection=' . rawurlencode( Digitalogic_Pricing_Snapshot::PROJECTION );
-				if (
-					Digitalogic_Pricing_Snapshot::BUILD_EVENT_SCHEMA !== (string) ( $data['schema'] ?? '' )
-					|| array_diff( array_keys( $data ), $allowed_keys )
-					|| 3 !== count( $event_source )
-					|| array_diff( array( 'id', 'dataset', 'revision' ), array_keys( $event_source ) )
-					|| array_diff( array_keys( $event_source ), array( 'id', 'dataset', 'revision' ) )
-					|| array( 'services' => array( 'patris_pricing' ) ) !== $audience
-					|| 1 !== preg_match( '/\Abuild_[a-f0-9]{32}\z/D', (string) ( $data['build_id'] ?? '' ) )
-					|| 1 !== preg_match( '/\A[A-Za-z0-9][A-Za-z0-9._:-]{7,127}\z/D', (string) ( $data['request_id'] ?? '' ) )
-					|| ! in_array( $status, array( 'ready', 'failed', 'cancelled' ), true )
-					|| ! $is_revision( $data['state_revision'] ?? null )
-					|| '"' . (string) $data['state_revision'] . '"' !== (string) ( $data['etag'] ?? '' )
-					|| ! $is_revision( $data['pricing_state_revision'] ?? null )
-					|| ! $is_revision( $data['pricing_policy_revision'] ?? null )
-					|| ! $is_revision( $data['catalog_revision'] ?? null )
-					|| ! is_bool( $data['retryable'] ?? null )
-				) {
-					return false;
-				}
-				if ( 'ready' === $status ) {
-					if (
-						1 !== preg_match( '/\Asnap_[a-f0-9]{32}\z/D', (string) ( $data['snapshot_token'] ?? '' ) )
-						|| ! $is_revision( $data['snapshot_revision'] ?? null )
-						|| ! $is_revision( $data['digest'] ?? null )
-						|| ! hash_equals( (string) $data['snapshot_revision'], (string) $data['digest'] )
-						|| ! hash_equals( $expected_path, (string) ( $data['snapshot_path'] ?? '' ) )
-						|| '' !== (string) ( $data['code'] ?? '' )
-						|| ! empty( $data['retryable'] )
-					) {
-						return false;
-					}
-				} elseif (
-					'' === (string) ( $data['code'] ?? '' )
-					|| strlen( (string) $data['code'] ) > 128
-					|| 1 !== preg_match( '/\A[a-z0-9_:-]+\z/D', (string) $data['code'] )
-					|| isset( $data['snapshot_token'] )
-					|| isset( $data['snapshot_revision'] )
-					|| isset( $data['digest'] )
-					|| isset( $data['snapshot_path'] )
-				) {
-					return false;
-				}
-			} else {
-				return false;
-			}
-
-			return '' !== (string) ( $service_source['id'] ?? '' )
-				&& '' !== (string) ( $service_source['dataset'] ?? '' )
-				&& hash_equals( (string) $service_source['id'], (string) ( $event_source['id'] ?? '' ) )
-				&& hash_equals( (string) $service_source['dataset'], (string) ( $event_source['dataset'] ?? '' ) );
+			$decision = self::pricing_event_delivery_decision( $event, $service, $service_source );
+			return ! empty( $decision['visible'] );
 		}
 		if ( ! $audience ) {
 			return true;
@@ -813,6 +704,546 @@ final class Digitalogic_Event_Mesh {
 		return 'all' === (string) ( $audience['match'] ?? 'any' )
 			? ! in_array( false, $matches, true )
 			: in_array( true, $matches, true );
+	}
+
+	/**
+	 * Authorize one pricing event independently from optional representation metadata.
+	 *
+	 * The exact service audience and source ID/dataset remain the security boundary.
+	 * Schema labels, paths, validators, component revisions, and provider extensions
+	 * produce bounded diagnostics and recovery guidance without hiding a safe event.
+	 *
+	 * @param array  $event          Durable panel event.
+	 * @param string $service        Authenticated service principal.
+	 * @param array  $service_source Exact source scope authenticated at handshake.
+	 * @return array
+	 */
+	public static function pricing_event_delivery_decision( array $event, string $service, array $service_source ): array {
+		$name     = isset( $event['name'] ) && is_string( $event['name'] ) ? $event['name'] : '';
+		$decision = array(
+			'visible'     => false,
+			'authorized'  => false,
+			'blocking'    => false,
+			'data'        => isset( $event['data'] ) && is_array( $event['data'] ) ? $event['data'] : array(),
+			'diagnostics' => array(),
+			'recovery'    => self::pricing_recovery_plan( 'consume_event' ),
+		);
+		if ( self::PRICING_SERVICE !== $service || ! in_array( $name, self::PRICING_EVENT_NAMES, true ) ) {
+			return $decision;
+		}
+		if ( ! isset( $event['data'] ) || ! is_array( $event['data'] ) ) {
+			return self::blocking_pricing_decision(
+				$decision,
+				'malformed_event_frame',
+				'Pricing event data is not a structured object.'
+			);
+		}
+
+		$data     = $event['data'];
+		$audience = isset( $data['audience'] ) && is_array( $data['audience'] ) ? $data['audience'] : array();
+		$services = isset( $audience['services'] ) && is_array( $audience['services'] )
+			? array_values( array_filter( $audience['services'], 'is_string' ) )
+			: array();
+		if ( ! in_array( $service, $services, true ) ) {
+			return $decision;
+		}
+
+		$event_source = isset( $data['source'] ) && is_array( $data['source'] ) ? $data['source'] : array();
+		if (
+			! self::valid_pricing_identity_component( $service_source['id'] ?? null )
+			|| ! self::valid_pricing_identity_component( $service_source['dataset'] ?? null )
+		) {
+			return self::blocking_pricing_decision(
+				$decision,
+				'unsafe_service_identity',
+				'The authenticated pricing connection has no unambiguous source scope.'
+			);
+		}
+		if (
+			! self::valid_pricing_identity_component( $event_source['id'] ?? null )
+			|| ! self::valid_pricing_identity_component( $event_source['dataset'] ?? null )
+		) {
+			return self::blocking_pricing_decision(
+				$decision,
+				'unsafe_source_identity',
+				'The pricing event has no unambiguous source ID and dataset.'
+			);
+		}
+		if (
+			! hash_equals( (string) $service_source['id'], (string) $event_source['id'] )
+			|| ! hash_equals( (string) $service_source['dataset'], (string) $event_source['dataset'] )
+		) {
+			return $decision;
+		}
+		if ( self::pricing_payload_has_sensitive_key( $data ) ) {
+			return self::blocking_pricing_decision(
+				$decision,
+				'unsafe_event_metadata',
+				'The pricing event contains credential-bearing metadata and cannot be forwarded.'
+			);
+		}
+
+		$decision['authorized']  = true;
+		$decision['visible']     = true;
+		$normalized              = $data;
+		$diagnostics             = self::pricing_representation_diagnostics( $name, $normalized );
+		$decision['data']        = $normalized;
+		$decision['diagnostics'] = $diagnostics;
+		$decision['recovery']    = self::pricing_recovery_for_diagnostics( $diagnostics );
+
+		if ( 'pricing.snapshot.build.terminal' === $name ) {
+			if (
+				1 !== preg_match( '/\Abuild_[a-f0-9]{32}\z/D', (string) ( $data['build_id'] ?? '' ) )
+				|| 1 !== preg_match( '/\A[A-Za-z0-9][A-Za-z0-9._:-]{7,127}\z/D', (string) ( $data['request_id'] ?? '' ) )
+			) {
+				return self::blocking_pricing_decision(
+					$decision,
+					'unsafe_event_identity',
+					'The terminal pricing event has no unambiguous build and request identity.'
+				);
+			}
+		}
+
+		return $decision;
+	}
+
+	/**
+	 * Build a blocking decision without copying unsafe provider values.
+	 *
+	 * @param array  $decision Existing delivery decision.
+	 * @param string $code     Stable diagnostic code.
+	 * @param string $reason   Safe human-readable reason.
+	 * @return array
+	 */
+	private static function blocking_pricing_decision( array $decision, string $code, string $reason ): array {
+		$decision['visible']     = false;
+		$decision['authorized']  = false;
+		$decision['blocking']    = true;
+		$decision['data']        = array();
+		$decision['diagnostics'] = array(
+			self::pricing_diagnostic( $code, 'ERROR', true, $reason, false, 'stop_and_reauthorize' ),
+		);
+		$decision['recovery']    = self::pricing_recovery_plan( 'stop_and_reauthorize' );
+		return $decision;
+	}
+
+	/**
+	 * Return diagnostics while removing malformed optional adapter values.
+	 *
+	 * @param string $name Pricing event name.
+	 * @param array  $data Event data normalized by reference.
+	 * @return array
+	 */
+	private static function pricing_representation_diagnostics( string $name, array &$data ): array {
+		$diagnostics = array();
+		$known       = array( 'schema', 'schema_version', 'projection', 'source', 'idempotency_key', 'audience' );
+		if ( 'pricing.state.changed' === $name ) {
+			$known = array_merge( $known, array( 'state_revision', 'etag', 'catalog_revision', 'pricing_state_revision', 'pricing_policy_revision', 'cause', 'revision_path' ) );
+		} elseif ( in_array( $name, array( 'pricing.source.changed', 'pricing.source.removed' ), true ) ) {
+			$known = array_merge( $known, array( 'change', 'previous_source_revision', 'revision_validation_required', 'revision_path' ) );
+		} else {
+			$known = array_merge( $known, array( 'build_id', 'request_id', 'status', 'state_revision', 'pricing_state_revision', 'catalog_revision', 'snapshot_token', 'revision', 'row_count', 'snapshot_revision', 'digest', 'snapshot_path', 'code', 'retryable' ) );
+		}
+
+		$unknown = array_values( array_diff( array_map( 'strval', array_keys( $data ) ), $known ) );
+		$source  = isset( $data['source'] ) && is_array( $data['source'] ) ? $data['source'] : array();
+		foreach ( array_diff( array_map( 'strval', array_keys( $source ) ), array( 'id', 'dataset', 'revision' ) ) as $field ) {
+			$unknown[] = 'source.' . $field;
+		}
+		if ( $unknown ) {
+			sort( $unknown, SORT_STRING );
+			$diagnostics[] = self::pricing_diagnostic(
+				'metadata_warning',
+				'INFO',
+				false,
+				'Additive pricing event fields were preserved as provider extensions and ignored for authorization.',
+				false,
+				'consume_event',
+				array( 'fields' => array_slice( array_values( array_unique( $unknown ) ), 0, 20 ) )
+			);
+		}
+
+		$descriptive_missing = array();
+		foreach ( array( 'schema', 'schema_version', 'projection' ) as $field ) {
+			if ( ! array_key_exists( $field, $data ) || ! is_scalar( $data[ $field ] ) || '' === (string) $data[ $field ] ) {
+				if ( array_key_exists( $field, $data ) && ! is_scalar( $data[ $field ] ) ) {
+					unset( $data[ $field ] );
+				}
+				$descriptive_missing[] = $field;
+			}
+		}
+		if ( $descriptive_missing ) {
+			$diagnostics[] = self::pricing_diagnostic(
+				'metadata_warning',
+				'INFO',
+				false,
+				'Descriptive schema or projection metadata is absent or unusable.',
+				false,
+				'consume_event',
+				array( 'fields' => $descriptive_missing )
+			);
+		}
+
+		$source_missing = array();
+		self::normalize_optional_revisions( $data['source'], array( 'revision' ), $source_missing );
+		if ( $source_missing ) {
+			$diagnostics[] = self::pricing_diagnostic(
+				'provider_capability_missing',
+				'INFO',
+				false,
+				'An optional source revision is unavailable; exact source scope remains authorized.',
+				true,
+				'conditional_refresh',
+				array( 'capabilities' => array( 'source_revision' ) )
+			);
+		}
+
+		if ( 'pricing.state.changed' === $name ) {
+			$component_missing = array();
+			self::normalize_optional_revisions(
+				$data,
+				array( 'state_revision', 'catalog_revision', 'pricing_state_revision', 'pricing_policy_revision' ),
+				$component_missing
+			);
+			self::normalize_optional_etag( $data, $component_missing, $diagnostics );
+			self::append_optional_metadata_diagnostics( $diagnostics, $data, $component_missing, array( 'revision_path' ) );
+		} elseif ( in_array( $name, array( 'pricing.source.changed', 'pricing.source.removed' ), true ) ) {
+			$previous_missing = array();
+			if ( array_key_exists( 'previous_source_revision', $data ) && null !== $data['previous_source_revision'] ) {
+				self::normalize_optional_revisions( $data, array( 'previous_source_revision' ), $previous_missing );
+			}
+			$change = isset( $data['change'] ) && is_string( $data['change'] ) ? $data['change'] : '';
+			if (
+				! in_array( $change, array( 'added', 'changed', 'removed' ), true )
+				|| ( 'pricing.source.removed' === $name ) !== ( 'removed' === $change )
+			) {
+				unset( $data['change'] );
+				$previous_missing[] = 'change';
+			}
+			self::append_optional_metadata_diagnostics( $diagnostics, $data, $previous_missing, array( 'revision_path' ) );
+		} else {
+			$component_missing = array();
+			self::normalize_optional_revisions( $data, array( 'state_revision', 'pricing_state_revision', 'catalog_revision' ), $component_missing );
+			$status = isset( $data['status'] ) && is_string( $data['status'] ) ? $data['status'] : '';
+			if ( ! in_array( $status, array( 'ready', 'failed', 'cancelled' ), true ) ) {
+				unset( $data['status'] );
+				$component_missing[] = 'status';
+			}
+			if ( 'ready' === $status ) {
+				self::normalize_terminal_snapshot_metadata( $data, $component_missing, $diagnostics );
+			}
+			self::append_optional_metadata_diagnostics( $diagnostics, $data, $component_missing, array() );
+		}
+
+		return $diagnostics;
+	}
+
+	/**
+	 * Remove invalid optional revisions while recording absent capabilities.
+	 *
+	 * @param array $data    Event data normalized by reference.
+	 * @param array $fields  Optional revision field names.
+	 * @param array $missing Missing or unusable fields collected by reference.
+	 * @return void
+	 */
+	private static function normalize_optional_revisions( array &$data, array $fields, array &$missing ): void {
+		foreach ( $fields as $field ) {
+			if ( ! array_key_exists( $field, $data ) || ! self::is_pricing_revision( $data[ $field ] ) ) {
+				unset( $data[ $field ] );
+				$missing[] = $field;
+			}
+		}
+	}
+
+	/**
+	 * Normalize ETag syntax when a comparable optional state revision exists.
+	 *
+	 * @param array $data        Event data normalized by reference.
+	 * @param array $missing     Missing capabilities collected by reference.
+	 * @param array $diagnostics Diagnostics collected by reference.
+	 * @return void
+	 */
+	private static function normalize_optional_etag( array &$data, array &$missing, array &$diagnostics ): void {
+		if ( ! isset( $data['etag'] ) || ! is_string( $data['etag'] ) ) {
+			unset( $data['etag'] );
+			$missing[] = 'etag';
+			return;
+		}
+		$etag = trim( $data['etag'] );
+		if ( '' === $etag || strlen( $etag ) > 256 || 1 === preg_match( '/[\x00-\x1F\x7F]/', $etag ) ) {
+			unset( $data['etag'] );
+			$missing[] = 'etag';
+			return;
+		}
+
+		$opaque = str_starts_with( $etag, 'W/' ) ? substr( $etag, 2 ) : $etag;
+		if ( strlen( $opaque ) >= 2 && '"' === $opaque[0] && '"' === $opaque[ strlen( $opaque ) - 1 ] ) {
+			$opaque = substr( $opaque, 1, -1 );
+		}
+		if ( isset( $data['state_revision'] ) && ! hash_equals( $data['state_revision'], $opaque ) ) {
+			unset( $data['etag'] );
+			$diagnostics[] = self::pricing_diagnostic(
+				'metadata_warning',
+				'WARNING',
+				false,
+				'Optional ETag metadata does not identify the advertised semantic state revision.',
+				true,
+				'conditional_refresh',
+				array( 'fields' => array( 'etag', 'state_revision' ) )
+			);
+			return;
+		}
+		if ( isset( $data['state_revision'] ) ) {
+			$data['etag'] = '"' . $data['state_revision'] . '"';
+		}
+	}
+
+	/**
+	 * Report missing optional fields and remove unsafe provider paths.
+	 *
+	 * @param array $diagnostics Diagnostics collected by reference.
+	 * @param array $data        Event data normalized by reference.
+	 * @param array $missing     Missing or unusable fields.
+	 * @param array $path_fields Optional provider path fields.
+	 * @return void
+	 */
+	private static function append_optional_metadata_diagnostics( array &$diagnostics, array &$data, array $missing, array $path_fields ): void {
+		foreach ( $path_fields as $field ) {
+			if ( ! isset( $data[ $field ] ) || ! self::safe_pricing_relative_path( $data[ $field ] ) ) {
+				unset( $data[ $field ] );
+				$missing[] = $field;
+			}
+		}
+		$missing = array_values( array_unique( $missing ) );
+		if ( ! $missing ) {
+			return;
+		}
+
+		$diagnostics[] = self::pricing_diagnostic(
+			'provider_capability_missing',
+			'INFO',
+			false,
+			'Optional pricing event metadata is absent or unusable; use the bounded canonical refresh path.',
+			true,
+			'conditional_refresh',
+			array( 'capabilities' => array_slice( $missing, 0, 20 ) )
+		);
+	}
+
+	/**
+	 * Normalize snapshot metadata without treating optional validators as identity.
+	 *
+	 * @param array $data        Event data normalized by reference.
+	 * @param array $missing     Missing capabilities collected by reference.
+	 * @param array $diagnostics Diagnostics collected by reference.
+	 * @return void
+	 */
+	private static function normalize_terminal_snapshot_metadata( array &$data, array &$missing, array &$diagnostics ): void {
+		if (
+			! isset( $data['snapshot_token'] )
+			|| ! is_string( $data['snapshot_token'] )
+			|| 1 !== preg_match( '/\A[A-Za-z0-9][A-Za-z0-9._:-]{7,127}\z/D', $data['snapshot_token'] )
+		) {
+			unset( $data['snapshot_token'] );
+			$missing[] = 'snapshot_token';
+		}
+		if ( ! isset( $data['revision'] ) || ! self::is_pricing_revision( $data['revision'] ) ) {
+			unset( $data['revision'] );
+			$missing[] = 'revision';
+		}
+		if ( isset( $data['snapshot_revision'] ) && ! self::is_pricing_revision( $data['snapshot_revision'] ) ) {
+			unset( $data['snapshot_revision'] );
+			$diagnostics[] = self::pricing_diagnostic(
+				'metadata_warning',
+				'INFO',
+				false,
+				'A legacy projection revision was unusable and was ignored; canonical revision recovery remains available.',
+				false,
+				'consume_event',
+				array( 'fields' => array( 'snapshot_revision' ) )
+			);
+		}
+		if ( ! array_key_exists( 'digest', $data ) ) {
+			$diagnostics[] = self::pricing_diagnostic(
+				'provider_capability_missing',
+				'INFO',
+				false,
+				'No negotiated snapshot digest was advertised; canonical identity and revision remain authoritative.',
+				false,
+				'consume_event',
+				array( 'capabilities' => array( 'digest' ) )
+			);
+		} elseif ( ! is_string( $data['digest'] ) || '' === trim( $data['digest'] ) || strlen( $data['digest'] ) > 256 || 1 === preg_match( '/[\x00-\x1F\x7F]/', $data['digest'] ) ) {
+			unset( $data['digest'] );
+			$diagnostics[] = self::pricing_diagnostic(
+				'metadata_warning',
+				'WARNING',
+				false,
+				'Optional digest metadata is unusable and was ignored; canonical identity and revision remain authoritative.',
+				false,
+				'consume_event',
+				array( 'fields' => array( 'digest' ) )
+			);
+		}
+		if ( ! isset( $data['snapshot_path'] ) || ! self::safe_pricing_relative_path( $data['snapshot_path'] ) ) {
+			unset( $data['snapshot_path'] );
+			$missing[] = 'snapshot_path';
+		}
+	}
+
+	/**
+	 * Choose the most conservative bounded recovery requested by diagnostics.
+	 *
+	 * @param array $diagnostics Structured event diagnostics.
+	 * @return array
+	 */
+	private static function pricing_recovery_for_diagnostics( array $diagnostics ): array {
+		$action = 'consume_event';
+		foreach ( $diagnostics as $diagnostic ) {
+			$next = (string) ( $diagnostic['recovery_action'] ?? '' );
+			if ( 'controlled_polling' === $next ) {
+				$action = $next;
+				break;
+			}
+			if ( 'conditional_refresh' === $next ) {
+				$action = $next;
+			}
+		}
+		return self::pricing_recovery_plan( $action );
+	}
+
+	/**
+	 * Build one safe diagnostic with an explicit recovery action.
+	 *
+	 * @param string $code            Stable diagnostic code.
+	 * @param string $severity        INFO, WARNING, or ERROR.
+	 * @param bool   $blocking        Whether consumption must stop.
+	 * @param string $reason          Safe human-readable reason.
+	 * @param bool   $retryable       Whether bounded recovery may retry.
+	 * @param string $recovery_action Consumer recovery action.
+	 * @param array  $details         Safe bounded field names.
+	 * @return array
+	 */
+	private static function pricing_diagnostic( string $code, string $severity, bool $blocking, string $reason, bool $retryable, string $recovery_action, array $details = array() ): array {
+		$diagnostic = array(
+			'code'            => $code,
+			'severity'        => $severity,
+			'blocking'        => $blocking,
+			'reason'          => $reason,
+			'retryable'       => $retryable,
+			'recovery_action' => $recovery_action,
+		);
+		if ( $details ) {
+			$diagnostic['details'] = $details;
+		}
+		return $diagnostic;
+	}
+
+	/**
+	 * Return a finite recovery contract for the remote pricing adapter.
+	 *
+	 * @param string $action Recovery action.
+	 * @return array
+	 */
+	private static function pricing_recovery_plan( string $action ): array {
+		if ( 'stop_and_reauthorize' === $action ) {
+			return array(
+				'action'          => $action,
+				'retryable'       => false,
+				'max_attempts'    => 0,
+				'timeout_seconds' => 0,
+			);
+		}
+		if ( 'conditional_refresh' === $action ) {
+			return array(
+				'action'                => $action,
+				'retryable'             => true,
+				'max_attempts'          => 3,
+				'timeout_seconds'       => 30,
+				'revision_path'         => self::PRICING_REVISION_PATH,
+				'fallback_action'       => 'controlled_polling',
+				'poll_interval_seconds' => 5,
+			);
+		}
+		if ( 'controlled_polling' === $action ) {
+			return array(
+				'action'                => $action,
+				'retryable'             => true,
+				'max_attempts'          => 6,
+				'timeout_seconds'       => 30,
+				'revision_path'         => self::PRICING_REVISION_PATH,
+				'poll_interval_seconds' => 5,
+			);
+		}
+		return array(
+			'action'          => 'consume_event',
+			'retryable'       => false,
+			'max_attempts'    => 0,
+			'timeout_seconds' => 0,
+		);
+	}
+
+	/**
+	 * Validate an exact source identity component.
+	 *
+	 * @param mixed $value Source ID or dataset.
+	 * @return bool
+	 */
+	private static function valid_pricing_identity_component( $value ): bool {
+		return is_string( $value )
+			&& '' !== $value
+			&& trim( $value ) === $value
+			&& strlen( $value ) <= 191
+			&& 0 === preg_match( '/[\x00-\x1F\x7F]/', $value );
+	}
+
+	/**
+	 * Check an optional SHA-256 revision representation.
+	 *
+	 * @param mixed $value Revision candidate.
+	 * @return bool
+	 */
+	private static function is_pricing_revision( $value ): bool {
+		return is_string( $value ) && 1 === preg_match( '/\Asha256:[a-f0-9]{64}\z/D', $value );
+	}
+
+	/**
+	 * Check a same-origin relative provider path.
+	 *
+	 * @param mixed $value Path candidate.
+	 * @return bool
+	 */
+	private static function safe_pricing_relative_path( $value ): bool {
+		return is_string( $value )
+			&& str_starts_with( $value, '/' )
+			&& ! str_starts_with( $value, '//' )
+			&& ! str_contains( $value, '\\' )
+			&& 0 === preg_match( '#(?:^|/)\.\.?(?:/|\?|\#|$)#', $value )
+			&& strlen( $value ) <= 2048
+			&& 0 === preg_match( '/[\x00-\x1F\x7F]/', $value );
+	}
+
+	/**
+	 * Detect credential-bearing extension keys.
+	 *
+	 * @param mixed $value Payload node.
+	 * @param int   $depth Current bounded recursion depth.
+	 * @return bool
+	 */
+	private static function pricing_payload_has_sensitive_key( $value, int $depth = 0 ): bool {
+		if ( ! is_array( $value ) || $depth > 5 ) {
+			return false;
+		}
+		foreach ( $value as $key => $nested ) {
+			$key = strtolower( (string) $key );
+			if ( 1 === preg_match( '/(?:^|_)(?:secret|password|credential|authorization|cookie|api_key|access_token|refresh_token|session_token)(?:_|$)/', $key ) ) {
+				return true;
+			}
+			if ( self::pricing_payload_has_sensitive_key( $nested, $depth + 1 ) ) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	/**
