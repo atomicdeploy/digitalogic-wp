@@ -91,9 +91,6 @@ $GLOBALS['digitalogic_test_shortcodes'] = array();
 $GLOBALS['digitalogic_test_enqueued_styles'] = array();
 $GLOBALS['digitalogic_test_enqueued_scripts'] = array();
 $GLOBALS['digitalogic_test_scheduled_events'] = array(); // phpcs:ignore -- Test-only cron registry.
-$GLOBALS['digitalogic_test_action_scheduler_actions'] = array(); // phpcs:ignore -- Test-only durable action registry.
-$GLOBALS['digitalogic_test_action_scheduler_next_id'] = 1; // phpcs:ignore -- Test-only action sequence.
-$GLOBALS['digitalogic_test_action_scheduler_available'] = false; // phpcs:ignore -- Tests opt in when Action Scheduler behavior is under test.
 $GLOBALS['digitalogic_test_schedule_failure'] = false; // phpcs:ignore -- Test-only failure control.
 // phpcs:enable Generic.Formatting.MultipleStatementAlignment
 
@@ -340,112 +337,6 @@ function wp_clear_scheduled_hook($hook, $args = array(), $wp_error = false) {
 	return $wp_error ? new WP_Error('schedule_not_found', 'schedule not found') : false;
 }
 
-function as_schedule_single_action($timestamp, $hook, $args = array(), $group = '', $unique = false, $priority = 10) {
-    unset($priority);
-    if (empty($GLOBALS['digitalogic_test_action_scheduler_available'])) {
-        return 0;
-    }
-    if (!empty($GLOBALS['digitalogic_test_schedule_failure'])) {
-        return 0;
-    }
-
-    $args = array_values((array) $args);
-    if ($unique) {
-        foreach ($GLOBALS['digitalogic_test_action_scheduler_actions'] as $action) {
-            if (
-                in_array($action['status'], array('pending', 'running'), true)
-                && $action['hook'] === (string) $hook
-                && $action['group'] === (string) $group
-                && $action['args'] === $args
-            ) {
-                return 0;
-            }
-        }
-    }
-
-    $action_id = (int) $GLOBALS['digitalogic_test_action_scheduler_next_id']++;
-    $action = array(
-        'action_id' => $action_id,
-        'timestamp' => (int) $timestamp,
-        'hook' => (string) $hook,
-        'args' => $args,
-        'group' => (string) $group,
-        'status' => 'pending',
-        'claimed' => false,
-    );
-    $GLOBALS['digitalogic_test_action_scheduler_actions'][$action_id] = $action;
-    $GLOBALS['digitalogic_test_scheduled_events'][] = array_merge($action, array('recurrence' => ''));
-
-    return $action_id;
-}
-
-function as_enqueue_async_action($hook, $args = array(), $group = '', $unique = false, $priority = 10) {
-    return as_schedule_single_action(time() + 1, $hook, $args, $group, $unique, $priority);
-}
-
-function as_unschedule_all_actions($hook, $args = array(), $group = '') {
-    if (empty($GLOBALS['digitalogic_test_action_scheduler_available'])) {
-        return 0;
-    }
-
-    $args = array_values((array) $args);
-    $removed_ids = array();
-    foreach ($GLOBALS['digitalogic_test_action_scheduler_actions'] as $action_id => $action) {
-        if (
-            $action['hook'] === (string) $hook
-            && $action['group'] === (string) $group
-            && $action['args'] === $args
-            && in_array($action['status'], array('pending', 'running'), true)
-        ) {
-            $removed_ids[] = (int) $action_id;
-            unset($GLOBALS['digitalogic_test_action_scheduler_actions'][$action_id]);
-        }
-    }
-    if (!empty($removed_ids)) {
-        $GLOBALS['digitalogic_test_scheduled_events'] = array_values(array_filter(
-            $GLOBALS['digitalogic_test_scheduled_events'],
-            static function($event) use ($removed_ids) {
-                return !isset($event['action_id']) || !in_array((int) $event['action_id'], $removed_ids, true);
-            }
-        ));
-    }
-
-    return count($removed_ids);
-}
-
-function as_get_scheduled_actions($query_args = array(), $return_format = 'OBJECT') {
-    if (empty($GLOBALS['digitalogic_test_action_scheduler_available'])) {
-        return array();
-    }
-    $matches = array();
-    foreach ($GLOBALS['digitalogic_test_action_scheduler_actions'] as $action_id => $action) {
-        if (isset($query_args['hook']) && (string) $query_args['hook'] !== $action['hook']) {
-            continue;
-        }
-        if (isset($query_args['group']) && (string) $query_args['group'] !== $action['group']) {
-            continue;
-        }
-        if (isset($query_args['status']) && (string) $query_args['status'] !== $action['status']) {
-            continue;
-        }
-        if (isset($query_args['args']) && array_values((array) $query_args['args']) !== $action['args']) {
-            continue;
-        }
-        if (isset($query_args['claimed']) && (bool) $query_args['claimed'] !== (bool) $action['claimed']) {
-            continue;
-        }
-        $matches[(int) $action_id] = $action;
-        if (!empty($query_args['per_page']) && count($matches) >= (int) $query_args['per_page']) {
-            break;
-        }
-    }
-
-    if ('ids' === $return_format) {
-        return array_keys($matches);
-    }
-
-    return array_values($matches);
-}
 // phpcs:enable
 
 function current_user_can($capability, ...$args) {
