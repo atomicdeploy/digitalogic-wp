@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.46] - 2026-08-30
+
+### Fixed
+- Add a no-cache JSON event poll under the same single-tab leader as SSE, so
+  browsers that do not dispatch long-lived EventSource messages still receive
+  currency, product, and targeted notification updates within three seconds
+  and relay them to all matching tabs through BroadcastChannel/localStorage.
+
 ## [1.8.45] - 2026-08-30
 
 ### Fixed

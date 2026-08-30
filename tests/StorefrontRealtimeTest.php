@@ -89,6 +89,25 @@ final class StorefrontRealtimeTest extends TestCase {
         $this->assertMatchesRegularExpression('/stream_user_id\(\s*\$request\s*\)/', $source);
     }
 
+    public function test_json_poll_projects_events_and_advances_the_durable_cursor(): void {
+        $GLOBALS['digitalogic_test_options']['digitalogic_panel_events'] = array(
+            array(
+                'id' => 501,
+                'name' => 'currency.updated',
+                'time' => '2026-08-30 12:30:00',
+                'data' => array(),
+            ),
+        );
+        $request = new WP_REST_Request(array('last_event_id' => 500));
+
+        $response = Digitalogic_Storefront_Realtime::instance()->poll_events($request);
+        $data = $response->get_data();
+
+        $this->assertSame(501, $data['latestEventId']);
+        $this->assertCount(1, $data['events']);
+        $this->assertSame('currency.updated', $data['events'][0]['name']);
+    }
+
     public function test_public_projection_exposes_currency_snapshot_without_internal_event_data(): void {
         $event = Digitalogic_Storefront_Realtime::project_public_event(array(
             'id' => 123,

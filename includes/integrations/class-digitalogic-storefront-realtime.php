@@ -15,6 +15,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 final class Digitalogic_Storefront_Realtime {
 
 	private const REST_ROUTE            = '/events/stream';
+	private const POLL_ROUTE            = '/events/poll';
 	private const STREAM_SECONDS        = 20;
 	private const POLL_MICROSECONDS     = 500000;
 	private const HEARTBEAT_SECONDS     = 8;
@@ -67,6 +68,15 @@ final class Digitalogic_Storefront_Realtime {
 				'permission_callback' => '__return_true',
 			)
 		);
+		register_rest_route(
+			'digitalogic/v1',
+			self::POLL_ROUTE,
+			array(
+				'methods'             => 'GET',
+				'callback'            => array( $this, 'poll_events' ),
+				'permission_callback' => '__return_true',
+			)
+		);
 	}
 
 	/**
@@ -76,6 +86,39 @@ final class Digitalogic_Storefront_Realtime {
 	 */
 	public function stream_descriptor() {
 		return new WP_REST_Response( array( 'stream' => true ), 200 );
+	}
+
+	/**
+	 * Return one bounded JSON projection as a browser compatibility fallback.
+	 *
+	 * @param WP_REST_Request $request Current poll request.
+	 * @return WP_REST_Response
+	 */
+	public function poll_events( $request ) {
+		$cursor    = $this->request_cursor( $request );
+		$user_id   = $this->stream_user_id( $request );
+		$events    = Digitalogic_Panel::get_events_since( $cursor, true );
+		$projected = array();
+		$latest    = $cursor;
+
+		foreach ( $events as $event ) {
+			$latest = max( $latest, absint( $event['id'] ?? 0 ) );
+			$public = self::project_public_event( $event, $user_id );
+			if ( null !== $public ) {
+				$projected[] = $public;
+			}
+		}
+
+		$response = new WP_REST_Response(
+			array(
+				'events'         => $projected,
+				'latestEventId'  => $latest,
+			),
+			200
+		);
+		$response->header( 'Cache-Control', 'no-cache, no-store, must-revalidate' );
+
+		return $response;
 	}
 
 	/**
@@ -127,10 +170,12 @@ final class Digitalogic_Storefront_Realtime {
 			? substr( hash_hmac( 'sha256', (string) $user_id, wp_salt( 'nonce' ) ), 0, 20 )
 			: 'guest';
 		$stream_url   = rest_url( 'digitalogic/v1' . self::REST_ROUTE );
+		$poll_url     = rest_url( 'digitalogic/v1' . self::POLL_ROUTE );
 		if ( $user_id > 0 ) {
 			// EventSource cannot set X-WP-Nonce. The query nonce lets REST cookie
 			// authentication preserve the signed-in audience for server projection.
 			$stream_url = add_query_arg( '_wpnonce', wp_create_nonce( 'wp_rest' ), $stream_url );
+			$poll_url   = add_query_arg( '_wpnonce', wp_create_nonce( 'wp_rest' ), $poll_url );
 		}
 
 		wp_localize_script(
@@ -138,6 +183,7 @@ final class Digitalogic_Storefront_Realtime {
 			'DigitalogicRealtime',
 			array(
 				'streamUrl'        => $stream_url,
+				'pollUrl'          => $poll_url,
 				'currentProductId' => $product_id,
 				'initialEventId'   => Digitalogic_Panel::get_latest_event_id(),
 				'currency'         => self::currency_snapshot(),
@@ -145,6 +191,7 @@ final class Digitalogic_Storefront_Realtime {
 				'audienceKey'      => $audience_key,
 				'currencyTtlMs'    => 6 * HOUR_IN_SECONDS * 1000,
 				'leaderTtlMs'      => 12000,
+				'pollIntervalMs'   => 3000,
 			)
 		);
 	}
