@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.33] - 2026-08-30
+
+### Fixed
+- Wake due currency jobs through WordPress core's lock-aware cron spawn instead of a hard-coded loopback TLS endpoint, after releasing the pricing mutex, and keep one exact fenced action in both Action Scheduler and WP-Cron so either provider can start work promptly when automatic cron is disabled.
+- Retry already-scheduled post-commit finalizers after the core cron lock expires and surface a bounded actionable terminal failure if the publication runner remains unreachable, without repeating repricing.
+
 ## [1.8.32] - 2026-08-30
 
 ### Fixed

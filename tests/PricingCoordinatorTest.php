@@ -46,6 +46,7 @@ final class PricingCoordinatorTest extends TestCase {
 		$GLOBALS['digitalogic_test_wc_currency']                  = 'IRT';
 		$GLOBALS['digitalogic_test_remote_posts']                 = array();
 		$GLOBALS['digitalogic_test_remote_post_results']          = array();
+		$GLOBALS['digitalogic_test_spawn_cron_calls']             = array();
 		$GLOBALS['digitalogic_test_current_user_id']              = 0;
 		$GLOBALS['digitalogic_test_posts']                        = array(
 			901 => array(
@@ -1127,11 +1128,198 @@ final class PricingCoordinatorTest extends TestCase {
 		$this->assertSame( 1, $job['dispatch_attempts'] );
 		$this->assertNotEmpty( $GLOBALS['digitalogic_test_remote_posts'] );
 		$dispatch = end( $GLOBALS['digitalogic_test_remote_posts'] );
-		$this->assertStringStartsWith( 'https://127.0.0.1/wp-cron.php?doing_wp_cron=', $dispatch['url'] );
+		$this->assertStringStartsWith( 'https://digitalogic.test/wp-cron.php?doing_wp_cron=', $dispatch['url'] );
+		$this->assertStringNotContainsString( '127.0.0.1', $dispatch['url'] );
 		$this->assertFalse( $dispatch['args']['blocking'] );
+		$this->assertSame( 0.01, $dispatch['args']['timeout'] );
 		$this->assertFalse( $dispatch['args']['sslverify'] );
-		$this->assertSame( 1.0, $dispatch['args']['timeout'] );
-		$this->assertSame( 'digitalogic.test', $dispatch['args']['headers']['Host'] );
+		$this->assertArrayNotHasKey( 'headers', $dispatch['args'] );
+		$this->assertCount( 1, $GLOBALS['digitalogic_test_spawn_cron_calls'] );
+		$spawn = $GLOBALS['digitalogic_test_spawn_cron_calls'][0];
+		$this->assertSame( $spawn['token'], (string) get_transient( 'doing_cron' ) );
+		$this->assertSame( 0, $spawn['job_lock_balance'] );
+	}
+
+	/** Action Scheduler and WP-Cron carry one exact effect identity, so either runner may wake safely. */
+	#[\PHPUnit\Framework\Attributes\RunInSeparateProcess]
+	#[\PHPUnit\Framework\Attributes\PreserveGlobalState( false )]
+	public function test_currency_admin_async_dual_schedules_one_fenced_identity(): void {
+		if ( ! function_exists( 'as_schedule_single_action' ) ) {
+			eval( // phpcs:ignore Squiz.PHP.Eval.Discouraged -- Isolated test process injects the production scheduler path.
+				'function as_schedule_single_action($timestamp, $hook, $args, $group, $unique) {'
+				. 'foreach ($GLOBALS["digitalogic_test_as_actions"] as $index => $action) {'
+				. 'if ($unique && $action["hook"] === $hook && $action["args"] === $args && $action["group"] === $group) { return $index + 1; }}'
+				. '$GLOBALS["digitalogic_test_as_actions"][] = array("timestamp" => $timestamp, "hook" => $hook, "args" => $args, "group" => $group, "unique" => $unique);'
+				. 'return count($GLOBALS["digitalogic_test_as_actions"]);}'
+			);
+		}
+		if ( ! function_exists( 'as_unschedule_all_actions' ) ) {
+			eval( // phpcs:ignore Squiz.PHP.Eval.Discouraged -- Isolated test process records exact provider cleanup.
+				'function as_unschedule_all_actions($hook, $args, $group) {'
+				. '$before = count($GLOBALS["digitalogic_test_as_actions"]);'
+				. '$GLOBALS["digitalogic_test_as_actions"] = array_values(array_filter($GLOBALS["digitalogic_test_as_actions"], '
+				. 'static fn($action) => $action["hook"] !== $hook || $action["args"] !== $args || $action["group"] !== $group));'
+				. 'return $before - count($GLOBALS["digitalogic_test_as_actions"]);}'
+			);
+		}
+		$GLOBALS['digitalogic_test_as_actions'] = array();
+
+		$async = Digitalogic_Currency_Admin_Async::instance();
+		$job   = $async->enqueue( '29501' );
+
+		$this->assertFalse( is_wp_error( $job ) );
+		$this->assertCount( 2, $GLOBALS['digitalogic_test_as_actions'] );
+		$this->assertCount( 2, $GLOBALS['digitalogic_test_scheduled_events'] );
+		$this->assertCount( 1, $GLOBALS['digitalogic_test_spawn_cron_calls'] );
+		$this->assertSame( 0, $GLOBALS['digitalogic_test_spawn_cron_calls'][0]['job_lock_balance'] );
+		$as_apply = array_values(
+			array_filter(
+				$GLOBALS['digitalogic_test_as_actions'],
+				static fn( $action ) => 'digitalogic_currency_admin_async_apply' === $action['hook']
+			)
+		);
+		$wp_apply = array_values(
+			array_filter(
+				$GLOBALS['digitalogic_test_scheduled_events'],
+				static fn( $event ) => 'digitalogic_currency_admin_async_apply' === $event['hook']
+			)
+		);
+		$this->assertCount( 1, $as_apply );
+		$this->assertCount( 1, $wp_apply );
+		$this->assertSame( $as_apply[0]['args'], $wp_apply[0]['args'] );
+		$this->assertSame( array( $job['job_id'], $job['generation'] ), $wp_apply[0]['args'] );
+		$GLOBALS['digitalogic_test_scheduled_events'] = array();
+		$this->assertTrue( $async->recover_queued_job() );
+		$this->assertCount( 2, $GLOBALS['digitalogic_test_scheduled_events'] );
+		$this->assertCount( 2, $GLOBALS['digitalogic_test_as_actions'] );
+
+		$this->assertSame( 1, digitalogic_test_run_spawned_cron() );
+		$terminal = $async->status( $job['job_id'], $job['generation'] );
+		$async->run_job( $job['job_id'], $job['generation'] );
+		$this->assertSame( 'confirmed', $terminal['status'] );
+		$this->assertSame( 1, $terminal['apply_attempts'] );
+		$this->assertSame( $terminal, $async->status( $job['job_id'], $job['generation'] ) );
+		$this->assertCount( 1, $GLOBALS['digitalogic_test_actions']['digitalogic_excel_pricing_apply_committed'] ?? array() );
+		$remaining_async_actions = array_filter(
+			$GLOBALS['digitalogic_test_as_actions'],
+			static fn( $action ) => str_starts_with( (string) $action['hook'], 'digitalogic_currency_admin_async_' )
+		);
+		$remaining_cron_events   = array_filter(
+			$GLOBALS['digitalogic_test_scheduled_events'],
+			static fn( $event ) => str_starts_with( (string) $event['hook'], 'digitalogic_currency_admin_async_' )
+		);
+		$this->assertSame( array(), array_values( $remaining_async_actions ) );
+		$this->assertSame( array(), array_values( $remaining_cron_events ) );
+	}
+
+	/** A provider dispatcher or HTTP transport failure cannot undo the durable queued job. */
+	#[\PHPUnit\Framework\Attributes\RunInSeparateProcess]
+	#[\PHPUnit\Framework\Attributes\PreserveGlobalState( false )]
+	public function test_currency_admin_async_wake_failures_are_bounded_and_best_effort(): void {
+		$GLOBALS['digitalogic_test_remote_post_results'][] = new RuntimeException( 'HTTP transport unavailable' );
+
+		$started = microtime( true );
+		$job     = Digitalogic_Currency_Admin_Async::instance()->enqueue( '29501' );
+
+		$this->assertFalse( is_wp_error( $job ) );
+		$this->assertSame( 'queued', $job['status'] );
+		$this->assertSame( 1, $job['dispatch_attempts'] );
+		$this->assertLessThan( 0.5, microtime( true ) - $started );
+		$this->assertCount( 1, $GLOBALS['digitalogic_test_remote_posts'] );
+		$this->assertNotFalse(
+			wp_next_scheduled(
+				'digitalogic_currency_admin_async_apply',
+				array( $job['job_id'], $job['generation'] )
+			)
+		);
+	}
+
+	/** A failed cron transport keeps a post-lock retry instead of exhausting attempts under the core lock. */
+	public function test_currency_admin_async_retries_after_core_cron_lock_expires(): void {
+		$GLOBALS['digitalogic_test_remote_post_results'][] = new WP_Error( 'transport_failed', 'transport failed' );
+		$async = Digitalogic_Currency_Admin_Async::instance();
+		$job   = $async->enqueue( '29501' );
+
+		$this->assertFalse( is_wp_error( $job ) );
+		$this->assertSame( 1, $job['dispatch_attempts'] );
+		$this->assertCount( 1, $GLOBALS['digitalogic_test_spawn_cron_calls'] );
+		for ( $poll = 0; $poll < 6; $poll++ ) {
+			$this->assertFalse( $async->recover_queued_job() );
+		}
+		$stored = $GLOBALS['digitalogic_test_options']['digitalogic_currency_admin_async_job'];
+		$this->assertSame( 1, $stored['dispatch_attempts'] );
+
+		delete_transient( 'doing_cron' );
+		$stored['last_dispatch_at'] = time() - 66;
+		update_option( 'digitalogic_currency_admin_async_job', $stored, false );
+		$GLOBALS['digitalogic_test_option_cache'] = array();
+
+		$this->assertTrue( $async->recover_queued_job() );
+		$this->assertCount( 2, $GLOBALS['digitalogic_test_spawn_cron_calls'] );
+		$retried = $GLOBALS['digitalogic_test_options']['digitalogic_currency_admin_async_job'];
+		$this->assertSame( 2, $retried['dispatch_attempts'] );
+		$this->assertSame( 0, $GLOBALS['digitalogic_test_spawn_cron_calls'][1]['job_lock_balance'] );
+		$this->assertSame( 1, digitalogic_test_run_spawned_cron() );
+
+		$terminal = $async->status( $job['job_id'], $job['generation'] );
+		$this->assertSame( 'confirmed', $terminal['status'] );
+		$this->assertSame( 1, $terminal['apply_attempts'] );
+		$this->assertSame( '29501', (string) $GLOBALS['digitalogic_test_options']['options_yuan_price'] );
+	}
+
+	/** A persistently unreachable runner makes an overdue queued job durably terminal, never indefinitely active. */
+	public function test_currency_admin_async_overdue_queue_fails_closed_without_cron(): void {
+		$GLOBALS['digitalogic_test_remote_post_results'][] = new WP_Error( 'transport_failed', 'transport failed' );
+		$async = Digitalogic_Currency_Admin_Async::instance();
+		$job   = $async->enqueue( '29501' );
+		$this->assertFalse( is_wp_error( $job ) );
+
+		$stored                      = $GLOBALS['digitalogic_test_options']['digitalogic_currency_admin_async_job'];
+		$stored['deadline_at']       = time() - 1;
+		$stored['dispatch_attempts'] = 6;
+		$stored['last_dispatch_at']  = time();
+		update_option( 'digitalogic_currency_admin_async_job', $stored, false );
+		$GLOBALS['digitalogic_test_option_cache'] = array();
+
+		$this->assertTrue( $async->recover_queued_job() );
+		$terminal = $async->status( $job['job_id'], $job['generation'] );
+		$this->assertSame( 'failed', $terminal['status'] );
+		$this->assertSame( 'digitalogic_currency_async_deadline_exceeded', $terminal['error_code'] );
+		$this->assertSame( '29500', (string) $GLOBALS['digitalogic_test_options']['options_yuan_price'] );
+		$this->assertSame( array(), $GLOBALS['digitalogic_test_scheduled_events'] );
+		$this->assertCount( 1, $GLOBALS['digitalogic_test_spawn_cron_calls'] );
+	}
+
+	/** An Action Scheduler-only action is not accepted when the prompt WP-Cron safety identity cannot be stored. */
+	#[\PHPUnit\Framework\Attributes\RunInSeparateProcess]
+	#[\PHPUnit\Framework\Attributes\PreserveGlobalState( false )]
+	public function test_currency_admin_async_fails_fast_when_prompt_safety_schedule_is_unavailable(): void {
+		if ( ! function_exists( 'as_schedule_single_action' ) ) {
+			eval( // phpcs:ignore Squiz.PHP.Eval.Discouraged -- Isolated test process injects a provider that cannot guarantee prompt wake alone.
+				'function as_schedule_single_action($timestamp, $hook, $args, $group, $unique) {'
+				. '$GLOBALS["digitalogic_test_as_actions"][] = array("hook" => $hook, "args" => $args, "group" => $group);'
+				. 'return count($GLOBALS["digitalogic_test_as_actions"]);}'
+			);
+		}
+		if ( ! function_exists( 'as_unschedule_all_actions' ) ) {
+			eval( // phpcs:ignore Squiz.PHP.Eval.Discouraged -- Isolated test process verifies rollback of the optional provider copy.
+				'function as_unschedule_all_actions($hook, $args, $group) {'
+				. '$GLOBALS["digitalogic_test_as_actions"] = array_values(array_filter($GLOBALS["digitalogic_test_as_actions"], '
+				. 'static fn($action) => $action["hook"] !== $hook || $action["args"] !== $args || $action["group"] !== $group));'
+				. 'return 1;}'
+			);
+		}
+		$GLOBALS['digitalogic_test_as_actions']       = array();
+		$GLOBALS['digitalogic_test_schedule_failure'] = true;
+
+		$result = Digitalogic_Currency_Admin_Async::instance()->enqueue( '29501' );
+
+		$this->assertTrue( is_wp_error( $result ) );
+		$this->assertSame( 'digitalogic_currency_async_schedule_failed', $result->get_error_code() );
+		$this->assertSame( 'failed', Digitalogic_Currency_Admin_Async::instance()->status()['status'] );
+		$this->assertSame( array(), $GLOBALS['digitalogic_test_as_actions'] );
+		$this->assertSame( '29500', (string) $GLOBALS['digitalogic_test_options']['options_yuan_price'] );
+		$this->assertSame( array(), $GLOBALS['digitalogic_test_remote_posts'] );
 	}
 
 	/** The native two-rate form queues one atomic job and never reprices in the POST request. */
@@ -2190,7 +2378,7 @@ final class PricingCoordinatorTest extends TestCase {
 		);
 	}
 
-	/** Status observes a committed marker as publishing and kicks its exact finalizer immediately. */
+	/** A due committed finalizer retries after the core cron lock and completes without repricing. */
 	public function test_currency_admin_async_status_kicks_post_commit_recovery_without_repricing(): void {
 		$async = Digitalogic_Currency_Admin_Async::instance();
 		$job   = $async->enqueue( '29501', false );
@@ -2208,12 +2396,15 @@ final class PricingCoordinatorTest extends TestCase {
 		$GLOBALS['wpdb']->acquire_result              = 1;
 		$GLOBALS['digitalogic_test_scheduled_events'] = array();
 		$GLOBALS['digitalogic_test_remote_posts']     = array();
+		$GLOBALS['digitalogic_test_spawn_cron_calls'] = array();
+		$GLOBALS['digitalogic_test_remote_post_results'][] = new WP_Error( 'transport_failed', 'transport failed' );
 		$observed                                     = $async->status( $job['job_id'], $job['generation'] );
 
 		$this->assertSame( 'publishing', $observed['status'] );
 		$this->assertSame( 90, $observed['progress'] );
 		$this->assertSame( 1, $observed['apply_attempts'] );
 		$this->assertCount( 1, $GLOBALS['digitalogic_test_remote_posts'] );
+		$this->assertCount( 1, $GLOBALS['digitalogic_test_spawn_cron_calls'] );
 		$finalizers = array_values(
 			array_filter(
 				$GLOBALS['digitalogic_test_scheduled_events'],
@@ -2222,15 +2413,96 @@ final class PricingCoordinatorTest extends TestCase {
 		);
 		$this->assertCount( 1, $finalizers );
 		$this->assertLessThanOrEqual( time() + 2, (int) $finalizers[0]['timestamp'] );
+		for ( $poll = 0; $poll < 6; $poll++ ) {
+			$this->assertTrue( $async->recover_committed_publication() );
+		}
+		$pending = $GLOBALS['digitalogic_test_options']['digitalogic_currency_admin_async_job'];
+		$this->assertSame( 1, $pending['effect_publication']['dispatch_attempts'] );
 
-		$async->finalize_job(
-			(string) $stored['job_id'],
-			(int) $stored['generation'],
-			(int) $stored['fence'],
-			(string) $stored['effect_state_revision']
-		);
+		delete_transient( 'doing_cron' );
+		$pending['effect_publication']['last_dispatch_at'] = time() - 66;
+		update_option( 'digitalogic_currency_admin_async_job', $pending, false );
+		$GLOBALS['digitalogic_test_option_cache'] = array();
+		$this->assertTrue( $async->recover_committed_publication() );
+		$this->assertCount( 2, $GLOBALS['digitalogic_test_spawn_cron_calls'] );
+		$this->assertSame( 1, digitalogic_test_run_spawned_cron() );
 		$this->assertSame( 'confirmed', $async->status( $job['job_id'], $job['generation'] )['status'] );
+		$this->assertSame( 1, $async->status( $job['job_id'], $job['generation'] )['apply_attempts'] );
 		$this->assertSame( $price_after_commit, (string) $GLOBALS['digitalogic_test_posts'][901]['meta']['_regular_price'] );
+	}
+
+	/** A persistently unreachable post-commit finalizer becomes an actionable terminal state. */
+	public function test_currency_admin_async_publication_dispatch_is_bounded_without_repricing(): void {
+		$async = Digitalogic_Currency_Admin_Async::instance();
+		$job   = $async->enqueue( '29501', false );
+		$this->assertFalse( is_wp_error( $job ) );
+		$GLOBALS['wpdb']->after_commit = static function ( $database ) {
+			$database->acquire_result = 0;
+			throw new RuntimeException( 'simulated process loss after COMMIT' );
+		};
+		$async->run_job( $job['job_id'], $job['generation'] );
+		$GLOBALS['wpdb']->acquire_result = 1;
+		$stored                           = $GLOBALS['digitalogic_test_options']['digitalogic_currency_admin_async_job'];
+		$price_after_commit               = (string) $GLOBALS['digitalogic_test_posts'][901]['meta']['_regular_price'];
+		$stored['effect_publication']['dispatch_attempts'] = 6;
+		$stored['effect_publication']['last_dispatch_at']  = time() - 66;
+		$stored['effect_publication']['next_attempt_at']   = time();
+		$GLOBALS['digitalogic_test_scheduled_events']       = array();
+		$GLOBALS['digitalogic_test_remote_posts']           = array();
+		$GLOBALS['digitalogic_test_spawn_cron_calls']       = array();
+		update_option( 'digitalogic_currency_admin_async_job', $stored, false );
+		$GLOBALS['digitalogic_test_option_cache'] = array();
+
+		$this->assertTrue( $async->recover_committed_publication() );
+		$status = $async->status( $job['job_id'], $job['generation'] );
+		$this->assertSame( 'publication_failed', $status['status'] );
+		$this->assertTrue( $status['operator_action_required'] );
+		$this->assertSame( 'digitalogic_currency_async_publication_dispatch_exhausted', $status['error_code'] );
+		$this->assertSame( 1, $status['apply_attempts'] );
+		$this->assertSame( $price_after_commit, (string) $GLOBALS['digitalogic_test_posts'][901]['meta']['_regular_price'] );
+		$this->assertSame( array(), $GLOBALS['digitalogic_test_scheduled_events'] );
+		$this->assertSame( array(), $GLOBALS['digitalogic_test_remote_posts'] );
+		$this->assertSame( array(), $GLOBALS['digitalogic_test_spawn_cron_calls'] );
+	}
+
+	/** A persistently unavailable finalizer schedule becomes terminal without repeating the committed price effect. */
+	public function test_currency_admin_async_publication_schedule_failure_is_bounded_without_repricing(): void {
+		$async = Digitalogic_Currency_Admin_Async::instance();
+		$job   = $async->enqueue( '29501', false );
+		$this->assertFalse( is_wp_error( $job ) );
+		$GLOBALS['wpdb']->after_commit = static function ( $database ) {
+			$database->acquire_result = 0;
+			throw new RuntimeException( 'simulated process loss after COMMIT' );
+		};
+		$async->run_job( $job['job_id'], $job['generation'] );
+		$GLOBALS['wpdb']->acquire_result              = 1;
+		$stored                                      = $GLOBALS['digitalogic_test_options']['digitalogic_currency_admin_async_job'];
+		$price_after_commit                          = (string) $GLOBALS['digitalogic_test_posts'][901]['meta']['_regular_price'];
+		$GLOBALS['digitalogic_test_scheduled_events'] = array();
+		$GLOBALS['digitalogic_test_remote_posts']     = array();
+		$GLOBALS['digitalogic_test_spawn_cron_calls'] = array();
+		$GLOBALS['digitalogic_test_schedule_failure'] = true;
+
+		for ( $attempt = 1; $attempt <= 6; $attempt++ ) {
+			$this->assertTrue( $async->recover_committed_publication() );
+			$stored = $GLOBALS['digitalogic_test_options']['digitalogic_currency_admin_async_job'];
+			$this->assertSame( $attempt, $stored['effect_publication']['schedule_failures'] );
+			if ( $attempt < 6 ) {
+				$stored['effect_publication']['last_schedule_failure_at'] = time() - 3;
+				update_option( 'digitalogic_currency_admin_async_job', $stored, false );
+				$GLOBALS['digitalogic_test_option_cache'] = array();
+			}
+		}
+
+		$status = $async->status( $job['job_id'], $job['generation'] );
+		$this->assertSame( 'publication_failed', $status['status'] );
+		$this->assertTrue( $status['operator_action_required'] );
+		$this->assertSame( 'digitalogic_currency_async_publication_schedule_exhausted', $status['error_code'] );
+		$this->assertSame( 1, $status['apply_attempts'] );
+		$this->assertSame( $price_after_commit, (string) $GLOBALS['digitalogic_test_posts'][901]['meta']['_regular_price'] );
+		$this->assertSame( array(), $GLOBALS['digitalogic_test_scheduled_events'] );
+		$this->assertSame( array(), $GLOBALS['digitalogic_test_remote_posts'] );
+		$this->assertSame( array(), $GLOBALS['digitalogic_test_spawn_cron_calls'] );
 	}
 
 	/** A durable report-stage failure cannot make a committed job look terminal. */
