@@ -211,6 +211,7 @@ final class Digitalogic_Storefront_Realtime {
 			header( 'X-Accel-Buffering: no' );
 			header( 'Content-Encoding: identity' );
 		}
+		$this->disable_output_buffering();
 
 		@set_time_limit( self::STREAM_SECONDS + 5 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
 		ignore_user_abort( true );
@@ -289,9 +290,26 @@ final class Digitalogic_Storefront_Realtime {
 
 	/** Flush PHP and proxy buffers after each batch. */
 	private function flush_output() {
-		if ( function_exists( 'ob_get_level' ) && ob_get_level() > 0 ) {
-			@ob_flush(); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+		while ( function_exists( 'ob_get_level' ) && ob_get_level() > 0 ) {
+			if ( ! @ob_end_flush() ) { // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+				break;
+			}
 		}
 		flush();
+	}
+
+	/** Disable PHP and Apache compression before the first streaming byte. */
+	private function disable_output_buffering() {
+		if ( function_exists( 'apache_setenv' ) ) {
+			// Required for a real-time response; the setting is request-scoped.
+			// phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged, WordPress.PHP.DiscouragedPHPFunctions.runtime_configuration_apache_setenv
+			@apache_setenv( 'no-gzip', '1' );
+		}
+		if ( function_exists( 'ini_set' ) ) {
+			// Required for a real-time response; the setting is request-scoped.
+			// phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged, WordPress.PHP.IniSet.Risky
+			@ini_set( 'zlib.output_compression', '0' );
+		}
+		$this->flush_output();
 	}
 }

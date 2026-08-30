@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.37] - 2026-08-30
+
+### Fixed
+- Drain every PHP output buffer and disable server compression before emitting the first storefront SSE frame, preventing Apache/PHP-FPM from holding live currency and product events until the bounded request closes.
+
 ## [1.8.36] - 2026-08-30
 
 ### Added
