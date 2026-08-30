@@ -426,6 +426,17 @@ final class ProductIdentitySearchTest extends TestCase {
 		$this->assertSame( 'وضعیت', apply_filters( 'rank_math/opengraph/twitter/twitter_label2', 'وضعیت' ) );
 		$this->assertSame( 'ناموجود', apply_filters( 'rank_math/opengraph/twitter/twitter_data2', 'ناموجود' ) );
 		$this->assertSame( 'Canonical unpriced product', apply_filters( 'rank_math/opengraph/twitter/twitter_title', 'Canonical unpriced product' ) );
+		$slack_data = apply_filters(
+			'rank_math/opengraph/slack_enhanced_data',
+			array(
+				__( 'Price', 'seo-by-rank-math' )        => '0&nbsp;تومان',
+				__( 'Availability', 'seo-by-rank-math' ) => '<span>ناموجود</span>',
+			)
+		);
+		$this->assertSame(
+			array( __( 'Availability', 'seo-by-rank-math' ) => '<span>ناموجود</span>' ),
+			$slack_data
+		);
 		$entity = $identity->add_product_schema_identity(
 			array(
 				'@type'  => 'Product',
@@ -447,6 +458,14 @@ final class ProductIdentitySearchTest extends TestCase {
 		$GLOBALS['product'] = wc_get_product( 18 );
 		$this->assertSame( '125000', apply_filters( 'rank_math/woocommerce/og_price', '125000' ) );
 		$this->assertSame( '1,250,000 ریال', apply_filters( 'rank_math/opengraph/twitter/twitter_data1', '1,250,000 ریال' ) );
+		$priced_slack_data = array(
+			__( 'Price', 'seo-by-rank-math' )        => '1,250,000 ریال',
+			__( 'Availability', 'seo-by-rank-math' ) => 'موجود',
+		);
+		$this->assertSame(
+			$priced_slack_data,
+			apply_filters( 'rank_math/opengraph/slack_enhanced_data', $priced_slack_data )
+		);
 		// phpcs:enable WordPress.NamingConventions.ValidHookName.UseUnderscores
 	}
 

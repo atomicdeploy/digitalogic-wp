@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.48] - 2026-08-31
+
+### Fixed
+- Remove the translated Rank Math Slack-enhanced price field that generates
+  Twitter `label1`/`data1` metadata for canonical unpriced products, while
+  preserving availability and all normal metadata for priced products.
+
 ## [1.8.47] - 2026-08-31
 
 ### Fixed
