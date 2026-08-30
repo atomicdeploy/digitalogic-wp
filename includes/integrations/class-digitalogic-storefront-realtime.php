@@ -217,9 +217,6 @@ final class Digitalogic_Storefront_Realtime {
 		@set_time_limit( self::STREAM_SECONDS + 5 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
 		ignore_user_abort( true );
 
-		// Cross common FastCGI/proxy response-buffer thresholds before the first flush.
-		echo ': ' . str_repeat( ' ', self::INITIAL_PADDING_BYTES ) . "\n\n"; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
-
 		$cursor = $this->request_cursor( $request );
 		$latest = Digitalogic_Panel::get_latest_event_id();
 		if ( 0 === $cursor || $cursor > $latest ) {
@@ -238,23 +235,30 @@ final class Digitalogic_Storefront_Realtime {
 		}
 
 		echo "retry: 1500\n\n"; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+		$this->write_padding();
 		$this->flush_output();
 		$deadline       = microtime( true ) + self::STREAM_SECONDS;
 		$last_heartbeat = microtime( true );
 
 		while ( ! connection_aborted() && microtime( true ) < $deadline ) {
-			$events = Digitalogic_Panel::get_events_since( $cursor );
+			$wrote_frame = false;
+			$events      = Digitalogic_Panel::get_events_since( $cursor );
 			foreach ( $events as $event ) {
 				$cursor = max( $cursor, absint( $event['id'] ?? 0 ) );
 				$public = self::project_public_event( $event );
-				if ( null !== $public ) {
-					$this->write_event( $public );
+				if ( null !== $public && $this->write_event( $public ) ) {
+					$wrote_frame = true;
 				}
 			}
 
 			if ( microtime( true ) - $last_heartbeat >= self::HEARTBEAT_SECONDS ) {
 				echo ': heartbeat ' . time() . "\n\n"; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
 				$last_heartbeat = microtime( true );
+				$wrote_frame    = true;
+			}
+
+			if ( $wrote_frame ) {
+				$this->write_padding();
 			}
 
 			$this->flush_output();
@@ -281,15 +285,23 @@ final class Digitalogic_Storefront_Realtime {
 	 * Write one JSON event without allowing newline injection.
 	 *
 	 * @param array $event Public event envelope.
+	 * @return bool Whether an event frame was written.
 	 */
 	private function write_event( $event ) {
 		$payload = wp_json_encode( $event );
 		if ( ! is_string( $payload ) ) {
-			return;
+			return false;
 		}
 
 		echo 'id: ' . absint( $event['id'] ?? 0 ) . "\n"; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
 		echo 'data: ' . str_replace( array( "\r", "\n" ), '', $payload ) . "\n\n"; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+
+		return true;
+	}
+
+	/** Cross common FastCGI/proxy thresholds after meaningful SSE frames. */
+	private function write_padding() {
+		echo ': ' . str_repeat( ' ', self::INITIAL_PADDING_BYTES ) . "\n\n"; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
 	}
 
 	/** Flush PHP and proxy buffers after each batch. */
