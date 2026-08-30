@@ -177,13 +177,15 @@ final class ExcelPricingSyncTest extends TestCase {
 		$this->assertSame( 200, $response->get_status() );
 		$state = $response->get_data();
 		$this->assertSame(
-			array( 'schema', 'state_revision', 'capabilities', 'generated_at', 'source', 'client_id', 'channel', 'request_id', 'warnings', 'confirmation', 'settings', 'currency', 'profit_margin', 'price_rounding', 'shipping', 'attribute_owners', 'catalog' ),
+			array( 'schema', 'state_revision', 'capabilities', 'diagnostics', 'generated_at', 'source', 'client_id', 'channel', 'request_id', 'warnings', 'confirmation', 'settings', 'currency', 'profit_margin', 'price_rounding', 'shipping', 'attribute_owners', 'catalog' ),
 			array_keys( $state )
 		);
 		$this->assertSame( Digitalogic_Excel_Pricing_Sync::STATE_SCHEMA, $state['schema'] );
 		$this->assertStringStartsWith( 'sha256:', $state['state_revision'] );
 		$this->assertSame( array( 'events', 'conditional_request', 'polling' ), $state['capabilities']['recovery_order'] );
 		$this->assertSame( 5, $state['capabilities']['polling']['max_attempts'] );
+		$this->assertSame( 'capability_incremental_sync_unavailable', $state['diagnostics'][0]['code'] );
+		$this->assertFalse( $state['diagnostics'][0]['blocking'] );
 		$this->assertSame(
 			array(
 				'id'                       => $this->source['id'],

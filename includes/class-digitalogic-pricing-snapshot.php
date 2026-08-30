@@ -225,7 +225,7 @@ final class Digitalogic_Pricing_Snapshot {
 			'locale'                  => $locale,
 			'page_size'               => $page_size,
 			'capabilities'            => $this->capabilities(),
-			'diagnostics'             => array(),
+			'diagnostics'             => Digitalogic_Pricing_Adapter_Registry::instance()->diagnostics(),
 		);
 		$headers = array(
 			'ETag'          => $etag,
@@ -626,6 +626,8 @@ final class Digitalogic_Pricing_Snapshot {
 			'mutation_guard'          => $meta['mutation_guard'],
 			'settings'                => $meta['settings'],
 			'reconciliation'          => $meta['reconciliation'],
+			'capabilities'            => $this->capabilities(),
+			'diagnostics'             => Digitalogic_Pricing_Adapter_Registry::instance()->diagnostics(),
 			'columns'                 => $meta['columns'],
 			'rows'                    => array_values( $rows ),
 			'pagination'              => array(
@@ -3909,7 +3911,7 @@ final class Digitalogic_Pricing_Snapshot {
 			'settings'                => $meta['settings'],
 			'reconciliation'          => $meta['reconciliation'],
 			'capabilities'            => $this->capabilities(),
-			'diagnostics'             => array(),
+			'diagnostics'             => Digitalogic_Pricing_Adapter_Registry::instance()->diagnostics(),
 			'catalog'                 => array(
 				'dataset'          => 'reconciled_products',
 				'locale'           => $meta['locale'],
@@ -4347,19 +4349,19 @@ final class Digitalogic_Pricing_Snapshot {
 
 	/** Create a stable machine-readable error. */
 	private function error( $code, $message, $status, $retryable, $details = array(), $retry_after = null ) {
-		$data = array(
-			'status'          => (int) $status,
-			'severity'        => 'error',
-			'blocking'        => ! $retryable,
-			'reason'          => (string) $message,
-			'retryable'       => (bool) $retryable,
-			'recovery_action' => $retryable ? 'retry_after_delay' : 'refresh_or_review_input',
-			'details'         => is_array( $details ) ? $details : array(),
-		);
 		if ( null !== $retry_after ) {
-			$data['retry_after'] = max( 1, (int) $retry_after );
+			$details['retry_after'] = max( 1, (int) $retry_after );
 		}
 
-		return new WP_Error( $code, $message, $data );
+		return Digitalogic_Pricing_Diagnostic::error(
+			$code,
+			$message,
+			$status,
+			$retryable,
+			$retryable ? 'retry_after_delay' : 'refresh_or_review_input',
+			$details,
+			true,
+			'error'
+		);
 	}
 }

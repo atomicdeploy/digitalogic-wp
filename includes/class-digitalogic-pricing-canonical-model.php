@@ -169,18 +169,13 @@ final class Digitalogic_Pricing_Canonical_Model {
 	}
 
 	private static function error( $code, $reason, $field ) {
-		return new WP_Error(
+		return Digitalogic_Pricing_Diagnostic::error(
 			$code,
 			$reason,
-			array(
-				'status'          => 400,
-				'severity'        => 'error',
-				'blocking'        => true,
-				'retryable'       => false,
-				'reason'          => $reason,
-				'recovery_action' => 'correct_' . str_replace( '.', '_', $field ),
-				'field'           => $field,
-			)
+			400,
+			false,
+			'correct_' . str_replace( '.', '_', $field ),
+			array( 'field' => $field )
 		);
 	}
 }
@@ -232,13 +227,27 @@ final class Digitalogic_Patris_Pricing_Provider_Adapter implements Digitalogic_P
 	public function authorize( WP_REST_Request $request, $source = null ) {
 		$feed = Digitalogic_Patris_Feed::instance();
 		if ( empty( $feed->get_product_sync_source_scopes() ) ) {
-			return new WP_Error( 'digitalogic_pricing_scope_required', 'An exact provider source scope is required.', array( 'status' => 403 ) );
+			return Digitalogic_Pricing_Diagnostic::error(
+				'digitalogic_pricing_scope_required',
+				'An exact provider source scope is required.',
+				403,
+				false,
+				'configure_provider_source_scope'
+			);
 		}
 		$allowed = is_array( $source )
 			? $feed->verify_product_sync_request_for_source( $request, $source, false )
 			: $feed->verify_product_sync_request( $request );
 
-		return $allowed ? true : new WP_Error( 'digitalogic_pricing_unauthorized', 'The provider credential or source scope is invalid.', array( 'status' => 401 ) );
+		return $allowed
+			? true
+			: Digitalogic_Pricing_Diagnostic::error(
+				'digitalogic_pricing_unauthorized',
+				'The provider credential or source scope is invalid.',
+				401,
+				false,
+				'provide_valid_scoped_credential'
+			);
 	}
 
 	public function scopes() {
@@ -264,13 +273,12 @@ final class Digitalogic_Patris_Pricing_Provider_Adapter implements Digitalogic_P
 			|| ! hash_equals( $source['dataset'], $current['dataset'] )
 			|| 1 !== preg_match( '/\Asha256:[a-f0-9]{64}\z/D', $current['revision'] )
 		) {
-			return new WP_Error(
+			return Digitalogic_Pricing_Diagnostic::error(
 				'digitalogic_pricing_source_scope_conflict',
 				'The materialized source identity is unavailable or ambiguous.',
-				array(
-					'status'   => 409,
-					'blocking' => true,
-				)
+				409,
+				false,
+				'refresh_canonical_source_identity'
 			);
 		}
 		$submitted = '' !== $source['revision'] ? $source['revision'] : $current['revision'];
@@ -483,16 +491,13 @@ final class Digitalogic_Excel_Pricing_Consumer_Adapter implements Digitalogic_Pr
 	}
 
 	private function schema_error() {
-		return new WP_Error(
+		return Digitalogic_Pricing_Diagnostic::error(
 			'digitalogic_pricing_snapshot_projection_schema_invalid',
 			'The canonical catalog cannot satisfy the consumer projection.',
+			503,
+			false,
+			'repair_consumer_projection',
 			array(
-				'status'          => 503,
-				'severity'        => 'error',
-				'blocking'        => true,
-				'retryable'       => false,
-				'reason'          => 'A required consumer field is missing or ambiguous.',
-				'recovery_action' => 'repair_consumer_projection',
 				'required_fields' => self::FIELDS,
 			)
 		);
@@ -553,5 +558,26 @@ final class Digitalogic_Pricing_Adapter_Registry {
 			$this->store->capabilities(),
 			$this->consumer->capabilities()
 		);
+	}
+
+	public function diagnostics() {
+		$capabilities = $this->capabilities();
+		$diagnostics  = array();
+		foreach ( array( 'revision', 'conditional_request', 'etag', 'incremental_sync', 'events', 'delete_tracking' ) as $capability ) {
+			if ( ! empty( $capabilities[ $capability ] ) ) {
+				continue;
+			}
+			$diagnostics[] = Digitalogic_Pricing_Diagnostic::make(
+				'capability_' . $capability . '_unavailable',
+				'info',
+				false,
+				'The optional ' . $capability . ' capability is unavailable.',
+				false,
+				'follow_' . implode( '_then_', $capabilities['recovery_order'] ),
+				array( 'capability' => $capability )
+			);
+		}
+
+		return $diagnostics;
 	}
 }

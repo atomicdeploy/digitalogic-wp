@@ -120,6 +120,9 @@ final class Digitalogic_Pricing_Diagnostic {
 	public static function error( $code, $reason, $status, $retryable, $recovery_action, $details = array(), $blocking = true, $severity = 'error' ) {
 		$diagnostic           = self::make( $code, $severity, $blocking, $reason, $retryable, $recovery_action, $details );
 		$diagnostic['status'] = max( 400, min( 599, (int) $status ) );
+		if ( is_array( $details ) && isset( $details['retry_after'] ) ) {
+			$diagnostic['retry_after'] = max( 1, (int) $details['retry_after'] );
+		}
 
 		return new WP_Error( $diagnostic['code'], $diagnostic['reason'], $diagnostic );
 	}

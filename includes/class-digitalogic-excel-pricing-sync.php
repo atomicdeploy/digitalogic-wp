@@ -753,6 +753,7 @@ final class Digitalogic_Excel_Pricing_Sync {
 			'schema'             => self::STATE_SCHEMA,
 			'state_revision'     => $globals['state_revision'],
 			'capabilities'       => Digitalogic_Pricing_Adapter_Registry::instance()->capabilities(),
+			'diagnostics'        => Digitalogic_Pricing_Adapter_Registry::instance()->diagnostics(),
 			'generated_at'       => $this->now_iso8601(),
 			'source'             => $source_context,
 			'client_id'          => $payload['client_id'],
@@ -4592,17 +4593,16 @@ final class Digitalogic_Excel_Pricing_Sync {
 	 * @return array
 	 */
 	private function warning( $code, $message_fa, $severity, $details = array() ) {
-		$warning = array(
-			'code'            => $code,
-			'severity'        => $severity,
-			'blocking'        => false,
-			'retryable'       => false,
-			'recovery_action' => 'continue_with_reduced_assurance',
-			'message_fa'      => $message_fa,
+		$warning               = Digitalogic_Pricing_Diagnostic::make(
+			$code,
+			'info' === $severity ? 'info' : 'warning',
+			false,
+			$message_fa,
+			false,
+			'continue_with_reduced_assurance',
+			$details
 		);
-		if ( $details ) {
-			$warning['details'] = $details;
-		}
+		$warning['message_fa'] = $message_fa;
 
 		return $warning;
 	}
@@ -4732,20 +4732,20 @@ final class Digitalogic_Excel_Pricing_Sync {
 	 * @return WP_Error
 	 */
 	private function error( $code, $message, $status, $details = array() ) {
-		return new WP_Error(
+		$retryable = ! empty( $details['retryable'] );
+		$recovery  = is_string( $details['recovery_action'] ?? null )
+			? $details['recovery_action']
+			: ( $retryable ? 'retry_after_delay' : 'refresh_or_review_input' );
+
+		return Digitalogic_Pricing_Diagnostic::error(
 			$code,
 			$message,
-			array_merge(
-				array(
-					'status'          => $status,
-					'severity'        => 'error',
-					'blocking'        => true,
-					'reason'          => (string) $message,
-					'retryable'       => false,
-					'recovery_action' => 'refresh_or_review_input',
-				),
-				$details
-			)
+			$status,
+			$retryable,
+			$recovery,
+			$details,
+			true,
+			'error'
 		);
 	}
 }
