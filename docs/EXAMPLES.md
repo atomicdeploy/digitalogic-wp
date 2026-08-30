@@ -292,10 +292,12 @@ curl -X POST \
 wp digitalogic currency get
 
 # Update rates
-wp digitalogic currency update --usd=42000 --cny=6000
+wp digitalogic currency update --usd=42000 --cny=6000 --request-id=ops-currency-20260830-001
 
 # Update and recalculate all prices
-wp digitalogic currency update --usd=42500 --recalculate
+wp digitalogic currency update --usd=42500 --recalculate --request-id=ops-currency-20260830-002
+wp digitalogic currency status --request-id=ops-currency-20260830-002
+wp digitalogic currency cancel --request-id=ops-currency-20260830-002
 ```
 
 ### Product Operations

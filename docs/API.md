@@ -402,3 +402,5 @@ WebSocket configuration without network serialization.
 
 See [Laravel Panel Interoperability](LARAVEL-PANEL.md) for the application path
 and bootstrap contract.
+
+Currency mutation endpoints are bounded jobs. Remote callers must pair the body `request_id` with `Idempotency-Key`, and pair `expected_state_revision` with quoted `If-Match`. Exact status and cooperative cancellation are available by `job_id` plus `generation`, or by the original `request_id`; see [CURRENCY-UPDATE-JOBS.md](CURRENCY-UPDATE-JOBS.md).

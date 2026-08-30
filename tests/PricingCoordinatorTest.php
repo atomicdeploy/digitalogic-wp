@@ -1531,8 +1531,12 @@ final class PricingCoordinatorTest extends TestCase {
 				array(
 					'yuan_price'              => '29501',
 					'expected_state_revision' => $state['state_revision'],
+					'request_id'              => 'rest-currency-0001',
 				),
-				array( 'If-Match' => '"' . $state['state_revision'] . '"' )
+				array(
+					'If-Match'       => '"' . $state['state_revision'] . '"',
+					'Idempotency-Key' => 'rest-currency-0001',
+				)
 			)
 		);
 
@@ -1583,8 +1587,14 @@ final class PricingCoordinatorTest extends TestCase {
 		$response                                     = Digitalogic_REST_API::instance()->recalculate_prices(
 			new WP_REST_Request(
 				array(),
-				array( 'expected_state_revision' => $state['state_revision'] ),
-				array( 'If-Match' => '"' . $state['state_revision'] . '"' )
+				array(
+					'expected_state_revision' => $state['state_revision'],
+					'request_id'              => 'rest-reconcile-0001',
+				),
+				array(
+					'If-Match'        => '"' . $state['state_revision'] . '"',
+					'Idempotency-Key' => 'rest-reconcile-0001',
+				)
 			)
 		);
 
@@ -1593,6 +1603,128 @@ final class PricingCoordinatorTest extends TestCase {
 		$this->assertSame( 'reconcile', $response->get_data()['data']['mode'] );
 		$this->assertSame( '29500', (string) $GLOBALS['digitalogic_test_options']['options_yuan_price'] );
 		$this->assertSame( array(), $GLOBALS['digitalogic_test_wc_product_saves'] );
+	}
+
+	/** An exact request identity replays its terminal before stale-state checks. */
+	public function test_currency_admin_async_request_id_replays_terminal_without_second_effect(): void {
+		$async = Digitalogic_Currency_Admin_Async::instance();
+		$state = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
+		$first = $async->enqueue_currency(
+			array( 'yuan_price' => '29501' ),
+			false,
+			false,
+			(string) $state['state_revision'],
+			'test',
+			'currency-replay-0001'
+		);
+		$this->assertFalse( is_wp_error( $first ) );
+		$async->run_job( $first['job_id'], $first['generation'] );
+		$terminal = $async->status_by_request( 'currency-replay-0001' );
+		$this->assertSame( 'confirmed', $terminal['status'] );
+		$price_after = (string) $GLOBALS['digitalogic_test_posts'][901]['meta']['_regular_price'];
+
+		$replay = $async->enqueue_currency(
+			array( 'yuan_price' => '29501' ),
+			false,
+			false,
+			(string) $state['state_revision'],
+			'retry_transport',
+			'currency-replay-0001'
+		);
+
+		$this->assertFalse( is_wp_error( $replay ) );
+		$this->assertTrue( $replay['replayed'] );
+		$this->assertSame( $first['job_id'], $replay['job_id'] );
+		$this->assertSame( 1, $replay['apply_attempts'] );
+		$this->assertSame( $price_after, (string) $GLOBALS['digitalogic_test_posts'][901]['meta']['_regular_price'] );
+	}
+
+	/** Reusing an idempotency identity for another intent fails closed. */
+	public function test_currency_admin_async_request_id_conflict_is_blocking(): void {
+		$async = Digitalogic_Currency_Admin_Async::instance();
+		$state = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
+		$first = $async->enqueue_currency(
+			array( 'yuan_price' => '29501' ), false, false, (string) $state['state_revision'], 'test', 'currency-conflict-0001'
+		);
+		$this->assertFalse( is_wp_error( $first ) );
+
+		$conflict = $async->enqueue_currency(
+			array( 'yuan_price' => '29502' ), false, false, (string) $state['state_revision'], 'test', 'currency-conflict-0001'
+		);
+
+		$this->assertTrue( is_wp_error( $conflict ) );
+		$this->assertSame( 'digitalogic_currency_async_request_id_conflict', $conflict->get_error_code() );
+		$this->assertTrue( $conflict->get_error_data()['blocking'] );
+	}
+
+	/** Queued cancellation is immediate, durable, idempotent, and effect-free. */
+	public function test_currency_admin_async_queued_cancel_is_durable_and_idempotent(): void {
+		$async = Digitalogic_Currency_Admin_Async::instance();
+		$state = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
+		$job   = $async->enqueue_currency(
+			array( 'yuan_price' => '29501' ), false, false, (string) $state['state_revision'], 'test', 'currency-cancel-0001'
+		);
+		$this->assertSame( 'queued', $job['status'] );
+
+		$cancelled = $async->cancel( '', 0, 'currency-cancel-0001' );
+		$replayed  = $async->cancel( '', 0, 'currency-cancel-0001' );
+
+		$this->assertSame( 'cancelled', $cancelled['status'] );
+		$this->assertSame( 'digitalogic_currency_async_cancelled', $cancelled['error_code'] );
+		$this->assertFalse( $cancelled['cancellable'] );
+		$this->assertSame( 'cancelled', $replayed['status'] );
+		$this->assertTrue( $replayed['replayed'] );
+		$this->assertSame( '29500', (string) $GLOBALS['digitalogic_test_options']['options_yuan_price'] );
+		$this->assertSame( array(), $GLOBALS['digitalogic_test_scheduled_events'] );
+	}
+
+	/** A running cancellation is observed by the transactional fence and rolls back. */
+	public function test_currency_admin_async_running_cancel_rolls_back_before_effect(): void {
+		$async = Digitalogic_Currency_Admin_Async::instance();
+		$state = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
+		$job   = $async->enqueue_currency(
+			array( 'yuan_price' => '29501' ), false, false, (string) $state['state_revision'], 'test', 'currency-cancel-running-0001'
+		);
+		add_action(
+			'digitalogic_currency_async_worker_claimed',
+			static function () use ( $async ) {
+				$result = $async->cancel( '', 0, 'currency-cancel-running-0001' );
+				$GLOBALS['digitalogic_test_running_cancel'] = $result;
+			}
+		);
+
+		$async->run_job( $job['job_id'], $job['generation'] );
+		$status = $async->status_by_request( 'currency-cancel-running-0001' );
+
+		$this->assertSame( 'cancelling', $GLOBALS['digitalogic_test_running_cancel']['status'] );
+		$this->assertSame( 'cancelled', $status['status'] );
+		$this->assertSame( '29500', (string) $GLOBALS['digitalogic_test_options']['options_yuan_price'] );
+		$this->assertContains( 'ROLLBACK', $GLOBALS['wpdb']->queries );
+	}
+
+	/** Historical request aliases remain immutable after a successor is admitted. */
+	public function test_currency_admin_async_historical_request_replays_after_successor(): void {
+		$async = Digitalogic_Currency_Admin_Async::instance();
+		$state = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
+		$first = $async->enqueue_currency(
+			array( 'yuan_price' => '29501' ), false, false, (string) $state['state_revision'], 'test', 'currency-history-0001'
+		);
+		$async->run_job( $first['job_id'], $first['generation'] );
+		$next_state = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
+		$second     = $async->enqueue_currency(
+			array( 'yuan_price' => '29502' ), false, false, (string) $next_state['state_revision'], 'test', 'currency-history-0002'
+		);
+		$this->assertSame( 'queued', $second['status'] );
+
+		$historical = $async->status_by_request( 'currency-history-0001' );
+		$replay     = $async->enqueue_currency(
+			array( 'yuan_price' => '29501' ), false, false, (string) $state['state_revision'], 'retry', 'currency-history-0001'
+		);
+
+		$this->assertSame( 'confirmed', $historical['status'] );
+		$this->assertTrue( $historical['replayed'] );
+		$this->assertSame( $first['job_id'], $replay['job_id'] );
+		$this->assertSame( $second['job_id'], $async->status()['job_id'] );
 	}
 
 	/** A stale native page cannot overwrite a newer canonical pricing revision. */

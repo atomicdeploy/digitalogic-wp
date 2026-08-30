@@ -22,6 +22,7 @@ final class Digitalogic_Currency_Admin_Async {
 	private const MAX_APPLY_ATTEMPTS             = 6;
 	private const MAX_DISPATCH_ATTEMPTS          = 6;
 	private const MAX_PUBLICATION_ATTEMPTS       = 6;
+	private const MAX_REQUEST_ALIASES            = 32;
 	private const DISPATCH_RETRY_SECONDS         = 65;
 	private const PUBLICATION_RETRY_BASE_SECONDS = 2;
 	private const PUBLICATION_RETRY_MAX_SECONDS  = 60;
@@ -77,6 +78,7 @@ final class Digitalogic_Currency_Admin_Async {
 		add_action( 'admin_notices', array( $this, 'render_admin_issue' ) );
 		add_action( 'wp_ajax_digitalogic_currency_async_submit', array( $this, 'ajax_submit' ) );
 		add_action( 'wp_ajax_digitalogic_currency_async_status', array( $this, 'ajax_status' ) );
+		add_action( 'wp_ajax_digitalogic_currency_async_cancel', array( $this, 'ajax_cancel' ) );
 		add_action( self::APPLY_HOOK, array( $this, 'run_job' ), 10, 2 );
 		add_action( self::FINALIZE_HOOK, array( $this, 'finalize_job' ), 10, 4 );
 		add_action( self::WATCHDOG_HOOK, array( $this, 'run_watchdog' ), 10, 3 );
@@ -283,8 +285,9 @@ final class Digitalogic_Currency_Admin_Async {
 			return;
 		}
 		printf(
-			'<input type="hidden" name="digitalogic_pricing_state_revision" value="%s">',
-			esc_attr( (string) $state['state_revision'] )
+			'<input type="hidden" name="digitalogic_pricing_state_revision" value="%1$s"><input type="hidden" name="digitalogic_currency_request_id" value="%2$s">',
+			esc_attr( (string) $state['state_revision'] ),
+			esc_attr( 'acf:' . wp_generate_uuid4() )
 		);
 	}
 
@@ -320,7 +323,14 @@ final class Digitalogic_Currency_Admin_Async {
 			return;
 		}
 
-		$result = $this->enqueue_currency( $values, true, false, $expected_revision, 'acf_admin' );
+		$result = $this->enqueue_currency(
+			$values,
+			true,
+			false,
+			$expected_revision,
+			'acf_admin',
+			sanitize_text_field( wp_unslash( $_POST['digitalogic_currency_request_id'] ?? '' ) ) // phpcs:ignore WordPress.Security.NonceVerification.Missing -- ACF verifies its form nonce before this save hook.
+		);
 		if ( is_wp_error( $result ) ) {
 			$this->report_issue( $result, 'acf_semantic_route' );
 		}
@@ -362,7 +372,14 @@ final class Digitalogic_Currency_Admin_Async {
 			return $old_value;
 		}
 
-		$result = $this->enqueue_currency( array( $currency => $value ), true, false, $expected_revision, 'option_fail_safe' );
+		$result = $this->enqueue_currency(
+			array( $currency => $value ),
+			true,
+			false,
+			$expected_revision,
+			'option_fail_safe',
+			sanitize_text_field( wp_unslash( $_POST['digitalogic_currency_request_id'] ?? '' ) ) // phpcs:ignore WordPress.Security.NonceVerification.Missing -- ACF verifies its form nonce before option persistence.
+		);
 		if ( is_wp_error( $result ) ) {
 			$this->report_issue( $result, 'option_fail_safe' );
 		}
@@ -401,9 +418,10 @@ final class Digitalogic_Currency_Admin_Async {
 	 * @param bool   $reconcile         Explicitly reprice only when every submitted rate is already current.
 	 * @param string $expected_revision Exact canonical revision seen by the submitting surface.
 	 * @param string $source            Bounded internal source label.
+	 * @param string $request_id        Optional explicit idempotency identity.
 	 * @return array|WP_Error Public job projection or error.
 	 */
-	public function enqueue_currency( array $values, $dispatch = true, $reconcile = false, $expected_revision = '', $source = 'admin' ) {
+	public function enqueue_currency( array $values, $dispatch = true, $reconcile = false, $expected_revision = '', $source = 'admin', $request_id = '' ) {
 		$allowed = array( 'dollar_price', 'yuan_price', 'effective_date', 'usd_effective_date', 'cny_effective_date' );
 		if ( ! $values || array_diff( array_keys( $values ), $allowed ) ) {
 			return new WP_Error(
@@ -464,17 +482,36 @@ final class Digitalogic_Currency_Admin_Async {
 				)
 			);
 		}
-		$source = sanitize_key( (string) $source );
-		$source = '' === $source ? 'admin' : substr( $source, 0, 64 );
+		$source     = sanitize_key( (string) $source );
+		$source     = '' === $source ? 'admin' : substr( $source, 0, 64 );
+		$request_id = $this->normalize_request_id( $request_id );
+		if ( is_wp_error( $request_id ) ) {
+			return $request_id;
+		}
 
-		$reconcile   = true === $reconcile;
-		$should_wake = false;
-		$result      = $this->with_job_lock(
-			function () use ( $desired, $dispatch, $reconcile, $expected_revision, $source, &$should_wake ) {
+		$reconcile           = true === $reconcile;
+		$request_fingerprint = 'sha256:' . hash(
+			'sha256',
+			(string) wp_json_encode(
+				array(
+					'desired_currency'        => $desired,
+					'expected_state_revision' => $expected_revision,
+					'mode'                    => $reconcile ? 'reconcile' : 'apply',
+				),
+				JSON_UNESCAPED_SLASHES
+			)
+		);
+		$should_wake         = false;
+		$result              = $this->with_job_lock(
+			function () use ( $desired, $dispatch, $reconcile, $expected_revision, $source, $request_id, $request_fingerprint, &$should_wake ) {
 				$now             = time();
 				$existing        = $this->raw_job();
 				$existing_status = (string) ( $existing['status'] ?? '' );
-				$active          = in_array( $existing_status, array( 'queued', 'running' ), true )
+				$replayed        = $this->replay_request_open_lock( $existing, $request_id, $request_fingerprint );
+				if ( null !== $replayed ) {
+					return $replayed;
+				}
+				$active = in_array( $existing_status, array( 'queued', 'running' ), true )
 					&& (int) ( $existing['deadline_at'] ?? 0 ) >= $now;
 				if ( ! $active && 'running' === $existing_status ) {
 					$marker = (string) ( $existing['effect_state_revision'] ?? '' );
@@ -524,8 +561,16 @@ final class Digitalogic_Currency_Admin_Async {
 					if ( $dispatch && 'queued' === $existing_status ) {
 						$should_wake = $this->wake_worker_open_lock( $existing );
 					}
+					if ( '' !== $request_id ) {
+						$expected = $existing;
+						$this->attach_request_alias( $existing, $request_id, $request_fingerprint );
+						$stored = $this->store_job_open_lock( $existing, $expected );
+						if ( is_wp_error( $stored ) ) {
+							return $stored;
+						}
+					}
 
-					return $this->public_job( $existing );
+					return $this->public_job_for_request( $existing, $request_id );
 				}
 
 				$state = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
@@ -574,6 +619,7 @@ final class Digitalogic_Currency_Admin_Async {
 
 				$generation = max( 0, (int) ( $existing['generation'] ?? 0 ) ) + 1;
 				$same       = ! $reconcile && ! $mismatch;
+				$aliases    = $this->carry_request_aliases( $existing );
 				$job        = array(
 					'job_id'                  => $this->random_token( 16 ),
 					'generation'              => $generation,
@@ -602,7 +648,14 @@ final class Digitalogic_Currency_Admin_Async {
 					'fence_token'             => '',
 					'fence'                   => 0,
 					'lease_until'             => 0,
+					'cancel_requested'        => false,
+					'cancel_requested_at'     => 0,
+					'primary_request_id'      => $request_id,
+					'request_aliases'         => $aliases,
 				);
+				if ( '' !== $request_id ) {
+					$this->attach_request_alias( $job, $request_id, $request_fingerprint );
+				}
 
 				$stored = $this->store_job_open_lock( $job, $existing );
 				if ( is_wp_error( $stored ) ) {
@@ -611,7 +664,7 @@ final class Digitalogic_Currency_Admin_Async {
 				if ( $same ) {
 					$this->unschedule_job( $job );
 
-					return $this->public_job( $job );
+					return $this->public_job_for_request( $job, $request_id );
 				}
 
 				if ( ! $this->schedule_action( self::APPLY_HOOK, $now, $this->apply_args( $job ) ) ) {
@@ -634,7 +687,7 @@ final class Digitalogic_Currency_Admin_Async {
 					$should_wake = $this->wake_worker_open_lock( $job );
 				}
 
-				return $this->public_job( $job );
+				return $this->public_job_for_request( $job, $request_id );
 			}
 		);
 		if ( $should_wake ) {
@@ -840,7 +893,7 @@ final class Digitalogic_Currency_Admin_Async {
 				}
 				$publication['schedule_failures']        = 0;
 				$publication['last_schedule_failure_at'] = 0;
-				$now = time();
+				$now                                     = time();
 				if (
 					'published' !== (string) ( $publication['status'] ?? '' )
 					&& (int) ( $publication['next_attempt_at'] ?? 0 ) > $now
@@ -1043,6 +1096,20 @@ final class Digitalogic_Currency_Admin_Async {
 				}
 
 				$now = time();
+				if (
+					! empty( $job['cancel_requested'] )
+					&& (
+						'queued' === (string) ( $job['status'] ?? '' )
+						|| (
+							'running' === (string) ( $job['status'] ?? '' )
+							&& (int) ( $job['lease_until'] ?? 0 ) <= $now
+						)
+					)
+				) {
+					$this->cancel_open_lock( $job, (string) ( $job['primary_request_id'] ?? '' ) );
+
+					return null;
+				}
 				if ( (int) ( $job['deadline_at'] ?? 0 ) <= $now ) {
 					$this->fail_open_lock(
 						$job,
@@ -1182,7 +1249,7 @@ final class Digitalogic_Currency_Admin_Async {
 				$job['status']     = 'failed';
 				$job['error_code'] = 'digitalogic_currency_async_observed_deadline_exceeded';
 				$job['message_fa'] = 'مهلت کار قیمت پایان یافته و صفحه آزاد است؛ وضعیت worker را بررسی و سپس دوباره تلاش کنید.';
-			} elseif ( ! in_array( $projected, array( 'queued', 'running', 'publishing', 'publication_failed' ), true ) ) {
+			} elseif ( ! in_array( $projected, array( 'queued', 'running', 'cancelling', 'publishing', 'publication_failed' ), true ) ) {
 				$job = array();
 			}
 		}
@@ -1212,6 +1279,195 @@ final class Digitalogic_Currency_Admin_Async {
 		}
 
 		return $this->public_job( $job );
+	}
+
+	/**
+	 * Return one durable job by the caller's explicit idempotency identity.
+	 *
+	 * @param string $request_id Explicit request identity.
+	 * @param bool   $active_only Hide terminal historical results.
+	 * @return array|WP_Error
+	 */
+	public function status_by_request( $request_id, $active_only = false ) {
+		$request_id = $this->normalize_request_id( $request_id );
+		if ( is_wp_error( $request_id ) || '' === $request_id ) {
+			return is_wp_error( $request_id )
+				? $request_id
+				: new WP_Error(
+					'digitalogic_currency_async_request_id_required',
+					'شناسهٔ درخواست لازم است.',
+					array(
+						'status'   => 400,
+						'blocking' => true,
+					)
+				);
+		}
+
+		$this->recover_committed_publication();
+		$this->recover_queued_job();
+		$job   = $this->raw_job();
+		$alias = (array) ( ( $job['request_aliases'] ?? array() )[ $request_id ] ?? array() );
+		if ( ! $alias ) {
+			return new WP_Error(
+				'digitalogic_currency_async_request_not_found',
+				'درخواستی با این شناسه پیدا نشد.',
+				array(
+					'status'   => 404,
+					'blocking' => false,
+				)
+			);
+		}
+		if ( $this->alias_targets_job( $alias, $job ) ) {
+			$projection = $this->public_job_for_request( $job, $request_id );
+			if ( $active_only && $this->is_terminal( $job ) ) {
+				return array(
+					'status'     => 'idle',
+					'message_fa' => 'آماده',
+					'progress'   => 0,
+					'blocking'   => false,
+					'error_code' => '',
+				);
+			}
+
+			return $projection;
+		}
+
+		$historical = is_array( $alias['result'] ?? null ) ? $alias['result'] : array();
+		if ( ! $historical ) {
+			return new WP_Error(
+				'digitalogic_currency_async_request_history_incomplete',
+				'نتیجهٔ پایدار این درخواست در دسترس نیست.',
+				array(
+					'status'   => 409,
+					'blocking' => true,
+				)
+			);
+		}
+		$historical['request_id'] = $request_id;
+		$historical['replayed']   = true;
+
+		return $historical;
+	}
+
+	/**
+	 * Cooperatively cancel one exact uncommitted currency job.
+	 *
+	 * A queued job becomes terminal immediately. A running worker keeps its
+	 * fence until the in-transaction guard observes the request and rolls back.
+	 * A committed effect can only finish publication and is never compensated.
+	 *
+	 * @param string $expected_job_id     Exact job ID, or empty with request ID.
+	 * @param int    $expected_generation Exact generation, or zero with request ID.
+	 * @param string $request_id          Optional idempotency identity.
+	 * @return array|WP_Error
+	 */
+	public function cancel( $expected_job_id = '', $expected_generation = 0, $request_id = '' ) {
+		$request_id = $this->normalize_request_id( $request_id );
+		if ( is_wp_error( $request_id ) ) {
+			return $request_id;
+		}
+		$expected_job_id     = sanitize_text_field( (string) $expected_job_id );
+		$expected_generation = absint( $expected_generation );
+		if (
+			'' === $request_id
+			&& ( 1 !== preg_match( '/\A[a-f0-9]{32}\z/D', $expected_job_id ) || $expected_generation < 1 )
+		) {
+			return new WP_Error(
+				'digitalogic_currency_async_identity_invalid',
+				'شناسهٔ کامل کار یا شناسهٔ درخواست لازم است.',
+				array(
+					'status'   => 400,
+					'blocking' => true,
+				)
+			);
+		}
+
+		return $this->with_job_lock(
+			function () use ( $expected_job_id, $expected_generation, $request_id ) {
+				$job = $this->raw_job();
+				if ( '' !== $request_id ) {
+					$alias = (array) ( ( $job['request_aliases'] ?? array() )[ $request_id ] ?? array() );
+					if ( ! $alias ) {
+						return new WP_Error(
+							'digitalogic_currency_async_request_not_found',
+							'درخواستی با این شناسه پیدا نشد.',
+							array(
+								'status'   => 404,
+								'blocking' => false,
+							)
+						);
+					}
+					if ( ! $this->alias_targets_job( $alias, $job ) ) {
+						$historical = is_array( $alias['result'] ?? null ) ? $alias['result'] : array();
+						if ( $historical ) {
+							$historical['request_id']  = $request_id;
+							$historical['replayed']    = true;
+							$historical['cancellable'] = false;
+
+							return $historical;
+						}
+						return new WP_Error(
+							'digitalogic_currency_async_request_history_incomplete',
+							'نتیجهٔ پایدار این درخواست در دسترس نیست.',
+							array(
+								'status'   => 409,
+								'blocking' => true,
+							)
+						);
+					}
+				} elseif ( ! $this->matches_job( $job, $expected_job_id, $expected_generation ) ) {
+					return new WP_Error(
+						'digitalogic_currency_async_superseded',
+						'این کار با نسل تازه‌تری جایگزین شده است.',
+						array(
+							'status'   => 409,
+							'blocking' => false,
+						)
+					);
+				}
+
+				$marker = (string) ( $job['effect_state_revision'] ?? '' );
+				if ( 1 === preg_match( '/\Asha256:[a-f0-9]{64}\z/D', $marker ) ) {
+					return new WP_Error(
+						'digitalogic_currency_async_cancel_too_late',
+						'اثر نرخ ثبت شده است و فقط انتشار نتیجهٔ همان اثر باید تکمیل شود.',
+						array(
+							'status'   => 409,
+							'blocking' => false,
+							'job'      => $this->public_job_for_request( $job, $request_id ),
+						)
+					);
+				}
+				if ( $this->is_terminal( $job ) ) {
+					return $this->public_job_for_request( $job, $request_id, array( 'replayed' => true ) );
+				}
+				if ( 'queued' === (string) ( $job['status'] ?? '' ) ) {
+					return $this->cancel_open_lock( $job, $request_id );
+				}
+				if ( 'running' !== (string) ( $job['status'] ?? '' ) ) {
+					return new WP_Error(
+						'digitalogic_currency_async_cancel_unavailable',
+						'این کار در وضعیت قابل لغو نیست.',
+						array(
+							'status'   => 409,
+							'blocking' => false,
+						)
+					);
+				}
+
+				$expected                   = $job;
+				$job['cancel_requested']    = true;
+				$job['cancel_requested_at'] = time();
+				$job['updated_at']          = time();
+				$job['message_fa']          = 'درخواست لغو ثبت شد؛ worker پیش از ثبت اثر متوقف می‌شود.';
+				$stored                     = $this->store_job_open_lock( $job, $expected );
+				if ( is_wp_error( $stored ) ) {
+					return $stored;
+				}
+
+				return $this->public_job_for_request( $job, $request_id );
+			}
+		);
 	}
 
 	/**
@@ -1271,9 +1527,9 @@ final class Digitalogic_Currency_Admin_Async {
 						if ( 0 < $last && $now - $last < self::PUBLICATION_RETRY_BASE_SECONDS ) {
 							return true;
 						}
-						$expected = $job;
-						$failures = max( 0, (int) ( $publication['schedule_failures'] ?? 0 ) ) + 1;
-						$terminal = $failures >= self::MAX_DISPATCH_ATTEMPTS;
+						$expected                                = $job;
+						$failures                                = max( 0, (int) ( $publication['schedule_failures'] ?? 0 ) ) + 1;
+						$terminal                                = $failures >= self::MAX_DISPATCH_ATTEMPTS;
 						$publication['schedule_failures']        = $failures;
 						$publication['last_schedule_failure_at'] = $now;
 						$publication['last_error']               = $terminal
@@ -1369,9 +1625,9 @@ final class Digitalogic_Currency_Admin_Async {
 
 				$publication['dispatch_attempts'] = $attempts + 1;
 				$publication['last_dispatch_at']  = $now;
-				$job['effect_publication']         = $publication;
-				$job['updated_at']                 = $now;
-				$stored                            = $this->store_job_open_lock( $job, $expected );
+				$job['effect_publication']        = $publication;
+				$job['updated_at']                = $now;
+				$stored                           = $this->store_job_open_lock( $job, $expected );
 				if ( ! is_wp_error( $stored ) ) {
 					$should_wake = true;
 				}
@@ -1434,10 +1690,10 @@ final class Digitalogic_Currency_Admin_Async {
 					return false;
 				}
 
-				$now           = time();
-				$deadline_at   = (int) ( $job['deadline_at'] ?? 0 );
-				$deadline_due  = $deadline_at <= $now;
-				$apply_at      = max( $now, (int) ( $job['next_attempt_at'] ?? $now ) );
+				$now          = time();
+				$deadline_at  = (int) ( $job['deadline_at'] ?? 0 );
+				$deadline_due = $deadline_at <= $now;
+				$apply_at     = max( $now, (int) ( $job['next_attempt_at'] ?? $now ) );
 				if ( $deadline_due ) {
 					$this->fail_open_lock(
 						$job,
@@ -1500,7 +1756,8 @@ final class Digitalogic_Currency_Admin_Async {
 			true,
 			$reconcile,
 			$revision,
-			'admin_ajax'
+			'admin_ajax',
+			sanitize_text_field( wp_unslash( $_POST['request_id'] ?? '' ) )
 		);
 		if ( is_wp_error( $job ) ) {
 			$data        = $job->get_error_data();
@@ -1542,8 +1799,66 @@ final class Digitalogic_Currency_Admin_Async {
 
 		$job_id      = sanitize_text_field( wp_unslash( $_POST['job_id'] ?? '' ) );
 		$generation  = absint( wp_unslash( $_POST['generation'] ?? 0 ) );
+		$request_id  = sanitize_text_field( wp_unslash( $_POST['request_id'] ?? '' ) );
 		$active_only = '1' === sanitize_text_field( wp_unslash( $_POST['active_only'] ?? '' ) );
-		wp_send_json_success( $this->status( $job_id, $generation, $active_only ) );
+		$result      = '' !== $request_id
+			? $this->status_by_request( $request_id, $active_only )
+			: $this->status( $job_id, $generation, $active_only );
+		if ( is_wp_error( $result ) ) {
+			$this->send_ajax_error( $result );
+		}
+		wp_send_json_success( $result );
+	}
+
+	/** Request cooperative cancellation for one exact authenticated admin job. */
+	public function ajax_cancel() {
+		check_ajax_referer( self::NONCE_ACTION, 'nonce' );
+		if ( ! $this->can_manage_currency() ) {
+			wp_send_json_error(
+				array(
+					'code'       => 'digitalogic_currency_async_forbidden',
+					'message_fa' => 'دسترسی کافی نیست.',
+					'blocking'   => true,
+				),
+				403
+			);
+		}
+
+		$result = $this->cancel(
+			sanitize_text_field( wp_unslash( $_POST['job_id'] ?? '' ) ),
+			absint( wp_unslash( $_POST['generation'] ?? 0 ) ),
+			sanitize_text_field( wp_unslash( $_POST['request_id'] ?? '' ) )
+		);
+		if ( is_wp_error( $result ) ) {
+			$this->send_ajax_error( $result );
+		}
+		wp_send_json_success( $result, 202 );
+	}
+
+	/**
+	 * Emit one bounded machine-readable Ajax failure.
+	 *
+	 * @param WP_Error $error Exact failure.
+	 * @return void
+	 */
+	private function send_ajax_error( WP_Error $error ) {
+		$data        = $error->get_error_data();
+		$data        = is_array( $data ) ? $data : array();
+		$retry_after = max( 0, (int) ( $data['retry_after'] ?? 0 ) );
+		$status      = isset( $data['status'] ) ? (int) $data['status'] : ( 0 < $retry_after ? 503 : 409 );
+		if ( 0 < $retry_after && ! headers_sent() ) {
+			header( 'Retry-After: ' . $retry_after );
+		}
+		wp_send_json_error(
+			array(
+				'code'        => $error->get_error_code(),
+				'message_fa'  => $error->get_error_message(),
+				'blocking'    => (bool) ( $data['blocking'] ?? false ),
+				'retry_after' => $retry_after,
+				'details'     => $data,
+			),
+			$status
+		);
 	}
 
 	/**
@@ -1570,6 +1885,12 @@ final class Digitalogic_Currency_Admin_Async {
 				}
 				if ( ! $this->owns_claim_open_lock( $claim ) ) {
 					return null;
+				}
+				if (
+					'digitalogic_currency_async_cancel_requested' === $error->get_error_code()
+					&& ! empty( $job['cancel_requested'] )
+				) {
+					return $this->cancel_open_lock( $job, (string) ( $job['primary_request_id'] ?? '' ) );
 				}
 				if (
 					$this->is_retryable_apply_error( $error )
@@ -1666,6 +1987,13 @@ final class Digitalogic_Currency_Admin_Async {
 				'digitalogic_currency_async_claim_lost',
 				'مالکیت یا مهلت کار قیمت پیش از ثبت از دست رفت.',
 				array( 'blocking' => true )
+			);
+		}
+		if ( ! empty( $job['cancel_requested'] ) ) {
+			return new WP_Error(
+				'digitalogic_currency_async_cancel_requested',
+				'درخواست لغو پیش از ثبت اثر پذیرفته شد.',
+				array( 'blocking' => false )
 			);
 		}
 		if ( ! $mark_effect_commit ) {
@@ -1977,6 +2305,206 @@ final class Digitalogic_Currency_Admin_Async {
 	}
 
 	/**
+	 * Mark one exact uncommitted job cancelled while holding the job mutex.
+	 *
+	 * @param array  $job       Exact private job.
+	 * @param string $request_id Optional request identity.
+	 * @return array|WP_Error
+	 */
+	private function cancel_open_lock( array $job, $request_id = '' ) {
+		$current = $this->raw_job();
+		if ( ! $this->same_generation( $current, $job ) ) {
+			return new WP_Error(
+				'digitalogic_currency_async_job_cas_conflict',
+				'وضعیت کار هم‌زمان تغییر کرد؛ نتیجهٔ جدیدتر حفظ شد.',
+				array(
+					'status'      => 409,
+					'blocking'    => false,
+					'retry_after' => 1,
+				)
+			);
+		}
+		if ( 1 === preg_match( '/\Asha256:[a-f0-9]{64}\z/D', (string) ( $current['effect_state_revision'] ?? '' ) ) ) {
+			return new WP_Error(
+				'digitalogic_currency_async_cancel_too_late',
+				'اثر نرخ ثبت شده است و قابل لغو نیست.',
+				array(
+					'status'   => 409,
+					'blocking' => false,
+				)
+			);
+		}
+
+		$expected                       = $current;
+		$current['status']              = 'cancelled';
+		$current['cancel_requested']    = true;
+		$current['cancel_requested_at'] = max( time(), (int) ( $current['cancel_requested_at'] ?? 0 ) );
+		$current['completed_at']        = time();
+		$current['updated_at']          = time();
+		$current['next_attempt_at']     = 0;
+		$current['owner_token']         = '';
+		$current['fence_token']         = '';
+		$current['lease_until']         = 0;
+		$current['error_code']          = 'digitalogic_currency_async_cancelled';
+		$current['message_fa']          = 'کار نرخ پیش از ثبت اثر لغو شد؛ مقدار تأییدشدهٔ قبلی حفظ شد.';
+		$stored                         = $this->store_job_open_lock( $current, $expected );
+		if ( is_wp_error( $stored ) ) {
+			return $stored;
+		}
+		$this->unschedule_job( $current );
+
+		return $this->public_job_for_request( $current, $request_id );
+	}
+
+	/**
+	 * Return an exact request replay before any live-state or precondition read.
+	 *
+	 * @param array  $job                 Current private job.
+	 * @param string $request_id          Exact request identity.
+	 * @param string $request_fingerprint Canonical request fingerprint.
+	 * @return array|WP_Error|null
+	 */
+	private function replay_request_open_lock( array $job, $request_id, $request_fingerprint ) {
+		if ( '' === $request_id || ! $job ) {
+			return null;
+		}
+		$alias = (array) ( ( $job['request_aliases'] ?? array() )[ $request_id ] ?? array() );
+		if ( ! $alias ) {
+			return null;
+		}
+		if ( ! hash_equals( (string) ( $alias['fingerprint'] ?? '' ), (string) $request_fingerprint ) ) {
+			return new WP_Error(
+				'digitalogic_currency_async_request_id_conflict',
+				'این شناسهٔ درخواست قبلاً برای تغییر دیگری استفاده شده است.',
+				array(
+					'status'   => 409,
+					'blocking' => true,
+				)
+			);
+		}
+		if ( $this->alias_targets_job( $alias, $job ) ) {
+			return $this->public_job_for_request( $job, $request_id, array( 'replayed' => true ) );
+		}
+
+		$result = is_array( $alias['result'] ?? null ) ? $alias['result'] : array();
+		if ( ! $result ) {
+			return new WP_Error(
+				'digitalogic_currency_async_request_history_incomplete',
+				'نتیجهٔ پایدار این درخواست در دسترس نیست.',
+				array(
+					'status'   => 409,
+					'blocking' => true,
+				)
+			);
+		}
+		$result['request_id'] = $request_id;
+		$result['replayed']   = true;
+
+		return $result;
+	}
+
+	/**
+	 * Attach one bounded request alias to the current generation.
+	 *
+	 * @param array  $job                 Current private job, updated by reference.
+	 * @param string $request_id          Exact request identity.
+	 * @param string $request_fingerprint Canonical request fingerprint.
+	 * @return void
+	 */
+	private function attach_request_alias( array &$job, $request_id, $request_fingerprint ) {
+		if ( '' === $request_id ) {
+			return;
+		}
+		$aliases                = is_array( $job['request_aliases'] ?? null ) ? $job['request_aliases'] : array();
+		$aliases[ $request_id ] = array(
+			'fingerprint' => (string) $request_fingerprint,
+			'job_id'      => (string) ( $job['job_id'] ?? '' ),
+			'generation'  => (int) ( $job['generation'] ?? 0 ),
+			'created_at'  => time(),
+			'result'      => array(),
+		);
+		uasort(
+			$aliases,
+			static function ( $left, $right ) {
+				return (int) ( $left['created_at'] ?? 0 ) <=> (int) ( $right['created_at'] ?? 0 );
+			}
+		);
+		$remove_count = max( 0, count( $aliases ) - self::MAX_REQUEST_ALIASES );
+		for ( $index = 0; $index < $remove_count; $index++ ) {
+			array_shift( $aliases );
+		}
+		$job['request_aliases'] = $aliases;
+		if ( '' === (string) ( $job['primary_request_id'] ?? '' ) ) {
+			$job['primary_request_id'] = $request_id;
+		}
+	}
+
+	/**
+	 * Carry bounded immutable request results into one successor generation.
+	 *
+	 * @param array $existing Existing terminal job.
+	 * @return array
+	 */
+	private function carry_request_aliases( array $existing ) {
+		$aliases = is_array( $existing['request_aliases'] ?? null ) ? $existing['request_aliases'] : array();
+		foreach ( $aliases as $request_id => &$alias ) {
+			if ( $this->alias_targets_job( (array) $alias, $existing ) ) {
+				$alias['result'] = $this->public_job_for_request(
+					$existing,
+					(string) $request_id,
+					array(
+						'replayed'    => true,
+						'cancellable' => false,
+					)
+				);
+			}
+		}
+		unset( $alias );
+		uasort(
+			$aliases,
+			static function ( $left, $right ) {
+				return (int) ( $left['created_at'] ?? 0 ) <=> (int) ( $right['created_at'] ?? 0 );
+			}
+		);
+		$remove_count = max( 0, count( $aliases ) - self::MAX_REQUEST_ALIASES + 1 );
+		for ( $index = 0; $index < $remove_count; $index++ ) {
+			array_shift( $aliases );
+		}
+
+		return $aliases;
+	}
+
+	/**
+	 * Whether one request alias names the exact durable generation.
+	 *
+	 * @param array $alias Request alias.
+	 * @param array $job   Current private job.
+	 * @return bool
+	 */
+	private function alias_targets_job( array $alias, array $job ) {
+		return '' !== (string) ( $alias['job_id'] ?? '' )
+			&& hash_equals( (string) ( $alias['job_id'] ?? '' ), (string) ( $job['job_id'] ?? '' ) )
+			&& (int) ( $alias['generation'] ?? 0 ) === (int) ( $job['generation'] ?? 0 );
+	}
+
+	/**
+	 * Add request-specific replay metadata without exposing the alias registry.
+	 *
+	 * @param array  $job        Private job.
+	 * @param string $request_id Optional request identity.
+	 * @param array  $extra      Additional public fields.
+	 * @return array
+	 */
+	private function public_job_for_request( array $job, $request_id = '', array $extra = array() ) {
+		$projection               = $this->public_job( $job );
+		$projection['request_id'] = '' !== (string) $request_id
+			? (string) $request_id
+			: (string) ( $job['primary_request_id'] ?? '' );
+
+		return array_merge( $projection, $extra );
+	}
+
+	/**
 	 * Return a secret-free operator/client projection.
 	 *
 	 * @param array $job Private job record.
@@ -1995,15 +2523,19 @@ final class Digitalogic_Currency_Admin_Async {
 			&& 1 === preg_match( '/\Asha256:[a-f0-9]{64}\z/D', (string) ( $job['effect_state_revision'] ?? '' ) )
 		) {
 			$status = 'publishing';
+		} elseif ( ! empty( $job['cancel_requested'] ) && 'running' === $status ) {
+			$status = 'cancelling';
 		}
 		$progress = array(
 			'idle'               => 0,
 			'queued'             => 10,
 			'running'            => 45,
+			'cancelling'         => 60,
 			'publishing'         => 90,
 			'awaiting_excel'     => 90,
 			'confirmed'          => 100,
 			'failed'             => 100,
+			'cancelled'          => 100,
 			'publication_failed' => 100,
 			'superseded'         => 100,
 		);
@@ -2038,6 +2570,11 @@ final class Digitalogic_Currency_Admin_Async {
 			'progress'                     => (int) ( $progress[ $status ] ?? 0 ),
 			'blocking'                     => false,
 			'operator_action_required'     => 'publication_failed' === $status,
+			'request_id'                   => (string) ( $job['primary_request_id'] ?? '' ),
+			'cancel_requested'             => ! empty( $job['cancel_requested'] ),
+			'cancel_requested_at'          => (int) ( $job['cancel_requested_at'] ?? 0 ),
+			'cancellable'                  => in_array( $status, array( 'queued', 'running', 'cancelling' ), true )
+				&& 1 !== preg_match( '/\Asha256:[a-f0-9]{64}\z/D', (string) ( $job['effect_state_revision'] ?? '' ) ),
 		);
 	}
 
@@ -2244,7 +2781,32 @@ final class Digitalogic_Currency_Admin_Async {
 	 * @return bool
 	 */
 	private function is_terminal( array $job ) {
-		return in_array( (string) ( $job['status'] ?? '' ), array( 'confirmed', 'failed', 'publication_failed' ), true );
+		return in_array( (string) ( $job['status'] ?? '' ), array( 'confirmed', 'failed', 'publication_failed', 'cancelled' ), true );
+	}
+
+	/**
+	 * Normalize an optional explicit idempotency identity.
+	 *
+	 * @param mixed $request_id Candidate identity.
+	 * @return string|WP_Error
+	 */
+	private function normalize_request_id( $request_id ) {
+		$request_id = is_scalar( $request_id ) ? trim( (string) $request_id ) : '';
+		if ( '' === $request_id ) {
+			return '';
+		}
+		if ( 1 !== preg_match( '/\A[a-zA-Z0-9._:-]{8,128}\z/D', $request_id ) ) {
+			return new WP_Error(
+				'digitalogic_currency_async_request_id_invalid',
+				'شناسهٔ درخواست معتبر نیست.',
+				array(
+					'status'   => 400,
+					'blocking' => true,
+				)
+			);
+		}
+
+		return $request_id;
 	}
 
 	/**

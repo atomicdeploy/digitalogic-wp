@@ -11,6 +11,9 @@ test('panel currency save is revision-bound and follows one exact background job
     assert.match(panelSource, /digitalogic_currency_job_status/);
     assert.match(panelSource, /job_id:\s*job\.job_id/);
     assert.match(panelSource, /generation:\s*Number\(job\.generation\)/);
+	assert.match(panelSource, /request_id:\s*'currency:'\s*\+/);
+	assert.match(panelSource, /noAutoReplay:\s*true/);
+	assert.match(panelSource, /digitalogic_cancel_currency_job/);
     assert.doesNotMatch(
         panelSource.match(/saveCurrency:\s*function[\s\S]*?\n\s*},\n\s*watchCurrencyJob:/)[0],
         /then\(function\([^)]*\)\s*\{[\s\S]*?return self\.loadSummary\(\)/,
@@ -37,8 +40,8 @@ test('panel job observation is bounded and never leaves an endless loading state
 });
 
 test('panel resumes publication after reload and renders exhausted publication as terminal', () => {
-    assert.match(panelSource, /\['queued', 'running', 'publishing'\]/);
+	assert.match(panelSource, /\['queued', 'running', 'cancelling', 'publishing'\]/);
     assert.match(panelSource, /data\.currency_job\.status === 'publication_failed'/);
-    assert.match(panelSource, /\['confirmed', 'failed', 'publication_failed', 'superseded'\]/);
+	assert.match(panelSource, /\['confirmed', 'failed', 'cancelled', 'publication_failed', 'superseded'\]/);
     assert.match(panelSource, /job\.status === 'publishing'[\s\S]*?Date\.now\(\) \+ 180000/);
 });

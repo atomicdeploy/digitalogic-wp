@@ -169,7 +169,7 @@ screens. See [WooCommerce base-currency status](docs/WOOCOMMERCE-CURRENCY-STATUS
 
 **WP-CLI:**
 ```bash
-wp digitalogic currency update --usd=42000 --cny=6000 --recalculate
+wp digitalogic currency update --usd=42000 --cny=6000 --recalculate --request-id=ops-currency-20260830-001
 ```
 
 **REST API:**
@@ -358,7 +358,7 @@ $is_valid = Digitalogic_Webhooks::verify_signature($payload, $signature);
 ```bash
 # Currency operations
 wp digitalogic currency get
-wp digitalogic currency update --usd=42000 --cny=6000 --recalculate
+wp digitalogic currency update --usd=42000 --cny=6000 --recalculate --request-id=ops-currency-20260830-001
 
 # Product operations
 wp digitalogic products list --limit=20 --search=arduino

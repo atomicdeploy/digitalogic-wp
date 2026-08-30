@@ -92,42 +92,66 @@ class Digitalogic_CLI_Commands {
 			return;
 		}
 
-		$result = empty( $values )
-			? Digitalogic_Pricing_Coordinator::instance()->reconcile_current( 'wp_cli_currency_recalculate' )
-			: Digitalogic_Pricing_Coordinator::instance()->update_currency(
-				$values,
-				$force_recalculate ? 'wp_cli_currency_recalculate' : 'wp_cli_currency'
+		$state = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
+		if ( is_wp_error( $state ) ) {
+			WP_CLI::error( $state->get_error_message() );
+			return;
+		}
+		if ( empty( $values ) ) {
+			$values = array(
+				'dollar_price' => (string) $state['settings']['dollar_price'],
+				'yuan_price'   => (string) $state['settings']['yuan_price'],
+			);
+		}
+		$request_id = isset( $assoc_args['request-id'] )
+			? sanitize_text_field( (string) $assoc_args['request-id'] )
+			: 'cli:' . wp_generate_uuid4();
+		$result     = Digitalogic_Currency_Admin_Async::instance()->enqueue_currency(
+			$values,
+			true,
+			$force_recalculate,
+			(string) $state['state_revision'],
+			$force_recalculate ? 'wp_cli_currency_recalculate' : 'wp_cli_currency',
+			$request_id
+		);
+		if ( is_wp_error( $result ) ) {
+			WP_CLI::error( $result->get_error_message() );
+			return;
+		}
+		WP_CLI::line( (string) wp_json_encode( $result, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE ) );
+		WP_CLI::success( 'Currency job accepted; use its request_id or exact job_id/generation to read status.' );
+	}
+
+	/** Read one bounded currency job by exact identity or request ID. */
+	public function currency_status( $args, $assoc_args ) {
+		$request_id = sanitize_text_field( (string) ( $assoc_args['request-id'] ?? '' ) );
+		$result     = '' !== $request_id
+			? Digitalogic_Currency_Admin_Async::instance()->status_by_request( $request_id )
+			: Digitalogic_Currency_Admin_Async::instance()->status(
+				sanitize_text_field( (string) ( $args[0] ?? '' ) ),
+				absint( $args[1] ?? 0 )
 			);
 		if ( is_wp_error( $result ) ) {
 			WP_CLI::error( $result->get_error_message() );
 			return;
 		}
-		$pricing    = is_array( $result['pricing_results'] ?? null ) ? $result['pricing_results'] : array();
-		$applicable = 0;
-		foreach ( (array) ( $pricing['sources'] ?? array() ) as $source_result ) {
-			$applicable += (int) ( $source_result['target_products'] ?? 0 );
-		}
-		$succeeded    = (int) ( $pricing['updated_products'] ?? 0 )
-			+ (int) ( $pricing['already_current_products'] ?? 0 );
-		$deferred     = (int) ( $pricing['deferred_missing'] ?? 0 )
-			+ (int) ( $pricing['deferred_ambiguous'] ?? 0 );
-		$confirmation = is_array( $result['confirmation'] ?? null )
-			? (string) ( $result['confirmation']['status'] ?? 'clear' )
-			: 'clear';
+		WP_CLI::line( (string) wp_json_encode( $result, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE ) );
+	}
 
-		WP_CLI::success(
-			sprintf(
-				'Currency reconciliation complete (mode=%s, applicable=%d, succeeded=%d, updated=%d, failed=0, deferred=%d, pending=%d, confirmation=%s).',
-				$force_recalculate ? 'explicit' : 'automatic',
-				$applicable,
-				$succeeded,
-				(int) ( $pricing['updated_products'] ?? 0 ),
-				$deferred,
-				(int) ( $pricing['pending_products'] ?? 0 ),
-				$confirmation
-			)
-        );
-    }
+	/** Cooperatively cancel one exact uncommitted currency job. */
+	public function currency_cancel( $args, $assoc_args ) {
+		$request_id = sanitize_text_field( (string) ( $assoc_args['request-id'] ?? '' ) );
+		$result     = Digitalogic_Currency_Admin_Async::instance()->cancel(
+			sanitize_text_field( (string) ( $args[0] ?? '' ) ),
+			absint( $args[1] ?? 0 ),
+			$request_id
+		);
+		if ( is_wp_error( $result ) ) {
+			WP_CLI::error( $result->get_error_message() );
+			return;
+		}
+		WP_CLI::line( (string) wp_json_encode( $result, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE ) );
+	}
     
     /**
      * List products
@@ -1952,6 +1976,8 @@ class Digitalogic_CLI_Commands {
 // Note: Don't register 'digitalogic currency' alone as it conflicts with subcommands
 WP_CLI::add_command('digitalogic currency get', array('Digitalogic_CLI_Commands', 'currency_get'));
 WP_CLI::add_command('digitalogic currency update', array('Digitalogic_CLI_Commands', 'currency_update'));
+WP_CLI::add_command( 'digitalogic currency status', array( 'Digitalogic_CLI_Commands', 'currency_status' ) );
+WP_CLI::add_command( 'digitalogic currency cancel', array( 'Digitalogic_CLI_Commands', 'currency_cancel' ) );
 WP_CLI::add_command('digitalogic products list', array('Digitalogic_CLI_Commands', 'products_list'));
 WP_CLI::add_command( 'digitalogic products get', array( 'Digitalogic_CLI_Commands', 'products_get' ) );
 WP_CLI::add_command( 'digitalogic products metadata', array( 'Digitalogic_CLI_Commands', 'products_metadata' ) );
