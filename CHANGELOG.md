@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.49] - 2026-08-31
+
+### Fixed
+- Read the report projection generation from its authoritative database row so
+  stale persistent option-cache replicas cannot fork pricing revision, snapshot,
+  page, or event identities across PHP workers.
+- Preserve strong ETags for the complete authenticated pricing-sync contract and
+  disable Apache DEFLATE for those routes, preventing representation suffixes
+  such as `-gzip` from breaking exact identity and conditional requests.
+
 ## [1.8.48] - 2026-08-31
 
 ### Fixed
