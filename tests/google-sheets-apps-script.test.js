@@ -355,6 +355,12 @@ test('localized catalog views refresh dynamic header-resolved bounds on full and
   assert.equal((source.match(/refreshLocalizedCatalogViews_\(spreadsheet\);/g) || []).length, 2);
   assert.match(source, /getDisplayValues\(\)\[0\]/);
   assert.match(source, /const lastRow = Math\.max\(products\.getLastRow\(\), 3\)/);
+  assert.match(source, /woo_id: \['woocommerce_id', 'woo_id'\]/);
+  assert.match(source, /storage_location: \['patris_location', 'storage_location'\]/);
+  assert.match(source, /product_url: \['permalink', 'product_url'\]/);
+  assert.match(source, /identity_source: \['reconciliation_status', 'identity_source'\]/);
+  assert.match(source, /sync_warning: \['sync_error', 'sync_warning'\]/);
+  assert.match(source, /const resolvedColumns = \{\}/);
   assert.doesNotMatch(source, /Products!\$A\$3:\$A\$1103/);
 });
 

@@ -226,20 +226,36 @@ function refreshLocalizedCatalogViews_(spreadsheet) {
       columns[key] = index + 1;
     }
   });
+  const columnAliases = {
+    woo_id: ['woocommerce_id', 'woo_id'],
+    storage_location: ['patris_location', 'storage_location'],
+    product_url: ['permalink', 'product_url'],
+    identity_source: ['reconciliation_status', 'identity_source'],
+    sync_warning: ['sync_error', 'sync_warning'],
+  };
   const requiredKeys = [
     'sync_key', 'patris_code', 'woo_id', 'publication_status', 'name', 'categories',
     'regular_price', 'effective_price', 'patris_total_stock', 'stock_quantity', 'storage_location',
     'weight_grams', 'foreign_price', 'product_url', 'identity_source', 'sync_status',
     'sync_warning', 'record_revision',
   ];
-  const missingKeys = requiredKeys.filter(function (key) { return !columns[key]; });
+  const resolvedColumns = {};
+  const missingKeys = requiredKeys.filter(function (key) {
+    const candidates = columnAliases[key] || [key];
+    const resolvedKey = candidates.find(function (candidate) { return columns[candidate]; });
+    if (resolvedKey) {
+      resolvedColumns[key] = columns[resolvedKey];
+      return false;
+    }
+    return true;
+  });
   if (missingKeys.length) {
     throw new Error('Localized catalog view requires Products columns: ' + missingKeys.join(', ') + '.');
   }
 
   const lastRow = Math.max(products.getLastRow(), 3);
   function dataRange(key) {
-    const letter = columnNumberToA1_(columns[key]);
+    const letter = columnNumberToA1_(resolvedColumns[key]);
     return 'Products!$' + letter + '$3:$' + letter + '$' + lastRow;
   }
 
