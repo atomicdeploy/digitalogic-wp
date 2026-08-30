@@ -1138,7 +1138,7 @@ function wp_delete_post($post_id, $force_delete = false) {
 		$meta_id = ($post_id * 1000) + $index + 1;
 		$GLOBALS['digitalogic_test_meta_by_mid'][$meta_id] = array(
 			'post_id'  => $post_id,
-			'meta_key' => $key,
+			'meta_key' => $key, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key -- Test metadata row fixture.
 		);
 		$guarded = apply_filters('delete_post_metadata_by_mid', null, $meta_id);
 		if (null === $guarded) {
@@ -1718,8 +1718,8 @@ class Digitalogic_Test_WPDB {
 				foreach ( $values as $value ) {
 					$rows[] = array(
 						'meta_id'    => $meta_id++,
-						'meta_key'   => $key,
-						'meta_value' => $this->database_raw_value( $value ),
+						'meta_key'   => $key, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key -- Test metadata row fixture.
+						'meta_value' => $this->database_raw_value( $value ), // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_value -- Test metadata row fixture.
 					);
 				}
 			}
@@ -1783,9 +1783,9 @@ class Digitalogic_Test_WPDB {
 			return $rows;
 		}
 		if ( false !== strpos( $query, 'digitalogic_product_code_conflicts' ) ) {
-			$product_code = isset( $args[1] ) ? (string) $args[1] : '';
-			$excluded_id  = isset( $args[2] ) ? (int) $args[2] : 0;
-			$rows         = array();
+			$product_code  = isset( $args[1] ) ? (string) $args[1] : '';
+			$excluded_id   = isset( $args[2] ) ? (int) $args[2] : 0;
+			$rows          = array();
 			$explicit_fold = false !== strpos( $query, 'LOWER(CONVERT(pm.meta_key USING utf8mb4))' );
 			$binary_value  = false !== strpos( $query, 'BINARY pm.meta_value = BINARY' );
 			// phpcs:disable WordPress.DB.SlowDBQuery -- Test fixture mirrors the service's exact metadata query.
@@ -2637,7 +2637,7 @@ class WC_Product {
 		if ($this->id <= 0 && !empty($GLOBALS['digitalogic_test_wc_defer_new_product_id'])) {
 			$id = max(1, (int) ($GLOBALS['digitalogic_test_next_post_id'] ?? 1));
 			while (isset($GLOBALS['digitalogic_test_posts'][$id])) {
-				$id++;
+				++$id;
 			}
 			$pending = $GLOBALS['digitalogic_test_posts'][0] ?? array(
 				'post_type'    => 'product',
@@ -2684,7 +2684,7 @@ class WC_Product {
 				}
 			}
 		}
-		$this->save_count++;
+		++$this->save_count;
         $GLOBALS['digitalogic_test_posts'][$this->id]['meta'] = $this->meta;
         $GLOBALS['digitalogic_test_wc_product_saves'][] = $this->id;
         $after_save = $GLOBALS['digitalogic_test_wc_after_save'] ?? null;

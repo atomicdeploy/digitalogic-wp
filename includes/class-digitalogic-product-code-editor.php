@@ -401,7 +401,7 @@ final class Digitalogic_Product_Code_Editor {
 				'cache_mismatch' => $cache_mismatch,
 			);
 		}
-		if ( ! current_user_can( 'manage_woocommerce' ) || ! current_user_can( 'edit_post', $product_id ) ) {
+		if ( ! current_user_can( 'manage_woocommerce' ) || ! current_user_can( 'edit_post', $product_id ) ) { // phpcs:ignore WordPress.WP.Capabilities.Unknown -- WooCommerce registers this capability.
 			return array(
 				'editable'       => false,
 				'reason'         => 'permission_denied',
@@ -621,7 +621,7 @@ final class Digitalogic_Product_Code_Editor {
 		$product_id = absint( $product_id );
 		if (
 			$product_id <= 0
-			|| ! current_user_can( 'manage_woocommerce' )
+			|| ! current_user_can( 'manage_woocommerce' ) // phpcs:ignore WordPress.WP.Capabilities.Unknown -- WooCommerce registers this capability.
 			|| ! current_user_can( 'edit_post', $product_id )
 		) {
 			return $this->error(
@@ -959,7 +959,7 @@ final class Digitalogic_Product_Code_Editor {
 	 */
 	private function edit_with_operation_lock( $request ) {
 		$reservation_without_operation = false;
-		$existing = $this->operation_record( $request['request_id'] );
+		$existing                      = $this->operation_record( $request['request_id'] );
 		if ( is_wp_error( $existing ) ) {
 			return $existing;
 		}
@@ -1171,7 +1171,7 @@ final class Digitalogic_Product_Code_Editor {
 			);
 		}
 
-		$current_revision = $this->revision_for( $request['product_id'], $before['product_code'] );
+		$current_revision                = $this->revision_for( $request['product_id'], $before['product_code'] );
 		$operation_restored_exact_before = false;
 		if ( ! empty( $existing ) && in_array( (string) ( $existing['status'] ?? '' ), array( 'in_progress', 'failed_retryable' ), true ) ) {
 			$recovered = $this->recover_existing_operation( $request, $existing, $before, $current_revision );
@@ -3438,8 +3438,8 @@ final class Digitalogic_Product_Code_Editor {
 
 	/** Persist and exactly read back the minimal reload-safe recovery handoff. */
 	private function store_recovery_index( $request, $record ) {
-		$actor_id = (int) ( $record['actor_id'] ?? get_current_user_id() );
-		$index    = array(
+		$actor_id   = (int) ( $record['actor_id'] ?? get_current_user_id() );
+		$index      = array(
 			'schema'              => self::SCHEMA,
 			'kind'                => 'recovery-index',
 			'status'              => (string) ( $record['status'] ?? 'in_progress' ),

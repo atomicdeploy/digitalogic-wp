@@ -884,7 +884,7 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 		$service->run( $this->manifest(), array( 'apply' => true ) );
 		$product_id = (int) array_key_first( $GLOBALS['digitalogic_test_posts'] );
 		$this->attachReviewedImage( $product_id );
-		$before = $GLOBALS['digitalogic_test_posts'][ $product_id ];
+		$before                                   = $GLOBALS['digitalogic_test_posts'][ $product_id ];
 		$state                                    = get_option( Digitalogic_Product_Sync_Receiver::STATE_OPTION, array() );
 		$source_key                               = array_key_first( $state['sources'] );
 		$record                                   = &$state['sources'][ $source_key ]['products']['101001001'];

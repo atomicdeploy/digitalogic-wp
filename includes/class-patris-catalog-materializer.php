@@ -1574,9 +1574,9 @@ final class Digitalogic_Patris_Catalog_Materializer {
 			return $is_new ? $this->rollback_failed_draft_locked( $product, $cause ) : $cause;
 		}
 
-		$original_status = (string) $target_backup['status'];
-		$shipping_after  = $this->selected_shipping_method( $record );
-		$converted       = false;
+		$original_status             = (string) $target_backup['status'];
+		$shipping_after              = $this->selected_shipping_method( $record );
+		$converted                   = false;
 		$variation_identity_expected = null;
 		try {
 			if ( ! empty( $enrichment['convert_empty_variable_to_simple'] ) && $product->is_type( 'variable' ) ) {
@@ -2268,7 +2268,7 @@ final class Digitalogic_Patris_Catalog_Materializer {
 			return $this->error( 'digitalogic_patris_materializer_variation_attribute_invalid', 'The reviewed variation attribute term is unavailable.' );
 		}
 		foreach ( (array) $parent->get_children() as $child_id ) {
-			$child = wc_get_product( (int) $child_id );
+			$child            = wc_get_product( (int) $child_id );
 			$child_attributes = $child && $child->is_type( 'variation' ) ? $child->get_variation_attributes() : array();
 			if ( (string) ( $child_attributes[ 'attribute_' . $taxonomy ] ?? '' ) === (string) $term->slug ) {
 				return $this->error( 'digitalogic_patris_materializer_variation_attribute_conflict', 'That reviewed attribute option already belongs to another child.' );
@@ -2283,7 +2283,7 @@ final class Digitalogic_Patris_Catalog_Materializer {
 	 *
 	 * @return true|WP_Error
 	 */
-	private function add_parent_variation_attribute( $parent, $taxonomy, $term_id ) {
+	private function add_parent_variation_attribute( $parent, $taxonomy, $term_id ) { // phpcs:ignore Universal.NamingConventions.NoReservedKeywordParameterNames.parentFound -- WooCommerce parent product.
 		$parent_id = $parent instanceof WC_Product ? (int) $parent->get_id() : 0;
 		if ( $parent_id <= 0 ) {
 			return $this->error( 'digitalogic_patris_materializer_variation_parent_invalid', 'The reviewed variation parent is unavailable.' );
@@ -2307,7 +2307,7 @@ final class Digitalogic_Patris_Catalog_Materializer {
 	}
 
 	/** Mutate and verify one parent attribute while its exact product lock is held. */
-	private function add_parent_variation_attribute_locked( $parent, $taxonomy, $term_id, $parent_id ) {
+	private function add_parent_variation_attribute_locked( $parent, $taxonomy, $term_id, $parent_id ) { // phpcs:ignore Universal.NamingConventions.NoReservedKeywordParameterNames.parentFound -- WooCommerce parent product.
 		$backup = $this->clone_product_attributes( $parent->get_attributes() );
 		try {
 			$attributes = $this->clone_product_attributes( $backup );

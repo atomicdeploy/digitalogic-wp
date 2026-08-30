@@ -113,6 +113,62 @@
         return error;
     }
 
+    var digitalogicReadOnlyCommands = {
+        digitalogic_get_products: true,
+        digitalogic_get_product: true,
+        digitalogic_get_currency: true,
+        digitalogic_get_currency_job: true,
+        digitalogic_get_product_code_edit: true,
+        digitalogic_get_logs: true,
+        digitalogic_get_reports: true,
+        digitalogic_get_integration_catalog: true,
+        digitalogic_get_default_percentage_markup: true,
+        digitalogic_list_shipping_methods: true,
+        digitalogic_get_shipping_method: true,
+        digitalogic_get_product_shipping_method: true,
+        digitalogic_get_product_pricing: true,
+        digitalogic_get_pricing_assignments_batch: true,
+        digitalogic_panel_summary: true,
+        digitalogic_panel_users: true,
+        digitalogic_panel_user_orders: true,
+        digitalogic_panel_settings: true,
+        digitalogic_panel_events: true,
+        digitalogic_catalog_page: true
+    };
+
+    function isMutatingDigitalogicCommand(command) {
+        command = String(command || '');
+        return command.indexOf('digitalogic_') === 0 && !digitalogicReadOnlyCommands[command];
+    }
+
+    function ajaxFailure(kind, command, cause) {
+        var mutating = isMutatingDigitalogicCommand(command);
+        var outcomeUnknown = mutating && (kind === 'timeout' || kind === 'network_error');
+        var codes = {
+            timeout: 'digitalogic_panel_request_timeout',
+            invalid_response: 'digitalogic_panel_response_invalid'
+        };
+        var messages = {
+            timeout: 'AJAX request timed out',
+            network_error: 'AJAX request failed before the result was received',
+            invalid_response: 'AJAX returned an invalid response',
+            failed: 'AJAX request failed'
+        };
+        var error = transportError(
+            {code: outcomeUnknown ? 'digitalogic_transport_outcome_unknown' : (codes[kind] || 'digitalogic_ajax_' + kind)},
+            messages[kind] || messages.failed
+        );
+        error.name = 'DigitalogicTransportError';
+        error.command = String(command || '');
+        error.transport = 'ajax';
+        error.outcome_unknown = outcomeUnknown;
+        error.deliveryUnknown = outcomeUnknown;
+        error.retryable = !outcomeUnknown;
+        error.failure = kind;
+        if (cause) error.cause = cause;
+        return error;
+    }
+
     function createTransport() {
         var socket = null;
         var ready = false;
@@ -238,10 +294,7 @@
                             ));
                             return;
                         }
-                        reject(transportError(
-                            {code: 'digitalogic_panel_request_timeout'},
-                            'مهلت پاسخ پنل تمام شد؛ صفحه آزاد است و می‌توانید وضعیت را دوباره بررسی کنید.'
-                        ));
+                        reject(ajaxFailure('timeout', command));
                     }, timeoutMs)
                     : null;
 
@@ -259,31 +312,54 @@
                 };
                 if (controller) options.signal = controller.signal;
 
-                window.fetch(config.ajax_url, options).then(function(response) {
-                    return response.text().then(function(text) {
-                        var json;
-                        try {
-                            json = JSON.parse(text);
-                        } catch (error) {
-                            if (command === 'digitalogic_update_product_code') {
-                                throw commandError(
-                                    {code: 'digitalogic_response_ambiguous', data: {retryable: true}},
-                                    'The Product Code response could not be verified. Retry the unchanged request.',
-                                    0
-                                );
-                            }
-                            throw transportError({code: 'digitalogic_panel_response_invalid'}, 'پاسخ پنل قابل خواندن نبود؛ دوباره تلاش کنید.');
+                var fetchPromise;
+                try {
+                    fetchPromise = window.fetch(config.ajax_url, options);
+                } catch (error) {
+                    finish(reject, ajaxFailure('network_error', command, error));
+                    return;
+                }
+
+                Promise.resolve(fetchPromise).then(function(response) {
+                    return Promise.resolve().then(function() {
+                        if (response && typeof response.text === 'function') {
+                            return response.text().then(function(text) {
+                                return JSON.parse(text);
+                            });
                         }
-                        if (!response.ok || !json || !json.success) {
-                            if (command === 'digitalogic_update_product_code' && json && json.data && typeof json.data === 'object') {
-                                throw commandError(json.data, json.data.message || 'AJAX failed', response.status);
-                            }
-                            throw transportError(json && json.data, 'AJAX failed');
+                        if (response && typeof response.json === 'function') {
+                            return response.json();
                         }
-                        return json.data;
+                        throw new TypeError('AJAX response has no readable body');
+                    }).catch(function(error) {
+                        if (command === 'digitalogic_update_product_code') {
+                            throw commandError(
+                                {code: 'digitalogic_response_ambiguous', data: {retryable: true}},
+                                'The Product Code response could not be verified. Retry the unchanged request.',
+                                0
+                            );
+                        }
+                        throw ajaxFailure('invalid_response', command, error);
+                    }).then(function(json) {
+                        return {json: json, response: response};
                     });
-                }).then(function(value) {
-                    finish(resolve, value);
+                }).then(function(result) {
+                    var json = result.json;
+                    var response = result.response;
+                    if (!response || response.ok === false || !json || !json.success) {
+                        var message = json && json.data && json.data.message
+                            ? json.data.message
+                            : ((json && typeof json.data === 'string' && json.data) || 'AJAX request failed');
+                        if (command === 'digitalogic_update_product_code' && json && json.data && typeof json.data === 'object') {
+                            throw commandError(json.data, message, response && response.status);
+                        }
+                        var error = ajaxFailure('failed', command);
+                        error.message = message;
+                        error.status = Number(response && response.status || 0);
+                        if (json && json.data) error.data = json.data;
+                        throw error;
+                    }
+                    finish(resolve, json.data);
                 }).catch(function(error) {
                     if (settled || timedOut) return;
                     if (error && error.name === 'AbortError') {
@@ -296,7 +372,10 @@
                             : transportError({code: 'digitalogic_panel_request_timeout'}, 'مهلت پاسخ پنل تمام شد؛ صفحه آزاد است.'));
                         return;
                     }
-                    finish(reject, error);
+                    finish(reject, error && (
+                        error.name === 'DigitalogicTransportError' ||
+                        typeof error.code === 'string'
+                    ) ? error : ajaxFailure('network_error', command, error));
                 });
             });
         }

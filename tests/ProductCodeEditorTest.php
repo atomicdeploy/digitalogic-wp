@@ -96,9 +96,9 @@ final class ProductCodeEditorTest extends TestCase {
 		$this->assertSame( '000741', $result['previous_product_code'] );
 		$this->assertSame( '000742', $result['product_code'] );
 		$this->assertSame( '000742', $GLOBALS['digitalogic_test_posts'][741]['meta']['_digitalogic_patris_product_code'] );
-		$this->assertSame( array( 0, 0, 0, 1, 1 ), $GLOBALS['wpdb']->lock_timeouts );
-		$this->assertSame( 5, $GLOBALS['wpdb']->acquire_count );
-		$this->assertSame( 5, $GLOBALS['wpdb']->release_count );
+		$this->assertSame( array( 0, 0, 0, 0, 1, 1, 1, 1 ), $GLOBALS['wpdb']->lock_timeouts );
+		$this->assertSame( 8, $GLOBALS['wpdb']->acquire_count );
+		$this->assertSame( 8, $GLOBALS['wpdb']->release_count );
 		$this->assertSame(
 			Digitalogic_Product_Sync_Receiver::source_identity_lock_name( 'wp_' ),
 			$GLOBALS['wpdb']->lock_names[0]
@@ -134,7 +134,7 @@ final class ProductCodeEditorTest extends TestCase {
 		$this->assertSame( $first['product_code'], $replay['product_code'] );
 		$this->assertTrue( $replay['replayed'] );
 		$this->assertSame( $actions, count( $GLOBALS['digitalogic_test_actions']['updated_post_meta'] ?? array() ) );
-		$this->assertSame( 7, $GLOBALS['wpdb']->acquire_count, 'Replay adds only the shared source and short operation locks.' );
+		$this->assertSame( 10, $GLOBALS['wpdb']->acquire_count, 'Replay adds only the shared source and short operation locks.' );
 	}
 
 	/** Historical replay returns a separate DB-fresh current row projection. */
@@ -875,6 +875,7 @@ final class ProductCodeEditorTest extends TestCase {
 
 	/** Failure to promote a reservation stops before the canonical effect. */
 	public function test_claim_pointer_promotion_failure_has_no_product_code_effect(): void {
+		// phpcs:disable Generic.Formatting.MultipleStatementAlignment.NotSameWarning -- Keep the deterministic hook setup readable.
 		$request      = $this->request( '000742', 'product-code:741:pointer-promotion-failure' );
 		$pointer_name = $this->recovery_option_name( 741 );
 		$GLOBALS['wpdb']->after_option_write = static function ( $database, $option_name ) use ( $pointer_name ) {
@@ -882,6 +883,7 @@ final class ProductCodeEditorTest extends TestCase {
 				$GLOBALS['digitalogic_test_update_failures'][] = $pointer_name;
 			}
 		};
+		// phpcs:enable Generic.Formatting.MultipleStatementAlignment.NotSameWarning
 
 		$result = $this->editor->edit( $request );
 

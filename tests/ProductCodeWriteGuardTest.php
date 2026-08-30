@@ -168,7 +168,7 @@ final class ProductCodeWriteGuardTest extends TestCase {
 	public function test_by_mid_update_and_delete_are_blocked(): void {
 		$GLOBALS['digitalogic_test_meta_by_mid'][77] = array(
 			'post_id'  => 901,
-			'meta_key' => Digitalogic_Product_Code_Editor::META_KEY,
+			'meta_key' => Digitalogic_Product_Code_Editor::META_KEY, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key -- Test metadata row fixture.
 		);
 		$guard                                       = Digitalogic_Product_Code_Write_Guard::instance();
 
@@ -180,7 +180,7 @@ final class ProductCodeWriteGuardTest extends TestCase {
 
 		$GLOBALS['digitalogic_test_meta_by_mid'][88] = array(
 			'post_id'  => 901,
-			'meta_key' => '_unrelated_meta',
+			'meta_key' => '_unrelated_meta', // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key -- Test metadata row fixture.
 		);
 		$this->assertFalse( $guard->guard_mid_update( null, 88, 'MID', Digitalogic_Product_Code_Editor::META_KEY ) );
 	}
@@ -265,7 +265,7 @@ final class ProductCodeWriteGuardTest extends TestCase {
 
 		$GLOBALS['digitalogic_test_meta_by_mid'][79] = array(
 			'post_id'  => 901,
-			'meta_key' => $upper,
+			'meta_key' => $upper, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key -- Test metadata row fixture.
 		);
 		$this->assertFalse( $guard->guard_mid_update( null, 79, 'CASE', false ) );
 		$this->assertFalse( $guard->guard_mid_delete( null, 79 ) );

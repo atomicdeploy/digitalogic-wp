@@ -12,8 +12,8 @@ final class ProductCodeTranslationsTest extends TestCase {
 
 	/** Principal edit, recovery, and source-guard strings exist in both catalogs. */
 	public function test_principal_product_code_messages_are_translated(): void {
-		$pot = file_get_contents( dirname( __DIR__ ) . '/languages/digitalogic.pot' );
-		$po  = file_get_contents( dirname( __DIR__ ) . '/languages/digitalogic-fa_IR.po' );
+		$pot = file_get_contents( dirname( __DIR__ ) . '/languages/digitalogic.pot' ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Local immutable test fixture.
+		$po  = file_get_contents( dirname( __DIR__ ) . '/languages/digitalogic-fa_IR.po' ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Local immutable test fixture.
 		$this->assertIsString( $pot );
 		$this->assertIsString( $po );
 

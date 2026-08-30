@@ -1203,12 +1203,13 @@ class Digitalogic_Admin {
                 header('Retry-After: ' . $retry_after);
             }
 			if ( 'digitalogic_update_product_code' === $command ) {
-				$status = max( 400, min( 599, $status ) );
+				$error_data = $details;
+				$status     = max( 400, min( 599, $status ) );
 				wp_send_json_error(
 					array(
 						'code'    => $result->get_error_code(),
 						'message' => $result->get_error_message(),
-						'data'    => $details,
+						'data'    => $error_data,
 						'status'  => $status,
 					),
 					$status

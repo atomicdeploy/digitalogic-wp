@@ -395,7 +395,7 @@ final class Digitalogic_Product_Code_Write_Guard {
 		return is_object( $meta )
 			? array(
 				'post_id'  => (int) ( $meta->post_id ?? 0 ),
-				'meta_key' => (string) ( $meta->meta_key ?? '' ),
+				'meta_key' => (string) ( $meta->meta_key ?? '' ), // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key -- Metadata row field, not a query argument.
 			)
 			: array();
 	}

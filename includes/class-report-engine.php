@@ -205,7 +205,7 @@ final class Digitalogic_Report_Engine {
 			: hash( 'sha256', $object_id . '|' . $meta_key . '|' . microtime( true ) . '|' . wp_rand() );
 		$this->product_meta_invalidation_probes[ $token ] = array(
 			'object_id'  => $object_id,
-			'meta_key'   => $meta_key,
+			'meta_key'   => $meta_key, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key -- Probe payload field, not a query argument.
 			'generation' => '',
 		);
 
