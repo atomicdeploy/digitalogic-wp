@@ -167,11 +167,36 @@ source-lifecycle outbox after commit. Source lifecycle entries are drained in
 insertion order before the composite state entry derived from them. A failed
 head entry remains durable and blocks later entries until the bounded
 asynchronous retry succeeds, preserving causal order. State-event retries use
-one exact pending action across PHP requests; the scheduler mutex permits a
-running worker to create one replacement without parallel retry chains. A
-bounded per-source receipt plus the retained panel identity fences late
-fallback actions after delivery, so they cannot repersist or append the same
-composite idempotency key. Redis is only a
+one exact pending action across PHP requests; a per-fallback scheduler mutex
+permits a running worker to create one replacement without parallel retry
+chains. After a mutex timeout, WP-Cron is accepted only after exact persisted
+readback; if that path is unavailable, Action Scheduler atomically coalesces the
+exact fallback in a content-addressed group without evicting a distinct identity.
+If that group's primary action is already in progress, one alternate
+content-addressed handoff remains pending and converts under the same exact
+scheduler mutex to one primary successor without contending on the
+already-running hook. A throwing Action Scheduler, WP-Cron, or mutex adapter is
+isolated so the other verified scheduler path can still retain the intent. If
+the handoff mutex itself is unavailable, one additional atomic recovery relay
+retains the exact arguments until a later transition can insert the primary.
+Pending readback is tri-state: an unreadable scheduler never enables a
+non-unique insert, and persistent degraded retries remain bounded by the three
+content-addressed primary/handoff/recovery hooks without collapsing identities.
+Deployment preflight and post-deploy readback must count the primary, handoff,
+and recovery hooks in both Action Scheduler and WP-Cron. A rollback to a plugin
+version that does not register the relay hooks must preserve any residual rows
+as incident evidence until an operator reviews their exact arguments and state;
+cleanup is deliberate, not an automatic or wildcard deletion.
+The outbox carries the exact delivered identity until its one-hour receipt
+commits. Receipts retain only the newest 200 source identities, and exact source
+removal durably clears both its normalized receipt and delivered-state outbox
+marker before the ordered lifecycle event is published. If the same source is
+already current again, removal instead rebuilds its current outbox entry without
+the retired delivered marker, preserving ordered removal/addition before the
+fresh composite event. The retained panel
+identity is a secondary fence, so late
+fallback actions cannot repersist or append the same composite idempotency key
+after panel rotation. Redis is only a
 low-latency wake-up. If that publish fails, the newest failed wake is retained
 in a persistent outbox and retried by one coalesced, non-recurring WP-Cron
 action. Any valid wake makes the WebSocket process drain the ordered durable
