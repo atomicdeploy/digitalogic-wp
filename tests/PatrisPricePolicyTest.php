@@ -253,6 +253,18 @@ final class PatrisPricePolicyTest extends TestCase {
 		$this->assertSame( 'instock', $product->get_stock_status() );
 	}
 
+	/** Numeric source metadata is verified against MySQL's textual scalar readback. */
+	public function test_feed_readback_normalizes_scalar_metadata_to_database_types(): void {
+		$method = new ReflectionMethod( Digitalogic_Patris_Feed::class, 'normalize_meta_readback_value' );
+
+		$this->assertSame( '0', $method->invoke( $this->feed, 0 ) );
+		$this->assertSame( '4', $method->invoke( $this->feed, 4 ) );
+		$this->assertSame( '2.5', $method->invoke( $this->feed, 2.5 ) );
+		$this->assertSame( '1', $method->invoke( $this->feed, true ) );
+		$this->assertSame( '', $method->invoke( $this->feed, false ) );
+		$this->assertSame( array( 'warehouse' => 4 ), $method->invoke( $this->feed, array( 'warehouse' => 4 ) ) );
+	}
+
 	/** Verify the product projection names every distinct price value. */
 	public function test_product_api_names_effective_price_and_policy_explicitly(): void {
 		$this->addProduct(

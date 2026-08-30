@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.41] - 2026-08-30
+
+### Fixed
+- Compare numeric Patris metadata using WordPress/MySQL scalar storage semantics
+  during exact readback, without changing rollback backups or masking real late
+  clobbers.
+
 ## [1.8.40] - 2026-08-30
 
 ### Added
