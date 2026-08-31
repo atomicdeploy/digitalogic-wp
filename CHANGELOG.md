@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.72] - 2026-09-01
+
+### Fixed
+- Accept WooCommerce's canonical missing empty price rows during coordinated
+  readback so intentionally unpriced products do not roll back a valid
+  whole-catalog currency update; duplicate or non-empty drift still fails.
+
 ## [1.8.71] - 2026-08-31
 
 ### Changed

@@ -4401,6 +4401,22 @@ final class PricingCoordinatorTest extends TestCase {
 		$this->assertSame( '', (string) $GLOBALS['digitalogic_test_posts'][901]['meta']['_regular_price'] );
 		$this->assertSame( '', (string) $GLOBALS['digitalogic_test_posts'][901]['meta']['_sale_price'] );
 		$this->assertSame( '', (string) $GLOBALS['digitalogic_test_posts'][901]['meta']['_price'] );
+
+		$state  = $GLOBALS['digitalogic_test_options'][ Digitalogic_Product_Sync_Receiver::STATE_OPTION ];
+		$stored = reset( $state['sources'] )['products']['PRICE-901'];
+		unset(
+			$GLOBALS['digitalogic_test_posts'][901]['meta']['_regular_price'],
+			$GLOBALS['digitalogic_test_posts'][901]['meta']['_sale_price'],
+			$GLOBALS['digitalogic_test_posts'][901]['meta']['_price']
+		);
+		$GLOBALS['digitalogic_test_wc_products']     = array();
+		$GLOBALS['digitalogic_test_post_meta_cache'] = array();
+
+		$readback = new ReflectionMethod( Digitalogic_Product_Sync_Receiver::class, 'coordinated_price_readback_matches' );
+		$this->assertTrue(
+			$readback->invoke( Digitalogic_Product_Sync_Receiver::instance(), 901, $stored ),
+			'Woo may delete empty price rows; that canonical absence must not roll back a CNY update.'
+		);
 	}
 
 	/** Missing weight preserves a valid prior storefront price and reports why. */
