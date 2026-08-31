@@ -928,6 +928,164 @@ final class Digitalogic_Shipping_Method_Service {
 		);
 	}
 
+	/**
+	 * Compare and assign inside the pricing coordinator's caller-owned transaction.
+	 *
+	 * This path never starts, commits, or rolls back a transaction. The caller
+	 * must own the shared source-identity lock and is responsible for dispatching
+	 * the returned change only after its outer COMMIT.
+	 *
+	 * @param string      $code Exact Patris Product Code.
+	 * @param string|null $expected_method_id Expected current assignment.
+	 * @param string|null $method_id Desired assignment; empty clears it.
+	 * @return array|WP_Error
+	 */
+	public function compare_and_assign_product_by_code_in_open_pricing_transaction( $code, $expected_method_id, $method_id ) {
+		$expected = $this->normalize_expected_assignment( $expected_method_id );
+		if ( is_wp_error( $expected ) ) {
+			return $expected;
+		}
+		if (
+			! class_exists( 'Digitalogic_Product_Sync_Receiver' )
+			|| ! Digitalogic_Product_Sync_Receiver::instance()->source_identity_lock_is_owned()
+		) {
+			return new WP_Error(
+				'digitalogic_shipping_open_transaction_lock_required',
+				__( 'The caller-owned shipping assignment requires the canonical source lock.', 'digitalogic' ),
+				array( 'status' => 500 )
+			);
+		}
+
+		return $this->with_catalog_lock(
+			function () use ( $code, $expected, $method_id ) {
+				$resolved = $this->resolve_shipping_product( $code );
+				if ( is_wp_error( $resolved ) ) {
+					return $resolved;
+				}
+				$method = $this->validate_assignment_method( $method_id, $resolved['product_id'] );
+				if ( is_wp_error( $method ) ) {
+					return $method;
+				}
+				$current_rows = $this->read_product_method_meta_rows( $resolved['product_id'], true );
+				if ( ! is_array( $current_rows ) || count( $current_rows ) > 1 ) {
+					return new WP_Error(
+						'digitalogic_shipping_assignment_conflict',
+						__( 'The product shipping assignment is ambiguous.', 'digitalogic' ),
+						array( 'status' => 409 )
+					);
+				}
+				$current = empty( $current_rows ) ? '' : (string) $current_rows[0]['value'];
+				if ( ! hash_equals( $expected, $current ) ) {
+					return new WP_Error(
+						'digitalogic_shipping_assignment_conflict',
+						__( 'The product shipping assignment changed before it could be written.', 'digitalogic' ),
+						array(
+							'status'                     => 409,
+							'current_shipping_method_id' => $current,
+						)
+					);
+				}
+				$desired = is_null( $method ) ? '' : (string) $method['id'];
+				if ( hash_equals( $desired, $current ) ) {
+					return array(
+						'changed'            => false,
+						'product_id'         => (int) $resolved['product_id'],
+						'woocommerce_id'     => (string) $resolved['woocommerce_id'],
+						'shipping_method_id' => $desired,
+					);
+				}
+
+				global $wpdb;
+				$table = isset( $wpdb->postmeta ) ? $wpdb->postmeta : $wpdb->prefix . 'postmeta';
+				if ( '' === $desired ) {
+					$written = empty( $current_rows )
+						? 1
+						// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- The caller-owned transaction deletes the exact locked assignment row and verifies authoritative readback before commit.
+						: $wpdb->delete(
+							$table,
+							array(
+								'post_id'  => (int) $resolved['product_id'],
+								'meta_key' => self::PRODUCT_METHOD_META, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key -- Exact locked assignment row, bounded by post_id.
+							),
+							array( '%d', '%s' )
+						);
+				} elseif ( empty( $current_rows ) ) {
+					// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- The caller-owned transaction inserts one exact assignment row and verifies authoritative readback before commit.
+					$written = $wpdb->insert(
+						$table,
+						array(
+							'post_id'    => (int) $resolved['product_id'],
+							'meta_key'   => self::PRODUCT_METHOD_META, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key -- Exact canonical assignment row.
+							'meta_value' => $desired, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_value -- Exact canonical assignment value.
+						),
+						array( '%d', '%s', '%s' )
+					);
+				} else {
+					// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- The caller-owned transaction updates the exact locked meta_id and verifies authoritative readback before commit.
+					$written = $wpdb->update(
+						$table,
+						array( 'meta_value' => $desired ), // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_value -- Exact canonical assignment value.
+						array( 'meta_id' => (int) $current_rows[0]['meta_id'] ),
+						array( '%s' ),
+						array( '%d' )
+					);
+				}
+				if ( false === $written || (int) $written < 1 ) {
+					return new WP_Error(
+						'digitalogic_shipping_meta_write_failed',
+						__( 'The product shipping-method assignment could not be saved.', 'digitalogic' ),
+						array(
+							'status'     => 500,
+							'product_id' => (int) $resolved['product_id'],
+						)
+					);
+				}
+				$stored_rows = $this->read_product_method_meta_rows( $resolved['product_id'], true );
+				if (
+					( '' === $desired && ! empty( $stored_rows ) )
+					|| (
+						'' !== $desired
+						&& (
+							1 !== count( (array) $stored_rows )
+							|| ! hash_equals( $desired, (string) ( $stored_rows[0]['value'] ?? '' ) )
+						)
+					)
+				) {
+					return new WP_Error(
+						'digitalogic_shipping_meta_write_failed',
+						__( 'The product shipping-method assignment could not be saved.', 'digitalogic' ),
+						array(
+							'status'     => 500,
+							'product_id' => (int) $resolved['product_id'],
+						)
+					);
+				}
+
+				return array(
+					'changed'            => true,
+					'product_id'         => (int) $resolved['product_id'],
+					'woocommerce_id'     => (string) $resolved['woocommerce_id'],
+					'shipping_method_id' => $desired,
+				);
+			}
+		);
+	}
+
+	/**
+	 * Publish one already-committed assignment through the normal domain channels.
+	 *
+	 * @param int    $product_id Exact WooCommerce product ID.
+	 * @param string $method_id  Canonical shipping method ID.
+	 * @return string[] Delivery warnings from result-aware channels.
+	 */
+	public function publish_committed_product_assignment( $product_id, $method_id ) {
+		return $this->emit_domain_action(
+			'digitalogic_product_shipping_method_updated',
+			(int) $product_id,
+			(string) $method_id
+		);
+	}
+
     /**
      * Apply a preflighted batch. No changes occur when any row is invalid.
      *
@@ -1800,6 +1958,35 @@ final class Digitalogic_Shipping_Method_Service {
 
 	private function read_product_method_meta($post_id, $for_update = false) {
 		return $this->read_post_meta_db($post_id, self::PRODUCT_METHOD_META, $for_update);
+	}
+
+	/**
+	 * Read every exact assignment row, optionally locking it for a caller-owned transaction.
+	 *
+	 * @param int  $post_id    Exact WooCommerce product ID.
+	 * @param bool $for_update Whether to lock the rows for update.
+	 * @return array|null
+	 */
+	private function read_product_method_meta_rows( $post_id, $for_update = false ) {
+		global $wpdb;
+		$table = isset( $wpdb->postmeta ) ? $wpdb->postmeta : $wpdb->prefix . 'postmeta';
+		$sql   = "/* digitalogic_shipping_assignment_rows */ SELECT meta_id, meta_value FROM {$table} WHERE post_id = %d AND meta_key = %s ORDER BY meta_id ASC";
+		if ( $for_update ) {
+			$sql .= ' FOR UPDATE';
+		}
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Exact caller-owned transaction readback must bypass caches and lock the canonical row.
+		$rows = $wpdb->get_results( $wpdb->prepare( $sql, (int) $post_id, self::PRODUCT_METHOD_META ), ARRAY_A );
+		if ( ! is_array( $rows ) ) {
+			return null;
+		}
+
+		return array_map(
+			static fn( $row ) => array(
+				'meta_id' => (int) ( $row['meta_id'] ?? 0 ),
+				'value'   => maybe_unserialize( $row['meta_value'] ?? '' ),
+			),
+			$rows
+		);
 	}
 
     /**
