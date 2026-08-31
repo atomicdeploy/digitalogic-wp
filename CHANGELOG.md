@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.78] - 2026-09-01
+
+### Fixed
+- Repair and re-verify positive fallback leaf rows in WooCommerce's price lookup
+  table inside the atomic pricing transaction when object saves leave them stale.
+
 ## [1.8.77] - 2026-09-01
 
 ### Changed

@@ -1767,6 +1767,37 @@ final class PricingCoordinatorTest extends TestCase {
 		$this->assertContains( 30001, $removed );
 	}
 
+	/** A fallback object save with stale leaf lookup is repaired and verified before commit. */
+	public function test_fallback_stale_leaf_lookup_is_repaired_inside_atomic_reprice(): void {
+		$this->seed_large_pricing_snapshot( 4, 1 );
+		unset(
+			$GLOBALS['digitalogic_test_posts'][20003]['meta'][ Digitalogic_Shipping_Method_Service::PRODUCT_METHOD_META ]
+		);
+		$GLOBALS['digitalogic_test_wc_products']   = array();
+		$GLOBALS['digitalogic_test_wc_after_save'] = static function ( $product ) {
+			if ( 20003 === (int) $product->get_id() ) {
+				$GLOBALS['digitalogic_test_wc_lookup_rows'][20003]['min_price'] = '1';
+				$GLOBALS['digitalogic_test_wc_lookup_rows'][20003]['max_price'] = '1';
+				$GLOBALS['digitalogic_test_wc_lookup_rows'][20003]['onsale']    = 1;
+			}
+		};
+
+		$result = Digitalogic_Pricing_Coordinator::instance()->update_currency(
+			array( 'yuan_price' => '29501' ),
+			'fallback_lookup_repair'
+		);
+
+		$this->assertFalse(
+			is_wp_error( $result ),
+			is_wp_error( $result ) ? $result->get_error_code() . ': ' . $result->get_error_message() : ''
+		);
+		$expected_price = (string) wc_get_product( 20003 )->get_price();
+		$this->assertSame( $expected_price, (string) $GLOBALS['digitalogic_test_wc_lookup_rows'][20003]['min_price'] );
+		$this->assertSame( $expected_price, (string) $GLOBALS['digitalogic_test_wc_lookup_rows'][20003]['max_price'] );
+		$this->assertSame( 0, (int) $GLOBALS['digitalogic_test_wc_lookup_rows'][20003]['onsale'] );
+		$this->assertContains( 'COMMIT', $GLOBALS['wpdb']->queries );
+	}
+
 	/** A stale request-local simple object cannot misclassify an authoritative variation. */
 	public function test_pricing_preclassification_evicts_stale_product_instance_type_and_parent(): void {
 		$this->seed_large_pricing_snapshot( 4, 1 );

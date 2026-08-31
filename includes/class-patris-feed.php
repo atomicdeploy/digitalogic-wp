@@ -2063,6 +2063,60 @@ class Digitalogic_Patris_Feed {
 	}
 
 	/**
+	 * Repair and verify exact positive leaf lookup prices inside the caller's transaction.
+	 *
+	 * @param array<int,string> $expected_prices Canonical positive price by leaf ID.
+	 * @return true|WP_Error
+	 */
+	public function repair_priced_leaf_lookup_projections( $expected_prices ) {
+		$plans = array();
+		foreach ( (array) $expected_prices as $product_id => $expected_price ) {
+			$product_id = absint( $product_id );
+			$price      = $this->pricing_batch_decimal( $expected_price );
+			if ( $product_id <= 0 || null === $price || $this->pricing_batch_decimal_compare( $price, '0' ) <= 0 ) {
+				return $this->pricing_batch_error( 'leaf_lookup_repair' );
+			}
+			$plans[ $product_id ] = $price;
+		}
+		if ( empty( $plans ) ) {
+			return true;
+		}
+
+		global $wpdb;
+		$lookup_table = $wpdb->prefix . 'wc_product_meta_lookup';
+		ksort( $plans, SORT_NUMERIC );
+		foreach ( array_chunk( $plans, 200, true ) as $chunk ) {
+			$values = array();
+			$args   = array();
+			foreach ( $chunk as $product_id => $price ) {
+				$values[] = '(%d,%s,%s,0)';
+				array_push( $args, $product_id, $price, $price );
+			}
+			$sql = "/* digitalogic_pricing_batch_lookup_upsert repair */ INSERT INTO {$lookup_table} (product_id, min_price, max_price, onsale) VALUES " . implode( ',', $values ) . ' ON DUPLICATE KEY UPDATE min_price=VALUES(min_price), max_price=VALUES(max_price), onsale=VALUES(onsale)';
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Exact bounded lookup repair inside the already-owned pricing transaction.
+			if ( false === $wpdb->query( $wpdb->prepare( $sql, ...$args ) ) ) {
+				return $this->pricing_batch_error( 'leaf_lookup_repair' );
+			}
+		}
+
+		$drifted = $this->drifted_priced_leaf_lookup_projections( $plans );
+		if ( is_wp_error( $drifted ) ) {
+			return $drifted;
+		}
+
+		return empty( $drifted )
+			? true
+			: new WP_Error(
+				'digitalogic_pricing_batch_leaf_lookup_repair_readback_failed',
+				'WooCommerce leaf lookup repair did not pass exact readback.',
+				array(
+					'status'          => 502,
+					'woocommerce_ids' => array_values( $drifted ),
+				)
+			);
+	}
+
+	/**
 	 * Find variable parents whose raw and lookup price aggregates are stale.
 	 *
 	 * Visible child prices, parent topology, and ownership are locked by the

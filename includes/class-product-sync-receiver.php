@@ -4457,10 +4457,22 @@ class Digitalogic_Product_Sync_Receiver {
 				$lookup_drift = Digitalogic_Patris_Feed::instance()->drifted_priced_leaf_lookup_projections(
 					$fallback_positive_prices
 				);
-				if ( is_wp_error( $lookup_drift ) || ! empty( $lookup_drift ) ) {
-					if ( is_wp_error( $lookup_drift ) ) {
-						$identity_verified = $lookup_drift;
+				if ( is_wp_error( $lookup_drift ) ) {
+					$identity_verified = $lookup_drift;
+				} elseif ( ! empty( $lookup_drift ) ) {
+					$repair_prices = array_intersect_key(
+						$fallback_positive_prices,
+						array_fill_keys( array_map( 'absint', $lookup_drift ), true )
+					);
+					$lookup_repair = Digitalogic_Patris_Feed::instance()->repair_priced_leaf_lookup_projections(
+						$repair_prices
+					);
+					if ( is_wp_error( $lookup_repair ) ) {
+						$identity_verified = $lookup_repair;
 					} else {
+						$this->coordinated_batch_write = true;
+					}
+					if ( is_wp_error( $identity_verified ) ) {
 						$drifted_product_id = (int) reset( $lookup_drift );
 						$identity_verified  = $this->error(
 							'digitalogic_pricing_batch_lookup_readback_failed',
