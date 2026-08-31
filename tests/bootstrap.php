@@ -825,6 +825,18 @@ function delete_transient($name) {
 }
 // phpcs:enable
 
+/**
+ * Test double for WP Rocket's domain cache purge.
+ *
+ * @throws RuntimeException When a test requests a simulated purge failure.
+ */
+function rocket_clean_domain() {
+	++$GLOBALS['digitalogic_test_rocket_clean_domain_calls'];
+	if ( ! empty( $GLOBALS['digitalogic_test_rocket_clean_domain_throw'] ) ) {
+		throw new RuntimeException( 'simulated WP Rocket failure' );
+	}
+}
+
 function wp_cache_delete($key, $group = '') {
     $GLOBALS['digitalogic_test_cache_deletes'][] = array($key, $group);
 	if (in_array((string) $group . ':' . (string) $key, (array) ($GLOBALS['digitalogic_test_cache_delete_failures'] ?? array()), true)) {

@@ -178,6 +178,28 @@ final class WooCommerceCurrencyStatusTest extends TestCase {
 		$this->assertArrayNotHasKey( 'woocommerce_currency', $GLOBALS['digitalogic_test_options'] );
 	}
 
+	/** A canonical post-commit revision creates one durable storefront event. */
+	public function test_canonical_pricing_event_is_persisted_once_per_revision(): void {
+		$panel    = Digitalogic_Panel::instance();
+		$revision = 'sha256:' . str_repeat( 'a', 64 );
+		$effect   = 'sha256:' . str_repeat( 'b', 64 );
+		$result   = array(
+			'state_revision' => $revision,
+			'effect_id'      => $effect,
+		);
+
+		$panel->record_coordinated_currency_event( $result );
+		$panel->record_coordinated_currency_event( $result );
+		$panel->record_coordinated_currency_event( array( 'state_revision' => 'invalid' ) );
+
+		$events = $GLOBALS['digitalogic_test_options']['digitalogic_panel_events'];
+		$this->assertCount( 1, $events );
+		$this->assertSame( 'currency.updated', $events[0]['name'] );
+		$this->assertSame( 'coordinated_pricing_settings', $events[0]['data']['option'] );
+		$this->assertSame( $revision, $events[0]['data']['state_revision'] );
+		$this->assertSame( $effect, $events[0]['data']['effect_id'] );
+	}
+
 	/**
 	 * Reset a test singleton.
 	 *

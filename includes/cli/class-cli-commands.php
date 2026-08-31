@@ -1754,10 +1754,17 @@ class Digitalogic_CLI_Commands {
 	 * [--dataset=<dataset>]
 	 * : Exact source dataset. Must be paired with --source-id.
 	 *
+	 * [--materialize-current]
+	 * : Queue one bounded batch whose canonical public feed markers are stale.
+	 *
+	 * [--limit=<count>]
+	 * : Materialization batch size from 1 through 25. Requires --materialize-current.
+	 *
 	 * ## EXAMPLES
 	 *
 	 *     wp digitalogic product-sync reconcile --user=<administrator>
 	 *     wp digitalogic product-sync reconcile --source-id=patris-office --dataset=kala.db --user=<administrator>
+	 *     wp digitalogic product-sync reconcile --source-id=patris-office --dataset=kala.db --materialize-current --limit=25 --user=<administrator>
 	 *
 	 * @when after_wp_load
 	 *
@@ -1770,9 +1777,23 @@ class Digitalogic_CLI_Commands {
 			return;
 		}
 
-		$source_id = isset( $assoc_args['source-id'] ) ? (string) $assoc_args['source-id'] : null;
-		$dataset   = isset( $assoc_args['dataset'] ) ? (string) $assoc_args['dataset'] : null;
-		$result    = Digitalogic_Product_Sync_Receiver::instance()->reconcile( $source_id, $dataset );
+		$source_id   = isset( $assoc_args['source-id'] ) ? (string) $assoc_args['source-id'] : null;
+		$dataset     = isset( $assoc_args['dataset'] ) ? (string) $assoc_args['dataset'] : null;
+		$materialize = isset( $assoc_args['materialize-current'] );
+		if ( isset( $assoc_args['limit'] ) && ! $materialize ) {
+			WP_CLI::error( '--limit requires --materialize-current.' );
+			return;
+		}
+		$limit = $materialize ? (string) ( $assoc_args['limit'] ?? '25' ) : '0';
+		if ( $materialize && ( 1 !== preg_match( '/\A[1-9][0-9]*\z/D', $limit ) || (int) $limit > 25 ) ) {
+			WP_CLI::error( '--limit must be an integer from 1 through 25.' );
+			return;
+		}
+		$result = Digitalogic_Product_Sync_Receiver::instance()->reconcile(
+			$source_id,
+			$dataset,
+			(int) $limit
+		);
 		if ( is_wp_error( $result ) ) {
 			WP_CLI::error( $result->get_error_message() );
 			return;

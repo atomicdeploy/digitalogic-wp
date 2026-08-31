@@ -323,6 +323,9 @@ final class Digitalogic_Patris_Catalog_Materializer {
 					if ( ! $product->is_type( 'variation' ) ) {
 						$product->set_catalog_visibility( 'visible' );
 					}
+					$product->update_meta_data( self::OWNER_SOURCE_META, $identity['source_id'] );
+					$product->update_meta_data( self::OWNER_DATASET_META, $identity['dataset'] );
+					$product->update_meta_data( self::OWNER_CODE_META, $identity['product_code'] );
 					$product->update_meta_data( self::SOURCE_REVISION_META, $identity['source_revision'] );
 					$product->update_meta_data( self::MISSING_FIELDS_META, wp_json_encode( $missing, JSON_UNESCAPED_SLASHES ) );
 					if ( in_array( 'price', $missing, true ) ) {
@@ -1942,7 +1945,7 @@ final class Digitalogic_Patris_Catalog_Materializer {
 		}
 
 		$original_status             = (string) $target_backup['status'];
-		$shipping_after              = $this->selected_shipping_method( $record );
+		$shipping_after              = $this->selected_source_shipping_method( $record );
 		$converted                   = false;
 		$variation_identity_expected = null;
 		try {
@@ -2181,8 +2184,16 @@ final class Digitalogic_Patris_Catalog_Materializer {
 		);
 	}
 
-	/** Choose the one supported shipping path from exact source pricing fields. */
-	private function selected_shipping_method( $record ) {
+	/**
+	 * Choose the one supported shipping path from exact source pricing fields.
+	 *
+	 * This read-only decision is shared with the receiver's bounded legacy
+	 * projection repair. It never writes a price or selected-price provenance.
+	 *
+	 * @param array $record Exact normalized source record.
+	 * @return string Supported shipping method ID, or an empty string.
+	 */
+	public function selected_source_shipping_method( $record ) {
 		$currency = (string) ( $record['price_source_currency'] ?? '' );
 		$kind     = (string) ( $record['price_source_kind'] ?? '' );
 		if ( 'CNY' === $currency && 'foreign_price' === $kind ) {
@@ -2190,6 +2201,25 @@ final class Digitalogic_Patris_Catalog_Materializer {
 		}
 		if ( 'IRR' === $currency && in_array( $kind, array( 'partner_price', 'sale_price_direct' ), true ) ) {
 			return self::DOMESTIC_METHOD;
+		}
+
+		// The transformed source cannot select the foreign-price route until a
+		// supplier method exists. Break that bootstrap cycle only when the raw
+		// source facts unambiguously describe a positive CNY item and no other
+		// selected route has been declared. The following product-sync revision
+		// remains responsible for supplying derived price provenance and a final
+		// price; this assignment never manufactures either value.
+		$source_amount    = $record['price_source_amount'] ?? null;
+		$foreign_currency = (string) ( $record['foreign_currency'] ?? '' );
+		$foreign_price    = $this->number( $record['foreign_price'] ?? null );
+		if (
+			'' === $kind
+			&& '' === $currency
+			&& ( null === $source_amount || '' === (string) $source_amount )
+			&& 'CNY' === $foreign_currency
+			&& $foreign_price > 0
+		) {
+			return self::SHIPPING_METHOD;
 		}
 
 		return '';

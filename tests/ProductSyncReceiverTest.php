@@ -218,6 +218,112 @@ final class ProductSyncReceiverTest extends TestCase {
 		$this->assertCount( 30, $GLOBALS['digitalogic_test_posts'] );
 	}
 
+	/** Legacy public leaves are repaired through the canonical full-feed path in bounded batches. */
+	public function test_reconciliation_backfills_stale_materialization_projection_idempotently(): void {
+		$products = array();
+		for ( $index = 1; $index <= 3; ++$index ) {
+			$product                = array(
+				'product_code' => sprintf( 'LEGACY-META-%02d', $index ),
+				'name'         => sprintf( 'Legacy product %d', $index ),
+				'warnings'     => array( 'final_price_unavailable' ),
+			);
+			$product['record_hash'] = $this->recordHash( $product, true );
+			$products[]             = $product;
+		}
+		$receiver = Digitalogic_Product_Sync_Receiver::instance();
+		$seed     = $receiver->receive( $this->snapshot( $products ) );
+		$this->assertNotInstanceOf( WP_Error::class, $seed );
+
+		$ids = array();
+		foreach ( $products as $product ) {
+			$resolved = Digitalogic_Product_Identifier_Resolver::instance()->resolve(
+				array( 'patris_code' => $product['product_code'] )
+			);
+			$this->assertNotInstanceOf( WP_Error::class, $resolved );
+			$id                                  = (int) $resolved['woocommerce_id'];
+			$ids[ $product['product_code'] ]     = $id;
+			$meta                                =& $GLOBALS['digitalogic_test_posts'][ $id ]['meta'];
+			unset(
+				$meta[ Digitalogic_Patris_Catalog_Materializer::OWNER_SOURCE_META ],
+				$meta[ Digitalogic_Patris_Catalog_Materializer::OWNER_DATASET_META ],
+				$meta[ Digitalogic_Patris_Catalog_Materializer::OWNER_CODE_META ],
+				$meta[ Digitalogic_Patris_Catalog_Materializer::SOURCE_REVISION_META ],
+				$meta[ Digitalogic_Patris_Catalog_Materializer::MISSING_FIELDS_META ]
+			);
+		}
+		unset( $meta );
+		$GLOBALS['digitalogic_test_wc_products']     = array();
+		$GLOBALS['digitalogic_test_post_meta_cache'] = array();
+
+		$first = $receiver->reconcile( 'tests', 'ALLANBAR', 2 );
+		$this->assertNotInstanceOf( WP_Error::class, $first );
+		$this->assertSame( 2, $first['materialization_queued'] );
+		$this->assertSame( 2, $first['sources'][0]['woocommerce']['attempted'] );
+		$this->assertSame( 0, $first['pending_products'] );
+		$this->assertSame( 0, $first['deferred_products'] );
+
+		$state    = $receiver->get_source_state( 'tests', 'ALLANBAR' );
+		$revision = (string) $state['source']['revision'];
+		foreach ( array_slice( $products, 0, 2 ) as $product ) {
+			$id = $ids[ $product['product_code'] ];
+			$this->assertSame( 'tests', get_post_meta( $id, Digitalogic_Patris_Catalog_Materializer::OWNER_SOURCE_META, true ) );
+			$this->assertSame( 'ALLANBAR', get_post_meta( $id, Digitalogic_Patris_Catalog_Materializer::OWNER_DATASET_META, true ) );
+			$this->assertSame( $product['product_code'], get_post_meta( $id, Digitalogic_Patris_Catalog_Materializer::OWNER_CODE_META, true ) );
+			$this->assertSame( $revision, get_post_meta( $id, Digitalogic_Patris_Catalog_Materializer::SOURCE_REVISION_META, true ) );
+			$this->assertTrue( metadata_exists( 'post', $id, Digitalogic_Patris_Catalog_Materializer::MISSING_FIELDS_META ) );
+		}
+		$this->assertFalse(
+			metadata_exists(
+				'post',
+				$ids['LEGACY-META-03'],
+				Digitalogic_Patris_Catalog_Materializer::MISSING_FIELDS_META
+			)
+		);
+
+		$second = $receiver->reconcile( 'tests', 'ALLANBAR', 2 );
+		$this->assertNotInstanceOf( WP_Error::class, $second );
+		$this->assertSame( 1, $second['materialization_queued'] );
+		$this->assertSame( 1, $second['sources'][0]['woocommerce']['attempted'] );
+		$this->assertSame( 0, $second['pending_products'] );
+		$this->assertSame( 0, $second['deferred_products'] );
+
+		// A valid per-product source revision remains exact provenance even after
+		// another catalog row advances the aggregate source revision.
+		update_post_meta(
+			$ids['LEGACY-META-01'],
+			Digitalogic_Patris_Catalog_Materializer::SOURCE_REVISION_META,
+			'sha256:' . str_repeat( 'a', 64 )
+		);
+		$GLOBALS['digitalogic_test_wc_products'] = array();
+		$replayed = $receiver->reconcile( 'tests', 'ALLANBAR', 2 );
+		$this->assertNotInstanceOf( WP_Error::class, $replayed );
+		$this->assertSame( 0, $replayed['materialization_queued'] );
+		$this->assertSame( 0, $replayed['sources'][0]['woocommerce']['attempted'] );
+		$this->assertCount( 3, $GLOBALS['digitalogic_test_posts'] );
+	}
+
+	/** The supported CLI rejects unbounded or detached backfill limits. */
+	public function test_materialization_reconcile_cli_requires_an_explicit_bounded_mode(): void {
+		$GLOBALS['digitalogic_test_capabilities']['manage_options'] = true;
+		WP_CLI::$errors = array();
+		WP_CLI::$logs   = array();
+		$command        = new Digitalogic_CLI_Commands();
+
+		$command->product_sync_reconcile( array(), array( 'limit' => '2' ) );
+		$this->assertSame( array( '--limit requires --materialize-current.' ), WP_CLI::$errors );
+
+		WP_CLI::$errors = array();
+		$command->product_sync_reconcile(
+			array(),
+			array(
+				'materialize-current' => true,
+				'limit'               => '26',
+			)
+		);
+		$this->assertSame( array( '--limit must be an integer from 1 through 25.' ), WP_CLI::$errors );
+		$this->assertSame( array(), WP_CLI::$logs );
+	}
+
 	/** A temporarily unavailable materializer remains retryable, never deferred as missing. */
 	public function test_unmaterialized_not_found_record_remains_pending_instead_of_deferred(): void {
 		add_filter(
