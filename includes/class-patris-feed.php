@@ -1802,16 +1802,17 @@ class Digitalogic_Patris_Feed {
 	}
 
 	/**
-	 * Persist the explicit unavailable state after Woo synchronizes stock data.
+	 * Persist unavailable status after WooCommerce and save hooks synchronize stock.
 	 *
-	 * WooCommerce may derive `instock` from a positive managed quantity during
-	 * the same save that writes the complete Patris projection. Re-read the
-	 * committed product, then make only the status authoritative in a second
-	 * save while the canonical source/product transaction remains held.
+	 * A positive canonical quantity remains exact even when price inputs are
+	 * unavailable. WooCommerce integrations may promote that quantity to
+	 * `instock` during the full product save, so the final status-only projection
+	 * is written directly to Woo's authoritative meta and lookup row while both
+	 * source locks remain held. No second product save or hook fan-out is used.
 	 *
 	 * @param WC_Product $product Product staged by the canonical writer.
 	 * @return void
-	 * @throws RuntimeException When the exact unavailable state cannot be read or persisted.
+	 * @throws RuntimeException When the exact unavailable state cannot be persisted and verified.
 	 */
 	private function persist_unpriced_positive_stock_status( WC_Product $product ) {
 		$status = (string) $product->get_meta( Digitalogic_Patris_Price_Policy::STATUS_META, true );
@@ -1824,21 +1825,165 @@ class Digitalogic_Patris_Feed {
 
 		$product_id = (int) $product->get_id();
 		$fresh      = $this->fresh_product_for_source_readback( $product_id );
-		if ( ! $fresh instanceof WC_Product ) {
-			throw new RuntimeException( 'The unavailable product stock projection could not be read.' );
+		if ( ! $fresh instanceof WC_Product || ! $this->source_write_locks_are_owned( $product_id ) ) {
+			throw new RuntimeException( 'The unavailable product stock projection could not be read safely.' );
 		}
-		if ( 'outofstock' !== (string) $fresh->get_stock_status() ) {
-			$fresh->set_stock_status( 'outofstock' );
-			if ( ! $fresh->save() ) {
-				throw new RuntimeException( 'The unavailable product stock projection could not be saved.' );
+		if ( ! $this->unavailable_stock_projection_matches( $product_id, $fresh ) ) {
+			if ( ! $this->write_unavailable_stock_projection( $product_id ) ) {
+				throw new RuntimeException( 'The unavailable product stock projection could not be persisted.' );
 			}
+			$this->invalidate_unavailable_stock_projection_caches( $product_id );
 			$fresh = $this->fresh_product_for_source_readback( $product_id );
-			if ( ! $fresh instanceof WC_Product || 'outofstock' !== (string) $fresh->get_stock_status() ) {
-				throw new RuntimeException( 'The unavailable product stock projection could not be verified.' );
-			}
+		}
+		if ( ! $this->unavailable_stock_projection_matches( $product_id, $fresh ) ) {
+			throw new RuntimeException( 'The unavailable product stock projection could not be verified.' );
 		}
 
 		$product->set_stock_status( 'outofstock' );
+	}
+
+	/**
+	 * Write one exact status-only WooCommerce projection without save hooks.
+	 *
+	 * @param int $product_id Exact WooCommerce product ID.
+	 * @return bool
+	 */
+	private function write_unavailable_stock_projection( $product_id ) {
+		global $wpdb;
+		$product_id = absint( $product_id );
+		if (
+			$product_id <= 0
+			|| ! $this->source_write_locks_are_owned( $product_id )
+			|| ! is_object( $wpdb )
+			|| ! isset( $wpdb->postmeta, $wpdb->prefix )
+			|| ! method_exists( $wpdb, 'prepare' )
+			|| ! method_exists( $wpdb, 'query' )
+		) {
+			return false;
+		}
+		$current        = $this->read_exact_meta_rows( $product_id, array( '_stock_status' ) );
+		$current_status = is_array( $current ) && 1 === count( $current['_stock_status'] ?? array() )
+			? (string) reset( $current['_stock_status'] )
+			: '';
+		if ( is_wp_error( $current ) || ! in_array( $current_status, array( 'instock', 'onbackorder', 'outofstock' ), true ) ) {
+			return false;
+		}
+
+		$postmeta     = $wpdb->postmeta;
+		$lookup_table = $wpdb->prefix . 'wc_product_meta_lookup';
+		if ( 'outofstock' !== $current_status ) {
+			// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Table is the exact wpdb postmeta table; all values use generated placeholders.
+			$meta_sql = $wpdb->prepare(
+				"/* digitalogic_patris_unpriced_stock_meta_update */ UPDATE {$postmeta} SET meta_value = %s WHERE post_id = %d AND BINARY meta_key = %s",
+				'outofstock',
+				$product_id,
+				'_stock_status'
+			);
+			// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$wpdb->last_error = '';
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Exact single-row status projection is prepared above and verified below.
+			$meta_updated = false === $meta_sql ? false : $wpdb->query( $meta_sql );
+			if ( false === $meta_updated || 1 !== (int) $meta_updated || '' !== (string) $wpdb->last_error ) {
+				return false;
+			}
+		}
+		if ( ! $this->source_write_locks_are_owned( $product_id ) ) {
+			return false;
+		}
+
+		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Table is the exact site-scoped Woo lookup table; values use placeholders.
+		$lookup_sql = $wpdb->prepare(
+			"/* digitalogic_patris_unpriced_stock_lookup_update */ UPDATE {$lookup_table} SET stock_status = %s WHERE product_id = %d",
+			'outofstock',
+			$product_id
+		);
+		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		$wpdb->last_error = '';
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Exact single-row lookup projection is prepared above and verified below.
+		$lookup_updated = false === $lookup_sql ? false : $wpdb->query( $lookup_sql );
+
+		return false !== $lookup_updated
+			&& (int) $lookup_updated <= 1
+			&& '' === (string) $wpdb->last_error
+			&& $this->source_write_locks_are_owned( $product_id );
+	}
+
+	/**
+	 * Clear every product cache WooCommerce clears after an authoritative update.
+	 *
+	 * @param int $product_id Exact WooCommerce product ID.
+	 * @return void
+	 * @throws RuntimeException When enabled instance caching cannot be invalidated.
+	 */
+	private function invalidate_unavailable_stock_projection_caches( $product_id ) {
+		$product_id = absint( $product_id );
+		wp_cache_delete( $product_id, 'post_meta' );
+		clean_post_cache( $product_id );
+		wc_delete_product_transients( $product_id );
+		if ( class_exists( 'WC_Cache_Helper' ) ) {
+			WC_Cache_Helper::invalidate_cache_group( 'product_' . $product_id );
+		}
+
+		$features_class      = '\\Automattic\\WooCommerce\\Utilities\\FeaturesUtil';
+		$product_cache_class = '\\Automattic\\WooCommerce\\Internal\\Caches\\ProductCache';
+		if (
+			class_exists( $features_class )
+			&& class_exists( $product_cache_class )
+			&& call_user_func( array( $features_class, 'feature_is_enabled' ), 'product_instance_caching' )
+		) {
+			$cache = wc_get_container()->get( $product_cache_class );
+			if ( ! is_object( $cache ) || ! method_exists( $cache, 'remove' ) ) {
+				throw new RuntimeException( 'The unavailable product object cache could not be invalidated.' );
+			}
+			$cache->remove( $product_id );
+		}
+	}
+
+	/**
+	 * Verify raw meta, lookup, and a cache-bypassed WooCommerce object agree.
+	 *
+	 * @param int              $product_id Exact WooCommerce product ID.
+	 * @param WC_Product|false $fresh      Cache-bypassed WooCommerce product.
+	 * @return bool
+	 */
+	private function unavailable_stock_projection_matches( $product_id, $fresh ) {
+		global $wpdb;
+		$product_id = absint( $product_id );
+		if (
+			$product_id <= 0
+			|| ! $fresh instanceof WC_Product
+			|| ! $this->source_write_locks_are_owned( $product_id )
+			|| ! is_object( $wpdb )
+			|| ! isset( $wpdb->prefix )
+			|| ! method_exists( $wpdb, 'prepare' )
+			|| ! method_exists( $wpdb, 'get_row' )
+		) {
+			return false;
+		}
+		$meta = $this->read_exact_meta_rows( $product_id, array( '_stock_status' ) );
+		if ( is_wp_error( $meta ) || array( '_stock_status' => array( 'outofstock' ) ) !== $meta ) {
+			return false;
+		}
+
+		$lookup_table = $wpdb->prefix . 'wc_product_meta_lookup';
+		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Table is the exact site-scoped Woo lookup table; product ID uses a placeholder.
+		$lookup_sql = $wpdb->prepare(
+			"/* digitalogic_patris_unpriced_stock_lookup_readback */ SELECT stock_status FROM {$lookup_table} WHERE product_id = %d",
+			$product_id
+		);
+		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		$wpdb->last_error = '';
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Exact cache-bypassed lookup readback is prepared above.
+		$lookup = false === $lookup_sql ? null : $wpdb->get_row( $lookup_sql, ARRAY_A );
+
+		return is_array( $lookup )
+			&& 'outofstock' === (string) ( $lookup['stock_status'] ?? '' )
+			&& '' === (string) $wpdb->last_error
+			&& 'outofstock' === (string) $fresh->get_stock_status()
+			&& (float) $fresh->get_stock_quantity() > 0
+			&& '' === trim( (string) $fresh->get_regular_price() )
+			&& '' === trim( (string) $fresh->get_sale_price() )
+			&& '' === trim( (string) $fresh->get_price() );
 	}
 
 	/**

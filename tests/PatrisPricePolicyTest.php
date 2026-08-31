@@ -31,8 +31,11 @@ final class PatrisPricePolicyTest extends TestCase {
 		$GLOBALS['digitalogic_test_wc_products']          = array();
 		$GLOBALS['digitalogic_test_wc_product_saves']     = array();
 		$GLOBALS['digitalogic_test_wc_after_save']        = null;
+		$GLOBALS['digitalogic_test_wc_lookup_rows']       = array();
 		$GLOBALS['digitalogic_test_wc_set_price_calls']   = array();
 		$GLOBALS['digitalogic_test_wc_transient_deletes'] = array();
+
+		$GLOBALS['digitalogic_test_wc_stock_projection_failures'] = array();
 
 		$GLOBALS['digitalogic_test_wc_cache_group_invalidations'] = array();
 		$GLOBALS['digitalogic_test_object_term_cache_cleans']     = array();
@@ -179,9 +182,7 @@ final class PatrisPricePolicyTest extends TestCase {
 		$missing = $this->row( 'MISSING-807', 700 );
 		unset( $missing['final_price'] );
 		$GLOBALS['digitalogic_test_wc_after_save'] = static function ( $saved_product ) {
-			$saved_product->set_stock_status( 'instock' );
-			$GLOBALS['digitalogic_test_posts'][ $saved_product->get_id() ]['meta']['_stock_status'] = 'instock';
-			unset( $GLOBALS['digitalogic_test_wc_products'][ $saved_product->get_id() ] );
+			$GLOBALS['digitalogic_test_wc_lookup_rows'][ $saved_product->get_id() ]['stock_status'] = 'instock';
 		};
 		$this->feed->apply_product_feed( wc_get_product( 807 ), $missing );
 		$product = wc_get_product( 807 );
@@ -191,7 +192,8 @@ final class PatrisPricePolicyTest extends TestCase {
 		$this->assertSame( 5, $product->get_stock_quantity() );
 		$this->assertSame( 'outofstock', $product->get_stock_status() );
 		$this->assertSame( 'canonical_missing_unpriced', $product->get_meta( '_digitalogic_patris_price_status', true ) );
-		$this->assertSame( array( 807, 807 ), $GLOBALS['digitalogic_test_wc_product_saves'] );
+		$this->assertSame( 'outofstock', $GLOBALS['digitalogic_test_wc_lookup_rows'][807]['stock_status'] );
+		$this->assertSame( array( 807 ), $GLOBALS['digitalogic_test_wc_product_saves'] );
 
 		$this->feed->apply_product_feed( $product, $this->row( 'MISSING-807', 0 ) );
 		$product = wc_get_product( 807 );
@@ -209,8 +211,8 @@ final class PatrisPricePolicyTest extends TestCase {
 		$this->assertSame( 'priced', $product->get_meta( '_digitalogic_patris_price_status', true ) );
 	}
 
-	/** A re-entrant hook cannot commit an unavailable leaf as in stock. */
-	public function test_reentrant_stock_promotion_fails_closed_then_retries_idempotently(): void {
+	/** Re-entrant save hooks cannot overwrite the final status-only projection. */
+	public function test_reentrant_stock_promotion_is_fenced_and_idempotent(): void {
 		$this->addProduct(
 			813,
 			'simple',
@@ -229,33 +231,72 @@ final class PatrisPricePolicyTest extends TestCase {
 		$hook_calls = 0;
 		$promote    = null;
 
-		$promote = static function ( $saved_product ) use ( &$hook_calls, &$promote ) {
+		// phpcs:disable Generic.Formatting.MultipleStatementAlignment -- Nested fixture writes are intentionally independent assignments.
+		$promote    = static function ( $saved_product ) use ( &$hook_calls, &$promote ) {
 			++$hook_calls;
 			$saved_product->set_stock_status( 'instock' );
 			$GLOBALS['digitalogic_test_posts'][ $saved_product->get_id() ]['meta']['_stock_status'] = 'instock';
+			$GLOBALS['digitalogic_test_wc_lookup_rows'][ $saved_product->get_id() ]['stock_status'] = 'instock';
 			unset( $GLOBALS['digitalogic_test_wc_products'][ $saved_product->get_id() ] );
-			if ( $hook_calls < 2 ) {
-				$GLOBALS['digitalogic_test_wc_after_save'] = $promote;
-			}
+			$GLOBALS['digitalogic_test_wc_after_save'] = $promote;
 		};
-
+		// phpcs:enable Generic.Formatting.MultipleStatementAlignment
 		$GLOBALS['digitalogic_test_wc_after_save'] = $promote;
 
-		$blocked = $this->feed->apply_product_feed( wc_get_product( 813 ), $row );
-		$this->assertSame( 2, $hook_calls );
-		$this->assertInstanceOf( WP_Error::class, $blocked );
-		$this->assertSame( 'digitalogic_patris_product_write_failed', $blocked->get_error_code() );
-		$this->assertTrue( $blocked->get_error_data()['rollback_verified'] );
-		$this->assertSame( '700', wc_get_product( 813 )->get_price() );
-		$this->assertSame( 'instock', wc_get_product( 813 )->get_stock_status() );
-
-		$retry = $this->feed->apply_product_feed( wc_get_product( 813 ), $row );
+		$first = $this->feed->apply_product_feed( wc_get_product( 813 ), $row );
 		$again = $this->feed->apply_product_feed( wc_get_product( 813 ), $row );
-		$this->assertTrue( $retry );
+
+		$this->assertTrue( $first );
 		$this->assertTrue( $again );
+		$this->assertSame( 2, $hook_calls );
+		$this->assertSame( array( 813, 813 ), $GLOBALS['digitalogic_test_wc_product_saves'] );
 		$this->assertSame( '', wc_get_product( 813 )->get_price() );
 		$this->assertSame( 5, wc_get_product( 813 )->get_stock_quantity() );
 		$this->assertSame( 'outofstock', wc_get_product( 813 )->get_stock_status() );
+		$this->assertSame( 'outofstock', $GLOBALS['digitalogic_test_wc_lookup_rows'][813]['stock_status'] );
+	}
+
+	/** A failed exact status projection rolls back fully and remains retryable. */
+	public function test_stock_status_projection_failure_rolls_back_then_retries(): void {
+		$this->addProduct(
+			814,
+			'simple',
+			array(
+				'_manage_stock'  => 'yes',
+				'_stock'         => 5,
+				'_stock_status'  => 'instock',
+				'_regular_price' => '700',
+				'_price'         => '700',
+			)
+		);
+		$row = $this->row( 'SIMPLE-814', 700 );
+		unset( $row['final_price'] );
+		$row['weight_grams'] = 1;
+
+		// phpcs:disable Generic.Formatting.MultipleStatementAlignment -- Nested fixture writes are intentionally independent assignments.
+		$GLOBALS['digitalogic_test_wc_after_save'] = static function ( $saved_product ) {
+			$saved_product->set_stock_status( 'instock' );
+			$GLOBALS['digitalogic_test_posts'][ $saved_product->get_id() ]['meta']['_stock_status'] = 'instock';
+			$GLOBALS['digitalogic_test_wc_lookup_rows'][ $saved_product->get_id() ]['stock_status'] = 'instock';
+			unset( $GLOBALS['digitalogic_test_wc_products'][ $saved_product->get_id() ] );
+		};
+		// phpcs:enable Generic.Formatting.MultipleStatementAlignment
+		$GLOBALS['digitalogic_test_wc_stock_projection_failures'] = array( 'lookup:814' );
+
+		$blocked = $this->feed->apply_product_feed( wc_get_product( 814 ), $row );
+		$this->assertInstanceOf( WP_Error::class, $blocked );
+		$this->assertSame( 'digitalogic_patris_product_write_failed', $blocked->get_error_code() );
+		$this->assertTrue( $blocked->get_error_data()['rollback_verified'] );
+		$this->assertSame( '700', wc_get_product( 814 )->get_price() );
+		$this->assertSame( 'instock', wc_get_product( 814 )->get_stock_status() );
+		$this->assertSame( 'instock', $GLOBALS['digitalogic_test_wc_lookup_rows'][814]['stock_status'] );
+
+		$retry = $this->feed->apply_product_feed( wc_get_product( 814 ), $row );
+		$this->assertTrue( $retry );
+		$this->assertSame( '', wc_get_product( 814 )->get_price() );
+		$this->assertSame( 5, wc_get_product( 814 )->get_stock_quantity() );
+		$this->assertSame( 'outofstock', wc_get_product( 814 )->get_stock_status() );
+		$this->assertSame( 'outofstock', $GLOBALS['digitalogic_test_wc_lookup_rows'][814]['stock_status'] );
 	}
 
 	/** A missing weight preserves an already-consistent storefront price with a warning. */

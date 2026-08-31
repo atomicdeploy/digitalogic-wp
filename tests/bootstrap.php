@@ -69,6 +69,7 @@ $GLOBALS['digitalogic_test_wc_after_save'] = null;
 $GLOBALS['digitalogic_test_wc_save_fail_once'] = array();
 $GLOBALS['digitalogic_test_wc_defer_new_product_id'] = false;
 $GLOBALS['digitalogic_test_wc_lookup_rows'] = array();
+$GLOBALS['digitalogic_test_wc_stock_projection_failures'] = array();
 $GLOBALS['digitalogic_test_wc_data_store'] = null;
 $GLOBALS['digitalogic_test_wc_lookup_full_rebuilds'] = 0;
 $GLOBALS['digitalogic_test_product_updates'] = array();
@@ -1677,6 +1678,16 @@ class Digitalogic_Test_WPDB {
         $query = is_array($prepared) && isset($prepared['query']) ? $prepared['query'] : (string) $prepared;
         $args = is_array($prepared) && isset($prepared['args']) ? $prepared['args'] : array();
 
+		if ( strpos( $query, 'digitalogic_patris_unpriced_stock_lookup_readback' ) !== false ) {
+			$product_id = isset( $args[0] ) ? (int) $args[0] : 0;
+
+			return isset( $GLOBALS['digitalogic_test_wc_lookup_rows'][ $product_id ] )
+				? array(
+					'stock_status' => (string) ( $GLOBALS['digitalogic_test_wc_lookup_rows'][ $product_id ]['stock_status'] ?? '' ),
+				)
+				: null;
+		}
+
         // phpcs:disable -- Test-only metadata lookup branch follows the legacy bootstrap style.
         if (strpos($query, 'digitalogic_product_metadata_lookup') !== false) {
             $this->metadata_lookup_query_count++;
@@ -2170,6 +2181,44 @@ class Digitalogic_Test_WPDB {
 		$this->queries[] = $normalized;
 		if ( in_array( $normalized, $GLOBALS['digitalogic_test_transaction_failures'], true ) ) {
 			return false;
+		}
+
+		if ( strpos( $raw_query, 'digitalogic_patris_unpriced_stock_meta_update' ) !== false ) {
+			$status     = isset( $args[0] ) ? (string) $args[0] : '';
+			$product_id = isset( $args[1] ) ? (int) $args[1] : 0;
+			$key        = isset( $args[2] ) ? (string) $args[2] : '';
+			$failure    = 'meta:' . $product_id;
+			if ( in_array( $failure, $GLOBALS['digitalogic_test_wc_stock_projection_failures'], true ) ) {
+				$GLOBALS['digitalogic_test_wc_stock_projection_failures'] = array_values(
+					array_diff( $GLOBALS['digitalogic_test_wc_stock_projection_failures'], array( $failure ) )
+				);
+				return false;
+			}
+			if ( ! array_key_exists( $key, $GLOBALS['digitalogic_test_posts'][ $product_id ]['meta'] ?? array() ) ) {
+				return 0;
+			}
+			$changed = (string) $GLOBALS['digitalogic_test_posts'][ $product_id ]['meta'][ $key ] !== $status;
+			$GLOBALS['digitalogic_test_posts'][ $product_id ]['meta'][ $key ] = $status;
+
+			return $changed ? 1 : 0;
+		}
+		if ( strpos( $raw_query, 'digitalogic_patris_unpriced_stock_lookup_update' ) !== false ) {
+			$status     = isset( $args[0] ) ? (string) $args[0] : '';
+			$product_id = isset( $args[1] ) ? (int) $args[1] : 0;
+			$failure    = 'lookup:' . $product_id;
+			if ( in_array( $failure, $GLOBALS['digitalogic_test_wc_stock_projection_failures'], true ) ) {
+				$GLOBALS['digitalogic_test_wc_stock_projection_failures'] = array_values(
+					array_diff( $GLOBALS['digitalogic_test_wc_stock_projection_failures'], array( $failure ) )
+				);
+				return false;
+			}
+			if ( ! isset( $GLOBALS['digitalogic_test_wc_lookup_rows'][ $product_id ] ) ) {
+				return 0;
+			}
+			$changed = (string) ( $GLOBALS['digitalogic_test_wc_lookup_rows'][ $product_id ]['stock_status'] ?? '' ) !== $status;
+			$GLOBALS['digitalogic_test_wc_lookup_rows'][ $product_id ]['stock_status'] = $status;
+
+			return $changed ? 1 : 0;
 		}
 
 		if ( strpos( $raw_query, 'digitalogic_currency_job_cas' ) !== false ) {
@@ -2893,7 +2942,11 @@ class WC_Product {
 			}
 		}
 		++$this->save_count;
+        // phpcs:ignore Generic.Formatting.MultipleStatementAlignment.NotSameWarning -- Preserve the legacy fixture style while mirroring Woo's lookup row.
         $GLOBALS['digitalogic_test_posts'][$this->id]['meta'] = $this->meta;
+		$GLOBALS['digitalogic_test_wc_lookup_rows'][ $this->id ]['product_id']     = $this->id;
+		$GLOBALS['digitalogic_test_wc_lookup_rows'][ $this->id ]['stock_quantity'] = $this->get_stock_quantity();
+		$GLOBALS['digitalogic_test_wc_lookup_rows'][ $this->id ]['stock_status']   = $this->get_stock_status();
         $GLOBALS['digitalogic_test_wc_product_saves'][] = $this->id;
         $after_save = $GLOBALS['digitalogic_test_wc_after_save'] ?? null;
         $GLOBALS['digitalogic_test_wc_after_save'] = null;
