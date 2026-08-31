@@ -4672,7 +4672,7 @@ class Digitalogic_Product_Sync_Receiver {
 		$leaf_type_sql = "SELECT term.slug FROM {$wpdb->term_relationships} tr INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id=tr.term_taxonomy_id AND tt.taxonomy='product_type' INNER JOIN {$wpdb->terms} term ON term.term_id=tt.term_id WHERE tr.object_id=leaf.ID ORDER BY term.slug LIMIT 1";
 		$parent_type_sql = "SELECT term.slug FROM {$wpdb->term_relationships} tr INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id=tr.term_taxonomy_id AND tt.taxonomy='product_type' INNER JOIN {$wpdb->terms} term ON term.term_id=tt.term_id WHERE tr.object_id=parent.ID ORDER BY term.slug LIMIT 1";
 		$lookup_table = $wpdb->prefix . 'wc_product_meta_lookup';
-		$sql = '/* digitalogic_pricing_topology_preflight ids:' . count( $product_ids ) . " */ SELECT leaf.ID product_id, leaf.post_type, leaf.post_status, leaf.post_parent parent_id, CASE WHEN leaf.post_type='product_variation' THEN 'variation' ELSE COALESCE(({$leaf_type_sql}),'simple') END product_type, leaf_lookup.product_id leaf_lookup_id, parent.post_type parent_post_type, parent.post_status parent_status, COALESCE(({$parent_type_sql}),'') parent_type, parent_lookup.product_id parent_lookup_id, CASE WHEN EXISTS (SELECT 1 FROM {$wpdb->postmeta} owned WHERE owned.post_id=parent.ID AND LOWER(owned.meta_key) IN (" . implode( ',', array_fill( 0, count( $forbidden_parent_meta ), '%s' ) ) . ')) THEN 1 ELSE 0 END parent_owned FROM ' . $wpdb->posts . ' leaf LEFT JOIN ' . $lookup_table . ' leaf_lookup ON leaf_lookup.product_id=leaf.ID LEFT JOIN ' . $wpdb->posts . ' parent ON parent.ID=leaf.post_parent LEFT JOIN ' . $lookup_table . ' parent_lookup ON parent_lookup.product_id=parent.ID WHERE leaf.ID IN (' . implode( ',', array_fill( 0, count( $product_ids ), '%d' ) ) . ') ORDER BY leaf.ID';
+		$sql = '/* digitalogic_pricing_topology_preflight ids:' . count( $product_ids ) . " */ SELECT leaf.ID product_id, leaf.post_type, leaf.post_status, leaf.post_parent parent_id, leaf.post_title, CASE WHEN leaf.post_type='product_variation' THEN 'variation' ELSE COALESCE(({$leaf_type_sql}),'simple') END product_type, leaf_lookup.product_id leaf_lookup_id, leaf_lookup.sku lookup_sku, leaf_lookup.stock_quantity lookup_stock_quantity, leaf_lookup.stock_status lookup_stock_status, parent.post_type parent_post_type, parent.post_status parent_status, COALESCE(({$parent_type_sql}),'') parent_type, parent_lookup.product_id parent_lookup_id, CASE WHEN EXISTS (SELECT 1 FROM {$wpdb->postmeta} owned WHERE owned.post_id=parent.ID AND LOWER(owned.meta_key) IN (" . implode( ',', array_fill( 0, count( $forbidden_parent_meta ), '%s' ) ) . ')) THEN 1 ELSE 0 END parent_owned FROM ' . $wpdb->posts . ' leaf LEFT JOIN ' . $lookup_table . ' leaf_lookup ON leaf_lookup.product_id=leaf.ID LEFT JOIN ' . $wpdb->posts . ' parent ON parent.ID=leaf.post_parent LEFT JOIN ' . $lookup_table . ' parent_lookup ON parent_lookup.product_id=parent.ID WHERE leaf.ID IN (' . implode( ',', array_fill( 0, count( $product_ids ), '%d' ) ) . ') ORDER BY leaf.ID';
 		$args = array_merge( $forbidden_parent_meta, $product_ids );
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- One prepared authoritative preflight fences all resolved leaf and parent topology before cache-backed Woo objects are loaded.
 		$rows = $wpdb->get_results( $wpdb->prepare( $sql, ...$args ), ARRAY_A );
@@ -4696,11 +4696,17 @@ class Digitalogic_Product_Sync_Receiver {
 			$product_type = (string) ( $row['product_type'] ?? '' );
 			$parent_id    = absint( $row['parent_id'] ?? 0 );
 			$topology[ $product_id ] = array(
-				'product_type' => $product_type,
-				'post_status'  => (string) ( $row['post_status'] ?? '' ),
-				'parent_id'    => $parent_id,
-				'lookup_safe'  => $product_id === absint( $row['leaf_lookup_id'] ?? 0 ),
-				'parent_safe'  => 'variation' !== $product_type
+				'product_type'          => $product_type,
+				'post_status'           => (string) ( $row['post_status'] ?? '' ),
+				'post_title'            => (string) ( $row['post_title'] ?? '' ),
+				'parent_id'             => $parent_id,
+				'lookup_safe'           => $product_id === absint( $row['leaf_lookup_id'] ?? 0 ),
+				'lookup_sku'            => (string) ( $row['lookup_sku'] ?? '' ),
+				'lookup_stock_quantity' => null === ( $row['lookup_stock_quantity'] ?? null )
+					? null
+					: (string) $row['lookup_stock_quantity'],
+				'lookup_stock_status'   => (string) ( $row['lookup_stock_status'] ?? '' ),
+				'parent_safe'           => 'variation' !== $product_type
 					|| (
 						$parent_id > 0
 						&& 'product' === (string) ( $row['parent_post_type'] ?? '' )
@@ -4770,7 +4776,7 @@ class Digitalogic_Product_Sync_Receiver {
 	private function coordinated_pricing_batch_target_is_safe(
 		$source_state,
 		$code_key,
-		$delivery_entry,
+		&$delivery_entry,
 		$resolution_cache,
 		&$parents,
 		&$target_parent_id
@@ -4848,8 +4854,41 @@ class Digitalogic_Product_Sync_Receiver {
 				return false;
 			}
 		}
-		if ( ! empty( get_post_meta( $product_id, Digitalogic_Patris_Catalog_Materializer::AUTO_MATERIALIZED_META, false ) ) ) {
+		$auto_materialized_rows = array_map(
+			'strval',
+			array_values(
+				(array) get_post_meta(
+					$product_id,
+					Digitalogic_Patris_Catalog_Materializer::AUTO_MATERIALIZED_META,
+					false
+				)
+			)
+		);
+		if (
+			! empty( $auto_materialized_rows )
+			&& array( '1' ) !== $auto_materialized_rows
+		) {
 			return false;
+		}
+		$delivery_entry['pricing_batch_operational_projection'] = array();
+		if ( array( '1' ) === $auto_materialized_rows ) {
+			$operational_projection = Digitalogic_Patris_Feed::instance()->pricing_batch_operational_projection(
+				$product,
+				$product_data
+			);
+			foreach ( (array) ( $operational_projection['meta_rows'] ?? array() ) as $meta_key => $expected_rows ) {
+				$actual_rows = array_map(
+					'strval',
+					array_values( (array) get_post_meta( $product_id, $meta_key, false ) )
+				);
+				if ( $expected_rows !== $actual_rows ) {
+					return false;
+				}
+			}
+			if ( (string) ( $operational_projection['post_title'] ?? '' ) !== (string) ( $topology['post_title'] ?? '' ) ) {
+				return false;
+			}
+			$delivery_entry['pricing_batch_operational_projection'] = $operational_projection;
 		}
 		$code_rows = array_values( (array) get_post_meta( $product_id, Digitalogic_Product_Identifier_Resolver::PATRIS_CODE_META, false ) );
 		$sku_rows  = array_values( (array) get_post_meta( $product_id, '_sku', false ) );
@@ -4861,6 +4900,29 @@ class Digitalogic_Product_Sync_Receiver {
 		) {
 			return false;
 		}
+		$stock_rows = array_map(
+			'strval',
+			array_values( (array) get_post_meta( $product_id, '_stock', false ) )
+		);
+		$stock_status_rows = array_map(
+			'strval',
+			array_values( (array) get_post_meta( $product_id, '_stock_status', false ) )
+		);
+		$lookup_projection = array(
+			'sku'            => $product_code,
+			'stock_quantity' => empty( $stock_rows ) ? null : (string) reset( $stock_rows ),
+			'stock_status'   => 1 === count( $stock_status_rows ) ? (string) reset( $stock_status_rows ) : '',
+		);
+		if (
+			count( $stock_rows ) > 1
+			|| 1 !== count( $stock_status_rows )
+			|| $lookup_projection['sku'] !== (string) ( $topology['lookup_sku'] ?? '' )
+			|| $lookup_projection['stock_quantity'] !== ( $topology['lookup_stock_quantity'] ?? null )
+			|| $lookup_projection['stock_status'] !== (string) ( $topology['lookup_stock_status'] ?? '' )
+		) {
+			return false;
+		}
+		$delivery_entry['pricing_batch_lookup_projection'] = $lookup_projection;
 		$owner_keys = array(
 			Digitalogic_Patris_Catalog_Materializer::OWNER_SOURCE_META  => (string) ( $source['id'] ?? '' ),
 			Digitalogic_Patris_Catalog_Materializer::OWNER_DATASET_META => (string) ( $source['dataset'] ?? '' ),
@@ -4885,16 +4947,19 @@ class Digitalogic_Product_Sync_Receiver {
 				false
 			)
 		);
+		$shipping_rows = array_map( 'strval', $shipping_rows );
 		if (
 			'' === $expected_shipping
-			|| 1 !== count( $shipping_rows )
-			|| ! hash_equals( $expected_shipping, (string) reset( $shipping_rows ) )
+			|| empty( $shipping_rows )
+			|| count( $shipping_rows ) > Digitalogic_Patris_Feed::PRICING_BATCH_MAX_IDENTICAL_ASSIGNMENT_ROWS
 		) {
 			// A missing legacy assignment is recoverable through the canonical
 			// compare-and-assign fallback. A conflicting assignment fails there;
 			// neither case may poison otherwise-safe leaves in the bulk writer.
 			return false;
 		}
+		$delivery_entry['pricing_batch_assignment_conflict'] =
+			array_fill( 0, count( $shipping_rows ), $expected_shipping ) !== $shipping_rows;
 		$canonical_keys = array_fill_keys(
 			array_merge(
 				array(
@@ -5032,6 +5097,13 @@ class Digitalogic_Product_Sync_Receiver {
                 'data' => $product_data,
                 'product_code' => $product_code,
 				'materialization_source' => is_array( $source_state['source'] ?? null ) ? $source_state['source'] : array(),
+				'operational_projection' => is_array( $delivery_entry['pricing_batch_operational_projection'] ?? null )
+					? $delivery_entry['pricing_batch_operational_projection']
+					: array(),
+				'lookup_projection' => is_array( $delivery_entry['pricing_batch_lookup_projection'] ?? null )
+					? $delivery_entry['pricing_batch_lookup_projection']
+					: array(),
+				'assignment_conflict' => ! empty( $delivery_entry['pricing_batch_assignment_conflict'] ),
             );
 			if ( $product->is_type( 'variation' ) && $product->get_parent_id() > 0 ) {
 				// The parent lookup may be written before the final batch readback.

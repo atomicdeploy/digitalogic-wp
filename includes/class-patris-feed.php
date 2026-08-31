@@ -25,8 +25,9 @@ class Digitalogic_Patris_Feed {
     private const CUSTOMERS_OPTION          = 'digitalogic_patris_feed_customers';
     private const LAST_SYNC_OPTION          = 'digitalogic_patris_feed_last_sync';
     private const TOKEN_OPTION              = 'digitalogic_patris_feed_push_token';
-    public const PRODUCT_SYNC_SECRET_OPTION = 'digitalogic_product_sync_secret';
-    public const PRODUCT_SYNC_SCOPES_OPTION = 'digitalogic_product_sync_source_scopes';
+    public const PRODUCT_SYNC_SECRET_OPTION                  = 'digitalogic_product_sync_secret';
+    public const PRODUCT_SYNC_SCOPES_OPTION                  = 'digitalogic_product_sync_source_scopes';
+	public const PRICING_BATCH_MAX_IDENTICAL_ASSIGNMENT_ROWS = 8;
 
     private static $instance = null;
 
@@ -1739,10 +1740,43 @@ class Digitalogic_Patris_Feed {
 						$variation_parents[ $product_id ] = $parent_id;
 					}
 
-					$assigned_shipping = (string) $product->get_meta(
+					$assigned_shipping      = (string) $product->get_meta(
 						Digitalogic_Shipping_Method_Service::PRODUCT_METHOD_META,
 						true
 					);
+					$shipping_meta_rows     = array_map(
+						'strval',
+						array_values(
+							(array) get_post_meta(
+								$product_id,
+								Digitalogic_Shipping_Method_Service::PRODUCT_METHOD_META,
+								false
+							)
+						)
+					);
+					$auto_materialized_rows = array_map(
+						'strval',
+						array_values(
+							(array) get_post_meta(
+								$product_id,
+								Digitalogic_Patris_Catalog_Materializer::AUTO_MATERIALIZED_META,
+								false
+							)
+						)
+					);
+					if (
+						! empty( $item['assignment_conflict'] )
+						|| empty( $shipping_meta_rows )
+						|| count( $shipping_meta_rows ) > self::PRICING_BATCH_MAX_IDENTICAL_ASSIGNMENT_ROWS
+						|| array_fill( 0, count( $shipping_meta_rows ), $assigned_shipping ) !== $shipping_meta_rows
+						|| ( ! empty( $auto_materialized_rows ) && array( '1' ) !== $auto_materialized_rows )
+					) {
+						return new WP_Error(
+							'digitalogic_pricing_batch_shipping_assignment_conflict',
+							'A pricing batch contained a non-canonical materialization identity.',
+							array( 'status' => 409 )
+						);
+					}
 					if (
 						array_key_exists( 'shipping_method_id', $data )
 						&& null !== $data['shipping_method_id']
@@ -1825,13 +1859,83 @@ class Digitalogic_Patris_Feed {
 							'price_status'    => (string) $product->get_meta( Digitalogic_Patris_Price_Policy::STATUS_META, true ),
 						);
 					}
+					$operational_projection = array();
+					$operational_meta_rows  = array();
+					if ( array( '1' ) === $auto_materialized_rows ) {
+						$operational_projection = $this->pricing_batch_operational_projection( $product, $data );
+						if (
+							! is_array( $item['operational_projection'] ?? null )
+							|| $operational_projection !== $item['operational_projection']
+						) {
+							return new WP_Error(
+								'digitalogic_pricing_batch_operational_projection_changed',
+								'An auto-materialized product changed after bulk pricing preflight.',
+								array( 'status' => 409 )
+							);
+						}
+						$operational_meta_rows = (array) ( $operational_projection['meta_rows'] ?? array() );
+					} elseif ( ! empty( $item['operational_projection'] ) ) {
+						return new WP_Error(
+							'digitalogic_pricing_batch_operational_projection_changed',
+							'A pricing batch contained an unexpected operational projection.',
+							array( 'status' => 409 )
+						);
+					}
+					$stock_rows = array_map(
+						'strval',
+						array_values( (array) get_post_meta( $product_id, '_stock', false ) )
+					);
+					$stock_status_rows = array_map(
+						'strval',
+						array_values( (array) get_post_meta( $product_id, '_stock_status', false ) )
+					);
+					$lookup_projection = array(
+						'sku'            => (string) ( $data['product_code'] ?? '' ),
+						'stock_quantity' => empty( $stock_rows ) ? null : (string) reset( $stock_rows ),
+						'stock_status'   => 1 === count( $stock_status_rows ) ? (string) reset( $stock_status_rows ) : '',
+					);
+					if (
+						count( $stock_rows ) > 1
+						|| 1 !== count( $stock_status_rows )
+						|| ! is_array( $item['lookup_projection'] ?? null )
+						|| $lookup_projection !== $item['lookup_projection']
+					) {
+						return new WP_Error(
+							'digitalogic_pricing_batch_operational_projection_changed',
+							'A product lookup projection changed after bulk pricing preflight.',
+							array( 'status' => 409 )
+						);
+					}
+					$identity_meta_rows = array(
+						Digitalogic_Product_Identifier_Resolver::PATRIS_CODE_META => array( (string) ( $data['product_code'] ?? '' ) ),
+						'_sku' => array( (string) ( $data['product_code'] ?? '' ) ),
+						Digitalogic_Shipping_Method_Service::PRODUCT_METHOD_META => $shipping_meta_rows,
+						Digitalogic_Patris_Catalog_Materializer::OWNER_SOURCE_META => array(
+							(string) ( $materialization_source['id'] ?? '' ),
+						),
+						Digitalogic_Patris_Catalog_Materializer::OWNER_DATASET_META => array(
+							(string) ( $materialization_source['dataset'] ?? '' ),
+						),
+						Digitalogic_Patris_Catalog_Materializer::OWNER_CODE_META => array( (string) ( $data['product_code'] ?? '' ) ),
+						Digitalogic_Patris_Catalog_Materializer::AUTO_MATERIALIZED_META => $auto_materialized_rows,
+						'_stock'        => $stock_rows,
+						'_stock_status' => $stock_status_rows,
+					) + $operational_meta_rows;
 					$identity_plans[ $product_id ] = array(
-						'product_code'       => (string) ( $data['product_code'] ?? '' ),
-						'product_type'       => $product->is_type( 'variation' ) ? 'variation' : 'simple',
-						'parent_id'          => (int) $product->get_parent_id(),
-						'source_id'          => (string) ( $materialization_source['id'] ?? '' ),
-						'dataset'            => (string) ( $materialization_source['dataset'] ?? '' ),
-						'shipping_method_id' => $assigned_shipping,
+						'product_code'          => (string) ( $data['product_code'] ?? '' ),
+						'product_type'          => $product->is_type( 'variation' ) ? 'variation' : 'simple',
+						'parent_id'             => (int) $product->get_parent_id(),
+						'source_id'             => (string) ( $materialization_source['id'] ?? '' ),
+						'dataset'               => (string) ( $materialization_source['dataset'] ?? '' ),
+						'shipping_method_id'    => $assigned_shipping,
+						'meta_rows'             => $identity_meta_rows,
+						'post_title'            => array( '1' ) === $auto_materialized_rows
+							? (string) ( $operational_projection['post_title'] ?? '' )
+							: null,
+						'lookup_sku'            => $lookup_projection['sku'],
+						'lookup_stock_quantity' => $lookup_projection['stock_quantity'],
+						'lookup_stock_status'   => $lookup_projection['stock_status'],
+						'repair_identical_shipping_duplicates' => count( $shipping_meta_rows ) > 1,
 					);
 					if (
 						'canonical_missing_preserved'
@@ -1861,6 +1965,7 @@ class Digitalogic_Patris_Feed {
 				if ( is_wp_error( $identity_matches ) ) {
 					return $identity_matches;
 				}
+				$shipping_repairs = is_array( $identity_matches ) ? $identity_matches : array();
 
 				$managed_keys = array_values(
 					array_unique(
@@ -1880,11 +1985,20 @@ class Digitalogic_Patris_Feed {
 				);
 				sort( $managed_keys, SORT_STRING );
 
-				$lookup_table   = $wpdb->prefix . 'wc_product_meta_lookup';
-				$batch_count    = 0;
-				$meta_row_count = 0;
+				$lookup_table      = $wpdb->prefix . 'wc_product_meta_lookup';
+				$batch_count       = 0;
+				$meta_row_count    = 0;
 				$parent_ids       = array_map( 'absint', array_keys( $parent_plans ) );
 				$parent_meta_keys = array( '_price', '_regular_price', '_sale_price' );
+				$shipping_meta_ids = array();
+				foreach ( $shipping_repairs as $shipping_repair ) {
+					$shipping_meta_ids = array_merge(
+						$shipping_meta_ids,
+						array_map( 'absint', (array) ( $shipping_repair['meta_ids'] ?? array() ) )
+					);
+				}
+				$shipping_meta_ids = array_values( array_unique( array_filter( $shipping_meta_ids ) ) );
+				sort( $shipping_meta_ids, SORT_NUMERIC );
 				foreach ( array_chunk( $plans, 200, true ) as $chunk ) {
 					++$batch_count;
 					$ids         = array_keys( $chunk );
@@ -1894,9 +2008,18 @@ class Digitalogic_Patris_Feed {
 						$parent_sql  = ' OR (post_id IN (' . implode( ',', array_fill( 0, count( $parent_ids ), '%d' ) ) . ') AND meta_key IN (' . implode( ',', array_fill( 0, count( $parent_meta_keys ), '%s' ) ) . '))';
 						$parent_args = array_merge( $parent_ids, $parent_meta_keys );
 					}
-					$delete_sql = '/* digitalogic_pricing_batch_meta_delete ids:' . count( $ids ) . ' keys:' . count( $managed_keys ) . ' parent_ids:' . ( 1 === $batch_count ? count( $parent_ids ) : 0 ) . ' parent_keys:' . count( $parent_meta_keys ) . " */ DELETE FROM {$wpdb->postmeta} WHERE (post_id IN (" . implode( ',', array_fill( 0, count( $ids ), '%d' ) ) . ') AND meta_key IN (' . implode( ',', array_fill( 0, count( $managed_keys ), '%s' ) ) . '))' . $parent_sql;
+					$shipping_delete_sql  = '';
+					$shipping_delete_args = array();
+					if ( 1 === $batch_count && ! empty( $shipping_meta_ids ) ) {
+						$shipping_delete_sql  = ' OR (meta_id IN (' . implode( ',', array_fill( 0, count( $shipping_meta_ids ), '%d' ) ) . ') AND BINARY meta_key = BINARY %s)';
+						$shipping_delete_args = array_merge(
+							$shipping_meta_ids,
+							array( Digitalogic_Shipping_Method_Service::PRODUCT_METHOD_META )
+						);
+					}
+					$delete_sql = '/* digitalogic_pricing_batch_meta_delete ids:' . count( $ids ) . ' keys:' . count( $managed_keys ) . ' parent_ids:' . ( 1 === $batch_count ? count( $parent_ids ) : 0 ) . ' parent_keys:' . ( 1 === $batch_count && ! empty( $parent_ids ) ? count( $parent_meta_keys ) : 0 ) . ' assignment_rows:' . ( 1 === $batch_count ? count( $shipping_meta_ids ) : 0 ) . " */ DELETE FROM {$wpdb->postmeta} WHERE (post_id IN (" . implode( ',', array_fill( 0, count( $ids ), '%d' ) ) . ') AND meta_key IN (' . implode( ',', array_fill( 0, count( $managed_keys ), '%s' ) ) . '))' . $parent_sql . $shipping_delete_sql;
 					// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Dynamic placeholder counts are prepared immediately before the transactional batch query.
-					if ( false === $wpdb->query( $wpdb->prepare( $delete_sql, ...array_merge( $ids, $managed_keys, $parent_args ) ) ) ) {
+					if ( false === $wpdb->query( $wpdb->prepare( $delete_sql, ...array_merge( $ids, $managed_keys, $parent_args, $shipping_delete_args ) ) ) ) {
 						return $this->pricing_batch_error( 'delete' );
 					}
 
@@ -1959,14 +2082,39 @@ class Digitalogic_Patris_Feed {
 					$parent_read_sql  = ' OR (post_id IN (' . implode( ',', array_fill( 0, count( $parent_ids ), '%d' ) ) . ') AND meta_key IN (' . implode( ',', array_fill( 0, count( $parent_meta_keys ), '%s' ) ) . '))';
 					$parent_read_args = array_merge( $parent_ids, $parent_meta_keys );
 				}
-				$read_sql = '/* digitalogic_pricing_batch_meta_readback ids:' . count( $ids ) . ' keys:' . count( $managed_keys ) . ' parent_ids:' . count( $parent_ids ) . ' parent_keys:' . count( $parent_meta_keys ) . " */ SELECT post_id, meta_key, meta_value FROM {$wpdb->postmeta} WHERE (post_id IN (" . implode( ',', array_fill( 0, count( $ids ), '%d' ) ) . ') AND meta_key IN (' . implode( ',', array_fill( 0, count( $managed_keys ), '%s' ) ) . '))' . $parent_read_sql . ' ORDER BY post_id, meta_key, meta_id';
+				$shipping_read_ids  = array_map( 'absint', array_keys( $shipping_repairs ) );
+				$shipping_read_sql  = '';
+				$shipping_read_args = array();
+				if ( ! empty( $shipping_read_ids ) ) {
+					$shipping_read_sql  = ' OR (post_id IN (' . implode( ',', array_fill( 0, count( $shipping_read_ids ), '%d' ) ) . ') AND BINARY meta_key = BINARY %s)';
+					$shipping_read_args = array_merge(
+						$shipping_read_ids,
+						array( Digitalogic_Shipping_Method_Service::PRODUCT_METHOD_META )
+					);
+				}
+				$read_sql = '/* digitalogic_pricing_batch_meta_readback ids:' . count( $ids ) . ' keys:' . count( $managed_keys ) . ' parent_ids:' . count( $parent_ids ) . ' parent_keys:' . ( empty( $parent_ids ) ? 0 : count( $parent_meta_keys ) ) . ' assignment_ids:' . count( $shipping_read_ids ) . " */ SELECT post_id, meta_key, meta_value FROM {$wpdb->postmeta} WHERE (post_id IN (" . implode( ',', array_fill( 0, count( $ids ), '%d' ) ) . ') AND meta_key IN (' . implode( ',', array_fill( 0, count( $managed_keys ), '%s' ) ) . '))' . $parent_read_sql . $shipping_read_sql . ' ORDER BY post_id, meta_key, meta_id';
 				// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- One exact transactional readback covers every bulk-written metadata row.
-				$read_rows = $wpdb->get_results( $wpdb->prepare( $read_sql, ...array_merge( $ids, $managed_keys, $parent_read_args ) ), ARRAY_A );
-				if ( ! $this->pricing_batch_meta_readback_matches( $plans, $read_rows ) ) {
+				$read_rows      = $wpdb->get_results( $wpdb->prepare( $read_sql, ...array_merge( $ids, $managed_keys, $parent_read_args, $shipping_read_args ) ), ARRAY_A );
+				$leaf_read_rows = is_array( $read_rows )
+					? array_values(
+						array_filter(
+							$read_rows,
+							static function ( $row ) use ( $plans ) {
+								$product_id = absint( $row['post_id'] ?? 0 );
+								$meta_key   = (string) ( $row['meta_key'] ?? '' );
+								return isset( $plans[ $product_id ]['meta'] ) && array_key_exists( $meta_key, $plans[ $product_id ]['meta'] );
+							}
+						)
+					)
+					: $read_rows;
+				if ( ! $this->pricing_batch_meta_readback_matches( $plans, $leaf_read_rows ) ) {
 					return $this->pricing_batch_error( 'readback' );
 				}
 				if ( ! $this->pricing_batch_parent_meta_readback_matches( $parent_plans, $read_rows ) ) {
 					return $this->pricing_batch_error( 'parent_meta_readback' );
+				}
+				if ( ! $this->pricing_batch_shipping_readback_matches( $shipping_repairs, $read_rows ) ) {
+					return $this->pricing_batch_error( 'shipping_dedupe_readback' );
 				}
 
 				$lookup_plans    = $plans + $parent_plans;
@@ -2171,7 +2319,9 @@ class Digitalogic_Patris_Feed {
 	 * @return true|WP_Error
 	 */
 	public function verify_pricing_leaf_identities( $identity_plans ) {
-		return $this->pricing_batch_leaf_identity_matches( (array) $identity_plans );
+		$verified = $this->pricing_batch_leaf_identity_matches( (array) $identity_plans );
+
+		return is_wp_error( $verified ) ? $verified : true;
 	}
 
 	/**
@@ -2257,6 +2407,63 @@ class Digitalogic_Patris_Feed {
 			'currency_effective_date'        => '_digitalogic_patris_currency_effective_date',
 			'final_price'                    => '_digitalogic_patris_final_price',
 			'record_hash'                    => '_digitalogic_patris_record_hash',
+		);
+	}
+
+	/**
+	 * Build the exact non-pricing feed projection required for a safe bulk reprice.
+	 *
+	 * Auto-materialized products may skip the full WooCommerce writer only when
+	 * every source-managed operational field still matches the canonical feed.
+	 * Price-dependent fields are deliberately excluded because the surrounding
+	 * batch is about to replace and verify them atomically.
+	 *
+	 * @param WC_Product $product WooCommerce product.
+	 * @param array      $data    Canonical source product.
+	 * @return array{meta_rows:array<string,array<int,string>>,post_title:string,lookup_sku:string,lookup_stock_quantity:?string,lookup_stock_status:string}
+	 */
+	public function pricing_batch_operational_projection( WC_Product $product, $data ) {
+		$data   = is_array( $data ) ? $data : array();
+		$staged = clone $product;
+		$this->stage_product_feed( $staged, $data );
+		$expected = $this->capture_product_feed_expected( $staged, $data );
+		$excluded = array_fill_keys(
+			array_merge(
+				array_values( $this->pricing_meta_fields() ),
+				array(
+					Digitalogic_Product_Identifier_Resolver::PATRIS_CODE_META,
+					Digitalogic_Patris_Price_Policy::STATUS_META,
+					Digitalogic_Patris_Price_Policy::POLICY_META,
+					Digitalogic_Patris_Price_Policy::WARNING_META,
+				)
+			),
+			true
+		);
+		$rows     = array();
+		foreach ( (array) ( $expected['meta'] ?? array() ) as $meta_key => $values ) {
+			if ( ! isset( $excluded[ $meta_key ] ) ) {
+				$rows[ $meta_key ] = array_map( 'strval', array_values( (array) $values ) );
+			}
+		}
+
+		$props                 = is_array( $expected['props'] ?? null ) ? $expected['props'] : array();
+		$weight                = trim( (string) ( $props['weight'] ?? '' ) );
+		$manage_stock          = $props['manage_stock'] ?? false;
+		$stock_quantity        = $props['stock_quantity'] ?? null;
+		$rows['_weight']       = '' === $weight ? array() : array( $weight );
+		$rows['_manage_stock'] = array( 'parent' === $manage_stock ? 'parent' : ( $manage_stock ? 'yes' : 'no' ) );
+		$rows['_stock']        = null === $stock_quantity ? array() : array( (string) $stock_quantity );
+		$rows['_stock_status'] = array( (string) ( $props['stock_status'] ?? '' ) );
+		ksort( $rows, SORT_STRING );
+
+		$name = trim( wp_strip_all_tags( (string) ( $data['name'] ?? '' ) ) );
+
+		return array(
+			'meta_rows'             => $rows,
+			'post_title'            => '' !== $name ? $name : (string) ( $data['product_code'] ?? '' ),
+			'lookup_sku'            => (string) ( $data['product_code'] ?? '' ),
+			'lookup_stock_quantity' => null === $stock_quantity ? null : (string) $stock_quantity,
+			'lookup_stock_status'   => (string) ( $props['stock_status'] ?? '' ),
 		);
 	}
 
@@ -2405,11 +2612,11 @@ class Digitalogic_Patris_Feed {
 	 * Lock and verify every target leaf identity immediately before bulk writes.
 	 *
 	 * @param array $identity_plans Expected leaf identity plans keyed by post ID.
-	 * @return true|WP_Error
+	 * @return array|WP_Error Duplicate shipping-row repair plans on success.
 	 */
 	private function pricing_batch_leaf_identity_matches( $identity_plans ) {
 		if ( empty( $identity_plans ) ) {
-			return true;
+			return array();
 		}
 		global $wpdb;
 		$product_ids = array_map( 'absint', array_keys( $identity_plans ) );
@@ -2423,6 +2630,12 @@ class Digitalogic_Patris_Feed {
 			Digitalogic_Patris_Catalog_Materializer::OWNER_CODE_META,
 			Digitalogic_Patris_Catalog_Materializer::AUTO_MATERIALIZED_META,
 		);
+		foreach ( $identity_plans as $identity_plan ) {
+			foreach ( array_keys( (array) ( $identity_plan['meta_rows'] ?? array() ) ) as $meta_key ) {
+				$meta_keys[] = (string) $meta_key;
+			}
+		}
+		$meta_keys       = array_values( array_unique( $meta_keys ) );
 		$normalized_keys = array_map( 'strtolower', $meta_keys );
 		$product_codes   = array_values(
 			array_unique(
@@ -2447,13 +2660,13 @@ class Digitalogic_Patris_Feed {
 		$topology_rows  = array();
 		$meta_rows      = array();
 		foreach ( array_chunk( $product_ids, 200 ) as $product_id_chunk ) {
-			$topology_sql = '/* digitalogic_pricing_batch_leaf_identity_topology ids:' . count( $product_id_chunk ) . " */ SELECT p.ID product_id, p.post_type, p.post_status, p.post_parent parent_id, CASE WHEN p.post_type='product_variation' THEN 'variation' ELSE COALESCE(({$type_sql}),'simple') END product_type, leaf_lookup.product_id lookup_id FROM {$wpdb->posts} p LEFT JOIN {$lookup_table} leaf_lookup ON leaf_lookup.product_id=p.ID WHERE p.ID IN (" . implode( ',', array_fill( 0, count( $product_id_chunk ), '%d' ) ) . ') ORDER BY p.ID FOR UPDATE';
+			$topology_sql = '/* digitalogic_pricing_batch_leaf_identity_topology ids:' . count( $product_id_chunk ) . " */ SELECT p.ID product_id, p.post_type, p.post_status, p.post_parent parent_id, p.post_title, CASE WHEN p.post_type='product_variation' THEN 'variation' ELSE COALESCE(({$type_sql}),'simple') END product_type, leaf_lookup.product_id lookup_id, leaf_lookup.sku lookup_sku, leaf_lookup.stock_quantity lookup_stock_quantity, leaf_lookup.stock_status lookup_stock_status FROM {$wpdb->posts} p LEFT JOIN {$lookup_table} leaf_lookup ON leaf_lookup.product_id=p.ID WHERE p.ID IN (" . implode( ',', array_fill( 0, count( $product_id_chunk ), '%d' ) ) . ') ORDER BY p.ID FOR UPDATE';
 			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Ordered bounded current reads fence exact topology and lookup rows without joining the concurrently updated postmeta table.
 			$chunk_topology = $wpdb->get_results(
 				$wpdb->prepare( $topology_sql, ...$product_id_chunk ), // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- Generated placeholders are prepared with the exact bounded IDs.
 				ARRAY_A
 			);
-			$meta_sql       = '/* digitalogic_pricing_batch_leaf_identity_meta ids:' . count( $product_id_chunk ) . ' keys:' . count( $normalized_keys ) . " */ SELECT post_id product_id, meta_key, meta_value FROM {$wpdb->postmeta} WHERE post_id IN (" . implode( ',', array_fill( 0, count( $product_id_chunk ), '%d' ) ) . ') AND LOWER(meta_key) IN (' . implode( ',', array_fill( 0, count( $normalized_keys ), '%s' ) ) . ') ORDER BY post_id,meta_key,meta_id FOR UPDATE';
+			$meta_sql       = '/* digitalogic_pricing_batch_leaf_identity_meta ids:' . count( $product_id_chunk ) . ' keys:' . count( $normalized_keys ) . " */ SELECT post_id product_id, meta_id, meta_key, meta_value FROM {$wpdb->postmeta} WHERE post_id IN (" . implode( ',', array_fill( 0, count( $product_id_chunk ), '%d' ) ) . ') AND LOWER(meta_key) IN (' . implode( ',', array_fill( 0, count( $normalized_keys ), '%s' ) ) . ') ORDER BY post_id,meta_key,meta_id FOR UPDATE';
 			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- A separate bounded current read locks exact managed metadata rows without a join plan.
 			$chunk_meta = $wpdb->get_results(
 				$wpdb->prepare( $meta_sql, ...array_merge( $product_id_chunk, $normalized_keys ) ), // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- Generated placeholders are prepared with exact IDs and keys.
@@ -2488,12 +2701,18 @@ class Digitalogic_Patris_Feed {
 				return $this->pricing_batch_error( 'leaf_identity' );
 			}
 			$actual[ $product_id ] = array(
-				'post_type'    => (string) ( $row['post_type'] ?? '' ),
-				'post_status'  => (string) ( $row['post_status'] ?? '' ),
-				'parent_id'    => absint( $row['parent_id'] ?? 0 ),
-				'product_type' => (string) ( $row['product_type'] ?? '' ),
-				'lookup_id'    => absint( $row['lookup_id'] ?? 0 ),
-				'meta'         => array(),
+				'post_type'             => (string) ( $row['post_type'] ?? '' ),
+				'post_status'           => (string) ( $row['post_status'] ?? '' ),
+				'post_title'            => (string) ( $row['post_title'] ?? '' ),
+				'parent_id'             => absint( $row['parent_id'] ?? 0 ),
+				'product_type'          => (string) ( $row['product_type'] ?? '' ),
+				'lookup_id'             => absint( $row['lookup_id'] ?? 0 ),
+				'lookup_sku'            => (string) ( $row['lookup_sku'] ?? '' ),
+				'lookup_stock_quantity' => null === ( $row['lookup_stock_quantity'] ?? null )
+					? null
+					: (string) $row['lookup_stock_quantity'],
+				'lookup_stock_status'   => (string) ( $row['lookup_stock_status'] ?? '' ),
+				'meta'                  => array(),
 			);
 		}
 		foreach ( $meta_rows as $row ) {
@@ -2506,10 +2725,12 @@ class Digitalogic_Patris_Feed {
 				return $this->pricing_batch_error( 'leaf_identity' );
 			}
 			$actual[ $product_id ]['meta'][ strtolower( $meta_key ) ][] = array(
+				'id'    => absint( $row['meta_id'] ?? 0 ),
 				'key'   => $meta_key,
 				'value' => (string) ( $row['meta_value'] ?? '' ),
 			);
 		}
+		$duplicate_shipping_repairs = array();
 		foreach ( $identity_plans as $product_id => $expected ) {
 			$product_id         = absint( $product_id );
 			$row                = $actual[ $product_id ] ?? null;
@@ -2525,6 +2746,27 @@ class Digitalogic_Patris_Feed {
 				|| (string) ( $expected['product_type'] ?? '' ) !== $row['product_type']
 				|| (int) ( $expected['parent_id'] ?? 0 ) !== $row['parent_id']
 				|| (int) ( $row['lookup_id'] ?? 0 ) !== $product_id
+				|| ( null !== ( $expected['post_title'] ?? null ) && (string) $expected['post_title'] !== $row['post_title'] )
+				|| ( array_key_exists( 'lookup_sku', $expected ) && (string) $expected['lookup_sku'] !== $row['lookup_sku'] )
+				|| ( array_key_exists( 'lookup_stock_status', $expected ) && (string) $expected['lookup_stock_status'] !== $row['lookup_stock_status'] )
+			) {
+				return $this->pricing_batch_error( 'leaf_identity' );
+			}
+			$expected_stock_quantity = $expected['lookup_stock_quantity'] ?? null;
+			$actual_stock_quantity   = $row['lookup_stock_quantity'];
+			if (
+				array_key_exists( 'lookup_stock_quantity', $expected )
+				&& (
+					( null === $expected_stock_quantity ) !== ( null === $actual_stock_quantity )
+					|| (
+						null !== $expected_stock_quantity
+						&& (
+							null === $this->pricing_batch_signed_decimal( $expected_stock_quantity )
+							|| null === $this->pricing_batch_signed_decimal( $actual_stock_quantity )
+							|| $this->pricing_batch_signed_decimal( $expected_stock_quantity ) !== $this->pricing_batch_signed_decimal( $actual_stock_quantity )
+						)
+					)
+				)
 			) {
 				return $this->pricing_batch_error( 'leaf_identity' );
 			}
@@ -2557,6 +2799,56 @@ class Digitalogic_Patris_Feed {
 				if ( array_map( 'strval', array_values( (array) $expected_values ) ) !== $actual_values ) {
 					return $this->pricing_batch_error( 'leaf_identity' );
 				}
+				if (
+					Digitalogic_Shipping_Method_Service::PRODUCT_METHOD_META === (string) $meta_key
+					&& ! empty( $expected['repair_identical_shipping_duplicates'] )
+				) {
+					if (
+						count( $actual_rows ) < 2
+						|| count( $actual_rows ) > self::PRICING_BATCH_MAX_IDENTICAL_ASSIGNMENT_ROWS
+					) {
+						return $this->pricing_batch_error( 'leaf_identity' );
+					}
+					$meta_ids = array_map(
+						static fn( $actual_row ) => absint( $actual_row['id'] ?? 0 ),
+						array_slice( $actual_rows, 1 )
+					);
+					if ( in_array( 0, $meta_ids, true ) || count( $meta_ids ) !== count( array_unique( $meta_ids ) ) ) {
+						return $this->pricing_batch_error( 'shipping_dedupe' );
+					}
+					$duplicate_shipping_repairs[ $product_id ] = array(
+						'meta_ids' => $meta_ids,
+						'value'    => (string) reset( $actual_values ),
+					);
+				}
+			}
+		}
+
+		return $duplicate_shipping_repairs;
+	}
+
+	/**
+	 * Verify exact repaired shipping assignments in the shared bulk readback.
+	 *
+	 * @param array<int,array{meta_ids:int[],value:string}> $repairs Repair plans by product ID.
+	 * @param array<int,array>                              $rows    Shared transactional metadata rows.
+	 * @return bool
+	 */
+	private function pricing_batch_shipping_readback_matches( $repairs, $rows ) {
+		if ( empty( $repairs ) ) {
+			return true;
+		}
+		$actual = array();
+		foreach ( (array) $rows as $row ) {
+			if ( Digitalogic_Shipping_Method_Service::PRODUCT_METHOD_META !== (string) ( $row['meta_key'] ?? '' ) ) {
+				continue;
+			}
+			$product_id              = absint( $row['post_id'] ?? 0 );
+			$actual[ $product_id ][] = (string) ( $row['meta_value'] ?? '' );
+		}
+		foreach ( $repairs as $product_id => $repair ) {
+			if ( array( (string) ( $repair['value'] ?? '' ) ) !== ( $actual[ absint( $product_id ) ] ?? array() ) ) {
+				return false;
 			}
 		}
 
@@ -2735,6 +3027,28 @@ class Digitalogic_Patris_Feed {
 			$value = rtrim( rtrim( $value, '0' ), '.' );
 		}
 		return '' === $value ? '0' : $value;
+	}
+
+	/**
+	 * Normalize a signed stock decimal without binary floating-point conversion.
+	 *
+	 * @param mixed $value Raw stock quantity.
+	 * @return string|null
+	 */
+	private function pricing_batch_signed_decimal( $value ) {
+		if ( null === $value || '' === trim( (string) $value ) ) {
+			return null;
+		}
+		$value = trim( (string) $value );
+		if ( 1 !== preg_match( '/\A([+-]?)([0-9]+)(?:\.([0-9]+))?\z/D', $value, $parts ) ) {
+			return null;
+		}
+		$integer  = ltrim( $parts[2], '0' );
+		$integer  = '' === $integer ? '0' : $integer;
+		$fraction = isset( $parts[3] ) ? rtrim( $parts[3], '0' ) : '';
+		$sign     = '0' === $integer && '' === $fraction ? '' : ( '-' === $parts[1] ? '-' : '' );
+
+		return $sign . $integer . ( '' === $fraction ? '' : '.' . $fraction );
 	}
 
 	/**
