@@ -862,6 +862,29 @@ function wp_cache_delete($key, $group = '') {
 }
 
 /**
+ * Return one value from the test object cache.
+ *
+ * @param int|string $key   Cache key.
+ * @param string     $group Cache group.
+ * @param bool       $force Whether to bypass an in-memory cache.
+ * @param bool|null  $found Whether the cache key exists.
+ * @return mixed
+ */
+function wp_cache_get( $key, $group = '', $force = false, &$found = null ) { // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedFunctionFound -- WordPress test double.
+	unset( $force );
+	if ( empty( $GLOBALS['digitalogic_test_object_cache_enabled'] ) ) {
+		$found = false;
+		return false;
+	}
+
+	$cache_key = (string) $group . ':' . (string) $key;
+	$cache     = (array) ( $GLOBALS['digitalogic_test_object_cache'] ?? array() );
+	$found     = array_key_exists( $cache_key, $cache );
+
+	return $found ? $cache[ $cache_key ] : false;
+}
+
+/**
  * Test adapter for batched object-cache deletion.
  *
  * @param array  $keys  Cache keys to delete.
@@ -902,6 +925,22 @@ function clean_object_term_cache($object_ids, $object_type) {
     foreach ((array) $object_ids as $object_id) {
         $GLOBALS['digitalogic_test_object_term_cache_cleans'][] = array((int) $object_id, (string) $object_type);
     }
+}
+
+/**
+ * Return the registered product taxonomies used by topology tests.
+ *
+ * @param string $object_type Object type.
+ * @param string $output      Output mode.
+ * @return string[]
+ */
+function get_object_taxonomies( $object_type, $output = 'names' ) { // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedFunctionFound -- WordPress test double.
+	unset( $output );
+	if ( 'product' !== (string) $object_type ) {
+		return array();
+	}
+
+	return array( 'product_type', 'product_cat', 'product_tag', 'product_visibility', 'pa_model' );
 }
 
 function is_wp_error($value) {

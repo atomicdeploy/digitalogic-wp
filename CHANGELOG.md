@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.55] - 2026-08-31
+
+### Fixed
+- Fence exact product-type and variation-attribute relationship caches around
+  the reviewed Patris topology transaction, including fail-closed rollback
+  verification for persistent-cache adapters.
+
 ## [1.8.54] - 2026-08-31
 
 ### Fixed
