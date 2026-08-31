@@ -1864,8 +1864,12 @@ class Digitalogic_Test_WPDB {
 					'product_id'       => $product_id,
 					'post_type'        => (string) ( $post['post_type'] ?? '' ),
 					'post_status'      => (string) ( $post['post_status'] ?? '' ),
+					'post_title'       => (string) ( $post['post_title'] ?? '' ),
 					'parent_id'        => $parent_id,
 					'leaf_lookup_id'   => isset( $GLOBALS['digitalogic_test_wc_lookup_rows'][ $product_id ] ) ? $product_id : null,
+					'lookup_sku'       => (string) ( $GLOBALS['digitalogic_test_wc_lookup_rows'][ $product_id ]['sku'] ?? '' ),
+					'lookup_stock_quantity' => $GLOBALS['digitalogic_test_wc_lookup_rows'][ $product_id ]['stock_quantity'] ?? null,
+					'lookup_stock_status' => (string) ( $GLOBALS['digitalogic_test_wc_lookup_rows'][ $product_id ]['stock_status'] ?? '' ),
 					'product_type'     => 'product_variation' === (string) ( $post['post_type'] ?? '' )
 						? 'variation'
 						: (string) ( $post['product_type'] ?? 'simple' ),
@@ -1926,14 +1930,18 @@ class Digitalogic_Test_WPDB {
 					continue;
 				}
 				$rows[] = array(
-					'product_id'   => $product_id,
-					'post_type'    => (string) ( $post['post_type'] ?? '' ),
-					'post_status'  => (string) ( $post['post_status'] ?? '' ),
-					'parent_id'    => (int) ( $post['post_parent'] ?? 0 ),
-					'product_type' => 'product_variation' === (string) ( $post['post_type'] ?? '' )
+					'product_id'             => $product_id,
+					'post_type'              => (string) ( $post['post_type'] ?? '' ),
+					'post_status'            => (string) ( $post['post_status'] ?? '' ),
+					'post_title'             => (string) ( $post['post_title'] ?? '' ),
+					'parent_id'              => (int) ( $post['post_parent'] ?? 0 ),
+					'product_type'           => 'product_variation' === (string) ( $post['post_type'] ?? '' )
 						? 'variation'
 						: (string) ( $post['product_type'] ?? 'simple' ),
-					'lookup_id'    => isset( $GLOBALS['digitalogic_test_wc_lookup_rows'][ $product_id ] ) ? $product_id : null,
+					'lookup_id'              => isset( $GLOBALS['digitalogic_test_wc_lookup_rows'][ $product_id ] ) ? $product_id : null,
+					'lookup_sku'             => (string) ( $GLOBALS['digitalogic_test_wc_lookup_rows'][ $product_id ]['sku'] ?? '' ),
+					'lookup_stock_quantity'  => $GLOBALS['digitalogic_test_wc_lookup_rows'][ $product_id ]['stock_quantity'] ?? null,
+					'lookup_stock_status'    => (string) ( $GLOBALS['digitalogic_test_wc_lookup_rows'][ $product_id ]['stock_status'] ?? '' ),
 				);
 			}
 
@@ -1969,9 +1977,10 @@ class Digitalogic_Test_WPDB {
 					$values = isset( $post['meta_rows'][ $meta_key ] ) && is_array( $post['meta_rows'][ $meta_key ] )
 						? array_values( $post['meta_rows'][ $meta_key ] )
 						: ( array_key_exists( $meta_key, $post['meta'] ?? array() ) ? array( $post['meta'][ $meta_key ] ) : array() );
-					foreach ( $values as $value ) {
+					foreach ( $values as $meta_index => $value ) {
 						$product_rows[] = array(
 							'product_id' => $product_id,
+							'meta_id'    => $this->pricing_batch_meta_row_id( $product_id, (string) $meta_key, $meta_index ),
 							'meta_key'   => (string) $meta_key, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key -- Test fixture row shape.
 							'meta_value' => (string) $value, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_value -- Test fixture row shape.
 						);
@@ -2055,16 +2064,23 @@ class Digitalogic_Test_WPDB {
 			$parent_count = isset( $parent_matches[1] ) ? (int) $parent_matches[1] : 0;
 			preg_match( '/parent_keys:(\d+)/', $query, $parent_key_matches );
 			$parent_key_count = isset( $parent_key_matches[1] ) ? (int) $parent_key_matches[1] : 0;
-			$ids      = array_map( 'intval', array_slice( $args, 0, $id_count ) );
+			preg_match( '/assignment_ids:(\d+)/', $query, $assignment_matches );
+			$assignment_count = isset( $assignment_matches[1] ) ? (int) $assignment_matches[1] : 0;
+			$ids              = array_map( 'intval', array_slice( $args, 0, $id_count ) );
 			$keys             = array_map( 'strval', array_slice( $args, $id_count, $key_count ) );
 			$parent_offset    = $id_count + $key_count;
 			$parent_ids       = array_map( 'intval', array_slice( $args, $parent_offset, $parent_count ) );
 			$parent_keys      = array_map( 'strval', array_slice( $args, $parent_offset + $parent_count, $parent_key_count ) );
+			$assignment_offset = $parent_offset + $parent_count + $parent_key_count;
+			$assignment_ids    = array_map( 'intval', array_slice( $args, $assignment_offset, $assignment_count ) );
+			$assignment_keys   = $assignment_count > 0
+				? array( (string) ( $args[ $assignment_offset + $assignment_count ] ?? '' ) )
+				: array();
 			if ( ! empty( $GLOBALS['digitalogic_test_pricing_batch_parent_meta_readback_failure'] ) ) {
 				$parent_ids = array();
 			}
 			$rows     = array();
-			foreach ( array( array( $ids, $keys ), array( $parent_ids, $parent_keys ) ) as $read_plan ) {
+			foreach ( array( array( $ids, $keys ), array( $parent_ids, $parent_keys ), array( $assignment_ids, $assignment_keys ) ) as $read_plan ) {
 				foreach ( $read_plan[0] as $post_id ) {
 					foreach ( $read_plan[1] as $meta_key ) {
 						$values = isset( $GLOBALS['digitalogic_test_posts'][ $post_id ]['meta_rows'][ $meta_key ] )
@@ -2547,6 +2563,13 @@ class Digitalogic_Test_WPDB {
         return $this->meta_ids[$post_id][$key];
     }
 
+	/** Return a stable unique fake meta row ID for bulk identity tests. */
+	private function pricing_batch_meta_row_id( $post_id, $meta_key, $index ) {
+		$material = (int) $post_id . "\n" . (string) $meta_key . "\n" . (int) $index;
+
+		return (int) hexdec( substr( hash( 'sha256', $material ), 0, 12 ) );
+	}
+
     private function database_raw_value($value) {
         $serialized = maybe_serialize($value);
         return $this->mysql_string_roundtrip ? (string) $serialized : $serialized;
@@ -2837,12 +2860,17 @@ class Digitalogic_Test_WPDB {
 			$parent_count = isset( $parent_matches[1] ) ? (int) $parent_matches[1] : 0;
 			preg_match( '/parent_keys:(\d+)/', $raw_query, $parent_key_matches );
 			$parent_key_count = isset( $parent_key_matches[1] ) ? (int) $parent_key_matches[1] : 0;
-			$ids      = array_map( 'intval', array_slice( $args, 0, $id_count ) );
+			preg_match( '/assignment_rows:(\d+)/', $raw_query, $assignment_matches );
+			$assignment_count = isset( $assignment_matches[1] ) ? (int) $assignment_matches[1] : 0;
+			$ids              = array_map( 'intval', array_slice( $args, 0, $id_count ) );
 			$keys             = array_map( 'strval', array_slice( $args, $id_count, $key_count ) );
 			$parent_offset    = $id_count + $key_count;
 			$parent_ids       = array_map( 'intval', array_slice( $args, $parent_offset, $parent_count ) );
 			$parent_keys      = array_map( 'strval', array_slice( $args, $parent_offset + $parent_count, $parent_key_count ) );
-			$deleted  = 0;
+			$assignment_offset = $parent_offset + $parent_count + $parent_key_count;
+			$assignment_ids    = array_map( 'intval', array_slice( $args, $assignment_offset, $assignment_count ) );
+			$assignment_key    = (string) ( $args[ $assignment_offset + $assignment_count ] ?? '' );
+			$deleted           = 0;
 			foreach ( array( array( $ids, $keys ), array( $parent_ids, $parent_keys ) ) as $delete_plan ) {
 				foreach ( $delete_plan[0] as $post_id ) {
 					foreach ( $delete_plan[1] as $meta_key ) {
@@ -2856,6 +2884,28 @@ class Digitalogic_Test_WPDB {
 						}
 					}
 				}
+			}
+			if ( ! empty( $assignment_ids ) ) {
+				foreach ( $GLOBALS['digitalogic_test_posts'] as $post_id => &$post ) {
+					$values = isset( $post['meta_rows'][ $assignment_key ] )
+						? array_values( (array) $post['meta_rows'][ $assignment_key ] )
+						: ( array_key_exists( $assignment_key, $post['meta'] ?? array() ) ? array( $post['meta'][ $assignment_key ] ) : array() );
+					$remove = array();
+					foreach ( array_keys( $values ) as $index ) {
+						if ( in_array( $this->pricing_batch_meta_row_id( $post_id, $assignment_key, $index ), $assignment_ids, true ) ) {
+							$remove[] = $index;
+						}
+					}
+					rsort( $remove, SORT_NUMERIC );
+					foreach ( $remove as $index ) {
+						array_splice( $values, $index, 1 );
+						++$deleted;
+					}
+					if ( ! empty( $remove ) && isset( $post['meta_rows'][ $assignment_key ] ) ) {
+						$post['meta_rows'][ $assignment_key ] = $values;
+					}
+				}
+				unset( $post );
 			}
 			return $deleted;
 		}
@@ -3449,6 +3499,7 @@ class WC_Product {
         // phpcs:ignore Generic.Formatting.MultipleStatementAlignment.NotSameWarning -- Preserve the legacy fixture style while mirroring Woo's lookup row.
         $GLOBALS['digitalogic_test_posts'][$this->id]['meta'] = $this->meta;
 		$GLOBALS['digitalogic_test_wc_lookup_rows'][ $this->id ]['product_id']     = $this->id;
+		$GLOBALS['digitalogic_test_wc_lookup_rows'][ $this->id ]['sku']            = $this->get_sku();
 		$GLOBALS['digitalogic_test_wc_lookup_rows'][ $this->id ]['stock_quantity'] = $this->get_stock_quantity();
 		$GLOBALS['digitalogic_test_wc_lookup_rows'][ $this->id ]['stock_status']   = $this->get_stock_status();
 		if (

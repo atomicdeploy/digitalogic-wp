@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.80] - 2026-09-01
+
+### Fixed
+- Admit exact identity-safe auto-materialized leaves to the fenced bulk currency
+  path only after their complete non-price source projection is verified.
+- Canonicalize bounded identical shipping-assignment history inside the same
+  transaction, with authoritative readback and exact rollback on any conflict.
+- Preserve MariaDB-safe split identity locks while keeping a live-shaped
+  781-leaf recalculation save-free and transactionally verified.
+
 ## [1.8.79] - 2026-09-01
 
 ### Fixed

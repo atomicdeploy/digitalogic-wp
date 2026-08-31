@@ -1084,7 +1084,6 @@ final class PricingCoordinatorTest extends TestCase {
 			'performance_noop'
 		);
 		$elapsed = microtime( true ) - $started;
-
 		$this->assertFalse( is_wp_error( $result ) );
 		$this->assertLessThan( 5.0, $elapsed );
 		$this->assertSame( 1, $GLOBALS['wpdb']->identifier_query_count );
@@ -1231,11 +1230,11 @@ final class PricingCoordinatorTest extends TestCase {
 			'_regular_price' => array( '8437000' ),
 			'_sale_price'    => array( '1' ),
 		);
-		$GLOBALS['wpdb']->identifier_query_count           = 0;
-		$GLOBALS['wpdb']->queries                          = array();
-		$GLOBALS['digitalogic_test_wc_product_saves']      = array();
-		$GLOBALS['digitalogic_test_cache_delete_multiple'] = array();
-		$GLOBALS['digitalogic_test_primed_post_ids']       = array();
+		$GLOBALS['wpdb']->identifier_query_count               = 0;
+		$GLOBALS['wpdb']->queries                              = array();
+		$GLOBALS['digitalogic_test_wc_product_saves']          = array();
+		$GLOBALS['digitalogic_test_cache_delete_multiple']     = array();
+		$GLOBALS['digitalogic_test_primed_post_ids']           = array();
 		array_splice( $GLOBALS['digitalogic_test_wc_product_instance_cache_removals'], 0 );
 		$events_before = count(
 			$GLOBALS['digitalogic_test_actions']['digitalogic_excel_pricing_apply_committed'] ?? array()
@@ -1303,6 +1302,312 @@ final class PricingCoordinatorTest extends TestCase {
 			$events_before + 1,
 			count( $GLOBALS['digitalogic_test_actions']['digitalogic_excel_pricing_apply_committed'] ?? array() )
 		);
+	}
+
+	/** Live-shaped marker and assignment history remains one save-free bulk transaction. */
+	public function test_large_changed_reconcile_batches_781_live_leaves_with_canonical_repairs(): void {
+		$this->seed_large_pricing_snapshot( 781, 14 );
+		for ( $product_id = 20000; $product_id < 20008; ++$product_id ) {
+			$GLOBALS['digitalogic_test_posts'][ $product_id ]['meta'][ Digitalogic_Patris_Catalog_Materializer::AUTO_MATERIALIZED_META ] = '1';
+			$GLOBALS['digitalogic_test_posts'][ $product_id ]['post_title'] = (string) $GLOBALS['digitalogic_test_posts'][ $product_id ]['meta']['_sku'];
+			unset( $GLOBALS['digitalogic_test_post_meta_cache'][ $product_id ] );
+		}
+		$duplicate_ids = array( 20008, 20009, 20780 );
+		foreach ( $duplicate_ids as $product_id ) {
+			$GLOBALS['digitalogic_test_posts'][ $product_id ]['meta_rows'][ Digitalogic_Shipping_Method_Service::PRODUCT_METHOD_META ] = array(
+				'air_express',
+				'air_express',
+			);
+			unset( $GLOBALS['digitalogic_test_post_meta_cache'][ $product_id ] );
+		}
+		$GLOBALS['digitalogic_test_wc_products']      = array();
+		$GLOBALS['digitalogic_test_wc_product_saves'] = array();
+		$GLOBALS['wpdb']->queries                     = array();
+		$GLOBALS['wpdb']->identifier_query_count      = 0;
+
+		$started = microtime( true );
+		$result  = Digitalogic_Pricing_Coordinator::instance()->update_currency(
+			array( 'yuan_price' => '29501' ),
+			'performance_live_781'
+		);
+		$elapsed = microtime( true ) - $started;
+
+		$this->assertFalse(
+			is_wp_error( $result ),
+			is_wp_error( $result ) ? $result->get_error_code() . ': ' . $result->get_error_message() : ''
+		);
+		$this->assertLessThan( 10.0, $elapsed );
+		$this->assertSame( 781, $result['pricing_results']['changed_products'] );
+		$this->assertSame( 781, $result['pricing_results']['updated_products'] );
+		$this->assertSame( array(), $GLOBALS['digitalogic_test_wc_product_saves'] );
+		$this->assertSame( 4, $result['pricing_results']['sources'][0]['woocommerce']['batch_count'] );
+		$this->assertSame( 14, $result['pricing_results']['sources'][0]['woocommerce']['batch_parent_count'] );
+		$this->assertLessThanOrEqual( 28, count( $GLOBALS['wpdb']->queries ) );
+		$this->assertSame( 1, $GLOBALS['wpdb']->identifier_query_count );
+		$identity_queries = array_values(
+			array_filter(
+				$GLOBALS['wpdb']->queries,
+				static fn( $query ) => str_contains( (string) $query, 'DIGITALOGIC_PRICING_BATCH_LEAF_IDENTITY_' )
+			)
+		);
+		$this->assertCount( 8, $identity_queries );
+		$this->assertCount(
+			4,
+			array_filter( $identity_queries, static fn( $query ) => str_contains( $query, 'LEAF_IDENTITY_TOPOLOGY' ) )
+		);
+		$this->assertCount(
+			4,
+			array_filter( $identity_queries, static fn( $query ) => str_contains( $query, 'LEAF_IDENTITY_META' ) )
+		);
+		$collision_queries = array_values(
+			array_filter(
+				$GLOBALS['wpdb']->queries,
+				static fn( $query ) => str_contains( (string) $query, 'DIGITALOGIC_PRICING_BATCH_LEAF_COLLISION' )
+			)
+		);
+		$this->assertCount( 1, $collision_queries );
+		foreach ( $identity_queries as $target_query ) {
+			$this->assertMatchesRegularExpression( '/IDS:(?:200|181)\b/', $target_query );
+		}
+		$this->assertStringNotContainsString( 'EXISTS', implode( '', array_merge( $identity_queries, $collision_queries ) ) );
+		$this->assertSame(
+			'1',
+			(string) get_post_meta( 20000, Digitalogic_Patris_Catalog_Materializer::AUTO_MATERIALIZED_META, true )
+		);
+		foreach ( $duplicate_ids as $product_id ) {
+			$this->assertSame(
+				array( 'air_express' ),
+				array_map(
+					'strval',
+					get_post_meta( $product_id, Digitalogic_Shipping_Method_Service::PRODUCT_METHOD_META, false )
+				)
+			);
+		}
+	}
+
+	/** Title and lookup drift isolate exact auto-materialized leaves to full repair. */
+	public function test_auto_materialized_title_and_lookup_drift_do_not_poison_safe_bulk_rows(): void {
+		$this->seed_large_pricing_snapshot( 4 );
+		foreach ( array( 20000, 20001 ) as $product_id ) {
+			$GLOBALS['digitalogic_test_posts'][ $product_id ]['meta'][ Digitalogic_Patris_Catalog_Materializer::AUTO_MATERIALIZED_META ] = '1';
+			$GLOBALS['digitalogic_test_posts'][ $product_id ]['post_title'] = (string) $GLOBALS['digitalogic_test_posts'][ $product_id ]['meta']['_sku'];
+			unset( $GLOBALS['digitalogic_test_post_meta_cache'][ $product_id ] );
+		}
+		$GLOBALS['digitalogic_test_posts'][20000]['post_title']            = 'stale title';
+		$GLOBALS['digitalogic_test_wc_lookup_rows'][20001]['sku']          = 'STALE-SKU';
+		$GLOBALS['digitalogic_test_wc_lookup_rows'][20001]['stock_status'] = 'instock';
+		$GLOBALS['digitalogic_test_wc_products']                           = array();
+		$GLOBALS['digitalogic_test_wc_product_saves']                      = array();
+
+		$result = Digitalogic_Pricing_Coordinator::instance()->update_currency(
+			array( 'yuan_price' => '29501' ),
+			'auto_title_lookup_fallback'
+		);
+
+		$this->assertFalse(
+			is_wp_error( $result ),
+			is_wp_error( $result ) ? $result->get_error_code() . ': ' . $result->get_error_message() : ''
+		);
+		$this->assertSame( 4, $result['pricing_results']['updated_products'] );
+		$this->assertSame(
+			array( 20000, 20001 ),
+			array_values( array_unique( $GLOBALS['digitalogic_test_wc_product_saves'] ) )
+		);
+		$this->assertSame( 'PERF-0000', $GLOBALS['digitalogic_test_posts'][20000]['post_title'] );
+		$this->assertSame( 'PERF-0001', $GLOBALS['digitalogic_test_wc_lookup_rows'][20001]['sku'] );
+		$this->assertSame( 'outofstock', $GLOBALS['digitalogic_test_wc_lookup_rows'][20001]['stock_status'] );
+	}
+
+	/** Locked title and lookup proof catches post-preflight auto-product drift. */
+	public function test_auto_materialized_title_lookup_toc_tou_rolls_back_without_event(): void {
+		$this->seed_large_pricing_snapshot( 4 );
+		$GLOBALS['digitalogic_test_posts'][20000]['meta'][ Digitalogic_Patris_Catalog_Materializer::AUTO_MATERIALIZED_META ] = '1';
+		$GLOBALS['digitalogic_test_posts'][20000]['post_title'] = 'PERF-0000';
+		unset( $GLOBALS['digitalogic_test_post_meta_cache'][20000] );
+		$GLOBALS['digitalogic_test_wc_products'] = array();
+		$before_posts                            = $GLOBALS['digitalogic_test_posts'];
+		$before_lookup                           = $GLOBALS['digitalogic_test_wc_lookup_rows'];
+		$before_options                          = $GLOBALS['digitalogic_test_options'];
+		$events_before                           = count( $GLOBALS['digitalogic_test_actions']['digitalogic_excel_pricing_apply_committed'] ?? array() );
+		$GLOBALS['digitalogic_test_before_pricing_batch_leaf_identity'] = static function () {
+			$GLOBALS['digitalogic_test_posts'][20000]['post_title']   = 'raced title';
+			$GLOBALS['digitalogic_test_wc_lookup_rows'][20000]['sku'] = 'RACED-SKU';
+		};
+
+		$result = Digitalogic_Pricing_Coordinator::instance()->update_currency(
+			array( 'yuan_price' => '29501' ),
+			'auto_title_lookup_toc_tou'
+		);
+
+		$this->assertTrue( is_wp_error( $result ) );
+		$this->assertSame( $before_posts, $GLOBALS['digitalogic_test_posts'] );
+		$this->assertSame( $before_lookup, $GLOBALS['digitalogic_test_wc_lookup_rows'] );
+		$this->assertSame( $before_options, $GLOBALS['digitalogic_test_options'] );
+		$this->assertSame(
+			$events_before,
+			count( $GLOBALS['digitalogic_test_actions']['digitalogic_excel_pricing_apply_committed'] ?? array() )
+		);
+		$this->assertContains( 'ROLLBACK', $GLOBALS['wpdb']->queries );
+	}
+
+	/** A negative lookup-stock race remains distinct and fails the locked identity proof. */
+	public function test_signed_negative_lookup_stock_drift_fails_closed_and_rolls_back(): void {
+		$this->seed_large_pricing_snapshot( 1 );
+		$GLOBALS['digitalogic_test_posts'][20000]['meta']['_manage_stock']   = 'yes';
+		$GLOBALS['digitalogic_test_posts'][20000]['meta']['_stock']          = '-1';
+		$GLOBALS['digitalogic_test_posts'][20000]['meta']['_stock_status']   = 'instock';
+		$GLOBALS['digitalogic_test_wc_lookup_rows'][20000]['stock_quantity'] = '-1';
+		$GLOBALS['digitalogic_test_wc_lookup_rows'][20000]['stock_status']   = 'instock';
+		$before_posts   = $GLOBALS['digitalogic_test_posts'];
+		$before_lookup  = $GLOBALS['digitalogic_test_wc_lookup_rows'];
+		$events_before  = count( $GLOBALS['digitalogic_test_actions']['digitalogic_excel_pricing_apply_committed'] ?? array() );
+		$product_code   = 'PERF-0000';
+		$identity_plans = array(
+			20000 => array(
+				'product_code'          => $product_code,
+				'product_type'          => 'simple',
+				'parent_id'             => 0,
+				'post_title'            => 'Performance product 0',
+				'lookup_sku'            => $product_code,
+				'lookup_stock_quantity' => '-1',
+				'lookup_stock_status'   => 'instock',
+				'shipping_method_id'    => 'air_express',
+				'source_id'             => 'pricing-tests',
+				'dataset'               => 'kala',
+			),
+		);
+		$GLOBALS['wpdb']->query( 'START TRANSACTION' );
+		$GLOBALS['digitalogic_test_before_pricing_batch_leaf_identity'] = static function () {
+			$GLOBALS['digitalogic_test_wc_lookup_rows'][20000]['stock_quantity'] = '-2';
+		};
+
+		$result = Digitalogic_Patris_Feed::instance()->verify_pricing_leaf_identities( $identity_plans );
+		$GLOBALS['wpdb']->query( 'ROLLBACK' );
+
+		$this->assertTrue( is_wp_error( $result ) );
+		$this->assertSame( $before_posts, $GLOBALS['digitalogic_test_posts'] );
+		$this->assertSame( $before_lookup, $GLOBALS['digitalogic_test_wc_lookup_rows'] );
+		$this->assertSame(
+			$events_before,
+			count( $GLOBALS['digitalogic_test_actions']['digitalogic_excel_pricing_apply_committed'] ?? array() )
+		);
+		$this->assertContains( 'ROLLBACK', $GLOBALS['wpdb']->queries );
+	}
+
+	/** Exact materializer proof and identical assignment cleanup stay on the bulk path. */
+	public function test_auto_materialized_and_duplicate_shipping_rows_are_verified_and_repaired_in_bulk(): void {
+		$this->seed_large_pricing_snapshot( 4 );
+		$GLOBALS['digitalogic_test_posts'][20000]['meta'][ Digitalogic_Patris_Catalog_Materializer::AUTO_MATERIALIZED_META ] = '1';
+		$GLOBALS['digitalogic_test_posts'][20000]['post_title'] = 'PERF-0000';
+		$GLOBALS['digitalogic_test_posts'][20001]['meta_rows'][ Digitalogic_Shipping_Method_Service::PRODUCT_METHOD_META ] = array(
+			'air_express',
+			'air_express',
+		);
+		unset( $GLOBALS['digitalogic_test_post_meta_cache'][20000], $GLOBALS['digitalogic_test_post_meta_cache'][20001] );
+		$GLOBALS['digitalogic_test_wc_products']      = array();
+		$GLOBALS['digitalogic_test_wc_product_saves'] = array();
+
+		$result = Digitalogic_Pricing_Coordinator::instance()->update_currency(
+			array( 'yuan_price' => '29501' ),
+			'canonical_marker_assignment_repair'
+		);
+
+		$this->assertFalse(
+			is_wp_error( $result ),
+			is_wp_error( $result ) ? $result->get_error_code() . ': ' . $result->get_error_message() . ' ' . wp_json_encode( $result->get_error_data() ) : ''
+		);
+		$this->assertSame( 4, $result['pricing_results']['updated_products'] );
+		$this->assertSame( array(), $GLOBALS['digitalogic_test_wc_product_saves'] );
+		$this->assertSame( array( 'air_express' ), get_post_meta( 20001, Digitalogic_Shipping_Method_Service::PRODUCT_METHOD_META, false ) );
+		$this->assertSame( '1', (string) get_post_meta( 20000, Digitalogic_Patris_Catalog_Materializer::AUTO_MATERIALIZED_META, true ) );
+		$this->assertSame( '8437286', (string) get_post_meta( 20000, '_price', true ) );
+	}
+
+	/** A later batch failure rolls an assignment cleanup back to its exact duplicate prestate. */
+	public function test_duplicate_shipping_cleanup_rolls_back_exactly_on_later_bulk_failure(): void {
+		$this->seed_large_pricing_snapshot( 4 );
+		$GLOBALS['digitalogic_test_posts'][20001]['meta_rows'][ Digitalogic_Shipping_Method_Service::PRODUCT_METHOD_META ] = array(
+			'air_express',
+			'air_express',
+		);
+		unset( $GLOBALS['digitalogic_test_post_meta_cache'][20001] );
+		$GLOBALS['digitalogic_test_wc_products']        = array();
+		$before_posts                                   = $GLOBALS['digitalogic_test_posts'];
+		$before_lookup                                  = $GLOBALS['digitalogic_test_wc_lookup_rows'];
+		$before_options                                 = $GLOBALS['digitalogic_test_options'];
+		$events_before                                  = count( $GLOBALS['digitalogic_test_actions']['digitalogic_excel_pricing_apply_committed'] ?? array() );
+		$GLOBALS['digitalogic_test_wc_save_failures'][] = 20002;
+
+		$result = Digitalogic_Pricing_Coordinator::instance()->update_currency(
+			array( 'yuan_price' => '29501' ),
+			'assignment_repair_rollback'
+		);
+
+		$this->assertTrue( is_wp_error( $result ) );
+		$this->assertSame( $before_posts, $GLOBALS['digitalogic_test_posts'] );
+		$this->assertSame( $before_lookup, $GLOBALS['digitalogic_test_wc_lookup_rows'] );
+		$this->assertSame( $before_options, $GLOBALS['digitalogic_test_options'] );
+		$this->assertSame(
+			$events_before,
+			count( $GLOBALS['digitalogic_test_actions']['digitalogic_excel_pricing_apply_committed'] ?? array() )
+		);
+		$this->assertContains( 'ROLLBACK', $GLOBALS['wpdb']->queries );
+	}
+
+	/** Conflicting duplicate assignments remain fail-closed and preserve prestate. */
+	public function test_conflicting_duplicate_shipping_rows_fail_closed_and_roll_back(): void {
+		$this->seed_large_pricing_snapshot( 4 );
+		$GLOBALS['digitalogic_test_posts'][20001]['meta_rows'][ Digitalogic_Shipping_Method_Service::PRODUCT_METHOD_META ] = array(
+			'air_express',
+			'sea',
+		);
+		unset( $GLOBALS['digitalogic_test_post_meta_cache'][20001] );
+		$GLOBALS['digitalogic_test_wc_products'] = array();
+		$before_posts                            = $GLOBALS['digitalogic_test_posts'];
+		$before_lookup                           = $GLOBALS['digitalogic_test_wc_lookup_rows'];
+		$before_options                          = $GLOBALS['digitalogic_test_options'];
+
+		$result = Digitalogic_Pricing_Coordinator::instance()->update_currency(
+			array( 'yuan_price' => '29501' ),
+			'assignment_conflict_rollback'
+		);
+
+		$this->assertTrue( is_wp_error( $result ) );
+		$this->assertSame( $before_posts, $GLOBALS['digitalogic_test_posts'] );
+		$this->assertSame( $before_lookup, $GLOBALS['digitalogic_test_wc_lookup_rows'] );
+		$this->assertSame( $before_options, $GLOBALS['digitalogic_test_options'] );
+		$this->assertContains( 'ROLLBACK', $GLOBALS['wpdb']->queries );
+	}
+
+	/** Locked operational readback catches drift after the preliminary marker proof. */
+	public function test_auto_materialized_operational_toc_tou_rolls_back_without_event(): void {
+		$this->seed_large_pricing_snapshot( 4 );
+		$GLOBALS['digitalogic_test_posts'][20000]['meta'][ Digitalogic_Patris_Catalog_Materializer::AUTO_MATERIALIZED_META ] = '1';
+		$GLOBALS['digitalogic_test_posts'][20000]['post_title'] = 'PERF-0000';
+		unset( $GLOBALS['digitalogic_test_post_meta_cache'][20000] );
+		$GLOBALS['digitalogic_test_wc_products'] = array();
+		$before_posts                            = $GLOBALS['digitalogic_test_posts'];
+		$before_lookup                           = $GLOBALS['digitalogic_test_wc_lookup_rows'];
+		$before_options                          = $GLOBALS['digitalogic_test_options'];
+		$events_before                           = count( $GLOBALS['digitalogic_test_actions']['digitalogic_excel_pricing_apply_committed'] ?? array() );
+		$GLOBALS['digitalogic_test_before_pricing_batch_leaf_identity'] = static function () {
+			unset( $GLOBALS['digitalogic_test_posts'][20000]['meta']['_digitalogic_patris_weight_grams'] );
+		};
+
+		$result = Digitalogic_Pricing_Coordinator::instance()->update_currency(
+			array( 'yuan_price' => '29501' ),
+			'auto_operational_toc_tou'
+		);
+
+		$this->assertTrue( is_wp_error( $result ) );
+		$this->assertSame( $before_posts, $GLOBALS['digitalogic_test_posts'] );
+		$this->assertSame( $before_lookup, $GLOBALS['digitalogic_test_wc_lookup_rows'] );
+		$this->assertSame( $before_options, $GLOBALS['digitalogic_test_options'] );
+		$this->assertSame(
+			$events_before,
+			count( $GLOBALS['digitalogic_test_actions']['digitalogic_excel_pricing_apply_committed'] ?? array() )
+		);
+		$this->assertContains( 'ROLLBACK', $GLOBALS['wpdb']->queries );
 	}
 
 	/** One full-feed repair cannot force otherwise-safe priced leaves through Woo saves. */
@@ -2311,7 +2616,7 @@ final class PricingCoordinatorTest extends TestCase {
 		$GLOBALS['digitalogic_test_option_cache']     = array();
 		$GLOBALS['digitalogic_test_scheduled_events'] = array();
 
-		$lock_name = Digitalogic_Excel_Pricing_Sync::coordination_lock_name( 'wp_' );
+		$lock_name                                 = Digitalogic_Excel_Pricing_Sync::coordination_lock_name( 'wp_' );
 		$GLOBALS['wpdb']->used_locks[ $lock_name ] = 9999;
 		$async->run_job( $job['job_id'], $job['generation'] );
 		$renewed = $GLOBALS['digitalogic_test_options']['digitalogic_currency_admin_async_job'];
@@ -2383,9 +2688,9 @@ final class PricingCoordinatorTest extends TestCase {
 		$this->assertSame( 'confirmed', $first_terminal['status'] );
 		$this->assertNotSame( '', $first_terminal['committed_state_revision'] );
 
-		$state       = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
+		$state        = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
 		$price_before = (string) $GLOBALS['digitalogic_test_posts'][901]['meta']['_regular_price'];
-		$successor   = $async->enqueue_currency(
+		$successor    = $async->enqueue_currency(
 			array(
 				'dollar_price' => (string) $state['settings']['dollar_price'],
 				'yuan_price'   => '29502',
@@ -2512,7 +2817,7 @@ final class PricingCoordinatorTest extends TestCase {
 					'request_id'              => 'rest-currency-0001',
 				),
 				array(
-					'If-Match'       => '"' . $state['state_revision'] . '"',
+					'If-Match'        => '"' . $state['state_revision'] . '"',
 					'Idempotency-Key' => 'rest-currency-0001',
 				)
 			)
@@ -2666,7 +2971,7 @@ final class PricingCoordinatorTest extends TestCase {
 		add_action(
 			'digitalogic_currency_async_worker_claimed',
 			static function () use ( $async ) {
-				$result = $async->cancel( '', 0, 'currency-cancel-running-0001' );
+				$result                                     = $async->cancel( '', 0, 'currency-cancel-running-0001' );
 				$GLOBALS['digitalogic_test_running_cancel'] = $result;
 			}
 		);
@@ -2867,8 +3172,8 @@ final class PricingCoordinatorTest extends TestCase {
 
 	/** ACF cannot round-trip a legacy YYMMDD option through an epoch-era UI date. */
 	public function test_acf_epoch_date_projection_is_repaired_and_never_enqueued(): void {
-		$async = Digitalogic_Currency_Admin_Async::instance();
-		$state = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
+		$async        = Digitalogic_Currency_Admin_Async::instance();
+		$state        = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
 		$_GET['page'] = 'currency-settings';
 		$this->assertSame(
 			'20260721',
@@ -2885,7 +3190,7 @@ final class PricingCoordinatorTest extends TestCase {
 
 			return $field;
 		};
-		$prepared = apply_filters(
+		$prepared           = apply_filters(
 			'acf/pre_render_field',
 			array(
 				'_name' => 'update_date',
@@ -2959,8 +3264,8 @@ final class PricingCoordinatorTest extends TestCase {
 			'usd_effective_date' => '2026-07-21',
 			'cny_effective_date' => '2026-07-21',
 		);
-		$GLOBALS['digitalogic_test_options']['options_update_date'] = 'invalid';
-		$GLOBALS['digitalogic_test_option_cache']                   = array();
+		$GLOBALS['digitalogic_test_options']['options_update_date']                             = 'invalid';
+		$GLOBALS['digitalogic_test_option_cache'] = array();
 		$this->assertSame(
 			'20260721',
 			$async->load_acf_effective_date( '19700104', 'options', array( 'name' => 'update_date' ) )
@@ -3021,14 +3326,14 @@ final class PricingCoordinatorTest extends TestCase {
 
 	/** Malformed ACF Ymd remains fail-closed and leaves the confirmed rate/date untouched. */
 	public function test_acf_invalid_ymd_submission_reports_issue_without_job_or_write(): void {
-		$async                                              = Digitalogic_Currency_Admin_Async::instance();
-		$state                                              = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
-		$GLOBALS['digitalogic_test_current_user_id']         = 1;
-		$_POST['acf']                                       = array(
+		$async                                       = Digitalogic_Currency_Admin_Async::instance();
+		$state                                       = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
+		$GLOBALS['digitalogic_test_current_user_id'] = 1;
+		$_POST['acf']                                = array(
 			'field_cny_rotated'  => '31500',
 			'field_date_rotated' => '20260230',
 		);
-		$_POST['digitalogic_pricing_state_revision']        = $state['state_revision'];
+		$_POST['digitalogic_pricing_state_revision'] = $state['state_revision'];
 
 		$async->route_acf_currency_update( '31500', 'options', array( 'name' => 'yuan_price' ) );
 		$async->route_acf_currency_update( '20260230', 'options', array( 'name' => 'update_date' ) );
@@ -3710,12 +4015,12 @@ final class PricingCoordinatorTest extends TestCase {
 		$this->assertSame( 'pending', $stored['effect_publication']['status'] );
 		$price_after_commit = (string) $GLOBALS['digitalogic_test_posts'][901]['meta']['_regular_price'];
 
-		$GLOBALS['wpdb']->acquire_result              = 1;
-		$GLOBALS['digitalogic_test_scheduled_events'] = array();
-		$GLOBALS['digitalogic_test_remote_posts']     = array();
-		$GLOBALS['digitalogic_test_spawn_cron_calls'] = array();
+		$GLOBALS['wpdb']->acquire_result                   = 1;
+		$GLOBALS['digitalogic_test_scheduled_events']      = array();
+		$GLOBALS['digitalogic_test_remote_posts']          = array();
+		$GLOBALS['digitalogic_test_spawn_cron_calls']      = array();
 		$GLOBALS['digitalogic_test_remote_post_results'][] = new WP_Error( 'transport_failed', 'transport failed' );
-		$observed                                     = $async->status( $job['job_id'], $job['generation'] );
+		$observed = $async->status( $job['job_id'], $job['generation'] );
 
 		$this->assertSame( 'publishing', $observed['status'] );
 		$this->assertSame( 90, $observed['progress'] );
@@ -3759,14 +4064,14 @@ final class PricingCoordinatorTest extends TestCase {
 		};
 		$async->run_job( $job['job_id'], $job['generation'] );
 		$GLOBALS['wpdb']->acquire_result = 1;
-		$stored                           = $GLOBALS['digitalogic_test_options']['digitalogic_currency_admin_async_job'];
-		$price_after_commit               = (string) $GLOBALS['digitalogic_test_posts'][901]['meta']['_regular_price'];
+		$stored                          = $GLOBALS['digitalogic_test_options']['digitalogic_currency_admin_async_job'];
+		$price_after_commit              = (string) $GLOBALS['digitalogic_test_posts'][901]['meta']['_regular_price'];
 		$stored['effect_publication']['dispatch_attempts'] = 6;
 		$stored['effect_publication']['last_dispatch_at']  = time() - 66;
 		$stored['effect_publication']['next_attempt_at']   = time();
-		$GLOBALS['digitalogic_test_scheduled_events']       = array();
-		$GLOBALS['digitalogic_test_remote_posts']           = array();
-		$GLOBALS['digitalogic_test_spawn_cron_calls']       = array();
+		$GLOBALS['digitalogic_test_scheduled_events']      = array();
+		$GLOBALS['digitalogic_test_remote_posts']          = array();
+		$GLOBALS['digitalogic_test_spawn_cron_calls']      = array();
 		update_option( 'digitalogic_currency_admin_async_job', $stored, false );
 		$GLOBALS['digitalogic_test_option_cache'] = array();
 
@@ -3793,8 +4098,8 @@ final class PricingCoordinatorTest extends TestCase {
 		};
 		$async->run_job( $job['job_id'], $job['generation'] );
 		$GLOBALS['wpdb']->acquire_result              = 1;
-		$stored                                      = $GLOBALS['digitalogic_test_options']['digitalogic_currency_admin_async_job'];
-		$price_after_commit                          = (string) $GLOBALS['digitalogic_test_posts'][901]['meta']['_regular_price'];
+		$stored                                       = $GLOBALS['digitalogic_test_options']['digitalogic_currency_admin_async_job'];
+		$price_after_commit                           = (string) $GLOBALS['digitalogic_test_posts'][901]['meta']['_regular_price'];
 		$GLOBALS['digitalogic_test_scheduled_events'] = array();
 		$GLOBALS['digitalogic_test_remote_posts']     = array();
 		$GLOBALS['digitalogic_test_spawn_cron_calls'] = array();
@@ -4135,7 +4440,7 @@ final class PricingCoordinatorTest extends TestCase {
 			$GLOBALS['digitalogic_test_post_meta_cache'][901]
 		);
 		$GLOBALS['digitalogic_test_wc_products'] = array();
-		$product = array(
+		$product                                 = array(
 			'product_code'          => 'PRICE-901',
 			'foreign_currency'      => 'CNY',
 			'foreign_price'         => 115,
@@ -4144,8 +4449,8 @@ final class PricingCoordinatorTest extends TestCase {
 			'price_rounding_mode'   => 'nearest_half_up',
 			'warnings'              => array(),
 		);
-		$product['record_hash'] = $this->record_hash( $product );
-		$received               = Digitalogic_Product_Sync_Receiver::instance()->receive(
+		$product['record_hash']                  = $this->record_hash( $product );
+		$received                                = Digitalogic_Product_Sync_Receiver::instance()->receive(
 			$this->snapshot( array( $product ), '2026-07-28T00:00:00Z' )
 		);
 		$this->assertFalse(
@@ -4286,9 +4591,9 @@ final class PricingCoordinatorTest extends TestCase {
 
 	/** The pricing batch cannot bypass exact source ownership validation. */
 	public function test_coordinated_reprice_rejects_conflicting_source_ownership(): void {
-		$GLOBALS['digitalogic_test_posts'][901]['meta'][ Digitalogic_Patris_Catalog_Materializer::OWNER_SOURCE_META ] = 'other-source';
+		$GLOBALS['digitalogic_test_posts'][901]['meta'][ Digitalogic_Patris_Catalog_Materializer::OWNER_SOURCE_META ]  = 'other-source';
 		$GLOBALS['digitalogic_test_posts'][901]['meta'][ Digitalogic_Patris_Catalog_Materializer::OWNER_DATASET_META ] = 'kala';
-		$GLOBALS['digitalogic_test_posts'][901]['meta'][ Digitalogic_Patris_Catalog_Materializer::OWNER_CODE_META ] = 'PRICE-901';
+		$GLOBALS['digitalogic_test_posts'][901]['meta'][ Digitalogic_Patris_Catalog_Materializer::OWNER_CODE_META ]    = 'PRICE-901';
 		$GLOBALS['digitalogic_test_wc_products'] = array();
 
 		$result = Digitalogic_Pricing_Coordinator::instance()->update_currency(
@@ -4314,7 +4619,7 @@ final class PricingCoordinatorTest extends TestCase {
 		$product_id = (int) $resolved['woocommerce_id'];
 		$GLOBALS['digitalogic_test_posts'][ $product_id ]['meta'][ Digitalogic_Patris_Catalog_Materializer::OWNER_SOURCE_META ] = 'other-source';
 		$GLOBALS['digitalogic_test_wc_products'] = array();
-		$committed = array();
+		$committed                               = array();
 		add_action(
 			'digitalogic_patris_materializer_product_committed',
 			static function ( $snapshot ) use ( &$committed ) {
@@ -4784,7 +5089,7 @@ final class PricingCoordinatorTest extends TestCase {
 					'onsale'     => 0,
 				);
 			}
-			$GLOBALS['digitalogic_test_posts'][ $product_id ] = array(
+			$GLOBALS['digitalogic_test_posts'][ $product_id ]          = array(
 				'post_type'    => $is_variation ? 'product_variation' : 'product',
 				'post_status'  => 'publish',
 				'post_title'   => 'Performance product ' . $offset,
