@@ -388,6 +388,58 @@ final class ReportEngineTest extends TestCase {
 		$this->assertSame( 400, $report->get_error_data()['status'] );
 	}
 
+	/** Operator filters use canonical source facts in the full Pricing List. */
+	public function test_price_list_filters_missing_shipping_and_unpriced_cny(): void {
+		$product = $this->source_product( 'CNY-NEEDS-SHIPPING' );
+		unset(
+			$product['shipping_method_id'],
+			$product['shipping_price_per_kg'],
+			$product['shipping_price_per_kg_currency'],
+			$product['final_price']
+		);
+		$this->store_source( array( 'CNY-NEEDS-SHIPPING' => $product ) );
+
+		$missing_shipping = $this->engine->get_report(
+			array(
+				'view'     => 'price_list',
+				'category' => 'missing_shipping_method',
+			)
+		);
+		$this->assertNotInstanceOf( WP_Error::class, $missing_shipping );
+		$this->assertSame( 1, $missing_shipping['pagination']['total'] );
+		$this->assertSame(
+			'CNY-NEEDS-SHIPPING',
+			$missing_shipping['rows'][0]['product_code']
+		);
+		$this->assertContains(
+			'missing_shipping_method',
+			$missing_shipping['rows'][0]['issues']
+		);
+
+		$unpriced_cny = $this->engine->get_report(
+			array(
+				'view'     => 'price_list',
+				'category' => 'cny_without_final_price',
+			)
+		);
+		$this->assertNotInstanceOf( WP_Error::class, $unpriced_cny );
+		$this->assertSame( 1, $unpriced_cny['pagination']['total'] );
+		$this->assertContains(
+			'cny_without_final_price',
+			$unpriced_cny['rows'][0]['issues']
+		);
+		$this->assertSame(
+			1,
+			array_values(
+				array_filter(
+					$unpriced_cny['categories'],
+					static fn( $category ) =>
+						'cny_without_final_price' === $category['key']
+				)
+			)[0]['count']
+		);
+	}
+
 	public function test_explicit_null_rounding_digits_does_not_report_the_required_absent_mode_as_missing(): void {
 		$product                          = $this->source_product( 'NULL-ROUNDING' );
 		$product['price_rounding_digits'] = null;

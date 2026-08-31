@@ -580,6 +580,8 @@
                 reportView: 'warnings',
                 reportCategory: '',
                 reportPage: 1,
+                reportShippingDrafts: {},
+                reportShippingMethodsData: [],
                 products: [],
                 users: [],
                 selectedProduct: null,
@@ -668,6 +670,9 @@
                 return ((this.reports && this.reports.categories) || []).filter(function(category) {
                     return Number(category.count) > 0;
                 });
+            },
+            reportShippingMethods: function() {
+                return this.reportShippingMethodsData || [];
             },
             productRouteId: function() {
                 var match = this.route.match(/^\/products\/(\d+)/);
@@ -1162,9 +1167,17 @@
                 self.reportLoading = true;
                 self.loading = true;
                 self.error = '';
-                var request = self.run('digitalogic_get_reports', requestArgs, {ajaxOnly: true}).then(function(data) {
+                var request = Promise.all([
+                    self.run('digitalogic_get_reports', requestArgs, {ajaxOnly: true}),
+                    self.run('digitalogic_list_shipping_methods')
+                ]).then(function(results) {
+                    var data = results[0];
+                    var methods = results[1];
                     if (requestSequence !== self.reportRequestSequence) return data;
                     self.reports = data;
+                    self.reportShippingMethodsData = (Array.isArray(methods) ? methods : ((methods && methods.methods) || [])).filter(function(method) {
+                        return method && method.enabled;
+                    });
                     self.reportView = data.view || self.reportView;
                     self.reportCategory = (data.filters && data.filters.category) || '';
                     self.reportPage = (data.pagination && Number(data.pagination.page)) || 1;
@@ -1188,10 +1201,34 @@
                 return this.loadReports(1);
             },
             setReportCategory: function(category) {
-                this.reportView = 'warnings';
-                this.reportCategory = category || '';
+				this.reportCategory = category || '';
                 this.reportPage = 1;
                 return this.loadReports(1);
+            },
+            reportShippingPolicy: function(item) {
+                var source = (item && item.source) || {};
+                var methodId = String(source.shipping_method_id || '');
+                if (!methodId) return this.t.missing;
+                var method = this.reportShippingMethods.find(function(candidate) { return candidate.id === methodId; });
+                return method ? method.name + ' — ' + method.price_per_kg + ' ' + method.currency + '/kg' : methodId;
+            },
+            canAssignReportShipping: function(item) {
+                return !!(item && item.product_code && item.woocommerce && item.woocommerce.id && this.reportShippingMethods.length);
+            },
+            assignReportShipping: function(item) {
+                var self = this;
+                var methodId = String(self.reportShippingDrafts[item.product_code] || '');
+                if (!methodId) return Promise.resolve();
+                self.saving = true;
+                self.error = '';
+                return self.run('digitalogic_assign_product_shipping_method', {code: item.product_code, shipping_method_id: methodId}).then(function() {
+                    self.notice = self.t.saved;
+                    return self.loadReports(true);
+                }).catch(function(error) {
+                    self.error = error.message || self.t.error;
+                }).finally(function() {
+                    self.saving = false;
+                });
             },
             reportSparseValue: function(record, field) {
                 if (!record || !Object.prototype.hasOwnProperty.call(record, field)) return this.t.missing;
@@ -2788,6 +2825,8 @@
                     missing_final_price: 'reportMissingFinalPrice',
                     null_final_price: 'reportNullFinalPrice',
                     missing_shipping: 'reportMissingShipping',
+                    missing_shipping_method: 'reportMissingShippingMethod',
+                    cny_without_final_price: 'reportCnyWithoutFinalPrice',
                     null_shipping: 'reportNullShipping',
                     invalid_domestic_shipping: 'reportInvalidDomesticShipping',
                     missing_markup: 'reportMissingMarkup',

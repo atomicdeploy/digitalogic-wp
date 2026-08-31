@@ -1,13 +1,13 @@
 {
   "schema": "patris.product-sync",
   "event_type": "snapshot",
-  "event_id": "sha256:712c5bc2f8ebbf41269fa05395cd436c5b230b10e9ace25f9cebae05086ea7be",
+  "event_id": "sha256:f784ac913f4021f7234ff0fcf66988b43df18219bfb418adb7d6f7822fb851f2",
   "local_currency": "IRT",
   "formula_id": "landed_price",
   "source": {
     "id": "synthetic-fixture",
     "dataset": "synthetic-kala.db",
-    "revision": "sha256:620cbae32451ffb1f67b87b99a326eba79fc33f8f4b25fc057e84178aacd9349"
+    "revision": "sha256:4a5a8f356711a20cb52b4c107bff380f969cd6c189a2185e0a274ff315f8759a"
   },
   "generated_at": "2026-01-02T03:04:05Z",
   "products": [
@@ -42,8 +42,8 @@
       "final_price": 2009410,
       "source_updated_at": "2026-01-01T00:00:00Z",
       "warnings": [],
-      "record_hash": "sha256:a9cd3f15f28e696eb26a4d8ef576be572a2d377a2486c8ca065da4e5506ab37a",
-      "shipping_method_id": "synthetic-air",
+      "record_hash": "sha256:277913bdd5059519be91ce70017a7d1290f232ba2537c08c4e85abbafb4a8676",
+      "shipping_method_id": "air_express",
       "shipping_price_per_kg": 120,
       "shipping_price_per_kg_currency": "CNY"
     },

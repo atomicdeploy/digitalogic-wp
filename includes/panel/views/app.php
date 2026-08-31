@@ -487,14 +487,31 @@ $retry_url = isset($_SERVER['REQUEST_URI']) ? (string) $_SERVER['REQUEST_URI'] :
                                 <button class="dlp-button" :class="{'is-primary': reportView === 'warnings'}" :disabled="loading" @click="setReportView('warnings')">{{ t.warnings }}</button>
                                 <button class="dlp-button" :class="{'is-primary': reportView === 'price_list'}" :disabled="loading" @click="setReportView('price_list')">{{ t.priceList }}</button>
                             </div>
-                            <div v-if="reportView === 'warnings'" class="dlp-actions">
+                            <div class="dlp-actions">
                                 <button class="dlp-button" :class="{'is-primary': !reportCategory}" :disabled="loading" @click="setReportCategory('')">{{ t.allWarnings }}</button>
                                 <button v-for="category in reportCategories" :key="category.key" class="dlp-button" :class="{'is-primary': reportCategory === category.key}" :disabled="loading" @click="setReportCategory(category.key)">{{ reportCategoryTitle(category) }} ({{ formatNumber(category.count) }})</button>
                             </div>
                             <div v-if="!reports.rows.length" class="dlp-empty">{{ t.noRows }}</div>
                             <div v-else class="dlp-table-wrap">
+                                <?php // phpcs:disable Generic.Files.LineLength.TooLong -- Vue report markup remains readable as one declarative table. ?>
                                 <table class="dlp-table dlp-report-table" :aria-label="reportView === 'price_list' ? t.priceList : t.problemRows">
-                                    <thead><tr><th scope="col">{{ t.sku }}</th><th scope="col">{{ t.reportState }}</th><th scope="col">{{ t.products }}</th><th scope="col">{{ t.sourceCatalog }}</th><th scope="col">{{ t.stock }}</th><th scope="col">{{ t.foreignPrice }}</th><th scope="col">{{ t.partnerPrice }}</th><th scope="col">{{ t.salePriceSource }}</th><th scope="col">{{ t.selectedPriceSource }}</th><th scope="col">{{ t.weight }}</th><th scope="col">{{ t.rounding }}</th><th scope="col">{{ t.finalPrice }}</th><th scope="col">{{ t.findings }}</th><th scope="col">{{ t.actions }}</th></tr></thead>
+                                    <thead><tr>
+                                        <th scope="col">{{ t.sku }}</th>
+                                        <th scope="col">{{ t.reportState }}</th>
+                                        <th scope="col">{{ t.products }}</th>
+                                        <th scope="col">{{ t.sourceCatalog }}</th>
+                                        <th scope="col">{{ t.stock }}</th>
+                                        <th scope="col">{{ t.foreignPrice }}</th>
+                                        <th scope="col">{{ t.partnerPrice }}</th>
+                                        <th scope="col">{{ t.salePriceSource }}</th>
+                                        <th scope="col">{{ t.selectedPriceSource }}</th>
+                                        <th scope="col">{{ t.weight }}</th>
+                                        <th scope="col">{{ t.shippingPolicy }}</th>
+                                        <th scope="col">{{ t.rounding }}</th>
+                                        <th scope="col">{{ t.finalPrice }}</th>
+                                        <th scope="col">{{ t.findings }}</th>
+                                        <th scope="col">{{ t.actions }}</th>
+                                    </tr></thead>
                                     <tbody>
                                         <tr v-for="(item, itemIndex) in reports.rows" :key="item.status + ':' + (item.woo_id || item.product_code) + ':' + itemIndex">
                                             <td class="dlp-mono"><bdi dir="auto">{{ item.product_code }}</bdi></td>
@@ -507,6 +524,22 @@ $retry_url = isset($_SERVER['REQUEST_URI']) ? (string) $_SERVER['REQUEST_URI'] :
                                             <td class="dlp-cell-numeric"><bdi dir="auto">{{ reportSparseValue(item.source, 'sale_price_source') }}</bdi></td>
                                             <td><bdi dir="auto">{{ reportSparseValue(item.source, 'price_source_kind') }} / {{ reportSparseValue(item.source, 'price_source_currency') }} / {{ reportSparseValue(item.source, 'price_source_amount') }}</bdi></td>
                                             <td class="dlp-cell-numeric"><bdi dir="auto">{{ reportSparseValue(item.source, 'weight_grams') }}</bdi></td>
+                                            <td>
+                                                <bdi dir="auto">{{ reportShippingPolicy(item) }}</bdi>
+                                                <select
+                                                    v-if="canAssignReportShipping(item)"
+                                                    v-model="reportShippingDrafts[item.product_code]"
+                                                    :disabled="saving"
+                                                    @change="assignReportShipping(item)"
+                                                >
+                                                    <option value="">{{ t.selectShippingMethod }}</option>
+                                                    <option
+                                                        v-for="method in reportShippingMethods"
+                                                        :key="method.id"
+                                                        :value="method.id"
+                                                    >{{ method.name }} — {{ method.price_per_kg }} {{ method.currency }}/kg</option>
+                                                </select>
+                                            </td>
                                             <td><bdi dir="auto">{{ reportSparseValue(item.source, 'price_rounding_mode') }} / {{ reportSparseValue(item.source, 'price_rounding_digits') }}</bdi></td>
                                             <td class="dlp-cell-numeric"><bdi dir="auto">{{ reportSparseValue(item.source, 'final_price') }} / {{ reportWooValue(item.woocommerce, 'active_price') }}</bdi></td>
                                             <td><span v-if="!item.issues || !item.issues.length">{{ t.current }}</span><span v-for="issue in item.issues" :key="issue" class="dlp-pill">{{ reportIssueTitle(issue) }}</span></td>
@@ -514,6 +547,7 @@ $retry_url = isset($_SERVER['REQUEST_URI']) ? (string) $_SERVER['REQUEST_URI'] :
                                         </tr>
                                     </tbody>
                                 </table>
+                                <?php // phpcs:enable Generic.Files.LineLength.TooLong ?>
                             </div>
                             <nav v-if="reports.pagination && reports.pagination.pages > 1" class="dlp-pagination dlp-report-pagination" :aria-label="t.pagination">
                                 <button class="dlp-button" :disabled="reports.pagination.page <= 1 || loading" @click="loadReports(reports.pagination.page - 1)"><span :class="icon(t.dir === 'rtl' ? 'dashicons-arrow-right-alt2' : 'dashicons-arrow-left-alt2')"></span>{{ t.previous }}</button>

@@ -1792,6 +1792,12 @@ class Digitalogic_Panel {
             'excelExports' => 'Excel exports',
             'excelExportsText' => 'Existing Digitalogic CSV, JSON, and Excel export commands are surfaced through the panel and WP-CLI.',
             'problemRows' => 'Problem rows',
+			// phpcs:disable WordPress.Arrays.MultipleStatementAlignment -- Legacy translation map uses compact arrows.
+			'shippingPolicy' => 'Effective shipping policy',
+			'selectShippingMethod' => 'Select shipping method',
+			'reportMissingShippingMethod' => 'No shipping method',
+			'reportCnyWithoutFinalPrice' => 'CNY amount without final price',
+			// phpcs:enable WordPress.Arrays.MultipleStatementAlignment
 			'patrisProducts' => 'Current source products',
 			'exactCodeMatches' => 'Exact Code matches',
 			'driftProducts' => 'Products with drift',
@@ -2115,6 +2121,12 @@ class Digitalogic_Panel {
             'excelExports' => 'خروجی اکسل',
             'excelExportsText' => 'دستورهای موجود CSV، JSON و Excel دیجیتالاجیک در پنل و WP-CLI در دسترس هستند.',
             'problemRows' => 'ردیف های مشکل دار',
+			// phpcs:disable WordPress.Arrays.MultipleStatementAlignment -- Legacy translation map uses compact arrows.
+			'shippingPolicy' => 'سیاست مؤثر حمل',
+			'selectShippingMethod' => 'انتخاب روش حمل',
+			'reportMissingShippingMethod' => 'فاقد روش حمل',
+			'reportCnyWithoutFinalPrice' => 'مبلغ یوآن بدون قیمت نهایی',
+			// phpcs:enable WordPress.Arrays.MultipleStatementAlignment
 			'patrisProducts' => 'محصولات فعلی منبع',
 			'exactCodeMatches' => 'تطابق دقیق کد کالا',
 			'driftProducts' => 'محصولات دارای مغایرت',

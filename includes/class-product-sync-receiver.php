@@ -3409,6 +3409,14 @@ class Digitalogic_Product_Sync_Receiver {
             );
         }
 
+		$shipping_policy_check = $this->validate_shipping_policy_projection(
+			$product,
+			$path
+		);
+		if ( is_wp_error( $shipping_policy_check ) ) {
+			return $shipping_policy_check;
+		}
+
         $formula_check = $this->validate_final_price_formula($product, $path, $pricing_active);
         if (is_wp_error($formula_check)) {
             return $formula_check;
@@ -3443,6 +3451,64 @@ class Digitalogic_Product_Sync_Receiver {
 
         return $stored;
     }
+
+	/** Prove flattened freight is only a read-only projection of policy. */
+	private function validate_shipping_policy_projection( $product, $path ) {
+		$method_id    = isset( $product['shipping_method_id'] )
+			&& is_string( $product['shipping_method_id'] )
+			? $product['shipping_method_id']
+			: '';
+		$has_rate     = array_key_exists( 'shipping_price_per_kg', $product )
+			&& null !== $product['shipping_price_per_kg'];
+		$has_currency = array_key_exists( 'shipping_price_per_kg_currency', $product )
+			&& null !== $product['shipping_price_per_kg_currency'];
+		if ( '' === $method_id ) {
+			return ( $has_rate || $has_currency )
+				? $this->error(
+					'digitalogic_product_shipping_policy_required',
+					'Product freight values are not configurable; '
+						. 'select a centralized shipping method.',
+					422,
+					array( 'path' => $path . '.shipping_method_id' )
+				)
+				: true;
+		}
+		$method = Digitalogic_Shipping_Method_Service::instance()->get_method(
+			$method_id
+		);
+		if ( ! is_array( $method ) || empty( $method['enabled'] ) ) {
+			return $this->field_error(
+				$path . '.shipping_method_id',
+				'must select an enabled centralized shipping method'
+			);
+		}
+		if ( ! $has_rate || ! $has_currency ) {
+			return $this->error(
+				'digitalogic_product_shipping_policy_projection_missing',
+				'Centralized shipping policy projections are incomplete.',
+				422,
+				array( 'path' => $path, 'shipping_method_id' => $method_id )
+			);
+		}
+		$actual_rate   = $this->formula_decimal_parts( $product['shipping_price_per_kg'] );
+		$expected_rate = $this->formula_decimal_parts( $method['price_per_kg'] ?? null );
+		if (
+			isset( $actual_rate['error'] )
+			|| isset( $expected_rate['error'] )
+			|| 0 !== $this->decimal_compare( $actual_rate, $expected_rate )
+			|| (string) $product['shipping_price_per_kg_currency']
+				!== (string) ( $method['currency'] ?? '' )
+		) {
+			return $this->error(
+				'digitalogic_product_shipping_policy_mismatch',
+				'Product freight values must exactly match the selected '
+					. 'centralized shipping method policy.',
+				422,
+				array( 'path' => $path, 'shipping_method_id' => $method_id )
+			);
+		}
+		return true;
+	}
 
     // phpcs:disable -- Preserve the established receiver formatting while the legacy file remains baseline-managed.
     private function validate_categories($values) {

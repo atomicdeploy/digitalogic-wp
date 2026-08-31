@@ -85,6 +85,20 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 		$this->resetSingleton( Digitalogic_Product_Identifier_Resolver::class );
 		$this->resetSingleton( Digitalogic_WooCommerce_Currency_Status::class );
 		$this->resetSingleton( Digitalogic_Product_Write_Lock::class );
+		$method = Digitalogic_Shipping_Method_Service::instance()->update_method(
+			'air_express',
+			array(
+				'price_per_kg' => 120,
+				'currency'     => 'CNY',
+			)
+		);
+		$this->assertNotInstanceOf( WP_Error::class, $method );
+		$method = Digitalogic_Shipping_Method_Service::instance()->get_method(
+			'air_express'
+		);
+		$this->assertIsArray( $method );
+		$this->assertTrue( $method['enabled'] );
+		$this->assertSame( '120', $method['price_per_kg'] );
 		add_filter(
 			'digitalogic_patris_auto_materialize_source_product',
 			static function () {
@@ -1660,7 +1674,20 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 
 	private function receiveFixture(): void {
 		$result = Digitalogic_Product_Sync_Receiver::instance()->receive_json( self::$fixture_json );
-		$this->assertNotInstanceOf( WP_Error::class, $result );
+		$this->assertNotInstanceOf(
+			WP_Error::class,
+			$result,
+			$result instanceof WP_Error
+				? wp_json_encode(
+					array(
+						'code'    => $result->get_error_code(),
+						'message' => $result->get_error_message(),
+						'data'    => $result->get_error_data(),
+					),
+					JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+				)
+				: ''
+		);
 	}
 
 	/**

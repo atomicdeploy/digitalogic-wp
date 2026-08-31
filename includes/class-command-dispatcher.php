@@ -512,6 +512,17 @@ class Digitalogic_Command_Dispatcher {
 	}
 
 	public function assign_product_shipping_method($payload) {
+		// phpcs:ignore WordPress.WP.Capabilities.Unknown -- WooCommerce registers this capability.
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			return new WP_Error(
+				'digitalogic_shipping_assignment_forbidden',
+				__(
+					'You are not allowed to change supplier shipping assignments.',
+					'digitalogic'
+				),
+				array( 'status' => 403 )
+			);
+		}
 		if (array_key_exists( 'shipping_method_id', $payload )) {
 			$method_id = $payload['shipping_method_id'];
         } else {
@@ -529,6 +540,17 @@ class Digitalogic_Command_Dispatcher {
     }
 
 	public function batch_assign_product_shipping_methods($payload) {
+		// phpcs:ignore WordPress.WP.Capabilities.Unknown -- WooCommerce registers this capability.
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			return new WP_Error(
+				'digitalogic_shipping_assignment_forbidden',
+				__(
+					'You are not allowed to change supplier shipping assignments.',
+					'digitalogic'
+				),
+				array( 'status' => 403 )
+			);
+		}
         $assignments = isset( $payload['assignments'] ) && is_array( $payload['assignments'] )
             ? $payload['assignments']
             : array();
