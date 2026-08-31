@@ -57,6 +57,7 @@ final class ProductIdentitySearchTest extends TestCase {
 	protected function setUp(): void {
 		$GLOBALS['digitalogic_test_posts']             = array();
 		$GLOBALS['digitalogic_test_wc_products']       = array();
+		$GLOBALS['digitalogic_test_wc_lookup_rows']    = array();
 		$GLOBALS['digitalogic_test_filters']           = array();
 		$GLOBALS['digitalogic_test_action_callbacks']  = array();
 		$GLOBALS['product']                            = null;
@@ -411,6 +412,15 @@ final class ProductIdentitySearchTest extends TestCase {
 				'_digitalogic_patris_product_code' => 'PAT-18',
 				'_digitalogic_patris_price_status' => 'canonical_missing_unpriced',
 			),
+		);
+
+		$GLOBALS['digitalogic_test_wc_lookup_rows'][18] = array(
+			'product_id'     => 18,
+			'stock_quantity' => 0,
+			'stock_status'   => 'outofstock',
+			'min_price'      => '0.0000',
+			'max_price'      => '0.0000',
+			'onsale'         => 0,
 		);
 		// phpcs:disable Generic.Formatting.MultipleStatementAlignment -- The test intentionally combines a global and local reflection handle.
 		$GLOBALS['product'] = wc_get_product( 18 );

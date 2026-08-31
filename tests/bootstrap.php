@@ -1700,6 +1700,22 @@ class Digitalogic_Test_WPDB {
 				: null;
 		}
 
+		if ( strpos( $query, 'digitalogic_patris_price_lookup_readback' ) !== false ) {
+			$product_id = isset( $args[0] ) ? (int) $args[0] : 0;
+			$row        = $GLOBALS['digitalogic_test_wc_lookup_rows'][ $product_id ] ?? null;
+			if ( ! is_array( $row ) && isset( $GLOBALS['digitalogic_test_posts'][ $product_id ] ) ) {
+				$row = array();
+			}
+
+			return is_array( $row )
+				? array(
+					'min_price' => array_key_exists( 'min_price', $row ) ? $row['min_price'] : null,
+					'max_price' => array_key_exists( 'max_price', $row ) ? $row['max_price'] : null,
+					'onsale'    => array_key_exists( 'onsale', $row ) ? $row['onsale'] : null,
+				)
+				: null;
+		}
+
         // phpcs:disable -- Test-only metadata lookup branch follows the legacy bootstrap style.
         if (strpos($query, 'digitalogic_product_metadata_lookup') !== false) {
             $this->metadata_lookup_query_count++;
@@ -2257,6 +2273,32 @@ class Digitalogic_Test_WPDB {
 			return array(
 				'stock_quantity' => $quantity,
 				'stock_status'   => $status,
+			) === $before ? 0 : 1;
+		}
+		if ( strpos( $raw_query, 'digitalogic_patris_price_lookup_restore' ) !== false ) {
+			$min_is_null = strpos( $raw_query, 'min_price = NULL' ) !== false;
+			$max_is_null = strpos( $raw_query, 'max_price = NULL' ) !== false;
+			$argument    = 0;
+			$min_price   = $min_is_null ? null : (string) ( $args[ $argument++ ] ?? '' );
+			$max_price   = $max_is_null ? null : (string) ( $args[ $argument++ ] ?? '' );
+			$onsale      = (string) ( $args[ $argument++ ] ?? '' );
+			$product_id  = (int) ( $args[ $argument ] ?? 0 );
+			if ( ! isset( $GLOBALS['digitalogic_test_wc_lookup_rows'][ $product_id ] ) ) {
+				return 0;
+			}
+			$before = array(
+				'min_price' => null === ( $GLOBALS['digitalogic_test_wc_lookup_rows'][ $product_id ]['min_price'] ?? null ) ? null : (string) $GLOBALS['digitalogic_test_wc_lookup_rows'][ $product_id ]['min_price'],
+				'max_price' => null === ( $GLOBALS['digitalogic_test_wc_lookup_rows'][ $product_id ]['max_price'] ?? null ) ? null : (string) $GLOBALS['digitalogic_test_wc_lookup_rows'][ $product_id ]['max_price'],
+				'onsale'    => (string) ( $GLOBALS['digitalogic_test_wc_lookup_rows'][ $product_id ]['onsale'] ?? '' ),
+			);
+			$GLOBALS['digitalogic_test_wc_lookup_rows'][ $product_id ]['min_price'] = $min_price;
+			$GLOBALS['digitalogic_test_wc_lookup_rows'][ $product_id ]['max_price'] = $max_price;
+			$GLOBALS['digitalogic_test_wc_lookup_rows'][ $product_id ]['onsale']    = $onsale;
+
+			return array(
+				'min_price' => $min_price,
+				'max_price' => $max_price,
+				'onsale'    => $onsale,
 			) === $before ? 0 : 1;
 		}
 
@@ -2986,7 +3028,17 @@ class WC_Product {
 		$GLOBALS['digitalogic_test_wc_lookup_rows'][ $this->id ]['product_id']     = $this->id;
 		$GLOBALS['digitalogic_test_wc_lookup_rows'][ $this->id ]['stock_quantity'] = $this->get_stock_quantity();
 		$GLOBALS['digitalogic_test_wc_lookup_rows'][ $this->id ]['stock_status']   = $this->get_stock_status();
-        $GLOBALS['digitalogic_test_wc_product_saves'][] = $this->id;
+		if (
+			'' === trim( (string) $this->get_regular_price() )
+			&& '' === trim( (string) $this->get_sale_price() )
+			&& '' === trim( (string) $this->get_price() )
+		) {
+			// Woo's installed data store uses DECIMAL zero as its unavailable-price lookup sentinel.
+			$GLOBALS['digitalogic_test_wc_lookup_rows'][ $this->id ]['min_price'] = '0.0000';
+			$GLOBALS['digitalogic_test_wc_lookup_rows'][ $this->id ]['max_price'] = '0.0000';
+			$GLOBALS['digitalogic_test_wc_lookup_rows'][ $this->id ]['onsale']    = 0;
+		}
+		$GLOBALS['digitalogic_test_wc_product_saves'][] = $this->id;
         $after_save = $GLOBALS['digitalogic_test_wc_after_save'] ?? null;
         $GLOBALS['digitalogic_test_wc_after_save'] = null;
         if (is_callable($after_save)) {

@@ -366,6 +366,91 @@ final class PatrisPricePolicyTest extends TestCase {
 		$this->assertSame( 'outofstock', $GLOBALS['digitalogic_test_wc_lookup_rows'][815]['stock_status'] );
 	}
 
+	/** A Woo-native zero lookup sentinel remains storage-only for SKU 101001001. */
+	public function test_zero_stock_blank_price_accepts_woo_zero_lookup_sentinel_without_a_fake_price(): void {
+		$this->addProduct(
+			816,
+			'simple',
+			array(
+				'_sku'           => '101001001',
+				'_manage_stock'  => 'yes',
+				'_stock'         => 0,
+				'_stock_status'  => 'outofstock',
+				'_regular_price' => '',
+				'_sale_price'    => '',
+				'_price'         => '',
+			)
+		);
+		$GLOBALS['digitalogic_test_wc_lookup_rows'][816] = array(
+			'product_id'     => 816,
+			'stock_quantity' => 0,
+			'stock_status'   => 'outofstock',
+			'min_price'      => '0.0000',
+			'max_price'      => '0.0000',
+			'onsale'         => 0,
+		);
+		$row                = $this->row( '101001001', 0 );
+		$row['total_stock'] = 0;
+		unset( $row['final_price'] );
+
+		$result  = $this->feed->apply_product_feed( wc_get_product( 816 ), $row );
+		$product = wc_get_product( 816 );
+
+		$this->assertTrue( $result );
+		$this->assertSame( '', $product->get_regular_price() );
+		$this->assertSame( '', $product->get_sale_price() );
+		$this->assertSame( '', $product->get_price() );
+		$this->assertSame( 0, $product->get_stock_quantity() );
+		$this->assertSame( 'outofstock', $product->get_stock_status() );
+		$this->assertSame( '0.0000', $GLOBALS['digitalogic_test_wc_lookup_rows'][816]['min_price'] );
+		$this->assertSame( '0.0000', $GLOBALS['digitalogic_test_wc_lookup_rows'][816]['max_price'] );
+		$this->assertSame( 'canonical_missing_unpriced', $product->get_meta( '_digitalogic_patris_price_status', true ) );
+	}
+
+	/** A mixed non-zero lookup value can never masquerade as an unavailable zero sentinel. */
+	public function test_blank_price_rejects_mixed_nonzero_lookup_price_and_rolls_back(): void {
+		$this->addProduct(
+			817,
+			'simple',
+			array(
+				'_manage_stock'  => 'yes',
+				'_stock'         => 0,
+				'_stock_status'  => 'outofstock',
+				'_regular_price' => '700',
+				'_price'         => '700',
+			)
+		);
+		$GLOBALS['digitalogic_test_wc_lookup_rows'][817] = array(
+			'product_id'     => 817,
+			'stock_quantity' => 0,
+			'stock_status'   => 'outofstock',
+			'min_price'      => '700.0000',
+			'max_price'      => '700.0000',
+			'onsale'         => 0,
+		);
+		$row                 = $this->row( 'SIMPLE-817', 0 );
+		$row['total_stock']  = 0;
+		$row['weight_grams'] = 1;
+		unset( $row['final_price'] );
+		$GLOBALS['digitalogic_test_wc_after_save'] = static function ( $saved_product ) {
+			$GLOBALS['digitalogic_test_wc_lookup_rows'][ $saved_product->get_id() ]['min_price'] = '0.0000';
+			$GLOBALS['digitalogic_test_wc_lookup_rows'][ $saved_product->get_id() ]['max_price'] = '1.0000';
+			$GLOBALS['digitalogic_test_wc_lookup_rows'][ $saved_product->get_id() ]['onsale']    = 1;
+			unset( $GLOBALS['digitalogic_test_wc_products'][ $saved_product->get_id() ] );
+		};
+
+		$result = $this->feed->apply_product_feed( wc_get_product( 817 ), $row );
+
+		$this->assertInstanceOf( WP_Error::class, $result );
+		$this->assertSame( 'digitalogic_patris_product_write_failed', $result->get_error_code() );
+		$this->assertTrue( $result->get_error_data()['rollback_verified'] );
+		$this->assertSame( '700', wc_get_product( 817 )->get_regular_price() );
+		$this->assertSame( '700', wc_get_product( 817 )->get_price() );
+		$this->assertSame( '700.0000', $GLOBALS['digitalogic_test_wc_lookup_rows'][817]['min_price'] );
+		$this->assertSame( '700.0000', $GLOBALS['digitalogic_test_wc_lookup_rows'][817]['max_price'] );
+		$this->assertSame( '0', (string) $GLOBALS['digitalogic_test_wc_lookup_rows'][817]['onsale'] );
+	}
+
 	/** A missing weight preserves an already-consistent storefront price with a warning. */
 	public function test_missing_weight_preserves_valid_existing_storefront_price(): void {
 		$this->addProduct(
