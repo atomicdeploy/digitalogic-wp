@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.61] - 2026-08-31
+
+### Fixed
+- Persist and verify the exact WooCommerce stock-status meta and lookup
+  projection after hooks recalculate a positive-stock, blank-price Patris leaf,
+  without changing its canonical quantity or blank prices.
+
 ## [1.8.60] - 2026-08-31
 
 ### Fixed
