@@ -392,9 +392,15 @@ final class Digitalogic_Patris_Topology_Repair {
 			return $this->error( 'digitalogic_patris_topology_transaction_unavailable', 'The topology repair transaction is unavailable.' );
 		}
 
-		$new_variation_id = 0;
-		$cause            = '';
-		$commit_attempted = false;
+		$new_variation_id       = 0;
+		$term_id                = 0;
+		$cause                  = '';
+		$commit_attempted       = false;
+		$deferred_sync_snapshot = $this->snapshot_deferred_product_sync();
+		$parent_ids             = array_merge(
+			array_keys( $plan['empty_parents'] ),
+			array( $plan['identity_parent']['parent_id'] )
+		);
 		try {
 			foreach ( array_keys( $plan['empty_parents'] ) as $parent_id ) {
 				$this->require_success( wp_set_object_terms( $parent_id, 'variable', 'product_type' ) );
@@ -487,6 +493,7 @@ final class Digitalogic_Patris_Topology_Repair {
 			$this->require_success( $created );
 
 			$this->flush_products( array_merge( $plan['locked_product_ids'], array( $new_variation_id ) ) );
+			$this->flush_topology_term_caches( $parent_ids, $term_id, $taxonomy );
 			$verified = $this->verify_applied( $plan, $new_variation_id, $term_id );
 			$this->require_success( $verified );
 			if ( ! $this->repair_locks_are_owned( $plan['locked_product_ids'] ) ) {
@@ -501,7 +508,13 @@ final class Digitalogic_Patris_Topology_Repair {
 			$cause = $exception->getMessage();
 			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Roll back every reviewed topology write on any failure.
 			$rollback = $wpdb->query( 'ROLLBACK' );
+			$this->restore_deferred_product_sync( $deferred_sync_snapshot );
 			$this->flush_products( array_merge( $plan['locked_product_ids'], array_filter( array( $new_variation_id ) ) ) );
+			$this->flush_topology_term_caches(
+				$parent_ids,
+				$term_id,
+				$plan['identity_parent']['attribute_taxonomy']
+			);
 			if ( $commit_attempted || false === $rollback || 'lock_lost' === $cause ) {
 				return $this->error(
 					'digitalogic_patris_topology_outcome_unknown',
@@ -549,12 +562,19 @@ final class Digitalogic_Patris_Topology_Repair {
 		foreach ( $plan['empty_parents'] as $parent_id => $children ) {
 			$parent = wc_get_product( $parent_id );
 			$actual = $this->read_child_map( $parent_id );
-			if ( ! $parent instanceof WC_Product || ! $parent->is_type( 'variable' ) || $actual !== $children ) {
-				return $this->error( 'digitalogic_patris_topology_readback_failed', 'The reviewed topology repair failed exact readback.' );
+			if ( ! $parent instanceof WC_Product ) {
+				return $this->readback_failure( 'empty_parent_unavailable', $parent_id );
+			}
+			if ( ! $parent->is_type( 'variable' ) ) {
+				return $this->readback_failure( 'empty_parent_type', $parent_id );
+			}
+			if ( is_wp_error( $actual ) || $actual !== $children ) {
+				return $this->readback_failure( 'empty_parent_children', $parent_id, $actual );
 			}
 			foreach ( $children as $child_id => $code ) {
-				if ( '' !== $code && is_wp_error( $materializer->validate_source_product_target( $child_id, $plan['source'] ) ) ) {
-					return $this->error( 'digitalogic_patris_topology_readback_failed', 'The reviewed topology repair failed exact readback.' );
+				$valid = '' !== $code ? $materializer->validate_source_product_target( $child_id, $plan['source'] ) : true;
+				if ( is_wp_error( $valid ) ) {
+					return $this->readback_failure( 'empty_child_target', $child_id, $valid );
 				}
 			}
 		}
@@ -570,32 +590,61 @@ final class Digitalogic_Patris_Topology_Repair {
 		$term      = get_term( $term_id, $identity['attribute_taxonomy'] );
 		$attribute = $parent instanceof WC_Product ? ( $parent->get_attributes()[ $identity['attribute_taxonomy'] ] ?? null ) : null;
 		$options   = $attribute instanceof WC_Product_Attribute ? array_map( 'absint', $attribute->get_options() ) : array();
+		if ( ! $parent instanceof WC_Product ) {
+			return $this->readback_failure( 'identity_parent_unavailable', $identity['parent_id'] );
+		}
+		if ( ! $parent->is_type( 'variable' ) ) {
+			return $this->readback_failure( 'identity_parent_type', $identity['parent_id'] );
+		}
+		if ( '' !== (string) $parent->get_sku() ) {
+			return $this->readback_failure( 'identity_parent_sku_not_cleared', $identity['parent_id'] );
+		}
+		if ( '' !== (string) $parent->get_meta( Digitalogic_Product_Identifier_Resolver::PATRIS_CODE_META, true ) ) {
+			return $this->readback_failure( 'identity_parent_code_not_cleared', $identity['parent_id'] );
+		}
+		if ( ! $child instanceof WC_Product ) {
+			return $this->readback_failure( 'identity_variation_unavailable', $new_variation_id );
+		}
+		if ( ! $child->is_type( 'variation' ) ) {
+			return $this->readback_failure( 'identity_variation_type', $new_variation_id );
+		}
+		if ( (int) $child->get_parent_id() !== (int) $identity['parent_id'] ) {
+			return $this->readback_failure( 'identity_variation_parent', $new_variation_id );
+		}
+		if ( is_wp_error( $actual_children ) || $actual_children !== $expected_children ) {
+			return $this->readback_failure( 'identity_children', $identity['parent_id'], $actual_children );
+		}
+		if ( 'draft' !== (string) $child->get_status() ) {
+			return $this->readback_failure( 'identity_variation_status', $new_variation_id );
+		}
+		if ( (string) $child->get_sku() !== $identity['product_code'] ) {
+			return $this->readback_failure( 'identity_variation_sku', $new_variation_id );
+		}
+		if ( (string) ( $child->get_variation_attributes()[ 'attribute_' . $identity['attribute_taxonomy'] ] ?? '' ) !== $identity['base_term_slug'] ) {
+			return $this->readback_failure( 'identity_variation_attribute', $new_variation_id );
+		}
+		if ( is_wp_error( $resolved ) || (int) ( $resolved['woocommerce_id'] ?? 0 ) !== $new_variation_id ) {
+			return $this->readback_failure( 'identity_resolver', $new_variation_id, $resolved );
+		}
 		if (
-			! $parent instanceof WC_Product
-			|| ! $parent->is_type( 'variable' )
-			|| '' !== (string) $parent->get_sku()
-			|| '' !== (string) $parent->get_meta( Digitalogic_Product_Identifier_Resolver::PATRIS_CODE_META, true )
-			|| ! $child instanceof WC_Product
-			|| ! $child->is_type( 'variation' )
-			|| (int) $child->get_parent_id() !== (int) $identity['parent_id']
-			|| $actual_children !== $expected_children
-			|| 'draft' !== (string) $child->get_status()
-			|| (string) $child->get_sku() !== $identity['product_code']
-			|| (string) ( $child->get_variation_attributes()[ 'attribute_' . $identity['attribute_taxonomy'] ] ?? '' ) !== $identity['base_term_slug']
-			|| is_wp_error( $resolved )
-			|| (int) ( $resolved['woocommerce_id'] ?? 0 ) !== $new_variation_id
-			|| is_wp_error( $term )
+			is_wp_error( $term )
 			|| ! is_object( $term )
 			|| (string) $term->slug !== $identity['base_term_slug']
 			|| (string) $term->name !== $identity['base_term_name']
-			|| ! in_array( $term_id, $options, true )
-			|| is_wp_error( $materializer->validate_source_product_target( $new_variation_id, $plan['source'] ) )
 		) {
-			return $this->error( 'digitalogic_patris_topology_readback_failed', 'The reviewed topology repair failed exact readback.' );
+			return $this->readback_failure( 'identity_term', $identity['parent_id'], $term );
+		}
+		if ( ! in_array( $term_id, $options, true ) ) {
+			return $this->readback_failure( 'identity_parent_attribute', $identity['parent_id'] );
+		}
+		$valid = $materializer->validate_source_product_target( $new_variation_id, $plan['source'] );
+		if ( is_wp_error( $valid ) ) {
+			return $this->readback_failure( 'identity_variation_target', $new_variation_id, $valid );
 		}
 		foreach ( $identity['children'] as $child_id => $code ) {
-			if ( '' !== $code && is_wp_error( $materializer->validate_source_product_target( $child_id, $plan['source'] ) ) ) {
-				return $this->error( 'digitalogic_patris_topology_readback_failed', 'The reviewed topology repair failed exact readback.' );
+			$valid = '' !== $code ? $materializer->validate_source_product_target( $child_id, $plan['source'] ) : true;
+			if ( is_wp_error( $valid ) ) {
+				return $this->readback_failure( 'identity_child_target', $child_id, $valid );
 			}
 		}
 
@@ -650,7 +699,18 @@ final class Digitalogic_Patris_Topology_Repair {
 	 */
 	private function require_success( $result ) {
 		if ( is_wp_error( $result ) ) {
-			throw new RuntimeException( $result->get_error_code() ); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- Internal canonical error code, caught and never rendered.
+			$data  = $result->get_error_data();
+			$parts = array( $result->get_error_code() );
+			if ( is_array( $data ) && ! empty( $data['cause'] ) ) {
+				$parts[] = sanitize_key( (string) $data['cause'] );
+			}
+			if ( is_array( $data ) && ! empty( $data['product_id'] ) ) {
+				$parts[] = (string) absint( $data['product_id'] );
+			}
+			if ( is_array( $data ) && ! empty( $data['validation_code'] ) ) {
+				$parts[] = sanitize_key( (string) $data['validation_code'] );
+			}
+			throw new RuntimeException( implode( ':', $parts ) ); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- Internal stable error codes, caught and never rendered.
 		}
 		if ( false === $result || null === $result || 0 === $result ) {
 			throw new RuntimeException( 'write_rejected' );
@@ -669,6 +729,71 @@ final class Digitalogic_Patris_Topology_Repair {
 			clean_post_cache( $product_id );
 			wc_delete_product_transients( $product_id );
 		}
+	}
+
+	/** Snapshot WooCommerce's request-local deferred parent sync queue. */
+	private function snapshot_deferred_product_sync() {
+		return array(
+			'exists' => array_key_exists( 'wc_deferred_product_sync', $GLOBALS ),
+			'value'  => $GLOBALS['wc_deferred_product_sync'] ?? null,
+		);
+	}
+
+	/**
+	 * Restore the exact pre-transaction deferred queue after rollback.
+	 *
+	 * @param array $snapshot Exact request-local queue snapshot.
+	 * @return void
+	 */
+	private function restore_deferred_product_sync( $snapshot ) {
+		if ( ! empty( $snapshot['exists'] ) ) {
+			$GLOBALS['wc_deferred_product_sync'] = $snapshot['value'] ?? null;
+			return;
+		}
+
+		unset( $GLOBALS['wc_deferred_product_sync'] );
+	}
+
+	/**
+	 * Flush non-transactional object-term caches touched by topology writes.
+	 *
+	 * @param int[]  $parent_ids Exact reviewed parent IDs.
+	 * @param int    $term_id Created term ID, or zero before insertion.
+	 * @param string $taxonomy Exact attribute taxonomy.
+	 * @return void
+	 */
+	private function flush_topology_term_caches( $parent_ids, $term_id, $taxonomy ) {
+		$parent_ids = array_values( array_unique( array_filter( array_map( 'absint', (array) $parent_ids ) ) ) );
+		if ( ! empty( $parent_ids ) ) {
+			clean_object_term_cache( $parent_ids, 'product' );
+		}
+		if ( absint( $term_id ) > 0 && '' !== (string) $taxonomy ) {
+			clean_term_cache( absint( $term_id ), (string) $taxonomy );
+		}
+	}
+
+	/**
+	 * Return one stable, nonsecret exact-readback reason.
+	 *
+	 * @param string         $cause Stable predicate name.
+	 * @param int            $product_id Exact affected product ID, or zero.
+	 * @param WP_Error|mixed $validation Optional nested validation failure.
+	 * @return WP_Error
+	 */
+	private function readback_failure( $cause, $product_id = 0, $validation = null ) {
+		$data = array(
+			'cause'      => sanitize_key( (string) $cause ),
+			'product_id' => absint( $product_id ),
+		);
+		if ( is_wp_error( $validation ) ) {
+			$data['validation_code'] = sanitize_key( $validation->get_error_code() );
+		}
+
+		return $this->error(
+			'digitalogic_patris_topology_readback_failed',
+			'The reviewed topology repair failed exact readback.',
+			$data
+		);
 	}
 
 	/**

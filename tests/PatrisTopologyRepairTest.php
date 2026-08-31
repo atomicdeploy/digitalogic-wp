@@ -35,15 +35,18 @@ final class PatrisTopologyRepairTest extends TestCase {
 				'digitalogic_test_filters',
 				'digitalogic_test_cache_deletes',
 				'digitalogic_test_wc_transient_deletes',
+				'digitalogic_test_object_term_cache_cleans',
 			)
 			as $global_name
 		) {
 			$GLOBALS[ $global_name ] = array();
 		}
-		$GLOBALS['digitalogic_test_next_post_id']            = 300;
-		$GLOBALS['digitalogic_test_next_term_id']            = 500;
-		$GLOBALS['digitalogic_test_wc_defer_new_product_id'] = false;
-		$GLOBALS['wpdb']                                     = new Digitalogic_Test_WPDB();
+		$GLOBALS['digitalogic_test_next_post_id']                     = 300;
+		$GLOBALS['digitalogic_test_next_term_id']                     = 500;
+		$GLOBALS['digitalogic_test_wc_defer_new_product_id']          = false;
+		$GLOBALS['digitalogic_test_enqueue_product_sync_on_term_set'] = false;
+		unset( $GLOBALS['wc_deferred_product_sync'] );
+		$GLOBALS['wpdb'] = new Digitalogic_Test_WPDB();
 
 		foreach (
 			array(
@@ -132,6 +135,47 @@ final class PatrisTopologyRepairTest extends TestCase {
 		$this->assertSame( 'BASE', get_post_meta( 200, Digitalogic_Product_Identifier_Resolver::PATRIS_CODE_META, true ) );
 		$this->assertFalse( get_term_by( 'slug', 'ch340', 'pa_model' ) );
 		$this->assertFalse( Digitalogic_Product_Sync_Receiver::instance()->source_identity_lock_is_owned() );
+	}
+
+	/** Rollback drops only syncs queued by the transaction and clears parent term caches. */
+	public function test_apply_failure_restores_exact_deferred_sync_queue_and_term_caches(): void {
+		$GLOBALS['wc_deferred_product_sync']                          = array( 999 );
+		$GLOBALS['digitalogic_test_enqueue_product_sync_on_term_set'] = true;
+		$GLOBALS['digitalogic_test_wc_save_failures']                 = array( 200 );
+
+		$result = Digitalogic_Patris_Topology_Repair::instance()->run( $this->plan(), true );
+
+		$this->assertInstanceOf( WP_Error::class, $result );
+		$this->assertSame( array( 999 ), $GLOBALS['wc_deferred_product_sync'] );
+		$this->assertContains(
+			array( 100, 'product' ),
+			$GLOBALS['digitalogic_test_object_term_cache_cleans']
+		);
+		$this->assertContains(
+			array( 110, 'product' ),
+			$GLOBALS['digitalogic_test_object_term_cache_cleans']
+		);
+		$this->assertContains(
+			array( 200, 'product' ),
+			$GLOBALS['digitalogic_test_object_term_cache_cleans']
+		);
+	}
+
+	/** Exact readback predicate and product ID survive rollback without leaking values. */
+	public function test_readback_failure_reports_stable_exact_cause(): void {
+		$GLOBALS['digitalogic_test_wc_after_save'] = static function () {
+			$GLOBALS['digitalogic_test_posts'][100]['product_type'] = 'simple';
+		};
+
+		$result = Digitalogic_Patris_Topology_Repair::instance()->run( $this->plan(), true );
+
+		$this->assertInstanceOf( WP_Error::class, $result );
+		$this->assertSame( 'digitalogic_patris_topology_repair_failed', $result->get_error_code() );
+		$this->assertSame(
+			'digitalogic_patris_topology_readback_failed:empty_parent_type:100',
+			$result->get_error_data()['cause']
+		);
+		$this->assertFalse( array_key_exists( 'wc_deferred_product_sync', $GLOBALS ) );
 	}
 
 	/** A failed COMMIT is never represented as a confirmed rollback or safe retry. */

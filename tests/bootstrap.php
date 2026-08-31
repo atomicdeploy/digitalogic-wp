@@ -3022,6 +3022,9 @@ function wp_set_object_terms($object_id, $terms, $taxonomy, $append = false) {
     if ('product_type' === $taxonomy) {
 		$type = is_array($terms) ? (string) (reset($terms) ?: '') : (string) $terms;
 		$GLOBALS['digitalogic_test_posts'][(int) $object_id]['product_type'] = $type;
+		if ( ! empty( $GLOBALS['digitalogic_test_enqueue_product_sync_on_term_set'] ) ) {
+			$GLOBALS['wc_deferred_product_sync'][] = (int) $object_id;
+		}
     }
     return array((int) $object_id);
 }
