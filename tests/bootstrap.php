@@ -1879,6 +1879,34 @@ class Digitalogic_Test_WPDB {
 
 			return $rows;
 		}
+		if ( strpos( $query, 'digitalogic_pricing_batch_leaf_collision' ) !== false ) {
+			preg_match( '/ids:(\d+)/', $query, $id_matches );
+			preg_match( '/keys:(\d+)/', $query, $key_matches );
+			preg_match( '/codes:(\d+)/', $query, $code_matches );
+			$id_count      = isset( $id_matches[1] ) ? (int) $id_matches[1] : 0;
+			$key_count     = isset( $key_matches[1] ) ? (int) $key_matches[1] : 0;
+			$code_count    = isset( $code_matches[1] ) ? (int) $code_matches[1] : 0;
+			$target_ids    = array_map( 'intval', array_slice( $args, 0, $id_count ) );
+			$keys          = array_map( 'strtolower', array_slice( $args, $id_count, $key_count ) );
+			$product_codes = array_map( 'strval', array_slice( $args, -$code_count ) );
+			$rows          = array();
+			foreach ( $GLOBALS['digitalogic_test_posts'] as $product_id => $post ) {
+				if (
+					in_array( (int) $product_id, $target_ids, true )
+					|| ! in_array( (string) ( $post['post_type'] ?? '' ), array( 'product', 'product_variation' ), true )
+					|| in_array( (string) ( $post['post_status'] ?? '' ), array( 'trash', 'auto-draft' ), true )
+				) {
+					continue;
+				}
+				foreach ( (array) ( $post['meta'] ?? array() ) as $meta_key => $meta_value ) {
+					if ( in_array( strtolower( (string) $meta_key ), $keys, true ) && in_array( (string) $meta_value, $product_codes, true ) ) {
+						$rows[] = array( 'product_id' => (int) $product_id );
+					}
+				}
+			}
+
+			return $rows;
+		}
 		if ( strpos( $query, 'digitalogic_pricing_batch_leaf_identity' ) !== false ) {
 			if ( is_callable( $GLOBALS['digitalogic_test_before_pricing_batch_leaf_identity'] ?? null ) ) {
 				$callback = $GLOBALS['digitalogic_test_before_pricing_batch_leaf_identity'];
@@ -1887,42 +1915,12 @@ class Digitalogic_Test_WPDB {
 			}
 			preg_match( '/ids:(\d+)/', $query, $id_matches );
 			preg_match( '/keys:(\d+)/', $query, $key_matches );
-			preg_match( '/codes:(\d+)/', $query, $code_matches );
-			$id_count       = isset( $id_matches[1] ) ? (int) $id_matches[1] : 0;
-			$key_count      = isset( $key_matches[1] ) ? (int) $key_matches[1] : 0;
-			$code_count     = isset( $code_matches[1] ) ? (int) $code_matches[1] : 0;
-			$keys           = array_map( 'strtolower', array_slice( $args, 0, $key_count ) );
-			$ids            = array_map( 'intval', array_slice( $args, $key_count, $id_count ) );
-			$collision_keys = array_map( 'strtolower', array_slice( $args, $key_count + $id_count, 2 ) );
-			$product_codes  = array_map( 'strval', array_slice( $args, -$code_count ) );
-			$candidates     = array_fill_keys( $ids, true );
-			foreach ( $GLOBALS['digitalogic_test_posts'] as $product_id => $post ) {
-				if (
-					! in_array( (string) ( $post['post_type'] ?? '' ), array( 'product', 'product_variation' ), true )
-					|| in_array( (string) ( $post['post_status'] ?? '' ), array( 'trash', 'auto-draft' ), true )
-				) {
-					continue;
-				}
-				$meta_keys = array_unique(
-					array_merge(
-						array_keys( (array) ( $post['meta'] ?? array() ) ),
-						array_keys( (array) ( $post['meta_rows'] ?? array() ) )
-					)
-				);
-				foreach ( $meta_keys as $meta_key ) {
-					if ( ! in_array( strtolower( (string) $meta_key ), $collision_keys, true ) ) {
-						continue;
-					}
-					$values = isset( $post['meta_rows'][ $meta_key ] ) && is_array( $post['meta_rows'][ $meta_key ] )
-						? array_values( $post['meta_rows'][ $meta_key ] )
-						: ( array_key_exists( $meta_key, $post['meta'] ?? array() ) ? array( $post['meta'][ $meta_key ] ) : array() );
-					if ( ! empty( array_intersect( array_map( 'strval', $values ), $product_codes ) ) ) {
-						$candidates[ (int) $product_id ] = true;
-						break;
-					}
-				}
-			}
-			$ids = array_map( 'intval', array_keys( $candidates ) );
+			$id_count   = isset( $id_matches[1] ) ? (int) $id_matches[1] : 0;
+			$key_count  = isset( $key_matches[1] ) ? (int) $key_matches[1] : 0;
+			$keys       = array_map( 'strtolower', array_slice( $args, 0, $key_count ) );
+			$ids        = array_map( 'intval', array_slice( $args, $key_count, $id_count ) );
+			$candidates = array_fill_keys( $ids, true );
+			$ids        = array_map( 'intval', array_keys( $candidates ) );
 			sort( $ids, SORT_NUMERIC );
 			$rows = array();
 			foreach ( $ids as $product_id ) {
