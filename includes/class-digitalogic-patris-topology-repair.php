@@ -49,6 +49,16 @@ final class Digitalogic_Patris_Topology_Repair {
 		if ( is_wp_error( $normalized ) ) {
 			return $normalized;
 		}
+		$cache_fence = $this->fence_topology_relationship_caches(
+			array_merge(
+				array_keys( $normalized['empty_parents'] ),
+				array( $normalized['identity_parent']['parent_id'] )
+			),
+			$normalized['identity_parent']['attribute_taxonomy']
+		);
+		if ( is_wp_error( $cache_fence ) ) {
+			return $cache_fence;
+		}
 		$inspected = $this->inspect_plan( $normalized );
 		if ( is_wp_error( $inspected ) || ! $apply ) {
 			return $inspected;

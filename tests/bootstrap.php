@@ -2626,6 +2626,20 @@ class WC_Product {
 
     public function get_attributes() {
 		$attributes = (array) ($GLOBALS['digitalogic_test_posts'][$this->id]['attributes'] ?? array());
+		if ( ! empty( $GLOBALS['digitalogic_test_wc_attributes_read_from_relationship_cache'] ) ) {
+			foreach ( $attributes as $key => $attribute ) {
+				if ( ! $attribute instanceof WC_Product_Attribute ) {
+					continue;
+				}
+				$cache_key = $attribute->get_name() . '_relationships:' . $this->id;
+				if ( ! array_key_exists( $cache_key, $GLOBALS['digitalogic_test_object_cache'] ) ) {
+					continue;
+				}
+				$attribute = clone $attribute;
+				$attribute->set_options( $GLOBALS['digitalogic_test_object_cache'][ $cache_key ] );
+				$attributes[ $key ] = $attribute;
+			}
+		}
 		if ( empty( $GLOBALS['digitalogic_test_wc_attributes_read_from_object_terms'] ) ) {
 			return $attributes;
 		}
