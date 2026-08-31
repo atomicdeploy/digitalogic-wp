@@ -182,7 +182,8 @@ final class PatrisPricePolicyTest extends TestCase {
 		$missing = $this->row( 'MISSING-807', 700 );
 		unset( $missing['final_price'] );
 		$GLOBALS['digitalogic_test_wc_after_save'] = static function ( $saved_product ) {
-			$GLOBALS['digitalogic_test_wc_lookup_rows'][ $saved_product->get_id() ]['stock_status'] = 'instock';
+			$GLOBALS['digitalogic_test_posts'][ $saved_product->get_id() ]['meta']['_stock_status'] = 'instock';
+			unset( $GLOBALS['digitalogic_test_wc_products'][ $saved_product->get_id() ] );
 		};
 		$this->feed->apply_product_feed( wc_get_product( 807 ), $missing );
 		$product = wc_get_product( 807 );
@@ -192,8 +193,22 @@ final class PatrisPricePolicyTest extends TestCase {
 		$this->assertSame( 5, $product->get_stock_quantity() );
 		$this->assertSame( 'outofstock', $product->get_stock_status() );
 		$this->assertSame( 'canonical_missing_unpriced', $product->get_meta( '_digitalogic_patris_price_status', true ) );
+		$this->assertSame( 'outofstock', $GLOBALS['digitalogic_test_posts'][807]['meta']['_stock_status'] );
+		$this->assertSame( 5, $GLOBALS['digitalogic_test_wc_lookup_rows'][807]['stock_quantity'] );
 		$this->assertSame( 'outofstock', $GLOBALS['digitalogic_test_wc_lookup_rows'][807]['stock_status'] );
 		$this->assertSame( array( 807 ), $GLOBALS['digitalogic_test_wc_product_saves'] );
+		$this->assertNotEmpty(
+			array_filter(
+				$GLOBALS['wpdb']->queries,
+				static fn ( $query ) => str_starts_with( $query, 'UPDATE /* DIGITALOGIC_PATRIS_UNPRICED_STOCK_META_UPDATE */' )
+			)
+		);
+		$this->assertNotEmpty(
+			array_filter(
+				$GLOBALS['wpdb']->queries,
+				static fn ( $query ) => str_starts_with( $query, 'UPDATE /* DIGITALOGIC_PATRIS_UNPRICED_STOCK_LOOKUP_UPDATE */' )
+			)
+		);
 
 		$this->feed->apply_product_feed( $product, $this->row( 'MISSING-807', 0 ) );
 		$product = wc_get_product( 807 );
@@ -273,6 +288,12 @@ final class PatrisPricePolicyTest extends TestCase {
 		unset( $row['final_price'] );
 		$row['weight_grams'] = 1;
 
+		$GLOBALS['digitalogic_test_wc_lookup_rows'][814] = array(
+			'product_id'     => 814,
+			'stock_quantity' => 5,
+			'stock_status'   => 'outofstock',
+		);
+
 		// phpcs:disable Generic.Formatting.MultipleStatementAlignment -- Nested fixture writes are intentionally independent assignments.
 		$GLOBALS['digitalogic_test_wc_after_save'] = static function ( $saved_product ) {
 			$saved_product->set_stock_status( 'instock' );
@@ -289,7 +310,9 @@ final class PatrisPricePolicyTest extends TestCase {
 		$this->assertTrue( $blocked->get_error_data()['rollback_verified'] );
 		$this->assertSame( '700', wc_get_product( 814 )->get_price() );
 		$this->assertSame( 'instock', wc_get_product( 814 )->get_stock_status() );
-		$this->assertSame( 'instock', $GLOBALS['digitalogic_test_wc_lookup_rows'][814]['stock_status'] );
+		$this->assertSame( 'instock', $GLOBALS['digitalogic_test_posts'][814]['meta']['_stock_status'] );
+		$this->assertSame( '5', (string) $GLOBALS['digitalogic_test_wc_lookup_rows'][814]['stock_quantity'] );
+		$this->assertSame( 'outofstock', $GLOBALS['digitalogic_test_wc_lookup_rows'][814]['stock_status'] );
 
 		$retry = $this->feed->apply_product_feed( wc_get_product( 814 ), $row );
 		$this->assertTrue( $retry );
@@ -297,6 +320,50 @@ final class PatrisPricePolicyTest extends TestCase {
 		$this->assertSame( 5, wc_get_product( 814 )->get_stock_quantity() );
 		$this->assertSame( 'outofstock', wc_get_product( 814 )->get_stock_status() );
 		$this->assertSame( 'outofstock', $GLOBALS['digitalogic_test_wc_lookup_rows'][814]['stock_status'] );
+	}
+
+	/** A zero-row lookup result fails unless exact target state is already present. */
+	public function test_zero_row_lookup_mismatch_rolls_back_then_retries(): void {
+		$this->addProduct(
+			815,
+			'simple',
+			array(
+				'_manage_stock'  => 'yes',
+				'_stock'         => 5,
+				'_stock_status'  => 'instock',
+				'_regular_price' => '700',
+				'_price'         => '700',
+			)
+		);
+		$row = $this->row( 'SIMPLE-815', 700 );
+		unset( $row['final_price'] );
+		$row['weight_grams'] = 1;
+
+		// phpcs:disable Generic.Formatting.MultipleStatementAlignment -- Nested fixture writes are intentionally independent assignments.
+		$GLOBALS['digitalogic_test_wc_after_save'] = static function ( $saved_product ) {
+			$saved_product->set_stock_status( 'instock' );
+			$GLOBALS['digitalogic_test_posts'][ $saved_product->get_id() ]['meta']['_stock_status'] = 'instock';
+			$GLOBALS['digitalogic_test_wc_lookup_rows'][ $saved_product->get_id() ]['stock_status'] = 'instock';
+			unset( $GLOBALS['digitalogic_test_wc_products'][ $saved_product->get_id() ] );
+		};
+		// phpcs:enable Generic.Formatting.MultipleStatementAlignment
+		$GLOBALS['digitalogic_test_wc_stock_projection_failures'] = array( 'lookup_noop:815' );
+
+		$blocked = $this->feed->apply_product_feed( wc_get_product( 815 ), $row );
+		$this->assertInstanceOf( WP_Error::class, $blocked );
+		$this->assertSame( 'digitalogic_patris_product_write_failed', $blocked->get_error_code() );
+		$this->assertTrue( $blocked->get_error_data()['rollback_verified'] );
+		$this->assertSame( '700', wc_get_product( 815 )->get_price() );
+		$this->assertSame( 'instock', $GLOBALS['digitalogic_test_posts'][815]['meta']['_stock_status'] );
+		$this->assertSame( '5', (string) $GLOBALS['digitalogic_test_wc_lookup_rows'][815]['stock_quantity'] );
+		$this->assertSame( 'instock', $GLOBALS['digitalogic_test_wc_lookup_rows'][815]['stock_status'] );
+
+		$retry = $this->feed->apply_product_feed( wc_get_product( 815 ), $row );
+		$this->assertTrue( $retry );
+		$this->assertSame( '', wc_get_product( 815 )->get_price() );
+		$this->assertSame( 5, wc_get_product( 815 )->get_stock_quantity() );
+		$this->assertSame( 'outofstock', wc_get_product( 815 )->get_stock_status() );
+		$this->assertSame( 'outofstock', $GLOBALS['digitalogic_test_wc_lookup_rows'][815]['stock_status'] );
 	}
 
 	/** A missing weight preserves an already-consistent storefront price with a warning. */

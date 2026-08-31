@@ -1678,12 +1678,24 @@ class Digitalogic_Test_WPDB {
         $query = is_array($prepared) && isset($prepared['query']) ? $prepared['query'] : (string) $prepared;
         $args = is_array($prepared) && isset($prepared['args']) ? $prepared['args'] : array();
 
-		if ( strpos( $query, 'digitalogic_patris_unpriced_stock_lookup_readback' ) !== false ) {
+		if (
+			strpos( $query, 'digitalogic_patris_unpriced_stock_lookup_readback' ) !== false
+			|| strpos( $query, 'digitalogic_patris_stock_lookup_readback' ) !== false
+		) {
 			$product_id = isset( $args[0] ) ? (int) $args[0] : 0;
+			$row        = $GLOBALS['digitalogic_test_wc_lookup_rows'][ $product_id ] ?? null;
+			if ( ! is_array( $row ) && isset( $GLOBALS['digitalogic_test_posts'][ $product_id ] ) ) {
+				$meta = $GLOBALS['digitalogic_test_posts'][ $product_id ]['meta'] ?? array();
+				$row  = array(
+					'stock_quantity' => array_key_exists( '_stock', $meta ) ? $meta['_stock'] : null,
+					'stock_status'   => (string) ( $meta['_stock_status'] ?? 'instock' ),
+				);
+			}
 
-			return isset( $GLOBALS['digitalogic_test_wc_lookup_rows'][ $product_id ] )
+			return is_array( $row )
 				? array(
-					'stock_status' => (string) ( $GLOBALS['digitalogic_test_wc_lookup_rows'][ $product_id ]['stock_status'] ?? '' ),
+					'stock_quantity' => null === ( $row['stock_quantity'] ?? null ) ? null : (string) $row['stock_quantity'],
+					'stock_status'   => (string) ( $row['stock_status'] ?? '' ),
 				)
 				: null;
 		}
@@ -2212,6 +2224,13 @@ class Digitalogic_Test_WPDB {
 				);
 				return false;
 			}
+			$noop = 'lookup_noop:' . $product_id;
+			if ( in_array( $noop, $GLOBALS['digitalogic_test_wc_stock_projection_failures'], true ) ) {
+				$GLOBALS['digitalogic_test_wc_stock_projection_failures'] = array_values(
+					array_diff( $GLOBALS['digitalogic_test_wc_stock_projection_failures'], array( $noop ) )
+				);
+				return 0;
+			}
 			if ( ! isset( $GLOBALS['digitalogic_test_wc_lookup_rows'][ $product_id ] ) ) {
 				return 0;
 			}
@@ -2219,6 +2238,26 @@ class Digitalogic_Test_WPDB {
 			$GLOBALS['digitalogic_test_wc_lookup_rows'][ $product_id ]['stock_status'] = $status;
 
 			return $changed ? 1 : 0;
+		}
+		if ( strpos( $raw_query, 'digitalogic_patris_stock_lookup_restore' ) !== false ) {
+			$quantity_is_null = strpos( $raw_query, 'stock_quantity = NULL' ) !== false;
+			$quantity         = $quantity_is_null ? null : ( $args[0] ?? null );
+			$status           = (string) ( $args[ $quantity_is_null ? 0 : 1 ] ?? '' );
+			$product_id       = (int) ( $args[ $quantity_is_null ? 1 : 2 ] ?? 0 );
+			if ( ! isset( $GLOBALS['digitalogic_test_wc_lookup_rows'][ $product_id ] ) ) {
+				return 0;
+			}
+			$before = array(
+				'stock_quantity' => $GLOBALS['digitalogic_test_wc_lookup_rows'][ $product_id ]['stock_quantity'] ?? null,
+				'stock_status'   => (string) ( $GLOBALS['digitalogic_test_wc_lookup_rows'][ $product_id ]['stock_status'] ?? '' ),
+			);
+			$GLOBALS['digitalogic_test_wc_lookup_rows'][ $product_id ]['stock_quantity'] = $quantity;
+			$GLOBALS['digitalogic_test_wc_lookup_rows'][ $product_id ]['stock_status']   = $status;
+
+			return array(
+				'stock_quantity' => $quantity,
+				'stock_status'   => $status,
+			) === $before ? 0 : 1;
 		}
 
 		if ( strpos( $raw_query, 'digitalogic_currency_job_cas' ) !== false ) {

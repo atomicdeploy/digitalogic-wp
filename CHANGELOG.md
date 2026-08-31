@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.62] - 2026-08-31
+
+### Fixed
+- Treat a zero-row unpriced stock-status write as successful only after exact
+  database readback, and keep the SQL verb first so WordPress reports affected
+  rows correctly.
+- Include WooCommerce stock quantity/status lookup state in the exact feed
+  backup, rollback, and fresh-object verification contract.
+
 ## [1.8.61] - 2026-08-31
 
 ### Fixed
