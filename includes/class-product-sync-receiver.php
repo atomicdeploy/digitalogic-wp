@@ -2537,7 +2537,7 @@ class Digitalogic_Product_Sync_Receiver {
      * @param array $product         Canonical stored product.
      * @return bool
      */
-    private function coordinated_price_readback_matches($woocommerce_id, $product) {
+	private function coordinated_price_readback_matches($woocommerce_id, $product) {
         $record_hash = (string) get_post_meta($woocommerce_id, '_digitalogic_patris_record_hash', true);
         if (
             !isset($product['record_hash'])
@@ -2617,12 +2617,7 @@ class Digitalogic_Product_Sync_Receiver {
                 return false;
             }
 
-			if (
-				1 !== count( $price_rows['_regular_price'] )
-				|| 1 !== count( $price_rows['_price'] )
-				|| 1 !== count( $price_rows['_sale_price'] )
-				|| 1 !== count( $status_rows )
-			) {
+			if ( 1 !== count( $status_rows ) ) {
 				return false;
 			}
 			$regular = trim( (string) reset( $price_rows['_regular_price'] ) );
@@ -2630,7 +2625,10 @@ class Digitalogic_Product_Sync_Receiver {
 			$sale    = trim( (string) reset( $price_rows['_sale_price'] ) );
 			$status  = (string) reset( $status_rows );
             if ('canonical_missing_preserved' === $status) {
-                return '' !== $regular
+				return 1 === count( $price_rows['_regular_price'] )
+					&& 1 === count( $price_rows['_price'] )
+					&& $this->coordinated_empty_meta_rows( $price_rows['_sale_price'] )
+					&& '' !== $regular
                     && is_numeric($regular)
                     && (float) $regular > 0
                     && $regular === $visible
@@ -2640,9 +2638,9 @@ class Digitalogic_Product_Sync_Receiver {
 
 			return in_array( $status, array( 'canonical_missing_unpriced', 'canonical_nonpositive_unpriced' ), true )
 				&& empty( $warning_rows )
-				&& '' === $regular
-				&& '' === $visible
-				&& '' === $sale;
+				&& $this->coordinated_empty_meta_rows( $price_rows['_regular_price'] )
+				&& $this->coordinated_empty_meta_rows( $price_rows['_price'] )
+				&& $this->coordinated_empty_meta_rows( $price_rows['_sale_price'] );
         }
 
         $final_price = (string) $product['final_price'];
@@ -2663,10 +2661,17 @@ class Digitalogic_Product_Sync_Receiver {
 
 		return array( $final_price ) === $price_rows['_regular_price']
 			&& array( $final_price ) === $price_rows['_price']
-			&& array( '' ) === $price_rows['_sale_price']
+			&& $this->coordinated_empty_meta_rows( $price_rows['_sale_price'] )
 			&& array( 'priced' ) === $status_rows
 			&& empty( $warning_rows );
     }
+
+	/** Accept Woo's two canonical empty-meta representations without permitting duplicates. */
+	private function coordinated_empty_meta_rows( $rows ) {
+		$rows = array_values( array_map( 'strval', (array) $rows ) );
+
+		return array() === $rows || array( '' ) === $rows;
+	}
 
     /**
      * Turn exact decimal parts back into their normalized plain string.
