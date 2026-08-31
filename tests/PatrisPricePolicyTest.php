@@ -30,6 +30,7 @@ final class PatrisPricePolicyTest extends TestCase {
 		$GLOBALS['digitalogic_test_cache_deletes']        = array();
 		$GLOBALS['digitalogic_test_wc_products']          = array();
 		$GLOBALS['digitalogic_test_wc_product_saves']     = array();
+		$GLOBALS['digitalogic_test_wc_after_save']        = null;
 		$GLOBALS['digitalogic_test_wc_set_price_calls']   = array();
 		$GLOBALS['digitalogic_test_wc_transient_deletes'] = array();
 
@@ -177,6 +178,11 @@ final class PatrisPricePolicyTest extends TestCase {
 
 		$missing = $this->row( 'MISSING-807', 700 );
 		unset( $missing['final_price'] );
+		$GLOBALS['digitalogic_test_wc_after_save'] = static function ( $saved_product ) {
+			$saved_product->set_stock_status( 'instock' );
+			$GLOBALS['digitalogic_test_posts'][ $saved_product->get_id() ]['meta']['_stock_status'] = 'instock';
+			unset( $GLOBALS['digitalogic_test_wc_products'][ $saved_product->get_id() ] );
+		};
 		$this->feed->apply_product_feed( wc_get_product( 807 ), $missing );
 		$product = wc_get_product( 807 );
 		$this->assertSame( '', $product->get_regular_price() );
@@ -185,6 +191,7 @@ final class PatrisPricePolicyTest extends TestCase {
 		$this->assertSame( 5, $product->get_stock_quantity() );
 		$this->assertSame( 'outofstock', $product->get_stock_status() );
 		$this->assertSame( 'canonical_missing_unpriced', $product->get_meta( '_digitalogic_patris_price_status', true ) );
+		$this->assertSame( array( 807, 807 ), $GLOBALS['digitalogic_test_wc_product_saves'] );
 
 		$this->feed->apply_product_feed( $product, $this->row( 'MISSING-807', 0 ) );
 		$product = wc_get_product( 807 );
@@ -200,6 +207,55 @@ final class PatrisPricePolicyTest extends TestCase {
 		$this->assertSame( 5, $product->get_stock_quantity() );
 		$this->assertSame( 'instock', $product->get_stock_status() );
 		$this->assertSame( 'priced', $product->get_meta( '_digitalogic_patris_price_status', true ) );
+	}
+
+	/** A re-entrant hook cannot commit an unavailable leaf as in stock. */
+	public function test_reentrant_stock_promotion_fails_closed_then_retries_idempotently(): void {
+		$this->addProduct(
+			813,
+			'simple',
+			array(
+				'_manage_stock'  => 'yes',
+				'_stock'         => 5,
+				'_stock_status'  => 'instock',
+				'_regular_price' => '700',
+				'_price'         => '700',
+			)
+		);
+		$row = $this->row( 'SIMPLE-813', 700 );
+		unset( $row['final_price'] );
+		$row['weight_grams'] = 1;
+
+		$hook_calls = 0;
+		$promote    = null;
+
+		$promote = static function ( $saved_product ) use ( &$hook_calls, &$promote ) {
+			++$hook_calls;
+			$saved_product->set_stock_status( 'instock' );
+			$GLOBALS['digitalogic_test_posts'][ $saved_product->get_id() ]['meta']['_stock_status'] = 'instock';
+			unset( $GLOBALS['digitalogic_test_wc_products'][ $saved_product->get_id() ] );
+			if ( $hook_calls < 2 ) {
+				$GLOBALS['digitalogic_test_wc_after_save'] = $promote;
+			}
+		};
+
+		$GLOBALS['digitalogic_test_wc_after_save'] = $promote;
+
+		$blocked = $this->feed->apply_product_feed( wc_get_product( 813 ), $row );
+		$this->assertSame( 2, $hook_calls );
+		$this->assertInstanceOf( WP_Error::class, $blocked );
+		$this->assertSame( 'digitalogic_patris_product_write_failed', $blocked->get_error_code() );
+		$this->assertTrue( $blocked->get_error_data()['rollback_verified'] );
+		$this->assertSame( '700', wc_get_product( 813 )->get_price() );
+		$this->assertSame( 'instock', wc_get_product( 813 )->get_stock_status() );
+
+		$retry = $this->feed->apply_product_feed( wc_get_product( 813 ), $row );
+		$again = $this->feed->apply_product_feed( wc_get_product( 813 ), $row );
+		$this->assertTrue( $retry );
+		$this->assertTrue( $again );
+		$this->assertSame( '', wc_get_product( 813 )->get_price() );
+		$this->assertSame( 5, wc_get_product( 813 )->get_stock_quantity() );
+		$this->assertSame( 'outofstock', wc_get_product( 813 )->get_stock_status() );
 	}
 
 	/** A missing weight preserves an already-consistent storefront price with a warning. */
