@@ -28,6 +28,8 @@ final class Digitalogic_Currency_Admin_Async {
 	private const PUBLICATION_RETRY_MAX_SECONDS  = 60;
 	private const JOB_TTL_SECONDS                = 300;
 	private const LEASE_SECONDS                  = 120;
+	private const CLI_JOB_TTL_SECONDS            = 900;
+	private const CLI_EXECUTION_MODE             = 'wp_cli_sync';
 	private const ACF_OPTIONS_CONTEXT            = '_digitalogic_currency_options_context';
 
 	/**
@@ -419,9 +421,10 @@ final class Digitalogic_Currency_Admin_Async {
 	 * @param string $expected_revision Exact canonical revision seen by the submitting surface.
 	 * @param string $source            Bounded internal source label.
 	 * @param string $request_id        Optional explicit idempotency identity.
+	 * @param string $execution_mode    Internal runner mode; defaults to bounded async delivery.
 	 * @return array|WP_Error Public job projection or error.
 	 */
-	public function enqueue_currency( array $values, $dispatch = true, $reconcile = false, $expected_revision = '', $source = 'admin', $request_id = '' ) {
+	public function enqueue_currency( array $values, $dispatch = true, $reconcile = false, $expected_revision = '', $source = 'admin', $request_id = '', $execution_mode = 'async' ) {
 		$allowed = array( 'dollar_price', 'yuan_price', 'effective_date', 'usd_effective_date', 'cny_effective_date' );
 		if ( ! $values || array_diff( array_keys( $values ), $allowed ) ) {
 			return new WP_Error(
@@ -484,6 +487,9 @@ final class Digitalogic_Currency_Admin_Async {
 		}
 		$source     = sanitize_key( (string) $source );
 		$source     = '' === $source ? 'admin' : substr( $source, 0, 64 );
+		$execution_mode = self::CLI_EXECUTION_MODE === (string) $execution_mode
+			? self::CLI_EXECUTION_MODE
+			: 'async';
 		$request_id = $this->normalize_request_id( $request_id );
 		if ( is_wp_error( $request_id ) ) {
 			return $request_id;
@@ -495,6 +501,7 @@ final class Digitalogic_Currency_Admin_Async {
 			(string) wp_json_encode(
 				array(
 					'desired_currency'        => $desired,
+					'execution_mode'          => $execution_mode,
 					'expected_state_revision' => $expected_revision,
 					'mode'                    => $reconcile ? 'reconcile' : 'apply',
 				),
@@ -503,7 +510,7 @@ final class Digitalogic_Currency_Admin_Async {
 		);
 		$should_wake         = false;
 		$result              = $this->with_job_lock(
-			function () use ( $desired, $dispatch, $reconcile, $expected_revision, $source, $request_id, $request_fingerprint, &$should_wake ) {
+			function () use ( $desired, $dispatch, $reconcile, $expected_revision, $source, $request_id, $request_fingerprint, $execution_mode, &$should_wake ) {
 				$now             = time();
 				$existing        = $this->raw_job();
 				$existing_status = (string) ( $existing['status'] ?? '' );
@@ -545,9 +552,11 @@ final class Digitalogic_Currency_Admin_Async {
 
 				if ( $active ) {
 					$existing_reconcile = 'reconcile' === (string) ( $existing['mode'] ?? 'apply' );
+					$existing_execution = (string) ( $existing['execution_mode'] ?? 'async' );
 					if (
 						(array) ( $existing['desired_currency'] ?? array() ) !== $desired
 						|| $existing_reconcile !== $reconcile
+						|| $existing_execution !== $execution_mode
 					) {
 						return new WP_Error(
 							'digitalogic_currency_async_busy',
@@ -571,6 +580,16 @@ final class Digitalogic_Currency_Admin_Async {
 					}
 
 					return $this->public_job_for_request( $existing, $request_id );
+				}
+				if ( Digitalogic_Excel_Pricing_Sync::coordination_lock_is_held() ) {
+					return new WP_Error(
+						'digitalogic_excel_sync_busy',
+						'تراکنش قیمت دیگری هنوز در حال اجرا است؛ پس از آزاد شدن همان تراکنش دوباره تلاش کنید.',
+						array(
+							'blocking'    => false,
+							'retry_after' => 5,
+						)
+					);
 				}
 
 				$state = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
@@ -624,6 +643,7 @@ final class Digitalogic_Currency_Admin_Async {
 					'job_id'                  => $this->random_token( 16 ),
 					'generation'              => $generation,
 					'mode'                    => $reconcile ? 'reconcile' : 'apply',
+					'execution_mode'          => $execution_mode,
 					'source'                  => $source,
 					'status'                  => $same ? 'confirmed' : 'queued',
 					'desired_currency'        => $desired,
@@ -631,7 +651,7 @@ final class Digitalogic_Currency_Admin_Async {
 					'expected_state_revision' => (string) $state['state_revision'],
 					'created_at'              => $now,
 					'updated_at'              => $now,
-					'deadline_at'             => $now + self::JOB_TTL_SECONDS,
+					'deadline_at'             => $now + ( self::CLI_EXECUTION_MODE === $execution_mode ? self::CLI_JOB_TTL_SECONDS : self::JOB_TTL_SECONDS ),
 					'completed_at'            => $same ? $now : 0,
 					'next_attempt_at'         => $same ? 0 : $now,
 					'transaction_id'          => '',
@@ -667,7 +687,10 @@ final class Digitalogic_Currency_Admin_Async {
 					return $this->public_job_for_request( $job, $request_id );
 				}
 
-				if ( ! $this->schedule_action( self::APPLY_HOOK, $now, $this->apply_args( $job ) ) ) {
+				if (
+					self::CLI_EXECUTION_MODE !== $execution_mode
+					&& ! $this->schedule_action( self::APPLY_HOOK, $now, $this->apply_args( $job ) )
+				) {
 					return $this->fail_open_lock(
 						$job,
 						'digitalogic_currency_async_schedule_failed',
@@ -683,7 +706,7 @@ final class Digitalogic_Currency_Admin_Async {
 						'پایش مهلت کار پس‌زمینه زمان‌بندی نشد؛ مقدار سایت تغییر نکرد.'
 					);
 				}
-				if ( $dispatch ) {
+				if ( $dispatch && self::CLI_EXECUTION_MODE !== $execution_mode ) {
 					$should_wake = $this->wake_worker_open_lock( $job );
 				}
 
@@ -695,6 +718,86 @@ final class Digitalogic_Currency_Admin_Async {
 		}
 
 		return $result;
+	}
+
+	/**
+	 * Execute one canonical WP-CLI rate request inside the calling CLI process.
+	 *
+	 * A changed submitted rate already implies a full repricing transaction. The
+	 * recalculate flag therefore selects reconcile mode only when every submitted
+	 * rate is already canonical. The durable generation remains fenced and has no
+	 * async apply action, so a web worker cannot overlap this owner.
+	 *
+	 * @param array  $values            Submitted currency fields.
+	 * @param bool   $force_recalculate Whether an unchanged rate must be reconciled.
+	 * @param string $expected_revision Exact canonical revision before enqueue.
+	 * @param string $request_id        Explicit CLI request identity.
+	 * @return array|WP_Error Terminal public job projection or enqueue error.
+	 */
+	public function execute_cli_currency( array $values, $force_recalculate, $expected_revision, $request_id ) {
+		$state = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
+		if ( is_wp_error( $state ) ) {
+			return $state;
+		}
+		$current   = (array) ( $state['settings'] ?? array() );
+		$reconcile = true === $force_recalculate;
+		if ( $reconcile ) {
+			foreach ( $values as $field => $value ) {
+				if ( ! array_key_exists( $field, $current ) || (string) $current[ $field ] !== (string) $value ) {
+					$reconcile = false;
+					break;
+				}
+			}
+		}
+
+		$job = $this->enqueue_currency(
+			$values,
+			false,
+			$reconcile,
+			$expected_revision,
+			'wp_cli_currency',
+			$request_id,
+			self::CLI_EXECUTION_MODE
+		);
+		if ( is_wp_error( $job ) || 'confirmed' === (string) ( $job['status'] ?? '' ) ) {
+			return $job;
+		}
+
+		$stored = $this->raw_job();
+		if (
+			! $this->matches_job( $stored, (string) ( $job['job_id'] ?? '' ), (int) ( $job['generation'] ?? 0 ) )
+			|| self::CLI_EXECUTION_MODE !== (string) ( $stored['execution_mode'] ?? '' )
+		) {
+			return new WP_Error(
+				'digitalogic_currency_cli_owner_conflict',
+				'یک کار نرخ دیگر مالک این نسل است؛ وضعیت همان کار را بررسی کنید.',
+				array( 'blocking' => false )
+			);
+		}
+
+		do {
+			$now = time();
+			if ( (int) ( $stored['next_attempt_at'] ?? 0 ) > $now ) {
+				$wait = min( 1, (int) $stored['next_attempt_at'] - $now );
+				if ( 0 < $wait ) {
+					sleep( $wait );
+				}
+			}
+			$this->run_job( (string) $stored['job_id'], (int) $stored['generation'] );
+			$stored = $this->raw_job();
+			if ( $this->is_terminal( $stored ) ) {
+				return $this->public_job_for_request( $stored, $request_id );
+			}
+			sleep( 1 );
+		} while ( time() <= (int) ( $stored['deadline_at'] ?? 0 ) );
+
+		$this->run_watchdog(
+			(string) ( $stored['job_id'] ?? '' ),
+			(int) ( $stored['generation'] ?? 0 ),
+			0
+		);
+
+		return $this->public_job_for_request( $this->raw_job(), $request_id );
 	}
 
 	/**
@@ -722,7 +825,14 @@ final class Digitalogic_Currency_Admin_Async {
 					return null;
 				}
 
-				$now = time();
+				$now      = time();
+				$retained = $this->retain_running_job_while_pricing_lock_held( $job, $now );
+				if ( is_wp_error( $retained ) ) {
+					return $retained;
+				}
+				if ( true === $retained ) {
+					return null;
+				}
 				if ( (int) ( $job['deadline_at'] ?? 0 ) < $now ) {
 					return $this->fail_open_lock(
 						$job,
@@ -731,7 +841,9 @@ final class Digitalogic_Currency_Admin_Async {
 					);
 				}
 				if ( 'queued' === (string) ( $job['status'] ?? '' ) && (int) ( $job['next_attempt_at'] ?? 0 ) > $now ) {
-					$this->schedule_action( self::APPLY_HOOK, (int) $job['next_attempt_at'], $this->apply_args( $job ) );
+					if ( ! $this->is_cli_sync_job( $job ) ) {
+						$this->schedule_action( self::APPLY_HOOK, (int) $job['next_attempt_at'], $this->apply_args( $job ) );
+					}
 
 					return null;
 				}
@@ -753,7 +865,9 @@ final class Digitalogic_Currency_Admin_Async {
 				$job['owner_token']    = $this->random_token( 16 );
 				$job['fence_token']    = $this->random_token( 16 );
 				$job['fence']          = max( 0, (int) ( $job['fence'] ?? 0 ) ) + 1;
-				$job['lease_until']    = $now + self::LEASE_SECONDS;
+				$job['lease_until']    = $this->is_cli_sync_job( $job )
+					? (int) $job['deadline_at']
+					: $now + self::LEASE_SECONDS;
 				$job['apply_attempts'] = max( 0, (int) ( $job['apply_attempts'] ?? 0 ) ) + 1;
 				$job['updated_at']     = $now;
 				$job['error_code']     = '';
@@ -777,7 +891,10 @@ final class Digitalogic_Currency_Admin_Async {
 		);
 
 		if ( $this->is_job_transition_retryable( $claim ) ) {
-			$this->schedule_action( self::APPLY_HOOK, time() + 2, array( (string) $job_id, (int) $generation ) );
+			$current = $this->raw_job();
+			if ( ! $this->is_cli_sync_job( $current ) ) {
+				$this->schedule_action( self::APPLY_HOOK, time() + 2, array( (string) $job_id, (int) $generation ) );
+			}
 
 			return;
 		}
@@ -863,8 +980,9 @@ final class Digitalogic_Currency_Admin_Async {
 
 		$deliver_event = false;
 		$retry_at      = 0;
+		$cli_sync      = false;
 		$result        = $this->with_job_lock(
-			function () use ( $job_id, $generation, $expected_fence, $state_revision, &$deliver_event, &$retry_at ) {
+			function () use ( $job_id, $generation, $expected_fence, $state_revision, &$deliver_event, &$retry_at, &$cli_sync ) {
 				$job = $this->raw_job();
 				if ( ! $this->matches_job( $job, $job_id, $generation ) ) {
 					return null;
@@ -876,6 +994,7 @@ final class Digitalogic_Currency_Admin_Async {
 				if ( 'confirmed' === (string) ( $job['status'] ?? '' ) ) {
 					return true;
 				}
+				$cli_sync = $this->is_cli_sync_job( $job );
 				if (
 					(int) ( $job['fence'] ?? 0 ) !== (int) $expected_fence
 				) {
@@ -966,13 +1085,13 @@ final class Digitalogic_Currency_Admin_Async {
 			}
 		);
 
-		if ( 0 < $retry_at ) {
+		if ( 0 < $retry_at && ! $cli_sync ) {
 			$this->ensure_action(
 				self::FINALIZE_HOOK,
 				$retry_at,
 				array( (string) $job_id, (int) $generation, (int) $expected_fence, (string) $state_revision )
 			);
-		} elseif ( $this->is_job_transition_retryable( $result ) ) {
+		} elseif ( $this->is_job_transition_retryable( $result ) && ! $cli_sync ) {
 			$this->ensure_action(
 				self::FINALIZE_HOOK,
 				time() + 2,
@@ -1110,6 +1229,13 @@ final class Digitalogic_Currency_Admin_Async {
 
 					return null;
 				}
+				$retained = $this->retain_running_job_while_pricing_lock_held( $job, $now );
+				if ( is_wp_error( $retained ) ) {
+					return $retained;
+				}
+				if ( true === $retained ) {
+					return null;
+				}
 				if ( (int) ( $job['deadline_at'] ?? 0 ) <= $now ) {
 					$this->fail_open_lock(
 						$job,
@@ -1145,9 +1271,11 @@ final class Digitalogic_Currency_Admin_Async {
 					}
 				}
 
-				$timestamp = max( $now, (int) ( $job['next_attempt_at'] ?? $now ) );
-				$this->schedule_action( self::APPLY_HOOK, $timestamp, $this->apply_args( $job ) );
-				$should_wake = $this->wake_worker_open_lock( $job );
+				if ( ! $this->is_cli_sync_job( $job ) ) {
+					$timestamp = max( $now, (int) ( $job['next_attempt_at'] ?? $now ) );
+					$this->schedule_action( self::APPLY_HOOK, $timestamp, $this->apply_args( $job ) );
+					$should_wake = $this->wake_worker_open_lock( $job );
+				}
 
 				return null;
 			}
@@ -1183,7 +1311,7 @@ final class Digitalogic_Currency_Admin_Async {
 		if ( ! is_wp_error( $result ) ) {
 			return false;
 		}
-		if ( 'digitalogic_product_sync_busy' === $result->get_error_code() ) {
+		if ( in_array( $result->get_error_code(), array( 'digitalogic_product_sync_busy', 'digitalogic_excel_sync_busy' ), true ) ) {
 			return true;
 		}
 		if ( 'digitalogic_pricing_delivery_incomplete' !== $result->get_error_code() ) {
@@ -1194,6 +1322,45 @@ final class Digitalogic_Currency_Admin_Async {
 		return is_array( $data )
 			&& (int) ( $data['pending_products'] ?? 0 ) > 0
 			&& 0 === (int) ( $data['deferred_ambiguous'] ?? 0 );
+	}
+
+	/**
+	 * Keep the current fence while any canonical pricing transaction remains active.
+	 *
+	 * This method runs only while the job mutex is held. MySQL releases the
+	 * pricing advisory lock with its connection, so a retained owner represents
+	 * active work rather than a stale process marker.
+	 *
+	 * @param array $job Durable private job.
+	 * @param int   $now Current Unix timestamp.
+	 * @return bool|WP_Error True when retained, false when no retention is needed.
+	 */
+	private function retain_running_job_while_pricing_lock_held( array $job, $now ) {
+		if (
+			'running' !== (string) ( $job['status'] ?? '' )
+			|| (int) ( $job['lease_until'] ?? 0 ) > (int) $now
+			|| ! Digitalogic_Excel_Pricing_Sync::coordination_lock_is_held()
+		) {
+			return false;
+		}
+
+		$expected           = $job;
+		$job['lease_until'] = (int) $now + self::LEASE_SECONDS;
+		$job['deadline_at'] = max( (int) ( $job['deadline_at'] ?? 0 ), $job['lease_until'] + 1 );
+		$job['updated_at']  = (int) $now;
+		$job['error_code']  = '';
+		$job['message_fa']  = 'تراکنش قیمت فعال هنوز مالک اجرا است؛ همان fence بدون ایجاد تلاش هم‌پوشان ادامه می‌دهد.';
+		$stored             = $this->store_job_open_lock( $job, $expected );
+		if ( is_wp_error( $stored ) ) {
+			return $stored;
+		}
+		$this->schedule_action(
+			self::WATCHDOG_HOOK,
+			$job['lease_until'] + 1,
+			$this->watchdog_args( $job, (int) $job['fence'] )
+		);
+
+		return true;
 	}
 
 	/**
@@ -1493,6 +1660,9 @@ final class Digitalogic_Currency_Admin_Async {
 		) {
 			return false;
 		}
+		if ( $this->is_cli_sync_job( $observed ) && time() <= (int) ( $observed['deadline_at'] ?? 0 ) ) {
+			return false;
+		}
 
 		$now       = time();
 		$timestamp = max( $now, (int) ( $publication['next_attempt_at'] ?? 0 ) );
@@ -1660,6 +1830,9 @@ final class Digitalogic_Currency_Admin_Async {
 			|| (int) ( $observed['generation'] ?? 0 ) < 1
 			|| 1 === preg_match( '/\Asha256:[a-f0-9]{64}\z/D', (string) ( $observed['effect_state_revision'] ?? '' ) )
 		) {
+			return false;
+		}
+		if ( $this->is_cli_sync_job( $observed ) && time() <= (int) ( $observed['deadline_at'] ?? 0 ) ) {
 			return false;
 		}
 
@@ -1915,7 +2088,10 @@ final class Digitalogic_Currency_Admin_Async {
 					if ( is_wp_error( $stored ) ) {
 						return $stored;
 					}
-					if ( ! $this->schedule_action( self::APPLY_HOOK, $job['next_attempt_at'], $this->apply_args( $job ) ) ) {
+					if (
+						! $this->is_cli_sync_job( $job )
+						&& ! $this->schedule_action( self::APPLY_HOOK, $job['next_attempt_at'], $this->apply_args( $job ) )
+					) {
 						return $this->fail_open_lock(
 							$job,
 							'digitalogic_currency_async_retry_schedule_failed',
@@ -2544,6 +2720,7 @@ final class Digitalogic_Currency_Admin_Async {
 			'job_id'                       => (string) ( $job['job_id'] ?? '' ),
 			'generation'                   => (int) ( $job['generation'] ?? 0 ),
 			'mode'                         => (string) ( $job['mode'] ?? 'apply' ),
+			'execution_mode'               => (string) ( $job['execution_mode'] ?? 'async' ),
 			'status'                       => $status,
 			'desired_currency'             => (array) ( $job['desired_currency'] ?? array() ),
 			'confirmed_currency'           => (array) ( $job['confirmed_currency'] ?? array() ),
@@ -2576,6 +2753,16 @@ final class Digitalogic_Currency_Admin_Async {
 			'cancellable'                  => in_array( $status, array( 'queued', 'running', 'cancelling' ), true )
 				&& 1 !== preg_match( '/\Asha256:[a-f0-9]{64}\z/D', (string) ( $job['effect_state_revision'] ?? '' ) ),
 		);
+	}
+
+	/**
+	 * Whether a durable generation belongs exclusively to its WP-CLI caller.
+	 *
+	 * @param array $job Durable private job.
+	 * @return bool
+	 */
+	private function is_cli_sync_job( array $job ) {
+		return self::CLI_EXECUTION_MODE === (string) ( $job['execution_mode'] ?? '' );
 	}
 
 	/**
