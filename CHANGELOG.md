@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.69] - 2026-08-31
+
+### Fixed
+
+- Restored the canonical WooCommerce SKU normalization, format validation,
+  uniqueness locking, and metadata/import bypass protection inside the
+  versioned plugin so product and variation writes share one guarded boundary.
+- Added a packaged MU loader with guarded install, rollback, and health-status
+  commands, preserving normalized duplicate protection during plugin updates.
+- Forward-ported the verified guard onto the current v1.8.68 shipping-policy
+  release without carrying any server-side backup artifacts.
+
 ## [1.8.68] - 2026-08-31
 
 ### Fixed

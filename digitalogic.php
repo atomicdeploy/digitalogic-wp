@@ -3,7 +3,7 @@
  * Plugin Name: Digitalogic WooCommerce Extension
  * Plugin URI: https://github.com/atomicdeploy/digitalogic-wp
  * Description: Custom dynamic pricing, stock manager, and POS integration for Digitalogic electronic components shop. Supports bulk operations, import/export, and external API integration.
- * Version: 1.8.68
+ * Version: 1.8.69
  * Author: Digitalogic
  * Author URI: https://digitalogic.ir
  * Text Domain: digitalogic
@@ -22,7 +22,7 @@ if (!defined('ABSPATH')) {
 }
 
 // Define plugin constants
-define( 'DIGITALOGIC_VERSION', '1.8.68' );
+define( 'DIGITALOGIC_VERSION', '1.8.69' );
 define( 'DIGITALOGIC_PBX_SCHEMA_VERSION', '3' );
 define( 'DIGITALOGIC_EVENT_MESH_SCHEMA_VERSION', '1' );
 define( 'DIGITALOGIC_ASSISTANT_ACCOUNT_SCHEMA_VERSION', '2' );
@@ -132,6 +132,8 @@ final class Digitalogic {
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-product-supplier-links.php';
 		require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-product-metadata-inspector.php';
 		require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-product-write-lock.php';
+		require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-sku-guard.php';
+		require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-sku-guard-mu-installer.php';
 		require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-product-code-write-guard.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-patris-price-write-guard.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-pricing-input-credential.php'; // phpcs:ignore
@@ -248,6 +250,7 @@ final class Digitalogic {
         Digitalogic_WooCommerce_Currency_Status::instance();
         Digitalogic_Logger::instance();
 		Digitalogic_Product_Write_Lock::instance();
+		Digitalogic_SKU_Guard::instance();
 		Digitalogic_Product_Code_Write_Guard::instance();
         Digitalogic_Patris_Price_Write_Guard::instance();
         Digitalogic_Product_Manager::instance();
@@ -325,7 +328,7 @@ final class Digitalogic {
         );
 
         if (class_exists('\Automattic\WooCommerce\Utilities\OrderUtil')) {
-            $status['hpos_enabled'] = \Automattic\WooCommerce\Utilities\OrderUtil::custom_orders_table_usage_is_enabled();
+            $status['hpos_enabled']        = \Automattic\WooCommerce\Utilities\OrderUtil::custom_orders_table_usage_is_enabled();
             $status['using_custom_tables'] = $status['hpos_enabled'];
         }
 

@@ -1163,6 +1163,7 @@ function metadata_exists($meta_type, $object_id, $meta_key) {
 }
 
 function update_post_meta($post_id, $key, $value) {
+	$value = apply_filters('sanitize_post_meta_' . $key, $value, $key, 'post', get_post_type($post_id));
 	$guarded = apply_filters('update_post_metadata', null, $post_id, $key, $value, '');
 	if (null !== $guarded) {
 		return $guarded;
@@ -1176,7 +1177,10 @@ function update_post_meta($post_id, $key, $value) {
         $GLOBALS['digitalogic_test_posts'][$post_id] = array('post_type' => 'product', 'meta' => array());
     }
 
-    $exists = array_key_exists($key, $GLOBALS['digitalogic_test_posts'][$post_id]['meta']);
+	$exists = metadata_exists('post', $post_id, $key);
+	if (!$exists) {
+		return add_post_meta($post_id, $key, $value, false);
+	}
     if ($exists && $GLOBALS['digitalogic_test_posts'][$post_id]['meta'][$key] === $value) {
         return false;
     }
@@ -1192,6 +1196,7 @@ function update_post_meta($post_id, $key, $value) {
 }
 
 function add_post_meta($post_id, $key, $value, $unique = false) {
+	$value = apply_filters('sanitize_post_meta_' . $key, $value, $key, 'post', get_post_type($post_id));
 	$guarded = apply_filters('add_post_metadata', null, $post_id, $key, $value, $unique);
 	if (null !== $guarded) {
 		return $guarded;
@@ -1245,6 +1250,28 @@ function delete_post_meta($post_id, $key, $value = '') {
     do_action('deleted_post_meta', array(1), $post_id, $key, $old);
 
     return true;
+}
+
+function wp_update_post($postarr = array(), $wp_error = false, $fire_after_hooks = true) {
+	unset($wp_error);
+	$postarr = is_object($postarr) ? get_object_vars($postarr) : (array) $postarr;
+	$post_id = (int) ($postarr['ID'] ?? 0);
+	if ($post_id <= 0 || !isset($GLOBALS['digitalogic_test_posts'][$post_id])) {
+		return 0;
+	}
+	$current = $GLOBALS['digitalogic_test_posts'][$post_id];
+	$data    = array_merge($current, $postarr);
+	$data    = apply_filters('wp_insert_post_data', $data, $postarr, $postarr, true);
+	foreach (array('post_type', 'post_status', 'post_parent', 'post_title') as $field) {
+		if (array_key_exists($field, $data)) {
+			$GLOBALS['digitalogic_test_posts'][$post_id][$field] = $data[$field];
+		}
+	}
+	if ($fire_after_hooks) {
+		do_action('wp_insert_post', $post_id, get_post($post_id), true);
+	}
+
+	return $post_id;
 }
 
 function wp_delete_post($post_id, $force_delete = false) {
@@ -1319,6 +1346,43 @@ function get_metadata_by_mid($meta_type, $meta_id) {
 	}
 	$row = $GLOBALS['digitalogic_test_meta_by_mid'][(int) $meta_id] ?? null;
 	return is_array($row) ? (object) $row : false;
+}
+
+function update_metadata_by_mid($meta_type, $meta_id, $meta_value, $meta_key = false) {
+	if ('post' !== $meta_type) {
+		return false;
+	}
+	$meta_id = (int) $meta_id;
+	$row     = $GLOBALS['digitalogic_test_meta_by_mid'][$meta_id] ?? null;
+	if (!is_array($row)) {
+		return false;
+	}
+	$post_id       = (int) ($row['post_id'] ?? 0);
+	$current_key   = (string) ($row['meta_key'] ?? ''); // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key -- Test metadata row fixture.
+	$effective_key = false === $meta_key || null === $meta_key ? $current_key : (string) $meta_key;
+	$guarded       = apply_filters('update_post_metadata_by_mid', null, $meta_id, $meta_value, $meta_key);
+	if (null !== $guarded) {
+		return $guarded;
+	}
+	$meta_value = apply_filters('sanitize_post_meta_' . $effective_key, $meta_value, $effective_key, 'post', get_post_type($post_id));
+	if (!isset($GLOBALS['digitalogic_test_posts'][$post_id])) {
+		return false;
+	}
+
+	if ($current_key !== $effective_key) {
+		unset($GLOBALS['digitalogic_test_posts'][$post_id]['meta'][$current_key]);
+		unset($GLOBALS['digitalogic_test_posts'][$post_id]['meta_rows'][$current_key]);
+	}
+	$GLOBALS['digitalogic_test_posts'][$post_id]['meta'][$effective_key] = $meta_value;
+	$GLOBALS['digitalogic_test_meta_by_mid'][$meta_id] = array(
+		'post_id'    => $post_id,
+		'meta_key'   => $effective_key, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key -- Test metadata row fixture.
+		'meta_value' => $meta_value, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_value -- Test metadata row fixture.
+	);
+	unset($GLOBALS['digitalogic_test_post_meta_cache'][$post_id]);
+	do_action('updated_post_meta', $meta_id, $post_id, $effective_key, $meta_value);
+
+	return true;
 }
 
 function get_posts($args = array()) {

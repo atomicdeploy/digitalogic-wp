@@ -160,6 +160,61 @@ class Digitalogic_CLI_Commands {
 		}
 		WP_CLI::line( (string) wp_json_encode( $result, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE ) );
 	}
+
+	/** Atomically replace the exact legacy SKU-guard MU file from the packaged loader. */
+	public function sku_guard_install_mu( $args, $assoc_args ) {
+		unset( $args );
+		$backup_directory = (string) ( $assoc_args['backup-dir'] ?? '' );
+		if ( '' === $backup_directory ) {
+			WP_CLI::error( 'Provide an existing backup directory outside wp-content/mu-plugins with --backup-dir.' );
+			return;
+		}
+		$expected = (string) ( $assoc_args['expected-current-sha256'] ?? Digitalogic_SKU_Guard_MU_Installer::LIVE_V2_0_1_SHA256 );
+		$result   = Digitalogic_SKU_Guard_MU_Installer::install( WPMU_PLUGIN_DIR, $backup_directory, $expected );
+		if ( is_wp_error( $result ) ) {
+			WP_CLI::error( $result->get_error_code() . ': ' . $result->get_error_message() );
+			return;
+		}
+		WP_CLI::line( (string) wp_json_encode( $result, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE ) );
+		WP_CLI::success( 'The canonical SKU-guard MU loader was atomically installed; verify it in a fresh request.' );
+	}
+
+	/** Roll back the exact installer backup under an installed-hash precondition. */
+	public function sku_guard_rollback_mu( $args, $assoc_args ) {
+		unset( $args );
+		$backup_directory = (string) ( $assoc_args['backup-dir'] ?? '' );
+		$backup_file      = (string) ( $assoc_args['backup-file'] ?? '' );
+		$expected         = (string) ( $assoc_args['expected-current-sha256'] ?? '' );
+		$expected_backup  = (string) ( $assoc_args['expected-backup-sha256'] ?? '' );
+		if ( '' === $backup_directory || '' === $backup_file || '' === $expected || '' === $expected_backup ) {
+			WP_CLI::error( 'Provide --backup-dir, --backup-file, --expected-current-sha256, and --expected-backup-sha256 from the install receipt.' );
+			return;
+		}
+		$result = Digitalogic_SKU_Guard_MU_Installer::rollback(
+			WPMU_PLUGIN_DIR,
+			$backup_directory,
+			$backup_file,
+			$expected,
+			$expected_backup
+		);
+		if ( is_wp_error( $result ) ) {
+			WP_CLI::error( $result->get_error_code() . ': ' . $result->get_error_message() );
+			return;
+		}
+		WP_CLI::line( (string) wp_json_encode( $result, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE ) );
+		WP_CLI::success( 'The exact SKU-guard MU backup was atomically restored.' );
+	}
+
+	/** Print authoritative SKU-guard health and fail when any invariant is red. */
+	public function sku_guard_status() {
+		$result = Digitalogic_SKU_Guard::status();
+		WP_CLI::line( (string) wp_json_encode( $result, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE ) );
+		if ( empty( $result['ok'] ) || empty( $result['healthy'] ) ) {
+			WP_CLI::error( (string) ( $result['error'] ?? 'sku_status_invariant_failed' ) );
+			return;
+		}
+		WP_CLI::success( 'SKU guard is healthy.' );
+	}
     
     /**
      * List products
@@ -2008,6 +2063,9 @@ WP_CLI::add_command('digitalogic currency get', array('Digitalogic_CLI_Commands'
 WP_CLI::add_command('digitalogic currency update', array('Digitalogic_CLI_Commands', 'currency_update'));
 WP_CLI::add_command( 'digitalogic currency status', array( 'Digitalogic_CLI_Commands', 'currency_status' ) );
 WP_CLI::add_command( 'digitalogic currency cancel', array( 'Digitalogic_CLI_Commands', 'currency_cancel' ) );
+WP_CLI::add_command( 'digitalogic sku-guard install-mu', array( 'Digitalogic_CLI_Commands', 'sku_guard_install_mu' ) );
+WP_CLI::add_command( 'digitalogic sku-guard rollback-mu', array( 'Digitalogic_CLI_Commands', 'sku_guard_rollback_mu' ) );
+WP_CLI::add_command( 'digitalogic sku-guard status', array( 'Digitalogic_CLI_Commands', 'sku_guard_status' ) );
 WP_CLI::add_command('digitalogic products list', array('Digitalogic_CLI_Commands', 'products_list'));
 WP_CLI::add_command( 'digitalogic products get', array( 'Digitalogic_CLI_Commands', 'products_get' ) );
 WP_CLI::add_command( 'digitalogic products metadata', array( 'Digitalogic_CLI_Commands', 'products_metadata' ) );

@@ -1,0 +1,11 @@
+{
+  "schema": "digitalogic.sku-guard-mu-replacement/v1",
+  "target_basename": "digitalogic-woo-sku-guard.php",
+  "required_current_version": "2.0.1",
+  "required_current_sha256": "02017e699efd51574da883eaee498b119a37b0ba70ca5ecb54b148967614e604",
+  "install_version": "2.1.0",
+  "install_sha256": "ec796fca70a98954815a9e96f9d6950790e794079f3fcf41195d0e57b1176a67",
+  "replacement": "same-volume atomic rename over the same basename",
+  "backup_location": "outside wp-content/mu-plugins",
+  "fresh_request_required": true
+}
