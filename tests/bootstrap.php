@@ -2318,6 +2318,41 @@ class Digitalogic_Test_WPDB {
 		}
 		$this->last_error = '';
 		$rows             = array();
+		if ( strpos( $query, 'digitalogic_identifier:codes_bulk' ) !== false ) {
+			foreach ( $GLOBALS['digitalogic_test_posts'] as $post_id => $post ) {
+				if ( ! in_array( $post['post_type'], array( 'product', 'product_variation' ), true ) ) {
+					continue;
+				}
+				$post_status = isset( $post['post_status'] ) ? (string) $post['post_status'] : 'publish';
+				if ( in_array( $post_status, array( 'trash', 'auto-draft' ), true ) ) {
+					continue;
+				}
+				foreach ( array( '_sku', '_digitalogic_patris_product_code' ) as $meta_key ) {
+					$values = isset( $post['meta_rows'][ $meta_key ] )
+						? (array) $post['meta_rows'][ $meta_key ]
+						: array( $this->current_test_meta_value( $post, $meta_key ) );
+					foreach ( $values as $value_index => $value ) {
+						if ( '' === (string) $value ) {
+							continue;
+						}
+						$rows[] = array(
+							'ID'         => (int) $post_id,
+							'post_type'  => $post['post_type'],
+							'meta_id'    => $this->ensure_meta_id( $post_id, $meta_key ) + (int) $value_index,
+							'meta_key'   => $meta_key,
+							'meta_value' => (string) $value,
+						);
+					}
+				}
+			}
+			usort(
+				$rows,
+				static function ( $left, $right ) {
+					return array( (int) $left['ID'], (int) $left['meta_id'] ) <=> array( (int) $right['ID'], (int) $right['meta_id'] );
+				}
+			);
+			return $rows;
+		}
 		if ( strpos( $query, 'digitalogic_identifier:patris_codes_bulk' ) !== false ) {
 			foreach ( $GLOBALS['digitalogic_test_posts'] as $post_id => $post ) {
 				if ( ! in_array( $post['post_type'], array( 'product', 'product_variation' ), true ) ) {

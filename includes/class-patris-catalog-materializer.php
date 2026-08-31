@@ -3669,7 +3669,7 @@ final class Digitalogic_Patris_Catalog_Materializer {
 
 	/** Persist one staged canonical identity under the shared writer boundary. */
 	private function save_managed_identity( $product ) {
-		return Digitalogic_Product_Code_Write_Guard::instance()->with_authorized_write(
+		$saved = Digitalogic_Product_Code_Write_Guard::instance()->with_authorized_write(
 			'materializer',
 			array(
 				'product'   => $product,
@@ -3680,6 +3680,12 @@ final class Digitalogic_Patris_Catalog_Materializer {
 				return $product->save();
 			}
 		);
+
+		if ( ! is_wp_error( $saved ) && $saved ) {
+			Digitalogic_Product_Identifier_Resolver::instance()->clear_code_rows_cache();
+		}
+
+		return $saved;
 	}
 
 	/**

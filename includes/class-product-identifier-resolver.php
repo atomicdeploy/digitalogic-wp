@@ -17,6 +17,19 @@ final class Digitalogic_Product_Identifier_Resolver {
 
     private static $instance = null;
 
+	/** @var array|WP_Error|null Request-local current SKU/Patris projection. */
+	private $code_rows_cache = null;
+
+	/** @var int Object identity for the database connection behind the cache. */
+	private $code_rows_cache_db_id = 0;
+
+	/** Register invalidation for identifier metadata mutations in the same request. */
+	private function __construct() {
+		foreach ( array( 'added_post_meta', 'updated_post_meta', 'deleted_post_meta' ) as $hook ) {
+			add_action( $hook, array( $this, 'maybe_invalidate_code_rows_cache' ), 10, 4 );
+		}
+	}
+
     public static function instance() {
         if (is_null(self::$instance)) {
             self::$instance = new self();
@@ -24,6 +37,20 @@ final class Digitalogic_Product_Identifier_Resolver {
 
         return self::$instance;
     }
+
+	/** Discard the request-local generic identity projection. */
+	public function clear_code_rows_cache() {
+		$this->code_rows_cache       = null;
+		$this->code_rows_cache_db_id = 0;
+	}
+
+	/** Invalidate only when exact SKU or Patris identity metadata changes. */
+	public function maybe_invalidate_code_rows_cache( $meta_id, $object_id, $meta_key, $meta_value = null ) {
+		unset( $meta_id, $object_id, $meta_value );
+		if ( in_array( (string) $meta_key, array( self::SKU_META, self::PATRIS_CODE_META ), true ) ) {
+			$this->clear_code_rows_cache();
+		}
+	}
 
     /**
      * Resolve the highest-precedence supplied identifier.
@@ -85,18 +112,18 @@ final class Digitalogic_Product_Identifier_Resolver {
             return $code;
         }
 
-        global $wpdb;
-        $postmeta = isset($wpdb->postmeta) ? $wpdb->postmeta : $wpdb->prefix . 'postmeta';
-        $current_sku = "COALESCE((SELECT pm_sku_match.meta_value FROM {$postmeta} pm_sku_match
-            WHERE pm_sku_match.post_id = p.ID AND pm_sku_match.meta_key = '" . self::SKU_META . "'
-            ORDER BY pm_sku_match.meta_id DESC LIMIT 1), '')";
-        $current_patris = "COALESCE((SELECT pm_patris_match.meta_value FROM {$postmeta} pm_patris_match
-            WHERE pm_patris_match.post_id = p.ID AND pm_patris_match.meta_key = '" . self::PATRIS_CODE_META . "'
-            ORDER BY pm_patris_match.meta_id DESC LIMIT 1), '')";
-		$rows           = $this->query_rows(
-			'code',
-			"(BINARY {$current_sku} = BINARY %s OR BINARY {$current_patris} = BINARY %s)",
-			array( $code, $code )
+		$projection = $this->query_code_rows_bulk();
+		if ( is_wp_error( $projection ) ) {
+			return $projection;
+		}
+		$rows = array_values(
+			array_filter(
+				$projection,
+				static function ( $row ) use ( $code ) {
+					return (string) ( $row['sku'] ?? '' ) === $code
+						|| (string) ( $row['patris_code'] ?? '' ) === $code;
+				}
+			)
 		);
 		if ( is_wp_error( $rows ) ) {
 			return $rows;
@@ -349,6 +376,79 @@ final class Digitalogic_Product_Identifier_Resolver {
 		}
 
 		return array_values( $current );
+	}
+
+	/**
+	 * Fetch the latest exact SKU and Patris Code for every Woo product once.
+	 *
+	 * Generic Code/SKU fallback can run for many catalog rows during one pricing
+	 * transaction. Caching one projection preserves exact namespace collision
+	 * checks while avoiding one correlated whole-catalog query per fallback.
+	 *
+	 * @return array|WP_Error
+	 */
+	private function query_code_rows_bulk() {
+		global $wpdb;
+		$database_id = is_object( $wpdb ) ? spl_object_id( $wpdb ) : 0;
+		if ( null !== $this->code_rows_cache && $database_id === $this->code_rows_cache_db_id ) {
+			return $this->code_rows_cache;
+		}
+		$this->code_rows_cache       = null;
+		$this->code_rows_cache_db_id = $database_id;
+		if ( ! is_object( $wpdb ) || ! method_exists( $wpdb, 'prepare' ) || ! method_exists( $wpdb, 'get_results' ) ) {
+			$this->code_rows_cache = $this->query_failed();
+			return $this->code_rows_cache;
+		}
+		$posts    = isset( $wpdb->posts ) ? $wpdb->posts : $wpdb->prefix . 'posts';
+		$postmeta = isset( $wpdb->postmeta ) ? $wpdb->postmeta : $wpdb->prefix . 'postmeta';
+		$query    = "/* digitalogic_identifier:codes_bulk */
+            SELECT p.ID, p.post_type, pm.meta_id, pm.meta_key, pm.meta_value
+            FROM {$postmeta} pm
+            INNER JOIN {$posts} p ON p.ID = pm.post_id
+            WHERE pm.meta_key IN (%s, %s)
+              AND p.post_type IN ('product', 'product_variation')
+              AND p.post_status NOT IN ('trash', 'auto-draft')
+            ORDER BY p.ID ASC, pm.meta_id ASC";
+		try {
+			// phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- Table identifiers are supplied by $wpdb and both metadata keys remain placeholder-bound.
+			$prepared = $wpdb->prepare( $query, self::SKU_META, self::PATRIS_CODE_META );
+			if ( ( ! is_string( $prepared ) && ! is_array( $prepared ) ) || '' === $prepared ) {
+				$this->code_rows_cache = $this->query_failed();
+				return $this->code_rows_cache;
+			}
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- One authoritative request-local identity projection replaces repeated scalar catalog scans.
+			$meta_rows = $wpdb->get_results( $prepared, ARRAY_A );
+		} catch ( Throwable $exception ) {
+			unset( $exception );
+			$this->code_rows_cache = $this->query_failed();
+			return $this->code_rows_cache;
+		}
+		if ( ! is_array( $meta_rows ) || '' !== trim( (string) ( $wpdb->last_error ?? '' ) ) ) {
+			$this->code_rows_cache = $this->query_failed();
+			return $this->code_rows_cache;
+		}
+
+		$current = array();
+		foreach ( $meta_rows as $meta_row ) {
+			$product_id = (int) ( $meta_row['ID'] ?? 0 );
+			$meta_key   = (string) ( $meta_row['meta_key'] ?? '' );
+			if ( $product_id <= 0 || ! in_array( $meta_key, array( self::SKU_META, self::PATRIS_CODE_META ), true ) ) {
+				continue;
+			}
+			if ( ! isset( $current[ $product_id ] ) ) {
+				$current[ $product_id ] = array(
+					'ID'          => $product_id,
+					'post_type'   => (string) ( $meta_row['post_type'] ?? '' ),
+					'sku'         => '',
+					'patris_code' => '',
+				);
+			}
+			$column = self::SKU_META === $meta_key ? 'sku' : 'patris_code';
+			$current[ $product_id ][ $column ] = (string) ( $meta_row['meta_value'] ?? '' );
+		}
+		$this->code_rows_cache = array_values( $current );
+
+		return $this->code_rows_cache;
 	}
 
 	/** Return the one exact row or an ambiguity error. */
