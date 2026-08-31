@@ -1797,7 +1797,48 @@ class Digitalogic_Patris_Feed {
 	private function apply_product_feed_authorized( WC_Product $product, $data ) {
 		$this->stage_product_feed( $product, $data );
 		$product->save();
+		$this->persist_unpriced_positive_stock_status( $product );
 		Digitalogic_Patris_Price_Policy::instance()->invalidate( $product );
+	}
+
+	/**
+	 * Persist the explicit unavailable state after Woo synchronizes stock data.
+	 *
+	 * WooCommerce may derive `instock` from a positive managed quantity during
+	 * the same save that writes the complete Patris projection. Re-read the
+	 * committed product, then make only the status authoritative in a second
+	 * save while the canonical source/product transaction remains held.
+	 *
+	 * @param WC_Product $product Product staged by the canonical writer.
+	 * @return void
+	 * @throws RuntimeException When the exact unavailable state cannot be read or persisted.
+	 */
+	private function persist_unpriced_positive_stock_status( WC_Product $product ) {
+		$status = (string) $product->get_meta( Digitalogic_Patris_Price_Policy::STATUS_META, true );
+		if (
+			! in_array( $status, array( 'canonical_missing_unpriced', 'canonical_nonpositive_unpriced' ), true )
+			|| (float) $product->get_stock_quantity() <= 0
+		) {
+			return;
+		}
+
+		$product_id = (int) $product->get_id();
+		$fresh      = $this->fresh_product_for_source_readback( $product_id );
+		if ( ! $fresh instanceof WC_Product ) {
+			throw new RuntimeException( 'The unavailable product stock projection could not be read.' );
+		}
+		if ( 'outofstock' !== (string) $fresh->get_stock_status() ) {
+			$fresh->set_stock_status( 'outofstock' );
+			if ( ! $fresh->save() ) {
+				throw new RuntimeException( 'The unavailable product stock projection could not be saved.' );
+			}
+			$fresh = $this->fresh_product_for_source_readback( $product_id );
+			if ( ! $fresh instanceof WC_Product || 'outofstock' !== (string) $fresh->get_stock_status() ) {
+				throw new RuntimeException( 'The unavailable product stock projection could not be verified.' );
+			}
+		}
+
+		$product->set_stock_status( 'outofstock' );
 	}
 
 	/**

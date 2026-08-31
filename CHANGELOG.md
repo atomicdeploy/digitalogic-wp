@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.60] - 2026-08-31
+
+### Fixed
+- Reassert the explicit out-of-stock state for positive-stock, blank-price
+  Patris leaves after WooCommerce synchronizes managed stock during save, with
+  exact readback and transactional rollback on persistence failure.
+
 ## [1.8.59] - 2026-08-31
 
 ### Fixed
