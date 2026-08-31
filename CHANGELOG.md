@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.71] - 2026-08-31
+
+### Changed
+- Route explicit SKU and Patris Code resolution through the same request-local
+  latest-identity projection as generic Code/SKU resolution, eliminating the
+  remaining per-product correlated catalog scans during repricing.
+
 ## [1.8.70] - 2026-08-31
 
 ### Changed
