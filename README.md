@@ -270,7 +270,11 @@ never be reported as missing. Patris Code is canonical and deleted Codes are
 receiver-state tombstones, never WooCommerce deletions. Inspect nonsecret counts
 with `wp digitalogic product-sync status`; an administrator can retry only
 durable pending/deferred work with `wp digitalogic product-sync reconcile
---user=<administrator>`. See [Patris Product Sync](docs/PATRIS-PRODUCT-SYNC.md).
+--user=<administrator>`. Legacy public products whose canonical feed ownership
+markers predate automatic materialization are repaired separately, at most 25
+per run, with `wp digitalogic product-sync reconcile --materialize-current
+--limit=25 --user=<administrator>`. See
+[Patris Product Sync](docs/PATRIS-PRODUCT-SYNC.md).
 
 The authenticated **Digitalogic → Patris Reports** page and
 `GET /wp-json/digitalogic/reports` compare that same current receiver state

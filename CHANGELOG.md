@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.50] - 2026-08-31
+
+### Added
+- Add a supported, bounded `product-sync reconcile --materialize-current`
+  administrator command to backfill exact source ownership, source revision,
+  missing-field snapshots, and the canonical Patris feed on legacy products.
+
+### Fixed
+- Keep large same-value currency reconciliations bounded by moving legacy
+  materialization repair outside the atomic pricing transaction, while retaining
+  exact per-product source provenance and idempotent readback.
+- Bootstrap a missing supplier route only from an exact, positive raw CNY fact
+  and an empty WooCommerce assignment, then select and calculate that source only
+  after exact identity, assignment, weight, catalog, freight, markup, FX, and
+  rounding validation; no placeholder price is created.
+- Publish one durable storefront currency event per committed pricing revision
+  and purge WP Rocket page markup after the commit, keeping both open tabs and
+  subsequent header renders on the canonical rate.
+
 ## [1.8.49] - 2026-08-31
 
 ### Fixed

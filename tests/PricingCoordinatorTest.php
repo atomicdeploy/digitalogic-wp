@@ -290,7 +290,9 @@ final class PricingCoordinatorTest extends TestCase {
 		);
 		$this->assertFalse(
 			is_wp_error( $received ),
-			is_wp_error( $received ) ? $received->get_error_code() . ': ' . $received->get_error_message() : ''
+			is_wp_error( $received )
+				? $received->get_error_code() . ': ' . $received->get_error_message() . ' ' . wp_json_encode( $received->get_error_data() )
+				: ''
 		);
 		$GLOBALS['digitalogic_test_wc_products'] = array();
 
@@ -693,6 +695,7 @@ final class PricingCoordinatorTest extends TestCase {
 		$product_code = '101001001';
 		$GLOBALS['digitalogic_test_posts'][901]['meta']['_digitalogic_patris_product_code'] = $product_code;
 		$GLOBALS['digitalogic_test_posts'][901]['meta']['_sku']                             = $product_code;
+		$GLOBALS['digitalogic_test_posts'][901]['meta'][ Digitalogic_Patris_Catalog_Materializer::OWNER_CODE_META ] = $product_code;
 		$GLOBALS['digitalogic_test_wc_products'] = array();
 
 		$received = Digitalogic_Product_Sync_Receiver::instance()->receive(
@@ -3095,6 +3098,76 @@ final class PricingCoordinatorTest extends TestCase {
 		$this->assertSame( 0, $result['pricing_results']['deferred_ambiguous'] );
 		$this->assertSame( '8866000', (string) $GLOBALS['digitalogic_test_posts'][901]['meta']['_regular_price'] );
 		$this->assertSame( '8866000', (string) $GLOBALS['digitalogic_test_posts'][ $materialized_id ]['meta']['_regular_price'] );
+	}
+
+	/** A raw CNY legacy row gains a price only after exact site-route readback. */
+	public function test_raw_cny_legacy_row_bootstraps_shipping_then_prices_on_same_value_reconcile(): void {
+		$initial = Digitalogic_Pricing_Coordinator::instance()->update_currency(
+			array(
+				'yuan_price'     => '31000',
+				'effective_date' => '2026-07-27',
+			),
+			'prepare_same_value'
+		);
+		$this->assertFalse( is_wp_error( $initial ) );
+
+		unset(
+			$GLOBALS['digitalogic_test_posts'][901]['meta'][ Digitalogic_Shipping_Method_Service::PRODUCT_METHOD_META ],
+			$GLOBALS['digitalogic_test_post_meta_cache'][901]
+		);
+		$GLOBALS['digitalogic_test_wc_products'] = array();
+		$product = array(
+			'product_code'          => 'PRICE-901',
+			'foreign_currency'      => 'CNY',
+			'foreign_price'         => 115,
+			'weight_grams'          => 370,
+			'price_rounding_digits' => 0,
+			'price_rounding_mode'   => 'nearest_half_up',
+			'warnings'              => array(),
+		);
+		$product['record_hash'] = $this->record_hash( $product );
+		$received               = Digitalogic_Product_Sync_Receiver::instance()->receive(
+			$this->snapshot( array( $product ), '2026-07-28T00:00:00Z' )
+		);
+		$this->assertFalse(
+			is_wp_error( $received ),
+			is_wp_error( $received )
+				? $received->get_error_code() . ': ' . $received->get_error_message() . ' ' . wp_json_encode( $received->get_error_data() )
+				: ''
+		);
+		$this->assertSame(
+			'air_express',
+			(string) $GLOBALS['digitalogic_test_posts'][901]['meta'][ Digitalogic_Shipping_Method_Service::PRODUCT_METHOD_META ]
+		);
+		$this->assertArrayNotHasKey( '_digitalogic_patris_price_source_kind', $GLOBALS['digitalogic_test_posts'][901]['meta'] );
+		$this->assertSame( '', (string) $GLOBALS['digitalogic_test_posts'][901]['meta']['_regular_price'] );
+		$this->assertSame( '', (string) $GLOBALS['digitalogic_test_posts'][901]['meta']['_price'] );
+
+		$reconciled = Digitalogic_Pricing_Coordinator::instance()->reconcile_current( 'same_value_raw_cny' );
+		$this->assertFalse(
+			is_wp_error( $reconciled ),
+			is_wp_error( $reconciled ) ? $reconciled->get_error_code() . ': ' . $reconciled->get_error_message() : ''
+		);
+		$this->assertSame( '31000', (string) $GLOBALS['digitalogic_test_options']['options_yuan_price'] );
+		$this->assertSame( 'foreign_price', (string) $GLOBALS['digitalogic_test_posts'][901]['meta']['_digitalogic_patris_price_source_kind'] );
+		$this->assertSame( 'CNY', (string) $GLOBALS['digitalogic_test_posts'][901]['meta']['_digitalogic_patris_price_source_currency'] );
+		$this->assertSame( '115', (string) $GLOBALS['digitalogic_test_posts'][901]['meta']['_digitalogic_patris_price_source_amount'] );
+		$this->assertSame( '6423820', (string) $GLOBALS['digitalogic_test_posts'][901]['meta']['_regular_price'] );
+		$this->assertSame( '6423820', (string) $GLOBALS['digitalogic_test_posts'][901]['meta']['_price'] );
+
+		$state  = Digitalogic_Product_Sync_Receiver::instance()->get_state();
+		$source = reset( $state['sources'] );
+		$stored = $source['products']['PRICE-901'];
+		$this->assertSame( 'air_express', (string) $stored['shipping_method_id'] );
+		$this->assertSame( 'foreign_price', (string) $stored['price_source_kind'] );
+		$this->assertSame( '6423820', (string) $stored['final_price'] );
+		$matching = array_filter(
+			$GLOBALS['digitalogic_test_posts'],
+			static function ( $post ) {
+				return 'PRICE-901' === (string) ( $post['meta']['_digitalogic_patris_product_code'] ?? '' );
+			}
+		);
+		$this->assertCount( 1, $matching );
 	}
 
 	/** A target deleted after snapshot ingestion is recreated inside coordinated pricing. */

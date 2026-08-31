@@ -28,6 +28,9 @@ class Digitalogic_Panel {
 	/** @var array<string,bool> Request-local product event deduplication. */
 	private $recorded_product_events = array();
 
+	/** @var array<string,bool> Request-local canonical currency event deduplication. */
+	private $recorded_currency_revisions = array();
+
     private static $instance = null;
 
     public static function instance() {
@@ -57,6 +60,7 @@ class Digitalogic_Panel {
 		add_action('woocommerce_product_set_stock', array($this, 'record_product_stock_event'), 20, 1);
 		add_action('woocommerce_variation_set_stock', array($this, 'record_product_stock_event'), 20, 1);
         add_action('updated_option', array($this, 'record_option_event'), 20, 3);
+		add_action('digitalogic_excel_pricing_settings_updated', array($this, 'record_coordinated_currency_event'), 20, 1);
         add_action('user_register', array($this, 'record_user_event'), 20, 1);
         add_action('profile_update', array($this, 'record_user_event'), 20, 1);
 		add_action(self::EVENT_WAKE_RETRY_HOOK, array( __CLASS__, 'retry_event_wake_delivery' ));
@@ -840,9 +844,73 @@ class Digitalogic_Panel {
             if ('woocommerce_currency' === $option) {
                 $data['woocommerce_base'] = Digitalogic_WooCommerce_Currency_Status::instance()->get_status();
             }
-            self::record_event('currency.updated', $data);
+			$revision = 'woocommerce_currency' === $option ? '' : $this->canonical_currency_revision();
+			if ( '' !== $revision ) {
+				if ( isset( $this->recorded_currency_revisions[ $revision ] ) ) {
+					return;
+				}
+				$data['state_revision'] = $revision;
+			}
+			$event = self::record_event('currency.updated', $data);
+			if ( is_array( $event ) && '' !== $revision ) {
+				$this->recorded_currency_revisions[ $revision ] = true;
+			}
         }
     }
+
+	/**
+	 * Persist the canonical post-commit currency event used by storefront SSE.
+	 *
+	 * Guarded asynchronous pricing commits intentionally suppress WordPress's
+	 * per-option hooks until their durable marker is published. This listener
+	 * closes that gap while the revision key avoids duplicating an event emitted
+	 * by the synchronous option-hook compatibility path in the same request.
+	 *
+	 * @param array $result Coordinated settings result.
+	 * @return void
+	 */
+	public function record_coordinated_currency_event( $result ) {
+		$result   = is_array( $result ) ? $result : array();
+		$revision = isset( $result['state_revision'] ) && is_string( $result['state_revision'] )
+			? $result['state_revision']
+			: '';
+		if (
+			1 !== preg_match( '/\Asha256:[a-f0-9]{64}\z/D', $revision )
+			|| isset( $this->recorded_currency_revisions[ $revision ] )
+		) {
+			return;
+		}
+
+		$data = array(
+			'option'         => 'coordinated_pricing_settings',
+			'state_revision' => $revision,
+		);
+		$effect_id = isset( $result['effect_id'] ) && is_string( $result['effect_id'] )
+			? $result['effect_id']
+			: '';
+		if ( 1 === preg_match( '/\Asha256:[a-f0-9]{64}\z/D', $effect_id ) ) {
+			$data['effect_id'] = $effect_id;
+		}
+
+		$event = self::record_event( 'currency.updated', $data );
+		if ( is_array( $event ) ) {
+			$this->recorded_currency_revisions[ $revision ] = true;
+		}
+	}
+
+	/** Return the current canonical pricing revision when it is readable. */
+	private function canonical_currency_revision() {
+		if ( ! class_exists( 'Digitalogic_Excel_Pricing_Sync' ) ) {
+			return '';
+		}
+		$state = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
+		if ( is_wp_error( $state ) ) {
+			return '';
+		}
+		$revision = (string) ( $state['state_revision'] ?? '' );
+
+		return 1 === preg_match( '/\Asha256:[a-f0-9]{64}\z/D', $revision ) ? $revision : '';
+	}
 
 	private function record_shipping_method_event($event, $method) {
         $method = is_array($method) ? $method : array();

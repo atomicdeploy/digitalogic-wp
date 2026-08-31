@@ -16,6 +16,11 @@ final class WpRocketEtagTest extends TestCase {
 	protected function setUp(): void {
 		$GLOBALS['digitalogic_test_filters']['rocket_htaccess_etag']        = array();
 		$GLOBALS['digitalogic_test_filters']['rocket_htaccess_mod_deflate'] = array();
+
+		$GLOBALS['digitalogic_test_action_callbacks']['digitalogic_excel_pricing_settings_updated'] = array();
+
+		$GLOBALS['digitalogic_test_rocket_clean_domain_calls'] = 0;
+		$GLOBALS['digitalogic_test_rocket_clean_domain_throw'] = false;
 	}
 
 	/** The integration registers one late, one-argument generator filter. */
@@ -34,6 +39,27 @@ final class WpRocketEtagTest extends TestCase {
 		$this->assertSame( array( Digitalogic_WP_Rocket_ETag::class, 'disable_pricing_sync_compression' ), $deflate_filters[0]['callback'] );
 		$this->assertSame( 100, $deflate_filters[0]['priority'] );
 		$this->assertSame( 1, $deflate_filters[0]['accepted_args'] );
+
+		$actions = $GLOBALS['digitalogic_test_action_callbacks']['digitalogic_excel_pricing_settings_updated'];
+		$this->assertCount( 1, $actions );
+		$this->assertSame( array( Digitalogic_WP_Rocket_ETag::class, 'purge_currency_page_cache' ), $actions[0]['callback'] );
+		$this->assertSame( 30, $actions[0]['priority'] );
+		$this->assertSame( 1, $actions[0]['accepted_args'] );
+	}
+
+	/** Only a verified canonical commit purges cached storefront markup. */
+	public function test_canonical_currency_commit_purges_domain_and_failure_is_non_blocking(): void {
+		$valid = array( 'state_revision' => 'sha256:' . str_repeat( 'c', 64 ) );
+
+		Digitalogic_WP_Rocket_ETag::purge_currency_page_cache( array( 'state_revision' => 'invalid' ) );
+		$this->assertSame( 0, $GLOBALS['digitalogic_test_rocket_clean_domain_calls'] );
+
+		Digitalogic_WP_Rocket_ETag::purge_currency_page_cache( $valid );
+		$this->assertSame( 1, $GLOBALS['digitalogic_test_rocket_clean_domain_calls'] );
+
+		$GLOBALS['digitalogic_test_rocket_clean_domain_throw'] = true;
+		Digitalogic_WP_Rocket_ETag::purge_currency_page_cache( $valid );
+		$this->assertSame( 2, $GLOBALS['digitalogic_test_rocket_clean_domain_calls'] );
 	}
 
 	/** The exact stock directive is replaced without changing FileETag. */

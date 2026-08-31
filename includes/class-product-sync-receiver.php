@@ -750,11 +750,12 @@ class Digitalogic_Product_Sync_Receiver {
      * Applied records are never replayed. Deferred reconciliation and any
      * transient pending writes are attempted under the receiver lock.
      *
-     * @param string|null $source_id Optional exact source id.
-     * @param string|null $dataset Optional exact source dataset.
+     * @param string|null $source_id            Optional exact source id.
+     * @param string|null $dataset              Optional exact source dataset.
+     * @param int         $materialization_limit Bounded count of stale public source projections to queue.
      * @return array|WP_Error
      */
-    public function reconcile($source_id = null, $dataset = null) {
+    public function reconcile($source_id = null, $dataset = null, $materialization_limit = 0) {
         if ((null === $source_id) !== (null === $dataset)) {
             return $this->error(
                 'digitalogic_product_sync_reconcile_scope_invalid',
@@ -762,6 +763,15 @@ class Digitalogic_Product_Sync_Receiver {
                 400
             );
         }
+		$materialization_limit = (int) $materialization_limit;
+		if ( $materialization_limit < 0 || $materialization_limit > self::MAX_DELIVERY_PRODUCTS_PER_REQUEST ) {
+			return $this->error(
+				'digitalogic_product_sync_materialization_limit_invalid',
+				'Materialization reconciliation is limited to one bounded delivery batch.',
+				400,
+				array( 'maximum' => self::MAX_DELIVERY_PRODUCTS_PER_REQUEST )
+			);
+		}
 
         $locked = $this->acquire_lock();
         if (is_wp_error($locked)) {
@@ -791,7 +801,17 @@ class Digitalogic_Product_Sync_Receiver {
             $sources = array();
             $pending_total = 0;
             $deferred_total = 0;
+			$materialization_queued = 0;
+			$materialization_remaining = $materialization_limit;
             foreach ($selected as $source_key) {
+				if ( $materialization_remaining > 0 ) {
+					$queued = $this->queue_materialization_projection_work(
+						$state['sources'][ $source_key ],
+						$materialization_remaining
+					);
+					$materialization_queued    += $queued;
+					$materialization_remaining -= $queued;
+				}
                 $woo = $this->drain_delivery_products($state['sources'][$source_key], true, true);
                 $source_result = $this->source_status($state['sources'][$source_key]);
                 $source_result['woocommerce'] = $woo;
@@ -815,6 +835,7 @@ class Digitalogic_Product_Sync_Receiver {
                 'deferred_products' => $deferred_total,
                 'source_count' => count($sources),
                 'sources' => $sources,
+				'materialization_queued' => $materialization_queued,
                 'source_order_unchanged' => true,
                 'persistence_verified' => true,
             );
@@ -832,6 +853,99 @@ class Digitalogic_Product_Sync_Receiver {
 
 		return $result;
     }
+
+	/**
+	 * Queue one bounded batch of stale public source projections.
+	 *
+	 * Pricing reconciliation must not discover hundreds of legacy feed-marker
+	 * writes inside one atomic price transaction. This explicit administrator
+	 * path reuses the receiver's canonical full-feed writer, source locks,
+	 * identity validation, delivery ledger, and exact readback in small batches.
+	 *
+	 * @param array $source_state Source state, updated by reference.
+	 * @param int   $limit        Remaining request-local batch allowance.
+	 * @return int Newly queued rows.
+	 */
+	private function queue_materialization_projection_work( &$source_state, $limit ) {
+		$limit = max( 0, min( self::MAX_DELIVERY_PRODUCTS_PER_REQUEST, (int) $limit ) );
+		if ( 0 === $limit || ! class_exists( 'Digitalogic_Patris_Catalog_Materializer' ) ) {
+			return 0;
+		}
+
+		$products = is_array( $source_state['products'] ?? null )
+			? $source_state['products']
+			: array();
+		ksort( $products, SORT_STRING );
+		$pending  = is_array( $source_state['pending_products'] ?? null )
+			? $source_state['pending_products']
+			: array();
+		$deferred = is_array( $source_state['deferred_products'] ?? null )
+			? $source_state['deferred_products']
+			: array();
+		$applied  = is_array( $source_state['applied_products'] ?? null )
+			? $source_state['applied_products']
+			: array();
+		$source   = is_array( $source_state['source'] ?? null ) ? $source_state['source'] : array();
+		$queued   = 0;
+
+		foreach ( $products as $code_key => $product ) {
+			if ( $queued >= $limit ) {
+				break;
+			}
+			if ( ! is_array( $product ) ) {
+				continue;
+			}
+			$product_code = (string) ( $product['product_code'] ?? $code_key );
+			if ( isset( $pending[ $code_key ] ) || isset( $deferred[ $code_key ] ) ) {
+				continue;
+			}
+			if (
+				! apply_filters(
+					'digitalogic_patris_auto_materialize_source_product',
+					true,
+					$product,
+					$source
+				)
+			) {
+				continue;
+			}
+
+			$resolved = Digitalogic_Product_Identifier_Resolver::instance()->resolve(
+				array( 'patris_code' => $product_code )
+			);
+			if (
+				! is_wp_error( $resolved )
+				&& $this->delivery_materialization_projection_matches(
+					(int) $resolved['woocommerce_id'],
+					$source
+				)
+				&& $this->delivery_materialization_owner_matches(
+					(int) $resolved['woocommerce_id'],
+					$source
+				)
+			) {
+				continue;
+			}
+
+			unset( $applied[ $code_key ], $deferred[ $code_key ] );
+			$pending[ $code_key ] = array(
+				'product_code'   => $product_code,
+				'record_hash'    => (string) ( $product['record_hash'] ?? '' ),
+				'queued_event_id' => (string) ( $source_state['last_event_id'] ?? '' ),
+				'attempts'       => 0,
+				'force_apply'    => true,
+				'pricing_only'   => false,
+				'full_feed'      => true,
+			);
+			++$queued;
+		}
+
+		$source_state['applied_products']  = $applied;
+		$source_state['pending_products']  = $pending;
+		$source_state['deferred_products'] = $deferred;
+
+		return $queued;
+	}
 
     private function load_state() {
         $state = get_option(self::STATE_OPTION, array());
@@ -1373,8 +1487,17 @@ class Digitalogic_Product_Sync_Receiver {
                 if (is_wp_error($markup)) {
                     return $markup;
                 }
+				$selected = $this->bootstrap_coordinated_price_source(
+					$product,
+					$product_code,
+					$previous_catalog_revision,
+					$resolution_cache
+				);
+				if ( is_wp_error( $selected ) ) {
+					return $selected;
+				}
                 $repriced = $this->coordinated_product_record(
-                    $product,
+					$selected,
                     $settings,
                     $catalog,
                     $catalog_revision,
@@ -1665,6 +1788,86 @@ class Digitalogic_Product_Sync_Receiver {
 
         return $profit_margin;
     }
+
+	/**
+	 * Select a raw CNY source only from an exact site-owned shipping assignment.
+	 *
+	 * Some legacy Patris rows predate selected-price provenance. Materialization
+	 * can safely establish their shipping route from unambiguous raw CNY facts,
+	 * but it deliberately leaves the price blank. A later coordinated pricing
+	 * transaction may promote that raw fact only after it reads back the exact
+	 * unique Woo identity and the non-domestic assignment. The prior catalog
+	 * revision anchors the newly selected route before it is rebased below.
+	 *
+	 * @param array       $product                   Stored source product.
+	 * @param string      $product_code              Exact Product Code.
+	 * @param string|null $previous_catalog_revision Catalog identity before this transaction.
+	 * @param array       $resolution_cache          Exact resolver cache, updated by reference.
+	 * @return array|WP_Error
+	 */
+	private function bootstrap_coordinated_price_source( $product, $product_code, $previous_catalog_revision, &$resolution_cache ) {
+		$source_fields = array( 'price_source_amount', 'price_source_currency', 'price_source_kind' );
+		foreach ( $source_fields as $field ) {
+			if (
+				array_key_exists( $field, $product )
+				&& null !== $product[ $field ]
+				&& '' !== (string) $product[ $field ]
+			) {
+				return $product;
+			}
+		}
+		if (
+			'CNY' !== (string) ( $product['foreign_currency'] ?? '' )
+			|| ! array_key_exists( 'foreign_price', $product )
+			|| null === $product['foreign_price']
+			|| $this->number_compare_zero( $product['foreign_price'] ) <= 0
+			|| ! array_key_exists( 'weight_grams', $product )
+			|| null === $product['weight_grams']
+			|| $this->number_compare_zero( $product['weight_grams'] ) <= 0
+			|| ! is_string( $previous_catalog_revision )
+			|| 1 !== preg_match( '/\Asha256:[a-f0-9]{64}\z/D', $previous_catalog_revision )
+		) {
+			return $product;
+		}
+
+		$resolved = $this->coordinated_resolution( $product_code, $resolution_cache );
+		if ( is_wp_error( $resolved ) ) {
+			if ( 'digitalogic_product_identifier_not_found' === $resolved->get_error_code() ) {
+				return $product;
+			}
+
+			return $resolved;
+		}
+		$assignment = Digitalogic_Shipping_Method_Service::instance()
+			->get_product_assignment_by_code( $product_code );
+		if ( is_wp_error( $assignment ) ) {
+			return $assignment;
+		}
+		if (
+			(int) ( $resolved['woocommerce_id'] ?? 0 ) <= 0
+			|| (int) ( $assignment['woocommerce_id'] ?? 0 ) !== (int) $resolved['woocommerce_id']
+		) {
+			return $this->error(
+				'digitalogic_pricing_product_identity_changed',
+				'هویت قطعی کالا هنگام انتخاب منبع قیمت تغییر کرد؛ هیچ تغییری ثبت نشد.',
+				409,
+				array( 'product_code' => $product_code )
+			);
+		}
+
+		$method_id = (string) ( $assignment['shipping_method_id'] ?? '' );
+		if ( '' === $method_id || Digitalogic_Shipping_Method_Service::DOMESTIC_METHOD_ID === $method_id ) {
+			return $product;
+		}
+
+		$product['price_source_amount']      = $product['foreign_price'];
+		$product['price_source_currency']    = 'CNY';
+		$product['price_source_kind']        = 'foreign_price';
+		$product['shipping_method_id']       = $method_id;
+		$product['pricing_catalog_revision'] = $previous_catalog_revision;
+
+		return $product;
+	}
 
     /**
      * Build one canonical repriced stored product.
@@ -3463,17 +3666,11 @@ class Digitalogic_Product_Sync_Receiver {
 			$requires_full_feed = $created || $auto_materialized || ! empty( $delivery_entry['full_feed'] );
 
             try {
-				if (
-					$auto_materialized
-				) {
-					$shipping_method = array_key_exists( 'shipping_method_id', $product_data )
-						&& null !== $product_data['shipping_method_id']
-						&& '' !== (string) $product_data['shipping_method_id']
-						? (string) $product_data['shipping_method_id']
-						: null;
-					$assignment = Digitalogic_Shipping_Method_Service::instance()->assign_product_by_code(
+				if ( $materialization_enabled ) {
+					$assignment = $this->reconcile_materialization_shipping_assignment(
 						$product_code,
-						$shipping_method
+						$product_data,
+						$auto_materialized
 					);
 					if ( is_wp_error( $assignment ) ) {
 						throw new RuntimeException( $assignment->get_error_code() );
@@ -3551,6 +3748,78 @@ class Digitalogic_Product_Sync_Receiver {
 
         return $result;
     }
+
+	/**
+	 * Reconcile the site-owned shipping selection before canonical delivery.
+	 *
+	 * Existing auto-materialized leaves retain the established authoritative
+	 * assignment behavior. A legacy product is only bootstrapped when its exact
+	 * source facts select one supported route and its current assignment is
+	 * empty; the compare-and-set prevents overwriting a concurrent or conflicting
+	 * business choice. No price or selected-price provenance is written here.
+	 *
+	 * @param string $product_code     Exact canonical Product Code.
+	 * @param array  $product_data     Exact normalized source record.
+	 * @param bool   $auto_materialized Whether this is a receiver-created leaf.
+	 * @return true|array|WP_Error
+	 */
+	private function reconcile_materialization_shipping_assignment( $product_code, $product_data, $auto_materialized ) {
+		if ( ! class_exists( 'Digitalogic_Patris_Catalog_Materializer' ) ) {
+			return $this->error(
+				'digitalogic_patris_materializer_unavailable',
+				'Canonical Patris materialization is unavailable.',
+				500
+			);
+		}
+
+		$desired = Digitalogic_Patris_Catalog_Materializer::instance()
+			->selected_source_shipping_method( $product_data );
+		$service = Digitalogic_Shipping_Method_Service::instance();
+		if ( $auto_materialized ) {
+			return $service->assign_product_by_code(
+				$product_code,
+				'' === $desired ? null : $desired
+			);
+		}
+		if ( '' === $desired ) {
+			return true;
+		}
+
+		$current = $service->get_product_assignment_by_code( $product_code );
+		if ( is_wp_error( $current ) ) {
+			return $current;
+		}
+		if (
+			! isset( $current['woocommerce_id'] )
+			|| (int) $current['woocommerce_id'] <= 0
+		) {
+			return $this->error(
+				'digitalogic_shipping_assignment_identity_invalid',
+				'The exact WooCommerce product identity could not be verified for shipping assignment.',
+				409,
+				array( 'product_code' => $product_code )
+			);
+		}
+
+		$current_method = (string) ( $current['shipping_method_id'] ?? '' );
+		if ( hash_equals( $desired, $current_method ) ) {
+			return true;
+		}
+		if ( '' !== $current_method ) {
+			return $this->error(
+				'digitalogic_shipping_assignment_conflict',
+				'The existing WooCommerce shipping selection conflicts with the exact source route.',
+				409,
+				array(
+					'product_code'              => $product_code,
+					'current_shipping_method_id' => $current_method,
+					'source_shipping_method_id'  => $desired,
+				)
+			);
+		}
+
+		return $service->compare_and_assign_product_by_code( $product_code, '', $desired );
+	}
 
 	/**
 	 * Keep the optimized pricing writer behind exact identity/materialization gates.
@@ -3984,11 +4253,52 @@ class Digitalogic_Product_Sync_Receiver {
 		if ( ! is_array( $missing ) || ! array_is_list( $missing ) ) {
 			return false;
 		}
+		$stored_revision = (string) get_post_meta(
+			$woocommerce_id,
+			Digitalogic_Patris_Catalog_Materializer::SOURCE_REVISION_META,
+			true
+		);
+		$owner_source  = (string) get_post_meta( $woocommerce_id, Digitalogic_Patris_Catalog_Materializer::OWNER_SOURCE_META, true );
+		$owner_dataset = (string) get_post_meta( $woocommerce_id, Digitalogic_Patris_Catalog_Materializer::OWNER_DATASET_META, true );
+		$owner_code    = (string) get_post_meta( $woocommerce_id, Digitalogic_Patris_Catalog_Materializer::OWNER_CODE_META, true );
+		$owner_empty   = '' === $owner_source && '' === $owner_dataset && '' === $owner_code;
+		$canonical_code = (string) get_post_meta(
+			$woocommerce_id,
+			Digitalogic_Product_Identifier_Resolver::PATRIS_CODE_META,
+			true
+		);
+		$owner_exact   = is_array( $source )
+			&& hash_equals( (string) ( $source['id'] ?? '' ), $owner_source )
+			&& hash_equals( (string) ( $source['dataset'] ?? '' ), $owner_dataset )
+			&& '' !== $owner_code
+			&& hash_equals( $owner_code, $canonical_code );
 
 		return is_array( $source )
+			&& 1 === preg_match( '/\Asha256:[a-f0-9]{64}\z/D', $stored_revision )
+			&& ( $owner_empty || $owner_exact );
+	}
+
+	/** Require the exact source owner triple for explicit legacy backfill. */
+	private function delivery_materialization_owner_matches( $woocommerce_id, $source ) {
+		$product = $woocommerce_id > 0 ? wc_get_product( $woocommerce_id ) : false;
+
+		return $product instanceof WC_Product
+			&& is_array( $source )
 			&& hash_equals(
-				(string) ( $source['revision'] ?? '' ),
-				(string) get_post_meta( $woocommerce_id, Digitalogic_Patris_Catalog_Materializer::SOURCE_REVISION_META, true )
+				(string) ( $source['id'] ?? '' ),
+				(string) get_post_meta( $woocommerce_id, Digitalogic_Patris_Catalog_Materializer::OWNER_SOURCE_META, true )
+			)
+			&& hash_equals(
+				(string) ( $source['dataset'] ?? '' ),
+				(string) get_post_meta( $woocommerce_id, Digitalogic_Patris_Catalog_Materializer::OWNER_DATASET_META, true )
+			)
+			&& hash_equals(
+				(string) get_post_meta(
+					$woocommerce_id,
+					Digitalogic_Product_Identifier_Resolver::PATRIS_CODE_META,
+					true
+				),
+				(string) get_post_meta( $woocommerce_id, Digitalogic_Patris_Catalog_Materializer::OWNER_CODE_META, true )
 			);
 	}
 

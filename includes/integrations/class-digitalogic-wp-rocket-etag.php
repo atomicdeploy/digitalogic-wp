@@ -26,6 +26,37 @@ final class Digitalogic_WP_Rocket_ETag {
 	public static function init(): void {
 		add_filter( 'rocket_htaccess_etag', array( self::class, 'scope_etag_removal' ), 100, 1 );
 		add_filter( 'rocket_htaccess_mod_deflate', array( self::class, 'disable_pricing_sync_compression' ), 100, 1 );
+		add_action( 'digitalogic_excel_pricing_settings_updated', array( self::class, 'purge_currency_page_cache' ), 30, 1 );
+	}
+
+	/**
+	 * Purge cached storefront markup after a canonical currency commit.
+	 *
+	 * The durable panel event repairs an already-open page through SSE. Clearing
+	 * WP Rocket's page cache ensures the next navigation also starts with the
+	 * committed shortcode/localized value. Cache delivery is best effort and
+	 * can never turn a successful pricing commit into a failure.
+	 *
+	 * @param array $result Coordinated settings result.
+	 * @return void
+	 */
+	public static function purge_currency_page_cache( $result ): void {
+		$revision = is_array( $result ) && isset( $result['state_revision'] )
+			? (string) $result['state_revision']
+			: '';
+		if (
+			1 !== preg_match( '/\Asha256:[a-f0-9]{64}\z/D', $revision )
+			|| ! function_exists( 'rocket_clean_domain' )
+		) {
+			return;
+		}
+
+		try {
+			rocket_clean_domain();
+		} catch ( Throwable $exception ) {
+			unset( $exception );
+			error_log( '[Digitalogic currency] WP Rocket storefront cache purge was unavailable.' );
+		}
 	}
 
 	/**

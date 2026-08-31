@@ -399,8 +399,13 @@ flush its request-local buffer once.
    unresolved identity conflicts remain deferred for manual review.
 
    ```bash
-   wp digitalogic product-sync reconcile --source-id=<id> --dataset=<dataset> --user=<administrator>
+   wp digitalogic product-sync reconcile \
+     --source-id=<id> --dataset=<dataset> \
+     --materialize-current --limit=25 \
+     --user=<administrator>
    ```
+   Repeat until both `materialization_queued` and `pending_products` are zero;
+   the next zero-queued run is the idempotency proof.
 3. Confirm that source-only report count is zero and spot-check incomplete
    products for public visibility, blank price, out-of-stock state, and absent
    Rank Math price/Offer metadata.

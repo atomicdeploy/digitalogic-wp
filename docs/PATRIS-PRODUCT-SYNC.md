@@ -43,6 +43,27 @@ to out of stock instead of preserving stale inventory. A later complete record
 updates that same product ID and normal pricing/stock behavior resumes without
 creating a duplicate.
 
+Upgrades with older public products can backfill the exact source owner,
+per-product source revision, sorted missing-field snapshot, and canonical feed
+projection without placing hundreds of writes inside one atomic currency job:
+
+```bash
+wp digitalogic product-sync reconcile \
+  --source-id=<id> --dataset=<dataset> \
+  --materialize-current --limit=25 \
+  --user=<administrator>
+```
+
+Repeat the bounded command until `materialization_queued` is zero. It reuses the
+normal resolver, receiver lock, full Patris feed writer, delivery ledger, and
+readback. It never invents a price. A legacy row with no selected-price triple
+may receive the canonical `air_express` supplier assignment only when its exact
+raw facts are positive CNY and the existing site assignment is empty; the write
+uses compare-and-set and a conflicting assignment fails closed. A later
+canonical currency reconcile selects that raw CNY fact only after exact identity
+and assignment readback and only with positive weight; the normal freight,
+markup, exchange-rate, and rounding formula remains authoritative.
+
 Only concrete identity/corruption hazards remain deferred: duplicate or split
 Code/SKU ownership, quarantined or unsafe identity, and conflicting variable
 leaf/parent ownership. Resolver availability, database, lock, and write errors
