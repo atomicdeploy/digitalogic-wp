@@ -430,15 +430,40 @@ final class Digitalogic_Patris_Topology_Repair {
 					'product_id' => $parent_id,
 					'operation'  => 'delete',
 				),
-				static function () use ( $parent ) {
-					return $parent->save();
+				static function () use ( $parent, $parent_id ) {
+					$saved = $parent->save();
+					if ( is_wp_error( $saved ) || ! $saved ) {
+						return $saved;
+					}
+
+					// WooCommerce can omit an unloaded custom-meta deletion from the
+					// product object's pending changes. Delete the exact guarded row
+					// explicitly; the database readback below is authoritative when the
+					// row was already absent and delete_post_meta() returns false.
+					delete_post_meta( $parent_id, Digitalogic_Product_Identifier_Resolver::PATRIS_CODE_META );
+
+					return $saved;
 				}
 			);
 			$this->require_success( $cleared );
 			$this->require_success( wp_set_object_terms( $parent_id, 'variable', 'product_type' ) );
 			$this->require_success( $this->flush_products( array( $parent_id ) ) );
+			$released_identity = Digitalogic_Product_Code_Editor::instance()->canonical_source_provenance_readback( $parent_id );
+			if (
+				is_wp_error( $released_identity )
+				|| empty( $released_identity['product_exists'] )
+				|| ! empty( $released_identity['meta_exists'] )
+				|| ! empty( $released_identity['duplicate_rows'] )
+				|| ! empty( $released_identity['invalid_key_rows'] )
+			) {
+				throw new RuntimeException( 'parent_identity_clear_failed' );
+			}
+			$this->require_success( Digitalogic_Product_Code_Editor::instance()->preflight_canonical_source_write( 0, $product_code ) );
 
-			$parent     = new WC_Product_Variable( $parent_id );
+			$parent = new WC_Product_Variable( $parent_id );
+			if ( '' !== (string) $parent->get_sku( 'edit' ) ) {
+				throw new RuntimeException( 'parent_sku_clear_failed' );
+			}
 			$attributes = $parent->get_attributes();
 			$attribute  = $attributes[ $taxonomy ] ?? null;
 			if ( ! $attribute instanceof WC_Product_Attribute ) {

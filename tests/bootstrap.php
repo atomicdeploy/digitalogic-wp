@@ -56,6 +56,7 @@ $GLOBALS['digitalogic_test_cache_invalidation_history'] = array();
 $GLOBALS['digitalogic_test_wc_cache_group_invalidations'] = array();
 $GLOBALS['digitalogic_test_wc_product_instance_cache_removals'] = array();
 $GLOBALS['digitalogic_test_wc_product_instance_cache_failure_ids'] = array();
+$GLOBALS['digitalogic_test_wc_delete_meta_noop_ids'] = array();
 $GLOBALS['digitalogic_test_remote_posts'] = array();
 $GLOBALS['digitalogic_test_remote_post_results'] = array();
 $GLOBALS['digitalogic_test_spawn_cron_calls'] = array();
@@ -2644,6 +2645,9 @@ class WC_Product {
     }
 
     public function delete_meta_data($key) {
+		if ( in_array( $this->id, $GLOBALS['digitalogic_test_wc_delete_meta_noop_ids'] ?? array(), true ) ) {
+			return;
+		}
         unset($this->meta[$key]);
     }
 
