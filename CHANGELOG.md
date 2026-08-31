@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.66] - 2026-08-31
+
+### Fixed
+- Partition priced identity-safe simple products and variations into four
+  bounded SQL chunks, so one unsafe or unpriced record no longer forces the
+  production-sized currency recalculation through per-product Woo saves.
+- Recompute variable-parent price lookup aggregates transactionally, verify
+  leaf and parent projections in bulk, and evict exact Woo product caches after
+  commit or rollback while preserving fallback warnings and exact prestate.
+
 ## [1.8.65] - 2026-08-31
 
 ### Fixed

@@ -42,6 +42,7 @@ $GLOBALS['digitalogic_test_next_post_id'] = 1;
 $GLOBALS['digitalogic_test_post_meta_cache'] = array();
 $GLOBALS['digitalogic_test_terms'] = array();
 $GLOBALS['digitalogic_test_term_meta'] = array();
+$GLOBALS['digitalogic_test_object_terms'] = array();
 $GLOBALS['digitalogic_test_term_queries'] = array();
 $GLOBALS['digitalogic_test_next_term_id'] = 1;
 $GLOBALS['digitalogic_test_update_failures'] = array();
@@ -56,6 +57,7 @@ $GLOBALS['digitalogic_test_cache_invalidation_history'] = array();
 $GLOBALS['digitalogic_test_wc_cache_group_invalidations'] = array();
 $GLOBALS['digitalogic_test_wc_product_instance_cache_removals'] = array();
 $GLOBALS['digitalogic_test_wc_product_instance_cache_failure_ids'] = array();
+$GLOBALS['digitalogic_test_pricing_phase_events'] = array();
 $GLOBALS['digitalogic_test_wc_delete_meta_noop_ids'] = array();
 $GLOBALS['digitalogic_test_remote_posts'] = array();
 $GLOBALS['digitalogic_test_remote_post_results'] = array();
@@ -255,6 +257,10 @@ if (!function_exists('wp_salt')) {
 }
 
 function _prime_post_caches($post_ids, $update_term_cache = true, $update_meta_cache = true) {
+	$GLOBALS['digitalogic_test_pricing_phase_events'][] = array(
+		'name' => 'prime_post_caches_' . count( (array) $post_ids ),
+		'ns'   => hrtime( true ),
+	);
     $GLOBALS['digitalogic_test_primed_post_ids'][] = array_values(array_map('absint', (array) $post_ids));
 }
 // phpcs:enable
@@ -952,6 +958,10 @@ function digitalogic_test_flush_cache_shutdown_queue() {
  * @return array Per-key deletion results.
  */
 function wp_cache_delete_multiple( $keys, $group = '' ) {
+	$GLOBALS['digitalogic_test_pricing_phase_events'][]  = array(
+		'name' => 'cache_delete_' . (string) $group,
+		'ns'   => hrtime( true ),
+	);
 	$GLOBALS['digitalogic_test_cache_delete_multiple'][] = array(
 		'keys'  => array_values( array_map( 'intval', (array) $keys ) ),
 		'group' => (string) $group,
@@ -1593,6 +1603,12 @@ class Digitalogic_Test_WPDB {
 	 * @var string
 	 */
 	public $term_taxonomy = 'wp_term_taxonomy';
+	/**
+	 * Test terms table name.
+	 *
+	 * @var string
+	 */
+	public $terms                       = 'wp_terms';
     public $insert_id = 0;
     public $acquire_result = 1;
     public $acquire_results = array();
@@ -1615,7 +1631,7 @@ class Digitalogic_Test_WPDB {
 	public $product_code_meta_value_case_insensitive_collation = false;
 	public $product_code_readback_batch_query_count = 0;
 	public $product_code_options_batch_query_count = 0;
-    public $price_range_query_count = 0;
+	public $price_range_query_count = 0;
     // phpcs:enable
     public $last_error = '';
     public $option_read_counts = array();
@@ -1795,27 +1811,308 @@ class Digitalogic_Test_WPDB {
 	public function get_results( $prepared, $output = ARRAY_A ) { // phpcs:ignore Generic.CodeAnalysis.UnusedFunctionParameter.FoundAfterLastUsed -- Test-only wpdb signature.
 		$query = is_array( $prepared ) && isset( $prepared['query'] ) ? $prepared['query'] : (string) $prepared;
 		$args  = is_array( $prepared ) && isset( $prepared['args'] ) ? $prepared['args'] : array();
+		if ( preg_match( '/digitalogic_(pricing_(?:topology|batch)_[a-z_]+)/', $query, $phase_match ) ) {
+			$GLOBALS['digitalogic_test_pricing_phase_events'][] = array(
+				'name' => (string) $phase_match[1],
+				'ns'   => hrtime( true ),
+			);
+		}
+		if (
+			strpos( $query, 'digitalogic_pricing_topology_preflight' ) !== false
+			|| strpos( $query, 'digitalogic_pricing_batch_' ) !== false
+		) {
+			$this->queries[] = strtoupper( trim( $query ) );
+		}
+		if ( strpos( $query, 'digitalogic_shipping_assignment_rows' ) !== false ) {
+			$product_id = isset( $args[0] ) ? (int) $args[0] : 0;
+			$meta_key   = isset( $args[1] ) ? (string) $args[1] : '';
+			$post       = $GLOBALS['digitalogic_test_posts'][ $product_id ] ?? array();
+			$values     = isset( $post['meta_rows'][ $meta_key ] ) && is_array( $post['meta_rows'][ $meta_key ] )
+				? array_values( $post['meta_rows'][ $meta_key ] )
+				: ( array_key_exists( $meta_key, $post['meta'] ?? array() ) ? array( $post['meta'][ $meta_key ] ) : array() );
+			$rows       = array();
+			foreach ( $values as $index => $value ) {
+				$rows[] = array(
+					'meta_id'    => $this->ensure_meta_id( $product_id, $meta_key ) + $index,
+					'meta_value' => $this->database_raw_value( $value ), // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_value -- Test fixture row shape.
+				);
+			}
+
+			return $rows;
+		}
+		if ( strpos( $query, 'digitalogic_pricing_topology_preflight' ) !== false ) {
+			preg_match( '/ids:(\d+)/', $query, $matches );
+			$id_count   = isset( $matches[1] ) ? (int) $matches[1] : 0;
+			$ids        = array_map( 'intval', array_slice( $args, -$id_count ) );
+			$owner_keys = array_map( 'strtolower', array_slice( $args, 0, count( $args ) - $id_count ) );
+			$rows       = array();
+			foreach ( $ids as $product_id ) {
+				if ( ! isset( $GLOBALS['digitalogic_test_posts'][ $product_id ] ) ) {
+					continue;
+				}
+				$post         = $GLOBALS['digitalogic_test_posts'][ $product_id ];
+				$parent_id    = (int) ( $post['post_parent'] ?? 0 );
+				$parent       = $GLOBALS['digitalogic_test_posts'][ $parent_id ] ?? array();
+				$parent_owned = false;
+				foreach ( array_keys( (array) ( $parent['meta'] ?? array() ) ) as $meta_key ) {
+					if ( in_array( strtolower( (string) $meta_key ), $owner_keys, true ) ) {
+						$parent_owned = true;
+						break;
+					}
+				}
+				$rows[] = array(
+					'product_id'       => $product_id,
+					'post_type'        => (string) ( $post['post_type'] ?? '' ),
+					'post_status'      => (string) ( $post['post_status'] ?? '' ),
+					'parent_id'        => $parent_id,
+					'leaf_lookup_id'   => isset( $GLOBALS['digitalogic_test_wc_lookup_rows'][ $product_id ] ) ? $product_id : null,
+					'product_type'     => 'product_variation' === (string) ( $post['post_type'] ?? '' )
+						? 'variation'
+						: (string) ( $post['product_type'] ?? 'simple' ),
+					'parent_post_type' => (string) ( $parent['post_type'] ?? '' ),
+					'parent_status'    => (string) ( $parent['post_status'] ?? '' ),
+					'parent_type'      => (string) ( $parent['product_type'] ?? '' ),
+					'parent_lookup_id' => isset( $GLOBALS['digitalogic_test_wc_lookup_rows'][ $parent_id ] ) ? $parent_id : null,
+					'parent_owned'     => $parent_owned ? 1 : 0,
+				);
+			}
+
+			return $rows;
+		}
+		if ( strpos( $query, 'digitalogic_pricing_batch_leaf_identity' ) !== false ) {
+			if ( is_callable( $GLOBALS['digitalogic_test_before_pricing_batch_leaf_identity'] ?? null ) ) {
+				$callback = $GLOBALS['digitalogic_test_before_pricing_batch_leaf_identity'];
+				unset( $GLOBALS['digitalogic_test_before_pricing_batch_leaf_identity'] );
+				call_user_func( $callback );
+			}
+			preg_match( '/ids:(\d+)/', $query, $id_matches );
+			preg_match( '/keys:(\d+)/', $query, $key_matches );
+			preg_match( '/codes:(\d+)/', $query, $code_matches );
+			$id_count       = isset( $id_matches[1] ) ? (int) $id_matches[1] : 0;
+			$key_count      = isset( $key_matches[1] ) ? (int) $key_matches[1] : 0;
+			$code_count     = isset( $code_matches[1] ) ? (int) $code_matches[1] : 0;
+			$keys           = array_map( 'strtolower', array_slice( $args, 0, $key_count ) );
+			$ids            = array_map( 'intval', array_slice( $args, $key_count, $id_count ) );
+			$collision_keys = array_map( 'strtolower', array_slice( $args, $key_count + $id_count, 2 ) );
+			$product_codes  = array_map( 'strval', array_slice( $args, -$code_count ) );
+			$candidates     = array_fill_keys( $ids, true );
+			foreach ( $GLOBALS['digitalogic_test_posts'] as $product_id => $post ) {
+				if (
+					! in_array( (string) ( $post['post_type'] ?? '' ), array( 'product', 'product_variation' ), true )
+					|| in_array( (string) ( $post['post_status'] ?? '' ), array( 'trash', 'auto-draft' ), true )
+				) {
+					continue;
+				}
+				$meta_keys = array_unique(
+					array_merge(
+						array_keys( (array) ( $post['meta'] ?? array() ) ),
+						array_keys( (array) ( $post['meta_rows'] ?? array() ) )
+					)
+				);
+				foreach ( $meta_keys as $meta_key ) {
+					if ( ! in_array( strtolower( (string) $meta_key ), $collision_keys, true ) ) {
+						continue;
+					}
+					$values = isset( $post['meta_rows'][ $meta_key ] ) && is_array( $post['meta_rows'][ $meta_key ] )
+						? array_values( $post['meta_rows'][ $meta_key ] )
+						: ( array_key_exists( $meta_key, $post['meta'] ?? array() ) ? array( $post['meta'][ $meta_key ] ) : array() );
+					if ( ! empty( array_intersect( array_map( 'strval', $values ), $product_codes ) ) ) {
+						$candidates[ (int) $product_id ] = true;
+						break;
+					}
+				}
+			}
+			$ids = array_map( 'intval', array_keys( $candidates ) );
+			sort( $ids, SORT_NUMERIC );
+			$rows = array();
+			foreach ( $ids as $product_id ) {
+				$post = $GLOBALS['digitalogic_test_posts'][ $product_id ] ?? null;
+				if ( ! is_array( $post ) ) {
+					continue;
+				}
+				$product_rows = array();
+				$meta_keys    = array_unique(
+					array_merge(
+						array_keys( (array) ( $post['meta'] ?? array() ) ),
+						array_keys( (array) ( $post['meta_rows'] ?? array() ) )
+					)
+				);
+				foreach ( $meta_keys as $meta_key ) {
+					if ( ! in_array( strtolower( (string) $meta_key ), $keys, true ) ) {
+						continue;
+					}
+					$values = isset( $post['meta_rows'][ $meta_key ] ) && is_array( $post['meta_rows'][ $meta_key ] )
+						? array_values( $post['meta_rows'][ $meta_key ] )
+						: ( array_key_exists( $meta_key, $post['meta'] ?? array() ) ? array( $post['meta'][ $meta_key ] ) : array() );
+					foreach ( $values as $value ) {
+						$product_rows[] = array(
+							'product_id'   => $product_id,
+							'post_type'    => (string) ( $post['post_type'] ?? '' ),
+							'post_status'  => (string) ( $post['post_status'] ?? '' ),
+							'parent_id'    => (int) ( $post['post_parent'] ?? 0 ),
+							'product_type' => 'product_variation' === (string) ( $post['post_type'] ?? '' )
+								? 'variation'
+								: (string) ( $post['product_type'] ?? 'simple' ),
+							'lookup_id'    => isset( $GLOBALS['digitalogic_test_wc_lookup_rows'][ $product_id ] ) ? $product_id : null,
+							'meta_key'     => (string) $meta_key, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key -- Test fixture row shape.
+							'meta_value'   => (string) $value, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_value -- Test fixture row shape.
+						);
+					}
+				}
+				if ( empty( $product_rows ) ) {
+					$product_rows[] = array(
+						'product_id'   => $product_id,
+						'post_type'    => (string) ( $post['post_type'] ?? '' ),
+						'post_status'  => (string) ( $post['post_status'] ?? '' ),
+						'parent_id'    => (int) ( $post['post_parent'] ?? 0 ),
+						'product_type' => 'product_variation' === (string) ( $post['post_type'] ?? '' )
+							? 'variation'
+							: (string) ( $post['product_type'] ?? 'simple' ),
+						'lookup_id'    => isset( $GLOBALS['digitalogic_test_wc_lookup_rows'][ $product_id ] ) ? $product_id : null,
+						'meta_key'     => null, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key -- Fake locked-read result column, not a database query.
+						'meta_value'   => null, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_value -- Fake locked-read result column, not a database query.
+					);
+				}
+				$rows = array_merge( $rows, $product_rows );
+			}
+
+			return $rows;
+		}
+		if ( strpos( $query, 'digitalogic_pricing_batch_parent_inputs' ) !== false ) {
+			if ( is_callable( $GLOBALS['digitalogic_test_before_pricing_batch_parent_inputs'] ?? null ) ) {
+				$callback = $GLOBALS['digitalogic_test_before_pricing_batch_parent_inputs'];
+				unset( $GLOBALS['digitalogic_test_before_pricing_batch_parent_inputs'] );
+				call_user_func( $callback );
+			}
+			preg_match( '/parents:(\d+)/', $query, $matches );
+			$parent_count = isset( $matches[1] ) ? (int) $matches[1] : 0;
+			$parents      = array_map( 'intval', array_slice( $args, 0, $parent_count ) );
+			$owner_keys   = array_map( 'strtolower', array_slice( $args, $parent_count ) );
+			$rows         = array();
+			foreach ( $GLOBALS['digitalogic_test_posts'] as $product_id => $post ) {
+				$parent_id    = (int) ( $post['post_parent'] ?? 0 );
+				$parent       = $GLOBALS['digitalogic_test_posts'][ $parent_id ] ?? array();
+				$parent_owned = false;
+				foreach ( array_keys( (array) ( $parent['meta'] ?? array() ) ) as $meta_key ) {
+					if ( in_array( strtolower( (string) $meta_key ), $owner_keys, true ) ) {
+						$parent_owned = true;
+						break;
+					}
+				}
+				if (
+					'product_variation' !== (string) ( $post['post_type'] ?? '' )
+					|| 'publish' !== (string) ( $post['post_status'] ?? '' )
+					|| ! in_array( $parent_id, $parents, true )
+					|| 'product' !== (string) ( $parent['post_type'] ?? '' )
+					|| 'publish' !== (string) ( $parent['post_status'] ?? '' )
+					|| 'variable' !== (string) ( $parent['product_type'] ?? '' )
+					|| $parent_owned
+				) {
+					continue;
+				}
+				$price_values          = isset( $post['meta_rows']['_price'] )
+					? array_values( (array) $post['meta_rows']['_price'] )
+					: ( array_key_exists( '_price', $post['meta'] ?? array() ) ? array( $post['meta']['_price'] ) : array( null ) );
+				$outofstock_visibility = false;
+				foreach ( (array) ( $GLOBALS['digitalogic_test_object_terms'][ $product_id ]['product_visibility'] ?? array() ) as $term_id ) {
+					if ( 'outofstock' === (string) ( $GLOBALS['digitalogic_test_terms'][ (int) $term_id ]['slug'] ?? '' ) ) {
+						$outofstock_visibility = true;
+						break;
+					}
+				}
+				foreach ( $price_values as $price_value ) {
+					$rows[] = array(
+						'product_id'            => (int) $product_id,
+						'parent_id'             => $parent_id,
+						'price'                 => null === $price_value ? null : (string) $price_value,
+						'onsale'                => (int) ( $GLOBALS['digitalogic_test_wc_lookup_rows'][ $product_id ]['onsale'] ?? 0 ),
+						'outofstock_visibility' => $outofstock_visibility ? 1 : 0,
+					);
+				}
+			}
+			usort(
+				$rows,
+				static function ( $left, $right ) {
+					$parent_compare = (int) $left['parent_id'] <=> (int) $right['parent_id'];
+
+					return 0 !== $parent_compare
+						? $parent_compare
+						: (int) $left['product_id'] <=> (int) $right['product_id'];
+				}
+			);
+			return $rows;
+		}
 		if ( strpos( $query, 'digitalogic_pricing_batch_meta_readback' ) !== false ) {
 			preg_match( '/ids:(\d+)/', $query, $matches );
 			$id_count = isset( $matches[1] ) ? (int) $matches[1] : 0;
+			preg_match( '/keys:(\d+)/', $query, $key_matches );
+			$key_count = isset( $key_matches[1] ) ? (int) $key_matches[1] : count( $args ) - $id_count;
+			preg_match( '/parent_ids:(\d+)/', $query, $parent_matches );
+			$parent_count = isset( $parent_matches[1] ) ? (int) $parent_matches[1] : 0;
+			preg_match( '/parent_keys:(\d+)/', $query, $parent_key_matches );
+			$parent_key_count = isset( $parent_key_matches[1] ) ? (int) $parent_key_matches[1] : 0;
 			$ids      = array_map( 'intval', array_slice( $args, 0, $id_count ) );
-			$keys     = array_map( 'strval', array_slice( $args, $id_count ) );
+			$keys             = array_map( 'strval', array_slice( $args, $id_count, $key_count ) );
+			$parent_offset    = $id_count + $key_count;
+			$parent_ids       = array_map( 'intval', array_slice( $args, $parent_offset, $parent_count ) );
+			$parent_keys      = array_map( 'strval', array_slice( $args, $parent_offset + $parent_count, $parent_key_count ) );
+			if ( ! empty( $GLOBALS['digitalogic_test_pricing_batch_parent_meta_readback_failure'] ) ) {
+				$parent_ids = array();
+			}
 			$rows     = array();
-			foreach ( $ids as $post_id ) {
-				foreach ( $keys as $meta_key ) {
-					if ( ! array_key_exists( $meta_key, $GLOBALS['digitalogic_test_posts'][ $post_id ]['meta'] ?? array() ) ) {
-						continue;
+			foreach ( array( array( $ids, $keys ), array( $parent_ids, $parent_keys ) ) as $read_plan ) {
+				foreach ( $read_plan[0] as $post_id ) {
+					foreach ( $read_plan[1] as $meta_key ) {
+						$values = isset( $GLOBALS['digitalogic_test_posts'][ $post_id ]['meta_rows'][ $meta_key ] )
+							? array_values( (array) $GLOBALS['digitalogic_test_posts'][ $post_id ]['meta_rows'][ $meta_key ] )
+							: ( array_key_exists( $meta_key, $GLOBALS['digitalogic_test_posts'][ $post_id ]['meta'] ?? array() ) ? array( $GLOBALS['digitalogic_test_posts'][ $post_id ]['meta'][ $meta_key ] ) : array() );
+						foreach ( $values as $meta_value ) {
+							$rows[] = array(
+								'post_id'    => $post_id,
+								'meta_key'   => $meta_key, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key -- Test fixture row shape.
+								'meta_value' => (string) $meta_value, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_value -- Test fixture row shape.
+							);
+						}
 					}
-					$rows[] = array(
-						'post_id'    => $post_id,
-						'meta_key'   => $meta_key, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key -- Test fixture row shape.
-						'meta_value' => (string) $GLOBALS['digitalogic_test_posts'][ $post_id ]['meta'][ $meta_key ], // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_value -- Test fixture row shape.
-					);
 				}
 			}
 			return $rows;
 		}
-		if ( strpos( $query, 'digitalogic_pricing_batch_lookup_readback' ) !== false ) {
+		if ( strpos( $query, 'digitalogic_pricing_batch_parent_meta_readback' ) !== false ) {
+			if ( ! empty( $GLOBALS['digitalogic_test_pricing_batch_parent_meta_readback_failure'] ) ) {
+				return array();
+			}
+			preg_match( '/ids:(\d+)/', $query, $matches );
+			$id_count = isset( $matches[1] ) ? (int) $matches[1] : 0;
+			preg_match( '/keys:(\d+)/', $query, $key_matches );
+			$key_count = isset( $key_matches[1] ) ? (int) $key_matches[1] : 0;
+			$ids       = array_map( 'intval', array_slice( $args, 0, $id_count ) );
+			$keys      = array_map( 'strval', array_slice( $args, $id_count, $key_count ) );
+			$rows      = array();
+			foreach ( $ids as $post_id ) {
+				foreach ( $keys as $meta_key ) {
+					$values = isset( $GLOBALS['digitalogic_test_posts'][ $post_id ]['meta_rows'][ $meta_key ] )
+						? array_values( (array) $GLOBALS['digitalogic_test_posts'][ $post_id ]['meta_rows'][ $meta_key ] )
+						: ( array_key_exists( $meta_key, $GLOBALS['digitalogic_test_posts'][ $post_id ]['meta'] ?? array() ) ? array( $GLOBALS['digitalogic_test_posts'][ $post_id ]['meta'][ $meta_key ] ) : array() );
+					foreach ( $values as $meta_value ) {
+						$rows[] = array(
+							'post_id'    => $post_id,
+							'meta_key'   => $meta_key, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key -- Fake readback result column, not a database query.
+							'meta_value' => (string) $meta_value, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_value -- Fake readback result column, not a database query.
+						);
+					}
+				}
+			}
+			return $rows;
+		}
+		if (
+			strpos( $query, 'digitalogic_pricing_batch_lookup_readback' ) !== false
+			|| strpos( $query, 'digitalogic_pricing_batch_leaf_lookup_preflight' ) !== false
+			|| strpos( $query, 'digitalogic_pricing_batch_parent_lookup_readback' ) !== false
+		) {
+			if ( ! empty( $GLOBALS['digitalogic_test_pricing_batch_lookup_readback_failure'] ) ) {
+				return array();
+			}
 			$rows = array();
 			foreach ( $args as $product_id ) {
 				$product_id = (int) $product_id;
@@ -2236,6 +2533,17 @@ class Digitalogic_Test_WPDB {
 		$args            = is_array( $query ) && isset( $query['args'] ) ? $query['args'] : array();
 		$normalized      = strtoupper( trim( $raw_query ) );
 		$this->queries[] = $normalized;
+		if ( preg_match( '/digitalogic_(pricing_batch_[a-z_]+)/', $raw_query, $phase_match ) ) {
+			$GLOBALS['digitalogic_test_pricing_phase_events'][] = array(
+				'name' => (string) $phase_match[1],
+				'ns'   => hrtime( true ),
+			);
+		} elseif ( in_array( $normalized, array( 'START TRANSACTION', 'COMMIT', 'ROLLBACK' ), true ) ) {
+			$GLOBALS['digitalogic_test_pricing_phase_events'][] = array(
+				'name' => strtolower( str_replace( ' ', '_', $normalized ) ),
+				'ns'   => hrtime( true ),
+			);
+		}
 		if ( in_array( $normalized, $GLOBALS['digitalogic_test_transaction_failures'], true ) ) {
 			return false;
 		}
@@ -2439,6 +2747,7 @@ class Digitalogic_Test_WPDB {
 				'terms'        => $GLOBALS['digitalogic_test_terms'],
 				'term_meta'    => $GLOBALS['digitalogic_test_term_meta'],
 				'object_terms' => $GLOBALS['digitalogic_test_object_terms'],
+				'lookup_rows'  => $GLOBALS['digitalogic_test_wc_lookup_rows'],
 				'next_post_id' => $GLOBALS['digitalogic_test_next_post_id'],
 				'next_term_id' => $GLOBALS['digitalogic_test_next_term_id'],
 				'meta_ids'     => $this->meta_ids,
@@ -2448,15 +2757,16 @@ class Digitalogic_Test_WPDB {
 		}
 		if ( 'ROLLBACK' === $normalized ) {
 			if ( is_array( $this->transaction_snapshot ) ) {
-				$GLOBALS['digitalogic_test_options']      = $this->transaction_snapshot['options'];
-				$GLOBALS['digitalogic_test_posts']        = $this->transaction_snapshot['posts'];
-				$GLOBALS['digitalogic_test_terms']        = $this->transaction_snapshot['terms'];
-				$GLOBALS['digitalogic_test_term_meta']    = $this->transaction_snapshot['term_meta'];
-				$GLOBALS['digitalogic_test_object_terms'] = $this->transaction_snapshot['object_terms'];
-				$GLOBALS['digitalogic_test_next_post_id'] = $this->transaction_snapshot['next_post_id'];
-				$GLOBALS['digitalogic_test_next_term_id'] = $this->transaction_snapshot['next_term_id'];
-				$this->meta_ids                           = $this->transaction_snapshot['meta_ids'];
-				$this->next_meta_id                       = $this->transaction_snapshot['next_meta_id'];
+				$GLOBALS['digitalogic_test_options']        = $this->transaction_snapshot['options'];
+				$GLOBALS['digitalogic_test_posts']          = $this->transaction_snapshot['posts'];
+				$GLOBALS['digitalogic_test_terms']          = $this->transaction_snapshot['terms'];
+				$GLOBALS['digitalogic_test_term_meta']      = $this->transaction_snapshot['term_meta'];
+				$GLOBALS['digitalogic_test_object_terms']   = $this->transaction_snapshot['object_terms'];
+				$GLOBALS['digitalogic_test_wc_lookup_rows'] = $this->transaction_snapshot['lookup_rows'];
+				$GLOBALS['digitalogic_test_next_post_id']   = $this->transaction_snapshot['next_post_id'];
+				$GLOBALS['digitalogic_test_next_term_id']   = $this->transaction_snapshot['next_term_id'];
+				$this->meta_ids                             = $this->transaction_snapshot['meta_ids'];
+				$this->next_meta_id                         = $this->transaction_snapshot['next_meta_id'];
 			}
 			$this->transaction_snapshot = null;
 			$after_rollback             = $this->after_rollback;
@@ -2468,31 +2778,52 @@ class Digitalogic_Test_WPDB {
 		}
 		if ( 'COMMIT' === $normalized ) {
 			$this->transaction_snapshot = null;
-			$after_commit       = $this->after_commit;
-			$this->after_commit = null;
+			$after_commit               = $this->after_commit;
+			$this->after_commit         = null;
 			if ( is_callable( $after_commit ) ) {
 				call_user_func( $after_commit, $this );
 			}
 			return 1;
 		}
 
-		if ( strpos( $raw_query, 'digitalogic_pricing_batch_meta_delete' ) !== false ) {
+		if (
+			strpos( $raw_query, 'digitalogic_pricing_batch_meta_delete' ) !== false
+			|| strpos( $raw_query, 'digitalogic_pricing_batch_parent_meta_delete' ) !== false
+		) {
 			preg_match( '/ids:(\d+)/', $raw_query, $matches );
 			$id_count = isset( $matches[1] ) ? (int) $matches[1] : 0;
+			preg_match( '/keys:(\d+)/', $raw_query, $key_matches );
+			$key_count = isset( $key_matches[1] ) ? (int) $key_matches[1] : count( $args ) - $id_count;
+			preg_match( '/parent_ids:(\d+)/', $raw_query, $parent_matches );
+			$parent_count = isset( $parent_matches[1] ) ? (int) $parent_matches[1] : 0;
+			preg_match( '/parent_keys:(\d+)/', $raw_query, $parent_key_matches );
+			$parent_key_count = isset( $parent_key_matches[1] ) ? (int) $parent_key_matches[1] : 0;
 			$ids      = array_map( 'intval', array_slice( $args, 0, $id_count ) );
-			$keys     = array_map( 'strval', array_slice( $args, $id_count ) );
+			$keys             = array_map( 'strval', array_slice( $args, $id_count, $key_count ) );
+			$parent_offset    = $id_count + $key_count;
+			$parent_ids       = array_map( 'intval', array_slice( $args, $parent_offset, $parent_count ) );
+			$parent_keys      = array_map( 'strval', array_slice( $args, $parent_offset + $parent_count, $parent_key_count ) );
 			$deleted  = 0;
-			foreach ( $ids as $post_id ) {
-				foreach ( $keys as $meta_key ) {
-					if ( array_key_exists( $meta_key, $GLOBALS['digitalogic_test_posts'][ $post_id ]['meta'] ?? array() ) ) {
-						unset( $GLOBALS['digitalogic_test_posts'][ $post_id ]['meta'][ $meta_key ] );
-						++$deleted;
+			foreach ( array( array( $ids, $keys ), array( $parent_ids, $parent_keys ) ) as $delete_plan ) {
+				foreach ( $delete_plan[0] as $post_id ) {
+					foreach ( $delete_plan[1] as $meta_key ) {
+						if ( array_key_exists( $meta_key, $GLOBALS['digitalogic_test_posts'][ $post_id ]['meta'] ?? array() ) ) {
+							unset( $GLOBALS['digitalogic_test_posts'][ $post_id ]['meta'][ $meta_key ] );
+							++$deleted;
+						}
+						if ( ! empty( $GLOBALS['digitalogic_test_posts'][ $post_id ]['meta_rows'][ $meta_key ] ?? array() ) ) {
+							$deleted += count( $GLOBALS['digitalogic_test_posts'][ $post_id ]['meta_rows'][ $meta_key ] );
+							unset( $GLOBALS['digitalogic_test_posts'][ $post_id ]['meta_rows'][ $meta_key ] );
+						}
 					}
 				}
 			}
 			return $deleted;
 		}
-		if ( strpos( $raw_query, 'digitalogic_pricing_batch_meta_insert' ) !== false ) {
+		if (
+			strpos( $raw_query, 'digitalogic_pricing_batch_meta_insert' ) !== false
+			|| strpos( $raw_query, 'digitalogic_pricing_batch_parent_meta_insert' ) !== false
+		) {
 			$batch_product_ids = array_map(
 				'intval',
 				array_column( array_chunk( $args, 3 ), 0 )
@@ -2507,7 +2838,15 @@ class Digitalogic_Test_WPDB {
 				}
 				$post_id  = (int) $row[0];
 				$meta_key = (string) $row[1];
-				$GLOBALS['digitalogic_test_posts'][ $post_id ]['meta'][ $meta_key ] = (string) $row[2];
+				if (
+					'variable' === (string) ( $GLOBALS['digitalogic_test_posts'][ $post_id ]['product_type'] ?? '' )
+					&& in_array( $meta_key, array( '_price', '_regular_price', '_sale_price' ), true )
+				) {
+					$GLOBALS['digitalogic_test_posts'][ $post_id ]['meta_rows'][ $meta_key ][] = (string) $row[2];
+					unset( $GLOBALS['digitalogic_test_posts'][ $post_id ]['meta'][ $meta_key ] );
+				} else {
+					$GLOBALS['digitalogic_test_posts'][ $post_id ]['meta'][ $meta_key ] = (string) $row[2];
+				}
 				$this->ensure_meta_id( $post_id, $meta_key );
 				++$inserted;
 			}
@@ -2526,6 +2865,21 @@ class Digitalogic_Test_WPDB {
 				$GLOBALS['digitalogic_test_wc_lookup_rows'][ $product_id ]['onsale']     = 0;
 			}
 			return count( $matches );
+		}
+		if ( strpos( $raw_query, 'digitalogic_pricing_batch_parent_lookup_upsert' ) !== false ) {
+			$written = 0;
+			foreach ( array_chunk( $args, 4 ) as $row ) {
+				if ( count( $row ) !== 4 ) {
+					continue;
+				}
+				$product_id = (int) $row[0];
+				$GLOBALS['digitalogic_test_wc_lookup_rows'][ $product_id ]['product_id'] = $product_id;
+				$GLOBALS['digitalogic_test_wc_lookup_rows'][ $product_id ]['min_price']  = (string) $row[1];
+				$GLOBALS['digitalogic_test_wc_lookup_rows'][ $product_id ]['max_price']  = (string) $row[2];
+				$GLOBALS['digitalogic_test_wc_lookup_rows'][ $product_id ]['onsale']     = (int) $row[3];
+				++$written;
+			}
+			return $written;
 		}
 
 		return 1;
@@ -2620,6 +2974,7 @@ class Digitalogic_Test_WC_Product_Instance_Cache {
 			throw new RuntimeException( 'Injected product-instance cache failure.' );
 		}
 		$GLOBALS['digitalogic_test_wc_product_instance_cache_removals'][] = $product_id;
+		unset( $GLOBALS['digitalogic_test_wc_products'][ $product_id ] );
 	}
 }
 
@@ -3066,9 +3421,20 @@ class WC_Product {
 			$GLOBALS['digitalogic_test_wc_lookup_rows'][ $this->id ]['min_price'] = '0.0000';
 			$GLOBALS['digitalogic_test_wc_lookup_rows'][ $this->id ]['max_price'] = '0.0000';
 			$GLOBALS['digitalogic_test_wc_lookup_rows'][ $this->id ]['onsale']    = 0;
+		} else {
+			$GLOBALS['digitalogic_test_wc_lookup_rows'][ $this->id ]['min_price'] = (string) $this->get_price();
+			$GLOBALS['digitalogic_test_wc_lookup_rows'][ $this->id ]['max_price'] = (string) $this->get_price();
+			$GLOBALS['digitalogic_test_wc_lookup_rows'][ $this->id ]['onsale']    = '' === trim( (string) $this->get_sale_price() ) ? 0 : 1;
 		}
 		$GLOBALS['digitalogic_test_wc_product_saves'][] = $this->id;
-        $after_save = $GLOBALS['digitalogic_test_wc_after_save'] ?? null;
+		if (
+			! empty( $GLOBALS['digitalogic_test_wc_enqueue_parent_sync_on_save'] )
+			&& $this->is_type( 'variation' )
+			&& $this->get_parent_id() > 0
+		) {
+			$GLOBALS['wc_deferred_product_sync'][] = $this->get_parent_id();
+		}
+		$after_save                                = $GLOBALS['digitalogic_test_wc_after_save'] ?? null;
         $GLOBALS['digitalogic_test_wc_after_save'] = null;
         if (is_callable($after_save)) {
             call_user_func($after_save, $this);
