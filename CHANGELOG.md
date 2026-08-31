@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.75] - 2026-09-01
+
+### Changed
+- Distinguish final fallback projection mismatches from lookup-table drift and
+  retain the affected Product Code in the bounded pricing failure summary.
+
 ## [1.8.74] - 2026-09-01
 
 ### Changed

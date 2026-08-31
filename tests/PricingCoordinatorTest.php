@@ -1749,7 +1749,9 @@ final class PricingCoordinatorTest extends TestCase {
 
 		$this->assertTrue( is_wp_error( $result ) );
 		$this->assertSame( 'digitalogic_pricing_delivery_readback_failed', $result->get_error_code() );
-		$this->assertArrayHasKey( 'woocommerce', (array) $result->get_error_data() );
+		$error_data = (array) $result->get_error_data();
+		$this->assertArrayHasKey( 'woocommerce', $error_data );
+		$this->assertSame( 'digitalogic_pricing_batch_leaf_identity_failed', $error_data['woocommerce']['errors'][0]['code'] );
 		$this->assertSame( $before_posts, $GLOBALS['digitalogic_test_posts'] );
 		$this->assertSame( $before_lookup, $GLOBALS['digitalogic_test_wc_lookup_rows'] );
 		$this->assertSame( array( 999 ), $GLOBALS['wc_deferred_product_sync'] );
