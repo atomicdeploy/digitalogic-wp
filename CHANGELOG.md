@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.74] - 2026-09-01
+
+### Changed
+- Preserve the bounded WooCommerce verification summary when a coordinated
+  pricing transaction fails its final readback, so operators can identify the
+  exact fail-closed sub-gate without exposing catalog payloads.
+
 ## [1.8.73] - 2026-09-01
 
 ### Fixed

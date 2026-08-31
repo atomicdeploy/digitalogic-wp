@@ -2032,7 +2032,11 @@ class Digitalogic_Product_Sync_Receiver {
                 return $this->error(
                     'digitalogic_pricing_delivery_readback_failed',
                     'قیمت نهایی کالا پس از ذخیره با مقدار محاسبه‌شده یکسان نیست.',
-                    502
+					502,
+					array(
+						'source'      => $context['source'],
+						'woocommerce' => $woo,
+					)
                 );
             }
             if (
