@@ -820,6 +820,43 @@ class Digitalogic_Patris_Feed {
 		return $this->verify_product_feed_expected( $product_id, $expected );
 	}
 
+	/**
+	 * Prove that the complete current feed projection already matches one row.
+	 *
+	 * Explicit legacy ownership repair may avoid a redundant WooCommerce save
+	 * only after the same canonical feed staging code has produced an in-memory
+	 * expectation and a fresh, cache-bypassed database read matches it exactly.
+	 * The caller must own both the shared source lock and the product lock, so a
+	 * concurrent stock, price, or identity write cannot race this proof.
+	 *
+	 * @param int   $product_id Exact WooCommerce product or variation ID.
+	 * @param array $data       Exact normalized source row.
+	 * @return true|WP_Error
+	 */
+	public function verify_locked_product_feed_projection( $product_id, $data ) {
+		$product_id = absint( $product_id );
+		if ( ! $this->source_write_locks_are_owned( $product_id ) ) {
+			return $this->source_write_outcome_unknown( $product_id );
+		}
+
+		$product = $this->fresh_product_for_source_readback( $product_id );
+		if ( ! $product instanceof WC_Product ) {
+			return new WP_Error(
+				'digitalogic_patris_product_projection_readback_failed',
+				__( 'The source product projection could not be verified.', 'digitalogic' ),
+				array(
+					'status'    => 503,
+					'retryable' => true,
+				)
+			);
+		}
+
+		$this->stage_product_feed( $product, is_array( $data ) ? $data : array() );
+		$expected = $this->capture_product_feed_expected( $product, $data );
+
+		return $this->verify_product_feed_expected( $product_id, $expected );
+	}
+
 	/** Apply one source row while both the source and exact product locks are owned. */
 	private function apply_product_feed_locked( $expected_product_id, $expected_product_code, $data ) {
 		$product_code = is_string( $data['product_code'] ?? null ) ? $data['product_code'] : '';
@@ -1758,6 +1795,19 @@ class Digitalogic_Patris_Feed {
 	 * @return void
 	 */
 	private function apply_product_feed_authorized( WC_Product $product, $data ) {
+		$this->stage_product_feed( $product, $data );
+		$product->save();
+		Digitalogic_Patris_Price_Policy::instance()->invalidate( $product );
+	}
+
+	/**
+	 * Stage the complete canonical feed projection without persisting it.
+	 *
+	 * @param WC_Product $product WooCommerce product.
+	 * @param array      $data    Validated normalized product.
+	 * @return void
+	 */
+	private function stage_product_feed( WC_Product $product, $data ) {
 		$data = is_array( $data ) ? $data : array();
 		$product->update_meta_data( '_digitalogic_patris_product_code', (string) ( $data['product_code'] ?? '' ) );
 
@@ -1801,10 +1851,7 @@ class Digitalogic_Patris_Feed {
 			$product->set_stock_status( $stock_quantity > 0 ? 'instock' : 'outofstock' );
 		}
 
-		$price_policy = Digitalogic_Patris_Price_Policy::instance();
-		$price_policy->apply( $product, $data );
-		$product->save();
-		$price_policy->invalidate( $product );
+		Digitalogic_Patris_Price_Policy::instance()->apply( $product, $data );
 	}
 
 	/** Field-to-meta mapping shared by the writer and its exact verifier. */

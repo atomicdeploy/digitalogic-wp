@@ -273,7 +273,10 @@ durable pending/deferred work with `wp digitalogic product-sync reconcile
 --user=<administrator>`. Legacy public products whose canonical feed ownership
 markers predate automatic materialization are repaired separately, at most 25
 per run, with `wp digitalogic product-sync reconcile --materialize-current
---limit=25 --user=<administrator>`. See
+--limit=25 --user=<administrator>`. An already-current feed is proved from
+fresh database state under the source and product locks before only its exact
+ownership metadata is backfilled; any mismatch uses the normal full writer.
+See
 [Patris Product Sync](docs/PATRIS-PRODUCT-SYNC.md).
 
 The authenticated **Digitalogic → Patris Reports** page and

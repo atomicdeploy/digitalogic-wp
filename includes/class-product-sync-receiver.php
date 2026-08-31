@@ -913,16 +913,23 @@ class Digitalogic_Product_Sync_Receiver {
 			$resolved = Digitalogic_Product_Identifier_Resolver::instance()->resolve(
 				array( 'patris_code' => $product_code )
 			);
+			$projection_matches = false;
+			$owner_matches      = false;
+			if ( ! is_wp_error( $resolved ) ) {
+				$woocommerce_id    = (int) $resolved['woocommerce_id'];
+				$projection_matches = $this->delivery_materialization_projection_matches(
+					$woocommerce_id,
+					$source
+				);
+				$owner_matches      = $this->delivery_materialization_owner_matches(
+					$woocommerce_id,
+					$source
+				);
+			}
 			if (
 				! is_wp_error( $resolved )
-				&& $this->delivery_materialization_projection_matches(
-					(int) $resolved['woocommerce_id'],
-					$source
-				)
-				&& $this->delivery_materialization_owner_matches(
-					(int) $resolved['woocommerce_id'],
-					$source
-				)
+				&& $projection_matches
+				&& $owner_matches
 			) {
 				continue;
 			}
@@ -936,6 +943,9 @@ class Digitalogic_Product_Sync_Receiver {
 				'force_apply'    => true,
 				'pricing_only'   => false,
 				'full_feed'      => true,
+				'owner_backfill_only' => ! is_wp_error( $resolved )
+					&& $projection_matches
+					&& ! $owner_matches,
 			);
 			++$queued;
 		}
@@ -3664,6 +3674,10 @@ class Digitalogic_Product_Sync_Receiver {
 				&& class_exists( 'Digitalogic_Patris_Catalog_Materializer' )
 				&& '1' === (string) $product->get_meta( Digitalogic_Patris_Catalog_Materializer::AUTO_MATERIALIZED_META, true );
 			$requires_full_feed = $created || $auto_materialized || ! empty( $delivery_entry['full_feed'] );
+			$owner_backfill_only = $materialization_enabled
+				&& ! $created
+				&& ! $auto_materialized
+				&& ! empty( $delivery_entry['owner_backfill_only'] );
 
             try {
 				if ( $materialization_enabled ) {
@@ -3676,23 +3690,40 @@ class Digitalogic_Product_Sync_Receiver {
 						throw new RuntimeException( $assignment->get_error_code() );
 					}
 				}
-                if (!empty($delivery_entry['pricing_only']) && ! $requires_full_feed) {
-                    Digitalogic_Patris_Feed::instance()->apply_product_pricing($product, $product_data);
-                } else {
-					$feed_write = Digitalogic_Patris_Feed::instance()->apply_product_feed( $product, $product_data );
-					if ( is_wp_error( $feed_write ) ) {
-						throw new RuntimeException( $feed_write->get_error_code() );
-					}
-                }
 				$committed = null;
-				if ( $materialization_enabled ) {
-					$committed = Digitalogic_Patris_Catalog_Materializer::instance()->commit_source_product(
+				$owner_backfilled = false;
+				if ( $owner_backfill_only ) {
+					$owner_backfill = Digitalogic_Patris_Catalog_Materializer::instance()->backfill_verified_source_product(
 						$woocommerce_id,
 						$product_data,
 						is_array( $source_state['source'] ?? null ) ? $source_state['source'] : array()
 					);
-					if ( is_wp_error( $committed ) ) {
-						throw new RuntimeException( $committed->get_error_code() );
+					if ( is_wp_error( $owner_backfill ) ) {
+						throw new RuntimeException( $owner_backfill->get_error_code() );
+					}
+					if ( is_array( $owner_backfill ) ) {
+						$committed       = $owner_backfill;
+						$owner_backfilled = true;
+					}
+				}
+				if ( ! $owner_backfilled ) {
+					if ( ! empty( $delivery_entry['pricing_only'] ) && ! $requires_full_feed ) {
+						Digitalogic_Patris_Feed::instance()->apply_product_pricing( $product, $product_data );
+					} else {
+						$feed_write = Digitalogic_Patris_Feed::instance()->apply_product_feed( $product, $product_data );
+						if ( is_wp_error( $feed_write ) ) {
+							throw new RuntimeException( $feed_write->get_error_code() );
+						}
+					}
+					if ( $materialization_enabled ) {
+						$committed = Digitalogic_Patris_Catalog_Materializer::instance()->commit_source_product(
+							$woocommerce_id,
+							$product_data,
+							is_array( $source_state['source'] ?? null ) ? $source_state['source'] : array()
+						);
+						if ( is_wp_error( $committed ) ) {
+							throw new RuntimeException( $committed->get_error_code() );
+						}
 					}
 				}
                 $persisted_hash = (string) get_post_meta($woocommerce_id, '_digitalogic_patris_record_hash', true);
@@ -3703,9 +3734,15 @@ class Digitalogic_Product_Sync_Receiver {
 					! $this->coordinated_price_readback_matches( $woocommerce_id, $product_data )
 					|| (
 						$materialization_enabled
-						&& ! $this->delivery_materialization_projection_matches(
-							$woocommerce_id,
-							$source_state['source'] ?? array()
+						&& (
+							! $this->delivery_materialization_projection_matches(
+								$woocommerce_id,
+								$source_state['source'] ?? array()
+							)
+							|| ! $this->delivery_materialization_owner_matches(
+								$woocommerce_id,
+								$source_state['source'] ?? array()
+							)
 						)
 					)
 				) {

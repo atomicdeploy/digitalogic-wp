@@ -3,7 +3,7 @@
  * Plugin Name: Digitalogic WooCommerce Extension
  * Plugin URI: https://github.com/atomicdeploy/digitalogic-wp
  * Description: Custom dynamic pricing, stock manager, and POS integration for Digitalogic electronic components shop. Supports bulk operations, import/export, and external API integration.
- * Version: 1.8.50
+ * Version: 1.8.51
  * Author: Digitalogic
  * Author URI: https://digitalogic.ir
  * Text Domain: digitalogic
@@ -22,7 +22,7 @@ if (!defined('ABSPATH')) {
 }
 
 // Define plugin constants
-define( 'DIGITALOGIC_VERSION', '1.8.50' );
+define( 'DIGITALOGIC_VERSION', '1.8.51' );
 define( 'DIGITALOGIC_PBX_SCHEMA_VERSION', '3' );
 define( 'DIGITALOGIC_EVENT_MESH_SCHEMA_VERSION', '1' );
 define( 'DIGITALOGIC_ASSISTANT_ACCOUNT_SCHEMA_VERSION', '2' );
@@ -140,6 +140,7 @@ final class Digitalogic {
 		require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-product-code-editor.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-shipping-method-service.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-patris-catalog-materializer.php';
+		require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-patris-topology-repair.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-google-sheets-catalog.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-google-sheets-writeback.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-excel-pricing-sync.php';

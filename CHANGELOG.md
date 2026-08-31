@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.51] - 2026-08-31
+
+### Fixed
+- Backfill canonical Patris ownership on an exact, already-current legacy
+  product without repeating two expensive WooCommerce object saves. The bounded
+  reconcile path proves the complete feed from fresh database state under the
+  source and product locks, writes only exact provenance metadata, and falls
+  back to the full canonical writer whenever any feed field differs.
+- Add a dry-run-first, source-revision-pinned transaction for explicitly
+  reviewed legacy variation topology. Parent/child maps, Code/SKU ownership,
+  terms, locks, and post-write identity are verified exactly; failures roll back
+  and an uncertain commit is never represented as safe to retry.
+
 ## [1.8.50] - 2026-08-31
 
 ### Added
