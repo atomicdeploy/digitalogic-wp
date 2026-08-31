@@ -54,6 +54,8 @@ $GLOBALS['digitalogic_test_cache_delete_failures'] = array();
 $GLOBALS['digitalogic_test_cache_invalidation_suspended'] = false;
 $GLOBALS['digitalogic_test_cache_invalidation_history'] = array();
 $GLOBALS['digitalogic_test_wc_cache_group_invalidations'] = array();
+$GLOBALS['digitalogic_test_wc_product_instance_cache_removals'] = array();
+$GLOBALS['digitalogic_test_wc_product_instance_cache_failure_ids'] = array();
 $GLOBALS['digitalogic_test_remote_posts'] = array();
 $GLOBALS['digitalogic_test_remote_post_results'] = array();
 $GLOBALS['digitalogic_test_spawn_cron_calls'] = array();
@@ -2336,6 +2338,55 @@ class WC_Cache_Helper {
 	public static function invalidate_cache_group( $group ) {
 		$GLOBALS['digitalogic_test_wc_cache_group_invalidations'][] = (string) $group;
 	}
+}
+
+
+// phpcs:disable Generic.Files.OneObjectStructurePerFile.MultipleFound -- Shared test bootstrap intentionally provides WordPress and WooCommerce doubles.
+/**
+ * Test double for WooCommerce's independent product-instance cache.
+ */
+class Digitalogic_Test_WC_Product_Instance_Cache {
+	/**
+	 * Remove one exact product or inject a deterministic failure.
+	 *
+	 * @param int $product_id Product ID.
+	 * @throws RuntimeException When the product ID is configured to fail.
+	 */
+	public function remove( $product_id ) {
+		$product_id = (int) $product_id;
+		if ( in_array( $product_id, $GLOBALS['digitalogic_test_wc_product_instance_cache_failure_ids'] ?? array(), true ) ) {
+			throw new RuntimeException( 'Injected product-instance cache failure.' );
+		}
+		$GLOBALS['digitalogic_test_wc_product_instance_cache_removals'][] = $product_id;
+	}
+}
+
+
+/**
+ * Test double for WooCommerce's dependency-injection container.
+ */
+class Digitalogic_Test_WC_Container {
+	/**
+	 * Return the exact requested cache double.
+	 *
+	 * @param string $class_name Requested service class.
+	 * @return Digitalogic_Test_WC_Product_Instance_Cache
+	 */
+	public function get( $class_name ) {
+		unset( $class_name );
+
+		return new Digitalogic_Test_WC_Product_Instance_Cache();
+	}
+}
+// phpcs:enable Generic.Files.OneObjectStructurePerFile.MultipleFound
+
+if ( ! class_exists( 'Automattic\\WooCommerce\\Internal\\Caches\\ProductCache', false ) ) {
+	class_alias( Digitalogic_Test_WC_Product_Instance_Cache::class, 'Automattic\\WooCommerce\\Internal\\Caches\\ProductCache' );
+}
+
+/** Return the WooCommerce test container. */
+function wc_get_container() {
+	return new Digitalogic_Test_WC_Container();
 }
 
 class WC_Product {

@@ -436,7 +436,7 @@ final class Digitalogic_Patris_Topology_Repair {
 			);
 			$this->require_success( $cleared );
 			$this->require_success( wp_set_object_terms( $parent_id, 'variable', 'product_type' ) );
-			$this->flush_products( array( $parent_id ) );
+			$this->require_success( $this->flush_products( array( $parent_id ) ) );
 
 			$parent     = new WC_Product_Variable( $parent_id );
 			$attributes = $parent->get_attributes();
@@ -492,7 +492,7 @@ final class Digitalogic_Patris_Topology_Repair {
 			);
 			$this->require_success( $created );
 
-			$this->flush_products( array_merge( $plan['locked_product_ids'], array( $new_variation_id ) ) );
+			$this->require_success( $this->flush_products( array_merge( $plan['locked_product_ids'], array( $new_variation_id ) ) ) );
 			$this->flush_topology_term_caches( $parent_ids, $term_id, $taxonomy );
 			$verified = $this->verify_applied( $plan, $new_variation_id, $term_id );
 			$this->require_success( $verified );
@@ -509,18 +509,19 @@ final class Digitalogic_Patris_Topology_Repair {
 			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Roll back every reviewed topology write on any failure.
 			$rollback = $wpdb->query( 'ROLLBACK' );
 			$this->restore_deferred_product_sync( $deferred_sync_snapshot );
-			$this->flush_products( array_merge( $plan['locked_product_ids'], array_filter( array( $new_variation_id ) ) ) );
+			$rollback_cache = $this->flush_products( array_merge( $plan['locked_product_ids'], array_filter( array( $new_variation_id ) ) ) );
 			$this->flush_topology_term_caches(
 				$parent_ids,
 				$term_id,
 				$plan['identity_parent']['attribute_taxonomy']
 			);
-			if ( $commit_attempted || false === $rollback || 'lock_lost' === $cause ) {
+			if ( $commit_attempted || false === $rollback || is_wp_error( $rollback_cache ) || 'lock_lost' === $cause ) {
 				return $this->error(
 					'digitalogic_patris_topology_outcome_unknown',
 					'The reviewed topology repair requires exact audit before any retry.',
 					array(
 						'cause'              => $cause,
+						'rollback_cache'     => is_wp_error( $rollback_cache ) ? $rollback_cache->get_error_code() : '',
 						'commit_attempted'   => $commit_attempted,
 						'rollback_attempted' => true,
 						'rollback_confirmed' => false !== $rollback,
@@ -721,14 +722,51 @@ final class Digitalogic_Patris_Topology_Repair {
 	 * Flush exact product and metadata caches after commit or rollback.
 	 *
 	 * @param int[] $product_ids Exact product IDs.
-	 * @return void
+	 * @return true|WP_Error
 	 */
 	private function flush_products( $product_ids ) {
 		foreach ( array_unique( array_filter( array_map( 'absint', (array) $product_ids ) ) ) as $product_id ) {
+			$instance_cache = $this->remove_product_instance_cache( $product_id );
+			if ( is_wp_error( $instance_cache ) ) {
+				return $instance_cache;
+			}
 			wp_cache_delete( $product_id, 'post_meta' );
 			clean_post_cache( $product_id );
 			wc_delete_product_transients( $product_id );
+			if ( ! class_exists( 'WC_Cache_Helper' ) || ! is_callable( array( 'WC_Cache_Helper', 'invalidate_cache_group' ) ) ) {
+				return $this->error( 'digitalogic_patris_topology_cache_unavailable', 'WooCommerce cache-prefix invalidation is unavailable.' );
+			}
+			WC_Cache_Helper::invalidate_cache_group( 'product_' . $product_id );
 		}
+
+		return true;
+	}
+
+	/**
+	 * Remove WooCommerce's optional product-instance cache entry.
+	 *
+	 * @param int $product_id Exact product ID.
+	 * @return true|WP_Error
+	 */
+	private function remove_product_instance_cache( $product_id ) {
+		$class = 'Automattic\\WooCommerce\\Internal\\Caches\\ProductCache';
+		if ( ! class_exists( $class ) || ! function_exists( 'wc_get_container' ) ) {
+			return true;
+		}
+
+		try {
+			$cache = wc_get_container()->get( $class );
+			if ( ! is_object( $cache ) || ! is_callable( array( $cache, 'remove' ) ) ) {
+				return $this->error( 'digitalogic_patris_topology_cache_unavailable', 'WooCommerce product-instance cache invalidation is unavailable.' );
+			}
+			$cache->remove( (int) $product_id );
+		} catch ( Throwable $error ) {
+			unset( $error );
+
+			return $this->error( 'digitalogic_patris_topology_cache_unavailable', 'WooCommerce product-instance cache invalidation failed.' );
+		}
+
+		return true;
 	}
 
 	/** Snapshot WooCommerce's request-local deferred parent sync queue. */

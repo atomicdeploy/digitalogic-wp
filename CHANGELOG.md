@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.53] - 2026-08-31
+
+### Fixed
+- Remove WooCommerce's independent product-instance cache and invalidate the
+  exact product cache prefix during Patris topology verification and rollback,
+  so durable product-type changes cannot be hidden by a stale cached class.
+- Fail closed with an auditable unknown outcome if exact cache invalidation is
+  unavailable after rollback.
+
 ## [1.8.52] - 2026-08-31
 
 ### Fixed

@@ -36,6 +36,9 @@ final class PatrisTopologyRepairTest extends TestCase {
 				'digitalogic_test_cache_deletes',
 				'digitalogic_test_wc_transient_deletes',
 				'digitalogic_test_object_term_cache_cleans',
+				'digitalogic_test_wc_cache_group_invalidations',
+				'digitalogic_test_wc_product_instance_cache_removals',
+				'digitalogic_test_wc_product_instance_cache_failure_ids',
 			)
 			as $global_name
 		) {
@@ -107,6 +110,8 @@ final class PatrisTopologyRepairTest extends TestCase {
 		$this->assertSame( array( 101, 102 ), wc_get_product( 100 )->get_children() );
 		$this->assertSame( array( 111 ), wc_get_product( 110 )->get_children() );
 		$this->assertSame( array( 201, 202, 203, 300 ), wc_get_product( 200 )->get_children() );
+		$this->assertContains( 200, $GLOBALS['digitalogic_test_wc_product_instance_cache_removals'] );
+		$this->assertContains( 'product_200', $GLOBALS['digitalogic_test_wc_cache_group_invalidations'] );
 		$this->assertFalse( Digitalogic_Product_Sync_Receiver::instance()->source_identity_lock_is_owned() );
 	}
 
@@ -159,6 +164,23 @@ final class PatrisTopologyRepairTest extends TestCase {
 			array( 200, 'product' ),
 			$GLOBALS['digitalogic_test_object_term_cache_cleans']
 		);
+		$this->assertContains( 200, $GLOBALS['digitalogic_test_wc_product_instance_cache_removals'] );
+		$this->assertContains( 'product_200', $GLOBALS['digitalogic_test_wc_cache_group_invalidations'] );
+	}
+
+	/** A product-instance cache failure makes rollback outcome explicitly unaudited. */
+	public function test_product_instance_cache_failure_returns_outcome_unknown(): void {
+		$GLOBALS['digitalogic_test_wc_product_instance_cache_failure_ids'] = array( 200 );
+
+		$result = Digitalogic_Patris_Topology_Repair::instance()->run( $this->plan(), true );
+
+		$this->assertInstanceOf( WP_Error::class, $result );
+		$this->assertSame( 'digitalogic_patris_topology_outcome_unknown', $result->get_error_code() );
+		$this->assertSame( 'digitalogic_patris_topology_cache_unavailable', $result->get_error_data()['cause'] );
+		$this->assertSame( 'digitalogic_patris_topology_cache_unavailable', $result->get_error_data()['rollback_cache'] );
+		$this->assertTrue( $result->get_error_data()['rollback_confirmed'] );
+		$this->assertSame( 'simple', $GLOBALS['digitalogic_test_posts'][200]['product_type'] );
+		$this->assertSame( 'BASE', $GLOBALS['digitalogic_test_posts'][200]['meta']['_sku'] );
 	}
 
 	/** Exact readback predicate and product ID survive rollback without leaking values. */
