@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.59] - 2026-08-31
+
+### Fixed
+- Keep identity-safe simple and variation products with missing or nonpositive
+  canonical prices out of stock even when Patris reports positive physical
+  stock, while preserving blank WooCommerce prices and later feed promotion.
+- Resume bounded legacy materialization scans from a source-revision-bound
+  cursor, reuse only request-local exact identity resolutions, and drain
+  existing pending work before selecting another batch.
+
 ## [1.8.58] - 2026-08-31
 
 ### Fixed

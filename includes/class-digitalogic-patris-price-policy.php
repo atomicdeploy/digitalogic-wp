@@ -71,7 +71,8 @@ final class Digitalogic_Patris_Price_Policy {
 	 * require a separate reconciliation. When weight is the only unavailable
 	 * price dependency, an already-valid regular/effective price pair is
 	 * preserved with an explicit warning until weight is supplied. Other
-	 * missing or non-positive canonical values clear the simple/variation price.
+	 * missing or non-positive canonical values clear the simple/variation price
+	 * and keep that leaf out of stock until a complete feed write promotes it.
 	 *
 	 * @param WC_Product $product WooCommerce product or variation.
 	 * @param array      $data    Normalized Patris row.
@@ -106,6 +107,7 @@ final class Digitalogic_Patris_Price_Policy {
 			$product->set_regular_price( '' );
 			$product->set_sale_price( '' );
 			$product->set_price( '' );
+			$product->set_stock_status( 'outofstock' );
 			$status = 'canonical_missing_unpriced';
 			$product->update_meta_data( self::STATUS_META, $status );
 
@@ -116,6 +118,7 @@ final class Digitalogic_Patris_Price_Policy {
 			$product->set_regular_price( '' );
 			$product->set_sale_price( '' );
 			$product->set_price( '' );
+			$product->set_stock_status( 'outofstock' );
 			$status = 'canonical_nonpositive_unpriced';
 			$product->update_meta_data( self::STATUS_META, $status );
 

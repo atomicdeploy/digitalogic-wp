@@ -409,7 +409,8 @@ flush its request-local buffer once.
    verified from fresh database state under both source and product locks and
    receives only its five canonical provenance/marker rows. Any mismatch is
    counted in `materialization_mismatch_stopped`, remains pending, and stops
-   before the normal full-feed writer can run.
+   before the normal full-feed writer can run. The next invocation retries that
+   pending row before advancing the revision-bound scan cursor.
 3. Confirm that source-only report count is zero and spot-check incomplete
    products for public visibility, blank price, out-of-stock state, and absent
    Rank Math price/Offer metadata.

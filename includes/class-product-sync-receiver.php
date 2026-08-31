@@ -247,6 +247,7 @@ class Digitalogic_Product_Sync_Receiver {
 	private const MAX_RESULT_ERRORS          = 100;
 	private const MAX_DEFERRED_PRODUCTS      = self::MAX_PRODUCTS;
 	private const MAX_DELIVERY_PRODUCTS_PER_REQUEST = 25;
+	private const MATERIALIZATION_CURSOR_KEY = 'materialization_scan_cursor';
 	private const MAX_CODE_LENGTH            = 191;
     private const MAX_FORMULA_INTEGER_DIGITS = 15;
 	private const MAX_FORMULA_SCALE          = 12;
@@ -806,15 +807,26 @@ class Digitalogic_Product_Sync_Receiver {
 			$materialization_metadata_backfilled = 0;
 			$materialization_mismatch_stopped = 0;
             foreach ($selected as $source_key) {
+				$resolution_cache = array();
 				if ( $materialization_remaining > 0 ) {
-					$queued = $this->queue_materialization_projection_work(
-						$state['sources'][ $source_key ],
-						$materialization_remaining
-					);
+					$existing_pending  = is_array( $state['sources'][ $source_key ]['pending_products'] ?? null )
+						? $state['sources'][ $source_key ]['pending_products']
+						: array();
+					$queue_capacity    = empty( $existing_pending )
+						? self::MAX_DELIVERY_PRODUCTS_PER_REQUEST
+						: 0;
+					$queue_limit       = min( $materialization_remaining, $queue_capacity );
+					$queued            = $queue_limit > 0
+						? $this->queue_materialization_projection_work(
+							$state['sources'][ $source_key ],
+							$queue_limit,
+							$resolution_cache
+						)
+						: 0;
 					$materialization_queued    += $queued;
 					$materialization_remaining -= $queued;
 				}
-                $woo = $this->drain_delivery_products($state['sources'][$source_key], true, true);
+                $woo = $this->drain_delivery_products($state['sources'][$source_key], true, true, $resolution_cache);
                 $source_result = $this->source_status($state['sources'][$source_key]);
                 $source_result['woocommerce'] = $woo;
                 $sources[] = $source_result;
@@ -871,18 +883,48 @@ class Digitalogic_Product_Sync_Receiver {
 	 *
 	 * @param array $source_state Source state, updated by reference.
 	 * @param int   $limit        Remaining request-local batch allowance.
+	 * @param array $resolution_cache Request-local exact identity resolutions.
 	 * @return int Newly queued rows.
 	 */
-	private function queue_materialization_projection_work( &$source_state, $limit ) {
+	private function queue_materialization_projection_work( &$source_state, $limit, &$resolution_cache = null ) {
 		$limit = max( 0, min( self::MAX_DELIVERY_PRODUCTS_PER_REQUEST, (int) $limit ) );
 		if ( 0 === $limit || ! class_exists( 'Digitalogic_Patris_Catalog_Materializer' ) ) {
 			return 0;
+		}
+		if ( ! is_array( $resolution_cache ) ) {
+			$resolution_cache = array();
 		}
 
 		$products = is_array( $source_state['products'] ?? null )
 			? $source_state['products']
 			: array();
 		ksort( $products, SORT_STRING );
+		$product_keys    = array_keys( $products );
+		$source_revision = (string) ( $source_state['source']['revision'] ?? '' );
+		$cursor          = is_array( $source_state[ self::MATERIALIZATION_CURSOR_KEY ] ?? null )
+			? $source_state[ self::MATERIALIZATION_CURSOR_KEY ]
+			: array();
+		$start           = 0;
+		if (
+			'' !== $source_revision
+			&& isset( $cursor['source_revision'], $cursor['after_code'] )
+			&& is_string( $cursor['source_revision'] )
+			&& is_string( $cursor['after_code'] )
+			&& hash_equals( $source_revision, $cursor['source_revision'] )
+		) {
+			$position = array_search( $cursor['after_code'], $product_keys, true );
+			if ( false !== $position && $position + 1 < count( $product_keys ) ) {
+				$start = $position + 1;
+			}
+		}
+		$scan_products = array_slice( $products, $start, null, true );
+		$scan_codes    = array();
+		foreach ( $scan_products as $code_key => $product ) {
+			if ( is_array( $product ) ) {
+				$scan_codes[] = (string) ( $product['product_code'] ?? $code_key );
+			}
+		}
+		$bulk_resolutions = Digitalogic_Product_Identifier_Resolver::instance()->resolve_patris_codes( $scan_codes );
 		$pending  = is_array( $source_state['pending_products'] ?? null )
 			? $source_state['pending_products']
 			: array();
@@ -894,11 +936,15 @@ class Digitalogic_Product_Sync_Receiver {
 			: array();
 		$source   = is_array( $source_state['source'] ?? null ) ? $source_state['source'] : array();
 		$queued   = 0;
+		$scanned  = 0;
+		$last_scanned = '';
 
-		foreach ( $products as $code_key => $product ) {
+		foreach ( $scan_products as $code_key => $product ) {
 			if ( $queued >= $limit ) {
 				break;
 			}
+			++$scanned;
+			$last_scanned = (string) $code_key;
 			if ( ! is_array( $product ) ) {
 				continue;
 			}
@@ -917,9 +963,11 @@ class Digitalogic_Product_Sync_Receiver {
 				continue;
 			}
 
-			$resolved = Digitalogic_Product_Identifier_Resolver::instance()->resolve(
-				array( 'patris_code' => $product_code )
-			);
+			$resolved = array_key_exists( $product_code, $bulk_resolutions )
+				? $bulk_resolutions[ $product_code ]
+				: Digitalogic_Product_Identifier_Resolver::instance()->resolve(
+					array( 'patris_code' => $product_code )
+				);
 			$projection_matches = false;
 			$owner_matches      = false;
 			if ( ! is_wp_error( $resolved ) ) {
@@ -940,6 +988,7 @@ class Digitalogic_Product_Sync_Receiver {
 			) {
 				continue;
 			}
+			$resolution_cache[ $product_code ] = $resolved;
 
 			unset( $applied[ $code_key ], $deferred[ $code_key ] );
 			$pending[ $code_key ] = array(
@@ -958,6 +1007,14 @@ class Digitalogic_Product_Sync_Receiver {
 		$source_state['applied_products']  = $applied;
 		$source_state['pending_products']  = $pending;
 		$source_state['deferred_products'] = $deferred;
+		if ( $scanned >= count( $scan_products ) || '' === $last_scanned ) {
+			unset( $source_state[ self::MATERIALIZATION_CURSOR_KEY ] );
+		} else {
+			$source_state[ self::MATERIALIZATION_CURSOR_KEY ] = array(
+				'source_revision' => $source_revision,
+				'after_code'      => $last_scanned,
+			);
+		}
 
 		return $queued;
 	}
@@ -4278,6 +4335,16 @@ class Digitalogic_Product_Sync_Receiver {
         $sale = trim((string) $woo_product->get_sale_price());
         if ($has_final_price) {
             $final_price = (string) $product['final_price'];
+			if ( ! is_numeric( $final_price ) || (float) $final_price <= 0 ) {
+				$unpriced_status = is_numeric( $final_price )
+					? 'canonical_nonpositive_unpriced'
+					: 'canonical_missing_unpriced';
+				return $unpriced_status === (string) $woo_product->get_meta( Digitalogic_Patris_Price_Policy::STATUS_META, true )
+					&& '' === $regular
+					&& '' === $visible
+					&& '' === $sale
+					&& 'outofstock' === (string) $woo_product->get_stock_status();
+			}
             return $regular === $final_price && $visible === $final_price && '' === $sale;
         }
 
@@ -4295,7 +4362,8 @@ class Digitalogic_Product_Sync_Receiver {
         return 'canonical_missing_unpriced' === $status
             && '' === $regular
             && '' === $visible
-            && '' === $sale;
+            && '' === $sale
+			&& 'outofstock' === (string) $woo_product->get_stock_status();
     }
 
 	/** Verify the public materialization marker before trusting an applied hash. */
