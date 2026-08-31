@@ -1907,18 +1907,45 @@ class Digitalogic_Test_WPDB {
 
 			return $rows;
 		}
-		if ( strpos( $query, 'digitalogic_pricing_batch_leaf_identity' ) !== false ) {
+		if ( strpos( $query, 'digitalogic_pricing_batch_leaf_identity_topology' ) !== false ) {
 			if ( is_callable( $GLOBALS['digitalogic_test_before_pricing_batch_leaf_identity'] ?? null ) ) {
 				$callback = $GLOBALS['digitalogic_test_before_pricing_batch_leaf_identity'];
 				unset( $GLOBALS['digitalogic_test_before_pricing_batch_leaf_identity'] );
 				call_user_func( $callback );
 			}
 			preg_match( '/ids:(\d+)/', $query, $id_matches );
+			$id_count   = isset( $id_matches[1] ) ? (int) $id_matches[1] : 0;
+			$ids        = array_map( 'intval', array_slice( $args, 0, $id_count ) );
+			$candidates = array_fill_keys( $ids, true );
+			$ids        = array_map( 'intval', array_keys( $candidates ) );
+			sort( $ids, SORT_NUMERIC );
+			$rows = array();
+			foreach ( $ids as $product_id ) {
+				$post = $GLOBALS['digitalogic_test_posts'][ $product_id ] ?? null;
+				if ( ! is_array( $post ) ) {
+					continue;
+				}
+				$rows[] = array(
+					'product_id'   => $product_id,
+					'post_type'    => (string) ( $post['post_type'] ?? '' ),
+					'post_status'  => (string) ( $post['post_status'] ?? '' ),
+					'parent_id'    => (int) ( $post['post_parent'] ?? 0 ),
+					'product_type' => 'product_variation' === (string) ( $post['post_type'] ?? '' )
+						? 'variation'
+						: (string) ( $post['product_type'] ?? 'simple' ),
+					'lookup_id'    => isset( $GLOBALS['digitalogic_test_wc_lookup_rows'][ $product_id ] ) ? $product_id : null,
+				);
+			}
+
+			return $rows;
+		}
+		if ( strpos( $query, 'digitalogic_pricing_batch_leaf_identity_meta' ) !== false ) {
+			preg_match( '/ids:(\d+)/', $query, $id_matches );
 			preg_match( '/keys:(\d+)/', $query, $key_matches );
 			$id_count   = isset( $id_matches[1] ) ? (int) $id_matches[1] : 0;
 			$key_count  = isset( $key_matches[1] ) ? (int) $key_matches[1] : 0;
-			$keys       = array_map( 'strtolower', array_slice( $args, 0, $key_count ) );
-			$ids        = array_map( 'intval', array_slice( $args, $key_count, $id_count ) );
+			$ids        = array_map( 'intval', array_slice( $args, 0, $id_count ) );
+			$keys       = array_map( 'strtolower', array_slice( $args, $id_count, $key_count ) );
 			$candidates = array_fill_keys( $ids, true );
 			$ids        = array_map( 'intval', array_keys( $candidates ) );
 			sort( $ids, SORT_NUMERIC );
@@ -1944,32 +1971,11 @@ class Digitalogic_Test_WPDB {
 						: ( array_key_exists( $meta_key, $post['meta'] ?? array() ) ? array( $post['meta'][ $meta_key ] ) : array() );
 					foreach ( $values as $value ) {
 						$product_rows[] = array(
-							'product_id'   => $product_id,
-							'post_type'    => (string) ( $post['post_type'] ?? '' ),
-							'post_status'  => (string) ( $post['post_status'] ?? '' ),
-							'parent_id'    => (int) ( $post['post_parent'] ?? 0 ),
-							'product_type' => 'product_variation' === (string) ( $post['post_type'] ?? '' )
-								? 'variation'
-								: (string) ( $post['product_type'] ?? 'simple' ),
-							'lookup_id'    => isset( $GLOBALS['digitalogic_test_wc_lookup_rows'][ $product_id ] ) ? $product_id : null,
-							'meta_key'     => (string) $meta_key, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key -- Test fixture row shape.
-							'meta_value'   => (string) $value, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_value -- Test fixture row shape.
+							'product_id' => $product_id,
+							'meta_key'   => (string) $meta_key, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key -- Test fixture row shape.
+							'meta_value' => (string) $value, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_value -- Test fixture row shape.
 						);
 					}
-				}
-				if ( empty( $product_rows ) ) {
-					$product_rows[] = array(
-						'product_id'   => $product_id,
-						'post_type'    => (string) ( $post['post_type'] ?? '' ),
-						'post_status'  => (string) ( $post['post_status'] ?? '' ),
-						'parent_id'    => (int) ( $post['post_parent'] ?? 0 ),
-						'product_type' => 'product_variation' === (string) ( $post['post_type'] ?? '' )
-							? 'variation'
-							: (string) ( $post['product_type'] ?? 'simple' ),
-						'lookup_id'    => isset( $GLOBALS['digitalogic_test_wc_lookup_rows'][ $product_id ] ) ? $product_id : null,
-						'meta_key'     => null, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key -- Fake locked-read result column, not a database query.
-						'meta_value'   => null, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_value -- Fake locked-read result column, not a database query.
-					);
 				}
 				$rows = array_merge( $rows, $product_rows );
 			}

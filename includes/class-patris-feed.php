@@ -2444,22 +2444,26 @@ class Digitalogic_Patris_Feed {
 		);
 		$lookup_table   = $wpdb->prefix . 'wc_product_meta_lookup';
 		$type_sql       = "SELECT term.slug FROM {$wpdb->term_relationships} tr INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id=tr.term_taxonomy_id AND tt.taxonomy='product_type' INNER JOIN {$wpdb->terms} term ON term.term_id=tt.term_id WHERE tr.object_id=p.ID ORDER BY term.slug LIMIT 1";
-		$rows           = array();
+		$topology_rows  = array();
+		$meta_rows      = array();
 		foreach ( array_chunk( $product_ids, 200 ) as $product_id_chunk ) {
-			$sql = '/* digitalogic_pricing_batch_leaf_identity ids:' . count( $product_id_chunk ) . ' keys:' . count( $normalized_keys ) . " */ SELECT p.ID product_id, p.post_type, p.post_status, p.post_parent parent_id, CASE WHEN p.post_type='product_variation' THEN 'variation' ELSE COALESCE(({$type_sql}),'simple') END product_type, leaf_lookup.product_id lookup_id, pm.meta_key, pm.meta_value FROM {$wpdb->posts} p LEFT JOIN {$lookup_table} leaf_lookup ON leaf_lookup.product_id=p.ID LEFT JOIN {$wpdb->postmeta} pm ON pm.post_id=p.ID AND LOWER(pm.meta_key) IN (" . implode( ',', array_fill( 0, count( $normalized_keys ), '%s' ) ) . ') WHERE p.ID IN (' . implode( ',', array_fill( 0, count( $product_id_chunk ), '%d' ) ) . ') ORDER BY p.ID,pm.meta_key,pm.meta_id FOR UPDATE';
-			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Ordered bounded current reads fence exact leaf identity/topology/owner rows immediately before the transactional batch writes.
-			// phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- The dynamic SQL contains only generated placeholder counts and is prepared with the exact bounded arguments below.
-			$prepared_sql = $wpdb->prepare( $sql, ...array_merge( $normalized_keys, $product_id_chunk ) );
-			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- This bounded FOR UPDATE read must bypass object caches and run inside the surrounding transaction.
-			$chunk_rows = $wpdb->get_results(
-				// phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- PHPCS cannot infer that $prepared_sql is the direct result of $wpdb->prepare() on the immediately preceding line.
-				$prepared_sql,
+			$topology_sql = '/* digitalogic_pricing_batch_leaf_identity_topology ids:' . count( $product_id_chunk ) . " */ SELECT p.ID product_id, p.post_type, p.post_status, p.post_parent parent_id, CASE WHEN p.post_type='product_variation' THEN 'variation' ELSE COALESCE(({$type_sql}),'simple') END product_type, leaf_lookup.product_id lookup_id FROM {$wpdb->posts} p LEFT JOIN {$lookup_table} leaf_lookup ON leaf_lookup.product_id=p.ID WHERE p.ID IN (" . implode( ',', array_fill( 0, count( $product_id_chunk ), '%d' ) ) . ') ORDER BY p.ID FOR UPDATE';
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Ordered bounded current reads fence exact topology and lookup rows without joining the concurrently updated postmeta table.
+			$chunk_topology = $wpdb->get_results(
+				$wpdb->prepare( $topology_sql, ...$product_id_chunk ), // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- Generated placeholders are prepared with the exact bounded IDs.
 				ARRAY_A
 			);
-			if ( ! is_array( $chunk_rows ) ) {
+			$meta_sql       = '/* digitalogic_pricing_batch_leaf_identity_meta ids:' . count( $product_id_chunk ) . ' keys:' . count( $normalized_keys ) . " */ SELECT post_id product_id, meta_key, meta_value FROM {$wpdb->postmeta} WHERE post_id IN (" . implode( ',', array_fill( 0, count( $product_id_chunk ), '%d' ) ) . ') AND LOWER(meta_key) IN (' . implode( ',', array_fill( 0, count( $normalized_keys ), '%s' ) ) . ') ORDER BY post_id,meta_key,meta_id FOR UPDATE';
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- A separate bounded current read locks exact managed metadata rows without a join plan.
+			$chunk_meta = $wpdb->get_results(
+				$wpdb->prepare( $meta_sql, ...array_merge( $product_id_chunk, $normalized_keys ) ), // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- Generated placeholders are prepared with exact IDs and keys.
+				ARRAY_A
+			);
+			if ( ! is_array( $chunk_topology ) || ! is_array( $chunk_meta ) ) {
 				return $this->pricing_batch_error( 'leaf_identity' );
 			}
-			$rows = array_merge( $rows, $chunk_rows );
+			$topology_rows = array_merge( $topology_rows, $chunk_topology );
+			$meta_rows     = array_merge( $meta_rows, $chunk_meta );
 		}
 		$collision_sql = '/* digitalogic_pricing_batch_leaf_collision ids:' . count( $product_ids ) . ' keys:' . count( $collision_keys ) . ' codes:' . count( $product_codes ) . " */ SELECT collision.post_id product_id FROM {$wpdb->postmeta} collision INNER JOIN {$wpdb->posts} collision_post ON collision_post.ID=collision.post_id AND collision_post.post_type IN ('product','product_variation') AND collision_post.post_status NOT IN ('trash','auto-draft') WHERE collision.post_id NOT IN (" . implode( ',', array_fill( 0, count( $product_ids ), '%d' ) ) . ') AND LOWER(collision.meta_key) IN (' . implode( ',', array_fill( 0, count( $collision_keys ), '%s' ) ) . ') AND BINARY collision.meta_value IN (' . implode( ',', array_fill( 0, count( $product_codes ), '%s' ) ) . ') ORDER BY collision.post_id,collision.meta_id FOR UPDATE';
 		// phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- The dynamic SQL contains only generated placeholder counts and is prepared with the exact bounded arguments below.
@@ -2478,28 +2482,33 @@ class Digitalogic_Patris_Feed {
 			return $this->pricing_batch_error( 'leaf_identity' );
 		}
 		$actual = array();
-		foreach ( $rows as $row ) {
+		foreach ( $topology_rows as $row ) {
 			$product_id = absint( $row['product_id'] ?? 0 );
-			if ( ! isset( $identity_plans[ $product_id ] ) ) {
+			if ( ! isset( $identity_plans[ $product_id ] ) || isset( $actual[ $product_id ] ) ) {
 				return $this->pricing_batch_error( 'leaf_identity' );
 			}
+			$actual[ $product_id ] = array(
+				'post_type'    => (string) ( $row['post_type'] ?? '' ),
+				'post_status'  => (string) ( $row['post_status'] ?? '' ),
+				'parent_id'    => absint( $row['parent_id'] ?? 0 ),
+				'product_type' => (string) ( $row['product_type'] ?? '' ),
+				'lookup_id'    => absint( $row['lookup_id'] ?? 0 ),
+				'meta'         => array(),
+			);
+		}
+		foreach ( $meta_rows as $row ) {
+			$product_id = absint( $row['product_id'] ?? 0 );
 			if ( ! isset( $actual[ $product_id ] ) ) {
-				$actual[ $product_id ] = array(
-					'post_type'    => (string) ( $row['post_type'] ?? '' ),
-					'post_status'  => (string) ( $row['post_status'] ?? '' ),
-					'parent_id'    => absint( $row['parent_id'] ?? 0 ),
-					'product_type' => (string) ( $row['product_type'] ?? '' ),
-					'lookup_id'    => absint( $row['lookup_id'] ?? 0 ),
-					'meta'         => array(),
-				);
+				return $this->pricing_batch_error( 'leaf_identity' );
 			}
 			$meta_key = (string) ( $row['meta_key'] ?? '' );
-			if ( '' !== $meta_key ) {
-				$actual[ $product_id ]['meta'][ strtolower( $meta_key ) ][] = array(
-					'key'   => $meta_key,
-					'value' => (string) ( $row['meta_value'] ?? '' ),
-				);
+			if ( '' === $meta_key ) {
+				return $this->pricing_batch_error( 'leaf_identity' );
 			}
+			$actual[ $product_id ]['meta'][ strtolower( $meta_key ) ][] = array(
+				'key'   => $meta_key,
+				'value' => (string) ( $row['meta_value'] ?? '' ),
+			);
 		}
 		foreach ( $identity_plans as $product_id => $expected ) {
 			$product_id         = absint( $product_id );
