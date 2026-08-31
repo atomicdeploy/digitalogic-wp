@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.64] - 2026-08-31
+
+### Fixed
+- Verify pricing state-event queues and receipts against authoritative MySQL
+  state, fence publication to the exact committed pricing revision, and make
+  repeated panel delivery idempotent across crash and cache-divergence windows.
+- Treat concurrent alert schedules as successful when the exact worker already
+  exists, reclaim expired delivery leases, and keep durable relay-pending
+  Telegram events retryable under their original idempotency identity until a
+  provider receipt is recorded.
+
 ## [1.8.63] - 2026-08-31
 
 ### Fixed

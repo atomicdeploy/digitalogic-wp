@@ -39,6 +39,9 @@ final class Digitalogic_Patris_Incomplete_Product_Notifier {
 	private const MAX_RECEIPTS         = 5000;
 	private const RECEIPT_TTL          = 180 * DAY_IN_SECONDS;
 	private const LEASE_SECONDS        = 300;
+
+	private const RECEIPT_PENDING_RETRY = 300;
+
 	private const SOURCE_REVISION_META = '_digitalogic_patris_source_revision';
 	private const MISSING_FIELDS_META  = '_digitalogic_patris_materialization_missing_fields';
 	private const OWNER_SOURCE_META    = '_digitalogic_patris_owner_source_id';
@@ -217,10 +220,12 @@ final class Digitalogic_Patris_Incomplete_Product_Notifier {
 					continue;
 				}
 				$seen[ $product_key ] = true;
-				if ( 'exhausted' === (string) ( $entry['status'] ?? '' ) ) {
+
+				$receipt_pending = $this->is_receipt_pending_entry( $entry );
+				if ( 'exhausted' === (string) ( $entry['status'] ?? '' ) && ! $receipt_pending ) {
 					continue;
 				}
-				if ( (int) ( $entry['attempts'] ?? 0 ) >= self::MAX_ATTEMPTS ) {
+				if ( (int) ( $entry['attempts'] ?? 0 ) >= self::MAX_ATTEMPTS && ! $receipt_pending ) {
 					continue;
 				}
 				$lease_until = (int) ( $entry['lease_until'] ?? 0 );
@@ -244,6 +249,9 @@ final class Digitalogic_Patris_Incomplete_Product_Notifier {
 
 			$scheduled = wp_schedule_single_event( $next, self::WORKER_HOOK, array(), true );
 			if ( is_wp_error( $scheduled ) || false === $scheduled ) {
+				if ( function_exists( 'wp_next_scheduled' ) && false !== wp_next_scheduled( self::WORKER_HOOK, array() ) ) {
+					return true;
+				}
 				$this->report_failure( 'digitalogic_patris_incomplete_alert_schedule_failed' );
 				return false;
 			}
@@ -319,6 +327,9 @@ final class Digitalogic_Patris_Incomplete_Product_Notifier {
 
 			$scheduled = wp_schedule_single_event( time() + self::REPAIR_INTERVAL, self::REPAIR_HOOK, array(), true );
 			if ( is_wp_error( $scheduled ) || false === $scheduled ) {
+				if ( function_exists( 'wp_next_scheduled' ) && false !== wp_next_scheduled( self::REPAIR_HOOK, array() ) ) {
+					return true;
+				}
 				$this->report_failure( 'digitalogic_patris_incomplete_alert_repair_schedule_failed' );
 				return false;
 			}
@@ -665,8 +676,9 @@ final class Digitalogic_Patris_Incomplete_Product_Notifier {
 				if ( isset( $blocked[ $product_key ] ) ) {
 					continue;
 				}
-				$attempts = (int) ( $entry['attempts'] ?? 0 );
-				if ( $attempts >= self::MAX_ATTEMPTS ) {
+				$attempts        = (int) ( $entry['attempts'] ?? 0 );
+				$receipt_pending = $this->is_receipt_pending_entry( $entry );
+				if ( $attempts >= self::MAX_ATTEMPTS && ! $receipt_pending ) {
 					if ( 'exhausted' !== (string) ( $entry['status'] ?? '' ) ) {
 						$store['outbox'][ $event_id ]['status']     = 'exhausted';
 						$store['outbox'][ $event_id ]['updated_at'] = gmdate( 'c' );
@@ -752,11 +764,15 @@ final class Digitalogic_Patris_Incomplete_Product_Notifier {
 					unset( $store['outbox'][ $event_id ] );
 				} else {
 					$attempts                     = (int) ( $entry['attempts'] ?? 0 );
-					$entry['status']              = $attempts >= self::MAX_ATTEMPTS ? 'exhausted' : 'pending';
-					$entry['next_attempt_at']     = $attempts >= self::MAX_ATTEMPTS ? 0 : time() + $this->retry_delay( $attempts );
+					$error_code                   = sanitize_key( (string) $delivery->get_error_code() );
+					$receipt_pending              = $this->is_receipt_pending_error_code( $error_code );
+					$entry['status']              = $receipt_pending ? 'receipt_pending' : ( $attempts >= self::MAX_ATTEMPTS ? 'exhausted' : 'pending' );
+					$entry['next_attempt_at']     = $receipt_pending
+						? time() + self::RECEIPT_PENDING_RETRY
+						: ( $attempts >= self::MAX_ATTEMPTS ? 0 : time() + $this->retry_delay( $attempts ) );
 					$entry['lease_token']         = '';
 					$entry['lease_until']         = 0;
-					$entry['last_error']          = sanitize_key( (string) $delivery->get_error_code() );
+					$entry['last_error']          = $error_code;
 					$entry['updated_at']          = gmdate( 'c' );
 					$store['outbox'][ $event_id ] = $entry;
 				}
@@ -1163,7 +1179,14 @@ final class Digitalogic_Patris_Incomplete_Product_Notifier {
 	 * @return array|WP_Error
 	 */
 	private function read_store() {
-		$raw = get_option( self::STORE_OPTION, null );
+		$row = $this->read_store_row();
+		$this->clear_store_cache();
+		$raw = is_array( $row ) && array_key_exists( 'option_value', $row )
+			? maybe_unserialize( $row['option_value'] )
+			: null;
+		if ( false === $row ) {
+			$raw = get_option( self::STORE_OPTION, null );
+		}
 		if ( null === $raw ) {
 			return $this->empty_store();
 		}
@@ -1263,12 +1286,42 @@ final class Digitalogic_Patris_Incomplete_Product_Notifier {
 	 * @return bool
 	 */
 	private function store_verified( array $store ): bool {
+		$this->clear_store_cache();
 		$stored = update_option( self::STORE_OPTION, $store, false );
-		if ( function_exists( 'wp_cache_delete' ) ) {
-			wp_cache_delete( self::STORE_OPTION, 'options' );
+		$row    = $this->read_store_row();
+		$exact  = is_array( $row )
+			&& array_key_exists( 'option_value', $row )
+			&& (string) maybe_serialize( $store ) === (string) $row['option_value'];
+		$this->clear_store_cache();
+
+		return ( true === $stored || $exact ) && $exact;
+	}
+
+	/** Return the raw durable alert-store row without trusting Redis. */
+	private function read_store_row() {
+		global $wpdb;
+		if ( ! is_object( $wpdb ) || ! isset( $wpdb->options ) || ! method_exists( $wpdb, 'prepare' ) || ! method_exists( $wpdb, 'get_row' ) ) {
+			return false;
 		}
 
-		return ( true === $stored || get_option( self::STORE_OPTION, null ) === $store );
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- The alert-store mutex serializes this authoritative readback.
+		return $wpdb->get_row(
+			$wpdb->prepare(
+				"SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1 /* digitalogic_patris_alert_store_readback */",
+				self::STORE_OPTION
+			),
+			ARRAY_A
+		); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- Prepared immediately above.
+	}
+
+	/** Evict option-cache locations that could mask the durable alert store. */
+	private function clear_store_cache(): void {
+		if ( ! function_exists( 'wp_cache_delete' ) ) {
+			return;
+		}
+		wp_cache_delete( self::STORE_OPTION, 'options' );
+		wp_cache_delete( 'notoptions', 'options' );
+		wp_cache_delete( 'alloptions', 'options' );
 	}
 
 	/**
@@ -1316,6 +1369,34 @@ final class Digitalogic_Patris_Incomplete_Product_Notifier {
 	 */
 	private function retry_delay( int $attempts ): int {
 		return $attempts <= 1 ? 60 : 300;
+	}
+
+	/**
+	 * Whether a durable provider receipt may still arrive for this exact event ID.
+	 *
+	 * @param mixed $entry Durable outbox entry.
+	 */
+	private function is_receipt_pending_entry( $entry ): bool {
+		$entry = is_array( $entry ) ? $entry : array();
+
+		return 'receipt_pending' === (string) ( $entry['status'] ?? '' )
+			|| $this->is_receipt_pending_error_code( (string) ( $entry['last_error'] ?? '' ) );
+	}
+
+	/**
+	 * Only idempotent relay-pending outcomes may retry beyond the local limit.
+	 *
+	 * @param string $code Delivery error code.
+	 */
+	private function is_receipt_pending_error_code( string $code ): bool {
+		return in_array(
+			sanitize_key( $code ),
+			array(
+				'digitalogic_patris_incomplete_alert_adapter_pending',
+				'digitalogic_patris_incomplete_alert_route_pending',
+			),
+			true
+		);
 	}
 
 	/**

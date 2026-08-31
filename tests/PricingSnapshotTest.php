@@ -864,6 +864,74 @@ final class PricingSnapshotTest extends TestCase {
 		$this->assertArrayHasKey( 'digitalogic_pricing_state_event_receipts_v1', $GLOBALS['digitalogic_test_options'] );
 	}
 
+	/** MySQL acknowledgement wins when Redis still exposes pre-crash state. */
+	public function test_state_event_crash_recovery_ignores_stale_option_cache_without_duplicate(): void {
+		$snapshot = Digitalogic_Pricing_Snapshot::instance();
+		$snapshot->schedule_state_revision_event();
+		$GLOBALS['digitalogic_test_update_failures'][] = 'digitalogic_pricing_state_event_receipts_v1';
+		$snapshot->publish_scheduled_state_revision_events();
+
+		$this->assertCount( 1, $GLOBALS['digitalogic_test_options']['digitalogic_panel_events'] );
+		$this->assertArrayHasKey( 'digitalogic_pricing_state_event_outbox_v1', $GLOBALS['digitalogic_test_options'] );
+		$this->assertArrayNotHasKey( 'digitalogic_pricing_state_event_receipts_v1', $GLOBALS['digitalogic_test_options'] );
+		$event = $GLOBALS['digitalogic_test_options']['digitalogic_panel_events'][0];
+
+		$GLOBALS['digitalogic_test_option_cache']['digitalogic_pricing_state_event_outbox_v1']   = array();
+		$GLOBALS['digitalogic_test_option_cache']['digitalogic_pricing_state_event_receipts_v1'] = array(
+			$this->source['id'] . "\n" . $this->source['dataset'] => array(
+				'state_revision'  => 'sha256:' . str_repeat( '0', 64 ),
+				'idempotency_key' => 'sha256:' . str_repeat( '1', 64 ),
+				'recorded_at'     => gmdate( 'c' ),
+			),
+		);
+		$GLOBALS['digitalogic_test_option_cache']['digitalogic_panel_events']                    = array();
+		$GLOBALS['digitalogic_test_update_failures'] = array();
+		$this->reset_singleton( Digitalogic_Pricing_Snapshot::class );
+		Digitalogic_Pricing_Snapshot::instance()->run_state_revision_event_delivery();
+
+		$this->assertCount( 1, $GLOBALS['digitalogic_test_options']['digitalogic_panel_events'] );
+		$this->assertSame( $event, $GLOBALS['digitalogic_test_options']['digitalogic_panel_events'][0] );
+		$this->assertArrayNotHasKey( 'digitalogic_pricing_state_event_outbox_v1', $GLOBALS['digitalogic_test_options'] );
+		$receipt = $GLOBALS['digitalogic_test_options']['digitalogic_pricing_state_event_receipts_v1'][ $this->source['id'] . "\n" . $this->source['dataset'] ];
+		$this->assertSame( $event['data']['state_revision'], $receipt['state_revision'] );
+		$this->assertSame( $event['data']['idempotency_key'], $receipt['idempotency_key'] );
+	}
+
+	/** An exact publication marker cannot silently publish a later pricing state. */
+	public function test_state_event_publication_is_fenced_by_exact_pricing_revision(): void {
+		$pricing_revision = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state()['state_revision'];
+		$result           = array(
+			'effect_id'      => 'sha256:' . str_repeat( '2', 64 ),
+			'state_revision' => $pricing_revision,
+		);
+		$this->assertTrue( Digitalogic_Pricing_Snapshot::instance()->invalidate_after_apply( $result ) );
+		$source_key = $this->source['id'] . "\n" . $this->source['dataset'];
+		$this->assertSame(
+			$pricing_revision,
+			$GLOBALS['digitalogic_test_options']['digitalogic_pricing_state_event_outbox_v1'][ $source_key ]['expected_pricing_state_revision']
+		);
+
+		$GLOBALS['digitalogic_test_options']['yuan_price']         = '31001';
+		$GLOBALS['digitalogic_test_options']['options_yuan_price'] = '31001';
+		unset(
+			$GLOBALS['digitalogic_test_option_cache']['yuan_price'],
+			$GLOBALS['digitalogic_test_option_cache']['options_yuan_price']
+		);
+		Digitalogic_Pricing_Snapshot::instance()->publish_scheduled_state_revision_events();
+		$this->assertArrayNotHasKey( 'digitalogic_panel_events', $GLOBALS['digitalogic_test_options'] );
+		$this->assertArrayHasKey( 'digitalogic_pricing_state_event_outbox_v1', $GLOBALS['digitalogic_test_options'] );
+		$failures = $GLOBALS['digitalogic_test_actions']['digitalogic_pricing_state_event_failed'] ?? array();
+		$this->assertSame( 'digitalogic_pricing_state_revision_conflict', end( $failures )[0] );
+
+		$current_revision = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state()['state_revision'];
+		$this->assertNotSame( $pricing_revision, $current_revision );
+		$this->assertTrue( Digitalogic_Pricing_Snapshot::instance()->ensure_state_revision_event( $current_revision ) );
+		Digitalogic_Pricing_Snapshot::instance()->publish_scheduled_state_revision_events();
+		$this->assertCount( 1, $GLOBALS['digitalogic_test_options']['digitalogic_panel_events'] );
+		$this->assertSame( $current_revision, $GLOBALS['digitalogic_test_options']['digitalogic_panel_events'][0]['data']['pricing_state_revision'] );
+		$this->assertArrayNotHasKey( 'digitalogic_pricing_state_event_outbox_v1', $GLOBALS['digitalogic_test_options'] );
+	}
+
 	/** Expired receipts cannot suppress reintroduced state and storage stays bounded. */
 	public function test_state_event_receipts_expire_and_prune_to_bounded_newest_set(): void {
 		$revision        = $this->revision_response()->get_data()['state_revision'];

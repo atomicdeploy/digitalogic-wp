@@ -1047,9 +1047,20 @@ class Digitalogic_Panel {
 
         try {
             self::refresh_event_option_cache(true);
-            $events = get_option(self::EVENT_OPTION, array());
+            $events = self::read_event_option_authoritative( self::EVENT_OPTION, array() );
             $events = is_array($events) ? $events : array();
-            $latest_id = absint(get_option(self::EVENT_SEQUENCE_OPTION, 0));
+            $latest_id = absint( self::read_event_option_authoritative( self::EVENT_SEQUENCE_OPTION, 0 ) );
+
+            $existing = self::idempotent_event( $events, $event, $data );
+            if ( is_wp_error( $existing ) ) {
+                return $existing;
+            }
+            if ( is_array( $existing ) ) {
+                return array(
+                    'event'             => $existing,
+                    'delivery_warnings' => array(),
+                );
+            }
 
             foreach ($events as $stored_event) {
                 if (is_array($stored_event) && isset($stored_event['id'])) {
@@ -1071,12 +1082,15 @@ class Digitalogic_Panel {
                 $events = array_slice($events, -self::EVENT_LIMIT);
             }
 
-            if (!update_option(self::EVENT_SEQUENCE_OPTION, $event_id, false)) {
+            $sequence_stored = self::store_event_option_verified( self::EVENT_SEQUENCE_OPTION, $event_id );
+            $stored          = self::store_event_option_verified( self::EVENT_OPTION, $events );
+            if ( ! $sequence_stored && $stored ) {
+                $sequence_stored = self::store_event_option_verified( self::EVENT_SEQUENCE_OPTION, $event_id );
+            }
+            if ( ! $sequence_stored ) {
                 self::report_event_delivery_failure('The durable event sequence could not be updated.');
                 $delivery_warnings[] = 'panel_sequence_write_failed';
             }
-
-            $stored = update_option(self::EVENT_OPTION, $events, false);
         } finally {
             self::release_event_lock($lock);
         }
@@ -1269,9 +1283,122 @@ class Digitalogic_Panel {
         $wpdb->get_var($wpdb->prepare('SELECT RELEASE_LOCK(%s)', self::EVENT_LOCK_NAME));
     }
 
-    /**
-     * Avoid stale option values in the long-running WP-CLI WebSocket process.
-     */
+	/**
+	 * Return an already-durable envelope for one exact idempotent event.
+	 *
+	 * @param mixed  $events Durable panel events.
+	 * @param string $event  Canonical event name.
+	 * @param mixed  $data   Canonical event data.
+	 * @return array|WP_Error|null
+	 */
+	private static function idempotent_event( $events, $event, $data ) {
+		$key = is_array( $data ) ? (string) ( $data['idempotency_key'] ?? '' ) : '';
+		if ( 1 !== preg_match( '/\Asha256:[a-f0-9]{64}\z/D', $key ) ) {
+			return null;
+		}
+
+		$name = sanitize_text_field( (string) $event );
+		foreach ( array_reverse( (array) $events ) as $stored_event ) {
+			$stored_data = is_array( $stored_event['data'] ?? null ) ? $stored_event['data'] : array();
+			if ( ! hash_equals( $key, (string) ( $stored_data['idempotency_key'] ?? '' ) ) ) {
+				continue;
+			}
+			if ( ! hash_equals( $name, (string) ( $stored_event['name'] ?? '' ) ) ) {
+				return new WP_Error(
+					'digitalogic_panel_event_idempotency_conflict',
+					__( 'The panel event idempotency key conflicts with a different event.', 'digitalogic' )
+				);
+			}
+			$expected_data = is_array( $data ) ? $data : array();
+			unset( $stored_data['cause'], $expected_data['cause'] );
+			if ( $expected_data !== $stored_data ) {
+				return new WP_Error(
+					'digitalogic_panel_event_idempotency_conflict',
+					__( 'The panel event idempotency key conflicts with different data.', 'digitalogic' )
+				);
+			}
+
+			return $stored_event;
+		}
+
+		return null;
+	}
+
+	/**
+	 * Read one panel event option directly from MySQL under the event mutex.
+	 *
+	 * @param string $key      Option key.
+	 * @param mixed  $fallback Value used when the option is absent.
+	 * @return mixed
+	 */
+	private static function read_event_option_authoritative( $key, $fallback = null ) {
+		$row = self::read_event_option_row( $key );
+		self::clear_event_option_cache( $key );
+
+		return is_array( $row ) && array_key_exists( 'option_value', $row )
+			? maybe_unserialize( $row['option_value'] )
+			: $fallback;
+	}
+
+	/**
+	 * Store one panel event option and require exact MySQL readback.
+	 *
+	 * @param string $key   Option key.
+	 * @param mixed  $value Durable value.
+	 * @return bool
+	 */
+	private static function store_event_option_verified( $key, $value ) {
+		self::clear_event_option_cache( $key );
+		$stored = update_option( $key, $value, false );
+		$row    = self::read_event_option_row( $key );
+		$exact  = is_array( $row )
+			&& array_key_exists( 'option_value', $row )
+			&& (string) maybe_serialize( $value ) === (string) $row['option_value'];
+		self::clear_event_option_cache( $key );
+
+		return ( $stored || $exact ) && $exact;
+	}
+
+	/**
+	 * Return one raw option row without trusting Redis object-cache state.
+	 *
+	 * @param string $key Option key.
+	 * @return array|null
+	 */
+	private static function read_event_option_row( $key ) {
+		global $wpdb;
+		if ( ! is_object( $wpdb ) || ! isset( $wpdb->options ) || ! method_exists( $wpdb, 'prepare' ) || ! method_exists( $wpdb, 'get_row' ) ) {
+			return null;
+		}
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- The database event mutex serializes this authoritative readback.
+		return $wpdb->get_row(
+			$wpdb->prepare(
+				"SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1 /* digitalogic_panel_event_option_readback */",
+				(string) $key
+			),
+			ARRAY_A
+		); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- Prepared immediately above.
+	}
+
+	/**
+	 * Evict every option-cache location that can mask durable panel state.
+	 *
+	 * @param string $key Option key.
+	 * @return void
+	 */
+	private static function clear_event_option_cache( $key ) {
+		if ( ! function_exists( 'wp_cache_delete' ) ) {
+			return;
+		}
+		wp_cache_delete( (string) $key, 'options' );
+		wp_cache_delete( 'notoptions', 'options' );
+		wp_cache_delete( 'alloptions', 'options' );
+	}
+
+	/**
+	 * Avoid stale option values in the long-running WP-CLI WebSocket process.
+	 */
     private static function refresh_event_option_cache($force = false) {
         if (
             !function_exists('wp_cache_delete')
