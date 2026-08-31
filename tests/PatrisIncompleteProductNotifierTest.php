@@ -399,6 +399,126 @@ final class PatrisIncompleteProductNotifierTest extends TestCase {
 		$this->assertCount( 3, $this->adapter_events );
 	}
 
+	/** Durable relay-pending entries keep one event identity beyond local attempts. */
+	public function test_adapter_pending_exhaustion_retries_same_event_until_provider_receipt(): void {
+		$this->commit_snapshot( $this->snapshot( array( 'price', 'stock' ) ) );
+		$store                                    = $this->store();
+		$event_id                                 = (string) array_key_first( $store['outbox'] );
+		$store['outbox'][ $event_id ]['status']   = 'exhausted';
+		$store['outbox'][ $event_id ]['attempts'] = 3;
+		$store['outbox'][ $event_id ]['next_attempt_at'] = 0;
+		$store['outbox'][ $event_id ]['lease_token']     = '';
+		$store['outbox'][ $event_id ]['lease_until']     = 0;
+		$store['outbox'][ $event_id ]['last_error']      = 'digitalogic_patris_incomplete_alert_adapter_pending';
+		update_option( Digitalogic_Patris_Incomplete_Product_Notifier::STORE_OPTION, $store, false );
+		$GLOBALS['digitalogic_test_scheduled_events'] = array();
+
+		$this->adapter_result = new WP_Error(
+			'digitalogic_patris_incomplete_alert_adapter_pending',
+			'The durable relay is still waiting for its provider receipt.'
+		);
+		$this->assertTrue( $this->service->ensure_delivery_worker() );
+		$this->service->run_delivery_worker();
+
+		$pending = $this->store()['outbox'][ $event_id ];
+		$this->assertSame( 'receipt_pending', $pending['status'] );
+		$this->assertSame( 4, $pending['attempts'] );
+		$this->assertGreaterThan( time(), $pending['next_attempt_at'] );
+		$this->assertSame( $event_id, $this->adapter_events[0]['event_id'] );
+
+		$this->adapter_result = null;
+		$this->make_outbox_due();
+		$this->service->run_delivery_worker();
+
+		$this->assertSame( array( $event_id, $event_id ), array_column( $this->adapter_events, 'event_id' ) );
+		$this->assertCount( 0, $this->store()['outbox'] );
+		$this->assertArrayHasKey( $event_id, $this->store()['receipts'] );
+	}
+
+	/** An expired delivery lease is reclaimed with a new exact claim. */
+	public function test_stale_delivering_lease_is_reclaimed_without_event_duplication(): void {
+		$this->commit_snapshot( $this->snapshot( array( 'price' ) ) );
+		$store                                    = $this->store();
+		$event_id                                 = (string) array_key_first( $store['outbox'] );
+		$store['outbox'][ $event_id ]['status']   = 'delivering';
+		$store['outbox'][ $event_id ]['attempts'] = 1;
+		$store['outbox'][ $event_id ]['next_attempt_at'] = 0;
+		$store['outbox'][ $event_id ]['lease_token']     = 'sha256:' . str_repeat( 'b', 64 );
+		$store['outbox'][ $event_id ]['lease_until']     = time() - 1;
+		update_option( Digitalogic_Patris_Incomplete_Product_Notifier::STORE_OPTION, $store, false );
+
+		$this->service->run_delivery_worker();
+
+		$this->assertCount( 1, $this->adapter_events );
+		$this->assertSame( $event_id, $this->adapter_events[0]['event_id'] );
+		$this->assertCount( 0, $this->store()['outbox'] );
+		$this->assertArrayHasKey( $event_id, $this->store()['receipts'] );
+	}
+
+	/** Redis-stale state cannot hide durable work, and a schedule race is success. */
+	public function test_authoritative_store_and_duplicate_schedule_race_preserve_worker(): void {
+		$this->commit_snapshot( $this->snapshot( array( 'price' ) ) );
+		$durable                                      = $this->store();
+		$GLOBALS['digitalogic_test_scheduled_events'] = array();
+		$GLOBALS['digitalogic_test_option_cache'][ Digitalogic_Patris_Incomplete_Product_Notifier::STORE_OPTION ] = array(
+			'schema_version' => 1,
+			'next_sequence'  => 1,
+			'repair_page'    => 1,
+			'products'       => array(),
+			'outbox'         => array(),
+			'receipts'       => array(),
+		);
+		add_filter(
+			'pre_schedule_event',
+			static function ( $pre, $event ) {
+				if ( Digitalogic_Patris_Incomplete_Product_Notifier::WORKER_HOOK !== (string) ( $event->hook ?? '' ) ) {
+					return $pre;
+				}
+				$GLOBALS['digitalogic_test_scheduled_events'][] = array(
+					'timestamp'  => (int) $event->timestamp,
+					'hook'       => (string) $event->hook,
+					'args'       => array_values( (array) $event->args ),
+					'recurrence' => '',
+				);
+
+				return new WP_Error( 'schedule_race', 'A concurrent request already scheduled the action.' );
+			},
+			10,
+			2
+		);
+
+		$this->assertTrue( $this->service->ensure_delivery_worker() );
+		$this->assertCount( 1, $this->scheduled_alert_workers() );
+		$this->assertSame( $durable, $GLOBALS['digitalogic_test_options'][ Digitalogic_Patris_Incomplete_Product_Notifier::STORE_OPTION ] );
+		$this->assertEmpty( $GLOBALS['digitalogic_test_actions']['digitalogic_patris_incomplete_product_alert_failed'] ?? array() );
+	}
+
+	/** A concurrent repair schedule is also a successful idempotent outcome. */
+	public function test_duplicate_repair_schedule_race_is_not_reported_as_failure(): void {
+		add_filter(
+			'pre_schedule_event',
+			static function ( $pre, $event ) {
+				if ( Digitalogic_Patris_Incomplete_Product_Notifier::REPAIR_HOOK !== (string) ( $event->hook ?? '' ) ) {
+					return $pre;
+				}
+				$GLOBALS['digitalogic_test_scheduled_events'][] = array(
+					'timestamp'  => (int) $event->timestamp,
+					'hook'       => (string) $event->hook,
+					'args'       => array_values( (array) $event->args ),
+					'recurrence' => '',
+				);
+
+				return new WP_Error( 'schedule_race', 'A concurrent request already scheduled the repair action.' );
+			},
+			10,
+			2
+		);
+
+		$this->assertTrue( $this->service->ensure_repair_worker() );
+		$this->assertCount( 1, $this->scheduled_repair_workers() );
+		$this->assertEmpty( $GLOBALS['digitalogic_test_actions']['digitalogic_patris_incomplete_product_alert_failed'] ?? array() );
+	}
+
 	/** Invalid snapshots and storage failures never escape the post-commit hook. */
 	public function test_invalid_or_unpersistable_alert_never_escapes_the_commit_hook(): void {
 		$invalid                   = $this->snapshot( array( 'price' ) );

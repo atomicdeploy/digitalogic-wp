@@ -378,6 +378,84 @@ final class WebSocketLifecycleTest extends TestCase {
         $this->assertSame(1, $GLOBALS['wpdb']->release_count);
     }
 
+	/** Verify that an exact state-event replay reuses its durable envelope. */
+	public function test_exact_state_event_replay_is_idempotent_after_cache_divergence(): void {
+		$key   = 'sha256:' . str_repeat( 'a', 64 );
+		$data  = array(
+			'state_revision'  => 'sha256:' . str_repeat( 'b', 64 ),
+			'idempotency_key' => $key,
+			'cause'           => 'projection-invalidated',
+		);
+		$first = Digitalogic_Panel::record_event_result( 'pricing.state.changed', $data );
+		$this->assertIsArray( $first );
+
+		$GLOBALS['digitalogic_test_option_cache']['digitalogic_panel_events']         = array();
+		$GLOBALS['digitalogic_test_option_cache']['digitalogic_panel_event_sequence'] = 0;
+		$data['cause'] = 'freshness-boundary';
+		$replay        = Digitalogic_Panel::record_event_result( 'pricing.state.changed', $data );
+
+		$this->assertIsArray( $replay );
+		$this->assertSame( $first['event'], $replay['event'] );
+		$this->assertSame( array(), $replay['delivery_warnings'] );
+		$this->assertCount( 1, $GLOBALS['digitalogic_test_options']['digitalogic_panel_events'] );
+		$this->assertSame( $first['event']['id'], $GLOBALS['digitalogic_test_options']['digitalogic_panel_event_sequence'] );
+		$this->assertCount( 1, $this->redis->published );
+	}
+
+	/** Verify that one key cannot identify conflicting event data. */
+	public function test_idempotency_conflict_never_appends_or_advances_sequence(): void {
+		$key      = 'sha256:' . str_repeat( 'c', 64 );
+		$first    = Digitalogic_Panel::record_event_result(
+			'pricing.state.changed',
+			array(
+				'state_revision'  => 'sha256:' . str_repeat( 'd', 64 ),
+				'idempotency_key' => $key,
+			)
+		);
+		$conflict = Digitalogic_Panel::record_event_result(
+			'pricing.state.changed',
+			array(
+				'state_revision'  => 'sha256:' . str_repeat( 'e', 64 ),
+				'idempotency_key' => $key,
+			)
+		);
+
+		$this->assertIsArray( $first );
+		$this->assertInstanceOf( WP_Error::class, $conflict );
+		$this->assertSame( 'digitalogic_panel_event_idempotency_conflict', $conflict->get_error_code() );
+		$this->assertCount( 1, $GLOBALS['digitalogic_test_options']['digitalogic_panel_events'] );
+		$this->assertSame( $first['event']['id'], $GLOBALS['digitalogic_test_options']['digitalogic_panel_event_sequence'] );
+	}
+
+	/** Verify that stale object-cache state cannot regress the durable sequence. */
+	public function test_sequence_uses_authoritative_database_when_object_cache_is_stale(): void {
+		$seed = (int) round( microtime( true ) * 1000 ) + 10000;
+
+		$GLOBALS['digitalogic_test_options']['digitalogic_panel_events']              = array(
+			array(
+				'id'    => $seed - 1,
+				'event' => 'seed_event',
+				'name'  => 'seed.event',
+				'data'  => array(),
+				'time'  => '2026-08-31 00:00:00',
+			),
+		);
+		$GLOBALS['digitalogic_test_options']['digitalogic_panel_event_sequence']      = $seed;
+		$GLOBALS['digitalogic_test_option_cache']['digitalogic_panel_events']         = array();
+		$GLOBALS['digitalogic_test_option_cache']['digitalogic_panel_event_sequence'] = 1;
+		$GLOBALS['wpdb']->before_release_lock = static function () {
+			$GLOBALS['digitalogic_test_option_cache']['digitalogic_panel_events']         = array();
+			$GLOBALS['digitalogic_test_option_cache']['digitalogic_panel_event_sequence'] = 1;
+		};
+
+		$event = Digitalogic_Panel::record_event( 'next.event' );
+
+		$this->assertIsArray( $event );
+		$this->assertSame( $seed + 1, $event['id'] );
+		$this->assertSame( $seed + 1, $GLOBALS['digitalogic_test_options']['digitalogic_panel_event_sequence'] );
+		$this->assertCount( 2, $GLOBALS['digitalogic_test_options']['digitalogic_panel_events'] );
+	}
+
     public function test_every_panel_event_producer_uses_the_shared_durable_publisher(): void {
         $panel = (new ReflectionClass(Digitalogic_Panel::class))->newInstanceWithoutConstructor();
 

@@ -539,7 +539,14 @@ final class Digitalogic_Excel_Pricing_Sync {
 		if ( is_wp_error( $source_event ) ) {
 			return $source_event;
 		}
-		$snapshot = Digitalogic_Pricing_Snapshot::instance()->invalidate_after_apply( $result );
+		$snapshot_result = $result;
+		if (
+			$superseded
+			&& 1 === preg_match( '/\Asha256:[a-f0-9]{64}\z/D', (string) $current_revision )
+		) {
+			$snapshot_result['state_revision'] = (string) $current_revision;
+		}
+		$snapshot = Digitalogic_Pricing_Snapshot::instance()->invalidate_after_apply( $snapshot_result );
 		if ( is_wp_error( $snapshot ) ) {
 			return $snapshot;
 		}

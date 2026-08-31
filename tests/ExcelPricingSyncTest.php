@@ -34,10 +34,10 @@ final class ExcelPricingSyncTest extends TestCase {
 		$source_key   = hash( 'sha256', $this->source['id'] . "\n" . $this->source['dataset'] );
 		$markup       = $this->default_markup_state( '30' );
 
-		$GLOBALS['digitalogic_test_capabilities']         = array();
-		$GLOBALS['digitalogic_test_filters']              = array();
-		$GLOBALS['digitalogic_test_routes']               = array();
-		$GLOBALS['digitalogic_test_options']              = array(
+		$GLOBALS['digitalogic_test_capabilities'] = array();
+		$GLOBALS['digitalogic_test_filters']      = array();
+		$GLOBALS['digitalogic_test_routes']       = array();
+		$GLOBALS['digitalogic_test_options']      = array(
 			Digitalogic_Patris_Feed::PRODUCT_SYNC_SECRET_OPTION => 'receiver-secret',
 			Digitalogic_Patris_Feed::PRODUCT_SYNC_SCOPES_OPTION => array(
 				array(
@@ -79,6 +79,9 @@ final class ExcelPricingSyncTest extends TestCase {
 			'digitalogic_shipping_currency_migration_complete' => 'complete',
 			'woocommerce_weight_unit' => 'kg',
 		);
+
+		$GLOBALS['digitalogic_test_options']['digitalogic_report_cache_generation_v1'] = 'sha256:' . str_repeat( 'f', 64 );
+
 		$GLOBALS['digitalogic_test_option_cache']         = array();
 		$GLOBALS['digitalogic_test_actions']              = array();
 		$GLOBALS['digitalogic_test_action_callbacks']     = array();
@@ -105,6 +108,8 @@ final class ExcelPricingSyncTest extends TestCase {
 				Digitalogic_Shipping_Method_Service::class,
 				Digitalogic_Google_Sheets_Catalog::class,
 				Digitalogic_Product_Manager::class,
+				Digitalogic_Pricing_Snapshot::class,
+				Digitalogic_Report_Engine::class,
 			) as $class_name
 		) {
 			$this->reset_singleton( $class_name );
@@ -675,6 +680,8 @@ final class ExcelPricingSyncTest extends TestCase {
 		);
 		$this->assertFalse( is_wp_error( $preview ) );
 
+		$report_generation = $GLOBALS['digitalogic_test_options']['digitalogic_report_cache_generation_v1'];
+
 		$GLOBALS['wpdb']->queries                      = array();
 		$GLOBALS['digitalogic_test_cache_deletes']     = array();
 		$GLOBALS['digitalogic_test_transient_deletes'] = array();
@@ -704,10 +711,41 @@ final class ExcelPricingSyncTest extends TestCase {
 		$this->assertSame( array(), $applied['product_results'] );
 		$this->assertNotContains( 'START TRANSACTION', $GLOBALS['wpdb']->queries );
 		$this->assertNotContains( 'COMMIT', $GLOBALS['wpdb']->queries );
-		$this->assertSame(
-			array( array( 'generation-v1', 'digitalogic_reports' ) ),
-			$GLOBALS['digitalogic_test_cache_deletes']
+		$this->assertNotSame(
+			$report_generation,
+			$GLOBALS['digitalogic_test_options']['digitalogic_report_cache_generation_v1']
 		);
+		$cache_delete_counts = array_count_values(
+			array_map(
+				static fn( $delete ) => (string) $delete[1] . ':' . (string) $delete[0],
+				$GLOBALS['digitalogic_test_cache_deletes']
+			)
+		);
+		$this->assertCount( 19, $GLOBALS['digitalogic_test_cache_deletes'] );
+		$this->assertSame( 6, $cache_delete_counts['options:digitalogic_pricing_state_event_outbox_v1'] );
+		$this->assertSame( 6, $cache_delete_counts['options:notoptions'] );
+		$this->assertSame( 6, $cache_delete_counts['options:alloptions'] );
+		$this->assertSame( 1, $cache_delete_counts['digitalogic_reports:generation-v1'] );
+
+		$outbox_before     = $GLOBALS['digitalogic_test_options']['digitalogic_pricing_state_event_outbox_v1'];
+		$generation_before = $GLOBALS['digitalogic_test_options']['digitalogic_report_cache_generation_v1'];
+
+		$GLOBALS['digitalogic_test_cache_deletes'] = array();
+
+		$effect_replay = Digitalogic_Pricing_Snapshot::instance()->invalidate_after_apply( $applied );
+		$this->assertTrue( $effect_replay );
+		$this->assertSame( $generation_before, $GLOBALS['digitalogic_test_options']['digitalogic_report_cache_generation_v1'] );
+		$this->assertSame( array_keys( $outbox_before ), array_keys( $GLOBALS['digitalogic_test_options']['digitalogic_pricing_state_event_outbox_v1'] ) );
+		$replay_cache_delete_counts = array_count_values(
+			array_map(
+				static fn( $delete ) => (string) $delete[1] . ':' . (string) $delete[0],
+				$GLOBALS['digitalogic_test_cache_deletes']
+			)
+		);
+		$this->assertCount( 9, $GLOBALS['digitalogic_test_cache_deletes'] );
+		$this->assertSame( 3, $replay_cache_delete_counts['options:digitalogic_pricing_state_event_outbox_v1'] );
+		$this->assertSame( 3, $replay_cache_delete_counts['options:notoptions'] );
+		$this->assertSame( 3, $replay_cache_delete_counts['options:alloptions'] );
 		$this->assertSame( array(), $GLOBALS['digitalogic_test_transient_deletes'] );
 		$this->assertArrayNotHasKey(
 			Digitalogic_Excel_Pricing_Sync::AUDIT_OPTION,

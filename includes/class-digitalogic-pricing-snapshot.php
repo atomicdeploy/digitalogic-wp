@@ -887,7 +887,7 @@ final class Digitalogic_Pricing_Snapshot {
 			);
 		}
 
-		$state_event = $this->ensure_state_revision_event();
+		$state_event = $this->ensure_state_revision_event( (string) ( $result['state_revision'] ?? '' ) );
 		$invalidated = Digitalogic_Report_Engine::instance()->invalidate_cache_for_effect( $effect_id );
 		if ( is_wp_error( $state_event ) ) {
 			return $state_event;
@@ -1070,10 +1070,10 @@ final class Digitalogic_Pricing_Snapshot {
 	}
 
 	/** Persist and schedule one readback-verified composite state event. */
-	public function ensure_state_revision_event() {
+	public function ensure_state_revision_event( $expected_pricing_state_revision = '' ) {
 		$this->state_revision_event_pending = true;
 		$sources                            = $this->current_state_event_sources();
-		$persisted                          = $this->persist_state_revision_outbox( $sources );
+		$persisted                          = $this->persist_state_revision_outbox( $sources, 'projection-invalidated', $expected_pricing_state_revision );
 		if ( ! $persisted ) {
 			$this->schedule_state_revision_event_retry( $sources );
 			return new WP_Error(
@@ -1119,20 +1119,20 @@ final class Digitalogic_Pricing_Snapshot {
 	public function run_state_revision_event_delivery( $fallback_sources = array(), $fallback_source_events = array() ) {
 		$fallback_sources       = is_array( $fallback_sources ) ? $fallback_sources : array();
 		$fallback_source_events = is_array( $fallback_source_events ) ? $fallback_source_events : array();
-		if ( empty( get_option( self::SOURCE_EVENT_OUTBOX, array() ) ) && ! empty( $fallback_source_events ) ) {
+		if ( empty( $this->read_option_authoritative( self::SOURCE_EVENT_OUTBOX, array() ) ) && ! empty( $fallback_source_events ) ) {
 			if ( ! $this->persist_source_event_outbox( $fallback_source_events ) ) {
 				$this->schedule_state_revision_event_retry( $fallback_sources, $fallback_source_events );
 				return;
 			}
 		}
-		if ( empty( get_option( self::STATE_EVENT_OUTBOX, array() ) ) ) {
+		if ( empty( $this->read_option_authoritative( self::STATE_EVENT_OUTBOX, array() ) ) ) {
 			$fallback_sources = $this->pending_state_event_fallback_sources( $fallback_sources );
 			if ( ! empty( $fallback_sources ) && ! $this->persist_state_revision_outbox( $fallback_sources ) ) {
 				$this->schedule_state_revision_event_retry( $fallback_sources, $fallback_source_events );
 				return;
 			}
 		}
-		if ( empty( get_option( self::STATE_EVENT_OUTBOX, array() ) ) && empty( get_option( self::SOURCE_EVENT_OUTBOX, array() ) ) ) {
+		if ( empty( $this->read_option_authoritative( self::STATE_EVENT_OUTBOX, array() ) ) && empty( $this->read_option_authoritative( self::SOURCE_EVENT_OUTBOX, array() ) ) ) {
 			return;
 		}
 		$this->publish_scheduled_state_revision_events();
@@ -1175,7 +1175,6 @@ final class Digitalogic_Pricing_Snapshot {
 	public function publish_scheduled_state_revision_events() {
 		if ( $this->state_revision_event_pending ) {
 			$this->state_revision_event_pending = false;
-			$this->persist_state_revision_outbox();
 		}
 		if ( ! class_exists( 'Digitalogic_Panel' ) ) {
 			$this->schedule_state_revision_event_retry();
@@ -1190,7 +1189,7 @@ final class Digitalogic_Pricing_Snapshot {
 
 		$retry = false;
 		try {
-			$source_outbox  = get_option( self::SOURCE_EVENT_OUTBOX, array() );
+			$source_outbox  = $this->read_option_authoritative( self::SOURCE_EVENT_OUTBOX, array() );
 			$source_outbox  = is_array( $source_outbox ) ? $source_outbox : array();
 			$source_drained = true;
 			foreach ( $source_outbox as $event_key => $entry ) {
@@ -1216,8 +1215,7 @@ final class Digitalogic_Pricing_Snapshot {
 				unset( $source_outbox[ $event_key ] );
 			}
 			if ( empty( $source_outbox ) ) {
-				delete_option( self::SOURCE_EVENT_OUTBOX );
-				if ( null !== get_option( self::SOURCE_EVENT_OUTBOX, null ) ) {
+				if ( ! $this->delete_option_verified( self::SOURCE_EVENT_OUTBOX ) ) {
 					$source_drained = false;
 					$retry          = true;
 					do_action( 'digitalogic_pricing_state_event_failed', 'digitalogic_pricing_source_outbox_unavailable', array() );
@@ -1230,7 +1228,7 @@ final class Digitalogic_Pricing_Snapshot {
 
 			// Source lifecycle always precedes the composite state derived from it.
 			if ( $source_drained ) {
-				$outbox = get_option( self::STATE_EVENT_OUTBOX, array() );
+				$outbox = $this->read_option_authoritative( self::STATE_EVENT_OUTBOX, array() );
 				$outbox = is_array( $outbox ) ? $outbox : array();
 				foreach ( $outbox as $source_key => $entry ) {
 					$source  = is_array( $entry['source'] ?? null ) ? $entry['source'] : array();
@@ -1251,6 +1249,17 @@ final class Digitalogic_Pricing_Snapshot {
 						$outbox[ $source_key ]['updated_at'] = gmdate( 'c' );
 						$retry                               = true;
 						do_action( 'digitalogic_pricing_state_event_failed', $current->get_error_code(), $source );
+						break;
+					}
+					$expected_pricing_state_revision = (string) ( $entry['expected_pricing_state_revision'] ?? '' );
+					if (
+						$this->is_revision( $expected_pricing_state_revision )
+						&& ! hash_equals( $expected_pricing_state_revision, (string) $current['pricing_state_revision'] )
+					) {
+						$outbox[ $source_key ]['attempts']   = min( 1000, 1 + (int) ( $entry['attempts'] ?? 0 ) );
+						$outbox[ $source_key ]['updated_at'] = gmdate( 'c' );
+						$retry                               = true;
+						do_action( 'digitalogic_pricing_state_event_failed', 'digitalogic_pricing_state_revision_conflict', $source );
 						break;
 					}
 
@@ -1332,14 +1341,7 @@ final class Digitalogic_Pricing_Snapshot {
 				}
 
 				if ( empty( $outbox ) ) {
-					delete_option( self::STATE_EVENT_OUTBOX );
-					if ( function_exists( 'wp_cache_delete' ) ) {
-						wp_cache_delete( self::STATE_EVENT_OUTBOX, 'options' );
-					}
-					if (
-						null !== get_option( self::STATE_EVENT_OUTBOX, null )
-						&& ! $this->store_option_verified( self::STATE_EVENT_OUTBOX, array() )
-					) {
+					if ( ! $this->delete_option_verified( self::STATE_EVENT_OUTBOX ) ) {
 						$retry = true;
 						do_action( 'digitalogic_pricing_state_event_failed', 'digitalogic_pricing_state_outbox_unavailable', array() );
 					}
@@ -1840,7 +1842,7 @@ final class Digitalogic_Pricing_Snapshot {
 
 	/** Check the bounded durable receipt for one exact state-event identity. */
 	private function state_event_receipt_matches( $source_key, $state_revision, $idempotency_key ) {
-		$receipts = $this->normalize_state_event_receipts( get_option( self::STATE_EVENT_RECEIPTS, array() ) );
+		$receipts = $this->normalize_state_event_receipts( $this->read_option_authoritative( self::STATE_EVENT_RECEIPTS, array() ) );
 		$receipt  = is_array( $receipts[ $source_key ] ?? null ) ? $receipts[ $source_key ] : array();
 
 		return '' !== (string) ( $receipt['state_revision'] ?? '' )
@@ -1850,7 +1852,7 @@ final class Digitalogic_Pricing_Snapshot {
 
 	/** Store the newest delivered event identity for each exact source. */
 	private function persist_state_event_receipt( $source_key, $state_revision, $idempotency_key ) {
-		$receipts                = $this->normalize_state_event_receipts( get_option( self::STATE_EVENT_RECEIPTS, array() ) );
+		$receipts                = $this->normalize_state_event_receipts( $this->read_option_authoritative( self::STATE_EVENT_RECEIPTS, array() ) );
 		$receipts[ $source_key ] = array(
 			'state_revision'  => (string) $state_revision,
 			'idempotency_key' => (string) $idempotency_key,
@@ -1869,7 +1871,7 @@ final class Digitalogic_Pricing_Snapshot {
 			return false;
 		}
 
-		$stored_receipts = get_option( self::STATE_EVENT_RECEIPTS, null );
+		$stored_receipts = $this->read_option_authoritative( self::STATE_EVENT_RECEIPTS, null );
 		if ( null !== $stored_receipts ) {
 			$receipts = $this->normalize_state_event_receipts( $stored_receipts );
 			unset( $receipts[ $source_key ] );
@@ -1887,7 +1889,7 @@ final class Digitalogic_Pricing_Snapshot {
 			}
 		}
 
-		$stored_outbox = get_option( self::STATE_EVENT_OUTBOX, null );
+		$stored_outbox = $this->read_option_authoritative( self::STATE_EVENT_OUTBOX, null );
 		if ( null !== $stored_outbox || null !== $current_source ) {
 			$outbox = is_array( $stored_outbox ) ? $stored_outbox : array();
 			if ( null !== $current_source ) {
@@ -1974,7 +1976,7 @@ final class Digitalogic_Pricing_Snapshot {
 	}
 
 	/** Merge every exact current source into the persistent state-event outbox. */
-	private function persist_state_revision_outbox( $candidate_sources = null, $cause = 'projection-invalidated' ) {
+	private function persist_state_revision_outbox( $candidate_sources = null, $cause = 'projection-invalidated', $expected_pricing_state_revision = '' ) {
 		$candidate_sources = is_array( $candidate_sources ) ? $candidate_sources : $this->current_state_event_sources();
 		$cause             = 'freshness-boundary' === (string) $cause ? 'freshness-boundary' : 'projection-invalidated';
 		$current_sources   = array();
@@ -2006,18 +2008,22 @@ final class Digitalogic_Pricing_Snapshot {
 			return false;
 		}
 		try {
-			$outbox = get_option( self::STATE_EVENT_OUTBOX, array() );
+			$outbox = $this->read_option_authoritative( self::STATE_EVENT_OUTBOX, array() );
 			$outbox = is_array( $outbox ) ? $outbox : array();
 			$now    = gmdate( 'c' );
 			foreach ( $sources as $source_key => $source ) {
 				$existing              = is_array( $outbox[ $source_key ] ?? null ) ? $outbox[ $source_key ] : array();
 				$first_seen            = (string) ( $existing['first_seen_at'] ?? $now );
+				$expected_revision     = $this->is_revision( $expected_pricing_state_revision )
+					? (string) $expected_pricing_state_revision
+					: (string) ( $existing['expected_pricing_state_revision'] ?? '' );
 				$outbox[ $source_key ] = array(
-					'source'        => $source,
-					'first_seen_at' => $first_seen,
-					'updated_at'    => $now,
-					'attempts'      => (int) ( $existing['attempts'] ?? 0 ),
-					'cause'         => $cause,
+					'source'                          => $source,
+					'first_seen_at'                   => $first_seen,
+					'updated_at'                      => $now,
+					'attempts'                        => (int) ( $existing['attempts'] ?? 0 ),
+					'cause'                           => $cause,
+					'expected_pricing_state_revision' => $expected_revision,
 				);
 				if ( $this->is_revision( $existing['delivered_state_revision'] ?? null ) && $this->is_revision( $existing['delivered_idempotency_key'] ?? null ) ) {
 					$outbox[ $source_key ]['delivered_state_revision']  = (string) $existing['delivered_state_revision'];
@@ -2126,7 +2132,7 @@ final class Digitalogic_Pricing_Snapshot {
 			return false;
 		}
 		try {
-			$outbox = get_option( self::SOURCE_EVENT_OUTBOX, array() );
+			$outbox = $this->read_option_authoritative( self::SOURCE_EVENT_OUTBOX, array() );
 			$outbox = is_array( $outbox ) ? $outbox : array();
 			$now    = gmdate( 'c' );
 			foreach ( $events as $event ) {
@@ -4232,11 +4238,55 @@ final class Digitalogic_Pricing_Snapshot {
 		return ( $stored || get_transient( $key ) === $value ) && get_transient( $key ) === $value;
 	}
 
-	/** Store a non-autoloaded durable option and require exact readback. */
-	private function store_option_verified( $key, $value ) {
-		$stored = update_option( $key, $value, false );
+	/** Read one durable option from MySQL rather than a cross-request object cache. */
+	private function read_option_authoritative( $key, $fallback = null ) {
+		global $wpdb;
+		if ( ! is_object( $wpdb ) || ! isset( $wpdb->options ) || ! method_exists( $wpdb, 'prepare' ) || ! method_exists( $wpdb, 'get_row' ) ) {
+			$this->clear_option_cache( $key );
+			return get_option( $key, $fallback );
+		}
 
-		return ( $stored || get_option( $key, null ) === $value ) && get_option( $key, null ) === $value;
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Durable event state must bypass a potentially divergent persistent object cache; writers serialize under the named event mutex.
+		$row = $wpdb->get_row(
+			$wpdb->prepare(
+				"SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1 /* digitalogic_pricing_state_option_readback */",
+				(string) $key
+			),
+			ARRAY_A
+		); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- Prepared immediately above.
+		$this->clear_option_cache( $key );
+
+		return is_array( $row ) && array_key_exists( 'option_value', $row )
+			? maybe_unserialize( $row['option_value'] )
+			: $fallback;
+	}
+
+	/** Store a non-autoloaded durable option and require authoritative readback. */
+	private function store_option_verified( $key, $value ) {
+		$this->clear_option_cache( $key );
+		$stored   = update_option( $key, $value, false );
+		$readback = $this->read_option_authoritative( $key, null );
+
+		return ( $stored || $readback === $value ) && $readback === $value;
+	}
+
+	/** Delete one durable option only when authoritative absence is confirmed. */
+	private function delete_option_verified( $key ) {
+		$this->clear_option_cache( $key );
+		$deleted  = delete_option( $key );
+		$readback = $this->read_option_authoritative( $key, null );
+
+		return ( $deleted || null === $readback ) && null === $readback;
+	}
+
+	/** Evict every WordPress option-cache location that can mask MySQL state. */
+	private function clear_option_cache( $key ) {
+		if ( ! function_exists( 'wp_cache_delete' ) ) {
+			return;
+		}
+		wp_cache_delete( (string) $key, 'options' );
+		wp_cache_delete( 'notoptions', 'options' );
+		wp_cache_delete( 'alloptions', 'options' );
 	}
 
 	/** Delete only one request-local job record. */

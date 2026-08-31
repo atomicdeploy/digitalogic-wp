@@ -886,6 +886,35 @@ function wp_cache_get( $key, $group = '', $force = false, &$found = null ) { // 
 }
 
 /**
+ * Store one value in the shared test object cache.
+ *
+ * @param int|string $key    Cache key.
+ * @param mixed      $data   Cache value.
+ * @param string     $group  Cache group.
+ * @param int        $expire Expiry in seconds.
+ * @return bool
+ */
+function wp_cache_set( $key, $data, $group = '', $expire = 0 ) { // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedFunctionFound -- WordPress test double.
+	if ( empty( $GLOBALS['digitalogic_test_object_cache_enabled'] ) ) {
+		return false;
+	}
+
+	if ( isset( $GLOBALS['digitalogic_test_cache_set_callback'] ) && is_callable( $GLOBALS['digitalogic_test_cache_set_callback'] ) ) {
+		$callback                                       = $GLOBALS['digitalogic_test_cache_set_callback'];
+		$GLOBALS['digitalogic_test_cache_set_callback'] = null;
+		$callback( $key, $data, $group, $expire );
+	}
+
+	$cache_key = (string) $group . ':' . (string) $key;
+
+	$GLOBALS['digitalogic_test_object_cache'][ $cache_key ] = $data;
+
+	$GLOBALS['digitalogic_test_object_cache_sets'][] = array( $key, $group, (int) $expire );
+
+	return true;
+}
+
+/**
  * Mark exact cache groups request-local in the test registry.
  *
  * @param string[] $groups Cache groups.
