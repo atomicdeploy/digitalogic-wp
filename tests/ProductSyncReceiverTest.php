@@ -19,8 +19,15 @@ final class ProductSyncReceiverTest extends TestCase {
         $GLOBALS['digitalogic_test_wc_products']          = array();
         $GLOBALS['digitalogic_test_wc_product_saves']     = array();
         $GLOBALS['digitalogic_test_wc_save_failures']     = array();
+
+		$GLOBALS['digitalogic_test_wc_lookup_rows']               = array();
+		$GLOBALS['digitalogic_test_wc_after_save']                = null;
+		$GLOBALS['digitalogic_test_wc_stock_projection_failures'] = array();
+
+		// phpcs:disable Generic.Formatting.MultipleStatementAlignment -- These legacy fixture globals are independent assignments.
         $GLOBALS['digitalogic_test_wc_currency']          = 'IRT';
         $GLOBALS['wpdb']                                  = new Digitalogic_Test_WPDB();
+		// phpcs:enable Generic.Formatting.MultipleStatementAlignment
         $this->resetSingleton(Digitalogic_Product_Sync_Receiver::class);
     }
 
@@ -246,6 +253,56 @@ final class ProductSyncReceiverTest extends TestCase {
 		$this->assertCount( $seed_saves + 1, $GLOBALS['digitalogic_test_wc_product_saves'] );
 		$this->assertCount( 1, $GLOBALS['digitalogic_test_posts'] );
 		$this->assertSame( '102006010', get_post_meta( $id, Digitalogic_Patris_Catalog_Materializer::OWNER_CODE_META, true ) );
+	}
+
+	/** Woo's zero lookup sentinel is current for a markerless 101001001-like leaf. */
+	public function test_zero_stock_unpriced_lookup_sentinel_backfills_ownership_without_a_duplicate_or_fake_price(): void {
+		$product                = array(
+			'product_code' => '101001001',
+			'name'         => 'Zero-stock product with unavailable canonical price',
+			'total_stock'  => 0,
+			'weight_grams' => 100,
+			'warnings'     => array( 'final_price_unavailable', 'shipping_method_missing' ),
+		);
+		$product['record_hash'] = $this->recordHash( $product, true );
+		$receiver               = Digitalogic_Product_Sync_Receiver::instance();
+		$seed                   = $receiver->receive( $this->snapshot( array( $product ) ) );
+		$this->assertNotInstanceOf( WP_Error::class, $seed );
+		$id = (int) array_key_first( $GLOBALS['digitalogic_test_posts'] );
+
+		$meta = &$GLOBALS['digitalogic_test_posts'][ $id ]['meta'];
+		unset(
+			$meta[ Digitalogic_Patris_Catalog_Materializer::OWNER_SOURCE_META ],
+			$meta[ Digitalogic_Patris_Catalog_Materializer::OWNER_DATASET_META ],
+			$meta[ Digitalogic_Patris_Catalog_Materializer::OWNER_CODE_META ],
+			$meta[ Digitalogic_Patris_Catalog_Materializer::SOURCE_REVISION_META ],
+			$meta[ Digitalogic_Patris_Catalog_Materializer::MISSING_FIELDS_META ],
+			$meta[ Digitalogic_Patris_Catalog_Materializer::AUTO_MATERIALIZED_META ]
+		);
+		unset( $meta );
+		$GLOBALS['digitalogic_test_wc_lookup_rows'][ $id ]['min_price'] = '0.0000';
+		$GLOBALS['digitalogic_test_wc_lookup_rows'][ $id ]['max_price'] = '0.0000';
+		$GLOBALS['digitalogic_test_wc_lookup_rows'][ $id ]['onsale']    = 0;
+		$GLOBALS['digitalogic_test_wc_products']                        = array();
+		$GLOBALS['digitalogic_test_post_meta_cache']                    = array();
+
+		$seed_saves = count( $GLOBALS['digitalogic_test_wc_product_saves'] );
+
+		$repaired = $receiver->reconcile( 'tests', 'ALLANBAR', 1 );
+
+		$this->assertNotInstanceOf( WP_Error::class, $repaired );
+		$this->assertSame( 1, $repaired['materialization_metadata_backfilled'] );
+		$this->assertSame( 0, $repaired['materialization_mismatch_stopped'] );
+		$this->assertSame( 0, $repaired['pending_products'] );
+		$this->assertSame( $seed_saves, count( $GLOBALS['digitalogic_test_wc_product_saves'] ) );
+		$this->assertCount( 1, $GLOBALS['digitalogic_test_posts'] );
+		$this->assertSame( '101001001', get_post_meta( $id, Digitalogic_Patris_Catalog_Materializer::OWNER_CODE_META, true ) );
+		$this->assertSame( '', wc_get_product( $id )->get_regular_price() );
+		$this->assertSame( '', wc_get_product( $id )->get_price() );
+		$this->assertSame( 0, wc_get_product( $id )->get_stock_quantity() );
+		$this->assertSame( 'outofstock', wc_get_product( $id )->get_stock_status() );
+		$this->assertSame( '0.0000', $GLOBALS['digitalogic_test_wc_lookup_rows'][ $id ]['min_price'] );
+		$this->assertSame( '0.0000', $GLOBALS['digitalogic_test_wc_lookup_rows'][ $id ]['max_price'] );
 	}
 
 	/** Bounded reconciliation materializes every safe missing Code without starvation. */

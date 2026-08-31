@@ -1056,18 +1056,31 @@ class Digitalogic_Patris_Feed {
 				array( 'status' => 503, 'retryable' => true )
 			);
 		}
-		$meta  = $this->read_exact_meta_rows( $product_id, array_keys( $expected['meta'] ) );
+		$meta = $this->read_exact_meta_rows( $product_id, array_keys( $expected['meta'] ) );
+
 		$fresh = $this->fresh_product_for_source_readback( $product_id );
+
+		$expects_unavailable = '' === trim( (string) ( $expected['props']['regular_price'] ?? '' ) )
+			&& '' === trim( (string) ( $expected['props']['sale_price'] ?? '' ) )
+			&& '' === trim( (string) ( $expected['props']['price'] ?? '' ) )
+			&& 'outofstock' === (string) ( $expected['props']['stock_status'] ?? '' );
+
+		$unavailable_matches = ! $expects_unavailable
+			|| $this->unavailable_price_projection_matches( $product_id, $fresh );
 		if (
 			is_wp_error( $meta )
 			|| $this->normalize_meta_readback_projection( $meta ) !== $this->normalize_meta_readback_projection( $expected['meta'] )
 			|| ! $fresh instanceof WC_Product
 			|| ! $this->source_props_match( $fresh, $expected['props'] )
+			|| ! $unavailable_matches
 		) {
 			return new WP_Error(
 				'digitalogic_patris_product_projection_readback_failed',
 				__( 'The source product projection did not pass exact database readback.', 'digitalogic' ),
-				array( 'status' => 503, 'retryable' => true )
+				array(
+					'status'    => 503,
+					'retryable' => true,
+				)
 			);
 		}
 
@@ -1086,8 +1099,9 @@ class Digitalogic_Patris_Feed {
 			return $meta;
 		}
 		$stock_lookup = $this->read_exact_stock_lookup_projection( $product_id );
-		if ( is_wp_error( $stock_lookup ) ) {
-			return $stock_lookup;
+		$price_lookup = $this->read_exact_price_lookup_projection( $product_id );
+		if ( is_wp_error( $stock_lookup ) || is_wp_error( $price_lookup ) ) {
+			return is_wp_error( $stock_lookup ) ? $stock_lookup : $price_lookup;
 		}
 
 		return array(
@@ -1095,6 +1109,7 @@ class Digitalogic_Patris_Feed {
 			'canonical'    => $canonical,
 			'meta'         => $meta,
 			'stock_lookup' => $stock_lookup,
+			'price_lookup' => $price_lookup,
 			'props'        => array(
 				'weight'         => (string) $product->get_weight(),
 				'manage_stock'   => $product->get_manage_stock(),
@@ -1149,6 +1164,7 @@ class Digitalogic_Patris_Feed {
 									! $saved
 									|| ! $this->restore_exact_meta_rows( $product_id, $backup['meta'] )
 									|| ! $this->restore_exact_stock_lookup_projection( $product_id, $backup['stock_lookup'] ?? null )
+									|| ! $this->restore_exact_price_lookup_projection( $product_id, $backup['price_lookup'] ?? null )
 								) {
 									return false;
 								}
@@ -1201,6 +1217,10 @@ class Digitalogic_Patris_Feed {
 		}
 		$lookup_readback = $this->read_exact_stock_lookup_projection( $product_id );
 		if ( is_wp_error( $lookup_readback ) || ( $backup['stock_lookup'] ?? null ) !== $lookup_readback ) {
+			return false;
+		}
+		$price_lookup_readback = $this->read_exact_price_lookup_projection( $product_id );
+		if ( is_wp_error( $price_lookup_readback ) || ( $backup['price_lookup'] ?? null ) !== $price_lookup_readback ) {
 			return false;
 		}
 		$fresh = $this->fresh_product_for_source_readback( $product_id );
@@ -1356,6 +1376,126 @@ class Digitalogic_Patris_Feed {
 			'stock_quantity' => null === $row['stock_quantity'] ? null : (string) $row['stock_quantity'],
 			'stock_status'   => (string) $row['stock_status'],
 		);
+	}
+
+	/**
+	 * Read Woo's exact customer-price lookup projection without object caches.
+	 *
+	 * WooCommerce may use numeric zero as an internal unavailable-price sentinel
+	 * when every raw customer price is blank. The sentinel is validated here but
+	 * is never promoted into a product price or exposed as a customer price.
+	 *
+	 * @param int $product_id Exact WooCommerce product ID.
+	 * @return array<string,string|null>|WP_Error
+	 */
+	private function read_exact_price_lookup_projection( $product_id ) {
+		global $wpdb;
+		$product_id = absint( $product_id );
+		if (
+			$product_id <= 0
+			|| ! is_object( $wpdb )
+			|| ! isset( $wpdb->prefix )
+			|| ! method_exists( $wpdb, 'prepare' )
+			|| ! method_exists( $wpdb, 'get_row' )
+		) {
+			return new WP_Error(
+				'digitalogic_patris_product_backup_unavailable',
+				__( 'The source product backup is unavailable.', 'digitalogic' ),
+				array(
+					'status'    => 503,
+					'retryable' => true,
+				)
+			);
+		}
+
+		$lookup_table = $wpdb->prefix . 'wc_product_meta_lookup';
+		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Table is the exact site-scoped WooCommerce lookup table; product ID uses a placeholder.
+		$query = $wpdb->prepare(
+			"/* digitalogic_patris_price_lookup_readback */ SELECT min_price, max_price, onsale FROM {$lookup_table} WHERE product_id = %d",
+			$product_id
+		);
+		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		$wpdb->last_error = '';
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Exact terminal readback must bypass WooCommerce caches.
+		$row = false === $query ? null : $wpdb->get_row( $query, ARRAY_A );
+		if (
+			! is_array( $row )
+			|| ! array_key_exists( 'min_price', $row )
+			|| ! array_key_exists( 'max_price', $row )
+			|| ! array_key_exists( 'onsale', $row )
+			|| '' !== (string) $wpdb->last_error
+		) {
+			return new WP_Error(
+				'digitalogic_patris_product_backup_unavailable',
+				__( 'The source product backup is unavailable.', 'digitalogic' ),
+				array( 'status' => 503, 'retryable' => true )
+			);
+		}
+
+		return array(
+			'min_price' => null === $row['min_price'] ? null : (string) $row['min_price'],
+			'max_price' => null === $row['max_price'] ? null : (string) $row['max_price'],
+			'onsale'    => (string) $row['onsale'],
+		);
+	}
+
+	/**
+	 * Restore and verify the exact WooCommerce customer-price lookup prestate.
+	 *
+	 * @param int                            $product_id Exact WooCommerce product ID.
+	 * @param array<string,string|null>|null $expected Exact lookup projection.
+	 * @return bool
+	 */
+	private function restore_exact_price_lookup_projection( $product_id, $expected ) {
+		global $wpdb;
+		$product_id = absint( $product_id );
+		if (
+			$product_id <= 0
+			|| ! $this->source_write_locks_are_owned( $product_id )
+			|| ! is_array( $expected )
+			|| ! array_key_exists( 'min_price', $expected )
+			|| ! array_key_exists( 'max_price', $expected )
+			|| ! array_key_exists( 'onsale', $expected )
+			|| ! is_object( $wpdb )
+			|| ! isset( $wpdb->prefix )
+			|| ! method_exists( $wpdb, 'prepare' )
+			|| ! method_exists( $wpdb, 'query' )
+		) {
+			return false;
+		}
+
+		$lookup_table = $wpdb->prefix . 'wc_product_meta_lookup';
+		$assignments  = array();
+		$arguments    = array();
+		foreach ( array( 'min_price', 'max_price' ) as $column ) {
+			if ( null === $expected[ $column ] ) {
+				$assignments[] = $column . ' = NULL';
+			} else {
+				$assignments[] = $column . ' = %s';
+				$arguments[]   = (string) $expected[ $column ];
+			}
+		}
+		$assignments[] = 'onsale = %s';
+		$arguments[]   = (string) $expected['onsale'];
+		$arguments[]   = $product_id;
+		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQL.NotPrepared -- Table and fixed-column assignment list are bounded locally; values use placeholders.
+		$query = $wpdb->prepare(
+			"UPDATE /* digitalogic_patris_price_lookup_restore */ {$lookup_table} SET " . implode( ', ', $assignments ) . ' WHERE product_id = %d',
+			...$arguments
+		);
+		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQL.NotPrepared
+		$wpdb->last_error = '';
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Exact rollback projection is prepared above and verified below.
+		$updated = false === $query ? false : $wpdb->query( $query );
+		if ( false === $updated || (int) $updated > 1 || '' !== (string) $wpdb->last_error ) {
+			return false;
+		}
+		if ( ! $this->source_write_locks_are_owned( $product_id ) ) {
+			return false;
+		}
+		$readback = $this->read_exact_price_lookup_projection( $product_id );
+
+		return ! is_wp_error( $readback ) && $readback === $expected;
 	}
 
 	/**
@@ -1928,28 +2068,28 @@ class Digitalogic_Patris_Feed {
 	private function apply_product_feed_authorized( WC_Product $product, $data ) {
 		$this->stage_product_feed( $product, $data );
 		$product->save();
-		$this->persist_unpriced_positive_stock_status( $product );
+		$this->persist_unpriced_stock_status( $product );
 		Digitalogic_Patris_Price_Policy::instance()->invalidate( $product );
 	}
 
 	/**
 	 * Persist unavailable status after WooCommerce and save hooks synchronize stock.
 	 *
-	 * A positive canonical quantity remains exact even when price inputs are
-	 * unavailable. WooCommerce integrations may promote that quantity to
-	 * `instock` during the full product save, so the final status-only projection
-	 * is written directly to Woo's authoritative meta and lookup row while both
-	 * source locks remain held. No second product save or hook fan-out is used.
+	 * A canonical quantity remains exact even when price inputs are unavailable.
+	 * WooCommerce integrations may promote a positive quantity to `instock`, and
+	 * its native data store may represent a blank zero-stock price with lookup
+	 * min/max zero. The final projection accepts that internal sentinel only while
+	 * raw prices stay blank and the product stays unavailable. No second product
+	 * save or hook fan-out is used.
 	 *
 	 * @param WC_Product $product Product staged by the canonical writer.
 	 * @return void
 	 * @throws RuntimeException When the exact unavailable state cannot be persisted and verified.
 	 */
-	private function persist_unpriced_positive_stock_status( WC_Product $product ) {
+	private function persist_unpriced_stock_status( WC_Product $product ) {
 		$status = (string) $product->get_meta( Digitalogic_Patris_Price_Policy::STATUS_META, true );
 		if (
 			! in_array( $status, array( 'canonical_missing_unpriced', 'canonical_nonpositive_unpriced' ), true )
-			|| (float) $product->get_stock_quantity() <= 0
 		) {
 			return;
 		}
@@ -2105,15 +2245,77 @@ class Digitalogic_Patris_Feed {
 
 		$lookup = $this->read_exact_stock_lookup_projection( $product_id );
 
+		$fresh_quantity = $fresh->get_stock_quantity();
+
+		$lookup_quantity = is_wp_error( $lookup ) ? null : $lookup['stock_quantity'];
+
+		$quantity_matches = ( null === $lookup_quantity && null === $fresh_quantity )
+			|| (
+				null !== $lookup_quantity
+				&& null !== $fresh_quantity
+				&& is_numeric( $lookup_quantity )
+				&& is_numeric( $fresh_quantity )
+				&& (float) $lookup_quantity === (float) $fresh_quantity
+			);
+
 		return ! is_wp_error( $lookup )
 			&& 'outofstock' === $lookup['stock_status']
-			&& null !== $lookup['stock_quantity']
-			&& (float) $lookup['stock_quantity'] === (float) $fresh->get_stock_quantity()
+			&& $quantity_matches
 			&& 'outofstock' === (string) $fresh->get_stock_status()
-			&& (float) $fresh->get_stock_quantity() > 0
 			&& '' === trim( (string) $fresh->get_regular_price() )
 			&& '' === trim( (string) $fresh->get_sale_price() )
-			&& '' === trim( (string) $fresh->get_price() );
+			&& '' === trim( (string) $fresh->get_price() )
+			&& $this->unavailable_price_projection_matches( $product_id, $fresh );
+	}
+
+	/**
+	 * Verify a blank customer price cannot be fabricated from Woo's zero sentinel.
+	 *
+	 * Both lookup bounds must be either NULL or numeric zero. A mixed pair or any
+	 * non-zero value fails closed, as does any raw/Woo price, sale flag, or
+	 * purchasable stock status. This keeps the lookup sentinel storage-only.
+	 *
+	 * @param int              $product_id Exact WooCommerce product ID.
+	 * @param WC_Product|false $fresh      Cache-bypassed WooCommerce product.
+	 * @return bool
+	 */
+	private function unavailable_price_projection_matches( $product_id, $fresh ) {
+		$product_id = absint( $product_id );
+		if (
+			$product_id <= 0
+			|| ! $fresh instanceof WC_Product
+			|| ! $this->source_write_locks_are_owned( $product_id )
+			|| 'outofstock' !== (string) $fresh->get_stock_status()
+			|| '' !== trim( (string) $fresh->get_regular_price() )
+			|| '' !== trim( (string) $fresh->get_sale_price() )
+			|| '' !== trim( (string) $fresh->get_price() )
+		) {
+			return false;
+		}
+
+		$meta = $this->read_exact_meta_rows(
+			$product_id,
+			array( '_regular_price', '_sale_price', '_price', '_stock_status' )
+		);
+		if ( is_wp_error( $meta ) || array( 'outofstock' ) !== ( $meta['_stock_status'] ?? array() ) ) {
+			return false;
+		}
+		foreach ( array( '_regular_price', '_sale_price', '_price' ) as $price_key ) {
+			$rows = array_values( (array) ( $meta[ $price_key ] ?? array() ) );
+			if ( count( $rows ) > 1 || ( 1 === count( $rows ) && '' !== trim( (string) reset( $rows ) ) ) ) {
+				return false;
+			}
+		}
+
+		$lookup = $this->read_exact_price_lookup_projection( $product_id );
+		if ( is_wp_error( $lookup ) || '0' !== $lookup['onsale'] ) {
+			return false;
+		}
+		$min_price = $this->pricing_batch_decimal( $lookup['min_price'] );
+		$max_price = $this->pricing_batch_decimal( $lookup['max_price'] );
+
+		return ( null === $min_price && null === $max_price )
+			|| ( '0' === $min_price && '0' === $max_price );
 	}
 
 	/**

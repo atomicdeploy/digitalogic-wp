@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.63] - 2026-08-31
+
+### Fixed
+- Accept WooCommerce's numeric-zero lookup bounds as an internal unavailable
+  price sentinel only while raw and effective prices remain blank and the
+  product remains out of stock; non-zero or mixed lookup prices fail closed.
+- Verify zero-stock and unknown-stock incomplete Patris products without
+  fabricating a customer price, quantity, or purchasable storefront state.
+
 ## [1.8.62] - 2026-08-31
 
 ### Fixed
