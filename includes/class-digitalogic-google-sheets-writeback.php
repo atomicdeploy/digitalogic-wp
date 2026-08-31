@@ -97,6 +97,7 @@ final class Digitalogic_Google_Sheets_Writeback {
 	 * @return array|WP_Error
 	 */
 	private function process( $payload, $mode ) {
+		Digitalogic_Product_Identifier_Resolver::instance()->clear_code_rows_cache();
 		$normalized = $this->normalize_envelope( $payload );
 		if ( is_wp_error( $normalized ) ) {
 			return $normalized;

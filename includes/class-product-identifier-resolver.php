@@ -245,16 +245,7 @@ final class Digitalogic_Product_Identifier_Resolver {
 
 	/** Resolve one exact latest metadata value. */
 	private function resolve_meta( $meta_key, $resolved_by, $value ) { // phpcs:ignore Squiz.Commenting.FunctionComment.MissingParamTag, Squiz.Commenting.FunctionComment.MissingReturn -- Legacy private helper.
-		global $wpdb;
-		$postmeta      = isset( $wpdb->postmeta ) ? $wpdb->postmeta : $wpdb->prefix . 'postmeta';
-		$current_value = "COALESCE((SELECT pm_match.meta_value FROM {$postmeta} pm_match
-            WHERE pm_match.post_id = p.ID AND pm_match.meta_key = %s
-            ORDER BY pm_match.meta_id DESC LIMIT 1), '')";
-        $rows = $this->query_rows(
-            $resolved_by,
-            "BINARY {$current_value} = BINARY %s",
-            array($meta_key, $value)
-        );
+		$rows = $this->query_code_rows_bulk();
         if (is_wp_error($rows)) {
             return $rows;
         }

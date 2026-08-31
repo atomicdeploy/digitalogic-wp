@@ -804,6 +804,7 @@ class Digitalogic_Product_Sync_Receiver {
      * @return array|WP_Error
      */
     public function reconcile($source_id = null, $dataset = null, $materialization_limit = 0) {
+		Digitalogic_Product_Identifier_Resolver::instance()->clear_code_rows_cache();
         if ((null === $source_id) !== (null === $dataset)) {
             return $this->error(
                 'digitalogic_product_sync_reconcile_scope_invalid',

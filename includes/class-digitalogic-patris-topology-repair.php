@@ -463,6 +463,7 @@ final class Digitalogic_Patris_Topology_Repair {
 				}
 			);
 			$this->require_success( $cleared );
+			Digitalogic_Product_Identifier_Resolver::instance()->clear_code_rows_cache();
 			$this->require_success( wp_set_object_terms( $parent_id, 'variable', 'product_type' ) );
 			$this->require_success( $this->flush_products( array( $parent_id ) ) );
 			$released_identity = Digitalogic_Product_Code_Editor::instance()->canonical_source_provenance_readback( $parent_id );
@@ -533,6 +534,7 @@ final class Digitalogic_Patris_Topology_Repair {
 					if ( is_wp_error( $written ) || ! $written ) {
 						return is_wp_error( $written ) ? $written : $this->error( 'digitalogic_patris_topology_variation_write_failed', 'The reviewed base variation could not be created.' );
 					}
+					Digitalogic_Product_Identifier_Resolver::instance()->clear_code_rows_cache();
 
 					return Digitalogic_Product_Code_Editor::instance()->verify_canonical_source_write( $new_variation_id, $product_code );
 				},

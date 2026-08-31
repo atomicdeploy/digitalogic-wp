@@ -598,6 +598,7 @@ final class GoogleSheetsWritebackTest extends TestCase {
 			$product_id                                       = 800 + $offset;
 			$patris_code                                      = sprintf( 'P%04d', $product_id );
 			$GLOBALS['digitalogic_test_posts'][ $product_id ] = $this->product_fixture( $patris_code );
+			Digitalogic_Product_Identifier_Resolver::instance()->clear_code_rows_cache();
 			$source_products[ $patris_code ]                  = array(
 				'product_code' => $patris_code,
 				'name'         => 'Heartbeat Product ' . $patris_code,
