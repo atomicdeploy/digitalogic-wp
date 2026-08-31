@@ -485,12 +485,12 @@ final class Digitalogic_Currency_Admin_Async {
 				)
 			);
 		}
-		$source     = sanitize_key( (string) $source );
-		$source     = '' === $source ? 'admin' : substr( $source, 0, 64 );
+		$source         = sanitize_key( (string) $source );
+		$source         = '' === $source ? 'admin' : substr( $source, 0, 64 );
 		$execution_mode = self::CLI_EXECUTION_MODE === (string) $execution_mode
 			? self::CLI_EXECUTION_MODE
 			: 'async';
-		$request_id = $this->normalize_request_id( $request_id );
+		$request_id     = $this->normalize_request_id( $request_id );
 		if ( is_wp_error( $request_id ) ) {
 			return $request_id;
 		}

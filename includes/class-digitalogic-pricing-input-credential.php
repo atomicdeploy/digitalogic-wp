@@ -231,10 +231,10 @@ final class Digitalogic_Pricing_Input_Credential {
 		}
 
 		return array(
-			'configured'     => 'invalid' === $state,
-			'active'         => false,
-			'state'          => $state,
-			'contracts'      => $this->contracts(),
+			'configured' => 'invalid' === $state,
+			'active'     => false,
+			'state'      => $state,
+			'contracts'  => $this->contracts(),
 		);
 	}
 
@@ -635,15 +635,15 @@ final class Digitalogic_Pricing_Input_Credential {
 	 */
 	private function metadata( $record ) {
 		return array(
-			'configured'     => true,
-			'active'         => 'active' === $record['status'],
-			'state'          => $record['status'],
-			'credential_id'  => $record['credential_id'],
-			'generation'     => $record['generation'],
-			'created_at'     => $record['created_at'],
-			'rotated_at'     => $record['rotated_at'],
-			'revoked_at'     => $record['revoked_at'],
-			'contracts'      => $this->contracts(),
+			'configured'    => true,
+			'active'        => 'active' === $record['status'],
+			'state'         => $record['status'],
+			'credential_id' => $record['credential_id'],
+			'generation'    => $record['generation'],
+			'created_at'    => $record['created_at'],
+			'rotated_at'    => $record['rotated_at'],
+			'revoked_at'    => $record['revoked_at'],
+			'contracts'     => $this->contracts(),
 		);
 	}
 
