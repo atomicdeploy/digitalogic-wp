@@ -720,6 +720,32 @@ final class Digitalogic_Report_Engine {
 			return $this->snapshot_cancelled_error();
 		}
 
+		// Operator-facing filters are derived from canonical facts, not provider
+		// warning strings. This keeps the panel useful when a producer changes its
+		// warning wording while preserving the exact source record for audit.
+		foreach ( $rows as &$operational_row ) {
+			$operational_source = is_array( $operational_row['source'] ?? null )
+				? $operational_row['source']
+				: array();
+			if ( '' === (string) ( $operational_source['shipping_method_id'] ?? '' ) ) {
+				$this->add_issue( $operational_row, 'missing_shipping_method' );
+			}
+			if (
+				'CNY' === ( $operational_source['foreign_currency'] ?? null )
+				&& isset( $operational_source['foreign_price'] )
+				&& is_numeric( $operational_source['foreign_price'] )
+				&& $this->decimal_compare_zero( $operational_source['foreign_price'] ) > 0
+				&& (
+					! isset( $operational_source['final_price'] )
+					|| ! is_numeric( $operational_source['final_price'] )
+					|| $this->decimal_compare_zero( $operational_source['final_price'] ) <= 0
+				)
+			) {
+				$this->add_issue( $operational_row, 'cny_without_final_price' );
+			}
+		}
+		unset( $operational_row );
+
 		$definitions = $this->category_definitions();
 		$categories  = array();
 		foreach ( $definitions as $key => $definition ) {
@@ -2621,6 +2647,14 @@ final class Digitalogic_Report_Engine {
 			'missing_final_price'                   => array( __( 'Missing calculated price', 'digitalogic' ), 'danger' ),
 			'null_final_price'                      => array( __( 'Calculated price is explicitly null', 'digitalogic' ), 'danger' ),
 			'missing_shipping'                      => array( __( 'Missing shipping price inputs', 'digitalogic' ), 'warning' ),
+			'missing_shipping_method'                  => array(
+				__( 'No supplier shipping method is assigned', 'digitalogic' ),
+				'danger',
+			),
+			'cny_without_final_price'                  => array(
+				__( 'Positive CNY amount has no calculated final price', 'digitalogic' ),
+				'danger',
+			),
 			'null_shipping'                         => array( __( 'Shipping price inputs contain explicit null', 'digitalogic' ), 'warning' ),
 			'invalid_domestic_shipping'             => array( __( 'Domestic price source must use the zero-rate domestic method in IRR', 'digitalogic' ), 'danger' ),
 			'missing_markup'                        => array( __( 'Missing profit margin', 'digitalogic' ), 'warning' ),

@@ -964,7 +964,7 @@ final class ProductSyncReceiverTest extends TestCase {
         $this->assertSame('digitalogic_product_sync_field_invalid', $result->get_error_code());
     }
 
-    public function test_cny_and_irr_freight_produce_the_same_final_irt_price(): void {
+    public function test_central_shipping_policy_projection_is_enforced(): void {
         $base                        = array(
             'foreign_currency'      => 'CNY',
             'foreign_price'         => 100,
@@ -977,21 +977,15 @@ final class ProductSyncReceiverTest extends TestCase {
             'irt_per_cny'           => 30000,
             'price_rounding_digits' => 2,
             'price_rounding_mode'   => 'nearest_half_up',
-            'final_price'           => 4680000,
+            'final_price'           => 7215000,
             'warnings'              => array(),
         );
         $cny                         = array_merge($base, array(
             'product_code'                   => 'CNY-FREIGHT',
-            'shipping_price_per_kg'          => 20,
+            'shipping_price_per_kg'          => 85,
             'shipping_price_per_kg_currency' => 'CNY',
         ));
         $cny['record_hash']          = $this->recordHash($cny, true);
-        $irr                         = array_merge($base, array(
-            'product_code'                   => 'IRR-FREIGHT',
-            'shipping_price_per_kg'          => 6000000,
-            'shipping_price_per_kg_currency' => 'IRR',
-        ));
-        $irr['record_hash']          = $this->recordHash($irr, true);
         $explicitNull                = array(
             'product_code'                   => 'NULL-FREIGHT',
             'shipping_price_per_kg'          => null,
@@ -1001,43 +995,32 @@ final class ProductSyncReceiverTest extends TestCase {
             'warnings'                       => array(),
         );
         $explicitNull['record_hash'] = $this->recordHash($explicitNull, true);
-		$nullCurrency                = array(
-			'product_code'                   => 'NULL-CURRENCY',
-			'shipping_price_per_kg'          => 20,
-			'shipping_price_per_kg_currency' => null,
-			'price_rounding_digits'          => 2,
-			'price_rounding_mode'            => 'nearest_half_up',
-			'warnings'                       => array(),
-		);
-		$nullCurrency['record_hash'] = $this->recordHash($nullCurrency, true);
-		$nullAmount                  = array(
-			'product_code'                   => 'NULL-AMOUNT',
-			'shipping_price_per_kg'          => null,
-			'shipping_price_per_kg_currency' => 'CNY',
-			'price_rounding_digits'          => 2,
-			'price_rounding_mode'            => 'nearest_half_up',
-			'warnings'                       => array(),
-		);
-		$nullAmount['record_hash']   = $this->recordHash($nullAmount, true);
 
         $result = Digitalogic_Product_Sync_Receiver::instance()->receive(
-            $this->snapshot(array($cny, $irr, $explicitNull, $nullCurrency, $nullAmount), array(), true)
+            $this->snapshot(array($cny, $explicitNull), array(), true)
         );
 
         $this->assertNotInstanceOf(WP_Error::class, $result);
         $this->assertSame('accepted', $result['status']);
         $state = Digitalogic_Product_Sync_Receiver::instance()->get_source_state('tests', 'ALLANBAR');
-        $this->assertSame(4680000, $state['products']['CNY-FREIGHT']['final_price']);
-        $this->assertSame(4680000, $state['products']['IRR-FREIGHT']['final_price']);
+        $this->assertSame(7215000, $state['products']['CNY-FREIGHT']['final_price']);
         $this->assertNull($state['products']['NULL-FREIGHT']['shipping_price_per_kg']);
         $this->assertNull($state['products']['NULL-FREIGHT']['shipping_price_per_kg_currency']);
         $this->assertArrayNotHasKey('final_price', $state['products']['NULL-FREIGHT']);
-		$this->assertSame('20', $state['products']['NULL-CURRENCY']['shipping_price_per_kg']);
-		$this->assertNull($state['products']['NULL-CURRENCY']['shipping_price_per_kg_currency']);
-		$this->assertArrayNotHasKey('final_price', $state['products']['NULL-CURRENCY']);
-		$this->assertNull($state['products']['NULL-AMOUNT']['shipping_price_per_kg']);
-		$this->assertSame('CNY', $state['products']['NULL-AMOUNT']['shipping_price_per_kg_currency']);
-		$this->assertArrayNotHasKey('final_price', $state['products']['NULL-AMOUNT']);
+
+		$mismatched                          = $cny;
+		$mismatched['product_code']          = 'PRODUCT-RATE-OVERRIDE';
+		$mismatched['shipping_price_per_kg'] = 20;
+		unset( $mismatched['record_hash'] );
+		$mismatched['record_hash'] = $this->recordHash( $mismatched, true );
+
+		$result = Digitalogic_Product_Sync_Receiver::instance()->receive(
+			$this->snapshot( array( $mismatched ), array(), true )
+		);
+		$this->assertSame(
+			'digitalogic_product_shipping_policy_mismatch',
+			$result->get_error_code()
+		);
     }
 
     public function test_partner_price_fallback_uses_irr_without_freight_and_rounds_nearest(): void {
@@ -1207,7 +1190,7 @@ final class ProductSyncReceiverTest extends TestCase {
         $product['price_source_amount']            = 7000;
         $product['final_price']                    = 910;
         $product['shipping_method_id']             = 'air_express';
-        $product['shipping_price_per_kg']          = 20;
+        $product['shipping_price_per_kg']          = 85;
         $product['shipping_price_per_kg_currency'] = 'CNY';
         unset($product['record_hash']);
         $product['record_hash'] = $this->recordHash($product, true);
@@ -1265,7 +1248,7 @@ final class ProductSyncReceiverTest extends TestCase {
                 'product_code'                   => 'CNY-PRIORITY',
                 'weight_grams'                   => 100,
                 'shipping_method_id'             => 'air_express',
-                'shipping_price_per_kg'          => 20,
+                'shipping_price_per_kg'          => 85,
                 'shipping_price_per_kg_currency' => 'CNY',
                 'irt_per_cny'                    => 30000,
             )
@@ -1305,7 +1288,7 @@ final class ProductSyncReceiverTest extends TestCase {
             'partner_price_source'           => 100000,
             'weight_grams'                   => 100,
             'shipping_method_id'             => 'air_express',
-            'shipping_price_per_kg'          => 20,
+            'shipping_price_per_kg'          => 85,
             'shipping_price_per_kg_currency' => 'CNY',
             'irt_per_cny'                    => 30000,
             'price_rounding_digits'          => 0,

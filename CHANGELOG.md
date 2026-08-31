@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.68] - 2026-08-31
+
+### Fixed
+
+- Made supplier freight amounts read-only projections of centralized shipping
+  methods and rejected product records that diverge from their selected policy.
+- Added Pricing List filters for missing shipping methods and positive CNY
+  amounts without final prices, plus an authorized same-row method selector.
+
 ## [1.8.66] - 2026-08-31
 
 ### Fixed
