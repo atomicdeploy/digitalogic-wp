@@ -4458,14 +4458,21 @@ class Digitalogic_Product_Sync_Receiver {
 					$fallback_positive_prices
 				);
 				if ( is_wp_error( $lookup_drift ) || ! empty( $lookup_drift ) ) {
-					$identity_verified = is_wp_error( $lookup_drift )
-						? $lookup_drift
-						: $this->error(
+					if ( is_wp_error( $lookup_drift ) ) {
+						$identity_verified = $lookup_drift;
+					} else {
+						$drifted_product_id = (int) reset( $lookup_drift );
+						$identity_verified  = $this->error(
 							'digitalogic_pricing_batch_lookup_readback_failed',
 							'WooCommerce customer-price lookup changed before commit.',
 							502,
-							array( 'woocommerce_ids' => array_values( $lookup_drift ) )
+							array(
+								'product_code'   => (string) ( $fallback_product_data[ $drifted_product_id ]['product_code'] ?? '' ),
+								'woocommerce_id' => $drifted_product_id,
+								'woocommerce_ids' => array_values( $lookup_drift ),
+							)
 						);
+					}
 				}
 			}
 			if ( is_wp_error( $identity_verified ) ) {

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.77] - 2026-09-01
+
+### Changed
+- Include the first affected Product Code and WooCommerce ID when the final
+  fallback lookup projection differs, while keeping the transaction fail-closed.
+
 ## [1.8.76] - 2026-09-01
 
 ### Fixed
