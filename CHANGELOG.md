@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.73] - 2026-09-01
+
+### Fixed
+- Split bulk leaf-identity and cross-product collision locks into two bounded
+  current reads, avoiding MariaDB's unstable large `OR`/`EXISTS` locking plan
+  while preserving exact pre-write identity and duplicate-code fencing.
+
 ## [1.8.72] - 2026-09-01
 
 ### Fixed
