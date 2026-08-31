@@ -175,11 +175,15 @@ final class PatrisPricePolicyTest extends TestCase {
 			)
 		);
 
-		$this->feed->apply_product_feed( wc_get_product( 807 ), array( 'product_code' => 'MISSING-807' ) );
+		$missing = $this->row( 'MISSING-807', 700 );
+		unset( $missing['final_price'] );
+		$this->feed->apply_product_feed( wc_get_product( 807 ), $missing );
 		$product = wc_get_product( 807 );
 		$this->assertSame( '', $product->get_regular_price() );
 		$this->assertSame( '', $product->get_sale_price() );
 		$this->assertSame( '', $product->get_price() );
+		$this->assertSame( 5, $product->get_stock_quantity() );
+		$this->assertSame( 'outofstock', $product->get_stock_status() );
 		$this->assertSame( 'canonical_missing_unpriced', $product->get_meta( '_digitalogic_patris_price_status', true ) );
 
 		$this->feed->apply_product_feed( $product, $this->row( 'MISSING-807', 0 ) );
@@ -187,7 +191,15 @@ final class PatrisPricePolicyTest extends TestCase {
 		$this->assertSame( '', $product->get_regular_price() );
 		$this->assertSame( '', $product->get_sale_price() );
 		$this->assertSame( '', $product->get_price() );
+		$this->assertSame( 'outofstock', $product->get_stock_status() );
 		$this->assertSame( 'canonical_nonpositive_unpriced', $product->get_meta( '_digitalogic_patris_price_status', true ) );
+
+		$this->feed->apply_product_feed( $product, $this->row( 'MISSING-807', 800 ) );
+		$product = wc_get_product( 807 );
+		$this->assertSame( '800', $product->get_price() );
+		$this->assertSame( 5, $product->get_stock_quantity() );
+		$this->assertSame( 'instock', $product->get_stock_status() );
+		$this->assertSame( 'priced', $product->get_meta( '_digitalogic_patris_price_status', true ) );
 	}
 
 	/** A missing weight preserves an already-consistent storefront price with a warning. */
@@ -247,7 +259,14 @@ final class PatrisPricePolicyTest extends TestCase {
 		$this->assertSame( 0, $product->get_stock_quantity() );
 		$this->assertSame( 'outofstock', $product->get_stock_status() );
 
-		$this->feed->apply_product_feed( $product, array( 'product_code' => 'STOCK-810', 'total_stock' => 1.9 ) );
+		$this->feed->apply_product_feed(
+			$product,
+			array(
+				'product_code' => 'STOCK-810',
+				'total_stock'  => 1.9,
+				'final_price'  => 700,
+			)
+		);
 		$product = wc_get_product( 810 );
 		$this->assertSame( 1, $product->get_stock_quantity() );
 		$this->assertSame( 'instock', $product->get_stock_status() );

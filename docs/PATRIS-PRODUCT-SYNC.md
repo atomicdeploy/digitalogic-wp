@@ -63,7 +63,13 @@ backfilled, without a WooCommerce object save. Any mismatch or unavailable
 proof increments `materialization_mismatch_stopped`, keeps the row pending, and
 stops before any full WooCommerce feed save. The explicit repair writes only
 the five provenance/marker rows; it does not invent a price or bootstrap a
-shipping assignment. During normal receiver delivery, a legacy row with no
+shipping assignment. A source-revision-bound scan cursor resumes after the
+last inspected Code, and the exact resolver result is reused only inside that
+same locked request. Existing pending work is retried before another batch is
+queued, so each run remains bounded to 25 delivery attempts. Reaching the end
+of the sorted source or receiving a new source event clears the cursor; the
+next zero-queued run therefore remains a full idempotency proof. During normal
+receiver delivery, a legacy row with no
 selected-price triple may receive the canonical `air_express` supplier
 assignment only when its exact raw facts are positive CNY and the existing site
 assignment is empty; the write uses compare-and-set and a conflicting
