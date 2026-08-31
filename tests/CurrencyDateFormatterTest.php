@@ -37,6 +37,15 @@ final class CurrencyDateFormatterTest extends TestCase {
         }
     }
 
+    public function test_acf_strict_ymd_is_normalized_in_site_timezone(): void {
+        $date = $this->formatter->parse('20260831');
+
+        $this->assertInstanceOf(DateTimeImmutable::class, $date);
+        $this->assertSame('2026-08-31 12:00:00 Asia/Tehran', $date->format('Y-m-d H:i:s e'));
+        $this->assertSame('2026-08-31', $date->format('Y-m-d'));
+        $this->assertSame('2026/08/31', $this->formatter->format('۲۰۲۶۰۸۳۱', 'Y/m/d', 'en_US'));
+    }
+
     public function test_persian_and_arabic_indic_input_digits_are_normalized(): void {
         $this->assertSame('۱۴۰۵/۰۴/۰۸', $this->formatter->format('۲۶۰۶۲۹', 'Y/m/d', 'fa_IR'));
         $this->assertSame('2026/06/29', $this->formatter->format('٢٠٢٦-٠٦-٢٩', 'Y/m/d', 'en_US'));
@@ -64,6 +73,7 @@ final class CurrencyDateFormatterTest extends TestCase {
             'bad legacy month' => array('261329'),
             'bad legacy leap day' => array('250229'),
             'bad ISO day' => array('2026-06-31'),
+            'bad ACF Ymd day' => array('20260230'),
             'bad ISO time' => array('2026-06-29T24:00:00Z'),
             'bad ISO offset' => array('2026-06-29T12:00:00+14:01'),
             'trailing data' => array('2026-06-29 garbage'),

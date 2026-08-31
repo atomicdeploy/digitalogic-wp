@@ -3517,7 +3517,7 @@ final class Digitalogic_Excel_Pricing_Sync {
 			);
 		}
 		$prefix = isset( $wpdb->prefix ) ? (string) $wpdb->prefix : 'wp_';
-		$name   = substr( self::LOCK_NAME . '_' . md5( $prefix ), 0, 64 );
+		$name   = self::coordination_lock_name( $prefix );
 		$locked = $wpdb->get_var(
 			$wpdb->prepare(
 				'SELECT GET_LOCK(%s, %d)',
@@ -3557,8 +3557,35 @@ final class Digitalogic_Excel_Pricing_Sync {
 			return;
 		}
 		$prefix = isset( $wpdb->prefix ) ? (string) $wpdb->prefix : 'wp_';
-		$name   = substr( self::LOCK_NAME . '_' . md5( $prefix ), 0, 64 );
+		$name   = self::coordination_lock_name( $prefix );
 		$wpdb->get_var( $wpdb->prepare( 'SELECT RELEASE_LOCK(%s)', $name ) );
+	}
+
+	/**
+	 * Return the bounded MySQL advisory-lock identity for one table prefix.
+	 *
+	 * @param string $table_prefix WordPress table prefix.
+	 * @return string
+	 */
+	public static function coordination_lock_name( $table_prefix ) {
+		return substr( self::LOCK_NAME . '_' . md5( (string) $table_prefix ), 0, 64 );
+	}
+
+	/**
+	 * Whether any connection currently owns the canonical pricing lock.
+	 *
+	 * @return bool
+	 */
+	public static function coordination_lock_is_held() {
+		global $wpdb;
+		if ( ! is_object( $wpdb ) || ! method_exists( $wpdb, 'prepare' ) || ! method_exists( $wpdb, 'get_var' ) ) {
+			return false;
+		}
+		$prefix = isset( $wpdb->prefix ) ? (string) $wpdb->prefix : 'wp_';
+		$name   = self::coordination_lock_name( $prefix );
+		$owner  = $wpdb->get_var( $wpdb->prepare( 'SELECT IS_USED_LOCK(%s)', $name ) );
+
+		return null !== $owner && (int) $owner > 0;
 	}
 
 	/**

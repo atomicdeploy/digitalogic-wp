@@ -55,9 +55,9 @@ final class Digitalogic_Currency_Date_Formatter {
 	/**
 	 * Parse a stored currency date into a site-timezone date at noon.
 	 *
-	 * Accepted values are legacy YYMMDD dates (interpreted as 20YY) and
-	 * strict ISO 8601 dates or date-times. Invalid values never fall back to
-	 * the current date or the Unix epoch.
+	 * Accepted values are legacy YYMMDD dates (interpreted as 20YY), ACF's
+	 * strict Ymd return format, and strict ISO 8601 dates or date-times.
+	 * Invalid values never fall back to the current date or the Unix epoch.
 	 *
 	 * @param mixed $value Raw stored value.
 	 * @return DateTimeImmutable|null
@@ -72,6 +72,14 @@ final class Digitalogic_Currency_Date_Formatter {
 		if ( preg_match( '/\A([0-9]{2})([0-9]{2})([0-9]{2})\z/D', $value, $matches ) ) {
 			return $this->date_from_parts(
 				2000 + (int) $matches[1],
+				(int) $matches[2],
+				(int) $matches[3]
+			);
+		}
+
+		if ( preg_match( '/\A([0-9]{4})([0-9]{2})([0-9]{2})\z/D', $value, $matches ) ) {
+			return $this->date_from_parts(
+				(int) $matches[1],
 				(int) $matches[2],
 				(int) $matches[3]
 			);

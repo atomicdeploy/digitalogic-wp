@@ -48,6 +48,9 @@ final class PricingCoordinatorTest extends TestCase {
 		$GLOBALS['digitalogic_test_remote_post_results']          = array();
 		$GLOBALS['digitalogic_test_spawn_cron_calls']             = array();
 		$GLOBALS['digitalogic_test_current_user_id']              = 0;
+		WP_CLI::$errors                                           = array();
+		WP_CLI::$logs                                             = array();
+		WP_CLI::$warnings                                         = array();
 		$GLOBALS['digitalogic_test_posts']                        = array(
 			901 => array(
 				'post_type'    => 'product',
@@ -1375,6 +1378,113 @@ final class PricingCoordinatorTest extends TestCase {
 		$this->assertEmpty( $GLOBALS['digitalogic_test_actions']['digitalogic_pricing_confirmation_event'] ?? array() );
 	}
 
+	/** A changed CLI rate plus --recalculate is one synchronous apply, not a rejected reconcile or web-worker queue. */
+	public function test_currency_cli_changed_rate_recalculate_is_synchronous_and_terminal(): void {
+		$state        = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
+		$before_price = (string) $GLOBALS['digitalogic_test_posts'][901]['meta']['_regular_price'];
+		$result       = Digitalogic_Currency_Admin_Async::instance()->execute_cli_currency(
+			array( 'yuan_price' => '31500' ),
+			true,
+			(string) $state['state_revision'],
+			'cli-sync-changed-0001'
+		);
+
+		$this->assertFalse( is_wp_error( $result ) );
+		$this->assertSame( 'confirmed', $result['status'] );
+		$this->assertSame( 'apply', $result['mode'] );
+		$this->assertSame( 'wp_cli_sync', $result['execution_mode'] );
+		$this->assertSame( 1, $result['apply_attempts'] );
+		$this->assertSame( 31500, $result['confirmed_currency']['yuan_price'] );
+		$this->assertSame( '31500', (string) $GLOBALS['digitalogic_test_options']['options_yuan_price'] );
+		$this->assertNotSame( $before_price, (string) $GLOBALS['digitalogic_test_posts'][901]['meta']['_regular_price'] );
+		$currency_worker_events = array_filter(
+			$GLOBALS['digitalogic_test_scheduled_events'],
+			static fn( $event ) => in_array(
+				(string) $event['hook'],
+				array( 'digitalogic_currency_admin_async_apply', 'digitalogic_currency_admin_async_finalize' ),
+				true
+			)
+		);
+		$this->assertSame( array(), array_values( $currency_worker_events ) );
+	}
+
+	/** The public command blocks until the exact changed-rate transaction is confirmed. */
+	public function test_currency_cli_command_changed_rate_recalculate_prints_terminal_result(): void {
+		$command = new Digitalogic_CLI_Commands();
+
+		try {
+			$command->currency_update(
+				array(),
+				array(
+					'cny'         => '31500',
+					'recalculate' => true,
+					'request-id'  => 'cli-command-changed-0001',
+				)
+			);
+			$this->fail( 'WP_CLI::success should terminate the command.' );
+		} catch ( RuntimeException $exception ) {
+			$this->assertStringContainsString( 'transaction confirmed', $exception->getMessage() );
+		}
+
+		$this->assertSame( array(), WP_CLI::$errors );
+		$this->assertCount( 1, WP_CLI::$logs );
+		$output = json_decode( WP_CLI::$logs[0], true, 512, JSON_THROW_ON_ERROR );
+		$this->assertSame( 'confirmed', $output['status'] );
+		$this->assertSame( 'apply', $output['mode'] );
+		$this->assertSame( 'wp_cli_sync', $output['execution_mode'] );
+		$this->assertSame( '31500', (string) $GLOBALS['digitalogic_test_options']['options_yuan_price'] );
+	}
+
+	/** An expired async lease cannot be re-fenced while its original pricing connection still owns the lock. */
+	public function test_currency_async_expired_lease_waits_for_original_pricing_lock_owner(): void {
+		$async = Digitalogic_Currency_Admin_Async::instance();
+		$job   = $async->enqueue( '29501', false );
+		$this->assertFalse( is_wp_error( $job ) );
+
+		$stored                   = $GLOBALS['digitalogic_test_options']['digitalogic_currency_admin_async_job'];
+		$stored['status']         = 'running';
+		$stored['owner_token']    = str_repeat( 'a', 32 );
+		$stored['fence_token']    = str_repeat( 'b', 32 );
+		$stored['fence']          = 1;
+		$stored['apply_attempts'] = 1;
+		$stored['lease_until']    = time() - 2;
+		$stored['deadline_at']    = time() - 1;
+		update_option( 'digitalogic_currency_admin_async_job', $stored, false );
+		$GLOBALS['digitalogic_test_option_cache']     = array();
+		$GLOBALS['digitalogic_test_scheduled_events'] = array();
+
+		$lock_name = Digitalogic_Excel_Pricing_Sync::coordination_lock_name( 'wp_' );
+		$GLOBALS['wpdb']->used_locks[ $lock_name ] = 9999;
+		$async->run_job( $job['job_id'], $job['generation'] );
+		$renewed = $GLOBALS['digitalogic_test_options']['digitalogic_currency_admin_async_job'];
+
+		$this->assertSame( 'running', $renewed['status'] );
+		$this->assertSame( 1, $renewed['fence'] );
+		$this->assertSame( 1, $renewed['apply_attempts'] );
+		$this->assertGreaterThan( time(), $renewed['lease_until'] );
+		$this->assertGreaterThan( $renewed['lease_until'], $renewed['deadline_at'] );
+		$this->assertCount( 1, $GLOBALS['digitalogic_test_scheduled_events'] );
+		$this->assertSame( 'digitalogic_currency_admin_async_watchdog', $GLOBALS['digitalogic_test_scheduled_events'][0]['hook'] );
+
+		unset( $GLOBALS['wpdb']->used_locks[ $lock_name ] );
+		$renewed['lease_until'] = time() - 1;
+		update_option( 'digitalogic_currency_admin_async_job', $renewed, false );
+		$GLOBALS['digitalogic_test_option_cache']     = array();
+		$GLOBALS['digitalogic_test_scheduled_events'] = array();
+		$async->run_watchdog( $job['job_id'], $job['generation'], 1 );
+		$released = $GLOBALS['digitalogic_test_options']['digitalogic_currency_admin_async_job'];
+
+		$this->assertSame( 'queued', $released['status'] );
+		$this->assertSame( 1, $released['fence'] );
+		$this->assertSame( 1, $released['apply_attempts'] );
+		$this->assertNotEmpty(
+			array_filter(
+				$GLOBALS['digitalogic_test_scheduled_events'],
+				static fn( $event ) => 'digitalogic_currency_admin_async_apply' === $event['hook']
+			)
+		);
+	}
+
 	/** A fully published terminal marker does not block a no-op successor or cause another actuation. */
 	public function test_currency_admin_async_confirmed_job_allows_noop_successor_without_repricing(): void {
 		$async = Digitalogic_Currency_Admin_Async::instance();
@@ -2022,6 +2132,57 @@ final class PricingCoordinatorTest extends TestCase {
 		$this->assertSame( 'queued', $job['status'] );
 		$this->assertSame( '2026-07-21', $job['desired_currency']['effective_date'] );
 		$this->assertSame( '260721', (string) $GLOBALS['digitalogic_test_options']['options_update_date'] );
+	}
+
+	/** A normal browserless ACF Ymd submission survives rotated field keys and queues an ISO effective date. */
+	public function test_acf_strict_ymd_submission_queues_canonical_iso_without_javascript(): void {
+		$async                                       = Digitalogic_Currency_Admin_Async::instance();
+		$state                                       = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
+		$_POST['acf']                                = array(
+			'field_cny_rotated'  => '31500',
+			'field_date_rotated' => '20260831',
+		);
+		$_POST['digitalogic_pricing_state_revision'] = $state['state_revision'];
+
+		$this->assertSame(
+			'29500',
+			$async->route_acf_currency_update( '31500', 'options', array( 'name' => 'yuan_price' ) )
+		);
+		$this->assertSame(
+			'260721',
+			$async->route_acf_currency_update( '20260831', 'options', array( 'name' => 'update_date' ) )
+		);
+		do_action( 'acf/save_post', 'options' );
+
+		$job = $async->status();
+		$this->assertSame( 'queued', $job['status'] );
+		$this->assertSame( 31500, $job['desired_currency']['yuan_price'] );
+		$this->assertSame( '2026-08-31', $job['desired_currency']['effective_date'] );
+		$this->assertSame( '260721', (string) $GLOBALS['digitalogic_test_options']['options_update_date'] );
+	}
+
+	/** Malformed ACF Ymd remains fail-closed and leaves the confirmed rate/date untouched. */
+	public function test_acf_invalid_ymd_submission_reports_issue_without_job_or_write(): void {
+		$async                                              = Digitalogic_Currency_Admin_Async::instance();
+		$state                                              = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
+		$GLOBALS['digitalogic_test_current_user_id']         = 1;
+		$_POST['acf']                                       = array(
+			'field_cny_rotated'  => '31500',
+			'field_date_rotated' => '20260230',
+		);
+		$_POST['digitalogic_pricing_state_revision']        = $state['state_revision'];
+
+		$async->route_acf_currency_update( '31500', 'options', array( 'name' => 'yuan_price' ) );
+		$async->route_acf_currency_update( '20260230', 'options', array( 'name' => 'update_date' ) );
+		do_action( 'acf/save_post', 'options' );
+
+		$this->assertSame( 'idle', $async->status()['status'] );
+		$this->assertArrayNotHasKey( 'digitalogic_currency_admin_async_job', $GLOBALS['digitalogic_test_options'] );
+		$this->assertSame( '29500', (string) $GLOBALS['digitalogic_test_options']['options_yuan_price'] );
+		$this->assertSame( '260721', (string) $GLOBALS['digitalogic_test_options']['options_update_date'] );
+		$issue = get_transient( 'digitalogic_currency_async_issue_1' );
+		$this->assertSame( 'digitalogic_currency_async_effective_date_invalid', $issue['code'] );
+		$this->assertSame( 'تاریخ مؤثر نرخ معتبر نیست.', $issue['message_fa'] );
 	}
 
 	/** One ACF request collects USD, CNY, and date semantically and queues exactly once. */

@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.65] - 2026-08-31
+
+### Fixed
+- Run canonical WP-CLI currency changes synchronously inside one fenced owner,
+  including changed-rate `--recalculate` requests, and block expired async
+  lease recovery while the original pricing transaction still owns its lock.
+- Accept ACF's strict eight-digit `Ymd` effective-date value, normalize it to
+  the canonical site-timezone ISO date, and continue rejecting invalid dates.
+
 ## [1.8.64] - 2026-08-31
 
 ### Fixed

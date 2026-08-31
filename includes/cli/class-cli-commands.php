@@ -65,7 +65,7 @@ class Digitalogic_CLI_Commands {
 	 * : CNY price in local currency
 	 *
 	 * [--recalculate]
-	 * : Recalculate all product prices
+	 * : Recalculate all product prices. With a changed rate, applies that rate first.
 	 *
 	 * ## EXAMPLES
 	 *
@@ -106,12 +106,10 @@ class Digitalogic_CLI_Commands {
 		$request_id = isset( $assoc_args['request-id'] )
 			? sanitize_text_field( (string) $assoc_args['request-id'] )
 			: 'cli:' . wp_generate_uuid4();
-		$result     = Digitalogic_Currency_Admin_Async::instance()->enqueue_currency(
+		$result     = Digitalogic_Currency_Admin_Async::instance()->execute_cli_currency(
 			$values,
-			true,
 			$force_recalculate,
 			(string) $state['state_revision'],
-			$force_recalculate ? 'wp_cli_currency_recalculate' : 'wp_cli_currency',
 			$request_id
 		);
 		if ( is_wp_error( $result ) ) {
@@ -119,7 +117,17 @@ class Digitalogic_CLI_Commands {
 			return;
 		}
 		WP_CLI::line( (string) wp_json_encode( $result, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE ) );
-		WP_CLI::success( 'Currency job accepted; use its request_id or exact job_id/generation to read status.' );
+		if ( 'confirmed' !== (string) ( $result['status'] ?? '' ) ) {
+			WP_CLI::error(
+				sprintf(
+					'Currency transaction did not confirm (status: %s, error: %s).',
+					(string) ( $result['status'] ?? 'unknown' ),
+					(string) ( $result['error_code'] ?? '' )
+				)
+			);
+			return;
+		}
+		WP_CLI::success( 'Currency rate and product pricing transaction confirmed.' );
 	}
 
 	/** Read one bounded currency job by exact identity or request ID. */
