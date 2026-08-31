@@ -1268,7 +1268,7 @@ final class PricingCoordinatorTest extends TestCase {
 		$source = $result['pricing_results']['sources'][0]['woocommerce'];
 		$this->assertSame( 4, $source['batch_count'] );
 		$this->assertSame( 14, $source['batch_parent_count'] );
-		$this->assertLessThanOrEqual( 21, count( $GLOBALS['wpdb']->queries ) );
+		$this->assertLessThanOrEqual( 24, count( $GLOBALS['wpdb']->queries ) );
 		$this->assertCount( 5, $GLOBALS['digitalogic_test_cache_delete_multiple'] );
 		$this->assertSame(
 			array( 'posts', 'post_meta', 'product_type_relationships', 'posts', 'post_meta' ),

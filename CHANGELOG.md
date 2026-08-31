@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.76] - 2026-09-01
+
+### Fixed
+- Lock bulk pricing leaf identities in ordered 200-product chunks so MariaDB
+  does not reject one oversized joined current read, while retaining the same
+  surrounding atomic transaction and exact identity checks.
+
 ## [1.8.75] - 2026-09-01
 
 ### Changed
