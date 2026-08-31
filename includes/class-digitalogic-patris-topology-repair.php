@@ -387,6 +387,17 @@ final class Digitalogic_Patris_Topology_Repair {
 		if ( ! $this->repair_locks_are_owned( $plan['locked_product_ids'] ) ) {
 			return $this->error( 'digitalogic_patris_topology_lock_lost', 'The reviewed topology locks were lost before repair.' );
 		}
+		$parent_ids  = array_merge(
+			array_keys( $plan['empty_parents'] ),
+			array( $plan['identity_parent']['parent_id'] )
+		);
+		$cache_fence = $this->fence_topology_relationship_caches(
+			$parent_ids,
+			$plan['identity_parent']['attribute_taxonomy']
+		);
+		if ( is_wp_error( $cache_fence ) ) {
+			return $cache_fence;
+		}
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Exact topology repair requires an explicit atomic transaction.
 		if ( ! is_object( $wpdb ) || false === $wpdb->query( 'START TRANSACTION' ) ) {
 			return $this->error( 'digitalogic_patris_topology_transaction_unavailable', 'The topology repair transaction is unavailable.' );
@@ -397,10 +408,6 @@ final class Digitalogic_Patris_Topology_Repair {
 		$cause                  = '';
 		$commit_attempted       = false;
 		$deferred_sync_snapshot = $this->snapshot_deferred_product_sync();
-		$parent_ids             = array_merge(
-			array_keys( $plan['empty_parents'] ),
-			array( $plan['identity_parent']['parent_id'] )
-		);
 		try {
 			foreach ( array_keys( $plan['empty_parents'] ) as $parent_id ) {
 				$this->require_success( wp_set_object_terms( $parent_id, 'variable', 'product_type' ) );
@@ -470,11 +477,17 @@ final class Digitalogic_Patris_Topology_Repair {
 				throw new RuntimeException( 'attribute_readback_failed' );
 			}
 			$options = array_values( array_unique( array_merge( array_map( 'absint', $attribute->get_options() ), array( $term_id ) ) ) );
+			sort( $options, SORT_NUMERIC );
 			$attribute->set_options( $options );
 			$attribute->set_variation( true );
 			$attributes[ $taxonomy ] = $attribute;
 			$parent->set_attributes( $attributes );
 			$this->require_success( $parent->save() );
+			$this->require_success( wp_set_object_terms( $parent_id, $options, $taxonomy, false ) );
+			$stored_options = $this->read_taxonomy_term_ids( $parent_id, $taxonomy );
+			if ( is_wp_error( $stored_options ) || $options !== $stored_options ) {
+				throw new RuntimeException( 'parent_attribute_terms_write_failed' );
+			}
 
 			$variation = new WC_Product_Variation();
 			$variation->set_parent_id( $parent_id );
@@ -529,6 +542,7 @@ final class Digitalogic_Patris_Topology_Repair {
 			if ( false === $wpdb->query( 'COMMIT' ) ) {
 				throw new RuntimeException( 'commit_failed' );
 			}
+			$this->restore_deferred_product_sync( $deferred_sync_snapshot );
 		} catch ( Throwable $exception ) {
 			$cause = $exception->getMessage();
 			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Roll back every reviewed topology write on any failure.
@@ -614,9 +628,10 @@ final class Digitalogic_Patris_Topology_Repair {
 		$expected_children                      = $identity['children'];
 		$expected_children[ $new_variation_id ] = $identity['product_code'];
 		ksort( $expected_children, SORT_NUMERIC );
-		$term      = get_term( $term_id, $identity['attribute_taxonomy'] );
-		$attribute = $parent instanceof WC_Product ? ( $parent->get_attributes()[ $identity['attribute_taxonomy'] ] ?? null ) : null;
-		$options   = $attribute instanceof WC_Product_Attribute ? array_map( 'absint', $attribute->get_options() ) : array();
+		$term           = get_term( $term_id, $identity['attribute_taxonomy'] );
+		$attribute      = $parent instanceof WC_Product ? ( $parent->get_attributes()[ $identity['attribute_taxonomy'] ] ?? null ) : null;
+		$options        = $attribute instanceof WC_Product_Attribute ? array_map( 'absint', $attribute->get_options() ) : array();
+		$stored_options = $this->read_taxonomy_term_ids( $identity['parent_id'], $identity['attribute_taxonomy'] );
 		if ( ! $parent instanceof WC_Product ) {
 			return $this->readback_failure( 'identity_parent_unavailable', $identity['parent_id'] );
 		}
@@ -663,6 +678,9 @@ final class Digitalogic_Patris_Topology_Repair {
 		}
 		if ( ! in_array( $term_id, $options, true ) ) {
 			return $this->readback_failure( 'identity_parent_attribute', $identity['parent_id'] );
+		}
+		if ( is_wp_error( $stored_options ) || ! in_array( $term_id, $stored_options, true ) ) {
+			return $this->readback_failure( 'identity_parent_attribute_storage', $identity['parent_id'], $stored_options );
 		}
 		$valid = $materializer->validate_source_product_target( $new_variation_id, $plan['source'] );
 		if ( is_wp_error( $valid ) ) {
@@ -819,6 +837,107 @@ final class Digitalogic_Patris_Topology_Repair {
 	}
 
 	/**
+	 * Remove persistent relationship entries, then keep the exact groups
+	 * request-local so a deferred cache write cannot escape the transaction.
+	 *
+	 * @param int[]  $parent_ids Exact reviewed parent IDs.
+	 * @param string $taxonomy   Exact variation taxonomy.
+	 * @return true|WP_Error
+	 */
+	private function fence_topology_relationship_caches( $parent_ids, $taxonomy ) {
+		if ( ! function_exists( 'wp_cache_add_non_persistent_groups' ) ) {
+			return $this->error( 'digitalogic_patris_topology_cache_unavailable', 'Request-local taxonomy relationship cache fencing is unavailable.' );
+		}
+		$cache_groups = $this->topology_relationship_cache_groups( $taxonomy );
+		$cleared      = $this->delete_topology_relationship_caches( $parent_ids, $cache_groups );
+		if ( is_wp_error( $cleared ) ) {
+			return $cleared;
+		}
+
+		wp_cache_add_non_persistent_groups( $cache_groups );
+
+		return $this->delete_topology_relationship_caches( $parent_ids, $cache_groups );
+	}
+
+	/**
+	 * Return every product relationship cache group relevant to the repair.
+	 *
+	 * @param string $taxonomy Exact variation taxonomy.
+	 * @return string[]
+	 */
+	private function topology_relationship_cache_groups( $taxonomy ) {
+		$taxonomies   = function_exists( 'get_object_taxonomies' )
+			? (array) get_object_taxonomies( 'product', 'names' )
+			: array();
+		$taxonomies[] = 'product_type';
+		if ( '' !== (string) $taxonomy ) {
+			$taxonomies[] = (string) $taxonomy;
+		}
+		$taxonomies = array_values( array_unique( array_filter( $taxonomies, 'is_string' ) ) );
+
+		return array_map(
+			static function ( $relationship_taxonomy ) {
+				return $relationship_taxonomy . '_relationships';
+			},
+			$taxonomies
+		);
+	}
+
+	/**
+	 * Delete and prove absence of exact relationship cache entries.
+	 *
+	 * @param int[]    $parent_ids  Exact reviewed parent IDs.
+	 * @param string[] $cache_groups Exact relationship cache groups.
+	 * @return true|WP_Error
+	 */
+	private function delete_topology_relationship_caches( $parent_ids, $cache_groups ) {
+		$parent_ids = array_values( array_unique( array_filter( array_map( 'absint', (array) $parent_ids ) ) ) );
+		foreach ( $parent_ids as $parent_id ) {
+			foreach ( $cache_groups as $cache_group ) {
+				wp_cache_delete( $parent_id, $cache_group );
+				$found = false;
+				wp_cache_get( $parent_id, $cache_group, true, $found );
+				if ( $found ) {
+					return $this->error( 'digitalogic_patris_topology_cache_unavailable', 'A reviewed taxonomy relationship cache could not be invalidated.' );
+				}
+			}
+		}
+
+		return true;
+	}
+
+	/**
+	 * Read exact stored taxonomy term IDs without a relationship cache.
+	 *
+	 * @param int    $product_id Exact product ID.
+	 * @param string $taxonomy   Exact taxonomy name.
+	 * @return int[]|WP_Error
+	 */
+	private function read_taxonomy_term_ids( $product_id, $taxonomy ) {
+		global $wpdb;
+		if ( ! is_object( $wpdb ) || ! isset( $wpdb->term_relationships, $wpdb->term_taxonomy ) || ! is_callable( array( $wpdb, 'get_col' ) ) ) {
+			return $this->error( 'digitalogic_patris_topology_term_readback_failed', 'Exact taxonomy relationship readback is unavailable.' );
+		}
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Exact transactional topology readback must bypass non-transactional object caches.
+		$term_ids = $wpdb->get_col(
+			$wpdb->prepare(
+				"SELECT /* digitalogic_patris_topology_term_readback */ tt.term_id
+				FROM {$wpdb->term_relationships} tr
+				INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = tr.term_taxonomy_id
+				WHERE tr.object_id = %d AND tt.taxonomy = %s
+				ORDER BY tt.term_id ASC",
+				absint( $product_id ),
+				(string) $taxonomy
+			)
+		);
+		if ( ! is_array( $term_ids ) || '' !== (string) $wpdb->last_error ) {
+			return $this->error( 'digitalogic_patris_topology_term_readback_failed', 'Exact taxonomy relationship readback failed.' );
+		}
+
+		return array_values( array_unique( array_map( 'absint', $term_ids ) ) );
+	}
+
+	/**
 	 * Flush non-transactional object-term caches touched by topology writes.
 	 *
 	 * @param int[]  $parent_ids Exact reviewed parent IDs.
@@ -835,31 +954,10 @@ final class Digitalogic_Patris_Topology_Repair {
 			clean_term_cache( absint( $term_id ), (string) $taxonomy );
 		}
 
-		// Some persistent object-cache adapters can leave a stale empty
-		// relationship entry after a transaction rolls back. Delete the exact
-		// groups last and prove they are absent before WooCommerce is allowed to
-		// rebuild a product attribute object from them.
-		$relationship_taxonomies   = function_exists( 'get_object_taxonomies' )
-			? (array) get_object_taxonomies( 'product', 'names' )
-			: array();
-		$relationship_taxonomies[] = 'product_type';
-		if ( '' !== (string) $taxonomy ) {
-			$relationship_taxonomies[] = (string) $taxonomy;
-		}
-		$relationship_taxonomies = array_values( array_unique( array_filter( $relationship_taxonomies, 'is_string' ) ) );
-		foreach ( $parent_ids as $parent_id ) {
-			foreach ( $relationship_taxonomies as $relationship_taxonomy ) {
-				$cache_group = $relationship_taxonomy . '_relationships';
-				wp_cache_delete( $parent_id, $cache_group );
-				$found = false;
-				wp_cache_get( $parent_id, $cache_group, true, $found );
-				if ( $found ) {
-					return $this->error( 'digitalogic_patris_topology_cache_unavailable', 'A reviewed taxonomy relationship cache could not be invalidated.' );
-				}
-			}
-		}
-
-		return true;
+		return $this->delete_topology_relationship_caches(
+			$parent_ids,
+			$this->topology_relationship_cache_groups( $taxonomy )
+		);
 	}
 
 	/**
