@@ -138,7 +138,18 @@ final class ProductIdentifierResolverTest extends TestCase {
 		$this->assertSame( 'A113001001', $alphanumeric['identifier'] );
 		$this->assertSame( 'digitalogic_invalid_product_identifier', $numeric_integer->get_error_code() );
 		$this->assertSame( 'digitalogic_product_identifier_not_found', $wrong_case->get_error_code() );
-		$this->assertSame( 5, $GLOBALS['wpdb']->identifier_query_count );
+		$this->assertSame( 1, $GLOBALS['wpdb']->identifier_query_count );
+	}
+
+	public function test_generic_code_projection_is_request_local_and_latest_rows_win(): void {
+		$first   = $this->resolver->resolve( array( 'code' => 'CURRENT-SKU' ) );
+		$second  = $this->resolver->resolve( array( 'code' => 'PATRIS-601' ) );
+		$missing = $this->resolver->resolve( array( 'code' => 'STALE-SKU' ) );
+
+		$this->assertSame( '610', $first['woocommerce_id'] );
+		$this->assertSame( '601', $second['woocommerce_id'] );
+		$this->assertSame( 'digitalogic_product_identifier_not_found', $missing->get_error_code() );
+		$this->assertSame( 1, $GLOBALS['wpdb']->identifier_query_count );
 	}
 
 	public function test_non_woo_identifiers_require_strings_and_latest_duplicate_meta_row_is_deterministic(): void {

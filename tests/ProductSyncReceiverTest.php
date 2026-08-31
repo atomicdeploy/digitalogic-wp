@@ -432,7 +432,7 @@ final class ProductSyncReceiverTest extends TestCase {
 			),
 			$state['materialization_scan_cursor']
 		);
-		$this->assertSame( 5, $GLOBALS['wpdb']->identifier_query_count );
+		$this->assertSame( 1, $GLOBALS['wpdb']->identifier_query_count );
 		foreach ( array_slice( $products, 0, 2 ) as $product ) {
 			$id = $ids[ $product['product_code'] ];
 			$this->assertSame( 'tests', get_post_meta( $id, Digitalogic_Patris_Catalog_Materializer::OWNER_SOURCE_META, true ) );
@@ -484,7 +484,7 @@ final class ProductSyncReceiverTest extends TestCase {
 		$this->assertSame( '', get_post_meta( $ids['LEGACY-META-03'], Digitalogic_Patris_Catalog_Materializer::OWNER_SOURCE_META, true ) );
 		$this->assertFalse( metadata_exists( 'post', $ids['LEGACY-META-03'], Digitalogic_Patris_Catalog_Materializer::MISSING_FIELDS_META ) );
 		$this->assertSame( $mismatch_before, $GLOBALS['digitalogic_test_posts'][ $ids['LEGACY-META-03'] ] );
-		$this->assertSame( 3, $GLOBALS['wpdb']->identifier_query_count );
+		$this->assertSame( 1, $GLOBALS['wpdb']->identifier_query_count );
 		$this->assertArrayNotHasKey(
 			'materialization_scan_cursor',
 			$receiver->get_source_state( 'tests', 'ALLANBAR' )
@@ -504,7 +504,7 @@ final class ProductSyncReceiverTest extends TestCase {
 		$this->assertCount( $seed_save_count, $GLOBALS['digitalogic_test_wc_product_saves'] );
 		$this->assertSame( 'tests', get_post_meta( $ids['LEGACY-META-03'], Digitalogic_Patris_Catalog_Materializer::OWNER_SOURCE_META, true ) );
 		$this->assertSame( '', get_post_meta( $ids['LEGACY-META-03'], Digitalogic_Shipping_Method_Service::PRODUCT_METHOD_META, true ) );
-		$this->assertSame( 3, $GLOBALS['wpdb']->identifier_query_count );
+		$this->assertSame( 1, $GLOBALS['wpdb']->identifier_query_count );
 
 		// A valid per-product source revision remains exact provenance even after
 		// another catalog row advances the aggregate source revision.

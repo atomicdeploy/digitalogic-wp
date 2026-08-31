@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.70] - 2026-08-31
+
+### Changed
+- Cache one exact current SKU/Patris identity projection per request so catalog
+  repricing no longer repeats a correlated whole-catalog query for every
+  generic Code/SKU fallback.
+- Preserve latest-meta-row selection, case-sensitive matching, duplicate
+  detection, and cross-namespace collision rejection in the optimized path.
+
 ## [1.8.69] - 2026-08-31
 
 ### Changed

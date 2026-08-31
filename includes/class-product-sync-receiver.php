@@ -729,6 +729,7 @@ class Digitalogic_Product_Sync_Receiver {
         }
 
         try {
+			Digitalogic_Product_Identifier_Resolver::instance()->clear_code_rows_cache();
 			$result = $this->receive_locked( $envelope );
         } catch (Throwable $exception) {
 			$result = $this->error(
@@ -1549,6 +1550,7 @@ class Digitalogic_Product_Sync_Receiver {
      * @return array|WP_Error
      */
     private function reprice_pricing_state_locked($settings, $profit_overrides, $scope_codes, $previous_catalog_revision) {
+		Digitalogic_Product_Identifier_Resolver::instance()->clear_code_rows_cache();
         $state = $this->load_state();
         if (empty($state['sources'])) {
             return $this->error(
