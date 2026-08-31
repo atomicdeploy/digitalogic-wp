@@ -34,6 +34,8 @@ final class PatrisTopologyRepairTest extends TestCase {
 				'digitalogic_test_action_callbacks',
 				'digitalogic_test_filters',
 				'digitalogic_test_cache_deletes',
+				'digitalogic_test_cache_delete_failures',
+				'digitalogic_test_object_cache',
 				'digitalogic_test_wc_transient_deletes',
 				'digitalogic_test_object_term_cache_cleans',
 				'digitalogic_test_wc_cache_group_invalidations',
@@ -47,6 +49,7 @@ final class PatrisTopologyRepairTest extends TestCase {
 		}
 		$GLOBALS['digitalogic_test_next_post_id']                     = 300;
 		$GLOBALS['digitalogic_test_next_term_id']                     = 500;
+		$GLOBALS['digitalogic_test_object_cache_enabled']             = true;
 		$GLOBALS['digitalogic_test_wc_defer_new_product_id']          = false;
 		$GLOBALS['digitalogic_test_enqueue_product_sync_on_term_set'] = false;
 		unset( $GLOBALS['wc_deferred_product_sync'] );
@@ -169,6 +172,37 @@ final class PatrisTopologyRepairTest extends TestCase {
 		);
 		$this->assertContains( 200, $GLOBALS['digitalogic_test_wc_product_instance_cache_removals'] );
 		$this->assertContains( 'product_200', $GLOBALS['digitalogic_test_wc_cache_group_invalidations'] );
+	}
+
+	/** Exact relationship groups are evicted before transactional readback. */
+	public function test_apply_evicts_stale_persistent_relationship_caches(): void {
+		$GLOBALS['digitalogic_test_object_cache']['product_type_relationships:200'] = array( 2 );
+		$GLOBALS['digitalogic_test_object_cache']['product_cat_relationships:200']  = array( 12 );
+		$GLOBALS['digitalogic_test_object_cache']['pa_model_relationships:200']     = array();
+
+		$result = Digitalogic_Patris_Topology_Repair::instance()->run( $this->plan(), true );
+
+		$this->assertNotInstanceOf( WP_Error::class, $result );
+		$this->assertArrayNotHasKey( 'product_type_relationships:200', $GLOBALS['digitalogic_test_object_cache'] );
+		$this->assertArrayNotHasKey( 'product_cat_relationships:200', $GLOBALS['digitalogic_test_object_cache'] );
+		$this->assertArrayNotHasKey( 'pa_model_relationships:200', $GLOBALS['digitalogic_test_object_cache'] );
+		$this->assertContains( array( 200, 'product_type_relationships' ), $GLOBALS['digitalogic_test_cache_deletes'] );
+		$this->assertContains( array( 200, 'product_cat_relationships' ), $GLOBALS['digitalogic_test_cache_deletes'] );
+		$this->assertContains( array( 200, 'pa_model_relationships' ), $GLOBALS['digitalogic_test_cache_deletes'] );
+	}
+
+	/** A relationship cache that survives exact deletion makes outcome unknown. */
+	public function test_relationship_cache_invalidation_failure_fails_closed(): void {
+		$GLOBALS['digitalogic_test_object_cache']['pa_model_relationships:200'] = array();
+		$GLOBALS['digitalogic_test_cache_delete_failures']                      = array( 'pa_model_relationships:200' );
+
+		$result = Digitalogic_Patris_Topology_Repair::instance()->run( $this->plan(), true );
+
+		$this->assertInstanceOf( WP_Error::class, $result );
+		$this->assertSame( 'digitalogic_patris_topology_outcome_unknown', $result->get_error_code() );
+		$this->assertSame( 'digitalogic_patris_topology_cache_unavailable', $result->get_error_data()['cause'] );
+		$this->assertSame( 'digitalogic_patris_topology_cache_unavailable', $result->get_error_data()['rollback_term_cache'] );
+		$this->assertArrayHasKey( 'pa_model_relationships:200', $GLOBALS['digitalogic_test_object_cache'] );
 	}
 
 	/** A product-instance cache failure makes rollback outcome explicitly unaudited. */
