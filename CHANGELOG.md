@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.58] - 2026-08-31
+
+### Fixed
+- Repair markerless legacy Patris leaves through a fresh canonical feed proof
+  and five metadata rows without a WooCommerce product save; feed drift is
+  counted and left pending instead of falling through to a full-feed write.
+
 ## [1.8.57] - 2026-08-31
 
 ### Fixed

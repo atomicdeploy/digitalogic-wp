@@ -218,7 +218,7 @@ final class ProductSyncReceiverTest extends TestCase {
 		$this->assertCount( 30, $GLOBALS['digitalogic_test_posts'] );
 	}
 
-	/** Exact legacy leaves backfill ownership without Woo saves and fall back on any feed drift. */
+	/** Markerless legacy leaves backfill metadata without saves and stop on feed drift. */
 	public function test_reconciliation_backfills_stale_materialization_projection_idempotently(): void {
 		$products = array();
 		for ( $index = 1; $index <= 3; ++$index ) {
@@ -250,6 +250,10 @@ final class ProductSyncReceiverTest extends TestCase {
 					)
 				);
 				unset( $product['price_rounding_digits'], $product['price_rounding_mode'] );
+			} elseif ( 3 === $index ) {
+				$product['foreign_currency'] = 'CNY';
+				$product['foreign_price']    = 100;
+				$product['weight_grams']     = 100;
 			}
 			$product['record_hash'] = $this->recordHash( $product, true );
 			$products[]             = $product;
@@ -264,21 +268,28 @@ final class ProductSyncReceiverTest extends TestCase {
 				: ''
 		);
 
-		$ids = array();
+		$ids             = array();
+		$markerless_meta = array();
 		foreach ( $products as $product ) {
 			$resolved = Digitalogic_Product_Identifier_Resolver::instance()->resolve(
 				array( 'patris_code' => $product['product_code'] )
 			);
 			$this->assertNotInstanceOf( WP_Error::class, $resolved );
-			$id                                  = (int) $resolved['woocommerce_id'];
-			$ids[ $product['product_code'] ]     = $id;
-			$meta                                =& $GLOBALS['digitalogic_test_posts'][ $id ]['meta'];
+			$id                              = (int) $resolved['woocommerce_id'];
+			$ids[ $product['product_code'] ] = $id;
+			$meta                            =& $GLOBALS['digitalogic_test_posts'][ $id ]['meta'];
 			unset(
 				$meta[ Digitalogic_Patris_Catalog_Materializer::OWNER_SOURCE_META ],
 				$meta[ Digitalogic_Patris_Catalog_Materializer::OWNER_DATASET_META ],
 				$meta[ Digitalogic_Patris_Catalog_Materializer::OWNER_CODE_META ],
+				$meta[ Digitalogic_Patris_Catalog_Materializer::SOURCE_REVISION_META ],
+				$meta[ Digitalogic_Patris_Catalog_Materializer::MISSING_FIELDS_META ],
 				$meta[ Digitalogic_Patris_Catalog_Materializer::AUTO_MATERIALIZED_META ]
 			);
+			if ( 'LEGACY-META-03' === $product['product_code'] ) {
+				unset( $meta[ Digitalogic_Shipping_Method_Service::PRODUCT_METHOD_META ] );
+			}
+			$markerless_meta[ $product['product_code'] ] = $meta;
 		}
 		unset( $meta );
 		$GLOBALS['digitalogic_test_wc_products']     = array();
@@ -289,6 +300,8 @@ final class ProductSyncReceiverTest extends TestCase {
 		$this->assertNotInstanceOf( WP_Error::class, $first );
 		$this->assertSame( 2, $first['materialization_queued'] );
 		$this->assertSame( 2, $first['sources'][0]['woocommerce']['attempted'] );
+		$this->assertSame( 2, $first['materialization_metadata_backfilled'] );
+		$this->assertSame( 0, $first['materialization_mismatch_stopped'] );
 		$this->assertSame( 0, $first['pending_products'] );
 		$this->assertSame( 0, $first['deferred_products'] );
 		$this->assertCount( $seed_save_count, $GLOBALS['digitalogic_test_wc_product_saves'] );
@@ -302,12 +315,26 @@ final class ProductSyncReceiverTest extends TestCase {
 			$this->assertSame( $product['product_code'], get_post_meta( $id, Digitalogic_Patris_Catalog_Materializer::OWNER_CODE_META, true ) );
 			$this->assertSame( $revision, get_post_meta( $id, Digitalogic_Patris_Catalog_Materializer::SOURCE_REVISION_META, true ) );
 			$this->assertTrue( metadata_exists( 'post', $id, Digitalogic_Patris_Catalog_Materializer::MISSING_FIELDS_META ) );
+			$after_meta = $GLOBALS['digitalogic_test_posts'][ $id ]['meta'];
+			foreach (
+				array(
+					Digitalogic_Patris_Catalog_Materializer::OWNER_SOURCE_META,
+					Digitalogic_Patris_Catalog_Materializer::OWNER_DATASET_META,
+					Digitalogic_Patris_Catalog_Materializer::OWNER_CODE_META,
+					Digitalogic_Patris_Catalog_Materializer::SOURCE_REVISION_META,
+					Digitalogic_Patris_Catalog_Materializer::MISSING_FIELDS_META,
+				) as $meta_key
+			) {
+				unset( $after_meta[ $meta_key ] );
+			}
+			$this->assertSame( $markerless_meta[ $product['product_code'] ], $after_meta );
 		}
 		$this->assertSame( '', get_post_meta( $ids['LEGACY-META-03'], Digitalogic_Patris_Catalog_Materializer::OWNER_SOURCE_META, true ) );
 
-		// A feed mismatch cannot use the metadata-only path. The normal writer
-		// repairs the complete projection before ownership is committed.
+		// A feed mismatch cannot use the metadata-only path and must remain
+		// pending for reviewed repair without falling through to a Woo save.
 		update_post_meta( $ids['LEGACY-META-03'], '_digitalogic_patris_record_hash', 'stale-record-hash' );
+		$mismatch_before                             = $GLOBALS['digitalogic_test_posts'][ $ids['LEGACY-META-03'] ];
 		$GLOBALS['digitalogic_test_wc_products']     = array();
 		$GLOBALS['digitalogic_test_post_meta_cache'] = array();
 
@@ -315,13 +342,34 @@ final class ProductSyncReceiverTest extends TestCase {
 		$this->assertNotInstanceOf( WP_Error::class, $second );
 		$this->assertSame( 1, $second['materialization_queued'] );
 		$this->assertSame( 1, $second['sources'][0]['woocommerce']['attempted'] );
-		$this->assertSame( 0, $second['pending_products'] );
+		$this->assertSame( 0, $second['materialization_metadata_backfilled'] );
+		$this->assertSame( 1, $second['materialization_mismatch_stopped'] );
+		$this->assertSame( 1, $second['pending_products'] );
 		$this->assertSame( 0, $second['deferred_products'] );
-		$this->assertCount( $seed_save_count + 2, $GLOBALS['digitalogic_test_wc_product_saves'] );
+		$this->assertCount( $seed_save_count, $GLOBALS['digitalogic_test_wc_product_saves'] );
 		$this->assertSame(
-			$products[2]['record_hash'],
+			'stale-record-hash',
 			get_post_meta( $ids['LEGACY-META-03'], '_digitalogic_patris_record_hash', true )
 		);
+		$this->assertSame(
+			'digitalogic_product_sync_materialization_backfill_mismatch',
+			$second['sources'][0]['woocommerce']['errors'][0]['code']
+		);
+		$this->assertSame( '', get_post_meta( $ids['LEGACY-META-03'], Digitalogic_Patris_Catalog_Materializer::OWNER_SOURCE_META, true ) );
+		$this->assertFalse( metadata_exists( 'post', $ids['LEGACY-META-03'], Digitalogic_Patris_Catalog_Materializer::MISSING_FIELDS_META ) );
+		$this->assertSame( $mismatch_before, $GLOBALS['digitalogic_test_posts'][ $ids['LEGACY-META-03'] ] );
+
+		update_post_meta( $ids['LEGACY-META-03'], '_digitalogic_patris_record_hash', $products[2]['record_hash'] );
+		$GLOBALS['digitalogic_test_wc_products']     = array();
+		$GLOBALS['digitalogic_test_post_meta_cache'] = array();
+		$repaired                                    = $receiver->reconcile( 'tests', 'ALLANBAR', 2 );
+		$this->assertNotInstanceOf( WP_Error::class, $repaired );
+		$this->assertSame( 1, $repaired['materialization_metadata_backfilled'] );
+		$this->assertSame( 0, $repaired['materialization_mismatch_stopped'] );
+		$this->assertSame( 0, $repaired['pending_products'] );
+		$this->assertCount( $seed_save_count, $GLOBALS['digitalogic_test_wc_product_saves'] );
+		$this->assertSame( 'tests', get_post_meta( $ids['LEGACY-META-03'], Digitalogic_Patris_Catalog_Materializer::OWNER_SOURCE_META, true ) );
+		$this->assertSame( '', get_post_meta( $ids['LEGACY-META-03'], Digitalogic_Shipping_Method_Service::PRODUCT_METHOD_META, true ) );
 
 		// A valid per-product source revision remains exact provenance even after
 		// another catalog row advances the aggregate source revision.
@@ -331,7 +379,7 @@ final class ProductSyncReceiverTest extends TestCase {
 			'sha256:' . str_repeat( 'a', 64 )
 		);
 		$GLOBALS['digitalogic_test_wc_products'] = array();
-		$replayed = $receiver->reconcile( 'tests', 'ALLANBAR', 2 );
+		$replayed                                = $receiver->reconcile( 'tests', 'ALLANBAR', 2 );
 		$this->assertNotInstanceOf( WP_Error::class, $replayed );
 		$this->assertSame( 0, $replayed['materialization_queued'] );
 		$this->assertSame( 0, $replayed['sources'][0]['woocommerce']['attempted'] );
