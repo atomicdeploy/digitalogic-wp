@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.52] - 2026-08-31
+
+### Fixed
+- Restore WooCommerce's exact pre-transaction deferred product-sync queue after
+  a Patris topology rollback, preventing a shutdown sync from replaying
+  rolled-back parent-type changes.
+- Clear product-term and newly inserted attribute-term caches before topology
+  verification and after rollback, and report the exact stable readback
+  predicate that failed without exposing product data.
+
 ## [1.8.51] - 2026-08-31
 
 ### Fixed
