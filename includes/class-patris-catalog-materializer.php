@@ -377,6 +377,155 @@ final class Digitalogic_Patris_Catalog_Materializer {
 	}
 
 	/**
+	 * Backfill only canonical ownership after proving the full feed is current.
+	 *
+	 * This path is reserved for explicit bounded legacy repair. It performs no
+	 * WooCommerce object save and never changes stock, price, shipping, content,
+	 * visibility, or identity. Any mismatch returns false before a write so the
+	 * receiver can fall back to the normal full-feed/materializer transaction.
+	 *
+	 * @param int   $product_id WooCommerce product or variation ID.
+	 * @param array $record Exact normalized receiver record.
+	 * @param array $source Exact source identity.
+	 * @return array|false|WP_Error Verified warning snapshot, false when full delivery is required, or a write error.
+	 */
+	public function backfill_verified_source_product( $product_id, $record, $source ) {
+		$product_id = absint( $product_id );
+		$identity   = $this->source_record_identity( $record, $source );
+		if ( is_wp_error( $identity ) ) {
+			return $identity;
+		}
+
+		return $this->with_product_locks(
+			array( $product_id ),
+			function () use ( $product_id, $record, $source, $identity ) {
+				if ( ! $this->source_write_locks_are_owned( array( $product_id ) ) ) {
+					return $this->source_write_outcome_unknown( $product_id );
+				}
+				$valid = $this->validate_source_product_target( $product_id, $source );
+				if ( is_wp_error( $valid ) ) {
+					return $valid;
+				}
+
+				$this->flush_product_caches( $product_id );
+				$product = wc_get_product( $product_id );
+				if ( ! $product instanceof WC_Product ) {
+					return $this->error( 'digitalogic_patris_materializer_target_unavailable', 'The source product is unavailable for legacy ownership repair.' );
+				}
+				$missing        = $this->canonical_missing_fields( $product, $record );
+				$stored_missing = json_decode(
+					(string) get_post_meta( $product_id, self::MISSING_FIELDS_META, true ),
+					true
+				);
+				if (
+					(string) $product->get_sku() !== $identity['product_code']
+					|| 'publish' !== (string) $product->get_status()
+					|| ( ! $product->is_type( 'variation' ) && 'visible' !== (string) $product->get_catalog_visibility() )
+					|| ! is_array( $stored_missing )
+					|| ! array_is_list( $stored_missing )
+					|| $stored_missing !== $missing
+					|| (
+						in_array( 'price', $missing, true )
+						&& (
+							'' !== trim( (string) $product->get_regular_price() )
+							|| '' !== trim( (string) $product->get_sale_price() )
+							|| '' !== trim( (string) $product->get_price() )
+							|| 'outofstock' !== (string) $product->get_stock_status()
+						)
+					)
+				) {
+					return false;
+				}
+
+				$feed_matches = Digitalogic_Patris_Feed::instance()->verify_locked_product_feed_projection(
+					$product_id,
+					$record
+				);
+				if ( is_wp_error( $feed_matches ) ) {
+					if ( ! $this->source_write_locks_are_owned( array( $product_id ) ) ) {
+						return $this->source_write_outcome_unknown( $product_id, $feed_matches );
+					}
+
+					return false;
+				}
+
+				$expected = array(
+					self::OWNER_SOURCE_META    => array( $identity['source_id'] ),
+					self::OWNER_DATASET_META   => array( $identity['dataset'] ),
+					self::OWNER_CODE_META      => array( $identity['product_code'] ),
+					self::SOURCE_REVISION_META => array( $identity['source_revision'] ),
+					self::MISSING_FIELDS_META  => array( wp_json_encode( $missing, JSON_UNESCAPED_SLASHES ) ),
+				);
+				$backup   = $this->read_exact_meta_rows( $product_id, array_keys( $expected ) );
+				if ( is_wp_error( $backup ) ) {
+					return $backup;
+				}
+
+				$write_error = null;
+				try {
+					foreach ( $expected as $key => $values ) {
+						if ( ! $this->source_write_locks_are_owned( array( $product_id ) ) ) {
+							return $this->source_write_outcome_unknown( $product_id );
+						}
+						delete_post_meta( $product_id, $key );
+						if ( false === add_post_meta( $product_id, $key, reset( $values ), true ) ) {
+							throw new RuntimeException( 'Canonical ownership metadata was rejected.' );
+						}
+					}
+				} catch ( Throwable $exception ) {
+					unset( $exception );
+					$write_error = $this->error( 'digitalogic_patris_materializer_owner_backfill_failed', 'The canonical source ownership could not be backfilled.' );
+				}
+
+				wp_cache_delete( $product_id, 'post_meta' );
+				$readback = $this->read_exact_meta_rows( $product_id, array_keys( $expected ) );
+				if ( null !== $write_error || is_wp_error( $readback ) || $readback !== $expected ) {
+					$cause = null !== $write_error
+						? $write_error
+						: $this->error( 'digitalogic_patris_materializer_owner_backfill_readback_failed', 'The canonical source ownership failed exact readback.' );
+					if ( ! $this->restore_exact_meta_rows( $product_id, $backup ) ) {
+						return $this->source_write_outcome_unknown( $product_id, $cause );
+					}
+
+					return $cause;
+				}
+
+				$this->flush_product_caches( $product_id );
+				$fresh = wc_get_product( $product_id );
+				if (
+					! $fresh instanceof WC_Product
+					|| ! $this->target_owned_by(
+						$fresh,
+						$identity['source_id'],
+						$identity['dataset'],
+						$identity['product_code']
+					)
+				) {
+					$cause = $this->error( 'digitalogic_patris_materializer_owner_backfill_readback_failed', 'The canonical source ownership failed exact readback.' );
+					if ( ! $this->restore_exact_meta_rows( $product_id, $backup ) ) {
+						return $this->source_write_outcome_unknown( $product_id, $cause );
+					}
+
+					return $cause;
+				}
+
+				return array(
+					'product_id'      => $product_id,
+					'product_code'    => $identity['product_code'],
+					'name'            => (string) $fresh->get_name(),
+					'source_id'       => $identity['source_id'],
+					'dataset'         => $identity['dataset'],
+					'source_revision' => $identity['source_revision'],
+					'missing_fields'  => $missing,
+					'visible'         => true,
+					'purchasable'     => ! in_array( 'price', $missing, true ) && 'outofstock' !== (string) $fresh->get_stock_status(),
+					'price_status'    => (string) $fresh->get_meta( '_digitalogic_patris_price_status', true ),
+				);
+			}
+		);
+	}
+
+	/**
 	 * Read and validate an administrator-reviewed enrichment manifest.
 	 *
 	 * @param string $path Absolute or working-directory-relative JSON path.

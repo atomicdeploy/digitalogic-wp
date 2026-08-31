@@ -218,21 +218,51 @@ final class ProductSyncReceiverTest extends TestCase {
 		$this->assertCount( 30, $GLOBALS['digitalogic_test_posts'] );
 	}
 
-	/** Legacy public leaves are repaired through the canonical full-feed path in bounded batches. */
+	/** Exact legacy leaves backfill ownership without Woo saves and fall back on any feed drift. */
 	public function test_reconciliation_backfills_stale_materialization_projection_idempotently(): void {
 		$products = array();
 		for ( $index = 1; $index <= 3; ++$index ) {
-			$product                = array(
-				'product_code' => sprintf( 'LEGACY-META-%02d', $index ),
-				'name'         => sprintf( 'Legacy product %d', $index ),
-				'warnings'     => array( 'final_price_unavailable' ),
+			$product = array(
+				'product_code'          => sprintf( 'LEGACY-META-%02d', $index ),
+				'name'                  => sprintf( 'Legacy product %d', $index ),
+				'price_rounding_digits' => 2,
+				'price_rounding_mode'   => 'nearest_half_up',
+				'warnings'              => array( 'final_price_unavailable' ),
 			);
+			if ( 1 === $index ) {
+				$product = array_merge(
+					$product,
+					array(
+						'sale_price_source'              => 1234500,
+						'price_source_amount'            => 1234500,
+						'price_source_currency'          => 'IRR',
+						'price_source_kind'              => 'sale_price_direct',
+						'shipping_method_id'             => 'domestic',
+						'shipping_price_per_kg'          => 0,
+						'shipping_price_per_kg_currency' => 'IRR',
+						'weight_grams'                   => 100,
+						'total_stock'                    => 4,
+						'final_price'                    => 123450,
+						'warnings'                       => array(
+							'freight_not_applied_for_sale_price_direct',
+							'sale_price_direct_fallback_used',
+						),
+					)
+				);
+				unset( $product['price_rounding_digits'], $product['price_rounding_mode'] );
+			}
 			$product['record_hash'] = $this->recordHash( $product, true );
 			$products[]             = $product;
 		}
 		$receiver = Digitalogic_Product_Sync_Receiver::instance();
-		$seed     = $receiver->receive( $this->snapshot( $products ) );
-		$this->assertNotInstanceOf( WP_Error::class, $seed );
+		$seed     = $receiver->receive( $this->snapshot( $products, array(), true ) );
+		$this->assertNotInstanceOf(
+			WP_Error::class,
+			$seed,
+			$seed instanceof WP_Error
+				? $seed->get_error_code() . ': ' . $seed->get_error_message() . ' ' . wp_json_encode( $seed->get_error_data() )
+				: ''
+		);
 
 		$ids = array();
 		foreach ( $products as $product ) {
@@ -247,13 +277,13 @@ final class ProductSyncReceiverTest extends TestCase {
 				$meta[ Digitalogic_Patris_Catalog_Materializer::OWNER_SOURCE_META ],
 				$meta[ Digitalogic_Patris_Catalog_Materializer::OWNER_DATASET_META ],
 				$meta[ Digitalogic_Patris_Catalog_Materializer::OWNER_CODE_META ],
-				$meta[ Digitalogic_Patris_Catalog_Materializer::SOURCE_REVISION_META ],
-				$meta[ Digitalogic_Patris_Catalog_Materializer::MISSING_FIELDS_META ]
+				$meta[ Digitalogic_Patris_Catalog_Materializer::AUTO_MATERIALIZED_META ]
 			);
 		}
 		unset( $meta );
 		$GLOBALS['digitalogic_test_wc_products']     = array();
 		$GLOBALS['digitalogic_test_post_meta_cache'] = array();
+		$seed_save_count                             = count( $GLOBALS['digitalogic_test_wc_product_saves'] );
 
 		$first = $receiver->reconcile( 'tests', 'ALLANBAR', 2 );
 		$this->assertNotInstanceOf( WP_Error::class, $first );
@@ -261,6 +291,7 @@ final class ProductSyncReceiverTest extends TestCase {
 		$this->assertSame( 2, $first['sources'][0]['woocommerce']['attempted'] );
 		$this->assertSame( 0, $first['pending_products'] );
 		$this->assertSame( 0, $first['deferred_products'] );
+		$this->assertCount( $seed_save_count, $GLOBALS['digitalogic_test_wc_product_saves'] );
 
 		$state    = $receiver->get_source_state( 'tests', 'ALLANBAR' );
 		$revision = (string) $state['source']['revision'];
@@ -272,13 +303,13 @@ final class ProductSyncReceiverTest extends TestCase {
 			$this->assertSame( $revision, get_post_meta( $id, Digitalogic_Patris_Catalog_Materializer::SOURCE_REVISION_META, true ) );
 			$this->assertTrue( metadata_exists( 'post', $id, Digitalogic_Patris_Catalog_Materializer::MISSING_FIELDS_META ) );
 		}
-		$this->assertFalse(
-			metadata_exists(
-				'post',
-				$ids['LEGACY-META-03'],
-				Digitalogic_Patris_Catalog_Materializer::MISSING_FIELDS_META
-			)
-		);
+		$this->assertSame( '', get_post_meta( $ids['LEGACY-META-03'], Digitalogic_Patris_Catalog_Materializer::OWNER_SOURCE_META, true ) );
+
+		// A feed mismatch cannot use the metadata-only path. The normal writer
+		// repairs the complete projection before ownership is committed.
+		update_post_meta( $ids['LEGACY-META-03'], '_digitalogic_patris_record_hash', 'stale-record-hash' );
+		$GLOBALS['digitalogic_test_wc_products']     = array();
+		$GLOBALS['digitalogic_test_post_meta_cache'] = array();
 
 		$second = $receiver->reconcile( 'tests', 'ALLANBAR', 2 );
 		$this->assertNotInstanceOf( WP_Error::class, $second );
@@ -286,6 +317,11 @@ final class ProductSyncReceiverTest extends TestCase {
 		$this->assertSame( 1, $second['sources'][0]['woocommerce']['attempted'] );
 		$this->assertSame( 0, $second['pending_products'] );
 		$this->assertSame( 0, $second['deferred_products'] );
+		$this->assertCount( $seed_save_count + 2, $GLOBALS['digitalogic_test_wc_product_saves'] );
+		$this->assertSame(
+			$products[2]['record_hash'],
+			get_post_meta( $ids['LEGACY-META-03'], '_digitalogic_patris_record_hash', true )
+		);
 
 		// A valid per-product source revision remains exact provenance even after
 		// another catalog row advances the aggregate source revision.

@@ -2189,39 +2189,47 @@ class Digitalogic_Test_WPDB {
 		}
 	// phpcs:enable
 
-        if ('START TRANSACTION' === $normalized) {
-            $this->transaction_snapshot = array(
-                'options' => $GLOBALS['digitalogic_test_options'],
-                'posts' => $GLOBALS['digitalogic_test_posts'],
-                'meta_ids' => $this->meta_ids,
-                'next_meta_id' => $this->next_meta_id,
-            );
-            return 1;
-        }
-        if ('ROLLBACK' === $normalized) {
-            if (is_array($this->transaction_snapshot)) {
-                $GLOBALS['digitalogic_test_options'] = $this->transaction_snapshot['options'];
-                $GLOBALS['digitalogic_test_posts'] = $this->transaction_snapshot['posts'];
-                $this->meta_ids = $this->transaction_snapshot['meta_ids'];
-                $this->next_meta_id = $this->transaction_snapshot['next_meta_id'];
-            }
-            $this->transaction_snapshot = null;
-            $after_rollback = $this->after_rollback;
-            $this->after_rollback = null;
-            if (is_callable($after_rollback)) {
-                call_user_func($after_rollback, $this);
-            }
-            return 1;
-        }
-        if ('COMMIT' === $normalized) {
-            $this->transaction_snapshot = null;
+		if ( 'START TRANSACTION' === $normalized ) {
+			$this->transaction_snapshot = array(
+				'options'      => $GLOBALS['digitalogic_test_options'],
+				'posts'        => $GLOBALS['digitalogic_test_posts'],
+				'terms'        => $GLOBALS['digitalogic_test_terms'],
+				'term_meta'    => $GLOBALS['digitalogic_test_term_meta'],
+				'next_post_id' => $GLOBALS['digitalogic_test_next_post_id'],
+				'next_term_id' => $GLOBALS['digitalogic_test_next_term_id'],
+				'meta_ids'     => $this->meta_ids,
+				'next_meta_id' => $this->next_meta_id,
+			);
+			return 1;
+		}
+		if ( 'ROLLBACK' === $normalized ) {
+			if ( is_array( $this->transaction_snapshot ) ) {
+				$GLOBALS['digitalogic_test_options']      = $this->transaction_snapshot['options'];
+				$GLOBALS['digitalogic_test_posts']        = $this->transaction_snapshot['posts'];
+				$GLOBALS['digitalogic_test_terms']        = $this->transaction_snapshot['terms'];
+				$GLOBALS['digitalogic_test_term_meta']    = $this->transaction_snapshot['term_meta'];
+				$GLOBALS['digitalogic_test_next_post_id'] = $this->transaction_snapshot['next_post_id'];
+				$GLOBALS['digitalogic_test_next_term_id'] = $this->transaction_snapshot['next_term_id'];
+				$this->meta_ids                           = $this->transaction_snapshot['meta_ids'];
+				$this->next_meta_id                       = $this->transaction_snapshot['next_meta_id'];
+			}
+			$this->transaction_snapshot = null;
+			$after_rollback             = $this->after_rollback;
+			$this->after_rollback       = null;
+			if ( is_callable( $after_rollback ) ) {
+				call_user_func( $after_rollback, $this );
+			}
+			return 1;
+		}
+		if ( 'COMMIT' === $normalized ) {
+			$this->transaction_snapshot = null;
 			$after_commit       = $this->after_commit;
 			$this->after_commit = null;
 			if ( is_callable( $after_commit ) ) {
 				call_user_func( $after_commit, $this );
 			}
-            return 1;
-        }
+			return 1;
+		}
 
 		if ( strpos( $raw_query, 'digitalogic_pricing_batch_meta_delete' ) !== false ) {
 			preg_match( '/ids:(\d+)/', $raw_query, $matches );
@@ -3356,6 +3364,7 @@ require_once dirname( __DIR__ ) . '/includes/class-digitalogic-product-code-edit
 require_once dirname( __DIR__ ) . '/includes/class-digitalogic-product-code-write-guard.php';
 require_once dirname(__DIR__) . '/includes/class-shipping-method-service.php';
 require_once dirname(__DIR__) . '/includes/class-patris-catalog-materializer.php';
+require_once dirname(__DIR__) . '/includes/class-digitalogic-patris-topology-repair.php';
 require_once dirname(__DIR__) . '/includes/class-digitalogic-google-sheets-catalog.php';
 require_once dirname(__DIR__) . '/includes/class-digitalogic-google-sheets-writeback.php';
 require_once dirname(__DIR__) . '/includes/class-digitalogic-excel-pricing-sync.php';

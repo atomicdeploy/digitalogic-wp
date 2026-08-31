@@ -405,7 +405,10 @@ flush its request-local buffer once.
      --user=<administrator>
    ```
    Repeat until both `materialization_queued` and `pending_products` are zero;
-   the next zero-queued run is the idempotency proof.
+   the next zero-queued run is the idempotency proof. An exact legacy feed is
+   verified from fresh database state under both source and product locks and
+   receives only its canonical provenance metadata; any mismatch falls back to
+   the normal full feed and materializer writes.
 3. Confirm that source-only report count is zero and spot-check incomplete
    products for public visibility, blank price, out-of-stock state, and absent
    Rank Math price/Offer metadata.

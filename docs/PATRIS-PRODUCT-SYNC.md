@@ -55,14 +55,19 @@ wp digitalogic product-sync reconcile \
 ```
 
 Repeat the bounded command until `materialization_queued` is zero. It reuses the
-normal resolver, receiver lock, full Patris feed writer, delivery ledger, and
-readback. It never invents a price. A legacy row with no selected-price triple
-may receive the canonical `air_express` supplier assignment only when its exact
-raw facts are positive CNY and the existing site assignment is empty; the write
-uses compare-and-set and a conflicting assignment fails closed. A later
-canonical currency reconcile selects that raw CNY fact only after exact identity
-and assignment readback and only with positive weight; the normal freight,
-markup, exchange-rate, and rounding formula remains authoritative.
+normal resolver, receiver lock, delivery ledger, and exact readback. For an
+already-current legacy feed, the same canonical staging logic is compared with
+fresh database state while both the source and product locks are held. Only the
+five exact ownership, revision, and missing-field metadata rows are then
+backfilled, without a WooCommerce object save. Any mismatch or unavailable
+proof falls back to the normal full Patris feed writer and materializer. It
+never invents a price. A legacy row with no selected-price triple may receive
+the canonical `air_express` supplier assignment only when its exact raw facts
+are positive CNY and the existing site assignment is empty; the write uses
+compare-and-set and a conflicting assignment fails closed. A later canonical
+currency reconcile selects that raw CNY fact only after exact identity and
+assignment readback and only with positive weight; the normal freight, markup,
+exchange-rate, and rounding formula remains authoritative.
 
 Only concrete identity/corruption hazards remain deferred: duplicate or split
 Code/SKU ownership, quarantined or unsafe identity, and conflicting variable
@@ -70,6 +75,16 @@ leaf/parent ownership. Resolver availability, database, lock, and write errors
 remain pending and retryable. Deployments upgrading from the former behavior
 must run bounded reconciliation until safe legacy `missing` entries and pending
 rows are zero; identity hazards require manual ownership repair.
+
+Legacy simple parents that already contain variation children are not repaired
+by normal reconciliation. `Digitalogic_Patris_Topology_Repair` accepts only an
+explicit reviewed plan pinned to the current source revision and complete raw
+parent/child maps. Its default mode is a no-write dry-run. Apply holds the shared
+source lock plus every existing product lock, performs one database transaction,
+and proves the final blank-container/leaf ownership before commit. A failed or
+uncertain commit requires exact audit and cannot be retried blindly. After a
+successful topology transaction, normal bounded reconciliation writes and
+publishes the newly created source leaf through the canonical feed.
 
 For canonical unpriced products, Rank Math price fields and schema `offers` are
 omitted rather than emitting a zero placeholder. Product title and availability
