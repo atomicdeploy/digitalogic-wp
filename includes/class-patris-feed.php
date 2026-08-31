@@ -1085,12 +1085,17 @@ class Digitalogic_Patris_Feed {
 		if ( is_wp_error( $meta ) ) {
 			return $meta;
 		}
+		$stock_lookup = $this->read_exact_stock_lookup_projection( $product_id );
+		if ( is_wp_error( $stock_lookup ) ) {
+			return $stock_lookup;
+		}
 
 		return array(
-			'product_id' => $product_id,
-			'canonical'  => $canonical,
-			'meta'       => $meta,
-			'props'      => array(
+			'product_id'   => $product_id,
+			'canonical'    => $canonical,
+			'meta'         => $meta,
+			'stock_lookup' => $stock_lookup,
+			'props'        => array(
 				'weight'         => (string) $product->get_weight(),
 				'manage_stock'   => $product->get_manage_stock(),
 				'stock_quantity' => $product->get_stock_quantity(),
@@ -1140,7 +1145,11 @@ class Digitalogic_Patris_Feed {
 							$product->set_sale_price( $backup['props']['sale_price'] );
 								$product->set_price( $backup['props']['price'] );
 								$saved = $product->save();
-								if ( ! $saved || ! $this->restore_exact_meta_rows( $product_id, $backup['meta'] ) ) {
+								if (
+									! $saved
+									|| ! $this->restore_exact_meta_rows( $product_id, $backup['meta'] )
+									|| ! $this->restore_exact_stock_lookup_projection( $product_id, $backup['stock_lookup'] ?? null )
+								) {
 									return false;
 								}
 
@@ -1188,6 +1197,10 @@ class Digitalogic_Patris_Feed {
 		}
 		$meta_readback = $this->read_exact_meta_rows( $product_id, array_keys( $backup['meta'] ) );
 		if ( is_wp_error( $meta_readback ) || $meta_readback !== $backup['meta'] ) {
+			return false;
+		}
+		$lookup_readback = $this->read_exact_stock_lookup_projection( $product_id );
+		if ( is_wp_error( $lookup_readback ) || ( $backup['stock_lookup'] ?? null ) !== $lookup_readback ) {
 			return false;
 		}
 		$fresh = $this->fresh_product_for_source_readback( $product_id );
@@ -1246,7 +1259,10 @@ class Digitalogic_Patris_Feed {
 			return new WP_Error(
 				'digitalogic_patris_product_backup_unavailable',
 				__( 'The source product backup is unavailable.', 'digitalogic' ),
-				array( 'status' => 503, 'retryable' => true )
+				array(
+					'status'    => 503,
+					'retryable' => true,
+				)
 			);
 		}
 		$postmeta     = isset( $wpdb->postmeta ) ? $wpdb->postmeta : $wpdb->prefix . 'postmeta';
@@ -1282,6 +1298,121 @@ class Digitalogic_Patris_Feed {
 		}
 
 		return $result;
+	}
+
+	/**
+	 * Read the exact WooCommerce stock lookup projection directly from MySQL.
+	 *
+	 * @param int $product_id Exact WooCommerce product ID.
+	 * @return array<string,string|null>|WP_Error
+	 */
+	private function read_exact_stock_lookup_projection( $product_id ) {
+		global $wpdb;
+		$product_id = absint( $product_id );
+		if (
+			$product_id <= 0
+			|| ! is_object( $wpdb )
+			|| ! isset( $wpdb->prefix )
+			|| ! method_exists( $wpdb, 'prepare' )
+			|| ! method_exists( $wpdb, 'get_row' )
+		) {
+			return new WP_Error(
+				'digitalogic_patris_product_backup_unavailable',
+				__( 'The source product backup is unavailable.', 'digitalogic' ),
+				array(
+					'status'    => 503,
+					'retryable' => true,
+				)
+			);
+		}
+
+		$lookup_table = $wpdb->prefix . 'wc_product_meta_lookup';
+		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Table is the exact site-scoped WooCommerce lookup table; product ID uses a placeholder.
+		$query = $wpdb->prepare(
+			"/* digitalogic_patris_stock_lookup_readback */ SELECT stock_quantity, stock_status FROM {$lookup_table} WHERE product_id = %d",
+			$product_id
+		);
+		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		$wpdb->last_error = '';
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Exact rollback and terminal readback must bypass object caches.
+		$row = false === $query ? null : $wpdb->get_row( $query, ARRAY_A );
+		if (
+			! is_array( $row )
+			|| ! array_key_exists( 'stock_quantity', $row )
+			|| ! array_key_exists( 'stock_status', $row )
+			|| '' !== (string) $wpdb->last_error
+		) {
+			return new WP_Error(
+				'digitalogic_patris_product_backup_unavailable',
+				__( 'The source product backup is unavailable.', 'digitalogic' ),
+				array(
+					'status'    => 503,
+					'retryable' => true,
+				)
+			);
+		}
+
+		return array(
+			'stock_quantity' => null === $row['stock_quantity'] ? null : (string) $row['stock_quantity'],
+			'stock_status'   => (string) $row['stock_status'],
+		);
+	}
+
+	/**
+	 * Restore and verify the exact WooCommerce stock lookup prestate.
+	 *
+	 * @param int                            $product_id Exact WooCommerce product ID.
+	 * @param array<string,string|null>|null $expected Exact lookup projection.
+	 * @return bool
+	 */
+	private function restore_exact_stock_lookup_projection( $product_id, $expected ) {
+		global $wpdb;
+		$product_id = absint( $product_id );
+		if (
+			$product_id <= 0
+			|| ! $this->source_write_locks_are_owned( $product_id )
+			|| ! is_array( $expected )
+			|| ! array_key_exists( 'stock_quantity', $expected )
+			|| ! array_key_exists( 'stock_status', $expected )
+			|| ! is_object( $wpdb )
+			|| ! isset( $wpdb->prefix )
+			|| ! method_exists( $wpdb, 'prepare' )
+			|| ! method_exists( $wpdb, 'query' )
+		) {
+			return false;
+		}
+
+		$lookup_table = $wpdb->prefix . 'wc_product_meta_lookup';
+		if ( null === $expected['stock_quantity'] ) {
+			// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Table is the exact site-scoped WooCommerce lookup table; values use placeholders.
+			$query = $wpdb->prepare(
+				"UPDATE /* digitalogic_patris_stock_lookup_restore */ {$lookup_table} SET stock_quantity = NULL, stock_status = %s WHERE product_id = %d",
+				(string) $expected['stock_status'],
+				$product_id
+			);
+			// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		} else {
+			// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Table is the exact site-scoped WooCommerce lookup table; values use placeholders.
+			$query = $wpdb->prepare(
+				"UPDATE /* digitalogic_patris_stock_lookup_restore */ {$lookup_table} SET stock_quantity = %s, stock_status = %s WHERE product_id = %d",
+				(string) $expected['stock_quantity'],
+				(string) $expected['stock_status'],
+				$product_id
+			);
+			// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		}
+		$wpdb->last_error = '';
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Exact rollback projection is prepared above and verified below.
+		$updated = false === $query ? false : $wpdb->query( $query );
+		if ( false === $updated || (int) $updated > 1 || '' !== (string) $wpdb->last_error ) {
+			return false;
+		}
+		if ( ! $this->source_write_locks_are_owned( $product_id ) ) {
+			return false;
+		}
+		$readback = $this->read_exact_stock_lookup_projection( $product_id );
+
+		return ! is_wp_error( $readback ) && $readback === $expected;
 	}
 
 	/** Read one product after narrowly invalidating only its object/meta caches. */
@@ -1874,7 +2005,7 @@ class Digitalogic_Patris_Feed {
 		if ( 'outofstock' !== $current_status ) {
 			// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Table is the exact wpdb postmeta table; all values use generated placeholders.
 			$meta_sql = $wpdb->prepare(
-				"/* digitalogic_patris_unpriced_stock_meta_update */ UPDATE {$postmeta} SET meta_value = %s WHERE post_id = %d AND BINARY meta_key = %s",
+				"UPDATE /* digitalogic_patris_unpriced_stock_meta_update */ {$postmeta} SET meta_value = %s WHERE post_id = %d AND BINARY meta_key = %s",
 				'outofstock',
 				$product_id,
 				'_stock_status'
@@ -1883,7 +2014,11 @@ class Digitalogic_Patris_Feed {
 			$wpdb->last_error = '';
 			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Exact single-row status projection is prepared above and verified below.
 			$meta_updated = false === $meta_sql ? false : $wpdb->query( $meta_sql );
-			if ( false === $meta_updated || 1 !== (int) $meta_updated || '' !== (string) $wpdb->last_error ) {
+			if ( false === $meta_updated || (int) $meta_updated > 1 || '' !== (string) $wpdb->last_error ) {
+				return false;
+			}
+			$meta_readback = $this->read_exact_meta_rows( $product_id, array( '_stock_status' ) );
+			if ( is_wp_error( $meta_readback ) || array( '_stock_status' => array( 'outofstock' ) ) !== $meta_readback ) {
 				return false;
 			}
 		}
@@ -1893,7 +2028,7 @@ class Digitalogic_Patris_Feed {
 
 		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Table is the exact site-scoped Woo lookup table; values use placeholders.
 		$lookup_sql = $wpdb->prepare(
-			"/* digitalogic_patris_unpriced_stock_lookup_update */ UPDATE {$lookup_table} SET stock_status = %s WHERE product_id = %d",
+			"UPDATE /* digitalogic_patris_unpriced_stock_lookup_update */ {$lookup_table} SET stock_status = %s WHERE product_id = %d",
 			'outofstock',
 			$product_id
 		);
@@ -1902,10 +2037,18 @@ class Digitalogic_Patris_Feed {
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Exact single-row lookup projection is prepared above and verified below.
 		$lookup_updated = false === $lookup_sql ? false : $wpdb->query( $lookup_sql );
 
-		return false !== $lookup_updated
-			&& (int) $lookup_updated <= 1
-			&& '' === (string) $wpdb->last_error
-			&& $this->source_write_locks_are_owned( $product_id );
+		if (
+			false === $lookup_updated
+			|| (int) $lookup_updated > 1
+			|| '' !== (string) $wpdb->last_error
+			|| ! $this->source_write_locks_are_owned( $product_id )
+		) {
+			return false;
+		}
+		$lookup_readback = $this->read_exact_stock_lookup_projection( $product_id );
+
+		return ! is_wp_error( $lookup_readback )
+			&& 'outofstock' === $lookup_readback['stock_status'];
 	}
 
 	/**
@@ -1947,16 +2090,11 @@ class Digitalogic_Patris_Feed {
 	 * @return bool
 	 */
 	private function unavailable_stock_projection_matches( $product_id, $fresh ) {
-		global $wpdb;
 		$product_id = absint( $product_id );
 		if (
 			$product_id <= 0
 			|| ! $fresh instanceof WC_Product
 			|| ! $this->source_write_locks_are_owned( $product_id )
-			|| ! is_object( $wpdb )
-			|| ! isset( $wpdb->prefix )
-			|| ! method_exists( $wpdb, 'prepare' )
-			|| ! method_exists( $wpdb, 'get_row' )
 		) {
 			return false;
 		}
@@ -1965,20 +2103,12 @@ class Digitalogic_Patris_Feed {
 			return false;
 		}
 
-		$lookup_table = $wpdb->prefix . 'wc_product_meta_lookup';
-		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Table is the exact site-scoped Woo lookup table; product ID uses a placeholder.
-		$lookup_sql = $wpdb->prepare(
-			"/* digitalogic_patris_unpriced_stock_lookup_readback */ SELECT stock_status FROM {$lookup_table} WHERE product_id = %d",
-			$product_id
-		);
-		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-		$wpdb->last_error = '';
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Exact cache-bypassed lookup readback is prepared above.
-		$lookup = false === $lookup_sql ? null : $wpdb->get_row( $lookup_sql, ARRAY_A );
+		$lookup = $this->read_exact_stock_lookup_projection( $product_id );
 
-		return is_array( $lookup )
-			&& 'outofstock' === (string) ( $lookup['stock_status'] ?? '' )
-			&& '' === (string) $wpdb->last_error
+		return ! is_wp_error( $lookup )
+			&& 'outofstock' === $lookup['stock_status']
+			&& null !== $lookup['stock_quantity']
+			&& (float) $lookup['stock_quantity'] === (float) $fresh->get_stock_quantity()
 			&& 'outofstock' === (string) $fresh->get_stock_status()
 			&& (float) $fresh->get_stock_quantity() > 0
 			&& '' === trim( (string) $fresh->get_regular_price() )
