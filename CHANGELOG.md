@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.79] - 2026-09-01
+
+### Fixed
+- Split bulk pricing topology/lookup locks from direct postmeta locks so MariaDB
+  cannot reject the identity fence's joined `FOR UPDATE`, while preserving one
+  atomic transaction and exact identity verification.
+
 ## [1.8.78] - 2026-09-01
 
 ### Fixed
