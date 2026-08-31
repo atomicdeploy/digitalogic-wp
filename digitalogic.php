@@ -3,7 +3,7 @@
  * Plugin Name: Digitalogic WooCommerce Extension
  * Plugin URI: https://github.com/atomicdeploy/digitalogic-wp
  * Description: Custom dynamic pricing, stock manager, and POS integration for Digitalogic electronic components shop. Supports bulk operations, import/export, and external API integration.
- * Version: 1.8.68
+ * Version: 1.8.69
  * Author: Digitalogic
  * Author URI: https://digitalogic.ir
  * Text Domain: digitalogic
@@ -22,7 +22,7 @@ if (!defined('ABSPATH')) {
 }
 
 // Define plugin constants
-define( 'DIGITALOGIC_VERSION', '1.8.68' );
+define( 'DIGITALOGIC_VERSION', '1.8.69' );
 define( 'DIGITALOGIC_PBX_SCHEMA_VERSION', '3' );
 define( 'DIGITALOGIC_EVENT_MESH_SCHEMA_VERSION', '1' );
 define( 'DIGITALOGIC_ASSISTANT_ACCOUNT_SCHEMA_VERSION', '2' );
@@ -128,6 +128,7 @@ final class Digitalogic {
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-product-identifier-resolver.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-canonical-catalog-identity.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-catalog-identity-reconciler.php';
+		require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-sku-guard.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-product-category-slugs.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-product-supplier-links.php';
 		require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-product-metadata-inspector.php';
@@ -248,6 +249,7 @@ final class Digitalogic {
         Digitalogic_WooCommerce_Currency_Status::instance();
         Digitalogic_Logger::instance();
 		Digitalogic_Product_Write_Lock::instance();
+		Digitalogic_SKU_Guard::instance();
 		Digitalogic_Product_Code_Write_Guard::instance();
         Digitalogic_Patris_Price_Write_Guard::instance();
         Digitalogic_Product_Manager::instance();
@@ -319,13 +321,13 @@ final class Digitalogic {
      */
     public function get_hpos_status() {
         $status = array(
-            'hpos_enabled' => false,
-            'plugin_compatible' => false,
+            'hpos_enabled'        => false,
+            'plugin_compatible'   => false,
             'using_custom_tables' => false
         );
 
         if (class_exists('\Automattic\WooCommerce\Utilities\OrderUtil')) {
-            $status['hpos_enabled'] = \Automattic\WooCommerce\Utilities\OrderUtil::custom_orders_table_usage_is_enabled();
+            $status['hpos_enabled']        = \Automattic\WooCommerce\Utilities\OrderUtil::custom_orders_table_usage_is_enabled();
             $status['using_custom_tables'] = $status['hpos_enabled'];
         }
 
@@ -370,7 +372,7 @@ final class Digitalogic {
 	 * @return bool
 	 */
 	private function install_pbx_schema(): bool {
-		$call_ready = Digitalogic_Call_Verification::install();
+		$call_ready  = Digitalogic_Call_Verification::install();
 		$voice_ready = Digitalogic_Voice_Notifications::install();
 		if ( $call_ready && $voice_ready ) {
 			update_option( 'digitalogic_pbx_schema_version', DIGITALOGIC_PBX_SCHEMA_VERSION, false );
@@ -493,18 +495,18 @@ final class Digitalogic {
 
         if (get_option('digitalogic_patris_feed_settings') === false) {
             add_option('digitalogic_patris_feed_settings', array(
-                'api_url' => '',
-                'api_token' => '',
-                'selected_warehouses' => array(),
-                'legacy_url_replacements' => array(),
+                'api_url'                  => '',
+                'api_token'                => '',
+                'selected_warehouses'      => array(),
+                'legacy_url_replacements'  => array(),
                 'image_quality_thresholds' => array(
-                    'very_low' => 180,
-                    'low' => 250,
-                    'review' => 350,
+                    'very_low'    => 180,
+                    'low'         => 250,
+                    'review'      => 350,
                     'soft_review' => 450,
                 ),
-                'stale_after_hours' => 48,
-                'sync_interval' => '',
+                'stale_after_hours'        => 48,
+                'sync_interval'            => '',
             ), '', 'no');
         }
     }
@@ -546,8 +548,8 @@ final class Digitalogic {
     public function plugin_row_meta($links, $file) {
         if ($file === DIGITALOGIC_PLUGIN_BASENAME) {
             $row_meta = array(
-                'docs' => '<a href="https://github.com/atomicdeploy/digitalogic-wp#readme" target="_blank">' . __('Documentation', 'digitalogic') . '</a>',
-                'api' => '<a href="' . esc_url(admin_url('admin.php?page=digitalogic-status')) . '">' . __('API & Status', 'digitalogic') . '</a>',
+                'docs'    => '<a href="https://github.com/atomicdeploy/digitalogic-wp#readme" target="_blank">' . __('Documentation', 'digitalogic') . '</a>',
+                'api'     => '<a href="' . esc_url(admin_url('admin.php?page=digitalogic-status')) . '">' . __('API & Status', 'digitalogic') . '</a>',
                 'support' => '<a href="https://github.com/atomicdeploy/digitalogic-wp/issues" target="_blank">' . __('Support', 'digitalogic') . '</a>',
             );
 

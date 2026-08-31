@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.69] - 2026-08-31
+
+### Changed
+- Forward-port the production SKU guard v2.0.1 without behavior changes while
+  retaining the merged bulk currency-pricing path from 1.8.66.
+- Keep the existing production MU loader unchanged; this is a plugin-only
+  compatibility release.
+
 ## [1.8.68] - 2026-08-31
 
 ### Fixed
