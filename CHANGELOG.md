@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.54] - 2026-08-31
+
+### Fixed
+- Release the reviewed legacy parent's canonical Product Code through the
+  guarded metadata writer even when WooCommerce did not load that custom meta
+  into the product object's pending deletions.
+- Verify the released parent identity and exact SKU before assigning the code
+  to the new base variation.
+
 ## [1.8.53] - 2026-08-31
 
 ### Fixed

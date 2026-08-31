@@ -39,6 +39,7 @@ final class PatrisTopologyRepairTest extends TestCase {
 				'digitalogic_test_wc_cache_group_invalidations',
 				'digitalogic_test_wc_product_instance_cache_removals',
 				'digitalogic_test_wc_product_instance_cache_failure_ids',
+				'digitalogic_test_wc_delete_meta_noop_ids',
 			)
 			as $global_name
 		) {
@@ -73,6 +74,8 @@ final class PatrisTopologyRepairTest extends TestCase {
 	public function test_dry_run_then_atomic_apply_has_exact_readback(): void {
 		$before_posts = $GLOBALS['digitalogic_test_posts'];
 		$before_terms = $GLOBALS['digitalogic_test_terms'];
+
+		$GLOBALS['digitalogic_test_wc_delete_meta_noop_ids'] = array( 200 );
 
 		$dry_run = Digitalogic_Patris_Topology_Repair::instance()->run( $this->plan() );
 
