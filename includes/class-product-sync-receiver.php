@@ -4441,9 +4441,13 @@ class Digitalogic_Product_Sync_Receiver {
 				foreach ( $fallback_product_data as $product_id => $product_data ) {
 					if ( ! $this->coordinated_price_readback_matches( $product_id, $product_data ) ) {
 						$identity_verified = $this->error(
-							'digitalogic_pricing_delivery_readback_failed',
+							'digitalogic_pricing_batch_projection_readback_failed',
 							'WooCommerce canonical projection changed before commit.',
-							502
+							502,
+							array(
+								'product_code'   => (string) ( $product_data['product_code'] ?? '' ),
+								'woocommerce_id' => (int) $product_id,
+							)
 						);
 						break;
 					}
@@ -4457,7 +4461,7 @@ class Digitalogic_Product_Sync_Receiver {
 					$identity_verified = is_wp_error( $lookup_drift )
 						? $lookup_drift
 						: $this->error(
-							'digitalogic_pricing_delivery_readback_failed',
+							'digitalogic_pricing_batch_lookup_readback_failed',
 							'WooCommerce customer-price lookup changed before commit.',
 							502,
 							array( 'woocommerce_ids' => array_values( $lookup_drift ) )
@@ -4465,12 +4469,13 @@ class Digitalogic_Product_Sync_Receiver {
 				}
 			}
 			if ( is_wp_error( $identity_verified ) ) {
+				$identity_error_data = (array) $identity_verified->get_error_data();
 				++$result['failed'];
 				$result['fatal_error_code'] = 'digitalogic_pricing_delivery_readback_failed';
 				$this->append_woo_error(
 					$result,
 					array(
-						'product_code' => '',
+						'product_code' => (string) ( $identity_error_data['product_code'] ?? '' ),
 						'code'         => $identity_verified->get_error_code(),
 						'retryable'    => true,
 					)
