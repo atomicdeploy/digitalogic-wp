@@ -50,12 +50,13 @@ final class PatrisTopologyRepairTest extends TestCase {
 		) {
 			$GLOBALS[ $global_name ] = array();
 		}
-		$GLOBALS['digitalogic_test_next_post_id']                         = 300;
-		$GLOBALS['digitalogic_test_next_term_id']                         = 500;
-		$GLOBALS['digitalogic_test_object_cache_enabled']                 = true;
-		$GLOBALS['digitalogic_test_wc_attributes_read_from_object_terms'] = false;
-		$GLOBALS['digitalogic_test_wc_defer_new_product_id']              = false;
-		$GLOBALS['digitalogic_test_enqueue_product_sync_on_term_set']     = false;
+		$GLOBALS['digitalogic_test_next_post_id']                               = 300;
+		$GLOBALS['digitalogic_test_next_term_id']                               = 500;
+		$GLOBALS['digitalogic_test_object_cache_enabled']                       = true;
+		$GLOBALS['digitalogic_test_wc_attributes_read_from_object_terms']       = false;
+		$GLOBALS['digitalogic_test_wc_attributes_read_from_relationship_cache'] = false;
+		$GLOBALS['digitalogic_test_wc_defer_new_product_id']                    = false;
+		$GLOBALS['digitalogic_test_enqueue_product_sync_on_term_set']           = false;
 		unset( $GLOBALS['wc_deferred_product_sync'] );
 		$GLOBALS['wpdb'] = new Digitalogic_Test_WPDB();
 
@@ -75,6 +76,20 @@ final class PatrisTopologyRepairTest extends TestCase {
 		}
 
 		$this->addFixtures();
+	}
+
+	/** Dry-run fences stale relationships before its first WooCommerce read. */
+	public function test_dry_run_fences_stale_relationship_cache_before_initial_inspect(): void {
+		$GLOBALS['digitalogic_test_wc_attributes_read_from_relationship_cache'] = true;
+		$GLOBALS['digitalogic_test_object_cache']['pa_model_relationships:200'] = array();
+
+		$result = Digitalogic_Patris_Topology_Repair::instance()->run( $this->plan() );
+
+		$this->assertNotInstanceOf( WP_Error::class, $result );
+		$this->assertSame( 'dry_run', $result['mode'] );
+		$this->assertNotContains( 'START TRANSACTION', $GLOBALS['wpdb']->queries );
+		$this->assertArrayNotHasKey( 'pa_model_relationships:200', $GLOBALS['digitalogic_test_object_cache'] );
+		$this->assertContains( 'pa_model_relationships', $GLOBALS['digitalogic_test_non_persistent_cache_groups'] );
 	}
 
 	/** Dry-run is inert; apply moves identity once and preserves every reviewed child. */

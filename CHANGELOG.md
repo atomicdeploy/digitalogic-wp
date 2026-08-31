@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.57] - 2026-08-31
+
+### Fixed
+- Fence every relevant product-taxonomy relationship cache before the initial
+  reviewed topology inspection as well as before the transaction, so a stale
+  persistent relationship cannot reject an otherwise exact dry-run.
+
 ## [1.8.56] - 2026-08-31
 
 ### Fixed
