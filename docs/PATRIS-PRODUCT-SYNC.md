@@ -60,14 +60,17 @@ already-current legacy feed, the same canonical staging logic is compared with
 fresh database state while both the source and product locks are held. Only the
 five exact ownership, revision, and missing-field metadata rows are then
 backfilled, without a WooCommerce object save. Any mismatch or unavailable
-proof falls back to the normal full Patris feed writer and materializer. It
-never invents a price. A legacy row with no selected-price triple may receive
-the canonical `air_express` supplier assignment only when its exact raw facts
-are positive CNY and the existing site assignment is empty; the write uses
-compare-and-set and a conflicting assignment fails closed. A later canonical
-currency reconcile selects that raw CNY fact only after exact identity and
-assignment readback and only with positive weight; the normal freight, markup,
-exchange-rate, and rounding formula remains authoritative.
+proof increments `materialization_mismatch_stopped`, keeps the row pending, and
+stops before any full WooCommerce feed save. The explicit repair writes only
+the five provenance/marker rows; it does not invent a price or bootstrap a
+shipping assignment. During normal receiver delivery, a legacy row with no
+selected-price triple may receive the canonical `air_express` supplier
+assignment only when its exact raw facts are positive CNY and the existing site
+assignment is empty; the write uses compare-and-set and a conflicting
+assignment fails closed. A later canonical currency reconcile selects that raw
+CNY fact only after exact identity and assignment readback and only with
+positive weight; the normal freight, markup, exchange-rate, and rounding
+formula remains authoritative.
 
 Only concrete identity/corruption hazards remain deferred: duplicate or split
 Code/SKU ownership, quarantined or unsafe identity, and conflicting variable

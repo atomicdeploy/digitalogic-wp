@@ -803,6 +803,8 @@ class Digitalogic_Product_Sync_Receiver {
             $deferred_total = 0;
 			$materialization_queued = 0;
 			$materialization_remaining = $materialization_limit;
+			$materialization_metadata_backfilled = 0;
+			$materialization_mismatch_stopped = 0;
             foreach ($selected as $source_key) {
 				if ( $materialization_remaining > 0 ) {
 					$queued = $this->queue_materialization_projection_work(
@@ -818,6 +820,8 @@ class Digitalogic_Product_Sync_Receiver {
                 $sources[] = $source_result;
                 $pending_total += $source_result['pending_products'];
                 $deferred_total += $source_result['deferred_products'];
+				$materialization_metadata_backfilled += (int) ( $woo['materialization_metadata_backfilled'] ?? 0 );
+				$materialization_mismatch_stopped += (int) ( $woo['materialization_mismatch_stopped'] ?? 0 );
             }
 
             if (!hash_equals($before, $this->state_digest($state))) {
@@ -836,6 +840,8 @@ class Digitalogic_Product_Sync_Receiver {
                 'source_count' => count($sources),
                 'sources' => $sources,
 				'materialization_queued' => $materialization_queued,
+				'materialization_metadata_backfilled' => $materialization_metadata_backfilled,
+				'materialization_mismatch_stopped' => $materialization_mismatch_stopped,
                 'source_order_unchanged' => true,
                 'persistence_verified' => true,
             );
@@ -859,8 +865,9 @@ class Digitalogic_Product_Sync_Receiver {
 	 *
 	 * Pricing reconciliation must not discover hundreds of legacy feed-marker
 	 * writes inside one atomic price transaction. This explicit administrator
-	 * path reuses the receiver's canonical full-feed writer, source locks,
-	 * identity validation, delivery ledger, and exact readback in small batches.
+	 * path reuses source locks, identity validation, the canonical feed verifier,
+	 * delivery ledger, and exact readback in small batches. Existing products are
+	 * metadata-only repair candidates; projection drift stops before a full save.
 	 *
 	 * @param array $source_state Source state, updated by reference.
 	 * @param int   $limit        Remaining request-local batch allowance.
@@ -943,9 +950,7 @@ class Digitalogic_Product_Sync_Receiver {
 				'force_apply'    => true,
 				'pricing_only'   => false,
 				'full_feed'      => true,
-				'owner_backfill_only' => ! is_wp_error( $resolved )
-					&& $projection_matches
-					&& ! $owner_matches,
+				'owner_backfill_only' => ! is_wp_error( $resolved ),
 			);
 			++$queued;
 		}
@@ -3469,6 +3474,8 @@ class Digitalogic_Product_Sync_Receiver {
             'failed' => 0,
             'errors' => array(),
             'errors_truncated' => 0,
+			'materialization_metadata_backfilled' => 0,
+			'materialization_mismatch_stopped' => 0,
 			'verified_product_codes' => array(),
         );
         $products = is_array($source_state['products'] ?? null) ? $source_state['products'] : array();
@@ -3676,11 +3683,10 @@ class Digitalogic_Product_Sync_Receiver {
 			$requires_full_feed = $created || $auto_materialized || ! empty( $delivery_entry['full_feed'] );
 			$owner_backfill_only = $materialization_enabled
 				&& ! $created
-				&& ! $auto_materialized
 				&& ! empty( $delivery_entry['owner_backfill_only'] );
 
             try {
-				if ( $materialization_enabled ) {
+				if ( $materialization_enabled && ! $owner_backfill_only ) {
 					$assignment = $this->reconcile_materialization_shipping_assignment(
 						$product_code,
 						$product_data,
@@ -3704,6 +3710,26 @@ class Digitalogic_Product_Sync_Receiver {
 					if ( is_array( $owner_backfill ) ) {
 						$committed       = $owner_backfill;
 						$owner_backfilled = true;
+						++$result['materialization_metadata_backfilled'];
+					} else {
+						++$result['materialization_mismatch_stopped'];
+						++$result['failed'];
+						$this->mark_delivery_failure(
+							$delivery_entry,
+							'digitalogic_product_sync_materialization_backfill_mismatch'
+						);
+						unset( $delivery_entry['reason'] );
+						$pending[ $code_key ] = $delivery_entry;
+						unset( $deferred[ $code_key ] );
+						$this->append_woo_error(
+							$result,
+							array(
+								'product_code' => $product_code,
+								'code'         => 'digitalogic_product_sync_materialization_backfill_mismatch',
+								'retryable'    => true,
+							)
+						);
+						continue;
 					}
 				}
 				if ( ! $owner_backfilled ) {

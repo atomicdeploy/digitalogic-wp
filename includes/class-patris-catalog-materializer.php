@@ -412,18 +412,41 @@ final class Digitalogic_Patris_Catalog_Materializer {
 				if ( ! $product instanceof WC_Product ) {
 					return $this->error( 'digitalogic_patris_materializer_target_unavailable', 'The source product is unavailable for legacy ownership repair.' );
 				}
-				$missing        = $this->canonical_missing_fields( $product, $record );
-				$stored_missing = json_decode(
-					(string) get_post_meta( $product_id, self::MISSING_FIELDS_META, true ),
-					true
+				$missing   = $this->canonical_missing_fields( $product, $record );
+				$meta_keys = array(
+					self::OWNER_SOURCE_META,
+					self::OWNER_DATASET_META,
+					self::OWNER_CODE_META,
+					self::SOURCE_REVISION_META,
+					self::MISSING_FIELDS_META,
 				);
+				$backup    = $this->read_exact_meta_rows( $product_id, $meta_keys );
+				if ( is_wp_error( $backup ) ) {
+					return $backup;
+				}
+				$missing_rows         = array_values( (array) ( $backup[ self::MISSING_FIELDS_META ] ?? array() ) );
+				$revision_rows        = array_values( (array) ( $backup[ self::SOURCE_REVISION_META ] ?? array() ) );
+				$stored_missing       = 1 === count( $missing_rows )
+					? json_decode( (string) reset( $missing_rows ), true )
+					: null;
+				$missing_marker_safe  = empty( $missing_rows )
+					|| (
+						1 === count( $missing_rows )
+						&& is_array( $stored_missing )
+						&& array_is_list( $stored_missing )
+						&& $stored_missing === $missing
+					);
+				$revision_marker_safe = empty( $revision_rows )
+					|| (
+						1 === count( $revision_rows )
+						&& 1 === preg_match( '/\Asha256:[a-f0-9]{64}\z/D', (string) reset( $revision_rows ) )
+					);
 				if (
 					(string) $product->get_sku() !== $identity['product_code']
 					|| 'publish' !== (string) $product->get_status()
 					|| ( ! $product->is_type( 'variation' ) && 'visible' !== (string) $product->get_catalog_visibility() )
-					|| ! is_array( $stored_missing )
-					|| ! array_is_list( $stored_missing )
-					|| $stored_missing !== $missing
+					|| ! $missing_marker_safe
+					|| ! $revision_marker_safe
 					|| (
 						in_array( 'price', $missing, true )
 						&& (
@@ -449,18 +472,13 @@ final class Digitalogic_Patris_Catalog_Materializer {
 					return false;
 				}
 
-				$expected = array(
+				$expected    = array(
 					self::OWNER_SOURCE_META    => array( $identity['source_id'] ),
 					self::OWNER_DATASET_META   => array( $identity['dataset'] ),
 					self::OWNER_CODE_META      => array( $identity['product_code'] ),
 					self::SOURCE_REVISION_META => array( $identity['source_revision'] ),
 					self::MISSING_FIELDS_META  => array( wp_json_encode( $missing, JSON_UNESCAPED_SLASHES ) ),
 				);
-				$backup   = $this->read_exact_meta_rows( $product_id, array_keys( $expected ) );
-				if ( is_wp_error( $backup ) ) {
-					return $backup;
-				}
-
 				$write_error = null;
 				try {
 					foreach ( $expected as $key => $values ) {
