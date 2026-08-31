@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.56] - 2026-08-31
+
+### Fixed
+- Keep every relevant product-taxonomy relationship cache group request-local
+  for the complete reviewed Patris topology transaction, preventing a deferred
+  shutdown write from restoring stale pre-transaction relationships.
+- Persist the reviewed variable parent's complete attribute-term assignment
+  explicitly and prove it from the transaction's raw relationship rows before
+  accepting WooCommerce object readback.
+- Restore the exact pre-transaction WooCommerce deferred parent-sync queue on
+  both commit and rollback so request shutdown cannot replay transaction-local
+  parent changes.
+
 ## [1.8.55] - 2026-08-31
 
 ### Fixed

@@ -885,6 +885,36 @@ function wp_cache_get( $key, $group = '', $force = false, &$found = null ) { // 
 }
 
 /**
+ * Mark exact cache groups request-local in the test registry.
+ *
+ * @param string[] $groups Cache groups.
+ * @return void
+ */
+function wp_cache_add_non_persistent_groups( $groups ) { // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedFunctionFound -- WordPress test double.
+	$GLOBALS['digitalogic_test_non_persistent_cache_groups'] = array_values(
+		array_unique(
+			array_merge(
+				(array) ( $GLOBALS['digitalogic_test_non_persistent_cache_groups'] ?? array() ),
+				array_map( 'strval', (array) $groups )
+			)
+		)
+	);
+}
+
+/** Apply queued persistent writes as a simulated cache-backend shutdown. */
+function digitalogic_test_flush_cache_shutdown_queue() {
+	foreach ( (array) ( $GLOBALS['digitalogic_test_cache_shutdown_queue'] ?? array() ) as $write ) {
+		$group = (string) ( $write['group'] ?? '' );
+		if ( in_array( $group, (array) ( $GLOBALS['digitalogic_test_non_persistent_cache_groups'] ?? array() ), true ) ) {
+			continue;
+		}
+		$key = $group . ':' . (string) ( $write['key'] ?? '' );
+		$GLOBALS['digitalogic_test_object_cache'][ $key ] = $write['value'] ?? null;
+	}
+	$GLOBALS['digitalogic_test_cache_shutdown_queue'] = array();
+}
+
+/**
  * Test adapter for batched object-cache deletion.
  *
  * @param array  $keys  Cache keys to delete.
@@ -1521,6 +1551,18 @@ class Digitalogic_Test_WPDB {
     public $posts = 'wp_posts';
     public $options = 'wp_options';
     public $postmeta = 'wp_postmeta';
+	/**
+	 * Test term-relationship table name.
+	 *
+	 * @var string
+	 */
+	public $term_relationships = 'wp_term_relationships';
+	/**
+	 * Test term-taxonomy table name.
+	 *
+	 * @var string
+	 */
+	public $term_taxonomy = 'wp_term_taxonomy';
     public $insert_id = 0;
     public $acquire_result = 1;
     public $acquire_results = array();
@@ -2237,6 +2279,7 @@ class Digitalogic_Test_WPDB {
 				'posts'        => $GLOBALS['digitalogic_test_posts'],
 				'terms'        => $GLOBALS['digitalogic_test_terms'],
 				'term_meta'    => $GLOBALS['digitalogic_test_term_meta'],
+				'object_terms' => $GLOBALS['digitalogic_test_object_terms'],
 				'next_post_id' => $GLOBALS['digitalogic_test_next_post_id'],
 				'next_term_id' => $GLOBALS['digitalogic_test_next_term_id'],
 				'meta_ids'     => $this->meta_ids,
@@ -2250,6 +2293,7 @@ class Digitalogic_Test_WPDB {
 				$GLOBALS['digitalogic_test_posts']        = $this->transaction_snapshot['posts'];
 				$GLOBALS['digitalogic_test_terms']        = $this->transaction_snapshot['terms'];
 				$GLOBALS['digitalogic_test_term_meta']    = $this->transaction_snapshot['term_meta'];
+				$GLOBALS['digitalogic_test_object_terms'] = $this->transaction_snapshot['object_terms'];
 				$GLOBALS['digitalogic_test_next_post_id'] = $this->transaction_snapshot['next_post_id'];
 				$GLOBALS['digitalogic_test_next_term_id'] = $this->transaction_snapshot['next_term_id'];
 				$this->meta_ids                           = $this->transaction_snapshot['meta_ids'];
@@ -2325,8 +2369,27 @@ class Digitalogic_Test_WPDB {
 			return count( $matches );
 		}
 
-        return 1;
-    }
+		return 1;
+	}
+
+	/**
+	 * Return exact topology term IDs from the test relationship registry.
+	 *
+	 * @param mixed $prepared Prepared test query.
+	 * @return int[]
+	 */
+	public function get_col( $prepared ) {
+		$query = is_array( $prepared ) && isset( $prepared['query'] ) ? $prepared['query'] : (string) $prepared;
+		$args  = is_array( $prepared ) && isset( $prepared['args'] ) ? $prepared['args'] : array();
+		if ( false === strpos( $query, 'digitalogic_patris_topology_term_readback' ) ) {
+			return array();
+		}
+		$this->last_error = '';
+		$product_id       = isset( $args[0] ) ? (int) $args[0] : 0;
+		$taxonomy         = isset( $args[1] ) ? (string) $args[1] : '';
+
+		return array_values( (array) ( $GLOBALS['digitalogic_test_object_terms'][ $product_id ][ $taxonomy ] ?? array() ) );
+	}
 }
 
 class Digitalogic_Options {
@@ -2562,7 +2625,24 @@ class WC_Product {
     }
 
     public function get_attributes() {
-        return (array) ($GLOBALS['digitalogic_test_posts'][$this->id]['attributes'] ?? array());
+		$attributes = (array) ($GLOBALS['digitalogic_test_posts'][$this->id]['attributes'] ?? array());
+		if ( empty( $GLOBALS['digitalogic_test_wc_attributes_read_from_object_terms'] ) ) {
+			return $attributes;
+		}
+		foreach ( $attributes as $key => $attribute ) {
+			if ( ! $attribute instanceof WC_Product_Attribute ) {
+				continue;
+			}
+			$taxonomy = $attribute->get_name();
+			if ( ! isset( $GLOBALS['digitalogic_test_object_terms'][ $this->id ][ $taxonomy ] ) ) {
+				continue;
+			}
+			$attribute = clone $attribute;
+			$attribute->set_options( $GLOBALS['digitalogic_test_object_terms'][ $this->id ][ $taxonomy ] );
+			$attributes[ $key ] = $attribute;
+		}
+
+		return $attributes;
     }
 
     public function get_variation_attributes() {
@@ -3119,6 +3199,19 @@ function wp_set_object_terms($object_id, $terms, $taxonomy, $append = false) {
 		if ( ! empty( $GLOBALS['digitalogic_test_enqueue_product_sync_on_term_set'] ) ) {
 			$GLOBALS['wc_deferred_product_sync'][] = (int) $object_id;
 		}
+	} else {
+		$term_ids = array_values( array_unique( array_map( 'intval', (array) $terms ) ) );
+		if ( $append ) {
+			$term_ids = array_values(
+				array_unique(
+					array_merge(
+						(array) ( $GLOBALS['digitalogic_test_object_terms'][ (int) $object_id ][ (string) $taxonomy ] ?? array() ),
+						$term_ids
+					)
+				)
+			);
+		}
+		$GLOBALS['digitalogic_test_object_terms'][ (int) $object_id ][ (string) $taxonomy ] = $term_ids;
     }
     return array((int) $object_id);
 }

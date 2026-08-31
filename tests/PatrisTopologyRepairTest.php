@@ -36,6 +36,9 @@ final class PatrisTopologyRepairTest extends TestCase {
 				'digitalogic_test_cache_deletes',
 				'digitalogic_test_cache_delete_failures',
 				'digitalogic_test_object_cache',
+				'digitalogic_test_non_persistent_cache_groups',
+				'digitalogic_test_cache_shutdown_queue',
+				'digitalogic_test_object_terms',
 				'digitalogic_test_wc_transient_deletes',
 				'digitalogic_test_object_term_cache_cleans',
 				'digitalogic_test_wc_cache_group_invalidations',
@@ -47,11 +50,12 @@ final class PatrisTopologyRepairTest extends TestCase {
 		) {
 			$GLOBALS[ $global_name ] = array();
 		}
-		$GLOBALS['digitalogic_test_next_post_id']                     = 300;
-		$GLOBALS['digitalogic_test_next_term_id']                     = 500;
-		$GLOBALS['digitalogic_test_object_cache_enabled']             = true;
-		$GLOBALS['digitalogic_test_wc_defer_new_product_id']          = false;
-		$GLOBALS['digitalogic_test_enqueue_product_sync_on_term_set'] = false;
+		$GLOBALS['digitalogic_test_next_post_id']                         = 300;
+		$GLOBALS['digitalogic_test_next_term_id']                         = 500;
+		$GLOBALS['digitalogic_test_object_cache_enabled']                 = true;
+		$GLOBALS['digitalogic_test_wc_attributes_read_from_object_terms'] = false;
+		$GLOBALS['digitalogic_test_wc_defer_new_product_id']              = false;
+		$GLOBALS['digitalogic_test_enqueue_product_sync_on_term_set']     = false;
 		unset( $GLOBALS['wc_deferred_product_sync'] );
 		$GLOBALS['wpdb'] = new Digitalogic_Test_WPDB();
 
@@ -118,6 +122,9 @@ final class PatrisTopologyRepairTest extends TestCase {
 		$this->assertSame( array( 201, 202, 203, 300 ), wc_get_product( 200 )->get_children() );
 		$this->assertContains( 200, $GLOBALS['digitalogic_test_wc_product_instance_cache_removals'] );
 		$this->assertContains( 'product_200', $GLOBALS['digitalogic_test_wc_cache_group_invalidations'] );
+		$this->assertContains( 'product_type_relationships', $GLOBALS['digitalogic_test_non_persistent_cache_groups'] );
+		$this->assertContains( 'product_cat_relationships', $GLOBALS['digitalogic_test_non_persistent_cache_groups'] );
+		$this->assertContains( 'pa_model_relationships', $GLOBALS['digitalogic_test_non_persistent_cache_groups'] );
 		$this->assertFalse( Digitalogic_Product_Sync_Receiver::instance()->source_identity_lock_is_owned() );
 	}
 
@@ -125,7 +132,8 @@ final class PatrisTopologyRepairTest extends TestCase {
 	public function test_apply_failure_rolls_back_every_topology_effect(): void {
 		$before_posts                                 = $GLOBALS['digitalogic_test_posts'];
 		$before_terms                                 = $GLOBALS['digitalogic_test_terms'];
-		$GLOBALS['digitalogic_test_wc_save_failures'] = array( 200 );
+		$before_object_terms                          = $GLOBALS['digitalogic_test_object_terms'];
+		$GLOBALS['digitalogic_test_wc_save_failures'] = array( 300 );
 
 		$result = Digitalogic_Patris_Topology_Repair::instance()->run( $this->plan(), true );
 
@@ -137,6 +145,7 @@ final class PatrisTopologyRepairTest extends TestCase {
 		$this->assertNotContains( 'COMMIT', $GLOBALS['wpdb']->queries );
 		$this->assertSame( $before_posts, $GLOBALS['digitalogic_test_posts'] );
 		$this->assertSame( $before_terms, $GLOBALS['digitalogic_test_terms'] );
+		$this->assertSame( $before_object_terms, $GLOBALS['digitalogic_test_object_terms'] );
 		$this->assertSame( 300, $GLOBALS['digitalogic_test_next_post_id'] );
 		$this->assertSame( 500, $GLOBALS['digitalogic_test_next_term_id'] );
 		$this->assertSame( 'simple', wc_get_product( 100 )->get_type() );
@@ -191,7 +200,7 @@ final class PatrisTopologyRepairTest extends TestCase {
 		$this->assertContains( array( 200, 'pa_model_relationships' ), $GLOBALS['digitalogic_test_cache_deletes'] );
 	}
 
-	/** A relationship cache that survives exact deletion makes outcome unknown. */
+	/** A relationship cache that survives the preflight fence prevents writes. */
 	public function test_relationship_cache_invalidation_failure_fails_closed(): void {
 		$GLOBALS['digitalogic_test_object_cache']['pa_model_relationships:200'] = array();
 		$GLOBALS['digitalogic_test_cache_delete_failures']                      = array( 'pa_model_relationships:200' );
@@ -199,10 +208,51 @@ final class PatrisTopologyRepairTest extends TestCase {
 		$result = Digitalogic_Patris_Topology_Repair::instance()->run( $this->plan(), true );
 
 		$this->assertInstanceOf( WP_Error::class, $result );
-		$this->assertSame( 'digitalogic_patris_topology_outcome_unknown', $result->get_error_code() );
-		$this->assertSame( 'digitalogic_patris_topology_cache_unavailable', $result->get_error_data()['cause'] );
-		$this->assertSame( 'digitalogic_patris_topology_cache_unavailable', $result->get_error_data()['rollback_term_cache'] );
+		$this->assertSame( 'digitalogic_patris_topology_cache_unavailable', $result->get_error_code() );
+		$this->assertNotContains( 'START TRANSACTION', $GLOBALS['wpdb']->queries );
 		$this->assertArrayHasKey( 'pa_model_relationships:200', $GLOBALS['digitalogic_test_object_cache'] );
+	}
+
+	/** Explicit term assignment is authoritative when a fresh Woo read uses term relationships. */
+	public function test_apply_persists_authoritative_parent_attribute_terms(): void {
+		$GLOBALS['digitalogic_test_wc_attributes_read_from_object_terms'] = true;
+
+		$result = Digitalogic_Patris_Topology_Repair::instance()->run( $this->plan(), true );
+
+		$this->assertNotInstanceOf( WP_Error::class, $result );
+		$this->assertSame( array( 449, 450, 500 ), $GLOBALS['digitalogic_test_object_terms'][200]['pa_model'] );
+		$this->assertSame(
+			array( 449, 450, 500 ),
+			wc_get_product( 200 )->get_attributes()['pa_model']->get_options()
+		);
+	}
+
+	/** Request-local groups block stale persistent writes queued for shutdown. */
+	public function test_nonpersistent_fence_blocks_shutdown_cache_repopulation(): void {
+		$GLOBALS['digitalogic_test_object_cache']['pa_model_relationships:200'] = array();
+		$GLOBALS['digitalogic_test_cache_shutdown_queue'][]                     = array(
+			'key'   => 200,
+			'group' => 'pa_model_relationships',
+			'value' => array(),
+		);
+
+		$result = Digitalogic_Patris_Topology_Repair::instance()->run( $this->plan(), true );
+
+		$this->assertNotInstanceOf( WP_Error::class, $result );
+		digitalogic_test_flush_cache_shutdown_queue();
+		$this->assertContains( 'pa_model_relationships', $GLOBALS['digitalogic_test_non_persistent_cache_groups'] );
+		$this->assertArrayNotHasKey( 'pa_model_relationships:200', $GLOBALS['digitalogic_test_object_cache'] );
+	}
+
+	/** Success drops only transaction-created deferred parent syncs. */
+	public function test_apply_restores_exact_deferred_sync_queue_after_commit(): void {
+		$GLOBALS['wc_deferred_product_sync']                          = array( 999 );
+		$GLOBALS['digitalogic_test_enqueue_product_sync_on_term_set'] = true;
+
+		$result = Digitalogic_Patris_Topology_Repair::instance()->run( $this->plan(), true );
+
+		$this->assertNotInstanceOf( WP_Error::class, $result );
+		$this->assertSame( array( 999 ), $GLOBALS['wc_deferred_product_sync'] );
 	}
 
 	/** A product-instance cache failure makes rollback outcome explicitly unaudited. */
@@ -286,20 +336,21 @@ final class PatrisTopologyRepairTest extends TestCase {
 		$this->addProduct( 202, 'product_variation', 'variation', 'VAR-2', 'VAR-2', 200, array(), array( 'attribute_pa_model' => 'super-mini' ) );
 		$this->addProduct( 203, 'product_variation', 'variation', '', '', 200, array(), array( 'attribute_pa_model' => '' ) );
 
-		$GLOBALS['digitalogic_test_terms'][449] = array(
+		$GLOBALS['digitalogic_test_terms'][449]                    = array(
 			'term_id'  => 449,
 			'name'     => 'NRF24L01',
 			'slug'     => 'nrf24l01',
 			'parent'   => 0,
 			'taxonomy' => 'pa_model',
 		);
-		$GLOBALS['digitalogic_test_terms'][450] = array(
+		$GLOBALS['digitalogic_test_terms'][450]                    = array(
 			'term_id'  => 450,
 			'name'     => 'Super Mini',
 			'slug'     => 'super-mini',
 			'parent'   => 0,
 			'taxonomy' => 'pa_model',
 		);
+		$GLOBALS['digitalogic_test_object_terms'][200]['pa_model'] = array( 449, 450 );
 
 		$products = array();
 		foreach ( array( 'EMPTY-A', 'EMPTY-B', 'BASE', 'VAR-1', 'VAR-2' ) as $code ) {
