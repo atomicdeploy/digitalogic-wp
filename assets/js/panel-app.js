@@ -2394,13 +2394,30 @@
 				payload.request_id = self.currencyIntent.request_id;
                 self.saving = true;
                 self.error = '';
-				return self.run('digitalogic_update_currency', payload, {noAutoReplay: true, timeout: 15000}).then(function(job) {
+				return self.run('digitalogic_update_currency', payload, {
+					ajaxOnly: true,
+					noAutoReplay: true,
+					timeout: 15000
+				}).then(function(job) {
                     self.editingCell = null;
                     self.currencyEditField = '';
                     self.currencyEditOriginal = '';
                     self.watchCurrencyJob(job);
                     return job;
                 }).catch(function(error) {
+					var outcomeUnknown = !!(error && (error.outcome_unknown || error.deliveryUnknown));
+					if (!outcomeUnknown) {
+						if (self.currencyJobTimer) window.clearTimeout(self.currencyJobTimer);
+						self.currencyJobTimer = null;
+						self.currencyJobWatchDeadline = 0;
+						self.currencyJob = null;
+						if (self.currencyIntent && self.currencyIntent.request_id === payload.request_id) {
+							self.currencyIntent = {};
+							window.localStorage.removeItem('digitalogic_panel_currency_intent');
+						}
+						self.error = error.message || self.t.error;
+						return null;
+					}
 					return self.run('digitalogic_currency_job_status', {
 						request_id: payload.request_id
 					}, {ajaxOnly: true, silentError: true, timeout: 8000}).then(function(job) {
