@@ -3165,13 +3165,20 @@ final class Digitalogic_Pricing_Snapshot {
 			! $this->schedule_dual_one_shot(
 				self::BUILD_HOOK,
 				array( (string) $build_id ),
-				time() + 1,
+				time(),
 				'async',
 				$as_path
 			)
 		) {
 			return $this->error( 'digitalogic_pricing_snapshot_scheduler_unavailable', 'The snapshot worker could not be scheduled.', 503, true, array(), 30 );
 		}
+		// WordPress performs its ordinary cron check before this REST callback adds
+		// the activation. Queue a shutdown wake for the due, durable WP-Cron sibling
+		// so a cold Excel snapshot does not depend on unrelated traffic or a delayed
+		// AS runner, without putting the loopback request on the REST response path.
+		// Admission was released before enqueue_build(); the two stored one-shots and
+		// exact watchdog remain the failure-safe delivery paths.
+		$this->queue_local_cron_wake();
 
 		return true;
 	}
@@ -3230,7 +3237,7 @@ final class Digitalogic_Pricing_Snapshot {
 	 */
 	private function schedule_dual_one_shot( $hook, $args, $timestamp, $action_scheduler_mode = 'single', $action_scheduler = null, $wp_cron = null, $wp_cron_verifier = null ) {
 		$args      = array_values( (array) $args );
-		$timestamp = max( time() + 1, (int) $timestamp );
+		$timestamp = max( time(), (int) $timestamp );
 		$as_ok     = false;
 		$cron_ok   = false;
 
@@ -3271,6 +3278,30 @@ final class Digitalogic_Pricing_Snapshot {
 		}
 
 		return $as_ok || $cron_ok;
+	}
+
+	/** Queue WordPress core's lock/token-aware cron wake after the response path. */
+	private function queue_local_cron_wake() {
+		if ( ! function_exists( 'spawn_cron' ) || ! function_exists( 'add_action' ) ) {
+			return;
+		}
+		try {
+			add_action( 'shutdown', array( $this, 'wake_local_cron' ), 0 );
+		} catch ( Throwable $error ) {
+			unset( $error );
+		}
+	}
+
+	/** Wake due jobs through WordPress core; used only as a shutdown callback. */
+	public function wake_local_cron() {
+		if ( ! function_exists( 'spawn_cron' ) ) {
+			return;
+		}
+		try {
+			spawn_cron();
+		} catch ( Throwable $error ) {
+			unset( $error );
+		}
 	}
 
 	/** Schedule one checked, non-unique retry when worker admission was contended. */
