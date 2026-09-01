@@ -36,6 +36,21 @@ final class PanelCurrencyAsyncSourceTest extends TestCase {
 		);
 	}
 
+	/** The full settings button must submit both rates instead of its Vue event. */
+	public function test_full_settings_save_rejects_event_objects_as_field_names(): void {
+		$source = $this->read_source( dirname( __DIR__ ) . '/assets/js/panel-app.js' );
+		$view   = $this->read_source( dirname( __DIR__ ) . '/includes/panel/views/app.php' );
+
+		$this->assertStringContainsString(
+			"supportedFields = ['dollar_price', 'yuan_price']",
+			$source
+		);
+		$this->assertStringContainsString( "typeof field === 'string'", $source );
+		$this->assertStringContainsString( "supportedFields.indexOf(field) === -1) field = ''", $source );
+		$this->assertStringContainsString( '@click="saveCurrency()"', $view );
+		$this->assertStringNotContainsString( '@click="saveCurrency"', $view );
+	}
+
 	/**
 	 * Read one repository source file without involving the network layer.
 	 *

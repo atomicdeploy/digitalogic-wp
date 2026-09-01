@@ -2368,6 +2368,9 @@
             saveCurrency: function(field) {
                 var self = this;
                 var payload = {};
+                var supportedFields = ['dollar_price', 'yuan_price'];
+                if (typeof field === 'string' && field && supportedFields.indexOf(field) === -1) return Promise.resolve();
+                if (supportedFields.indexOf(field) === -1) field = '';
                 if (field) {
                     payload[field] = self.normalizeNumber(self.currencyDraft[field]);
                 } else {

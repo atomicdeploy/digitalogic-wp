@@ -36,6 +36,52 @@ test('panel currency save distinguishes a rejected request from an unknown deliv
     assert.match(panelView, /v-if="currencyJob\.job_id && currencyJob\.generation"/);
 });
 
+test('full settings save never treats the Vue click event as a currency field', () => {
+    const saveCurrencySource = panelSource.match(/saveCurrency:\s*function[\s\S]*?\n\s*},\n\s*watchCurrencyJob:/)[0];
+
+    assert.match(saveCurrencySource, /supportedFields = \['dollar_price', 'yuan_price'\]/);
+    assert.match(saveCurrencySource, /typeof field === 'string'[\s\S]*?supportedFields\.indexOf\(field\) === -1/);
+    assert.match(saveCurrencySource, /if \(supportedFields\.indexOf\(field\) === -1\) field = ''/);
+    assert.match(panelView, /@click="saveCurrency\(\)"/);
+    assert.doesNotMatch(panelView, /@click="saveCurrency"/);
+});
+
+test('full settings click builds the two-rate payload at runtime', async () => {
+    const functionMatch = panelSource.match(/saveCurrency:\s*(function\(field\) \{[\s\S]*?\n\s*})\s*,\n\s*cancelCurrencyJob:/);
+    assert.ok(functionMatch);
+    const saveCurrency = Function('return (' + functionMatch[1] + ');')();
+    let request = null;
+    const signature = JSON.stringify({
+        dollar_price: '207264',
+        yuan_price: '31500',
+        expected_state_revision: 'sha256:test'
+    });
+    const panel = {
+        currencyDraft: {dollar_price: '207264', yuan_price: '31500'},
+        summary: {currency: {state_revision: 'sha256:test'}},
+        currencyIntent: {signature, request_id: 'currency:test'},
+        normalizeNumber: value => value,
+        run: (command, payload, options) => {
+            request = {command, payload, options};
+            return Promise.resolve({job_id: 'job-test', generation: 30});
+        },
+        watchCurrencyJob: () => {},
+        saving: false,
+        error: ''
+    };
+
+    await saveCurrency.call(panel, {type: 'click'});
+
+    assert.equal(request.command, 'digitalogic_update_currency');
+    assert.deepEqual(request.payload, {
+        dollar_price: '207264',
+        yuan_price: '31500',
+        expected_state_revision: 'sha256:test',
+        request_id: 'currency:test'
+    });
+    assert.equal(request.options.ajaxOnly, true);
+});
+
 test('panel Ajax transport bounds headers and body parsing', () => {
     assert.match(panelSource, /AbortController/);
     assert.match(panelSource, /ajax_request_timeout\s*\|\|\s*12000/);
