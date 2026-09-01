@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.82] - 2026-09-01
+
+### Fixed
+- Submit both currency fields from the authenticated settings button instead of treating Vue's click event as a dynamic field name.
+- Allow only the two supported currency field names on inline saves so event objects cannot become discarded request keys.
+
 ## [1.8.81] - 2026-09-01
 
 ### Fixed

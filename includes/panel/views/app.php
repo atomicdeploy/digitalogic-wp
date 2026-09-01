@@ -589,7 +589,7 @@ $retry_url = isset($_SERVER['REQUEST_URI']) ? (string) $_SERVER['REQUEST_URI'] :
                         </div>
                     </div>
                     <div class="dlp-panel">
-                        <div class="dlp-panel-head"><strong>{{ t.currency }}</strong><button class="dlp-button dlp-primary" :disabled="saving" @click="saveCurrency"><span class="dashicons dashicons-saved"></span>{{ t.save }}</button></div>
+                        <div class="dlp-panel-head"><strong>{{ t.currency }}</strong><button class="dlp-button dlp-primary" :disabled="saving" @click="saveCurrency()"><span class="dashicons dashicons-saved"></span>{{ t.save }}</button></div>
                         <div class="dlp-field-grid">
                             <label class="dlp-field"><span>USD</span><input class="dlp-input dlp-numeric" dir="ltr" inputmode="decimal" data-numeric="true" :value="formatInputNumber(currencyDraft.dollar_price)" @input="onCurrencyInput('dollar_price', $event)"></label>
                             <label class="dlp-field"><span>CNY</span><input class="dlp-input dlp-numeric" dir="ltr" inputmode="decimal" data-numeric="true" :value="formatInputNumber(currencyDraft.yuan_price)" @input="onCurrencyInput('yuan_price', $event)"></label>
