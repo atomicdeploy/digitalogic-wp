@@ -419,6 +419,17 @@ final class Digitalogic_Pricing_Snapshot {
 				return $queued;
 			}
 
+			// A host can disable automatic WP-Cron, and core wake refusal likewise
+			// proves that no prompt worker was dispatched. Run only this persisted,
+			// source-fenced build in the admitting request. The exact worker lease
+			// makes a concurrent Action Scheduler delivery a safe no-op.
+			if ( $this->inline_build_required( (bool) ( $queued['wake_accepted'] ?? false ) ) ) {
+				$job = $this->settle_inline_build( $build_id );
+				if ( is_wp_error( $job ) ) {
+					return $job;
+				}
+			}
+
 			return $this->job_transport( $job, false );
 		} finally {
 			$this->release_admission_lock();
@@ -668,7 +679,7 @@ final class Digitalogic_Pricing_Snapshot {
 		$worker_token = $this->acquire_worker_lease( $build_id );
 		if ( is_wp_error( $worker_token ) ) {
 			if ( ! $this->retry_worker( $build_id ) ) {
-				if ( ! $this->fail_unleased_queued_job( $build_id, $this->scheduler_retry_error() ) ) {
+				if ( ! $this->fail_unleased_nonterminal_job( $build_id, $this->scheduler_retry_error() ) ) {
 					throw new RuntimeException( 'The snapshot worker could not persist or reschedule its admission failure.' );
 				}
 			}
@@ -3173,16 +3184,14 @@ final class Digitalogic_Pricing_Snapshot {
 			return $this->error( 'digitalogic_pricing_snapshot_scheduler_unavailable', 'The snapshot worker could not be scheduled.', 503, true, array(), 30 );
 		}
 		// WordPress performs its ordinary cron check before this REST callback adds
-		// the activation. Promptly wake the due, durable WP-Cron sibling after
-		// releasing admission; production requests cannot rely on a later shutdown
-		// callback or unrelated traffic. If core refuses the prompt wake, retry once
-		// at shutdown. The two stored one-shots and exact watchdog remain the
-		// failure-safe delivery paths.
-		if ( ! $this->wake_local_cron() ) {
-			$this->queue_local_cron_wake();
+		// the activation. A host that explicitly disables automatic WP-Cron must
+		// not launch a global cron request; start() will run only this exact build.
+		$wake_accepted = false;
+		if ( ! ( defined( 'DISABLE_WP_CRON' ) && DISABLE_WP_CRON ) ) {
+			$wake_accepted = $this->wake_local_cron();
 		}
 
-		return true;
+		return array( 'wake_accepted' => $wake_accepted );
 	}
 
 	/** Schedule one source/job-fenced watchdog through both durable paths. */
@@ -3282,18 +3291,6 @@ final class Digitalogic_Pricing_Snapshot {
 		return $as_ok || $cron_ok;
 	}
 
-	/** Queue WordPress core's lock/token-aware cron wake after the response path. */
-	private function queue_local_cron_wake() {
-		if ( ! function_exists( 'spawn_cron' ) || ! function_exists( 'add_action' ) ) {
-			return;
-		}
-		try {
-			add_action( 'shutdown', array( $this, 'wake_local_cron' ), 0 );
-		} catch ( Throwable $error ) {
-			unset( $error );
-		}
-	}
-
 	/** Wake due jobs through WordPress core's bounded lock/token-aware dispatcher. */
 	public function wake_local_cron() {
 		if ( ! function_exists( 'spawn_cron' ) ) {
@@ -3306,6 +3303,58 @@ final class Digitalogic_Pricing_Snapshot {
 
 			return false;
 		}
+	}
+
+	/**
+	 * Decide whether this exact admitted build needs an in-request worker.
+	 *
+	 * DISABLE_WP_CRON is an explicit host policy: scheduled actions remain
+	 * durable, but no request may assume automatic execution. A refused core
+	 * wake has the same exact-job fallback; no unrelated due hook is run.
+	 */
+	private function inline_build_required( $wake_accepted ) {
+		return ( defined( 'DISABLE_WP_CRON' ) && DISABLE_WP_CRON ) || ! $wake_accepted;
+	}
+
+	/** Run and reconcile one exact inline fallback without returning a false 202. */
+	private function settle_inline_build( $build_id ) {
+		try {
+			$this->run_build( $build_id );
+		} catch ( Throwable $error ) {
+			unset( $error );
+		}
+
+		$job = $this->read_job( $build_id );
+		if ( is_array( $job ) && in_array( $job['status'], array( 'ready', 'failed', 'cancelled' ), true ) ) {
+			return $job;
+		}
+
+		// run_build throws only after its own failure/retry paths are unavailable.
+		// Fail a stranded nonterminal only while admission proves no sibling owns a
+		// live exact lease. A concurrently running sibling remains a valid 202.
+		if ( ! $this->fail_unleased_nonterminal_job( $build_id, $this->scheduler_retry_error() ) ) {
+			return $this->error(
+				'digitalogic_pricing_snapshot_inline_dispatch_unavailable',
+				'The exact pricing snapshot worker could not be dispatched or terminalized.',
+				503,
+				true,
+				array(),
+				30
+			);
+		}
+		$job = $this->read_job( $build_id );
+		if ( is_array( $job ) && in_array( $job['status'], array( 'queued', 'running', 'ready', 'failed', 'cancelled' ), true ) ) {
+			return $job;
+		}
+
+		return $this->error(
+			'digitalogic_pricing_snapshot_inline_dispatch_unavailable',
+			'The exact pricing snapshot worker state is unavailable.',
+			503,
+			true,
+			array(),
+			30
+		);
 	}
 
 	/** Schedule one checked, non-unique retry when worker admission was contended. */
@@ -3334,23 +3383,26 @@ final class Digitalogic_Pricing_Snapshot {
 	}
 
 	/**
-	 * Fail only a still-queued job with no live worker lease.
+	 * Fail only a nonterminal job with no live worker lease.
 	 *
 	 * This is the no-lease delivery path: it must never terminalize a different
 	 * Action Scheduler invocation that acquired or already owns the live lease.
 	 */
-	private function fail_unleased_queued_job( $build_id, $error ) {
+	private function fail_unleased_nonterminal_job( $build_id, $error ) {
 		$lock = $this->acquire_admission_lock( 1 );
 		if ( is_wp_error( $lock ) ) {
 			return false;
 		}
 		try {
 			$job = $this->read_job( $build_id );
-			if ( ! is_array( $job ) || in_array( $job['status'], array( 'ready', 'failed', 'cancelled' ), true ) ) {
+			if ( ! is_array( $job ) ) {
+				return false;
+			}
+			if ( in_array( $job['status'], array( 'ready', 'failed', 'cancelled' ), true ) ) {
 				return true;
 			}
-			if ( 'queued' !== $job['status'] ) {
-				return true;
+			if ( ! in_array( $job['status'], array( 'queued', 'running' ), true ) ) {
+				return false;
 			}
 
 			$worker_key = $this->worker_key( $build_id );

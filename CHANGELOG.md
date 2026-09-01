@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.85] - 2026-09-01
+
+### Fixed
+- Complete a newly admitted, exact pricing-snapshot build in the request that created it when automatic WP-Cron is explicitly disabled or its prompt wake is refused, without running unrelated due hooks and while retaining the Action Scheduler, WP-Cron, watchdog, lease, revision, and cancellation fences as independent durability and race-safety paths.
+
 ## [1.8.84] - 2026-09-01
 
 ### Fixed
