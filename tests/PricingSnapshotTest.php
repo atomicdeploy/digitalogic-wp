@@ -1318,7 +1318,8 @@ final class PricingSnapshotTest extends TestCase {
 		$build_id = $started->get_data()['build_id'];
 
 		$this->assertSame( 202, $started->get_status() );
-		$this->assertCount( 0, $GLOBALS['digitalogic_test_spawn_cron_calls'] );
+		$this->assertCount( 1, $GLOBALS['digitalogic_test_spawn_cron_calls'] );
+		$this->assertSame( 0, $GLOBALS['digitalogic_test_spawn_cron_calls'][0]['job_lock_balance'] );
 		$this->assertLessThanOrEqual(
 			time(),
 			$this->scheduled_events_for( 'digitalogic_pricing_snapshot_build_v1' )[0]['timestamp']
@@ -1326,7 +1327,6 @@ final class PricingSnapshotTest extends TestCase {
 
 		do_action( 'shutdown' );
 		$this->assertCount( 1, $GLOBALS['digitalogic_test_spawn_cron_calls'] );
-		$this->assertSame( 0, $GLOBALS['digitalogic_test_spawn_cron_calls'][0]['job_lock_balance'] );
 		$this->assertSame( 1, digitalogic_test_run_spawned_cron() );
 		$status = $this->status_response( $build_id );
 		$this->assertSame( 200, $status->get_status() );
@@ -1345,7 +1345,7 @@ final class PricingSnapshotTest extends TestCase {
 
 		$this->assertSame( 202, $started->get_status() );
 		$this->assertSame( 'queued', $started->get_data()['status'] );
-		$this->assertCount( 0, $GLOBALS['digitalogic_test_spawn_cron_calls'] );
+		$this->assertCount( 1, $GLOBALS['digitalogic_test_spawn_cron_calls'] );
 		do_action( 'shutdown' );
 		$this->assertCount( 1, $GLOBALS['digitalogic_test_spawn_cron_calls'] );
 		$this->assertCount( 1, $this->scheduled_events_for( 'digitalogic_pricing_snapshot_build_v1' ) );
@@ -1365,7 +1365,7 @@ final class PricingSnapshotTest extends TestCase {
 
 		$this->assertSame( 202, $started->get_status() );
 		$this->assertSame( 'queued', $started->get_data()['status'] );
-		$this->assertCount( 0, $GLOBALS['digitalogic_test_spawn_cron_calls'] );
+		$this->assertCount( 1, $GLOBALS['digitalogic_test_spawn_cron_calls'] );
 		do_action( 'shutdown' );
 		$this->assertCount( 1, $GLOBALS['digitalogic_test_spawn_cron_calls'] );
 		$this->assertCount( 1, $this->scheduled_events_for( 'digitalogic_pricing_snapshot_build_v1' ) );
@@ -1394,6 +1394,26 @@ final class PricingSnapshotTest extends TestCase {
 		$cancelled = $this->cancel_response( $build_id );
 		$this->assertSame( 200, $cancelled->get_status() );
 		$this->assertSame( 'cancelled', $cancelled->get_data()['status'] );
+	}
+
+	/** A transient prompt-wake refusal is retried exactly once at shutdown. */
+	public function test_cold_admission_retries_prompt_wake_at_shutdown_after_core_lock_clears(): void {
+		set_transient( 'doing_cron', sprintf( '%.22F', microtime( true ) ), 60 );
+		$revision = $this->revision_response()->get_data()['state_revision'];
+		$started  = $this->start_response( 'snapshot-wake-lock-clears-0001', $revision, 0 );
+		$build_id = $started->get_data()['build_id'];
+
+		$this->assertSame( 202, $started->get_status() );
+		$this->assertCount( 0, $GLOBALS['digitalogic_test_spawn_cron_calls'] );
+		delete_transient( 'doing_cron' );
+		do_action( 'shutdown' );
+		$this->assertCount( 1, $GLOBALS['digitalogic_test_spawn_cron_calls'] );
+		$this->assertSame( 1, digitalogic_test_run_spawned_cron() );
+
+		$status = $this->status_response( $build_id );
+		$this->assertSame( 200, $status->get_status() );
+		$this->assertSame( 'ready', $status->get_data()['status'] );
+		$this->assertCount( 1, $this->terminal_events() );
 	}
 
 	/** Both schedulers are attempted and either durable path is sufficient. */

@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.84] - 2026-09-01
+
+### Fixed
+- Dispatch a newly admitted pricing-snapshot worker immediately through WordPress core after releasing admission, retaining one shutdown retry plus the independent Action Scheduler, WP-Cron, lease, and watchdog fences.
+
 ## [1.8.83] - 2026-09-01
 
 ### Fixed

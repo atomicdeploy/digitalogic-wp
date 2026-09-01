@@ -3173,12 +3173,14 @@ final class Digitalogic_Pricing_Snapshot {
 			return $this->error( 'digitalogic_pricing_snapshot_scheduler_unavailable', 'The snapshot worker could not be scheduled.', 503, true, array(), 30 );
 		}
 		// WordPress performs its ordinary cron check before this REST callback adds
-		// the activation. Queue a shutdown wake for the due, durable WP-Cron sibling
-		// so a cold Excel snapshot does not depend on unrelated traffic or a delayed
-		// AS runner, without putting the loopback request on the REST response path.
-		// Admission was released before enqueue_build(); the two stored one-shots and
-		// exact watchdog remain the failure-safe delivery paths.
-		$this->queue_local_cron_wake();
+		// the activation. Promptly wake the due, durable WP-Cron sibling after
+		// releasing admission; production requests cannot rely on a later shutdown
+		// callback or unrelated traffic. If core refuses the prompt wake, retry once
+		// at shutdown. The two stored one-shots and exact watchdog remain the
+		// failure-safe delivery paths.
+		if ( ! $this->wake_local_cron() ) {
+			$this->queue_local_cron_wake();
+		}
 
 		return true;
 	}
@@ -3292,15 +3294,17 @@ final class Digitalogic_Pricing_Snapshot {
 		}
 	}
 
-	/** Wake due jobs through WordPress core; used only as a shutdown callback. */
+	/** Wake due jobs through WordPress core's bounded lock/token-aware dispatcher. */
 	public function wake_local_cron() {
 		if ( ! function_exists( 'spawn_cron' ) ) {
-			return;
+			return false;
 		}
 		try {
-			spawn_cron();
+			return (bool) spawn_cron();
 		} catch ( Throwable $error ) {
 			unset( $error );
+
+			return false;
 		}
 	}
 
