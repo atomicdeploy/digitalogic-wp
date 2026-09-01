@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.81] - 2026-09-01
+
+### Fixed
+- Route authenticated panel currency writes through fresh bounded AJAX requests so a long-running WebSocket worker cannot apply a stale command contract.
+- Keep deterministic server rejections out of the background-job recovery state and hide progress percentages when no exact job receipt exists.
+
 ## [1.8.80] - 2026-09-01
 
 ### Fixed
