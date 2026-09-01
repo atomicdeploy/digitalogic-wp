@@ -99,6 +99,9 @@ final class PricingSnapshotTest extends TestCase {
 		$GLOBALS['digitalogic_test_transient_deletes']      = array();
 		$GLOBALS['digitalogic_test_transient_set_callback'] = null;
 		$GLOBALS['digitalogic_test_scheduled_events']       = array();
+		$GLOBALS['digitalogic_test_spawn_cron_calls']       = array();
+		$GLOBALS['digitalogic_test_remote_posts']           = array();
+		$GLOBALS['digitalogic_test_remote_post_results']    = array();
 		$GLOBALS['digitalogic_test_schedule_failure']       = false;
 		$GLOBALS['digitalogic_test_posts']                  = array();
 		$GLOBALS['digitalogic_test_post_meta_cache']        = array();
@@ -1306,6 +1309,91 @@ final class PricingSnapshotTest extends TestCase {
 
 		Digitalogic_Pricing_Snapshot::instance()->run_build( $build_id );
 		$this->assertCount( 1, $this->terminal_events() );
+	}
+
+	/** Cold admission immediately wakes its due durable worker after releasing admission. */
+	public function test_cold_admission_wakes_due_core_cron_without_waiting_for_later_traffic(): void {
+		$revision = $this->revision_response()->get_data()['state_revision'];
+		$started  = $this->start_response( 'snapshot-prompt-wake-0001', $revision, 0 );
+		$build_id = $started->get_data()['build_id'];
+
+		$this->assertSame( 202, $started->get_status() );
+		$this->assertCount( 0, $GLOBALS['digitalogic_test_spawn_cron_calls'] );
+		$this->assertLessThanOrEqual(
+			time(),
+			$this->scheduled_events_for( 'digitalogic_pricing_snapshot_build_v1' )[0]['timestamp']
+		);
+
+		do_action( 'shutdown' );
+		$this->assertCount( 1, $GLOBALS['digitalogic_test_spawn_cron_calls'] );
+		$this->assertSame( 0, $GLOBALS['digitalogic_test_spawn_cron_calls'][0]['job_lock_balance'] );
+		$this->assertSame( 1, digitalogic_test_run_spawned_cron() );
+		$status = $this->status_response( $build_id );
+		$this->assertSame( 200, $status->get_status() );
+		$this->assertSame( 'ready', $status->get_data()['status'] );
+		$this->assertCount( 1, $this->terminal_events() );
+		$this->assertCount( 0, $this->scheduled_events_for( 'digitalogic_pricing_snapshot_build_v1' ) );
+		$this->assertCount( 0, $this->scheduled_events_for( 'digitalogic_pricing_snapshot_build_watchdog_v1' ) );
+	}
+
+	/** A failed non-blocking wake cannot discard either durable worker path. */
+	public function test_cold_admission_retains_durable_paths_when_prompt_wake_transport_throws(): void {
+		$GLOBALS['digitalogic_test_remote_post_results'][] = new RuntimeException( 'synthetic cron wake failure' );
+		$revision = $this->revision_response()->get_data()['state_revision'];
+		$started  = $this->start_response( 'snapshot-wake-failure-0001', $revision, 0 );
+		$build_id = $started->get_data()['build_id'];
+
+		$this->assertSame( 202, $started->get_status() );
+		$this->assertSame( 'queued', $started->get_data()['status'] );
+		$this->assertCount( 0, $GLOBALS['digitalogic_test_spawn_cron_calls'] );
+		do_action( 'shutdown' );
+		$this->assertCount( 1, $GLOBALS['digitalogic_test_spawn_cron_calls'] );
+		$this->assertCount( 1, $this->scheduled_events_for( 'digitalogic_pricing_snapshot_build_v1' ) );
+		$this->assertCount( 1, $this->scheduled_events_for( 'digitalogic_pricing_snapshot_build_watchdog_v1' ) );
+
+		$cancelled = $this->cancel_response( $build_id );
+		$this->assertSame( 200, $cancelled->get_status() );
+		$this->assertSame( 'cancelled', $cancelled->get_data()['status'] );
+	}
+
+	/** An ordinary loopback error cannot discard either durable worker path. */
+	public function test_cold_admission_retains_durable_paths_when_prompt_wake_returns_wp_error(): void {
+		$GLOBALS['digitalogic_test_remote_post_results'][] = new WP_Error( 'synthetic_cron_wake_failure', 'synthetic cron wake failure' );
+		$revision = $this->revision_response()->get_data()['state_revision'];
+		$started  = $this->start_response( 'snapshot-wake-wp-error-0001', $revision, 0 );
+		$build_id = $started->get_data()['build_id'];
+
+		$this->assertSame( 202, $started->get_status() );
+		$this->assertSame( 'queued', $started->get_data()['status'] );
+		$this->assertCount( 0, $GLOBALS['digitalogic_test_spawn_cron_calls'] );
+		do_action( 'shutdown' );
+		$this->assertCount( 1, $GLOBALS['digitalogic_test_spawn_cron_calls'] );
+		$this->assertCount( 1, $this->scheduled_events_for( 'digitalogic_pricing_snapshot_build_v1' ) );
+		$this->assertCount( 1, $this->scheduled_events_for( 'digitalogic_pricing_snapshot_build_watchdog_v1' ) );
+
+		$cancelled = $this->cancel_response( $build_id );
+		$this->assertSame( 200, $cancelled->get_status() );
+		$this->assertSame( 'cancelled', $cancelled->get_data()['status'] );
+	}
+
+	/** An active core cron lock defers the wake without losing durable delivery. */
+	public function test_cold_admission_retains_durable_paths_when_core_cron_is_already_running(): void {
+		set_transient( 'doing_cron', sprintf( '%.22F', microtime( true ) ), 60 );
+		$revision = $this->revision_response()->get_data()['state_revision'];
+		$started  = $this->start_response( 'snapshot-wake-cron-locked-0001', $revision, 0 );
+		$build_id = $started->get_data()['build_id'];
+
+		$this->assertSame( 202, $started->get_status() );
+		$this->assertSame( 'queued', $started->get_data()['status'] );
+		do_action( 'shutdown' );
+		$this->assertCount( 0, $GLOBALS['digitalogic_test_spawn_cron_calls'] );
+		$this->assertCount( 0, $GLOBALS['digitalogic_test_remote_posts'] );
+		$this->assertCount( 1, $this->scheduled_events_for( 'digitalogic_pricing_snapshot_build_v1' ) );
+		$this->assertCount( 1, $this->scheduled_events_for( 'digitalogic_pricing_snapshot_build_watchdog_v1' ) );
+
+		$cancelled = $this->cancel_response( $build_id );
+		$this->assertSame( 200, $cancelled->get_status() );
+		$this->assertSame( 'cancelled', $cancelled->get_data()['status'] );
 	}
 
 	/** Both schedulers are attempted and either durable path is sufficient. */

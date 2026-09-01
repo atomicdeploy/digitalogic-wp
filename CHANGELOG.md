@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.83] - 2026-09-01
+
+### Fixed
+- Wake a newly admitted pricing-snapshot worker through WordPress core's cron dispatcher at request shutdown after releasing admission, while retaining the independent Action Scheduler, WP-Cron, lease, and watchdog fences.
+
 ## [1.8.82] - 2026-09-01
 
 ### Fixed
