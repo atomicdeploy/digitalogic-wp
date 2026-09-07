@@ -90,6 +90,7 @@ test('every repeated price search validates through HTTP rather than an unchecke
     assert.equal(h.calls.length, 2);
     assert.equal(h.calls[0].cache, false);
     assert.equal(h.calls[1].cache, false);
+    assert.equal(h.calls[1].dataType, 'json');
     h.$.ajax({url: 'https://other.test/wp-admin/admin-ajax.php', data: {action: 'woodmart_ajax_search'}});
     assert.equal(h.calls[2].cache, undefined);
 });

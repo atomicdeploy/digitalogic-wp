@@ -38,6 +38,7 @@
         }});
         var outgoing = $.extend({}, settings, {
             cache: false,
+            dataType: 'json',
             data: $.extend({}, payload, {dg_search_signature: cached ? cached.signature : ''})
         });
         delete outgoing.success;
