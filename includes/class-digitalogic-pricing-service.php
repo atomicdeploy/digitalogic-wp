@@ -712,6 +712,33 @@ final class Digitalogic_Pricing_Service {
 	}
 
 	/**
+	 * Discover the final projection belonging to an exact accepted input source.
+	 *
+	 * @param array $source Requested source identity.
+	 * @return array|WP_Error
+	 */
+	public function resolve_snapshot_source( $source ) {
+		$requested = $this->normalize_source( $source );
+		if ( is_wp_error( $requested ) ) {
+			return $requested;
+		}
+		$state = Digitalogic_Product_Sync_Receiver::instance()->get_source_state( $requested['id'], $requested['dataset'] );
+		$input = isset( $state['input_source'] ) ? $this->normalize_source( $state['input_source'] ) : null;
+		if ( is_wp_error( $input ) ) {
+			return $input;
+		}
+		$matches_input = is_array( $input )
+			&& $input['id'] === $requested['id']
+			&& $input['dataset'] === $requested['dataset']
+			&& hash_equals( $input['revision'], $requested['revision'] );
+		$resolved = $this->validate_snapshot_source( $matches_input ? ( $state['source'] ?? array() ) : $requested );
+		if ( ! is_wp_error( $resolved ) ) {
+			$resolved['input_source'] = $input;
+		}
+		return $resolved;
+	}
+
+	/**
 	 * Build one paged Persian state response.
 	 *
 	 * @param WP_REST_Request $request Current request.

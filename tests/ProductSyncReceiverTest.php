@@ -8,6 +8,7 @@ final class ProductSyncReceiverTest extends TestCase {
         $GLOBALS['digitalogic_test_filters']              = array();
         $GLOBALS['digitalogic_test_routes']               = array();
         $GLOBALS['digitalogic_test_options']              = array();
+        $GLOBALS['digitalogic_test_options'][Digitalogic_Pricing_Coordinator::AUTHORITY_OPTION] = 'go';
         $GLOBALS['digitalogic_test_option_cache']         = array();
         $GLOBALS['digitalogic_test_actions']              = array();
         $GLOBALS['digitalogic_test_action_callbacks']     = array();
@@ -41,6 +42,8 @@ final class ProductSyncReceiverTest extends TestCase {
         $state = Digitalogic_Product_Sync_Receiver::instance()->get_source_state('patris-export', 'ALLANBAR');
         $this->assertSame(array(
             'source',
+            'input_source',
+            'input_products',
             'generated_at',
             'generated_at_order',
             'last_event_id',

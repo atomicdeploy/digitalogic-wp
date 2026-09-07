@@ -213,10 +213,21 @@ final class Digitalogic_Pricing_Snapshot {
 			);
 		}
 
-		$current = $this->current_revision_data( $source );
-		if ( is_wp_error( $current ) ) {
-			return $current;
+		$discovery = Digitalogic_Pricing_Coordinator::instance()->with_repricing_lock(
+			function () use ( $source ) {
+				$resolved = Digitalogic_Pricing_Service::instance()->resolve_snapshot_source( $source );
+				if ( is_wp_error( $resolved ) ) {
+					return $resolved;
+				}
+				$current = $this->current_revision_data( $resolved['source'] );
+				return is_wp_error( $current ) ? $current : array( 'resolved' => $resolved, 'current' => $current );
+			}
+		);
+		if ( is_wp_error( $discovery ) ) {
+			return $discovery;
 		}
+		$resolved = $discovery['resolved'];
+		$current = $discovery['current'];
 		$etag = $this->etag( $current['state_revision'] );
 		if ( $this->etag_matches( $request->get_header( 'if-none-match' ), $etag ) ) {
 			return $this->transport(
@@ -236,6 +247,8 @@ final class Digitalogic_Pricing_Snapshot {
 			'projection_schema'       => self::PROJECTION_SCHEMA,
 			'state_revision'          => $current['state_revision'],
 			'source'                  => $current['source'],
+			'input_source'            => $resolved['input_source'],
+			'owner_catalog_revision'  => $current['owner_catalog_revision'],
 			'catalog_revision'        => $current['catalog_revision'],
 			'pricing_state_revision'  => $current['pricing_state_revision'],
 			'pricing_policy_revision' => $current['pricing_policy_revision'],
@@ -2967,11 +2980,13 @@ final class Digitalogic_Pricing_Snapshot {
 				'attribute_owners'       => (array) ( $pricing['attribute_owners'] ?? array() ),
 			)
 		);
+		$source_state = Digitalogic_Product_Sync_Receiver::instance()->get_source_state( $validated['source']['id'], $validated['source']['dataset'] );
 		$state_revision          = $this->digest(
 			array(
 				'schema_version'          => self::SCHEMA_VERSION,
 				'projection_schema'       => self::PROJECTION_SCHEMA,
 				'source_revision'         => $validated['source']['revision'],
+				'input_source_revision'   => $source_state['input_source']['revision'] ?? null,
 				'catalog_revision'        => $catalog_revision,
 				'pricing_policy_revision' => $pricing_policy_revision,
 			)
@@ -2980,6 +2995,7 @@ final class Digitalogic_Pricing_Snapshot {
 		return array(
 			'source'                  => $validated['source'],
 			'source_context'          => $validated['context'],
+			'owner_catalog_revision'  => $pricing['shipping']['catalog_revision'],
 			'catalog_revision'        => $catalog_revision,
 			'pricing_state_revision'  => $pricing['state_revision'],
 			'pricing_policy_revision' => $pricing_policy_revision,

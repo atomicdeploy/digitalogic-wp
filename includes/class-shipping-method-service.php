@@ -1229,6 +1229,10 @@ final class Digitalogic_Shipping_Method_Service {
      * @return array
      */
     public function get_integration_catalog() {
+        $authority = Digitalogic_Pricing_Coordinator::instance()->pricing_authority();
+        if ( is_wp_error( $authority ) ) {
+            return $authority;
+        }
         $settings = get_option('digitalogic_patris_feed_settings', array());
         $settings = is_array($settings) ? $settings : array();
         $warehouses = isset($settings['selected_warehouses']) && is_array($settings['selected_warehouses'])
@@ -1302,6 +1306,7 @@ final class Digitalogic_Shipping_Method_Service {
             'currency' => $currency,
             'pricing' => array(
                 'formula_id' => self::FORMULA_ID,
+                'authority' => $authority,
 				'rounding_digits' => $rounding['rounding_digits'],
 				'rounding_mode'   => self::ROUNDING_MODE,
             ),

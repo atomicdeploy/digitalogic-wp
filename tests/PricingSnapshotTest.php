@@ -169,6 +169,29 @@ final class PricingSnapshotTest extends TestCase {
 		$this->assertArrayNotHasKey( Digitalogic_Patris_Feed::PRODUCT_SYNC_SECRET_OPTION, $GLOBALS['digitalogic_test_options'] );
 	}
 
+	public function test_revision_discovers_final_projection_from_exact_input_baseline(): void {
+		$input = $this->source;
+		$input['revision'] = 'sha256:' . str_repeat( 'b', 64 );
+		$key = hash( 'sha256', $input['id'] . "\n" . $input['dataset'] );
+		$GLOBALS['digitalogic_test_options'][ Digitalogic_Product_Sync_Receiver::STATE_OPTION ]['sources'][ $key ]['input_source'] = $input;
+		$GLOBALS['digitalogic_test_option_cache'] = array();
+		$this->reset_singleton( Digitalogic_Product_Sync_Receiver::class );
+		$response = Digitalogic_REST_API::instance()->pricing_sync_revision( $this->query_request( 'GET', array( 'source_revision' => $input['revision'] ) ) );
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertSame( $input, $response->get_data()['input_source'] );
+		$this->assertSame( $this->source, $response->get_data()['source'] );
+		$this->assertSame( Digitalogic_Shipping_Method_Service::instance()->get_integration_catalog()['revision'], $response->get_data()['owner_catalog_revision'] );
+		$wrong = Digitalogic_REST_API::instance()->pricing_sync_revision( $this->query_request( 'GET', array( 'source_revision' => 'sha256:' . str_repeat( 'c', 64 ) ) ) );
+		$this->assertSame( 409, $wrong->get_status() );
+		$next_input = 'sha256:' . str_repeat( 'd', 64 );
+		$GLOBALS['digitalogic_test_options'][ Digitalogic_Product_Sync_Receiver::STATE_OPTION ]['sources'][ $key ]['input_source']['revision'] = $next_input;
+		$GLOBALS['digitalogic_test_option_cache'] = array();
+		$this->reset_singleton( Digitalogic_Product_Sync_Receiver::class );
+		$next = Digitalogic_REST_API::instance()->pricing_sync_revision( $this->query_request( 'GET', array( 'source_revision' => $next_input ), array( 'If-None-Match' => $response->get_headers()['ETag'] ) ) );
+		$this->assertSame( 200, $next->get_status() );
+		$this->assertNotSame( $response->get_headers()['ETag'], $next->get_headers()['ETag'] );
+	}
+
 	/** Stale worker option caches cannot fork revision or conditional identity. */
 	public function test_revision_uses_authoritative_catalog_generation_across_workers(): void {
 		$first = $this->revision_response();

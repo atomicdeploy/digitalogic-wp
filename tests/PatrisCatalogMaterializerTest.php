@@ -75,6 +75,10 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 			$GLOBALS[ $global_name ] = $value;
 		}
 
+		// This suite materializes the golden provider's supplied price projection;
+		// owner-rate calculation is covered by SelectedPricingAuthorityTest.
+		$GLOBALS['digitalogic_test_options'][ Digitalogic_Pricing_Coordinator::AUTHORITY_OPTION ] = 'go';
+
 		$GLOBALS['wpdb'] = new Digitalogic_Test_WPDB();
 
 		WC_Product_Variable::$synced_ids = array();

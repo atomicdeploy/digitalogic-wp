@@ -46,6 +46,7 @@ final class ShippingMethodServiceTest extends TestCase {
         $this->assertSame(
             array(
                 'formula_id'      => 'landed_price',
+                'authority'       => 'php',
                 'rounding_digits' => 0,
                 'rounding_mode'   => 'nearest_half_up',
             ),
@@ -60,6 +61,24 @@ final class ShippingMethodServiceTest extends TestCase {
         $this->assertStringNotContainsString('null', json_encode($catalog));
         $this->assertArrayNotHasKey(Digitalogic_Shipping_Method_Service::METHODS_OPTION, $GLOBALS['digitalogic_test_options']);
     }
+
+	public function test_authority_is_part_of_owner_catalog_revision(): void {
+		$before = $this->service->get_integration_catalog();
+		$GLOBALS['digitalogic_test_options'][ Digitalogic_Pricing_Coordinator::AUTHORITY_OPTION ] = 'go';
+		$after = $this->service->get_integration_catalog();
+		$this->assertSame( 'go', $after['pricing']['authority'] );
+		$this->assertNotSame( $before['revision'], $after['revision'] );
+		$GLOBALS['digitalogic_test_options'][ Digitalogic_Pricing_Coordinator::AUTHORITY_OPTION ] = 'invalid';
+		$this->assertInstanceOf( WP_Error::class, $this->service->get_integration_catalog() );
+	}
+
+	public function test_go_selection_cannot_fall_through_to_php_repricing(): void {
+		$GLOBALS['digitalogic_test_options'][ Digitalogic_Pricing_Coordinator::AUTHORITY_OPTION ] = 'go';
+		$result = Digitalogic_Pricing_Coordinator::instance()->reprice_open_transaction( array() );
+		$this->assertInstanceOf( WP_Error::class, $result );
+		$this->assertSame( 'digitalogic_pricing_go_dispatch_required', $result->get_error_code() );
+		$this->assertSame( array(), $GLOBALS['digitalogic_test_posts'] );
+	}
 
 	public function test_rounding_digits_are_configurable_exact_and_part_of_catalog_identity(): void {
 		$default = $this->service->get_price_rounding_policy();

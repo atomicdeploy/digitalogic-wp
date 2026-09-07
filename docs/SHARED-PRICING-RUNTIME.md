@@ -48,6 +48,26 @@ Per-request UI controls and the Go delivery writer remain integration work.
 
 ## Release requirements still open
 
+Authority integration uses `pricing.authority` in the existing owner catalog
+identity. Incoming `input_source`/`input_products` retain the source's delta
+baseline; the applied `source`/`products` hold the final pricing projection.
+Do not apply a PHP price and then write an upstream Go price over it, or validate
+the next upstream delta against derived PHP hashes. Existing stored sources need
+an explicit fresh full-snapshot cutover; no permanent dual-layout reader is intended.
+
+The existing snapshot revision endpoint can resolve an exact `input_source` to
+the final `source`. Its response binds both identities and `owner_catalog_revision`.
+The latter is the integration pricing catalog revision; the existing
+`catalog_revision` is the report projection revision and must not be confused
+with it. Subsequent snapshot build/page checks remain pinned to the discovered
+final source. Discovery holds the receiver lock and its ETag includes the input
+baseline, even when that input change leaves final prices unchanged.
+
+Go-selected local settings writes currently fail closed until post-commit Go
+dispatch is connected. Never dispatch to Go while holding the PHP pricing
+transaction: Go needs to read committed inputs from their owner. Activation of
+Go authority remains unavailable until this actuation path is complete.
+
 - Select exactly one final pricing authority, PHP or Go, per deployment. The
   shared calculator alone does not implement that deployment selection.
 - Complete owner-aware Go/PHP parity and propagation through the existing

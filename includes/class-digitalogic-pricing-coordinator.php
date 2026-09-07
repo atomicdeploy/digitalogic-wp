@@ -14,6 +14,16 @@ if ( ! defined( 'ABSPATH' ) ) {
  */
 final class Digitalogic_Pricing_Coordinator {
 	public const WRITE_MODE_OPTION = 'digitalogic_pricing_write_mode';
+	public const AUTHORITY_OPTION = 'digitalogic_pricing_authority';
+
+	/** Return the sole final calculator selected for this deployment. */
+	public function pricing_authority() {
+		$authority = get_option( self::AUTHORITY_OPTION, 'php' );
+		if ( ! in_array( $authority, array( 'php', 'go' ), true ) ) {
+			return $this->error( 'digitalogic_pricing_authority_invalid', 'Pricing authority must be php or go.', 400 );
+		}
+		return $authority;
+	}
 
 	/** Return the deployment's explicit price persistence strategy. */
 	public function write_mode() {
@@ -326,6 +336,13 @@ final class Digitalogic_Pricing_Coordinator {
 	 * @return array|WP_Error
 	 */
 	public function reprice_open_transaction( $settings, $previous_catalog_revision = null ) {
+		$authority = $this->pricing_authority();
+		if ( is_wp_error( $authority ) ) {
+			return $authority;
+		}
+		if ( 'go' === $authority ) {
+			return $this->error( 'digitalogic_pricing_go_dispatch_required', 'Go authority requires owner-input delivery before final price persistence.', 409 );
+		}
 		return Digitalogic_Product_Sync_Receiver::instance()->reprice_pricing_state(
 			$this->receiver_settings( $settings ),
 			array(),

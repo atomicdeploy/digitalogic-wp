@@ -49,6 +49,8 @@ final class PricingServiceTest extends TestCase {
 				'sources' => array(
 					$source_key => array(
 						'source'            => $this->source,
+						'input_source'      => $this->source,
+						'input_products'    => array(),
 						'products'          => array(),
 						'categories'        => array(),
 						'excluded_codes'    => array(),
