@@ -465,6 +465,7 @@ final class PricingCoordinatorTest extends TestCase {
 
 	/** The public rounding service delegates to the shared atomic repricer. */
 	public function test_rounding_service_updates_policy_and_product_provenance_atomically(): void {
+		$GLOBALS['digitalogic_test_cache_invalidation_history'] = array();
 		$result = Digitalogic_Shipping_Method_Service::instance()->update_price_rounding_digits( 2 );
 
 		$this->assertFalse(
@@ -1450,7 +1451,53 @@ final class PricingCoordinatorTest extends TestCase {
 		$this->assertContains( 20000, $GLOBALS['digitalogic_test_wc_product_instance_cache_removals'] );
 	}
 
-	/** A live-shaped CNY change is four-chunked, query-bounded, and save-free. */
+	/**
+	 * A deadline between SQL chunks rolls back the first chunk and keeps its original error.
+	 */
+	public function test_batch_deadline_rolls_back_partial_sql_and_restores_guard(): void {
+		$this->seed_large_pricing_snapshot( 201, 2 );
+		$before_price             = $GLOBALS['digitalogic_test_posts'][20000]['meta']['_price'];
+		$before_state             = $GLOBALS['digitalogic_test_options'][ Digitalogic_Product_Sync_Receiver::STATE_OPTION ];
+		$GLOBALS['wpdb']->queries = array();
+		$error                    = new WP_Error( 'digitalogic_currency_cli_deadline_exceeded', 'Deadline expired.' );
+		$result                   = Digitalogic_Pricing_Coordinator::instance()->update_currency(
+			array(
+				'yuan_price'     => '29501',
+				'effective_date' => '2026-07-27',
+			),
+			'batch_deadline_test',
+			null,
+			static function ( $phase ) use ( $error ) {
+				if ( 'before_batch' === $phase ) {
+					foreach ( $GLOBALS['wpdb']->queries as $query ) {
+						if ( false !== stripos( $query, 'digitalogic_pricing_batch_lookup_upsert' ) ) {
+							return $error;
+						}
+					}
+				}
+				return true;
+			}
+		);
+		$this->assertSame( $error, $result );
+		$this->assertContains( 'ROLLBACK', $GLOBALS['wpdb']->queries );
+		$this->assertSame( $before_price, $GLOBALS['digitalogic_test_posts'][20000]['meta']['_price'] );
+		$this->assertSame( $before_state, $GLOBALS['digitalogic_test_options'][ Digitalogic_Product_Sync_Receiver::STATE_OPTION ] );
+		$this->assertSame( '29500', (string) $GLOBALS['digitalogic_test_options']['options_yuan_price'] );
+		$this->assertCount( 1, array_filter( $GLOBALS['wpdb']->queries, static fn( $query ) => false !== stripos( $query, 'digitalogic_pricing_batch_lookup_upsert' ) ) );
+		$result = Digitalogic_Pricing_Coordinator::instance()->update_currency(
+			array(
+				'yuan_price'     => '29501',
+				'effective_date' => '2026-07-27',
+			),
+			'new_explicit_operation'
+		);
+		$this->assertFalse( is_wp_error( $result ) );
+		$this->assertSame( 201, $result['pricing_results']['updated_products'] );
+	}
+
+	/**
+	 * A live-shaped CNY change is four-chunked, query-bounded, and save-free.
+	 */
 	public function test_large_changed_reconcile_batches_771_leaves_under_ten_seconds(): void {
 		$this->seed_large_pricing_snapshot( 771, 14 );
 		$GLOBALS['digitalogic_test_posts'][30000]['meta_rows'] = array(
@@ -2334,7 +2381,8 @@ final class PricingCoordinatorTest extends TestCase {
 	/** A stale request-local simple object cannot misclassify an authoritative variation. */
 	public function test_pricing_preclassification_evicts_stale_product_instance_type_and_parent(): void {
 		$this->seed_large_pricing_snapshot( 4, 1 );
-		$GLOBALS['digitalogic_test_wc_products'][20003] = new class( 20003 ) extends WC_Product {
+		$GLOBALS['digitalogic_test_wc_product_instance_cache_removals'] = array();
+		$GLOBALS['digitalogic_test_wc_products'][20003]                 = new class( 20003 ) extends WC_Product {
 			/** Return a deliberately stale type projection. */
 			public function get_type() {
 				return 'simple';
@@ -2355,7 +2403,7 @@ final class PricingCoordinatorTest extends TestCase {
 				return 0;
 			}
 		};
-		$GLOBALS['digitalogic_test_wc_product_saves']   = array();
+		$GLOBALS['digitalogic_test_wc_product_saves']                   = array();
 
 		$result = Digitalogic_Pricing_Coordinator::instance()->update_currency(
 			array( 'yuan_price' => '29501' ),
@@ -2450,6 +2498,7 @@ final class PricingCoordinatorTest extends TestCase {
 	/** A ProductCache exception drains later removals but fails closed before writes. */
 	public function test_product_instance_cache_eviction_failure_fails_closed_after_draining_targets(): void {
 		$this->seed_large_pricing_snapshot( 4, 1 );
+		$GLOBALS['digitalogic_test_wc_product_instance_cache_removals']    = array();
 		$GLOBALS['digitalogic_test_wc_product_instance_cache_failure_ids'] = array( 20000 );
 		$before_posts             = $GLOBALS['digitalogic_test_posts'];
 		$before_lookup            = $GLOBALS['digitalogic_test_wc_lookup_rows'];
@@ -2784,6 +2833,7 @@ final class PricingCoordinatorTest extends TestCase {
 		$this->assertSame( 'confirmed', $result['status'] );
 		$this->assertSame( 'apply', $result['mode'] );
 		$this->assertSame( 'wp_cli_sync', $result['execution_mode'] );
+		$this->assertSame( 60, $result['deadline_at'] - $result['created_at'] );
 		$this->assertSame( 1, $result['apply_attempts'] );
 		$this->assertSame( 31500, $result['confirmed_currency']['yuan_price'] );
 		$this->assertSame( '31500', (string) $GLOBALS['digitalogic_test_options']['options_yuan_price'] );
@@ -2799,7 +2849,106 @@ final class PricingCoordinatorTest extends TestCase {
 		$this->assertSame( array(), array_values( $currency_worker_events ) );
 	}
 
-	/** The public command blocks until the exact changed-rate transaction is confirmed. */
+	/**
+	 * Expiry at a cooperative checkpoint unwinds the transaction and reports a terminal failure.
+	 */
+	public function test_currency_cli_deadline_stops_before_write_without_replay(): void {
+		$async        = Digitalogic_Currency_Admin_Async::instance();
+		$state        = Digitalogic_Pricing_Service::instance()->current_canonical_state();
+		$before_price = $GLOBALS['digitalogic_test_posts'][901]['meta']['_regular_price'];
+		add_action(
+			'digitalogic_currency_async_worker_claimed',
+			static function () {
+				$GLOBALS['digitalogic_test_options']['digitalogic_currency_admin_async_job']['deadline_at'] = time();
+			}
+		);
+		$result = $async->execute_cli_currency( array( 'yuan_price' => '31500' ), false, $state['state_revision'], 'cli-deadline-expired-0001' );
+		$this->assertSame( 'failed', $result['status'] );
+		$this->assertSame( 'digitalogic_currency_cli_deadline_exceeded', $result['error_code'] );
+		$this->assertSame( 1, $result['apply_attempts'] );
+		$this->assertSame( '29500', (string) $GLOBALS['digitalogic_test_options']['options_yuan_price'] );
+		$this->assertSame( $before_price, $GLOBALS['digitalogic_test_posts'][901]['meta']['_regular_price'] );
+		$this->assertContains( 'ROLLBACK', $GLOBALS['wpdb']->queries );
+		$this->assertEmpty( $result['committed_state_revision'] );
+		$async->run_job( $result['job_id'], $result['generation'] );
+		$this->assertSame( 1, $async->status( $result['job_id'], $result['generation'] )['apply_attempts'] );
+	}
+
+	/**
+	 * A live pricing owner retains its fence, but cannot extend the CLI execution budget.
+	 */
+	public function test_currency_cli_deadline_retains_live_owner_then_fails_orphan(): void {
+		$async = Digitalogic_Currency_Admin_Async::instance();
+		$state = Digitalogic_Pricing_Service::instance()->current_canonical_state();
+		$job   = $async->enqueue_currency( array( 'yuan_price' => '31500' ), false, false, $state['state_revision'], 'wp_cli_currency', 'cli-deadline-orphan-0001', 'wp_cli_sync' );
+		$this->assertFalse( is_wp_error( $job ) );
+		$stored                   = $GLOBALS['digitalogic_test_options']['digitalogic_currency_admin_async_job'];
+		$stored['status']         = 'running';
+		$stored['owner_token']    = str_repeat( 'a', 32 );
+		$stored['fence_token']    = str_repeat( 'b', 32 );
+		$stored['fence']          = 1;
+		$stored['apply_attempts'] = 1;
+		$stored['deadline_at']    = time() - 1;
+		$stored['lease_until']    = time() - 1;
+		update_option( 'digitalogic_currency_admin_async_job', $stored, false );
+		$lock                                 = Digitalogic_Pricing_Service::coordination_lock_name( 'wp_' );
+		$GLOBALS['wpdb']->used_locks[ $lock ] = 9999;
+		$async->run_watchdog( $job['job_id'], $job['generation'], 1 );
+		$retained = $GLOBALS['digitalogic_test_options']['digitalogic_currency_admin_async_job'];
+		$this->assertSame( 'running', $retained['status'] );
+		$this->assertSame( $stored['deadline_at'], $retained['deadline_at'] );
+		$this->assertSame( $stored['fence_token'], $retained['fence_token'] );
+		$this->assertGreaterThan( time(), $retained['lease_until'] );
+		$async->run_watchdog( $job['job_id'], $job['generation'], 1 );
+		$this->assertSame( 'running', $GLOBALS['digitalogic_test_options']['digitalogic_currency_admin_async_job']['status'] );
+		$guard = new ReflectionMethod( $async, 'validate_claim_for_actuation' );
+		foreach ( array( false, true ) as $before_commit ) {
+			$error = $guard->invoke( $async, $retained, $before_commit );
+			$this->assertInstanceOf( WP_Error::class, $error );
+			$this->assertSame( 'digitalogic_currency_cli_deadline_exceeded', $error->get_error_code() );
+		}
+		unset( $GLOBALS['wpdb']->used_locks[ $lock ] );
+		$async->run_watchdog( $job['job_id'], $job['generation'], 1 );
+		$expired = $GLOBALS['digitalogic_test_options']['digitalogic_currency_admin_async_job'];
+		$this->assertSame( 'failed', $expired['status'] );
+		$this->assertSame( 1, $expired['fence'] );
+		$this->assertSame( 1, $expired['apply_attempts'] );
+		$this->assertSame( '', $expired['owner_token'] );
+	}
+
+	/**
+	 * An atomic commit marker wins over an expired CLI lease; recovery never reprices.
+	 */
+	public function test_currency_cli_deadline_recovers_committed_marker_without_reprice(): void {
+		$async = Digitalogic_Currency_Admin_Async::instance();
+		$state = Digitalogic_Pricing_Service::instance()->current_canonical_state();
+		$job   = $async->enqueue_currency( array( 'yuan_price' => '31500' ), false, false, $state['state_revision'], 'wp_cli_currency', 'cli-deadline-committed-0001', 'wp_cli_sync' );
+		$this->assertFalse( is_wp_error( $job ) );
+		add_action(
+			'digitalogic_currency_async_worker_before_complete',
+			static function () {
+				$GLOBALS['wpdb']->acquire_result = 0;
+			}
+		);
+		$async->run_job( $job['job_id'], $job['generation'] );
+		$committed = $GLOBALS['digitalogic_test_options']['digitalogic_currency_admin_async_job'];
+		$this->assertNotEmpty( $committed['effect_state_revision'] );
+		$saves                    = $GLOBALS['digitalogic_test_wc_product_saves'];
+		$committed['deadline_at'] = time() - 1;
+		$committed['lease_until'] = time() - 1;
+		update_option( 'digitalogic_currency_admin_async_job', $committed, false );
+		$GLOBALS['wpdb']->acquire_result = 1;
+		$async->run_job( $job['job_id'], $job['generation'] );
+		$final = $async->status( $job['job_id'], $job['generation'] );
+		$this->assertSame( 'confirmed', $final['status'] );
+		$this->assertSame( 1, $final['apply_attempts'] );
+		$this->assertSame( $committed['effect_state_revision'], $final['committed_state_revision'] );
+		$this->assertSame( $saves, $GLOBALS['digitalogic_test_wc_product_saves'] );
+	}
+
+	/**
+	 * The public command blocks until the exact changed-rate transaction is confirmed.
+	 */
 	public function test_currency_cli_command_changed_rate_recalculate_prints_terminal_result(): void {
 		$command = new Digitalogic_CLI_Commands();
 
@@ -4130,6 +4279,30 @@ final class PricingCoordinatorTest extends TestCase {
 		$this->assertSame( 1, $status['apply_attempts'] );
 		$this->assertSame( '29501', (string) $GLOBALS['digitalogic_test_options']['options_yuan_price'] );
 		$this->assertNotContains( 'ROLLBACK', $GLOBALS['wpdb']->queries );
+	}
+
+	/** Another connection's pricing lock cannot authorize an expired worker's next batch. */
+	public function test_expired_batch_cannot_continue_under_another_connection_lock(): void {
+		$async = Digitalogic_Currency_Admin_Async::instance();
+		$job   = $async->enqueue( '29501', false );
+		$lock  = Digitalogic_Pricing_Service::coordination_lock_name( 'wp_' );
+		add_action(
+			'digitalogic_currency_async_worker_claimed',
+			static function () use ( $lock ) {
+				$GLOBALS['wpdb']->after_option_write = static function () use ( $lock ) {
+					$GLOBALS['digitalogic_test_options']['digitalogic_currency_admin_async_job']['lease_until'] = time() - 1;
+					$GLOBALS['wpdb']->used_locks[ $lock ] = 9999;
+				};
+			}
+		);
+		$async->run_job( $job['job_id'], $job['generation'] );
+		$status = $async->status( $job['job_id'], $job['generation'] );
+		$this->assertSame( 'failed', $status['status'] );
+		$this->assertSame( 'digitalogic_currency_async_claim_lost', $status['error_code'] );
+		$this->assertContains( 'ROLLBACK', $GLOBALS['wpdb']->queries );
+		$this->assertSame( '29500', (string) $GLOBALS['digitalogic_test_options']['options_yuan_price'] );
+		$this->assertSame( 9999, $GLOBALS['wpdb']->used_locks[ $lock ] );
+		$this->assertSame( 1, $status['apply_attempts'] );
 	}
 
 	/** A stale watchdog CAS can never erase a commit marker written while it waited. */

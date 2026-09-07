@@ -67,6 +67,13 @@ final class Digitalogic_Pricing_Service {
 	private $lock_depth = 0;
 
 	/**
+	 * Nesting of ingress fences; receipts wait until both locks are released.
+	 *
+	 * @var int
+	 */
+	private $source_delivery_lock_depth = 0;
+
+	/**
 	 * Whether this service owns an active transaction.
 	 *
 	 * @var bool
@@ -411,7 +418,8 @@ final class Digitalogic_Pricing_Service {
 
 						$repricing = Digitalogic_Pricing_Coordinator::instance()->reprice_open_transaction(
 							$settings,
-							$locked_current['shipping']['catalog_revision']
+							$locked_current['shipping']['catalog_revision'],
+							$actuation_guard
 						);
 						if ( is_wp_error( $repricing ) ) {
 							return $repricing;
@@ -3412,6 +3420,56 @@ final class Digitalogic_Pricing_Service {
 	 * @param callable $callback Callback.
 	 * @return mixed|WP_Error
 	 */
+	public function run_source_delivery_transaction( $callback ) {
+		$receiver = Digitalogic_Product_Sync_Receiver::instance();
+		return $this->with_source_delivery_lock(
+			function () use ( $callback, $receiver ) {
+				try {
+					return $this->run_transaction( $callback, null, true );
+				} finally {
+					$receiver->flush_coordinated_pricing_caches();
+				}
+			}
+		);
+	}
+
+	/**
+	 * Acquire pricing then source locks for an optional enclosing ingress operation.
+	 *
+	 * @param callable $callback Operation under the ordered locks.
+	 * @return mixed|WP_Error
+	 */
+	public function with_source_delivery_lock( $callback ) {
+		$receiver = Digitalogic_Product_Sync_Receiver::instance();
+		if ( $receiver->source_identity_lock_is_owned() && $this->lock_depth <= 0 ) {
+			return $this->error( 'digitalogic_source_delivery_lock_order', 'Source delivery must acquire the pricing lock before the source lock.', 409 );
+		}
+		++$this->source_delivery_lock_depth;
+		try {
+			return $this->with_lock(
+				function () use ( $receiver, $callback ) {
+					return $receiver->with_coordinated_pricing_lock( $callback );
+				}
+			);
+		} finally {
+			--$this->source_delivery_lock_depth;
+			$receiver->dispatch_materializer_product_committed();
+		}
+	}
+
+	/**
+	 * Whether ingress still owns an outer pricing/source fence in this process.
+	 */
+	public function source_delivery_lock_is_owned() {
+		return $this->source_delivery_lock_depth > 0;
+	}
+
+	/**
+	 * Execute under the canonical pricing lock.
+	 *
+	 * @param callable $callback Protected operation.
+	 * @return mixed|WP_Error
+	 */
 	private function with_lock( $callback ) {
 		$acquired = $this->acquire_lock();
 		if ( is_wp_error( $acquired ) ) {
@@ -3511,6 +3569,17 @@ final class Digitalogic_Pricing_Service {
 	 */
 	public static function coordination_lock_name( $table_prefix ) {
 		return substr( self::LOCK_NAME . '_' . md5( (string) $table_prefix ), 0, 64 );
+	}
+
+	/** Whether this service still owns the live database connection's pricing lock. */
+	public function coordination_lock_is_owned() {
+		global $wpdb;
+		if ( $this->lock_depth <= 0 || ! is_object( $wpdb ) ) {
+			return false; }
+		$name       = self::coordination_lock_name( $wpdb->prefix ?? 'wp_' );
+		$connection = (int) $wpdb->get_var( 'SELECT CONNECTION_ID()' );
+		$owner      = (int) $wpdb->get_var( $wpdb->prepare( 'SELECT IS_USED_LOCK(%s)', $name ) );
+		return $connection > 0 && $connection === $owner;
 	}
 
 	/**

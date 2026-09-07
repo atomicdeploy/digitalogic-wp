@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.1] - 2026-09-07
+
+- Route source snapshot delivery through the shared pricing transaction and batch writer, retaining full product updates when source-managed fields change.
+- Give synchronous currency CLI work a 60-second cooperative deadline. Preserve the active writer fence without extending that deadline; recover committed work without replaying price writes.
+- Update the deployed price-display MU adapter to use the shared pricing service.
+
 ## [2.0.0] - 2026-09-07
 
 - Share one exact-decimal PHP pricing implementation across WordPress, the in-process Laravel runtime and Paradox reports.

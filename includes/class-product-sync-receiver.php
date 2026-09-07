@@ -427,6 +427,15 @@ class Digitalogic_Product_Sync_Receiver {
      */
     private $coordinated_transaction_depth = 0;
 
+	/** Optional deadline/fence supplied by the surrounding transaction owner. */
+	private $coordinated_actuation_guard = null;
+
+	/** Whether the real transaction is delivering an upstream source event. */
+	private $source_delivery_active = false;
+
+	/** Earliest/final source state waiting for the surrounding transaction. */
+	private $pending_state_committed = null;
+
     /**
      * Product IDs whose caches must be cleared after the outer commit/rollback.
      *
@@ -523,7 +532,19 @@ class Digitalogic_Product_Sync_Receiver {
 	 * failure can never roll back or reclassify a correctly committed product.
 	 */
 	public function dispatch_materializer_product_committed() {
+		if ( Digitalogic_Pricing_Service::instance()->source_delivery_lock_is_owned() ) {
+			return;
+		}
 		if ( ! $this->source_identity_lock_is_owned() ) {
+			$state_event                   = $this->pending_state_committed;
+			$this->pending_state_committed = null;
+			if ( is_array( $state_event ) ) {
+				try {
+					do_action( 'digitalogic_product_sync_state_committed', $state_event['before'], $state_event['after'] );
+				} catch ( Throwable $exception ) {
+					$this->log_materializer_listener_failure( $exception, 'product_sync_state_listener_failed' );
+				}
+			}
 			$receipts                       = $this->pending_applied_receipts;
 			$this->pending_applied_receipts = array();
 			foreach ( $receipts as $receipt ) {
@@ -744,25 +765,29 @@ class Digitalogic_Product_Sync_Receiver {
             return $envelope;
         }
 
-		$locked = $this->acquire_lock();
-        if (is_wp_error($locked)) {
-            return $locked;
-        }
-
-        try {
-			Digitalogic_Product_Identifier_Resolver::instance()->clear_code_rows_cache();
-			$result = $this->receive_locked( $envelope );
-        } catch (Throwable $exception) {
-			$result = $this->error(
-                'digitalogic_product_sync_unexpected_failure',
-                'The product-sync event could not be applied.',
-                500,
-                array('exception' => get_class($exception))
-            );
-        } finally {
-            $this->release_lock();
-			$this->dispatch_materializer_product_committed();
-        }
+		$result = Digitalogic_Pricing_Service::instance()->run_source_delivery_transaction(
+			function () use ( $envelope ) {
+				$write_mode = Digitalogic_Pricing_Coordinator::instance()->write_mode();
+				if ( is_wp_error( $write_mode ) ) {
+					return $write_mode;
+				}
+				$previous_mode                = $this->coordinated_write_mode;
+				$previous_delivery            = $this->source_delivery_active;
+				$this->coordinated_write_mode = $write_mode;
+				$this->source_delivery_active = true;
+				++$this->coordinated_transaction_depth;
+				try {
+					Digitalogic_Product_Identifier_Resolver::instance()->clear_code_rows_cache();
+					return $this->receive_locked( $envelope );
+				} catch ( Throwable $exception ) {
+					return $this->error( 'digitalogic_product_sync_unexpected_failure', 'The product-sync event could not be applied.', 500, array( 'exception' => get_class( $exception ) ) );
+				} finally {
+					--$this->coordinated_transaction_depth;
+					$this->coordinated_write_mode = $previous_mode;
+					$this->source_delivery_active = $previous_delivery;
+				}
+			}
+		);
 
 		if ( is_array( $result ) ) {
 			if ( $this->source_identity_lock_is_owned() ) {
@@ -1220,7 +1245,7 @@ class Digitalogic_Product_Sync_Receiver {
      * @param string|null $previous_catalog_revision Catalog revision before the caller's atomic write.
      * @return array|WP_Error
      */
-    public function reprice_pricing_state($settings, $profit_overrides = array(), $scope_codes = array(), $previous_catalog_revision = null) {
+    public function reprice_pricing_state($settings, $profit_overrides = array(), $scope_codes = array(), $previous_catalog_revision = null, $actuation_guard = null) {
         if (
             null !== $previous_catalog_revision
             && (
@@ -1254,6 +1279,8 @@ class Digitalogic_Product_Sync_Receiver {
 			return $write_mode;
 		}
 		$previous_write_mode = $this->coordinated_write_mode;
+		$previous_guard = $this->coordinated_actuation_guard;
+		$this->coordinated_actuation_guard = $actuation_guard;
 		$this->coordinated_write_mode = $write_mode;
 		++$this->coordinated_transaction_depth;
         try {
@@ -1275,6 +1302,7 @@ class Digitalogic_Product_Sync_Receiver {
             );
 		} finally {
 			$this->coordinated_write_mode = $previous_write_mode;
+			$this->coordinated_actuation_guard = $previous_guard;
 			--$this->coordinated_transaction_depth;
 			$this->release_lock();
 			if ( isset( $result ) && ! is_wp_error( $result ) ) {
@@ -1287,10 +1315,22 @@ class Digitalogic_Product_Sync_Receiver {
 		return $result;
 	}
 
+	/** Check before another bounded portion of the current transaction. */
+	private function check_coordinated_actuation_guard() {
+		if ( null === $this->coordinated_actuation_guard ) {
+			return true;
+		}
+		$result = is_callable( $this->coordinated_actuation_guard )
+			? call_user_func( $this->coordinated_actuation_guard, 'before_batch' ) : false;
+		return true === $result || is_wp_error( $result ) ? $result
+			: $this->error( 'digitalogic_pricing_actuation_guard_rejected', 'Pricing transaction guard rejected the next batch.', 409 );
+	}
+
 	/** Snapshot WooCommerce's request-local deferred variable-parent sync queue. */
 	private function snapshot_deferred_product_sync() {
 		return array(
 			'applied_receipts' => $this->pending_applied_receipts,
+			'state_committed' => $this->pending_state_committed,
 			'exists' => array_key_exists( 'wc_deferred_product_sync', $GLOBALS ),
 			'value'  => $GLOBALS['wc_deferred_product_sync'] ?? null,
 		);
@@ -1304,6 +1344,7 @@ class Digitalogic_Product_Sync_Receiver {
 	 */
 	private function restore_deferred_product_sync( $snapshot ) {
 		$this->pending_applied_receipts = $snapshot['applied_receipts'] ?? array();
+		$this->pending_state_committed = $snapshot['state_committed'] ?? null;
 		if ( ! empty( $snapshot['exists'] ) ) {
 			$GLOBALS['wc_deferred_product_sync'] = $snapshot['value'] ?? null;
 			return;
@@ -1794,7 +1835,12 @@ class Digitalogic_Product_Sync_Receiver {
 
             $changed_products = array();
             $target_codes = array();
+            $guard_index = 0;
             foreach ($products as $code_key => $product) {
+                if (0 === $guard_index++ % 200) {
+                    $guarded = $this->check_coordinated_actuation_guard();
+                    if (is_wp_error($guarded)) { return $guarded; }
+                }
                 $product_code = $this->delivery_product_code($products, $code_key);
                 if (null === $product_code || (!empty($scope_codes) && !isset($scope_codes[$product_code]))) {
                     continue;
@@ -2158,6 +2204,7 @@ class Digitalogic_Product_Sync_Receiver {
                 true,
                 $resolution_cache
             );
+            if (is_wp_error($woo)) { return $woo; }
             $deferred = $this->deferred_summary($state['sources'][$source_key]['deferred_products'] ?? array());
             $pending_count = count($state['sources'][$source_key]['pending_products'] ?? array());
             if ('digitalogic_pricing_delivery_readback_failed' === ($woo['fatal_error_code'] ?? '')) {
@@ -3174,7 +3221,10 @@ class Digitalogic_Product_Sync_Receiver {
         // changes or an administrator explicitly runs product-sync reconcile.
         // Rechecking every unchanged deferred record here can keep the HTTP
         // acknowledgement open long after receiver state has committed.
-        $woo = $this->drain_delivery_products($source_state, true, false);
+        $woo = $this->drain_source_delivery_products($source_state);
+        if (is_wp_error($woo)) {
+            return $woo;
+        }
         $state['sources'][$source_key] = $source_state;
         if (!hash_equals($before_delivery, $this->state_digest($source_state))) {
             $delivery_stored = $this->persist_and_read_back($state);
@@ -3272,7 +3322,10 @@ class Digitalogic_Product_Sync_Receiver {
     private function retry_pending_locked($state, $source_key, $envelope, $existing) {
         $source_state = $existing;
         $before_delivery = $this->state_digest($source_state);
-        $woo = $this->drain_delivery_products($source_state, true, false);
+        $woo = $this->drain_source_delivery_products($source_state);
+        if (is_wp_error($woo)) {
+            return $woo;
+        }
         $state['sources'][$source_key] = $source_state;
         if (!hash_equals($before_delivery, $this->state_digest($source_state))) {
             $stored = $this->persist_and_read_back($state);
@@ -3298,6 +3351,71 @@ class Digitalogic_Product_Sync_Receiver {
         return $this->result_with_delivery_receipt($result, $source_state);
     }
     // phpcs:enable
+
+	/**
+	 * Deliver the complete pending set using bulk identity and topology reads.
+	 *
+	 * @param array $source_state Source delivery state, updated in place.
+	 * @return array|WP_Error Delivery counters or a transaction failure.
+	 */
+	private function drain_source_delivery_products( &$source_state ) {
+		$codes = array();
+		foreach ( (array) ( $source_state['pending_products'] ?? array() ) as $key => $entry ) {
+			$code = $this->valid_delivery_product_code( $source_state['products'], $key, $entry );
+			if ( null !== $code ) {
+				$codes[] = $code;
+			}
+		}
+		$resolutions = Digitalogic_Product_Identifier_Resolver::instance()->resolve_patris_codes( $codes );
+		$ids         = array();
+		foreach ( $resolutions as $resolved ) {
+			if ( is_array( $resolved ) && ! empty( $resolved['woocommerce_id'] ) ) {
+				$ids[ (int) $resolved['woocommerce_id'] ] = true;
+			}
+		}
+		if ( $ids ) {
+			$topology = $this->coordinated_pricing_topology_preflight( array_keys( $ids ) );
+			if ( is_wp_error( $topology ) ) {
+				return $topology;
+			}
+			foreach ( $resolutions as &$resolved ) {
+				if ( is_array( $resolved ) ) {
+					$resolved['pricing_topology'] = $topology[ (int) $resolved['woocommerce_id'] ] ?? array();
+				}
+			}
+			unset( $resolved );
+			foreach ( $topology as $row ) {
+				if ( ! empty( $row['parent_id'] ) ) {
+					$ids[ (int) $row['parent_id'] ] = true;
+				}
+			}
+			$ids = array_keys( $ids );
+			if ( function_exists( 'wp_cache_delete_multiple' ) ) {
+				foreach ( array( 'posts', 'post_meta', 'product_type_relationships' ) as $group ) {
+					wp_cache_delete_multiple( $ids, $group );
+				}
+			}
+			if ( ! $this->evict_coordinated_product_instance_caches( $ids ) ) {
+				return $this->error( 'digitalogic_pricing_product_cache_evict_failed', 'WooCommerce request-local product caches could not be fenced.', 503 );
+			}
+			if ( function_exists( '_prime_post_caches' ) ) {
+				_prime_post_caches( $ids, true, true );
+			} elseif ( function_exists( 'update_meta_cache' ) ) {
+				update_meta_cache( 'post', $ids );
+			}
+		}
+		$result = $this->drain_delivery_products( $source_state, true, false, $resolutions );
+		if ( is_wp_error( $result ) ) { return $result; }
+		if ( ! empty( $result['fatal_error_code'] ) ) {
+			return $this->error( $result['fatal_error_code'], 'Source delivery failed exact WooCommerce readback.', 502, array( 'woocommerce' => $result ) );
+		}
+		// A failed SQL batch may have touched multiple products. Its owner must
+		// roll back the entire batch and source ledger, never commit partial SQL.
+		if ( ! empty( $result['batch_failed'] ) ) {
+			return $this->error( 'digitalogic_product_sync_batch_failed', 'The source pricing batch could not be committed.', 502, array( 'woocommerce' => $result ) );
+		}
+		return $result;
+	}
 
     private function emit_result($result, $envelope) {
         $metadata = array(
@@ -4357,6 +4475,7 @@ class Digitalogic_Product_Sync_Receiver {
 				$work,
 				is_array($resolution_cache) ? $resolution_cache : array()
 			);
+			if ( is_wp_error( $partition ) ) { return $partition; }
 			$fallback_parent_ids = array_values( (array) ( $partition['fallback_parent_ids'] ?? array() ) );
 			if ( ! empty( $partition['batch'] ) ) {
 				$batched = $this->drain_coordinated_pricing_batch(
@@ -4364,6 +4483,7 @@ class Digitalogic_Product_Sync_Receiver {
 					$partition['batch'],
 					is_array($resolution_cache) ? $resolution_cache : array()
 				);
+				if ( is_wp_error( $batched ) ) { return $batched; }
 				foreach (
 					array( 'attempted', 'updated', 'already_applied', 'missing', 'ambiguous', 'failed', 'errors_truncated' )
 					as $counter
@@ -4383,6 +4503,7 @@ class Digitalogic_Product_Sync_Receiver {
 					(array) ( $batched['verified_product_codes'] ?? array() )
 				);
 				if ( ! empty( $batched['fatal_error_code'] ) || (int) ( $batched['failed'] ?? 0 ) > 0 ) {
+					$result['batch_failed'] = true;
 					if ( ! empty( $batched['fatal_error_code'] ) ) {
 						$result['fatal_error_code'] = (string) $batched['fatal_error_code'];
 					}
@@ -4403,6 +4524,10 @@ class Digitalogic_Product_Sync_Receiver {
 			? self::MAX_PRODUCTS
 			: self::MAX_DELIVERY_PRODUCTS_PER_REQUEST;
 		foreach ($work as $code_key => $delivery_entry) {
+			if (0 === $fallback_attempted % 25) {
+				$guarded = $this->check_coordinated_actuation_guard();
+				if (is_wp_error($guarded)) { return $guarded; }
+			}
 			if ($fallback_attempted >= $fallback_limit) {
                 break;
             }
@@ -5082,20 +5207,29 @@ class Digitalogic_Product_Sync_Receiver {
 		$fallback            = array();
 		$fallback_parent_ids = array();
 		$parents             = array();
+		$guard_index = 0;
 		foreach ( $work as $code_key => $delivery_entry ) {
+			if (0 === $guard_index++ % 200) {
+				$guarded = $this->check_coordinated_actuation_guard();
+				if (is_wp_error($guarded)) { return $guarded; }
+			}
 			$target_parent_id = 0;
+			$candidate = $delivery_entry;
+			if ( $this->source_delivery_active && empty( $candidate['full_feed'] ) ) {
+				$candidate['pricing_only'] = true;
+			}
 			if (
 				$this->coordinated_pricing_batch_target_is_safe(
 					$source_state,
 					$code_key,
-					$delivery_entry,
+					$candidate,
 					$resolution_cache,
 					$parents,
 					$target_parent_id
 				)
 				&& 'direct_db' === $this->coordinated_write_mode
 			) {
-				$batch[ $code_key ] = $delivery_entry;
+				$batch[ $code_key ] = $candidate;
 			} else {
 				$fallback[ $code_key ] = $delivery_entry;
 				if ( $target_parent_id > 0 ) {
@@ -5220,7 +5354,7 @@ class Digitalogic_Product_Sync_Receiver {
 			return false;
 		}
 		$delivery_entry['pricing_batch_operational_projection'] = array();
-		if ( array( '1' ) === $auto_materialized_rows ) {
+		if ( array( '1' ) === $auto_materialized_rows || $this->source_delivery_active ) {
 			$operational_projection = Digitalogic_Patris_Feed::instance()->pricing_batch_operational_projection(
 				$product,
 				$product_data
@@ -5237,7 +5371,9 @@ class Digitalogic_Product_Sync_Receiver {
 			if ( (string) ( $operational_projection['post_title'] ?? '' ) !== (string) ( $topology['post_title'] ?? '' ) ) {
 				return false;
 			}
-			$delivery_entry['pricing_batch_operational_projection'] = $operational_projection;
+			if ( array( '1' ) === $auto_materialized_rows ) {
+				$delivery_entry['pricing_batch_operational_projection'] = $operational_projection;
+			}
 		}
 		$code_rows = array_values( (array) get_post_meta( $product_id, Digitalogic_Product_Identifier_Resolver::PATRIS_CODE_META, false ) );
 		$sku_rows  = array_values( (array) get_post_meta( $product_id, '_sku', false ) );
@@ -5374,7 +5510,12 @@ class Digitalogic_Product_Sync_Receiver {
         $batch_items = array();
         $batch_entries = array();
 
+        $guard_index = 0;
         foreach ($work as $code_key => $delivery_entry) {
+            if (0 === $guard_index++ % 200) {
+                $guarded = $this->check_coordinated_actuation_guard();
+                if (is_wp_error($guarded)) { return $guarded; }
+            }
             $product_code = $this->valid_delivery_product_code($products, $code_key, $delivery_entry);
             if (null === $product_code) {
                 unset($pending[$code_key], $deferred[$code_key]);
@@ -5473,7 +5614,14 @@ class Digitalogic_Product_Sync_Receiver {
 			// Mark the cache path up front so rollback failures evict those objects
 			// just as aggressively as a successful committed batch.
 			$this->coordinated_batch_write = true;
-            $written = Digitalogic_Patris_Feed::instance()->apply_product_pricing_batch($batch_items);
+            $guard_error = null;
+            $guard = null === $this->coordinated_actuation_guard ? null : function ($phase) use (&$guard_error) {
+                $guarded = $this->check_coordinated_actuation_guard();
+                if (is_wp_error($guarded)) { $guard_error = $guarded; }
+                return $guarded;
+            };
+            $written = Digitalogic_Patris_Feed::instance()->apply_product_pricing_batch($batch_items, $guard);
+            if (is_wp_error($guard_error)) { return $guard_error; }
             if (is_wp_error($written)) {
                 if (
                     in_array(
@@ -6013,6 +6161,11 @@ class Digitalogic_Product_Sync_Receiver {
         $this->invalidate_state_cache();
 		if ( $owns_transaction ) {
 			do_action( 'digitalogic_product_sync_state_committed', $previous_state, $read_back );
+		} elseif ( $this->source_delivery_active ) {
+			$this->pending_state_committed = array(
+				'before' => $this->pending_state_committed['before'] ?? $previous_state,
+				'after'  => $read_back,
+			);
 		}
 
         return $read_back;
