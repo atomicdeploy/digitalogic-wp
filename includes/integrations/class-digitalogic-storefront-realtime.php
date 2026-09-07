@@ -79,7 +79,12 @@ final class Digitalogic_Storefront_Realtime {
 		);
 	}
 
-	/** Public commercial events only; notification audiences are never polled here. */
+	/**
+	 * Public commercial events only; notification audiences are never polled here.
+	 *
+	 * @param WP_REST_Request $request Public cursor request.
+	 * @return WP_REST_Response|WP_Error Public freshness result.
+	 */
 	public function search_freshness( $request ) {
 		$generation = Digitalogic_Report_Engine::instance()->current_projection_generation();
 		if ( is_wp_error( $generation ) ) {
