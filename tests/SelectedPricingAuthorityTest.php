@@ -277,7 +277,7 @@ final class SelectedPricingAuthorityTest extends TestCase {
 		$result = Digitalogic_Pricing_Service::instance()->with_source_delivery_lock(
 			function () use ( $receiver, $payload, &$observed ) {
 				$result = $receiver->receive( $payload );
-		$this->assertSame( array(), $observed );
+				$this->assertSame( array(), $observed );
 				return $result;
 			}
 		);

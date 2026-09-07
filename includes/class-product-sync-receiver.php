@@ -536,7 +536,7 @@ class Digitalogic_Product_Sync_Receiver {
 			return;
 		}
 		if ( ! $this->source_identity_lock_is_owned() ) {
-			$state_event = $this->pending_state_committed;
+			$state_event                   = $this->pending_state_committed;
 			$this->pending_state_committed = null;
 			if ( is_array( $state_event ) ) {
 				try {
@@ -771,8 +771,8 @@ class Digitalogic_Product_Sync_Receiver {
 				if ( is_wp_error( $write_mode ) ) {
 					return $write_mode;
 				}
-				$previous_mode = $this->coordinated_write_mode;
-				$previous_delivery = $this->source_delivery_active;
+				$previous_mode                = $this->coordinated_write_mode;
+				$previous_delivery            = $this->source_delivery_active;
 				$this->coordinated_write_mode = $write_mode;
 				$this->source_delivery_active = true;
 				++$this->coordinated_transaction_depth;
@@ -3352,7 +3352,12 @@ class Digitalogic_Product_Sync_Receiver {
     }
     // phpcs:enable
 
-	/** Deliver the bounded complete pending set using bulk identity and topology reads. */
+	/**
+	 * Deliver the complete pending set using bulk identity and topology reads.
+	 *
+	 * @param array $source_state Source delivery state, updated in place.
+	 * @return array|WP_Error Delivery counters or a transaction failure.
+	 */
 	private function drain_source_delivery_products( &$source_state ) {
 		$codes = array();
 		foreach ( (array) ( $source_state['pending_products'] ?? array() ) as $key => $entry ) {
@@ -3362,7 +3367,7 @@ class Digitalogic_Product_Sync_Receiver {
 			}
 		}
 		$resolutions = Digitalogic_Product_Identifier_Resolver::instance()->resolve_patris_codes( $codes );
-		$ids = array();
+		$ids         = array();
 		foreach ( $resolutions as $resolved ) {
 			if ( is_array( $resolved ) && ! empty( $resolved['woocommerce_id'] ) ) {
 				$ids[ (int) $resolved['woocommerce_id'] ] = true;
@@ -6159,7 +6164,7 @@ class Digitalogic_Product_Sync_Receiver {
 		} elseif ( $this->source_delivery_active ) {
 			$this->pending_state_committed = array(
 				'before' => $this->pending_state_committed['before'] ?? $previous_state,
-				'after' => $read_back,
+				'after'  => $read_back,
 			);
 		}
 

@@ -2382,7 +2382,7 @@ final class PricingCoordinatorTest extends TestCase {
 	public function test_pricing_preclassification_evicts_stale_product_instance_type_and_parent(): void {
 		$this->seed_large_pricing_snapshot( 4, 1 );
 		$GLOBALS['digitalogic_test_wc_product_instance_cache_removals'] = array();
-		$GLOBALS['digitalogic_test_wc_products'][20003] = new class( 20003 ) extends WC_Product {
+		$GLOBALS['digitalogic_test_wc_products'][20003]                 = new class( 20003 ) extends WC_Product {
 			/** Return a deliberately stale type projection. */
 			public function get_type() {
 				return 'simple';
@@ -2403,7 +2403,7 @@ final class PricingCoordinatorTest extends TestCase {
 				return 0;
 			}
 		};
-		$GLOBALS['digitalogic_test_wc_product_saves']   = array();
+		$GLOBALS['digitalogic_test_wc_product_saves']                   = array();
 
 		$result = Digitalogic_Pricing_Coordinator::instance()->update_currency(
 			array( 'yuan_price' => '29501' ),
@@ -2498,7 +2498,7 @@ final class PricingCoordinatorTest extends TestCase {
 	/** A ProductCache exception drains later removals but fails closed before writes. */
 	public function test_product_instance_cache_eviction_failure_fails_closed_after_draining_targets(): void {
 		$this->seed_large_pricing_snapshot( 4, 1 );
-		$GLOBALS['digitalogic_test_wc_product_instance_cache_removals'] = array();
+		$GLOBALS['digitalogic_test_wc_product_instance_cache_removals']    = array();
 		$GLOBALS['digitalogic_test_wc_product_instance_cache_failure_ids'] = array( 20000 );
 		$before_posts             = $GLOBALS['digitalogic_test_posts'];
 		$before_lookup            = $GLOBALS['digitalogic_test_wc_lookup_rows'];
@@ -4284,14 +4284,17 @@ final class PricingCoordinatorTest extends TestCase {
 	/** Another connection's pricing lock cannot authorize an expired worker's next batch. */
 	public function test_expired_batch_cannot_continue_under_another_connection_lock(): void {
 		$async = Digitalogic_Currency_Admin_Async::instance();
-		$job = $async->enqueue( '29501', false );
-		$lock = Digitalogic_Pricing_Service::coordination_lock_name( 'wp_' );
-		add_action( 'digitalogic_currency_async_worker_claimed', static function () use ( $lock ) {
-			$GLOBALS['wpdb']->after_option_write = static function () use ( $lock ) {
-				$GLOBALS['digitalogic_test_options']['digitalogic_currency_admin_async_job']['lease_until'] = time() - 1;
-				$GLOBALS['wpdb']->used_locks[ $lock ] = 9999;
-			};
-		} );
+		$job   = $async->enqueue( '29501', false );
+		$lock  = Digitalogic_Pricing_Service::coordination_lock_name( 'wp_' );
+		add_action(
+			'digitalogic_currency_async_worker_claimed',
+			static function () use ( $lock ) {
+				$GLOBALS['wpdb']->after_option_write = static function () use ( $lock ) {
+					$GLOBALS['digitalogic_test_options']['digitalogic_currency_admin_async_job']['lease_until'] = time() - 1;
+					$GLOBALS['wpdb']->used_locks[ $lock ] = 9999;
+				};
+			}
+		);
 		$async->run_job( $job['job_id'], $job['generation'] );
 		$status = $async->status( $job['job_id'], $job['generation'] );
 		$this->assertSame( 'failed', $status['status'] );
