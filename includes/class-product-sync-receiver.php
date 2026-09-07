@@ -5458,7 +5458,15 @@ class Digitalogic_Product_Sync_Receiver {
 			count( $stock_rows ) > 1
 			|| 1 !== count( $stock_status_rows )
 			|| $lookup_projection['sku'] !== (string) ( $topology['lookup_sku'] ?? '' )
-			|| $lookup_projection['stock_quantity'] !== ( $topology['lookup_stock_quantity'] ?? null )
+			|| (
+                $lookup_projection['stock_quantity'] !== ( $topology['lookup_stock_quantity'] ?? null )
+                && (
+                    null === $lookup_projection['stock_quantity'] || null === ( $topology['lookup_stock_quantity'] ?? null )
+                    || null === Digitalogic_Patris_Feed::instance()->pricing_batch_signed_decimal( $lookup_projection['stock_quantity'] )
+                    || null === Digitalogic_Patris_Feed::instance()->pricing_batch_signed_decimal( $topology['lookup_stock_quantity'] )
+                    || Digitalogic_Patris_Feed::instance()->pricing_batch_signed_decimal( $lookup_projection['stock_quantity'] ) !== Digitalogic_Patris_Feed::instance()->pricing_batch_signed_decimal( $topology['lookup_stock_quantity'] )
+                )
+            )
 			|| $lookup_projection['stock_status'] !== (string) ( $topology['lookup_stock_status'] ?? '' )
 		) {
 			return false;
@@ -5493,9 +5501,10 @@ class Digitalogic_Product_Sync_Receiver {
 			// An unavailable canonical route does not change the site-owned assignment.
 			$expected_shipping = (string) reset( $shipping_rows );
 		}
-		if (
-			'' === $expected_shipping
-			|| empty( $shipping_rows )
+        $shipping_absent = '' === $expected_shipping && array() === $shipping_rows
+            && ( ! is_numeric( $final_price ) || (float) $final_price <= 0 );
+        if (
+            ( ! $shipping_absent && ( '' === $expected_shipping || empty( $shipping_rows ) ) )
 			|| count( $shipping_rows ) > Digitalogic_Patris_Feed::PRICING_BATCH_MAX_IDENTICAL_ASSIGNMENT_ROWS
 		) {
 			// A missing legacy assignment is recoverable through the canonical

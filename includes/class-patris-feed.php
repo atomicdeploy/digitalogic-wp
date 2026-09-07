@@ -1702,6 +1702,7 @@ class Digitalogic_Patris_Feed {
 					);
 				}
 
+				$shipping_absent_ids       = array();
 				$plans                     = array();
 				$identity_plans            = array();
 				$warnings                  = array();
@@ -1773,9 +1774,13 @@ class Digitalogic_Patris_Feed {
 							)
 						)
 					);
-					if (
-						! empty( $item['assignment_conflict'] )
-						|| empty( $shipping_meta_rows )
+                    $shipping_absent = array() === $shipping_meta_rows && '' === $assigned_shipping
+                        && '' === (string) ( $data['shipping_method_id'] ?? '' )
+                        && ( ! is_numeric( $data['final_price'] ?? null ) || (float) $data['final_price'] <= 0 );
+                    if ( $shipping_absent ) { $shipping_absent_ids[ $product_id ] = true; }
+                    if (
+                        ! empty( $item['assignment_conflict'] )
+						|| ( empty( $shipping_meta_rows ) && ! $shipping_absent )
 						|| count( $shipping_meta_rows ) > self::PRICING_BATCH_MAX_IDENTICAL_ASSIGNMENT_ROWS
 						|| array_fill( 0, count( $shipping_meta_rows ), $assigned_shipping ) !== $shipping_meta_rows
 						|| ( ! empty( $auto_materialized_rows ) && array( '1' ) !== $auto_materialized_rows )
@@ -2172,11 +2177,11 @@ class Digitalogic_Patris_Feed {
 					$parent_read_sql  = ' OR (post_id IN (' . implode( ',', array_fill( 0, count( $parent_ids ), '%d' ) ) . ') AND meta_key IN (' . implode( ',', array_fill( 0, count( $parent_meta_keys ), '%s' ) ) . '))';
 					$parent_read_args = array_merge( $parent_ids, $parent_meta_keys );
 				}
-				$shipping_read_ids  = array_map( 'absint', array_keys( $shipping_repairs ) );
+				$shipping_read_ids  = array_values(array_unique(array_map( 'absint', array_merge(array_keys( $shipping_repairs ), array_keys($shipping_absent_ids)) )));
 				$shipping_read_sql  = '';
 				$shipping_read_args = array();
 				if ( ! empty( $shipping_read_ids ) ) {
-					$shipping_read_sql  = ' OR (post_id IN (' . implode( ',', array_fill( 0, count( $shipping_read_ids ), '%d' ) ) . ') AND BINARY meta_key = BINARY %s)';
+					$shipping_read_sql  = ' OR (post_id IN (' . implode( ',', array_fill( 0, count( $shipping_read_ids ), '%d' ) ) . ') AND LOWER(meta_key) = LOWER(%s))';
 					$shipping_read_args = array_merge(
 						$shipping_read_ids,
 						array( Digitalogic_Shipping_Method_Service::PRODUCT_METHOD_META )
@@ -2204,7 +2209,13 @@ class Digitalogic_Patris_Feed {
 				if ( ! $this->pricing_batch_parent_meta_readback_matches( $parent_plans, $read_rows ) ) {
 					return $this->pricing_batch_error( 'parent_meta_readback' );
 				}
-				if ( ! $this->pricing_batch_shipping_readback_matches( $shipping_repairs, $read_rows ) ) {
+				foreach ( (array) $read_rows as $shipping_read_row ) {
+                    if ( isset($shipping_absent_ids[(int)($shipping_read_row['post_id'] ?? 0)])
+                        && strtolower((string)($shipping_read_row['meta_key'] ?? '')) === strtolower(Digitalogic_Shipping_Method_Service::PRODUCT_METHOD_META) ) {
+                        return $this->pricing_batch_error('shipping_absence_readback');
+                    }
+                }
+                if ( ! $this->pricing_batch_shipping_readback_matches( $shipping_repairs, $read_rows ) ) {
 					return $this->pricing_batch_error( 'shipping_dedupe_readback' );
 				}
 
@@ -3281,7 +3292,7 @@ class Digitalogic_Patris_Feed {
 	 * @param mixed $value Raw stock quantity.
 	 * @return string|null
 	 */
-	private function pricing_batch_signed_decimal( $value ) {
+	public function pricing_batch_signed_decimal( $value ) {
 		if ( null === $value || '' === trim( (string) $value ) ) {
 			return null;
 		}
