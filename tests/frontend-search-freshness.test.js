@@ -144,6 +144,15 @@ test('pricing event cancels in-flight response and discards old data before requ
     assert.equal(h.instance.suggestions.length, 0);
 });
 
+test('hidden suggestions cannot be reopened by the keyboard without another query', () => {
+    const h = harness();
+    h.$.fn.devbridgeAutocomplete.call(h.collection, {onHide() { h.calls.push('themeHide'); }});
+    h.instance.suggestions = [{price: 'old'}];
+    h.options().onHide.call(h.input);
+    assert.equal(h.instance.suggestions.length, 0);
+    assert.deepEqual(h.calls, ['themeHide']);
+});
+
 test('offline and hidden tabs discard stale data without requesting again', () => {
     const h = harness();
     h.events.offline();
