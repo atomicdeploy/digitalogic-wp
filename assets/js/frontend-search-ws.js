@@ -95,9 +95,20 @@
         }
 
         var onSearchStart = options.onSearchStart;
+        var onSearchError = options.onSearchError;
         return $.extend({}, options, {
             triggerSelectOnValidInput: false,
             noCache: true,
+            onSearchError: function(query, xhr, status) {
+                $(this).closest('form').removeClass('wd-search-loading');
+                var instance = $(this).data('autocomplete');
+                if (instance && status !== 'abort') {
+                    instance.suggestions = [];
+                    $(instance.suggestionsContainer).text('دریافت قیمت فعلی ممکن نشد؛ دوباره جستجو کنید.').show();
+                    $(this).closest('form').parent().find('.wd-search-results').addClass('wd-opened');
+                }
+                if (onSearchError) { onSearchError.apply(this, arguments); }
+            },
             onSearchStart: function() {
                 var instance = $(this).data('autocomplete');
                 if (instance) {
