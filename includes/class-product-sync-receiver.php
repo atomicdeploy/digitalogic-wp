@@ -1315,6 +1315,36 @@ class Digitalogic_Product_Sync_Receiver {
 		return $result;
 	}
 
+	/**
+	 * Scope an additional transaction guard without replacing an outer owner fence.
+	 *
+	 * @param callable $guard Additional checkpoint guard.
+	 * @param callable $callback Receives the composed guard for final commit checks.
+	 * @return mixed|WP_Error
+	 */
+	public function with_coordinated_actuation_guard( $guard, $callback ) {
+		if ( ! is_callable( $guard ) || ! is_callable( $callback ) ) {
+			return $this->error( 'digitalogic_pricing_actuation_guard_rejected', 'Invalid transaction guard callback.', 409 );
+		}
+		$previous = $this->coordinated_actuation_guard;
+		$composed = function ( ...$args ) use ( $previous, $guard ) {
+			foreach ( array( $previous, $guard ) as $checkpoint ) {
+				if ( null === $checkpoint ) { continue; }
+				$result = is_callable( $checkpoint ) ? call_user_func_array( $checkpoint, $args ) : false;
+				if ( true !== $result ) {
+					return is_wp_error( $result ) ? $result : $this->error( 'digitalogic_pricing_actuation_guard_rejected', 'Pricing transaction guard rejected the next batch.', 409 );
+				}
+			}
+			return true;
+		};
+		$this->coordinated_actuation_guard = $composed;
+		try {
+			return call_user_func( $callback, $composed );
+		} finally {
+			$this->coordinated_actuation_guard = $previous;
+		}
+	}
+
 	/** Check before another bounded portion of the current transaction. */
 	private function check_coordinated_actuation_guard() {
 		if ( null === $this->coordinated_actuation_guard ) {
@@ -5796,9 +5826,9 @@ class Digitalogic_Product_Sync_Receiver {
             return true;
         }
 
-        $regular = trim((string) $woo_product->get_regular_price());
-        $visible = trim((string) $woo_product->get_price());
-        $sale = trim((string) $woo_product->get_sale_price());
+        $regular = trim((string) $woo_product->get_regular_price( 'edit' ));
+        $visible = trim((string) $woo_product->get_price( 'edit' ));
+        $sale = trim((string) $woo_product->get_sale_price( 'edit' ));
         if ($has_final_price) {
             $final_price = (string) $product['final_price'];
 			if ( ! is_numeric( $final_price ) || (float) $final_price <= 0 ) {

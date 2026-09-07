@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.2] - 2026-09-07
+
+- Keep pricing mutation, preservation and stored-price readback independent of storefront display filters; retain filter-aware storefront audits.
+- Bound source delivery with a cooperative 60-second monotonic deadline, composed owner guards and rollback before commit after expiry.
+
 ## [2.0.1] - 2026-09-07
 
 - Route source snapshot delivery through the shared pricing transaction and batch writer, retaining full product updates when source-managed fields change.
