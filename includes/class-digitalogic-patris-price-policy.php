@@ -92,7 +92,7 @@ final class Digitalogic_Patris_Price_Policy {
 			$status = $has_price ? 'canonical_only_variable' : 'canonical_missing_variable';
 			$product->update_meta_data( self::STATUS_META, $status );
 
-			return $this->project( $product, $canonical, $status, $policy );
+			return $this->project( $product, $canonical, $status, $policy, 'edit' );
 		}
 
 		if ( ! $has_price || ! is_numeric( $canonical ) ) {
@@ -101,7 +101,7 @@ final class Digitalogic_Patris_Price_Policy {
 				$product->update_meta_data( self::STATUS_META, $status );
 				$product->update_meta_data( self::WARNING_META, self::MISSING_WEIGHT_WARNING );
 
-				return $this->project( $product, null, $status, $policy );
+				return $this->project( $product, null, $status, $policy, 'edit' );
 			}
 
 			$product->set_regular_price( '' );
@@ -111,7 +111,7 @@ final class Digitalogic_Patris_Price_Policy {
 			$status = 'canonical_missing_unpriced';
 			$product->update_meta_data( self::STATUS_META, $status );
 
-			return $this->project( $product, null, $status, $policy );
+			return $this->project( $product, null, $status, $policy, 'edit' );
 		}
 
 		if ( (float) $canonical <= 0 ) {
@@ -122,7 +122,7 @@ final class Digitalogic_Patris_Price_Policy {
 			$status = 'canonical_nonpositive_unpriced';
 			$product->update_meta_data( self::STATUS_META, $status );
 
-			return $this->project( $product, $canonical, $status, $policy );
+			return $this->project( $product, $canonical, $status, $policy, 'edit' );
 		}
 
 		$canonical_string = $this->decimal_string( $canonical );
@@ -133,7 +133,7 @@ final class Digitalogic_Patris_Price_Policy {
 
 		$product->update_meta_data( self::STATUS_META, $status );
 
-		return $this->project( $product, $canonical_string, $status, $policy );
+		return $this->project( $product, $canonical_string, $status, $policy, 'edit' );
 	}
 
 	/**
@@ -162,9 +162,10 @@ final class Digitalogic_Patris_Price_Policy {
 	 * @param mixed|null  $canonical Optional in-memory canonical override.
 	 * @param string|null $status    Optional in-memory status override.
 	 * @param string|null $policy    Optional in-memory policy override.
+	 * @param string      $context   Price context: edit for mutation, view for storefront audit.
 	 * @return array
 	 */
-	public function project( WC_Product $product, $canonical = null, $status = null, $policy = null ) {
+	public function project( WC_Product $product, $canonical = null, $status = null, $policy = null, $context = 'view' ) {
 		if ( null === $canonical ) {
 			$canonical = $product->get_meta( self::CANONICAL_META, true );
 		}
@@ -178,13 +179,16 @@ final class Digitalogic_Patris_Price_Policy {
 				: $this->get_sale_policy();
 		}
 
-		$regular   = (string) $product->get_regular_price();
-		$sale      = (string) $product->get_sale_price();
-		$effective = (string) $product->get_price();
+		$context   = 'edit' === $context ? 'edit' : 'view';
+		$regular   = (string) $product->get_regular_price( $context );
+		$sale      = (string) $product->get_sale_price( $context );
+		$effective = (string) $product->get_price( $context );
 		$warning   = (string) $product->get_meta( self::WARNING_META, true );
-		$on_sale   = method_exists( $product, 'is_on_sale' )
-			? (bool) $product->is_on_sale()
-			: ( '' !== $sale && $this->prices_equal( $sale, $effective ) );
+		$on_sale   = 'edit' === $context
+			? $this->raw_sale_is_active( $product, $regular, $sale )
+			: ( method_exists( $product, 'is_on_sale' )
+				? (bool) $product->is_on_sale()
+				: ( '' !== $sale && $this->prices_equal( $sale, $effective ) ) );
 
 		return array(
 			'canonical_patris_price'     => '' === (string) $canonical ? null : (string) $canonical,
@@ -202,6 +206,29 @@ final class Digitalogic_Patris_Price_Policy {
 			'preserved_storefront_price' => 'canonical_missing_preserved' === $status,
 			'policy_warning'             => '' === $warning ? null : $warning,
 		);
+	}
+
+	/**
+	 * Read the stored sale schedule without invoking storefront pricing hooks.
+	 *
+	 * WooCommerce's is_on_sale() also reads prices through view getters, even
+	 * when its final result filter is disabled with edit context.
+	 *
+	 * @param WC_Product $product Product whose raw prices were read.
+	 * @param string     $regular Raw regular price.
+	 * @param string     $sale    Raw sale price.
+	 * @return bool
+	 */
+	private function raw_sale_is_active( WC_Product $product, $regular, $sale ) {
+		if ( '' === $sale || $regular <= $sale ) {
+			return false;
+		}
+		$now  = time();
+		$from = $product->get_date_on_sale_from( 'edit' );
+		$to   = $product->get_date_on_sale_to( 'edit' );
+
+		return ( ! $from || $from->getTimestamp() <= $now )
+			&& ( ! $to || $to->getTimestamp() >= $now );
 	}
 
 	/**
@@ -301,9 +328,9 @@ final class Digitalogic_Patris_Price_Policy {
 	 * @return bool
 	 */
 	private function has_preservable_storefront_price( WC_Product $product ) {
-		$regular   = trim( (string) $product->get_regular_price() );
-		$effective = trim( (string) $product->get_price() );
-		$sale      = trim( (string) $product->get_sale_price() );
+		$regular   = trim( (string) $product->get_regular_price( 'edit' ) );
+		$effective = trim( (string) $product->get_price( 'edit' ) );
+		$sale      = trim( (string) $product->get_sale_price( 'edit' ) );
 
 		return '' !== $regular
 			&& is_numeric( $regular )

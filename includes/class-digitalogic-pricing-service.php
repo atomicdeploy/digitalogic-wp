@@ -52,6 +52,8 @@ final class Digitalogic_Pricing_Service {
 	public const STALE_AFTER_DAYS           = 7;
 	private const DRIFT_PERCENT             = 7.0;
 
+	private const SOURCE_DELIVERY_BUDGET_SECONDS = 60;
+
 	/**
 	 * Shared service.
 	 *
@@ -72,6 +74,13 @@ final class Digitalogic_Pricing_Service {
 	 * @var int
 	 */
 	private $source_delivery_lock_depth = 0;
+
+	/**
+	 * Optional monotonic clock seam; production uses hrtime in seconds.
+	 *
+	 * @var callable|null
+	 */
+	private $source_delivery_clock = null;
 
 	/**
 	 * Whether this service owns an active transaction.
@@ -3415,22 +3424,63 @@ final class Digitalogic_Pricing_Service {
 	// phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Advisory locks, one SQL transaction, and authoritative readback must use the same database connection and bypass object caches.
 
 	/**
-	 * Run one callback under a site-scoped advisory lock.
+	 * Run source ingress with one cooperative deadline across both locks and commit.
+	 *
+	 * Blocking calls can overrun the budget until the next receiver checkpoint.
 	 *
 	 * @param callable $callback Callback.
 	 * @return mixed|WP_Error
 	 */
 	public function run_source_delivery_transaction( $callback ) {
 		$receiver = Digitalogic_Product_Sync_Receiver::instance();
+		$deadline = $this->source_delivery_monotonic_time() + self::SOURCE_DELIVERY_BUDGET_SECONDS;
+		$guard    = function () use ( $deadline ) {
+			return $this->source_delivery_monotonic_time() < $deadline
+				? true
+				: $this->error(
+					'digitalogic_source_delivery_deadline_exceeded',
+					'Source delivery exceeded its processing budget; the transaction was not committed.',
+					409,
+					array(
+						'retryable'      => false,
+						'budget_seconds' => self::SOURCE_DELIVERY_BUDGET_SECONDS,
+					)
+				);
+		};
 		return $this->with_source_delivery_lock(
-			function () use ( $callback, $receiver ) {
+			function () use ( $callback, $receiver, $guard ) {
 				try {
-					return $this->run_transaction( $callback, null, true );
+					return $receiver->with_coordinated_actuation_guard(
+						$guard,
+						function ( $composed_guard ) use ( $callback ) {
+							return $this->run_transaction(
+								static function () use ( $callback, $composed_guard ) {
+									$guarded = call_user_func( $composed_guard, 'before_write' );
+									return true === $guarded ? call_user_func( $callback ) : $guarded;
+								},
+								static function ( $result ) use ( $composed_guard ) {
+									return call_user_func( $composed_guard, 'before_commit', $result );
+								},
+								true
+							);
+						}
+					);
 				} finally {
 					$receiver->flush_coordinated_pricing_caches();
 				}
 			}
 		);
+	}
+
+	/**
+	 * Read elapsed time independently of wall-clock corrections.
+	 *
+	 * @return float Monotonic seconds.
+	 */
+	private function source_delivery_monotonic_time() {
+		return null === $this->source_delivery_clock
+			? hrtime( true ) / 1000000000
+			: (float) call_user_func( $this->source_delivery_clock );
 	}
 
 	/**

@@ -1004,9 +1004,9 @@ class Digitalogic_Patris_Feed {
 				'manage_stock'   => $product->get_manage_stock(),
 				'stock_quantity' => $product->get_stock_quantity(),
 				'stock_status'   => (string) $product->get_stock_status(),
-				'regular_price'  => (string) $product->get_regular_price(),
-				'sale_price'     => (string) $product->get_sale_price(),
-				'price'          => (string) $product->get_price(),
+				'regular_price'  => (string) $product->get_regular_price( 'edit' ),
+				'sale_price'     => (string) $product->get_sale_price( 'edit' ),
+				'price'          => (string) $product->get_price( 'edit' ),
 			),
 		);
 	}
@@ -1116,9 +1116,9 @@ class Digitalogic_Patris_Feed {
 				'manage_stock'   => $product->get_manage_stock(),
 				'stock_quantity' => $product->get_stock_quantity(),
 				'stock_status'   => (string) $product->get_stock_status(),
-				'regular_price'  => (string) $product->get_regular_price(),
-				'sale_price'     => (string) $product->get_sale_price(),
-				'price'          => (string) $product->get_price(),
+				'regular_price'  => (string) $product->get_regular_price( 'edit' ),
+				'sale_price'     => (string) $product->get_sale_price( 'edit' ),
+				'price'          => (string) $product->get_price( 'edit' ),
 			),
 		);
 	}
@@ -1585,9 +1585,9 @@ class Digitalogic_Patris_Feed {
 			&& $product->get_manage_stock() === $expected['manage_stock']
 			&& $product->get_stock_quantity() === $expected['stock_quantity']
 			&& (string) $product->get_stock_status() === (string) $expected['stock_status']
-			&& (string) $product->get_regular_price() === (string) $expected['regular_price']
-			&& (string) $product->get_sale_price() === (string) $expected['sale_price']
-			&& (string) $product->get_price() === (string) $expected['price'];
+			&& (string) $product->get_regular_price( 'edit' ) === (string) $expected['regular_price']
+			&& (string) $product->get_sale_price( 'edit' ) === (string) $expected['sale_price']
+			&& (string) $product->get_price( 'edit' ) === (string) $expected['price'];
 	}
 
 	/** Return a typed failure whose exact rollback result is explicit. */
@@ -1816,9 +1816,9 @@ class Digitalogic_Patris_Feed {
 							$meta[ $meta_key ] = $value;
 						}
 					}
-					$regular                = (string) $product->get_regular_price();
-					$sale                   = (string) $product->get_sale_price();
-					$visible                = (string) $product->get_price();
+					$regular                = (string) $product->get_regular_price( 'edit' );
+					$sale                   = (string) $product->get_sale_price( 'edit' );
+					$visible                = (string) $product->get_price( 'edit' );
 					$meta['_regular_price'] = $regular;
 					$meta['_sale_price']    = $sale;
 					$meta['_price']         = $visible;
@@ -3348,9 +3348,9 @@ class Digitalogic_Patris_Feed {
 			&& 'outofstock' === $lookup['stock_status']
 			&& $quantity_matches
 			&& 'outofstock' === (string) $fresh->get_stock_status()
-			&& '' === trim( (string) $fresh->get_regular_price() )
-			&& '' === trim( (string) $fresh->get_sale_price() )
-			&& '' === trim( (string) $fresh->get_price() )
+			&& '' === trim( (string) $fresh->get_regular_price( 'edit' ) )
+			&& '' === trim( (string) $fresh->get_sale_price( 'edit' ) )
+			&& '' === trim( (string) $fresh->get_price( 'edit' ) )
 			&& $this->unavailable_price_projection_matches( $product_id, $fresh );
 	}
 
@@ -3372,9 +3372,9 @@ class Digitalogic_Patris_Feed {
 			|| ! $fresh instanceof WC_Product
 			|| ! $this->source_write_locks_are_owned( $product_id )
 			|| 'outofstock' !== (string) $fresh->get_stock_status()
-			|| '' !== trim( (string) $fresh->get_regular_price() )
-			|| '' !== trim( (string) $fresh->get_sale_price() )
-			|| '' !== trim( (string) $fresh->get_price() )
+			|| '' !== trim( (string) $fresh->get_regular_price( 'edit' ) )
+			|| '' !== trim( (string) $fresh->get_sale_price( 'edit' ) )
+			|| '' !== trim( (string) $fresh->get_price( 'edit' ) )
 		) {
 			return false;
 		}
