@@ -18,7 +18,7 @@ trait ExactDecimalArithmetic {
 		} else {
 			return array( 'error' => 'must be an exact base-10 decimal' );
 		}
-		if ( ! preg_match( '/^(0|[1-9][0-9]*)(?:\.([0-9]+))?$/', $text, $matches ) ) {
+		if ( ! preg_match( '/\A(0|[1-9][0-9]*)(?:\.([0-9]+))?\z/D', $text, $matches ) ) {
 			return array( 'error' => 'must be a non-negative base-10 decimal without exponent notation' );
 		}
 

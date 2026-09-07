@@ -72,11 +72,11 @@ final class ShippingMethodServiceTest extends TestCase {
 		$this->assertInstanceOf( WP_Error::class, $this->service->get_integration_catalog() );
 	}
 
-	public function test_go_selection_cannot_fall_through_to_php_repricing(): void {
+	public function test_go_selection_requires_a_source_before_pending_owner_commit(): void {
 		$GLOBALS['digitalogic_test_options'][ Digitalogic_Pricing_Coordinator::AUTHORITY_OPTION ] = 'go';
 		$result = Digitalogic_Pricing_Coordinator::instance()->reprice_open_transaction( array() );
 		$this->assertInstanceOf( WP_Error::class, $result );
-		$this->assertSame( 'digitalogic_pricing_go_dispatch_required', $result->get_error_code() );
+		$this->assertSame( 'digitalogic_pricing_source_state_required', $result->get_error_code() );
 		$this->assertSame( array(), $GLOBALS['digitalogic_test_posts'] );
 	}
 

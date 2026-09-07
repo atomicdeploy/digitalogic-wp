@@ -6,6 +6,11 @@ use PHPUnit\Framework\TestCase;
 require_once dirname( __DIR__ ) . '/includes/pricing/Calculator.php';
 
 final class SharedPricingCalculatorTest extends TestCase {
+	public function test_source_decimal_cannot_hide_a_trailing_newline(): void {
+		$this->expectException( InvalidArgumentException::class );
+		( new Calculator() )->evaluate( $this->foreign( array( 'price_source_amount' => "10\n" ) ) );
+	}
+
 	private function foreign( array $changes = array() ): array {
 		return array_replace(
 			array(

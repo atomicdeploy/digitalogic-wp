@@ -9,6 +9,43 @@ use PHPUnit\Framework\TestCase;
 
 /** Exercise authority selection through real receiver and coordinator methods. */
 final class SelectedPricingAuthorityTest extends TestCase {
+	/** A newer committed owner revision replaces prices without reviving old input. */
+	public function test_new_go_owner_delivery_supersedes_old_receipt(): void {
+		$GLOBALS['digitalogic_test_options'][ Digitalogic_Pricing_Coordinator::AUTHORITY_OPTION ] = 'go';
+		$receiver = Digitalogic_Product_Sync_Receiver::instance();
+		$old      = $this->snapshot( array( $this->priced_product( 'PRICE-901' ), $this->priced_product( 'MISSING-902' ) ), '2026-07-21T00:00:00Z' );
+		$this->assert_success( $receiver->receive( $old ) );
+		$this->assertSame( 'pending', $receiver->get_delivery_receipt( 'pricing-tests', 'kala' )['status'] );
+		$committed = Digitalogic_Pricing_Coordinator::instance()->update_currency( array( 'yuan_price' => '31000', 'effective_date' => '2026-07-22' ), 'owner-supersession-test' );
+		$this->assert_success( $committed );
+		$this->assertSame( 'awaiting_delivery', $committed['status'] );
+		$stale = $receiver->receive( $old );
+		$this->assertInstanceOf( WP_Error::class, $stale );
+		$this->assertSame( 'digitalogic_pricing_owner_catalog_changed', $stale->get_error_code() );
+		$product                            = $this->priced_product( 'PRICE-901' );
+		$product['irt_per_cny']             = 31000;
+		$product['currency_effective_date'] = '2026-07-22';
+		$product['final_price']             = 8866000;
+		unset( $product['record_hash'] );
+		$product['record_hash']  = $this->record_hash( $product );
+		$missing                 = $product;
+		$missing['product_code'] = 'MISSING-902';
+		unset( $missing['record_hash'] );
+		$missing['record_hash'] = $this->record_hash( $missing );
+		$this->assert_success( $receiver->receive( $this->snapshot( array( $product, $missing ), '2026-07-22T00:00:00Z' ) ) );
+		$receipt = $receiver->get_delivery_receipt( 'pricing-tests', 'kala' );
+		$this->assertSame( 'pending', $receipt['status'] );
+		$this->assertSame( 1, $receipt['pending_products'] );
+		$this->assertSame( $committed['pricing_results']['owner_catalog_revision'], $receipt['owner_catalog_revision'] );
+		$this->assertSame( '8866000', (string) $GLOBALS['digitalogic_test_posts'][901]['meta']['_regular_price'] );
+		$late = $receiver->receive( $old );
+		$this->assert_success( $late );
+		$this->assertSame( $receipt['owner_catalog_revision'], $late['delivery']['owner_catalog_revision'] );
+		$this->assertSame( $receipt['event_id'], $late['delivery']['event_id'] );
+		$this->assertNotSame( $old['event_id'], $late['delivery']['event_id'] );
+		$this->assertSame( '8866000', (string) $GLOBALS['digitalogic_test_posts'][901]['meta']['_regular_price'] );
+	}
+
 	/** Direct-only sources are unaffected; mixed sources still need the Go actuation receipt. */
 	public function test_owner_dependent_sources_exclude_direct_only_but_include_mixed_inputs(): void {
 		$GLOBALS['digitalogic_test_options'][ Digitalogic_Pricing_Coordinator::AUTHORITY_OPTION ] = 'go';

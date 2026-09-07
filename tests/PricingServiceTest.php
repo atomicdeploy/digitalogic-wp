@@ -946,7 +946,7 @@ final class PricingServiceTest extends TestCase {
 		$this->assertCount( 1, $GLOBALS['digitalogic_test_actions']['digitalogic_pricing_apply_committed'] ?? array() );
 		$this->assertArrayNotHasKey( Digitalogic_Pricing_Service::CONFIRMATIONS_OPTION, $GLOBALS['digitalogic_test_options'] );
 		$this->assertSame(
-			array( 'digitalogic_pricing_state_event_delivery_v1' ),
+			array( 'digitalogic_pricing_state_event_delivery_v1', 'digitalogic_panel_event_wake_retry_v1' ),
 			array_values( array_unique( array_column( $GLOBALS['digitalogic_test_scheduled_events'], 'hook' ) ) )
 		);
 		$this->assertEmpty( $GLOBALS['digitalogic_test_actions']['digitalogic_pricing_confirmation_event'] ?? array() );
@@ -1054,7 +1054,7 @@ final class PricingServiceTest extends TestCase {
 		$this->assertSame( 29500, $service->current_canonical_settings()['yuan_price'] );
 		$this->assertSame( $previous['state_revision'], $service->current_canonical_state()['state_revision'] );
 		$this->assertSame(
-			array( 'digitalogic_pricing_state_event_delivery_v1' ),
+			array( 'digitalogic_pricing_state_event_delivery_v1', 'digitalogic_panel_event_wake_retry_v1' ),
 			array_values( array_unique( array_column( $GLOBALS['digitalogic_test_scheduled_events'], 'hook' ) ) )
 		);
 		$events = $GLOBALS['digitalogic_test_actions']['digitalogic_pricing_confirmation_event'] ?? array();

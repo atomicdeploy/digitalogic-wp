@@ -48,6 +48,12 @@ Per-request UI controls and the Go delivery writer remain integration work.
 
 ## Release requirements still open
 
+Both pricing implementations admit plain non-negative decimal inputs with at
+most 15 integer digits and 12 fractional digits. Exponents, trailing whitespace
+and newlines are invalid. This bounded calculation-input policy does not alter
+raw report decimal values. Out-of-range inputs must not produce a deliverable
+price in one engine while the other rejects them.
+
 Authority integration uses `pricing.authority` in the existing owner catalog
 identity. Incoming `input_source`/`input_products` retain the source's delta
 baseline; the applied `source`/`products` hold the final pricing projection.
