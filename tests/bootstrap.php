@@ -1811,6 +1811,9 @@ class Digitalogic_Test_WPDB {
 	public function get_results( $prepared, $output = ARRAY_A ) { // phpcs:ignore Generic.CodeAnalysis.UnusedFunctionParameter.FoundAfterLastUsed -- Test-only wpdb signature.
 		$query = is_array( $prepared ) && isset( $prepared['query'] ) ? $prepared['query'] : (string) $prepared;
 		$args  = is_array( $prepared ) && isset( $prepared['args'] ) ? $prepared['args'] : array();
+		if ( false !== stripos( $query, 'information_schema.TABLES' ) ) {
+			return array_map( static fn( $table ) => array( 'table_name' => $table, 'engine' => $GLOBALS['digitalogic_test_table_engines'][ $table ] ?? 'InnoDB' ), $args );
+		}
 		if ( preg_match( '/digitalogic_(pricing_(?:topology|batch)_[a-z_]+)/', $query, $phase_match ) ) {
 			$GLOBALS['digitalogic_test_pricing_phase_events'][] = array(
 				'name' => (string) $phase_match[1],
@@ -2040,6 +2043,9 @@ class Digitalogic_Test_WPDB {
 						'price'                 => null === $price_value ? null : (string) $price_value,
 						'onsale'                => (int) ( $GLOBALS['digitalogic_test_wc_lookup_rows'][ $product_id ]['onsale'] ?? 0 ),
 						'outofstock_visibility' => $outofstock_visibility ? 1 : 0,
+						'stock_status' => (string) ( $post['meta']['_stock_status'] ?? 'instock' ),
+						'parent_manage_stock' => (string) ( $parent['meta']['_manage_stock'] ?? 'no' ),
+						'parent_stock_status' => (string) ( $parent['meta']['_stock_status'] ?? 'instock' ),
 					);
 				}
 			}
@@ -2055,7 +2061,38 @@ class Digitalogic_Test_WPDB {
 			);
 			return $rows;
 		}
+		if ( strpos( $query, 'digitalogic_pricing_batch_stock_term' ) !== false ) {
+			$rows = array();
+			foreach ( $GLOBALS['digitalogic_test_terms'] as $id => $term ) {
+				if ( 'outofstock' === ( $term['slug'] ?? '' ) && 'product_visibility' === ( $term['taxonomy'] ?? '' ) ) {
+					$rows[] = array( 'term_taxonomy_id' => (int) $id );
+				}
+			}
+			return $rows;
+		}
+		if ( strpos( $query, 'digitalogic_pricing_batch_stock_readback' ) !== false ) {
+			if ( ! empty( $GLOBALS['digitalogic_test_pricing_batch_stock_readback_failure'] ) ) {
+				return array();
+			}
+			$term_id = (int) array_shift( $args );
+			$rows = array();
+			foreach ( $args as $id ) {
+				$post = $GLOBALS['digitalogic_test_posts'][ $id ];
+				$values = $post['meta_rows']['_stock_status'] ?? array( $post['meta']['_stock_status'] ?? null );
+				foreach ( $values as $status ) {
+					$rows[] = array( 'product_id' => (int) $id, 'stock_status' => $status,
+						'lookup_stock_status' => $GLOBALS['digitalogic_test_wc_lookup_rows'][ $id ]['stock_status'] ?? null,
+						'term_taxonomy_id' => in_array( $term_id, (array) ( $GLOBALS['digitalogic_test_object_terms'][ $id ]['product_visibility'] ?? array() ), true ) ? $term_id : null );
+				}
+			}
+			return $rows;
+		}
 		if ( strpos( $query, 'digitalogic_pricing_batch_meta_readback' ) !== false ) {
+			if ( is_callable( $GLOBALS['digitalogic_test_before_pricing_batch_meta_readback'] ?? null ) ) {
+				$callback = $GLOBALS['digitalogic_test_before_pricing_batch_meta_readback'];
+				unset( $GLOBALS['digitalogic_test_before_pricing_batch_meta_readback'] );
+				$callback();
+			}
 			preg_match( '/ids:(\d+)/', $query, $matches );
 			$id_count = isset( $matches[1] ) ? (int) $matches[1] : 0;
 			preg_match( '/keys:(\d+)/', $query, $key_matches );
@@ -2145,6 +2182,10 @@ class Digitalogic_Test_WPDB {
 					'min_price'  => $row['min_price'] ?? null,
 					'max_price'  => $row['max_price'] ?? null,
 					'onsale'     => $row['onsale'] ?? 0,
+					'sku' => $row['sku'] ?? '',
+					'stock_quantity' => $row['stock_quantity'] ?? null,
+					'stock_status' => $row['stock_status'] ?? '',
+					'post_title' => $GLOBALS['digitalogic_test_posts'][ $product_id ]['post_title'] ?? '',
 				);
 			}
 			return $rows;
@@ -2942,7 +2983,7 @@ class Digitalogic_Test_WPDB {
 			return $inserted;
 		}
 		if ( strpos( $raw_query, 'digitalogic_pricing_batch_lookup_upsert' ) !== false ) {
-			preg_match_all( '/\(%d,(NULL|%s),(NULL|%s),0\)/', $raw_query, $matches, PREG_SET_ORDER );
+			preg_match_all( '/\(%d,(NULL|%s),(NULL|%s),0(?:,(NULL|%s),%s)?\)/', $raw_query, $matches, PREG_SET_ORDER );
 			$offset = 0;
 			foreach ( $matches as $value_shape ) {
 				$product_id = (int) ( $args[ $offset++ ] ?? 0 );
@@ -2952,8 +2993,51 @@ class Digitalogic_Test_WPDB {
 				$GLOBALS['digitalogic_test_wc_lookup_rows'][ $product_id ]['min_price']  = $min_price;
 				$GLOBALS['digitalogic_test_wc_lookup_rows'][ $product_id ]['max_price']  = $max_price;
 				$GLOBALS['digitalogic_test_wc_lookup_rows'][ $product_id ]['onsale']     = 0;
+				if ( isset( $value_shape[3] ) ) {
+					$GLOBALS['digitalogic_test_wc_lookup_rows'][ $product_id ]['stock_quantity'] = 'NULL' === $value_shape[3] ? null : (string) $args[ $offset++ ];
+					$GLOBALS['digitalogic_test_wc_lookup_rows'][ $product_id ]['stock_status'] = (string) $args[ $offset++ ];
+				}
 			}
 			return count( $matches );
+		}
+		if ( strpos( $raw_query, 'digitalogic_pricing_batch_stock_meta_delete' ) !== false ) {
+			foreach ( $args as $id ) {
+				unset( $GLOBALS['digitalogic_test_posts'][ $id ]['meta']['_stock_status'], $GLOBALS['digitalogic_test_posts'][ $id ]['meta_rows']['_stock_status'] );
+			}
+			return count( $args );
+		}
+		if ( strpos( $raw_query, 'digitalogic_pricing_batch_stock_meta_insert' ) !== false ) {
+			foreach ( array_chunk( $args, 2 ) as $row ) {
+				$GLOBALS['digitalogic_test_posts'][ (int) $row[0] ]['meta']['_stock_status'] = (string) $row[1];
+			}
+			return count( $args ) / 2;
+		}
+		if ( strpos( $raw_query, 'digitalogic_pricing_batch_stock_lookup' ) !== false ) {
+			$count = (int) ( count( $args ) / 3 );
+			for ( $i = 0; $i < $count; ++$i ) {
+				$GLOBALS['digitalogic_test_wc_lookup_rows'][ (int) $args[ 2 * $i ] ]['stock_status'] = (string) $args[ 2 * $i + 1 ];
+			}
+			return $count;
+		}
+		if ( strpos( $raw_query, 'digitalogic_pricing_batch_visibility_delete' ) !== false ) {
+			$term_id = (int) array_pop( $args );
+			foreach ( $args as $id ) {
+				$GLOBALS['digitalogic_test_object_terms'][ $id ]['product_visibility'] = array_values( array_diff( (array) ( $GLOBALS['digitalogic_test_object_terms'][ $id ]['product_visibility'] ?? array() ), array( $term_id ) ) );
+			}
+			return count( $args );
+		}
+		if ( strpos( $raw_query, 'digitalogic_pricing_batch_visibility_insert' ) !== false ) {
+			foreach ( array_chunk( $args, 2 ) as $row ) {
+				$GLOBALS['digitalogic_test_object_terms'][ (int) $row[0] ]['product_visibility'][] = (int) $row[1];
+			}
+			return count( $args ) / 2;
+		}
+		if ( strpos( $raw_query, 'digitalogic_pricing_batch_titles' ) !== false ) {
+			$count = (int) ( count( $args ) / 3 );
+			for ( $i = 0; $i < $count; ++$i ) {
+				$GLOBALS['digitalogic_test_posts'][ (int) $args[ 2 * $i ] ]['post_title'] = (string) $args[ 2 * $i + 1 ];
+			}
+			return $count;
 		}
 		if ( strpos( $raw_query, 'digitalogic_pricing_batch_parent_lookup_upsert' ) !== false ) {
 			$written = 0;
@@ -3096,6 +3180,9 @@ function wc_get_container() {
 }
 
 class WC_Product {
+    private $staged_clone = false;
+    private $staged_clone_name = null;
+    public function __clone() { $this->staged_clone = true; }
     public $id;
     public $meta = array();
     public $weight = null;
@@ -3124,6 +3211,7 @@ class WC_Product {
     }
 
     public function get_name() {
+        if (null !== $this->staged_clone_name) { return $this->staged_clone_name; }
         return (string) ($GLOBALS['digitalogic_test_posts'][$this->id]['post_title'] ?? '');
     }
 
@@ -3330,6 +3418,7 @@ class WC_Product {
     }
 
     public function set_name($value) {
+        if ($this->staged_clone) { $this->staged_clone_name = (string) $value; return; }
         $GLOBALS['digitalogic_test_posts'][$this->id]['post_title'] = (string) $value;
     }
 

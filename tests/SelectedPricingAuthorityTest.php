@@ -17,6 +17,7 @@ final class SelectedPricingAuthorityTest extends TestCase {
 		$products = $payload['products'];
 		foreach ( array( 0, 1 ) as $offset ) {
 			$products[ $offset ]['name'] = 'Changed source name ' . $offset;
+			$GLOBALS['digitalogic_test_posts'][ 20000 + $offset ]['post_status'] = 'draft';
 			unset( $products[ $offset ]['record_hash'] );
 			$products[ $offset ]['record_hash'] = $this->record_hash( $products[ $offset ] );
 		}
@@ -105,7 +106,7 @@ final class SelectedPricingAuthorityTest extends TestCase {
 	}
 
 	/**
-	 * Operational changes keep the full-feed writer while safe peers stay batched.
+	 * Source operational changes use the existing batch and preserve site-owned titles.
 	 */
 	public function test_full_source_batch_preserves_changed_operational_fields(): void {
 		$payload = $this->seed_ingress_batch();
@@ -116,11 +117,12 @@ final class SelectedPricingAuthorityTest extends TestCase {
 		unset( $products[0]['record_hash'] );
 		$products[0]['record_hash']                   = $this->record_hash( $products[0] );
 		$GLOBALS['digitalogic_test_wc_product_saves'] = array();
-		$result                                       = Digitalogic_Product_Sync_Receiver::instance()->receive( $this->snapshot( $products, '2026-07-22T00:00:00Z' ) );
+		$result = Digitalogic_Product_Sync_Receiver::instance()->receive( $this->snapshot( $products, '2026-07-22T00:00:00Z' ) );
 		$this->assert_success( $result );
 		$this->assertSame( 1, $result['woocommerce']['batch_count'] );
 		$this->assertSame( 30, $result['woocommerce']['updated'] );
-		$this->assertSame( array( 20000 ), array_values( array_unique( $GLOBALS['digitalogic_test_wc_product_saves'] ) ) );
+		$this->assertSame( array(), $GLOBALS['digitalogic_test_wc_product_saves'] );
+		$this->assertSame( 'INGRESS-000', $GLOBALS['digitalogic_test_posts'][20000]['post_title'] );
 		$this->assertSame( 'Changed operational name', get_post_meta( 20000, '_digitalogic_patris_name', true ) );
 		$this->assertSame( '8437286', (string) get_post_meta( 20000, '_price', true ) );
 	}
@@ -143,7 +145,10 @@ final class SelectedPricingAuthorityTest extends TestCase {
 		$this->assertSame( 30, $result['woocommerce']['updated'] );
 		$this->assertSame( 0, $result['pending_products'] );
 		$this->assertSame( 'complete', $result['delivery']['status'] );
-		$this->assertSame( array( 20029 ), array_values( array_unique( $GLOBALS['digitalogic_test_wc_product_saves'] ) ) );
+		$this->assertSame( array(), $GLOBALS['digitalogic_test_wc_product_saves'] );
+		$this->assertSame( 'canonical_missing_preserved', get_post_meta( 20029, Digitalogic_Patris_Price_Policy::STATUS_META, true ) );
+		$this->assertNotSame( '', get_post_meta( 20029, Digitalogic_Patris_Price_Policy::WARNING_META, true ) );
+		$this->assertSame( array(), get_post_meta( 20029, '_digitalogic_patris_final_price', false ) );
 		$this->assertSame( '8437000', (string) get_post_meta( 20029, '_price', true ) );
 		$this->assertSame( '8437286', (string) get_post_meta( 20000, '_price', true ) );
 	}
@@ -151,6 +156,118 @@ final class SelectedPricingAuthorityTest extends TestCase {
 	/**
 	 * Batch failure restores source, prices and deferred events together.
 	 */
+	public function test_source_batch_writes_stock_facts_and_unpriced_transition_without_full_saves(): void {
+		$payload                              = $this->seed_ingress_batch( 2 );
+		$GLOBALS['digitalogic_test_wc_product_instance_cache_removals'] = array();
+		$GLOBALS['digitalogic_test_posts'][20000]['meta'][ Digitalogic_Patris_Catalog_Materializer::AUTO_MATERIALIZED_META ] = '1';
+		unset( $GLOBALS['digitalogic_test_post_meta_cache'][20000] );
+		$products                             = $payload['products'];
+		$products[0]['total_stock']           = 5;
+		$products[0]['purchase_price_source'] = 123;
+		$products[0]['source_updated_at']     = '2026-07-22T00:00:00Z';
+		$products[0]['warehouse_stock']       = array( 'main' => 5 );
+		$products[0]['name']                  = 'Updated source title';
+		foreach ( array( 'foreign_price', 'price_source_kind', 'price_source_amount', 'price_source_currency', 'final_price' ) as $field ) {
+			unset( $products[1][ $field ] );
+		}
+		foreach ( array( 0, 1 ) as $offset ) {
+			unset( $products[ $offset ]['record_hash'] );
+			$products[ $offset ]['record_hash'] = $this->record_hash( $products[ $offset ] );
+		}
+		$GLOBALS['digitalogic_test_wc_product_saves'] = array();
+		$result                                       = Digitalogic_Product_Sync_Receiver::instance()->receive( $this->snapshot( $products, '2026-07-22T00:00:00Z' ) );
+		$this->assert_success( $result );
+		$this->assertSame( 'complete', $result['delivery']['status'] );
+		$this->assertSame( array(), $GLOBALS['digitalogic_test_wc_product_saves'] );
+		$this->assertSame( '5', get_post_meta( 20000, '_stock', true ) );
+		$this->assertSame( 'Updated source title', $GLOBALS['digitalogic_test_posts'][20000]['post_title'] );
+		$this->assertContains( 20000, $GLOBALS['digitalogic_test_wc_product_instance_cache_removals'] );
+		$this->assertContains( 20001, $GLOBALS['digitalogic_test_wc_product_instance_cache_removals'] );
+		$this->assertSame( '5', $GLOBALS['digitalogic_test_wc_lookup_rows'][20000]['stock_quantity'] );
+		$this->assertSame( '123', get_post_meta( 20000, '_digitalogic_patris_purchase_price_source', true ) );
+		$this->assertSame( '2026-07-22T00:00:00Z', get_post_meta( 20000, '_digitalogic_patris_updated_at', true ) );
+		$this->assertSame( '{"main":5}', get_post_meta( 20000, '_digitalogic_patris_warehouse_stock', true ) );
+		$this->assertSame( '', get_post_meta( 20001, '_price', true ) );
+		$this->assertSame( 'canonical_missing_unpriced', get_post_meta( 20001, Digitalogic_Patris_Price_Policy::STATUS_META, true ) );
+		$this->assertSame( '2', get_post_meta( 20001, '_stock', true ) );
+		$this->assertSame( 'outofstock', $GLOBALS['digitalogic_test_wc_lookup_rows'][20001]['stock_status'] );
+		$this->assertNull( $GLOBALS['digitalogic_test_wc_lookup_rows'][20001]['min_price'] );
+		$this->assertContains( 990001, $GLOBALS['digitalogic_test_object_terms'][20001]['product_visibility'] );
+	}
+
+	/** A real FX change does not restore an older source stock quantity after a sale. */
+	public function test_owner_fx_reprice_preserves_current_stock_after_sale(): void {
+		$this->seed_ingress_batch( 5 );
+		$GLOBALS['digitalogic_test_posts'][20000]['meta'][ Digitalogic_Patris_Catalog_Materializer::AUTO_MATERIALIZED_META ] = '1';
+		$GLOBALS['digitalogic_test_posts'][20000]['meta']['_stock']          = '2';
+		$GLOBALS['digitalogic_test_wc_lookup_rows'][20000]['stock_quantity'] = '2';
+		$GLOBALS['digitalogic_test_wc_products']                             = array();
+		unset( $GLOBALS['digitalogic_test_post_meta_cache'][20000] );
+		foreach ( array(
+			'direct_db' => array( '29501', '8437286' ),
+			'adapter'   => array( '29502', '8437572' ),
+		) as $mode => $expected ) {
+			$GLOBALS['digitalogic_test_wc_product_saves'] = array();
+			Digitalogic_Pricing_Coordinator::instance()->set_write_mode( $mode );
+			$result = Digitalogic_Pricing_Coordinator::instance()->update_currency( array( 'yuan_price' => $expected[0] ), 'stock_after_sale_' . $mode );
+			$this->assert_success( $result );
+			$this->assertSame( $expected[1], (string) get_post_meta( 20000, '_price', true ) );
+			$this->assertSame( '2', (string) get_post_meta( 20000, '_stock', true ) );
+			$this->assertSame( '2', (string) $GLOBALS['digitalogic_test_wc_lookup_rows'][20000]['stock_quantity'] );
+			$this->assertSame( '5', (string) get_post_meta( 20000, '_digitalogic_patris_total_stock', true ) );
+			if ( 'direct_db' === $mode ) {
+				$this->assertSame( array(), $GLOBALS['digitalogic_test_wc_product_saves'] );
+			} else {
+				$this->assertContains( 20000, $GLOBALS['digitalogic_test_wc_product_saves'] );
+			}
+		}
+	}
+
+	/** Raw metadata that should be absent must reject the entire delivery. */
+	public function test_source_batch_rejects_undeleted_absent_metadata_and_rolls_back(): void {
+		$payload = $this->seed_ingress_batch();
+		$GLOBALS['digitalogic_test_options']['yuan_price']         = '29501';
+		$GLOBALS['digitalogic_test_options']['options_yuan_price'] = '29501';
+		$before = Digitalogic_Product_Sync_Receiver::instance()->get_state();
+		$posts  = $GLOBALS['digitalogic_test_posts'];
+		$events = count( $GLOBALS['digitalogic_test_actions']['digitalogic_product_sync_applied'] ?? array() );
+		$GLOBALS['digitalogic_test_before_pricing_batch_meta_readback'] = static function () {
+			$GLOBALS['digitalogic_test_posts'][20000]['meta'][ Digitalogic_Patris_Price_Policy::WARNING_META ] = 'undeleted stale warning';
+		};
+		$result = Digitalogic_Product_Sync_Receiver::instance()->receive( $payload );
+		$this->assertInstanceOf( WP_Error::class, $result );
+		$this->assertSame( $before, Digitalogic_Product_Sync_Receiver::instance()->get_state() );
+		$this->assertSame( $posts, $GLOBALS['digitalogic_test_posts'] );
+		$this->assertSame( $events, count( $GLOBALS['digitalogic_test_actions']['digitalogic_product_sync_applied'] ?? array() ) );
+	}
+
+	/** Stock/taxonomy writes are rolled back when their exact readback fails. */
+	public function test_source_batch_stock_visibility_failure_rolls_back_without_receipt(): void {
+		$payload                    = $this->seed_ingress_batch( 2 );
+		$before                     = Digitalogic_Product_Sync_Receiver::instance()->get_state();
+		$posts                      = $GLOBALS['digitalogic_test_posts'];
+		$lookups                    = $GLOBALS['digitalogic_test_wc_lookup_rows'];
+		$terms                      = $GLOBALS['digitalogic_test_object_terms'];
+		$products                   = $payload['products'];
+		$products[0]['total_stock'] = 0;
+		unset( $products[0]['record_hash'] );
+		$products[0]['record_hash'] = $this->record_hash( $products[0] );
+		$events                     = count( $GLOBALS['digitalogic_test_actions']['digitalogic_product_sync_applied'] ?? array() );
+		$GLOBALS['digitalogic_test_pricing_batch_stock_readback_failure'] = true;
+		try {
+			$result = Digitalogic_Product_Sync_Receiver::instance()->receive( $this->snapshot( $products, '2026-07-22T00:00:00Z' ) );
+		} finally {
+			unset( $GLOBALS['digitalogic_test_pricing_batch_stock_readback_failure'] );
+		}
+		$this->assertInstanceOf( WP_Error::class, $result );
+		$this->assertSame( $before, Digitalogic_Product_Sync_Receiver::instance()->get_state() );
+		$this->assertSame( $posts, $GLOBALS['digitalogic_test_posts'] );
+		$this->assertSame( $lookups, $GLOBALS['digitalogic_test_wc_lookup_rows'] );
+		$this->assertSame( $terms, $GLOBALS['digitalogic_test_object_terms'] );
+		$this->assertSame( $events, count( $GLOBALS['digitalogic_test_actions']['digitalogic_product_sync_applied'] ?? array() ) );
+	}
+
+	/** Batch failure restores source, prices and deferred events together. */
 	public function test_full_source_batch_failure_rolls_back_without_receipt(): void {
 		$payload  = $this->seed_ingress_batch();
 		$receiver = Digitalogic_Product_Sync_Receiver::instance();
@@ -174,8 +291,10 @@ final class SelectedPricingAuthorityTest extends TestCase {
 
 	/**
 	 * Seed via the actual ingress writer so ownership and operational metadata are real.
+	 *
+	 * @param int|null $stock Optional source stock quantity.
 	 */
-	private function seed_ingress_batch() {
+	private function seed_ingress_batch( $stock = null ) {
 		remove_all_filters( 'digitalogic_patris_auto_materialize_source_product' );
 		$products = array();
 		for ( $offset = 0; $offset < 30; ++$offset ) {
@@ -190,7 +309,13 @@ final class SelectedPricingAuthorityTest extends TestCase {
 					Digitalogic_Shipping_Method_Service::PRODUCT_METHOD_META => 'air_express',
 				),
 			);
-			$products[] = $this->priced_product( $code );
+			$product = $this->priced_product( $code );
+			if ( null !== $stock ) {
+				$product['total_stock'] = $stock;
+				unset( $product['record_hash'] );
+				$product['record_hash'] = $this->record_hash( $product );
+			}
+			$products[] = $product;
 		}
 		$payload = $this->snapshot( $products, '2026-07-21T00:00:00Z' );
 		$this->assert_success( Digitalogic_Product_Sync_Receiver::instance()->receive( $payload ) );
@@ -697,7 +822,14 @@ final class SelectedPricingAuthorityTest extends TestCase {
 		unset( $GLOBALS['wc_deferred_product_sync'] );
 		$GLOBALS['digitalogic_test_wc_after_save'] = null;
 		$GLOBALS['digitalogic_test_wc_currency']   = 'IRT';
-		$GLOBALS['digitalogic_test_terms']         = array();
+		$GLOBALS['digitalogic_test_terms']         = array(
+			990001 => array(
+				'term_id'  => 990001,
+				'taxonomy' => 'product_visibility',
+				'slug'     => 'outofstock',
+				'name'     => 'Out of stock',
+			),
+		);
 		$GLOBALS['digitalogic_test_term_meta']     = array();
 		$GLOBALS['digitalogic_test_object_terms']  = array();
 		unset( $GLOBALS['digitalogic_test_pricing_batch_lookup_readback_failure'] );

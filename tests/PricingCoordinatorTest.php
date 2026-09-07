@@ -47,7 +47,14 @@ final class PricingCoordinatorTest extends TestCase {
 		unset( $GLOBALS['wc_deferred_product_sync'] );
 		$GLOBALS['digitalogic_test_wc_after_save'] = null;
 		$GLOBALS['digitalogic_test_wc_currency']   = 'IRT';
-		$GLOBALS['digitalogic_test_terms']         = array();
+		$GLOBALS['digitalogic_test_terms']         = array(
+			990001 => array(
+				'term_id'  => 990001,
+				'taxonomy' => 'product_visibility',
+				'slug'     => 'outofstock',
+				'name'     => 'Out of stock',
+			),
+		);
 		$GLOBALS['digitalogic_test_term_meta']     = array();
 		$GLOBALS['digitalogic_test_object_terms']  = array();
 		unset( $GLOBALS['digitalogic_test_pricing_batch_lookup_readback_failure'] );
@@ -1660,7 +1667,7 @@ final class PricingCoordinatorTest extends TestCase {
 		}
 	}
 
-	/** Title and lookup drift isolate exact auto-materialized leaves to full repair. */
+	/** Owner-only pricing preserves titles while corrupt lookup identity still requires repair. */
 	public function test_auto_materialized_title_and_lookup_drift_do_not_poison_safe_bulk_rows(): void {
 		$this->seed_large_pricing_snapshot( 4 );
 		foreach ( array( 20000, 20001 ) as $product_id ) {
@@ -1685,10 +1692,10 @@ final class PricingCoordinatorTest extends TestCase {
 		);
 		$this->assertSame( 4, $result['pricing_results']['updated_products'] );
 		$this->assertSame(
-			array( 20000, 20001 ),
+			array( 20001 ),
 			array_values( array_unique( $GLOBALS['digitalogic_test_wc_product_saves'] ) )
 		);
-		$this->assertSame( 'PERF-0000', $GLOBALS['digitalogic_test_posts'][20000]['post_title'] );
+		$this->assertSame( 'stale title', $GLOBALS['digitalogic_test_posts'][20000]['post_title'] );
 		$this->assertSame( 'PERF-0001', $GLOBALS['digitalogic_test_wc_lookup_rows'][20001]['sku'] );
 		$this->assertSame( 'outofstock', $GLOBALS['digitalogic_test_wc_lookup_rows'][20001]['stock_status'] );
 	}
@@ -1855,7 +1862,7 @@ final class PricingCoordinatorTest extends TestCase {
 	}
 
 	/** Locked operational readback catches drift after the preliminary marker proof. */
-	public function test_auto_materialized_operational_toc_tou_rolls_back_without_event(): void {
+	public function test_owner_only_stock_toc_tou_rolls_back_without_event(): void {
 		$this->seed_large_pricing_snapshot( 4 );
 		$GLOBALS['digitalogic_test_posts'][20000]['meta'][ Digitalogic_Patris_Catalog_Materializer::AUTO_MATERIALIZED_META ] = '1';
 		$GLOBALS['digitalogic_test_posts'][20000]['post_title'] = 'PERF-0000';
@@ -1866,7 +1873,7 @@ final class PricingCoordinatorTest extends TestCase {
 		$before_options                          = $GLOBALS['digitalogic_test_options'];
 		$events_before                           = count( $GLOBALS['digitalogic_test_actions']['digitalogic_pricing_apply_committed'] ?? array() );
 		$GLOBALS['digitalogic_test_before_pricing_batch_leaf_identity'] = static function () {
-			unset( $GLOBALS['digitalogic_test_posts'][20000]['meta']['_digitalogic_patris_weight_grams'] );
+			$GLOBALS['digitalogic_test_posts'][20000]['meta']['_stock'] = '17';
 		};
 
 		$result = Digitalogic_Pricing_Coordinator::instance()->update_currency(
@@ -1885,8 +1892,8 @@ final class PricingCoordinatorTest extends TestCase {
 		$this->assertContains( 'ROLLBACK', $GLOBALS['wpdb']->queries );
 	}
 
-	/** One full-feed repair cannot force otherwise-safe priced leaves through Woo saves. */
-	public function test_unsafe_priced_leaf_does_not_poison_safe_bulk_partition(): void {
+	/** Owner-only repricing must not replay historical source operational facts. */
+	public function test_owner_only_reprice_preserves_changed_operational_facts(): void {
 		$this->seed_large_pricing_snapshot( 30 );
 		$GLOBALS['digitalogic_test_posts'][20029]['meta'][ Digitalogic_Patris_Catalog_Materializer::AUTO_MATERIALIZED_META ] = '1';
 		unset( $GLOBALS['digitalogic_test_posts'][20029]['meta']['_digitalogic_patris_weight_grams'] );
@@ -1913,12 +1920,11 @@ final class PricingCoordinatorTest extends TestCase {
 		$source = $result['pricing_results']['sources'][0]['woocommerce'];
 		$this->assertSame( 1, $source['batch_count'] );
 		$this->assertSame( 0, $source['batch_parent_count'] );
-		$this->assertNotEmpty( $GLOBALS['digitalogic_test_wc_product_saves'] );
 		$this->assertSame(
-			array( 20029 ),
+			array(),
 			array_values( array_unique( $GLOBALS['digitalogic_test_wc_product_saves'] ) )
 		);
-		$this->assertSame( '1000', (string) $GLOBALS['digitalogic_test_posts'][20029]['meta']['_digitalogic_patris_weight_grams'] );
+		$this->assertArrayNotHasKey( '_digitalogic_patris_weight_grams', $GLOBALS['digitalogic_test_posts'][20029]['meta'] );
 		$this->assertSame( '8437286', (string) $GLOBALS['digitalogic_test_posts'][20000]['meta']['_price'] );
 		$this->assertSame( '8437286', (string) $GLOBALS['digitalogic_test_posts'][20029]['meta']['_price'] );
 	}
@@ -2146,6 +2152,47 @@ final class PricingCoordinatorTest extends TestCase {
 		$this->assertSame( '8437572', (string) $GLOBALS['digitalogic_test_wc_lookup_rows'][30000]['min_price'] );
 		$this->assertSame( '8437572', (string) $GLOBALS['digitalogic_test_wc_lookup_rows'][30000]['max_price'] );
 		$this->assertSame( '', (string) $GLOBALS['digitalogic_test_posts'][40000]['meta']['_price'] );
+	}
+
+	/** Source changes overlay both children across SQL chunks before parent price/stock planning. */
+	public function test_source_stock_and_unpriced_parent_projection_crosses_sql_chunks(): void {
+		$this->seed_large_pricing_snapshot( 201, 1 );
+		$GLOBALS['digitalogic_test_options']['woocommerce_hide_out_of_stock_items'] = 'yes';
+		$products = array();
+		for ( $offset = 0; $offset < 201; ++$offset ) {
+			$product                = $this->priced_product( 'PERF-' . str_pad( (string) $offset, 4, '0', STR_PAD_LEFT ) );
+			$product['total_stock'] = 199 === $offset ? 0 : 3;
+			if ( 200 === $offset ) {
+				$product['foreign_price']       = 200;
+				$product['price_source_amount'] = 200;
+				$product['final_price']         = 12272000;
+			}
+			unset( $product['record_hash'] );
+			$product['record_hash'] = $this->record_hash( $product );
+			$products[]             = $product;
+		}
+		$GLOBALS['digitalogic_test_wc_product_saves'] = array();
+		$result                                       = Digitalogic_Product_Sync_Receiver::instance()->receive( $this->snapshot( $products, '2026-07-24T00:00:00Z' ) );
+		$this->assertFalse( is_wp_error( $result ), is_wp_error( $result ) ? $result->get_error_message() : '' );
+		$this->assertSame( 'complete', $result['delivery']['status'] );
+		$this->assertSame( 2, $result['woocommerce']['batch_count'] );
+		$this->assertSame( array(), $GLOBALS['digitalogic_test_wc_product_saves'] );
+		$this->assertSame( '12272000', $GLOBALS['digitalogic_test_wc_lookup_rows'][30000]['min_price'] );
+		$this->assertSame( 'instock', $GLOBALS['digitalogic_test_wc_lookup_rows'][30000]['stock_status'] );
+		$this->assertContains( 990001, $GLOBALS['digitalogic_test_object_terms'][20199]['product_visibility'] );
+		$this->assertNotContains( 990001, $GLOBALS['digitalogic_test_object_terms'][20200]['product_visibility'] ?? array() );
+		foreach ( array( 'foreign_price', 'price_source_kind', 'price_source_amount', 'price_source_currency', 'final_price', 'record_hash' ) as $field ) {
+			unset( $products[200][ $field ] );
+		}
+		$products[200]['record_hash'] = $this->record_hash( $products[200] );
+		$result                       = Digitalogic_Product_Sync_Receiver::instance()->receive( $this->snapshot( $products, '2026-07-25T00:00:00Z' ) );
+		$this->assertFalse( is_wp_error( $result ), is_wp_error( $result ) ? $result->get_error_message() : '' );
+		$this->assertSame( 'complete', $result['delivery']['status'] );
+		$this->assertSame( '0', $GLOBALS['digitalogic_test_wc_lookup_rows'][30000]['min_price'] );
+		$this->assertSame( 'outofstock', $GLOBALS['digitalogic_test_wc_lookup_rows'][30000]['stock_status'] );
+		$this->assertSame( array(), get_post_meta( 30000, '_price', false ) );
+		$this->assertContains( 990001, $GLOBALS['digitalogic_test_object_terms'][30000]['product_visibility'] );
+		$this->assertSame( array(), $GLOBALS['digitalogic_test_wc_product_saves'] );
 	}
 
 	/** Hidden out-of-stock variations are excluded from parent rows and lookup bounds. */
@@ -4996,8 +5043,8 @@ final class PricingCoordinatorTest extends TestCase {
 		$this->assertCount( 1, $matching );
 	}
 
-	/** Auto-materialized leaves use the canonical full feed during later repricing. */
-	public function test_coordinated_reprice_repairs_auto_materialized_feed_drift(): void {
+	/** Auto-materialized leaves also preserve operational facts during owner-only repricing. */
+	public function test_coordinated_reprice_preserves_auto_materialized_operational_state(): void {
 		$this->seed_snapshot( true );
 		$resolved   = Digitalogic_Product_Identifier_Resolver::instance()->resolve(
 			array( 'patris_code' => 'MISSING-902' )
@@ -5018,10 +5065,7 @@ final class PricingCoordinatorTest extends TestCase {
 			is_wp_error( $result ),
 			is_wp_error( $result ) ? $result->get_error_code() . ': ' . $result->get_error_message() : ''
 		);
-		$this->assertSame(
-			'1000',
-			(string) $GLOBALS['digitalogic_test_posts'][ $product_id ]['meta']['_digitalogic_patris_weight_grams']
-		);
+		$this->assertArrayNotHasKey( '_digitalogic_patris_weight_grams', $GLOBALS['digitalogic_test_posts'][ $product_id ]['meta'] );
 		$this->assertSame( '8866000', (string) $GLOBALS['digitalogic_test_posts'][ $product_id ]['meta']['_regular_price'] );
 	}
 

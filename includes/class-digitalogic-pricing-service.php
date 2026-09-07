@@ -3665,6 +3665,47 @@ final class Digitalogic_Pricing_Service {
 	}
 
 	/**
+	 * Require transactional storage before changing pricing or owner options.
+	 *
+	 * @return true|WP_Error
+	 */
+	public function assert_transactional_pricing_storage() {
+		global $wpdb;
+		$failure = $this->error(
+			'digitalogic_pricing_transactional_storage_required',
+			'جدول‌های قیمت‌گذاری باید از تراکنش و بازگردانی پشتیبانی کنند.',
+			503
+		);
+		if ( ! is_object( $wpdb ) || ! method_exists( $wpdb, 'get_results' ) || ! method_exists( $wpdb, 'prepare' ) ) {
+			return $failure;
+		}
+		$tables = array(
+			$wpdb->options,
+			$wpdb->posts,
+			$wpdb->postmeta,
+			$wpdb->prefix . 'wc_product_meta_lookup',
+			$wpdb->term_relationships,
+			$wpdb->term_taxonomy,
+			$wpdb->terms,
+		);
+		$sql    = '/* digitalogic_pricing_transactional_storage */ SELECT TABLE_NAME table_name, ENGINE engine FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME IN (' . implode( ',', array_fill( 0, count( $tables ), '%s' ) ) . ')';
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Verify the actual engines once per transaction before any owner or product write; every table name is a prepared value.
+		$rows = $wpdb->get_results( $wpdb->prepare( $sql, ...$tables ), ARRAY_A );
+		if ( ! is_array( $rows ) || count( $rows ) !== count( $tables ) ) {
+			return $failure;
+		}
+		$remaining = array_fill_keys( $tables, true );
+		foreach ( $rows as $row ) {
+			$table = (string) ( $row['table_name'] ?? '' );
+			if ( ! isset( $remaining[ $table ] ) || 'innodb' !== strtolower( (string) ( $row['engine'] ?? '' ) ) ) {
+				return $failure;
+			}
+			unset( $remaining[ $table ] );
+		}
+		return empty( $remaining ) ? true : $failure;
+	}
+
+	/**
 	 * Run an atomic option transaction.
 	 *
 	 * @param callable      $callback         Transaction callback.
@@ -3674,6 +3715,10 @@ final class Digitalogic_Pricing_Service {
 	 */
 	private function run_transaction( $callback, $pre_commit_guard = null, $marker_owned_events = false ) {
 		global $wpdb;
+		$storage = $this->assert_transactional_pricing_storage();
+		if ( is_wp_error( $storage ) ) {
+			return $storage;
+		}
 		if (
 			$this->transaction_active
 			|| ! is_object( $wpdb )
