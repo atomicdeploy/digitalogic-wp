@@ -62,7 +62,7 @@ final class Digitalogic_Product_Query {
 		$args    = is_array( $args ) ? $args : array();
 		$filters = isset( $args['filters'] ) && is_array( $args['filters'] ) ? $args['filters'] : array();
 
-		foreach ( array( 'sku', 'type', 'status', 'stock_status' ) as $legacy_key ) {
+		foreach ( array( 'sku', 'part_number', 'patris_product_code', 'type', 'status', 'stock_status' ) as $legacy_key ) {
 			if ( ! array_key_exists( $legacy_key, $filters ) && array_key_exists( $legacy_key, $args ) ) {
 				$filters[ $legacy_key ] = $args[ $legacy_key ];
 			}
@@ -160,6 +160,7 @@ final class Digitalogic_Product_Query {
 			'page'    => isset( $args['page'] ) ? max( 1, intval( $args['page'] ) ) : 1,
 			'limit'   => isset( $args['limit'] ) ? max( 1, min( 100, absint( $args['limit'] ) ) ) : 50,
 			'search'  => isset( $args['search'] ) ? self::text( $args['search'], 160 ) : '',
+			'q'       => isset( $args['q'] ) ? self::text( $args['q'], 160 ) : '',
 			'filters' => $normalized_filters,
 			'image'   => $image,
 			'sorts'   => $normalized_sorts,
@@ -194,6 +195,9 @@ final class Digitalogic_Product_Query {
 		);
 
 		$search = array();
+		if ( '' !== $args['q'] ) {
+			$query['digitalogic_product_identifier_search'] = $args['q'];
+		}
 		if ( '' !== $args['search'] ) {
 			$search[] = $args['search'];
 		}
@@ -324,7 +328,7 @@ final class Digitalogic_Product_Query {
 	public static function has_active_filters( $args ) {
 		$args = self::normalize_args( $args );
 
-		return '' !== $args['search'] || array() !== $args['filters'] || 'all' !== $args['image'];
+		return '' !== $args['q'] || '' !== $args['search'] || array() !== $args['filters'] || 'all' !== $args['image'];
 	}
 
 	/**

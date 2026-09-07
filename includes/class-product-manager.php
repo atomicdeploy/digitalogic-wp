@@ -39,6 +39,26 @@ class Digitalogic_Product_Manager {
 		}
 
 		global $wpdb;
+		$identifier = (string) $query->get( 'digitalogic_product_identifier_search' );
+		if ( '' !== $identifier ) {
+			$like              = '%' . $wpdb->esc_like( $identifier ) . '%';
+			$clauses['where'] .= $wpdb->prepare(
+				" AND ({$wpdb->posts}.post_title LIKE %s
+				OR EXISTS (SELECT 1 FROM {$wpdb->postmeta} dg_identifier
+				 WHERE dg_identifier.post_id = {$wpdb->posts}.ID
+				 AND dg_identifier.meta_key IN ('_sku', 'attribute_pa_model', '_digitalogic_model', '_digitalogic_part_number', '_digitalogic_patris_product_code')
+				 AND dg_identifier.meta_value LIKE %s)
+				OR EXISTS (SELECT 1 FROM {$wpdb->term_relationships} dg_model_rel
+				 INNER JOIN {$wpdb->term_taxonomy} dg_model_tax ON dg_model_tax.term_taxonomy_id = dg_model_rel.term_taxonomy_id
+				 INNER JOIN {$wpdb->terms} dg_model_term ON dg_model_term.term_id = dg_model_tax.term_id
+				 WHERE dg_model_rel.object_id = {$wpdb->posts}.ID AND dg_model_tax.taxonomy = 'pa_model'
+				 AND (dg_model_term.name LIKE %s OR dg_model_term.slug LIKE %s)))",
+				$like,
+				$like,
+				$like,
+				$like
+			);
+		}
 		$part_number = (string) $query->get( 'digitalogic_product_part_number_filter' );
 		if ( $part_number !== '' ) {
 			$like              = '%' . $wpdb->esc_like( $part_number ) . '%';
@@ -47,7 +67,7 @@ class Digitalogic_Product_Manager {
                     EXISTS (
                         SELECT 1 FROM {$wpdb->postmeta} digitalogic_part_number_meta
                         WHERE digitalogic_part_number_meta.post_id = {$wpdb->posts}.ID
-                        AND digitalogic_part_number_meta.meta_key = 'attribute_pa_model'
+                        AND digitalogic_part_number_meta.meta_key IN ('attribute_pa_model', '_digitalogic_model', '_digitalogic_part_number')
                         AND digitalogic_part_number_meta.meta_value LIKE %s
                     )
                     OR EXISTS (
@@ -200,6 +220,49 @@ class Digitalogic_Product_Manager {
 	}
 
 	/**
+	 * Collect all matching rows through the existing bounded list query.
+	 * Fail explicitly if a page disappears, repeats, or changes the row count.
+	 * This is a live read, not an immutable point-in-time snapshot.
+	 *
+	 * @param array $args Canonical filters and sorting.
+	 * @return array|WP_Error
+	 */
+	public function query_all_products( $args = array() ) {
+		Digitalogic_Product_Code_Editor::instance()->reset_editability_cache();
+		$args['page']  = 1;
+		$args['limit'] = 100;
+		$result        = $this->query_products_page( $args );
+		$expected      = $result['recordsFiltered'];
+		$products      = array();
+		$seen          = array();
+		$pages         = max( 1, $result['pages'] );
+		$metadata      = $result;
+		for ( $page = 1; $page <= $pages; ++$page ) {
+			if ( $page > 1 ) {
+				$args['page'] = $page;
+				$result       = $this->query_products_page( $args );
+			}
+			if ( ! empty( $result['query_failed'] ) || $expected !== $result['recordsFiltered']
+				|| count( $result['products'] ) !== min( 100, max( 0, $expected - ( $page - 1 ) * 100 ) ) ) {
+				return new WP_Error( 'digitalogic_catalog_incomplete', 'The catalog read was incomplete. Retry the request.', array( 'status' => 503 ) );
+			}
+			foreach ( $result['products'] as $product ) {
+				$id = $product['id'] ?? 0;
+				if ( ! $id || isset( $seen[ $id ] ) ) {
+					return new WP_Error( 'digitalogic_catalog_incomplete', 'The catalog changed during the read. Retry the request.', array( 'status' => 503 ) );
+				}
+				$seen[ $id ] = true;
+				$products[]  = $product;
+			}
+		}
+		$metadata['products'] = $products;
+		$metadata['page']     = 1;
+		$metadata['limit']    = -1;
+		$metadata['pages']    = $expected > 0 ? 1 : 0;
+		return $metadata;
+	}
+
+	/**
 	 * Execute one page without discarding the outer export's source index.
 	 *
 	 * @param array $args Normalized product query arguments.
@@ -209,12 +272,17 @@ class Digitalogic_Product_Manager {
 		$normalized = Digitalogic_Product_Query::normalize_args( $args );
 
 		try {
-			$query       = new WP_Query( Digitalogic_Product_Query::build_wp_query_args( $normalized ) );
+			$query = new WP_Query( Digitalogic_Product_Query::build_wp_query_args( $normalized ) );
+			global $wpdb;
+			if ( ! empty( $wpdb->last_error ) ) {
+				throw new RuntimeException( 'The product database query failed.' );
+			}
 			$product_ids = array_values( array_filter( array_map( 'absint', (array) $query->posts ) ) );
 			Digitalogic_Product_Code_Editor::instance()->prepare_admin_read_batch( $product_ids );
-			$filtered    = max( 0, (int) $query->found_posts );
-			$products    = $this->format_product_list( $product_ids );
-			$total       = Digitalogic_Product_Query::has_active_filters( $normalized )
+
+			$filtered = max( 0, (int) $query->found_posts );
+			$products = $this->format_product_list( $product_ids );
+			$total    = Digitalogic_Product_Query::has_active_filters( $normalized )
 				? $this->get_unfiltered_product_count()
 				: $filtered;
 
@@ -231,6 +299,7 @@ class Digitalogic_Product_Manager {
 			error_log( 'Digitalogic: Error in query_products - ' . $e->getMessage() );
 
 			return array(
+				'query_failed'    => true,
 				'products'        => array(),
 				'total'           => 0,
 				'recordsTotal'    => 0,
@@ -637,6 +706,16 @@ class Digitalogic_Product_Manager {
         } else {
             $part_number = $product->get_attribute('pa_model');
         }
+
+		if ( ! is_string( $part_number ) || '' === $part_number ) {
+			foreach ( array( '_digitalogic_part_number', '_digitalogic_model' ) as $key ) {
+				$value = $product->get_meta( $key, true );
+				if ( is_string( $value ) && '' !== trim( $value ) ) {
+					$part_number = $value;
+					break;
+				}
+			}
+		}
 
         if (is_string($part_number) && $part_number !== '') {
             return wc_clean(wp_strip_all_tags($part_number));
