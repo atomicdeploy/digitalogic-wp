@@ -31,7 +31,7 @@ class Digitalogic_Frontend_Search {
 		add_filter( 'digitalogic_websocket_ajax_action_allowed', array( $this, 'allow_public_ajax_search_action' ), 10, 4 );
 		add_action( 'wp_ajax_woodmart_ajax_search', array( $this, 'serve_search' ), 1 );
 		add_action( 'wp_ajax_nopriv_woodmart_ajax_search', array( $this, 'serve_search' ), 1 );
-		add_action( 'admin_menu', array( $this, 'cache_menu' ) );
+		add_action( 'admin_menu', array( $this, 'cache_menu' ), 99 );
 		add_action( 'admin_init', array( $this, 'register_cache_settings' ) );
 		add_action( 'digitalogic_report_projection_invalidated', array( $this, 'queue_invalidation' ) );
 		add_action( 'digitalogic_excel_pricing_apply_committed', array( $this, 'queue_invalidation' ) );
@@ -79,6 +79,33 @@ class Digitalogic_Frontend_Search {
 
 	public function cache_settings() {
 		return $this->sanitize_cache_settings( get_option( 'digitalogic_search_cache', array() ) );
+	}
+
+	/**
+	 * Keep the normal quantity-one WooCommerce HTML in search previews.
+	 *
+	 * @param string $tier_html Bulk-quantity price presentation.
+	 * @param string $default_html Normal WooCommerce price HTML.
+	 * @return string Normal price with currency, tax and variation formatting retained.
+	 */
+	public function preview_price_html( $tier_html, $default_html ) {
+		unset( $tier_html );
+		return $default_html;
+	}
+
+	/**
+	 * Render commercial price without advertising a bulk tier as a unit price.
+	 *
+	 * @param WC_Product $product Search result product.
+	 * @return string Price HTML.
+	 */
+	private function product_price_html( $product ) {
+		add_filter( 'tiered_pricing_table/catalog_pricing/price_html', array( $this, 'preview_price_html' ), PHP_INT_MAX, 2 );
+		try {
+			return $product->get_price_html();
+		} finally {
+			remove_filter( 'tiered_pricing_table/catalog_pricing/price_html', array( $this, 'preview_price_html' ), PHP_INT_MAX );
+		}
 	}
 
 	public function sanitize_cache_settings( $value ) {
@@ -193,7 +220,7 @@ class Digitalogic_Frontend_Search {
 		foreach ( $result['suggestions'] as &$item ) {
 			if ( isset( $item['_dg_product_id'] ) ) {
 				$product       = wc_get_product( $item['_dg_product_id'] );
-				$item['price'] = $product ? $product->get_price_html() : '';
+				$item['price'] = $product ? $this->product_price_html( $product ) : '';
 				unset( $item['_dg_product_id'] );
 			}
 		}

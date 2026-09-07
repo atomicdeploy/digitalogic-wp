@@ -7,7 +7,7 @@
     }
 
     var audienceKey = String(config.audienceKey || 'guest').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 32) || 'guest';
-    var prefix = 'digitalogic.realtime.v1.' + audienceKey + '.';
+    var prefix = 'digitalogic.realtime.v2.' + audienceKey + '.';
     var channelName = prefix + 'channel';
     var leaderKey = prefix + 'leader';
     var eventKey = prefix + 'event';
@@ -26,6 +26,41 @@
     var lastNotificationEventId = Number(readSession(notificationEventKey) || 0);
     var currentProductId = Number(config.currentProductId || 0);
     var leaderTtl = Math.max(6000, Number(config.leaderTtlMs || 12000));
+    var freshnessPending = false;
+    var freshnessCursor = Number(config.initialEventId || 0);
+    var freshnessGeneration = null;
+
+    function checkFreshness() {
+        if (!config.freshnessUrl || freshnessPending || document.visibilityState === 'hidden') { return; }
+        freshnessPending = true;
+        var url = new URL(config.freshnessUrl, window.location.href);
+        url.searchParams.set('since', String(freshnessCursor));
+        var controller = new AbortController();
+        var timeout = window.setTimeout(function() { controller.abort(); }, 6000);
+        fetch(url.toString(), {credentials: 'same-origin', cache: 'no-store', signal: controller.signal})
+            .then(function(response) {
+                if (!response.ok) { throw new Error('freshness_unavailable'); }
+                return response.json();
+            }).then(function(result) {
+                if (!result.generation || !Array.isArray(result.events)) { throw new Error('freshness_invalid'); }
+                if (freshnessGeneration !== result.generation) {
+                    window.dispatchEvent(new CustomEvent('digitalogic:search-invalidated'));
+                    if (freshnessGeneration !== null && currentProductId) {
+                        refreshProduct({id: Number(result.latest || 0), name: 'product.resync', data: {product_id: currentProductId}});
+                    }
+                    freshnessGeneration = result.generation;
+                }
+                (result.events || []).forEach(function(event) {
+                    handleEvent(event);
+                    freshnessCursor = Math.max(freshnessCursor, Number(event.id || 0));
+                });
+            }).catch(function() {
+                window.dispatchEvent(new CustomEvent('digitalogic:search-unavailable'));
+            }).finally(function() {
+                window.clearTimeout(timeout);
+                freshnessPending = false;
+            });
+    }
 
     writeSession(tabKey, tabId);
 
@@ -480,10 +515,14 @@
     }
 
     function maintainLeadership() {
+        checkFreshness();
         var now = Date.now();
         var current = lease();
         if (!current || Number(current.expiresAt || 0) <= now || current.tabId === tabId) {
-            writeLocal(leaderKey, JSON.stringify({tabId: tabId, expiresAt: now + leaderTtl}));
+            if (!writeLocal(leaderKey, JSON.stringify({tabId: tabId, expiresAt: now + leaderTtl}))) {
+                openStream();
+                return;
+            }
             current = lease();
         }
         if (current && current.tabId === tabId) {
@@ -520,6 +559,7 @@
 
     document.addEventListener('visibilitychange', function () {
         if (document.visibilityState === 'visible') {
+            checkFreshness();
             var pending = Number(readSession(prefix + 'pending-product-event') || 0);
             if (pending > 0) {
                 writeSession(prefix + 'pending-product-event', 0);
@@ -531,14 +571,20 @@
     window.addEventListener('pagehide', function () {
         if (leaderTimer) {
             window.clearInterval(leaderTimer);
+            leaderTimer = null;
         }
         closeStream();
         if (channel) {
             channel.close();
+            channel = null;
         }
         if (ownsLease()) {
             writeLocal(leaderKey, JSON.stringify({tabId: tabId, expiresAt: 0}));
         }
+    });
+
+    window.addEventListener('pageshow', function(event) {
+        if (event.persisted && !leaderTimer) { startCoordination(); }
     });
 
     hydrateCurrency();

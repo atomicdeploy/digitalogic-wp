@@ -61,6 +61,15 @@ final class Digitalogic_Storefront_Realtime {
 	public function register_routes() {
 		register_rest_route(
 			'digitalogic/v1',
+			'/events/search-freshness',
+			array(
+				'methods'             => 'GET',
+				'callback'            => array( $this, 'search_freshness' ),
+				'permission_callback' => '__return_true',
+			)
+		);
+		register_rest_route(
+			'digitalogic/v1',
 			self::REST_ROUTE,
 			array(
 				'methods'             => 'GET',
@@ -68,6 +77,41 @@ final class Digitalogic_Storefront_Realtime {
 				'permission_callback' => '__return_true',
 			)
 		);
+	}
+
+	/**
+	 * Public commercial events only; notification audiences are never polled here.
+	 *
+	 * @param WP_REST_Request $request Public cursor request.
+	 * @return WP_REST_Response|WP_Error Public freshness result.
+	 */
+	public function search_freshness( $request ) {
+		$generation = Digitalogic_Report_Engine::instance()->current_projection_generation();
+		if ( is_wp_error( $generation ) ) {
+			return $generation;
+		}
+		$cursor = absint( $request->get_param( 'since' ) );
+		$events = array();
+		foreach ( Digitalogic_Panel::get_events_since( $cursor ) as $event ) {
+			$name = (string) ( $event['name'] ?? '' );
+			if ( 'search.invalidated' !== $name && 'currency.updated' !== $name && 0 !== strpos( $name, 'product.' ) ) {
+				continue;
+			}
+			$public = self::project_public_event( $event, 0 );
+			if ( null !== $public ) {
+				$events[] = $public;
+			}
+		}
+		$response = new WP_REST_Response(
+			array(
+				'events'     => $events,
+				'generation' => $generation,
+				'latest'     => Digitalogic_Panel::get_latest_event_id(),
+			),
+			200
+		);
+		$response->header( 'Cache-Control', 'no-store, private' );
+		return $response;
 	}
 
 	/**
@@ -133,6 +177,7 @@ final class Digitalogic_Storefront_Realtime {
 			'DigitalogicRealtime',
 			array(
 				'streamUrl'        => rest_url( 'digitalogic/v1' . self::REST_ROUTE ),
+				'freshnessUrl'     => rest_url( 'digitalogic/v1/events/search-freshness' ),
 				'currentProductId' => $product_id,
 				'initialEventId'   => Digitalogic_Panel::get_latest_event_id(),
 				'currency'         => self::currency_snapshot(),

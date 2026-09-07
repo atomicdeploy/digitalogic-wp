@@ -3,7 +3,8 @@
 // phpcs:disable -- Deliberately minimal WordPress/theme test doubles in an isolated process.
 define('ABSPATH', __DIR__);
 function add_action(...$args) {}
-function add_filter(...$args) {}
+function add_filter($name, $callback, ...$args) { $GLOBALS['filters'][$name] = $callback; }
+function remove_filter($name, ...$args) { unset($GLOBALS['filters'][$name]); }
 function nocache_headers() {}
 function get_option($key, $default = false) { return $default; }
 function wp_unslash($value) { return $value; }
@@ -28,7 +29,10 @@ class Digitalogic_Report_Engine {
 }
 class SearchProduct {
     public static $price = '505900';
-    public function get_price_html() { return self::$price; }
+    public function get_price_html() {
+        $callback = $GLOBALS['filters']['tiered_pricing_table/catalog_pricing/price_html'] ?? null;
+        return $callback ? $callback('From 4444', self::$price) : 'From 4444';
+    }
 }
 function wc_get_product($id) { return new SearchProduct(); }
 class SearchTheme {
@@ -56,6 +60,7 @@ function search_response() {
 function verify($condition, $message) { if (!$condition) throw new RuntimeException($message); }
 $first = search_response()->result;
 verify($first['suggestions'][0]['price'] === '505900', 'fresh price');
+verify(!isset($GLOBALS['filters']['tiered_pricing_table/catalog_pricing/price_html']), 'bulk formatting restored outside search');
 $second = search_response()->result;
 verify($second['dg_cache']['hit'] && SearchTheme::$queries === 1, 'query cache reused');
 $_REQUEST['dg_search_signature'] = $second['dg_cache']['signature'];
