@@ -20,11 +20,11 @@ if (!class_exists('Digitalogic_Product_Identifier_Resolver')) {
 
 class Digitalogic_Patris_Feed {
 
-    private const SETTINGS_OPTION           = 'digitalogic_patris_feed_settings';
-    private const PRODUCTS_OPTION           = 'digitalogic_patris_feed_products';
-    private const CUSTOMERS_OPTION          = 'digitalogic_patris_feed_customers';
-    private const LAST_SYNC_OPTION          = 'digitalogic_patris_feed_last_sync';
-    private const TOKEN_OPTION              = 'digitalogic_patris_feed_push_token';
+    private const SETTINGS_OPTION                            = 'digitalogic_patris_feed_settings';
+    private const PRODUCTS_OPTION                            = 'digitalogic_patris_feed_products';
+    private const CUSTOMERS_OPTION                           = 'digitalogic_patris_feed_customers';
+    private const LAST_SYNC_OPTION                           = 'digitalogic_patris_feed_last_sync';
+    private const TOKEN_OPTION                               = 'digitalogic_patris_feed_push_token';
     public const PRODUCT_SYNC_SECRET_OPTION                  = 'digitalogic_product_sync_secret';
     public const PRODUCT_SYNC_SCOPES_OPTION                  = 'digitalogic_product_sync_source_scopes';
 	public const PRICING_BATCH_MAX_IDENTICAL_ASSIGNMENT_ROWS = 8;
@@ -1664,7 +1664,7 @@ class Digitalogic_Patris_Feed {
 	}
 
 	/**
-	 * Apply a pricing-only projection in bounded SQL batches.
+	 * Apply supported source and pricing projections in bounded SQL batches.
 	 *
 	 * The caller owns the surrounding database transaction. Product objects
 	 * are used only to execute the canonical Woo price policy in memory; no
@@ -1702,12 +1702,14 @@ class Digitalogic_Patris_Feed {
 					);
 				}
 
-				$plans                   = array();
-				$identity_plans          = array();
-				$warnings                = array();
-				$commit_snapshots        = array();
-				$additional_managed_keys = array();
-				$variation_parents       = array();
+				$plans                     = array();
+				$identity_plans            = array();
+				$warnings                  = array();
+				$commit_snapshots          = array();
+				$additional_managed_keys   = array();
+				$variation_parents         = array();
+				$staged_products           = array();
+				$stock_visibility_required = false;
 				foreach ( $items as $item ) {
 					if ( 0 === count( $plans ) % 200 ) {
 						$guarded = $this->check_pricing_batch_guard( $actuation_guard );
@@ -1797,7 +1799,16 @@ class Digitalogic_Patris_Feed {
 						);
 					}
 
-					$this->stage_product_pricing( $product, $data );
+					$staged_products[ $product_id ] = array( 'product' => $product, 'data' => $data, 'full_feed' => ! empty( $item['operational_projection'] ) );
+					$product                        = clone $product;
+					if ( ! empty( $item['operational_projection'] ) ) {
+						$this->stage_product_feed( $product, $data );
+						if ( array( '1' ) === $auto_materialized_rows ) {
+							$product->set_name( (string) $item['operational_projection']['post_title'] );
+						}
+					} else {
+						$this->stage_product_pricing( $product, $data );
+					}
 					$meta = array();
 					foreach ( $this->pricing_meta_fields() as $field => $meta_key ) {
 						if ( array_key_exists( $field, $data ) && null !== $data[ $field ] ) {
@@ -1868,7 +1879,7 @@ class Digitalogic_Patris_Feed {
 					}
 					$operational_projection = array();
 					$operational_meta_rows  = array();
-					if ( array( '1' ) === $auto_materialized_rows ) {
+					if ( ! empty( $item['operational_projection'] ) ) {
 						$operational_projection = $this->pricing_batch_operational_projection( $product, $data );
 						if (
 							! is_array( $item['operational_projection'] ?? null )
@@ -1881,14 +1892,17 @@ class Digitalogic_Patris_Feed {
 							);
 						}
 						$operational_meta_rows = (array) ( $operational_projection['meta_rows'] ?? array() );
-					} elseif ( ! empty( $item['operational_projection'] ) ) {
-						return new WP_Error(
-							'digitalogic_pricing_batch_operational_projection_changed',
-							'A pricing batch contained an unexpected operational projection.',
-							array( 'status' => 409 )
-						);
+						foreach ( $operational_meta_rows as $key => $values ) {
+							if ( count( $values ) > 1 ) {
+								return $this->pricing_batch_error( 'operational_projection' );
+							}
+							$additional_managed_keys[ $key ] = true;
+							if ( ! empty( $values ) ) {
+								$meta[ $key ] = (string) reset( $values );
+							}
+						}
 					}
-					$stock_rows = array_map(
+					$stock_rows        = array_map(
 						'strval',
 						array_values( (array) get_post_meta( $product_id, '_stock', false ) )
 					);
@@ -1927,7 +1941,17 @@ class Digitalogic_Patris_Feed {
 						Digitalogic_Patris_Catalog_Materializer::AUTO_MATERIALIZED_META => $auto_materialized_rows,
 						'_stock'        => $stock_rows,
 						'_stock_status' => $stock_status_rows,
-					) + $operational_meta_rows;
+					) + (array) ( $item['operational_baseline']['meta_rows'] ?? array() );
+					if ( 'canonical_missing_preserved' === (string) $product->get_meta( Digitalogic_Patris_Price_Policy::STATUS_META, true ) ) {
+						// Preserved values are inputs: fence their exact stored tuple in
+						// the existing locking identity read before writing anything.
+						$identity_meta_rows['_regular_price'] = array( $regular );
+						$identity_meta_rows['_price']         = array( $visible );
+						$identity_meta_rows['_sale_price']    = array_map( 'strval', (array) get_post_meta( $product_id, '_sale_price', false ) );
+						if ( count( $identity_meta_rows['_sale_price'] ) > 1 || array_filter( $identity_meta_rows['_sale_price'], static fn( $value ) => '' !== $value ) ) {
+							return $this->pricing_batch_error( 'preserved_sale_changed' );
+						}
+					}
 					$identity_plans[ $product_id ] = array(
 						'product_code'          => (string) ( $data['product_code'] ?? '' ),
 						'product_type'          => $product->is_type( 'variation' ) ? 'variation' : 'simple',
@@ -1936,8 +1960,8 @@ class Digitalogic_Patris_Feed {
 						'dataset'               => (string) ( $materialization_source['dataset'] ?? '' ),
 						'shipping_method_id'    => $assigned_shipping,
 						'meta_rows'             => $identity_meta_rows,
-						'post_title'            => array( '1' ) === $auto_materialized_rows
-							? (string) ( $operational_projection['post_title'] ?? '' )
+						'post_title'            => ! empty( $operational_projection )
+							? (string) ( $item['operational_baseline']['post_title'] ?? '' )
 							: null,
 						'lookup_sku'            => $lookup_projection['sku'],
 						'lookup_stock_quantity' => $lookup_projection['stock_quantity'],
@@ -1959,7 +1983,16 @@ class Digitalogic_Patris_Feed {
 					$plans[ $product_id ] = array(
 						'meta'         => $meta,
 						'lookup_price' => '' === trim( $visible ) ? null : $visible,
+						'lookup_sku' => $lookup_projection['sku'],
+						'lookup_stock_quantity' => $operational_projection['lookup_stock_quantity'] ?? $lookup_projection['stock_quantity'],
+						'lookup_stock_status' => (string) $product->get_stock_status( 'edit' ),
+						'post_title' => ! empty( $operational_projection ) && array( '1' ) === $auto_materialized_rows ? (string) $operational_projection['post_title'] : null,
 					);
+					if ( array_key_exists( 'lookup_stock_quantity', $operational_projection ) ) {
+						$plans[ $product_id ]['lookup_stock_quantity'] = $operational_projection['lookup_stock_quantity'];
+					}
+					$stock_visibility_required                = $stock_visibility_required || ! empty( $operational_projection ) || $plans[ $product_id ]['lookup_stock_status'] !== $lookup_projection['stock_status'];
+					$plans[ $product_id ]['stock_transition'] = ! empty( $operational_projection ) || $plans[ $product_id ]['lookup_stock_status'] !== $lookup_projection['stock_status'];
 				}
 				$guarded = $this->check_pricing_batch_guard( $actuation_guard );
 				if ( is_wp_error( $guarded ) ) {
@@ -1971,6 +2004,12 @@ class Digitalogic_Patris_Feed {
 				);
 				if ( is_wp_error( $parent_plans ) ) {
 					return $parent_plans;
+				}
+				if ( ! $stock_visibility_required ) {
+					foreach ( $parent_plans as &$parent_plan ) {
+						unset( $parent_plan['lookup_stock_status'] );
+					}
+					unset( $parent_plan );
 				}
 				$identity_matches = $this->pricing_batch_leaf_identity_matches( $identity_plans );
 				if ( is_wp_error( $identity_matches ) ) {
@@ -1999,8 +2038,8 @@ class Digitalogic_Patris_Feed {
 				$lookup_table      = $wpdb->prefix . 'wc_product_meta_lookup';
 				$batch_count       = 0;
 				$meta_row_count    = 0;
-				$parent_ids       = array_map( 'absint', array_keys( $parent_plans ) );
-				$parent_meta_keys = array( '_price', '_regular_price', '_sale_price' );
+				$parent_ids        = array_map( 'absint', array_keys( $parent_plans ) );
+				$parent_meta_keys  = array( '_price', '_regular_price', '_sale_price' );
 				$shipping_meta_ids = array();
 				foreach ( $shipping_repairs as $shipping_repair ) {
 					$shipping_meta_ids = array_merge(
@@ -2067,18 +2106,40 @@ class Digitalogic_Patris_Feed {
 					$lookup_values = array();
 					$lookup_args   = array();
 					foreach ( $chunk as $product_id => $plan ) {
+						$quantity_sql = null === $plan['lookup_stock_quantity'] ? 'NULL' : '%s';
 						if ( null === $plan['lookup_price'] ) {
-							$lookup_values[] = '(%d,NULL,NULL,0)';
+							$lookup_values[] = '(%d,NULL,NULL,0,' . $quantity_sql . ',%s)';
 							$lookup_args[]   = $product_id;
 						} else {
-							$lookup_values[] = '(%d,%s,%s,0)';
+							$lookup_values[] = '(%d,%s,%s,0,' . $quantity_sql . ',%s)';
 							array_push( $lookup_args, $product_id, $plan['lookup_price'], $plan['lookup_price'] );
 						}
+						if ( null !== $plan['lookup_stock_quantity'] ) {
+							$lookup_args[] = $plan['lookup_stock_quantity'];
+						}
+						$lookup_args[] = $plan['lookup_stock_status'];
 					}
-					$lookup_sql = "/* digitalogic_pricing_batch_lookup_upsert */ INSERT INTO {$lookup_table} (product_id, min_price, max_price, onsale) VALUES " . implode( ',', $lookup_values ) . ' ON DUPLICATE KEY UPDATE min_price=VALUES(min_price), max_price=VALUES(max_price), onsale=VALUES(onsale)';
+					$lookup_sql = "/* digitalogic_pricing_batch_lookup_upsert */ INSERT INTO {$lookup_table} (product_id, min_price, max_price, onsale, stock_quantity, stock_status) VALUES " . implode( ',', $lookup_values ) . ' ON DUPLICATE KEY UPDATE min_price=VALUES(min_price), max_price=VALUES(max_price), onsale=VALUES(onsale), stock_quantity=VALUES(stock_quantity), stock_status=VALUES(stock_status)';
 					// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Every lookup value has a generated placeholder and is prepared in this transaction.
 					if ( false === $wpdb->query( $wpdb->prepare( $lookup_sql, ...$lookup_args ) ) ) {
 						return $this->pricing_batch_error( 'lookup' );
+					}
+					$title_cases = array();
+					$title_args  = array();
+					$title_ids   = array();
+					foreach ( $chunk as $product_id => $plan ) {
+						if ( null !== $plan['post_title'] ) {
+							$title_cases[] = 'WHEN %d THEN %s';
+							array_push( $title_args, $product_id, $plan['post_title'] );
+							$title_ids[] = $product_id;
+						}
+					}
+					if ( ! empty( $title_ids ) ) {
+						$title_sql = "/* digitalogic_pricing_batch_titles */ UPDATE {$wpdb->posts} SET post_title=CASE ID " . implode( ' ', $title_cases ) . ' END WHERE ID IN (' . implode( ',', array_fill( 0, count( $title_ids ), '%d' ) ) . ')';
+						// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Only fenced auto-owned IDs and prepared titles are updated inside the source transaction.
+						if ( false === $wpdb->query( $wpdb->prepare( $title_sql, ...array_merge( $title_args, $title_ids ) ) ) ) {
+							return $this->pricing_batch_error( 'titles' );
+						}
 					}
 
 				}
@@ -2091,6 +2152,12 @@ class Digitalogic_Patris_Feed {
 					$parent_written = $this->write_pricing_batch_parent_lookups( $parent_plans, false );
 					if ( is_wp_error( $parent_written ) ) {
 						return $parent_written;
+					}
+				}
+				if ( $stock_visibility_required ) {
+					$stock_written = $this->write_pricing_batch_stock_visibility( $plans + $parent_plans, $actuation_guard );
+					if ( is_wp_error( $stock_written ) ) {
+						return $stock_written;
 					}
 				}
 
@@ -2117,15 +2184,16 @@ class Digitalogic_Patris_Feed {
 				}
 				$read_sql = '/* digitalogic_pricing_batch_meta_readback ids:' . count( $ids ) . ' keys:' . count( $managed_keys ) . ' parent_ids:' . count( $parent_ids ) . ' parent_keys:' . ( empty( $parent_ids ) ? 0 : count( $parent_meta_keys ) ) . ' assignment_ids:' . count( $shipping_read_ids ) . " */ SELECT post_id, meta_key, meta_value FROM {$wpdb->postmeta} WHERE (post_id IN (" . implode( ',', array_fill( 0, count( $ids ), '%d' ) ) . ') AND meta_key IN (' . implode( ',', array_fill( 0, count( $managed_keys ), '%s' ) ) . '))' . $parent_read_sql . $shipping_read_sql . ' ORDER BY post_id, meta_key, meta_id';
 				// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- One exact transactional readback covers every bulk-written metadata row.
-				$read_rows      = $wpdb->get_results( $wpdb->prepare( $read_sql, ...array_merge( $ids, $managed_keys, $parent_read_args, $shipping_read_args ) ), ARRAY_A );
-				$leaf_read_rows = is_array( $read_rows )
+				$read_rows         = $wpdb->get_results( $wpdb->prepare( $read_sql, ...array_merge( $ids, $managed_keys, $parent_read_args, $shipping_read_args ) ), ARRAY_A );
+				$managed_read_keys = array_fill_keys( array_map( 'strtolower', $managed_keys ), true );
+				$leaf_read_rows    = is_array( $read_rows )
 					? array_values(
 						array_filter(
 							$read_rows,
-							static function ( $row ) use ( $plans ) {
+							static function ( $row ) use ( $plans, $managed_read_keys ) {
 								$product_id = absint( $row['post_id'] ?? 0 );
 								$meta_key   = (string) ( $row['meta_key'] ?? '' );
-								return isset( $plans[ $product_id ]['meta'] ) && array_key_exists( $meta_key, $plans[ $product_id ]['meta'] );
+								return isset( $plans[ $product_id ], $managed_read_keys[ strtolower( $meta_key ) ] );
 							}
 						)
 					)
@@ -2146,11 +2214,21 @@ class Digitalogic_Patris_Feed {
 				}
 				$lookup_plans    = $plans + $parent_plans;
 				$lookup_ids      = array_keys( $lookup_plans );
-				$lookup_read_sql = "/* digitalogic_pricing_batch_lookup_readback */ SELECT product_id, min_price, max_price, onsale FROM {$lookup_table} WHERE product_id IN (" . implode( ',', array_fill( 0, count( $lookup_ids ), '%d' ) ) . ') ORDER BY product_id';
+				$lookup_read_sql = "/* digitalogic_pricing_batch_lookup_readback */ SELECT product_id, min_price, max_price, onsale, sku, stock_quantity, stock_status, p.post_title FROM {$lookup_table} LEFT JOIN {$wpdb->posts} p ON p.ID=product_id WHERE product_id IN (" . implode( ',', array_fill( 0, count( $lookup_ids ), '%d' ) ) . ') ORDER BY product_id';
 				// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- One exact transactional readback covers leaves and variable-parent aggregates.
 				$lookup_rows = $wpdb->get_results( $wpdb->prepare( $lookup_read_sql, ...$lookup_ids ), ARRAY_A );
 				if ( ! $this->pricing_batch_lookup_readback_matches( $lookup_plans, $lookup_rows ) ) {
 					return $this->pricing_batch_error( 'lookup_readback' );
+				}
+				foreach ( $staged_products as $product_id => $entry ) {
+					if ( $entry['full_feed'] ) {
+						$this->stage_product_feed( $entry['product'], $entry['data'] );
+					} else {
+						$this->stage_product_pricing( $entry['product'], $entry['data'] );
+					}
+					if ( null !== $plans[ $product_id ]['post_title'] ) {
+						$entry['product']->set_name( $plans[ $product_id ]['post_title'] );
+					}
 				}
 
 				return array(
@@ -2163,6 +2241,91 @@ class Digitalogic_Patris_Feed {
 				);
 			}
 		);
+	}
+
+	/**
+	 * Write and verify leaf/parent stock availability in the caller's transaction.
+	 *
+	 * @param array         $plans Exact stock status by already-fenced product ID.
+	 * @param callable|null $actuation_guard Existing owner/deadline fence.
+	 * @return true|WP_Error
+	 */
+	private function write_pricing_batch_stock_visibility( $plans, $actuation_guard ) {
+		global $wpdb;
+		$stock_plans = array_filter( $plans, static fn( $plan ) => isset( $plan['lookup_stock_status'] ) );
+		if ( empty( $stock_plans ) ) {
+			return true;
+		}
+		$term_sql = "/* digitalogic_pricing_batch_stock_term */ SELECT tt.term_taxonomy_id FROM {$wpdb->term_taxonomy} tt INNER JOIN {$wpdb->terms} t ON t.term_id=tt.term_id WHERE tt.taxonomy='product_visibility' AND t.slug='outofstock' FOR UPDATE";
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Only site table names and literal taxonomy predicates are used.
+		$terms = $wpdb->get_results( $term_sql, ARRAY_A );
+		if ( ! is_array( $terms ) || 1 !== count( $terms ) || absint( $terms[0]['term_taxonomy_id'] ?? 0 ) <= 0 ) {
+			return $this->pricing_batch_error( 'stock_visibility_term' );
+		}
+		$term_id = absint( $terms[0]['term_taxonomy_id'] );
+		foreach ( array_chunk( $stock_plans, 200, true ) as $chunk ) {
+			$guarded = $this->check_pricing_batch_guard( $actuation_guard );
+			if ( is_wp_error( $guarded ) ) {
+				return $guarded;
+			}
+			$ids          = array_map( 'intval', array_keys( $chunk ) );
+			$placeholders = implode( ',', array_fill( 0, count( $ids ), '%d' ) );
+			$cases        = array();
+			$case_args    = array();
+			$meta_values  = array();
+			$meta_args    = array();
+			$out_ids      = array();
+			foreach ( $chunk as $id => $plan ) {
+				$status = $plan['lookup_stock_status'];
+				if ( ! in_array( $status, array( 'instock', 'onbackorder', 'outofstock' ), true ) ) {
+					return $this->pricing_batch_error( 'stock_status' );
+				}
+				$cases[] = 'WHEN %d THEN %s';
+				array_push( $case_args, $id, $status );
+				$meta_values[] = "(%d,'_stock_status',%s)";
+				array_push( $meta_args, $id, $status );
+				if ( 'outofstock' === $status ) {
+					$out_ids[] = (int) $id;
+				}
+			}
+			$queries = array(
+				array( "/* digitalogic_pricing_batch_stock_meta_delete */ DELETE FROM {$wpdb->postmeta} WHERE post_id IN ({$placeholders}) AND BINARY meta_key='_stock_status'", $ids ),
+				array( "/* digitalogic_pricing_batch_stock_meta_insert */ INSERT INTO {$wpdb->postmeta} (post_id,meta_key,meta_value) VALUES " . implode( ',', $meta_values ), $meta_args ),
+				array( "/* digitalogic_pricing_batch_stock_lookup */ UPDATE {$wpdb->prefix}wc_product_meta_lookup SET stock_status=CASE product_id " . implode( ' ', $cases ) . " END WHERE product_id IN ({$placeholders})", array_merge( $case_args, $ids ) ),
+				array( "/* digitalogic_pricing_batch_visibility_delete */ DELETE FROM {$wpdb->term_relationships} WHERE object_id IN ({$placeholders}) AND term_taxonomy_id=%d", array_merge( $ids, array( $term_id ) ) ),
+			);
+			if ( ! empty( $out_ids ) ) {
+				$values = array_fill( 0, count( $out_ids ), '(%d,%d,0)' );
+				$args   = array();
+				foreach ( $out_ids as $id ) {
+					array_push( $args, $id, $term_id );
+				}
+				$queries[] = array( "/* digitalogic_pricing_batch_visibility_insert */ INSERT INTO {$wpdb->term_relationships} (object_id,term_taxonomy_id,term_order) VALUES " . implode( ',', $values ), $args );
+			}
+			foreach ( $queries as $query ) {
+				// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Exact bounded IDs/statuses use generated prepared placeholders inside the source transaction.
+				if ( false === $wpdb->query( $wpdb->prepare( $query[0], ...$query[1] ) ) ) {
+					return $this->pricing_batch_error( 'stock_visibility_write' );
+				}
+			}
+			$read_sql = "/* digitalogic_pricing_batch_stock_readback */ SELECT p.ID product_id, sm.meta_value stock_status, l.stock_status lookup_stock_status, tr.term_taxonomy_id FROM {$wpdb->posts} p LEFT JOIN {$wpdb->postmeta} sm ON sm.post_id=p.ID AND BINARY sm.meta_key='_stock_status' LEFT JOIN {$wpdb->prefix}wc_product_meta_lookup l ON l.product_id=p.ID LEFT JOIN {$wpdb->term_relationships} tr ON tr.object_id=p.ID AND tr.term_taxonomy_id=%d WHERE p.ID IN ({$placeholders}) ORDER BY p.ID";
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- One read verifies exact raw stock cardinality, lookup status and taxonomy membership, including absences.
+			$rows = $wpdb->get_results( $wpdb->prepare( $read_sql, ...array_merge( array( $term_id ), $ids ) ), ARRAY_A );
+			if ( ! is_array( $rows ) || count( $rows ) !== count( $chunk ) ) {
+				return $this->pricing_batch_error( 'stock_visibility_readback' );
+			}
+			$seen = array();
+			foreach ( $rows as $row ) {
+				$id     = absint( $row['product_id'] ?? 0 );
+				$status = $chunk[ $id ]['lookup_stock_status'] ?? '';
+				if ( '' === $status || isset( $seen[ $id ] ) || $status !== (string) $row['stock_status'] || $status !== (string) $row['lookup_stock_status']
+					|| ( 'outofstock' === $status ? $term_id !== absint( $row['term_taxonomy_id'] ?? 0 ) : null !== $row['term_taxonomy_id'] ) ) {
+					return $this->pricing_batch_error( 'stock_visibility_readback' );
+				}
+				$seen[ $id ] = true;
+			}
+		}
+		return true;
 	}
 
 	/**
@@ -2461,10 +2624,10 @@ class Digitalogic_Patris_Feed {
 	/**
 	 * Build the exact non-pricing feed projection required for a safe bulk reprice.
 	 *
-	 * Auto-materialized products may skip the full WooCommerce writer only when
-	 * every source-managed operational field still matches the canonical feed.
-	 * Price-dependent fields are deliberately excluded because the surrounding
-	 * batch is about to replace and verify them atomically.
+	 * Actual source delivery stages the ordinary feed policy on a clone. The
+	 * surrounding transaction fences the current raw baseline, then writes and
+	 * verifies this desired projection. Owner-only repricing preserves current
+	 * operational facts and uses the existing price policy's stock transition.
 	 *
 	 * @param WC_Product $product WooCommerce product.
 	 * @param array      $data    Canonical source product.
@@ -2557,7 +2720,7 @@ class Digitalogic_Patris_Feed {
 				Digitalogic_Patris_Catalog_Materializer::OWNER_CODE_META,
 			)
 		);
-		$sql                   = '/* digitalogic_pricing_batch_parent_inputs parents:' . count( $parent_ids ) . " */ SELECT p.ID product_id, p.post_parent parent_id, pm.meta_value price, EXISTS (SELECT 1 FROM {$relationships} visibility_tr INNER JOIN {$term_taxonomy} visibility_tt ON visibility_tt.term_taxonomy_id=visibility_tr.term_taxonomy_id AND visibility_tt.taxonomy='product_visibility' INNER JOIN {$terms} visibility_term ON visibility_term.term_id=visibility_tt.term_id AND visibility_term.slug='outofstock' WHERE visibility_tr.object_id=p.ID) outofstock_visibility FROM {$wpdb->posts} p INNER JOIN {$wpdb->posts} parent ON parent.ID=p.post_parent AND parent.post_type='product' AND parent.post_status='publish' INNER JOIN {$lookup_table} parent_lookup ON parent_lookup.product_id=parent.ID LEFT JOIN {$wpdb->postmeta} pm ON pm.post_id=p.ID AND pm.meta_key='_price' WHERE p.post_parent IN (" . implode( ',', array_fill( 0, count( $parent_ids ), '%d' ) ) . ") AND p.post_type='product_variation' AND p.post_status='publish' AND EXISTS (SELECT 1 FROM {$relationships} tr INNER JOIN {$term_taxonomy} tt ON tt.term_taxonomy_id=tr.term_taxonomy_id AND tt.taxonomy='product_type' INNER JOIN {$terms} term ON term.term_id=tt.term_id AND term.slug='variable' WHERE tr.object_id=parent.ID) AND NOT EXISTS (SELECT 1 FROM {$wpdb->postmeta} owned WHERE owned.post_id=parent.ID AND LOWER(owned.meta_key) IN (" . implode( ',', array_fill( 0, count( $forbidden_parent_meta ), '%s' ) ) . ')) ORDER BY p.post_parent,p.ID,pm.meta_id FOR UPDATE';
+		$sql                   = '/* digitalogic_pricing_batch_parent_inputs parents:' . count( $parent_ids ) . " */ SELECT p.ID product_id, p.post_parent parent_id, pm.meta_value price, COALESCE((SELECT meta_value FROM {$wpdb->postmeta} sm WHERE sm.post_id=p.ID AND sm.meta_key='_stock_status'),'instock') stock_status, COALESCE((SELECT meta_value FROM {$wpdb->postmeta} mm WHERE mm.post_id=parent.ID AND mm.meta_key='_manage_stock'),'no') parent_manage_stock, COALESCE((SELECT meta_value FROM {$wpdb->postmeta} ps WHERE ps.post_id=parent.ID AND ps.meta_key='_stock_status'),'instock') parent_stock_status, EXISTS (SELECT 1 FROM {$relationships} visibility_tr INNER JOIN {$term_taxonomy} visibility_tt ON visibility_tt.term_taxonomy_id=visibility_tr.term_taxonomy_id AND visibility_tt.taxonomy='product_visibility' INNER JOIN {$terms} visibility_term ON visibility_term.term_id=visibility_tt.term_id AND visibility_term.slug='outofstock' WHERE visibility_tr.object_id=p.ID) outofstock_visibility FROM {$wpdb->posts} p INNER JOIN {$wpdb->posts} parent ON parent.ID=p.post_parent AND parent.post_type='product' AND parent.post_status='publish' INNER JOIN {$lookup_table} parent_lookup ON parent_lookup.product_id=parent.ID LEFT JOIN {$wpdb->postmeta} pm ON pm.post_id=p.ID AND pm.meta_key='_price' WHERE p.post_parent IN (" . implode( ',', array_fill( 0, count( $parent_ids ), '%d' ) ) . ") AND p.post_type='product_variation' AND p.post_status='publish' AND EXISTS (SELECT 1 FROM {$relationships} tr INNER JOIN {$term_taxonomy} tt ON tt.term_taxonomy_id=tr.term_taxonomy_id AND tt.taxonomy='product_type' INNER JOIN {$terms} term ON term.term_id=tt.term_id AND term.slug='variable' WHERE tr.object_id=parent.ID) AND NOT EXISTS (SELECT 1 FROM {$wpdb->postmeta} owned WHERE owned.post_id=parent.ID AND LOWER(owned.meta_key) IN (" . implode( ',', array_fill( 0, count( $forbidden_parent_meta ), '%s' ) ) . ')) ORDER BY p.post_parent,p.ID,pm.meta_id FOR UPDATE';
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- One locking current read rechecks every parent topology/owner predicate and builds its exact aggregate inside the surrounding transaction.
 		// phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- The dynamic SQL contains only generated placeholder counts and is prepared with the exact bounded arguments below.
 		$prepared_sql = $wpdb->prepare( $sql, ...array_merge( $parent_ids, $forbidden_parent_meta ) );
@@ -2571,7 +2734,8 @@ class Digitalogic_Patris_Feed {
 			return $this->pricing_batch_error( 'parent_inputs' );
 		}
 
-		$children = array();
+		$children     = array();
+		$parent_stock = array();
 		foreach ( $rows as $row ) {
 			$parent_id  = absint( $row['parent_id'] ?? 0 );
 			$product_id = absint( $row['product_id'] ?? 0 );
@@ -2582,8 +2746,10 @@ class Digitalogic_Patris_Feed {
 				$children[ $parent_id ][ $product_id ] = array(
 					'prices'     => array(),
 					'outofstock' => ! empty( $row['outofstock_visibility'] ),
+					'stock_status' => (string) ( $row['stock_status'] ?? '' ),
 				);
 			}
+			$parent_stock[ $parent_id ] = array( 'managed' => (string) ( $row['parent_manage_stock'] ?? '' ), 'status' => (string) ( $row['parent_stock_status'] ?? '' ) );
 			if ( array_key_exists( 'price', $row ) && null !== $row['price'] ) {
 				$children[ $parent_id ][ $product_id ]['prices'][] = (string) $row['price'];
 			}
@@ -2608,8 +2774,15 @@ class Digitalogic_Patris_Feed {
 				return $this->pricing_batch_error( 'parent_inputs' );
 			}
 			$visible_prices = array();
+			$stock_statuses = array();
 			foreach ( $children[ $parent_id ] as $product_id => $child ) {
-				if ( $hide_out_of_stock && ! empty( $child['outofstock'] ) ) {
+				$stock_status = $plans[ $product_id ]['lookup_stock_status'] ?? $child['stock_status'];
+				if ( ! in_array( $stock_status, array( 'instock', 'onbackorder', 'outofstock' ), true ) ) {
+					return $this->pricing_batch_error( 'parent_stock_inputs' );
+				}
+				$stock_statuses[] = $stock_status;
+				$outofstock       = ! empty( $plans[ $product_id ]['stock_transition'] ) ? 'outofstock' === $stock_status : ! empty( $child['outofstock'] );
+				if ( $hide_out_of_stock && $outofstock ) {
 					continue;
 				}
 				if ( isset( $plans[ $product_id ] ) ) {
@@ -2651,6 +2824,16 @@ class Digitalogic_Patris_Feed {
 					'_sale_price'    => array(),
 				),
 			);
+			if ( ! empty( $plans ) ) {
+				$parent_status = $parent_stock[ $parent_id ];
+				if ( ! in_array( $parent_status['managed'], array( 'yes', 'no', '' ), true )
+					|| ! in_array( $parent_status['status'], array( 'instock', 'onbackorder', 'outofstock' ), true ) ) {
+					return $this->pricing_batch_error( 'parent_stock_inputs' );
+				}
+				$parent_plans[ $parent_id ]['lookup_stock_status'] = 'yes' === $parent_status['managed']
+					? $parent_status['status']
+					: ( in_array( 'instock', $stock_statuses, true ) ? 'instock' : ( in_array( 'onbackorder', $stock_statuses, true ) ? 'onbackorder' : 'outofstock' ) );
+			}
 		}
 
 		return $parent_plans;
@@ -2669,7 +2852,7 @@ class Digitalogic_Patris_Feed {
 		global $wpdb;
 		$product_ids = array_map( 'absint', array_keys( $identity_plans ) );
 		sort( $product_ids, SORT_NUMERIC );
-		$meta_keys       = array(
+		$meta_keys = array(
 			Digitalogic_Product_Identifier_Resolver::PATRIS_CODE_META,
 			'_sku',
 			Digitalogic_Shipping_Method_Service::PRODUCT_METHOD_META,
@@ -3037,6 +3220,21 @@ class Digitalogic_Patris_Feed {
 				return false;
 			}
 			$row = $actual[ (int) $product_id ];
+			if (
+				( isset( $plan['lookup_sku'] ) && $plan['lookup_sku'] !== (string) ( $row['sku'] ?? '' ) )
+				|| ( isset( $plan['lookup_stock_status'] ) && $plan['lookup_stock_status'] !== (string) ( $row['stock_status'] ?? '' ) )
+				|| ( null !== ( $plan['post_title'] ?? null ) && $plan['post_title'] !== (string) ( $row['post_title'] ?? '' ) )
+				|| ( array_key_exists( 'lookup_stock_quantity', $plan ) && (
+					! array_key_exists( 'stock_quantity', $row )
+					|| ( null === $plan['lookup_stock_quantity'] ) !== ( null === $row['stock_quantity'] )
+					|| ( null !== $plan['lookup_stock_quantity'] && (
+						null === $this->pricing_batch_signed_decimal( $row['stock_quantity'] )
+						|| $this->pricing_batch_signed_decimal( $plan['lookup_stock_quantity'] ) !== $this->pricing_batch_signed_decimal( $row['stock_quantity'] )
+					) )
+				) )
+			) {
+				return false;
+			}
 			if ( array_key_exists( 'min_price', $plan ) ) {
 				$expected_min    = $this->pricing_batch_decimal( $plan['min_price'] );
 				$expected_max    = $this->pricing_batch_decimal( $plan['max_price'] );

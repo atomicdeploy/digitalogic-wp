@@ -244,22 +244,22 @@ class Digitalogic_Product_Sync_Receiver {
     public const CONTRACT_NAME = 'patris.product-sync';
 	public const FORMULA_ID    = 'landed_price';
 
-	private const LOCK_NAME                  = 'digitalogic_product_sync';
-	private const LOCK_TIMEOUT_SECONDS       = 15;
-	private const MAX_BODY_BYTES             = 8388608;
-	private const MAX_STATE_BYTES            = 16777216;
-	private const MAX_PRODUCTS               = 10000;
-	private const MAX_CATEGORIES             = 10000;
-	private const MAX_SOURCES                = 16;
-	private const MAX_RECENT_EVENTS          = 128;
-	private const MAX_RESULT_ERRORS          = 100;
-	private const MAX_DEFERRED_PRODUCTS      = self::MAX_PRODUCTS;
+	private const LOCK_NAME                         = 'digitalogic_product_sync';
+	private const LOCK_TIMEOUT_SECONDS              = 15;
+	private const MAX_BODY_BYTES                    = 8388608;
+	private const MAX_STATE_BYTES                   = 16777216;
+	private const MAX_PRODUCTS                      = 10000;
+	private const MAX_CATEGORIES                    = 10000;
+	private const MAX_SOURCES                       = 16;
+	private const MAX_RECENT_EVENTS                 = 128;
+	private const MAX_RESULT_ERRORS                 = 100;
+	private const MAX_DEFERRED_PRODUCTS             = self::MAX_PRODUCTS;
 	private const MAX_DELIVERY_PRODUCTS_PER_REQUEST = 25;
-	private const MATERIALIZATION_CURSOR_KEY = 'materialization_scan_cursor';
-	private const MAX_CODE_LENGTH            = 191;
+	private const MATERIALIZATION_CURSOR_KEY        = 'materialization_scan_cursor';
+	private const MAX_CODE_LENGTH                   = 191;
 
 
-	private const MAX_MARKUP_PERCENT         = '1000';
+	private const MAX_MARKUP_PERCENT = '1000';
 
     private const ENVELOPE_FIELDS = array(
         'schema',
@@ -1513,6 +1513,13 @@ class Digitalogic_Product_Sync_Receiver {
                 WC_Cache_Helper::invalidate_cache_group('products');
             }
 			$this->evict_coordinated_product_instance_caches( $product_ids );
+			clean_object_term_cache( $product_ids, 'product' );
+			if ( function_exists( 'wp_update_term_count_now' ) && function_exists( 'get_term_by' ) ) {
+				$term = get_term_by( 'slug', 'outofstock', 'product_visibility' );
+				if ( $term && ! is_wp_error( $term ) ) {
+					wp_update_term_count_now( array( (int) $term->term_taxonomy_id ), 'product_visibility' );
+				}
+			}
             return;
         }
         foreach ($product_ids as $product_id) {
@@ -3583,7 +3590,7 @@ class Digitalogic_Product_Sync_Receiver {
             // PHP coerces canonical numeric-string array keys to integers. Keep
             // the validated string as the value whenever the map is projected.
             $seen_codes[$code] = $code;
-			$products[]          = $validated;
+			$products[]        = $validated;
         }
 
         $categories = $this->validate_categories($payload['categories']);
@@ -3765,8 +3772,8 @@ class Digitalogic_Product_Sync_Receiver {
                 return $this->field_error($path . '.price_source_kind', 'must be foreign_price, partner_price, or sale_price_direct');
             }
         }
-        $direct_sale_selected = $pricing_active && 'sale_price_direct' === ($product['price_source_kind'] ?? null);
-        $has_shipping_price = array_key_exists('shipping_price_per_kg', $product);
+        $direct_sale_selected  = $pricing_active && 'sale_price_direct' === ($product['price_source_kind'] ?? null);
+        $has_shipping_price    = array_key_exists('shipping_price_per_kg', $product);
         $has_shipping_currency = array_key_exists('shipping_price_per_kg_currency', $product);
         if ($has_shipping_price !== $has_shipping_currency) {
             return $this->error(
@@ -4214,7 +4221,7 @@ class Digitalogic_Product_Sync_Receiver {
                 return $this->field_error('deleted_codes[' . $index . '].product_code', 'must be unique and within the code limit');
             }
             $seen[$value['product_code']] = true;
-			$result[]                       = array(
+			$result[]                     = array(
 				'product_code' => $value['product_code'],
 				'deleted'      => true,
 			);
@@ -4241,7 +4248,7 @@ class Digitalogic_Product_Sync_Receiver {
                 return $this->field_error($field . '[' . $index . ']', 'must be unique and within the length limit');
             }
             $seen[$value] = true;
-			$result[]       = $value;
+			$result[]     = $value;
         }
         sort($result, SORT_STRING);
 
@@ -4714,7 +4721,9 @@ class Digitalogic_Product_Sync_Receiver {
 			$auto_materialized = $materialization_enabled
 				&& class_exists( 'Digitalogic_Patris_Catalog_Materializer' )
 				&& '1' === (string) $product->get_meta( Digitalogic_Patris_Catalog_Materializer::AUTO_MATERIALIZED_META, true );
-			$requires_full_feed = $created || $auto_materialized || ! empty( $delivery_entry['full_feed'] );
+			// An owner-only reprice must not replay historical stock or source facts,
+			// including when this leaf uses the adapter or an unsupported batch path.
+			$requires_full_feed = $created || $this->source_delivery_active;
 			$owner_backfill_only = $materialization_enabled
 				&& ! $created
 				&& ! empty( $delivery_entry['owner_backfill_only'] );
@@ -4820,7 +4829,7 @@ class Digitalogic_Product_Sync_Receiver {
 					}
 				}
 				if ( ! $owner_backfilled ) {
-					if ( ! empty( $delivery_entry['pricing_only'] ) && ! $requires_full_feed ) {
+					if ( ! $requires_full_feed ) {
 						Digitalogic_Patris_Feed::instance()->apply_product_pricing( $product, $product_data );
 					} else {
 						$feed_write = Digitalogic_Patris_Feed::instance()->apply_product_feed( $product, $product_data );
@@ -5245,7 +5254,7 @@ class Digitalogic_Product_Sync_Receiver {
 			}
 			$target_parent_id = 0;
 			$candidate = $delivery_entry;
-			if ( $this->source_delivery_active && empty( $candidate['full_feed'] ) ) {
+			if ( $this->source_delivery_active ) {
 				$candidate['pricing_only'] = true;
 			}
 			if (
@@ -5276,7 +5285,7 @@ class Digitalogic_Product_Sync_Receiver {
 	}
 
 	/**
-	 * Keep one priced leaf behind exact identity/materialization gates.
+	 * Admit known source-owned leaves behind exact identity and operational baseline fences.
 	 *
 	 * @param array $source_state Source state.
 	 * @param mixed $code_key Product map key.
@@ -5344,13 +5353,33 @@ class Digitalogic_Product_Sync_Receiver {
 		}
 		if (
 			empty( $delivery_entry['pricing_only'] )
-			|| ! empty( $delivery_entry['full_feed'] )
+			&& empty( $delivery_entry['full_feed'] )
 		) {
 			return false;
 		}
 		$final_price = $product_data['final_price'] ?? null;
 		if ( ! is_numeric( $final_price ) || (float) $final_price <= 0 ) {
-			return false;
+			// Reuse the sole storefront policy without mutating a cached WC object.
+			// The existing batch writes the resulting source stock projection too.
+			$priced = clone $product;
+			Digitalogic_Patris_Price_Policy::instance()->apply( $priced, $product_data );
+			$price_status = (string) $priced->get_meta( Digitalogic_Patris_Price_Policy::STATUS_META, true );
+			if (
+				! in_array( $price_status, array( 'canonical_missing_preserved', 'canonical_missing_unpriced', 'canonical_nonpositive_unpriced' ), true )
+				|| $priced->get_catalog_visibility() !== $product->get_catalog_visibility()
+			) {
+				return false;
+			}
+			if ( 'canonical_missing_preserved' === $price_status ) {
+				foreach ( array( '_regular_price' => $priced->get_regular_price( 'edit' ), '_price' => $priced->get_price( 'edit' ) ) as $key => $value ) {
+					if ( array( (string) $value ) !== array_map( 'strval', (array) get_post_meta( $product_id, $key, false ) ) ) {
+						return false;
+					}
+				}
+				if ( ! $this->coordinated_empty_meta_rows( (array) get_post_meta( $product_id, '_sale_price', false ) ) ) {
+					return false;
+				}
+			}
 		}
 		$materialization_enabled = (bool) apply_filters(
 			'digitalogic_patris_auto_materialize_source_product',
@@ -5384,7 +5413,8 @@ class Digitalogic_Product_Sync_Receiver {
 			return false;
 		}
 		$delivery_entry['pricing_batch_operational_projection'] = array();
-		if ( array( '1' ) === $auto_materialized_rows || $this->source_delivery_active ) {
+		$delivery_entry['pricing_batch_operational_baseline'] = array();
+		if ( $this->source_delivery_active && ! empty( $source ) ) {
 			$operational_projection = Digitalogic_Patris_Feed::instance()->pricing_batch_operational_projection(
 				$product,
 				$product_data
@@ -5394,19 +5424,12 @@ class Digitalogic_Product_Sync_Receiver {
 					'strval',
 					array_values( (array) get_post_meta( $product_id, $meta_key, false ) )
 				);
-				if ( $expected_rows !== $actual_rows ) {
-					return false;
-				}
+				$delivery_entry['pricing_batch_operational_baseline']['meta_rows'][ $meta_key ] = $actual_rows;
 			}
 			// Only auto-materialized products take their public title from Patris.
 			// The ordinary feed writer preserves the site's existing product name.
-			if ( array( '1' ) === $auto_materialized_rows
-				&& (string) ( $operational_projection['post_title'] ?? '' ) !== (string) ( $topology['post_title'] ?? '' ) ) {
-				return false;
-			}
-			if ( array( '1' ) === $auto_materialized_rows ) {
-				$delivery_entry['pricing_batch_operational_projection'] = $operational_projection;
-			}
+			$delivery_entry['pricing_batch_operational_baseline']['post_title'] = (string) ( $topology['post_title'] ?? '' );
+			$delivery_entry['pricing_batch_operational_projection'] = $operational_projection;
 		}
 		$code_rows = array_values( (array) get_post_meta( $product_id, Digitalogic_Product_Identifier_Resolver::PATRIS_CODE_META, false ) );
 		$sku_rows  = array_values( (array) get_post_meta( $product_id, '_sku', false ) );
@@ -5466,6 +5489,10 @@ class Digitalogic_Product_Sync_Receiver {
 			)
 		);
 		$shipping_rows = array_map( 'strval', $shipping_rows );
+		if ( '' === $expected_shipping && ! empty( $shipping_rows ) ) {
+			// An unavailable canonical route does not change the site-owned assignment.
+			$expected_shipping = (string) reset( $shipping_rows );
+		}
 		if (
 			'' === $expected_shipping
 			|| empty( $shipping_rows )
@@ -5514,7 +5541,7 @@ class Digitalogic_Product_Sync_Receiver {
 	}
 
     /**
-     * Drain a pricing-only coordinated transaction with one bounded SQL writer.
+     * Drain supported source and pricing work through the existing bounded SQL writer.
      *
      * @param array $source_state      Source state, updated in place.
      * @param array $work              Durable pricing delivery entries.
@@ -5623,6 +5650,7 @@ class Digitalogic_Product_Sync_Receiver {
 				'operational_projection' => is_array( $delivery_entry['pricing_batch_operational_projection'] ?? null )
 					? $delivery_entry['pricing_batch_operational_projection']
 					: array(),
+				'operational_baseline' => (array) ( $delivery_entry['pricing_batch_operational_baseline'] ?? array() ),
 				'lookup_projection' => is_array( $delivery_entry['pricing_batch_lookup_projection'] ?? null )
 					? $delivery_entry['pricing_batch_lookup_projection']
 					: array(),
@@ -6115,6 +6143,12 @@ class Digitalogic_Product_Sync_Receiver {
         ) {
             return $this->error('digitalogic_product_sync_storage_unavailable', 'The receiver storage service is unavailable.', 503);
         }
+		if ( $owns_transaction ) {
+			$storage = Digitalogic_Pricing_Service::instance()->assert_transactional_pricing_storage();
+			if ( is_wp_error( $storage ) ) {
+				return $storage;
+			}
+		}
 		if ( $owns_transaction && false === $wpdb->query( 'START TRANSACTION' ) ) {
             return $this->error('digitalogic_product_sync_transaction_unavailable', 'The receiver could not start a storage transaction.', 503);
         }
@@ -6250,30 +6284,30 @@ class Digitalogic_Product_Sync_Receiver {
             );
         }
 
-        $source_fields  = array('price_source_amount', 'price_source_currency', 'price_source_kind');
-        $has_source     = count(array_intersect($source_fields, array_keys($product))) === count($source_fields);
+        $source_fields   = array('price_source_amount', 'price_source_currency', 'price_source_kind');
+        $has_source      = count(array_intersect($source_fields, array_keys($product))) === count($source_fields);
         $complete_markup = false;
         if (
             array_key_exists('markup_percent', $product)
             && null !== $product['markup_percent']
             && $this->number_compare_zero($product['markup_percent']) >= 0
         ) {
-            $markup_parts = $this->formula_decimal_parts($product['markup_percent']);
+            $markup_parts    = $this->formula_decimal_parts($product['markup_percent']);
             $complete_markup = !isset($markup_parts['error'])
                 && $this->decimal_compare($markup_parts, $this->formula_decimal_parts(self::MAX_MARKUP_PERCENT)) <= 0;
         }
-        $complete_rounding = array_key_exists('price_rounding_digits', $product)
+        $complete_rounding      = array_key_exists('price_rounding_digits', $product)
             && null !== $product['price_rounding_digits']
             && $this->is_nonnegative_integer($product['price_rounding_digits'])
             && (int) $this->number_to_storage($product['price_rounding_digits']) <= 9
             && array_key_exists('price_rounding_mode', $product)
             && 'nearest_half_up' === $product['price_rounding_mode'];
-        $usable_cny_fact = array_key_exists('foreign_price', $product)
+        $usable_cny_fact        = array_key_exists('foreign_price', $product)
             && null !== $product['foreign_price']
             && $this->number_compare_zero($product['foreign_price']) > 0
             && array_key_exists('foreign_currency', $product)
             && 'CNY' === $product['foreign_currency'];
-        $complete_cny_route = $usable_cny_fact
+        $complete_cny_route     = $usable_cny_fact
             && array_key_exists('weight_grams', $product)
             && null !== $product['weight_grams']
             && $this->number_compare_zero($product['weight_grams']) > 0
@@ -6291,7 +6325,7 @@ class Digitalogic_Product_Sync_Receiver {
             && $this->number_compare_zero($product['irt_per_cny']) > 0
             && $complete_markup
             && $complete_rounding;
-        $usable_partner = array_key_exists('partner_price_source', $product)
+        $usable_partner         = array_key_exists('partner_price_source', $product)
             && null !== $product['partner_price_source']
             && $this->number_compare_zero($product['partner_price_source']) > 0;
         $complete_partner_route = $usable_partner

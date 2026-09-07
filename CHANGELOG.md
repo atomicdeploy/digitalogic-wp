@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.4] - 2026-09-08
+
+- Batch source-owned operational metadata, stock and unavailable-price transitions in the existing direct database writer, with exact metadata, lookup and stock-visibility verification.
+- Recompute affected variable-parent prices and stock visibility; preserve site-owned titles and refresh auto-owned titles only from source delivery.
+- Preserve current operational data during rate-only repricing in both direct database and adapter modes.
+- Verify transactional storage before owner or product writes and reject incomplete metadata deletion or failed stock-visibility readback before commit.
+
 ## [2.0.3] - 2026-09-08
 
 - Preserve site-owned product titles without forcing otherwise safe source rows into full WooCommerce saves; retain source-title checks for auto-materialized products.
