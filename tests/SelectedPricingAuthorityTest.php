@@ -9,6 +9,149 @@ use PHPUnit\Framework\TestCase;
 
 /** Exercise authority selection through real receiver and coordinator methods. */
 final class SelectedPricingAuthorityTest extends TestCase {
+	/** Direct-only sources are unaffected; mixed sources still need the Go actuation receipt. */
+	public function test_owner_dependent_sources_exclude_direct_only_but_include_mixed_inputs(): void {
+		$GLOBALS['digitalogic_test_options'][ Digitalogic_Pricing_Coordinator::AUTHORITY_OPTION ] = 'go';
+		$catalog               = Digitalogic_Shipping_Method_Service::instance()->get_integration_catalog();
+		$direct                = array(
+			'product_code'                   => 'PRICE-901',
+			'sale_price_source'              => 1234500,
+			'price_source_amount'            => 1234500,
+			'price_source_currency'          => 'IRR',
+			'price_source_kind'              => 'sale_price_direct',
+			'shipping_method_id'             => 'domestic',
+			'shipping_price_per_kg'          => 0,
+			'shipping_price_per_kg_currency' => 'IRR',
+			'pricing_catalog_revision'       => $catalog['revision'],
+			'final_price'                    => 123450,
+			'warnings'                       => array(),
+		);
+		$direct['record_hash'] = $this->record_hash( $direct );
+		$receiver              = Digitalogic_Product_Sync_Receiver::instance();
+		$this->assert_success( $receiver->receive( $this->snapshot( array( $direct ), '2026-07-21T00:00:00Z', 'direct-only' ) ) );
+		$this->assertSame( array( 'sources' => array() ), $receiver->get_owner_dependent_source_identities() );
+		$this->assertCount( 1, $receiver->get_source_identities()['sources'] );
+		$this->assertArrayNotHasKey( 'owner_catalog_revision', $receiver->get_delivery_receipt( 'direct-only', 'kala' ) );
+		$priced = $this->priced_product( 'MIXED-902' );
+		$this->assert_success( $receiver->receive( $this->snapshot( array( $direct, $priced ), '2026-07-21T00:00:00Z', 'mixed-source' ) ) );
+		$affected = $receiver->get_owner_dependent_source_identities();
+		$this->assertCount( 1, $affected['sources'] );
+		$this->assertSame( 'mixed-source', array_values( $affected['sources'] )[0]['source']['id'] );
+		$state = $receiver->get_state();
+		unset( $state['sources'][ hash( 'sha256', "direct-only\nkala" ) ]['input_products'] );
+		update_option( Digitalogic_Product_Sync_Receiver::STATE_OPTION, $state, false );
+		$unknown = $receiver->get_owner_dependent_source_identities();
+		$this->assertInstanceOf( WP_Error::class, $unknown );
+		$this->assertSame( 'digitalogic_product_sync_input_baseline_required', $unknown->get_error_code() );
+	}
+	/** Initial delivery, recovery and replay each emit once after releasing the lock. */
+	public function test_go_receipts_are_durable_and_emitted_once_outside_the_lock(): void {
+		$GLOBALS['digitalogic_test_options'][ Digitalogic_Pricing_Coordinator::AUTHORITY_OPTION ] = 'go';
+		$product  = $this->priced_product( 'PRICE-901' );
+		$payload  = $this->snapshot( array( $product ), '2026-07-21T00:00:00Z' );
+		$receiver = Digitalogic_Product_Sync_Receiver::instance();
+		$this->assertNull( $receiver->get_delivery_receipt( 'pricing-tests', 'kala' ) );
+		$observed = array();
+		add_action(
+			'digitalogic_product_sync_applied',
+			function ( $result, $metadata ) use ( &$observed, $product ) {
+				$this->assertFalse( Digitalogic_Product_Sync_Receiver::instance()->source_identity_lock_is_owned() );
+				$this->assertTrue( $result['persistence_verified'] );
+				$this->assertSame( $product['pricing_catalog_revision'], $result['owner_catalog_revision'] );
+				$this->assertSame( $result['owner_catalog_revision'], $metadata['owner_catalog_revision'] );
+				$this->assertSame( $result['delivery'], $metadata['delivery'] );
+				$observed[] = $result;
+			},
+			10,
+			2
+		);
+		$GLOBALS['digitalogic_test_wc_save_failures'] = array( 901 );
+		$this->assert_success( $receiver->receive( $payload ) );
+		$this->assertSame( 'pending', $receiver->get_delivery_receipt( 'pricing-tests', 'kala' )['status'] );
+		$GLOBALS['digitalogic_test_wc_save_failures'] = array();
+		$GLOBALS['digitalogic_test_wc_products']      = array();
+		$this->assert_success( $receiver->receive( $payload ) );
+		$this->assert_success( $receiver->receive( $payload ) );
+		$this->assertSame( array( 'partially_applied', 'recovered', 'replayed' ), array_column( $observed, 'status' ) );
+		$this->reset_singleton( Digitalogic_Product_Sync_Receiver::class );
+		$receipt = Digitalogic_Product_Sync_Receiver::instance()->get_delivery_receipt( 'pricing-tests', 'kala' );
+		$this->assertSame( $observed[2]['delivery'], $receipt );
+		$this->assertSame( 'complete', $receipt['status'] );
+		$this->assertSame( $payload['event_id'], $receipt['event_id'] );
+		$this->assertSame( $payload['source'], $receipt['input_source'] );
+		foreach ( array( 'pending_products', 'deferred_products', 'deferred_missing', 'deferred_ambiguous' ) as $field ) {
+			$this->assertSame( 0, $receipt[ $field ] );
+		}
+		$this->assertSame( array( 'sources' => array( hash( 'sha256', "pricing-tests\nkala" ) => array( 'source' => $receipt['source'] ) ) ), Digitalogic_Product_Sync_Receiver::instance()->get_source_identities() );
+	}
+
+	/** Nested receivers cannot acquire an async listener's mutex under the outer source lock. */
+	public function test_applied_receipt_waits_for_outer_lock_and_is_discarded_on_failure(): void {
+		$product  = $this->priced_product( 'PRICE-901' );
+		$payload  = $this->snapshot( array( $product ), '2026-07-21T00:00:00Z' );
+		$receiver = Digitalogic_Product_Sync_Receiver::instance();
+		$observed = array();
+		add_action(
+			'digitalogic_product_sync_applied',
+			function ( $result ) use ( &$observed, $receiver ) {
+				$this->assertFalse( $receiver->source_identity_lock_is_owned() );
+				$observed[] = $result;
+			}
+		);
+		$this->assertTrue( $receiver->acquire_source_identity_lock() );
+		$this->assert_success( $receiver->receive( $payload ) );
+		$this->assertSame( array(), $observed );
+		$receiver->release_source_identity_lock();
+		$this->assertCount( 1, $observed );
+		$observed = array();
+		$failed   = $receiver->with_coordinated_pricing_lock(
+			function () use ( $receiver, $payload, &$observed ) {
+				$this->assert_success( $receiver->receive( $payload ) );
+				$this->assertSame( array(), $observed );
+				return new WP_Error( 'outer_transaction_failed', 'Injected rollback.' );
+			}
+		);
+		$this->assertInstanceOf( WP_Error::class, $failed );
+		$receiver->dispatch_materializer_product_committed();
+		$this->assertSame( array(), $observed );
+	}
+
+	/** A post-commit listener failure is a warning, never a delivery rollback. */
+	public function test_applied_listener_failure_preserves_verified_delivery_and_warning(): void {
+		add_action(
+			'digitalogic_product_sync_applied',
+			static function () {
+				throw new RuntimeException( 'Injected receipt listener failure.' );
+			}
+		);
+		$product = $this->priced_product( 'PRICE-901' );
+		$result  = Digitalogic_Product_Sync_Receiver::instance()->receive( $this->snapshot( array( $product ), '2026-07-21T00:00:00Z' ) );
+		$this->assert_success( $result );
+		$this->assertTrue( $result['persistence_verified'] );
+		$this->assertSame( 'digitalogic_product_sync_listener_failed', $result['delivery_warnings'][0]['code'] );
+		$this->assertSame( '8437000', (string) $GLOBALS['digitalogic_test_posts'][901]['meta']['_regular_price'] );
+		$this->assertArrayNotHasKey( 'owner_catalog_revision', $result );
+		$this->assertArrayNotHasKey( 'owner_catalog_revision', $result['delivery'] );
+	}
+
+	/** Missing and ambiguous leaves both remain explicitly incomplete. */
+	public function test_go_receipt_keeps_missing_and_ambiguous_delivery_incomplete(): void {
+		$GLOBALS['digitalogic_test_options'][ Digitalogic_Pricing_Coordinator::AUTHORITY_OPTION ] = 'go';
+		$product = $this->priced_product( 'MISSING-902' );
+		$result  = Digitalogic_Product_Sync_Receiver::instance()->receive( $this->snapshot( array( $product ), '2026-07-21T00:00:00Z' ) );
+		$this->assert_success( $result );
+		$this->assertSame( 'pending', $result['delivery']['status'] );
+		$this->assertSame( 1, $result['delivery']['pending_products'] );
+		$GLOBALS['digitalogic_test_posts'][902] = $GLOBALS['digitalogic_test_posts'][901];
+		$product                                = $this->priced_product( 'PRICE-901' );
+		$result                                 = Digitalogic_Product_Sync_Receiver::instance()->receive( $this->snapshot( array( $product ), '2026-07-22T00:00:00Z' ) );
+		$this->assert_success( $result );
+		$this->assertSame( 'deferred', $result['delivery']['status'] );
+		$this->assertSame( 0, $result['delivery']['pending_products'] );
+		$this->assertSame( 1, $result['delivery']['deferred_products'] );
+		$this->assertSame( 0, $result['delivery']['deferred_missing'] );
+		$this->assertSame( 1, $result['delivery']['deferred_ambiguous'] );
+	}
 	/** Direct callers cannot bypass the selected authority through the receiver. */
 	public function test_receiver_local_reprice_cannot_bypass_go_authority(): void {
 		$GLOBALS['digitalogic_test_options'][ Digitalogic_Pricing_Coordinator::AUTHORITY_OPTION ] = 'go';

@@ -265,7 +265,7 @@ final class Digitalogic_Pricing_Service {
 			. sprintf( '%.6F', microtime( true ) )
 		);
 
-		return $this->with_lock(
+		$result = $this->with_lock(
 			function () use ( $settings, $source, $source_identity, $expected_revision, $actuation_guard, $effect_id ) {
 				$current = $this->read_globals();
 				if ( is_wp_error( $current ) ) {
@@ -464,9 +464,23 @@ final class Digitalogic_Pricing_Service {
 					return $this->internal_publication_result( $publication );
 				}
 
-				return $this->publish_internal_settings_effect( $publication );
+				return $publication;
 			}
 		);
+		if ( is_wp_error( $result ) || null !== $actuation_guard ) {
+			return $result;
+		}
+		// Publication can wake the remote calculator, which reads committed
+		// owner inputs. Release both pricing locks before notifying consumers.
+		$result = $this->publish_internal_settings_effect( $result );
+		if ( ! is_wp_error( $result ) ) {
+			try {
+				Digitalogic_Pricing_Snapshot::instance()->run_state_revision_event_delivery();
+			} catch ( Throwable $exception ) {
+				$result['delivery_warnings'][] = array( 'code' => 'digitalogic_pricing_event_delivery_pending' );
+			}
+		}
+		return $result;
 	}
 
 	/**
@@ -615,7 +629,9 @@ final class Digitalogic_Pricing_Service {
 		return array(
 			'schema'           => 'digitalogic.pricing-coordinator-result',
 			'effect_id'        => $effect_id,
-			'status'           => ! empty( $publication['settings_changed'] ) ? 'applied' : 'reconciled',
+			'status'           => 'awaiting_delivery' === ( $publication['repricing']['status'] ?? '' )
+				? 'awaiting_delivery'
+				: ( ! empty( $publication['settings_changed'] ) ? 'applied' : 'reconciled' ),
 			'source'           => sanitize_key( (string) ( $publication['source'] ?? 'wp' ) ),
 			'state_revision'   => $revision,
 			'settings'         => (array) ( $publication['settings'] ?? array() ),

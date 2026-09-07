@@ -341,7 +341,26 @@ final class Digitalogic_Pricing_Coordinator {
 			return $authority;
 		}
 		if ( 'go' === $authority ) {
-			return $this->error( 'digitalogic_pricing_go_dispatch_required', 'Go authority requires owner-input delivery before final price persistence.', 409 );
+			$sources = Digitalogic_Product_Sync_Receiver::instance()->get_source_identities();
+			if ( empty( $sources['sources'] ) ) {
+				return $this->error( 'digitalogic_pricing_source_state_required', 'A current product source is required before changing owner pricing inputs.', 409 );
+			}
+			$affected = Digitalogic_Product_Sync_Receiver::instance()->get_owner_dependent_source_identities();
+			if ( is_wp_error( $affected ) ) {
+				return $affected;
+			}
+			$catalog = Digitalogic_Shipping_Method_Service::instance()->get_integration_catalog();
+			if ( is_wp_error( $catalog ) ) {
+				return $catalog;
+			}
+			return array(
+				'authority'              => 'go',
+				'status'                 => empty( $affected['sources'] ) ? 'no_repricing_required' : 'awaiting_delivery',
+				'owner_catalog_revision' => $catalog['revision'],
+				'updated_products'       => 0,
+				'source_state_before'    => $affected,
+				'source_state_after'     => $affected,
+			);
 		}
 		return Digitalogic_Product_Sync_Receiver::instance()->reprice_pricing_state(
 			$this->receiver_settings( $settings ),

@@ -784,8 +784,8 @@ final class ProductSyncReceiverTest extends TestCase {
 	public function test_large_delivery_is_bounded_and_same_event_replay_drains_pending_products(): void {
 		$products = array();
 		for ( $index = 1; $index <= 30; $index++ ) {
-			$product_code = sprintf( 'BATCH-%03d', $index );
-			$product_id   = 8000 + $index;
+			$product_code                                     = sprintf( 'BATCH-%03d', $index );
+			$product_id                                       = 8000 + $index;
 			$GLOBALS['digitalogic_test_posts'][ $product_id ] = array(
 				'post_type'   => 'product',
 				'post_status' => 'publish',
@@ -974,19 +974,19 @@ final class ProductSyncReceiverTest extends TestCase {
     public function test_central_shipping_policy_projection_is_enforced(): void {
         $base                        = array(
             'pricing_catalog_revision' => $this->currentCatalogRevision(),
-            'foreign_currency'      => 'CNY',
-            'foreign_price'         => 100,
-            'price_source_amount'   => 100,
-            'price_source_currency' => 'CNY',
-            'price_source_kind'     => 'foreign_price',
-            'weight_grams'          => 1000,
-            'shipping_method_id'    => 'air_express',
-            'markup_percent'        => 30,
-            'irt_per_cny'           => 30000,
-            'price_rounding_digits' => 2,
-            'price_rounding_mode'   => 'nearest_half_up',
-            'final_price'           => 7215000,
-            'warnings'              => array(),
+            'foreign_currency'         => 'CNY',
+            'foreign_price'            => 100,
+            'price_source_amount'      => 100,
+            'price_source_currency'    => 'CNY',
+            'price_source_kind'        => 'foreign_price',
+            'weight_grams'             => 1000,
+            'shipping_method_id'       => 'air_express',
+            'markup_percent'           => 30,
+            'irt_per_cny'              => 30000,
+            'price_rounding_digits'    => 2,
+            'price_rounding_mode'      => 'nearest_half_up',
+            'final_price'              => 7215000,
+            'warnings'                 => array(),
         );
         $cny                         = array_merge($base, array(
             'product_code'                   => 'CNY-FREIGHT',

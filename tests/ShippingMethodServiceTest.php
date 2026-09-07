@@ -121,7 +121,7 @@ final class ShippingMethodServiceTest extends TestCase {
 			'post_status' => 'publish',
 			'meta'        => array( '_digitalogic_patris_product_code' => 'DOMESTIC-509' ),
 		);
-		$assigned = $this->service->assign_product_by_code( 'DOMESTIC-509', 'domestic' );
+		$assigned                               = $this->service->assign_product_by_code( 'DOMESTIC-509', 'domestic' );
 
 		$this->assertNotInstanceOf( WP_Error::class, $assigned );
 		$this->assertSame( 'domestic', $assigned['shipping_method_id'] );

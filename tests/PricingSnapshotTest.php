@@ -169,6 +169,29 @@ final class PricingSnapshotTest extends TestCase {
 		$this->assertArrayNotHasKey( Digitalogic_Patris_Feed::PRODUCT_SYNC_SECRET_OPTION, $GLOBALS['digitalogic_test_options'] );
 	}
 
+	/** Receipt progress changes conditional identity even when product prices do not. */
+	public function test_revision_exposes_delivery_progress_without_stale_etag(): void {
+		$key                       = hash( 'sha256', $this->source['id'] . "\n" . $this->source['dataset'] );
+		$state                     = &$GLOBALS['digitalogic_test_options'][ Digitalogic_Product_Sync_Receiver::STATE_OPTION ]['sources'][ $key ];
+		$state['input_source']     = $this->source;
+		$state['input_products']   = $state['products'];
+		$state['last_event_id']    = 'sha256:' . str_repeat( 'e', 64 );
+		$state['pending_products'] = array( 'PENDING' => array() );
+		unset( $state );
+		$GLOBALS['digitalogic_test_option_cache'] = array();
+		$first                                    = $this->revision_response();
+		$this->assertSame( 200, $first->get_status() );
+		$this->assertSame( 'pending', $first->get_data()['delivery']['status'] );
+		$this->assertSame( 1, $first->get_data()['delivery']['pending_products'] );
+		$GLOBALS['digitalogic_test_options'][ Digitalogic_Product_Sync_Receiver::STATE_OPTION ]['sources'][ $key ]['pending_products'] = array();
+		$GLOBALS['digitalogic_test_option_cache'] = array();
+		$next                                     = $this->revision_response( array( 'If-None-Match' => $first->get_headers()['ETag'] ) );
+		$this->assertSame( 200, $next->get_status() );
+		$this->assertSame( $first->get_data()['delivery']['event_id'], $next->get_data()['delivery']['event_id'] );
+		$this->assertSame( 0, $next->get_data()['delivery']['pending_products'] );
+		$this->assertNotSame( $first->get_headers()['ETag'], $next->get_headers()['ETag'] );
+	}
+
 	public function test_revision_discovers_final_projection_from_exact_input_baseline(): void {
 		$input             = $this->source;
 		$input['revision'] = 'sha256:' . str_repeat( 'b', 64 );

@@ -80,10 +80,15 @@ PHP owner projection resolves identities together and loads assignments in
 batches of up to 500. The batch includes `woocommerce_id` so identity agreement
 is checked without a second scalar assignment fetch for every product.
 
-Go-selected local settings writes currently fail closed until post-commit Go
-dispatch is connected. Never dispatch to Go while holding the PHP pricing
-transaction: Go needs to read committed inputs from their owner. Activation of
-Go authority remains unavailable until this actuation path is complete.
+Go-selected owner settings commit with `awaiting_delivery`, the expected owner
+catalog revision and every affected source identity. They do not calculate a
+PHP price or claim final completion. Publication runs after the pricing locks
+release; the existing authenticated outbound Go WebSocket observes owner changes.
+Async confirmation must wait for matching durable delivery receipts for all
+affected sources. The existing revision response includes `delivery`, and its
+ETag changes with receipt progress even when product prices do not change.
+Activation remains a paired release gate until event actuation, receipt recovery
+and downstream acceptance are complete.
 
 - Select exactly one final pricing authority, PHP or Go, per deployment. The
   shared calculator alone does not implement that deployment selection.

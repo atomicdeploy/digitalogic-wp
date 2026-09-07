@@ -445,6 +445,9 @@ class Digitalogic_Product_Sync_Receiver {
 
 	/** Shipping assignments waiting for the caller-owned pricing transaction to commit. */
 	private $coordinated_shipping_assignment_events = array();
+
+	/** Successful receive receipts waiting for an outer source lock to release. */
+	private $pending_applied_receipts = array();
     // phpcs:enable
 
     public static function instance() {
@@ -520,6 +523,13 @@ class Digitalogic_Product_Sync_Receiver {
 	 * failure can never roll back or reclassify a correctly committed product.
 	 */
 	public function dispatch_materializer_product_committed() {
+		if ( ! $this->source_identity_lock_is_owned() ) {
+			$receipts                       = $this->pending_applied_receipts;
+			$this->pending_applied_receipts = array();
+			foreach ( $receipts as $receipt ) {
+				$this->emit_result( $receipt['result'], $receipt['envelope'] );
+			}
+		}
 		if (
 			$this->source_identity_lock_is_owned()
 			|| (
@@ -754,6 +764,13 @@ class Digitalogic_Product_Sync_Receiver {
 			$this->dispatch_materializer_product_committed();
         }
 
+		if ( is_array( $result ) ) {
+			if ( $this->source_identity_lock_is_owned() ) {
+				$this->pending_applied_receipts[] = array( 'result' => $result, 'envelope' => $envelope );
+			} else {
+				$result = $this->emit_result( $result, $envelope );
+			}
+		}
 		return $result;
     }
 
@@ -874,7 +891,7 @@ class Digitalogic_Product_Sync_Receiver {
 				if ( ! isset( $source_state['input_products'], $source_state['input_source'] ) ) {
 					return $this->input_baseline_required();
 				}
-				$projected = $this->project_authority_products( $source_state['input_products'], $source_state, $authority );
+				$projected = $this->project_authority_products( $source_state['input_products'], $source_state, $authority, $owner_catalog_revision );
 				if ( is_wp_error( $projected ) ) {
 					return $projected;
 				}
@@ -886,6 +903,10 @@ class Digitalogic_Product_Sync_Receiver {
 				}
 				$delivery = $this->build_delivery_state( $projected, $changed, array( 'event_id' => $source_state['last_event_id'] ), $source_state );
 				$source_state['products'] = $projected;
+				unset( $source_state['owner_catalog_revision'] );
+				if ( null !== $owner_catalog_revision ) {
+					$source_state['owner_catalog_revision'] = $owner_catalog_revision;
+				}
 				if ( 'php' === $authority ) {
 					$source_state['source']['revision'] = $this->source_revision( $projected, $source_state['categories'], $source_state['excluded_codes'], $source_state['quarantined_codes'] );
 				}
@@ -1138,6 +1159,51 @@ class Digitalogic_Product_Sync_Receiver {
             ? $state['sources'][$key]
             : array();
     }
+
+	/** Read canonical source identities while the caller owns its coordination lock. */
+	public function get_source_identities() {
+		return $this->source_identity_state( $this->load_state() );
+	}
+
+	/**
+	 * Return sources whose stored facts depend on site-owned pricing inputs.
+	 *
+	 * @return array|WP_Error Existing source identities, or a required-baseline error.
+	 */
+	public function get_owner_dependent_source_identities() {
+		$state = $this->load_state();
+		foreach ( $state['sources'] as $key => $source ) {
+			if ( ! isset( $source['input_source'], $source['input_products'] ) || ! is_array( $source['input_products'] ) ) {
+				return $this->input_baseline_required();
+			}
+			$dependent = false;
+			foreach ( $source['input_products'] as $product ) {
+				if ( $this->requires_owner_projection( $product, $source ) ) {
+					$dependent = true;
+					break;
+				}
+			}
+			if ( ! $dependent ) {
+				unset( $state['sources'][ $key ] );
+			}
+		}
+		return $this->source_identity_state( $state );
+	}
+
+	/**
+	 * Return the existing durable delivery receipt, or null when none is known.
+	 *
+	 * @param string $source_id Exact source ID.
+	 * @param string $dataset Exact source dataset.
+	 * @return array|null
+	 */
+	public function get_delivery_receipt( $source_id, $dataset ) {
+		$source = $this->get_source_state( $source_id, $dataset );
+		if ( ! isset( $source['input_source'], $source['input_products'] ) || ! $this->is_hash( $source['last_event_id'] ?? null ) ) {
+			return null;
+		}
+		return $this->delivery_receipt( $source );
+	}
     // phpcs:enable
 
     // phpcs:disable -- Coordinator methods follow this legacy receiver's established formatting.
@@ -1224,6 +1290,7 @@ class Digitalogic_Product_Sync_Receiver {
 	/** Snapshot WooCommerce's request-local deferred variable-parent sync queue. */
 	private function snapshot_deferred_product_sync() {
 		return array(
+			'applied_receipts' => $this->pending_applied_receipts,
 			'exists' => array_key_exists( 'wc_deferred_product_sync', $GLOBALS ),
 			'value'  => $GLOBALS['wc_deferred_product_sync'] ?? null,
 		);
@@ -1236,6 +1303,7 @@ class Digitalogic_Product_Sync_Receiver {
 	 * @return void
 	 */
 	private function restore_deferred_product_sync( $snapshot ) {
+		$this->pending_applied_receipts = $snapshot['applied_receipts'] ?? array();
 		if ( ! empty( $snapshot['exists'] ) ) {
 			$GLOBALS['wc_deferred_product_sync'] = $snapshot['value'] ?? null;
 			return;
@@ -1885,6 +1953,7 @@ class Digitalogic_Product_Sync_Receiver {
 
             $source_state['source'] = $source;
             $source_state['products'] = $products;
+            unset($source_state['owner_catalog_revision']);
             $source_state['applied_products'] = $delivery['applied_products'];
             $source_state['pending_products'] = $delivery['pending_products'];
             $source_state['deferred_products'] = $delivery['deferred_products'];
@@ -2809,9 +2878,11 @@ class Digitalogic_Product_Sync_Receiver {
      * @param array  $products Validated incoming records keyed by Product Code.
      * @param array  $source Source envelope or stored source metadata.
      * @param string $authority Configured calculation authority under the lock.
+     * @param string|null $verified_owner_catalog_revision Actual Go catalog verification, returned to the receipt owner.
      * @return array|WP_Error
      */
-    private function project_authority_products($products, $source, $authority) {
+    private function project_authority_products($products, $source, $authority, &$verified_owner_catalog_revision = null) {
+        $verified_owner_catalog_revision = null;
         if (empty($products)) {
             return $products;
         }
@@ -2839,6 +2910,9 @@ class Digitalogic_Product_Sync_Receiver {
                         array('product_code' => (string) $code, 'owner_catalog_revision' => $catalog['revision'])
                     );
                 }
+            }
+            if (null !== $catalog) {
+                $verified_owner_catalog_revision = $catalog['revision'];
             }
             return $products;
         }
@@ -2973,11 +3047,15 @@ class Digitalogic_Product_Sync_Receiver {
         }
 
         if (!$cutover && is_array($existing) && isset($existing['recent_events'][$envelope['event_id']])) {
-            $projected = $this->project_authority_products($existing['input_products'], $existing, $authority);
+            $projected = $this->project_authority_products($existing['input_products'], $existing, $authority, $owner_catalog_revision);
             if (is_wp_error($projected)) {
                 return $projected;
             }
             $existing['products'] = $projected;
+            unset($existing['owner_catalog_revision']);
+            if (null !== $owner_catalog_revision) {
+                $existing['owner_catalog_revision'] = $owner_catalog_revision;
+            }
             if ('php' === $authority) {
                 $existing['source']['revision'] = $this->source_revision($projected, $existing['categories'], $existing['excluded_codes'], $existing['quarantined_codes']);
             }
@@ -3035,7 +3113,7 @@ class Digitalogic_Product_Sync_Receiver {
             && $envelope['source']['revision'] === ($existing['input_source']['revision'] ?? '');
 
         $input_products = $transition['products'];
-        $projected = $this->project_authority_products($input_products, $envelope, $authority);
+        $projected = $this->project_authority_products($input_products, $envelope, $authority, $owner_catalog_revision);
         if (is_wp_error($projected)) {
             return $projected;
         }
@@ -3074,6 +3152,9 @@ class Digitalogic_Product_Sync_Receiver {
         );
         if ('php' === $authority) {
             $source_state['source']['revision'] = $this->source_revision($projected, $transition['categories'], $transition['excluded_codes'], $envelope['quarantined_codes']);
+        }
+        if (null !== $owner_catalog_revision) {
+            $source_state['owner_catalog_revision'] = $owner_catalog_revision;
         }
         foreach (array('local_currency', 'formula_id') as $field) {
             if (array_key_exists($field, $envelope)) {
@@ -3120,7 +3201,7 @@ class Digitalogic_Product_Sync_Receiver {
             'persistence_verified' => true,
         ), $this->delivery_result_state($source_state));
 
-        return $this->emit_result($result, $envelope);
+        return $this->result_with_delivery_receipt($result, $source_state);
     }
 
     /**
@@ -3214,19 +3295,26 @@ class Digitalogic_Product_Sync_Receiver {
             'persistence_verified' => true,
         ), $this->delivery_result_state($source_state));
 
-        return $this->emit_result($result, $envelope);
+        return $this->result_with_delivery_receipt($result, $source_state);
     }
     // phpcs:enable
 
     private function emit_result($result, $envelope) {
+        $metadata = array(
+            'schema' => $envelope['schema'],
+            'event_id' => $envelope['event_id'],
+            'event_type' => $envelope['event_type'],
+            'source' => $envelope['source'],
+            'generated_at' => $envelope['generated_at'],
+        );
+        if (isset($result['owner_catalog_revision'])) {
+            $metadata['owner_catalog_revision'] = $result['owner_catalog_revision'];
+        }
+        if (isset($result['delivery'])) {
+            $metadata['delivery'] = $result['delivery'];
+        }
         try {
-            do_action('digitalogic_product_sync_applied', $result, array(
-					'schema'       => $envelope['schema'],
-					'event_id'     => $envelope['event_id'],
-					'event_type'   => $envelope['event_type'],
-					'source'       => $envelope['source'],
-					'generated_at' => $envelope['generated_at'],
-            ));
+            do_action('digitalogic_product_sync_applied', $result, $metadata);
         } catch (Throwable $exception) {
             $result['delivery_warnings'][] = array(
 				'code'      => 'digitalogic_product_sync_listener_failed',
@@ -5758,6 +5846,35 @@ class Digitalogic_Product_Sync_Receiver {
         );
     }
 
+    /** Project the actual durable delivery sets without asserting unknown provenance. */
+    private function delivery_receipt($source_state) {
+        $delivery = $this->delivery_result_state($source_state);
+        $receipt = array(
+            'event_id' => (string) $source_state['last_event_id'],
+            'status' => $delivery['pending_products'] > 0 ? 'pending' : ($delivery['deferred_products'] > 0 ? 'deferred' : 'complete'),
+            'pending_products' => (int) $delivery['pending_products'],
+            'deferred_products' => (int) $delivery['deferred_products'],
+            'deferred_missing' => (int) $delivery['deferred_reconciliation']['missing'],
+            'deferred_ambiguous' => (int) $delivery['deferred_reconciliation']['ambiguous'],
+            'source' => $source_state['source'],
+            'input_source' => $source_state['input_source'],
+        );
+        if ($this->is_hash($source_state['owner_catalog_revision'] ?? null)) {
+            $receipt['owner_catalog_revision'] = $source_state['owner_catalog_revision'];
+        }
+        return $receipt;
+    }
+
+    /** Attach the committed receipt before releasing the source lock. */
+    private function result_with_delivery_receipt($result, $source_state) {
+        $result['persistence_verified'] = true;
+        $result['delivery'] = $this->delivery_receipt($source_state);
+        if (isset($result['delivery']['owner_catalog_revision'])) {
+            $result['owner_catalog_revision'] = $result['delivery']['owner_catalog_revision'];
+        }
+        return $result;
+    }
+
 	/** Return only exact source identities safe to persist in a pricing marker. */
 	private function source_identity_state( $state ) {
 		$identities = array( 'sources' => array() );
@@ -5903,7 +6020,7 @@ class Digitalogic_Product_Sync_Receiver {
 
     // phpcs:disable -- Preserve the established receiver formatting while the legacy file remains baseline-managed.
     private function replay_result($envelope, $existing) {
-        return array_merge(array(
+        $result = array_merge(array(
             'status' => 'replayed',
             'replayed' => true,
             'event_id' => $envelope['event_id'],
@@ -5913,6 +6030,7 @@ class Digitalogic_Product_Sync_Receiver {
             'stored_categories' => count($existing['categories'] ?? array()),
             'excluded_codes' => count($existing['excluded_codes'] ?? array()),
         ), $this->delivery_result_state($existing));
+        return $this->result_with_delivery_receipt($result, $existing);
     }
     // phpcs:enable
 

@@ -249,6 +249,7 @@ final class Digitalogic_Pricing_Snapshot {
 			'source'                  => $current['source'],
 			'input_source'            => $resolved['input_source'],
 			'owner_catalog_revision'  => $current['owner_catalog_revision'],
+			'delivery'                => $current['delivery'],
 			'catalog_revision'        => $current['catalog_revision'],
 			'pricing_state_revision'  => $current['pricing_state_revision'],
 			'pricing_policy_revision' => $current['pricing_policy_revision'],
@@ -2997,12 +2998,14 @@ final class Digitalogic_Pricing_Snapshot {
 			)
 		);
 		$source_state            = Digitalogic_Product_Sync_Receiver::instance()->get_source_state( $validated['source']['id'], $validated['source']['dataset'] );
+		$delivery                = Digitalogic_Product_Sync_Receiver::instance()->get_delivery_receipt( $validated['source']['id'], $validated['source']['dataset'] );
 		$state_revision          = $this->digest(
 			array(
 				'schema_version'          => self::SCHEMA_VERSION,
 				'projection_schema'       => self::PROJECTION_SCHEMA,
 				'source_revision'         => $validated['source']['revision'],
 				'input_source_revision'   => $source_state['input_source']['revision'] ?? null,
+				'delivery'                => $delivery,
 				'catalog_revision'        => $catalog_revision,
 				'pricing_policy_revision' => $pricing_policy_revision,
 			)
@@ -3012,6 +3015,7 @@ final class Digitalogic_Pricing_Snapshot {
 			'source'                  => $validated['source'],
 			'source_context'          => $validated['context'],
 			'owner_catalog_revision'  => $pricing['shipping']['catalog_revision'],
+			'delivery'                => $delivery,
 			'catalog_revision'        => $catalog_revision,
 			'pricing_state_revision'  => $pricing['state_revision'],
 			'pricing_policy_revision' => $pricing_policy_revision,
