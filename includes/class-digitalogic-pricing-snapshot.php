@@ -797,6 +797,31 @@ final class Digitalogic_Pricing_Snapshot {
 
 	/** Execute one build only while this request owns its worker lease. */
 	private function run_build_with_lease( $build_id ) {
+		$started = hrtime( true );
+		$previous = $started;
+		$phase = 'admission_and_revision';
+		$durations = array();
+		$mark = static function ( $next ) use ( &$previous, &$phase, &$durations ) {
+			$now = hrtime( true );
+			$durations[ $phase ] = ( $durations[ $phase ] ?? 0 ) + ( $now - $previous ) / 1000000;
+			$previous = $now;
+			$phase = $next;
+		};
+		try {
+			$this->run_measured_build_with_lease( $build_id, $mark );
+		} finally {
+			$mark( 'finished' );
+			// One bounded record per worker, including early failure. No product or credential data.
+			error_log( 'digitalogic-pricing-timing ' . wp_json_encode( array(
+				'operation' => 'snapshot_build',
+				'build_id' => $build_id,
+				'total_ms' => round( ( hrtime( true ) - $started ) / 1000000, 3 ),
+				'phase_ms' => array_map( static function ( $value ) { return round( $value, 3 ); }, $durations ),
+			) ) );
+		}
+	}
+
+	private function run_measured_build_with_lease( $build_id, $mark ) {
 		$transition = $this->acquire_admission_lock( 1 );
 		if ( is_wp_error( $transition ) ) {
 			if ( ! $this->retry_worker( $build_id ) ) {
@@ -847,7 +872,9 @@ final class Digitalogic_Pricing_Snapshot {
 			return;
 		}
 
-		$checkpoint = function ( $phase, $percent, $completed, $total ) use ( $build_id ) {
+		$mark( 'catalog_projection' );
+		$checkpoint = function ( $phase, $percent, $completed, $total ) use ( $build_id, $mark ) {
+			$mark( 'catalog_' . $phase );
 			return $this->checkpoint( $build_id, $phase, $percent, $completed, $total );
 		};
 		$catalog    = Digitalogic_Google_Sheets_Catalog::instance()->get_reconciled_products_snapshot(
@@ -862,6 +889,7 @@ final class Digitalogic_Pricing_Snapshot {
 			$this->record_worker_failure( $build_id, is_wp_error( $this->active_worker_error ) ? $this->active_worker_error : $catalog );
 			return;
 		}
+		$mark( 'source_verification_and_owner_records' );
 		$catalog_source = (array) ( $catalog['reconciliation']['source'] ?? array() );
 		foreach ( array( 'id', 'dataset', 'revision' ) as $source_field ) {
 			if (
@@ -893,6 +921,7 @@ final class Digitalogic_Pricing_Snapshot {
 			return;
 		}
 
+		$mark( 'final_revision_verification' );
 		$after = $this->current_revision_data( $job['source'] );
 		if ( is_wp_error( $after ) || ! hash_equals( $job['state_revision'], (string) ( $after['state_revision'] ?? '' ) ) ) {
 			$this->record_worker_failure(
@@ -902,6 +931,7 @@ final class Digitalogic_Pricing_Snapshot {
 			return;
 		}
 
+		$mark( 'snapshot_publication' );
 		$published = $this->publish_snapshot( $job, $after, $catalog );
 		if ( is_wp_error( $published ) ) {
 			$this->record_worker_failure( $build_id, $published );

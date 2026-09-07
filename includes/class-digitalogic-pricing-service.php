@@ -433,6 +433,10 @@ final class Digitalogic_Pricing_Service {
 						if ( is_wp_error( $repricing ) ) {
 							return $repricing;
 						}
+						// Bind Go delivery to SQL-verified new inputs; get_option may still cache the old catalog until COMMIT.
+						if ( 'go' === ( $repricing['authority'] ?? '' ) ) {
+							$repricing['owner_catalog_revision'] = $readback['shipping']['catalog_revision'];
+						}
 						$cache_plan        = Digitalogic_Pricing_Coordinator::instance()->repricing_cache_plan();
 						$response_settings = $this->settings_from_globals( $readback );
 						return array(
@@ -1539,6 +1543,10 @@ final class Digitalogic_Pricing_Service {
 					);
 					if ( is_wp_error( $repricing ) ) {
 						return $repricing;
+					}
+					// Bind Go delivery to SQL-verified new inputs; get_option may still cache the old catalog until COMMIT.
+					if ( 'go' === ( $repricing['authority'] ?? '' ) ) {
+						$repricing['owner_catalog_revision'] = $readback['shipping']['catalog_revision'];
 					}
 					$confirmation = $this->stage_confirmation_open_transaction(
 						$locked_current,
