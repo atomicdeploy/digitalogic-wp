@@ -19,6 +19,139 @@ final class PatrisPricePolicyTest extends TestCase {
 	 */
 	private $feed;
 
+	/** Mutation and missing-weight preservation never read customer-filtered prices. */
+	public function test_mutation_uses_raw_prices_while_storefront_projection_keeps_filters(): void {
+		$product = new class( 899 ) extends WC_Product {
+			/**
+			 * Presentation getter calls.
+			 *
+			 * @var int
+			 */
+			public $view_reads = 0;
+			/**
+			 * Storefront sale predicate calls.
+			 *
+			 * @var int
+			 */
+			public $sale_reads = 0;
+			/**
+			 * Raw sale start.
+			 *
+			 * @var DateTimeImmutable|null
+			 */
+			public $sale_from = null;
+			/**
+			 * Raw sale end.
+			 *
+			 * @var DateTimeImmutable|null
+			 */
+			public $sale_to = null;
+
+			/**
+			 * Simulate a tier-pricing regular price filter.
+			 *
+			 * @param string $context Getter context.
+			 * @return string
+			 */
+			public function get_regular_price( $context = 'view' ) {
+				if ( 'view' === $context ) {
+					++$this->view_reads;
+					return '100';
+				}
+				return parent::get_regular_price();
+			}
+
+			/**
+			 * Simulate a customer-specific sale filter.
+			 *
+			 * @param string $context Getter context.
+			 * @return string
+			 */
+			public function get_sale_price( $context = 'view' ) {
+				if ( 'view' === $context ) {
+					++$this->view_reads;
+					return '50';
+				}
+				return parent::get_sale_price();
+			}
+
+			/**
+			 * Simulate a customer-specific effective price filter.
+			 *
+			 * @param string $context Getter context.
+			 * @return string
+			 */
+			public function get_price( $context = 'view' ) {
+				if ( 'view' === $context ) {
+					++$this->view_reads;
+					return '50';
+				}
+				return parent::get_price();
+			}
+
+			/** Count indirect storefront pricing work. */
+			public function is_on_sale() {
+				++$this->sale_reads;
+				return true;
+			}
+
+			/**
+			 * Return a sale boundary in the requested context.
+			 *
+			 * @param string $context Getter context.
+			 * @return DateTimeImmutable|null
+			 * @throws RuntimeException When presentation context is requested.
+			 */
+			public function get_date_on_sale_from( $context = 'view' ) {
+				if ( 'edit' !== $context ) {
+					throw new RuntimeException( 'Sale schedule must use edit context.' );
+				}
+				return $this->sale_from;
+			}
+
+			/**
+			 * Return a sale boundary in the requested context.
+			 *
+			 * @param string $context Getter context.
+			 * @return DateTimeImmutable|null
+			 * @throws RuntimeException When presentation context is requested.
+			 */
+			public function get_date_on_sale_to( $context = 'view' ) {
+				if ( 'edit' !== $context ) {
+					throw new RuntimeException( 'Sale schedule must use edit context.' );
+				}
+				return $this->sale_to;
+			}
+		};
+		$policy  = Digitalogic_Patris_Price_Policy::instance();
+		$priced  = $policy->apply( $product, array( 'final_price' => 200 ) );
+		$this->assertSame( '200', $priced['woo_regular_price'] );
+		$this->assertSame( '200', $priced['woo_effective_price'] );
+		$this->assertFalse( $priced['sale_active'] );
+		$preserved = $policy->apply( $product, array( 'weight_grams' => null ) );
+		$this->assertSame( 'canonical_missing_preserved', $preserved['policy_status'] );
+		$this->assertSame( '200', $preserved['woo_effective_price'] );
+		$this->assertSame( 0, $product->view_reads );
+		$this->assertSame( 0, $product->sale_reads );
+
+		$view = $policy->project( $product );
+		$this->assertSame( '100', $view['woo_regular_price'] );
+		$this->assertSame( '50', $view['woo_effective_price'] );
+		$this->assertTrue( $view['sale_active'] );
+		$this->assertSame( 3, $product->view_reads );
+		$this->assertSame( 1, $product->sale_reads );
+
+		$product->set_sale_price( '150' );
+		$product->sale_from = new DateTimeImmutable( '+1 hour' );
+		$this->assertFalse( $policy->project( $product, null, null, null, 'edit' )['sale_active'] );
+		$product->sale_from = new DateTimeImmutable( '-1 hour' );
+		$this->assertTrue( $policy->project( $product, null, null, null, 'edit' )['sale_active'] );
+		$product->sale_to = new DateTimeImmutable( '-1 minute' );
+		$this->assertFalse( $policy->project( $product, null, null, null, 'edit' )['sale_active'] );
+		$this->assertSame( 3, $product->view_reads );
+		$this->assertSame( 1, $product->sale_reads );
+	}
+
 	/** Prepare an isolated WooCommerce fixture. */
 	protected function setUp(): void {
 		$GLOBALS['digitalogic_test_options']              = array( 'woocommerce_weight_unit' => 'kg' );
