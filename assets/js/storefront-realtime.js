@@ -26,6 +26,32 @@
     var lastNotificationEventId = Number(readSession(notificationEventKey) || 0);
     var currentProductId = Number(config.currentProductId || 0);
     var leaderTtl = Math.max(6000, Number(config.leaderTtlMs || 12000));
+    var freshnessPending = false;
+    var freshnessCursor = Number(config.initialEventId || 0);
+
+    function checkFreshness() {
+        if (!config.freshnessUrl || freshnessPending || document.visibilityState === 'hidden') { return; }
+        freshnessPending = true;
+        var url = new URL(config.freshnessUrl, window.location.href);
+        url.searchParams.set('since', String(freshnessCursor));
+        var controller = new AbortController();
+        var timeout = window.setTimeout(function() { controller.abort(); }, 6000);
+        fetch(url.toString(), {credentials: 'same-origin', cache: 'no-store', signal: controller.signal})
+            .then(function(response) {
+                if (!response.ok) { throw new Error('freshness_unavailable'); }
+                return response.json();
+            }).then(function(result) {
+                (result.events || []).forEach(function(event) {
+                    handleEvent(event);
+                    freshnessCursor = Math.max(freshnessCursor, Number(event.id || 0));
+                });
+            }).catch(function() {
+                window.dispatchEvent(new CustomEvent('digitalogic:search-unavailable'));
+            }).finally(function() {
+                window.clearTimeout(timeout);
+                freshnessPending = false;
+            });
+    }
 
     writeSession(tabKey, tabId);
 
@@ -480,6 +506,7 @@
     }
 
     function maintainLeadership() {
+        checkFreshness();
         var now = Date.now();
         var current = lease();
         if (!current || Number(current.expiresAt || 0) <= now || current.tabId === tabId) {
@@ -523,6 +550,7 @@
 
     document.addEventListener('visibilitychange', function () {
         if (document.visibilityState === 'visible') {
+            checkFreshness();
             var pending = Number(readSession(prefix + 'pending-product-event') || 0);
             if (pending > 0) {
                 writeSession(prefix + 'pending-product-event', 0);

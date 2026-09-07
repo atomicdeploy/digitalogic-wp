@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Discard hidden autocomplete suggestions so keyboard reopening cannot bypass fresh price validation.
+- Register the cache settings menu after its parent and recover page-restored realtime coordination. Add bounded public commercial-event catch-up when SSE delivery stalls, clearing search previews when freshness is unavailable.
 
 ## [1.8.86] - 2026-09-07
 

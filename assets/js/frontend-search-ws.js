@@ -520,6 +520,7 @@
     window.addEventListener('digitalogic:product-invalidated', function() { invalidateSearch(true); });
     window.addEventListener('digitalogic:search-invalidated', function() { invalidateSearch(true); });
     window.addEventListener('offline', function() { invalidateSearch(false); });
+    window.addEventListener('digitalogic:search-unavailable', function() { invalidateSearch(false); });
     window.addEventListener('online', function() { invalidateSearch(true); });
     window.addEventListener('pageshow', function() { invalidateSearch(true); });
     document.addEventListener('visibilitychange', function() { invalidateSearch(true); });
