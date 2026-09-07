@@ -19,6 +19,48 @@ if (!defined('WP_CLI') || !WP_CLI) {
 class Digitalogic_CLI_Commands {
 
 	/**
+	 * Read or select the sole calculator for the next pricing operation.
+	 *
+	 * ## OPTIONS
+	 *
+	 * [<authority>]
+	 * : php or go. Omit to read the current authority and owner catalog revision.
+	 *
+	 * [--expected=<authority>]
+	 * : Refuse a change unless the current authority matches php or go.
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     wp digitalogic pricing authority
+	 *     wp digitalogic pricing authority go --expected=php
+	 *
+	 * @when after_wp_load
+	 */
+	public function pricing_authority( $args, $assoc_args ) {
+		$coordinator = Digitalogic_Pricing_Coordinator::instance();
+		if ( isset( $args[0] ) ) {
+			$result = $coordinator->set_pricing_authority( $args[0], $assoc_args['expected'] ?? null );
+		} else {
+			$result = Digitalogic_Pricing_Service::instance()->with_source_delivery_lock(
+				static function () {
+					$catalog = Digitalogic_Shipping_Method_Service::instance()->get_integration_catalog();
+					return is_wp_error( $catalog ) ? $catalog : array(
+						'authority'        => $catalog['pricing']['authority'],
+						'catalog_revision' => $catalog['revision'],
+						'changed'          => false,
+						'applies'          => 'next_pricing_operation',
+					);
+				}
+			);
+		}
+		if ( is_wp_error( $result ) ) {
+			WP_CLI::error( $result->get_error_code() . ': ' . $result->get_error_message() );
+			return;
+		}
+		WP_CLI::line( wp_json_encode( $result ) );
+	}
+
+	/**
 	 * Read or set the coordinated price persistence strategy.
 	 *
 	 * ## OPTIONS
@@ -2076,6 +2118,7 @@ WP_CLI::add_command(
 	array( 'Digitalogic_CLI_Commands', 'pricing_policy' )
 );
 WP_CLI::add_command( 'digitalogic pricing write-mode', array( 'Digitalogic_CLI_Commands', 'pricing_write_mode' ) );
+WP_CLI::add_command( 'digitalogic pricing authority', array( 'Digitalogic_CLI_Commands', 'pricing_authority' ) );
 WP_CLI::add_command(
 	'digitalogic pricing-input-credential create',
 	array( 'Digitalogic_CLI_Commands', 'pricing_input_credential_create' )

@@ -25,6 +25,42 @@ final class Digitalogic_Pricing_Coordinator {
 		return $authority;
 	}
 
+	/** Select the next operation's sole calculator under pricing and source locks. */
+	public function set_pricing_authority( $authority, $expected = null ) {
+		if ( ! in_array( $authority, array( 'php', 'go' ), true ) || ( null !== $expected && ! in_array( $expected, array( 'php', 'go' ), true ) ) ) {
+			return $this->error( 'digitalogic_pricing_authority_invalid', 'Pricing authority must be php or go.', 400 );
+		}
+		return Digitalogic_Pricing_Service::instance()->with_source_delivery_lock(
+			function () use ( $authority, $expected ) {
+				$current = $this->pricing_authority();
+				if ( is_wp_error( $current ) ) {
+					return $current;
+				}
+				if ( null !== $expected && $current !== $expected ) {
+					return $this->error( 'digitalogic_pricing_authority_changed', 'Pricing authority differs from the expected selection.', 409 );
+				}
+				$catalog = Digitalogic_Shipping_Method_Service::instance()->get_integration_catalog();
+				if ( is_wp_error( $catalog ) ) {
+					return $catalog;
+				}
+				update_option( self::AUTHORITY_OPTION, $authority, false );
+				if ( $this->pricing_authority() !== $authority ) {
+					return $this->error( 'digitalogic_pricing_authority_save_failed', 'Pricing authority readback failed.', 500 );
+				}
+				$catalog = Digitalogic_Shipping_Method_Service::instance()->get_integration_catalog();
+				if ( is_wp_error( $catalog ) ) {
+					return $catalog;
+				}
+				return array(
+					'authority'        => $authority,
+					'catalog_revision' => $catalog['revision'],
+					'changed'          => $current !== $authority,
+					'applies'          => 'next_pricing_operation',
+				);
+			}
+		);
+	}
+
 	/** Return the deployment's explicit price persistence strategy. */
 	public function write_mode() {
 		$mode = get_option( self::WRITE_MODE_OPTION, 'direct_db' );
