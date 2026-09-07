@@ -117,7 +117,7 @@ final class SelectedPricingAuthorityTest extends TestCase {
 		unset( $products[0]['record_hash'] );
 		$products[0]['record_hash']                   = $this->record_hash( $products[0] );
 		$GLOBALS['digitalogic_test_wc_product_saves'] = array();
-		$result                                       = Digitalogic_Product_Sync_Receiver::instance()->receive( $this->snapshot( $products, '2026-07-22T00:00:00Z' ) );
+		$result = Digitalogic_Product_Sync_Receiver::instance()->receive( $this->snapshot( $products, '2026-07-22T00:00:00Z' ) );
 		$this->assert_success( $result );
 		$this->assertSame( 1, $result['woocommerce']['batch_count'] );
 		$this->assertSame( 30, $result['woocommerce']['updated'] );
@@ -158,6 +158,7 @@ final class SelectedPricingAuthorityTest extends TestCase {
 	 */
 	public function test_source_batch_writes_stock_facts_and_unpriced_transition_without_full_saves(): void {
 		$payload                              = $this->seed_ingress_batch( 2 );
+		$GLOBALS['digitalogic_test_wc_product_instance_cache_removals'] = array();
 		$GLOBALS['digitalogic_test_posts'][20000]['meta'][ Digitalogic_Patris_Catalog_Materializer::AUTO_MATERIALIZED_META ] = '1';
 		unset( $GLOBALS['digitalogic_test_post_meta_cache'][20000] );
 		$products                             = $payload['products'];
@@ -180,6 +181,8 @@ final class SelectedPricingAuthorityTest extends TestCase {
 		$this->assertSame( array(), $GLOBALS['digitalogic_test_wc_product_saves'] );
 		$this->assertSame( '5', get_post_meta( 20000, '_stock', true ) );
 		$this->assertSame( 'Updated source title', $GLOBALS['digitalogic_test_posts'][20000]['post_title'] );
+		$this->assertContains( 20000, $GLOBALS['digitalogic_test_wc_product_instance_cache_removals'] );
+		$this->assertContains( 20001, $GLOBALS['digitalogic_test_wc_product_instance_cache_removals'] );
 		$this->assertSame( '5', $GLOBALS['digitalogic_test_wc_lookup_rows'][20000]['stock_quantity'] );
 		$this->assertSame( '123', get_post_meta( 20000, '_digitalogic_patris_purchase_price_source', true ) );
 		$this->assertSame( '2026-07-22T00:00:00Z', get_post_meta( 20000, '_digitalogic_patris_updated_at', true ) );

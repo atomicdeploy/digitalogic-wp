@@ -5642,6 +5642,10 @@ class Digitalogic_Product_Sync_Receiver {
                 );
                 continue;
             }
+			// Source ingress reaches this batch without the owner-reprice planner.
+			// Register leaves before staging so commit and rollback evict their
+			// Woo instance and metadata caches, as well as variable parents.
+			$this->coordinated_product_ids[ $woocommerce_id ] = true;
             $batch_items[] = array(
                 'product' => $product,
                 'data' => $product_data,
