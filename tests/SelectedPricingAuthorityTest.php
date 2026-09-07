@@ -10,6 +10,63 @@ use PHPUnit\Framework\TestCase;
 /** Exercise authority selection through real receiver and coordinator methods. */
 final class SelectedPricingAuthorityTest extends TestCase {
 
+	/** A slow full-product save cannot admit the next fallback after the deadline. */
+	public function test_source_deadline_stops_before_second_full_product_save(): void {
+		$payload  = $this->seed_ingress_batch();
+		$before   = Digitalogic_Product_Sync_Receiver::instance()->get_state();
+		$products = $payload['products'];
+		foreach ( array( 0, 1 ) as $offset ) {
+			$products[ $offset ]['name'] = 'Changed source name ' . $offset;
+			unset( $products[ $offset ]['record_hash'] );
+			$products[ $offset ]['record_hash'] = $this->record_hash( $products[ $offset ] );
+		}
+		$now   = 100.0;
+		$clock = new ReflectionProperty( Digitalogic_Pricing_Service::class, 'source_delivery_clock' );
+		$clock->setValue(
+			Digitalogic_Pricing_Service::instance(),
+			static function () use ( &$now ) {
+				return $now;
+			}
+		);
+		$saved                                     = array();
+		$GLOBALS['digitalogic_test_wc_after_save'] = static function ( $product ) use ( &$now, &$saved ) {
+			$saved[] = $product->get_id();
+			$now     = 161.0;
+		};
+		try {
+			$result = Digitalogic_Product_Sync_Receiver::instance()->receive( $this->snapshot( $products, '2026-07-22T00:00:00Z' ) );
+		} finally {
+			$GLOBALS['digitalogic_test_wc_after_save'] = null;
+			$clock->setValue( Digitalogic_Pricing_Service::instance(), null );
+		}
+		$this->assertInstanceOf( WP_Error::class, $result );
+		$this->assertSame( 'digitalogic_source_delivery_deadline_exceeded', $result->get_error_code() );
+		$this->assertNotContains( 20001, $saved );
+		$this->assertContains( 20000, $saved );
+		$this->assertSame( $before, Digitalogic_Product_Sync_Receiver::instance()->get_state() );
+	}
+
+	/** Site-owned product titles do not force otherwise identical rows into full saves. */
+	public function test_source_batch_preserves_site_owned_titles_without_full_product_saves(): void {
+		$payload = $this->seed_ingress_batch();
+		foreach ( range( 20000, 20029 ) as $id ) {
+			$GLOBALS['digitalogic_test_posts'][ $id ]['post_title'] = 'Site title ' . $id;
+			$this->assertSame( '', (string) get_post_meta( $id, Digitalogic_Patris_Catalog_Materializer::AUTO_MATERIALIZED_META, true ) );
+		}
+		$GLOBALS['digitalogic_test_options']['yuan_price']         = '29501';
+		$GLOBALS['digitalogic_test_options']['options_yuan_price'] = '29501';
+		$GLOBALS['digitalogic_test_wc_product_saves']              = array();
+		$result = Digitalogic_Product_Sync_Receiver::instance()->receive( $payload );
+		$this->assert_success( $result );
+		$this->assertSame( 30, $result['woocommerce']['updated'] );
+		$this->assertSame( 1, $result['woocommerce']['batch_count'] );
+		$this->assertSame( 'complete', $result['delivery']['status'] );
+		$this->assertSame( array(), $GLOBALS['digitalogic_test_wc_product_saves'] );
+		foreach ( range( 20000, 20029 ) as $id ) {
+			$this->assertSame( 'Site title ' . $id, $GLOBALS['digitalogic_test_posts'][ $id ]['post_title'] );
+			$this->assertSame( '8437286', (string) get_post_meta( $id, '_price', true ) );
+		}
+	}
 	/**
 	 * A full source retry delivers every known leaf in one real SQL transaction.
 	 */

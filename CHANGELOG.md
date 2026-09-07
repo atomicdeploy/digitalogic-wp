@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.3] - 2026-09-08
+
+- Preserve site-owned product titles without forcing otherwise safe source rows into full WooCommerce saves; retain source-title checks for auto-materialized products.
+- Check the deadline before every full-product fallback and every 25 eligibility rows.
+
 ## [2.0.2] - 2026-09-07
 
 - Keep pricing mutation, preservation and stored-price readback independent of storefront display filters; retain filter-aware storefront audits.
