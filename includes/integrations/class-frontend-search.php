@@ -81,6 +81,33 @@ class Digitalogic_Frontend_Search {
 		return $this->sanitize_cache_settings( get_option( 'digitalogic_search_cache', array() ) );
 	}
 
+	/**
+	 * Keep the normal quantity-one WooCommerce HTML in search previews.
+	 *
+	 * @param string $tier_html Bulk-quantity price presentation.
+	 * @param string $default_html Normal WooCommerce price HTML.
+	 * @return string Normal price with currency, tax and variation formatting retained.
+	 */
+	public function preview_price_html( $tier_html, $default_html ) {
+		unset( $tier_html );
+		return $default_html;
+	}
+
+	/**
+	 * Render commercial price without advertising a bulk tier as a unit price.
+	 *
+	 * @param WC_Product $product Search result product.
+	 * @return string Price HTML.
+	 */
+	private function product_price_html( $product ) {
+		add_filter( 'tiered_pricing_table/catalog_pricing/price_html', array( $this, 'preview_price_html' ), PHP_INT_MAX, 2 );
+		try {
+			return $product->get_price_html();
+		} finally {
+			remove_filter( 'tiered_pricing_table/catalog_pricing/price_html', array( $this, 'preview_price_html' ), PHP_INT_MAX );
+		}
+	}
+
 	public function sanitize_cache_settings( $value ) {
 		$value = is_array( $value ) ? $value : array();
 		return array(
@@ -193,7 +220,7 @@ class Digitalogic_Frontend_Search {
 		foreach ( $result['suggestions'] as &$item ) {
 			if ( isset( $item['_dg_product_id'] ) ) {
 				$product       = wc_get_product( $item['_dg_product_id'] );
-				$item['price'] = $product ? $product->get_price_html() : '';
+				$item['price'] = $product ? $this->product_price_html( $product ) : '';
 				unset( $item['_dg_product_id'] );
 			}
 		}
