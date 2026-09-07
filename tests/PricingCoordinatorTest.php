@@ -137,6 +137,31 @@ final class PricingCoordinatorTest extends TestCase {
 		$this->seed_snapshot();
 	}
 
+	/** Both persistence strategies retain canonical arithmetic and readback. */
+	public function test_adapter_mode_saves_and_verifies_the_same_canonical_price(): void {
+		$coordinator = Digitalogic_Pricing_Coordinator::instance();
+		$this->assertSame( 'direct_db', $coordinator->write_mode() );
+		$this->assertSame( 'adapter', $coordinator->set_write_mode( 'adapter' ) );
+		$GLOBALS['digitalogic_test_wc_product_saves'] = array();
+		$result = $coordinator->update_currency( array( 'yuan_price' => '31000', 'effective_date' => '2026-07-27' ), 'test_adapter' );
+		$this->assertFalse( is_wp_error( $result ), is_wp_error( $result ) ? $result->get_error_message() : '' );
+		$this->assertSame( 'adapter', $result['pricing_results']['write_mode'] );
+		$this->assertNotEmpty( $GLOBALS['digitalogic_test_wc_product_saves'] );
+		$this->assertSame( '8866000', (string) $GLOBALS['digitalogic_test_posts'][901]['meta']['_regular_price'] );
+		$this->assertSame( 0, $result['pricing_results']['pending_products'] );
+		$this->assertInstanceOf( WP_Error::class, $coordinator->set_write_mode( 'typo' ) );
+		$this->assertSame( 'adapter', $coordinator->write_mode() );
+	}
+
+	/** A CNY change commits settings and the exact landed price together. */
+	public function test_invalid_stored_write_mode_rolls_back_currency_change(): void {
+		$GLOBALS['digitalogic_test_options'][ Digitalogic_Pricing_Coordinator::WRITE_MODE_OPTION ] = 'invalid';
+		$before = $GLOBALS['digitalogic_test_options']['options_yuan_price'];
+		$result = Digitalogic_Pricing_Coordinator::instance()->update_currency( array( 'yuan_price' => '31000' ), 'test_invalid_mode' );
+		$this->assertInstanceOf( WP_Error::class, $result );
+		$this->assertSame( $before, $GLOBALS['digitalogic_test_options']['options_yuan_price'] );
+	}
+
 	/** A CNY change commits settings and the exact landed price together. */
 	public function test_currency_change_reprices_and_reads_back_in_one_transaction(): void {
 		$released_before_commit               = false;

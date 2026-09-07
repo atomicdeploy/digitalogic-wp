@@ -437,6 +437,9 @@ class Digitalogic_Product_Sync_Receiver {
     /** @var bool Whether pricing-only SQL batches need bounded cache flushing. */
     private $coordinated_batch_write = false;
 
+    /** @var string Persistence strategy pinned for a coordinated operation. */
+    private $coordinated_write_mode = 'direct_db';
+
 	/** Verified product snapshots waiting until every source lock is released. */
 	private $materializer_committed_snapshots = array();
 
@@ -1152,6 +1155,13 @@ class Digitalogic_Product_Sync_Receiver {
             return $locked;
 		}
 
+		$write_mode = Digitalogic_Pricing_Coordinator::instance()->write_mode();
+		if ( is_wp_error( $write_mode ) ) {
+			$this->release_lock();
+			return $write_mode;
+		}
+		$previous_write_mode = $this->coordinated_write_mode;
+		$this->coordinated_write_mode = $write_mode;
 		++$this->coordinated_transaction_depth;
         try {
             $result = $this->reprice_pricing_state_locked(
@@ -1160,6 +1170,9 @@ class Digitalogic_Product_Sync_Receiver {
                 $normalized['scope_codes'],
                 $previous_catalog_revision
             );
+            if ( ! is_wp_error( $result ) ) {
+                $result['write_mode'] = $write_mode;
+            }
         } catch (Throwable $exception) {
             $result = $this->error(
                 'digitalogic_pricing_reconciliation_failed',
@@ -1168,6 +1181,7 @@ class Digitalogic_Product_Sync_Receiver {
                 array('exception' => get_class($exception))
             );
 		} finally {
+			$this->coordinated_write_mode = $previous_write_mode;
 			--$this->coordinated_transaction_depth;
 			$this->release_lock();
 			if ( isset( $result ) && ! is_wp_error( $result ) ) {
@@ -4753,6 +4767,7 @@ class Digitalogic_Product_Sync_Receiver {
 					$parents,
 					$target_parent_id
 				)
+				&& 'direct_db' === $this->coordinated_write_mode
 			) {
 				$batch[ $code_key ] = $delivery_entry;
 			} else {

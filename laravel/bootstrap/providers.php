@@ -2,6 +2,6 @@
 
 use Digitalogic\Laravel\Providers\IntegrationServiceProvider;
 
-return [
-    IntegrationServiceProvider::class,
-];
+return array(
+	IntegrationServiceProvider::class,
+);

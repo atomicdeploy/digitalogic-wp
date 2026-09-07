@@ -13,6 +13,37 @@ if ( ! defined( 'ABSPATH' ) ) {
  * Routes every supported price input through the exact Patris repricer.
  */
 final class Digitalogic_Pricing_Coordinator {
+	public const WRITE_MODE_OPTION = 'digitalogic_pricing_write_mode';
+
+	/** Return the deployment's explicit price persistence strategy. */
+	public function write_mode() {
+		$mode = get_option( self::WRITE_MODE_OPTION, 'direct_db' );
+		if ( ! in_array( $mode, array( 'direct_db', 'adapter' ), true ) ) {
+			return $this->error( 'digitalogic_pricing_write_mode_invalid', 'Pricing write mode must be direct_db or adapter.', 400 );
+		}
+		return $mode;
+	}
+
+	/**
+	 * Change the strategy between operations, under the existing pricing lock.
+	 *
+	 * @param string $mode Requested persistence strategy.
+	 * @return string|WP_Error
+	 */
+	public function set_write_mode( $mode ) {
+		if ( ! in_array( $mode, array( 'direct_db', 'adapter' ), true ) ) {
+			return $this->error( 'digitalogic_pricing_write_mode_invalid', 'Pricing write mode must be direct_db or adapter.', 400 );
+		}
+		return $this->with_repricing_lock(
+			function () use ( $mode ) {
+				update_option( self::WRITE_MODE_OPTION, $mode, false );
+				if ( get_option( self::WRITE_MODE_OPTION ) !== $mode ) {
+					return $this->error( 'digitalogic_pricing_write_mode_save_failed', 'Pricing write mode readback failed.', 500 );
+				}
+				return $mode;
+			}
+		);
+	}
 
 	/**
 	 * Shared service.

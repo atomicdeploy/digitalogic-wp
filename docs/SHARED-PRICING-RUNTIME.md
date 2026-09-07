@@ -28,6 +28,24 @@ The HTML uses the current report engine's source selection, identity quarantine,
 filters and provenance. A report is read-only; it is not a refresh completion
 receipt. Table, JSON and CSV remain output interfaces to the same report.
 
+## Coordinated price persistence
+
+```sh
+wp digitalogic pricing write-mode
+wp digitalogic pricing write-mode adapter
+wp digitalogic pricing write-mode direct_db
+wp digitalogic currency update --recalculate
+```
+
+The setting applies to coordinated PHP repricing, including single-product and
+bulk operations. It is pinned under the pricing lock for each operation and
+returned as `pricing_results.write_mode`. `direct_db` is the default existing
+batched pricing path; structural product creation and unsafe batch targets still
+use WooCommerce. `adapter` routes priced leaves through WooCommerce saves. Both
+retain identity checks, transactions, lookup/cache maintenance and final readback.
+The command changes persistence only; it does not select the pricing authority.
+Per-request UI controls and the Go delivery writer remain integration work.
+
 ## Release requirements still open
 
 - Select exactly one final pricing authority, PHP or Go, per deployment. The

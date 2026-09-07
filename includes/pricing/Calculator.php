@@ -11,6 +11,64 @@ final class Calculator {
 
 	private const MAX_MARKUP_PERCENT = '1000';
 
+	/**
+	 * Evaluate currency conversion with percentage or destination-currency markup.
+	 *
+	 * This policy retains two fractional digits in the configured shop currency;
+	 * it does not apply the canonical catalog's IRR/IRT or freight conventions.
+	 *
+	 * @param array  $product Currency, base_price, exchange_rate, markup and markup_type.
+	 * @param string $path Validation error prefix.
+	 * @return array Availability and an exact two-decimal price string.
+	 */
+	public function evaluate_currency_markup( array $product, string $path = 'product' ): array {
+		$missing = array();
+		foreach ( array( 'currency', 'base_price', 'exchange_rate', 'markup', 'markup_type' ) as $field ) {
+			if ( ! array_key_exists( $field, $product ) || null === $product[ $field ] || '' === $product[ $field ] ) {
+				$missing[] = $field;
+			}
+		}
+		if ( $missing ) {
+			return array(
+				'available' => false,
+				'missing'   => $missing,
+			);
+		}
+		if ( ! in_array( $product['currency'], array( 'USD', 'CNY' ), true ) ) {
+			$this->field_error( $path . '.currency', 'must be USD or CNY' );
+		}
+		if ( ! in_array( $product['markup_type'], array( 'percentage', 'fixed' ), true ) ) {
+			$this->field_error( $path . '.markup_type', 'must be percentage or fixed' );
+		}
+		$decimals = array();
+		foreach ( array( 'base_price', 'exchange_rate', 'markup' ) as $field ) {
+			$decimal = $this->formula_decimal_parts( $product[ $field ] );
+			if ( isset( $decimal['error'] ) ) {
+				$this->field_error( $path . '.' . $field, $decimal['error'] );
+			}
+			if ( 'markup' !== $field && '0' === $decimal['digits'] ) {
+				$this->field_error( $path . '.' . $field, 'must be greater than zero' );
+			}
+			$decimals[ $field ] = $decimal;
+		}
+		$amount = $this->decimal_multiply( $decimals['base_price'], $decimals['exchange_rate'] );
+		if ( 'percentage' === $product['markup_type'] ) {
+			$multiplier       = $this->decimal_add( $this->formula_decimal_parts( '100' ), $decimals['markup'] );
+			$amount           = $this->decimal_multiply( $amount, $multiplier );
+			$amount['scale'] += 2;
+		} else {
+			$amount = $this->decimal_add( $amount, $decimals['markup'] );
+		}
+		// Round once, after conversion and markup, to hundredths of shop currency.
+		$amount['scale'] -= 2;
+		$cents            = str_pad( $this->decimal_round_half_up_integer( $amount ), 3, '0', STR_PAD_LEFT );
+		return array(
+			'available' => true,
+			'missing'   => array(),
+			'value'     => substr( $cents, 0, -2 ) . '.' . substr( $cents, -2 ),
+		);
+	}
+
 	public function evaluate( array $product, string $path = 'product' ): array {
 		$kind = isset( $product['price_source_kind'] ) && is_string( $product['price_source_kind'] )
 			? $product['price_source_kind']
