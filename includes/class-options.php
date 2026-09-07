@@ -160,7 +160,7 @@ class Digitalogic_Options {
      */
     public function set_dollar_price($price) {
         if ($this->managed_pricing_active()) {
-            $state = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
+            $state = Digitalogic_Pricing_Service::instance()->current_canonical_state();
             if (is_wp_error($state)) {
                 return false;
             }
@@ -229,7 +229,7 @@ class Digitalogic_Options {
      */
     public function set_yuan_price($price) {
         if ($this->managed_pricing_active()) {
-            $state = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
+            $state = Digitalogic_Pricing_Service::instance()->current_canonical_state();
             if (is_wp_error($state)) {
                 return false;
             }

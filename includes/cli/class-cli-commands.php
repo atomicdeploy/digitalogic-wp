@@ -18,6 +18,31 @@ if (!defined('WP_CLI') || !WP_CLI) {
  */
 class Digitalogic_CLI_Commands {
 
+	/**
+	 * Read or set the coordinated price persistence strategy.
+	 *
+	 * ## OPTIONS
+	 *
+	 * [<mode>]
+	 * : direct_db or adapter. Omit to show the current setting.
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     wp digitalogic pricing write-mode adapter
+	 *     wp digitalogic pricing write-mode direct_db
+	 *
+	 * @when after_wp_load
+	 */
+	public function pricing_write_mode( $args, $assoc_args ) {
+		$coordinator = Digitalogic_Pricing_Coordinator::instance();
+		$result = isset( $args[0] ) ? $coordinator->set_write_mode( $args[0] ) : $coordinator->write_mode();
+		if ( is_wp_error( $result ) ) {
+			WP_CLI::error( $result->get_error_message() );
+			return;
+		}
+		WP_CLI::line( wp_json_encode( array( 'write_mode' => $result, 'scope' => 'coordinated_pricing' ) ) );
+	}
+
 	private const MAX_CURRENT_PATRIS_JSON_BYTES = 8388608;
     
     /**
@@ -92,7 +117,7 @@ class Digitalogic_CLI_Commands {
 			return;
 		}
 
-		$state = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
+		$state = Digitalogic_Pricing_Service::instance()->current_canonical_state();
 		if ( is_wp_error( $state ) ) {
 			WP_CLI::error( $state->get_error_message() );
 			return;
@@ -654,6 +679,7 @@ class Digitalogic_CLI_Commands {
      *   - table
      *   - json
      *   - csv
+     *   - html
      * ---
      *
      * ## EXAMPLES
@@ -661,6 +687,7 @@ class Digitalogic_CLI_Commands {
      *     wp digitalogic patris report
 	 *     wp digitalogic patris report --view=warnings --page=1 --per-page=50
 	 *     wp digitalogic patris report --view=price_list --format=json
+	 *     wp digitalogic patris report --view=price_list --format=html
      *
      * @when after_wp_load
      */
@@ -671,8 +698,8 @@ class Digitalogic_CLI_Commands {
         }
 
         $format = isset($assoc_args['format']) ? sanitize_key((string) $assoc_args['format']) : 'table';
-		if ( ! in_array( $format, array( 'table', 'json', 'csv' ), true ) ) {
-			WP_CLI::error( 'Report format must be table, json, or csv.' );
+		if ( ! in_array( $format, array( 'table', 'json', 'csv', 'html' ), true ) ) {
+			WP_CLI::error( 'Report format must be table, json, csv, or html.' );
 			return;
 		}
 		$report_args = array(
@@ -683,6 +710,15 @@ class Digitalogic_CLI_Commands {
 			'source_id' => $assoc_args['source-id'] ?? '',
 			'dataset'   => $assoc_args['dataset'] ?? '',
 		);
+		if ( 'html' === $format ) {
+			$html = Digitalogic_Report_Engine::instance()->render_html_report( $report_args );
+			if ( is_wp_error( $html ) ) {
+				WP_CLI::error( $html->get_error_message() );
+				return;
+			}
+			WP_CLI::line( $html );
+			return;
+		}
 		$report = Digitalogic_Report_Engine::instance()->get_report($report_args);
 
         if ($format === 'json') {
@@ -2039,6 +2075,7 @@ WP_CLI::add_command(
 	'digitalogic pricing policy',
 	array( 'Digitalogic_CLI_Commands', 'pricing_policy' )
 );
+WP_CLI::add_command( 'digitalogic pricing write-mode', array( 'Digitalogic_CLI_Commands', 'pricing_write_mode' ) );
 WP_CLI::add_command(
 	'digitalogic pricing-input-credential create',
 	array( 'Digitalogic_CLI_Commands', 'pricing_input_credential_create' )

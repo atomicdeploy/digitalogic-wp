@@ -82,6 +82,7 @@ runtime_entries=(
     digitalogic.php
     assets
     includes
+    laravel
     languages
     vendor
     LICENSE
@@ -98,7 +99,7 @@ for entry in "${runtime_entries[@]}"; do
     cp -a -- "$root/$entry" "$stage/"
 done
 
-for required in digitalogic.php vendor/autoload.php; do
+for required in digitalogic.php vendor/autoload.php laravel/bootstrap/app.php laravel/bootstrap/integration.php; do
     if [[ ! -f "$stage/$required" ]]; then
         printf 'Required runtime file is missing: %s\n' "$required" >&2
         exit 1
@@ -211,7 +212,9 @@ fi
 
 for required_entry in \
     "$plugin_slug/digitalogic.php" \
-    "$plugin_slug/vendor/autoload.php"; do
+    "$plugin_slug/vendor/autoload.php" \
+    "$plugin_slug/laravel/bootstrap/app.php" \
+    "$plugin_slug/laravel/bootstrap/integration.php"; do
     if [[ -z "${archive_entry_set[$required_entry]+present}" ]]; then
         printf 'Required archive entry is missing: %s\n' "$required_entry" >&2
         exit 1
@@ -233,6 +236,7 @@ for entry in "${archive_entries[@]}"; do
         "$plugin_slug/.htaccess" | \
         "$plugin_slug/assets/"* | \
         "$plugin_slug/includes/"* | \
+        "$plugin_slug/laravel/"* | \
         "$plugin_slug/languages/"* | \
         "$plugin_slug/vendor/"*)
             ;;
@@ -299,14 +303,17 @@ verify_dir="$work_dir/verify"
 mkdir -p "$verify_dir"
 unzip -q "$second_archive" -d "$verify_dir"
 
-php_count=0
-while IFS= read -r -d '' php_file; do
-    if ! php -l "$php_file" >/dev/null; then
-        printf 'Packaged PHP syntax check failed: %s\n' "$php_file" >&2
+mapfile -d '' php_files < <("$find_bin" "$verify_dir/$plugin_slug" -type f -name '*.php' -print0)
+php_count=${#php_files[@]}
+# PHP 8.3+ lints multiple files per process. Bounded batches avoid Windows
+# command-line limits and thousands of process launches for the Laravel runtime.
+for ((offset = 0; offset < php_count; offset += 64)); do
+    if ! php -l "${php_files[@]:offset:64}" >"$work_dir/php-lint.txt" 2>&1; then
+        cat "$work_dir/php-lint.txt" >&2
+        printf 'Packaged PHP syntax check failed.\n' >&2
         exit 1
     fi
-    php_count=$((php_count + 1))
-done < <("$find_bin" "$verify_dir/$plugin_slug" -type f -name '*.php' -print0)
+done
 
 # shellcheck disable=SC2016
 PACKAGE_ROOT="$verify_dir/$plugin_slug" php -r '
@@ -314,11 +321,35 @@ PACKAGE_ROOT="$verify_dir/$plugin_slug" php -r '
     foreach ([
         "PhpOffice\\PhpSpreadsheet\\Spreadsheet",
         "Composer\\Pcre\\Preg",
+        "Illuminate\\Foundation\\Application",
+        "Digitalogic\\Laravel\\Application",
+        "Digitalogic\\Pricing\\Calculator",
+        "Digitalogic\\Integrations\\Paradox\\CanonicalProductReport",
     ] as $class) {
         if (!class_exists($class)) {
             fwrite(STDERR, "Packaged Composer autoload is missing {$class}.\n");
             exit(1);
         }
+    }
+    if (function_exists("__")) {
+        fwrite(STDERR, "Packaged Laravel runtime claims the WordPress translation symbol.\n");
+        exit(1);
+    }
+    if (\Digitalogic\Laravel\Application::shared() !== null || defined("ABSPATH")) {
+        fwrite(STDERR, "Composer eagerly booted a framework.\n");
+        exit(1);
+    }
+    $app = digitalogic_laravel();
+    if (!$app->hasBeenBootstrapped() || defined("ABSPATH")
+        || $app !== digitalogic_laravel()
+        || !$app->make(\Digitalogic\Pricing\Calculator::class) instanceof \Digitalogic\Pricing\Calculator) {
+        fwrite(STDERR, "Packaged shared Laravel pricing runtime failed to boot.\n");
+        exit(1);
+    }
+    define("ABSPATH", getenv("PACKAGE_ROOT") . "/");
+    if (!class_exists("Digitalogic_Pricing_Service")) {
+        fwrite(STDERR, "Packaged shared pricing service is unavailable.\n");
+        exit(1);
     }
 '
 

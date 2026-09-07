@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-09-07
+
+- Share one exact-decimal PHP pricing implementation across WordPress, the in-process Laravel runtime and Paradox reports.
+- Select one final pricing authority per deployment; preserve upstream input identities separately from final prices and reject stale owner-dependent delivery.
+- Publish committed owner changes after pricing locks release, expose durable delivery progress, and confirm Go-owned changes only from actual receiver receipts.
+- Batch owner assignments and support the existing direct-database and adapter persistence paths.
+- Breaking release: removed retired Excel pricing routes and version gates, renamed pricing settings storage, and aligned Go/PHP decimal admission. Deploy with the paired Patris Export 2.0.0 build and run the documented one-time pricing option cutover while writers are paused. No permanent compatibility alias is installed.
+
 ## [1.8.87] - 2026-09-07
 
 ### Fixed

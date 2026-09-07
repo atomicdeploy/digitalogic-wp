@@ -4200,7 +4200,7 @@ require_once dirname(__DIR__) . '/includes/class-patris-catalog-materializer.php
 require_once dirname(__DIR__) . '/includes/class-digitalogic-patris-topology-repair.php';
 require_once dirname(__DIR__) . '/includes/class-digitalogic-google-sheets-catalog.php';
 require_once dirname(__DIR__) . '/includes/class-digitalogic-google-sheets-writeback.php';
-require_once dirname(__DIR__) . '/includes/class-digitalogic-excel-pricing-sync.php';
+require_once dirname(__DIR__) . '/includes/class-digitalogic-pricing-service.php';
 require_once dirname(__DIR__) . '/includes/class-digitalogic-pricing-coordinator.php';
 require_once dirname(__DIR__) . '/includes/class-digitalogic-currency-admin-async.php';
 require_once dirname(__DIR__) . '/includes/class-command-dispatcher.php';

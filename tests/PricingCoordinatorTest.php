@@ -122,7 +122,7 @@ final class PricingCoordinatorTest extends TestCase {
 				Digitalogic_Shipping_Method_Service::class,
 				Digitalogic_Google_Sheets_Catalog::class,
 				Digitalogic_Google_Sheets_Writeback::class,
-				Digitalogic_Excel_Pricing_Sync::class,
+				Digitalogic_Pricing_Service::class,
 				Digitalogic_Pricing_Coordinator::class,
 				Digitalogic_Currency_Admin_Async::class,
 				Digitalogic_Pricing_Snapshot::class,
@@ -135,6 +135,233 @@ final class PricingCoordinatorTest extends TestCase {
 		}
 
 		$this->seed_snapshot();
+	}
+
+	/** Both persistence strategies retain canonical arithmetic and readback. */
+	public function test_adapter_mode_saves_and_verifies_the_same_canonical_price(): void {
+		$coordinator = Digitalogic_Pricing_Coordinator::instance();
+		$this->assertSame( 'direct_db', $coordinator->write_mode() );
+		$this->assertSame( 'adapter', $coordinator->set_write_mode( 'adapter' ) );
+		$GLOBALS['digitalogic_test_wc_product_saves'] = array();
+		$result                                       = $coordinator->update_currency(
+			array(
+				'yuan_price'     => '31000',
+				'effective_date' => '2026-07-27',
+			),
+			'test_adapter'
+		);
+		$this->assertFalse( is_wp_error( $result ), is_wp_error( $result ) ? $result->get_error_message() : '' );
+		$this->assertSame( 'adapter', $result['pricing_results']['write_mode'] );
+		$this->assertNotEmpty( $GLOBALS['digitalogic_test_wc_product_saves'] );
+		$this->assertSame( '8866000', (string) $GLOBALS['digitalogic_test_posts'][901]['meta']['_regular_price'] );
+		$this->assertSame( 0, $result['pricing_results']['pending_products'] );
+		$this->assertInstanceOf( WP_Error::class, $coordinator->set_write_mode( 'typo' ) );
+		$this->assertSame( 'adapter', $coordinator->write_mode() );
+	}
+
+	/** Go owns final calculation; committing inputs must not claim price completion. */
+	public function test_go_owner_commit_is_pending_and_publishes_after_locks_release(): void {
+		$GLOBALS['digitalogic_test_options'][ Digitalogic_Pricing_Coordinator::AUTHORITY_OPTION ] = 'go';
+		$before_price                                 = $GLOBALS['digitalogic_test_posts'][901]['meta']['_regular_price'];
+		$GLOBALS['digitalogic_test_wc_product_saves'] = array();
+		$observed                                     = array();
+		$listener                                     = static function ( $result ) use ( &$observed ) {
+			$observed[] = array(
+				'status' => $result['status'],
+				'locks'  => $GLOBALS['wpdb']->used_locks,
+			);
+		};
+		add_action( 'digitalogic_pricing_apply_committed', $listener );
+		try {
+			$result = Digitalogic_Pricing_Coordinator::instance()->update_currency(
+				array(
+					'yuan_price'     => '31000',
+					'effective_date' => '2026-07-27',
+				),
+				'test_go_owner'
+			);
+		} finally {
+			remove_filter( 'digitalogic_pricing_apply_committed', $listener );
+		}
+		$this->assertNotInstanceOf( WP_Error::class, $result );
+		$this->assertSame( 'awaiting_delivery', $result['status'] );
+		$this->assertSame( '31000', $GLOBALS['digitalogic_test_options']['options_yuan_price'] );
+		$this->assertSame( $before_price, $GLOBALS['digitalogic_test_posts'][901]['meta']['_regular_price'] );
+		$this->assertSame( array(), $GLOBALS['digitalogic_test_wc_product_saves'] );
+		$this->assertSame( 0, $result['pricing_results']['updated_products'] );
+		$this->assertNotEmpty( $result['pricing_results']['source_state_before']['sources'] );
+		$catalog = Digitalogic_Shipping_Method_Service::instance()->get_integration_catalog();
+		$this->assertSame( $catalog['revision'], $result['pricing_results']['owner_catalog_revision'] );
+		$this->assertSame(
+			array(
+				array(
+					'status' => 'awaiting_delivery',
+					'locks'  => array(),
+				),
+			),
+			$observed
+		);
+	}
+
+	/** Go owner inputs publish without any lock and wait for actual complete product delivery. */
+	public function test_go_async_waits_for_actual_receipt_before_confirming(): void {
+		$GLOBALS['digitalogic_test_options'][ Digitalogic_Pricing_Coordinator::AUTHORITY_OPTION ] = 'go';
+		$async  = Digitalogic_Currency_Admin_Async::instance();
+		$job    = $async->enqueue( '31000', false );
+		$before = $GLOBALS['digitalogic_test_posts'][901]['meta']['_regular_price'];
+		$locks  = array();
+		add_action(
+			'digitalogic_pricing_apply_committed',
+			static function () use ( &$locks ) {
+				$locks[] = $GLOBALS['wpdb']->used_locks;
+			}
+		);
+		$async->run_job( $job['job_id'], $job['generation'] );
+		$status = $async->status();
+		$this->assertSame( 'awaiting_delivery', $status['status'] );
+		$this->assertNull( $status['progress'] );
+		$this->assertSame( $before, $GLOBALS['digitalogic_test_posts'][901]['meta']['_regular_price'] );
+		$this->assertSame( array( array() ), $locks );
+		$marker = $GLOBALS['digitalogic_test_options']['digitalogic_currency_admin_async_job'];
+		$result = Digitalogic_Product_Sync_Receiver::instance()->receive( $this->go_delivery_envelope() );
+		$this->assertNotInstanceOf( WP_Error::class, $result );
+		$status = $async->status();
+		$this->assertSame( 'confirmed', $status['status'] );
+		$this->assertSame( '8866000', $GLOBALS['digitalogic_test_posts'][901]['meta']['_regular_price'] );
+		$this->assertSame( $marker['effect_state_revision'], $status['committed_state_revision'] );
+		$this->assertSame( $marker['fence'], $status['fence'] );
+		$this->assertCount( 1, $status['delivery_receipts'] );
+		$this->assertSame( 1, $status['apply_attempts'] );
+	}
+
+	/** A receipt arriving within owner-event publication is recovered from the existing receiver ledger. */
+	public function test_go_async_recovers_receipt_before_publication_finishes(): void {
+		$GLOBALS['digitalogic_test_options'][ Digitalogic_Pricing_Coordinator::AUTHORITY_OPTION ] = 'go';
+		$async      = Digitalogic_Currency_Admin_Async::instance();
+		$job        = $async->enqueue( '31000', false );
+		$deliveries = 0;
+		add_action(
+			'digitalogic_pricing_apply_committed',
+			function () use ( &$deliveries ) {
+				++$deliveries;
+				$this->assertSame( array(), $GLOBALS['wpdb']->used_locks );
+				$this->assertSame( 'pending', $GLOBALS['digitalogic_test_options']['digitalogic_currency_admin_async_job']['effect_publication']['status'] );
+				$result = Digitalogic_Product_Sync_Receiver::instance()->receive( $this->go_delivery_envelope() );
+				$this->assertNotInstanceOf( WP_Error::class, $result );
+			}
+		);
+		$async->run_job( $job['job_id'], $job['generation'] );
+		$this->assertSame( 'confirmed', $async->status()['status'] );
+		$this->assertSame( 1, $deliveries );
+	}
+
+	/** Lost completion callbacks recover durable receipts without another settings actuation. */
+	public function test_go_async_recovers_durable_receipt_after_callback_loss(): void {
+		$GLOBALS['digitalogic_test_options'][ Digitalogic_Pricing_Coordinator::AUTHORITY_OPTION ] = 'go';
+		$async = Digitalogic_Currency_Admin_Async::instance();
+		$job   = $async->enqueue( '31000', false );
+		$async->run_job( $job['job_id'], $job['generation'] );
+		$GLOBALS['digitalogic_test_action_callbacks']['digitalogic_product_sync_applied'] = array();
+		$result = Digitalogic_Product_Sync_Receiver::instance()->receive( $this->go_delivery_envelope() );
+		$this->assertNotInstanceOf( WP_Error::class, $result );
+		$this->assertSame( 'awaiting_delivery', $async->status()['status'] );
+		$async->run_job( $job['job_id'], $job['generation'] );
+		$this->assertSame( 'confirmed', $async->status()['status'] );
+		$this->assertSame( 1, $async->status()['apply_attempts'] );
+	}
+
+	/** Every affected source must deliver; a missing-product deferral is not completion. */
+	public function test_go_async_requires_all_sources_and_no_missing_deferrals(): void {
+		$receiver = Digitalogic_Product_Sync_Receiver::instance();
+		$this->assertNotInstanceOf( WP_Error::class, $receiver->receive( $this->snapshot( array( $this->priced_product( 'PRICE-901' ) ), '2026-07-21T11:00:00Z', 'second-source' ) ) );
+		$GLOBALS['digitalogic_test_options'][ Digitalogic_Pricing_Coordinator::AUTHORITY_OPTION ] = 'go';
+		$async = Digitalogic_Currency_Admin_Async::instance();
+		$job   = $async->enqueue( '31000', false );
+		$async->run_job( $job['job_id'], $job['generation'] );
+		$this->assertNotInstanceOf( WP_Error::class, $receiver->receive( $this->go_delivery_envelope() ) );
+		$this->assertSame( 'awaiting_delivery', $async->status()['status'] );
+		$this->assertSame( 2, $async->status()['delivery_sources_total'] );
+		$deferred = $receiver->receive( $this->go_delivery_envelope( array( 'PRICE-901', 'PRICE-MISSING' ), 'second-source' ) );
+		$this->assertNotInstanceOf( WP_Error::class, $deferred );
+		$this->assertGreaterThan( 0, $deferred['delivery']['deferred_products'] );
+		$this->assertSame( 'awaiting_delivery', $async->status()['status'] );
+	}
+
+	/** Mismatched owner inputs and stale finalizer identities cannot complete the current job. */
+	public function test_go_async_rejects_wrong_owner_receipt_and_stale_fence(): void {
+		$GLOBALS['digitalogic_test_options'][ Digitalogic_Pricing_Coordinator::AUTHORITY_OPTION ] = 'go';
+		$async = Digitalogic_Currency_Admin_Async::instance();
+		$job   = $async->enqueue( '31000', false );
+		$async->run_job( $job['job_id'], $job['generation'] );
+		$before = $GLOBALS['digitalogic_test_options']['digitalogic_currency_admin_async_job'];
+		$async->accept_go_delivery(
+			array(
+				'delivery' => array(
+					'status'                 => 'complete',
+					'owner_catalog_revision' => 'sha256:' . str_repeat( 'f', 64 ),
+					'source'                 => array(
+						'id'      => 'pricing-tests',
+						'dataset' => 'kala',
+					),
+				),
+			)
+		);
+		$async->finalize_job( $job['job_id'], $job['generation'], $before['fence'] + 1, $before['effect_state_revision'] );
+		$this->assertSame( $before, $GLOBALS['digitalogic_test_options']['digitalogic_currency_admin_async_job'] );
+	}
+
+	/** Direct-only sources do not wait for a fabricated Go owner receipt. */
+	public function test_go_async_direct_only_currency_commit_needs_no_repricing(): void {
+		$GLOBALS['digitalogic_test_posts'][901]['meta'][ Digitalogic_Shipping_Method_Service::PRODUCT_METHOD_META ] = 'domestic';
+		$GLOBALS['digitalogic_test_wc_products'] = array();
+		$direct                                  = array(
+			'product_code'                   => 'PRICE-901',
+			'sale_price_source'              => 1234560,
+			'price_source_amount'            => 1234560,
+			'price_source_currency'          => 'IRR',
+			'price_source_kind'              => 'sale_price_direct',
+			'shipping_method_id'             => 'domestic',
+			'shipping_price_per_kg'          => 0,
+			'shipping_price_per_kg_currency' => 'IRR',
+			'final_price'                    => 123456,
+			'warnings'                       => array(),
+		);
+		$direct['record_hash']                   = $this->record_hash( $direct );
+		$this->assertNotInstanceOf( WP_Error::class, Digitalogic_Product_Sync_Receiver::instance()->receive( $this->snapshot( array( $direct ), '2026-07-22T02:00:00Z' ) ) );
+		$GLOBALS['digitalogic_test_options'][ Digitalogic_Pricing_Coordinator::AUTHORITY_OPTION ] = 'go';
+		$GLOBALS['digitalogic_test_wc_product_saves'] = array();
+		$async                                        = Digitalogic_Currency_Admin_Async::instance();
+		$job = $async->enqueue( '31000', false );
+		$async->run_job( $job['job_id'], $job['generation'] );
+		$this->assertSame( 'confirmed', $async->status()['status'] );
+		$this->assertSame( '31000', $GLOBALS['digitalogic_test_options']['options_yuan_price'] );
+		$this->assertSame( '123456', $GLOBALS['digitalogic_test_posts'][901]['meta']['_regular_price'] );
+		$this->assertSame( array(), $GLOBALS['digitalogic_test_wc_product_saves'] );
+		$this->assertSame( 'no_repricing_required', $GLOBALS['digitalogic_test_options']['digitalogic_currency_admin_async_job']['effect_publication']['payload']['repricing']['status'] );
+		$this->assertSame( array(), $async->status()['delivery_receipts'] );
+	}
+
+	/** Build the canonical Go output for the committed 31000 CNY owner input. */
+	private function go_delivery_envelope( array $codes = array( 'PRICE-901' ), string $source_id = 'pricing-tests' ): array {
+		$products = array();
+		foreach ( $codes as $code ) {
+			$product = $this->priced_product( $code );
+			unset( $product['record_hash'] );
+			$product['irt_per_cny'] = 31000;
+			$product['final_price'] = 8866000;
+			$product['record_hash'] = $this->record_hash( $product );
+			$products[]             = $product;
+		}
+		return $this->snapshot( $products, '2026-09-07T12:00:00Z', $source_id );
+	}
+
+	/** A CNY change commits settings and the exact landed price together. */
+	public function test_invalid_stored_write_mode_rolls_back_currency_change(): void {
+		$GLOBALS['digitalogic_test_options'][ Digitalogic_Pricing_Coordinator::WRITE_MODE_OPTION ] = 'invalid';
+		$before = $GLOBALS['digitalogic_test_options']['options_yuan_price'];
+		$result = Digitalogic_Pricing_Coordinator::instance()->update_currency( array( 'yuan_price' => '31000' ), 'test_invalid_mode' );
+		$this->assertInstanceOf( WP_Error::class, $result );
+		$this->assertSame( $before, $GLOBALS['digitalogic_test_options']['options_yuan_price'] );
 	}
 
 	/** A CNY change commits settings and the exact landed price together. */
@@ -312,7 +539,7 @@ final class PricingCoordinatorTest extends TestCase {
 		);
 		$GLOBALS['digitalogic_test_wc_products'] = array();
 
-		$service                           = Digitalogic_Excel_Pricing_Sync::instance();
+		$service                           = Digitalogic_Pricing_Service::instance();
 		$before                            = $service->current_canonical_state();
 		$settings                          = $before['settings'];
 		$settings['profit_margin_percent'] = 0;
@@ -388,7 +615,7 @@ final class PricingCoordinatorTest extends TestCase {
 		);
 		$GLOBALS['digitalogic_test_wc_products'] = array();
 
-		$service                              = Digitalogic_Excel_Pricing_Sync::instance();
+		$service                              = Digitalogic_Pricing_Service::instance();
 		$before                               = $service->current_canonical_state();
 		$settings                             = $before['settings'];
 		$settings['dollar_price']             = 190000;
@@ -458,7 +685,7 @@ final class PricingCoordinatorTest extends TestCase {
 		);
 		$GLOBALS['digitalogic_test_wc_products'] = array();
 
-		$service                           = Digitalogic_Excel_Pricing_Sync::instance();
+		$service                           = Digitalogic_Pricing_Service::instance();
 		$before                            = $service->current_canonical_state();
 		$settings                          = $before['settings'];
 		$settings['yuan_price']            = 31000;
@@ -492,6 +719,7 @@ final class PricingCoordinatorTest extends TestCase {
 
 	/** A stale or product-specific incoming margin is rejected before writes. */
 	public function test_product_sync_cannot_introduce_profit_margin_drift(): void {
+		$GLOBALS['digitalogic_test_options'][ Digitalogic_Pricing_Coordinator::AUTHORITY_OPTION ] = 'go';
 		$before_state              = $GLOBALS['digitalogic_test_options'][ Digitalogic_Product_Sync_Receiver::STATE_OPTION ];
 		$before_meta               = $GLOBALS['digitalogic_test_posts'][901]['meta'];
 		$product                   = $this->priced_product( 'PRICE-901' );
@@ -517,14 +745,14 @@ final class PricingCoordinatorTest extends TestCase {
 
 	/** Google/Excel share one revisioned settings read and optimistic write contract. */
 	public function test_revisioned_global_settings_contract_rejects_stale_google_write(): void {
-		$service = Digitalogic_Excel_Pricing_Sync::instance();
+		$service = Digitalogic_Pricing_Service::instance();
 		$state   = $service->current_canonical_state();
 
 		$this->assertFalse(
 			is_wp_error( $state ),
 			is_wp_error( $state ) ? $state->get_error_code() . ': ' . $state->get_error_message() : ''
 		);
-		$this->assertSame( Digitalogic_Excel_Pricing_Sync::STATE_SCHEMA, $state['schema'] );
+		$this->assertSame( Digitalogic_Pricing_Service::STATE_SCHEMA, $state['schema'] );
 		$this->assertMatchesRegularExpression( '/\Asha256:[a-f0-9]{64}\z/D', $state['state_revision'] );
 		$this->assertSame( '29500', (string) $state['settings']['yuan_price'] );
 		$this->assertSame( '120', (string) $state['settings']['air_express_price_per_kg'] );
@@ -565,7 +793,7 @@ final class PricingCoordinatorTest extends TestCase {
 
 	/** A legitimate zero profit margin survives validation, storage, repricing, and readback. */
 	public function test_zero_profit_margin_reprices_and_preserves_canonical_woo_price_tuple(): void {
-		$service                           = Digitalogic_Excel_Pricing_Sync::instance();
+		$service                           = Digitalogic_Pricing_Service::instance();
 		$before                            = $service->current_canonical_state();
 		$settings                          = $before['settings'];
 		$settings['profit_margin_percent'] = 0;
@@ -596,7 +824,7 @@ final class PricingCoordinatorTest extends TestCase {
 
 	/** Shipping, FX, margin, source state, and Woo price share one commit. */
 	public function test_air_express_rate_changes_atomically_with_repricing(): void {
-		$service                              = Digitalogic_Excel_Pricing_Sync::instance();
+		$service                              = Digitalogic_Pricing_Service::instance();
 		$before                               = $service->current_canonical_state();
 		$settings                             = $before['settings'];
 		$settings['air_express_price_per_kg'] = '130';
@@ -743,7 +971,7 @@ final class PricingCoordinatorTest extends TestCase {
 
 	/** A product write failure rolls the shipping option back with all settings. */
 	public function test_shipping_change_rolls_back_when_repricing_fails(): void {
-		$service                                      = Digitalogic_Excel_Pricing_Sync::instance();
+		$service                                      = Digitalogic_Pricing_Service::instance();
 		$before                                       = $service->current_canonical_state();
 		$settings                                     = $before['settings'];
 		$settings['air_express_price_per_kg']         = '130';
@@ -857,7 +1085,7 @@ final class PricingCoordinatorTest extends TestCase {
 		$this->assertSame( '8437000', (string) $GLOBALS['digitalogic_test_posts'][901]['meta']['_price'] );
 		$this->assertSame( 1, $result['pricing_results']['updated_products'] );
 		$this->assertSame( 'clear', $result['confirmation']['status'] );
-		$this->assertCount( 1, $GLOBALS['digitalogic_test_actions']['digitalogic_excel_pricing_apply_committed'] ?? array() );
+		$this->assertCount( 1, $GLOBALS['digitalogic_test_actions']['digitalogic_pricing_apply_committed'] ?? array() );
 		$this->assertEmpty( $GLOBALS['digitalogic_test_actions']['digitalogic_pricing_confirmation_event'] ?? array() );
 
 		$again = Digitalogic_Pricing_Coordinator::instance()->update_currency(
@@ -869,7 +1097,7 @@ final class PricingCoordinatorTest extends TestCase {
 		);
 		$this->assertFalse( is_wp_error( $again ) );
 		$this->assertSame( 0, $again['pricing_results']['updated_products'] );
-		$this->assertCount( 1, $GLOBALS['digitalogic_test_actions']['digitalogic_excel_pricing_apply_committed'] ?? array() );
+		$this->assertCount( 1, $GLOBALS['digitalogic_test_actions']['digitalogic_pricing_apply_committed'] ?? array() );
 		$this->assertEmpty( $GLOBALS['digitalogic_test_actions']['digitalogic_pricing_confirmation_event'] ?? array() );
 	}
 
@@ -956,7 +1184,7 @@ final class PricingCoordinatorTest extends TestCase {
 		);
 		$this->assertSame( '188891', $GLOBALS['digitalogic_test_options']['options_dollar_price'] );
 		$this->assertSame( '260721', $GLOBALS['digitalogic_test_options']['options_update_date'] );
-		$settings = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_settings();
+		$settings = Digitalogic_Pricing_Service::instance()->current_canonical_settings();
 		$this->assertSame( '2026-07-27', $settings['usd_effective_date'] );
 		$this->assertSame( '2026-07-21', $settings['cny_effective_date'] );
 		$this->assertSame( '2026-07-21', $settings['effective_date'] );
@@ -982,7 +1210,7 @@ final class PricingCoordinatorTest extends TestCase {
 			is_wp_error( $result ),
 			is_wp_error( $result ) ? $result->get_error_code() . ': ' . $result->get_error_message() : ''
 		);
-		$settings = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_settings();
+		$settings = Digitalogic_Pricing_Service::instance()->current_canonical_settings();
 		$this->assertSame( '2026-07-21', $settings['usd_effective_date'] );
 		$this->assertSame( '2026-07-27', $settings['cny_effective_date'] );
 		$this->assertSame( '2026-07-27', $settings['effective_date'] );
@@ -996,7 +1224,7 @@ final class PricingCoordinatorTest extends TestCase {
 
 	/** A CNY-only legacy/API rate change receives a fresh CNY date automatically. */
 	public function test_single_cny_rate_change_refreshes_only_cny_date(): void {
-		$before = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_settings();
+		$before = Digitalogic_Pricing_Service::instance()->current_canonical_settings();
 		$this->assertFalse( is_wp_error( $before ) );
 		$result = Digitalogic_Pricing_Coordinator::instance()->update_currency(
 			array( 'yuan_price' => '31000' ),
@@ -1008,7 +1236,7 @@ final class PricingCoordinatorTest extends TestCase {
 			is_wp_error( $result ) ? $result->get_error_code() . ': ' . $result->get_error_message() : ''
 		);
 		$today    = gmdate( 'Y-m-d' );
-		$settings = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_settings();
+		$settings = Digitalogic_Pricing_Service::instance()->current_canonical_settings();
 		$this->assertSame( $before['usd_effective_date'], $settings['usd_effective_date'] );
 		$this->assertSame( $today, $settings['cny_effective_date'] );
 		$this->assertSame( $today, $settings['effective_date'] );
@@ -1018,7 +1246,7 @@ final class PricingCoordinatorTest extends TestCase {
 
 	/** A USD-only legacy/API rate change receives a fresh USD date automatically. */
 	public function test_single_usd_rate_change_refreshes_only_usd_date(): void {
-		$before = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_settings();
+		$before = Digitalogic_Pricing_Service::instance()->current_canonical_settings();
 		$this->assertFalse( is_wp_error( $before ) );
 		$result = Digitalogic_Pricing_Coordinator::instance()->update_currency(
 			array( 'dollar_price' => '188891' ),
@@ -1030,7 +1258,7 @@ final class PricingCoordinatorTest extends TestCase {
 			is_wp_error( $result ) ? $result->get_error_code() . ': ' . $result->get_error_message() : ''
 		);
 		$today    = gmdate( 'Y-m-d' );
-		$settings = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_settings();
+		$settings = Digitalogic_Pricing_Service::instance()->current_canonical_settings();
 		$this->assertSame( $today, $settings['usd_effective_date'] );
 		$this->assertSame( $before['cny_effective_date'], $settings['cny_effective_date'] );
 		$this->assertSame( $before['effective_date'], $settings['effective_date'] );
@@ -1055,11 +1283,11 @@ final class PricingCoordinatorTest extends TestCase {
 		);
 		$this->assertSame( 'reconciled', $result['status'] );
 		$this->assertSame( '260721', $GLOBALS['digitalogic_test_options']['options_update_date'] );
-		$settings = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_settings();
+		$settings = Digitalogic_Pricing_Service::instance()->current_canonical_settings();
 		$this->assertSame( '2026-07-21', $settings['usd_effective_date'] );
 		$this->assertSame( '2026-07-21', $settings['cny_effective_date'] );
 		$this->assertArrayNotHasKey(
-			Digitalogic_Excel_Pricing_Sync::SETTINGS_OPTION,
+			Digitalogic_Pricing_Service::SETTINGS_OPTION,
 			$GLOBALS['digitalogic_test_options']
 		);
 	}
@@ -1153,7 +1381,7 @@ final class PricingCoordinatorTest extends TestCase {
 		$GLOBALS['digitalogic_test_wc_lookup_rows'][30000]['onsale']    = 1;
 		$GLOBALS['digitalogic_test_wc_product_saves']                   = array();
 		$events_before = count(
-			$GLOBALS['digitalogic_test_actions']['digitalogic_excel_pricing_apply_committed'] ?? array()
+			$GLOBALS['digitalogic_test_actions']['digitalogic_pricing_apply_committed'] ?? array()
 		);
 
 		$result = Digitalogic_Pricing_Coordinator::instance()->reconcile_current( 'parent_projection_drift' );
@@ -1180,7 +1408,7 @@ final class PricingCoordinatorTest extends TestCase {
 		);
 		$this->assertSame(
 			$events_before + 1,
-			count( $GLOBALS['digitalogic_test_actions']['digitalogic_excel_pricing_apply_committed'] ?? array() )
+			count( $GLOBALS['digitalogic_test_actions']['digitalogic_pricing_apply_committed'] ?? array() )
 		);
 
 		$GLOBALS['digitalogic_test_wc_transient_deletes'] = array();
@@ -1237,7 +1465,7 @@ final class PricingCoordinatorTest extends TestCase {
 		$GLOBALS['digitalogic_test_primed_post_ids']           = array();
 		array_splice( $GLOBALS['digitalogic_test_wc_product_instance_cache_removals'], 0 );
 		$events_before = count(
-			$GLOBALS['digitalogic_test_actions']['digitalogic_excel_pricing_apply_committed'] ?? array()
+			$GLOBALS['digitalogic_test_actions']['digitalogic_pricing_apply_committed'] ?? array()
 		);
 
 		$started = microtime( true );
@@ -1300,7 +1528,7 @@ final class PricingCoordinatorTest extends TestCase {
 		$this->assertArrayNotHasKey( '_sale_price', $GLOBALS['digitalogic_test_posts'][30000]['meta_rows'] );
 		$this->assertSame(
 			$events_before + 1,
-			count( $GLOBALS['digitalogic_test_actions']['digitalogic_excel_pricing_apply_committed'] ?? array() )
+			count( $GLOBALS['digitalogic_test_actions']['digitalogic_pricing_apply_committed'] ?? array() )
 		);
 	}
 
@@ -1428,7 +1656,7 @@ final class PricingCoordinatorTest extends TestCase {
 		$before_posts                            = $GLOBALS['digitalogic_test_posts'];
 		$before_lookup                           = $GLOBALS['digitalogic_test_wc_lookup_rows'];
 		$before_options                          = $GLOBALS['digitalogic_test_options'];
-		$events_before                           = count( $GLOBALS['digitalogic_test_actions']['digitalogic_excel_pricing_apply_committed'] ?? array() );
+		$events_before                           = count( $GLOBALS['digitalogic_test_actions']['digitalogic_pricing_apply_committed'] ?? array() );
 		$GLOBALS['digitalogic_test_before_pricing_batch_leaf_identity'] = static function () {
 			$GLOBALS['digitalogic_test_posts'][20000]['post_title']   = 'raced title';
 			$GLOBALS['digitalogic_test_wc_lookup_rows'][20000]['sku'] = 'RACED-SKU';
@@ -1445,7 +1673,7 @@ final class PricingCoordinatorTest extends TestCase {
 		$this->assertSame( $before_options, $GLOBALS['digitalogic_test_options'] );
 		$this->assertSame(
 			$events_before,
-			count( $GLOBALS['digitalogic_test_actions']['digitalogic_excel_pricing_apply_committed'] ?? array() )
+			count( $GLOBALS['digitalogic_test_actions']['digitalogic_pricing_apply_committed'] ?? array() )
 		);
 		$this->assertContains( 'ROLLBACK', $GLOBALS['wpdb']->queries );
 	}
@@ -1460,7 +1688,7 @@ final class PricingCoordinatorTest extends TestCase {
 		$GLOBALS['digitalogic_test_wc_lookup_rows'][20000]['stock_status']   = 'instock';
 		$before_posts   = $GLOBALS['digitalogic_test_posts'];
 		$before_lookup  = $GLOBALS['digitalogic_test_wc_lookup_rows'];
-		$events_before  = count( $GLOBALS['digitalogic_test_actions']['digitalogic_excel_pricing_apply_committed'] ?? array() );
+		$events_before  = count( $GLOBALS['digitalogic_test_actions']['digitalogic_pricing_apply_committed'] ?? array() );
 		$product_code   = 'PERF-0000';
 		$identity_plans = array(
 			20000 => array(
@@ -1489,7 +1717,7 @@ final class PricingCoordinatorTest extends TestCase {
 		$this->assertSame( $before_lookup, $GLOBALS['digitalogic_test_wc_lookup_rows'] );
 		$this->assertSame(
 			$events_before,
-			count( $GLOBALS['digitalogic_test_actions']['digitalogic_excel_pricing_apply_committed'] ?? array() )
+			count( $GLOBALS['digitalogic_test_actions']['digitalogic_pricing_apply_committed'] ?? array() )
 		);
 		$this->assertContains( 'ROLLBACK', $GLOBALS['wpdb']->queries );
 	}
@@ -1535,7 +1763,7 @@ final class PricingCoordinatorTest extends TestCase {
 		$before_posts                                   = $GLOBALS['digitalogic_test_posts'];
 		$before_lookup                                  = $GLOBALS['digitalogic_test_wc_lookup_rows'];
 		$before_options                                 = $GLOBALS['digitalogic_test_options'];
-		$events_before                                  = count( $GLOBALS['digitalogic_test_actions']['digitalogic_excel_pricing_apply_committed'] ?? array() );
+		$events_before                                  = count( $GLOBALS['digitalogic_test_actions']['digitalogic_pricing_apply_committed'] ?? array() );
 		$GLOBALS['digitalogic_test_wc_save_failures'][] = 20002;
 
 		$result = Digitalogic_Pricing_Coordinator::instance()->update_currency(
@@ -1549,7 +1777,7 @@ final class PricingCoordinatorTest extends TestCase {
 		$this->assertSame( $before_options, $GLOBALS['digitalogic_test_options'] );
 		$this->assertSame(
 			$events_before,
-			count( $GLOBALS['digitalogic_test_actions']['digitalogic_excel_pricing_apply_committed'] ?? array() )
+			count( $GLOBALS['digitalogic_test_actions']['digitalogic_pricing_apply_committed'] ?? array() )
 		);
 		$this->assertContains( 'ROLLBACK', $GLOBALS['wpdb']->queries );
 	}
@@ -1589,7 +1817,7 @@ final class PricingCoordinatorTest extends TestCase {
 		$before_posts                            = $GLOBALS['digitalogic_test_posts'];
 		$before_lookup                           = $GLOBALS['digitalogic_test_wc_lookup_rows'];
 		$before_options                          = $GLOBALS['digitalogic_test_options'];
-		$events_before                           = count( $GLOBALS['digitalogic_test_actions']['digitalogic_excel_pricing_apply_committed'] ?? array() );
+		$events_before                           = count( $GLOBALS['digitalogic_test_actions']['digitalogic_pricing_apply_committed'] ?? array() );
 		$GLOBALS['digitalogic_test_before_pricing_batch_leaf_identity'] = static function () {
 			unset( $GLOBALS['digitalogic_test_posts'][20000]['meta']['_digitalogic_patris_weight_grams'] );
 		};
@@ -1605,7 +1833,7 @@ final class PricingCoordinatorTest extends TestCase {
 		$this->assertSame( $before_options, $GLOBALS['digitalogic_test_options'] );
 		$this->assertSame(
 			$events_before,
-			count( $GLOBALS['digitalogic_test_actions']['digitalogic_excel_pricing_apply_committed'] ?? array() )
+			count( $GLOBALS['digitalogic_test_actions']['digitalogic_pricing_apply_committed'] ?? array() )
 		);
 		$this->assertContains( 'ROLLBACK', $GLOBALS['wpdb']->queries );
 	}
@@ -2037,7 +2265,7 @@ final class PricingCoordinatorTest extends TestCase {
 		$GLOBALS['digitalogic_test_wc_product_instance_cache_removals'] = array();
 		$GLOBALS['wpdb']->queries                                       = array();
 		$events_before                             = count(
-			$GLOBALS['digitalogic_test_actions']['digitalogic_excel_pricing_apply_committed'] ?? array()
+			$GLOBALS['digitalogic_test_actions']['digitalogic_pricing_apply_committed'] ?? array()
 		);
 		$before_posts                              = $GLOBALS['digitalogic_test_posts'];
 		$before_lookup                             = $GLOBALS['digitalogic_test_wc_lookup_rows'];
@@ -2064,7 +2292,7 @@ final class PricingCoordinatorTest extends TestCase {
 		$this->assertNotContains( 'COMMIT', $GLOBALS['wpdb']->queries );
 		$this->assertSame(
 			$events_before,
-			count( $GLOBALS['digitalogic_test_actions']['digitalogic_excel_pricing_apply_committed'] ?? array() )
+			count( $GLOBALS['digitalogic_test_actions']['digitalogic_pricing_apply_committed'] ?? array() )
 		);
 		$removed = array_values( array_unique( $GLOBALS['digitalogic_test_wc_product_instance_cache_removals'] ) );
 		$this->assertContains( 20003, $removed );
@@ -2153,7 +2381,7 @@ final class PricingCoordinatorTest extends TestCase {
 			$before_posts   = $GLOBALS['digitalogic_test_posts'];
 			$before_lookup  = $GLOBALS['digitalogic_test_wc_lookup_rows'];
 			$before_options = $GLOBALS['digitalogic_test_options'];
-			$events_before  = count( $GLOBALS['digitalogic_test_actions']['digitalogic_excel_pricing_apply_committed'] ?? array() );
+			$events_before  = count( $GLOBALS['digitalogic_test_actions']['digitalogic_pricing_apply_committed'] ?? array() );
 			$GLOBALS['digitalogic_test_before_pricing_batch_leaf_identity'] = static function () use ( $drift ) {
 				if ( 'code' === $drift ) {
 					$GLOBALS['digitalogic_test_posts'][20003]['meta'][ Digitalogic_Product_Identifier_Resolver::PATRIS_CODE_META ] = 'FOREIGN-CODE';
@@ -2184,7 +2412,7 @@ final class PricingCoordinatorTest extends TestCase {
 			$this->assertSame( $before_options, $GLOBALS['digitalogic_test_options'], $drift );
 			$this->assertSame(
 				$events_before,
-				count( $GLOBALS['digitalogic_test_actions']['digitalogic_excel_pricing_apply_committed'] ?? array() ),
+				count( $GLOBALS['digitalogic_test_actions']['digitalogic_pricing_apply_committed'] ?? array() ),
 				$drift
 			);
 			$this->assertSame( 'PERF-0003', (string) wc_get_product( 20003 )->get_meta( Digitalogic_Product_Identifier_Resolver::PATRIS_CODE_META, true ), $drift );
@@ -2284,14 +2512,14 @@ final class PricingCoordinatorTest extends TestCase {
 
 	/** The ACF page queues a changed CNY rate without mutating the confirmed option inline. */
 	public function test_currency_admin_async_queue_keeps_confirmed_rate_until_background_job(): void {
-		$before = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_settings();
+		$before = Digitalogic_Pricing_Service::instance()->current_canonical_settings();
 		$job    = Digitalogic_Currency_Admin_Async::instance()->enqueue( '29501' );
 
 		$this->assertFalse( is_wp_error( $job ) );
 		$this->assertSame( 'queued', $job['status'] );
 		$this->assertSame( array( 'yuan_price' => 29501 ), $job['desired_currency'] );
 		$this->assertSame( 29500, $job['confirmed_currency']['yuan_price'] );
-		$after = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_settings();
+		$after = Digitalogic_Pricing_Service::instance()->current_canonical_settings();
 		$this->assertSame( $before['yuan_price'], $after['yuan_price'] );
 		$this->assertNotFalse(
 			wp_next_scheduled(
@@ -2375,7 +2603,7 @@ final class PricingCoordinatorTest extends TestCase {
 		$this->assertSame( 'confirmed', $terminal['status'] );
 		$this->assertSame( 1, $terminal['apply_attempts'] );
 		$this->assertSame( $terminal, $async->status( $job['job_id'], $job['generation'] ) );
-		$this->assertCount( 1, $GLOBALS['digitalogic_test_actions']['digitalogic_excel_pricing_apply_committed'] ?? array() );
+		$this->assertCount( 1, $GLOBALS['digitalogic_test_actions']['digitalogic_pricing_apply_committed'] ?? array() );
 		$remaining_async_actions = array_filter(
 			$GLOBALS['digitalogic_test_as_actions'],
 			static fn( $action ) => str_starts_with( (string) $action['hook'], 'digitalogic_currency_admin_async_' )
@@ -2501,7 +2729,7 @@ final class PricingCoordinatorTest extends TestCase {
 	/** The native two-rate form queues one atomic job and never reprices in the POST request. */
 	public function test_currency_admin_async_two_rate_submission_is_atomic_and_background_only(): void {
 		$async        = Digitalogic_Currency_Admin_Async::instance();
-		$before       = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
+		$before       = Digitalogic_Pricing_Service::instance()->current_canonical_state();
 		$before_price = (string) $GLOBALS['digitalogic_test_posts'][901]['meta']['_regular_price'];
 		$job          = $async->enqueue_currency(
 			array(
@@ -2543,7 +2771,7 @@ final class PricingCoordinatorTest extends TestCase {
 
 	/** A changed CLI rate plus --recalculate is one synchronous apply, not a rejected reconcile or web-worker queue. */
 	public function test_currency_cli_changed_rate_recalculate_is_synchronous_and_terminal(): void {
-		$state        = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
+		$state        = Digitalogic_Pricing_Service::instance()->current_canonical_state();
 		$before_price = (string) $GLOBALS['digitalogic_test_posts'][901]['meta']['_regular_price'];
 		$result       = Digitalogic_Currency_Admin_Async::instance()->execute_cli_currency(
 			array( 'yuan_price' => '31500' ),
@@ -2616,7 +2844,7 @@ final class PricingCoordinatorTest extends TestCase {
 		$GLOBALS['digitalogic_test_option_cache']     = array();
 		$GLOBALS['digitalogic_test_scheduled_events'] = array();
 
-		$lock_name                                 = Digitalogic_Excel_Pricing_Sync::coordination_lock_name( 'wp_' );
+		$lock_name                                 = Digitalogic_Pricing_Service::coordination_lock_name( 'wp_' );
 		$GLOBALS['wpdb']->used_locks[ $lock_name ] = 9999;
 		$async->run_job( $job['job_id'], $job['generation'] );
 		$renewed = $GLOBALS['digitalogic_test_options']['digitalogic_currency_admin_async_job'];
@@ -2688,7 +2916,7 @@ final class PricingCoordinatorTest extends TestCase {
 		$this->assertSame( 'confirmed', $first_terminal['status'] );
 		$this->assertNotSame( '', $first_terminal['committed_state_revision'] );
 
-		$state        = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
+		$state        = Digitalogic_Pricing_Service::instance()->current_canonical_state();
 		$price_before = (string) $GLOBALS['digitalogic_test_posts'][901]['meta']['_regular_price'];
 		$successor    = $async->enqueue_currency(
 			array(
@@ -2806,7 +3034,7 @@ final class PricingCoordinatorTest extends TestCase {
 
 	/** REST currency writes are revision-bound, return quickly, and never reprice inline. */
 	public function test_currency_rest_write_returns_async_job_without_inline_mutation(): void {
-		$state        = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
+		$state        = Digitalogic_Pricing_Service::instance()->current_canonical_state();
 		$before_price = (string) $GLOBALS['digitalogic_test_posts'][901]['meta']['_regular_price'];
 		$response     = Digitalogic_REST_API::instance()->update_currency(
 			new WP_REST_Request(
@@ -2846,7 +3074,7 @@ final class PricingCoordinatorTest extends TestCase {
 
 	/** Remote currency writes fail before enqueue unless body revision and If-Match agree. */
 	public function test_currency_rest_write_requires_exact_if_match(): void {
-		$state    = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
+		$state    = Digitalogic_Pricing_Service::instance()->current_canonical_state();
 		$response = Digitalogic_REST_API::instance()->update_currency(
 			new WP_REST_Request(
 				array(),
@@ -2865,7 +3093,7 @@ final class PricingCoordinatorTest extends TestCase {
 
 	/** Explicit REST reconciliation also runs only through the fenced worker. */
 	public function test_currency_rest_recalculate_returns_background_reconcile_job(): void {
-		$state                                        = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
+		$state                                        = Digitalogic_Pricing_Service::instance()->current_canonical_state();
 		$GLOBALS['digitalogic_test_wc_product_saves'] = array();
 		$response                                     = Digitalogic_REST_API::instance()->recalculate_prices(
 			new WP_REST_Request(
@@ -2891,7 +3119,7 @@ final class PricingCoordinatorTest extends TestCase {
 	/** An exact request identity replays its terminal before stale-state checks. */
 	public function test_currency_admin_async_request_id_replays_terminal_without_second_effect(): void {
 		$async = Digitalogic_Currency_Admin_Async::instance();
-		$state = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
+		$state = Digitalogic_Pricing_Service::instance()->current_canonical_state();
 		$first = $async->enqueue_currency(
 			array( 'yuan_price' => '29501' ),
 			false,
@@ -2925,14 +3153,24 @@ final class PricingCoordinatorTest extends TestCase {
 	/** Reusing an idempotency identity for another intent fails closed. */
 	public function test_currency_admin_async_request_id_conflict_is_blocking(): void {
 		$async = Digitalogic_Currency_Admin_Async::instance();
-		$state = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
+		$state = Digitalogic_Pricing_Service::instance()->current_canonical_state();
 		$first = $async->enqueue_currency(
-			array( 'yuan_price' => '29501' ), false, false, (string) $state['state_revision'], 'test', 'currency-conflict-0001'
+			array( 'yuan_price' => '29501' ),
+			false,
+			false,
+			(string) $state['state_revision'],
+			'test',
+			'currency-conflict-0001'
 		);
 		$this->assertFalse( is_wp_error( $first ) );
 
 		$conflict = $async->enqueue_currency(
-			array( 'yuan_price' => '29502' ), false, false, (string) $state['state_revision'], 'test', 'currency-conflict-0001'
+			array( 'yuan_price' => '29502' ),
+			false,
+			false,
+			(string) $state['state_revision'],
+			'test',
+			'currency-conflict-0001'
 		);
 
 		$this->assertTrue( is_wp_error( $conflict ) );
@@ -2943,9 +3181,14 @@ final class PricingCoordinatorTest extends TestCase {
 	/** Queued cancellation is immediate, durable, idempotent, and effect-free. */
 	public function test_currency_admin_async_queued_cancel_is_durable_and_idempotent(): void {
 		$async = Digitalogic_Currency_Admin_Async::instance();
-		$state = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
+		$state = Digitalogic_Pricing_Service::instance()->current_canonical_state();
 		$job   = $async->enqueue_currency(
-			array( 'yuan_price' => '29501' ), false, false, (string) $state['state_revision'], 'test', 'currency-cancel-0001'
+			array( 'yuan_price' => '29501' ),
+			false,
+			false,
+			(string) $state['state_revision'],
+			'test',
+			'currency-cancel-0001'
 		);
 		$this->assertSame( 'queued', $job['status'] );
 
@@ -2964,9 +3207,14 @@ final class PricingCoordinatorTest extends TestCase {
 	/** A running cancellation is observed by the transactional fence and rolls back. */
 	public function test_currency_admin_async_running_cancel_rolls_back_before_effect(): void {
 		$async = Digitalogic_Currency_Admin_Async::instance();
-		$state = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
+		$state = Digitalogic_Pricing_Service::instance()->current_canonical_state();
 		$job   = $async->enqueue_currency(
-			array( 'yuan_price' => '29501' ), false, false, (string) $state['state_revision'], 'test', 'currency-cancel-running-0001'
+			array( 'yuan_price' => '29501' ),
+			false,
+			false,
+			(string) $state['state_revision'],
+			'test',
+			'currency-cancel-running-0001'
 		);
 		add_action(
 			'digitalogic_currency_async_worker_claimed',
@@ -2988,20 +3236,35 @@ final class PricingCoordinatorTest extends TestCase {
 	/** Historical request aliases remain immutable after a successor is admitted. */
 	public function test_currency_admin_async_historical_request_replays_after_successor(): void {
 		$async = Digitalogic_Currency_Admin_Async::instance();
-		$state = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
+		$state = Digitalogic_Pricing_Service::instance()->current_canonical_state();
 		$first = $async->enqueue_currency(
-			array( 'yuan_price' => '29501' ), false, false, (string) $state['state_revision'], 'test', 'currency-history-0001'
+			array( 'yuan_price' => '29501' ),
+			false,
+			false,
+			(string) $state['state_revision'],
+			'test',
+			'currency-history-0001'
 		);
 		$async->run_job( $first['job_id'], $first['generation'] );
-		$next_state = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
+		$next_state = Digitalogic_Pricing_Service::instance()->current_canonical_state();
 		$second     = $async->enqueue_currency(
-			array( 'yuan_price' => '29502' ), false, false, (string) $next_state['state_revision'], 'test', 'currency-history-0002'
+			array( 'yuan_price' => '29502' ),
+			false,
+			false,
+			(string) $next_state['state_revision'],
+			'test',
+			'currency-history-0002'
 		);
 		$this->assertSame( 'queued', $second['status'] );
 
 		$historical = $async->status_by_request( 'currency-history-0001' );
 		$replay     = $async->enqueue_currency(
-			array( 'yuan_price' => '29501' ), false, false, (string) $state['state_revision'], 'retry', 'currency-history-0001'
+			array( 'yuan_price' => '29501' ),
+			false,
+			false,
+			(string) $state['state_revision'],
+			'retry',
+			'currency-history-0001'
 		);
 
 		$this->assertSame( 'confirmed', $historical['status'] );
@@ -3013,7 +3276,7 @@ final class PricingCoordinatorTest extends TestCase {
 	/** A stale native page cannot overwrite a newer canonical pricing revision. */
 	public function test_currency_admin_async_two_rate_submission_requires_current_page_revision(): void {
 		$async   = Digitalogic_Currency_Admin_Async::instance();
-		$state   = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
+		$state   = Digitalogic_Pricing_Service::instance()->current_canonical_state();
 		$changed = Digitalogic_Pricing_Coordinator::instance()->update_currency(
 			array( 'yuan_price' => '29501' ),
 			'concurrent_writer'
@@ -3127,7 +3390,7 @@ final class PricingCoordinatorTest extends TestCase {
 	/** Missing JavaScript and a rotated ACF key still queue by semantic option identity. */
 	public function test_acf_yuan_semantic_fallback_queues_and_returns_confirmed_value(): void {
 		$async                                       = Digitalogic_Currency_Admin_Async::instance();
-		$state                                       = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
+		$state                                       = Digitalogic_Pricing_Service::instance()->current_canonical_state();
 		$_POST['acf']                                = array( 'field_rotated_without_javascript' => '29501' );
 		$_POST['digitalogic_pricing_state_revision'] = $state['state_revision'];
 		$value                                       = $async->route_acf_currency_update(
@@ -3144,7 +3407,7 @@ final class PricingCoordinatorTest extends TestCase {
 		$job = $async->status();
 		$this->assertSame( 'queued', $job['status'] );
 		$this->assertSame( array( 'yuan_price' => 29501 ), $job['desired_currency'] );
-		$this->assertSame( 29500, Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_settings()['yuan_price'] );
+		$this->assertSame( 29500, Digitalogic_Pricing_Service::instance()->current_canonical_settings()['yuan_price'] );
 
 		// Even if the ACF name variation no longer fires, the canonical option
 		// write is intercepted before the legacy synchronous coordinator guard.
@@ -3173,7 +3436,7 @@ final class PricingCoordinatorTest extends TestCase {
 	/** ACF cannot round-trip a legacy YYMMDD option through an epoch-era UI date. */
 	public function test_acf_epoch_date_projection_is_repaired_and_never_enqueued(): void {
 		$async        = Digitalogic_Currency_Admin_Async::instance();
-		$state        = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
+		$state        = Digitalogic_Pricing_Service::instance()->current_canonical_state();
 		$_GET['page'] = 'currency-settings';
 		$this->assertSame(
 			'20260721',
@@ -3259,18 +3522,18 @@ final class PricingCoordinatorTest extends TestCase {
 			$async->load_acf_effective_date( '19700104', 'options', array( 'name' => 'update_date' ) )
 		);
 		$GLOBALS['digitalogic_test_option_cache'] = array();
-		$GLOBALS['digitalogic_test_options'][ Digitalogic_Excel_Pricing_Sync::SETTINGS_OPTION ] = array(
+		$GLOBALS['digitalogic_test_options'][ Digitalogic_Pricing_Service::SETTINGS_OPTION ] = array(
 			'effective_date'     => '2026-07-21',
 			'usd_effective_date' => '2026-07-21',
 			'cny_effective_date' => '2026-07-21',
 		);
-		$GLOBALS['digitalogic_test_options']['options_update_date']                             = 'invalid';
+		$GLOBALS['digitalogic_test_options']['options_update_date']                          = 'invalid';
 		$GLOBALS['digitalogic_test_option_cache'] = array();
 		$this->assertSame(
 			'20260721',
 			$async->load_acf_effective_date( '19700104', 'options', array( 'name' => 'update_date' ) )
 		);
-		unset( $GLOBALS['digitalogic_test_options'][ Digitalogic_Excel_Pricing_Sync::SETTINGS_OPTION ] );
+		unset( $GLOBALS['digitalogic_test_options'][ Digitalogic_Pricing_Service::SETTINGS_OPTION ] );
 		$GLOBALS['digitalogic_test_options']['options_update_date'] = '260721';
 		$GLOBALS['digitalogic_test_option_cache']                   = array();
 
@@ -3300,7 +3563,7 @@ final class PricingCoordinatorTest extends TestCase {
 	/** A normal browserless ACF Ymd submission survives rotated field keys and queues an ISO effective date. */
 	public function test_acf_strict_ymd_submission_queues_canonical_iso_without_javascript(): void {
 		$async                                       = Digitalogic_Currency_Admin_Async::instance();
-		$state                                       = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
+		$state                                       = Digitalogic_Pricing_Service::instance()->current_canonical_state();
 		$_POST['acf']                                = array(
 			'field_cny_rotated'  => '31500',
 			'field_date_rotated' => '20260831',
@@ -3327,7 +3590,7 @@ final class PricingCoordinatorTest extends TestCase {
 	/** Malformed ACF Ymd remains fail-closed and leaves the confirmed rate/date untouched. */
 	public function test_acf_invalid_ymd_submission_reports_issue_without_job_or_write(): void {
 		$async                                       = Digitalogic_Currency_Admin_Async::instance();
-		$state                                       = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
+		$state                                       = Digitalogic_Pricing_Service::instance()->current_canonical_state();
 		$GLOBALS['digitalogic_test_current_user_id'] = 1;
 		$_POST['acf']                                = array(
 			'field_cny_rotated'  => '31500',
@@ -3351,7 +3614,7 @@ final class PricingCoordinatorTest extends TestCase {
 	/** One ACF request collects USD, CNY, and date semantically and queues exactly once. */
 	public function test_acf_complete_settings_form_queues_one_atomic_job_after_all_fields(): void {
 		$async                                       = Digitalogic_Currency_Admin_Async::instance();
-		$state                                       = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
+		$state                                       = Digitalogic_Pricing_Service::instance()->current_canonical_state();
 		$_POST['acf']                                = array(
 			'field_usd_rotated'  => '188000',
 			'field_cny_rotated'  => '31000',
@@ -3421,7 +3684,7 @@ final class PricingCoordinatorTest extends TestCase {
 	public function test_acf_stale_form_is_rejected_before_enqueue(): void {
 		$GLOBALS['digitalogic_test_current_user_id'] = 42;
 		$async                                       = Digitalogic_Currency_Admin_Async::instance();
-		$stale                                       = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
+		$stale                                       = Digitalogic_Pricing_Service::instance()->current_canonical_state();
 		$updated                                     = Digitalogic_Pricing_Coordinator::instance()->update_currency(
 			array( 'yuan_price' => '29501' ),
 			'concurrent_writer'
@@ -3451,7 +3714,7 @@ final class PricingCoordinatorTest extends TestCase {
 		$GLOBALS['digitalogic_test_current_user_id']  = 42;
 		$GLOBALS['digitalogic_test_schedule_failure'] = true;
 		$async                                        = Digitalogic_Currency_Admin_Async::instance();
-		$state                                        = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
+		$state                                        = Digitalogic_Pricing_Service::instance()->current_canonical_state();
 		$_POST['acf']                                 = array( 'field_changed_identity' => '29501' );
 		$_POST['digitalogic_pricing_state_revision']  = $state['state_revision'];
 
@@ -3532,7 +3795,7 @@ final class PricingCoordinatorTest extends TestCase {
 		$this->assertSame( '29500', (string) $GLOBALS['digitalogic_test_options']['options_yuan_price'] );
 		$this->assertSame( '8437000', (string) $GLOBALS['digitalogic_test_posts'][901]['meta']['_regular_price'] );
 		$this->assertSame( '', (string) $GLOBALS['digitalogic_test_posts'][901]['meta']['_sale_price'] );
-		$this->assertCount( 1, $GLOBALS['digitalogic_test_actions']['digitalogic_excel_pricing_apply_committed'] ?? array() );
+		$this->assertCount( 1, $GLOBALS['digitalogic_test_actions']['digitalogic_pricing_apply_committed'] ?? array() );
 		$this->assertEmpty( $GLOBALS['digitalogic_test_actions']['digitalogic_pricing_confirmation_event'] ?? array() );
 	}
 
@@ -3726,7 +3989,7 @@ final class PricingCoordinatorTest extends TestCase {
 		$job   = $async->enqueue( '29501', false );
 		$this->assertFalse( is_wp_error( $job ) );
 		$transaction_id = 'ptx_' . str_repeat( 'a', 32 );
-		$GLOBALS['digitalogic_test_options'][ Digitalogic_Excel_Pricing_Sync::CONFIRMATIONS_OPTION ] = array(
+		$GLOBALS['digitalogic_test_options'][ Digitalogic_Pricing_Service::CONFIRMATIONS_OPTION ] = array(
 			'active'       => $transaction_id,
 			'transactions' => array(
 				$transaction_id => array(
@@ -3743,11 +4006,11 @@ final class PricingCoordinatorTest extends TestCase {
 
 		$this->assertSame( 'confirmed', $status['status'] );
 		$this->assertSame( 29501, $status['confirmed_currency']['yuan_price'] );
-		$ledger = $GLOBALS['digitalogic_test_options'][ Digitalogic_Excel_Pricing_Sync::CONFIRMATIONS_OPTION ];
+		$ledger = $GLOBALS['digitalogic_test_options'][ Digitalogic_Pricing_Service::CONFIRMATIONS_OPTION ];
 		$this->assertNull( $ledger['active'] );
 		$this->assertSame( 'superseded', $ledger['transactions'][ $transaction_id ]['status'] );
 		$this->assertSame( 'admin_async', $ledger['transactions'][ $transaction_id ]['superseded_by_source'] );
-		Digitalogic_Excel_Pricing_Sync::instance()->run_confirmation_timeout( $transaction_id );
+		Digitalogic_Pricing_Service::instance()->run_confirmation_timeout( $transaction_id );
 		$this->assertSame( '29501', (string) $GLOBALS['digitalogic_test_options']['options_yuan_price'] );
 	}
 
@@ -3944,7 +4207,7 @@ final class PricingCoordinatorTest extends TestCase {
 		$this->assertMatchesRegularExpression( '/\Asha256:[a-f0-9]{64}\z/D', $stored['effect_state_revision'] );
 		$this->assertSame( '29501', (string) $GLOBALS['digitalogic_test_options']['options_yuan_price'] );
 		$price_after_commit  = (string) $GLOBALS['digitalogic_test_posts'][901]['meta']['_regular_price'];
-		$events_after_commit = count( $GLOBALS['digitalogic_test_actions']['digitalogic_excel_pricing_apply_committed'] ?? array() );
+		$events_after_commit = count( $GLOBALS['digitalogic_test_actions']['digitalogic_pricing_apply_committed'] ?? array() );
 
 		$GLOBALS['wpdb']->acquire_result = 1;
 		$async->run_job( $job['job_id'], $job['generation'] );
@@ -3953,7 +4216,7 @@ final class PricingCoordinatorTest extends TestCase {
 		$this->assertSame( 'confirmed', $status['status'] );
 		$this->assertSame( $stored['effect_state_revision'], $status['committed_state_revision'] );
 		$this->assertSame( $price_after_commit, (string) $GLOBALS['digitalogic_test_posts'][901]['meta']['_regular_price'] );
-		$this->assertSame( $events_after_commit + 1, count( $GLOBALS['digitalogic_test_actions']['digitalogic_excel_pricing_apply_committed'] ?? array() ) );
+		$this->assertSame( $events_after_commit + 1, count( $GLOBALS['digitalogic_test_actions']['digitalogic_pricing_apply_committed'] ?? array() ) );
 		$stored_after = $GLOBALS['digitalogic_test_options']['digitalogic_currency_admin_async_job'];
 		$this->assertSame( 'published', $stored_after['effect_publication']['status'] );
 		$this->assertSame( $stored_after['effect_id'], $stored_after['effect_publication']['payload']['effect_id'] );
@@ -3975,7 +4238,7 @@ final class PricingCoordinatorTest extends TestCase {
 		$this->assertSame( 'pending', $stored['effect_publication']['status'] );
 		$this->assertSame( array( 901 ), $stored['effect_publication']['payload']['cache_plan']['product_ids'] );
 		$this->assertSame( '29501', (string) $GLOBALS['digitalogic_test_options']['options_yuan_price'] );
-		$this->assertCount( 0, $GLOBALS['digitalogic_test_actions']['digitalogic_excel_pricing_apply_committed'] ?? array() );
+		$this->assertCount( 0, $GLOBALS['digitalogic_test_actions']['digitalogic_pricing_apply_committed'] ?? array() );
 		$price_after_commit = (string) $GLOBALS['digitalogic_test_posts'][901]['meta']['_regular_price'];
 
 		$GLOBALS['wpdb']->acquire_result                   = 1;
@@ -3988,7 +4251,7 @@ final class PricingCoordinatorTest extends TestCase {
 		$this->assertSame( 'confirmed', $status['status'] );
 		$this->assertSame( 1, $status['apply_attempts'] );
 		$this->assertSame( $price_after_commit, (string) $GLOBALS['digitalogic_test_posts'][901]['meta']['_regular_price'] );
-		$this->assertCount( 1, $GLOBALS['digitalogic_test_actions']['digitalogic_excel_pricing_apply_committed'] ?? array() );
+		$this->assertCount( 1, $GLOBALS['digitalogic_test_actions']['digitalogic_pricing_apply_committed'] ?? array() );
 		$this->assertSame( 'published', $GLOBALS['digitalogic_test_options']['digitalogic_currency_admin_async_job']['effect_publication']['status'] );
 		$this->assertContains( array( 'options_yuan_price', 'options' ), $GLOBALS['digitalogic_test_cache_deletes'] );
 		$this->assertContains(
@@ -4227,7 +4490,7 @@ final class PricingCoordinatorTest extends TestCase {
 		$this->assertSame( 'confirmed', $async->status( $job['job_id'], $job['generation'] )['status'] );
 		$this->assertSame( $before, count( $GLOBALS['digitalogic_test_actions']['updated_option_yuan_price'] ?? array() ) );
 		$this->assertCount( 1, $GLOBALS['digitalogic_test_actions']['digitalogic_excel_pricing_settings_updated'] ?? array() );
-		$this->assertCount( 1, $GLOBALS['digitalogic_test_actions']['digitalogic_excel_pricing_apply_committed'] ?? array() );
+		$this->assertCount( 1, $GLOBALS['digitalogic_test_actions']['digitalogic_pricing_apply_committed'] ?? array() );
 	}
 
 	/** A later valid revision supersedes history without trapping or replaying the old rate. */
@@ -4282,7 +4545,7 @@ final class PricingCoordinatorTest extends TestCase {
 				$new_job['generation']              = (int) $new_job['generation'] + 1;
 				$new_job['status']                  = 'queued';
 				$new_job['desired_currency']        = array( 'yuan_price' => 29502 );
-				$state                              = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
+				$state                              = Digitalogic_Pricing_Service::instance()->current_canonical_state();
 				$new_job['confirmed_currency']      = array(
 					'dollar_price' => (int) $state['settings']['dollar_price'],
 					'yuan_price'   => (int) $state['settings']['yuan_price'],
@@ -4927,7 +5190,7 @@ final class PricingCoordinatorTest extends TestCase {
 		$failed = Digitalogic_Pricing_Coordinator::instance()->update_profit_margin( '40', 'test_event_failure' );
 
 		$this->assertTrue( is_wp_error( $failed ) );
-		$this->assertSame( 'digitalogic_excel_sync_commit_failed', $failed->get_error_code() );
+		$this->assertSame( 'digitalogic_pricing_sync_commit_failed', $failed->get_error_code() );
 		$this->assertSame( array(), $observed );
 
 		$GLOBALS['digitalogic_test_transaction_failures'] = array();

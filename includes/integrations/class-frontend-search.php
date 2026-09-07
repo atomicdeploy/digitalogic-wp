@@ -34,7 +34,7 @@ class Digitalogic_Frontend_Search {
 		add_action( 'admin_menu', array( $this, 'cache_menu' ), 99 );
 		add_action( 'admin_init', array( $this, 'register_cache_settings' ) );
 		add_action( 'digitalogic_report_projection_invalidated', array( $this, 'queue_invalidation' ) );
-		add_action( 'digitalogic_excel_pricing_apply_committed', array( $this, 'queue_invalidation' ) );
+		add_action( 'digitalogic_pricing_apply_committed', array( $this, 'queue_invalidation' ) );
 		add_action( 'shutdown', array( $this, 'publish_invalidation' ) );
 	}
 

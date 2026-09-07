@@ -437,16 +437,7 @@ class Digitalogic_REST_API {
 					'permission_callback' => array( $this, 'check_pricing_sync_permission' ),
 				)
 			);
-			// Compatibility alias for already-deployed workbook companions.
-			register_rest_route(
-				'digitalogic',
-				'/excel/pricing-sync/' . $pricing_sync_mode,
-				array(
-					'methods'             => 'POST',
-					'callback'            => array( $this, 'excel_pricing_sync_' . $pricing_sync_mode ),
-					'permission_callback' => array( $this, 'check_excel_pricing_sync_permission' ),
-				)
-			);
+
 		}
 		register_rest_route(
 			'digitalogic',
@@ -455,15 +446,6 @@ class Digitalogic_REST_API {
 				'methods'             => 'POST',
 				'callback'            => array( $this, 'pricing_sync_ack' ),
 				'permission_callback' => array( $this, 'check_pricing_sync_permission' ),
-			)
-		);
-		register_rest_route(
-			'digitalogic',
-			'/excel/pricing-sync/ack',
-			array(
-				'methods'             => 'POST',
-				'callback'            => array( $this, 'excel_pricing_sync_ack' ),
-				'permission_callback' => array( $this, 'check_excel_pricing_sync_permission' ),
 			)
 		);
 
@@ -806,7 +788,7 @@ class Digitalogic_REST_API {
 	 * @return true|WP_Error
 	 */
 	public function check_pricing_sync_permission( WP_REST_Request $request ) {
-		return Digitalogic_Excel_Pricing_Sync::instance()->authorize( $request );
+		return Digitalogic_Pricing_Service::instance()->authorize( $request );
 	}
 
 	/** Authenticate the additive revision and immutable snapshot surfaces. */
@@ -814,15 +796,6 @@ class Digitalogic_REST_API {
 		return Digitalogic_Pricing_Snapshot::instance()->authorize( $request );
 	}
 
-	/**
-	 * Compatibility permission callback for the retired /excel route prefix.
-	 *
-	 * @param WP_REST_Request $request Current request.
-	 * @return true|WP_Error
-	 */
-	public function check_excel_pricing_sync_permission( WP_REST_Request $request ) {
-		return $this->check_pricing_sync_permission( $request );
-	}
 
 	/**
 	 * GET /products
@@ -925,7 +898,7 @@ class Digitalogic_REST_API {
 	 */
 	public function get_google_sheets_pricing_settings( WP_REST_Request $request ) {
 		unset( $request );
-		$state = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
+		$state = Digitalogic_Pricing_Service::instance()->current_canonical_state();
 		if ( is_wp_error( $state ) ) {
 			return $state;
 		}
@@ -966,7 +939,7 @@ class Digitalogic_REST_API {
 			? $payload['settings']
 			: array();
 		$expected = $payload['expected_state_revision'];
-		$result   = Digitalogic_Excel_Pricing_Sync::instance()->apply_internal_settings(
+		$result   = Digitalogic_Pricing_Service::instance()->apply_internal_settings(
 			$settings,
 			'google_sheets_settings',
 			$expected
@@ -992,7 +965,7 @@ class Digitalogic_REST_API {
 	 */
 	public function pricing_sync_state( WP_REST_Request $request ) {
 		return $this->pricing_sync_response(
-			Digitalogic_Excel_Pricing_Sync::instance()->state( $request )
+			Digitalogic_Pricing_Service::instance()->state( $request )
 		);
 	}
 
@@ -1004,7 +977,7 @@ class Digitalogic_REST_API {
 	 */
 	public function pricing_sync_preview( WP_REST_Request $request ) {
 		return $this->pricing_sync_response(
-			Digitalogic_Excel_Pricing_Sync::instance()->preview( $request )
+			Digitalogic_Pricing_Service::instance()->preview( $request )
 		);
 	}
 
@@ -1016,7 +989,7 @@ class Digitalogic_REST_API {
 	 */
 	public function pricing_sync_apply( WP_REST_Request $request ) {
 		return $this->pricing_sync_response(
-			Digitalogic_Excel_Pricing_Sync::instance()->apply( $request )
+			Digitalogic_Pricing_Service::instance()->apply( $request )
 		);
 	}
 
@@ -1028,7 +1001,7 @@ class Digitalogic_REST_API {
 	 */
 	public function pricing_sync_ack( WP_REST_Request $request ) {
 		return $this->pricing_sync_response(
-			Digitalogic_Excel_Pricing_Sync::instance()->ack( $request )
+			Digitalogic_Pricing_Service::instance()->ack( $request )
 		);
 	}
 
@@ -1074,57 +1047,9 @@ class Digitalogic_REST_API {
 		);
 	}
 
-	/**
-	 * Deprecated Excel-prefixed state alias.
-	 *
-	 * @param WP_REST_Request $request REST request.
-	 * @return WP_REST_Response
-	 */
-	public function excel_pricing_sync_state( WP_REST_Request $request ) {
-		return $this->deprecated_excel_pricing_sync_response(
-			Digitalogic_Excel_Pricing_Sync::instance()->state( $request ),
-			'state'
-		);
-	}
 
-	/**
-	 * Deprecated Excel-prefixed preview alias.
-	 *
-	 * @param WP_REST_Request $request REST request.
-	 * @return WP_REST_Response
-	 */
-	public function excel_pricing_sync_preview( WP_REST_Request $request ) {
-		return $this->deprecated_excel_pricing_sync_response(
-			Digitalogic_Excel_Pricing_Sync::instance()->preview( $request ),
-			'preview'
-		);
-	}
 
-	/**
-	 * Deprecated Excel-prefixed apply alias.
-	 *
-	 * @param WP_REST_Request $request REST request.
-	 * @return WP_REST_Response
-	 */
-	public function excel_pricing_sync_apply( WP_REST_Request $request ) {
-		return $this->deprecated_excel_pricing_sync_response(
-			Digitalogic_Excel_Pricing_Sync::instance()->apply( $request ),
-			'apply'
-		);
-	}
 
-	/**
-	 * Deprecated Excel-prefixed acknowledgement alias.
-	 *
-	 * @param WP_REST_Request $request REST request.
-	 * @return WP_REST_Response
-	 */
-	public function excel_pricing_sync_ack( WP_REST_Request $request ) {
-		return $this->deprecated_excel_pricing_sync_response(
-			Digitalogic_Excel_Pricing_Sync::instance()->ack( $request ),
-			'ack'
-		);
-	}
 
 	/**
 	 * Wrap one transport-neutral Excel sync result.
@@ -1186,33 +1111,6 @@ class Digitalogic_REST_API {
 		return new WP_REST_Response( $result, 200 );
 	}
 
-	/**
-	 * Mark an Excel-prefixed compatibility response without breaking old clients.
-	 *
-	 * @param array|WP_Error $result Service result.
-	 * @param string         $mode   state, preview, or apply.
-	 * @return WP_REST_Response
-	 */
-	private function deprecated_excel_pricing_sync_response( $result, $mode ) {
-		if ( is_array( $result ) ) {
-			$legacy_schemas = array(
-				'state'   => Digitalogic_Excel_Pricing_Sync::LEGACY_STATE_SCHEMA,
-				'preview' => Digitalogic_Excel_Pricing_Sync::LEGACY_PREVIEW_SCHEMA,
-				'apply'   => Digitalogic_Excel_Pricing_Sync::LEGACY_APPLY_SCHEMA,
-			);
-			if ( isset( $legacy_schemas[ $mode ] ) ) {
-				$result['schema'] = $legacy_schemas[ $mode ];
-			}
-		}
-		$response = $this->pricing_sync_response( $result );
-		$response->header( 'Deprecation', 'true' );
-		$response->header(
-			'Link',
-			'</wp-json/digitalogic/pricing/sync/' . sanitize_key( (string) $mode ) . '>; rel="successor-version"'
-		);
-
-		return $response;
-	}
 	/**
 	 * POST /google-sheets/writeback/preview
 	 *
@@ -1533,7 +1431,7 @@ class Digitalogic_REST_API {
 			return $this->currency_job_response( $request_id );
 		}
 
-		$state = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
+		$state = Digitalogic_Pricing_Service::instance()->current_canonical_state();
 		if ( is_wp_error( $state ) ) {
 			return $this->currency_job_response( $state );
 		}

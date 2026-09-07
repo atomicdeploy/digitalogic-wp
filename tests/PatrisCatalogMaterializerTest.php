@@ -75,6 +75,10 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 			$GLOBALS[ $global_name ] = $value;
 		}
 
+		// This suite materializes the golden provider's supplied price projection;
+		// owner-rate calculation is covered by SelectedPricingAuthorityTest.
+		$GLOBALS['digitalogic_test_options'][ Digitalogic_Pricing_Coordinator::AUTHORITY_OPTION ] = 'go';
+
 		$GLOBALS['wpdb'] = new Digitalogic_Test_WPDB();
 
 		WC_Product_Variable::$synced_ids = array();
@@ -99,6 +103,7 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 		$this->assertIsArray( $method );
 		$this->assertTrue( $method['enabled'] );
 		$this->assertSame( '120', $method['price_per_kg'] );
+		$this->bindFixtureToOwnerCatalog();
 		add_filter(
 			'digitalogic_patris_auto_materialize_source_product',
 			static function () {
@@ -1673,7 +1678,7 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 	}
 
 	private function receiveFixture(): void {
-		$result = Digitalogic_Product_Sync_Receiver::instance()->receive_json( self::$fixture_json );
+		$result = Digitalogic_Product_Sync_Receiver::instance()->receive_json( wp_json_encode( self::$fixture, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES ) );
 		$this->assertNotInstanceOf(
 			WP_Error::class,
 			$result,
@@ -1688,6 +1693,39 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 				)
 				: ''
 		);
+	}
+
+	/** Bind the synthetic current-price fixture to the actual test owner catalog. */
+	private function bindFixtureToOwnerCatalog(): void {
+		self::$fixture = json_decode( self::$fixture_json, true, 512, JSON_THROW_ON_ERROR );
+		$catalog       = Digitalogic_Shipping_Method_Service::instance()->get_integration_catalog();
+		$this->assertNotInstanceOf( WP_Error::class, $catalog );
+		$material       = array();
+		$product_hashes = array();
+		foreach ( self::$fixture['products'] as &$product ) {
+			$product['pricing_catalog_revision'] = $catalog['revision'];
+			$identity                            = $product;
+			unset( $identity['record_hash'] );
+			ksort( $identity, SORT_STRING );
+			if ( isset( $identity['warehouse_stock'] ) ) {
+				ksort( $identity['warehouse_stock'], SORT_STRING );
+				$identity['warehouse_stock'] = (object) $identity['warehouse_stock'];
+			}
+			$product['record_hash'] = 'sha256:' . hash( 'sha256', wp_json_encode( $identity, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES ) );
+			$product_hashes[]       = $product['product_code'] . '=' . $product['record_hash'];
+		}
+		unset( $product );
+		sort( $product_hashes, SORT_STRING );
+		$category_hashes = array_map( static fn( $category ) => $category['category_code'] . '=' . $category['record_hash'], self::$fixture['categories'] );
+		sort( $category_hashes, SORT_STRING );
+		$material = array_merge( $product_hashes, array_map( static fn( $category ) => 'category:' . $category, $category_hashes ), array_map( static fn( $code ) => 'excluded=' . $code, self::$fixture['excluded_codes'] ) );
+		sort( $material, SORT_STRING );
+		$material                            = array_merge( $material, array_map( static fn( $code )                            => 'quarantined=' . $code, self::$fixture['quarantined_codes'] ) );
+		self::$fixture['source']['revision'] = 'sha256:' . hash( 'sha256', implode( "\n", $material ) );
+		$event                               = array_intersect_key( self::$fixture, array_flip( array( 'schema', 'event_type', 'local_currency', 'formula_id', 'source', 'generated_at', 'products', 'categories', 'excluded_codes', 'quarantined_codes' ) ) );
+		$event['products']                   = $product_hashes;
+		$event['categories']                 = $category_hashes;
+		self::$fixture['event_id']           = 'sha256:' . hash( 'sha256', wp_json_encode( $event, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES ) );
 	}
 
 	/**

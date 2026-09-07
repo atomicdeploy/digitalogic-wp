@@ -17,17 +17,17 @@ if ( ! defined( 'ABSPATH' ) ) {
 final class Digitalogic_Pricing_Snapshot {
 
 	public const SCHEMA_VERSION        = 1;
-	public const REVISION_SCHEMA       = 'digitalogic.pricing-sync-revision/v1';
-	public const REQUEST_SCHEMA        = 'digitalogic.pricing-snapshot-request/v1';
-	public const BUILD_SCHEMA          = 'digitalogic.pricing-snapshot-build/v1';
-	public const SNAPSHOT_SCHEMA       = 'digitalogic.pricing-snapshot/v1';
-	public const PAGE_SCHEMA           = 'digitalogic.pricing-snapshot-page/v1';
-	public const STATE_EVENT_SCHEMA    = 'digitalogic.pricing-state-change/v1';
-	public const SOURCE_EVENT_SCHEMA   = 'digitalogic.pricing-source-change/v1';
-	public const TERMINAL_EVENT_SCHEMA = 'digitalogic.pricing-snapshot-build-event/v1';
+	public const REVISION_SCHEMA       = 'digitalogic.pricing-sync-revision';
+	public const REQUEST_SCHEMA        = 'digitalogic.pricing-snapshot-request';
+	public const BUILD_SCHEMA          = 'digitalogic.pricing-snapshot-build';
+	public const SNAPSHOT_SCHEMA       = 'digitalogic.pricing-snapshot';
+	public const PAGE_SCHEMA           = 'digitalogic.pricing-snapshot-page';
+	public const STATE_EVENT_SCHEMA    = 'digitalogic.pricing-state-change';
+	public const SOURCE_EVENT_SCHEMA   = 'digitalogic.pricing-source-change';
+	public const TERMINAL_EVENT_SCHEMA = 'digitalogic.pricing-snapshot-build-event';
 	public const PROJECTION            = 'excel-v1';
 	public const PROJECTION_SCHEMA     = 'digitalogic.pricing-projection/excel-v1';
-	public const PRICING_POLICY_SCHEMA = 'digitalogic.pricing-policy/v1';
+	public const PRICING_POLICY_SCHEMA = 'digitalogic.pricing-policy';
 
 	private const BUILD_HOOK                        = 'digitalogic_pricing_snapshot_build_v1';
 	private const BUILD_WATCHDOG_HOOK               = 'digitalogic_pricing_snapshot_build_watchdog_v1';
@@ -132,7 +132,7 @@ final class Digitalogic_Pricing_Snapshot {
 		add_action( self::STATE_EVENT_RECOVERY_HOOK, array( $this, 'run_state_revision_event_handoff' ), 10, 2 );
 		add_action( self::TERMINAL_EVENT_HOOK, array( $this, 'run_terminal_event_delivery' ) );
 		add_action( self::FRESHNESS_HOOK, array( $this, 'run_freshness_boundary' ), 10, 2 );
-		add_action( 'digitalogic_excel_pricing_apply_committed', array( $this, 'invalidate_after_apply' ) );
+		add_action( 'digitalogic_pricing_apply_committed', array( $this, 'invalidate_after_apply' ) );
 		add_action( 'digitalogic_excel_pricing_settings_updated', array( $this, 'reschedule_freshness_boundary' ) );
 		add_action( 'digitalogic_product_sync_applied', array( $this, 'reschedule_freshness_boundary' ) );
 		add_action( 'digitalogic_product_sync_state_committed', array( $this, 'capture_committed_source_state' ), 10, 2 );
@@ -213,11 +213,22 @@ final class Digitalogic_Pricing_Snapshot {
 			);
 		}
 
-		$current = $this->current_revision_data( $source );
-		if ( is_wp_error( $current ) ) {
-			return $current;
+		$discovery = Digitalogic_Pricing_Coordinator::instance()->with_repricing_lock(
+			function () use ( $source ) {
+				$resolved = Digitalogic_Pricing_Service::instance()->resolve_snapshot_source( $source );
+				if ( is_wp_error( $resolved ) ) {
+					return $resolved;
+				}
+				$current = $this->current_revision_data( $resolved['source'] );
+				return is_wp_error( $current ) ? $current : array( 'resolved' => $resolved, 'current' => $current );
+			}
+		);
+		if ( is_wp_error( $discovery ) ) {
+			return $discovery;
 		}
-		$etag = $this->etag( $current['state_revision'] );
+		$resolved = $discovery['resolved'];
+		$current  = $discovery['current'];
+		$etag     = $this->etag( $current['state_revision'] );
 		if ( $this->etag_matches( $request->get_header( 'if-none-match' ), $etag ) ) {
 			return $this->transport(
 				null,
@@ -236,6 +247,9 @@ final class Digitalogic_Pricing_Snapshot {
 			'projection_schema'       => self::PROJECTION_SCHEMA,
 			'state_revision'          => $current['state_revision'],
 			'source'                  => $current['source'],
+			'input_source'            => $resolved['input_source'],
+			'owner_catalog_revision'  => $current['owner_catalog_revision'],
+			'delivery'                => $current['delivery'],
 			'catalog_revision'        => $current['catalog_revision'],
 			'pricing_state_revision'  => $current['pricing_state_revision'],
 			'pricing_policy_revision' => $current['pricing_policy_revision'],
@@ -858,6 +872,22 @@ final class Digitalogic_Pricing_Snapshot {
 				return;
 			}
 		}
+		$source_state = Digitalogic_Product_Sync_Receiver::instance()->get_source_state( $job['source']['id'], $job['source']['dataset'] );
+		foreach ( array( 'id', 'dataset', 'revision' ) as $field ) {
+			if ( ! is_string( $source_state['source'][ $field ] ?? null ) || ! hash_equals( $job['source'][ $field ], $source_state['source'][ $field ] ) ) {
+				$this->record_worker_failure( $build_id, $this->state_changed_error() );
+				return;
+			}
+		}
+		// Keep exact owner records in the existing digest-bound snapshot. Decimal
+		// strings remain exact; consumers normalize them at their input boundary.
+		foreach ( $catalog['rows'] as &$row ) {
+			$code = (string) ( $row['patris_code'] ?? '' );
+			if ( '' !== $code && isset( $source_state['products'][ $code ] ) ) {
+				$row['canonical_product'] = $source_state['products'][ $code ];
+			}
+		}
+		unset( $row );
 		if ( ! $this->checkpoint( $build_id, 'verifying', 92, count( (array) ( $catalog['rows'] ?? array() ) ), count( (array) ( $catalog['rows'] ?? array() ) ) ) ) {
 			$this->record_worker_failure( $build_id, is_wp_error( $this->active_worker_error ) ? $this->active_worker_error : $this->cancelled_error() );
 			return;
@@ -955,7 +985,7 @@ final class Digitalogic_Pricing_Snapshot {
 		$timestamp   = (int) $boundary['timestamp'];
 		$fingerprint = $this->digest(
 			array(
-				'schema'    => 'digitalogic.pricing-freshness-boundary/v1',
+				'schema'    => 'digitalogic.pricing-freshness-boundary',
 				'timestamp' => $timestamp,
 				'reasons'   => $boundary['reasons'],
 			)
@@ -2174,7 +2204,7 @@ final class Digitalogic_Pricing_Snapshot {
 	private function next_freshness_boundary() {
 		$now        = time();
 		$candidates = array();
-		$pricing    = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
+		$pricing    = Digitalogic_Pricing_Service::instance()->current_canonical_state();
 		if ( ! is_wp_error( $pricing ) ) {
 			foreach ( array( 'usd', 'cny' ) as $currency ) {
 				$date   = (string) ( $pricing['freshness'][ $currency ]['effective_date'] ?? '' );
@@ -2183,7 +2213,7 @@ final class Digitalogic_Pricing_Snapshot {
 					continue;
 				}
 				$effective = $parsed->setTime( 0, 0 )->getTimestamp();
-				$expires   = $parsed->setTime( 0, 0 )->modify( '+' . ( Digitalogic_Excel_Pricing_Sync::STALE_AFTER_DAYS + 1 ) . ' days' )->getTimestamp();
+				$expires   = $parsed->setTime( 0, 0 )->modify( '+' . ( Digitalogic_Pricing_Service::STALE_AFTER_DAYS + 1 ) . ' days' )->getTimestamp();
 				if ( $effective > $now ) {
 					$candidates[ $effective ][] = 'currency-' . $currency . '-effective';
 				}
@@ -2254,7 +2284,7 @@ final class Digitalogic_Pricing_Snapshot {
 			array(
 				Digitalogic_Product_Sync_Receiver::STATE_OPTION,
 				'digitalogic_patris_feed_settings',
-				Digitalogic_Excel_Pricing_Sync::SETTINGS_OPTION,
+				Digitalogic_Pricing_Service::SETTINGS_OPTION,
 				'options_update_date',
 				'update_date',
 			),
@@ -2914,7 +2944,7 @@ final class Digitalogic_Pricing_Snapshot {
 		if ( ! $this->is_revision( $expected ) || '"' . $expected . '"' !== $request->get_header( 'if-match' ) ) {
 			return $this->error( 'digitalogic_pricing_snapshot_if_match_invalid', 'If-Match must exactly quote expected_state_revision.', 428, false );
 		}
-		$source = Digitalogic_Excel_Pricing_Sync::instance()->normalize_snapshot_source( $payload['source'] ?? null );
+		$source = Digitalogic_Pricing_Service::instance()->normalize_snapshot_source( $payload['source'] ?? null );
 		if ( is_wp_error( $source ) ) {
 			return $source;
 		}
@@ -2945,11 +2975,11 @@ final class Digitalogic_Pricing_Snapshot {
 
 	/** Read every cheap revision component and bind them deterministically. */
 	private function current_revision_data( $source ) {
-		$validated = Digitalogic_Excel_Pricing_Sync::instance()->validate_snapshot_source( $source );
+		$validated = Digitalogic_Pricing_Service::instance()->validate_snapshot_source( $source );
 		if ( is_wp_error( $validated ) ) {
 			return $validated;
 		}
-		$pricing = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
+		$pricing = Digitalogic_Pricing_Service::instance()->current_canonical_state();
 		if ( is_wp_error( $pricing ) ) {
 			return $pricing;
 		}
@@ -2967,11 +2997,15 @@ final class Digitalogic_Pricing_Snapshot {
 				'attribute_owners'       => (array) ( $pricing['attribute_owners'] ?? array() ),
 			)
 		);
+		$source_state            = Digitalogic_Product_Sync_Receiver::instance()->get_source_state( $validated['source']['id'], $validated['source']['dataset'] );
+		$delivery                = Digitalogic_Product_Sync_Receiver::instance()->get_delivery_receipt( $validated['source']['id'], $validated['source']['dataset'] );
 		$state_revision          = $this->digest(
 			array(
 				'schema_version'          => self::SCHEMA_VERSION,
 				'projection_schema'       => self::PROJECTION_SCHEMA,
 				'source_revision'         => $validated['source']['revision'],
+				'input_source_revision'   => $source_state['input_source']['revision'] ?? null,
+				'delivery'                => $delivery,
 				'catalog_revision'        => $catalog_revision,
 				'pricing_policy_revision' => $pricing_policy_revision,
 			)
@@ -2980,6 +3014,8 @@ final class Digitalogic_Pricing_Snapshot {
 		return array(
 			'source'                  => $validated['source'],
 			'source_context'          => $validated['context'],
+			'owner_catalog_revision'  => $pricing['shipping']['catalog_revision'],
+			'delivery'                => $delivery,
 			'catalog_revision'        => $catalog_revision,
 			'pricing_state_revision'  => $pricing['state_revision'],
 			'pricing_policy_revision' => $pricing_policy_revision,
@@ -4137,7 +4173,7 @@ final class Digitalogic_Pricing_Snapshot {
 				'revision' => $request->get_param( 'source_revision' ),
 			);
 		}
-		$validated = Digitalogic_Excel_Pricing_Sync::instance()->normalize_snapshot_source( $source );
+		$validated = Digitalogic_Pricing_Service::instance()->normalize_snapshot_source( $source );
 
 		return $validated;
 	}

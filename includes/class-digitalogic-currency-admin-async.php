@@ -84,6 +84,7 @@ final class Digitalogic_Currency_Admin_Async {
 		add_action( self::APPLY_HOOK, array( $this, 'run_job' ), 10, 2 );
 		add_action( self::FINALIZE_HOOK, array( $this, 'finalize_job' ), 10, 4 );
 		add_action( self::WATCHDOG_HOOK, array( $this, 'run_watchdog' ), 10, 3 );
+		add_action( 'digitalogic_product_sync_applied', array( $this, 'accept_go_delivery' ), 20, 2 );
 		add_action( 'init', array( $this, 'recover_committed_publication' ), 20 );
 		add_action( 'init', array( $this, 'recover_queued_job' ), 20 );
 	}
@@ -255,7 +256,7 @@ final class Digitalogic_Currency_Admin_Async {
 
 	/** Resolve a trusted effective date without traversing ACF option filters. */
 	private function canonical_acf_effective_date() {
-		$state = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
+		$state = Digitalogic_Pricing_Service::instance()->current_canonical_state();
 		if ( is_wp_error( $state ) ) {
 			return null;
 		}
@@ -282,7 +283,7 @@ final class Digitalogic_Currency_Admin_Async {
 		if ( ! $this->can_manage_currency() || ! $this->managed_pricing_active() ) {
 			return;
 		}
-		$state = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
+		$state = Digitalogic_Pricing_Service::instance()->current_canonical_state();
 		if ( is_wp_error( $state ) ) {
 			return;
 		}
@@ -398,7 +399,7 @@ final class Digitalogic_Currency_Admin_Async {
 	 * @return array|WP_Error Public job projection or error.
 	 */
 	public function enqueue( $yuan_price, $dispatch = true, $reconcile = false ) {
-		$state = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
+		$state = Digitalogic_Pricing_Service::instance()->current_canonical_state();
 		if ( is_wp_error( $state ) ) {
 			return $state;
 		}
@@ -581,9 +582,9 @@ final class Digitalogic_Currency_Admin_Async {
 
 					return $this->public_job_for_request( $existing, $request_id );
 				}
-				if ( Digitalogic_Excel_Pricing_Sync::coordination_lock_is_held() ) {
+				if ( Digitalogic_Pricing_Service::coordination_lock_is_held() ) {
 					return new WP_Error(
-						'digitalogic_excel_sync_busy',
+						'digitalogic_pricing_sync_busy',
 						'تراکنش قیمت دیگری هنوز در حال اجرا است؛ پس از آزاد شدن همان تراکنش دوباره تلاش کنید.',
 						array(
 							'blocking'    => false,
@@ -592,7 +593,7 @@ final class Digitalogic_Currency_Admin_Async {
 					);
 				}
 
-				$state = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
+				$state = Digitalogic_Pricing_Service::instance()->current_canonical_state();
 				if ( is_wp_error( $state ) ) {
 					return $state;
 				}
@@ -735,7 +736,7 @@ final class Digitalogic_Currency_Admin_Async {
 	 * @return array|WP_Error Terminal public job projection or enqueue error.
 	 */
 	public function execute_cli_currency( array $values, $force_recalculate, $expected_revision, $request_id ) {
-		$state = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
+		$state = Digitalogic_Pricing_Service::instance()->current_canonical_state();
 		if ( is_wp_error( $state ) ) {
 			return $state;
 		}
@@ -970,6 +971,7 @@ final class Digitalogic_Currency_Admin_Async {
 	 * @return void
 	 */
 	public function finalize_job( $job_id, $generation, $expected_fence, $state_revision ) {
+
 		if (
 			(int) $generation < 1
 			|| (int) $expected_fence < 1
@@ -977,7 +979,10 @@ final class Digitalogic_Currency_Admin_Async {
 		) {
 			return;
 		}
-
+		$observed = $this->raw_job();
+		if ( $this->go_delivery_revision( $observed ) && ! $this->prepare_go_delivery_finalization( $job_id, $generation, $expected_fence, $state_revision ) ) {
+			return;
+		}
 		$deliver_event = false;
 		$retry_at      = 0;
 		$cli_sync      = false;
@@ -1000,7 +1005,10 @@ final class Digitalogic_Currency_Admin_Async {
 				) {
 					return null;
 				}
-				$expected    = $job;
+				$expected = $job;
+				if ( $this->go_delivery_revision( $job ) && empty( $job['effect_publication']['go_delivery_complete'] ) ) {
+					return null;
+				}
 				$publication = is_array( $job['effect_publication'] ?? null )
 					? $job['effect_publication']
 					: array();
@@ -1021,7 +1029,7 @@ final class Digitalogic_Currency_Admin_Async {
 
 					return null;
 				}
-				$state = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
+				$state = Digitalogic_Pricing_Service::instance()->current_canonical_state();
 				if ( is_wp_error( $state ) ) {
 					return $this->record_publication_failure_open_lock(
 						$job,
@@ -1034,7 +1042,7 @@ final class Digitalogic_Currency_Admin_Async {
 				$current_revision = (string) ( $state['state_revision'] ?? '' );
 				$superseded       = ! hash_equals( (string) $state_revision, $current_revision );
 				if ( 'published' !== (string) ( $publication['status'] ?? '' ) ) {
-					$published = Digitalogic_Excel_Pricing_Sync::instance()->publish_internal_settings_effect(
+					$published = Digitalogic_Pricing_Service::instance()->publish_internal_settings_effect(
 						(array) ( $publication['payload'] ?? array() ),
 						$superseded,
 						$current_revision
@@ -1107,6 +1115,151 @@ final class Digitalogic_Currency_Admin_Async {
 		}
 	}
 
+	/** Return the owner-input revision whose Go delivery is still required. */
+	private function go_delivery_revision( array $job ): string {
+
+		$repricing = (array) ( $job['effect_publication']['payload']['repricing'] ?? array() );
+		$revision  = (string) ( $repricing['owner_catalog_revision'] ?? '' );
+		return 'go' === ( $repricing['authority'] ?? '' ) && 'awaiting_delivery' === ( $repricing['status'] ?? '' )
+			&& 1 === preg_match( '/\Asha256:[a-f0-9]{64}\z/D', $revision ) ? $revision : '';
+	}
+
+	/** Accept a verified receiver receipt; the receiver invokes this after releasing its lock. */
+	public function accept_go_delivery( $result, $identity = array() ): void {
+
+		unset( $identity );
+		$receipt = is_array( $result ) ? ( $result['delivery'] ?? null ) : null;
+		if ( ! is_array( $receipt ) ) {
+			return;
+		}
+		$completed = $this->with_job_lock(
+			function () use ( $receipt ) {
+
+				$job      = $this->raw_job();
+				$revision = $this->go_delivery_revision( $job );
+				if ( ! $revision || 'confirmed' === ( $job['status'] ?? '' ) || $revision !== ( $receipt['owner_catalog_revision'] ?? '' )
+				|| ! in_array( $receipt['status'] ?? '', array( 'complete', 'pending', 'deferred' ), true )
+					|| empty( $receipt['source']['id'] ) || empty( $receipt['source']['dataset'] ) ) {
+					return null;
+				}
+				$expected = $job;
+				$key      = hash( 'sha256', $receipt['source']['id'] . "\0" . $receipt['source']['dataset'] );
+				$job['effect_publication']['go_receipts'][ $key ] = $receipt;
+				$job['updated_at']                                = time();
+				$stored = $this->store_job_open_lock( $job, $expected );
+				return is_wp_error( $stored ) ? $stored : $job;
+			}
+		);
+		// A receipt can arrive synchronously while publication is still running.
+		// Its outer finalizer will read the durable receipt after publication returns.
+		if ( is_array( $completed ) && 'published' === ( $completed['effect_publication']['status'] ?? '' ) ) {
+			$this->finalize_job( $completed['job_id'], $completed['generation'], $completed['fence'], $completed['effect_state_revision'] );
+		}
+	}
+
+	/** Require complete delivery of the exact owner inputs, including all reconciliation. */
+	private function complete_go_receipt( array $receipt, string $revision ): bool {
+
+		if ( 'complete' !== ( $receipt['status'] ?? '' ) || $revision !== ( $receipt['owner_catalog_revision'] ?? '' )
+		|| 1 !== preg_match( '/\Asha256:[a-f0-9]{64}\z/D', (string) ( $receipt['event_id'] ?? '' ) )
+			|| '' === (string) ( $receipt['source']['id'] ?? '' ) || '' === (string) ( $receipt['source']['dataset'] ?? '' ) ) {
+			return false;
+		}
+		foreach ( array( 'pending_products', 'deferred_products', 'deferred_missing', 'deferred_ambiguous' ) as $field ) {
+			if ( ! array_key_exists( $field, $receipt ) || 0 !== $receipt[ $field ] ) {
+				return false;
+			}
+		}
+		return true;
+	}
+
+	/** Publish the owner event outside locks, then recover actual delivery from the receiver ledger. */
+	private function prepare_go_delivery_finalization( $job_id, $generation, $fence, $state_revision ): bool {
+
+		$job = $this->raw_job();
+		if ( ! $this->matches_job( $job, $job_id, $generation ) || (int) ( $job['fence'] ?? 0 ) !== (int) $fence
+			|| $state_revision !== ( $job['effect_state_revision'] ?? '' ) ) {
+			return false;
+		}
+		$publication = (array) ( $job['effect_publication'] ?? array() );
+		if ( 'confirmed' === ( $job['status'] ?? '' ) ) {
+			return true;
+		}
+		if ( 'failed' === ( $publication['status'] ?? '' ) || (int) ( $publication['next_attempt_at'] ?? 0 ) > time() ) {
+			return false;
+		}
+		if ( 'published' !== ( $publication['status'] ?? '' ) ) {
+			$state     = Digitalogic_Pricing_Service::instance()->current_canonical_state();
+			$published = is_wp_error( $state ) ? $state : Digitalogic_Pricing_Service::instance()->publish_internal_settings_effect(
+				(array) ( $publication['payload'] ?? array() ),
+				$state_revision !== ( $state['state_revision'] ?? '' ),
+				(string) ( $state['state_revision'] ?? '' )
+			);
+			$stored    = $this->with_job_lock(
+				function () use ( $job, $published ) {
+
+					$current = $this->raw_job();
+					if ( ! $this->same_generation( $current, $job ) || (int) $current['fence'] !== (int) $job['fence']
+					|| ( $current['effect_state_revision'] ?? '' ) !== $job['effect_state_revision'] ) {
+						return null;
+					}
+					$expected = $current;
+					$effect   = (array) ( $current['effect_publication'] ?? array() );
+					if ( is_wp_error( $published ) ) {
+						$retry = 0;
+						return $this->record_publication_failure_open_lock( $current, $expected, $effect, $published, $retry );
+					}
+					$effect['status']              = 'published';
+					$effect['published_at']        = time();
+					$effect['next_attempt_at']     = 0;
+					$effect['last_error']          = '';
+					$current['effect_publication'] = $effect;
+					return $this->store_job_open_lock( $current, $expected );
+				}
+			);
+			if ( true !== $stored || is_wp_error( $published ) ) {
+				$this->recover_committed_publication();
+				return false;
+			}
+			// Wake the existing reverse event transport even while Go prices remain pending.
+			try {
+				Digitalogic_Pricing_Snapshot::instance()->run_state_revision_event_delivery();
+			} catch ( Throwable $exception ) {
+				unset( $exception );
+			}
+		}
+		$revision = $this->go_delivery_revision( $job );
+		$sources  = (array) ( $publication['payload']['repricing']['source_state_before']['sources'] ?? array() );
+		$receipts = array();
+		$complete = ! empty( $sources );
+		foreach ( $sources as $entry ) {
+			$source  = (array) ( $entry['source'] ?? array() );
+			$receipt = Digitalogic_Product_Sync_Receiver::instance()->get_delivery_receipt( (string) ( $source['id'] ?? '' ), (string) ( $source['dataset'] ?? '' ) );
+			if ( ! is_array( $receipt ) || ! $this->complete_go_receipt( $receipt, $revision ) ) {
+				$complete = false;
+			}
+			if ( is_array( $receipt ) && $revision === ( $receipt['owner_catalog_revision'] ?? '' ) ) {
+				$receipts[ hash( 'sha256', $source['id'] . "\0" . $source['dataset'] ) ] = $receipt;
+			}
+		}
+		$stored = $this->with_job_lock(
+			function () use ( $job, $complete, $receipts ) {
+
+				$current = $this->raw_job();
+				if ( ! $this->same_generation( $current, $job ) || (int) $current['fence'] !== (int) $job['fence']
+				|| ( $current['effect_state_revision'] ?? '' ) !== $job['effect_state_revision'] ) {
+					return null;
+				}
+				$expected = $current;
+				$current['effect_publication']['go_delivery_complete'] = $complete;
+				$current['effect_publication']['go_receipts']          = $receipts;
+				$current['updated_at']                                 = time();
+				return $this->store_job_open_lock( $current, $expected );
+			}
+		);
+		return true === $stored && $complete;
+	}
+
 	/**
 	 * Persist one bounded post-commit publication failure without re-actuating pricing.
 	 *
@@ -1153,7 +1306,9 @@ final class Digitalogic_Currency_Admin_Async {
 				self::MAX_PUBLICATION_ATTEMPTS
 			);
 		}
-
+		if ( $this->go_delivery_revision( $job ) ) {
+			$job['message_fa'] = 'ورودی نرخ ثبت شد؛ انتشار رویداد مالک کامل نشده و تأیید قیمت‌های Go همچنان معلق است.';
+		}
 		$stored = $this->store_job_open_lock( $job, $expected );
 		if ( is_wp_error( $stored ) ) {
 			return $stored;
@@ -1311,7 +1466,7 @@ final class Digitalogic_Currency_Admin_Async {
 		if ( ! is_wp_error( $result ) ) {
 			return false;
 		}
-		if ( in_array( $result->get_error_code(), array( 'digitalogic_product_sync_busy', 'digitalogic_excel_sync_busy' ), true ) ) {
+		if ( in_array( $result->get_error_code(), array( 'digitalogic_product_sync_busy', 'digitalogic_pricing_sync_busy' ), true ) ) {
 			return true;
 		}
 		if ( 'digitalogic_pricing_delivery_incomplete' !== $result->get_error_code() ) {
@@ -1339,7 +1494,7 @@ final class Digitalogic_Currency_Admin_Async {
 		if (
 			'running' !== (string) ( $job['status'] ?? '' )
 			|| (int) ( $job['lease_until'] ?? 0 ) > (int) $now
-			|| ! Digitalogic_Excel_Pricing_Sync::coordination_lock_is_held()
+			|| ! Digitalogic_Pricing_Service::coordination_lock_is_held()
 		) {
 			return false;
 		}
@@ -1416,7 +1571,7 @@ final class Digitalogic_Currency_Admin_Async {
 				$job['status']     = 'failed';
 				$job['error_code'] = 'digitalogic_currency_async_observed_deadline_exceeded';
 				$job['message_fa'] = 'مهلت کار قیمت پایان یافته و صفحه آزاد است؛ وضعیت worker را بررسی و سپس دوباره تلاش کنید.';
-			} elseif ( ! in_array( $projected, array( 'queued', 'running', 'cancelling', 'publishing', 'publication_failed' ), true ) ) {
+			} elseif ( ! in_array( $projected, array( 'queued', 'running', 'cancelling', 'publishing', 'awaiting_delivery', 'publication_failed' ), true ) ) {
 				$job = array();
 			}
 		}
@@ -1718,6 +1873,9 @@ final class Digitalogic_Currency_Admin_Async {
 								$failures,
 								self::MAX_DISPATCH_ATTEMPTS
 							);
+						if ( $this->go_delivery_revision( $job ) ) {
+							$job['message_fa'] = 'ورودی نرخ ثبت شد؛ زمان‌بندی انتشار رویداد مالک کامل نشده و تأیید قیمت‌های Go همچنان معلق است.';
+						}
 						if ( $terminal ) {
 							$job['status']          = 'publication_failed';
 							$job['completed_at']    = $now;
@@ -2687,8 +2845,10 @@ final class Digitalogic_Currency_Admin_Async {
 	 * @return array
 	 */
 	private function public_job( array $job ) {
+
 		$status      = (string) ( $job['status'] ?? 'idle' );
 		$publication = is_array( $job['effect_publication'] ?? null ) ? $job['effect_publication'] : array();
+		$go_revision = $this->go_delivery_revision( $job );
 		if (
 			'publication_failed' === $status
 			|| 'failed' === (string) ( $publication['status'] ?? '' )
@@ -2698,61 +2858,65 @@ final class Digitalogic_Currency_Admin_Async {
 			'confirmed' !== $status
 			&& 1 === preg_match( '/\Asha256:[a-f0-9]{64}\z/D', (string) ( $job['effect_state_revision'] ?? '' ) )
 		) {
-			$status = 'publishing';
+			$status = $go_revision ? 'awaiting_delivery' : 'publishing';
 		} elseif ( ! empty( $job['cancel_requested'] ) && 'running' === $status ) {
 			$status = 'cancelling';
 		}
-		$progress = array(
-			'idle'               => 0,
-			'queued'             => 10,
-			'running'            => 45,
-			'cancelling'         => 60,
-			'publishing'         => 90,
-			'awaiting_excel'     => 90,
-			'confirmed'          => 100,
-			'failed'             => 100,
-			'cancelled'          => 100,
-			'publication_failed' => 100,
-			'superseded'         => 100,
-		);
+			$progress = array(
+				'idle'               => 0,
+				'queued'             => 10,
+				'running'            => 45,
+				'cancelling'         => 60,
+				'publishing'         => 90,
+				'awaiting_excel'     => 90,
+				'confirmed'          => 100,
+				'failed'             => 100,
+				'cancelled'          => 100,
+				'publication_failed' => 100,
+				'superseded'         => 100,
+			);
 
-		return array(
-			'job_id'                       => (string) ( $job['job_id'] ?? '' ),
-			'generation'                   => (int) ( $job['generation'] ?? 0 ),
-			'mode'                         => (string) ( $job['mode'] ?? 'apply' ),
-			'execution_mode'               => (string) ( $job['execution_mode'] ?? 'async' ),
-			'status'                       => $status,
-			'desired_currency'             => (array) ( $job['desired_currency'] ?? array() ),
-			'confirmed_currency'           => (array) ( $job['confirmed_currency'] ?? array() ),
-			'created_at'                   => (int) ( $job['created_at'] ?? 0 ),
-			'updated_at'                   => (int) ( $job['updated_at'] ?? 0 ),
-			'deadline_at'                  => (int) ( $job['deadline_at'] ?? 0 ),
-			'completed_at'                 => (int) ( $job['completed_at'] ?? 0 ),
-			'next_attempt_at'              => (int) ( $job['next_attempt_at'] ?? 0 ),
-			'transaction_id'               => (string) ( $job['transaction_id'] ?? '' ),
-			'error_code'                   => (string) ( $job['error_code'] ?? '' ),
-			'message_fa'                   => 'publishing' === $status
-				? 'قیمت ثبت شده است؛ انتشار وضعیت نهایی در حال تکمیل است.'
-				: (string) ( $job['message_fa'] ?? 'آماده' ),
-			'dispatch_attempts'            => (int) ( $job['dispatch_attempts'] ?? 0 ),
-			'apply_attempts'               => (int) ( $job['apply_attempts'] ?? 0 ),
-			'publication_attempts'         => (int) ( $publication['attempts'] ?? 0 ),
-			'publication_max_attempts'     => self::MAX_PUBLICATION_ATTEMPTS,
-			'publication_last_error'       => (string) ( $publication['last_error'] ?? '' ),
-			'fence'                        => (int) ( $job['fence'] ?? 0 ),
-			'lease_until'                  => (int) ( $job['lease_until'] ?? 0 ),
-			'committed_state_revision'     => (string) ( $job['effect_state_revision'] ?? $job['committed_state_revision'] ?? '' ),
-			'expected_state_revision'      => (string) ( $job['expected_state_revision'] ?? '' ),
-			'superseded_by_state_revision' => (string) ( $job['superseded_by_state_revision'] ?? '' ),
-			'progress'                     => (int) ( $progress[ $status ] ?? 0 ),
-			'blocking'                     => false,
-			'operator_action_required'     => 'publication_failed' === $status,
-			'request_id'                   => (string) ( $job['primary_request_id'] ?? '' ),
-			'cancel_requested'             => ! empty( $job['cancel_requested'] ),
-			'cancel_requested_at'          => (int) ( $job['cancel_requested_at'] ?? 0 ),
-			'cancellable'                  => in_array( $status, array( 'queued', 'running', 'cancelling' ), true )
-				&& 1 !== preg_match( '/\Asha256:[a-f0-9]{64}\z/D', (string) ( $job['effect_state_revision'] ?? '' ) ),
-		);
+			return array(
+				'job_id'                          => (string) ( $job['job_id'] ?? '' ),
+				'generation'                      => (int) ( $job['generation'] ?? 0 ),
+				'mode'                            => (string) ( $job['mode'] ?? 'apply' ),
+				'execution_mode'                  => (string) ( $job['execution_mode'] ?? 'async' ),
+				'status'                          => $status,
+				'desired_currency'                => (array) ( $job['desired_currency'] ?? array() ),
+				'confirmed_currency'              => (array) ( $job['confirmed_currency'] ?? array() ),
+				'created_at'                      => (int) ( $job['created_at'] ?? 0 ),
+				'updated_at'                      => (int) ( $job['updated_at'] ?? 0 ),
+				'deadline_at'                     => (int) ( $job['deadline_at'] ?? 0 ),
+				'completed_at'                    => (int) ( $job['completed_at'] ?? 0 ),
+				'next_attempt_at'                 => (int) ( $job['next_attempt_at'] ?? 0 ),
+				'transaction_id'                  => (string) ( $job['transaction_id'] ?? '' ),
+				'error_code'                      => (string) ( $job['error_code'] ?? '' ),
+				'message_fa'                      => 'awaiting_delivery' === $status
+				? 'ورودی نرخ ثبت شد؛ منتظر رسید کامل قیمت‌های Go هستیم.'
+				: ( 'publishing' === $status ? 'قیمت ثبت شده است؛ انتشار وضعیت نهایی در حال تکمیل است.' : (string) ( $job['message_fa'] ?? 'آماده' ) ),
+				'dispatch_attempts'               => (int) ( $job['dispatch_attempts'] ?? 0 ),
+				'apply_attempts'                  => (int) ( $job['apply_attempts'] ?? 0 ),
+				'publication_attempts'            => (int) ( $publication['attempts'] ?? 0 ),
+				'publication_max_attempts'        => self::MAX_PUBLICATION_ATTEMPTS,
+				'publication_last_error'          => (string) ( $publication['last_error'] ?? '' ),
+				'fence'                           => (int) ( $job['fence'] ?? 0 ),
+				'lease_until'                     => (int) ( $job['lease_until'] ?? 0 ),
+				'committed_state_revision'        => (string) ( $job['effect_state_revision'] ?? $job['committed_state_revision'] ?? '' ),
+				'expected_state_revision'         => (string) ( $job['expected_state_revision'] ?? '' ),
+				'superseded_by_state_revision'    => (string) ( $job['superseded_by_state_revision'] ?? '' ),
+				'progress'                        => 'awaiting_delivery' === $status ? null : (int) ( $progress[ $status ] ?? 0 ),
+				'delivery_owner_catalog_revision' => $go_revision,
+				'delivery_phase'                  => ! $go_revision ? '' : ( 'confirmed' === $status ? 'complete' : ( 'published' === ( $publication['status'] ?? '' ) ? 'awaiting_receipt' : 'publishing_owner_change' ) ),
+				'delivery_receipts'               => (array) ( $publication['go_receipts'] ?? array() ),
+				'delivery_sources_total'          => $go_revision ? count( (array) ( $publication['payload']['repricing']['source_state_before']['sources'] ?? array() ) ) : 0,
+				'blocking'                        => false,
+				'operator_action_required'        => 'publication_failed' === $status,
+				'request_id'                      => (string) ( $job['primary_request_id'] ?? '' ),
+				'cancel_requested'                => ! empty( $job['cancel_requested'] ),
+				'cancel_requested_at'             => (int) ( $job['cancel_requested_at'] ?? 0 ),
+				'cancellable'                     => in_array( $status, array( 'queued', 'running', 'cancelling' ), true )
+					&& 1 !== preg_match( '/\Asha256:[a-f0-9]{64}\z/D', (string) ( $job['effect_state_revision'] ?? '' ) ),
+			);
 	}
 
 	/**
@@ -3031,7 +3195,7 @@ final class Digitalogic_Currency_Admin_Async {
 		$submitted_compact = 1 === preg_match( '/\A[0-9]{8}\z/D', $submitted_raw )
 			? $submitted_raw
 			: ( null === $submitted ? '' : $submitted->format( 'Ymd' ) );
-		$state             = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
+		$state             = Digitalogic_Pricing_Service::instance()->current_canonical_state();
 		if ( null === $stored || '' === $submitted_compact || is_wp_error( $state ) ) {
 			return $value;
 		}
@@ -3102,7 +3266,7 @@ final class Digitalogic_Currency_Admin_Async {
 		// authoritative state observed in this request; real ACF form posts must
 		// carry the server-rendered token or fail safely.
 		if ( ! isset( $_POST['acf'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Missing -- Presence distinguishes a form from an internal API call.
-			$state = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
+			$state = Digitalogic_Pricing_Service::instance()->current_canonical_state();
 
 			return is_wp_error( $state ) ? '' : (string) $state['state_revision'];
 		}

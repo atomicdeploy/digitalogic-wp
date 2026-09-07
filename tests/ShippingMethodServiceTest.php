@@ -46,6 +46,7 @@ final class ShippingMethodServiceTest extends TestCase {
         $this->assertSame(
             array(
                 'formula_id'      => 'landed_price',
+                'authority'       => 'php',
                 'rounding_digits' => 0,
                 'rounding_mode'   => 'nearest_half_up',
             ),
@@ -60,6 +61,24 @@ final class ShippingMethodServiceTest extends TestCase {
         $this->assertStringNotContainsString('null', json_encode($catalog));
         $this->assertArrayNotHasKey(Digitalogic_Shipping_Method_Service::METHODS_OPTION, $GLOBALS['digitalogic_test_options']);
     }
+
+	public function test_authority_is_part_of_owner_catalog_revision(): void {
+		$before = $this->service->get_integration_catalog();
+		$GLOBALS['digitalogic_test_options'][ Digitalogic_Pricing_Coordinator::AUTHORITY_OPTION ] = 'go';
+		$after = $this->service->get_integration_catalog();
+		$this->assertSame( 'go', $after['pricing']['authority'] );
+		$this->assertNotSame( $before['revision'], $after['revision'] );
+		$GLOBALS['digitalogic_test_options'][ Digitalogic_Pricing_Coordinator::AUTHORITY_OPTION ] = 'invalid';
+		$this->assertInstanceOf( WP_Error::class, $this->service->get_integration_catalog() );
+	}
+
+	public function test_go_selection_requires_a_source_before_pending_owner_commit(): void {
+		$GLOBALS['digitalogic_test_options'][ Digitalogic_Pricing_Coordinator::AUTHORITY_OPTION ] = 'go';
+		$result = Digitalogic_Pricing_Coordinator::instance()->reprice_open_transaction( array() );
+		$this->assertInstanceOf( WP_Error::class, $result );
+		$this->assertSame( 'digitalogic_pricing_source_state_required', $result->get_error_code() );
+		$this->assertSame( array(), $GLOBALS['digitalogic_test_posts'] );
+	}
 
 	public function test_rounding_digits_are_configurable_exact_and_part_of_catalog_identity(): void {
 		$default = $this->service->get_price_rounding_policy();
@@ -102,7 +121,7 @@ final class ShippingMethodServiceTest extends TestCase {
 			'post_status' => 'publish',
 			'meta'        => array( '_digitalogic_patris_product_code' => 'DOMESTIC-509' ),
 		);
-		$assigned = $this->service->assign_product_by_code( 'DOMESTIC-509', 'domestic' );
+		$assigned                               = $this->service->assign_product_by_code( 'DOMESTIC-509', 'domestic' );
 
 		$this->assertNotInstanceOf( WP_Error::class, $assigned );
 		$this->assertSame( 'domestic', $assigned['shipping_method_id'] );
@@ -181,11 +200,12 @@ final class ShippingMethodServiceTest extends TestCase {
         );
         $assignment = $batch['results'][0]['assignment'];
         $this->assertSame(
-            array('code', 'profit_percent_source', 'pricing_warnings', 'shipping_method_id'),
+            array('code', 'woocommerce_id', 'profit_percent_source', 'pricing_warnings', 'shipping_method_id'),
             array_keys($assignment)
         );
         $this->assertSame($batch['results'][0]['code'], $assignment['code']);
         $this->assertSame('CODE-501', $assignment['code']);
+        $this->assertSame(501, $assignment['woocommerce_id']);
         $this->assertSame('air_express', $assignment['shipping_method_id']);
         $this->assertArrayNotHasKey('profit_percent', $assignment);
         $this->assertStringNotContainsString('null', json_encode($batch));
@@ -223,9 +243,10 @@ final class ShippingMethodServiceTest extends TestCase {
 			$this->assertSame( 'ok', $result['status'] );
 			$this->assertSame( $result['code'], $result['assignment']['code'] );
 			$this->assertSame(
-				array( 'code', 'profit_percent_source', 'pricing_warnings', 'shipping_method_id' ),
+				array( 'code', 'woocommerce_id', 'profit_percent_source', 'pricing_warnings', 'shipping_method_id' ),
 				array_keys( $result['assignment'] )
 			);
+			$this->assertSame( 'EXACT-504' === $result['code'] ? 504 : 503, $result['assignment']['woocommerce_id'] );
 		}
 
 		$this->assertSame( 'error', $batch['results'][2]['status'] );

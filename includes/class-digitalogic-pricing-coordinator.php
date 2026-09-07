@@ -13,6 +13,47 @@ if ( ! defined( 'ABSPATH' ) ) {
  * Routes every supported price input through the exact Patris repricer.
  */
 final class Digitalogic_Pricing_Coordinator {
+	public const WRITE_MODE_OPTION = 'digitalogic_pricing_write_mode';
+	public const AUTHORITY_OPTION  = 'digitalogic_pricing_authority';
+
+	/** Return the sole final calculator selected for this deployment. */
+	public function pricing_authority() {
+		$authority = get_option( self::AUTHORITY_OPTION, 'php' );
+		if ( ! in_array( $authority, array( 'php', 'go' ), true ) ) {
+			return $this->error( 'digitalogic_pricing_authority_invalid', 'Pricing authority must be php or go.', 400 );
+		}
+		return $authority;
+	}
+
+	/** Return the deployment's explicit price persistence strategy. */
+	public function write_mode() {
+		$mode = get_option( self::WRITE_MODE_OPTION, 'direct_db' );
+		if ( ! in_array( $mode, array( 'direct_db', 'adapter' ), true ) ) {
+			return $this->error( 'digitalogic_pricing_write_mode_invalid', 'Pricing write mode must be direct_db or adapter.', 400 );
+		}
+		return $mode;
+	}
+
+	/**
+	 * Change the strategy between operations, under the existing pricing lock.
+	 *
+	 * @param string $mode Requested persistence strategy.
+	 * @return string|WP_Error
+	 */
+	public function set_write_mode( $mode ) {
+		if ( ! in_array( $mode, array( 'direct_db', 'adapter' ), true ) ) {
+			return $this->error( 'digitalogic_pricing_write_mode_invalid', 'Pricing write mode must be direct_db or adapter.', 400 );
+		}
+		return $this->with_repricing_lock(
+			function () use ( $mode ) {
+				update_option( self::WRITE_MODE_OPTION, $mode, false );
+				if ( get_option( self::WRITE_MODE_OPTION ) !== $mode ) {
+					return $this->error( 'digitalogic_pricing_write_mode_save_failed', 'Pricing write mode readback failed.', 500 );
+				}
+				return $mode;
+			}
+		);
+	}
 
 	/**
 	 * Shared service.
@@ -109,7 +150,7 @@ final class Digitalogic_Pricing_Coordinator {
 			);
 		}
 
-		$settings = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_settings();
+		$settings = Digitalogic_Pricing_Service::instance()->current_canonical_settings();
 		if ( is_wp_error( $settings ) ) {
 			return $settings;
 		}
@@ -170,7 +211,7 @@ final class Digitalogic_Pricing_Coordinator {
 			}
 		}
 
-		return Digitalogic_Excel_Pricing_Sync::instance()->apply_internal_settings(
+		return Digitalogic_Pricing_Service::instance()->apply_internal_settings(
 			$settings,
 			$this->source_label( $source ),
 			$expected_revision,
@@ -187,14 +228,14 @@ final class Digitalogic_Pricing_Coordinator {
 	 * @return array|WP_Error
 	 */
 	public function update_air_express_shipping( $price_per_kg, $currency, $source = 'wp' ) {
-		$settings = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_settings();
+		$settings = Digitalogic_Pricing_Service::instance()->current_canonical_settings();
 		if ( is_wp_error( $settings ) ) {
 			return $settings;
 		}
 		$settings['air_express_price_per_kg'] = $price_per_kg;
 		$settings['air_express_currency']     = $currency;
 
-		return Digitalogic_Excel_Pricing_Sync::instance()->apply_internal_settings(
+		return Digitalogic_Pricing_Service::instance()->apply_internal_settings(
 			$settings,
 			$this->source_label( $source )
 		);
@@ -219,13 +260,13 @@ final class Digitalogic_Pricing_Coordinator {
 			);
 		}
 
-		$settings = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_settings( $value );
+		$settings = Digitalogic_Pricing_Service::instance()->current_canonical_settings( $value );
 		if ( is_wp_error( $settings ) ) {
 			return $settings;
 		}
 		$settings['profit_margin_percent'] = $value;
 
-		return Digitalogic_Excel_Pricing_Sync::instance()->apply_internal_settings(
+		return Digitalogic_Pricing_Service::instance()->apply_internal_settings(
 			$settings,
 			$this->source_label( $source )
 		);
@@ -239,14 +280,14 @@ final class Digitalogic_Pricing_Coordinator {
 	 * @return array|WP_Error
 	 */
 	public function update_price_rounding( $digits, $source = 'wp' ) {
-		$settings = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_settings();
+		$settings = Digitalogic_Pricing_Service::instance()->current_canonical_settings();
 		if ( is_wp_error( $settings ) ) {
 			return $settings;
 		}
 		$settings['price_rounding_digits'] = $digits;
 		$settings['price_rounding_mode']   = Digitalogic_Shipping_Method_Service::ROUNDING_MODE;
 
-		return Digitalogic_Excel_Pricing_Sync::instance()->apply_internal_settings(
+		return Digitalogic_Pricing_Service::instance()->apply_internal_settings(
 			$settings,
 			$this->source_label( $source )
 		);
@@ -274,12 +315,12 @@ final class Digitalogic_Pricing_Coordinator {
 	 * @return array|WP_Error
 	 */
 	public function reconcile_current( $source = 'wp_reconcile', $expected_revision = null, $actuation_guard = null ) {
-		$settings = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_settings();
+		$settings = Digitalogic_Pricing_Service::instance()->current_canonical_settings();
 		if ( is_wp_error( $settings ) ) {
 			return $settings;
 		}
 
-		return Digitalogic_Excel_Pricing_Sync::instance()->apply_internal_settings(
+		return Digitalogic_Pricing_Service::instance()->apply_internal_settings(
 			$settings,
 			$this->source_label( $source ),
 			$expected_revision,
@@ -295,6 +336,32 @@ final class Digitalogic_Pricing_Coordinator {
 	 * @return array|WP_Error
 	 */
 	public function reprice_open_transaction( $settings, $previous_catalog_revision = null ) {
+		$authority = $this->pricing_authority();
+		if ( is_wp_error( $authority ) ) {
+			return $authority;
+		}
+		if ( 'go' === $authority ) {
+			$sources = Digitalogic_Product_Sync_Receiver::instance()->get_source_identities();
+			if ( empty( $sources['sources'] ) ) {
+				return $this->error( 'digitalogic_pricing_source_state_required', 'A current product source is required before changing owner pricing inputs.', 409 );
+			}
+			$affected = Digitalogic_Product_Sync_Receiver::instance()->get_owner_dependent_source_identities();
+			if ( is_wp_error( $affected ) ) {
+				return $affected;
+			}
+			$catalog = Digitalogic_Shipping_Method_Service::instance()->get_integration_catalog();
+			if ( is_wp_error( $catalog ) ) {
+				return $catalog;
+			}
+			return array(
+				'authority'              => 'go',
+				'status'                 => empty( $affected['sources'] ) ? 'no_repricing_required' : 'awaiting_delivery',
+				'owner_catalog_revision' => $catalog['revision'],
+				'updated_products'       => 0,
+				'source_state_before'    => $affected,
+				'source_state_after'     => $affected,
+			);
+		}
 		return Digitalogic_Product_Sync_Receiver::instance()->reprice_pricing_state(
 			$this->receiver_settings( $settings ),
 			array(),
@@ -488,7 +555,7 @@ final class Digitalogic_Pricing_Coordinator {
 			return $old_value;
 		}
 
-		$settings = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_settings();
+		$settings = Digitalogic_Pricing_Service::instance()->current_canonical_settings();
 		if ( is_wp_error( $settings ) ) {
 			$this->publish_legacy_write_failure( $option, $settings->get_error_code() );
 
@@ -532,7 +599,7 @@ final class Digitalogic_Pricing_Coordinator {
 			return $old_value;
 		}
 
-		$settings = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_settings();
+		$settings = Digitalogic_Pricing_Service::instance()->current_canonical_settings();
 		if ( is_wp_error( $settings ) ) {
 			$this->publish_legacy_write_failure( $option, $settings->get_error_code() );
 
