@@ -5057,16 +5057,10 @@ final class PricingCoordinatorTest extends TestCase {
 	 * @return void
 	 */
 	private function seed_snapshot( $include_missing = false ) {
-		$authority_option = Digitalogic_Pricing_Coordinator::AUTHORITY_OPTION;
-		$had_authority = array_key_exists( $authority_option, $GLOBALS['digitalogic_test_options'] );
-		$previous_authority = $GLOBALS['digitalogic_test_options'][ $authority_option ] ?? null;
-		try {
 		$products = array( $this->priced_product( 'PRICE-901' ) );
 		if ( $include_missing ) {
 			$products[] = $this->priced_product( 'MISSING-902' );
 		}
-		$GLOBALS['digitalogic_test_options'][ $authority_option ] = 'go';
-		unset( $GLOBALS['digitalogic_test_option_cache'][ $authority_option ] );
 		$result = Digitalogic_Product_Sync_Receiver::instance()->receive(
 			$this->snapshot(
 				$products,
@@ -5078,14 +5072,6 @@ final class PricingCoordinatorTest extends TestCase {
 			is_wp_error( $result ) ? $result->get_error_code() . ': ' . $result->get_error_message() : ''
 		);
 		$GLOBALS['digitalogic_test_wc_products'] = array();
-		} finally {
-			if ( $had_authority ) {
-				$GLOBALS['digitalogic_test_options'][ $authority_option ] = $previous_authority;
-			} else {
-				unset( $GLOBALS['digitalogic_test_options'][ $authority_option ] );
-			}
-			unset( $GLOBALS['digitalogic_test_option_cache'][ $authority_option ] );
-		}
 	}
 
 	/**

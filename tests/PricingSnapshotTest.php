@@ -170,9 +170,9 @@ final class PricingSnapshotTest extends TestCase {
 	}
 
 	public function test_revision_discovers_final_projection_from_exact_input_baseline(): void {
-		$input = $this->source;
+		$input             = $this->source;
 		$input['revision'] = 'sha256:' . str_repeat( 'b', 64 );
-		$key = hash( 'sha256', $input['id'] . "\n" . $input['dataset'] );
+		$key               = hash( 'sha256', $input['id'] . "\n" . $input['dataset'] );
 		$GLOBALS['digitalogic_test_options'][ Digitalogic_Product_Sync_Receiver::STATE_OPTION ]['sources'][ $key ]['input_source'] = $input;
 		$GLOBALS['digitalogic_test_option_cache'] = array();
 		$this->reset_singleton( Digitalogic_Product_Sync_Receiver::class );
@@ -1269,7 +1269,10 @@ final class PricingSnapshotTest extends TestCase {
 		$this->assertSame( 0, $payload['reconciliation']['counts']['ambiguous_codes'] );
 		$this->assertCount( 46, $payload['catalog']['columns'] );
 		$this->assertSame( $this->excel_v1_keys(), array_column( $payload['catalog']['columns'], 'key' ) );
-		$this->assertSame( $this->excel_v1_keys(), array_keys( $payload['catalog']['rows'][0] ) );
+		$this->assertSame( array_merge( $this->excel_v1_keys(), array( 'canonical_product' ) ), array_keys( $payload['catalog']['rows'][0] ) );
+		$first_row    = $payload['catalog']['rows'][0];
+		$source_state = Digitalogic_Product_Sync_Receiver::instance()->get_source_state( $this->source['id'], $this->source['dataset'] );
+		$this->assertSame( $source_state['products'][ $first_row['patris_code'] ], $first_row['canonical_product'] );
 		$this->assertCount( 251, $payload['catalog']['rows'] );
 
 		$page_one = $this->page_response( $token, 1 );

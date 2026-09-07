@@ -9,6 +9,92 @@ use PHPUnit\Framework\TestCase;
 
 /** Exercise authority selection through real receiver and coordinator methods. */
 final class SelectedPricingAuthorityTest extends TestCase {
+	/** Direct callers cannot bypass the selected authority through the receiver. */
+	public function test_receiver_local_reprice_cannot_bypass_go_authority(): void {
+		$GLOBALS['digitalogic_test_options'][ Digitalogic_Pricing_Coordinator::AUTHORITY_OPTION ] = 'go';
+		$settings = Digitalogic_Pricing_Service::instance()->current_canonical_settings();
+		$settings = array_intersect_key( $settings, array_flip( array( 'dollar_price', 'yuan_price', 'effective_date', 'profit_margin_percent', 'price_rounding_digits', 'price_rounding_mode' ) ) );
+		$result   = Digitalogic_Product_Sync_Receiver::instance()->reprice_pricing_state( $settings );
+		$this->assertInstanceOf( WP_Error::class, $result );
+		$this->assertSame( 'digitalogic_pricing_go_dispatch_required', $result->get_error_code() );
+		$this->assertSame( array(), $GLOBALS['digitalogic_test_wc_product_saves'] );
+	}
+
+	/** A selected Go calculator must use the site's current owner inputs. */
+	public function test_go_authority_rejects_stale_owner_catalog_before_any_write(): void {
+		$GLOBALS['digitalogic_test_options'][ Digitalogic_Pricing_Coordinator::AUTHORITY_OPTION ] = 'go';
+		$product = $this->priced_product( 'PRICE-901' );
+		$this->set_owner_rate( '31000' );
+		$result = Digitalogic_Product_Sync_Receiver::instance()->receive( $this->snapshot( array( $product ), '2026-07-21T00:00:00Z' ) );
+		$this->assertInstanceOf( WP_Error::class, $result );
+		$this->assertSame( 'digitalogic_pricing_owner_catalog_changed', $result->get_error_code() );
+		$this->assertSame( array(), $GLOBALS['digitalogic_test_wc_product_saves'] );
+		$this->assertSame( '1', (string) $GLOBALS['digitalogic_test_posts'][901]['meta']['_regular_price'] );
+	}
+
+	/** Matching owner inputs permit Go's verified result without PHP repricing. */
+	public function test_go_authority_accepts_current_owner_catalog(): void {
+		$GLOBALS['digitalogic_test_options'][ Digitalogic_Pricing_Coordinator::AUTHORITY_OPTION ] = 'go';
+		$product = $this->priced_product( 'PRICE-901' );
+		$result  = Digitalogic_Product_Sync_Receiver::instance()->receive( $this->snapshot( array( $product ), '2026-07-21T00:00:00Z' ) );
+		$this->assert_success( $result );
+		$this->assertSame( '8437000', (string) $GLOBALS['digitalogic_test_posts'][901]['meta']['_regular_price'] );
+	}
+
+	/** An old accepted event cannot replay after the owner inputs change. */
+	public function test_go_replay_is_fenced_by_current_owner_catalog(): void {
+		$GLOBALS['digitalogic_test_options'][ Digitalogic_Pricing_Coordinator::AUTHORITY_OPTION ] = 'go';
+		$product  = $this->priced_product( 'PRICE-901' );
+		$payload  = $this->snapshot( array( $product ), '2026-07-21T00:00:00Z' );
+		$receiver = Digitalogic_Product_Sync_Receiver::instance();
+		$this->assert_success( $receiver->receive( $payload ) );
+		$this->set_owner_rate( '31000' );
+		$GLOBALS['digitalogic_test_wc_product_saves'] = array();
+		$result                                       = $receiver->receive( $payload );
+		$this->assertInstanceOf( WP_Error::class, $result );
+		$this->assertSame( 'digitalogic_pricing_owner_catalog_changed', $result->get_error_code() );
+		$this->assertSame( array(), $GLOBALS['digitalogic_test_wc_product_saves'] );
+	}
+
+	/** Owner reads stay constant for one bounded batch as its row count grows. */
+	public function test_owner_projection_batches_identity_and_assignment_reads(): void {
+		$prototype = $this->priced_product( 'PRICE-901' );
+		$this->set_owner_rate( '31000' );
+		$project = new ReflectionMethod( Digitalogic_Product_Sync_Receiver::class, 'project_authority_products' );
+		$counts  = array();
+		foreach ( array( 4, 8 ) as $count ) {
+			$products = array();
+			for ( $offset = 0; $offset < $count; ++$offset ) {
+				$id                                       = 901 + $offset;
+				$code                                     = 'PRICE-' . $id;
+				$GLOBALS['digitalogic_test_posts'][ $id ] = $GLOBALS['digitalogic_test_posts'][901];
+				$GLOBALS['digitalogic_test_posts'][ $id ]['meta']['_sku']                             = $code;
+				$GLOBALS['digitalogic_test_posts'][ $id ]['meta']['_digitalogic_patris_product_code'] = $code;
+				$product                 = $prototype;
+				$product['product_code'] = $code;
+				// Exercise raw-source bootstrap too: it must reuse the batch assignment.
+				unset( $product['price_source_amount'], $product['price_source_currency'], $product['price_source_kind'], $product['final_price'], $product['record_hash'] );
+				$product['record_hash'] = $this->record_hash( $product );
+				$products[ $code ]      = $product;
+			}
+			Digitalogic_Product_Identifier_Resolver::instance()->clear_code_rows_cache();
+			$GLOBALS['wpdb']->identifier_query_count = 0;
+			$GLOBALS['wpdb']->option_read_counts     = array();
+			$result                                  = $project->invoke( Digitalogic_Product_Sync_Receiver::instance(), $products, array( 'formula_id' => 'landed_price' ), 'php' );
+			$this->assert_success( $result );
+			$this->assertCount( $count, $result );
+			foreach ( $result as $product ) {
+				$this->assertSame( '8866000', (string) $product['final_price'] );
+			}
+			$this->assertLessThanOrEqual( 2, $GLOBALS['wpdb']->identifier_query_count );
+			$counts[] = array(
+				'identities' => $GLOBALS['wpdb']->identifier_query_count,
+				'margin'     => $GLOBALS['wpdb']->option_read_counts[ Digitalogic_Shipping_Method_Service::DEFAULT_MARKUP_OPTION ] ?? 0,
+				'catalog'    => $GLOBALS['wpdb']->option_read_counts[ Digitalogic_Shipping_Method_Service::METHODS_OPTION ] ?? 0,
+			);
+		}
+		$this->assertSame( $counts[0], $counts[1], 'Doubling one batch must not double owner catalog/default reads.' );
+	}
 	/** Only the owner-derived amount ever reaches the first Woo save. */
 	public function test_unpriced_envelope_cannot_bypass_php_authority_with_a_final_price(): void {
 		$product                = array(

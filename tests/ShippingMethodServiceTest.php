@@ -200,11 +200,12 @@ final class ShippingMethodServiceTest extends TestCase {
         );
         $assignment = $batch['results'][0]['assignment'];
         $this->assertSame(
-            array('code', 'profit_percent_source', 'pricing_warnings', 'shipping_method_id'),
+            array('code', 'woocommerce_id', 'profit_percent_source', 'pricing_warnings', 'shipping_method_id'),
             array_keys($assignment)
         );
         $this->assertSame($batch['results'][0]['code'], $assignment['code']);
         $this->assertSame('CODE-501', $assignment['code']);
+        $this->assertSame(501, $assignment['woocommerce_id']);
         $this->assertSame('air_express', $assignment['shipping_method_id']);
         $this->assertArrayNotHasKey('profit_percent', $assignment);
         $this->assertStringNotContainsString('null', json_encode($batch));
@@ -242,9 +243,10 @@ final class ShippingMethodServiceTest extends TestCase {
 			$this->assertSame( 'ok', $result['status'] );
 			$this->assertSame( $result['code'], $result['assignment']['code'] );
 			$this->assertSame(
-				array( 'code', 'profit_percent_source', 'pricing_warnings', 'shipping_method_id' ),
+				array( 'code', 'woocommerce_id', 'profit_percent_source', 'pricing_warnings', 'shipping_method_id' ),
 				array_keys( $result['assignment'] )
 			);
+			$this->assertSame( 'EXACT-504' === $result['code'] ? 504 : 503, $result['assignment']['woocommerce_id'] );
 		}
 
 		$this->assertSame( 'error', $batch['results'][2]['status'] );

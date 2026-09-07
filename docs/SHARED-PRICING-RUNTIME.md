@@ -63,6 +63,23 @@ with it. Subsequent snapshot build/page checks remain pinned to the discovered
 final source. Discovery holds the receiver lock and its ETag includes the input
 baseline, even when that input change leaves final prices unchanged.
 
+Snapshot rows include `canonical_product` for source-owned products, preserving
+the exact stored decimal values and record identity. Consumers verify the
+existing page digest and final source before publishing these final products.
+Report-only WooCommerce rows do not imply an upstream product record.
+
+Go-selected delivery checks each owner-dependent product's
+`pricing_catalog_revision` against the current site owner catalog before writes,
+including replay and pending-delivery paths. An obsolete revision returns
+`digitalogic_pricing_owner_catalog_changed`; refresh owner inputs and recalculate.
+Selecting Go does not transfer ownership of site currency, freight or rounding.
+Standalone Go local catalogs do not authorize writes using unrelated owner
+inputs into this WordPress deployment.
+
+PHP owner projection resolves identities together and loads assignments in
+batches of up to 500. The batch includes `woocommerce_id` so identity agreement
+is checked without a second scalar assignment fetch for every product.
+
 Go-selected local settings writes currently fail closed until post-commit Go
 dispatch is connected. Never dispatch to Go while holding the PHP pricing
 transaction: Go needs to read committed inputs from their owner. Activation of

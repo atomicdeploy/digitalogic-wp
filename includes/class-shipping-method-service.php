@@ -1747,6 +1747,7 @@ final class Digitalogic_Shipping_Method_Service {
 
 		$projection = array(
 			'code'                  => $requested_code,
+			'woocommerce_id'        => (int) $resolved['woocommerce_id'],
 			'profit_percent_source' => null === $markup['source'] ? 'unavailable' : (string) $markup['source'],
 			'pricing_warnings'      => $markup['warning'] ? array( $markup['warning'] ) : array(),
 		);

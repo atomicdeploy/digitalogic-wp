@@ -1600,6 +1600,17 @@ class Digitalogic_Product_Sync_Receiver {
      * @return array|WP_Error
      */
     private function reprice_pricing_state_locked($settings, $profit_overrides, $scope_codes, $previous_catalog_revision) {
+        $authority = Digitalogic_Pricing_Coordinator::instance()->pricing_authority();
+        if (is_wp_error($authority)) {
+            return $authority;
+        }
+        if ('php' !== $authority) {
+            return $this->error(
+                'digitalogic_pricing_go_dispatch_required',
+                'The selected Go authority must calculate prices from committed owner inputs.',
+                409
+            );
+        }
 		Digitalogic_Product_Identifier_Resolver::instance()->clear_code_rows_cache();
         $state = $this->load_state();
         if (empty($state['sources'])) {
@@ -2255,9 +2266,10 @@ class Digitalogic_Product_Sync_Receiver {
 	 * @param string      $product_code              Exact Product Code.
 	 * @param string|null $previous_catalog_revision Catalog identity before this transaction.
 	 * @param array       $resolution_cache          Exact resolver cache, updated by reference.
+	 * @param array|null  $assignment                Optional already-resolved owner assignment.
 	 * @return array|WP_Error
 	 */
-	private function bootstrap_coordinated_price_source( $product, $product_code, $previous_catalog_revision, &$resolution_cache ) {
+	private function bootstrap_coordinated_price_source( $product, $product_code, $previous_catalog_revision, &$resolution_cache, $assignment = null ) {
 		$source_fields = array( 'price_source_amount', 'price_source_currency', 'price_source_kind' );
 		foreach ( $source_fields as $field ) {
 			if (
@@ -2290,8 +2302,10 @@ class Digitalogic_Product_Sync_Receiver {
 
 			return $resolved;
 		}
-		$assignment = Digitalogic_Shipping_Method_Service::instance()
-			->get_product_assignment_by_code( $product_code );
+		if ( null === $assignment ) {
+			$assignment = Digitalogic_Shipping_Method_Service::instance()
+				->get_product_assignment_by_code( $product_code );
+		}
 		if ( is_wp_error( $assignment ) ) {
 			return $assignment;
 		}
@@ -2798,17 +2812,76 @@ class Digitalogic_Product_Sync_Receiver {
      * @return array|WP_Error
      */
     private function project_authority_products($products, $source, $authority) {
-        if ('go' === $authority || empty($products)) {
+        if (empty($products)) {
+            return $products;
+        }
+        if ('go' === $authority) {
+            $catalog = null;
+            foreach ($products as $code => $product) {
+                if (!$this->requires_owner_projection($product, $source)) {
+                    continue;
+                }
+                if (null === $catalog) {
+                    $catalog = Digitalogic_Shipping_Method_Service::instance()->get_integration_catalog();
+                    if (is_wp_error($catalog)) {
+                        return $catalog;
+                    }
+                }
+                // Selecting Go changes the calculator, not ownership of this
+                // site's currency, freight and rounding inputs. Fence replay
+                // and pending deliveries as well as newly received rows.
+                if (!isset($product['pricing_catalog_revision'])
+                    || !hash_equals($catalog['revision'], (string) $product['pricing_catalog_revision'])) {
+                    return $this->error(
+                        'digitalogic_pricing_owner_catalog_changed',
+                        'Go pricing must be refreshed from the current owner catalog before delivery.',
+                        409,
+                        array('product_code' => (string) $code, 'owner_catalog_revision' => $catalog['revision'])
+                    );
+                }
+            }
             return $products;
         }
         $settings = null;
         $catalog = null;
         $resolution_cache = array();
+        $assignment_cache = array();
+        $owner_codes = array();
         foreach ($products as $code => $product) {
-            $kind = (string) ($product['price_source_kind'] ?? '');
+            if ($this->requires_owner_projection($product, $source)) {
+                $owner_codes[] = (string) $code;
+            }
+        }
+        if (!empty($owner_codes)) {
+            $resolution_cache = Digitalogic_Product_Identifier_Resolver::instance()->resolve_patris_codes($owner_codes);
+            $resolved_codes = array();
+            foreach ($owner_codes as $code) {
+                $resolved = $resolution_cache[$code];
+                if (is_wp_error($resolved)) {
+                    if ('digitalogic_product_identifier_not_found' !== $resolved->get_error_code()) {
+                        return $resolved;
+                    }
+                    continue;
+                }
+                $resolved_codes[] = $code;
+            }
+            foreach (array_chunk($resolved_codes, Digitalogic_Shipping_Method_Service::MAX_PRICING_ASSIGNMENT_BATCH_SIZE) as $codes) {
+                $batch = Digitalogic_Shipping_Method_Service::instance()->get_product_assignments_by_codes($codes);
+                if (is_wp_error($batch)) {
+                    return $batch;
+                }
+                foreach ($batch['results'] as $row) {
+                    if ('ok' !== $row['status']) {
+                        return $this->error($row['error']['code'], 'The owner shipping assignment could not be resolved.', $row['error']['http_status']);
+                    }
+                    $assignment_cache[$row['code']] = $row['assignment'];
+                }
+            }
+        }
+        foreach ($products as $code => $product) {
             // No owner dependency exists for a direct sale or an unavailable
             // source. Such rows must remain ingestible during initial setup.
-            if ('sale_price_direct' === $kind || ('' === $kind && (empty($source['formula_id']) || !isset($product['foreign_price']) || $this->number_compare_zero($product['foreign_price']) <= 0))) {
+            if (!$this->requires_owner_projection($product, $source)) {
                 $calculated = $this->evaluate_final_price_formula($product, 'products.' . $code);
                 if (is_wp_error($calculated)) {
                     return $calculated;
@@ -2837,10 +2910,7 @@ class Digitalogic_Product_Sync_Receiver {
                 return $resolved;
             }
             if (!is_wp_error($resolved)) {
-                $assignment = Digitalogic_Shipping_Method_Service::instance()->get_product_assignment_by_code((string) $code);
-                if (is_wp_error($assignment)) {
-                    return $assignment;
-                }
+                $assignment = $assignment_cache[$code] ?? array();
                 if ((int) ($assignment['woocommerce_id'] ?? 0) !== (int) $resolved['woocommerce_id']) {
                     return $this->error('digitalogic_pricing_product_identity_changed', 'Product identity changed while resolving its owner shipping assignment.', 409);
                 }
@@ -2848,7 +2918,7 @@ class Digitalogic_Product_Sync_Receiver {
                     $product['shipping_method_id'] = $assignment['shipping_method_id'];
                 }
             }
-            $selected = $this->bootstrap_coordinated_price_source($product, (string) $code, $catalog['revision'], $resolution_cache);
+            $selected = $this->bootstrap_coordinated_price_source($product, (string) $code, $catalog['revision'], $resolution_cache, $assignment_cache[$code] ?? null);
             if (is_wp_error($selected)) {
                 return $selected;
             }
@@ -2866,6 +2936,13 @@ class Digitalogic_Product_Sync_Receiver {
             $products[$code] = $projected;
         }
         return $products;
+    }
+
+    /** Whether a record needs site-owned landed-price inputs. */
+    private function requires_owner_projection($product, $source) {
+        $kind = (string) ($product['price_source_kind'] ?? '');
+        return 'sale_price_direct' !== $kind
+            && ('' !== $kind || (!empty($source['formula_id']) && isset($product['foreign_price']) && $this->number_compare_zero($product['foreign_price']) > 0));
     }
 
     private function receive_locked($envelope) {

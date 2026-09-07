@@ -8,7 +8,6 @@ final class ProductSyncReceiverTest extends TestCase {
         $GLOBALS['digitalogic_test_filters']              = array();
         $GLOBALS['digitalogic_test_routes']               = array();
         $GLOBALS['digitalogic_test_options']              = array();
-        $GLOBALS['digitalogic_test_options'][Digitalogic_Pricing_Coordinator::AUTHORITY_OPTION] = 'go';
         $GLOBALS['digitalogic_test_option_cache']         = array();
         $GLOBALS['digitalogic_test_actions']              = array();
         $GLOBALS['digitalogic_test_action_callbacks']     = array();
@@ -20,6 +19,8 @@ final class ProductSyncReceiverTest extends TestCase {
         $GLOBALS['digitalogic_test_wc_products']          = array();
         $GLOBALS['digitalogic_test_wc_product_saves']     = array();
         $GLOBALS['digitalogic_test_wc_save_failures']     = array();
+
+		$GLOBALS['digitalogic_test_options'][ Digitalogic_Pricing_Coordinator::AUTHORITY_OPTION ] = 'go';
 
 		$GLOBALS['digitalogic_test_wc_lookup_rows']               = array();
 		$GLOBALS['digitalogic_test_wc_after_save']                = null;
@@ -370,6 +371,8 @@ final class ProductSyncReceiverTest extends TestCase {
 				);
 				unset( $product['price_rounding_digits'], $product['price_rounding_mode'] );
 			} elseif ( 3 === $index ) {
+				$product['pricing_catalog_revision'] = $this->currentCatalogRevision();
+
 				$product['foreign_currency'] = 'CNY';
 				$product['foreign_price']    = 100;
 				$product['weight_grams']     = 100;
@@ -884,6 +887,7 @@ final class ProductSyncReceiverTest extends TestCase {
 
 		$priced                  = array(
 			'product_code'                   => '101002006',
+			'pricing_catalog_revision'       => $this->currentCatalogRevision(),
 			'partner_price_source'           => 949661,
 			'price_source_amount'            => 949661,
 			'price_source_currency'          => 'IRR',
@@ -969,6 +973,7 @@ final class ProductSyncReceiverTest extends TestCase {
 
     public function test_central_shipping_policy_projection_is_enforced(): void {
         $base                        = array(
+            'pricing_catalog_revision' => $this->currentCatalogRevision(),
             'foreign_currency'      => 'CNY',
             'foreign_price'         => 100,
             'price_source_amount'   => 100,
@@ -1030,6 +1035,7 @@ final class ProductSyncReceiverTest extends TestCase {
         $products = array(
             array(
                 'product_code'                   => 'PARTNER-UP',
+                'pricing_catalog_revision'       => $this->currentCatalogRevision(),
                 'partner_price_source'           => 949661,
                 'price_source_amount'            => 949661,
                 'price_source_currency'          => 'IRR',
@@ -1045,6 +1051,7 @@ final class ProductSyncReceiverTest extends TestCase {
             ),
             array(
                 'product_code'                   => 'PARTNER-DOWN',
+                'pricing_catalog_revision'       => $this->currentCatalogRevision(),
                 'partner_price_source'           => 949600,
                 'price_source_amount'            => 949600,
                 'price_source_currency'          => 'IRR',
@@ -1060,6 +1067,7 @@ final class ProductSyncReceiverTest extends TestCase {
             ),
             array(
                 'product_code'                   => 'PARTNER-HALF',
+                'pricing_catalog_revision'       => $this->currentCatalogRevision(),
                 'partner_price_source'           => 1234500,
                 'price_source_amount'            => 1234500,
                 'price_source_currency'          => 'IRR',
@@ -1220,6 +1228,7 @@ final class ProductSyncReceiverTest extends TestCase {
 
         $fallback                = array(
             'product_code'                   => 'CNY-INCOMPLETE',
+            'pricing_catalog_revision'       => $this->currentCatalogRevision(),
             'foreign_currency'               => 'CNY',
             'foreign_price'                  => 10,
             'weight_grams'                   => 0,
@@ -1286,6 +1295,7 @@ final class ProductSyncReceiverTest extends TestCase {
     public function test_raw_price_facts_require_complete_policy_before_source_selection(): void {
         $incompleteCny                         = array(
             'product_code'                   => 'RAW-CNY-INCOMPLETE',
+            'pricing_catalog_revision'       => $this->currentCatalogRevision(),
             'foreign_currency'               => 'CNY',
             'foreign_price'                  => 10,
             'partner_price_source'           => 100000,
@@ -1350,6 +1360,7 @@ final class ProductSyncReceiverTest extends TestCase {
     public function test_explicit_null_rounding_is_preserved_and_withholds_final_price(): void {
         $product                = array(
             'product_code'                   => 'NULL-ROUNDING',
+            'pricing_catalog_revision'       => $this->currentCatalogRevision(),
             'partner_price_source'           => 100000,
             'price_source_amount'            => 100000,
             'price_source_currency'          => 'IRR',
@@ -1492,6 +1503,13 @@ final class ProductSyncReceiverTest extends TestCase {
         }
         return 'sha256:' . hash('sha256', $json);
     }
+
+	/** Current Go fixture inputs are anchored to the real test-owner catalog. */
+	private function currentCatalogRevision(): string {
+		$catalog = Digitalogic_Shipping_Method_Service::instance()->get_integration_catalog();
+		$this->assertNotInstanceOf( WP_Error::class, $catalog );
+		return $catalog['revision'];
+	}
 
     private function resetSingleton($class): void {
         $property = new ReflectionProperty($class, 'instance');

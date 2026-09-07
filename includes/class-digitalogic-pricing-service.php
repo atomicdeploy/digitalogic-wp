@@ -731,7 +731,7 @@ final class Digitalogic_Pricing_Service {
 			&& $input['id'] === $requested['id']
 			&& $input['dataset'] === $requested['dataset']
 			&& hash_equals( $input['revision'], $requested['revision'] );
-		$resolved = $this->validate_snapshot_source( $matches_input ? ( $state['source'] ?? array() ) : $requested );
+		$resolved      = $this->validate_snapshot_source( $matches_input ? ( $state['source'] ?? array() ) : $requested );
 		if ( ! is_wp_error( $resolved ) ) {
 			$resolved['input_source'] = $input;
 		}

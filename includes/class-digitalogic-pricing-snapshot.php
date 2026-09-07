@@ -227,8 +227,8 @@ final class Digitalogic_Pricing_Snapshot {
 			return $discovery;
 		}
 		$resolved = $discovery['resolved'];
-		$current = $discovery['current'];
-		$etag = $this->etag( $current['state_revision'] );
+		$current  = $discovery['current'];
+		$etag     = $this->etag( $current['state_revision'] );
 		if ( $this->etag_matches( $request->get_header( 'if-none-match' ), $etag ) ) {
 			return $this->transport(
 				null,
@@ -871,6 +871,22 @@ final class Digitalogic_Pricing_Snapshot {
 				return;
 			}
 		}
+		$source_state = Digitalogic_Product_Sync_Receiver::instance()->get_source_state( $job['source']['id'], $job['source']['dataset'] );
+		foreach ( array( 'id', 'dataset', 'revision' ) as $field ) {
+			if ( ! is_string( $source_state['source'][ $field ] ?? null ) || ! hash_equals( $job['source'][ $field ], $source_state['source'][ $field ] ) ) {
+				$this->record_worker_failure( $build_id, $this->state_changed_error() );
+				return;
+			}
+		}
+		// Keep exact owner records in the existing digest-bound snapshot. Decimal
+		// strings remain exact; consumers normalize them at their input boundary.
+		foreach ( $catalog['rows'] as &$row ) {
+			$code = (string) ( $row['patris_code'] ?? '' );
+			if ( '' !== $code && isset( $source_state['products'][ $code ] ) ) {
+				$row['canonical_product'] = $source_state['products'][ $code ];
+			}
+		}
+		unset( $row );
 		if ( ! $this->checkpoint( $build_id, 'verifying', 92, count( (array) ( $catalog['rows'] ?? array() ) ), count( (array) ( $catalog['rows'] ?? array() ) ) ) ) {
 			$this->record_worker_failure( $build_id, is_wp_error( $this->active_worker_error ) ? $this->active_worker_error : $this->cancelled_error() );
 			return;
@@ -2980,7 +2996,7 @@ final class Digitalogic_Pricing_Snapshot {
 				'attribute_owners'       => (array) ( $pricing['attribute_owners'] ?? array() ),
 			)
 		);
-		$source_state = Digitalogic_Product_Sync_Receiver::instance()->get_source_state( $validated['source']['id'], $validated['source']['dataset'] );
+		$source_state            = Digitalogic_Product_Sync_Receiver::instance()->get_source_state( $validated['source']['id'], $validated['source']['dataset'] );
 		$state_revision          = $this->digest(
 			array(
 				'schema_version'          => self::SCHEMA_VERSION,

@@ -14,7 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  */
 final class Digitalogic_Pricing_Coordinator {
 	public const WRITE_MODE_OPTION = 'digitalogic_pricing_write_mode';
-	public const AUTHORITY_OPTION = 'digitalogic_pricing_authority';
+	public const AUTHORITY_OPTION  = 'digitalogic_pricing_authority';
 
 	/** Return the sole final calculator selected for this deployment. */
 	public function pricing_authority() {
