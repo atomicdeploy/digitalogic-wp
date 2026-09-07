@@ -81,6 +81,10 @@ final class Digitalogic_Storefront_Realtime {
 
 	/** Public commercial events only; notification audiences are never polled here. */
 	public function search_freshness( $request ) {
+		$generation = Digitalogic_Report_Engine::instance()->current_projection_generation();
+		if ( is_wp_error( $generation ) ) {
+			return $generation;
+		}
 		$cursor = absint( $request->get_param( 'since' ) );
 		$events = array();
 		foreach ( Digitalogic_Panel::get_events_since( $cursor ) as $event ) {
@@ -93,7 +97,14 @@ final class Digitalogic_Storefront_Realtime {
 				$events[] = $public;
 			}
 		}
-		$response = new WP_REST_Response( array( 'events' => $events ), 200 );
+		$response = new WP_REST_Response(
+			array(
+				'events'     => $events,
+				'generation' => $generation,
+				'latest'     => Digitalogic_Panel::get_latest_event_id(),
+			),
+			200
+		);
 		$response->header( 'Cache-Control', 'no-store, private' );
 		return $response;
 	}

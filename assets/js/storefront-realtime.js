@@ -28,6 +28,7 @@
     var leaderTtl = Math.max(6000, Number(config.leaderTtlMs || 12000));
     var freshnessPending = false;
     var freshnessCursor = Number(config.initialEventId || 0);
+    var freshnessGeneration = null;
 
     function checkFreshness() {
         if (!config.freshnessUrl || freshnessPending || document.visibilityState === 'hidden') { return; }
@@ -41,6 +42,14 @@
                 if (!response.ok) { throw new Error('freshness_unavailable'); }
                 return response.json();
             }).then(function(result) {
+                if (!result.generation || !Array.isArray(result.events)) { throw new Error('freshness_invalid'); }
+                if (freshnessGeneration !== result.generation) {
+                    window.dispatchEvent(new CustomEvent('digitalogic:search-invalidated'));
+                    if (freshnessGeneration !== null && currentProductId) {
+                        refreshProduct({id: Number(result.latest || 0), name: 'product.resync', data: {product_id: currentProductId}});
+                    }
+                    freshnessGeneration = result.generation;
+                }
                 (result.events || []).forEach(function(event) {
                     handleEvent(event);
                     freshnessCursor = Math.max(freshnessCursor, Number(event.id || 0));
