@@ -188,6 +188,15 @@ test('canonical pricing settings require the complete composite contract', () =>
   };
 
   assert.equal(validate(state), state);
+  // Labels and extra metadata do not determine whether living pricing data is valid.
+  for (const schema of [undefined, 'digitalogic.pricing-sync-state/v1', 'future-description']) {
+    const describedState = { ...state, schema, metadata: { producer: 'shared-pricing' } };
+    assert.equal(validate(describedState), describedState);
+    assert.throws(
+      () => validate({ ...describedState, state_revision: 'invalid' }),
+      /Malformed Digitalogic pricing settings response/
+    );
+  }
   const zeroProfit = { ...state, settings: { ...state.settings, profit_margin_percent: 0 } };
   assert.equal(validate(zeroProfit), zeroProfit);
   const zeroRounding = { ...state, settings: { ...state.settings, price_rounding_digits: 0 } };
@@ -208,6 +217,43 @@ test('canonical pricing settings require the complete composite contract', () =>
     () => validate({ ...state, settings: { ...state.settings, price_rounding_mode: 'bankers' } }),
     /Malformed Digitalogic pricing settings response/
   );
+
+  // Exercise the actual write transport too: a committed response must not fail
+  // merely because the service removed its descriptive schema version suffix.
+  const request = { expected_state_revision: state.state_revision, settings: state.settings };
+  let responseData;
+  const pricingSandbox = {
+    module: { exports: {} },
+    Utilities: { base64Encode: () => 'test-auth' },
+    UrlFetchApp: {
+      fetch(url, options) {
+        assert.equal(url, 'https://digitalogic.test/google-sheets/pricing-settings');
+        assert.equal(options.method, 'post');
+        assert.deepEqual(JSON.parse(options.payload), request);
+        return {
+          getResponseCode: () => 200,
+          getContentText: () => JSON.stringify({ success: true, data: responseData }),
+        };
+      },
+    },
+  };
+  vm.runInNewContext(source, pricingSandbox, { filename: sourcePath });
+  const config = { apiBase: 'https://digitalogic.test', writebackConsumerKey: 'key', writebackConsumerSecret: 'secret' };
+  for (const schema of ['digitalogic.pricing-coordinator-result', undefined, 'future-description']) {
+    responseData = { schema, state_revision: state.state_revision, settings: state.settings, metadata: { producer: 'shared-pricing' } };
+    assert.equal(pricingSandbox.postPricingSettings_(config, request).state_revision, state.state_revision);
+  }
+  for (const malformed of [
+    { ...responseData, state_revision: 'invalid' },
+    { ...responseData, settings: [] },
+    { ...responseData, settings: null },
+  ]) {
+    responseData = malformed;
+    assert.throws(
+      () => pricingSandbox.postPricingSettings_(config, request),
+      /Malformed Digitalogic pricing update response/
+    );
+  }
 });
 
 test('accepted pricing revision stays current when its business effective date is old', () => {

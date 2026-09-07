@@ -1108,38 +1108,8 @@ final class Digitalogic_Pricing_Service {
 				400
 			);
 		}
-		$allowed = array(
-			'schema',
-			'schema_version',
-			'operation',
-			'transaction_id',
-			'consumer_id',
-			'channel',
-			'source',
-			'committed_state_revision',
-			'confirmed_settings',
-			'confirmed_settings_digest',
-			'idempotency_key',
-		);
-		$unknown = array_diff( array_keys( $payload ), $allowed );
-		if ( $unknown ) {
-			return $this->error(
-				'digitalogic_pricing_confirmation_ack_unknown_fields',
-				'The acknowledgement contains unsupported fields.',
-				400,
-				array( 'fields' => array_values( $unknown ) )
-			);
-		}
-		if (
-			self::ACK_SCHEMA !== ( $payload['schema'] ?? null )
-			|| ( isset( $payload['schema_version'] ) && 1 !== (int) $payload['schema_version'] )
-			|| ( isset( $payload['operation'] ) && 'ack' !== $payload['operation'] )
-		) {
-			return $this->error(
-				'digitalogic_pricing_confirmation_ack_schema_invalid',
-				'The acknowledgement schema or operation is not supported.',
-				422
-			);
+		if ( isset( $payload['operation'] ) && 'ack' !== $payload['operation'] ) {
+			return $this->error( 'digitalogic_pricing_confirmation_ack_operation_invalid', 'The acknowledgement operation is not supported.', 422 );
 		}
 
 		$transaction_id     = is_string( $payload['transaction_id'] ?? null )

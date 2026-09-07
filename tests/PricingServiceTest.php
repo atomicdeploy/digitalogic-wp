@@ -884,6 +884,12 @@ final class PricingServiceTest extends TestCase {
 		$this->assertCount( 1, $GLOBALS['digitalogic_test_actions']['digitalogic_pricing_apply_committed'] ?? array() );
 		$this->assertSame( $scheduled_before_replay, $GLOBALS['digitalogic_test_scheduled_events'] );
 		$this->assertSame( $events_before_replay, $GLOBALS['digitalogic_test_actions']['digitalogic_pricing_confirmation_event'] );
+
+		$acknowledged = $service->ack( $this->ack_request( $applied, array( 'schema' => null, 'schema_version' => null, 'provider_note' => 'optional' ) ) );
+		$this->assertFalse( is_wp_error( $acknowledged ), is_wp_error( $acknowledged ) ? $acknowledged->get_error_message() : '' );
+		$this->assertSame( 'acknowledged', $acknowledged['status'] );
+		$ack_replay = $service->ack( $this->ack_request( $applied, array( 'provider_note' => 'changed metadata' ) ) );
+		$this->assertSame( 'replayed', $ack_replay['status'] );
 	}
 
 	/**
