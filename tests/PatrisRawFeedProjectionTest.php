@@ -14,23 +14,42 @@ final class PatrisRawFeedProjectionTest extends TestCase {
 	public function test_expected_feed_projection_uses_raw_prices_even_when_view_prices_differ(): void {
 		$GLOBALS['digitalogic_test_posts'][98765] = array( 'meta' => array() );
 		$product                                  = new class(98765) extends WC_Product {
-			/** @var int Number of presentation reads. */
+			/**
+			 * Number of presentation reads.
+			 *
+			 * @var int
+			 */
 			public $view_reads = 0;
-			/** Return context-specific fixture data. */
+			/**
+			 * Return context-specific fixture data.
+			 *
+			 * @param string $context Getter context.
+			 * @return string
+			 */
 			public function get_regular_price( $context = 'view' ) {
 				if ( 'view' === $context ) {
 					++$this->view_reads;
 					return '900'; }
 				return '100';
 			}
-			/** Return context-specific fixture data. */
+			/**
+			 * Return context-specific fixture data.
+			 *
+			 * @param string $context Getter context.
+			 * @return string
+			 */
 			public function get_sale_price( $context = 'view' ) {
 				if ( 'view' === $context ) {
 					++$this->view_reads;
 					return '800'; }
 				return '';
 			}
-			/** Return context-specific fixture data. */
+			/**
+			 * Return context-specific fixture data.
+			 *
+			 * @param string $context Getter context.
+			 * @return string
+			 */
 			public function get_price( $context = 'view' ) {
 				if ( 'view' === $context ) {
 					++$this->view_reads;
