@@ -46,7 +46,7 @@ class Digitalogic_Product_Manager {
 				" AND ({$wpdb->posts}.post_title LIKE %s
 				OR EXISTS (SELECT 1 FROM {$wpdb->postmeta} dg_identifier
 				 WHERE dg_identifier.post_id = {$wpdb->posts}.ID
-				 AND dg_identifier.meta_key IN ('_sku', 'attribute_pa_model', '_digitalogic_patris_product_code')
+				 AND dg_identifier.meta_key IN ('_sku', 'attribute_pa_model', '_digitalogic_model', '_digitalogic_part_number', '_digitalogic_patris_product_code')
 				 AND dg_identifier.meta_value LIKE %s)
 				OR EXISTS (SELECT 1 FROM {$wpdb->term_relationships} dg_model_rel
 				 INNER JOIN {$wpdb->term_taxonomy} dg_model_tax ON dg_model_tax.term_taxonomy_id = dg_model_rel.term_taxonomy_id
@@ -67,7 +67,7 @@ class Digitalogic_Product_Manager {
                     EXISTS (
                         SELECT 1 FROM {$wpdb->postmeta} digitalogic_part_number_meta
                         WHERE digitalogic_part_number_meta.post_id = {$wpdb->posts}.ID
-                        AND digitalogic_part_number_meta.meta_key = 'attribute_pa_model'
+                        AND digitalogic_part_number_meta.meta_key IN ('attribute_pa_model', '_digitalogic_model', '_digitalogic_part_number')
                         AND digitalogic_part_number_meta.meta_value LIKE %s
                     )
                     OR EXISTS (
@@ -705,6 +705,16 @@ class Digitalogic_Product_Manager {
         } else {
             $part_number = $product->get_attribute('pa_model');
         }
+
+		if ( ! is_string( $part_number ) || '' === $part_number ) {
+			foreach ( array( '_digitalogic_part_number', '_digitalogic_model' ) as $key ) {
+				$value = $product->get_meta( $key, true );
+				if ( is_string( $value ) && '' !== trim( $value ) ) {
+					$part_number = $value;
+					break;
+				}
+			}
+		}
 
         if (is_string($part_number) && $part_number !== '') {
             return wc_clean(wp_strip_all_tags($part_number));

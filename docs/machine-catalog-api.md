@@ -32,7 +32,7 @@ URL builder):
 | Stable ascending ID order | `?all=1&sort[field]=id&sort[direction]=asc` |
 | Ascending SKU order | `?sort[field]=sku&sort[direction]=asc` |
 
-`q` matches the title, `_sku`, `attribute_pa_model`, the `pa_model` taxonomy,
+`q` matches the title, `_sku`, `attribute_pa_model`, `_digitalogic_part_number`, `_digitalogic_model`, the `pa_model` taxonomy,
 and the canonical product-code meta value. It is literal substring matching,
 using the database collation; `%` and `_` in the query are escaped as literals.
 An empty query means no search filter. Queries are normalized to at most 160
@@ -60,7 +60,7 @@ Illustrative subset of an object (the existing additional fields remain):
       "parent_id": 0,
       "name": "TEC1-12704",
       "sku": "110002",
-      "part_number": "",
+      "part_number": "TEC1-12704",
       "price": "12345",
       "stock_quantity": null,
       "stock_status": "instock",

@@ -442,6 +442,18 @@ final class ProductQueryTest extends TestCase {
 	}
 
 	/** Empty all-mode responses retain the normal object envelope. */
+	public function test_part_number_uses_existing_digitalogic_metadata(): void {
+		$GLOBALS['digitalogic_test_posts'][11904] = array(
+			'post_type' => 'product',
+			'post_status' => 'publish',
+			'post_title' => 'Thermoelectric module',
+			'meta' => array( '_digitalogic_part_number' => 'TEC1-12704' ),
+		);
+		$product = Digitalogic_Product_Manager::instance()->get_product( 11904 );
+		$this->assertSame( 'TEC1-12704', $product['part_number'] );
+	}
+
+	/** Empty all-mode responses retain the normal object envelope. */
 	public function test_full_catalog_empty_response(): void {
 		$result = Digitalogic_REST_API::instance()->get_products( new WP_REST_Request( array( 'all' => '1' ) ) )->get_data();
 		$this->assertSame( array(), $result['data'] );
