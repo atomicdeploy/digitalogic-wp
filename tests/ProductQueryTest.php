@@ -396,6 +396,79 @@ final class ProductQueryTest extends TestCase {
 		$this->assertArrayNotHasKey( 'max_price', $old_data );
 	}
 
+	/** The REST all mode returns every row, including a non-full final page. */
+	public function test_rest_all_products_collects_multiple_pages(): void {
+		$ids = range( 1001, 1101 );
+		foreach ( $ids as $id ) {
+			$GLOBALS['digitalogic_test_posts'][ $id ] = array(
+				'post_type'    => 'product',
+				'post_status'  => 'publish',
+				'post_title'   => 'Catalog ' . $id,
+				'product_type' => 'simple',
+			);
+		}
+		foreach ( array( array( 'all' => '1' ), array( 'limit' => '-1' ) ) as $params ) {
+			$GLOBALS['digitalogic_test_wp_query_results'] = array(
+				array(
+					'posts'       => array_slice( $ids, 0, 100 ),
+					'found_posts' => 101,
+				),
+				array(
+					'posts'       => array_slice( $ids, 100 ),
+					'found_posts' => 101,
+				),
+			);
+			$response                                     = Digitalogic_REST_API::instance()->get_products( new WP_REST_Request( $params ) );
+			$this->assertInstanceOf( WP_REST_Response::class, $response );
+			$data = $response->get_data();
+			$this->assertSame( $ids, array_column( $data['data'], 'id' ) );
+			$this->assertSame( -1, $data['limit'] );
+			$this->assertSame( 1, $data['pages'] );
+			$this->assertSame( 101, $data['recordsFiltered'] );
+		}
+	}
+
+	/** Missing rows must never be returned as a successful full catalog. */
+	public function test_full_catalog_rejects_partial_rows(): void {
+		$GLOBALS['digitalogic_test_wp_query_results'] = array(
+			array(
+				'posts'       => array(),
+				'found_posts' => 101,
+			),
+		);
+		$result                                       = Digitalogic_REST_API::instance()->get_products( new WP_REST_Request( array( 'all' => 'true' ) ) );
+		$this->assertInstanceOf( WP_Error::class, $result );
+		$this->assertSame( 'digitalogic_catalog_incomplete', $result->get_error_code() );
+	}
+
+	/** Empty all-mode responses retain the normal object envelope. */
+	public function test_full_catalog_empty_response(): void {
+		$result = Digitalogic_REST_API::instance()->get_products( new WP_REST_Request( array( 'all' => '1' ) ) )->get_data();
+		$this->assertSame( array(), $result['data'] );
+		$this->assertSame( 0, $result['recordsFiltered'] );
+		$this->assertSame( 0, $result['pages'] );
+	}
+
+	/** Identifier search is additive and combines with existing field filters. */
+	public function test_machine_identifier_search_keeps_existing_search_semantics(): void {
+		$args = Digitalogic_Product_Query::build_wp_query_args(
+			array(
+				'q'                   => '  TEC1-12704 ',
+				'search'              => 'module',
+				'part_number'         => '12704',
+				'sku'                 => '110',
+				'patris_product_code' => '002',
+			)
+		);
+		$this->assertSame( 'TEC1-12704', $args['digitalogic_product_identifier_search'] );
+		$this->assertSame( 'module', $args['s'] );
+		$this->assertSame( '12704', $args['digitalogic_product_part_number_filter'] );
+		$this->assertContains( '_sku', $this->collectMetaKeys( $args['meta_query'] ) );
+		$this->assertContains( '_digitalogic_patris_product_code', $this->collectMetaKeys( $args['meta_query'] ) );
+		$this->assertTrue( Digitalogic_Product_Query::has_active_filters( array( 'q' => '110' ) ) );
+		$this->assertFalse( Digitalogic_Product_Query::has_active_filters( array( 'q' => array( 'unsafe' ) ) ) );
+	}
+
 	/**
 	 * Recursively collect meta keys from a nested meta query.
 	 *

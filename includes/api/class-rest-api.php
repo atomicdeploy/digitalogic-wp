@@ -829,7 +829,17 @@ class Digitalogic_REST_API {
 	 */
 	public function get_products( WP_REST_Request $request ) {
 		$params = $request->get_params();
-		$result = Digitalogic_Product_Manager::instance()->query_products( $params );
+		$all    = in_array( $params['all'] ?? false, array( true, 1, '1', 'true' ), true )
+			|| in_array( $params['limit'] ?? null, array( -1, '-1' ), true );
+		$result = $all
+			? Digitalogic_Product_Manager::instance()->query_all_products( $params )
+			: Digitalogic_Product_Manager::instance()->query_products( $params );
+		if ( is_wp_error( $result ) ) {
+			return $result;
+		}
+		if ( ! empty( $result['query_failed'] ) ) {
+			return new WP_Error( 'digitalogic_catalog_unavailable', 'The catalog query failed.', array( 'status' => 503 ) );
+		}
 
 		return new WP_REST_Response(
 			array(
