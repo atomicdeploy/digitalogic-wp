@@ -7,7 +7,7 @@
     }
 
     var audienceKey = String(config.audienceKey || 'guest').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 32) || 'guest';
-    var prefix = 'digitalogic.realtime.v1.' + audienceKey + '.';
+    var prefix = 'digitalogic.realtime.v2.' + audienceKey + '.';
     var channelName = prefix + 'channel';
     var leaderKey = prefix + 'leader';
     var eventKey = prefix + 'event';
@@ -483,7 +483,10 @@
         var now = Date.now();
         var current = lease();
         if (!current || Number(current.expiresAt || 0) <= now || current.tabId === tabId) {
-            writeLocal(leaderKey, JSON.stringify({tabId: tabId, expiresAt: now + leaderTtl}));
+            if (!writeLocal(leaderKey, JSON.stringify({tabId: tabId, expiresAt: now + leaderTtl}))) {
+                openStream();
+                return;
+            }
             current = lease();
         }
         if (current && current.tabId === tabId) {
@@ -531,14 +534,20 @@
     window.addEventListener('pagehide', function () {
         if (leaderTimer) {
             window.clearInterval(leaderTimer);
+            leaderTimer = null;
         }
         closeStream();
         if (channel) {
             channel.close();
+            channel = null;
         }
         if (ownsLease()) {
             writeLocal(leaderKey, JSON.stringify({tabId: tabId, expiresAt: 0}));
         }
+    });
+
+    window.addEventListener('pageshow', function(event) {
+        if (event.persisted && !leaderTimer) { startCoordination(); }
     });
 
     hydrateCurrency();

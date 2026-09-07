@@ -31,7 +31,7 @@ class Digitalogic_Frontend_Search {
 		add_filter( 'digitalogic_websocket_ajax_action_allowed', array( $this, 'allow_public_ajax_search_action' ), 10, 4 );
 		add_action( 'wp_ajax_woodmart_ajax_search', array( $this, 'serve_search' ), 1 );
 		add_action( 'wp_ajax_nopriv_woodmart_ajax_search', array( $this, 'serve_search' ), 1 );
-		add_action( 'admin_menu', array( $this, 'cache_menu' ) );
+		add_action( 'admin_menu', array( $this, 'cache_menu' ), 99 );
 		add_action( 'admin_init', array( $this, 'register_cache_settings' ) );
 		add_action( 'digitalogic_report_projection_invalidated', array( $this, 'queue_invalidation' ) );
 		add_action( 'digitalogic_excel_pricing_apply_committed', array( $this, 'queue_invalidation' ) );
