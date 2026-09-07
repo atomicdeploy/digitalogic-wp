@@ -4554,10 +4554,10 @@ class Digitalogic_Product_Sync_Receiver {
 			? self::MAX_PRODUCTS
 			: self::MAX_DELIVERY_PRODUCTS_PER_REQUEST;
 		foreach ($work as $code_key => $delivery_entry) {
-			if (0 === $fallback_attempted % 25) {
-				$guarded = $this->check_coordinated_actuation_guard();
-				if (is_wp_error($guarded)) { return $guarded; }
-			}
+			// A full WooCommerce write can execute expensive extension hooks.
+			// Never admit another product after the transaction deadline expires.
+			$guarded = $this->check_coordinated_actuation_guard();
+			if (is_wp_error($guarded)) { return $guarded; }
 			if ($fallback_attempted >= $fallback_limit) {
                 break;
             }
@@ -5239,7 +5239,7 @@ class Digitalogic_Product_Sync_Receiver {
 		$parents             = array();
 		$guard_index = 0;
 		foreach ( $work as $code_key => $delivery_entry ) {
-			if (0 === $guard_index++ % 200) {
+			if (0 === $guard_index++ % 25) {
 				$guarded = $this->check_coordinated_actuation_guard();
 				if (is_wp_error($guarded)) { return $guarded; }
 			}
@@ -5398,7 +5398,10 @@ class Digitalogic_Product_Sync_Receiver {
 					return false;
 				}
 			}
-			if ( (string) ( $operational_projection['post_title'] ?? '' ) !== (string) ( $topology['post_title'] ?? '' ) ) {
+			// Only auto-materialized products take their public title from Patris.
+			// The ordinary feed writer preserves the site's existing product name.
+			if ( array( '1' ) === $auto_materialized_rows
+				&& (string) ( $operational_projection['post_title'] ?? '' ) !== (string) ( $topology['post_title'] ?? '' ) ) {
 				return false;
 			}
 			if ( array( '1' ) === $auto_materialized_rows ) {
