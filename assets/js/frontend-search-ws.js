@@ -19,6 +19,62 @@
     var requestId = 0;
     var pendingRequests = {};
     var readyWaiters = [];
+    var searchCache = new Map();
+    var searchCacheSettings = rootConfig.cache || {browser: true, ttl: 60, entries: 32};
+
+    function freshSearch(settings, payload) {
+        var key = JSON.stringify(payload);
+        var cached = searchCache.get(key);
+        if (!searchCacheSettings.browser || (cached && cached.expires <= Date.now())) {
+            searchCache.delete(key);
+            cached = null;
+        }
+        var deferred = $.Deferred();
+        var transport;
+        var aborted = false;
+        var jqxhr = deferred.promise({abort: function() {
+            aborted = true;
+            if (transport) { transport.abort(); }
+        }});
+        var outgoing = $.extend({}, settings, {
+            cache: false,
+            data: $.extend({}, payload, {dg_search_signature: cached ? cached.signature : ''})
+        });
+        delete outgoing.success;
+        delete outgoing.error;
+        delete outgoing.complete;
+        delete outgoing.dataFilter;
+        transport = originalAjax.call($, outgoing).done(function(data) {
+            if (aborted) { return; }
+            var metadata = data && data.dg_cache;
+            if (metadata && metadata.settings) { searchCacheSettings = metadata.settings; }
+            if (data && data.unchanged) {
+                if (!cached || !metadata || metadata.signature !== cached.signature) {
+                    deferred.rejectWith(settings.context || settings, [jqxhr, 'error', 'Search validation failed']);
+                    return;
+                }
+                data = JSON.parse(JSON.stringify(cached.data));
+            }
+            if (!data || !Array.isArray(data.suggestions)) {
+                deferred.rejectWith(settings.context || settings, [jqxhr, 'error', 'Search response unavailable']);
+                return;
+            }
+            if (metadata && searchCacheSettings.browser) {
+                searchCache.delete(key);
+                searchCache.set(key, {data: JSON.parse(JSON.stringify(data)), signature: metadata.signature, expires: Date.now() + searchCacheSettings.ttl * 1000});
+                while (searchCache.size > searchCacheSettings.entries) { searchCache.delete(searchCache.keys().next().value); }
+            } else {
+                searchCache.clear();
+            }
+            callSuccess(settings, jqxhr, deferred, data);
+        }).fail(function(xhr, status, error) {
+            searchCache.delete(key);
+            if (settings.error) { settings.error.call(settings.context || settings, xhr, status, error); }
+            deferred.rejectWith(settings.context || settings, [xhr, status, error]);
+            if (settings.complete) { settings.complete.call(settings.context || settings, xhr, status); }
+        });
+        return jqxhr;
+    }
 
     function normalizeWoodmartAutocompleteOptions(collection, options) {
         if (!options || typeof options === 'string' || !collection || !collection.length) {
@@ -37,8 +93,20 @@
             return options;
         }
 
+        var onSearchStart = options.onSearchStart;
         return $.extend({}, options, {
-            triggerSelectOnValidInput: false
+            triggerSelectOnValidInput: false,
+            noCache: true,
+            onSearchStart: function() {
+                var instance = $(this).data('autocomplete');
+                if (instance) {
+                    instance.abortAjax();
+                    instance.clearCache();
+                    instance.suggestions = [];
+                    instance.hide();
+                }
+                return onSearchStart ? onSearchStart.apply(this, arguments) : undefined;
+            }
         });
     }
 
@@ -48,6 +116,9 @@
         }
 
         var wrapped = function(options, args) {
+            if (!arguments.length) {
+                return plugin.call(this);
+            }
             return plugin.call(this, normalizeWoodmartAutocompleteOptions(this, options), args);
         };
 
@@ -370,6 +441,12 @@
         var settings = normalizeAjaxArguments(url, options);
         var payload = payloadFromSettings(settings);
 
+        // Preserve the browser's cookies and WooCommerce request lifecycle.
+        // Never render commercial search data from the long-running WS worker.
+        if (adminAjaxPath(settings.url) && payload && payload.action === 'woodmart_ajax_search') {
+            return freshSearch(settings, payload);
+        }
+
         if (!shouldProxy(settings, payload)) {
             return originalAjax.apply($, originalArgs);
         }
@@ -405,6 +482,41 @@
     };
 
     window.digitalogicFrontendSearchWsRequest = request;
+    function invalidateSearch(refresh) {
+        searchCache.clear();
+        $('form.woodmart-ajax-search input[name="s"]').each(function() {
+            var instance = $(this).data('autocomplete');
+            if (!instance) {
+                return;
+            }
+            window.clearTimeout(instance.onChangeInterval);
+            instance.abortAjax();
+            instance.clear();
+            instance.hide();
+            if (refresh && document.visibilityState !== 'hidden' && document.activeElement === this) {
+                instance.onValueChange();
+            }
+        });
+    }
+    window.addEventListener('digitalogic:currency-updated', function() { invalidateSearch(true); });
+    window.addEventListener('digitalogic:product-invalidated', function() { invalidateSearch(true); });
+    window.addEventListener('digitalogic:search-invalidated', function() { invalidateSearch(true); });
+    window.addEventListener('offline', function() { invalidateSearch(false); });
+    window.addEventListener('online', function() { invalidateSearch(true); });
+    window.addEventListener('pageshow', function() { invalidateSearch(true); });
+    document.addEventListener('visibilitychange', function() { invalidateSearch(true); });
+    $(document).on('focusin.digitalogicSearch', 'form.woodmart-ajax-search input[name="s"]', function() {
+        invalidateSearch(true);
+    });
+    document.addEventListener('input', function(event) {
+        if (!event.target.matches('form.woodmart-ajax-search input[name="s"]')) { return; }
+        var instance = $(event.target).data('autocomplete');
+        if (instance) {
+            instance.abortAjax();
+            instance.suggestions = [];
+            instance.hide();
+        }
+    }, true);
     installAutocompleteGuard();
     connect();
 })(jQuery, window, document);

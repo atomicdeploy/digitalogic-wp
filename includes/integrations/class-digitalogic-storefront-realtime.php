@@ -22,6 +22,7 @@ final class Digitalogic_Storefront_Realtime {
 	private const MAX_CURSOR_DIGITS     = 20;
 	private const PUBLIC_EVENT_NAMES    = array(
 		'currency.updated',
+		'search.invalidated',
 		'product.updated',
 		'product.created',
 		'product.deleted',
@@ -204,6 +205,8 @@ final class Digitalogic_Storefront_Realtime {
 					'expires_at'  => sanitize_text_field( (string) ( $source['expires_at'] ?? '' ) ),
 				),
 			);
+		} elseif ( 'search.invalidated' === $name ) {
+			$data = array( 'scope' => 'search' );
 		} elseif ( 'currency.updated' === $name ) {
 			$data = array(
 				'scope'    => 'general',

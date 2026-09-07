@@ -421,7 +421,11 @@
         if (String(event.name || '') === 'workstation.notification') {
             showNotification(event);
         }
+        if (String(event.name || '') === 'search.invalidated') {
+            window.dispatchEvent(new CustomEvent('digitalogic:search-invalidated', {detail: event}));
+        }
         if (String(event.name || '').indexOf('product.') === 0) {
+            window.dispatchEvent(new CustomEvent('digitalogic:product-invalidated', {detail: event}));
             refreshProduct(event);
         }
     }

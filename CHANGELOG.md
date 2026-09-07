@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.86] - 2026-09-07
+
+### Fixed
+- Read Woodmart search prices through fresh browser HTTP requests instead of reusing WooCommerce state in the WebSocket daemon. Older clients fall back to HTTP after the daemon rejects the search command.
+- Retain generation-keyed server search caches and server-validated browser caches, with administrator settings for storage, retention and browser capacity. Verify WooCommerce prices on every response and invalidate open suggestions on committed catalog/pricing events.
+- Discard pending responses during invalidation and preserve no-argument autocomplete instance access.
+
 ## [1.8.85] - 2026-09-01
 
 ### Fixed
