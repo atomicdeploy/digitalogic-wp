@@ -279,9 +279,10 @@ class Digitalogic_Product_Manager {
 			}
 			$product_ids = array_values( array_filter( array_map( 'absint', (array) $query->posts ) ) );
 			Digitalogic_Product_Code_Editor::instance()->prepare_admin_read_batch( $product_ids );
-			$filtered    = max( 0, (int) $query->found_posts );
-			$products    = $this->format_product_list( $product_ids );
-			$total       = Digitalogic_Product_Query::has_active_filters( $normalized )
+
+			$filtered = max( 0, (int) $query->found_posts );
+			$products = $this->format_product_list( $product_ids );
+			$total    = Digitalogic_Product_Query::has_active_filters( $normalized )
 				? $this->get_unfiltered_product_count()
 				: $filtered;
 
