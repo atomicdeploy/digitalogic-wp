@@ -333,9 +333,10 @@ final class Digitalogic_Pricing_Coordinator {
 	 *
 	 * @param array       $settings                  Complete canonical settings.
 	 * @param string|null $previous_catalog_revision Catalog revision before the atomic write.
+	 * @param callable|null $actuation_guard Optional deadline and ownership check between batches.
 	 * @return array|WP_Error
 	 */
-	public function reprice_open_transaction( $settings, $previous_catalog_revision = null ) {
+	public function reprice_open_transaction( $settings, $previous_catalog_revision = null, $actuation_guard = null ) {
 		$authority = $this->pricing_authority();
 		if ( is_wp_error( $authority ) ) {
 			return $authority;
@@ -366,7 +367,8 @@ final class Digitalogic_Pricing_Coordinator {
 			$this->receiver_settings( $settings ),
 			array(),
 			array(),
-			$previous_catalog_revision
+			$previous_catalog_revision,
+			$actuation_guard
 		);
 	}
 

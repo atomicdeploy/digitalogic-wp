@@ -309,8 +309,10 @@ final class ProductSyncReceiverTest extends TestCase {
 		$this->assertSame( '0.0000', $GLOBALS['digitalogic_test_wc_lookup_rows'][ $id ]['max_price'] );
 	}
 
-	/** Bounded reconciliation materializes every safe missing Code without starvation. */
-	public function test_reconciliation_materializes_a_bounded_backlog_without_deferral(): void {
+	/**
+	 * Full ingress materializes every safe missing Code; reconciliation is then idle.
+	 */
+	public function test_ingress_materializes_complete_source_without_deferral(): void {
 		$products = array();
 		for ( $index = 1; $index <= 30; $index++ ) {
 			$product                = array(
@@ -324,16 +326,16 @@ final class ProductSyncReceiverTest extends TestCase {
 
 		$first = $receiver->receive( $this->snapshot( $products ) );
 		$this->assertNotInstanceOf( WP_Error::class, $first );
-		$this->assertSame( 25, $first['woocommerce']['attempted'] );
-		$this->assertSame( 5, $first['pending_products'] );
-		$this->assertSame( 25, $first['woocommerce']['created'] );
+		$this->assertSame( 30, $first['woocommerce']['attempted'] );
+		$this->assertSame( 0, $first['pending_products'] );
+		$this->assertSame( 30, $first['woocommerce']['created'] );
 		$this->assertSame( 0, $first['deferred_products'] );
 
 		$retry = $receiver->reconcile( 'tests', 'ALLANBAR' );
 		$this->assertNotInstanceOf( WP_Error::class, $retry );
-		$this->assertSame( 5, $retry['sources'][0]['woocommerce']['attempted'] );
+		$this->assertSame( 0, $retry['sources'][0]['woocommerce']['attempted'] );
 		$this->assertSame( 0, $retry['pending_products'] );
-		$this->assertSame( 5, $retry['sources'][0]['woocommerce']['created'] );
+		$this->assertSame( 0, $retry['sources'][0]['woocommerce']['created'] );
 		$this->assertSame( 0, $retry['deferred_products'] );
 		$this->assertCount( 30, $GLOBALS['digitalogic_test_posts'] );
 	}
@@ -625,12 +627,14 @@ final class ProductSyncReceiverTest extends TestCase {
 		$product['record_hash'] = $this->recordHash( $product, true );
 		$receiver               = Digitalogic_Product_Sync_Receiver::instance();
 
-		$this->assertTrue( $receiver->acquire_source_identity_lock( 0 ) );
+		$result = Digitalogic_Pricing_Service::instance()->with_source_delivery_lock(
+			function () use ( $receiver, $product, &$observed ) {
 		$result = $receiver->receive( $this->snapshot( array( $product ) ) );
-		$this->assertNotInstanceOf( WP_Error::class, $result );
 		$this->assertSame( array(), $observed );
-
-		$receiver->release_source_identity_lock();
+				return $result;
+			}
+		);
+		$this->assertNotInstanceOf( WP_Error::class, $result );
 		$this->assertCount( 1, $observed );
 		$this->assertSame( 'OUTER-LOCK-COMMIT', $observed[0]['product_code'] );
 	}
@@ -776,12 +780,14 @@ final class ProductSyncReceiverTest extends TestCase {
 			$this->snapshot( array(), array(), false, '2026-07-20T00:01:00Z' )
 		);
 		$this->assertInstanceOf( WP_Error::class, $failed );
-		$this->assertSame( 'digitalogic_product_sync_commit_failed', $failed->get_error_code() );
+		$this->assertSame( 'digitalogic_pricing_sync_commit_failed', $failed->get_error_code() );
 		$this->assertCount( 1, $observed );
 	}
 
-	/** Large deliveries yield the global receiver lock and resume from durable pending work. */
-	public function test_large_delivery_is_bounded_and_same_event_replay_drains_pending_products(): void {
+	/**
+	 * Full source delivery no longer leaves a fixed 25-row tail for event replay.
+	 */
+	public function test_large_delivery_completes_and_same_event_replay_writes_nothing(): void {
 		$products = array();
 		for ( $index = 1; $index <= 30; $index++ ) {
 			$product_code                                     = sprintf( 'BATCH-%03d', $index );
@@ -805,17 +811,17 @@ final class ProductSyncReceiverTest extends TestCase {
 		$first    = $receiver->receive( $payload );
 
 		$this->assertNotInstanceOf( WP_Error::class, $first );
-		$this->assertSame( 'partially_applied', $first['status'] );
-		$this->assertTrue( $first['retryable'] );
-		$this->assertSame( 25, $first['woocommerce']['attempted'] );
-		$this->assertSame( 5, $first['pending_products'] );
+		$this->assertSame( 'accepted', $first['status'] );
+		$this->assertFalse( $first['retryable'] );
+		$this->assertSame( 30, $first['woocommerce']['attempted'] );
+		$this->assertSame( 0, $first['pending_products'] );
 
 		$replay = $receiver->receive( $payload );
 
 		$this->assertNotInstanceOf( WP_Error::class, $replay );
-		$this->assertSame( 'recovered', $replay['status'] );
+		$this->assertSame( 'replayed', $replay['status'] );
 		$this->assertFalse( $replay['retryable'] );
-		$this->assertSame( 5, $replay['woocommerce']['attempted'] );
+		$this->assertArrayNotHasKey( 'woocommerce', $replay );
 		$this->assertSame( 0, $replay['pending_products'] );
 	}
 
@@ -964,7 +970,11 @@ final class ProductSyncReceiverTest extends TestCase {
         $result                    = Digitalogic_Product_Sync_Receiver::instance()->receive($payload);
         $this->assertSame('digitalogic_product_sync_unknown_field', $result->get_error_code());
 
-        $product                = array('product_code' => 'NULL-PRICE', 'final_price' => null, 'warnings' => array());
+		$product                = array(
+			'product_code' => 'NULL-PRICE',
+			'final_price'  => null,
+			'warnings'     => array(),
+		);
         $product['record_hash'] = $this->recordHash($product, true);
         $payload                = $this->snapshot(array($product), array(), true);
         $result                 = Digitalogic_Product_Sync_Receiver::instance()->receive($payload);

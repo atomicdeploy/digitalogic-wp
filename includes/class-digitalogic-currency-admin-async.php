@@ -28,9 +28,10 @@ final class Digitalogic_Currency_Admin_Async {
 	private const PUBLICATION_RETRY_MAX_SECONDS  = 60;
 	private const JOB_TTL_SECONDS                = 300;
 	private const LEASE_SECONDS                  = 120;
-	private const CLI_JOB_TTL_SECONDS            = 900;
-	private const CLI_EXECUTION_MODE             = 'wp_cli_sync';
-	private const ACF_OPTIONS_CONTEXT            = '_digitalogic_currency_options_context';
+	// Cooperative wall-clock budget; bounded work must check the claim between batches.
+	private const CLI_JOB_TTL_SECONDS = 60;
+	private const CLI_EXECUTION_MODE  = 'wp_cli_sync';
+	private const ACF_OPTIONS_CONTEXT = '_digitalogic_currency_options_context';
 
 	/**
 	 * Singleton instance.
@@ -790,7 +791,7 @@ final class Digitalogic_Currency_Admin_Async {
 				return $this->public_job_for_request( $stored, $request_id );
 			}
 			sleep( 1 );
-		} while ( time() <= (int) ( $stored['deadline_at'] ?? 0 ) );
+		} while ( time() < (int) ( $stored['deadline_at'] ?? 0 ) );
 
 		$this->run_watchdog(
 			(string) ( $stored['job_id'] ?? '' ),
@@ -915,10 +916,13 @@ final class Digitalogic_Currency_Admin_Async {
 
 		do_action( 'digitalogic_currency_async_worker_claimed', $this->public_job( $claim ) );
 		$guard = function ( $phase, $transaction_result = null ) use ( $claim ) {
+			// before_batch uses the same fenced check as before_write. A deadline
+			// error must unwind the transaction; it never authorizes a second writer.
 			return $this->validate_claim_for_actuation(
 				$claim,
 				'before_commit' === (string) $phase,
-				$transaction_result
+				$transaction_result,
+				'before_batch' === (string) $phase
 			);
 		};
 
@@ -1491,9 +1495,9 @@ final class Digitalogic_Currency_Admin_Async {
 	 * @return bool|WP_Error True when retained, false when no retention is needed.
 	 */
 	private function retain_running_job_while_pricing_lock_held( array $job, $now ) {
-		if (
-			'running' !== (string) ( $job['status'] ?? '' )
-			|| (int) ( $job['lease_until'] ?? 0 ) > (int) $now
+		$cli_deadline_due = $this->is_cli_sync_job( $job ) && (int) ( $job['deadline_at'] ?? 0 ) <= (int) $now;
+		if ( 'running' !== (string) ( $job['status'] ?? '' )
+			|| ( ! $cli_deadline_due && (int) ( $job['lease_until'] ?? 0 ) > (int) $now )
 			|| ! Digitalogic_Pricing_Service::coordination_lock_is_held()
 		) {
 			return false;
@@ -1501,11 +1505,13 @@ final class Digitalogic_Currency_Admin_Async {
 
 		$expected           = $job;
 		$job['lease_until'] = (int) $now + self::LEASE_SECONDS;
-		$job['deadline_at'] = max( (int) ( $job['deadline_at'] ?? 0 ), $job['lease_until'] + 1 );
-		$job['updated_at']  = (int) $now;
-		$job['error_code']  = '';
-		$job['message_fa']  = 'تراکنش قیمت فعال هنوز مالک اجرا است؛ همان fence بدون ایجاد تلاش هم‌پوشان ادامه می‌دهد.';
-		$stored             = $this->store_job_open_lock( $job, $expected );
+		if ( ! $this->is_cli_sync_job( $job ) ) {
+			$job['deadline_at'] = max( (int) ( $job['deadline_at'] ?? 0 ), $job['lease_until'] + 1 );
+		}
+		$job['updated_at'] = (int) $now;
+		$job['error_code'] = '';
+		$job['message_fa'] = 'تراکنش قیمت فعال هنوز مالک اجرا است؛ همان fence بدون ایجاد تلاش هم‌پوشان ادامه می‌دهد.';
+		$stored            = $this->store_job_open_lock( $job, $expected );
 		if ( is_wp_error( $stored ) ) {
 			return $stored;
 		}
@@ -2295,9 +2301,10 @@ final class Digitalogic_Currency_Admin_Async {
 	 * @param array $claim              Exact private worker claim.
 	 * @param bool  $mark_effect_commit Whether to persist the atomic commit marker.
 	 * @param mixed $transaction_result Pricing transaction result before commit.
+	 * @param bool $continuing_batch Whether an already-admitted transaction is continuing.
 	 * @return true|WP_Error
 	 */
-	private function validate_claim_for_actuation( array $claim, $mark_effect_commit, $transaction_result = null ) {
+	private function validate_claim_for_actuation( array $claim, $mark_effect_commit, $transaction_result = null, $continuing_batch = false ) {
 		global $wpdb;
 
 		$table = isset( $wpdb->options ) ? $wpdb->options : $wpdb->prefix . 'options';
@@ -2314,9 +2321,27 @@ final class Digitalogic_Currency_Admin_Async {
 			|| ! hash_equals( (string) ( $job['owner_token'] ?? '' ), (string) ( $claim['owner_token'] ?? '' ) )
 			|| ! hash_equals( (string) ( $job['fence_token'] ?? '' ), (string) ( $claim['fence_token'] ?? '' ) )
 			|| (int) ( $job['fence'] ?? 0 ) !== (int) ( $claim['fence'] ?? 0 )
-			|| ( ! $mark_effect_commit && (int) ( $job['lease_until'] ?? 0 ) < $now )
-			|| (int) ( $job['deadline_at'] ?? 0 ) < $now
 		) {
+			return new WP_Error(
+				'digitalogic_currency_async_claim_lost',
+				'مالکیت یا مهلت کار قیمت پیش از ثبت از دست رفت.',
+				array( 'blocking' => true )
+			);
+		}
+		if ( $this->is_cli_sync_job( $job ) && (int) ( $job['deadline_at'] ?? 0 ) <= $now ) {
+			return new WP_Error(
+				'digitalogic_currency_cli_deadline_exceeded',
+				'مهلت ۶۰ ثانیه‌ای اجرای قیمت پایان یافت؛ تراکنش پیش از ثبت نهایی متوقف می‌شود.',
+				array( 'blocking' => true )
+			);
+		}
+		$expired_lease = ! $mark_effect_commit && (int) ( $job['lease_until'] ?? 0 ) < $now;
+		if ( $expired_lease && $continuing_batch && ! $this->is_cli_sync_job( $job )
+			&& Digitalogic_Pricing_Service::instance()->coordination_lock_is_owned()
+			&& Digitalogic_Product_Sync_Receiver::instance()->source_identity_lock_is_owned() ) {
+			$expired_lease = false;
+		}
+		if ( $expired_lease || (int) ( $job['deadline_at'] ?? 0 ) < $now ) {
 			return new WP_Error(
 				'digitalogic_currency_async_claim_lost',
 				'مالکیت یا مهلت کار قیمت پیش از ثبت از دست رفت.',

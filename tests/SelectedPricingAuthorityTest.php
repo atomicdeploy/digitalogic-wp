@@ -9,14 +9,153 @@ use PHPUnit\Framework\TestCase;
 
 /** Exercise authority selection through real receiver and coordinator methods. */
 final class SelectedPricingAuthorityTest extends TestCase {
-	/** A newer committed owner revision replaces prices without reviving old input. */
+
+	/**
+	 * A full source retry delivers every known leaf in one real SQL transaction.
+	 */
+	public function test_full_source_delivery_batches_more_than_twenty_five_known_products(): void {
+		$payload = $this->seed_ingress_batch();
+		$GLOBALS['digitalogic_test_options']['yuan_price']         = '29501';
+		$GLOBALS['digitalogic_test_options']['options_yuan_price'] = '29501';
+		$GLOBALS['digitalogic_test_wc_product_saves']              = array();
+		$GLOBALS['wpdb']->queries                                  = array();
+		$receipts = array();
+		add_action(
+			'digitalogic_product_sync_applied',
+			function ( $receipt ) use ( &$receipts ) {
+				$this->assertFalse( Digitalogic_Product_Sync_Receiver::instance()->source_identity_lock_is_owned() );
+				$this->assertFalse( Digitalogic_Pricing_Service::coordination_lock_is_held() );
+				$receipts[] = $receipt;
+			}
+		);
+		$result = Digitalogic_Product_Sync_Receiver::instance()->receive( $payload );
+		$this->assert_success( $result );
+		$this->assertSame( 30, $result['woocommerce']['updated'] );
+		$this->assertSame( 1, $result['woocommerce']['batch_count'] );
+		$this->assertSame( 0, $result['pending_products'] );
+		$this->assertSame( 'complete', $result['delivery']['status'] );
+		$this->assertSame( array(), $GLOBALS['digitalogic_test_wc_product_saves'] );
+		$this->assertCount( 1, $receipts );
+		$this->assertSame( 1, count( array_filter( $GLOBALS['wpdb']->queries, static fn( $query ) => 'START TRANSACTION' === $query ) ) );
+		$this->assertSame( 1, count( array_filter( $GLOBALS['wpdb']->queries, static fn( $query ) => 'COMMIT' === $query ) ) );
+		for ( $id = 20000; $id < 20030; ++$id ) {
+			$this->assertSame( '8437286', (string) get_post_meta( $id, '_price', true ) );
+		}
+		$again = Digitalogic_Product_Sync_Receiver::instance()->receive( $payload );
+		$this->assert_success( $again );
+		$this->assertSame( 'replayed', $again['status'] );
+		$this->assertCount( 2, $receipts );
+	}
+
+	/**
+	 * Operational changes keep the full-feed writer while safe peers stay batched.
+	 */
+	public function test_full_source_batch_preserves_changed_operational_fields(): void {
+		$payload = $this->seed_ingress_batch();
+		$GLOBALS['digitalogic_test_options']['yuan_price']         = '29501';
+		$GLOBALS['digitalogic_test_options']['options_yuan_price'] = '29501';
+		$products            = $payload['products'];
+		$products[0]['name'] = 'Changed operational name';
+		unset( $products[0]['record_hash'] );
+		$products[0]['record_hash']                   = $this->record_hash( $products[0] );
+		$GLOBALS['digitalogic_test_wc_product_saves'] = array();
+		$result                                       = Digitalogic_Product_Sync_Receiver::instance()->receive( $this->snapshot( $products, '2026-07-22T00:00:00Z' ) );
+		$this->assert_success( $result );
+		$this->assertSame( 1, $result['woocommerce']['batch_count'] );
+		$this->assertSame( 30, $result['woocommerce']['updated'] );
+		$this->assertSame( array( 20000 ), array_values( array_unique( $GLOBALS['digitalogic_test_wc_product_saves'] ) ) );
+		$this->assertSame( 'Changed operational name', get_post_meta( 20000, '_digitalogic_patris_name', true ) );
+		$this->assertSame( '8437286', (string) get_post_meta( 20000, '_price', true ) );
+	}
+
+	/**
+	 * Unavailable prices use the normal preservation policy alongside batched peers.
+	 */
+	public function test_full_source_batch_preserves_unavailable_price(): void {
+		$payload = $this->seed_ingress_batch();
+		$GLOBALS['digitalogic_test_options']['yuan_price']         = '29501';
+		$GLOBALS['digitalogic_test_options']['options_yuan_price'] = '29501';
+		$products = $payload['products'];
+		unset( $products[29]['weight_grams'], $products[29]['final_price'], $products[29]['record_hash'] );
+		$products[29]['warnings']                     = array( 'final_price_unavailable' );
+		$products[29]['record_hash']                  = $this->record_hash( $products[29] );
+		$GLOBALS['digitalogic_test_wc_product_saves'] = array();
+		$result                                       = Digitalogic_Product_Sync_Receiver::instance()->receive( $this->snapshot( $products, '2026-07-22T00:00:00Z' ) );
+		$this->assert_success( $result );
+		$this->assertSame( 1, $result['woocommerce']['batch_count'] );
+		$this->assertSame( 30, $result['woocommerce']['updated'] );
+		$this->assertSame( 0, $result['pending_products'] );
+		$this->assertSame( 'complete', $result['delivery']['status'] );
+		$this->assertSame( array( 20029 ), array_values( array_unique( $GLOBALS['digitalogic_test_wc_product_saves'] ) ) );
+		$this->assertSame( '8437000', (string) get_post_meta( 20029, '_price', true ) );
+		$this->assertSame( '8437286', (string) get_post_meta( 20000, '_price', true ) );
+	}
+
+	/**
+	 * Batch failure restores source, prices and deferred events together.
+	 */
+	public function test_full_source_batch_failure_rolls_back_without_receipt(): void {
+		$payload  = $this->seed_ingress_batch();
+		$receiver = Digitalogic_Product_Sync_Receiver::instance();
+		$before   = $receiver->get_state();
+		$GLOBALS['digitalogic_test_options']['yuan_price']         = '29501';
+		$GLOBALS['digitalogic_test_options']['options_yuan_price'] = '29501';
+		$events = count( $GLOBALS['digitalogic_test_actions']['digitalogic_product_sync_applied'] ?? array() );
+		$GLOBALS['digitalogic_test_pricing_batch_lookup_readback_failure'] = true;
+		try {
+			$result = $receiver->receive( $payload );
+		} finally {
+			unset( $GLOBALS['digitalogic_test_pricing_batch_lookup_readback_failure'] );
+		}
+		$this->assertInstanceOf( WP_Error::class, $result );
+		$this->assertSame( $before, $receiver->get_state() );
+		$this->assertSame( $events, count( $GLOBALS['digitalogic_test_actions']['digitalogic_product_sync_applied'] ?? array() ) );
+		for ( $id = 20000; $id < 20030; ++$id ) {
+			$this->assertSame( '8437000', (string) get_post_meta( $id, '_price', true ) );
+		}
+	}
+
+	/**
+	 * Seed via the actual ingress writer so ownership and operational metadata are real.
+	 */
+	private function seed_ingress_batch() {
+		remove_all_filters( 'digitalogic_patris_auto_materialize_source_product' );
+		$products = array();
+		for ( $offset = 0; $offset < 30; ++$offset ) {
+			$code = sprintf( 'INGRESS-%03d', $offset );
+			$GLOBALS['digitalogic_test_posts'][ 20000 + $offset ] = array(
+				'post_type'   => 'product',
+				'post_status' => 'publish',
+				'post_title'  => $code,
+				'meta'        => array(
+					'_digitalogic_patris_product_code' => $code,
+					'_sku'                             => $code,
+					Digitalogic_Shipping_Method_Service::PRODUCT_METHOD_META => 'air_express',
+				),
+			);
+			$products[] = $this->priced_product( $code );
+		}
+		$payload = $this->snapshot( $products, '2026-07-21T00:00:00Z' );
+		$this->assert_success( Digitalogic_Product_Sync_Receiver::instance()->receive( $payload ) );
+		return $payload;
+	}
+
+	/**
+	 * A newer committed owner revision replaces prices without reviving old input.
+	 */
 	public function test_new_go_owner_delivery_supersedes_old_receipt(): void {
 		$GLOBALS['digitalogic_test_options'][ Digitalogic_Pricing_Coordinator::AUTHORITY_OPTION ] = 'go';
 		$receiver = Digitalogic_Product_Sync_Receiver::instance();
 		$old      = $this->snapshot( array( $this->priced_product( 'PRICE-901' ), $this->priced_product( 'MISSING-902' ) ), '2026-07-21T00:00:00Z' );
 		$this->assert_success( $receiver->receive( $old ) );
 		$this->assertSame( 'pending', $receiver->get_delivery_receipt( 'pricing-tests', 'kala' )['status'] );
-		$committed = Digitalogic_Pricing_Coordinator::instance()->update_currency( array( 'yuan_price' => '31000', 'effective_date' => '2026-07-22' ), 'owner-supersession-test' );
+		$committed = Digitalogic_Pricing_Coordinator::instance()->update_currency(
+			array(
+				'yuan_price'     => '31000',
+				'effective_date' => '2026-07-22',
+			),
+			'owner-supersession-test'
+		);
 		$this->assert_success( $committed );
 		$this->assertSame( 'awaiting_delivery', $committed['status'] );
 		$stale = $receiver->receive( $old );
@@ -135,13 +274,17 @@ final class SelectedPricingAuthorityTest extends TestCase {
 				$observed[] = $result;
 			}
 		);
-		$this->assertTrue( $receiver->acquire_source_identity_lock() );
-		$this->assert_success( $receiver->receive( $payload ) );
+		$result = Digitalogic_Pricing_Service::instance()->with_source_delivery_lock(
+			function () use ( $receiver, $payload, &$observed ) {
+				$result = $receiver->receive( $payload );
 		$this->assertSame( array(), $observed );
-		$receiver->release_source_identity_lock();
+				return $result;
+			}
+		);
+		$this->assert_success( $result );
 		$this->assertCount( 1, $observed );
 		$observed = array();
-		$failed   = $receiver->with_coordinated_pricing_lock(
+		$failed   = Digitalogic_Pricing_Service::instance()->with_source_delivery_lock(
 			function () use ( $receiver, $payload, &$observed ) {
 				$this->assert_success( $receiver->receive( $payload ) );
 				$this->assertSame( array(), $observed );
@@ -432,7 +575,7 @@ final class SelectedPricingAuthorityTest extends TestCase {
 	 * @param mixed $result Operation result.
 	 */
 	private function assert_success( $result ): void {
-		$this->assertNotInstanceOf( WP_Error::class, $result, is_wp_error( $result ) ? $result->get_error_code() . ': ' . $result->get_error_message() : '' );
+		$this->assertNotInstanceOf( WP_Error::class, $result, is_wp_error( $result ) ? $result->get_error_code() . ': ' . $result->get_error_message() . ' ' . wp_json_encode( $result->get_error_data() ) : '' );
 	}
 
 	/**

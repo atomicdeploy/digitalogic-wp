@@ -1671,10 +1671,11 @@ class Digitalogic_Patris_Feed {
 	 * per-product save or hook fan-out occurs. Managed postmeta and the Woo
 	 * lookup projection are replaced in chunks and verified with bulk reads.
 	 *
-	 * @param array $items Rows with product and canonical data members.
+	 * @param array         $items Rows with product and canonical data members.
+	 * @param callable|null $actuation_guard Optional caller-owned deadline/fence checkpoint.
 	 * @return array|WP_Error
 	 */
-	public function apply_product_pricing_batch( $items ) {
+	public function apply_product_pricing_batch( $items, $actuation_guard = null ) {
 		if ( ! is_array( $items ) || empty( $items ) ) {
 			return array(
 				'updated_ids' => array(),
@@ -1685,7 +1686,7 @@ class Digitalogic_Patris_Feed {
 		}
 
 		return Digitalogic_Patris_Price_Write_Guard::instance()->with_authorized_write(
-			function () use ( $items ) {
+			function () use ( $items, $actuation_guard ) {
 				global $wpdb;
 				if (
 					! is_object( $wpdb )
@@ -1708,6 +1709,12 @@ class Digitalogic_Patris_Feed {
 				$additional_managed_keys = array();
 				$variation_parents       = array();
 				foreach ( $items as $item ) {
+					if ( 0 === count( $plans ) % 200 ) {
+						$guarded = $this->check_pricing_batch_guard( $actuation_guard );
+						if ( is_wp_error( $guarded ) ) {
+							return $guarded;
+						}
+					}
 					$product = $item['product'] ?? null;
 					$data    = is_array( $item['data'] ?? null ) ? $item['data'] : array();
 					if (
@@ -1954,6 +1961,10 @@ class Digitalogic_Patris_Feed {
 						'lookup_price' => '' === trim( $visible ) ? null : $visible,
 					);
 				}
+				$guarded = $this->check_pricing_batch_guard( $actuation_guard );
+				if ( is_wp_error( $guarded ) ) {
+					return $guarded;
+				}
 				$parent_plans = $this->pricing_batch_parent_lookup_plans(
 					$plans,
 					$variation_parents
@@ -2000,6 +2011,10 @@ class Digitalogic_Patris_Feed {
 				$shipping_meta_ids = array_values( array_unique( array_filter( $shipping_meta_ids ) ) );
 				sort( $shipping_meta_ids, SORT_NUMERIC );
 				foreach ( array_chunk( $plans, 200, true ) as $chunk ) {
+					$guarded = $this->check_pricing_batch_guard( $actuation_guard );
+					if ( is_wp_error( $guarded ) ) {
+						return $guarded;
+					}
 					++$batch_count;
 					$ids         = array_keys( $chunk );
 					$parent_args = array();
@@ -2068,6 +2083,10 @@ class Digitalogic_Patris_Feed {
 
 				}
 
+				$guarded = $this->check_pricing_batch_guard( $actuation_guard );
+				if ( is_wp_error( $guarded ) ) {
+					return $guarded;
+				}
 				if ( ! empty( $parent_plans ) ) {
 					$parent_written = $this->write_pricing_batch_parent_lookups( $parent_plans, false );
 					if ( is_wp_error( $parent_written ) ) {
@@ -2075,6 +2094,10 @@ class Digitalogic_Patris_Feed {
 					}
 				}
 
+				$guarded = $this->check_pricing_batch_guard( $actuation_guard );
+				if ( is_wp_error( $guarded ) ) {
+					return $guarded;
+				}
 				$ids              = array_keys( $plans );
 				$parent_read_sql  = '';
 				$parent_read_args = array();
@@ -2117,6 +2140,10 @@ class Digitalogic_Patris_Feed {
 					return $this->pricing_batch_error( 'shipping_dedupe_readback' );
 				}
 
+				$guarded = $this->check_pricing_batch_guard( $actuation_guard );
+				if ( is_wp_error( $guarded ) ) {
+					return $guarded;
+				}
 				$lookup_plans    = $plans + $parent_plans;
 				$lookup_ids      = array_keys( $lookup_plans );
 				$lookup_read_sql = "/* digitalogic_pricing_batch_lookup_readback */ SELECT product_id, min_price, max_price, onsale FROM {$lookup_table} WHERE product_id IN (" . implode( ',', array_fill( 0, count( $lookup_ids ), '%d' ) ) . ') ORDER BY product_id';
@@ -2135,6 +2162,27 @@ class Digitalogic_Patris_Feed {
 					'commit_snapshots' => $commit_snapshots,
 				);
 			}
+		);
+	}
+
+	/**
+	 * Ask the transaction owner whether another bounded pricing step may run.
+	 *
+	 * @param callable|null $actuation_guard Existing transaction fence/deadline guard.
+	 * @return true|WP_Error Original rejection, without retry or delivery reclassification.
+	 */
+	private function check_pricing_batch_guard( $actuation_guard ) {
+		if ( null === $actuation_guard ) {
+			return true;
+		}
+		$guarded = is_callable( $actuation_guard ) ? call_user_func( $actuation_guard, 'before_batch' ) : false;
+		if ( true === $guarded || is_wp_error( $guarded ) ) {
+			return $guarded;
+		}
+		return new WP_Error(
+			'digitalogic_pricing_actuation_guard_rejected',
+			'The pricing transaction guard rejected the next batch.',
+			array( 'blocking' => true )
 		);
 	}
 
