@@ -171,7 +171,9 @@ final class Digitalogic_Pricing_Snapshot {
 			);
 		}
 
-		$source = $this->request_source( $request );
+		$discovery = '/digitalogic/pricing/sync/revision' === $request->get_route()
+			&& in_array( strtoupper( (string) $request->get_method() ), array( 'GET', 'HEAD' ), true );
+		$source = $this->request_source( $request, $discovery );
 		if ( is_wp_error( $source ) || ! $feed->verify_product_sync_request_for_source( $request, $source, false ) ) {
 			return $this->error(
 				'digitalogic_pricing_snapshot_unauthorized',
@@ -191,7 +193,7 @@ final class Digitalogic_Pricing_Snapshot {
 	 * @return array|WP_Error Transport result.
 	 */
 	public function revision( WP_REST_Request $request ) {
-		$source = $this->request_source( $request );
+		$source = $this->request_source( $request, true );
 		if ( is_wp_error( $source ) ) {
 			return $source;
 		}
@@ -215,7 +217,7 @@ final class Digitalogic_Pricing_Snapshot {
 
 		$discovery = Digitalogic_Pricing_Coordinator::instance()->with_repricing_lock(
 			function () use ( $source ) {
-				$resolved = Digitalogic_Pricing_Service::instance()->resolve_snapshot_source( $source );
+				$resolved = Digitalogic_Pricing_Service::instance()->resolve_snapshot_source( $source, true );
 				if ( is_wp_error( $resolved ) ) {
 					return $resolved;
 				}
@@ -4191,7 +4193,7 @@ final class Digitalogic_Pricing_Snapshot {
 	}
 
 	/** Return and validate the explicit source from JSON or query parameters. */
-	private function request_source( WP_REST_Request $request ) {
+	private function request_source( WP_REST_Request $request, $allow_discovery = false ) {
 		$payload = $request->get_json_params();
 		$source  = is_array( $payload ) && is_array( $payload['source'] ?? null )
 			? $payload['source']
@@ -4203,7 +4205,7 @@ final class Digitalogic_Pricing_Snapshot {
 				'revision' => $request->get_param( 'source_revision' ),
 			);
 		}
-		$validated = Digitalogic_Pricing_Service::instance()->normalize_snapshot_source( $source );
+		$validated = Digitalogic_Pricing_Service::instance()->normalize_snapshot_source( $source, $allow_discovery );
 
 		return $validated;
 	}

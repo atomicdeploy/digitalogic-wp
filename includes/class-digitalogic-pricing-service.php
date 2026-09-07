@@ -744,7 +744,19 @@ final class Digitalogic_Pricing_Service {
 	 * @param mixed $source Raw source identity.
 	 * @return array|WP_Error
 	 */
-	public function normalize_snapshot_source( $source ) {
+	public function normalize_snapshot_source( $source, $allow_discovery = false ) {
+		// GET revision discovery authenticates an exact scope before reading its
+		// stored revision. All build/page/write callers retain the strict default.
+		if ( $allow_discovery && is_array( $source ) && ! isset( $source['revision'] ) ) {
+			foreach ( array( 'id', 'dataset' ) as $field ) {
+				if ( ! isset( $source[ $field ] ) || ! is_string( $source[ $field ] )
+					|| '' === $source[ $field ] || trim( $source[ $field ] ) !== $source[ $field ]
+					|| strlen( $source[ $field ] ) > 191 ) {
+					return $this->error( 'digitalogic_pricing_sync_source_invalid', 'An exact source id and dataset are required for revision discovery.', 400 );
+				}
+			}
+			return array( 'id' => $source['id'], 'dataset' => $source['dataset'], 'revision' => null );
+		}
 		return $this->normalize_source( $source );
 	}
 
@@ -754,12 +766,22 @@ final class Digitalogic_Pricing_Service {
 	 * @param array $source Requested source identity.
 	 * @return array|WP_Error
 	 */
-	public function resolve_snapshot_source( $source ) {
-		$requested = $this->normalize_source( $source );
+	public function resolve_snapshot_source( $source, $allow_discovery = false ) {
+		$requested = $this->normalize_snapshot_source( $source, $allow_discovery );
 		if ( is_wp_error( $requested ) ) {
 			return $requested;
 		}
 		$state = Digitalogic_Product_Sync_Receiver::instance()->get_source_state( $requested['id'], $requested['dataset'] );
+		if ( null === $requested['revision'] ) {
+			$current = $this->normalize_source( $state['source'] ?? null );
+			if ( is_wp_error( $current ) ) {
+				return $current;
+			}
+			if ( $current['id'] !== $requested['id'] || $current['dataset'] !== $requested['dataset'] ) {
+				return $this->error( 'digitalogic_pricing_sync_source_scope_conflict', 'The stored source does not match the authenticated discovery scope.', 409 );
+			}
+			$requested = $current;
+		}
 		$input = isset( $state['input_source'] ) ? $this->normalize_source( $state['input_source'] ) : null;
 		if ( is_wp_error( $input ) ) {
 			return $input;
