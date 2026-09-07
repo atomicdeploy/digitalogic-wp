@@ -96,9 +96,15 @@
 
         var onSearchStart = options.onSearchStart;
         var onSearchError = options.onSearchError;
+        var onHide = options.onHide;
         return $.extend({}, options, {
             triggerSelectOnValidInput: false,
             noCache: true,
+            onHide: function() {
+                var instance = $(this).data('autocomplete');
+                if (instance) { instance.suggestions = []; }
+                if (onHide) { return onHide.apply(this, arguments); }
+            },
             onSearchError: function(query, xhr, status) {
                 $(this).closest('form').removeClass('wd-search-loading');
                 var instance = $(this).data('autocomplete');

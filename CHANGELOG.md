@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.87] - 2026-09-07
+
+### Fixed
+- Discard hidden autocomplete suggestions so keyboard reopening cannot bypass fresh price validation.
+
 ## [1.8.86] - 2026-09-07
 
 ### Fixed
