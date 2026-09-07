@@ -20,6 +20,18 @@ final class ProductSyncReceiverTest extends TestCase {
         $GLOBALS['digitalogic_test_wc_product_saves']     = array();
         $GLOBALS['digitalogic_test_wc_save_failures']     = array();
 
+		// WooCommerce installs this stock-visibility term before product writes.
+		$GLOBALS['digitalogic_test_terms'] = array(
+			990001 => array(
+				'term_id'  => 990001,
+				'taxonomy' => 'product_visibility',
+				'slug'     => 'outofstock',
+				'name'     => 'Out of stock',
+			),
+		);
+		$GLOBALS['digitalogic_test_object_terms'] = array();
+		$GLOBALS['digitalogic_test_term_meta']     = array();
+
 		$GLOBALS['digitalogic_test_options'][ Digitalogic_Pricing_Coordinator::AUTHORITY_OPTION ] = 'go';
 
 		$GLOBALS['digitalogic_test_wc_lookup_rows']               = array();
@@ -935,7 +947,7 @@ final class ProductSyncReceiverTest extends TestCase {
 			$this->snapshot( $products, array(), true, '2026-07-20T00:01:00Z' )
 		);
 
-		$this->assertNotInstanceOf( WP_Error::class, $second );
+		$this->assertNotInstanceOf( WP_Error::class, $second, is_wp_error( $second ) ? $second->get_error_code() . ':' . wp_json_encode( $second->get_error_data() ) : '' );
 		$this->assertSame( 1, $second['woocommerce']['updated'] );
 		$this->assertSame( '123500', (string) get_post_meta( 711, '_digitalogic_patris_final_price', true ) );
 		$this->assertSame( '949661', (string) get_post_meta( 711, '_digitalogic_patris_price_source_amount', true ) );
