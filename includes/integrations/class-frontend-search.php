@@ -9,7 +9,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class Digitalogic_Frontend_Search {
 
-	private static $instance = null;
+	private static $instance      = null;
 	private $invalidation_pending = false;
 
 	private $public_actions = array(
@@ -126,6 +126,7 @@ class Digitalogic_Frontend_Search {
 	}
 
 	/** Cache search work, with an authoritative generation fence and fresh price readback. */
+	// phpcs:disable WordPress.Security.NonceVerification.Recommended -- Public read-only search; settings writes use the WordPress Settings API nonce and manage_options.
 	public function serve_search() {
 		if ( ! class_exists( 'XTS\\Modules\\Search\\Ajax_Search' ) ) {
 			return;
@@ -225,6 +226,7 @@ class Digitalogic_Frontend_Search {
 		);
 		wp_send_json( $result );
 	}
+	// phpcs:enable WordPress.Security.NonceVerification.Recommended
 
 	public function allow_public_search_command( $requires_auth, $command, $payload, $transport ) {
 		if ( $transport === 'websocket' && in_array( $command, $this->public_actions, true ) ) {
