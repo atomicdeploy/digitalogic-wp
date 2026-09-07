@@ -240,7 +240,7 @@ class Digitalogic_Command_Dispatcher {
             'updated_at'       => $options->get_update_date_formatted(),
             'woocommerce_base' => Digitalogic_WooCommerce_Currency_Status::instance()->get_status(),
         );
-        $state   = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
+        $state   = Digitalogic_Pricing_Service::instance()->current_canonical_state();
         if (!is_wp_error($state)) {
             $data['dollar_price']           = $state['settings']['dollar_price'];
             $data['yuan_price']             = $state['settings']['yuan_price'];
@@ -248,13 +248,6 @@ class Digitalogic_Command_Dispatcher {
             $data['usd_effective_date']     = $state['settings']['usd_effective_date'];
             $data['cny_effective_date']     = $state['settings']['cny_effective_date'];
             $data['profit_margin_percent']  = $state['settings']['profit_margin_percent'];
-            $data['default_profit_percent'] = $state['settings']['profit_margin_percent'];
-            $data['deprecated_aliases']     = array(
-                'default_profit_percent' => array(
-                    'replacement' => 'profit_margin_percent',
-                    'equivalent'  => true,
-                ),
-            );
             $data['state_revision']         = $state['state_revision'];
             $data['freshness']              = $state['freshness'];
             $data['rate_provenance']        = $state['rate_provenance'];

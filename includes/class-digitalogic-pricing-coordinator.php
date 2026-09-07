@@ -109,7 +109,7 @@ final class Digitalogic_Pricing_Coordinator {
 			);
 		}
 
-		$settings = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_settings();
+		$settings = Digitalogic_Pricing_Service::instance()->current_canonical_settings();
 		if ( is_wp_error( $settings ) ) {
 			return $settings;
 		}
@@ -170,7 +170,7 @@ final class Digitalogic_Pricing_Coordinator {
 			}
 		}
 
-		return Digitalogic_Excel_Pricing_Sync::instance()->apply_internal_settings(
+		return Digitalogic_Pricing_Service::instance()->apply_internal_settings(
 			$settings,
 			$this->source_label( $source ),
 			$expected_revision,
@@ -187,14 +187,14 @@ final class Digitalogic_Pricing_Coordinator {
 	 * @return array|WP_Error
 	 */
 	public function update_air_express_shipping( $price_per_kg, $currency, $source = 'wp' ) {
-		$settings = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_settings();
+		$settings = Digitalogic_Pricing_Service::instance()->current_canonical_settings();
 		if ( is_wp_error( $settings ) ) {
 			return $settings;
 		}
 		$settings['air_express_price_per_kg'] = $price_per_kg;
 		$settings['air_express_currency']     = $currency;
 
-		return Digitalogic_Excel_Pricing_Sync::instance()->apply_internal_settings(
+		return Digitalogic_Pricing_Service::instance()->apply_internal_settings(
 			$settings,
 			$this->source_label( $source )
 		);
@@ -219,13 +219,13 @@ final class Digitalogic_Pricing_Coordinator {
 			);
 		}
 
-		$settings = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_settings( $value );
+		$settings = Digitalogic_Pricing_Service::instance()->current_canonical_settings( $value );
 		if ( is_wp_error( $settings ) ) {
 			return $settings;
 		}
 		$settings['profit_margin_percent'] = $value;
 
-		return Digitalogic_Excel_Pricing_Sync::instance()->apply_internal_settings(
+		return Digitalogic_Pricing_Service::instance()->apply_internal_settings(
 			$settings,
 			$this->source_label( $source )
 		);
@@ -239,14 +239,14 @@ final class Digitalogic_Pricing_Coordinator {
 	 * @return array|WP_Error
 	 */
 	public function update_price_rounding( $digits, $source = 'wp' ) {
-		$settings = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_settings();
+		$settings = Digitalogic_Pricing_Service::instance()->current_canonical_settings();
 		if ( is_wp_error( $settings ) ) {
 			return $settings;
 		}
 		$settings['price_rounding_digits'] = $digits;
 		$settings['price_rounding_mode']   = Digitalogic_Shipping_Method_Service::ROUNDING_MODE;
 
-		return Digitalogic_Excel_Pricing_Sync::instance()->apply_internal_settings(
+		return Digitalogic_Pricing_Service::instance()->apply_internal_settings(
 			$settings,
 			$this->source_label( $source )
 		);
@@ -274,12 +274,12 @@ final class Digitalogic_Pricing_Coordinator {
 	 * @return array|WP_Error
 	 */
 	public function reconcile_current( $source = 'wp_reconcile', $expected_revision = null, $actuation_guard = null ) {
-		$settings = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_settings();
+		$settings = Digitalogic_Pricing_Service::instance()->current_canonical_settings();
 		if ( is_wp_error( $settings ) ) {
 			return $settings;
 		}
 
-		return Digitalogic_Excel_Pricing_Sync::instance()->apply_internal_settings(
+		return Digitalogic_Pricing_Service::instance()->apply_internal_settings(
 			$settings,
 			$this->source_label( $source ),
 			$expected_revision,
@@ -488,7 +488,7 @@ final class Digitalogic_Pricing_Coordinator {
 			return $old_value;
 		}
 
-		$settings = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_settings();
+		$settings = Digitalogic_Pricing_Service::instance()->current_canonical_settings();
 		if ( is_wp_error( $settings ) ) {
 			$this->publish_legacy_write_failure( $option, $settings->get_error_code() );
 
@@ -532,7 +532,7 @@ final class Digitalogic_Pricing_Coordinator {
 			return $old_value;
 		}
 
-		$settings = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_settings();
+		$settings = Digitalogic_Pricing_Service::instance()->current_canonical_settings();
 		if ( is_wp_error( $settings ) ) {
 			$this->publish_legacy_write_failure( $option, $settings->get_error_code() );
 

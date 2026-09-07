@@ -898,7 +898,7 @@ final class WebSocketLifecycleTest extends TestCase {
 		$reset = $this->decode_websocket_frame(fread($pair[1], 8192));
 
 		$this->assertSame('pricing.stream.reset', $reset['event']);
-		$this->assertSame('digitalogic.pricing-stream-reset/v1', $reset['data']['schema']);
+		$this->assertSame('digitalogic.pricing-stream-reset', $reset['data']['schema']);
 		$this->assertSame(202, $reset['data']['cursor']);
 		$this->assertSame(201, $reset['data']['oldest_event_id']);
 		$this->assertTrue($reset['data']['revision_validation_required']);

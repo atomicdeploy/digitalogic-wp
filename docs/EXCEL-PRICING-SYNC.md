@@ -73,7 +73,7 @@ idempotency, integrity fields, and adapter mapping requirements.
 
 ## Request envelope
 
-The request schema is `digitalogic.pricing-sync-request/v1`.
+The request schema is `digitalogic.pricing-sync-request`.
 `schema_version` is `1`, `operation` matches the route name, and `source`
 contains exactly `id`, `dataset`, and a `sha256:` revision.
 
@@ -83,7 +83,7 @@ locale values.
 
 ```json
 {
-  "schema": "digitalogic.pricing-sync-request/v1",
+  "schema": "digitalogic.pricing-sync-request",
   "schema_version": 1,
   "operation": "state",
   "source": {
@@ -101,7 +101,7 @@ The state data has this stable top-level shape:
 
 ```json
 {
-  "schema": "digitalogic.pricing-sync-state/v1",
+  "schema": "digitalogic.pricing-sync-state",
   "state_revision": "sha256:GLOBAL_SETTINGS_REVISION",
   "generated_at": "2026-07-26T12:00:00+00:00",
   "source": {
@@ -200,7 +200,7 @@ The `Idempotency-Key` header must exactly equal body `idempotency_key`.
 
 ```json
 {
-  "schema": "digitalogic.pricing-sync-request/v1",
+  "schema": "digitalogic.pricing-sync-request",
   "schema_version": 1,
   "operation": "preview",
   "source": {
@@ -254,7 +254,7 @@ string `APPLY`.
 
 ```json
 {
-  "schema": "digitalogic.pricing-sync-request/v1",
+  "schema": "digitalogic.pricing-sync-request",
   "schema_version": 1,
   "operation": "apply",
   "source": {
@@ -294,7 +294,7 @@ Preview and apply response data use:
 
 ```json
 {
-  "schema": "digitalogic.pricing-sync-preview/v1",
+  "schema": "digitalogic.pricing-sync-preview",
   "mode": "preview",
   "status": "confirmation_required",
   "state_revision": "sha256:GLOBAL_SETTINGS_REVISION",

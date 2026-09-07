@@ -120,7 +120,7 @@ final class PricingSnapshotTest extends TestCase {
 			array(
 				Digitalogic_Pricing_Snapshot::class,
 				Digitalogic_Report_Engine::class,
-				Digitalogic_Excel_Pricing_Sync::class,
+				Digitalogic_Pricing_Service::class,
 				Digitalogic_REST_API::class,
 				Digitalogic_Patris_Feed::class,
 				Digitalogic_Product_Sync_Receiver::class,
@@ -902,7 +902,7 @@ final class PricingSnapshotTest extends TestCase {
 
 	/** An exact publication marker cannot silently publish a later pricing state. */
 	public function test_state_event_publication_is_fenced_by_exact_pricing_revision(): void {
-		$pricing_revision = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state()['state_revision'];
+		$pricing_revision = Digitalogic_Pricing_Service::instance()->current_canonical_state()['state_revision'];
 		$result           = array(
 			'effect_id'      => 'sha256:' . str_repeat( '2', 64 ),
 			'state_revision' => $pricing_revision,
@@ -926,7 +926,7 @@ final class PricingSnapshotTest extends TestCase {
 		$failures = $GLOBALS['digitalogic_test_actions']['digitalogic_pricing_state_event_failed'] ?? array();
 		$this->assertSame( 'digitalogic_pricing_state_revision_conflict', end( $failures )[0] );
 
-		$current_revision = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state()['state_revision'];
+		$current_revision = Digitalogic_Pricing_Service::instance()->current_canonical_state()['state_revision'];
 		$this->assertNotSame( $pricing_revision, $current_revision );
 		$this->assertTrue( Digitalogic_Pricing_Snapshot::instance()->ensure_state_revision_event( $current_revision ) );
 		Digitalogic_Pricing_Snapshot::instance()->publish_scheduled_state_revision_events();
@@ -1261,7 +1261,7 @@ final class PricingSnapshotTest extends TestCase {
 		$this->assertSame( 304, $page_304->get_status() );
 		$this->assertArrayHasKey( 'Cache-Control', $page_304->get_headers() );
 
-		do_action( 'digitalogic_excel_pricing_apply_committed', array( 'status' => 'applied' ) );
+		do_action( 'digitalogic_pricing_apply_committed', array( 'status' => 'applied' ) );
 		$after_apply = $this->revision_response()->get_data()['state_revision'];
 		$this->assertNotSame( $revision, $after_apply );
 
@@ -1927,7 +1927,7 @@ final class PricingSnapshotTest extends TestCase {
 		$this->assertSame( array( 'ready', 'ready' ), array_column( array_column( $events, 'data' ), 'status' ) );
 		$this->assertCount( 2, array_unique( array_column( array_column( $events, 'data' ), 'idempotency_key' ) ) );
 
-		do_action( 'digitalogic_excel_pricing_apply_committed', array( 'status' => 'applied' ) );
+		do_action( 'digitalogic_pricing_apply_committed', array( 'status' => 'applied' ) );
 		delete_transient( 'doing_cron' );
 		$cancel_revision = $this->revision_response()->get_data()['state_revision'];
 		$cancel_id       = 'sha256:' . str_repeat( '5', 64 );

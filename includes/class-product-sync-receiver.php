@@ -11,6 +11,8 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
+require_once __DIR__ . '/pricing/Calculator.php';
+
 if (!class_exists('Digitalogic_Product_Identifier_Resolver')) {
     require_once __DIR__ . '/class-product-identifier-resolver.php';
 }
@@ -27,12 +29,16 @@ if (!class_exists('Digitalogic_Patris_Feed')) {
  * Go encoding/json byte-for-byte while still converting validated values for
  * WordPress storage and WooCommerce writes.
  */
-final class Digitalogic_Product_Sync_JSON_Number {
+final class Digitalogic_Product_Sync_JSON_Number implements \Stringable {
     /** @var string */
     public $value;
 
     public function __construct($value) {
         $this->value = (string) $value;
+    }
+
+    public function __toString(): string {
+        return $this->value;
     }
 }
 
@@ -232,6 +238,8 @@ final class Digitalogic_Product_Sync_JSON_Decoder {
 }
 
 class Digitalogic_Product_Sync_Receiver {
+    use \Digitalogic\Pricing\ExactDecimalArithmetic;
+
 	public const STATE_OPTION  = 'digitalogic_product_sync_state';
     public const CONTRACT_NAME = 'patris.product-sync';
 	public const FORMULA_ID    = 'landed_price';
@@ -249,8 +257,8 @@ class Digitalogic_Product_Sync_Receiver {
 	private const MAX_DELIVERY_PRODUCTS_PER_REQUEST = 25;
 	private const MATERIALIZATION_CURSOR_KEY = 'materialization_scan_cursor';
 	private const MAX_CODE_LENGTH            = 191;
-    private const MAX_FORMULA_INTEGER_DIGITS = 15;
-	private const MAX_FORMULA_SCALE          = 12;
+
+
 	private const MAX_MARKUP_PERCENT         = '1000';
 
     private const ENVELOPE_FIELDS = array(
@@ -1566,7 +1574,7 @@ class Digitalogic_Product_Sync_Receiver {
         $pricing_revision = $this->hash_identity(
             $this->encode_go_json(
                 array(
-                    'schema' => 'digitalogic.pricing-coordinator/v1',
+                    'schema' => 'digitalogic.pricing-coordinator',
                     'dollar_price' => $settings['dollar_price'],
                     'yuan_price' => $settings['yuan_price'],
                     'effective_date' => $settings['effective_date'],
@@ -1739,7 +1747,7 @@ class Digitalogic_Product_Sync_Receiver {
             $event_id = $this->hash_identity(
                 $this->encode_go_json(
                     array(
-                        'schema' => 'digitalogic.pricing-reconcile/v1',
+                        'schema' => 'digitalogic.pricing-reconcile',
                         'source' => $source,
                         'generated_at' => $generated_at,
                         'pricing_revision' => $pricing_revision,
@@ -2153,7 +2161,7 @@ class Digitalogic_Product_Sync_Receiver {
         }
 
         return array(
-            'schema' => 'digitalogic.pricing-reconcile-result/v1',
+            'schema' => 'digitalogic.pricing-reconcile-result',
             'status' => 'reconciled',
             'pricing_revision' => $pricing_revision,
             'source_count' => count($source_results),
@@ -2303,7 +2311,7 @@ class Digitalogic_Product_Sync_Receiver {
             } else {
                 $product['final_price'] = $calculated['value'];
             }
-            $validated = $this->validate_final_price_formula($product, $path, true);
+            $validated = $this->validate_final_price_formula($product, $path, true, $calculated);
             if (is_wp_error($validated)) {
                 return $validated;
             }
@@ -2363,7 +2371,7 @@ class Digitalogic_Product_Sync_Receiver {
         } else {
             $product['final_price'] = $calculated['value'];
         }
-        $validated = $this->validate_final_price_formula($product, $path, true);
+        $validated = $this->validate_final_price_formula($product, $path, true, $calculated);
         if (is_wp_error($validated)) {
             return $validated;
         }
@@ -5667,7 +5675,7 @@ class Digitalogic_Product_Sync_Receiver {
      * once. The opt-in sale_price_direct last fallback only converts the raw IRR
      * fact to contract IRT; it consumes no freight, markup, or rounding policy.
      */
-    private function validate_final_price_formula($product, $path, $pricing_active) {
+    private function validate_final_price_formula($product, $path, $pricing_active, $evaluated = null) {
         if (!$pricing_active) {
             return true;
         }
@@ -5818,7 +5826,11 @@ class Digitalogic_Product_Sync_Receiver {
             }
         }
 
-		$evaluated = $this->evaluate_final_price_formula( $product, $path );
+		// Internal repricing already evaluated these exact inputs above. Incoming
+		// provider records still get an independent calculation on this boundary.
+		if ( null === $evaluated ) {
+			$evaluated = $this->evaluate_final_price_formula( $product, $path );
+		}
 		if ( is_wp_error( $evaluated ) ) {
 			return $evaluated;
 		}
@@ -5877,388 +5889,18 @@ class Digitalogic_Product_Sync_Receiver {
 	 * @return array|WP_Error
 	 */
     private function evaluate_final_price_formula($product, $path) {
-		$kind = isset( $product['price_source_kind'] ) && is_string( $product['price_source_kind'] )
-			? $product['price_source_kind']
-			: '';
-		if ( '' === $kind ) {
-			return array(
-				'available' => false,
-				'missing'   => array( 'price_source_kind' ),
-			);
-        }
-		if ( ! in_array( $kind, array( 'foreign_price', 'partner_price', 'sale_price_direct' ), true ) ) {
-			return $this->field_error( $path . '.price_source_kind', 'contains an unsupported selected price source' );
-		}
-
-        $source_fields = array('price_source_amount', 'price_source_currency', 'price_source_kind');
-        $missing = array();
-		foreach ( $source_fields as $field ) {
-			if ( ! array_key_exists( $field, $product ) || null === $product[ $field ] || '' === $product[ $field ] ) {
-                $missing[] = $field;
-            }
-		}
-		if ( ! empty( $missing ) ) {
-            return array(
-				'available' => false,
-				'missing'   => $missing,
-			);
-		}
-
-		$source_amount = $this->formula_decimal_parts( $product['price_source_amount'] );
-		if ( isset( $source_amount['error'] ) ) {
-			return $this->field_error( $path . '.price_source_amount', $source_amount['error'] );
-		}
-		if ( $this->decimal_compare( $source_amount, $this->formula_decimal_parts( '0' ) ) <= 0 ) {
-			return $this->field_error( $path . '.price_source_amount', 'must be greater than zero when selected' );
-		}
-
-		if ( 'foreign_price' === $kind ) {
-			if ( 'CNY' !== $product['price_source_currency'] ) {
-				return $this->field_error( $path . '.price_source_currency', 'must be CNY for foreign_price' );
-			}
-			$required = array(
-				'weight_grams',
-				'shipping_method_id',
-				'shipping_price_per_kg',
-				'shipping_price_per_kg_currency',
-				'markup_percent',
-				'irt_per_cny',
-				'price_rounding_digits',
-				'price_rounding_mode',
-			);
-		} elseif ( 'partner_price' === $kind ) {
-			if ( 'IRR' !== $product['price_source_currency'] ) {
-				return $this->field_error( $path . '.price_source_currency', 'must be IRR for partner_price' );
-			}
-			$required = array(
-				'shipping_method_id',
-				'shipping_price_per_kg',
-				'shipping_price_per_kg_currency',
-				'markup_percent',
-				'price_rounding_digits',
-				'price_rounding_mode',
-			);
-		} else {
-			if ( 'IRR' !== $product['price_source_currency'] ) {
-                return $this->field_error($path . '.price_source_currency', 'must be IRR for sale_price_direct');
-            }
-			$required = array(
-				'shipping_method_id',
-				'shipping_price_per_kg',
-				'shipping_price_per_kg_currency',
-			);
-        }
-		foreach ( $required as $field ) {
-			if ( ! array_key_exists( $field, $product ) || null === $product[ $field ] || '' === $product[ $field ] ) {
-				$missing[] = $field;
-            }
-		}
-
-		if ( 'foreign_price' === $kind ) {
-            if (
-				array_key_exists( 'shipping_method_id', $product )
-				&& (
-					'' === $product['shipping_method_id']
-					|| Digitalogic_Shipping_Method_Service::DOMESTIC_METHOD_ID === $product['shipping_method_id']
-				)
-            ) {
-				$missing[] = 'shipping_method_id';
-            }
-            if (
-				array_key_exists( 'shipping_price_per_kg_currency', $product )
-				&& ! in_array( $product['shipping_price_per_kg_currency'], array( 'CNY', 'IRR' ), true )
-            ) {
-				return $this->field_error(
-					$path . '.shipping_price_per_kg_currency',
-					'must be CNY or IRR for foreign freight pricing'
-				);
-            }
-        } else {
-            if (
-				array_key_exists( 'shipping_method_id', $product )
-				&& Digitalogic_Shipping_Method_Service::DOMESTIC_METHOD_ID !== $product['shipping_method_id']
-            ) {
-                $missing[] = 'shipping_method_id';
-            }
-            if (
-                array_key_exists('shipping_price_per_kg_currency', $product)
-				&& 'IRR' !== $product['shipping_price_per_kg_currency']
-            ) {
-                $missing[] = 'shipping_price_per_kg_currency';
+        // Provider lexemes are normalized at this boundary, never in the engine.
+        foreach ($product as $key => $value) {
+            if ($value instanceof Digitalogic_Product_Sync_JSON_Number) {
+                $product[$key] = $value->value;
             }
         }
-		$missing = array_values( array_unique( $missing ) );
-        if (!empty($missing)) {
-			return array(
-				'available' => false,
-				'missing'   => $missing,
-            );
+        try {
+            return (new \Digitalogic\Pricing\Calculator())->evaluate($product, $path);
+        } catch (\InvalidArgumentException $error) {
+            $parts = explode(': ', $error->getMessage(), 2);
+            return $this->field_error($parts[0], $parts[1] ?? $error->getMessage());
         }
-
-		$shipping_rate = $this->formula_decimal_parts( $product['shipping_price_per_kg'] );
-		if ( isset( $shipping_rate['error'] ) ) {
-			return $this->field_error( $path . '.shipping_price_per_kg', $shipping_rate['error'] );
-        }
-		if ( 'foreign_price' === $kind ) {
-			if ( $this->decimal_compare( $shipping_rate, $this->formula_decimal_parts( '0' ) ) <= 0 ) {
-				return array(
-					'available' => false,
-					'missing'   => array( 'shipping_price_per_kg' ),
-				);
-			}
-			$weight      = $this->formula_decimal_parts( $product['weight_grams'] );
-			$markup      = $this->formula_decimal_parts( $product['markup_percent'] );
-			$irt_per_cny = $this->formula_decimal_parts( $product['irt_per_cny'] );
-			foreach (
-				array(
-					'weight_grams'   => $weight,
-					'markup_percent' => $markup,
-					'irt_per_cny'    => $irt_per_cny,
-				) as $field => $decimal
-			) {
-                if (isset($decimal['error'])) {
-					return $this->field_error( $path . '.' . $field, $decimal['error'] );
-				}
-			}
-			if ( $this->decimal_compare( $weight, $this->formula_decimal_parts( '0' ) ) <= 0 ) {
-				return array(
-					'available' => false,
-					'missing'   => array( 'weight_grams' ),
-				);
-			}
-			if ( $this->decimal_compare( $irt_per_cny, $this->formula_decimal_parts( '0' ) ) <= 0 ) {
-				return $this->field_error( $path . '.irt_per_cny', 'must be greater than zero' );
-			}
-
-			$goods_irt               = $this->decimal_multiply( $source_amount, $irt_per_cny );
-			$shipping_cost           = $this->decimal_multiply( $weight, $shipping_rate );
-            $shipping_cost['scale'] += 3; // grams to kilograms, exactly.
-            if ('CNY' === $product['shipping_price_per_kg_currency']) {
-				$shipping_irt = $this->decimal_multiply( $shipping_cost, $irt_per_cny );
-            } else {
-				$shipping_irt           = $shipping_cost;
-                $shipping_irt['scale'] += 1; // IRR to IRT, exactly.
-            }
-			$base_irt = $this->decimal_add( $goods_irt, $shipping_irt );
-		} elseif ( 'partner_price' === $kind ) {
-			if ( 0 !== $this->decimal_compare( $shipping_rate, $this->formula_decimal_parts( '0' ) ) ) {
-				return array(
-					'available' => false,
-					'missing'   => array( 'shipping_price_per_kg' ),
-				);
-			}
-			$markup = $this->formula_decimal_parts( $product['markup_percent'] );
-			if ( isset( $markup['error'] ) ) {
-				return $this->field_error( $path . '.markup_percent', $markup['error'] );
-			}
-            $base_irt = $source_amount;
-            $base_irt['scale'] += 1; // IRR to IRT, exactly.
-        } else {
-			if ( 0 !== $this->decimal_compare( $shipping_rate, $this->formula_decimal_parts( '0' ) ) ) {
-				return array(
-					'available' => false,
-					'missing'   => array( 'shipping_price_per_kg' ),
-				);
-			}
-            $direct_irt = $source_amount;
-            $direct_irt['scale'] += 1; // IRR to IRT, exactly.
-            while ($direct_irt['scale'] > 0 && str_ends_with($direct_irt['digits'], '0')) {
-                $direct_irt['digits'] = substr($direct_irt['digits'], 0, -1);
-                --$direct_irt['scale'];
-            }
-            if ($direct_irt['scale'] > 0) {
-				return array(
-					'available' => false,
-                    'missing' => array('integer_irt_amount'),
-                );
-            }
-            if ($this->big_integer_compare($direct_irt['digits'], (string) PHP_INT_MAX) > 0) {
-                return $this->field_error($path . '.final_price', 'sale_price_direct exceeds the supported IRT integer range');
-            }
-
-			return array(
-				'available' => true,
-				'missing'   => array(),
-				'value'     => (int) $direct_irt['digits'],
-			);
-		}
-
-        if ($this->decimal_compare($markup, $this->formula_decimal_parts(self::MAX_MARKUP_PERCENT)) > 0) {
-			return $this->field_error( $path . '.markup_percent', 'must not exceed ' . self::MAX_MARKUP_PERCENT );
-		}
-		if (
-			! $this->is_nonnegative_integer( $product['price_rounding_digits'] )
-			|| (int) $this->number_to_storage( $product['price_rounding_digits'] ) > 9
-			|| 'nearest_half_up' !== $product['price_rounding_mode']
-		) {
-			return array(
-				'available' => false,
-				'missing'   => array( 'price_rounding_digits', 'price_rounding_mode' ),
-			);
-        }
-
-		$markup_multiplier   = $this->decimal_add(
-            $this->formula_decimal_parts('100'),
-			$markup
-        );
-		$marked_up           = $this->decimal_multiply( $base_irt, $markup_multiplier );
-        $marked_up['scale'] += 2; // percent to multiplier, exactly.
-        $rounding_digits = (int) $this->number_to_storage($product['price_rounding_digits']);
-        $rounded = $this->decimal_round_half_up_to_digits($marked_up, $rounding_digits);
-        if ($this->big_integer_compare($rounded, (string) PHP_INT_MAX) > 0) {
-            return $this->field_error($path . '.final_price', 'landed_price exceeds the supported IRT integer range');
-        }
-
-		return array(
-			'available' => true,
-			'missing'   => array(),
-			'value'     => (int) $rounded,
-		);
-    }
-
-    private function formula_decimal_parts($value) {
-        if ($value instanceof Digitalogic_Product_Sync_JSON_Number) {
-            $text = $value->value;
-        } elseif (is_string($value) || is_int($value)) {
-            $text = (string) $value;
-        } elseif (is_float($value) && is_finite($value)) {
-            $text = json_encode($value, JSON_THROW_ON_ERROR);
-        } else {
-            return array('error' => 'must be an exact base-10 decimal');
-        }
-        if (!preg_match('/^(0|[1-9][0-9]*)(?:\.([0-9]+))?$/', $text, $matches)) {
-            return array('error' => 'must be a non-negative base-10 decimal without exponent notation');
-        }
-
-		$integer        = $matches[1];
-		$fraction       = isset( $matches[2] ) ? $matches[2] : '';
-        $integer_digits = strlen(ltrim($integer, '0'));
-        if (0 === $integer_digits) {
-            $integer_digits = 1;
-        }
-        if ($integer_digits > self::MAX_FORMULA_INTEGER_DIGITS) {
-            return array('error' => 'has too many integer digits for landed_price');
-        }
-        if (strlen($fraction) > self::MAX_FORMULA_SCALE) {
-            return array('error' => 'has too many fractional digits for landed_price');
-        }
-
-		$scale  = strlen( $fraction );
-        $digits = ltrim($integer . $fraction, '0');
-        $digits = '' === $digits ? '0' : $digits;
-        while ($scale > 0 && str_ends_with($digits, '0')) {
-            $digits = substr($digits, 0, -1);
-            $scale--;
-        }
-        if ('' === $digits) {
-            $digits = '0';
-            $scale  = 0;
-        }
-
-        return array('digits' => $digits, 'scale' => $scale);
-    }
-
-    private function decimal_add($left, $right) {
-        $scale        = max((int) $left['scale'], (int) $right['scale']);
-		$left_digits  = $left['digits'] . str_repeat( '0', $scale - (int) $left['scale'] );
-        $right_digits = $right['digits'] . str_repeat('0', $scale - (int) $right['scale']);
-
-        return array('digits' => $this->big_integer_add($left_digits, $right_digits), 'scale' => $scale);
-    }
-
-    private function decimal_multiply($left, $right) {
-        return array(
-            'digits' => $this->big_integer_multiply($left['digits'], $right['digits']),
-			'scale'  => (int) $left['scale'] + (int) $right['scale'],
-        );
-    }
-
-    private function decimal_compare($left, $right) {
-        $scale        = max((int) $left['scale'], (int) $right['scale']);
-		$left_digits  = $left['digits'] . str_repeat( '0', $scale - (int) $left['scale'] );
-        $right_digits = $right['digits'] . str_repeat('0', $scale - (int) $right['scale']);
-
-        return $this->big_integer_compare($left_digits, $right_digits);
-    }
-
-    private function decimal_round_half_up_integer($decimal) {
-        $digits = $this->normalize_big_integer($decimal['digits']);
-		$scale  = (int) $decimal['scale'];
-        if ($scale <= 0) {
-            return $digits . str_repeat('0', -$scale);
-        }
-
-		$padded  = str_pad( $digits, $scale + 1, '0', STR_PAD_LEFT );
-        $cut     = strlen($padded) - $scale;
-        $integer = $this->normalize_big_integer(substr($padded, 0, $cut));
-        if ((int) $padded[$cut] >= 5) {
-            $integer = $this->big_integer_add($integer, '1');
-        }
-
-        return $integer;
-    }
-
-    private function decimal_round_half_up_to_digits($decimal, $digits) {
-        $scaled           = $decimal;
-        $scaled['scale'] += (int) $digits;
-        $rounded          = $this->decimal_round_half_up_integer($scaled);
-
-        return $this->normalize_big_integer($rounded . str_repeat('0', (int) $digits));
-    }
-
-    private function big_integer_add($left, $right) {
-		$left   = strrev( $this->normalize_big_integer( $left ) );
-		$right  = strrev( $this->normalize_big_integer( $right ) );
-        $length = max(strlen($left), strlen($right));
-		$carry  = 0;
-        $result = '';
-        for ($index = 0; $index < $length; $index++) {
-			$sum     = ( $index < strlen( $left ) ? (int) $left[ $index ] : 0 )
-                + ($index < strlen($right) ? (int) $right[$index] : 0)
-                + $carry;
-            $result .= (string) ($sum % 10);
-			$carry   = intdiv( $sum, 10 );
-        }
-        if ($carry > 0) {
-            $result .= (string) $carry;
-        }
-
-        return $this->normalize_big_integer(strrev($result));
-    }
-
-    private function big_integer_multiply($left, $right) {
-		$left  = $this->normalize_big_integer( $left );
-        $right = $this->normalize_big_integer($right);
-        if ('0' === $left || '0' === $right) {
-            return '0';
-        }
-
-        $result = array_fill(0, strlen($left) + strlen($right), 0);
-        for ($left_index = strlen($left) - 1; $left_index >= 0; $left_index--) {
-            for ($right_index = strlen($right) - 1; $right_index >= 0; $right_index--) {
-				$position                 = $left_index + $right_index + 1;
-				$sum                      = $result[ $position ] + ( (int) $left[ $left_index ] * (int) $right[ $right_index ] );
-				$result[ $position ]      = $sum % 10;
-                $result[$position - 1] += intdiv($sum, 10);
-            }
-        }
-
-        return $this->normalize_big_integer(implode('', $result));
-    }
-
-    private function big_integer_compare($left, $right) {
-        $left  = $this->normalize_big_integer($left);
-        $right = $this->normalize_big_integer($right);
-        if (strlen($left) !== strlen($right)) {
-            return strlen($left) <=> strlen($right);
-        }
-
-        return strcmp($left, $right) <=> 0;
-    }
-
-    private function normalize_big_integer($value) {
-        $value = ltrim((string) $value, '0');
-        return '' === $value ? '0' : $value;
     }
 
     // phpcs:disable -- Preserve the established receiver formatting while the legacy file remains baseline-managed.

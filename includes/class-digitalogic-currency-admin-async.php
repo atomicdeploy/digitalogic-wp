@@ -255,7 +255,7 @@ final class Digitalogic_Currency_Admin_Async {
 
 	/** Resolve a trusted effective date without traversing ACF option filters. */
 	private function canonical_acf_effective_date() {
-		$state = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
+		$state = Digitalogic_Pricing_Service::instance()->current_canonical_state();
 		if ( is_wp_error( $state ) ) {
 			return null;
 		}
@@ -282,7 +282,7 @@ final class Digitalogic_Currency_Admin_Async {
 		if ( ! $this->can_manage_currency() || ! $this->managed_pricing_active() ) {
 			return;
 		}
-		$state = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
+		$state = Digitalogic_Pricing_Service::instance()->current_canonical_state();
 		if ( is_wp_error( $state ) ) {
 			return;
 		}
@@ -398,7 +398,7 @@ final class Digitalogic_Currency_Admin_Async {
 	 * @return array|WP_Error Public job projection or error.
 	 */
 	public function enqueue( $yuan_price, $dispatch = true, $reconcile = false ) {
-		$state = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
+		$state = Digitalogic_Pricing_Service::instance()->current_canonical_state();
 		if ( is_wp_error( $state ) ) {
 			return $state;
 		}
@@ -581,9 +581,9 @@ final class Digitalogic_Currency_Admin_Async {
 
 					return $this->public_job_for_request( $existing, $request_id );
 				}
-				if ( Digitalogic_Excel_Pricing_Sync::coordination_lock_is_held() ) {
+				if ( Digitalogic_Pricing_Service::coordination_lock_is_held() ) {
 					return new WP_Error(
-						'digitalogic_excel_sync_busy',
+						'digitalogic_pricing_sync_busy',
 						'تراکنش قیمت دیگری هنوز در حال اجرا است؛ پس از آزاد شدن همان تراکنش دوباره تلاش کنید.',
 						array(
 							'blocking'    => false,
@@ -592,7 +592,7 @@ final class Digitalogic_Currency_Admin_Async {
 					);
 				}
 
-				$state = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
+				$state = Digitalogic_Pricing_Service::instance()->current_canonical_state();
 				if ( is_wp_error( $state ) ) {
 					return $state;
 				}
@@ -735,7 +735,7 @@ final class Digitalogic_Currency_Admin_Async {
 	 * @return array|WP_Error Terminal public job projection or enqueue error.
 	 */
 	public function execute_cli_currency( array $values, $force_recalculate, $expected_revision, $request_id ) {
-		$state = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
+		$state = Digitalogic_Pricing_Service::instance()->current_canonical_state();
 		if ( is_wp_error( $state ) ) {
 			return $state;
 		}
@@ -1021,7 +1021,7 @@ final class Digitalogic_Currency_Admin_Async {
 
 					return null;
 				}
-				$state = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
+				$state = Digitalogic_Pricing_Service::instance()->current_canonical_state();
 				if ( is_wp_error( $state ) ) {
 					return $this->record_publication_failure_open_lock(
 						$job,
@@ -1034,7 +1034,7 @@ final class Digitalogic_Currency_Admin_Async {
 				$current_revision = (string) ( $state['state_revision'] ?? '' );
 				$superseded       = ! hash_equals( (string) $state_revision, $current_revision );
 				if ( 'published' !== (string) ( $publication['status'] ?? '' ) ) {
-					$published = Digitalogic_Excel_Pricing_Sync::instance()->publish_internal_settings_effect(
+					$published = Digitalogic_Pricing_Service::instance()->publish_internal_settings_effect(
 						(array) ( $publication['payload'] ?? array() ),
 						$superseded,
 						$current_revision
@@ -1311,7 +1311,7 @@ final class Digitalogic_Currency_Admin_Async {
 		if ( ! is_wp_error( $result ) ) {
 			return false;
 		}
-		if ( in_array( $result->get_error_code(), array( 'digitalogic_product_sync_busy', 'digitalogic_excel_sync_busy' ), true ) ) {
+		if ( in_array( $result->get_error_code(), array( 'digitalogic_product_sync_busy', 'digitalogic_pricing_sync_busy' ), true ) ) {
 			return true;
 		}
 		if ( 'digitalogic_pricing_delivery_incomplete' !== $result->get_error_code() ) {
@@ -1339,7 +1339,7 @@ final class Digitalogic_Currency_Admin_Async {
 		if (
 			'running' !== (string) ( $job['status'] ?? '' )
 			|| (int) ( $job['lease_until'] ?? 0 ) > (int) $now
-			|| ! Digitalogic_Excel_Pricing_Sync::coordination_lock_is_held()
+			|| ! Digitalogic_Pricing_Service::coordination_lock_is_held()
 		) {
 			return false;
 		}
@@ -3031,7 +3031,7 @@ final class Digitalogic_Currency_Admin_Async {
 		$submitted_compact = 1 === preg_match( '/\A[0-9]{8}\z/D', $submitted_raw )
 			? $submitted_raw
 			: ( null === $submitted ? '' : $submitted->format( 'Ymd' ) );
-		$state             = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
+		$state             = Digitalogic_Pricing_Service::instance()->current_canonical_state();
 		if ( null === $stored || '' === $submitted_compact || is_wp_error( $state ) ) {
 			return $value;
 		}
@@ -3102,7 +3102,7 @@ final class Digitalogic_Currency_Admin_Async {
 		// authoritative state observed in this request; real ACF form posts must
 		// carry the server-rendered token or fail safely.
 		if ( ! isset( $_POST['acf'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Missing -- Presence distinguishes a form from an internal API call.
-			$state = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
+			$state = Digitalogic_Pricing_Service::instance()->current_canonical_state();
 
 			return is_wp_error( $state ) ? '' : (string) $state['state_revision'];
 		}

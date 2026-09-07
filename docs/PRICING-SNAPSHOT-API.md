@@ -62,7 +62,7 @@ state revision itself represents pricing-relevant state.
 
 ```json
 {
-  "schema": "digitalogic.pricing-sync-revision/v1",
+  "schema": "digitalogic.pricing-sync-revision",
   "schema_version": 1,
   "projection": "excel-v1",
   "projection_schema": "digitalogic.pricing-projection/excel-v1",
@@ -103,16 +103,16 @@ query string, workbook, VBA, event, response, or log. The resulting
 WordPress command. It receives only these exact-source event kinds:
 
 - `pricing.source.changed` with change `added` or `changed` and schema
-  `digitalogic.pricing-source-change/v1`;
+  `digitalogic.pricing-source-change`;
 - `pricing.source.removed` with change `removed` and the same source schema;
 - `pricing.state.changed` with schema
-  `digitalogic.pricing-state-change/v1` and cause
+  `digitalogic.pricing-state-change` and cause
   `projection-invalidated` or `freshness-boundary`;
 - `pricing.snapshot.build.terminal` with schema
-  `digitalogic.pricing-snapshot-build-event/v1` when a request-bound snapshot
+  `digitalogic.pricing-snapshot-build-event` when a request-bound snapshot
   build becomes `ready`, `failed`, or `cancelled`;
 - `pricing.stream.reset` with schema
-  `digitalogic.pricing-stream-reset/v1` when durable replay has a gap.
+  `digitalogic.pricing-stream-reset` when durable replay has a gap.
 
 Every data event has the globally increasing durable panel `id`. Source
 lifecycle envelopes contain `source`, `previous_source_revision`,
@@ -262,7 +262,7 @@ use the legacy query-token WebSocket example for the Patris pricing principal.
 
 ```json
 {
-  "schema": "digitalogic.pricing-snapshot-request/v1",
+  "schema": "digitalogic.pricing-snapshot-request",
   "schema_version": 1,
   "operation": "snapshot",
   "client_id": "patris-export",

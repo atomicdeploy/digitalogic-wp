@@ -507,7 +507,7 @@ class Digitalogic_Admin {
     public function render_currency_page() {
         $options = Digitalogic_Options::instance();
         $async = Digitalogic_Currency_Admin_Async::instance();
-        $canonical_state = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
+        $canonical_state = Digitalogic_Pricing_Service::instance()->current_canonical_state();
 
         if (isset($_POST['submit']) && check_admin_referer('digitalogic_currency_update')) {
             $values = array(
@@ -537,7 +537,7 @@ class Digitalogic_Admin {
             }
         }
 
-        $canonical_state = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
+        $canonical_state = Digitalogic_Pricing_Service::instance()->current_canonical_state();
         $dollar_price = is_wp_error($canonical_state)
             ? $options->get_dollar_price()
             : $canonical_state['settings']['dollar_price'];
@@ -829,9 +829,6 @@ class Digitalogic_Admin {
 
                 case 'update_default_markup':
                     $profit_margin = $posted_value('profit_margin_percent');
-                    if ('' === $profit_margin) {
-                        $profit_margin = $posted_value('default_profit_percent');
-                    }
                     $result = Digitalogic_Pricing_Coordinator::instance()->update_profit_margin(
                         $profit_margin,
                         'admin_profit_margin'

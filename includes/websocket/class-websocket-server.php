@@ -377,7 +377,7 @@ class Digitalogic_WebSocket_Server {
 						'event'   => 'pricing.stream.reset',
 						'success' => true,
 						'data'    => array(
-							'schema'                       => 'digitalogic.pricing-stream-reset/v1',
+							'schema'                       => 'digitalogic.pricing-stream-reset',
 							'schema_version'               => 1,
 							'reason'                       => 'cursor_gap',
 							'cursor'                       => $reset_cursor,

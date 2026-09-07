@@ -13,11 +13,13 @@ if (!defined('ABSPATH')) {
 
 class Digitalogic_Laravel_Bridge {
 
-    private const LOCAL_APP_PATH_OPTION = 'digitalogic_laravel_app_path';
-
     private static $instance = null;
 
     private $laravel_app = null;
+
+    private $laravel_booting = false;
+
+    private $laravel_boot_error = null;
 
     public static function instance() {
         if (is_null(self::$instance)) {
@@ -66,8 +68,7 @@ class Digitalogic_Laravel_Bridge {
     }
 
     /**
-     * Compatibility method for callers that previously requested an auth URL.
-     * No auth code or token is ever copied into the resulting URL.
+     * Return the authenticated WordPress panel route without a handoff token.
      */
     public function get_panel_auth_url($args = array()) {
         $return_to = isset($args['return_to']) ? (string) $args['return_to'] : '';
@@ -82,8 +83,7 @@ class Digitalogic_Laravel_Bridge {
 
     /**
      * Bootstrap the bundled Laravel container as part of a WordPress panel
-     * request. The panel remains available when the optional bundle has not yet
-     * been installed, and the returned WP_Error exposes that exact state.
+     * request. An incomplete package produces a bounded WP_Error.
      */
     public function boot_for_panel() {
         if ( ! Digitalogic_Access_Control::can_access_panel() ) {
@@ -94,14 +94,95 @@ class Digitalogic_Laravel_Bridge {
             );
         }
 
-        $app = $this->boot_local_laravel();
+        return $this->boot_laravel();
+    }
+
+    /** Lazily boot Laravel for trusted server-side WordPress callers. */
+    public function boot_laravel() {
+        if ($this->laravel_app !== null) {
+            return $this->laravel_app;
+        }
+
+        if (is_wp_error($this->laravel_boot_error)) {
+            return $this->laravel_boot_error;
+        }
+
+        if ($this->laravel_booting) {
+            return new WP_Error(
+                'digitalogic_laravel_recursive_boot',
+                __('Laravel is already being booted by this PHP request.', 'digitalogic'),
+                array('status' => 503)
+            );
+        }
+
+        $this->laravel_booting = true;
+        try {
+            $app = $this->boot_local_laravel();
+            if (is_wp_error($app)) {
+                $this->laravel_boot_error = $app;
+                return $app;
+            }
+
+            if (!$this->is_laravel_application($app)) {
+                $this->laravel_boot_error = new WP_Error(
+                    'digitalogic_laravel_invalid_application',
+                    __('The bundled Laravel bootstrap did not return an application container.', 'digitalogic'),
+                    array('status' => 503)
+                );
+                return $this->laravel_boot_error;
+            }
+
+            if (method_exists($app, 'bootstrapForIntegration')) {
+                $app->bootstrapForIntegration();
+            }
+
+            $this->laravel_app = $app;
+        } catch (Throwable $error) {
+            $this->laravel_boot_error = new WP_Error(
+                'digitalogic_laravel_boot_failed',
+                __('The bundled Laravel application could not be booted.', 'digitalogic'),
+                array(
+                    'status' => 503,
+                    'exception' => get_class($error),
+                )
+            );
+            return $this->laravel_boot_error;
+        } finally {
+            $this->laravel_booting = false;
+        }
+
+        do_action('digitalogic_laravel_booted', $this->laravel_app);
+
+        return $this->laravel_app;
+    }
+
+    /** Resolve and invoke Laravel-side code directly through its container. */
+    public function call($callable, $parameters = array()) {
+        $app = $this->boot_laravel();
         if (is_wp_error($app)) {
             return $app;
         }
 
-        do_action('digitalogic_laravel_booted', $app);
+        if (!method_exists($app, 'call')) {
+            return new WP_Error(
+                'digitalogic_laravel_container_call_missing',
+                __('Laravel container calls are unavailable.', 'digitalogic'),
+                array('status' => 503)
+            );
+        }
 
-        return $app;
+        try {
+            return $app->call($callable, is_array($parameters) ? $parameters : array());
+        } catch (Throwable $error) {
+            return new WP_Error(
+                'digitalogic_laravel_call_failed',
+                __('The Laravel-side callable failed.', 'digitalogic'),
+                array(
+                    'status' => 500,
+                    'exception' => get_class($error),
+                )
+            );
+        }
     }
 
     /**
@@ -122,19 +203,31 @@ class Digitalogic_Laravel_Bridge {
         $path = '/' . ltrim((string) $path, '/');
         $method = strtoupper((string) $method);
         $request = \Illuminate\Http\Request::create($path, $method, $payload);
+        $request->headers->set('Accept', 'application/json');
 
-        $kernel_class = '\\Illuminate\\Contracts\\Http\\Kernel';
+        $kernel_class = \Illuminate\Contracts\Http\Kernel::class;
         if (!method_exists($app, 'make') || !interface_exists($kernel_class)) {
             return new WP_Error('digitalogic_laravel_kernel_missing', __('Laravel HTTP kernel is not available.', 'digitalogic'), array('status' => 503));
         }
 
-        $kernel = $app->make($kernel_class);
-        $response = $kernel->handle($request);
-        $content = method_exists($response, 'getContent') ? $response->getContent() : '';
-        $decoded = json_decode((string) $content, true);
+        try {
+            $kernel = $app->make($kernel_class);
+            $response = $kernel->handle($request);
+            $content = method_exists($response, 'getContent') ? $response->getContent() : '';
+            $decoded = json_decode((string) $content, true);
 
-        if (method_exists($kernel, 'terminate')) {
-            $kernel->terminate($request, $response);
+            if (method_exists($kernel, 'terminate')) {
+                $kernel->terminate($request, $response);
+            }
+        } catch (Throwable $error) {
+            return new WP_Error(
+                'digitalogic_laravel_request_failed',
+                __('The in-process Laravel request failed.', 'digitalogic'),
+                array(
+                    'status' => 500,
+                    'exception' => get_class($error),
+                )
+            );
         }
 
         return array(
@@ -161,6 +254,9 @@ class Digitalogic_Laravel_Bridge {
             'configured' => $path !== '',
             'path' => $path,
             'available' => $path !== '' && file_exists($path . '/bootstrap/app.php'),
+            'autoload' => class_exists('\\Illuminate\\Foundation\\Application'),
+            'booted' => $this->laravel_app !== null,
+            'lazy' => true,
             'mode' => 'in_process',
             'auth' => 'wordpress_session',
         );
@@ -176,18 +272,16 @@ class Digitalogic_Laravel_Bridge {
             return new WP_Error('digitalogic_laravel_unavailable', __('No bundled Laravel app is configured for direct loading.', 'digitalogic'), array('status' => 503));
         }
 
-        $this->laravel_app = require $status['path'] . '/bootstrap/app.php';
+        return require $status['path'] . '/bootstrap/app.php';
+    }
 
-        return $this->laravel_app;
+    private function is_laravel_application($app) {
+        return is_object($app)
+            && is_a($app, '\\Digitalogic\\Laravel\\Application');
     }
 
     private function get_local_laravel_path() {
-        $default = defined('DIGITALOGIC_PLUGIN_DIR') ? DIGITALOGIC_PLUGIN_DIR . 'laravel' : '';
-        $path = (string) get_option(self::LOCAL_APP_PATH_OPTION, $default);
-        $path = (string) apply_filters('digitalogic_laravel_app_path', $path);
-        $path = untrailingslashit($path);
-
-        return $path !== '' ? $path : '';
+        return dirname(__DIR__, 2) . '/laravel';
     }
 
     private function normalized_origin($url) {

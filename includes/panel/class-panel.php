@@ -900,10 +900,10 @@ class Digitalogic_Panel {
 
 	/** Return the current canonical pricing revision when it is readable. */
 	private function canonical_currency_revision() {
-		if ( ! class_exists( 'Digitalogic_Excel_Pricing_Sync' ) ) {
+		if ( ! class_exists( 'Digitalogic_Pricing_Service' ) ) {
 			return '';
 		}
-		$state = Digitalogic_Excel_Pricing_Sync::instance()->current_canonical_state();
+		$state = Digitalogic_Pricing_Service::instance()->current_canonical_state();
 		if ( is_wp_error( $state ) ) {
 			return '';
 		}

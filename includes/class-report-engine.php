@@ -345,6 +345,20 @@ final class Digitalogic_Report_Engine {
 		return $this->get_normalized_report( $args, $force_refresh, $checkpoint );
 	}
 
+	/** Render the complete existing projection through the shared Paradox report module. */
+	public function render_html_report( $args = array() ) {
+		$report = $this->get_complete_report( $args );
+		if ( is_wp_error( $report ) ) {
+			return $report;
+		}
+		require_once __DIR__ . '/integrations/paradox/CanonicalProductReport.php';
+		try {
+			return \Digitalogic\Integrations\Paradox\CanonicalProductReport::renderCurrentReport( $report );
+		} catch ( \InvalidArgumentException $error ) {
+			return new WP_Error( 'digitalogic_report_html_invalid', $error->getMessage() );
+		}
+	}
+
 	/**
 	 * Read or atomically build one normalized report shape.
 	 *
@@ -1225,7 +1239,7 @@ final class Digitalogic_Report_Engine {
 				'options_yuan_price',
 				'options_update_date',
 				'update_date',
-				Digitalogic_Excel_Pricing_Sync::SETTINGS_OPTION,
+				Digitalogic_Pricing_Service::SETTINGS_OPTION,
 				'woocommerce_currency',
 				'woocommerce_weight_unit',
 				'home',
