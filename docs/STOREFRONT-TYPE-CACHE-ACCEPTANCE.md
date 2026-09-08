@@ -12,3 +12,5 @@ Verification on Digitalogic,2026-09-08:
 - Ten focused tests/37assertions pass; Apache/PHP-FPM/WebSocket services active.
 
 This is direct reproduction of the identified cache poisoning mechanism. Browser selection interaction and sustained refresh/concurrent-request coverage remain separate acceptance work.
+
+Follow-up bounded concurrency check: changed-rate bulk22.340659079s while two public-page readers ran. All13parents stayed variable before change, after change and after restoration. All29concurrent form observations matched one of the two authorized rate states (this does not prove an atomic cross-page snapshot). After restoration, all29form prices matched the34000rate again. Browser interaction and sustained load remain unverified.
