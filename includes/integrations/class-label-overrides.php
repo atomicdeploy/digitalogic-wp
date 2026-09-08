@@ -142,7 +142,11 @@ final class Digitalogic_Label_Overrides {
      * Normalize custom product-attribute labels in Additional Information.
      */
     public static function replace_woocommerce_attribute_label(string $label, string $name = '', $product = null): string {
-        unset($name, $product);
+        unset($product);
+
+        if ('source_model' === $name) {
+            return 'مدل';
+        }
 
         return self::replace_product_identity_label($label);
     }
