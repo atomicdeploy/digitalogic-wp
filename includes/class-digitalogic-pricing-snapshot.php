@@ -15,6 +15,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  * Builds the expensive reconciled projection once and serves cached pages.
  */
 final class Digitalogic_Pricing_Snapshot {
+	private const CONSTRUCTION_ENABLED = false;
 
 	public const SCHEMA_VERSION        = 1;
 	public const REVISION_SCHEMA       = 'digitalogic.pricing-sync-revision';
@@ -276,6 +277,12 @@ final class Digitalogic_Pricing_Snapshot {
 	 * @return array|WP_Error Transport result.
 	 */
 	public function start( WP_REST_Request $request ) {
+		// Website pricing does not require a consumer snapshot. Re-enable only
+		// after the working website prototype, as tracked in issue #296.
+		if ( ! self::CONSTRUCTION_ENABLED ) {
+			return new WP_Error( 'digitalogic_pricing_snapshot_disabled', 'Snapshot construction is temporarily disabled.', array( 'status' => 503 ) );
+		}
+
 		$payload = $this->validate_start_request( $request );
 		if ( is_wp_error( $payload ) ) {
 			return $payload;
@@ -709,7 +716,11 @@ final class Digitalogic_Pricing_Snapshot {
 		$this->active_worker_token    = $worker_token;
 		$this->active_worker_error    = null;
 		try {
-			$this->run_build_with_lease( $build_id );
+			if ( self::CONSTRUCTION_ENABLED ) {
+				$this->run_build_with_lease( $build_id );
+			} else {
+				$this->fail_job( $build_id, new WP_Error( 'digitalogic_pricing_snapshot_disabled', 'Snapshot construction is temporarily disabled.', array( 'status' => 503 ) ) );
+			}
 		} catch ( Throwable $error ) {
 			$this->record_worker_failure( $build_id, $this->worker_exception_error() );
 		} finally {
