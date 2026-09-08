@@ -1578,13 +1578,14 @@ final class PricingCoordinatorTest extends TestCase {
 		$this->assertSame( 4, $source['batch_count'] );
 		$this->assertSame( 14, $source['batch_parent_count'] );
 		$this->assertLessThanOrEqual( 28, count( $GLOBALS['wpdb']->queries ) );
-		$this->assertCount( 5, $GLOBALS['digitalogic_test_cache_delete_multiple'] );
+		$this->assertCount( 6, $GLOBALS['digitalogic_test_cache_delete_multiple'] );
 		$this->assertSame(
-			array( 'posts', 'post_meta', 'product_type_relationships', 'posts', 'post_meta' ),
+			array( 'posts', 'post_meta', 'product_type_relationships', 'posts', 'post_meta', 'posts' ),
 			array_column( $GLOBALS['digitalogic_test_cache_delete_multiple'], 'group' )
 		);
 		$this->assertCount( 785, $GLOBALS['digitalogic_test_cache_delete_multiple'][0]['keys'] );
 		$this->assertContains( 30000, $GLOBALS['digitalogic_test_cache_delete_multiple'][0]['keys'] );
+		$this->assertContains( 'post_parent:30000', $GLOBALS['digitalogic_test_cache_delete_multiple'][5]['raw_keys'] );
 		$this->assertContains( 'products', $GLOBALS['digitalogic_test_wc_cache_group_invalidations'] );
 		$this->assertCount( 1570, $GLOBALS['digitalogic_test_wc_product_instance_cache_removals'] );
 		$this->assertContains( 30000, $GLOBALS['digitalogic_test_wc_product_instance_cache_removals'] );

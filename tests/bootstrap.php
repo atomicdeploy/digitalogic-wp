@@ -963,8 +963,9 @@ function wp_cache_delete_multiple( $keys, $group = '' ) {
 		'ns'   => hrtime( true ),
 	);
 	$GLOBALS['digitalogic_test_cache_delete_multiple'][] = array(
-		'keys'  => array_values( array_map( 'intval', (array) $keys ) ),
-		'group' => (string) $group,
+		'raw_keys' => array_values( (array) $keys ),
+		'keys'     => array_values( array_map( 'intval', (array) $keys ) ),
+		'group'    => (string) $group,
 	);
 	if ( is_callable( $GLOBALS['digitalogic_test_cache_delete_multiple_callback'] ?? null ) ) {
 		return call_user_func( $GLOBALS['digitalogic_test_cache_delete_multiple_callback'], $keys, $group );
