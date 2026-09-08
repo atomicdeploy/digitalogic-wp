@@ -704,6 +704,19 @@ class Digitalogic_Product_Sync_Receiver {
                 array('reason' => $exception->getMessage())
             );
         }
+		return $this->validate_payload( $payload );
+	}
+
+	/**
+	 * Validate an already decoded raw payload without authorizing a write.
+	 *
+	 * Numeric wire-token objects must remain intact. The returned normalized
+	 * envelope must not replace the raw payload passed to receive().
+	 *
+	 * @param mixed $payload Raw decoder result.
+	 * @return array|WP_Error
+	 */
+	public function validate_payload( $payload ) {
         if (!is_array($payload) || array_is_list($payload)) {
             return $this->error('digitalogic_product_sync_invalid_payload', 'The product-sync payload must be an object.', 400);
         }
