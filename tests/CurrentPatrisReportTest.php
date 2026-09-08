@@ -145,7 +145,7 @@ final class CurrentPatrisReportTest extends TestCase {
 
 		$this->assertSame( 1, $report['counts']['variable_parents_excluded'] );
 		$this->assertSame( 1, $report['counts']['woocommerce_products'] );
-		$this->assertSame( 'warning', $report['integrity']['status'] );
+		$this->assertSame( 'critical', $report['integrity']['status'] );
 		$this->assertSame( 'product_type_cache_drift', $report['integrity']['warnings'][0]['code'] );
 		$this->assertSame( 150, $report['integrity']['warnings'][0]['woocommerce_id'] );
 		$this->assertSame( 'variable', $report['integrity']['warnings'][0]['durable_type'] );
@@ -257,11 +257,9 @@ final class CurrentPatrisReportTest extends TestCase {
 
 		$this->assertFalse( is_wp_error( $catalog ) );
 		$this->assertSame( 2, $catalog['pagination']['total'] );
-		$this->assertSame( 'warning', $catalog['reconciliation']['integrity_status'] );
-		$this->assertSame(
-			array( 'projection_integrity_duplicate_woo_sku' ),
-			array_column( $catalog['reconciliation']['warnings'], 'code' )
-		);
+		$this->assertSame( 'critical', $catalog['reconciliation']['integrity_status'] );
+		$this->assertContains( 'projection_integrity_duplicate_woo_sku', array_column( $catalog['reconciliation']['warnings'], 'code' ) );
+		$this->assertContains( 'patris_mapping_missing', array_column( $catalog['reconciliation']['warnings'], 'code' ) );
 		$this->assertSame( array( 'patris:AUTH-CODE', 'woo:191' ), array_column( $catalog['rows'], 'sync_key' ) );
 	}
 
@@ -316,10 +314,11 @@ final class CurrentPatrisReportTest extends TestCase {
 		$this->assertSame( 1, $report['counts']['woocommerce_only_products'] );
 		$this->assertSame( 1, $report['counts']['quarantined_identity_groups'] );
 		$this->assertSame( 1, $report['counts']['one_to_one_split_candidates'] );
-		$this->assertSame( 'warning', $report['integrity']['status'] );
-		$this->assertSame( 'projection_integrity_identity_quarantine', $report['integrity']['warnings'][0]['code'] );
-		$this->assertSame( array( '113006024' ), $report['integrity']['warnings'][0]['source_product_codes'] );
-		$this->assertSame( array( 11160 ), $report['integrity']['warnings'][0]['woocommerce_ids'] );
+		$this->assertSame( 'critical', $report['integrity']['status'] );
+		$warnings = array_column( $report['integrity']['warnings'], null, 'code' );
+		$this->assertArrayHasKey( 'projection_integrity_identity_quarantine', $warnings );
+		$this->assertSame( array( '113006024' ), $warnings['projection_integrity_identity_quarantine']['source_product_codes'] );
+		$this->assertSame( array( 11160 ), $warnings['projection_integrity_identity_quarantine']['woocommerce_ids'] );
 		foreach ( $report['rows'] as $row ) {
 			$this->assertContains( 'identity_quarantined', $row['issues'] );
 			$this->assertContains( 'split_identity_candidate', $row['issues'] );

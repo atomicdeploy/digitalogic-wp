@@ -73,6 +73,11 @@ final class Digitalogic_Patris_Price_Write_Guard {
 		}
 	}
 
+	/** Whether the canonical writer is currently applying a source transition. */
+	public function is_authorized_write() {
+		return $this->authorized_depth > 0;
+	}
+
 	/**
 	 * Whether a product has a complete canonical Patris pricing identity.
 	 *

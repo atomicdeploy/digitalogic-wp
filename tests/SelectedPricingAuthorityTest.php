@@ -129,9 +129,9 @@ final class SelectedPricingAuthorityTest extends TestCase {
 	}
 
 	/**
-	 * Unavailable prices use the normal preservation policy alongside batched peers.
+	 * Unavailable prices are cleared alongside batched peers.
 	 */
-	public function test_full_source_batch_preserves_unavailable_price(): void {
+	public function test_full_source_batch_clears_unavailable_price(): void {
 		$payload = $this->seed_ingress_batch();
 		$GLOBALS['digitalogic_test_options']['yuan_price']         = '29501';
 		$GLOBALS['digitalogic_test_options']['options_yuan_price'] = '29501';
@@ -147,10 +147,10 @@ final class SelectedPricingAuthorityTest extends TestCase {
 		$this->assertSame( 0, $result['pending_products'] );
 		$this->assertSame( 'complete', $result['delivery']['status'] );
 		$this->assertSame( array(), $GLOBALS['digitalogic_test_wc_product_saves'] );
-		$this->assertSame( 'canonical_missing_preserved', get_post_meta( 20029, Digitalogic_Patris_Price_Policy::STATUS_META, true ) );
-		$this->assertNotSame( '', get_post_meta( 20029, Digitalogic_Patris_Price_Policy::WARNING_META, true ) );
+		$this->assertSame( 'canonical_missing_unpriced', get_post_meta( 20029, Digitalogic_Patris_Price_Policy::STATUS_META, true ) );
+		$this->assertSame( '', get_post_meta( 20029, Digitalogic_Patris_Price_Policy::WARNING_META, true ) );
 		$this->assertSame( array(), get_post_meta( 20029, '_digitalogic_patris_final_price', false ) );
-		$this->assertSame( '8437000', (string) get_post_meta( 20029, '_price', true ) );
+		$this->assertSame( '', (string) get_post_meta( 20029, '_price', true ) );
 		$this->assertSame( '8437286', (string) get_post_meta( 20000, '_price', true ) );
 	}
 
@@ -375,6 +375,7 @@ final class SelectedPricingAuthorityTest extends TestCase {
 		$catalog               = Digitalogic_Shipping_Method_Service::instance()->get_integration_catalog();
 		$direct                = array(
 			'product_code'                   => 'PRICE-901',
+			'weight_grams'                   => 100,
 			'sale_price_source'              => 1234500,
 			'price_source_amount'            => 1234500,
 			'price_source_currency'          => 'IRR',

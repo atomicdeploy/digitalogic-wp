@@ -124,13 +124,19 @@ final class PatrisPricePolicyTest extends TestCase {
 			}
 		};
 		$policy  = Digitalogic_Patris_Price_Policy::instance();
-		$priced  = $policy->apply( $product, array( 'final_price' => 200 ) );
+		$priced  = $policy->apply(
+			$product,
+			array(
+				'final_price'  => 200,
+				'weight_grams' => 100,
+			)
+		);
 		$this->assertSame( '200', $priced['woo_regular_price'] );
 		$this->assertSame( '200', $priced['woo_effective_price'] );
 		$this->assertFalse( $priced['sale_active'] );
 		$preserved = $policy->apply( $product, array( 'weight_grams' => null ) );
-		$this->assertSame( 'canonical_missing_preserved', $preserved['policy_status'] );
-		$this->assertSame( '200', $preserved['woo_effective_price'] );
+		$this->assertSame( 'canonical_missing_unpriced', $preserved['policy_status'] );
+		$this->assertSame( '', $preserved['woo_effective_price'] );
 		$this->assertSame( 0, $product->view_reads );
 		$this->assertSame( 0, $product->sale_reads );
 
@@ -141,6 +147,7 @@ final class PatrisPricePolicyTest extends TestCase {
 		$this->assertSame( 3, $product->view_reads );
 		$this->assertSame( 1, $product->sale_reads );
 
+		$product->set_regular_price( '200' );
 		$product->set_sale_price( '150' );
 		$product->sale_from = new DateTimeImmutable( '+1 hour' );
 		$this->assertFalse( $policy->project( $product, null, null, null, 'edit' )['sale_active'] );
@@ -583,8 +590,8 @@ final class PatrisPricePolicyTest extends TestCase {
 		$this->assertSame( '0', (string) $GLOBALS['digitalogic_test_wc_lookup_rows'][817]['onsale'] );
 	}
 
-	/** A missing weight preserves an already-consistent storefront price with a warning. */
-	public function test_missing_weight_preserves_valid_existing_storefront_price(): void {
+	/** Missing weight clears an existing storefront price, even with a supplied canonical amount. */
+	public function test_missing_weight_clears_existing_storefront_price(): void {
 		$this->addProduct(
 			812,
 			'simple',
@@ -606,12 +613,22 @@ final class PatrisPricePolicyTest extends TestCase {
 
 		$product    = wc_get_product( 812 );
 		$projection = Digitalogic_Patris_Price_Policy::instance()->project( $product );
-		$this->assertSame( '1150000', $product->get_regular_price() );
-		$this->assertSame( '1150000', $product->get_price() );
+		$this->assertSame( '', $product->get_regular_price() );
+		$this->assertSame( '', $product->get_price() );
 		$this->assertSame( '', $product->get_sale_price() );
-		$this->assertSame( 'canonical_missing_preserved', $projection['policy_status'] );
-		$this->assertTrue( $projection['preserved_storefront_price'] );
-		$this->assertSame( Digitalogic_Patris_Price_Policy::MISSING_WEIGHT_WARNING, $projection['policy_warning'] );
+		$this->assertSame( 'canonical_missing_unpriced', $projection['policy_status'] );
+		$this->assertFalse( $projection['preserved_storefront_price'] );
+		$this->assertNull( $projection['policy_warning'] );
+		Digitalogic_Patris_Price_Policy::instance()->apply(
+			$product,
+			array(
+				'final_price' => 1150000,
+				'total_stock' => 20,
+			)
+		);
+		$this->assertSame( '', $product->get_regular_price() );
+		$this->assertSame( '', $product->get_price() );
+		$this->assertSame( 'outofstock', $product->get_stock_status() );
 	}
 
 	/** Sparse stock is conservatively unavailable while explicit quantities map deterministically. */
@@ -646,6 +663,7 @@ final class PatrisPricePolicyTest extends TestCase {
 				'product_code' => 'STOCK-810',
 				'total_stock'  => 1.9,
 				'final_price'  => 700,
+				'weight_grams' => 100,
 			)
 		);
 		$product = wc_get_product( 810 );
@@ -750,6 +768,7 @@ final class PatrisPricePolicyTest extends TestCase {
 		return array(
 			'product_code' => $code,
 			'final_price'  => $price,
+			'weight_grams' => 100,
 			'total_stock'  => 5,
 		);
 	}

@@ -63,6 +63,7 @@ final class SharedPricingCalculatorTest extends TestCase {
 				'price_source_kind'              => 'partner_price',
 				'price_source_currency'          => 'IRR',
 				'price_source_amount'            => '1234500',
+				'weight_grams'                   => '1',
 				'shipping_method_id'             => 'domestic',
 				'shipping_price_per_kg'          => '0',
 				'shipping_price_per_kg_currency' => 'IRR',
@@ -79,6 +80,7 @@ final class SharedPricingCalculatorTest extends TestCase {
 			'price_source_kind'              => 'sale_price_direct',
 			'price_source_currency'          => 'IRR',
 			'price_source_amount'            => '12345',
+			'weight_grams'                   => '1',
 			'shipping_method_id'             => 'domestic',
 			'shipping_price_per_kg'          => '0',
 			'shipping_price_per_kg_currency' => 'IRR',
@@ -92,6 +94,32 @@ final class SharedPricingCalculatorTest extends TestCase {
 		$engine = new Calculator();
 		self::assertFalse( $engine->evaluate( $this->foreign( array( 'weight_grams' => '0' ) ) )['available'] );
 		self::assertSame( 2009410, $engine->evaluate( $this->foreign( array( 'total_stock' => 0 ) ) )['value'] );
+	}
+
+	public function test_every_price_route_requires_weight_but_domestic_needs_no_cny(): void {
+		foreach ( array( 'foreign_price', 'partner_price', 'sale_price_direct' ) as $kind ) {
+			$row = $this->foreign();
+			if ( 'foreign_price' !== $kind ) {
+				$row['price_source_kind']              = $kind;
+				$row['price_source_currency']          = 'IRR';
+				$row['price_source_amount']            = '10000';
+				$row['shipping_method_id']             = 'domestic';
+				$row['shipping_price_per_kg']          = '0';
+				$row['shipping_price_per_kg_currency'] = 'IRR';
+				unset( $row['irt_per_cny'] );
+			}
+			foreach ( array( null, '', '0' ) as $weight ) {
+				$missing                 = $row;
+				$missing['weight_grams'] = $weight;
+				$result                  = ( new Calculator() )->evaluate( $missing );
+				self::assertFalse( $result['available'], $kind );
+				self::assertContains( 'weight_grams', $result['missing'], $kind );
+			}
+			$missing = $row;
+			unset( $missing['weight_grams'] );
+			self::assertFalse( ( new Calculator() )->evaluate( $missing )['available'], $kind );
+			self::assertTrue( ( new Calculator() )->evaluate( $row )['available'], $kind );
+		}
 	}
 
 	public function test_optional_provider_fields_do_not_change_the_calculation(): void {

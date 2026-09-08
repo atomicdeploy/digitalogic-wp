@@ -917,7 +917,7 @@ final class ProductSyncReceiverTest extends TestCase {
     }
 
 	/** Same-hash snapshots repair canonical metadata without inventing an unpriced canonical value. */
-	public function test_same_hash_snapshot_repairs_priced_canonical_meta_without_erasing_unpriced_fallback(): void {
+	public function test_same_hash_snapshot_repairs_priced_canonical_meta_and_clears_unpriced_fallback(): void {
 		$GLOBALS['digitalogic_test_posts'][711] = array(
 			'post_type'   => 'product',
 			'post_status' => 'publish',
@@ -944,6 +944,7 @@ final class ProductSyncReceiverTest extends TestCase {
 			'product_code'                   => '101002006',
 			'pricing_catalog_revision'       => $this->currentCatalogRevision(),
 			'partner_price_source'           => 949661,
+			'weight_grams'                   => 100,
 			'price_source_amount'            => 949661,
 			'price_source_currency'          => 'IRR',
 			'price_source_kind'              => 'partner_price',
@@ -971,7 +972,7 @@ final class ProductSyncReceiverTest extends TestCase {
 		);
 		$this->assertNotInstanceOf( WP_Error::class, $first );
 		$this->assertSame( '123500', (string) get_post_meta( 711, '_digitalogic_patris_final_price', true ) );
-		$this->assertSame( 'canonical_missing_preserved', get_post_meta( 712, '_digitalogic_patris_price_status', true ) );
+		$this->assertSame( 'canonical_missing_unpriced', get_post_meta( 712, '_digitalogic_patris_price_status', true ) );
 
 		unset(
 			$GLOBALS['digitalogic_test_posts'][711]['meta']['_digitalogic_patris_final_price'],
@@ -992,10 +993,10 @@ final class ProductSyncReceiverTest extends TestCase {
 		$this->assertSame( '123500', wc_get_product( 711 )->get_price() );
 		$this->assertSame( '', wc_get_product( 711 )->get_sale_price() );
 		$this->assertFalse( metadata_exists( 'post', 712, '_digitalogic_patris_final_price' ) );
-		$this->assertSame( '777', wc_get_product( 712 )->get_regular_price() );
-		$this->assertSame( '777', wc_get_product( 712 )->get_price() );
+		$this->assertSame( '', wc_get_product( 712 )->get_regular_price() );
+		$this->assertSame( '', wc_get_product( 712 )->get_price() );
 		$this->assertSame( '', wc_get_product( 712 )->get_sale_price() );
-		$this->assertSame( 'canonical_missing_preserved', get_post_meta( 712, '_digitalogic_patris_price_status', true ) );
+		$this->assertSame( 'canonical_missing_unpriced', get_post_meta( 712, '_digitalogic_patris_price_status', true ) );
 
 		unset(
 			$GLOBALS['digitalogic_test_posts'][711]['meta']['_digitalogic_patris_final_price'],
@@ -1094,6 +1095,7 @@ final class ProductSyncReceiverTest extends TestCase {
         $products = array(
             array(
                 'product_code'                   => 'PARTNER-UP',
+				'weight_grams'                   => 100,
                 'pricing_catalog_revision'       => $this->currentCatalogRevision(),
                 'partner_price_source'           => 949661,
                 'price_source_amount'            => 949661,
@@ -1110,6 +1112,7 @@ final class ProductSyncReceiverTest extends TestCase {
             ),
             array(
                 'product_code'                   => 'PARTNER-DOWN',
+				'weight_grams'                   => 100,
                 'pricing_catalog_revision'       => $this->currentCatalogRevision(),
                 'partner_price_source'           => 949600,
                 'price_source_amount'            => 949600,
@@ -1126,6 +1129,7 @@ final class ProductSyncReceiverTest extends TestCase {
             ),
             array(
                 'product_code'                   => 'PARTNER-HALF',
+				'weight_grams'                   => 100,
                 'pricing_catalog_revision'       => $this->currentCatalogRevision(),
                 'partner_price_source'           => 1234500,
                 'price_source_amount'            => 1234500,
@@ -1174,6 +1178,7 @@ final class ProductSyncReceiverTest extends TestCase {
     public function test_opt_in_direct_sale_fallback_uses_distinct_forosh_without_markup_or_rounding(): void {
         $direct                = array(
             'product_code'                   => 'DIRECT-SALE',
+			'weight_grams'                   => 100,
             'sale_price_source'              => 1234500,
             'price_source_amount'            => 1234500,
             'price_source_currency'          => 'IRR',
@@ -1237,6 +1242,7 @@ final class ProductSyncReceiverTest extends TestCase {
     public function test_partner_price_never_reuses_patris_sale_price_or_non_domestic_shipping(): void {
         $product                = array(
             'product_code'                   => 'PARTNER-SEPARATION',
+			'weight_grams'                   => 100,
             'sale_price_source'              => 12000,
             'partner_price_source'           => 7000,
             'price_source_amount'            => 12000,
@@ -1285,7 +1291,7 @@ final class ProductSyncReceiverTest extends TestCase {
         );
         $this->assertSame('digitalogic_product_sync_price_source_incomplete', $result->get_error_code());
 
-        $fallback                = array(
+        $fallback = array(
             'product_code'                   => 'CNY-INCOMPLETE',
             'pricing_catalog_revision'       => $this->currentCatalogRevision(),
             'foreign_currency'               => 'CNY',
@@ -1304,6 +1310,7 @@ final class ProductSyncReceiverTest extends TestCase {
             'final_price'                    => 13000,
             'warnings'                       => array(),
         );
+		unset( $fallback['final_price'] );
         $fallback['record_hash'] = $this->recordHash($fallback, true);
         $result                  = Digitalogic_Product_Sync_Receiver::instance()->receive(
             $this->snapshot(array($fallback), array(), true)

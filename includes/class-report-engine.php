@@ -705,6 +705,12 @@ final class Digitalogic_Report_Engine {
 			++$woo_only;
 			$row = $this->woo_row( $woo );
 			$this->add_issue( $row, 'missing_in_patris' );
+			$woo_result['integrity_warnings'][] = $this->provider_identity_warning(
+				'patris_mapping_missing',
+				(string) $woo['id'],
+				array( array( 'provider' => 'woocommerce', 'id' => $woo['id'] ) ),
+				'Keep price and purchasing disabled until an exact, unique Patris identity is verified.'
+			);
 			if ( ! isset( $woo['product_code'] ) || '' === $woo['product_code'] ) {
 				$this->add_issue( $row, 'missing_product_code' );
 			} elseif ( isset( $source_code_index[ $woo['product_code'] ] ) ) {
@@ -878,7 +884,9 @@ final class Digitalogic_Report_Engine {
 				'category' => $args['category'],
 			),
 			'integrity'         => array(
-				'status'   => empty( $woo_result['integrity_warnings'] ) ? 'current' : 'warning',
+				'status'   => empty( $woo_result['integrity_warnings'] ) ? 'current' : (
+					in_array( 'critical', array_column( $woo_result['integrity_warnings'], 'severity' ), true ) ? 'critical' : 'warning'
+				),
 				'warnings' => $woo_result['integrity_warnings'],
 			),
 			'rows'              => $page_rows,

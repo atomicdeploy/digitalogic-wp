@@ -503,13 +503,11 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 		$record['final_price']                    = 13000;
 		$record['warnings']                       = array(
 			'foreign_price_non_positive',
-			'weight_missing',
 			'partner_price_fallback_used',
 			'freight_not_applied_for_partner_price',
 		);
 		unset(
 			$record['foreign_price'],
-			$record['weight_grams'],
 			$record['irt_per_cny']
 		);
 		unset( $record );
@@ -528,7 +526,7 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 		$this->assertSame( 1, $result['published'] );
 		$this->assertSame( 'publish', $product->get_status() );
 		$this->assertSame( '13000', $product->get_price() );
-		$this->assertSame( '', (string) $product->get_weight() );
+		$this->assertSame( '0.24', (string) $product->get_weight() );
 		$this->assertSame( 'domestic', (string) get_post_meta( $product_id, Digitalogic_Shipping_Method_Service::PRODUCT_METHOD_META, true ) );
 		$this->assertSame( 1, $result['domestic_assigned'] );
 	}
@@ -555,11 +553,9 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 		$record['warnings']                       = array(
 			'sale_price_direct_fallback_used',
 			'freight_not_applied_for_sale_price_direct',
-			'weight_missing',
 		);
 		unset(
 			$record['foreign_price'],
-			$record['weight_grams'],
 			$record['markup_percent'],
 			$record['irt_per_cny'],
 			$record['price_rounding_digits'],

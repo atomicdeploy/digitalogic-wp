@@ -46,6 +46,7 @@ final class ParadoxCanonicalProductReportTest extends TestCase {
 				'price_source_kind'              => $kind,
 				'price_source_currency'          => 'IRR',
 				'price_source_amount'            => $amount,
+				'weight_grams'                   => '100',
 				'shipping_method_id'             => 'domestic',
 				'shipping_price_per_kg'          => '0',
 				'shipping_price_per_kg_currency' => 'IRR',
