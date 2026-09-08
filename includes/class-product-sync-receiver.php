@@ -511,13 +511,16 @@ class Digitalogic_Product_Sync_Receiver {
 		}
 		$prefix        = isset( $wpdb->prefix ) ? (string) $wpdb->prefix : 'wp_';
 		$lock_name     = self::source_identity_lock_name( $prefix );
-		$connection_id = $wpdb->get_var( 'SELECT CONNECTION_ID()' ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Connection identity is live session state.
-		$owner_query   = $wpdb->prepare( 'SELECT IS_USED_LOCK(%s)', $lock_name );
-		$owner_id      = false !== $owner_query ? $wpdb->get_var( $owner_query ) : false; // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.NotPrepared -- Advisory lock ownership is live session state.
-		if (
-			$this->lock_connection_id !== (int) $connection_id
-			|| $this->lock_connection_id !== (int) $owner_id
-		) {
+		$owner_query = $wpdb->prepare(
+			'SELECT CASE WHEN CONNECTION_ID() = %d AND IS_USED_LOCK(%s) = %d THEN 1 ELSE 0 END',
+			$this->lock_connection_id,
+			$lock_name,
+			$this->lock_connection_id
+		);
+		// Reconnects and absent/stolen locks both fail the same live predicate.
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.NotPrepared -- Advisory lock ownership is live session state.
+		$owned = false !== $owner_query && null !== $owner_query ? $wpdb->get_var( $owner_query ) : false;
+		if ( 1 !== (int) $owned ) {
 			$this->forget_lost_lock();
 			return false;
 		}
