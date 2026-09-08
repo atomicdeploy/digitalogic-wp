@@ -19,6 +19,41 @@ if (!defined('WP_CLI') || !WP_CLI) {
 class Digitalogic_CLI_Commands {
 
 	/**
+	 * Recalculate one product from the latest committed Patris source inputs.
+	 *
+	 * Uses the selected persistence mode and requires PHP pricing authority.
+	 * Does not fetch the Patris database. Elapsed time excludes WordPress startup.
+	 *
+	 * ## OPTIONS
+	 *
+	 * --product-code=<code>
+	 * : Exact Product Code to recalculate.
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     wp digitalogic pricing recalculate --product-code=101006001
+	 *
+	 * @when after_wp_load
+	 */
+	public function pricing_recalculate( $args, $assoc_args ) {
+		$result = Digitalogic_Pricing_Coordinator::instance()->recalculate_product( $assoc_args['product-code'] ?? null );
+		if ( is_wp_error( $result ) ) {
+			WP_CLI::line(
+				wp_json_encode(
+					array(
+						'code'    => $result->get_error_code(),
+						'message' => $result->get_error_message(),
+						'data'    => $result->get_error_data(),
+					)
+				)
+			);
+			WP_CLI::halt( 1 );
+			return;
+		}
+		WP_CLI::line( wp_json_encode( $result ) );
+	}
+
+	/**
 	 * Read or select the sole calculator for the next pricing operation.
 	 *
 	 * ## OPTIONS
@@ -2119,6 +2154,7 @@ WP_CLI::add_command(
 );
 WP_CLI::add_command( 'digitalogic pricing write-mode', array( 'Digitalogic_CLI_Commands', 'pricing_write_mode' ) );
 WP_CLI::add_command( 'digitalogic pricing authority', array( 'Digitalogic_CLI_Commands', 'pricing_authority' ) );
+WP_CLI::add_command( 'digitalogic pricing recalculate', array( 'Digitalogic_CLI_Commands', 'pricing_recalculate' ) );
 WP_CLI::add_command(
 	'digitalogic pricing-input-credential create',
 	array( 'Digitalogic_CLI_Commands', 'pricing_input_credential_create' )

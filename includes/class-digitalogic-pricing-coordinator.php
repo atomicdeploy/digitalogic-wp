@@ -365,6 +365,99 @@ final class Digitalogic_Pricing_Coordinator {
 	}
 
 	/**
+	 * Recalculate one product from its latest committed Patris inputs.
+	 *
+	 * @param string $product_code Exact Product Code.
+	 * @return array|WP_Error Actual receiver outcome, including server elapsed time.
+	 */
+	public function recalculate_product( $product_code ) {
+		$started = hrtime( true );
+		if ( ! is_string( $product_code ) || '' === $product_code || trim( $product_code ) !== $product_code ) {
+			return $this->error( 'digitalogic_pricing_product_code_required', 'An exact product_code is required.', 400 );
+		}
+		$service = Digitalogic_Pricing_Service::instance();
+		$result  = $service->run_source_delivery_transaction(
+			function ( $actuation_guard ) use ( $product_code, $service ) {
+				$authority = $this->pricing_authority();
+				if ( is_wp_error( $authority ) ) {
+					return $authority;
+				}
+				if ( 'php' !== $authority ) {
+					return $this->error(
+						'digitalogic_pricing_scoped_go_unsupported',
+						'Single-product recalculation requires PHP authority; scoped Go refresh is not available.',
+						409,
+						array( 'authority' => $authority )
+					);
+				}
+				$receiver = Digitalogic_Product_Sync_Receiver::instance();
+				$state    = $receiver->get_state();
+				$found_product = false;
+				foreach ( $state['sources'] ?? array() as $source_state ) {
+					$contains_product = false;
+					foreach ( $source_state['products'] ?? array() as $key => $product ) {
+						if ( $product_code === (string) ( $product['product_code'] ?? $key ) ) {
+							$contains_product = true;
+							break;
+						}
+					}
+					if ( ! $contains_product ) {
+						continue;
+					}
+					$found_product = true;
+					// The receiver drains existing delivery work for each selected source.
+					// Refuse unrelated work while both owner and source locks are held.
+					foreach ( array( 'pending_products', 'deferred_products' ) as $field ) {
+						foreach ( $source_state[ $field ] ?? array() as $key => $entry ) {
+							if ( $product_code !== (string) ( $entry['product_code'] ?? $key ) ) {
+								return $this->error(
+									'digitalogic_pricing_unrelated_delivery_pending',
+									'This source has unrelated delivery work; finish that delivery before a scoped recalculation.',
+									409
+								);
+							}
+						}
+					}
+				}
+				if ( ! $found_product ) {
+					return $this->error( 'digitalogic_pricing_product_not_in_source', 'The Product Code is not present in the committed Patris inputs.', 404 );
+				}
+				$settings = $service->current_canonical_settings();
+				if ( is_wp_error( $settings ) ) {
+					return $settings;
+				}
+				$catalog = Digitalogic_Shipping_Method_Service::instance()->get_integration_catalog();
+				if ( is_wp_error( $catalog ) ) {
+					return $catalog;
+				}
+				$outcome = $receiver->reprice_pricing_state(
+					$this->receiver_settings( $settings ),
+					array(),
+					array( $product_code ),
+					$catalog['revision'],
+					$actuation_guard
+				);
+				if ( ! is_wp_error( $outcome ) ) {
+					$outcome['authority']              = $authority;
+					$outcome['owner_catalog_revision'] = $catalog['revision'];
+				}
+				return $outcome;
+			}
+		);
+		$diagnostics = array(
+			'product_code' => $product_code,
+			'scope_codes'  => array( $product_code ),
+			'input_scope'  => 'committed_patris_source',
+			'elapsed_ms'   => (int) round( ( hrtime( true ) - $started ) / 1000000 ),
+		);
+		if ( is_wp_error( $result ) ) {
+			$result->add_data( array_merge( (array) $result->get_error_data(), $diagnostics ) );
+			return $result;
+		}
+		return array_merge( $result, $diagnostics );
+	}
+
+	/**
 	 * Reprice all stored products inside an already-open DB transaction.
 	 *
 	 * @param array       $settings                  Complete canonical settings.

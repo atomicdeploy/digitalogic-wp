@@ -287,6 +287,7 @@ final class RestApiPermissionsTest extends TestCase {
 
         // phpcs:disable WordPress.Arrays.MultipleStatementAlignment.DoubleArrowNotAligned -- Route regex lengths are intentionally uneven.
         $expected = array(
+            'POST /pricing/products/recalculate' => 'check_write_permission',
             'GET /products' => 'check_read_permission',
             'GET /products/(?P<id>\d+)' => 'check_read_permission',
             'GET /products/sku/(?P<sku>[^/]+)' => 'check_read_permission', // phpcs:ignore

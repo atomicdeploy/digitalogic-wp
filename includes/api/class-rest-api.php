@@ -198,6 +198,16 @@ class Digitalogic_REST_API {
 	 * Register REST API routes
 	 */
 	public function register_routes() {
+		register_rest_route(
+			'digitalogic/v1',
+			'/pricing/products/recalculate',
+			array(
+				'methods'             => 'POST',
+				'callback'            => array( $this, 'recalculate_product_price' ),
+				'permission_callback' => array( $this, 'check_write_permission' ),
+			)
+		);
+
 		// Products endpoints
 		register_rest_route(
 			'digitalogic/v1',
@@ -704,6 +714,29 @@ class Digitalogic_REST_API {
 	 */
 	public function check_write_permission( $request = null ) {
 		return $this->check_scoped_permission( 'write', $request );
+	}
+
+	/**
+	 * Recalculate one product from its latest committed Patris inputs.
+	 *
+	 * @param WP_REST_Request $request Authenticated pricing request.
+	 * @return WP_REST_Response
+	 */
+	public function recalculate_product_price( WP_REST_Request $request ) {
+		$payload = $request->get_json_params();
+		if ( ! is_array( $payload ) || array_is_list( $payload )
+			|| ! is_string( $payload['product_code'] ?? null ) ) {
+			return new WP_REST_Response( array( 'success' => false, 'code' => 'digitalogic_pricing_product_code_required' ), 400 );
+		}
+		$result = Digitalogic_Pricing_Coordinator::instance()->recalculate_product( $payload['product_code'] );
+		if ( is_wp_error( $result ) ) {
+			$details = (array) $result->get_error_data();
+			return new WP_REST_Response(
+				array( 'success' => false, 'code' => $result->get_error_code(), 'message' => $result->get_error_message() ),
+				(int) ( $details['status'] ?? 500 )
+			);
+		}
+		return new WP_REST_Response( array( 'success' => true, 'data' => $result ), 200 );
 	}
 
 	/**
