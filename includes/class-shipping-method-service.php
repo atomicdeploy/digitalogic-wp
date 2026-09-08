@@ -775,7 +775,18 @@ final class Digitalogic_Shipping_Method_Service {
 		$default_markup = $this->load_default_percentage_markup();
 		// This endpoint accepts exact Patris Codes only. Resolve the current
 		// identity projection once instead of filtering it again for every code.
-		$identities     = Digitalogic_Product_Identifier_Resolver::instance()->resolve_patris_codes( $normalized_codes );
+		$identities  = Digitalogic_Product_Identifier_Resolver::instance()->resolve_patris_codes( $normalized_codes );
+		$product_ids = array();
+		foreach ( $identities as $identity ) {
+			if ( ! is_wp_error( $identity ) ) {
+				$product_ids[] = (int) $identity['woocommerce_id'];
+			}
+		}
+		$method_rows = $this->read_product_method_meta_batch( $product_ids );
+		if ( is_wp_error( $method_rows ) ) {
+			return $method_rows;
+		}
+
 		$results        = array();
 		$resolved_count = 0;
 		foreach ( $normalized_codes as $code ) {
@@ -799,7 +810,10 @@ final class Digitalogic_Shipping_Method_Service {
 			$results[] = array(
 				'code'       => $code,
 				'status'     => 'ok',
-				'assignment' => $this->build_pricing_assignment_projection( $code, $resolved, $default_markup ),
+				'assignment' => $this->build_pricing_assignment_projection(
+					$code, $resolved, $default_markup,
+					$method_rows[ $resolved['product_id'] ]
+				),
 			);
 		}
 
@@ -1749,8 +1763,8 @@ final class Digitalogic_Shipping_Method_Service {
 	 * @param array  $default_markup Preloaded default-markup contract.
 	 * @return array
 	 */
-	private function build_pricing_assignment_projection( $requested_code, $resolved, $default_markup ) {
-		$method_row = $this->read_product_method_meta( $resolved['product_id'] );
+	private function build_pricing_assignment_projection( $requested_code, $resolved, $default_markup, $method_row = null ) {
+		$method_row = null === $method_row ? $this->read_product_method_meta( $resolved['product_id'] ) : $method_row;
 		$markup     = $this->build_exact_markup_contract( $resolved['product_id'], $default_markup );
 
 		$projection = array(
@@ -1968,6 +1982,47 @@ final class Digitalogic_Shipping_Method_Service {
                 'meta_id' => (int) $row['meta_id'],
             )
             : array('exists' => false, 'value' => null, 'meta_id' => 0);
+    }
+
+    /** Read each exact assignment once per bounded request batch, preserving first-meta-ID selection. */
+    private function read_product_method_meta_batch( $product_ids ) {
+        global $wpdb;
+
+        $ids    = array_values( array_unique( array_map( 'intval', $product_ids ) ) );
+        $result = array_fill_keys(
+            $ids, array( 'exists' => false, 'value' => null, 'meta_id' => 0 )
+        );
+        if ( empty( $ids ) ) {
+            return $result;
+        }
+        $table        = isset( $wpdb->postmeta )
+            ? $wpdb->postmeta : $wpdb->prefix . 'postmeta';
+        $placeholders = implode( ', ', array_fill( 0, count( $ids ), '%d' ) );
+        $sql          = "/* digitalogic_shipping_assignment_batch */ SELECT post_id, "
+            . "meta_id, meta_value FROM {$table} WHERE meta_key = %s "
+            . "AND post_id IN ({$placeholders}) ORDER BY post_id ASC, meta_id ASC";
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- One fresh read of exact owner IDs and assignment key, with placeholders for every value.
+        $rows = $wpdb->get_results(
+            $wpdb->prepare( $sql, self::PRODUCT_METHOD_META, ...$ids ), ARRAY_A
+        );
+        if ( ! is_array( $rows ) ) {
+            return new WP_Error(
+                'digitalogic_shipping_assignment_read_failed',
+                'Owner shipping assignments could not be read.',
+                array( 'status' => 503 )
+            );
+        }
+        foreach ( $rows as $row ) {
+            $id = (int) $row['post_id'];
+            if ( isset( $result[ $id ] ) && ! $result[ $id ]['exists'] ) {
+                $result[ $id ] = array(
+                    'exists'  => true,
+                    'value'   => maybe_unserialize( $row['meta_value'] ),
+                    'meta_id' => (int) $row['meta_id'],
+                );
+            }
+        }
+        return $result;
     }
 
 	private function read_product_method_meta($post_id, $for_update = false) {

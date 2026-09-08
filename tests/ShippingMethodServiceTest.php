@@ -230,10 +230,14 @@ final class ShippingMethodServiceTest extends TestCase {
 			),
 		);
 
+		$GLOBALS['digitalogic_test_posts'][503]['meta_rows'][ Digitalogic_Shipping_Method_Service::PRODUCT_METHOD_META ] = array( 'air_express', 'sea_freight' );
+
 		$batch = $this->service->get_product_assignments_by_codes(
 			array( ' EXACT-504 ', 'EXACT-503', 'SKU-503' )
 		);
 
+		$this->assertCount( 1, array_filter( $GLOBALS['wpdb']->queries, static fn( $query ) => is_string( $query ) && false !== strpos( $query, 'digitalogic_shipping_assignment_batch' ) ) );
+		$this->assertSame( 'air_express', $batch['results'][1]['assignment']['shipping_method_id'] );
 		$this->assertSame( 3, $batch['requested_count'] );
 		$this->assertSame( 2, $batch['resolved_count'] );
 		$this->assertSame( 1, $batch['error_count'] );
