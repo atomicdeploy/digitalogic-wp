@@ -279,7 +279,7 @@ final class Redis
         );
         $script = <<<'LUA'
 local existing = redis.call('GET', KEYS[3])
-if existing then
+if existing == ARGV[4] then
     return {'duplicate', existing}
 end
 local stream_id = redis.call(
@@ -292,7 +292,7 @@ local stream_id = redis.call(
     'envelope',
     ARGV[1]
 )
-redis.call('SET', KEYS[3], stream_id, 'EX', ARGV[3])
+redis.call('SET', KEYS[3], ARGV[4], 'EX', ARGV[3])
 redis.call('PUBLISH', KEYS[2], ARGV[1])
 return {'published', stream_id}
 LUA;
@@ -302,10 +302,11 @@ LUA;
                 array(
                     self::EVENT_STREAM,
                     self::EVENT_CHANNEL,
-                    self::EVENT_IDEMPOTENCY_PREFIX . $idempotency_hash,
+                    self::EVENT_IDEMPOTENCY_PREFIX . 'latest:' . hash('sha256', $entity_type . '|' . $entity_id),
                     $encoded,
                     (string) self::EVENT_STREAM_MAXLEN,
                     (string) self::EVENT_ID_TTL,
+                    $idempotency_hash,
                 ),
                 3
             );

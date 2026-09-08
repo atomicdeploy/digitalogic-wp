@@ -85,7 +85,8 @@ final class Events
         array $value = array()
     ) {
         $key = implode('|', array($type, $entity_type, $entity_id, $revision));
-        if (isset(self::$emitted[$key])) {
+        $entity_key = $entity_type . '|' . $entity_id;
+        if ((self::$emitted[$entity_key] ?? null) === $key) {
             return null;
         }
         $result = Redis::publish_event(
@@ -97,7 +98,7 @@ final class Events
             $value
         );
         if (!is_wp_error($result)) {
-            self::$emitted[$key] = true;
+            self::$emitted[$entity_key] = $key;
         }
         return $result;
     }
