@@ -3166,7 +3166,7 @@ class Digitalogic_Product_Sync_Receiver {
                 $resolved_codes[] = $code;
             }
             foreach (array_chunk($resolved_codes, Digitalogic_Shipping_Method_Service::MAX_PRICING_ASSIGNMENT_BATCH_SIZE) as $codes) {
-                $batch = Digitalogic_Shipping_Method_Service::instance()->get_product_assignments_by_codes($codes);
+                $batch = Digitalogic_Shipping_Method_Service::instance()->get_product_shipping_assignments_by_codes($codes);
                 if (is_wp_error($batch)) {
                     return $batch;
                 }

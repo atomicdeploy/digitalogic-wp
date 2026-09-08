@@ -713,6 +713,27 @@ final class Digitalogic_Shipping_Method_Service {
 	 * @return array|WP_Error
 	 */
 	public function get_product_assignments_by_codes( $codes ) {
+		return $this->read_product_assignments_by_codes( $codes, true );
+	}
+
+	/**
+	 * Read fresh shipping identities for the internal PHP owner projection.
+	 *
+	 * @param array $codes Exact Patris Codes.
+	 * @return array|WP_Error
+	 */
+	public function get_product_shipping_assignments_by_codes( $codes ) {
+		return $this->read_product_assignments_by_codes( $codes, false );
+	}
+
+	/**
+	 * Share exact identity and SQL reads across assignment projections.
+	 *
+	 * @param array $codes          Exact Patris Codes.
+	 * @param bool  $include_markup Include the external markup contract.
+	 * @return array|WP_Error
+	 */
+	private function read_product_assignments_by_codes( $codes, $include_markup ) {
 		if ( ! is_array( $codes ) || array_values( $codes ) !== $codes ) {
 			return new WP_Error(
 				'digitalogic_pricing_assignment_batch_shape_invalid',
@@ -772,7 +793,7 @@ final class Digitalogic_Shipping_Method_Service {
 			$normalized_codes[]  = $normalized;
 		}
 
-		$default_markup = $this->load_default_percentage_markup();
+		$default_markup = $include_markup ? $this->load_default_percentage_markup() : array();
 		// This endpoint accepts exact Patris Codes only. Resolve the current
 		// identity projection once instead of filtering it again for every code.
 		$identities  = Digitalogic_Product_Identifier_Resolver::instance()->resolve_patris_codes( $normalized_codes );
@@ -812,20 +833,24 @@ final class Digitalogic_Shipping_Method_Service {
 				'status'     => 'ok',
 				'assignment' => $this->build_pricing_assignment_projection(
 					$code, $resolved, $default_markup,
-					$method_rows[ $resolved['product_id'] ]
+					$method_rows[ $resolved['product_id'] ], $include_markup
 				),
 			);
 		}
 
-		return array(
+		$response = array(
 			'schema'                    => self::PRICING_ASSIGNMENT_BATCH_SCHEMA,
 			'requested_count'           => count( $normalized_codes ),
 			'resolved_count'            => $resolved_count,
 			'error_count'               => count( $normalized_codes ) - $resolved_count,
 			'maximum_codes'             => self::MAX_PRICING_ASSIGNMENT_BATCH_SIZE,
-			'default_percentage_markup' => $this->present_default_percentage_markup($default_markup),
+			'default_percentage_markup' => $include_markup ? $this->present_default_percentage_markup($default_markup) : null,
 			'results'                   => $results,
 		);
+		if ( ! $include_markup ) {
+			unset( $response['default_percentage_markup'] );
+		}
+		return $response;
 	}
 
     /**
@@ -1761,23 +1786,27 @@ final class Digitalogic_Shipping_Method_Service {
 	 * @param string $requested_code Normalized Code from the request.
 	 * @param array  $resolved Resolved internal product identity.
 	 * @param array  $default_markup Preloaded default-markup contract.
+	 * @param array|null $method_row Preloaded exact shipping metadata.
+	 * @param bool $include_markup Include the external markup contract.
 	 * @return array
 	 */
-	private function build_pricing_assignment_projection( $requested_code, $resolved, $default_markup, $method_row = null ) {
+	private function build_pricing_assignment_projection( $requested_code, $resolved, $default_markup, $method_row = null, $include_markup = true ) {
 		$method_row = null === $method_row ? $this->read_product_method_meta( $resolved['product_id'] ) : $method_row;
-		$markup     = $this->build_exact_markup_contract( $resolved['product_id'], $default_markup );
 
 		$projection = array(
 			'code'                  => $requested_code,
 			'woocommerce_id'        => (int) $resolved['woocommerce_id'],
-			'profit_percent_source' => null === $markup['source'] ? 'unavailable' : (string) $markup['source'],
-			'pricing_warnings'      => $markup['warning'] ? array( $markup['warning'] ) : array(),
 		);
-		if ($method_row['exists'] && '' !== (string) $method_row['value']) {
-			$projection['shipping_method_id'] = (string) $method_row['value'];
+		if ( $include_markup ) {
+			$markup                              = $this->build_exact_markup_contract( $resolved['product_id'], $default_markup );
+			$projection['profit_percent_source'] = null === $markup['source'] ? 'unavailable' : (string) $markup['source'];
+			$projection['pricing_warnings']      = $markup['warning'] ? array( $markup['warning'] ) : array();
 		}
-		if (null !== $markup['profit_percent']) {
-			$projection['profit_percent'] = $markup['profit_percent'];
+		if ($method_row['exists'] && '' !== (string) $method_row['value']) {
+			$projection['shipping_method_id']    = (string) $method_row['value'];
+		}
+		if ( $include_markup && null !== $markup['profit_percent'] ) {
+			$projection['profit_percent']        = $markup['profit_percent'];
 		}
 
 		return $projection;

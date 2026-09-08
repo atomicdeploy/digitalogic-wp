@@ -256,6 +256,16 @@ final class ShippingMethodServiceTest extends TestCase {
 		$this->assertSame( 'error', $batch['results'][2]['status'] );
 		$this->assertSame( 'digitalogic_product_code_not_found', $batch['results'][2]['error']['code'] );
 		$this->assertArrayNotHasKey( 'assignment', $batch['results'][2] );
+		$shipping = $this->service->get_product_shipping_assignments_by_codes( array( ' EXACT-504 ', 'EXACT-503', 'SKU-503' ) );
+		$this->assertSame( $batch['results'][2], $shipping['results'][2] );
+		$this->assertArrayNotHasKey( 'default_percentage_markup', $shipping );
+		foreach ( array( 0, 1 ) as $index ) {
+			$this->assertSame(
+				array_intersect_key( $batch['results'][ $index ]['assignment'], array_flip( array( 'code', 'woocommerce_id', 'shipping_method_id' ) ) ),
+				$shipping['results'][ $index ]['assignment']
+			);
+		}
+
 	}
 
 	public function test_shipping_compare_and_assign_is_transactional_and_conflict_safe(): void {
