@@ -1291,7 +1291,7 @@ final class ProductSyncReceiverTest extends TestCase {
         );
         $this->assertSame('digitalogic_product_sync_price_source_incomplete', $result->get_error_code());
 
-        $fallback                = array(
+        $fallback = array(
             'product_code'                   => 'CNY-INCOMPLETE',
             'pricing_catalog_revision'       => $this->currentCatalogRevision(),
             'foreign_currency'               => 'CNY',

@@ -100,18 +100,18 @@ final class SharedPricingCalculatorTest extends TestCase {
 		foreach ( array( 'foreign_price', 'partner_price', 'sale_price_direct' ) as $kind ) {
 			$row = $this->foreign();
 			if ( 'foreign_price' !== $kind ) {
-				$row['price_source_kind'] = $kind;
-				$row['price_source_currency'] = 'IRR';
-				$row['price_source_amount'] = '10000';
-				$row['shipping_method_id'] = 'domestic';
-				$row['shipping_price_per_kg'] = '0';
+				$row['price_source_kind']              = $kind;
+				$row['price_source_currency']          = 'IRR';
+				$row['price_source_amount']            = '10000';
+				$row['shipping_method_id']             = 'domestic';
+				$row['shipping_price_per_kg']          = '0';
 				$row['shipping_price_per_kg_currency'] = 'IRR';
 				unset( $row['irt_per_cny'] );
 			}
 			foreach ( array( null, '', '0' ) as $weight ) {
-				$missing = $row;
+				$missing                 = $row;
 				$missing['weight_grams'] = $weight;
-				$result = ( new Calculator() )->evaluate( $missing );
+				$result                  = ( new Calculator() )->evaluate( $missing );
 				self::assertFalse( $result['available'], $kind );
 				self::assertContains( 'weight_grams', $result['missing'], $kind );
 			}
