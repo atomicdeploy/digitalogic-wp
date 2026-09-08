@@ -1850,6 +1850,18 @@ class Digitalogic_Product_Sync_Receiver {
         }
         if (!empty($resolved_product_ids)) {
             $resolved_product_ids = array_keys($resolved_product_ids);
+            if (!empty($scope_codes)) {
+                // A persistent worker may hold an old leaf before drift checks.
+                // Refresh scoped products before deciding whether writes are needed.
+                foreach ($resolved_product_ids as $product_id) {
+                    wp_cache_delete($product_id, 'posts');
+                    wp_cache_delete($product_id, 'post_meta');
+                    wp_cache_delete($product_id, 'product_type_relationships');
+                }
+                if (!$this->evict_coordinated_product_instance_caches($resolved_product_ids)) {
+                    return $this->error('digitalogic_pricing_product_cache_evict_failed', 'Scoped product caches could not be refreshed.', 503);
+                }
+            }
             if (function_exists('_prime_post_caches')) {
                 // wc_get_product() needs the post, pricing metadata, and product
                 // type terms. Priming only postmeta left a production-sized rate

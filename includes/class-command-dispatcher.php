@@ -73,6 +73,7 @@ class Digitalogic_Command_Dispatcher {
 
     private function default_handlers() {
         return array(
+            'digitalogic_recalculate_product_price'       => array($this, 'recalculate_product_price'),
             'digitalogic_get_products'                     => array($this, 'get_products'),
             'digitalogic_get_product'                      => array($this, 'get_product'),
             'digitalogic_update_product'                   => array($this, 'update_product'),
@@ -105,6 +106,17 @@ class Digitalogic_Command_Dispatcher {
 
     public function get_products($payload) {
         return Digitalogic_Product_Manager::instance()->query_products( $payload );
+    }
+
+    /** Reuse the same pricing operation as REST and CLI for authorized transports. */
+    public function recalculate_product_price($payload) {
+        if (!current_user_can('manage_woocommerce')) {
+            return new WP_Error('digitalogic_unauthorized', __('Unauthorized', 'digitalogic'), array('status' => 403));
+        }
+        if (!is_array($payload) || !is_string($payload['product_code'] ?? null)) {
+            return new WP_Error('digitalogic_pricing_product_code_required', 'An exact product_code is required.', array('status' => 400));
+        }
+        return Digitalogic_Pricing_Coordinator::instance()->recalculate_product($payload['product_code']);
     }
 
     public function get_product($payload) {
