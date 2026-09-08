@@ -750,7 +750,7 @@ final class Digitalogic_Google_Sheets_Catalog {
 		$product_ids = array_values( array_unique( array_filter( array_map( 'absint', array_column( $report_rows, 'woo_id' ) ) ) ) );
 		foreach ( Digitalogic_Product_Manager::instance()->get_catalog_products_by_ids( $product_ids ) as $canonical ) {
 			if ( is_array( $canonical ) && $canonical ) {
-				$woocommerce_id = absint( $canonical['id'] ?? 0 );
+				$woocommerce_id                     = absint( $canonical['id'] ?? 0 );
 				$canonical_by_id[ $woocommerce_id ] = $canonical;
 			}
 		}
@@ -855,11 +855,11 @@ final class Digitalogic_Google_Sheets_Catalog {
 		}
 
 		error_log( 'digitalogic_pricing_catalog_timing ' . wp_json_encode( array(
-			'rows' => count( $report_rows ),
-			'woo_rows' => count( $canonical_by_id ),
-			'hydration_ms' => (int) round( 1000 * ( $hydrated_at - $timing_started ) ),
+			'rows'              => count( $report_rows ),
+			'woo_rows'          => count( $canonical_by_id ),
+			'hydration_ms'      => (int) round( 1000 * ( $hydrated_at - $timing_started ) ),
 			'base_transform_ms' => (int) round( 1000 * ( $transformed_at - $hydrated_at ) ),
-			'overlay_ms' => (int) round( 1000 * ( microtime( true ) - $transformed_at ) ),
+			'overlay_ms'        => (int) round( 1000 * ( microtime( true ) - $transformed_at ) ),
 		) ) );
 		return array(
 			'columns' => $this->reconciled_product_columns(),

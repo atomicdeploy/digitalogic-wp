@@ -999,18 +999,18 @@ final class Digitalogic_Currency_Admin_Async {
 					if ( is_wp_error( $state ) || $state_revision === ( $state['state_revision'] ?? '' ) ) {
 						return false;
 					}
-					$expected = $job;
-					$job['status'] = 'superseded';
+					$expected                            = $job;
+					$job['status']                       = 'superseded';
 					$job['superseded_by_state_revision'] = $state['state_revision'];
-					$job['error_code'] = 'digitalogic_currency_async_superseded';
-					$job['message_fa'] = 'تنظیمات جدیدتری ثبت شده است؛ تحویل قیمت این درخواست تأیید نشد.';
-					$job['completed_at'] = time();
-					$job['updated_at'] = time();
-					$job['owner_token'] = '';
-					$job['fence_token'] = '';
-					$job['lease_until'] = 0;
-					$job['next_attempt_at'] = 0;
-					$stored = $this->store_job_open_lock( $job, $expected );
+					$job['error_code']                   = 'digitalogic_currency_async_superseded';
+					$job['message_fa']                   = 'تنظیمات جدیدتری ثبت شده است؛ تحویل قیمت این درخواست تأیید نشد.';
+					$job['completed_at']                 = time();
+					$job['updated_at']                   = time();
+					$job['owner_token']                  = '';
+					$job['fence_token']                  = '';
+					$job['lease_until']                  = 0;
+					$job['next_attempt_at']              = 0;
+					$stored                              = $this->store_job_open_lock( $job, $expected );
 					if ( true === $stored ) {
 						$this->unschedule_job( $job );
 					}

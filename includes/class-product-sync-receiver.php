@@ -5543,7 +5543,10 @@ class Digitalogic_Product_Sync_Receiver {
 			$expected_shipping = (string) reset( $shipping_rows );
 		}
         $shipping_absent = '' === $expected_shipping && array() === $shipping_rows
-            && ( ! is_numeric( $final_price ) || (float) $final_price <= 0 );
+            && ( ! is_numeric( $final_price ) || (float) $final_price <= 0 )
+            // Preserve the canonical compare-and-assign bootstrap when source
+            // facts select a supported method despite no current assignment.
+            && '' === Digitalogic_Patris_Catalog_Materializer::instance()->selected_source_shipping_method( $product_data );
         if (
             ( ! $shipping_absent && ( '' === $expected_shipping || empty( $shipping_rows ) ) )
 			|| count( $shipping_rows ) > Digitalogic_Patris_Feed::PRICING_BATCH_MAX_IDENTICAL_ASSIGNMENT_ROWS

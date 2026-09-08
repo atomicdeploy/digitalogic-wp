@@ -173,7 +173,7 @@ final class Digitalogic_Pricing_Snapshot {
 
 		$discovery = '/digitalogic/pricing/sync/revision' === $request->get_route()
 			&& in_array( strtoupper( (string) $request->get_method() ), array( 'GET', 'HEAD' ), true );
-		$source = $this->request_source( $request, $discovery );
+		$source    = $this->request_source( $request, $discovery );
 		if ( is_wp_error( $source ) || ! $feed->verify_product_sync_request_for_source( $request, $source, false ) ) {
 			return $this->error(
 				'digitalogic_pricing_snapshot_unauthorized',
@@ -799,15 +799,15 @@ final class Digitalogic_Pricing_Snapshot {
 
 	/** Execute one build only while this request owns its worker lease. */
 	private function run_build_with_lease( $build_id ) {
-		$started = hrtime( true );
-		$previous = $started;
-		$phase = 'admission_and_revision';
+		$started   = hrtime( true );
+		$previous  = $started;
+		$phase     = 'admission_and_revision';
 		$durations = array();
-		$mark = static function ( $next ) use ( &$previous, &$phase, &$durations ) {
-			$now = hrtime( true );
+		$mark      = static function ( $next ) use ( &$previous, &$phase, &$durations ) {
+			$now                 = hrtime( true );
 			$durations[ $phase ] = ( $durations[ $phase ] ?? 0 ) + ( $now - $previous ) / 1000000;
-			$previous = $now;
-			$phase = $next;
+			$previous            = $now;
+			$phase               = $next;
 		};
 		try {
 			$this->run_measured_build_with_lease( $build_id, $mark );
@@ -816,9 +816,9 @@ final class Digitalogic_Pricing_Snapshot {
 			// One bounded record per worker, including early failure. No product or credential data.
 			error_log( 'digitalogic-pricing-timing ' . wp_json_encode( array(
 				'operation' => 'snapshot_build',
-				'build_id' => $build_id,
-				'total_ms' => round( ( hrtime( true ) - $started ) / 1000000, 3 ),
-				'phase_ms' => array_map( static function ( $value ) { return round( $value, 3 ); }, $durations ),
+				'build_id'  => $build_id,
+				'total_ms'  => round( ( hrtime( true ) - $started ) / 1000000, 3 ),
+				'phase_ms'  => array_map( static function ( $value ) { return round( $value, 3 ); }, $durations ),
 			) ) );
 		}
 	}

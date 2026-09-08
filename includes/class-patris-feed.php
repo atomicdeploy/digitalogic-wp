@@ -1774,7 +1774,7 @@ class Digitalogic_Patris_Feed {
 							)
 						)
 					);
-                    $shipping_absent = array() === $shipping_meta_rows && '' === $assigned_shipping
+                    $shipping_absent        = array() === $shipping_meta_rows && '' === $assigned_shipping
                         && '' === (string) ( $data['shipping_method_id'] ?? '' )
                         && ( ! is_numeric( $data['final_price'] ?? null ) || (float) $data['final_price'] <= 0 );
                     if ( $shipping_absent ) { $shipping_absent_ids[ $product_id ] = true; }

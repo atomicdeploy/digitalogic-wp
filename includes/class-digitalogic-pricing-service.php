@@ -773,6 +773,14 @@ final class Digitalogic_Pricing_Service {
 		}
 		$state = Digitalogic_Product_Sync_Receiver::instance()->get_source_state( $requested['id'], $requested['dataset'] );
 		if ( null === $requested['revision'] ) {
+			if ( array() === $state ) {
+				return $this->error(
+					'digitalogic_pricing_sync_source_absent',
+					'The authenticated source is not currently registered.',
+					409,
+					array( 'source' => array( 'id' => $requested['id'], 'dataset' => $requested['dataset'] ) )
+				);
+			}
 			$current = $this->normalize_source( $state['source'] ?? null );
 			if ( is_wp_error( $current ) ) {
 				return $current;
