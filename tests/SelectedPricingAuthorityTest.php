@@ -585,7 +585,7 @@ final class SelectedPricingAuthorityTest extends TestCase {
 			Digitalogic_Product_Identifier_Resolver::instance()->clear_code_rows_cache();
 			$GLOBALS['wpdb']->identifier_query_count = 0;
 			$GLOBALS['wpdb']->option_read_counts     = array();
-			$result                                  = $project->invoke( Digitalogic_Product_Sync_Receiver::instance(), $products, array( 'formula_id' => 'landed_price' ), 'php' );
+			$result                                  = $project->invoke( Digitalogic_Product_Sync_Receiver::instance(), $products, array( 'formula_id' => 'landed_price', 'input_mode' => 'patris_inputs' ), 'php' );
 			$this->assert_success( $result );
 			$this->assertCount( $count, $result );
 			foreach ( $result as $product ) {
@@ -610,12 +610,13 @@ final class SelectedPricingAuthorityTest extends TestCase {
 		$product['record_hash'] = $this->record_hash( $product );
 		$payload                = $this->snapshot( array( $product ), '2026-07-21T00:00:00Z' );
 		unset( $payload['local_currency'], $payload['formula_id'] );
-		$identity             = array_intersect_key( $payload, array_flip( array( 'schema', 'event_type', 'source', 'generated_at', 'products', 'categories', 'excluded_codes', 'quarantined_codes' ) ) );
+		$payload['products'] = array($product);
+		$identity             = array_intersect_key( $payload, array_flip( array( 'schema', 'event_type', 'input_mode', 'source', 'generated_at', 'products', 'categories', 'excluded_codes', 'quarantined_codes' ) ) );
 		$identity['products'] = array( $product['product_code'] . '=' . $product['record_hash'] );
 		$payload['event_id']  = 'sha256:' . hash( 'sha256', wp_json_encode( $identity, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES ) );
 		$result               = Digitalogic_Product_Sync_Receiver::instance()->receive( $payload );
 		$this->assertInstanceOf( WP_Error::class, $result );
-		$this->assertSame( 'digitalogic_product_sync_pricing_context_missing', $result->get_error_code() );
+		$this->assertSame( 'digitalogic_product_sync_owner_fields_forbidden', $result->get_error_code() );
 		$this->assertSame( '1', (string) $GLOBALS['digitalogic_test_posts'][901]['meta']['_regular_price'] );
 		$this->assertSame( array(), $GLOBALS['digitalogic_test_wc_product_saves'] );
 	}
@@ -633,7 +634,7 @@ final class SelectedPricingAuthorityTest extends TestCase {
 		$this->assertSame( array( '8866000' ), $observed );
 		$this->assertCount( 1, $GLOBALS['digitalogic_test_wc_product_saves'] );
 		$state = Digitalogic_Product_Sync_Receiver::instance()->get_source_state( 'pricing-tests', 'kala' );
-		$this->assertSame( '8437000', (string) $state['input_products']['PRICE-901']['final_price'] );
+		$this->assertArrayNotHasKey('final_price', $state['input_products']['PRICE-901']);
 		$this->assertSame( '8866000', (string) $state['products']['PRICE-901']['final_price'] );
 		$this->assertNotSame( $state['input_source']['revision'], $state['source']['revision'] );
 	}
@@ -690,7 +691,7 @@ final class SelectedPricingAuthorityTest extends TestCase {
 		$this->assertSame( array( '8866000' ), $observed );
 		$this->assertCount( 1, $GLOBALS['digitalogic_test_wc_product_saves'] );
 		$state = $receiver->get_source_state( 'pricing-tests', 'kala' );
-		$this->assertSame( $first['record_hash'], $state['input_products']['PRICE-901']['record_hash'] );
+		$this->assertSame( $this->pure_input($first)['record_hash'], $state['input_products']['PRICE-901']['record_hash'] );
 		$this->assertSame( $delta['source'], $state['input_source'] );
 		$this->assertSame( '8866000', (string) $state['products']['PRICE-902']['final_price'] );
 	}
@@ -747,7 +748,7 @@ final class SelectedPricingAuthorityTest extends TestCase {
 		$this->assertCount( 1, $GLOBALS['digitalogic_test_wc_product_saves'] );
 		$this->assertSame( '11505000', (string) $GLOBALS['digitalogic_test_posts'][901]['meta']['_regular_price'] );
 		$state = Digitalogic_Product_Sync_Receiver::instance()->get_source_state( 'pricing-tests', 'kala' );
-		$this->assertSame( 'air_express', $state['input_products']['PRICE-901']['shipping_method_id'] );
+		$this->assertArrayNotHasKey('shipping_method_id', $state['input_products']['PRICE-901']);
 		$this->assertSame( 'freight', $state['products']['PRICE-901']['shipping_method_id'] );
 	}
 
@@ -781,9 +782,10 @@ final class SelectedPricingAuthorityTest extends TestCase {
 	 */
 	private function delta( $changed, $all, $time ): array {
 		$payload               = $this->snapshot( $all, $time );
+		if ($payload['input_mode'] === 'patris_inputs') { $changed = array_map(array($this, 'pure_input'), $changed); }
 		$payload['event_type'] = 'update';
 		$payload['products']   = $changed;
-		$identity              = array_intersect_key( $payload, array_flip( array( 'schema', 'event_type', 'local_currency', 'formula_id', 'source', 'generated_at', 'products', 'categories', 'excluded_codes', 'quarantined_codes' ) ) );
+		$identity              = array_intersect_key( $payload, array_flip( array( 'schema', 'event_type', 'input_mode', 'local_currency', 'formula_id', 'source', 'generated_at', 'products', 'categories', 'excluded_codes', 'quarantined_codes' ) ) );
 		$identity['products']  = array_map( static fn( $product ) => $product['product_code'] . '=' . $product['record_hash'], $changed );
 		sort( $identity['products'], SORT_STRING );
 		$payload['event_id'] = 'sha256:' . hash( 'sha256', wp_json_encode( $identity, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES ) );
@@ -964,6 +966,10 @@ final class SelectedPricingAuthorityTest extends TestCase {
 	 * @return array
 	 */
 	private function snapshot( $products, $generated_at, $source_id = 'pricing-tests' ) {
+		$input_mode = 'php' === Digitalogic_Pricing_Coordinator::instance()->pricing_authority() ? 'patris_inputs' : 'go_projection';
+		if ('patris_inputs' === $input_mode) {
+			$products = array_map(array($this, 'pure_input'), $products);
+		}
 		$material = array();
 		foreach ( $products as $product ) {
 			$material[] = $product['product_code'] . '=' . $product['record_hash'];
@@ -977,6 +983,7 @@ final class SelectedPricingAuthorityTest extends TestCase {
 		$identity = array(
 			'schema'            => 'patris.product-sync',
 			'event_type'        => 'snapshot',
+			'input_mode'        => $input_mode,
 			'local_currency'    => 'IRT',
 			'formula_id'        => 'landed_price',
 			'source'            => $source,
@@ -994,6 +1001,7 @@ final class SelectedPricingAuthorityTest extends TestCase {
 		return array(
 			'schema'            => 'patris.product-sync',
 			'event_type'        => 'snapshot',
+			'input_mode'        => $input_mode,
 			'event_id'          => 'sha256:' . hash(
 				'sha256',
 				wp_json_encode( $identity, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES )
@@ -1008,6 +1016,14 @@ final class SelectedPricingAuthorityTest extends TestCase {
 			'quarantined_codes' => array(),
 			'warnings'          => array(),
 		);
+	}
+
+	private function pure_input($product) {
+		foreach (array('shipping_method_id', 'shipping_price_per_kg', 'shipping_price_per_kg_currency', 'markup_percent', 'irt_per_cny', 'pricing_catalog_revision', 'pricing_catalog_status', 'currency_effective_date', 'price_source_amount', 'price_source_currency', 'price_source_kind', 'price_rounding_digits', 'price_rounding_mode', 'final_price', 'record_hash') as $field) {
+			unset($product[$field]);
+		}
+		$product['record_hash'] = $this->record_hash($product);
+		return $product;
 	}
 
 	/**

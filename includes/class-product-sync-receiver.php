@@ -264,6 +264,7 @@ class Digitalogic_Product_Sync_Receiver {
     private const ENVELOPE_FIELDS = array(
         'schema',
         'event_type',
+        'input_mode',
         'event_id',
         'local_currency',
         'formula_id',
@@ -3010,6 +3011,10 @@ class Digitalogic_Product_Sync_Receiver {
      */
     private function project_authority_products($products, $source, $authority, &$verified_owner_catalog_revision = null) {
         $verified_owner_catalog_revision = null;
+        $expected_mode = 'php' === $authority ? 'patris_inputs' : 'go_projection';
+        if (($source['input_mode'] ?? '') !== $expected_mode) {
+            return $this->input_baseline_required();
+        }
         if (empty($products)) {
             return $products;
         }
@@ -3048,7 +3053,10 @@ class Digitalogic_Product_Sync_Receiver {
             return $products;
         }
         $settings = null;
-        $catalog = null;
+        $catalog = Digitalogic_Shipping_Method_Service::instance()->get_integration_catalog();
+        if (is_wp_error($catalog)) {
+            return $catalog;
+        }
         $resolution_cache = array();
         $assignment_cache = array();
         $owner_codes = array();
@@ -3084,8 +3092,9 @@ class Digitalogic_Product_Sync_Receiver {
             }
         }
         foreach ($products as $code => $product) {
-            // No owner dependency exists for a direct sale or an unavailable
-            // source. Such rows must remain ingestible during initial setup.
+            // Price-independent rows still use the current owner stock policy.
+            // Only priced routes require currency, markup and freight enrichment.
+            $product = $this->project_owner_stock($product, $catalog['selected_warehouses'] ?? array());
             if (!$this->requires_owner_projection($product, $source)) {
                 $calculated = $this->evaluate_final_price_formula($product, 'products.' . $code);
                 if (is_wp_error($calculated)) {
@@ -3109,10 +3118,6 @@ class Digitalogic_Product_Sync_Receiver {
                     return $settings;
                 }
                 $settings['effective_date'] = $settings['cny_effective_date'] ?? $settings['effective_date'];
-                $catalog = Digitalogic_Shipping_Method_Service::instance()->get_integration_catalog();
-                if (is_wp_error($catalog)) {
-                    return $catalog;
-                }
             }
             $resolved = $this->coordinated_resolution((string) $code, $resolution_cache);
             if (is_wp_error($resolved) && 'digitalogic_product_identifier_not_found' !== $resolved->get_error_code()) {
@@ -3147,9 +3152,9 @@ class Digitalogic_Product_Sync_Receiver {
             // unavailable. Sale fallback needs an explicit policy/selection;
             // the mere presence of a sale amount never enables it.
             if (empty($product['price_source_kind']) && !array_key_exists('final_price', $projected)
-                && isset($product['partner_price']) && $this->number_compare_zero($product['partner_price']) > 0) {
+                && isset($product['partner_price_source']) && $this->number_compare_zero($product['partner_price_source']) > 0) {
                 $partner = $product;
-                $partner['price_source_amount'] = $product['partner_price'];
+                $partner['price_source_amount'] = $product['partner_price_source'];
                 $partner['price_source_currency'] = 'IRR';
                 $partner['price_source_kind'] = 'partner_price';
                 $partner['shipping_method_id'] = Digitalogic_Shipping_Method_Service::DOMESTIC_METHOD_ID;
@@ -3168,13 +3173,48 @@ class Digitalogic_Product_Sync_Receiver {
         return $products;
     }
 
+    /** Apply the same selected-warehouse policy as Go without changing input_products. */
+    private function project_owner_stock($product, $selected) {
+        if (empty($selected)) {
+            return $product;
+        }
+        $warnings = array_values(array_diff($product['warnings'] ?? array(), array(
+            'negative_total_stock', 'total_stock_missing', 'selected_warehouses_unavailable',
+        )));
+        $warehouses = is_array($product['warehouse_stock'] ?? null) ? $product['warehouse_stock'] : array();
+        $total = 0.0;
+        $matched = 0;
+        foreach ($selected as $warehouse) {
+            $warehouse = preg_replace('/^ANBAR/', '', strtoupper(trim((string) $warehouse)));
+            if (isset($warehouses[$warehouse])) {
+                $total += (float) $warehouses[$warehouse];
+                ++$matched;
+            }
+        }
+        if ($matched > 0) {
+            $product['total_stock'] = $total;
+            if ($total < 0) {
+                $warnings[] = 'negative_total_stock';
+            }
+        } else {
+            if (array_key_exists('total_stock', $product)) {
+                $product['total_stock'] = null;
+            }
+            $warnings[] = 'selected_warehouses_unavailable';
+        }
+        $warnings = array_values(array_unique($warnings));
+        sort($warnings, SORT_STRING);
+        $product['warnings'] = $warnings;
+        return $product;
+    }
+
     /** Whether a record needs site-owned landed-price inputs. */
     private function requires_owner_projection($product, $source) {
         $kind = (string) ($product['price_source_kind'] ?? '');
         return 'sale_price_direct' !== $kind
             && ('' !== $kind || (!empty($source['formula_id']) && (
                 (isset($product['foreign_price']) && $this->number_compare_zero($product['foreign_price']) > 0)
-                || (isset($product['partner_price']) && $this->number_compare_zero($product['partner_price']) > 0)
+                || ('patris_inputs' === ($source['input_mode'] ?? '') && isset($product['partner_price_source']) && $this->number_compare_zero($product['partner_price_source']) > 0)
             )));
     }
 
@@ -3182,6 +3222,10 @@ class Digitalogic_Product_Sync_Receiver {
         $authority = Digitalogic_Pricing_Coordinator::instance()->pricing_authority();
         if (is_wp_error($authority)) {
             return $authority;
+        }
+        $expected_mode = 'php' === $authority ? 'patris_inputs' : 'go_projection';
+        if ($envelope['input_mode'] !== $expected_mode) {
+            return $this->error('digitalogic_product_sync_input_mode_conflict', 'The input mode does not match the selected pricing authority.', 409);
         }
         // Authority is read under the source-delivery transaction lock. The
         // outer validation proves typed facts and hashes, while only Go input
@@ -3207,7 +3251,8 @@ class Digitalogic_Product_Sync_Receiver {
 
         // The old combined snapshot cannot prove an upstream delta after local
         // repricing. Cut over once with a complete, non-quarantined snapshot.
-        $cutover = is_array($existing) && !isset($existing['input_products'], $existing['input_source']);
+        $cutover = is_array($existing) && (!isset($existing['input_products'], $existing['input_source'])
+            || ($existing['input_mode'] ?? '') !== $envelope['input_mode']);
         if ($cutover && ('snapshot' !== $envelope['event_type'] || !empty($envelope['quarantined_codes']))) {
             return $this->input_baseline_required();
         }
@@ -3321,6 +3366,7 @@ class Digitalogic_Product_Sync_Receiver {
         $source_state = array(
             'source' => $envelope['source'],
             'input_source' => $envelope['source'],
+            'input_mode' => $envelope['input_mode'],
             'input_products' => $input_products,
             'generated_at' => $envelope['generated_at'],
             'generated_at_order' => $envelope['generated_at_order'],
@@ -3607,6 +3653,7 @@ class Digitalogic_Product_Sync_Receiver {
         $required = array(
             'schema',
             'event_type',
+            'input_mode',
             'event_id',
             'source',
             'generated_at',
@@ -3631,6 +3678,9 @@ class Digitalogic_Product_Sync_Receiver {
         }
         if (!in_array($payload['event_type'], array('snapshot', 'update'), true)) {
             return $this->field_error('event_type', 'must be snapshot or update');
+        }
+        if (!in_array($payload['input_mode'], array('patris_inputs', 'go_projection'), true)) {
+            return $this->field_error('input_mode', 'must be patris_inputs or go_projection');
         }
         $has_currency = array_key_exists('local_currency', $payload);
 		$has_formula  = array_key_exists( 'formula_id', $payload );
@@ -3681,7 +3731,18 @@ class Digitalogic_Product_Sync_Receiver {
 		$products   = array();
         $seen_codes = array();
         foreach ($payload['products'] as $index => $product) {
-            $validated = $this->validate_product($product, $index, $pricing_active);
+            if ('patris_inputs' === $payload['input_mode'] && is_array($product)) {
+                $owner_fields = array_values(array_intersect(array_keys($product), array(
+                    'shipping_method_id', 'shipping_price_per_kg', 'shipping_price_per_kg_currency',
+                    'markup_percent', 'irt_per_cny', 'pricing_catalog_revision', 'pricing_catalog_status',
+                    'currency_effective_date', 'price_source_amount', 'price_source_currency', 'price_source_kind',
+                    'price_rounding_digits', 'price_rounding_mode', 'final_price',
+                )));
+                if (!empty($owner_fields)) {
+                    return $this->error('digitalogic_product_sync_owner_fields_forbidden', 'Patris input records must omit website-owned projection fields.', 422, array('fields' => $owner_fields));
+                }
+            }
+            $validated = $this->validate_product($product, $index, $pricing_active && 'go_projection' === $payload['input_mode']);
             if (is_wp_error($validated)) {
                 return $validated;
             }
@@ -3743,6 +3804,7 @@ class Digitalogic_Product_Sync_Receiver {
         $envelope = array(
 			'schema'             => $payload['schema'],
 			'event_type'         => $payload['event_type'],
+			'input_mode'         => $payload['input_mode'],
 			'event_id'           => $payload['event_id'],
 			'source'             => $source,
 			'generated_at'       => $payload['generated_at'],
@@ -6411,7 +6473,7 @@ class Digitalogic_Product_Sync_Receiver {
             return true;
         }
         $direct_sale_selected = 'sale_price_direct' === ($product['price_source_kind'] ?? null);
-        if (!$direct_sale_selected && null === $product['price_rounding_digits']) {
+        if (!$direct_sale_selected && null === ($product['price_rounding_digits'] ?? null)) {
             if (!array_key_exists('final_price', $product)) {
                 return true;
             }
@@ -6682,6 +6744,7 @@ class Digitalogic_Product_Sync_Receiver {
         $identity = array(
             'schema' => $envelope['schema'],
             'event_type' => $envelope['event_type'],
+            'input_mode' => $envelope['input_mode'],
         );
         if (array_key_exists('local_currency', $envelope)) {
             $identity['local_currency'] = $envelope['local_currency'];
