@@ -6617,7 +6617,6 @@ class Digitalogic_Product_Sync_Receiver {
 
             return $this->error('digitalogic_product_sync_state_too_large', 'The combined receiver state is too large.', 413);
         }
-        $expected_digest = hash('sha256', $serialized);
         $row             = $wpdb->get_row($wpdb->prepare(
             "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s FOR UPDATE",
             self::STATE_OPTION
@@ -6665,7 +6664,7 @@ class Digitalogic_Product_Sync_Receiver {
         if (
             !is_array($read_back)
             || !is_string($read_serialized)
-            || !hash_equals($expected_digest, hash('sha256', $read_serialized))
+            || $serialized !== $read_serialized
         ) {
             if ($owns_transaction) {
 				$wpdb->query( 'ROLLBACK' );
