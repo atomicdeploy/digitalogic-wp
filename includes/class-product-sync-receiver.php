@@ -1509,12 +1509,12 @@ class Digitalogic_Product_Sync_Receiver {
                 }
             }
 			$product_util = '\\Automattic\\WooCommerce\\Internal\\Utilities\\ProductUtil';
+			$product_util_instance = ! empty( $product_ids ) && class_exists( $product_util ) && function_exists( 'wc_get_container' )
+				? wc_get_container()->get( $product_util ) : null;
 			if (
-				! empty( $product_ids )
-				&& class_exists( $product_util )
-				&& is_callable( array( $product_util, 'delete_product_transients_for_products' ) )
+				is_callable( array( $product_util_instance, 'delete_product_transients_for_products' ) )
 			) {
-				$product_util::delete_product_transients_for_products( $product_ids );
+				$product_util_instance->delete_product_transients_for_products( $product_ids );
 			} elseif ( function_exists( 'wc_delete_product_transients' ) ) {
 				foreach ( $product_ids as $product_id ) {
 					wc_delete_product_transients( $product_id );
