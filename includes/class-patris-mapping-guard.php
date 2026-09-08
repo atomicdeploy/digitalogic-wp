@@ -22,6 +22,8 @@ final class Digitalogic_Patris_Mapping_Guard {
 	 * Register the mapping policy hooks.
 	 */
 	public static function boot() {
+		add_filter( 'woocommerce_variation_is_visible', array( self::class, 'variation_visible' ), PHP_INT_MAX, 4 );
+		add_filter( 'woocommerce_available_variation', array( self::class, 'variation_data' ), PHP_INT_MAX, 3 );
 		foreach ( array( 'price', 'regular_price', 'sale_price' ) as $field ) {
 			add_filter( 'woocommerce_product_get_' . $field, array( self::class, 'visible_price' ), PHP_INT_MAX, 2 );
 			add_filter( 'woocommerce_product_variation_get_' . $field, array( self::class, 'visible_price' ), PHP_INT_MAX, 2 );
@@ -38,6 +40,32 @@ final class Digitalogic_Patris_Mapping_Guard {
 		add_action( 'admin_notices', array( self::class, 'notice' ) );
 		add_filter( 'add_post_metadata', array( self::class, 'price_metadata' ), 100, 4 );
 		add_filter( 'update_post_metadata', array( self::class, 'price_metadata' ), 100, 4 );
+	}
+
+	/** Keep stock-bearing mapped models selectable even before a price is available. */
+	private static function unpriced_stock_variation( $product ) {
+		return $product instanceof WC_Product_Variation
+			&& 'publish' === $product->get_status()
+			&& self::connected( $product )
+			&& $product->is_in_stock()
+			&& (float) $product->get_stock_quantity() > 0
+			&& '' === $product->get_price();
+	}
+
+	/** Price eligibility must not hide a model with real inventory. */
+	public static function variation_visible( $visible, $variation_id, $parent_id, $variation ) {
+		return self::unpriced_stock_variation( $variation ) ? true : $visible;
+	}
+
+	/** An absent price is not a zero price; purchasing remains unavailable. */
+	public static function variation_data( $data, $parent, $variation ) {
+		if ( self::unpriced_stock_variation( $variation ) ) {
+			$data['price_html']            = '';
+			$data['display_price']         = null;
+			$data['display_regular_price'] = null;
+			$data['is_purchasable']        = false;
+		}
+		return $data;
 	}
 	/**
 	 * Discard the request-local source identity index.
