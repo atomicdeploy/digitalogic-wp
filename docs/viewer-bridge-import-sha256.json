@@ -1,0 +1,38 @@
+[
+  {
+    "file": "class-actions.php",
+    "sha256": "f10ad43dbda9d0e59e69ae9d5c115b6fb95bb3c7ce1f5ae17574d45324c9afd0"
+  },
+  {
+    "file": "class-canonical-taxonomy.php",
+    "sha256": "19e51c8c2b448986c57c0b85f62affe1338b6de8b38fe428d86d5bf650048f3a"
+  },
+  {
+    "file": "class-events.php",
+    "sha256": "93844d8e49d9b6435d7eeaaaf02ef46737f63ecb6cf8c066586427929bfc1b1e"
+  },
+  {
+    "file": "class-live-state.php",
+    "sha256": "50f9e67536a96bbc1302358c7616f58e9da1778051cc2beb3b034fc6e936b5c8"
+  },
+  {
+    "file": "class-patris-commerce.php",
+    "sha256": "480c852d094679cddea76d61997ebfccac747db56014cce4fea2a3c9663d453b"
+  },
+  {
+    "file": "class-redis.php",
+    "sha256": "1f3665076cc4abde6a52bb12536fde45d3bb828fd46a5ea2dc233cf482ed9fa1"
+  },
+  {
+    "file": "class-rest.php",
+    "sha256": "cd5188b9d3fe3477b9ef8ccd906f07df03f53fc29b96833fc81d3e5827d55621"
+  },
+  {
+    "file": "class-revision.php",
+    "sha256": "f829b92bbc9491e489cc1a83a10d6a9f18a0b10ee4426a0f66e52eba7c2c37b3"
+  },
+  {
+    "file": "class-store.php",
+    "sha256": "c76f4085868366a11d63953936d88c0903bc096aaeb1e1488a169db5f8210a6a"
+  }
+]

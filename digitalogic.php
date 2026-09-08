@@ -207,6 +207,8 @@ final class Digitalogic {
      * Register integrations that must hook before plugins_loaded.
      */
     private function init_early_integrations() {
+        require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/viewer-bridge/class-runtime.php';
+        \Digitalogic\ViewerBridge\Runtime::register();
 		Digitalogic_WP_Rocket_ETag::init();
         Digitalogic_Label_Overrides::init();
         Digitalogic_Plugin_Admin_Branding::init();
@@ -349,6 +351,7 @@ final class Digitalogic {
      * Plugin activation
      */
 	public function activate() {
+		\Digitalogic\ViewerBridge\Store::activate();
 		// Create database tables
 		$this->create_tables();
 		$this->install_pbx_schema();
