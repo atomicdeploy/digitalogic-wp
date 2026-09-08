@@ -45,6 +45,7 @@ final class Digitalogic_Patris_Price_Write_Guard {
 	 * Register the WooCommerce and metadata guards.
 	 */
 	private function __construct() {
+		add_action( 'wp_loaded', array( $this, 'skip_redundant_tier_price_adjustment' ), PHP_INT_MAX );
 		add_action( 'woocommerce_before_product_object_save', array( $this, 'guard_product_save' ), 10, 2 );
 		add_action( 'updated_post_meta', array( $this, 'reconcile_regular_price_metadata' ), 10, 4 );
 		add_action( 'added_post_meta', array( $this, 'reconcile_regular_price_metadata' ), 10, 4 );
@@ -56,6 +57,33 @@ final class Digitalogic_Patris_Price_Write_Guard {
 		add_filter( 'woocommerce_product_variation_get_price', array( $this, 'canonical_visible_price' ), PHP_INT_MAX, 2 );
 		add_filter( 'woocommerce_product_get_sale_price', array( $this, 'canonical_sale_price' ), PHP_INT_MAX, 2 );
 		add_filter( 'woocommerce_product_variation_get_sale_price', array( $this, 'canonical_sale_price' ), PHP_INT_MAX, 2 );
+	}
+
+	/** Avoid a second calculation whose result the final canonical filter replaces. */
+	public function skip_redundant_tier_price_adjustment() {
+		global $wp_filter;
+		foreach ( array( 'woocommerce_product_get_price', 'woocommerce_product_variation_get_price' ) as $hook ) {
+			foreach ( ( $wp_filter[ $hook ]->callbacks ?? array() ) as $priority => $entries ) {
+				foreach ( $entries as $key => $entry ) {
+					$callback = $entry['function'];
+					if ( ! is_array( $callback ) || ! is_object( $callback[0] )
+						|| get_class( $callback[0] ) !== 'TierPricingTable\\Services\\RegularPricingService'
+						|| $callback[1] !== 'adjustPrice' ) {
+						continue;
+					}
+					// Keep the original hook key, priority and accepted argument count.
+					$wp_filter[ $hook ]->callbacks[ $priority ][ $key ]['function'] = function ( ...$args ) use ( $callback ) {
+						$product = $args[1] ?? null;
+						if ( $product instanceof WC_Product && ! $product->is_type( 'variable' )
+							&& trim( (string) $product->get_regular_price( 'edit' ) ) !== ''
+							&& $this->is_managed_product( $product ) ) {
+							return $args[0];
+						}
+						return call_user_func_array( $callback, $args );
+					};
+				}
+			}
+		}
 	}
 
 	/**
