@@ -231,6 +231,24 @@ final class Events {
 		}
 		$product_ids              = array_keys( self::$committed_products );
 		self::$committed_products = array();
+		$product_ids = array_values( array_filter( $product_ids, static function ( $product_id ): bool {
+			$entity_id = Live_State::product_id( (int) $product_id );
+			$emitted = self::$emitted[ 'product|' . $entity_id ] ?? null;
+			if ( null === $emitted ) {
+				return true;
+			}
+			$product = wc_get_product( $product_id );
+			if ( ! $product instanceof WC_Product ) {
+				return true;
+			}
+			// Recheck current state: intervening listeners may have changed it.
+			// Failed publications never enter emitted and still take the full path.
+			$key = implode( '|', array(
+				self::product_event_type( (int) $product_id, $product->get_status() ),
+				'product', $entity_id, Revision::product( $product ),
+			) );
+			return $emitted !== $key;
+		} ) );
 		if ( ! $product_ids ) {
 			return;
 		}
@@ -555,7 +573,7 @@ final class Events {
 			return;
 		}
 
-		$canonical       = Live_State::canonical_context_for_actions();
+		$canonical       = $category_changes ? Live_State::canonical_context_for_actions() : array();
 		$category_values = $category_changes
 			? Live_State::category_event_values()
 			: array();
