@@ -409,27 +409,32 @@ class Digitalogic_WebSocket_Server {
 				$this->send_error( $id, $request_id, 'digitalogic_product_sync_invalid_json', 'A bounded raw product-sync JSON body is required.' );
 				return;
 			}
+			$decode_started = hrtime( true );
 			try {
-				$envelope = Digitalogic_Product_Sync_JSON_Decoder::decode( $json );
+				$payload = Digitalogic_Product_Sync_JSON_Decoder::decode( $json );
 			} catch ( RuntimeException $exception ) {
 				$this->send_error( $id, $request_id, 'digitalogic_product_sync_invalid_json', 'The product-sync request is not valid JSON.' );
 				return;
 			}
+			$decode_ms = max( 0, ( hrtime( true ) - $decode_started ) / 1000000 );
 			foreach ( array( 'id', 'dataset' ) as $field ) {
-				if ( ! is_string( $envelope['source'][ $field ] ?? null )
-					|| ! hash_equals( $client['source'][ $field ], $envelope['source'][ $field ] ) ) {
+				if ( ! is_string( $payload['source'][ $field ] ?? null )
+					|| ! hash_equals( $client['source'][ $field ], $payload['source'][ $field ] ) ) {
 					$this->send_error( $id, $request_id, 'digitalogic_product_sync_source_denied', 'The event source must match the authenticated session.' );
 					return;
 				}
 			}
 			$receiver = Digitalogic_Product_Sync_Receiver::instance();
-			$envelope = $receiver->validate_json( $json );
+			$envelope = $receiver->validate_payload( $payload );
 			if ( is_wp_error( $envelope ) ) {
 				$this->send_error( $id, $request_id, $envelope->get_error_code(), $envelope->get_error_message() );
 				return;
 			}
 			$prepared = $receiver->prepare_persistent_source_request( $client['source'], array_column( is_array( $envelope['products'] ?? null ) ? $envelope['products'] : array(), 'product_code' ) );
-			$result   = is_wp_error( $prepared ) ? $prepared : $receiver->receive_json( $json );
+			$result   = is_wp_error( $prepared ) ? $prepared : $receiver->receive( $payload );
+			if ( is_array( $result ) ) {
+				$result['receiver_timing_ms']['json_decode'] = round( $decode_ms, 3 );
+			}
 		}
 		if ( is_wp_error( $result ) ) {
 			$this->send_error( $id, $request_id, $result->get_error_code(), $result->get_error_message() );
