@@ -378,6 +378,11 @@ final class Digitalogic_Pricing_Coordinator {
 		$service = Digitalogic_Pricing_Service::instance();
 		$result  = $service->run_source_delivery_transaction(
 			function ( $actuation_guard ) use ( $product_code, $service ) {
+				// A persistent transport may retain options from an earlier command.
+				// Refresh only after the pricing/source locks fence concurrent writers.
+				foreach ( array( self::AUTHORITY_OPTION, self::WRITE_MODE_OPTION, Digitalogic_Product_Sync_Receiver::STATE_OPTION, 'alloptions', 'notoptions' ) as $option ) {
+					wp_cache_delete( $option, 'options' );
+				}
 				$authority = $this->pricing_authority();
 				if ( is_wp_error( $authority ) ) {
 					return $authority;
