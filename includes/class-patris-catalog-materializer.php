@@ -23,7 +23,7 @@ final class Digitalogic_Patris_Catalog_Materializer {
 	public const OWNER_SOURCE_META      = '_digitalogic_patris_owner_source_id';
 	public const OWNER_DATASET_META     = '_digitalogic_patris_owner_dataset';
 	public const OWNER_CODE_META        = '_digitalogic_patris_owner_product_code';
-	public const INITIAL_STATUS_META = '_digitalogic_patris_initial_publication_status';
+	public const INITIAL_STATUS_META    = '_digitalogic_patris_initial_publication_status';
 	public const AUTO_MATERIALIZED_META = '_digitalogic_patris_auto_materialized';
 	public const SOURCE_REVISION_META   = '_digitalogic_patris_source_revision';
 	public const MISSING_FIELDS_META    = '_digitalogic_patris_materialization_missing_fields';
@@ -346,10 +346,10 @@ final class Digitalogic_Patris_Catalog_Materializer {
 					}
 					Digitalogic_Patris_Feed::instance()->stage_product_pricing( $product, $record );
 				}
-				$initial_status = (string) $product->get_meta( self::INITIAL_STATUS_META, true );
-				$target_status = in_array( $initial_status, array( 'draft', 'publish' ), true ) ? $initial_status : (string) $product->get_status();
+				$initial_status    = (string) $product->get_meta( self::INITIAL_STATUS_META, true );
+				$target_status     = in_array( $initial_status, array( 'draft', 'publish' ), true ) ? $initial_status : (string) $product->get_status();
 				$target_visibility = '' !== $initial_status ? ( 'publish' === $target_status ? 'visible' : 'hidden' ) : (string) $product->get_catalog_visibility();
-				$missing = $this->canonical_missing_fields( $product, $record );
+				$missing           = $this->canonical_missing_fields( $product, $record );
 				try {
 					if ( '' === (string) $product->get_sku() ) {
 						$product->set_sku( $identity['product_code'] );

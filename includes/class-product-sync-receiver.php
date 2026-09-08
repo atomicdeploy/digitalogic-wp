@@ -3723,8 +3723,8 @@ class Digitalogic_Product_Sync_Receiver {
         if (isset($result['delivery'])) {
             $metadata['delivery'] = $result['delivery'];
         }
-        $hooks_started = hrtime(true);
-        $previous_listener_timing = $this->applied_listener_timing_active;
+        $hooks_started                        = hrtime(true);
+        $previous_listener_timing             = $this->applied_listener_timing_active;
         $this->applied_listener_timing_active = true;
         try {
             do_action('digitalogic_product_sync_applied', $result, $metadata);

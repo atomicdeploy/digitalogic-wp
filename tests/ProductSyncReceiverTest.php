@@ -357,16 +357,16 @@ final class ProductSyncReceiverTest extends TestCase {
 	public function test_creation_policy_preserves_draft_and_existing_publication(): void {
 		$policy = array( 'enabled' => true, 'status' => 'draft', 'allow_non_positive' => true, 'batch_limit' => 100, 'source_id' => 'tests', 'dataset' => 'ALLANBAR' );
 		$GLOBALS['digitalogic_test_options'][ Digitalogic_Patris_Catalog_Backfill::POLICY_OPTION ] = $policy;
-		$product = array( 'product_code' => '101001001', 'warnings' => array() );
+		$product                = array( 'product_code' => '101001001', 'warnings' => array() );
 		$product['record_hash'] = $this->recordHash( $product, true );
-		$receiver = Digitalogic_Product_Sync_Receiver::instance();
-		$observed = array();
+		$receiver               = Digitalogic_Product_Sync_Receiver::instance();
+		$observed               = array();
 		add_action( 'digitalogic_patris_materializer_product_committed', function ( $snapshot ) use ( &$observed ) { $observed[] = $snapshot; } );
 		$first = $receiver->receive( $this->snapshot( array( $product ) ) );
 		$this->assertNotInstanceOf( WP_Error::class, $first, is_wp_error( $first ) ? $first->get_error_code() . ': ' . wp_json_encode( $first->get_error_data() ) : '' );
 		$this->assertSame( 1, $first['woocommerce']['created'] );
 		$this->assertSame( 0, $first['pending_products'] );
-		$id = (int) array_key_first( $GLOBALS['digitalogic_test_posts'] );
+		$id  = (int) array_key_first( $GLOBALS['digitalogic_test_posts'] );
 		$woo = wc_get_product( $id );
 		$this->assertSame( 'draft', $woo->get_status() );
 		$this->assertSame( 'hidden', $woo->get_catalog_visibility() );
@@ -381,7 +381,7 @@ final class ProductSyncReceiverTest extends TestCase {
 		$product['name'] = 'Changed source title';
 		unset( $product['record_hash'] );
 		$product['record_hash'] = $this->recordHash( $product, true );
-		$changed = $receiver->receive( $this->snapshot( array( $product ), array(), false, '2026-07-20T00:01:00Z' ) );
+		$changed                = $receiver->receive( $this->snapshot( array( $product ), array(), false, '2026-07-20T00:01:00Z' ) );
 		$this->assertNotInstanceOf( WP_Error::class, $changed, is_wp_error( $changed ) ? $changed->get_error_code() . ': ' . wp_json_encode( $changed->get_error_data() ) : '' );
 		$this->assertSame( 0, $changed['pending_products'] );
 		$this->assertSame( 'publish', wc_get_product( $id )->get_status() );

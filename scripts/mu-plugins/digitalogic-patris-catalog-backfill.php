@@ -2,7 +2,10 @@
 /**
  * Plugin Name: Digitalogic Patris catalog backfill bootstrap
  * Description: Loads the shared Digitalogic implementation; contains no materialization logic.
+ *
+ * @package Digitalogic
  */
+
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
