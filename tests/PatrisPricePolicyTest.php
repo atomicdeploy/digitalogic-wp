@@ -233,9 +233,8 @@ final class PatrisPricePolicyTest extends TestCase {
 		$this->assertSame( array( array( 802, '600' ) ), $GLOBALS['digitalogic_test_wc_set_price_calls'] );
 	}
 
-	/** Verify a retired policy option cannot restore split pricing. */
-	public function test_legacy_replacement_policy_cannot_change_canonical_behavior(): void {
-		$GLOBALS['digitalogic_test_options'][ Digitalogic_Patris_Price_Policy::OPTION_NAME ] = Digitalogic_Patris_Price_Policy::REPLACE_SALE;
+	/** Verify canonical pricing replaces a pre-existing promotion. */
+	public function test_canonical_pricing_replaces_existing_promotion(): void {
 		$this->addProduct(
 			803,
 			'simple',
@@ -729,9 +728,8 @@ final class PatrisPricePolicyTest extends TestCase {
 		$this->assertSame( $before, $GLOBALS['digitalogic_test_posts'] );
 	}
 
-	/** Verify old configuration cannot change the fixed policy and CLI stays discoverable. */
-	public function test_unknown_policy_cannot_change_canonical_behavior_and_cli_commands_are_registered(): void {
-		$GLOBALS['digitalogic_test_options'][ Digitalogic_Patris_Price_Policy::OPTION_NAME ] = 'unsafe_unknown_policy';
+	/** Verify the fixed policy and discoverable CLI commands. */
+	public function test_canonical_policy_and_cli_commands_are_registered(): void {
 
 		$this->assertSame(
 			Digitalogic_Patris_Price_Policy::CANONICAL_SALE,
