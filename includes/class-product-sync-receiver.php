@@ -2596,7 +2596,7 @@ class Digitalogic_Product_Sync_Receiver {
      *
      * @return array|WP_Error
      */
-    private function coordinated_product_record($product, $settings, $catalog, $catalog_revision, $markup_percent, $previous_catalog_revision = null) {
+    private function coordinated_product_record($product, $settings, $catalog, $catalog_revision, $markup_percent, $previous_catalog_revision = null, &$calculated = null) {
         if (!is_array($product)) {
             return $this->field_error('products', 'contains invalid stored data');
         }
@@ -3210,7 +3210,8 @@ class Digitalogic_Product_Sync_Receiver {
                 $catalog,
                 $catalog['revision'],
                 $settings['profit_margin_percent'],
-                $catalog['revision']
+                $catalog['revision'],
+                $calculated
             );
             if (is_wp_error($projected)) {
                 return $projected;
@@ -3227,12 +3228,13 @@ class Digitalogic_Product_Sync_Receiver {
                 $partner['price_source_kind'] = 'partner_price';
                 $partner['shipping_method_id'] = Digitalogic_Shipping_Method_Service::DOMESTIC_METHOD_ID;
                 $partner['pricing_catalog_revision'] = $catalog['revision'];
-                $projected = $this->coordinated_product_record($partner, $settings, $catalog, $catalog['revision'], $settings['profit_margin_percent'], $catalog['revision']);
+                $projected = $this->coordinated_product_record($partner, $settings, $catalog, $catalog['revision'], $settings['profit_margin_percent'], $catalog['revision'], $calculated);
                 if (is_wp_error($projected)) {
                     return $projected;
                 }
             }
-            $validated = $this->validate_final_price_formula($projected, 'products.' . $code, !empty($source['formula_id']));
+            // The projection already evaluated this exact row; reuse its decimal result.
+            $validated = $this->validate_final_price_formula($projected, 'products.' . $code, !empty($source['formula_id']), $calculated);
             if (is_wp_error($validated)) {
                 return $validated;
             }

@@ -1836,6 +1836,21 @@ class Digitalogic_Test_WPDB {
 		) {
 			$this->queries[] = strtoupper( trim( $query ) );
 		}
+        if ( strpos( $query, 'digitalogic_shipping_assignment_batch' ) !== false ) {
+            $this->queries[] = $query;
+            $meta_key = (string) array_shift( $args );
+            $rows = array();
+            foreach ( $args as $product_id ) {
+                $post = $GLOBALS['digitalogic_test_posts'][ $product_id ] ?? array();
+                $values = isset( $post['meta_rows'][ $meta_key ] ) ? $post['meta_rows'][ $meta_key ]
+                    : ( array_key_exists( $meta_key, $post['meta'] ?? array() ) ? array( $post['meta'][ $meta_key ] ) : array() );
+                foreach ( $values as $index => $value ) {
+                    $rows[] = array( 'post_id' => $product_id, 'meta_id' => $this->ensure_meta_id( $product_id, $meta_key ) + $index, 'meta_value' => $this->database_raw_value( $value ) );
+                }
+            }
+            usort( $rows, static fn( $a, $b ) => $a['post_id'] <=> $b['post_id'] ?: $a['meta_id'] <=> $b['meta_id'] );
+            return $rows;
+        }
 		if ( strpos( $query, 'digitalogic_shipping_assignment_rows' ) !== false ) {
 			$product_id = isset( $args[0] ) ? (int) $args[0] : 0;
 			$meta_key   = isset( $args[1] ) ? (string) $args[1] : '';
