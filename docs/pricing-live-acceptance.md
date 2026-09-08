@@ -1,6 +1,16 @@
 # Live pricing acceptance — 9 September 2026 (Tehran)
 
-This is the latest verified checkpoint. It covers the configured **PHP authority with direct database publication**, not completion of the entire PHP/Go and interface unification project.
+The configured authority is **PHP with direct database publication**. Selected-Go publication has also passed a live all-product check; this is not completion of the entire PHP/Go and interface unification project.
+
+## Latest execution and performance evidence
+
+- Clean installed Go source provenance was established, followed by live selected-Go publication in 39,805 ms and PHP restoration in 29,388 ms. Independent checks passed all 1,022 owners in both states. These authority transitions are not controlled engine benchmarks or a changed-CNY Go test.
+- Post-commit product publication was measured at approximately 15 seconds; SQL COMMIT was only 10–14 ms. Avoid rebuilding already emitted product values after checking the current exact event revision. Changed-CNY acceptance verified all 896 changed-price events after that change.
+- Tier Pricing's intermediate base-price calculation consumed about 4.15 seconds across 1,022 price getters before the canonical final filter replaced its result. Skip that exact callback only for managed, non-variable products with a nonempty stored regular price. Other products retain the original callback; mapping/weight and final canonical filters still execute. This intentionally skips the redundant callback's internal hooks; it does not disable tier UI or regular/sale getter hooks.
+- The installed optimization reduced the full price-getter sweep from 4.60 to 1.00 seconds with identical price/stock tuple hashes. Changed-CNY acceptance then completed in 32,613 ms and restoration in 30,434 ms. All 1,022 prices/stocks passed the independent oracle, all 896 changed-price events matched price/stock/identity/revision, and complete original settings and product values were restored. No large end-to-end speedup is claimed.
+- Latest fresh single observation: 1,220 ms, delivered and ready afterward. The sub-second target remains open. CNY is restored to 34,500 and relevant services are active.
+
+Evidence and limitations are recorded in [the pricing goal issue](https://github.com/atomicdeploy/digitalogic-wp/issues/288). Earlier complete public-page acceptance below was not repeated as a full sweep for each diagnostic pass.
 
 ## Current catalog
 
