@@ -1585,7 +1585,7 @@ final class PricingCoordinatorTest extends TestCase {
 		);
 		$this->assertCount( 785, $GLOBALS['digitalogic_test_cache_delete_multiple'][0]['keys'] );
 		$this->assertContains( 30000, $GLOBALS['digitalogic_test_cache_delete_multiple'][0]['keys'] );
-		$this->assertContains( 'post_parent:30000', $GLOBALS['digitalogic_test_cache_delete_multiple'][5]['raw_keys'] );
+		$this->assertContains( 'post_parent:30000', $GLOBALS['digitalogic_test_cache_delete_multiple_raw'][5] );
 		$this->assertContains( 'products', $GLOBALS['digitalogic_test_wc_cache_group_invalidations'] );
 		$this->assertCount( 1570, $GLOBALS['digitalogic_test_wc_product_instance_cache_removals'] );
 		$this->assertContains( 30000, $GLOBALS['digitalogic_test_wc_product_instance_cache_removals'] );

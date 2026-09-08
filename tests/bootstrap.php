@@ -962,10 +962,10 @@ function wp_cache_delete_multiple( $keys, $group = '' ) {
 		'name' => 'cache_delete_' . (string) $group,
 		'ns'   => hrtime( true ),
 	);
+	$GLOBALS['digitalogic_test_cache_delete_multiple_raw'][ count( $GLOBALS['digitalogic_test_cache_delete_multiple'] ?? array() ) ] = array_values( (array) $keys );
 	$GLOBALS['digitalogic_test_cache_delete_multiple'][] = array(
-		'raw_keys' => array_values( (array) $keys ),
-		'keys'     => array_values( array_map( 'intval', (array) $keys ) ),
-		'group'    => (string) $group,
+		'keys'  => array_values( array_map( 'intval', (array) $keys ) ),
+		'group' => (string) $group,
 	);
 	if ( is_callable( $GLOBALS['digitalogic_test_cache_delete_multiple_callback'] ?? null ) ) {
 		return call_user_func( $GLOBALS['digitalogic_test_cache_delete_multiple_callback'], $keys, $group );
