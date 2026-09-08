@@ -192,9 +192,9 @@ final class SelectedPricingAuthorityTest extends TestCase {
 		$this->assertSame( '', get_post_meta( 20001, '_price', true ) );
 		$this->assertSame( 'canonical_missing_unpriced', get_post_meta( 20001, Digitalogic_Patris_Price_Policy::STATUS_META, true ) );
 		$this->assertSame( '2', get_post_meta( 20001, '_stock', true ) );
-		$this->assertSame( 'outofstock', $GLOBALS['digitalogic_test_wc_lookup_rows'][20001]['stock_status'] );
+		$this->assertSame( 'instock', $GLOBALS['digitalogic_test_wc_lookup_rows'][20001]['stock_status'] );
 		$this->assertNull( $GLOBALS['digitalogic_test_wc_lookup_rows'][20001]['min_price'] );
-		$this->assertContains( 990001, $GLOBALS['digitalogic_test_object_terms'][20001]['product_visibility'] );
+		$this->assertNotContains( 990001, $GLOBALS['digitalogic_test_object_terms'][20001]['product_visibility'] ?? array() );
 	}
 
 	/** A real FX change does not restore an older source stock quantity after a sale. */

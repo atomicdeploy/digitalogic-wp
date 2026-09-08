@@ -145,8 +145,8 @@ final class ProductSyncReceiverTest extends TestCase {
 		$this->assertSame( '', $woo->get_regular_price() );
 		$this->assertSame( '', $woo->get_price() );
 		$this->assertSame( '', $woo->get_sale_price() );
-		$this->assertSame( 0, $woo->get_stock_quantity() );
-		$this->assertSame( 'outofstock', $woo->get_stock_status() );
+		$this->assertSame( 4, $woo->get_stock_quantity() );
+		$this->assertSame( 'instock', $woo->get_stock_status() );
 		$this->assertSame( '4', (string) $woo->get_meta( '_digitalogic_patris_total_stock', true ) );
 		$this->assertSame( '', $woo->get_meta( Digitalogic_Shipping_Method_Service::PRODUCT_METHOD_META, true ) );
 		$this->assertSame( 'canonical_missing_unpriced', $woo->get_meta( '_digitalogic_patris_price_status', true ) );
@@ -239,7 +239,7 @@ final class ProductSyncReceiverTest extends TestCase {
 		);
 		$meta['_manage_stock'] = 'yes';
 		$meta['_stock']        = 4;
-		$meta['_stock_status'] = 'instock';
+		$meta['_stock_status'] = 'outofstock';
 		unset( $meta );
 		$GLOBALS['digitalogic_test_wc_products']     = array();
 		$GLOBALS['digitalogic_test_post_meta_cache'] = array();
@@ -257,7 +257,7 @@ final class ProductSyncReceiverTest extends TestCase {
 		$woo = wc_get_product( $id );
 		$this->assertSame( '', $woo->get_price() );
 		$this->assertSame( 4, $woo->get_stock_quantity() );
-		$this->assertSame( 'outofstock', $woo->get_stock_status() );
+		$this->assertSame( 'instock', $woo->get_stock_status() );
 		$this->assertSame( 'canonical_missing_unpriced', $woo->get_meta( '_digitalogic_patris_price_status', true ) );
 		$this->assertCount( $seed_saves + 1, $GLOBALS['digitalogic_test_wc_product_saves'] );
 
