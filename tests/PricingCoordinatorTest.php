@@ -1511,7 +1511,7 @@ final class PricingCoordinatorTest extends TestCase {
 		$listener = static function ( $snapshot ) use ( &$receipts ) {
 			$receipts[] = array(
 				'snapshot' => $snapshot,
-				'locked' => Digitalogic_Product_Sync_Receiver::instance()->source_identity_lock_is_owned(),
+				'locked'   => Digitalogic_Product_Sync_Receiver::instance()->source_identity_lock_is_owned(),
 			);
 		};
 		add_action( 'digitalogic_patris_materializer_product_committed', $listener, 10, 1 );
@@ -3626,6 +3626,7 @@ final class PricingCoordinatorTest extends TestCase {
 				'key'  => 'field_rotated_without_javascript',
 			)
 		);
+		// phpcs:ignore WordPress.NamingConventions.ValidHookName.UseUnderscores -- Exercise the exact third-party ACF hook name.
 		do_action( 'acf/save_post', 'options' );
 
 		$this->assertSame( '29500', $value );
@@ -3679,6 +3680,7 @@ final class PricingCoordinatorTest extends TestCase {
 			return $field;
 		};
 		$prepared           = apply_filters(
+			// phpcs:ignore WordPress.NamingConventions.ValidHookName.UseUnderscores -- Exercise the exact third-party ACF hook name.
 			'acf/pre_render_field',
 			array(
 				'_name' => 'update_date',
@@ -3688,10 +3690,12 @@ final class PricingCoordinatorTest extends TestCase {
 			'options'
 		);
 		add_filter( 'acf/prepare_field', $late_contamination, 100 );
+		// phpcs:ignore WordPress.NamingConventions.ValidHookName.UseUnderscores -- Exercise the exact third-party ACF hook name.
 		$prepared = apply_filters( 'acf/prepare_field', $prepared );
 		remove_filter( 'acf/prepare_field', $late_contamination );
 		$this->assertSame( '20260721', $prepared['value'] );
 		$options_alias = apply_filters(
+			// phpcs:ignore WordPress.NamingConventions.ValidHookName.UseUnderscores -- Exercise the exact third-party ACF hook name.
 			'acf/pre_render_field',
 			array(
 				'_name' => 'options_update_date',
@@ -3702,11 +3706,13 @@ final class PricingCoordinatorTest extends TestCase {
 		);
 		$this->assertSame(
 			'20260721',
+			// phpcs:ignore WordPress.NamingConventions.ValidHookName.UseUnderscores -- Exercise the exact third-party ACF hook name.
 			apply_filters( 'acf/prepare_field', $options_alias )['value']
 		);
 		$this->assertSame(
 			'20260721',
 			apply_filters(
+				// phpcs:ignore WordPress.NamingConventions.ValidHookName.UseUnderscores -- Exercise the exact third-party ACF hook name.
 				'acf/pre_render_field',
 				array(
 					'_name'    => 'update_date',
@@ -3718,6 +3724,7 @@ final class PricingCoordinatorTest extends TestCase {
 			)['value']
 		);
 		$unrelated_post = apply_filters(
+			// phpcs:ignore WordPress.NamingConventions.ValidHookName.UseUnderscores -- Exercise the exact third-party ACF hook name.
 			'acf/pre_render_field',
 			array(
 				'_name' => 'update_date',
@@ -3726,12 +3733,14 @@ final class PricingCoordinatorTest extends TestCase {
 			),
 			901
 		);
+		// phpcs:ignore WordPress.NamingConventions.ValidHookName.UseUnderscores -- Exercise the exact third-party ACF hook name.
 		$unrelated_post = apply_filters( 'acf/prepare_field', $unrelated_post );
 		$this->assertSame( '19700104', $unrelated_post['value'] );
 		$_GET['page'] = 'post.php';
 		$this->assertSame(
 			'19700104',
 			apply_filters(
+				// phpcs:ignore WordPress.NamingConventions.ValidHookName.UseUnderscores -- Exercise the exact third-party ACF hook name.
 				'acf/prepare_field',
 				array(
 					'_name' => 'update_date',
@@ -3777,6 +3786,7 @@ final class PricingCoordinatorTest extends TestCase {
 			'options',
 			array( 'name' => 'update_date' )
 		);
+		// phpcs:ignore WordPress.NamingConventions.ValidHookName.UseUnderscores -- Exercise the exact third-party ACF hook name.
 		do_action( 'acf/save_post', 'options' );
 
 		$job = $async->status();
@@ -3803,6 +3813,7 @@ final class PricingCoordinatorTest extends TestCase {
 			'260721',
 			$async->route_acf_currency_update( '20260831', 'options', array( 'name' => 'update_date' ) )
 		);
+		// phpcs:ignore WordPress.NamingConventions.ValidHookName.UseUnderscores -- Exercise the exact third-party ACF hook name.
 		do_action( 'acf/save_post', 'options' );
 
 		$job = $async->status();
@@ -3825,6 +3836,7 @@ final class PricingCoordinatorTest extends TestCase {
 
 		$async->route_acf_currency_update( '31500', 'options', array( 'name' => 'yuan_price' ) );
 		$async->route_acf_currency_update( '20260230', 'options', array( 'name' => 'update_date' ) );
+		// phpcs:ignore WordPress.NamingConventions.ValidHookName.UseUnderscores -- Exercise the exact third-party ACF hook name.
 		do_action( 'acf/save_post', 'options' );
 
 		$this->assertSame( 'idle', $async->status()['status'] );
@@ -3882,6 +3894,7 @@ final class PricingCoordinatorTest extends TestCase {
 		);
 		$this->assertSame( 'idle', $async->status()['status'] );
 
+		// phpcs:ignore WordPress.NamingConventions.ValidHookName.UseUnderscores -- Exercise the exact third-party ACF hook name.
 		do_action( 'acf/save_post', 'options' );
 		$job = $async->status();
 		$this->assertSame( 'queued', $job['status'] );
@@ -3926,6 +3939,7 @@ final class PricingCoordinatorTest extends TestCase {
 				'key'  => 'field_cny_rotated',
 			)
 		);
+		// phpcs:ignore WordPress.NamingConventions.ValidHookName.UseUnderscores -- Exercise the exact third-party ACF hook name.
 		do_action( 'acf/save_post', 'options' );
 
 		$this->assertSame( 'idle', $async->status()['status'] );
@@ -3951,6 +3965,7 @@ final class PricingCoordinatorTest extends TestCase {
 				'key'  => 'field_changed_identity',
 			)
 		);
+		// phpcs:ignore WordPress.NamingConventions.ValidHookName.UseUnderscores -- Exercise the exact third-party ACF hook name.
 		do_action( 'acf/save_post', 'options' );
 
 		$this->assertSame( '29500', $value );
