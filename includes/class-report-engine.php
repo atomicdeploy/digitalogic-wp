@@ -46,11 +46,11 @@ final class Digitalogic_Report_Engine {
 
 	/** @var array<string,array{object_id:int,meta_key:string,generation:string}> Request-local exact-effect probes. */
 	private $product_meta_invalidation_probes = array();
-	private $pricing_transaction_depth = 0;
-	private $pricing_invalidation_pending = false;
-	private $pricing_invalidation_failed = false;
-	private $hold_projection_notification = false;
-	private $pending_projection_notification = '';
+	private $pricing_transaction_depth        = 0;
+	private $pricing_invalidation_pending     = false;
+	private $pricing_invalidation_failed      = false;
+	private $hold_projection_notification     = false;
+	private $pending_projection_notification  = '';
 
 	/** Register every source mutation that can make a report stale. */
 	private function __construct() {
@@ -986,8 +986,8 @@ final class Digitalogic_Report_Engine {
 			return true;
 		}
 		if ( ! $sql_terminal ) {
-			$this->pricing_invalidation_pending = false;
-			$this->pricing_invalidation_failed = true;
+			$this->pricing_invalidation_pending    = false;
+			$this->pricing_invalidation_failed     = true;
 			$this->pending_projection_notification = '';
 			return $this->pricing_report_unavailable();
 		}

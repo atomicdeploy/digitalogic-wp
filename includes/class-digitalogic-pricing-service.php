@@ -3595,16 +3595,16 @@ final class Digitalogic_Pricing_Service {
 			return $result;
 		}
 		if ( is_wp_error( $result ) ) {
-			$data = (array) $result->get_error_data();
-			$data['notification_code'] = $published->get_error_code();
+			$data                        = (array) $result->get_error_data();
+			$data['notification_code']   = $published->get_error_code();
 			$data['transaction_outcome'] = $this->transaction_outcome;
 			$result->add_data( $data );
 			return $result;
 		}
 		$published->add_data( array(
-			'status' => 503,
+			'status'              => 503,
 			'transaction_outcome' => $this->transaction_outcome,
-			'operation_code' => 'success',
+			'operation_code'      => 'success',
 		) );
 		return $published;
 	}
@@ -3792,7 +3792,7 @@ final class Digitalogic_Pricing_Service {
 			);
 		} catch ( Throwable $exception ) {
 			$rollback = $this->transaction_active ? $this->rollback_transaction() : true;
-			$result = is_wp_error( $rollback ) ? $rollback : $this->error(
+			$result   = is_wp_error( $rollback ) ? $rollback : $this->error(
 				'digitalogic_pricing_sync_unexpected_failure',
 				'Pricing transaction failed; inspect its terminal outcome before retrying.',
 				500,
@@ -3807,9 +3807,9 @@ final class Digitalogic_Pricing_Service {
 		}
 		if ( is_wp_error( $fenced ) ) {
 			$fenced->add_data( array(
-				'status' => 503,
+				'status'              => 503,
 				'transaction_outcome' => $this->transaction_outcome,
-				'operation_code' => is_wp_error( $result ) ? $result->get_error_code() : '',
+				'operation_code'      => is_wp_error( $result ) ? $result->get_error_code() : '',
 			) );
 			return $fenced;
 		}

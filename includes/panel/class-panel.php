@@ -891,7 +891,7 @@ class Digitalogic_Panel {
 		) {
 			return;
 		}
-		$ids = array_keys( $this->committed_product_ids );
+		$ids                         = array_keys( $this->committed_product_ids );
 		$this->committed_product_ids = array();
 		foreach ( array_chunk( $ids, self::EVENT_LIMIT ) as $chunk ) {
 			$entries = array();
@@ -899,10 +899,10 @@ class Digitalogic_Panel {
 				$parent_id = absint( wp_get_post_parent_id( $product_id ) );
 				$entries[] = array(
 					'event' => 'product.updated',
-					'data' => array(
-						'id' => $product_id,
+					'data'  => array(
+						'id'         => $product_id,
 						'product_id' => $parent_id > 0 ? $parent_id : $product_id,
-						'parent_id' => $parent_id,
+						'parent_id'  => $parent_id,
 					),
 				);
 			}
@@ -1118,7 +1118,7 @@ class Digitalogic_Panel {
 			array( array( 'event' => $event, 'data' => $data ) )
 		);
 		return is_wp_error( $result ) ? $result : array(
-			'event' => $result['events'][0],
+			'event'             => $result['events'][0],
 			'delivery_warnings' => $result['delivery_warnings'],
 		);
 	}
@@ -1136,8 +1136,8 @@ class Digitalogic_Panel {
 
         $stored = false;
         $event_envelope = null;
-        $event_envelopes = array();
-        $new_envelopes = array();
+        $event_envelopes   = array();
+        $new_envelopes     = array();
         $delivery_warnings = array();
 
         try {
@@ -1153,8 +1153,8 @@ class Digitalogic_Panel {
             }
 
             foreach ( $entries as $entry ) {
-                $event = $entry['event'];
-                $data = $entry['data'];
+                $event    = $entry['event'];
+                $data     = $entry['data'];
                 $existing = self::idempotent_event( $events, $event, $data );
                 if ( is_wp_error( $existing ) ) {
                     return $existing;
@@ -1164,23 +1164,23 @@ class Digitalogic_Panel {
                     continue;
                 }
 
-                $event_id = max((int) round(microtime(true) * 1000), $latest_id + 1);
-                $event_envelope = array(
-                    'id' => $event_id,
+                $event_id          = max((int) round(microtime(true) * 1000), $latest_id + 1);
+                $event_envelope    = array(
+                    'id'    => $event_id,
                     'event' => sanitize_key(str_replace('.', '_', $event)),
-                    'name' => sanitize_text_field($event),
-                    'data' => is_array($data) ? $data : array(),
-                    'time' => current_time('mysql'),
+                    'name'  => sanitize_text_field($event),
+                    'data'  => is_array($data) ? $data : array(),
+                    'time'  => current_time('mysql'),
                 );
-                $events[] = $event_envelope;
+                $events[]          = $event_envelope;
                 $event_envelopes[] = $event_envelope;
-                $new_envelopes[] = $event_envelope;
-                $latest_id = $event_id;
+                $new_envelopes[]   = $event_envelope;
+                $latest_id         = $event_id;
             }
 
             if ( empty( $new_envelopes ) ) {
                 return array(
-                    'events' => $event_envelopes,
+                    'events'            => $event_envelopes,
                     'delivery_warnings' => array(),
                 );
             }
@@ -1222,7 +1222,7 @@ class Digitalogic_Panel {
         }
 
         return array(
-            'events' => $event_envelopes,
+            'events'            => $event_envelopes,
             'delivery_warnings' => array_values(array_unique($delivery_warnings)),
         );
     }
