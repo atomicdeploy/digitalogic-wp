@@ -265,7 +265,6 @@ final class ShippingMethodServiceTest extends TestCase {
 				$shipping['results'][ $index ]['assignment']
 			);
 		}
-
 	}
 
 	public function test_shipping_compare_and_assign_is_transactional_and_conflict_safe(): void {
