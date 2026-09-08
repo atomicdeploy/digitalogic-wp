@@ -3462,11 +3462,11 @@ final class Digitalogic_Pricing_Service {
 	// phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Advisory locks, one SQL transaction, and authoritative readback must use the same database connection and bypass object caches.
 
 	/**
-	 * Run source ingress with one cooperative deadline across both locks and commit.
+	 * Run source work with one cooperative deadline across both locks and commit.
 	 *
 	 * Blocking calls can overrun the budget until the next receiver checkpoint.
 	 *
-	 * @param callable $callback Callback.
+	 * @param callable $callback Callback receiving the composed actuation guard.
 	 * @return mixed|WP_Error
 	 */
 	public function run_source_delivery_transaction( $callback ) {
@@ -3494,7 +3494,7 @@ final class Digitalogic_Pricing_Service {
 							return $this->run_transaction(
 								static function () use ( $callback, $composed_guard ) {
 									$guarded = call_user_func( $composed_guard, 'before_write' );
-									return true === $guarded ? call_user_func( $callback ) : $guarded;
+									return true === $guarded ? call_user_func( $callback, $composed_guard ) : $guarded;
 								},
 								static function ( $result ) use ( $composed_guard ) {
 									return call_user_func( $composed_guard, 'before_commit', $result );
