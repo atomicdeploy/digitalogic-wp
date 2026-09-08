@@ -141,6 +141,7 @@ final class Digitalogic {
 		require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-product-code-editor.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-shipping-method-service.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-patris-catalog-materializer.php';
+        require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-patris-catalog-backfill.php';
 		require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-patris-topology-repair.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-google-sheets-catalog.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-google-sheets-writeback.php';
@@ -207,6 +208,7 @@ final class Digitalogic {
      * Register integrations that must hook before plugins_loaded.
      */
     private function init_early_integrations() {
+        Digitalogic_Patris_Catalog_Backfill::instance();
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/viewer-bridge/class-runtime.php';
         \Digitalogic\ViewerBridge\Runtime::register();
 		Digitalogic_WP_Rocket_ETag::init();

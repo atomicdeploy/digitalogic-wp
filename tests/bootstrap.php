@@ -4310,6 +4310,7 @@ require_once dirname(__DIR__) . '/includes/class-product-sync-receiver.php';
 require_once dirname( __DIR__ ) . '/includes/class-digitalogic-product-code-editor.php';
 require_once dirname( __DIR__ ) . '/includes/class-digitalogic-product-code-write-guard.php';
 require_once dirname(__DIR__) . '/includes/class-shipping-method-service.php';
+require_once dirname(__DIR__) . '/includes/class-patris-catalog-backfill.php';
 require_once dirname(__DIR__) . '/includes/class-patris-catalog-materializer.php';
 require_once dirname(__DIR__) . '/includes/class-digitalogic-patris-topology-repair.php';
 require_once dirname(__DIR__) . '/includes/class-digitalogic-google-sheets-catalog.php';

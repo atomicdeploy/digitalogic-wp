@@ -2987,7 +2987,8 @@ class Digitalogic_Patris_Feed {
 				! is_array( $row )
 				|| '' === $product_code
 				|| $expected_post_type !== $row['post_type']
-				|| 'publish' !== $row['post_status']
+				|| (string) ( $expected['post_status'] ?? 'publish' ) !== $row['post_status']
+				|| in_array( $row['post_status'], array( 'trash', 'auto-draft' ), true )
 				|| (string) ( $expected['product_type'] ?? '' ) !== $row['product_type']
 				|| (int) ( $expected['parent_id'] ?? 0 ) !== $row['parent_id']
 				|| (int) ( $row['lookup_id'] ?? 0 ) !== $product_id

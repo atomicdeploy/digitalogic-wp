@@ -4877,11 +4877,15 @@ class Digitalogic_Product_Sync_Receiver {
 				&& $materialization_enabled
 			) {
 				if ( class_exists( 'Digitalogic_Patris_Catalog_Materializer' ) ) {
-					$materialized = Digitalogic_Patris_Catalog_Materializer::instance()->materialize_source_record(
+					$creation_policy = Digitalogic_Patris_Catalog_Backfill::instance()->creation_policy( $product_data, $source_state['source'] ?? array() );
+					$materialized = is_wp_error( $creation_policy ) ? $creation_policy
+						: ( $result['created'] >= (int) $creation_policy['batch_limit']
+							? new WP_Error( 'digitalogic_patris_creation_batch_limit', 'Missing product creation reached the configured batch limit.' )
+							: Digitalogic_Patris_Catalog_Materializer::instance()->materialize_source_record(
 						$product_data,
 						is_array( $source_state['source'] ?? null ) ? $source_state['source'] : array(),
 						is_array( $source_state['quarantined_codes'] ?? null ) ? $source_state['quarantined_codes'] : array()
-					);
+					) );
 					if ( is_wp_error( $materialized ) ) {
 						$resolved = $materialized;
 					} else {
@@ -5163,6 +5167,7 @@ class Digitalogic_Product_Sync_Receiver {
 					$fallback_identity_plans[ $woocommerce_id ] = array(
 						'product_code'       => $product_code,
 						'product_type'       => $expected_product_type,
+						'post_status'        => (string) wc_get_product( $woocommerce_id )->get_status(),
 						'parent_id'          => $expected_parent_id,
 						'source_id'          => (string) ( $source_state['source']['id'] ?? '' ),
 						'dataset'            => (string) ( $source_state['source']['dataset'] ?? '' ),
@@ -6216,8 +6221,8 @@ class Digitalogic_Product_Sync_Receiver {
 		$product = $woocommerce_id > 0 ? wc_get_product( $woocommerce_id ) : false;
 		if (
 			! $product instanceof WC_Product
-			|| 'publish' !== (string) $product->get_status()
-			|| ( ! $product->is_type( 'variation' ) && 'visible' !== (string) $product->get_catalog_visibility() )
+			|| in_array( (string) $product->get_status(), array( 'trash', 'auto-draft' ), true )
+			|| '' !== (string) $product->get_meta( Digitalogic_Patris_Catalog_Materializer::INITIAL_STATUS_META, true )
 			|| ! metadata_exists( 'post', $woocommerce_id, Digitalogic_Patris_Catalog_Materializer::MISSING_FIELDS_META )
 		) {
 			return false;
