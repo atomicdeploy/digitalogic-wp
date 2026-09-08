@@ -1573,6 +1573,15 @@ class Digitalogic_Product_Sync_Receiver {
 	 * @return bool True only when every available request-local cache entry was removed.
 	 */
 	private function evict_coordinated_product_instance_caches( $product_ids ) {
+		// Woo's type cache uses each product's prefix, not the products prefix.
+		// Parents must be evicted too, or a valid variation may appear orphaned.
+		if ( is_callable( array( 'WC_Cache_Helper', 'get_cache_prefix' ) ) ) {
+			foreach ( (array) $product_ids as $product_id ) {
+				$product_id = (int) $product_id;
+				$type_key = WC_Cache_Helper::get_cache_prefix( 'product_' . $product_id ) . '_type_' . $product_id;
+				wp_cache_delete( $type_key, 'products' );
+			}
+		}
 		$product_cache_class = '\\Automattic\\WooCommerce\\Internal\\Caches\\ProductCache';
 		if ( ! class_exists( $product_cache_class ) || ! function_exists( 'wc_get_container' ) ) {
 			return true;
