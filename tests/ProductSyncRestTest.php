@@ -67,6 +67,12 @@ final class ProductSyncRestTest extends TestCase {
         $response = $api->receive_patris_product_sync($request);
         $this->assertSame(200, $response->get_status());
         $this->assertSame('accepted', $response->get_data()['data']['status']);
+        $timings = $response->get_data()['data']['receiver_timing_ms'];
+        foreach (array('handler_total', 'json_decode', 'validation', 'transaction_total', 'transaction_entry', 'transaction_work', 'projection', 'persistence', 'destination_drain', 'event_emit', 'receiver_total') as $key) {
+            $this->assertIsNumeric($timings[$key]);
+            $this->assertGreaterThanOrEqual(0, $timings[$key]);
+        }
+        $this->assertStringNotContainsString('receiver_timing_ms', json_encode(Digitalogic_Product_Sync_Receiver::instance()->get_state()));
 
         $bad = new WP_REST_Request(
             array(),
