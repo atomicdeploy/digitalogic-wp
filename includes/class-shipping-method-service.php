@@ -775,7 +775,7 @@ final class Digitalogic_Shipping_Method_Service {
 		$default_markup = $this->load_default_percentage_markup();
 		// This endpoint accepts exact Patris Codes only. Resolve the current
 		// identity projection once instead of filtering it again for every code.
-		$identities     = Digitalogic_Product_Identifier_Resolver::instance()->resolve_patris_codes( $normalized_codes );
+		$identities  = Digitalogic_Product_Identifier_Resolver::instance()->resolve_patris_codes( $normalized_codes );
 		$product_ids = array();
 		foreach ( $identities as $identity ) {
 			if ( ! is_wp_error( $identity ) ) {
@@ -1988,17 +1988,17 @@ final class Digitalogic_Shipping_Method_Service {
     private function read_product_method_meta_batch( $product_ids ) {
         global $wpdb;
 
-        $ids = array_values( array_unique( array_map( 'intval', $product_ids ) ) );
+        $ids    = array_values( array_unique( array_map( 'intval', $product_ids ) ) );
         $result = array_fill_keys(
             $ids, array( 'exists' => false, 'value' => null, 'meta_id' => 0 )
         );
         if ( empty( $ids ) ) {
             return $result;
         }
-        $table = isset( $wpdb->postmeta )
+        $table        = isset( $wpdb->postmeta )
             ? $wpdb->postmeta : $wpdb->prefix . 'postmeta';
         $placeholders = implode( ', ', array_fill( 0, count( $ids ), '%d' ) );
-        $sql = "/* digitalogic_shipping_assignment_batch */ SELECT post_id, "
+        $sql          = "/* digitalogic_shipping_assignment_batch */ SELECT post_id, "
             . "meta_id, meta_value FROM {$table} WHERE meta_key = %s "
             . "AND post_id IN ({$placeholders}) ORDER BY post_id ASC, meta_id ASC";
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- One fresh read of exact owner IDs and assignment key, with placeholders for every value.
@@ -2016,8 +2016,8 @@ final class Digitalogic_Shipping_Method_Service {
             $id = (int) $row['post_id'];
             if ( isset( $result[ $id ] ) && ! $result[ $id ]['exists'] ) {
                 $result[ $id ] = array(
-                    'exists' => true,
-                    'value' => maybe_unserialize( $row['meta_value'] ),
+                    'exists'  => true,
+                    'value'   => maybe_unserialize( $row['meta_value'] ),
                     'meta_id' => (int) $row['meta_id'],
                 );
             }
