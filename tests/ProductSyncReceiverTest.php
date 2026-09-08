@@ -56,6 +56,7 @@ final class ProductSyncReceiverTest extends TestCase {
         $this->assertSame(array(
             'source',
             'input_source',
+            'input_mode',
             'input_products',
             'generated_at',
             'generated_at_order',
@@ -1480,6 +1481,7 @@ final class ProductSyncReceiverTest extends TestCase {
         $identity = array(
             'schema'     => 'patris.product-sync',
             'event_type' => 'snapshot',
+            'input_mode' => 'go_projection',
         );
         if ($pricing) {
             $identity['local_currency'] = 'IRT';
@@ -1497,6 +1499,7 @@ final class ProductSyncReceiverTest extends TestCase {
         $envelope = array(
             'schema'            => 'patris.product-sync',
             'event_type'        => 'snapshot',
+            'input_mode'        => 'go_projection',
             'event_id'          => 'sha256:' . hash('sha256', json_encode($identity, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)),
             'source'            => $source,
             'generated_at'      => $generated_at,

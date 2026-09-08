@@ -5,6 +5,7 @@ use PHPUnit\Framework\TestCase;
 final class ProductSyncWebhookTest extends TestCase {
     protected function setUp(): void {
         $GLOBALS['digitalogic_test_options'] = array(
+            Digitalogic_Pricing_Coordinator::AUTHORITY_OPTION => 'go',
             'digitalogic_webhook_urls' => array('https://automation.digitalogic.test/events'),
             'digitalogic_webhook_secret' => 'observer-secret',
         );
@@ -159,6 +160,7 @@ final class ProductSyncWebhookTest extends TestCase {
         $identity = array(
             'schema' => 'patris.product-sync',
             'event_type' => 'snapshot',
+            'input_mode' => 'go_projection',
             'source' => $source,
             'generated_at' => '2026-07-27T00:00:00Z',
             'products' => $material,
@@ -170,6 +172,7 @@ final class ProductSyncWebhookTest extends TestCase {
         return array(
             'schema' => 'patris.product-sync',
             'event_type' => 'snapshot',
+            'input_mode' => 'go_projection',
             'event_id' => 'sha256:' . hash(
                 'sha256',
                 json_encode($identity, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)

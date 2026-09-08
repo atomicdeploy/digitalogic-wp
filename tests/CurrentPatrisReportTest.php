@@ -727,6 +727,7 @@ final class CurrentPatrisReportTest extends TestCase {
 
 	/** Static inspection is read-only; separately named ingestion requires confirmation. */
 	public function test_static_kala_inspection_is_read_only_and_ingestion_requires_yes(): void {
+		$GLOBALS['digitalogic_test_options'][Digitalogic_Pricing_Coordinator::AUTHORITY_OPTION] = 'go';
 		$directory = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'digitalogic-current-report-' . bin2hex( random_bytes( 4 ) );
 		mkdir( $directory ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_mkdir -- Isolated test fixture.
 		$path = $directory . DIRECTORY_SEPARATOR . 'kala.json';

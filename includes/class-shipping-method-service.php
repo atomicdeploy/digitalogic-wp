@@ -773,10 +773,13 @@ final class Digitalogic_Shipping_Method_Service {
 		}
 
 		$default_markup = $this->load_default_percentage_markup();
+		// This endpoint accepts exact Patris Codes only. Resolve the current
+		// identity projection once instead of filtering it again for every code.
+		$identities     = Digitalogic_Product_Identifier_Resolver::instance()->resolve_patris_codes( $normalized_codes );
 		$results        = array();
 		$resolved_count = 0;
 		foreach ( $normalized_codes as $code ) {
-			$resolved = $this->resolve_shipping_product( $code );
+			$resolved = $this->shipping_product_resolution( $identities[ $code ] );
 			if ( is_wp_error( $resolved ) ) {
 				$data      = $resolved->get_error_data();
 				$status    = is_array( $data ) && isset( $data['status'] ) ? (int) $data['status'] : 400;
@@ -1658,6 +1661,11 @@ final class Digitalogic_Shipping_Method_Service {
 
     private function resolve_shipping_product($code) {
         $resolved = Digitalogic_Product_Identifier_Resolver::instance()->resolve(array('patris_code' => $code));
+        return $this->shipping_product_resolution($resolved);
+    }
+
+    /** Preserve the public shipping identity and error contract for either resolver. */
+    private function shipping_product_resolution($resolved) {
         if (is_wp_error($resolved)) {
             $error_code = $resolved->get_error_code();
             $data = is_array($resolved->get_error_data()) ? $resolved->get_error_data() : array();
