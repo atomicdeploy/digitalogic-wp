@@ -108,6 +108,78 @@ final class WebSocketLifecycleTest extends TestCase {
         ), Digitalogic_Panel::get_redis_config());
     }
 
+    private function masked_command_frame($payload, $opcode = 1, $fin = true) {
+        $mask = 'abcd';
+        $length = strlen($payload);
+        $header = chr(($fin ? 128 : 0) | $opcode) . ($length < 126 ? chr(128 | $length) : chr(128 | 126) . pack('n', $length));
+        for ($i = 0; $i < $length; ++$i) { $payload[$i] = $payload[$i] ^ $mask[$i % 4]; }
+        return $header . $mask . $payload;
+    }
+
+    public function test_command_frames_reassemble_large_json_and_preserve_interleaved_ping(): void {
+        $server = new Digitalogic_WebSocket_Server();
+        $socket = fopen('php://temp', 'w+');
+        $this->write_private($server, 'clients', array(42 => array('socket' => $socket, 'buffer' => '', 'pricing_commands' => true)));
+        $json = json_encode(array('id' => 'fragmented', 'command' => 'ping', 'data' => array('padding' => str_repeat('x', 9000))));
+        $first = $this->masked_command_frame(substr($json, 0, 4096), 1, false);
+        foreach (str_split($first, 83) as $chunk) { $this->invoke_private($server, 'consume_input', array(42, $chunk)); }
+        $this->assertSame(0, ftell($socket));
+        $this->invoke_private($server, 'consume_input', array(42, $this->masked_command_frame('alive', 9)));
+        $this->invoke_private($server, 'consume_input', array(42, $this->masked_command_frame(substr($json, 4096, 4096), 0, false)));
+        $this->invoke_private($server, 'consume_input', array(42, $this->masked_command_frame(substr($json, 8192), 0)));
+        rewind($socket);
+        $frames = $this->invoke_private($server, 'decode_frames', array(stream_get_contents($socket)));
+        $this->assertCount(2, $frames['messages']);
+        $this->assertSame(10, $frames['messages'][0]['opcode']);
+        $this->assertSame('alive', $frames['messages'][0]['payload']);
+        $response = json_decode($frames['messages'][1]['payload'], true);
+        $this->assertSame('fragmented', $response['id']);
+        $this->assertSame('pong', $response['event']);
+        $this->assertArrayNotHasKey('fragment_payload', $this->read_private($server, 'clients')[42]);
+        fclose($socket);
+    }
+
+    public function test_command_frames_reject_invalid_continuations_and_oversized_headers(): void {
+        foreach (array(
+            $this->masked_command_frame('orphan', 0),
+            $this->masked_command_frame('first', 1, false) . $this->masked_command_frame('second', 1),
+            $this->masked_command_frame('bad-control', 9, false),
+            chr(129) . chr(255) . pack('NN', 0, 6 * Digitalogic_Product_Sync_Receiver::MAX_BODY_BYTES + 65537),
+        ) as $wire) {
+            $server = new Digitalogic_WebSocket_Server();
+            $socket = fopen('php://temp', 'w+');
+            $this->write_private($server, 'clients', array(42 => array('socket' => $socket, 'buffer' => '', 'pricing_commands' => true)));
+            $this->invoke_private($server, 'consume_input', array(42, $wire));
+            $this->assertArrayNotHasKey(42, $this->read_private($server, 'clients'));
+            $this->assertFalse(is_resource($socket));
+        }
+    }
+
+	public function test_command_protocol_requires_both_independent_credentials(): void {
+		$source = array(
+			'id'      => 'patris-office',
+			'dataset' => 'kala.db',
+		);
+		$GLOBALS['digitalogic_test_options'][ Digitalogic_Patris_Feed::PRODUCT_SYNC_SECRET_OPTION ] = 'receiver-secret';
+		$GLOBALS['digitalogic_test_options'][ Digitalogic_Patris_Feed::PRODUCT_SYNC_SCOPES_OPTION ] = array( $source );
+		$headers = array(
+			'X-Patris-Product-Sync-Secret' => 'receiver-secret',
+			'X-Patris-Source-Id'           => $source['id'],
+			'X-Patris-Source-Dataset'      => $source['dataset'],
+			'Sec-WebSocket-Protocol'       => 'digitalogic.pricing.commands.v1',
+		);
+		$this->assertFalse( Digitalogic_WebSocket_Auth::authenticate_context( $headers, array() )['authenticated'] );
+		$issued = Digitalogic_Pricing_Input_Credential::instance()->create();
+		$this->assertNotInstanceOf( WP_Error::class, $issued );
+		$headers['Authorization'] = 'Bearer ' . $issued['secret'];
+		$context                  = Digitalogic_WebSocket_Auth::authenticate_context( $headers, array() );
+		$this->assertTrue( $context['authenticated'] );
+		$this->assertTrue( $context['pricing_commands'] );
+		$this->assertStringNotContainsString( $issued['secret'], json_encode( $context ) );
+		unset( $headers['X-Patris-Product-Sync-Secret'] );
+		$this->assertFalse( Digitalogic_WebSocket_Auth::authenticate_context( $headers, array() )['authenticated'] );
+	}
+
 	public function test_pricing_service_auth_requires_exact_configured_scope_and_never_generates_a_secret(): void {
 		$GLOBALS['digitalogic_test_options'][ Digitalogic_Patris_Feed::PRODUCT_SYNC_SECRET_OPTION ] = 'receiver-secret';
 		$GLOBALS['digitalogic_test_options'][ Digitalogic_Patris_Feed::PRODUCT_SYNC_SCOPES_OPTION ] = array(

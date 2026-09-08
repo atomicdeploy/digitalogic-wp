@@ -1690,6 +1690,10 @@ class Digitalogic_REST_API {
 	 * body so proxies cannot accidentally pair stale metadata with new JSON.
 	 */
 	public function receive_patris_product_sync( WP_REST_Request $request ) {
+		$handler_started = hrtime( true );
+		$bootstrap_ms    = 'cli' !== PHP_SAPI && isset( $_SERVER['REQUEST_TIME_FLOAT'] ) && is_numeric( $_SERVER['REQUEST_TIME_FLOAT'] )
+			? max( 0, ( microtime( true ) - (float) $_SERVER['REQUEST_TIME_FLOAT'] ) * 1000 )
+			: null;
 		$payload         = $request->get_json_params();
 		$header_contract = $request->get_header( 'x-patris-contract' );
 		$header_event_id = $request->get_header( 'x-patris-event-id' );
@@ -1722,6 +1726,12 @@ class Digitalogic_REST_API {
 			$body = wp_json_encode( is_array( $payload ) ? $payload : array() );
 		}
 		$result = Digitalogic_Product_Sync_Receiver::instance()->receive_json( $body );
+		if ( is_array( $result ) ) {
+			if ( null !== $bootstrap_ms ) {
+				$result['receiver_timing_ms']['bootstrap_to_handler'] = round( $bootstrap_ms, 3 );
+			}
+			$result['receiver_timing_ms']['handler_total'] = round( max( 0, ( hrtime( true ) - $handler_started ) / 1000000 ), 3 );
+		}
 
 		return $this->product_sync_response( $result );
 	}

@@ -246,7 +246,7 @@ class Digitalogic_Product_Sync_Receiver {
 
 	private const LOCK_NAME                         = 'digitalogic_product_sync';
 	private const LOCK_TIMEOUT_SECONDS              = 15;
-	private const MAX_BODY_BYTES                    = 8388608;
+	public const MAX_BODY_BYTES                     = 8388608;
 	private const MAX_STATE_BYTES                   = 16777216;
 	private const MAX_PRODUCTS                      = 10000;
 	private const MAX_CATEGORIES                    = 10000;
@@ -728,6 +728,7 @@ class Digitalogic_Product_Sync_Receiver {
      * @return array|WP_Error
      */
     public function receive_json($json) {
+        $decode_started = hrtime(true);
         if (!is_string($json) || '' === trim($json)) {
             return $this->error('digitalogic_product_sync_invalid_json', 'A JSON request body is required.', 400);
         }
@@ -746,7 +747,12 @@ class Digitalogic_Product_Sync_Receiver {
             );
         }
 
-        return $this->receive($payload);
+        $decode_ms = max(0, (hrtime(true) - $decode_started) / 1000000);
+        $result    = $this->receive($payload);
+        if (is_array($result)) {
+            $result['receiver_timing_ms']['json_decode'] = round($decode_ms, 3);
+        }
+        return $result;
     }
 
     /**
@@ -756,6 +762,32 @@ class Digitalogic_Product_Sync_Receiver {
      * @return array|WP_Error
      */
     public function receive($payload) {
+        $receive_started        = hrtime(true);
+        $previous_timings       = $this->receiver_timings;
+        $this->receiver_timings = array_fill_keys(array('validation', 'transaction_total', 'transaction_entry', 'transaction_work', 'projection', 'persistence', 'destination_drain', 'event_emit', 'receiver_total'), 0);
+        try {
+            $result = $this->receive_timed_work($payload, $receive_started);
+            $this->record_receiver_timing('receiver_total', $receive_started);
+            if (is_array($result)) {
+                $result['receiver_timing_ms'] = array_map(static fn($milliseconds) => round($milliseconds, 3), $this->receiver_timings);
+            }
+            return $result;
+        } finally {
+            $this->receiver_timings = $previous_timings;
+        }
+    }
+
+    // phpcs:disable -- Preserve the established receiver formatting while the legacy file remains baseline-managed.
+    /** Request-local numeric diagnostics; never stored in receiver state. */
+    private $receiver_timings = null;
+
+    private function record_receiver_timing($key, $started) {
+        if (is_array($this->receiver_timings)) {
+            $this->receiver_timings[$key] = ($this->receiver_timings[$key] ?? 0) + max(0, (hrtime(true) - $started) / 1000000);
+        }
+    }
+
+    private function receive_timed_work($payload, $receive_started) {
         if (!is_array($payload) || array_is_list($payload)) {
             return $this->error('digitalogic_product_sync_invalid_payload', 'The product-sync payload must be an object.', 400);
         }
@@ -775,8 +807,12 @@ class Digitalogic_Product_Sync_Receiver {
             return $envelope;
         }
 
+        $this->record_receiver_timing('validation', $receive_started);
+        $transaction_started = hrtime(true);
 		$result = Digitalogic_Pricing_Service::instance()->run_source_delivery_transaction(
-			function () use ( $envelope ) {
+			function () use ( $envelope, $transaction_started ) {
+                $this->record_receiver_timing('transaction_entry', $transaction_started);
+                $work_started = hrtime(true);
 				$write_mode = Digitalogic_Pricing_Coordinator::instance()->write_mode();
 				if ( is_wp_error( $write_mode ) ) {
 					return $write_mode;
@@ -792,6 +828,7 @@ class Digitalogic_Product_Sync_Receiver {
 				} catch ( Throwable $exception ) {
 					return $this->error( 'digitalogic_product_sync_unexpected_failure', 'The product-sync event could not be applied.', 500, array( 'exception' => get_class( $exception ) ) );
 				} finally {
+                    $this->record_receiver_timing('transaction_work', $work_started);
 					--$this->coordinated_transaction_depth;
 					$this->coordinated_write_mode = $previous_mode;
 					$this->source_delivery_active = $previous_delivery;
@@ -799,6 +836,7 @@ class Digitalogic_Product_Sync_Receiver {
 			}
 		);
 
+        $this->record_receiver_timing('transaction_total', $transaction_started);
 		if ( is_array( $result ) ) {
 			if ( $this->source_identity_lock_is_owned() ) {
 				$this->pending_applied_receipts[] = array( 'result' => $result, 'envelope' => $envelope );
@@ -806,10 +844,9 @@ class Digitalogic_Product_Sync_Receiver {
 				$result = $this->emit_result( $result, $envelope );
 			}
 		}
-		return $result;
+        return $result;
     }
 
-    // phpcs:disable -- Preserve the established receiver formatting while the legacy file remains baseline-managed.
     /**
      * Return the stored state for diagnostics and tests.
      *
@@ -1608,6 +1645,28 @@ class Digitalogic_Product_Sync_Receiver {
 
 		return $removed;
 	}
+
+    /** Evict Woo request-local objects before a persistent source request. */
+    public function prepare_persistent_source_request($source, $incoming_codes) {
+        $state = $this->load_state();
+        $key = $this->source_key($source['id'], $source['dataset']);
+        $codes = array_unique(array_merge(array_keys($state['sources'][$key]['input_products'] ?? array()), $incoming_codes));
+        $resolver = Digitalogic_Product_Identifier_Resolver::instance();
+        $resolver->clear_code_rows_cache();
+        $rows = $resolver->resolve_patris_codes(array_map('strval', $codes));
+        $ids = array();
+        foreach ($rows as $row) {
+            if (!is_wp_error($row)) {
+                $ids[] = (int) $row['woocommerce_id'];
+                $parent_id = (int) wp_get_post_parent_id((int) $row['woocommerce_id']);
+                if ($parent_id > 0) { $ids[] = $parent_id; }
+            } elseif ('digitalogic_product_identifier_not_found' !== $row->get_error_code()) {
+                return $row;
+            }
+        }
+        return $this->evict_coordinated_product_instance_caches(array_unique($ids))
+            ? true : $this->error('digitalogic_pricing_runtime_cache_unavailable', 'WooCommerce request-local product caches could not be cleared.', 503);
+    }
 
     /**
      * Publish a committed nonsecret reconciliation summary.
@@ -3010,6 +3069,15 @@ class Digitalogic_Product_Sync_Receiver {
      * @return array|WP_Error
      */
     private function project_authority_products($products, $source, $authority, &$verified_owner_catalog_revision = null) {
+        $started = hrtime(true);
+        try {
+            return $this->project_authority_products_timed_work($products, $source, $authority, $verified_owner_catalog_revision);
+        } finally {
+            $this->record_receiver_timing('projection', $started);
+        }
+    }
+
+    private function project_authority_products_timed_work($products, $source, $authority, &$verified_owner_catalog_revision = null) {
         $verified_owner_catalog_revision = null;
         $expected_mode = 'php' === $authority ? 'patris_inputs' : 'go_projection';
         if (($source['input_mode'] ?? '') !== $expected_mode) {
@@ -3543,7 +3611,16 @@ class Digitalogic_Product_Sync_Receiver {
 	 * @param array $source_state Source delivery state, updated in place.
 	 * @return array|WP_Error Delivery counters or a transaction failure.
 	 */
-	private function drain_source_delivery_products( &$source_state ) {
+	private function drain_source_delivery_products(&$source_state) {
+        $started = hrtime(true);
+        try {
+            return $this->drain_source_delivery_products_timed_work($source_state);
+        } finally {
+            $this->record_receiver_timing('destination_drain', $started);
+        }
+    }
+
+    private function drain_source_delivery_products_timed_work(&$source_state) {
 		$codes = array();
 		foreach ( (array) ( $source_state['pending_products'] ?? array() ) as $key => $entry ) {
 			$code = $this->valid_delivery_product_code( $source_state['products'], $key, $entry );
@@ -3603,6 +3680,15 @@ class Digitalogic_Product_Sync_Receiver {
 	}
 
     private function emit_result($result, $envelope) {
+        $started = hrtime(true);
+        try {
+            return $this->emit_result_timed_work($result, $envelope);
+        } finally {
+            $this->record_receiver_timing('event_emit', $started);
+        }
+    }
+
+    private function emit_result_timed_work($result, $envelope) {
         $metadata = array(
             'schema' => $envelope['schema'],
             'event_id' => $envelope['event_id'],
@@ -6332,6 +6418,15 @@ class Digitalogic_Product_Sync_Receiver {
     // phpcs:enable
 
     private function persist_and_read_back($state) {
+        $started = hrtime(true);
+        try {
+            return $this->persist_and_read_back_timed_work($state);
+        } finally {
+            $this->record_receiver_timing('persistence', $started);
+        }
+    }
+
+    private function persist_and_read_back_timed_work($state) {
         global $wpdb;
 		$owns_transaction = $this->coordinated_transaction_depth <= 0;
         if (

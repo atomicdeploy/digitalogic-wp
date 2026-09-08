@@ -56,7 +56,25 @@ final class Digitalogic_Pricing_Input_Credential {
 			return $this->error( 'digitalogic_pricing_input_scope_denied', 403 );
 		}
 
-		$authorization = $request->get_header( 'authorization' );
+		return $this->authorize_header( $request->get_header( 'authorization' ) );
+	}
+
+	/** Validate the existing read credential for an explicitly allowlisted persistent transport. */
+	public function persistent_read_context( $authorization ) {
+		$fingerprint = '';
+		$result      = $this->authorize_header( $authorization, $fingerprint );
+		return is_wp_error( $result ) ? $result : $fingerprint;
+	}
+
+	/** Recheck rotation/revocation without retaining the bearer token. */
+	public function persistent_read_context_is_current( $fingerprint ) {
+		$row = $this->read_record_db();
+		return ! is_wp_error( $row ) && is_string( $fingerprint ) && '' !== $fingerprint
+			&& 'active' === $this->record_state( $row['value'] )
+			&& hash_equals( $fingerprint, $this->record_fingerprint( $row ) );
+	}
+
+	private function authorize_header( $authorization, &$fingerprint = null ) {
 		if ( ! is_string( $authorization ) || '' === $authorization ) {
 			return $this->error( 'digitalogic_pricing_input_unauthorized', 401 );
 		}
@@ -84,6 +102,7 @@ final class Digitalogic_Pricing_Input_Credential {
 					delete_transient( $throttle_key );
 				}
 
+				$fingerprint = $this->record_fingerprint( $record_row );
 				return true;
 			}
 		}
