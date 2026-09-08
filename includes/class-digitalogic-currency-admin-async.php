@@ -984,6 +984,43 @@ final class Digitalogic_Currency_Admin_Async {
 			return;
 		}
 		$observed = $this->raw_job();
+		if ( 'superseded' === ( $observed['status'] ?? '' ) ) {
+			return;
+		}
+		if ( $this->go_delivery_revision( $observed ) ) {
+			$superseded = $this->with_job_lock(
+				function () use ( $job_id, $generation, $expected_fence, $state_revision ) {
+					$job = $this->raw_job();
+					if ( ! $this->matches_job( $job, $job_id, $generation ) || (int) ( $job['fence'] ?? 0 ) !== (int) $expected_fence
+						|| $state_revision !== ( $job['effect_state_revision'] ?? '' ) || $this->is_terminal( $job ) ) {
+						return false;
+					}
+					$state = Digitalogic_Pricing_Service::instance()->current_canonical_state();
+					if ( is_wp_error( $state ) || $state_revision === ( $state['state_revision'] ?? '' ) ) {
+						return false;
+					}
+					$expected                            = $job;
+					$job['status']                       = 'superseded';
+					$job['superseded_by_state_revision'] = $state['state_revision'];
+					$job['error_code']                   = 'digitalogic_currency_async_superseded';
+					$job['message_fa']                   = 'تنظیمات جدیدتری ثبت شده است؛ تحویل قیمت این درخواست تأیید نشد.';
+					$job['completed_at']                 = time();
+					$job['updated_at']                   = time();
+					$job['owner_token']                  = '';
+					$job['fence_token']                  = '';
+					$job['lease_until']                  = 0;
+					$job['next_attempt_at']              = 0;
+					$stored                              = $this->store_job_open_lock( $job, $expected );
+					if ( true === $stored ) {
+						$this->unschedule_job( $job );
+					}
+					return $stored;
+				}
+			);
+			if ( true === $superseded || is_wp_error( $superseded ) ) {
+				return;
+			}
+		}
 		if ( $this->go_delivery_revision( $observed ) && ! $this->prepare_go_delivery_finalization( $job_id, $generation, $expected_fence, $state_revision ) ) {
 			return;
 		}
@@ -1121,7 +1158,9 @@ final class Digitalogic_Currency_Admin_Async {
 
 	/** Return the owner-input revision whose Go delivery is still required. */
 	private function go_delivery_revision( array $job ): string {
-
+		if ( 'superseded' === ( $job['status'] ?? '' ) ) {
+			return '';
+		}
 		$repricing = (array) ( $job['effect_publication']['payload']['repricing'] ?? array() );
 		$revision  = (string) ( $repricing['owner_catalog_revision'] ?? '' );
 		return 'go' === ( $repricing['authority'] ?? '' ) && 'awaiting_delivery' === ( $repricing['status'] ?? '' )
@@ -1163,7 +1202,11 @@ final class Digitalogic_Currency_Admin_Async {
 
 	/** Require complete delivery of the exact owner inputs, including all reconciliation. */
 	private function complete_go_receipt( array $receipt, string $revision ): bool {
-
+		$catalog = Digitalogic_Shipping_Method_Service::instance()->get_integration_catalog();
+		if ( is_wp_error( $catalog ) || 'go' !== ( $catalog['pricing']['authority'] ?? '' )
+			|| $revision !== ( $catalog['revision'] ?? '' ) ) {
+			return false;
+		}
 		if ( 'complete' !== ( $receipt['status'] ?? '' ) || $revision !== ( $receipt['owner_catalog_revision'] ?? '' )
 		|| 1 !== preg_match( '/\Asha256:[a-f0-9]{64}\z/D', (string) ( $receipt['event_id'] ?? '' ) )
 			|| '' === (string) ( $receipt['source']['id'] ?? '' ) || '' === (string) ( $receipt['source']['dataset'] ?? '' ) ) {
@@ -1812,7 +1855,7 @@ final class Digitalogic_Currency_Admin_Async {
 		$publication = is_array( $observed['effect_publication'] ?? null ) ? $observed['effect_publication'] : array();
 		if (
 			1 !== preg_match( '/\Asha256:[a-f0-9]{64}\z/D', $revision )
-			|| 'confirmed' === (string) ( $observed['status'] ?? '' )
+			|| in_array( (string) ( $observed['status'] ?? '' ), array( 'confirmed', 'superseded' ), true )
 			|| 'publication_failed' === (string) ( $observed['status'] ?? '' )
 			|| 'failed' === (string) ( $publication['status'] ?? '' )
 			|| '' === (string) ( $observed['job_id'] ?? '' )
@@ -2880,7 +2923,7 @@ final class Digitalogic_Currency_Admin_Async {
 		) {
 			$status = 'publication_failed';
 		} elseif (
-			'confirmed' !== $status
+			! in_array( $status, array( 'confirmed', 'superseded' ), true )
 			&& 1 === preg_match( '/\Asha256:[a-f0-9]{64}\z/D', (string) ( $job['effect_state_revision'] ?? '' ) )
 		) {
 			$status = $go_revision ? 'awaiting_delivery' : 'publishing';
@@ -3157,7 +3200,7 @@ final class Digitalogic_Currency_Admin_Async {
 	 * @return bool
 	 */
 	private function is_terminal( array $job ) {
-		return in_array( (string) ( $job['status'] ?? '' ), array( 'confirmed', 'failed', 'publication_failed', 'cancelled' ), true );
+		return in_array( (string) ( $job['status'] ?? '' ), array( 'confirmed', 'failed', 'publication_failed', 'cancelled', 'superseded' ), true );
 	}
 
 	/**

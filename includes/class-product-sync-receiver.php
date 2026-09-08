@@ -2973,6 +2973,10 @@ class Digitalogic_Product_Sync_Receiver {
         if ('go' === $authority) {
             $catalog = null;
             foreach ($products as $code => $product) {
+                $validated = $this->validate_final_price_formula($product, 'products.' . $code, !empty($source['formula_id']));
+                if (is_wp_error($validated)) {
+                    return $validated;
+                }
                 if (!$this->requires_owner_projection($product, $source)) {
                     continue;
                 }
@@ -3048,6 +3052,10 @@ class Digitalogic_Product_Sync_Receiver {
                 if (!empty($calculated['available'])) {
                     $product['final_price'] = $calculated['value'];
                 }
+                $validated = $this->validate_final_price_formula($product, 'products.' . $code, !empty($source['formula_id']), $calculated);
+                if (is_wp_error($validated)) {
+                    return $validated;
+                }
                 $product['record_hash'] = $this->record_hash_from_storage($product);
                 $products[$code] = $product;
                 continue;
@@ -3091,6 +3099,27 @@ class Digitalogic_Product_Sync_Receiver {
             if (is_wp_error($projected)) {
                 return $projected;
             }
+            // A PHP input baseline intentionally has no selected route. Try the
+            // domestic partner fallback only after the owner foreign route is
+            // unavailable. Sale fallback needs an explicit policy/selection;
+            // the mere presence of a sale amount never enables it.
+            if (empty($product['price_source_kind']) && !array_key_exists('final_price', $projected)
+                && isset($product['partner_price']) && $this->number_compare_zero($product['partner_price']) > 0) {
+                $partner = $product;
+                $partner['price_source_amount'] = $product['partner_price'];
+                $partner['price_source_currency'] = 'IRR';
+                $partner['price_source_kind'] = 'partner_price';
+                $partner['shipping_method_id'] = Digitalogic_Shipping_Method_Service::DOMESTIC_METHOD_ID;
+                $partner['pricing_catalog_revision'] = $catalog['revision'];
+                $projected = $this->coordinated_product_record($partner, $settings, $catalog, $catalog['revision'], $settings['profit_margin_percent'], $catalog['revision']);
+                if (is_wp_error($projected)) {
+                    return $projected;
+                }
+            }
+            $validated = $this->validate_final_price_formula($projected, 'products.' . $code, !empty($source['formula_id']));
+            if (is_wp_error($validated)) {
+                return $validated;
+            }
             $products[$code] = $projected;
         }
         return $products;
@@ -3100,13 +3129,27 @@ class Digitalogic_Product_Sync_Receiver {
     private function requires_owner_projection($product, $source) {
         $kind = (string) ($product['price_source_kind'] ?? '');
         return 'sale_price_direct' !== $kind
-            && ('' !== $kind || (!empty($source['formula_id']) && isset($product['foreign_price']) && $this->number_compare_zero($product['foreign_price']) > 0));
+            && ('' !== $kind || (!empty($source['formula_id']) && (
+                (isset($product['foreign_price']) && $this->number_compare_zero($product['foreign_price']) > 0)
+                || (isset($product['partner_price']) && $this->number_compare_zero($product['partner_price']) > 0)
+            )));
     }
 
     private function receive_locked($envelope) {
         $authority = Digitalogic_Pricing_Coordinator::instance()->pricing_authority();
         if (is_wp_error($authority)) {
             return $authority;
+        }
+        // Authority is read under the source-delivery transaction lock. The
+        // outer validation proves typed facts and hashes, while only Go input
+        // claims to be a final calculated projection at this boundary.
+        if ('go' === $authority) {
+            foreach ($envelope['products'] as $index => $product) {
+                $validated = $this->validate_final_price_formula($product, 'products[' . $index . ']', !empty($envelope['formula_id']));
+                if (is_wp_error($validated)) {
+                    return $validated;
+                }
+            }
         }
         $margin_validation = 'go' === $authority ? $this->validate_shared_profit_margin($envelope) : true;
         if (is_wp_error($margin_validation)) {
@@ -3932,10 +3975,8 @@ class Digitalogic_Product_Sync_Receiver {
 			return $shipping_policy_check;
 		}
 
-        $formula_check = $this->validate_final_price_formula($product, $path, $pricing_active);
-        if (is_wp_error($formula_check)) {
-            return $formula_check;
-        }
+        // Formula validation follows authority selection under the delivery
+        // lock. PHP receives source facts and validates its own final projection.
 
         $stored = array();
         foreach (self::PRODUCT_FIELDS as $field) {
@@ -5458,7 +5499,15 @@ class Digitalogic_Product_Sync_Receiver {
 			count( $stock_rows ) > 1
 			|| 1 !== count( $stock_status_rows )
 			|| $lookup_projection['sku'] !== (string) ( $topology['lookup_sku'] ?? '' )
-			|| $lookup_projection['stock_quantity'] !== ( $topology['lookup_stock_quantity'] ?? null )
+			|| (
+                $lookup_projection['stock_quantity'] !== ( $topology['lookup_stock_quantity'] ?? null )
+                && (
+                    null === $lookup_projection['stock_quantity'] || null === ( $topology['lookup_stock_quantity'] ?? null )
+                    || null === Digitalogic_Patris_Feed::instance()->pricing_batch_signed_decimal( $lookup_projection['stock_quantity'] )
+                    || null === Digitalogic_Patris_Feed::instance()->pricing_batch_signed_decimal( $topology['lookup_stock_quantity'] )
+                    || Digitalogic_Patris_Feed::instance()->pricing_batch_signed_decimal( $lookup_projection['stock_quantity'] ) !== Digitalogic_Patris_Feed::instance()->pricing_batch_signed_decimal( $topology['lookup_stock_quantity'] )
+                )
+            )
 			|| $lookup_projection['stock_status'] !== (string) ( $topology['lookup_stock_status'] ?? '' )
 		) {
 			return false;
@@ -5493,9 +5542,13 @@ class Digitalogic_Product_Sync_Receiver {
 			// An unavailable canonical route does not change the site-owned assignment.
 			$expected_shipping = (string) reset( $shipping_rows );
 		}
-		if (
-			'' === $expected_shipping
-			|| empty( $shipping_rows )
+        $shipping_absent = '' === $expected_shipping && array() === $shipping_rows
+            && ( ! is_numeric( $final_price ) || (float) $final_price <= 0 )
+            // Preserve the canonical compare-and-assign bootstrap when source
+            // facts select a supported method despite no current assignment.
+            && '' === Digitalogic_Patris_Catalog_Materializer::instance()->selected_source_shipping_method( $product_data );
+        if (
+            ( ! $shipping_absent && ( '' === $expected_shipping || empty( $shipping_rows ) ) )
 			|| count( $shipping_rows ) > Digitalogic_Patris_Feed::PRICING_BATCH_MAX_IDENTICAL_ASSIGNMENT_ROWS
 		) {
 			// A missing legacy assignment is recoverable through the canonical

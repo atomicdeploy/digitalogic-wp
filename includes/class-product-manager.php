@@ -329,6 +329,26 @@ class Digitalogic_Product_Manager {
     }
 
 	/**
+	 * Hydrate catalog rows with the existing list formatter and bounded reads.
+	 * Catalog projections do not consume galleries, revisions or nested children;
+	 * all price, identity, stock, category, image and exact source fields remain.
+	 *
+	 * @param int[] $product_ids Exact WooCommerce IDs.
+	 * @return array
+	 */
+	public function get_catalog_products_by_ids( $product_ids ) {
+		$product_ids = array_values( array_unique( array_filter( array_map( 'absint', (array) $product_ids ) ) ) );
+		$editor      = Digitalogic_Product_Code_Editor::instance();
+		$editor->reset_editability_cache();
+		$products = array();
+		foreach ( array_chunk( $product_ids, 100 ) as $ids ) {
+			$editor->prepare_admin_read_batch( $ids );
+			$products = array_merge( $products, $this->format_product_list( $ids ) );
+		}
+		return $products;
+	}
+
+	/**
 	 * Resolve and return one product through the shared exact identifier policy.
 	 *
 	 * @param array $identifiers WooCommerce ID, exact SKU, Patris Code, or code.
