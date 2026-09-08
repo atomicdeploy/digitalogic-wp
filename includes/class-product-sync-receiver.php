@@ -3290,6 +3290,22 @@ class Digitalogic_Product_Sync_Receiver {
         $transition['products'] = $projected;
         // Unchanged incoming records may have new owner inputs as well.
         $transition['changed_products'] = array_values($projected);
+        if ('update' === $envelope['event_type'] && is_array($existing)) {
+            // A delta reconciles its explicit rows and every changed owner result.
+            // Unrelated unchanged destinations belong to a full reconciliation;
+            // existing pending delivery remains in build_delivery_state below.
+            $incoming_codes = array_fill_keys(array_column($envelope['products'], 'product_code'), true);
+            $transition['changed_products'] = array_values(array_filter(
+                $projected,
+                static function ($product) use ($incoming_codes, $existing) {
+                    $code = $product['product_code'];
+                    $previous_hash = $existing['products'][$code]['record_hash'] ?? null;
+                    return isset($incoming_codes[$code])
+                        || !is_string($previous_hash)
+                        || !hash_equals($previous_hash, $product['record_hash']);
+                }
+            ));
+        }
 
         $recent_events = is_array($existing['recent_events'] ?? null) ? $existing['recent_events'] : array();
         $recent_events[$envelope['event_id']] = array(
