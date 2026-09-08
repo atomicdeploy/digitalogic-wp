@@ -1505,6 +1505,34 @@ final class PricingCoordinatorTest extends TestCase {
 	/**
 	 * A live-shaped CNY change is four-chunked, query-bounded, and save-free.
 	 */
+	public function test_direct_db_batch_publishes_each_verified_leaf_after_unlock(): void {
+		$this->seed_large_pricing_snapshot( 3, 1 );
+		$receipts = array();
+		$listener = static function ( $snapshot ) use ( &$receipts ) {
+			$receipts[] = array(
+				'snapshot' => $snapshot,
+				'locked' => Digitalogic_Product_Sync_Receiver::instance()->source_identity_lock_is_owned(),
+			);
+		};
+		add_action( 'digitalogic_patris_materializer_product_committed', $listener, 10, 1 );
+		try {
+			$result = Digitalogic_Pricing_Coordinator::instance()->update_currency(
+				array( 'yuan_price' => '29501', 'effective_date' => '2026-07-27' ),
+				'publication_test'
+			);
+		} finally {
+			$GLOBALS['digitalogic_test_action_callbacks']['digitalogic_patris_materializer_product_committed'] = array_values( array_filter( $GLOBALS['digitalogic_test_action_callbacks']['digitalogic_patris_materializer_product_committed'], static fn( $item ) => $item['callback'] !== $listener ) );
+		}
+		$this->assertFalse( is_wp_error( $result ) );
+		$this->assertCount( 3, $receipts );
+		$ids = array();
+		foreach ( $receipts as $receipt ) {
+			$this->assertFalse( $receipt['locked'] );
+			$ids[] = $receipt['snapshot']['product_id'];
+		}
+		$this->assertCount( 3, array_unique( $ids ) );
+	}
+
 	public function test_large_changed_reconcile_batches_771_leaves_under_ten_seconds(): void {
 		$this->seed_large_pricing_snapshot( 771, 14 );
 		$GLOBALS['digitalogic_test_posts'][30000]['meta_rows'] = array(
