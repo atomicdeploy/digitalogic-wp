@@ -582,7 +582,13 @@ class Digitalogic_Product_Sync_Receiver {
 		try {
 			foreach ( $snapshots as $snapshot ) {
 				try {
-					do_action( 'digitalogic_patris_materializer_product_committed', $snapshot );
+					if ( ! empty( $snapshot['publication_only'] ) ) {
+						// Verified source writes with materialization disabled do not
+						// assert the materializer's completeness/ownership projection.
+						do_action( 'digitalogic_product_sync_product_committed', $snapshot );
+					} else {
+						do_action( 'digitalogic_patris_materializer_product_committed', $snapshot );
+					}
 				} catch ( Throwable $exception ) {
 					$this->log_materializer_listener_failure( $exception, 'patris_materializer_listener_failed' );
 				}
@@ -4971,6 +4977,19 @@ class Digitalogic_Product_Sync_Receiver {
 				}
 				if ( is_array( $committed ) ) {
 					$this->queue_materializer_product_committed( $committed );
+				} elseif ( ! $materialization_enabled ) {
+					// This identity passed the same hash and canonical readback above.
+					// The queue is discarded on rollback and published only after locks.
+					$this->queue_materializer_product_committed(
+						array(
+							'publication_only' => true,
+							'product_id' => (int) $woocommerce_id,
+							'product_code' => $product_code,
+							'source_id' => (string) ( $source_state['source']['id'] ?? '' ),
+							'dataset' => (string) ( $source_state['source']['dataset'] ?? '' ),
+							'source_revision' => (string) ( $source_state['source']['revision'] ?? '' ),
+						)
+					);
 				}
             } catch (Throwable $exception) {
                 $result['failed']++;

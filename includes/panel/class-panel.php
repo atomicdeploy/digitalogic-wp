@@ -28,6 +28,9 @@ class Digitalogic_Panel {
 	/** @var array<string,bool> Request-local product event deduplication. */
 	private $recorded_product_events = array();
 
+	/** @var array<int,bool> IDs received only from verified post-commit snapshots. */
+	private $committed_product_ids = array();
+
 	/** @var array<string,bool> Request-local canonical currency event deduplication. */
 	private $recorded_currency_revisions = array();
 
@@ -59,6 +62,13 @@ class Digitalogic_Panel {
 		add_action('before_delete_post', array($this, 'record_product_deleted_event'), 20, 2);
 		add_action('woocommerce_product_set_stock', array($this, 'record_product_stock_event'), 20, 1);
 		add_action('woocommerce_variation_set_stock', array($this, 'record_product_stock_event'), 20, 1);
+		add_action('digitalogic_patris_materializer_product_committed', array($this, 'record_committed_product'), 20, 1);
+		add_action('digitalogic_product_sync_product_committed', array($this, 'record_committed_product'), 20, 1);
+		add_action(
+			'digitalogic_patris_materializer_product_commits_complete',
+			array($this, 'record_committed_products_complete'),
+			20
+		);
         add_action('updated_option', array($this, 'record_option_event'), 20, 3);
 		add_action('digitalogic_excel_pricing_settings_updated', array($this, 'record_coordinated_currency_event'), 20, 1);
         add_action('user_register', array($this, 'record_user_event'), 20, 1);
@@ -803,6 +813,11 @@ class Digitalogic_Panel {
 	 * @param int|WC_Product|mixed $product Product object or ID.
 	 */
 	private function record_public_product_event( $event, $product ) {
+		// Pricing saves are provisional. Their verified snapshots arrive after
+		// SQL and shared locks finish; rollback must never leak a public event.
+		if ( 'product.deleted' !== $event && $this->pricing_write_is_locked() ) {
+			return;
+		}
 		$product_object = is_object( $product ) ? $product : null;
 		$product_id     = $product_object && method_exists( $product_object, 'get_id' )
 			? absint( $product_object->get_id() )
@@ -832,6 +847,53 @@ class Digitalogic_Panel {
 				'parent_id'  => $parent_id,
 			)
 		);
+	}
+
+	/** Both ordinary currency transactions and outer source deliveries own one of these locks. */
+	private function pricing_write_is_locked() {
+		return (
+			class_exists( 'Digitalogic_Pricing_Service' )
+			&& Digitalogic_Pricing_Service::instance()->source_delivery_lock_is_owned()
+		) || (
+			class_exists( 'Digitalogic_Product_Sync_Receiver' )
+			&& Digitalogic_Product_Sync_Receiver::instance()->source_identity_lock_is_owned()
+		);
+	}
+
+	/** Collect committed IDs, never IDs from provisional Woo save callbacks. */
+	public function record_committed_product( $snapshot ) {
+		$product_id = is_array( $snapshot ) ? absint( $snapshot['product_id'] ?? 0 ) : 0;
+		if ( $product_id > 0 && ! $this->pricing_write_is_locked() ) {
+			$this->committed_product_ids[ $product_id ] = true;
+		}
+	}
+
+	/** Publish final product upserts using bounded queue writes, without reloading Woo products. */
+	public function record_committed_products_complete() {
+		if ( $this->pricing_write_is_locked() || empty( $this->committed_product_ids ) ) {
+			return;
+		}
+		$ids = array_keys( $this->committed_product_ids );
+		$this->committed_product_ids = array();
+		foreach ( array_chunk( $ids, self::EVENT_LIMIT ) as $chunk ) {
+			$entries = array();
+			foreach ( $chunk as $product_id ) {
+				$parent_id = absint( wp_get_post_parent_id( $product_id ) );
+				$entries[] = array(
+					'event' => 'product.updated',
+					'data' => array(
+						'id' => $product_id,
+						'product_id' => $parent_id > 0 ? $parent_id : $product_id,
+						'parent_id' => $parent_id,
+					),
+				);
+			}
+			$result = self::record_events_result( $entries );
+			if ( is_wp_error( $result ) ) {
+				self::report_event_delivery_failure( 'Committed product events could not be stored.' );
+				return;
+			}
+		}
 	}
 
     public function record_user_event($user_id) {
@@ -1032,6 +1094,15 @@ class Digitalogic_Panel {
      * @return array{event:array,delivery_warnings:array}|WP_Error
      */
     public static function record_event_result($event, $data = array()) {
+		$result = self::record_events_result( array( array( 'event' => $event, 'data' => $data ) ) );
+		return is_wp_error( $result ) ? $result : array(
+			'event' => $result['events'][0],
+			'delivery_warnings' => $result['delivery_warnings'],
+		);
+	}
+
+	/** Store a bounded batch under one sequence lock, preserving individual event envelopes. */
+	private static function record_events_result( $entries ) {
         $lock = self::acquire_event_lock();
         if ($lock === false) {
             self::report_event_delivery_failure('Could not acquire the database event lock; the event was not recorded.');
@@ -1043,6 +1114,8 @@ class Digitalogic_Panel {
 
         $stored = false;
         $event_envelope = null;
+        $event_envelopes = array();
+        $new_envelopes = array();
         $delivery_warnings = array();
 
         try {
@@ -1051,32 +1124,41 @@ class Digitalogic_Panel {
             $events = is_array($events) ? $events : array();
             $latest_id = absint( self::read_event_option_authoritative( self::EVENT_SEQUENCE_OPTION, 0 ) );
 
-            $existing = self::idempotent_event( $events, $event, $data );
-            if ( is_wp_error( $existing ) ) {
-                return $existing;
-            }
-            if ( is_array( $existing ) ) {
-                return array(
-                    'event'             => $existing,
-                    'delivery_warnings' => array(),
-                );
-            }
-
             foreach ($events as $stored_event) {
                 if (is_array($stored_event) && isset($stored_event['id'])) {
                     $latest_id = max($latest_id, absint($stored_event['id']));
                 }
             }
 
-            $event_id = max((int) round(microtime(true) * 1000), $latest_id + 1);
-            $event_envelope = array(
-                'id' => $event_id,
-                'event' => sanitize_key(str_replace('.', '_', $event)),
-                'name' => sanitize_text_field($event),
-                'data' => is_array($data) ? $data : array(),
-                'time' => current_time('mysql'),
-            );
-            $events[] = $event_envelope;
+            foreach ( $entries as $entry ) {
+                $event = $entry['event'];
+                $data = $entry['data'];
+                $existing = self::idempotent_event( $events, $event, $data );
+                if ( is_wp_error( $existing ) ) {
+                    return $existing;
+                }
+                if ( is_array( $existing ) ) {
+                    $event_envelopes[] = $existing;
+                    continue;
+                }
+
+                $event_id = max((int) round(microtime(true) * 1000), $latest_id + 1);
+                $event_envelope = array(
+                    'id' => $event_id,
+                    'event' => sanitize_key(str_replace('.', '_', $event)),
+                    'name' => sanitize_text_field($event),
+                    'data' => is_array($data) ? $data : array(),
+                    'time' => current_time('mysql'),
+                );
+                $events[] = $event_envelope;
+                $event_envelopes[] = $event_envelope;
+                $new_envelopes[] = $event_envelope;
+                $latest_id = $event_id;
+            }
+
+            if ( empty( $new_envelopes ) ) {
+                return array( 'events' => $event_envelopes, 'delivery_warnings' => array() );
+            }
 
             if (count($events) > self::EVENT_LIMIT) {
                 $events = array_slice($events, -self::EVENT_LIMIT);
@@ -1103,7 +1185,7 @@ class Digitalogic_Panel {
             );
         }
 
-        if (!self::publish_event($event_envelope)) {
+        if (!self::publish_events($new_envelopes)) {
             $delivery_warnings[] = 'panel_redis_delivery_failed';
 			if ( ! self::store_event_wake($event_envelope) ) {
 				$delivery_warnings[] = 'panel_wake_outbox_write_failed';
@@ -1115,7 +1197,7 @@ class Digitalogic_Panel {
         }
 
         return array(
-            'event' => $event_envelope,
+            'events' => $event_envelopes,
             'delivery_warnings' => array_values(array_unique($delivery_warnings)),
         );
     }
@@ -1423,6 +1505,11 @@ class Digitalogic_Panel {
      * @return bool
      */
     private static function publish_event($event_envelope) {
+		return self::publish_events( array( $event_envelope ) );
+	}
+
+	/** Reuse one Redis connection for the already-durable event batch. */
+	private static function publish_events( $event_envelopes ) {
         $redis = apply_filters('digitalogic_panel_redis_client', null);
         if ($redis === null) {
             if (!class_exists('Redis')) {
@@ -1453,13 +1540,15 @@ class Digitalogic_Panel {
                 throw new RuntimeException('Redis database selection failed.');
             }
 
-            $payload = wp_json_encode($event_envelope);
-            if (!is_string($payload)) {
-                throw new RuntimeException('The panel event could not be JSON encoded.');
-            }
+            foreach ( $event_envelopes as $event_envelope ) {
+                $payload = wp_json_encode($event_envelope);
+                if (!is_string($payload)) {
+                    throw new RuntimeException('The panel event could not be JSON encoded.');
+                }
 
-            if (!method_exists($redis, 'publish') || $redis->publish($config['channel'], $payload) === false) {
-                throw new RuntimeException('Redis publication failed.');
+                if (!method_exists($redis, 'publish') || $redis->publish($config['channel'], $payload) === false) {
+                    throw new RuntimeException('Redis publication failed.');
+                }
             }
 
             return true;
