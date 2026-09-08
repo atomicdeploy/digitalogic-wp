@@ -764,7 +764,7 @@ class Digitalogic_Product_Sync_Receiver {
     public function receive($payload) {
         $receive_started        = hrtime(true);
         $previous_timings       = $this->receiver_timings;
-        $this->receiver_timings = array_fill_keys(array('validation', 'transaction_total', 'transaction_entry', 'transaction_work', 'projection', 'persistence', 'destination_drain', 'event_emit', 'event_hooks', 'event_log', 'event_webhooks', 'event_reports', 'event_freshness', 'event_go_receipt', 'receiver_total'), 0);
+		$this->receiver_timings = array_fill_keys( array( 'validation', 'transaction_total', 'transaction_entry', 'transaction_work', 'projection', 'source_transition', 'delivery_plan', 'destination_verify', 'persistence', 'destination_drain', 'event_emit', 'event_hooks', 'event_log', 'event_webhooks', 'event_reports', 'event_freshness', 'event_go_receipt', 'receiver_total' ), 0 );
         try {
             $result = $this->receive_timed_work($payload, $receive_started);
             $this->record_receiver_timing('receiver_total', $receive_started);
@@ -3166,7 +3166,7 @@ class Digitalogic_Product_Sync_Receiver {
                 $resolved_codes[] = $code;
             }
             foreach (array_chunk($resolved_codes, Digitalogic_Shipping_Method_Service::MAX_PRICING_ASSIGNMENT_BATCH_SIZE) as $codes) {
-                $batch = Digitalogic_Shipping_Method_Service::instance()->get_product_shipping_assignments_by_codes($codes);
+                $batch = Digitalogic_Shipping_Method_Service::instance()->get_product_shipping_assignments_by_codes($codes, $resolution_cache);
                 if (is_wp_error($batch)) {
                     return $batch;
                 }
@@ -4533,7 +4533,30 @@ class Digitalogic_Product_Sync_Receiver {
         return $result;
     }
 
-    private function build_transition($envelope, $existing) {
+	/**
+	 * Measure source transition using response-only receiver diagnostics.
+	 *
+	 * @param array      $envelope Normalized source envelope.
+	 * @param array|null $existing Previous source state.
+	 * @return array|WP_Error
+	 */
+	private function build_transition( $envelope, $existing ) {
+		$started = hrtime( true );
+		try {
+			return $this->build_transition_timed_work( $envelope, $existing );
+		} finally {
+			$this->record_receiver_timing( 'source_transition', $started );
+		}
+	}
+
+	/**
+	 * Perform source transition without changing its result or exception behavior.
+	 *
+	 * @param array      $envelope Normalized source envelope.
+	 * @param array|null $existing Previous source state.
+	 * @return array|WP_Error
+	 */
+	private function build_transition_timed_work( $envelope, $existing ) {
         $previous = is_array($existing['input_products'] ?? null) ? $existing['input_products'] : array();
         $incoming = array();
         foreach ($envelope['products'] as $product) {
@@ -4623,7 +4646,34 @@ class Digitalogic_Product_Sync_Receiver {
     }
 
     // phpcs:disable -- Preserve the established receiver formatting while the legacy file remains baseline-managed.
-    private function build_delivery_state($products, $changed_products, $envelope, $existing) {
+	/**
+	 * Measure delivery plan using response-only receiver diagnostics.
+	 *
+	 * @param array      $products Complete projected products.
+	 * @param array      $changed_products Incoming or changed projected products.
+	 * @param array      $envelope Source envelope.
+	 * @param array|null $existing Previous source state.
+	 * @return array
+	 */
+	private function build_delivery_state( $products, $changed_products, $envelope, $existing ) {
+		$started = hrtime( true );
+		try {
+			return $this->build_delivery_state_timed_work( $products, $changed_products, $envelope, $existing );
+		} finally {
+			$this->record_receiver_timing( 'delivery_plan', $started );
+		}
+	}
+
+	/**
+	 * Perform delivery plan without changing its result or exception behavior.
+	 *
+	 * @param array      $products Complete projected products.
+	 * @param array      $changed_products Incoming or changed projected products.
+	 * @param array      $envelope Source envelope.
+	 * @param array|null $existing Previous source state.
+	 * @return array
+	 */
+	private function build_delivery_state_timed_work( $products, $changed_products, $envelope, $existing ) {
         $applied = is_array($existing['applied_products'] ?? null) ? $existing['applied_products'] : array();
         $pending = is_array($existing['pending_products'] ?? null) ? $existing['pending_products'] : array();
         $deferred = is_array($existing['deferred_products'] ?? null) ? $existing['deferred_products'] : array();
@@ -4639,6 +4689,26 @@ class Digitalogic_Product_Sync_Receiver {
         }
         $pending = $this->prune_delivery_set($products, $pending);
         $deferred = $this->prune_delivery_set($products, $deferred);
+
+		// Currentness checks need the same post, metadata and product-type caches
+		// as delivery. Prime matching applied leaves before their per-row reads.
+		$verification_ids = array();
+		foreach ( $changed_products as $product ) {
+			$entry = $applied[ $product['product_code'] ] ?? array();
+			if ( isset( $entry['record_hash'], $entry['woocommerce_id'] )
+				&& hash_equals( (string) $entry['record_hash'], $product['record_hash'] )
+				&& (int) $entry['woocommerce_id'] > 0 ) {
+				$verification_ids[ (int) $entry['woocommerce_id'] ] = true;
+			}
+		}
+		if ( ! empty( $verification_ids ) ) {
+			$verification_ids = array_keys( $verification_ids );
+			if ( function_exists( '_prime_post_caches' ) ) {
+				_prime_post_caches( $verification_ids, true, true );
+			} elseif ( function_exists( 'update_meta_cache' ) ) {
+				update_meta_cache( 'post', $verification_ids );
+			}
+		}
 
         foreach ($changed_products as $product) {
             $code = $product['product_code'];
@@ -6129,7 +6199,23 @@ class Digitalogic_Product_Sync_Receiver {
      * @param array $product         Canonical stored product.
      * @return bool
      */
-    private function delivery_price_projection_matches($woocommerce_id, $product) {
+	private function delivery_price_projection_matches( $woocommerce_id, $product ) {
+		$started = hrtime( true );
+		try {
+			return $this->delivery_price_projection_matches_timed_work( $woocommerce_id, $product );
+		} finally {
+			$this->record_receiver_timing( 'destination_verify', $started );
+		}
+	}
+
+	/**
+	 * Perform destination verify without changing its result or exception behavior.
+	 *
+	 * @param int   $woocommerce_id Exact WooCommerce product ID.
+	 * @param array $product Projected source product.
+	 * @return bool
+	 */
+	private function delivery_price_projection_matches_timed_work( $woocommerce_id, $product ) {
         if (
             $woocommerce_id <= 0
             || !is_array($product)

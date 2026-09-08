@@ -717,23 +717,27 @@ final class Digitalogic_Shipping_Method_Service {
 	}
 
 	/**
-	 * Read fresh shipping identities for the internal PHP owner projection.
+	 * Read fresh shipping assignments for the internal PHP owner projection.
 	 *
-	 * @param array $codes Exact Patris Codes.
+	 * Resolutions may come from the same locked projection, never a prior request.
+	 *
+	 * @param array      $codes       Exact Patris Codes.
+	 * @param array|null $resolutions Same-operation exact resolver results.
 	 * @return array|WP_Error
 	 */
-	public function get_product_shipping_assignments_by_codes( $codes ) {
-		return $this->read_product_assignments_by_codes( $codes, false );
+	public function get_product_shipping_assignments_by_codes( $codes, $resolutions = null ) {
+		return $this->read_product_assignments_by_codes( $codes, false, $resolutions );
 	}
 
 	/**
 	 * Share exact identity and SQL reads across assignment projections.
 	 *
-	 * @param array $codes          Exact Patris Codes.
-	 * @param bool  $include_markup Include the external markup contract.
+	 * @param array      $codes          Exact Patris Codes.
+	 * @param bool       $include_markup Include the external markup contract.
+	 * @param array|null $resolutions    Same-operation exact resolver results.
 	 * @return array|WP_Error
 	 */
-	private function read_product_assignments_by_codes( $codes, $include_markup ) {
+	private function read_product_assignments_by_codes( $codes, $include_markup, $resolutions = null ) {
 		if ( ! is_array( $codes ) || array_values( $codes ) !== $codes ) {
 			return new WP_Error(
 				'digitalogic_pricing_assignment_batch_shape_invalid',
@@ -796,7 +800,24 @@ final class Digitalogic_Shipping_Method_Service {
 		$default_markup = $include_markup ? $this->load_default_percentage_markup() : array();
 		// This endpoint accepts exact Patris Codes only. Resolve the current
 		// identity projection once instead of filtering it again for every code.
-		$identities  = Digitalogic_Product_Identifier_Resolver::instance()->resolve_patris_codes( $normalized_codes );
+		$identities = null === $resolutions
+			? Digitalogic_Product_Identifier_Resolver::instance()->resolve_patris_codes( $normalized_codes )
+			: array();
+		if ( null !== $resolutions ) {
+			foreach ( $normalized_codes as $code ) {
+				$identity = is_array( $resolutions ) ? ( $resolutions[ $code ] ?? null ) : null;
+				if ( ! is_wp_error( $identity ) && (
+					! is_array( $identity )
+					|| 'patris_code' !== ( $identity['resolved_by'] ?? null )
+					|| (string) ( $identity['identifier'] ?? '' ) !== $code
+					|| (string) ( $identity['patris_code'] ?? '' ) !== $code
+					|| (int) ( $identity['woocommerce_id'] ?? 0 ) <= 0
+				) ) {
+					return new WP_Error( 'digitalogic_pricing_assignment_identity_invalid', 'The same-operation shipping identity is missing or mismatched.', array( 'status' => 409 ) );
+				}
+				$identities[ $code ] = $identity;
+			}
+		}
 		$product_ids = array();
 		foreach ( $identities as $identity ) {
 			if ( ! is_wp_error( $identity ) ) {
