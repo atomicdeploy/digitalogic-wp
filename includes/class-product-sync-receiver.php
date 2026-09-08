@@ -2022,6 +2022,10 @@ class Digitalogic_Product_Sync_Receiver {
                     continue;
                 }
                 $this->coordinated_product_ids[$woocommerce_id] = true;
+                // Planned rows require eviction even when a deadline aborts before
+                // the fallback loop finishes. Use the existing bulk cleanup on
+                // both commit and rollback rather than per-row transient hooks.
+                $this->coordinated_batch_write = true;
                 unset($delivery['applied_products'][$product_code], $delivery['deferred_products'][$product_code]);
                 $delivery['pending_products'][$product_code] = array(
                     'product_code' => $product_code,
