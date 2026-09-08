@@ -259,6 +259,14 @@ final class ShippingMethodServiceTest extends TestCase {
 		$shipping = $this->service->get_product_shipping_assignments_by_codes( array( ' EXACT-504 ', 'EXACT-503', 'SKU-503' ) );
 		$this->assertSame( $batch['results'][2], $shipping['results'][2] );
 		$this->assertArrayNotHasKey( 'default_percentage_markup', $shipping );
+		$codes                    = array( 'EXACT-504', 'EXACT-503', 'SKU-503' );
+		$resolutions              = Digitalogic_Product_Identifier_Resolver::instance()->resolve_patris_codes( $codes );
+		$GLOBALS['wpdb']->queries = array();
+		$this->assertSame( $shipping, $this->service->get_product_shipping_assignments_by_codes( $codes, $resolutions ) );
+		$this->assertCount( 0, array_filter( $GLOBALS['wpdb']->queries, static fn( $query ) => is_string( $query ) && false !== strpos( $query, 'digitalogic_identifier:patris_codes_bulk' ) ) );
+		$this->assertCount( 1, array_filter( $GLOBALS['wpdb']->queries, static fn( $query ) => is_string( $query ) && false !== strpos( $query, 'digitalogic_shipping_assignment_batch' ) ) );
+		$resolutions['EXACT-504'] = $resolutions['EXACT-503'];
+		$this->assertSame( 'digitalogic_pricing_assignment_identity_invalid', $this->service->get_product_shipping_assignments_by_codes( $codes, $resolutions )->get_error_code() );
 		foreach ( array( 0, 1 ) as $index ) {
 			$this->assertSame(
 				array_intersect_key( $batch['results'][ $index ]['assignment'], array_flip( array( 'code', 'woocommerce_id', 'shipping_method_id' ) ) ),
