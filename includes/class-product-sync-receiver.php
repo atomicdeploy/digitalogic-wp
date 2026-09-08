@@ -4874,7 +4874,18 @@ class Digitalogic_Product_Sync_Receiver {
 					}
 				}
 				if ( ! $owner_backfilled ) {
-					if ( ! $requires_full_feed ) {
+					$combined_pricing = ! $requires_full_feed && $materialization_enabled;
+					if ( $combined_pricing ) {
+						$committed = Digitalogic_Patris_Catalog_Materializer::instance()->reprice_source_product(
+							$woocommerce_id,
+							$product_data,
+							is_array( $source_state['source'] ?? null ) ? $source_state['source'] : array(),
+							function () { return $this->check_coordinated_actuation_guard(); }
+						);
+						if ( is_wp_error( $committed ) ) {
+							return $committed;
+						}
+					} elseif ( ! $requires_full_feed ) {
 						Digitalogic_Patris_Feed::instance()->apply_product_pricing( $product, $product_data );
 					} else {
 						$feed_write = Digitalogic_Patris_Feed::instance()->apply_product_feed( $product, $product_data );
@@ -4882,7 +4893,7 @@ class Digitalogic_Product_Sync_Receiver {
 							throw new RuntimeException( $feed_write->get_error_code() );
 						}
 					}
-					if ( $materialization_enabled ) {
+					if ( $materialization_enabled && ! $combined_pricing ) {
 						$committed = Digitalogic_Patris_Catalog_Materializer::instance()->commit_source_product(
 							$woocommerce_id,
 							$product_data,

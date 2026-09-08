@@ -2596,7 +2596,7 @@ class Digitalogic_Patris_Feed {
 	 * @param array      $data    Canonical pricing projection.
 	 * @return void
 	 */
-	private function stage_product_pricing( WC_Product $product, $data ) {
+	public function stage_product_pricing( WC_Product $product, $data ) {
 		$data = is_array( $data ) ? $data : array();
 		foreach ( $this->pricing_meta_fields() as $field => $meta_key ) {
 			if ( ! array_key_exists( $field, $data ) || null === $data[ $field ] ) {

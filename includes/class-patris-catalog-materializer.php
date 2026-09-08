@@ -288,6 +288,28 @@ final class Digitalogic_Patris_Catalog_Materializer {
 	 * @return array|WP_Error
 	 */
 	public function commit_source_product( $product_id, $record, $source ) {
+		return $this->persist_source_product( $product_id, $record, $source );
+	}
+
+	/**
+	 * Save pricing and its materialization metadata together through WooCommerce.
+	 *
+	 * @param int      $product_id Existing source-owned product.
+	 * @param array    $record Canonical pricing projection.
+	 * @param array    $source Exact source identity.
+	 * @param callable $guard Transaction deadline and owner fence.
+	 * @return array|WP_Error Verified materialization snapshot or failure.
+	 */
+	public function reprice_source_product( $product_id, $record, $source, callable $guard ) {
+		return Digitalogic_Patris_Price_Write_Guard::instance()->with_authorized_write(
+			function () use ( $product_id, $record, $source, $guard ) {
+				return $this->persist_source_product( $product_id, $record, $source, $guard );
+			}
+		);
+	}
+
+	/** Persist the shared materialization projection, optionally staging pricing first. */
+	private function persist_source_product( $product_id, $record, $source, $pricing_guard = null ) {
 		$product_id = absint( $product_id );
 		$identity   = $this->source_record_identity( $record, $source );
 		if ( is_wp_error( $identity ) ) {
@@ -296,7 +318,7 @@ final class Digitalogic_Patris_Catalog_Materializer {
 
 		return $this->with_product_locks(
 			array( $product_id ),
-			function () use ( $product_id, $record, $source, $identity ) {
+			function () use ( $product_id, $record, $source, $identity, $pricing_guard ) {
 				if ( ! $this->source_write_locks_are_owned( array( $product_id ) ) ) {
 					return $this->source_write_outcome_unknown( $product_id );
 				}
@@ -310,6 +332,13 @@ final class Digitalogic_Patris_Catalog_Materializer {
 					return $this->error( 'digitalogic_patris_materializer_target_unavailable', 'The source product is unavailable after its canonical feed write.' );
 				}
 
+				if ( null !== $pricing_guard ) {
+					$guarded = call_user_func( $pricing_guard );
+					if ( true !== $guarded ) {
+						return is_wp_error( $guarded ) ? $guarded : $this->error( 'digitalogic_pricing_actuation_guard_rejected', 'Pricing transaction guard rejected the write.' );
+					}
+					Digitalogic_Patris_Feed::instance()->stage_product_pricing( $product, $record );
+				}
 				$missing = $this->canonical_missing_fields( $product, $record );
 				try {
 					if ( '' === (string) $product->get_sku() ) {
@@ -342,6 +371,12 @@ final class Digitalogic_Patris_Catalog_Materializer {
 						}
 						$product->set_stock_status( 'outofstock' );
 					}
+					if ( null !== $pricing_guard ) {
+						$guarded = call_user_func( $pricing_guard );
+						if ( true !== $guarded ) {
+							return is_wp_error( $guarded ) ? $guarded : $this->error( 'digitalogic_pricing_actuation_guard_rejected', 'Pricing transaction guard rejected the write.' );
+						}
+					}
 					if ( ! $product->save() ) {
 						throw new RuntimeException( 'WooCommerce rejected the public source projection.' );
 					}
@@ -349,6 +384,13 @@ final class Digitalogic_Patris_Catalog_Materializer {
 					return $this->error( 'digitalogic_patris_materializer_publication_failed', 'The verified source product could not be made public.' );
 				}
 
+				if ( null !== $pricing_guard ) {
+					Digitalogic_Patris_Price_Policy::instance()->invalidate( $product );
+					$guarded = call_user_func( $pricing_guard );
+					if ( true !== $guarded ) {
+						return is_wp_error( $guarded ) ? $guarded : $this->error( 'digitalogic_pricing_actuation_guard_rejected', 'Pricing transaction guard rejected the write.' );
+					}
+				}
 				$this->flush_product_caches( $product_id );
 				$fresh = wc_get_product( $product_id );
 				if (
