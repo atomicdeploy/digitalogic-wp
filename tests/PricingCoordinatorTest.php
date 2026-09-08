@@ -319,6 +319,8 @@ final class PricingCoordinatorTest extends TestCase {
 
 	/** Direct-only sources do not wait for a fabricated Go owner receipt. */
 	public function test_go_async_direct_only_currency_commit_needs_no_repricing(): void {
+		$GLOBALS['digitalogic_test_options'][ Digitalogic_Pricing_Coordinator::AUTHORITY_OPTION ] = 'go';
+
 		$GLOBALS['digitalogic_test_posts'][901]['meta'][ Digitalogic_Shipping_Method_Service::PRODUCT_METHOD_META ] = 'domestic';
 		$GLOBALS['digitalogic_test_wc_products'] = array();
 		$direct                                  = array(
@@ -584,6 +586,7 @@ final class PricingCoordinatorTest extends TestCase {
 
 	/** Direct sale pricing remains exact IRR/10 across every unrelated global change. */
 	public function test_direct_sale_route_is_immune_to_fx_markup_rounding_and_shipping_changes(): void {
+		$GLOBALS['digitalogic_test_options'][ Digitalogic_Pricing_Coordinator::AUTHORITY_OPTION ] = 'go';
 		$GLOBALS['digitalogic_test_posts'][903] = array(
 			'post_type'    => 'product',
 			'post_status'  => 'publish',
@@ -5074,9 +5077,10 @@ final class PricingCoordinatorTest extends TestCase {
 		$this->assertSame( 'publish', $GLOBALS['digitalogic_test_posts'][ $product_id ]['post_status'] );
 		$this->assertSame( '1', (string) $meta[ Digitalogic_Patris_Catalog_Materializer::AUTO_MATERIALIZED_META ] );
 		$this->assertSame( $revision, (string) $meta[ Digitalogic_Patris_Catalog_Materializer::SOURCE_REVISION_META ] );
-		$this->assertSame( '["image","seo","stock"]', (string) $meta[ Digitalogic_Patris_Catalog_Materializer::MISSING_FIELDS_META ] );
+		$this->assertSame( '["freight","image","markup","price","seo","stock"]', (string) $meta[ Digitalogic_Patris_Catalog_Materializer::MISSING_FIELDS_META ] );
 		$this->assertSame( 'MISSING-902', (string) $meta['_digitalogic_patris_product_code'] );
-		$this->assertSame( '8866000', (string) $meta['_regular_price'] );
+		// Raw Patris inputs cannot recreate deleted owner freight and markup assignments.
+		$this->assertEmpty( $meta['_regular_price'] ?? '' );
 		$this->assertSame( '1000', (string) $meta['_digitalogic_patris_weight_grams'] );
 
 		$matching = array_filter(
@@ -5729,6 +5733,16 @@ final class PricingCoordinatorTest extends TestCase {
 	 * @return array
 	 */
 	private function snapshot( $products, $generated_at, $source_id = 'pricing-tests' ) {
+		$input_mode = 'php' === Digitalogic_Pricing_Coordinator::instance()->pricing_authority() ? 'patris_inputs' : 'go_projection';
+		if ( 'patris_inputs' === $input_mode ) {
+			foreach ( $products as &$product ) {
+				foreach ( array( 'shipping_method_id', 'shipping_price_per_kg', 'shipping_price_per_kg_currency', 'markup_percent', 'irt_per_cny', 'pricing_catalog_revision', 'pricing_catalog_status', 'currency_effective_date', 'price_source_amount', 'price_source_currency', 'price_source_kind', 'price_rounding_digits', 'price_rounding_mode', 'final_price', 'record_hash' ) as $field ) {
+					unset( $product[ $field ] );
+				}
+				$product['record_hash'] = $this->record_hash( $product );
+			}
+			unset( $product );
+		}
 		$material = array();
 		foreach ( $products as $product ) {
 			$material[] = $product['product_code'] . '=' . $product['record_hash'];
@@ -5742,6 +5756,7 @@ final class PricingCoordinatorTest extends TestCase {
 		$identity = array(
 			'schema'            => 'patris.product-sync',
 			'event_type'        => 'snapshot',
+			'input_mode'        => $input_mode,
 			'local_currency'    => 'IRT',
 			'formula_id'        => 'landed_price',
 			'source'            => $source,
@@ -5759,6 +5774,7 @@ final class PricingCoordinatorTest extends TestCase {
 		return array(
 			'schema'            => 'patris.product-sync',
 			'event_type'        => 'snapshot',
+			'input_mode'        => $input_mode,
 			'event_id'          => 'sha256:' . hash(
 				'sha256',
 				wp_json_encode( $identity, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES )

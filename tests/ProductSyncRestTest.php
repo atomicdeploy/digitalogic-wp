@@ -8,6 +8,7 @@ final class ProductSyncRestTest extends TestCase {
         $GLOBALS['digitalogic_test_filters'] = array();
         $GLOBALS['digitalogic_test_routes'] = array();
         $GLOBALS['digitalogic_test_options'] = array(
+            Digitalogic_Pricing_Coordinator::AUTHORITY_OPTION => 'go',
             Digitalogic_Patris_Feed::PRODUCT_SYNC_SECRET_OPTION => 'receiver-secret',
         );
         $GLOBALS['digitalogic_test_option_cache'] = array();

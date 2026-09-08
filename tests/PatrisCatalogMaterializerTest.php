@@ -1722,7 +1722,7 @@ final class PatrisCatalogMaterializerTest extends TestCase {
 		sort( $material, SORT_STRING );
 		$material                            = array_merge( $material, array_map( static fn( $code )                            => 'quarantined=' . $code, self::$fixture['quarantined_codes'] ) );
 		self::$fixture['source']['revision'] = 'sha256:' . hash( 'sha256', implode( "\n", $material ) );
-		$event                               = array_intersect_key( self::$fixture, array_flip( array( 'schema', 'event_type', 'local_currency', 'formula_id', 'source', 'generated_at', 'products', 'categories', 'excluded_codes', 'quarantined_codes' ) ) );
+		$event                               = array_intersect_key( self::$fixture, array_flip( array( 'schema', 'event_type', 'input_mode', 'local_currency', 'formula_id', 'source', 'generated_at', 'products', 'categories', 'excluded_codes', 'quarantined_codes' ) ) );
 		$event['products']                   = $product_hashes;
 		$event['categories']                 = $category_hashes;
 		self::$fixture['event_id']           = 'sha256:' . hash( 'sha256', wp_json_encode( $event, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES ) );

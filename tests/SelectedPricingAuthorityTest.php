@@ -117,6 +117,7 @@ final class SelectedPricingAuthorityTest extends TestCase {
 		unset( $products[0]['record_hash'] );
 		$products[0]['record_hash']                   = $this->record_hash( $products[0] );
 		$GLOBALS['digitalogic_test_wc_product_saves'] = array();
+
 		$result = Digitalogic_Product_Sync_Receiver::instance()->receive( $this->snapshot( $products, '2026-07-22T00:00:00Z' ) );
 		$this->assert_success( $result );
 		$this->assertSame( 1, $result['woocommerce']['batch_count'] );
@@ -157,7 +158,8 @@ final class SelectedPricingAuthorityTest extends TestCase {
 	 * Batch failure restores source, prices and deferred events together.
 	 */
 	public function test_source_batch_writes_stock_facts_and_unpriced_transition_without_full_saves(): void {
-		$payload                              = $this->seed_ingress_batch( 2 );
+		$payload = $this->seed_ingress_batch( 2 );
+
 		$GLOBALS['digitalogic_test_wc_product_instance_cache_removals'] = array();
 		$GLOBALS['digitalogic_test_posts'][20000]['meta'][ Digitalogic_Patris_Catalog_Materializer::AUTO_MATERIALIZED_META ] = '1';
 		unset( $GLOBALS['digitalogic_test_post_meta_cache'][20000] );
@@ -610,7 +612,7 @@ final class SelectedPricingAuthorityTest extends TestCase {
 		$product['record_hash'] = $this->record_hash( $product );
 		$payload                = $this->snapshot( array( $product ), '2026-07-21T00:00:00Z' );
 		unset( $payload['local_currency'], $payload['formula_id'] );
-		$payload['products'] = array($product);
+		$payload['products']  = array($product);
 		$identity             = array_intersect_key( $payload, array_flip( array( 'schema', 'event_type', 'input_mode', 'source', 'generated_at', 'products', 'categories', 'excluded_codes', 'quarantined_codes' ) ) );
 		$identity['products'] = array( $product['product_code'] . '=' . $product['record_hash'] );
 		$payload['event_id']  = 'sha256:' . hash( 'sha256', wp_json_encode( $identity, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES ) );
@@ -781,7 +783,7 @@ final class SelectedPricingAuthorityTest extends TestCase {
 	 * @return array
 	 */
 	private function delta( $changed, $all, $time ): array {
-		$payload               = $this->snapshot( $all, $time );
+		$payload = $this->snapshot( $all, $time );
 		if ($payload['input_mode'] === 'patris_inputs') { $changed = array_map(array($this, 'pure_input'), $changed); }
 		$payload['event_type'] = 'update';
 		$payload['products']   = $changed;
