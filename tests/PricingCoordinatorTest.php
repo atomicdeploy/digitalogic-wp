@@ -2225,9 +2225,9 @@ final class PricingCoordinatorTest extends TestCase {
 		$this->assertFalse( is_wp_error( $result ), is_wp_error( $result ) ? $result->get_error_message() : '' );
 		$this->assertSame( 'complete', $result['delivery']['status'] );
 		$this->assertSame( '0', $GLOBALS['digitalogic_test_wc_lookup_rows'][30000]['min_price'] );
-		$this->assertSame( 'outofstock', $GLOBALS['digitalogic_test_wc_lookup_rows'][30000]['stock_status'] );
+		$this->assertSame( 'instock', $GLOBALS['digitalogic_test_wc_lookup_rows'][30000]['stock_status'] );
 		$this->assertSame( array(), get_post_meta( 30000, '_price', false ) );
-		$this->assertContains( 990001, $GLOBALS['digitalogic_test_object_terms'][30000]['product_visibility'] );
+		$this->assertNotContains( 990001, $GLOBALS['digitalogic_test_object_terms'][30000]['product_visibility'] ?? array() );
 		$this->assertSame( array(), $GLOBALS['digitalogic_test_wc_product_saves'] );
 	}
 

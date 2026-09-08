@@ -66,7 +66,7 @@ final class Digitalogic_Patris_Price_Policy {
 	 * Variable containers remain fail-closed because their variation prices
 	 * require a separate reconciliation. Missing weight, missing canonical price,
 	 * or non-positive canonical values clear the simple/variation price
-	 * and keep that leaf out of stock until a complete feed write promotes it.
+	 * without changing stock availability, which is owned by the inventory input.
 	 *
 	 * @param WC_Product $product WooCommerce product or variation.
 	 * @param array      $data    Normalized Patris row.
@@ -93,7 +93,6 @@ final class Digitalogic_Patris_Price_Policy {
 			$product->set_regular_price( '' );
 			$product->set_sale_price( '' );
 			$product->set_price( '' );
-			$product->set_stock_status( 'outofstock' );
 			$status = 'canonical_missing_unpriced';
 			$product->update_meta_data( self::STATUS_META, $status );
 
@@ -104,7 +103,6 @@ final class Digitalogic_Patris_Price_Policy {
 			$product->set_regular_price( '' );
 			$product->set_sale_price( '' );
 			$product->set_price( '' );
-			$product->set_stock_status( 'outofstock' );
 			$status = 'canonical_nonpositive_unpriced';
 			$product->update_meta_data( self::STATUS_META, $status );
 

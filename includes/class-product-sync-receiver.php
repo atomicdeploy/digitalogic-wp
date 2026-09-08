@@ -2903,6 +2903,9 @@ class Digitalogic_Product_Sync_Receiver {
      * @return bool
      */
 	private function coordinated_price_readback_matches($woocommerce_id, $product) {
+		if ( $this->source_delivery_active && ! $this->delivery_stock_status_matches( $woocommerce_id, $product ) ) {
+			return false;
+		}
         $record_hash = (string) get_post_meta($woocommerce_id, '_digitalogic_patris_record_hash', true);
         if (
             !isset($product['record_hash'])
@@ -6234,6 +6237,9 @@ class Digitalogic_Product_Sync_Receiver {
 	 * @return bool
 	 */
 	private function delivery_price_projection_matches_timed_work( $woocommerce_id, $product ) {
+		if ( ! $this->delivery_stock_status_matches( $woocommerce_id, $product ) ) {
+			return false;
+		}
         if (
             $woocommerce_id <= 0
             || !is_array($product)
@@ -6289,8 +6295,7 @@ class Digitalogic_Product_Sync_Receiver {
         $sale = trim((string) $woo_product->get_sale_price( 'edit' ));
 		if ( Digitalogic_Patris_Price_Policy::instance()->weight_is_missing( $product ) ) {
 			return 'canonical_missing_unpriced' === (string) $woo_product->get_meta( Digitalogic_Patris_Price_Policy::STATUS_META, true )
-				&& '' === $regular && '' === $visible && '' === $sale
-				&& 'outofstock' === (string) $woo_product->get_stock_status();
+				&& '' === $regular && '' === $visible && '' === $sale;
 		}
         if ($has_final_price) {
             $final_price = (string) $product['final_price'];
@@ -6301,8 +6306,7 @@ class Digitalogic_Product_Sync_Receiver {
 				return $unpriced_status === (string) $woo_product->get_meta( Digitalogic_Patris_Price_Policy::STATUS_META, true )
 					&& '' === $regular
 					&& '' === $visible
-					&& '' === $sale
-					&& 'outofstock' === (string) $woo_product->get_stock_status();
+					&& '' === $sale;
 			}
             return $regular === $final_price && $visible === $final_price && '' === $sale;
         }
@@ -6312,9 +6316,29 @@ class Digitalogic_Product_Sync_Receiver {
         return 'canonical_missing_unpriced' === $status
             && '' === $regular
             && '' === $visible
-            && '' === $sale
-			&& 'outofstock' === (string) $woo_product->get_stock_status();
+            && '' === $sale;
     }
+
+	/**
+	 * Source delivery availability follows source quantity, not price completeness.
+	 *
+	 * FX-only reconciliation deliberately does not call this check against an old
+	 * stock snapshot. A source replay must repair an old price-driven outofstock flag.
+	 *
+	 * @param int   $woocommerce_id Exact leaf ID.
+	 * @param array $product Authoritative source product.
+	 * @return bool
+	 */
+	private function delivery_stock_status_matches( $woocommerce_id, $product ) {
+		$stock = $product['total_stock'] ?? null;
+		$expected = is_numeric( $stock ) && (float) $stock > 0 ? 'instock' : 'outofstock';
+		$rows = array_values( array_map( 'strval', (array) get_post_meta( $woocommerce_id, '_stock_status', false ) ) );
+		$woo = wc_get_product( $woocommerce_id );
+
+		return array( $expected ) === $rows
+			&& $woo instanceof WC_Product
+			&& $expected === (string) $woo->get_stock_status( 'edit' );
+	}
 
 	/** Verify the public materialization marker before trusting an applied hash. */
 	private function delivery_materialization_projection_matches( $woocommerce_id, $source ) {

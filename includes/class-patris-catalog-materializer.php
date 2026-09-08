@@ -372,15 +372,8 @@ final class Digitalogic_Patris_Catalog_Materializer {
 						$product->set_regular_price( '' );
 						$product->set_sale_price( '' );
 						$product->set_price( '' );
-						// WooCommerce derives stock status from managed quantity during
-						// validation. A positive source quantity would therefore turn an
-						// unpriced product back to "instock" while it is being published.
-						// Preserve the exact source quantity in Patris metadata, but keep
-						// operational Woo stock at zero until a canonical price arrives.
-						if ( $product->get_manage_stock() && 0 !== (int) $product->get_stock_quantity() ) {
-							$product->set_stock_quantity( 0 );
-						}
-						$product->set_stock_status( 'outofstock' );
+						// Price availability is independent of source stock. Retain the
+						// quantity and status already verified by the canonical feed.
 					}
 					if ( null !== $pricing_guard ) {
 						$guarded = call_user_func( $pricing_guard );
@@ -408,7 +401,7 @@ final class Digitalogic_Patris_Catalog_Materializer {
 					! $fresh instanceof WC_Product
 					|| $target_status !== (string) $fresh->get_status()
 					|| ( ! $fresh->is_type( 'variation' ) && $target_visibility !== (string) $fresh->get_catalog_visibility() )
-					|| ( in_array( 'price', $missing, true ) && ( '' !== trim( (string) $fresh->get_regular_price() ) || '' !== trim( (string) $fresh->get_price() ) || 'outofstock' !== (string) $fresh->get_stock_status() ) )
+					|| ( in_array( 'price', $missing, true ) && ( '' !== trim( (string) $fresh->get_regular_price() ) || '' !== trim( (string) $fresh->get_sale_price() ) || '' !== trim( (string) $fresh->get_price() ) ) )
 				) {
 					return $this->error( 'digitalogic_patris_materializer_publication_readback_failed', 'The public source product failed exact readback.' );
 				}
@@ -506,7 +499,6 @@ final class Digitalogic_Patris_Catalog_Materializer {
 							'' !== trim( (string) $product->get_regular_price() )
 							|| '' !== trim( (string) $product->get_sale_price() )
 							|| '' !== trim( (string) $product->get_price() )
-							|| 'outofstock' !== (string) $product->get_stock_status()
 						)
 					)
 				) {

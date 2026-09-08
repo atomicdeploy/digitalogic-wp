@@ -1063,8 +1063,7 @@ class Digitalogic_Patris_Feed {
 
 		$expects_unavailable = '' === trim( (string) ( $expected['props']['regular_price'] ?? '' ) )
 			&& '' === trim( (string) ( $expected['props']['sale_price'] ?? '' ) )
-			&& '' === trim( (string) ( $expected['props']['price'] ?? '' ) )
-			&& 'outofstock' === (string) ( $expected['props']['stock_status'] ?? '' );
+			&& '' === trim( (string) ( $expected['props']['price'] ?? '' ) );
 
 		$unavailable_matches = ! $expects_unavailable
 			|| $this->unavailable_price_projection_matches( $product_id, $fresh );
@@ -3366,8 +3365,9 @@ class Digitalogic_Patris_Feed {
 	 */
 	private function apply_product_feed_authorized( WC_Product $product, $data ) {
 		$this->stage_product_feed( $product, $data );
+		$expected_stock_status = (string) $product->get_stock_status( 'edit' );
 		$product->save();
-		$this->persist_unpriced_stock_status( $product );
+		$this->persist_unpriced_stock_status( $product, $expected_stock_status );
 		Digitalogic_Patris_Price_Policy::instance()->invalidate( $product );
 	}
 
@@ -3375,17 +3375,18 @@ class Digitalogic_Patris_Feed {
 	 * Persist unavailable status after WooCommerce and save hooks synchronize stock.
 	 *
 	 * A canonical quantity remains exact even when price inputs are unavailable.
-	 * WooCommerce integrations may promote a positive quantity to `instock`, and
-	 * its native data store may represent a blank zero-stock price with lookup
+	 * Availability remains the staged source-stock status, independent of price.
+	 * WooCommerce's native data store may represent a blank price with lookup
 	 * min/max zero. The final projection accepts that internal sentinel only while
-	 * raw prices stay blank and the product stays unavailable. No second product
+	 * raw prices stay blank and the product stays unpriced. No second product
 	 * save or hook fan-out is used.
 	 *
 	 * @param WC_Product $product Product staged by the canonical writer.
+	 * @param string     $expected_status Source-stock status captured before save hooks.
 	 * @return void
 	 * @throws RuntimeException When the exact unavailable state cannot be persisted and verified.
 	 */
-	private function persist_unpriced_stock_status( WC_Product $product ) {
+	private function persist_unpriced_stock_status( WC_Product $product, $expected_status ) {
 		$status = (string) $product->get_meta( Digitalogic_Patris_Price_Policy::STATUS_META, true );
 		if (
 			! in_array( $status, array( 'canonical_missing_unpriced', 'canonical_nonpositive_unpriced' ), true )
@@ -3395,34 +3396,36 @@ class Digitalogic_Patris_Feed {
 
 		$product_id = (int) $product->get_id();
 		$fresh      = $this->fresh_product_for_source_readback( $product_id );
-		if ( ! $fresh instanceof WC_Product || ! $this->source_write_locks_are_owned( $product_id ) ) {
+		if ( ! $fresh instanceof WC_Product || ! $this->source_write_locks_are_owned( $product_id ) || ! in_array( $expected_status, array( 'instock', 'outofstock', 'onbackorder' ), true ) ) {
 			throw new RuntimeException( 'The unavailable product stock projection could not be read safely.' );
 		}
-		if ( ! $this->unavailable_stock_projection_matches( $product_id, $fresh ) ) {
-			if ( ! $this->write_unavailable_stock_projection( $product_id ) ) {
+		if ( ! $this->unavailable_stock_projection_matches( $product_id, $fresh, $expected_status ) ) {
+			if ( ! $this->write_unavailable_stock_projection( $product_id, $expected_status ) ) {
 				throw new RuntimeException( 'The unavailable product stock projection could not be persisted.' );
 			}
 			$this->invalidate_unavailable_stock_projection_caches( $product_id );
 			$fresh = $this->fresh_product_for_source_readback( $product_id );
 		}
-		if ( ! $this->unavailable_stock_projection_matches( $product_id, $fresh ) ) {
+		if ( ! $this->unavailable_stock_projection_matches( $product_id, $fresh, $expected_status ) ) {
 			throw new RuntimeException( 'The unavailable product stock projection could not be verified.' );
 		}
 
-		$product->set_stock_status( 'outofstock' );
+		$product->set_stock_status( $expected_status );
 	}
 
 	/**
 	 * Write one exact status-only WooCommerce projection without save hooks.
 	 *
 	 * @param int $product_id Exact WooCommerce product ID.
+	 * @param string $expected_status Source-stock status captured before save hooks.
 	 * @return bool
 	 */
-	private function write_unavailable_stock_projection( $product_id ) {
+	private function write_unavailable_stock_projection( $product_id, $expected_status ) {
 		global $wpdb;
 		$product_id = absint( $product_id );
 		if (
 			$product_id <= 0
+			|| ! in_array( $expected_status, array( 'instock', 'outofstock', 'onbackorder' ), true )
 			|| ! $this->source_write_locks_are_owned( $product_id )
 			|| ! is_object( $wpdb )
 			|| ! isset( $wpdb->postmeta, $wpdb->prefix )
@@ -3441,11 +3444,11 @@ class Digitalogic_Patris_Feed {
 
 		$postmeta     = $wpdb->postmeta;
 		$lookup_table = $wpdb->prefix . 'wc_product_meta_lookup';
-		if ( 'outofstock' !== $current_status ) {
+		if ( $expected_status !== $current_status ) {
 			// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Table is the exact wpdb postmeta table; all values use generated placeholders.
 			$meta_sql = $wpdb->prepare(
 				"UPDATE /* digitalogic_patris_unpriced_stock_meta_update */ {$postmeta} SET meta_value = %s WHERE post_id = %d AND BINARY meta_key = %s",
-				'outofstock',
+				$expected_status,
 				$product_id,
 				'_stock_status'
 			);
@@ -3457,7 +3460,7 @@ class Digitalogic_Patris_Feed {
 				return false;
 			}
 			$meta_readback = $this->read_exact_meta_rows( $product_id, array( '_stock_status' ) );
-			if ( is_wp_error( $meta_readback ) || array( '_stock_status' => array( 'outofstock' ) ) !== $meta_readback ) {
+			if ( is_wp_error( $meta_readback ) || array( '_stock_status' => array( $expected_status ) ) !== $meta_readback ) {
 				return false;
 			}
 		}
@@ -3468,7 +3471,7 @@ class Digitalogic_Patris_Feed {
 		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Table is the exact site-scoped Woo lookup table; values use placeholders.
 		$lookup_sql = $wpdb->prepare(
 			"UPDATE /* digitalogic_patris_unpriced_stock_lookup_update */ {$lookup_table} SET stock_status = %s WHERE product_id = %d",
-			'outofstock',
+			$expected_status,
 			$product_id
 		);
 		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
@@ -3487,7 +3490,7 @@ class Digitalogic_Patris_Feed {
 		$lookup_readback = $this->read_exact_stock_lookup_projection( $product_id );
 
 		return ! is_wp_error( $lookup_readback )
-			&& 'outofstock' === $lookup_readback['stock_status'];
+			&& $expected_status === $lookup_readback['stock_status'];
 	}
 
 	/**
@@ -3526,9 +3529,10 @@ class Digitalogic_Patris_Feed {
 	 *
 	 * @param int              $product_id Exact WooCommerce product ID.
 	 * @param WC_Product|false $fresh      Cache-bypassed WooCommerce product.
+	 * @param string           $expected_status Source-stock status captured before save hooks.
 	 * @return bool
 	 */
-	private function unavailable_stock_projection_matches( $product_id, $fresh ) {
+	private function unavailable_stock_projection_matches( $product_id, $fresh, $expected_status ) {
 		$product_id = absint( $product_id );
 		if (
 			$product_id <= 0
@@ -3538,7 +3542,7 @@ class Digitalogic_Patris_Feed {
 			return false;
 		}
 		$meta = $this->read_exact_meta_rows( $product_id, array( '_stock_status' ) );
-		if ( is_wp_error( $meta ) || array( '_stock_status' => array( 'outofstock' ) ) !== $meta ) {
+		if ( is_wp_error( $meta ) || array( '_stock_status' => array( $expected_status ) ) !== $meta ) {
 			return false;
 		}
 
@@ -3558,9 +3562,9 @@ class Digitalogic_Patris_Feed {
 			);
 
 		return ! is_wp_error( $lookup )
-			&& 'outofstock' === $lookup['stock_status']
+			&& $expected_status === $lookup['stock_status']
 			&& $quantity_matches
-			&& 'outofstock' === (string) $fresh->get_stock_status()
+			&& $expected_status === (string) $fresh->get_stock_status( 'edit' )
 			&& '' === trim( (string) $fresh->get_regular_price( 'edit' ) )
 			&& '' === trim( (string) $fresh->get_sale_price( 'edit' ) )
 			&& '' === trim( (string) $fresh->get_price( 'edit' ) )
@@ -3571,8 +3575,8 @@ class Digitalogic_Patris_Feed {
 	 * Verify a blank customer price cannot be fabricated from Woo's zero sentinel.
 	 *
 	 * Both lookup bounds must be either NULL or numeric zero. A mixed pair or any
-	 * non-zero value fails closed, as does any raw/Woo price, sale flag, or
-	 * purchasable stock status. This keeps the lookup sentinel storage-only.
+	 * non-zero value fails closed, as does any raw/Woo price or sale flag.
+	 * Stock availability is checked separately. The zero sentinel stays storage-only.
 	 *
 	 * @param int              $product_id Exact WooCommerce product ID.
 	 * @param WC_Product|false $fresh      Cache-bypassed WooCommerce product.
@@ -3584,7 +3588,6 @@ class Digitalogic_Patris_Feed {
 			$product_id <= 0
 			|| ! $fresh instanceof WC_Product
 			|| ! $this->source_write_locks_are_owned( $product_id )
-			|| 'outofstock' !== (string) $fresh->get_stock_status()
 			|| '' !== trim( (string) $fresh->get_regular_price( 'edit' ) )
 			|| '' !== trim( (string) $fresh->get_sale_price( 'edit' ) )
 			|| '' !== trim( (string) $fresh->get_price( 'edit' ) )
@@ -3594,9 +3597,9 @@ class Digitalogic_Patris_Feed {
 
 		$meta = $this->read_exact_meta_rows(
 			$product_id,
-			array( '_regular_price', '_sale_price', '_price', '_stock_status' )
+			array( '_regular_price', '_sale_price', '_price' )
 		);
-		if ( is_wp_error( $meta ) || array( 'outofstock' ) !== ( $meta['_stock_status'] ?? array() ) ) {
+		if ( is_wp_error( $meta ) ) {
 			return false;
 		}
 		foreach ( array( '_regular_price', '_sale_price', '_price' ) as $price_key ) {
