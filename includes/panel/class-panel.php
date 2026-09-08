@@ -28,7 +28,9 @@ class Digitalogic_Panel {
 	/** @var array<string,bool> Request-local product event deduplication. */
 	private $recorded_product_events = array();
 
-	/** @var array<int,bool> IDs received only from verified post-commit snapshots. */
+	/**
+	 * @var array<int,bool> IDs from verified post-commit snapshots only.
+	 */
 	private $committed_product_ids = array();
 
 	/** @var array<string,bool> Request-local canonical currency event deduplication. */
@@ -62,8 +64,18 @@ class Digitalogic_Panel {
 		add_action('before_delete_post', array($this, 'record_product_deleted_event'), 20, 2);
 		add_action('woocommerce_product_set_stock', array($this, 'record_product_stock_event'), 20, 1);
 		add_action('woocommerce_variation_set_stock', array($this, 'record_product_stock_event'), 20, 1);
-		add_action('digitalogic_patris_materializer_product_committed', array($this, 'record_committed_product'), 20, 1);
-		add_action('digitalogic_product_sync_product_committed', array($this, 'record_committed_product'), 20, 1);
+		add_action(
+			'digitalogic_patris_materializer_product_committed',
+			array($this, 'record_committed_product'),
+			20,
+			1
+		);
+		add_action(
+			'digitalogic_product_sync_product_committed',
+			array($this, 'record_committed_product'),
+			20,
+			1
+		);
 		add_action(
 			'digitalogic_patris_materializer_product_commits_complete',
 			array($this, 'record_committed_products_complete'),
@@ -849,28 +861,34 @@ class Digitalogic_Panel {
 		);
 	}
 
-	/** Both ordinary currency transactions and outer source deliveries own one of these locks. */
+	/** Check the locks used by currency transactions and source deliveries. */
 	private function pricing_write_is_locked() {
 		return (
 			class_exists( 'Digitalogic_Pricing_Service' )
-			&& Digitalogic_Pricing_Service::instance()->source_delivery_lock_is_owned()
+			&& Digitalogic_Pricing_Service::instance()
+				->source_delivery_lock_is_owned()
 		) || (
 			class_exists( 'Digitalogic_Product_Sync_Receiver' )
-			&& Digitalogic_Product_Sync_Receiver::instance()->source_identity_lock_is_owned()
+			&& Digitalogic_Product_Sync_Receiver::instance()
+				->source_identity_lock_is_owned()
 		);
 	}
 
 	/** Collect committed IDs, never IDs from provisional Woo save callbacks. */
 	public function record_committed_product( $snapshot ) {
-		$product_id = is_array( $snapshot ) ? absint( $snapshot['product_id'] ?? 0 ) : 0;
+		$product_id = is_array( $snapshot )
+			? absint( $snapshot['product_id'] ?? 0 ) : 0;
 		if ( $product_id > 0 && ! $this->pricing_write_is_locked() ) {
 			$this->committed_product_ids[ $product_id ] = true;
 		}
 	}
 
-	/** Publish final product upserts using bounded queue writes, without reloading Woo products. */
+	/** Publish final product upserts in bounded batches without Woo reloads. */
 	public function record_committed_products_complete() {
-		if ( $this->pricing_write_is_locked() || empty( $this->committed_product_ids ) ) {
+		if (
+			$this->pricing_write_is_locked()
+			|| empty( $this->committed_product_ids )
+		) {
 			return;
 		}
 		$ids = array_keys( $this->committed_product_ids );
@@ -890,7 +908,9 @@ class Digitalogic_Panel {
 			}
 			$result = self::record_events_result( $entries );
 			if ( is_wp_error( $result ) ) {
-				self::report_event_delivery_failure( 'Committed product events could not be stored.' );
+				self::report_event_delivery_failure(
+					'Committed product events could not be stored.'
+				);
 				return;
 			}
 		}
@@ -1094,14 +1114,16 @@ class Digitalogic_Panel {
      * @return array{event:array,delivery_warnings:array}|WP_Error
      */
     public static function record_event_result($event, $data = array()) {
-		$result = self::record_events_result( array( array( 'event' => $event, 'data' => $data ) ) );
+		$result = self::record_events_result(
+			array( array( 'event' => $event, 'data' => $data ) )
+		);
 		return is_wp_error( $result ) ? $result : array(
 			'event' => $result['events'][0],
 			'delivery_warnings' => $result['delivery_warnings'],
 		);
 	}
 
-	/** Store a bounded batch under one sequence lock, preserving individual event envelopes. */
+	/** Store a bounded batch under one lock with individual event envelopes. */
 	private static function record_events_result( $entries ) {
         $lock = self::acquire_event_lock();
         if ($lock === false) {
@@ -1157,7 +1179,10 @@ class Digitalogic_Panel {
             }
 
             if ( empty( $new_envelopes ) ) {
-                return array( 'events' => $event_envelopes, 'delivery_warnings' => array() );
+                return array(
+                    'events' => $event_envelopes,
+                    'delivery_warnings' => array(),
+                );
             }
 
             if (count($events) > self::EVENT_LIMIT) {
@@ -1543,10 +1568,15 @@ class Digitalogic_Panel {
             foreach ( $event_envelopes as $event_envelope ) {
                 $payload = wp_json_encode($event_envelope);
                 if (!is_string($payload)) {
-                    throw new RuntimeException('The panel event could not be JSON encoded.');
+                    throw new RuntimeException(
+                        'The panel event could not be JSON encoded.'
+                    );
                 }
 
-                if (!method_exists($redis, 'publish') || $redis->publish($config['channel'], $payload) === false) {
+                if (
+                    !method_exists($redis, 'publish')
+                    || $redis->publish($config['channel'], $payload) === false
+                ) {
                     throw new RuntimeException('Redis publication failed.');
                 }
             }
