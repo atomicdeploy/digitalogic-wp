@@ -45,6 +45,19 @@ final class StorefrontCatalogTest extends TestCase {
 	}
 
 	/** Table cells must retain table formatting; flex belongs to an inner wrapper. */
+	public function test_relationship_queries_preserve_type_and_hidden_category_terms(): void {
+		$catalog = ( new ReflectionClass( Digitalogic_Storefront_Catalog::class ) )->newInstanceWithoutConstructor();
+		$terms = array( (object) array( 'term_id' => 4, 'taxonomy' => 'product_type' ), (object) array( 'term_id' => 8, 'taxonomy' => 'product_cat' ) );
+		foreach ( array(
+			array( array( 'product_cat', 'product_type' ), array( 'hide_empty' => false ) ),
+			array( array( 'product_cat' ), array( 'hide_empty' => false, 'object_ids' => array( 10756 ) ) ),
+			array( array( 'product_cat' ), array( 'hide_empty' => false, 'fields' => 'all_with_object_id' ) ),
+		) as $case ) {
+			$this->assertSame( $case[1], $catalog->force_hide_empty_product_categories( $case[1], $case[0] ) );
+			$this->assertSame( $terms, $catalog->filter_invisible_product_categories( $terms, $case[0], $case[1] ) );
+		}
+	}
+
 	public function test_catalog_code_and_product_cells_keep_table_column_layout(): void {
 		$css = file_get_contents( dirname( __DIR__ ) . '/assets/css/storefront-catalog.css' );
 
