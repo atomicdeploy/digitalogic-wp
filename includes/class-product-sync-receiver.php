@@ -1523,6 +1523,15 @@ class Digitalogic_Product_Sync_Receiver {
      * @return void
      */
     public function flush_coordinated_pricing_caches($persisted_plan = array()) {
+        $started = hrtime(true);
+        try {
+            $this->flush_coordinated_pricing_caches_work($persisted_plan);
+        } finally {
+            $this->record_receiver_timing('cache_flush', $started);
+        }
+    }
+
+    private function flush_coordinated_pricing_caches_work($persisted_plan) {
         $this->invalidate_state_cache();
         $persisted_ids = is_array($persisted_plan['product_ids'] ?? null)
             ? $persisted_plan['product_ids']
