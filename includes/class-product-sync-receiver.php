@@ -1633,10 +1633,17 @@ class Digitalogic_Product_Sync_Receiver {
 		// Woo's type cache uses each product's prefix, not the products prefix.
 		// Parents must be evicted too, or a valid variation may appear orphaned.
 		if ( is_callable( array( 'WC_Cache_Helper', 'get_cache_prefix' ) ) ) {
+			$type_keys = array();
 			foreach ( (array) $product_ids as $product_id ) {
-				$product_id = (int) $product_id;
-				$type_key = WC_Cache_Helper::get_cache_prefix( 'product_' . $product_id ) . '_type_' . $product_id;
-				wp_cache_delete( $type_key, 'products' );
+				$product_id  = (int) $product_id;
+				$type_keys[] = WC_Cache_Helper::get_cache_prefix( 'product_' . $product_id ) . '_type_' . $product_id;
+			}
+			if ( ! empty( $type_keys ) && function_exists( 'wp_cache_delete_multiple' ) ) {
+				wp_cache_delete_multiple( $type_keys, 'products' );
+			} else {
+				foreach ( $type_keys as $type_key ) {
+					wp_cache_delete( $type_key, 'products' );
+				}
 			}
 		}
 		$product_cache_class = '\\Automattic\\WooCommerce\\Internal\\Caches\\ProductCache';
