@@ -424,6 +424,13 @@ class Digitalogic_Webhooks {
      * committed receiver response.
      */
     public function product_sync_applied($result, $envelope) {
+        return Digitalogic_Product_Sync_Receiver::instance()->measure_applied_listener(
+            'event_webhooks',
+            fn() => $this->product_sync_applied_without_timing( $result, $envelope )
+        );
+    }
+
+    private function product_sync_applied_without_timing( $result, $envelope ) {
         try {
             $summary = $this->product_sync_summary($result, $envelope);
             if (null === $summary) {

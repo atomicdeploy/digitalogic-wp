@@ -1009,6 +1009,13 @@ final class Digitalogic_Pricing_Snapshot {
 
 	/** Cancel and replace the one-shot freshness action after an input changes. */
 	public function reschedule_freshness_boundary() {
+		return Digitalogic_Product_Sync_Receiver::instance()->measure_applied_listener(
+			'event_freshness',
+			fn() => $this->reschedule_freshness_boundary_without_timing()
+		);
+	}
+
+	private function reschedule_freshness_boundary_without_timing() {
 		if ( $this->freshness_boundary_running ) {
 			return true;
 		}

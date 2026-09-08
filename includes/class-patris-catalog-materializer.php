@@ -23,6 +23,7 @@ final class Digitalogic_Patris_Catalog_Materializer {
 	public const OWNER_SOURCE_META      = '_digitalogic_patris_owner_source_id';
 	public const OWNER_DATASET_META     = '_digitalogic_patris_owner_dataset';
 	public const OWNER_CODE_META        = '_digitalogic_patris_owner_product_code';
+	public const INITIAL_STATUS_META    = '_digitalogic_patris_initial_publication_status';
 	public const AUTO_MATERIALIZED_META = '_digitalogic_patris_auto_materialized';
 	public const SOURCE_REVISION_META   = '_digitalogic_patris_source_revision';
 	public const MISSING_FIELDS_META    = '_digitalogic_patris_materialization_missing_fields';
@@ -91,6 +92,11 @@ final class Digitalogic_Patris_Catalog_Materializer {
 				: $exact;
 		}
 
+		$creation_policy = Digitalogic_Patris_Catalog_Backfill::instance()->creation_policy( $record, $source );
+		if ( is_wp_error( $creation_policy ) ) {
+			return $creation_policy;
+		}
+
 		$generic = Digitalogic_Product_Identifier_Resolver::instance()->resolve( array( 'code' => $code ) );
 		if ( ! is_wp_error( $generic ) ) {
 			return $this->identity_hazard( 'existing_sku_without_patris_code', $code );
@@ -118,7 +124,7 @@ final class Digitalogic_Patris_Catalog_Materializer {
 
 		return $this->with_product_locks(
 			array( $product_id ),
-			function () use ( $product_id, $identity, $record, $source ) {
+			function () use ( $product_id, $identity, $record, $source, $creation_policy ) {
 				if ( ! $this->source_write_locks_are_owned( array( $product_id ) ) ) {
 					return $this->source_write_outcome_unknown( $product_id );
 				}
@@ -167,6 +173,7 @@ final class Digitalogic_Patris_Catalog_Materializer {
 					$product->set_stock_status( 'outofstock' );
 					$this->stage_managed_identity( $product, $code, $identity['source_id'], $identity['dataset'] );
 					$product->update_meta_data( self::AUTO_MATERIALIZED_META, '1' );
+					$product->update_meta_data( self::INITIAL_STATUS_META, $creation_policy['status'] );
 					$product->update_meta_data( self::SOURCE_REVISION_META, $identity['source_revision'] );
 					$saved = $this->save_managed_identity( $product );
 				} catch ( Throwable $exception ) {
@@ -339,7 +346,10 @@ final class Digitalogic_Patris_Catalog_Materializer {
 					}
 					Digitalogic_Patris_Feed::instance()->stage_product_pricing( $product, $record );
 				}
-				$missing = $this->canonical_missing_fields( $product, $record );
+				$initial_status    = (string) $product->get_meta( self::INITIAL_STATUS_META, true );
+				$target_status     = in_array( $initial_status, array( 'draft', 'publish' ), true ) ? $initial_status : (string) $product->get_status();
+				$target_visibility = '' !== $initial_status ? ( 'publish' === $target_status ? 'visible' : 'hidden' ) : (string) $product->get_catalog_visibility();
+				$missing           = $this->canonical_missing_fields( $product, $record );
 				try {
 					if ( '' === (string) $product->get_sku() ) {
 						$product->set_sku( $identity['product_code'] );
@@ -348,10 +358,11 @@ final class Digitalogic_Patris_Catalog_Materializer {
 						$name = trim( wp_strip_all_tags( (string) ( $record['name'] ?? '' ) ) );
 						$product->set_name( '' !== $name ? $name : $identity['product_code'] );
 					}
-					$product->set_status( 'publish' );
+					$product->set_status( $target_status );
 					if ( ! $product->is_type( 'variation' ) ) {
-						$product->set_catalog_visibility( 'visible' );
+						$product->set_catalog_visibility( $target_visibility );
 					}
+					$product->delete_meta_data( self::INITIAL_STATUS_META );
 					$product->update_meta_data( self::OWNER_SOURCE_META, $identity['source_id'] );
 					$product->update_meta_data( self::OWNER_DATASET_META, $identity['dataset'] );
 					$product->update_meta_data( self::OWNER_CODE_META, $identity['product_code'] );
@@ -395,8 +406,8 @@ final class Digitalogic_Patris_Catalog_Materializer {
 				$fresh = wc_get_product( $product_id );
 				if (
 					! $fresh instanceof WC_Product
-					|| 'publish' !== (string) $fresh->get_status()
-					|| ( ! $fresh->is_type( 'variation' ) && 'visible' !== (string) $fresh->get_catalog_visibility() )
+					|| $target_status !== (string) $fresh->get_status()
+					|| ( ! $fresh->is_type( 'variation' ) && $target_visibility !== (string) $fresh->get_catalog_visibility() )
 					|| ( in_array( 'price', $missing, true ) && ( '' !== trim( (string) $fresh->get_regular_price() ) || '' !== trim( (string) $fresh->get_price() ) || 'outofstock' !== (string) $fresh->get_stock_status() ) )
 				) {
 					return $this->error( 'digitalogic_patris_materializer_publication_readback_failed', 'The public source product failed exact readback.' );
@@ -410,8 +421,8 @@ final class Digitalogic_Patris_Catalog_Materializer {
 					'dataset'         => $identity['dataset'],
 					'source_revision' => $identity['source_revision'],
 					'missing_fields'  => $missing,
-					'visible'         => true,
-					'purchasable'     => ! in_array( 'price', $missing, true ) && 'outofstock' !== (string) $fresh->get_stock_status(),
+					'visible'         => 'publish' === $target_status && 'hidden' !== $target_visibility,
+					'purchasable'     => 'publish' === $target_status && ! in_array( 'price', $missing, true ) && 'outofstock' !== (string) $fresh->get_stock_status(),
 					'price_status'    => (string) $fresh->get_meta( '_digitalogic_patris_price_status', true ),
 				);
 			}

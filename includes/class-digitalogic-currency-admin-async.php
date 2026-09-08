@@ -1169,6 +1169,13 @@ final class Digitalogic_Currency_Admin_Async {
 
 	/** Accept a verified receiver receipt; the receiver invokes this after releasing its lock. */
 	public function accept_go_delivery( $result, $identity = array() ): void {
+		Digitalogic_Product_Sync_Receiver::instance()->measure_applied_listener(
+			'event_go_receipt',
+			fn() => $this->accept_go_delivery_without_timing( $result, $identity )
+		);
+	}
+
+	private function accept_go_delivery_without_timing( $result, $identity = array() ): void {
 
 		unset( $identity );
 		$receipt = is_array( $result ) ? ( $result['delivery'] ?? null ) : null;

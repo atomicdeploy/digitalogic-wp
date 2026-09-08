@@ -764,7 +764,7 @@ class Digitalogic_Product_Sync_Receiver {
     public function receive($payload) {
         $receive_started        = hrtime(true);
         $previous_timings       = $this->receiver_timings;
-        $this->receiver_timings = array_fill_keys(array('validation', 'transaction_total', 'transaction_entry', 'transaction_work', 'projection', 'persistence', 'destination_drain', 'event_emit', 'receiver_total'), 0);
+        $this->receiver_timings = array_fill_keys(array('validation', 'transaction_total', 'transaction_entry', 'transaction_work', 'projection', 'persistence', 'destination_drain', 'event_emit', 'event_hooks', 'event_log', 'event_webhooks', 'event_reports', 'event_freshness', 'event_go_receipt', 'receiver_total'), 0);
         try {
             $result = $this->receive_timed_work($payload, $receive_started);
             $this->record_receiver_timing('receiver_total', $receive_started);
@@ -780,6 +780,25 @@ class Digitalogic_Product_Sync_Receiver {
     // phpcs:disable -- Preserve the established receiver formatting while the legacy file remains baseline-managed.
     /** Request-local numeric diagnostics; never stored in receiver state. */
     private $receiver_timings = null;
+
+    /** True only while this receiver is synchronously emitting the applied hook. */
+    private $applied_listener_timing_active = false;
+
+    /** Measure only known direct listeners, without changing WordPress dispatch or exception propagation. */
+    public function measure_applied_listener( $key, $operation ) {
+        $active = $this->applied_listener_timing_active && is_array( $this->receiver_timings )
+            && function_exists( 'current_filter' ) && 'digitalogic_product_sync_applied' === current_filter()
+            && in_array( $key, array( 'event_webhooks', 'event_reports', 'event_freshness', 'event_go_receipt' ), true );
+        $started = $active ? hrtime( true ) : 0;
+        try {
+            return $operation();
+        } finally {
+            if ( $active ) {
+                $this->record_receiver_timing( $key, $started );
+            }
+        }
+    }
+
 
     private function record_receiver_timing($key, $started) {
         if (is_array($this->receiver_timings)) {
@@ -3704,6 +3723,9 @@ class Digitalogic_Product_Sync_Receiver {
         if (isset($result['delivery'])) {
             $metadata['delivery'] = $result['delivery'];
         }
+        $hooks_started                        = hrtime(true);
+        $previous_listener_timing             = $this->applied_listener_timing_active;
+        $this->applied_listener_timing_active = true;
         try {
             do_action('digitalogic_product_sync_applied', $result, $metadata);
         } catch (Throwable $exception) {
@@ -3711,8 +3733,12 @@ class Digitalogic_Product_Sync_Receiver {
 				'code'      => 'digitalogic_product_sync_listener_failed',
                 'exception' => get_class($exception),
             );
+        } finally {
+            $this->applied_listener_timing_active = $previous_listener_timing;
+            $this->record_receiver_timing('event_hooks', $hooks_started);
         }
 
+        $log_started = hrtime(true);
         try {
             Digitalogic_Logger::instance()->log(
                 'product_sync_applied',
@@ -3727,6 +3753,8 @@ class Digitalogic_Product_Sync_Receiver {
 				'code'      => 'digitalogic_product_sync_log_failed',
                 'exception' => get_class($exception),
             );
+        } finally {
+            $this->record_receiver_timing('event_log', $log_started);
         }
 
         return $result;
@@ -4849,11 +4877,15 @@ class Digitalogic_Product_Sync_Receiver {
 				&& $materialization_enabled
 			) {
 				if ( class_exists( 'Digitalogic_Patris_Catalog_Materializer' ) ) {
-					$materialized = Digitalogic_Patris_Catalog_Materializer::instance()->materialize_source_record(
+					$creation_policy = Digitalogic_Patris_Catalog_Backfill::instance()->creation_policy( $product_data, $source_state['source'] ?? array() );
+					$materialized = is_wp_error( $creation_policy ) ? $creation_policy
+						: ( $result['created'] >= (int) $creation_policy['batch_limit']
+							? new WP_Error( 'digitalogic_patris_creation_batch_limit', 'Missing product creation reached the configured batch limit.' )
+							: Digitalogic_Patris_Catalog_Materializer::instance()->materialize_source_record(
 						$product_data,
 						is_array( $source_state['source'] ?? null ) ? $source_state['source'] : array(),
 						is_array( $source_state['quarantined_codes'] ?? null ) ? $source_state['quarantined_codes'] : array()
-					);
+					) );
 					if ( is_wp_error( $materialized ) ) {
 						$resolved = $materialized;
 					} else {
@@ -5135,6 +5167,7 @@ class Digitalogic_Product_Sync_Receiver {
 					$fallback_identity_plans[ $woocommerce_id ] = array(
 						'product_code'       => $product_code,
 						'product_type'       => $expected_product_type,
+						'post_status'        => (string) wc_get_product( $woocommerce_id )->get_status(),
 						'parent_id'          => $expected_parent_id,
 						'source_id'          => (string) ( $source_state['source']['id'] ?? '' ),
 						'dataset'            => (string) ( $source_state['source']['dataset'] ?? '' ),
@@ -6188,8 +6221,8 @@ class Digitalogic_Product_Sync_Receiver {
 		$product = $woocommerce_id > 0 ? wc_get_product( $woocommerce_id ) : false;
 		if (
 			! $product instanceof WC_Product
-			|| 'publish' !== (string) $product->get_status()
-			|| ( ! $product->is_type( 'variation' ) && 'visible' !== (string) $product->get_catalog_visibility() )
+			|| in_array( (string) $product->get_status(), array( 'trash', 'auto-draft' ), true )
+			|| '' !== (string) $product->get_meta( Digitalogic_Patris_Catalog_Materializer::INITIAL_STATUS_META, true )
 			|| ! metadata_exists( 'post', $woocommerce_id, Digitalogic_Patris_Catalog_Materializer::MISSING_FIELDS_META )
 		) {
 			return false;
