@@ -47,6 +47,9 @@ final class Digitalogic_Storefront_Catalog {
 		}
 
 		$taxonomies = array_filter( (array) $taxonomies, 'is_string' );
+		if ( ! empty( $args['object_ids'] ) || 'all_with_object_id' === ( $args['fields'] ?? '' ) || count( $taxonomies ) > 1 ) {
+			return $args;
+		}
 		if ( in_array( 'product_cat', $taxonomies, true ) || 'product_cat' === ( $args['taxonomy'] ?? '' ) ) {
 			$args['hide_empty'] = true;
 		}
@@ -74,6 +77,11 @@ final class Digitalogic_Storefront_Catalog {
 			return $terms;
 		}
 		if ( ! in_array( 'product_cat', (array) $taxonomies, true ) ) {
+			return $terms;
+		}
+		// Relationship priming includes product_type and must preserve all terms,
+		// including categories hidden from display and zero-count type terms.
+		if ( ! empty( $args['object_ids'] ) || 'all_with_object_id' === ( $args['fields'] ?? '' ) || count( (array) $taxonomies ) > 1 ) {
 			return $terms;
 		}
 		if ( in_array( $args['fields'] ?? 'all', array( 'count', 'names', 'slugs', 'id=>name', 'id=>slug' ), true ) ) {

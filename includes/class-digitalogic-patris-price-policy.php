@@ -18,9 +18,6 @@ if ( ! defined( 'ABSPATH' ) ) {
  */
 final class Digitalogic_Patris_Price_Policy {
 
-	public const OPTION_NAME    = 'digitalogic_patris_sale_policy';
-	public const PRESERVE_SALE  = 'preserve_sale';
-	public const REPLACE_SALE   = 'replace_sale';
 	public const CANONICAL_SALE = 'canonical_sale';
 	public const CANONICAL_META = '_digitalogic_patris_final_price';
 	public const STATUS_META    = '_digitalogic_patris_price_status';
@@ -55,8 +52,7 @@ final class Digitalogic_Patris_Price_Policy {
 	/**
 	 * Return the single managed-product sale policy.
 	 *
-	 * The old option and constants remain readable for compatibility with
-	 * existing audit tooling, but they no longer select storefront behavior.
+	 * Managed products use the canonical calculated selling price.
 	 *
 	 * @return string
 	 */

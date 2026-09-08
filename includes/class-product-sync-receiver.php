@@ -511,13 +511,16 @@ class Digitalogic_Product_Sync_Receiver {
 		}
 		$prefix        = isset( $wpdb->prefix ) ? (string) $wpdb->prefix : 'wp_';
 		$lock_name     = self::source_identity_lock_name( $prefix );
-		$connection_id = $wpdb->get_var( 'SELECT CONNECTION_ID()' ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Connection identity is live session state.
-		$owner_query   = $wpdb->prepare( 'SELECT IS_USED_LOCK(%s)', $lock_name );
-		$owner_id      = false !== $owner_query ? $wpdb->get_var( $owner_query ) : false; // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.NotPrepared -- Advisory lock ownership is live session state.
-		if (
-			$this->lock_connection_id !== (int) $connection_id
-			|| $this->lock_connection_id !== (int) $owner_id
-		) {
+		$owner_query = $wpdb->prepare(
+			'SELECT CASE WHEN CONNECTION_ID() = %d AND IS_USED_LOCK(%s) = %d THEN 1 ELSE 0 END',
+			$this->lock_connection_id,
+			$lock_name,
+			$this->lock_connection_id
+		);
+		// Reconnects and absent/stolen locks both fail the same live predicate.
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.NotPrepared -- Advisory lock ownership is live session state.
+		$owned = false !== $owner_query && null !== $owner_query ? $wpdb->get_var( $owner_query ) : false;
+		if ( 1 !== (int) $owned ) {
 			$this->forget_lost_lock();
 			return false;
 		}
@@ -582,7 +585,13 @@ class Digitalogic_Product_Sync_Receiver {
 		try {
 			foreach ( $snapshots as $snapshot ) {
 				try {
-					do_action( 'digitalogic_patris_materializer_product_committed', $snapshot );
+					if ( ! empty( $snapshot['publication_only'] ) ) {
+						// Verified source writes with materialization disabled do not
+						// assert the materializer's completeness/ownership projection.
+						do_action( 'digitalogic_product_sync_product_committed', $snapshot );
+					} else {
+						do_action( 'digitalogic_patris_materializer_product_committed', $snapshot );
+					}
 				} catch ( Throwable $exception ) {
 					$this->log_materializer_listener_failure( $exception, 'patris_materializer_listener_failed' );
 				}
@@ -1475,13 +1484,22 @@ class Digitalogic_Product_Sync_Receiver {
                         && !empty($post_results[$product_id]);
                     $meta_deleted = is_array($meta_results)
                         && !empty($meta_results[$product_id]);
-                    if ((!$post_deleted || !$meta_deleted) && function_exists('clean_post_cache')) {
-                        // A persistent cache may accept a multi-delete while
-                        // failing individual keys. Fall back only for those
-                        // products so the committed canonical metadata cannot
-                        // remain stale while Woo's public price is current.
-                        clean_post_cache($product_id);
+                    // Redis DEL also returns false for an already absent key.
+                    // Retry the exact key without reloading the deleted post.
+                    if (!$post_deleted) {
+                        wp_cache_delete($product_id, 'posts');
                     }
+                    if (!$meta_deleted) {
+                        wp_cache_delete($product_id, 'post_meta');
+                    }
+                }
+                wp_cache_delete_multiple(
+                    array_map(static fn($id) => 'post_parent:' . $id, $product_ids),
+                    'posts'
+                );
+                wp_cache_delete('wp_get_archives', 'general');
+                if (function_exists('wp_cache_set_posts_last_changed')) {
+                    wp_cache_set_posts_last_changed();
                 }
             } else {
                 foreach ($product_ids as $product_id) {
@@ -1491,12 +1509,12 @@ class Digitalogic_Product_Sync_Receiver {
                 }
             }
 			$product_util = '\\Automattic\\WooCommerce\\Internal\\Utilities\\ProductUtil';
+			$product_util_instance = ! empty( $product_ids ) && class_exists( $product_util ) && function_exists( 'wc_get_container' )
+				? wc_get_container()->get( $product_util ) : null;
 			if (
-				! empty( $product_ids )
-				&& class_exists( $product_util )
-				&& is_callable( array( $product_util, 'delete_product_transients_for_products' ) )
+				is_callable( array( $product_util_instance, 'delete_product_transients_for_products' ) )
 			) {
-				$product_util::delete_product_transients_for_products( $product_ids );
+				$product_util_instance->delete_product_transients_for_products( $product_ids );
 			} elseif ( function_exists( 'wc_delete_product_transients' ) ) {
 				foreach ( $product_ids as $product_id ) {
 					wc_delete_product_transients( $product_id );
@@ -1555,6 +1573,15 @@ class Digitalogic_Product_Sync_Receiver {
 	 * @return bool True only when every available request-local cache entry was removed.
 	 */
 	private function evict_coordinated_product_instance_caches( $product_ids ) {
+		// Woo's type cache uses each product's prefix, not the products prefix.
+		// Parents must be evicted too, or a valid variation may appear orphaned.
+		if ( is_callable( array( 'WC_Cache_Helper', 'get_cache_prefix' ) ) ) {
+			foreach ( (array) $product_ids as $product_id ) {
+				$product_id = (int) $product_id;
+				$type_key = WC_Cache_Helper::get_cache_prefix( 'product_' . $product_id ) . '_type_' . $product_id;
+				wp_cache_delete( $type_key, 'products' );
+			}
+		}
 		$product_cache_class = '\\Automattic\\WooCommerce\\Internal\\Caches\\ProductCache';
 		if ( ! class_exists( $product_cache_class ) || ! function_exists( 'wc_get_container' ) ) {
 			return true;
@@ -2022,6 +2049,10 @@ class Digitalogic_Product_Sync_Receiver {
                     continue;
                 }
                 $this->coordinated_product_ids[$woocommerce_id] = true;
+                // Planned rows require eviction even when a deadline aborts before
+                // the fallback loop finishes. Use the existing bulk cleanup on
+                // both commit and rollback rather than per-row transient hooks.
+                $this->coordinated_batch_write = true;
                 unset($delivery['applied_products'][$product_code], $delivery['deferred_products'][$product_code]);
                 $delivery['pending_products'][$product_code] = array(
                     'product_code' => $product_code,
@@ -4870,7 +4901,18 @@ class Digitalogic_Product_Sync_Receiver {
 					}
 				}
 				if ( ! $owner_backfilled ) {
-					if ( ! $requires_full_feed ) {
+					$combined_pricing = ! $requires_full_feed && $materialization_enabled;
+					if ( $combined_pricing ) {
+						$committed = Digitalogic_Patris_Catalog_Materializer::instance()->reprice_source_product(
+							$woocommerce_id,
+							$product_data,
+							is_array( $source_state['source'] ?? null ) ? $source_state['source'] : array(),
+							function () { return $this->check_coordinated_actuation_guard(); }
+						);
+						if ( is_wp_error( $committed ) ) {
+							return $committed;
+						}
+					} elseif ( ! $requires_full_feed ) {
 						Digitalogic_Patris_Feed::instance()->apply_product_pricing( $product, $product_data );
 					} else {
 						$feed_write = Digitalogic_Patris_Feed::instance()->apply_product_feed( $product, $product_data );
@@ -4878,7 +4920,7 @@ class Digitalogic_Product_Sync_Receiver {
 							throw new RuntimeException( $feed_write->get_error_code() );
 						}
 					}
-					if ( $materialization_enabled ) {
+					if ( $materialization_enabled && ! $combined_pricing ) {
 						$committed = Digitalogic_Patris_Catalog_Materializer::instance()->commit_source_product(
 							$woocommerce_id,
 							$product_data,
@@ -4956,6 +4998,19 @@ class Digitalogic_Product_Sync_Receiver {
 				}
 				if ( is_array( $committed ) ) {
 					$this->queue_materializer_product_committed( $committed );
+				} elseif ( ! $materialization_enabled ) {
+					// This identity passed the same hash and canonical readback above.
+					// The queue is discarded on rollback and published only after locks.
+					$this->queue_materializer_product_committed(
+						array(
+							'publication_only' => true,
+							'product_id' => (int) $woocommerce_id,
+							'product_code' => $product_code,
+							'source_id' => (string) ( $source_state['source']['id'] ?? '' ),
+							'dataset' => (string) ( $source_state['source']['dataset'] ?? '' ),
+							'source_revision' => (string) ( $source_state['source']['revision'] ?? '' ),
+						)
+					);
 				}
             } catch (Throwable $exception) {
                 $result['failed']++;

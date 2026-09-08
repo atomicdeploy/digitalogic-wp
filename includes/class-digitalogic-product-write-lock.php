@@ -263,10 +263,16 @@ final class Digitalogic_Product_Write_Lock {
 			$this->forget( $product_id );
 			return false;
 		}
-		$connection_id = $wpdb->get_var( 'SELECT CONNECTION_ID()' ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Connection identity is live session state.
-		$owner_query   = $wpdb->prepare( 'SELECT IS_USED_LOCK(%s)', $this->lock_name( $product_id ) );
-		$owner_id      = false !== $owner_query ? $wpdb->get_var( $owner_query ) : false; // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.NotPrepared -- Advisory ownership is live session state.
-		if ( $expected !== (int) $connection_id || $expected !== (int) $owner_id ) {
+		$owner_query = $wpdb->prepare(
+			'SELECT CASE WHEN CONNECTION_ID() = %d AND IS_USED_LOCK(%s) = %d THEN 1 ELSE 0 END',
+			$expected,
+			$this->lock_name( $product_id ),
+			$expected
+		);
+		// Both live identities must match the connection captured at acquisition.
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.NotPrepared -- Advisory ownership is live session state.
+		$owned = false !== $owner_query && null !== $owner_query ? $wpdb->get_var( $owner_query ) : false;
+		if ( 1 !== (int) $owned ) {
 			$this->forget( $product_id );
 			return false;
 		}

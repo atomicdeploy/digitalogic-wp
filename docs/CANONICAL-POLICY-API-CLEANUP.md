@@ -1,0 +1,5 @@
+# Canonical policy API cleanup
+
+The unused `OPTION_NAME`, `PRESERVE_SALE` and `REPLACE_SALE` constants on `Digitalogic_Patris_Price_Policy` were removed. Managed pricing has one canonical policy. Code referencing the removed constants must remove that obsolete selection; no compatibility aliases are retained. The metadata key reporting the current policy remains in use.
+
+Existing focused policy checks passed:18tests/152assertions. The actual server file was updated before publication after checking its prior SHA256. New SHA256:71114a63c464c264953ba5244fb8b23a93360c60524209b722796292f3020ebb. Apache/FPM/WebSocket active; live readback901positive prices and901current receipts, zero mismatches/pending/deferred; public Arduino page826600IRT at current CNY34500. No input or product-price mutation was needed for this removal. This is API cleanup, not a performance improvement or completion of pricing E2E.

@@ -962,6 +962,7 @@ function wp_cache_delete_multiple( $keys, $group = '' ) {
 		'name' => 'cache_delete_' . (string) $group,
 		'ns'   => hrtime( true ),
 	);
+	$GLOBALS['digitalogic_test_cache_delete_multiple_raw'][ count( $GLOBALS['digitalogic_test_cache_delete_multiple'] ?? array() ) ] = array_values( (array) $keys );
 	$GLOBALS['digitalogic_test_cache_delete_multiple'][] = array(
 		'keys'  => array_values( array_map( 'intval', (array) $keys ) ),
 		'group' => (string) $group,
@@ -1690,6 +1691,15 @@ class Digitalogic_Test_WPDB {
 			}
 			return $result;
         }
+
+		if (strpos($query, 'SELECT CASE WHEN CONNECTION_ID() = %d AND IS_USED_LOCK(%s) = %d') !== false) {
+			$args = is_array($prepared) && isset($prepared['args']) ? $prepared['args'] : array();
+			return count($args) === 3
+				&& (int) $this->connection_id === (int) $args[0]
+				&& isset($this->used_locks[(string) $args[1]])
+				&& (int) $this->used_locks[(string) $args[1]] === (int) $args[2]
+				? 1 : 0;
+		}
 
 		if (strpos($query, 'CONNECTION_ID()') !== false) {
 			return (int) $this->connection_id;

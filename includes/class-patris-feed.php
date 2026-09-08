@@ -2596,7 +2596,7 @@ class Digitalogic_Patris_Feed {
 	 * @param array      $data    Canonical pricing projection.
 	 * @return void
 	 */
-	private function stage_product_pricing( WC_Product $product, $data ) {
+	public function stage_product_pricing( WC_Product $product, $data ) {
 		$data = is_array( $data ) ? $data : array();
 		foreach ( $this->pricing_meta_fields() as $field => $meta_key ) {
 			if ( ! array_key_exists( $field, $data ) || null === $data[ $field ] ) {
@@ -2908,13 +2908,16 @@ class Digitalogic_Patris_Feed {
 				$wpdb->prepare( $topology_sql, ...$product_id_chunk ), // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- Generated placeholders are prepared with the exact bounded IDs.
 				ARRAY_A
 			);
+			if ( '' !== (string) $wpdb->last_error ) {
+				return $this->pricing_batch_error( 'leaf_identity' );
+			}
 			$meta_sql       = '/* digitalogic_pricing_batch_leaf_identity_meta ids:' . count( $product_id_chunk ) . ' keys:' . count( $normalized_keys ) . " */ SELECT post_id product_id, meta_id, meta_key, meta_value FROM {$wpdb->postmeta} WHERE post_id IN (" . implode( ',', array_fill( 0, count( $product_id_chunk ), '%d' ) ) . ') AND LOWER(meta_key) IN (' . implode( ',', array_fill( 0, count( $normalized_keys ), '%s' ) ) . ') ORDER BY post_id,meta_key,meta_id FOR UPDATE';
 			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- A separate bounded current read locks exact managed metadata rows without a join plan.
 			$chunk_meta = $wpdb->get_results(
 				$wpdb->prepare( $meta_sql, ...array_merge( $product_id_chunk, $normalized_keys ) ), // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- Generated placeholders are prepared with exact IDs and keys.
 				ARRAY_A
 			);
-			if ( ! is_array( $chunk_topology ) || ! is_array( $chunk_meta ) ) {
+			if ( '' !== (string) $wpdb->last_error || ! is_array( $chunk_topology ) || ! is_array( $chunk_meta ) ) {
 				return $this->pricing_batch_error( 'leaf_identity' );
 			}
 			$topology_rows = array_merge( $topology_rows, $chunk_topology );
@@ -2933,7 +2936,7 @@ class Digitalogic_Patris_Feed {
 			$prepared_collision_sql,
 			ARRAY_A
 		);
-		if ( ! is_array( $collision_rows ) || ! empty( $collision_rows ) ) {
+		if ( '' !== (string) $wpdb->last_error || ! is_array( $collision_rows ) || ! empty( $collision_rows ) ) {
 			return $this->pricing_batch_error( 'leaf_identity' );
 		}
 		$actual = array();
