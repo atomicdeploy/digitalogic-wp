@@ -64,10 +64,8 @@ final class Digitalogic_Patris_Price_Policy {
 	 * Apply the canonical calculated selling price to Woo price projections.
 	 *
 	 * Variable containers remain fail-closed because their variation prices
-	 * require a separate reconciliation. When weight is the only unavailable
-	 * price dependency, an already-valid regular/effective price pair is
-	 * preserved with an explicit warning until weight is supplied. Other
-	 * missing or non-positive canonical values clear the simple/variation price
+	 * require a separate reconciliation. Missing weight, missing canonical price,
+	 * or non-positive canonical values clear the simple/variation price
 	 * and keep that leaf out of stock until a complete feed write promotes it.
 	 *
 	 * @param WC_Product $product WooCommerce product or variation.
@@ -91,15 +89,7 @@ final class Digitalogic_Patris_Price_Policy {
 			return $this->project( $product, $canonical, $status, $policy, 'edit' );
 		}
 
-		if ( ! $has_price || ! is_numeric( $canonical ) ) {
-			if ( $this->weight_is_missing( $data ) && $this->has_preservable_storefront_price( $product ) ) {
-				$status = 'canonical_missing_preserved';
-				$product->update_meta_data( self::STATUS_META, $status );
-				$product->update_meta_data( self::WARNING_META, self::MISSING_WEIGHT_WARNING );
-
-				return $this->project( $product, null, $status, $policy, 'edit' );
-			}
-
+		if ( $this->weight_is_missing( $data ) || ! $has_price || ! is_numeric( $canonical ) ) {
 			$product->set_regular_price( '' );
 			$product->set_sale_price( '' );
 			$product->set_price( '' );
@@ -107,7 +97,7 @@ final class Digitalogic_Patris_Price_Policy {
 			$status = 'canonical_missing_unpriced';
 			$product->update_meta_data( self::STATUS_META, $status );
 
-			return $this->project( $product, null, $status, $policy, 'edit' );
+			return $this->project( $product, $canonical, $status, $policy, 'edit' );
 		}
 
 		if ( (float) $canonical <= 0 ) {
@@ -310,29 +300,11 @@ final class Digitalogic_Patris_Price_Policy {
 	 * @param array $data Normalized Patris row.
 	 * @return bool
 	 */
-	private function weight_is_missing( $data ) {
+	public function weight_is_missing( $data ) {
 		return ! array_key_exists( 'weight_grams', $data )
 			|| null === $data['weight_grams']
 			|| ! is_numeric( $data['weight_grams'] )
 			|| (float) $data['weight_grams'] <= 0;
-	}
-
-	/**
-	 * Whether the current storefront price already satisfies the managed rule.
-	 *
-	 * @param WC_Product $product WooCommerce product or variation.
-	 * @return bool
-	 */
-	private function has_preservable_storefront_price( WC_Product $product ) {
-		$regular   = trim( (string) $product->get_regular_price( 'edit' ) );
-		$effective = trim( (string) $product->get_price( 'edit' ) );
-		$sale      = trim( (string) $product->get_sale_price( 'edit' ) );
-
-		return '' !== $regular
-			&& is_numeric( $regular )
-			&& (float) $regular > 0
-			&& $this->prices_equal( $regular, $effective )
-			&& '' === $sale;
 	}
 
 	/**

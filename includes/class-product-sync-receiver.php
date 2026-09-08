@@ -2989,17 +2989,6 @@ class Digitalogic_Product_Sync_Receiver {
 			$visible = trim( (string) reset( $price_rows['_price'] ) );
 			$sale    = trim( (string) reset( $price_rows['_sale_price'] ) );
 			$status  = (string) reset( $status_rows );
-            if ('canonical_missing_preserved' === $status) {
-				return 1 === count( $price_rows['_regular_price'] )
-					&& 1 === count( $price_rows['_price'] )
-					&& $this->coordinated_empty_meta_rows( $price_rows['_sale_price'] )
-					&& '' !== $regular
-                    && is_numeric($regular)
-                    && (float) $regular > 0
-                    && $regular === $visible
-                    && '' === $sale
-					&& array( Digitalogic_Patris_Price_Policy::MISSING_WEIGHT_WARNING ) === $warning_rows;
-            }
 
 			return in_array( $status, array( 'canonical_missing_unpriced', 'canonical_nonpositive_unpriced' ), true )
 				&& empty( $warning_rows )
@@ -3023,6 +3012,14 @@ class Digitalogic_Product_Sync_Receiver {
         if ($woo_product->is_type('variable')) {
             return false;
         }
+
+		if ( Digitalogic_Patris_Price_Policy::instance()->weight_is_missing( $product ) ) {
+			return array( 'canonical_missing_unpriced' ) === $status_rows
+				&& empty( $warning_rows )
+				&& $this->coordinated_empty_meta_rows( $price_rows['_regular_price'] )
+				&& $this->coordinated_empty_meta_rows( $price_rows['_price'] )
+				&& $this->coordinated_empty_meta_rows( $price_rows['_sale_price'] );
+		}
 
 		return array( $final_price ) === $price_rows['_regular_price']
 			&& array( $final_price ) === $price_rows['_price']
@@ -5269,6 +5266,7 @@ class Digitalogic_Product_Sync_Receiver {
 						array_key_exists( 'final_price', $product_data )
 						&& is_numeric( $product_data['final_price'] )
 						&& (float) $product_data['final_price'] > 0
+						&& ! Digitalogic_Patris_Price_Policy::instance()->weight_is_missing( $product_data )
 					) {
 						$fallback_positive_prices[ $woocommerce_id ] = (string) $product_data['final_price'];
 					}
@@ -6289,6 +6287,11 @@ class Digitalogic_Product_Sync_Receiver {
         $regular = trim((string) $woo_product->get_regular_price( 'edit' ));
         $visible = trim((string) $woo_product->get_price( 'edit' ));
         $sale = trim((string) $woo_product->get_sale_price( 'edit' ));
+		if ( Digitalogic_Patris_Price_Policy::instance()->weight_is_missing( $product ) ) {
+			return 'canonical_missing_unpriced' === (string) $woo_product->get_meta( Digitalogic_Patris_Price_Policy::STATUS_META, true )
+				&& '' === $regular && '' === $visible && '' === $sale
+				&& 'outofstock' === (string) $woo_product->get_stock_status();
+		}
         if ($has_final_price) {
             $final_price = (string) $product['final_price'];
 			if ( ! is_numeric( $final_price ) || (float) $final_price <= 0 ) {
@@ -6305,15 +6308,6 @@ class Digitalogic_Product_Sync_Receiver {
         }
 
         $status = (string) $woo_product->get_meta(Digitalogic_Patris_Price_Policy::STATUS_META, true);
-        if ('canonical_missing_preserved' === $status) {
-            return '' !== $regular
-                && is_numeric($regular)
-                && (float) $regular > 0
-                && $regular === $visible
-                && '' === $sale
-                && Digitalogic_Patris_Price_Policy::MISSING_WEIGHT_WARNING
-                    === (string) $woo_product->get_meta(Digitalogic_Patris_Price_Policy::WARNING_META, true);
-        }
 
         return 'canonical_missing_unpriced' === $status
             && '' === $regular

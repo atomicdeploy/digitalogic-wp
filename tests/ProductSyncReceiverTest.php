@@ -917,7 +917,7 @@ final class ProductSyncReceiverTest extends TestCase {
     }
 
 	/** Same-hash snapshots repair canonical metadata without inventing an unpriced canonical value. */
-	public function test_same_hash_snapshot_repairs_priced_canonical_meta_without_erasing_unpriced_fallback(): void {
+	public function test_same_hash_snapshot_repairs_priced_canonical_meta_and_clears_unpriced_fallback(): void {
 		$GLOBALS['digitalogic_test_posts'][711] = array(
 			'post_type'   => 'product',
 			'post_status' => 'publish',
@@ -944,6 +944,7 @@ final class ProductSyncReceiverTest extends TestCase {
 			'product_code'                   => '101002006',
 			'pricing_catalog_revision'       => $this->currentCatalogRevision(),
 			'partner_price_source'           => 949661,
+			'weight_grams'                   => 100,
 			'price_source_amount'            => 949661,
 			'price_source_currency'          => 'IRR',
 			'price_source_kind'              => 'partner_price',
@@ -971,7 +972,7 @@ final class ProductSyncReceiverTest extends TestCase {
 		);
 		$this->assertNotInstanceOf( WP_Error::class, $first );
 		$this->assertSame( '123500', (string) get_post_meta( 711, '_digitalogic_patris_final_price', true ) );
-		$this->assertSame( 'canonical_missing_preserved', get_post_meta( 712, '_digitalogic_patris_price_status', true ) );
+		$this->assertSame( 'canonical_missing_unpriced', get_post_meta( 712, '_digitalogic_patris_price_status', true ) );
 
 		unset(
 			$GLOBALS['digitalogic_test_posts'][711]['meta']['_digitalogic_patris_final_price'],
@@ -992,10 +993,10 @@ final class ProductSyncReceiverTest extends TestCase {
 		$this->assertSame( '123500', wc_get_product( 711 )->get_price() );
 		$this->assertSame( '', wc_get_product( 711 )->get_sale_price() );
 		$this->assertFalse( metadata_exists( 'post', 712, '_digitalogic_patris_final_price' ) );
-		$this->assertSame( '777', wc_get_product( 712 )->get_regular_price() );
-		$this->assertSame( '777', wc_get_product( 712 )->get_price() );
+		$this->assertSame( '', wc_get_product( 712 )->get_regular_price() );
+		$this->assertSame( '', wc_get_product( 712 )->get_price() );
 		$this->assertSame( '', wc_get_product( 712 )->get_sale_price() );
-		$this->assertSame( 'canonical_missing_preserved', get_post_meta( 712, '_digitalogic_patris_price_status', true ) );
+		$this->assertSame( 'canonical_missing_unpriced', get_post_meta( 712, '_digitalogic_patris_price_status', true ) );
 
 		unset(
 			$GLOBALS['digitalogic_test_posts'][711]['meta']['_digitalogic_patris_final_price'],

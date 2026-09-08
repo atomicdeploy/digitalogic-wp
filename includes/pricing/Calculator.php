@@ -141,6 +141,7 @@ final class Calculator {
 				'shipping_price_per_kg_currency',
 			);
 		}
+		$required[] = 'weight_grams';
 		foreach ( $required as $field ) {
 			if ( ! array_key_exists( $field, $product ) || null === $product[ $field ] || '' === $product[ $field ] ) {
 				$missing[] = $field;
@@ -188,6 +189,15 @@ final class Calculator {
 			);
 		}
 
+		// Positive weight is required on every price route, even when domestic
+		// freight is zero. Missing facts remain explicitly unpriced.
+		$weight = $this->formula_decimal_parts( $product['weight_grams'] );
+		if ( isset( $weight['error'] ) ) {
+			return $this->field_error( $path . '.weight_grams', $weight['error'] );
+		}
+		if ( $this->decimal_compare( $weight, $this->formula_decimal_parts( '0' ) ) <= 0 ) {
+			return array( 'available' => false, 'missing' => array( 'weight_grams' ) );
+		}
 		$shipping_rate = $this->formula_decimal_parts( $product['shipping_price_per_kg'] );
 		if ( isset( $shipping_rate['error'] ) ) {
 			return $this->field_error( $path . '.shipping_price_per_kg', $shipping_rate['error'] );

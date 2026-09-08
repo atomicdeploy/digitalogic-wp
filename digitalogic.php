@@ -254,6 +254,8 @@ final class Digitalogic {
         Digitalogic_Logger::instance();
 		Digitalogic_Product_Write_Lock::instance();
 		Digitalogic_SKU_Guard::instance();
+		require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-patris-mapping-guard.php';
+		Digitalogic_Patris_Mapping_Guard::boot();
 		Digitalogic_Product_Code_Write_Guard::instance();
         Digitalogic_Patris_Price_Write_Guard::instance();
         Digitalogic_Product_Manager::instance();
