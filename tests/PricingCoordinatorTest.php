@@ -1999,7 +1999,8 @@ final class PricingCoordinatorTest extends TestCase {
 		);
 
 		$this->assertTrue( is_wp_error( $result ) );
-		$this->assertSame( 'digitalogic_pricing_delivery_incomplete', $result->get_error_code() );
+		// The combined source/pricing save reports the rejected Woo save directly.
+		$this->assertSame( 'digitalogic_patris_materializer_publication_failed', $result->get_error_code() );
 		$this->assertSame( $before_posts, $GLOBALS['digitalogic_test_posts'] );
 		$this->assertSame( $before_lookup, $GLOBALS['digitalogic_test_wc_lookup_rows'] );
 		$this->assertSame( $before_options, $GLOBALS['digitalogic_test_options'] );
