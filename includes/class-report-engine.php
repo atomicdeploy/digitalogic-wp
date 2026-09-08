@@ -46,6 +46,11 @@ final class Digitalogic_Report_Engine {
 
 	/** @var array<string,array{object_id:int,meta_key:string,generation:string}> Request-local exact-effect probes. */
 	private $product_meta_invalidation_probes = array();
+	private $pricing_transaction_depth = 0;
+	private $pricing_invalidation_pending = false;
+	private $pricing_invalidation_failed = false;
+	private $hold_projection_notification = false;
+	private $pending_projection_notification = '';
 
 	/** Register every source mutation that can make a report stale. */
 	private function __construct() {
@@ -368,6 +373,9 @@ final class Digitalogic_Report_Engine {
 	 * @return array|WP_Error
 	 */
 	private function get_normalized_report( $args, $force_refresh, $checkpoint = null ) {
+		if ( $this->pricing_report_is_unavailable() ) {
+			return $this->pricing_report_unavailable();
+		}
 		$cached_report = $this->get_cached_report( $args );
 		$report        = $force_refresh ? null : $cached_report;
 		if ( is_array( $report ) ) {
@@ -487,6 +495,9 @@ final class Digitalogic_Report_Engine {
 	 * @return array|WP_Error
 	 */
 	public function get_report_from_validated_envelope( $envelope, $args = array() ) {
+		if ( $this->pricing_report_is_unavailable() ) {
+			return $this->pricing_report_unavailable();
+		}
 		if (
 			! is_array( $envelope )
 			|| ! is_array( $envelope['source'] ?? null )
@@ -937,19 +948,91 @@ final class Digitalogic_Report_Engine {
 
 	/** Invalidate every request-shaped report without requiring a key registry. */
 	public function invalidate_cache() {
+		if ( $this->pricing_transaction_depth > 0 ) {
+			$this->pricing_invalidation_pending = true;
+			if ( empty( $this->product_meta_invalidation_probes ) ) {
+				// Deferred work is not an immediate generation/probe receipt.
+				return false;
+			}
+		}
 		$result = $this->with_generation_lock(
 			function () {
 				$token = $this->new_cache_token();
 				if ( ! $this->store_generation_token( $token ) ) {
 					return false;
 				}
-				do_action( 'digitalogic_report_projection_invalidated', $token );
+				if ( $this->pricing_transaction_depth > 0 || $this->hold_projection_notification ) {
+					$this->pending_projection_notification = $token;
+				} else {
+					do_action( 'digitalogic_report_projection_invalidated', $token );
+				}
 
 				return true;
 			}
 		);
 
 		return true === $result;
+	}
+
+	/** Begin one owner-controlled SQL transaction's routine hook coalescing. */
+	public function begin_pricing_transaction() {
+		++$this->pricing_transaction_depth;
+	}
+
+	/** Fence reports after SQL COMMIT or ROLLBACK, before releasing writer locks. */
+	public function finish_pricing_transaction( $sql_terminal ) {
+		$this->pricing_transaction_depth = max( 0, $this->pricing_transaction_depth - 1 );
+		if ( $this->pricing_transaction_depth > 0 ) {
+			return true;
+		}
+		if ( ! $sql_terminal ) {
+			$this->pricing_invalidation_pending = false;
+			$this->pricing_invalidation_failed = true;
+			$this->pending_projection_notification = '';
+			return $this->pricing_report_unavailable();
+		}
+		if ( ! $this->pricing_invalidation_pending && ! $this->pricing_invalidation_failed ) {
+			return true;
+		}
+		$this->pricing_invalidation_pending = false;
+		$this->hold_projection_notification = true;
+		try {
+			$this->pricing_invalidation_failed = ! $this->invalidate_cache();
+		} catch ( Throwable $exception ) {
+			$this->pricing_invalidation_failed = true;
+		} finally {
+			$this->hold_projection_notification = false;
+		}
+		return $this->pricing_invalidation_failed ? $this->pricing_report_unavailable() : true;
+	}
+
+	/** Publish the latest terminal generation only after all shared writer locks. */
+	public function publish_pricing_invalidation() {
+		if ( '' === $this->pending_projection_notification || $this->pricing_invalidation_failed
+			|| $this->pricing_transaction_depth > 0
+			|| Digitalogic_Pricing_Service::instance()->source_delivery_lock_is_owned()
+			|| Digitalogic_Product_Sync_Receiver::instance()->source_identity_lock_is_owned() ) {
+			return true;
+		}
+		$token = $this->pending_projection_notification;
+		try {
+			do_action( 'digitalogic_report_projection_invalidated', $token );
+		} catch ( Throwable $exception ) {
+			return new WP_Error( 'digitalogic_report_notification_failed', 'The terminal report invalidation notification could not be delivered in this request.', array( 'status' => 503 ) );
+		}
+		if ( $this->pending_projection_notification === $token ) {
+			$this->pending_projection_notification = '';
+		}
+		return true;
+	}
+
+	private function pricing_report_is_unavailable() {
+		return $this->pricing_invalidation_failed
+			|| ( $this->pricing_transaction_depth > 0 && $this->pricing_invalidation_pending );
+	}
+
+	private function pricing_report_unavailable() {
+		return new WP_Error( 'digitalogic_report_pricing_transaction_pending', 'The report awaits a verified pricing transaction and cache fence.', array( 'status' => 503 ) );
 	}
 
 	/**
@@ -1207,7 +1290,7 @@ final class Digitalogic_Report_Engine {
 			&& in_array( get_post_type( $object_id ), array( 'product', 'product_variation', 'attachment' ), true )
 		) {
 			$invalidated = $this->invalidate_cache();
-			if ( $invalidated ) {
+			if ( $invalidated && ! empty( $this->product_meta_invalidation_probes ) ) {
 				$generation = $this->current_projection_generation();
 				if ( ! is_wp_error( $generation ) ) {
 					foreach ( $this->product_meta_invalidation_probes as &$probe ) {

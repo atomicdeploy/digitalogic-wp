@@ -88,6 +88,7 @@ final class Digitalogic_Pricing_Service {
 	 * @var bool
 	 */
 	private $transaction_active = false;
+	private $transaction_outcome = 'not_started';
 
 	/**
 	 * Option names changed by the active transaction.
@@ -3534,7 +3535,7 @@ final class Digitalogic_Pricing_Service {
 		}
 		++$this->source_delivery_lock_depth;
 		try {
-			return $this->with_lock(
+			$result = $this->with_lock(
 				function () use ( $receiver, $callback ) {
 					return $receiver->with_coordinated_pricing_lock( $callback );
 				}
@@ -3543,6 +3544,7 @@ final class Digitalogic_Pricing_Service {
 			--$this->source_delivery_lock_depth;
 			$receiver->dispatch_materializer_product_committed();
 		}
+		return $this->finish_report_notification( $result );
 	}
 
 	/**
@@ -3565,16 +3567,14 @@ final class Digitalogic_Pricing_Service {
 		}
 
 		try {
-			return call_user_func( $callback );
+			$result = call_user_func( $callback );
 		} catch ( Throwable $exception ) {
+			$rollback = true;
 			if ( $this->transaction_active ) {
 				$rollback = $this->rollback_transaction();
-				if ( is_wp_error( $rollback ) ) {
-					return $rollback;
-				}
 			}
 
-			return $this->error(
+			$result = is_wp_error( $rollback ) ? $rollback : $this->error(
 				'digitalogic_pricing_sync_unexpected_failure',
 				'همگام‌سازی به‌دلیل خطای غیرمنتظره انجام نشد.',
 				500,
@@ -3583,6 +3583,24 @@ final class Digitalogic_Pricing_Service {
 		} finally {
 			$this->release_lock();
 		}
+		return $this->finish_report_notification( $result );
+	}
+
+	/** Preserve an operational failure when its unlocked report notification also fails. */
+	private function finish_report_notification( $result ) {
+		$published = 0 === $this->lock_depth ? Digitalogic_Report_Engine::instance()->publish_pricing_invalidation() : true;
+		if ( ! is_wp_error( $published ) ) {
+			return $result;
+		}
+		if ( is_wp_error( $result ) ) {
+			$data = (array) $result->get_error_data();
+			$data['notification_code'] = $published->get_error_code();
+			$data['transaction_outcome'] = $this->transaction_outcome;
+			$result->add_data( $data );
+			return $result;
+		}
+		$published->add_data( array( 'status' => 503, 'transaction_outcome' => $this->transaction_outcome, 'operation_code' => 'success' ) );
+		return $published;
 	}
 
 	/**
@@ -3752,6 +3770,38 @@ final class Digitalogic_Pricing_Service {
 	 * @return mixed|WP_Error
 	 */
 	private function run_transaction( $callback, $pre_commit_guard = null, $marker_owned_events = false ) {
+		if ( $this->transaction_active ) {
+			return $this->error( 'digitalogic_pricing_sync_transaction_unavailable', 'A pricing transaction is already active.', 503 );
+		}
+		$report = Digitalogic_Report_Engine::instance();
+		$report->begin_pricing_transaction();
+		$this->transaction_outcome = 'not_started';
+		try {
+			$result = $this->run_transaction_body( $callback, $pre_commit_guard, $marker_owned_events );
+		} catch ( Throwable $exception ) {
+			$rollback = $this->transaction_active ? $this->rollback_transaction() : true;
+			$result = is_wp_error( $rollback ) ? $rollback : $this->error(
+				'digitalogic_pricing_sync_unexpected_failure',
+				'Pricing transaction failed; inspect its terminal outcome before retrying.',
+				500,
+				array( 'transaction_outcome' => $this->transaction_outcome )
+			);
+		} finally {
+			$fenced = $report->finish_pricing_transaction( in_array( $this->transaction_outcome, array( 'not_started', 'committed', 'rolled_back' ), true ) );
+		}
+		if ( is_wp_error( $fenced ) ) {
+			$fenced->add_data( array(
+				'status' => 503,
+				'transaction_outcome' => $this->transaction_outcome,
+				'operation_code' => is_wp_error( $result ) ? $result->get_error_code() : '',
+			) );
+			return $fenced;
+		}
+		return $result;
+	}
+
+	/** Execute SQL while the caller owns the report invalidation scope. */
+	private function run_transaction_body( $callback, $pre_commit_guard = null, $marker_owned_events = false ) {
 		global $wpdb;
 		$storage = $this->assert_transactional_pricing_storage();
 		if ( is_wp_error( $storage ) ) {
@@ -3771,6 +3821,7 @@ final class Digitalogic_Pricing_Service {
 		}
 
 		$this->transaction_active        = true;
+		$this->transaction_outcome       = 'unknown';
 		$this->transaction_option_names  = array();
 		$this->transaction_option_events = array();
 
@@ -3830,6 +3881,9 @@ final class Digitalogic_Pricing_Service {
 		if ( false === $commit ) {
 			$rollback  = $this->rollback_transaction();
 			$ambiguous = $commit_exception instanceof Throwable;
+			if ( $ambiguous ) {
+				$this->transaction_outcome = 'unknown';
+			}
 			return is_wp_error( $rollback )
 				? $rollback
 				: $this->error(
@@ -3847,6 +3901,7 @@ final class Digitalogic_Pricing_Service {
 		$names                           = $this->transaction_option_names;
 		$events                          = $this->transaction_option_events;
 		$this->transaction_active        = false;
+		$this->transaction_outcome       = 'committed';
 		$this->transaction_option_names  = array();
 		$this->transaction_option_events = array();
 		$this->invalidate_option_caches( $names );
@@ -3869,6 +3924,7 @@ final class Digitalogic_Pricing_Service {
 			&& ( ! is_object( $wpdb ) || ! method_exists( $wpdb, 'query' ) || false === $wpdb->query( 'ROLLBACK' ) );
 
 		$this->transaction_active        = false;
+		$this->transaction_outcome       = $failed ? 'unknown' : 'rolled_back';
 		$this->transaction_option_names  = array();
 		$this->transaction_option_events = array();
 		$this->invalidate_option_caches( $names );
