@@ -3588,7 +3588,9 @@ final class Digitalogic_Pricing_Service {
 
 	/** Preserve an operational failure when its unlocked report notification also fails. */
 	private function finish_report_notification( $result ) {
-		$published = 0 === $this->lock_depth ? Digitalogic_Report_Engine::instance()->publish_pricing_invalidation() : true;
+		$published = 0 === $this->lock_depth
+			? Digitalogic_Report_Engine::instance()->publish_pricing_invalidation()
+			: true;
 		if ( ! is_wp_error( $published ) ) {
 			return $result;
 		}
@@ -3599,7 +3601,11 @@ final class Digitalogic_Pricing_Service {
 			$result->add_data( $data );
 			return $result;
 		}
-		$published->add_data( array( 'status' => 503, 'transaction_outcome' => $this->transaction_outcome, 'operation_code' => 'success' ) );
+		$published->add_data( array(
+			'status' => 503,
+			'transaction_outcome' => $this->transaction_outcome,
+			'operation_code' => 'success',
+		) );
 		return $published;
 	}
 
@@ -3771,13 +3777,19 @@ final class Digitalogic_Pricing_Service {
 	 */
 	private function run_transaction( $callback, $pre_commit_guard = null, $marker_owned_events = false ) {
 		if ( $this->transaction_active ) {
-			return $this->error( 'digitalogic_pricing_sync_transaction_unavailable', 'A pricing transaction is already active.', 503 );
+			return $this->error(
+				'digitalogic_pricing_sync_transaction_unavailable',
+				'A pricing transaction is already active.',
+				503
+			);
 		}
 		$report = Digitalogic_Report_Engine::instance();
 		$report->begin_pricing_transaction();
 		$this->transaction_outcome = 'not_started';
 		try {
-			$result = $this->run_transaction_body( $callback, $pre_commit_guard, $marker_owned_events );
+			$result = $this->run_transaction_body(
+				$callback, $pre_commit_guard, $marker_owned_events
+			);
 		} catch ( Throwable $exception ) {
 			$rollback = $this->transaction_active ? $this->rollback_transaction() : true;
 			$result = is_wp_error( $rollback ) ? $rollback : $this->error(
@@ -3787,7 +3799,11 @@ final class Digitalogic_Pricing_Service {
 				array( 'transaction_outcome' => $this->transaction_outcome )
 			);
 		} finally {
-			$fenced = $report->finish_pricing_transaction( in_array( $this->transaction_outcome, array( 'not_started', 'committed', 'rolled_back' ), true ) );
+			$fenced = $report->finish_pricing_transaction( in_array(
+				$this->transaction_outcome,
+				array( 'not_started', 'committed', 'rolled_back' ),
+				true
+			) );
 		}
 		if ( is_wp_error( $fenced ) ) {
 			$fenced->add_data( array(
@@ -3801,7 +3817,9 @@ final class Digitalogic_Pricing_Service {
 	}
 
 	/** Execute SQL while the caller owns the report invalidation scope. */
-	private function run_transaction_body( $callback, $pre_commit_guard = null, $marker_owned_events = false ) {
+	private function run_transaction_body(
+		$callback, $pre_commit_guard = null, $marker_owned_events = false
+	) {
 		global $wpdb;
 		$storage = $this->assert_transactional_pricing_storage();
 		if ( is_wp_error( $storage ) ) {

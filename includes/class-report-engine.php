@@ -1028,11 +1028,16 @@ final class Digitalogic_Report_Engine {
 
 	private function pricing_report_is_unavailable() {
 		return $this->pricing_invalidation_failed
-			|| ( $this->pricing_transaction_depth > 0 && $this->pricing_invalidation_pending );
+			|| ( $this->pricing_transaction_depth > 0
+				&& $this->pricing_invalidation_pending );
 	}
 
 	private function pricing_report_unavailable() {
-		return new WP_Error( 'digitalogic_report_pricing_transaction_pending', 'The report awaits a verified pricing transaction and cache fence.', array( 'status' => 503 ) );
+		return new WP_Error(
+			'digitalogic_report_pricing_transaction_pending',
+			'The report awaits a verified pricing transaction and cache fence.',
+			array( 'status' => 503 )
+		);
 	}
 
 	/**
