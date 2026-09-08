@@ -114,7 +114,10 @@ final class Application extends LaravelApplication {
 
 		return rtrim( sys_get_temp_dir(), '/\\' )
 			. DIRECTORY_SEPARATOR . 'digitalogic-laravel-'
-			. substr( sha1( (string) $this->basePath() ), 0, 12 );
+			. substr( sha1( (string) $this->basePath() ), 0, 12 )
+			// Root CLI and the web worker must not create private cache files
+			// in each other's runtime. This isolates caches, not application code.
+			. ( function_exists( 'posix_geteuid' ) ? '-uid-' . posix_geteuid() : '' );
 	}
 
 	private function prepareRuntimePath(): void {
