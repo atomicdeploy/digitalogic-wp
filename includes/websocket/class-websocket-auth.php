@@ -40,10 +40,20 @@ class Digitalogic_WebSocket_Auth {
 					false
 				);
 
+			$protocols     = array_map( 'trim', explode( ',', (string) ( $headers['sec-websocket-protocol'] ?? '' ) ) );
+			$commands      = in_array( 'digitalogic.pricing.commands.v1', $protocols, true );
+			$owner_context = '';
+			if ( $allowed && $commands ) {
+				$owner_context = Digitalogic_Pricing_Input_Credential::instance()->persistent_read_context( $headers['authorization'] ?? '' );
+				$allowed       = ! is_wp_error( $owner_context );
+			}
+
 			return array(
 				'authenticated'          => (bool) $allowed,
 				'user_id'                => 0,
 				'principal'              => $allowed ? 'patris_pricing' : '',
+				'pricing_commands'       => $allowed && $commands,
+				'owner_read_fingerprint' => $allowed && $commands ? $owner_context : '',
 				'source'                 => $allowed ? $source : array(),
 				'credential_fingerprint' => $allowed ? $feed->product_sync_credential_fingerprint_for_source( $source ) : '',
 			);

@@ -61,6 +61,16 @@ final class PricingInputCredentialTest extends TestCase {
         ));
     }
 
+	public function test_persistent_read_fingerprint_requires_current_existing_credential(): void {
+		$issued      = $this->credential->create();
+		$fingerprint = $this->credential->persistent_read_context( 'Bearer ' . $issued['secret'] );
+		$this->assertIsString( $fingerprint );
+		$this->assertTrue( $this->credential->persistent_read_context_is_current( $fingerprint ) );
+		$this->assertInstanceOf( WP_Error::class, $this->credential->persistent_read_context( '' ) );
+		$this->assertNotInstanceOf( WP_Error::class, $this->credential->rotate() );
+		$this->assertFalse( $this->credential->persistent_read_context_is_current( $fingerprint ) );
+	}
+
     private function request($method, $route, $secret): WP_REST_Request {
         $request = new WP_REST_Request(
             array(),

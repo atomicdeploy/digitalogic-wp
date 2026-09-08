@@ -1691,7 +1691,7 @@ class Digitalogic_REST_API {
 	 */
 	public function receive_patris_product_sync( WP_REST_Request $request ) {
 		$handler_started = hrtime( true );
-		$bootstrap_ms = 'cli' !== PHP_SAPI && isset( $_SERVER['REQUEST_TIME_FLOAT'] ) && is_numeric( $_SERVER['REQUEST_TIME_FLOAT'] )
+		$bootstrap_ms    = 'cli' !== PHP_SAPI && isset( $_SERVER['REQUEST_TIME_FLOAT'] ) && is_numeric( $_SERVER['REQUEST_TIME_FLOAT'] )
 			? max( 0, ( microtime( true ) - (float) $_SERVER['REQUEST_TIME_FLOAT'] ) * 1000 )
 			: null;
 		$payload         = $request->get_json_params();

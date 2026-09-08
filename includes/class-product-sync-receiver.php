@@ -246,7 +246,7 @@ class Digitalogic_Product_Sync_Receiver {
 
 	private const LOCK_NAME                         = 'digitalogic_product_sync';
 	private const LOCK_TIMEOUT_SECONDS              = 15;
-	private const MAX_BODY_BYTES                    = 8388608;
+	public const MAX_BODY_BYTES                     = 8388608;
 	private const MAX_STATE_BYTES                   = 16777216;
 	private const MAX_PRODUCTS                      = 10000;
 	private const MAX_CATEGORIES                    = 10000;
@@ -748,7 +748,7 @@ class Digitalogic_Product_Sync_Receiver {
         }
 
         $decode_ms = max(0, (hrtime(true) - $decode_started) / 1000000);
-        $result = $this->receive($payload);
+        $result    = $this->receive($payload);
         if (is_array($result)) {
             $result['receiver_timing_ms']['json_decode'] = round($decode_ms, 3);
         }
@@ -762,8 +762,8 @@ class Digitalogic_Product_Sync_Receiver {
      * @return array|WP_Error
      */
     public function receive($payload) {
-        $receive_started = hrtime(true);
-        $previous_timings = $this->receiver_timings;
+        $receive_started        = hrtime(true);
+        $previous_timings       = $this->receiver_timings;
         $this->receiver_timings = array_fill_keys(array('validation', 'transaction_total', 'transaction_entry', 'transaction_work', 'projection', 'persistence', 'destination_drain', 'event_emit', 'receiver_total'), 0);
         try {
             $result = $this->receive_timed_work($payload, $receive_started);
@@ -1645,6 +1645,28 @@ class Digitalogic_Product_Sync_Receiver {
 
 		return $removed;
 	}
+
+    /** Evict Woo request-local objects before a persistent source request. */
+    public function prepare_persistent_source_request($source, $incoming_codes) {
+        $state = $this->load_state();
+        $key = $this->source_key($source['id'], $source['dataset']);
+        $codes = array_unique(array_merge(array_keys($state['sources'][$key]['input_products'] ?? array()), $incoming_codes));
+        $resolver = Digitalogic_Product_Identifier_Resolver::instance();
+        $resolver->clear_code_rows_cache();
+        $rows = $resolver->resolve_patris_codes(array_map('strval', $codes));
+        $ids = array();
+        foreach ($rows as $row) {
+            if (!is_wp_error($row)) {
+                $ids[] = (int) $row['woocommerce_id'];
+                $parent_id = (int) wp_get_post_parent_id((int) $row['woocommerce_id']);
+                if ($parent_id > 0) { $ids[] = $parent_id; }
+            } elseif ('digitalogic_product_identifier_not_found' !== $row->get_error_code()) {
+                return $row;
+            }
+        }
+        return $this->evict_coordinated_product_instance_caches(array_unique($ids))
+            ? true : $this->error('digitalogic_pricing_runtime_cache_unavailable', 'WooCommerce request-local product caches could not be cleared.', 503);
+    }
 
     /**
      * Publish a committed nonsecret reconciliation summary.

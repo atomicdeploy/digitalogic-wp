@@ -110,6 +110,7 @@ class Digitalogic_WebSocket_Server {
         list($headers, $query) = $this->parse_request($this->clients[$id]['headers']);
 		$pricing_header_names      = array(
 			'x-patris-product-sync-secret',
+			'authorization',
 			'x-patris-source-id',
 			'x-patris-source-dataset',
 			'last-event-id',
@@ -132,14 +133,17 @@ class Digitalogic_WebSocket_Server {
 			? array_map('trim', explode(',', (string) $headers['sec-websocket-protocol']))
 			: array();
 		$pricing_service           = 'patris_pricing' === (string) ( $auth['principal'] ?? '' );
-		$invalid_pricing_cursor    = $pricing_service
+
+		$pricing_protocol = ! empty( $auth['pricing_commands'] ) ? 'digitalogic.pricing.commands.v1' : 'digitalogic.pricing.v1';
+
+		$invalid_pricing_cursor = $pricing_service
 			&& isset($headers['last-event-id'])
 			&& ! $this->valid_event_cursor($headers['last-event-id']);
 		if (
 			empty($auth['authenticated'])
 			|| empty($headers['sec-websocket-key'])
 			|| $invalid_pricing_cursor
-			|| ( $pricing_service && ! in_array('digitalogic.pricing.v1', $protocols, true) )
+			|| ( $pricing_service && ! in_array($pricing_protocol, $protocols, true) )
 		) {
             @fwrite($this->clients[$id]['socket'], "HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
             $this->close($id);
@@ -152,7 +156,7 @@ class Digitalogic_WebSocket_Server {
             . "Upgrade: websocket\r\n"
             . "Connection: Upgrade\r\n"
 			. "Sec-WebSocket-Accept: " . $accept . "\r\n"
-			. ( $pricing_service ? "Sec-WebSocket-Protocol: digitalogic.pricing.v1\r\n" : '' )
+			. ( $pricing_service ? "Sec-WebSocket-Protocol: " . $pricing_protocol . "\r\n" : '' )
 			. "\r\n";
 
 		$written = @fwrite($this->clients[ $id ]['socket'], $response);
@@ -162,9 +166,18 @@ class Digitalogic_WebSocket_Server {
 		}
         $this->clients[$id]['handshake'] = true;
         $this->clients[$id]['user_id'] = $user_id;
+
+		$this->clients[ $id ]['pricing_commands']       = ! empty( $auth['pricing_commands'] );
+		$this->clients[ $id ]['owner_read_fingerprint'] = (string) ( $auth['owner_read_fingerprint'] ?? '' );
+
 		$this->clients[ $id ]['principal']              = (string) ( $auth['principal'] ?? '' );
 		$this->clients[ $id ]['source']                 = isset($auth['source']) && is_array($auth['source']) ? $auth['source'] : array();
 		$this->clients[ $id ]['credential_fingerprint'] = (string) ( $auth['credential_fingerprint'] ?? '' );
+		if ( ! empty( $auth['pricing_commands'] ) ) {
+			$this->clients[ $id ]['headers'] = '';
+			return; // Command sessions have responses only, no event-stream hello/replay.
+		}
+
 		$cursor_reset_required                        = false;
 		$oldest_event_id                              = 0;
 		$latest_event_id                              = isset($this->clients[ $id ]['last_event_id'])
@@ -228,26 +241,61 @@ class Digitalogic_WebSocket_Server {
             return;
         }
 
-        $this->clients[$id]['buffer'] .= $chunk;
-        $frames = $this->decode_frames($this->clients[$id]['buffer']);
-        $this->clients[$id]['buffer'] = $frames['buffer'];
+        $this->consume_input($id, $chunk);
+    }
 
+    /** Decode transport chunks and reassemble bounded command text messages. */
+    private function consume_input($id, $chunk) {
+        $commands = !empty($this->clients[$id]['pricing_commands']);
+        $limit = 6 * Digitalogic_Product_Sync_Receiver::MAX_BODY_BYTES + 65536;
+        $this->clients[$id]['buffer'] .= $chunk;
+        if ($commands && strlen($this->clients[$id]['buffer']) + strlen($this->clients[$id]['fragment_payload'] ?? '') > $limit) {
+            $this->close($id);
+            return;
+        }
+        $frames = $this->decode_frames($this->clients[$id]['buffer'], $commands ? $limit : null);
+        if (!empty($frames['error'])) {
+            $this->close($id);
+            return;
+        }
+        $this->clients[$id]['buffer'] = $frames['buffer'];
         foreach ($frames['messages'] as $frame) {
-            if ($frame['opcode'] === 8) {
+            if (!isset($this->clients[$id])) { return; }
+            $opcode = $frame['opcode'];
+            if ($commands && (!$frame['masked'] || $frame['rsv'] !== 0
+                || ($opcode >= 8 && (!$frame['fin'] || strlen($frame['payload']) > 125)))) {
                 $this->close($id);
                 return;
             }
-
-            if ($frame['opcode'] === 9) {
+            if ($opcode === 8) {
+                $this->close($id);
+                return;
+            }
+            if ($opcode === 9) {
                 $this->send_frame($id, $frame['payload'], 10);
                 continue;
             }
-
-            if ($frame['opcode'] !== 1) {
+            if ($opcode === 10) { continue; }
+            if (!$commands) {
+                if ($opcode === 1) { $this->handle_message($id, $frame['payload']); }
                 continue;
             }
-
-            $this->handle_message($id, $frame['payload']);
+            $fragmented = isset($this->clients[$id]['fragment_payload']);
+            if (($opcode !== 0 && $opcode !== 1) || ($opcode === 0 && !$fragmented) || ($opcode === 1 && $fragmented)) {
+                $this->close($id);
+                return;
+            }
+            $payload = ($fragmented ? $this->clients[$id]['fragment_payload'] : '') . $frame['payload'];
+            if (strlen($payload) > $limit) {
+                $this->close($id);
+                return;
+            }
+            if (!$frame['fin']) {
+                $this->clients[$id]['fragment_payload'] = $payload;
+                continue;
+            }
+            unset($this->clients[$id]['fragment_payload']);
+            $this->handle_message($id, $payload);
         }
     }
 
@@ -270,6 +318,10 @@ class Digitalogic_WebSocket_Server {
         }
 
 		if ( 'patris_pricing' === (string) ( $this->clients[ $id ]['principal'] ?? '' ) ) {
+			if ( ! empty( $this->clients[ $id ]['pricing_commands'] ) ) {
+				$this->handle_pricing_command( $id, $request_id, $command, $data );
+				return;
+			}
 			$this->send_error($id, $request_id, 'digitalogic_pricing_stream_read_only', __('The pricing event stream does not accept commands.', 'digitalogic'));
 			return;
 		}
@@ -325,6 +377,76 @@ class Digitalogic_WebSocket_Server {
         ));
     }
 
+    /** Exact machine operations; never pass this principal to the generic dispatcher. */
+	private function handle_pricing_command( $id, $request_id, $command, $data ) {
+		$client = $this->clients[ $id ];
+		if ( ! Digitalogic_WebSocket_Auth::pricing_service_context_is_current( $client )
+			|| ! Digitalogic_Pricing_Input_Credential::instance()->persistent_read_context_is_current( $client['owner_read_fingerprint'] ?? '' ) ) {
+			$this->send_error( $id, $request_id, 'digitalogic_pricing_session_revoked', 'The pricing session credentials are no longer current.' );
+			$this->close( $id );
+			return;
+		}
+		if ( ! in_array( $command, array( 'digitalogic_get_integration_catalog', 'digitalogic_receive_patris_product_sync' ), true ) ) {
+			$this->send_error( $id, $request_id, 'digitalogic_pricing_command_denied', 'This pricing command is not allowed.' );
+			return;
+		}
+		wp_set_current_user( 0 );
+		// Drop only this daemon's runtime cache; never flush shared Redis data.
+		if ( ! function_exists( 'wp_cache_flush_runtime' ) || ! function_exists( 'wp_cache_supports' ) || ! wp_cache_supports( 'flush_runtime' ) ) {
+			$this->send_error( $id, $request_id, 'digitalogic_pricing_runtime_cache_unavailable', 'The persistent pricing transport requires runtime cache invalidation.' );
+			return;
+		}
+		if ( false === wp_cache_flush_runtime() ) {
+			$this->send_error( $id, $request_id, 'digitalogic_pricing_runtime_cache_unavailable', 'The request runtime cache could not be cleared.' );
+			return;
+		}
+		Digitalogic_Product_Identifier_Resolver::instance()->clear_code_rows_cache();
+		if ( 'digitalogic_get_integration_catalog' === $command ) {
+			$result = Digitalogic_Shipping_Method_Service::instance()->get_integration_catalog();
+		} else {
+			$json = $data['json'] ?? null;
+			if ( ! is_string( $json ) || strlen( $json ) > Digitalogic_Product_Sync_Receiver::MAX_BODY_BYTES ) {
+				$this->send_error( $id, $request_id, 'digitalogic_product_sync_invalid_json', 'A bounded raw product-sync JSON body is required.' );
+				return;
+			}
+			try {
+				$envelope = Digitalogic_Product_Sync_JSON_Decoder::decode( $json );
+			} catch ( RuntimeException $exception ) {
+				$this->send_error( $id, $request_id, 'digitalogic_product_sync_invalid_json', 'The product-sync request is not valid JSON.' );
+				return;
+			}
+			foreach ( array( 'id', 'dataset' ) as $field ) {
+				if ( ! is_string( $envelope['source'][ $field ] ?? null )
+					|| ! hash_equals( $client['source'][ $field ], $envelope['source'][ $field ] ) ) {
+					$this->send_error( $id, $request_id, 'digitalogic_product_sync_source_denied', 'The event source must match the authenticated session.' );
+					return;
+				}
+			}
+			$receiver = Digitalogic_Product_Sync_Receiver::instance();
+			$envelope = $receiver->validate_json( $json );
+			if ( is_wp_error( $envelope ) ) {
+				$this->send_error( $id, $request_id, $envelope->get_error_code(), $envelope->get_error_message() );
+				return;
+			}
+			$prepared = $receiver->prepare_persistent_source_request( $client['source'], array_column( is_array( $envelope['products'] ?? null ) ? $envelope['products'] : array(), 'product_code' ) );
+			$result   = is_wp_error( $prepared ) ? $prepared : $receiver->receive_json( $json );
+		}
+		if ( is_wp_error( $result ) ) {
+			$this->send_error( $id, $request_id, $result->get_error_code(), $result->get_error_message() );
+			return;
+		}
+		$this->send_json(
+			$id,
+			array(
+				'id'      => $request_id,
+				'event'   => 'response',
+				'command' => $command,
+				'success' => true,
+				'data'    => $result,
+			)
+		);
+	}
+
     private function send_error($id, $request_id, $code, $message) {
         $this->send_json($id, array(
             'id' => $request_id,
@@ -351,7 +473,7 @@ class Digitalogic_WebSocket_Server {
                 continue;
             }
 
-            if (empty($client['handshake'])) {
+            if (empty($client['handshake']) || !empty($client['pricing_commands'])) {
                 continue;
             }
 
@@ -415,7 +537,7 @@ class Digitalogic_WebSocket_Server {
     }
 
     private function send_panel_event($id, $event) {
-        if (!isset($this->clients[$id]) || !is_array($event)) {
+        if (!isset($this->clients[$id]) || !empty($this->clients[$id]['pricing_commands']) || !is_array($event)) {
             return;
         }
 
@@ -820,7 +942,7 @@ class Digitalogic_WebSocket_Server {
 			|| ( strlen($normalized) === strlen($maximum) && strcmp($normalized, $maximum) <= 0 );
     }
 
-    private function decode_frames($buffer) {
+    private function decode_frames($buffer, $maximum = null) {
         $messages = array();
 
         while (strlen($buffer) >= 2) {
@@ -845,6 +967,10 @@ class Digitalogic_WebSocket_Server {
                 $offset = 10;
             }
 
+            if (null !== $maximum && ($length < 0 || $length > $maximum)) {
+                return array('messages' => array(), 'buffer' => '', 'error' => true);
+            }
+
             $mask_offset = $offset;
             if ($masked) {
                 if (strlen($buffer) < $offset + 4) {
@@ -867,7 +993,7 @@ class Digitalogic_WebSocket_Server {
                 }
             }
 
-            $messages[] = array('opcode' => $opcode, 'payload' => $payload);
+            $messages[] = array('opcode' => $opcode, 'payload' => $payload, 'fin' => ($first & 0x80) !== 0, 'masked' => $masked, 'rsv' => $first & 0x70);
             $buffer = substr($buffer, $offset + $length);
         }
 
