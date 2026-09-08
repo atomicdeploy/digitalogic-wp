@@ -764,7 +764,7 @@ class Digitalogic_Product_Sync_Receiver {
     public function receive($payload) {
         $receive_started        = hrtime(true);
         $previous_timings       = $this->receiver_timings;
-        $this->receiver_timings = array_fill_keys(array('validation', 'transaction_total', 'transaction_entry', 'transaction_work', 'projection', 'persistence', 'destination_drain', 'event_emit', 'receiver_total'), 0);
+        $this->receiver_timings = array_fill_keys(array('validation', 'transaction_total', 'transaction_entry', 'transaction_work', 'projection', 'persistence', 'destination_drain', 'event_emit', 'event_hooks', 'event_log', 'event_webhooks', 'event_reports', 'event_freshness', 'event_go_receipt', 'receiver_total'), 0);
         try {
             $result = $this->receive_timed_work($payload, $receive_started);
             $this->record_receiver_timing('receiver_total', $receive_started);
@@ -780,6 +780,25 @@ class Digitalogic_Product_Sync_Receiver {
     // phpcs:disable -- Preserve the established receiver formatting while the legacy file remains baseline-managed.
     /** Request-local numeric diagnostics; never stored in receiver state. */
     private $receiver_timings = null;
+
+    /** True only while this receiver is synchronously emitting the applied hook. */
+    private $applied_listener_timing_active = false;
+
+    /** Measure only known direct listeners, without changing WordPress dispatch or exception propagation. */
+    public function measure_applied_listener( $key, $operation ) {
+        $active = $this->applied_listener_timing_active && is_array( $this->receiver_timings )
+            && function_exists( 'current_filter' ) && 'digitalogic_product_sync_applied' === current_filter()
+            && in_array( $key, array( 'event_webhooks', 'event_reports', 'event_freshness', 'event_go_receipt' ), true );
+        $started = $active ? hrtime( true ) : 0;
+        try {
+            return $operation();
+        } finally {
+            if ( $active ) {
+                $this->record_receiver_timing( $key, $started );
+            }
+        }
+    }
+
 
     private function record_receiver_timing($key, $started) {
         if (is_array($this->receiver_timings)) {
@@ -3704,6 +3723,9 @@ class Digitalogic_Product_Sync_Receiver {
         if (isset($result['delivery'])) {
             $metadata['delivery'] = $result['delivery'];
         }
+        $hooks_started = hrtime(true);
+        $previous_listener_timing = $this->applied_listener_timing_active;
+        $this->applied_listener_timing_active = true;
         try {
             do_action('digitalogic_product_sync_applied', $result, $metadata);
         } catch (Throwable $exception) {
@@ -3711,8 +3733,12 @@ class Digitalogic_Product_Sync_Receiver {
 				'code'      => 'digitalogic_product_sync_listener_failed',
                 'exception' => get_class($exception),
             );
+        } finally {
+            $this->applied_listener_timing_active = $previous_listener_timing;
+            $this->record_receiver_timing('event_hooks', $hooks_started);
         }
 
+        $log_started = hrtime(true);
         try {
             Digitalogic_Logger::instance()->log(
                 'product_sync_applied',
@@ -3727,6 +3753,8 @@ class Digitalogic_Product_Sync_Receiver {
 				'code'      => 'digitalogic_product_sync_log_failed',
                 'exception' => get_class($exception),
             );
+        } finally {
+            $this->record_receiver_timing('event_log', $log_started);
         }
 
         return $result;

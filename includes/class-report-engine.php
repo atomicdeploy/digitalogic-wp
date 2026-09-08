@@ -948,6 +948,13 @@ final class Digitalogic_Report_Engine {
 
 	/** Invalidate every request-shaped report without requiring a key registry. */
 	public function invalidate_cache() {
+		return Digitalogic_Product_Sync_Receiver::instance()->measure_applied_listener(
+			'event_reports',
+			fn() => $this->invalidate_cache_without_timing()
+		);
+	}
+
+	private function invalidate_cache_without_timing() {
 		if ( $this->pricing_transaction_depth > 0 ) {
 			$this->pricing_invalidation_pending = true;
 			if ( empty( $this->product_meta_invalidation_probes ) ) {
