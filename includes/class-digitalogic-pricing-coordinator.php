@@ -392,6 +392,7 @@ final class Digitalogic_Pricing_Coordinator {
 				}
 				$receiver = Digitalogic_Product_Sync_Receiver::instance();
 				$state    = $receiver->get_state();
+				$found_product = false;
 				foreach ( $state['sources'] ?? array() as $source_state ) {
 					$contains_product = false;
 					foreach ( $source_state['products'] ?? array() as $key => $product ) {
@@ -403,6 +404,7 @@ final class Digitalogic_Pricing_Coordinator {
 					if ( ! $contains_product ) {
 						continue;
 					}
+					$found_product = true;
 					// The receiver drains existing delivery work for each selected source.
 					// Refuse unrelated work while both owner and source locks are held.
 					foreach ( array( 'pending_products', 'deferred_products' ) as $field ) {
@@ -416,6 +418,9 @@ final class Digitalogic_Pricing_Coordinator {
 							}
 						}
 					}
+				}
+				if ( ! $found_product ) {
+					return $this->error( 'digitalogic_pricing_product_not_in_source', 'The Product Code is not present in the committed Patris inputs.', 404 );
 				}
 				$settings = $service->current_canonical_settings();
 				if ( is_wp_error( $settings ) ) {

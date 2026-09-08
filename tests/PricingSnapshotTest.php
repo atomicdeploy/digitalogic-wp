@@ -1253,8 +1253,24 @@ final class PricingSnapshotTest extends TestCase {
 		$this->assertCount( 3, $GLOBALS['digitalogic_test_options']['digitalogic_panel_events'] );
 	}
 
+	/** Disabled construction must not enqueue or compute a consumer snapshot. */
+	public function test_disabled_construction_returns_explicit_error_without_work(): void {
+		$service = new ReflectionClass( Digitalogic_Pricing_Snapshot::class );
+		if ( false !== $service->getConstant( 'CONSTRUCTION_ENABLED' ) ) {
+			$this->markTestSkipped( 'Issue #296 prototype-only disabled construction boundary.' );
+		}
+		$revision       = $this->revision_response()->get_data()['state_revision'];
+		$options_before = $GLOBALS['digitalogic_test_options'];
+		$response       = $this->start_response( 'snapshot-disabled-0001', $revision, 0 );
+		$this->assertSame( 503, $response->get_status() );
+		$this->assertSame( 'digitalogic_pricing_snapshot_disabled', $response->get_data()['code'] );
+		$this->assertSame( $options_before, $GLOBALS['digitalogic_test_options'] );
+		$this->assertCount( 0, $GLOBALS['digitalogic_test_wc_product_query_args'] );
+	}
+
 	/** One cold computation produces fixed immutable pages and replay survives drift. */
 	public function test_cold_build_computes_once_pages_cheaply_and_replays_exactly(): void {
+		$this->require_snapshot_construction();
 		add_filter(
 			'digitalogic_pricing_snapshot_enqueue',
 			static function () {
@@ -1333,6 +1349,7 @@ final class PricingSnapshotTest extends TestCase {
 
 	/** Admission persists independent build/watchdog paths and sibling delivery is a no-op. */
 	public function test_cold_admission_uses_wp_cron_when_action_scheduler_is_unavailable_and_cleans_sibling_actions(): void {
+		$this->require_snapshot_construction();
 		$revision = $this->revision_response()->get_data()['state_revision'];
 		$started  = $this->start_response( 'snapshot-dual-path-0001', $revision, 0 );
 		$build_id = $started->get_data()['build_id'];
@@ -1362,6 +1379,7 @@ final class PricingSnapshotTest extends TestCase {
 
 	/** Cold admission immediately wakes its due durable worker after releasing admission. */
 	public function test_cold_admission_wakes_due_core_cron_without_waiting_for_later_traffic(): void {
+		$this->require_snapshot_construction();
 		$revision = $this->revision_response()->get_data()['state_revision'];
 		$started  = $this->start_response( 'snapshot-prompt-wake-0001', $revision, 0 );
 		$build_id = $started->get_data()['build_id'];
@@ -1388,6 +1406,7 @@ final class PricingSnapshotTest extends TestCase {
 	/** A host with automatic WP-Cron disabled completes only its exact admitted build inline. */
 	#[RunInSeparateProcess]
 	public function test_cold_admission_runs_exact_build_inline_when_host_requires_it(): void {
+		$this->require_snapshot_construction();
 		define( 'DISABLE_WP_CRON', true );
 		$revision = $this->revision_response()->get_data()['state_revision'];
 		$started  = $this->start_response( 'snapshot-disabled-cron-0001', $revision, 0 );
@@ -1413,6 +1432,7 @@ final class PricingSnapshotTest extends TestCase {
 
 	/** A throwing core wake falls back to only the exact admitted build. */
 	public function test_cold_admission_runs_exact_build_when_prompt_wake_transport_throws(): void {
+		$this->require_snapshot_construction();
 		$GLOBALS['digitalogic_test_remote_post_results'][] = new RuntimeException( 'synthetic cron wake failure' );
 		$revision = $this->revision_response()->get_data()['state_revision'];
 		$started  = $this->start_response( 'snapshot-wake-failure-0001', $revision, 0 );
@@ -1431,6 +1451,7 @@ final class PricingSnapshotTest extends TestCase {
 
 	/** An ordinary loopback error falls back to only the exact admitted build. */
 	public function test_cold_admission_runs_exact_build_when_prompt_wake_returns_wp_error(): void {
+		$this->require_snapshot_construction();
 		$GLOBALS['digitalogic_test_remote_post_results'][] = new WP_Error( 'synthetic_cron_wake_failure', 'synthetic cron wake failure' );
 		$revision = $this->revision_response()->get_data()['state_revision'];
 		$started  = $this->start_response( 'snapshot-wake-wp-error-0001', $revision, 0 );
@@ -1449,6 +1470,7 @@ final class PricingSnapshotTest extends TestCase {
 
 	/** An inline worker throwable becomes an explicit terminal, never a false queued 202. */
 	public function test_inline_worker_throwable_returns_explicit_terminal_failure(): void {
+		$this->require_snapshot_construction();
 		$GLOBALS['digitalogic_test_remote_post_results'][]  = new WP_Error( 'synthetic_cron_wake_failure', 'synthetic cron wake failure' );
 		$GLOBALS['digitalogic_test_transient_set_callback'] = static function ( $name, $value ) {
 			if (
@@ -1476,6 +1498,7 @@ final class PricingSnapshotTest extends TestCase {
 
 	/** An active core cron lock falls back without running unrelated due hooks. */
 	public function test_cold_admission_runs_exact_build_when_core_cron_is_already_running(): void {
+		$this->require_snapshot_construction();
 		set_transient( 'doing_cron', sprintf( '%.22F', microtime( true ) ), 60 );
 		$revision = $this->revision_response()->get_data()['state_revision'];
 		$started  = $this->start_response( 'snapshot-wake-cron-locked-0001', $revision, 0 );
@@ -1494,6 +1517,7 @@ final class PricingSnapshotTest extends TestCase {
 
 	/** Clearing the core lock later cannot duplicate an exact inline completion. */
 	public function test_cold_admission_does_not_retry_global_wake_after_inline_completion(): void {
+		$this->require_snapshot_construction();
 		set_transient( 'doing_cron', sprintf( '%.22F', microtime( true ) ), 60 );
 		$revision = $this->revision_response()->get_data()['state_revision'];
 		$started  = $this->start_response( 'snapshot-wake-lock-clears-0001', $revision, 0 );
@@ -1622,6 +1646,7 @@ final class PricingSnapshotTest extends TestCase {
 
 	/** A contended-worker retry is dual scheduled and a late sibling is harmless. */
 	public function test_retry_worker_dual_schedules_and_late_sibling_is_noop(): void {
+		$this->require_snapshot_construction();
 		$revision = $this->revision_response()->get_data()['state_revision'];
 		$started  = $this->start_response( 'snapshot-retry-dual-0001', $revision, 0 );
 		$build_id = $started->get_data()['build_id'];
@@ -1640,6 +1665,7 @@ final class PricingSnapshotTest extends TestCase {
 
 	/** A test/host AS-path override cannot bypass the independent WP-Cron record. */
 	public function test_enqueue_override_cannot_bypass_wp_cron_build_activation(): void {
+		$this->require_snapshot_construction();
 		add_filter(
 			'digitalogic_pricing_snapshot_enqueue',
 			static function () {
@@ -1661,6 +1687,7 @@ final class PricingSnapshotTest extends TestCase {
 
 	/** A cold ready build emits one exact, scoped, secret-free terminal frame. */
 	public function test_cold_build_publishes_exact_durable_terminal_event(): void {
+		$this->require_snapshot_construction();
 		add_filter(
 			'digitalogic_pricing_snapshot_enqueue',
 			static function () {
@@ -1715,6 +1742,7 @@ final class PricingSnapshotTest extends TestCase {
 
 	/** A committed outbox survives job expiry and keeps stable at-least-once identity. */
 	public function test_terminal_event_outbox_survives_job_expiry_and_uses_stable_identity(): void {
+		$this->require_snapshot_construction();
 		add_filter(
 			'digitalogic_pricing_snapshot_enqueue',
 			static function () {
@@ -1813,6 +1841,7 @@ final class PricingSnapshotTest extends TestCase {
 
 	/** A conflicting accepted terminal is preserved without retrying forever. */
 	public function test_terminal_event_conflict_is_removed_from_retry_outbox(): void {
+		$this->require_snapshot_construction();
 		$revision   = $this->revision_response()->get_data()['state_revision'];
 		$started    = $this->start_response( 'terminal-conflict-0001', $revision, 0 );
 		$build_id   = $started->get_data()['build_id'];
@@ -1851,6 +1880,7 @@ final class PricingSnapshotTest extends TestCase {
 
 	/** The no-poll path autonomously terminalizes a missed queued worker. */
 	public function test_build_watchdog_is_job_fenced_and_publishes_queue_timeout(): void {
+		$this->require_snapshot_construction();
 		add_filter(
 			'digitalogic_pricing_snapshot_enqueue',
 			static function () {
@@ -1884,6 +1914,7 @@ final class PricingSnapshotTest extends TestCase {
 
 	/** The watchdog terminalizes a crashed running worker after its exact lease expires. */
 	public function test_build_watchdog_publishes_stalled_worker_terminal_without_status_poll(): void {
+		$this->require_snapshot_construction();
 		add_filter(
 			'digitalogic_pricing_snapshot_enqueue',
 			static function () {
@@ -1920,6 +1951,7 @@ final class PricingSnapshotTest extends TestCase {
 
 	/** An uncaught worker throwable becomes one durable request-bound terminal. */
 	public function test_worker_throwable_is_caught_and_published_as_failure(): void {
+		$this->require_snapshot_construction();
 		add_filter(
 			'digitalogic_pricing_snapshot_enqueue',
 			static function () {
@@ -1955,6 +1987,7 @@ final class PricingSnapshotTest extends TestCase {
 
 	/** Every coalesced request and cancellation receives one request-bound terminal. */
 	public function test_coalesced_and_cancelled_builds_publish_request_bound_terminals(): void {
+		$this->require_snapshot_construction();
 		add_filter(
 			'digitalogic_pricing_snapshot_enqueue',
 			static function () {
@@ -1995,6 +2028,7 @@ final class PricingSnapshotTest extends TestCase {
 
 	/** Queued cancellation is terminal, repeatable, and releases build admission. */
 	public function test_queued_cancel_is_durable_and_idempotent(): void {
+		$this->require_snapshot_construction();
 		add_filter(
 			'digitalogic_pricing_snapshot_enqueue',
 			static function () {
@@ -2025,6 +2059,7 @@ final class PricingSnapshotTest extends TestCase {
 
 	/** A queue watchdog never fails a worker that already owns a live lease. */
 	public function test_queue_timeout_is_fenced_by_live_worker_lease(): void {
+		$this->require_snapshot_construction();
 		add_filter(
 			'digitalogic_pricing_snapshot_enqueue',
 			static function () {
@@ -2061,6 +2096,7 @@ final class PricingSnapshotTest extends TestCase {
 
 	/** The worker itself enforces its advertised build deadline at checkpoints. */
 	public function test_worker_deadline_fails_before_projection_or_publish(): void {
+		$this->require_snapshot_construction();
 		add_filter(
 			'digitalogic_pricing_snapshot_enqueue',
 			static function () {
@@ -2090,6 +2126,7 @@ final class PricingSnapshotTest extends TestCase {
 
 	/** Failed terminal status cannot be hidden by 304 and partial publication rolls back. */
 	public function test_ready_job_storage_failure_rolls_back_and_status_stays_503(): void {
+		$this->require_snapshot_construction();
 		add_filter(
 			'digitalogic_pricing_snapshot_enqueue',
 			static function () {
@@ -2131,6 +2168,7 @@ final class PricingSnapshotTest extends TestCase {
 
 	/** A known warm terminal-store abort removes its uncommitted outbox stage. */
 	public function test_warm_job_storage_failure_discards_uncommitted_terminal_stage(): void {
+		$this->require_snapshot_construction();
 		add_filter(
 			'digitalogic_pricing_snapshot_enqueue',
 			static function () {
@@ -2163,6 +2201,7 @@ final class PricingSnapshotTest extends TestCase {
 
 	/** A cold request is rejected and fully released if no watchdog can persist. */
 	public function test_watchdog_schedule_failure_rejects_and_releases_build(): void {
+		$this->require_snapshot_construction();
 		add_filter(
 			'digitalogic_pricing_snapshot_enqueue',
 			static function () {
@@ -2181,6 +2220,7 @@ final class PricingSnapshotTest extends TestCase {
 
 	/** Corrupting one immutable page is rejected by bulk and page conditionals. */
 	public function test_page_digest_is_recomputed_before_conditional_response(): void {
+		$this->require_snapshot_construction();
 		add_filter(
 			'digitalogic_pricing_snapshot_enqueue',
 			static function () {
@@ -2325,6 +2365,14 @@ final class PricingSnapshotTest extends TestCase {
 	/** Return one revision response. */
 	private function revision_response( $headers = array(), $method = 'GET' ) {
 		return Digitalogic_REST_API::instance()->pricing_sync_revision( $this->query_request( $method, array(), $headers ) );
+	}
+
+	/** Keep construction scenarios deferred without disabling owner or security coverage. */
+	private function require_snapshot_construction(): void {
+		$service = new ReflectionClass( Digitalogic_Pricing_Snapshot::class );
+		if ( false === $service->getConstant( 'CONSTRUCTION_ENABLED' ) ) {
+			$this->markTestSkipped( 'Deferred by issue #296: snapshot construction is disabled for the website pricing prototype.' );
+		}
 	}
 
 	/** Start one exact revision-bound build. */
