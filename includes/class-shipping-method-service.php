@@ -810,7 +810,10 @@ final class Digitalogic_Shipping_Method_Service {
 			$results[] = array(
 				'code'       => $code,
 				'status'     => 'ok',
-				'assignment' => $this->build_pricing_assignment_projection( $code, $resolved, $default_markup, $method_rows[ $resolved['product_id'] ] ),
+				'assignment' => $this->build_pricing_assignment_projection(
+					$code, $resolved, $default_markup,
+					$method_rows[ $resolved['product_id'] ]
+				),
 			);
 		}
 
@@ -1986,22 +1989,37 @@ final class Digitalogic_Shipping_Method_Service {
         global $wpdb;
 
         $ids = array_values( array_unique( array_map( 'intval', $product_ids ) ) );
-        $result = array_fill_keys( $ids, array( 'exists' => false, 'value' => null, 'meta_id' => 0 ) );
+        $result = array_fill_keys(
+            $ids, array( 'exists' => false, 'value' => null, 'meta_id' => 0 )
+        );
         if ( empty( $ids ) ) {
             return $result;
         }
-        $table = isset( $wpdb->postmeta ) ? $wpdb->postmeta : $wpdb->prefix . 'postmeta';
+        $table = isset( $wpdb->postmeta )
+            ? $wpdb->postmeta : $wpdb->prefix . 'postmeta';
         $placeholders = implode( ', ', array_fill( 0, count( $ids ), '%d' ) );
-        $sql = "/* digitalogic_shipping_assignment_batch */ SELECT post_id, meta_id, meta_value FROM {$table} WHERE meta_key = %s AND post_id IN ({$placeholders}) ORDER BY post_id ASC, meta_id ASC";
+        $sql = "/* digitalogic_shipping_assignment_batch */ SELECT post_id, "
+            . "meta_id, meta_value FROM {$table} WHERE meta_key = %s "
+            . "AND post_id IN ({$placeholders}) ORDER BY post_id ASC, meta_id ASC";
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- One fresh read of exact owner IDs and assignment key, with placeholders for every value.
-        $rows = $wpdb->get_results( $wpdb->prepare( $sql, self::PRODUCT_METHOD_META, ...$ids ), ARRAY_A );
+        $rows = $wpdb->get_results(
+            $wpdb->prepare( $sql, self::PRODUCT_METHOD_META, ...$ids ), ARRAY_A
+        );
         if ( ! is_array( $rows ) ) {
-            return new WP_Error( 'digitalogic_shipping_assignment_read_failed', 'Owner shipping assignments could not be read.', array( 'status' => 503 ) );
+            return new WP_Error(
+                'digitalogic_shipping_assignment_read_failed',
+                'Owner shipping assignments could not be read.',
+                array( 'status' => 503 )
+            );
         }
         foreach ( $rows as $row ) {
             $id = (int) $row['post_id'];
             if ( isset( $result[ $id ] ) && ! $result[ $id ]['exists'] ) {
-                $result[ $id ] = array( 'exists' => true, 'value' => maybe_unserialize( $row['meta_value'] ), 'meta_id' => (int) $row['meta_id'] );
+                $result[ $id ] = array(
+                    'exists' => true,
+                    'value' => maybe_unserialize( $row['meta_value'] ),
+                    'meta_id' => (int) $row['meta_id'],
+                );
             }
         }
         return $result;
