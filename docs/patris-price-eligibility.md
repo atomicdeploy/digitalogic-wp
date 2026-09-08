@@ -1,5 +1,7 @@
 # Patris price eligibility
 
+Latest verified state and remaining scope: [live acceptance checkpoint](pricing-live-acceptance.md). Counts in the dated acceptance notes below are historical.
+
 Effective owner policy: 2026-09-08. Breaking policy change; old prices are not preserved when weight is missing.
 
 - Every canonical final-price route requires positive owner-sourced weight. Missing or zero weight means no final price, even if a previous Woo price exists.
