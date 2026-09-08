@@ -11,4 +11,6 @@ Production-first verification on 2026-09-08:
 - Native changed-rate adapter refresh completed in 59.312917824 seconds with 901 WooCommerce saves. Rate changed 34000→34100; target price changed 814600→817000.
 - Restoration returned rate34000, target814600 and direct_db; process exited0 and Apache/PHP-FPM/WebSocket remained active.
 
-The preceding instrumented run took61.697769398 seconds. These are separate executions with different instrumentation and runtime conditions, not a controlled estimate of savings. One sub-60 run has little margin and does not prove sustained latency, every changed product price, or all interfaces. Further acceptance remains open.
+Subsequent read-only inspection of that run's exact Redis stream interval returned891entries without truncation or revision mismatches. Independent Node arithmetic using the owner input projection matched all891changed product event prices; ten of901positive products were unchanged after rounding. No changed product event was missing or mismatched. Public variation form readback after restoration matched29/29prices. This validates emitted price values and form data, not every rendered page or interactive client.
+
+The preceding instrumented run took61.697769398 seconds. These are separate executions with different instrumentation and runtime conditions, not a controlled estimate of savings. One sub-60 run has little margin and does not prove sustained latency or all interfaces. Further acceptance remains open.
