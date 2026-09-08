@@ -825,6 +825,14 @@ final class Digitalogic_Google_Sheets_Catalog {
 			}
 
 			$this->overlay_reconciled_source( $row, $source, $methods, $woocommerce_id );
+			$mapping_missing = in_array( 'missing_in_patris', (array) ( $report_row['issues'] ?? array() ), true );
+			if ( $mapping_missing ) {
+				// Keep the immutable Woo row available for repair, never its unowned selling prices.
+				foreach ( array( 'price', 'regular_price', 'sale_price', 'effective_price', 'patris_final_price', 'record_revision' ) as $field ) {
+					unset( $row[ $field ] );
+				}
+				$row['price_status'] = 'patris_mapping_missing';
+			}
 			foreach ( array_keys( $row ) as $field ) {
 				if ( 0 === strpos( (string) $field, 'warehouse_stock:' ) ) {
 					unset( $row[ $field ] );
@@ -843,7 +851,10 @@ final class Digitalogic_Google_Sheets_Catalog {
 				)
 			);
 
-			$row['sync_status'] = $warnings ? 'warning' : 'ok';
+			if ( $mapping_missing ) {
+				$warnings[] = 'patris_mapping_missing';
+			}
+			$row['sync_status'] = $mapping_missing ? 'critical' : ( $warnings ? 'warning' : 'ok' );
 			$row['sync_error']  = implode( ';', $warnings );
 			if ( ! isset( $row['record_revision'] ) || ! preg_match( '/^sha256:[a-f0-9]{64}$/', (string) $row['record_revision'] ) ) {
 				$row['record_revision'] = 'sha256:' . hash(
@@ -1882,8 +1893,9 @@ final class Digitalogic_Google_Sheets_Catalog {
 	 * A duplicated WooCommerce SKU remains quarantined from identity fallback and
 	 * writeback, but both records already have distinct immutable Woo IDs and
 	 * stable projection keys. Keep that diagnostic in the projection metadata
-	 * without starving every unrelated catalog row. All other integrity failures
-	 * continue to fail the projection closed.
+	 * without starving every unrelated catalog row. Missing Patris mappings are
+	 * also repairable by immutable Woo ID; their prices are removed from the
+	 * projection. Ambiguous identities and other integrity failures still block.
 	 *
 	 * @param array $warnings Report integrity warnings.
 	 * @return array
@@ -1893,7 +1905,11 @@ final class Digitalogic_Google_Sheets_Catalog {
 			array_filter(
 				(array) $warnings,
 				static function ( $warning ) {
-					return 'projection_integrity_duplicate_woo_sku' !== (string) ( $warning['code'] ?? '' );
+					return ! in_array(
+						(string) ( $warning['code'] ?? '' ),
+						array( 'projection_integrity_duplicate_woo_sku', 'patris_mapping_missing' ),
+						true
+					);
 				}
 			)
 		);

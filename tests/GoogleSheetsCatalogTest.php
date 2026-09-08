@@ -298,7 +298,11 @@ final class GoogleSheetsCatalogTest extends TestCase {
 			),
 			array( 'category_ids' => array( 8 ) )
 		);
-		$GLOBALS['digitalogic_test_posts'][42] = $this->woo_post( 'simple', 'Woo only', array() );
+		$GLOBALS['digitalogic_test_posts'][42] = $this->woo_post(
+			'simple',
+			'Woo only',
+			array( '_price' => '400000', '_regular_price' => '400000', '_sale_price' => '350000', '_digitalogic_patris_final_price' => '400000' )
+		);
 		$GLOBALS['digitalogic_test_posts'][50] = $this->woo_post(
 			'variable',
 			'Variable parent',
@@ -392,6 +396,13 @@ final class GoogleSheetsCatalogTest extends TestCase {
 		$rows = array_merge( $first['rows'], $second['rows'] );
 		$this->assertCount( 4, $rows );
 		$this->assertSame( 4, count( array_unique( array_column( $rows, 'sync_key' ) ) ) );
+		$unmapped = $this->find_catalog_row( $rows, 'woo:42' );
+		$this->assertSame( 'critical', $unmapped['sync_status'] );
+		$this->assertSame( 'patris_mapping_missing', $unmapped['price_status'] );
+		foreach ( array( 'price', 'regular_price', 'sale_price', 'effective_price', 'patris_final_price' ) as $field ) {
+			$this->assertArrayNotHasKey( $field, $unmapped );
+		}
+		$this->assertContains( 'patris_mapping_missing', array_column( $first['reconciliation']['warnings'], 'code' ) );
 		$this->assertContains( 'patris:ONLY-P', array_column( $rows, 'sync_key' ) );
 		$this->assertNotContains( 'woo:50', array_column( $rows, 'sync_key' ) );
 		$this->assertNotContains( '000123', array_column( $rows, 'sync_key' ) );
@@ -445,8 +456,18 @@ final class GoogleSheetsCatalogTest extends TestCase {
 			),
 			$first['reconciliation']['counts']
 		);
-		$this->assertSame( 'current', $first['reconciliation']['integrity_status'] );
-		$this->assertSame( array(), $first['reconciliation']['warnings'] );
+		$this->assertSame( 'critical', $first['reconciliation']['integrity_status'] );
+		$this->assertSame( array( 'patris_mapping_missing' ), array_column( $first['reconciliation']['warnings'], 'code' ) );
+		$this->assertSame( 'critical', $first['reconciliation']['warnings'][0]['severity'] );
+
+		$complete = $this->catalog->get_reconciled_products_snapshot( array( 'dataset' => 'reconciled_products', 'locale' => 'fa' ) );
+		$this->assertFalse( is_wp_error( $complete ) );
+		$this->assertCount( 4, $complete['rows'] );
+		$complete_unmapped = $this->find_catalog_row( $complete['rows'], 'woo:42' );
+		foreach ( array( 'regular_price', 'sale_price', 'effective_price', 'patris_final_price' ) as $field ) {
+			$this->assertNull( $complete_unmapped[ $field ] );
+		}
+		$this->assertSame( 'critical', $complete_unmapped['sync_status'] );
 	}
 
 	/** A legitimate exact Product Code beginning with woo: is never mistaken for a sentinel. */

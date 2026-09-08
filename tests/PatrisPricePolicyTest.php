@@ -124,13 +124,19 @@ final class PatrisPricePolicyTest extends TestCase {
 			}
 		};
 		$policy  = Digitalogic_Patris_Price_Policy::instance();
-		$priced  = $policy->apply( $product, array( 'final_price' => 200 ) );
+		$priced  = $policy->apply(
+			$product,
+			array(
+				'final_price'  => 200,
+				'weight_grams' => 100,
+			)
+		);
 		$this->assertSame( '200', $priced['woo_regular_price'] );
 		$this->assertSame( '200', $priced['woo_effective_price'] );
 		$this->assertFalse( $priced['sale_active'] );
 		$preserved = $policy->apply( $product, array( 'weight_grams' => null ) );
-		$this->assertSame( 'canonical_missing_preserved', $preserved['policy_status'] );
-		$this->assertSame( '200', $preserved['woo_effective_price'] );
+		$this->assertSame( 'canonical_missing_unpriced', $preserved['policy_status'] );
+		$this->assertSame( '', $preserved['woo_effective_price'] );
 		$this->assertSame( 0, $product->view_reads );
 		$this->assertSame( 0, $product->sale_reads );
 
@@ -141,6 +147,7 @@ final class PatrisPricePolicyTest extends TestCase {
 		$this->assertSame( 3, $product->view_reads );
 		$this->assertSame( 1, $product->sale_reads );
 
+		$product->set_regular_price( '200' );
 		$product->set_sale_price( '150' );
 		$product->sale_from = new DateTimeImmutable( '+1 hour' );
 		$this->assertFalse( $policy->project( $product, null, null, null, 'edit' )['sale_active'] );
@@ -656,6 +663,7 @@ final class PatrisPricePolicyTest extends TestCase {
 				'product_code' => 'STOCK-810',
 				'total_stock'  => 1.9,
 				'final_price'  => 700,
+				'weight_grams' => 100,
 			)
 		);
 		$product = wc_get_product( 810 );
@@ -760,6 +768,7 @@ final class PatrisPricePolicyTest extends TestCase {
 		return array(
 			'product_code' => $code,
 			'final_price'  => $price,
+			'weight_grams' => 100,
 			'total_stock'  => 5,
 		);
 	}

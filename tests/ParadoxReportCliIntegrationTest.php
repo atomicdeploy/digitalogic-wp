@@ -28,6 +28,7 @@ final class ParadoxReportCliIntegrationTest extends TestCase {
 			'unit'                           => 'عدد',
 			'total_stock'                    => 1,
 			'price_source_currency'          => 'IRR',
+			'weight_grams'                   => '100',
 			'shipping_method_id'             => 'domestic',
 			'shipping_price_per_kg'          => '0',
 			'shipping_price_per_kg_currency' => 'IRR',

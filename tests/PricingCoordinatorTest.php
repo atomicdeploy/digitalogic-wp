@@ -326,6 +326,7 @@ final class PricingCoordinatorTest extends TestCase {
 		$direct                                  = array(
 			'product_code'                   => 'PRICE-901',
 			'sale_price_source'              => 1234560,
+			'weight_grams'                   => 1000,
 			'price_source_amount'            => 1234560,
 			'price_source_currency'          => 'IRR',
 			'price_source_kind'              => 'sale_price_direct',
@@ -523,6 +524,7 @@ final class PricingCoordinatorTest extends TestCase {
 		$partner                = array(
 			'product_code'                   => 'PARTNER-902',
 			'partner_price_source'           => 1234560,
+			'weight_grams'                   => 1000,
 			'price_source_amount'            => 1234560,
 			'price_source_currency'          => 'IRR',
 			'price_source_kind'              => 'partner_price',
@@ -604,6 +606,7 @@ final class PricingCoordinatorTest extends TestCase {
 		$direct                                 = array(
 			'product_code'                   => 'DIRECT-903',
 			'sale_price_source'              => 1234560,
+			'weight_grams'                   => 1000,
 			'price_source_amount'            => 1234560,
 			'price_source_currency'          => 'IRR',
 			'price_source_kind'              => 'sale_price_direct',
@@ -5287,8 +5290,8 @@ final class PricingCoordinatorTest extends TestCase {
 		);
 	}
 
-	/** Missing weight preserves a valid prior storefront price and reports why. */
-	public function test_missing_weight_preserves_consistent_storefront_price_with_warning(): void {
+	/** Missing weight clears a prior storefront price and remains unpriced on replay. */
+	public function test_missing_weight_clears_storefront_price_and_remains_unpriced(): void {
 		$GLOBALS['digitalogic_test_posts'][901]['meta']['_regular_price'] = '1150000';
 		$GLOBALS['digitalogic_test_posts'][901]['meta']['_sale_price']    = '';
 		$GLOBALS['digitalogic_test_posts'][901]['meta']['_price']         = '1150000';
@@ -5307,11 +5310,11 @@ final class PricingCoordinatorTest extends TestCase {
 			is_wp_error( $received ),
 			is_wp_error( $received ) ? $received->get_error_code() . ': ' . $received->get_error_message() : ''
 		);
-		$this->assertSame( '1150000', (string) $GLOBALS['digitalogic_test_posts'][901]['meta']['_regular_price'] );
-		$this->assertSame( '1150000', (string) $GLOBALS['digitalogic_test_posts'][901]['meta']['_price'] );
+		$this->assertSame( '', (string) $GLOBALS['digitalogic_test_posts'][901]['meta']['_regular_price'] );
+		$this->assertSame( '', (string) $GLOBALS['digitalogic_test_posts'][901]['meta']['_price'] );
 		$this->assertSame( '', (string) $GLOBALS['digitalogic_test_posts'][901]['meta']['_sale_price'] );
 		$this->assertSame(
-			'canonical_missing_preserved',
+			'canonical_missing_unpriced',
 			(string) $GLOBALS['digitalogic_test_posts'][901]['meta'][ Digitalogic_Patris_Price_Policy::STATUS_META ]
 		);
 
@@ -5327,26 +5330,23 @@ final class PricingCoordinatorTest extends TestCase {
 			is_wp_error( $result ),
 			is_wp_error( $result ) ? $result->get_error_code() . ': ' . $result->get_error_message() : ''
 		);
-		$this->assertSame( '1150000', (string) $GLOBALS['digitalogic_test_posts'][901]['meta']['_regular_price'] );
-		$this->assertSame( '1150000', (string) $GLOBALS['digitalogic_test_posts'][901]['meta']['_price'] );
+		$this->assertSame( '', (string) $GLOBALS['digitalogic_test_posts'][901]['meta']['_regular_price'] );
+		$this->assertSame( '', (string) $GLOBALS['digitalogic_test_posts'][901]['meta']['_price'] );
 		$this->assertSame( '', (string) $GLOBALS['digitalogic_test_posts'][901]['meta']['_sale_price'] );
 		$this->assertSame(
-			Digitalogic_Patris_Price_Policy::MISSING_WEIGHT_WARNING,
-			(string) $GLOBALS['digitalogic_test_posts'][901]['meta'][ Digitalogic_Patris_Price_Policy::WARNING_META ]
+			'',
+			(string) ( $GLOBALS['digitalogic_test_posts'][901]['meta'][ Digitalogic_Patris_Price_Policy::WARNING_META ] ?? '' )
 		);
-		$this->assertSame( 1, $result['pricing_results']['warning_count'] );
-		$this->assertSame(
-			'canonical_missing_preserved',
-			$result['pricing_results']['warnings'][0]['code']
-		);
+		$this->assertSame( 0, $result['pricing_results']['warning_count'] );
+		$this->assertSame( array(), $result['pricing_results']['warnings'] );
 
 		$GLOBALS['digitalogic_test_wc_product_saves'] = array();
 		$replay                                       = Digitalogic_Pricing_Coordinator::instance()->reconcile_current( 'test_missing_weight_replay' );
 		$this->assertFalse( is_wp_error( $replay ) );
 		$this->assertSame( 0, $replay['pricing_results']['updated_products'] );
 		$this->assertSame( 1, $replay['pricing_results']['already_current_products'] );
-		$this->assertSame( 1, $replay['pricing_results']['warning_count'] );
-		$this->assertSame( 'canonical_missing_preserved', $replay['pricing_results']['warnings'][0]['code'] );
+		$this->assertSame( 0, $replay['pricing_results']['warning_count'] );
+		$this->assertSame( array(), $replay['pricing_results']['warnings'] );
 		$this->assertSame( array(), $GLOBALS['digitalogic_test_wc_product_saves'] );
 	}
 

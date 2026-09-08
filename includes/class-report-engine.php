@@ -884,7 +884,9 @@ final class Digitalogic_Report_Engine {
 				'category' => $args['category'],
 			),
 			'integrity'         => array(
-				'status'   => empty( $woo_result['integrity_warnings'] ) ? 'current' : 'warning',
+				'status'   => empty( $woo_result['integrity_warnings'] ) ? 'current' : (
+					in_array( 'critical', array_column( $woo_result['integrity_warnings'], 'severity' ), true ) ? 'critical' : 'warning'
+				),
 				'warnings' => $woo_result['integrity_warnings'],
 			),
 			'rows'              => $page_rows,

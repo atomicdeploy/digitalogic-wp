@@ -1095,6 +1095,7 @@ final class ProductSyncReceiverTest extends TestCase {
         $products = array(
             array(
                 'product_code'                   => 'PARTNER-UP',
+				'weight_grams'                   => 100,
                 'pricing_catalog_revision'       => $this->currentCatalogRevision(),
                 'partner_price_source'           => 949661,
                 'price_source_amount'            => 949661,
@@ -1111,6 +1112,7 @@ final class ProductSyncReceiverTest extends TestCase {
             ),
             array(
                 'product_code'                   => 'PARTNER-DOWN',
+				'weight_grams'                   => 100,
                 'pricing_catalog_revision'       => $this->currentCatalogRevision(),
                 'partner_price_source'           => 949600,
                 'price_source_amount'            => 949600,
@@ -1127,6 +1129,7 @@ final class ProductSyncReceiverTest extends TestCase {
             ),
             array(
                 'product_code'                   => 'PARTNER-HALF',
+				'weight_grams'                   => 100,
                 'pricing_catalog_revision'       => $this->currentCatalogRevision(),
                 'partner_price_source'           => 1234500,
                 'price_source_amount'            => 1234500,
@@ -1175,6 +1178,7 @@ final class ProductSyncReceiverTest extends TestCase {
     public function test_opt_in_direct_sale_fallback_uses_distinct_forosh_without_markup_or_rounding(): void {
         $direct                = array(
             'product_code'                   => 'DIRECT-SALE',
+			'weight_grams'                   => 100,
             'sale_price_source'              => 1234500,
             'price_source_amount'            => 1234500,
             'price_source_currency'          => 'IRR',
@@ -1238,6 +1242,7 @@ final class ProductSyncReceiverTest extends TestCase {
     public function test_partner_price_never_reuses_patris_sale_price_or_non_domestic_shipping(): void {
         $product                = array(
             'product_code'                   => 'PARTNER-SEPARATION',
+			'weight_grams'                   => 100,
             'sale_price_source'              => 12000,
             'partner_price_source'           => 7000,
             'price_source_amount'            => 12000,
@@ -1305,6 +1310,7 @@ final class ProductSyncReceiverTest extends TestCase {
             'final_price'                    => 13000,
             'warnings'                       => array(),
         );
+		unset( $fallback['final_price'] );
         $fallback['record_hash'] = $this->recordHash($fallback, true);
         $result                  = Digitalogic_Product_Sync_Receiver::instance()->receive(
             $this->snapshot(array($fallback), array(), true)
