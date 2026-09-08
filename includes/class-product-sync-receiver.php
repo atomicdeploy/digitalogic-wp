@@ -1481,13 +1481,22 @@ class Digitalogic_Product_Sync_Receiver {
                         && !empty($post_results[$product_id]);
                     $meta_deleted = is_array($meta_results)
                         && !empty($meta_results[$product_id]);
-                    if ((!$post_deleted || !$meta_deleted) && function_exists('clean_post_cache')) {
-                        // A persistent cache may accept a multi-delete while
-                        // failing individual keys. Fall back only for those
-                        // products so the committed canonical metadata cannot
-                        // remain stale while Woo's public price is current.
-                        clean_post_cache($product_id);
+                    // Redis DEL also returns false for an already absent key.
+                    // Retry the exact key without reloading the deleted post.
+                    if (!$post_deleted) {
+                        wp_cache_delete($product_id, 'posts');
                     }
+                    if (!$meta_deleted) {
+                        wp_cache_delete($product_id, 'post_meta');
+                    }
+                }
+                wp_cache_delete_multiple(
+                    array_map(static fn($id) => 'post_parent:' . $id, $product_ids),
+                    'posts'
+                );
+                wp_cache_delete('wp_get_archives', 'general');
+                if (function_exists('wp_cache_set_posts_last_changed')) {
+                    wp_cache_set_posts_last_changed();
                 }
             } else {
                 foreach ($product_ids as $product_id) {
