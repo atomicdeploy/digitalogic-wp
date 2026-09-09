@@ -306,11 +306,18 @@ final class ProductQueryTest extends TestCase {
 			44 => array( 'min_price' => '180.0000', 'max_price' => '180.0000' ),
 		);
 
+		// Exercise a family beyond the former silent 100-child cutoff.
+		foreach ( range( 45, 144 ) as $variation_id ) {
+			$GLOBALS['digitalogic_test_posts'][ $variation_id ] = $GLOBALS['digitalogic_test_posts'][44];
+			$GLOBALS['digitalogic_test_wc_lookup_rows'][ $variation_id ] = $GLOBALS['digitalogic_test_wc_lookup_rows'][44];
+		}
 		$product = Digitalogic_Product_Manager::instance()->get_product( 43 );
 
 		$this->assertSame( '120.0000', $product['min_price'] );
 		$this->assertSame( '180.0000', $product['max_price'] );
-		$this->assertCount( 1, $product['variations'] );
+		$this->assertCount( 101, $product['variations'] );
+		$this->assertSame( 144, $product['variations'][100]['id'] );
+		$this->assertSame( '180.0000', $product['variations'][100]['min_price'] );
 		$this->assertSame( '180.0000', $product['variations'][0]['min_price'] );
 		$this->assertSame( '180.0000', $product['variations'][0]['max_price'] );
 		$this->assertSame( 1, $GLOBALS['wpdb']->price_range_query_count );
