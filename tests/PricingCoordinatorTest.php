@@ -2105,8 +2105,8 @@ final class PricingCoordinatorTest extends TestCase {
 		);
 		$this->assertSame( '8437286', (string) $GLOBALS['digitalogic_test_wc_lookup_rows'][30000]['min_price'] );
 		$this->assertSame( '8437286', (string) $GLOBALS['digitalogic_test_wc_lookup_rows'][30000]['max_price'] );
-		$this->assertSame( 999, (int) reset( $GLOBALS['wc_deferred_product_sync'] ) );
-		$this->assertContains( 30000, $GLOBALS['wc_deferred_product_sync'] );
+		$this->assertSame( array( 999 ), $GLOBALS['wc_deferred_product_sync'] );
+		$this->assertContains( 30000, WC_Product_Variable::$synced_ids );
 		$this->assertContains( 'COMMIT', $GLOBALS['wpdb']->queries );
 	}
 

@@ -645,6 +645,9 @@ class Digitalogic_Product_Sync_Receiver {
 			. (string) ( $snapshot['dataset'] ?? '' ) . "\n"
 			. (string) ( $snapshot['source_revision'] ?? '' ) . "\n"
 			. (string) ( $snapshot['product_code'] ?? '' );
+		if ( ! empty( $snapshot['publication_only'] ) ) {
+			$key .= "\n" . absint( $snapshot['product_id'] ?? 0 );
+		}
 		$this->materializer_committed_snapshots[ hash( 'sha256', $key ) ] = $snapshot;
 	}
 
@@ -4803,6 +4806,14 @@ class Digitalogic_Product_Sync_Receiver {
         if ($suspend_cache_invalidation) {
             $previous_cache_invalidation = wp_suspend_cache_invalidation(true);
         }
+		// Own only work enqueued by this coordinated drain. Earlier request work
+		// keeps its ordinary lifecycle and must not be silently consumed here.
+		$isolate_parent_sync = $this->coordinated_transaction_depth > 0;
+		$previous_parent_sync_exists = array_key_exists( 'wc_deferred_product_sync', $GLOBALS );
+		$previous_parent_sync = $previous_parent_sync_exists ? $GLOBALS['wc_deferred_product_sync'] : null;
+		if ( $isolate_parent_sync ) {
+			$GLOBALS['wc_deferred_product_sync'] = array();
+		}
 
         try {
             return Digitalogic_Webhooks::instance()->without_product_change_webhooks(
@@ -4816,6 +4827,13 @@ class Digitalogic_Product_Sync_Receiver {
                 }
             );
         } finally {
+			if ( $isolate_parent_sync ) {
+				if ( $previous_parent_sync_exists ) {
+					$GLOBALS['wc_deferred_product_sync'] = $previous_parent_sync;
+				} else {
+					unset( $GLOBALS['wc_deferred_product_sync'] );
+				}
+			}
             if ($suspend_cache_invalidation) {
                 wp_suspend_cache_invalidation($previous_cache_invalidation);
             }
@@ -5336,6 +5354,39 @@ class Digitalogic_Product_Sync_Receiver {
                 ));
             }
         }
+		$synced_product_ids = array();
+		if ( $this->coordinated_transaction_depth > 0 && 0 === (int) $result['failed'] ) {
+			// Woo's deferred parent saves are part of delivery, not shutdown work.
+			// Run them under the same locks and publication suppression, before
+			// the authoritative final readback below can declare delivery complete.
+			$parent_sync_started = hrtime( true );
+			$record_synced_product = static function ( $product ) use ( &$synced_product_ids ) {
+				if ( $product instanceof WC_Product && $product->get_id() > 0 ) {
+					$synced_product_ids[ (int) $product->get_id() ] = true;
+				}
+			};
+			add_action( 'woocommerce_after_product_object_save', $record_synced_product, PHP_INT_MAX );
+			try {
+				$guarded = $this->check_coordinated_actuation_guard();
+				if ( is_wp_error( $guarded ) ) {
+					return $guarded;
+				}
+				WC_Post_Data::do_deferred_product_sync();
+				$guarded = $this->check_coordinated_actuation_guard();
+				if ( is_wp_error( $guarded ) ) {
+					return $guarded;
+				}
+				if ( ! empty( $GLOBALS['wc_deferred_product_sync'] ) ) {
+					return $this->error( 'digitalogic_pricing_parent_sync_incomplete', 'Deferred WooCommerce product sync did not finish.', 503 );
+				}
+			} finally {
+				foreach ( array_keys( $synced_product_ids ) as $synced_product_id ) {
+					$this->coordinated_product_ids[ $synced_product_id ] = true;
+				}
+				remove_action( 'woocommerce_after_product_object_save', $record_synced_product, PHP_INT_MAX );
+				$this->record_receiver_timing( 'adapter_parent_sync', $parent_sync_started );
+			}
+		}
 		if (
 			$this->coordinated_transaction_depth > 0
 			&& 0 === (int) $result['failed']
@@ -5450,6 +5501,18 @@ class Digitalogic_Product_Sync_Receiver {
 				$result['fallback_parent_count'] = count(
 					array_values( (array) ( $refreshed_parents['parent_ids'] ?? array() ) )
 				);
+			}
+		}
+
+		if ( 0 === (int) $result['failed'] ) {
+			foreach ( array_keys( $synced_product_ids ) as $synced_product_id ) {
+				$this->queue_materializer_product_committed( array(
+					'publication_only' => true,
+					'product_id' => $synced_product_id,
+					'source_id' => (string) ( $source_state['source']['id'] ?? '' ),
+					'dataset' => (string) ( $source_state['source']['dataset'] ?? '' ),
+					'source_revision' => (string) ( $source_state['source']['revision'] ?? '' ),
+				) );
 			}
 		}
 

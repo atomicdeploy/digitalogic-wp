@@ -50,3 +50,13 @@ The [full production proof](https://github.com/atomicdeploy/digitalogic-wp/issue
 This checkpoint does not prove Go-authority parity, the sub-second single-product target, all adapter/queue combinations, or end-to-end propagation through every interface. It does not prove n8n destination delivery from a PHP receipt.
 
 The remaining mapping evidence, Go/shared-PHP unification and immediate pricing requirements remain active. Full bidirectional synchronization, interface progress work, full Excel acceptance, notifications, engine comparison and snapshot/revision/rollback redesign remain in their agreed backlog. Before re-enabling deferred features, reconcile them with current policy and expose consumer configuration; do not reintroduce competing pricing owners or permanent compatibility paths.
+
+## Adapter bulk latency — 9 September 2026
+
+Actual changed-CNY adapter execution took141.201s before the deferred-sync repair and76.626s afterward. This remains above the60s requirement; adapter performance is not accepted. Native Woo deferred parent synchronization now runs within coordinated delivery before final readback, retaining scoped publication and preserving pre-existing request queue work.
+
+All1,022 mapped rows passed independent price/stock checks at CNY34,600 and restored34,500. All896 changed-price events matched;901 mapped product events were checked,936 product events observed overall. Direct-DB restoration completed32.018s. Production stays PHP/direct_db. Two existing focused queue/readback checks passed (27 assertions); these supplement rather than replace live evidence.
+
+The callback profile removed64.334s of shutdown work (0.003ms afterward); product_updated webhook callback time fell from42.209s to2.352ms. These spans overlap and must not be added. Remaining adapter save/readback time still needs attribution.
+
+Tracking and detailed evidence: https://github.com/atomicdeploy/digitalogic-wp/issues/324#issuecomment-5593955034
