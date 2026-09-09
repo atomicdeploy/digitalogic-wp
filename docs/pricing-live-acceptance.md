@@ -60,3 +60,5 @@ All1,022 mapped rows passed independent price/stock checks at CNY34,600 and rest
 The callback profile removed64.334s of shutdown work (0.003ms afterward); product_updated webhook callback time fell from42.209s to2.352ms. These spans overlap and must not be added. Remaining adapter save/readback time still needs attribution.
 
 Tracking and detailed evidence: https://github.com/atomicdeploy/digitalogic-wp/issues/324#issuecomment-5593955034
+
+Follow-up adapter observation: removing duplicate post-save cache invalidation and using staged edit-context prices for source completeness yielded71.678s uninstrumented. No additional end-to-end gain is established against the preceding71.732s span run. All1,022 rows and896 changed-price events passed; exact original settings/rows restored, direct_db restoration36.349s. Adapter remains above60s. Temporary profiling code is absent from the deployed materializer.
