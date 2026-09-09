@@ -427,6 +427,7 @@ final class Digitalogic_Currency_Admin_Async {
 	 * @return array|WP_Error Public job projection or error.
 	 */
 	public function enqueue_currency( array $values, $dispatch = true, $reconcile = false, $expected_revision = '', $source = 'admin', $request_id = '', $execution_mode = 'async' ) {
+		$submitted_at = time();
 		$allowed = array( 'dollar_price', 'yuan_price', 'effective_date', 'usd_effective_date', 'cny_effective_date' );
 		if ( ! $values || array_diff( array_keys( $values ), $allowed ) ) {
 			return new WP_Error(
@@ -512,7 +513,7 @@ final class Digitalogic_Currency_Admin_Async {
 		);
 		$should_wake         = false;
 		$result              = $this->with_job_lock(
-			function () use ( $desired, $dispatch, $reconcile, $expected_revision, $source, $request_id, $request_fingerprint, $execution_mode, &$should_wake ) {
+			function () use ( $desired, $dispatch, $reconcile, $expected_revision, $source, $request_id, $request_fingerprint, $execution_mode, $submitted_at, &$should_wake ) {
 				$now             = time();
 				$existing        = $this->raw_job();
 				$existing_status = (string) ( $existing['status'] ?? '' );
@@ -609,6 +610,10 @@ final class Digitalogic_Currency_Admin_Async {
 						)
 					);
 				}
+				$submitted_currency = $desired;
+				if ( ! $reconcile ) {
+					$desired = Digitalogic_Pricing_Coordinator::instance()->currency_submission_dates( $desired, $current, $submitted_at );
+				}
 				$confirmed     = array(
 					'dollar_price' => (int) $current['dollar_price'],
 					'yuan_price'   => (int) $current['yuan_price'],
@@ -649,6 +654,8 @@ final class Digitalogic_Currency_Admin_Async {
 					'source'                  => $source,
 					'status'                  => $same ? 'confirmed' : 'queued',
 					'desired_currency'        => $desired,
+					'submitted_currency'      => $submitted_currency,
+					'submitted_at'            => $submitted_at,
 					'confirmed_currency'      => $confirmed,
 					'expected_state_revision' => (string) $state['state_revision'],
 					'created_at'              => $now,
