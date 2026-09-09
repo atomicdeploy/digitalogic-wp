@@ -4,6 +4,20 @@
 use PHPUnit\Framework\TestCase;
 
 final class CurrencyDateIntegrationTest extends TestCase {
+    public function test_submission_date_uses_tehran_day_and_survives_delayed_execution(): void {
+        $coordinator = Digitalogic_Pricing_Coordinator::instance();
+        $current = array('dollar_price' => 100, 'yuan_price' => 20);
+        $submittedAt = strtotime('2026-09-08T21:00:00Z');
+        $submitted = array('dollar_price' => 101, 'yuan_price' => 21, 'usd_effective_date' => '2026-08-01');
+        $resolved = $coordinator->currency_submission_dates($submitted, $current, $submittedAt);
+        $this->assertSame('2026-08-01', $resolved['usd_effective_date']);
+        $this->assertSame('2026-09-09', $resolved['cny_effective_date']);
+        $this->assertSame($resolved, $coordinator->currency_submission_dates($resolved, $current, $submittedAt + 86400));
+        $this->assertSame(array('yuan_price' => 20), $coordinator->currency_submission_dates(array('yuan_price' => 20), $current, $submittedAt));
+        $explicit = array('yuan_price' => 21, 'effective_date' => '2026-08-01');
+        $this->assertSame($explicit, $coordinator->currency_submission_dates($explicit, $current, $submittedAt));
+    }
+
     protected function setUp(): void {
         $GLOBALS['digitalogic_test_options'] = array(
             'options_dollar_price' => 71500,

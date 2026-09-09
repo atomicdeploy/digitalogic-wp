@@ -169,6 +169,14 @@ final class Digitalogic_Currency_Admin_Async {
 		}
 		if ( 'effective_date' === $currency ) {
 			$value = $this->normalize_acf_effective_date( $value );
+			$date  = Digitalogic_Currency_Date_Formatter::instance()->parse( $value );
+			$state = Digitalogic_Pricing_Service::instance()->current_canonical_state();
+			// ACF resubmits untouched fields. Only an edited date or explicit
+			// override may pin a new rate to the previously displayed date.
+			$override = '1' === (string) ( $_POST['digitalogic_currency_date_override'] ?? '' ); // phpcs:ignore WordPress.Security.NonceVerification.Missing -- ACF validates its form nonce before this hook.
+			if ( ! $override && null !== $date && ! is_wp_error( $state ) && $date->format( 'Y-m-d' ) === (string) $state['settings']['cny_effective_date'] ) {
+				return $this->persisted_currency_value( $currency, $value );
+			}
 		}
 
 		// ACF calls this filter once per field. Capture every semantic rate and
@@ -293,6 +301,7 @@ final class Digitalogic_Currency_Admin_Async {
 			esc_attr( (string) $state['state_revision'] ),
 			esc_attr( 'acf:' . wp_generate_uuid4() )
 		);
+		echo '<p><label><input type="checkbox" name="digitalogic_currency_date_override" value="1"> نگه‌داشتن عمدی تاریخ انتخاب‌شده برای نرخ جدید</label><br><small>اگر تاریخ را تغییر ندهید، نرخ جدید با تاریخ روز دریافت ثبت می‌شود. برای استفادهٔ عمدی از همان تاریخ قبلی، این گزینه را فعال کنید.</small></p>';
 	}
 
 	/**
@@ -427,7 +436,8 @@ final class Digitalogic_Currency_Admin_Async {
 	 * @return array|WP_Error Public job projection or error.
 	 */
 	public function enqueue_currency( array $values, $dispatch = true, $reconcile = false, $expected_revision = '', $source = 'admin', $request_id = '', $execution_mode = 'async' ) {
-		$allowed = array( 'dollar_price', 'yuan_price', 'effective_date', 'usd_effective_date', 'cny_effective_date' );
+		$submitted_at = time();
+		$allowed      = array( 'dollar_price', 'yuan_price', 'effective_date', 'usd_effective_date', 'cny_effective_date' );
 		if ( ! $values || array_diff( array_keys( $values ), $allowed ) ) {
 			return new WP_Error(
 				'digitalogic_currency_async_fields_invalid',
@@ -512,7 +522,7 @@ final class Digitalogic_Currency_Admin_Async {
 		);
 		$should_wake         = false;
 		$result              = $this->with_job_lock(
-			function () use ( $desired, $dispatch, $reconcile, $expected_revision, $source, $request_id, $request_fingerprint, $execution_mode, &$should_wake ) {
+			function () use ( $desired, $dispatch, $reconcile, $expected_revision, $source, $request_id, $request_fingerprint, $execution_mode, $submitted_at, &$should_wake ) {
 				$now             = time();
 				$existing        = $this->raw_job();
 				$existing_status = (string) ( $existing['status'] ?? '' );
@@ -609,6 +619,10 @@ final class Digitalogic_Currency_Admin_Async {
 						)
 					);
 				}
+				$submitted_currency = $desired;
+				if ( ! $reconcile ) {
+					$desired = Digitalogic_Pricing_Coordinator::instance()->currency_submission_dates( $desired, $current, $submitted_at );
+				}
 				$confirmed     = array(
 					'dollar_price' => (int) $current['dollar_price'],
 					'yuan_price'   => (int) $current['yuan_price'],
@@ -649,6 +663,8 @@ final class Digitalogic_Currency_Admin_Async {
 					'source'                  => $source,
 					'status'                  => $same ? 'confirmed' : 'queued',
 					'desired_currency'        => $desired,
+					'submitted_currency'      => $submitted_currency,
+					'submitted_at'            => $submitted_at,
 					'confirmed_currency'      => $confirmed,
 					'expected_state_revision' => (string) $state['state_revision'],
 					'created_at'              => $now,

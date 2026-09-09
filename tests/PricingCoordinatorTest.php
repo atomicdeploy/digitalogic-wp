@@ -2649,7 +2649,7 @@ final class PricingCoordinatorTest extends TestCase {
 
 		$this->assertFalse( is_wp_error( $job ) );
 		$this->assertSame( 'queued', $job['status'] );
-		$this->assertSame( array( 'yuan_price' => 29501 ), $job['desired_currency'] );
+		$this->assertSame( array( 'yuan_price' => 29501, 'cny_effective_date' => ( new DateTimeImmutable( '@' . $job['created_at'] ) )->setTimezone( new DateTimeZone( 'Asia/Tehran' ) )->format( 'Y-m-d' ) ), $job['desired_currency'] );
 		$this->assertSame( 29500, $job['confirmed_currency']['yuan_price'] );
 		$after = Digitalogic_Pricing_Service::instance()->current_canonical_settings();
 		$this->assertSame( $before['yuan_price'], $after['yuan_price'] );
@@ -2880,6 +2880,8 @@ final class PricingCoordinatorTest extends TestCase {
 			array(
 				'dollar_price' => 188000,
 				'yuan_price'   => 31000,
+				'usd_effective_date' => ( new DateTimeImmutable( '@' . $job['created_at'] ) )->setTimezone( new DateTimeZone( 'Asia/Tehran' ) )->format( 'Y-m-d' ),
+				'cny_effective_date' => ( new DateTimeImmutable( '@' . $job['created_at'] ) )->setTimezone( new DateTimeZone( 'Asia/Tehran' ) )->format( 'Y-m-d' ),
 			),
 			$job['desired_currency']
 		);
@@ -3639,7 +3641,7 @@ final class PricingCoordinatorTest extends TestCase {
 		$this->assertSame( '29500', $value );
 		$job = $async->status();
 		$this->assertSame( 'queued', $job['status'] );
-		$this->assertSame( array( 'yuan_price' => 29501 ), $job['desired_currency'] );
+		$this->assertSame( array( 'yuan_price' => 29501, 'cny_effective_date' => ( new DateTimeImmutable( '@' . $job['created_at'] ) )->setTimezone( new DateTimeZone( 'Asia/Tehran' ) )->format( 'Y-m-d' ) ), $job['desired_currency'] );
 		$this->assertSame( 29500, Digitalogic_Pricing_Service::instance()->current_canonical_settings()['yuan_price'] );
 
 		// Even if the ACF name variation no longer fires, the canonical option
@@ -3798,7 +3800,8 @@ final class PricingCoordinatorTest extends TestCase {
 
 		$job = $async->status();
 		$this->assertSame( 'queued', $job['status'] );
-		$this->assertSame( '2026-07-21', $job['desired_currency']['effective_date'] );
+		$this->assertArrayNotHasKey( 'effective_date', $job['desired_currency'] );
+		$this->assertSame( ( new DateTimeImmutable( '@' . $job['created_at'] ) )->setTimezone( new DateTimeZone( 'Asia/Tehran' ) )->format( 'Y-m-d' ), $job['desired_currency']['cny_effective_date'] );
 		$this->assertSame( '260721', (string) $GLOBALS['digitalogic_test_options']['options_update_date'] );
 	}
 
@@ -3997,7 +4000,7 @@ final class PricingCoordinatorTest extends TestCase {
 		$this->assertSame( '187891', $value );
 		$job = $async->status();
 		$this->assertSame( 'queued', $job['status'] );
-		$this->assertSame( array( 'dollar_price' => 188000 ), $job['desired_currency'] );
+		$this->assertSame( array( 'dollar_price' => 188000, 'usd_effective_date' => ( new DateTimeImmutable( '@' . $job['created_at'] ) )->setTimezone( new DateTimeZone( 'Asia/Tehran' ) )->format( 'Y-m-d' ) ), $job['desired_currency'] );
 		$this->assertSame( '187891', (string) $GLOBALS['digitalogic_test_options']['options_dollar_price'] );
 		$this->assertSame( '29500', (string) $GLOBALS['digitalogic_test_options']['options_yuan_price'] );
 	}

@@ -147,6 +147,22 @@ final class Digitalogic_Pricing_Coordinator {
 		return self::$instance;
 	}
 
+	/** Freeze independent rate dates using the owner's submission timezone. */
+	public function currency_submission_dates( array $values, array $current, int $submitted_at ): array {
+		$day = ( new DateTimeImmutable( '@' . $submitted_at ) )->setTimezone( wp_timezone() )->format( 'Y-m-d' );
+		foreach ( array( 'dollar_price' => 'usd_effective_date', 'yuan_price' => 'cny_effective_date' ) as $rate => $date ) {
+			if (
+				array_key_exists( $rate, $values )
+				&& ! array_key_exists( 'effective_date', $values )
+				&& ! array_key_exists( $date, $values )
+				&& $this->rate_value_changed( $current[ $rate ], $values[ $rate ] )
+			) {
+				$values[ $date ] = $day;
+			}
+		}
+		return $values;
+	}
+
 	/**
 	 * Apply one partial currency change and reprice before committing.
 	 *
@@ -190,7 +206,7 @@ final class Digitalogic_Pricing_Coordinator {
 		if ( is_wp_error( $settings ) ) {
 			return $settings;
 		}
-		$current = $settings;
+		$values = $this->currency_submission_dates( $values, $settings, time() );
 		foreach ( array( 'dollar_price', 'yuan_price' ) as $field ) {
 			if ( array_key_exists( $field, $values ) ) {
 				$settings[ $field ] = $values[ $field ];
@@ -221,31 +237,6 @@ final class Digitalogic_Pricing_Coordinator {
 			}
 		}
 
-		$has_any_date = array_key_exists( 'effective_date', $values )
-			|| array_key_exists( 'usd_effective_date', $values )
-			|| array_key_exists( 'cny_effective_date', $values );
-		if (
-			! $has_any_date
-			&& (
-				array_key_exists( 'dollar_price', $values )
-				|| array_key_exists( 'yuan_price', $values )
-			)
-		) {
-			$today = gmdate( 'Y-m-d' );
-			if (
-				array_key_exists( 'dollar_price', $values )
-				&& $this->rate_value_changed( $current['dollar_price'], $values['dollar_price'] )
-			) {
-				$settings['usd_effective_date'] = $today;
-			}
-			if (
-				array_key_exists( 'yuan_price', $values )
-				&& $this->rate_value_changed( $current['yuan_price'], $values['yuan_price'] )
-			) {
-				$settings['cny_effective_date'] = $today;
-				$settings['effective_date']     = $today;
-			}
-		}
 
 		return Digitalogic_Pricing_Service::instance()->apply_internal_settings(
 			$settings,
