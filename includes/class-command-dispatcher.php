@@ -261,6 +261,7 @@ class Digitalogic_Command_Dispatcher {
             $data['cny_effective_date']     = $state['settings']['cny_effective_date'];
             $data['profit_margin_percent']  = $state['settings']['profit_margin_percent'];
             $data['state_revision']         = $state['state_revision'];
+			$data['settings']               = $state['settings'];
             $data['freshness']              = $state['freshness'];
             $data['rate_provenance']        = $state['rate_provenance'];
         }
