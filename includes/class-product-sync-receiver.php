@@ -5736,7 +5736,6 @@ class Digitalogic_Product_Sync_Receiver {
 					$parents,
 					$target_parent_id
 				)
-				&& 'direct_db' === $this->coordinated_write_mode
 			) {
 				$batch[ $code_key ] = $candidate;
 			} else {
@@ -5798,6 +5797,11 @@ class Digitalogic_Product_Sync_Receiver {
 		$parent_id    = (int) ( $topology['parent_id'] ?? 0 );
 		if ( 'variation' === $product_type ) {
 			$target_parent_id = $parent_id;
+		}
+		// Adapter delivery needs the resolved parent, but none of the discarded
+		// SQL batch-admission projections or metadata checks below.
+		if ( 'direct_db' !== $this->coordinated_write_mode ) {
+			return false;
 		}
 		$product = $product_id > 0 ? wc_get_product( $product_id ) : false;
 		if ( ! $product instanceof WC_Product ) {
