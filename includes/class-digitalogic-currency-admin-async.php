@@ -169,6 +169,14 @@ final class Digitalogic_Currency_Admin_Async {
 		}
 		if ( 'effective_date' === $currency ) {
 			$value = $this->normalize_acf_effective_date( $value );
+			$date = Digitalogic_Currency_Date_Formatter::instance()->parse( $value );
+			$state = Digitalogic_Pricing_Service::instance()->current_canonical_state();
+			// ACF resubmits untouched fields. Only an edited date or explicit
+			// override may pin a new rate to the previously displayed date.
+			$override = '1' === (string) ( $_POST['digitalogic_currency_date_override'] ?? '' ); // phpcs:ignore WordPress.Security.NonceVerification.Missing -- ACF validates its form nonce before this hook.
+			if ( ! $override && null !== $date && ! is_wp_error( $state ) && $date->format( 'Y-m-d' ) === (string) $state['settings']['cny_effective_date'] ) {
+				return $this->persisted_currency_value( $currency, $value );
+			}
 		}
 
 		// ACF calls this filter once per field. Capture every semantic rate and
@@ -293,6 +301,7 @@ final class Digitalogic_Currency_Admin_Async {
 			esc_attr( (string) $state['state_revision'] ),
 			esc_attr( 'acf:' . wp_generate_uuid4() )
 		);
+		echo '<p><label><input type="checkbox" name="digitalogic_currency_date_override" value="1"> نگه‌داشتن عمدی تاریخ انتخاب‌شده برای نرخ جدید</label><br><small>اگر تاریخ را تغییر ندهید، نرخ جدید با تاریخ روز دریافت ثبت می‌شود. برای استفادهٔ عمدی از همان تاریخ قبلی، این گزینه را فعال کنید.</small></p>';
 	}
 
 	/**

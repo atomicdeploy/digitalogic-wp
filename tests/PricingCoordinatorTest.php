@@ -3800,7 +3800,8 @@ final class PricingCoordinatorTest extends TestCase {
 
 		$job = $async->status();
 		$this->assertSame( 'queued', $job['status'] );
-		$this->assertSame( '2026-07-21', $job['desired_currency']['effective_date'] );
+		$this->assertArrayNotHasKey( 'effective_date', $job['desired_currency'] );
+		$this->assertSame( ( new DateTimeImmutable( '@' . $job['created_at'] ) )->setTimezone( new DateTimeZone( 'Asia/Tehran' ) )->format( 'Y-m-d' ), $job['desired_currency']['cny_effective_date'] );
 		$this->assertSame( '260721', (string) $GLOBALS['digitalogic_test_options']['options_update_date'] );
 	}
 
