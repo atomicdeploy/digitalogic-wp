@@ -380,11 +380,11 @@ final class Digitalogic_SKU_Guard {
 		$multiple_rows = array_filter( $per_product_rows, static fn( $count ) => $count > 1 );
 
 		return array(
-			'version'                     => self::VERSION,
-			'implementation'              => 'digitalogic-wp',
-			'normalized_collision_groups' => count( $collisions ),
-			'multiple_sku_row_products'   => count( $multiple_rows ),
-			'normalization_drift_products'=> count( $drift ),
+			'version'                      => self::VERSION,
+			'implementation'               => 'digitalogic-wp',
+			'normalized_collision_groups'  => count( $collisions ),
+			'multiple_sku_row_products'    => count( $multiple_rows ),
+			'normalization_drift_products' => count( $drift ),
 			'invalid_sku_products'         => count( $invalid ),
 			'collision_details'            => $collisions,
 			'multiple_row_details'         => $multiple_rows,

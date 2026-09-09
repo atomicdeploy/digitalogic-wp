@@ -510,8 +510,8 @@ class Digitalogic_Product_Sync_Receiver {
 			$this->forget_lost_lock();
 			return false;
 		}
-		$prefix        = isset( $wpdb->prefix ) ? (string) $wpdb->prefix : 'wp_';
-		$lock_name     = self::source_identity_lock_name( $prefix );
+		$prefix      = isset( $wpdb->prefix ) ? (string) $wpdb->prefix : 'wp_';
+		$lock_name   = self::source_identity_lock_name( $prefix );
 		$owner_query = $wpdb->prepare(
 			'SELECT CASE WHEN CONNECTION_ID() = %d AND IS_USED_LOCK(%s) = %d THEN 1 ELSE 0 END',
 			$this->lock_connection_id,
@@ -3743,10 +3743,10 @@ class Digitalogic_Product_Sync_Receiver {
 
     private function emit_result_timed_work($result, $envelope) {
         $metadata = array(
-            'schema' => $envelope['schema'],
-            'event_id' => $envelope['event_id'],
-            'event_type' => $envelope['event_type'],
-            'source' => $envelope['source'],
+            'schema'       => $envelope['schema'],
+            'event_id'     => $envelope['event_id'],
+            'event_type'   => $envelope['event_type'],
+            'source'       => $envelope['source'],
             'generated_at' => $envelope['generated_at'],
         );
         if (isset($result['owner_catalog_revision'])) {
