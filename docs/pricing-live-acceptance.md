@@ -1,5 +1,11 @@
 # Live pricing acceptance — 9 September 2026 (Tehran)
 
+## Current performance and restoration policy — 9 September 2026
+
+The owner clarified that approximately60 seconds is a workload-dependent guideline, not a hard acceptance gate or an automatic critical failure. Preserve useful behavior; optimize demonstrated unnecessary work. Distinguish latency from incorrect/partial/unknown delivery. Historical strict-threshold statements in earlier evidence are superseded. Review mistakenly removed or disabled useful capabilities for restoration or a better shared equivalent, with consumer configuration and live acceptance; do not restore separate PHP engines or permanent compatibility machinery.
+
+Required backlog: architecture AND implementation of truthful Progress Indicators across all domains, including WordPress/Laravel/paradox, Go/CLI, Digitalogic apps, Excel/spreadsheet and automation consumers: https://github.com/atomicdeploy/digitalogic-wp/issues/325 . Disabled-feature review and rationale: https://github.com/atomicdeploy/digitalogic-wp/issues/296 .
+
 The configured authority is **PHP with direct database publication**. Selected-Go publication has also passed a live all-product check; this is not completion of the entire PHP/Go and interface unification project.
 
 ## Latest execution and performance evidence
@@ -53,7 +59,7 @@ The remaining mapping evidence, Go/shared-PHP unification and immediate pricing 
 
 ## Adapter bulk latency — 9 September 2026
 
-Actual changed-CNY adapter execution took141.201s before the deferred-sync repair and76.626s afterward. This remains above the60s requirement; adapter performance is not accepted. Native Woo deferred parent synchronization now runs within coordinated delivery before final readback, retaining scoped publication and preserving pre-existing request queue work.
+Actual changed-CNY adapter execution took141.201s before the deferred-sync repair and76.626s afterward. This exceeded the earlier strict threshold; that classification is superseded by the current workload-dependent guideline. Native Woo deferred parent synchronization now runs within coordinated delivery before final readback, retaining scoped publication and preserving pre-existing request queue work.
 
 All1,022 mapped rows passed independent price/stock checks at CNY34,600 and restored34,500. All896 changed-price events matched;901 mapped product events were checked,936 product events observed overall. Direct-DB restoration completed32.018s. Production stays PHP/direct_db. Two existing focused queue/readback checks passed (27 assertions); these supplement rather than replace live evidence.
 

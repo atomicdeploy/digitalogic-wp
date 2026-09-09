@@ -194,6 +194,11 @@ final class Digitalogic_SKU_Guard {
 
 	/** Cover update_metadata_by_mid(), which bypasses update_post_metadata. */
 	public function guard_update_metadata_by_mid( $check, $meta_id, $meta_value, $meta_key ) {
+		// An explicit non-SKU destination cannot reach this guard's SKU policy.
+		// Omitted keys still require the authoritative existing-row lookup.
+		if ( is_string( $meta_key ) && self::SKU_META !== $meta_key ) {
+			return $check;
+		}
 		$meta = get_metadata_by_mid( 'post', (int) $meta_id );
 		if ( ! $meta ) {
 			return $check;
