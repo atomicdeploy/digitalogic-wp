@@ -685,7 +685,7 @@ final class Digitalogic_Currency_Admin_Async {
 				if ( $settings_intent ) {
 					$current_patch = $current;
 				}
-				$mismatch      = array_filter(
+				$mismatch = array_filter(
 					$desired,
 					static function ( $value, $field ) use ( $current_patch ) {
 						return (string) $current_patch[ $field ] !== (string) $value;
@@ -1200,7 +1200,7 @@ final class Digitalogic_Currency_Admin_Async {
 					}
 				}
 				ksort( $confirmed );
-				$job['confirmed_currency']           = $confirmed;
+				$job['confirmed_currency'] = $confirmed;
 				if ( 'settings_intent' === (string) ( $job['mode'] ?? '' ) ) {
 					$job['confirmed_settings'] = (array) $publication['payload']['settings'];
 				}

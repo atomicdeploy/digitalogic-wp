@@ -296,6 +296,7 @@ final class RestApiPermissionsTest extends TestCase {
             'GET /products/(?P<id>\d+)/metadata' => 'check_diagnostic_permission', // phpcs:ignore
             'GET /products/sku/(?P<sku>[^/]+)/metadata' => 'check_diagnostic_permission', // phpcs:ignore
             'POST /products/batch' => 'check_write_permission',
+            'POST /pricing/settings' => 'check_write_permission',
             'GET /currency' => 'check_read_permission',
             'GET /currency/jobs/(?P<job_id>[a-f0-9]{32})/(?P<generation>[1-9][0-9]*)' => 'check_read_permission',
 			'DELETE /currency/jobs/(?P<job_id>[a-f0-9]{32})/(?P<generation>[1-9][0-9]*)' => 'check_write_permission',

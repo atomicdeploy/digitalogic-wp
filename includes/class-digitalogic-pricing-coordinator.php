@@ -227,7 +227,7 @@ final class Digitalogic_Pricing_Coordinator {
 		if ( $currency_values ) {
 			$currency_values = $this->currency_submission_dates( $currency_values, $admitted_settings, $submitted_at );
 		}
-		$resolved = array_replace( $admitted_settings, $values, $currency_values );
+		$resolved                   = array_replace( $admitted_settings, $values, $currency_values );
 		$resolved['effective_date'] = $resolved['cny_effective_date'];
 		return $resolved;
 	}
