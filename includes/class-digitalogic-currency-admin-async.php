@@ -436,8 +436,23 @@ final class Digitalogic_Currency_Admin_Async {
 	 * @return array|WP_Error Public job projection or error.
 	 */
 	public function enqueue_currency( array $values, $dispatch = true, $reconcile = false, $expected_revision = '', $source = 'admin', $request_id = '', $execution_mode = 'async' ) {
+		return $this->enqueue_owner_intent( $values, $dispatch, $reconcile, $expected_revision, $source, $request_id, $execution_mode, false );
+	}
+
+	/** Admit explicit settings fields through the existing durable owner queue. */
+	public function enqueue_settings( array $values, $dispatch = true, $reconcile = false, $expected_revision = '', $source = 'admin', $request_id = '', $execution_mode = 'async' ) {
+		if ( $reconcile ) {
+			return new WP_Error( 'digitalogic_settings_async_mode_invalid', 'Settings intent cannot request currency-only recalculation.', array( 'status' => 400 ) );
+		}
+		return $this->enqueue_owner_intent( $values, $dispatch, false, $expected_revision, $source, $request_id, $execution_mode, true );
+	}
+
+	/** Shared admission, identity, lease and publication lifecycle for owner edits. */
+	private function enqueue_owner_intent( array $values, $dispatch, $reconcile, $expected_revision, $source, $request_id, $execution_mode, $settings_intent ) {
 		$submitted_at = time();
-		$allowed      = array( 'dollar_price', 'yuan_price', 'effective_date', 'usd_effective_date', 'cny_effective_date' );
+		$allowed      = $settings_intent
+			? array( 'dollar_price', 'yuan_price', 'usd_effective_date', 'cny_effective_date', 'profit_margin_percent', 'air_express_price_per_kg', 'price_rounding_digits' )
+			: array( 'dollar_price', 'yuan_price', 'effective_date', 'usd_effective_date', 'cny_effective_date' );
 		if ( ! $values || array_diff( array_keys( $values ), $allowed ) ) {
 			return new WP_Error(
 				'digitalogic_currency_async_fields_invalid',
@@ -447,6 +462,15 @@ final class Digitalogic_Currency_Admin_Async {
 		}
 		$desired = array();
 		foreach ( $values as $field => $raw_value ) {
+			if ( $settings_intent ) {
+				if ( ( ! is_string( $raw_value ) && ! is_int( $raw_value ) && ! is_float( $raw_value ) )
+					|| ( is_string( $raw_value ) && '' === trim( $raw_value ) )
+					|| ( is_float( $raw_value ) && ! is_finite( $raw_value ) ) ) {
+					return new WP_Error( 'digitalogic_settings_async_value_invalid', 'Settings intent values must be nonempty scalar values.', array( 'status' => 400, 'field' => $field ) );
+				}
+				$desired[ $field ] = is_string( $raw_value ) ? trim( $raw_value ) : $raw_value;
+				continue;
+			}
 			if ( in_array( $field, array( 'effective_date', 'usd_effective_date', 'cny_effective_date' ), true ) ) {
 				$date = Digitalogic_Currency_Date_Formatter::instance()->parse( $raw_value );
 				if ( null === $date ) {
@@ -515,14 +539,14 @@ final class Digitalogic_Currency_Admin_Async {
 					'desired_currency'        => $desired,
 					'execution_mode'          => $execution_mode,
 					'expected_state_revision' => $expected_revision,
-					'mode'                    => $reconcile ? 'reconcile' : 'apply',
+					'mode'                    => $settings_intent ? 'settings_intent' : ( $reconcile ? 'reconcile' : 'apply' ),
 				),
 				JSON_UNESCAPED_SLASHES
 			)
 		);
 		$should_wake         = false;
 		$result              = $this->with_job_lock(
-			function () use ( $desired, $dispatch, $reconcile, $expected_revision, $source, $request_id, $request_fingerprint, $execution_mode, $submitted_at, &$should_wake ) {
+			function () use ( $desired, $dispatch, $reconcile, $expected_revision, $source, $request_id, $request_fingerprint, $execution_mode, $submitted_at, $settings_intent, &$should_wake ) {
 				$now             = time();
 				$existing        = $this->raw_job();
 				$existing_status = (string) ( $existing['status'] ?? '' );
@@ -565,8 +589,12 @@ final class Digitalogic_Currency_Admin_Async {
 				if ( $active ) {
 					$existing_reconcile = 'reconcile' === (string) ( $existing['mode'] ?? 'apply' );
 					$existing_execution = (string) ( $existing['execution_mode'] ?? 'async' );
+					$existing_settings  = 'settings_intent' === (string) ( $existing['mode'] ?? '' );
+					$existing_desired   = (array) ( $existing[ $settings_intent ? 'submitted_settings' : 'desired_currency' ] ?? array() );
 					if (
-						(array) ( $existing['desired_currency'] ?? array() ) !== $desired
+						$existing_desired !== $desired
+						|| $existing_settings !== $settings_intent
+						|| ( $settings_intent && (string) ( $existing['expected_state_revision'] ?? '' ) !== $expected_revision )
 						|| $existing_reconcile !== $reconcile
 						|| $existing_execution !== $execution_mode
 					) {
@@ -620,7 +648,27 @@ final class Digitalogic_Currency_Admin_Async {
 					);
 				}
 				$submitted_currency = $desired;
-				if ( ! $reconcile ) {
+				$resolved_settings  = array();
+				if ( $settings_intent ) {
+					$resolved_settings = Digitalogic_Pricing_Coordinator::instance()->resolve_settings_intent( $desired, $current, $submitted_at );
+					if ( is_wp_error( $resolved_settings ) ) {
+						return $resolved_settings;
+					}
+					$resolved_settings = Digitalogic_Pricing_Service::instance()->validate_settings_document( $resolved_settings );
+					if ( is_wp_error( $resolved_settings ) ) {
+						return $resolved_settings;
+					}
+					$desired = array_intersect_key( $resolved_settings, $desired );
+					foreach ( array( 'usd_effective_date', 'cny_effective_date' ) as $date_field ) {
+						if ( (string) $resolved_settings[ $date_field ] !== (string) $current[ $date_field ] ) {
+							$desired[ $date_field ] = $resolved_settings[ $date_field ];
+						}
+					}
+					if ( array_key_exists( 'cny_effective_date', $desired ) ) {
+						$desired['effective_date'] = $resolved_settings['effective_date'];
+					}
+					ksort( $desired );
+				} elseif ( ! $reconcile ) {
 					$desired = Digitalogic_Pricing_Coordinator::instance()->currency_submission_dates( $desired, $current, $submitted_at );
 				}
 				$confirmed     = array(
@@ -634,6 +682,9 @@ final class Digitalogic_Currency_Admin_Async {
 					'usd_effective_date' => (string) $current['usd_effective_date'],
 					'cny_effective_date' => (string) $current['cny_effective_date'],
 				);
+				if ( $settings_intent ) {
+					$current_patch = $current;
+				}
 				$mismatch      = array_filter(
 					$desired,
 					static function ( $value, $field ) use ( $current_patch ) {
@@ -658,7 +709,7 @@ final class Digitalogic_Currency_Admin_Async {
 				$job        = array(
 					'job_id'                  => $this->random_token( 16 ),
 					'generation'              => $generation,
-					'mode'                    => $reconcile ? 'reconcile' : 'apply',
+					'mode'                    => $settings_intent ? 'settings_intent' : ( $reconcile ? 'reconcile' : 'apply' ),
 					'execution_mode'          => $execution_mode,
 					'source'                  => $source,
 					'status'                  => $same ? 'confirmed' : 'queued',
@@ -691,6 +742,14 @@ final class Digitalogic_Currency_Admin_Async {
 					'primary_request_id'      => $request_id,
 					'request_aliases'         => $aliases,
 				);
+				if ( $settings_intent ) {
+					$job['submitted_settings'] = $submitted_currency;
+					$job['desired_settings']   = $resolved_settings;
+					$job['desired_fields']     = $desired;
+					$job['confirmed_settings'] = $same ? $resolved_settings : array();
+					$job['desired_currency']   = array_intersect_key( $desired, array_fill_keys( array( 'dollar_price', 'yuan_price', 'effective_date', 'usd_effective_date', 'cny_effective_date' ), true ) );
+					unset( $job['submitted_currency'] );
+				}
 				if ( '' !== $request_id ) {
 					$this->attach_request_alias( $job, $request_id, $request_fingerprint );
 				}
@@ -943,18 +1002,27 @@ final class Digitalogic_Currency_Admin_Async {
 		};
 
 		try {
-			$apply = 'reconcile' === (string) ( $claim['mode'] ?? 'apply' )
-				? Digitalogic_Pricing_Coordinator::instance()->reconcile_current(
-					'admin_async_reconcile',
-					(string) ( $claim['expected_state_revision'] ?? '' ),
-					$guard
-				)
-				: Digitalogic_Pricing_Coordinator::instance()->update_currency(
-					(array) ( $claim['desired_currency'] ?? array() ),
-					'admin_async',
+			if ( 'settings_intent' === (string) ( $claim['mode'] ?? '' ) ) {
+				$apply = Digitalogic_Pricing_Service::instance()->apply_internal_settings(
+					(array) ( $claim['desired_settings'] ?? array() ),
+					'admin_async_settings',
 					(string) ( $claim['expected_state_revision'] ?? '' ),
 					$guard
 				);
+			} else {
+				$apply = 'reconcile' === (string) ( $claim['mode'] ?? 'apply' )
+					? Digitalogic_Pricing_Coordinator::instance()->reconcile_current(
+						'admin_async_reconcile',
+						(string) ( $claim['expected_state_revision'] ?? '' ),
+						$guard
+					)
+					: Digitalogic_Pricing_Coordinator::instance()->update_currency(
+						(array) ( $claim['desired_currency'] ?? array() ),
+						'admin_async',
+						(string) ( $claim['expected_state_revision'] ?? '' ),
+						$guard
+					);
+			}
 		} catch ( Throwable $exception ) {
 			$apply = new WP_Error(
 				'digitalogic_currency_async_unexpected_failure',
@@ -1098,6 +1166,12 @@ final class Digitalogic_Currency_Admin_Async {
 				}
 				$current_revision = (string) ( $state['state_revision'] ?? '' );
 				$superseded       = ! hash_equals( (string) $state_revision, $current_revision );
+				if ( 'settings_intent' === (string) ( $job['mode'] ?? '' ) ) {
+					$settings_check = $this->verify_settings_intent_readback( $job, (array) ( $publication['payload']['settings'] ?? array() ) );
+					if ( is_wp_error( $settings_check ) ) {
+						return $this->record_publication_failure_open_lock( $job, $expected, $publication, $settings_check, $retry_at );
+					}
+				}
 				if ( 'published' !== (string) ( $publication['status'] ?? '' ) ) {
 					$published = Digitalogic_Pricing_Service::instance()->publish_internal_settings_effect(
 						(array) ( $publication['payload'] ?? array() ),
@@ -1127,6 +1201,9 @@ final class Digitalogic_Currency_Admin_Async {
 				}
 				ksort( $confirmed );
 				$job['confirmed_currency']           = $confirmed;
+				if ( 'settings_intent' === (string) ( $job['mode'] ?? '' ) ) {
+					$job['confirmed_settings'] = (array) $publication['payload']['settings'];
+				}
 				$job['committed_state_revision']     = (string) $state_revision;
 				$job['status']                       = 'confirmed';
 				$job['message_fa']                   = $superseded
@@ -2445,6 +2522,12 @@ final class Digitalogic_Currency_Admin_Async {
 				array( 'blocking' => true )
 			);
 		}
+		if ( 'settings_intent' === (string) ( $job['mode'] ?? '' ) ) {
+			$settings_check = $this->verify_settings_intent_readback( $job, (array) ( $publication['settings'] ?? array() ) );
+			if ( is_wp_error( $settings_check ) ) {
+				return $settings_check;
+			}
+		}
 		$effect_id                    = 'sha256:' . hash(
 			'sha256',
 			(string) $job['job_id'] . "\0"
@@ -2930,11 +3013,30 @@ final class Digitalogic_Currency_Admin_Async {
 	}
 
 	/**
-	 * Return a secret-free operator/client projection.
+	 * Verify all admitted editable and generated fields against committed evidence.
 	 *
-	 * @param array $job Private job record.
-	 * @return array
+	 * @param array $job      Private job record.
+	 * @param array $settings Complete settings captured by the pricing transaction.
+	 * @return true|WP_Error
 	 */
+	private function verify_settings_intent_readback( array $job, array $settings ) {
+		$desired = (array) ( $job['desired_fields'] ?? array() );
+		if ( ! $desired ) {
+			return new WP_Error( 'digitalogic_settings_async_readback_invalid', 'Resolved settings intent is missing.', array( 'blocking' => true ) );
+		}
+		$validated = Digitalogic_Pricing_Service::instance()->validate_settings_document( $settings );
+		if ( is_wp_error( $validated ) ) {
+			return $validated;
+		}
+		foreach ( $desired as $field => $value ) {
+			if ( ! array_key_exists( $field, $validated ) || (string) $validated[ $field ] !== (string) $value ) {
+				return new WP_Error( 'digitalogic_settings_async_readback_mismatch', 'Committed settings do not match admitted fields.', array( 'blocking' => true, 'field' => $field ) );
+			}
+		}
+		return true;
+	}
+
+	/** Return the existing secret-free projection, including shared settings intent. */
 	private function public_job( array $job ) {
 
 		$status      = (string) ( $job['status'] ?? 'idle' );
@@ -2965,6 +3067,10 @@ final class Digitalogic_Currency_Admin_Async {
 				'execution_mode'                  => (string) ( $job['execution_mode'] ?? 'async' ),
 				'status'                          => $status,
 				'desired_currency'                => (array) ( $job['desired_currency'] ?? array() ),
+				'submitted_settings'              => (array) ( $job['submitted_settings'] ?? array() ),
+				'desired_settings'                => (array) ( $job['desired_settings'] ?? array() ),
+				'desired_fields'                  => (array) ( $job['desired_fields'] ?? array() ),
+				'confirmed_settings'              => (array) ( $job['confirmed_settings'] ?? array() ),
 				'confirmed_currency'              => (array) ( $job['confirmed_currency'] ?? array() ),
 				'created_at'                      => (int) ( $job['created_at'] ?? 0 ),
 				'updated_at'                      => (int) ( $job['updated_at'] ?? 0 ),
