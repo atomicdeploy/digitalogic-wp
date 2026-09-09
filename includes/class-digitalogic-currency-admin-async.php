@@ -169,7 +169,7 @@ final class Digitalogic_Currency_Admin_Async {
 		}
 		if ( 'effective_date' === $currency ) {
 			$value = $this->normalize_acf_effective_date( $value );
-			$date = Digitalogic_Currency_Date_Formatter::instance()->parse( $value );
+			$date  = Digitalogic_Currency_Date_Formatter::instance()->parse( $value );
 			$state = Digitalogic_Pricing_Service::instance()->current_canonical_state();
 			// ACF resubmits untouched fields. Only an edited date or explicit
 			// override may pin a new rate to the previously displayed date.
@@ -437,7 +437,7 @@ final class Digitalogic_Currency_Admin_Async {
 	 */
 	public function enqueue_currency( array $values, $dispatch = true, $reconcile = false, $expected_revision = '', $source = 'admin', $request_id = '', $execution_mode = 'async' ) {
 		$submitted_at = time();
-		$allowed = array( 'dollar_price', 'yuan_price', 'effective_date', 'usd_effective_date', 'cny_effective_date' );
+		$allowed      = array( 'dollar_price', 'yuan_price', 'effective_date', 'usd_effective_date', 'cny_effective_date' );
 		if ( ! $values || array_diff( array_keys( $values ), $allowed ) ) {
 			return new WP_Error(
 				'digitalogic_currency_async_fields_invalid',
