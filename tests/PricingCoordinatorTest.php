@@ -4560,7 +4560,7 @@ final class PricingCoordinatorTest extends TestCase {
 		$observed = $async->status( $job['job_id'], $job['generation'] );
 
 		$this->assertSame( 'publishing', $observed['status'] );
-		$this->assertSame( 90, $observed['progress'] );
+		$this->assertNull( $observed['progress'] );
 		$this->assertSame( 1, $observed['apply_attempts'] );
 		$this->assertCount( 1, $GLOBALS['digitalogic_test_remote_posts'] );
 		$this->assertCount( 1, $GLOBALS['digitalogic_test_spawn_cron_calls'] );
@@ -4737,7 +4737,7 @@ final class PricingCoordinatorTest extends TestCase {
 
 		$status = $async->status( $job['job_id'], $job['generation'] );
 		$this->assertSame( 'publication_failed', $status['status'] );
-		$this->assertSame( 100, $status['progress'] );
+		$this->assertNull( $status['progress'] );
 		$this->assertSame( 6, $status['publication_attempts'] );
 		$this->assertTrue( $status['operator_action_required'] );
 		$this->assertSame( 'digitalogic_currency_async_publication_exhausted', $status['error_code'] );

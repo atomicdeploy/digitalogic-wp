@@ -2485,7 +2485,7 @@
                 if (Date.now() >= self.currencyJobWatchDeadline) {
                     self.currencyJob = Object.assign({}, job, {
                         status: 'observation_timeout',
-                        progress: Number(job.progress || 0),
+                        progress: null,
                         message_fa: 'پیگیری خودکار پایان یافت؛ اجرای پس‌زمینه متوقف نشده و صفحه آزاد است. وضعیت را تازه‌سازی کنید.'
                     });
                     self.currencyJobWatchDeadline = 0;

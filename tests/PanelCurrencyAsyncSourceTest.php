@@ -31,7 +31,7 @@ final class PanelCurrencyAsyncSourceTest extends TestCase {
 		$view = $this->read_source( dirname( __DIR__ ) . '/includes/panel/views/app.php' );
 
 		$this->assertStringContainsString(
-			'v-if="currencyJob.job_id && currencyJob.generation"',
+			'v-if="currencyJob.job_id && currencyJob.generation && typeof currencyJob.progress === \'number\'"',
 			$view
 		);
 	}
