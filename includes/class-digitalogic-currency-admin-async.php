@@ -1627,7 +1627,7 @@ final class Digitalogic_Currency_Admin_Async {
 			return array(
 				'status'     => 'invalid_identity',
 				'message_fa' => 'شناسهٔ کامل کار لازم است.',
-				'progress'   => 100,
+				'progress'   => null,
 				'blocking'   => true,
 				'error_code' => 'digitalogic_currency_async_identity_invalid',
 			);
@@ -1665,7 +1665,7 @@ final class Digitalogic_Currency_Admin_Async {
 				'generation'         => $expected_generation,
 				'status'             => 'superseded',
 				'message_fa'         => 'این درخواست با درخواست تازه‌تری جایگزین شده است.',
-				'progress'           => 100,
+				'progress'           => null,
 				'blocking'           => false,
 				'error_code'         => 'digitalogic_currency_async_superseded',
 				'confirmed_currency' => (array) ( $job['confirmed_currency'] ?? array() ),
@@ -2953,19 +2953,10 @@ final class Digitalogic_Currency_Admin_Async {
 		} elseif ( ! empty( $job['cancel_requested'] ) && 'running' === $status ) {
 			$status = 'cancelling';
 		}
-			$progress = array(
-				'idle'               => 0,
-				'queued'             => 10,
-				'running'            => 45,
-				'cancelling'         => 60,
-				'publishing'         => 90,
-				'awaiting_excel'     => 90,
-				'confirmed'          => 100,
-				'failed'             => 100,
-				'cancelled'          => 100,
-				'publication_failed' => 100,
-				'superseded'         => 100,
-			);
+			// A phase is not a measured fraction of processed products. Only a
+			// confirmed owner operation establishes completion; all other active
+			// or unsuccessful states have unknown numeric progress.
+			$progress = 'confirmed' === $status ? 100 : ( 'idle' === $status ? 0 : null );
 
 			return array(
 				'job_id'                          => (string) ( $job['job_id'] ?? '' ),
@@ -2995,7 +2986,7 @@ final class Digitalogic_Currency_Admin_Async {
 				'committed_state_revision'        => (string) ( $job['effect_state_revision'] ?? $job['committed_state_revision'] ?? '' ),
 				'expected_state_revision'         => (string) ( $job['expected_state_revision'] ?? '' ),
 				'superseded_by_state_revision'    => (string) ( $job['superseded_by_state_revision'] ?? '' ),
-				'progress'                        => 'awaiting_delivery' === $status ? null : (int) ( $progress[ $status ] ?? 0 ),
+				'progress'                        => $progress,
 				'delivery_owner_catalog_revision' => $go_revision,
 				'delivery_phase'                  => ! $go_revision ? '' : ( 'confirmed' === $status ? 'complete' : ( 'published' === ( $publication['status'] ?? '' ) ? 'awaiting_receipt' : 'publishing_owner_change' ) ),
 				'delivery_receipts'               => (array) ( $publication['go_receipts'] ?? array() ),

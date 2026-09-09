@@ -33,7 +33,7 @@ test('panel currency save distinguishes a rejected request from an unknown deliv
     assert.match(saveCurrencySource, /if\s*\(!outcomeUnknown\)/);
     assert.match(saveCurrencySource, /self\.currencyJob\s*=\s*null/);
     assert.match(saveCurrencySource, /self\.error\s*=\s*error\.message/);
-    assert.match(panelView, /v-if="currencyJob\.job_id && currencyJob\.generation"/);
+    assert.match(panelView, /v-if="currencyJob\.job_id && currencyJob\.generation && typeof currencyJob\.progress === 'number'"/);
 });
 
 test('full settings save never treats the Vue click event as a currency field', () => {

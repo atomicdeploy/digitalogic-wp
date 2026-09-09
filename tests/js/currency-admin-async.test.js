@@ -43,6 +43,8 @@ function browserFixture(fetchResult, options = {}) {
 				hidden: false,
 				textContent: '',
 				attributes: {},
+				appendChild(node) { this.textContent += node.textContent || ''; return node; },
+				addEventListener() {},
 				setAttribute(name, value) { this.attributes[name] = value; }
 			};
 		},
