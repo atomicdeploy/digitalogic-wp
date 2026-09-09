@@ -532,11 +532,7 @@ class Digitalogic_Product_Manager {
                 $data['variations'] = array();
                 $children = $product->get_children();
                 
-                // Limit to 100 variations to prevent performance issues
-                if (count($children) > 100) {
-                    error_log('Digitalogic: Product #' . $product->get_id() . ' has more than 100 variations, limiting output');
-                    $children = array_slice($children, 0, 100);
-                }
+                // Detail responses must not silently omit valid model choices.
                 
                 foreach ($children as $variation_id) {
                     $variation = wc_get_product($variation_id);
@@ -591,7 +587,7 @@ class Digitalogic_Product_Manager {
     }
 
     /**
-     * Format one product and its bounded variation set with one lookup query.
+     * Format one product and its complete variation set with one lookup query.
      *
      * @param WC_Product $product Product to format.
      * @return array
@@ -599,7 +595,7 @@ class Digitalogic_Product_Manager {
     private function format_single_product($product) {
         $product_ids = array($product->get_id());
         if ($product->is_type('variable')) {
-            $product_ids = array_merge($product_ids, array_slice($product->get_children(), 0, 100));
+            $product_ids = array_merge($product_ids, $product->get_children());
         }
 		Digitalogic_Product_Code_Editor::instance()->prepare_admin_read_batch( $product_ids );
 
