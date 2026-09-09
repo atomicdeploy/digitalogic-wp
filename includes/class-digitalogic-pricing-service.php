@@ -2053,6 +2053,20 @@ final class Digitalogic_Pricing_Service {
 	 * @param array|null $current  Current globals used for legacy date mapping.
 	 * @return array|WP_Error
 	 */
+	/** Validate an admitted complete document using the sole canonical normalizer. */
+	public function validate_settings_document( array $settings ) {
+		$required = array(
+			'dollar_price', 'yuan_price', 'effective_date', 'usd_effective_date',
+			'cny_effective_date', 'profit_margin_percent', 'air_express_price_per_kg',
+			'air_express_currency', 'shipping_catalog_revision',
+			'price_rounding_digits', 'price_rounding_mode',
+		);
+		if ( array_diff( $required, array_keys( $settings ) ) ) {
+			return $this->error( 'digitalogic_pricing_settings_document_incomplete', 'سند کامل تنظیمات مالک لازم است.', 400 );
+		}
+		return $this->normalize_settings( $settings, array() );
+	}
+
 	private function normalize_settings( $settings, $current = null ) {
 		if ( ! is_array( $settings ) || array_is_list( $settings ) ) {
 			return $this->error(

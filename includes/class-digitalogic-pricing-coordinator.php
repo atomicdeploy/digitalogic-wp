@@ -164,6 +164,75 @@ final class Digitalogic_Pricing_Coordinator {
 	}
 
 	/**
+	 * Resolve explicit workbook fields against one admitted owner document.
+	 *
+	 * This is a pure merge: it does not read state, admit work, or calculate
+	 * prices. Currency dates are frozen from the supplied admission timestamp.
+	 * The resulting complete document must still pass the existing canonical
+	 * validation in apply_internal_settings() before any mutation. In particular,
+	 * this method does not duplicate that service's private numeric validators.
+	 *
+	 * @param array $values            Explicitly edited fields only.
+	 * @param array $admitted_settings Complete canonical settings at admission.
+	 * @param int   $submitted_at      Original admission timestamp in UTC.
+	 * @return array|WP_Error Resolved complete settings, never a partial patch.
+	 */
+	public function resolve_settings_intent( array $values, array $admitted_settings, int $submitted_at ) {
+		$allowed = array(
+			'yuan_price',
+			'dollar_price',
+			'cny_effective_date',
+			'usd_effective_date',
+			'profit_margin_percent',
+			'air_express_price_per_kg',
+			'price_rounding_digits',
+		);
+		$unknown = array_values( array_diff( array_keys( $values ), $allowed ) );
+		if ( ! $values || $unknown ) {
+			return $this->error(
+				'digitalogic_pricing_settings_intent_fields_invalid',
+				'حداقل یک فیلد قابل ویرایش تنظیمات قیمت لازم است.',
+				400,
+				array( 'fields' => $unknown )
+			);
+		}
+		foreach ( $values as $field => $value ) {
+			if ( ! is_string( $value ) && ! is_int( $value ) && ! is_float( $value )
+				|| ( is_string( $value ) && '' === trim( $value ) )
+				|| ( is_float( $value ) && ! is_finite( $value ) ) ) {
+				return $this->error(
+					'digitalogic_pricing_settings_intent_value_invalid',
+					'مقدار فیلد تنظیمات قیمت معتبر نیست.',
+					400,
+					array( 'field' => $field )
+				);
+			}
+		}
+		$required = array_merge(
+			$allowed,
+			array( 'effective_date', 'air_express_currency', 'shipping_catalog_revision', 'price_rounding_mode' )
+		);
+		if ( array_diff( $required, array_keys( $admitted_settings ) ) ) {
+			return $this->error(
+				'digitalogic_pricing_settings_intent_admitted_settings_incomplete',
+				'سند کامل تنظیمات مالک برای پذیرش تغییر لازم است.',
+				400
+			);
+		}
+		$currency_fields = array_fill_keys(
+			array( 'yuan_price', 'dollar_price', 'cny_effective_date', 'usd_effective_date' ),
+			true
+		);
+		$currency_values = array_intersect_key( $values, $currency_fields );
+		if ( $currency_values ) {
+			$currency_values = $this->currency_submission_dates( $currency_values, $admitted_settings, $submitted_at );
+		}
+		$resolved                   = array_replace( $admitted_settings, $values, $currency_values );
+		$resolved['effective_date'] = $resolved['cny_effective_date'];
+		return $resolved;
+	}
+
+	/**
 	 * Apply one partial currency change and reprice before committing.
 	 *
 	 * @param array         $values            Currency rates and optional legacy/independent dates.

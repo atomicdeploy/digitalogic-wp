@@ -289,6 +289,16 @@ class Digitalogic_REST_API {
 			)
 		);
 
+		register_rest_route(
+			'digitalogic/v1',
+			'/pricing/settings',
+			array(
+				'methods'             => 'POST',
+				'callback'            => array( $this, 'update_pricing_settings_intent' ),
+				'permission_callback' => array( $this, 'check_write_permission' ),
+			)
+		);
+
 		// Currency endpoints
 		register_rest_route(
 			'digitalogic/v1',
@@ -1418,6 +1428,29 @@ class Digitalogic_REST_API {
 	/**
 	 * POST /currency
 	 */
+	public function update_pricing_settings_intent( WP_REST_Request $request ) {
+		$data = $request->get_json_params();
+		if ( ! is_array( $data ) || ! isset( $data['settings'] ) || ! is_array( $data['settings'] ) ) {
+			return $this->currency_job_response( new WP_Error(
+				'digitalogic_pricing_settings_intent_invalid',
+				'فقط فیلدهای ویرایش‌شدهٔ تنظیمات قیمت را ارسال کنید.',
+				array( 'status' => 400 )
+			) );
+		}
+		$expected = $this->currency_expected_revision( $request, $data );
+		if ( is_wp_error( $expected ) ) {
+			return $this->currency_job_response( $expected );
+		}
+		$request_id = $this->currency_request_id( $request, $data );
+		if ( is_wp_error( $request_id ) ) {
+			return $this->currency_job_response( $request_id );
+		}
+		$result = Digitalogic_Currency_Admin_Async::instance()->enqueue_settings(
+			$data['settings'], true, false, $expected, 'rest_settings', $request_id
+		);
+		return $this->currency_job_response( $result, 202 );
+	}
+
 	public function update_currency( WP_REST_Request $request ) {
 		$data = $request->get_json_params();
 		$data = is_array( $data ) ? $data : array();
