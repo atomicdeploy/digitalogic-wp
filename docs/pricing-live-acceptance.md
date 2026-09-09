@@ -1,5 +1,11 @@
 # Live pricing acceptance — 9 September 2026 (Tehran)
 
+## Current performance and restoration policy — 9 September 2026
+
+The owner clarified that approximately60 seconds is a workload-dependent guideline, not a hard acceptance gate or an automatic critical failure. Preserve useful behavior; optimize demonstrated unnecessary work. Distinguish latency from incorrect/partial/unknown delivery. Historical strict-threshold statements in earlier evidence are superseded. Review mistakenly removed or disabled useful capabilities for restoration or a better shared equivalent, with consumer configuration and live acceptance; do not restore separate PHP engines or permanent compatibility machinery.
+
+Required backlog: architecture AND implementation of truthful Progress Indicators across all domains, including WordPress/Laravel/paradox, Go/CLI, Digitalogic apps, Excel/spreadsheet and automation consumers: https://github.com/atomicdeploy/digitalogic-wp/issues/325 . Disabled-feature review and rationale: https://github.com/atomicdeploy/digitalogic-wp/issues/296 .
+
 The configured authority is **PHP with direct database publication**. Selected-Go publication has also passed a live all-product check; this is not completion of the entire PHP/Go and interface unification project.
 
 ## Latest execution and performance evidence
@@ -50,3 +56,17 @@ The [full production proof](https://github.com/atomicdeploy/digitalogic-wp/issue
 This checkpoint does not prove Go-authority parity, the sub-second single-product target, all adapter/queue combinations, or end-to-end propagation through every interface. It does not prove n8n destination delivery from a PHP receipt.
 
 The remaining mapping evidence, Go/shared-PHP unification and immediate pricing requirements remain active. Full bidirectional synchronization, interface progress work, full Excel acceptance, notifications, engine comparison and snapshot/revision/rollback redesign remain in their agreed backlog. Before re-enabling deferred features, reconcile them with current policy and expose consumer configuration; do not reintroduce competing pricing owners or permanent compatibility paths.
+
+## Adapter bulk latency — 9 September 2026
+
+Actual changed-CNY adapter execution took141.201s before the deferred-sync repair and76.626s afterward. This exceeded the earlier strict threshold; that classification is superseded by the current workload-dependent guideline. Native Woo deferred parent synchronization now runs within coordinated delivery before final readback, retaining scoped publication and preserving pre-existing request queue work.
+
+All1,022 mapped rows passed independent price/stock checks at CNY34,600 and restored34,500. All896 changed-price events matched;901 mapped product events were checked,936 product events observed overall. Direct-DB restoration completed32.018s. Production stays PHP/direct_db. Two existing focused queue/readback checks passed (27 assertions); these supplement rather than replace live evidence.
+
+The callback profile removed64.334s of shutdown work (0.003ms afterward); product_updated webhook callback time fell from42.209s to2.352ms. These spans overlap and must not be added. Remaining adapter save/readback time still needs attribution.
+
+Tracking and detailed evidence: https://github.com/atomicdeploy/digitalogic-wp/issues/324#issuecomment-5593955034
+
+Follow-up adapter observation: removing duplicate post-save cache invalidation and using staged edit-context prices for source completeness yielded71.678s uninstrumented. No additional end-to-end gain is established against the preceding71.732s span run. All1,022 rows and896 changed-price events passed; exact original settings/rows restored, direct_db restoration36.349s. Adapter remains above60s. Temporary profiling code is absent from the deployed materializer.
+
+Adapter partition follow-up: skip direct-DB admission work after parent resolution when configured for adapter. A read-only before/after comparison retained the exact partition (1,022 fallback,35 parents), reducing that local helper span3.775s to1.786ms. Live SQL-instrumented change73.736s passed all-row and896 changed-event checks; no ordinary end-to-end improvement is claimed. SQL execution totaled16.299s across71,889 queries, including40,578 postmeta SELECTs. Detailed evidence and next attribution work: https://github.com/atomicdeploy/digitalogic-wp/issues/324#issuecomment-5594195181

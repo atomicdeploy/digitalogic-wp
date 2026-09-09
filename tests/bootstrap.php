@@ -275,6 +275,17 @@ function add_action($hook_name, $callback, $priority = 10, $accepted_args = 1) {
     return true;
 }
 
+function remove_action($hook_name, $callback, $priority = 10) {
+    $removed = false;
+    foreach (($GLOBALS['digitalogic_test_action_callbacks'][$hook_name] ?? array()) as $index => $entry) {
+        if ($entry['callback'] === $callback && $entry['priority'] === $priority) {
+            unset($GLOBALS['digitalogic_test_action_callbacks'][$hook_name][$index]);
+            $removed = true;
+        }
+    }
+    return $removed;
+}
+
 function add_shortcode($tag, $callback) {
     $GLOBALS['digitalogic_test_shortcodes'][$tag] = $callback;
 
@@ -3722,6 +3733,20 @@ class WC_Product_Variable extends WC_Product {
     public static function sync($product_id) {
         self::$synced_ids[] = (int) $product_id;
         return true;
+    }
+}
+
+class WC_Post_Data {
+    public static function do_deferred_product_sync() {
+        $processed = array();
+        while (!empty($GLOBALS['wc_deferred_product_sync'])) {
+            $ids = array_diff(array_unique(array_map('intval', $GLOBALS['wc_deferred_product_sync'])), $processed);
+            $GLOBALS['wc_deferred_product_sync'] = array();
+            foreach ($ids as $id) {
+                WC_Product_Variable::sync($id);
+            }
+            $processed = array_merge($processed, $ids);
+        }
     }
 }
 

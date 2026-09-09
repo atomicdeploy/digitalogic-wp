@@ -389,12 +389,12 @@ final class Digitalogic_Patris_Catalog_Materializer {
 				}
 
 				if ( null !== $pricing_guard ) {
-					Digitalogic_Patris_Price_Policy::instance()->invalidate( $product );
 					$guarded = call_user_func( $pricing_guard );
 					if ( true !== $guarded ) {
 						return is_wp_error( $guarded ) ? $guarded : $this->error( 'digitalogic_pricing_actuation_guard_rejected', 'Pricing transaction guard rejected the write.' );
 					}
 				}
+				// One complete invalidation before fresh readback also covers pricing.
 				$this->flush_product_caches( $product_id );
 				$fresh = wc_get_product( $product_id );
 				if (
@@ -4156,8 +4156,10 @@ final class Digitalogic_Patris_Catalog_Materializer {
 		$status  = (string) $product->get_meta( '_digitalogic_patris_price_status', true );
 		if (
 			in_array( $status, array( 'canonical_missing_unpriced', 'canonical_nonpositive_unpriced' ), true )
-			|| '' === trim( (string) $product->get_regular_price() )
-			|| '' === trim( (string) $product->get_price() )
+			// Completeness describes the staged source projection. Customer-facing
+			// price filters must not decide whether its stored price is missing.
+			|| '' === trim( (string) $product->get_regular_price( 'edit' ) )
+			|| '' === trim( (string) $product->get_price( 'edit' ) )
 		) {
 			$missing[] = 'price';
 		}
