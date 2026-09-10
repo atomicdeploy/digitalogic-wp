@@ -1280,7 +1280,12 @@ class Digitalogic_Product_Sync_Receiver {
             : array();
     }
 
-	/** Read the already committed owner products; never calculate or materialize. */
+	/**
+	 * Read committed owner products without calculation or materialization.
+	 *
+	 * @param array $request Input source and owner catalog binding.
+	 * @return array|WP_Error Committed canonical rows or an unavailable error.
+	 */
 	public function get_current_owner_projection( $request ) {
 		$unavailable = new WP_Error( 'owner_projection_unavailable', 'Current owner projection is unavailable.', array( 'status' => 503 ) );
 		foreach ( array( 'source_id', 'source_dataset', 'source_revision', 'owner_catalog_revision' ) as $field ) {
@@ -1307,18 +1312,21 @@ class Digitalogic_Product_Sync_Receiver {
 			if ( isset( $product['final_price'] ) && $request['owner_catalog_revision'] !== ( $product['pricing_catalog_revision'] ?? '' ) ) {
 				return $unavailable;
 			}
-			$rows[] = array( 'patris_code' => $product['product_code'], 'canonical_product' => array_intersect_key( $product, array_flip( self::PRODUCT_FIELDS ) ) );
+			$rows[] = array(
+				'patris_code'       => $product['product_code'],
+				'canonical_product' => array_intersect_key( $product, array_flip( self::PRODUCT_FIELDS ) ),
+			);
 		}
 		// Products come from one committed option value. The request and every
 		// priced row bind to the catalog observed by this read.
 		return array(
-			'schema' => 'digitalogic.current-owner-products.v1',
-			'authority' => 'php',
+			'schema'                 => 'digitalogic.current-owner-products.v1',
+			'authority'              => 'php',
 			'owner_catalog_revision' => $catalog['revision'],
-			'input_source' => $input,
-			'source' => $state['source'],
-			'row_count' => count( $rows ),
-			'rows' => $rows,
+			'input_source'           => $input,
+			'source'                 => $state['source'],
+			'row_count'              => count( $rows ),
+			'rows'                   => $rows,
 		);
 	}
 
