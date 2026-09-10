@@ -3558,7 +3558,9 @@ final class Digitalogic_Pricing_Service {
 			--$this->source_delivery_lock_depth;
 			$receiver->measure_transaction_phase(
 				'materializer_commit_dispatch',
-				static function () use ( $receiver ) { return $receiver->dispatch_materializer_product_committed(); }
+				static function () use ( $receiver ) {
+					return $receiver->dispatch_materializer_product_committed();
+				}
 			);
 		}
 		return $this->finish_report_notification( $result );
@@ -3608,7 +3610,9 @@ final class Digitalogic_Pricing_Service {
 		$published = 0 === $this->lock_depth
 			? Digitalogic_Product_Sync_Receiver::instance()->measure_transaction_phase(
 				'report_notification',
-				static function () { return Digitalogic_Report_Engine::instance()->publish_pricing_invalidation(); }
+				static function () {
+					return Digitalogic_Report_Engine::instance()->publish_pricing_invalidation();
+				}
 			)
 			: true;
 		if ( ! is_wp_error( $published ) ) {
@@ -3918,7 +3922,9 @@ final class Digitalogic_Pricing_Service {
 		try {
 			$commit = Digitalogic_Product_Sync_Receiver::instance()->measure_transaction_phase(
 				'sql_commit',
-				static function () use ( $wpdb ) { return $wpdb->query( 'COMMIT' ); }
+				static function () use ( $wpdb ) {
+					return $wpdb->query( 'COMMIT' );
+				}
 			);
 		} catch ( Throwable $exception ) {
 			$commit           = false;
@@ -3952,7 +3958,9 @@ final class Digitalogic_Pricing_Service {
 		$this->transaction_option_events = array();
 		Digitalogic_Product_Sync_Receiver::instance()->measure_transaction_phase(
 			'option_cache_invalidation',
-			function () use ( $names ) { return $this->invalidate_option_caches( $names ); }
+			function () use ( $names ) {
+				return $this->invalidate_option_caches( $names );
+			}
 		);
 		if ( ! $marker_owned_events ) {
 			$this->dispatch_option_events( $events );
