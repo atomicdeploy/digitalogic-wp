@@ -3556,7 +3556,10 @@ final class Digitalogic_Pricing_Service {
 			);
 		} finally {
 			--$this->source_delivery_lock_depth;
-			$receiver->dispatch_materializer_product_committed();
+			$receiver->measure_transaction_phase(
+				'materializer_commit_dispatch',
+				static function () use ( $receiver ) { return $receiver->dispatch_materializer_product_committed(); }
+			);
 		}
 		return $this->finish_report_notification( $result );
 	}
@@ -3603,7 +3606,10 @@ final class Digitalogic_Pricing_Service {
 	/** Preserve an operational failure when its unlocked report notification also fails. */
 	private function finish_report_notification( $result ) {
 		$published = 0 === $this->lock_depth
-			? Digitalogic_Report_Engine::instance()->publish_pricing_invalidation()
+			? Digitalogic_Product_Sync_Receiver::instance()->measure_transaction_phase(
+				'report_notification',
+				static function () { return Digitalogic_Report_Engine::instance()->publish_pricing_invalidation(); }
+			)
 			: true;
 		if ( ! is_wp_error( $published ) ) {
 			return $result;

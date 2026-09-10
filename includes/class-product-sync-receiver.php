@@ -818,7 +818,7 @@ class Digitalogic_Product_Sync_Receiver {
 
     /** Measure transaction boundaries only during an active receiver request. */
     public function measure_transaction_phase( $key, $operation ) {
-        $active = is_array( $this->receiver_timings ) && in_array( $key, array( 'sql_commit', 'option_cache_invalidation', 'report_transaction_finish' ), true );
+        $active = is_array( $this->receiver_timings ) && in_array( $key, array( 'sql_commit', 'option_cache_invalidation', 'report_transaction_finish', 'materializer_commit_dispatch', 'report_notification' ), true );
         $started = $active ? hrtime( true ) : 0;
         try {
             return $operation();
