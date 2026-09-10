@@ -373,6 +373,17 @@ final class Live_State {
 	 * @return array<string,array<string,mixed>>
 	 */
 	public static function product_event_values( array $canonical_ids ): array {
+		// Prime only the requested Woo entities in bounded batches before
+		// inventory and serialization read the same posts and metadata.
+		$woo_ids = array();
+		foreach ( $canonical_ids as $canonical_id ) {
+			if ( preg_match( '/\Aproduct:woo:([1-9][0-9]*)\z/D', (string) $canonical_id, $match ) === 1 ) {
+				$woo_ids[] = (int) $match[1];
+			}
+		}
+		foreach ( array_chunk( array_values( array_unique( $woo_ids ) ), 250 ) as $chunk ) {
+			_prime_post_caches( $chunk, true, true );
+		}
 		$wanted = array_fill_keys(
 			array_values(
 				array_filter(
