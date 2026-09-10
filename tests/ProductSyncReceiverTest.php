@@ -3,6 +3,67 @@
 use PHPUnit\Framework\TestCase;
 
 final class ProductSyncReceiverTest extends TestCase {
+	/** Verify the committed projection and reject stale bindings. */
+	public function test_current_owner_projection_reads_only_committed_products_and_checks_binding(): void {
+		$GLOBALS['digitalogic_test_options'][ Digitalogic_Pricing_Coordinator::AUTHORITY_OPTION ] = 'php';
+		$catalog = Digitalogic_Shipping_Method_Service::instance()->get_integration_catalog();
+		$this->assertIsArray( $catalog );
+		$input  = array(
+			'id'       => 'projection-test',
+			'dataset'  => 'kala.db',
+			'revision' => 'sha256:input',
+		);
+		$source = array_merge( $input, array( 'revision' => 'sha256:final' ) );
+		$key    = hash( 'sha256', "projection-test\nkala.db" );
+		$state  = array(
+			'sources' => array(
+				$key => array(
+					'input_mode'   => 'patris_inputs',
+					'input_source' => $input,
+					'source'       => $source,
+					'products'     => array(
+						array(
+							'product_code'     => 'unpriced',
+							'record_hash'      => 'sha256:blank',
+							'total_stock'      => '7',
+							'private_internal' => 'must-not-leak',
+						),
+						array(
+							'product_code'             => 'priced',
+							'record_hash'              => 'sha256:priced',
+							'final_price'              => '100',
+							'pricing_catalog_revision' => $catalog['revision'],
+						),
+					),
+				),
+			),
+		);
+		$GLOBALS['digitalogic_test_options'][ Digitalogic_Product_Sync_Receiver::STATE_OPTION ] = $state;
+		$request  = array(
+			'source_id'              => $input['id'],
+			'source_dataset'         => $input['dataset'],
+			'source_revision'        => $input['revision'],
+			'owner_catalog_revision' => $catalog['revision'],
+		);
+		$receiver = Digitalogic_Product_Sync_Receiver::instance();
+		$result   = $receiver->get_current_owner_projection( $request );
+		$this->assertIsArray( $result );
+		$this->assertSame( 2, $result['row_count'] );
+		$this->assertSame( '7', $result['rows'][0]['canonical_product']['total_stock'] );
+		$this->assertArrayNotHasKey( 'final_price', $result['rows'][0]['canonical_product'] );
+		$this->assertArrayNotHasKey( 'private_internal', $result['rows'][0]['canonical_product'] );
+		$this->assertSame( $state, get_option( Digitalogic_Product_Sync_Receiver::STATE_OPTION ) );
+		$request['source_revision'] = 'sha256:old';
+		$this->assertInstanceOf( WP_Error::class, $receiver->get_current_owner_projection( $request ) );
+		$request['source_revision']        = $input['revision'];
+		$request['owner_catalog_revision'] = 'sha256:old-owner';
+		$this->assertInstanceOf( WP_Error::class, $receiver->get_current_owner_projection( $request ) );
+		$request['owner_catalog_revision']                                   = $catalog['revision'];
+		$state['sources'][ $key ]['products'][1]['pricing_catalog_revision'] = 'sha256:stale-price';
+		$GLOBALS['digitalogic_test_options'][ Digitalogic_Product_Sync_Receiver::STATE_OPTION ] = $state;
+		$this->assertInstanceOf( WP_Error::class, $receiver->get_current_owner_projection( $request ) );
+	}
+
     protected function setUp(): void {
         $GLOBALS['digitalogic_test_capabilities']         = array();
         $GLOBALS['digitalogic_test_filters']              = array();

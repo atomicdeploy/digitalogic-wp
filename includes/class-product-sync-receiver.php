@@ -1280,6 +1280,56 @@ class Digitalogic_Product_Sync_Receiver {
             : array();
     }
 
+	/**
+	 * Read committed owner products without calculation or materialization.
+	 *
+	 * @param array $request Input source and owner catalog binding.
+	 * @return array|WP_Error Committed canonical rows or an unavailable error.
+	 */
+	public function get_current_owner_projection( $request ) {
+		$unavailable = new WP_Error( 'owner_projection_unavailable', 'Current owner projection is unavailable.', array( 'status' => 503 ) );
+		foreach ( array( 'source_id', 'source_dataset', 'source_revision', 'owner_catalog_revision' ) as $field ) {
+			if ( ! isset( $request[ $field ] ) || ! is_string( $request[ $field ] ) || '' === $request[ $field ] ) {
+				return $unavailable;
+			}
+		}
+		$catalog = Digitalogic_Shipping_Method_Service::instance()->get_integration_catalog();
+		if ( is_wp_error( $catalog ) || 'php' !== ( $catalog['pricing']['authority'] ?? '' ) || $request['owner_catalog_revision'] !== ( $catalog['revision'] ?? '' ) ) {
+			return $unavailable;
+		}
+		$state = $this->get_source_state( $request['source_id'], $request['source_dataset'] );
+		$input = $state['input_source'] ?? array();
+		if ( 'patris_inputs' !== ( $state['input_mode'] ?? '' ) ||
+			$request['source_id'] !== ( $input['id'] ?? '' ) || $request['source_dataset'] !== ( $input['dataset'] ?? '' ) ||
+			$request['source_revision'] !== ( $input['revision'] ?? '' ) || ! is_array( $state['products'] ?? null ) ) {
+			return $unavailable;
+		}
+		$rows = array();
+		foreach ( $state['products'] as $product ) {
+			if ( ! is_array( $product ) || empty( $product['product_code'] ) || empty( $product['record_hash'] ) ) {
+				return $unavailable;
+			}
+			if ( isset( $product['final_price'] ) && $request['owner_catalog_revision'] !== ( $product['pricing_catalog_revision'] ?? '' ) ) {
+				return $unavailable;
+			}
+			$rows[] = array(
+				'patris_code'       => $product['product_code'],
+				'canonical_product' => array_intersect_key( $product, array_flip( self::PRODUCT_FIELDS ) ),
+			);
+		}
+		// Products come from one committed option value. The request and every
+		// priced row bind to the catalog observed by this read.
+		return array(
+			'schema'                 => 'digitalogic.current-owner-products.v1',
+			'authority'              => 'php',
+			'owner_catalog_revision' => $catalog['revision'],
+			'input_source'           => $input,
+			'source'                 => $state['source'],
+			'row_count'              => count( $rows ),
+			'rows'                   => $rows,
+		);
+	}
+
 	/** Read canonical source identities while the caller owns its coordination lock. */
 	public function get_source_identities() {
 		return $this->source_identity_state( $this->load_state() );
