@@ -335,6 +335,9 @@ class Digitalogic_Command_Dispatcher {
     }
 
     public function get_integration_catalog($payload = array()) {
+		if ( isset( $payload['projection'] ) && 'current-products' === $payload['projection'] ) {
+			return Digitalogic_Product_Sync_Receiver::instance()->get_current_owner_projection( $payload );
+		}
 		return Digitalogic_Shipping_Method_Service::instance()->get_integration_catalog();
     }
 
