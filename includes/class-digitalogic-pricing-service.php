@@ -3813,11 +3813,16 @@ final class Digitalogic_Pricing_Service {
 				array( 'transaction_outcome' => $this->transaction_outcome )
 			);
 		} finally {
-			$fenced = $report->finish_pricing_transaction( in_array(
-				$this->transaction_outcome,
-				array( 'not_started', 'committed', 'rolled_back' ),
-				true
-			) );
+			$fenced = Digitalogic_Product_Sync_Receiver::instance()->measure_transaction_phase(
+				'report_transaction_finish',
+				function () use ( $report ) {
+					return $report->finish_pricing_transaction( in_array(
+						$this->transaction_outcome,
+						array( 'not_started', 'committed', 'rolled_back' ),
+						true
+					) );
+				}
+			);
 		}
 		if ( is_wp_error( $fenced ) ) {
 			$fenced->add_data( array(
@@ -3905,7 +3910,10 @@ final class Digitalogic_Pricing_Service {
 		}
 		$commit_exception = null;
 		try {
-			$commit = $wpdb->query( 'COMMIT' );
+			$commit = Digitalogic_Product_Sync_Receiver::instance()->measure_transaction_phase(
+				'sql_commit',
+				static function () use ( $wpdb ) { return $wpdb->query( 'COMMIT' ); }
+			);
 		} catch ( Throwable $exception ) {
 			$commit           = false;
 			$commit_exception = $exception;
@@ -3936,7 +3944,10 @@ final class Digitalogic_Pricing_Service {
 		$this->transaction_outcome       = 'committed';
 		$this->transaction_option_names  = array();
 		$this->transaction_option_events = array();
-		$this->invalidate_option_caches( $names );
+		Digitalogic_Product_Sync_Receiver::instance()->measure_transaction_phase(
+			'option_cache_invalidation',
+			function () use ( $names ) { return $this->invalidate_option_caches( $names ); }
+		);
 		if ( ! $marker_owned_events ) {
 			$this->dispatch_option_events( $events );
 		}

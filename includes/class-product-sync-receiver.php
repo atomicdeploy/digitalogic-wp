@@ -816,6 +816,19 @@ class Digitalogic_Product_Sync_Receiver {
     }
 
 
+    /** Measure transaction boundaries only during an active receiver request. */
+    public function measure_transaction_phase( $key, $operation ) {
+        $active = is_array( $this->receiver_timings ) && in_array( $key, array( 'sql_commit', 'option_cache_invalidation', 'report_transaction_finish' ), true );
+        $started = $active ? hrtime( true ) : 0;
+        try {
+            return $operation();
+        } finally {
+            if ( $active ) {
+                $this->record_receiver_timing( $key, $started );
+            }
+        }
+    }
+
     private function record_receiver_timing($key, $started) {
         if (is_array($this->receiver_timings)) {
             $this->receiver_timings[$key] = ($this->receiver_timings[$key] ?? 0) + max(0, (hrtime(true) - $started) / 1000000);
