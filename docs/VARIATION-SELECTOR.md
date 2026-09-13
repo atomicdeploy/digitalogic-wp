@@ -9,3 +9,5 @@ WooCommerce's original select remains the selection/submission authority. The UI
 Titles use the child Persian name, then its source name, then the native option label. A distinct stored variation description is shown beneath the title, with SKU on its own line. No duplicated source-name description is manufactured.
 
 Release ownership remains with the parent pricing/integration task. Production acceptance must use deployed assets on digitalogic.ir and record desktop/mobile selection, filtering, keyboard navigation, reset, WooCommerce variation IDs, and WoodMart dynamic forms before merge.
+
+The popup uses the browser top layer when supported to escape WoodMart quick-view clipping, stays anchored on scrolling/resizing, and chooses space above or below the field. A fixed-position fallback remains for older browsers. Live acceptance targets current Edge desktop and mobile emulation; physical iOS/Android browser acceptance is separate.

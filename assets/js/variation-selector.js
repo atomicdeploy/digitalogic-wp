@@ -39,6 +39,7 @@
         button.setAttribute('aria-controls', id + '-list');
         var popup = element('div', 'digitalogic-model-popup');
         popup.hidden = true;
+        if (typeof popup.showPopover === 'function') popup.setAttribute('popover', 'manual');
         var search = element('input', 'digitalogic-model-search');
         search.type = 'search';
         search.autocomplete = 'off';
@@ -123,7 +124,24 @@
             setActive(selectedIndex >= 0 ? selectedIndex : (visible.length ? 0 : -1), false);
         }
 
+        function positionPopup() {
+            if (popup.hidden) return;
+            var rect = button.getBoundingClientRect();
+            var viewport = window.visualViewport;
+            var top = viewport ? viewport.offsetTop : 0;
+            var bottom = top + (viewport ? viewport.height : window.innerHeight);
+            var below = bottom - rect.bottom - 14;
+            var above = rect.top - top - 14;
+            var upward = below < 260 && above > below;
+            var available = Math.max(110, upward ? above : below);
+            popup.style.width = rect.width + 'px';
+            popup.style.left = rect.left + 'px';
+            list.style.maxHeight = Math.min(340, Math.max(60, available - 70)) + 'px';
+            popup.style.top = (upward ? Math.max(top + 8, rect.top - popup.offsetHeight - 6) : rect.bottom + 6) + 'px';
+        }
+
         function close(restoreFocus) {
+            if (popup.hasAttribute('popover') && popup.matches(':popover-open')) popup.hidePopover();
             popup.hidden = true;
             button.setAttribute('aria-expanded', 'false');
             search.setAttribute('aria-expanded', 'false');
@@ -176,8 +194,11 @@
             root.classList.add('is-open');
             button.setAttribute('aria-expanded', 'true');
             search.setAttribute('aria-expanded', 'true');
-            search.focus();
+            if (popup.hasAttribute('popover')) popup.showPopover();
+            positionPopup();
+            search.focus({ preventScroll: true });
         }
+
 
         button.addEventListener('click', function () { if (popup.hidden) open(); else close(false); });
         button.addEventListener('keydown', function (event) {
@@ -214,7 +235,7 @@
         $(form).on('change.digitalogicModel woocommerce_update_variation_values.digitalogicModel reset_data.digitalogicModel found_variation.digitalogicModel', sync);
         form.addEventListener('reset', function () { window.setTimeout(sync, 0); });
         new MutationObserver(sync).observe(select, { childList: true, subtree: true, attributes: true, attributeFilter: ['disabled', 'selected'] });
-        instances.set(root, { close: close, sync: sync });
+        instances.set(root, { close: close, sync: sync, position: positionPopup });
         sync();
     }
 
@@ -234,6 +255,14 @@
                 });
             });
         }).observe(document.body, { childList: true, subtree: true });
+        function repositionOpen() {
+            document.querySelectorAll('.digitalogic-model-selector.is-open').forEach(function (root) {
+                instances.get(root).position();
+            });
+        }
+        window.addEventListener('resize', repositionOpen);
+        document.addEventListener('scroll', repositionOpen, true);
+        if (window.visualViewport) window.visualViewport.addEventListener('resize', repositionOpen);
         document.addEventListener('pointerdown', function (event) {
             document.querySelectorAll('.digitalogic-model-selector.is-open').forEach(function (root) {
                 if (!root.contains(event.target)) instances.get(root).close(false);
