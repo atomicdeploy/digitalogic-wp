@@ -64,8 +64,8 @@ final class Digitalogic_Variation_Selector {
 			if ( ! $image_id ) {
 				$image_id = $product->get_image_id();
 			}
-			$image       = $image_id ? wp_get_attachment_image_url( $image_id, 'woocommerce_thumbnail' ) : '';
-			$title       = $child->get_meta( '_digitalogic_persian_name', true );
+			$image = $image_id ? wp_get_attachment_image_url( $image_id, 'woocommerce_thumbnail' ) : '';
+			$title = $child->get_meta( '_digitalogic_persian_name', true );
 			if ( '' === trim( (string) $title ) ) {
 				$title = $child->get_meta( '_digitalogic_patris_name', true );
 			}
