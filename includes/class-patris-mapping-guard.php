@@ -42,11 +42,10 @@ final class Digitalogic_Patris_Mapping_Guard {
 		add_filter( 'update_post_metadata', array( self::class, 'price_metadata' ), 100, 4 );
 	}
 
-	/** Keep stock-bearing mapped models selectable even before a price is available. */
+	/** Keep stock-bearing models visible independently of price eligibility. */
 	private static function unpriced_stock_variation( $product ) {
 		return $product instanceof WC_Product_Variation
 			&& 'publish' === $product->get_status()
-			&& self::connected( $product )
 			&& $product->is_in_stock()
 			&& (float) $product->get_stock_quantity() > 0
 			&& '' === $product->get_price();
@@ -59,7 +58,7 @@ final class Digitalogic_Patris_Mapping_Guard {
 
 	/** An absent price is not a zero price; purchasing remains unavailable. */
 	public static function variation_data( $data, $parent, $variation ) {
-		if ( self::unpriced_stock_variation( $variation ) ) {
+		if ( ! self::priceable( $variation ) || '' === $variation->get_price() ) {
 			$data['price_html']            = '';
 			$data['display_price']         = null;
 			$data['display_regular_price'] = null;
@@ -79,7 +78,7 @@ final class Digitalogic_Patris_Mapping_Guard {
 	 * @return array
 	 */
 	public static function price_hash( $hash ) {
-		$hash['patris_mapping_policy'] = 1;
+		$hash['patris_mapping_policy'] = 2;
 		return $hash; }
 
 	/**
@@ -122,7 +121,8 @@ final class Digitalogic_Patris_Mapping_Guard {
 		$owner_code = (string) $product->get_meta( '_digitalogic_patris_owner_product_code', true );
 		$key        = (string) $product->get_meta( '_digitalogic_patris_owner_source_id', true ) . "\n"
 		. (string) $product->get_meta( '_digitalogic_patris_owner_dataset', true ) . "\n" . $code;
-		return '' !== $code && $owner_code === $code && isset( self::$index[ $key ] )
+		return '' !== $code && (string) $product->get_sku( 'edit' ) === $code
+		&& $owner_code === $code && isset( self::$index[ $key ] )
 		&& self::$index[ $key ] === (int) $product->get_id();
 	}
 
