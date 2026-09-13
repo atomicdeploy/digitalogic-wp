@@ -5546,7 +5546,8 @@ final class PricingCoordinatorTest extends TestCase {
 		$this->assertFalse( $guard->guard_price_metadata( null, 903, '_sale_price', '150' ) );
 		$this->assertFalse( $guard->guard_price_metadata( null, 903, '_price', '199' ) );
 		$this->assertNull( $guard->guard_price_metadata( null, 903, '_price', '200' ) );
-		$this->assertSame( '200', $guard->canonical_visible_price( '150', $product ) );
+		require_once dirname( __DIR__ ) . '/includes/class-patris-mapping-guard.php';
+		$this->assertSame( '', $guard->canonical_visible_price( '150', $product ), 'An unmanaged product without authoritative identity must not expose its raw regular price.' );
 		$this->assertSame( '', $guard->canonical_sale_price( '150', $product ) );
 
 		$GLOBALS['digitalogic_test_wc_products'] = array();

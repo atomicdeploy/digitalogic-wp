@@ -1,0 +1,60 @@
+.digitalogic-model-selector { position: relative; width: 100%; min-width: 0; text-align: start; }
+.digitalogic-model-selector.is-enhanced > select.digitalogic-model-native { display: none !important; }
+.digitalogic-model-selector [hidden] { display: none !important; }
+.digitalogic-model-selector .digitalogic-model-trigger,
+.digitalogic-model-selector .digitalogic-model-option {
+    display: flex; align-items: center; gap: 12px; width: 100%; padding: 12px 14px;
+    color: var(--wd-text-color, #26323a); text-align: start; white-space: normal;
+    box-sizing: border-box; font: inherit; line-height: 1.65;
+}
+.digitalogic-model-selector .digitalogic-model-trigger {
+    height: auto; min-height: 72px; padding-inline-end: 42px; border: var(--wd-form-brd-width, 1px) solid var(--wd-form-brd-color, #d6dde0); border-radius: var(--wd-form-brd-radius, 10px);
+    background: var(--wd-form-bg, #fff); box-shadow: none; cursor: pointer; text-transform: none;
+}
+.digitalogic-model-trigger::after {
+    content: ''; position: absolute; inset-inline-end: 18px; top: 30px; width: 8px; height: 8px;
+    border: solid currentColor; border-width: 0 1.5px 1.5px 0; transform: rotate(45deg);
+}
+.digitalogic-model-selector.is-open .digitalogic-model-trigger { border-color: var(--wd-primary-color, #147c77); }
+.digitalogic-model-selector.is-open .digitalogic-model-trigger::after { transform: rotate(225deg); top: 34px; }
+.digitalogic-model-selector .digitalogic-model-trigger:focus-visible,
+.digitalogic-model-selector .digitalogic-model-search:focus-visible {
+    outline: 2px solid var(--wd-primary-color, #147c77); outline-offset: 3px;
+}
+.digitalogic-model-trigger:disabled { opacity: .55; cursor: not-allowed; }
+.digitalogic-model-copy { display: flex; flex-direction: column; flex: 1; min-width: 0; gap: 2px; }
+.digitalogic-model-title { font-weight: 650; overflow-wrap: anywhere; }
+.digitalogic-model-description { font-size: .88em; opacity: .8; white-space: pre-line; overflow-wrap: anywhere; }
+.digitalogic-model-sku { font-size: .8em; opacity: .75; }
+.digitalogic-model-image { width: 48px; height: 48px; flex: 0 0 48px; object-fit: contain; background: #fff; border: 1px solid #edf0f1; border-radius: 7px; }
+.digitalogic-model-popup {
+    position: fixed; inset: auto; margin: 0; z-index: 1050; box-sizing: border-box;
+    padding: 8px; background: var(--wd-form-bg, #fff); border: var(--wd-form-brd-width, 1px) solid var(--wd-form-brd-color, #d6dde0);
+    border-radius: var(--wd-brd-radius, 12px); box-shadow: 0 12px 30px #172c3b26;
+}
+.digitalogic-model-selector .digitalogic-model-search {
+    display: block; width: 100%; margin: 0 0 8px; min-height: 42px; padding: 8px 12px;
+    border: var(--wd-form-brd-width, 1px) solid var(--wd-form-brd-color, #d6dde0); border-radius: 7px; color: inherit; background: #fff;
+    font: inherit; font-size: .9em; box-sizing: border-box;
+}
+.digitalogic-model-list { max-height: min(340px, 48vh); overflow-y: auto; overscroll-behavior: contain; }
+.digitalogic-model-selector .digitalogic-model-option { border-radius: 7px; cursor: pointer; }
+.digitalogic-model-option + .digitalogic-model-option { margin-top: 3px; }
+.digitalogic-model-option:hover,
+.digitalogic-model-option.is-active { background: var(--bgcolor-gray-100, #f0f6f5); }
+.digitalogic-model-option[aria-selected="true"] { background: var(--bgcolor-gray-200, #e8f4f1); box-shadow: inset 3px 0 var(--wd-primary-color, #147c77); }
+.digitalogic-model-option[aria-disabled="true"] { opacity: .45; cursor: not-allowed; }
+.digitalogic-model-empty { padding: 18px 12px; font-size: .9em; text-align: center; color: #65727c; }
+@media (max-width: 480px) {
+    .digitalogic-model-selector .digitalogic-model-trigger,
+    .digitalogic-model-selector .digitalogic-model-option { gap: 9px; padding: 10px; }
+    .digitalogic-model-selector .digitalogic-model-trigger { padding-inline-end: 34px; }
+    .digitalogic-model-image { width: 40px; height: 40px; flex-basis: 40px; }
+}
+
+/* Keep Elementor's inline native-select layout from shrinking rich model cards. */
+form.variations_form table.variations tr:has(.digitalogic-model-selector) { display: flex; flex-direction: column; align-items: stretch; gap: 6px; }
+form.variations_form table.variations tr:has(.digitalogic-model-selector) > .cell { display: block; width: 100% !important; padding-inline: 0; text-align: start; }
+.digitalogic-model-selector .digitalogic-model-trigger:hover,
+.digitalogic-model-selector .digitalogic-model-trigger:focus,
+.digitalogic-model-selector.is-open .digitalogic-model-trigger { background: var(--wd-form-bg, #fff); color: var(--wd-text-color, #26323a); }

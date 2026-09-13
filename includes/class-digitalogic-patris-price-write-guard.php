@@ -280,7 +280,8 @@ final class Digitalogic_Patris_Price_Write_Guard {
 		}
 
 		$regular = trim( (string) $product->get_regular_price( 'edit' ) );
-		return '' === $regular ? $price : $regular;
+		// Raw regular prices must never revive an identity- or weight-blocked price.
+		return Digitalogic_Patris_Mapping_Guard::visible_price( '' === $regular ? $price : $regular, $product );
 	}
 
 	/**
