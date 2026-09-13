@@ -10,6 +10,14 @@ if [[ ! -x "$phpcs" ]]; then
     exit 1
 fi
 
+# New security-boundary adapters must remain clean even while the repository's
+# historical aggregate debt is paid down.
+"$phpcs" \
+    --standard=WordPress \
+    --extensions=php \
+    "$root/ops/wordpress-mu/digitalogic-human-contacts.php" \
+    "$root/tests/WpCliHumanContactsTest.php"
+
 # The repository predates its current WordPress coding-standard setup. Keep
 # releases from adding debt while the existing violations are paid down.
 max_errors=43221
