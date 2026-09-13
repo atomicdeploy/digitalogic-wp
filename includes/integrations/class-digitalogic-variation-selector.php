@@ -66,10 +66,11 @@ final class Digitalogic_Variation_Selector {
 			}
 			$image       = $image_id ? wp_get_attachment_image_url( $image_id, 'woocommerce_thumbnail' ) : '';
 			$title       = $child->get_meta( '_digitalogic_persian_name', true );
-			$description = $child->get_description();
-			if ( '' === trim( (string) $description ) ) {
-				$description = $child->get_meta( '_digitalogic_patris_name', true );
+			if ( '' === trim( (string) $title ) ) {
+				$title = $child->get_meta( '_digitalogic_patris_name', true );
 			}
+			$description = $child->get_description();
+
 			$items[] = array(
 				'value'       => (string) $value,
 				'attributes'  => $attributes,
