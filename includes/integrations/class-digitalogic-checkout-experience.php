@@ -17,8 +17,9 @@ final class Digitalogic_Checkout_Experience {
 	private const SCRIPT_FILE   = 'assets/js/checkout-experience.js';
 	private const STYLE_HANDLE  = 'digitalogic-checkout-experience';
 	private const STYLE_FILE    = 'assets/css/checkout-experience.css';
-	private const UNSTABLE_HOOK = 'woocommerce_checkout_order_review';
-	private const STABLE_HOOK   = 'woocommerce_checkout_billing';
+	private const STABLE_HOOK   = 'woocommerce_after_checkout_billing_form';
+	private const FALLBACK_HOOK = 'woocommerce_checkout_before_order_review';
+	private const MANUAL_HOOK   = 'add_manually';
 
 	/**
 	 * Register the checkout integration once.
@@ -62,16 +63,36 @@ final class Digitalogic_Checkout_Experience {
 
 		$settings = isset( $iconic_wds->settings ) && is_array( $iconic_wds->settings ) ? $iconic_wds->settings : array();
 		$position = isset( $settings['general_setup_position'] ) ? (string) $settings['general_setup_position'] : '';
-		if ( self::UNSTABLE_HOOK !== $position || ! is_callable( array( $iconic_wds_dates, 'display_checkout_fields' ) ) ) {
+		if ( ! is_callable( array( $iconic_wds_dates, 'display_checkout_fields' ) ) ) {
 			return;
 		}
 
 		$priority = isset( $settings['general_setup_position_priority'] ) ? (int) $settings['general_setup_position_priority'] : 10;
 		$callback = array( $iconic_wds_dates, 'display_checkout_fields' );
 
-		remove_action( self::UNSTABLE_HOOK, $callback, $priority );
-		$iconic_wds->settings['general_setup_position'] = self::STABLE_HOOK;
-		add_action( self::STABLE_HOOK, $callback, 20 );
+		if ( self::MANUAL_HOOK !== $position && 0 === strpos( $position, 'woocommerce_' ) ) {
+			remove_action( $position, $callback, $priority );
+		}
+
+		$iconic_wds->settings['general_setup_position'] = self::MANUAL_HOOK;
+		add_action( self::STABLE_HOOK, array( self::class, 'render_delivery_fields' ), 20 );
+		add_action( self::FALLBACK_HOOK, array( self::class, 'render_delivery_fields' ), 5 );
+	}
+
+	/**
+	 * Render vendor delivery controls once in the first stable hook available.
+	 */
+	public static function render_delivery_fields(): void {
+		global $iconic_wds_dates;
+
+		static $rendered = false;
+
+		if ( $rendered || ! is_object( $iconic_wds_dates ) || ! is_callable( array( $iconic_wds_dates, 'display_checkout_fields' ) ) ) {
+			return;
+		}
+
+		$rendered = true;
+		$iconic_wds_dates->display_checkout_fields();
 	}
 
 	/**

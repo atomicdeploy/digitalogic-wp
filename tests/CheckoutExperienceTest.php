@@ -80,26 +80,33 @@ final class CheckoutExperienceTest extends TestCase {
 
 		Digitalogic_Checkout_Experience::stabilize_delivery_fields();
 
-		$this->assertSame( 'woocommerce_checkout_billing', $GLOBALS['iconic_wds']->settings['general_setup_position'] );
+		$this->assertSame( 'add_manually', $GLOBALS['iconic_wds']->settings['general_setup_position'] );
 		$this->assertSame( array(), array_values( $GLOBALS['digitalogic_test_action_callbacks']['woocommerce_checkout_order_review'] ) );
 		$this->assertSame(
-			array( $dates, 'display_checkout_fields' ),
-			$GLOBALS['digitalogic_test_action_callbacks']['woocommerce_checkout_billing'][0]['callback']
+			array( Digitalogic_Checkout_Experience::class, 'render_delivery_fields' ),
+			$GLOBALS['digitalogic_test_action_callbacks']['woocommerce_after_checkout_billing_form'][0]['callback']
 		);
-		$this->assertSame( 20, $GLOBALS['digitalogic_test_action_callbacks']['woocommerce_checkout_billing'][0]['priority'] );
+		$this->assertSame( 20, $GLOBALS['digitalogic_test_action_callbacks']['woocommerce_after_checkout_billing_form'][0]['priority'] );
+		$this->assertSame( 5, $GLOBALS['digitalogic_test_action_callbacks']['woocommerce_checkout_before_order_review'][0]['priority'] );
 	}
 
-	public function test_explicit_stable_vendor_position_is_preserved(): void {
+	public function test_explicit_vendor_position_is_replaced_with_manual_stable_rendering(): void {
 		$dates = new Digitalogic_Test_Delivery_Dates();
 		$GLOBALS['iconic_wds_dates'] = $dates;
 		$GLOBALS['iconic_wds']       = (object) array(
 			'settings' => array( 'general_setup_position' => 'woocommerce_checkout_billing' ),
 		);
+		$GLOBALS['digitalogic_test_action_callbacks']['woocommerce_checkout_billing'][] = array(
+			'callback'      => array( $dates, 'display_checkout_fields' ),
+			'priority'      => 10,
+			'accepted_args' => 1,
+		);
 
 		Digitalogic_Checkout_Experience::stabilize_delivery_fields();
 
-		$this->assertArrayNotHasKey( 'woocommerce_checkout_billing', $GLOBALS['digitalogic_test_action_callbacks'] );
-		$this->assertSame( 'woocommerce_checkout_billing', $GLOBALS['iconic_wds']->settings['general_setup_position'] );
+		$this->assertSame( array(), array_values( $GLOBALS['digitalogic_test_action_callbacks']['woocommerce_checkout_billing'] ) );
+		$this->assertSame( 'add_manually', $GLOBALS['iconic_wds']->settings['general_setup_position'] );
+		$this->assertArrayHasKey( 'woocommerce_after_checkout_billing_form', $GLOBALS['digitalogic_test_action_callbacks'] );
 	}
 
 	public function test_checkout_assets_include_vendor_ordering_and_localized_validation(): void {
