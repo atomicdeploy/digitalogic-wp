@@ -52,7 +52,7 @@ final class OrderDocumentsTest extends TestCase {
 		$this->assertStringContainsString( 'DIGITALOGIC · ORDER DOCUMENT', $html );
 		$this->assertStringContainsString( 'P-14085', $html );
 		$this->assertStringContainsString( '102007003', $html );
-		$this->assertStringContainsString( '09120000000 · customer@example.test', $html );
+		$this->assertStringContainsString( "09120000000<br />\ncustomer@example.test", $html );
 		$this->assertStringContainsString( 'تلفن:', $html );
 		$this->assertStringContainsString( 'info@digitalogic.ir', $html );
 		$this->assertStringNotContainsString( 'orange', strtolower( $html ) );
