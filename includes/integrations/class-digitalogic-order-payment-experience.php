@@ -97,7 +97,7 @@ final class Digitalogic_Order_Payment_Experience {
 		$download_url = class_exists( 'Digitalogic_Order_Documents' ) ? Digitalogic_Order_Documents::customer_document_url( $order, 'download' ) : '#';
 		$print_url    = class_exists( 'Digitalogic_Order_Documents' ) ? Digitalogic_Order_Documents::customer_document_url( $order, 'print' ) : '#';
 		?>
-		<section class="dg-order-hub" data-order-id="<?php echo esc_attr( $order_number ); ?>" data-order-url="<?php echo esc_url( $order_url ); ?>" aria-labelledby="dg-order-hub-title">
+		<section class="dg-order-hub dgl-surface dgl-surface--feature" data-order-id="<?php echo esc_attr( $order_number ); ?>" data-order-url="<?php echo esc_url( $order_url ); ?>" aria-labelledby="dg-order-hub-title">
 			<div class="dg-order-hub__intro">
 				<span class="dg-order-hub__eyebrow"><?php echo wp_kses_post( self::icon( 'check' ) ); ?><?php esc_html_e( 'Order received', 'digitalogic' ); ?></span>
 				<h2 id="dg-order-hub-title"><?php esc_html_e( 'Your order documents and actions', 'digitalogic' ); ?></h2>
@@ -137,7 +137,7 @@ final class Digitalogic_Order_Payment_Experience {
 	private static function render_bank_and_receipt( $order, array $receipt ): void {
 		$accounts = self::get_bank_accounts();
 		?>
-		<section class="dg-bank-payment" aria-labelledby="dg-bank-payment-title">
+		<section class="dg-bank-payment dgl-surface dgl-surface--content" aria-labelledby="dg-bank-payment-title">
 			<div class="dg-bank-payment__heading">
 				<div><span class="dg-bank-payment__kicker"><?php echo wp_kses_post( self::icon( 'card' ) ); ?><?php esc_html_e( 'Card-to-card payment', 'digitalogic' ); ?></span><h2 id="dg-bank-payment-title"><?php esc_html_e( 'Bank transfer details', 'digitalogic' ); ?></h2></div>
 				<span class="dg-receipt-status dg-receipt-status--<?php echo esc_attr( $receipt['status'] ); ?>"><?php echo esc_html( $receipt['label'] ); ?></span>
@@ -185,7 +185,7 @@ final class Digitalogic_Order_Payment_Experience {
 	private static function render_receipt_form( $order, array $receipt, bool $accounts_ready ): void {
 		$order_id = (int) $order->get_id();
 		?>
-		<div class="dg-receipt-panel">
+		<div class="dg-receipt-panel dgl-surface dgl-surface--interactive">
 			<div class="dg-receipt-panel__intro"><span class="dg-receipt-panel__icon"><?php echo wp_kses_post( self::icon( 'receipt' ) ); ?></span><div><h3><?php esc_html_e( 'Submit payment receipt', 'digitalogic' ); ?></h3><p><?php esc_html_e( 'JPEG, PNG, WebP, or PDF up to 5 MB. The file is stored outside the public media library.', 'digitalogic' ); ?></p></div></div>
 			<?php
 			if ( $receipt['submitted_at'] ) :

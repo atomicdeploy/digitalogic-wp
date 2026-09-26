@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.2] - 2026-09-26
+
+- Replace blanket storefront shadow removal with reusable flat, content, raised, feature, and interactive surface variants.
+- Keep the order action hub as the focal feature surface, preserve the dedicated bank-card treatment, and raise the receipt form only during active interaction.
+
 ## [2.1.1] - 2026-09-26
 
 - Restore a distinctive, restrained bank-card surface while keeping surrounding content cards flat and visually stable.
