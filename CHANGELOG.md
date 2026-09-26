@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.5] - 2026-09-26
+
+- Keep required delivery date and time controls outside WooCommerce's AJAX-replaced order-review fragment, with maintained Persian labels and vendor validation translations.
+- Add checkout-side progressive validation, accessible inline feedback, stable shipping-method checks, and an explicit order-readiness state while retaining server validation as the final authority.
+- Replace orange checkout warnings and quantity hover controls with a responsive Digitalogic blue visual system and remove warning-link underlines.
+
 ## [2.0.4] - 2026-09-08
 
 - Batch source-owned operational metadata, stock and unavailable-price transitions in the existing direct database writer, with exact metadata, lookup and stock-visibility verification.

@@ -2928,3 +2928,405 @@ msgstr ""
 #: includes/class-digitalogic-product-code-editor.php
 msgid "The Product Code row was not prepared for this exact admin response. Reload the page."
 msgstr ""
+
+#: includes/integrations/class-digitalogic-checkout-experience.php
+msgid "Delivery details"
+msgstr ""
+
+#: includes/integrations/class-digitalogic-checkout-experience.php
+msgid "Delivery date"
+msgstr ""
+
+#: includes/integrations/class-digitalogic-checkout-experience.php
+msgid "Choose a delivery date"
+msgstr ""
+
+#: includes/integrations/class-digitalogic-checkout-experience.php
+msgid "Choose the date on which you want to receive the order."
+msgstr ""
+
+#: includes/integrations/class-digitalogic-checkout-experience.php
+msgid "Choose the delivery date first"
+msgstr ""
+
+#: includes/integrations/class-digitalogic-checkout-experience.php
+msgid "Delivery time window"
+msgstr ""
+
+#: includes/integrations/class-digitalogic-checkout-experience.php
+msgid "Choose the preferred delivery time window."
+msgstr ""
+
+#: includes/integrations/class-digitalogic-checkout-experience.php
+msgid "Choose a delivery time window"
+msgstr ""
+
+#: includes/integrations/class-digitalogic-checkout-experience.php
+msgid "No delivery time is available for this date."
+msgstr ""
+
+#: includes/integrations/class-digitalogic-checkout-experience.php
+#, php-format
+msgid "Please complete %s."
+msgstr ""
+
+#: includes/integrations/class-digitalogic-checkout-experience.php
+#, php-format
+msgid "Please enter a valid value for %s."
+msgstr ""
+
+#: includes/integrations/class-digitalogic-checkout-experience.php
+msgid "Please choose a shipping method."
+msgstr ""
+
+#: includes/integrations/class-digitalogic-checkout-experience.php
+msgid "Please choose a payment method."
+msgstr ""
+
+#: includes/integrations/class-digitalogic-checkout-experience.php
+msgid "Please accept the terms and conditions."
+msgstr ""
+
+#: includes/integrations/class-digitalogic-checkout-experience.php
+msgid "No shipping method is available for this address. Please review the address or contact support."
+msgstr ""
+
+#: includes/integrations/class-digitalogic-checkout-experience.php
+msgid "Please review the highlighted fields before placing the order."
+msgstr ""
+
+#: includes/integrations/class-digitalogic-checkout-experience.php
+msgid "The order information is ready to submit."
+msgstr ""
+
+#: includes/integrations/class-digitalogic-checkout-experience.php
+msgid "Complete the required information to place the order."
+msgstr ""
+
+#: includes/integrations/class-digitalogic-checkout-experience.php
+msgid "this field"
+msgstr ""
+
+#: includes/integrations/class-digitalogic-checkout-experience.php
+msgid "Please choose a delivery date."
+msgstr ""
+
+#: includes/integrations/class-digitalogic-checkout-experience.php
+msgid "Complete the delivery address to view available delivery times."
+msgstr ""
+
+#: includes/integrations/class-digitalogic-checkout-experience.php
+msgid "No delivery date is available for this shipping method. Choose another method or try again later."
+msgstr ""
+
+#: includes/integrations/class-digitalogic-checkout-experience.php
+msgid "Loading delivery times..."
+msgstr ""
+
+#: includes/integrations/class-digitalogic-checkout-experience.php
+msgid "Available"
+msgstr ""
+
+#: includes/integrations/class-digitalogic-checkout-experience.php
+msgid "Unavailable"
+msgstr ""
+
+#: includes/integrations/class-digitalogic-checkout-experience.php
+msgid "Delivery date and time"
+msgstr ""
+
+#: includes/integrations/class-digitalogic-checkout-experience.php
+msgid "Change"
+msgstr ""
+
+#: includes/integrations/class-digitalogic-checkout-experience.php
+msgid "Change delivery time"
+msgstr ""
+
+#: includes/integrations/class-digitalogic-checkout-experience.php
+msgid "Add delivery time"
+msgstr ""
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Order received"
+msgstr ""
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Your order documents and actions"
+msgstr ""
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Download the invoice, print it, or share the secure order link from one place."
+msgstr ""
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Order actions"
+msgstr ""
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Download invoice"
+msgstr ""
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "More actions"
+msgstr ""
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Print invoice"
+msgstr ""
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Save PDF"
+msgstr ""
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Share order or invoice"
+msgstr ""
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Copy order number"
+msgstr ""
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Copy secure order link"
+msgstr ""
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Card-to-card payment"
+msgstr ""
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Bank transfer details"
+msgstr ""
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Transfer the exact order amount to one of the cards below, then submit the receipt for review."
+msgstr ""
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Account holder"
+msgstr ""
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Copy card number"
+msgstr ""
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Account:"
+msgstr ""
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Bank details are being completed"
+msgstr ""
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Please contact sales before making a transfer. No unverified card number is displayed."
+msgstr ""
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Submit payment receipt"
+msgstr ""
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "JPEG, PNG, WebP, or PDF up to 5 MB. The file is stored outside the public media library."
+msgstr ""
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Receipt %1$s was submitted on %2$s."
+msgstr ""
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Tracking or reference code"
+msgstr ""
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Receipt file"
+msgstr ""
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Choose or drop a file here"
+msgstr ""
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Optional note"
+msgstr ""
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Replace receipt"
+msgstr ""
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Submit receipt"
+msgstr ""
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Receipt submission becomes available after an administrator publishes verified bank details."
+msgstr ""
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Card-to-card accounts"
+msgstr ""
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Card-to-card"
+msgstr ""
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Card-to-card payment accounts"
+msgstr ""
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Only verified ingress accounts entered here are shown to customers. Never enter PIN, CVV2, expiry date, or one-time passwords."
+msgstr ""
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Add bank account"
+msgstr ""
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Save verified accounts"
+msgstr ""
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Ingress bank account"
+msgstr ""
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Visible to customers"
+msgstr ""
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Bank name"
+msgstr ""
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "16-digit card number"
+msgstr ""
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Account number (optional)"
+msgstr ""
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Card accent"
+msgstr ""
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Remove account"
+msgstr ""
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "You are not allowed to manage payment accounts."
+msgstr ""
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Each bank account requires a bank name, account holder, and valid 16-digit card number."
+msgstr ""
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Enter a valid Iranian IBAN beginning with IR."
+msgstr ""
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "This order could not be verified."
+msgstr ""
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Verified bank details are not available yet."
+msgstr ""
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Enter the payment tracking or reference code."
+msgstr ""
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Choose a receipt file."
+msgstr ""
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Your payment receipt was submitted and is awaiting review."
+msgstr ""
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "The receipt must be a readable file no larger than 5 MB."
+msgstr ""
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Only JPEG, PNG, WebP, and PDF receipts are accepted."
+msgstr ""
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "The secure receipt storage is unavailable."
+msgstr ""
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "The receipt could not be stored securely."
+msgstr ""
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Payment receipt"
+msgstr ""
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Download protected receipt"
+msgstr ""
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Reference:"
+msgstr ""
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Review status"
+msgstr ""
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "You are not allowed to download this receipt."
+msgstr ""
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "The receipt file is unavailable."
+msgstr ""
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Receipt not submitted"
+msgstr ""
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Awaiting review"
+msgstr ""
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Receipt approved"
+msgstr ""
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Receipt needs correction"
+msgstr ""
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Copied"
+msgstr ""
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Automatic copy is unavailable"
+msgstr ""
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "The invoice PDF is not ready yet"
+msgstr ""
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Digitalogic order"
+msgstr ""
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Secure Digitalogic order and invoice link"
+msgstr ""
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "No file selected"
+msgstr ""
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "This invoice link is invalid or has expired."
+msgstr ""

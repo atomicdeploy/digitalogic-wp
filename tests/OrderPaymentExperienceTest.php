@@ -1,0 +1,111 @@
+<?php
+/**
+ * Tests for order actions, bank ingress settings, and receipt authorization.
+ *
+ * @package Digitalogic
+ */
+
+use PHPUnit\Framework\TestCase;
+
+require_once dirname( __DIR__ ) . '/includes/integrations/class-digitalogic-order-payment-experience.php';
+
+/** Verify bank account validation and customer authorization boundaries. */
+final class OrderPaymentExperienceTest extends TestCase {
+	/** Reset customer identity and capabilities. */
+	protected function setUp(): void {
+		$GLOBALS['digitalogic_test_current_user_id'] = 0;
+		$GLOBALS['digitalogic_test_capabilities']    = array();
+		$_GET                                        = array();
+	}
+
+	/** Persian digits and separators normalize into a stored 16-digit number. */
+	public function test_sanitize_accounts_normalizes_card_and_iban(): void {
+		$result = Digitalogic_Order_Payment_Experience::sanitize_accounts(
+			array(
+				array(
+					'enabled'        => '1',
+					'bank_name'      => 'بانک آزمایشی',
+					'account_holder' => 'دیجیتالاجیک',
+					'card_number'    => '۶۰۳۷ ۹۹۱۲ ۳۴۵۶ ۷۸۹۳',
+					'iban'           => 'IR49 0000 0000 0000 0000 0000 00',
+					'accent'         => '#14A9DF',
+				),
+			)
+		);
+
+		$this->assertIsArray( $result );
+		$this->assertSame( '6037991234567893', $result[0]['card_number'] );
+		$this->assertSame( 'IR490000000000000000000000', $result[0]['iban'] );
+		$this->assertSame( '#14a9df', $result[0]['accent'] );
+	}
+
+	/** Invalid financial identifiers are rejected rather than partially stored. */
+	public function test_sanitize_accounts_rejects_invalid_card_or_iban(): void {
+		$invalid_card = Digitalogic_Order_Payment_Experience::sanitize_accounts(
+			array(
+				array(
+					'bank_name'      => 'بانک',
+					'account_holder' => 'دارنده',
+					'card_number'    => '1234',
+				),
+			)
+		);
+		$this->assertInstanceOf( WP_Error::class, $invalid_card );
+		$this->assertSame( 'digitalogic_bank_account_invalid', $invalid_card->get_error_code() );
+
+		$invalid_card_checksum = Digitalogic_Order_Payment_Experience::sanitize_accounts(
+			array(
+				array(
+					'bank_name'      => 'بانک',
+					'account_holder' => 'دارنده',
+					'card_number'    => '6037991234567890',
+				),
+			)
+		);
+		$this->assertInstanceOf( WP_Error::class, $invalid_card_checksum );
+
+		$invalid_iban = Digitalogic_Order_Payment_Experience::sanitize_accounts(
+			array(
+				array(
+					'bank_name'      => 'بانک',
+					'account_holder' => 'دارنده',
+					'card_number'    => '6037991234567893',
+					'iban'           => 'IR123',
+				),
+			)
+		);
+		$this->assertInstanceOf( WP_Error::class, $invalid_iban );
+		$this->assertSame( 'digitalogic_bank_iban_invalid', $invalid_iban->get_error_code() );
+
+		$invalid_iban_checksum = Digitalogic_Order_Payment_Experience::sanitize_accounts(
+			array(
+				array(
+					'bank_name'      => 'بانک',
+					'account_holder' => 'دارنده',
+					'card_number'    => '6037991234567893',
+					'iban'           => 'IR000000000000000000000000',
+				),
+			)
+		);
+		$this->assertInstanceOf( WP_Error::class, $invalid_iban_checksum );
+	}
+
+	/** Customer display groups the stored number without changing its digits. */
+	public function test_group_card_number_is_readable(): void {
+		$this->assertSame( '6037 9912 3456 7893', Digitalogic_Order_Payment_Experience::group_card_number( '6037991234567893' ) );
+	}
+
+	/** A guest must present the exact WooCommerce order key. */
+	public function test_guest_access_requires_exact_order_key(): void {
+		$order = new class() {
+			/** Guest order owner ID. */
+			public function get_user_id(): int {
+				return 0; }
+			/** Exact order access key. */
+			public function get_order_key(): string {
+				return 'wc_order_exact'; }
+		};
+		$this->assertTrue( Digitalogic_Order_Payment_Experience::can_access_order( $order, 'wc_order_exact' ) );
+		$this->assertFalse( Digitalogic_Order_Payment_Experience::can_access_order( $order, 'wc_order_other' ) );
+	}
+}

@@ -1,0 +1,16 @@
+{
+  "workflow_id": "DigitalogicOfficeAutomationEvents",
+  "node_id": "prepare-office-priority-delivery",
+  "purpose": "Treat a new WooCommerce order as an immediate action notification while preserving routine status updates.",
+  "rules": {
+    "priority": "wordpress.order.created => action",
+    "bypass_aggregation": [
+      "wordpress.order.created"
+    ],
+    "channels": [
+      "telegram",
+      "ntfy"
+    ],
+    "sip_policy": "not requested for routine commerce events"
+  }
+}

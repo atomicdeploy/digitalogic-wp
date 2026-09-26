@@ -70,6 +70,7 @@ final class Digitalogic_Checkout_Date_Compatibility {
 	public static function is_delivery_machine_date_trace( array $trace ): bool {
 		$format              = null;
 		$delivery_slots_call = false;
+		$bookable_dates_call = false;
 
 		foreach ( $trace as $frame ) {
 			$function = isset( $frame['function'] ) && is_string( $frame['function'] ) ? $frame['function'] : '';
@@ -85,8 +86,12 @@ final class Digitalogic_Checkout_Date_Compatibility {
 			if ( str_starts_with( $class, 'Iconic_WDS\\' ) ) {
 				$delivery_slots_call = true;
 			}
+
+			if ( 'get_upcoming_bookable_dates' === $function && str_starts_with( $class, 'Iconic_WDS\\' ) ) {
+				$bookable_dates_call = true;
+			}
 		}
 
-		return $delivery_slots_call && in_array( $format, self::MACHINE_DATE_FORMATS, true );
+		return $delivery_slots_call && ( ( $bookable_dates_call && is_string( $format ) && '' !== $format ) || in_array( $format, self::MACHINE_DATE_FORMATS, true ) );
 	}
 }

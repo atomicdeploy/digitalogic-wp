@@ -72,7 +72,16 @@ final class CheckoutDateCompatibilityTest extends TestCase {
 	public function test_delivery_slots_display_formats_do_not_bypass_parsidate( string $format ): void {
 		$this->assertFalse(
 			Digitalogic_Checkout_Date_Compatibility::is_delivery_machine_date_trace(
-				self::trace( 'date_i18n', $format, 'Iconic_WDS\\Dates' )
+				self::trace( 'date_i18n', $format, 'Iconic_WDS\\Dates', 'format_order_delivery_date' )
+			)
+		);
+	}
+
+	/** The datepicker availability payload stays Gregorian even with a display-like format. */
+	public function test_bookable_dates_payload_bypasses_parsidate_for_datepicker_matching(): void {
+		$this->assertTrue(
+			Digitalogic_Checkout_Date_Compatibility::is_delivery_machine_date_trace(
+				self::trace( 'date_i18n', 'd/m/Y', 'Iconic_WDS\\Dates', 'get_upcoming_bookable_dates' )
 			)
 		);
 	}
@@ -116,8 +125,9 @@ final class CheckoutDateCompatibilityTest extends TestCase {
 	 * @param string $date_function WordPress date function.
 	 * @param string $format        Requested format.
 	 * @param string $caller_class  Calling class.
+	 * @param string $caller_function Calling method.
 	 */
-	private static function trace( string $date_function, string $format, string $caller_class ): array {
+	private static function trace( string $date_function, string $format, string $caller_class, string $caller_function = 'calculate_delivery_date' ): array {
 		return array(
 			array(
 				'function' => 'apply_filters',
@@ -129,7 +139,7 @@ final class CheckoutDateCompatibilityTest extends TestCase {
 			),
 			array(
 				'class'    => $caller_class,
-				'function' => 'get_upcoming_bookable_dates',
+				'function' => $caller_function,
 			),
 		);
 	}
