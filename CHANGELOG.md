@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.1] - 2026-09-26
+
+- Restore a distinctive, restrained bank-card surface while keeping surrounding content cards flat and visually stable.
+- Align invoice actions at a consistent control height and refresh their semantic blue, violet, green, and coral palette.
+- Register the local YekanBakh TrueType font directly with mPDF, disable automatic Persian font substitution, and align the generated invoice with the storefront design system.
+
 ## [2.1.0] - 2026-09-26
 
 - Add a shared YekanBakh RTL storefront design system for header, footer, catalog, product, cart, checkout, account, form, and empty-state surfaces.

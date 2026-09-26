@@ -284,17 +284,17 @@ final class Digitalogic_Order_Documents {
 
 		return '<!DOCTYPE html><html lang="fa" dir="rtl"><head><meta charset="UTF-8"><style>'
 			. $font
-			. 'html,body{direction:rtl;font-family:YekanBakh,dejavusans,sans-serif;color:#203548;font-size:10.5pt;line-height:1.65;margin:0;padding:0}'
-			. '*{box-sizing:border-box}.page{padding:12mm}.header{width:100%;border-collapse:collapse;margin-bottom:7mm}.header td{vertical-align:middle}'
-			. '.brand-logo{width:49mm;max-height:20mm}.brand-name{font-size:22pt;font-weight:700;color:#0d4f86}.doc-title{font-size:22pt;font-weight:700;color:#0d4f86;text-align:left}'
-			. '.accent{height:2.2mm;background:#14a9df;border-radius:2mm;margin:0 0 6mm}.status{display:inline-block;background:#e8f5ef;color:#23694d;border:1px solid #a9d5c3;border-radius:14px;padding:2mm 4mm;font-weight:700}'
-			. '.cards{width:100%;border-collapse:separate;border-spacing:3mm;margin:0 -3mm 5mm}.card{width:50%;background:#f4f8fb;border:1px solid #d6e6f0;border-radius:10px;padding:4mm;vertical-align:top}'
-			. '.label{font-size:8.5pt;color:#61798b}.value{font-weight:700;color:#203548}.section{font-size:13pt;font-weight:700;color:#0d4f86;margin:5mm 0 2mm}'
-			. 'table.items{width:100%;border-collapse:collapse;border:1px solid #cfe0eb}table.items th{background:#0d4f86;color:#fff;padding:2.6mm;text-align:right}table.items td{padding:2.7mm;border-bottom:1px solid #dbe7ee;vertical-align:top}table.items tr:nth-child(even) td{background:#f7fafc}'
+			. 'html,body{direction:rtl;font-family:YekanBakh,sans-serif;color:#17324a;font-size:10.5pt;line-height:1.65;margin:0;padding:0}'
+			. '*{box-sizing:border-box}.page{padding:10mm 11mm 9mm}.header{width:100%;border-collapse:separate;background:#eef6ff;border:1px solid #cfe4ff;border-radius:16px;margin-bottom:4mm;padding:5mm}.header td{vertical-align:middle}'
+			. '.brand-logo{width:47mm;max-height:18mm}.brand-name{font-size:22pt;font-weight:700;color:#153a5b}.doc-kicker{color:#1769e8;font-size:8.5pt;font-weight:700;text-align:left}.doc-title{font-size:21pt;font-weight:700;color:#17324a;text-align:left}'
+			. '.accent{height:2.2mm;background:#0bb8df;border-radius:2mm;margin:0 0 5mm}.status{display:inline-block;background:#e4f7ef;color:#087653;border:1px solid #9bd9c2;border-radius:14px;padding:2mm 4mm;font-weight:700}'
+			. '.cards{width:100%;border-collapse:separate;border-spacing:3mm;margin:0 -3mm 4mm}.card{width:50%;background:#f7fbff;border:1px solid #d7e8f6;border-radius:12px;padding:4mm;vertical-align:top}.cards .card:first-child{border-top:2px solid #1769e8}.cards .card:last-child{border-top:2px solid #7759ef}'
+			. '.label{font-size:8.5pt;color:#647b8d}.value{font-weight:700;color:#17324a}.section{font-size:13pt;font-weight:700;color:#17324a;margin:5mm 0 2mm;border-right:3px solid #0bb8df;padding-right:3mm}'
+			. 'table.items{width:100%;border-collapse:collapse;border:1px solid #cfe0eb;border-radius:9px;overflow:hidden}table.items th{background:#1769e8;color:#fff;padding:2.6mm;text-align:right}table.items td{padding:2.7mm;border-bottom:1px solid #dbe7ee;vertical-align:top}table.items tr:nth-child(even) td{background:#f3f8ff}'
 			. '.center{text-align:center}.muted{color:#6b8190;font-size:8.5pt}.totals{width:48%;margin-right:auto;margin-top:4mm;border-collapse:collapse}.totals td{padding:2mm;border-bottom:1px solid #dbe7ee}.totals .grand td{font-size:13pt;font-weight:700;color:#0d4f86;border-top:2px solid #14a9df}'
-			. '.note{margin-top:5mm;padding:3mm 4mm;background:#f4f8fb;border-right:3px solid #14a9df}.footer{margin-top:9mm;padding-top:4mm;border-top:1px solid #bdd4e3;text-align:center;color:#536b7c;font-size:8.8pt}.footer strong{color:#0d4f86}'
+			. '.note{margin-top:5mm;padding:3mm 4mm;background:#fff2f6;border-right:3px solid #ef4d78}.footer{margin-top:8mm;padding:4mm 5mm;background:#f3f8ff;border:1px solid #d8e7f4;border-radius:12px;text-align:center;color:#536b7c;font-size:8.8pt}.footer strong{color:#1769e8}'
 			. '</style></head><body><div class="page">'
-			. '<table class="header"><tr><td>' . $logo_html . '</td><td class="doc-title">' . esc_html( $data['document_title'] ) . '</td></tr></table><div class="accent"></div>'
+			. '<table class="header"><tr><td>' . $logo_html . '</td><td><div class="doc-kicker">DIGITALOGIC · ORDER DOCUMENT</div><div class="doc-title">' . esc_html( $data['document_title'] ) . '</div></td></tr></table><div class="accent"></div>'
 			. '<table class="cards"><tr><td class="card"><div class="label">شماره سفارش</div><div class="value">' . esc_html( $data['order_number'] ) . '</div><div class="label">تاریخ سفارش</div><div class="value">' . esc_html( self::value_or_dash( $data['order_date'] ) ) . '</div><div class="label">وضعیت</div><div class="status">' . esc_html( self::value_or_dash( $data['order_status'] ) ) . '</div></td>'
 			. '<td class="card"><div class="label">نام مشتری</div><div class="value">' . esc_html( self::value_or_dash( $data['customer']['name'] ) ) . '</div><div class="label">نشانی</div><div>' . nl2br( esc_html( self::value_or_dash( $data['customer']['address'] ) ) ) . '</div><div class="label">تماس</div><div>' . esc_html( self::value_or_dash( $customer_contact ) ) . '</div></td></tr></table>'
 			. '<table class="cards"><tr><td class="card"><div class="label">روش تحویل</div><div class="value">' . esc_html( self::value_or_dash( $data['shipping_method'] ) ) . '</div><div class="label">تاریخ تحویل</div><div class="value">' . esc_html( self::value_or_dash( $data['delivery_date'] ) ) . '</div><div class="label">بازه زمانی تحویل</div><div class="value">' . esc_html( self::value_or_dash( $data['delivery_time'] ) ) . '</div></td>'
@@ -328,15 +328,32 @@ final class Digitalogic_Order_Documents {
 			return new WP_Error( 'digitalogic_document_pdf_library_unavailable', __( 'The mPDF document engine is unavailable.', 'digitalogic' ) );
 		}
 
-		$generator = new Wt_Pklist_Mpdf();
-		$ok        = $generator->generate_pdf(
-			array(
-				'html'      => self::render_payload( $payload ),
-				'file_path' => $output,
-				'action'    => 'save',
-				'rtl'       => true,
-			)
-		);
+		$font_path = self::font_path();
+		$config    = array();
+		if ( '' !== $font_path ) {
+			$config = array(
+				'fontDir'      => array( dirname( $font_path ) ),
+				'fontdata'     => array(
+					'yekanbakh' => array(
+						'R'          => basename( $font_path ),
+						'B'          => basename( $font_path ),
+						'useOTL'     => 0xFF,
+						'useKashida' => 75,
+					),
+				),
+				'default_font' => 'yekanbakh',
+			);
+		}
+
+		$generator = new Wt_Pklist_Mpdf( $config );
+		$mpdf      = $generator->mpdf;
+		$mpdf->tempDir          = dirname( $output );
+		$mpdf->autoScriptToLang = false;
+		$mpdf->autoLangToFont   = false;
+		$mpdf->SetDirectionality( 'rtl' );
+		$mpdf->WriteHTML( self::render_payload( $payload ) );
+		$mpdf->Output( $output, 'F' );
+		$ok = true;
 
 		return $ok && file_exists( $output ) && filesize( $output ) > 0
 			? true
@@ -445,15 +462,21 @@ final class Digitalogic_Order_Documents {
 
 	/** Return a local YekanBakh font-face rule when the configured asset exists. */
 	private static function font_css(): string {
+		$path = self::font_path();
+		if ( '' === $path ) {
+			return '';
+		}
+		return "@font-face{font-family:'YekanBakh';src:url('file://" . esc_url( $path ) . "') format('truetype');font-weight:400;font-style:normal}";
+	}
+
+	/** Return the verified local YekanBakh TrueType asset used by mPDF. */
+	private static function font_path(): string {
 		if ( ! function_exists( 'wp_get_upload_dir' ) ) {
 			return '';
 		}
 		$uploads = wp_get_upload_dir();
 		$path    = wp_normalize_path( (string) ( $uploads['basedir'] ?? '' ) . '/2025/09/YekanBakh-Regular.ttf' );
-		if ( ! is_readable( $path ) ) {
-			return '';
-		}
-		return "@font-face{font-family:'YekanBakh';src:url('file://" . esc_url( $path ) . "') format('truetype');font-weight:400;font-style:normal}";
+		return is_readable( $path ) ? $path : '';
 	}
 
 	/** Return the current WordPress logo as an embedded document image. */
