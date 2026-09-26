@@ -110,6 +110,12 @@ final class CheckoutExperienceTest extends TestCase {
 	}
 
 	public function test_checkout_assets_include_vendor_ordering_and_localized_validation(): void {
+		$GLOBALS['iconic_wds'] = (object) array(
+			'settings' => array(
+				'datesettings_datesettings_setup_mandatory' => 0,
+				'timesettings_timesettings_setup_mandatory' => '1',
+			),
+		);
 		Digitalogic_Checkout_Experience::enqueue_assets();
 
 		$this->assertArrayHasKey( 'digitalogic-checkout-experience', $GLOBALS['digitalogic_test_enqueued_styles'] );
@@ -119,6 +125,8 @@ final class CheckoutExperienceTest extends TestCase {
 		);
 		$config = $GLOBALS['digitalogic_test_localized_scripts']['digitalogic-checkout-experience']['DigitalogicCheckoutExperience'];
 		$this->assertTrue( $config['needsShipping'] );
+		$this->assertFalse( $config['deliveryDateRequired'] );
+		$this->assertTrue( $config['deliveryTimeRequired'] );
 		$this->assertSame( 'Please complete %s.', $config['messages']['completeField'] );
 	}
 

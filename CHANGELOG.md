@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.7] - 2026-09-26
+
+- Keep the delivery date and delivery time-window requirements independent in checkout validation so an optional time window is never presented as optional while the server still rejects it.
+
 ## [2.1.6] - 2026-09-26
 
 - Render the configured Digitalogic wordmark and official circuit-D site icon as a composed PDF brand lockup so mPDF cannot clip the mark from the order header.
