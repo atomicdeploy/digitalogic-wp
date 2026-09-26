@@ -2989,3 +2989,19 @@ msgstr "در دسترس"
 #: includes/integrations/class-digitalogic-checkout-experience.php
 msgid "Unavailable"
 msgstr "در دسترس نیست"
+
+#: includes/integrations/class-digitalogic-checkout-experience.php
+msgid "Delivery date and time"
+msgstr "تاریخ و بازه زمانی تحویل"
+
+#: includes/integrations/class-digitalogic-checkout-experience.php
+msgid "Change"
+msgstr "تغییر"
+
+#: includes/integrations/class-digitalogic-checkout-experience.php
+msgid "Change delivery time"
+msgstr "تغییر زمان تحویل"
+
+#: includes/integrations/class-digitalogic-checkout-experience.php
+msgid "Add delivery time"
+msgstr "افزودن زمان تحویل"

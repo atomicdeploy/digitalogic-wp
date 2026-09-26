@@ -3030,3 +3030,19 @@ msgstr ""
 #: includes/integrations/class-digitalogic-checkout-experience.php
 msgid "Unavailable"
 msgstr ""
+
+#: includes/integrations/class-digitalogic-checkout-experience.php
+msgid "Delivery date and time"
+msgstr ""
+
+#: includes/integrations/class-digitalogic-checkout-experience.php
+msgid "Change"
+msgstr ""
+
+#: includes/integrations/class-digitalogic-checkout-experience.php
+msgid "Change delivery time"
+msgstr ""
+
+#: includes/integrations/class-digitalogic-checkout-experience.php
+msgid "Add delivery time"
+msgstr ""

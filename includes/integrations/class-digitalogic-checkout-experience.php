@@ -219,6 +219,18 @@ final class Digitalogic_Checkout_Experience {
 		}
 
 		switch ( $text ) {
+			case 'Delivery Details':
+			case 'Delivery details':
+				return self::delivery_details_label();
+			case 'Delivery Date & Time':
+				return __( 'Delivery date and time', 'digitalogic' );
+			case 'Change':
+				return __( 'Change', 'digitalogic' );
+			case 'Change your delivery slot':
+			case 'Change Delivery Slot':
+				return __( 'Change delivery time', 'digitalogic' );
+			case '+ Add Time Slot':
+				return __( 'Add delivery time', 'digitalogic' );
 			case 'Please select a shipping method.':
 				return __( 'Please choose a shipping method.', 'digitalogic' );
 			case 'Please select a delivery date.':

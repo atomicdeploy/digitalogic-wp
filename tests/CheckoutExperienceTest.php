@@ -128,6 +128,14 @@ final class CheckoutExperienceTest extends TestCase {
 			Digitalogic_Checkout_Experience::translate_delivery_string( 'unchanged', 'Please select a shipping method.', 'jckwds' )
 		);
 		$this->assertSame(
+			'Delivery date and time',
+			Digitalogic_Checkout_Experience::translate_delivery_string( 'unchanged', 'Delivery Date & Time', 'jckwds' )
+		);
+		$this->assertSame(
+			'Change',
+			Digitalogic_Checkout_Experience::translate_delivery_string( 'unchanged', 'Change', 'jckwds' )
+		);
+		$this->assertSame(
 			'unchanged',
 			Digitalogic_Checkout_Experience::translate_delivery_string( 'unchanged', 'Unknown vendor text', 'jckwds' )
 		);
