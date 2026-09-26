@@ -28,7 +28,11 @@ final class OrderDocumentsTest extends TestCase {
 				'shipping_method' => 'دریافت حضوری',
 				'delivery_date'   => '1405/07/06',
 				'delivery_time'   => '07:00 تا 07:30',
-				'customer'        => array( 'name' => 'مشتری آزمایشی' ),
+				'customer'        => array(
+					'name'  => 'مشتری آزمایشی',
+					'phone' => '09120000000',
+					'email' => 'customer@example.test',
+				),
 				'items'           => array(
 					array(
 						'name'         => 'سنسور فاصله',
@@ -48,6 +52,7 @@ final class OrderDocumentsTest extends TestCase {
 		$this->assertStringContainsString( 'DIGITALOGIC · ORDER DOCUMENT', $html );
 		$this->assertStringContainsString( 'P-14085', $html );
 		$this->assertStringContainsString( '102007003', $html );
+		$this->assertStringContainsString( '09120000000 · customer@example.test', $html );
 		$this->assertStringContainsString( 'تلفن:', $html );
 		$this->assertStringContainsString( 'info@digitalogic.ir', $html );
 		$this->assertStringNotContainsString( 'orange', strtolower( $html ) );
