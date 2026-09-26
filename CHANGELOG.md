@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-09-26
+
+- Add a shared YekanBakh RTL storefront design system for header, footer, catalog, product, cart, checkout, account, form, and empty-state surfaces.
+- Standardize semantic primary, success, warning, and destructive controls; add accessible focus treatment and a global reduced-motion contract.
+- Remove redundant nested presentation layers and prevent mobile Chaty overlays from obscuring catalog actions, product identity, checkout choices, and the fixed purchase bar.
+- Record production media gaps in a separate product-code-authoritative evidence ledger without assigning guessed or mismatched images.
+
 ## [2.0.5] - 2026-09-26
 
 - Keep required delivery date and time controls outside WooCommerce's AJAX-replaced order-review fragment, with maintained Persian labels and vendor validation translations.
