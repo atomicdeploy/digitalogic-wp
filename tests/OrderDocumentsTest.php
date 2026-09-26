@@ -7,6 +7,7 @@
 
 use PHPUnit\Framework\TestCase;
 
+require_once dirname( __DIR__ ) . '/includes/integrations/class-digitalogic-persian-time-formatter.php';
 require_once dirname( __DIR__ ) . '/includes/integrations/class-digitalogic-order-documents.php';
 
 /** Verify the custom-data contract and invoice integration boundary. */
@@ -27,7 +28,7 @@ final class OrderDocumentsTest extends TestCase {
 				'payment_method'  => 'کارت به کارت',
 				'shipping_method' => 'دریافت حضوری',
 				'delivery_date'   => '1405/07/06',
-				'delivery_time'   => '07:00 تا 07:30',
+				'delivery_time'   => '07:00 ق.ظ. تا 07:30 ق.ظ.',
 				'customer'        => array(
 					'name'  => 'مشتری آزمایشی',
 					'phone' => '09120000000',
@@ -52,6 +53,8 @@ final class OrderDocumentsTest extends TestCase {
 		$this->assertStringContainsString( 'دیجیتالاجیک · سند سفارش', $html );
 		$this->assertStringContainsString( 'P-14085', $html );
 		$this->assertStringContainsString( '102007003', $html );
+		$this->assertStringContainsString( '07:00 صبح تا 07:30 صبح', $html );
+		$this->assertStringNotContainsString( 'ق.ظ', $html );
 		$this->assertStringContainsString( "09120000000<br />\ncustomer@example.test", $html );
 		$this->assertStringContainsString( 'تلفن:', $html );
 		$this->assertStringContainsString( 'info@digitalogic.ir', $html );

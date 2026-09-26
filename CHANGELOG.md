@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.4] - 2026-09-26
+
+- Add a shared site-wide formatter for WordPress `wp_date()` and `date_i18n()` output that replaces Persian and English 12-hour meridiems with contextual `صبح`, `ظهر`, and `عصر` labels.
+- Reuse the formatter across checkout choices, order details, PDFs, shortcodes, and webhook notifications while preserving stored slot identifiers and legacy order data.
+
 ## [2.1.3] - 2026-09-26
 
 - Use server-local static TrueType instances generated from YekanBakh FaNum VF for real Regular and Bold mPDF typography, with the existing static face retained as a safe fallback.
