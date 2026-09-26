@@ -238,7 +238,7 @@
         const valid = errors.length === 0;
         if (button) {
             button.classList.toggle('digitalogic-checkout-incomplete', !valid);
-            button.setAttribute('aria-disabled', valid ? 'false' : 'true');
+            button.dataset.checkoutReady = valid ? 'true' : 'false';
         }
         if (status) {
             status.classList.toggle('is-ready', valid);

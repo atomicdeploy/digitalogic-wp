@@ -38,7 +38,7 @@ test('required controls and shipping methods are discovered from live checkout s
 test('warning and quantity controls use branded accessible styling without orange', () => {
     assert.match(css, /\.digitalogic-checkout-notice\s*\{[\s\S]*border-inline-start:\s*4px solid var\(--digitalogic-checkout-brand\)/);
     assert.match(css, /\.woocommerce-error a:hover,[\s\S]*text-decoration:\s*none !important/);
-    assert.match(css, /\.quantity \.minus,[\s\S]*\.quantity \.plus\s*\{[\s\S]*min-height:\s*42px/);
-    assert.match(css, /\.quantity \.minus:hover,[\s\S]*background:\s*var\(--digitalogic-checkout-brand\) !important/);
+    assert.match(css, /form\.checkout \.quantity \.minus,[\s\S]*form\.checkout \.quantity \.plus\s*\{[\s\S]*min-height:\s*42px/);
+    assert.match(css, /form\.checkout \.quantity \.minus:hover,[\s\S]*background:\s*var\(--digitalogic-checkout-brand\) !important/);
     assert.doesNotMatch(css, /#f(?:f|9)[a-f0-9]*8[0-9a-f]*/i);
 });

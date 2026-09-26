@@ -115,11 +115,10 @@ form.checkout .digitalogic-checkout-readiness.is-ready {
 
 form.checkout #place_order.digitalogic-checkout-incomplete {
     filter: saturate(.72);
-    opacity: .78;
-    cursor: not-allowed;
+    opacity: .84;
 }
 
-.woocommerce-checkout-review-order .quantity {
+form.checkout .quantity {
     display: inline-grid;
     grid-template-columns: 42px minmax(44px, 58px) 42px;
     align-items: stretch;
@@ -130,8 +129,8 @@ form.checkout #place_order.digitalogic-checkout-incomplete {
     box-shadow: 0 5px 14px rgba(18, 65, 99, .08);
 }
 
-.woocommerce-checkout-review-order .quantity .minus,
-.woocommerce-checkout-review-order .quantity .plus {
+form.checkout .quantity .minus,
+form.checkout .quantity .plus {
     min-width: 42px !important;
     min-height: 42px !important;
     border: 0 !important;
@@ -143,17 +142,17 @@ form.checkout #place_order.digitalogic-checkout-incomplete {
     transition: color .18s ease, background-color .18s ease, box-shadow .18s ease;
 }
 
-.woocommerce-checkout-review-order .quantity .minus:hover,
-.woocommerce-checkout-review-order .quantity .plus:hover,
-.woocommerce-checkout-review-order .quantity .minus:focus-visible,
-.woocommerce-checkout-review-order .quantity .plus:focus-visible {
+form.checkout .quantity .minus:hover,
+form.checkout .quantity .plus:hover,
+form.checkout .quantity .minus:focus-visible,
+form.checkout .quantity .plus:focus-visible {
     background: var(--digitalogic-checkout-brand) !important;
     color: #fff !important;
     box-shadow: inset 0 0 0 2px rgba(255, 255, 255, .32) !important;
     outline: none !important;
 }
 
-.woocommerce-checkout-review-order .quantity input.qty {
+form.checkout .quantity input.qty {
     width: 100% !important;
     min-height: 42px !important;
     border: 0 !important;
@@ -200,7 +199,7 @@ form.checkout #place_order.digitalogic-checkout-incomplete {
         margin: 18px 0;
     }
 
-    .woocommerce-checkout-review-order .quantity {
+    form.checkout .quantity {
         grid-template-columns: 44px minmax(46px, 60px) 44px;
     }
 }
