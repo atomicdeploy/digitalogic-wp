@@ -272,7 +272,7 @@ final class Digitalogic_Order_Documents {
 			? '<div class="note"><strong>یادداشت مشتری:</strong> ' . esc_html( $data['customer_note'] ) . '</div>'
 			: '';
 		$customer_contact = implode(
-			' · ',
+			"\n",
 			array_filter(
 				array(
 					$data['customer']['phone'],
@@ -299,12 +299,12 @@ final class Digitalogic_Order_Documents {
 			. '.cards{width:100%;border-collapse:separate;border-spacing:3mm;margin:0 -3mm 4mm}.card{width:50%;background:#f7fbff;border:1px solid #d7e8f6;border-radius:12px;padding:4mm;vertical-align:top}.cards .card:first-child{border-top:2px solid #1769e8}.cards .card:last-child{border-top:2px solid #7759ef}'
 			. '.label{font-size:8.5pt;color:#647b8d}.value{font-weight:700;color:#17324a}.section{font-size:13pt;font-weight:700;color:#17324a;margin:5mm 0 2mm;border-right:3px solid #0bb8df;padding-right:3mm}'
 			. 'table.items{width:100%;border-collapse:collapse;border:1px solid #cfe0eb;border-radius:9px;overflow:hidden}table.items th{background:#1769e8;color:#fff;padding:2.6mm;text-align:right}table.items td{padding:2.7mm;border-bottom:1px solid #dbe7ee;vertical-align:top}table.items tr:nth-child(even) td{background:#f3f8ff}'
-			. '.center{text-align:center}.muted{color:#6b8190;font-size:8.5pt}.totals{width:64%;margin-right:auto;margin-top:4mm;border-collapse:collapse}.totals td{padding:2.2mm;border-bottom:1px solid #dbe7ee;vertical-align:top}.totals td:first-child{width:32%;font-weight:700}.totals td:last-child{text-align:left}.totals .grand td{font-size:13pt;font-weight:700;color:#1769e8;border-top:2px solid #0bb8df}'
+			. '.center{text-align:center}.muted{color:#6b8190;font-size:8.5pt}.totals{width:76%;margin-right:auto;margin-top:4mm;border-collapse:collapse}.totals td{padding:2.2mm 3mm;border-bottom:1px solid #dbe7ee;vertical-align:top}.totals td:first-child{width:28%;font-weight:700;padding-left:7mm}.totals td:last-child{text-align:left}.totals .grand td{font-size:13pt;font-weight:700;color:#1769e8;border-top:2px solid #0bb8df}'
 			. '.note{margin-top:5mm;padding:3mm 4mm;background:#fff2f6;border-right:3px solid #ef4d78}.footer{margin-top:8mm;padding:4mm 5mm;background:#f3f8ff;border:1px solid #d8e7f4;border-radius:12px;text-align:center;color:#536b7c;font-size:8.8pt}.footer strong{color:#1769e8}'
 			. '</style></head><body><div class="page">'
 			. '<table class="header"><tr><td>' . $logo_html . '</td><td><div class="doc-kicker">DIGITALOGIC · ORDER DOCUMENT</div><div class="doc-title">' . esc_html( $data['document_title'] ) . '</div></td></tr></table><div class="accent"></div>'
 			. '<table class="cards"><tr><td class="card"><div class="label">شماره سفارش</div><div class="value">' . esc_html( $data['order_number'] ) . '</div><div class="label">تاریخ سفارش</div><div class="value">' . esc_html( self::value_or_dash( $data['order_date'] ) ) . '</div><div class="label">وضعیت</div><div class="status">' . esc_html( self::value_or_dash( $data['order_status'] ) ) . '</div></td>'
-			. '<td class="card"><div class="label">نام مشتری</div><div class="value">' . esc_html( self::value_or_dash( $data['customer']['name'] ) ) . '</div><div class="label">نشانی</div><div>' . nl2br( esc_html( self::value_or_dash( $data['customer']['address'] ) ) ) . '</div><div class="label">تماس</div><div>' . esc_html( self::value_or_dash( $customer_contact ) ) . '</div></td></tr></table>'
+			. '<td class="card"><div class="label">نام مشتری</div><div class="value">' . esc_html( self::value_or_dash( $data['customer']['name'] ) ) . '</div><div class="label">نشانی</div><div>' . nl2br( esc_html( self::value_or_dash( $data['customer']['address'] ) ) ) . '</div><div class="label">تماس</div><div>' . nl2br( esc_html( self::value_or_dash( $customer_contact ) ) ) . '</div></td></tr></table>'
 			. '<table class="cards"><tr><td class="card"><div class="label">روش تحویل</div><div class="value">' . esc_html( self::value_or_dash( $data['shipping_method'] ) ) . '</div><div class="label">تاریخ تحویل</div><div class="value">' . esc_html( self::value_or_dash( $data['delivery_date'] ) ) . '</div><div class="label">بازه زمانی تحویل</div><div class="value">' . esc_html( self::value_or_dash( $data['delivery_time'] ) ) . '</div></td>'
 			. '<td class="card"><div class="label">روش پرداخت</div><div class="value">' . esc_html( self::value_or_dash( $data['payment_method'] ) ) . '</div><div class="label">توضیح</div><div>این فایل، خلاصه رسمی سفارش ثبت‌شده در دیجیتالاجیک است.</div></td></tr></table>'
 			. '<div class="section">اقلام سفارش</div><table class="items"><thead><tr><th class="center">ردیف</th><th>شرح کالا</th><th class="center">تعداد</th><th>قیمت واحد</th><th>مبلغ</th></tr></thead><tbody>' . $rows . '</tbody></table>'
