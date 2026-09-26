@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.6] - 2026-09-26
+
+- Render the configured Digitalogic wordmark and official circuit-D site icon as a composed PDF brand lockup so mPDF cannot clip the mark from the order header.
+
 ## [2.1.5] - 2026-09-26
 
 - Normalize the full Persian `قبل از ظهر` and `بعد از ظهر` forms, including half-spaced variants emitted by localized WordPress date formatting.
