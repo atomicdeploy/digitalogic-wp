@@ -272,6 +272,15 @@ final class Digitalogic_Order_Documents {
 			? '<div class="note"><strong>یادداشت مشتری:</strong> ' . esc_html( $data['customer_note'] ) . '</div>'
 			: '';
 		$customer_contact = trim( $data['customer']['phone'] . '  ' . $data['customer']['email'] );
+		$contact_parts    = array_filter(
+			array(
+				'' !== $branding['phone'] ? 'تلفن: ' . $branding['phone'] : '',
+				'' !== $branding['mobile'] ? 'موبایل: ' . $branding['mobile'] : '',
+			)
+		);
+		$contact_html = array() !== $contact_parts
+			? '<br>' . implode( '<br>', array_map( 'esc_html', $contact_parts ) )
+			: '';
 
 		return '<!DOCTYPE html><html lang="fa" dir="rtl"><head><meta charset="UTF-8"><style>'
 			. $font
@@ -293,7 +302,7 @@ final class Digitalogic_Order_Documents {
 			. '<div class="section">اقلام سفارش</div><table class="items"><thead><tr><th class="center">ردیف</th><th>شرح کالا</th><th class="center">تعداد</th><th>قیمت واحد</th><th>مبلغ</th></tr></thead><tbody>' . $rows . '</tbody></table>'
 			. '<table class="totals"><tr><td>جمع کالاها</td><td>' . esc_html( self::value_or_dash( $data['subtotal'] ) ) . '</td></tr><tr><td>هزینه ارسال</td><td>' . esc_html( self::value_or_dash( $data['shipping_total'] ) ) . '</td></tr><tr class="grand"><td>مبلغ نهایی</td><td>' . esc_html( self::value_or_dash( $data['total'] ) ) . '</td></tr></table>'
 			. $note_html
-			. '<div class="footer"><strong>' . esc_html( $branding['company'] ) . '</strong><br>' . esc_html( $branding['address'] ) . '<br>تلفن: ' . esc_html( $branding['phone'] ) . ' | موبایل: ' . esc_html( $branding['mobile'] ) . '<br>' . esc_html( $branding['email'] ) . ' | ' . esc_html( $branding['website'] ) . '</div>'
+			. '<div class="footer"><strong>' . esc_html( $branding['company'] ) . '</strong><br>' . esc_html( $branding['address'] ) . $contact_html . '<br>' . esc_html( $branding['email'] ) . ' | ' . esc_html( $branding['website'] ) . '</div>'
 			. '</div></body></html>';
 	}
 
@@ -426,7 +435,7 @@ final class Digitalogic_Order_Documents {
 			'company' => 'دیجیتالاجیک',
 			'address' => 'تهران، خیابان جمهوری اسلامی، بعد از خیابان حافظ، پاساژ فرشته، پلاک ۲۶۹',
 			'phone'   => '۰۲۱-۶۶۷۵۴۱۲۳',
-			'mobile'  => '۰۹۳۹۲۹۳۹۲۰۹',
+			'mobile'  => '',
 			'email'   => 'info@digitalogic.ir',
 			'website' => 'digitalogic.ir',
 		);

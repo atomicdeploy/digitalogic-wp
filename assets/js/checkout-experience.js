@@ -30,20 +30,56 @@
         return false;
     };
 
+    const syncDeliveryRequirement = (form) => {
+        if (config.deliveryRequired) {
+            return;
+        }
+
+        ['#jckwds-delivery-date', '#jckwds-delivery-time'].forEach((selector) => {
+            const control = form.querySelector(selector);
+            const row = control?.closest('.form-row, .wds-fieldbox-sub-field');
+            if (!control || !row) {
+                return;
+            }
+
+            control.required = false;
+            control.removeAttribute('aria-required');
+            row.classList.remove('validate-required', 'woocommerce-invalid-required-field');
+            row.classList.add('validate-optional');
+            row.querySelector('label .required')?.remove();
+
+            const label = row.querySelector('label');
+            if (label && !/(اختیاری|optional)/iu.test(label.textContent || '')) {
+                const optional = document.createElement('span');
+                optional.className = 'digitalogic-optional-label';
+                optional.textContent = ' (اختیاری)';
+                label.append(optional);
+            }
+        });
+    };
+
     const requiredControls = (form) => {
+        syncDeliveryRequirement(form);
         const controls = new Set();
         form.querySelectorAll('.validate-required input, .validate-required select, .validate-required textarea').forEach((control) => {
+            if (!config.deliveryRequired && ['jckwds-delivery-date', 'jckwds-delivery-time'].includes(control.id)) {
+                control.required = false;
+                control.removeAttribute('aria-required');
+                return;
+            }
             if (isVisible(control) && !['checkbox', 'radio'].includes(control.type)) {
                 controls.add(control);
             }
         });
 
-        ['#jckwds-delivery-date', '#jckwds-delivery-time'].forEach((selector) => {
-            const control = form.querySelector(selector);
-            if (isVisible(control)) {
-                controls.add(control);
-            }
-        });
+        if (config.deliveryRequired) {
+            ['#jckwds-delivery-date', '#jckwds-delivery-time'].forEach((selector) => {
+                const control = form.querySelector(selector);
+                if (isVisible(control)) {
+                    controls.add(control);
+                }
+            });
+        }
 
         return [...controls];
     };

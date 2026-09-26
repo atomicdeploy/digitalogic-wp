@@ -147,8 +147,7 @@ final class Digitalogic_Order_Payment_Experience {
 				<div class="dg-bank-cards">
 					<?php foreach ( $accounts as $index => $account ) : ?>
 						<article class="dg-bank-card" style="--dg-card-accent:<?php echo esc_attr( $account['accent'] ); ?>">
-							<div class="dg-bank-card__glow" aria-hidden="true"></div>
-							<header><span class="dg-bank-card__mark"><?php echo esc_html( self::bank_initials( $account['bank_name'] ) ); ?></span><span><?php echo esc_html( $account['bank_name'] ); ?></span><?php echo wp_kses_post( self::icon( 'contactless' ) ); ?></header>
+							<header><?php echo wp_kses_post( self::bank_mark( $account['bank_name'] ) ); ?><span><?php echo esc_html( $account['bank_name'] ); ?></span><?php echo wp_kses_post( self::icon( 'contactless' ) ); ?></header>
 							<div class="dg-bank-card__chip" aria-hidden="true"></div>
 							<div class="dg-bank-card__number" dir="ltr"><?php echo esc_html( self::group_card_number( $account['card_number'] ) ); ?></div>
 							<footer><div><small><?php esc_html_e( 'Account holder', 'digitalogic' ); ?></small><strong><?php echo esc_html( $account['account_holder'] ); ?></strong></div><button type="button" data-dg-copy="<?php echo esc_attr( $account['card_number'] ); ?>"><?php echo wp_kses_post( self::icon( 'copy' ) ); ?><span><?php esc_html_e( 'Copy card number', 'digitalogic' ); ?></span></button></footer>
@@ -213,6 +212,7 @@ final class Digitalogic_Order_Payment_Experience {
 
 	/** Register the WooCommerce submenu. */
 	public static function register_admin_page(): void {
+		// phpcs:ignore WordPress.WP.Capabilities.Unknown -- WooCommerce registers this capability.
 		add_submenu_page( 'woocommerce', __( 'Card-to-card accounts', 'digitalogic' ), __( 'Card-to-card', 'digitalogic' ), 'manage_woocommerce', 'digitalogic-bank-ingress', array( self::class, 'render_admin_page' ) );
 	}
 
@@ -237,6 +237,7 @@ final class Digitalogic_Order_Payment_Experience {
 
 	/** Render bank ingress settings without exposing secrets in source control. */
 	public static function render_admin_page(): void {
+		// phpcs:ignore WordPress.WP.Capabilities.Unknown -- WooCommerce registers this capability.
 		if ( ! current_user_can( 'manage_woocommerce' ) ) {
 			return;
 		}
@@ -294,6 +295,7 @@ final class Digitalogic_Order_Payment_Experience {
 
 	/** Validate and save administrator-entered accounts. */
 	public static function save_bank_accounts(): void {
+		// phpcs:ignore WordPress.WP.Capabilities.Unknown -- WooCommerce registers this capability.
 		if ( ! current_user_can( 'manage_woocommerce' ) ) {
 			wp_die( esc_html__( 'You are not allowed to manage payment accounts.', 'digitalogic' ), '', array( 'response' => 403 ) );
 		}
@@ -495,6 +497,7 @@ final class Digitalogic_Order_Payment_Experience {
 	 * @param WC_Order $order Order being edited.
 	 */
 	public static function render_admin_receipt( $order ): void {
+		// phpcs:ignore WordPress.WP.Capabilities.Unknown -- WooCommerce registers this capability.
 		if ( ! $order || ! current_user_can( 'manage_woocommerce' ) ) {
 			return;
 		}
@@ -520,6 +523,7 @@ final class Digitalogic_Order_Payment_Experience {
 	 * @param WC_Order|null $order    Order object when supplied by WooCommerce.
 	 */
 	public static function save_admin_receipt_status( $order_id, $order = null ): void {
+		// phpcs:ignore WordPress.WP.Capabilities.Unknown -- WooCommerce registers this capability.
 		if ( ! current_user_can( 'manage_woocommerce' ) || empty( $_POST['digitalogic_receipt_status_nonce'] ) || ! wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['digitalogic_receipt_status_nonce'] ) ), 'digitalogic_receipt_status_' . absint( $order_id ) ) ) {
 			return;
 		}
@@ -534,6 +538,7 @@ final class Digitalogic_Order_Payment_Experience {
 	/** Stream a receipt only to a WooCommerce manager. */
 	public static function download_receipt(): void {
 		$order_id = absint( $_GET['order_id'] ?? 0 );
+		// phpcs:ignore WordPress.WP.Capabilities.Unknown -- WooCommerce registers this capability.
 		if ( ! current_user_can( 'manage_woocommerce' ) || ! wp_verify_nonce( sanitize_text_field( wp_unslash( $_GET['_wpnonce'] ?? '' ) ), 'digitalogic_download_receipt_' . $order_id ) ) {
 			wp_die( esc_html__( 'You are not allowed to download this receipt.', 'digitalogic' ), '', array( 'response' => 403 ) );
 		}
@@ -560,6 +565,7 @@ final class Digitalogic_Order_Payment_Experience {
 	 * @param string   $provided_key Explicit key from a protected form submission.
 	 */
 	public static function can_access_order( $order, string $provided_key = '' ): bool {
+		// phpcs:ignore WordPress.WP.Capabilities.Unknown -- WooCommerce registers this capability.
 		if ( current_user_can( 'manage_woocommerce' ) ) {
 			return true;
 		}
@@ -714,6 +720,21 @@ final class Digitalogic_Order_Payment_Experience {
 			$initials .= function_exists( 'mb_substr' ) ? mb_substr( $word, 0, 1, 'UTF-8' ) : substr( $word, 0, 1 );
 		}
 		return $initials ? $initials : 'D';
+	}
+
+	/**
+	 * Return a verified bank logo when one is known, otherwise a text monogram.
+	 *
+	 * @param string $bank_name Bank display name.
+	 */
+	private static function bank_mark( string $bank_name ): string {
+		$normalized = function_exists( 'mb_strtolower' ) ? mb_strtolower( trim( $bank_name ), 'UTF-8' ) : strtolower( trim( $bank_name ) );
+		if ( false !== strpos( $normalized, 'کشاورزی' ) || false !== strpos( $normalized, 'keshavarzi' ) ) {
+			$logo_url = apply_filters( 'digitalogic_bank_keshavarzi_logo_url', 'https://cdn.jsdelivr.net/gh/snapp-store/iranian-banks-react-icons@main/optimized/keshavarzi-color.svg' );
+			return '<span class="dg-bank-card__mark dg-bank-card__mark--logo"><img src="' . esc_url( $logo_url ) . '" alt="" width="32" height="32" loading="lazy" decoding="async"></span>';
+		}
+
+		return '<span class="dg-bank-card__mark">' . esc_html( self::bank_initials( $bank_name ) ) . '</span>';
 	}
 
 	/**

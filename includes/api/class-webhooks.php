@@ -80,8 +80,8 @@ class Digitalogic_Webhooks {
         // Add settings page
         add_action('admin_init', array($this, 'register_settings'));
         add_action('rest_api_init', array($this, 'register_routes'));
-        add_action('http_api_curl', array($this, 'bypass_proxy_for_local_n8n'), 10, 3);
-    }
+		add_action( 'http_api_curl', array( $this, 'bypass_proxy_for_local_n8n' ), 10, 3 );
+	}
 
     /**
      * Keep the same-host n8n transport off machine-wide HTTP proxies.
@@ -90,15 +90,15 @@ class Digitalogic_Webhooks {
      * @param array               $parsed_args WordPress HTTP arguments.
      * @param string              $url         Request URL.
      */
-    public function bypass_proxy_for_local_n8n($handle, $parsed_args, $url) {
-        unset($parsed_args);
-        $parts = wp_parse_url((string) $url);
-        if (!is_array($parts) || '127.0.0.1' !== ($parts['host'] ?? '') || 5678 !== (int) ($parts['port'] ?? 0)) {
-            return;
-        }
-        if (defined('CURLOPT_NOPROXY')) {
-            curl_setopt($handle, CURLOPT_NOPROXY, '*'); // phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_setopt -- WordPress exposes this cURL handle specifically for transport configuration.
-        }
+	public function bypass_proxy_for_local_n8n( $handle, $parsed_args, $url ) {
+		unset( $parsed_args );
+		$parts = wp_parse_url( (string) $url );
+		if ( ! is_array( $parts ) || '127.0.0.1' !== ( $parts['host'] ?? '' ) || 5678 !== (int) ( $parts['port'] ?? 0 ) ) {
+			return;
+		}
+		if ( defined( 'CURLOPT_NOPROXY' ) ) {
+			curl_setopt( $handle, CURLOPT_NOPROXY, '*' ); // phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_setopt -- WordPress exposes this cURL handle specifically for transport configuration.
+		}
     }
 
     private function register_shipping_method_delivery_channel() {
@@ -364,15 +364,15 @@ class Digitalogic_Webhooks {
      * Order created webhook.
      */
     public function order_created($order_id, $order = null) {
-        $data = $this->format_order($order ?: wc_get_order($order_id));
-        $data['category'] = 'commerce';
-        $data['severity'] = 'info';
-        $data['status'] = 'placed';
-        $data['notify_channels'] = array('telegram', 'ntfy');
-        $data['audience'] = array('shokri');
-        $data['document_available'] = true;
+		$data                       = $this->format_order( $order ?: wc_get_order( $order_id ) );
+		$data['category']           = 'commerce';
+		$data['severity']           = 'info';
+		$data['status']             = 'placed';
+		$data['notify_channels']    = array( 'telegram', 'ntfy' );
+		$data['audience']           = array( 'shokri' );
+		$data['document_available'] = true;
 
-        $this->trigger_webhook('order.created', $data, true, hash('sha256', 'order.created|' . absint($order_id)));
+		$this->trigger_webhook( 'order.created', $data, true, hash( 'sha256', 'order.created|' . absint( $order_id ) ) );
     }
 
     /**
@@ -383,15 +383,15 @@ class Digitalogic_Webhooks {
         $data['old_status'] = $old_status;
         $data['new_status'] = $new_status;
 
-        $data['category'] = 'commerce';
-        $data['severity'] = 'info';
-        $data['status'] = 'status_changed';
-        $data['notify_channels'] = array('telegram', 'ntfy');
-        $data['audience'] = array('shokri');
-        $data['document_available'] = true;
+		$data['category']           = 'commerce';
+		$data['severity']           = 'info';
+		$data['status']             = 'status_changed';
+		$data['notify_channels']    = array( 'telegram', 'ntfy' );
+		$data['audience']           = array( 'shokri' );
+		$data['document_available'] = true;
 
-        $effect_id = hash('sha256', 'order.status.changed|' . absint($order_id) . '|' . sanitize_key($old_status) . '|' . sanitize_key($new_status));
-        $this->trigger_webhook('order.status.changed', $data, true, $effect_id);
+		$effect_id = hash( 'sha256', 'order.status.changed|' . absint( $order_id ) . '|' . sanitize_key( $old_status ) . '|' . sanitize_key( $new_status ) );
+		$this->trigger_webhook( 'order.status.changed', $data, true, $effect_id );
     }
     
     /**
@@ -861,10 +861,10 @@ class Digitalogic_Webhooks {
             'status' => $order->get_status(),
             'total' => $order->get_total(),
             'currency' => $order->get_currency(),
-            'payment_method' => $order->get_payment_method_title(),
-            'shipping_method' => $order->get_shipping_method(),
-            'delivery_date' => (string) $order->get_meta('jckwds_date', true),
-            'delivery_time' => (string) $order->get_meta('jckwds_timeslot', true),
+			'payment_method'  => $order->get_payment_method_title(),
+			'shipping_method' => $order->get_shipping_method(),
+			'delivery_date'   => (string) $order->get_meta( 'jckwds_date', true ),
+			'delivery_time'   => (string) $order->get_meta( 'jckwds_timeslot', true ),
             'created_at' => $order->get_date_created() ? $order->get_date_created()->date('c') : null,
             'updated_at' => $order->get_date_modified() ? $order->get_date_modified()->date('c') : null,
             'items' => $items,

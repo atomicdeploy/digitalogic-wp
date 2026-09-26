@@ -53,6 +53,18 @@ final class OrderWebhookTest extends TestCase {
 		$this->assertArrayNotHasKey( 'request', $payload['data'] );
 	}
 
+	/** Notification titles derive from the event key and order context. */
+	public function test_n8n_titles_are_contextual_for_every_commerce_event(): void {
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Local test fixture.
+		$source = file_get_contents( dirname( __DIR__ ) . '/assets/integrations/n8n/digitalogic-wordpress-events.code.js' );
+		$this->assertIsString( $source );
+		$this->assertStringContainsString( 'function eventTitle(key, payload)', $source );
+		$this->assertStringContainsString( "'order.receipt.submitted'", $source );
+		$this->assertStringContainsString( 'const title = eventTitle(eventKey, data);', $source );
+		$this->assertStringNotContainsString( 'سفارش جدید دیجیتالاجیک', $source );
+		$this->assertStringNotContainsString( 'به‌روزرسانی نرخ ارز دیجیتالاجیک', $source );
+	}
+
 	/** Build the minimum WooCommerce order surface used by the formatter. */
 	private function order(): object {
 		// phpcs:disable -- Compact anonymous test doubles keep this focused fixture readable.

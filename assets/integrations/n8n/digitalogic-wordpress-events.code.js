@@ -19,7 +19,8 @@ if (!signature || signature.length !== expected.length || !timingSafeEqual(Buffe
 const data = body.data || {};
 const site = body.site || {};
 const eventId = String(body.event_id || '').trim();
-const orderEvent = ['order.created', 'order.status.changed'].includes(event.toLowerCase());
+const eventKey = event.toLowerCase();
+const orderEvent = ['order.created', 'order.status.changed', 'order.receipt.submitted'].includes(eventKey);
 
 if (eventId) {
   const store = $getWorkflowStaticData('global');
@@ -67,13 +68,43 @@ function effectiveDate(value) {
   return safe(value || 'نامشخص');
 }
 
+function eventTitle(key, payload) {
+  const orderNumber = safe(payload.number || payload.id || '', 48);
+  const orderSuffix = orderNumber ? ' #' + orderNumber : '';
+  const state = safe(payload.new_status || payload.status || '', 48);
+  const subject = safe(payload.title || payload.name || payload.sku || '', 72);
+  const subjectSuffix = subject ? ': ' + subject : '';
+
+  if (key === 'order.created') return 'سفارش جدید' + orderSuffix;
+  if (key === 'order.status.changed') return 'وضعیت سفارش' + orderSuffix + (state ? ': ' + state : '');
+  if (key === 'order.receipt.submitted') return 'فیش پرداخت سفارش' + orderSuffix + ' دریافت شد';
+  if (key === 'currency.updated') {
+    const changed = String(payload.changed_option || '').toLowerCase();
+    const currency = changed.includes('dollar') ? 'دلار' : changed.includes('yuan') ? 'یوان' : 'ارز';
+    return 'نرخ ' + currency + ' به‌روزرسانی شد';
+  }
+  if (key === 'product.created') return 'محصول ایجاد شد' + subjectSuffix;
+  if (key === 'product.updated') return 'محصول به‌روزرسانی شد' + subjectSuffix;
+  if (key === 'product.deleted') return 'محصول حذف شد' + subjectSuffix;
+
+  const tokenLabels = {
+    order: 'سفارش', receipt: 'فیش پرداخت', product: 'محصول', shipping: 'ارسال', method: 'روش',
+    user: 'کاربر', customer: 'مشتری', price: 'قیمت', stock: 'موجودی', currency: 'ارز',
+    created: 'ایجاد شد', updated: 'به‌روزرسانی شد', deleted: 'حذف شد', submitted: 'ثبت شد',
+    changed: 'تغییر کرد', completed: 'تکمیل شد', failed: 'ناموفق', restored: 'بازیابی شد',
+  };
+  const derived = key.split(/[._-]+/).filter(Boolean).map((token) => tokenLabels[token] || safe(token, 32)).join(' ');
+  return (derived || 'رویداد وب‌سایت') + subjectSuffix;
+}
+
 let downstream;
-if (String(event).toLowerCase() === 'currency.updated') {
+if (eventKey === 'currency.updated') {
   const changed = String(data.changed_option || '').toLowerCase();
   const currency = changed.includes('dollar') ? 'usd' : changed.includes('yuan') ? 'cny' : 'settings';
+  const title = eventTitle(eventKey, data);
   downstream = {
     text: [
-      'به‌روزرسانی نرخ ارز دیجیتالاجیک',
+      title,
       'دلار (فروش): ' + amount(data.dollar_price),
       'یوان: ' + amount(data.yuan_price),
       'تاریخ مؤثر: ' + effectiveDate(data.update_date),
@@ -82,41 +113,44 @@ if (String(event).toLowerCase() === 'currency.updated') {
     event_type: 'wordpress.currency.' + currency + '.updated',
     severity: 'info',
     status: 'applied',
-    title: 'به‌روزرسانی نرخ ارز دیجیتالاجیک',
+    title,
     notify_channels: ['telegram'],
   };
 } else if (orderEvent) {
-  const created = String(event).toLowerCase() === 'order.created';
+  const created = eventKey === 'order.created';
+  const receiptSubmitted = eventKey === 'order.receipt.submitted';
+  const title = eventTitle(eventKey, data);
   const itemCount = Array.isArray(data.items)
     ? data.items.reduce((sum, item) => sum + Number(item?.quantity || 0), 0)
     : 0;
   const lines = [
-    created ? 'سفارش جدید دیجیتالاجیک' : 'تغییر وضعیت سفارش دیجیتالاجیک',
+    title,
     'شماره سفارش: ' + safe(data.number || data.id || 'نامشخص'),
     'وضعیت: ' + safe(data.new_status || data.status || 'نامشخص'),
-    'مبلغ: ' + amount(data.total),
-    'پرداخت: ' + safe(data.payment_method || 'نامشخص'),
-    'تحویل: ' + safe(data.shipping_method || 'نامشخص'),
-    'تاریخ تحویل: ' + safe(data.delivery_date || 'نامشخص'),
-    'بازه تحویل: ' + safe(data.delivery_time || 'نامشخص'),
-    'تعداد اقلام: ' + Number(itemCount).toLocaleString('fa-IR'),
   ];
+  if (data.total !== undefined && data.total !== '') lines.push('مبلغ: ' + amount(data.total));
+  if (data.payment_method) lines.push('پرداخت: ' + safe(data.payment_method));
+  if (data.shipping_method) lines.push('تحویل: ' + safe(data.shipping_method));
+  if (data.delivery_date) lines.push('تاریخ تحویل: ' + safe(data.delivery_date));
+  if (data.delivery_time) lines.push('بازه تحویل: ' + safe(data.delivery_time));
+  if (Array.isArray(data.items)) lines.push('تعداد اقلام: ' + Number(itemCount).toLocaleString('fa-IR'));
   downstream = {
     text: lines.join('\n'),
-    event_type: created ? 'wordpress.order.created' : 'wordpress.order.status.changed',
+    event_type: 'wordpress.' + eventKey,
     severity: safe(data.severity || 'info', 16),
-    status: safe(data.status || (created ? 'placed' : 'status_changed'), 64),
-    title: lines[0],
-    priority: created ? 'action' : 'archive',
-    bypassAggregation: created,
+    status: safe(data.status || (created ? 'placed' : receiptSubmitted ? 'submitted' : 'status_changed'), 64),
+    title,
+    priority: created || receiptSubmitted ? 'action' : 'archive',
+    bypassAggregation: created || receiptSubmitted,
     notify_channels: Array.isArray(data.notify_channels) ? data.notify_channels : ['telegram', 'ntfy'],
     audience: Array.isArray(data.audience) ? data.audience : ['shokri'],
     event_id: eventId,
     order_id: Number(data.id || 0),
   };
 } else {
+  const title = eventTitle(eventKey, data);
   const lines = [
-    'رویداد وب‌سایت دیجیتالاجیک',
+    title,
     'رویداد: ' + safe(event),
     'وب‌سایت: ' + safe(site.url || 'digitalogic.ir'),
   ];
@@ -128,7 +162,7 @@ if (String(event).toLowerCase() === 'currency.updated') {
     event_type: 'wordpress.' + safe(event, 100).toLowerCase(),
     severity: safe(data.severity || 'info', 16),
     status: safe(data.status || 'observed', 64),
-    title: lines[0],
+    title,
     notify_channels: Array.isArray(data.notify_channels) ? data.notify_channels : ['telegram'],
     event_id: eventId,
   };
@@ -151,7 +185,7 @@ return [{
     event,
     eventId: eventId || null,
     orderId: orderEvent ? Number(data.id || 0) : null,
-    documentAvailable: event.toLowerCase() === 'order.created' && data.document_available === true,
+    documentAvailable: eventKey === 'order.created' && data.document_available === true,
     notification: orderEvent ? downstream : null,
   },
 }];

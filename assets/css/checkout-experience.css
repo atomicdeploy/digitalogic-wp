@@ -11,7 +11,7 @@
 form.checkout .woocommerce-NoticeGroup-checkout .woocommerce-error,
 form.checkout .digitalogic-checkout-notice {
     color: var(--digitalogic-checkout-ink) !important;
-    background: linear-gradient(135deg, #f7fbfe 0%, #edf5fa 100%) !important;
+    background: #f3f8fc !important;
     border: 1px solid var(--digitalogic-checkout-border) !important;
     border-inline-start: 4px solid var(--digitalogic-checkout-brand) !important;
     border-radius: 14px !important;
@@ -61,7 +61,7 @@ form.checkout #jckwds-fields.wds-fieldbox {
 
 form.checkout #jckwds-fields .wds-fieldbox-header {
     color: #fff;
-    background: linear-gradient(135deg, var(--digitalogic-checkout-brand-strong), var(--digitalogic-checkout-brand));
+    background: var(--digitalogic-checkout-brand);
     padding: 15px 18px;
 }
 
@@ -201,5 +201,17 @@ form.checkout .quantity input.qty {
 
     form.checkout .quantity {
         grid-template-columns: 44px minmax(46px, 60px) 44px;
+		gap: 0;
+		margin-block: 10px;
+		vertical-align: middle;
+	}
+
+	form.checkout .quantity .minus,
+	form.checkout .quantity .plus,
+	form.checkout .quantity input.qty {
+		box-sizing: border-box !important;
+		line-height: 42px !important;
+		margin: 0 !important;
+		padding: 0 !important;
     }
 }
