@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.9] - 2026-09-26
+
+- Localize the live delivery date picker itself with Jalali month context, Persian weekday names, Persian digits, and Persian navigation labels without changing its Gregorian availability identifiers.
+
 ## [2.1.8] - 2026-09-26
 
 - Present delivery and order dates in one Persian-digit Jalali format across checkout, order details, PDFs, receipt state, shortcodes, and notification payloads while preserving Delivery Slots Gregorian ASCII machine identifiers.

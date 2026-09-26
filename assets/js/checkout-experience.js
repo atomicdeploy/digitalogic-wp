@@ -6,7 +6,23 @@
     const formSelector = 'form.checkout';
     const noticeClass = 'digitalogic-checkout-notice';
     const errorClass = 'digitalogic-field-error';
+    const jalaliMonthNames = [
+        'فروردین', 'اردیبهشت', 'خرداد', 'تیر', 'مرداد', 'شهریور',
+        'مهر', 'آبان', 'آذر', 'دی', 'بهمن', 'اسفند',
+    ];
+    const persianWeekdays = {
+        MO: ['د', 'دوشنبه'],
+        TU: ['س', 'سه‌شنبه'],
+        WE: ['چ', 'چهارشنبه'],
+        TH: ['پ', 'پنجشنبه'],
+        FR: ['ج', 'جمعه'],
+        SA: ['ش', 'شنبه'],
+        SU: ['ی', 'یکشنبه'],
+    };
     let refreshTimer = null;
+    let datePickerObserver = null;
+    let observedDatePicker = null;
+    let jalaliCalendarRendering = false;
 
     const deliveryFields = [
         {
@@ -59,6 +75,133 @@
         }
         const [year, month, day] = gregorianToJalali(Number(match[1]), Number(match[2]), Number(match[3]));
         return persianDigits(`${year}/${String(month).padStart(2, '0')}/${String(day).padStart(2, '0')}`);
+    };
+
+    const setText = (element, value) => {
+        if (element && element.textContent !== value) {
+            element.textContent = value;
+        }
+    };
+
+    const localizeDeliveryDatePicker = () => {
+        const picker = document.querySelector('#ui-datepicker-div');
+        if (!picker || jalaliCalendarRendering) {
+            return;
+        }
+
+        jalaliCalendarRendering = true;
+        try {
+            picker.classList.add('digitalogic-jalali-calendar');
+            picker.setAttribute('dir', 'rtl');
+            picker.setAttribute('lang', 'fa');
+
+            const gregorianMonthLabel = picker.querySelector('.ui-datepicker-month')?.textContent.trim();
+            const gregorianYearLabel = picker.querySelector('.ui-datepicker-year')?.textContent.trim();
+            if (gregorianMonthLabel && gregorianYearLabel) {
+                const parsedMonth = new Date(`${gregorianMonthLabel} 1, ${gregorianYearLabel}`);
+                if (!Number.isNaN(parsedMonth.getTime())) {
+                    picker.dataset.digitalogicGregorianYear = String(parsedMonth.getFullYear());
+                    picker.dataset.digitalogicGregorianMonth = String(parsedMonth.getMonth() + 1);
+                }
+            }
+
+            const visibleDates = [];
+            const datedCell = picker.querySelector('td[data-year][data-month]');
+            const baseYear = Number(datedCell?.dataset.year || picker.dataset.digitalogicGregorianYear);
+            const baseMonth = datedCell
+                ? Number(datedCell.dataset.month) + 1
+                : Number(picker.dataset.digitalogicGregorianMonth);
+            picker.querySelectorAll('.ui-datepicker-calendar tbody td').forEach((cell) => {
+                const dateControl = cell.querySelector('a, span');
+                if (!dateControl) {
+                    return;
+                }
+
+                const storedDay = dateControl.dataset.digitalogicGregorianDay;
+                const gregorianDay = Number(storedDay || dateControl.getAttribute('data-date') || dateControl.textContent.trim());
+                let gregorianYear = Number(cell.dataset.year) || baseYear;
+                let gregorianMonth = Number(cell.dataset.month) + 1 || baseMonth;
+                if (!cell.dataset.month && cell.classList.contains('ui-datepicker-other-month')) {
+                    gregorianMonth += gregorianDay > 15 ? -1 : 1;
+                    if (gregorianMonth < 1) {
+                        gregorianMonth = 12;
+                        gregorianYear -= 1;
+                    } else if (gregorianMonth > 12) {
+                        gregorianMonth = 1;
+                        gregorianYear += 1;
+                    }
+                }
+                if (!gregorianDay || !gregorianYear || !gregorianMonth) {
+                    return;
+                }
+
+                dateControl.dataset.digitalogicGregorianDay = String(gregorianDay);
+                const [year, month, day] = gregorianToJalali(gregorianYear, gregorianMonth, gregorianDay);
+                const label = `${persianDigits(day)} ${jalaliMonthNames[month - 1]} ${persianDigits(year)}`;
+                dateControl.dataset.digitalogicJalaliDay = persianDigits(day);
+                dateControl.setAttribute('aria-label', label);
+                dateControl.setAttribute('title', label);
+                visibleDates.push({ year, month });
+            });
+
+            picker.querySelectorAll('.ui-datepicker-calendar thead th').forEach((heading) => {
+                const source = heading.dataset.digitalogicGregorianWeekday
+                    || heading.querySelector('span')?.getAttribute('title')
+                    || heading.textContent.trim();
+                const normalized = String(source).trim().slice(0, 2).toUpperCase();
+                const translation = persianWeekdays[normalized];
+                if (!translation) {
+                    return;
+                }
+                heading.dataset.digitalogicGregorianWeekday = normalized;
+                const label = heading.querySelector('span') || heading;
+                label.setAttribute('title', translation[1]);
+                label.setAttribute('aria-label', translation[1]);
+                setText(label, translation[0]);
+            });
+
+            const firstDate = visibleDates[0];
+            const lastDate = visibleDates[visibleDates.length - 1];
+            const title = picker.querySelector('.ui-datepicker-title');
+            if (title && firstDate && lastDate) {
+                let titleText = `${jalaliMonthNames[firstDate.month - 1]} ${persianDigits(firstDate.year)}`;
+                if (firstDate.month !== lastDate.month || firstDate.year !== lastDate.year) {
+                    titleText = firstDate.year === lastDate.year
+                        ? `${jalaliMonthNames[firstDate.month - 1]} تا ${jalaliMonthNames[lastDate.month - 1]} ${persianDigits(firstDate.year)}`
+                        : `${jalaliMonthNames[firstDate.month - 1]} ${persianDigits(firstDate.year)} تا ${jalaliMonthNames[lastDate.month - 1]} ${persianDigits(lastDate.year)}`;
+                }
+                setText(title, titleText);
+                title.setAttribute('aria-label', `تقویم شمسی، ${titleText}`);
+            }
+
+            const previous = picker.querySelector('.ui-datepicker-prev');
+            const next = picker.querySelector('.ui-datepicker-next');
+            previous?.setAttribute('title', 'ماه قبل');
+            previous?.setAttribute('aria-label', 'ماه قبل');
+            next?.setAttribute('title', 'ماه بعد');
+            next?.setAttribute('aria-label', 'ماه بعد');
+            setText(previous?.querySelector('.ui-icon'), 'ماه قبل');
+            setText(next?.querySelector('.ui-icon'), 'ماه بعد');
+        } finally {
+            jalaliCalendarRendering = false;
+        }
+    };
+
+    const ensureJalaliDatePicker = () => {
+        const picker = document.querySelector('#ui-datepicker-div');
+        if (!picker) {
+            return;
+        }
+
+        localizeDeliveryDatePicker();
+        if (picker === observedDatePicker) {
+            return;
+        }
+
+        datePickerObserver?.disconnect();
+        observedDatePicker = picker;
+        datePickerObserver = new MutationObserver(localizeDeliveryDatePicker);
+        datePickerObserver.observe(picker, { childList: true, subtree: true });
     };
 
     const syncDeliveryDateDisplay = (form) => {
@@ -405,6 +548,7 @@
         if (form) {
             bindForm(form);
             syncDeliveryDateDisplay(form);
+            ensureJalaliDatePicker();
             validate(form, false);
         }
     };
@@ -432,6 +576,16 @@
 
     document.addEventListener('input', scheduleSync, true);
     document.addEventListener('change', scheduleSync, true);
+    document.addEventListener('focusin', (event) => {
+        if (event.target.matches?.('#jckwds-delivery-date')) {
+            window.setTimeout(ensureJalaliDatePicker, 0);
+        }
+    });
+    document.addEventListener('click', (event) => {
+        if (event.target.closest?.('#jckwds-delivery-date, #ui-datepicker-div')) {
+            window.setTimeout(ensureJalaliDatePicker, 0);
+        }
+    });
     document.addEventListener('DOMContentLoaded', syncForm);
 
     if (window.jQuery) {
