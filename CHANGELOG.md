@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.3] - 2026-09-26
+
+- Use server-local static TrueType instances generated from YekanBakh FaNum VF for real Regular and Bold mPDF typography, with the existing static face retained as a safe fallback.
+- Replace the English invoice eyebrow with a concise Persian Digitalogic document label while preserving the branded RTL layout.
+
 ## [2.1.2] - 2026-09-26
 
 - Replace blanket storefront shadow removal with reusable flat, content, raised, feature, and interactive surface variants.
