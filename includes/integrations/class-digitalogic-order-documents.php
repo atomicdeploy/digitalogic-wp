@@ -439,7 +439,7 @@ final class Digitalogic_Order_Documents {
 			'payment_method'  => sanitize_text_field( (string) ( $payload['payment_method'] ?? '' ) ),
 			'shipping_method' => sanitize_text_field( (string) ( $payload['shipping_method'] ?? '' ) ),
 			'delivery_date'   => sanitize_text_field( (string) ( $payload['delivery_date'] ?? '' ) ),
-			'delivery_time'   => sanitize_text_field( (string) ( $payload['delivery_time'] ?? '' ) ),
+			'delivery_time'   => Digitalogic_Persian_Time_Formatter::humanize( sanitize_text_field( (string) ( $payload['delivery_time'] ?? '' ) ) ),
 			'customer'        => array(
 				'name'    => sanitize_text_field( (string) ( $customer['name'] ?? '' ) ),
 				'address' => sanitize_textarea_field( (string) ( $customer['address'] ?? '' ) ),

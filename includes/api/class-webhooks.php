@@ -864,7 +864,7 @@ class Digitalogic_Webhooks {
 			'payment_method'  => $order->get_payment_method_title(),
 			'shipping_method' => $order->get_shipping_method(),
 			'delivery_date'   => (string) $order->get_meta( 'jckwds_date', true ),
-			'delivery_time'   => (string) $order->get_meta( 'jckwds_timeslot', true ),
+			'delivery_time'   => Digitalogic_Persian_Time_Formatter::humanize( (string) $order->get_meta( 'jckwds_timeslot', true ) ),
             'created_at' => $order->get_date_created() ? $order->get_date_created()->date('c') : null,
             'updated_at' => $order->get_date_modified() ? $order->get_date_modified()->date('c') : null,
             'items' => $items,
