@@ -95,6 +95,16 @@ final class OrderPaymentExperienceTest extends TestCase {
 		$this->assertSame( '6037 9912 3456 7893', Digitalogic_Order_Payment_Experience::group_card_number( '6037991234567893' ) );
 	}
 
+	/** The real payment card retains a distinct surface and aligned customer actions. */
+	public function test_payment_surface_and_order_actions_keep_the_visual_contract(): void {
+		$css = file_get_contents( dirname( __DIR__ ) . '/assets/css/order-payment-experience.css' );
+		$this->assertStringContainsString( 'radial-gradient(circle at 88% 12%', $css );
+		$this->assertStringContainsString( 'linear-gradient(135deg', $css );
+		$this->assertStringContainsString( 'border: 1px solid color-mix', $css );
+		$this->assertStringContainsString( '.dg-order-menu { display: flex; height: 52px;', $css );
+		$this->assertStringContainsString( '.dg-order-action { border-radius: 14px; height: 52px;', $css );
+	}
+
 	/** A guest must present the exact WooCommerce order key. */
 	public function test_guest_access_requires_exact_order_key(): void {
 		$order = new class() {

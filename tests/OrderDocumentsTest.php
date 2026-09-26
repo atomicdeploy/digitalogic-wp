@@ -44,7 +44,8 @@ final class OrderDocumentsTest extends TestCase {
 
 		$this->assertStringContainsString( 'dir="rtl"', $html );
 		$this->assertStringContainsString( 'font-family:YekanBakh', $html );
-		$this->assertStringContainsString( '#0d4f86', $html );
+		$this->assertStringContainsString( '#1769e8', $html );
+		$this->assertStringContainsString( 'DIGITALOGIC · ORDER DOCUMENT', $html );
 		$this->assertStringContainsString( 'P-14085', $html );
 		$this->assertStringContainsString( '102007003', $html );
 		$this->assertStringContainsString( 'تلفن:', $html );
