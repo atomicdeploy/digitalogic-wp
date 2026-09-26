@@ -257,9 +257,33 @@
         return valid;
     };
 
+    const blockInvalidAttempt = (event) => {
+        const form = event.currentTarget.matches?.(formSelector)
+            ? event.currentTarget
+            : event.currentTarget.closest?.(formSelector) || event.target.closest?.(formSelector);
+        if (form && !validate(form, true)) {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+        }
+    };
+
+    const bindForm = (form) => {
+        const button = form.querySelector('#place_order');
+        if (button && !button.dataset.digitalogicValidationBound) {
+            button.dataset.digitalogicValidationBound = 'true';
+            button.addEventListener('click', blockInvalidAttempt, true);
+        }
+
+        if (!form.dataset.digitalogicValidationBound) {
+            form.dataset.digitalogicValidationBound = 'true';
+            form.addEventListener('submit', blockInvalidAttempt, true);
+        }
+    };
+
     const syncForm = () => {
         const form = document.querySelector(formSelector);
         if (form) {
+            bindForm(form);
             validate(form, false);
         }
     };
@@ -274,11 +298,7 @@
             return;
         }
 
-        const form = event.target.closest(formSelector);
-        if (form && !validate(form, true)) {
-            event.preventDefault();
-            event.stopImmediatePropagation();
-        }
+        blockInvalidAttempt(event);
     }, true);
 
     document.addEventListener('submit', (event) => {
@@ -286,10 +306,7 @@
             return;
         }
 
-        if (!validate(event.target, true)) {
-            event.preventDefault();
-            event.stopImmediatePropagation();
-        }
+        blockInvalidAttempt(event);
     }, true);
 
     document.addEventListener('input', scheduleSync, true);
