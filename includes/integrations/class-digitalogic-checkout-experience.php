@@ -133,23 +133,26 @@ final class Digitalogic_Checkout_Experience {
 			true
 		);
 
-		$needs_shipping    = false;
-		$delivery_required = false;
+		$needs_shipping         = false;
+		$delivery_date_required = false;
+		$delivery_time_required = false;
 		if ( function_exists( 'WC' ) && WC()->cart ) {
 			$needs_shipping = (bool) WC()->cart->needs_shipping();
 		}
 		global $iconic_wds;
 		if ( is_object( $iconic_wds ) && isset( $iconic_wds->settings ) && is_array( $iconic_wds->settings ) ) {
-			$delivery_required = ! empty( $iconic_wds->settings['datesettings_datesettings_setup_mandatory'] );
+			$delivery_date_required = ! empty( $iconic_wds->settings['datesettings_datesettings_setup_mandatory'] );
+			$delivery_time_required = ! empty( $iconic_wds->settings['timesettings_timesettings_setup_mandatory'] );
 		}
 
 		wp_localize_script(
 			self::SCRIPT_HANDLE,
 			'DigitalogicCheckoutExperience',
 			array(
-				'needsShipping'    => $needs_shipping,
-				'deliveryRequired' => $delivery_required,
-				'messages'         => array(
+				'needsShipping'        => $needs_shipping,
+				'deliveryDateRequired' => $delivery_date_required,
+				'deliveryTimeRequired' => $delivery_time_required,
+				'messages'             => array(
 					/* translators: %s: Visible checkout field label. */
 					'completeField'       => __( 'Please complete %s.', 'digitalogic' ),
 					/* translators: %s: Visible checkout field label. */

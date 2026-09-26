@@ -38,6 +38,13 @@ test('required controls and shipping methods are discovered from live checkout s
     assert.match(script, /select2-hidden-accessible/);
 });
 
+test('delivery date and time requirements remain independent', () => {
+    assert.match(script, /deliveryDateRequired/);
+    assert.match(script, /deliveryTimeRequired/);
+    assert.match(script, /deliveryRequirement\(control\) === false/);
+    assert.match(script, /deliveryFields\.forEach/);
+});
+
 test('warning and quantity controls use branded accessible styling without orange', () => {
     assert.match(css, /\.digitalogic-checkout-notice\s*\{[\s\S]*border-inline-start:\s*4px solid var\(--digitalogic-checkout-brand\)/);
     assert.match(css, /\.woocommerce-error a:hover,[\s\S]*text-decoration:\s*none !important/);

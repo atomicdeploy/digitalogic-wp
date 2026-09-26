@@ -8,6 +8,19 @@
     const errorClass = 'digitalogic-field-error';
     let refreshTimer = null;
 
+    const deliveryFields = [
+        {
+            selector: '#jckwds-delivery-date',
+            required: Boolean(config.deliveryDateRequired ?? config.deliveryRequired),
+        },
+        {
+            selector: '#jckwds-delivery-time',
+            required: Boolean(config.deliveryTimeRequired ?? config.deliveryRequired),
+        },
+    ];
+
+    const deliveryRequirement = (control) => deliveryFields.find(({ selector }) => selector === `#${control.id}`)?.required;
+
     const isVisible = (element) => {
         if (!element || element.disabled || element.type === 'hidden') {
             return false;
@@ -31,14 +44,14 @@
     };
 
     const syncDeliveryRequirement = (form) => {
-        if (config.deliveryRequired) {
-            return;
-        }
-
-        ['#jckwds-delivery-date', '#jckwds-delivery-time'].forEach((selector) => {
+        deliveryFields.forEach(({ selector, required }) => {
             const control = form.querySelector(selector);
             const row = control?.closest('.form-row, .wds-fieldbox-sub-field');
             if (!control || !row) {
+                return;
+            }
+
+            if (required) {
                 return;
             }
 
@@ -62,7 +75,7 @@
         syncDeliveryRequirement(form);
         const controls = new Set();
         form.querySelectorAll('.validate-required input, .validate-required select, .validate-required textarea').forEach((control) => {
-            if (!config.deliveryRequired && ['jckwds-delivery-date', 'jckwds-delivery-time'].includes(control.id)) {
+            if (deliveryRequirement(control) === false) {
                 control.required = false;
                 control.removeAttribute('aria-required');
                 return;
@@ -72,14 +85,14 @@
             }
         });
 
-        if (config.deliveryRequired) {
-            ['#jckwds-delivery-date', '#jckwds-delivery-time'].forEach((selector) => {
+        deliveryFields.forEach(({ selector, required }) => {
+            if (required) {
                 const control = form.querySelector(selector);
                 if (isVisible(control)) {
                     controls.add(control);
                 }
-            });
-        }
+            }
+        });
 
         return [...controls];
     };
