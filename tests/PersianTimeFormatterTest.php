@@ -47,6 +47,13 @@ final class PersianTimeFormatterTest extends TestCase {
 		$this->assertSame( '05:45 عصر', Digitalogic_Persian_Time_Formatter::humanize( '05:45 PM' ) );
 	}
 
+	/** Full Persian meridiems emitted by WordPress are normalized too. */
+	public function test_full_persian_meridiems_are_humanized(): void {
+		$this->assertSame( '۰۹:۱۵ صبح', Digitalogic_Persian_Time_Formatter::humanize( '۰۹:۱۵ قبل از ظهر' ) );
+		$this->assertSame( '۰۱:۳۰ ظهر', Digitalogic_Persian_Time_Formatter::humanize( '۰۱:۳۰ بعد‌از‌ظهر' ) );
+		$this->assertSame( '۰۹:۱۵ عصر', Digitalogic_Persian_Time_Formatter::humanize( '۰۹:۱۵ بعد از ظهر' ) );
+	}
+
 	/** Vendor slot presentation changes without touching the stable slot value. */
 	public function test_timeslot_identifier_is_preserved(): void {
 		$slot = Digitalogic_Persian_Time_Formatter::format_timeslot(

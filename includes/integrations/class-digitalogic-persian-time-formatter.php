@@ -30,7 +30,7 @@ final class Digitalogic_Persian_Time_Formatter {
 	 */
 	public static function humanize( string $value ): string {
 		$result = preg_replace_callback(
-			'/(?P<hour>[0-9۰-۹٠-٩]{1,2})(?P<minute>:[0-9۰-۹٠-٩]{2})\s*(?P<period>[قب]\s*\.\s*ظ\.?|[ap]\.?m\.?)/iu',
+			'/(?P<hour>[0-9۰-۹٠-٩]{1,2})(?P<minute>:[0-9۰-۹٠-٩]{2})\s*(?P<period>[قب]\s*\.\s*ظ\.?|[ap]\.?m\.?|(?:قبل|بعد)[\s‌]*از[\s‌]*ظهر)/iu',
 			static function ( array $matches ): string {
 				$hour   = (int) strtr(
 					$matches['hour'],
@@ -57,9 +57,9 @@ final class Digitalogic_Persian_Time_Formatter {
 						'٩' => '9',
 					)
 				);
-				$period = strtolower( (string) preg_replace( '/[.\s]/u', '', $matches['period'] ) );
+				$period = strtolower( (string) preg_replace( '/[.\s‌]/u', '', $matches['period'] ) );
 				$label  = 'صبح';
-				if ( in_array( $period, array( 'بظ', 'pm' ), true ) ) {
+				if ( in_array( $period, array( 'بظ', 'pm', 'بعدازظهر' ), true ) ) {
 					$hour_24 = 12 === $hour ? 12 : $hour + 12;
 					$label   = $hour_24 < 16 ? 'ظهر' : 'عصر';
 				}

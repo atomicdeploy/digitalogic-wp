@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.5] - 2026-09-26
+
+- Normalize the full Persian `قبل از ظهر` and `بعد از ظهر` forms, including half-spaced variants emitted by localized WordPress date formatting.
+
 ## [2.1.4] - 2026-09-26
 
 - Add a shared site-wide formatter for WordPress `wp_date()` and `date_i18n()` output that replaces Persian and English 12-hour meridiems with contextual `صبح`, `ظهر`, and `عصر` labels.
