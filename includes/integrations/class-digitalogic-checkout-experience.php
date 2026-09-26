@@ -18,7 +18,7 @@ final class Digitalogic_Checkout_Experience {
 	private const STYLE_HANDLE  = 'digitalogic-checkout-experience';
 	private const STYLE_FILE    = 'assets/css/checkout-experience.css';
 	private const UNSTABLE_HOOK = 'woocommerce_checkout_order_review';
-	private const STABLE_HOOK   = 'woocommerce_checkout_after_customer_details';
+	private const STABLE_HOOK   = 'woocommerce_checkout_billing';
 
 	/**
 	 * Register the checkout integration once.

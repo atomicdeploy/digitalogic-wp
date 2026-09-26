@@ -80,13 +80,13 @@ final class CheckoutExperienceTest extends TestCase {
 
 		Digitalogic_Checkout_Experience::stabilize_delivery_fields();
 
-		$this->assertSame( 'woocommerce_checkout_after_customer_details', $GLOBALS['iconic_wds']->settings['general_setup_position'] );
+		$this->assertSame( 'woocommerce_checkout_billing', $GLOBALS['iconic_wds']->settings['general_setup_position'] );
 		$this->assertSame( array(), array_values( $GLOBALS['digitalogic_test_action_callbacks']['woocommerce_checkout_order_review'] ) );
 		$this->assertSame(
 			array( $dates, 'display_checkout_fields' ),
-			$GLOBALS['digitalogic_test_action_callbacks']['woocommerce_checkout_after_customer_details'][0]['callback']
+			$GLOBALS['digitalogic_test_action_callbacks']['woocommerce_checkout_billing'][0]['callback']
 		);
-		$this->assertSame( 20, $GLOBALS['digitalogic_test_action_callbacks']['woocommerce_checkout_after_customer_details'][0]['priority'] );
+		$this->assertSame( 20, $GLOBALS['digitalogic_test_action_callbacks']['woocommerce_checkout_billing'][0]['priority'] );
 	}
 
 	public function test_explicit_stable_vendor_position_is_preserved(): void {
@@ -98,7 +98,7 @@ final class CheckoutExperienceTest extends TestCase {
 
 		Digitalogic_Checkout_Experience::stabilize_delivery_fields();
 
-		$this->assertArrayNotHasKey( 'woocommerce_checkout_after_customer_details', $GLOBALS['digitalogic_test_action_callbacks'] );
+		$this->assertArrayNotHasKey( 'woocommerce_checkout_billing', $GLOBALS['digitalogic_test_action_callbacks'] );
 		$this->assertSame( 'woocommerce_checkout_billing', $GLOBALS['iconic_wds']->settings['general_setup_position'] );
 	}
 
