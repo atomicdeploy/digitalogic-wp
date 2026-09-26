@@ -21,6 +21,77 @@
 
     const deliveryRequirement = (control) => deliveryFields.find(({ selector }) => selector === `#${control.id}`)?.required;
 
+    const persianDigits = (value) => String(value).replace(/\d/g, (digit) => '۰۱۲۳۴۵۶۷۸۹'[Number(digit)]);
+
+    const gregorianToJalali = (year, month, day) => {
+        const monthDays = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334];
+        let jalaliYear;
+        if (year > 1600) {
+            jalaliYear = 979;
+            year -= 1600;
+        } else {
+            jalaliYear = 0;
+            year -= 621;
+        }
+
+        const adjustedYear = month > 2 ? year + 1 : year;
+        let days = (365 * year) + Math.floor((adjustedYear + 3) / 4)
+            - Math.floor((adjustedYear + 99) / 100) + Math.floor((adjustedYear + 399) / 400)
+            - 80 + day + monthDays[month - 1];
+        jalaliYear += 33 * Math.floor(days / 12053);
+        days %= 12053;
+        jalaliYear += 4 * Math.floor(days / 1461);
+        days %= 1461;
+        if (days > 365) {
+            jalaliYear += Math.floor((days - 1) / 365);
+            days = (days - 1) % 365;
+        }
+
+        const jalaliMonth = days < 186 ? 1 + Math.floor(days / 31) : 7 + Math.floor((days - 186) / 30);
+        const jalaliDay = days < 186 ? 1 + (days % 31) : 1 + ((days - 186) % 30);
+        return [jalaliYear, jalaliMonth, jalaliDay];
+    };
+
+    const formatJalaliYmd = (value) => {
+        const match = String(value || '').match(/^(\d{4})(\d{2})(\d{2})$/);
+        if (!match) {
+            return '';
+        }
+        const [year, month, day] = gregorianToJalali(Number(match[1]), Number(match[2]), Number(match[3]));
+        return persianDigits(`${year}/${String(month).padStart(2, '0')}/${String(day).padStart(2, '0')}`);
+    };
+
+    const syncDeliveryDateDisplay = (form) => {
+        const input = form.querySelector('#jckwds-delivery-date');
+        const machineInput = form.querySelector('#jckwds-delivery-date-ymd');
+        const host = input?.parentElement;
+        if (!input || !machineInput || !host) {
+            return;
+        }
+
+        let display = host.querySelector('.digitalogic-jalali-date-display');
+        const jalali = formatJalaliYmd(machineInput.value);
+        if (!jalali) {
+            host.classList.remove('digitalogic-jalali-date-host');
+            input.classList.remove('digitalogic-has-jalali-display');
+            input.removeAttribute('data-jalali-date');
+            display?.remove();
+            return;
+        }
+
+        if (!display) {
+            display = document.createElement('span');
+            display.className = 'digitalogic-jalali-date-display';
+            display.setAttribute('aria-hidden', 'true');
+            input.insertAdjacentElement('afterend', display);
+        }
+        display.textContent = jalali;
+        host.classList.add('digitalogic-jalali-date-host');
+        input.classList.add('digitalogic-has-jalali-display');
+        input.dataset.jalaliDate = jalali;
+        input.setAttribute('aria-label', `تاریخ تحویل ${jalali}`);
+    };
+
     const isVisible = (element) => {
         if (!element || element.disabled || element.type === 'hidden') {
             return false;
@@ -333,6 +404,7 @@
         const form = document.querySelector(formSelector);
         if (form) {
             bindForm(form);
+            syncDeliveryDateDisplay(form);
             validate(form, false);
         }
     };

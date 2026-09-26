@@ -596,7 +596,7 @@ final class Digitalogic_Order_Payment_Experience {
 			'name'         => sanitize_file_name( (string) $order->get_meta( self::META_NAME, true ) ),
 			'reference'    => sanitize_text_field( (string) $order->get_meta( self::META_REFERENCE, true ) ),
 			'note'         => sanitize_textarea_field( (string) $order->get_meta( self::META_NOTE, true ) ),
-			'submitted_at' => $submitted ? wp_date( 'Y/m/d H:i', strtotime( $submitted ) ) : '',
+			'submitted_at' => $submitted ? Digitalogic_Persian_Time_Formatter::format_date( wp_date( 'Y/m/d H:i', strtotime( $submitted ) ) ) : '',
 		);
 	}
 

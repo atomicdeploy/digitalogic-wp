@@ -48,6 +48,7 @@ final class OrderWebhookTest extends TestCase {
 		$this->assertTrue( $payload['data']['document_available'] );
 		$this->assertSame( 'کارت به کارت / انتقال بانکی', $payload['data']['payment_method'] );
 		$this->assertSame( 'دریافت حضوری', $payload['data']['shipping_method'] );
+		$this->assertSame( '۱۴۰۵/۰۷/۰۶', $payload['data']['delivery_date'] );
 		$this->assertArrayNotHasKey( 'billing_email', $payload['data'] );
 		$this->assertArrayNotHasKey( 'billing_phone', $payload['data'] );
 		$this->assertArrayNotHasKey( 'request', $payload['data'] );

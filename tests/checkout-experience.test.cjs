@@ -45,6 +45,15 @@ test('delivery date and time requirements remain independent', () => {
     assert.match(script, /deliveryFields\.forEach/);
 });
 
+test('selected delivery dates keep Gregorian machine state and show a Persian Jalali overlay', () => {
+    assert.match(script, /#jckwds-delivery-date-ymd/);
+    assert.match(script, /gregorianToJalali/);
+    assert.match(script, /formatJalaliYmd/);
+    assert.match(script, /digitalogic-jalali-date-display/);
+    assert.match(css, /\.digitalogic-has-jalali-display\s*\{[\s\S]*color:\s*transparent !important/);
+    assert.match(css, /\.digitalogic-jalali-date-display\s*\{[\s\S]*pointer-events:\s*none/);
+});
+
 test('warning and quantity controls use branded accessible styling without orange', () => {
     assert.match(css, /\.digitalogic-checkout-notice\s*\{[\s\S]*border-inline-start:\s*4px solid var\(--digitalogic-checkout-brand\)/);
     assert.match(css, /\.woocommerce-error a:hover,[\s\S]*text-decoration:\s*none !important/);
