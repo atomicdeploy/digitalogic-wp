@@ -19,6 +19,7 @@ test('client-side validation blocks both checkout activation paths', () => {
     assert.match(script, /document\.addEventListener\('submit',[\s\S]*event\.preventDefault\(\)[\s\S]*event\.stopImmediatePropagation\(\)/);
     assert.match(script, /updated_checkout/);
     assert.match(script, /MutationObserver/);
+    assert.match(script, /feedbackSelector/);
 });
 
 test('required controls and shipping methods are discovered from live checkout state', () => {

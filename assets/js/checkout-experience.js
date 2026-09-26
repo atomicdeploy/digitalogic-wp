@@ -306,7 +306,18 @@
                 return false;
             }
 
-            return !record.target.closest?.('.digitalogic-checkout-readiness, .digitalogic-checkout-notice, .digitalogic-field-error');
+            const feedbackSelector = '.digitalogic-checkout-readiness, .digitalogic-checkout-notice, .digitalogic-field-error';
+            if (record.target.closest?.(feedbackSelector)) {
+                return false;
+            }
+
+            return [...record.addedNodes, ...record.removedNodes].some((node) => {
+                if (node.nodeType !== Node.ELEMENT_NODE) {
+                    return true;
+                }
+
+                return !node.matches(feedbackSelector) && !node.closest(feedbackSelector);
+            });
         });
         if (checkoutChanged) {
             scheduleSync();
