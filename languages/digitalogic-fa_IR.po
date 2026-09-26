@@ -3005,3 +3005,287 @@ msgstr "تغییر زمان تحویل"
 #: includes/integrations/class-digitalogic-checkout-experience.php
 msgid "Add delivery time"
 msgstr "افزودن زمان تحویل"
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Order received"
+msgstr "سفارش دریافت شد"
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Your order documents and actions"
+msgstr "فاکتور و اقدامات سفارش"
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Download the invoice, print it, or share the secure order link from one place."
+msgstr "فاکتور را دانلود یا چاپ کنید و لینک امن سفارش را به‌اشتراک بگذارید."
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Order actions"
+msgstr "اقدامات سفارش"
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Download invoice"
+msgstr "دانلود فاکتور"
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "More actions"
+msgstr "اقدامات بیشتر"
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Print invoice"
+msgstr "چاپ فاکتور"
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Save PDF"
+msgstr "ذخیره PDF"
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Share order or invoice"
+msgstr "اشتراک‌گذاری سفارش یا فاکتور"
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Copy order number"
+msgstr "کپی شماره سفارش"
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Copy secure order link"
+msgstr "کپی لینک امن سفارش"
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Card-to-card payment"
+msgstr "پرداخت کارت به کارت"
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Bank transfer details"
+msgstr "اطلاعات واریز بانکی"
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Transfer the exact order amount to one of the cards below, then submit the receipt for review."
+msgstr "مبلغ دقیق سفارش را به یکی از کارت‌های زیر واریز کنید و سپس رسید را برای بررسی بفرستید."
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Account holder"
+msgstr "نام دارنده حساب"
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Copy card number"
+msgstr "کپی شماره کارت"
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Account:"
+msgstr "حساب:"
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Bank details are being completed"
+msgstr "اطلاعات بانکی در حال تکمیل است"
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Please contact sales before making a transfer. No unverified card number is displayed."
+msgstr "پیش از واریز با فروش تماس بگیرید. هیچ شماره کارت تأییدنشده‌ای نمایش داده نمی‌شود."
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Submit payment receipt"
+msgstr "ارسال رسید پرداخت"
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "JPEG, PNG, WebP, or PDF up to 5 MB. The file is stored outside the public media library."
+msgstr "فایل JPEG، PNG، WebP یا PDF تا ۵ مگابایت؛ فایل خارج از رسانه عمومی نگهداری می‌شود."
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Receipt %1$s was submitted on %2$s."
+msgstr "رسید %1$s در %2$s ارسال شد."
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Tracking or reference code"
+msgstr "کد پیگیری یا ارجاع"
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Receipt file"
+msgstr "فایل رسید"
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Choose or drop a file here"
+msgstr "فایل را انتخاب کنید یا اینجا رها کنید"
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Optional note"
+msgstr "توضیح اختیاری"
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Replace receipt"
+msgstr "جایگزینی رسید"
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Submit receipt"
+msgstr "ارسال رسید"
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Receipt submission becomes available after an administrator publishes verified bank details."
+msgstr "پس از انتشار اطلاعات بانکی تأییدشده، ارسال رسید فعال می‌شود."
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Card-to-card accounts"
+msgstr "حساب‌های کارت به کارت"
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Card-to-card"
+msgstr "کارت به کارت"
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Card-to-card payment accounts"
+msgstr "حساب‌های پرداخت کارت به کارت"
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Only verified ingress accounts entered here are shown to customers. Never enter PIN, CVV2, expiry date, or one-time passwords."
+msgstr "فقط حساب‌های واریزی تأییدشده‌ای که اینجا ثبت می‌شوند به مشتری نمایش داده می‌شوند. رمز، CVV2، تاریخ انقضا یا رمز یک‌بارمصرف را هرگز وارد نکنید."
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Add bank account"
+msgstr "افزودن حساب بانکی"
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Save verified accounts"
+msgstr "ذخیره حساب‌های تأییدشده"
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Ingress bank account"
+msgstr "حساب بانکی واریزی"
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Visible to customers"
+msgstr "نمایش به مشتریان"
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Bank name"
+msgstr "نام بانک"
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "16-digit card number"
+msgstr "شماره کارت ۱۶ رقمی"
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Account number (optional)"
+msgstr "شماره حساب (اختیاری)"
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Card accent"
+msgstr "رنگ کارت"
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Remove account"
+msgstr "حذف حساب"
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "You are not allowed to manage payment accounts."
+msgstr "اجازه مدیریت حساب‌های پرداخت را ندارید."
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Each bank account requires a bank name, account holder, and valid 16-digit card number."
+msgstr "برای هر حساب، نام بانک، نام دارنده و شماره کارت معتبر ۱۶ رقمی لازم است."
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Enter a valid Iranian IBAN beginning with IR."
+msgstr "یک شماره شبای معتبر ایران که با IR شروع می‌شود وارد کنید."
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "This order could not be verified."
+msgstr "اعتبار این سفارش تأیید نشد."
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Verified bank details are not available yet."
+msgstr "اطلاعات بانکی تأییدشده هنوز در دسترس نیست."
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Enter the payment tracking or reference code."
+msgstr "کد پیگیری یا ارجاع پرداخت را وارد کنید."
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Choose a receipt file."
+msgstr "فایل رسید را انتخاب کنید."
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Your payment receipt was submitted and is awaiting review."
+msgstr "رسید پرداخت ارسال شد و در انتظار بررسی است."
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "The receipt must be a readable file no larger than 5 MB."
+msgstr "رسید باید یک فایل خوانا و حداکثر ۵ مگابایت باشد."
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Only JPEG, PNG, WebP, and PDF receipts are accepted."
+msgstr "فقط رسیدهای JPEG، PNG، WebP و PDF پذیرفته می‌شوند."
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "The secure receipt storage is unavailable."
+msgstr "فضای امن نگهداری رسید در دسترس نیست."
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "The receipt could not be stored securely."
+msgstr "رسید به‌صورت امن ذخیره نشد."
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Payment receipt"
+msgstr "رسید پرداخت"
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Download protected receipt"
+msgstr "دانلود امن رسید"
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Reference:"
+msgstr "کد پیگیری:"
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Review status"
+msgstr "وضعیت بررسی"
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "You are not allowed to download this receipt."
+msgstr "اجازه دانلود این رسید را ندارید."
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "The receipt file is unavailable."
+msgstr "فایل رسید در دسترس نیست."
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Receipt not submitted"
+msgstr "رسید ارسال نشده"
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Awaiting review"
+msgstr "در انتظار بررسی"
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Receipt approved"
+msgstr "رسید تأیید شد"
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Receipt needs correction"
+msgstr "رسید نیازمند اصلاح است"
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Copied"
+msgstr "کپی شد"
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Automatic copy is unavailable"
+msgstr "کپی خودکار در دسترس نیست"
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "The invoice PDF is not ready yet"
+msgstr "فایل PDF فاکتور هنوز آماده نیست"
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Digitalogic order"
+msgstr "سفارش دیجیتالاجیک"
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "Secure Digitalogic order and invoice link"
+msgstr "لینک امن سفارش و فاکتور دیجیتالاجیک"
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "No file selected"
+msgstr "فایلی انتخاب نشده است"
+
+#: includes/integrations/class-digitalogic-order-payment-experience.php
+msgid "This invoice link is invalid or has expired."
+msgstr "لینک فاکتور نامعتبر است یا اعتبار آن پایان یافته است."

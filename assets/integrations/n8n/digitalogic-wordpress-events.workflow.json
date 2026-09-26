@@ -1,0 +1,475 @@
+{
+  "id": "e36a1681-8a9c-4bd4-8378-ac188218b7b9",
+  "name": "Digitalogic WordPress Events",
+  "description": null,
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "jsCode": "const { createHmac, timingSafeEqual } = require('crypto');\nconst { Buffer } = require('buffer');\n\nconst first = $input.first();\nconst json = first.json || {};\nconst headers = json.headers || {};\nconst body = json.body || {};\nconst raw = first.binary?.data?.data\n  ? Buffer.from(first.binary.data.data, 'base64').toString('utf8')\n  : JSON.stringify(body);\nconst signature = headers['x-digitalogic-signature'] || headers['X-Digitalogic-Signature'] || '';\nconst event = String(headers['x-digitalogic-event'] || headers['X-Digitalogic-Event'] || body.event || 'wordpress.event');\nconst expected = createHmac('sha256', $env.DIGITALOGIC_WP_WEBHOOK_SECRET || '').update(raw).digest('hex');\n\nif (!signature || signature.length !== expected.length || !timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) {\n  throw new Error('Invalid Digitalogic WordPress webhook signature');\n}\n\nconst data = body.data || {};\nconst site = body.site || {};\nconst eventId = String(body.event_id || '').trim();\nconst orderEvent = ['order.created', 'order.status.changed'].includes(event.toLowerCase());\n\nif (eventId) {\n  const store = $getWorkflowStaticData('global');\n  const now = Date.now();\n  store.deliveredEventIds = store.deliveredEventIds && typeof store.deliveredEventIds === 'object'\n    ? store.deliveredEventIds\n    : {};\n  for (const [key, timestamp] of Object.entries(store.deliveredEventIds)) {\n    if (now - Number(timestamp) > 7 * 24 * 60 * 60 * 1000) delete store.deliveredEventIds[key];\n  }\n  if (store.deliveredEventIds[eventId]) {\n    return [{ json: { ok: true, duplicate: true, event, eventId, orderId: null, documentAvailable: false } }];\n  }\n  store.deliveredEventIds[eventId] = now;\n  const keys = Object.keys(store.deliveredEventIds);\n  while (keys.length > 2000) delete store.deliveredEventIds[keys.shift()];\n}\n\nfunction safe(value, max = 160) {\n  return String(value ?? '')\n    .normalize('NFKC')\n    .replace(/[\\u0000-\\u001f\\u007f\\u200b-\\u200f\\u202a-\\u202e\\u2060-\\u206f\\ufeff]/g, ' ')\n    .replace(/\\s+/g, ' ')\n    .trim()\n    .slice(0, max);\n}\n\nfunction digits(value) {\n  const normalized = String(value ?? '')\n    .replace(/[۰-۹]/g, (digit) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(digit)))\n    .replace(/[٠-٩]/g, (digit) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(digit)));\n  return normalized.replace(/[^\\d]/g, '');\n}\n\nfunction amount(value) {\n  const valueDigits = digits(value);\n  return valueDigits ? Number(valueDigits).toLocaleString('fa-IR') + ' تومان' : 'نامشخص';\n}\n\nfunction effectiveDate(value) {\n  const valueDigits = digits(value);\n  if (/^\\d{6}$/.test(valueDigits)) {\n    return '20' + valueDigits.slice(0, 2) + '-' + valueDigits.slice(2, 4) + '-' + valueDigits.slice(4, 6);\n  }\n  return safe(value || 'نامشخص');\n}\n\nlet downstream;\nif (String(event).toLowerCase() === 'currency.updated') {\n  const changed = String(data.changed_option || '').toLowerCase();\n  const currency = changed.includes('dollar') ? 'usd' : changed.includes('yuan') ? 'cny' : 'settings';\n  downstream = {\n    text: [\n      'به‌روزرسانی نرخ ارز دیجیتالاجیک',\n      'دلار (فروش): ' + amount(data.dollar_price),\n      'یوان: ' + amount(data.yuan_price),\n      'تاریخ مؤثر: ' + effectiveDate(data.update_date),\n      'وضعیت: اعمال و ثبت شد',\n    ].join('\\n'),\n    event_type: 'wordpress.currency.' + currency + '.updated',\n    severity: 'info',\n    status: 'applied',\n    title: 'به‌روزرسانی نرخ ارز دیجیتالاجیک',\n    notify_channels: ['telegram'],\n  };\n} else if (orderEvent) {\n  const created = String(event).toLowerCase() === 'order.created';\n  const itemCount = Array.isArray(data.items)\n    ? data.items.reduce((sum, item) => sum + Number(item?.quantity || 0), 0)\n    : 0;\n  const lines = [\n    created ? 'سفارش جدید دیجیتالاجیک' : 'تغییر وضعیت سفارش دیجیتالاجیک',\n    'شماره سفارش: ' + safe(data.number || data.id || 'نامشخص'),\n    'وضعیت: ' + safe(data.new_status || data.status || 'نامشخص'),\n    'مبلغ: ' + amount(data.total),\n    'پرداخت: ' + safe(data.payment_method || 'نامشخص'),\n    'تحویل: ' + safe(data.shipping_method || 'نامشخص'),\n    'تاریخ تحویل: ' + safe(data.delivery_date || 'نامشخص'),\n    'بازه تحویل: ' + safe(data.delivery_time || 'نامشخص'),\n    'تعداد اقلام: ' + Number(itemCount).toLocaleString('fa-IR'),\n  ];\n  downstream = {\n    text: lines.join('\\n'),\n    event_type: created ? 'wordpress.order.created' : 'wordpress.order.status.changed',\n    severity: safe(data.severity || 'info', 16),\n    status: safe(data.status || (created ? 'placed' : 'status_changed'), 64),\n    title: lines[0],\n    priority: created ? 'action' : 'archive',\n    bypassAggregation: created,\n    notify_channels: Array.isArray(data.notify_channels) ? data.notify_channels : ['telegram', 'ntfy'],\n    audience: Array.isArray(data.audience) ? data.audience : ['shokri'],\n    event_id: eventId,\n    order_id: Number(data.id || 0),\n  };\n} else {\n  const lines = [\n    'رویداد وب‌سایت دیجیتالاجیک',\n    'رویداد: ' + safe(event),\n    'وب‌سایت: ' + safe(site.url || 'digitalogic.ir'),\n  ];\n  if (data.id || data.number) lines.push('شناسه: ' + safe([data.number, data.id].filter(Boolean).join(' / ')));\n  if (data.sku) lines.push('کد کالا: ' + safe(data.sku));\n  if (data.status || data.new_status) lines.push('وضعیت: ' + safe([data.old_status, data.new_status || data.status].filter(Boolean).join(' ← ')));\n  downstream = {\n    text: lines.join('\\n'),\n    event_type: 'wordpress.' + safe(event, 100).toLowerCase(),\n    severity: safe(data.severity || 'info', 16),\n    status: safe(data.status || 'observed', 64),\n    title: lines[0],\n    notify_channels: Array.isArray(data.notify_channels) ? data.notify_channels : ['telegram'],\n    event_id: eventId,\n  };\n}\n\nif (!orderEvent) {\n  await helpers.httpRequest({\n    method: 'POST',\n    url: 'http://127.0.0.1:5678/webhook/server-event-telegram',\n    body: downstream,\n    json: true,\n    timeout: 5000,\n  });\n}\n\nreturn [{\n  json: {\n    ok: true,\n    duplicate: false,\n    event,\n    eventId: eventId || null,\n    orderId: orderEvent ? Number(data.id || 0) : null,\n    documentAvailable: event.toLowerCase() === 'order.created' && data.document_available === true,\n    notification: orderEvent ? downstream : null,\n  },\n}];\n"
+      },
+      "id": "3e987e56-80d9-49c0-8a02-afb569b2d48c",
+      "name": "Verify and Notify",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        96,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "wordpress-events",
+        "responseMode": "onReceived",
+        "options": {
+          "rawBody": true
+        }
+      },
+      "id": "wordpress-events-webhook-neutral",
+      "name": "WordPress Events Webhook (Neutral)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "webhookId": "wordpress-events-webhook-neutral",
+      "position": [
+        -128,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const item = $input.first();\nif (item.json.duplicate || !item.json.notification) return [{ json: { ...item.json, notifyChannels: [], documentAvailable: false } }];\nconst n = item.json.notification;\nconst notifyChannels = Array.isArray(n.notify_channels) ? n.notify_channels.map(v => String(v).toLowerCase()) : [];\nreturn [{ json: { ...item.json, ...n, notifyChannels, text: String(n.text || n.title || 'سفارش دیجیتالاجیک'), priority: n.priority === 'action' ? 'action' : 'archive', fingerprint: String(n.event_id || [n.event_type, n.order_id].join('|')), state: String(n.status || n.event_type), recovery: false, source: 'wordpress', eventType: String(n.event_type), entity: 'order:' + Number(n.order_id || 0), topic: 'website', bypassAggregation: n.bypassAggregation === true, ntfyTitle: String(n.title || 'سفارش دیجیتالاجیک'), ntfyTags: 'receipt', ntfyText: String(n.text || n.title || 'سفارش دیجیتالاجیک') } }];"
+      },
+      "id": "select-order-notification",
+      "name": "Select Order Notification",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        320,
+        -160
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "gate-order-telegram-condition",
+              "leftValue": "={{ $json.notifyChannels.includes('telegram') }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "gate-order-telegram",
+      "name": "Gate Order Telegram",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        432,
+        -240
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "gate-order-ntfy-condition",
+              "leftValue": "={{ $('Select Order Notification').item.json.notifyChannels.includes('ntfy') }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "gate-order-ntfy",
+      "name": "Gate Order ntfy",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        432,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "DigitalogicTelegramPriorityDelivery",
+          "mode": "list",
+          "cachedResultName": "Telegram - Digitalogic Priority Delivery"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "notify-order-telegram",
+      "name": "Notify Order Telegram",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        656,
+        -240
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://ntfy.sh/digitalogic",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Title",
+              "value": "={{ $('Select Order Notification').item.json.ntfyTitle }}"
+            },
+            {
+              "name": "Tags",
+              "value": "={{ $('Select Order Notification').item.json.ntfyTags }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "text/plain",
+        "body": "={{ $('Select Order Notification').item.json.ntfyText }}",
+        "options": {
+          "timeout": 5000
+        }
+      },
+      "id": "notify-order-ntfy",
+      "name": "Notify Order ntfy",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        656,
+        -80
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "select-order-document-condition",
+              "leftValue": "={{ $('Select Order Notification').item.json.documentAvailable === true && Number($('Select Order Notification').item.json.orderId) > 0 }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "select-new-order-document",
+      "name": "Select New Order Document",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        880,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ 'https://digitalogic.ir/wp-json/digitalogic/v1/order-documents/order/' + $('Select Order Notification').item.json.orderId }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Digitalogic-Secret",
+              "value": "={{ $env.DIGITALOGIC_WP_WEBHOOK_SECRET }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "fetch-branded-order-pdf",
+      "name": "Fetch Branded Order PDF",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        544,
+        160
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const payload = $input.first().json || {};\nif (!payload.content_base64 || payload.mime_type !== 'application/pdf') throw new Error('Order PDF endpoint returned no valid PDF');\nconst filename = String(payload.filename || 'Digitalogic-Invoice.pdf').replace(/[^A-Za-z0-9._-]/g, '-');\nreturn [{ json: { caption: 'فاکتور سفارش جدید دیجیتالاجیک' }, binary: { document: { data: payload.content_base64, mimeType: 'application/pdf', fileName: filename } } }];"
+      },
+      "id": "decode-branded-order-pdf",
+      "name": "Decode Branded Order PDF",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        768,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "sendDocument",
+        "chatId": "={{ $env.PBX_QUERY_TELEGRAM_CHAT_ID }}",
+        "binaryData": true,
+        "binaryPropertyName": "document",
+        "additionalFields": {
+          "caption": "={{ $json.caption }}",
+          "appendAttribution": false,
+          "disable_notification": false
+        }
+      },
+      "id": "send-order-pdf-to-shokri",
+      "name": "Send Order PDF to Shokri",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        992,
+        160
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "ukrgJSMviSf83Mxk",
+          "name": "Digitalogic Telegram"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 10000
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const source = $('Select Order Notification').item.json;\nreturn [{ json: { ok: true, event: source.event || source.eventType || null, eventId: source.eventId || source.event_id || null } }];"
+      },
+      "id": "finalize-order-delivery",
+      "name": "Finalize Order Delivery",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1216,
+        -80
+      ]
+    }
+  ],
+  "connections": {
+    "Verify and Notify": {
+      "main": [
+        [
+          {
+            "node": "Select Order Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WordPress Events Webhook (Neutral)": {
+      "main": [
+        [
+          {
+            "node": "Verify and Notify",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Select Order Notification": {
+      "main": [
+        [
+          {
+            "node": "Gate Order Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gate Order Telegram": {
+      "main": [
+        [
+          {
+            "node": "Notify Order Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Gate Order ntfy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notify Order Telegram": {
+      "main": [
+        [
+          {
+            "node": "Gate Order ntfy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gate Order ntfy": {
+      "main": [
+        [
+          {
+            "node": "Notify Order ntfy",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Select New Order Document",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notify Order ntfy": {
+      "main": [
+        [
+          {
+            "node": "Select New Order Document",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Select New Order Document": {
+      "main": [
+        [
+          {
+            "node": "Fetch Branded Order PDF",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Finalize Order Delivery",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Branded Order PDF": {
+      "main": [
+        [
+          {
+            "node": "Decode Branded Order PDF",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Decode Branded Order PDF": {
+      "main": [
+        [
+          {
+            "node": "Send Order PDF to Shokri",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Order PDF to Shokri": {
+      "main": [
+        [
+          {
+            "node": "Finalize Order Delivery",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Finalize Order Delivery": {
+      "main": [
+        []
+      ]
+    }
+  },
+  "settings": {
+    "errorWorkflow": "DigitalogicOpsWorkflowErrorAlerts",
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "executionTimeout": 30,
+    "binaryMode": "separate",
+    "saveExecutionProgress": false,
+    "availableInMCP": false
+  },
+  "staticData": null,
+  "meta": null,
+  "pinData": {},
+  "tags": []
+}
