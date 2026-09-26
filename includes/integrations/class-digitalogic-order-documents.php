@@ -251,7 +251,7 @@ final class Digitalogic_Order_Documents {
 	public static function render_payload( array $payload ): string {
 		$data     = self::normalize_payload( $payload );
 		$branding = self::branding();
-		$logo     = self::logo_data_uri();
+		$logos    = self::brand_logo_data_uris();
 		$font     = self::font_css();
 		$rows     = '';
 		$index    = 0;
@@ -267,7 +267,13 @@ final class Digitalogic_Order_Documents {
 				. '</tr>';
 		}
 
-		$logo_html        = $logo ? '<img class="brand-logo" src="' . esc_attr( $logo ) . '" alt="دیجیتالاجیک">' : '<div class="brand-name">دیجیتالاجیک</div>';
+		$wordmark_html    = '' !== $logos['wordmark']
+			? '<img class="brand-wordmark" src="' . esc_attr( $logos['wordmark'] ) . '" alt="دیجیتالاجیک">'
+			: '<div class="brand-name">دیجیتالاجیک</div>';
+		$mark_html        = '' !== $logos['mark']
+			? '<td class="brand-mark-cell"><img class="brand-mark" src="' . esc_attr( $logos['mark'] ) . '" alt="نشان دیجیتالاجیک"></td>'
+			: '';
+		$logo_html        = '<table class="brand-lockup" dir="ltr" align="right"><tr><td class="brand-wordmark-cell">' . $wordmark_html . '</td>' . $mark_html . '</tr></table>';
 		$note_html        = '' !== $data['customer_note']
 			? '<div class="note"><strong>یادداشت مشتری:</strong> ' . esc_html( $data['customer_note'] ) . '</div>'
 			: '';
@@ -286,15 +292,15 @@ final class Digitalogic_Order_Documents {
 				'' !== $branding['mobile'] ? 'موبایل: ' . $branding['mobile'] : '',
 			)
 		);
-		$contact_html = array() !== $contact_parts
+		$contact_html     = array() !== $contact_parts
 			? '<br>' . implode( '<br>', array_map( 'esc_html', $contact_parts ) )
 			: '';
 
 		return '<!DOCTYPE html><html lang="fa" dir="rtl"><head><meta charset="UTF-8"><style>'
 			. $font
 			. 'html,body{direction:rtl;font-family:YekanBakh,sans-serif;color:#17324a;font-size:10.5pt;line-height:1.65;margin:0;padding:0}'
-			. '*{box-sizing:border-box}.page{padding:10mm 11mm 9mm}.header{width:100%;border-collapse:separate;background:#eef6ff;border:1px solid #cfe4ff;border-radius:16px;margin-bottom:4mm;padding:5mm}.header td{vertical-align:middle}'
-			. '.brand-logo{width:47mm;max-height:18mm}.brand-name{font-size:22pt;font-weight:700;color:#153a5b}.doc-kicker{color:#1769e8;font-size:8.5pt;font-weight:700;text-align:left}.doc-title{font-size:21pt;font-weight:700;color:#17324a;text-align:left}'
+			. '*{box-sizing:border-box}.page{padding:10mm 11mm 9mm}.header{width:100%;border-collapse:separate;background:#eef6ff;border:1px solid #cfe4ff;border-radius:16px;margin-bottom:4mm;padding:5mm;direction:ltr}.header td{vertical-align:middle}.document-heading{width:42%;direction:rtl}.brand-cell{width:58%;text-align:right}'
+			. '.brand-lockup{border-collapse:collapse;width:auto;margin-left:auto;direction:ltr}.brand-lockup td{padding:0;vertical-align:middle}.brand-wordmark-cell{padding-right:2.8mm!important}.brand-wordmark{width:42mm;max-height:11mm}.brand-mark{width:13.5mm;height:13.5mm}.brand-name{font-size:22pt;font-weight:700;color:#153a5b;white-space:nowrap}.doc-kicker{color:#1769e8;font-size:8.5pt;font-weight:700;text-align:left}.doc-title{font-size:21pt;font-weight:700;color:#17324a;text-align:left}'
 			. '.accent{height:2.2mm;background:#0bb8df;border-radius:2mm;margin:0 0 5mm}.status{display:inline-block;background:#e4f7ef;color:#087653;border:1px solid #9bd9c2;border-radius:14px;padding:2mm 4mm;font-weight:700}'
 			. '.cards{width:100%;border-collapse:separate;border-spacing:3mm;margin:0 -3mm 4mm}.card{width:50%;background:#f7fbff;border:1px solid #d7e8f6;border-radius:12px;padding:4mm;vertical-align:top}.cards .card:first-child{border-top:2px solid #1769e8}.cards .card:last-child{border-top:2px solid #7759ef}'
 			. '.label{font-size:8.5pt;color:#647b8d}.value{font-weight:700;color:#17324a}.section{font-size:13pt;font-weight:700;color:#17324a;margin:5mm 0 2mm;border-right:3px solid #0bb8df;padding-right:3mm}'
@@ -302,7 +308,7 @@ final class Digitalogic_Order_Documents {
 			. '.center{text-align:center}.muted{color:#6b8190;font-size:8.5pt}.totals{width:76%;margin-right:auto;margin-top:4mm;border-collapse:collapse}.totals td{padding:2.2mm 3mm;border-bottom:1px solid #dbe7ee;vertical-align:top}.totals td:first-child{width:28%;font-weight:700;padding-left:7mm}.totals td:last-child{text-align:left}.totals .grand td{font-size:13pt;font-weight:700;color:#1769e8;border-top:2px solid #0bb8df}'
 			. '.note{margin-top:5mm;padding:3mm 4mm;background:#fff2f6;border-right:3px solid #ef4d78}.footer{margin-top:8mm;padding:4mm 5mm;background:#f3f8ff;border:1px solid #d8e7f4;border-radius:12px;text-align:center;color:#536b7c;font-size:8.8pt}.footer strong{color:#1769e8}'
 			. '</style></head><body><div class="page">'
-			. '<table class="header"><tr><td>' . $logo_html . '</td><td><div class="doc-kicker">دیجیتالاجیک · سند سفارش</div><div class="doc-title">' . esc_html( $data['document_title'] ) . '</div></td></tr></table><div class="accent"></div>'
+			. '<table class="header" dir="ltr"><tr><td class="document-heading"><div class="doc-kicker">دیجیتالاجیک · سند سفارش</div><div class="doc-title">' . esc_html( $data['document_title'] ) . '</div></td><td class="brand-cell">' . $logo_html . '</td></tr></table><div class="accent"></div>'
 			. '<table class="cards"><tr><td class="card"><div class="label">شماره سفارش</div><div class="value">' . esc_html( $data['order_number'] ) . '</div><div class="label">تاریخ سفارش</div><div class="value">' . esc_html( self::value_or_dash( $data['order_date'] ) ) . '</div><div class="label">وضعیت</div><div class="status">' . esc_html( self::value_or_dash( $data['order_status'] ) ) . '</div></td>'
 			. '<td class="card"><div class="label">نام مشتری</div><div class="value">' . esc_html( self::value_or_dash( $data['customer']['name'] ) ) . '</div><div class="label">نشانی</div><div>' . nl2br( esc_html( self::value_or_dash( $data['customer']['address'] ) ) ) . '</div><div class="label">تماس</div><div>' . nl2br( esc_html( self::value_or_dash( $customer_contact ) ) ) . '</div></td></tr></table>'
 			. '<table class="cards"><tr><td class="card"><div class="label">روش تحویل</div><div class="value">' . esc_html( self::value_or_dash( $data['shipping_method'] ) ) . '</div><div class="label">تاریخ تحویل</div><div class="value">' . esc_html( self::value_or_dash( $data['delivery_date'] ) ) . '</div><div class="label">بازه زمانی تحویل</div><div class="value">' . esc_html( self::value_or_dash( $data['delivery_time'] ) ) . '</div></td>'
@@ -514,22 +520,61 @@ final class Digitalogic_Order_Documents {
 		);
 	}
 
-	/** Return the current WordPress logo as an embedded document image. */
-	private static function logo_data_uri(): string {
+	/**
+	 * Return the configured wordmark and site mark as independent embedded images.
+	 *
+	 * Keeping the site icon separate prevents mPDF's SVG renderer from clipping the
+	 * circuit-D mark while preserving the configured custom-logo wordmark.
+	 *
+	 * @return array{wordmark:string,mark:string}
+	 */
+	private static function brand_logo_data_uris(): array {
 		if ( ! function_exists( 'get_theme_mod' ) || ! function_exists( 'get_attached_file' ) || ! function_exists( 'get_post_mime_type' ) ) {
-			return '';
+			return array(
+				'wordmark' => '',
+				'mark'     => '',
+			);
 		}
-		$logo_id = (int) get_theme_mod( 'custom_logo' );
-		$path    = $logo_id > 0 ? get_attached_file( $logo_id ) : '';
+
+		$wordmark_id = (int) get_theme_mod( 'custom_logo' );
+		$mark_id     = function_exists( 'get_option' ) ? (int) get_option( 'site_icon', 0 ) : 0;
+
+		return array(
+			'wordmark' => self::attachment_data_uri( $wordmark_id, true ),
+			'mark'     => self::attachment_data_uri( $mark_id ),
+		);
+	}
+
+	/**
+	 * Read a configured local media attachment into a PDF-safe data URI.
+	 *
+	 * @param int  $attachment_id WordPress attachment ID.
+	 * @param bool $wordmark_only  Crop the known combined Digitalogic SVG to its wordmark.
+	 */
+	private static function attachment_data_uri( int $attachment_id, bool $wordmark_only = false ): string {
+		$path = $attachment_id > 0 ? get_attached_file( $attachment_id ) : '';
 		if ( ! is_string( $path ) || ! is_readable( $path ) ) {
 			return '';
 		}
-		$mime = (string) get_post_mime_type( $logo_id );
+		$mime = (string) get_post_mime_type( $attachment_id );
 		$data = file_get_contents( $path ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Reads the local configured logo asset.
 		if ( false === $data ) {
 			return '';
 		}
-		$mime    = '' !== $mime ? $mime : 'image/svg+xml';
+		$mime = '' !== $mime ? $mime : 'image/svg+xml';
+		if ( $wordmark_only && 'image/svg+xml' === $mime && false !== strpos( $data, 'id="er-pr_name"' ) ) {
+			$count = 0;
+			$data  = (string) preg_replace(
+				'/viewBox\\s*=\\s*(["\'])[^"\']+\\1/i',
+				'viewBox="0 78 1450 315"',
+				$data,
+				1,
+				$count
+			);
+			if ( 0 === $count ) {
+				return '';
+			}
+		}
 		$encoded = base64_encode( $data ); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode -- Embeds a verified local logo in a PDF data URI.
 		return 'data:' . $mime . ';base64,' . $encoded;
 	}
