@@ -441,10 +441,10 @@ final class Digitalogic_Order_Documents {
 			'document_title'  => sanitize_text_field( (string) ( $payload['document_title'] ?? 'صورتحساب سفارش' ) ),
 			'order_number'    => sanitize_text_field( (string) ( $payload['order_number'] ?? '' ) ),
 			'order_status'    => sanitize_text_field( (string) ( $payload['order_status'] ?? '' ) ),
-			'order_date'      => sanitize_text_field( (string) ( $payload['order_date'] ?? '' ) ),
+			'order_date'      => Digitalogic_Persian_Time_Formatter::format_date( sanitize_text_field( (string) ( $payload['order_date'] ?? '' ) ) ),
 			'payment_method'  => sanitize_text_field( (string) ( $payload['payment_method'] ?? '' ) ),
 			'shipping_method' => sanitize_text_field( (string) ( $payload['shipping_method'] ?? '' ) ),
-			'delivery_date'   => sanitize_text_field( (string) ( $payload['delivery_date'] ?? '' ) ),
+			'delivery_date'   => Digitalogic_Persian_Time_Formatter::format_date( sanitize_text_field( (string) ( $payload['delivery_date'] ?? '' ) ) ),
 			'delivery_time'   => Digitalogic_Persian_Time_Formatter::humanize( sanitize_text_field( (string) ( $payload['delivery_time'] ?? '' ) ) ),
 			'customer'        => array(
 				'name'    => sanitize_text_field( (string) ( $customer['name'] ?? '' ) ),

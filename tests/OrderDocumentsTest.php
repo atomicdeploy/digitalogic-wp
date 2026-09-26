@@ -54,6 +54,7 @@ final class OrderDocumentsTest extends TestCase {
 		$this->assertStringContainsString( 'class="brand-cell"', $html );
 		$this->assertStringContainsString( 'دیجیتالاجیک · سند سفارش', $html );
 		$this->assertStringContainsString( 'P-14085', $html );
+		$this->assertStringContainsString( '۱۴۰۵/۰۷/۰۶', $html );
 		$this->assertStringContainsString( '102007003', $html );
 		$this->assertStringContainsString( '07:00 صبح تا 07:30 صبح', $html );
 		$this->assertStringNotContainsString( 'ق.ظ', $html );

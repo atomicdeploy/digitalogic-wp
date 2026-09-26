@@ -94,6 +94,29 @@ form.checkout .digitalogic-field-invalid textarea {
     outline: none !important;
 }
 
+form.checkout #jckwds-fields .digitalogic-jalali-date-host {
+    position: relative;
+}
+
+form.checkout #jckwds-fields .digitalogic-has-jalali-display {
+    color: transparent !important;
+    caret-color: transparent !important;
+}
+
+form.checkout #jckwds-fields .digitalogic-jalali-date-display {
+    position: absolute;
+    inset-inline: 14px;
+    top: 50%;
+    z-index: 2;
+    color: var(--digitalogic-checkout-ink);
+    direction: rtl;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+    pointer-events: none;
+    text-align: right;
+    transform: translateY(-50%);
+}
+
 form.checkout .digitalogic-field-error {
     display: block;
     color: var(--digitalogic-checkout-danger);
