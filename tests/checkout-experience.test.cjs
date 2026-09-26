@@ -54,6 +54,18 @@ test('selected delivery dates keep Gregorian machine state and show a Persian Ja
     assert.match(css, /\.digitalogic-jalali-date-display\s*\{[\s\S]*pointer-events:\s*none/);
 });
 
+test('delivery date picker presents Jalali months, Persian weekdays, and Persian digits', () => {
+    assert.match(script, /jalaliMonthNames/);
+    assert.match(script, /persianWeekdays/);
+    assert.match(script, /localizeDeliveryDatePicker/);
+    assert.match(script, /data-year/);
+    assert.match(script, /digitalogicGregorianDay/);
+    assert.match(script, /تقویم شمسی/);
+    assert.match(script, /ماه قبل/);
+    assert.match(script, /ماه بعد/);
+    assert.match(css, /#ui-datepicker-div\.digitalogic-jalali-calendar\s*\{[\s\S]*direction:\s*rtl/);
+});
+
 test('warning and quantity controls use branded accessible styling without orange', () => {
     assert.match(css, /\.digitalogic-checkout-notice\s*\{[\s\S]*border-inline-start:\s*4px solid var\(--digitalogic-checkout-brand\)/);
     assert.match(css, /\.woocommerce-error a:hover,[\s\S]*text-decoration:\s*none !important/);
