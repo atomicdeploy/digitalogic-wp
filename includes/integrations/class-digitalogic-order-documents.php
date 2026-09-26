@@ -302,7 +302,7 @@ final class Digitalogic_Order_Documents {
 			. '.center{text-align:center}.muted{color:#6b8190;font-size:8.5pt}.totals{width:76%;margin-right:auto;margin-top:4mm;border-collapse:collapse}.totals td{padding:2.2mm 3mm;border-bottom:1px solid #dbe7ee;vertical-align:top}.totals td:first-child{width:28%;font-weight:700;padding-left:7mm}.totals td:last-child{text-align:left}.totals .grand td{font-size:13pt;font-weight:700;color:#1769e8;border-top:2px solid #0bb8df}'
 			. '.note{margin-top:5mm;padding:3mm 4mm;background:#fff2f6;border-right:3px solid #ef4d78}.footer{margin-top:8mm;padding:4mm 5mm;background:#f3f8ff;border:1px solid #d8e7f4;border-radius:12px;text-align:center;color:#536b7c;font-size:8.8pt}.footer strong{color:#1769e8}'
 			. '</style></head><body><div class="page">'
-			. '<table class="header"><tr><td>' . $logo_html . '</td><td><div class="doc-kicker">DIGITALOGIC · ORDER DOCUMENT</div><div class="doc-title">' . esc_html( $data['document_title'] ) . '</div></td></tr></table><div class="accent"></div>'
+			. '<table class="header"><tr><td>' . $logo_html . '</td><td><div class="doc-kicker">دیجیتالاجیک · سند سفارش</div><div class="doc-title">' . esc_html( $data['document_title'] ) . '</div></td></tr></table><div class="accent"></div>'
 			. '<table class="cards"><tr><td class="card"><div class="label">شماره سفارش</div><div class="value">' . esc_html( $data['order_number'] ) . '</div><div class="label">تاریخ سفارش</div><div class="value">' . esc_html( self::value_or_dash( $data['order_date'] ) ) . '</div><div class="label">وضعیت</div><div class="status">' . esc_html( self::value_or_dash( $data['order_status'] ) ) . '</div></td>'
 			. '<td class="card"><div class="label">نام مشتری</div><div class="value">' . esc_html( self::value_or_dash( $data['customer']['name'] ) ) . '</div><div class="label">نشانی</div><div>' . nl2br( esc_html( self::value_or_dash( $data['customer']['address'] ) ) ) . '</div><div class="label">تماس</div><div>' . nl2br( esc_html( self::value_or_dash( $customer_contact ) ) ) . '</div></td></tr></table>'
 			. '<table class="cards"><tr><td class="card"><div class="label">روش تحویل</div><div class="value">' . esc_html( self::value_or_dash( $data['shipping_method'] ) ) . '</div><div class="label">تاریخ تحویل</div><div class="value">' . esc_html( self::value_or_dash( $data['delivery_date'] ) ) . '</div><div class="label">بازه زمانی تحویل</div><div class="value">' . esc_html( self::value_or_dash( $data['delivery_time'] ) ) . '</div></td>'
@@ -336,15 +336,19 @@ final class Digitalogic_Order_Documents {
 			return new WP_Error( 'digitalogic_document_pdf_library_unavailable', __( 'The mPDF document engine is unavailable.', 'digitalogic' ) );
 		}
 
-		$font_path = self::font_path();
-		$config    = array();
-		if ( '' !== $font_path ) {
+		$font_files = self::font_files();
+		$config     = array();
+		if ( '' !== $font_files['regular'] ) {
 			$config = array(
-				'fontDir'      => array( dirname( $font_path ) ),
+				'fontDir'      => array_values(
+					array_unique(
+						array_map( 'dirname', array_filter( $font_files ) )
+					)
+				),
 				'fontdata'     => array(
 					'yekanbakh' => array(
-						'R'          => basename( $font_path ),
-						'B'          => basename( $font_path ),
+						'R'          => basename( $font_files['regular'] ),
+						'B'          => basename( $font_files['bold'] ),
 						'useOTL'     => 0xFF,
 						'useKashida' => 75,
 					),
@@ -470,21 +474,44 @@ final class Digitalogic_Order_Documents {
 
 	/** Return a local YekanBakh font-face rule when the configured asset exists. */
 	private static function font_css(): string {
-		$path = self::font_path();
-		if ( '' === $path ) {
+		$files = self::font_files();
+		if ( '' === $files['regular'] ) {
 			return '';
 		}
-		return "@font-face{font-family:'YekanBakh';src:url('file://" . esc_url( $path ) . "') format('truetype');font-weight:400;font-style:normal}";
+		$css = "@font-face{font-family:'YekanBakh';src:url('file://" . esc_url( $files['regular'] ) . "') format('truetype');font-weight:400;font-style:normal}";
+		if ( $files['bold'] !== $files['regular'] ) {
+			$css .= "@font-face{font-family:'YekanBakh';src:url('file://" . esc_url( $files['bold'] ) . "') format('truetype');font-weight:700;font-style:normal}";
+		}
+		return $css;
 	}
 
-	/** Return the verified local YekanBakh TrueType asset used by mPDF. */
-	private static function font_path(): string {
+	/**
+	 * Return mPDF-compatible static instances sourced from YekanBakh VF.
+	 *
+	 * The mPDF 8.0.x engine consumes static TrueType faces for R/B mappings, so the
+	 * server-local instances preserve real VF weights without synthetic bold.
+	 *
+	 * @return array{regular:string,bold:string}
+	 */
+	private static function font_files(): array {
 		if ( ! function_exists( 'wp_get_upload_dir' ) ) {
-			return '';
+			return array(
+				'regular' => '',
+				'bold'    => '',
+			);
 		}
-		$uploads = wp_get_upload_dir();
-		$path    = wp_normalize_path( (string) ( $uploads['basedir'] ?? '' ) . '/2025/09/YekanBakh-Regular.ttf' );
-		return is_readable( $path ) ? $path : '';
+		$uploads    = wp_get_upload_dir();
+		$base       = wp_normalize_path( (string) ( $uploads['basedir'] ?? '' ) );
+		$vf_regular = $base . '/2026/07/yekanbakh-vf/static/YekanBakhFaNum-Regular.ttf';
+		$vf_bold    = $base . '/2026/07/yekanbakh-vf/static/YekanBakhFaNum-Bold.ttf';
+		$fallback   = $base . '/2025/09/YekanBakh-Regular.ttf';
+		$regular    = is_readable( $vf_regular ) ? $vf_regular : ( is_readable( $fallback ) ? $fallback : '' );
+		$bold       = is_readable( $vf_bold ) ? $vf_bold : $regular;
+
+		return array(
+			'regular' => $regular,
+			'bold'    => $bold,
+		);
 	}
 
 	/** Return the current WordPress logo as an embedded document image. */
