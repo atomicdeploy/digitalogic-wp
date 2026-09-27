@@ -703,6 +703,9 @@ final class PatrisPricePolicyTest extends TestCase {
 		$this->assertSame( '500', $data['patris_final_price'] );
 		$this->assertSame( '500', $data['regular_price'] );
 		$this->assertSame( '450', $data['sale_price'] );
+		$this->assertSame( '450', $data['price_raw'] );
+		$this->assertSame( 'IRT', $data['price_currency'] );
+		$this->assertSame( 0, $data['price_decimals'] );
 		$this->assertSame( '450', $data['effective_price'] );
 		$this->assertSame( 'sale', $data['price_source'] );
 		$this->assertSame( 'canonical_sale', $data['patris_sale_policy'] );

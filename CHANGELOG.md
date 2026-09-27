@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.1] - 2026-09-27
+
+- Expose exact non-HTML prices and currency metadata through product API responses and identity-guarded variation JSON.
+- Pair selected-variation HTML with its raw price contract so equal-priced WooCommerce variations cannot be misreported as unpriced.
+- Validate the raw/HTML pair in the storefront without calculating from parent prices or localized display text.
+
 ## [2.2.0] - 2026-09-27
 
 - Route WordPress order text and invoice PDFs to the Digitalogic Telegram operations group and its dedicated website topic instead of a private Shokri chat.

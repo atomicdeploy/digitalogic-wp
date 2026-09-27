@@ -124,6 +124,9 @@ curl -u key:secret "https://yoursite.com/wp-json/digitalogic/v1/products?page=1&
       "sku": "ARD-UNO-R3",
       "type": "simple",
       "regular_price": "250000",
+      "price_raw": "250000",
+      "price_currency": "IRT",
+      "price_decimals": 0,
       "stock_quantity": 50
     }
   ],
@@ -132,6 +135,20 @@ curl -u key:secret "https://yoursite.com/wp-json/digitalogic/v1/products?page=1&
   "limit": 20
 }
 ```
+
+`price_raw` is the exact non-HTML effective WooCommerce price as a decimal
+string, or `null` when no customer price is available. `price_currency` is the
+WooCommerce ISO currency code and `price_decimals` declares its configured
+minor-unit precision. Variable-product detail responses expose the same fields
+for every child in `variations`.
+
+The storefront variation JSON additionally publishes the identity-guarded
+`digitalogic_price_raw`, `digitalogic_price_html`,
+`digitalogic_price_currency`, `digitalogic_price_decimals`, and
+`digitalogic_price_contract` fields. The HTML
+contains the same raw price in a `data-digitalogic-price-raw` attribute so the
+browser can reject mismatched or incomplete price payloads without parsing
+localized display text or calculating from a parent price.
 
 ---
 
