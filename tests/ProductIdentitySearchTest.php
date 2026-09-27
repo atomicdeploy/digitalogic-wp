@@ -227,8 +227,8 @@ final class ProductIdentitySearchTest extends TestCase {
 				'_stock_status'                    => 'outofstock',
 			),
 		);
-		$GLOBALS['product'] = wc_get_product( 30 );
-		$identity           = ( new ReflectionClass( Digitalogic_Product_Identity::class ) )->newInstanceWithoutConstructor();
+		$GLOBALS['product']                    = wc_get_product( 30 );
+		$identity                              = ( new ReflectionClass( Digitalogic_Product_Identity::class ) )->newInstanceWithoutConstructor();
 
 		ob_start();
 		$identity->render_single_patris_name();
