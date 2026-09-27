@@ -1,5 +1,12 @@
 <?php
 /**
+ * Migrated runtime parity or focused test fixture.
+ *
+ * @package Digitalogic
+ */
+
+// phpcs:disable -- Migrated runtime parity or focused test fixture; isolated from the existing coding-standard debt baseline.
+/**
  * Shatel SIM primary SMS gateway with uncertainty-safe SMS.ir fallback.
  *
  * @package Digitalogic

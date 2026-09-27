@@ -72,7 +72,12 @@ final class Digitalogic_Login_Proxy {
 		return array();
 	}
 
-	/** Accept either one legacy secret or a generic list of consumer secrets. */
+	/**
+	 * Accept either one legacy secret or a generic list of consumer secrets.
+	 *
+	 * @param string $proof  Submitted authentication proof.
+	 * @param array  $config Protected runtime configuration.
+	 */
 	private static function valid_proof( string $proof, array $config ): bool {
 		$secrets = array();
 		if ( isset( $config['secret'] ) && is_string( $config['secret'] ) ) {
@@ -95,15 +100,23 @@ final class Digitalogic_Login_Proxy {
 		return $valid;
 	}
 
-	/** Convert a configured HTTP header name to its PHP server-array key. */
+	/**
+	 * Convert a configured HTTP header name to its PHP server-array key.
+	 *
+	 * @param string $header Configured HTTP header name.
+	 */
 	private static function header_server_key( string $header ): string {
 		$header = strtoupper( str_replace( '-', '_', preg_replace( '/[^A-Za-z0-9-]/', '', $header ) ) );
 		return str_starts_with( $header, 'HTTP_' ) ? $header : 'HTTP_' . $header;
 	}
 
-	/** Return one unslashed scalar server value. */
+	/**
+	 * Return one unslashed scalar server value.
+	 *
+	 * @param string $key Server-array key.
+	 */
 	private static function server_value( string $key ): string {
-		$value = $_SERVER[ $key ] ?? '';
+		$value = $_SERVER[ $key ] ?? ''; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized,WordPress.Security.ValidatedSanitizedInput.MissingUnslash -- The bounded scalar is unslashed immediately below and validated by its caller.
 		return is_string( $value ) ? wp_unslash( $value ) : '';
 	}
 }

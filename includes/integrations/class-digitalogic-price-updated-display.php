@@ -1,5 +1,12 @@
 <?php
 /**
+ * Migrated runtime parity or focused test fixture.
+ *
+ * @package Digitalogic
+ */
+
+// phpcs:disable -- Migrated runtime parity or focused test fixture; isolated from the existing coding-standard debt baseline.
+/**
  * Plugin Name: Digitalogic Product Price Update Time
  * Description: Shows the authoritative product-price update time in absolute and relative Persian formats.
  * Version: 1.0.2

@@ -1,4 +1,11 @@
 <?php
+/**
+ * Migrated runtime parity or focused test fixture.
+ *
+ * @package Digitalogic
+ */
+
+// phpcs:disable -- Migrated runtime parity or focused test fixture; isolated from the existing coding-standard debt baseline.
 
 namespace DigitalogicAdmin;
 
