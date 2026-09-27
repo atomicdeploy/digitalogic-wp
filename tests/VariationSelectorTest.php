@@ -27,10 +27,10 @@ final class VariationSelectorTest extends TestCase {
 				'post_parent' => 100,
 				'post_status' => 102 === $id ? 'draft' : 'publish',
 				'meta'        => array(
-					'attribute_source_model'    => 103 === $id ? '' : 'model "quoted"',
-					'_sku'                      => 'A-101',
+					'attribute_source_model'           => 103 === $id ? '' : 'model "quoted"',
+					'_sku'                             => 'A-101',
 					'_digitalogic_patris_product_code' => '114005004',
-					'_digitalogic_persian_name' => '<b>نام مدل</b>',
+					'_digitalogic_persian_name'        => '<b>نام مدل</b>',
 				),
 			);
 			$GLOBALS['digitalogic_test_wc_products'][ $id ] = new class( $id ) extends WC_Product_Variation {

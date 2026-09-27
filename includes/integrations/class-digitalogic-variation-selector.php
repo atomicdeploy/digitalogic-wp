@@ -69,7 +69,7 @@ final class Digitalogic_Variation_Selector {
 			if ( '' === trim( (string) $title ) ) {
 				$title = $child->get_meta( '_digitalogic_patris_name', true );
 			}
-			$description = $child->get_description();
+			$description  = $child->get_description();
 			$product_code = class_exists( 'Digitalogic_Product_Identifier_Resolver' )
 				? trim( (string) $child->get_meta( Digitalogic_Product_Identifier_Resolver::PATRIS_CODE_META, true ) )
 				: '';

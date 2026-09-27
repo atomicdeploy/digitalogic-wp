@@ -81,8 +81,8 @@ final class Digitalogic_Product_Identity {
 		if ( ! is_array( $data ) || ! $variation instanceof WC_Product ) {
 			return $data;
 		}
-		$data['digitalogic_product_name']  = sanitize_text_field( (string) $variation->get_meta( '_digitalogic_patris_name', true ) );
-		$data['digitalogic_product_code']  = sanitize_text_field( (string) $variation->get_meta( Digitalogic_Product_Identifier_Resolver::PATRIS_CODE_META, true ) );
+		$data['digitalogic_product_name'] = sanitize_text_field( (string) $variation->get_meta( '_digitalogic_patris_name', true ) );
+		$data['digitalogic_product_code'] = sanitize_text_field( (string) $variation->get_meta( Digitalogic_Product_Identifier_Resolver::PATRIS_CODE_META, true ) );
 		$data['digitalogic_persian_name'] = sanitize_text_field( (string) $variation->get_meta( '_digitalogic_persian_name', true ) );
 
 		return $data;
