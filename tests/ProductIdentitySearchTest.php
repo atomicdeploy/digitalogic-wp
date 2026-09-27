@@ -207,6 +207,38 @@ final class ProductIdentitySearchTest extends TestCase {
 		$this->assertStringContainsString( 'مرجع مدل‌های ثبت‌شده', $config['legacyChildNote'] );
 	}
 
+	/** Unavailable variable children stay visible without presenting an active choice. */
+	public function test_disables_unavailable_variable_product_code_choice(): void {
+		$GLOBALS['digitalogic_test_posts'][30] = array(
+			'post_type'    => 'product',
+			'post_status'  => 'publish',
+			'product_type' => 'variable',
+			'post_title'   => 'Variable parent',
+			'meta'         => array(),
+		);
+		$GLOBALS['digitalogic_test_posts'][31] = array(
+			'post_type'    => 'product_variation',
+			'post_status'  => 'publish',
+			'product_type' => 'variation',
+			'post_parent'  => 30,
+			'post_title'   => 'Unavailable model',
+			'meta'         => array(
+				'_digitalogic_patris_product_code' => 'CHILD-31',
+				'_stock_status'                    => 'outofstock',
+			),
+		);
+		$GLOBALS['product'] = wc_get_product( 30 );
+		$identity           = ( new ReflectionClass( Digitalogic_Product_Identity::class ) )->newInstanceWithoutConstructor();
+
+		ob_start();
+		$identity->render_single_patris_name();
+		$html = ob_get_clean();
+
+		$this->assertStringContainsString( 'digitalogic-product-code-item is-unavailable', $html );
+		$this->assertStringContainsString( 'disabled aria-disabled="true"', $html );
+		$this->assertStringContainsString( 'digitalogic-product-code-item__availability">ناموجود', $html );
+	}
+
 	public function test_exposes_child_identity_and_adds_sku_mpn_without_replacing_offers(): void {
 		$GLOBALS['digitalogic_test_posts'][11] = array(
 			'post_type'    => 'product_variation',

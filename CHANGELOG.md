@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.3.3] - 2026-09-27
+
+- Disable and visually subdue unavailable Product Code model cards, with an explicit unavailable badge matching the rich model dropdown.
+
 ## [2.3.2] - 2026-09-27
 
 - Apply the contextual Digitalogic model selector to the canonical WooCommerce `pa_model` attribute as well as source-owned model attributes.

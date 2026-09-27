@@ -50,6 +50,10 @@ test('product Code cards keep stable button semantics and resist theme button ov
 	assert.match(identityCss, /\.digitalogic-product-code-grid\s*\{[\s\S]*grid-template-columns:/);
 	assert.match(identityCss, /body:not\(\.wp-admin\) \.digitalogic-product-code-item__select\s*\{[\s\S]*background:\s*transparent\s*!important/);
 	assert.match(identityCss, /\.digitalogic-product-code-item\.is-selected\s*\{[\s\S]*border:\s*2px solid var\(--dgl-color-primary/);
+	assert.match(identityCss, /\.digitalogic-product-code-item\.is-unavailable\s*\{[\s\S]*opacity:\s*\.58/);
+	assert.match(source, /child\.available !== false/);
+	assert.match(source, /select\.disabled = true/);
+	assert.match(source, /digitalogic-product-code-item__availability/);
 	assert.match(identityCss, /@media \(max-width:\s*640px\)[\s\S]*grid-template-columns:\s*1fr/);
 });
 

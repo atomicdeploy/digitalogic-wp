@@ -57,6 +57,8 @@
 		var select;
 		var copy;
 		var note;
+		var available;
+		var availability;
 
 		name = text(name);
 		code = text(code);
@@ -92,8 +94,9 @@
 			list.className = 'digitalogic-product-code-grid';
 			list.setAttribute('role', 'list');
 			childCodes.forEach(function (child) {
+				available = !child || child.available !== false;
 				item = document.createElement('li');
-				item.className = 'digitalogic-product-code-item';
+				item.className = 'digitalogic-product-code-item' + (available ? '' : ' is-unavailable');
 				item.setAttribute('data-product-code', text(child && child.code));
 				select = document.createElement(isVariable ? 'button' : 'span');
 				select.className = 'digitalogic-product-code-item__select';
@@ -101,6 +104,10 @@
 					select.type = 'button';
 					select.setAttribute('data-product-code', text(child && child.code));
 					select.setAttribute('aria-pressed', 'false');
+					if (!available) {
+						select.disabled = true;
+						select.setAttribute('aria-disabled', 'true');
+					}
 				}
 				var icon = document.createElement('span');
 				icon.className = 'digitalogic-product-code-item__icon';
@@ -121,6 +128,12 @@
 				itemCode.textContent = text(child && child.code);
 				codeRow.append(codeLabel, itemCode);
 				itemBody.append(itemName, codeRow);
+				if (!available) {
+					availability = document.createElement('span');
+					availability.className = 'digitalogic-product-code-item__availability';
+					availability.textContent = text(settings.unavailableLabel) || 'ناموجود';
+					itemBody.appendChild(availability);
+				}
 				select.append(icon, itemBody);
 				copy = document.createElement('button');
 				copy.type = 'button';
@@ -312,6 +325,7 @@
 			renderVariationIdentity($(this), null);
 		})
 		.on('click', '.digitalogic-product-code-item__select[data-product-code]', function () {
+			if (this.disabled || this.getAttribute('aria-disabled') === 'true') return;
 			var code = text(this.getAttribute('data-product-code'));
 			if (code === '') return;
 			document.dispatchEvent(new CustomEvent('digitalogic:select-product-code', {
