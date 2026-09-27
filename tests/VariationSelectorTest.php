@@ -73,6 +73,12 @@ final class VariationSelectorTest extends TestCase {
 		$this->assertStringNotContainsString( '<', $items['model "quoted"']['title'] );
 		$this->assertStringNotContainsString( '<', $items['model "quoted"']['description'] );
 		$this->assertSame( 'ناموجود', $data['unavailable'] );
+		foreach ( array( 101, 103, 104 ) as $id ) {
+			$GLOBALS['digitalogic_test_posts'][ $id ]['meta']['attribute_pa_model'] = $GLOBALS['digitalogic_test_posts'][ $id ]['meta']['attribute_source_model'];
+		}
+		$args['attribute'] = 'pa_model';
+		$taxonomy_html     = Digitalogic_Variation_Selector::render( $select, $args );
+		$this->assertStringContainsString( 'data-digitalogic-model-selector=', $taxonomy_html );
 		$args['attribute'] = 'color';
 		$this->assertSame( $select, Digitalogic_Variation_Selector::render( $select, $args ) );
 	}

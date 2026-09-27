@@ -46,7 +46,7 @@ final class Digitalogic_Variation_Selector {
 	public static function render( $html, $args ) {
 		$attribute = $args['attribute'] ?? '';
 		$product   = $args['product'] ?? null;
-		if ( ! in_array( $attribute, array( 'source_model', 'pa_source_model' ), true ) || ! $product instanceof WC_Product_Variable ) {
+		if ( ! in_array( $attribute, array( 'model', 'pa_model', 'source_model', 'pa_source_model' ), true ) || ! $product instanceof WC_Product_Variable ) {
 			return $html;
 		}
 		$items = array();
