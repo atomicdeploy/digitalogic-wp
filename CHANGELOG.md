@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.3.4] - 2026-09-27
+
+- Reserve a dedicated mobile cart-title gutter so the order remove action never overlaps product identity text.
+
 ## [2.3.3] - 2026-09-27
 
 - Disable and visually subdue unavailable Product Code model cards, with an explicit unavailable badge matching the rich model dropdown.
