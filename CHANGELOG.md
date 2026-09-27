@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.3.2] - 2026-09-27
+
+- Apply the contextual Digitalogic model selector to the canonical WooCommerce `pa_model` attribute as well as source-owned model attributes.
+- Keep unavailable `pa_model` variations visible but disabled, subdued, price-free, and linked to their exact Product Code card.
+
 ## [2.3.1] - 2026-09-27
 
 - Separate the selected model and exact Product Code into contextual highlight cards, with an accessible copy action and no bracketed identity text.
