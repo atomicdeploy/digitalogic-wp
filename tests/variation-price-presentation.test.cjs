@@ -59,6 +59,22 @@ test('rejects mismatched, missing, and malformed raw price contracts', () => {
     }), null);
 });
 
+test('never accepts a price contract for an unavailable variation', () => {
+    const html = '<span class="digitalogic-variation-price-contract" data-digitalogic-price-raw="293500"><span class="price">293,500 Toman</span></span>';
+    assert.equal(presentation.validatedPriceHtml({
+        is_in_stock: false,
+        digitalogic_price_contract: 1,
+        digitalogic_price_raw: '293500',
+        digitalogic_price_html: html
+    }), null);
+    assert.equal(presentation.validatedPriceHtml({
+        digitalogic_price_hidden_for_stock: true,
+        digitalogic_price_contract: 1,
+        digitalogic_price_raw: '293500',
+        digitalogic_price_html: html
+    }), null);
+});
+
 test('keeps a bounded legacy fallback for cached pre-contract payloads', () => {
     assert.equal(
         presentation.validatedPriceHtml({ price_html: '<span class="price">100 Toman</span>' }),

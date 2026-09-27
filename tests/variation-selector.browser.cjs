@@ -19,11 +19,11 @@ const { chromium } = require('playwright');
         const root = document.createElement('div');
         root.className = 'digitalogic-model-selector';
         root.dataset.digitalogicModelSelector = JSON.stringify({
-            label: 'مدل', placeholder: 'انتخاب مدل', search: 'جستجوی مدل، توضیحات یا کد کالا…', empty: 'مدلی با این مشخصات پیدا نشد.', skuLabel: 'کد کالا',
+            label: 'مدل', placeholder: 'انتخاب مدل', search: 'جستجوی مدل، توضیحات یا کد کالا…', empty: 'مدلی با این مشخصات پیدا نشد.', skuLabel: 'کد کالا', unavailable: 'ناموجود', imageLabel: 'تصویر مدل',
             items: [
-                { value: 'standard', attributes: {}, title: 'ماژول NRF24L01 استاندارد', description: 'ماژول بی‌سیم با آنتن روی برد\nفرکانس ۲٫۴ گیگاهرتز', productCode: '113008001', priceRaw: '120000', priceText: '120,000 تومان', image: 'https://fixture.test/module.svg' },
-                { value: 'mini', attributes: {}, title: 'ماژول NRF24L01 MINI', description: 'ابعاد کوچک برای پروژه‌های فشرده', productCode: '113008002', priceRaw: '125000', priceText: '125,000 تومان', image: 'https://fixture.test/module.svg' },
-                { value: 'pa', attributes: {}, title: 'ماژول NRF24L01+PA+LNA', description: 'مدل تقویت‌شده با اتصال آنتن خارجی', productCode: '113008003', priceRaw: '180000', priceText: '180,000 تومان', image: 'https://fixture.test/module.svg' }
+                { value: 'standard', attributes: {}, title: 'ماژول NRF24L01 استاندارد', description: 'ماژول بی‌سیم با آنتن روی برد\nفرکانس ۲٫۴ گیگاهرتز', productCode: '113008001', priceRaw: '120000', priceText: '120,000 تومان', image: 'https://fixture.test/module.svg', available: true },
+                { value: 'mini', attributes: {}, title: 'ماژول NRF24L01 MINI', description: 'ابعاد کوچک برای پروژه‌های فشرده', productCode: '113008002', priceRaw: '125000', priceText: '125,000 تومان', image: 'https://fixture.test/module.svg', available: true },
+                { value: 'pa', attributes: {}, title: 'ماژول NRF24L01+PA+LNA', description: 'مدل تقویت‌شده با اتصال آنتن خارجی', productCode: '113008003', priceRaw: null, priceText: '', image: '', available: false }
             ]
         });
         root.innerHTML = '<select id="source_model" name="attribute_source_model"><option value="">انتخاب مدل</option><option value="standard">NRF24L01</option><option value="mini">NRF24L01 MINI</option><option value="pa">NRF24L01+PA+LNA</option></select>';
@@ -40,6 +40,10 @@ const { chromium } = require('playwright');
     await trigger.click();
     assert.equal(await search.getAttribute('aria-expanded'), 'true');
 	assert.match(await page.locator('[role=option]').nth(1).textContent(), /125,000 تومان/);
+	assert.equal(await page.locator('[role=option]').last().getAttribute('aria-disabled'), 'true');
+	assert.match(await page.locator('[role=option]').last().textContent(), /ناموجود/);
+	assert.doesNotMatch(await page.locator('[role=option]').last().textContent(), /180,000/);
+	assert.equal(await page.locator('[role=option]').last().locator('.digitalogic-model-image--placeholder').count(), 1);
     await search.fill('۱۱۳۰۰۸۰۰۲');
     assert.equal(await page.locator('[role=option]:visible').count(), 1);
     await search.press('Enter');

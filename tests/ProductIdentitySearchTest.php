@@ -191,6 +191,11 @@ final class ProductIdentitySearchTest extends TestCase {
 		$this->assertStringContainsString( 'مدل‌های قابل انتخاب', $html );
 		$this->assertStringContainsString( 'Model &lt;A&gt;', $html );
 		$this->assertStringContainsString( 'CHILD-21', $html );
+		$this->assertStringContainsString( '<ul class="digitalogic-product-code-grid" role="list">', $html );
+		$this->assertStringContainsString( 'class="digitalogic-product-code-item__select"', $html );
+		$this->assertStringContainsString( 'data-copy-product-code="CHILD-21"', $html );
+		$this->assertStringNotContainsString( 'role="listitem"', $html );
+		$this->assertStringNotContainsString( '<i>', $html );
 		$this->assertStringNotContainsString( 'DRAFT-22', $html );
 		$this->assertStringContainsString( 'مرجع مدل‌های ثبت‌شده', $html );
 

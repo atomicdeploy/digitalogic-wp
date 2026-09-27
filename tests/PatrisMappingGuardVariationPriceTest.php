@@ -86,6 +86,33 @@ final class PatrisMappingGuardVariationPriceTest extends TestCase {
 		$this->assertStringContainsString( 'data-digitalogic-price-raw="293500"', $data['price_html'] );
 		$this->assertStringContainsString( 'woocommerce-Price-amount', $data['price_html'] );
 		$this->assertTrue( $data['is_purchasable'] );
+		$this->assertFalse( $data['digitalogic_price_hidden_for_stock'] );
+	}
+
+	/** A stored price remains private when the exact variation is out of stock. */
+	public function test_out_of_stock_variation_exposes_no_public_price_contract(): void {
+		$GLOBALS['digitalogic_test_posts'][101]['meta']['_stock_status'] = 'outofstock';
+		$GLOBALS['digitalogic_test_wc_products']                         = array();
+		Digitalogic_Patris_Mapping_Guard::clear_index();
+		$variation = new WC_Product_Variation( 101 );
+
+		$data = Digitalogic_Patris_Mapping_Guard::variation_data(
+			array(
+				'price_html'            => '<span>must disappear</span>',
+				'display_price'         => 293500,
+				'display_regular_price' => 293500,
+				'is_purchasable'        => true,
+			),
+			new WC_Product_Variable( 100 ),
+			$variation
+		);
+
+		$this->assertNull( $data['digitalogic_price_raw'] );
+		$this->assertSame( '', $data['digitalogic_price_html'] );
+		$this->assertSame( '', $data['price_html'] );
+		$this->assertNull( $data['display_price'] );
+		$this->assertFalse( $data['is_purchasable'] );
+		$this->assertTrue( $data['digitalogic_price_hidden_for_stock'] );
 	}
 
 	/** Invalid identity remains non-purchasable and exposes no raw or HTML price. */

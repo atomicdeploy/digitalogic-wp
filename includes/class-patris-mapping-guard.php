@@ -59,16 +59,17 @@ final class Digitalogic_Patris_Mapping_Guard {
 	/** An absent price is not a zero price; purchasing remains unavailable. */
 	public static function variation_data( $data, $parent, $variation ) {
 		$raw_price = trim( (string) $variation->get_price() );
-		if ( ! self::priceable( $variation ) || '' === $raw_price || ! is_numeric( $raw_price ) ) {
-			$data['price_html']                 = '';
-			$data['display_price']              = null;
-			$data['display_regular_price']      = null;
-			$data['digitalogic_price_contract'] = 1;
-			$data['digitalogic_price_raw']      = null;
-			$data['digitalogic_price_html']     = '';
-			$data['digitalogic_price_currency'] = get_woocommerce_currency();
-			$data['digitalogic_price_decimals'] = wc_get_price_decimals();
-			$data['is_purchasable']             = false;
+		if ( ! $variation->is_in_stock() || ! self::priceable( $variation ) || '' === $raw_price || ! is_numeric( $raw_price ) ) {
+			$data['price_html']                         = '';
+			$data['display_price']                      = null;
+			$data['display_regular_price']              = null;
+			$data['digitalogic_price_contract']         = 1;
+			$data['digitalogic_price_raw']              = null;
+			$data['digitalogic_price_html']             = '';
+			$data['digitalogic_price_currency']         = get_woocommerce_currency();
+			$data['digitalogic_price_decimals']         = wc_get_price_decimals();
+			$data['is_purchasable']                     = false;
+			$data['digitalogic_price_hidden_for_stock'] = ! $variation->is_in_stock();
 			return $data;
 		}
 
@@ -85,12 +86,13 @@ final class Digitalogic_Patris_Mapping_Guard {
 				. esc_attr( $raw_price ) . '">' . $price_html . '</span>';
 		}
 
-		$data['price_html']                 = $price_html;
-		$data['digitalogic_price_contract'] = 1;
-		$data['digitalogic_price_raw']      = $raw_price;
-		$data['digitalogic_price_html']     = $price_html;
-		$data['digitalogic_price_currency'] = get_woocommerce_currency();
-		$data['digitalogic_price_decimals'] = wc_get_price_decimals();
+		$data['price_html']                         = $price_html;
+		$data['digitalogic_price_contract']         = 1;
+		$data['digitalogic_price_raw']              = $raw_price;
+		$data['digitalogic_price_html']             = $price_html;
+		$data['digitalogic_price_currency']         = get_woocommerce_currency();
+		$data['digitalogic_price_decimals']         = wc_get_price_decimals();
+		$data['digitalogic_price_hidden_for_stock'] = false;
 		return $data;
 	}
 	/**

@@ -16,6 +16,7 @@
 
     function validatedPriceHtml(variation) {
         if (!variation) { return null; }
+		if (variation.is_in_stock === false || variation.digitalogic_price_hidden_for_stock === true) { return null; }
         var ownsContract = Object.prototype.hasOwnProperty.call(variation, 'digitalogic_price_contract')
             || Object.prototype.hasOwnProperty.call(variation, 'digitalogic_price_raw')
             || Object.prototype.hasOwnProperty.call(variation, 'digitalogic_price_html');
@@ -47,7 +48,7 @@
 	function renderTimestamp(form, variation) {
 		var scope = form.closest('.product-quick-view, .single-product-page, .product');
 		var target = scope ? scope.querySelector('.digitalogic-price-updated[data-digitalogic-contextual-price-update]') : null;
-		var payload = variation && variation.digitalogic_price_updated;
+		var payload = variation && variation.is_in_stock !== false && !variation.digitalogic_price_hidden_for_stock && variation.digitalogic_price_updated;
 		if (!target) return;
 		if (!payload || !payload.datetime || !payload.absolute || !payload.relative) {
 			target.hidden = true;
@@ -75,7 +76,8 @@
             if (priceHtml) {
                 price.innerHTML = priceHtml;
             } else {
-                price.textContent = variation ? 'قیمت این مدل هنوز مشخص نیست' : 'برای مشاهده قیمت، مدل را انتخاب کنید';
+				var unavailable = variation && (variation.is_in_stock === false || variation.digitalogic_price_hidden_for_stock === true);
+				price.textContent = unavailable ? 'این مدل در حال حاضر ناموجود است' : (variation ? 'قیمت این مدل هنوز مشخص نیست' : 'برای مشاهده قیمت، مدل را انتخاب کنید');
             }
             widget.setAttribute('data-digitalogic-selected-variation', variation ? String(variation.variation_id) : '');
             price.setAttribute('aria-live', 'polite');

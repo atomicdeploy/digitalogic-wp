@@ -23,6 +23,24 @@
 		return svg;
 	}
 
+	function copyIcon() {
+		var namespace = 'http://www.w3.org/2000/svg';
+		var svg = document.createElementNS(namespace, 'svg');
+		var back = document.createElementNS(namespace, 'path');
+		var front = document.createElementNS(namespace, 'rect');
+		svg.setAttribute('viewBox', '0 0 24 24');
+		svg.setAttribute('focusable', 'false');
+		svg.setAttribute('aria-hidden', 'true');
+		back.setAttribute('d', 'M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2');
+		front.setAttribute('x', '8');
+		front.setAttribute('y', '8');
+		front.setAttribute('width', '11');
+		front.setAttribute('height', '11');
+		front.setAttribute('rx', '2');
+		svg.append(front, back);
+		return svg;
+	}
+
 	function fillIdentity(identity, name, code, isVariable, childCodes, legacyChildReferences) {
 		var settings = config();
 		var nameLine;
@@ -33,6 +51,11 @@
 		var item;
 		var itemName;
 		var itemCode;
+		var itemBody;
+		var codeRow;
+		var codeLabel;
+		var select;
+		var copy;
 		var note;
 
 		name = text(name);
@@ -65,29 +88,48 @@
 			codeLine.className = 'digitalogic-product-code-list';
 			label = document.createElement('span');
 			label.textContent = 'مدل‌های قابل انتخاب';
-			list = document.createElement('div');
+			list = document.createElement('ul');
+			list.className = 'digitalogic-product-code-grid';
 			list.setAttribute('role', 'list');
 			childCodes.forEach(function (child) {
-				item = document.createElement(isVariable ? 'button' : 'span');
+				item = document.createElement('li');
 				item.className = 'digitalogic-product-code-item';
-				item.setAttribute('role', 'listitem');
+				item.setAttribute('data-product-code', text(child && child.code));
+				select = document.createElement(isVariable ? 'button' : 'span');
+				select.className = 'digitalogic-product-code-item__select';
 				if (isVariable) {
-					item.type = 'button';
-					item.setAttribute('data-product-code', text(child && child.code));
-					item.setAttribute('aria-pressed', 'false');
+					select.type = 'button';
+					select.setAttribute('data-product-code', text(child && child.code));
+					select.setAttribute('aria-pressed', 'false');
 				}
 				var icon = document.createElement('span');
 				icon.className = 'digitalogic-product-code-item__icon';
 				icon.setAttribute('aria-hidden', 'true');
 				icon.appendChild(productCodeIcon());
-				itemName = document.createElement('i');
+				itemBody = document.createElement('span');
+				itemBody.className = 'digitalogic-product-code-item__body';
+				itemName = document.createElement('span');
+				itemName.className = 'digitalogic-product-code-item__model';
+				itemName.dir = 'auto';
 				itemName.textContent = text(child && child.name);
+				codeRow = document.createElement('span');
+				codeRow.className = 'digitalogic-product-code-item__code';
+				codeLabel = document.createElement('span');
+				codeLabel.textContent = text(settings.codeLabel) || 'کد کالا';
 				itemCode = document.createElement('code');
 				itemCode.dir = 'ltr';
 				itemCode.textContent = text(child && child.code);
-				item.appendChild(icon);
-				item.appendChild(itemName);
-				item.appendChild(itemCode);
+				codeRow.append(codeLabel, itemCode);
+				itemBody.append(itemName, codeRow);
+				select.append(icon, itemBody);
+				copy = document.createElement('button');
+				copy.type = 'button';
+				copy.className = 'digitalogic-product-code-item__copy';
+				copy.setAttribute('data-copy-product-code', text(child && child.code));
+				copy.setAttribute('aria-label', 'کپی کد کالای ' + text(child && child.name));
+				copy.setAttribute('title', 'کپی کد کالا');
+				copy.appendChild(copyIcon());
+				item.append(select, copy);
 				list.appendChild(item);
 			});
 			codeLine.appendChild(label);
@@ -123,7 +165,10 @@
 		scope = scope && scope.querySelectorAll ? scope : document;
 		scope.querySelectorAll('.product_meta .sku_wrapper').forEach(function (wrapper) {
 			var sku = wrapper.querySelector('.sku');
-			var duplicate = code !== '' && sku && text(sku.textContent) === code;
+			var displayed = sku ? text(sku.textContent) : '';
+			var awaitingModel = code === '' && scope.querySelector('.digitalogic-product-code-list, .digitalogic-product-code.is-placeholder');
+			var placeholder = awaitingModel && (!displayed || /^(?:نامعلوم|unknown|n\/?a)$/i.test(displayed));
+			var duplicate = (code !== '' && displayed === code) || placeholder;
 			wrapper.classList.toggle('digitalogic-duplicate-product-code-sku', Boolean(duplicate));
 		});
 	}
@@ -212,7 +257,8 @@
 			scope.querySelectorAll('.digitalogic-product-code-item[data-product-code]').forEach(function (item) {
 				var selected = code !== '' && text(item.getAttribute('data-product-code')) === code;
 				item.classList.toggle('is-selected', selected);
-				item.setAttribute('aria-pressed', selected ? 'true' : 'false');
+				var button = item.querySelector('.digitalogic-product-code-item__select[data-product-code]');
+				if (button) button.setAttribute('aria-pressed', selected ? 'true' : 'false');
 			});
 		}
 
@@ -265,11 +311,39 @@
 		.on('reset_data hide_variation', '.variations_form', function () {
 			renderVariationIdentity($(this), null);
 		})
-		.on('click', '.digitalogic-product-code-item[data-product-code]', function () {
+		.on('click', '.digitalogic-product-code-item__select[data-product-code]', function () {
 			var code = text(this.getAttribute('data-product-code'));
 			if (code === '') return;
 			document.dispatchEvent(new CustomEvent('digitalogic:select-product-code', {
 				detail: { code: code, identity: this.closest('.digitalogic-product-identity') }
 			}));
+		})
+		.on('click', '.digitalogic-product-code-item__copy[data-copy-product-code]', function () {
+			var button = this;
+			var code = text(button.getAttribute('data-copy-product-code'));
+			if (!code) return;
+			function complete() {
+				button.classList.add('is-copied');
+				button.setAttribute('aria-label', 'کد کالا کپی شد');
+				button.setAttribute('title', 'کپی شد');
+				window.setTimeout(function () {
+					button.classList.remove('is-copied');
+					button.setAttribute('aria-label', 'کپی کد کالا');
+					button.setAttribute('title', 'کپی کد کالا');
+				}, 1600);
+			}
+			if (navigator.clipboard && navigator.clipboard.writeText) {
+				navigator.clipboard.writeText(code).then(complete).catch(function () {});
+				return;
+			}
+			var input = document.createElement('textarea');
+			input.value = code;
+			input.setAttribute('readonly', '');
+			input.style.position = 'fixed';
+			input.style.opacity = '0';
+			document.body.appendChild(input);
+			input.select();
+			try { if (document.execCommand('copy')) complete(); } catch (_) {}
+			input.remove();
 		});
 }(jQuery));

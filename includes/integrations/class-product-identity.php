@@ -580,15 +580,19 @@ final class Digitalogic_Product_Identity {
 		if ( '' !== $patris_code ) {
 			$output .= '<div class="digitalogic-product-code"><span>' . esc_html( self::PRODUCT_CODE_LABEL ) . '</span><code dir="ltr">' . esc_html( $patris_code ) . '</code></div>';
 		} elseif ( ! empty( $child_codes ) ) {
-			$output .= '<div class="digitalogic-product-code-list"><span>مدل‌های قابل انتخاب</span><div role="list">';
+			$output .= '<div class="digitalogic-product-code-list"><span class="digitalogic-product-code-list__label">مدل‌های قابل انتخاب</span><ul class="digitalogic-product-code-grid" role="list">';
 			foreach ( $child_codes as $child ) {
 				$tag     = $is_variable ? 'button' : 'span';
 				$attrs   = $is_variable ? ' type="button" data-product-code="' . esc_attr( $child['code'] ) . '" aria-pressed="false"' : '';
-				$output .= '<' . $tag . ' class="digitalogic-product-code-item" role="listitem"' . $attrs . '>';
+				$output .= '<li class="digitalogic-product-code-item" data-product-code="' . esc_attr( $child['code'] ) . '">';
+				$output .= '<' . $tag . ' class="digitalogic-product-code-item__select"' . $attrs . '>';
 				$output .= '<span class="digitalogic-product-code-item__icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M7 3h10a2 2 0 0 1 2 2v14l-7-3-7 3V5a2 2 0 0 1 2-2Z"/><path d="M9 8h6M9 12h4"/></svg></span>';
-				$output .= '<i>' . esc_html( $child['name'] ) . '</i><code dir="ltr">' . esc_html( $child['code'] ) . '</code></' . $tag . '>';
+				$output .= '<span class="digitalogic-product-code-item__body"><span class="digitalogic-product-code-item__model" dir="auto">' . esc_html( $child['name'] ) . '</span>';
+				$output .= '<span class="digitalogic-product-code-item__code"><span>کد کالا</span><code dir="ltr">' . esc_html( $child['code'] ) . '</code></span></span></' . $tag . '>';
+				$output .= '<button type="button" class="digitalogic-product-code-item__copy" data-copy-product-code="' . esc_attr( $child['code'] ) . '" aria-label="کپی کد کالای ' . esc_attr( $child['name'] ) . '" title="کپی کد کالا">';
+				$output .= '<svg aria-hidden="true" focusable="false" viewBox="0 0 24 24"><rect x="8" y="8" width="11" height="11" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg></button></li>';
 			}
-			$output .= '</div></div>';
+			$output .= '</ul></div>';
 			if ( ! $is_variable ) {
 				$output .= '<p class="digitalogic-product-code-note">این کدها مرجع مدل‌های ثبت‌شده هستند.</p>';
 			}

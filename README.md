@@ -89,12 +89,12 @@
 
 ## Installation
 
-Current source-built release: [v2.3.0](https://github.com/atomicdeploy/digitalogic-wp/releases/tag/v2.3.0).
+Current source-built release: [v2.3.1](https://github.com/atomicdeploy/digitalogic-wp/releases/tag/v2.3.1).
 It contains the durable pricing/event pipeline, storefront currency and product
 SSE updates, and privacy-filtered frontend notifications with immutable source
 and package provenance.
 Use the stable install ZIP below and verify it against the release
-[`SHA256SUMS`](https://github.com/atomicdeploy/digitalogic-wp/releases/download/v2.3.0/SHA256SUMS)
+[`SHA256SUMS`](https://github.com/atomicdeploy/digitalogic-wp/releases/download/v2.3.1/SHA256SUMS)
 manifest. The WordPress package contains production plugin files and
 dependencies; reviewed PBX, n8n, RouterOS, and workstation deployment assets
 remain available in the immutable source tag.

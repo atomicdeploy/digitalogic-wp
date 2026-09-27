@@ -15,7 +15,7 @@
 defined( 'ABSPATH' ) || exit;
 
 final class Digitalogic_Product_Experience {
-	const VERSION = '2.3.0';
+	const VERSION = '2.3.1';
 
 	public static function init() {
 		add_filter( 'body_class', array( __CLASS__, 'body_classes' ) );
@@ -92,6 +92,7 @@ final class Digitalogic_Product_Experience {
 			'info'    => '<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/>',
 			'star'    => '<path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9z"/>',
 			'bolt'    => '<path d="m13 2-8 12h7l-1 8 8-12h-7z"/>',
+			'copy'    => '<rect x="8" y="8" width="11" height="11" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/>',
 		);
 
 		if ( ! isset( $paths[ $name ] ) ) {
@@ -220,7 +221,23 @@ final class Digitalogic_Product_Experience {
 			$items[] = array( 'chip', 'مدل', $model );
 		}
 
-		foreach ( self::attribute_rows( $product ) as $row ) {
+		$attribute_rows = self::attribute_rows( $product );
+		$priority_keys  = array();
+		if ( $product->is_type( 'variable' ) ) {
+			foreach ( $attribute_rows as $row ) {
+				if ( $row['contextual'] && in_array( $row['key'], array( 'source_model', 'pa_source_model' ), true ) ) {
+					$items[]                     = array( 'list', $row['label'], '', $row['key'], true );
+					$priority_keys[ $row['key'] ] = true;
+					break;
+				}
+			}
+			$items[] = array( 'copy', 'کد کالا', '', 'product_code', true, 'product-code' );
+		}
+
+		foreach ( $attribute_rows as $row ) {
+			if ( isset( $priority_keys[ $row['key'] ] ) ) {
+				continue;
+			}
 			$icon    = false !== strpos( $row['key'], 'voltage' ) ? 'bolt' : ( false !== strpos( $row['key'], 'package' ) ? 'package' : 'list' );
 			$items[] = array( $icon, $row['label'], $row['value'], $row['key'], $row['contextual'] );
 			if ( count( $items ) >= 4 ) {
@@ -236,12 +253,18 @@ final class Digitalogic_Product_Experience {
 		?>
 		<div class="dgl-product-highlights" aria-label="ویژگی‌های کلیدی محصول">
 			<?php foreach ( array_slice( $items, 0, 4 ) as $item ) : ?>
-				<div class="dgl-highlight"<?php echo ! empty( $item[4] ) ? ' data-digitalogic-context-attribute="' . esc_attr( $item[3] ) . '" hidden' : ''; ?>>
+				<?php $is_product_code = isset( $item[5] ) && 'product-code' === $item[5]; ?>
+				<div class="dgl-highlight<?php echo $is_product_code ? ' dgl-highlight--product-code' : ''; ?>"<?php echo ! empty( $item[4] ) ? ( $is_product_code ? ' data-digitalogic-context-product-code hidden' : ' data-digitalogic-context-attribute="' . esc_attr( $item[3] ) . '" hidden' ) : ''; ?>>
 					<span class="dgl-highlight__icon"><?php echo self::icon( $item[0] ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?></span>
 					<span class="dgl-highlight__copy">
 						<small><?php echo esc_html( $item[1] ); ?></small>
-						<strong><bdi dir="auto"><?php echo esc_html( $item[2] ); ?></bdi></strong>
+						<strong><bdi dir="<?php echo $is_product_code ? 'ltr' : 'auto'; ?>"><?php echo esc_html( $item[2] ); ?></bdi></strong>
 					</span>
+					<?php if ( $is_product_code ) : ?>
+						<button type="button" class="dgl-highlight__copy-button" aria-label="کپی کد کالا" title="کپی کد کالا" data-digitalogic-copy-product-code>
+							<?php echo self::icon( 'copy' ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
+						</button>
+					<?php endif; ?>
 				</div>
 			<?php endforeach; ?>
 		</div>

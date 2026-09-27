@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.3.1] - 2026-09-27
+
+- Separate the selected model and exact Product Code into contextual highlight cards, with an accessible copy action and no bracketed identity text.
+- Present model images or branded placeholders in the selector, disable unavailable models, and replace their price with an explicit unavailable badge.
+- Prevent out-of-stock variations from exposing storefront price HTML/raw contracts or price-update provenance while keeping the catalog API price field intact.
+- Align Product Code choices, quantity controls, and add-to-cart actions with the shared blue Digitalogic storefront design system.
+
 ## [2.3.0] - 2026-09-27
 
 - Keep Woodmart live-search results above storefront content when the shared header drop-shadow creates a stacking context.

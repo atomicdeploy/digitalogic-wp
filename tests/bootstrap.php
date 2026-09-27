@@ -3310,6 +3310,10 @@ class WC_Product {
             : (string) ($this->meta['_stock_status'] ?? 'instock');
     }
 
+    public function is_in_stock() {
+        return 'outofstock' !== $this->get_stock_status();
+    }
+
     public function get_manage_stock() {
         if ($this->manage_stock || 'yes' === ($this->meta['_manage_stock'] ?? 'no')) {
             return true;
