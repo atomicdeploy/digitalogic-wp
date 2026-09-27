@@ -205,6 +205,16 @@ button.digitalogic-product-code-item:focus-visible {
 	border-color: #accbf8;
 }
 
+.digitalogic-product-code-item.is-unavailable {
+	background: #f6f8fb;
+	opacity: .58;
+}
+
+.digitalogic-product-code-item.is-unavailable:hover {
+	background: #f6f8fb;
+	border-color: var(--dgl-color-line, #dfe7f1);
+}
+
 .digitalogic-product-code-item.is-selected {
 	background: #edf4ff;
 	border: 2px solid var(--dgl-color-primary, #1769e8);
@@ -250,6 +260,10 @@ body:not(.wp-admin) .digitalogic-product-code-item__select {
 
 body:not(.wp-admin) span.digitalogic-product-code-item__select {
 	cursor: default;
+}
+
+body:not(.wp-admin) button.digitalogic-product-code-item__select:disabled {
+	cursor: not-allowed;
 }
 
 .digitalogic-product-code-item__icon {
@@ -308,6 +322,18 @@ body:not(.wp-admin) span.digitalogic-product-code-item__select {
 	letter-spacing: .035em;
 	padding: 0;
 	unicode-bidi: isolate;
+}
+
+.digitalogic-product-code-item__availability {
+	align-self: flex-start;
+	background: var(--dgl-color-danger-soft, #fff0f2);
+	border: 1px solid #f0c3ca;
+	border-radius: 999px;
+	color: var(--dgl-color-danger, #c83c4c);
+	font-size: .68rem;
+	font-weight: 800;
+	line-height: 1.45;
+	padding: .12rem .48rem;
 }
 
 body:not(.wp-admin) .digitalogic-product-code-item__copy {

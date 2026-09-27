@@ -532,6 +532,7 @@ final class Digitalogic_Product_Identity {
 				'singleProductLegacyChildReferences' => ! $is_variable && ! empty( $child_codes ),
 				'codeLabel'                          => self::PRODUCT_CODE_LABEL,
 				'selectModelLabel'                   => 'مدل را انتخاب کنید',
+				'unavailableLabel'                   => 'ناموجود',
 				'legacyChildNote'                    => 'این کدها مرجع مدل‌های ثبت‌شده هستند.',
 			)
 		);
@@ -582,15 +583,20 @@ final class Digitalogic_Product_Identity {
 		} elseif ( ! empty( $child_codes ) ) {
 			$output .= '<div class="digitalogic-product-code-list"><span class="digitalogic-product-code-list__label">مدل‌های قابل انتخاب</span><ul class="digitalogic-product-code-grid" role="list">';
 			foreach ( $child_codes as $child ) {
-				$tag     = $is_variable ? 'button' : 'span';
-				$attrs   = $is_variable ? ' type="button" data-product-code="' . esc_attr( $child['code'] ) . '" aria-pressed="false"' : '';
-				$output .= '<li class="digitalogic-product-code-item" data-product-code="' . esc_attr( $child['code'] ) . '">';
-				$output .= '<' . $tag . ' class="digitalogic-product-code-item__select"' . $attrs . '>';
-				$output .= '<span class="digitalogic-product-code-item__icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M7 3h10a2 2 0 0 1 2 2v14l-7-3-7 3V5a2 2 0 0 1 2-2Z"/><path d="M9 8h6M9 12h4"/></svg></span>';
-				$output .= '<span class="digitalogic-product-code-item__body"><span class="digitalogic-product-code-item__model" dir="auto">' . esc_html( $child['name'] ) . '</span>';
-				$output .= '<span class="digitalogic-product-code-item__code"><span>کد کالا</span><code dir="ltr">' . esc_html( $child['code'] ) . '</code></span></span></' . $tag . '>';
-				$output .= '<button type="button" class="digitalogic-product-code-item__copy" data-copy-product-code="' . esc_attr( $child['code'] ) . '" aria-label="کپی کد کالای ' . esc_attr( $child['name'] ) . '" title="کپی کد کالا">';
-				$output .= '<svg aria-hidden="true" focusable="false" viewBox="0 0 24 24"><rect x="8" y="8" width="11" height="11" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg></button></li>';
+				$available  = ! array_key_exists( 'available', $child ) || (bool) $child['available'];
+				$tag        = $is_variable ? 'button' : 'span';
+				$attrs      = $is_variable ? ' type="button" data-product-code="' . esc_attr( $child['code'] ) . '" aria-pressed="false"' : '';
+				$attrs     .= $is_variable && ! $available ? ' disabled aria-disabled="true"' : '';
+				$item_class = 'digitalogic-product-code-item' . ( $available ? '' : ' is-unavailable' );
+				$output    .= '<li class="' . esc_attr( $item_class ) . '" data-product-code="' . esc_attr( $child['code'] ) . '">';
+				$output    .= '<' . $tag . ' class="digitalogic-product-code-item__select"' . $attrs . '>';
+				$output    .= '<span class="digitalogic-product-code-item__icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M7 3h10a2 2 0 0 1 2 2v14l-7-3-7 3V5a2 2 0 0 1 2-2Z"/><path d="M9 8h6M9 12h4"/></svg></span>';
+				$output    .= '<span class="digitalogic-product-code-item__body"><span class="digitalogic-product-code-item__model" dir="auto">' . esc_html( $child['name'] ) . '</span>';
+				$output    .= '<span class="digitalogic-product-code-item__code"><span>کد کالا</span><code dir="ltr">' . esc_html( $child['code'] ) . '</code></span>';
+				$output    .= $available ? '' : '<span class="digitalogic-product-code-item__availability">ناموجود</span>';
+				$output    .= '</span></' . $tag . '>';
+				$output    .= '<button type="button" class="digitalogic-product-code-item__copy" data-copy-product-code="' . esc_attr( $child['code'] ) . '" aria-label="کپی کد کالای ' . esc_attr( $child['name'] ) . '" title="کپی کد کالا">';
+				$output    .= '<svg aria-hidden="true" focusable="false" viewBox="0 0 24 24"><rect x="8" y="8" width="11" height="11" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg></button></li>';
 			}
 			$output .= '</ul></div>';
 			if ( ! $is_variable ) {
@@ -670,8 +676,9 @@ final class Digitalogic_Product_Identity {
 				$name = trim( (string) $variation->get_name() );
 			}
 			$identities[ $code ] = array(
-				'name' => $name,
-				'code' => $code,
+				'name'      => $name,
+				'code'      => $code,
+				'available' => $variation->is_in_stock(),
 			);
 		}
 
