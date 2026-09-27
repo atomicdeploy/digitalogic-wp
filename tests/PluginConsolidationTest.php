@@ -65,4 +65,14 @@ final class PluginConsolidationTest extends TestCase {
 		$this->assertSame( 2, preg_match_all( "/\\\$model\\s*=\\s*\\\$product->is_type\\( 'variable' \\)/", $source ) );
 		$this->assertStringContainsString( 'data-digitalogic-context-attribute', $source );
 	}
+
+	/** Private runtime routing can survive removal of legacy MU constants. */
+	public function test_private_integrations_have_non_autoloaded_runtime_option_fallbacks(): void {
+		$shatel = file_get_contents( dirname( __DIR__ ) . '/includes/integrations/class-digitalogic-shatel-sms.php' ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Local test fixture.
+		$alerts = file_get_contents( dirname( __DIR__ ) . '/includes/integrations/class-digitalogic-patris-incomplete-alert-adapter.php' ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Local test fixture.
+		$this->assertIsString( $shatel );
+		$this->assertIsString( $alerts );
+		$this->assertStringContainsString( "get_option( 'digitalogic_shatel_sms_runtime'", $shatel );
+		$this->assertStringContainsString( "get_option( 'digitalogic_patris_alert_adapter_runtime'", $alerts );
+	}
 }

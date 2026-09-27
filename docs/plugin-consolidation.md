@@ -24,8 +24,8 @@ directories.
 | `wp-rocket-cloudflare-intkey-fix` | `includes/integrations/class-digitalogic-wp-rocket-cloudflare-fix.php` |
 
 Secrets, gateway destinations, tokens, and private routing remain in external
-server-owned configuration. They are not copied into this repository or the
-release archive.
+server-owned configuration or non-autoloaded private WordPress runtime options.
+They are not copied into this repository, public markup, or the release archive.
 
 The deployment order is: install the coherent main release, restart persistent
 workers, verify each canonical owner and the rendered storefront, deactivate the

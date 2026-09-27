@@ -127,10 +127,13 @@ final class Digitalogic_Shatel_SMS_Primary {
 	}
 
 	private static function configuration(): array {
-		$path   = defined( 'DIGITALOGIC_SHATEL_SMS_CONFIG' ) ? (string) DIGITALOGIC_SHATEL_SMS_CONFIG : self::CONFIG_FILE;
-		$config = json_decode( (string) @file_get_contents( $path ), true ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
-		if ( ! is_array( $config ) ) {
-			return array();
+		$path = defined( 'DIGITALOGIC_SHATEL_SMS_CONFIG' ) ? (string) DIGITALOGIC_SHATEL_SMS_CONFIG : self::CONFIG_FILE;
+		$config = is_readable( $path )
+			? json_decode( (string) file_get_contents( $path ), true ) // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Server-local protected configuration.
+			: array();
+		if ( ! is_array( $config ) || empty( $config ) ) {
+			$stored = get_option( 'digitalogic_shatel_sms_runtime', array() );
+			$config = is_array( $stored ) ? $stored : array();
 		}
 
 		$url        = rtrim( (string) ( $config['gateway_url'] ?? '' ), '/' );

@@ -115,7 +115,13 @@ final class Digitalogic_Patris_Incomplete_Alert_Private_Adapter {
 		if ( defined( 'DIGITALOGIC_PATRIS_ALERT_ADAPTER_URL' ) ) {
 			$endpoint = (string) DIGITALOGIC_PATRIS_ALERT_ADAPTER_URL;
 		} else {
-			$config   = json_decode( (string) @file_get_contents( '/etc/digitalogic/patris-incomplete-alert-adapter.json' ), true ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			$config = is_readable( '/etc/digitalogic/patris-incomplete-alert-adapter.json' )
+				? json_decode( (string) file_get_contents( '/etc/digitalogic/patris-incomplete-alert-adapter.json' ), true ) // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Server-local protected configuration.
+				: array();
+			if ( empty( $config ) ) {
+				$stored = get_option( 'digitalogic_patris_alert_adapter_runtime', array() );
+				$config = is_array( $stored ) ? $stored : array();
+			}
 			$endpoint = is_array( $config ) ? (string) ( $config['endpoint'] ?? '' ) : '';
 		}
 
