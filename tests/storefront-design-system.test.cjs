@@ -38,6 +38,7 @@ test('mobile overlays never cover catalog, SKU, checkout, or purchase controls',
 	assert.match(css, /@media \(max-width:\s*767px\)[\s\S]*\.chaty-widget[\s\S]*display:\s*none\s*!important/);
 	assert.match(css, /\.grecaptcha-badge[\s\S]*visibility:\s*hidden\s*!important/);
 	assert.match(css, /\.single-product[\s\S]*padding-bottom:\s*calc\(122px/);
+	assert.match(css, /\.woocommerce-cart \.woocommerce-cart-form \.cart_item \.product-name\s*\{[\s\S]*padding-inline-end:\s*44px\s*!important/);
 	assert.match(integration, /render_recaptcha_disclosure/);
 	assert.match(integration, /This site is protected by reCAPTCHA/);
 });

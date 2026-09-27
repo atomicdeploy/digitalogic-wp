@@ -290,6 +290,11 @@ body:not(.wp-admin):not(.login) :where(button, .button, [type='button'], [type='
 		bottom: calc(84px + env(safe-area-inset-bottom));
 	}
 
+	/* Reserve the mobile cart remove action instead of letting it cover the title. */
+	.woocommerce-cart .woocommerce-cart-form .cart_item .product-name {
+		padding-inline-end: 44px !important;
+	}
+
 	.dgl-catalog-toolbar,
 	.dgl-catalog-table-wrap,
 	.dgl-form-section,
