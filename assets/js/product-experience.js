@@ -66,8 +66,17 @@
       }
     });
 
+    function escapedPattern(value) {
+      return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    }
+
     function contextualValue(form, key, variation) {
       var value = "";
+	  var code = variation ? String(variation.digitalogic_product_code || "").trim() : "";
+	  if ((key === "source_model" || key === "pa_source_model") && variation) {
+		value = String(variation.digitalogic_product_name || variation.digitalogic_persian_name || "").trim();
+		if (value) return value;
+	  }
       form.querySelectorAll(".variations select").forEach(function (select) {
         if (select.name !== "attribute_" + key || !select.value) return;
         var selected = select.options[select.selectedIndex];
@@ -76,6 +85,9 @@
       if (!value && variation && variation.attributes) {
         value = String(variation.attributes["attribute_" + key] || "").trim();
       }
+	  if (code && value) {
+		value = value.replace(new RegExp("\\s*[\\[(]\\s*" + escapedPattern(code) + "\\s*[\\])]\\s*$", "i"), "").trim();
+	  }
       return value;
     }
 
@@ -88,7 +100,48 @@
         if (target && value) target.textContent = value;
         row.hidden = !value;
       });
+	  scope.querySelectorAll("[data-digitalogic-context-product-code]").forEach(function (row) {
+		var code = variation ? String(variation.digitalogic_product_code || "").trim() : "";
+		var value = row.querySelector(".dgl-highlight__copy strong bdi");
+		var button = row.querySelector("[data-digitalogic-copy-product-code]");
+		if (value) value.textContent = code;
+		if (button) button.setAttribute("data-copy-text", code);
+		row.hidden = !code;
+	  });
     }
+
+	function copyProductCode(button) {
+	  var code = String(button.getAttribute("data-copy-text") || "").trim();
+	  if (!code) return;
+	  function complete() {
+		button.classList.add("is-copied");
+		button.setAttribute("aria-label", "کد کالا کپی شد");
+		button.setAttribute("title", "کپی شد");
+		window.setTimeout(function () {
+		  button.classList.remove("is-copied");
+		  button.setAttribute("aria-label", "کپی کد کالا");
+		  button.setAttribute("title", "کپی کد کالا");
+		}, 1600);
+	  }
+	  if (navigator.clipboard && navigator.clipboard.writeText) {
+		navigator.clipboard.writeText(code).then(complete).catch(function () {});
+		return;
+	  }
+	  var input = document.createElement("textarea");
+	  input.value = code;
+	  input.setAttribute("readonly", "");
+	  input.style.position = "fixed";
+	  input.style.opacity = "0";
+	  document.body.appendChild(input);
+	  input.select();
+	  try { if (document.execCommand("copy")) complete(); } catch (_) {}
+	  input.remove();
+	}
+
+	document.addEventListener("click", function (event) {
+	  var button = event.target.closest("[data-digitalogic-copy-product-code]");
+	  if (button) copyProductCode(button);
+	});
 
     document.querySelectorAll("form.variations_form").forEach(function (form) {
       var variationButton = form.querySelector(".single_add_to_cart_button");

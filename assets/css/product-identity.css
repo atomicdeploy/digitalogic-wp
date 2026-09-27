@@ -161,3 +161,190 @@ button.digitalogic-product-code-item:focus-visible {
 .wd-carousel-item .digitalogic-product-code {
 	font-size: 0.72em;
 }
+
+/* Product family choices use stable cards; public model and Code stay separate. */
+.digitalogic-product-code-list {
+	width: 100%;
+}
+
+.digitalogic-product-code-list__label {
+	color: var(--dgl-color-muted, #62738a);
+	font-size: .84rem;
+	font-weight: 760;
+}
+
+.digitalogic-product-code-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+	gap: .65rem;
+	list-style: none;
+	margin: .15rem 0 0 !important;
+	padding: 0 !important;
+	width: 100%;
+}
+
+.digitalogic-product-code-item {
+	align-items: stretch;
+	background: var(--dgl-color-surface, #fff);
+	border: 1px solid var(--dgl-color-line, #dfe7f1);
+	border-radius: 14px;
+	box-shadow: none;
+	box-sizing: border-box;
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) 38px;
+	min-height: 68px;
+	min-width: 0;
+	overflow: hidden;
+	position: relative;
+	transition: background-color .16s ease, border-color .16s ease, box-shadow .16s ease;
+	width: 100%;
+}
+
+.digitalogic-product-code-item:hover {
+	background: #f8fbff;
+	border-color: #accbf8;
+}
+
+.digitalogic-product-code-item.is-selected {
+	background: #edf4ff;
+	border: 2px solid var(--dgl-color-primary, #1769e8);
+	box-shadow: 0 0 0 3px rgba(23, 105, 232, .1);
+}
+
+.digitalogic-product-code-item.is-selected::after {
+	align-items: center;
+	background: var(--dgl-color-primary, #1769e8);
+	border-radius: 999px;
+	color: #fff;
+	content: "✓";
+	display: inline-flex;
+	font-size: 10px;
+	font-weight: 900;
+	height: 18px;
+	justify-content: center;
+	position: absolute;
+	inset-inline-start: 8px;
+	top: 7px;
+	width: 18px;
+}
+
+body:not(.wp-admin) .digitalogic-product-code-item__select {
+	align-items: center;
+	appearance: none;
+	background: transparent !important;
+	border: 0 !important;
+	border-radius: 0 !important;
+	box-shadow: none !important;
+	color: var(--dgl-color-ink, #10233f) !important;
+	cursor: pointer;
+	display: flex;
+	gap: .65rem;
+	min-height: 66px;
+	min-width: 0;
+	padding: .65rem .72rem !important;
+	text-align: start;
+	text-transform: none;
+	transform: none !important;
+	width: 100%;
+}
+
+body:not(.wp-admin) span.digitalogic-product-code-item__select {
+	cursor: default;
+}
+
+.digitalogic-product-code-item__icon {
+	align-items: center;
+	background: #edf4ff;
+	border-radius: 11px;
+	color: var(--dgl-color-primary, #1769e8);
+	display: inline-flex;
+	flex: 0 0 40px;
+	height: 40px;
+	justify-content: center;
+}
+
+.digitalogic-product-code-item__icon svg {
+	height: 19px;
+	width: 19px;
+}
+
+.digitalogic-product-code-item__body {
+	display: flex;
+	flex: 1;
+	flex-direction: column;
+	gap: .28rem;
+	min-width: 0;
+}
+
+.digitalogic-product-code-item__model {
+	color: var(--dgl-color-ink, #10233f);
+	font-size: .82rem;
+	font-style: normal;
+	font-weight: 780;
+	line-height: 1.55;
+	overflow-wrap: anywhere;
+}
+
+.digitalogic-product-code-item__code {
+	align-items: center;
+	display: flex;
+	gap: .36rem;
+	line-height: 1.4;
+}
+
+.digitalogic-product-code-item__code > span {
+	color: var(--dgl-color-muted, #62738a);
+	font-size: .68rem;
+	font-weight: 650;
+}
+
+.digitalogic-product-code-item__code code {
+	background: transparent;
+	border: 0;
+	color: var(--dgl-color-primary-strong, #0b56c6);
+	font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+	font-size: .75rem;
+	font-weight: 850;
+	letter-spacing: .035em;
+	padding: 0;
+	unicode-bidi: isolate;
+}
+
+body:not(.wp-admin) .digitalogic-product-code-item__copy {
+	align-items: center;
+	align-self: center;
+	background: transparent !important;
+	border: 0 !important;
+	border-inline-start: 1px solid var(--dgl-color-line, #dfe7f1) !important;
+	border-radius: 0 !important;
+	box-shadow: none !important;
+	color: var(--dgl-color-muted, #62738a) !important;
+	display: inline-flex;
+	height: 38px;
+	justify-content: center;
+	padding: 0 !important;
+	transform: none !important;
+	width: 38px;
+}
+
+.digitalogic-product-code-item__copy svg {
+	fill: none;
+	height: 17px;
+	stroke: currentColor;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+	stroke-width: 1.8;
+	width: 17px;
+}
+
+body:not(.wp-admin) .digitalogic-product-code-item__copy:hover,
+body:not(.wp-admin) .digitalogic-product-code-item__copy.is-copied {
+	background: #edf4ff !important;
+	color: var(--dgl-color-primary, #1769e8) !important;
+}
+
+@media (max-width: 640px) {
+	.digitalogic-product-code-grid {
+		grid-template-columns: 1fr;
+	}
+}

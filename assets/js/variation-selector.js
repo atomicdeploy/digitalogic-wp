@@ -20,6 +20,41 @@
             .replace(/[\u064b-\u065f\u200c\u200d]/g, '').trim();
     }
 
+    function svgIcon(pathData, className) {
+        var namespace = 'http://www.w3.org/2000/svg';
+        var svg = document.createElementNS(namespace, 'svg');
+        var path = document.createElementNS(namespace, 'path');
+        svg.setAttribute('class', className || '');
+        svg.setAttribute('viewBox', '0 0 24 24');
+        svg.setAttribute('aria-hidden', 'true');
+        svg.setAttribute('focusable', 'false');
+        path.setAttribute('d', pathData);
+        svg.append(path);
+        return svg;
+    }
+
+    function media(item, label) {
+        if (item.image) {
+            try {
+                var imageURL = new URL(item.image, document.baseURI);
+                if (imageURL.protocol === 'https:' || imageURL.protocol === 'http:') {
+                    var image = element('img', 'digitalogic-model-image');
+                    image.src = imageURL.href;
+                    image.alt = item.title ? label + ' ' + item.title : label;
+                    image.width = 52;
+                    image.height = 52;
+                    image.loading = 'lazy';
+                    return image;
+                }
+            } catch (_) { /* Invalid media falls through to the branded placeholder. */ }
+        }
+        var placeholder = element('span', 'digitalogic-model-image digitalogic-model-image--placeholder');
+        placeholder.setAttribute('role', 'img');
+        placeholder.setAttribute('aria-label', label);
+        placeholder.append(svgIcon('M5 5h14v14H5zM8 15l3-3 2 2 2-2 2 3M9 9h.01', 'digitalogic-model-placeholder-icon'));
+        return placeholder;
+    }
+
     function initialize(root) {
         if (instances.has(root)) return;
         var select = root.querySelector('select');
@@ -77,32 +112,28 @@
 
         function content(container, option, item) {
             container.replaceChildren();
-            if (item.image) {
-                var image = element('img', 'digitalogic-model-image');
-                try {
-                    var imageURL = new URL(item.image, document.baseURI);
-                    if (imageURL.protocol === 'https:' || imageURL.protocol === 'http:') {
-                        image.src = imageURL.href;
-                        image.alt = '';
-                        image.width = 48;
-                        image.height = 48;
-                        image.loading = 'lazy';
-                        container.append(image);
-                    }
-                } catch (_) { /* Invalid media leaves the text option usable. */ }
-            }
+            container.append(media(item, data.imageLabel || 'تصویر مدل'));
             var copy = element('span', 'digitalogic-model-copy');
             copy.append(element('span', 'digitalogic-model-title', item.title || option.textContent || data.placeholder));
             if (item.description) copy.append(element('span', 'digitalogic-model-description', item.description));
 			var productCode = item.productCode || item.sku;
             if (productCode) {
-                var sku = element('span', 'digitalogic-model-sku', data.skuLabel + ': ');
+				var sku = element('span', 'digitalogic-model-sku');
+				var skuIcon = element('span', 'digitalogic-model-sku__icon');
+				skuIcon.setAttribute('aria-hidden', 'true');
+				skuIcon.append(svgIcon('M5 4h11l3 3v13H5zM15 4v4h4M8 12h8M8 16h5', ''));
+				var skuLabel = element('span', 'digitalogic-model-sku__label', data.skuLabel + ':');
 				var code = element('bdi', '', productCode);
-                sku.append(code);
+				code.dir = 'ltr';
+				sku.append(skuIcon, skuLabel, code);
                 copy.append(sku);
             }
             container.append(copy);
-			if (item.priceRaw && /^\d+(?:\.\d+)?$/.test(String(item.priceRaw)) && item.priceText) {
+			if (item.available === false) {
+				var unavailable = element('span', 'digitalogic-model-availability', data.unavailable || 'ناموجود');
+				unavailable.setAttribute('role', 'status');
+				container.append(unavailable);
+			} else if (item.priceRaw && /^\d+(?:\.\d+)?$/.test(String(item.priceRaw)) && item.priceText) {
 				var price = element('span', 'digitalogic-model-price', item.priceText);
 				price.setAttribute('data-price-raw', String(item.priceRaw));
 				container.append(price);
@@ -123,7 +154,7 @@
             visible = [];
             options.forEach(function (entry) {
                 entry.node.hidden = !!query && entry.search.indexOf(query) === -1;
-                if (!entry.node.hidden && !entry.option.disabled) visible.push(entry);
+                if (!entry.node.hidden && !entry.option.disabled && entry.item.available !== false) visible.push(entry);
             });
             empty.hidden = options.some(function (entry) { return !entry.node.hidden; });
             var selectedIndex = visible.findIndex(function (entry) { return entry.option.value === select.value; });
@@ -167,12 +198,14 @@
                 if (!option.value) return;
                 var item = metadata(option);
                 var node = element('div', 'digitalogic-model-option');
+				var unavailable = item.available === false;
                 node.id = id + '-option-' + options.length;
                 node.setAttribute('role', 'option');
                 node.setAttribute('aria-selected', String(option.selected));
-                node.setAttribute('aria-disabled', String(option.disabled));
+				node.setAttribute('aria-disabled', String(option.disabled || unavailable));
+				node.classList.toggle('is-unavailable', unavailable);
                 content(node, option, item);
-				var entry = { node: node, option: option, item: item, search: normalize([option.textContent, item.title, item.description, item.productCode, item.sku, item.priceText].join(' ')) };
+				var entry = { node: node, option: option, item: item, search: normalize([option.textContent, item.title, item.description, item.productCode, item.sku, item.priceText, unavailable ? data.unavailable : ''].join(' ')) };
                 node.addEventListener('mousedown', function (event) { event.preventDefault(); });
                 node.addEventListener('click', function () { choose(entry); });
                 options.push(entry);
@@ -183,7 +216,7 @@
         }
 
         function choose(entry) {
-            if (!entry || select.disabled || entry.option.disabled || !select.contains(entry.option)) return;
+            if (!entry || select.disabled || entry.option.disabled || entry.item.available === false || !select.contains(entry.option)) return;
             select.value = entry.option.value;
             // WooCommerce, Woodmart, Elementor and existing identity handlers
             // receive the same native select/change contract as before.

@@ -73,8 +73,9 @@ final class Digitalogic_Variation_Selector {
 			$product_code = class_exists( 'Digitalogic_Product_Identifier_Resolver' )
 				? trim( (string) $child->get_meta( Digitalogic_Product_Identifier_Resolver::PATRIS_CODE_META, true ) )
 				: '';
-			$price_raw    = trim( (string) $child->get_price() );
-			$price_html   = '' !== $price_raw && is_numeric( $price_raw ) ? (string) $child->get_price_html() : '';
+			$is_available = $child->is_in_stock();
+			$price_raw    = $is_available ? trim( (string) $child->get_price() ) : '';
+			$price_html   = $is_available && '' !== $price_raw && is_numeric( $price_raw ) ? (string) $child->get_price_html() : '';
 
 			$items[] = array(
 				'value'       => (string) $value,
@@ -87,6 +88,7 @@ final class Digitalogic_Variation_Selector {
 				'priceHtml'   => wp_kses_post( $price_html ),
 				'priceText'   => sanitize_text_field( wp_strip_all_tags( $price_html ) ),
 				'image'       => $image ? esc_url_raw( $image ) : '',
+				'available'   => $is_available,
 			);
 		}
 		$data = array(
@@ -96,6 +98,8 @@ final class Digitalogic_Variation_Selector {
 			'search'      => __( 'جستجوی مدل، توضیحات یا کد کالا…', 'digitalogic' ),
 			'empty'       => __( 'مدلی با این مشخصات پیدا نشد.', 'digitalogic' ),
 			'skuLabel'    => __( 'کد کالا', 'digitalogic' ),
+			'unavailable' => __( 'ناموجود', 'digitalogic' ),
+			'imageLabel'  => __( 'تصویر مدل', 'digitalogic' ),
 		);
 		return '<div class="digitalogic-model-selector" data-digitalogic-model-selector="' . esc_attr( wp_json_encode( $data ) ) . '">' . $html . '</div>';
 	}
