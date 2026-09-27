@@ -12,6 +12,6 @@ wp digitalogic product-sync reconcile --source-id=patris-office --dataset=kala.d
 
 This operates on committed source data; use the Patris fresh/bulk interface to read new source data first. No permanent migration aliases are maintained.
 
-For sites with the former MU implementation, stage the shared class before replacing it with `scripts/mu-plugins/digitalogic-patris-catalog-backfill.php` in wp-content/mu-plugins. The shim contains no business logic. Install the corresponding main/materializer/feed/receiver files coherently, then restart persistent WordPress workers and verify readiness. Never load both class implementations.
+For sites with the former MU implementation, deploy the coherent `digitalogic-wp` release first, restart persistent WordPress workers, and verify the main plugin owns the catalog-backfill class. Then move the legacy MU file into a server-side rollback archive outside `wp-content/mu-plugins`. Never load both class implementations.
 
 Production evidence: duplicate applied listener removed; bulk accepted in7689ms, following fresh1256ms;901positive DBprices matched, all1163existing publication records/visibility unchanged. No missing products were created in that live run, so actual live creation and policy switching remain separate acceptance work. Local5tests143assertions cover draft creation and preservation of later editorial state. Subsecond target remains unmet.

@@ -94,13 +94,19 @@
             var copy = element('span', 'digitalogic-model-copy');
             copy.append(element('span', 'digitalogic-model-title', item.title || option.textContent || data.placeholder));
             if (item.description) copy.append(element('span', 'digitalogic-model-description', item.description));
-            if (item.sku) {
+			var productCode = item.productCode || item.sku;
+            if (productCode) {
                 var sku = element('span', 'digitalogic-model-sku', data.skuLabel + ': ');
-                var code = element('bdi', '', item.sku);
+				var code = element('bdi', '', productCode);
                 sku.append(code);
                 copy.append(sku);
             }
             container.append(copy);
+			if (item.priceRaw && /^\d+(?:\.\d+)?$/.test(String(item.priceRaw)) && item.priceText) {
+				var price = element('span', 'digitalogic-model-price', item.priceText);
+				price.setAttribute('data-price-raw', String(item.priceRaw));
+				container.append(price);
+			}
         }
 
         function setActive(index, scroll) {
@@ -166,7 +172,7 @@
                 node.setAttribute('aria-selected', String(option.selected));
                 node.setAttribute('aria-disabled', String(option.disabled));
                 content(node, option, item);
-                var entry = { node: node, option: option, search: normalize([option.textContent, item.title, item.description, item.sku].join(' ')) };
+				var entry = { node: node, option: option, item: item, search: normalize([option.textContent, item.title, item.description, item.productCode, item.sku, item.priceText].join(' ')) };
                 node.addEventListener('mousedown', function (event) { event.preventDefault(); });
                 node.addEventListener('click', function () { choose(entry); });
                 options.push(entry);
@@ -185,6 +191,19 @@
             sync();
             close(true);
         }
+
+		function selectProductCode(event) {
+			var detail = event && event.detail ? event.detail : {};
+			var code = String(detail.code || '').trim();
+			var scope = form.closest('.product-quick-view, .single-product-page, .product');
+			if (!code || (detail.identity && scope && !scope.contains(detail.identity))) return;
+			sync();
+			var matching = options.filter(function (entry) {
+				var candidate = entry.item && entry.item.productCode;
+				return String(candidate || '').trim() === code;
+			});
+			if (matching.length === 1) choose(matching[0]);
+		}
 
         function open() {
             if (button.disabled) return;
@@ -234,6 +253,7 @@
         Array.from(select.labels || []).forEach(function (label) { label.htmlFor = button.id; });
         $(form).on('change.digitalogicModel woocommerce_update_variation_values.digitalogicModel reset_data.digitalogicModel found_variation.digitalogicModel', sync);
         form.addEventListener('reset', function () { window.setTimeout(sync, 0); });
+		document.addEventListener('digitalogic:select-product-code', selectProductCode);
         new MutationObserver(sync).observe(select, { childList: true, subtree: true, attributes: true, attributeFilter: ['disabled', 'selected'] });
         instances.set(root, { close: close, sync: sync, position: positionPopup });
         sync();

@@ -21,9 +21,9 @@ const { chromium } = require('playwright');
         root.dataset.digitalogicModelSelector = JSON.stringify({
             label: 'مدل', placeholder: 'انتخاب مدل', search: 'جستجوی مدل، توضیحات یا کد کالا…', empty: 'مدلی با این مشخصات پیدا نشد.', skuLabel: 'کد کالا',
             items: [
-                { value: 'standard', attributes: {}, title: 'ماژول NRF24L01 استاندارد', description: 'ماژول بی‌سیم با آنتن روی برد\nفرکانس ۲٫۴ گیگاهرتز', sku: '113008001', image: 'https://fixture.test/module.svg' },
-                { value: 'mini', attributes: {}, title: 'ماژول NRF24L01 MINI', description: 'ابعاد کوچک برای پروژه‌های فشرده', sku: '113008002', image: 'https://fixture.test/module.svg' },
-                { value: 'pa', attributes: {}, title: 'ماژول NRF24L01+PA+LNA', description: 'مدل تقویت‌شده با اتصال آنتن خارجی', sku: '113008003', image: 'https://fixture.test/module.svg' }
+                { value: 'standard', attributes: {}, title: 'ماژول NRF24L01 استاندارد', description: 'ماژول بی‌سیم با آنتن روی برد\nفرکانس ۲٫۴ گیگاهرتز', productCode: '113008001', priceRaw: '120000', priceText: '120,000 تومان', image: 'https://fixture.test/module.svg' },
+                { value: 'mini', attributes: {}, title: 'ماژول NRF24L01 MINI', description: 'ابعاد کوچک برای پروژه‌های فشرده', productCode: '113008002', priceRaw: '125000', priceText: '125,000 تومان', image: 'https://fixture.test/module.svg' },
+                { value: 'pa', attributes: {}, title: 'ماژول NRF24L01+PA+LNA', description: 'مدل تقویت‌شده با اتصال آنتن خارجی', productCode: '113008003', priceRaw: '180000', priceText: '180,000 تومان', image: 'https://fixture.test/module.svg' }
             ]
         });
         root.innerHTML = '<select id="source_model" name="attribute_source_model"><option value="">انتخاب مدل</option><option value="standard">NRF24L01</option><option value="mini">NRF24L01 MINI</option><option value="pa">NRF24L01+PA+LNA</option></select>';
@@ -39,6 +39,7 @@ const { chromium } = require('playwright');
     assert.equal(await page.locator('select').count(), 1);
     await trigger.click();
     assert.equal(await search.getAttribute('aria-expanded'), 'true');
+	assert.match(await page.locator('[role=option]').nth(1).textContent(), /125,000 تومان/);
     await search.fill('۱۱۳۰۰۸۰۰۲');
     assert.equal(await page.locator('[role=option]:visible').count(), 1);
     await search.press('Enter');
@@ -46,6 +47,8 @@ const { chromium } = require('playwright');
     assert.equal(await page.evaluate(() => window.changes), 1);
     assert.match(await trigger.textContent(), /113008002/);
     assert.equal(await trigger.getAttribute('aria-expanded'), 'false');
+	await page.evaluate(() => document.dispatchEvent(new CustomEvent('digitalogic:select-product-code', { detail: { code: '113008001' } })));
+	assert.equal(await page.locator('select').inputValue(), 'standard');
     await trigger.press('ArrowDown');
     await search.press('ArrowDown');
     await search.press('Enter');

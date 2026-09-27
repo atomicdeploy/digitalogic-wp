@@ -69,7 +69,12 @@ final class Digitalogic_Variation_Selector {
 			if ( '' === trim( (string) $title ) ) {
 				$title = $child->get_meta( '_digitalogic_patris_name', true );
 			}
-			$description = $child->get_description();
+			$description  = $child->get_description();
+			$product_code = class_exists( 'Digitalogic_Product_Identifier_Resolver' )
+				? trim( (string) $child->get_meta( Digitalogic_Product_Identifier_Resolver::PATRIS_CODE_META, true ) )
+				: '';
+			$price_raw    = trim( (string) $child->get_price() );
+			$price_html   = '' !== $price_raw && is_numeric( $price_raw ) ? (string) $child->get_price_html() : '';
 
 			$items[] = array(
 				'value'       => (string) $value,
@@ -77,6 +82,10 @@ final class Digitalogic_Variation_Selector {
 				'title'       => sanitize_text_field( (string) $title ),
 				'description' => sanitize_textarea_field( wp_strip_all_tags( (string) $description ) ),
 				'sku'         => sanitize_text_field( $child->get_sku() ),
+				'productCode' => sanitize_text_field( $product_code ),
+				'priceRaw'    => is_numeric( $price_raw ) ? $price_raw : null,
+				'priceHtml'   => wp_kses_post( $price_html ),
+				'priceText'   => sanitize_text_field( wp_strip_all_tags( $price_html ) ),
 				'image'       => $image ? esc_url_raw( $image ) : '',
 			);
 		}

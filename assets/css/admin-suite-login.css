@@ -1,0 +1,198 @@
+/* Digitalogic presentation for the canonical WordPress login controller. */
+body.digitalogic-admin-login {
+    --digitalogic-admin-primary: #1169d8;
+    --digitalogic-admin-accent: #0fa7eb;
+    --digitalogic-admin-surface: #f2f8fc;
+    --digitalogic-admin-card: rgba(255, 255, 255, 0.96);
+    --digitalogic-admin-text: #172033;
+    --digitalogic-admin-muted: #66758a;
+    --digitalogic-admin-border: #d8e8f3;
+    --digitalogic-admin-font: YekanBakh, IRANSans, IRANYekan, Tahoma, system-ui, sans-serif;
+    background:
+        radial-gradient(circle at 16% 18%, color-mix(in srgb, var(--digitalogic-admin-accent) 16%, transparent), transparent 24rem),
+        linear-gradient(145deg, var(--digitalogic-admin-surface), #eef5fa);
+    color: var(--digitalogic-admin-text);
+    display: block;
+    font-family: var(--digitalogic-admin-font);
+    min-height: 100vh;
+}
+
+html[data-digitalogic-admin-theme="dark"] body.digitalogic-admin-login {
+    --digitalogic-admin-surface: #0b1220;
+    --digitalogic-admin-card: rgba(19, 30, 47, 0.96);
+    --digitalogic-admin-text: #e8eef8;
+    --digitalogic-admin-muted: #a7b5c8;
+    --digitalogic-admin-border: #2c3a4e;
+    background:
+        radial-gradient(circle at 16% 18%, color-mix(in srgb, var(--digitalogic-admin-accent) 20%, transparent), transparent 24rem),
+        linear-gradient(145deg, #0b1220, #121d2e);
+}
+
+body.digitalogic-admin-login,
+body.digitalogic-admin-login button,
+body.digitalogic-admin-login input,
+body.digitalogic-admin-login select,
+body.digitalogic-admin-login textarea {
+    font-family: var(--digitalogic-admin-font);
+}
+
+body.digitalogic-admin-login #login {
+    box-sizing: border-box;
+    margin: 28px auto;
+    max-width: 440px;
+    padding: 0 20px;
+    width: 100%;
+}
+
+body.digitalogic-admin-login.digitalogic-admin-has-logo #login h1 a {
+    background-image: var(--digitalogic-admin-logo);
+    background-position: center;
+    background-size: contain;
+    height: 88px;
+    margin-bottom: 20px;
+    width: min(280px, 80vw);
+}
+
+body.digitalogic-admin-login #loginform,
+body.digitalogic-admin-login #lostpasswordform,
+body.digitalogic-admin-login #registerform,
+body.digitalogic-admin-login .digitalogic-admin-digits-login {
+    background: var(--digitalogic-admin-card);
+    border: 1px solid var(--digitalogic-admin-border);
+    border-radius: 16px;
+    box-shadow: 0 24px 64px rgba(15, 23, 42, 0.14);
+    box-sizing: border-box;
+    color: var(--digitalogic-admin-text);
+    padding: 24px;
+}
+
+body.digitalogic-admin-login .digitalogic-admin-digits-login {
+    margin-bottom: 18px;
+}
+
+body.digitalogic-admin-login .digitalogic-admin-digits-login .digits-form_container,
+body.digitalogic-admin-login .digitalogic-admin-digits-login .digits-form_wrapper,
+body.digitalogic-admin-login .digitalogic-admin-digits-login form {
+    box-sizing: border-box;
+    max-width: 100%;
+}
+
+body.digitalogic-admin-login #login .digitalogic-admin-digits-login form {
+    background: var(--dform_bg, var(--digitalogic-admin-card));
+    border: 0;
+    box-shadow: none;
+    color: var(--dprimary, var(--digitalogic-admin-text));
+}
+
+html[data-digitalogic-admin-theme="light"] body.digitalogic-admin-login .digitalogic-admin-digits-login .digits-form_container {
+    --dprimary: #1c2434;
+    --dtitle: #2d333d;
+    --dfield_bg: #f8f8f8;
+    --dform_bg: #fff;
+    --dbutton_text: #fff;
+}
+
+html[data-digitalogic-admin-theme="dark"] body.digitalogic-admin-login .digitalogic-admin-digits-login .digits-form_container {
+    --dprimary: #fff;
+    --dtitle: #fff;
+    --dfield_bg: rgba(248, 248, 248, 0.06);
+    --dform_bg: #1c2434;
+    --dbutton_text: #1c2434;
+}
+
+body.digitalogic-admin-login .digitalogic-admin-digits-login h2 {
+    color: var(--digitalogic-admin-primary);
+    font-size: 19px;
+    margin: 0 0 18px;
+    text-align: center;
+}
+
+html[data-digitalogic-admin-theme="dark"] body.digitalogic-admin-login .digitalogic-admin-digits-login h2 {
+    color: var(--digitalogic-admin-text);
+}
+
+body.digitalogic-admin-login label,
+body.digitalogic-admin-login #nav,
+body.digitalogic-admin-login #backtoblog,
+body.digitalogic-admin-login .privacy-policy-page-link {
+    color: var(--digitalogic-admin-muted);
+}
+
+body.digitalogic-admin-login #nav a,
+body.digitalogic-admin-login #backtoblog a,
+body.digitalogic-admin-login .privacy-policy-page-link a {
+    color: var(--digitalogic-admin-primary);
+}
+
+html[data-digitalogic-admin-theme="dark"] body.digitalogic-admin-login #nav a,
+html[data-digitalogic-admin-theme="dark"] body.digitalogic-admin-login #backtoblog a,
+html[data-digitalogic-admin-theme="dark"] body.digitalogic-admin-login .privacy-policy-page-link a {
+    color: var(--digitalogic-admin-accent);
+}
+
+body.digitalogic-admin-login input[type="text"],
+body.digitalogic-admin-login input[type="email"],
+body.digitalogic-admin-login input[type="tel"],
+body.digitalogic-admin-login input[type="password"] {
+    background: color-mix(in srgb, var(--digitalogic-admin-card) 93%, var(--digitalogic-admin-surface));
+    border-color: var(--digitalogic-admin-border);
+    border-radius: 9px;
+    color: var(--digitalogic-admin-text);
+}
+
+body.digitalogic-admin-login input:focus {
+    border-color: var(--digitalogic-admin-accent);
+    box-shadow: 0 0 0 1px var(--digitalogic-admin-accent);
+}
+
+body.digitalogic-admin-login .button-primary,
+body.digitalogic-admin-login .digits-form_submit-btn,
+body.digitalogic-admin-login .dig_login_otp_submit,
+body.digitalogic-admin-login .dig_login_submit {
+    background: var(--digitalogic-admin-accent);
+    border-color: var(--digitalogic-admin-accent);
+    border-radius: 9px;
+    box-shadow: none;
+    color: #fff;
+    font-weight: 700;
+    text-shadow: none;
+}
+
+body.digitalogic-admin-login .digitalogic-admin-login-divider {
+    color: var(--digitalogic-admin-muted);
+    font-size: 12px;
+    line-height: 1.5;
+    margin: 0 0 14px;
+    text-align: center;
+}
+
+body.digitalogic-admin-login .digitalogic-admin-login-theme-toggle {
+    align-items: center;
+    background: var(--digitalogic-admin-card);
+    border: 1px solid var(--digitalogic-admin-border);
+    border-radius: 999px;
+    bottom: 18px;
+    color: var(--digitalogic-admin-text);
+    cursor: pointer;
+    display: inline-flex;
+    gap: 5px;
+    inset-inline-end: 18px;
+    padding: 7px 11px;
+    position: fixed;
+}
+
+@media (max-width: 480px) {
+    body.digitalogic-admin-login #login {
+        margin: 12px auto 54px;
+        padding: 0 12px;
+    }
+
+    body.digitalogic-admin-login #loginform,
+    body.digitalogic-admin-login #lostpasswordform,
+    body.digitalogic-admin-login #registerform,
+    body.digitalogic-admin-login .digitalogic-admin-digits-login {
+        padding: 19px;
+    }
+}
+
+

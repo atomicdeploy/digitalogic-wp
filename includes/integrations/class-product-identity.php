@@ -81,8 +81,8 @@ final class Digitalogic_Product_Identity {
 		if ( ! is_array( $data ) || ! $variation instanceof WC_Product ) {
 			return $data;
 		}
-		$data['digitalogic_patris_name']  = sanitize_text_field( (string) $variation->get_meta( '_digitalogic_patris_name', true ) );
-		$data['digitalogic_patris_code']  = sanitize_text_field( (string) $variation->get_meta( Digitalogic_Product_Identifier_Resolver::PATRIS_CODE_META, true ) );
+		$data['digitalogic_product_name'] = sanitize_text_field( (string) $variation->get_meta( '_digitalogic_patris_name', true ) );
+		$data['digitalogic_product_code'] = sanitize_text_field( (string) $variation->get_meta( Digitalogic_Product_Identifier_Resolver::PATRIS_CODE_META, true ) );
 		$data['digitalogic_persian_name'] = sanitize_text_field( (string) $variation->get_meta( '_digitalogic_persian_name', true ) );
 
 		return $data;
@@ -122,7 +122,7 @@ final class Digitalogic_Product_Identity {
 		$item_data[] = array(
 			'key'     => self::PRODUCT_CODE_LABEL,
 			'value'   => $code,
-			'display' => '<span class="digitalogic-cart-patris-code" dir="ltr">' . esc_html( $code ) . '</span>',
+			'display' => '<span class="digitalogic-cart-product-code" dir="ltr">' . esc_html( $code ) . '</span>',
 		);
 
 		return $item_data;
@@ -525,14 +525,14 @@ final class Digitalogic_Product_Identity {
 			'digitalogic-product-identity',
 			'digitalogicProductIdentity',
 			array(
-				'singleProductPatrisName'            => $patris_name,
-				'singleProductPatrisCode'            => $patris_code,
+				'singleProductName'                  => $patris_name,
+				'singleProductCode'                  => $patris_code,
 				'singleProductIsVariable'            => $is_variable || ! empty( $child_codes ),
 				'singleProductChildCodes'            => $child_codes,
 				'singleProductLegacyChildReferences' => ! $is_variable && ! empty( $child_codes ),
 				'codeLabel'                          => self::PRODUCT_CODE_LABEL,
-				'selectModelLabel'                   => 'مدل رو انتخاب کن تا کد دقیقش بیاد',
-				'legacyChildNote'                    => 'این کدها فعلاً مرجع مدل‌ها هستن؛ برای انتخاب کد دقیق با پشتیبانی هماهنگ کن.',
+				'selectModelLabel'                   => 'مدل را انتخاب کنید',
+				'legacyChildNote'                    => 'این کدها مرجع مدل‌های ثبت‌شده هستند.',
 			)
 		);
 	}
@@ -574,22 +574,26 @@ final class Digitalogic_Product_Identity {
 		$output  = '<div class="digitalogic-product-identity" data-digitalogic-product-identity="' . esc_attr( $context ) . '">';
 
 		if ( '' !== $patris_name ) {
-			$output .= '<div class="digitalogic-patris-name" dir="ltr" lang="en">' . esc_html( $patris_name ) . '</div>';
+			$output .= '<div class="digitalogic-product-name" dir="ltr" lang="en">' . esc_html( $patris_name ) . '</div>';
 		}
 
 		if ( '' !== $patris_code ) {
-			$output .= '<div class="digitalogic-patris-code"><span>' . esc_html( self::PRODUCT_CODE_LABEL ) . '</span><code dir="ltr">' . esc_html( $patris_code ) . '</code></div>';
+			$output .= '<div class="digitalogic-product-code"><span>' . esc_html( self::PRODUCT_CODE_LABEL ) . '</span><code dir="ltr">' . esc_html( $patris_code ) . '</code></div>';
 		} elseif ( ! empty( $child_codes ) ) {
-			$output .= '<div class="digitalogic-patris-code-list"><span>کدهای ثبت‌شده برای مدل‌ها</span><div>';
+			$output .= '<div class="digitalogic-product-code-list"><span>مدل‌های قابل انتخاب</span><div role="list">';
 			foreach ( $child_codes as $child ) {
-				$output .= '<span class="digitalogic-patris-code-item"><i>' . esc_html( $child['name'] ) . '</i><code dir="ltr">' . esc_html( $child['code'] ) . '</code></span>';
+				$tag     = $is_variable ? 'button' : 'span';
+				$attrs   = $is_variable ? ' type="button" data-product-code="' . esc_attr( $child['code'] ) . '" aria-pressed="false"' : '';
+				$output .= '<' . $tag . ' class="digitalogic-product-code-item" role="listitem"' . $attrs . '>';
+				$output .= '<span class="digitalogic-product-code-item__icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M7 3h10a2 2 0 0 1 2 2v14l-7-3-7 3V5a2 2 0 0 1 2-2Z"/><path d="M9 8h6M9 12h4"/></svg></span>';
+				$output .= '<i>' . esc_html( $child['name'] ) . '</i><code dir="ltr">' . esc_html( $child['code'] ) . '</code></' . $tag . '>';
 			}
 			$output .= '</div></div>';
 			if ( ! $is_variable ) {
-				$output .= '<p class="digitalogic-patris-code-note">این کدها فعلاً مرجع مدل‌ها هستن؛ برای انتخاب کد دقیق با پشتیبانی هماهنگ کن.</p>';
+				$output .= '<p class="digitalogic-product-code-note">این کدها مرجع مدل‌های ثبت‌شده هستند.</p>';
 			}
 		} elseif ( $is_variable ) {
-			$output .= '<div class="digitalogic-patris-code is-placeholder"><span>' . esc_html( self::PRODUCT_CODE_LABEL ) . '</span><em>مدل رو انتخاب کن</em></div>';
+			$output .= '<div class="digitalogic-product-code is-placeholder"><span>' . esc_html( self::PRODUCT_CODE_LABEL ) . '</span><em>مدل را انتخاب کنید</em></div>';
 		}
 
 		return $output . '</div>';

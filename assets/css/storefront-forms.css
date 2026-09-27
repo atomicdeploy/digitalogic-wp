@@ -284,15 +284,38 @@
 }
 
 .dgl-remove-row {
+	align-items: center;
+	align-self: end;
 	background: #fff0f0;
-	border: 0;
+	border: 1px solid #f0c3ca;
 	border-radius: 9px;
+	box-sizing: border-box;
 	color: #d94242;
 	cursor: pointer;
-	font-size: 19px;
+	display: inline-flex;
+	flex: 0 0 32px;
 	height: 36px;
+	justify-content: center;
+	line-height: 1;
 	margin-bottom: 4px;
+	min-height: 36px;
+	min-width: 32px;
+	overflow: hidden;
+	padding: 7px;
+	position: relative;
+	z-index: 1;
 	width: 32px;
+}
+
+.dgl-remove-row svg {
+	fill: none;
+	height: 18px;
+	pointer-events: none;
+	stroke: currentColor;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+	stroke-width: 1.8;
+	width: 18px;
 }
 
 .dgl-order-item:only-child .dgl-remove-row {

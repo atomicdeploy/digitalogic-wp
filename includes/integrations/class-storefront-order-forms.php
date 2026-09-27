@@ -306,7 +306,7 @@ final class Digitalogic_Storefront_Order_Forms {
 			<label class="dgl-item-url"><span>لینک محصول</span><input type="url" name="items[<?php echo esc_attr( $index ); ?>][url]" value="<?php echo esc_attr( $values['url'] ); ?>" maxlength="500" dir="ltr" placeholder="https://..."></label>
 			<label class="dgl-item-qty"><span>تعداد</span><input type="number" name="items[<?php echo esc_attr( $index ); ?>][quantity]" value="<?php echo esc_attr( $values['quantity'] ); ?>" min="1" step="1"></label>
 			<label class="dgl-item-notes"><span>توضیح کوتاه</span><input type="text" name="items[<?php echo esc_attr( $index ); ?>][notes]" value="<?php echo esc_attr( $values['notes'] ); ?>" maxlength="250" placeholder="برند یا شرایط جایگزین"></label>
-			<button type="button" class="dgl-remove-row" data-dgl-remove-row aria-label="حذف این قطعه">×</button>
+			<button type="button" class="dgl-remove-row" data-dgl-remove-row aria-label="حذف این قطعه"><svg aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5"/></svg></button>
 		</div>
 		<?php
 

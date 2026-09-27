@@ -87,8 +87,8 @@ final class ProductIdentitySearchTest extends TestCase {
 		$identity->enqueue_assets();
 
 		$config = $GLOBALS['digitalogic_test_localized_scripts']['digitalogic-product-identity']['digitalogicProductIdentity'];
-		$this->assertSame( 'ATmega <Core>', $config['singleProductPatrisName'] );
-		$this->assertSame( 'PAT-12', $config['singleProductPatrisCode'] );
+		$this->assertSame( 'ATmega <Core>', $config['singleProductName'] );
+		$this->assertSame( 'PAT-12', $config['singleProductCode'] );
 		$this->assertSame( 'کد کالا', $config['codeLabel'] );
 		$this->assertFalse( $config['singleProductIsVariable'] );
 		$this->assertFalse( $config['singleProductLegacyChildReferences'] );
@@ -112,7 +112,8 @@ final class ProductIdentitySearchTest extends TestCase {
 		$identity->render_single_patris_name();
 		$html = ob_get_clean();
 
-		$this->assertStringContainsString( 'digitalogic-patris-name', $html );
+		$this->assertStringContainsString( 'digitalogic-product-name', $html );
+		$this->assertStringNotContainsString( 'digitalogic-patris', $html );
 		$this->assertStringContainsString( 'English &lt;Module&gt;', $html );
 		$this->assertStringNotContainsString( 'English <Module>', $html );
 		$this->assertStringContainsString( 'کد کالا', $html );
@@ -138,7 +139,7 @@ final class ProductIdentitySearchTest extends TestCase {
 		$identity->render_single_patris_name();
 		$code_html = ob_get_clean();
 
-		$this->assertStringNotContainsString( 'digitalogic-patris-name', $code_html );
+		$this->assertStringNotContainsString( 'digitalogic-product-name', $code_html );
 		$this->assertStringContainsString( 'PAT-13', $code_html );
 
 		$GLOBALS['digitalogic_test_posts'][14] = array(
@@ -187,18 +188,18 @@ final class ProductIdentitySearchTest extends TestCase {
 		$identity->render_single_patris_name();
 		$html = ob_get_clean();
 
-		$this->assertStringContainsString( 'کدهای ثبت‌شده برای مدل‌ها', $html );
+		$this->assertStringContainsString( 'مدل‌های قابل انتخاب', $html );
 		$this->assertStringContainsString( 'Model &lt;A&gt;', $html );
 		$this->assertStringContainsString( 'CHILD-21', $html );
 		$this->assertStringNotContainsString( 'DRAFT-22', $html );
-		$this->assertStringContainsString( 'برای انتخاب کد دقیق با پشتیبانی هماهنگ کن', $html );
+		$this->assertStringContainsString( 'مرجع مدل‌های ثبت‌شده', $html );
 
 		$GLOBALS['digitalogic_test_is_product']        = true;
 		$GLOBALS['digitalogic_test_queried_object_id'] = 20;
 		$identity->enqueue_assets();
 		$config = $GLOBALS['digitalogic_test_localized_scripts']['digitalogic-product-identity']['digitalogicProductIdentity'];
 		$this->assertTrue( $config['singleProductLegacyChildReferences'] );
-		$this->assertStringContainsString( 'برای انتخاب کد دقیق', $config['legacyChildNote'] );
+		$this->assertStringContainsString( 'مرجع مدل‌های ثبت‌شده', $config['legacyChildNote'] );
 	}
 
 	public function test_exposes_child_identity_and_adds_sku_mpn_without_replacing_offers(): void {
@@ -229,8 +230,8 @@ final class ProductIdentitySearchTest extends TestCase {
 			$variation
 		);
 
-		$this->assertSame( 'Patris child', $data['digitalogic_patris_name'] );
-		$this->assertSame( 'PAT-11', $data['digitalogic_patris_code'] );
+		$this->assertSame( 'Patris child', $data['digitalogic_product_name'] );
+		$this->assertSame( 'PAT-11', $data['digitalogic_product_code'] );
 		$this->assertSame( 'فرزند فارسی', $data['digitalogic_persian_name'] );
 		$this->assertSame( 'PAT-11', $entity['sku'] );
 		$this->assertSame( 'HC-06-DIP', $entity['mpn'] );
