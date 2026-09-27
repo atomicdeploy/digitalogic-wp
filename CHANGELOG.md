@@ -7,7 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.3.0] - 2026-09-27
+
 - Keep Woodmart live-search results above storefront content when the shared header drop-shadow creates a stacking context.
+- Consolidate the former Digitalogic custom plugins and MU integrations, including the unprefixed Organizer login and WP Rocket/Cloudflare fixes, under the single `digitalogic-wp` runtime owner.
+- Generalize the former Organizer-only proxy as `digitalogic-login-proxy`, with protected external configuration for multiple trusted login-proxy consumers and a bounded legacy configuration fallback.
+- Replace public Patris-code markup and browser contracts with product-code terminology while preserving the private accounting identity internally.
+- Present each variable-product model as a separate, selectable control with its exact product code and raw-contract-validated price.
+- Keep price, price-update provenance, and variation attributes hidden until an exact model is selected, and clear them again on reset.
+- Replace ambiguous text actions with accessible SVG controls and reserve stable space for product and order reset/remove actions.
 
 ## [2.2.1] - 2026-09-27
 

@@ -42,12 +42,33 @@
 
     function targets(form) {
         var scope = form.closest('.product-quick-view, .single-product-page, .product');
-        return scope ? scope.querySelectorAll('.dgl-product-price, .wd-single-price') : [];
+		return scope ? scope.querySelectorAll('.dgl-product-price, .wd-single-price, .dgl-mobile-purchase-bar__price') : [];
     }
+	function renderTimestamp(form, variation) {
+		var scope = form.closest('.product-quick-view, .single-product-page, .product');
+		var target = scope ? scope.querySelector('.digitalogic-price-updated[data-digitalogic-contextual-price-update]') : null;
+		var payload = variation && variation.digitalogic_price_updated;
+		if (!target) return;
+		if (!payload || !payload.datetime || !payload.absolute || !payload.relative) {
+			target.hidden = true;
+			target.removeAttribute('data-price-updated-source');
+			return;
+		}
+		var time = target.querySelector('time');
+		var absolute = target.querySelector('.digitalogic-price-updated__absolute');
+		var relative = target.querySelector('.digitalogic-price-updated__relative');
+		if (!time || !absolute || !relative) return;
+		time.dateTime = String(payload.datetime);
+		time.title = String(payload.absolute) + ' به وقت تهران';
+		absolute.textContent = String(payload.absolute);
+		relative.textContent = String(payload.relative);
+		target.setAttribute('data-price-updated-source', String(payload.source || ''));
+		target.hidden = false;
+	}
     function render(form, variation) {
         var priceHtml = validatedPriceHtml(variation);
         targets(form).forEach(function (widget) {
-            var price = widget.querySelector('.price:not(.price-unit)');
+			var price = widget.matches('.dgl-mobile-purchase-bar__price') ? widget : widget.querySelector('.price:not(.price-unit)');
             if (!price) { return; }
             // Render only server-generated HTML paired with the exact raw-price
             // contract. Never calculate from a parent minimum or displayed text.
@@ -59,6 +80,7 @@
             widget.setAttribute('data-digitalogic-selected-variation', variation ? String(variation.variation_id) : '');
             price.setAttribute('aria-live', 'polite');
         });
+		renderTimestamp(form, variation);
     }
 
     if (typeof $ !== 'function') {

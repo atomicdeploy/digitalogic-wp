@@ -9,10 +9,10 @@ use PHPUnit\Framework\TestCase;
 
 require_once dirname( __DIR__ ) . '/includes/integrations/class-digitalogic-variation-selector.php';
 
-/** Verify this presentation component does not become a pricing authority. */
+/** Verify this presentation consumes child-owned identity and price metadata. */
 final class VariationSelectorTest extends TestCase {
 	/** Native markup remains intact; only published, explicit children provide metadata. */
-	public function test_wraps_native_select_and_escapes_child_metadata_without_pricing() {
+	public function test_wraps_native_select_and_exposes_child_price_without_calculating_it() {
 		$GLOBALS['digitalogic_test_posts']       = array();
 		$GLOBALS['digitalogic_test_wc_products'] = array();
 		$GLOBALS['digitalogic_test_posts'][100]  = array(
@@ -29,6 +29,7 @@ final class VariationSelectorTest extends TestCase {
 				'meta'        => array(
 					'attribute_source_model'    => 103 === $id ? '' : 'model "quoted"',
 					'_sku'                      => 'A-101',
+					'_digitalogic_patris_product_code' => '114005004',
 					'_digitalogic_persian_name' => '<b>نام مدل</b>',
 				),
 			);
@@ -37,13 +38,12 @@ final class VariationSelectorTest extends TestCase {
 				public function get_description() {
 					return '<p>First line</p><script>alert(1)</script>';
 				}
-				/**
-				 * Pricing must never be read or calculated by the selector.
-				 *
-				 * @throws RuntimeException If presentation reads a price.
-				 */
 				public function get_price() {
-					throw new RuntimeException( 'Presentation read a price.' );
+					return '293500';
+				}
+				/** Return WooCommerce-owned display HTML without client calculation. */
+				public function get_price_html() {
+					return '<span class="price">293,500 تومان</span>';
 				}
 			};
 		}
@@ -59,9 +59,12 @@ final class VariationSelectorTest extends TestCase {
 		$this->assertCount( 1, $data['items'] );
 		$this->assertSame( 'model "quoted"', $data['items'][0]['value'] );
 		$this->assertSame( 'A-101', $data['items'][0]['sku'] );
+		$this->assertSame( '114005004', $data['items'][0]['productCode'] );
+		$this->assertSame( '293500', $data['items'][0]['priceRaw'] );
+		$this->assertSame( '293,500 تومان', $data['items'][0]['priceText'] );
+		$this->assertStringContainsString( '293,500', $data['items'][0]['priceHtml'] );
 		$this->assertStringNotContainsString( '<', $data['items'][0]['title'] );
 		$this->assertStringNotContainsString( '<', $data['items'][0]['description'] );
-		$this->assertArrayNotHasKey( 'price', $data['items'][0] );
 		$args['attribute'] = 'color';
 		$this->assertSame( $select, Digitalogic_Variation_Selector::render( $select, $args ) );
 	}

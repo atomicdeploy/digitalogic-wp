@@ -174,6 +174,43 @@ function digitalogic_format_product_price_update_absolute( $timestamp ) {
 }
 
 /**
+ * Build a public, display-only timestamp payload for one exact product leaf.
+ *
+ * @param WC_Product $product Exact product or variation.
+ * @return array|null
+ */
+function digitalogic_product_price_update_payload( $product ) {
+	if ( ! $product instanceof WC_Product ) {
+		return null;
+	}
+	$resolved  = digitalogic_resolve_product_price_update( $product );
+	$timestamp = (int) $resolved['timestamp'];
+	if ( $timestamp <= 0 || $timestamp > time() + MINUTE_IN_SECONDS ) {
+		return null;
+	}
+	$relative = human_time_diff( $timestamp, time() ) . ' پیش';
+	if ( function_exists( 'per_number' ) ) {
+		$relative = per_number( $relative );
+	}
+	return array(
+		'datetime' => gmdate( 'c', $timestamp ),
+		'absolute' => digitalogic_format_product_price_update_absolute( $timestamp ),
+		'relative' => $relative,
+		'source'   => sanitize_key( (string) $resolved['source'] ),
+	);
+}
+
+/** Add the exact selected leaf's timestamp to WooCommerce variation JSON. */
+function digitalogic_add_variation_price_update_payload( $data, $parent, $variation ) {
+	unset( $parent );
+	if ( is_array( $data ) && $variation instanceof WC_Product ) {
+		$data['digitalogic_price_updated'] = digitalogic_product_price_update_payload( $variation );
+	}
+	return $data;
+}
+add_filter( 'woocommerce_available_variation', 'digitalogic_add_variation_price_update_payload', 30, 3 );
+
+/**
  * Render the update time directly below the single-product price.
  *
  * @return void
@@ -191,26 +228,16 @@ function digitalogic_render_product_price_update_time() {
 		return;
 	}
 
-	$resolved  = digitalogic_resolve_product_price_update( $product );
-	$timestamp = (int) $resolved['timestamp'];
-	if ( $timestamp <= 0 || $timestamp > time() + MINUTE_IN_SECONDS ) {
-		return;
-	}
-
-	$absolute = digitalogic_format_product_price_update_absolute( $timestamp );
-	$relative = human_time_diff( $timestamp, time() ) . ' پیش';
-	if ( function_exists( 'per_number' ) ) {
-		$relative = per_number( $relative );
-	}
-	$datetime                         = gmdate( 'c', $timestamp );
+	$payload                          = $product->is_type( 'variable' ) ? null : digitalogic_product_price_update_payload( $product );
 	$rendered_products[ $product_id ] = true;
 
-	echo '<div class="digitalogic-price-updated" data-price-updated-source="' . esc_attr( $resolved['source'] ) . '">';
+	echo '<div class="digitalogic-price-updated" data-digitalogic-contextual-price-update data-price-updated-source="' . esc_attr( $payload['source'] ?? '' ) . '"' . ( null === $payload ? ' hidden' : '' ) . '>';
+	echo '<span class="digitalogic-price-updated__icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span>';
 	echo '<span class="digitalogic-price-updated__label">' . esc_html__( 'آخرین به‌روزرسانی قیمت:', 'digitalogic' ) . '</span> ';
-	echo '<time datetime="' . esc_attr( $datetime ) . '" title="' . esc_attr( $absolute . ' به وقت تهران' ) . '">';
-	echo '<span class="digitalogic-price-updated__absolute" dir="ltr">' . esc_html( $absolute ) . '</span>';
+	echo '<time datetime="' . esc_attr( $payload['datetime'] ?? '' ) . '" title="' . esc_attr( isset( $payload['absolute'] ) ? $payload['absolute'] . ' به وقت تهران' : '' ) . '">';
+	echo '<span class="digitalogic-price-updated__absolute" dir="ltr">' . esc_html( $payload['absolute'] ?? '' ) . '</span>';
 	echo '<span class="digitalogic-price-updated__separator" aria-hidden="true"> • </span>';
-	echo '<span class="digitalogic-price-updated__relative">' . esc_html( $relative ) . '</span>';
+	echo '<span class="digitalogic-price-updated__relative">' . esc_html( $payload['relative'] ?? '' ) . '</span>';
 	echo '</time>';
 	echo '</div>';
 }
@@ -255,6 +282,9 @@ function digitalogic_product_price_update_styles() {
 		font-size: 0.86rem;
 		line-height: 1.8;
 	}
+	.digitalogic-price-updated[hidden] { display: none !important; }
+	.digitalogic-price-updated__icon { align-items: center; color: var(--wd-primary-color, #2f7d32); display: inline-flex; }
+	.digitalogic-price-updated__icon svg { fill: none; height: 1rem; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.8; width: 1rem; }
 	.digitalogic-price-updated__label {
 		font-weight: 600;
 		color: var(--wd-title-color, #242424);

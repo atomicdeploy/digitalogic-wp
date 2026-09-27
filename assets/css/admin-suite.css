@@ -1,0 +1,217 @@
+/* Digitalogic administration presentation. */
+body.digitalogic-admin-screen {
+    --digitalogic-admin-primary: #1169d8;
+    --digitalogic-admin-primary-soft: #0d56b3;
+    --digitalogic-admin-accent: #0fa7eb;
+    --digitalogic-admin-accent-contrast: #fff;
+    --digitalogic-admin-canvas: #f2f8fc;
+    --digitalogic-admin-card: #fff;
+    --digitalogic-admin-text: #162033;
+    --digitalogic-admin-muted: #64748b;
+    --digitalogic-admin-border: #d8e8f3;
+    --digitalogic-admin-shadow: 0 16px 40px rgba(17, 105, 216, 0.10);
+    --digitalogic-admin-font: YekanBakh, IRANSans, IRANYekan, Tahoma, system-ui, sans-serif;
+    color: var(--digitalogic-admin-text);
+    font-family: var(--digitalogic-admin-font);
+}
+
+html[data-digitalogic-admin-theme="dark"] body.digitalogic-admin-screen {
+    --digitalogic-admin-canvas: #0d1422;
+    --digitalogic-admin-card: #151f30;
+    --digitalogic-admin-text: #e7edf7;
+    --digitalogic-admin-muted: #a8b5c7;
+    --digitalogic-admin-border: #2b394d;
+    --digitalogic-admin-shadow: 0 18px 42px rgba(0, 0, 0, 0.28);
+}
+
+body.digitalogic-admin-screen,
+body.digitalogic-admin-screen button,
+body.digitalogic-admin-screen input,
+body.digitalogic-admin-screen select,
+body.digitalogic-admin-screen textarea {
+    font-family: var(--digitalogic-admin-font);
+}
+
+body.digitalogic-admin-screen #wpcontent,
+body.digitalogic-admin-screen #wpfooter {
+    background:
+        radial-gradient(circle at 82% 2%, color-mix(in srgb, var(--digitalogic-admin-accent) 12%, transparent), transparent 30rem),
+        var(--digitalogic-admin-canvas);
+}
+
+body.digitalogic-admin-screen .wrap {
+    color: var(--digitalogic-admin-text);
+}
+
+body.digitalogic-admin-screen .wrap > h1,
+body.digitalogic-admin-screen .wrap > h2:first-child {
+    color: var(--digitalogic-admin-primary);
+    font-weight: 800;
+    letter-spacing: -0.025em;
+}
+
+html[data-digitalogic-admin-theme="dark"] body.digitalogic-admin-screen .wrap > h1,
+html[data-digitalogic-admin-theme="dark"] body.digitalogic-admin-screen .wrap > h2:first-child {
+    color: var(--digitalogic-admin-text);
+}
+
+body.digitalogic-admin-screen .postbox,
+body.digitalogic-admin-screen .card,
+body.digitalogic-admin-screen .stuffbox,
+body.digitalogic-admin-screen .notice,
+body.digitalogic-admin-screen .welcome-panel {
+    background: var(--digitalogic-admin-card);
+    border-color: var(--digitalogic-admin-border);
+    border-radius: 12px;
+    color: var(--digitalogic-admin-text);
+    box-shadow: var(--digitalogic-admin-shadow);
+}
+
+body.digitalogic-admin-screen .postbox .hndle,
+body.digitalogic-admin-screen .postbox .handlediv,
+body.digitalogic-admin-screen .postbox h2,
+body.digitalogic-admin-screen .postbox h3 {
+    color: var(--digitalogic-admin-text);
+}
+
+body.digitalogic-admin-screen .button-primary {
+    background: var(--digitalogic-admin-accent);
+    border-color: var(--digitalogic-admin-accent);
+    border-radius: 7px;
+    color: var(--digitalogic-admin-accent-contrast);
+    box-shadow: none;
+    font-weight: 700;
+}
+
+body.digitalogic-admin-screen .button-primary:hover,
+body.digitalogic-admin-screen .button-primary:focus {
+    background: color-mix(in srgb, var(--digitalogic-admin-accent) 88%, #000);
+    border-color: color-mix(in srgb, var(--digitalogic-admin-accent) 80%, #000);
+    color: var(--digitalogic-admin-accent-contrast);
+}
+
+body.digitalogic-admin-screen .button:not(.button-primary),
+body.digitalogic-admin-screen .button-secondary {
+    background: var(--digitalogic-admin-card);
+    border-color: var(--digitalogic-admin-border);
+    border-radius: 7px;
+    color: var(--digitalogic-admin-text);
+}
+
+body.digitalogic-admin-screen input[type="text"],
+body.digitalogic-admin-screen input[type="email"],
+body.digitalogic-admin-screen input[type="url"],
+body.digitalogic-admin-screen input[type="password"],
+body.digitalogic-admin-screen input[type="number"],
+body.digitalogic-admin-screen select,
+body.digitalogic-admin-screen textarea {
+    background: var(--digitalogic-admin-card);
+    border-color: var(--digitalogic-admin-border);
+    border-radius: 7px;
+    color: var(--digitalogic-admin-text);
+}
+
+body.digitalogic-admin-screen input:focus,
+body.digitalogic-admin-screen select:focus,
+body.digitalogic-admin-screen textarea:focus {
+    border-color: var(--digitalogic-admin-accent);
+    box-shadow: 0 0 0 1px var(--digitalogic-admin-accent);
+}
+
+body.digitalogic-admin-screen #adminmenu,
+body.digitalogic-admin-screen #adminmenu .wp-submenu,
+body.digitalogic-admin-screen #adminmenuback,
+body.digitalogic-admin-screen #adminmenuwrap {
+    background: var(--digitalogic-admin-primary);
+}
+
+body.digitalogic-admin-screen #adminmenu a,
+body.digitalogic-admin-screen #adminmenu div.wp-menu-image::before {
+    color: rgba(255, 255, 255, 0.78);
+}
+
+body.digitalogic-admin-screen #adminmenu li.menu-top:hover,
+body.digitalogic-admin-screen #adminmenu li.opensub > a.menu-top,
+body.digitalogic-admin-screen #adminmenu li > a.menu-top:focus,
+body.digitalogic-admin-screen #adminmenu li.current a.menu-top,
+body.digitalogic-admin-screen #adminmenu li.wp-has-current-submenu a.wp-has-current-submenu,
+body.digitalogic-admin-screen #adminmenu .wp-has-current-submenu .wp-submenu,
+body.digitalogic-admin-screen #adminmenu .wp-menu-arrow,
+body.digitalogic-admin-screen #adminmenu .wp-menu-arrow div {
+    background: var(--digitalogic-admin-primary-soft);
+    color: #fff;
+}
+
+body.digitalogic-admin-screen #wpadminbar .digitalogic-admin-theme-toggle > .ab-item {
+    cursor: pointer;
+}
+
+body.digitalogic-admin-screen #wpadminbar .digitalogic-admin-brand {
+    align-items: center;
+    display: inline-flex;
+    font-weight: 700;
+    gap: 7px;
+}
+
+body.digitalogic-admin-screen #wpadminbar .digitalogic-admin-brand img {
+    border-radius: 4px;
+    height: 20px;
+    max-width: 72px;
+    object-fit: contain;
+    width: auto;
+}
+
+body.digitalogic-admin-screen #wpadminbar .digitalogic-admin-theme-control::before {
+    content: "◐";
+    display: inline-block;
+    margin-inline-end: 6px;
+}
+
+.digitalogic-admin-health {
+    display: grid;
+    gap: 10px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.digitalogic-admin-health__item {
+    background: color-mix(in srgb, var(--digitalogic-admin-card, #fff) 94%, var(--digitalogic-admin-accent, #0fa7eb));
+    border: 1px solid var(--digitalogic-admin-border, #d8e8f3);
+    border-radius: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    min-width: 0;
+    padding: 12px;
+}
+
+.digitalogic-admin-health__label {
+    color: var(--digitalogic-admin-muted, #64748b);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+}
+
+.digitalogic-admin-health__item strong {
+    color: var(--digitalogic-admin-text, #162033);
+    font-size: 14px;
+}
+
+.digitalogic-admin-health__item small {
+    color: var(--digitalogic-admin-muted, #64748b);
+    line-height: 1.5;
+}
+
+@media (max-width: 782px) {
+    .digitalogic-admin-health {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    body.digitalogic-admin-screen .button,
+    body.digitalogic-admin-screen #adminmenu a {
+        transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease;
+    }
+}
+
+
