@@ -369,7 +369,7 @@ class Digitalogic_Webhooks {
 		$data['severity']           = 'info';
 		$data['status']             = 'placed';
 		$data['notify_channels']    = array( 'telegram', 'ntfy' );
-		$data['audience']           = array( 'shokri' );
+		$data['audience']           = array( 'wordpress-operations' );
 		$data['document_available'] = true;
 
 		$this->trigger_webhook( 'order.created', $data, true, hash( 'sha256', 'order.created|' . absint( $order_id ) ) );
@@ -387,7 +387,7 @@ class Digitalogic_Webhooks {
 		$data['severity']           = 'info';
 		$data['status']             = 'status_changed';
 		$data['notify_channels']    = array( 'telegram', 'ntfy' );
-		$data['audience']           = array( 'shokri' );
+		$data['audience']           = array( 'wordpress-operations' );
 		$data['document_available'] = true;
 
 		$effect_id = hash( 'sha256', 'order.status.changed|' . absint( $order_id ) . '|' . sanitize_key( $old_status ) . '|' . sanitize_key( $new_status ) );

@@ -98,6 +98,7 @@ $GLOBALS['digitalogic_test_enqueued_styles'] = array();
 $GLOBALS['digitalogic_test_enqueued_scripts'] = array();
 $GLOBALS['digitalogic_test_scheduled_events'] = array(); // phpcs:ignore -- Test-only cron registry.
 $GLOBALS['digitalogic_test_schedule_failure'] = false; // phpcs:ignore -- Test-only failure control.
+$GLOBALS['digitalogic_test_deleted_files'] = array(); // phpcs:ignore -- Test-only protected-file cleanup ledger.
 // phpcs:enable Generic.Formatting.MultipleStatementAlignment
 
 class WP_Error {
@@ -1043,6 +1044,15 @@ function trailingslashit($value) {
 
 function untrailingslashit($value) {
     return rtrim((string) $value, '/\\');
+}
+
+function wp_delete_file( $path ) {
+	$GLOBALS['digitalogic_test_deleted_files'][] = $path;
+	return is_file( $path ) ? unlink( $path ) : false;
+}
+
+function wp_normalize_path( $path ) {
+	return str_replace( '\\', '/', (string) $path );
 }
 
 function add_query_arg($args, $url) {
