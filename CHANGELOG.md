@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Keep Woodmart live-search results above storefront content when the shared header drop-shadow creates a stacking context.
+
 ## [2.2.1] - 2026-09-27
 
 - Expose exact non-HTML prices and currency metadata through product API responses and identity-guarded variation JSON.

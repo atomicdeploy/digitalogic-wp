@@ -30,6 +30,10 @@ test('design system provides semantic colors, stable controls, focus, and reduce
 	assert.match(css, /\.dgl-prime-showcase,[\s\S]*\.dgl-request-form/);
 });
 
+test('header stacking context keeps Woodmart search results above storefront content', () => {
+	assert.match(css, /\.whb-header\s*\{[\s\S]*position:\s*relative;[\s\S]*z-index:\s*400;/);
+});
+
 test('mobile overlays never cover catalog, SKU, checkout, or purchase controls', () => {
 	assert.match(css, /@media \(max-width:\s*767px\)[\s\S]*\.chaty-widget[\s\S]*display:\s*none\s*!important/);
 	assert.match(css, /\.grecaptcha-badge[\s\S]*visibility:\s*hidden\s*!important/);

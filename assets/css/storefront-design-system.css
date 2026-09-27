@@ -42,6 +42,8 @@ body:not(.wp-admin):not(.login) :where(button, .button, [type='button'], [type='
 /* Stable chrome shared by every storefront route. */
 .whb-header {
 	filter: drop-shadow(0 8px 22px rgba(15, 43, 78, .06));
+	position: relative;
+	z-index: 400;
 }
 
 .whb-header .whb-general-header,
