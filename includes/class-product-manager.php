@@ -471,6 +471,11 @@ class Digitalogic_Product_Manager {
                 'regular_price' => $product->get_regular_price(),
                 'sale_price' => $product->get_sale_price(),
                 'price' => $price,
+				// phpcs:disable WordPress.Arrays.MultipleStatementAlignment.DoubleArrowNotAligned -- Keep this focused addition out of the legacy array's formatting debt.
+				'price_raw'                    => '' === trim( (string) $price ) ? null : (string) $price,
+				'price_currency'               => get_woocommerce_currency(),
+				'price_decimals'               => wc_get_price_decimals(),
+				// phpcs:enable WordPress.Arrays.MultipleStatementAlignment.DoubleArrowNotAligned
                 'effective_price'              => $pricing_policy['woo_effective_price'],
                 'price_source'                 => $pricing_policy['price_source'],
                 'patris_sale_policy'           => $pricing_policy['sale_policy'],
