@@ -15,7 +15,9 @@ final class OrderPaymentExperienceTest extends TestCase {
 	protected function setUp(): void {
 		$GLOBALS['digitalogic_test_current_user_id'] = 0;
 		$GLOBALS['digitalogic_test_capabilities']    = array();
+		$GLOBALS['digitalogic_test_deleted_files']   = array();
 		$_GET                                        = array();
+		remove_all_filters( 'digitalogic_receipt_directory' );
 	}
 
 	/** Persian digits and separators normalize into a stored 16-digit number. */
@@ -117,5 +119,33 @@ final class OrderPaymentExperienceTest extends TestCase {
 		};
 		$this->assertTrue( Digitalogic_Order_Payment_Experience::can_access_order( $order, 'wc_order_exact' ) );
 		$this->assertFalse( Digitalogic_Order_Payment_Experience::can_access_order( $order, 'wc_order_other' ) );
+	}
+
+	/** Permanent order deletion removes only receipt files inside private storage. */
+	public function test_order_deletion_removes_protected_receipt_file(): void {
+		$directory = sys_get_temp_dir() . '/digitalogic-receipt-cleanup-' . uniqid( '', true );
+		mkdir( $directory ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_mkdir -- Isolated test fixture.
+		$receipt = $directory . '/receipt.pdf';
+		file_put_contents( $receipt, '%PDF-test' ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- Isolated test fixture.
+		add_filter( 'digitalogic_receipt_directory', static fn() => $directory );
+
+		$order = new class( $receipt ) {
+			/** Protected receipt path. */
+			private string $receipt;
+			/** Store the fixture path. */
+			public function __construct( string $receipt ) {
+				$this->receipt = $receipt;
+			}
+			/** Return the requested metadata. */
+			public function get_meta( string $key ) {
+				return '_digitalogic_payment_receipt_file' === $key ? $this->receipt : '';
+			}
+		};
+
+		Digitalogic_Order_Payment_Experience::delete_receipt_for_order( 42, $order );
+
+		$this->assertFileDoesNotExist( $receipt );
+		$this->assertSame( array( $receipt ), $GLOBALS['digitalogic_test_deleted_files'] );
+		rmdir( $directory ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_rmdir -- Isolated test fixture cleanup.
 	}
 }

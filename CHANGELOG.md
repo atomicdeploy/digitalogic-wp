@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-09-27
+
+- Route WordPress order text and invoice PDFs to the Digitalogic Telegram operations group and its dedicated website topic instead of a private Shokri chat.
+- Rename the n8n document node to `Send Order PDF to Telegram`, use server-owned group/topic configuration, and make invoice captions contextual to the order number.
+- Remove protected payment-receipt files when their WooCommerce order is permanently deleted, including HPOS and legacy CPT storage.
+
 ## [2.1.9] - 2026-09-26
 
 - Localize the live delivery date picker itself with Jalali month context, Persian weekday names, Persian digits, and Persian navigation labels without changing its Gregorian availability identifiers.

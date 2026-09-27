@@ -44,7 +44,7 @@ final class OrderWebhookTest extends TestCase {
 		$this->assertTrue( $GLOBALS['digitalogic_test_remote_posts'][0]['args']['blocking'] );
 		$this->assertSame( hash( 'sha256', 'order.created|14085' ), $payload['event_id'] );
 		$this->assertSame( array( 'telegram', 'ntfy' ), $payload['data']['notify_channels'] );
-		$this->assertSame( array( 'shokri' ), $payload['data']['audience'] );
+		$this->assertSame( array( 'wordpress-operations' ), $payload['data']['audience'] );
 		$this->assertTrue( $payload['data']['document_available'] );
 		$this->assertSame( 'کارت به کارت / انتقال بانکی', $payload['data']['payment_method'] );
 		$this->assertSame( 'دریافت حضوری', $payload['data']['shipping_method'] );
@@ -64,6 +64,17 @@ final class OrderWebhookTest extends TestCase {
 		$this->assertStringContainsString( 'const title = eventTitle(eventKey, data);', $source );
 		$this->assertStringNotContainsString( 'سفارش جدید دیجیتالاجیک', $source );
 		$this->assertStringNotContainsString( 'به‌روزرسانی نرخ ارز دیجیتالاجیک', $source );
+	}
+
+	/** Order PDFs use the shared Telegram group and the WordPress topic. */
+	public function test_order_pdf_routes_to_the_wordpress_telegram_topic(): void {
+		$workflow = json_decode( file_get_contents( dirname( __DIR__ ) . '/assets/integrations/n8n/digitalogic-wordpress-events.workflow.json' ), true ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Local test fixture.
+		$this->assertIsArray( $workflow );
+		$nodes = array_column( $workflow['nodes'], null, 'name' );
+		$this->assertArrayHasKey( 'Send Order PDF to Telegram', $nodes );
+		$this->assertArrayNotHasKey( 'Send Order PDF to Shokri', $nodes );
+		$this->assertSame( '={{ $env.DIGITALOGIC_TELEGRAM_GROUP_CHAT_ID }}', $nodes['Send Order PDF to Telegram']['parameters']['chatId'] );
+		$this->assertSame( '={{ $env.DIGITALOGIC_TELEGRAM_WORDPRESS_THREAD_ID }}', $nodes['Send Order PDF to Telegram']['parameters']['additionalFields']['message_thread_id'] );
 	}
 
 	/** Build the minimum WooCommerce order surface used by the formatter. */

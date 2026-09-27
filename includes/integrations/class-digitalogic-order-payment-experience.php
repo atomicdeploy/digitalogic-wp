@@ -42,6 +42,8 @@ final class Digitalogic_Order_Payment_Experience {
 		add_action( 'admin_post_digitalogic_download_payment_receipt', array( self::class, 'download_receipt' ) );
 		add_action( 'woocommerce_admin_order_data_after_order_details', array( self::class, 'render_admin_receipt' ) );
 		add_action( 'woocommerce_process_shop_order_meta', array( self::class, 'save_admin_receipt_status' ), 20, 2 );
+		add_action( 'woocommerce_before_delete_order', array( self::class, 'delete_receipt_for_order' ), 10, 2 );
+		add_action( 'before_delete_post', array( self::class, 'delete_receipt_for_legacy_order' ), 10, 2 );
 	}
 
 	/** Load customer assets only where an authorized order can be shown. */
@@ -628,9 +630,42 @@ final class Digitalogic_Order_Payment_Experience {
 				'category'        => 'commerce',
 				'severity'        => 'info',
 				'notify_channels' => array( 'telegram', 'ntfy' ),
-				'audience'        => array( 'shokri' ),
+				'audience'        => array( 'wordpress-operations' ),
 			)
 		);
+	}
+
+	/**
+	 * Remove a protected receipt before WooCommerce permanently deletes an order.
+	 *
+	 * @param int           $order_id Order identifier.
+	 * @param WC_Order|null $order    Order object when supplied by WooCommerce.
+	 */
+	public static function delete_receipt_for_order( $order_id, $order = null ): void {
+		$order = $order ? $order : ( function_exists( 'wc_get_order' ) ? wc_get_order( absint( $order_id ) ) : false );
+		if ( ! $order || ! method_exists( $order, 'get_meta' ) ) {
+			return;
+		}
+
+		$path       = (string) $order->get_meta( self::META_FILE, true );
+		$directory  = wp_normalize_path( trailingslashit( self::receipt_directory() ) );
+		$normalized = wp_normalize_path( $path );
+		if ( $path && is_file( $path ) && 0 === strpos( $normalized, $directory ) ) {
+			wp_delete_file( $path );
+		}
+	}
+
+	/**
+	 * Preserve cleanup for legacy CPT-backed orders.
+	 *
+	 * @param int     $post_id Post identifier.
+	 * @param WP_Post $post    Post being deleted.
+	 */
+	public static function delete_receipt_for_legacy_order( $post_id, $post ): void {
+		if ( ! $post || 'shop_order' !== (string) $post->post_type ) {
+			return;
+		}
+		self::delete_receipt_for_order( $post_id );
 	}
 
 	/**

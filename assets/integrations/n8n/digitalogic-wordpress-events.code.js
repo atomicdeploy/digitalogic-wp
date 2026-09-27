@@ -143,7 +143,7 @@ if (eventKey === 'currency.updated') {
     priority: created || receiptSubmitted ? 'action' : 'archive',
     bypassAggregation: created || receiptSubmitted,
     notify_channels: Array.isArray(data.notify_channels) ? data.notify_channels : ['telegram', 'ntfy'],
-    audience: Array.isArray(data.audience) ? data.audience : ['shokri'],
+    audience: Array.isArray(data.audience) ? data.audience : ['wordpress-operations'],
     event_id: eventId,
     order_id: Number(data.id || 0),
   };
