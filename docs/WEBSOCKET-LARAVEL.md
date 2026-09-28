@@ -79,6 +79,14 @@ RestartSec=5
 WantedBy=multi-user.target
 ```
 
+Release packages contain a `.digitalogic-release` fingerprint covering the
+complete staged runtime. The persistent command worker checks that fingerprint
+and its critical entrypoint files once per second. When a plugin install
+replaces them, the worker exits before accepting another command; the canonical
+`Restart=always` unit then boots WordPress and the new plugin bytecode. Its
+journal records the loaded plugin version so deployment health can be verified
+without exposing credentials.
+
 `websocat` verification:
 
 ```bash

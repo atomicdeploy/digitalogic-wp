@@ -47,7 +47,7 @@
   },
   "scripts": {
     "post-autoload-dump": "@php laravel/prepare-runtime.php",
-    "test": "phpunit",
+    "test": "@php -d auto_prepend_file=tests/phpunit-preload.php vendor/phpunit/phpunit/phpunit",
     "phpcs": "phpcs --standard=WordPress --extensions=php .",
     "phpcbf": "phpcbf --standard=WordPress --extensions=php .",
     "lint": [

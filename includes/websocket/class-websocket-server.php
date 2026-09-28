@@ -10,12 +10,18 @@ if (!defined('ABSPATH')) {
 // phpcs:disable WordPress.WP.AlternativeFunctions, WordPress.PHP.NoSilencedErrors -- A nonblocking WebSocket/Redis daemon requires native stream sockets and result-aware suppressed probes.
 
 class Digitalogic_WebSocket_Server {
+	/** Recheck the loaded release often enough to fence stale command writes. */
+	private const RUNTIME_RELEASE_CHECK_SECONDS = 1.0;
 
     private $clients = array();
     private $redis_socket = null;
     private $redis_buffer = '';
     private $redis_next_connect_at = 0;
     private $redis_channel = 'digitalogic_panel_events';
+	/** @var array<string,string> Loaded release file hashes keyed by path. */
+	private $runtime_release_fingerprints = array();
+	/** @var float Monotonic timestamp for the next release-file check. */
+	private $runtime_release_next_check_at = 0.0;
 
     public function run($host = '127.0.0.1', $port = 8090) {
         $server = @stream_socket_server('tcp://' . $host . ':' . $port, $errno, $errstr);
@@ -28,9 +34,20 @@ class Digitalogic_WebSocket_Server {
             WP_CLI::log('Digitalogic WebSocket server listening on ' . $host . ':' . $port);
         }
 
+		$this->capture_runtime_release_fingerprints();
+		if ( defined( 'WP_CLI' ) && WP_CLI ) {
+			$version = defined( 'DIGITALOGIC_VERSION' ) ? DIGITALOGIC_VERSION : 'unknown';
+			WP_CLI::log( 'Digitalogic WebSocket runtime loaded plugin version ' . $version . '.' );
+		}
         $this->connect_redis_subscriber();
 
         while (true) {
+			if ( $this->runtime_release_changed() ) {
+				if ( defined( 'WP_CLI' ) && WP_CLI ) {
+					WP_CLI::log( 'Digitalogic WebSocket release changed; exiting for managed restart.' );
+				}
+				return;
+			}
             $this->maybe_connect_redis_subscriber();
 
             $read = array($server);
@@ -71,6 +88,68 @@ class Digitalogic_WebSocket_Server {
             }
         }
     }
+
+	/**
+	 * Snapshot files whose replacement requires fresh PHP bytecode.
+	 *
+	 * The canonical systemd unit uses Restart=always. Returning from run() after
+	 * one of these files changes therefore reloads WordPress and the complete
+	 * plugin before another persistent pricing command can be accepted.
+	 */
+	private function capture_runtime_release_fingerprints() {
+		$fingerprints = array();
+		foreach ( $this->runtime_release_paths() as $path ) {
+			$fingerprint = @hash_file( 'sha256', $path );
+			if ( ! is_string( $fingerprint ) || '' === $fingerprint ) {
+				throw new RuntimeException( 'The WebSocket runtime release could not be fingerprinted.' );
+			}
+			$fingerprints[ $path ] = $fingerprint;
+		}
+		$this->runtime_release_fingerprints = $fingerprints;
+		$this->runtime_release_next_check_at = microtime( true ) + self::RUNTIME_RELEASE_CHECK_SECONDS;
+	}
+
+	/** Return the package marker, release entrypoint, and persistent sync runtimes. */
+	private function runtime_release_paths() {
+		$plugin_dir = defined( 'DIGITALOGIC_PLUGIN_DIR' )
+			? DIGITALOGIC_PLUGIN_DIR
+			: dirname( __DIR__, 2 ) . DIRECTORY_SEPARATOR;
+		$receiver   = new ReflectionClass( Digitalogic_Product_Sync_Receiver::class );
+		$paths      = array(
+			$plugin_dir . 'digitalogic.php',
+			__FILE__,
+			$receiver->getFileName(),
+		);
+
+		$release_marker = $plugin_dir . '.digitalogic-release';
+		if ( is_file( $release_marker ) ) {
+			$paths[] = $release_marker;
+		}
+
+		return array_values( array_unique( array_filter( $paths, 'is_string' ) ) );
+	}
+
+	/** Whether files on disk no longer match the code loaded by this daemon. */
+	private function runtime_release_changed() {
+		$now = microtime( true );
+		if ( $now < $this->runtime_release_next_check_at ) {
+			return false;
+		}
+		$this->runtime_release_next_check_at = $now + self::RUNTIME_RELEASE_CHECK_SECONDS;
+		if ( empty( $this->runtime_release_fingerprints ) ) {
+			return true;
+		}
+
+		foreach ( $this->runtime_release_fingerprints as $path => $expected ) {
+			clearstatcache( true, $path );
+			$current = @hash_file( 'sha256', $path );
+			if ( ! is_string( $current ) || ! hash_equals( $expected, $current ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
 
     private function accept($server) {
         $socket = @stream_socket_accept($server, 0);
