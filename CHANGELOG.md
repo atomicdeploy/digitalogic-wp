@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.3.5] - 2026-09-28
+
+- Keep the add-to-cart SVG in the button's flex flow and restore the product-benefit area to its intended aligned CSS Grid on desktop and mobile.
+
 ## [2.3.4] - 2026-09-27
 
 - Reserve a dedicated mobile cart-title gutter so the order remove action never overlaps product identity text.
