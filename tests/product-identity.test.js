@@ -69,4 +69,11 @@ test('quantity and add-to-cart controls use the branded blue purchase system', (
 	assert.match(experienceCss, /\[class\*="quantity-input-product-"\][\s\S]*background:\s*#fff\s*!important/);
 	assert.match(experienceCss, /:where\(\.minus, \.plus\)[\s\S]*--dgl-color-primary/);
 	assert.match(experienceCss, /\.single_add_to_cart_button::before[\s\S]*mask:/);
+	assert.match(experienceCss, /\.single_add_to_cart_button::before[\s\S]*position:\s*static\s*!important/);
+	assert.ok(
+		experienceCss.lastIndexOf('body.single-product.dgl-product-experience .dgl-product-benefits {\n  display: grid;') >
+			experienceCss.lastIndexOf('body.single-product.dgl-product-experience .dgl-product-benefits {\n  display: flex;'),
+		'the final benefits layout must remain a grid instead of falling back to flex',
+	);
+	assert.match(experienceCss, /\.dgl-benefit\s*\{[\s\S]*display:\s*grid;[\s\S]*grid-template-columns:\s*34px minmax\(0, 1fr\)/);
 });
