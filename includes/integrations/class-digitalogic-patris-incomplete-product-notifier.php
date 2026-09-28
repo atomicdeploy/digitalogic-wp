@@ -33,7 +33,6 @@ final class Digitalogic_Patris_Incomplete_Product_Notifier {
 	private const MAX_CLAIM_BATCH      = 10;
 	private const MAX_CAPTURE_BATCH    = 1000;
 	private const REPAIR_BATCH_SIZE    = 200;
-	private const REPAIR_INTERVAL      = 3600;
 	private const MAX_OUTBOX_EVENTS    = 5000;
 	private const MAX_PRODUCT_STATES   = 5000;
 	private const MAX_RECEIPTS         = 5000;
@@ -74,6 +73,9 @@ final class Digitalogic_Patris_Incomplete_Product_Notifier {
 	 */
 	private $capture_buffer = array();
 
+	/** Prevent a commit-triggered flush from recursively entering delivery. */
+	private $delivery_active = false;
+
 	/** Return the shared notifier. */
 	public static function instance(): self {
 		if ( null === self::$instance ) {
@@ -83,14 +85,11 @@ final class Digitalogic_Patris_Incomplete_Product_Notifier {
 		return self::$instance;
 	}
 
-	/** Register capture, delivery, and schedule-repair hooks. */
+	/** Register commit-triggered capture and remove legacy timer hooks. */
 	private function __construct() {
 		add_action( self::COMMITTED_HOOK, array( $this, 'capture_committed_snapshot' ), 10, 1 );
 		add_action( self::FLUSH_HOOK, array( $this, 'flush_captured_snapshots' ), PHP_INT_MAX );
-		add_action( self::WORKER_HOOK, array( $this, 'run_delivery_worker' ) );
-		add_action( self::REPAIR_HOOK, array( $this, 'run_repair_worker' ) );
-		add_action( 'init', array( $this, 'ensure_delivery_worker' ), 40 );
-		add_action( 'init', array( $this, 'ensure_repair_worker' ), 41 );
+		add_action( 'init', array( __CLASS__, 'deactivate' ), 40 );
 		add_action( 'shutdown', array( $this, 'flush_captured_snapshots' ), PHP_INT_MAX );
 	}
 
@@ -140,10 +139,6 @@ final class Digitalogic_Patris_Incomplete_Product_Notifier {
 				$this->report_failure( $result->get_error_code() );
 				return false;
 			}
-			if ( ! empty( $result['queued'] ) ) {
-				$this->ensure_delivery_worker();
-			}
-
 			return true;
 		} catch ( Throwable $error ) {
 			unset( $error );
@@ -155,6 +150,10 @@ final class Digitalogic_Patris_Incomplete_Product_Notifier {
 
 	/** Deliver a bounded batch of due outbox events. */
 	public function run_delivery_worker(): void {
+		if ( $this->delivery_active ) {
+			return;
+		}
+		$this->delivery_active = true;
 		try {
 			$this->flush_captured_snapshots();
 			$processed = 0;
@@ -186,82 +185,15 @@ final class Digitalogic_Patris_Incomplete_Product_Notifier {
 		} catch ( Throwable $error ) {
 			unset( $error );
 			$this->report_failure( 'digitalogic_patris_incomplete_alert_worker_exception' );
+		} finally {
+			$this->delivery_active = false;
 		}
-
-		$this->ensure_delivery_worker();
 	}
 
-	/** Repair one missing one-shot schedule when deliverable outbox work exists. */
+	/** Compatibility entrypoint: remove legacy schedules without polling. */
 	public function ensure_delivery_worker(): bool {
-		try {
-			$store = $this->read_store();
-			if ( is_wp_error( $store ) ) {
-				$this->report_failure( $store->get_error_code() );
-				return false;
-			}
-
-			$next = null;
-			$now  = time();
-			$seen = array();
-			uasort(
-				$store['outbox'],
-				static function ( $left, $right ) {
-					return (int) ( $left['sequence'] ?? 0 ) <=> (int) ( $right['sequence'] ?? 0 );
-				}
-			);
-			foreach ( $store['outbox'] as $event_id => $entry ) {
-				if ( ! is_array( $entry ) ) {
-					continue;
-				}
-				$product_key = $this->valid_event_id( $entry['product_key'] ?? null )
-					? (string) $entry['product_key']
-					: 'event:' . $event_id;
-				if ( isset( $seen[ $product_key ] ) ) {
-					continue;
-				}
-				$seen[ $product_key ] = true;
-
-				$receipt_pending = $this->is_receipt_pending_entry( $entry );
-				if ( 'exhausted' === (string) ( $entry['status'] ?? '' ) && ! $receipt_pending ) {
-					continue;
-				}
-				if ( (int) ( $entry['attempts'] ?? 0 ) >= self::MAX_ATTEMPTS && ! $receipt_pending ) {
-					continue;
-				}
-				$lease_until = (int) ( $entry['lease_until'] ?? 0 );
-				$due         = max( $now + 1, (int) ( $entry['next_attempt_at'] ?? 0 ) );
-				if ( $lease_until > $now ) {
-					$due = max( $due, $lease_until + 1 );
-				}
-				$next = null === $next ? $due : min( $next, $due );
-			}
-			if ( null === $next ) {
-				return true;
-			}
-
-			if ( function_exists( 'wp_next_scheduled' ) && false !== wp_next_scheduled( self::WORKER_HOOK, array() ) ) {
-				return true;
-			}
-			if ( ! function_exists( 'wp_schedule_single_event' ) ) {
-				$this->report_failure( 'digitalogic_patris_incomplete_alert_scheduler_unavailable' );
-				return false;
-			}
-
-			$scheduled = wp_schedule_single_event( $next, self::WORKER_HOOK, array(), true );
-			if ( is_wp_error( $scheduled ) || false === $scheduled ) {
-				if ( function_exists( 'wp_next_scheduled' ) && false !== wp_next_scheduled( self::WORKER_HOOK, array() ) ) {
-					return true;
-				}
-				$this->report_failure( 'digitalogic_patris_incomplete_alert_schedule_failed' );
-				return false;
-			}
-
-			return true;
-		} catch ( Throwable $error ) {
-			unset( $error );
-			$this->report_failure( 'digitalogic_patris_incomplete_alert_schedule_exception' );
-			return false;
-		}
+		self::deactivate();
+		return true;
 	}
 
 	/**
@@ -309,37 +241,13 @@ final class Digitalogic_Patris_Incomplete_Product_Notifier {
 		} catch ( Throwable $error ) {
 			unset( $error );
 			$this->report_failure( 'digitalogic_patris_incomplete_alert_repair_exception' );
-		} finally {
-			$this->ensure_repair_worker();
 		}
 	}
 
-	/** Schedule one bounded periodic repair pass when none is pending. */
+	/** Compatibility entrypoint: periodic repair was removed in favor of commit events. */
 	public function ensure_repair_worker(): bool {
-		try {
-			if ( function_exists( 'wp_next_scheduled' ) && false !== wp_next_scheduled( self::REPAIR_HOOK, array() ) ) {
-				return true;
-			}
-			if ( ! function_exists( 'wp_schedule_single_event' ) ) {
-				$this->report_failure( 'digitalogic_patris_incomplete_alert_repair_scheduler_unavailable' );
-				return false;
-			}
-
-			$scheduled = wp_schedule_single_event( time() + self::REPAIR_INTERVAL, self::REPAIR_HOOK, array(), true );
-			if ( is_wp_error( $scheduled ) || false === $scheduled ) {
-				if ( function_exists( 'wp_next_scheduled' ) && false !== wp_next_scheduled( self::REPAIR_HOOK, array() ) ) {
-					return true;
-				}
-				$this->report_failure( 'digitalogic_patris_incomplete_alert_repair_schedule_failed' );
-				return false;
-			}
-
-			return true;
-		} catch ( Throwable $error ) {
-			unset( $error );
-			$this->report_failure( 'digitalogic_patris_incomplete_alert_repair_schedule_exception' );
-			return false;
-		}
+		self::deactivate();
+		return true;
 	}
 
 	/** Remove only pending worker schedules while preserving durable state. */

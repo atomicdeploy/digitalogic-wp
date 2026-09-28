@@ -886,7 +886,7 @@ class Digitalogic_Product_Sync_Receiver {
 		);
 
         $this->record_receiver_timing('transaction_total', $transaction_started);
-		if ( is_array( $result ) ) {
+		if ( is_array( $result ) && ! empty( $result['fully_applied'] ) ) {
 			if ( $this->source_identity_lock_is_owned() ) {
 				$this->pending_applied_receipts[] = array( 'result' => $result, 'envelope' => $envelope );
 			} else {
@@ -939,9 +939,8 @@ class Digitalogic_Product_Sync_Receiver {
             'totals' => $totals,
             'sources' => $sources,
         );
-		if ( class_exists( 'Digitalogic_Patris_Catalog_Backfill' ) ) {
-			$status['reconciliation_watchdog'] = Digitalogic_Patris_Catalog_Backfill::instance()->watchdog_status();
-		}
+		$status['delivery_mode'] = 'synchronous';
+		$status['scheduled_reconciliation'] = false;
 
 		return $status;
     }
@@ -1399,7 +1398,7 @@ class Digitalogic_Product_Sync_Receiver {
 				++$receipt['deferred_products'];
 			}
 		}
-		$receipt['status'] = $receipt['pending_products'] > 0 ? 'pending' : 'applied';
+		$receipt['status'] = ( $receipt['pending_products'] + $receipt['deferred_products'] ) > 0 ? 'pending' : 'applied';
 
 		return $receipt;
 	}
@@ -3764,9 +3763,9 @@ class Digitalogic_Product_Sync_Receiver {
             }
         }
 
-        $fully_applied = empty($source_state['pending_products']);
+        $fully_applied = empty($source_state['pending_products']) && empty($source_state['deferred_products']);
         $result = array_merge(array(
-            'status' => $fully_applied ? ($same_revision ? 'already_current' : 'accepted') : 'partially_applied',
+			'status' => $fully_applied ? ($same_revision ? 'already_current' : 'accepted') : 'unapplied',
             'replayed' => false,
             'event_id' => $envelope['event_id'],
             'event_type' => $envelope['event_type'],
@@ -3865,9 +3864,9 @@ class Digitalogic_Product_Sync_Receiver {
             }
         }
 
-        $fully_applied = empty($source_state['pending_products']);
+        $fully_applied = empty($source_state['pending_products']) && empty($source_state['deferred_products']);
         $result = array_merge(array(
-            'status' => $fully_applied ? 'recovered' : 'retry_pending',
+			'status' => $fully_applied ? 'recovered' : 'unapplied',
             'replayed' => true,
             'event_id' => $envelope['event_id'],
             'event_type' => $envelope['event_type'],
@@ -4970,6 +4969,10 @@ class Digitalogic_Product_Sync_Receiver {
         foreach ($changed_products as $product) {
             $code = $product['product_code'];
             $record_hash = $product['record_hash'];
+			$previous_product = is_array( $existing['products'][ $code ] ?? null )
+				? $existing['products'][ $code ]
+				: array();
+			$changed_fields = $this->product_changed_fields( $previous_product, $product );
             $applied_entry = is_array($applied[$code] ?? null) ? $applied[$code] : array();
             if (isset($applied_entry['record_hash']) && hash_equals((string) $applied_entry['record_hash'], $record_hash)) {
                 $woocommerce_id = isset($applied_entry['woocommerce_id'])
@@ -4994,10 +4997,15 @@ class Digitalogic_Product_Sync_Receiver {
                     'product_code' => $code,
                     'record_hash' => $record_hash,
                     'queued_event_id' => $envelope['event_id'],
+					'changed_fields' => $changed_fields,
                     'attempts' => 0,
                 );
                 $pending[$code] = $pending_entry;
                 unset($deferred[$code]);
+			} elseif ( isset( $pending[ $code ] ) ) {
+				$pending[ $code ]['queued_event_id'] = $envelope['event_id'];
+				$pending[ $code ]['changed_fields']  = $changed_fields;
+				unset( $deferred[ $code ] );
             }
         }
 
@@ -5010,6 +5018,66 @@ class Digitalogic_Product_Sync_Receiver {
             'deferred_products' => array_slice($deferred, 0, self::MAX_DEFERRED_PRODUCTS, true),
         );
     }
+
+	/** Project source row deltas onto the bounded, value-free event allowlist. */
+	private function product_changed_fields( $before, $after ) {
+		$groups = array(
+			'name'                           => 'name',
+			'category_code'                  => 'category',
+			'serial'                         => 'sku',
+			'unit'                           => 'unit',
+			'sale_price_source'              => 'sale_price',
+			'partner_price_source'           => 'partner_price',
+			'purchase_price_source'          => 'purchase_price',
+			'warehouse_stock'                => 'stock',
+			'total_stock'                    => 'stock',
+			'minimum_stock'                  => 'stock',
+			'foreign_currency'               => 'currency',
+			'foreign_price'                  => 'cny',
+			'weight_grams'                   => 'weight',
+			'location'                       => 'location',
+			'shipping_method_id'             => 'shipping',
+			'shipping_price_per_kg'          => 'shipping',
+			'shipping_price_per_kg_currency' => 'shipping',
+			'markup_percent'                 => 'markup',
+			'irt_per_cny'                    => 'exchange_rate',
+			'price_source_amount'            => 'pricing',
+			'price_source_currency'          => 'pricing',
+			'price_source_kind'              => 'pricing',
+			'price_rounding_digits'          => 'pricing',
+			'price_rounding_mode'            => 'pricing',
+			'pricing_catalog_revision'       => 'pricing',
+			'pricing_catalog_status'         => 'pricing',
+			'currency_effective_date'        => 'pricing',
+			'final_price'                    => 'pricing',
+			'warnings'                       => 'warnings',
+		);
+		$changes = array();
+		foreach ( $groups as $field => $group ) {
+			$before_exists = array_key_exists( $field, $before );
+			$after_exists  = array_key_exists( $field, $after );
+			if ( $before_exists !== $after_exists || ( $after_exists && $before[ $field ] !== $after[ $field ] ) ) {
+				$changes[ $group ] = true;
+			}
+		}
+		$changes = array_keys( $changes );
+		sort( $changes, SORT_STRING );
+		return $changes;
+	}
+
+	/** Return the exact sorted names stored with one successful materialization. */
+	private function delivery_changed_fields( $delivery_entry, $created ) {
+		$fields = is_array( $delivery_entry['changed_fields'] ?? null )
+			? $delivery_entry['changed_fields']
+			: array();
+		if ( $created ) {
+			$fields[] = 'publication';
+		}
+		$allowed = array( 'name', 'category', 'sku', 'unit', 'sale_price', 'partner_price', 'purchase_price', 'stock', 'currency', 'cny', 'weight', 'location', 'shipping', 'markup', 'exchange_rate', 'pricing', 'warnings', 'publication' );
+		$fields  = array_values( array_unique( array_intersect( $allowed, array_map( 'strval', $fields ) ) ) );
+		sort( $fields, SORT_STRING );
+		return $fields;
+	}
 
     /**
      * Drain selected durable delivery sets and classify outcomes once.
@@ -5221,13 +5289,11 @@ class Digitalogic_Product_Sync_Receiver {
 				if ( class_exists( 'Digitalogic_Patris_Catalog_Materializer' ) ) {
 					$creation_policy = Digitalogic_Patris_Catalog_Backfill::instance()->creation_policy( $product_data, $source_state['source'] ?? array() );
 					$materialized = is_wp_error( $creation_policy ) ? $creation_policy
-						: ( $result['created'] >= (int) $creation_policy['batch_limit']
-							? new WP_Error( 'digitalogic_patris_creation_batch_limit', 'Missing product creation reached the configured batch limit.' )
-							: Digitalogic_Patris_Catalog_Materializer::instance()->materialize_source_record(
+						: Digitalogic_Patris_Catalog_Materializer::instance()->materialize_source_record(
 						$product_data,
 						is_array( $source_state['source'] ?? null ) ? $source_state['source'] : array(),
 						is_array( $source_state['quarantined_codes'] ?? null ) ? $source_state['quarantined_codes'] : array()
-					) );
+					);
 					if ( is_wp_error( $materialized ) ) {
 						$resolved = $materialized;
 					} else {
@@ -5551,6 +5617,9 @@ class Digitalogic_Product_Sync_Receiver {
 					);
 				}
 				if ( is_array( $committed ) ) {
+					$committed['event_id']       = (string) ( $delivery_entry['queued_event_id'] ?? '' );
+					$committed['change_type']    = $created ? 'created' : 'updated';
+					$committed['changed_fields'] = $this->delivery_changed_fields( $delivery_entry, $created );
 					$this->queue_materializer_product_committed( $committed );
 				} elseif ( ! $materialization_enabled ) {
 					// This identity passed the same hash and canonical readback above.
@@ -5563,6 +5632,9 @@ class Digitalogic_Product_Sync_Receiver {
 							'source_id' => (string) ( $source_state['source']['id'] ?? '' ),
 							'dataset' => (string) ( $source_state['source']['dataset'] ?? '' ),
 							'source_revision' => (string) ( $source_state['source']['revision'] ?? '' ),
+							'event_id' => (string) ( $delivery_entry['queued_event_id'] ?? '' ),
+							'change_type' => $created ? 'created' : 'updated',
+							'changed_fields' => $this->delivery_changed_fields( $delivery_entry, $created ),
 						)
 					);
 				}
@@ -6438,7 +6510,15 @@ class Digitalogic_Product_Sync_Receiver {
 					}
 				}
                 $result['pricing_warnings'] = array_values((array) ($written['warnings'] ?? array()));
+				$entries_by_code = array();
+				foreach ( $batch_entries as $entry ) {
+					$entries_by_code[ (string) $entry['product_code'] ] = $entry['delivery_entry'];
+				}
 				foreach ( (array) ( $written['commit_snapshots'] ?? array() ) as $snapshot ) {
+					$entry = $entries_by_code[ (string) ( $snapshot['product_code'] ?? '' ) ] ?? array();
+					$snapshot['event_id']       = (string) ( $entry['queued_event_id'] ?? '' );
+					$snapshot['change_type']    = 'updated';
+					$snapshot['changed_fields'] = $this->delivery_changed_fields( $entry, false );
 					$this->queue_materializer_product_committed( $snapshot );
 				}
                 foreach ($batch_entries as $entry) {
@@ -6792,11 +6872,11 @@ class Digitalogic_Product_Sync_Receiver {
         $deferred = is_array($source_state['deferred_products'] ?? null)
             ? $source_state['deferred_products']
             : array();
-        $fully_applied = empty($pending);
+        $fully_applied = empty($pending) && empty($deferred);
 
         return array(
             'fully_applied' => $fully_applied,
-            'retryable' => !$fully_applied,
+			'retryable' => false,
             'pending_products' => count($pending),
             'deferred_products' => count($deferred),
             'deferred_reconciliation' => $this->deferred_summary($deferred),
@@ -6808,7 +6888,7 @@ class Digitalogic_Product_Sync_Receiver {
         $delivery = $this->delivery_result_state($source_state);
         $receipt = array(
             'event_id' => (string) $source_state['last_event_id'],
-            'status' => $delivery['pending_products'] > 0 ? 'pending' : ($delivery['deferred_products'] > 0 ? 'deferred' : 'complete'),
+			'status' => ( $delivery['pending_products'] + $delivery['deferred_products'] ) > 0 ? 'pending' : 'complete',
             'pending_products' => (int) $delivery['pending_products'],
             'deferred_products' => (int) $delivery['deferred_products'],
             'deferred_missing' => (int) $delivery['deferred_reconciliation']['missing'],

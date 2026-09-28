@@ -518,6 +518,52 @@ final class WebSocketLifecycleTest extends TestCase {
 		$this->assertCount( 1, $this->redis->published );
 	}
 
+	/** A verified Patris commit emits one immutable value-free product event. */
+	public function test_patris_commit_event_is_sanitized_and_idempotent(): void {
+		$GLOBALS['digitalogic_test_posts'][14095] = array(
+			'post_type'   => 'product',
+			'post_status' => 'publish',
+			'post_parent' => 0,
+			'post_title'  => 'GL850',
+			'meta'        => array(),
+		);
+		// phpcs:ignore Generic.Formatting.MultipleStatementAlignment.NotSameWarning
+		$snapshot = array(
+			'product_id'      => 14095,
+			'product_code'    => '116038',
+			'event_id'        => 'sha256:' . str_repeat( '1', 64 ),
+			'source_revision' => 'sha256:' . str_repeat( '2', 64 ),
+			'change_type'     => 'updated',
+			'changed_fields'  => array( 'weight', 'cny', 'weight', 'not_allowed' ),
+			'foreign_price'   => 'must-not-leak',
+			'weight_grams'    => 'must-not-leak',
+		);
+		// phpcs:ignore Generic.Formatting.MultipleStatementAlignment.NotSameWarning
+		$panel = Digitalogic_Panel::instance();
+		$panel->record_committed_product( $snapshot );
+		$panel->record_committed_products_complete();
+		$panel->record_committed_product( $snapshot );
+		$panel->record_committed_products_complete();
+
+		$events = $GLOBALS['digitalogic_test_options']['digitalogic_panel_events'];
+		$this->assertCount( 1, $events );
+		$this->assertSame( 'product.updated', $events[0]['name'] );
+		$this->assertSame(
+			array(
+				'id'              => 14095,
+				'product_id'      => 14095,
+				'parent_id'       => 0,
+				'event_id'        => $snapshot['event_id'],
+				'product_code'    => '116038',
+				'changed_fields'  => array( 'cny', 'weight' ),
+				'source_revision' => $snapshot['source_revision'],
+			),
+			$events[0]['data']
+		);
+		$this->assertStringNotContainsString( 'must-not-leak', wp_json_encode( $events[0] ) );
+		$this->assertCount( 1, $this->redis->published );
+	}
+
 	/** Verify that one key cannot identify conflicting event data. */
 	public function test_idempotency_conflict_never_appends_or_advances_sequence(): void {
 		$key      = 'sha256:' . str_repeat( 'c', 64 );

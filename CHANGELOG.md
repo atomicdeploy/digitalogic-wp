@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.3.11] - 2026-09-28
+
+- Replace the Patris product reconciliation and incomplete-product repair timers with synchronous, identity-locked materialization for every accepted event.
+- Retire the legacy Patris pull-import cron so product ingestion has no polling writer to race the authenticated event receiver.
+- Keep any incomplete delivery durably unapplied and make receipt-v2 report pending until both transient and deferred product sets are empty.
+- Publish one idempotent, value-free `product.created` or `product.updated` Panel event after verified commit with Product Code, source event/revision, WordPress product ID, and allowlisted changed-field names.
+- Add the durable Panel-ledger-to-Codex event bridge with strict schema validation, wake-only prompts, and no polling loop.
+
 ## [2.3.10] - 2026-09-28
 
 - Add a complete package-runtime fingerprint and make the persistent WordPress WebSocket command worker exit for its managed systemd restart when a deployment replaces it, preventing stale receiver bytecode after deployments.

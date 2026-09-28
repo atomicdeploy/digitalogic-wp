@@ -31,7 +31,7 @@ class Digitalogic_Panel {
 	/**
 	 * @var array<int,bool> IDs from verified post-commit snapshots only.
 	 */
-	private $committed_product_ids = array();
+	private $committed_product_snapshots = array();
 
 	/** @var array<string,bool> Request-local canonical currency event deduplication. */
 	private $recorded_currency_revisions = array();
@@ -874,12 +874,29 @@ class Digitalogic_Panel {
 		);
 	}
 
-	/** Collect committed IDs, never IDs from provisional Woo save callbacks. */
+	/** Collect sanitized committed snapshots, never provisional Woo callbacks. */
 	public function record_committed_product( $snapshot ) {
 		$product_id = is_array( $snapshot )
 			? absint( $snapshot['product_id'] ?? 0 ) : 0;
-		if ( $product_id > 0 && ! $this->pricing_write_is_locked() ) {
-			$this->committed_product_ids[ $product_id ] = true;
+		$event_id   = is_array( $snapshot ) ? (string) ( $snapshot['event_id'] ?? '' ) : '';
+		$revision   = is_array( $snapshot ) ? (string) ( $snapshot['source_revision'] ?? '' ) : '';
+		$code       = is_array( $snapshot ) ? trim( (string) ( $snapshot['product_code'] ?? '' ) ) : '';
+		if (
+			$product_id > 0
+			&& ! $this->pricing_write_is_locked()
+			&& 1 === preg_match( '/\Asha256:[a-f0-9]{64}\z/D', $event_id )
+			&& 1 === preg_match( '/\Asha256:[a-f0-9]{64}\z/D', $revision )
+			&& '' !== $code
+			&& strlen( $code ) <= 191
+		) {
+			$this->committed_product_snapshots[ $event_id . '|' . $code . '|' . $product_id ] = array(
+				'product_id'      => $product_id,
+				'event_id'        => $event_id,
+				'product_code'    => $code,
+				'changed_fields'  => is_array( $snapshot['changed_fields'] ?? null ) ? $snapshot['changed_fields'] : array(),
+				'source_revision' => $revision,
+				'change_type'     => 'created' === (string) ( $snapshot['change_type'] ?? '' ) ? 'created' : 'updated',
+			);
 		}
 	}
 
@@ -887,22 +904,33 @@ class Digitalogic_Panel {
 	public function record_committed_products_complete() {
 		if (
 			$this->pricing_write_is_locked()
-			|| empty( $this->committed_product_ids )
+			|| empty( $this->committed_product_snapshots )
 		) {
 			return;
 		}
-		$ids                         = array_keys( $this->committed_product_ids );
-		$this->committed_product_ids = array();
-		foreach ( array_chunk( $ids, self::EVENT_LIMIT ) as $chunk ) {
+		$snapshots                         = array_values( $this->committed_product_snapshots );
+		$this->committed_product_snapshots = array();
+		foreach ( array_chunk( $snapshots, self::EVENT_LIMIT ) as $chunk ) {
 			$entries = array();
-			foreach ( $chunk as $product_id ) {
-				$parent_id = absint( wp_get_post_parent_id( $product_id ) );
+			foreach ( $chunk as $snapshot ) {
+				$product_id = (int) $snapshot['product_id'];
+				$parent_id  = function_exists( 'wp_get_post_parent_id' )
+					? absint( wp_get_post_parent_id( $product_id ) )
+					: 0;
+				$fields     = array_values( array_unique( array_map( 'sanitize_key', (array) $snapshot['changed_fields'] ) ) );
+				$allowed    = array( 'name', 'category', 'sku', 'unit', 'sale_price', 'partner_price', 'purchase_price', 'stock', 'currency', 'cny', 'weight', 'location', 'shipping', 'markup', 'exchange_rate', 'pricing', 'warnings', 'publication' );
+				$fields     = array_values( array_intersect( $fields, $allowed ) );
+				sort( $fields, SORT_STRING );
 				$entries[] = array(
-					'event' => 'product.updated',
+					'event' => 'created' === $snapshot['change_type'] ? 'product.created' : 'product.updated',
 					'data'  => array(
-						'id'         => $product_id,
-						'product_id' => $parent_id > 0 ? $parent_id : $product_id,
-						'parent_id'  => $parent_id,
+						'id'              => $product_id,
+						'product_id'      => $parent_id > 0 ? $parent_id : $product_id,
+						'parent_id'       => $parent_id,
+						'event_id'        => $snapshot['event_id'],
+						'product_code'    => sanitize_text_field( $snapshot['product_code'] ),
+						'changed_fields'  => $fields,
+						'source_revision' => $snapshot['source_revision'],
 					),
 				);
 			}
@@ -1400,6 +1428,15 @@ class Digitalogic_Panel {
 	 */
 	private static function idempotent_event( $events, $event, $data ) {
 		$key = is_array( $data ) ? (string) ( $data['idempotency_key'] ?? '' ) : '';
+		if (
+			'' === $key
+			&& is_array( $data )
+			&& 1 === preg_match( '/\Asha256:[a-f0-9]{64}\z/D', (string) ( $data['event_id'] ?? '' ) )
+			&& absint( $data['id'] ?? 0 ) > 0
+			&& '' !== (string) ( $data['product_code'] ?? '' )
+		) {
+			$key = 'sha256:' . hash( 'sha256', (string) $data['event_id'] . '|' . (string) $data['product_code'] . '|' . absint( $data['id'] ) );
+		}
 		if ( 1 !== preg_match( '/\Asha256:[a-f0-9]{64}\z/D', $key ) ) {
 			return null;
 		}
@@ -1407,7 +1444,16 @@ class Digitalogic_Panel {
 		$name = sanitize_text_field( (string) $event );
 		foreach ( array_reverse( (array) $events ) as $stored_event ) {
 			$stored_data = is_array( $stored_event['data'] ?? null ) ? $stored_event['data'] : array();
-			if ( ! hash_equals( $key, (string) ( $stored_data['idempotency_key'] ?? '' ) ) ) {
+			$stored_key  = (string) ( $stored_data['idempotency_key'] ?? '' );
+			if (
+				'' === $stored_key
+				&& 1 === preg_match( '/\Asha256:[a-f0-9]{64}\z/D', (string) ( $stored_data['event_id'] ?? '' ) )
+				&& absint( $stored_data['id'] ?? 0 ) > 0
+				&& '' !== (string) ( $stored_data['product_code'] ?? '' )
+			) {
+				$stored_key = 'sha256:' . hash( 'sha256', (string) $stored_data['event_id'] . '|' . (string) $stored_data['product_code'] . '|' . absint( $stored_data['id'] ) );
+			}
+			if ( ! hash_equals( $key, $stored_key ) ) {
 				continue;
 			}
 			if ( ! hash_equals( $name, (string) ( $stored_event['name'] ?? '' ) ) ) {

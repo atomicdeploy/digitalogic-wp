@@ -122,7 +122,7 @@ final class PatrisIncompleteProductNotifierTest extends TestCase {
 		$this->assertStringNotContainsString( 'قیمت: 0', $event['message'] );
 		$this->assertStringNotContainsString( '0 تومان', $event['message'] );
 		$this->assertStringNotContainsString( 'must-not-leak', wp_json_encode( $store ) );
-		$this->assertCount( 1, $this->scheduled_alert_workers() );
+		$this->assertCount( 0, $this->scheduled_alert_workers() );
 		$this->assertCount( 0, $this->adapter_events );
 
 		$this->service->run_delivery_worker();
@@ -242,7 +242,7 @@ final class PatrisIncompleteProductNotifierTest extends TestCase {
 		$this->assertCount( 757, $store['products'] );
 		$this->assertCount( 757, $store['outbox'] );
 		$this->assertLessThan( 4 * 1024 * 1024, strlen( wp_json_encode( $store ) ) );
-		$this->assertCount( 1, $this->scheduled_alert_workers() );
+		$this->assertCount( 0, $this->scheduled_alert_workers() );
 		$this->assertCount( 0, $this->adapter_events );
 	}
 
@@ -297,7 +297,7 @@ final class PatrisIncompleteProductNotifierTest extends TestCase {
 		$this->assertSame( '101001001', $entry['event']['product_code'] );
 		$this->assertSame( array( 'price', 'stock', 'weight' ), $entry['event']['missing_fields'] );
 		$this->assertSame( 'محصول قابل مشاهده است، اما قابل خرید نیست و قیمت ندارد.', $entry['event']['impact'] );
-		$this->assertCount( 1, $this->scheduled_repair_workers() );
+		$this->assertCount( 0, $this->scheduled_repair_workers() );
 		$this->assertCount( 0, $this->adapter_events );
 
 		$this->make_outbox_due();
@@ -488,7 +488,7 @@ final class PatrisIncompleteProductNotifierTest extends TestCase {
 		);
 
 		$this->assertTrue( $this->service->ensure_delivery_worker() );
-		$this->assertCount( 1, $this->scheduled_alert_workers() );
+		$this->assertCount( 0, $this->scheduled_alert_workers() );
 		$this->assertSame( $durable, $GLOBALS['digitalogic_test_options'][ Digitalogic_Patris_Incomplete_Product_Notifier::STORE_OPTION ] );
 		$this->assertEmpty( $GLOBALS['digitalogic_test_actions']['digitalogic_patris_incomplete_product_alert_failed'] ?? array() );
 	}
@@ -515,7 +515,7 @@ final class PatrisIncompleteProductNotifierTest extends TestCase {
 		);
 
 		$this->assertTrue( $this->service->ensure_repair_worker() );
-		$this->assertCount( 1, $this->scheduled_repair_workers() );
+		$this->assertCount( 0, $this->scheduled_repair_workers() );
 		$this->assertEmpty( $GLOBALS['digitalogic_test_actions']['digitalogic_patris_incomplete_product_alert_failed'] ?? array() );
 	}
 

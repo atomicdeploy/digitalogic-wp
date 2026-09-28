@@ -205,6 +205,17 @@ final class ProductSyncRestTest extends TestCase {
 		$this->assertSame(1, $response->get_data()['data']['deferred_products']);
 
 		$state = $GLOBALS['digitalogic_test_options'][Digitalogic_Product_Sync_Receiver::STATE_OPTION];
+		$state['sources'][$key]['pending_products'] = array();
+		$GLOBALS['digitalogic_test_options'][Digitalogic_Product_Sync_Receiver::STATE_OPTION] = $state;
+		unset($GLOBALS['digitalogic_test_option_cache'][Digitalogic_Product_Sync_Receiver::STATE_OPTION]);
+		$response = $api->get_patris_product_sync_receipt(
+			new WP_REST_Request(array(), $probe, $auth, json_encode($probe))
+		);
+		$this->assertSame('pending', $response->get_data()['data']['status']);
+		$this->assertSame(0, $response->get_data()['data']['pending_products']);
+		$this->assertSame(1, $response->get_data()['data']['deferred_products']);
+
+		$state = $GLOBALS['digitalogic_test_options'][Digitalogic_Product_Sync_Receiver::STATE_OPTION];
 		$state['sources'][$key]['last_event_id'] = $later_event_id;
 		$state['sources'][$key]['generated_at'] = $later_generated_at;
 		$state['sources'][$key]['last_accepted_generated_at'] = $later_generated_at;
