@@ -252,6 +252,7 @@ class Digitalogic_Product_Sync_Receiver {
 	private const MAX_CATEGORIES                    = 10000;
 	private const MAX_SOURCES                       = 16;
 	private const MAX_RECENT_EVENTS                 = 128;
+	private const RECEIPT_MAX_FUTURE_SKEW_SECONDS   = 300;
 	private const MAX_RESULT_ERRORS                 = 100;
 	private const MAX_DEFERRED_PRODUCTS             = self::MAX_PRODUCTS;
 	private const MAX_DELIVERY_PRODUCTS_PER_REQUEST = 25;
@@ -1296,13 +1297,15 @@ class Digitalogic_Product_Sync_Receiver {
 	 * @param string $source_id       Exact source id.
 	 * @param string $dataset         Exact source dataset.
 	 * @param string $source_revision Exact source revision carried by the event.
+	 * @param string $generated_at    Exact event generation timestamp.
 	 * @return array|WP_Error
 	 */
-	public function get_event_delivery_receipt( $event_id, $source_id, $dataset, $source_revision ) {
+	public function get_event_delivery_receipt( $event_id, $source_id, $dataset, $source_revision, $generated_at ) {
 		$event_id        = is_string( $event_id ) ? $event_id : '';
 		$source_id       = is_string( $source_id ) ? $source_id : '';
 		$dataset         = is_string( $dataset ) ? $dataset : '';
 		$source_revision = is_string( $source_revision ) ? $source_revision : '';
+		$generated_at    = is_string( $generated_at ) ? $generated_at : '';
 		if (
 			! $this->is_hash( $event_id )
 			|| ! $this->is_hash( $source_revision )
@@ -1319,11 +1322,20 @@ class Digitalogic_Product_Sync_Receiver {
 				400
 			);
 		}
+		$generated_at_order = $this->timestamp_order( $generated_at );
+		if ( is_wp_error( $generated_at_order ) ) {
+			return $this->error(
+				'digitalogic_product_sync_receipt_generated_at_invalid',
+				'An exact RFC3339Nano generated_at is required.',
+				400
+			);
+		}
 
 		$receipt = array(
-			'schema'            => 'digitalogic.product-sync-receipt.v1',
+			'schema'            => 'digitalogic.product-sync-receipt.v2',
 			'status'            => 'not_found',
 			'event_id'          => $event_id,
+			'generated_at'      => $generated_at,
 			'source'            => array(
 				'id'       => $source_id,
 				'dataset'  => $dataset,
@@ -1337,17 +1349,39 @@ class Digitalogic_Product_Sync_Receiver {
 		$key     = $this->source_key( $source_id, $dataset );
 		$source  = is_array( $state['sources'][ $key ] ?? null ) ? $state['sources'][ $key ] : array();
 		$events  = is_array( $source['recent_events'] ?? null ) ? $source['recent_events'] : array();
+		$event_found = array_key_exists( $event_id, $events ) && is_array( $events[ $event_id ] );
 		$event   = is_array( $events[ $event_id ] ?? null ) ? $events[ $event_id ] : array();
-		if ( $source_revision !== (string) ( $event['source_revision'] ?? '' ) ) {
-			if ( count( $events ) >= self::MAX_RECENT_EVENTS ) {
-				return $this->error(
-					'digitalogic_product_sync_receipt_history_inconclusive',
-					'The bounded receipt history cannot prove that this event was not accepted.',
-					503,
-					array( 'retryable' => false )
-				);
+		if ( ! $event_found ) {
+			if ( empty( $source ) ) {
+				return $this->receipt_absence_is_not_future( $generated_at_order ) ? $receipt : $this->receipt_future_inconclusive();
 			}
-			return $receipt;
+			$high_water = $this->receipt_generated_at_high_water( $source );
+			if (
+				$this->receipt_absence_is_not_future( $generated_at_order )
+				&& is_array( $high_water )
+				&& $this->compare_timestamp_order( $generated_at_order, $high_water ) > 0
+			) {
+				return $receipt;
+			}
+			if ( ! $this->receipt_absence_is_not_future( $generated_at_order ) ) {
+				return $this->receipt_future_inconclusive();
+			}
+			return $this->error(
+				'digitalogic_product_sync_receipt_history_inconclusive',
+				'The bounded receipt history cannot prove that this event was not accepted.',
+				503,
+				array( 'retryable' => false )
+			);
+		}
+		if (
+			$source_revision !== (string) ( $event['source_revision'] ?? '' )
+			|| $generated_at !== (string) ( $event['generated_at'] ?? '' )
+		) {
+			return $this->error(
+				'digitalogic_product_sync_receipt_event_identity_mismatch',
+				'The stored event does not match the probed source revision and generated_at.',
+				409
+			);
 		}
 
 		if ( $event_id !== (string) ( $source['last_event_id'] ?? '' ) ) {
@@ -1368,6 +1402,43 @@ class Digitalogic_Product_Sync_Receiver {
 		$receipt['status'] = $receipt['pending_products'] > 0 ? 'pending' : 'applied';
 
 		return $receipt;
+	}
+
+	/** Return the greatest durable accepted generated_at order from bounded state. */
+	private function receipt_generated_at_high_water( $source ) {
+		$candidates = array(
+			$source['last_accepted_generated_at'] ?? null,
+			$source['generated_at'] ?? null,
+		);
+		foreach ( (array) ( $source['recent_events'] ?? array() ) as $event ) {
+			$candidates[] = is_array( $event ) ? ( $event['generated_at'] ?? null ) : null;
+		}
+		$high_water = null;
+		foreach ( $candidates as $candidate ) {
+			if ( ! is_string( $candidate ) ) {
+				continue;
+			}
+			$order = $this->timestamp_order( $candidate );
+			if ( ! is_wp_error( $order ) && ( null === $high_water || $this->compare_timestamp_order( $order, $high_water ) > 0 ) ) {
+				$high_water = $order;
+			}
+		}
+		return $high_water;
+	}
+
+	/** Whether an absent event timestamp is within the safe receiver clock boundary. */
+	private function receipt_absence_is_not_future( $generated_at_order ) {
+		return (int) $generated_at_order[0] <= time() + self::RECEIPT_MAX_FUTURE_SKEW_SECONDS;
+	}
+
+	/** Return a fail-closed response for an absent event beyond safe clock skew. */
+	private function receipt_future_inconclusive() {
+		return $this->error(
+			'digitalogic_product_sync_receipt_chronology_inconclusive',
+			'The absent event generated_at is beyond the safe receiver clock boundary.',
+			503,
+			array( 'retryable' => true )
+		);
 	}
 
 	/**
@@ -3644,6 +3715,7 @@ class Digitalogic_Product_Sync_Receiver {
             'input_products' => $input_products,
             'generated_at' => $envelope['generated_at'],
             'generated_at_order' => $envelope['generated_at_order'],
+			'last_accepted_generated_at' => $envelope['generated_at'],
             'last_event_id' => $envelope['event_id'],
             'last_event_type' => $envelope['event_type'],
             'products' => $transition['products'],

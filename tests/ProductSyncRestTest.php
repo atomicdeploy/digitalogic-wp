@@ -103,6 +103,7 @@ final class ProductSyncRestTest extends TestCase {
 
 		$probe = array(
 			'event_id' => $payload['event_id'],
+			'generated_at' => $payload['generated_at'],
 			'source' => $payload['source'],
 		);
 		$request = new WP_REST_Request(array(), $probe, $auth, json_encode($probe));
@@ -110,9 +111,10 @@ final class ProductSyncRestTest extends TestCase {
 		$response = $api->get_patris_product_sync_receipt($request);
 		$this->assertSame(200, $response->get_status());
 		$data = $response->get_data()['data'];
-		$this->assertSame('digitalogic.product-sync-receipt.v1', $data['schema']);
+		$this->assertSame('digitalogic.product-sync-receipt.v2', $data['schema']);
 		$this->assertSame('applied', $data['status']);
 		$this->assertSame($payload['event_id'], $data['event_id']);
+		$this->assertSame($payload['generated_at'], $data['generated_at']);
 		$this->assertSame($payload['source'], $data['source']);
 		$this->assertSame(0, $data['pending_products']);
 		$this->assertSame(0, $data['deferred_products']);
@@ -120,14 +122,24 @@ final class ProductSyncRestTest extends TestCase {
 		$this->assertStringNotContainsString('receiver-secret', json_encode($response->get_data()));
 		$this->assertArrayNotHasKey('products', $data);
 
+		$mismatch = $probe;
+		$mismatch['source']['revision'] = 'sha256:' . str_repeat('f', 64);
+		$response = $api->get_patris_product_sync_receipt(
+			new WP_REST_Request(array(), $mismatch, $auth, json_encode($mismatch))
+		);
+		$this->assertSame(409, $response->get_status());
+		$this->assertSame('digitalogic_product_sync_receipt_event_identity_mismatch', $response->get_data()['code']);
+
 		$unknown = $probe;
 		$unknown['event_id'] = 'sha256:' . str_repeat('a', 64);
+		$unknown['generated_at'] = '2026-07-20T00:00:01Z';
 		$response = $api->get_patris_product_sync_receipt(
 			new WP_REST_Request(array(), $unknown, $auth, json_encode($unknown))
 		);
 		$this->assertSame(200, $response->get_status());
 		$this->assertSame('not_found', $response->get_data()['data']['status']);
 		$this->assertSame($unknown['event_id'], $response->get_data()['data']['event_id']);
+		$this->assertSame($unknown['generated_at'], $response->get_data()['data']['generated_at']);
 
 		$invalid = $probe;
 		$invalid['event_id'] = 'not-a-hash';
@@ -136,6 +148,18 @@ final class ProductSyncRestTest extends TestCase {
 		);
 		$this->assertSame(400, $response->get_status());
 		$this->assertSame('digitalogic_product_sync_receipt_identity_invalid', $response->get_data()['code']);
+
+		$malformed = $probe;
+		$malformed['generated_at'] = 'not-rfc3339';
+		$response = $api->get_patris_product_sync_receipt(
+			new WP_REST_Request(array(), $malformed, $auth, json_encode($malformed))
+		);
+		$this->assertSame(400, $response->get_status());
+		$this->assertSame('digitalogic_product_sync_receipt_generated_at_invalid', $response->get_data()['code']);
+		$this->assertSame(
+			$payload['generated_at'],
+			Digitalogic_Product_Sync_Receiver::instance()->get_source_state('patris-export', 'ALLANBAR')['last_accepted_generated_at']
+		);
 	}
 
 	public function test_product_sync_receipt_distinguishes_pending_and_superseded_events(): void {
@@ -144,14 +168,18 @@ final class ProductSyncRestTest extends TestCase {
 		$revision = 'sha256:' . str_repeat('1', 64);
 		$event_id = 'sha256:' . str_repeat('2', 64);
 		$later_event_id = 'sha256:' . str_repeat('3', 64);
+		$generated_at = '2026-07-20T00:00:00Z';
+		$later_generated_at = '2026-07-20T00:01:00Z';
 		$key = hash('sha256', $source_id . "\n" . $dataset);
 		$GLOBALS['digitalogic_test_options'][Digitalogic_Product_Sync_Receiver::STATE_OPTION] = array(
 			'sources' => array(
 				$key => array(
 					'source' => array('id' => $source_id, 'dataset' => $dataset, 'revision' => $revision),
+					'generated_at' => $generated_at,
+					'last_accepted_generated_at' => $generated_at,
 					'last_event_id' => $event_id,
 					'recent_events' => array(
-						$event_id => array('source_revision' => $revision),
+						$event_id => array('source_revision' => $revision, 'generated_at' => $generated_at),
 					),
 					'pending_products' => array(
 						'116038' => array('queued_event_id' => $event_id),
@@ -164,6 +192,7 @@ final class ProductSyncRestTest extends TestCase {
 		);
 		$probe = array(
 			'event_id' => $event_id,
+			'generated_at' => $generated_at,
 			'source' => array('id' => $source_id, 'dataset' => $dataset, 'revision' => $revision),
 		);
 		$api = Digitalogic_REST_API::instance();
@@ -177,7 +206,12 @@ final class ProductSyncRestTest extends TestCase {
 
 		$state = $GLOBALS['digitalogic_test_options'][Digitalogic_Product_Sync_Receiver::STATE_OPTION];
 		$state['sources'][$key]['last_event_id'] = $later_event_id;
-		$state['sources'][$key]['recent_events'][$later_event_id] = array('source_revision' => 'sha256:' . str_repeat('4', 64));
+		$state['sources'][$key]['generated_at'] = $later_generated_at;
+		$state['sources'][$key]['last_accepted_generated_at'] = $later_generated_at;
+		$state['sources'][$key]['recent_events'][$later_event_id] = array(
+			'source_revision' => 'sha256:' . str_repeat('4', 64),
+			'generated_at' => $later_generated_at,
+		);
 		$GLOBALS['digitalogic_test_options'][Digitalogic_Product_Sync_Receiver::STATE_OPTION] = $state;
 		unset($GLOBALS['digitalogic_test_option_cache'][Digitalogic_Product_Sync_Receiver::STATE_OPTION]);
 		$response = $api->get_patris_product_sync_receipt(
@@ -193,8 +227,18 @@ final class ProductSyncRestTest extends TestCase {
 		for ($i = 0; $i < 128; ++$i) {
 			$state['sources'][$key]['recent_events']['sha256:' . hash('sha256', (string) $i)] = array(
 				'source_revision' => 'sha256:' . hash('sha256', 'revision-' . $i),
+				'generated_at' => gmdate('Y-m-d\TH:i:s\Z', strtotime('2026-07-19T00:00:00Z') + $i),
 			);
 		}
+		array_pop($state['sources'][$key]['recent_events']);
+		$state['sources'][$key]['recent_events'][$later_event_id] = array(
+			'source_revision' => 'sha256:' . str_repeat('4', 64),
+			'generated_at' => $later_generated_at,
+		);
+		unset(
+			$state['sources'][$key]['generated_at'],
+			$state['sources'][$key]['last_accepted_generated_at']
+		);
 		$GLOBALS['digitalogic_test_options'][Digitalogic_Product_Sync_Receiver::STATE_OPTION] = $state;
 		unset($GLOBALS['digitalogic_test_option_cache'][Digitalogic_Product_Sync_Receiver::STATE_OPTION]);
 		$response = $api->get_patris_product_sync_receipt(
@@ -202,6 +246,25 @@ final class ProductSyncRestTest extends TestCase {
 		);
 		$this->assertSame(503, $response->get_status());
 		$this->assertSame('digitalogic_product_sync_receipt_history_inconclusive', $response->get_data()['code']);
+
+		$newer = $probe;
+		$newer['event_id'] = 'sha256:' . str_repeat('5', 64);
+		$newer['generated_at'] = '2026-07-20T00:02:00Z';
+		$response = $api->get_patris_product_sync_receipt(
+			new WP_REST_Request(array(), $newer, $auth, json_encode($newer))
+		);
+		$this->assertSame(200, $response->get_status());
+		$this->assertSame('not_found', $response->get_data()['data']['status']);
+		$this->assertSame($newer['generated_at'], $response->get_data()['data']['generated_at']);
+
+		$future = $newer;
+		$future['event_id'] = 'sha256:' . str_repeat('6', 64);
+		$future['generated_at'] = '2999-01-01T00:00:00Z';
+		$response = $api->get_patris_product_sync_receipt(
+			new WP_REST_Request(array(), $future, $auth, json_encode($future))
+		);
+		$this->assertSame(503, $response->get_status());
+		$this->assertSame('digitalogic_product_sync_receipt_chronology_inconclusive', $response->get_data()['code']);
 	}
 	// phpcs:enable
 

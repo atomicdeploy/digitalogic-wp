@@ -121,6 +121,7 @@ final class ProductSyncReceiverTest extends TestCase {
             'input_products',
             'generated_at',
             'generated_at_order',
+			'last_accepted_generated_at',
             'last_event_id',
             'last_event_type',
             'products',
