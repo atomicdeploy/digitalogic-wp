@@ -89,6 +89,7 @@ class Digitalogic_REST_API {
 			|| str_starts_with( $route, '/digitalogic/v1/' )
 			|| '/digitalogic/reports' === $route
 			|| '/digitalogic/patris/product-sync' === $route
+			|| str_starts_with( $route, '/digitalogic/patris/product-sync/' )
 			|| '/digitalogic/integration' === $route
 			|| str_starts_with( $route, '/digitalogic/integration/' );
 	}
@@ -443,6 +444,15 @@ class Digitalogic_REST_API {
 			array(
 				'methods'             => 'POST',
 				'callback'            => array( $this, 'receive_patris_product_sync' ),
+				'permission_callback' => array( $this, 'check_patris_product_sync_permission' ),
+			)
+		);
+		register_rest_route(
+			'digitalogic',
+			'/patris/product-sync/receipt',
+			array(
+				'methods'             => 'POST',
+				'callback'            => array( $this, 'get_patris_product_sync_receipt' ),
 				'permission_callback' => array( $this, 'check_patris_product_sync_permission' ),
 			)
 		);
@@ -1765,6 +1775,30 @@ class Digitalogic_REST_API {
 			}
 			$result['receiver_timing_ms']['handler_total'] = round( max( 0, ( hrtime( true ) - $handler_started ) / 1000000 ), 3 );
 		}
+
+		return $this->product_sync_response( $result );
+	}
+
+	/**
+	 * POST /patris/product-sync/receipt
+	 *
+	 * Resolve an unknown write outcome without replaying the original event.
+	 * The route shares the product-sync credential and returns only exact echoed
+	 * identity, bounded delivery counts, and an acknowledgement state.
+	 *
+	 * @param WP_REST_Request $request Current request.
+	 * @return WP_REST_Response
+	 */
+	public function get_patris_product_sync_receipt( WP_REST_Request $request ) {
+		$payload = $request->get_json_params();
+		$payload = is_array( $payload ) ? $payload : array();
+		$source  = is_array( $payload['source'] ?? null ) ? $payload['source'] : array();
+		$result  = Digitalogic_Product_Sync_Receiver::instance()->get_event_delivery_receipt(
+			$payload['event_id'] ?? null,
+			$source['id'] ?? null,
+			$source['dataset'] ?? null,
+			$source['revision'] ?? null
+		);
 
 		return $this->product_sync_response( $result );
 	}

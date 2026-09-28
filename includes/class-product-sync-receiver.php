@@ -933,11 +933,16 @@ class Digitalogic_Product_Sync_Receiver {
             }
         }
 
-        return array(
+        $status = array(
             'source_count' => count($sources),
             'totals' => $totals,
             'sources' => $sources,
         );
+		if ( class_exists( 'Digitalogic_Patris_Catalog_Backfill' ) ) {
+			$status['reconciliation_watchdog'] = Digitalogic_Patris_Catalog_Backfill::instance()->watchdog_status();
+		}
+
+		return $status;
     }
 
     /**
@@ -1279,6 +1284,91 @@ class Digitalogic_Product_Sync_Receiver {
             ? $state['sources'][$key]
             : array();
     }
+
+	/**
+	 * Read a bounded receipt for one exact upstream delivery attempt.
+	 *
+	 * This is deliberately a read-only acknowledgement surface. It exposes no
+	 * stored payload or failure detail, so an upstream outbox can distinguish a
+	 * committed event from an unknown outcome without replaying a write.
+	 *
+	 * @param string $event_id        Exact canonical event identity.
+	 * @param string $source_id       Exact source id.
+	 * @param string $dataset         Exact source dataset.
+	 * @param string $source_revision Exact source revision carried by the event.
+	 * @return array|WP_Error
+	 */
+	public function get_event_delivery_receipt( $event_id, $source_id, $dataset, $source_revision ) {
+		$event_id        = is_string( $event_id ) ? $event_id : '';
+		$source_id       = is_string( $source_id ) ? $source_id : '';
+		$dataset         = is_string( $dataset ) ? $dataset : '';
+		$source_revision = is_string( $source_revision ) ? $source_revision : '';
+		if (
+			! $this->is_hash( $event_id )
+			|| ! $this->is_hash( $source_revision )
+			|| '' === trim( $source_id )
+			|| '' === trim( $dataset )
+			|| trim( $source_id ) !== $source_id
+			|| trim( $dataset ) !== $dataset
+			|| strlen( $source_id ) > self::MAX_CODE_LENGTH
+			|| strlen( $dataset ) > self::MAX_CODE_LENGTH
+		) {
+			return $this->error(
+				'digitalogic_product_sync_receipt_identity_invalid',
+				'An exact event_id, source id, dataset, and source revision are required.',
+				400
+			);
+		}
+
+		$receipt = array(
+			'schema'            => 'digitalogic.product-sync-receipt.v1',
+			'status'            => 'not_found',
+			'event_id'          => $event_id,
+			'source'            => array(
+				'id'       => $source_id,
+				'dataset'  => $dataset,
+				'revision' => $source_revision,
+			),
+			'pending_products'  => 0,
+			'deferred_products' => 0,
+			'observed_at'       => gmdate( 'c' ),
+		);
+		$state   = $this->load_state();
+		$key     = $this->source_key( $source_id, $dataset );
+		$source  = is_array( $state['sources'][ $key ] ?? null ) ? $state['sources'][ $key ] : array();
+		$events  = is_array( $source['recent_events'] ?? null ) ? $source['recent_events'] : array();
+		$event   = is_array( $events[ $event_id ] ?? null ) ? $events[ $event_id ] : array();
+		if ( $source_revision !== (string) ( $event['source_revision'] ?? '' ) ) {
+			if ( count( $events ) >= self::MAX_RECENT_EVENTS ) {
+				return $this->error(
+					'digitalogic_product_sync_receipt_history_inconclusive',
+					'The bounded receipt history cannot prove that this event was not accepted.',
+					503,
+					array( 'retryable' => false )
+				);
+			}
+			return $receipt;
+		}
+
+		if ( $event_id !== (string) ( $source['last_event_id'] ?? '' ) ) {
+			$receipt['status'] = 'superseded';
+			return $receipt;
+		}
+
+		foreach ( (array) ( $source['pending_products'] ?? array() ) as $entry ) {
+			if ( is_array( $entry ) && $event_id === (string) ( $entry['queued_event_id'] ?? '' ) ) {
+				++$receipt['pending_products'];
+			}
+		}
+		foreach ( (array) ( $source['deferred_products'] ?? array() ) as $entry ) {
+			if ( is_array( $entry ) && $event_id === (string) ( $entry['queued_event_id'] ?? '' ) ) {
+				++$receipt['deferred_products'];
+			}
+		}
+		$receipt['status'] = $receipt['pending_products'] > 0 ? 'pending' : 'applied';
+
+		return $receipt;
+	}
 
 	/**
 	 * Read committed owner products without calculation or materialization.

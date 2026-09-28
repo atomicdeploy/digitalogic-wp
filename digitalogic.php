@@ -3,7 +3,7 @@
  * Plugin Name: Digitalogic WooCommerce Extension
  * Plugin URI: https://github.com/atomicdeploy/digitalogic-wp
  * Description: Custom dynamic pricing, stock manager, and POS integration for Digitalogic electronic components shop. Supports bulk operations, import/export, and external API integration.
- * Version: 2.3.5
+ * Version: 2.3.6
  * Author: Digitalogic
  * Author URI: https://digitalogic.ir
  * Text Domain: digitalogic
@@ -22,7 +22,7 @@ if (!defined('ABSPATH')) {
 }
 
 // Define plugin constants
-define( 'DIGITALOGIC_VERSION', '2.3.5' );
+define( 'DIGITALOGIC_VERSION', '2.3.6' );
 define( 'DIGITALOGIC_PBX_SCHEMA_VERSION', '3' );
 define( 'DIGITALOGIC_EVENT_MESH_SCHEMA_VERSION', '1' );
 define( 'DIGITALOGIC_ASSISTANT_ACCOUNT_SCHEMA_VERSION', '2' );
@@ -417,6 +417,7 @@ final class Digitalogic {
         $this->set_default_options();
 		Digitalogic_Pricing_Snapshot::instance()->install_freshness_boundary_schedule();
 		Digitalogic_Panel::install_event_wake_retry();
+		Digitalogic_Patris_Catalog_Backfill::instance()->ensure_reconciliation_watchdog();
 
         // Flush rewrite rules
         flush_rewrite_rules();
@@ -450,6 +451,7 @@ final class Digitalogic {
 		Digitalogic_Pricing_Snapshot::instance()->deactivate_freshness_boundary_schedule();
 		Digitalogic_Panel::deactivate_event_wake_retry();
 		Digitalogic_Patris_Incomplete_Product_Notifier::deactivate();
+		Digitalogic_Patris_Catalog_Backfill::deactivate_reconciliation_watchdog();
         Digitalogic_Telegram_Account_Link::deactivate();
         flush_rewrite_rules();
     }
