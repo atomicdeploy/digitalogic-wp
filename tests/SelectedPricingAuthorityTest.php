@@ -405,7 +405,7 @@ final class SelectedPricingAuthorityTest extends TestCase {
 		$this->assertInstanceOf( WP_Error::class, $unknown );
 		$this->assertSame( 'digitalogic_product_sync_input_baseline_required', $unknown->get_error_code() );
 	}
-	/** Initial delivery, recovery and replay each emit once after releasing the lock. */
+	/** Only fully applied recovery and replay emit after releasing the lock. */
 	public function test_go_receipts_are_durable_and_emitted_once_outside_the_lock(): void {
 		$GLOBALS['digitalogic_test_options'][ Digitalogic_Pricing_Coordinator::AUTHORITY_OPTION ] = 'go';
 		$product  = $this->priced_product( 'PRICE-901' );
@@ -433,10 +433,10 @@ final class SelectedPricingAuthorityTest extends TestCase {
 		$GLOBALS['digitalogic_test_wc_products']      = array();
 		$this->assert_success( $receiver->receive( $payload ) );
 		$this->assert_success( $receiver->receive( $payload ) );
-		$this->assertSame( array( 'partially_applied', 'recovered', 'replayed' ), array_column( $observed, 'status' ) );
+		$this->assertSame( array( 'recovered', 'replayed' ), array_column( $observed, 'status' ) );
 		$this->reset_singleton( Digitalogic_Product_Sync_Receiver::class );
 		$receipt = Digitalogic_Product_Sync_Receiver::instance()->get_delivery_receipt( 'pricing-tests', 'kala' );
-		$this->assertSame( $observed[2]['delivery'], $receipt );
+		$this->assertSame( $observed[1]['delivery'], $receipt );
 		$this->assertSame( 'complete', $receipt['status'] );
 		$this->assertSame( $payload['event_id'], $receipt['event_id'] );
 		$this->assertSame( $payload['source'], $receipt['input_source'] );
@@ -511,7 +511,7 @@ final class SelectedPricingAuthorityTest extends TestCase {
 		$product                                = $this->priced_product( 'PRICE-901' );
 		$result                                 = Digitalogic_Product_Sync_Receiver::instance()->receive( $this->snapshot( array( $product ), '2026-07-22T00:00:00Z' ) );
 		$this->assert_success( $result );
-		$this->assertSame( 'deferred', $result['delivery']['status'] );
+		$this->assertSame( 'pending', $result['delivery']['status'] );
 		$this->assertSame( 0, $result['delivery']['pending_products'] );
 		$this->assertSame( 1, $result['delivery']['deferred_products'] );
 		$this->assertSame( 0, $result['delivery']['deferred_missing'] );

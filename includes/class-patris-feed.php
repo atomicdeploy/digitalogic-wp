@@ -40,7 +40,9 @@ class Digitalogic_Patris_Feed {
     }
 
     private function __construct() {
-        add_action('digitalogic_patris_feed_sync', array($this, 'pull_sync'));
+		// Product delivery is event-driven. Clear schedules left by the retired
+		// pull importer without registering a callback that could revive polling.
+		add_action( 'init', array( $this, 'deactivate_pull_schedule' ), 39 );
     }
 
     public function get_settings() {
@@ -150,15 +152,16 @@ class Digitalogic_Patris_Feed {
     }
 
     public function schedule_sync($interval) {
-        $timestamp = wp_next_scheduled('digitalogic_patris_feed_sync');
-        if ($timestamp) {
-            wp_unschedule_event($timestamp, 'digitalogic_patris_feed_sync');
-        }
-
-        if (in_array($interval, array('hourly', 'twicedaily', 'daily'), true)) {
-            wp_schedule_event(time() + MINUTE_IN_SECONDS, $interval, 'digitalogic_patris_feed_sync');
-        }
+		unset( $interval );
+		$this->deactivate_pull_schedule();
     }
+
+	/** Remove every legacy Patris pull event; push delivery is the only writer. */
+	public function deactivate_pull_schedule() {
+		if ( function_exists( 'wp_clear_scheduled_hook' ) ) {
+			wp_clear_scheduled_hook( 'digitalogic_patris_feed_sync', array() );
+		}
+	}
 
     public function pull_sync() {
         $settings = $this->get_settings();

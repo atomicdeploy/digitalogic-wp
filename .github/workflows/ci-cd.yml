@@ -91,6 +91,8 @@ jobs:
         node --test tests/sidebar-login-style.test.js
         node --check assets/js/sidebar-login.js
         node --test tests/product-identity.test.js
+        node --check scripts/event-product-codex-bridge.cjs
+        node --test scripts/event-product-codex-bridge.test.cjs
         node --check --input-type=commonjs < assets/integrations/google-apps-script/Code.gs
         node --test tests/google-sheets-apps-script.test.js
         node --check ops/pbx/lib/pbx-verification-agi.js

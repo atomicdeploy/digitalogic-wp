@@ -3,7 +3,7 @@
  * Plugin Name: Digitalogic WooCommerce Extension
  * Plugin URI: https://github.com/atomicdeploy/digitalogic-wp
  * Description: Custom dynamic pricing, stock manager, and POS integration for Digitalogic electronic components shop. Supports bulk operations, import/export, and external API integration.
- * Version: 2.3.10
+ * Version: 2.3.11
  * Author: Digitalogic
  * Author URI: https://digitalogic.ir
  * Text Domain: digitalogic
@@ -22,7 +22,7 @@ if (!defined('ABSPATH')) {
 }
 
 // Define plugin constants
-define( 'DIGITALOGIC_VERSION', '2.3.10' );
+define( 'DIGITALOGIC_VERSION', '2.3.11' );
 define( 'DIGITALOGIC_PBX_SCHEMA_VERSION', '3' );
 define( 'DIGITALOGIC_EVENT_MESH_SCHEMA_VERSION', '1' );
 define( 'DIGITALOGIC_ASSISTANT_ACCOUNT_SCHEMA_VERSION', '2' );
@@ -326,7 +326,9 @@ final class Digitalogic {
         Digitalogic_Panel::instance();
         Digitalogic_Storefront_Realtime::instance();
         Digitalogic_Event_Mesh::instance();
-		Digitalogic_Patris_Incomplete_Product_Notifier::instance();
+		// Patris alerts are projected from the durable post-commit Panel event
+		// ledger; the legacy timer-driven notifier remains disabled.
+		Digitalogic_Patris_Incomplete_Product_Notifier::deactivate();
         Digitalogic_Comment_Guard::instance();
         Digitalogic_Product_Resources::instance();
         Digitalogic_Storefront_Catalog::instance();
@@ -417,7 +419,8 @@ final class Digitalogic {
         $this->set_default_options();
 		Digitalogic_Pricing_Snapshot::instance()->install_freshness_boundary_schedule();
 		Digitalogic_Panel::install_event_wake_retry();
-		Digitalogic_Patris_Catalog_Backfill::instance()->ensure_reconciliation_watchdog();
+		Digitalogic_Patris_Feed::instance()->schedule_sync( '' );
+		Digitalogic_Patris_Catalog_Backfill::deactivate_reconciliation_watchdog();
 
         // Flush rewrite rules
         flush_rewrite_rules();
