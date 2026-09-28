@@ -274,6 +274,107 @@ final class ProductSyncReceiverTest extends TestCase {
 		$this->assertTrue( $observed[1]['purchasable'] );
 	}
 
+	// phpcs:disable -- Watchdog tests follow this legacy test class' compact fixture style.
+	/** A GL850-like source miss is retained, recovered by the watchdog, and never duplicated. */
+	public function test_gl850_like_pending_source_recovers_through_scheduled_reconciliation_idempotently(): void {
+		$GLOBALS['digitalogic_test_scheduled_events'] = array();
+		$observed = array();
+		add_action(
+			'digitalogic_patris_materializer_product_committed',
+			static function ( $snapshot ) use ( &$observed ) {
+				$observed[] = $snapshot;
+			}
+		);
+		$policy = array(
+			'enabled'            => true,
+			'status'             => 'publish',
+			'allow_non_positive' => false,
+			'batch_limit'        => 100,
+			'source_id'          => 'tests',
+			'dataset'            => 'ALLANBAR',
+		);
+		$GLOBALS['digitalogic_test_options'][ Digitalogic_Patris_Catalog_Backfill::POLICY_OPTION ] = $policy;
+		$product = array(
+			'product_code' => '116038',
+			'name'         => 'GL850G 4 PORT USB2/0 HUB',
+			'weight_grams' => 18,
+			'total_stock'  => 2,
+			'warnings'     => array( 'final_price_unavailable' ),
+		);
+		$product['record_hash'] = $this->recordHash( $product, true );
+		$receiver               = Digitalogic_Product_Sync_Receiver::instance();
+
+		$blocked = $receiver->receive( $this->snapshot( array( $product ) ) );
+		$this->assertNotInstanceOf( WP_Error::class, $blocked );
+		$this->assertSame( 1, $blocked['pending_products'] );
+		$this->assertSame( 'digitalogic_patris_creation_policy_blocked', $blocked['woocommerce']['errors'][0]['code'] );
+		$this->assertSame( array(), $GLOBALS['digitalogic_test_posts'] );
+
+		$policy['allow_non_positive'] = true;
+		$GLOBALS['digitalogic_test_options'][ Digitalogic_Patris_Catalog_Backfill::POLICY_OPTION ] = $policy;
+		$watchdog = Digitalogic_Patris_Catalog_Backfill::instance();
+		$this->assertTrue( $watchdog->ensure_reconciliation_watchdog() );
+		$this->assertCount( 1, $GLOBALS['digitalogic_test_scheduled_events'] );
+
+		$recovered = $watchdog->run_reconciliation_watchdog();
+		$this->assertNotInstanceOf( WP_Error::class, $recovered );
+		$this->assertSame( 'reconciled', $recovered['status'] );
+		$this->assertSame( 0, $recovered['pending_products'] );
+		$this->assertCount( 1, $GLOBALS['digitalogic_test_posts'] );
+		$product_id = (int) array_key_first( $GLOBALS['digitalogic_test_posts'] );
+		$woo        = wc_get_product( $product_id );
+		$this->assertSame( '116038', $woo->get_sku() );
+		$this->assertSame( 'GL850G 4 PORT USB2/0 HUB', $woo->get_name() );
+		$this->assertSame( 'publish', $woo->get_status() );
+		$this->assertSame( 'visible', $woo->get_catalog_visibility() );
+		$this->assertSame( '', $woo->get_regular_price() );
+		$this->assertSame( '', $woo->get_sale_price() );
+		$this->assertSame( '', $woo->get_price() );
+		$this->assertSame( 2, $woo->get_stock_quantity() );
+		$this->assertSame( 'canonical_missing_unpriced', $woo->get_meta( '_digitalogic_patris_price_status', true ) );
+		$this->assertCount( 1, $observed );
+		$this->assertFalse( $observed[0]['purchasable'] );
+
+		$repeat = $watchdog->run_reconciliation_watchdog();
+		$this->assertNotInstanceOf( WP_Error::class, $repeat );
+		$this->assertSame( 0, $repeat['sources'][0]['woocommerce']['attempted'] );
+		$this->assertSame( 0, $repeat['materialization_queued'] );
+		$this->assertCount( 1, $GLOBALS['digitalogic_test_posts'] );
+
+		$status = $receiver->get_status();
+		$this->assertTrue( $status['reconciliation_watchdog']['scheduled'] );
+		$this->assertNotNull( $status['reconciliation_watchdog']['next_run_at'] );
+		$this->assertSame( 'reconciled', $status['reconciliation_watchdog']['last_status'] );
+		$this->assertSame( 0, $status['reconciliation_watchdog']['pending_products'] );
+		$this->assertNull( $status['reconciliation_watchdog']['last_error'] );
+	}
+
+	/** Watchdog schedule installation is idempotent and deactivation removes only its hook. */
+	public function test_catalog_reconciliation_watchdog_schedule_has_live_readback(): void {
+		$GLOBALS['digitalogic_test_scheduled_events'] = array();
+		$watchdog = Digitalogic_Patris_Catalog_Backfill::instance();
+
+		$this->assertTrue( $watchdog->ensure_reconciliation_watchdog() );
+		$this->assertTrue( $watchdog->ensure_reconciliation_watchdog() );
+		$this->assertCount( 1, $GLOBALS['digitalogic_test_scheduled_events'] );
+		$this->assertSame( Digitalogic_Patris_Catalog_Backfill::WATCHDOG_HOOK, $GLOBALS['digitalogic_test_scheduled_events'][0]['hook'] );
+		$this->assertTrue( $watchdog->watchdog_status()['scheduled'] );
+		$this->assertNotNull( $watchdog->watchdog_status()['next_run_at'] );
+		$GLOBALS['digitalogic_test_options'][ Digitalogic_Patris_Catalog_Backfill::WATCHDOG_OPTION ] = array(
+			'last_error' => array( 'code' => str_repeat( 'c', 300 ), 'message' => str_repeat( 'm', 500 ) ),
+			'unbounded'  => range( 1, 1000 ),
+		);
+		$bounded = $watchdog->watchdog_status();
+		$this->assertArrayNotHasKey( 'unbounded', $bounded );
+		$this->assertSame( 191, strlen( $bounded['last_error']['code'] ) );
+		$this->assertSame( 300, strlen( $bounded['last_error']['message'] ) );
+
+		Digitalogic_Patris_Catalog_Backfill::deactivate_reconciliation_watchdog();
+		$this->assertSame( array(), $GLOBALS['digitalogic_test_scheduled_events'] );
+		$this->assertFalse( $watchdog->watchdog_status()['scheduled'] );
+	}
+	// phpcs:enable
+
 	/** A positive-stock legacy leaf must pass through the canonical writer before marker repair. */
 	public function test_unpriced_positive_stock_legacy_leaf_is_repaired_without_a_duplicate_or_hidden_save(): void {
 		$product                = array(

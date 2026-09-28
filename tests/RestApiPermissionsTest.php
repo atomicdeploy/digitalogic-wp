@@ -313,6 +313,7 @@ final class RestApiPermissionsTest extends TestCase {
 			'POST /google-sheets/writeback/apply' => 'check_write_permission',
             'GET /reports' => 'check_diagnostic_permission',
             'POST /patris/product-sync' => 'check_patris_product_sync_permission',
+			'POST /patris/product-sync/receipt' => 'check_patris_product_sync_permission',
 			'POST /pricing/sync/state' => 'check_pricing_sync_permission',
 			'POST /pricing/sync/preview' => 'check_pricing_sync_permission',
 			'POST /pricing/sync/apply' => 'check_pricing_sync_permission',

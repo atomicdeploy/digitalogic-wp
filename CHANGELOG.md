@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.3.6] - 2026-09-28
+
+- Allow an explicitly enabled source policy to publish identity-safe products with incomplete commercial fields while preserving blank prices and non-purchasable behavior.
+- Add a bounded receiver-owned reconciliation watchdog that retries pending product creation, audits source-to-WooCommerce materialization, repairs its own schedule, and exposes nonsecret run status through `wp digitalogic product-sync status`.
+- Add an authenticated, read-only exact-event receipt probe so Patris can resolve unknown write outcomes without blindly replaying product-sync events.
+
 ## [2.3.5] - 2026-09-28
 
 - Keep the add-to-cart SVG in the button's flex flow and restore the product-benefit area to its intended aligned CSS Grid on desktop and mobile.

@@ -89,12 +89,12 @@
 
 ## Installation
 
-Current source-built release: [v2.3.5](https://github.com/atomicdeploy/digitalogic-wp/releases/tag/v2.3.5).
+Current source-built release: v2.3.6 (release artifacts are published after owner approval).
 It contains the durable pricing/event pipeline, storefront currency and product
 SSE updates, and privacy-filtered frontend notifications with immutable source
 and package provenance.
-Use the stable install ZIP below and verify it against the release
-[`SHA256SUMS`](https://github.com/atomicdeploy/digitalogic-wp/releases/download/v2.3.5/SHA256SUMS)
+Use the stable install ZIP published with the approved GitHub release and
+verify it against that release's `SHA256SUMS` manifest.
 manifest. The WordPress package contains production plugin files and
 dependencies; reviewed PBX, n8n, RouterOS, and workstation deployment assets
 remain available in the immutable source tag.
@@ -260,6 +260,7 @@ checkout shipping. See [Supplier Shipping Method API](docs/SHIPPING-METHOD-API.m
 
 #### Patris Product Sync
 - `POST /wp-json/digitalogic/patris/product-sync` - Accept a verified, transformed-only snapshot or update
+- `POST /wp-json/digitalogic/patris/product-sync/receipt` - Read the bounded receipt for one exact event and source revision
 
 The receiver uses a dedicated header-only secret, independently recomputes
 `landed_price`, verifies record/source/event hashes, merges updates, and
