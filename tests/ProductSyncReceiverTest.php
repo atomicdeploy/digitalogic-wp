@@ -355,8 +355,14 @@ final class ProductSyncReceiverTest extends TestCase {
 		$watchdog = Digitalogic_Patris_Catalog_Backfill::instance();
 
 		$this->assertTrue( $watchdog->ensure_reconciliation_watchdog() );
+		update_option(
+			Digitalogic_Patris_Catalog_Backfill::WATCHDOG_OPTION,
+			array( 'schedule_error' => 'could_not_set' ),
+			false
+		);
 		$this->assertTrue( $watchdog->ensure_reconciliation_watchdog() );
 		$this->assertCount( 1, $GLOBALS['digitalogic_test_scheduled_events'] );
+		$this->assertArrayNotHasKey( 'schedule_error', $watchdog->watchdog_status() );
 		$this->assertSame( Digitalogic_Patris_Catalog_Backfill::WATCHDOG_HOOK, $GLOBALS['digitalogic_test_scheduled_events'][0]['hook'] );
 		$this->assertTrue( $watchdog->watchdog_status()['scheduled'] );
 		$this->assertNotNull( $watchdog->watchdog_status()['next_run_at'] );
