@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.3.9] - 2026-09-28
+
+- Enforce the accepted event timestamp as an atomic receiver-state storage invariant, including durable backfill for legacy rows on their next write.
+
 ## [2.3.8] - 2026-09-28
 
 - Let an authenticated Patris outbox safely prove a strictly newer absent event against the receiver's durable accepted-timestamp high-water without weakening saturated-history replay protection.

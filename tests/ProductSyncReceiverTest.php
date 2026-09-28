@@ -134,6 +134,12 @@ final class ProductSyncReceiverTest extends TestCase {
             'deferred_products',
             'received_at',
         ), array_keys($state));
+		$raw_state  = $GLOBALS['digitalogic_test_options'][ Digitalogic_Product_Sync_Receiver::STATE_OPTION ];
+		$source_key = hash( 'sha256', "patris-export\nALLANBAR" );
+		$this->assertSame(
+			'2026-07-20T00:00:00Z',
+			$raw_state['sources'][ $source_key ]['last_accepted_generated_at']
+		);
 
         $payload = json_decode(file_get_contents($path), true, 512, JSON_THROW_ON_ERROR);
         unset($payload['categories']);
@@ -141,6 +147,47 @@ final class ProductSyncReceiverTest extends TestCase {
         $this->assertInstanceOf(WP_Error::class, $invalid);
         $this->assertSame('digitalogic_product_sync_missing_field', $invalid->get_error_code());
     }
+
+	/** Every atomic option write backfills the accepted high-water in raw storage. */
+	public function test_persistence_backfills_accepted_high_water_for_legacy_state(): void {
+		$source_id    = 'legacy-source';
+		$dataset      = 'kala.db';
+		$source_key   = hash( 'sha256', $source_id . "\n" . $dataset );
+		$event_id     = 'sha256:' . str_repeat( 'a', 64 );
+		$generated_at = '2026-09-28T09:02:27.1294653Z';
+		$state        = array(
+			'sources' => array(
+				$source_key => array(
+					'source'        => array(
+						'id'       => $source_id,
+						'dataset'  => $dataset,
+						'revision' => 'sha256:' . str_repeat( 'b', 64 ),
+					),
+					'generated_at'  => $generated_at,
+					'last_event_id' => $event_id,
+					'recent_events' => array(
+						$event_id => array(
+							'generated_at'    => $generated_at,
+							'source_revision' => 'sha256:' . str_repeat( 'b', 64 ),
+						),
+					),
+				),
+			),
+		);
+		$method       = new ReflectionMethod( Digitalogic_Product_Sync_Receiver::class, 'persist_and_read_back' );
+		$stored       = $method->invoke( Digitalogic_Product_Sync_Receiver::instance(), $state );
+
+		$this->assertNotInstanceOf( WP_Error::class, $stored );
+		$this->assertSame( $generated_at, $stored['sources'][ $source_key ]['last_accepted_generated_at'] );
+		$this->assertSame(
+			$generated_at,
+			$GLOBALS['digitalogic_test_options'][ Digitalogic_Product_Sync_Receiver::STATE_OPTION ]['sources'][ $source_key ]['last_accepted_generated_at']
+		);
+		$this->assertSame(
+			$generated_at,
+			Digitalogic_Product_Sync_Receiver::instance()->get_source_state( $source_id, $dataset )['last_accepted_generated_at']
+		);
+	}
 
 	/** A 101001001-like incomplete row is public, exact, idempotent, and later promotable. */
 	public function test_incomplete_source_product_is_materialized_once_then_promoted_without_a_duplicate(): void {
