@@ -1797,7 +1797,8 @@ class Digitalogic_REST_API {
 			$payload['event_id'] ?? null,
 			$source['id'] ?? null,
 			$source['dataset'] ?? null,
-			$source['revision'] ?? null
+			$source['revision'] ?? null,
+			$payload['generated_at'] ?? null
 		);
 
 		return $this->product_sync_response( $result );

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.3.8] - 2026-09-28
+
+- Let an authenticated Patris outbox safely prove a strictly newer absent event against the receiver's durable accepted-timestamp high-water without weakening saturated-history replay protection.
+
 ## [2.3.7] - 2026-09-28
 
 - Clear a stale catalog-watchdog scheduling error whenever an existing or newly-created cron event is read back successfully.

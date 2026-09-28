@@ -89,7 +89,7 @@
 
 ## Installation
 
-Current source-built release: v2.3.7 (release artifacts are published after owner approval).
+Current source-built release: v2.3.8 (release artifacts are published after owner approval).
 It contains the durable pricing/event pipeline, storefront currency and product
 SSE updates, and privacy-filtered frontend notifications with immutable source
 and package provenance.
