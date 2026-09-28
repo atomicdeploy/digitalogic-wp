@@ -226,6 +226,7 @@ final class Digitalogic_Patris_Catalog_Backfill {
 		$timestamp = time() + max( 60, (int) $delay );
 		$current   = function_exists( 'wp_next_scheduled' ) ? wp_next_scheduled( self::WATCHDOG_HOOK, array() ) : false;
 		if ( false !== $current && ( ! $replace_later || (int) $current <= $timestamp ) ) {
+			$this->clear_watchdog_schedule_error();
 			return true;
 		}
 		if ( false !== $current && function_exists( 'wp_clear_scheduled_hook' ) ) {
@@ -242,12 +243,22 @@ final class Digitalogic_Patris_Catalog_Backfill {
 			$this->persist_watchdog_status( $status );
 			return false;
 		}
-		$status = get_option( self::WATCHDOG_OPTION, array() );
-		if ( is_array( $status ) && array_key_exists( 'schedule_error', $status ) ) {
-			unset( $status['schedule_error'] );
-			$this->persist_watchdog_status( $status );
-		}
+		$this->clear_watchdog_schedule_error();
 		return true;
+	}
+
+	/**
+	 * Clear a stale scheduling error after a live cron event is proved.
+	 *
+	 * @return void
+	 */
+	private function clear_watchdog_schedule_error() {
+		$status = get_option( self::WATCHDOG_OPTION, array() );
+		if ( ! is_array( $status ) || ! array_key_exists( 'schedule_error', $status ) ) {
+			return;
+		}
+		unset( $status['schedule_error'] );
+		$this->persist_watchdog_status( $status );
 	}
 
 	/**

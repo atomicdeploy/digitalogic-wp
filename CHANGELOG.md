@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.3.7] - 2026-09-28
+
+- Clear a stale catalog-watchdog scheduling error whenever an existing or newly-created cron event is read back successfully.
+
 ## [2.3.6] - 2026-09-28
 
 - Allow an explicitly enabled source policy to publish identity-safe products with incomplete commercial fields while preserving blank prices and non-purchasable behavior.
