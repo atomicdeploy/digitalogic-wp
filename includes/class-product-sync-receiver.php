@@ -6910,6 +6910,12 @@ class Digitalogic_Product_Sync_Receiver {
             return $this->error('digitalogic_product_sync_transaction_unavailable', 'The receiver could not start a storage transaction.', 503);
         }
 
+		// Treat the accepted timestamp as a storage invariant, not only an
+		// ingress-field assignment. Every atomic receiver-state write therefore
+		// preserves or backfills the greatest accepted timestamp carried by the
+		// durable source row and its bounded receipt history. This also upgrades
+		// legacy rows without making the read-only receipt endpoint mutate state.
+		$state      = $this->with_accepted_generated_at_high_waters( $state );
         $serialized = maybe_serialize($state);
         if (!is_string($serialized) || strlen($serialized) > self::MAX_STATE_BYTES) {
 			if ( $owns_transaction ) {
@@ -6993,6 +6999,51 @@ class Digitalogic_Product_Sync_Receiver {
 
         return $read_back;
     }
+
+	/**
+	 * Ensure every persisted source carries its exact durable accepted high-water.
+	 *
+	 * @param array $state Receiver state being committed.
+	 * @return array
+	 */
+	private function with_accepted_generated_at_high_waters( $state ) {
+		if ( ! is_array( $state ) || ! is_array( $state['sources'] ?? null ) ) {
+			return $state;
+		}
+		foreach ( $state['sources'] as &$source ) {
+			if ( ! is_array( $source ) ) {
+				continue;
+			}
+			$candidates = array(
+				$source['last_accepted_generated_at'] ?? null,
+				$source['generated_at'] ?? null,
+			);
+			foreach ( (array) ( $source['recent_events'] ?? array() ) as $event ) {
+				$candidates[] = is_array( $event ) ? ( $event['generated_at'] ?? null ) : null;
+			}
+			$high_water       = '';
+			$high_water_order = null;
+			foreach ( $candidates as $candidate ) {
+				if ( ! is_string( $candidate ) ) {
+					continue;
+				}
+				$order = $this->timestamp_order( $candidate );
+				if (
+					! is_wp_error( $order )
+					&& ( null === $high_water_order || $this->compare_timestamp_order( $order, $high_water_order ) > 0 )
+				) {
+					$high_water       = $candidate;
+					$high_water_order = $order;
+				}
+			}
+			if ( null !== $high_water_order ) {
+				$source['last_accepted_generated_at'] = $high_water;
+			}
+		}
+		unset( $source );
+
+		return $state;
+	}
 
     // phpcs:disable -- Preserve the established receiver formatting while the legacy file remains baseline-managed.
     private function replay_result($envelope, $existing) {
