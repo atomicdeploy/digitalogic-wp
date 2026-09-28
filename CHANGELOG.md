@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.3.10] - 2026-09-28
+
+- Add a complete package-runtime fingerprint and make the persistent WordPress WebSocket command worker exit for its managed systemd restart when a deployment replaces it, preventing stale receiver bytecode after deployments.
+
 ## [2.3.9] - 2026-09-28
 
 - Enforce the accepted event timestamp as an atomic receiver-state storage invariant, including durable backfill for legacy rows on their next write.

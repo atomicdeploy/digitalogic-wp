@@ -108,6 +108,50 @@ final class WebSocketLifecycleTest extends TestCase {
         ), Digitalogic_Panel::get_redis_config());
     }
 
+	/** The daemon fences both the package identity and the write-path classes. */
+	public function test_persistent_runtime_watches_release_and_product_sync_files(): void {
+		$server = new Digitalogic_WebSocket_Server();
+		$paths  = $this->invoke_private( $server, 'runtime_release_paths' );
+
+		$this->assertContains( DIGITALOGIC_PLUGIN_DIR . 'digitalogic.php', $paths );
+		$this->assertContains( ( new ReflectionClass( Digitalogic_WebSocket_Server::class ) )->getFileName(), $paths );
+		$this->assertContains( ( new ReflectionClass( Digitalogic_Product_Sync_Receiver::class ) )->getFileName(), $paths );
+	}
+
+	/** A deployed file replacement must make the persistent runtime terminate. */
+	public function test_persistent_runtime_detects_a_replaced_release_file(): void {
+		$path = tempnam( sys_get_temp_dir(), 'digitalogic-ws-release-' );
+		$this->assertIsString( $path );
+		file_put_contents( $path, 'release-a' );
+
+		try {
+			$server = new Digitalogic_WebSocket_Server();
+			$this->write_private( $server, 'runtime_release_fingerprints', array( $path => hash_file( 'sha256', $path ) ) );
+			$this->write_private( $server, 'runtime_release_next_check_at', 0.0 );
+			$this->assertFalse( $this->invoke_private( $server, 'runtime_release_changed' ) );
+
+			file_put_contents( $path, 'release-b' );
+			$this->write_private( $server, 'runtime_release_next_check_at', 0.0 );
+			$this->assertTrue( $this->invoke_private( $server, 'runtime_release_changed' ) );
+		} finally {
+			@unlink( $path );
+		}
+	}
+
+	/** A missing watched file is an incomplete deployment, so writes stop. */
+	public function test_persistent_runtime_fails_closed_when_a_release_file_disappears(): void {
+		$path = tempnam( sys_get_temp_dir(), 'digitalogic-ws-release-' );
+		$this->assertIsString( $path );
+		file_put_contents( $path, 'release-a' );
+
+		$server = new Digitalogic_WebSocket_Server();
+		$this->write_private( $server, 'runtime_release_fingerprints', array( $path => hash_file( 'sha256', $path ) ) );
+		$this->write_private( $server, 'runtime_release_next_check_at', 0.0 );
+		unlink( $path );
+
+		$this->assertTrue( $this->invoke_private( $server, 'runtime_release_changed' ) );
+	}
+
     private function masked_command_frame($payload, $opcode = 1, $fin = true) {
         $mask = 'abcd';
         $length = strlen($payload);

@@ -1604,8 +1604,10 @@ function wp_specialchars_decode($string, $quote_style = ENT_NOQUOTES) {
 }
 // phpcs:enable
 
-function __($message, $domain = null) {
-    return $message;
+if ( ! function_exists( '__' ) ) {
+    function __($message, $domain = null) {
+        return $message;
+    }
 }
 
 class Digitalogic_Test_WPDB {
