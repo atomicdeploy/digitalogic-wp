@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.1] - 2026-10-04
+
+- Render shared software and OS resources through the product content path used by the live Woodmart product template.
+
 ## [2.4.0] - 2026-10-04
 
 - Add an RTL software library with reviewed official links and practical guides for Raspberry Pi Imager, RustDesk, Arduino IDE, PlatformIO, Arduino Community for VS Code, and ESP Arduino cores.
