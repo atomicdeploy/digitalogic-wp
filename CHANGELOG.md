@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.0] - 2026-10-04
+
+- Add an RTL software library with reviewed official links and practical guides for Raspberry Pi Imager, RustDesk, Arduino IDE, PlatformIO, Arduino Community for VS Code, and ESP Arduino cores.
+- Add reusable product topics and supported-operating-system badges shared by products and guides.
+- Add responsive SBC and product-resource sections, including a dedicated `/sbc/` landing page and `/software/` archive.
+
 ## [2.3.11] - 2026-09-28
 
 - Replace the Patris product reconciliation and incomplete-product repair timers with synchronous, identity-locked materialization for every accepted event.
