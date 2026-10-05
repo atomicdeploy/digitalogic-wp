@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.7] - 2026-10-05
+
+- Mirror Woodmart navigation chevrons in RTL layouts while preserving the expanded-state downward direction.
+
 ## [2.4.6] - 2026-10-05
 
 - Replace letter-based software tiles with locally hosted official product icons in the shared Knowledge Hub.

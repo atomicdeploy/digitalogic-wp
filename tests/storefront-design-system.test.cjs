@@ -34,6 +34,11 @@ test('header stacking context keeps Woodmart search results above storefront con
 	assert.match(css, /\.whb-header\s*\{[\s\S]*position:\s*relative;[\s\S]*z-index:\s*400;/);
 });
 
+test('Woodmart navigation chevrons follow RTL direction in closed and expanded states', () => {
+	assert.match(css, /html\[dir="rtl"\] \.wd-nav-opener::after\s*\{[\s\S]*transform:\s*scaleX\(-1\);/);
+	assert.match(css, /html\[dir="rtl"\] \.wd-nav-opener\.wd-active::after\s*\{[\s\S]*transform:\s*scaleX\(-1\) rotate\(90deg\);/);
+});
+
 test('mobile overlays never cover catalog, SKU, checkout, or purchase controls', () => {
 	assert.match(css, /@media \(max-width:\s*767px\)[\s\S]*\.chaty-widget[\s\S]*display:\s*none\s*!important/);
 	assert.match(css, /\.grecaptcha-badge[\s\S]*visibility:\s*hidden\s*!important/);
