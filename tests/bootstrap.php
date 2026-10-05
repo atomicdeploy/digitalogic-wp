@@ -4372,6 +4372,7 @@ require_once dirname(__DIR__) . '/includes/integrations/class-digitalogic-patris
 require_once dirname(__DIR__) . '/includes/integrations/class-label-overrides.php';
 require_once dirname( __DIR__ ) . '/includes/integrations/class-digitalogic-checkout-date-compatibility.php';
 require_once dirname(__DIR__) . '/includes/integrations/class-product-identity.php';
+require_once dirname(__DIR__) . '/includes/integrations/class-digitalogic-product-specifications.php';
 require_once dirname(__DIR__) . '/includes/integrations/class-digitalogic-product-resources.php';
 require_once dirname(__DIR__) . '/includes/integrations/class-homepage-showcase.php';
 require_once dirname(__DIR__) . '/includes/websocket/class-websocket.php';

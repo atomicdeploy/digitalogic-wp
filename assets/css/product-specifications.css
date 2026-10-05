@@ -1,0 +1,49 @@
+.digitalogic-product-specifications {
+	direction: rtl;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.5rem;
+	margin: 0.45rem 0 0.75rem;
+}
+
+.digitalogic-product-specification {
+	align-items: center;
+	background: var(--dgl-color-surface-soft, #f7f9fc);
+	border: 1px solid var(--dgl-color-line, #dfe7f1);
+	border-radius: 999px;
+	display: inline-flex;
+	gap: 0.42rem;
+	min-height: 2rem;
+	padding: 0.3rem 0.62rem;
+}
+
+.digitalogic-product-specification dt,
+.digitalogic-product-specification dd {
+	margin: 0;
+}
+
+.digitalogic-product-specification dt {
+	color: var(--dgl-color-muted, #62738a);
+	font-size: 0.76rem;
+	font-weight: 650;
+}
+
+.digitalogic-product-specification dd {
+	color: var(--dgl-color-ink, #10233f);
+	font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+	font-size: 0.78rem;
+	font-weight: 800;
+	unicode-bidi: isolate;
+}
+
+@media (max-width: 480px) {
+	.digitalogic-product-specifications {
+		gap: 0.4rem;
+	}
+
+	.digitalogic-product-specification {
+		border-radius: 12px;
+		justify-content: space-between;
+		width: 100%;
+	}
+}

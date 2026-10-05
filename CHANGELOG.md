@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.8] - 2026-10-05
+
+- Add a controlled Original/Copy product field and SMD-only Marking and Package fields in the WooCommerce editor.
+- Show populated product specifications as compact storefront pills and include them in WooCommerce and Rank Math Product structured data without treating Marking as an MPN.
+
 ## [2.4.7] - 2026-10-05
 
 - Mirror Woodmart navigation chevrons in RTL layouts while preserving the expanded-state downward direction.
