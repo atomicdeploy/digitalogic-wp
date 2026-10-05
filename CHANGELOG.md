@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.5] - 2026-10-05
+
+- Stack the enhanced model selector and purchase controls at intermediate storefront widths so neither is constrained to Woodmart's narrow variation column.
+
 ## [2.4.4] - 2026-10-05
 
 - Apply the Digitalogic model switcher to Raspberry Pi RAM variations and keep its native select fallback full-width at narrow and intermediate storefront widths.

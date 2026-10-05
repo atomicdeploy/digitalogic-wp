@@ -97,5 +97,7 @@ final class VariationSelectorTest extends TestCase {
 		$this->assertStringContainsString( '.digitalogic-model-selector > select', $css );
 		$this->assertStringContainsString( 'width: 100% !important', $css );
 		$this->assertStringContainsString( 'table.variations:has(.digitalogic-model-selector)', $css );
+		$this->assertStringContainsString( 'grid-template-columns: minmax(0, 1fr) !important', $css );
+		$this->assertStringContainsString( '> .single_variation_wrap', $css );
 	}
 }

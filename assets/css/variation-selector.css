@@ -82,6 +82,19 @@
     .digitalogic-model-price { font-size: .8em; padding-inline-start: 6px; }
 }
 
+@media (max-width: 768px) {
+    .single-product form.variations_form:has(.digitalogic-model-selector),
+    .product-quick-view form.variations_form:has(.digitalogic-model-selector) {
+        grid-template-columns: minmax(0, 1fr) !important;
+    }
+    .single-product form.variations_form:has(.digitalogic-model-selector) > table.variations,
+    .single-product form.variations_form:has(.digitalogic-model-selector) > .single_variation_wrap,
+    .product-quick-view form.variations_form:has(.digitalogic-model-selector) > table.variations,
+    .product-quick-view form.variations_form:has(.digitalogic-model-selector) > .single_variation_wrap {
+        grid-column: 1 / -1 !important; width: 100% !important;
+    }
+}
+
 /* Keep Elementor's inline native-select layout from shrinking rich model cards. */
 form.variations_form table.variations tr:has(.digitalogic-model-selector) { display: flex; flex-direction: column; align-items: stretch; gap: 6px; }
 form.variations_form table.variations tr:has(.digitalogic-model-selector) > .cell { display: block; width: 100% !important; padding-inline: 0; text-align: start; }
