@@ -52,7 +52,32 @@ final class KnowledgeHubSourceTest extends TestCase {
 		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- local test fixture.
 		$css = (string) file_get_contents( dirname( __DIR__ ) . '/assets/css/knowledge-hub.css' );
 		$this->assertStringContainsString( '.dgl-khub__grid', $css );
-		$this->assertStringContainsString( '@media (max-width:700px)', $css );
+		$this->assertStringContainsString( '@media (max-width: 700px)', $css );
 		$this->assertStringContainsString( '.dgl-khub__pill--os', $css );
+		$this->assertStringContainsString( '.dgl-khub__icon', $css );
+		$this->assertStringNotContainsString( 'radial-gradient', $css );
+		$this->assertStringNotContainsString( 'linear-gradient', $css );
+	}
+
+	/** Known software cards use their original local icons instead of letter tiles. */
+	public function test_known_software_cards_render_local_official_icons(): void {
+		$this->assertStringContainsString( 'software_card_icon( $post->post_name )', $this->source );
+		$this->assertStringContainsString( "'raspberry-pi-imager'      => 'raspberry-pi-imager.svg'", $this->source );
+		$this->assertStringContainsString( "'rustdesk'                 => 'rustdesk.svg'", $this->source );
+		$this->assertStringContainsString( "'arduino-ide'              => 'arduino-ide.svg'", $this->source );
+		$this->assertStringContainsString( "'platformio-vscode'        => 'platformio.svg'", $this->source );
+		$this->assertStringContainsString( "'arduino-community-vscode' => 'arduino-community.svg'", $this->source );
+		$this->assertStringContainsString( "'esp-arduino-cores'        => 'espressif.svg'", $this->source );
+		$this->assertStringContainsString( 'class="dgl-khub__icon"', $this->source );
+		$this->assertStringNotContainsString( 'card_monogram', $this->source );
+	}
+
+	/** The product experience owns a final flat, brand-aligned surface layer. */
+	public function test_minimal_product_surface_is_owned_by_plugin(): void {
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- local test fixture.
+		$css = (string) file_get_contents( dirname( __DIR__ ) . '/assets/css/product-experience.css' );
+		$this->assertStringContainsString( '2026 minimalist product surface', $css );
+		$this->assertStringContainsString( '--dgl-minimal-blue: #0878d1', $css );
+		$this->assertStringContainsString( 'background-image: none !important', $css );
 	}
 }

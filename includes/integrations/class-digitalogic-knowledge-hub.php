@@ -419,24 +419,30 @@ final class Digitalogic_Knowledge_Hub {
 	 */
 	private function software_card( WP_Post $post ): string {
 		$topics = $this->term_pills( (int) $post->ID, self::TOPIC_TAXONOMY );
-		return '<article class="dgl-khub__card"><a class="dgl-khub__card-link" href="' . esc_url( get_permalink( $post ) ) . '"><span class="dgl-khub__glyph" aria-hidden="true">' . esc_html( $this->card_monogram( $post->post_name ) ) . '</span><h3>' . esc_html( get_the_title( $post ) ) . '</h3><p>' . esc_html( get_the_excerpt( $post ) ) . '</p>' . $topics . '<span class="dgl-khub__action">مشاهده راهنما ←</span></a></article>';
+		return '<article class="dgl-khub__card"><a class="dgl-khub__card-link" href="' . esc_url( get_permalink( $post ) ) . '">' . $this->software_card_icon( $post->post_name ) . '<h3>' . esc_html( get_the_title( $post ) ) . '</h3><p>' . esc_html( get_the_excerpt( $post ) ) . '</p>' . $topics . '<span class="dgl-khub__action">مشاهده راهنما ←</span></a></article>';
 	}
 
 	/**
-	 * Return the compact visual label for a guide.
+	 * Render the official, locally hosted software icon.
 	 *
 	 * @param string $slug Guide slug.
 	 */
-	private function card_monogram( string $slug ): string {
-		$labels = array(
-			'raspberry-pi-imager'      => 'RPi',
-			'rustdesk'                 => 'RD',
-			'arduino-ide'              => '∞',
-			'platformio-vscode'        => 'PIO',
-			'arduino-community-vscode' => 'VS',
-			'esp-arduino-cores'        => 'ESP',
+	private function software_card_icon( string $slug ): string {
+		$icons = array(
+			'raspberry-pi-imager'      => 'raspberry-pi-imager.svg',
+			'rustdesk'                 => 'rustdesk.svg',
+			'arduino-ide'              => 'arduino-ide.svg',
+			'platformio-vscode'        => 'platformio.svg',
+			'arduino-community-vscode' => 'arduino-community.svg',
+			'esp-arduino-cores'        => 'espressif.svg',
 		);
-		return $labels[ $slug ] ?? 'DL';
+
+		if ( ! isset( $icons[ $slug ] ) ) {
+			return '<span class="dgl-khub__glyph dgl-khub__glyph--fallback" aria-hidden="true">DL</span>';
+		}
+
+		$src = DIGITALOGIC_PLUGIN_URL . 'assets/images/software/' . $icons[ $slug ];
+		return '<span class="dgl-khub__glyph dgl-khub__glyph--icon" aria-hidden="true"><img class="dgl-khub__icon" src="' . esc_url( $src ) . '" alt="" width="48" height="48" loading="lazy" decoding="async"></span>';
 	}
 
 	/**
