@@ -43,8 +43,8 @@ final class Digitalogic_Knowledge_Hub {
 		add_action( 'wp_enqueue_scripts', array( $this, 'enqueue_assets' ) );
 		add_shortcode( 'dgl_software_library', array( $this, 'software_library_shortcode' ) );
 		add_shortcode( 'dgl_sbc_catalog', array( $this, 'sbc_catalog_shortcode' ) );
+		add_shortcode( 'dgl_product_knowledge', array( $this, 'product_knowledge_shortcode' ) );
 		add_filter( 'the_content', array( $this, 'decorate_software_content' ) );
-		add_filter( 'the_content', array( $this, 'append_product_knowledge' ), 25 );
 		add_filter( 'template_include', array( $this, 'software_archive_template' ) );
 	}
 
@@ -224,18 +224,12 @@ final class Digitalogic_Knowledge_Hub {
 	}
 
 	/**
-	 * Append product resources through the content path used by the live theme.
-	 *
-	 * @param string $content Current product description.
+	 * Render product resources inside the live theme's description accordion.
 	 */
-	public function append_product_knowledge( string $content ): string {
-		if ( ! is_singular( 'product' ) || ! in_the_loop() || ! is_main_query() ) {
-			return $content;
-		}
-
+	public function product_knowledge_shortcode(): string {
 		ob_start();
 		$this->render_product_knowledge();
-		return $content . (string) ob_get_clean();
+		return (string) ob_get_clean();
 	}
 
 	/**
