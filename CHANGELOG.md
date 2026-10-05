@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.6] - 2026-10-05
+
+- Replace letter-based software tiles with locally hosted official product icons in the shared Knowledge Hub.
+- Flatten product and compatibility surfaces into a cleaner Digitalogic blue-and-cyan visual system with quieter borders and shadows.
+
 ## [2.4.5] - 2026-10-05
 
 - Stack the enhanced model selector and purchase controls at intermediate storefront widths so neither is constrained to Woodmart's narrow variation column.
