@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.2] - 2026-10-05
+
+- Add a product-knowledge shortcode so the live Elementor/Woodmart description accordion visibly renders related tools and operating-system badges.
+
 ## [2.4.1] - 2026-10-04
 
 - Render shared software and OS resources through the product content path used by the live Woodmart product template.

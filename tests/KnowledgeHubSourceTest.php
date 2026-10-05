@@ -28,6 +28,7 @@ final class KnowledgeHubSourceTest extends TestCase {
 		$this->assertStringContainsString( "array( 'product', self::POST_TYPE )", $this->source );
 		$this->assertStringContainsString( "'dgl_software_library'", $this->source );
 		$this->assertStringContainsString( "'dgl_sbc_catalog'", $this->source );
+		$this->assertStringContainsString( "'dgl_product_knowledge'", $this->source );
 	}
 
 	/** Official links are durable and version numbers are not frozen. */
