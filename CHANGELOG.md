@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.4] - 2026-10-05
+
+- Apply the Digitalogic model switcher to Raspberry Pi RAM variations and keep its native select fallback full-width at narrow and intermediate storefront widths.
+
 ## [2.4.3] - 2026-10-05
 
 - Align the software archive wrapper with Woodmart's content-grid contract so the library uses the full responsive content width.

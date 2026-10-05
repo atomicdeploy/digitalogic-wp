@@ -46,9 +46,18 @@ final class Digitalogic_Variation_Selector {
 	public static function render( $html, $args ) {
 		$attribute = $args['attribute'] ?? '';
 		$product   = $args['product'] ?? null;
-		if ( ! in_array( $attribute, array( 'model', 'pa_model', 'source_model', 'pa_source_model' ), true ) || ! $product instanceof WC_Product_Variable ) {
+		$labels    = array(
+			'model'           => __( 'مدل', 'digitalogic' ),
+			'pa_model'        => __( 'مدل', 'digitalogic' ),
+			'source_model'    => __( 'مدل', 'digitalogic' ),
+			'pa_source_model' => __( 'مدل', 'digitalogic' ),
+			'ram'             => __( 'حافظه رم', 'digitalogic' ),
+			'pa_ram'          => __( 'حافظه رم', 'digitalogic' ),
+		);
+		if ( ! isset( $labels[ $attribute ] ) || ! $product instanceof WC_Product_Variable ) {
 			return $html;
 		}
+		$label = $labels[ $attribute ];
 		$items = array();
 		foreach ( $product->get_children() as $child_id ) {
 			$child = wc_get_product( $child_id );
@@ -93,10 +102,13 @@ final class Digitalogic_Variation_Selector {
 		}
 		$data = array(
 			'items'       => $items,
-			'label'       => __( 'مدل', 'digitalogic' ),
-			'placeholder' => __( 'انتخاب مدل', 'digitalogic' ),
-			'search'      => __( 'جستجوی مدل، توضیحات یا کد کالا…', 'digitalogic' ),
-			'empty'       => __( 'مدلی با این مشخصات پیدا نشد.', 'digitalogic' ),
+			'label'       => $label,
+			/* translators: %s: variation attribute label, for example model or RAM. */
+			'placeholder' => sprintf( __( 'انتخاب %s', 'digitalogic' ), $label ),
+			/* translators: %s: variation attribute label, for example model or RAM. */
+			'search'      => sprintf( __( 'جستجوی %s، توضیحات یا کد کالا…', 'digitalogic' ), $label ),
+			/* translators: %s: variation attribute label, for example model or RAM. */
+			'empty'       => sprintf( __( '%s با این مشخصات پیدا نشد.', 'digitalogic' ), $label ),
 			'skuLabel'    => __( 'کد کالا', 'digitalogic' ),
 			'unavailable' => __( 'ناموجود', 'digitalogic' ),
 			'imageLabel'  => __( 'تصویر مدل', 'digitalogic' ),
