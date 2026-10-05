@@ -28,6 +28,7 @@ final class VariationSelectorTest extends TestCase {
 				'post_status' => 102 === $id ? 'draft' : 'publish',
 				'meta'        => array(
 					'attribute_source_model'           => 103 === $id ? '' : ( 104 === $id ? 'model-unavailable' : 'model "quoted"' ),
+					'attribute_pa_ram'                 => 103 === $id ? '' : ( 104 === $id ? 'model-unavailable' : 'model "quoted"' ),
 					'_sku'                             => 'A-101',
 					'_digitalogic_patris_product_code' => '114005004',
 					'_digitalogic_persian_name'        => '<b>نام مدل</b>',
@@ -79,7 +80,22 @@ final class VariationSelectorTest extends TestCase {
 		$args['attribute'] = 'pa_model';
 		$taxonomy_html     = Digitalogic_Variation_Selector::render( $select, $args );
 		$this->assertStringContainsString( 'data-digitalogic-model-selector=', $taxonomy_html );
+		$args['attribute'] = 'pa_ram';
+		$ram_html          = Digitalogic_Variation_Selector::render( $select, $args );
+		$this->assertSame( 1, preg_match( '/data-digitalogic-model-selector="([^"]+)"/', $ram_html, $ram_match ) );
+		$ram_data = json_decode( html_entity_decode( $ram_match[1], ENT_QUOTES, 'UTF-8' ), true );
+		$this->assertSame( 'حافظه رم', $ram_data['label'] );
+		$this->assertSame( 'انتخاب حافظه رم', $ram_data['placeholder'] );
 		$args['attribute'] = 'color';
 		$this->assertSame( $select, Digitalogic_Variation_Selector::render( $select, $args ) );
+	}
+
+	/** The unenhanced native select remains a full-width, usable fallback. */
+	public function test_native_select_fallback_has_responsive_width_contract() {
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Local test fixture.
+		$css = file_get_contents( dirname( __DIR__ ) . '/assets/css/variation-selector.css' );
+		$this->assertStringContainsString( '.digitalogic-model-selector > select', $css );
+		$this->assertStringContainsString( 'width: 100% !important', $css );
+		$this->assertStringContainsString( 'table.variations:has(.digitalogic-model-selector)', $css );
 	}
 }
