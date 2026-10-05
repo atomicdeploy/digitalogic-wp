@@ -51,6 +51,15 @@ body:not(.wp-admin):not(.login) :where(button, .button, [type='button'], [type='
 	border-color: var(--dgl-color-line);
 }
 
+/* Woodmart ships a right-facing navigation chevron; mirror it for RTL flow. */
+html[dir="rtl"] .wd-nav-opener::after {
+	transform: scaleX(-1);
+}
+
+html[dir="rtl"] .wd-nav-opener.wd-active::after {
+	transform: scaleX(-1) rotate(90deg);
+}
+
 .wd-toolbar {
 	background: rgba(255, 255, 255, .96);
 	border-top: 1px solid var(--dgl-color-line);
