@@ -9,10 +9,8 @@ defined( 'ABSPATH' ) || exit;
 
 get_header();
 ?>
-<main id="primary" class="site-main dgl-khub-page">
-	<div class="container">
-		<?php echo do_shortcode( '[dgl_software_library]' ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- shortcode escapes all stored fields. ?>
-	</div>
-</main>
+<div id="primary" class="wd-content-area site-content dgl-khub-page">
+	<?php echo do_shortcode( '[dgl_software_library]' ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- shortcode escapes all stored fields. ?>
+</div>
 <?php
 get_footer();
