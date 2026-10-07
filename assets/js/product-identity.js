@@ -92,6 +92,7 @@
 			codeLine = document.createElement('div');
 			codeLine.className = 'digitalogic-product-code-list';
 			label = document.createElement('span');
+			label.className = 'digitalogic-product-code-list__label';
 			label.textContent = 'مدل‌های قابل انتخاب';
 			list = document.createElement('ul');
 			list.className = 'digitalogic-product-code-grid';
@@ -241,6 +242,11 @@
 		if (name === '' && code === '' && !isVariable) return;
 		identity = singleIdentity();
 		if (identity) {
+			// Server-rendered cards can precede late WooCommerce price filters.
+			// Reconcile them with the final localized variation data.
+			if (childCodes.length) {
+				fillIdentity(identity, name, code, isVariable, childCodes, legacyChildReferences);
+			}
 			markDuplicateSku(code, identity.closest('.product') || document.querySelector('main'));
 			return;
 		}
