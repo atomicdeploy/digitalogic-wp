@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.13] - 2026-10-07
+
+- Read the localized WooCommerce variation price from its PHP-provided `price_text` key while retaining compatibility with camel-case card data.
+
 ## [2.4.12] - 2026-10-07
 
 - Fall back to WooCommerce's tax-aware display-price formatter when a pricing integration temporarily returns empty variation price HTML during server-side model-card rendering.

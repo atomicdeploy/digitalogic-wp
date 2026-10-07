@@ -62,6 +62,7 @@
 		var priceRow;
 		var priceLabel;
 		var priceValue;
+		var childPriceText;
 
 		name = text(name);
 		code = text(code);
@@ -132,7 +133,9 @@
 				itemCode.textContent = text(child && child.code);
 				codeRow.append(codeLabel, itemCode);
 				itemBody.append(itemName, codeRow);
-				if (available && text(child && child.priceText) !== '') {
+				childPriceText = text(child && child.priceText);
+				if (childPriceText === '') childPriceText = text(child && child.price_text);
+				if (available && childPriceText !== '') {
 					priceRow = document.createElement('span');
 					priceRow.className = 'digitalogic-product-code-item__price';
 					priceLabel = document.createElement('span');
@@ -140,7 +143,7 @@
 					priceValue = document.createElement('span');
 					priceValue.className = 'digitalogic-product-code-item__price-value';
 					priceValue.dir = 'rtl';
-					priceValue.textContent = text(child && child.priceText);
+					priceValue.textContent = childPriceText;
 					priceRow.append(priceLabel, priceValue);
 					itemBody.appendChild(priceRow);
 				}

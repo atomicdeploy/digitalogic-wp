@@ -53,6 +53,7 @@ test('product Code cards keep stable button semantics and resist theme button ov
 	assert.match(identityCss, /\.digitalogic-product-code-item\.is-unavailable\s*\{[\s\S]*opacity:\s*\.58/);
 	assert.match(source, /child\.available !== false/);
 	assert.match(source, /child\.priceText/);
+	assert.match(source, /child\.price_text/);
 	assert.match(source, /digitalogic-product-code-item__price/);
 	assert.match(source, /select\.disabled = true/);
 	assert.match(source, /digitalogic-product-code-item__availability/);
