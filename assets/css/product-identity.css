@@ -324,6 +324,36 @@ body:not(.wp-admin) button.digitalogic-product-code-item__select:disabled {
 	unicode-bidi: isolate;
 }
 
+.digitalogic-product-code-item__price {
+	align-items: baseline;
+	display: flex;
+	gap: .36rem;
+	line-height: 1.45;
+}
+
+.digitalogic-product-code-item__price > span:first-child {
+	color: var(--dgl-color-muted, #62738a);
+	font-size: .68rem;
+	font-weight: 650;
+}
+
+.digitalogic-product-code-item__price-value,
+.digitalogic-product-code-item__price-value .woocommerce-Price-amount {
+	color: var(--dgl-color-primary-strong, #0b56c6);
+	font-size: .76rem;
+	font-weight: 850;
+}
+
+.digitalogic-product-code-item__price-value del {
+	color: var(--dgl-color-muted, #62738a);
+	font-size: .88em;
+	font-weight: 600;
+}
+
+.digitalogic-product-code-item__price-value ins {
+	text-decoration: none;
+}
+
 .digitalogic-product-code-item__availability {
 	align-self: flex-start;
 	background: var(--dgl-color-danger-soft, #fff0f2);

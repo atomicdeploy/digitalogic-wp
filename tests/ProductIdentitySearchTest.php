@@ -171,8 +171,20 @@ final class ProductIdentitySearchTest extends TestCase {
 			'product_type' => 'variation',
 			'post_parent'  => 20,
 			'post_title'   => 'Model <A>',
-			'meta'         => array( '_digitalogic_patris_product_code' => 'CHILD-21' ),
+			'meta'         => array(
+				'_digitalogic_patris_product_code' => 'CHILD-21',
+				'_price'                           => '125000',
+				'_stock_status'                    => 'instock',
+			),
 		);
+
+		$GLOBALS['digitalogic_test_wc_products'][21] = new class( 21 ) extends WC_Product_Variation {
+			/** Return WooCommerce-owned display HTML for an available child. */
+			public function get_price_html() {
+				return '<span class="woocommerce-Price-amount amount">125,000 تومان</span>';
+			}
+		};
+
 		$GLOBALS['digitalogic_test_posts'][22] = array(
 			'post_type'    => 'product_variation',
 			'post_status'  => 'draft',
@@ -181,8 +193,9 @@ final class ProductIdentitySearchTest extends TestCase {
 			'post_title'   => 'Draft model',
 			'meta'         => array( '_digitalogic_patris_product_code' => 'DRAFT-22' ),
 		);
-		$GLOBALS['product']                    = wc_get_product( 20 );
-		$identity                              = ( new ReflectionClass( Digitalogic_Product_Identity::class ) )->newInstanceWithoutConstructor();
+
+		$GLOBALS['product'] = wc_get_product( 20 );
+		$identity           = ( new ReflectionClass( Digitalogic_Product_Identity::class ) )->newInstanceWithoutConstructor();
 
 		ob_start();
 		$identity->render_single_patris_name();
@@ -191,6 +204,8 @@ final class ProductIdentitySearchTest extends TestCase {
 		$this->assertStringContainsString( 'مدل‌های قابل انتخاب', $html );
 		$this->assertStringContainsString( 'Model &lt;A&gt;', $html );
 		$this->assertStringContainsString( 'CHILD-21', $html );
+		$this->assertStringContainsString( 'digitalogic-product-code-item__price', $html );
+		$this->assertStringContainsString( '125,000 تومان', $html );
 		$this->assertStringContainsString( '<ul class="digitalogic-product-code-grid" role="list">', $html );
 		$this->assertStringContainsString( 'class="digitalogic-product-code-item__select"', $html );
 		$this->assertStringContainsString( 'data-copy-product-code="CHILD-21"', $html );
@@ -204,6 +219,7 @@ final class ProductIdentitySearchTest extends TestCase {
 		$identity->enqueue_assets();
 		$config = $GLOBALS['digitalogic_test_localized_scripts']['digitalogic-product-identity']['digitalogicProductIdentity'];
 		$this->assertTrue( $config['singleProductLegacyChildReferences'] );
+		$this->assertSame( '125,000 تومان', $config['singleProductChildCodes'][0]['price_text'] );
 		$this->assertStringContainsString( 'مرجع مدل‌های ثبت‌شده', $config['legacyChildNote'] );
 	}
 
@@ -225,10 +241,19 @@ final class ProductIdentitySearchTest extends TestCase {
 			'meta'         => array(
 				'_digitalogic_patris_product_code' => 'CHILD-31',
 				'_stock_status'                    => 'outofstock',
+				'_price'                           => '99000',
 			),
 		);
-		$GLOBALS['product']                    = wc_get_product( 30 );
-		$identity                              = ( new ReflectionClass( Digitalogic_Product_Identity::class ) )->newInstanceWithoutConstructor();
+
+		$GLOBALS['digitalogic_test_wc_products'][31] = new class( 31 ) extends WC_Product_Variation {
+			/** Return a price that must stay hidden while unavailable. */
+			public function get_price_html() {
+				return '<span class="woocommerce-Price-amount amount">99,000 تومان</span>';
+			}
+		};
+
+		$GLOBALS['product'] = wc_get_product( 30 );
+		$identity           = ( new ReflectionClass( Digitalogic_Product_Identity::class ) )->newInstanceWithoutConstructor();
 
 		ob_start();
 		$identity->render_single_patris_name();
@@ -237,6 +262,8 @@ final class ProductIdentitySearchTest extends TestCase {
 		$this->assertStringContainsString( 'digitalogic-product-code-item is-unavailable', $html );
 		$this->assertStringContainsString( 'disabled aria-disabled="true"', $html );
 		$this->assertStringContainsString( 'digitalogic-product-code-item__availability">ناموجود', $html );
+		$this->assertStringNotContainsString( 'digitalogic-product-code-item__price', $html );
+		$this->assertStringNotContainsString( '99,000 تومان', $html );
 	}
 
 	public function test_exposes_child_identity_and_adds_sku_mpn_without_replacing_offers(): void {

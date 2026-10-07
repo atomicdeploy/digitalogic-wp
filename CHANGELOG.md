@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.10] - 2026-10-07
+
+- Show each available variation's WooCommerce-formatted price in the selectable-model card while keeping unavailable models price-free.
+
 ## [2.4.9] - 2026-10-07
 
 - Render fully English product titles with a Latin non-FaNum font and left-to-right text flow while leaving Persian and mixed-language titles unchanged.

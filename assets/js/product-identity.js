@@ -59,6 +59,9 @@
 		var note;
 		var available;
 		var availability;
+		var priceRow;
+		var priceLabel;
+		var priceValue;
 
 		name = text(name);
 		code = text(code);
@@ -128,6 +131,18 @@
 				itemCode.textContent = text(child && child.code);
 				codeRow.append(codeLabel, itemCode);
 				itemBody.append(itemName, codeRow);
+				if (available && text(child && child.priceText) !== '') {
+					priceRow = document.createElement('span');
+					priceRow.className = 'digitalogic-product-code-item__price';
+					priceLabel = document.createElement('span');
+					priceLabel.textContent = text(settings.priceLabel) || 'قیمت';
+					priceValue = document.createElement('span');
+					priceValue.className = 'digitalogic-product-code-item__price-value';
+					priceValue.dir = 'rtl';
+					priceValue.textContent = text(child && child.priceText);
+					priceRow.append(priceLabel, priceValue);
+					itemBody.appendChild(priceRow);
+				}
 				if (!available) {
 					availability = document.createElement('span');
 					availability.className = 'digitalogic-product-code-item__availability';
