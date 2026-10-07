@@ -15,7 +15,7 @@
 defined( 'ABSPATH' ) || exit;
 
 final class Digitalogic_Product_Experience {
-	const VERSION = '2.3.1';
+	const VERSION = '2.3.2';
 
 	public static function init() {
 		add_filter( 'body_class', array( __CLASS__, 'body_classes' ) );
@@ -36,9 +36,34 @@ final class Digitalogic_Product_Experience {
 	public static function body_classes( $classes ) {
 		if ( function_exists( 'is_product' ) && is_product() ) {
 			$classes[] = 'dgl-product-experience';
+
+			$product_id = function_exists( 'get_queried_object_id' ) ? (int) get_queried_object_id() : 0;
+			$title      = $product_id > 0 ? get_the_title( $product_id ) : '';
+			if ( self::has_english_only_title( $title ) ) {
+				$classes[] = 'dgl-product-title--english-only';
+			}
 		}
 
 		return $classes;
+	}
+
+	/**
+	 * Determine whether a product title contains only English letters, ASCII
+	 * digits, spacing, punctuation, and symbols.
+	 *
+	 * Unicode punctuation and symbols (for example the multiplication sign in
+	 * "LCD 20×2") are allowed, while non-English letters are not.
+	 *
+	 * @param mixed $title Product title.
+	 * @return bool
+	 */
+	public static function has_english_only_title( $title ) {
+		$title = trim( wp_strip_all_tags( (string) $title ) );
+		if ( '' === $title ) {
+			return false;
+		}
+
+		return 1 === preg_match( '/\A[A-Za-z0-9\p{P}\p{S}\p{Z}]+\z/u', $title );
 	}
 
 	public static function enqueue_assets() {
