@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.9] - 2026-10-07
+
+- Render fully English product titles with a Latin non-FaNum font and left-to-right text flow while leaving Persian and mixed-language titles unchanged.
+
 ## [2.4.8] - 2026-10-05
 
 - Add a controlled Original/Copy product field and SMD-only Marking and Package fields in the WooCommerce editor.

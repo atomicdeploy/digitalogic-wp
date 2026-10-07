@@ -465,6 +465,17 @@ body.single-product.dgl-product-experience .dgl-product-summary .product_title {
   letter-spacing: 0;
 }
 
+/* English-only product names must not inherit the storefront's FaNum face. */
+body.single-product.dgl-product-experience.dgl-product-title--english-only .dgl-product-summary h1.product_title,
+body.single-product.dgl-product-experience.dgl-product-title--english-only .dgl-product-summary .product_title {
+  direction: ltr;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif !important;
+  font-feature-settings: "lnum" 1;
+  font-variant-numeric: lining-nums;
+  text-align: right;
+  unicode-bidi: isolate;
+}
+
 body.single-product.dgl-product-experience .dgl-product-identity .product_meta {
   display: flex;
   flex-wrap: wrap;
