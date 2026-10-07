@@ -268,6 +268,7 @@ final class ProductIdentitySearchTest extends TestCase {
 
 	/** The server renderer retains a WooCommerce-native price fallback for delayed pricing integrations. */
 	public function test_keeps_tax_aware_server_price_fallback(): void {
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Local source inspection is intentional in this regression test.
 		$source = file_get_contents( dirname( __DIR__ ) . '/includes/integrations/class-product-identity.php' );
 
 		$this->assertIsString( $source );
