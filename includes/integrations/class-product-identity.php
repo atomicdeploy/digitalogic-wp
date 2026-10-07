@@ -686,6 +686,20 @@ final class Digitalogic_Product_Identity {
 			$price_html = $available && is_numeric( $price_raw ) && (float) $price_raw > 0
 				? trim( (string) $variation->get_price_html() )
 				: '';
+			if (
+				'' === $price_html
+				&& '' !== $price_raw
+				&& function_exists( 'wc_get_price_to_display' )
+				&& function_exists( 'wc_price' )
+			) {
+				$display_price = wc_get_price_to_display(
+					$variation,
+					array( 'price' => (float) $price_raw )
+				);
+				if ( is_numeric( $display_price ) && (float) $display_price > 0 ) {
+					$price_html = wc_price( $display_price ) . $variation->get_price_suffix();
+				}
+			}
 			$price_text = sanitize_text_field(
 				trim( html_entity_decode( wp_strip_all_tags( $price_html ), ENT_QUOTES | ENT_HTML5, 'UTF-8' ) )
 			);

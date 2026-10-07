@@ -266,6 +266,17 @@ final class ProductIdentitySearchTest extends TestCase {
 		$this->assertStringNotContainsString( '99,000 تومان', $html );
 	}
 
+	/** The server renderer retains a WooCommerce-native price fallback for delayed pricing integrations. */
+	public function test_keeps_tax_aware_server_price_fallback(): void {
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Local source inspection is intentional in this regression test.
+		$source = file_get_contents( dirname( __DIR__ ) . '/includes/integrations/class-product-identity.php' );
+
+		$this->assertIsString( $source );
+		$this->assertStringContainsString( "function_exists( 'wc_get_price_to_display' )", $source );
+		$this->assertStringContainsString( 'wc_get_price_to_display(', $source );
+		$this->assertStringContainsString( 'wc_price( $display_price ) . $variation->get_price_suffix()', $source );
+	}
+
 	public function test_exposes_child_identity_and_adds_sku_mpn_without_replacing_offers(): void {
 		$GLOBALS['digitalogic_test_posts'][11] = array(
 			'post_type'    => 'product_variation',

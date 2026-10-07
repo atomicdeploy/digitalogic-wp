@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.12] - 2026-10-07
+
+- Fall back to WooCommerce's tax-aware display-price formatter when a pricing integration temporarily returns empty variation price HTML during server-side model-card rendering.
+
 ## [2.4.11] - 2026-10-07
 
 - Reconcile server-rendered selectable-model cards with the final localized variation data so available prices are not lost when pricing integrations finish later in the page lifecycle.
