@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.11] - 2026-10-07
+
+- Reconcile server-rendered selectable-model cards with the final localized variation data so available prices are not lost when pricing integrations finish later in the page lifecycle.
+
 ## [2.4.10] - 2026-10-07
 
 - Show each available variation's WooCommerce-formatted price in the selectable-model card while keeping unavailable models price-free.

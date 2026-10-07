@@ -60,6 +60,14 @@ test('product Code cards keep stable button semantics and resist theme button ov
 	assert.match(identityCss, /\.digitalogic-product-code-item__price-value/);
 });
 
+test('server-rendered model cards reconcile with final localized price data', () => {
+	assert.match(source, /label\.className = 'digitalogic-product-code-list__label'/);
+	assert.match(
+		source,
+		/if \(identity\) \{[\s\S]*?if \(childCodes\.length\) \{[\s\S]*?fillIdentity\(identity, name, code, isVariable, childCodes, legacyChildReferences\);/
+	);
+});
+
 test('contextual highlights separate model text from a copyable product Code', () => {
 	assert.match(experience, /variation\.digitalogic_product_name \|\| variation\.digitalogic_persian_name/);
 	assert.match(experience, /data-digitalogic-context-product-code/);
