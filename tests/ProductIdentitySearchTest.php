@@ -800,7 +800,7 @@ final class ProductIdentitySearchTest extends TestCase {
 		);
 		// phpcs:enable Generic.Formatting.MultipleStatementAlignment
 
-		$this->assertSame( 'قطعات > رگولاتور', $entity['category'] );
+		$this->assertSame( 'قطعات / رگولاتور', $entity['category'] );
 		$this->assertSame( '353000', $entity['hasVariant'][0]['offers']['price'] );
 		$this->assertSame( 'IRR', $entity['hasVariant'][0]['offers']['priceCurrency'] );
 		$this->assertArrayNotHasKey( 'priceValidUntil', $entity['hasVariant'][0]['offers'] );

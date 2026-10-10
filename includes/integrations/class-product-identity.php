@@ -508,7 +508,7 @@ final class Digitalogic_Product_Identity {
 				}
 				$category = $decoded;
 			}
-			$node['category'] = $category;
+			$node['category'] = trim( preg_replace( '/\s*>\s*/u', ' / ', $category ) );
 		}
 		if ( isset( $node['priceValidUntil'] ) && ! $this->is_valid_iso_date( $node['priceValidUntil'] ) ) {
 			unset( $node['priceValidUntil'] );
