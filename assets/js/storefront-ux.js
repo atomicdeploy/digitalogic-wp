@@ -29,6 +29,53 @@
         }
     }
 
+    function ensureCatalogFilters() {
+        var products = document.querySelector('.products');
+        if (!products) return;
+
+        var current = new URL(window.location.href);
+        var active = current.searchParams.get('dgl_availability') === 'instock';
+        current.searchParams.delete('dgl_availability');
+        current.searchParams.delete('product-page');
+        current.searchParams.delete('paged');
+        var allUrl = current.toString();
+        current.searchParams.set('dgl_availability', 'instock');
+        var stockUrl = current.toString();
+        var nav = document.querySelector('.digitalogic-catalog-filters');
+
+        if (!nav) {
+            nav = document.createElement('nav');
+            nav.className = 'digitalogic-catalog-filters';
+            nav.setAttribute('aria-label', 'فیلتر موجودی');
+
+            var label = document.createElement('span');
+            label.className = 'digitalogic-catalog-filters__label';
+            label.textContent = 'نمایش:';
+            nav.appendChild(label);
+
+            ['همه کالاها', 'فقط کالاهای موجود'].forEach(function (text) {
+                var link = document.createElement('a');
+                link.className = 'digitalogic-catalog-filter';
+                link.setAttribute('data-digitalogic-ajax-filter', '');
+                link.textContent = text;
+                nav.appendChild(link);
+            });
+
+            var anchor = document.querySelector('.shop-loop-head') || products;
+            anchor.parentNode.insertBefore(nav, anchor === products ? products : anchor.nextSibling);
+        }
+
+        var links = nav.querySelectorAll('.digitalogic-catalog-filter');
+        if (links[0]) {
+            links[0].href = allUrl;
+            links[0].classList.toggle('is-active', !active);
+        }
+        if (links[1]) {
+            links[1].href = stockUrl;
+            links[1].classList.toggle('is-active', active);
+        }
+    }
+
     function replaceExactText(root) {
         (root || document).querySelectorAll('.chaty-channel .on-hover-text').forEach(function (node) {
             if (/^contact us$/i.test(node.textContent.trim())) node.textContent = 'تماس با ما';
@@ -84,6 +131,7 @@
         if (!replaced) throw new Error('catalog-fragment-missing');
         window.history.pushState({}, '', url);
         replaceExactText(document);
+        ensureCatalogFilters();
         applyCategoryBanners(document);
         document.dispatchEvent(new CustomEvent('digitalogic:catalog-updated'));
     }
@@ -118,7 +166,7 @@
 
     $(document).ajaxSend(function (_event, _xhr, settings) {
         if (/woodmart|woocommerce|products|price_filter/i.test((settings && settings.url) || '')) setBusy(true);
-    }).ajaxComplete(function () { setBusy(false); replaceExactText(document); applyCategoryBanners(document); });
+    }).ajaxComplete(function () { setBusy(false); replaceExactText(document); ensureCatalogFilters(); applyCategoryBanners(document); });
 
     window.addEventListener('pageshow', function () { setBusy(false); });
     window.addEventListener('popstate', function () { window.location.reload(); });
@@ -137,6 +185,7 @@
     function boot() {
         ensureFeedback();
         replaceExactText(document);
+        ensureCatalogFilters();
         applyCategoryBanners(document);
         observer.observe(document.body, { childList: true, subtree: true });
     }
