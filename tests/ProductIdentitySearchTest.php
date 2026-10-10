@@ -782,7 +782,7 @@ final class ProductIdentitySearchTest extends TestCase {
 		$entity   = $identity->add_product_schema_identity(
 			array(
 				'@type'      => 'ProductGroup',
-				'category'   => 'قطعات &gt; رگولاتور',
+				'category'   => 'قطعات &amp;gt; رگولاتور',
 				'hasVariant' => array(
 					array(
 						'@type'  => 'Product',
