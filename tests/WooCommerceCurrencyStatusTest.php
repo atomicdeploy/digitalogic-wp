@@ -87,7 +87,8 @@ final class WooCommerceCurrencyStatusTest extends TestCase {
 		$this->assertSame( 'IRR', $catalog_irr['currency']['local'] );
 		$this->assertArrayNotHasKey( 'cny_to_irt', $catalog_irr['currency'] );
 		$this->assertContains( 'woocommerce_base_currency_must_be_irt', $catalog_irr['currency']['warnings'] );
-		$this->assertStringNotContainsString( 'null', wp_json_encode( $catalog_irr ) );
+		$this->assertStringNotContainsString( 'null', wp_json_encode( $catalog_irr['currency'] ) );
+		$this->assertNull( $catalog_irr['pricing']['rounding_policy'] );
 		$this->assertNotSame( $catalog_irt['revision'], $catalog_irr['revision'] );
 	}
 

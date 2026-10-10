@@ -305,6 +305,7 @@ class Digitalogic_Product_Sync_Receiver {
         'irt_per_cny',
         'price_rounding_digits',
         'price_rounding_mode',
+		'price_rounding_policy',
         'pricing_catalog_revision',
         'pricing_catalog_status',
         'currency_effective_date',
@@ -389,6 +390,7 @@ class Digitalogic_Product_Sync_Receiver {
         'irt_per_cny',
         'price_rounding_digits',
         'price_rounding_mode',
+		'price_rounding_policy',
         'pricing_catalog_revision',
         'pricing_catalog_status',
         'currency_effective_date',
@@ -1502,13 +1504,19 @@ class Digitalogic_Product_Sync_Receiver {
 	 */
 	public function get_owner_dependent_source_identities() {
 		$state = $this->load_state();
+		$rounding = Digitalogic_Shipping_Method_Service::instance()->get_price_rounding_policy();
+		if ( is_wp_error( $rounding ) ) {
+			return $rounding;
+		}
 		foreach ( $state['sources'] as $key => $source ) {
 			if ( ! isset( $source['input_source'], $source['input_products'] ) || ! is_array( $source['input_products'] ) ) {
 				return $this->input_baseline_required();
 			}
 			$dependent = false;
-			foreach ( $source['input_products'] as $product ) {
-				if ( $this->requires_owner_projection( $product, $source ) ) {
+			foreach ( $source['input_products'] as $code => $product ) {
+				$direct_rounding = 'sale_price_direct' === ( $product['price_source_kind'] ?? '' )
+					&& ( isset( $rounding['rounding_policy'] ) || isset( $product['price_rounding_policy'] ) || isset( $source['products'][ $code ]['price_rounding_policy'] ) );
+				if ( $direct_rounding || $this->requires_owner_projection( $product, $source ) ) {
 					$dependent = true;
 					break;
 				}
@@ -1996,7 +2004,7 @@ class Digitalogic_Product_Sync_Receiver {
             !is_array($settings)
             || array_is_list($settings)
             || !empty(array_diff($required, array_keys($settings)))
-            || !empty(array_diff(array_keys($settings), $required))
+            || !empty(array_diff(array_keys($settings), array_merge($required, array('price_rounding_policy'))))
         ) {
             return $this->error(
                 'digitalogic_pricing_settings_invalid',
@@ -2042,6 +2050,17 @@ class Digitalogic_Product_Sync_Receiver {
                 'تعداد ارقام گردکردن باید عدد صحیح صفر تا ۹ و روش آن nearest_half_up باشد.',
                 400
             );
+        }
+        $rounding_policy = $settings['price_rounding_policy'] ?? null;
+        if (null !== $rounding_policy) {
+            try {
+                if (!is_array($rounding_policy)) {
+                    throw new \InvalidArgumentException('Rounding policy must be an object.');
+                }
+                $rounding_policy = \Digitalogic\Pricing\RoundingPolicy::normalize($rounding_policy);
+            } catch (\InvalidArgumentException $exception) {
+                return $this->field_error('settings.price_rounding_policy', $exception->getMessage());
+            }
         }
         $date = DateTimeImmutable::createFromFormat('!Y-m-d', $settings['effective_date']);
         $date_errors = DateTimeImmutable::getLastErrors();
@@ -2091,6 +2110,7 @@ class Digitalogic_Product_Sync_Receiver {
                 'profit_margin_percent' => $this->decimal_parts_to_string($profit),
                 'price_rounding_digits' => (int) $this->number_to_storage($settings['price_rounding_digits']),
                 'price_rounding_mode' => Digitalogic_Shipping_Method_Service::ROUNDING_MODE,
+                'price_rounding_policy' => $rounding_policy,
             ),
             'profit_overrides' => $normalized_overrides,
             'scope_codes' => $normalized_scope,
@@ -2140,6 +2160,7 @@ class Digitalogic_Product_Sync_Receiver {
                     'profit_margin_percent' => $settings['profit_margin_percent'],
                     'price_rounding_digits' => $settings['price_rounding_digits'],
                     'price_rounding_mode' => $settings['price_rounding_mode'],
+                    'price_rounding_policy' => $settings['price_rounding_policy'] ?? null,
                 )
             )
         );
@@ -2874,6 +2895,7 @@ class Digitalogic_Product_Sync_Receiver {
         if (!is_array($product)) {
             return $this->field_error('products', 'contains invalid stored data');
         }
+        $product['price_rounding_policy'] = $settings['price_rounding_policy'] ?? null;
         $path = 'products.' . ($product['product_code'] ?? '');
         $price_source_kind = (string) ($product['price_source_kind'] ?? '');
         if ('' === $price_source_kind) {
@@ -2890,6 +2912,9 @@ class Digitalogic_Product_Sync_Receiver {
             return $this->field_error($path . '.price_source_kind', 'contains an unsupported selected price source');
         }
         if ('sale_price_direct' === $price_source_kind) {
+            if (!isset($product['price_rounding_policy'])) {
+                unset($product['price_rounding_digits'], $product['price_rounding_mode']);
+            }
             $calculated = $this->evaluate_final_price_formula($product, $path);
             if (is_wp_error($calculated)) {
                 return $calculated;
@@ -2898,6 +2923,10 @@ class Digitalogic_Product_Sync_Receiver {
                 unset($product['final_price']);
             } else {
                 $product['final_price'] = $calculated['value'];
+                if (isset($product['price_rounding_policy'], $calculated['rounding_digits'])) {
+                    $product['price_rounding_digits'] = $calculated['rounding_digits'];
+                    $product['price_rounding_mode'] = Digitalogic_Shipping_Method_Service::ROUNDING_MODE;
+                }
             }
             $validated = $this->validate_final_price_formula($product, $path, true, $calculated);
             if (is_wp_error($validated)) {
@@ -2940,6 +2969,7 @@ class Digitalogic_Product_Sync_Receiver {
         $product['markup_percent'] = $markup_percent;
         $product['price_rounding_digits'] = $settings['price_rounding_digits'];
         $product['price_rounding_mode'] = $settings['price_rounding_mode'];
+        $product['price_rounding_policy'] = $settings['price_rounding_policy'] ?? null;
         $product['pricing_catalog_revision'] = $catalog_revision;
         $product['shipping_price_per_kg'] = $shipping['price_per_kg'];
         $product['shipping_price_per_kg_currency'] = $shipping['currency'];
@@ -2958,6 +2988,10 @@ class Digitalogic_Product_Sync_Receiver {
             unset($product['final_price']);
         } else {
             $product['final_price'] = $calculated['value'];
+            if (isset($product['price_rounding_policy'], $calculated['rounding_digits'])) {
+                $product['price_rounding_digits'] = $calculated['rounding_digits'];
+                $product['price_rounding_mode'] = Digitalogic_Shipping_Method_Service::ROUNDING_MODE;
+            }
         }
         $validated = $this->validate_final_price_formula($product, $path, true, $calculated);
         if (is_wp_error($validated)) {
@@ -3361,15 +3395,22 @@ class Digitalogic_Product_Sync_Receiver {
             return $products;
         }
         if ('go' === $authority) {
-            $catalog = null;
+            $catalog = Digitalogic_Shipping_Method_Service::instance()->get_integration_catalog();
+            if (is_wp_error($catalog)) {
+                return $catalog;
+            }
+            $used_owner_catalog = false;
             foreach ($products as $code => $product) {
                 $validated = $this->validate_final_price_formula($product, 'products.' . $code, !empty($source['formula_id']));
                 if (is_wp_error($validated)) {
                     return $validated;
                 }
-                if (!$this->requires_owner_projection($product, $source)) {
+                $direct_rounding = 'sale_price_direct' === ($product['price_source_kind'] ?? '')
+                    && (isset($catalog['pricing']['rounding_policy']) || isset($product['price_rounding_policy']));
+                if (!$direct_rounding && !$this->requires_owner_projection($product, $source)) {
                     continue;
                 }
+                $used_owner_catalog = true;
                 if (null === $catalog) {
                     $catalog = Digitalogic_Shipping_Method_Service::instance()->get_integration_catalog();
                     if (is_wp_error($catalog)) {
@@ -3389,7 +3430,7 @@ class Digitalogic_Product_Sync_Receiver {
                     );
                 }
             }
-            if (null !== $catalog) {
+            if ($used_owner_catalog) {
                 $verified_owner_catalog_revision = $catalog['revision'];
             }
             return $products;
@@ -3438,6 +3479,12 @@ class Digitalogic_Product_Sync_Receiver {
             // Only priced routes require currency, markup and freight enrichment.
             $product = $this->project_owner_stock($product, $catalog['selected_warehouses'] ?? array());
             if (!$this->requires_owner_projection($product, $source)) {
+                if ('sale_price_direct' === ($product['price_source_kind'] ?? '')) {
+                    $product['price_rounding_policy'] = $catalog['pricing']['rounding_policy'] ?? null;
+                    if (!isset($product['price_rounding_policy'])) {
+                        unset($product['price_rounding_digits'], $product['price_rounding_mode']);
+                    }
+                }
                 $calculated = $this->evaluate_final_price_formula($product, 'products.' . $code);
                 if (is_wp_error($calculated)) {
                     return $calculated;
@@ -3445,6 +3492,10 @@ class Digitalogic_Product_Sync_Receiver {
                 unset($product['final_price']);
                 if (!empty($calculated['available'])) {
                     $product['final_price'] = $calculated['value'];
+                if (isset($product['price_rounding_policy'], $calculated['rounding_digits'])) {
+						$product['price_rounding_digits'] = $calculated['rounding_digits'];
+						$product['price_rounding_mode'] = Digitalogic_Shipping_Method_Service::ROUNDING_MODE;
+                }
                 }
                 $validated = $this->validate_final_price_formula($product, 'products.' . $code, !empty($source['formula_id']), $calculated);
                 if (is_wp_error($validated)) {
@@ -4108,7 +4159,10 @@ class Digitalogic_Product_Sync_Receiver {
                     'shipping_method_id', 'shipping_price_per_kg', 'shipping_price_per_kg_currency',
                     'markup_percent', 'irt_per_cny', 'pricing_catalog_revision', 'pricing_catalog_status',
                     'currency_effective_date', 'price_source_amount', 'price_source_currency', 'price_source_kind',
-                    'price_rounding_digits', 'price_rounding_mode', 'final_price',
+					'price_rounding_digits',
+					'price_rounding_mode',
+					'price_rounding_policy',
+					'final_price',
                 )));
                 if (!empty($owner_fields)) {
                     return $this->error('digitalogic_product_sync_owner_fields_forbidden', 'Patris input records must omit website-owned projection fields.', 422, array('fields' => $owner_fields));
@@ -4355,14 +4409,16 @@ class Digitalogic_Product_Sync_Receiver {
         if ($direct_sale_selected) {
             $forbidden_direct_inputs = array_values(
                 array_intersect(
-                    array('markup_percent', 'price_rounding_digits', 'price_rounding_mode', 'irt_per_cny'),
+					isset( $product['price_rounding_policy'] )
+						? array( 'markup_percent', 'irt_per_cny' )
+						: array( 'markup_percent', 'price_rounding_digits', 'price_rounding_mode', 'irt_per_cny' ),
                     array_keys($product)
                 )
             );
             if (!empty($forbidden_direct_inputs)) {
                 return $this->error(
                     'digitalogic_product_sync_direct_sale_inputs_forbidden',
-                    'sale_price_direct must omit markup, rounding, and foreign-exchange inputs.',
+					'sale_price_direct must omit markup and foreign-exchange inputs; rounding fields require a magnitude policy.',
                     422,
                     array('path' => $path, 'fields' => $forbidden_direct_inputs)
                 );
@@ -4416,7 +4472,7 @@ class Digitalogic_Product_Sync_Receiver {
                 }
             } elseif (!$direct_sale_selected && (
                 !$this->is_nonnegative_integer($product['price_rounding_digits'])
-                || (int) $this->number_to_storage($product['price_rounding_digits']) > 9
+				|| (int) $this->number_to_storage( $product['price_rounding_digits'] ) > ( isset( $product['price_rounding_policy'] ) ? 18 : 9 )
             )) {
                 return $this->field_error($path . '.price_rounding_digits', 'must be an integer from 0 through 9');
             } elseif (
@@ -4471,6 +4527,24 @@ class Digitalogic_Product_Sync_Receiver {
         // Formula validation follows authority selection under the delivery
         // lock. PHP receives source facts and validates its own final projection.
 
+		if ( isset( $product['price_rounding_policy'] ) ) {
+			try {
+				if ( ! is_array( $product['price_rounding_policy'] ) ) {
+					throw new \InvalidArgumentException( 'Rounding policy must be an object.' );
+				}
+				foreach ( ( $product['price_rounding_policy']['tiers'] ?? array() ) as $tier_index => $tier ) {
+					if ( isset( $tier['digits'] ) && $tier['digits'] instanceof Digitalogic_Product_Sync_JSON_Number ) {
+						if ( ! preg_match( '/\A(?:0|[1-9][0-9]?)\z/D', $tier['digits']->value ) ) {
+							throw new \InvalidArgumentException( 'Tier digits must be a nonnegative integer.' );
+						}
+						$product['price_rounding_policy']['tiers'][ $tier_index ]['digits'] = (int) $tier['digits']->value;
+					}
+				}
+				$product['price_rounding_policy'] = \Digitalogic\Pricing\RoundingPolicy::normalize( $product['price_rounding_policy'] );
+			} catch ( \InvalidArgumentException $exception ) {
+				return $this->field_error( $path . '.price_rounding_policy', $exception->getMessage() );
+			}
+		}
         $stored = array();
         foreach (self::PRODUCT_FIELDS as $field) {
             if (!array_key_exists($field, $product)) {
@@ -5046,6 +5120,7 @@ class Digitalogic_Product_Sync_Receiver {
 			'price_source_kind'              => 'pricing',
 			'price_rounding_digits'          => 'pricing',
 			'price_rounding_mode'            => 'pricing',
+			'price_rounding_policy'          => 'pricing',
 			'pricing_catalog_revision'       => 'pricing',
 			'pricing_catalog_status'         => 'pricing',
 			'currency_effective_date'        => 'pricing',
@@ -7186,7 +7261,7 @@ class Digitalogic_Product_Sync_Receiver {
         $complete_rounding      = array_key_exists('price_rounding_digits', $product)
             && null !== $product['price_rounding_digits']
             && $this->is_nonnegative_integer($product['price_rounding_digits'])
-            && (int) $this->number_to_storage($product['price_rounding_digits']) <= 9
+			&& (int) $this->number_to_storage( $product['price_rounding_digits'] ) <= ( isset( $product['price_rounding_policy'] ) ? 18 : 9 )
             && array_key_exists('price_rounding_mode', $product)
             && 'nearest_half_up' === $product['price_rounding_mode'];
         $usable_cny_fact        = array_key_exists('foreign_price', $product)
@@ -7332,6 +7407,13 @@ class Digitalogic_Product_Sync_Receiver {
 			return $this->field_error( $path . '.final_price', 'is required when all selected-price inputs are available' );
 		}
 
+		if ( isset( $product['price_rounding_policy'] ) && (
+			! isset( $product['price_rounding_digits'], $product['price_rounding_mode'], $evaluated['rounding_digits'] )
+			|| (int) $this->number_to_storage( $product['price_rounding_digits'] ) !== $evaluated['rounding_digits']
+			|| 'nearest_half_up' !== $product['price_rounding_mode']
+		) ) {
+			return $this->field_error( $path . '.price_rounding_digits', 'must match the effective magnitude tier and nearest_half_up mode' );
+		}
 		$actual = $this->number_to_storage( $product['final_price'] );
 		if ( ! is_int( $actual ) || $actual !== $evaluated['value'] ) {
 			$message = 'sale_price_direct' === $product['price_source_kind']
@@ -7359,8 +7441,8 @@ class Digitalogic_Product_Sync_Receiver {
 	 * Foreign CNY pricing adds exact item and weight-based freight costs, converts
 	 * them to IRT, applies markup once, then rounds once. Partner IRR pricing uses
 	 * the canonical zero-rate domestic route before markup and rounding. Direct
-	 * sale pricing only performs an exact IRR-to-IRT division and is deliberately
-	 * independent from freight, FX, markup, and rounding settings.
+	 * sale pricing performs exact IRR-to-IRT division and optional magnitude rounding,
+	 * independently from freight, FX and markup.
 	 *
 	 * @param array  $product Canonical product record.
 	 * @param string $path    Error path.
