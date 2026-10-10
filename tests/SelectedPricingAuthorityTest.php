@@ -369,6 +369,31 @@ final class SelectedPricingAuthorityTest extends TestCase {
 		$this->assertSame( '8866000', (string) $GLOBALS['digitalogic_test_posts'][901]['meta']['_regular_price'] );
 	}
 
+	public function test_go_direct_magnitude_projection_admits_numeric_policy_digits(): void {
+		$GLOBALS['digitalogic_test_options'][ Digitalogic_Pricing_Coordinator::AUTHORITY_OPTION ] = 'go';
+		$policy = \Digitalogic\Pricing\RoundingPolicy::defaults();
+		$GLOBALS['digitalogic_test_options'][ Digitalogic_Shipping_Method_Service::ROUNDING_POLICY_OPTION ] = $policy;
+		$catalog = Digitalogic_Shipping_Method_Service::instance()->get_integration_catalog();
+		$direct = array(
+			'product_code' => 'PRICE-901', 'weight_grams' => 100,
+			'sale_price_source' => 1234500, 'price_source_amount' => 1234500,
+			'price_source_currency' => 'IRR', 'price_source_kind' => 'sale_price_direct',
+			'pricing_catalog_revision' => $catalog['revision'],
+			'shipping_method_id' => 'domestic', 'shipping_price_per_kg' => 0, 'shipping_price_per_kg_currency' => 'IRR',
+			'price_rounding_policy' => $policy, 'price_rounding_digits' => 3,
+			'price_rounding_mode' => 'nearest_half_up', 'final_price' => 123000, 'warnings' => array(),
+		);
+		$direct['record_hash'] = $this->record_hash( $direct );
+		$receiver = Digitalogic_Product_Sync_Receiver::instance();
+		$payload = Digitalogic_Product_Sync_JSON_Decoder::decode( wp_json_encode( $this->snapshot( array( $direct ), '2026-07-21T00:00:00Z', 'direct-magnitude' ) ) );
+		$this->assertInstanceOf( Digitalogic_Product_Sync_JSON_Number::class, $payload['products'][0]['price_rounding_digits'] );
+		$this->assert_success( $receiver->receive( $payload ) );
+		$this->assertSame( '123000', (string) $GLOBALS['digitalogic_test_posts'][901]['meta']['_regular_price'] );
+		$this->assertCount( 1, $receiver->get_owner_dependent_source_identities()['sources'] );
+		unset( $GLOBALS['digitalogic_test_options'][ Digitalogic_Shipping_Method_Service::ROUNDING_POLICY_OPTION ] );
+		$this->assertCount( 1, $receiver->get_owner_dependent_source_identities()['sources'] );
+	}
+
 	/** Direct-only sources are unaffected; mixed sources still need the Go actuation receipt. */
 	public function test_owner_dependent_sources_exclude_direct_only_but_include_mixed_inputs(): void {
 		$GLOBALS['digitalogic_test_options'][ Digitalogic_Pricing_Coordinator::AUTHORITY_OPTION ] = 'go';
@@ -398,6 +423,9 @@ final class SelectedPricingAuthorityTest extends TestCase {
 		$affected = $receiver->get_owner_dependent_source_identities();
 		$this->assertCount( 1, $affected['sources'] );
 		$this->assertSame( 'mixed-source', array_values( $affected['sources'] )[0]['source']['id'] );
+		$GLOBALS['digitalogic_test_options'][ Digitalogic_Shipping_Method_Service::ROUNDING_POLICY_OPTION ] = \Digitalogic\Pricing\RoundingPolicy::defaults();
+		$this->assertCount( 2, $receiver->get_owner_dependent_source_identities()['sources'] );
+		unset( $GLOBALS['digitalogic_test_options'][ Digitalogic_Shipping_Method_Service::ROUNDING_POLICY_OPTION ] );
 		$state = $receiver->get_state();
 		unset( $state['sources'][ hash( 'sha256', "direct-only\nkala" ) ]['input_products'] );
 		update_option( Digitalogic_Product_Sync_Receiver::STATE_OPTION, $state, false );

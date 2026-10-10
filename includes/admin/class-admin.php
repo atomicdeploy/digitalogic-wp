@@ -851,12 +851,36 @@ class Digitalogic_Admin {
                     break;
 
 				case 'update_price_rounding':
-					$result      = $shipping_service->update_price_rounding_digits(
-						$posted_value( 'price_rounding_digits' )
-					);
+					$selection = $posted_value( 'price_rounding_selection' );
+					$policy = null;
+					$result = null;
+					if ( 'magnitude' === $selection ) {
+						$thresholds = isset( $_POST['rounding_threshold_irt'] ) && is_array( $_POST['rounding_threshold_irt'] ) ? wp_unslash( $_POST['rounding_threshold_irt'] ) : array();
+						$digits = isset( $_POST['rounding_tier_digits'] ) && is_array( $_POST['rounding_tier_digits'] ) ? wp_unslash( $_POST['rounding_tier_digits'] ) : array();
+						$policy = array( 'tiers' => array(), 'extend_decades' => isset( $_POST['rounding_extend_decades'] ) );
+						foreach ( array_unique( array_merge( array_keys( $thresholds ), array_keys( $digits ) ) ) as $index ) {
+							$threshold = $thresholds[ $index ] ?? '';
+							$digit = $digits[ $index ] ?? '';
+							if ( '' === $threshold && '' === $digit ) {
+								continue;
+							}
+							if ( ! is_string( $threshold ) || ! is_string( $digit ) || ! preg_match( '/\A[0-9]+\z/D', $digit ) || '' === $threshold ) {
+								$result = new WP_Error( 'invalid_rounding_policy', 'در هر ردیف، مبلغ شروع و تعداد رقم را کامل وارد کنید.' );
+								break;
+							}
+							$policy['tiers'][] = array( 'threshold_irt' => $threshold, 'digits' => (int) $digit );
+						}
+					} elseif ( 'fixed' !== $selection ) {
+						$result = new WP_Error( 'invalid_rounding_selection', 'روش گردکردن را انتخاب کنید.' );
+					}
+					if ( ! is_wp_error( $result ) ) {
+						$result = Digitalogic_Pricing_Coordinator::instance()->update_price_rounding(
+							$posted_value( 'price_rounding_digits' ), 'wp', $policy
+						);
+					}
 					$notice      = is_wp_error( $result )
 						? $result->get_error_message()
-						: __( 'The price-rounding policy was saved. WooCommerce prices were not changed.', 'digitalogic' );
+						: __( 'The price-rounding policy was saved and WooCommerce prices were recalculated atomically.', 'digitalogic' );
 					$notice_type = is_wp_error( $result ) ? 'error' : 'success';
 					break;
 

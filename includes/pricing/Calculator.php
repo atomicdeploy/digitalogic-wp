@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Digitalogic\Pricing;
 
 require_once __DIR__ . '/ExactDecimalArithmetic.php';
+require_once __DIR__ . '/RoundingPolicy.php';
 
 /** One framework-independent implementation of the supported selling-price policies. */
 final class Calculator {
@@ -265,6 +266,10 @@ final class Calculator {
 			}
 			$direct_irt           = $source_amount;
 			$direct_irt['scale'] += 1; // IRR to IRT, exactly.
+			if ( isset( $product['price_rounding_policy'] ) ) {
+				$digits = RoundingPolicy::digits_for_decimal( $direct_irt, 'IRT', $product['price_rounding_policy'] );
+				$direct_irt = array( 'digits' => $this->decimal_round_half_up_to_digits( $direct_irt, $digits ), 'scale' => 0 );
+			}
 			while ( $direct_irt['scale'] > 0 && str_ends_with( $direct_irt['digits'], '0' ) ) {
 				$direct_irt['digits'] = substr( $direct_irt['digits'], 0, -1 );
 				--$direct_irt['scale'];
@@ -279,11 +284,15 @@ final class Calculator {
 				return $this->field_error( $path . '.final_price', 'sale_price_direct exceeds the supported IRT integer range' );
 			}
 
-			return array(
+			$result = array(
 				'available' => true,
 				'missing'   => array(),
 				'value'     => (int) $direct_irt['digits'],
 			);
+			if ( isset( $product['price_rounding_policy'] ) ) {
+				$result['rounding_digits'] = $digits;
+			}
+			return $result;
 		}
 
 		if ( $this->decimal_compare( $markup, $this->formula_decimal_parts( self::MAX_MARKUP_PERCENT ) ) > 0 ) {
@@ -291,8 +300,8 @@ final class Calculator {
 		}
 		if (
 			( ! is_int( $product['price_rounding_digits'] ) && ! is_string( $product['price_rounding_digits'] ) )
-			|| ! preg_match( '/\A[0-9]\z/D', (string) $product['price_rounding_digits'] )
-			|| (int) $product['price_rounding_digits'] > 9
+			|| ! preg_match( '/\A(?:0|[1-9][0-9]?)\z/D', (string) $product['price_rounding_digits'] )
+			|| (int) $product['price_rounding_digits'] > ( isset( $product['price_rounding_policy'] ) ? 18 : 9 )
 			|| 'nearest_half_up' !== $product['price_rounding_mode']
 		) {
 			return array(
@@ -307,17 +316,23 @@ final class Calculator {
 		);
 		$marked_up           = $this->decimal_multiply( $base_irt, $markup_multiplier );
 		$marked_up['scale'] += 2; // percent to multiplier, exactly.
-		$rounding_digits     = (int) $product['price_rounding_digits'];
+		$rounding_digits     = isset( $product['price_rounding_policy'] )
+			? RoundingPolicy::digits_for_decimal( $marked_up, 'IRT', $product['price_rounding_policy'] )
+			: (int) $product['price_rounding_digits'];
 		$rounded             = $this->decimal_round_half_up_to_digits( $marked_up, $rounding_digits );
 		if ( $this->big_integer_compare( $rounded, (string) PHP_INT_MAX ) > 0 ) {
 			return $this->field_error( $path . '.final_price', 'landed_price exceeds the supported IRT integer range' );
 		}
 
-		return array(
+		$result = array(
 			'available' => true,
 			'missing'   => array(),
 			'value'     => (int) $rounded,
 		);
+		if ( isset( $product['price_rounding_policy'] ) ) {
+			$result['rounding_digits'] = $rounding_digits;
+		}
+		return $result;
 	}
 
 

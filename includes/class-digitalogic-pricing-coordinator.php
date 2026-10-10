@@ -126,6 +126,8 @@ final class Digitalogic_Pricing_Coordinator {
 				3
 			);
 		}
+		add_filter( 'pre_update_option_' . Digitalogic_Shipping_Method_Service::ROUNDING_POLICY_OPTION, array( $this, 'intercept_rounding_policy_option_write' ), 10, 3 );
+		add_filter( 'pre_add_option_' . Digitalogic_Shipping_Method_Service::ROUNDING_POLICY_OPTION, array( $this, 'intercept_rounding_policy_option_add' ), 10, 2 );
 		add_filter(
 			'pre_update_option_' . Digitalogic_Shipping_Method_Service::ROUNDING_DIGITS_OPTION,
 			array( $this, 'intercept_legacy_rounding_option_write' ),
@@ -186,6 +188,7 @@ final class Digitalogic_Pricing_Coordinator {
 			'profit_margin_percent',
 			'air_express_price_per_kg',
 			'price_rounding_digits',
+			'price_rounding_policy',
 		);
 		$unknown = array_values( array_diff( array_keys( $values ), $allowed ) );
 		if ( ! $values || $unknown ) {
@@ -197,6 +200,9 @@ final class Digitalogic_Pricing_Coordinator {
 			);
 		}
 		foreach ( $values as $field => $value ) {
+			if ( 'price_rounding_policy' === $field && ( null === $value || is_array( $value ) ) ) {
+				continue; // Complete settings validation canonicalizes the policy before mutation.
+			}
 			if ( ! is_string( $value ) && ! is_int( $value ) && ! is_float( $value )
 				|| ( is_string( $value ) && '' === trim( $value ) )
 				|| ( is_float( $value ) && ! is_finite( $value ) ) ) {
@@ -209,7 +215,7 @@ final class Digitalogic_Pricing_Coordinator {
 			}
 		}
 		$required = array_merge(
-			$allowed,
+			array_diff( $allowed, array( 'price_rounding_policy' ) ),
 			array( 'effective_date', 'air_express_currency', 'shipping_catalog_revision', 'price_rounding_mode' )
 		);
 		if ( array_diff( $required, array_keys( $admitted_settings ) ) ) {
@@ -375,12 +381,15 @@ final class Digitalogic_Pricing_Coordinator {
 	 * @param string $source Bounded internal source label.
 	 * @return array|WP_Error
 	 */
-	public function update_price_rounding( $digits, $source = 'wp' ) {
+	public function update_price_rounding( $digits, $source = 'wp', $policy = null ) {
 		$settings = Digitalogic_Pricing_Service::instance()->current_canonical_settings();
 		if ( is_wp_error( $settings ) ) {
 			return $settings;
 		}
 		$settings['price_rounding_digits'] = $digits;
+		if ( func_num_args() >= 3 ) {
+			$settings['price_rounding_policy'] = $policy;
+		}
 		$settings['price_rounding_mode']   = Digitalogic_Shipping_Method_Service::ROUNDING_MODE;
 
 		return Digitalogic_Pricing_Service::instance()->apply_internal_settings(
@@ -598,6 +607,7 @@ final class Digitalogic_Pricing_Coordinator {
 			'profit_margin_percent' => $settings['profit_margin_percent'],
 			'price_rounding_digits' => $settings['price_rounding_digits'],
 			'price_rounding_mode'   => $settings['price_rounding_mode'],
+			'price_rounding_policy' => $settings['price_rounding_policy'] ?? null,
 		);
 	}
 
@@ -774,6 +784,32 @@ final class Digitalogic_Pricing_Coordinator {
 	 * @param string $option    Exact option name.
 	 * @return mixed
 	 */
+	public function intercept_rounding_policy_option_add( $value, $option ) {
+		return $this->intercept_rounding_policy_option_write( $value, null, $option );
+	}
+
+	public function intercept_rounding_policy_option_write( $value, $old_value, $option ) {
+		if ( $this->legacy_option_write_depth > 0 || $value === $old_value ) {
+			return $value;
+		}
+		$settings = Digitalogic_Pricing_Service::instance()->current_canonical_settings();
+		if ( is_wp_error( $settings ) ) {
+			return $old_value;
+		}
+		++$this->legacy_option_write_depth;
+		try {
+			$result = $this->update_price_rounding( $settings['price_rounding_digits'], 'legacy_option', $value );
+		} finally {
+			--$this->legacy_option_write_depth;
+		}
+		if ( is_wp_error( $result ) ) {
+			$this->publish_legacy_write_failure( $option, $result->get_error_code() );
+			return $old_value;
+		}
+		$settings = Digitalogic_Pricing_Service::instance()->current_canonical_settings();
+		return is_wp_error( $settings ) ? $old_value : ( $settings['price_rounding_policy'] ?? null );
+	}
+
 	public function intercept_legacy_rounding_option_write( $value, $old_value, $option ) {
 		if (
 			$this->legacy_option_write_depth > 0

@@ -10,6 +10,8 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
+require_once __DIR__ . '/pricing/RoundingPolicy.php';
+
 if (!class_exists('Digitalogic_Product_Identifier_Resolver')) {
     require_once __DIR__ . '/class-product-identifier-resolver.php';
 }
@@ -18,6 +20,7 @@ final class Digitalogic_Shipping_Method_Service {
 
 	public const METHODS_OPTION         = 'digitalogic_shipping_methods';
 	public const DEFAULT_MARKUP_OPTION  = 'digitalogic_pricing_default_percentage_markup';
+	public const ROUNDING_POLICY_OPTION = 'digitalogic_pricing_rounding_policy';
 	public const ROUNDING_DIGITS_OPTION = 'digitalogic_pricing_rounding_digits';
 	public const PRODUCT_METHOD_META    = '_digitalogic_shipping_method_id';
 	public const DOMESTIC_METHOD_ID     = 'domestic';
@@ -1374,6 +1377,7 @@ final class Digitalogic_Shipping_Method_Service {
                 'formula_id' => self::FORMULA_ID,
                 'authority' => $authority,
 				'rounding_digits' => $rounding['rounding_digits'],
+				'rounding_policy' => $rounding['rounding_policy'] ?? null,
 				'rounding_mode'   => self::ROUNDING_MODE,
             ),
             'selected_warehouses' => $warehouses,
@@ -2681,12 +2685,29 @@ final class Digitalogic_Shipping_Method_Service {
 	 * @return array|WP_Error
 	 */
 	private function load_price_rounding_policy() {
+		$policy_row = $this->read_option_db( self::ROUNDING_POLICY_OPTION );
+		$policy = $policy_row['exists'] ? $policy_row['value'] : null;
+		// WordPress stores a nullable scalar option as an empty database string.
+		if ( '' === $policy ) {
+			$policy = null;
+		}
+		if ( null !== $policy ) {
+			try {
+				if ( ! is_array( $policy ) ) {
+					throw new \InvalidArgumentException( 'Stored rounding policy must be an object.' );
+				}
+				$policy = \Digitalogic\Pricing\RoundingPolicy::normalize( $policy );
+			} catch ( \InvalidArgumentException $exception ) {
+				return new WP_Error( 'digitalogic_price_rounding_storage_invalid', $exception->getMessage() );
+			}
+		}
 		$row = $this->read_option_db( self::ROUNDING_DIGITS_OPTION );
 		if ( ! $row['exists'] ) {
 			return array(
 				'configured'      => false,
 				'rounding_digits' => 0,
 				'rounding_mode'   => self::ROUNDING_MODE,
+			'rounding_policy' => $policy,
 				'bounds'          => array( 'minimum' => 0, 'maximum' => self::MAX_ROUNDING_DIGITS ),
 				'warnings'        => array(),
 			);
@@ -2705,6 +2726,7 @@ final class Digitalogic_Shipping_Method_Service {
 			'configured'      => true,
 			'rounding_digits' => $digits,
 			'rounding_mode'   => self::ROUNDING_MODE,
+			'rounding_policy' => $policy,
 			'bounds'          => array( 'minimum' => 0, 'maximum' => self::MAX_ROUNDING_DIGITS ),
 			'warnings'        => array(),
 		);

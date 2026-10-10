@@ -19,6 +19,52 @@ if (!defined('WP_CLI') || !WP_CLI) {
 class Digitalogic_CLI_Commands {
 
 	/**
+	 * Read or change final-price rounding and recalculate affected prices.
+	 *
+	 * ## OPTIONS
+	 *
+	 * [--magnitude]
+	 * : Select configurable magnitude tiers with the standard decade defaults.
+	 *
+	 * [--fixed-digits=<digits>]
+	 * : Select fixed rounding with zero through nine trailing IRT digits.
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     wp digitalogic pricing rounding
+	 *     wp digitalogic pricing rounding --magnitude
+	 *     wp digitalogic pricing rounding --fixed-digits=2
+	 *
+	 * @when after_wp_load
+	 */
+	public function pricing_rounding( $args, $assoc_args ) {
+		if ( isset( $assoc_args['magnitude'], $assoc_args['fixed-digits'] ) ) {
+			WP_CLI::error( 'Choose either --magnitude or --fixed-digits.' );
+			return;
+		}
+		$settings = Digitalogic_Pricing_Service::instance()->current_canonical_settings();
+		if ( is_wp_error( $settings ) ) {
+			WP_CLI::error( $settings->get_error_message() );
+			return;
+		}
+		if ( isset( $assoc_args['magnitude'] ) || isset( $assoc_args['fixed-digits'] ) ) {
+			$policy = isset( $assoc_args['magnitude'] ) ? \Digitalogic\Pricing\RoundingPolicy::defaults() : null;
+			$result = Digitalogic_Pricing_Coordinator::instance()->update_price_rounding(
+				$assoc_args['fixed-digits'] ?? $settings['price_rounding_digits'],
+				'wp_cli',
+				$policy
+			);
+		} else {
+			$result = array_intersect_key( $settings, array_flip( array( 'price_rounding_digits', 'price_rounding_mode', 'price_rounding_policy' ) ) );
+		}
+		if ( is_wp_error( $result ) ) {
+			WP_CLI::error( $result->get_error_code() . ': ' . $result->get_error_message() );
+			return;
+		}
+		WP_CLI::line( wp_json_encode( $result ) );
+	}
+
+	/**
 	 * Recalculate one product from the latest committed Patris source inputs.
 	 *
 	 * Uses the selected persistence mode and requires PHP pricing authority.
@@ -2155,6 +2201,7 @@ WP_CLI::add_command(
 WP_CLI::add_command( 'digitalogic pricing write-mode', array( 'Digitalogic_CLI_Commands', 'pricing_write_mode' ) );
 WP_CLI::add_command( 'digitalogic pricing authority', array( 'Digitalogic_CLI_Commands', 'pricing_authority' ) );
 WP_CLI::add_command( 'digitalogic pricing recalculate', array( 'Digitalogic_CLI_Commands', 'pricing_recalculate' ) );
+WP_CLI::add_command( 'digitalogic pricing rounding', array( 'Digitalogic_CLI_Commands', 'pricing_rounding' ) );
 WP_CLI::add_command(
 	'digitalogic pricing-input-credential create',
 	array( 'Digitalogic_CLI_Commands', 'pricing_input_credential_create' )

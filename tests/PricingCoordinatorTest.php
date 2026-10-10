@@ -473,6 +473,39 @@ final class PricingCoordinatorTest extends TestCase {
 		$this->assertSame( '9086000', (string) $GLOBALS['digitalogic_test_posts'][901]['meta']['_digitalogic_patris_final_price'] );
 	}
 
+	public function test_magnitude_rounding_activates_and_restores_fixed_policy_atomically(): void {
+		$policy = \Digitalogic\Pricing\RoundingPolicy::defaults();
+		$before = Digitalogic_Pricing_Service::instance()->current_canonical_settings();
+		$result = Digitalogic_Pricing_Coordinator::instance()->update_price_rounding( 2, 'test_magnitude', $policy );
+		$this->assertFalse( is_wp_error( $result ), is_wp_error( $result ) ? $result->get_error_message() : '' );
+		$settings = Digitalogic_Pricing_Service::instance()->current_canonical_settings();
+		$this->assertSame( $policy, $settings['price_rounding_policy'] );
+		$this->assertSame( $before['cny_effective_date'], $settings['cny_effective_date'] );
+		$this->assertSame( $before['usd_effective_date'], $settings['usd_effective_date'] );
+		$this->assertSame( '8440000', (string) $GLOBALS['digitalogic_test_posts'][901]['meta']['_regular_price'] );
+		$state = $GLOBALS['digitalogic_test_options'][ Digitalogic_Product_Sync_Receiver::STATE_OPTION ];
+		$source = reset( $state['sources'] );
+		$this->assertSame( $policy, $source['products']['PRICE-901']['price_rounding_policy'] );
+		$this->assertSame( 4, $source['products']['PRICE-901']['price_rounding_digits'] );
+		$catalog = Digitalogic_Shipping_Method_Service::instance()->get_integration_catalog();
+		$this->assertSame( $policy, $catalog['pricing']['rounding_policy'] );
+		$result = Digitalogic_Pricing_Coordinator::instance()->update_price_rounding( 2, 'test_fixed', null );
+		$this->assertFalse( is_wp_error( $result ), is_wp_error( $result ) ? $result->get_error_message() : '' );
+		$this->assertNull( Digitalogic_Pricing_Service::instance()->current_canonical_settings()['price_rounding_policy'] );
+		$this->assertSame( '8437000', (string) $GLOBALS['digitalogic_test_posts'][901]['meta']['_regular_price'] );
+	}
+
+	public function test_magnitude_policy_rolls_back_with_failed_product_write(): void {
+		$before = Digitalogic_Pricing_Service::instance()->current_canonical_state();
+		$GLOBALS['digitalogic_test_wc_save_failures'] = array( 901 );
+		$result = Digitalogic_Pricing_Coordinator::instance()->update_price_rounding( 2, 'test_magnitude', \Digitalogic\Pricing\RoundingPolicy::defaults() );
+		$this->assertTrue( is_wp_error( $result ) );
+		$after = Digitalogic_Pricing_Service::instance()->current_canonical_state();
+		$this->assertSame( $before['state_revision'], $after['state_revision'] );
+		$this->assertNull( $after['settings']['price_rounding_policy'] );
+		$this->assertSame( '8437000', (string) $GLOBALS['digitalogic_test_posts'][901]['meta']['_regular_price'] );
+	}
+
 	/** The public rounding service delegates to the shared atomic repricer. */
 	public function test_rounding_service_updates_policy_and_product_provenance_atomically(): void {
 		$GLOBALS['digitalogic_test_cache_invalidation_history'] = array();
@@ -664,6 +697,15 @@ final class PricingCoordinatorTest extends TestCase {
 		$this->assertArrayNotHasKey( 'markup_percent', $stored );
 		$this->assertArrayNotHasKey( 'irt_per_cny', $stored );
 		$this->assertArrayNotHasKey( 'price_rounding_digits', $stored );
+		$GLOBALS['digitalogic_test_options'][ Digitalogic_Pricing_Coordinator::AUTHORITY_OPTION ] = 'php';
+		$result = Digitalogic_Pricing_Coordinator::instance()->update_price_rounding( 3, 'test_direct_magnitude', \Digitalogic\Pricing\RoundingPolicy::defaults() );
+		$this->assertFalse( is_wp_error( $result ), is_wp_error( $result ) ? $result->get_error_message() : '' );
+		$this->assertSame( '123000', (string) $GLOBALS['digitalogic_test_posts'][903]['meta']['_regular_price'] );
+		$state = $GLOBALS['digitalogic_test_options'][ Digitalogic_Product_Sync_Receiver::STATE_OPTION ];
+		$stored = reset( $state['sources'] )['products']['DIRECT-903'];
+		$this->assertSame( 3, $stored['price_rounding_digits'] );
+		$this->assertSame( 'nearest_half_up', $stored['price_rounding_mode'] );
+		$this->assertSame( \Digitalogic\Pricing\RoundingPolicy::defaults(), $stored['price_rounding_policy'] );
 	}
 
 	/** A row without an upstream-selected source remains unpriced after reconciliation. */

@@ -192,6 +192,7 @@ final class Digitalogic_Pricing_Service {
 				'profit_margin_percent'     => $profit,
 				'price_rounding_digits'     => $globals['price_rounding']['rounding_digits'],
 				'price_rounding_mode'       => $globals['price_rounding']['rounding_mode'],
+				'price_rounding_policy' => $globals['price_rounding']['rounding_policy'] ?? null,
 				'air_express_price_per_kg'  => $globals['shipping']['price_per_kg'],
 				'air_express_currency'      => $globals['shipping']['currency'],
 				'shipping_catalog_revision' => $globals['shipping']['catalog_revision'],
@@ -325,6 +326,7 @@ final class Digitalogic_Pricing_Service {
 								Digitalogic_Shipping_Method_Service::METHODS_OPTION,
 								Digitalogic_Shipping_Method_Service::DEFAULT_MARKUP_OPTION,
 								Digitalogic_Shipping_Method_Service::ROUNDING_DIGITS_OPTION,
+								Digitalogic_Shipping_Method_Service::ROUNDING_POLICY_OPTION,
 								self::SETTINGS_OPTION,
 								self::AUDIT_OPTION,
 							) as $option_name
@@ -555,6 +557,7 @@ final class Digitalogic_Pricing_Service {
 								Digitalogic_Shipping_Method_Service::METHODS_OPTION,
 								Digitalogic_Shipping_Method_Service::DEFAULT_MARKUP_OPTION,
 								Digitalogic_Shipping_Method_Service::ROUNDING_DIGITS_OPTION,
+								Digitalogic_Shipping_Method_Service::ROUNDING_POLICY_OPTION,
 								self::SETTINGS_OPTION,
 								self::AUDIT_OPTION,
 							)
@@ -876,6 +879,7 @@ final class Digitalogic_Pricing_Service {
 				'profit_margin_percent'     => $globals['default_markup']['profit_percent'],
 				'price_rounding_digits'     => $globals['price_rounding']['rounding_digits'],
 				'price_rounding_mode'       => $globals['price_rounding']['rounding_mode'],
+				'price_rounding_policy' => $globals['price_rounding']['rounding_policy'] ?? null,
 				'air_express_price_per_kg'  => $globals['shipping']['price_per_kg'],
 				'air_express_currency'      => $globals['shipping']['currency'],
 				'shipping_catalog_revision' => $globals['shipping']['catalog_revision'],
@@ -1507,6 +1511,7 @@ final class Digitalogic_Pricing_Service {
 							Digitalogic_Shipping_Method_Service::METHODS_OPTION,
 							Digitalogic_Shipping_Method_Service::DEFAULT_MARKUP_OPTION,
 							Digitalogic_Shipping_Method_Service::ROUNDING_DIGITS_OPTION,
+								Digitalogic_Shipping_Method_Service::ROUNDING_POLICY_OPTION,
 							self::SETTINGS_OPTION,
 							self::AUDIT_OPTION,
 						) as $option_name
@@ -2108,6 +2113,7 @@ final class Digitalogic_Pricing_Service {
 			);
 		}
 		$allowed = $has_usd_date ? array_merge( $required, $independent_dates ) : $required;
+		$allowed[] = 'price_rounding_policy';
 		if ( $shipping_present ) {
 			$allowed = array_merge( $allowed, $shipping_fields );
 		}
@@ -2236,6 +2242,19 @@ final class Digitalogic_Pricing_Service {
 			$rounding_mode   = $current['price_rounding']['rounding_mode'];
 		}
 
+		$rounding_policy = array_key_exists( 'price_rounding_policy', $settings )
+			? $settings['price_rounding_policy'] : ( $current['price_rounding']['rounding_policy'] ?? null );
+		if ( null !== $rounding_policy ) {
+			try {
+				if ( ! is_array( $rounding_policy ) ) {
+					throw new \InvalidArgumentException( 'Rounding policy must be an object.' );
+				}
+				$rounding_policy = \Digitalogic\Pricing\RoundingPolicy::normalize( $rounding_policy );
+			} catch ( \InvalidArgumentException $exception ) {
+				return $this->error( 'digitalogic_pricing_rounding_policy_invalid', $exception->getMessage(), 400 );
+			}
+		}
+
 		return array(
 			'dollar_price'              => $dollar,
 			'yuan_price'                => $yuan,
@@ -2245,6 +2264,7 @@ final class Digitalogic_Pricing_Service {
 			'profit_margin_percent'     => $profit,
 			'price_rounding_digits'     => $rounding_digits,
 			'price_rounding_mode'       => $rounding_mode,
+			'price_rounding_policy' => $rounding_policy,
 			'air_express_price_per_kg'  => $shipping_price,
 			'air_express_currency'      => $shipping_currency,
 			'shipping_catalog_revision' => $shipping_revision,
@@ -2590,6 +2610,7 @@ final class Digitalogic_Pricing_Service {
 			array(
 				'rounding_digits' => $price_rounding['rounding_digits'],
 				'rounding_mode'   => $price_rounding['rounding_mode'],
+				'rounding_policy' => $price_rounding['rounding_policy'] ?? null,
 			)
 		);
 		$price_rounding['revision'] = $rounding_revision;
@@ -2673,6 +2694,7 @@ final class Digitalogic_Pricing_Service {
 			'profit_margin_percent'     => $globals['default_markup']['profit_percent'],
 			'price_rounding_digits'     => $globals['price_rounding']['rounding_digits'],
 			'price_rounding_mode'       => $globals['price_rounding']['rounding_mode'],
+			'price_rounding_policy' => $globals['price_rounding']['rounding_policy'] ?? null,
 			'air_express_price_per_kg'  => $globals['shipping']['price_per_kg'],
 			'air_express_currency'      => $globals['shipping']['currency'],
 			'shipping_catalog_revision' => $globals['shipping']['catalog_revision'],
@@ -2766,6 +2788,7 @@ final class Digitalogic_Pricing_Service {
 			array(
 				'rounding_digits' => $settings['price_rounding_digits'],
 				'rounding_mode'   => $settings['price_rounding_mode'],
+				'rounding_policy' => $settings['price_rounding_policy'] ?? null,
 			)
 		);
 
@@ -2833,6 +2856,7 @@ final class Digitalogic_Pricing_Service {
 				'configured'      => true,
 				'rounding_digits' => $settings['price_rounding_digits'],
 				'rounding_mode'   => $settings['price_rounding_mode'],
+				'rounding_policy' => $settings['price_rounding_policy'] ?? null,
 				'revision'        => $rounding_revision,
 				'bounds'          => array(
 					'minimum' => 0,
@@ -2946,6 +2970,7 @@ final class Digitalogic_Pricing_Service {
 		$pricing                    = is_array( $catalog['pricing'] ?? null ) ? $catalog['pricing'] : array();
 		$pricing['rounding_digits'] = $settings['price_rounding_digits'];
 		$pricing['rounding_mode']   = $settings['price_rounding_mode'];
+		$pricing['rounding_policy'] = $settings['price_rounding_policy'] ?? null;
 
 		$identity = array(
 			'schema'              => (string) ( $catalog['schema'] ?? Digitalogic_Shipping_Method_Service::CATALOG_SCHEMA ),
@@ -3069,6 +3094,7 @@ final class Digitalogic_Pricing_Service {
 		if (
 			$current['price_rounding']['rounding_digits'] !== $settings['price_rounding_digits']
 			|| $current['price_rounding']['rounding_mode'] !== $settings['price_rounding_mode']
+			|| ( $current['price_rounding']['rounding_policy'] ?? null ) !== ( $settings['price_rounding_policy'] ?? null )
 		) {
 			$warnings[] = $this->warning(
 				'price_rounding_changed',
@@ -3217,6 +3243,7 @@ final class Digitalogic_Pricing_Service {
 			'profit_margin_percent'     => $settings['profit_margin_percent'],
 			'price_rounding_digits'     => $settings['price_rounding_digits'],
 			'price_rounding_mode'       => $settings['price_rounding_mode'],
+			'price_rounding_policy' => $settings['price_rounding_policy'] ?? null,
 			'air_express_price_per_kg'  => $settings['air_express_price_per_kg'],
 			'air_express_currency'      => $settings['air_express_currency'],
 			'source'                    => $source,
@@ -3234,6 +3261,7 @@ final class Digitalogic_Pricing_Service {
 			Digitalogic_Shipping_Method_Service::METHODS_OPTION => $shipping_methods,
 			Digitalogic_Shipping_Method_Service::DEFAULT_MARKUP_OPTION => $markup,
 			Digitalogic_Shipping_Method_Service::ROUNDING_DIGITS_OPTION => $settings['price_rounding_digits'],
+			Digitalogic_Shipping_Method_Service::ROUNDING_POLICY_OPTION => $settings['price_rounding_policy'] ?? null,
 			self::SETTINGS_OPTION  => $metadata,
 		);
 	}
