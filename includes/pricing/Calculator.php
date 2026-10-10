@@ -267,8 +267,11 @@ final class Calculator {
 			$direct_irt           = $source_amount;
 			$direct_irt['scale'] += 1; // IRR to IRT, exactly.
 			if ( isset( $product['price_rounding_policy'] ) ) {
-				$digits = RoundingPolicy::digits_for_decimal( $direct_irt, 'IRT', $product['price_rounding_policy'] );
-				$direct_irt = array( 'digits' => $this->decimal_round_half_up_to_digits( $direct_irt, $digits ), 'scale' => 0 );
+				$digits     = RoundingPolicy::digits_for_decimal( $direct_irt, 'IRT', $product['price_rounding_policy'] );
+				$direct_irt = array(
+					'digits' => $this->decimal_round_half_up_to_digits( $direct_irt, $digits ),
+					'scale'  => 0,
+				);
 			}
 			while ( $direct_irt['scale'] > 0 && str_ends_with( $direct_irt['digits'], '0' ) ) {
 				$direct_irt['digits'] = substr( $direct_irt['digits'], 0, -1 );

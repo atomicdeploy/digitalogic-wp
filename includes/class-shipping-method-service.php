@@ -2686,7 +2686,7 @@ final class Digitalogic_Shipping_Method_Service {
 	 */
 	private function load_price_rounding_policy() {
 		$policy_row = $this->read_option_db( self::ROUNDING_POLICY_OPTION );
-		$policy = $policy_row['exists'] ? $policy_row['value'] : null;
+		$policy     = $policy_row['exists'] ? $policy_row['value'] : null;
 		// WordPress stores a nullable scalar option as an empty database string.
 		if ( '' === $policy ) {
 			$policy = null;
@@ -2707,8 +2707,11 @@ final class Digitalogic_Shipping_Method_Service {
 				'configured'      => false,
 				'rounding_digits' => 0,
 				'rounding_mode'   => self::ROUNDING_MODE,
-			'rounding_policy' => $policy,
-				'bounds'          => array( 'minimum' => 0, 'maximum' => self::MAX_ROUNDING_DIGITS ),
+				'rounding_policy' => $policy,
+				'bounds'          => array(
+					'minimum' => 0,
+					'maximum' => self::MAX_ROUNDING_DIGITS,
+				),
 				'warnings'        => array(),
 			);
 		}

@@ -201,27 +201,41 @@ $report_status_titles = array(
 						<form method="post" class="digitalogic-inline-form">
 							<?php wp_nonce_field( 'digitalogic_shipping_admin' ); ?>
 							<input type="hidden" name="digitalogic_shipping_action" value="update_price_rounding">
-                            <label for="digitalogic-rounding-selection">روش گردکردن</label>
-                            <select id="digitalogic-rounding-selection" name="price_rounding_selection">
-                                <option value="fixed" <?php selected( empty( $price_rounding['rounding_policy'] ) ); ?>>ثابت — تعداد رقم انتخابی</option>
-                                <option value="magnitude" <?php selected( ! empty( $price_rounding['rounding_policy'] ) ); ?>>پلکانی — متناسب با مبلغ نهایی</option>
-                            </select>
-                            <?php $editable_policy = $price_rounding['rounding_policy'] ?? \Digitalogic\Pricing\RoundingPolicy::defaults(); ?>
-                            <table class="widefat" aria-label="بازه‌های گردکردن">
-                                <thead><tr><th>شروع مبلغ (تومان)</th><th>تعداد رقم گردکردن</th></tr></thead>
-                                <tbody>
-                                <?php foreach ( array_merge( $editable_policy['tiers'], array( array( 'threshold_irt' => '', 'digits' => '' ), array( 'threshold_irt' => '', 'digits' => '' ) ) ) as $tier ) : ?>
-                                    <tr>
-                                        <td><input type="number" name="rounding_threshold_irt[]" min="1" step="1" dir="ltr" aria-label="شروع مبلغ به تومان" value="<?php echo esc_attr( $tier['threshold_irt'] ); ?>"></td>
-                                        <td><input type="number" name="rounding_tier_digits[]" min="0" max="18" step="1" dir="ltr" aria-label="تعداد رقم گردکردن" value="<?php echo esc_attr( $tier['digits'] ); ?>"></td>
-                                    </tr>
-                                <?php endforeach; ?>
-                                </tbody>
-                            </table>
-                            <p class="description">بازه‌ها را از مبلغ کمتر به بیشتر وارد کنید. برای حذف یک بازه هر دو خانهٔ آن را خالی کنید؛ برای افزودن، ردیف خالی را پر کنید.</p>
-                            <label><input type="checkbox" name="rounding_extend_decades" value="1" <?php checked( $editable_policy['extend_decades'] ); ?>> ادامه برای مبالغ بالاتر</label>
-                            <p class="description">با هر ده‌برابر شدن مبلغ، یک رقم بیشتر گرد می‌شود.</p>
-                            <label for="digitalogic-price-rounding-digits">تعداد رقم در روش ثابت</label>
+							<label for="digitalogic-rounding-selection">روش گردکردن</label>
+							<select id="digitalogic-rounding-selection" name="price_rounding_selection">
+								<option value="fixed" <?php selected( empty( $price_rounding['rounding_policy'] ) ); ?>>ثابت — تعداد رقم انتخابی</option>
+								<option value="magnitude" <?php selected( ! empty( $price_rounding['rounding_policy'] ) ); ?>>پلکانی — متناسب با مبلغ نهایی</option>
+							</select>
+							<?php $editable_policy = $price_rounding['rounding_policy'] ?? \Digitalogic\Pricing\RoundingPolicy::defaults(); ?>
+							<table class="widefat" aria-label="بازه‌های گردکردن">
+								<thead><tr><th>شروع مبلغ (تومان)</th><th>تعداد رقم گردکردن</th></tr></thead>
+								<tbody>
+								<?php
+								foreach ( array_merge(
+									$editable_policy['tiers'],
+									array(
+										array(
+											'threshold_irt' => '',
+											'digits' => '',
+										),
+										array(
+											'threshold_irt' => '',
+											'digits' => '',
+										),
+									)
+								) as $tier ) :
+									?>
+									<tr>
+										<td><input type="number" name="rounding_threshold_irt[]" min="1" step="1" dir="ltr" aria-label="شروع مبلغ به تومان" value="<?php echo esc_attr( $tier['threshold_irt'] ); ?>"></td>
+										<td><input type="number" name="rounding_tier_digits[]" min="0" max="18" step="1" dir="ltr" aria-label="تعداد رقم گردکردن" value="<?php echo esc_attr( $tier['digits'] ); ?>"></td>
+									</tr>
+								<?php endforeach; ?>
+								</tbody>
+							</table>
+							<p class="description">بازه‌ها را از مبلغ کمتر به بیشتر وارد کنید. برای حذف یک بازه هر دو خانهٔ آن را خالی کنید؛ برای افزودن، ردیف خالی را پر کنید.</p>
+							<label><input type="checkbox" name="rounding_extend_decades" value="1" <?php checked( $editable_policy['extend_decades'] ); ?>> ادامه برای مبالغ بالاتر</label>
+							<p class="description">با هر ده‌برابر شدن مبلغ، یک رقم بیشتر گرد می‌شود.</p>
+							<label for="digitalogic-price-rounding-digits">تعداد رقم در روش ثابت</label>
 
 							<input
 								id="digitalogic-price-rounding-digits"

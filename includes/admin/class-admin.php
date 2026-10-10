@@ -852,15 +852,20 @@ class Digitalogic_Admin {
 
 				case 'update_price_rounding':
 					$selection = $posted_value( 'price_rounding_selection' );
-					$policy = null;
-					$result = null;
+					$policy    = null;
+					$result    = null;
 					if ( 'magnitude' === $selection ) {
+						// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- Preserve exact numeric input for strict tier validation below and RoundingPolicy::normalize().
 						$thresholds = isset( $_POST['rounding_threshold_irt'] ) && is_array( $_POST['rounding_threshold_irt'] ) ? wp_unslash( $_POST['rounding_threshold_irt'] ) : array();
+						// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- Reject malformed digits below rather than changing their value.
 						$digits = isset( $_POST['rounding_tier_digits'] ) && is_array( $_POST['rounding_tier_digits'] ) ? wp_unslash( $_POST['rounding_tier_digits'] ) : array();
-						$policy = array( 'tiers' => array(), 'extend_decades' => isset( $_POST['rounding_extend_decades'] ) );
+						$policy = array(
+							'tiers'          => array(),
+							'extend_decades' => isset( $_POST['rounding_extend_decades'] ),
+						);
 						foreach ( array_unique( array_merge( array_keys( $thresholds ), array_keys( $digits ) ) ) as $index ) {
 							$threshold = $thresholds[ $index ] ?? '';
-							$digit = $digits[ $index ] ?? '';
+							$digit     = $digits[ $index ] ?? '';
 							if ( '' === $threshold && '' === $digit ) {
 								continue;
 							}
@@ -868,14 +873,19 @@ class Digitalogic_Admin {
 								$result = new WP_Error( 'invalid_rounding_policy', 'در هر ردیف، مبلغ شروع و تعداد رقم را کامل وارد کنید.' );
 								break;
 							}
-							$policy['tiers'][] = array( 'threshold_irt' => $threshold, 'digits' => (int) $digit );
+							$policy['tiers'][] = array(
+								'threshold_irt' => $threshold,
+								'digits'        => (int) $digit,
+							);
 						}
 					} elseif ( 'fixed' !== $selection ) {
 						$result = new WP_Error( 'invalid_rounding_selection', 'روش گردکردن را انتخاب کنید.' );
 					}
 					if ( ! is_wp_error( $result ) ) {
 						$result = Digitalogic_Pricing_Coordinator::instance()->update_price_rounding(
-							$posted_value( 'price_rounding_digits' ), 'wp', $policy
+							$posted_value( 'price_rounding_digits' ),
+							'wp',
+							$policy
 						);
 					}
 					$notice      = is_wp_error( $result )

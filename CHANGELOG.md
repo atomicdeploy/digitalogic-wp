@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.18] - 2026-10-10
+
+- Add configurable magnitude-based final rounding, shared by PHP and Go for foreign, partner and direct-sale prices, with exact half-up boundary handling.
+- Add editable rounding tiers to Patris settings and `wp digitalogic pricing rounding`; coordinated changes immediately reprice products while preserving source amounts, stock and identity.
+
 - Keep catalogue-only availability controls off single-product related-product sections.
 - Normalize Rank Math Pro variation offers after its ProductGroup variants are populated.
 

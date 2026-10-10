@@ -788,6 +788,14 @@ final class Digitalogic_Pricing_Coordinator {
 		return $this->intercept_rounding_policy_option_write( $value, null, $option );
 	}
 
+	/**
+	 * Route magnitude-policy option writes through atomic repricing.
+	 *
+	 * @param mixed  $value Proposed policy.
+	 * @param mixed  $old_value Previous policy.
+	 * @param string $option Exact option name.
+	 * @return mixed Verified policy or the previous value on failure.
+	 */
 	public function intercept_rounding_policy_option_write( $value, $old_value, $option ) {
 		if ( $this->legacy_option_write_depth > 0 || $value === $old_value ) {
 			return $value;

@@ -35,6 +35,8 @@ class Digitalogic_CLI_Commands {
 	 *     wp digitalogic pricing rounding --magnitude
 	 *     wp digitalogic pricing rounding --fixed-digits=2
 	 *
+	 * @param array $args       Positional arguments.
+	 * @param array $assoc_args Named options.
 	 * @when after_wp_load
 	 */
 	public function pricing_rounding( $args, $assoc_args ) {
@@ -60,6 +62,10 @@ class Digitalogic_CLI_Commands {
 		if ( is_wp_error( $result ) ) {
 			WP_CLI::error( $result->get_error_code() . ': ' . $result->get_error_message() );
 			return;
+		}
+		// Keep the terminal summary bounded; per-product evidence remains in the report.
+		if ( isset( $result['pricing_results']['sources'] ) ) {
+			unset( $result['pricing_results']['sources'] );
 		}
 		WP_CLI::line( wp_json_encode( $result ) );
 	}

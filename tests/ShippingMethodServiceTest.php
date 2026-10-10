@@ -48,7 +48,7 @@ final class ShippingMethodServiceTest extends TestCase {
                 'formula_id'      => 'landed_price',
                 'authority'       => 'php',
                 'rounding_digits' => 0,
-                'rounding_policy' => null,
+				'rounding_policy' => null,
                 'rounding_mode'   => 'nearest_half_up',
             ),
             $catalog['pricing']
@@ -59,7 +59,7 @@ final class ShippingMethodServiceTest extends TestCase {
             array_keys($catalog['shipping_methods'][0])
         );
         $this->assertSame('CNY', $catalog['shipping_methods'][0]['currency']);
-        $this->assertNull($catalog['pricing']['rounding_policy']);
+		$this->assertNull( $catalog['pricing']['rounding_policy'] );
         $this->assertArrayNotHasKey(Digitalogic_Shipping_Method_Service::METHODS_OPTION, $GLOBALS['digitalogic_test_options']);
     }
 
@@ -432,7 +432,7 @@ final class ShippingMethodServiceTest extends TestCase {
         $this->assertArrayNotHasKey('cny_to_local', $catalog['currency']);
         $this->assertArrayNotHasKey('cny_to_irt', $catalog['currency']);
         $this->assertContains('cny_to_local_missing_or_invalid', $catalog['currency']['warnings']);
-        $this->assertNull($catalog['pricing']['rounding_policy']);
+		$this->assertNull( $catalog['pricing']['rounding_policy'] );
 
         $transit = $this->service->create_method(array(
             'id'               => 'bad_transit',

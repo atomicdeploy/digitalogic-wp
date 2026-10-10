@@ -305,7 +305,7 @@ class Digitalogic_Product_Sync_Receiver {
         'irt_per_cny',
         'price_rounding_digits',
         'price_rounding_mode',
-        'price_rounding_policy',
+		'price_rounding_policy',
         'pricing_catalog_revision',
         'pricing_catalog_status',
         'currency_effective_date',
@@ -390,7 +390,7 @@ class Digitalogic_Product_Sync_Receiver {
         'irt_per_cny',
         'price_rounding_digits',
         'price_rounding_mode',
-        'price_rounding_policy',
+		'price_rounding_policy',
         'pricing_catalog_revision',
         'pricing_catalog_status',
         'currency_effective_date',
@@ -3493,8 +3493,8 @@ class Digitalogic_Product_Sync_Receiver {
                 if (!empty($calculated['available'])) {
                     $product['final_price'] = $calculated['value'];
                 if (isset($product['price_rounding_policy'], $calculated['rounding_digits'])) {
-                    $product['price_rounding_digits'] = $calculated['rounding_digits'];
-                    $product['price_rounding_mode'] = Digitalogic_Shipping_Method_Service::ROUNDING_MODE;
+						$product['price_rounding_digits'] = $calculated['rounding_digits'];
+						$product['price_rounding_mode'] = Digitalogic_Shipping_Method_Service::ROUNDING_MODE;
                 }
                 }
                 $validated = $this->validate_final_price_formula($product, 'products.' . $code, !empty($source['formula_id']), $calculated);
@@ -4159,7 +4159,10 @@ class Digitalogic_Product_Sync_Receiver {
                     'shipping_method_id', 'shipping_price_per_kg', 'shipping_price_per_kg_currency',
                     'markup_percent', 'irt_per_cny', 'pricing_catalog_revision', 'pricing_catalog_status',
                     'currency_effective_date', 'price_source_amount', 'price_source_currency', 'price_source_kind',
-                    'price_rounding_digits', 'price_rounding_mode', 'price_rounding_policy', 'final_price',
+					'price_rounding_digits',
+					'price_rounding_mode',
+					'price_rounding_policy',
+					'final_price',
                 )));
                 if (!empty($owner_fields)) {
                     return $this->error('digitalogic_product_sync_owner_fields_forbidden', 'Patris input records must omit website-owned projection fields.', 422, array('fields' => $owner_fields));
@@ -4406,16 +4409,16 @@ class Digitalogic_Product_Sync_Receiver {
         if ($direct_sale_selected) {
             $forbidden_direct_inputs = array_values(
                 array_intersect(
-                    isset($product['price_rounding_policy'])
-                        ? array('markup_percent', 'irt_per_cny')
-                        : array('markup_percent', 'price_rounding_digits', 'price_rounding_mode', 'irt_per_cny'),
+					isset( $product['price_rounding_policy'] )
+						? array( 'markup_percent', 'irt_per_cny' )
+						: array( 'markup_percent', 'price_rounding_digits', 'price_rounding_mode', 'irt_per_cny' ),
                     array_keys($product)
                 )
             );
             if (!empty($forbidden_direct_inputs)) {
                 return $this->error(
                     'digitalogic_product_sync_direct_sale_inputs_forbidden',
-                    'sale_price_direct must omit markup and foreign-exchange inputs; rounding fields require a magnitude policy.',
+					'sale_price_direct must omit markup and foreign-exchange inputs; rounding fields require a magnitude policy.',
                     422,
                     array('path' => $path, 'fields' => $forbidden_direct_inputs)
                 );
@@ -4469,7 +4472,7 @@ class Digitalogic_Product_Sync_Receiver {
                 }
             } elseif (!$direct_sale_selected && (
                 !$this->is_nonnegative_integer($product['price_rounding_digits'])
-                || (int) $this->number_to_storage($product['price_rounding_digits']) > (isset($product['price_rounding_policy']) ? 18 : 9)
+				|| (int) $this->number_to_storage( $product['price_rounding_digits'] ) > ( isset( $product['price_rounding_policy'] ) ? 18 : 9 )
             )) {
                 return $this->field_error($path . '.price_rounding_digits', 'must be an integer from 0 through 9');
             } elseif (
@@ -4524,24 +4527,24 @@ class Digitalogic_Product_Sync_Receiver {
         // Formula validation follows authority selection under the delivery
         // lock. PHP receives source facts and validates its own final projection.
 
-        if (isset($product['price_rounding_policy'])) {
-            try {
-                if (!is_array($product['price_rounding_policy'])) {
-                    throw new \InvalidArgumentException('Rounding policy must be an object.');
-                }
-                foreach (($product['price_rounding_policy']['tiers'] ?? array()) as $tier_index => $tier) {
-                    if (isset($tier['digits']) && $tier['digits'] instanceof Digitalogic_Product_Sync_JSON_Number) {
-                        if (!preg_match('/\A(?:0|[1-9][0-9]?)\z/D', $tier['digits']->value)) {
-                            throw new \InvalidArgumentException('Tier digits must be a nonnegative integer.');
-                        }
-                        $product['price_rounding_policy']['tiers'][$tier_index]['digits'] = (int) $tier['digits']->value;
-                    }
-                }
-                $product['price_rounding_policy'] = \Digitalogic\Pricing\RoundingPolicy::normalize($product['price_rounding_policy']);
-            } catch (\InvalidArgumentException $exception) {
-                return $this->field_error($path . '.price_rounding_policy', $exception->getMessage());
-            }
-        }
+		if ( isset( $product['price_rounding_policy'] ) ) {
+			try {
+				if ( ! is_array( $product['price_rounding_policy'] ) ) {
+					throw new \InvalidArgumentException( 'Rounding policy must be an object.' );
+				}
+				foreach ( ( $product['price_rounding_policy']['tiers'] ?? array() ) as $tier_index => $tier ) {
+					if ( isset( $tier['digits'] ) && $tier['digits'] instanceof Digitalogic_Product_Sync_JSON_Number ) {
+						if ( ! preg_match( '/\A(?:0|[1-9][0-9]?)\z/D', $tier['digits']->value ) ) {
+							throw new \InvalidArgumentException( 'Tier digits must be a nonnegative integer.' );
+						}
+						$product['price_rounding_policy']['tiers'][ $tier_index ]['digits'] = (int) $tier['digits']->value;
+					}
+				}
+				$product['price_rounding_policy'] = \Digitalogic\Pricing\RoundingPolicy::normalize( $product['price_rounding_policy'] );
+			} catch ( \InvalidArgumentException $exception ) {
+				return $this->field_error( $path . '.price_rounding_policy', $exception->getMessage() );
+			}
+		}
         $stored = array();
         foreach (self::PRODUCT_FIELDS as $field) {
             if (!array_key_exists($field, $product)) {
@@ -7258,7 +7261,7 @@ class Digitalogic_Product_Sync_Receiver {
         $complete_rounding      = array_key_exists('price_rounding_digits', $product)
             && null !== $product['price_rounding_digits']
             && $this->is_nonnegative_integer($product['price_rounding_digits'])
-            && (int) $this->number_to_storage($product['price_rounding_digits']) <= (isset($product['price_rounding_policy']) ? 18 : 9)
+			&& (int) $this->number_to_storage( $product['price_rounding_digits'] ) <= ( isset( $product['price_rounding_policy'] ) ? 18 : 9 )
             && array_key_exists('price_rounding_mode', $product)
             && 'nearest_half_up' === $product['price_rounding_mode'];
         $usable_cny_fact        = array_key_exists('foreign_price', $product)
