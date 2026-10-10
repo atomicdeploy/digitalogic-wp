@@ -500,7 +500,15 @@ final class Digitalogic_Product_Identity {
 			unset( $node['image'] );
 		}
 		if ( isset( $node['category'] ) && is_string( $node['category'] ) ) {
-			$node['category'] = html_entity_decode( wp_strip_all_tags( $node['category'] ), ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+			$category = wp_strip_all_tags( $node['category'] );
+			for ( $pass = 0; $pass < 3; $pass++ ) {
+				$decoded = html_entity_decode( $category, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+				if ( $decoded === $category ) {
+					break;
+				}
+				$category = $decoded;
+			}
+			$node['category'] = $category;
 		}
 		if ( isset( $node['priceValidUntil'] ) && ! $this->is_valid_iso_date( $node['priceValidUntil'] ) ) {
 			unset( $node['priceValidUntil'] );
