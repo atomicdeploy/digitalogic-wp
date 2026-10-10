@@ -768,6 +768,64 @@ final class ProductIdentitySearchTest extends TestCase {
 		$this->assertSame( 'IRR', $entity['offers']['offers'][0]['priceSpecification']['priceCurrency'] );
 	}
 
+	public function test_product_group_variants_use_iso_rial_and_drop_invalid_optional_fields(): void {
+		$GLOBALS['digitalogic_test_posts'][19] = array(
+			'post_type'    => 'product',
+			'post_status'  => 'publish',
+			'product_type' => 'variable',
+			'post_title'   => 'AMS1117',
+			'meta'         => array( '_price' => '35300' ),
+		);
+		// phpcs:disable Generic.Formatting.MultipleStatementAlignment -- Fixture setup is clearer as a compact block.
+		$product  = wc_get_product( 19 );
+		$identity = ( new ReflectionClass( Digitalogic_Product_Identity::class ) )->newInstanceWithoutConstructor();
+		$entity   = $identity->add_product_schema_identity(
+			array(
+				'@type'      => 'ProductGroup',
+				'category'   => 'قطعات &gt; رگولاتور',
+				'hasVariant' => array(
+					array(
+						'@type'  => 'Product',
+						'image'  => '',
+						'offers' => array(
+							'@type'           => 'Offer',
+							'price'           => '35300',
+							'priceCurrency'   => 'IRT',
+							'priceValidUntil' => '۱۴۰۶-۱۰-۱۰',
+						),
+					),
+				),
+			),
+			$product
+		);
+		// phpcs:enable Generic.Formatting.MultipleStatementAlignment
+
+		$this->assertSame( 'قطعات > رگولاتور', $entity['category'] );
+		$this->assertSame( '353000', $entity['hasVariant'][0]['offers']['price'] );
+		$this->assertSame( 'IRR', $entity['hasVariant'][0]['offers']['priceCurrency'] );
+		$this->assertArrayNotHasKey( 'priceValidUntil', $entity['hasVariant'][0]['offers'] );
+		$this->assertArrayNotHasKey( 'image', $entity['hasVariant'][0] );
+	}
+
+	public function test_unpriced_product_entity_without_required_signal_is_suppressed(): void {
+		$GLOBALS['digitalogic_test_posts'][20] = array(
+			'post_type'    => 'product',
+			'post_status'  => 'publish',
+			'product_type' => 'simple',
+			'post_title'   => 'SIM7080',
+			'meta'         => array( '_price' => '' ),
+		);
+		// phpcs:disable Generic.Formatting.MultipleStatementAlignment -- Fixture setup is clearer as a compact block.
+		$product  = wc_get_product( 20 );
+		$identity = ( new ReflectionClass( Digitalogic_Product_Identity::class ) )->newInstanceWithoutConstructor();
+		// phpcs:enable Generic.Formatting.MultipleStatementAlignment
+
+		$this->assertSame(
+			array(),
+			$identity->remove_invalid_unpriced_product_schema( array( '@type' => 'Product', 'name' => 'SIM7080' ), $product )
+		);
+	}
+
 	public function test_product_search_includes_both_names_code_serial_part_model_and_variations(): void {
 		$GLOBALS['wpdb'] = new class() extends Digitalogic_Test_WPDB {
 			public $term_relationships = 'wp_term_relationships';

@@ -1,0 +1,30 @@
+.digitalogic-catalog-filters{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 18px;padding:10px 12px;border:1px solid #e7edf4;border-radius:14px;background:#f8fafc;color:#23354d}
+.digitalogic-catalog-filters__label{font-weight:700;margin-inline-end:2px}
+.digitalogic-catalog-filter{display:inline-flex;align-items:center;min-height:36px;padding:6px 13px;border:1px solid #d7e1ec;border-radius:999px;background:#fff;color:#23415f;text-decoration:none;transition:.18s ease}
+.digitalogic-catalog-filter:hover,.digitalogic-catalog-filter:focus-visible,.digitalogic-catalog-filter.is-active{border-color:#087ea4;background:#087ea4;color:#fff}
+.digitalogic-storefront-feedback{position:fixed;z-index:999999;inset-block-start:18px;inset-inline-start:50%;transform:translateX(-50%) translateY(-12px);display:flex;align-items:center;gap:10px;max-width:calc(100vw - 28px);padding:11px 16px;border-radius:999px;background:#102a43;color:#fff;box-shadow:0 12px 36px rgba(15,42,67,.24);opacity:0;pointer-events:none;transition:.2s ease}
+.digitalogic-storefront-feedback::before{content:"";width:16px;height:16px;border:2px solid rgba(255,255,255,.35);border-top-color:#fff;border-radius:50%;animation:digitalogic-spin .75s linear infinite}
+body.digitalogic-storefront-is-loading .digitalogic-storefront-feedback{opacity:1;transform:translateX(-50%) translateY(0)}
+body.digitalogic-storefront-is-loading .products{opacity:.55;transition:opacity .2s ease;pointer-events:none}
+@keyframes digitalogic-spin{to{transform:rotate(360deg)}}
+.woocommerce-account .woocommerce-MyAccount-navigation{float:none!important;width:100%!important;max-width:100%!important;min-width:0!important}
+.woocommerce-account .woocommerce-MyAccount-navigation ul,.woocommerce-account .woocommerce-MyAccount-navigation li,.woocommerce-account .woocommerce-MyAccount-navigation a{box-sizing:border-box;width:100%;max-width:100%}
+.woocommerce-account .woocommerce-MyAccount-navigation a{display:flex;align-items:center;white-space:normal!important;overflow-wrap:anywhere;word-break:normal;line-height:1.65}
+.promo-banner .wrapper-content-banner{position:relative;isolation:isolate;overflow:hidden;border-radius:16px;background:#102a43;background-size:cover;background-position:center}
+.promo-banner .wrapper-content-banner::after{content:"";position:absolute;z-index:1;inset:0;background:linear-gradient(90deg,rgba(8,28,48,.82),rgba(8,28,48,.38));pointer-events:none}
+.promo-banner .wrapper-content-banner>img,.promo-banner .banner-image img{width:100%;height:100%;object-fit:cover}
+.promo-banner .banner-title,.promo-banner .banner-subtitle,.promo-banner .banner-inner{position:relative;z-index:2;color:#fff!important;text-shadow:0 1px 18px rgba(0,0,0,.26)}
+.dgl-product-guide{color:#26384d;font-size:1rem;line-height:2}
+.dgl-product-guide h2{margin:34px 0 14px;padding-inline-start:12px;border-inline-start:3px solid #087ea4;color:#102a43;font-size:clamp(1.15rem,2vw,1.4rem);line-height:1.55}
+.dgl-product-guide p,.dgl-product-guide ul,.dgl-product-guide ol{margin-block:0 18px}
+.dgl-product-guide ul,.dgl-product-guide ol{padding-inline-start:24px}
+.dgl-product-guide li+li{margin-block-start:6px}
+.dgl-product-guide a{color:#076f92;text-decoration-thickness:1px;text-underline-offset:3px}
+.dgl-product-guide table{display:block;max-width:100%;margin:18px 0;overflow-x:auto;border:1px solid #e2e8f0;border-radius:12px;border-collapse:separate;border-spacing:0;background:#fff}
+.dgl-product-guide th,.dgl-product-guide td{min-width:150px;padding:10px 13px;border-block-end:1px solid #e8eef5;text-align:start}
+.dgl-product-guide th{background:#f1f7fa;color:#153c55;font-weight:700}
+.dgl-product-guide pre{max-width:100%;margin:18px 0;padding:18px;overflow:auto;border-radius:14px;background:#102a43;color:#e9f6ff;direction:ltr;text-align:left;line-height:1.7;box-shadow:inset 0 0 0 1px rgba(255,255,255,.08)}
+.dgl-product-guide code{font-family:Consolas,"Courier New",monospace}
+.dgl-product-guide :not(pre)>code{padding:2px 6px;border-radius:6px;background:#eef5f8;color:#075b78;direction:ltr;unicode-bidi:embed}
+@media(max-width:575px){.digitalogic-catalog-filters{align-items:stretch}.digitalogic-catalog-filters__label{flex-basis:100%}.digitalogic-catalog-filter{justify-content:center;flex:1}.digitalogic-storefront-feedback{inset-block-start:10px}}
+@media(prefers-reduced-motion:reduce){.digitalogic-storefront-feedback,.products{transition:none!important}.digitalogic-storefront-feedback::before{animation:none}}

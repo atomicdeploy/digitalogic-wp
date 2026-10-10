@@ -75,6 +75,7 @@ final class ProductSupplierLinksTest extends TestCase {
 			array(
 				array(
 					'url'          => 'HTTPS://Item.Taobao.com/item.htm?id=123#tracking',
+					'relationship' => 'partner',
 					'site_name'    => 'فروشنده چین',
 					'source_title' => 'ماژول بلوتوث اصلی',
 					'source'       => 'purchase_history',
@@ -97,6 +98,7 @@ final class ProductSupplierLinksTest extends TestCase {
 		$this->assertIsArray( $result );
 		$this->assertCount( 2, $result );
 		$this->assertSame( 'taobao', $result[0]['marketplace'] );
+		$this->assertSame( 'partner', $result[0]['relationship'] );
 		$this->assertSame( 'https://item.taobao.com/item.htm?id=123', $result[0]['url'] );
 		$this->assertSame( 'فروشنده چین', $result[0]['site_name'] );
 		$this->assertSame( 'ماژول بلوتوث اصلی', $result[0]['source_title'] );
@@ -104,6 +106,7 @@ final class ProductSupplierLinksTest extends TestCase {
 		$this->assertSame( 'matched', $result[0]['status'] );
 		$this->assertStringStartsWith( 'sl_', $result[0]['id'] );
 		$this->assertSame( 'iranian_market', $result[1]['marketplace'] );
+		$this->assertSame( 'supplier', $result[1]['relationship'] );
 		$this->assertSame( $result, get_post_meta( 101, Digitalogic_Product_Supplier_Links::META_KEY, true ) );
 	}
 
@@ -161,6 +164,17 @@ final class ProductSupplierLinksTest extends TestCase {
 		$this->assertSame( 'digitalogic_supplier_links_parent_product_required', $variation->get_error_code() );
 		$this->assertSame( '', get_post_meta( 101, Digitalogic_Product_Supplier_Links::META_KEY, true ) );
 		$this->assertSame( '', get_post_meta( 102, Digitalogic_Product_Supplier_Links::META_KEY, true ) );
+	}
+
+	/** Verify only the three private business relationships are accepted. */
+	public function test_relationship_is_validated(): void {
+		$invalid = $this->service->replace_links(
+			101,
+			array( array( 'url' => 'https://example.com/item', 'relationship' => 'affiliate' ) )
+		);
+
+		$this->assertSame( 'digitalogic_supplier_relationship_invalid', $invalid->get_error_code() );
+		$this->assertSame( '', get_post_meta( 101, Digitalogic_Product_Supplier_Links::META_KEY, true ) );
 	}
 
 	/** Verify WooCommerce REST and webhook payloads never contain private metadata. */
@@ -343,6 +357,7 @@ final class ProductSupplierLinksTest extends TestCase {
 		$this->assertSame( '101', $data['product_id'] );
 		$this->assertSame( 1, $data['count'] );
 		$this->assertSame( 'taobao', $data['links'][0]['marketplace'] );
+		$this->assertSame( 'supplier', $data['links'][0]['relationship'] );
 		$this->assertSame( 'purchase_history', $data['links'][0]['source'] );
 		$this->assertSame( 'purchased', $data['links'][0]['status'] );
 		$this->assertTrue( $data['links'][0]['has_url'] );

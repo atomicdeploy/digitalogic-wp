@@ -60,14 +60,15 @@ final class Digitalogic_Product_Supplier_Links_CLI {
 					'links'      => array_map(
 						static function ( $link ) {
 							return array(
-								'id'          => (string) ( $link['id'] ?? '' ),
-								'marketplace' => (string) ( $link['marketplace'] ?? 'other' ),
-								'source'      => (string) ( $link['source'] ?? 'manual' ),
-								'status'      => (string) ( $link['status'] ?? 'candidate' ),
-								'created_at'  => (string) ( $link['created_at'] ?? '' ),
-								'updated_at'  => (string) ( $link['updated_at'] ?? '' ),
-								'has_url'     => ! empty( $link['url'] ),
-								'has_note'    => ! empty( $link['note'] ),
+								'id'           => (string) ( $link['id'] ?? '' ),
+								'relationship' => (string) ( $link['relationship'] ?? 'supplier' ),
+								'marketplace'  => (string) ( $link['marketplace'] ?? 'other' ),
+								'source'       => (string) ( $link['source'] ?? 'manual' ),
+								'status'       => (string) ( $link['status'] ?? 'candidate' ),
+								'created_at'   => (string) ( $link['created_at'] ?? '' ),
+								'updated_at'   => (string) ( $link['updated_at'] ?? '' ),
+								'has_url'      => ! empty( $link['url'] ),
+								'has_note'     => ! empty( $link['note'] ),
 							);
 						},
 						$links

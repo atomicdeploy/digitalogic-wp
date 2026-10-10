@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.14] - 2026-10-10
+
+- Localize escaped storefront labels and third-party order statuses without changing their internal slugs.
+- Add accessible catalogue loading feedback, an AJAX-enhanced availability filter, and a resilient My Account navigation layout.
+- Replace reused promotional art with six category-specific, readable banner assets.
+- Normalize nested ProductGroup variant offers to ISO Rial schema, remove invalid Jalali price-expiry values, and suppress invalid unpriced Product rich-result entities.
+- Classify administrator-only related links as supplier, partner, or competitor while retaining their existing privacy boundary.
+
 ## [2.4.13] - 2026-10-07
 
 - Read the localized WooCommerce variation price from its PHP-provided `price_text` key while retaining compatibility with camel-case card data.

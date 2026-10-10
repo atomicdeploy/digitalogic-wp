@@ -470,6 +470,15 @@ final class Digitalogic_Product_Supplier_Links {
 			$status = 'candidate';
 		}
 
+		$relationship = sanitize_key( $this->scalar_string( $raw_link['relationship'] ?? 'supplier' ) );
+		if ( ! in_array( $relationship, $this->relationships(), true ) ) {
+			return new WP_Error(
+				'digitalogic_supplier_relationship_invalid',
+				'نوع ارتباط منبع معتبر نیست.',
+				array( 'status' => 400 )
+			);
+		}
+
 		$site_name = $this->sanitize_text( $raw_link['site_name'] ?? '', 120 );
 		if ( '' === $site_name ) {
 			$site_name = (string) wp_parse_url( $url, PHP_URL_HOST );
@@ -477,6 +486,7 @@ final class Digitalogic_Product_Supplier_Links {
 
 		return array(
 			'id'           => $link_id,
+			'relationship' => $relationship,
 			'marketplace'  => $marketplace,
 			'site_name'    => $site_name,
 			'url'          => $url,
@@ -629,6 +639,11 @@ final class Digitalogic_Product_Supplier_Links {
 	 */
 	private function marketplaces() {
 		return array( 'taobao', '1688', 'tmall', 'alibaba', 'aliexpress', 'iranian_market', 'other' );
+	}
+
+	/** Private business relationship identifiers. */
+	private function relationships() {
+		return array( 'supplier', 'partner', 'competitor' );
 	}
 
 	/**

@@ -38,8 +38,10 @@ final class Digitalogic_Product_Identity {
 		add_filter( 'woocommerce_get_item_data', array( $this, 'add_cart_item_patris_code' ), 10, 2 );
 		add_action( 'woocommerce_checkout_create_order_line_item', array( $this, 'add_order_item_patris_code' ), 10, 4 );
 		add_filter( 'woocommerce_structured_data_product', array( $this, 'add_product_schema_identity' ), 10, 2 );
+		add_filter( 'woocommerce_structured_data_product', array( $this, 'remove_invalid_unpriced_product_schema' ), 99, 2 );
 		add_filter( 'rank_math/snippet/rich_snippet_product_entity', array( $this, 'normalize_product_schema_attribute_names' ), 9, 2 );
 		add_filter( 'rank_math/snippet/rich_snippet_product_entity', array( $this, 'add_product_schema_identity' ), 10, 2 );
+		add_filter( 'rank_math/snippet/rich_snippet_product_entity', array( $this, 'remove_invalid_unpriced_product_schema' ), 99, 2 );
 		add_filter( 'rank_math/woocommerce/og_price', array( $this, 'suppress_unavailable_rank_math_price' ), 10, 1 );
 		add_filter( 'rank_math/opengraph/twitter/twitter_label1', array( $this, 'suppress_unavailable_rank_math_price' ), 10, 1 );
 		add_filter( 'rank_math/opengraph/twitter/twitter_data1', array( $this, 'suppress_unavailable_rank_math_price' ), 10, 1 );
@@ -226,6 +228,15 @@ final class Digitalogic_Product_Identity {
 		} elseif ( isset( $entity['offers'] ) ) {
 			$entity['offers'] = $this->normalize_toman_offer( $entity['offers'] );
 		}
+		if ( isset( $entity['hasVariant'] ) && is_array( $entity['hasVariant'] ) ) {
+			foreach ( $entity['hasVariant'] as &$variant ) {
+				if ( is_array( $variant ) && isset( $variant['offers'] ) ) {
+					$variant['offers'] = $this->normalize_toman_offer( $variant['offers'] );
+				}
+			}
+			unset( $variant );
+		}
+		$entity = $this->sanitize_schema_node( $entity );
 
 		$code = trim( (string) $product->get_meta( Digitalogic_Product_Identifier_Resolver::PATRIS_CODE_META, true ) );
 		if ( '' === $code || (string) $product->get_sku() !== $code ) {
@@ -238,6 +249,36 @@ final class Digitalogic_Product_Identity {
 		}
 
 		return $entity;
+	}
+
+	/**
+	 * Omit an invalid Product entity when no truthful offer or review signal exists.
+	 *
+	 * Google requires at least one of offers, review, or aggregateRating. Returning
+	 * an empty entity avoids publishing a known-invalid rich result for an unpriced
+	 * product while its normal page and Organization/WebPage schema remain intact.
+	 *
+	 * @param array      $entity Existing Product entity.
+	 * @param WC_Product $product Current product.
+	 * @return array
+	 */
+	public function remove_invalid_unpriced_product_schema( $entity, $product = null ) {
+		if ( ! is_array( $entity ) ) {
+			return $entity;
+		}
+		if ( ! $product instanceof WC_Product ) {
+			$product = $this->current_product();
+		}
+		$type = $entity['@type'] ?? '';
+		if ( is_array( $type ) ) {
+			$type = implode( ' ', $type );
+		}
+		$is_product = false !== stripos( (string) $type, 'Product' );
+		$has_signal = ! empty( $entity['offers'] ) || ! empty( $entity['review'] ) || ! empty( $entity['aggregateRating'] );
+		$unpriced   = $product instanceof WC_Product
+			&& ( $this->is_canonical_unpriced( $product ) || '' === trim( (string) $product->get_price() ) || $this->is_zero_decimal( trim( (string) $product->get_price() ) ) );
+
+		return $is_product && $unpriced && ! $has_signal ? array() : $entity;
 	}
 
 	/**
@@ -430,6 +471,44 @@ final class Digitalogic_Product_Identity {
 		}
 
 		return $offer;
+	}
+
+	/**
+	 * Remove empty/invalid optional fields and decode plain category text.
+	 *
+	 * @param mixed $node Schema node.
+	 * @return mixed
+	 */
+	private function sanitize_schema_node( $node ) {
+		if ( ! is_array( $node ) ) {
+			return $node;
+		}
+		foreach ( $node as $key => $value ) {
+			if ( is_array( $value ) ) {
+				$node[ $key ] = $this->sanitize_schema_node( $value );
+			}
+		}
+		if ( array_key_exists( 'image', $node ) && '' === trim( (string) $node['image'] ) ) {
+			unset( $node['image'] );
+		}
+		if ( isset( $node['category'] ) && is_string( $node['category'] ) ) {
+			$node['category'] = html_entity_decode( wp_strip_all_tags( $node['category'] ), ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+		}
+		if ( isset( $node['priceValidUntil'] ) && ! $this->is_valid_iso_date( $node['priceValidUntil'] ) ) {
+			unset( $node['priceValidUntil'] );
+		}
+
+		return $node;
+	}
+
+	/** Return true only for a real Gregorian YYYY-MM-DD calendar date. */
+	private function is_valid_iso_date( $value ) {
+		$value = trim( (string) $value );
+		if ( ! preg_match( '/^(\d{4})-(\d{2})-(\d{2})$/', $value, $matches ) ) {
+			return false;
+		}
+
+		return checkdate( (int) $matches[2], (int) $matches[3], (int) $matches[1] );
 	}
 
 	/**
