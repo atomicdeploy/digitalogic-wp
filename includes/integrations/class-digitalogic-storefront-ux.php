@@ -72,10 +72,14 @@ final class Digitalogic_Storefront_UX {
 			'wc-refunded'                => 'بازپرداخت‌شده',
 			'wc-failed'                  => 'ناموفق',
 			'wc-spam'                    => 'سفارش مشکوک',
+			'wc-spamorder'               => 'سفارش مشکوک',
 			'wc-pre-ordered'             => 'پیش‌سفارش‌شده',
 			'wc-partially-paid'          => 'بخشی پرداخت‌شده',
+			'wc-partial-payment'         => 'بخشی پرداخت‌شده',
 			'wc-scheduled'               => 'زمان‌بندی‌شده',
+			'wc-scheduled-payment'       => 'زمان‌بندی‌شده',
 			'wc-pending-deposit-payment' => 'در انتظار پرداخت بیعانه',
+			'wc-pending-deposit'         => 'در انتظار پرداخت بیعانه',
 		);
 
 		foreach ( $labels as $slug => $label ) {
