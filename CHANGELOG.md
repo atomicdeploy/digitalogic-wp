@@ -16,7 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Normalize Rank Math Pro variation offers after its ProductGroup variants are populated.
 - Sanitize optional schema fields and category text after Rank Math Pro validates its completed JSON-LD graph.
 - Grant the existing least-privilege viewer service role access to the protected Organizer catalog endpoint.
-- Fully decode repeatedly escaped Product category paths before Merchant listing JSON-LD is emitted.
+- Fully decode repeatedly escaped Product category paths and emit a KSES-safe slash separator before Merchant listing JSON-LD is rendered.
 
 ## [2.4.17] - 2026-10-10
 
