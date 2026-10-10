@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Keep catalogue-only availability controls off single-product related-product sections.
 - Normalize Rank Math Pro variation offers after its ProductGroup variants are populated.
 - Sanitize optional schema fields and category text after Rank Math Pro validates its completed JSON-LD graph.
+- Grant the existing least-privilege viewer service role access to the protected Organizer catalog endpoint.
 
 ## [2.4.17] - 2026-10-10
 
