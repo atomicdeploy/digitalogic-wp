@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.16] - 2026-10-10
+
+- Translate the exact live order-status slugs registered by the spam, partial-payment, scheduled-payment, and deposit extensions.
+
 ## [2.4.15] - 2026-10-10
 
 - Move the live, least-privilege Organizer product and media endpoint into the canonical plugin package so package replacement cannot remove the existing private integration.

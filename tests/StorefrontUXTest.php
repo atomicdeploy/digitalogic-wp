@@ -22,18 +22,22 @@ final class StorefrontUXTest extends TestCase {
 
 	public function test_order_status_labels_change_without_changing_slugs(): void {
 		$input  = array(
-			'wc-processing'              => 'Processing',
-			'wc-pre-ordered'             => 'Pre-ordered',
-			'wc-partially-paid'          => 'Partially Paid',
-			'wc-pending-deposit-payment' => 'Pending Deposit Payment',
+			'wc-processing'        => 'Processing',
+			'wc-pre-ordered'       => 'Pre-ordered',
+			'wc-spamorder'         => 'Spam',
+			'wc-partial-payment'   => 'Partially Paid',
+			'wc-scheduled-payment' => 'Scheduled',
+			'wc-pending-deposit'   => 'Pending Deposit Payment',
 		);
 		$output = Digitalogic_Storefront_UX::translate_order_statuses( $input );
 
 		$this->assertSame( array_keys( $input ), array_keys( $output ) );
 		$this->assertSame( 'در حال پردازش', $output['wc-processing'] );
 		$this->assertSame( 'پیش‌سفارش‌شده', $output['wc-pre-ordered'] );
-		$this->assertSame( 'بخشی پرداخت‌شده', $output['wc-partially-paid'] );
-		$this->assertSame( 'در انتظار پرداخت بیعانه', $output['wc-pending-deposit-payment'] );
+		$this->assertSame( 'سفارش مشکوک', $output['wc-spamorder'] );
+		$this->assertSame( 'بخشی پرداخت‌شده', $output['wc-partial-payment'] );
+		$this->assertSame( 'زمان‌بندی‌شده', $output['wc-scheduled-payment'] );
+		$this->assertSame( 'در انتظار پرداخت بیعانه', $output['wc-pending-deposit'] );
 	}
 
 	public function test_stock_filter_uses_exact_stock_status_meta(): void {
