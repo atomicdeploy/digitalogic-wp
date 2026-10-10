@@ -30,6 +30,7 @@
     }
 
     function ensureCatalogFilters() {
+        if (document.body.classList.contains('single-product')) return;
         var products = document.querySelector('.products');
         if (!products) return;
 
