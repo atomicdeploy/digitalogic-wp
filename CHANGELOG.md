@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Keep catalogue-only availability controls off single-product related-product sections.
+
 ## [2.4.17] - 2026-10-10
 
 - Translate the legacy price-filter widget title even when Woodmart stores it as database content instead of a gettext string.
