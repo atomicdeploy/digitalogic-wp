@@ -25,5 +25,10 @@ final class OrganizerEndpointPreservationTest extends TestCase {
 		$this->assertStringContainsString( "includes/digitalogic-organizer-products-loader.php';", $source );
 		$this->assertFileExists( dirname( __DIR__ ) . '/includes/class-digitalogic-organizer-products-endpoint.php' );
 		$this->assertFileExists( dirname( __DIR__ ) . '/includes/digitalogic-organizer-products-loader.php' );
+		$loader = file_get_contents( // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Local test fixture.
+			dirname( __DIR__ ) . '/includes/digitalogic-organizer-products-loader.php'
+		);
+		$this->assertStringContainsString( "get_role( 'digitalogic_viewer_service' )", $loader );
+		$this->assertStringContainsString( 'Digitalogic_Organizer_Products_Endpoint::CAPABILITY', $loader );
 	}
 }
