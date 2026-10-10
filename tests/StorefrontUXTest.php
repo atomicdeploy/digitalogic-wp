@@ -58,6 +58,7 @@ final class StorefrontUXTest extends TestCase {
 		$this->assertStringContainsString( 'aria-busy', $js );
 		$this->assertStringContainsString( 'MutationObserver', $js );
 		$this->assertStringContainsString( 'ensureCatalogFilters', $js );
+		$this->assertStringContainsString( "classList.contains('single-product')", $js );
 		foreach ( array( 'semiconductors', 'sensors', 'displays', 'modules', 'electromechanical', 'passive' ) as $name ) {
 			$this->assertFileExists( dirname( __DIR__ ) . '/assets/images/category-banners/' . $name . '.webp' );
 		}
