@@ -15,6 +15,7 @@ final class Digitalogic_Storefront_UX {
 	/** Register public hooks without changing order-status identifiers. */
 	public static function init(): void {
 		add_filter( 'gettext', array( self::class, 'translate_storefront_text' ), 40, 3 );
+		add_filter( 'widget_title', array( self::class, 'translate_storefront_text' ), 40, 1 );
 		add_filter( 'wc_order_statuses', array( self::class, 'translate_order_statuses' ), 40 );
 		add_filter( 'woocommerce_product_query_meta_query', array( self::class, 'filter_stock_query' ), 20, 2 );
 		add_action( 'woocommerce_before_shop_loop', array( self::class, 'render_catalog_filters' ), 8 );
@@ -28,7 +29,7 @@ final class Digitalogic_Storefront_UX {
 	 * @param string $text        Source text.
 	 * @param string $domain      Text domain.
 	 */
-	public static function translate_storefront_text( string $translation, string $text, string $domain ): string {
+	public static function translate_storefront_text( string $translation, string $text = '', string $domain = '' ): string {
 		unset( $domain );
 		if ( ! self::is_persian_locale() ) {
 			return $translation;

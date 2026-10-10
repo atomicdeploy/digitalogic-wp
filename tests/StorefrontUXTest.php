@@ -16,6 +16,7 @@ final class StorefrontUXTest extends TestCase {
 		$this->assertSame( 'فیلتر بر اساس قیمت', Digitalogic_Storefront_UX::translate_storefront_text( 'Filter by price', 'Filter by price', 'woodmart' ) );
 		$this->assertSame( 'از', Digitalogic_Storefront_UX::translate_storefront_text( 'From', 'From', 'tier-pricing-table' ) );
 		$this->assertSame( 'تماس با ما', Digitalogic_Storefront_UX::translate_storefront_text( 'Contact us', 'Contact us', 'chaty' ) );
+		$this->assertSame( 'فیلتر بر اساس قیمت', Digitalogic_Storefront_UX::translate_storefront_text( 'Filter by price' ) );
 		$GLOBALS['digitalogic_test_locale'] = 'en_US';
 		$this->assertSame( 'From', Digitalogic_Storefront_UX::translate_storefront_text( 'From', 'From', 'tier-pricing-table' ) );
 	}
@@ -56,6 +57,7 @@ final class StorefrontUXTest extends TestCase {
 		$this->assertStringContainsString( '.woocommerce-MyAccount-navigation{float:none!important;width:100%!important', $css );
 		$this->assertStringContainsString( 'aria-busy', $js );
 		$this->assertStringContainsString( 'MutationObserver', $js );
+		$this->assertStringContainsString( 'ensureCatalogFilters', $js );
 		foreach ( array( 'semiconductors', 'sensors', 'displays', 'modules', 'electromechanical', 'passive' ) as $name ) {
 			$this->assertFileExists( dirname( __DIR__ ) . '/assets/images/category-banners/' . $name . '.webp' );
 		}
