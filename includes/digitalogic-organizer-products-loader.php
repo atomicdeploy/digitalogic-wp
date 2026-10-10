@@ -13,4 +13,16 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 require_once __DIR__ . '/class-digitalogic-organizer-products-endpoint.php';
 
+add_action(
+	'init',
+	static function () {
+		$service_role = get_role( 'digitalogic_viewer_service' );
+		$capability   = Digitalogic_Organizer_Products_Endpoint::CAPABILITY;
+		if ( $service_role && ! $service_role->has_cap( $capability ) ) {
+			$service_role->add_cap( $capability );
+		}
+	},
+	5
+);
+
 Digitalogic_Organizer_Products_Endpoint::instance();
