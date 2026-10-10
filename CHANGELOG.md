@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.17] - 2026-10-10
+
+- Translate the legacy price-filter widget title even when Woodmart stores it as database content instead of a gettext string.
+- Render and maintain the AJAX-enhanced in-stock filter on product-search layouts that omit WooCommerce's standard before-loop hook.
+
 ## [2.4.16] - 2026-10-10
 
 - Translate the exact live order-status slugs registered by the spam, partial-payment, scheduled-payment, and deposit extensions.
