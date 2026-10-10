@@ -4371,6 +4371,7 @@ require_once dirname(__DIR__) . '/includes/integrations/class-digitalogic-event-
 require_once dirname(__DIR__) . '/includes/integrations/class-digitalogic-patris-incomplete-product-notifier.php';
 require_once dirname(__DIR__) . '/includes/integrations/class-label-overrides.php';
 require_once dirname(__DIR__) . '/includes/integrations/class-digitalogic-storefront-ux.php';
+require_once dirname(__DIR__) . '/includes/digitalogic-organizer-products-loader.php';
 require_once dirname( __DIR__ ) . '/includes/integrations/class-digitalogic-checkout-date-compatibility.php';
 require_once dirname(__DIR__) . '/includes/integrations/class-product-identity.php';
 require_once dirname(__DIR__) . '/includes/integrations/class-digitalogic-product-specifications.php';

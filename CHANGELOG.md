@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.15] - 2026-10-10
+
+- Move the live, least-privilege Organizer product and media endpoint into the canonical plugin package so package replacement cannot remove the existing private integration.
+
 ## [2.4.14] - 2026-10-10
 
 - Localize escaped storefront labels and third-party order statuses without changing their internal slugs.
