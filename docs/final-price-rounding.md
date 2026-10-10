@@ -29,3 +29,11 @@ Settings are saved through the existing coordinated pricing operation. A failed 
 Deploy the policy-capable Go consumer before activating this PHP setting. Older consumers reject policy-rounded direct-sale records. Go spreadsheet exports preserve the verified owner final value for magnitude-policy rows, including when formula output was requested; a fixed-digit formula must not silently replace a magnitude result.
 
 Validation covers exact boundaries, half ties, IRT/IRR equivalence, all three price routes, configurable tiers, policy transport, PHP-to-Go record hashes, atomic settings failure and preservation of source inputs. Production acceptance additionally compares every mapped price against an independent rational-arithmetic calculation and reads the Go consumer and storefront.
+
+## Production acceptance — 10 October 2026
+
+PHP 2.4.18 activated the standard policy in 45.451 seconds. Independent rational arithmetic matched all 1,085 previously mapped products, including the 769 predicted price changes. Existing pending product 113003157 was also applied and independently verified. Eight public AT25/NRF24L01 variations matched expected prices or their existing stock-based hiding rule.
+
+Go 2.0.5 then served all 1,087 current owner records, including 975 prices, with no independent price, hash, weight, stock or source-field differences. The live input feed advanced during acceptance, so these later counts refer to their current owner capture. No currency rates were changed by this work.
+
+The separate initial Woo delivery failure for newly arriving product 109054 is tracked in [issue 402](https://github.com/atomicdeploy/digitalogic-wp/issues/402). It is not a reason to bypass identity, source or price verification.
