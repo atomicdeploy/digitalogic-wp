@@ -805,6 +805,10 @@ final class ProductIdentitySearchTest extends TestCase {
 		$this->assertSame( 'IRR', $entity['hasVariant'][0]['offers']['priceCurrency'] );
 		$this->assertArrayNotHasKey( 'priceValidUntil', $entity['hasVariant'][0]['offers'] );
 		$this->assertArrayNotHasKey( 'image', $entity['hasVariant'][0] );
+		$source = file_get_contents( // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Local source contract.
+			dirname( __DIR__ ) . '/includes/integrations/class-product-identity.php'
+		);
+		$this->assertStringContainsString( "'add_product_schema_identity' ), 90, 2", $source );
 	}
 
 	public function test_unpriced_product_entity_without_required_signal_is_suppressed(): void {
