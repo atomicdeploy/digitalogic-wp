@@ -48,7 +48,7 @@ final class Digitalogic_Product_Identity {
 			function ( $data ) {
 				return $this->sanitize_schema_node( $data );
 			},
-			998
+			1001
 		);
 		add_filter( 'rank_math/woocommerce/og_price', array( $this, 'suppress_unavailable_rank_math_price' ), 10, 1 );
 		add_filter( 'rank_math/opengraph/twitter/twitter_label1', array( $this, 'suppress_unavailable_rank_math_price' ), 10, 1 );
