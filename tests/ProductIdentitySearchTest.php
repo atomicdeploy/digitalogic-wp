@@ -809,6 +809,8 @@ final class ProductIdentitySearchTest extends TestCase {
 			dirname( __DIR__ ) . '/includes/integrations/class-product-identity.php'
 		);
 		$this->assertStringContainsString( "'add_product_schema_identity' ), 90, 2", $source );
+		$this->assertStringContainsString( "'rank_math/json_ld'", $source );
+		$this->assertStringContainsString( "\t\t\t998", $source );
 	}
 
 	public function test_unpriced_product_entity_without_required_signal_is_suppressed(): void {

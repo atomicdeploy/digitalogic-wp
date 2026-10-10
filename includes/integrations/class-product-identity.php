@@ -43,6 +43,13 @@ final class Digitalogic_Product_Identity {
 		// Rank Math Pro adds variable-product hasVariant entries at its default priority.
 		add_filter( 'rank_math/snippet/rich_snippet_product_entity', array( $this, 'add_product_schema_identity' ), 90, 2 );
 		add_filter( 'rank_math/snippet/rich_snippet_product_entity', array( $this, 'remove_invalid_unpriced_product_schema' ), 99, 2 );
+		add_filter(
+			'rank_math/json_ld',
+			function ( $data ) {
+				return $this->sanitize_schema_node( $data );
+			},
+			998
+		);
 		add_filter( 'rank_math/woocommerce/og_price', array( $this, 'suppress_unavailable_rank_math_price' ), 10, 1 );
 		add_filter( 'rank_math/opengraph/twitter/twitter_label1', array( $this, 'suppress_unavailable_rank_math_price' ), 10, 1 );
 		add_filter( 'rank_math/opengraph/twitter/twitter_data1', array( $this, 'suppress_unavailable_rank_math_price' ), 10, 1 );
