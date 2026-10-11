@@ -16,7 +16,7 @@ final class Digitalogic_Product_Topology_Guard {
 	public static function init(): void {
 		add_filter( 'wp_insert_post_data', array( self::class, 'sanitize_product_title' ), 90, 2 );
 		add_action( 'woocommerce_before_product_variation_object_save', array( self::class, 'validate_variation_family' ), 10, 2 );
-		add_action( 'template_redirect', array( self::class, 'redirect_legacy_esp32_product' ), 1 );
+		add_action( 'template_redirect', array( self::class, 'redirect_legacy_product_path' ), 1 );
 	}
 
 	/**
@@ -149,13 +149,81 @@ final class Digitalogic_Product_Topology_Guard {
 	}
 
 	/** Redirect the retired mixed-family product URL without losing old links. */
-	public static function redirect_legacy_esp32_product(): void {
+	public static function redirect_legacy_product_path(): void {
 		$request_uri = sanitize_text_field( wp_unslash( $_SERVER['REQUEST_URI'] ?? '' ) );
 		$url         = self::legacy_esp32_redirect_url( $request_uri );
+		if ( '' === $url && is_404() ) {
+			$url = self::variation_redirect_url( $request_uri );
+		}
 		if ( '' !== $url ) {
 			wp_safe_redirect( $url, 301, 'Digitalogic' );
 			exit;
 		}
+	}
+
+	/**
+	 * Redirect a direct variation slug to its public parent and selected attributes.
+	 *
+	 * WooCommerce variations are not standalone pages. Search engines can still retain
+	 * their historic /product/{variation-slug}/ URLs, so keep those links useful while
+	 * preserving the exact SKU-backed parent relationship.
+	 *
+	 * @param string $request_uri Current relative request URI.
+	 */
+	public static function variation_redirect_url( string $request_uri ): string {
+		$path = rawurldecode( (string) wp_parse_url( $request_uri, PHP_URL_PATH ) );
+		if ( ! preg_match( '#^/product/([^/]+)/?$#u', $path, $matches ) ) {
+			return '';
+		}
+
+		$slug = sanitize_title( (string) $matches[1] );
+		if ( '' === $slug ) {
+			return '';
+		}
+
+		$variation_ids = get_posts(
+			array(
+				'name'           => $slug,
+				'post_type'      => 'product_variation',
+				'post_status'    => 'publish',
+				'fields'         => 'ids',
+				'posts_per_page' => 2,
+				'no_found_rows'  => true,
+			)
+		);
+		if ( 1 !== count( $variation_ids ) ) {
+			return '';
+		}
+
+		$variation = wc_get_product( (int) $variation_ids[0] );
+		if ( ! $variation instanceof WC_Product_Variation || '' === $variation->get_sku() ) {
+			return '';
+		}
+
+		$parent_id = (int) $variation->get_parent_id();
+		if ( $parent_id <= 0 || 'publish' !== get_post_status( $parent_id ) ) {
+			return '';
+		}
+
+		return self::variation_parent_url( get_permalink( $parent_id ), $variation->get_variation_attributes() );
+	}
+
+	/**
+	 * Add a variation's selected attributes to its parent permalink.
+	 *
+	 * @param string               $parent_url Parent product permalink.
+	 * @param array<string,string> $attributes Variation attribute query parameters.
+	 */
+	public static function variation_parent_url( string $parent_url, array $attributes ): string {
+		$query = array();
+		foreach ( $attributes as $key => $value ) {
+			$key = strtolower( (string) $key );
+			if ( preg_match( '/^attribute_[a-z0-9_%-]+$/', $key ) && '' !== (string) $value ) {
+				$query[ $key ] = (string) $value;
+			}
+		}
+
+		return empty( $query ) ? $parent_url : add_query_arg( $query, $parent_url );
 	}
 
 	/**

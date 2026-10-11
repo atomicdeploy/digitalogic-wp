@@ -53,4 +53,20 @@ final class ProductTopologyGuardTest extends TestCase {
 		);
 		$this->assertStringContainsString( 's=ESP32', Digitalogic_Product_Topology_Guard::legacy_esp32_redirect_url( '/product/esp-32/' ) );
 	}
+
+	/** Historic variation slugs resolve to the exact parent selection. */
+	public function test_variation_parent_url_preserves_selected_attributes(): void {
+		$url = Digitalogic_Product_Topology_Guard::variation_parent_url(
+			'https://digitalogic.ir/product/step-down/',
+			array(
+				'attribute_pa_model'           => 'mp1584',
+				'attribute_%d9%86%d9%88%d8%b9' => 'خروجی',
+				'not-an-attribute'             => 'ignored',
+			)
+		);
+
+		$this->assertStringContainsString( 'attribute_pa_model=mp1584', $url );
+		$this->assertStringContainsString( 'attribute_%25d9%25', $url );
+		$this->assertStringNotContainsString( 'not-an-attribute', $url );
+	}
 }
