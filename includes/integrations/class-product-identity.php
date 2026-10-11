@@ -260,11 +260,13 @@ final class Digitalogic_Product_Identity {
 	}
 
 	/**
-	 * Omit an invalid Product entity when no truthful offer or review signal exists.
+	 * Omit an invalid Product entity when required evidence is missing.
 	 *
 	 * Google requires at least one of offers, review, or aggregateRating. Returning
 	 * an empty entity avoids publishing a known-invalid rich result for an unpriced
-	 * product while its normal page and Organization/WebPage schema remain intact.
+	 * product. Merchant listings also require a real product image, so products with
+	 * no image stay as ordinary indexable pages until a verified photo is available.
+	 * Organization and WebPage schema remain intact in both cases.
 	 *
 	 * @param array      $entity Existing Product entity.
 	 * @param WC_Product $product Current product.
@@ -283,10 +285,57 @@ final class Digitalogic_Product_Identity {
 		}
 		$is_product = false !== stripos( (string) $type, 'Product' );
 		$has_signal = ! empty( $entity['offers'] ) || ! empty( $entity['review'] ) || ! empty( $entity['aggregateRating'] );
+		$has_image  = $this->schema_has_product_image( $entity );
 		$unpriced   = $product instanceof WC_Product
 			&& ( $this->is_canonical_unpriced( $product ) || '' === trim( (string) $product->get_price() ) || $this->is_zero_decimal( trim( (string) $product->get_price() ) ) );
 
-		return $is_product && $unpriced && ! $has_signal ? array() : $entity;
+		return $is_product && ( ! $has_image || ( $unpriced && ! $has_signal ) ) ? array() : $entity;
+	}
+
+	/**
+	 * Confirm that a Product or one of its declared variants has a real image value.
+	 *
+	 * @param array $entity Product or ProductGroup schema entity.
+	 */
+	private function schema_has_product_image( array $entity ): bool {
+		if ( isset( $entity['image'] ) && $this->schema_image_value_is_nonempty( $entity['image'] ) ) {
+			return true;
+		}
+
+		foreach ( (array) ( $entity['hasVariant'] ?? array() ) as $variant ) {
+			if ( is_array( $variant ) && $this->schema_has_product_image( $variant ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Accept a non-empty image URL, list, or ImageObject without inventing a fallback.
+	 *
+	 * @param mixed $image Schema image value.
+	 */
+	private function schema_image_value_is_nonempty( $image ): bool {
+		if ( is_string( $image ) ) {
+			return '' !== trim( $image );
+		}
+		if ( ! is_array( $image ) ) {
+			return false;
+		}
+		if ( isset( $image['url'] ) && '' !== trim( (string) $image['url'] ) ) {
+			return true;
+		}
+		if ( isset( $image['contentUrl'] ) && '' !== trim( (string) $image['contentUrl'] ) ) {
+			return true;
+		}
+		foreach ( $image as $value ) {
+			if ( $this->schema_image_value_is_nonempty( $value ) ) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	/**

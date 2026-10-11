@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.21] - 2026-10-11
+
+- Stop emitting Product and Merchant-listing schema for products that do not yet have a verified image, while leaving their normal pages indexable.
+- Keep valid ProductGroup schema when at least one declared variant carries a real image value.
+
 ## [2.4.20] - 2026-10-11
 
 - Redirect historic direct URLs for published, SKU-backed WooCommerce variations to the canonical parent product with the exact variation attributes selected.
