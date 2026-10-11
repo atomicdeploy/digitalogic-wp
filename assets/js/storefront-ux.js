@@ -3,6 +3,11 @@
 
     var config = window.digitalogicStorefrontUX || {};
     var busyTimer = null;
+    var catalogProductsSelector = '.products.wd-products:not(.wd-cats), .products:not(.wd-cats)';
+
+    function catalogProducts(root) {
+        return (root || document).querySelector(catalogProductsSelector);
+    }
 
     function ensureFeedback() {
         var node = document.querySelector('.digitalogic-storefront-feedback');
@@ -19,7 +24,7 @@
     function setBusy(active) {
         clearTimeout(busyTimer);
         document.body.classList.toggle('digitalogic-storefront-is-loading', !!active);
-        document.querySelectorAll('.products, .shop-loop-head').forEach(function (node) {
+        document.querySelectorAll(catalogProductsSelector + ', .shop-loop-head').forEach(function (node) {
             if (active) node.setAttribute('aria-busy', 'true');
             else node.removeAttribute('aria-busy');
         });
@@ -31,7 +36,7 @@
 
     function ensureCatalogFilters() {
         if (document.body.classList.contains('single-product')) return;
-        var products = document.querySelector('.products');
+        var products = catalogProducts(document);
         if (!products) return;
 
         var current = new URL(window.location.href);
@@ -90,24 +95,46 @@
         });
     }
 
-    function bannerKind(text) {
-        text = (text || '').replace(/\s+/g, ' ').toLowerCase();
-        if (/نیمه.?هادی|semiconductor|آی.?سی|ترانزیستور/.test(text)) return 'semiconductors';
-        if (/سنسور|حسگر|sensor/.test(text)) return 'sensors';
-        if (/نمایشگر|display|lcd|oled/.test(text)) return 'displays';
-        if (/الکترومکانیک|رله|موتور|کلید|electromechanical/.test(text)) return 'electromechanical';
-        if (/پسیو|غیرفعال|مقاومت|خازن|passive/.test(text)) return 'passive';
-        if (/ماژول|برد توسعه|module|development/.test(text)) return 'modules';
+    function normalizedPath(value) {
+        try {
+            var url = new URL(value, window.location.origin);
+            if (url.origin !== window.location.origin) return '';
+            return ('/' + url.pathname.replace(/^\/+|\/+$/g, '') + '/').replace(/\/{2,}/g, '/');
+        } catch (_error) {
+            return '';
+        }
+    }
+
+    function bannerKind(card) {
+        var targets = config.bannerTargets || {};
+        var links = card.querySelectorAll('a[href]');
+        var kinds = Object.keys(targets);
+        for (var i = 0; i < links.length; i++) {
+            var linkPath = normalizedPath(links[i].href);
+            for (var j = 0; j < kinds.length; j++) {
+                if (linkPath === normalizedPath(targets[kinds[j]])) return kinds[j];
+            }
+        }
         return '';
     }
 
     function applyCategoryBanners(root) {
         var banners = config.banners || {};
+        var activeKind = config.activeBanner || '';
+        if (!document.body.classList.contains('tax-product_cat')) return;
         (root || document).querySelectorAll('.promo-banner').forEach(function (card) {
-            var kind = bannerKind(card.textContent);
+            var kind = bannerKind(card);
             var url = banners[kind];
             var wrapper = card.querySelector('.wrapper-content-banner');
-            if (!kind || !url || !wrapper || wrapper.dataset.digitalogicBanner === kind) return;
+            var widget = card.closest('.elementor-widget-wd_banner') || card.parentElement || card;
+            if (!kind) return;
+
+            var isRelevant = !!activeKind && kind === activeKind;
+            widget.classList.toggle('digitalogic-category-banner-is-hidden', !isRelevant);
+            widget.classList.toggle('digitalogic-category-banner-is-active', isRelevant);
+            widget.setAttribute('aria-hidden', isRelevant ? 'false' : 'true');
+            if (!isRelevant || !url || !wrapper || wrapper.dataset.digitalogicBanner === kind) return;
+
             wrapper.dataset.digitalogicBanner = kind;
             wrapper.style.backgroundImage = 'url("' + url.replace(/"/g, '') + '")';
             card.querySelectorAll('.banner-image img, .wrapper-content-banner > img').forEach(function (img) {
@@ -118,9 +145,34 @@
         });
     }
 
+    function fixedHeaderOffset() {
+        var offset = 16;
+        document.querySelectorAll('.whb-sticky-header, .whb-header').forEach(function (header) {
+            var style = window.getComputedStyle(header);
+            var rect = header.getBoundingClientRect();
+            if ((style.position === 'fixed' || style.position === 'sticky') && rect.top <= 0 && rect.bottom > 0) {
+                offset = Math.max(offset, Math.ceil(rect.bottom) + 16);
+            }
+        });
+        return offset;
+    }
+
+    function scrollCatalogIntoView() {
+        var products = catalogProducts(document);
+        if (!products) return;
+        var top = products.getBoundingClientRect().top + window.pageYOffset - fixedHeaderOffset();
+        window.scrollTo({ top: Math.max(0, top), behavior: 'auto' });
+    }
+
     function replaceResults(doc, url) {
-        var selectors = ['.products', '.woocommerce-result-count', '.woocommerce-pagination', '.wd-products-per-page', '.digitalogic-catalog-filters'];
+        var selectors = ['.woocommerce-result-count', '.woocommerce-pagination', '.wd-products-per-page', '.digitalogic-catalog-filters'];
         var replaced = 0;
+        var currentProducts = catalogProducts(document);
+        var incomingProducts = catalogProducts(doc);
+        if (currentProducts && incomingProducts) {
+            currentProducts.replaceWith(incomingProducts);
+            replaced++;
+        }
         selectors.forEach(function (selector) {
             var current = document.querySelector(selector);
             var incoming = doc.querySelector(selector);
@@ -135,6 +187,9 @@
         ensureCatalogFilters();
         applyCategoryBanners(document);
         document.dispatchEvent(new CustomEvent('digitalogic:catalog-updated'));
+        window.requestAnimationFrame(function () {
+            window.requestAnimationFrame(scrollCatalogIntoView);
+        });
     }
 
     function ajaxNavigate(url) {
@@ -155,15 +210,17 @@
         var url = link.href;
         if (!url || new URL(url, window.location.href).origin !== window.location.origin) return;
         event.preventDefault();
+        event.stopImmediatePropagation();
         ajaxNavigate(url);
-    });
+    }, true);
 
     document.addEventListener('submit', function (event) {
         var form = event.target.closest('.widget_price_filter form');
         if (!form) return;
         event.preventDefault();
+        event.stopImmediatePropagation();
         ajaxNavigate(form.action + (form.action.indexOf('?') === -1 ? '?' : '&') + new URLSearchParams(new FormData(form)).toString());
-    });
+    }, true);
 
     $(document).ajaxSend(function (_event, _xhr, settings) {
         if (/woodmart|woocommerce|products|price_filter/i.test((settings && settings.url) || '')) setBusy(true);
