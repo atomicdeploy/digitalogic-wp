@@ -16,6 +16,7 @@ body.digitalogic-storefront-is-loading .products{opacity:.55;transition:opacity 
 .promo-banner .banner-title,.promo-banner .banner-subtitle,.promo-banner .banner-inner{position:relative;z-index:2;color:#fff!important;text-shadow:0 1px 18px rgba(0,0,0,.26)}
 body.tax-product_cat .digitalogic-category-banner-is-hidden{display:none!important}
 body.tax-product_cat .digitalogic-category-banner-is-active{width:100%!important;max-width:100%!important;flex:1 1 100%!important}
+:is(.wd-entities-title,.woocommerce-loop-product__title,.product_title).dgl-fanum-off,:is(.wd-entities-title,.woocommerce-loop-product__title,.product_title).dgl-fanum-off a{font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif!important;font-feature-settings:"lnum" 1;font-variant-numeric:lining-nums;direction:ltr;unicode-bidi:isolate}
 .products .quantity{border:1px solid #d9e3ec!important;border-radius:10px!important;background:#fff!important;box-shadow:none!important;overflow:hidden}
 .products .quantity input.input-text.qty.text[class*="quantity-input-product-"]{border:0!important;border-inline:1px solid #e1e8ef!important;border-radius:0!important;background:#fff!important;color:#17324d!important;box-shadow:none!important;font-variant-numeric:tabular-nums}
 .products .quantity :where(.minus,.plus){border:0!important;background:#eef3f7!important;color:#25445f!important}

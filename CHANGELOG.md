@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.23] - 2026-10-11
+
+- Opt English-only product and entity titles out of FaNum typography while preserving the Persian face for titles containing any non-ASCII script.
+- Reapply the title typography decision after AJAX catalogue navigation and dynamic Woodmart updates.
+
 ## [2.4.22] - 2026-10-11
 
 - Keep only the product-category banner that matches the current category ancestry; unrelated promotional category artwork is no longer shown.

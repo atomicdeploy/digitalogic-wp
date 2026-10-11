@@ -4,6 +4,7 @@
     var config = window.digitalogicStorefrontUX || {};
     var busyTimer = null;
     var catalogProductsSelector = '.products.wd-products:not(.wd-cats), .products:not(.wd-cats)';
+    var titleSelector = '.wd-entities-title, .woocommerce-loop-product__title, .product_title';
 
     function catalogProducts(root) {
         return (root || document).querySelector(catalogProductsSelector);
@@ -92,6 +93,21 @@
                     child.nodeValue = (child.nodeValue || '').replace(/^\s*from\s*/i, 'از ');
                 }
             });
+        });
+    }
+
+    function isEnglishOnlyTitle(value) {
+        var text = (value || '').replace(/\s+/g, ' ').trim();
+        return text !== '' && /[A-Za-z0-9]/.test(text) && /^[\x20-\x7E]+$/.test(text);
+    }
+
+    function applyTitleNumeralTypography(root) {
+        var scope = root || document;
+        var titles = [];
+        if (scope.matches && scope.matches(titleSelector)) titles.push(scope);
+        scope.querySelectorAll(titleSelector).forEach(function (title) { titles.push(title); });
+        titles.forEach(function (title) {
+            title.classList.toggle('dgl-fanum-off', isEnglishOnlyTitle(title.textContent));
         });
     }
 
@@ -184,6 +200,7 @@
         if (!replaced) throw new Error('catalog-fragment-missing');
         window.history.pushState({}, '', url);
         replaceExactText(document);
+        applyTitleNumeralTypography(document);
         ensureCatalogFilters();
         applyCategoryBanners(document);
         document.dispatchEvent(new CustomEvent('digitalogic:catalog-updated'));
@@ -224,7 +241,7 @@
 
     $(document).ajaxSend(function (_event, _xhr, settings) {
         if (/woodmart|woocommerce|products|price_filter/i.test((settings && settings.url) || '')) setBusy(true);
-    }).ajaxComplete(function () { setBusy(false); replaceExactText(document); ensureCatalogFilters(); applyCategoryBanners(document); });
+    }).ajaxComplete(function () { setBusy(false); replaceExactText(document); applyTitleNumeralTypography(document); ensureCatalogFilters(); applyCategoryBanners(document); });
 
     window.addEventListener('pageshow', function () { setBusy(false); });
     window.addEventListener('popstate', function () { window.location.reload(); });
@@ -234,6 +251,7 @@
             record.addedNodes.forEach(function (node) {
                 if (node.nodeType === Node.ELEMENT_NODE) {
                     replaceExactText(node);
+                    applyTitleNumeralTypography(node);
                     applyCategoryBanners(node);
                 }
             });
@@ -243,6 +261,7 @@
     function boot() {
         ensureFeedback();
         replaceExactText(document);
+        applyTitleNumeralTypography(document);
         ensureCatalogFilters();
         applyCategoryBanners(document);
         observer.observe(document.body, { childList: true, subtree: true });
