@@ -828,8 +828,40 @@ final class ProductIdentitySearchTest extends TestCase {
 
 		$this->assertSame(
 			array(),
-			$identity->remove_invalid_unpriced_product_schema( array( '@type' => 'Product', 'name' => 'SIM7080' ), $product )
+			$identity->remove_invalid_unpriced_product_schema(
+				array(
+					'@type' => 'Product',
+					'name'  => 'SIM7080',
+				),
+				$product
+			)
 		);
+	}
+
+	/** Priced products without a verified image do not emit invalid merchant schema. */
+	public function test_priced_product_entity_without_image_is_suppressed(): void {
+		$GLOBALS['digitalogic_test_posts'][21] = array(
+			'post_type'    => 'product',
+			'post_status'  => 'publish',
+			'product_type' => 'simple',
+			'post_title'   => 'Product awaiting a verified image',
+			'meta'         => array( '_price' => '125000' ),
+		);
+		$product                               = wc_get_product( 21 );
+		$identity                              = ( new ReflectionClass( Digitalogic_Product_Identity::class ) )->newInstanceWithoutConstructor();
+		$entity                                = array(
+			'@type'  => 'Product',
+			'name'   => 'Product awaiting a verified image',
+			'offers' => array(
+				'@type'         => 'Offer',
+				'price'         => '1250000',
+				'priceCurrency' => 'IRR',
+			),
+		);
+
+		$this->assertSame( array(), $identity->remove_invalid_unpriced_product_schema( $entity, $product ) );
+		$entity['image'] = 'https://digitalogic.ir/wp-content/uploads/verified-product.webp';
+		$this->assertSame( $entity, $identity->remove_invalid_unpriced_product_schema( $entity, $product ) );
 	}
 
 	public function test_product_search_includes_both_names_code_serial_part_model_and_variations(): void {
