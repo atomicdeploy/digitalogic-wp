@@ -64,7 +64,12 @@ final class StorefrontUXTest extends TestCase {
 		$this->assertStringContainsString( 'config.bannerTargets', $js );
 		$this->assertStringNotContainsString( 'bannerKind(text)', $js );
 		$this->assertStringContainsString( 'event.stopImmediatePropagation()', $js );
+		$this->assertStringContainsString( 'isEnglishOnlyTitle', $js );
+		$this->assertStringContainsString( '/^[\\x20-\\x7E]+$/', $js );
+		$this->assertStringContainsString( "classList.toggle('dgl-fanum-off'", $js );
 		$this->assertStringContainsString( '.quantity input.input-text.qty.text[class*="quantity-input-product-"]', $css );
+		$this->assertStringContainsString( '.wd-entities-title,.woocommerce-loop-product__title,.product_title).dgl-fanum-off', $css );
+		$this->assertStringContainsString( 'font-variant-numeric:lining-nums', $css );
 		$this->assertStringContainsString( 'body.search.search-results.post-type-archive-product .promo-banner{display:none!important}', $css );
 		$this->assertStringContainsString( 'body.tax-product_cat .digitalogic-category-banner-is-hidden{display:none!important}', $css );
 		foreach ( array( 'semiconductors', 'sensors', 'displays', 'modules', 'electromechanical', 'passive' ) as $name ) {
