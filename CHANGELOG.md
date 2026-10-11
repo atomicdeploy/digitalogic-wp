@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.22] - 2026-10-11
+
+- Keep only the product-category banner that matches the current category ancestry; unrelated promotional category artwork is no longer shown.
+- Replace the real Woodmart product grid during AJAX catalogue navigation instead of the similarly named category carousel.
+- Move the updated product grid into the viewport after pagination, per-page, availability, or price-filter navigation while respecting a sticky header.
+
 ## [2.4.21] - 2026-10-11
 
 - Stop emitting Product and Merchant-listing schema for products that do not yet have a verified image, while leaving their normal pages indexable.

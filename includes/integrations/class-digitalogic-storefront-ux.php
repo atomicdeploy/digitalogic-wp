@@ -147,9 +147,18 @@ final class Digitalogic_Storefront_UX {
 			'digitalogic-storefront-ux',
 			'digitalogicStorefrontUX',
 			array(
-				'loadingLabel' => 'در حال به‌روزرسانی نتایج…',
-				'errorLabel'   => 'به‌روزرسانی خودکار انجام نشد؛ صفحه بازخوانی می‌شود.',
-				'banners'      => array(
+				'loadingLabel'  => 'در حال به‌روزرسانی نتایج…',
+				'errorLabel'    => 'به‌روزرسانی خودکار انجام نشد؛ صفحه بازخوانی می‌شود.',
+				'activeBanner'  => self::active_category_banner(),
+				'bannerTargets' => array(
+					'semiconductors'    => home_url( '/product-category/semiconductors/' ),
+					'sensors'           => home_url( '/product-category/sensors-transducers/' ),
+					'displays'          => home_url( '/product-category/displays-modules/' ),
+					'modules'           => home_url( '/product-category/modules-development-board/' ),
+					'electromechanical' => home_url( '/product-category/electromechanical-components/' ),
+					'passive'           => home_url( '/product-category/passive-components/' ),
+				),
+				'banners'       => array(
 					'semiconductors'    => DIGITALOGIC_PLUGIN_URL . 'assets/images/category-banners/semiconductors.webp',
 					'sensors'           => DIGITALOGIC_PLUGIN_URL . 'assets/images/category-banners/sensors.webp',
 					'displays'          => DIGITALOGIC_PLUGIN_URL . 'assets/images/category-banners/displays.webp',
@@ -159,6 +168,42 @@ final class Digitalogic_Storefront_UX {
 				),
 			)
 		);
+	}
+
+	/** Resolve the relevant top-level artwork from the queried product-category ancestry. */
+	private static function active_category_banner(): string {
+		if ( ! function_exists( 'is_product_category' ) || ! is_product_category() ) {
+			return '';
+		}
+
+		$term = get_queried_object();
+		if ( ! $term instanceof WP_Term || 'product_cat' !== $term->taxonomy ) {
+			return '';
+		}
+
+		$slugs = array( $term->slug );
+		foreach ( get_ancestors( $term->term_id, 'product_cat', 'taxonomy' ) as $ancestor_id ) {
+			$ancestor = get_term( $ancestor_id, 'product_cat' );
+			if ( $ancestor instanceof WP_Term ) {
+				$slugs[] = $ancestor->slug;
+			}
+		}
+
+		$roots = array(
+			'semiconductors'    => 'semiconductors',
+			'sensors'           => 'sensors-transducers',
+			'displays'          => 'displays-modules',
+			'modules'           => 'modules-development-board',
+			'electromechanical' => 'electromechanical-components',
+			'passive'           => 'passive-components',
+		);
+		foreach ( $roots as $kind => $slug ) {
+			if ( in_array( $slug, $slugs, true ) ) {
+				return $kind;
+			}
+		}
+
+		return '';
 	}
 
 	/** Return an explicit URL without changing product-query semantics. */

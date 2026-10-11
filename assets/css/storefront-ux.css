@@ -14,6 +14,8 @@ body.digitalogic-storefront-is-loading .products{opacity:.55;transition:opacity 
 .promo-banner .wrapper-content-banner::after{content:"";position:absolute;z-index:1;inset:0;background:linear-gradient(90deg,rgba(8,28,48,.82),rgba(8,28,48,.38));pointer-events:none}
 .promo-banner .wrapper-content-banner>img,.promo-banner .banner-image img{width:100%;height:100%;object-fit:cover}
 .promo-banner .banner-title,.promo-banner .banner-subtitle,.promo-banner .banner-inner{position:relative;z-index:2;color:#fff!important;text-shadow:0 1px 18px rgba(0,0,0,.26)}
+body.tax-product_cat .digitalogic-category-banner-is-hidden{display:none!important}
+body.tax-product_cat .digitalogic-category-banner-is-active{width:100%!important;max-width:100%!important;flex:1 1 100%!important}
 .products .quantity{border:1px solid #d9e3ec!important;border-radius:10px!important;background:#fff!important;box-shadow:none!important;overflow:hidden}
 .products .quantity input.input-text.qty.text[class*="quantity-input-product-"]{border:0!important;border-inline:1px solid #e1e8ef!important;border-radius:0!important;background:#fff!important;color:#17324d!important;box-shadow:none!important;font-variant-numeric:tabular-nums}
 .products .quantity :where(.minus,.plus){border:0!important;background:#eef3f7!important;color:#25445f!important}
