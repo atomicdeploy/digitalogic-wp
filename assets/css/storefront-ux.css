@@ -14,6 +14,14 @@ body.digitalogic-storefront-is-loading .products{opacity:.55;transition:opacity 
 .promo-banner .wrapper-content-banner::after{content:"";position:absolute;z-index:1;inset:0;background:linear-gradient(90deg,rgba(8,28,48,.82),rgba(8,28,48,.38));pointer-events:none}
 .promo-banner .wrapper-content-banner>img,.promo-banner .banner-image img{width:100%;height:100%;object-fit:cover}
 .promo-banner .banner-title,.promo-banner .banner-subtitle,.promo-banner .banner-inner{position:relative;z-index:2;color:#fff!important;text-shadow:0 1px 18px rgba(0,0,0,.26)}
+.products .quantity{border:1px solid #d9e3ec!important;border-radius:10px!important;background:#fff!important;box-shadow:none!important;overflow:hidden}
+.products .quantity input.input-text.qty.text[class*="quantity-input-product-"]{border:0!important;border-inline:1px solid #e1e8ef!important;border-radius:0!important;background:#fff!important;color:#17324d!important;box-shadow:none!important;font-variant-numeric:tabular-nums}
+.products .quantity :where(.minus,.plus){border:0!important;background:#eef3f7!important;color:#25445f!important}
+.products .quantity :where(.minus,.plus):hover,.products .quantity :where(.minus,.plus):focus-visible{background:#dfeaf3!important;color:#0b5e83!important}
+body.search.search-results.post-type-archive-product .wd-cats.products,
+body.search.search-results.post-type-archive-product .promo-banner{display:none!important}
+body.search.search-results.post-type-archive-product .shop-content-area{align-items:start}
+body.search.search-results.post-type-archive-product .wd-products{margin-block-start:14px}
 .dgl-product-guide{color:#26384d;font-size:1rem;line-height:2}
 .dgl-product-guide h2{margin:34px 0 14px;padding-inline-start:12px;border-inline-start:3px solid #087ea4;color:#102a43;font-size:clamp(1.15rem,2vw,1.4rem);line-height:1.55}
 .dgl-product-guide p,.dgl-product-guide ul,.dgl-product-guide ol{margin-block:0 18px}

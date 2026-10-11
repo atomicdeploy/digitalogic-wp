@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.19] - 2026-10-11
+
+- Prevent product titles from carrying customer instructions such as «انتخاب مدل …».
+- Reject ESP32 variations that mix different silicon families under one parent.
+- Preserve old `/product/esp-32/` links with family-aware permanent redirects.
+- Make catalogue quantity controls neutral and remove unrelated category promos and placeholder category carousels from product-search results.
+
 ## [2.4.18] - 2026-10-10
 
 - Add configurable magnitude-based final rounding, shared by PHP and Go for foreign, partner and direct-sale prices, with exact half-up boundary handling.
