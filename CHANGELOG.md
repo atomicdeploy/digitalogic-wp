@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.31] - 2026-10-13
+
+- Allow the private research presenter to reuse source/status labels; verify the complete rendered offer table and anonymous capability boundary, preventing truncated administrator pages.
+
 ## [2.4.30] - 2026-10-13
 
 - Group private research offers by normalized source so shared storefront profiles appear once without dropping independent offers or history.
