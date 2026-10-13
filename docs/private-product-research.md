@@ -39,7 +39,7 @@ children and distinguish variant evidence in identity_evidence_fa; do not infer
 that every child matches a parent-level listing.
 
 Legacy links remain in their existing administrator editor and protected meta.
-`import-legacy` stores a normalized research snapshot with original fields in
+`import_legacy` stores a normalized research snapshot with original fields in
 details.legacy, no price observation, and no completion mark. It never overwrites
 an already researched URL. Repeating the import is idempotent. Legacy editor
 changes remain authoritative for the original purchasing relationship; research
@@ -51,7 +51,7 @@ Discover the live commands before unfamiliar use; supply a verified administrato
 
 ```sh
 wp digitalogic research install --user=1
-wp digitalogic research import-legacy --after=0 --user=1
+wp digitalogic research import_legacy --after=0 --user=1
 wp digitalogic research batch --limit=10 --user=1
 wp digitalogic research record --user=1 < one-product.json
 wp digitalogic research product --id=123 --user=1
