@@ -494,7 +494,7 @@ final class Digitalogic_Product_Research {
 		if ( null === $price ) {
 			return array( null, null );
 		}
-		if ( ! is_scalar( $price ) || ! preg_match( '/^\d{1,16}(\.\d{1,8})?$/', (string) $price ) || ! in_array( $currency, array( 'IRR', 'IRT', 'USD', 'EUR', 'GBP', 'CNY', 'AED', 'CAD', 'AUD', 'JPY', 'INR', 'TRY', 'PLN', 'HKD' ), true ) ) {
+		if ( ! is_scalar( $price ) || ! preg_match( '/^\d{1,16}(\.\d{1,8})?$/', (string) $price ) || ! in_array( $currency, array( 'IRR', 'IRT', 'USD', 'EUR', 'GBP', 'CNY', 'AED', 'CAD', 'AUD', 'JPY', 'INR', 'TRY', 'PLN', 'HKD', 'AFN' ), true ) ) {
 			throw new RuntimeException( 'Nonnegative decimal price and explicit currency required; IRT means toman.' );
 		}
 		return array( $price, $currency );
