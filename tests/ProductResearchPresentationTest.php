@@ -12,6 +12,84 @@ require_once dirname( __DIR__ ) . '/includes/class-digitalogic-product-research.
 /** Keep presentation changes independent of stored evidence and commercial writes. */
 final class ProductResearchPresentationTest extends TestCase {
 
+	/** Render complete source groups with working labels, money, dates and access guards. */
+	public function test_complete_admin_table_renders_every_offer_and_rejects_anonymous_access(): void {
+		$caps = $GLOBALS['digitalogic_test_capabilities'] ?? array();
+		$GLOBALS['digitalogic_test_capabilities']['manage_options'] = true;
+		$GLOBALS['digitalogic_test_capabilities']['edit_post']      = true;
+		$GLOBALS['digitalogic_test_posts'][9907]                    = array(
+			'post_type' => 'product',
+			'meta'      => array(
+				'_price' => '994000',
+				'_sku'   => 'SYNTHETIC-9907',
+			),
+		);
+		$d      = array(
+			'title'                => 'Synthetic offer',
+			'kind'                 => 'seller',
+			'match'                => 'candidate',
+			'offer_units'          => 1,
+			'variation_id'         => 0,
+			'identity_evidence_fa' => 'Synthetic evidence',
+			'summary_fa'           => 'Synthetic summary',
+			'specifications_fa'    => '',
+			'description_fa'       => 'Synthetic summary',
+			'comparison_fa'        => '',
+			'price_note_fa'        => '',
+			'availability_note_fa' => '',
+			'attachments'          => array(),
+		);
+		$row    = array(
+			'id'               => 1,
+			'source_id'        => 2,
+			'url'              => 'https://example.com/a',
+			'domain'           => 'example.com',
+			'profile'          => array(
+				'title'          => 'Synthetic storefront',
+				'storefront_url' => 'https://example.com/',
+			),
+			'price'            => '966000.00000000',
+			'currency'         => 'IRT',
+			'observed_at'      => '2026-10-13 04:44:29',
+			'identity_current' => true,
+			'availability'     => 'in_stock',
+			'details'          => $d,
+		);
+		$second = array_merge(
+			$row,
+			array(
+				'id'    => 3,
+				'url'   => 'https://example.com/b',
+				'price' => '1019000.00000000',
+			)
+		);
+		$data   = array(
+			'coverage' => null,
+			'listings' => Digitalogic_Product_Research_Presentation::decorate( 9907, array( $row, $second ) ),
+		);
+		try {
+			ob_start();
+			Digitalogic_Product_Research_Presentation::render( 9907, $data );
+			$html = ob_get_clean();
+			$this->assertSame( 2, substr_count( $html, 'data-listing-id=' ) );
+			$this->assertSame( 1, substr_count( $html, 'data-source-id=' ) );
+			$this->assertSame( 1, substr_count( $html, 'Synthetic storefront' ) );
+			$this->assertSame( 2, substr_count( $html, 'Synthetic summary' ) );
+			$this->assertStringContainsString( 'data-comparison="lower"', $html );
+			$this->assertStringContainsString( 'data-comparison="higher"', $html );
+			$this->assertStringContainsString( 'datetime="2026-10-13T04:44:29Z"', $html );
+			$this->assertStringNotContainsString( '966000.00000000', $html );
+			$this->assertStringEndsWith( '</table></div></div>', $html );
+			$GLOBALS['digitalogic_test_capabilities']['manage_options'] = false;
+			ob_start();
+			Digitalogic_Product_Research_Presentation::render( 9907, $data );
+			$this->assertSame( '', ob_get_clean() );
+		} finally {
+			$GLOBALS['digitalogic_test_capabilities'] = $caps;
+			unset( $GLOBALS['digitalogic_test_posts'][9907], $GLOBALS['digitalogic_test_wc_products'][9907] );
+		}
+	}
+
 	/** Reject invalid quantity types before touching shared sources or database rows. */
 	public function test_offer_quantity_validation_precedes_database_writes(): void {
 		$save = new ReflectionMethod( Digitalogic_Product_Research::class, 'save_result' );

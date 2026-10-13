@@ -682,7 +682,7 @@ final class Digitalogic_Product_Research {
 	 *
 	 * @param string $value Value.
 	 */
-	private static function label( $value ) {
+	public static function label( $value ) {
 		$labels = array(
 			'seller'            => 'فروشنده',
 			'manufacturer'      => 'سازندهٔ رسمی مدل مرجع',
