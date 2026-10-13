@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.24] - 2026-10-13
+
+- Add private normalized source domains, product listings, historical price/currency/availability observations, and a leased research coverage queue.
+- Show Persian seller/manufacturer summaries, technical attachments, comparison notes, and administrator findings inside the existing private product supplier section and a WooCommerce research dashboard.
+- Add administrator-only research CLI commands, safe bounded metadata extraction, and legacy supplier-link imports that do not count as completed searches.
+
 ## [2.4.23] - 2026-10-11
 
 - Opt English-only product and entity titles out of FaNum typography while preserving the Persian face for titles containing any non-ASCII script.

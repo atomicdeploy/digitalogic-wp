@@ -84,6 +84,9 @@ final class Digitalogic_Product_Supplier_Links_Admin {
 		}
 
 		wp_nonce_field( 'digitalogic_save_supplier_links', 'digitalogic_supplier_links_nonce' );
+		if ( class_exists( 'Digitalogic_Product_Research' ) ) {
+			Digitalogic_Product_Research::render( $post->ID );
+		}
 		?>
 		<div
 			id="digitalogic-private-supplier-links"

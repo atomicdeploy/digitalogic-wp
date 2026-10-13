@@ -3,7 +3,7 @@
  * Plugin Name: Digitalogic WooCommerce Extension
  * Plugin URI: https://github.com/atomicdeploy/digitalogic-wp
  * Description: Custom dynamic pricing, stock manager, and POS integration for Digitalogic electronic components shop. Supports bulk operations, import/export, and external API integration.
- * Version: 2.4.23
+ * Version: 2.4.24
  * Author: Digitalogic
  * Author URI: https://digitalogic.ir
  * Text Domain: digitalogic
@@ -22,7 +22,7 @@ if (!defined('ABSPATH')) {
 }
 
 // Define plugin constants
-define( 'DIGITALOGIC_VERSION', '2.4.23' );
+define( 'DIGITALOGIC_VERSION', '2.4.24' );
 define( 'DIGITALOGIC_PBX_SCHEMA_VERSION', '3' );
 define( 'DIGITALOGIC_EVENT_MESH_SCHEMA_VERSION', '1' );
 define( 'DIGITALOGIC_ASSISTANT_ACCOUNT_SCHEMA_VERSION', '2' );
@@ -131,6 +131,7 @@ final class Digitalogic {
 		require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-sku-guard.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-product-category-slugs.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-product-supplier-links.php';
+        require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-product-research.php';
 		require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-product-metadata-inspector.php';
 		require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-product-write-lock.php';
 		require_once DIGITALOGIC_PLUGIN_DIR . 'includes/class-digitalogic-product-code-write-guard.php';
@@ -232,6 +233,7 @@ final class Digitalogic {
             require_once DIGITALOGIC_PLUGIN_DIR . 'includes/cli/class-cli-commands.php';
 			require_once DIGITALOGIC_PLUGIN_DIR . 'includes/cli/class-digitalogic-product-type-cache-cli.php';
             require_once DIGITALOGIC_PLUGIN_DIR . 'includes/cli/class-digitalogic-product-supplier-links-cli.php';
+            require_once DIGITALOGIC_PLUGIN_DIR . 'includes/cli/class-digitalogic-product-research-cli.php';
             require_once DIGITALOGIC_PLUGIN_DIR . 'includes/cli/class-digitalogic-seo-monitor-status-cli.php';
 			require_once DIGITALOGIC_PLUGIN_DIR . 'includes/cli/class-digitalogic-order-document-cli.php';
 			if ( ! class_exists( 'Digitalogic_Human_Contacts_CLI', false ) ) {
@@ -317,6 +319,7 @@ final class Digitalogic {
         Digitalogic_Product_Manager::instance();
 		Digitalogic_Product_Code_Editor::instance();
         Digitalogic_Product_Supplier_Links::instance();
+        Digitalogic_Product_Research::boot();
         Digitalogic_Pricing::instance();
         Digitalogic_Import_Export::instance();
         Digitalogic_Patris_Feed::instance();
