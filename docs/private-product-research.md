@@ -131,7 +131,8 @@ description/specification/attachment content, not just search snippets. Do not
 inflate coverage with duplicate languages, unrelated models or blocked pages;
 record actual counts and shortfalls. Distinct variants/offers are useful but
 report both reviewed pages and independent seller domains. Price observations
-support PLN for verified Polish offers. Revisiting preserves stored correction
+support PLN for verified Polish offers and HKD for explicit Hong Kong dollar
+observations. Never infer a currency from a bare dollar symbol. Revisiting preserves stored correction
 and analytics notes while replacing the current search summary and listing IDs.
 Once coverage and follow-up checks are complete, pause this same heartbeat.
 

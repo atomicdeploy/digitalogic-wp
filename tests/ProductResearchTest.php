@@ -14,7 +14,7 @@ final class ProductResearchTest extends TestCase {
 	/** Keep an observed Polish offer and Iranian units distinct without conversion. */
 	public function test_observed_prices_preserve_currency_and_unknowns(): void {
 		$method = new ReflectionMethod( Digitalogic_Product_Research::class, 'price' );
-		foreach ( array( 'PLN', 'IRR', 'IRT' ) as $currency ) {
+		foreach ( array( 'PLN', 'IRR', 'IRT', 'HKD' ) as $currency ) {
 			$this->assertSame( array( '97.00', $currency ), $method->invoke( null, '97.00', $currency ) );
 		}
 		$this->assertSame( array( null, null ), $method->invoke( null, null, 'PLN' ) );
