@@ -24,6 +24,25 @@ Listing URLs preserve seller and variant query IDs and remove common tracking
 parameters and fragments. Host addresses/icons remain empty until observed.
 The current profile is shared by every listing for that host.
 
+The administrator table groups by source ID and shows each shared profile once.
+Distinct URLs/variants remain distinct offer rows; grouping never removes history.
+The database already stores price as DECIMAL(24,8) and observations/search dates as
+DATETIME in UTC. Display uses lossless decimal formatting plus `<data value>` and
+`<time datetime>` elements. Private product readbacks add an `offer` object with
+amount, currency, nullable integer units, ISO observation time and integer epoch,
+and a computed `price_comparison` object; original raw fields remain compatible.
+
+Reviewed results may supply `offer_units` as a positive JSON integer (or null).
+Only explicitly reviewed single-unit offers with current identity, the same currency
+and the exact selected WooCommerce product/child get numeric comparison colors.
+Green means the external base price is lower, red higher, equal/incomparable is
+neutral. `candidate` comparisons are labelled numeric-only, not model certification.
+No FX or rial/toman conversion is implicit. Unknown/multiple package quantities,
+reference-only/different variants and unspecified variable parents stay neutral.
+The reference is the current base unit price, not tiered `price_html` or an aggregate
+minimum. Shipping, taxes and authenticity require separate review. Color is based
+on exact decimal difference; the displayed percentage is rounded to two places.
+
 Prices are external observations, never WooCommerce commercial writes.
 IRT means Iranian toman; IRR means rial. No conversion is implicit. Unknown
 price/currency stays NULL. Availability is one of unknown, in_stock,

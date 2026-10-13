@@ -3,6 +3,23 @@
     text-align: right;
 }
 
+.dgl-research { direction: rtl; line-height: 1.8; }
+.dgl-research-current { padding: 12px; background: #f0f6fc; border-right: 3px solid #2271b1; }
+.dgl-research-scroll { overflow: auto; margin: 12px 0 20px; }
+.dgl-research-table { min-width: 900px; border-collapse: collapse; }
+.dgl-research-table td, .dgl-research-table th { padding: 12px; vertical-align: top; border: 1px solid #dcdcde; }
+.dgl-research-table tbody + tbody { border-top: 2px solid #a7aaad; }
+.dgl-research-source { min-width: 150px; background: #f6f7f7; }
+.dgl-research-table p { margin: 6px 0; }
+.dgl-research-table details { margin: 8px 0; }
+.dgl-research-table summary { cursor: pointer; color: #2271b1; }
+.dgl-research-table time { white-space: nowrap; font-size: 12px; }
+.dgl-research-money { white-space: nowrap; font-weight: 600; font-variant-numeric: tabular-nums; }
+.dgl-research-comparison { padding: 10px; border: 1px solid #dcdcde; border-radius: 4px; min-width: 155px; }
+.dgl-research-comparison--lower { color: #005b26; background: #edfaef; border-color: #73b482; }
+.dgl-research-comparison--higher { color: #8a1717; background: #fff1f0; border-color: #d98b87; }
+.dgl-research-comparison--neutral, .dgl-research-comparison--equal { color: inherit; background: transparent; }
+
 .digitalogic-supplier-links__empty.is-hidden {
     display: none;
 }

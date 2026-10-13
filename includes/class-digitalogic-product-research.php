@@ -7,6 +7,8 @@
 
 defined( 'ABSPATH' ) || exit;
 
+require_once __DIR__ . '/class-digitalogic-product-research-presentation.php';
+
 /** Private research service. */
 final class Digitalogic_Product_Research {
 
@@ -25,6 +27,17 @@ final class Digitalogic_Product_Research {
 	public static function boot() {
 		add_action( 'admin_menu', array( __CLASS__, 'menu' ) );
 		add_action( 'admin_notices', array( __CLASS__, 'notice' ) );
+		add_action( 'admin_enqueue_scripts', array( __CLASS__, 'enqueue_assets' ) );
+	}
+
+	/** Enqueue research styling only on its private WooCommerce dashboard.
+	 *
+	 * @param string $hook Current admin page.
+	 */
+	public static function enqueue_assets( $hook ) {
+		if ( current_user_can( 'manage_options' ) && 'woocommerce_page_digitalogic-product-research' === $hook ) {
+			wp_enqueue_style( 'digitalogic-product-supplier-links', DIGITALOGIC_PLUGIN_URL . 'assets/css/product-supplier-links-admin.css', array(), DIGITALOGIC_VERSION );
+		}
 	}
 
 	/**
@@ -436,6 +449,10 @@ final class Digitalogic_Product_Research {
 			'product_fingerprint' => self::identity( $id ),
 			'variation_id'        => $variation_id,
 		);
+		$details['offer_units'] = $r['offer_units'] ?? null;
+		if ( null !== $details['offer_units'] && ( ! is_int( $details['offer_units'] ) || $details['offer_units'] < 1 || $details['offer_units'] > 1000000 ) ) {
+			throw new RuntimeException( 'Observed offer_units must be a positive integer or null.' );
+		}
 		foreach ( array( 'title', 'seller', 'seller_sku', 'identity_evidence_fa', 'summary_fa', 'specifications_fa', 'description_fa', 'comparison_fa', 'availability_note_fa', 'price_note_fa' ) as $field ) {
 			$details[ $field ] = self::text( $r[ $field ] ?? '' );
 		}
@@ -525,7 +542,7 @@ final class Digitalogic_Product_Research {
 		}
 		return array(
 			'coverage' => $coverage,
-			'listings' => $rows,
+			'listings' => Digitalogic_Product_Research_Presentation::decorate( $id, $rows ),
 		);
 	}
 
@@ -731,7 +748,7 @@ final class Digitalogic_Product_Research {
 		echo '<table class="widefat striped"><thead><tr><th>محصول</th><th>وضعیت و زمان UTC</th><th>جمع‌بندی مقایسه</th><th>اطلاع به مدیران</th></tr></thead><tbody>';
 		foreach ( $rows as $row ) {
 			$r = json_decode( $row['report'], true );
-			echo '<tr><td><a href="' . esc_url( get_edit_post_link( $row['product_id'] ) ) . '">' . esc_html( get_the_title( $row['product_id'] ) ) . '</a></td><td>' . esc_html( self::label( $row['state'] ) . ' / ' . $row['searched_at'] ) . '</td><td>' . esc_html( $r['summary_fa'] ?? '' ) . '</td><td>' . esc_html( $r['issues_fa'] ?? '' ) . '</td></tr>';
+			echo '<tr><td><a href="' . esc_url( get_edit_post_link( $row['product_id'] ) ) . '">' . esc_html( get_the_title( $row['product_id'] ) ) . '</a></td><td>' . esc_html( self::label( $row['state'] ) ) . '<br>' . Digitalogic_Product_Research_Presentation::time_html( $row['searched_at'] ) . '</td><td>' . esc_html( $r['summary_fa'] ?? '' ) . '</td><td>' . esc_html( $r['issues_fa'] ?? '' ) . '</td></tr>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- time_html escapes each semantic timestamp attribute and label.
 		}
 		echo '</tbody></table><p><a href="' . esc_url( add_query_arg( 'paged', $page + 1 ) ) . '">صفحه بعد</a></p></div>';
 	}
@@ -744,21 +761,6 @@ final class Digitalogic_Product_Research {
 		if ( ! current_user_can( 'manage_options' ) || ! current_user_can( 'edit_post', $id ) || self::SCHEMA !== get_option( 'digitalogic_research_schema' ) ) {
 			return;
 		}
-		$data = self::product( $id );
-		echo '<div dir="rtl" style="overflow:auto"><h3>جدول پژوهش فروشندگان و سازندگان</h3><p>زمان‌ها UTC؛ اطلاعات فقط برای مدیران سایت است.</p>';
-		if ( $data['coverage'] ) {
-			echo '<p>' . esc_html( $data['coverage']['report']['summary_fa'] ?? '' ) . '</p><p><strong>' . esc_html( $data['coverage']['report']['issues_fa'] ?? '' ) . '</strong></p>';
-		}
-		echo '<table class="widefat striped"><thead><tr><th>منبع و فروشگاه</th><th>مدل و نوع منبع</th><th>قیمت و موجودی</th><th>مشخصات و محتوا</th><th>مقایسه و پیوست‌ها</th></tr></thead><tbody>';
-		foreach ( $data['listings'] as $row ) {
-			$d = $row['details'];
-			$p = $row['profile'];
-			echo '<tr><td><a target="_blank" rel="noopener noreferrer" href="' . esc_url( $row['url'] ) . '">' . esc_html( $p['title'] ) . '</a><br>' . esc_html( $row['domain'] ) . '<br>' . esc_html( $p['about_fa'] ?? '' ) . '<br>' . esc_html( $p['address_fa'] ?? '' ) . '<br><a target="_blank" rel="noopener noreferrer" href="' . esc_url( $p['storefront_url'] ) . '">صفحه فروشگاه</a></td><td>' . esc_html( $d['title'] . ' / ' . self::label( $d['kind'] ) . ' / ' . self::label( $d['match'] ) ) . '<br>' . esc_html( $d['identity_evidence_fa'] ) . ( $row['identity_current'] ? '' : '<br><strong>هویت محصول تغییر کرده؛ بررسی دوباره لازم است.</strong>' ) . '</td><td>' . esc_html( null === $row['price'] ? 'قیمت نامشخص' : $row['price'] . ' ' . ( 'IRT' === $row['currency'] ? 'تومان' : ( 'IRR' === $row['currency'] ? 'ریال' : $row['currency'] ) ) ) . '<br>' . esc_html( self::label( $row['availability'] ) . ' / ' . $d['availability_note_fa'] ) . '<br>' . esc_html( $d['price_note_fa'] . ' / ' . $row['observed_at'] ) . '</td><td>' . esc_html( $d['summary_fa'] . ' ' . $d['specifications_fa'] . ' ' . $d['description_fa'] ) . '</td><td>' . esc_html( $d['comparison_fa'] );
-			foreach ( $d['attachments'] as $attachment ) {
-				echo '<br><a target="_blank" rel="noopener noreferrer" href="' . esc_url( $attachment['url'] ) . '">' . esc_html( $attachment['title_fa'] ) . '</a>';
-			}
-			echo '</td></tr>';
-		}
-		echo '</tbody></table></div>';
+		Digitalogic_Product_Research_Presentation::render( $id, self::product( $id ) );
 	}
 }
