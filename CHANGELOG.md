@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.30] - 2026-10-13
+
+- Group private research offers by normalized source so shared storefront profiles appear once without dropping independent offers or history.
+- Format DECIMAL amounts without zero padding and DATETIME observations with semantic UTC timestamps. Expose structured offer and derived comparison values in private readbacks.
+- Show exact amount differences and approximate percentages in green/red for reviewed same-currency single-unit offers; equal and incomparable offers stay neutral. Unspecified variable parents never supply an aggregate minimum.
+
 ## [2.4.29] - 2026-10-13
 
 - Accept explicitly observed MXN prices in the private research ledger without converting Mexican peso amounts or changing WooCommerce prices.
