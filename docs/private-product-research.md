@@ -34,9 +34,13 @@ minimums as an exact offer. Record cached-source age explicitly in evidence.
 `kind`: seller, manufacturer, reference, aggregator. `match`: candidate,
 exact_model, different_variant, reference_only. A manufacturer reference does
 not certify the origin of Digitalogic inventory. Matching external model text
-never authorizes a new SKU/Patris mapping. For variable parents, inspect live
-children and distinguish variant evidence in identity_evidence_fa; do not infer
-that every child matches a parent-level listing.
+never authorizes a new SKU/Patris mapping. For variable parents, the batch returns
+exact child IDs, raw codes (without inherited parent fallback) and attributes;
+child identity changes invalidate coverage. Supply optional variation_id for
+a child-specific offer. It must belong to the selected parent; the same external
+URL can retain separate observations for different children. Distinguish variant
+evidence in identity_evidence_fa; do not infer that every child matches a
+parent-level listing.
 
 Legacy links remain in their existing administrator editor and protected meta.
 `import_legacy` stores a normalized research snapshot with original fields in

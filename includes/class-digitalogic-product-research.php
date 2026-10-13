@@ -133,7 +133,35 @@ final class Digitalogic_Product_Research {
 		if ( 'product' !== get_post_type( $id ) ) {
 			throw new RuntimeException( 'Exact parent product required.' );
 		}
-		return hash( 'sha256', wp_json_encode( array( get_the_title( $id ), get_post_meta( $id, '_sku', true ) ) ) );
+		$identity = array( get_the_title( $id ), get_post_meta( $id, '_sku', true ) );
+		$product  = wc_get_product( $id );
+		if ( $product && $product->is_type( 'variable' ) ) {
+			$identity[] = self::variants( $product );
+		}
+		return hash( 'sha256', wp_json_encode( $identity ) );
+	}
+
+	/**
+	 * Bind research identity to current exact child codes and attributes.
+	 *
+	 * @param WC_Product $product Parent product.
+	 * @return array Exact child identities.
+	 */
+	private static function variants( $product ) {
+		$children = $product->get_children();
+		sort( $children, SORT_NUMERIC );
+		$result = array();
+		foreach ( $children as $child_id ) {
+			$child = wc_get_product( $child_id );
+			if ( $child ) {
+				$result[] = array(
+					'id'         => $child->get_id(),
+					'sku'        => (string) get_post_meta( $child_id, '_sku', true ),
+					'attributes' => $child->get_attributes( 'edit' ),
+				);
+			}
+		}
+		return $result;
 	}
 
 	/** Serialize claims and writes across CLI workers.
@@ -217,7 +245,7 @@ final class Digitalogic_Product_Research {
 						'fingerprint' => $row['fingerprint'],
 						'url'         => get_permalink( $id ),
 						'type'        => $p->get_type(),
-						'variations'  => $p->is_type( 'variable' ) ? $p->get_children() : array(),
+						'variations'  => $p->is_type( 'variable' ) ? self::variants( $p ) : array(),
 						'description' => mb_substr( wp_strip_all_tags( $p->get_description() ), 0, 6000 ),
 					);
 				}
@@ -367,13 +395,21 @@ final class Digitalogic_Product_Research {
 	 */
 	private static function save_result( $id, $r ) {
 		global $wpdb;
-		$url     = self::url( $r['url'] ?? '' );
-		$domain  = self::domain( $url );
-		$s       = self::table( 'sources' );
-		$l       = self::table( 'listings' );
-		$o       = self::table( 'observations' );
-		$old     = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM $s WHERE domain=%s", $domain ), ARRAY_A ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery,WordPress.DB.PreparedSQL -- Private uncached ledger; fixed table identifiers and prepared values.
-		$profile = $old ? json_decode( $old['profile'], true ) : array();
+		$variation_id = absint( $r['variation_id'] ?? 0 );
+		if ( $variation_id ) {
+			$variation = wc_get_product( $variation_id );
+			if ( ! $variation || ! $variation->is_type( 'variation' ) || (int) $id !== (int) $variation->get_parent_id() ) {
+				throw new RuntimeException( 'External variant must belong to the exact selected parent.' );
+			}
+		}
+		$url      = self::url( $r['url'] ?? '' );
+		$url_hash = hash( 'sha256', $url . ( $variation_id ? "\0" . $variation_id : '' ) );
+		$domain   = self::domain( $url );
+		$s        = self::table( 'sources' );
+		$l        = self::table( 'listings' );
+		$o        = self::table( 'observations' );
+		$old      = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM $s WHERE domain=%s", $domain ), ARRAY_A ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery,WordPress.DB.PreparedSQL -- Private uncached ledger; fixed table identifiers and prepared values.
+		$profile  = $old ? json_decode( $old['profile'], true ) : array();
 		foreach ( array( 'title', 'about_fa', 'address_fa', 'country', 'storefront_url', 'about_url', 'icon_url' ) as $field ) {
 			if ( isset( $r['host'][ $field ] ) && '' !== $r['host'][ $field ] ) {
 				$profile[ $field ] = str_ends_with( $field, '_url' ) ? self::url( $r['host'][ $field ] ) : self::text( $r['host'][ $field ], 2000 );
@@ -394,6 +430,7 @@ final class Digitalogic_Product_Research {
 			'kind'                => $kind,
 			'match'               => $match,
 			'product_fingerprint' => self::identity( $id ),
+			'variation_id'        => $variation_id,
 		);
 		foreach ( array( 'title', 'seller', 'seller_sku', 'identity_evidence_fa', 'summary_fa', 'specifications_fa', 'description_fa', 'comparison_fa', 'availability_note_fa', 'price_note_fa' ) as $field ) {
 			$details[ $field ] = self::text( $r[ $field ] ?? '' );
@@ -421,8 +458,8 @@ final class Digitalogic_Product_Research {
 			$currency = null;
 		}
 		$at = self::timestamp( $r['observed_at'] ?? '' );
-		self::sql( $wpdb->prepare( "INSERT INTO $l (product_id,source_id,url_hash,url,details,updated_at) VALUES (%d,%d,%s,%s,%s,%s) ON DUPLICATE KEY UPDATE source_id=VALUES(source_id),details=VALUES(details),updated_at=VALUES(updated_at)", $id, $source_id, hash( 'sha256', $url ), $url, wp_json_encode( $details, JSON_UNESCAPED_UNICODE ), $now ) ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Table identifiers are fixed and values are prepared.
-		$listing_id = $wpdb->get_var( $wpdb->prepare( "SELECT id FROM $l WHERE product_id=%d AND url_hash=%s", $id, hash( 'sha256', $url ) ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery,WordPress.DB.PreparedSQL -- Private uncached ledger; fixed table identifiers and prepared values.
+		self::sql( $wpdb->prepare( "INSERT INTO $l (product_id,source_id,url_hash,url,details,updated_at) VALUES (%d,%d,%s,%s,%s,%s) ON DUPLICATE KEY UPDATE source_id=VALUES(source_id),details=VALUES(details),updated_at=VALUES(updated_at)", $id, $source_id, $url_hash, $url, wp_json_encode( $details, JSON_UNESCAPED_UNICODE ), $now ) ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Table identifiers are fixed and values are prepared.
+		$listing_id = $wpdb->get_var( $wpdb->prepare( "SELECT id FROM $l WHERE product_id=%d AND url_hash=%s", $id, $url_hash ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery,WordPress.DB.PreparedSQL -- Private uncached ledger; fixed table identifiers and prepared values.
 		$evidence   = wp_json_encode(
 			array(
 				'url'     => $url,

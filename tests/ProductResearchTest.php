@@ -41,4 +41,40 @@ final class ProductResearchTest extends TestCase {
 		$this->expectException( RuntimeException::class );
 		Digitalogic_Product_Research::authorize();
 	}
+
+	/** Child code changes invalidate research even when the parent stays unchanged. */
+	public function test_child_code_changes_invalidate_the_parent_fingerprint(): void {
+		$GLOBALS['digitalogic_test_posts'][9901] = array(
+			'post_type'    => 'product',
+			'product_type' => 'variable',
+			'post_title'   => 'Research parent',
+			'meta'         => array( '_sku' => 'PARENT-9901' ),
+		);
+		$GLOBALS['digitalogic_test_posts'][9902] = array(
+			'post_type'   => 'product_variation',
+			'post_parent' => 9901,
+			'meta'        => array( '_sku' => 'CHILD-A' ),
+		);
+		unset( $GLOBALS['digitalogic_test_wc_products'][9901], $GLOBALS['digitalogic_test_wc_products'][9902] );
+		$before = Digitalogic_Product_Research::identity( 9901 );
+		$GLOBALS['digitalogic_test_posts'][9902]['meta']['_sku'] = 'CHILD-B';
+		unset( $GLOBALS['digitalogic_test_wc_products'][9902] );
+		$this->assertNotSame( $before, Digitalogic_Product_Research::identity( 9901 ) );
+		unset( $GLOBALS['digitalogic_test_posts'][9901], $GLOBALS['digitalogic_test_posts'][9902], $GLOBALS['digitalogic_test_wc_products'][9901], $GLOBALS['digitalogic_test_wc_products'][9902] );
+	}
+
+	/** Reject a foreign child before any database mutation. */
+	public function test_external_variation_cannot_be_attached_to_another_parent(): void {
+		$method = new ReflectionMethod( Digitalogic_Product_Research::class, 'save_result' );
+		$this->expectException( RuntimeException::class );
+		$this->expectExceptionMessage( 'External variant must belong to the exact selected parent.' );
+		$method->invoke(
+			null,
+			101,
+			array(
+				'variation_id' => 999999,
+				'url'          => 'https://example.com/product',
+			)
+		);
+	}
 }
