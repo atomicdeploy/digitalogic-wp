@@ -132,7 +132,8 @@ inflate coverage with duplicate languages, unrelated models or blocked pages;
 record actual counts and shortfalls. Distinct variants/offers are useful but
 report both reviewed pages and independent seller domains. Price observations
 support PLN for verified Polish offers and HKD for explicit Hong Kong dollar
-observations. Never infer a currency from a bare dollar symbol. Revisiting preserves stored correction
+observations. AFN is supported for explicitly labelled Afghan afghani offers.
+Never infer a currency from a bare dollar symbol. Revisiting preserves stored correction
 and analytics notes while replacing the current search summary and listing IDs.
 Once coverage and follow-up checks are complete, pause this same heartbeat.
 
