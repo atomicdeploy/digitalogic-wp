@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.29] - 2026-10-13
+
+- Accept explicitly observed MXN prices in the private research ledger without converting Mexican peso amounts or changing WooCommerce prices.
+
 ## [2.4.28] - 2026-10-13
 
 - Accept explicitly observed EGP prices in the private research ledger without converting Egyptian pound amounts or changing WooCommerce prices.

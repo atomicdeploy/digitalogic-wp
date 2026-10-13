@@ -133,7 +133,7 @@ record actual counts and shortfalls. Distinct variants/offers are useful but
 report both reviewed pages and independent seller domains. Price observations
 support PLN for verified Polish offers and HKD for explicit Hong Kong dollar
 observations. AFN and EGP are supported for explicitly labelled Afghan afghani
-and Egyptian pound offers.
+and Egyptian pound offers. MXN preserves explicitly labelled Mexican peso offers.
 Never infer a currency from a bare dollar symbol. Revisiting preserves stored correction
 and analytics notes while replacing the current search summary and listing IDs.
 Once coverage and follow-up checks are complete, pause this same heartbeat.
