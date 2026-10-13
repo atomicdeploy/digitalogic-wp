@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.25] - 2026-10-13
+
+- Preserve private research corrections and analytics notes when revisiting a product, and accept explicitly observed PLN prices without conversion.
+
 ## [2.4.24] - 2026-10-13
 
 - Add private normalized source domains, product listings, historical price/currency/availability observations, and a leased research coverage queue.

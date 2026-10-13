@@ -124,6 +124,15 @@ and Search Console's authenticated property, distinguishing source dates and
 relative trend values from sales, demand totals, or indexing guarantees. Fix
 evidence-backed site issues with backups/readback and notify administrators in
 the private dashboard. Never claim Search Console access or data if signed out.
+
+For every product, aim for 8–12 substantive relevant pages across several
+independent shops plus the official manufacturer where available. Read actual
+description/specification/attachment content, not just search snippets. Do not
+inflate coverage with duplicate languages, unrelated models or blocked pages;
+record actual counts and shortfalls. Distinct variants/offers are useful but
+report both reviewed pages and independent seller domains. Price observations
+support PLN for verified Polish offers. Revisiting preserves stored correction
+and analytics notes while replacing the current search summary and listing IDs.
 Once coverage and follow-up checks are complete, pause this same heartbeat.
 
 ## Deployment and rollback

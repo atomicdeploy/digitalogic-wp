@@ -371,11 +371,15 @@ final class Digitalogic_Product_Research {
 				foreach ( $results as $result ) {
 					$listing_ids[] = self::save_result( $id, $result );
 				}
-				$report = array(
-					'searches'    => $searches,
-					'summary_fa'  => self::text( $input['summary_fa'] ?? '' ),
-					'issues_fa'   => self::text( $input['issues_fa'] ?? '' ),
-					'listing_ids' => array_values( array_unique( $listing_ids ) ),
+				$previous_report = json_decode( $row['report'], true );
+				$report          = array_merge(
+					is_array( $previous_report ) ? $previous_report : array(),
+					array(
+						'searches'    => $searches,
+						'summary_fa'  => self::text( $input['summary_fa'] ?? '' ),
+						'issues_fa'   => self::text( $input['issues_fa'] ?? '' ),
+						'listing_ids' => array_values( array_unique( $listing_ids ) ),
+					)
 				);
 				self::sql( $wpdb->prepare( "UPDATE $q SET state=%s,searched_at=%s,lease_until=%s,report=%s WHERE product_id=%d", $state, gmdate( 'Y-m-d H:i:s' ), gmdate( 'Y-m-d H:i:s', time() + 86400 ), wp_json_encode( $report, JSON_UNESCAPED_UNICODE ), $id ) ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Table identifiers are fixed and values are prepared.
 				return array(
@@ -449,15 +453,8 @@ final class Digitalogic_Product_Research {
 		if ( ! in_array( $availability, array( 'unknown', 'in_stock', 'out_of_stock', 'preorder', 'discontinued' ), true ) ) {
 			throw new RuntimeException( 'Invalid availability.' );
 		}
-		$price    = $r['price'] ?? null;
-		$currency = $r['currency'] ?? null;
-		if ( null !== $price && ( ! is_scalar( $price ) || ! preg_match( '/^\d{1,16}(\.\d{1,8})?$/', (string) $price ) || ! in_array( $currency, array( 'IRR', 'IRT', 'USD', 'EUR', 'GBP', 'CNY', 'AED', 'CAD', 'AUD', 'JPY', 'INR', 'TRY' ), true ) ) ) {
-			throw new RuntimeException( 'Nonnegative decimal price and explicit currency required; IRT means toman.' );
-		}
-		if ( null === $price ) {
-			$currency = null;
-		}
-		$at = self::timestamp( $r['observed_at'] ?? '' );
+		list( $price, $currency ) = self::price( $r['price'] ?? null, $r['currency'] ?? null );
+		$at                       = self::timestamp( $r['observed_at'] ?? '' );
 		self::sql( $wpdb->prepare( "INSERT INTO $l (product_id,source_id,url_hash,url,details,updated_at) VALUES (%d,%d,%s,%s,%s,%s) ON DUPLICATE KEY UPDATE source_id=VALUES(source_id),details=VALUES(details),updated_at=VALUES(updated_at)", $id, $source_id, $url_hash, $url, wp_json_encode( $details, JSON_UNESCAPED_UNICODE ), $now ) ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Table identifiers are fixed and values are prepared.
 		$listing_id = $wpdb->get_var( $wpdb->prepare( "SELECT id FROM $l WHERE product_id=%d AND url_hash=%s", $id, $url_hash ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery,WordPress.DB.PreparedSQL -- Private uncached ledger; fixed table identifiers and prepared values.
 		$evidence   = wp_json_encode(
@@ -484,6 +481,23 @@ final class Digitalogic_Product_Research {
 			throw new RuntimeException( 'Observation storage failed.' );
 		}
 		return (int) $listing_id;
+	}
+
+	/** Validate an observed offer without converting currencies.
+	 *
+	 * @param mixed $price Decimal price or null.
+	 * @param mixed $currency Explicit currency code.
+	 * @return array
+	 * @throws RuntimeException On malformed or unsupported values.
+	 */
+	private static function price( $price, $currency ) {
+		if ( null === $price ) {
+			return array( null, null );
+		}
+		if ( ! is_scalar( $price ) || ! preg_match( '/^\d{1,16}(\.\d{1,8})?$/', (string) $price ) || ! in_array( $currency, array( 'IRR', 'IRT', 'USD', 'EUR', 'GBP', 'CNY', 'AED', 'CAD', 'AUD', 'JPY', 'INR', 'TRY', 'PLN' ), true ) ) {
+			throw new RuntimeException( 'Nonnegative decimal price and explicit currency required; IRT means toman.' );
+		}
+		return array( $price, $currency );
 	}
 
 	/** Product.
