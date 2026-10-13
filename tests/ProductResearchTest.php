@@ -11,6 +11,17 @@ require_once dirname( __DIR__ ) . '/includes/class-digitalogic-product-research.
 
 /** Research commands and contract verification. */
 final class ProductResearchTest extends TestCase {
+	/** Keep an observed Polish offer and Iranian units distinct without conversion. */
+	public function test_observed_prices_preserve_currency_and_unknowns(): void {
+		$method = new ReflectionMethod( Digitalogic_Product_Research::class, 'price' );
+		foreach ( array( 'PLN', 'IRR', 'IRT' ) as $currency ) {
+			$this->assertSame( array( '97.00', $currency ), $method->invoke( null, '97.00', $currency ) );
+		}
+		$this->assertSame( array( null, null ), $method->invoke( null, null, 'PLN' ) );
+		$this->expectException( RuntimeException::class );
+		$method->invoke( null, '97.00', 'zł' );
+	}
+
 	/** Preserve seller tenants while removing trivial domain spelling differences. */
 	public function test_domains_deduplicate_www_case_and_trailing_dot_without_merging_tenants(): void {
 		$this->assertSame( 'example.com', Digitalogic_Product_Research::domain( 'HTTPS://WWW.Example.COM./p' ) );
