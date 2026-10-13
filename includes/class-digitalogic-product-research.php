@@ -443,7 +443,7 @@ final class Digitalogic_Product_Research {
 		if ( ! in_array( $kind, array( 'seller', 'manufacturer', 'reference', 'aggregator' ), true ) || ! in_array( $match, array( 'candidate', 'exact_model', 'different_variant', 'reference_only' ), true ) ) {
 			throw new RuntimeException( 'Invalid relationship or identity confidence.' );
 		}
-		$details = array(
+		$details                = array(
 			'kind'                => $kind,
 			'match'               => $match,
 			'product_fingerprint' => self::identity( $id ),
