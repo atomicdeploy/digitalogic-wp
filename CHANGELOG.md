@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.32] - 2026-10-13
+
+- Accept explicitly observed BRL prices in the private research ledger without currency conversion or changes to WooCommerce prices.
+
 ## [2.4.31] - 2026-10-13
 
 - Allow the private research presenter to reuse source/status labels; verify the complete rendered offer table and anonymous capability boundary, preventing truncated administrator pages.
