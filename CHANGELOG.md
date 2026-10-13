@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.34] - 2026-10-13
+
+- Accept explicitly observed UAH prices in private research without conversion or public commercial changes.
+
 ## [2.4.33] - 2026-10-13
 
 - Accept explicitly observed PKR prices in private research without conversion or public commercial changes.
