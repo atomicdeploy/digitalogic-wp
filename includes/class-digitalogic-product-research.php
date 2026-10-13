@@ -24,6 +24,7 @@ final class Digitalogic_Product_Research {
 	/** Register private administrator views. */
 	public static function boot() {
 		add_action( 'admin_menu', array( __CLASS__, 'menu' ) );
+		add_action( 'admin_notices', array( __CLASS__, 'notice' ) );
 	}
 
 	/**
@@ -636,6 +637,20 @@ final class Digitalogic_Product_Research {
 		return $labels[ $value ] ?? $value;
 	}
 
+	/** Show administrators a notice for research updates they have not viewed. */
+	public static function notice() {
+		if ( ! current_user_can( 'manage_options' ) || self::SCHEMA !== get_option( 'digitalogic_research_schema' ) ) {
+			return;
+		}
+		global $wpdb;
+		$q      = self::table( 'queue' );
+		$latest = $wpdb->get_var( "SELECT MAX(searched_at) FROM $q" ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery,WordPress.DB.PreparedSQL -- Fixed private table; fresh notification state.
+		$seen   = get_user_meta( get_current_user_id(), '_digitalogic_research_seen_at', true );
+		if ( $latest && $latest > $seen ) {
+			echo '<div class="notice notice-info" dir="rtl"><p>پژوهش محصولات به‌روزرسانی شده است. <a href="' . esc_url( admin_url( 'admin.php?page=digitalogic-product-research' ) ) . '">مشاهده مقایسه‌ها و موارد نیازمند پیگیری</a></p></div>';
+		}
+	}
+
 	/** Register the WooCommerce research dashboard. */
 	public static function menu() {
 		add_submenu_page( 'woocommerce', 'پژوهش خصوصی محصولات', 'پژوهش محصولات', 'manage_options', 'digitalogic-product-research', array( __CLASS__, 'dashboard' ) );
@@ -650,6 +665,12 @@ final class Digitalogic_Product_Research {
 			return;
 		}
 		$status = self::status();
+		global $wpdb;
+		$q      = self::table( 'queue' );
+		$latest = $wpdb->get_var( "SELECT MAX(searched_at) FROM $q" ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery,WordPress.DB.PreparedSQL -- Fixed private notification state.
+		if ( $latest ) {
+			update_user_meta( get_current_user_id(), '_digitalogic_research_seen_at', $latest );
+		}
 		echo '<p>محصولات منتشرشده: ' . esc_html( $status['published_products'] ) . ' | بررسی‌نشده: ' . esc_html( $status['states']['unseen'] ) . ' | جست‌وجوشده: ' . esc_html( $status['states']['searched'] + $status['states']['no_results'] ) . ' | نیازمند پیگیری: ' . esc_html( $status['states']['blocked'] ) . '</p>';
 		echo '<p>قیمت‌ها مشاهدات زمان‌دار هستند؛ تومان و ریال جدا ذخیره می‌شوند. منابع مشابه، اصالت موجودی دیجیتالاجیک را اثبات نمی‌کنند.</p>';
 		global $wpdb;
