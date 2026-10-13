@@ -412,6 +412,10 @@ final class Digitalogic_Product_Research {
 	 */
 	private static function save_result( $id, $r ) {
 		global $wpdb;
+		$offer_units = $r['offer_units'] ?? null;
+		if ( null !== $offer_units && ( ! is_int( $offer_units ) || $offer_units < 1 || $offer_units > 1000000 ) ) {
+			throw new RuntimeException( 'Observed offer_units must be a positive integer or null.' );
+		}
 		$variation_id = absint( $r['variation_id'] ?? 0 );
 		if ( $variation_id ) {
 			$variation = wc_get_product( $variation_id );
@@ -449,10 +453,7 @@ final class Digitalogic_Product_Research {
 			'product_fingerprint' => self::identity( $id ),
 			'variation_id'        => $variation_id,
 		);
-		$details['offer_units'] = $r['offer_units'] ?? null;
-		if ( null !== $details['offer_units'] && ( ! is_int( $details['offer_units'] ) || $details['offer_units'] < 1 || $details['offer_units'] > 1000000 ) ) {
-			throw new RuntimeException( 'Observed offer_units must be a positive integer or null.' );
-		}
+		$details['offer_units'] = $offer_units;
 		foreach ( array( 'title', 'seller', 'seller_sku', 'identity_evidence_fa', 'summary_fa', 'specifications_fa', 'description_fa', 'comparison_fa', 'availability_note_fa', 'price_note_fa' ) as $field ) {
 			$details[ $field ] = self::text( $r[ $field ] ?? '' );
 		}

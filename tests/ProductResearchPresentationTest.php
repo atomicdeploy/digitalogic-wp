@@ -11,6 +11,19 @@ require_once dirname( __DIR__ ) . '/includes/class-digitalogic-product-research.
 
 /** Keep presentation changes independent of stored evidence and commercial writes. */
 final class ProductResearchPresentationTest extends TestCase {
+
+	/** Reject invalid quantity types before touching shared sources or database rows. */
+	public function test_offer_quantity_validation_precedes_database_writes(): void {
+		$save = new ReflectionMethod( Digitalogic_Product_Research::class, 'save_result' );
+		foreach ( array( '1', 0, -1, 1000001 ) as $invalid ) {
+			try {
+				$save->invoke( null, 10473, array( 'offer_units' => $invalid ) );
+				$this->fail( 'Invalid quantity was accepted.' );
+			} catch ( RuntimeException $error ) {
+				$this->assertSame( 'Observed offer_units must be a positive integer or null.', $error->getMessage() );
+			}
+		}
+	}
 	/** Whole numbers trim padding; genuine fractions and large values stay exact. */
 	public function test_decimal_display_preserves_precision_and_zero(): void {
 		$this->assertSame( '۱٬۰۱۹٬۰۰۰', Digitalogic_Product_Research_Presentation::format_amount( '1019000.00000000' ) );
