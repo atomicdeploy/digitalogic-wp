@@ -3990,6 +3990,19 @@ function clean_term_cache($ids, $taxonomy = '') {
     return true;
 }
 
+/** Remove exact term IDs without triggering the set-object-terms default hook. */
+function wp_remove_object_terms( $object_id, $terms, $taxonomy ) { // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedFunctionFound -- WordPress test double.
+	$existing = 'product_cat' === $taxonomy
+		? ( $GLOBALS['digitalogic_test_posts'][ $object_id ]['category_ids'] ?? array() )
+		: ( $GLOBALS['digitalogic_test_object_terms'][ $object_id ][ $taxonomy ] ?? array() );
+	$remaining = array_values( array_diff( $existing, (array) $terms ) );
+	$GLOBALS['digitalogic_test_object_terms'][ $object_id ][ $taxonomy ] = $remaining;
+	if ( 'product_cat' === $taxonomy ) {
+		$GLOBALS['digitalogic_test_posts'][ $object_id ]['category_ids'] = $remaining;
+	}
+	return true;
+}
+
 function wp_set_object_terms($object_id, $terms, $taxonomy, $append = false) {
     if ('product_type' === $taxonomy) {
 		$type = is_array($terms) ? (string) (reset($terms) ?: '') : (string) $terms;
