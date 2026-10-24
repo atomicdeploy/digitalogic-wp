@@ -362,8 +362,8 @@ final class ProductSyncRestTest extends TestCase {
 		$this->assertInstanceOf( WP_Error::class, $probe( $source, '2999-01-01T00:00:00Z' ) );
 	}
 
-    private function resetSingleton($class): void {
-        $property = new ReflectionProperty($class, 'instance');
+    private function resetSingleton($class_name): void {
+        $property = new ReflectionProperty($class_name, 'instance');
         $property->setValue(null, null);
     }
 }
