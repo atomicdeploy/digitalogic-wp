@@ -1367,6 +1367,11 @@ class Digitalogic_Product_Sync_Receiver {
 			if ( ! $this->receipt_absence_is_not_future( $generated_at_order ) ) {
 				return $this->receipt_future_inconclusive();
 			}
+			if ( $this->receipt_has_superseding_snapshot( $source, $source_id, $dataset, $generated_at_order ) ) {
+				// This proves obsolescence, not acceptance of the missing event.
+				$receipt['status'] = 'superseded';
+				return $receipt;
+			}
 			return $this->error(
 				'digitalogic_product_sync_receipt_history_inconclusive',
 				'The bounded receipt history cannot prove that this event was not accepted.',
@@ -1403,6 +1408,36 @@ class Digitalogic_Product_Sync_Receiver {
 		$receipt['status'] = ( $receipt['pending_products'] + $receipt['deferred_products'] ) > 0 ? 'pending' : 'applied';
 
 		return $receipt;
+	}
+
+	/** Prove an absent event obsolete using the current complete accepted snapshot. */
+	private function receipt_has_superseding_snapshot( $source, $source_id, $dataset, $generated_at_order ) {
+		$last_id = $source['last_event_id'] ?? null;
+		$event   = $source['recent_events'][ $last_id ?? '' ] ?? null;
+		$input   = $source['input_source'] ?? null;
+		if (
+			! $this->is_hash( $last_id )
+			|| ! is_array( $event )
+			|| ! is_array( $input )
+			|| $source_id !== ( $input['id'] ?? null )
+			|| $dataset !== ( $input['dataset'] ?? null )
+			|| ! $this->is_hash( $input['revision'] ?? null )
+			|| ( $input['revision'] ?? null ) !== ( $event['source_revision'] ?? null )
+			|| 'snapshot' !== ( $source['last_event_type'] ?? null )
+			|| 'snapshot' !== ( $event['event_type'] ?? null )
+			|| ! is_array( $source['input_products'] ?? null )
+			|| ! empty( $source['quarantined_codes'] )
+			|| array() !== ( $source['pending_products'] ?? null )
+			|| array() !== ( $source['deferred_products'] ?? null )
+			|| ! is_string( $source['generated_at'] ?? null )
+			|| $source['generated_at'] !== ( $event['generated_at'] ?? null )
+		) {
+			return false;
+		}
+		$order = $this->timestamp_order( $source['generated_at'] );
+		return ! is_wp_error( $order )
+			&& $order === ( $source['generated_at_order'] ?? null )
+			&& $this->compare_timestamp_order( $order, $generated_at_order ) > 0;
 	}
 
 	/** Return the greatest durable accepted generated_at order from bounded state. */
@@ -5503,6 +5538,7 @@ class Digitalogic_Product_Sync_Receiver {
 				? absint( $pricing_topology['parent_id'] )
 				: (int) $product->get_parent_id();
 
+			$failure_stage = 'shipping_assignment';
             try {
 				if ( $materialization_enabled && ! $owner_backfill_only ) {
 					$assignment = $this->reconcile_materialization_shipping_assignment(
@@ -5528,6 +5564,7 @@ class Digitalogic_Product_Sync_Receiver {
 						}
 					}
 				}
+				$failure_stage = 'identity_readback';
 				$identity_meta_keys = array(
 					Digitalogic_Product_Identifier_Resolver::PATRIS_CODE_META,
 					'_sku',
@@ -5560,6 +5597,7 @@ class Digitalogic_Product_Sync_Receiver {
 				$committed = null;
 				$owner_backfilled = false;
 				if ( $owner_backfill_only ) {
+					$failure_stage = 'owner_backfill';
 					$owner_backfill = Digitalogic_Patris_Catalog_Materializer::instance()->backfill_verified_source_product(
 						$woocommerce_id,
 						$product_data,
@@ -5596,6 +5634,7 @@ class Digitalogic_Product_Sync_Receiver {
 				if ( ! $owner_backfilled ) {
 					$combined_pricing = ! $requires_full_feed && $materialization_enabled;
 					if ( $combined_pricing ) {
+						$failure_stage = 'combined_pricing';
 						$committed = Digitalogic_Patris_Catalog_Materializer::instance()->reprice_source_product(
 							$woocommerce_id,
 							$product_data,
@@ -5606,14 +5645,17 @@ class Digitalogic_Product_Sync_Receiver {
 							return $committed;
 						}
 					} elseif ( ! $requires_full_feed ) {
+						$failure_stage = 'pricing_write';
 						Digitalogic_Patris_Feed::instance()->apply_product_pricing( $product, $product_data );
 					} else {
+						$failure_stage = 'feed_write';
 						$feed_write = Digitalogic_Patris_Feed::instance()->apply_product_feed( $product, $product_data );
 						if ( is_wp_error( $feed_write ) ) {
 							throw new RuntimeException( $feed_write->get_error_code() );
 						}
 					}
 					if ( $materialization_enabled && ! $combined_pricing ) {
+						$failure_stage = 'materialization_commit';
 						$committed = Digitalogic_Patris_Catalog_Materializer::instance()->commit_source_product(
 							$woocommerce_id,
 							$product_data,
@@ -5624,10 +5666,12 @@ class Digitalogic_Product_Sync_Receiver {
 						}
 					}
 				}
+				$failure_stage = 'record_hash_readback';
                 $persisted_hash = (string) get_post_meta($woocommerce_id, '_digitalogic_patris_record_hash', true);
                 if ('' === $persisted_hash || !hash_equals($record_hash, $persisted_hash)) {
                     throw new RuntimeException('WooCommerce record hash readback failed.');
                 }
+				$failure_stage = 'projection_readback';
 				if (
 					! $this->coordinated_price_readback_matches( $woocommerce_id, $product_data )
 					|| (
@@ -5667,6 +5711,7 @@ class Digitalogic_Product_Sync_Receiver {
 						$fallback_positive_prices[ $woocommerce_id ] = (string) $product_data['final_price'];
 					}
 				}
+				$failure_stage = 'delivery_finalize';
                 $applied[$code_key] = array(
                     'product_code' => $product_code,
                     'record_hash' => $record_hash,
@@ -5716,12 +5761,15 @@ class Digitalogic_Product_Sync_Receiver {
             } catch (Throwable $exception) {
                 $result['failed']++;
                 $this->mark_delivery_failure($delivery_entry, 'digitalogic_product_sync_woocommerce_write_failed');
+				// Only our finite stage labels are retained; never exception messages or traces.
+				$delivery_entry['last_failure_stage'] = $failure_stage;
                 unset($delivery_entry['reason']);
                 $pending[$code_key] = $delivery_entry;
                 unset($deferred[$code_key]);
                 $this->append_woo_error($result, array(
                     'product_code' => $product_code,
                     'code' => 'digitalogic_product_sync_woocommerce_write_failed',
+					'failure_stage' => $failure_stage,
                     'retryable' => true,
                 ));
             }
@@ -6693,6 +6741,9 @@ class Digitalogic_Product_Sync_Receiver {
 	 * @return bool
 	 */
 	private function delivery_price_projection_matches_timed_work( $woocommerce_id, $product ) {
+		if ( ! Digitalogic_Patris_Feed::instance()->source_sparse_markers_match( $woocommerce_id, $product ) ) {
+			return false;
+		}
 		if ( ! $this->delivery_stock_status_matches( $woocommerce_id, $product ) ) {
 			return false;
 		}
@@ -6786,13 +6837,21 @@ class Digitalogic_Product_Sync_Receiver {
 	 * @return bool
 	 */
 	private function delivery_stock_status_matches( $woocommerce_id, $product ) {
-		$stock = $product['total_stock'] ?? null;
-		$expected = is_numeric( $stock ) && (float) $stock > 0 ? 'instock' : 'outofstock';
-		$rows = array_values( array_map( 'strval', (array) get_post_meta( $woocommerce_id, '_stock_status', false ) ) );
-		$woo = wc_get_product( $woocommerce_id );
+		$stock            = $product['total_stock'] ?? null;
+		$expected         = is_numeric( $stock ) && (float) $stock > 0 ? 'instock' : 'outofstock';
+		$rows             = array_values( array_map( 'strval', (array) get_post_meta( $woocommerce_id, '_stock_status', false ) ) );
+		$woo              = wc_get_product( $woocommerce_id );
+		$quantity         = null === $stock ? null : ( (float) $stock > 0 ? max( 1, (int) floor( (float) $stock ) ) : 0 );
+		$stock_rows       = array_values( (array) get_post_meta( $woocommerce_id, '_stock', false ) );
+		$quantity_matches = null === $quantity
+			? array() === $stock_rows
+			: 1 === count( $stock_rows ) && is_numeric( $stock_rows[0] ) && (float) $quantity === (float) $stock_rows[0];
 
 		return array( $expected ) === $rows
 			&& $woo instanceof WC_Product
+			&& $quantity_matches
+			&& ( null !== $quantity ) === (bool) $woo->get_manage_stock( 'edit' )
+			&& ( null === $quantity ? null === $woo->get_stock_quantity( 'edit' ) : (float) $quantity === (float) $woo->get_stock_quantity( 'edit' ) )
 			&& $expected === (string) $woo->get_stock_status( 'edit' );
 	}
 
@@ -6878,6 +6937,7 @@ class Digitalogic_Product_Sync_Receiver {
     }
 
     private function mark_delivery_failure(&$delivery_entry, $code) {
+        unset($delivery_entry['last_failure_stage']);
         $attempts = max(0, (int) ($delivery_entry['attempts'] ?? 0));
         $delivery_entry['attempts'] = $attempts < PHP_INT_MAX ? $attempts + 1 : PHP_INT_MAX;
         $delivery_entry['last_error'] = (string) $code;

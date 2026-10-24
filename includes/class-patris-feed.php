@@ -1840,6 +1840,10 @@ class Digitalogic_Patris_Feed {
 					$meta['_regular_price'] = $regular;
 					$meta['_sale_price']    = $sale;
 					$meta['_price']         = $visible;
+					foreach ( array( '_digitalogic_patris_missing_fields', '_digitalogic_patris_null_fields' ) as $marker_key ) {
+						$meta[ $marker_key ]                    = (string) $product->get_meta( $marker_key, true );
+						$additional_managed_keys[ $marker_key ] = true;
+					}
 					$materialization_source = is_array( $item['materialization_source'] ?? null )
 						? $item['materialization_source']
 						: array();
@@ -2599,7 +2603,20 @@ class Digitalogic_Patris_Feed {
 	 * @return void
 	 */
 	public function stage_product_pricing( WC_Product $product, $data ) {
-		$data = is_array( $data ) ? $data : array();
+		$data           = is_array( $data ) ? $data : array();
+		$pricing_fields = array_keys( $this->pricing_meta_fields() );
+		foreach ( array( 'missing', 'null' ) as $kind ) {
+			$key      = '_digitalogic_patris_' . $kind . '_fields';
+			$previous = json_decode( (string) $product->get_meta( $key, true ), true );
+			$fields   = array_values( array_diff( is_array( $previous ) ? $previous : array(), $pricing_fields ) );
+			foreach ( $pricing_fields as $field ) {
+				if ( 'missing' === $kind ? ! array_key_exists( $field, $data ) : array_key_exists( $field, $data ) && null === $data[ $field ] ) {
+					$fields[] = $field;
+				}
+			}
+			sort( $fields, SORT_STRING );
+			$product->update_meta_data( $key, wp_json_encode( array_values( array_unique( $fields ) ) ) );
+		}
 		foreach ( $this->pricing_meta_fields() as $field => $meta_key ) {
 			if ( ! array_key_exists( $field, $data ) || null === $data[ $field ] ) {
 				$product->delete_meta_data( $meta_key );
@@ -2608,6 +2625,35 @@ class Digitalogic_Patris_Feed {
 			}
 		}
 		Digitalogic_Patris_Price_Policy::instance()->apply( $product, $data );
+	}
+
+	/**
+	 * Verify sparse markers against the complete accepted source projection.
+	 *
+	 * @param int   $product_id Exact destination ID.
+	 * @param array $data Complete accepted canonical record.
+	 * @return bool
+	 */
+	public function source_sparse_markers_match( $product_id, $data ) {
+		$expected = array(
+			'missing' => array(),
+			'null'    => array(),
+		);
+		foreach ( $this->feed_meta_fields() as $field => $unused ) {
+			if ( ! array_key_exists( $field, $data ) ) {
+				$expected['missing'][] = $field;
+			} elseif ( null === $data[ $field ] ) {
+				$expected['null'][] = $field;
+			}
+		}
+		foreach ( $expected as $kind => $fields ) {
+			sort( $fields, SORT_STRING );
+			$stored = json_decode( (string) get_post_meta( $product_id, '_digitalogic_patris_' . $kind . '_fields', true ), true );
+			if ( $fields !== $stored ) {
+				return false;
+			}
+		}
+		return true;
 	}
 
 	/** Return the complete pricing-only canonical metadata mapping.
