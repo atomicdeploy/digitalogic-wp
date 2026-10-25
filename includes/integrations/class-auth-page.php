@@ -190,7 +190,9 @@ final class Digitalogic_Plugin_Auth_Routes {
             return $html;
         }
 
-        $login_url = esc_attr(esc_url(self::canonical_login_url()));
+        $redirect_to = isset($_REQUEST['redirect_to']) && is_string($_REQUEST['redirect_to'])
+            ? wp_validate_redirect(esc_url_raw(wp_unslash($_REQUEST['redirect_to'])), '') : '';
+        $login_url = esc_attr(esc_url(self::login_url('', $redirect_to)));
         $rewritten = preg_replace_callback(
             '/<a\b(?=[^>]*\bdigits-form_toggle_login_register\b)(?=[^>]*\bshow_login\b)[^>]*>/i',
             static function(array $matches) use ($login_url): string {
@@ -268,9 +270,25 @@ final class Digitalogic_Plugin_Auth_Routes {
         }
     }
 
-    public static function register_url(string $url): string {
-        return add_query_arg('action', 'register', self::canonical_login_url());
-    }
+	/**
+	 * Preserve a safe return destination when switching from login to signup.
+	 *
+	 * @param string $url Original registration URL.
+	 * @return string
+	 */
+	public static function register_url( string $url ): string {
+		$args  = array( 'action' => 'register' );
+		$query = array();
+		parse_str( (string) wp_parse_url( $url, PHP_URL_QUERY ), $query );
+		$redirect = $query['redirect_to'] ?? ( $_REQUEST['redirect_to'] ?? '' ); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only navigation destination, validated below.
+		if ( is_string( $redirect ) && '' !== $redirect ) {
+			$redirect = wp_validate_redirect( esc_url_raw( wp_unslash( $redirect ) ), '' );
+			if ( '' !== $redirect ) {
+				$args['redirect_to'] = $redirect;
+			}
+		}
+		return add_query_arg( $args, self::canonical_login_url() );
+	}
 
     public static function lostpassword_url(string $url, string $redirect = ''): string {
         $args = ['action' => 'lostpassword'];

@@ -32,6 +32,11 @@ final class Digitalogic_Checkout_Experience {
 		}
 
 		$booted = true;
+		add_action( 'template_redirect', array( self::class, 'redirect_checkout_to_login' ), 5 );
+		add_action( 'woocommerce_before_checkout_process', array( self::class, 'require_checkout_login' ), 0 );
+		add_action( 'woocommerce_before_pay_action', array( self::class, 'redirect_order_payment_to_login' ), 0 );
+		// Legacy ACF REST callbacks replace the prior result with null; enforce last.
+		add_filter( 'rest_pre_dispatch', array( self::class, 'require_store_checkout_login' ), PHP_INT_MAX, 3 );
 		add_action( 'wp_loaded', array( self::class, 'stabilize_delivery_fields' ), 20 );
 		add_action( 'wp_enqueue_scripts', array( self::class, 'enqueue_assets' ), 90 );
 
@@ -45,6 +50,95 @@ final class Digitalogic_Checkout_Experience {
 		add_filter( 'iconic_wds_select_time_slot_text', array( self::class, 'select_delivery_time_label' ) );
 		add_filter( 'iconic_wds_no_slots_available_text', array( self::class, 'no_slots_label' ) );
 		add_filter( 'gettext_jckwds', array( self::class, 'translate_delivery_string' ), 10, 3 );
+	}
+
+	/** Whether the store requires an existing authenticated session to order. */
+	private static function checkout_requires_login(): bool {
+		return 'yes' !== get_option( 'woocommerce_enable_guest_checkout', 'yes' )
+			&& 'yes' !== get_option( 'woocommerce_enable_signup_and_login_from_checkout', 'no' );
+	}
+
+	/** Keep browsing and the cart public, then return to checkout after login. */
+	public static function checkout_login_redirect(): string {
+		if ( ! self::checkout_requires_login() || is_user_logged_in()
+			|| ! function_exists( 'is_checkout' ) || ! is_checkout()
+			|| is_order_received_page() || wp_doing_ajax() ) {
+			return '';
+		}
+
+		$destination = wc_get_checkout_url();
+		if ( is_wc_endpoint_url( 'order-pay' ) ) {
+			$destination = wc_get_endpoint_url( 'order-pay', get_query_var( 'order-pay' ), $destination );
+			if ( isset( $_GET['key'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Preserve the existing order payment link.
+				$destination = add_query_arg( 'key', sanitize_text_field( wp_unslash( $_GET['key'] ) ), $destination ); // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+			}
+		}
+
+		return wp_login_url( $destination );
+	}
+
+	/** Send guests to the site's existing login and registration flow. */
+	public static function redirect_checkout_to_login(): void {
+		$url = self::checkout_login_redirect();
+		if ( '' === $url ) {
+			return;
+		}
+
+		nocache_headers();
+		wp_safe_redirect( $url );
+		exit;
+	}
+
+	/**
+	 * Reject direct classic checkout requests before customer or order writes.
+	 *
+	 * @throws Exception When the store requires a signed-in customer.
+	 */
+	public static function require_checkout_login(): void {
+		if ( self::checkout_requires_login() && ! is_user_logged_in() ) {
+			throw new Exception( esc_html( __( 'برای ثبت سفارش، ابتدا وارد حساب کاربری شوید یا ثبت‌نام کنید.', 'digitalogic' ) ) );
+		}
+	}
+
+	/**
+	 * Require login before the separate existing-order payment form runs.
+	 *
+	 * @param WC_Order $order Order awaiting payment.
+	 */
+	public static function redirect_order_payment_to_login( $order ): void {
+		if ( ! self::checkout_requires_login() || is_user_logged_in() ) {
+			return;
+		}
+
+		nocache_headers();
+		wp_safe_redirect( wp_login_url( $order->get_checkout_payment_url() ) );
+		exit;
+	}
+
+	/**
+	 * Block guest Store API checkout before it can create a draft order.
+	 *
+	 * @param mixed           $result  Previously intercepted REST result.
+	 * @param WP_REST_Server  $server  REST server.
+	 * @param WP_REST_Request $request Incoming request.
+	 * @return mixed
+	 */
+	public static function require_store_checkout_login( $result, $server, $request ) {
+		unset( $server );
+		if ( null !== $result || ! self::checkout_requires_login() || is_user_logged_in()
+			|| 'OPTIONS' === $request->get_method()
+			|| ! preg_match( '#^/wc/store/v[0-9]+/checkout(?:/|$)#', $request->get_route() ) ) {
+			return $result;
+		}
+
+		return new WP_Error(
+			'digitalogic_checkout_login_required',
+			__( 'برای ثبت سفارش، ابتدا وارد حساب کاربری شوید یا ثبت‌نام کنید.', 'digitalogic' ),
+			array(
+				'status'    => 401,
+				'login_url' => wp_login_url( wc_get_checkout_url() ),
+			)
+		);
 	}
 
 	/**
