@@ -943,6 +943,10 @@ class Digitalogic_Product_Sync_Receiver {
         );
 		$status['delivery_mode'] = 'synchronous';
 		$status['scheduled_reconciliation'] = false;
+		$stock_report = Digitalogic_Patris_Feed::instance()->source_stock_conflict_report();
+		$status['stock_conflicts'] = $stock_report['items'];
+		$status['stock_conflict_count'] = $stock_report['total'];
+		$status['stock_conflicts_truncated'] = $stock_report['truncated'];
 
 		return $status;
     }
@@ -6837,12 +6841,25 @@ class Digitalogic_Product_Sync_Receiver {
 	 * @return bool
 	 */
 	private function delivery_stock_status_matches( $woocommerce_id, $product ) {
+		$hold = Digitalogic_Patris_Feed::instance()->source_stock_conflict( $woocommerce_id );
+		if ( is_wp_error( $hold ) ) {
+			return false;
+		}
 		$stock            = $product['total_stock'] ?? null;
 		$expected         = is_numeric( $stock ) && (float) $stock > 0 ? 'instock' : 'outofstock';
 		$rows             = array_values( array_map( 'strval', (array) get_post_meta( $woocommerce_id, '_stock_status', false ) ) );
 		$woo              = wc_get_product( $woocommerce_id );
 		$quantity         = null === $stock ? null : ( (float) $stock > 0 ? max( 1, (int) floor( (float) $stock ) ) : 0 );
 		$stock_rows       = array_values( (array) get_post_meta( $woocommerce_id, '_stock', false ) );
+		if ( null !== $hold ) {
+			if ( ! $woo instanceof WC_Product ) {
+				return false;
+			}
+			// The stock authority is temporarily Woo. Verify its real projection;
+			// source total_stock remains an independent factual metadata value.
+			$quantity = $woo->get_stock_quantity( 'edit' );
+			$expected = (string) $woo->get_stock_status( 'edit' );
+		}
 		$quantity_matches = null === $quantity
 			? array() === $stock_rows
 			: 1 === count( $stock_rows ) && is_numeric( $stock_rows[0] ) && (float) $quantity === (float) $stock_rows[0];

@@ -1,0 +1,14 @@
+# Source stock conflict containment
+
+A WooCommerce sale can legitimately reduce stock after a Patris snapshot. Replaying that snapshot must not restore sold units. No authoritative Woo order booking receipt or inventory-consumption watermark currently exists. Notification delivery and coincident quantities are not acknowledgements.
+
+For a verified incident, an operator may install a persistent entry in the private WordPress option `digitalogic_patris_stock_conflicts`, keyed by Woo product ID. Each entry requires exact `product_code`, `order_id` and `verified_at`; activation evidence also records line ID, source revision and observed quantities. Never include customer information. Back up the prior option and verify current identity, stock and sale proof under the source identity lock before activation.
+
+A validated hold temporarily leaves operational stock under Woo authority. Full source delivery still stores the factual Patris `total_stock` and applies price, weight and other source fields. Stock quantity, management and stock status are preserved from the current product for each transaction, including later legitimate sales and refunds. Direct-DB and adapter writes use the same staging policy and exact before/after readback. Missing or changed identity and malformed configuration fail closed.
+
+Source delivery can complete with zero pending/deferred because all permitted source writes have completed. This does NOT mean stock parity. `wp digitalogic product-sync status` exposes `stock_conflict_count` and a sanitized `stock_conflicts` ledger with product identity, factual source stock, actual Woo stock, `severity: critical`, `code: digitalogic_patris_stock_conflict` and `stock_reconciled: false`. Existing receipt schema is unchanged. Conflicts are deliberately outside `deferred_products`: deferred stock work would stall the Go durable outbox and owner pricing actuation.
+
+A hold never expires and does not auto-clear on source equality, refunds, cancellations or order status changes. Release requires separately reviewed authoritative reconciliation. Removing an entry is not reconciliation. Do not subtract an order quantity from source stock without a booking/ack contract.
+
+This is bounded containment for explicitly verified incidents, not automatic protection for every future sale. Issue #425 tracks automatic detection, idempotent order/line/effect outbox, Patris booking receipts, consumed snapshot watermark, refund/cancellation compensation and concurrency. Related delivery work: #402 and #423.
+`total_stock` in the Patris/public canonical APIs remains the source warehouse fact. This website-only containment does not make those APIs expose net sellable Woo stock and does not change canonical/source hashes. Issue #425 must define a separate effective-stock projection before claiming cross-interface inventory reconciliation.
