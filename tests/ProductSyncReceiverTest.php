@@ -3,6 +3,130 @@
 use PHPUnit\Framework\TestCase;
 
 final class ProductSyncReceiverTest extends TestCase {
+	/**
+	 * Source delivery remains terminal while independently reported stock is held.
+	 *
+	 * @param string $mode Destination write mode.
+	 */
+	#[\PHPUnit\Framework\Attributes\DataProvider( 'stock_hold_write_modes' )]
+	public function test_stock_hold_preserves_sales_without_blocking_source_events( string $mode ): void {
+		$GLOBALS['digitalogic_test_options'][ Digitalogic_Pricing_Coordinator::WRITE_MODE_OPTION ] = $mode;
+		$product                = array(
+			'product_code' => 'SALE-HOLD',
+			'total_stock'  => 24,
+			'weight_grams' => 1,
+			'warnings'     => array(),
+		);
+		$product['record_hash'] = $this->recordHash( $product, true );
+		$receiver               = Digitalogic_Product_Sync_Receiver::instance();
+		$this->assertNotInstanceOf( WP_Error::class, $receiver->receive( $this->snapshot( array( $product ) ) ) );
+		$id = (int) array_key_first( $GLOBALS['digitalogic_test_posts'] );
+		update_option(
+			'digitalogic_patris_stock_conflicts',
+			array(
+				$id => array(
+					'product_code' => 'SALE-HOLD',
+					'order_id'     => 14564,
+					'verified_at'  => '2026-07-20T00:00:00Z',
+				),
+			)
+		);
+		foreach ( array( array( 4, 24 ), array( 2, 24 ), array( 0, 24 ), array( 2, 2 ), array( 24, 12 ) ) as $index => $quantities ) {
+			$woo = wc_get_product( $id );
+			$woo->set_stock_quantity( $quantities[0] );
+			$woo->set_stock_status( $quantities[0] > 0 ? 'instock' : 'outofstock' );
+			$woo->save();
+			$product['total_stock']  = $quantities[1];
+			$product['weight_grams'] = $index + 2;
+			unset( $product['record_hash'] );
+			$product['record_hash'] = $this->recordHash( $product, true );
+			$other                  = array(
+				'product_code' => 'UNRELATED',
+				'total_stock'  => $index + 9,
+				'warnings'     => array(),
+			);
+			$other['record_hash']   = $this->recordHash( $other, true );
+			$payload                = $this->snapshot( array( $product, $other ), array(), false, '2026-07-20T00:00:0' . ( $index + 1 ) . 'Z' );
+			$result                 = $receiver->receive( $payload );
+			$this->assertNotInstanceOf( WP_Error::class, $result, is_wp_error( $result ) ? $result->get_error_code() : '' );
+			$this->assertSame( 0, $result['pending_products'] );
+			$this->assertSame( 0, $result['deferred_products'] );
+			$this->assertSame( 'complete', $result['delivery']['status'] );
+			$this->assertSame( $payload['event_id'], $result['event_id'] );
+			$this->assertSame( $quantities[0], (int) wc_get_product( $id )->get_stock_quantity() );
+			$this->assertSame( $quantities[0] > 0 ? 'instock' : 'outofstock', wc_get_product( $id )->get_stock_status() );
+			$this->assertSame( $quantities[1], (int) get_post_meta( $id, '_digitalogic_patris_total_stock', true ) );
+			$this->assertSame( (string) ( $index + 2 ), (string) get_post_meta( $id, '_digitalogic_patris_weight_grams', true ) );
+			$status = $receiver->get_status();
+			$this->assertSame( 1, $status['stock_conflict_count'] );
+			$this->assertFalse( $status['stock_conflicts'][0]['stock_reconciled'] );
+			$this->assertSame( 'held', $status['stock_conflicts'][0]['stock_application'] );
+			$receipt = $receiver->get_event_delivery_receipt( $payload['event_id'], 'tests', 'ALLANBAR', $payload['source']['revision'], $payload['generated_at'] );
+			$this->assertSame( 'applied', $receipt['status'] );
+			$this->assertSame( 0, $receipt['pending_products'] );
+			$this->assertSame( 0, $receipt['deferred_products'] );
+			$before = $GLOBALS['digitalogic_test_wc_product_saves'];
+			$this->assertNotInstanceOf( WP_Error::class, $receiver->receive( $payload ) );
+			$this->assertSame( $before, $GLOBALS['digitalogic_test_wc_product_saves'] );
+			$resolved = Digitalogic_Product_Identifier_Resolver::instance()->resolve( array( 'patris_code' => 'UNRELATED' ) );
+			$this->assertSame( $index + 9, (int) wc_get_product( (int) $resolved['woocommerce_id'] )->get_stock_quantity() );
+		}
+		$this->assertNotInstanceOf( WP_Error::class, $receiver->reconcile( 'tests', 'ALLANBAR' ) );
+		$this->assertSame( 24, (int) wc_get_product( $id )->get_stock_quantity() );
+		$product['final_price'] = 12300;
+		Digitalogic_Patris_Feed::instance()->apply_product_pricing( wc_get_product( $id ), $product );
+		$this->assertSame( '12300', (string) wc_get_product( $id )->get_price() );
+		$this->assertSame( 24, (int) wc_get_product( $id )->get_stock_quantity() );
+		update_option( 'digitalogic_patris_stock_conflicts', array( $id => array( 'product_code' => 'WRONG' ) ) );
+		$this->assertInstanceOf( WP_Error::class, Digitalogic_Patris_Feed::instance()->apply_product_feed( wc_get_product( $id ), $product ) );
+		$this->assertSame( 24, (int) wc_get_product( $id )->get_stock_quantity() );
+	}
+	/** Invalid evidence is never a stock-authority exception; reports stay bounded. */
+	public function test_stock_hold_proof_and_report_validation(): void {
+		$GLOBALS['digitalogic_test_posts'][902] = array(
+			'post_type' => 'product',
+			'meta'      => array(
+				'_sku'                             => 'PROOF',
+				'_digitalogic_patris_product_code' => 'PROOF',
+			),
+		);
+		$feed                                   = Digitalogic_Patris_Feed::instance();
+		foreach ( array( array( -1, '2026-10-25T00:00:00Z' ), array( 'oops', '2026-10-25T00:00:00Z' ), array( 1, 'yesterday' ), array( 1, '2026-02-31T00:00:00Z' ) ) as $proof ) {
+			update_option(
+				'digitalogic_patris_stock_conflicts',
+				array(
+					902 => array(
+						'product_code' => 'PROOF',
+						'order_id'     => $proof[0],
+						'verified_at'  => $proof[1],
+					),
+				)
+			);
+			$this->assertInstanceOf( WP_Error::class, $feed->source_stock_conflict( 902 ) );
+		}
+		$holds = array( 'invalid-key' => null );
+		for ( $i = 1; $i <= 101; ++$i ) {
+			$holds[ $i ] = null;
+		}
+		update_option( 'digitalogic_patris_stock_conflicts', $holds );
+		$report = $feed->source_stock_conflict_report();
+		$this->assertSame( 102, $report['total'] );
+		$this->assertSame( 2, $report['truncated'] );
+		$this->assertCount( 100, $report['items'] );
+		$this->assertSame( 'digitalogic_patris_stock_conflict_invalid', $report['items'][0]['code'] );
+		update_option( 'digitalogic_patris_stock_conflicts', array( 'invalid-key' => null ) );
+		$this->assertSame( 'digitalogic_patris_stock_conflict_invalid', $feed->source_stock_conflict_report()['items'][0]['code'] );
+	}
+
+	/**
+	 * Exercise both production write paths.
+	 *
+	 * @return array
+	 */
+	public static function stock_hold_write_modes(): array {
+		return array( array( 'direct_db' ), array( 'adapter' ) );
+	}
+
 	/** Verify the committed projection and reject stale bindings. */
 	public function test_current_owner_projection_reads_only_committed_products_and_checks_binding(): void {
 		$GLOBALS['digitalogic_test_options'][ Digitalogic_Pricing_Coordinator::AUTHORITY_OPTION ] = 'php';
