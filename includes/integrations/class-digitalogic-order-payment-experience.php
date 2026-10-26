@@ -424,6 +424,7 @@ final class Digitalogic_Order_Payment_Experience {
 			wp_die( esc_html__( 'This order could not be verified.', 'digitalogic' ), '', array( 'response' => 403 ) );
 		}
 		check_admin_referer( 'digitalogic_receipt_' . $order_id, 'digitalogic_receipt_nonce' );
+		do_action( 'digitalogic_before_payment_receipt', $order );
 		if ( ! self::get_bank_accounts() ) {
 			self::receipt_failure( $order, __( 'Verified bank details are not available yet.', 'digitalogic' ) );
 		}
@@ -446,6 +447,7 @@ final class Digitalogic_Order_Payment_Experience {
 		$order->update_meta_data( self::META_STATUS, 'submitted' );
 		$order->update_meta_data( self::META_SUBMITTED, gmdate( 'c' ) );
 		$order->save();
+		do_action( 'digitalogic_payment_receipt_submitted', $order );
 		self::notify_receipt_submitted( $order );
 		if ( function_exists( 'wc_add_notice' ) ) {
 			wc_add_notice( __( 'Your payment receipt was submitted and is awaiting review.', 'digitalogic' ), 'success' );
