@@ -32,6 +32,8 @@ final class Digitalogic_Checkout_Experience {
 		}
 
 		$booted = true;
+		require_once __DIR__ . '/class-digitalogic-stock-reservations.php';
+		Digitalogic_Stock_Reservations::init();
 		add_action( 'template_redirect', array( self::class, 'redirect_checkout_to_login' ), 5 );
 		add_action( 'woocommerce_before_checkout_process', array( self::class, 'require_checkout_login' ), 0 );
 		add_action( 'woocommerce_before_pay_action', array( self::class, 'redirect_order_payment_to_login' ), 0 );
