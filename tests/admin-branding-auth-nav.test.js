@@ -22,6 +22,9 @@ function fakeClassList(values) {
         add(value) {
             classes.add(value);
         },
+        remove(value) {
+            classes.delete(value);
+        },
         contains(value) {
             return classes.has(value);
         }
@@ -126,6 +129,7 @@ function createHarness(options) {
 
     return {
         document,
+        window,
         hooks: config.testHooks,
         recoveryField,
         recoveryLabel
@@ -148,6 +152,104 @@ test('canonical login navigation labels follow href actions, not DOM position', 
 
     assert.equal(lostPassword.textContent, 'Reset password');
     assert.equal(register.textContent, 'Register');
+});
+
+test('native serialized Digits form requests are recognized without matching unrelated AJAX', () => {
+    const {hooks} = createHarness({});
+    assert.equal(hooks.isDigitsAjaxRequest({data:[{name:'action',value:'digits_forms_ajax'}]}),true);
+    assert.equal(hooks.isDigitsAjaxRequest({data:[{name:'digits',value:'1'}]}),true);
+    assert.equal(hooks.isDigitsAjaxRequest({data:[{name:'action',value:'unrelated'}]}),false);
+    assert.equal(hooks.isDigitsAjaxRequest({data:{action:'digits_forms_ajax'}}),true);
+    assert.equal(hooks.isDigitsAjaxRequest({data:'action=digits_forms_ajax'}),true);
+});
+
+test('empty or non-JSON AJAX results cannot enter the native Digits callback', () => {
+    const {hooks} = createHarness({});
+    for(const payload of ['', '0', '<html>Unavailable</html>', null, {}, {success:true,data:{}}]) {
+        assert.equal(hooks.hasUsableDigitsPayload(payload),false);
+    }
+    assert.equal(hooks.hasUsableDigitsPayload({success:false,data:{message:'Invalid mobile'}}),true);
+    assert.equal(hooks.hasUsableDigitsPayload({success:true,data:{html:'<div>Next step</div>'}}),true);
+});
+
+test('client validation rejection does not schedule a misleading registration timeout', () => {
+    const harness=createHarness({});
+    const listeners={};
+    const timers=[];
+    const form={matches:()=>true,checkValidity:()=>true};
+    const button={closest:()=>form};
+    harness.document.addEventListener=(name,callback)=>{listeners[name]=callback;};
+    harness.window.addEventListener=()=>{};
+    harness.window.setTimeout=(callback)=>{timers.push(callback);};
+    harness.hooks.bindLoadingStates();
+    // HTML required fields are populated, but native strength/captcha validation
+    // may reject before AJAX. A click alone is not an in-flight request.
+    listeners.click({target:{closest:()=>button}});
+    assert.equal(timers.length,0);
+});
+
+test('real requests start loading only in beforeSend and cancellation preserves native behavior', () => {
+    const harness=createHarness({});
+    let guarded;
+    let before=0;
+    let completed=0;
+    const timers=[];
+    harness.window.jQuery={ajax(settings){guarded=settings;return 'xhr';}};
+    harness.window.clearTimeout=()=>{};
+    harness.window.setTimeout=(callback,delay)=>{timers.push(delay);return 1;};
+    const attributes=new Map();
+    const form={
+        dataset:{},classList:fakeClassList(),offsetWidth:300,
+        matches:()=>true,
+        setAttribute:(k,v)=>attributes.set(k,v),
+        removeAttribute:(k)=>attributes.delete(k),
+        querySelectorAll:(s)=>s.includes('.digits-form_submit-btn')?[button]:[]
+    };
+    const button={
+        dataset:{},classList:fakeClassList(),offsetWidth:200,disabled:false,
+        closest:()=>form,setAttribute(){},removeAttribute(){},matches:()=>false
+    };
+    harness.document.activeElement={closest:()=>form};
+    harness.hooks.patchDigitsAjaxFailureGuard();
+    harness.window.jQuery.ajax({
+        data:[{name:'action',value:'digits_forms_ajax'}],
+        beforeSend(){before++;return false;},complete(){completed++;}
+    });
+    assert.equal(guarded.timeout,30000);
+    assert.equal(timers.length,0);
+    assert.equal(guarded.beforeSend(),false);
+    assert.equal(before,1);
+    assert.equal(timers.length,0);
+    guarded.complete();
+    assert.equal(completed,1);
+    harness.window.jQuery.ajax({data:[{name:'digits',value:'1'}]});
+    guarded.beforeSend();
+    assert.equal(button.dataset.dgLoading,'true');
+    assert.equal(form.dataset.dgPending,'true');
+    assert.deepEqual(timers,[35000]);
+});
+
+test('registration autofill identifies separate names and keeps already filled values intact', () => {
+    const harness=createHarness({});
+    const fields={};
+    for(const name of ['digits_reg_name','digits_reg_lastname','digits_reg_username','phone','digits_reg_password']){
+        const attrs=new Map();
+        fields[name]={id:name==='digits_reg_lastname'?'native-family-id':'',value:'already-filled',attrs,setAttribute:(k,v)=>attrs.set(k,v)};
+    }
+    const formAttrs=new Map();
+    const form={setAttribute:(k,v)=>formAttrs.set(k,v),querySelector:(s)=>fields[s.match(/name="([^"]+)"/)[1]]};
+    harness.document.querySelectorAll=()=>[form];
+    harness.document.getElementById=()=>null;
+    harness.hooks.prepareDigitsRegistrationAutofill();
+    harness.hooks.prepareDigitsRegistrationAutofill();
+    assert.equal(formAttrs.get('autocomplete'),'on');
+    assert.equal(fields.digits_reg_name.attrs.get('autocomplete'),'section-digitalogic-register given-name');
+    assert.equal(fields.digits_reg_lastname.attrs.get('autocomplete'),'section-digitalogic-register family-name');
+    assert.equal(fields.digits_reg_username.attrs.get('autocomplete'),'section-digitalogic-register username');
+    assert.equal(fields.phone.attrs.get('autocomplete'),'section-digitalogic-register tel-national');
+    assert.equal(fields.digits_reg_password.attrs.get('autocomplete'),'section-digitalogic-register new-password');
+    assert.equal(fields.digits_reg_lastname.id,'native-family-id');
+    for(const field of Object.values(fields)){assert.equal(field.value,'already-filled');assert.ok(field.id);}
 });
 
 test('lost-password navigation keeps login and registration meanings in either order', () => {
