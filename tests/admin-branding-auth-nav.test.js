@@ -188,6 +188,54 @@ test('client validation rejection does not schedule a misleading registration ti
     assert.equal(timers.length,0);
 });
 
+test('Digits passkey clicks reach the native handler without ordinary identity validation', () => {
+    const harness=createHarness({});
+    const windowListeners={};
+    harness.window.addEventListener=(name,callback)=>{windowListeners[name]=callback;};
+    const button={matches:(s)=>s==='.digits-form_passwordless_login',closest(){throw new Error('Ordinary form path must not run');}};
+    let prevented=0;
+    harness.hooks.bindLoadingStates();
+    windowListeners.click({target:{closest:()=>button},preventDefault(){prevented++;},stopPropagation(){prevented++;},stopImmediatePropagation(){prevented++;}});
+    assert.equal(prevented,0);
+});
+
+test('explicit passkey submitter delegates once to its native click instead of an HTTP form POST', () => {
+    const harness=createHarness({});
+    const listeners={};
+    let clicks=0;
+    let prevented=0;
+    harness.window.addEventListener=()=>{};
+    harness.document.addEventListener=(name,callback)=>{listeners[name]=callback;};
+    harness.hooks.bindLoadingStates();
+    listeners.submit({target:{matches:()=>true},submitter:{matches:()=>true,click(){clicks++;}},preventDefault(){prevented++;}});
+    assert.equal(clicks,1);
+    assert.equal(prevented,1);
+});
+
+test('ordinary Enter remains ordinary when a secondary passkey button exists', () => {
+    const harness=createHarness({});
+    const listeners={};
+    let passkeyClicks=0;
+    let validityChecks=0;
+    harness.window.addEventListener=()=>{};
+    harness.window.clearTimeout=()=>{};
+    harness.document.addEventListener=(name,callback)=>{listeners[name]=callback;};
+    const hiddenPasskey={click(){passkeyClicks++;}};
+    const form={matches:()=>true,querySelector:()=>hiddenPasskey,querySelectorAll:()=>[],checkValidity(){validityChecks++;return false;}};
+    harness.hooks.bindLoadingStates();
+    listeners.submit({target:form,submitter:{matches:()=>false},preventDefault(){}});
+    assert.equal(passkeyClicks,0);
+    assert.equal(validityChecks,1);
+});
+
+test('both native passkey request stages remain compatible with the AJAX guard', () => {
+    const {hooks}=createHarness({});
+    for(const stage of ['start_passwordless_login','complete_passwordless_login']){
+        assert.equal(hooks.isDigitsAjaxRequest({data:[{name:'action',value:'digits_forms_ajax'},{name:'sub_action',value:stage}]}),true);
+    }
+    assert.equal(hooks.hasUsableDigitsPayload({success:true,data:{token:'synthetic-challenge'}}),true);
+});
+
 test('real requests start loading only in beforeSend and cancellation preserves native behavior', () => {
     const harness=createHarness({});
     let guarded;

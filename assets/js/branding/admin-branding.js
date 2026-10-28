@@ -1636,6 +1636,11 @@
                 return;
             }
 
+            // Digits 9.2.4.2 owns its passkey challenge and bypasses identity validation.
+            if (button.matches('.digits-form_passwordless_login')) {
+                return;
+            }
+
             var form = button.closest('form');
             if (!isDigitsSecureForm(form)) {
                 return;
@@ -1668,6 +1673,12 @@
         document.addEventListener('submit', function (event) {
             var form = event.target;
             if (!form || !form.matches('#loginform, #lostpasswordform, #registerform, .digits-form_page form, form.digits-form, form.digits_form_index_section')) {
+                return;
+            }
+
+            if (event.submitter && event.submitter.matches('.digits-form_passwordless_login')) {
+                event.preventDefault();
+                event.submitter.click();
                 return;
             }
 

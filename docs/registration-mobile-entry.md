@@ -35,3 +35,28 @@ handler with missing password and an impossible mobile number, returning its
 structured validation errors. Outbound HTTP/mail and user creation were blocked
 in that process. A successful real-account signup or real OTP delivery was not
 performed as part of these tests.
+
+## Digits 9.2.4.2 compatibility
+
+The native passwordless/passkey button `.digits-form_passwordless_login` owns
+its WebAuthn flow. Custom login click capture must let that button reach Digits
+before ordinary identity validation or event suppression. An explicit submit
+event from that exact submitter delegates to its native click; merely having a
+secondary passwordless button does not change ordinary Enter behavior.
+
+The updated native registration and passkey requests still use `serializeArray`
+and nonempty WordPress success/data payloads, which the existing guard supports.
+Thirty branding/sidebar regression tests passed after this compatibility change.
+Production acceptance confirmed preserved email/mobile settings, empty mobile
+entry and autofill metadata. Isolated native-handler validation returned proper
+missing-password and invalid-mobile errors with outbound delivery and account
+writes blocked. Real OTP delivery and real hardware/passkey completion were not
+performed during this check.
+
+The canonical `/login/` alias must also be excluded from WP Rocket page cache.
+The native `cache_reject_uri` setting contains `/login|/login/`: this exact-path
+alternation survives WP Rocket's trailing-slash normalization and excludes both
+aliases. Cache configuration was regenerated and only the login URL cache was
+purged with `rocket_clean_files`. Repeated public requests returned the current
+branding asset version and `no-cache, no-store, private` headers, with no login
+cache file recreated. Other page-cache settings were preserved.
