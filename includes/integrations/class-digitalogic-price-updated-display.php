@@ -80,6 +80,15 @@ function digitalogic_available_slack_price( $data ) {
 }
 add_filter( 'rank_math/opengraph/slack_enhanced_data', 'digitalogic_available_slack_price', 99 );
 
+/** An offer can describe a selected variation even when its parent is in stock. */
+function digitalogic_schema_offer_is_unavailable( $offer ) {
+	return is_array( $offer ) && in_array(
+		$offer['availability'] ?? '',
+		array( 'OutOfStock', 'https://schema.org/OutOfStock', 'http://schema.org/OutOfStock' ),
+		true
+	);
+}
+
 /** Remove offers for unavailable stock from WooCommerce and Rank Math schema. */
 function digitalogic_available_product_schema( $entity, $product = null ) {
 	if ( ! is_array( $entity ) ) {
@@ -91,7 +100,10 @@ function digitalogic_available_product_schema( $entity, $product = null ) {
 	if ( ! $product ) {
 		return $entity;
 	}
-	if ( ! $product->is_in_stock() ) {
+	$offers            = $entity['offers'] ?? array();
+	$unavailable       = ! $product->is_in_stock();
+	$unavailable_offer = digitalogic_schema_offer_is_unavailable( $offers ) || digitalogic_schema_offer_is_unavailable( $offers[0] ?? null );
+	if ( $unavailable || $unavailable_offer ) {
 		unset( $entity['offers'] );
 		if ( empty( $entity['hasVariant'] ) && empty( $entity['review'] ) && empty( $entity['aggregateRating'] ) ) {
 			return array();
@@ -103,7 +115,7 @@ function digitalogic_available_product_schema( $entity, $product = null ) {
 		foreach ( $entity['hasVariant'] as &$variant ) {
 			$child_id = is_array( $variant ) && ! empty( $variant['sku'] ) ? wc_get_product_id_by_sku( $variant['sku'] ) : 0;
 			$child    = $child_id ? wc_get_product( $child_id ) : false;
-			if ( is_array( $variant ) && ( ! $product->is_in_stock() || ( $child && ! $child->is_in_stock() ) ) ) {
+			if ( is_array( $variant ) && ( $unavailable || ( $child && ! $child->is_in_stock() ) || digitalogic_schema_offer_is_unavailable( $variant['offers'] ?? null ) ) ) {
 				unset( $variant['offers'] );
 			}
 		}
