@@ -84,6 +84,7 @@ runtime_entries=(
     includes
     laravel
     languages
+    templates
     vendor
     LICENSE
     README.md
@@ -99,7 +100,7 @@ for entry in "${runtime_entries[@]}"; do
     cp -a -- "$root/$entry" "$stage/"
 done
 
-for required in digitalogic.php vendor/autoload.php laravel/bootstrap/app.php laravel/bootstrap/integration.php; do
+for required in digitalogic.php vendor/autoload.php laravel/bootstrap/app.php laravel/bootstrap/integration.php templates/software-archive.php; do
     if [[ ! -f "$stage/$required" ]]; then
         printf 'Required runtime file is missing: %s\n' "$required" >&2
         exit 1
