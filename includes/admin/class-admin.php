@@ -97,6 +97,9 @@ class Digitalogic_Admin {
             array($this, 'render_dashboard')
         );
         
+        require_once __DIR__ . '/class-digitalogic-product-link-report.php';
+        Digitalogic_Product_Link_Report::menu();
+
         $product_page_hook = add_submenu_page(
             'digitalogic',
             __('Product List', 'digitalogic'),
