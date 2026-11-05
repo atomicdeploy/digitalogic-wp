@@ -19,6 +19,7 @@ final class Digitalogic_Hardware_Reference {
 		add_shortcode( 'dgl_hardware_reference', array( self::class, 'shortcode' ) );
 		add_filter( 'rocket_exclude_css', array( self::class, 'preserve_pinout_styles' ) );
 		add_filter( 'rocket_rucss_safelist', array( self::class, 'preserve_pinout_styles' ) );
+		add_filter( 'rocket_delay_js_exclusions', array( self::class, 'preserve_code_highlighting' ) );
 	}
 
 	/**
@@ -29,6 +30,17 @@ final class Digitalogic_Hardware_Reference {
 	 */
 	public static function preserve_pinout_styles( array $paths ): array {
 		$paths[] = wp_parse_url( DIGITALOGIC_PLUGIN_URL . self::STYLESHEET, PHP_URL_PATH );
+		return $paths;
+	}
+
+	/**
+	 * Apply highlighting on page load even when WP Rocket delays other scripts.
+	 *
+	 * @param array $paths Scripts already excluded from interaction delay.
+	 * @return array
+	 */
+	public static function preserve_code_highlighting( array $paths ): array {
+		$paths[] = '/assets/js/hardware-prism.js';
 		return $paths;
 	}
 

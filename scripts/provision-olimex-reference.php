@@ -1,6 +1,6 @@
 <?php
 /**
- * Publish the reviewed manufacturer reference through WP-CLI eval-file.
+ * Publish a reviewed hardware manifest through WP-CLI eval-file.
  *
  * @package Digitalogic
  */
@@ -14,7 +14,12 @@ if ( ! current_user_can( 'manage_options' ) || ! current_user_can( 'publish_post
 }
 
 global $wpdb;
-$data       = require __DIR__ . '/olimex-esp32-gateway-rev-i.php';
+$manifest = $args[0] ?? 'olimex-esp32-gateway-rev-i';
+if ( ! in_array( $manifest, array( 'olimex-esp32-gateway-rev-i', 'esp32-s3-devkitc-1-v1-1' ), true ) ) {
+	WP_CLI::error( 'Unsupported hardware manifest.' );
+}
+$data       = require __DIR__ . '/' . $manifest . '.php';
+$connectors = $data['connectors'] ?? array( 'CON1' => $data['pins'] );
 $prefix     = $wpdb->prefix . 'digitalogic_hw_';
 $slug       = $data['slug'];
 $guide_type = Digitalogic_Knowledge_Hub::POST_TYPE;
@@ -94,20 +99,22 @@ try {
 					)
 				);
 			}
-			foreach ( $data['pins'] as $position => list( $label, $gpio, $pin_role, $note, $source ) ) {
-				$insert(
-					'pins',
-					array(
-						'board_id'  => $board_id,
-						'connector' => 'CON1',
-						'position'  => $position,
-						'label'     => $label,
-						'gpio'      => $gpio,
-						'role'      => $pin_role,
-						'note'      => $note,
-						'source_id' => $source_ids[ $source ],
-					)
-				);
+			foreach ( $connectors as $connector => $connector_pins ) {
+				foreach ( $connector_pins as $position => list( $label, $gpio, $pin_role, $note, $source ) ) {
+					$insert(
+						'pins',
+						array(
+							'board_id'  => $board_id,
+							'connector' => $connector,
+							'position'  => $position,
+							'label'     => $label,
+							'gpio'      => $gpio,
+							'role'      => $pin_role,
+							'note'      => $note,
+							'source_id' => $source_ids[ $source ],
+						)
+					);
+				}
 			}
 			foreach ( $data['parameters'] as list( $parameter, $qualifier, $magnitude, $unit, $conditions, $source ) ) {
 				$insert(
@@ -145,7 +152,7 @@ try {
 		}
 	}
 	$reference = Digitalogic_Hardware_Reference::read( $slug );
-	if ( count( $reference['pins'] ?? array() ) !== 20 || count( $reference['parameters'] ?? array() ) !== 4 ) {
+	if ( count( $reference['pins'] ?? array() ) !== array_sum( array_map( 'count', $connectors ) ) || count( $reference['parameters'] ?? array() ) !== count( $data['parameters'] ) ) {
 		throw new RuntimeException( 'Published reference did not match the reviewed record counts.' );
 	}
 	WP_CLI::success( $reference['guide'] );

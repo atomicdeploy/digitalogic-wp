@@ -134,6 +134,9 @@ final class Digitalogic_Knowledge_Hub {
 		if ( is_readable( $pinout_path ) ) {
 			wp_enqueue_style( 'digitalogic-hardware-pinout', DIGITALOGIC_PLUGIN_URL . Digitalogic_Hardware_Reference::STYLESHEET, array( 'digitalogic-knowledge-hub' ), (string) filemtime( $pinout_path ) );
 		}
+		if ( is_singular( self::POST_TYPE ) && has_shortcode( (string) get_post_field( 'post_content', get_queried_object_id() ), 'dgl_hardware_reference' ) ) {
+			wp_enqueue_script( 'digitalogic-hardware-prism', DIGITALOGIC_PLUGIN_URL . 'assets/js/hardware-prism.js', array(), '1.30.0', true );
+		}
 	}
 
 	/** Render the complete software archive grid. */

@@ -37,9 +37,14 @@ $roles = array(
 			<thead><tr><th scope="col">پایه</th><th scope="col">سیگنال</th><th scope="col">نوع و کاربرد</th></tr></thead>
 			<tbody>
 			<?php foreach ( $board['pins'] as $pin ) : ?>
+				<?php $is_3v3 = str_starts_with( $pin['role'], 'power' ) && preg_match( '/^\+?(?:3V3|3\.3V)(?:$|_)/i', $pin['label'] ); ?>
 				<tr>
 					<th scope="row"><bdi class="dgl-hw__position" dir="ltr" lang="en"><?php echo esc_html( $pin['connector'] . '–' . $pin['position'] ); ?></bdi></th>
-					<td><code class="dgl-hw__pin" data-role="<?php echo esc_attr( $pin['role'] ); ?>" dir="ltr" lang="en"><?php echo esc_html( $pin['label'] ); ?></code></td>
+					<td><code class="dgl-hw__pin" data-role="<?php echo esc_attr( $pin['role'] ); ?>"
+					<?php
+					if ( $is_3v3 ) :
+						?>
+						data-rail="3v3"<?php endif; ?> dir="ltr" lang="en"><?php echo esc_html( $pin['label'] ); ?></code></td>
 					<td><strong><?php echo esc_html( $roles[ $pin['role'] ] ?? $pin['role'] ); ?></strong> <?php echo wp_kses_post( $technical_note( $pin['note'] ) ); ?></td>
 				</tr>
 			<?php endforeach; ?>
@@ -49,7 +54,11 @@ $roles = array(
 	<h2>ولتاژ و جریان</h2>
 	<dl class="dgl-hw__power">
 	<?php foreach ( $board['parameters'] as $item ) : ?>
-		<dt><data class="dgl-hw__value" data-unit="<?php echo esc_attr( $item['unit'] ); ?>" dir="ltr" lang="en" value="<?php echo esc_attr( $item['magnitude'] ); ?>"><?php echo esc_html( rtrim( rtrim( $item['magnitude'], '0' ), '.' ) . ' ' . $item['unit'] ); ?></data></dt>
+		<dt><data class="dgl-hw__value" data-unit="<?php echo esc_attr( $item['unit'] ); ?>"
+		<?php
+		if ( 'V' === $item['unit'] && 3.3 === (float) $item['magnitude'] ) :
+			?>
+			data-rail="3v3"<?php endif; ?> dir="ltr" lang="en" value="<?php echo esc_attr( $item['magnitude'] ); ?>"><?php echo esc_html( rtrim( rtrim( $item['magnitude'], '0' ), '.' ) . ' ' . $item['unit'] ); ?></data></dt>
 		<dd><?php echo wp_kses_post( $technical_note( $item['conditions'] ) ); ?></dd>
 	<?php endforeach; ?>
 	</dl>

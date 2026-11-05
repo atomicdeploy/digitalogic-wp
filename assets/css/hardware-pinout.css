@@ -89,8 +89,10 @@
   border-radius: 999px;
 }
 
-.dgl-hw code.dgl-hw__pin[data-role="power-out"] {
-  background: #971a19;
+.dgl-hw code.dgl-hw__pin[data-rail="3v3"],
+.dgl-hw data.dgl-hw__value[data-rail="3v3"] {
+  background: #92400e;
+  color: #fff;
 }
 
 .dgl-hw code.dgl-hw__pin[data-role="shared"] {
@@ -125,5 +127,28 @@
 
 .dgl-hw pre {
   overflow-x: auto;
+  padding: 1rem;
+  border: 1px solid #334155;
+  border-radius: .65rem;
+  background: #0f172a;
+  color: #e2e8f0;
   text-align: left;
 }
+
+.dgl-hw pre code.language-cpp {
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  white-space: pre;
+}
+
+.dgl-hw pre .token.keyword,
+.dgl-hw pre .token.class-name { color: #c4b5fd; }
+.dgl-hw pre .token.function { color: #7dd3fc; }
+.dgl-hw pre .token.number,
+.dgl-hw pre .token.boolean { color: #fdba74; }
+.dgl-hw pre .token.string,
+.dgl-hw pre .token.char { color: #86efac; }
+.dgl-hw pre .token.comment { color: #94a3b8; }
+.dgl-hw pre .token.operator,
+.dgl-hw pre .token.punctuation { color: #cbd5e1; }
