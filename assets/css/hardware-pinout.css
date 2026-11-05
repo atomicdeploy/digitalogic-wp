@@ -1,0 +1,154 @@
+@font-face {
+  font-family: "Digitalogic Pin Mono";
+  src: url("../fonts/JetBrainsMono-Medium.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+}
+
+.dgl-hw {
+  --dgl-pin-mono: "Digitalogic Pin Mono", "Cascadia Code", Consolas, "SFMono-Regular", ui-monospace, monospace;
+}
+
+.dgl-hw .dgl-hw__scroll {
+  overflow-x: auto;
+  max-inline-size: 100%;
+}
+
+.dgl-hw .dgl-hw__table {
+  inline-size: 100%;
+  border-collapse: collapse;
+}
+
+.dgl-hw .dgl-hw__table caption {
+  text-align: start;
+  padding-block: .5rem;
+}
+
+.dgl-hw .dgl-hw__table th,
+.dgl-hw .dgl-hw__table td {
+  text-align: start;
+  padding: .55rem .4rem;
+  vertical-align: top;
+}
+
+.dgl-hw .dgl-hw__table td strong {
+  display: block;
+}
+
+/* Override the theme's digit-localizing font on technical tokens only. */
+.dgl-hw :is(code, pre, .dgl-hw__position, .dgl-hw__value) {
+  font-family: var(--dgl-pin-mono) !important;
+  font-weight: 500;
+  font-variant-numeric: lining-nums tabular-nums;
+  font-variant-ligatures: none;
+  unicode-bidi: isolate;
+  direction: ltr;
+}
+
+.dgl-hw .dgl-hw__position,
+.dgl-hw code.dgl-hw__token {
+  white-space: nowrap;
+}
+
+.dgl-hw code.dgl-hw__token {
+  padding: .06em .2em;
+  border-radius: .22em;
+  background: #eef2f6;
+  color: #243447;
+}
+
+.dgl-hw code.dgl-hw__pin,
+.dgl-hw data.dgl-hw__value {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: .18em .53em;
+  min-block-size: 1.8em;
+  line-height: 1.35;
+  font-size: .86rem;
+  white-space: nowrap;
+  border: 1px solid transparent;
+  border-radius: .32em;
+  background: #e0f2fe;
+  color: #0c4a6e;
+}
+
+.dgl-hw code.dgl-hw__pin[data-role="ground"] {
+  background: #171717;
+  color: #fff;
+  border-color: #171717;
+  border-radius: .22em;
+  box-shadow: inset 0 -2px #6b7280;
+}
+
+.dgl-hw code.dgl-hw__pin[data-role^="power"],
+.dgl-hw data.dgl-hw__value[data-unit="V"] {
+  background: #b42318;
+  color: #fff;
+  border-radius: 999px;
+}
+
+.dgl-hw code.dgl-hw__pin[data-rail="3v3"],
+.dgl-hw data.dgl-hw__value[data-rail="3v3"] {
+  background: #92400e;
+  color: #fff;
+}
+
+.dgl-hw code.dgl-hw__pin[data-role="shared"] {
+  background: #ede9fe;
+  color: #4c1d95;
+  border-color: #a78bfa;
+}
+
+.dgl-hw code.dgl-hw__pin[data-role="input"],
+.dgl-hw data.dgl-hw__value[data-unit="A"] {
+  background: #ccfbf1;
+  color: #134e4a;
+  border-color: #2dd4bf;
+}
+
+.dgl-hw code.dgl-hw__pin[data-role="control"] {
+  background: #fef3c7;
+  color: #78350f;
+  border-color: #f59e0b;
+}
+
+.dgl-hw code.dgl-hw__pin[data-role="open"] {
+  background: #f3f4f6;
+  color: #374151;
+  border: 1px dashed #6b7280;
+}
+
+.dgl-hw .dgl-hw__power dd {
+  margin-inline: 0;
+  margin-block: .25em .85rem;
+}
+
+.dgl-hw pre {
+  overflow-x: auto;
+  padding: 1rem;
+  border: 1px solid #334155;
+  border-radius: .65rem;
+  background: #0f172a;
+  color: #e2e8f0;
+  text-align: left;
+}
+
+.dgl-hw pre code.language-cpp {
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  white-space: pre;
+}
+
+.dgl-hw pre .token.keyword,
+.dgl-hw pre .token.class-name { color: #c4b5fd; }
+.dgl-hw pre .token.function { color: #7dd3fc; }
+.dgl-hw pre .token.number,
+.dgl-hw pre .token.boolean { color: #fdba74; }
+.dgl-hw pre .token.string,
+.dgl-hw pre .token.char { color: #86efac; }
+.dgl-hw pre .token.comment { color: #94a3b8; }
+.dgl-hw pre .token.operator,
+.dgl-hw pre .token.punctuation { color: #cbd5e1; }

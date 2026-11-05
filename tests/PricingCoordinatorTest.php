@@ -1284,7 +1284,8 @@ final class PricingCoordinatorTest extends TestCase {
 	public function test_single_cny_rate_change_refreshes_only_cny_date(): void {
 		$before = Digitalogic_Pricing_Service::instance()->current_canonical_settings();
 		$this->assertFalse( is_wp_error( $before ) );
-		$result = Digitalogic_Pricing_Coordinator::instance()->update_currency(
+		$before_day = ( new DateTimeImmutable( 'today', wp_timezone() ) )->format( 'Y-m-d' );
+		$result     = Digitalogic_Pricing_Coordinator::instance()->update_currency(
 			array( 'yuan_price' => '31000' ),
 			'test_cny_rate_only'
 		);
@@ -1293,10 +1294,11 @@ final class PricingCoordinatorTest extends TestCase {
 			is_wp_error( $result ),
 			is_wp_error( $result ) ? $result->get_error_code() . ': ' . $result->get_error_message() : ''
 		);
-		$today    = gmdate( 'Y-m-d' );
-		$settings = Digitalogic_Pricing_Service::instance()->current_canonical_settings();
+		$after_day = ( new DateTimeImmutable( 'today', wp_timezone() ) )->format( 'Y-m-d' );
+		$settings  = Digitalogic_Pricing_Service::instance()->current_canonical_settings();
 		$this->assertSame( $before['usd_effective_date'], $settings['usd_effective_date'] );
-		$this->assertSame( $today, $settings['cny_effective_date'] );
+		$today = $settings['cny_effective_date'];
+		$this->assertContains( $today, array( $before_day, $after_day ) );
 		$this->assertSame( $today, $settings['effective_date'] );
 		$this->assertSame( substr( $today, 2, 2 ) . substr( $today, 5, 2 ) . substr( $today, 8, 2 ), $GLOBALS['digitalogic_test_options']['options_update_date'] );
 		$this->assertSame( '8866000', (string) $GLOBALS['digitalogic_test_posts'][901]['meta']['_regular_price'] );
@@ -1306,7 +1308,8 @@ final class PricingCoordinatorTest extends TestCase {
 	public function test_single_usd_rate_change_refreshes_only_usd_date(): void {
 		$before = Digitalogic_Pricing_Service::instance()->current_canonical_settings();
 		$this->assertFalse( is_wp_error( $before ) );
-		$result = Digitalogic_Pricing_Coordinator::instance()->update_currency(
+		$before_day = ( new DateTimeImmutable( 'today', wp_timezone() ) )->format( 'Y-m-d' );
+		$result     = Digitalogic_Pricing_Coordinator::instance()->update_currency(
 			array( 'dollar_price' => '188891' ),
 			'test_usd_rate_only'
 		);
@@ -1315,9 +1318,9 @@ final class PricingCoordinatorTest extends TestCase {
 			is_wp_error( $result ),
 			is_wp_error( $result ) ? $result->get_error_code() . ': ' . $result->get_error_message() : ''
 		);
-		$today    = gmdate( 'Y-m-d' );
-		$settings = Digitalogic_Pricing_Service::instance()->current_canonical_settings();
-		$this->assertSame( $today, $settings['usd_effective_date'] );
+		$after_day = ( new DateTimeImmutable( 'today', wp_timezone() ) )->format( 'Y-m-d' );
+		$settings  = Digitalogic_Pricing_Service::instance()->current_canonical_settings();
+		$this->assertContains( $settings['usd_effective_date'], array( $before_day, $after_day ) );
 		$this->assertSame( $before['cny_effective_date'], $settings['cny_effective_date'] );
 		$this->assertSame( $before['effective_date'], $settings['effective_date'] );
 		$this->assertSame( '260721', $GLOBALS['digitalogic_test_options']['options_update_date'] );
