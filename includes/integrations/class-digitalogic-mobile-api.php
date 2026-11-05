@@ -14,25 +14,36 @@ final class Digitalogic_Mobile_API {
 	}
 
 	public static function order_changed( $id, $from, $to, $order ): void {
-		if (!is_object($order) || !method_exists($order,'get_customer_id')) { return; }
-		$user_id=(int)$order->get_customer_id();
-		if ($user_id>0 && class_exists('Digitalogic_Panel')) {
-			Digitalogic_Panel::record_event('mobile.order.updated',array('order_id'=>(int)$id,'user_id'=>$user_id,'status'=>sanitize_key($to),'audience'=>array('users'=>array($user_id))));
+		if ( ! is_object( $order ) || ! method_exists( $order, 'get_customer_id' ) ) {
+			return; }
+		$user_id = (int) $order->get_customer_id();
+		if ( $user_id > 0 && class_exists( 'Digitalogic_Panel' ) ) {
+			Digitalogic_Panel::record_event(
+				'mobile.order.updated',
+				array(
+					'order_id' => (int) $id,
+					'user_id'  => $user_id,
+					'status'   => sanitize_key( $to ),
+					'audience' => array( 'users' => array( $user_id ) ),
+				)
+			);
 		}
 	}
 
 	/** Match only the bounded public mobile route, never internal panel routes. */
 	public static function route( string $path ): ?string {
-		if ( preg_match( '~^/app-api/(bootstrap|categories|products(?:/[1-9][0-9]{0,9})?|checkout(?:/preview|/redeem)?|auth/(?:otp/request|otp/verify|google|sessions|logout)|account/(?:profile|orders|favorites))/?$~D', $path, $matches ) ) {
+		if ( preg_match( '~^/app-api/(bootstrap|categories|forms|uploads(?:/[a-f0-9]{32})?|requests(?:/[A-Za-z0-9-]{16,64})?|products(?:/[1-9][0-9]{0,9})?|checkout(?:/preview|/redeem)?|auth/(?:otp/request|otp/verify|google|sessions|logout)|account/(?:profile|orders|favorites|requests))/?$~D', $path, $matches ) ) {
 			return '/_digitalogic/mobile/' . $matches[1];
 		}
 		return null;
 	}
 
 	public static function methods( string $route ): array {
-		if ( preg_match( '~/(?:checkout(?:/preview|/redeem)?|auth/(?:otp/request|otp/verify|google|logout))$~D', $route ) ) {
+		if ( preg_match( '~/(?:checkout(?:/preview|/redeem)?|uploads|requests|auth/(?:otp/request|otp/verify|google|logout))$~D', $route ) && ! str_ends_with( $route, '/account/requests' ) ) {
 			return array( 'POST' );
 		}
+		if ( preg_match( '~/uploads/[a-f0-9]{32}$~D', $route ) ) {
+			return array( 'GET', 'HEAD', 'PUT', 'DELETE' ); }
 		return preg_match( '~/account/(?:profile|favorites)$~D', $route ) ? array( 'GET', 'HEAD', 'PUT' ) : array( 'GET', 'HEAD' );
 	}
 
@@ -62,15 +73,23 @@ final class Digitalogic_Mobile_API {
 		}
 		$route = self::route( $path );
 		if ( $route === null ) {
-			wp_send_json( array( 'code' => 'not_found', 'message' => 'مسیر پیدا نشد.' ), 404 );
+			wp_send_json(
+				array(
+					'code'    => 'not_found',
+					'message' => 'مسیر پیدا نشد.',
+				),
+				404
+			);
 		}
-		$method = strtoupper( $_SERVER['REQUEST_METHOD'] ?? 'GET' );
-		$write = in_array( $method, array( 'POST', 'PUT' ), true );
+		$method     = strtoupper( $_SERVER['REQUEST_METHOD'] ?? 'GET' );
+		$write      = in_array( $method, array( 'POST', 'PUT' ), true );
+		$binary     = $method === 'PUT' && preg_match( '~/uploads/[a-f0-9]{32}$~D', $route );
+		$body_limit = $binary ? 524288 : ( str_starts_with( $route, '/_digitalogic/mobile/requests' ) ? 32768 : 8192 );
 		if ( ! in_array( $method, self::methods( $route ), true ) ) {
 			header( 'Allow: ' . implode( ', ', self::methods( $route ) ) );
 			wp_send_json( array( 'code' => 'method_not_allowed' ), 405 );
 		}
-		if ( $write && ( ! str_starts_with( strtolower( $_SERVER['CONTENT_TYPE'] ?? '' ), 'application/json' ) || (int) ( $_SERVER['CONTENT_LENGTH'] ?? 0 ) > 8192 ) ) {
+		if ( $write && ( ! str_starts_with( strtolower( $_SERVER['CONTENT_TYPE'] ?? '' ), $binary ? 'application/octet-stream' : 'application/json' ) || (int) ( $_SERVER['CONTENT_LENGTH'] ?? 0 ) > $body_limit ) ) {
 			wp_send_json( array( 'code' => 'invalid_content_type_or_size' ), 400 );
 		}
 		try {
@@ -78,8 +97,8 @@ final class Digitalogic_Mobile_API {
 			if ( is_wp_error( $app ) ) {
 				throw new RuntimeException( 'Mobile runtime unavailable.' );
 			}
-			$content = $write ? file_get_contents( 'php://input', false, null, 0, 8193 ) : null;
-			if ( $write && ( ! is_string( $content ) || strlen( $content ) > 8192 ) ) {
+			$content = $write ? file_get_contents( 'php://input', false, null, 0, $body_limit + 1 ) : null;
+			if ( $write && ( ! is_string( $content ) || strlen( $content ) > $body_limit ) ) {
 				wp_send_json( array( 'code' => 'request_too_large' ), 413 );
 			}
 			$request = \Illuminate\Http\Request::create( $route, $method, wp_unslash( $_GET ), array(), array(), array(), $content );
@@ -89,12 +108,20 @@ final class Digitalogic_Mobile_API {
 			$request->headers->set( 'Origin', $_SERVER['HTTP_ORIGIN'] ?? '' );
 			$request->headers->set( 'X-WP-Nonce', $_SERVER['HTTP_X_WP_NONCE'] ?? '' );
 			$request->headers->set( 'Authorization', wp_unslash( $_SERVER['HTTP_AUTHORIZATION'] ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '' ) );
+			$request->headers->set( 'Upload-Offset', wp_unslash( $_SERVER['HTTP_UPLOAD_OFFSET'] ?? '' ) );
+			$request->headers->set( 'Content-Range', wp_unslash( $_SERVER['HTTP_CONTENT_RANGE'] ?? '' ) );
 			$kernel   = $app->make( \Illuminate\Contracts\Http\Kernel::class );
 			$response = $kernel->handle( $request );
 			$response->send();
 			$kernel->terminate( $request, $response );
 		} catch ( Throwable $error ) {
-			wp_send_json( array( 'code' => 'service_unavailable', 'message' => 'چند لحظه دیگر دوباره تلاش کنید.' ), 503 );
+			wp_send_json(
+				array(
+					'code'    => 'service_unavailable',
+					'message' => 'چند لحظه دیگر دوباره تلاش کنید.',
+				),
+				503
+			);
 		}
 		exit;
 	}
@@ -106,7 +133,14 @@ final class Digitalogic_Mobile_API {
 	public static function register_settings(): void {
 		register_setting( 'digitalogic_mobile', 'digitalogic_mobile_merchandising', array( 'sanitize_callback' => array( self::class, 'sanitize_merchandising' ) ) );
 		register_setting( 'digitalogic_mobile', 'digitalogic_mobile_update_manifest', array( 'sanitize_callback' => array( self::class, 'sanitize_update_manifest' ) ) );
-		register_setting( 'digitalogic_mobile', 'digitalogic_mobile_native_auth', array( 'type' => 'boolean', 'sanitize_callback' => static fn( $value ) => (bool) $value ) );
+		register_setting(
+			'digitalogic_mobile',
+			'digitalogic_mobile_native_auth',
+			array(
+				'type'              => 'boolean',
+				'sanitize_callback' => static fn( $value ) => (bool) $value,
+			)
+		);
 		add_filter( 'option_page_capability_digitalogic_mobile', static fn() => 'manage_woocommerce' );
 	}
 
@@ -116,9 +150,16 @@ final class Digitalogic_Mobile_API {
 		if ( $url === '' ) {
 			return '';
 		}
-		$valid = wp_parse_url( $url, PHP_URL_HOST ) === wp_parse_url( home_url(), PHP_URL_HOST );
-		$response = $valid ? wp_safe_remote_get( $url, array( 'timeout' => 8, 'redirection' => 0, 'limit_response_size' => 32768 ) ) : null;
-		$data = $response && ! is_wp_error( $response ) && wp_remote_retrieve_response_code( $response ) === 200 ? json_decode( wp_remote_retrieve_body( $response ), true ) : null;
+		$valid    = wp_parse_url( $url, PHP_URL_HOST ) === wp_parse_url( home_url(), PHP_URL_HOST );
+		$response = $valid ? wp_safe_remote_get(
+			$url,
+			array(
+				'timeout'             => 8,
+				'redirection'         => 0,
+				'limit_response_size' => 32768,
+			)
+		) : null;
+		$data     = $response && ! is_wp_error( $response ) && wp_remote_retrieve_response_code( $response ) === 200 ? json_decode( wp_remote_retrieve_body( $response ), true ) : null;
 		if ( ! is_array( $data ) || ! is_numeric( $data['version_code'] ?? null ) || (int) $data['version_code'] < 1 || ! is_string( $data['version_name'] ?? null ) || ! preg_match( '/\A[a-fA-F0-9]{64}\z/D', $data['sha256'] ?? '' ) || wp_parse_url( $data['apk_url'] ?? '', PHP_URL_SCHEME ) !== 'https' || wp_parse_url( $data['apk_url'] ?? '', PHP_URL_HOST ) !== wp_parse_url( home_url(), PHP_URL_HOST ) ) {
 			add_settings_error( 'digitalogic_mobile_update_manifest', 'invalid_manifest', 'فایل انتشار معتبر و قابل دسترس نیست. ابتدا انتشار امضاشده را روی سرور قرار دهید.' );
 			return (string) get_option( 'digitalogic_mobile_update_manifest', '' );
@@ -138,7 +179,11 @@ final class Digitalogic_Mobile_API {
 			if ( $title === '' || $image === '' || $url === '' || wp_parse_url( $url, PHP_URL_HOST ) !== wp_parse_url( home_url(), PHP_URL_HOST ) ) {
 				continue;
 			}
-			$slides[] = array( 'title' => $title, 'image' => $image, 'url' => $url );
+			$slides[] = array(
+				'title' => $title,
+				'image' => $image,
+				'url'   => $url,
+			);
 		}
 		return $slides;
 	}
@@ -154,7 +199,11 @@ final class Digitalogic_Mobile_API {
 		echo '<p><label>نشانی فایل انتشار اپ (HTTPS)<br><input dir="ltr" class="large-text" type="url" name="digitalogic_mobile_update_manifest" value="' . esc_attr( get_option( 'digitalogic_mobile_update_manifest', '' ) ) . '"></label></p><p>تنها پس از انتشار APK امضاشده و فایل انتشار معتبر، به‌روزرسانی به کاربران پیشنهاد می‌شود.</p>';
 		for ( $index = 0; $index < 6; $index++ ) {
 			echo '<fieldset style="padding:16px;margin:12px 0;background:white;border:1px solid #ddd"><legend>بنر ' . esc_html( (string) ( $index + 1 ) ) . '</legend>';
-			foreach ( array( 'title' => 'عنوان', 'image' => 'نشانی تصویر HTTPS', 'url' => 'لینک مقصد' ) as $key => $label ) {
+			foreach ( array(
+				'title' => 'عنوان',
+				'image' => 'نشانی تصویر HTTPS',
+				'url'   => 'لینک مقصد',
+			) as $key => $label ) {
 				echo '<p><label>' . esc_html( $label ) . '<br><input class="regular-text" type="' . ( $key === 'title' ? 'text' : 'url' ) . '" name="digitalogic_mobile_merchandising[' . esc_attr( (string) $index ) . '][' . esc_attr( $key ) . ']" value="' . esc_attr( $slides[ $index ][ $key ] ?? '' ) . '"></label></p>';
 			}
 			echo '</fieldset>';

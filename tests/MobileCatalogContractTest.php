@@ -16,7 +16,17 @@ final class MobileCatalogContractTest extends TestCase {
 	}
 
 	public function test_query_bounds_allowlists_and_structured_input_do_not_reach_sql(): void {
-		$query = MobileCatalogController::normalizeQuery( array( 'page' => -5, 'per_page' => 500000, 'orderby' => 'id; DROP TABLE', 'order' => 'ASC;DELETE', 'stock_status' => 'private', 'search' => array( 'bad' ), 'category' => -5 ) );
+		$query = MobileCatalogController::normalizeQuery(
+			array(
+				'page'         => -5,
+				'per_page'     => 500000,
+				'orderby'      => 'id; DROP TABLE',
+				'order'        => 'ASC;DELETE',
+				'stock_status' => 'private',
+				'search'       => array( 'bad' ),
+				'category'     => -5,
+			)
+		);
 		self::assertSame( 1, $query['page'] );
 		self::assertSame( 48, $query['per_page'] );
 		self::assertSame( 'date', $query['orderby'] );

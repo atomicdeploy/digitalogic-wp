@@ -20,8 +20,24 @@ final class MobileCheckoutController {
 			return $this->error( $validated->get_error_code(), $validated->get_error_message(), 409 );
 		}
 		$expires = time() + 300;
-		$token = self::sign( array( 'items' => $items, 'expires' => $expires, 'nonce' => bin2hex( random_bytes( 16 ) ) ), wp_salt( 'auth' ) );
-		return $this->json( array( 'url' => home_url( '/app-checkout/#' ) . $token, 'review_url' => home_url( '/app-checkout/#' ) . $token, 'expires_at' => gmdate( 'c', $expires ), 'expires_in' => 300, 'item_count' => count( $items ) ), 201 );
+		$token   = self::sign(
+			array(
+				'items'   => $items,
+				'expires' => $expires,
+				'nonce'   => bin2hex( random_bytes( 16 ) ),
+			),
+			wp_salt( 'auth' )
+		);
+		return $this->json(
+			array(
+				'url'        => home_url( '/app-checkout/#' ) . $token,
+				'review_url' => home_url( '/app-checkout/#' ) . $token,
+				'expires_at' => gmdate( 'c', $expires ),
+				'expires_in' => 300,
+				'item_count' => count( $items ),
+			),
+			201
+		);
 	}
 
 	public function preview( Request $request ): Response {
@@ -36,7 +52,13 @@ final class MobileCheckoutController {
 		if ( is_wp_error( $products ) ) {
 			return $this->error( $products->get_error_code(), $products->get_error_message(), 409 );
 		}
-		return $this->json( array( 'items' => $products, 'expires_at' => gmdate( 'c', $payload['expires'] ), 'has_browser_cart' => function_exists( 'WC' ) && WC()->cart && ! WC()->cart->is_empty() ) );
+		return $this->json(
+			array(
+				'items'            => $products,
+				'expires_at'       => gmdate( 'c', $payload['expires'] ),
+				'has_browser_cart' => function_exists( 'WC' ) && WC()->cart && ! WC()->cart->is_empty(),
+			)
+		);
 	}
 
 	public function redeem( Request $request ): Response {
@@ -60,22 +82,27 @@ final class MobileCheckoutController {
 		if ( ! WC()->cart ) {
 			wc_load_cart();
 		}
-		$cart = WC()->cart;
+		$cart     = WC()->cart;
 		$previous = $cart->get_cart();
-		$coupons = $cart->get_applied_coupons();
+		$coupons  = $cart->get_applied_coupons();
 		try {
 			$cart->empty_cart( false );
 			foreach ( $payload['items'] as $item ) {
-				$product = wc_get_product( $item['id'] );
+				$product   = wc_get_product( $item['id'] );
 				$variation = $product->is_type( 'variation' );
-				$key = $cart->add_to_cart( $variation ? $product->get_parent_id() : $product->get_id(), $item['quantity'], $variation ? $product->get_id() : 0, $variation ? $product->get_variation_attributes() : array() );
+				$key       = $cart->add_to_cart( $variation ? $product->get_parent_id() : $product->get_id(), $item['quantity'], $variation ? $product->get_id() : 0, $variation ? $product->get_variation_attributes() : array() );
 				if ( ! $key ) {
 					throw new \RuntimeException( 'Cart validation rejected an item.' );
 				}
 			}
 			$cart->calculate_totals();
 			WC()->session->set_customer_session_cookie( true );
-			return $this->json( array( 'redirect' => wc_get_checkout_url(), 'item_count' => $cart->get_cart_contents_count() ) );
+			return $this->json(
+				array(
+					'redirect'   => wc_get_checkout_url(),
+					'item_count' => $cart->get_cart_contents_count(),
+				)
+			);
 		} catch ( \Throwable $error ) {
 			$cart->set_cart_contents( $previous );
 			$cart->set_applied_coupons( $coupons );
@@ -93,8 +120,11 @@ final class MobileCheckoutController {
 			if ( ! is_array( $item ) || array_diff( array_keys( $item ), array( 'id', 'quantity' ) ) || ! is_int( $item['id'] ?? null ) || ! is_int( $item['quantity'] ?? null ) || $item['id'] < 1 || $item['quantity'] < 1 || $item['quantity'] > 999 ) {
 				return null;
 			}
-			$id = $item['id'];
-			$items[ $id ] = array( 'id' => $id, 'quantity' => ( $items[ $id ]['quantity'] ?? 0 ) + $item['quantity'] );
+			$id           = $item['id'];
+			$items[ $id ] = array(
+				'id'       => $id,
+				'quantity' => ( $items[ $id ]['quantity'] ?? 0 ) + $item['quantity'],
+			);
 			if ( $items[ $id ]['quantity'] > 999 ) {
 				return null;
 			}
@@ -116,25 +146,35 @@ final class MobileCheckoutController {
 			return null;
 		}
 		$items = self::normalizeItems( $payload['items'] ?? null );
-		return $items === null ? null : array( 'items' => $items, 'expires' => $payload['expires'], 'nonce' => $payload['nonce'] );
+		return $items === null ? null : array(
+			'items'   => $items,
+			'expires' => $payload['expires'],
+			'nonce'   => $payload['nonce'],
+		);
 	}
 
 	private function validateProducts( array $items ) {
 		$out = array();
 		foreach ( $items as $item ) {
 			$product = wc_get_product( $item['id'] );
-			$parent = $product && $product->is_type( 'variation' ) ? wc_get_product( $product->get_parent_id() ) : $product;
+			$parent  = $product && $product->is_type( 'variation' ) ? wc_get_product( $product->get_parent_id() ) : $product;
 			if ( ! $product || ! $parent || $product->get_status() !== 'publish' || $parent->get_status() !== 'publish' || $parent->get_catalog_visibility() === 'hidden' || get_post_field( 'post_password', $parent->get_id() ) !== '' || ! $product->is_purchasable() || $product->is_type( 'variable' ) || ! $product->is_in_stock() || ! $product->has_enough_stock( $item['quantity'] ) || ( $product->is_sold_individually() && $item['quantity'] !== 1 ) ) {
 				return new \WP_Error( 'product_unavailable', 'یکی از کالاها یا تعداد انتخاب‌شده قابل سفارش نیست. سبد خرید را دوباره بررسی کنید.' );
 			}
-			$out[] = array( 'id' => $product->get_id(), 'sku' => $product->get_sku(), 'name' => $product->get_name(), 'quantity' => $item['quantity'], 'image' => wp_get_attachment_image_url( $product->get_image_id(), 'woocommerce_thumbnail' ) ?: null );
+			$out[] = array(
+				'id'       => $product->get_id(),
+				'sku'      => $product->get_sku(),
+				'name'     => $product->get_name(),
+				'quantity' => $item['quantity'],
+				'image'    => wp_get_attachment_image_url( $product->get_image_id(), 'woocommerce_thumbnail' ) ?: null,
+			);
 		}
 		return $out;
 	}
 
 	private function browserRequest( Request $request ): bool {
-		$origin = rtrim( $request->headers->get( 'Origin', '' ), '/' );
-		$home = wp_parse_url( home_url( '/' ) );
+		$origin   = rtrim( $request->headers->get( 'Origin', '' ), '/' );
+		$home     = wp_parse_url( home_url( '/' ) );
 		$expected = $home['scheme'] . '://' . $home['host'] . ( isset( $home['port'] ) ? ':' . $home['port'] : '' );
 		return $origin !== '' && hash_equals( $expected, $origin );
 	}
@@ -144,8 +184,11 @@ final class MobileCheckoutController {
 		global $wpdb;
 		$minute = (int) floor( time() / 60 );
 		$prefix = '_digitalogic_mobile_rate_';
-		$ip = hash_hmac( 'sha256', (string) ( $_SERVER['REMOTE_ADDR'] ?? 'unknown' ), wp_salt( 'nonce' ) );
-		foreach ( array( 'global' => 120, $ip => 12 ) as $scope => $limit ) {
+		$ip     = hash_hmac( 'sha256', (string) ( $_SERVER['REMOTE_ADDR'] ?? 'unknown' ), wp_salt( 'nonce' ) );
+		foreach ( array(
+			'global' => 120,
+			$ip      => 12,
+		) as $scope => $limit ) {
 			$key = $prefix . $minute . '_' . $scope;
 			$wpdb->query( $wpdb->prepare( "INSERT IGNORE INTO {$wpdb->options} (option_name,option_value,autoload) VALUES (%s,'0','off')", $key ) );
 			$updated = $wpdb->query( $wpdb->prepare( "UPDATE {$wpdb->options} SET option_value=CAST(option_value AS UNSIGNED)+1 WHERE option_name=%s AND CAST(option_value AS UNSIGNED)<%d", $key, $limit ) );
@@ -159,10 +202,25 @@ final class MobileCheckoutController {
 	}
 
 	private function error( string $code, string $message, int $status ): Response {
-		return $this->json( array( 'code' => $code, 'message' => $message ), $status );
+		return $this->json(
+			array(
+				'code'    => $code,
+				'message' => $message,
+			),
+			$status
+		);
 	}
 
 	private function json( array $data, int $status = 200 ): Response {
-		return response()->json( $data, $status, array( 'Cache-Control' => 'private, no-store', 'Referrer-Policy' => 'no-referrer', 'X-Content-Type-Options' => 'nosniff' ), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES );
+		return response()->json(
+			$data,
+			$status,
+			array(
+				'Cache-Control'          => 'private, no-store',
+				'Referrer-Policy'        => 'no-referrer',
+				'X-Content-Type-Options' => 'nosniff',
+			),
+			JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+		);
 	}
 }

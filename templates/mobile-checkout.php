@@ -5,8 +5,8 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 $mobile_config = array(
 	'preview' => home_url( '/app-api/checkout/preview' ),
-	'redeem' => home_url( '/app-api/checkout/redeem' ),
-	'nonce' => wp_create_nonce( 'digitalogic_mobile_checkout' ),
+	'redeem'  => home_url( '/app-api/checkout/redeem' ),
+	'nonce'   => wp_create_nonce( 'digitalogic_mobile_checkout' ),
 );
 ?>
 <!doctype html>
@@ -16,37 +16,37 @@ $mobile_config = array(
 </style></head><body><main><header><a class="logo" href="<?php echo esc_url( home_url( '/' ) ); ?>">Digitalogic</a><span>همراه پروژه‌های شما</span></header><section class="card"><h1>سبد اپ را مرور کنید</h1><p>یک قدم تا ادامه خرید در فروشگاه.</p><div id="status" role="status" aria-live="polite">در حال بررسی موجودی…</div><ul id="items"></ul><p class="notice" id="notice" hidden>با ادامه، سبد فعلی این مرورگر با کالاهای زیر جایگزین می‌شود. قیمت، ارسال و موجودی در تسویه‌حساب دوباره بررسی می‌شوند. هنوز سفارشی ثبت یا پرداختی انجام نمی‌شود.</p><button id="continue" disabled hidden>تأیید سبد و ادامه خرید</button></section><footer>برای خرید وارد حساب خود شوید؛ ورود و پرداخت در وب‌سایت امن دیجیتالاجیک انجام می‌شود.</footer></main>
 <script>
 (() => {
-  'use strict';
-  const config = <?php echo wp_json_encode( $mobile_config, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT ); ?>;
-  const token = location.hash.slice(1);
-  history.replaceState(null, '', location.pathname);
-  const status = document.getElementById('status');
-  const list = document.getElementById('items');
-  const button = document.getElementById('continue');
-  const showError = message => {status.textContent = message; status.className = 'error'; button.disabled = true;};
-  const send = async url => {
-    const response = await fetch(url, {method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce':config.nonce}, body:JSON.stringify({token})});
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.message || 'ارتباط برقرار نشد؛ از اپ دوباره ادامه دهید.');
-    return data;
-  };
-  if (!token || token.length > 8000) { showError('برای ادامه خرید، این صفحه را از سبد خرید اپ باز کنید.'); return; }
-  send(config.preview).then(data => {
-    for (const item of data.items) {
-      const row = document.createElement('li');
-      if (item.image) { const image = document.createElement('img'); image.src = item.image; image.alt = ''; row.append(image); }
-      const copy = document.createElement('div'); copy.className = 'item';
-      const title = document.createElement('strong'); title.textContent = item.name; copy.append(title);
-      const code = document.createElement('small'); code.textContent = 'کد کالا: ' + item.sku; copy.append(code); row.append(copy);
-      const quantity = document.createElement('span'); quantity.textContent = new Intl.NumberFormat('fa').format(item.quantity) + ' عدد'; row.append(quantity); list.append(row);
-    }
-    status.textContent = 'کالاها آماده بررسی در تسویه‌حساب هستند.';
-    document.getElementById('notice').hidden = false; button.hidden = false; button.disabled = false;
-  }).catch(error => showError(error.message));
-  button.addEventListener('click', async () => {
-    button.disabled = true; status.textContent = 'در حال انتقال سبد خرید…';
-    try { const data = await send(config.redeem); const url = new URL(data.redirect); if(url.origin !== location.origin) throw new Error('نشانی ادامه خرید معتبر نیست.'); location.replace(url.href); }
-    catch(error) { showError(error.message); }
-  });
+	'use strict';
+	const config = <?php echo wp_json_encode( $mobile_config, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT ); ?>;
+	const token = location.hash.slice(1);
+	history.replaceState(null, '', location.pathname);
+	const status = document.getElementById('status');
+	const list = document.getElementById('items');
+	const button = document.getElementById('continue');
+	const showError = message => {status.textContent = message; status.className = 'error'; button.disabled = true;};
+	const send = async url => {
+	const response = await fetch(url, {method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce':config.nonce}, body:JSON.stringify({token})});
+	const data = await response.json();
+	if (!response.ok) throw new Error(data.message || 'ارتباط برقرار نشد؛ از اپ دوباره ادامه دهید.');
+	return data;
+	};
+	if (!token || token.length > 8000) { showError('برای ادامه خرید، این صفحه را از سبد خرید اپ باز کنید.'); return; }
+	send(config.preview).then(data => {
+	for (const item of data.items) {
+		const row = document.createElement('li');
+		if (item.image) { const image = document.createElement('img'); image.src = item.image; image.alt = ''; row.append(image); }
+		const copy = document.createElement('div'); copy.className = 'item';
+		const title = document.createElement('strong'); title.textContent = item.name; copy.append(title);
+		const code = document.createElement('small'); code.textContent = 'کد کالا: ' + item.sku; copy.append(code); row.append(copy);
+		const quantity = document.createElement('span'); quantity.textContent = new Intl.NumberFormat('fa').format(item.quantity) + ' عدد'; row.append(quantity); list.append(row);
+	}
+	status.textContent = 'کالاها آماده بررسی در تسویه‌حساب هستند.';
+	document.getElementById('notice').hidden = false; button.hidden = false; button.disabled = false;
+	}).catch(error => showError(error.message));
+	button.addEventListener('click', async () => {
+	button.disabled = true; status.textContent = 'در حال انتقال سبد خرید…';
+	try { const data = await send(config.redeem); const url = new URL(data.redirect); if(url.origin !== location.origin) throw new Error('نشانی ادامه خرید معتبر نیست.'); location.replace(url.href); }
+	catch(error) { showError(error.message); }
+	});
 })();
 </script></body></html>
