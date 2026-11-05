@@ -27,7 +27,28 @@ Public responses use the existing object cache with a 60-second bound, catalog p
 
 Bootstrap discovers the official Woo Store API cart URL. Use its `Cart-Token` response header for anonymous native carts and keep it in Android secure storage. It is a bearer capability for that cart, not an account or panel credential. Do not disable nonce checking, embed WooCommerce consumer secrets, write orders directly in SQL, or accept client prices.
 
-Native login, OTP verification, Google OAuth and native checkout require separate verified integration. The existing `/panel/` browser session/capability boundary is unchanged. No mobile bearer token is exchanged for a panel session. Browser checkout preserves the current guest login gate. Do not present unsupported native features as complete and never submit offline orders.
+Native account sessions are separate from WordPress browser sessions. The existing `/panel/` browser session/capability boundary is unchanged. No mobile bearer token is exchanged for a panel session. Browser checkout preserves the current guest login gate. Never submit offline orders.
+
+### Native identity and account data
+
+| Endpoint | Contract |
+| --- | --- |
+| `POST /app-api/auth/otp/request` | `{phone,request_id}` → `202 {challenge_id,retry_after,expires_in,expires_at,delivery_status}` |
+| `POST /app-api/auth/otp/verify` | `{challenge_id,code,device_name}` → session or registration continuation |
+| `POST /app-api/auth/google` | `{id_token,device_name}` → the same session response |
+| `GET/PUT /app-api/account/profile` | `{profile}`; PUT allows first_name, last_name, display_name and allowlisted billing fields |
+| `GET /app-api/account/orders?page=1` | Owner-only items and pagination, 20 per page |
+| `GET /app-api/auth/sessions` | Owner-only device names, creation/last-use/expiry and current-session marker |
+| `POST /app-api/auth/logout` | Optional session_id; default current session, always owner scoped |
+| `GET/PUT /app-api/account/favorites` | `{items:[product IDs],revision}`; PUT requires base_revision, conflicts return409/current data |
+
+A successful enrollment returns `{registered:true,access_token,token_type:"Bearer",session_id,expires_at,profile}`. A verified identity without an existing account binding returns `{registered:false,signup_url}` and creates no account. Native bearer tokens are 256-bit random values; only SHA256 hashes persist server-side. Sessions expire after30days and password changes invalidate them. Store tokens only in Android secure storage. Customer endpoints are private/no-store and never accept another customer's ID as an authority.
+
+OTP accepts Persian/Arabic digits and normalizes Iranian mobile numbers. Challenge proofs are keyed hashes, expire after5minutes, permit at most5 attempts and have an atomic one-use claim. A stable request_id prevents automatic resends after uncertain delivery. Limits apply globally, per transport IP and per phone. Existing server-local SMS.ir template configuration and Shatel interception are reused; no secrets enter the app. `delivery_status=accepted` is provider acceptance, not proof of handset receipt; `pending` is uncertain and must not be automatically retried. Existing Digits phone identity metadata is the account authority, never a billing phone field.
+
+Google verification uses a pinned, namespace-scoped Firebase JWT7.2.1 dependency, Google HTTPS JWKs/cache lifetime, RS256 signatures and strict issuer, audience, presenter, expiry, issued-time and verified-email checks. It maps only the existing Digits `auth_google_id` subject association, never email alone. The web audience is the public `auth.google_server_client_id`; client secrets remain server-local. Unknown/unlinked identities continue through website registration or phone login. A verified token creates at most one native session.
+
+On2026-11-06,24 focused tests/139 assertions passed. Live no-send sandbox verified OTP expiry/replay/attempt limits and unknown-account continuation, then cleaned fixtures. Public HTTP readback rejects unauthenticated profile/orders/favorites/sessions, invalid OTPs and forged Google tokens. Google cert retrieval and runtime library isolation were verified. Real handset SMS delivery and real Google account enrollment remain interactive acceptance checks; no human messages, new users, orders or payments were created by these tests. SMS Retriever template hash is not configured, so otp_autofill remains false.
 
 ### Native cart continuation
 
@@ -45,7 +66,7 @@ WooCommerce → **اپ دیجیتالاجیک** lets a `manage_woocommerce` user
 
 ## Completion boundary
 
-This change delivers the public catalog, runtime configuration and verified cart continuation. Account session enrollment, OTP app hash, OAuth client registration, cloud favorites/outbox, scoped uploads, admin mobile capabilities, push registration and native order completion are tracked follow-up work. Capability flags stay false until the actual downstream path is tested.
+This change delivers the public catalog, runtime configuration, verified cart continuation and native account/session/favorites contracts. OTP app hash, cloud drafts, scoped uploads, admin mobile capabilities, push registration and native order completion remain tracked follow-up work. Capability flags stay false until the corresponding backend path is available and verified.
 
 Tracking: [backend issue 437](https://github.com/atomicdeploy/digitalogic-wp/issues/437), [Android delivery ledger](https://github.com/atomicdeploy/digitalogic-app/issues/1), [Android mirror](https://git.digitalogic.ir/root/digitalogic-app).
 

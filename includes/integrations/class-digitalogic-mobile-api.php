@@ -14,10 +14,17 @@ final class Digitalogic_Mobile_API {
 
 	/** Match only the bounded public mobile route, never internal panel routes. */
 	public static function route( string $path ): ?string {
-		if ( preg_match( '~^/app-api/(bootstrap|categories|products(?:/[1-9][0-9]{0,9})?|checkout(?:/preview|/redeem)?)/?$~D', $path, $matches ) ) {
+		if ( preg_match( '~^/app-api/(bootstrap|categories|products(?:/[1-9][0-9]{0,9})?|checkout(?:/preview|/redeem)?|auth/(?:otp/request|otp/verify|google|sessions|logout)|account/(?:profile|orders|favorites))/?$~D', $path, $matches ) ) {
 			return '/_digitalogic/mobile/' . $matches[1];
 		}
 		return null;
+	}
+
+	public static function methods( string $route ): array {
+		if ( preg_match( '~/(?:checkout(?:/preview|/redeem)?|auth/(?:otp/request|otp/verify|google|logout))$~D', $route ) ) {
+			return array( 'POST' );
+		}
+		return preg_match( '~/account/(?:profile|favorites)$~D', $route ) ? array( 'GET', 'HEAD', 'PUT' ) : array( 'GET', 'HEAD' );
 	}
 
 	public static function dispatch(): void {
@@ -49,9 +56,9 @@ final class Digitalogic_Mobile_API {
 			wp_send_json( array( 'code' => 'not_found', 'message' => 'مسیر پیدا نشد.' ), 404 );
 		}
 		$method = strtoupper( $_SERVER['REQUEST_METHOD'] ?? 'GET' );
-		$write = str_starts_with( $route, '/_digitalogic/mobile/checkout' );
-		if ( $write ? $method !== 'POST' : ! in_array( $method, array( 'GET', 'HEAD' ), true ) ) {
-			header( $write ? 'Allow: POST' : 'Allow: GET, HEAD' );
+		$write = in_array( $method, array( 'POST', 'PUT' ), true );
+		if ( ! in_array( $method, self::methods( $route ), true ) ) {
+			header( 'Allow: ' . implode( ', ', self::methods( $route ) ) );
 			wp_send_json( array( 'code' => 'method_not_allowed' ), 405 );
 		}
 		if ( $write && ( ! str_starts_with( strtolower( $_SERVER['CONTENT_TYPE'] ?? '' ), 'application/json' ) || (int) ( $_SERVER['CONTENT_LENGTH'] ?? 0 ) > 8192 ) ) {
@@ -72,6 +79,7 @@ final class Digitalogic_Mobile_API {
 			$request->headers->set( 'Content-Type', $_SERVER['CONTENT_TYPE'] ?? '' );
 			$request->headers->set( 'Origin', $_SERVER['HTTP_ORIGIN'] ?? '' );
 			$request->headers->set( 'X-WP-Nonce', $_SERVER['HTTP_X_WP_NONCE'] ?? '' );
+			$request->headers->set( 'Authorization', wp_unslash( $_SERVER['HTTP_AUTHORIZATION'] ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '' ) );
 			$kernel   = $app->make( \Illuminate\Contracts\Http\Kernel::class );
 			$response = $kernel->handle( $request );
 			$response->send();
@@ -89,6 +97,7 @@ final class Digitalogic_Mobile_API {
 	public static function register_settings(): void {
 		register_setting( 'digitalogic_mobile', 'digitalogic_mobile_merchandising', array( 'sanitize_callback' => array( self::class, 'sanitize_merchandising' ) ) );
 		register_setting( 'digitalogic_mobile', 'digitalogic_mobile_update_manifest', array( 'sanitize_callback' => array( self::class, 'sanitize_update_manifest' ) ) );
+		register_setting( 'digitalogic_mobile', 'digitalogic_mobile_native_auth', array( 'type' => 'boolean', 'sanitize_callback' => static fn( $value ) => (bool) $value ) );
 		add_filter( 'option_page_capability_digitalogic_mobile', static fn() => 'manage_woocommerce' );
 	}
 
@@ -132,6 +141,7 @@ final class Digitalogic_Mobile_API {
 		$slides = get_option( 'digitalogic_mobile_merchandising', array() );
 		echo '<div class="wrap" dir="rtl"><h1>ویترین اپ دیجیتالاجیک</h1><p>بنرها پس از تازه‌سازی در اپ نمایش داده می‌شوند. ردیف خالی نمایش داده نمی‌شود. لینک مقصد باید متعلق به همین فروشگاه باشد.</p><form action="options.php" method="post">';
 		settings_fields( 'digitalogic_mobile' );
+		echo '<p><input type="hidden" name="digitalogic_mobile_native_auth" value="0"><label><input type="checkbox" name="digitalogic_mobile_native_auth" value="1" ' . checked( get_option( 'digitalogic_mobile_native_auth', false ), true, false ) . '> ورود و حساب بومی اپ</label></p><p>نشست‌های اپ از ورود مرورگر و پنل مستقل‌اند. ورود پیامکی از تنظیمات فعلی سرویس پیامک استفاده می‌کند.</p>';
 		echo '<p><label>نشانی فایل انتشار اپ (HTTPS)<br><input dir="ltr" class="large-text" type="url" name="digitalogic_mobile_update_manifest" value="' . esc_attr( get_option( 'digitalogic_mobile_update_manifest', '' ) ) . '"></label></p><p>تنها پس از انتشار APK امضاشده و فایل انتشار معتبر، به‌روزرسانی به کاربران پیشنهاد می‌شود.</p>';
 		for ( $index = 0; $index < 6; $index++ ) {
 			echo '<fieldset style="padding:16px;margin:12px 0;background:white;border:1px solid #ddd"><legend>بنر ' . esc_html( (string) ( $index + 1 ) ) . '</legend>';

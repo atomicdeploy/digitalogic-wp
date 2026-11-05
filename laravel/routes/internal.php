@@ -3,6 +3,7 @@
 use Illuminate\Support\Facades\Route;
 use Digitalogic\Laravel\Http\Controllers\MobileCatalogController;
 use Digitalogic\Laravel\Http\Controllers\MobileCheckoutController;
+use Digitalogic\Laravel\Http\Controllers\MobileIdentityController;
 
 Route::get( '/mobile/bootstrap', array( MobileCatalogController::class, 'bootstrap' ) );
 Route::get( '/mobile/categories', array( MobileCatalogController::class, 'categories' ) );
@@ -11,6 +12,14 @@ Route::get( '/mobile/products/{id}', array( MobileCatalogController::class, 'pro
 Route::post( '/mobile/checkout', array( MobileCheckoutController::class, 'create' ) );
 Route::post( '/mobile/checkout/preview', array( MobileCheckoutController::class, 'preview' ) );
 Route::post( '/mobile/checkout/redeem', array( MobileCheckoutController::class, 'redeem' ) );
+Route::post( '/mobile/auth/otp/request', array( MobileIdentityController::class, 'requestOtp' ) );
+Route::post( '/mobile/auth/otp/verify', array( MobileIdentityController::class, 'verifyOtp' ) );
+Route::post( '/mobile/auth/google', array( MobileIdentityController::class, 'google' ) );
+Route::get( '/mobile/auth/sessions', array( MobileIdentityController::class, 'sessions' ) );
+Route::post( '/mobile/auth/logout', array( MobileIdentityController::class, 'logout' ) );
+Route::match( array( 'GET', 'PUT' ), '/mobile/account/profile', array( MobileIdentityController::class, 'profile' ) );
+Route::get( '/mobile/account/orders', array( MobileIdentityController::class, 'orders' ) );
+Route::match( array( 'GET', 'PUT' ), '/mobile/account/favorites', array( MobileIdentityController::class, 'favorites' ) );
 
 Route::get(
 	'/bridge/status',
