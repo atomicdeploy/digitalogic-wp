@@ -11,6 +11,21 @@ require_once dirname( __DIR__ ) . '/laravel/app/Services/MobileGoogleIdentity.ph
 require_once dirname( __DIR__ ) . '/includes/integrations/class-smsir-integration.php';
 
 final class MobileIdentityContractTest extends TestCase {
+	public function test_linking_requires_recent_explicit_proof_not_session_age(): void {
+		self::assertFalse( MobileIdentityStore::freshProof( array( 'created_at' => 1000 ), 1000 ) );
+		self::assertFalse( MobileIdentityStore::freshProof( array( 'auth_method' => 'legacy', 'verified_at' => 1000 ), 1000 ) );
+		self::assertFalse( MobileIdentityStore::freshProof( array( 'auth_method' => 'google', 'verified_at' => 399 ), 1000 ) );
+		self::assertFalse( MobileIdentityStore::freshProof( array( 'auth_method' => 'otp', 'verified_at' => 1031 ), 1000 ) );
+		self::assertTrue( MobileIdentityStore::freshProof( array( 'auth_method' => 'google', 'verified_at' => 400 ), 1000 ) );
+		self::assertTrue( MobileIdentityStore::freshProof( array( 'auth_method' => 'otp', 'verified_at' => 1000 ), 1000 ) );
+		foreach ( array( 'phone/request', 'phone/verify', 'reauth/google' ) as $endpoint ) {
+			$path = '/app-api/account/' . $endpoint;
+			$route = Digitalogic_Mobile_API::route( $path );
+			self::assertSame( '/_digitalogic/mobile/account/' . $endpoint, $route );
+			self::assertSame( array( 'POST' ), Digitalogic_Mobile_API::methods( $route ) );
+		}
+		self::assertNull( Digitalogic_Mobile_API::route( '/app-api/account/merge' ) );
+	}
 	public function test_sms_template_allows_only_a_single_fixed_otp_mapping(): void {
 		self::assertSame( 'OTP', Digitalogic_Smsir_Integration::native_otp_parameter( 'OTP:%OTP%' ) );
 		self::assertSame( 'CODE', Digitalogic_Smsir_Integration::native_otp_parameter( ' CODE: %OTP% ' ) );

@@ -87,17 +87,23 @@ final class MobileRequestStore {
 
 	/** Bound orphan retention; consumed files belong to the canonical request lifecycle. */
 	public static function cleanupUploads(): void {
-		global $wpdb;$table=self::table('uploads');$directory=self::privateDirectory();
-		$wpdb->query('START TRANSACTION');
-		try{
-			$rows=$wpdb->get_results($wpdb->prepare("SELECT id,path FROM {$table} WHERE state<>'consumed' AND (expires_at<%d OR state='failed') LIMIT 50 FOR UPDATE",time()),ARRAY_A);
-			foreach($rows as $row){
-				$expected=$directory.'/'.$row['id'].'.part';
-				if($row['path']!==$expected){continue;}
-				if(is_file($expected)&&!unlink($expected)){continue;}
-				$wpdb->delete($table,array('id'=>$row['id']));
+		global $wpdb;
+		$table     = self::table( 'uploads' );
+		$directory = self::privateDirectory();
+		$wpdb->query( 'START TRANSACTION' );
+		try {
+			$rows = $wpdb->get_results( $wpdb->prepare( "SELECT id,path FROM {$table} WHERE state<>'consumed' AND (expires_at<%d OR state='failed') LIMIT 50 FOR UPDATE", time() ), ARRAY_A );
+			foreach ( $rows as $row ) {
+				$expected = $directory . '/' . $row['id'] . '.part';
+				if ( $row['path'] !== $expected ) {
+					continue;}
+				if ( is_file( $expected ) && ! unlink( $expected ) ) {
+					continue;}
+				$wpdb->delete( $table, array( 'id' => $row['id'] ) );
 			}
-			$wpdb->query('COMMIT');
-		}catch(\Throwable $error){$wpdb->query('ROLLBACK');throw $error;}
+			$wpdb->query( 'COMMIT' );
+		} catch ( \Throwable $error ) {
+			$wpdb->query( 'ROLLBACK' );
+			throw $error;}
 	}
 }

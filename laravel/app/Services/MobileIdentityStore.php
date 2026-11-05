@@ -16,6 +16,11 @@ final class MobileIdentityStore {
 			id char(32) NOT NULL,
 			request_hash char(64) NOT NULL,
 			phone_hash char(64) NOT NULL,
+			phone_ciphertext text DEFAULT NULL,
+			purpose varchar(20) NOT NULL DEFAULT 'login',
+			actor_user_id bigint(20) unsigned NOT NULL DEFAULT 0,
+			actor_session_id char(32) NOT NULL DEFAULT '',
+			result varchar(32) NOT NULL DEFAULT '',
 			user_id bigint(20) NOT NULL DEFAULT 0,
 			code_hash char(64) NOT NULL,
 			attempts tinyint unsigned NOT NULL DEFAULT 0,
@@ -33,6 +38,8 @@ final class MobileIdentityStore {
 			token_hash char(64) NOT NULL,
 			user_id bigint(20) unsigned NOT NULL,
 			auth_epoch char(64) NOT NULL,
+			auth_method varchar(20) NOT NULL DEFAULT 'legacy',
+			verified_at bigint(20) unsigned NOT NULL DEFAULT 0,
 			device_name varchar(80) NOT NULL,
 			created_at bigint(20) unsigned NOT NULL,
 			last_seen_at bigint(20) unsigned NOT NULL,
@@ -57,7 +64,17 @@ final class MobileIdentityStore {
 				throw new \RuntimeException( 'Native identity schema not ready.' );
 			}
 		}
-		update_option( 'digitalogic_mobile_identity_schema', '1', false );
+		foreach ( array(
+			$otp      => array( 'purpose', 'actor_user_id', 'actor_session_id', 'result', 'phone_ciphertext' ),
+			$sessions => array( 'auth_method', 'verified_at' ),
+		) as $table => $columns ) {
+			foreach ( $columns as $column ) {
+				if ( ! $wpdb->get_var( $wpdb->prepare( "SHOW COLUMNS FROM {$table} LIKE %s", $column ) ) ) {
+					throw new \RuntimeException( 'Native identity upgrade incomplete.' );
+				}
+			}
+		}
+		update_option( 'digitalogic_mobile_identity_schema', '2', false );
 	}
 
 	public static function digits( string $value ): string {
@@ -157,7 +174,7 @@ final class MobileIdentityStore {
 		return $row && hash_equals( $row['auth_epoch'], self::hash( $row['user_pass'] ) );
 	}
 
-	public static function issueSession( int $user_id, string $device ): array {
+	public static function issueSession( int $user_id, string $device, string $method = 'legacy', ?int $proof_at = null ): array {
 		global $wpdb;
 		$user = get_user_by( 'id', $user_id );
 		if ( ! $user ) {
@@ -175,6 +192,8 @@ final class MobileIdentityStore {
 				'token_hash'   => hash( 'sha256', $token ),
 				'user_id'      => $user_id,
 				'auth_epoch'   => self::hash( $user->user_pass ),
+				'auth_method'  => in_array( $method, array( 'otp', 'google' ), true ) ? $method : 'legacy',
+				'verified_at'  => in_array( $method, array( 'otp', 'google' ), true ) ? min( time(), $proof_at ?? time() ) : 0,
 				'device_name'  => mb_substr( sanitize_text_field( $device ), 0, 80 ),
 				'created_at'   => time(),
 				'last_seen_at' => time(),
@@ -190,6 +209,13 @@ final class MobileIdentityStore {
 			'session_id'   => $id,
 			'expires_at'   => gmdate( 'c', $expires ),
 		);
+	}
+
+	/** A session's creation time is not evidence of a recent identity challenge. */
+	public static function freshProof( array $session, ?int $now = null ): bool {
+		$now      = $now ?? time();
+		$verified = (int) ( $session['verified_at'] ?? 0 );
+		return in_array( $session['auth_method'] ?? '', array( 'google', 'otp' ), true ) && $verified >= $now - 600 && $verified <= $now + 30;
 	}
 
 	public static function claimGoogleToken( string $token, int $expires ): bool {

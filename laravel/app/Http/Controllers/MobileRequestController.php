@@ -10,7 +10,7 @@ use Symfony\Component\HttpFoundation\Response;
 final class MobileRequestController {
 	public const CHUNK_SIZE = 524288;
 	public static function enabled(): bool {
-		return get_option( 'digitalogic_mobile_requests_schema' ) === '1' && (bool)get_option('digitalogic_mobile_forms',false) && MobileIdentityController::enabled();}
+		return get_option( 'digitalogic_mobile_requests_schema' ) === '1' && (bool) get_option( 'digitalogic_mobile_forms', false ) && MobileIdentityController::enabled();}
 	public function forms(): Response {
 		return $this->json( array( 'forms' => Schema::forms() ) );}
 
@@ -37,39 +37,40 @@ final class MobileRequestController {
 			}return (int) $existing['expires_at'] > time() ? $this->json( $this->progress( $existing ) ) : $this->error( 'upload_expired', 'مهلت این بارگذاری تمام شده است.', 410 );}
 		if ( ! Identity::admit( 'uploads-user:' . $user, 12, 3600 ) || ! Identity::admit( 'uploads-global', 60, 60 ) ) {
 			return $this->error( 'rate_limited', 'برای بارگذاری بعدی کمی صبر کنید.', 429 );}
-		if ((int)$wpdb->get_var("SELECT GET_LOCK('digitalogic_mobile_upload_quota',2)") !== 1) {
-			return $this->error('upload_busy','بارگذاری‌های دیگر در حال آماده‌سازی‌اند.',409);
+		if ( (int) $wpdb->get_var( "SELECT GET_LOCK('digitalogic_mobile_upload_quota',2)" ) !== 1 ) {
+			return $this->error( 'upload_busy', 'بارگذاری‌های دیگر در حال آماده‌سازی‌اند.', 409 );
 		}
 		try {
-		Store::cleanupUploads();
-		$active = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$table} WHERE user_id=%d AND state<>'consumed'", $user ) );
-		$bytes  = (int) $wpdb->get_var( "SELECT COALESCE(SUM(size),0) FROM {$table} WHERE state<>'consumed'" );
-		if ( $active >= 5 || $bytes + $size > 314572800 ) {
-			return $this->error( 'upload_quota', 'بارگذاری‌های قبلی را تکمیل یا حذف کنید.', 429 );}
-		$id   = bin2hex( random_bytes( 16 ) );
-		$path = Store::privateDirectory() . '/' . $id . '.part';
-		$file = fopen( $path, 'xb' );
-		if ( ! $file ) {
-			return $this->error( 'storage_unavailable', 'فضای ذخیره‌سازی در دسترس نیست.', 503 );
-		}fclose( $file );
-		chmod( $path, 0640 );
-		$row = array(
-			'id'           => $id,
-			'request_hash' => $key,
-			'user_id'      => $user,
-			'form_type'    => $form['id'],
-			'filename'     => $name,
-			'size'         => $size,
-			'sha256'       => $sha,
-			'path'         => $path,
-			'state'        => 'uploading',
-			'expires_at'   => time() + DAY_IN_SECONDS,
-		);
-		if ( $wpdb->insert( $table, $row ) !== 1 ) {
-			unlink( $path );
-			return $this->error( 'request_conflict', 'درخواست هم‌زمان در حال بررسی است.', 409 );}
-		return $this->json( $this->progress( $row ), 201 );
-		} finally { $wpdb->get_var("SELECT RELEASE_LOCK('digitalogic_mobile_upload_quota')"); }
+			Store::cleanupUploads();
+			$active = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$table} WHERE user_id=%d AND state<>'consumed'", $user ) );
+			$bytes  = (int) $wpdb->get_var( "SELECT COALESCE(SUM(size),0) FROM {$table} WHERE state<>'consumed'" );
+			if ( $active >= 5 || $bytes + $size > 314572800 ) {
+				return $this->error( 'upload_quota', 'بارگذاری‌های قبلی را تکمیل یا حذف کنید.', 429 );}
+			$id   = bin2hex( random_bytes( 16 ) );
+			$path = Store::privateDirectory() . '/' . $id . '.part';
+			$file = fopen( $path, 'xb' );
+			if ( ! $file ) {
+				return $this->error( 'storage_unavailable', 'فضای ذخیره‌سازی در دسترس نیست.', 503 );
+			}fclose( $file );
+			chmod( $path, 0640 );
+			$row = array(
+				'id'           => $id,
+				'request_hash' => $key,
+				'user_id'      => $user,
+				'form_type'    => $form['id'],
+				'filename'     => $name,
+				'size'         => $size,
+				'sha256'       => $sha,
+				'path'         => $path,
+				'state'        => 'uploading',
+				'expires_at'   => time() + DAY_IN_SECONDS,
+			);
+			if ( $wpdb->insert( $table, $row ) !== 1 ) {
+				unlink( $path );
+				return $this->error( 'request_conflict', 'درخواست هم‌زمان در حال بررسی است.', 409 );}
+			return $this->json( $this->progress( $row ), 201 );
+		} finally {
+			$wpdb->get_var( "SELECT RELEASE_LOCK('digitalogic_mobile_upload_quota')" ); }
 	}
 
 	public function upload( Request $request, string $id ): Response {
@@ -108,12 +109,13 @@ final class MobileRequestController {
 				)
 			);
 			return $this->json( array( 'deleted' => true ) );}
-		if ((int)$row['expires_at'] <= time() && $row['state'] !== 'consumed') {
-			return $this->error('upload_expired','مهلت بارگذاری تمام شده است.',410);
+		if ( (int) $row['expires_at'] <= time() && $row['state'] !== 'consumed' ) {
+			return $this->error( 'upload_expired', 'مهلت بارگذاری تمام شده است.', 410 );
 		}
 		if ( ! $request->isMethod( 'PUT' ) ) {
-			$error=$this->finalizeUpload($row);
-			if($error){return $error;}
+			$error = $this->finalizeUpload( $row );
+			if ( $error ) {
+				return $error;}
 			return $this->json( $this->progress( $row ) );}
 		$offset  = $request->headers->get( 'Upload-Offset', '' );
 		$content = $request->getContent();
@@ -133,7 +135,11 @@ final class MobileRequestController {
 			if ( (int) $offset < $current && (int) $offset + $length <= $current ) {
 				fseek( $stream, (int) $offset );
 				$same = hash_equals( hash( 'sha256', $content ), hash( 'sha256', fread( $stream, $length ) ) );
-				if($same){$error=$this->finalizeUpload($row,$stream);if($error){return $error;}}
+				if ( $same ) {
+					$error = $this->finalizeUpload( $row, $stream );
+					if ( $error ) {
+						return $error;}
+				}
 				return $same ? $this->json( $this->progress( $row, $current ) ) : $this->json(
 					array(
 						'code'    => 'offset_conflict',
@@ -158,7 +164,9 @@ final class MobileRequestController {
 				ftruncate( $stream, $current );
 				return $this->error( 'storage_unavailable', 'ذخیره این بخش کامل نشد.', 503 );}
 			$current += $length;
-			$error=$this->finalizeUpload($row,$stream);if($error){return $error;}
+			$error    = $this->finalizeUpload( $row, $stream );
+			if ( $error ) {
+				return $error;}
 			return $this->json( $this->progress( $row, $current ) );
 		} finally {
 			flock( $stream, LOCK_UN );
@@ -166,19 +174,42 @@ final class MobileRequestController {
 	}
 
 	/** Recover durable bytes after a process exit, and never acknowledge an unsaved final state. */
-	private function finalizeUpload(array &$row,$stream=null): ?Response {
-		global $wpdb;clearstatcache(true,$row['path']);
-		if($row['state']!=='uploading'||!is_file($row['path'])||(int)filesize($row['path'])!==(int)$row['size']){return null;}
-		$owned=$stream===null;
-		if($owned){$stream=fopen($row['path'],'c+b');if(!$stream||!flock($stream,LOCK_EX)){if($stream){fclose($stream);}return $this->error('upload_busy','فایل در حال ذخیره است.',409);}}
-		try{
-			if(!hash_equals($row['sha256'],hash_file('sha256',$row['path']))||!Store::fileTypeMatches($row['path'],strtolower(pathinfo($row['filename'],PATHINFO_EXTENSION)))){
-				ftruncate($stream,0);fflush($stream);$wpdb->update(Store::table('uploads'),array('state'=>'failed'),array('id'=>$row['id']));
-				return $this->error('file_integrity_failed','محتوای فایل با اطلاعات بارگذاری سازگار نیست.',422);
+	private function finalizeUpload( array &$row, $stream = null ): ?Response {
+		global $wpdb;
+		clearstatcache( true, $row['path'] );
+		if ( $row['state'] !== 'uploading' || ! is_file( $row['path'] ) || (int) filesize( $row['path'] ) !== (int) $row['size'] ) {
+			return null;}
+		$owned = $stream === null;
+		if ( $owned ) {
+			$stream = fopen( $row['path'], 'c+b' );
+			if ( ! $stream || ! flock( $stream, LOCK_EX ) ) {
+				if ( $stream ) {
+					fclose( $stream );
+				}return $this->error( 'upload_busy', 'فایل در حال ذخیره است.', 409 );}
+		}
+		try {
+			if ( ! hash_equals( $row['sha256'], hash_file( 'sha256', $row['path'] ) ) || ! Store::fileTypeMatches( $row['path'], strtolower( pathinfo( $row['filename'], PATHINFO_EXTENSION ) ) ) ) {
+				ftruncate( $stream, 0 );
+				fflush( $stream );
+				$wpdb->update( Store::table( 'uploads' ), array( 'state' => 'failed' ), array( 'id' => $row['id'] ) );
+				return $this->error( 'file_integrity_failed', 'محتوای فایل با اطلاعات بارگذاری سازگار نیست.', 422 );
 			}
-			if($wpdb->update(Store::table('uploads'),array('state'=>'complete'),array('id'=>$row['id'],'state'=>'uploading'))!==1){return $this->error('storage_unavailable','وضعیت فایل ذخیره نشد؛ دوباره بررسی کنید.',503);}
-			$row['state']='complete';return null;
-		}finally{if($owned){flock($stream,LOCK_UN);fclose($stream);}}
+			if ( $wpdb->update(
+				Store::table( 'uploads' ),
+				array( 'state' => 'complete' ),
+				array(
+					'id'    => $row['id'],
+					'state' => 'uploading',
+				)
+			) !== 1 ) {
+				return $this->error( 'storage_unavailable', 'وضعیت فایل ذخیره نشد؛ دوباره بررسی کنید.', 503 );}
+			$row['state'] = 'complete';
+			return null;
+		} finally {
+			if ( $owned ) {
+				flock( $stream, LOCK_UN );
+				fclose( $stream );}
+		}
 	}
 
 	public function submit( Request $request ): Response {

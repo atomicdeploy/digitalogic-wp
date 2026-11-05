@@ -41,7 +41,7 @@ class Digitalogic_WebSocket_Server {
 		}
         $this->connect_redis_subscriber();
 
-        while (true) {
+		while ( true ) {
 			$this->check_shopper_sessions();
 			if ( $this->runtime_release_changed() ) {
 				if ( defined( 'WP_CLI' ) && WP_CLI ) {
@@ -213,7 +213,7 @@ class Digitalogic_WebSocket_Server {
 			? array_map('trim', explode(',', (string) $headers['sec-websocket-protocol']))
 			: array();
 		$pricing_service           = 'patris_pricing' === (string) ( $auth['principal'] ?? '' );
-		$shopper = 'mobile_shopper' === (string)($auth['principal']??'');
+		$shopper                   = 'mobile_shopper' === (string) ( $auth['principal'] ?? '' );
 
 		$pricing_protocol = ! empty( $auth['pricing_commands'] ) ? 'digitalogic.pricing.commands.v1' : 'digitalogic.pricing.v1';
 
@@ -252,9 +252,9 @@ class Digitalogic_WebSocket_Server {
 		$this->clients[ $id ]['owner_read_fingerprint'] = (string) ( $auth['owner_read_fingerprint'] ?? '' );
 
 		$this->clients[ $id ]['principal']              = (string) ( $auth['principal'] ?? '' );
-		$this->clients[$id]['native_session_id'] = (string)($auth['native_session_id']??'');
-		$this->clients[$id]['native_checked_at'] = time();
-		$this->clients[ $id ]['source']                 = isset($auth['source']) && is_array($auth['source']) ? $auth['source'] : array();
+		$this->clients[ $id ]['native_session_id']      = (string) ( $auth['native_session_id'] ?? '' );
+		$this->clients[ $id ]['native_checked_at']      = time();
+		$this->clients[ $id ]['source']                 = isset( $auth['source'] ) && is_array( $auth['source'] ) ? $auth['source'] : array();
 		$this->clients[ $id ]['credential_fingerprint'] = (string) ( $auth['credential_fingerprint'] ?? '' );
 		if ( ! empty( $auth['pricing_commands'] ) ) {
 			$this->clients[ $id ]['headers'] = '';
@@ -309,10 +309,15 @@ class Digitalogic_WebSocket_Server {
 			$connected['data']['revision_validation_required'] = true;
 			$connected['data']['revision_path']                = '/wp-json/digitalogic/pricing/sync/revision';
 		}
-		if ($shopper) {
-			$connected['data'] += array('cursor'=>absint($this->clients[$id]['last_event_id']),'oldest_event_id'=>$oldest_event_id,'latest_event_id'=>$latest_event_id,'cursor_reset_required'=>$cursor_reset_required);
+		if ( $shopper ) {
+			$connected['data'] += array(
+				'cursor'                => absint( $this->clients[ $id ]['last_event_id'] ),
+				'oldest_event_id'       => $oldest_event_id,
+				'latest_event_id'       => $latest_event_id,
+				'cursor_reset_required' => $cursor_reset_required,
+			);
 		}
-		if ( ! $this->send_json($id, $connected) ) {
+		if ( ! $this->send_json( $id, $connected ) ) {
 			return;
 		}
         $this->send_missed_panel_events($id);
@@ -645,12 +650,12 @@ class Digitalogic_WebSocket_Server {
 
 		$pricing_service = 'patris_pricing' === (string) ( $this->clients[ $id ]['principal'] ?? '' );
 		$visible         = true;
-		$principal = (string)($this->clients[$id]['principal']??'');
-		if (in_array($principal,array('public','mobile_shopper'),true)) {
-			$event = self::project_shopper_event($event,max(0,(int)($this->clients[$id]['user_id']??0)));
+		$principal       = (string) ( $this->clients[ $id ]['principal'] ?? '' );
+		if ( in_array( $principal, array( 'public', 'mobile_shopper' ), true ) ) {
+			$event   = self::project_shopper_event( $event, max( 0, (int) ( $this->clients[ $id ]['user_id'] ?? 0 ) ) );
 			$visible = $event !== null;
 		} elseif ( $pricing_service ) {
-			$visible = class_exists('Digitalogic_Event_Mesh')
+			$visible = class_exists( 'Digitalogic_Event_Mesh' )
 				&& Digitalogic_Event_Mesh::event_visible_to(
 					$event,
 					0,
@@ -688,25 +693,51 @@ class Digitalogic_WebSocket_Server {
     }
 
 	/** Public projection is an allowlist; native identity never grants panel scope. */
-	public static function project_shopper_event(array $event,int $user_id): ?array {
-		$name=(string)($event['name']??'');$data=is_array($event['data']??null)?$event['data']:array();
-		if ($user_id>0 && $name==='user.updated' && (int)($data['id']??0)===$user_id) {
-			return array('id'=>absint($event['id']??0),'name'=>'profile.updated','time'=>$event['time']??'','data'=>array('scope'=>'profile'));
+	public static function project_shopper_event( array $event, int $user_id ): ?array {
+		$name = (string) ( $event['name'] ?? '' );
+		$data = is_array( $event['data'] ?? null ) ? $event['data'] : array();
+		if ( $user_id > 0 && $name === 'user.updated' && (int) ( $data['id'] ?? 0 ) === $user_id ) {
+			return array(
+				'id'   => absint( $event['id'] ?? 0 ),
+				'name' => 'profile.updated',
+				'time' => $event['time'] ?? '',
+				'data' => array( 'scope' => 'profile' ),
+			);
 		}
-		if ($user_id>0 && $name==='mobile.order.updated' && (int)($data['user_id']??0)===$user_id) {
-			return array('id'=>absint($event['id']??0),'name'=>'order.updated','time'=>$event['time']??'','data'=>array('scope'=>'orders','order_id'=>absint($data['order_id']??0),'status'=>sanitize_key($data['status']??'')));
+		if ( $user_id > 0 && $name === 'mobile.order.updated' && (int) ( $data['user_id'] ?? 0 ) === $user_id ) {
+			return array(
+				'id'   => absint( $event['id'] ?? 0 ),
+				'name' => 'order.updated',
+				'time' => $event['time'] ?? '',
+				'data' => array(
+					'scope'    => 'orders',
+					'order_id' => absint( $data['order_id'] ?? 0 ),
+					'status'   => sanitize_key( $data['status'] ?? '' ),
+				),
+			);
 		}
-		if ($user_id>0 && $name==='mobile.cart.updated' && (int)($data['user_id']??0)===$user_id) {
-			return array('id'=>absint($event['id']??0),'name'=>'cart.updated','time'=>$event['time']??'','data'=>array('scope'=>'cart','revision'=>absint($data['revision']??0)));
+		if ( $user_id > 0 && $name === 'mobile.cart.updated' && (int) ( $data['user_id'] ?? 0 ) === $user_id ) {
+			return array(
+				'id'   => absint( $event['id'] ?? 0 ),
+				'name' => 'cart.updated',
+				'time' => $event['time'] ?? '',
+				'data' => array(
+					'scope'    => 'cart',
+					'revision' => absint( $data['revision'] ?? 0 ),
+				),
+			);
 		}
-		return class_exists('Digitalogic_Storefront_Realtime') ? Digitalogic_Storefront_Realtime::project_public_event($event,$user_id) : null;
+		return class_exists( 'Digitalogic_Storefront_Realtime' ) ? Digitalogic_Storefront_Realtime::project_public_event( $event, $user_id ) : null;
 	}
 
 	private function check_shopper_sessions(): void {
-		foreach ($this->clients as $id=>$client) {
-			if (($client['principal']??'')!=='mobile_shopper' || empty($client['native_session_id']) || (int)($client['native_checked_at']??0)>time()-30) { continue; }
-			if (!\Digitalogic\Laravel\Services\MobileIdentityStore::sessionIsCurrent($client['native_session_id'],(int)$client['user_id'])) { $this->close($id); continue; }
-			$this->clients[$id]['native_checked_at']=time();
+		foreach ( $this->clients as $id => $client ) {
+			if ( ( $client['principal'] ?? '' ) !== 'mobile_shopper' || empty( $client['native_session_id'] ) || (int) ( $client['native_checked_at'] ?? 0 ) > time() - 30 ) {
+				continue; }
+			if ( ! \Digitalogic\Laravel\Services\MobileIdentityStore::sessionIsCurrent( $client['native_session_id'], (int) $client['user_id'] ) ) {
+				$this->close( $id );
+				continue; }
+			$this->clients[ $id ]['native_checked_at'] = time();
 		}
 	}
 

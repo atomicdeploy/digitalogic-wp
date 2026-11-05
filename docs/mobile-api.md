@@ -33,7 +33,7 @@ Send a ping every 25 seconds and reconnect with jitter/backoff starting at 3 sec
 
 ## Shopping and authentication
 
-Bootstrap discovers the official Woo Store API cart URL. Use its `Cart-Token` response header for anonymous native carts and keep it in Android secure storage. It is a bearer capability for that cart, not an account or panel credential. Do not disable nonce checking, embed WooCommerce consumer secrets, write orders directly in SQL, or accept client prices.
+Native cloud carts use an opaque `X-Digitalogic-Cart` token over the installed Woo session/persistent-cart engine. The official Store API URL remains discoverable for compatible callers, but the app does not maintain a second Store API cart. A cart token grants access to its cart, not an account or panel credential; store it in Android secure storage. Do not disable nonce checking, embed WooCommerce consumer secrets, write orders directly in SQL, or accept client prices.
 
 Native account sessions are separate from WordPress browser sessions. The existing `/panel/` browser session/capability boundary is unchanged. No mobile bearer token is exchanged for a panel session. Native checkout requires an existing authenticated WordPress customer; browsing and cart creation remain public. Never submit offline orders.
 
@@ -44,13 +44,13 @@ Native account sessions are separate from WordPress browser sessions. The existi
 | `POST /app-api/auth/otp/request` | `{phone,request_id}` → `202 {challenge_id,retry_after,expires_in,expires_at,delivery_status}` |
 | `POST /app-api/auth/otp/verify` | `{challenge_id,code,device_name}` → session or registration continuation |
 | `POST /app-api/auth/google` | `{id_token,device_name}` → the same session response |
-| `GET/PUT /app-api/account/profile` | `{profile}`; PUT allows first_name, last_name, display_name and allowlisted billing fields |
+| `GET/PUT /app-api/account/profile` | `{profile}`; PUT allows first_name, last_name, display_name, canonical billing/shipping fields and optional address_locations |
 | `GET /app-api/account/orders?page=1` | Owner-only items and pagination, 20 per page |
 | `GET /app-api/auth/sessions` | Owner-only device names, creation/last-use/expiry and current-session marker |
 | `POST /app-api/auth/logout` | Optional session_id; default current session, always owner scoped |
 | `GET/PUT /app-api/account/favorites` | `{items:[product IDs],revision}`; PUT requires base_revision, conflicts return 409/current data |
 
-A successful enrollment returns `{registered:true,access_token,token_type:"Bearer",session_id,expires_at,profile}`. A verified identity without an existing account binding returns `{registered:false,signup_url}` and creates no account. Native bearer tokens are 256-bit random values; only SHA256 hashes persist server-side. Sessions expire after 30 days and password changes invalidate them. Store tokens only in Android secure storage. Customer endpoints are private/no-store and never accept another customer's ID as an authority.
+A successful enrollment returns `{registered:true,access_token,token_type:"Bearer",session_id,expires_at,profile}`. A verified unknown phone returns `{registered:false,registration_token,expires_at,terms}` and creates no account until explicit native confirmation. `POST /auth/register {registration_token,request_id,device_name,terms_accepted}` creates the existing WordPress customer/Digits identity under the configured deterministic phone username policy. It uses an unusable password hash, never a generated human password. A stable request UUID replays the same encrypted session response for the proof lifetime. Unknown Google identities require native phone verification; email alone never claims another account. Native bearer tokens are 256-bit random values; only SHA256 hashes persist server-side. Sessions expire after 30 days and password changes invalidate them. Store tokens only in Android secure storage. Customer endpoints are private/no-store and never accept another customer's ID as an authority.
 
 OTP accepts Persian/Arabic digits and normalizes Iranian mobile numbers. Challenge proofs are keyed hashes, expire after 5 minutes, permit at most 5 attempts and have an atomic one-use claim. A stable request_id prevents automatic resends after uncertain delivery. Limits apply globally, per transport IP and per phone. Existing server-local SMS.ir template configuration and Shatel interception are reused; no secrets enter the app. `delivery_status=accepted` is provider acceptance, not proof of handset receipt; `pending` is uncertain and must not be automatically retried. Existing Digits phone identity metadata is the account authority, never a billing phone field.
 
@@ -90,8 +90,41 @@ WooCommerce → **اپ دیجیتالاجیک** lets a `manage_woocommerce` user
 
 ## Completion boundary
 
-This change delivers the public catalog, runtime configuration, verified cart continuation and native account/session/favorites contracts. OTP app hash, cloud drafts, scoped uploads, admin mobile capabilities, push registration and native order completion remain tracked follow-up work. Capability flags stay false until the corresponding backend path is available and verified.
+Available capabilities are public catalog/bootstrap, exact public-link resolution, native OTP/Google registration and sessions, fresh-proof phone linking, canonical Woo carts and BACS checkout, canonical Woodmart favorites, private service forms/uploads, owner-scoped self-hosted realtime, and canonical customer addresses. Automatic account merge, Fluent native messages, cloud form drafts, native admin, optional Firebase fallback and additional gateway adapters remain gated until their own acceptance evidence exists. Server-only checkout fixtures do not claim real handset order acceptance.
 
 Tracking: [backend issue 437](https://github.com/atomicdeploy/digitalogic-wp/issues/437), [Android delivery ledger](https://github.com/atomicdeploy/digitalogic-app/issues/1), [Android mirror](https://git.digitalogic.ir/root/digitalogic-app).
 
 References: [WooCommerce Cart Tokens](https://developer.woocommerce.com/docs/apis/store-api/cart-tokens), [Cart API](https://developer.woocommerce.com/docs/apis/store-api/resources-endpoints/cart/), [Laravel 13 responses](https://laravel.com/framework/docs/13.x/responses).
+
+### Shared website favorites and account acceptance
+
+Native favorites now adapt the installed Woodmart Wishlist/DB_Storage APIs, including their cache invalidation and remove hook. Existing website entries remain authoritative. Legacy mobile IDs, if present, are merged once into that canonical wishlist; the mobile table is only a revision projection. GET observes website edits; PUT uses base_revision and a canonical sorted-ID hash, returns409 with the current list for competing edits, and treats identical desired-state replay as success. No legacy favorite rows existed at the rollout checkpoint.
+
+A controlled, clearly marked WordPress customer fixture verified both account surfaces on2026-11-06: native PATCH updated the numeric Woo session and existing persistent cart; the authenticated website cart form changed the quantity subsequently read by native GET; the website wishlist read a native addition and native GET read its removal; authenticated checkout returned the canonical schema. Outgoing mail was blocked, the fixture registration notification hook was suppressed only in the test process, no orders existed, and all fixture customer/session/cart/favorite data was cleaned. This is server acceptance, not proof of real device OTP/Google sign-in.
+
+Website and native Woo add/remove/quantity/empty hooks enqueue an owner-scoped cart.updated invalidation after normal Woo session persistence. Guest sockets receive no cart events. Native metadata locks serialize native edits; existing Woo browser sessions retain Woo's ordinary concurrent-request behavior, so this does not claim strict cross-channel transactional isolation.
+
+Recovery tests also verified that a dead precreation worker is terminally rejected under its operation lock, successful BACS recovery finalizes the canonical cart once, and later website edits remain intact with cart_review_required when quantities differ. These tests used an in-memory order stub and created no Woo order/payment. Real order acceptance requires an actual verified customer context and explicit final confirmation.
+
+
+### Fresh identity proof and phone linkage
+
+`POST /account/reauth/google {id_token}` requires the existing native bearer, validates the Google signature and exact current WordPress subject owner, and returns `{reauthenticated:true,verified_at,profile}` without switching the account or token. Proof freshness is bounded by the signed token issuance time (10 minutes); replay cannot renew it. Legacy sessions require this reauthentication. `reauth_required` is HTTP403, distinct from an expired bearer401.
+
+`POST /account/phone/request {phone,request_id}` returns the normal challenge shape. `POST /account/phone/verify {challenge_id,code}` returns `{status:'linked'|'review_required',profile,message,account_merge_available:false}`. Challenges bind purpose, WordPress owner and native session. Login proofs cannot be used for phone linking or vice versa. A phone already assigned elsewhere, ambiguous ownership, or replacing an existing different phone requires review; no accounts, roles or histories are transferred. Profile includes `identity:{phone_verified,google_linked,phone_masked,email_masked,requires_phone_verification}`.
+
+No-send production fixtures verified cross-session denial, purpose isolation, fresh-proof enforcement, the five-guess limit, same-result replay, canonical Digits attachment and duplicate preservation. Fixtures and sessions were removed; no real SMS/order/payment was sent.
+
+### Canonical customer addresses and optional map locations
+
+Profile includes `billing`, `shipping`, `address_schema`, `address_locations` and `address_map`. Schema comes from country-aware Woo address fields; `options_by_country` supplies actual dependent state choices. Profile PUT validates and saves through `WC_Customer`, preserving the other address section and authentication identity. A billing/shipping phone is contact data and never updates Digits verification.
+
+Optional `address_locations:{billing:{lat,lon,accuracy?}|null,shipping:{...}|null}` uses finite bounded coordinates. Absent keys preserve existing values; null explicitly clears a pin. The metadata lives on the existing Woo customer/order objects (`_digitalogic_billing_location`, `_digitalogic_shipping_location`), with no separate address authority. Checkout quotes bind effective pins into their fingerprint and final orders retain that snapshot. When shipping uses billing, its effective pin follows billing. The initial map viewport never supplies a destination automatically. Public tile URL/attribution are configurable in WooCommerce's app settings, with OpenStreetMap as the default.
+
+### Published business information and Android links
+
+`bootstrap.business` projects the existing published contact/about pages, including source URLs. Visitor address comes from the published contact page; the Woo fulfillment-origin address differs and was deliberately left unchanged. Published hours currently name days only, so no opening times are invented. Telephone extensions are separate from dialable base numbers.
+
+`GET /links/resolve?url=...` accepts bounded same-host HTTPS public Woo product/category permalinks only. It validates the exact canonical URL after WordPress resolution, without fetching remote URLs, following redirects or guessing product IDs from text. Queries, credentials, ports, fragments and encoded path/action ambiguity are rejected. The permanent Android certificate association is served by the existing Apache `/.well-known/` alias at `/var/www/html/.well-known/assetlinks.json`; Android manifest/parser paths remain narrowly scoped.
+
+On2026-11-06 product10698, exact SKU113004003, received a targeted content correction: removed internal catalog variation/matching instructions and replaced the unresolved board-detail note with a customer support prompt. Existing chip facts, SKU and excerpt were preserved. Prior revision14671 plus the product's scoped content backup preserve the previous text. Both public API and rendered product page were independently read back.

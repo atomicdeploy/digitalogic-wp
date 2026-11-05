@@ -771,46 +771,80 @@ final class Digitalogic_Storefront_Order_Forms {
 
 	/** Reuse website validation without changing the current WordPress identity. */
 	public function validate_native( string $type, array $fields ) {
-		if ( ! in_array( $type, array( 'pcb', 'foreign' ), true ) ) { return new WP_Error( 'invalid_form', 'نوع فرم معتبر نیست.' ); }
+		if ( ! in_array( $type, array( 'pcb', 'foreign' ), true ) ) {
+			return new WP_Error( 'invalid_form', 'نوع فرم معتبر نیست.' ); }
 		$previous = $_POST;
 		try {
-			$_POST = wp_slash( $fields );
+			$_POST   = wp_slash( $fields );
 			$contact = $this->sanitize_contact();
-			if ( is_wp_error( $contact ) ) { return $contact; }
+			if ( is_wp_error( $contact ) ) {
+				return $contact; }
 			$payload = $type === 'pcb' ? $this->sanitize_pcb_payload() : $this->sanitize_foreign_payload();
-			return is_wp_error( $payload ) ? $payload : array( 'contact'=>$contact, 'payload'=>$payload );
-		} finally { $_POST = $previous; }
+			return is_wp_error( $payload ) ? $payload : array(
+				'contact' => $contact,
+				'payload' => $payload,
+			);
+		} finally {
+			$_POST = $previous; }
 	}
 
 	/** Called only after native session, upload ownership and transaction checks. */
 	public function persist_native( string $type, array $data, int $user_id, array $file ) {
-		$code = $this->generate_code( $type );
+		$code  = $this->generate_code( $type );
 		$label = $type === 'pcb' ? 'PCB' : 'سفارش خارجی';
-		$id = wp_insert_post( array( 'post_type'=>self::POST_TYPE, 'post_status'=>'private', 'post_author'=>$user_id, 'post_title'=>sprintf('%s %s — %s',$label,$code,$data['contact']['name']) ), true );
-		if ( is_wp_error( $id ) ) { return $id; }
-		foreach ( array( 'type'=>$type,'code'=>$code,'status'=>'new','contact'=>$data['contact'],'payload'=>$data['payload'],'file'=>$file,'source_url'=>home_url('/app-api/requests') ) as $key=>$value ) {
-			if ( ! update_post_meta( $id, '_dgl_request_' . $key, $value ) ) { return new WP_Error( 'save_failed', 'ذخیره درخواست کامل نشد.' ); }
+		$id    = wp_insert_post(
+			array(
+				'post_type'   => self::POST_TYPE,
+				'post_status' => 'private',
+				'post_author' => $user_id,
+				'post_title'  => sprintf( '%s %s — %s', $label, $code, $data['contact']['name'] ),
+			),
+			true
+		);
+		if ( is_wp_error( $id ) ) {
+			return $id; }
+		foreach ( array(
+			'type'       => $type,
+			'code'       => $code,
+			'status'     => 'new',
+			'contact'    => $data['contact'],
+			'payload'    => $data['payload'],
+			'file'       => $file,
+			'source_url' => home_url( '/app-api/requests' ),
+		) as $key => $value ) {
+			if ( ! update_post_meta( $id, '_dgl_request_' . $key, $value ) ) {
+				return new WP_Error( 'save_failed', 'ذخیره درخواست کامل نشد.' ); }
 		}
-		return array( 'id'=>$id,'code'=>$code,'type'=>$type,'status'=>'new','created_at'=>gmdate('c') );
+		return array(
+			'id'         => $id,
+			'code'       => $code,
+			'type'       => $type,
+			'status'     => 'new',
+			'created_at' => gmdate( 'c' ),
+		);
 	}
 
 	/** Notifications run once after the durable submission commits. */
 	public function notify_native( array $request, array $data ): void {
-		if (function_exists('as_enqueue_async_action')) {
-			as_enqueue_async_action('digitalogic_mobile_request_notify',array((int)$request['id']),'digitalogic-mobile',true);
+		if ( function_exists( 'as_enqueue_async_action' ) ) {
+			as_enqueue_async_action( 'digitalogic_mobile_request_notify', array( (int) $request['id'] ), 'digitalogic-mobile', true );
 		} else {
-			wp_schedule_single_event(time(),'digitalogic_mobile_request_notify',array((int)$request['id']));
+			wp_schedule_single_event( time(), 'digitalogic_mobile_request_notify', array( (int) $request['id'] ) );
 		}
 	}
 
 	/** The delivery claim prevents an uncertain mail timeout from causing duplicate human notifications. */
 	public function deliver_native_notification( $id ): void {
-		$id=absint($id);$post=get_post($id);
-		if(!$post||$post->post_type!==self::POST_TYPE||!add_option('_dgl_mobile_request_notice_'.$id,'claimed','',false)){return;}
-		$type=get_post_meta($id,'_dgl_request_type',true);$code=get_post_meta($id,'_dgl_request_code',true);
-		$contact=(array)get_post_meta($id,'_dgl_request_contact',true);$payload=(array)get_post_meta($id,'_dgl_request_payload',true);
-		$this->notify_admin($id,$code,$type==='pcb'?'PCB':'سفارش خارجی',$contact,$payload);
-		do_action('digitalogic_storefront_request_created',$id,$type,(int)$post->post_author);
+		$id   = absint( $id );
+		$post = get_post( $id );
+		if ( ! $post || $post->post_type !== self::POST_TYPE || ! add_option( '_dgl_mobile_request_notice_' . $id, 'claimed', '', false ) ) {
+			return;}
+		$type    = get_post_meta( $id, '_dgl_request_type', true );
+		$code    = get_post_meta( $id, '_dgl_request_code', true );
+		$contact = (array) get_post_meta( $id, '_dgl_request_contact', true );
+		$payload = (array) get_post_meta( $id, '_dgl_request_payload', true );
+		$this->notify_admin( $id, $code, $type === 'pcb' ? 'PCB' : 'سفارش خارجی', $contact, $payload );
+		do_action( 'digitalogic_storefront_request_created', $id, $type, (int) $post->post_author );
 	}
 
 	/**
