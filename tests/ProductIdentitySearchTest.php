@@ -411,6 +411,12 @@ final class ProductIdentitySearchTest extends TestCase {
 		$this->assertSame( 'PAT-<30>', $item_data[0]['value'] );
 		$this->assertStringContainsString( 'PAT-&lt;30&gt;', $item_data[0]['display'] );
 
+		$with_theme_sku = $identity->add_cart_item_patris_code(
+			array( array( 'key' => 'SKU', 'value' => 'PAT-<30>' ) ),
+			array( 'data' => $product )
+		);
+		$this->assertSame( $item_data, $with_theme_sku );
+
 		$order_item = new class() {
 			/**
 			 * Captured order metadata.

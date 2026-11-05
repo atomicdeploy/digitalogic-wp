@@ -130,12 +130,22 @@ final class Digitalogic_Product_Identity {
 			}
 		}
 
-		$item_data[] = array(
+		$code_row = array(
 			'key'     => self::PRODUCT_CODE_LABEL,
 			'value'   => $code,
 			'display' => '<span class="digitalogic-cart-product-code" dir="ltr">' . esc_html( $code ) . '</span>',
 		);
 
+		// Woodmart adds a separate SKU row before this filter.
+		$theme_sku_label = esc_html( __( 'SKU', 'woodmart' ) );
+		foreach ( $item_data as $index => $item ) {
+			if ( $theme_sku_label === ( $item['key'] ?? null ) && $code === ( $item['value'] ?? null ) ) {
+				$item_data[ $index ] = $code_row;
+				return $item_data;
+			}
+		}
+
+		$item_data[] = $code_row;
 		return $item_data;
 	}
 
