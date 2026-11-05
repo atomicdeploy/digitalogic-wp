@@ -1,7 +1,19 @@
 <?php
+/**
+ * Native RealtimeContractTest adapter and verification contracts.
+ *
+ * @package Digitalogic
+ */
+
 use PHPUnit\Framework\TestCase;
 
+/** Regression coverage for the native adapter. */
 final class MobileRealtimeContractTest extends TestCase {
+	/**
+	 * Verify public events never inherit panel payload or customer events.
+	 *
+	 * @return void Native adapter result.
+	 */
 	public function test_public_events_never_inherit_panel_payload_or_customer_events(): void {
 		$project = Digitalogic_WebSocket_Server::project_shopper_event(
 			array(
@@ -42,6 +54,11 @@ final class MobileRealtimeContractTest extends TestCase {
 			);}
 	}
 
+	/**
+	 * Verify native identity receives only own small invalidation.
+	 *
+	 * @return void Native adapter result.
+	 */
 	public function test_native_identity_receives_only_own_small_invalidation(): void {
 		$event = array(
 			'id'   => 44,
@@ -88,6 +105,11 @@ final class MobileRealtimeContractTest extends TestCase {
 		);
 	}
 
+	/**
+	 * Verify guest shopper auth cannot select a panel or machine principal.
+	 *
+	 * @return void Native adapter result.
+	 */
 	public function test_guest_shopper_auth_cannot_select_a_panel_or_machine_principal(): void {
 		$context = Digitalogic_WebSocket_Auth::authenticate_context( array( 'sec-websocket-protocol' => 'digitalogic.shopper' ), array() );
 		self::assertSame( 'mobile_shopper', $context['principal'] );

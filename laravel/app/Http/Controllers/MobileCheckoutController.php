@@ -1,5 +1,15 @@
 <?php
+/**
+ * Native CheckoutController adapter and verification contracts.
+ *
+ * @package Digitalogic
+ */
+
 namespace Digitalogic\Laravel\Http\Controllers;
+
+// phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Security, lock and operation metadata must read current SQL state rather than stale cache; canonical commerce writes use Woo/provider APIs.
+
+// phpcs:disable WordPress.Files.FileName, WordPress.NamingConventions.ValidFunctionName.MethodNameInvalid -- Composer PSR-4 class names and Laravel method contracts are intentional.
 
 use Digitalogic\Laravel\Services\MobileCheckoutStore as Store;
 use Digitalogic\Laravel\Services\MobileCartStore;
@@ -13,8 +23,19 @@ use Symfony\Component\HttpFoundation\Response;
 
 /** Native presentation and idempotency around the installed Woo checkout engine. */
 final class MobileCheckoutController {
+	/**
+	 * Report whether the deployed adapter and its required provider are available.
+	 *
+	 * @return bool Native adapter result.
+	 */
 	public static function enabled(): bool {
 		return MobileCartController::enabled() && get_option( 'digitalogic_mobile_checkout_schema' ) === '2' && (bool) get_option( 'digitalogic_mobile_native_checkout', false );}
+	/**
+	 * Resolve the current native owner and canonical Woo cart without browser cookie handoff.
+	 *
+	 * @param Request $request Bounded native HTTP request.
+	 * @return mixed Native adapter result.
+	 */
 	private function context( Request $request ) {
 		if ( ! self::enabled() ) {
 			return new \WP_Error( 'checkout_unavailable', 'تکمیل خرید موقتاً در دسترس نیست.', array( 'status' => 503 ) );}
@@ -27,6 +48,12 @@ final class MobileCheckoutController {
 			return new \WP_Error( 'cart_claim_required', 'ابتدا سبد خرید را با حساب همگام کنید.', array( 'status' => 409 ) );}
 		return $context;
 	}
+	/**
+	 * Present the canonical Woo checkout state without creating an order.
+	 *
+	 * @param Request $request Bounded native HTTP request.
+	 * @return Response Native adapter result.
+	 */
 	public function show( Request $request ): Response {
 		$context = $this->context( $request );
 		if ( is_wp_error( $context ) ) {
@@ -38,6 +65,12 @@ final class MobileCheckoutController {
 		} finally {
 			$woo->close();}
 	}
+	/**
+	 * Bound checkout input and reject client-owned prices or owner identifiers.
+	 *
+	 * @param mixed $input Validated or pending native input.
+	 * @return array|null Native adapter result.
+	 */
 	public static function normalizeInput( $input ): ?array {
 		if ( ! is_array( $input ) || array_diff( array_keys( $input ), array( 'cart_revision', 'billing', 'shipping', 'ship_to_different_address', 'shipping_methods', 'payment_method', 'coupons', 'customer_note', 'address_locations' ) ) || ! is_int( $input['cart_revision'] ?? null ) || $input['cart_revision'] < 0 ) {
 			return null;}
@@ -75,10 +108,17 @@ final class MobileCheckoutController {
 			return null;}
 		if ( array_key_exists( 'address_locations', $input ) ) {
 			$input['address_locations'] = MobileAddresses::normalize_locations( $input['address_locations'] );
-			if ( null === $input['address_locations'] ) { return null; }
+			if ( null === $input['address_locations'] ) {
+				return null; }
 		}
 		return $input;
 	}
+	/**
+	 * Reserve a short-lived quote bound to current canonical checkout state.
+	 *
+	 * @param Request $request Bounded native HTTP request.
+	 * @return Response Native adapter result.
+	 */
 	public function quote( Request $request ): Response {
 		$context = $this->context( $request );
 		if ( is_wp_error( $context ) ) {
@@ -86,7 +126,7 @@ final class MobileCheckoutController {
 		if ( ! Identity::admit( 'checkout-quote:' . $context['session']['user_id'], 40, 60 ) ) {
 			return $this->error( 'rate_limited', 'کمی بعد دوباره بررسی کنید.', 429 );}
 		$input = self::normalizeInput( $request->json()->all() );
-		if ( $input === null ) {
+		if ( null === $input ) {
 			return $this->error( 'invalid_checkout', 'اطلاعات خرید معتبر نیست.', 400 );}
 		if ( $input['cart_revision'] !== (int) $context['cart']['revision'] ) {
 			return $this->error( 'cart_changed', 'سبد تغییر کرده است؛ دوباره آن را بررسی کنید.', 409 );}
@@ -102,6 +142,13 @@ final class MobileCheckoutController {
 		} finally {
 			$woo->close();}
 	}
+	/**
+	 * Submit an explicitly confirmed immutable operation with durable recovery state.
+	 *
+	 * @param Request $request Bounded native HTTP request.
+	 * @return Response Native adapter result.
+	 * @throws \RuntimeException When the authoritative operation cannot be completed safely.
+	 */
 	public function submit( Request $request ): Response {
 		$context = $this->context( $request );
 		if ( is_wp_error( $context ) ) {
@@ -144,11 +191,11 @@ final class MobileCheckoutController {
 			$quotes     = Store::table( 'checkout_quotes' );
 			$operations = Store::table( 'checkout_operations' );
 			$carts      = MobileCartStore::table( 'carts' );
-			$quote      = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$quotes} WHERE id=%s AND user_id=%d AND cart_id=%s", $quote_id, $user, $context['cart']['id'] ), ARRAY_A );
+			$quote      = $wpdb->get_row( $wpdb->prepare( 'SELECT * FROM %i WHERE id=%s AND user_id=%d AND cart_id=%s', $quotes, $quote_id, $user, $context['cart']['id'] ), ARRAY_A );
 			if ( ! $quote || $quote['expires_at'] <= time() ) {
 				return $this->reject( $context, $id, $hash, 'quote_expired', 'قیمت و شرایط خرید را دوباره بررسی کنید.', 409 );}
 			$wpdb->query( 'START TRANSACTION' );
-			$cart = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$carts} WHERE id=%s FOR UPDATE", $context['cart']['id'] ), ARRAY_A );
+			$cart = $wpdb->get_row( $wpdb->prepare( 'SELECT * FROM %i WHERE id=%s FOR UPDATE', $carts, $context['cart']['id'] ), ARRAY_A );
 			$cart = $cart ? MobileWooCart::reconcile( $cart ) : null;
 			if ( ! $cart || (int) $cart['revision'] !== (int) $quote['cart_revision'] ) {
 				$wpdb->query( 'ROLLBACK' );
@@ -156,7 +203,7 @@ final class MobileCheckoutController {
 			if ( Store::busy( $cart['id'] ) ) {
 				$wpdb->query( 'ROLLBACK' );
 				return $this->reject( $context, $id, $hash, 'checkout_in_progress', 'ابتدا نتیجه تأیید قبلی را دریافت کنید.', 409 );}
-			if ( $wpdb->get_var( $wpdb->prepare( "SELECT operation_key FROM {$operations} WHERE quote_id=%s", $quote_id ) ) ) {
+			if ( $wpdb->get_var( $wpdb->prepare( 'SELECT operation_key FROM %i WHERE quote_id=%s', $operations, $quote_id ) ) ) {
 				$wpdb->query( 'ROLLBACK' );
 				return $this->reject( $context, $id, $hash, 'quote_used', 'این تأیید قبلاً استفاده شده است؛ سفارش‌ها را بررسی کنید.', 409 );}
 			$row = array(
@@ -194,7 +241,7 @@ final class MobileCheckoutController {
 				) !== 1 ) {
 					throw new \RuntimeException( 'operation_storage_failed' );}
 				$locations = $woo->addressLocations();
-				$annotate = static function ( $order ) use ( $key, $locations ) {
+				$annotate  = static function ( $order ) use ( $key, $locations ) {
 					$order->update_meta_data( '_digitalogic_mobile_operation', $key );
 					MobileAddresses::apply_locations( $order, $locations );
 				};
@@ -207,7 +254,8 @@ final class MobileCheckoutController {
 					$order_id = $woo->engine->create_order( $woo->data );
 				} finally {
 					remove_action( 'woocommerce_checkout_create_order', $annotate, PHP_INT_MAX );}
-				if ( is_wp_error( $order_id ) || ! ( $order = wc_get_order( $order_id ) ) ) {
+				$order = is_wp_error( $order_id ) ? false : wc_get_order( $order_id );
+				if ( ! $order ) {
 					throw new \RuntimeException( 'order_creation_uncertain' );}
 				if ( (int) $order->get_customer_id() !== $user ) {
 					throw new \RuntimeException( 'order_owner_mismatch' );}
@@ -247,7 +295,7 @@ final class MobileCheckoutController {
 		} catch ( \Throwable $error ) {
 			$wpdb->query( 'ROLLBACK' );
 			$safe = Store::operation( $user, $id );
-			if ( $safe && $safe['state'] === 'validating' ) {
+			if ( $safe && 'validating' === $safe['state'] ) {
 				return $this->reject( $context, $id, $hash, 'checkout_validation', 'امکان تأیید شرایط سفارش نبود؛ دوباره بررسی کنید.', 422 );
 			}$operations = Store::table( 'checkout_operations' );
 			$wpdb->update(
@@ -271,6 +319,18 @@ final class MobileCheckoutController {
 		} finally {
 			$wpdb->get_var( $wpdb->prepare( 'SELECT RELEASE_LOCK(%s)', $lock ) );}
 	}
+	/**
+	 * Persist a terminal precreation rejection so a late replay cannot create an order.
+	 *
+	 * @param array  $context Verified owner and canonical cart context.
+	 * @param string $id Exact scoped identifier.
+	 * @param string $hash Hash.
+	 * @param string $code Bounded error or challenge code.
+	 * @param string $message Message.
+	 * @param int    $status HTTP or durable operation status.
+	 * @param array  $issues Issues.
+	 * @return Response Native adapter result.
+	 */
 	private function reject( array $context, string $id, string $hash, string $code, string $message, int $status, array $issues = array() ): Response {
 		global $wpdb;
 		$table    = Store::table( 'checkout_operations' );
@@ -307,7 +367,7 @@ final class MobileCheckoutController {
 					'created_at'    => time(),
 				)
 			);}
-		if ( $saved === false ) {
+		if ( false === $saved ) {
 			return $this->json(
 				array(
 					'operation_id'     => $id,
@@ -318,6 +378,13 @@ final class MobileCheckoutController {
 			);
 		}return $this->json( $body, $status );
 	}
+	/**
+	 * Recover an owner-scoped operation without automatically repeating its side effects.
+	 *
+	 * @param Request $request Bounded native HTTP request.
+	 * @param string  $id Exact scoped identifier.
+	 * @return Response Native adapter result.
+	 */
 	public function lookup( Request $request, string $id ): Response {
 		$session = Identity::authenticate( $request->headers->get( 'Authorization', '' ) );
 		if ( ! $session ) {
@@ -352,9 +419,15 @@ final class MobileCheckoutController {
 		} finally {
 			$wpdb->get_var( $wpdb->prepare( 'SELECT RELEASE_LOCK(%s)', $lock ) );}
 	}
+	/**
+	 * Project durable operation state and recover only provable outcomes.
+	 *
+	 * @param array $row Supporting durable metadata row.
+	 * @return Response Native adapter result.
+	 */
 	private function operationResponse( array $row ): Response {
 		// Caller holds the per-operation lock. A dead validating worker never entered create_order.
-		if ( $row['state'] === 'validating' ) {
+		if ( 'validating' === $row['state'] ) {
 			return $this->reject(
 				array(
 					'session' => array( 'user_id' => (int) $row['user_id'] ),
@@ -379,7 +452,9 @@ final class MobileCheckoutController {
 			$orders = wc_get_orders(
 				array(
 					'customer_id' => (int) $row['user_id'],
+					// phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key -- Owner-bounded recovery uses the canonical Woo order metadata API.
 					'meta_key'    => '_digitalogic_mobile_operation',
+					// phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_value -- Exact immutable operation key, limit two, scoped to the verified customer.
 					'meta_value'  => $row['operation_key'],
 					'limit'       => 2,
 				)
@@ -390,7 +465,8 @@ final class MobileCheckoutController {
 		if ( $order && (int) $order->get_customer_id() === (int) $row['user_id'] && $order->get_payment_method() === 'bacs' && $order->has_status( array( 'on-hold', 'processing', 'completed' ) ) ) {
 			try {
 				return $this->finalizeAccepted( $row, $order, array( 'status' => $order->is_paid() ? 'complete' : 'awaiting_bank_transfer' ), 200 );} catch ( \Throwable $error ) {
-				/* Keep pending until canonical cart finalization succeeds. */}
+				// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- Operational failure signal contains no token, phone, customer data or exception details.
+				error_log( 'Digitalogic native checkout awaits canonical cart finalization.' );}
 		}
 		$body = array(
 			'operation_id'     => $row['request_id'],
@@ -403,6 +479,17 @@ final class MobileCheckoutController {
 			$body['payment'] = array( 'status' => 'requires_review' );}
 		return $this->json( $body, 202 );
 	}
+	/**
+	 * Finalize the canonical cart once while preserving later website changes.
+	 *
+	 * @param array $row Supporting durable metadata row.
+	 * @param mixed $order Order.
+	 * @param array $payment Payment.
+	 * @param int   $status HTTP or durable operation status.
+	 * @return Response Native adapter result.
+	 * @throws \RuntimeException When the authoritative operation cannot be completed safely.
+	 * @throws \Throwable After rollback when the underlying authoritative operation fails.
+	 */
 	private function finalizeAccepted( array $row, $order, array $payment, int $status ): Response {
 		global $wpdb;
 		$operations = Store::table( 'checkout_operations' );
@@ -410,9 +497,9 @@ final class MobileCheckoutController {
 		$wpdb->query( 'START TRANSACTION' );
 		$cart = null;
 		try {
-			$cart   = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$carts} WHERE id=%s FOR UPDATE", $row['cart_id'] ), ARRAY_A );
-			$latest = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$operations} WHERE operation_key=%s FOR UPDATE", $row['operation_key'] ), ARRAY_A );
-			if ( $latest && $latest['state'] === 'accepted' && $latest['response'] ) {
+			$cart   = $wpdb->get_row( $wpdb->prepare( 'SELECT * FROM %i WHERE id=%s FOR UPDATE', $carts, $row['cart_id'] ), ARRAY_A );
+			$latest = $wpdb->get_row( $wpdb->prepare( 'SELECT * FROM %i WHERE operation_key=%s FOR UPDATE', $operations, $row['operation_key'] ), ARRAY_A );
+			if ( $latest && 'accepted' === $latest['state'] && $latest['response'] ) {
 				$wpdb->query( 'COMMIT' );
 				return $this->json( json_decode( $latest['response'], true ) + array( 'replayed' => true ) );}
 			$review   = false;
@@ -429,7 +516,7 @@ final class MobileCheckoutController {
 							'id'       => (int) $line['id'],
 							'quantity' => 0,
 						);
-					} elseif ( $quantity !== 0 ) {
+					} elseif ( 0 !== $quantity ) {
 						$review = true;}
 				}
 				if ( $changes ) {
@@ -462,6 +549,12 @@ final class MobileCheckoutController {
 				MobileWooCart::invalidate( $cart );
 			}throw $error;}
 	}
+	/**
+	 * Project the verified customer-owned order for native confirmation.
+	 *
+	 * @param mixed $order Order.
+	 * @return array Native adapter result.
+	 */
 	private function order( $order ): array {
 		return array(
 			'id'           => $order->get_id(),
@@ -471,8 +564,22 @@ final class MobileCheckoutController {
 			'currency'     => $order->get_currency(),
 			'date_created' => $order->get_date_created() ? $order->get_date_created()->date( DATE_ATOM ) : null,
 		);}
+	/**
+	 * Translate an existing WordPress validation failure into the native error contract.
+	 *
+	 * @param \WP_Error $error Error.
+	 * @return Response Native adapter result.
+	 */
 	private function wpError( \WP_Error $error ): Response {
 		return $this->error( $error->get_error_code(), $error->get_error_message(), (int) ( $error->get_error_data()['status'] ?? 400 ) );}
+	/**
+	 * Return a bounded error code and customer-facing message.
+	 *
+	 * @param string $code Bounded error or challenge code.
+	 * @param string $message Message.
+	 * @param int    $status HTTP or durable operation status.
+	 * @return Response Native adapter result.
+	 */
 	private function error( string $code, string $message, int $status ): Response {
 		return $this->json(
 			array(
@@ -481,6 +588,13 @@ final class MobileCheckoutController {
 			),
 			$status
 		);}
+	/**
+	 * Return a native JSON response with the appropriate privacy headers.
+	 *
+	 * @param array $data Canonical or validated native data.
+	 * @param int   $status HTTP or durable operation status.
+	 * @return Response Native adapter result.
+	 */
 	private function json( array $data, int $status = 200 ): Response {
 		return response()->json(
 			$data,

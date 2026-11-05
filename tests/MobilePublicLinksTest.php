@@ -12,7 +12,11 @@ require_once dirname( __DIR__ ) . '/laravel/app/Services/MobileStorefrontInfo.ph
 
 /** Public URL equivalence and action isolation. */
 final class MobilePublicLinksTest extends TestCase {
-	/** Encoded Persian paths compare without permitting query/action smuggling. */
+	/**
+	 * Encoded Persian paths compare without permitting query/action smuggling.
+	 *
+	 * @return void Native adapter result.
+	 */
 	public function test_only_exact_same_host_read_paths_are_normalized(): void {
 		self::assertSame( '/product/برد/', MobileStorefrontInfo::public_path( 'https://digitalogic.ir/product/%D8%A8%D8%B1%D8%AF/', 'digitalogic.ir' ) );
 		self::assertSame( '/product/nano/', MobileStorefrontInfo::public_path( 'https://digitalogic.ir/product/nano', 'digitalogic.ir' ) );

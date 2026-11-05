@@ -1,4 +1,9 @@
 <?php
+/**
+ * Internal native adapter routes behind the bounded public dispatcher.
+ *
+ * @package Digitalogic
+ */
 
 use Illuminate\Support\Facades\Route;
 use Digitalogic\Laravel\Http\Controllers\MobileCatalogController;

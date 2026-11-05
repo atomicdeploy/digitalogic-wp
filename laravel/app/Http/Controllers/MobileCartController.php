@@ -1,6 +1,15 @@
 <?php
+/**
+ * Native CartController adapter and verification contracts.
+ *
+ * @package Digitalogic
+ */
 
 namespace Digitalogic\Laravel\Http\Controllers;
+
+// phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Security, lock and operation metadata must read current SQL state rather than stale cache; canonical commerce writes use Woo/provider APIs.
+
+// phpcs:disable WordPress.Files.FileName, WordPress.NamingConventions.ValidFunctionName.MethodNameInvalid -- Composer PSR-4 class names and Laravel method contracts are intentional.
 
 use Digitalogic\Laravel\Services\MobileCartStore as Store;
 use Digitalogic\Laravel\Services\MobileIdentityStore as Identity;
@@ -10,12 +19,24 @@ use Digitalogic\Laravel\Services\MobileCheckoutStore;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 
+/** Native adapter over canonical WordPress and WooCommerce authority. */
 final class MobileCartController {
 
+	/**
+	 * Report whether the deployed adapter and its required provider are available.
+	 *
+	 * @return bool Native adapter result.
+	 */
 	public static function enabled(): bool {
 		return get_option( 'digitalogic_mobile_cart_schema' ) === '2' && (bool) get_option( 'digitalogic_mobile_cloud_cart', false );
 	}
 
+	/**
+	 * Dispatch supported cart operations against the same canonical Woo cart.
+	 *
+	 * @param Request $request Bounded native HTTP request.
+	 * @return Response Native adapter result.
+	 */
 	public function cart( Request $request ): Response {
 		if ( ! self::enabled() ) {
 			return $this->error( 'cart_unavailable', 'سبد ابری موقتاً در دسترس نیست.', 503 );
@@ -33,14 +54,21 @@ final class MobileCartController {
 		return $this->json( $this->snapshot( $context['cart'], $context['token'] ), $request->isMethod( 'POST' ) ? 201 : 200 );
 	}
 
+	/**
+	 * Resolve the current native owner and canonical Woo cart without browser cookie handoff.
+	 *
+	 * @param Request $request Bounded native HTTP request.
+	 * @param bool    $create Create.
+	 * @return mixed Native adapter result.
+	 */
 	public function context( Request $request, bool $create = false ) {
 		$authorization = $request->headers->get( 'Authorization', '' );
-		$session       = $authorization !== '' && MobileIdentityController::enabled() ? Identity::authenticate( $authorization ) : null;
-		if ( $authorization !== '' && ! $session ) {
+		$session       = '' !== $authorization && MobileIdentityController::enabled() ? Identity::authenticate( $authorization ) : null;
+		if ( '' !== $authorization && ! $session ) {
 			return new \WP_Error( 'unauthorized', 'دوباره وارد حساب شوید.', array( 'status' => 401 ) );
 		}
 		$token = $request->headers->get( 'X-Digitalogic-Cart', '' );
-		if ( $token !== '' ) {
+		if ( '' !== $token ) {
 			$cart = Store::byToken( $token );
 			if ( ! $cart ) {
 				return new \WP_Error( 'cart_token_invalid', 'دسترسی به سبد منقضی شده است.', array( 'status' => 401 ) );
@@ -52,7 +80,7 @@ final class MobileCartController {
 			$cart  = Store::create( (int) $session['user_id'] );
 			$token = Store::token( $cart['id'] );
 		} elseif ( $create ) {
-			if ( ! Identity::admit( 'cart-create-ip:' . ( $_SERVER['REMOTE_ADDR'] ?? 'unknown' ), 30, 3600 ) || ! Identity::admit( 'cart-create-global', 300, 3600 ) ) {
+			if ( ! Identity::admit( 'cart-create-ip:' . sanitize_text_field( wp_unslash( $_SERVER['REMOTE_ADDR'] ?? 'unknown' ) ), 30, 3600 ) || ! Identity::admit( 'cart-create-global', 300, 3600 ) ) {
 				return new \WP_Error( 'rate_limited', 'برای ایجاد سبد تازه کمی صبر کنید.', array( 'status' => 429 ) );
 			}
 			$cart  = Store::create();
@@ -67,13 +95,21 @@ final class MobileCartController {
 		);
 	}
 
+	/**
+	 * Apply immutable cart operations with revision checks and touched-line conflict detection.
+	 *
+	 * @param Request $request Bounded native HTTP request.
+	 * @param array   $context Verified owner and canonical cart context.
+	 * @return Response Native adapter result.
+	 * @throws \RuntimeException When the authoritative operation cannot be completed safely.
+	 */
 	private function patch( Request $request, array $context ): Response {
 		global $wpdb;
 		$input    = $request->json()->all();
 		$id       = $input['operation_id'] ?? '';
 		$revision = $input['base_revision'] ?? null;
 		$changes  = Store::changes( $input['items'] ?? null );
-		if ( ! MobileRequestStore::validRequestId( $id ) || ! is_int( $revision ) || $revision < 0 || $changes === null || array_diff( array_keys( $input ), array( 'operation_id', 'base_revision', 'items' ) ) ) {
+		if ( ! MobileRequestStore::validRequestId( $id ) || ! is_int( $revision ) || $revision < 0 || null === $changes || array_diff( array_keys( $input ), array( 'operation_id', 'base_revision', 'items' ) ) ) {
 			return $this->error( 'invalid_cart_operation', 'تغییر سبد معتبر نیست.', 400 );
 		}
 		if ( ! Identity::admit( 'cart-patch:' . hash( 'sha256', $context['token'] ), 180, 60 ) ) {
@@ -85,7 +121,7 @@ final class MobileCartController {
 		$hash       = hash( 'sha256', wp_json_encode( array( $revision, $changes ) ) );
 		$wpdb->query( 'START TRANSACTION' );
 		try {
-			$cart = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$table} WHERE id=%s FOR UPDATE", $context['cart']['id'] ), ARRAY_A );
+			$cart = $wpdb->get_row( $wpdb->prepare( 'SELECT * FROM %i WHERE id=%s FOR UPDATE', $table, $context['cart']['id'] ), ARRAY_A );
 			if ( ! $cart ) {
 				throw new \RuntimeException( 'cart_changed' );
 			}
@@ -93,7 +129,7 @@ final class MobileCartController {
 			if ( MobileCheckoutStore::busy( $cart['id'] ) ) {
 				$wpdb->query( 'ROLLBACK' );
 				return $this->error( 'checkout_in_progress', 'سفارش در حال بررسی است؛ ابتدا نتیجه آن را دریافت کنید.', 409 );}
-			$prior = $wpdb->get_row( $wpdb->prepare( "SELECT payload_hash,applied_revision FROM {$operations} WHERE operation_key=%s", $key ), ARRAY_A );
+			$prior = $wpdb->get_row( $wpdb->prepare( 'SELECT payload_hash,applied_revision FROM %i WHERE operation_key=%s', $operations, $key ), ARRAY_A );
 			if ( $prior ) {
 				$wpdb->query( 'COMMIT' );
 				if ( ! hash_equals( $prior['payload_hash'], $hash ) ) {
@@ -112,7 +148,7 @@ final class MobileCartController {
 					)
 				);
 			}
-			$current = json_decode( $cart['items'], true ) ?: array();
+			$current = json_decode( $cart['items'], true ) ?? array();
 			$merged  = Store::mergePatch( $current, $changes );
 			if ( $merged['conflicts'] ) {
 				$wpdb->query( 'ROLLBACK' );
@@ -131,11 +167,11 @@ final class MobileCartController {
 			}
 			$catalog = new MobileCatalogController();
 			foreach ( $changes as $change ) {
-				if ( $change['quantity'] === 0 ) {
+				if ( 0 === $change['quantity'] ) {
 					continue;
 				}
 				$product = $catalog->publicProduct( $change['id'] );
-				if ( ! $product || $product['type'] === 'variable' ) {
+				if ( ! $product || 'variable' === $product['type'] ) {
 					$wpdb->query( 'ROLLBACK' );
 					return $this->json(
 						$this->snapshot( $cart, $context['token'] ) + array(
@@ -182,7 +218,9 @@ final class MobileCartController {
 			}
 			try {
 				$this->invalidate( $cart );
-			} catch ( \Throwable $ignored ) { /* Durable cart commit remains authoritative. */
+			} catch ( \Throwable $ignored ) {
+				// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- Operational failure signal contains no token, phone, customer data or exception details.
+				error_log( 'Digitalogic native cart invalidation failed after durable commit.' );
 			}
 			return $this->json(
 				$this->snapshot( $cart, $context['token'] ) + array(
@@ -199,6 +237,13 @@ final class MobileCartController {
 		}
 	}
 
+	/**
+	 * Merge the guest intent into the authenticated canonical cart once per operation.
+	 *
+	 * @param Request $request Bounded native HTTP request.
+	 * @return Response Native adapter result.
+	 * @throws \RuntimeException When the authoritative operation cannot be completed safely.
+	 */
 	public function claim( Request $request ): Response {
 		global $wpdb;
 		if ( ! self::enabled() ) {
@@ -230,7 +275,7 @@ final class MobileCartController {
 		$operations = Store::table( 'cart_operations' );
 		$wpdb->query( 'START TRANSACTION' );
 		try {
-			$rows    = $wpdb->get_results( $wpdb->prepare( "SELECT * FROM {$carts} WHERE id IN (%s,%s) ORDER BY id FOR UPDATE", $account['id'], $context['cart']['id'] ), ARRAY_A );
+			$rows    = $wpdb->get_results( $wpdb->prepare( 'SELECT * FROM %i WHERE id IN (%s,%s) ORDER BY id FOR UPDATE', $carts, $account['id'], $context['cart']['id'] ), ARRAY_A );
 			$by_id   = array_column( $rows, null, 'id' );
 			$account = $by_id[ $account['id'] ] ?? null;
 			$guest   = $by_id[ $context['cart']['id'] ] ?? null;
@@ -243,7 +288,7 @@ final class MobileCartController {
 				$wpdb->query( 'ROLLBACK' );
 				return $this->error( 'checkout_in_progress', 'ابتدا نتیجه سفارش جاری را بررسی کنید.', 409 );}
 			$quantities = array();
-			foreach ( array_merge( json_decode( $account['items'], true ) ?: array(), json_decode( $guest['items'], true ) ?: array() ) as $item ) {
+			foreach ( array_merge( json_decode( $account['items'], true ) ?? array(), json_decode( $guest['items'], true ) ?? array() ) as $item ) {
 				$quantities[ $item['id'] ] = ( $quantities[ $item['id'] ] ?? 0 ) + (int) $item['quantity'];
 			}
 			if ( count( $quantities ) > 40 || ( $quantities && max( $quantities ) > 999 ) ) {
@@ -309,7 +354,9 @@ final class MobileCartController {
 			}
 			try {
 				$this->invalidate( $account );
-			} catch ( \Throwable $ignored ) { /* Reconnect refresh recovers the committed revision. */
+			} catch ( \Throwable $ignored ) {
+				// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- Operational failure signal contains no token, phone, customer data or exception details.
+				error_log( 'Digitalogic native cart claim invalidation failed after durable commit.' );
 			}
 			return $this->json(
 				$this->snapshot( $account, $context['token'] ) + array(
@@ -327,11 +374,18 @@ final class MobileCartController {
 		}
 	}
 
+	/**
+	 * Project current provider state and its revision.
+	 *
+	 * @param array  $cart Cart.
+	 * @param string $token Opaque or signed identity proof; never logged.
+	 * @return array Native adapter result.
+	 */
 	public function snapshot( array $cart, string $token ): array {
 		$catalog = new MobileCatalogController();
 		$items   = array();
 		$ready   = true;
-		foreach ( json_decode( $cart['items'], true ) ?: array() as $line ) {
+		foreach ( json_decode( $cart['items'], true ) ?? array() as $line ) {
 			$product = $catalog->publicProduct( (int) $line['id'] );
 			$issues  = array();
 			if ( ! $product ) {
@@ -343,11 +397,11 @@ final class MobileCartController {
 				if ( ! $product['is_purchasable'] ) {
 					$issues[] = 'not_purchasable';
 				}
-				if ( $product['type'] === 'variable' ) {
+				if ( 'variable' === $product['type'] ) {
 					$issues[] = 'variation_required';
 				}
 				$woo = wc_get_product( (int) $line['id'] );
-				if ( ! $woo->has_enough_stock( (int) $line['quantity'] ) || ( $woo->is_sold_individually() && (int) $line['quantity'] !== 1 ) ) {
+				if ( ! $woo->has_enough_stock( (int) $line['quantity'] ) || ( $woo->is_sold_individually() && 1 !== (int) $line['quantity'] ) ) {
 					$issues[] = 'quantity_unavailable';
 				}
 			}
@@ -372,6 +426,12 @@ final class MobileCartController {
 		);
 	}
 
+	/**
+	 * Remove an explicitly discarded guest cart without deleting an account cart.
+	 *
+	 * @param array $context Verified owner and canonical cart context.
+	 * @return Response Native adapter result.
+	 */
 	private function discardGuest( array $context ): Response {
 		global $wpdb;
 		$carts      = Store::table( 'carts' );
@@ -379,7 +439,7 @@ final class MobileCartController {
 		$operations = Store::table( 'cart_operations' );
 		$wpdb->query( 'START TRANSACTION' );
 		try {
-			$row = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$carts} WHERE id=%s FOR UPDATE", $context['cart']['id'] ), ARRAY_A );
+			$row = $wpdb->get_row( $wpdb->prepare( 'SELECT * FROM %i WHERE id=%s FOR UPDATE', $carts, $context['cart']['id'] ), ARRAY_A );
 			if ( ! $row || ! empty( $row['user_id'] ) ) {
 				$wpdb->query( 'ROLLBACK' );
 				return $this->error( 'account_cart_retained', 'برای خالی کردن سبد حساب، ردیف‌ها را حذف کنید.', 409 );
@@ -396,6 +456,12 @@ final class MobileCartController {
 		}
 	}
 
+	/**
+	 * Invalidate the Woo session cache after a canonical cart mutation.
+	 *
+	 * @param array $cart Cart.
+	 * @return void Native adapter result.
+	 */
 	private function invalidate( array $cart ): void {
 		if ( ! empty( $cart['user_id'] ) && class_exists( 'Digitalogic_Panel' ) ) {
 			\Digitalogic_Panel::record_event(
@@ -409,9 +475,23 @@ final class MobileCartController {
 		}
 	}
 
+	/**
+	 * Translate a rejected cart context into a private response.
+	 *
+	 * @param \WP_Error $error Error.
+	 * @return Response Native adapter result.
+	 */
 	private function contextError( \WP_Error $error ): Response {
 		return $this->error( $error->get_error_code(), $error->get_error_message(), (int) ( $error->get_error_data()['status'] ?? 401 ) );
 	}
+	/**
+	 * Return a bounded error code and customer-facing message.
+	 *
+	 * @param string $code Bounded error or challenge code.
+	 * @param string $message Message.
+	 * @param int    $status HTTP or durable operation status.
+	 * @return Response Native adapter result.
+	 */
 	private function error( string $code, string $message, int $status ): Response {
 		return $this->json(
 			array(
@@ -421,6 +501,13 @@ final class MobileCartController {
 			$status
 		);
 	}
+	/**
+	 * Return a native JSON response with the appropriate privacy headers.
+	 *
+	 * @param array $data Canonical or validated native data.
+	 * @param int   $status HTTP or durable operation status.
+	 * @return Response Native adapter result.
+	 */
 	private function json( array $data, int $status = 200 ): Response {
 		return response()->json(
 			$data,

@@ -1,51 +1,160 @@
 <?php
+/**
+ * Native WooCheckout adapter and verification contracts.
+ *
+ * @package Digitalogic
+ */
+
 namespace Digitalogic\Laravel\Services;
+
+// phpcs:disable WordPress.Files.FileName, WordPress.NamingConventions.ValidFunctionName.MethodNameInvalid -- Composer PSR-4 class names and Laravel method contracts are intentional.
 
 use Digitalogic\Laravel\Http\Controllers\MobileCatalogController;
 
 /** Executes the installed WooCommerce engine in an isolated, cookie-free native session. */
 final class MobileWooCheckout {
-	private $oldSession;
-	private $oldCart;
-	private $oldCustomer;
-	private int $oldUser;
-	private array $oldPost;
-	private array $removedHooks = array();
+	/**
+	 * Old session.
+	 *
+	 * @var mixed
+	 */
+	private $old_session;
+	/**
+	 * Old cart.
+	 *
+	 * @var mixed
+	 */
+	private $old_cart;
+	/**
+	 * Old customer.
+	 *
+	 * @var mixed
+	 */
+	private $old_customer;
+	/**
+	 * Old user.
+	 *
+	 * @var int
+	 */
+	private int $old_user;
+	/**
+	 * Old post.
+	 *
+	 * @var array
+	 */
+	private array $old_post;
+	/**
+	 * Removed hooks.
+	 *
+	 * @var array
+	 */
+	private array $removed_hooks = array();
+	/**
+	 * Engine.
+	 *
+	 * @var mixed
+	 */
 	public $engine;
-	public array $data    = array();
-	public array $issues  = array();
+	/**
+	 * Data.
+	 *
+	 * @var array
+	 */
+	public array $data = array();
+	/**
+	 * Issues.
+	 *
+	 * @var array
+	 */
+	public array $issues = array();
+	/**
+	 * Profile.
+	 *
+	 * @var array
+	 */
 	public array $profile = array();
+	/**
+	 * Input.
+	 *
+	 * @var array
+	 */
 	private array $input;
+	/**
+	 * Cart.
+	 *
+	 * @var mixed
+	 */
 	private $cart;
 
+	/**
+	 * Bind the adapter to its verified context while preserving the surrounding WordPress runtime.
+	 *
+	 * @param array $context Verified owner and canonical cart context.
+	 * @param array $input Validated or pending native input.
+	 * @param bool  $canonical Canonical.
+	 * @return void Native adapter result.
+	 */
 	public function __construct( array $context, array $input, bool $canonical = true ) {
-		$this->oldSession  = WC()->session;
-		$this->oldCart     = WC()->cart;
-		$this->oldCustomer = WC()->customer;
-		$this->oldUser     = get_current_user_id();
-		$this->oldPost     = $_POST;
-		$this->input       = $input;
+		$this->old_session  = WC()->session;
+		$this->old_cart     = WC()->cart;
+		$this->old_customer = WC()->customer;
+		$this->old_user     = get_current_user_id();
+		// phpcs:ignore WordPress.Security.NonceVerification.Missing -- Preserve the outer global for restoration; native mutation was authenticated separately.
+		$this->old_post = $_POST;
+		$this->input    = $input;
 		// Remove only Woo's browser-cart/session callbacks; keep all business/customization hooks.
 		foreach ( $GLOBALS['wp_filter'] as $tag => $hook ) {
 			foreach ( $hook->callbacks as $priority => $callbacks ) {
 				foreach ( $callbacks as $callback ) {
 					$function = $callback['function'];
 					if ( is_array( $function ) && is_object( $function[0] ) && ( $function[0] instanceof \WC_Cart || $function[0] instanceof \WC_Cart_Session ) ) {
-						$this->removedHooks[] = array( $tag, $function, $priority, $callback['accepted_args'] );
+						$this->removed_hooks[] = array( $tag, $function, $priority, $callback['accepted_args'] );
 						remove_filter( $tag, $function, $priority );}
 				}
 			}
 		}
 		wp_set_current_user( (int) $context['session']['user_id'] );
 		WC()->session  = $canonical ? new MobileWooSession( $context['cart'] ) : new class( (int) $context['session']['user_id']) extends \WC_Session {
+			/**
+			 * Bind the adapter to its verified context while preserving the surrounding WordPress runtime.
+			 *
+			 * @param int $id Exact scoped identifier.
+			 * @return void Native adapter result.
+			 */
 			public function __construct( int $id ) {
 				$this->_customer_id = (string) $id;}
+			/**
+			 * Report that this scoped native Woo session exists.
+			 *
+			 * @return mixed Native adapter result.
+			 */
 			public function has_session() {
 				return true;}
+			/**
+			 * Suppress implicit cookie-session writes; explicit persistence owns this operation.
+			 *
+			 * @return mixed Native adapter result.
+			 */
 			public function save_data() {}
+			/**
+			 * Keep native bearer authorization isolated from browser session cookies.
+			 *
+			 * @param mixed $set Set.
+			 * @return mixed Native adapter result.
+			 */
 			public function set_customer_session_cookie( $set ) {}
+			/**
+			 * Clear only this scoped session’s in-memory state.
+			 *
+			 * @return mixed Native adapter result.
+			 */
 			public function destroy_session() {
 				$this->_data = array();}
+			/**
+			 * Avoid reading a browser cookie as native customer authority.
+			 *
+			 * @return mixed Native adapter result.
+			 */
 			public function get_session_cookie() {
 				return false;}
 		};
@@ -61,25 +170,51 @@ final class MobileWooCheckout {
 			remove_filter( 'woocommerce_cart_session_initialize', '__return_false', PHP_INT_MAX );}
 		WC()->cart    = $this->cart;
 		$this->engine = new class() extends \WC_Checkout {
+			/**
+			 * Invoke the installed Woo checkout validator and its business hooks.
+			 *
+			 * @param array     $data Canonical or validated native data.
+			 * @param \WP_Error $errors Errors.
+			 * @return void Native adapter result.
+			 */
 			public function nativeValidate( array &$data, \WP_Error &$errors ): void {
 				$this->validate_checkout( $data, $errors );}
+			/**
+			 * Persist customer fields through the installed Woo checkout workflow.
+			 *
+			 * @param array $data Canonical or validated native data.
+			 * @return void Native adapter result.
+			 */
 			public function nativeCustomer( array $data ): void {
 				$this->process_customer( $data );}
 		};
 	}
+	/**
+	 * Restore the surrounding Woo objects, hooks and current user after native processing.
+	 *
+	 * @return void Native adapter result.
+	 */
 	public function close(): void {
 		if ( $this->cart ) {
 			remove_action( 'woocommerce_add_to_cart', array( $this->cart, 'calculate_totals' ), 20 );
 			remove_action( 'woocommerce_applied_coupon', array( $this->cart, 'calculate_totals' ), 20 );
 			remove_action( 'woocommerce_removed_coupon', array( $this->cart, 'calculate_totals' ), 20 );}
-		foreach ( $this->removedHooks as [$tag, $function, $priority, $accepted] ) {
+		foreach ( $this->removed_hooks as [$tag, $function, $priority, $accepted] ) {
 			add_filter( $tag, $function, $priority, $accepted );}
-		WC()->session  = $this->oldSession;
-		WC()->cart     = $this->oldCart;
-		WC()->customer = $this->oldCustomer;
-		wp_set_current_user( $this->oldUser );
-		$_POST = $this->oldPost;
+		WC()->session  = $this->old_session;
+		WC()->cart     = $this->old_cart;
+		WC()->customer = $this->old_customer;
+		wp_set_current_user( $this->old_user );
+		$_POST = $this->old_post;
 	}
+	/**
+	 * Prepare current canonical state and validate input before persistence.
+	 *
+	 * @param array $context Verified owner and canonical cart context.
+	 * @param bool  $validate Validate.
+	 * @param bool  $submit Submit.
+	 * @return void Native adapter result.
+	 */
 	public function prepare( array $context, bool $validate, bool $submit = false ): void {
 		if ( ! defined( 'WOOCOMMERCE_CHECKOUT' ) ) {
 			define( 'WOOCOMMERCE_CHECKOUT', true );}
@@ -117,7 +252,7 @@ final class MobileWooCheckout {
 			$posted['shipping_country'] = $posted['billing_country'];}
 		// Set customer location before country-specific fields are built. No customer save during quote.
 		foreach ( array( 'billing', 'shipping' ) as $group ) {
-			$address = ( $group === 'shipping' && empty( $posted['ship_to_different_address'] ) ) ? 'billing' : $group;
+			$address = ( 'shipping' === $group && empty( $posted['ship_to_different_address'] ) ) ? 'billing' : $group;
 			foreach ( array( 'first_name', 'last_name', 'company', 'country', 'state', 'city', 'address_1', 'address_2', 'postcode', 'phone', 'email' ) as $key ) {
 				$setter = 'set_' . $group . '_' . $key;
 				if ( is_callable( array( WC()->customer, $setter ) ) && isset( $posted[ $address . '_' . $key ] ) ) {
@@ -176,7 +311,11 @@ final class MobileWooCheckout {
 				'field'   => 'payment_method',
 			);}
 	}
-	/** Explicit adapters, not arbitrary PHP gateway HTML. More adapters can be enabled after audit. */
+	/**
+	 * Explicit adapters, not arbitrary PHP gateway HTML. More adapters can be enabled after audit.
+	 *
+	 * @return array Native adapter result.
+	 */
 	public function supportedGateways(): array {
 		$available = WC()->payment_gateways()->get_available_payment_gateways();
 		$supported = array();
@@ -186,14 +325,20 @@ final class MobileWooCheckout {
 		}
 		return $supported;
 	}
+	/**
+	 * Project canonical state and supported native controls.
+	 *
+	 * @param array $context Verified owner and canonical cart context.
+	 * @return array Native adapter result.
+	 */
 	public function presentation( array $context ): array {
 		$schema = array(
 			'billing'  => array(),
 			'shipping' => array(),
 		);
 		foreach ( $schema as $group => $_ ) {
-			$getter = 'get_' . $group . '_country';
-			$schema[ $group ] = MobileAddresses::descriptors( $this->engine->get_checkout_fields( $group ), $group, WC()->customer->$getter() ?: WC()->countries->get_base_country() );
+			$getter           = 'get_' . $group . '_country';
+			$schema[ $group ] = MobileAddresses::descriptors( $this->engine->get_checkout_fields( $group ), $group, WC()->customer->$getter() );
 		}
 		$packages = array();
 		$selected = WC()->session->get( 'chosen_shipping_methods', array() );
@@ -229,7 +374,7 @@ final class MobileWooCheckout {
 				'shipping' => WC()->customer->get_shipping(),
 			),
 			'address_locations' => $this->addressLocations(),
-			'address_map' => MobileAddresses::map_config(),
+			'address_map'       => MobileAddresses::map_config(),
 			'shipping_packages' => $packages,
 			'payment_methods'   => $payments,
 			'payment_method'    => $this->data['payment_method'] ?? '',
@@ -257,7 +402,11 @@ final class MobileWooCheckout {
 			'expires_at'        => null,
 		);
 	}
-	/** Quote/order locations follow the actual selected billing/shipping address. */
+	/**
+	 * Quote/order locations follow the actual selected billing/shipping address.
+	 *
+	 * @return array Native adapter result.
+	 */
 	public function addressLocations(): array {
 		$locations = array_replace( MobileAddresses::locations( WC()->customer ), $this->input['address_locations'] ?? array() );
 		if ( empty( $this->input['ship_to_different_address'] ) ) {
@@ -265,11 +414,16 @@ final class MobileWooCheckout {
 		}
 		return $locations;
 	}
+	/**
+	 * Bind an immutable quote to current cart, address, shipping, payment and price data.
+	 *
+	 * @return string Native adapter result.
+	 */
 	public function fingerprint(): string {
 		$lines = array();
 		foreach ( $this->cart->get_cart() as $key => $line ) {
 			$lines[] = array(
-				'id'       => $line['variation_id'] ?: $line['product_id'],
+				'id'       => ! empty( $line['variation_id'] ) ? $line['variation_id'] : $line['product_id'],
 				'quantity' => $line['quantity'],
 				'subtotal' => $line['line_subtotal'],
 				'total'    => $line['line_total'],
@@ -280,17 +434,23 @@ final class MobileWooCheckout {
 			'sha256',
 			wp_json_encode(
 				array(
-					'data'     => $this->data,
+					'data'              => $this->data,
 					'address_locations' => $this->addressLocations(),
-					'lines'    => $lines,
-					'totals'   => $this->cart->get_totals(),
-					'shipping' => WC()->session->get( 'chosen_shipping_methods', array() ),
-					'coupons'  => $this->cart->get_applied_coupons(),
-					'currency' => get_woocommerce_currency(),
+					'lines'             => $lines,
+					'totals'            => $this->cart->get_totals(),
+					'shipping'          => WC()->session->get( 'chosen_shipping_methods', array() ),
+					'coupons'           => $this->cart->get_applied_coupons(),
+					'currency'          => get_woocommerce_currency(),
 				)
 			)
 		);
 	}
+	/**
+	 * Format an amount using the current Woo currency precision.
+	 *
+	 * @param mixed $value Value.
+	 * @return string Native adapter result.
+	 */
 	public static function money( $value ): string {
 		return MobileCatalogController::minorUnits( (string) $value, wc_get_price_decimals() ) ?? '0';}
 }

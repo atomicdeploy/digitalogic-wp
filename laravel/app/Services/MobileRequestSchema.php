@@ -1,8 +1,21 @@
 <?php
+/**
+ * Native RequestSchema adapter and verification contracts.
+ *
+ * @package Digitalogic
+ */
+
 namespace Digitalogic\Laravel\Services;
+
+// phpcs:disable WordPress.Files.FileName, WordPress.NamingConventions.ValidFunctionName.MethodNameInvalid -- Composer PSR-4 class names and Laravel method contracts are intentional.
 
 /** The native descriptors mirror the canonical storefront request validator. */
 final class MobileRequestSchema {
+	/**
+	 * Expose the currently supported canonical service-form schemas.
+	 *
+	 * @return array Native adapter result.
+	 */
 	public static function forms(): array {
 		$common  = array(
 			self::field(
@@ -275,12 +288,27 @@ final class MobileRequestSchema {
 			$form['revision'] = hash( 'sha256', wp_json_encode( $form ) );}
 		return $forms;
 	}
+	/**
+	 * Resolve one canonical service-form schema.
+	 *
+	 * @param string $type Type.
+	 * @return array|null Native adapter result.
+	 */
 	public static function form( string $type ): ?array {
 		foreach ( self::forms() as $form ) {
 			if ( $form['id'] === $type ) {
 				return $form;
 			}
 		}return null;}
+	/**
+	 * Construct one bounded native field descriptor.
+	 *
+	 * @param string $key Key.
+	 * @param string $label Label.
+	 * @param string $type Type.
+	 * @param array  $extra Extra.
+	 * @return array Native adapter result.
+	 */
 	private static function field( string $key, string $label, string $type, array $extra = array() ): array {
 		return array_merge(
 			array(
@@ -291,7 +319,16 @@ final class MobileRequestSchema {
 			),
 			$extra
 		);}
-	private static function select( string $key, string $label, array $choices, string $default ): array {
+	/**
+	 * Construct a native selector from canonical allowed choices.
+	 *
+	 * @param string $key Key.
+	 * @param string $label Label.
+	 * @param array  $choices Choices.
+	 * @param string $initial_value Default.
+	 * @return array Native adapter result.
+	 */
+	private static function select( string $key, string $label, array $choices, string $initial_value ): array {
 		$options = array();
 		foreach ( $choices as $value => $title ) {
 			$options[] = array(
@@ -304,7 +341,7 @@ final class MobileRequestSchema {
 			'select',
 			array(
 				'options' => $options,
-				'default' => $default,
+				'default' => $initial_value,
 			)
 		);}
 }

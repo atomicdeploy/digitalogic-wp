@@ -32,7 +32,7 @@ class Digitalogic_WebSocket_Auth {
 				); }
 			$authorization = (string) ( $headers['authorization'] ?? '' );
 			$session       = null;
-			if ( $authorization !== '' ) {
+			if ( '' !== $authorization ) {
 				if ( ! class_exists( 'Digitalogic\\Laravel\\Services\\MobileIdentityStore' ) ) {
 					require_once DIGITALOGIC_PLUGIN_DIR . 'laravel/app/Services/MobileIdentityStore.php'; }
 				$session = \Digitalogic\Laravel\Services\MobileIdentityStore::authenticate( $authorization );

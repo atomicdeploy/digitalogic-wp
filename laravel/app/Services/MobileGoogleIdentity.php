@@ -1,32 +1,61 @@
 <?php
+/**
+ * Native GoogleIdentity adapter and verification contracts.
+ *
+ * @package Digitalogic
+ */
 
 namespace Digitalogic\Laravel\Services;
+
+// phpcs:disable WordPress.Files.FileName, WordPress.NamingConventions.ValidFunctionName.MethodNameInvalid -- Composer PSR-4 class names and Laravel method contracts are intentional.
 
 use Digitalogic\Vendor\Firebase\JWT\JWK;
 use Digitalogic\Vendor\Firebase\JWT\JWT;
 
 /** Google signatures are verified locally against cached HTTPS Google JWKs. */
 final class MobileGoogleIdentity {
+	/**
+	 * Read only the configured public Google web audience.
+	 *
+	 * @return string Native adapter result.
+	 */
 	public static function audience(): string {
 		$config = get_option( 'digits_option_social_settings', array() );
 		$id     = $config['google']['clientID'] ?? '';
 		return is_string( $id ) && preg_match( '/\A[0-9]+-[a-z0-9]+\.apps\.googleusercontent\.com\z/D', $id ) ? $id : '';
 	}
 
+	/**
+	 * Read only the configured public Android OAuth client identifier.
+	 *
+	 * @return string Native adapter result.
+	 */
 	public static function presenter(): string {
 		$id = get_option( 'digitalogic_mobile_google_android_client', '' );
 		return is_string( $id ) && preg_match( '/\A[0-9]+-[a-z0-9]+\.apps\.googleusercontent\.com\z/D', $id ) ? $id : '';
 	}
 
+	/**
+	 * Require the verified configuration and runtime dependencies before enabling the adapter.
+	 *
+	 * @return bool Native adapter result.
+	 */
 	public static function configured(): bool {
 		$audience  = self::audience();
 		$presenter = self::presenter();
 		// Targeted deployments may add this locked dependency before a full artifact
 		// replaces Composer metadata. Register only our package, never another plugin's copy.
 		self::loadLibrary();
-		return $audience !== '' && $presenter !== '' && explode( '-', $audience )[0] === explode( '-', $presenter )[0] && class_exists( JWT::class ) && class_exists( JWK::class );
+		$audience_project  = explode( '-', $audience )[0];
+		$presenter_project = explode( '-', $presenter )[0];
+		return '' !== $audience && '' !== $presenter && $audience_project === $presenter_project && class_exists( JWT::class ) && class_exists( JWK::class );
 	}
 
+	/**
+	 * Load only the pinned namespace-scoped JWT dependency.
+	 *
+	 * @return void Native adapter result.
+	 */
 	public static function loadLibrary(): void {
 		$vendor = dirname( __DIR__, 3 ) . '/vendor/';
 		if ( is_file( $vendor . 'firebase/php-jwt/digitalogic-scoped/JWT.php' ) ) {
@@ -35,7 +64,16 @@ final class MobileGoogleIdentity {
 		}
 	}
 
-	/** This method is separately exercised with locally signed test keys. */
+	/**
+	 * This method is separately exercised with locally signed test keys.
+	 *
+	 * @param string $token Opaque or signed identity proof; never logged.
+	 * @param array  $jwks Jwks.
+	 * @param string $audience Audience.
+	 * @param string $presenter Presenter.
+	 * @return array Native adapter result.
+	 * @throws \UnexpectedValueException When the authoritative operation cannot be completed safely.
+	 */
 	public static function verify( string $token, array $jwks, string $audience, string $presenter ): array {
 		self::loadLibrary();
 		if ( strlen( $token ) > 6000 || substr_count( $token, '.' ) !== 2 ) {
@@ -49,6 +87,12 @@ final class MobileGoogleIdentity {
 		return $claims;
 	}
 
+	/**
+	 * Read or refresh bounded Google public signing keys over HTTPS.
+	 *
+	 * @return array Native adapter result.
+	 * @throws \RuntimeException When the authoritative operation cannot be completed safely.
+	 */
 	public static function keys(): array {
 		$keys = get_transient( 'digitalogic_mobile_google_jwks' );
 		if ( is_array( $keys ) && ! empty( $keys['keys'] ) ) {
@@ -72,12 +116,18 @@ final class MobileGoogleIdentity {
 		return $keys;
 	}
 
-	/** Only a pre-existing explicit Digits Google subject binding grants identity. */
+	/**
+	 * Only a pre-existing explicit Digits Google subject binding grants identity.
+	 *
+	 * @param string $subject Subject.
+	 * @return int Native adapter result.
+	 */
 	public static function owner( string $subject ): int {
 		$users = get_users(
 			array(
 				'number'     => 2,
 				'fields'     => 'ID',
+				// phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query -- Exact existing Digits binding, limited to two matches to reject ambiguity.
 				'meta_query' => array(
 					array(
 						'key'   => 'auth_google_id',

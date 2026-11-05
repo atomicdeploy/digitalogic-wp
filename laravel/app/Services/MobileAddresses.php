@@ -7,6 +7,8 @@
 
 namespace Digitalogic\Laravel\Services;
 
+// phpcs:disable WordPress.Files.FileName, WordPress.NamingConventions.ValidFunctionName.MethodNameInvalid -- Composer PSR-4 class names and Laravel method contracts are intentional.
+
 /** Canonical Woo addresses with explicitly selected, optional location metadata. */
 final class MobileAddresses {
 	/**
@@ -36,7 +38,10 @@ final class MobileAddresses {
 			if ( abs( $point['lat'] ) > 90 || abs( $point['lon'] ) > 180 || ( isset( $point['accuracy'] ) && ( $point['accuracy'] < 0 || $point['accuracy'] > 1000000 ) ) ) {
 				return null;
 			}
-			$result[ $group ] = array( 'lat' => round( $point['lat'], 7 ), 'lon' => round( $point['lon'], 7 ) );
+			$result[ $group ] = array(
+				'lat' => round( $point['lat'], 7 ),
+				'lon' => round( $point['lon'], 7 ),
+			);
 			if ( isset( $point['accuracy'] ) ) {
 				$result[ $group ]['accuracy'] = round( $point['accuracy'], 1 );
 			}
@@ -47,14 +52,14 @@ final class MobileAddresses {
 	/**
 	 * Read optional location metadata from the existing customer/order ORM.
 	 *
-	 * @param \WC_Data $object Canonical owner object.
+	 * @param \WC_Data $entity Canonical owner object.
 	 * @return array Billing and shipping pins; absent pins stay null.
 	 */
-	public static function locations( $object ): array {
+	public static function locations( $entity ): array {
 		$result = array();
 		foreach ( array( 'billing', 'shipping' ) as $group ) {
-			$value = $object->get_meta( '_digitalogic_' . $group . '_location', true );
-			$valid = self::normalize_locations( array( $group => is_array( $value ) ? $value : null ) );
+			$value            = $entity->get_meta( '_digitalogic_' . $group . '_location', true );
+			$valid            = self::normalize_locations( array( $group => is_array( $value ) ? $value : null ) );
 			$result[ $group ] = $valid[ $group ] ?? null;
 		}
 		return $result;
@@ -63,17 +68,17 @@ final class MobileAddresses {
 	/**
 	 * Attach only explicitly supplied pin changes; saving remains with the owning workflow.
 	 *
-	 * @param \WC_Data $object Canonical owner object.
+	 * @param \WC_Data $entity Canonical owner object.
 	 * @param array    $locations Previously validated location patch.
 	 * @return void
 	 */
-	public static function apply_locations( $object, array $locations ): void {
+	public static function apply_locations( $entity, array $locations ): void {
 		foreach ( $locations as $group => $point ) {
 			$key = '_digitalogic_' . $group . '_location';
 			if ( null === $point ) {
-				$object->delete_meta_data( $key );
+				$entity->delete_meta_data( $key );
 			} else {
-				$object->update_meta_data( $key, $point );
+				$entity->update_meta_data( $key, $point );
 			}
 		}
 	}
@@ -87,28 +92,29 @@ final class MobileAddresses {
 	 * @return array Native field descriptors.
 	 */
 	public static function descriptors( array $fields, string $group, string $country ): array {
-		$result = array();
+		$country   = '' !== $country ? $country : WC()->countries->get_base_country();
+		$result    = array();
 		$countries = 'billing' === $group ? WC()->countries->get_allowed_countries() : WC()->countries->get_shipping_countries();
 		foreach ( $fields as $key => $field ) {
-			$type = $field['type'] ?? 'text';
-			$options = $field['options'] ?? array();
+			$type       = $field['type'] ?? 'text';
+			$options    = $field['options'] ?? array();
 			$by_country = array();
 			if ( 'country' === $type ) {
-				$type = 'select';
+				$type    = 'select';
 				$options = $countries;
 			} elseif ( 'state' === $type ) {
-				$options = WC()->countries->get_states( $country ) ?: array();
-				$type = $options ? 'select' : 'text';
+				$options = (array) WC()->countries->get_states( $country );
+				$type    = $options ? 'select' : 'text';
 				foreach ( $countries as $code => $label ) {
-					$by_country[ $code ] = self::options( WC()->countries->get_states( $code ) ?: array() );
+					$by_country[ $code ] = self::options( (array) WC()->countries->get_states( $code ) );
 				}
 			}
 			$descriptor = array(
-				'key' => preg_replace( '/^' . preg_quote( $group, '/' ) . '_/', '', $key ),
-				'label' => wp_strip_all_tags( $field['label'] ?? $key ),
-				'type' => $type,
-				'required' => ! empty( $field['required'] ),
-				'options' => self::options( $options ),
+				'key'        => preg_replace( '/^' . preg_quote( $group, '/' ) . '_/', '', $key ),
+				'label'      => wp_strip_all_tags( $field['label'] ?? $key ),
+				'type'       => $type,
+				'required'   => ! empty( $field['required'] ),
+				'options'    => self::options( $options ),
 				'max_length' => min( 300, (int) ( $field['maxlength'] ?? 300 ) ),
 			);
 			if ( $by_country ) {
@@ -128,7 +134,10 @@ final class MobileAddresses {
 	private static function options( array $options ): array {
 		$result = array();
 		foreach ( $options as $value => $label ) {
-			$result[] = array( 'value' => (string) $value, 'label' => wp_strip_all_tags( $label ) );
+			$result[] = array(
+				'value' => (string) $value,
+				'label' => wp_strip_all_tags( $label ),
+			);
 		}
 		return $result;
 	}
@@ -142,11 +151,18 @@ final class MobileAddresses {
 	public static function presentation( $customer ): array {
 		$schema = array();
 		foreach ( array( 'billing', 'shipping' ) as $group ) {
-			$getter = 'get_' . $group . '_country';
-			$country = $customer->$getter() ?: WC()->countries->get_base_country();
+			$getter           = 'get_' . $group . '_country';
+			$country          = $customer->$getter();
+			$country          = '' !== $country ? $country : WC()->countries->get_base_country();
 			$schema[ $group ] = self::descriptors( WC()->countries->get_address_fields( $country, $group . '_' ), $group, $country );
 		}
-		return array( 'billing' => $customer->get_billing(), 'shipping' => $customer->get_shipping(), 'address_schema' => $schema, 'address_locations' => self::locations( $customer ), 'address_map' => self::map_config() );
+		return array(
+			'billing'           => $customer->get_billing(),
+			'shipping'          => $customer->get_shipping(),
+			'address_schema'    => $schema,
+			'address_locations' => self::locations( $customer ),
+			'address_map'       => self::map_config(),
+		);
 	}
 
 	/**
@@ -158,7 +174,7 @@ final class MobileAddresses {
 	 */
 	public static function prepare( int $user_id, array $input ) {
 		$customer = new \WC_Customer( $user_id );
-		$issues = array();
+		$issues   = array();
 		foreach ( array( 'billing', 'shipping' ) as $group ) {
 			if ( ! array_key_exists( $group, $input ) ) {
 				continue;
@@ -167,7 +183,7 @@ final class MobileAddresses {
 			if ( ! is_array( $patch ) || count( $patch ) > 30 ) {
 				return new \WP_Error( 'invalid_address', 'اطلاعات نشانی معتبر نیست.' );
 			}
-			$getter = 'get_' . $group;
+			$getter  = 'get_' . $group;
 			$address = array_merge( $customer->$getter(), $patch );
 			$country = $address['country'] ?? '';
 			$allowed = 'billing' === $group ? WC()->countries->get_allowed_countries() : WC()->countries->get_shipping_countries();
@@ -183,7 +199,7 @@ final class MobileAddresses {
 				$address[ $key ] = wc_clean( $value );
 			}
 			foreach ( $fields as $full_key => $field ) {
-				$key = substr( $full_key, strlen( $group ) + 1 );
+				$key   = substr( $full_key, strlen( $group ) + 1 );
 				$value = $address[ $key ] ?? '';
 				$valid = empty( $field['required'] ) || '' !== trim( (string) $value );
 				if ( '' !== $value ) {
@@ -195,11 +211,14 @@ final class MobileAddresses {
 						$valid = $valid && is_email( $value );
 					} elseif ( 'state' === ( $field['type'] ?? '' ) ) {
 						$states = WC()->countries->get_states( $country );
-						$valid = $valid && ( ! $states || isset( $states[ $value ] ) );
+						$valid  = $valid && ( ! $states || isset( $states[ $value ] ) );
 					}
 				}
 				if ( ! $valid ) {
-					$issues[] = array( 'field' => $full_key, 'message' => sprintf( '«%s» را کامل و معتبر وارد کنید.', wp_strip_all_tags( $field['label'] ?? $key ) ) );
+					$issues[] = array(
+						'field'   => $full_key,
+						'message' => sprintf( '«%s» را کامل و معتبر وارد کنید.', wp_strip_all_tags( $field['label'] ?? $key ) ),
+					);
 				}
 			}
 			if ( $issues ) {
@@ -232,8 +251,14 @@ final class MobileAddresses {
 	public static function map_config(): array {
 		$settings = self::sanitize_map( get_option( 'digitalogic_mobile_address_map', array() ) );
 		$business = MobileStorefrontInfo::business();
-		$point = $business['location'];
-		return $settings + array( 'initial_lat' => $point['latitude'] ?? 0, 'initial_lon' => $point['longitude'] ?? 0, 'initial_zoom' => $point ? 12 : 3, 'min_zoom' => 3, 'max_zoom' => 19 );
+		$point    = $business['location'];
+		return $settings + array(
+			'initial_lat'  => $point['latitude'] ?? 0,
+			'initial_lon'  => $point['longitude'] ?? 0,
+			'initial_zoom' => $point ? 12 : 3,
+			'min_zoom'     => 3,
+			'max_zoom'     => 19,
+		);
 	}
 
 	/**
@@ -243,11 +268,16 @@ final class MobileAddresses {
 	 * @return array Safe public settings.
 	 */
 	public static function sanitize_map( $input ): array {
-		$defaults = array( 'enabled' => true, 'tile_url' => 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', 'attribution_text' => '© OpenStreetMap contributors', 'attribution_url' => 'https://www.openstreetmap.org/copyright' );
+		$defaults = array(
+			'enabled'          => true,
+			'tile_url'         => 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+			'attribution_text' => '© OpenStreetMap contributors',
+			'attribution_url'  => 'https://www.openstreetmap.org/copyright',
+		);
 		if ( ! is_array( $input ) || empty( $input['tile_url'] ) ) {
 			return $defaults;
 		}
-		$url = $input['tile_url'];
+		$url         = $input['tile_url'];
 		$attribution = $input['attribution_url'] ?? '';
 		foreach ( array( $url, $attribution ) as $value ) {
 			$parts = is_string( $value ) ? wp_parse_url( $value ) : false;
@@ -258,6 +288,11 @@ final class MobileAddresses {
 		if ( ! str_contains( $url, '{z}' ) || ! str_contains( $url, '{x}' ) || ! str_contains( $url, '{y}' ) || empty( $input['attribution_text'] ) ) {
 			return $defaults;
 		}
-		return array( 'enabled' => ! empty( $input['enabled'] ), 'tile_url' => $url, 'attribution_text' => mb_substr( sanitize_text_field( $input['attribution_text'] ), 0, 200 ), 'attribution_url' => $attribution );
+		return array(
+			'enabled'          => ! empty( $input['enabled'] ),
+			'tile_url'         => $url,
+			'attribution_text' => mb_substr( sanitize_text_field( $input['attribution_text'] ), 0, 200 ),
+			'attribution_url'  => $attribution,
+		);
 	}
 }

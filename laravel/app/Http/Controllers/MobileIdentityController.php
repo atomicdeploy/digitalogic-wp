@@ -1,6 +1,15 @@
 <?php
+/**
+ * Native IdentityController adapter and verification contracts.
+ *
+ * @package Digitalogic
+ */
 
 namespace Digitalogic\Laravel\Http\Controllers;
+
+// phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Security, lock and operation metadata must read current SQL state rather than stale cache; canonical commerce writes use Woo/provider APIs.
+
+// phpcs:disable WordPress.Files.FileName, WordPress.NamingConventions.ValidFunctionName.MethodNameInvalid -- Composer PSR-4 class names and Laravel method contracts are intentional.
 
 use Digitalogic\Laravel\Services\MobileIdentityStore as Store;
 use Digitalogic\Laravel\Services\MobileGoogleIdentity as Google;
@@ -9,11 +18,25 @@ use Digitalogic\Laravel\Services\MobileAddresses as Addresses;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 
+/** Native adapter over canonical WordPress and WooCommerce authority. */
 final class MobileIdentityController {
+	/**
+	 * Request a login-purpose OTP through the existing configured SMS transport.
+	 *
+	 * @param Request $request Bounded native HTTP request.
+	 * @return Response Native adapter result.
+	 */
 	public function requestOtp( Request $request ): Response {
 		return $this->requestChallenge( $request );
 	}
 
+	/**
+	 * Reserve an idempotent purpose-bound OTP before any one-shot SMS delivery.
+	 *
+	 * @param Request    $request Bounded native HTTP request.
+	 * @param array|null $actor Actor.
+	 * @return Response Native adapter result.
+	 */
 	private function requestChallenge( Request $request, ?array $actor = null ): Response {
 		global $wpdb;
 		if ( ! self::otpEnabled() ) {
@@ -21,17 +44,17 @@ final class MobileIdentityController {
 		}
 		$phone      = Store::phone( (string) $request->json( 'phone', '' ) );
 		$request_id = (string) $request->json( 'request_id', '' );
-		if ( $phone === null || ! preg_match( '/\A[A-Za-z0-9-]{16,64}\z/D', $request_id ) ) {
+		if ( null === $phone || ! preg_match( '/\A[A-Za-z0-9-]{16,64}\z/D', $request_id ) ) {
 			return $this->error( 'invalid_request', 'شماره موبایل معتبر وارد کنید.', 400 );
 		}
 		$table        = Store::table( 'otp' );
 		$phone_hash   = Store::hash( $phone );
 		$request_hash = Store::hash( ( $actor ? 'phone-link:' . $actor['user_id'] . ':' . $actor['id'] . ':' : '' ) . $phone . ':' . $request_id );
-		$existing     = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$table} WHERE request_hash=%s", $request_hash ), ARRAY_A );
+		$existing     = $wpdb->get_row( $wpdb->prepare( 'SELECT * FROM %i WHERE request_hash=%s', $table, $request_hash ), ARRAY_A );
 		if ( $existing ) {
-			return (int) $existing['expires_at'] > time() && $existing['state'] !== 'used' ? $this->challengeResponse( $existing ) : $this->error( 'challenge_expired', 'درخواست تازه‌ای برای کد ورود ثبت کنید.', 410 );
+			return (int) $existing['expires_at'] > time() && 'used' !== $existing['state'] ? $this->challengeResponse( $existing ) : $this->error( 'challenge_expired', 'درخواست تازه‌ای برای کد ورود ثبت کنید.', 410 );
 		}
-		$ip = (string) ( $_SERVER['REMOTE_ADDR'] ?? 'unknown' );
+		$ip = (string) sanitize_text_field( wp_unslash( $_SERVER['REMOTE_ADDR'] ?? 'unknown' ) );
 		if ( ! Store::admit( 'otp-global', 60, 60 ) || ! Store::admit( 'otp-ip:' . $ip, 8, 60 ) || ! Store::admit( 'otp-phone:' . $phone_hash, 1, 60 ) || ! Store::admit( 'otp-phone-hour:' . $phone_hash, 5, 3600 ) ) {
 			return $this->json(
 				array(
@@ -68,10 +91,16 @@ final class MobileIdentityController {
 		unset( $code );
 		$row['state'] = is_wp_error( $result ) ? 'pending' : 'accepted';
 		$wpdb->update( $table, array( 'state' => $row['state'] ), array( 'id' => $id ) );
-		$wpdb->query( $wpdb->prepare( "DELETE FROM {$table} WHERE expires_at<%d LIMIT 100", time() - DAY_IN_SECONDS ) );
+		$wpdb->query( $wpdb->prepare( 'DELETE FROM %i WHERE expires_at<%d LIMIT 100', $table, time() - DAY_IN_SECONDS ) );
 		return $this->challengeResponse( $row );
 	}
 
+	/**
+	 * Consume a login proof and resolve the existing Digits identity or registration continuation.
+	 *
+	 * @param Request $request Bounded native HTTP request.
+	 * @return Response Native adapter result.
+	 */
 	public function verifyOtp( Request $request ): Response {
 		global $wpdb;
 		if ( ! self::otpEnabled() ) {
@@ -83,21 +112,21 @@ final class MobileIdentityController {
 			return $this->error( 'invalid_code', 'کد شش‌رقمی معتبر وارد کنید.', 400 );
 		}
 		$table   = Store::table( 'otp' );
-		$row     = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$table} WHERE id=%s AND purpose='login'", $id ), ARRAY_A );
-		$attempt = $wpdb->query( $wpdb->prepare( "UPDATE {$table} SET attempts=attempts+1 WHERE id=%s AND purpose='login' AND attempts<5 AND expires_at>%d AND state IN ('pending','accepted')", $id, time() ) );
-		if ( ! $row || $attempt !== 1 || ! hash_equals( $row['code_hash'], Store::hash( $id . ':' . $code . ':' . $row['phone_hash'] ) ) ) {
+		$row     = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM %i WHERE id=%s AND purpose='login'", $table, $id ), ARRAY_A );
+		$attempt = $wpdb->query( $wpdb->prepare( "UPDATE %i SET attempts=attempts+1 WHERE id=%s AND purpose='login' AND attempts<5 AND expires_at>%d AND state IN ('pending','accepted')", $table, $id, time() ) );
+		if ( ! $row || 1 !== $attempt || ! hash_equals( $row['code_hash'], Store::hash( $id . ':' . $code . ':' . $row['phone_hash'] ) ) ) {
 			return $this->error( 'invalid_or_expired_code', 'کد نادرست یا منقضی شده است.', 401 );
 		}
-		$claimed = $wpdb->query( $wpdb->prepare( "UPDATE {$table} SET state='used' WHERE id=%s AND state IN ('pending','accepted') AND expires_at>%d", $id, time() ) );
-		if ( $claimed !== 1 ) {
+		$claimed = $wpdb->query( $wpdb->prepare( "UPDATE %i SET state='used' WHERE id=%s AND state IN ('pending','accepted') AND expires_at>%d", $table, $id, time() ) );
+		if ( 1 !== $claimed ) {
 			return $this->error( 'code_already_used', 'این کد قبلاً استفاده شده است.', 409 );
 		}
 		$user_id = (int) $row['user_id'];
-		if ( $user_id === 0 ) {
+		if ( 0 === $user_id ) {
 			$registration = Registration::begin( $row );
 			return $registration ? $this->json( $registration ) : $this->error( 'registration_proof_unavailable', 'شماره موبایل را با کد تازه‌ای تأیید کنید.', 409 ); }
 		$verified_phone = $user_id > 0 ? Store::phone( (string) get_user_meta( $user_id, 'digits_phone', true ) ) : null;
-		if ( $verified_phone === null || ! hash_equals( $row['phone_hash'], Store::hash( $verified_phone ) ) || Store::ownerOfPhone( $verified_phone ) !== $user_id ) {
+		if ( null === $verified_phone || ! hash_equals( $row['phone_hash'], Store::hash( $verified_phone ) ) || Store::ownerOfPhone( $verified_phone ) !== $user_id ) {
 			return $this->error( 'account_identity_changed', 'برای بررسی حساب از ورود وب‌سایت استفاده کنید.', 409 );
 		}
 		$session = Store::issueSession( $user_id, (string) $request->json( 'device_name', 'Android' ), 'otp' );
@@ -112,11 +141,17 @@ final class MobileIdentityController {
 		);
 	}
 
+	/**
+	 * Complete explicit native registration under the existing Digits identity policy.
+	 *
+	 * @param Request $request Bounded native HTTP request.
+	 * @return Response Native adapter result.
+	 */
 	public function register( Request $request ): Response {
 		if ( ! self::otpEnabled() ) {
 			return $this->error( 'native_auth_unavailable', 'ورود موقتاً در دسترس نیست.', 503 );}
 		$input = $request->json()->all();
-		if ( array_diff( array_keys( $input ), array( 'registration_token', 'request_id', 'terms_accepted', 'device_name' ) ) || ! is_string( $input['registration_token'] ?? null ) || ! is_string( $input['request_id'] ?? null ) || ! is_string( $input['device_name'] ?? 'Android' ) || isset( $input['terms_accepted'] ) && ! is_bool( $input['terms_accepted'] ) ) {
+		if ( array_diff( array_keys( $input ), array( 'registration_token', 'request_id', 'terms_accepted', 'device_name' ) ) || ! is_string( $input['registration_token'] ?? null ) || ! is_string( $input['request_id'] ?? null ) || ! is_string( $input['device_name'] ?? 'Android' ) || ( isset( $input['terms_accepted'] ) && ! is_bool( $input['terms_accepted'] ) ) ) {
 			return $this->error( 'invalid_registration', 'درخواست عضویت معتبر نیست.', 400 );}
 		$result = Registration::complete( $input['registration_token'], $input['request_id'], $input['device_name'] ?? 'Android', ( $input['terms_accepted'] ?? false ) === true );
 		if ( is_wp_error( $result ) ) {
@@ -127,7 +162,12 @@ final class MobileIdentityController {
 		return $this->json( $result );
 	}
 
-	/** Reauthenticate the current identity without switching accounts or issuing a browser cookie. */
+	/**
+	 * Reauthenticate the current identity without switching accounts or issuing a browser cookie.
+	 *
+	 * @param Request $request Bounded native HTTP request.
+	 * @return Response Native adapter result.
+	 */
 	public function reauthGoogle( Request $request ): Response {
 		global $wpdb;
 		$session = $this->session( $request );
@@ -177,7 +217,12 @@ final class MobileIdentityController {
 		);
 	}
 
-	/** Request proof of the phone for this session's already verified WordPress identity. */
+	/**
+	 * Request proof of the phone for this session's already verified WordPress identity.
+	 *
+	 * @param Request $request Bounded native HTTP request.
+	 * @return Response Native adapter result.
+	 */
 	public function requestPhone( Request $request ): Response {
 		$session = $this->session( $request );
 		if ( ! $session ) {
@@ -192,7 +237,13 @@ final class MobileIdentityController {
 		return $this->requestChallenge( $request, $session );
 	}
 
-	/** Consume an actor- and purpose-bound OTP; duplicates remain separate for review. */
+	/**
+	 * Consume an actor- and purpose-bound OTP; duplicates remain separate for review.
+	 *
+	 * @param Request $request Bounded native HTTP request.
+	 * @return Response Native adapter result.
+	 * @throws \RuntimeException When the authoritative operation cannot be completed safely.
+	 */
 	public function verifyPhone( Request $request ): Response {
 		global $wpdb;
 		$session = $this->session( $request );
@@ -213,7 +264,7 @@ final class MobileIdentityController {
 		}
 		$table = Store::table( 'otp' );
 		$actor = (int) $session['user_id'];
-		$row   = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$table} WHERE id=%s AND purpose='phone_link' AND actor_user_id=%d AND actor_session_id=%s AND expires_at>%d", $id, $actor, $session['id'], time() ), ARRAY_A );
+		$row   = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM %i WHERE id=%s AND purpose='phone_link' AND actor_user_id=%d AND actor_session_id=%s AND expires_at>%d", $table, $id, $actor, $session['id'], time() ), ARRAY_A );
 		if ( ! $row ) {
 			return $this->error( 'invalid_or_expired_code', 'کد نادرست یا منقضی شده است.', 403 );
 		}
@@ -221,7 +272,7 @@ final class MobileIdentityController {
 		if ( 'used' === $row['state'] && $matches && in_array( $row['result'], array( 'linked', 'review_required' ), true ) ) {
 			return $this->phoneResult( $row['result'], $actor );
 		}
-		$attempt = $wpdb->query( $wpdb->prepare( "UPDATE {$table} SET attempts=attempts+1 WHERE id=%s AND attempts<5 AND state IN ('pending','accepted') AND expires_at>%d", $id, time() ) );
+		$attempt = $wpdb->query( $wpdb->prepare( "UPDATE %i SET attempts=attempts+1 WHERE id=%s AND attempts<5 AND state IN ('pending','accepted') AND expires_at>%d", $table, $id, time() ) );
 		if ( 1 !== $attempt || ! $matches ) {
 			return $this->error( 'invalid_or_expired_code', 'کد نادرست یا منقضی شده است.', 403 );
 		}
@@ -241,7 +292,7 @@ final class MobileIdentityController {
 				$held[] = $lock;
 			}
 			$wpdb->query( 'START TRANSACTION' );
-			$current = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$table} WHERE id=%s FOR UPDATE", $id ), ARRAY_A );
+			$current = $wpdb->get_row( $wpdb->prepare( 'SELECT * FROM %i WHERE id=%s FOR UPDATE', $table, $id ), ARRAY_A );
 			if ( 'used' === $current['state'] ) {
 				$wpdb->query( 'ROLLBACK' );
 				return $this->phoneResult( $current['result'], $actor );
@@ -290,6 +341,13 @@ final class MobileIdentityController {
 		}
 	}
 
+	/**
+	 * Return the durable phone-link outcome while keeping automatic merging unavailable.
+	 *
+	 * @param string $status HTTP or durable operation status.
+	 * @param int    $actor Actor.
+	 * @return Response Native adapter result.
+	 */
 	private function phoneResult( string $status, int $actor ): Response {
 		return $this->json(
 			array(
@@ -301,6 +359,12 @@ final class MobileIdentityController {
 		);
 	}
 
+	/**
+	 * Read or update only the authenticated owner’s canonical WordPress/Woo profile.
+	 *
+	 * @param Request $request Bounded native HTTP request.
+	 * @return Response Native adapter result.
+	 */
 	public function profile( Request $request ): Response {
 		$session = $this->session( $request );
 		if ( ! $session ) {
@@ -320,7 +384,14 @@ final class MobileIdentityController {
 			}
 			$customer = Addresses::prepare( $user_id, $input );
 			if ( is_wp_error( $customer ) ) {
-				return $this->json( array( 'code' => $customer->get_error_code(), 'message' => $customer->get_error_message(), 'issues' => $customer->get_error_data()['issues'] ?? array() ), 422 );
+				return $this->json(
+					array(
+						'code'    => $customer->get_error_code(),
+						'message' => $customer->get_error_message(),
+						'issues'  => $customer->get_error_data()['issues'] ?? array(),
+					),
+					422
+				);
 			}
 			$result = wp_update_user( $user );
 			if ( is_wp_error( $result ) ) {
@@ -340,13 +411,19 @@ final class MobileIdentityController {
 		return $this->json( array( 'profile' => $this->profileData( $user_id ) ) );
 	}
 
+	/**
+	 * Verify Google claims and resolve only an explicit existing subject binding.
+	 *
+	 * @param Request $request Bounded native HTTP request.
+	 * @return Response Native adapter result.
+	 */
 	public function google( Request $request ): Response {
 		if ( ! self::googleEnabled() ) {
 			return $this->error( 'google_unavailable', 'ورود گوگل در دسترس نیست.', 503 ); }
 		$token = $request->json( 'id_token', '' );
 		if ( ! is_string( $token ) || strlen( $token ) > 6000 || substr_count( $token, '.' ) !== 2 ) {
 			return $this->error( 'invalid_google_token', 'ورود گوگل تأیید نشد.', 401 ); }
-		if ( ! Store::admit( 'google-global', 120, 60 ) || ! Store::admit( 'google-ip:' . ( $_SERVER['REMOTE_ADDR'] ?? 'unknown' ), 20, 60 ) ) {
+		if ( ! Store::admit( 'google-global', 120, 60 ) || ! Store::admit( 'google-ip:' . sanitize_text_field( wp_unslash( $_SERVER['REMOTE_ADDR'] ?? 'unknown' ) ), 20, 60 ) ) {
 			return $this->error( 'rate_limited', 'کمی صبر کنید و دوباره تلاش کنید.', 429 ); }
 		try {
 			$keys = Google::keys();
@@ -357,7 +434,7 @@ final class MobileIdentityController {
 		} catch ( \Throwable $error ) {
 			return $this->error( 'invalid_google_token', 'ورود گوگل تأیید نشد.', 401 ); }
 		$user_id = Google::owner( $claims['sub'] );
-		if ( $user_id === 0 ) {
+		if ( 0 === $user_id ) {
 			return $this->json(
 				array(
 					'registered'            => false,
@@ -379,6 +456,12 @@ final class MobileIdentityController {
 		);
 	}
 
+	/**
+	 * List only the authenticated owner’s canonical Woo orders.
+	 *
+	 * @param Request $request Bounded native HTTP request.
+	 * @return Response Native adapter result.
+	 */
 	public function orders( Request $request ): Response {
 		$session = $this->session( $request );
 		if ( ! $session ) {
@@ -432,6 +515,12 @@ final class MobileIdentityController {
 		);
 	}
 
+	/**
+	 * List only the current owner’s active native sessions.
+	 *
+	 * @param Request $request Bounded native HTTP request.
+	 * @return Response Native adapter result.
+	 */
 	public function sessions( Request $request ): Response {
 		global $wpdb;
 		$session = $this->session( $request );
@@ -439,7 +528,7 @@ final class MobileIdentityController {
 			return $this->unauthorized();
 		}
 		$table = Store::table( 'sessions' );
-		$rows  = $wpdb->get_results( $wpdb->prepare( "SELECT id,device_name,created_at,last_seen_at,expires_at FROM {$table} WHERE user_id=%d AND expires_at>%d ORDER BY last_seen_at DESC LIMIT 100", $session['user_id'], time() ), ARRAY_A );
+		$rows  = $wpdb->get_results( $wpdb->prepare( 'SELECT id,device_name,created_at,last_seen_at,expires_at FROM %i WHERE user_id=%d AND expires_at>%d ORDER BY last_seen_at DESC LIMIT 100', $table, $session['user_id'], time() ), ARRAY_A );
 		foreach ( $rows as &$row ) {
 			$row['current'] = $row['id'] === $session['id'];
 			foreach ( array( 'created_at', 'last_seen_at', 'expires_at' ) as $key ) {
@@ -449,6 +538,12 @@ final class MobileIdentityController {
 		return $this->json( array( 'items' => $rows ) );
 	}
 
+	/**
+	 * Revoke a session only within the authenticated owner’s account.
+	 *
+	 * @param Request $request Bounded native HTTP request.
+	 * @return Response Native adapter result.
+	 */
 	public function logout( Request $request ): Response {
 		global $wpdb;
 		$session = $this->session( $request );
@@ -467,6 +562,12 @@ final class MobileIdentityController {
 		return $this->json( array( 'revoked' => true ) );
 	}
 
+	/**
+	 * Read or update the canonical Woodmart wishlist with revision checks.
+	 *
+	 * @param Request $request Bounded native HTTP request.
+	 * @return Response Native adapter result.
+	 */
 	public function favorites( Request $request ): Response {
 		$session = $this->session( $request );
 		if ( ! $session ) {
@@ -479,7 +580,7 @@ final class MobileIdentityController {
 			$input = $request->json()->all();
 			$items = \Digitalogic\Laravel\Services\MobileWishlist::normalize( $input['items'] ?? null );
 			$base  = $input['base_revision'] ?? null;
-			if ( $items === null || ! is_string( $base ) || ! preg_match( '/\A[a-f0-9]{64}\z/D', $base ) || array_diff( array_keys( $input ), array( 'items', 'base_revision' ) ) ) {
+			if ( null === $items || ! is_string( $base ) || ! preg_match( '/\A[a-f0-9]{64}\z/D', $base ) || array_diff( array_keys( $input ), array( 'items', 'base_revision' ) ) ) {
 				return $this->error( 'invalid_favorites', 'فهرست علاقه‌مندی‌ها معتبر نیست.', 400 );}
 		}
 		$result = \Digitalogic\Laravel\Services\MobileWishlist::sync( (int) $session['user_id'], $items, $base );
@@ -495,21 +596,53 @@ final class MobileIdentityController {
 		return $this->json( $result );
 	}
 
+	/**
+	 * Report whether the deployed adapter and its required provider are available.
+	 *
+	 * @return bool Native adapter result.
+	 */
 	public static function enabled(): bool {
 		return in_array( get_option( 'digitalogic_mobile_identity_schema' ), array( '1', '2' ), true ) && (bool) get_option( 'digitalogic_mobile_native_auth', false );
 	}
+	/**
+	 * Require the current native identity schema and configured existing SMS transport.
+	 *
+	 * @return bool Native adapter result.
+	 */
 	public static function otpEnabled(): bool {
 		return self::enabled() && \Digitalogic_Smsir_Integration::native_otp_configured(); }
+	/**
+	 * Require the current native identity schema and audited Google verification configuration.
+	 *
+	 * @return bool Native adapter result.
+	 */
 	public static function googleEnabled(): bool {
 		return self::enabled() && Google::configured(); }
+	/**
+	 * Require the purpose-bound phone-link schema before advertising verification.
+	 *
+	 * @return bool Native adapter result.
+	 */
 	public static function phoneEnabled(): bool {
 		return self::otpEnabled() && '2' === get_option( 'digitalogic_mobile_identity_schema' );
 	}
 
+	/**
+	 * Authenticate the supplied native bearer only when native authentication is enabled.
+	 *
+	 * @param Request $request Bounded native HTTP request.
+	 * @return array|null Native adapter result.
+	 */
 	private function session( Request $request ): ?array {
 		return self::enabled() ? Store::authenticate( $request->headers->get( 'Authorization', '' ) ) : null;
 	}
 
+	/**
+	 * Project the current owner’s canonical profile and explicit identity verification status.
+	 *
+	 * @param int $id Exact scoped identifier.
+	 * @return array Native adapter result.
+	 */
 	private function profileData( int $id ): array {
 		$user    = get_user_by( 'id', $id );
 		$billing = array();
@@ -519,27 +652,41 @@ final class MobileIdentityController {
 		$verified    = null !== $phone && Store::ownerOfPhone( $phone ) === $id;
 		$subject     = (string) get_user_meta( $id, 'auth_google_id', true );
 		$email_parts = explode( '@', (string) $user->user_email, 2 );
-		return array_merge( array(
-			'id'           => $id,
-			'display_name' => $user->display_name,
-			'email'        => $user->user_email,
-			'first_name'   => (string) get_user_meta( $id, 'first_name', true ),
-			'last_name'    => (string) get_user_meta( $id, 'last_name', true ),
-			'billing'      => $billing,
-			'identity'     => array(
-				'phone_verified'              => $verified,
-				'google_linked'               => '' !== $subject && Google::owner( $subject ) === $id,
-				'phone_masked'                => $phone ? substr( $phone, 0, 5 ) . '•••••' . substr( $phone, -3 ) : null,
-				'email_masked'                => count( $email_parts ) === 2 ? mb_substr( $email_parts[0], 0, 1 ) . '•••@' . $email_parts[1] : null,
-				'requires_phone_verification' => ! $verified,
+		return array_merge(
+			array(
+				'id'           => $id,
+				'display_name' => $user->display_name,
+				'email'        => $user->user_email,
+				'first_name'   => (string) get_user_meta( $id, 'first_name', true ),
+				'last_name'    => (string) get_user_meta( $id, 'last_name', true ),
+				'billing'      => $billing,
+				'identity'     => array(
+					'phone_verified'              => $verified,
+					'google_linked'               => '' !== $subject && Google::owner( $subject ) === $id,
+					'phone_masked'                => $phone ? substr( $phone, 0, 5 ) . '•••••' . substr( $phone, -3 ) : null,
+					'email_masked'                => count( $email_parts ) === 2 ? mb_substr( $email_parts[0], 0, 1 ) . '•••@' . $email_parts[1] : null,
+					'requires_phone_verification' => ! $verified,
+				),
 			),
-		), Addresses::presentation( new \WC_Customer( $id ) ) );
+			Addresses::presentation( new \WC_Customer( $id ) )
+		);
 	}
 
+	/**
+	 * Return the supported canonical Woo billing field names.
+	 *
+	 * @return array Native adapter result.
+	 */
 	private static function billingFields(): array {
 		return array( 'first_name', 'last_name', 'email', 'phone', 'address_1', 'address_2', 'city', 'state', 'postcode', 'country' );
 	}
 
+	/**
+	 * Return delivery state without disclosing OTP values or promising handset receipt.
+	 *
+	 * @param array $row Supporting durable metadata row.
+	 * @return Response Native adapter result.
+	 */
 	private function challengeResponse( array $row ): Response {
 		return $this->json(
 			array(
@@ -547,14 +694,27 @@ final class MobileIdentityController {
 				'retry_after'     => max( 0, 60 - ( time() - (int) $row['created_at'] ) ),
 				'expires_in'      => max( 0, (int) $row['expires_at'] - time() ),
 				'expires_at'      => gmdate( 'c', (int) $row['expires_at'] ),
-				'delivery_status' => $row['state'] === 'accepted' ? 'accepted' : 'pending',
+				'delivery_status' => 'accepted' === $row['state'] ? 'accepted' : 'pending',
 			),
 			202
 		);
 	}
 
+	/**
+	 * Reject an expired or invalid native session without disclosing account details.
+	 *
+	 * @return Response Native adapter result.
+	 */
 	private function unauthorized(): Response {
 		return $this->error( 'unauthorized', 'دوباره وارد حساب شوید.', 401 );}
+	/**
+	 * Return a bounded error code and customer-facing message.
+	 *
+	 * @param string $code Bounded error or challenge code.
+	 * @param string $message Message.
+	 * @param int    $status HTTP or durable operation status.
+	 * @return Response Native adapter result.
+	 */
 	private function error( string $code, string $message, int $status ): Response {
 		return $this->json(
 			array(
@@ -563,6 +723,13 @@ final class MobileIdentityController {
 			),
 			$status
 		);}
+	/**
+	 * Return a native JSON response with the appropriate privacy headers.
+	 *
+	 * @param array $data Canonical or validated native data.
+	 * @param int   $status HTTP or durable operation status.
+	 * @return Response Native adapter result.
+	 */
 	private function json( array $data, int $status = 200 ): Response {
 		return response()->json(
 			$data,

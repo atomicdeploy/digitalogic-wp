@@ -1,4 +1,9 @@
 <?php
+/**
+ * Native CartContractTest adapter and verification contracts.
+ *
+ * @package Digitalogic
+ */
 
 use Digitalogic\Laravel\Services\MobileCartStore as Store;
 use PHPUnit\Framework\TestCase;
@@ -6,8 +11,14 @@ use PHPUnit\Framework\TestCase;
 require_once dirname( __DIR__ ) . '/laravel/app/Services/MobileCartStore.php';
 require_once dirname( __DIR__ ) . '/includes/integrations/class-digitalogic-mobile-api.php';
 
+/** Regression coverage for the native adapter. */
 final class MobileCartContractTest extends TestCase {
 
+	/**
+	 * Verify independent device edits merge without overwriting other lines.
+	 *
+	 * @return void Native adapter result.
+	 */
 	public function test_independent_device_edits_merge_without_overwriting_other_lines(): void {
 		$current = array(
 			array(
@@ -44,6 +55,11 @@ final class MobileCartContractTest extends TestCase {
 		);
 		self::assertSame( array(), $result['conflicts'] );
 	}
+	/**
+	 * Verify same item conflict is atomic and has three way quantities.
+	 *
+	 * @return void Native adapter result.
+	 */
 	public function test_same_item_conflict_is_atomic_and_has_three_way_quantities(): void {
 		$current = array(
 			array(
@@ -83,6 +99,11 @@ final class MobileCartContractTest extends TestCase {
 			$result['conflicts']
 		);
 	}
+	/**
+	 * Verify already applied quantity and removal are idempotent.
+	 *
+	 * @return void Native adapter result.
+	 */
 	public function test_already_applied_quantity_and_removal_are_idempotent(): void {
 		self::assertSame(
 			array(
@@ -116,6 +137,11 @@ final class MobileCartContractTest extends TestCase {
 			)
 		);
 	}
+	/**
+	 * Verify mutation rejects client prices invalid quantities and duplicate ids.
+	 *
+	 * @return void Native adapter result.
+	 */
 	public function test_mutation_rejects_client_prices_invalid_quantities_and_duplicate_ids(): void {
 		$valid = array(
 			'id'            => 7,
@@ -127,6 +153,11 @@ final class MobileCartContractTest extends TestCase {
 			self::assertNull( Store::changes( $invalid ) );
 		}
 	}
+	/**
+	 * Verify retired browser checkout paths are not dispatchable.
+	 *
+	 * @return void Native adapter result.
+	 */
 	public function test_retired_browser_checkout_paths_are_not_dispatchable(): void {
 		foreach ( array( '/app-api/checkout/preview', '/app-api/checkout/redeem', '/app-api/cart/checkout' ) as $path ) {
 			self::assertNull( Digitalogic_Mobile_API::route( $path ) );

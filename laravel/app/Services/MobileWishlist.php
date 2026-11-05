@@ -1,14 +1,40 @@
 <?php
+/**
+ * Native Wishlist adapter and verification contracts.
+ *
+ * @package Digitalogic
+ */
+
 namespace Digitalogic\Laravel\Services;
+
+// phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Security, lock and operation metadata must read current SQL state rather than stale cache; canonical commerce writes use Woo/provider APIs.
+
+// phpcs:disable WordPress.Files.FileName, WordPress.NamingConventions.ValidFunctionName.MethodNameInvalid -- Composer PSR-4 class names and Laravel method contracts are intentional.
 
 use Digitalogic\Laravel\Http\Controllers\MobileCatalogController;
 
 /** The website's Woodmart wishlist is authoritative; native storage keeps only a sync projection. */
 final class MobileWishlist {
+	/**
+	 * Check the installed canonical provider before exposing an adapter.
+	 *
+	 * @return bool Native adapter result.
+	 */
 	public static function available(): bool {
 		return class_exists( 'XTS\\WC_Wishlist\\Wishlist' ) && class_exists( 'XTS\\WC_Wishlist\\DB_Storage' ) && (bool) get_option( 'wd_wishlist_installed' );}
+	/**
+	 * Report whether the deployed adapter and its required provider are available.
+	 *
+	 * @return bool Native adapter result.
+	 */
 	public static function enabled(): bool {
 		return self::available() && (bool) get_option( 'digitalogic_mobile_woo_favorites', false );}
+	/**
+	 * Normalize desired product IDs without inferring missing identities.
+	 *
+	 * @param mixed $items Items.
+	 * @return array|null Native adapter result.
+	 */
 	public static function normalize( $items ): ?array {
 		if ( ! is_array( $items ) || ! array_is_list( $items ) || count( $items ) > 500 ) {
 			return null;
@@ -20,17 +46,39 @@ final class MobileWishlist {
 		sort( $items, SORT_NUMERIC );
 		return $items;
 	}
+	/**
+	 * Read canonical provider product identities in deterministic order.
+	 *
+	 * @param array $rows Rows.
+	 * @return array Native adapter result.
+	 */
 	private static function ids( array $rows ): array {
 		$ids = array_map( static fn( $row )=> (int) $row['product_id'], $rows );
 		$ids = array_values( array_unique( $ids ) );
 		sort( $ids, SORT_NUMERIC );
 		return $ids;}
+	/**
+	 * Project current provider state and its revision.
+	 *
+	 * @param array $rows Rows.
+	 * @return array Native adapter result.
+	 */
 	private static function snapshot( array $rows ): array {
 		$items = self::ids( $rows );
 		return array(
 			'items'    => $items,
 			'revision' => hash( 'sha256', wp_json_encode( $items ) ),
 		);}
+	/**
+	 * Reconcile native intent against the existing canonical provider state.
+	 *
+	 * @param int         $user_id Verified WordPress owner.
+	 * @param array|null  $desired Desired.
+	 * @param string|null $base Base.
+	 * @return mixed Native adapter result.
+	 * @throws \InvalidArgumentException When the authoritative operation cannot be completed safely.
+	 * @throws \RuntimeException When the authoritative operation cannot be completed safely.
+	 */
 	public static function sync( int $user_id, ?array $desired = null, ?string $base = null ) {
 		if ( ! self::available() ) {
 			return new \WP_Error( 'favorites_unavailable', 'علاقه‌مندی‌ها موقتاً در دسترس نیست.', array( 'status' => 503 ) );}
@@ -47,7 +95,7 @@ final class MobileWishlist {
 			if ( ! $wishlist->get_id() ) {
 				throw new \RuntimeException( 'Canonical wishlist unavailable.' );}
 			if ( ! get_user_meta( $user_id, '_digitalogic_native_favorites_imported', true ) ) {
-				$legacy  = $wpdb->get_var( $wpdb->prepare( "SELECT items FROM {$table} WHERE user_id=%d FOR UPDATE", $user_id ) );
+				$legacy  = $wpdb->get_var( $wpdb->prepare( 'SELECT items FROM %i WHERE user_id=%d FOR UPDATE', $table, $user_id ) );
 				$legacy  = self::normalize( json_decode( $legacy ?? '[]', true ) ) ?? array();
 				$current = self::ids( $wishlist->get_all() );
 				foreach ( array_diff( $legacy, $current ) as $id ) {
@@ -58,7 +106,7 @@ final class MobileWishlist {
 			}
 			$rows    = $wishlist->get_all();
 			$current = self::snapshot( $rows );
-			if ( $desired !== null ) {
+			if ( null !== $desired ) {
 				$wanted_hash = hash( 'sha256', wp_json_encode( $desired ) );
 				if ( $base !== $current['revision'] && $wanted_hash !== $current['revision'] ) {
 					$wpdb->query( 'COMMIT' );

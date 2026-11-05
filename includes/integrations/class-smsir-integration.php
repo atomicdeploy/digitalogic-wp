@@ -28,30 +28,51 @@ final class Digitalogic_Smsir_Integration
         }
     }
 
-    /** Native OTP reuses the configured fixed provider template; no arbitrary SMS body. */
-    public static function native_otp_configured(): bool {
-        $settings = self::settings();
-        return !empty($settings['apiKey']) && !empty($settings['template'])
-            && self::native_otp_parameter($settings['variables'] ?? null) !== null;
-    }
+	/**
+	 * Require the existing fixed SMS provider template before native OTP delivery.
+	 */
+	public static function native_otp_configured(): bool {
+		$settings = self::settings();
+		return ! empty( $settings['apiKey'] ) && ! empty( $settings['template'] )
+			&& self::native_otp_parameter( $settings['variables'] ?? null ) !== null;
+	}
 
-    /** Digits stores a provider parameter mapped to its fixed %OTP% placeholder. */
-    public static function native_otp_parameter($mapping): ?string {
-        return is_string($mapping) && preg_match('/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*:\s*%OTP%\s*$/D', $mapping, $match) === 1 ? $match[1] : null;
-    }
+	/**
+	 * Read the one permitted provider parameter mapped to the fixed OTP placeholder.
+	 *
+	 * @param mixed $mapping Existing configured template mapping.
+	 */
+	public static function native_otp_parameter( $mapping ): ?string {
+		return is_string( $mapping ) && preg_match( '/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*:\s*%OTP%\s*$/D', $mapping, $match ) === 1 ? $match[1] : null;
+	}
 
-    public static function send_native_login_otp(string $phone, string $code) {
-        $settings = self::settings();
-        if (!self::native_otp_configured() || !preg_match('/^\+989[0-9]{9}$/D', $phone) || !preg_match('/^[0-9]{6}$/D', $code)) {
-            return new WP_Error('native_otp_unconfigured', 'Native OTP is unavailable.');
-        }
-        $parameter = self::native_otp_parameter($settings['variables']);
-        return self::request('send/verify', 'POST', array(
-            'mobile' => '0' . substr($phone, 3),
-            'templateId' => (int) $settings['template'],
-            'parameters' => array(array('name' => $parameter, 'value' => $code)),
-        ));
-    }
+	/**
+	 * Send one fixed login OTP through the configured provider; callers never automatically retry.
+	 *
+	 * @param string $phone Normalized Iranian phone identity.
+	 * @param string $code Six-digit verification code.
+	 */
+	public static function send_native_login_otp( string $phone, string $code ) {
+		$settings = self::settings();
+		if ( ! self::native_otp_configured() || ! preg_match( '/^\+989[0-9]{9}$/D', $phone ) || ! preg_match( '/^[0-9]{6}$/D', $code ) ) {
+			return new WP_Error( 'native_otp_unconfigured', 'Native OTP is unavailable.' );
+		}
+		$parameter = self::native_otp_parameter( $settings['variables'] );
+		return self::request(
+			'send/verify',
+			'POST',
+			array(
+				'mobile'     => '0' . substr( $phone, 3 ),
+				'templateId' => (int) $settings['template'],
+				'parameters' => array(
+					array(
+						'name'  => $parameter,
+						'value' => $code,
+					),
+				),
+			)
+		);
+	}
 
     public static function ensure_token(): string
     {

@@ -67,7 +67,7 @@ class Digitalogic_Webhooks {
         // Hook into order updates
         add_action('woocommerce_new_order', array($this, 'order_created'), 10, 2);
         add_action('woocommerce_order_status_changed', array($this, 'order_status_changed'), 10, 4);
-        add_action('digitalogic_storefront_request_created', array($this, 'storefront_request_created'), 10, 3);
+		add_action( 'digitalogic_storefront_request_created', array( $this, 'storefront_request_created' ), 10, 3 );
         
         // Hook into currency updates
         add_action('update_option_dollar_price', array($this, 'currency_updated'), 10, 3);
@@ -818,12 +818,30 @@ class Digitalogic_Webhooks {
         $this->trigger_webhook($event, $data);
     }
 
-    /** A request-created invalidation uses existing signed n8n delivery without file paths or contact data. */
-    public function storefront_request_created($id, $type, $user_id) {
-        $id=absint($id);$type=sanitize_key($type);
-        if (!$id || !in_array($type,array('pcb','foreign'),true)) { return; }
-        $this->trigger_webhook('storefront.request.created',array('request_id'=>$id,'type'=>$type,'user_id'=>absint($user_id),'status'=>'new'),false,hash('sha256','storefront.request.created|'.$id));
-    }
+	/**
+	 * Publish the existing signed request-created invalidation without private contact or file data.
+	 *
+	 * @param int $id Canonical request post ID.
+	 * @param string $type Canonical request type.
+	 * @param int $user_id WordPress request owner.
+	 */
+	public function storefront_request_created( $id, $type, $user_id ) {
+		$id   = absint( $id );
+		$type = sanitize_key( $type );
+		if ( ! $id || ! in_array( $type, array( 'pcb', 'foreign' ), true ) ) {
+			return; }
+		$this->trigger_webhook(
+			'storefront.request.created',
+			array(
+				'request_id' => $id,
+				'type'       => $type,
+				'user_id'    => absint( $user_id ),
+				'status'     => 'new',
+			),
+			false,
+			hash( 'sha256', 'storefront.request.created|' . $id )
+		);
+	}
 
     /**
      * Format a WordPress user without secrets.

@@ -1,9 +1,24 @@
 <?php
+/**
+ * Native IdentityStore adapter and verification contracts.
+ *
+ * @package Digitalogic
+ */
 
 namespace Digitalogic\Laravel\Services;
 
+// phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Security, lock and operation metadata must read current SQL state rather than stale cache; canonical commerce writes use Woo/provider APIs.
+
+// phpcs:disable WordPress.Files.FileName, WordPress.NamingConventions.ValidFunctionName.MethodNameInvalid -- Composer PSR-4 class names and Laravel method contracts are intentional.
+
 /** Native customer identities are isolated from WordPress browser sessions. */
 final class MobileIdentityStore {
+	/**
+	 * Create or verify the supporting metadata schema without replacing canonical business records.
+	 *
+	 * @return void Native adapter result.
+	 * @throws \RuntimeException When the authoritative operation cannot be completed safely.
+	 */
 	public static function install(): void {
 		global $wpdb;
 		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
@@ -69,7 +84,7 @@ final class MobileIdentityStore {
 			$sessions => array( 'auth_method', 'verified_at' ),
 		) as $table => $columns ) {
 			foreach ( $columns as $column ) {
-				if ( ! $wpdb->get_var( $wpdb->prepare( "SHOW COLUMNS FROM {$table} LIKE %s", $column ) ) ) {
+				if ( ! $wpdb->get_var( $wpdb->prepare( 'SHOW COLUMNS FROM %i LIKE %s', $table, $wpdb->esc_like( $column ) ) ) ) {
 					throw new \RuntimeException( 'Native identity upgrade incomplete.' );
 				}
 			}
@@ -77,6 +92,12 @@ final class MobileIdentityStore {
 		update_option( 'digitalogic_mobile_identity_schema', '2', false );
 	}
 
+	/**
+	 * Normalize Persian and Arabic digits for identity and form validation.
+	 *
+	 * @param string $value Value.
+	 * @return string Native adapter result.
+	 */
 	public static function digits( string $value ): string {
 		return strtr(
 			$value,
@@ -105,6 +126,12 @@ final class MobileIdentityStore {
 		);
 	}
 
+	/**
+	 * Normalize Iranian mobile input without accepting alternate countries or trailing text.
+	 *
+	 * @param string $value Value.
+	 * @return string|null Native adapter result.
+	 */
 	public static function phone( string $value ): ?string {
 		$value = preg_replace( '/[\s()-]+/u', '', self::digits( trim( $value ) ) );
 		if ( preg_match( '/\A09[0-9]{9}\z/D', $value ) ) {
@@ -118,10 +145,23 @@ final class MobileIdentityStore {
 		return preg_match( '/\A\+989[0-9]{9}\z/D', $value ) ? $value : null;
 	}
 
+	/**
+	 * Create a keyed identifier without retaining raw security-sensitive input.
+	 *
+	 * @param string $value Value.
+	 * @return string Native adapter result.
+	 */
 	public static function hash( string $value ): string {
 		return hash_hmac( 'sha256', $value, wp_salt( 'auth' ) );
 	}
 
+	/**
+	 * Resolve an adapter-owned table from the closed table-name allowlist.
+	 *
+	 * @param string $name Name.
+	 * @return string Native adapter result.
+	 * @throws \InvalidArgumentException When the authoritative operation cannot be completed safely.
+	 */
 	public static function table( string $name ): string {
 		global $wpdb;
 		if ( ! in_array( $name, array( 'otp', 'sessions', 'favorites' ), true ) ) {
@@ -130,12 +170,18 @@ final class MobileIdentityStore {
 		return $wpdb->prefix . 'digitalogic_mobile_' . $name;
 	}
 
-	/** Phone identity comes only from Digits verification metadata, never billing. */
+	/**
+	 * Phone identity comes only from Digits verification metadata, never billing.
+	 *
+	 * @param string $phone Normalized phone identity.
+	 * @return int Native adapter result.
+	 */
 	public static function ownerOfPhone( string $phone ): int {
 		$users = get_users(
 			array(
 				'number'     => 2,
 				'fields'     => 'ID',
+				// phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query -- Exact existing Digits binding, limited to two matches to reject ambiguity.
 				'meta_query' => array(
 					array(
 						'key'   => 'digits_phone',
@@ -147,13 +193,19 @@ final class MobileIdentityStore {
 		return count( $users ) === 1 ? (int) $users[0] : ( count( $users ) > 1 ? -1 : 0 );
 	}
 
+	/**
+	 * Authenticate a native bearer against current session and WordPress password authority.
+	 *
+	 * @param string $header Header.
+	 * @return array|null Native adapter result.
+	 */
 	public static function authenticate( string $header ): ?array {
 		global $wpdb;
 		if ( ! preg_match( '/\ABearer ([a-f0-9]{64})\z/iD', $header, $match ) ) {
 			return null;
 		}
 		$table = self::table( 'sessions' );
-		$row   = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$table} WHERE token_hash=%s AND expires_at>%d", hash( 'sha256', $match[1] ), time() ), ARRAY_A );
+		$row   = $wpdb->get_row( $wpdb->prepare( 'SELECT * FROM %i WHERE token_hash=%s AND expires_at>%d', $table, hash( 'sha256', $match[1] ), time() ), ARRAY_A );
 		$user  = $row ? get_user_by( 'id', (int) $row['user_id'] ) : false;
 		if ( ! $user || ! hash_equals( $row['auth_epoch'], self::hash( $user->user_pass ) ) ) {
 			return null;
@@ -164,16 +216,32 @@ final class MobileIdentityStore {
 		return $row;
 	}
 
-	/** Long-lived sockets recheck database authority without a stale WordPress user cache. */
+	/**
+	 * Long-lived sockets recheck database authority without a stale WordPress user cache.
+	 *
+	 * @param string $id Exact scoped identifier.
+	 * @param int    $user_id Verified WordPress owner.
+	 * @return bool Native adapter result.
+	 */
 	public static function sessionIsCurrent( string $id, int $user_id ): bool {
 		global $wpdb;
 		if ( $wpdb->get_var( "SELECT option_value FROM {$wpdb->options} WHERE option_name='digitalogic_mobile_native_auth'" ) !== '1' ) {
 			return false; }
 		$table = self::table( 'sessions' );
-		$row   = $wpdb->get_row( $wpdb->prepare( "SELECT s.auth_epoch,u.user_pass FROM {$table} s JOIN {$wpdb->users} u ON u.ID=s.user_id WHERE s.id=%s AND s.user_id=%d AND s.expires_at>%d", $id, $user_id, time() ), ARRAY_A );
+		$row   = $wpdb->get_row( $wpdb->prepare( "SELECT s.auth_epoch,u.user_pass FROM %i s JOIN {$wpdb->users} u ON u.ID=s.user_id WHERE s.id=%s AND s.user_id=%d AND s.expires_at>%d", $table, $id, $user_id, time() ), ARRAY_A );
 		return $row && hash_equals( $row['auth_epoch'], self::hash( $row['user_pass'] ) );
 	}
 
+	/**
+	 * Issue an owner-bound native session with hashed storage and explicit identity-proof freshness.
+	 *
+	 * @param int      $user_id Verified WordPress owner.
+	 * @param string   $device Customer-visible session name.
+	 * @param string   $method Method.
+	 * @param int|null $proof_at Proof at.
+	 * @return array Native adapter result.
+	 * @throws \RuntimeException When the authoritative operation cannot be completed safely.
+	 */
 	public static function issueSession( int $user_id, string $device, string $method = 'legacy', ?int $proof_at = null ): array {
 		global $wpdb;
 		$user = get_user_by( 'id', $user_id );
@@ -184,7 +252,7 @@ final class MobileIdentityStore {
 		$id            = bin2hex( random_bytes( 16 ) );
 		$expires       = time() + 30 * DAY_IN_SECONDS;
 		$session_table = self::table( 'sessions' );
-		$wpdb->query( $wpdb->prepare( "DELETE FROM {$session_table} WHERE expires_at<%d LIMIT 100", time() ) );
+		$wpdb->query( $wpdb->prepare( 'DELETE FROM %i WHERE expires_at<%d LIMIT 100', $session_table, time() ) );
 		$created = $wpdb->insert(
 			self::table( 'sessions' ),
 			array(
@@ -200,7 +268,7 @@ final class MobileIdentityStore {
 				'expires_at'   => $expires,
 			)
 		);
-		if ( $created !== 1 ) {
+		if ( 1 !== $created ) {
 			throw new \RuntimeException( 'Session could not be saved.' );
 		}
 		return array(
@@ -211,13 +279,26 @@ final class MobileIdentityStore {
 		);
 	}
 
-	/** A session's creation time is not evidence of a recent identity challenge. */
+	/**
+	 * A session's creation time is not evidence of a recent identity challenge.
+	 *
+	 * @param array    $session Authenticated native session metadata.
+	 * @param int|null $now Now.
+	 * @return bool Native adapter result.
+	 */
 	public static function freshProof( array $session, ?int $now = null ): bool {
 		$now      = $now ?? time();
 		$verified = (int) ( $session['verified_at'] ?? 0 );
 		return in_array( $session['auth_method'] ?? '', array( 'google', 'otp' ), true ) && $verified >= $now - 600 && $verified <= $now + 30;
 	}
 
+	/**
+	 * Claim a verified Google token once for native session issuance.
+	 *
+	 * @param string $token Opaque or signed identity proof; never logged.
+	 * @param int    $expires Expires.
+	 * @return bool Native adapter result.
+	 */
 	public static function claimGoogleToken( string $token, int $expires ): bool {
 		global $wpdb;
 		$prefix = '_dgl_mobile_google_used_';
@@ -225,7 +306,14 @@ final class MobileIdentityStore {
 		return add_option( $prefix . hash( 'sha256', $token ), (string) $expires, '', false );
 	}
 
-	/** Atomic SQL counters enforce limits across PHP workers; only keyed scope hashes persist. */
+	/**
+	 * Atomic SQL counters enforce limits across PHP workers; only keyed scope hashes persist.
+	 *
+	 * @param string $scope Scope.
+	 * @param int    $limit Limit.
+	 * @param int    $seconds Seconds.
+	 * @return bool Native adapter result.
+	 */
 	public static function admit( string $scope, int $limit, int $seconds ): bool {
 		global $wpdb;
 		$key = '_dgl_mobile_auth_rate_' . ( intdiv( time(), $seconds ) * $seconds ) . '_' . self::hash( $scope . ':' . $seconds );

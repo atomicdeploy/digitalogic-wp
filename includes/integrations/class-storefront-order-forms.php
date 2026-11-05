@@ -769,17 +769,23 @@ final class Digitalogic_Storefront_Order_Forms {
 		wp_mail( get_option( 'admin_email' ), $subject, $body, $headers );
 	}
 
-	/** Reuse website validation without changing the current WordPress identity. */
+	/**
+	 * Reuse the website validator after native owner authentication without changing browser identity.
+	 *
+	 * @param string $type Canonical form type.
+	 * @param array $fields Native field payload.
+	 */
 	public function validate_native( string $type, array $fields ) {
 		if ( ! in_array( $type, array( 'pcb', 'foreign' ), true ) ) {
 			return new WP_Error( 'invalid_form', 'نوع فرم معتبر نیست.' ); }
+		// phpcs:ignore WordPress.Security.NonceVerification.Missing -- Save and restore the outer global; authenticated native callers invoke this validator.
 		$previous = $_POST;
 		try {
 			$_POST   = wp_slash( $fields );
 			$contact = $this->sanitize_contact();
 			if ( is_wp_error( $contact ) ) {
 				return $contact; }
-			$payload = $type === 'pcb' ? $this->sanitize_pcb_payload() : $this->sanitize_foreign_payload();
+			$payload = 'pcb' === $type ? $this->sanitize_pcb_payload() : $this->sanitize_foreign_payload();
 			return is_wp_error( $payload ) ? $payload : array(
 				'contact' => $contact,
 				'payload' => $payload,
@@ -788,10 +794,17 @@ final class Digitalogic_Storefront_Order_Forms {
 			$_POST = $previous; }
 	}
 
-	/** Called only after native session, upload ownership and transaction checks. */
+	/**
+	 * Persist the existing private request after owner, upload and transaction validation.
+	 *
+	 * @param string $type Canonical form type.
+	 * @param array $data Validated contact and request data.
+	 * @param int $user_id Verified WordPress owner.
+	 * @param array $file Owned completed private upload.
+	 */
 	public function persist_native( string $type, array $data, int $user_id, array $file ) {
 		$code  = $this->generate_code( $type );
-		$label = $type === 'pcb' ? 'PCB' : 'سفارش خارجی';
+		$label = 'pcb' === $type ? 'PCB' : 'سفارش خارجی';
 		$id    = wp_insert_post(
 			array(
 				'post_type'   => self::POST_TYPE,
@@ -824,8 +837,14 @@ final class Digitalogic_Storefront_Order_Forms {
 		);
 	}
 
-	/** Notifications run once after the durable submission commits. */
+	/**
+	 * Enqueue the existing request notification after its durable transaction commits.
+	 *
+	 * @param array $request Canonical saved request.
+	 * @param array $data Validated payload retained for caller compatibility.
+	 */
 	public function notify_native( array $request, array $data ): void {
+		unset( $data ); // Delivery reloads canonical request data after commit.
 		if ( function_exists( 'as_enqueue_async_action' ) ) {
 			as_enqueue_async_action( 'digitalogic_mobile_request_notify', array( (int) $request['id'] ), 'digitalogic-mobile', true );
 		} else {
@@ -833,17 +852,21 @@ final class Digitalogic_Storefront_Order_Forms {
 		}
 	}
 
-	/** The delivery claim prevents an uncertain mail timeout from causing duplicate human notifications. */
+	/**
+	 * Deliver once through existing admin mail and signed webhook workflows.
+	 *
+	 * @param int $id Canonical private request ID.
+	 */
 	public function deliver_native_notification( $id ): void {
 		$id   = absint( $id );
 		$post = get_post( $id );
-		if ( ! $post || $post->post_type !== self::POST_TYPE || ! add_option( '_dgl_mobile_request_notice_' . $id, 'claimed', '', false ) ) {
+		if ( ! $post || self::POST_TYPE !== $post->post_type || ! add_option( '_dgl_mobile_request_notice_' . $id, 'claimed', '', false ) ) {
 			return;}
 		$type    = get_post_meta( $id, '_dgl_request_type', true );
 		$code    = get_post_meta( $id, '_dgl_request_code', true );
 		$contact = (array) get_post_meta( $id, '_dgl_request_contact', true );
 		$payload = (array) get_post_meta( $id, '_dgl_request_payload', true );
-		$this->notify_admin( $id, $code, $type === 'pcb' ? 'PCB' : 'سفارش خارجی', $contact, $payload );
+		$this->notify_admin( $id, $code, 'pcb' === $type ? 'PCB' : 'سفارش خارجی', $contact, $payload );
 		do_action( 'digitalogic_storefront_request_created', $id, $type, (int) $post->post_author );
 	}
 

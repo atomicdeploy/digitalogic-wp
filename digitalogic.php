@@ -161,7 +161,7 @@ final class Digitalogic {
 
         // External panel and migrated site integrations
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-laravel-bridge.php';
-        require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-digitalogic-mobile-api.php';
+	require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-digitalogic-mobile-api.php';
         require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-smsir-integration.php';
 		require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-digitalogic-login-proxy.php';
 		require_once DIGITALOGIC_PLUGIN_DIR . 'includes/integrations/class-digitalogic-wp-rocket-cloudflare-fix.php';
@@ -335,7 +335,7 @@ final class Digitalogic {
         Digitalogic_Command_Dispatcher::instance();
         Digitalogic_WebSocket::instance();
         Digitalogic_Laravel_Bridge::instance();
-        Digitalogic_Mobile_API::register();
+	Digitalogic_Mobile_API::register();
         Digitalogic_Panel::instance();
         Digitalogic_Storefront_Realtime::instance();
         Digitalogic_Event_Mesh::instance();

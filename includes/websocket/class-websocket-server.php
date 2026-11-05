@@ -217,7 +217,7 @@ class Digitalogic_WebSocket_Server {
 
 		$pricing_protocol = ! empty( $auth['pricing_commands'] ) ? 'digitalogic.pricing.commands.v1' : 'digitalogic.pricing.v1';
 
-		$invalid_pricing_cursor = ($pricing_service || $shopper)
+		$invalid_pricing_cursor = ( $pricing_service || $shopper )
 			&& isset($headers['last-event-id'])
 			&& ! $this->valid_event_cursor($headers['last-event-id']);
 		if (
@@ -237,7 +237,7 @@ class Digitalogic_WebSocket_Server {
             . "Upgrade: websocket\r\n"
             . "Connection: Upgrade\r\n"
 			. "Sec-WebSocket-Accept: " . $accept . "\r\n"
-			. ( $pricing_service ? "Sec-WebSocket-Protocol: " . $pricing_protocol . "\r\n" : ($shopper ? "Sec-WebSocket-Protocol: digitalogic.shopper\r\n" : '') )
+			. ( $pricing_service ? 'Sec-WebSocket-Protocol: ' . $pricing_protocol . "\r\n" : ( $shopper ? "Sec-WebSocket-Protocol: digitalogic.shopper\r\n" : '' ) )
 			. "\r\n";
 
 		$written = @fwrite($this->clients[ $id ]['socket'], $response);
@@ -267,7 +267,7 @@ class Digitalogic_WebSocket_Server {
 			? absint($this->clients[ $id ]['last_event_id'])
 			: 0;
 		if (
-			($pricing_service || $shopper)
+			( $pricing_service || $shopper )
 			&& isset($headers['last-event-id'])
 			&& preg_match('/\A[0-9]{1,20}\z/D', (string) $headers['last-event-id'])
 		) {
@@ -338,15 +338,18 @@ class Digitalogic_WebSocket_Server {
     /** Decode transport chunks and reassemble bounded command text messages. */
     private function consume_input($id, $chunk) {
         $commands = !empty($this->clients[$id]['pricing_commands']);
-		$shopper = ($this->clients[$id]['principal']??'') === 'mobile_shopper';
+		$shopper                       = 'mobile_shopper' === ( $this->clients[ $id ]['principal'] ?? '' );
         $limit = 6 * Digitalogic_Product_Sync_Receiver::MAX_BODY_BYTES + 65536;
         $this->clients[$id]['buffer'] .= $chunk;
-		if ($shopper && strlen($this->clients[$id]['buffer'])>8192) { $this->close($id); return; }
+		if ( $shopper && strlen( $this->clients[ $id ]['buffer'] ) > 8192 ) {
+			$this->close( $id );
+			return;
+		}
         if ($commands && strlen($this->clients[$id]['buffer']) + strlen($this->clients[$id]['fragment_payload'] ?? '') > $limit) {
             $this->close($id);
             return;
         }
-        $frames = $this->decode_frames($this->clients[$id]['buffer'], $commands ? $limit : ($shopper ? 8192 : null));
+		$frames = $this->decode_frames( $this->clients[ $id ]['buffer'], $commands ? $limit : ( $shopper ? 8192 : null ) );
         if (!empty($frames['error'])) {
             $this->close($id);
             return;
@@ -409,8 +412,8 @@ class Digitalogic_WebSocket_Server {
             $this->send_json($id, array('id' => $request_id, 'event' => 'pong', 'success' => true));
             return;
         }
-		if (($this->clients[$id]['principal']??'') === 'mobile_shopper') {
-			$this->send_error($id,$request_id,'shopper_stream_read_only','Shopper events do not accept commands.');
+		if ( 'mobile_shopper' === ( $this->clients[ $id ]['principal'] ?? '' ) ) {
+			$this->send_error( $id, $request_id, 'shopper_stream_read_only', 'Shopper events do not accept commands.' );
 			return;
 		}
 
@@ -653,7 +656,7 @@ class Digitalogic_WebSocket_Server {
 		$principal       = (string) ( $this->clients[ $id ]['principal'] ?? '' );
 		if ( in_array( $principal, array( 'public', 'mobile_shopper' ), true ) ) {
 			$event   = self::project_shopper_event( $event, max( 0, (int) ( $this->clients[ $id ]['user_id'] ?? 0 ) ) );
-			$visible = $event !== null;
+			$visible = null !== $event;
 		} elseif ( $pricing_service ) {
 			$visible = class_exists( 'Digitalogic_Event_Mesh' )
 				&& Digitalogic_Event_Mesh::event_visible_to(
@@ -692,11 +695,16 @@ class Digitalogic_WebSocket_Server {
 		}
     }
 
-	/** Public projection is an allowlist; native identity never grants panel scope. */
+	/**
+	 * Allowlist public events and exact-owner invalidations without granting panel commands.
+	 *
+	 * @param array $event Canonical event envelope.
+	 * @param int $user_id Verified shopper owner or zero for public.
+	 */
 	public static function project_shopper_event( array $event, int $user_id ): ?array {
 		$name = (string) ( $event['name'] ?? '' );
 		$data = is_array( $event['data'] ?? null ) ? $event['data'] : array();
-		if ( $user_id > 0 && $name === 'user.updated' && (int) ( $data['id'] ?? 0 ) === $user_id ) {
+		if ( $user_id > 0 && 'user.updated' === $name && (int) ( $data['id'] ?? 0 ) === $user_id ) {
 			return array(
 				'id'   => absint( $event['id'] ?? 0 ),
 				'name' => 'profile.updated',
@@ -704,7 +712,7 @@ class Digitalogic_WebSocket_Server {
 				'data' => array( 'scope' => 'profile' ),
 			);
 		}
-		if ( $user_id > 0 && $name === 'mobile.order.updated' && (int) ( $data['user_id'] ?? 0 ) === $user_id ) {
+		if ( $user_id > 0 && 'mobile.order.updated' === $name && (int) ( $data['user_id'] ?? 0 ) === $user_id ) {
 			return array(
 				'id'   => absint( $event['id'] ?? 0 ),
 				'name' => 'order.updated',
@@ -716,7 +724,7 @@ class Digitalogic_WebSocket_Server {
 				),
 			);
 		}
-		if ( $user_id > 0 && $name === 'mobile.cart.updated' && (int) ( $data['user_id'] ?? 0 ) === $user_id ) {
+		if ( $user_id > 0 && 'mobile.cart.updated' === $name && (int) ( $data['user_id'] ?? 0 ) === $user_id ) {
 			return array(
 				'id'   => absint( $event['id'] ?? 0 ),
 				'name' => 'cart.updated',
@@ -730,6 +738,9 @@ class Digitalogic_WebSocket_Server {
 		return class_exists( 'Digitalogic_Storefront_Realtime' ) ? Digitalogic_Storefront_Realtime::project_public_event( $event, $user_id ) : null;
 	}
 
+	/**
+	 * Revalidate native socket session authority and close revoked or expired identities.
+	 */
 	private function check_shopper_sessions(): void {
 		foreach ( $this->clients as $id => $client ) {
 			if ( ( $client['principal'] ?? '' ) !== 'mobile_shopper' || empty( $client['native_session_id'] ) || (int) ( $client['native_checked_at'] ?? 0 ) > time() - 30 ) {

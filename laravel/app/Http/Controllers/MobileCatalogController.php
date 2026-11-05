@@ -1,6 +1,15 @@
 <?php
+/**
+ * Native CatalogController adapter and verification contracts.
+ *
+ * @package Digitalogic
+ */
 
 namespace Digitalogic\Laravel\Http\Controllers;
+
+// phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- This adapter reads indexed public data through cached(); canonical commerce writes use Woo/provider APIs.
+
+// phpcs:disable WordPress.Files.FileName, WordPress.NamingConventions.ValidFunctionName.MethodNameInvalid -- Composer PSR-4 class names and Laravel method contracts are intentional.
 
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -10,6 +19,12 @@ use Symfony\Component\HttpFoundation\Response;
  */
 final class MobileCatalogController {
 
+	/**
+	 * Discover only configured app capabilities and canonical storefront data.
+	 *
+	 * @param Request $request Bounded native HTTP request.
+	 * @return Response Native adapter result.
+	 */
 	public function bootstrap( Request $request ): Response {
 		return $this->cached(
 			$request,
@@ -27,8 +42,8 @@ final class MobileCatalogController {
 					)
 				);
 				return array(
-					'address_map' => \Digitalogic\Laravel\Services\MobileAddresses::map_config(),
-					'business' => \Digitalogic\Laravel\Services\MobileStorefrontInfo::business(),
+					'address_map'  => \Digitalogic\Laravel\Services\MobileAddresses::map_config(),
+					'business'     => \Digitalogic\Laravel\Services\MobileStorefrontInfo::business(),
 					'site'         => array(
 						'name'                => get_bloginfo( 'name' ),
 						'url'                 => home_url( '/' ),
@@ -38,7 +53,7 @@ final class MobileCatalogController {
 						'currency_minor_unit' => wc_get_price_decimals(),
 					),
 					'endpoints'    => array(
-						'links_resolve' => home_url( '/app-api/links/resolve' ),
+						'links_resolve'       => home_url( '/app-api/links/resolve' ),
 						'catalog'             => home_url( '/app-api/products' ),
 						'categories'          => home_url( '/app-api/categories' ),
 						'cart'                => home_url( '/app-api/cart' ),
@@ -83,7 +98,7 @@ final class MobileCatalogController {
 						'native_checkout'           => MobileCheckoutController::enabled(),
 						'native_auth'               => MobileIdentityController::otpEnabled(),
 						'native_phone_verification' => MobileIdentityController::phoneEnabled(),
-						'native_address_locations' => true,
+						'native_address_locations'  => true,
 						'account_merge'             => false,
 						'native_registration'       => \Digitalogic\Laravel\Services\MobileRegistrationStore::enabled(),
 						'google_auth'               => MobileIdentityController::googleEnabled(),
@@ -93,7 +108,7 @@ final class MobileCatalogController {
 						'push_notifications'        => false,
 						'websocket'                 => (bool) get_option( 'digitalogic_mobile_websocket', false ),
 						'sse'                       => true,
-						'self_update'               => $update_manifest !== '',
+						'self_update'               => '' !== $update_manifest,
 					),
 					'realtime'     => array(
 						'protocol'           => 'digitalogic.shopper',
@@ -134,6 +149,12 @@ final class MobileCatalogController {
 		);
 	}
 
+	/**
+	 * Return published Woo categories and their canonical links.
+	 *
+	 * @param Request $request Bounded native HTTP request.
+	 * @return Response Native adapter result.
+	 */
 	public function categories( Request $request ): Response {
 		return $this->cached(
 			$request,
@@ -146,21 +167,49 @@ final class MobileCatalogController {
 		);
 	}
 
-	/** Resolve only exact canonical public Woo permalinks, never an arbitrary remote URL. */
+	/**
+	 * Resolve only exact canonical public Woo permalinks, never an arbitrary remote URL.
+	 *
+	 * @param Request $request Bounded native HTTP request.
+	 * @return Response Native adapter result.
+	 */
 	public function resolveLink( Request $request ): Response {
-		$url = $request->query( 'url' );
+		$url    = $request->query( 'url' );
 		$result = is_string( $url ) ? \Digitalogic\Laravel\Services\MobileStorefrontInfo::resolve( $url ) : null;
 		if ( null === $result ) {
-			return response()->json( array( 'code' => 'unsupported_link', 'message' => 'این پیوند در برنامه پشتیبانی نمی‌شود.' ), 404, array( 'Cache-Control' => 'public, max-age=15', 'Access-Control-Allow-Origin' => '*' ) );
+			return response()->json(
+				array(
+					'code'    => 'unsupported_link',
+					'message' => 'این پیوند در برنامه پشتیبانی نمی‌شود.',
+				),
+				404,
+				array(
+					'Cache-Control'               => 'public, max-age=15',
+					'Access-Control-Allow-Origin' => '*',
+				)
+			);
 		}
 		return $this->cached( $request, 'links', array( 'url' => $url ), static fn() => $result );
 	}
 
+	/**
+	 * Return a bounded, paginated public catalog projection.
+	 *
+	 * @param Request $request Bounded native HTTP request.
+	 * @return Response Native adapter result.
+	 */
 	public function products( Request $request ): Response {
 		$query = self::normalizeQuery( $request->query() );
 		return $this->cached( $request, 'products', $query, fn() => $this->productsData( $query ) );
 	}
 
+	/**
+	 * Return the exact requested public product without guessing its identity.
+	 *
+	 * @param Request $request Bounded native HTTP request.
+	 * @param string  $id Exact scoped identifier.
+	 * @return Response Native adapter result.
+	 */
 	public function product( Request $request, string $id ): Response {
 		$product = wc_get_product( (int) $id );
 		if ( ! $product || ! $this->isPublic( $product ) ) {
@@ -171,6 +220,9 @@ final class MobileCatalogController {
 
 	/**
 	 * Normalize before cache lookup and SQL; only documented filters have an effect.
+	 *
+	 * @param array $input Validated or pending native input.
+	 * @return array Native adapter result.
 	 */
 	public static function normalizeQuery( array $input ): array {
 		$input = array_filter( $input, 'is_scalar' );
@@ -190,19 +242,22 @@ final class MobileCatalogController {
 
 	/**
 	 * Indexed lookup chooses a bounded page; WooCommerce remains price/identity authority.
+	 *
+	 * @param array $query Query.
+	 * @return array Native adapter result.
 	 */
 	private function productsData( array $query ): array {
 		global $wpdb;
 		$lookup     = $wpdb->prefix . 'wc_product_meta_lookup';
 		$where      = "p.post_type = 'product' AND p.post_status = 'publish' AND p.post_password = ''";
 		$values     = array();
-		$visibility = $query['search'] === '' ? 'exclude-from-catalog' : 'exclude-from-search';
+		$visibility = '' === $query['search'] ? 'exclude-from-catalog' : 'exclude-from-search';
 		$where     .= " AND NOT EXISTS (SELECT 1 FROM {$wpdb->term_relationships} vr JOIN {$wpdb->term_taxonomy} vt ON vt.term_taxonomy_id=vr.term_taxonomy_id JOIN {$wpdb->terms} v ON v.term_id=vt.term_id WHERE vr.object_id=p.ID AND vt.taxonomy='product_visibility' AND v.slug=%s)";
 		$values[]   = $visibility;
 		if ( $query['has_images'] ) {
 			$where .= " AND EXISTS (SELECT 1 FROM {$wpdb->postmeta} image WHERE image.post_id=p.ID AND image.meta_key='_thumbnail_id' AND CAST(image.meta_value AS UNSIGNED)>0)";
 		}
-		if ( $query['search'] !== '' ) {
+		if ( '' !== $query['search'] ) {
 			$where   .= ' AND (p.post_title LIKE %s OR l.sku LIKE %s)';
 			$values[] = '%' . $wpdb->esc_like( $query['search'] ) . '%';
 			$values[] = '%' . $wpdb->esc_like( $query['search'] ) . '%';
@@ -213,7 +268,7 @@ final class MobileCatalogController {
 			$ids      = implode( ',', array_map( 'absint', $ids ) );
 			$where   .= " AND EXISTS (SELECT 1 FROM {$wpdb->term_relationships} cr JOIN {$wpdb->term_taxonomy} ct ON ct.term_taxonomy_id=cr.term_taxonomy_id WHERE cr.object_id=p.ID AND ct.taxonomy='product_cat' AND ct.term_id IN ({$ids}))";
 		}
-		if ( $query['stock_status'] !== '' ) {
+		if ( '' !== $query['stock_status'] ) {
 			$where   .= ' AND l.stock_status=%s';
 			$values[] = $query['stock_status'];
 		} elseif ( get_option( 'woocommerce_hide_out_of_stock_items' ) === 'yes' ) {
@@ -227,10 +282,10 @@ final class MobileCatalogController {
 		);
 		$order = $sorts[ $query['orderby'] ] . ' ' . $query['order'] . ', p.ID ' . $query['order'];
 		$from  = "FROM {$wpdb->posts} p LEFT JOIN {$lookup} l ON l.product_id=p.ID WHERE {$where}";
-     // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- Only trusted table names and allowlisted sort fragments are interpolated.
+     // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare -- Only trusted table names and allowlisted sort fragments are interpolated.
 		$total = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) {$from}", $values ) );
 		$args  = array_merge( $values, array( $query['per_page'], ( $query['page'] - 1 ) * $query['per_page'] ) );
-     // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- Filters and bounds are prepared; sort fields are allowlisted.
+     // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- Filters and bounds are prepared; sort fields are allowlisted.
 		$ids = array_map( 'intval', $wpdb->get_col( $wpdb->prepare( "SELECT p.ID {$from} ORDER BY {$order} LIMIT %d OFFSET %d", $args ) ) );
 		if ( $ids ) {
 			_prime_post_caches( $ids, true, true );
@@ -256,6 +311,11 @@ final class MobileCatalogController {
 		);
 	}
 
+	/**
+	 * Project existing public Woo product-category records.
+	 *
+	 * @return array Native adapter result.
+	 */
 	private function categoriesData(): array {
 		$terms = get_terms(
 			array(
@@ -287,6 +347,12 @@ final class MobileCatalogController {
 		);
 	}
 
+	/**
+	 * Require a published, visible, unprotected product before public projection.
+	 *
+	 * @param mixed $product Product.
+	 * @return bool Native adapter result.
+	 */
 	private function isPublic( $product ): bool {
 		if ( $product->get_status() !== 'publish' || get_post_field( 'post_password', $product->get_id() ) !== '' || $product->get_catalog_visibility() === 'hidden' ) {
 			return false;
@@ -300,6 +366,9 @@ final class MobileCatalogController {
 
 	/**
 	 * One canonical projection is shared by listings, detail and durable customer carts.
+	 *
+	 * @param int $id Exact scoped identifier.
+	 * @return array|null Native adapter result.
 	 */
 	public function publicProduct( int $id ): ?array {
 		$product = wc_get_product( $id );
@@ -308,19 +377,37 @@ final class MobileCatalogController {
 
 	/**
 	 * Values are decimal strings in the store's currency minor unit, never inferred.
+	 *
+	 * @param mixed $value Value.
+	 * @param int   $decimals Decimals.
+	 * @return string|null Native adapter result.
 	 */
 	public static function minorUnits( $value, int $decimals ): ?string {
-		if ( $value === '' || $value === null || ! is_numeric( $value ) ) {
+		if ( '' === $value || null === $value || ! is_numeric( $value ) ) {
 			return null;
 		}
 		$decimal = number_format( (float) $value, max( 0, $decimals ), '.', '' );
 		return str_replace( '.', '', $decimal );
 	}
 
+	/**
+	 * Remove only the exact product-own SKU suffix from a customer-facing name.
+	 *
+	 * @param string $name Name.
+	 * @param string $sku Sku.
+	 * @return string Native adapter result.
+	 */
 	public static function displayName( string $name, string $sku ): string {
-		return $sku === '' ? $name : trim( preg_replace( '/\s*\[\s*' . preg_quote( $sku, '/' ) . '\s*\]\s*$/u', '', $name ) );
+		return '' === $sku ? $name : trim( preg_replace( '/\s*\[\s*' . preg_quote( $sku, '/' ) . '\s*\]\s*$/u', '', $name ) );
 	}
 
+	/**
+	 * Project canonical Woo product fields without private or inferred commerce information.
+	 *
+	 * @param mixed $product Product.
+	 * @param bool  $details Details.
+	 * @return array Native adapter result.
+	 */
 	private function project( $product, bool $details ): array {
 		$minor      = (int) wc_get_price_decimals();
 		$image_ids  = array_values( array_unique( array_filter( array_merge( array( $product->get_image_id() ), $details ? $product->get_gallery_image_ids() : array() ) ) ) );
@@ -404,17 +491,32 @@ final class MobileCatalogController {
 		return $data;
 	}
 
+	/**
+	 * Expose staged sizes of an attachment assigned to the exact product.
+	 *
+	 * @param int $id Exact scoped identifier.
+	 * @return array Native adapter result.
+	 */
 	private function image( int $id ): array {
 		return array(
 			'id'        => $id,
-			'src'       => wp_get_attachment_image_url( $id, 'full' ) ?: '',
-			'thumbnail' => wp_get_attachment_image_url( $id, 'woocommerce_thumbnail' ) ?: '',
-			'medium'    => wp_get_attachment_image_url( $id, 'medium_large' ) ?: '',
-			'srcset'    => wp_get_attachment_image_srcset( $id, 'full' ) ?: '',
+			'src'       => (string) wp_get_attachment_image_url( $id, 'full' ),
+			'thumbnail' => (string) wp_get_attachment_image_url( $id, 'woocommerce_thumbnail' ),
+			'medium'    => (string) wp_get_attachment_image_url( $id, 'medium_large' ),
+			'srcset'    => (string) wp_get_attachment_image_srcset( $id, 'full' ),
 			'alt'       => get_post_meta( $id, '_wp_attachment_image_alt', true ),
 		);
 	}
 
+	/**
+	 * Apply bounded public caching and conditional ETags to public projections.
+	 *
+	 * @param Request  $request Bounded native HTTP request.
+	 * @param string   $route Route.
+	 * @param array    $query Query.
+	 * @param callable $build Build.
+	 * @return Response Native adapter result.
+	 */
 	private function cached( Request $request, string $route, array $query, callable $build ): Response {
 		$generation = class_exists( 'Digitalogic_Report_Engine' ) ? \Digitalogic_Report_Engine::instance()->current_projection_generation() : '';
 		$generation = is_wp_error( $generation ) ? '' : $generation;

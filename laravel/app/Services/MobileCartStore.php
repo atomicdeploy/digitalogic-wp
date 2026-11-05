@@ -1,12 +1,28 @@
 <?php
+/**
+ * Native CartStore adapter and verification contracts.
+ *
+ * @package Digitalogic
+ */
 
 namespace Digitalogic\Laravel\Services;
+
+// phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Security, lock and operation metadata must read current SQL state rather than stale cache; canonical commerce writes use Woo/provider APIs.
+
+// phpcs:disable WordPress.Files.FileName, WordPress.NamingConventions.ValidFunctionName.MethodNameInvalid -- Composer PSR-4 class names and Laravel method contracts are intentional.
 
 /**
  * Token/revision metadata. items is a reconciled projection of the authoritative Woo cart.
  */
 final class MobileCartStore {
 
+	/**
+	 * Resolve an adapter-owned table from the closed table-name allowlist.
+	 *
+	 * @param string $name Name.
+	 * @return string Native adapter result.
+	 * @throws \InvalidArgumentException When the authoritative operation cannot be completed safely.
+	 */
 	public static function table( string $name ): string {
 		global $wpdb;
 		if ( ! in_array( $name, array( 'carts', 'cart_tokens', 'cart_operations' ), true ) ) {
@@ -15,6 +31,12 @@ final class MobileCartStore {
 		return $wpdb->prefix . 'digitalogic_mobile_' . $name;
 	}
 
+	/**
+	 * Create or verify the supporting metadata schema without replacing canonical business records.
+	 *
+	 * @return void Native adapter result.
+	 * @throws \RuntimeException When the authoritative operation cannot be completed safely.
+	 */
 	public static function install(): void {
 		global $wpdb;
 		include_once ABSPATH . 'wp-admin/includes/upgrade.php';
@@ -60,17 +82,24 @@ final class MobileCartStore {
 				throw new \RuntimeException( 'Cart storage unavailable.' );
 			}
 		}
-		if ( get_option( 'digitalogic_mobile_cart_schema' ) === '1' && (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$carts}" ) > 0 ) {
+		if ( get_option( 'digitalogic_mobile_cart_schema' ) === '1' && (int) $wpdb->get_var( $wpdb->prepare( 'SELECT COUNT(*) FROM %i', $carts ) ) > 0 ) {
 			throw new \RuntimeException( 'Legacy cart intent must be migrated before enabling Woo cart adapter.' ); }
 		update_option( 'digitalogic_mobile_cart_schema', '2', false );
 	}
 
+	/**
+	 * Create supporting metadata for the verified native operation.
+	 *
+	 * @param int|null $user_id Verified WordPress owner.
+	 * @return array Native adapter result.
+	 * @throws \RuntimeException When the authoritative operation cannot be completed safely.
+	 */
 	public static function create( ?int $user_id = null ): array {
 		global $wpdb;
 		self::cleanup();
 		$table = self::table( 'carts' );
 		if ( $user_id ) {
-			$existing = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$table} WHERE user_id=%d", $user_id ), ARRAY_A );
+			$existing = $wpdb->get_row( $wpdb->prepare( 'SELECT * FROM %i WHERE user_id=%d', $table, $user_id ), ARRAY_A );
 			if ( $existing ) {
 				return $existing;
 			}
@@ -83,8 +112,8 @@ final class MobileCartStore {
 			'updated_at' => time(),
 		);
 		if ( $user_id ) {
-			$wpdb->query( $wpdb->prepare( "INSERT IGNORE INTO {$table} (id,user_id,items,revision,updated_at) VALUES (%s,%d,'[]',0,%d)", $row['id'], $user_id, time() ) );
-			$row = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$table} WHERE user_id=%d", $user_id ), ARRAY_A );
+			$wpdb->query( $wpdb->prepare( "INSERT IGNORE INTO %i (id,user_id,items,revision,updated_at) VALUES (%s,%d,'[]',0,%d)", $table, $row['id'], $user_id, time() ) );
+			$row = $wpdb->get_row( $wpdb->prepare( 'SELECT * FROM %i WHERE user_id=%d', $table, $user_id ), ARRAY_A );
 		} elseif ( $wpdb->insert( $table, $row ) !== 1 ) {
 			throw new \RuntimeException( 'Cart could not be created.' );
 		}
@@ -94,12 +123,20 @@ final class MobileCartStore {
 		return $row;
 	}
 
+	/**
+	 * Refresh supporting metadata from current canonical state.
+	 *
+	 * @param array $cart Cart.
+	 * @return array Native adapter result.
+	 * @throws \RuntimeException When the authoritative operation cannot be completed safely.
+	 * @throws \Throwable After rollback when the underlying authoritative operation fails.
+	 */
 	public static function refresh( array $cart ): array {
 		global $wpdb;
 		$table = self::table( 'carts' );
 		$wpdb->query( 'START TRANSACTION' );
 		try {
-			$current = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$table} WHERE id=%s FOR UPDATE", $cart['id'] ), ARRAY_A );
+			$current = $wpdb->get_row( $wpdb->prepare( 'SELECT * FROM %i WHERE id=%s FOR UPDATE', $table, $cart['id'] ), ARRAY_A );
 			if ( ! $current ) {
 				throw new \RuntimeException( 'Cart disappeared.' );
 			}$current = MobileWooCart::reconcile( $current );
@@ -109,6 +146,13 @@ final class MobileCartStore {
 			throw $error;}
 	}
 
+	/**
+	 * Issue an opaque cart capability with only its hash retained server-side.
+	 *
+	 * @param string $cart_id Cart id.
+	 * @return string Native adapter result.
+	 * @throws \RuntimeException When the authoritative operation cannot be completed safely.
+	 */
 	public static function token( string $cart_id ): string {
 		global $wpdb;
 		$token = bin2hex( random_bytes( 32 ) );
@@ -125,6 +169,12 @@ final class MobileCartStore {
 		return $token;
 	}
 
+	/**
+	 * Resolve a current opaque capability without accepting arbitrary cart IDs.
+	 *
+	 * @param string $token Opaque or signed identity proof; never logged.
+	 * @return array|null Native adapter result.
+	 */
 	public static function byToken( string $token ): ?array {
 		global $wpdb;
 		if ( ! preg_match( '/\A[a-f0-9]{64}\z/D', $token ) ) {
@@ -133,25 +183,34 @@ final class MobileCartStore {
 		$carts  = self::table( 'carts' );
 		$tokens = self::table( 'cart_tokens' );
 		$hash   = hash( 'sha256', $token );
-		$row    = $wpdb->get_row( $wpdb->prepare( "SELECT c.*,t.expires_at AS token_expires FROM {$carts} c JOIN {$tokens} t ON t.cart_id=c.id WHERE t.token_hash=%s AND t.expires_at>%d", $hash, time() ), ARRAY_A );
+		$row    = $wpdb->get_row( $wpdb->prepare( 'SELECT c.*,t.expires_at AS token_expires FROM %i c JOIN %i t ON t.cart_id=c.id WHERE t.token_hash=%s AND t.expires_at>%d', $carts, $tokens, $hash, time() ), ARRAY_A );
 		if ( $row && (int) $row['token_expires'] < time() + 89 * DAY_IN_SECONDS ) {
 			$wpdb->update( $tokens, array( 'expires_at' => time() + 90 * DAY_IN_SECONDS ), array( 'token_hash' => $hash ) );
 		}
 		return $row;
 	}
 
+	/**
+	 * Remove expired supporting metadata in a bounded pass.
+	 *
+	 * @return void Native adapter result.
+	 */
 	private static function cleanup(): void {
 		global $wpdb;
 		$tokens     = self::table( 'cart_tokens' );
 		$operations = self::table( 'cart_operations' );
 		$carts      = self::table( 'carts' );
-		$wpdb->query( $wpdb->prepare( "DELETE FROM {$tokens} WHERE expires_at<%d LIMIT 100", time() ) );
-		$wpdb->query( $wpdb->prepare( "DELETE FROM {$operations} WHERE created_at<%d LIMIT 100", time() - 90 * DAY_IN_SECONDS ) );
-		$wpdb->query( $wpdb->prepare( "DELETE FROM {$carts} WHERE user_id IS NULL AND updated_at<%d AND id NOT IN (SELECT cart_id FROM {$tokens}) LIMIT 50", time() - 90 * DAY_IN_SECONDS ) );
+		$wpdb->query( $wpdb->prepare( 'DELETE FROM %i WHERE expires_at<%d LIMIT 100', $tokens, time() ) );
+		$wpdb->query( $wpdb->prepare( 'DELETE FROM %i WHERE created_at<%d LIMIT 100', $operations, time() - 90 * DAY_IN_SECONDS ) );
+		$wpdb->query( $wpdb->prepare( 'DELETE FROM %i WHERE user_id IS NULL AND updated_at<%d AND id NOT IN (SELECT cart_id FROM %i) LIMIT 50', $carts, time() - 90 * DAY_IN_SECONDS, $tokens ) );
 	}
 
 	/**
 	 * Touched-item comparisons merge independent device edits without replacing a whole cart.
+	 *
+	 * @param array $current Current.
+	 * @param array $changes Changes.
+	 * @return array Native adapter result.
 	 */
 	public static function mergePatch( array $current, array $changes ): array {
 		$quantities = array();
@@ -178,7 +237,7 @@ final class MobileCartStore {
 			);
 		}
 		foreach ( $changes as $change ) {
-			if ( $change['quantity'] === 0 ) {
+			if ( 0 === $change['quantity'] ) {
 				unset( $quantities[ $change['id'] ] );
 			} else {
 				$quantities[ $change['id'] ] = $change['quantity'];
@@ -198,6 +257,12 @@ final class MobileCartStore {
 		);
 	}
 
+	/**
+	 * Calculate the bounded requested cart changes.
+	 *
+	 * @param mixed $input Validated or pending native input.
+	 * @return array|null Native adapter result.
+	 */
 	public static function changes( $input ): ?array {
 		if ( ! is_array( $input ) || ! array_is_list( $input ) || count( $input ) < 1 || count( $input ) > 40 ) {
 			return null;
