@@ -198,21 +198,52 @@ final class Digitalogic_Hardware_Reference {
 	}
 
 	/**
-	 * Read normalized rows for a published guide.
+	 * Read a board revision through a verified, published product.
 	 *
 	 * @param string $slug Board revision key.
 	 * @return array
 	 */
 	public static function read( string $slug ): array {
 		global $wpdb;
+		$board = self::board( $slug );
+		if ( ! $board ) {
+			return array();
+		}
+		$assignments = self::table( 'assignments' );
+		$products    = $wpdb->get_results( $wpdb->prepare( "SELECT product_id,sku FROM $assignments WHERE board_id = %d ORDER BY product_id", $board['id'] ), ARRAY_A ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery,WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Fixed table and indexed board ID.
+		foreach ( $products as $product ) {
+			$product_id = (int) $product['product_id'];
+			if ( self::matches_sku( $product_id, $product['sku'] ) ) {
+				return self::reference( $board, $product_id );
+			}
+		}
+		return array();
+	}
+
+	/**
+	 * Load an editorial board record, including records awaiting stock evidence.
+	 *
+	 * @param string $slug Board revision key.
+	 * @return array
+	 */
+	private static function board( string $slug ): array {
+		global $wpdb;
 		if ( self::SCHEMA !== get_option( self::OPTION ) ) {
 			return array();
 		}
 		$boards = self::table( 'boards' );
-		$board  = $wpdb->get_row( $wpdb->prepare( "SELECT id,slug,manufacturer,model,revision,guide_id FROM $boards WHERE slug = %s", $slug ), ARRAY_A ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery,WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Fixed table and prepared key.
-		if ( ! $board || 'publish' !== get_post_status( (int) $board['guide_id'] ) ) {
-			return array();
-		}
+		return $wpdb->get_row( $wpdb->prepare( "SELECT id,slug,manufacturer,model,revision FROM $boards WHERE slug = %s", $slug ), ARRAY_A ) ?: array(); // phpcs:ignore WordPress.DB.DirectDatabaseQuery,WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Fixed table and prepared key.
+	}
+
+	/**
+	 * Load normalized rows for a product whose SKU has already been verified.
+	 *
+	 * @param array $board Board revision record.
+	 * @param int   $product_id Verified product ID.
+	 * @return array
+	 */
+	private static function reference( array $board, int $product_id ): array {
+		global $wpdb;
 		$sources  = self::table( 'sources' );
 		$pins     = self::table( 'pins' );
 		$values   = self::table( 'parameters' );
@@ -222,7 +253,7 @@ final class Digitalogic_Hardware_Reference {
 			'manufacturer' => $board['manufacturer'],
 			'model'        => $board['model'],
 			'revision'     => $board['revision'],
-			'guide'        => get_permalink( (int) $board['guide_id'] ),
+			'guide'        => wc_get_product( $product_id )->get_permalink(),
 			'pins'         => $wpdb->get_results( $wpdb->prepare( "SELECT p.connector,p.position,p.label,p.gpio,p.role,p.note,s.source_key AS source FROM $pins p JOIN $sources s ON s.id=p.source_id AND s.board_id=p.board_id WHERE p.board_id = %d ORDER BY p.connector,p.position", $board_id ), ARRAY_A ), // phpcs:ignore WordPress.DB.DirectDatabaseQuery,WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Fixed tables and indexed revision.
 			'parameters'   => $wpdb->get_results( $wpdb->prepare( "SELECT p.parameter,p.qualifier,p.magnitude,p.unit,p.conditions,s.source_key AS source FROM $values p JOIN $sources s ON s.id=p.source_id AND s.board_id=p.board_id WHERE p.board_id = %d ORDER BY p.id", $board_id ), ARRAY_A ), // phpcs:ignore WordPress.DB.DirectDatabaseQuery,WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Fixed tables and indexed revision.
 			'sources'      => $wpdb->get_results( $wpdb->prepare( "SELECT source_key,kind,title,url FROM $sources WHERE board_id = %d ORDER BY id", $board_id ), ARRAY_A ), // phpcs:ignore WordPress.DB.DirectDatabaseQuery,WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Fixed table and indexed revision.
@@ -243,34 +274,36 @@ final class Digitalogic_Hardware_Reference {
 		}
 		$assignments = self::table( 'assignments' );
 		$boards      = self::table( 'boards' );
-		$row         = $wpdb->get_row( $wpdb->prepare( "SELECT a.sku,b.slug FROM $assignments a JOIN $boards b ON b.id=a.board_id WHERE a.product_id = %d", $product_id ), ARRAY_A ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery,WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Fixed tables and indexed product ID.
+		$row         = $wpdb->get_row( $wpdb->prepare( "SELECT a.sku,b.id,b.slug,b.manufacturer,b.model,b.revision FROM $assignments a JOIN $boards b ON b.id=a.board_id WHERE a.product_id = %d", $product_id ), ARRAY_A ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery,WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Fixed tables and indexed product ID.
 		if ( ! $row || ( null !== $exact_sku && $exact_sku !== $row['sku'] ) || ! self::matches_sku( $product_id, $row['sku'] ) ) {
 			return array();
 		}
-		return self::read( $row['slug'] );
+		return self::reference( $row, $product_id );
 	}
 
 	/**
-	 * Assign a published reference after review of stock-linked revision evidence.
+	 * Assign a staged reference after review of stock-linked revision evidence.
 	 *
 	 * @param int    $product_id WooCommerce product or variation ID.
 	 * @param string $sku Exact SKU and Product Code.
-	 * @param string $slug Published revision reference.
+	 * @param string $slug Staged revision reference.
 	 * @param string $evidence_ref Private stock evidence identifier.
 	 * @throws RuntimeException If authorization, identity or write fails.
 	 */
 	public static function assign( int $product_id, string $sku, string $slug, string $evidence_ref ): void {
 		global $wpdb;
 		if ( ! defined( 'WP_CLI' ) || ! WP_CLI || ! current_user_can( 'manage_options' ) || ! current_user_can( 'edit_post', $product_id )
-			|| ! self::matches_sku( $product_id, $sku ) || '' === trim( $evidence_ref ) || strlen( $evidence_ref ) > 500 || ! self::read( $slug ) ) {
-			throw new RuntimeException( 'Exact product, published revision and reviewed stock evidence are required.' );
+			|| ! self::matches_sku( $product_id, $sku ) || '' === trim( $evidence_ref ) || strlen( $evidence_ref ) > 500 ) {
+			throw new RuntimeException( 'Exact product and reviewed stock evidence are required.' );
 		}
-		$boards   = self::table( 'boards' );
-		$board_id = $wpdb->get_var( $wpdb->prepare( "SELECT id FROM $boards WHERE slug = %s", $slug ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery,WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Fixed table and indexed key.
-		$data     = array(
+		$board = self::board( $slug );
+		if ( ! $board ) {
+			throw new RuntimeException( 'Stage the exact board revision before assigning it.' );
+		}
+		$data = array(
 			'product_id'   => $product_id,
 			'sku'          => $sku,
-			'board_id'     => (int) $board_id,
+			'board_id'     => (int) $board['id'],
 			'evidence_ref' => trim( $evidence_ref ),
 			'verified_at'  => gmdate( 'Y-m-d H:i:s' ),
 		);
@@ -301,9 +334,12 @@ final class Digitalogic_Hardware_Reference {
 	 * @return string
 	 */
 	public static function shortcode( $attributes ): string {
+		if ( ! is_singular( 'product' ) ) {
+			return '';
+		}
 		$attributes = shortcode_atts( array( 'board' => '' ), $attributes );
-		$board      = self::read( sanitize_key( $attributes['board'] ) );
-		if ( ! $board ) {
+		$board      = self::for_product( get_queried_object_id() );
+		if ( ! $board || ( '' !== $attributes['board'] && $attributes['board'] !== $board['slug'] ) ) {
 			return '';
 		}
 		ob_start();
