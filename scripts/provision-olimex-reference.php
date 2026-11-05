@@ -1,6 +1,6 @@
 <?php
 /**
- * Publish a reviewed hardware manifest through WP-CLI eval-file.
+ * Stage a reviewed hardware manifest through WP-CLI eval-file.
  *
  * @package Digitalogic
  */
@@ -9,8 +9,8 @@ if ( ! defined( 'WP_CLI' ) || ! WP_CLI ) {
 	exit;
 }
 
-if ( ! current_user_can( 'manage_options' ) || ! current_user_can( 'publish_posts' ) ) {
-	WP_CLI::error( 'Use an existing administrator with publishing access.' );
+if ( ! current_user_can( 'manage_options' ) || ! current_user_can( 'edit_posts' ) ) {
+	WP_CLI::error( 'Use an existing administrator with editorial access.' );
 }
 
 global $wpdb;
@@ -139,23 +139,15 @@ try {
 		}
 	}
 
-	if ( 'draft' === $guide->post_status ) {
-		$updated = wp_update_post(
-			array(
-				'ID'          => $guide->ID,
-				'post_status' => 'publish',
-			),
-			true
-		);
-		if ( is_wp_error( $updated ) || ! $updated ) {
-			throw new RuntimeException( 'The guide could not be published.' );
-		}
+	$pin_table  = $prefix . 'pins';
+	$spec_table = $prefix . 'parameters';
+	$board_id   = (int) ( $entry['id'] ?? $board_id );
+	$pin_count  = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM $pin_table WHERE board_id = %d", $board_id ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery,WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Confirm normalized import.
+	$spec_count = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM $spec_table WHERE board_id = %d", $board_id ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery,WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Confirm normalized import.
+	if ( $pin_count !== array_sum( array_map( 'count', $connectors ) ) || $spec_count !== count( $data['parameters'] ) ) {
+		throw new RuntimeException( 'Staged reference did not match the reviewed record counts.' );
 	}
-	$reference = Digitalogic_Hardware_Reference::read( $slug );
-	if ( count( $reference['pins'] ?? array() ) !== array_sum( array_map( 'count', $connectors ) ) || count( $reference['parameters'] ?? array() ) !== count( $data['parameters'] ) ) {
-		throw new RuntimeException( 'Published reference did not match the reviewed record counts.' );
-	}
-	WP_CLI::success( $reference['guide'] );
+	WP_CLI::success( sprintf( 'Staged %s with %d pins and %d electrical specifications.', $slug, $pin_count, $spec_count ) );
 } finally {
 	$wpdb->get_var( $wpdb->prepare( 'SELECT RELEASE_LOCK(%s)', $lock ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- Release the provisioning lock.
 }
