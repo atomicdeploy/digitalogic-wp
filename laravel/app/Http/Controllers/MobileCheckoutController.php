@@ -1,226 +1,128 @@
 <?php
-
 namespace Digitalogic\Laravel\Http\Controllers;
 
+use Digitalogic\Laravel\Services\MobileCheckoutStore as Store;
+use Digitalogic\Laravel\Services\MobileCartStore;
+use Digitalogic\Laravel\Services\MobileIdentityStore as Identity;
+use Digitalogic\Laravel\Services\MobileRequestStore;
+use Digitalogic\Laravel\Services\MobileWooCart;
+use Digitalogic\Laravel\Services\MobileWooCheckout as Woo;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 
-/** Short-lived cart intent only: never authenticates a user or creates an order. */
+/** Native presentation and idempotency around the installed Woo checkout engine. */
 final class MobileCheckoutController {
-	public function create( Request $request ): Response {
-		if ( ! $this->rateLimit() ) {
-			return $this->error( 'rate_limited', 'چند لحظه صبر کنید و دوباره تلاش کنید.', 429 );
-		}
-		$items = self::normalizeItems( $request->json( 'items' ) );
-		if ( $items === null ) {
-			return $this->error( 'invalid_items', 'سبد خرید معتبر نیست.', 400 );
-		}
-		$validated = $this->validateProducts( $items );
-		if ( is_wp_error( $validated ) ) {
-			return $this->error( $validated->get_error_code(), $validated->get_error_message(), 409 );
-		}
-		$expires = time() + 300;
-		$token   = self::sign(
-			array(
-				'items'   => $items,
-				'expires' => $expires,
-				'nonce'   => bin2hex( random_bytes( 16 ) ),
-			),
-			wp_salt( 'auth' )
-		);
-		return $this->json(
-			array(
-				'url'        => home_url( '/app-checkout/#' ) . $token,
-				'review_url' => home_url( '/app-checkout/#' ) . $token,
-				'expires_at' => gmdate( 'c', $expires ),
-				'expires_in' => 300,
-				'item_count' => count( $items ),
-			),
-			201
-		);
-	}
-
-	public function preview( Request $request ): Response {
-		if ( ! $this->browserRequest( $request ) ) {
-			return $this->error( 'forbidden_origin', 'درخواست معتبر نیست.', 403 );
-		}
-		$payload = self::verify( (string) $request->json( 'token', '' ), wp_salt( 'auth' ), time() );
-		if ( $payload === null ) {
-			return $this->error( 'expired_or_invalid', 'لینک منقضی شده؛ از اپ دوباره ادامه دهید.', 410 );
-		}
-		$products = $this->validateProducts( $payload['items'] );
-		if ( is_wp_error( $products ) ) {
-			return $this->error( $products->get_error_code(), $products->get_error_message(), 409 );
-		}
-		return $this->json(
-			array(
-				'items'            => $products,
-				'expires_at'       => gmdate( 'c', $payload['expires'] ),
-				'has_browser_cart' => function_exists( 'WC' ) && WC()->cart && ! WC()->cart->is_empty(),
-			)
-		);
-	}
-
-	public function redeem( Request $request ): Response {
-		if ( ! $this->browserRequest( $request ) || ! wp_verify_nonce( $request->headers->get( 'X-WP-Nonce', '' ), 'digitalogic_mobile_checkout' ) ) {
-			return $this->error( 'forbidden', 'صفحه را تازه‌سازی کنید و دوباره تلاش کنید.', 403 );
-		}
-		$payload = self::verify( (string) $request->json( 'token', '' ), wp_salt( 'auth' ), time() );
-		if ( $payload === null ) {
-			return $this->error( 'expired_or_invalid', 'لینک منقضی شده؛ از اپ دوباره ادامه دهید.', 410 );
-		}
-		$products = $this->validateProducts( $payload['items'] );
-		if ( is_wp_error( $products ) ) {
-			return $this->error( $products->get_error_code(), $products->get_error_message(), 409 );
-		}
-		// options.option_name has a unique key: only one concurrent request can
-		// insert this claim. No transient read/delete race and no token is stored.
-		$claim = '_digitalogic_mobile_claim_' . hash( 'sha256', $payload['nonce'] );
-		if ( ! add_option( $claim, (string) $payload['expires'], '', false ) ) {
-			return $this->error( 'already_used', 'این لینک قبلاً استفاده شده است. از اپ دوباره ادامه دهید.', 409 );
-		}
-		if ( ! WC()->cart ) {
-			wc_load_cart();
-		}
-		$cart     = WC()->cart;
-		$previous = $cart->get_cart();
-		$coupons  = $cart->get_applied_coupons();
-		try {
-			$cart->empty_cart( false );
-			foreach ( $payload['items'] as $item ) {
-				$product   = wc_get_product( $item['id'] );
-				$variation = $product->is_type( 'variation' );
-				$key       = $cart->add_to_cart( $variation ? $product->get_parent_id() : $product->get_id(), $item['quantity'], $variation ? $product->get_id() : 0, $variation ? $product->get_variation_attributes() : array() );
-				if ( ! $key ) {
-					throw new \RuntimeException( 'Cart validation rejected an item.' );
-				}
-			}
-			$cart->calculate_totals();
-			WC()->session->set_customer_session_cookie( true );
-			return $this->json(
-				array(
-					'redirect'   => wc_get_checkout_url(),
-					'item_count' => $cart->get_cart_contents_count(),
-				)
-			);
-		} catch ( \Throwable $error ) {
-			$cart->set_cart_contents( $previous );
-			$cart->set_applied_coupons( $coupons );
-			$cart->calculate_totals();
-			return $this->error( 'cart_changed', 'موجودی یا شرایط خرید تغییر کرده است. سبد قبلی حفظ شد؛ از اپ دوباره تلاش کنید.', 409 );
-		}
-	}
-
-	public static function normalizeItems( $input ): ?array {
-		if ( ! is_array( $input ) || ! array_is_list( $input ) || count( $input ) < 1 || count( $input ) > 40 ) {
-			return null;
-		}
-		$items = array();
-		foreach ( $input as $item ) {
-			if ( ! is_array( $item ) || array_diff( array_keys( $item ), array( 'id', 'quantity' ) ) || ! is_int( $item['id'] ?? null ) || ! is_int( $item['quantity'] ?? null ) || $item['id'] < 1 || $item['quantity'] < 1 || $item['quantity'] > 999 ) {
-				return null;
-			}
-			$id           = $item['id'];
-			$items[ $id ] = array(
-				'id'       => $id,
-				'quantity' => ( $items[ $id ]['quantity'] ?? 0 ) + $item['quantity'],
-			);
-			if ( $items[ $id ]['quantity'] > 999 ) {
-				return null;
-			}
-		}
-		return array_values( $items );
-	}
-
-	public static function sign( array $payload, string $secret ): string {
-		$body = rtrim( strtr( base64_encode( json_encode( $payload, JSON_THROW_ON_ERROR ) ), '+/', '-_' ), '=' );
-		return $body . '.' . hash_hmac( 'sha256', $body, $secret );
-	}
-
-	public static function verify( string $token, string $secret, int $now ): ?array {
-		if ( strlen( $token ) > 8000 || ! preg_match( '/\A([A-Za-z0-9_-]+)\.([a-f0-9]{64})\z/D', $token, $parts ) || ! hash_equals( hash_hmac( 'sha256', $parts[1], $secret ), $parts[2] ) ) {
-			return null;
-		}
-		$payload = json_decode( base64_decode( strtr( $parts[1], '-_', '+/' ), true ), true );
-		if ( ! is_array( $payload ) || ! is_int( $payload['expires'] ?? null ) || $payload['expires'] <= $now || $payload['expires'] > $now + 300 || ! is_string( $payload['nonce'] ?? null ) || ! preg_match( '/\A[a-f0-9]{32}\z/D', $payload['nonce'] ) ) {
-			return null;
-		}
-		$items = self::normalizeItems( $payload['items'] ?? null );
-		return $items === null ? null : array(
-			'items'   => $items,
-			'expires' => $payload['expires'],
-			'nonce'   => $payload['nonce'],
-		);
-	}
-
-	private function validateProducts( array $items ) {
-		$out = array();
-		foreach ( $items as $item ) {
-			$product = wc_get_product( $item['id'] );
-			$parent  = $product && $product->is_type( 'variation' ) ? wc_get_product( $product->get_parent_id() ) : $product;
-			if ( ! $product || ! $parent || $product->get_status() !== 'publish' || $parent->get_status() !== 'publish' || $parent->get_catalog_visibility() === 'hidden' || get_post_field( 'post_password', $parent->get_id() ) !== '' || ! $product->is_purchasable() || $product->is_type( 'variable' ) || ! $product->is_in_stock() || ! $product->has_enough_stock( $item['quantity'] ) || ( $product->is_sold_individually() && $item['quantity'] !== 1 ) ) {
-				return new \WP_Error( 'product_unavailable', 'یکی از کالاها یا تعداد انتخاب‌شده قابل سفارش نیست. سبد خرید را دوباره بررسی کنید.' );
-			}
-			$out[] = array(
-				'id'       => $product->get_id(),
-				'sku'      => $product->get_sku(),
-				'name'     => $product->get_name(),
-				'quantity' => $item['quantity'],
-				'image'    => wp_get_attachment_image_url( $product->get_image_id(), 'woocommerce_thumbnail' ) ?: null,
-			);
-		}
-		return $out;
-	}
-
-	private function browserRequest( Request $request ): bool {
-		$origin   = rtrim( $request->headers->get( 'Origin', '' ), '/' );
-		$home     = wp_parse_url( home_url( '/' ) );
-		$expected = $home['scheme'] . '://' . $home['host'] . ( isset( $home['port'] ) ? ':' . $home['port'] : '' );
-		return $origin !== '' && hash_equals( $expected, $origin );
-	}
-
-	/** Atomic bounded admission; only keyed hashes of the transport IP are stored. */
-	private function rateLimit(): bool {
-		global $wpdb;
-		$minute = (int) floor( time() / 60 );
-		$prefix = '_digitalogic_mobile_rate_';
-		$ip     = hash_hmac( 'sha256', (string) ( $_SERVER['REMOTE_ADDR'] ?? 'unknown' ), wp_salt( 'nonce' ) );
-		foreach ( array(
-			'global' => 120,
-			$ip      => 12,
-		) as $scope => $limit ) {
-			$key = $prefix . $minute . '_' . $scope;
-			$wpdb->query( $wpdb->prepare( "INSERT IGNORE INTO {$wpdb->options} (option_name,option_value,autoload) VALUES (%s,'0','off')", $key ) );
-			$updated = $wpdb->query( $wpdb->prepare( "UPDATE {$wpdb->options} SET option_value=CAST(option_value AS UNSIGNED)+1 WHERE option_name=%s AND CAST(option_value AS UNSIGNED)<%d", $key, $limit ) );
-			if ( $updated !== 1 ) {
-				return false;
-			}
-		}
-		$wpdb->query( $wpdb->prepare( "DELETE FROM {$wpdb->options} WHERE option_name LIKE %s AND option_name<%s LIMIT 200", $wpdb->esc_like( $prefix ) . '%', $prefix . ( $minute - 2 ) ) );
-		$wpdb->query( $wpdb->prepare( "DELETE FROM {$wpdb->options} WHERE option_name LIKE %s AND CAST(option_value AS UNSIGNED)<%d LIMIT 200", $wpdb->esc_like( '_digitalogic_mobile_claim_' ) . '%', time() ) );
-		return true;
-	}
-
-	private function error( string $code, string $message, int $status ): Response {
-		return $this->json(
-			array(
-				'code'    => $code,
-				'message' => $message,
-			),
-			$status
-		);
-	}
-
-	private function json( array $data, int $status = 200 ): Response {
-		return response()->json(
-			$data,
-			$status,
-			array(
-				'Cache-Control'          => 'private, no-store',
-				'Referrer-Policy'        => 'no-referrer',
-				'X-Content-Type-Options' => 'nosniff',
-			),
-			JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
-		);
-	}
+    public static function enabled(): bool {return MobileCartController::enabled()&&get_option('digitalogic_mobile_checkout_schema')==='1'&&(bool)get_option('digitalogic_mobile_native_checkout',false);}
+    private function context(Request $request) {
+        if(!self::enabled()){return new \WP_Error('checkout_unavailable','تکمیل خرید موقتاً در دسترس نیست.',array('status'=>503));}
+        $context=(new MobileCartController())->context($request);
+        if(is_wp_error($context)){return $context;}
+        if(!$context['session']){return new \WP_Error('unauthorized','ابتدا وارد حساب شوید.',array('status'=>401));}
+        if((int)$context['cart']['user_id']!==(int)$context['session']['user_id']){return new \WP_Error('cart_claim_required','ابتدا سبد خرید را با حساب همگام کنید.',array('status'=>409));}
+        return $context;
+    }
+    public function show(Request $request): Response {
+        $context=$this->context($request);if(is_wp_error($context)){return $this->wpError($context);}
+        $woo=new Woo($context,array());try{$woo->prepare($context,false);return $this->json($woo->presentation($context));}finally{$woo->close();}
+    }
+    public static function normalizeInput($input): ?array {
+        if(!is_array($input)||array_diff(array_keys($input),array('cart_revision','billing','shipping','ship_to_different_address','shipping_methods','payment_method','coupons','customer_note'))||!is_int($input['cart_revision']??null)||$input['cart_revision']<0){return null;}
+        foreach(array('billing','shipping') as $group){if(isset($input[$group])){if(!is_array($input[$group])||count($input[$group])>30){return null;}foreach($input[$group] as $key=>$value){if(!is_string($key)||!preg_match('/\A[a-z][a-z0-9_]{0,79}\z/D',$key)||!is_string($value)||mb_strlen($value)>300){return null;}}}}
+        if(isset($input['ship_to_different_address'])&&!is_bool($input['ship_to_different_address'])){return null;}
+        if(isset($input['payment_method'])&&(!is_string($input['payment_method'])||!preg_match('/\A[a-zA-Z0-9_-]{0,80}\z/D',$input['payment_method']))){return null;}
+        if(isset($input['shipping_methods'])){if(!is_array($input['shipping_methods'])||count($input['shipping_methods'])>20){return null;}foreach($input['shipping_methods'] as $key=>$value){if(!preg_match('/\A[0-9]{1,5}\z/D',(string)$key)||!is_string($value)||strlen($value)>150){return null;}}}
+        if(isset($input['coupons'])){if(!is_array($input['coupons'])||!array_is_list($input['coupons'])||count($input['coupons'])>10){return null;}foreach($input['coupons'] as $code){if(!is_string($code)||strlen($code)>100){return null;}}}
+        if(isset($input['customer_note'])&&(!is_string($input['customer_note'])||mb_strlen($input['customer_note'])>2000)){return null;}
+        return $input;
+    }
+    public function quote(Request $request): Response {
+        $context=$this->context($request);if(is_wp_error($context)){return $this->wpError($context);}
+        if(!Identity::admit('checkout-quote:'.$context['session']['user_id'],40,60)){return $this->error('rate_limited','کمی بعد دوباره بررسی کنید.',429);}
+        $input=self::normalizeInput($request->json()->all());if($input===null){return $this->error('invalid_checkout','اطلاعات خرید معتبر نیست.',400);}
+        if($input['cart_revision']!==(int)$context['cart']['revision']){return $this->error('cart_changed','سبد تغییر کرده است؛ دوباره آن را بررسی کنید.',409);}
+        $woo=new Woo($context,$input);
+        try{$woo->prepare($context,true);$result=$woo->presentation($context);if(!$result['issues']){$quote=Store::quote($context,$input,$woo->fingerprint());$result['quote_id']=$quote['id'];$result['expires_at']=gmdate('c',$quote['expires_at']);}return $this->json($result);}finally{$woo->close();}
+    }
+    public function submit(Request $request): Response {
+        $context=$this->context($request);if(is_wp_error($context)){return $this->wpError($context);}
+        $input=$request->json()->all();$id=$input['operation_id']??'';$quote_id=$input['quote_id']??'';
+        if(!MobileRequestStore::validRequestId($id)||!is_string($quote_id)||!preg_match('/\A[a-f0-9]{32}\z/D',$quote_id)||array_diff(array_keys($input),array('operation_id','quote_id','terms_accepted'))){return $this->error('invalid_checkout_operation','شناسه تأیید خرید معتبر نیست.',400);}
+        global $wpdb;$user=(int)$context['session']['user_id'];$key=Store::key($user,$id);$lock='dgl-checkout-'.substr($key,0,40);$hash=hash('sha256',wp_json_encode(array($quote_id,$input['terms_accepted']??false)));
+        if((int)$wpdb->get_var($wpdb->prepare('SELECT GET_LOCK(%s,0)',$lock))!==1){return $this->json(array('operation_id'=>$id,'operation_status'=>'processing','status'=>'processing'),202);}
+        try{
+            $prior=Store::operation($user,$id);if($prior){if(!hash_equals($prior['payload_hash'],$hash)){return $this->json(array('operation_id'=>$id,'code'=>'operation_id_conflict','message'=>'این شناسه با تأیید دیگری استفاده شده است.','operation_status'=>'conflict'),409);}return $this->operationResponse($prior);}
+            if(wc_terms_and_conditions_checkbox_enabled()&&($input['terms_accepted']??false)!==true){return $this->reject($context,$id,$hash,'terms_required','برای ثبت سفارش، شرایط را تأیید کنید.',422);}
+            $quotes=Store::table('checkout_quotes');$operations=Store::table('checkout_operations');$carts=MobileCartStore::table('carts');
+            $quote=$wpdb->get_row($wpdb->prepare("SELECT * FROM {$quotes} WHERE id=%s AND user_id=%d AND cart_id=%s",$quote_id,$user,$context['cart']['id']),ARRAY_A);
+            if(!$quote||$quote['expires_at']<=time()){return $this->reject($context,$id,$hash,'quote_expired','قیمت و شرایط خرید را دوباره بررسی کنید.',409);}
+            $wpdb->query('START TRANSACTION');
+            $cart=$wpdb->get_row($wpdb->prepare("SELECT * FROM {$carts} WHERE id=%s FOR UPDATE",$context['cart']['id']),ARRAY_A);$cart=$cart?MobileWooCart::reconcile($cart):null;
+            if(!$cart||(int)$cart['revision']!==(int)$quote['cart_revision']){$wpdb->query('ROLLBACK');return $this->reject($context,$id,$hash,'cart_changed','سبد تغییر کرده است؛ دوباره آن را بررسی کنید.',409);}
+            if(Store::busy($cart['id'])){$wpdb->query('ROLLBACK');return $this->reject($context,$id,$hash,'checkout_in_progress','ابتدا نتیجه تأیید قبلی را دریافت کنید.',409);}
+            if($wpdb->get_var($wpdb->prepare("SELECT operation_key FROM {$operations} WHERE quote_id=%s",$quote_id))){$wpdb->query('ROLLBACK');return $this->reject($context,$id,$hash,'quote_used','این تأیید قبلاً استفاده شده است؛ سفارش‌ها را بررسی کنید.',409);}
+            $row=array('operation_key'=>$key,'user_id'=>$user,'request_id'=>$id,'quote_id'=>$quote_id,'cart_id'=>$cart['id'],'payload_hash'=>$hash,'state'=>'validating','created_at'=>time(),'updated_at'=>time());
+            if($wpdb->insert($operations,$row)!==1||$wpdb->query('COMMIT')===false){throw new \RuntimeException('operation_storage_failed');}
+            $context['cart']=$cart;$woo=new Woo($context,json_decode($quote['payload'],true));
+            try{
+                if(!defined('WOOCOMMERCE_CHECKOUT')){define('WOOCOMMERCE_CHECKOUT',true);}
+                $woo->prepare($context,true,true);
+                if($woo->issues){return $this->reject($context,$id,$hash,'checkout_validation','اطلاعات یا شرایط خرید تغییر کرده است؛ دوباره بررسی کنید.',422,$woo->issues);}
+                if(!hash_equals($quote['fingerprint'],$woo->fingerprint())){return $this->reject($context,$id,$hash,'quote_changed','مبلغ یا روش ارسال تغییر کرده است؛ قیمت تازه را بررسی کنید.',409);}
+                // Persist the point of no automatic retry BEFORE invoking Woo's order engine.
+                if($wpdb->update($operations,array('state'=>'creating','updated_at'=>time()),array('operation_key'=>$key))!==1){throw new \RuntimeException('operation_storage_failed');}
+                $annotate=static function($order) use($key){$order->update_meta_data('_digitalogic_mobile_operation',$key);};
+                add_action('woocommerce_checkout_create_order',$annotate,PHP_INT_MAX,1);
+                try{$woo->engine->nativeCustomer($woo->data);$order_id=$woo->engine->create_order($woo->data);}finally{remove_action('woocommerce_checkout_create_order',$annotate,PHP_INT_MAX);}
+                if(is_wp_error($order_id)||!($order=wc_get_order($order_id))){throw new \RuntimeException('order_creation_uncertain');}
+                if((int)$order->get_customer_id()!==$user){throw new \RuntimeException('order_owner_mismatch');}
+                if($wpdb->update($operations,array('order_id'=>$order_id,'state'=>'payment_pending','updated_at'=>time()),array('operation_key'=>$key))!==1){throw new \RuntimeException('order_mapping_uncertain');}
+                do_action('woocommerce_checkout_order_processed',$order_id,$woo->data,$order);
+                $payment=array('status'=>'not_required');
+                if(apply_filters('woocommerce_cart_needs_payment',$order->needs_payment(),WC()->cart)){
+                    $gateways=$woo->supportedGateways();$gateway=$gateways[$woo->data['payment_method']]??null;if(!$gateway){throw new \RuntimeException('payment_method_changed');}
+                    $result=$gateway->process_payment($order_id);
+                    if(($result['result']??'')!=='success'){throw new \RuntimeException('payment_result_uncertain');}
+                    $payment=array('status'=>'awaiting_bank_transfer','instructions'=>wp_strip_all_tags($gateway->get_option('instructions','')));
+                    // BACS account details are the shop's published transfer instructions, never API credentials.
+                    $payment['bank_accounts']=array_map(static fn($account)=>array_intersect_key($account,array_flip(array('account_name','account_number','bank_name','sort_code','iban','bic'))),(array)get_option('woocommerce_bacs_accounts',array()));
+                }else{$order->payment_complete();WC()->cart->empty_cart();}
+                $order=wc_get_order($order_id);$body=array('operation_id'=>$id,'operation_status'=>'accepted','status'=>'accepted','order'=>$this->order($order),'payment'=>$payment);
+                // Woo gateway completed; empty that same canonical Woo cart, then reconcile metadata.
+                $cart_session=new \WC_Cart_Session(WC()->cart);$cart_session->set_session();$cart_session->persistent_cart_update();WC()->session->persist();MobileWooCart::invalidate($cart);
+                $wpdb->query('START TRANSACTION');$locked=$wpdb->get_row($wpdb->prepare("SELECT * FROM {$carts} WHERE id=%s FOR UPDATE",$cart['id']),ARRAY_A);if($locked){MobileWooCart::reconcile($locked);}$wpdb->update($operations,array('state'=>'accepted','response'=>wp_json_encode($body),'updated_at'=>time()),array('operation_key'=>$key));$wpdb->query('COMMIT');
+                return $this->json($body,201);
+            }finally{$woo->close();}
+        }catch(\Throwable $error){$wpdb->query('ROLLBACK');$safe=Store::operation($user,$id);if($safe&&$safe['state']==='validating'){return $this->reject($context,$id,$hash,'checkout_validation','امکان تأیید شرایط سفارش نبود؛ دوباره بررسی کنید.',422);}$operations=Store::table('checkout_operations');$wpdb->update($operations,array('state'=>'uncertain','updated_at'=>time()),array('operation_key'=>$key));$prior=Store::operation($user,$id);return $prior?$this->operationResponse($prior):$this->json(array('operation_id'=>$id,'operation_status'=>'processing','status'=>'processing','code'=>'checkout_uncertain'),202);
+        }finally{$wpdb->get_var($wpdb->prepare('SELECT RELEASE_LOCK(%s)',$lock));}
+    }
+    private function reject(array $context,string $id,string $hash,string $code,string $message,int $status,array $issues=array()): Response {
+        global $wpdb;$table=Store::table('checkout_operations');$user=(int)$context['session']['user_id'];$key=Store::key($user,$id);$body=array('operation_id'=>$id,'operation_status'=>'rejected','status'=>'rejected','code'=>$code,'message'=>$message,'issues'=>$issues);
+        $existing=Store::operation($user,$id);
+        if($existing&&!in_array($existing['state'],array('validating','rejected'),true)){return $this->operationResponse($existing);}
+        $values=array('state'=>'rejected','quote_id'=>null,'response'=>wp_json_encode($body),'updated_at'=>time());
+        if($existing){$saved=$wpdb->update($table,$values,array('operation_key'=>$key));}else{$saved=$wpdb->insert($table,$values+array('operation_key'=>$key,'user_id'=>$user,'request_id'=>$id,'cart_id'=>$context['cart']['id'],'payload_hash'=>$hash,'created_at'=>time()));}
+        if($saved===false){return $this->json(array('operation_id'=>$id,'operation_status'=>'processing','status'=>'processing'),202);}return $this->json($body,$status);
+    }
+    public function lookup(Request $request,string $id): Response {
+        $session=Identity::authenticate($request->headers->get('Authorization',''));if(!$session){return $this->error('unauthorized','ابتدا وارد حساب شوید.',401);}
+        if(!MobileRequestStore::validRequestId($id)){return $this->error('invalid_operation','شناسه معتبر نیست.',400);}
+        $row=Store::operation((int)$session['user_id'],$id);return $row?$this->operationResponse($row):$this->json(array('operation_id'=>$id,'operation_status'=>'unknown','status'=>'unknown','code'=>'operation_not_found'),404);
+    }
+    private function operationResponse(array $row): Response {
+        if(in_array($row['state'],array('accepted','rejected'),true)&&$row['response']){$body=json_decode($row['response'],true);if(!empty($row['order_id'])){$order=wc_get_order((int)$row['order_id']);if($order&&(int)$order->get_customer_id()===(int)$row['user_id']){$body['order']=$this->order($order);}}return $this->json($body+array('replayed'=>true));}
+        $order=!empty($row['order_id'])?wc_get_order((int)$row['order_id']):null;
+        if(!$order){$orders=wc_get_orders(array('customer_id'=>(int)$row['user_id'],'meta_key'=>'_digitalogic_mobile_operation','meta_value'=>$row['operation_key'],'limit'=>2));if(count($orders)===1){$order=$orders[0];}}
+        if($order&&(int)$order->get_customer_id()===(int)$row['user_id']&&$order->get_payment_method()==='bacs'&&$order->has_status(array('on-hold','processing','completed'))){
+            $body=array('operation_id'=>$row['request_id'],'operation_status'=>'accepted','status'=>'accepted','order'=>$this->order($order),'payment'=>array('status'=>$order->is_paid()?'complete':'awaiting_bank_transfer'),'recovered'=>true);
+            global $wpdb;$wpdb->update(Store::table('checkout_operations'),array('state'=>'accepted','order_id'=>$order->get_id(),'response'=>wp_json_encode($body),'updated_at'=>time()),array('operation_key'=>$row['operation_key']));
+            return $this->json($body);
+        }
+        $body=array('operation_id'=>$row['request_id'],'operation_status'=>'processing','status'=>'processing','code'=>'checkout_uncertain');
+        if($order&&(int)$order->get_customer_id()===(int)$row['user_id']){$body['order']=$this->order($order);$body['payment']=array('status'=>'requires_review');}
+        return $this->json($body,202);
+    }
+    private function order($order): array {return array('id'=>$order->get_id(),'number'=>$order->get_order_number(),'status'=>$order->get_status(),'total'=>Woo::money($order->get_total()),'currency'=>$order->get_currency(),'date_created'=>$order->get_date_created()?$order->get_date_created()->date(DATE_ATOM):null);}
+    private function wpError(\WP_Error $error): Response {return $this->error($error->get_error_code(),$error->get_error_message(),(int)($error->get_error_data()['status']??400));}
+    private function error(string $code,string $message,int $status): Response {return $this->json(array('code'=>$code,'message'=>$message),$status);}
+    private function json(array $data,int $status=200): Response {return response()->json($data,$status,array('Cache-Control'=>'private, no-store','X-Content-Type-Options'=>'nosniff'),JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);}
 }

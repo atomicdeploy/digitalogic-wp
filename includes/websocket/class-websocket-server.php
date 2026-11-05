@@ -696,6 +696,9 @@ class Digitalogic_WebSocket_Server {
 		if ($user_id>0 && $name==='mobile.order.updated' && (int)($data['user_id']??0)===$user_id) {
 			return array('id'=>absint($event['id']??0),'name'=>'order.updated','time'=>$event['time']??'','data'=>array('scope'=>'orders','order_id'=>absint($data['order_id']??0),'status'=>sanitize_key($data['status']??'')));
 		}
+		if ($user_id>0 && $name==='mobile.cart.updated' && (int)($data['user_id']??0)===$user_id) {
+			return array('id'=>absint($event['id']??0),'name'=>'cart.updated','time'=>$event['time']??'','data'=>array('scope'=>'cart','revision'=>absint($data['revision']??0)));
+		}
 		return class_exists('Digitalogic_Storefront_Realtime') ? Digitalogic_Storefront_Realtime::project_public_event($event,$user_id) : null;
 	}
 
