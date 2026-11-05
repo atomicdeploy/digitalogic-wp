@@ -10,6 +10,15 @@ final class Digitalogic_Mobile_API {
 		add_action( 'parse_request', array( self::class, 'dispatch' ), 0 );
 		add_action( 'admin_menu', array( self::class, 'admin_menu' ) );
 		add_action( 'admin_init', array( self::class, 'register_settings' ) );
+		add_action( 'woocommerce_order_status_changed', array( self::class, 'order_changed' ), 20, 4 );
+	}
+
+	public static function order_changed( $id, $from, $to, $order ): void {
+		if (!is_object($order) || !method_exists($order,'get_customer_id')) { return; }
+		$user_id=(int)$order->get_customer_id();
+		if ($user_id>0 && class_exists('Digitalogic_Panel')) {
+			Digitalogic_Panel::record_event('mobile.order.updated',array('order_id'=>(int)$id,'user_id'=>$user_id,'status'=>sanitize_key($to),'audience'=>array('users'=>array($user_id))));
+		}
 	}
 
 	/** Match only the bounded public mobile route, never internal panel routes. */

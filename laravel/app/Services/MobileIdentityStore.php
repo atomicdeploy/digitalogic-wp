@@ -106,6 +106,15 @@ final class MobileIdentityStore {
 		return $row;
 	}
 
+	/** Long-lived sockets recheck database authority without a stale WordPress user cache. */
+	public static function sessionIsCurrent( string $id, int $user_id ): bool {
+		global $wpdb;
+		if ($wpdb->get_var("SELECT option_value FROM {$wpdb->options} WHERE option_name='digitalogic_mobile_native_auth'") !== '1') { return false; }
+		$table = self::table('sessions');
+		$row = $wpdb->get_row($wpdb->prepare("SELECT s.auth_epoch,u.user_pass FROM {$table} s JOIN {$wpdb->users} u ON u.ID=s.user_id WHERE s.id=%s AND s.user_id=%d AND s.expires_at>%d",$id,$user_id,time()),ARRAY_A);
+		return $row && hash_equals($row['auth_epoch'],self::hash($row['user_pass']));
+	}
+
 	public static function issueSession( int $user_id, string $device ): array {
 		global $wpdb;
 		$user = get_user_by( 'id', $user_id );

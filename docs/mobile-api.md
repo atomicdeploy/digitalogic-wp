@@ -23,6 +23,14 @@ Each image exposes `thumbnail`, `medium`, `src` and `srcset`. Load the thumbnail
 
 Public responses use the existing object cache with a 60-second bound, catalog projection generation in the cache key, ETags and conditional GET. Authenticated responses are private and not stored in the shared cache. HTTP public caching lasts 15 seconds with a 45-second revalidation window. A stale local price is informational; checkout must recalculate online. Public SSE and freshness URLs come from bootstrap. Private notifications and a mobile WebSocket gateway are separate capabilities and remain false until verified.
 
+### Self-hosted realtime
+
+Bootstrap now advertises `endpoints.websocket` and `realtime.protocol=digitalogic.shopper`. Connect to the WSS URL with that subprotocol, optional native `Authorization: Bearer …` header and optional numeric `Last-Event-ID`. Never put native tokens in URLs. Guests omit Authorization. This principal is read-only, even for a customer whose WordPress account also has administrative capabilities. It accepts only `ping`; panel and generic commands are rejected.
+
+Hello has `event:connected` and data containing `principal`, `user_id`, `cursor`, `oldest_event_id`, `latest_event_id`, `cursor_reset_required`. Event envelopes have `id,event,name,time,data`. Catalog data uses the same strict public projector as SSE. Owner-only profile/order changes are reduced to invalidations; explicitly addressed notifications use the existing validated notification projection. Revoked, expired or password-invalidated sessions close within 30 seconds. Reconnect using the last received cursor; when reset is required, refresh current data because history is bounded.
+
+Send a ping every 25 seconds and reconnect with jitter/backoff starting at 3 seconds. Keep the connection while Android permits the process to run; background process suspension requires catchup on resume. Firebase is not required for catalog, OTP, local drafts or this transport. Public SSE remains the fallback. Live WSS acceptance verified protocol negotiation, 105 public replay events, ping/pong and generic-command denial without creating notifications or customer activity.
+
 ## Shopping and authentication
 
 Bootstrap discovers the official Woo Store API cart URL. Use its `Cart-Token` response header for anonymous native carts and keep it in Android secure storage. It is a bearer capability for that cart, not an account or panel credential. Do not disable nonce checking, embed WooCommerce consumer secrets, write orders directly in SQL, or accept client prices.

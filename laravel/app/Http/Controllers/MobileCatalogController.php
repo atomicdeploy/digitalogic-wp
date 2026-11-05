@@ -19,13 +19,15 @@ final class MobileCatalogController {
 					'orders' => wc_get_account_endpoint_url( 'orders' ), 'profile' => wc_get_account_endpoint_url( 'edit-account' ),
 					'checkout_handoff' => home_url( '/app-api/checkout' ),
 					'update_manifest' => $update_manifest,
+					'websocket' => 'wss://' . wp_parse_url(home_url(),PHP_URL_HOST) . '/wordpress-ws',
 					'otp_request' => home_url( '/app-api/auth/otp/request' ), 'otp_verify' => home_url( '/app-api/auth/otp/verify' ), 'google' => home_url( '/app-api/auth/google' ),
 					'native_profile' => home_url( '/app-api/account/profile' ), 'native_orders' => home_url( '/app-api/account/orders' ), 'native_favorites' => home_url( '/app-api/account/favorites' ),
 					'native_sessions' => home_url( '/app-api/auth/sessions' ), 'native_logout' => home_url( '/app-api/auth/logout' ),
 					'events' => rest_url( 'digitalogic/v1/events/stream' ), 'freshness' => rest_url( 'digitalogic/v1/events/search-freshness' ),
 					'pcb' => home_url( '/سفارش-چاپ-برد-pcb/' ), 'import' => home_url( '/import-of-electronic-products/' ),
 				),
-				'capabilities' => array( 'catalog' => true, 'cart' => true, 'browser_checkout' => true, 'native_cart_handoff' => true, 'native_checkout' => false, 'native_auth' => MobileIdentityController::otpEnabled(), 'google_auth' => MobileIdentityController::googleEnabled(), 'otp_autofill' => false, 'cloud_favorites' => MobileIdentityController::enabled(), 'native_forms' => false, 'push_notifications' => false, 'websocket' => false, 'sse' => true, 'self_update' => $update_manifest !== '' ),
+				'capabilities' => array( 'catalog' => true, 'cart' => true, 'browser_checkout' => true, 'native_cart_handoff' => true, 'native_checkout' => false, 'native_auth' => MobileIdentityController::otpEnabled(), 'google_auth' => MobileIdentityController::googleEnabled(), 'otp_autofill' => false, 'cloud_favorites' => MobileIdentityController::enabled(), 'native_forms' => false, 'push_notifications' => false, 'websocket' => (bool)get_option('digitalogic_mobile_websocket',false), 'sse' => true, 'self_update' => $update_manifest !== '' ),
+				'realtime' => array('protocol'=>'digitalogic.shopper','ping_interval'=>25,'reconnect_interval'=>3),
 				'auth' => array( 'google_server_client_id' => \Digitalogic\Laravel\Services\MobileGoogleIdentity::audience(), 'signup_url' => wp_registration_url() ),
 				'policy' => array( 'product_export' => false, 'telemetry_opt_in_required' => true, 'checkout_online_required' => true, 'max_catalog_age_seconds' => 60 ),
 				'categories' => $this->categoriesData(),
@@ -209,7 +211,7 @@ final class MobileCatalogController {
 	private function cached( Request $request, string $route, array $query, callable $build ): Response {
 		$generation = class_exists( 'Digitalogic_Report_Engine' ) ? \Digitalogic_Report_Engine::instance()->current_projection_generation() : '';
 		$generation = is_wp_error( $generation ) ? '' : $generation;
-		$key = 'catalog-' . md5( wp_json_encode( array( $route, $query, $generation, get_woocommerce_currency(), get_option( 'digitalogic_mobile_merchandising', array() ), get_option( 'digitalogic_mobile_update_manifest', '' ), get_option( 'digitalogic_mobile_native_auth', false ), get_option( 'digitalogic_mobile_google_android_client', '' ), 'identity-1' ) ) );
+		$key = 'catalog-' . md5( wp_json_encode( array( $route, $query, $generation, get_woocommerce_currency(), get_option( 'digitalogic_mobile_merchandising', array() ), get_option( 'digitalogic_mobile_update_manifest', '' ), get_option( 'digitalogic_mobile_native_auth', false ), get_option( 'digitalogic_mobile_google_android_client', '' ), get_option('digitalogic_mobile_websocket',false), 'identity-2' ) ) );
 		$private = get_current_user_id() > 0;
 		$data = $private ? false : wp_cache_get( $key, 'digitalogic-mobile' );
 		$hit = is_array( $data );
@@ -228,3 +230,4 @@ final class MobileCatalogController {
 		return $response;
 	}
 }
+
