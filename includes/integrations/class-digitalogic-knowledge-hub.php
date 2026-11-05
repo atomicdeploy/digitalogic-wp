@@ -129,6 +129,11 @@ final class Digitalogic_Knowledge_Hub {
 		$path    = DIGITALOGIC_PLUGIN_DIR . 'assets/css/knowledge-hub.css';
 		$version = is_readable( $path ) ? (string) filemtime( $path ) : DIGITALOGIC_VERSION;
 		wp_enqueue_style( 'digitalogic-knowledge-hub', DIGITALOGIC_PLUGIN_URL . 'assets/css/knowledge-hub.css', array(), $version );
+
+		$pinout_path = DIGITALOGIC_PLUGIN_DIR . Digitalogic_Hardware_Reference::STYLESHEET;
+		if ( is_readable( $pinout_path ) ) {
+			wp_enqueue_style( 'digitalogic-hardware-pinout', DIGITALOGIC_PLUGIN_URL . Digitalogic_Hardware_Reference::STYLESHEET, array( 'digitalogic-knowledge-hub' ), (string) filemtime( $pinout_path ) );
+		}
 	}
 
 	/** Render the complete software archive grid. */

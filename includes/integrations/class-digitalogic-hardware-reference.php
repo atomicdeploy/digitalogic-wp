@@ -9,13 +9,27 @@ defined( 'ABSPATH' ) || exit;
 
 /** Store and display hardware references separately from inventory verification. */
 final class Digitalogic_Hardware_Reference {
-	const SCHEMA = '1';
-	const OPTION = 'digitalogic_hardware_reference_schema';
+	const SCHEMA     = '1';
+	const OPTION     = 'digitalogic_hardware_reference_schema';
+	const STYLESHEET = 'assets/css/hardware-pinout.css';
 
 	/** Register public read surfaces. */
 	public static function boot(): void {
 		add_action( 'rest_api_init', array( self::class, 'routes' ) );
 		add_shortcode( 'dgl_hardware_reference', array( self::class, 'shortcode' ) );
+		add_filter( 'rocket_exclude_css', array( self::class, 'preserve_pinout_styles' ) );
+		add_filter( 'rocket_rucss_safelist', array( self::class, 'preserve_pinout_styles' ) );
+	}
+
+	/**
+	 * Keep the versioned pinout stylesheet intact through page optimization.
+	 *
+	 * @param array $paths Stylesheets already excluded by the site.
+	 * @return array
+	 */
+	public static function preserve_pinout_styles( array $paths ): array {
+		$paths[] = wp_parse_url( DIGITALOGIC_PLUGIN_URL . self::STYLESHEET, PHP_URL_PATH );
+		return $paths;
 	}
 
 	/**
@@ -98,8 +112,25 @@ final class Digitalogic_Hardware_Reference {
 		update_option( self::OPTION, self::SCHEMA, false );
 	}
 
-	/** Register the public, read-only revision resource. */
+	/** Register the public, read-only board and product resources. */
 	public static function routes(): void {
+		register_rest_route(
+			'digitalogic/v1',
+			'/hardware/product',
+			array(
+				'methods'             => WP_REST_Server::READABLE,
+				'permission_callback' => '__return_true',
+				'callback'            => array( self::class, 'rest_product' ),
+				'args'                => array(
+					'sku' => array(
+						'required'  => true,
+						'type'      => 'string',
+						'minLength' => 1,
+						'maxLength' => 100,
+					),
+				),
+			)
+		);
 		register_rest_route(
 			'digitalogic/v1',
 			'/hardware/(?P<board>[a-z0-9-]{1,120})',
@@ -109,6 +140,38 @@ final class Digitalogic_Hardware_Reference {
 				'callback'            => array( self::class, 'rest_board' ),
 			)
 		);
+	}
+
+	/**
+	 * Read the hardware assigned to a published product by exact SKU.
+	 *
+	 * @param WP_REST_Request $request HTTP request.
+	 * @return array|WP_Error
+	 */
+	public static function rest_product( WP_REST_Request $request ) {
+		global $wpdb;
+		$sku = $request['sku'];
+		if ( self::SCHEMA === get_option( self::OPTION ) ) {
+			$assignments = self::table( 'assignments' );
+			$row         = $wpdb->get_row( $wpdb->prepare( "SELECT product_id, sku FROM $assignments WHERE sku = %s", $sku ), ARRAY_A ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery,WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Fixed table and indexed SKU.
+			if ( $row && $sku === $row['sku'] ) {
+				$product_id = (int) $row['product_id'];
+				$hardware   = self::for_product( $product_id, $sku );
+				if ( $hardware ) {
+					foreach ( $hardware['pins'] as &$pin ) {
+						$pin['position'] = (int) $pin['position'];
+						$pin['gpio']     = null === $pin['gpio'] ? null : (int) $pin['gpio'];
+					}
+					unset( $pin );
+					return array(
+						'product_id' => $product_id,
+						'sku'        => $sku,
+						'hardware'   => $hardware,
+					);
+				}
+			}
+		}
+		return new WP_Error( 'digitalogic_hardware_product_missing', 'مرجع تأییدشده‌ای برای این کد کالا ثبت نشده است.', array( 'status' => 404 ) );
 	}
 
 	/**
@@ -157,10 +220,11 @@ final class Digitalogic_Hardware_Reference {
 	/**
 	 * Find a revision explicitly assigned to the current exact product.
 	 *
-	 * @param int $product_id WooCommerce product or variation ID.
+	 * @param int         $product_id WooCommerce product or variation ID.
+	 * @param string|null $exact_sku SKU supplied by a caller that already resolved the product.
 	 * @return array
 	 */
-	public static function for_product( int $product_id ): array {
+	public static function for_product( int $product_id, ?string $exact_sku = null ): array {
 		global $wpdb;
 		if ( self::SCHEMA !== get_option( self::OPTION ) ) {
 			return array();
@@ -168,7 +232,7 @@ final class Digitalogic_Hardware_Reference {
 		$assignments = self::table( 'assignments' );
 		$boards      = self::table( 'boards' );
 		$row         = $wpdb->get_row( $wpdb->prepare( "SELECT a.sku,b.slug FROM $assignments a JOIN $boards b ON b.id=a.board_id WHERE a.product_id = %d", $product_id ), ARRAY_A ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery,WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Fixed tables and indexed product ID.
-		if ( ! $row || ! self::matches_sku( $product_id, $row['sku'] ) ) {
+		if ( ! $row || ( null !== $exact_sku && $exact_sku !== $row['sku'] ) || ! self::matches_sku( $product_id, $row['sku'] ) ) {
 			return array();
 		}
 		return self::read( $row['slug'] );

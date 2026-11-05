@@ -7,6 +7,17 @@
 
 defined( 'ABSPATH' ) || exit;
 
+// Keep technical labels in the same Latin font inside Persian notes.
+$technical_note = static function ( string $note ): string {
+	$parts = preg_split( '/(?<![A-Za-z0-9_])(\+?[0-9]+V[A-Z0-9_]*|[A-Z][A-Z0-9_]+(?:-[A-Z0-9]+)*)(?![A-Za-z0-9_])/', $note, -1, PREG_SPLIT_DELIM_CAPTURE );
+	$html  = '';
+	foreach ( $parts as $index => $part ) {
+		$part  = esc_html( $part );
+		$html .= $index % 2 ? '<code class="dgl-hw__token" dir="ltr" lang="en">' . $part . '</code>' : $part;
+	}
+	return $html;
+};
+
 $roles = array(
 	'power-in'  => 'ورودی تغذیه',
 	'power-out' => 'خروجی تغذیه',
@@ -19,7 +30,7 @@ $roles = array(
 );
 ?>
 <section class="dgl-hw" dir="rtl" lang="fa">
-	<h2>Pinout کانکتور <bdi dir="ltr">CON1</bdi></h2>
+	<h2>Pinout و کاربرد پایه‌ها</h2>
 	<div class="dgl-hw__scroll" role="region" aria-label="جدول پایه‌ها" tabindex="0">
 		<table class="dgl-hw__table">
 			<caption><bdi dir="ltr"><?php echo esc_html( $board['model'] . ' Rev ' . $board['revision'] ); ?></bdi></caption>
@@ -27,9 +38,9 @@ $roles = array(
 			<tbody>
 			<?php foreach ( $board['pins'] as $pin ) : ?>
 				<tr>
-					<th scope="row"><bdi dir="ltr"><?php echo esc_html( $pin['connector'] . '–' . $pin['position'] ); ?></bdi></th>
-					<td><code class="dgl-hw__pin" data-role="<?php echo esc_attr( $pin['role'] ); ?>" dir="ltr"><?php echo esc_html( $pin['label'] ); ?></code></td>
-					<td><strong><?php echo esc_html( $roles[ $pin['role'] ] ?? $pin['role'] ); ?></strong> <?php echo esc_html( $pin['note'] ); ?></td>
+					<th scope="row"><bdi class="dgl-hw__position" dir="ltr" lang="en"><?php echo esc_html( $pin['connector'] . '–' . $pin['position'] ); ?></bdi></th>
+					<td><code class="dgl-hw__pin" data-role="<?php echo esc_attr( $pin['role'] ); ?>" dir="ltr" lang="en"><?php echo esc_html( $pin['label'] ); ?></code></td>
+					<td><strong><?php echo esc_html( $roles[ $pin['role'] ] ?? $pin['role'] ); ?></strong> <?php echo wp_kses_post( $technical_note( $pin['note'] ) ); ?></td>
 				</tr>
 			<?php endforeach; ?>
 			</tbody>
@@ -38,8 +49,8 @@ $roles = array(
 	<h2>ولتاژ و جریان</h2>
 	<dl class="dgl-hw__power">
 	<?php foreach ( $board['parameters'] as $item ) : ?>
-		<dt><data dir="ltr" value="<?php echo esc_attr( $item['magnitude'] ); ?>"><?php echo esc_html( rtrim( rtrim( $item['magnitude'], '0' ), '.' ) . ' ' . $item['unit'] ); ?></data></dt>
-		<dd><?php echo esc_html( $item['conditions'] ); ?></dd>
+		<dt><data class="dgl-hw__value" data-unit="<?php echo esc_attr( $item['unit'] ); ?>" dir="ltr" lang="en" value="<?php echo esc_attr( $item['magnitude'] ); ?>"><?php echo esc_html( rtrim( rtrim( $item['magnitude'], '0' ), '.' ) . ' ' . $item['unit'] ); ?></data></dt>
+		<dd><?php echo wp_kses_post( $technical_note( $item['conditions'] ) ); ?></dd>
 	<?php endforeach; ?>
 	</dl>
 	<h2>منابع فنی</h2>
