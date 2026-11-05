@@ -1,6 +1,16 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
+use Digitalogic\Laravel\Http\Controllers\MobileCatalogController;
+use Digitalogic\Laravel\Http\Controllers\MobileCheckoutController;
+
+Route::get( '/mobile/bootstrap', array( MobileCatalogController::class, 'bootstrap' ) );
+Route::get( '/mobile/categories', array( MobileCatalogController::class, 'categories' ) );
+Route::get( '/mobile/products', array( MobileCatalogController::class, 'products' ) );
+Route::get( '/mobile/products/{id}', array( MobileCatalogController::class, 'product' ) )->whereNumber( 'id' );
+Route::post( '/mobile/checkout', array( MobileCheckoutController::class, 'create' ) );
+Route::post( '/mobile/checkout/preview', array( MobileCheckoutController::class, 'preview' ) );
+Route::post( '/mobile/checkout/redeem', array( MobileCheckoutController::class, 'redeem' ) );
 
 Route::get(
 	'/bridge/status',

@@ -70,7 +70,7 @@ final class WpRocketEtagTest extends TestCase {
 			. '</IfModule>' . PHP_EOL . PHP_EOL
 			. '# Static-file policy.' . PHP_EOL
 			. 'FileETag None' . PHP_EOL;
-		$expected_directive = 'Header unset ETag "expr=%{THE_REQUEST} !~ m#\\\\s/+wp-json/digitalogic/pricing/sync/(?:revision|snapshots|builds)(?:[/?\\\\s])#"';
+		$expected_directive = 'Header unset ETag "expr=%{THE_REQUEST} !~ m#\\\\s/+(?:wp-json/digitalogic/pricing/sync/(?:revision|snapshots|builds)|app-api/(?:bootstrap|categories|products(?:/[0-9]+)?))(?:[/?\\\\s])#"';
 
 		$filtered = Digitalogic_WP_Rocket_ETag::scope_etag_removal( $stock );
 
