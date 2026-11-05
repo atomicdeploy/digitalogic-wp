@@ -141,25 +141,65 @@ function digitalogic_available_store_api_prices( $response, $server, $request ) 
 		if ( ! isset( $item['prices'], $item['is_in_stock'] ) ) {
 			continue;
 		}
+		$price_fields = array( 'price', 'regular_price', 'sale_price' );
+		$public_prices = (array) $item['prices'];
 		if ( ! $item['is_in_stock'] ) {
 			$item['price_html'] = '';
-			$item['prices']['price'] = $item['prices']['regular_price'] = $item['prices']['sale_price'] = '';
-			$item['prices']['price_range'] = null;
+			foreach ( $price_fields as $field ) {
+				$public_prices[ $field ] = '';
+			}
+			$public_prices['price_range'] = null;
 		} elseif ( 'variable' === ( $item['type'] ?? '' ) ) {
 			$product = wc_get_product( $item['id'] );
 			if ( $product && digitalogic_has_unavailable_variations( $product ) ) {
-				$prices    = $product->get_variation_prices( true );
-				foreach ( array( 'price', 'regular_price', 'sale_price' ) as $field ) {
-					$item['prices'][ $field ] = empty( $prices[ $field ] ) ? '' : (string) wc_add_number_precision( min( $prices[ $field ] ) );
+				$prices = $product->get_variation_prices( true );
+				foreach ( $price_fields as $field ) {
+					$public_prices[ $field ] = empty( $prices[ $field ] ) ? '' : (string) wc_add_number_precision( (float) min( $prices[ $field ] ) );
 				}
 			}
 		}
+		$item['prices'] = (object) $public_prices;
 	}
 	unset( $item );
 	$response->set_data( $collection ? $products : $products[0] );
 	return $response;
 }
 add_filter( 'rest_post_dispatch', 'digitalogic_available_store_api_prices', 20, 3 );
+
+/** Chaty serializes raw WooCommerce values independently of price HTML. */
+function digitalogic_hide_unavailable_chaty_prices() {
+	if ( ! is_product() ) {
+		return;
+	}
+	$product = wc_get_product( get_queried_object_id() );
+	if ( ! $product || ( $product->is_in_stock() && ! digitalogic_has_unavailable_variations( $product ) ) ) {
+		return;
+	}
+	$scripts = wp_scripts();
+	$data    = $scripts->get_data( 'chaty', 'data' );
+	if ( ! is_string( $data ) ) {
+		return;
+	}
+	$updated = preg_replace_callback(
+		'/^var chaty_settings = (.+);$/m',
+		static function ( $match ) {
+			$settings = json_decode( $match[1], true );
+			if ( ! isset( $settings['product'] ) || ! is_array( $settings['product'] ) ) {
+				return $match[0];
+			}
+			foreach ( array( 'price', 'regPrice', 'discount' ) as $field ) {
+				$settings['product'][ $field ] = '';
+			}
+			return 'var chaty_settings = ' . wp_json_encode( $settings, JSON_HEX_TAG | JSON_UNESCAPED_SLASHES ) . ';';
+		},
+		$data
+	);
+	if ( is_string( $updated ) && $updated !== $data ) {
+		$scripts->add_data( 'chaty', 'data', $updated );
+	}
+}
+add_action( 'wp_enqueue_scripts', 'digitalogic_hide_unavailable_chaty_prices', PHP_INT_MAX );
+
 
 
 /**

@@ -129,13 +129,22 @@ final class PatrisMappingGuardVariationPriceTest extends TestCase {
 	/** Sold-out children cannot contribute to display ranges or sale prices. */
 	public function test_public_range_excludes_out_of_stock_children(): void {
 		$GLOBALS['digitalogic_test_posts'][101]['meta']['_stock_status'] = 'outofstock';
-		$GLOBALS['digitalogic_test_posts'][102] = $GLOBALS['digitalogic_test_posts'][101];
+		$GLOBALS['digitalogic_test_posts'][102]                          = $GLOBALS['digitalogic_test_posts'][101];
 		$GLOBALS['digitalogic_test_posts'][102]['meta']['_stock_status'] = 'instock';
 		$parent = new WC_Product_Variable( 100 );
 		$prices = array(
-			'price'         => array( 101 => '293500', 102 => '343000' ),
-			'regular_price' => array( 101 => '293500', 102 => '343000' ),
-			'sale_price'    => array( 101 => '293500', 102 => '343000' ),
+			'price'         => array(
+				101 => '293500',
+				102 => '343000',
+			),
+			'regular_price' => array(
+				101 => '293500',
+				102 => '343000',
+			),
+			'sale_price'    => array(
+				101 => '293500',
+				102 => '343000',
+			),
 		);
 
 		$this->assertSame( $prices, digitalogic_available_variation_display_prices( $prices, $parent, false ) );
