@@ -226,6 +226,7 @@ fi
 for required_entry in \
     "$plugin_slug/.digitalogic-release" \
     "$plugin_slug/digitalogic.php" \
+    "$plugin_slug/templates/software-archive.php" \
     "$plugin_slug/vendor/autoload.php" \
     "$plugin_slug/laravel/bootstrap/app.php" \
     "$plugin_slug/laravel/bootstrap/integration.php"; do
@@ -253,6 +254,7 @@ for entry in "${archive_entries[@]}"; do
         "$plugin_slug/includes/"* | \
         "$plugin_slug/laravel/"* | \
         "$plugin_slug/languages/"* | \
+        "$plugin_slug/templates/software-archive.php" | \
         "$plugin_slug/vendor/"*)
             ;;
         *)
