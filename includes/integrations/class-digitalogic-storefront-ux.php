@@ -20,6 +20,47 @@ final class Digitalogic_Storefront_UX {
 		add_filter( 'woocommerce_product_query_meta_query', array( self::class, 'filter_stock_query' ), 20, 2 );
 		add_action( 'woocommerce_before_shop_loop', array( self::class, 'render_catalog_filters' ), 8 );
 		add_action( 'wp_enqueue_scripts', array( self::class, 'enqueue_assets' ), 95 );
+		add_filter( 'woocommerce_return_to_shop_redirect', array( self::class, 'catalog_return_url' ) );
+		add_action( 'wp', array( self::class, 'route_toolbar_shop_link' ) );
+	}
+
+	/**
+	 * Return customers to the catalog linked in the main navigation.
+	 *
+	 * @param string $fallback Default shop URL.
+	 * @return string
+	 */
+	public static function catalog_return_url( string $fallback ): string {
+		$page = get_page_by_path( 'catalog' );
+		if ( ! $page || 'publish' !== $page->post_status ) {
+			return $fallback;
+		}
+		return get_permalink( $page ) ?: $fallback;
+	}
+
+	/** Use the same catalog destination when Woodmart renders its Shop button. */
+	public static function route_toolbar_shop_link(): void {
+		$catalog_url = self::catalog_return_url( '' );
+		if ( '' === $catalog_url || ! function_exists( 'wc_get_page_id' ) || ! remove_action( 'woodmart_before_wp_footer', 'woodmart_sticky_toolbar_template', 250 ) ) {
+			return;
+		}
+
+		add_action(
+			'woodmart_before_wp_footer',
+			static function () use ( $catalog_url ) {
+				$shop_id = wc_get_page_id( 'shop' );
+				$filter  = static function ( $url, $page_id ) use ( $shop_id, $catalog_url ) {
+					return $shop_id === (int) $page_id ? $catalog_url : $url;
+				};
+				add_filter( 'page_link', $filter, 10, 2 );
+				try {
+					woodmart_sticky_toolbar_template();
+				} finally {
+					remove_filter( 'page_link', $filter, 10 );
+				}
+			},
+			250
+		);
 	}
 
 	/**
