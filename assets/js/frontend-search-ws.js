@@ -97,9 +97,20 @@
         var onSearchStart = options.onSearchStart;
         var onSearchError = options.onSearchError;
         var onHide = options.onHide;
+        var formatResult = options.formatResult;
         return $.extend({}, options, {
             triggerSelectOnValidInput: false,
             noCache: true,
+            formatResult: function(suggestion, query) {
+                var html = formatResult.call(this, suggestion, query);
+                if (suggestion.is_in_stock === false) {
+                    var badge = document.createElement('span');
+                    badge.className = 'stock out-of-stock';
+                    badge.textContent = rootConfig.unavailable || 'ناموجود';
+                    html += badge.outerHTML;
+                }
+                return html;
+            },
             onHide: function() {
                 var instance = $(this).data('autocomplete');
                 if (instance) { instance.suggestions = []; }

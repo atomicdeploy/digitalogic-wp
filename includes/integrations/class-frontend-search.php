@@ -73,6 +73,7 @@ class Digitalogic_Frontend_Search {
 				'actions'        => apply_filters( 'digitalogic_frontend_search_websocket_actions', $this->public_actions ),
 				'fallback_delay' => (int) apply_filters( 'digitalogic_frontend_search_websocket_fallback_delay', 1200 ),
 				'cache'          => $this->cache_settings(),
+				'unavailable'    => __( 'ناموجود', 'digitalogic' ),
 			)
 		);
 	}
@@ -219,8 +220,12 @@ class Digitalogic_Frontend_Search {
 		$result = $data;
 		foreach ( $result['suggestions'] as &$item ) {
 			if ( isset( $item['_dg_product_id'] ) ) {
-				$product       = wc_get_product( $item['_dg_product_id'] );
-				$item['price'] = $product ? $this->product_price_html( $product ) : '';
+				$product   = wc_get_product( $item['_dg_product_id'] );
+				$available = $product && $product->is_in_stock();
+				if ( $product ) {
+					$item['is_in_stock'] = $available;
+				}
+				$item['price'] = $available ? $this->product_price_html( $product ) : '';
 				unset( $item['_dg_product_id'] );
 			}
 		}
