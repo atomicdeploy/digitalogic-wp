@@ -704,7 +704,10 @@ class Digitalogic_Webhooks {
     /**
      * Trigger webhook
      */
-    private function trigger_webhook($event, $data, $blocking = false, $effect_id = '') {
+    private function trigger_webhook($event, $data, $blocking = false, $effect_id = '', $occurred_at = 0) {
+        if (class_exists('Digitalogic\\Laravel\\Services\\MobileMergeEffects', false) && \Digitalogic\Laravel\Services\MobileMergeEffects::defer('webhook', array($event, $data))) {
+            return true;
+        }
         $webhook_urls = get_option('digitalogic_webhook_urls', array());
         
         if (empty($webhook_urls)) {
@@ -724,7 +727,7 @@ class Digitalogic_Webhooks {
         $payload = array(
             'event' => $event,
             'event_id' => $event_id,
-            'timestamp' => time(),
+            'timestamp' => $occurred_at > 0 ? $occurred_at : time(),
             'site' => array(
                 'name' => get_bloginfo('name'),
                 'url' => home_url(),
@@ -792,6 +795,11 @@ class Digitalogic_Webhooks {
         }
 
         return true;
+    }
+
+    /** Deliver an encrypted, committed merge-outbox entry with one stable consumer identity. */
+    public function deliver_merge_event($event, $data, $effect_id, $occurred_at) {
+        return $this->trigger_webhook($event, $data, true, $effect_id, $occurred_at);
     }
     
     /**

@@ -101,7 +101,7 @@ final class MobileCatalogController {
 						'native_messages'           => \Digitalogic\Laravel\Services\MobileMessages::enabled(),
 						'google_reauth_nonce'       => MobileIdentityController::googleEnabled() && '1' === get_option( 'digitalogic_mobile_google_challenge_schema' ),
 						'native_address_locations'  => true,
-						'account_merge'             => false,
+						'account_merge'             => \Digitalogic\Laravel\Services\MobileAccountMerge::enabled(),
 						'native_registration'       => \Digitalogic\Laravel\Services\MobileRegistrationStore::enabled(),
 						'google_auth'               => MobileIdentityController::googleEnabled(),
 						'otp_autofill'              => false,

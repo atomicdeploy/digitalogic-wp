@@ -136,7 +136,7 @@ final class MobileIdentityStore {
 	 * @return string|null Native adapter result.
 	 */
 	public static function phone( string $value ): ?string {
-		$value = preg_replace( '/[\s()-]+/u', '', self::digits( trim( $value ) ) );
+		$value = preg_replace( '/[\x{061C}\x{200E}\x{200F}\x{2066}-\x{2069}\s()-]+/u', '', self::digits( trim( $value ) ) );
 		if ( preg_match( '/\A09[0-9]{9}\z/D', $value ) ) {
 			return '+98' . substr( $value, 1 );
 		}
@@ -180,20 +180,7 @@ final class MobileIdentityStore {
 	 * @return int Native adapter result.
 	 */
 	public static function ownerOfPhone( string $phone ): int {
-		$users = get_users(
-			array(
-				'number'     => 2,
-				'fields'     => 'ID',
-				// phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query -- Exact existing Digits binding, limited to two matches to reject ambiguity.
-				'meta_query' => array(
-					array(
-						'key'   => 'digits_phone',
-						'value' => $phone,
-					),
-				),
-			)
-		);
-		return count( $users ) === 1 ? (int) $users[0] : ( count( $users ) > 1 ? -1 : 0 );
+		return MobileIdentityResolver::phoneOwner( $phone );
 	}
 
 	/**
@@ -210,7 +197,7 @@ final class MobileIdentityStore {
 		$table = self::table( 'sessions' );
 		$row   = $wpdb->get_row( $wpdb->prepare( 'SELECT * FROM %i WHERE token_hash=%s AND expires_at>%d', $table, hash( 'sha256', $match[1] ), time() ), ARRAY_A );
 		$user  = $row ? get_user_by( 'id', (int) $row['user_id'] ) : false;
-		if ( ! $user || ! hash_equals( $row['auth_epoch'], self::hash( $user->user_pass ) ) ) {
+		if ( ! $user || get_user_meta( $user->ID, '_digitalogic_merged_into', true ) || ! hash_equals( $row['auth_epoch'], self::hash( $user->user_pass ) ) ) {
 			return null;
 		}
 		if ( (int) $row['last_seen_at'] < time() - 60 ) {
@@ -231,7 +218,7 @@ final class MobileIdentityStore {
 		if ( $wpdb->get_var( "SELECT option_value FROM {$wpdb->options} WHERE option_name='digitalogic_mobile_native_auth'" ) !== '1' ) {
 			return false; }
 		$table = self::table( 'sessions' );
-		$row   = $wpdb->get_row( $wpdb->prepare( "SELECT s.auth_epoch,u.user_pass FROM %i s JOIN {$wpdb->users} u ON u.ID=s.user_id WHERE s.id=%s AND s.user_id=%d AND s.expires_at>%d", $table, $id, $user_id, time() ), ARRAY_A );
+		$row   = $wpdb->get_row( $wpdb->prepare( "SELECT s.auth_epoch,u.user_pass FROM %i s JOIN {$wpdb->users} u ON u.ID=s.user_id WHERE s.id=%s AND s.user_id=%d AND s.expires_at>%d AND NOT EXISTS(SELECT 1 FROM {$wpdb->usermeta} m WHERE m.user_id=s.user_id AND m.meta_key='_digitalogic_merged_into' AND CAST(m.meta_value AS UNSIGNED)>0)", $table, $id, $user_id, time() ), ARRAY_A );
 		return $row && hash_equals( $row['auth_epoch'], self::hash( $row['user_pass'] ) );
 	}
 
@@ -248,7 +235,7 @@ final class MobileIdentityStore {
 	public static function issueSession( int $user_id, string $device, string $method = 'legacy', ?int $proof_at = null ): array {
 		global $wpdb;
 		$user = get_user_by( 'id', $user_id );
-		if ( ! $user ) {
+		if ( ! $user || get_user_meta( $user_id, '_digitalogic_merged_into', true ) ) {
 			throw new \RuntimeException( 'Account unavailable.' );
 		}
 		$token         = bin2hex( random_bytes( 32 ) );

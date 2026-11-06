@@ -1,5 +1,7 @@
 # Protected Google linking: review contract
 
+> Historical design checkpoint. The user subsequently requested a complete, reviewed account consolidation. See [One account across Digitalogic](mobile-account-merge.md) for the implemented contract and acceptance gates. This older schema is not a live merge API.
+
 This is a design checkpoint, not a live account operation. The [review schema](contracts/protected-google-link-plan.schema.json) always returns `commit.enabled=false` and has no mutation endpoint. `account_merge` remains disabled. Normal native OTP sign-in to the existing phone account is available separately; a completed `phone_link` challenge never becomes a login grant.
 
 ## What the proposed operation would mean

@@ -136,6 +136,6 @@ final class MobileGoogleIdentity {
 				),
 			)
 		);
-		return count( $users ) === 1 ? (int) $users[0] : 0;
+		return count( $users ) === 1 ? (int) $users[0] : ( $users ? -1 : 0 );
 	}
 }

@@ -14,6 +14,8 @@ namespace Digitalogic\Laravel\Http\Controllers;
 use Digitalogic\Laravel\Services\MobileIdentityStore as Store;
 use Digitalogic\Laravel\Services\MobileGoogleIdentity as Google;
 use Digitalogic\Laravel\Services\MobileGoogleChallenge as GoogleChallenge;
+use Digitalogic\Laravel\Services\MobileGoogleLoginChallenge as GoogleLoginChallenge;
+use Digitalogic\Laravel\Services\MobileGoogleContinuation as GoogleContinuation;
 use Digitalogic\Laravel\Services\MobilePhoneResolution as PhoneResolution;
 use Digitalogic\Laravel\Services\MobileRegistrationStore as Registration;
 use Digitalogic\Laravel\Services\MobileAddresses as Addresses;
@@ -49,9 +51,18 @@ final class MobileIdentityController {
 		if ( null === $phone || ! preg_match( '/\A[A-Za-z0-9-]{16,64}\z/D', $request_id ) ) {
 			return $this->error( 'invalid_request', 'شماره موبایل معتبر وارد کنید.', 400 );
 		}
-		$table        = Store::table( 'otp' );
+		$table              = Store::table( 'otp' );
+		$continuation       = null;
+		$continuation_token = $request->json( 'continuation_token' );
+		if ( null !== $continuation_token ) {
+			if ( null !== $actor ) {
+				return $this->error( 'invalid_continuation_purpose', 'درخواست معتبر نیست.', 400 ); }
+			$continuation = GoogleContinuation::read( $continuation_token );
+			if ( is_wp_error( $continuation ) ) {
+				return $this->error( $continuation->get_error_code(), $continuation->get_error_message(), (int) ( $continuation->get_error_data()['status'] ?? 409 ) ); }
+		}
 		$phone_hash   = Store::hash( $phone );
-		$request_hash = Store::hash( ( $actor ? 'phone-link:' . $actor['user_id'] . ':' . $actor['id'] . ':' : '' ) . $phone . ':' . $request_id );
+		$request_hash = Store::hash( ( $actor ? 'phone-link:' . $actor['user_id'] . ':' . $actor['id'] . ':' : ( $continuation ? 'google-continuation:' . $continuation['token_hash'] . ':' : '' ) ) . $phone . ':' . $request_id );
 		$existing     = $wpdb->get_row( $wpdb->prepare( 'SELECT * FROM %i WHERE request_hash=%s', $table, $request_hash ), ARRAY_A );
 		if ( $existing ) {
 			return (int) $existing['expires_at'] > time() && 'used' !== $existing['state'] ? $this->challengeResponse( $existing ) : $this->error( 'challenge_expired', 'درخواست تازه‌ای برای کد ورود ثبت کنید.', 410 );
@@ -85,6 +96,10 @@ final class MobileIdentityController {
 		);
 		if ( $actor || Registration::enabled() ) {
 			$row['phone_ciphertext'] = Registration::seal( $phone, 'phone' );}
+		if ( $continuation ) {
+			$row['continuation_hash'] = $continuation['token_hash'];
+			$row['phone_ciphertext']  = Registration::seal( $phone, 'phone' );
+		}
 		if ( $wpdb->insert( $table, $row ) !== 1 ) {
 			return $this->error( 'request_conflict', 'درخواست در حال بررسی است؛ چند لحظه صبر کنید.', 409 );
 		}
@@ -113,8 +128,25 @@ final class MobileIdentityController {
 		if ( ! preg_match( '/\A[a-f0-9]{32}\z/D', $id ) || ! preg_match( '/\A[0-9]{6}\z/D', $code ) ) {
 			return $this->error( 'invalid_code', 'کد شش‌رقمی معتبر وارد کنید.', 400 );
 		}
-		$table   = Store::table( 'otp' );
-		$row     = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM %i WHERE id=%s AND purpose='login'", $table, $id ), ARRAY_A );
+		$table              = Store::table( 'otp' );
+		$row                = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM %i WHERE id=%s AND purpose='login'", $table, $id ), ARRAY_A );
+		$continuation_token = $request->json( 'continuation_token' );
+		if ( ! empty( $row['continuation_hash'] ) || null !== $continuation_token ) {
+			$continuation = GoogleContinuation::read( $continuation_token );
+			if ( is_wp_error( $continuation ) ) {
+				return $this->error( $continuation->get_error_code(), $continuation->get_error_message(), (int) ( $continuation->get_error_data()['status'] ?? 409 ) ); }
+			if ( ! $row || ! hash_equals( (string) ( $row['continuation_hash'] ?? '' ), $continuation['token_hash'] ) || true !== $request->json( 'link_consent' ) ) {
+				return $this->error( 'identity_link_consent_required', 'اتصال گوگل و شماره تأییدشده را تأیید کنید.', 422 ); }
+			if ( 'used' === $row['state'] && (int) $row['expires_at'] > time() && hash_equals( $row['code_hash'], Store::hash( $id . ':' . $code . ':' . $row['phone_hash'] ) ) ) {
+				$result = GoogleContinuation::finishPhone( $continuation_token, $row, (string) $request->json( 'device_name', 'Android' ) );
+				if ( is_wp_error( $result ) ) {
+					return $this->error( $result->get_error_code(), $result->get_error_message(), (int) ( $result->get_error_data()['status'] ?? 409 ) ); }
+				if ( isset( $result['user_id'] ) ) {
+					$result['profile'] = $this->profileData( (int) $result['user_id'] );
+					unset( $result['user_id'] ); }
+				return $this->json( $result );
+			}
+		}
 		$attempt = $wpdb->query( $wpdb->prepare( "UPDATE %i SET attempts=attempts+1 WHERE id=%s AND purpose='login' AND attempts<5 AND expires_at>%d AND state IN ('pending','accepted')", $table, $id, time() ) );
 		if ( ! $row || 1 !== $attempt || ! hash_equals( $row['code_hash'], Store::hash( $id . ':' . $code . ':' . $row['phone_hash'] ) ) ) {
 			return $this->error( 'invalid_or_expired_code', 'کد نادرست یا منقضی شده است.', 401 );
@@ -123,11 +155,20 @@ final class MobileIdentityController {
 		if ( 1 !== $claimed ) {
 			return $this->error( 'code_already_used', 'این کد قبلاً استفاده شده است.', 409 );
 		}
+		if ( ! empty( $row['continuation_hash'] ) ) {
+			$result = GoogleContinuation::finishPhone( $continuation_token, $row, (string) $request->json( 'device_name', 'Android' ) );
+			if ( is_wp_error( $result ) ) {
+				return $this->error( $result->get_error_code(), $result->get_error_message(), (int) ( $result->get_error_data()['status'] ?? 409 ) ); }
+			if ( isset( $result['user_id'] ) ) {
+				$result['profile'] = $this->profileData( (int) $result['user_id'] );
+				unset( $result['user_id'] ); }
+			return $this->json( $result );
+		}
 		$user_id = (int) $row['user_id'];
 		if ( 0 === $user_id ) {
 			$registration = Registration::begin( $row );
 			return $registration ? $this->json( $registration ) : $this->error( 'registration_proof_unavailable', 'شماره موبایل را با کد تازه‌ای تأیید کنید.', 409 ); }
-		$verified_phone = $user_id > 0 ? Store::phone( (string) get_user_meta( $user_id, 'digits_phone', true ) ) : null;
+		$verified_phone = $user_id > 0 ? \Digitalogic\Laravel\Services\MobileIdentityResolver::storedPhone( (string) get_user_meta( $user_id, 'digits_phone', true ) ) : null;
 		if ( null === $verified_phone || ! hash_equals( $row['phone_hash'], Store::hash( $verified_phone ) ) || Store::ownerOfPhone( $verified_phone ) !== $user_id ) {
 			return $this->error( 'account_identity_changed', 'برای بررسی حساب از ورود وب‌سایت استفاده کنید.', 409 );
 		}
@@ -153,9 +194,9 @@ final class MobileIdentityController {
 		if ( ! self::otpEnabled() ) {
 			return $this->error( 'native_auth_unavailable', 'ورود موقتاً در دسترس نیست.', 503 );}
 		$input = $request->json()->all();
-		if ( array_diff( array_keys( $input ), array( 'registration_token', 'request_id', 'terms_accepted', 'device_name' ) ) || ! is_string( $input['registration_token'] ?? null ) || ! is_string( $input['request_id'] ?? null ) || ! is_string( $input['device_name'] ?? 'Android' ) || ( isset( $input['terms_accepted'] ) && ! is_bool( $input['terms_accepted'] ) ) ) {
+		if ( array_diff( array_keys( $input ), array( 'registration_token', 'request_id', 'terms_accepted', 'device_name', 'continuation_token' ) ) || ! is_string( $input['registration_token'] ?? null ) || ! is_string( $input['request_id'] ?? null ) || ! is_string( $input['device_name'] ?? 'Android' ) || ( isset( $input['continuation_token'] ) && ! is_string( $input['continuation_token'] ) ) || ( isset( $input['terms_accepted'] ) && ! is_bool( $input['terms_accepted'] ) ) ) {
 			return $this->error( 'invalid_registration', 'درخواست عضویت معتبر نیست.', 400 );}
-		$result = Registration::complete( $input['registration_token'], $input['request_id'], $input['device_name'] ?? 'Android', ( $input['terms_accepted'] ?? false ) === true );
+		$result = Registration::complete( $input['registration_token'], $input['request_id'], $input['device_name'] ?? 'Android', ( $input['terms_accepted'] ?? false ) === true, $input['continuation_token'] ?? null );
 		if ( is_wp_error( $result ) ) {
 			return $this->error( $result->get_error_code(), $result->get_error_message(), (int) ( $result->get_error_data()['status'] ?? 409 ) );}
 		$user_id = (int) $result['user_id'];
@@ -320,6 +361,8 @@ final class MobileIdentityController {
 	 * @param Request $request Bounded native HTTP request.
 	 * @return Response Native adapter result.
 	 * @throws \RuntimeException When the authoritative operation cannot be completed safely.
+	 *
+	 * @throws \RuntimeException When the operation cannot preserve its verified boundary.
 	 */
 	public function verifyPhone( Request $request ): Response {
 		global $wpdb;
@@ -515,15 +558,31 @@ final class MobileIdentityController {
 			$claims = Google::verify( $token, $keys, Google::audience(), Google::presenter() );
 		} catch ( \Throwable $error ) {
 			return $this->error( 'invalid_google_token', 'ورود گوگل تأیید نشد.', 401 ); }
+		$fresh        = null;
+		$challenge_id = $request->json( 'challenge_id' );
+		if ( null !== $challenge_id ) {
+			$fresh = is_string( $challenge_id ) ? GoogleLoginChallenge::consume( $challenge_id, $claims, $token ) : new \WP_Error( 'google_login_invalid_challenge', '', array( 'status' => 400 ) );
+			if ( is_wp_error( $fresh ) ) {
+				return $this->error( $fresh->get_error_code(), 'تأیید تازه گوگل معتبر نیست؛ دوباره تلاش کنید.', (int) ( $fresh->get_error_data()['status'] ?? 403 ) ); }
+		}
 		$user_id = Google::owner( $claims['sub'] );
+		if ( $user_id < 0 ) {
+			return $this->error( 'ambiguous_google_identity', 'این شناسه به بیش از یک حساب متصل است؛ ایجاد حساب تازه متوقف شد.', 409 );
+		}
+		$activation = $user_id > 0 ? (int) get_user_meta( $user_id, '_digitalogic_google_binding_not_before', true ) : 0;
+		if ( $activation > 0 && ( (int) $claims['iat'] <= $activation || ( null !== $fresh && $fresh['created_at'] <= $activation ) ) && ( null === $fresh || $fresh['created_at'] <= $activation ) ) {
+			return $this->error( 'fresh_google_required', 'برای ورود به حساب ادغام‌شده، تأیید تازه گوگل لازم است.', 403 );
+		}
 		if ( 0 === $user_id ) {
-			return $this->json(
-				array(
-					'registered'            => false,
-					'registration_required' => true,
-					'registration_method'   => 'phone',
-				)
-			); }
+			$candidates = \Digitalogic\Laravel\Services\MobileIdentityResolver::emailOwners( $claims['email'] );
+			if ( null === $candidates || count( $candidates ) > 1 ) {
+				return $this->error( 'identity_discovery_conflict', 'حساب موجود نیاز به بررسی دارد؛ ایجاد حساب تازه متوقف شد.', 409 );
+			}
+			try {
+				return $this->json( GoogleContinuation::begin( $claims, $token, $fresh ) ); } catch ( \UnexpectedValueException $error ) {
+				return $this->error( $error->getMessage(), 'پیش از تأیید شماره، گوگل را تازه تأیید کنید.', 403 ); } catch ( \Throwable $error ) {
+					return $this->error( 'google_continuation_unavailable', 'ادامه ورود گوگل موقتاً در دسترس نیست.', 503 ); }
+		}
 		// A Google token can create one native session; values never enter logs.
 		if ( ! Store::claimGoogleToken( $token, $claims['exp'] ) ) {
 			return $this->error( 'identity_token_used', 'ورود گوگل را دوباره آغاز کنید.', 409 ); }
@@ -533,9 +592,31 @@ final class MobileIdentityController {
 					'registered' => true,
 					'profile'    => $this->profileData( $user_id ),
 				),
-				Store::issueSession( $user_id, (string) $request->json( 'device_name', 'Android' ), 'google', (int) $claims['iat'] )
+				Store::issueSession( $user_id, (string) $request->json( 'device_name', 'Android' ), 'google', $fresh['verified_at'] ?? (int) $claims['iat'] )
 			)
 		);
+	}
+
+	/**
+	 * A cached signed token identifies the chosen subject; only a new nonce proves fresh intent.
+	 *
+	 * @param Request $request Bounded native HTTP request.
+	 */
+	public function googleLoginChallenge( Request $request ): Response {
+		if ( ! self::googleEnabled() || '1' !== get_option( 'digitalogic_mobile_google_login_challenge_schema' ) ) {
+			return $this->error( 'google_unavailable', 'ورود گوگل در دسترس نیست.', 503 ); }
+		$token = $request->json( 'id_token' );
+		$id    = $request->json( 'request_id' );
+		if ( ! is_string( $token ) || strlen( $token ) > 6000 || ! is_string( $id ) ) {
+			return $this->error( 'google_login_invalid_request', 'درخواست معتبر نیست.', 400 ); }
+		$network = (string) sanitize_text_field( wp_unslash( $_SERVER['REMOTE_ADDR'] ?? 'unknown' ) );
+		if ( ! Store::admit( 'google-login-challenge:verify:' . $network, 20, 60 ) || ! Store::admit( 'google-login-challenge:verify:global', 120, 60 ) ) {
+			return $this->error( 'google_login_rate_limited', 'کمی صبر کنید.', 429 ); }
+		try {
+			$claims = Google::verify( $token, Google::keys(), Google::audience(), Google::presenter() ); } catch ( \Throwable $error ) {
+			return $this->error( 'invalid_google_token', 'ورود گوگل تأیید نشد.', 403 ); }
+			$result = GoogleLoginChallenge::create( $id, $network, $claims['sub'] );
+			return is_wp_error( $result ) ? $this->error( $result->get_error_code(), 'درخواست تأیید گوگل کامل نشد.', (int) ( $result->get_error_data()['status'] ?? 409 ) ) : $this->json( $result );
 	}
 
 	/**
@@ -725,12 +806,12 @@ final class MobileIdentityController {
 	 * @param int $id Exact scoped identifier.
 	 * @return array Native adapter result.
 	 */
-	private function profileData( int $id ): array {
+	public function profileData( int $id ): array {
 		$user    = get_user_by( 'id', $id );
 		$billing = array();
 		foreach ( self::billingFields() as $field ) {
 			$billing[ $field ] = (string) get_user_meta( $id, 'billing_' . $field, true );}
-		$phone       = Store::phone( (string) get_user_meta( $id, 'digits_phone', true ) );
+		$phone       = \Digitalogic\Laravel\Services\MobileIdentityResolver::storedPhone( (string) get_user_meta( $id, 'digits_phone', true ) );
 		$verified    = null !== $phone && Store::ownerOfPhone( $phone ) === $id;
 		$subject     = (string) get_user_meta( $id, 'auth_google_id', true );
 		$email_parts = explode( '@', (string) $user->user_email, 2 );
@@ -772,11 +853,12 @@ final class MobileIdentityController {
 	private function challengeResponse( array $row ): Response {
 		return $this->json(
 			array(
-				'challenge_id'    => $row['id'],
-				'retry_after'     => max( 0, 60 - ( time() - (int) $row['created_at'] ) ),
-				'expires_in'      => max( 0, (int) $row['expires_at'] - time() ),
-				'expires_at'      => gmdate( 'c', (int) $row['expires_at'] ),
-				'delivery_status' => 'accepted' === $row['state'] ? 'accepted' : 'pending',
+				'challenge_id'          => $row['id'],
+				'retry_after'           => max( 0, 60 - ( time() - (int) $row['created_at'] ) ),
+				'expires_in'            => max( 0, (int) $row['expires_at'] - time() ),
+				'expires_at'            => gmdate( 'c', (int) $row['expires_at'] ),
+				'delivery_status'       => 'accepted' === $row['state'] ? 'accepted' : 'pending',
+				'requires_link_consent' => ! empty( $row['continuation_hash'] ),
 			),
 			202
 		);

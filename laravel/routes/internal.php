@@ -12,6 +12,11 @@ use Digitalogic\Laravel\Http\Controllers\MobileRequestController;
 use Digitalogic\Laravel\Http\Controllers\MobileCartController;
 use Digitalogic\Laravel\Http\Controllers\MobileCheckoutController;
 use Digitalogic\Laravel\Http\Controllers\MobileMessageController;
+use Digitalogic\Laravel\Http\Controllers\MobileMergeController;
+
+Route::get( '/mobile/account/merge/plan', array( MobileMergeController::class, 'plan' ) );
+Route::post( '/mobile/account/merge', array( MobileMergeController::class, 'handle' ) );
+Route::get( '/mobile/account/merge/operations/{id}', array( MobileMergeController::class, 'handle' ) );
 
 Route::get( '/mobile/account/messages/schema', array( MobileMessageController::class, 'schema' ) );
 Route::get( '/mobile/account/messages/operations/{id}', array( MobileMessageController::class, 'lookup' ) );
@@ -32,6 +37,7 @@ Route::post( '/mobile/auth/otp/request', array( MobileIdentityController::class,
 Route::post( '/mobile/auth/otp/verify', array( MobileIdentityController::class, 'verifyOtp' ) );
 Route::post( '/mobile/auth/register', array( MobileIdentityController::class, 'register' ) );
 Route::post( '/mobile/auth/google', array( MobileIdentityController::class, 'google' ) );
+Route::post( '/mobile/auth/google/challenge', array( MobileIdentityController::class, 'googleLoginChallenge' ) );
 Route::post( '/mobile/account/reauth/google', array( MobileIdentityController::class, 'reauthGoogle' ) );
 Route::post( '/mobile/account/reauth/google/challenge', array( MobileIdentityController::class, 'googleChallenge' ) );
 Route::get( '/mobile/account/phone/resolution', array( MobileIdentityController::class, 'phoneResolution' ) );

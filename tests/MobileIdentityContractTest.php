@@ -106,7 +106,10 @@ final class MobileIdentityContractTest extends TestCase {
 			self::assertSame( '/_digitalogic/mobile/account/' . $endpoint, $route );
 			self::assertSame( array( 'POST' ), Digitalogic_Mobile_API::methods( $route ) );
 		}
-		self::assertNull( Digitalogic_Mobile_API::route( '/app-api/account/merge' ) );
+		self::assertSame( '/_digitalogic/mobile/account/merge', Digitalogic_Mobile_API::route( '/app-api/account/merge' ) );
+		self::assertSame( array( 'POST' ), Digitalogic_Mobile_API::methods( '/_digitalogic/mobile/account/merge' ) );
+		self::assertSame( '/_digitalogic/mobile/auth/google/challenge', Digitalogic_Mobile_API::route( '/app-api/auth/google/challenge' ) );
+		self::assertSame( array( 'POST' ), Digitalogic_Mobile_API::methods( '/_digitalogic/mobile/auth/google/challenge' ) );
 	}
 	/**
 	 * Verify sms template allows only a single fixed otp mapping.

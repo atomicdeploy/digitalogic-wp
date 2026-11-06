@@ -60,14 +60,15 @@ final class MobilePhoneResolution {
 	 */
 	public static function explanation( string $reason ): array {
 		$existing = in_array( $reason, array( 'protected_phone_account', 'phone_account_exists' ), true );
+		$merge    = $existing && MobileAccountMerge::enabled();
 		$message  = 'protected_phone_account' === $reason
 			? 'این شماره به حسابی با دسترسی ویژه متصل است. برای استفاده از آن، وارد حساب قبلی شوید.'
 			: 'برای استفاده از حساب قبلی، ورود با شماره را انتخاب کنید. تا ورود موفق، حساب فعلی باز می‌ماند و اطلاعات هر دو حساب حفظ می‌شود.';
 		return array(
 			'reason'          => $reason,
 			'title'           => $existing ? 'این شماره حساب دیگری دارد' : 'اتصال شماره نیاز به بررسی دارد',
-			'message'         => $existing ? $message : 'شماره تأیید شده است، اما اتصال آن به حساب فعلی انجام نشده است. می‌توانید شماره دیگری را تأیید کنید؛ اطلاعات حساب فعلی حفظ می‌شود.',
-			'allowed_actions' => $existing ? array( 'sign_in_phone', 'try_another_phone' ) : array( 'try_another_phone' ),
+			'message'         => $merge ? 'گوگل و شماره شما به دو حساب متصل‌اند. با تأیید هویت، اطلاعات قابل انتقال را بررسی و حساب‌ها را یکپارچه کنید.' : ( $existing ? $message : 'شماره تأیید شده است، اما اتصال آن به حساب فعلی انجام نشده است. می‌توانید شماره دیگری را تأیید کنید؛ اطلاعات حساب فعلی حفظ می‌شود.' ),
+			'allowed_actions' => $merge ? array( 'merge_accounts', 'try_another_phone' ) : ( $existing ? array( 'sign_in_phone', 'try_another_phone' ) : array( 'try_another_phone' ) ),
 			'assessed_at'     => gmdate( 'c' ),
 		);
 	}
@@ -100,7 +101,7 @@ final class MobilePhoneResolution {
 				return null;
 			}
 			$current = self::describe( (int) $session['user_id'], $owner, $existing, $phone );
-			if ( $current['reason'] !== $resolution['reason'] ) {
+			if ( $current['reason'] !== $resolution['reason'] || ( $resolution['allowed_actions'] ?? array() ) !== $current['allowed_actions'] ) {
 				// Explain changed current ownership without rewriting the stored proof outcome.
 				$resolution = $current;
 			}

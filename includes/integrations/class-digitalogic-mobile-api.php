@@ -24,7 +24,16 @@ final class Digitalogic_Mobile_API {
 	 * @return void Native adapter result.
 	 */
 	public static function register(): void {
+		add_filter( 'determine_current_user', array( self::class, 'retired_alias_user' ), 99 );
+		add_filter( 'wp_authenticate_user', array( self::class, 'retired_alias_authentication' ), 99 );
+		add_filter( 'send_auth_cookies', array( self::class, 'retired_alias_cookie' ), PHP_INT_MAX, 6 );
+		add_filter( 'registration_errors', array( self::class, 'registration_identity_errors' ), 99, 3 );
+		add_filter( 'woocommerce_registration_errors', array( self::class, 'registration_identity_errors' ), 99, 3 );
+		add_filter( 'wp_pre_insert_user_data', array( self::class, 'registration_identity_guard' ), PHP_INT_MAX, 4 );
 		add_action( 'parse_request', array( self::class, 'dispatch' ), 0 );
+		add_action( 'digitalogic_mobile_merge_effects', array( self::class, 'deliver_merge_effects' ), 10, 1 );
+		add_action( 'digitalogic_mobile_registration_effects', array( self::class, 'deliver_registration_effects' ), 10, 1 );
+		add_action( 'init', array( self::class, 'schedule_merge_effects' ), 95 );
 		add_action( 'admin_menu', array( self::class, 'admin_menu' ) );
 		add_action( 'admin_init', array( self::class, 'register_settings' ) );
 		add_action( 'woocommerce_order_status_changed', array( self::class, 'order_changed' ), 20, 4 );
@@ -38,6 +47,100 @@ final class Digitalogic_Mobile_API {
 		foreach ( array( 'fluent_support/response_added_by_customer', 'fluent_support/response_added_by_agent' ) as $event ) {
 			add_action( $event, array( self::class, 'message_created' ), 90, 2 );
 		}
+	}
+
+	/**
+	 * Discover only durable committed effects; no transport runs before commit.
+	 */
+	public static function schedule_merge_effects(): void {
+		if ( '1' !== get_option( 'digitalogic_mobile_merge_schema' ) && '1' !== get_option( 'digitalogic_mobile_google_continuation_schema' ) ) {
+			return; }
+		Digitalogic_Laravel_Bridge::instance()->boot_laravel();
+		\Digitalogic\Laravel\Services\MobileMergeEffects::schedulePending();
+	}
+
+	/**
+	 * Deliver canonical enrollment events only after its receipt committed.
+	 *
+	 * @param string $key Durable operation identifier.
+	 */
+	public static function deliver_registration_effects( string $key ): void {
+		Digitalogic_Laravel_Bridge::instance()->boot_laravel();
+		\Digitalogic\Laravel\Services\MobileMergeEffects::drain( $key, true );
+		\Digitalogic\Laravel\Services\MobileMergeEffects::schedulePending();
+	}
+
+	/**
+	 * Deliver a bounded committed merge outbox through the existing canonical transports.
+	 *
+	 * @param string $key Durable operation identifier.
+	 */
+	public static function deliver_merge_effects( string $key ): void {
+		Digitalogic_Laravel_Bridge::instance()->boot_laravel();
+		\Digitalogic\Laravel\Services\MobileMergeEffects::drain( $key );
+		\Digitalogic\Laravel\Services\MobileMergeEffects::schedulePending();
+	}
+
+	/**
+	 * A retained merge alias cannot turn an old cookie into survivor authority.
+	 *
+	 * @param mixed $user_id Canonical WordPress authentication result.
+	 * @return mixed Original principal, or no authenticated user for a retired alias.
+	 */
+	public static function retired_alias_user( $user_id ) {
+		return (int) $user_id > 0 && (int) get_user_meta( (int) $user_id, '_digitalogic_merged_into', true ) > 0 ? 0 : $user_id;
+	}
+
+	/**
+	 * Reject old alias passwords without mapping them to a more privileged account.
+	 *
+	 * @param mixed $user Existing authentication result.
+	 * @return mixed Original user or an explicit login rejection.
+	 */
+	public static function retired_alias_authentication( $user ) {
+		return is_object( $user ) && isset( $user->ID ) && (int) get_user_meta( (int) $user->ID, '_digitalogic_merged_into', true ) > 0 ? new WP_Error( 'account_merged', 'این حساب ادغام شده است؛ با شماره تأییدشده یا گوگل وارد حساب یکپارچه شوید.' ) : $user;
+	}
+
+	/**
+	 * A social provider cannot issue a new browser cookie for a retired alias.
+	 *
+	 * @param mixed $send Existing cookie-delivery decision.
+	 * @param mixed $expire Cookie expiry argument.
+	 * @param mixed $expiration Cookie deadline argument.
+	 * @param mixed $user_id Verified canonical WordPress owner.
+	 * @param mixed $scheme Canonical cookie scheme.
+	 * @param mixed $token Opaque proof, never logged.
+	 */
+	public static function retired_alias_cookie( $send, $expire, $expiration, $user_id, $scheme, $token ) {
+		unset( $expire, $expiration, $scheme, $token );
+		return (int) $user_id > 0 && (int) get_user_meta( (int) $user_id, '_digitalogic_merged_into', true ) > 0 ? false : $send;
+	}
+
+	/**
+	 * Load current normalized identity discovery only for an enrollment attempt.
+	 *
+	 * @param mixed $errors Existing validation result.
+	 * @param mixed $username Proposed account name.
+	 * @param mixed $email Proposed email, never an ownership grant.
+	 */
+	public static function registration_identity_errors( $errors, $username, $email ) {
+		Digitalogic_Laravel_Bridge::instance()->boot_laravel();
+		return \Digitalogic\Laravel\Services\MobileWebsiteIdentityGuard::registrationErrors( $errors, $username, $email );
+	}
+
+	/**
+	 * Installed WordPress invokes this before INSERT, including core-based social enrollment.
+	 *
+	 * @param mixed $data Canonical provider data.
+	 * @param mixed $update Whether this changes an existing account.
+	 * @param mixed $user_id Verified canonical WordPress owner.
+	 * @param mixed $userdata Proposed canonical account fields.
+	 */
+	public static function registration_identity_guard( $data, $update, $user_id, $userdata ) {
+		if ( $update ) {
+			return $data; }
+		Digitalogic_Laravel_Bridge::instance()->boot_laravel();
+		return \Digitalogic\Laravel\Services\MobileWebsiteIdentityGuard::preInsert( $data, $update, $user_id, $userdata );
 	}
 
 	/**
@@ -82,6 +185,20 @@ final class Digitalogic_Mobile_API {
 	 */
 	public static function cart_changed(): void {
 		$user_id = get_current_user_id();
+		if ( $user_id > 0 && class_exists( '\Digitalogic\Laravel\Services\MobileMergeEffects', false ) && \Digitalogic\Laravel\Services\MobileMergeEffects::active() ) {
+			\Digitalogic\Laravel\Services\MobileMergeEffects::defer(
+				'panel',
+				array(
+					'mobile.cart.updated',
+					array(
+						'user_id'  => $user_id,
+						'scope'    => 'cart',
+						'audience' => array( 'users' => array( $user_id ) ),
+					),
+				)
+			);
+			return;
+		}
 		if ( $user_id > 0 ) {
 			self::$changed_cart_users[ $user_id ] = true;}
 	}
@@ -139,7 +256,10 @@ final class Digitalogic_Mobile_API {
 	 * @return string|null Native adapter result.
 	 */
 	public static function route( string $path ): ?string {
-		if ( preg_match( '~^/app-api/(bootstrap|categories|links/resolve|forms|checkout(?:/quote|/operations/[A-Za-z0-9-]{16,64})?|cart(?:/claim)?|uploads(?:/[a-f0-9]{32})?|requests(?:/[A-Za-z0-9-]{16,64})?|products(?:/[1-9][0-9]{0,9})?|auth/(?:otp/request|otp/verify|google|register|sessions|logout)|account/(?:profile|orders|favorites|requests|messages(?:/schema|/operations/[A-Za-z0-9-]{16,64}|/[1-9][0-9]{0,9}(?:/messages|/close|/reopen)?)?|phone/request|phone/verify|phone/eligibility|phone/resolution|reauth/google(?:/challenge)?))/?$~D', $path, $matches ) ) {
+		if ( preg_match( '~^/app-api/(account/merge(?:/plan|/operations/[0-9a-fA-F-]{36})?)/?$~D', $path, $matches ) ) {
+			return '/_digitalogic/mobile/' . $matches[1];
+		}
+		if ( preg_match( '~^/app-api/(bootstrap|categories|links/resolve|forms|checkout(?:/quote|/operations/[A-Za-z0-9-]{16,64})?|cart(?:/claim)?|uploads(?:/[a-f0-9]{32})?|requests(?:/[A-Za-z0-9-]{16,64})?|products(?:/[1-9][0-9]{0,9})?|auth/(?:otp/request|otp/verify|google(?:/challenge)?|register|sessions|logout)|account/(?:profile|orders|favorites|requests|messages(?:/schema|/operations/[A-Za-z0-9-]{16,64}|/[1-9][0-9]{0,9}(?:/messages|/close|/reopen)?)?|phone/request|phone/verify|phone/eligibility|phone/resolution|reauth/google(?:/challenge)?))/?$~D', $path, $matches ) ) {
 			return '/_digitalogic/mobile/' . $matches[1];
 		}
 		return null;
@@ -152,6 +272,9 @@ final class Digitalogic_Mobile_API {
 	 * @return array Native adapter result.
 	 */
 	public static function methods( string $route ): array {
+		if ( str_ends_with( $route, '/account/merge' ) ) {
+			return array( 'POST' );
+		}
 		if ( str_ends_with( $route, '/account/messages' ) ) {
 			return array( 'GET', 'HEAD', 'POST' );
 		}
@@ -171,7 +294,7 @@ final class Digitalogic_Mobile_API {
 		if ( str_ends_with( $route, '/cart/claim' ) ) {
 			return array( 'POST' );
 		}
-		if ( preg_match( '~/(?:uploads|requests|auth/(?:otp/request|otp/verify|google|register|logout))$~D', $route ) && ! str_ends_with( $route, '/account/requests' ) ) {
+		if ( preg_match( '~/(?:uploads|requests|auth/(?:otp/request|otp/verify|google(?:/challenge)?|register|logout))$~D', $route ) && ! str_ends_with( $route, '/account/requests' ) ) {
 			return array( 'POST' );
 		}
 		if ( preg_match( '~/uploads/[a-f0-9]{32}$~D', $route ) ) {
