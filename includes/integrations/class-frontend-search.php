@@ -220,11 +220,12 @@ class Digitalogic_Frontend_Search {
 		$result = $data;
 		foreach ( $result['suggestions'] as &$item ) {
 			if ( isset( $item['_dg_product_id'] ) ) {
-				$product       = wc_get_product( $item['_dg_product_id'] );
-				$item['price'] = $product ? $this->product_price_html( $product ) : '';
+				$product   = wc_get_product( $item['_dg_product_id'] );
+				$available = $product && $product->is_in_stock();
 				if ( $product ) {
-					$item['is_in_stock'] = $product->is_in_stock();
+					$item['is_in_stock'] = $available;
 				}
+				$item['price'] = $available ? $this->product_price_html( $product ) : '';
 				unset( $item['_dg_product_id'] );
 			}
 		}

@@ -490,7 +490,9 @@ final class Digitalogic_Storefront_Product_Table {
 			return $clauses;
 		}
 		$bound = digitalogic_public_price_bound_sql( 'min_price', 'dgl_catalog_lookup' );
+
 		$clauses['join'] .= " LEFT JOIN {$wpdb->wc_product_meta_lookup} AS dgl_catalog_lookup ON dgl_catalog_lookup.product_id = {$wpdb->posts}.ID ";
+
 		$clauses['orderby'] = "({$bound} IS NULL) ASC, {$bound} {$order}, {$wpdb->posts}.ID {$order}";
 		return $clauses;
 	}

@@ -29,6 +29,8 @@ class Digitalogic_Report_Engine {
 }
 class SearchProduct {
     public static $price = '505900';
+    public static $in_stock = true;
+    public function is_in_stock() { return self::$in_stock; }
     public function get_price_html() {
         $callback = $GLOBALS['filters']['tiered_pricing_table/catalog_pricing/price_html'] ?? null;
         return $callback ? $callback('From 4444', self::$price) : 'From 4444';
@@ -69,10 +71,13 @@ SearchProduct::$price = '506000'; // Simulate missed invalidation: same generati
 $changed = search_response()->result;
 verify($changed['suggestions'][0]['price'] === '506000', 'missed event cannot return old cached price');
 verify($changed['dg_cache']['signature'] !== $second['dg_cache']['signature'], 'old signature rejected');
+SearchProduct::$in_stock = false;
+$sold_out = search_response()->result;
+verify($sold_out['dg_cache']['hit'] && $sold_out['suggestions'][0]['is_in_stock'] === false && $sold_out['suggestions'][0]['price'] === '', 'cached search reflects stock change without retaining the saved price');
 Digitalogic_Report_Engine::$generation = 'two';
 verify(!search_response()->result['dg_cache']['hit'] && SearchTheme::$queries === 2, 'event generation invalidates query cache');
 Digitalogic_Report_Engine::$generation = 'three'; SearchTheme::$race = true;
 verify(search_response()->status === 409, 'concurrent change fails closed');
 Digitalogic_Report_Engine::$generation = new WP_Error();
 verify(search_response()->status === 503, 'unavailable generation fails closed');
-echo "Search cache regression: 7 boundaries passed\n";
+echo "Search cache regression: 8 boundaries passed\n";
