@@ -87,14 +87,17 @@ final class Webhooks {
 	}
 
 	/** @param array<string,mixed> $properties */
-	private static function dispatch( string $event, string $group, int $user_id = 0, array $properties = array() ): void {
+	private static function dispatch( string $event, string $group, int $user_id = 0, array $properties = array(), string $effect_id = '', int $effect_at = 0 ) {
+		if ( class_exists( '\Digitalogic\Laravel\Services\MobileMergeEffects', false ) && \Digitalogic\Laravel\Services\MobileMergeEffects::defer( 'admin_webhook', array( $event, $group, $user_id, $properties ) ) ) {
+			return true;
+		}
 		$configuration = self::configuration( $group );
 		if ( $configuration === null ) {
 			return;
 		}
 
-		$event_id    = wp_generate_uuid4();
-		$occurred_at = gmdate( 'c' );
+		$event_id    = '' !== $effect_id ? $effect_id : wp_generate_uuid4();
+		$occurred_at = gmdate( 'c', $effect_at > 0 ? $effect_at : time() );
 		$payload     = array(
 			'schema'      => self::SCHEMA,
 			'event'       => $event,
@@ -120,12 +123,12 @@ final class Webhooks {
 		$timestamp = (string) time();
 		$signature = hash_hmac( 'sha256', $timestamp . '.' . $json, $configuration['secret'] );
 
-		wp_safe_remote_post(
+		$response = wp_safe_remote_post(
 			$configuration['url'],
 			array(
 				'timeout'             => 4,
 				'redirection'         => 0,
-				'blocking'            => false,
+				'blocking'            => '' !== $effect_id,
 				'sslverify'           => true,
 				'reject_unsafe_urls'  => true,
 				'limit_response_size' => 1024,
@@ -140,6 +143,12 @@ final class Webhooks {
 				'data_format'         => 'body',
 			)
 		);
+		return '' === $effect_id || ( ! is_wp_error( $response ) && wp_remote_retrieve_response_code( $response ) >= 200 && wp_remote_retrieve_response_code( $response ) < 300 );
+	}
+
+	/** Send only a committed canonical merge effect; caller owns durable retry. */
+	public static function deliver_merge_event( string $event, string $group, int $user_id, array $properties, string $effect_id, int $effect_at ) {
+		return self::dispatch( $event, $group, $user_id, $properties, $effect_id, $effect_at );
 	}
 
 	/** @return array{url:string,secret:string}|null */

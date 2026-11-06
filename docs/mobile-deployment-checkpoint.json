@@ -1,0 +1,73 @@
+{
+  "observed_at_utc": "2026-11-06T00:40:18.807539+00:00",
+  "source_branch": "feat/mobile-storefront-api",
+  "deployment": "targeted files; no full-plugin replacement",
+  "schemas": {
+    "identity": "2; OTP resolution and verified_at columns installed",
+    "google_challenge": "1",
+    "message_operations": "1"
+  },
+  "capabilities": {
+    "google_reauth_nonce": true,
+    "native_phone_verification": true,
+    "native_messages": false,
+    "account_merge": false
+  },
+  "public_unauthenticated_checks": {
+    "GET /app-api/account/phone/eligibility": 401,
+    "GET /app-api/account/phone/resolution": 401,
+    "POST /app-api/account/reauth/google/challenge": 401
+  },
+  "files": {
+    "laravel/app/Services/MobileGoogleChallenge.php": {
+      "deployed_sha256": "68c6fe3a16e97b2a2e4459d0628c81cb18c21918c8499dcff17c6368f2f96b12",
+      "matches_working_source": true
+    },
+    "laravel/app/Services/MobilePhoneResolution.php": {
+      "deployed_sha256": "4f0a02c0a6f28b32c625eb8e86407ef11b74b4a1d55b2848e6fe97d88a198a4b",
+      "matches_working_source": true
+    },
+    "laravel/app/Services/MobileIdentityStore.php": {
+      "deployed_sha256": "6bd6e1dd4b9ac5be8439f342f697cc3642f57f154f2fd1d4a95a0745654b639c",
+      "matches_working_source": true
+    },
+    "laravel/app/Http/Controllers/MobileIdentityController.php": {
+      "deployed_sha256": "270c98723dd88d5fe9e44f4920d45b5b0c2fe3badbace50585b080be058b4775",
+      "matches_working_source": true
+    },
+    "laravel/app/Http/Controllers/MobileCatalogController.php": {
+      "deployed_sha256": "906be642be0983413c3f6059b857273e7a2aea5553a55b9a36427b5bd98977a5",
+      "matches_working_source": true
+    },
+    "laravel/routes/internal.php": {
+      "deployed_sha256": "bec100708a3ef1a610ccffc4b46cf7f77b9675a912add2538585803b15d0bf50",
+      "matches_working_source": true
+    },
+    "includes/integrations/class-digitalogic-mobile-api.php": {
+      "deployed_sha256": "3fcbf3ac9ccc785211b527e023d12944a155d7ed13a9ea43f9b92e9986a18867",
+      "matches_working_source": true
+    },
+    "laravel/app/Services/MobileMessages.php": {
+      "deployed_sha256": "19cd7a242afddf24806503da513cb3497dfa367e8b1587f21c36c79829cd0bcc",
+      "matches_working_source": true
+    },
+    "laravel/app/Services/MobileMessageStore.php": {
+      "deployed_sha256": "87341737eedc02e8bc126841e3f7e29c73fa2238231dce7db6ca20d4f13abaae",
+      "matches_working_source": true
+    },
+    "laravel/app/Http/Controllers/MobileMessageController.php": {
+      "deployed_sha256": "0138f090254c594d53d9223ac9800686285474f6b6b346971e8c43fce90c28bd",
+      "matches_working_source": true
+    },
+    "includes/websocket/class-websocket-server.php": {
+      "deployed_sha256": "608ef4272087703acbcf8aba133ce240f32ea4750055ed62e41552075232535b",
+      "matches_working_source": false
+    }
+  },
+  "notes": [
+    "Fluent adapter source is gated off; no real ticket or message was created in acceptance probes.",
+    "WebSocket support-event/event_id delta is source-only; running service was not replaced at this checkpoint.",
+    "Formatting/parameterized-SQL cleanup in other native cart/checkout/request files remains a separate targeted deployment lane.",
+    "No account merge, role transfer, identity reassignment or order was performed."
+  ]
+}

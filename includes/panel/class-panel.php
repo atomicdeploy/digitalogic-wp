@@ -1142,6 +1142,9 @@ class Digitalogic_Panel {
      * @return array{event:array,delivery_warnings:array}|WP_Error
      */
     public static function record_event_result($event, $data = array()) {
+		if ( class_exists( '\Digitalogic\Laravel\Services\MobileMergeEffects', false ) && \Digitalogic\Laravel\Services\MobileMergeEffects::defer( 'panel', array( $event, $data ) ) ) {
+			return array( 'event' => array( 'id' => 0, 'name' => $event, 'data' => $data ), 'delivery_warnings' => array( 'deferred_until_merge_commit' ) );
+		}
 		$result = self::record_events_result(
 			array( array( 'event' => $event, 'data' => $data ) )
 		);

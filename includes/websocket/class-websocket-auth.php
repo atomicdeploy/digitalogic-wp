@@ -17,8 +17,39 @@ class Digitalogic_WebSocket_Auth {
      * generic WordPress command.
      */
 	public static function authenticate_context( $headers, $query ) {
-		$headers          = is_array($headers) ? array_change_key_case($headers, CASE_LOWER) : array();
-		$secret           = isset($headers['x-patris-product-sync-secret'])
+		$headers   = is_array( $headers ) ? array_change_key_case( $headers, CASE_LOWER ) : array();
+		$protocols = array_map( 'trim', explode( ',', (string) ( $headers['sec-websocket-protocol'] ?? '' ) ) );
+		if ( in_array( 'digitalogic.shopper', $protocols, true ) ) {
+			if ( array_intersect( array( 'authorization', 'sec-websocket-protocol', 'last-event-id' ), (array) ( $headers['__digitalogic_duplicate_headers'] ?? array() ) ) ) {
+				return array(
+					'authenticated' => false,
+					'principal'     => '',
+				); }
+			if ( isset( $headers['x-patris-product-sync-secret'] ) || isset( $query['token'] ) || isset( $query['nonce'] ) ) {
+				return array(
+					'authenticated' => false,
+					'principal'     => '',
+				); }
+			$authorization = (string) ( $headers['authorization'] ?? '' );
+			$session       = null;
+			if ( '' !== $authorization ) {
+				if ( ! class_exists( 'Digitalogic\\Laravel\\Services\\MobileIdentityStore' ) ) {
+					require_once DIGITALOGIC_PLUGIN_DIR . 'laravel/app/Services/MobileIdentityStore.php'; }
+				$session = \Digitalogic\Laravel\Services\MobileIdentityStore::authenticate( $authorization );
+				if ( ! $session || ! \Digitalogic\Laravel\Services\MobileIdentityStore::sessionIsCurrent( $session['id'], (int) $session['user_id'] ) ) {
+					return array(
+						'authenticated' => false,
+						'principal'     => '',
+					); }
+			}
+			return array(
+				'authenticated'     => true,
+				'user_id'           => $session ? (int) $session['user_id'] : 0,
+				'principal'         => 'mobile_shopper',
+				'native_session_id' => $session['id'] ?? '',
+			);
+		}
+		$secret           = isset( $headers['x-patris-product-sync-secret'] )
 			? (string) $headers['x-patris-product-sync-secret']
 			: '';
 		$source           = array(
