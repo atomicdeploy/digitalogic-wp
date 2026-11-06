@@ -136,13 +136,13 @@ function digitalogic_store_api_public_price_scope( $response, $handler, $request
 		return $response;
 	}
 	$start = 'rest_request_before_callbacks' === current_filter();
-	if ( '/wc/store/v1/products/collection-data' === $request->get_route() ) {
+	if ( preg_match( '~^/wc/store(?:/v1)?/products/collection-data$~D', $request->get_route() ) ) {
 		if ( $start ) {
 			add_filter( 'query', 'digitalogic_public_price_facet_sql', 20 );
 		} else {
 			remove_filter( 'query', 'digitalogic_public_price_facet_sql', 20 );
 		}
-	} elseif ( '/wc/store/v1/products' === $request->get_route() ) {
+	} elseif ( preg_match( '~^/wc/store(?:/v1)?/products$~D', $request->get_route() ) ) {
 		if ( $start ) {
 			add_filter( 'posts_clauses', 'digitalogic_public_price_query_clauses', 91 );
 		} else {
@@ -225,8 +225,10 @@ add_filter( 'woocommerce_structured_data_product', 'digitalogic_available_produc
 add_filter( 'rank_math/snippet/rich_snippet_product_entity', 'digitalogic_available_product_schema', 98, 2 );
 
 /** Apply the same policy to the public Store API product representations. */
-function digitalogic_available_store_api_prices( $response, $server, $request ) {
-	if ( $request->get_method() !== 'GET' || ! preg_match( '~^/wc/store/v1/products(?:/\d+)?$~D', $request->get_route() ) || $response->is_error() ) {
+function digitalogic_available_store_api_prices( $response, $handler, $request ) {
+	unset( $handler );
+	if ( $request->get_method() !== 'GET' || ! preg_match( '~^/wc/store(?:/v1)?/products(?:/[^/]+)?$~D', $request->get_route() )
+		|| ! $response instanceof WP_REST_Response || $response->is_error() ) {
 		return $response;
 	}
 	$data = $response->get_data();
@@ -262,7 +264,7 @@ function digitalogic_available_store_api_prices( $response, $server, $request ) 
 	$response->set_data( $collection ? $products : $products[0] );
 	return $response;
 }
-add_filter( 'rest_post_dispatch', 'digitalogic_available_store_api_prices', 20, 3 );
+add_filter( 'rest_request_after_callbacks', 'digitalogic_available_store_api_prices', 20, 3 );
 
 /** Chaty serializes raw WooCommerce values independently of price HTML. */
 function digitalogic_hide_unavailable_chaty_prices() {
