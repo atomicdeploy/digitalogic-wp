@@ -13,10 +13,41 @@ use PHPUnit\Framework\TestCase;
 require_once dirname( __DIR__ ) . '/includes/integrations/class-digitalogic-mobile-api.php';
 require_once dirname( __DIR__ ) . '/laravel/app/Services/MobileIdentityStore.php';
 require_once dirname( __DIR__ ) . '/laravel/app/Services/MobileGoogleIdentity.php';
+require_once dirname( __DIR__ ) . '/laravel/app/Services/MobileGoogleChallenge.php';
 require_once dirname( __DIR__ ) . '/includes/integrations/class-smsir-integration.php';
 
 /** Regression coverage for the native adapter. */
 final class MobileIdentityContractTest extends TestCase {
+	/** Verify that only exact-owner fresh nonce claims can authorize reauthentication. */
+	public function test_google_challenge_binds_owner_session_nonce_and_freshness(): void {
+		$row     = array(
+			'user_id'    => 7,
+			'session_id' => 'session-a',
+			'nonce'      => 'nonce-a',
+			'created_at' => 1000,
+			'expires_at' => 1300,
+		);
+		$session = array(
+			'user_id' => 7,
+			'id'      => 'session-a',
+		);
+		$claims  = array(
+			'nonce' => 'nonce-a',
+			'iat'   => 1000,
+		);
+		$class   = \Digitalogic\Laravel\Services\MobileGoogleChallenge::class;
+		self::assertTrue( $class::matches( $row, $session, $claims, 1001 ) );
+		self::assertFalse( $class::matches( $row, array_merge( $session, array( 'user_id' => 8 ) ), $claims, 1001 ) );
+		self::assertFalse( $class::matches( $row, array_merge( $session, array( 'id' => 'session-b' ) ), $claims, 1001 ) );
+		self::assertFalse( $class::matches( $row, $session, array_merge( $claims, array( 'nonce' => 'nonce-b' ) ), 1001 ) );
+		self::assertFalse( $class::matches( $row, $session, array( 'iat' => 1000 ), 1001 ) );
+		self::assertFalse( $class::matches( $row, $session, array_merge( $claims, array( 'iat' => 969 ) ), 1001 ) );
+		self::assertFalse( $class::matches( $row, $session, $claims, 1300 ) );
+		self::assertFalse( $class::matches( $row, $session, $claims, 999 ) );
+		$route = Digitalogic_Mobile_API::route( '/app-api/account/reauth/google/challenge' );
+		self::assertSame( '/_digitalogic/mobile/account/reauth/google/challenge', $route );
+		self::assertSame( array( 'POST' ), Digitalogic_Mobile_API::methods( $route ) );
+	}
 	/**
 	 * Verify linking requires recent explicit proof not session age.
 	 *

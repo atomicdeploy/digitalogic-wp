@@ -98,7 +98,7 @@ final class Digitalogic_Mobile_API {
 	 * @return string|null Native adapter result.
 	 */
 	public static function route( string $path ): ?string {
-		if ( preg_match( '~^/app-api/(bootstrap|categories|links/resolve|forms|checkout(?:/quote|/operations/[A-Za-z0-9-]{16,64})?|cart(?:/claim)?|uploads(?:/[a-f0-9]{32})?|requests(?:/[A-Za-z0-9-]{16,64})?|products(?:/[1-9][0-9]{0,9})?|auth/(?:otp/request|otp/verify|google|register|sessions|logout)|account/(?:profile|orders|favorites|requests|phone/request|phone/verify|reauth/google))/?$~D', $path, $matches ) ) {
+		if ( preg_match( '~^/app-api/(bootstrap|categories|links/resolve|forms|checkout(?:/quote|/operations/[A-Za-z0-9-]{16,64})?|cart(?:/claim)?|uploads(?:/[a-f0-9]{32})?|requests(?:/[A-Za-z0-9-]{16,64})?|products(?:/[1-9][0-9]{0,9})?|auth/(?:otp/request|otp/verify|google|register|sessions|logout)|account/(?:profile|orders|favorites|requests|phone/request|phone/verify|reauth/google(?:/challenge)?))/?$~D', $path, $matches ) ) {
 			return '/_digitalogic/mobile/' . $matches[1];
 		}
 		return null;
@@ -118,7 +118,7 @@ final class Digitalogic_Mobile_API {
 		if ( str_ends_with( $route, '/mobile/cart' ) ) {
 			return array( 'GET', 'HEAD', 'POST', 'PATCH', 'DELETE' );
 		}
-		if ( preg_match( '~/account/(?:phone/(?:request|verify)|reauth/google)$~D', $route ) ) {
+		if ( preg_match( '~/account/(?:phone/(?:request|verify)|reauth/google(?:/challenge)?)$~D', $route ) ) {
 			return array( 'POST' );
 		}
 		if ( str_ends_with( $route, '/cart/claim' ) ) {

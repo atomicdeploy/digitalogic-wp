@@ -26,6 +26,7 @@ Route::post( '/mobile/auth/otp/verify', array( MobileIdentityController::class, 
 Route::post( '/mobile/auth/register', array( MobileIdentityController::class, 'register' ) );
 Route::post( '/mobile/auth/google', array( MobileIdentityController::class, 'google' ) );
 Route::post( '/mobile/account/reauth/google', array( MobileIdentityController::class, 'reauthGoogle' ) );
+Route::post( '/mobile/account/reauth/google/challenge', array( MobileIdentityController::class, 'googleChallenge' ) );
 Route::post( '/mobile/account/phone/request', array( MobileIdentityController::class, 'requestPhone' ) );
 Route::post( '/mobile/account/phone/verify', array( MobileIdentityController::class, 'verifyPhone' ) );
 Route::get( '/mobile/auth/sessions', array( MobileIdentityController::class, 'sessions' ) );

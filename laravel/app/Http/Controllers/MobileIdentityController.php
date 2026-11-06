@@ -13,6 +13,7 @@ namespace Digitalogic\Laravel\Http\Controllers;
 
 use Digitalogic\Laravel\Services\MobileIdentityStore as Store;
 use Digitalogic\Laravel\Services\MobileGoogleIdentity as Google;
+use Digitalogic\Laravel\Services\MobileGoogleChallenge as GoogleChallenge;
 use Digitalogic\Laravel\Services\MobileRegistrationStore as Registration;
 use Digitalogic\Laravel\Services\MobileAddresses as Addresses;
 use Illuminate\Http\Request;
@@ -163,6 +164,29 @@ final class MobileIdentityController {
 	}
 
 	/**
+	 * Issue a short-lived Google nonce for the exact current native session.
+	 *
+	 * @param Request $request Authenticated native request.
+	 * @return Response Public challenge without identity or session credentials.
+	 */
+	public function googleChallenge( Request $request ): Response {
+		$session = $this->session( $request );
+		if ( ! $session ) {
+			return $this->unauthorized();
+		}
+		if ( ! self::googleEnabled() || '1' !== get_option( 'digitalogic_mobile_google_challenge_schema' ) ) {
+			return $this->error( 'google_unavailable', 'تأیید دوباره گوگل موقتاً در دسترس نیست.', 503 );
+		}
+		$result = GoogleChallenge::create( $session, (string) $request->json( 'request_id', '' ) );
+		if ( is_wp_error( $result ) ) {
+			$code   = $result->get_error_code();
+			$status = 'reauth_rate_limited' === $code ? 429 : ( 'invalid_request_id' === $code ? 400 : 409 );
+			return $this->error( $code, 'برای تأیید هویت، درخواست تازه‌ای ارسال کنید.', $status );
+		}
+		return $this->json( $result );
+	}
+
+	/**
 	 * Reauthenticate the current identity without switching accounts or issuing a browser cookie.
 	 *
 	 * @param Request $request Bounded native HTTP request.
@@ -188,6 +212,23 @@ final class MobileIdentityController {
 		}
 		if ( Google::owner( $claims['sub'] ) !== (int) $session['user_id'] ) {
 			return $this->error( 'reauth_identity_mismatch', 'همان حساب گوگل متصل به این حساب را انتخاب کنید.', 409 );
+		}
+		if ( $request->json()->has( 'challenge_id' ) ) {
+			if ( '1' !== get_option( 'digitalogic_mobile_google_challenge_schema' ) ) {
+				return $this->error( 'google_unavailable', 'تأیید دوباره گوگل موقتاً در دسترس نیست.', 503 );
+			}
+			$result = GoogleChallenge::consume( (string) $request->json( 'challenge_id' ), $session, $claims, $token );
+			if ( is_wp_error( $result ) ) {
+				$code = $result->get_error_code();
+				return $this->error( $code, 'این درخواست تأیید هویت معتبر نیست؛ دوباره تلاش کنید.', 'reauth_not_saved' === $code ? 503 : 409 );
+			}
+			return $this->json(
+				array(
+					'reauthenticated' => true,
+					'verified_at'     => gmdate( 'c', $result ),
+					'profile'         => $this->profileData( (int) $session['user_id'] ),
+				)
+			);
 		}
 		if ( $claims['iat'] < time() - 600 ) {
 			return $this->error( 'reauth_required', 'ورود تازه‌ای با همین حساب گوگل انجام دهید.', 403 );

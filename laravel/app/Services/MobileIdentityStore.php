@@ -90,6 +90,7 @@ final class MobileIdentityStore {
 			}
 		}
 		update_option( 'digitalogic_mobile_identity_schema', '2', false );
+		MobileGoogleChallenge::install();
 	}
 
 	/**
