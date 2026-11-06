@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Exclude unavailable products and variations from public price filters and collection ranges, and show sold-out status in search suggestions and model selectors without a price or update date.
+
 ## [2.4.34] - 2026-10-13
 
 - Accept explicitly observed UAH prices in private research without conversion or public commercial changes.

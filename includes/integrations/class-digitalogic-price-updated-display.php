@@ -56,6 +56,104 @@ function digitalogic_available_variation_display_prices( $prices, $product, $for
 }
 add_filter( 'woocommerce_variation_prices', 'digitalogic_available_variation_display_prices', PHP_INT_MAX, 3 );
 
+/**
+ * Read the public price bounds without changing WooCommerce's saved lookup rows.
+ *
+ * The column and lookup alias come only from the fixed SQL clauses below.
+ */
+function digitalogic_public_price_bound_sql( $column, $lookup ) {
+	global $wpdb;
+	$aggregate = 'min_price' === $column ? 'MIN' : 'MAX';
+	return "(CASE WHEN {$lookup}.stock_status IN ('instock', 'onbackorder') THEN
+		CASE WHEN EXISTS (
+			SELECT 1 FROM {$wpdb->term_relationships} AS dgl_type_rel
+			JOIN {$wpdb->term_taxonomy} AS dgl_type_tax ON dgl_type_tax.term_taxonomy_id = dgl_type_rel.term_taxonomy_id
+			JOIN {$wpdb->terms} AS dgl_type ON dgl_type.term_id = dgl_type_tax.term_id
+			WHERE dgl_type_rel.object_id = {$lookup}.product_id AND dgl_type_tax.taxonomy = 'product_type' AND dgl_type.slug = 'variable'
+		) THEN (
+			SELECT {$aggregate}(dgl_child_price.{$column})
+			FROM {$wpdb->posts} AS dgl_child
+			JOIN {$wpdb->wc_product_meta_lookup} AS dgl_child_price ON dgl_child_price.product_id = dgl_child.ID
+			WHERE dgl_child.post_parent = {$lookup}.product_id AND dgl_child.post_type = 'product_variation'
+			AND dgl_child.post_status = 'publish' AND dgl_child_price.stock_status IN ('instock', 'onbackorder')
+		) ELSE {$lookup}.{$column} END
+	END)";
+}
+
+/** Replace only WooCommerce's price facet aggregate, preserving its product filters. */
+function digitalogic_public_price_facet_sql( $sql ) {
+	global $wpdb;
+	$lookup = $wpdb->wc_product_meta_lookup;
+	$prefix = '~^\s*SELECT\s+MIN\(\s*min_price\s*\)\s+AS\s+min_price,\s*MAX\(\s*max_price\s*\)\s+AS\s+max_price\s+FROM\s+' . preg_quote( $lookup, '~' ) . '\s+WHERE\s+product_id\s+IN\s*\(~i';
+	if ( ! preg_match( $prefix, $sql, $match ) ) {
+		return $sql;
+	}
+	$min = digitalogic_public_price_bound_sql( 'min_price', $lookup );
+	$max = digitalogic_public_price_bound_sql( 'max_price', $lookup );
+	return "SELECT MIN({$min}) AS min_price, MAX({$max}) AS max_price FROM {$lookup} WHERE product_id IN (" . substr( $sql, strlen( $match[0] ) );
+}
+add_filter( 'woocommerce_price_filter_sql', 'digitalogic_public_price_facet_sql', 20 );
+
+/** Replace qualified lookup columns while retaining WooCommerce's tax logic. */
+function digitalogic_public_price_query_clauses( $clauses ) {
+	foreach ( array( 'min_price', 'max_price' ) as $column ) {
+		$qualified = array( "wc_product_meta_lookup.{$column}", "wc_product_meta_lookup.`{$column}`" );
+		$where     = str_contains( $clauses['where'], $qualified[0] ) || str_contains( $clauses['where'], $qualified[1] );
+		$order     = str_contains( $clauses['orderby'], $qualified[0] ) || str_contains( $clauses['orderby'], $qualified[1] );
+		if ( ! $where && ! $order ) {
+			continue;
+		}
+		$bound = digitalogic_public_price_bound_sql( $column, 'wc_product_meta_lookup' );
+		if ( $where ) {
+			$clauses['where'] = str_replace( $qualified, $bound, $clauses['where'] );
+		}
+		if ( $order ) {
+			$clauses['orderby'] = "({$bound} IS NULL) ASC, " . str_replace( $qualified, $bound, $clauses['orderby'] );
+		}
+	}
+	return $clauses;
+}
+
+/** Apply the public clause filter to classic WooCommerce catalog queries only. */
+function digitalogic_classic_public_price_query_clauses( $clauses, $query ) {
+	return ! is_admin() && 'product_query' === $query->get( 'wc_query' ) ? digitalogic_public_price_query_clauses( $clauses ) : $clauses;
+}
+add_filter( 'posts_clauses', 'digitalogic_classic_public_price_query_clauses', 90, 2 );
+
+/** Keep stock-sensitive scripts on their own versioned URLs. */
+function digitalogic_exclude_stock_price_scripts_from_minify( $excluded ) {
+	foreach ( array( 'variation-selector.js', 'variation-price-presentation.js', 'frontend-search-ws.js' ) as $file ) {
+		$excluded[] = wp_parse_url( DIGITALOGIC_PLUGIN_URL . 'assets/js/' . $file, PHP_URL_PATH );
+	}
+	return $excluded;
+}
+add_filter( 'rocket_exclude_js', 'digitalogic_exclude_stock_price_scripts_from_minify' );
+
+/** Scope Store API hooks to WooCommerce's public product collection callbacks. */
+function digitalogic_store_api_public_price_scope( $response, $handler, $request ) {
+	unset( $handler );
+	if ( ! in_array( $request->get_method(), array( 'GET', 'HEAD' ), true ) ) {
+		return $response;
+	}
+	$start = 'rest_request_before_callbacks' === current_filter();
+	if ( '/wc/store/v1/products/collection-data' === $request->get_route() ) {
+		if ( $start ) {
+			add_filter( 'query', 'digitalogic_public_price_facet_sql', 20 );
+		} else {
+			remove_filter( 'query', 'digitalogic_public_price_facet_sql', 20 );
+		}
+	} elseif ( '/wc/store/v1/products' === $request->get_route() ) {
+		if ( $start ) {
+			add_filter( 'posts_clauses', 'digitalogic_public_price_query_clauses', 91 );
+		} else {
+			remove_filter( 'posts_clauses', 'digitalogic_public_price_query_clauses', 91 );
+		}
+	}
+	return $response;
+}
+add_filter( 'rest_request_before_callbacks', 'digitalogic_store_api_public_price_scope', 10, 3 );
+add_filter( 'rest_request_after_callbacks', 'digitalogic_store_api_public_price_scope', 10, 3 );
+
 /** Use WooCommerce's stock-filtered range when a tier formatter can reuse stale tiers. */
 function digitalogic_available_tier_price_html( $html, $default_html, $product ) {
 	return digitalogic_has_unavailable_variations( $product ) ? $default_html : $html;
