@@ -8,6 +8,7 @@
 use PHPUnit\Framework\TestCase;
 
 require_once dirname( __DIR__ ) . '/includes/class-patris-mapping-guard.php';
+require_once dirname( __DIR__ ) . '/includes/integrations/class-digitalogic-price-updated-display.php';
 
 /** Verify raw and HTML variation prices remain paired without leaking unsafe prices. */
 final class PatrisMappingGuardVariationPriceTest extends TestCase {
@@ -113,6 +114,44 @@ final class PatrisMappingGuardVariationPriceTest extends TestCase {
 		$this->assertNull( $data['display_price'] );
 		$this->assertFalse( $data['is_purchasable'] );
 		$this->assertTrue( $data['digitalogic_price_hidden_for_stock'] );
+	}
+
+	/** A stored price and its timestamp stay private when a product sells out. */
+	public function test_sold_out_product_omits_price_and_timestamp_without_erasing_price(): void {
+		$GLOBALS['digitalogic_test_posts'][101]['meta']['_stock_status'] = 'outofstock';
+		$product = new WC_Product_Variation( 101 );
+
+		$this->assertSame( '', digitalogic_hide_unavailable_price_html( '<span>293,500</span>', $product ) );
+		$this->assertNull( digitalogic_product_price_update_payload( $product ) );
+		$this->assertSame( '293500', $product->get_price( 'edit' ) );
+	}
+
+	/** Sold-out children cannot contribute to display ranges or sale prices. */
+	public function test_public_range_excludes_out_of_stock_children(): void {
+		$GLOBALS['digitalogic_test_posts'][101]['meta']['_stock_status'] = 'outofstock';
+		$GLOBALS['digitalogic_test_posts'][102]                          = $GLOBALS['digitalogic_test_posts'][101];
+		$GLOBALS['digitalogic_test_posts'][102]['meta']['_stock_status'] = 'instock';
+		$parent = new WC_Product_Variable( 100 );
+		$prices = array(
+			'price'         => array(
+				101 => '293500',
+				102 => '343000',
+			),
+			'regular_price' => array(
+				101 => '293500',
+				102 => '343000',
+			),
+			'sale_price'    => array(
+				101 => '293500',
+				102 => '343000',
+			),
+		);
+
+		$this->assertSame( $prices, digitalogic_available_variation_display_prices( $prices, $parent, false ) );
+		$visible = digitalogic_available_variation_display_prices( $prices, $parent, true );
+		foreach ( $visible as $field ) {
+			$this->assertSame( array( 102 => '343000' ), $field );
+		}
 	}
 
 	/** Invalid identity remains non-purchasable and exposes no raw or HTML price. */

@@ -9,6 +9,8 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
+require_once __DIR__ . '/class-digitalogic-hardware-reference.php';
+
 /**
  * Owns reusable software, topic, and operating-system content on the storefront.
  */
@@ -39,6 +41,7 @@ final class Digitalogic_Knowledge_Hub {
 
 	/** Register hooks. */
 	private function __construct() {
+		Digitalogic_Hardware_Reference::boot();
 		add_action( 'init', array( $this, 'register_content_types' ) );
 		add_action( 'wp_enqueue_scripts', array( $this, 'enqueue_assets' ) );
 		add_shortcode( 'dgl_software_library', array( $this, 'software_library_shortcode' ) );
@@ -126,6 +129,14 @@ final class Digitalogic_Knowledge_Hub {
 		$path    = DIGITALOGIC_PLUGIN_DIR . 'assets/css/knowledge-hub.css';
 		$version = is_readable( $path ) ? (string) filemtime( $path ) : DIGITALOGIC_VERSION;
 		wp_enqueue_style( 'digitalogic-knowledge-hub', DIGITALOGIC_PLUGIN_URL . 'assets/css/knowledge-hub.css', array(), $version );
+
+		$pinout_path = DIGITALOGIC_PLUGIN_DIR . Digitalogic_Hardware_Reference::STYLESHEET;
+		if ( is_readable( $pinout_path ) ) {
+			wp_enqueue_style( 'digitalogic-hardware-pinout', DIGITALOGIC_PLUGIN_URL . Digitalogic_Hardware_Reference::STYLESHEET, array( 'digitalogic-knowledge-hub' ), (string) filemtime( $pinout_path ) );
+		}
+		if ( is_singular( self::POST_TYPE ) && has_shortcode( (string) get_post_field( 'post_content', get_queried_object_id() ), 'dgl_hardware_reference' ) ) {
+			wp_enqueue_script( 'digitalogic-hardware-prism', DIGITALOGIC_PLUGIN_URL . 'assets/js/hardware-prism.js', array(), '1.30.0', true );
+		}
 	}
 
 	/** Render the complete software archive grid. */
@@ -192,7 +203,11 @@ final class Digitalogic_Knowledge_Hub {
 	/** Add shared topics, OS badges and relevant tools beneath a product. */
 	public function render_product_knowledge(): void {
 		$product_id = get_the_ID();
-		$topics     = wp_get_post_terms( $product_id, self::TOPIC_TAXONOMY, array( 'fields' => 'slugs' ) );
+		$reference  = Digitalogic_Hardware_Reference::for_product( (int) $product_id );
+		if ( $reference ) {
+			echo '<p class="dgl-khub__official" dir="rtl"><a href="' . esc_url( $reference['guide'] ) . '">راهنمای Pinout و راه‌اندازی <bdi dir="ltr">' . esc_html( $reference['model'] . ' Rev ' . $reference['revision'] ) . '</bdi></a></p>';
+		}
+		$topics = wp_get_post_terms( $product_id, self::TOPIC_TAXONOMY, array( 'fields' => 'slugs' ) );
 		if ( is_wp_error( $topics ) || empty( $topics ) ) {
 			return;
 		}
