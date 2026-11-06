@@ -1,0 +1,131 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://digitalogic.ir/contracts/protected-google-link-plan.schema.json",
+  "title": "Protected Google identity link review plan",
+  "description": "Design contract only. No live route, proof grant or identity mutation is enabled by this schema.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "kind", "status", "compatibility", "accounts", "proofs", "records", "choices", "acknowledgements", "blockers", "commit"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "kind": {"const": "protected_google_link"},
+    "status": {"enum": ["proof_required", "review_required", "blocked"]},
+    "compatibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["native_mapping", "website_mapping", "unified_account_merge"],
+      "properties": {
+        "native_mapping": {"const": "exact_google_subject"},
+        "website_mapping": {"enum": ["unverified", "verified_exact_subject"]},
+        "unified_account_merge": {"const": false}
+      }
+    },
+    "accounts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "target"],
+      "properties": {
+        "source": {"$ref": "#/$defs/account"},
+        "target": {"$ref": "#/$defs/account"}
+      }
+    },
+    "proofs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["target_phone", "source_google"],
+      "properties": {
+        "target_phone": {"$ref": "#/$defs/proof"},
+        "source_google": {"$ref": "#/$defs/proof"}
+      }
+    },
+    "records": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "target"],
+      "properties": {
+        "source": {"$ref": "#/$defs/recordCounts"},
+        "target": {"$ref": "#/$defs/recordCounts"}
+      }
+    },
+    "choices": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cart", "addresses"],
+      "properties": {
+        "cart": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["required", "options", "selected"],
+          "properties": {
+            "required": {"const": true},
+            "options": {"const": ["keep_separate", "copy_to_target"]},
+            "selected": {"enum": [null, "keep_separate", "copy_to_target"]}
+          }
+        },
+        "addresses": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["required", "options", "selected"],
+          "properties": {
+            "required": {"const": true},
+            "options": {"const": ["keep_target", "fill_missing_from_source"]},
+            "selected": {"enum": [null, "keep_target", "fill_missing_from_source"]}
+          }
+        }
+      }
+    },
+    "acknowledgements": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"enum": ["google_will_access_target_privileges", "source_account_and_history_retained", "no_roles_or_passwords_copied", "source_google_login_removed", "website_google_behavior_unverified", "source_cart_retained"]}
+    },
+    "blockers": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"enum": ["implementation_not_active", "fresh_target_phone_proof_required", "fresh_source_google_proof_required", "ambiguous_google_owner", "phone_owner_changed", "target_google_binding_occupied", "account_epoch_changed", "unresolved_operation", "inventory_incomplete", "website_compatibility_unverified", "source_access_disposition_required", "local_outbox_not_reconciled"]}
+    },
+    "commit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "endpoint"],
+      "properties": {"enabled": {"const": false}, "endpoint": {"type": "null"}}
+    }
+  },
+  "$defs": {
+    "account": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["label", "has_privileged_access"],
+      "properties": {
+        "label": {"type": "string", "minLength": 1, "maxLength": 120},
+        "has_privileged_access": {"type": "boolean"}
+      }
+    },
+    "proof": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "verified_until"],
+      "properties": {
+        "state": {"enum": ["required", "fresh", "expired"]},
+        "verified_until": {"type": ["string", "null"], "format": "date-time"}
+      },
+      "allOf": [{"if": {"properties": {"state": {"const": "fresh"}}}, "then": {"properties": {"verified_until": {"type": "string"}}}}]
+    },
+    "recordCounts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cart_lines", "orders", "service_requests", "support_tickets", "favorites", "cloud_drafts", "unresolved_operations", "inventory_complete"],
+      "properties": {
+        "cart_lines": {"$ref": "#/$defs/count"},
+        "orders": {"$ref": "#/$defs/count"},
+        "service_requests": {"$ref": "#/$defs/count"},
+        "support_tickets": {"$ref": "#/$defs/count"},
+        "favorites": {"$ref": "#/$defs/count"},
+        "cloud_drafts": {"$ref": "#/$defs/count"},
+        "unresolved_operations": {"$ref": "#/$defs/count"},
+        "inventory_complete": {"type": "boolean"}
+      }
+    },
+    "count": {"type": ["integer", "null"], "minimum": 0}
+  }
+}
