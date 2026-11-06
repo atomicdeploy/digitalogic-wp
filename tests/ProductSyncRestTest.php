@@ -279,8 +279,91 @@ final class ProductSyncRestTest extends TestCase {
 	}
 	// phpcs:enable
 
-    private function resetSingleton($class): void {
-        $property = new ReflectionProperty($class, 'instance');
+	/** A complete later snapshot retires an unknown attempt without claiming it applied. */
+	public function test_absent_receipt_requires_exact_complete_snapshot_supersession_proof(): void {
+		$event_id = 'sha256:' . str_repeat( 'a', 64 );
+		$last_id  = 'sha256:' . str_repeat( 'b', 64 );
+		$revision = 'sha256:' . str_repeat( 'c', 64 );
+		$time     = '2026-10-12T08:05:48.7105679Z';
+		$source   = array(
+			'input_source'       => array(
+				'id'       => 'patris-office',
+				'dataset'  => 'kala.db',
+				'revision' => $revision,
+			),
+			'input_products'     => array(),
+			'pending_products'   => array(),
+			'deferred_products'  => array(),
+			'generated_at'       => $time,
+			'generated_at_order' => array( 1791792348, 710567900 ),
+			'last_event_id'      => $last_id,
+			'last_event_type'    => 'snapshot',
+			'recent_events'      => array(
+				$last_id => array(
+					'generated_at'    => $time,
+					'source_revision' => $revision,
+					'event_type'      => 'snapshot',
+				),
+			),
+		);
+		$key      = hash( 'sha256', "patris-office\nkala.db" );
+		$receiver = Digitalogic_Product_Sync_Receiver::instance();
+		$probe    = function ( $stored, $generated_at = '2026-10-11T14:49:44.5635371Z' ) use ( $key, $receiver, $event_id ) {
+			$state = array( 'sources' => array( $key => $stored ) );
+			$GLOBALS['digitalogic_test_options'][ Digitalogic_Product_Sync_Receiver::STATE_OPTION ] = $state;
+			unset( $GLOBALS['digitalogic_test_option_cache'][ Digitalogic_Product_Sync_Receiver::STATE_OPTION ] );
+			$result = $receiver->get_event_delivery_receipt( $event_id, 'patris-office', 'kala.db', 'sha256:' . str_repeat( 'd', 64 ), $generated_at );
+			$this->assertSame( $state, $GLOBALS['digitalogic_test_options'][ Digitalogic_Product_Sync_Receiver::STATE_OPTION ] );
+			return $result;
+		};
+		$result   = $probe( $source );
+		$this->assertSame( 'superseded', $result['status'] );
+		$this->assertSame( $event_id, $result['event_id'] );
+		$this->assertSame( 0, $result['pending_products'] );
+		$this->assertArrayNotHasKey( 'products', $result );
+		foreach ( array( 'last_event_id', 'input_products', 'input_source', 'generated_at_order', 'recent_events' ) as $field ) {
+			$broken = $source;
+			unset( $broken[ $field ] );
+			$this->assertInstanceOf( WP_Error::class, $probe( $broken ), $field );
+		}
+		$mutations = array(
+			array( 'last_event_type' => 'update' ),
+			array( 'quarantined_codes' => array( '109055' ) ),
+			array( 'pending_products' => array( '109055' => array( 'queued_event_id' => $event_id ) ) ),
+			array( 'deferred_products' => array( '109055' => array( 'queued_event_id' => $last_id ) ) ),
+			array( 'generated_at_order' => array( 1791792348, 710567901 ) ),
+			array(
+				'input_source' => array(
+					'id'       => 'other',
+					'dataset'  => 'kala.db',
+					'revision' => $revision,
+				),
+			),
+			array(
+				'input_source' => array(
+					'id'       => 'patris-office',
+					'dataset'  => 'other',
+					'revision' => $revision,
+				),
+			),
+			array(
+				'input_source' => array(
+					'id'       => 'patris-office',
+					'dataset'  => 'kala.db',
+					'revision' => $event_id,
+				),
+			),
+		);
+		foreach ( $mutations as $mutation ) {
+			$this->assertInstanceOf( WP_Error::class, $probe( array_replace( $source, $mutation ) ) );
+		}
+		$this->assertInstanceOf( WP_Error::class, $probe( $source, $time ) );
+		$this->assertSame( 'not_found', $probe( $source, '2026-10-12T08:05:48.710567901Z' )['status'] );
+		$this->assertInstanceOf( WP_Error::class, $probe( $source, '2999-01-01T00:00:00Z' ) );
+	}
+
+    private function resetSingleton($class_name): void {
+        $property = new ReflectionProperty($class_name, 'instance');
         $property->setValue(null, null);
     }
 }

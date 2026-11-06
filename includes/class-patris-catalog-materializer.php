@@ -346,10 +346,28 @@ final class Digitalogic_Patris_Catalog_Materializer {
 					}
 					Digitalogic_Patris_Feed::instance()->stage_product_pricing( $product, $record );
 				}
-				$initial_status    = (string) $product->get_meta( self::INITIAL_STATUS_META, true );
-				$target_status     = in_array( $initial_status, array( 'draft', 'publish' ), true ) ? $initial_status : (string) $product->get_status();
-				$target_visibility = '' !== $initial_status ? ( 'publish' === $target_status ? 'visible' : 'hidden' ) : (string) $product->get_catalog_visibility();
-				$missing           = $this->canonical_missing_fields( $product, $record );
+				$initial_status             = (string) $product->get_meta( self::INITIAL_STATUS_META, true );
+				$target_status              = in_array( $initial_status, array( 'draft', 'publish' ), true ) ? $initial_status : (string) $product->get_status();
+				$target_visibility          = '' !== $initial_status ? ( 'publish' === $target_status ? 'visible' : 'hidden' ) : (string) $product->get_catalog_visibility();
+				$missing                    = $this->canonical_missing_fields( $product, $record );
+				$initial_categories         = null;
+				$unreviewed_source_category = '1' === (string) $product->get_meta( self::AUTO_MATERIALIZED_META, true )
+					&& '' === (string) $product->get_meta( self::CATEGORY_TERM_META, true );
+				if ( ( '' !== $initial_status || $unreviewed_source_category ) && ! $product->is_type( 'variation' ) ) {
+					$current_categories = array_map( 'intval', $product->get_category_ids() );
+					if ( empty( $current_categories ) || array( (int) get_option( 'default_product_cat' ) ) === $current_categories ) {
+						$initial_categories = $this->exact_source_category_ids( $record, $source );
+						if ( is_wp_error( $initial_categories ) ) {
+							return $initial_categories;
+						}
+						if ( '' === $initial_status && empty( $initial_categories ) ) {
+							// Existing categories need explicit review when no exact binding exists.
+							$initial_categories = null;
+						} else {
+							$product->set_category_ids( $initial_categories );
+						}
+					}
+				}
 				try {
 					if ( '' === (string) $product->get_sku() ) {
 						$product->set_sku( $identity['product_code'] );
@@ -384,6 +402,16 @@ final class Digitalogic_Patris_Catalog_Materializer {
 					if ( ! $product->save() ) {
 						throw new RuntimeException( 'WooCommerce rejected the public source projection.' );
 					}
+					if ( array() === $initial_categories ) {
+						// Woo fills an empty category with the shop default on save.
+						// No verified source binding means uncategorized, not a guessed category.
+						// Removing the exact fallback avoids Woo's set_object_terms
+						// force_default_term hook reattaching that unrelated category.
+						$terms = wp_remove_object_terms( $product_id, array( (int) get_option( 'default_product_cat' ) ), 'product_cat' );
+						if ( false === $terms || is_wp_error( $terms ) ) {
+							return $this->error( 'digitalogic_patris_materializer_category_clear_failed', 'The unrelated default category could not be removed.' );
+						}
+					}
 				} catch ( Throwable $exception ) {
 					return $this->error( 'digitalogic_patris_materializer_publication_failed', 'The verified source product could not be made public.' );
 				}
@@ -401,6 +429,7 @@ final class Digitalogic_Patris_Catalog_Materializer {
 					! $fresh instanceof WC_Product
 					|| $target_status !== (string) $fresh->get_status()
 					|| ( ! $fresh->is_type( 'variation' ) && $target_visibility !== (string) $fresh->get_catalog_visibility() )
+					|| ( null !== $initial_categories && array_map( 'intval', $fresh->get_category_ids() ) !== $initial_categories )
 					|| ( in_array( 'price', $missing, true ) && ( '' !== trim( (string) $fresh->get_regular_price() ) || '' !== trim( (string) $fresh->get_sale_price() ) || '' !== trim( (string) $fresh->get_price() ) ) )
 				) {
 					return $this->error( 'digitalogic_patris_materializer_publication_readback_failed', 'The public source product failed exact readback.' );
@@ -3847,7 +3876,56 @@ final class Digitalogic_Patris_Catalog_Materializer {
 		return true;
 	}
 
+	/**
+	 * Resolve only an existing unique same-source category binding, never a name.
+	 *
+	 * @param array $record Accepted source product.
+	 * @param array $source Exact source identity.
+	 * @return int[]|WP_Error
+	 */
+	private function exact_source_category_ids( $record, $source ) {
+		$code = (string) ( $record['category_code'] ?? '' );
+		if ( '' === $code ) {
+			return array();
+		}
+		$terms = get_terms(
+			array(
+				'taxonomy'   => 'product_cat',
+				'hide_empty' => false,
+				'meta_query' => array( // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query -- Only automatic fallback categories; exact source triple and at most two matches.
+					array(
+						'key'   => self::CATEGORY_CODE_META,
+						'value' => $code,
+					),
+					array(
+						'key'   => '_digitalogic_patris_category_source_id',
+						'value' => (string) ( $source['id'] ?? '' ),
+					),
+					array(
+						'key'   => '_digitalogic_patris_category_dataset',
+						'value' => (string) ( $source['dataset'] ?? '' ),
+					),
+				),
+				'number'     => 2,
+			)
+		);
+		if ( is_wp_error( $terms ) ) {
+			return $terms;
+		}
+		if ( count( $terms ) > 1 ) {
+			return $this->error( 'digitalogic_patris_materializer_category_ambiguous', 'Multiple categories claim the same source category identity.' );
+		}
+		return empty( $terms ) ? array() : array( (int) $terms[0]->term_id );
+	}
+
 	private function flush_product_caches( $product_id ) {
+		// Coordinated ingress suspends WordPress's broad invalidation. Exact
+		// readback must still evict the staged draft, metadata and visibility.
+		wp_cache_delete( (int) $product_id, 'posts' );
+		wp_cache_delete( (int) $product_id, 'post_meta' );
+		foreach ( get_object_taxonomies( 'product' ) as $taxonomy ) {
+			wp_cache_delete( (int) $product_id, $taxonomy . '_relationships' );
+		}
 		if (
 			class_exists( 'WC_Cache_Helper' )
 			&& is_callable( array( 'WC_Cache_Helper', 'invalidate_cache_group' ) )
