@@ -72,11 +72,19 @@ if (!function_exists('login_footer')) {
 require_once dirname(__DIR__) . '/includes/integrations/class-admin-branding.php';
 require_once dirname(__DIR__) . '/includes/integrations/class-auth-page.php';
 
+if (!function_exists('wp_validate_redirect')) {
+    function wp_validate_redirect($location, $fallback = '') {
+        $host = parse_url($location, PHP_URL_HOST);
+        return $host === null || $host === 'digitalogic.test' ? $location : $fallback;
+    }
+}
+
 final class AdminBrandingAuthTest extends TestCase {
     protected function setUp(): void {
         $GLOBALS['digitalogic_test_locale']            = 'en_US';
         $GLOBALS['digitalogic_test_is_user_logged_in'] = false;
         $GLOBALS['digitalogic_test_current_user_id']    = 0;
+        $_REQUEST = [];
         unset(
             $GLOBALS['digitalogic_test_filters']['login_display_language_dropdown'],
             $GLOBALS['digitalogic_test_login_footer_input'],
@@ -89,6 +97,23 @@ final class AdminBrandingAuthTest extends TestCase {
         $config = $method->invoke(null, true, false);
 
         $this->assertSame('https://digitalogic.test/login/', $config['loginUrl']);
+    }
+
+    public function test_signup_preserves_safe_checkout_return_destination(): void {
+        $_REQUEST['redirect_to'] = 'https://digitalogic.test/checkout/';
+        $url = Digitalogic_Plugin_Auth_Routes::register_url('https://digitalogic.test/wp-login.php?action=register');
+        parse_str((string) parse_url($url, PHP_URL_QUERY), $query);
+        $this->assertSame('register', $query['action']);
+        $this->assertSame($_REQUEST['redirect_to'], $query['redirect_to']);
+        $GLOBALS['digitalogic_test_digits_signup_html'] = $this->raw_digits_transition();
+        $method = new ReflectionMethod(Digitalogic_Plugin_Auth_Routes::class, 'digits_register_form_html');
+        $this->assertStringContainsString('redirect_to=', $method->invoke(null));
+    }
+
+    public function test_signup_drops_an_external_return_destination(): void {
+        $_REQUEST['redirect_to'] = 'https://untrusted.invalid/checkout/';
+        $url = Digitalogic_Plugin_Auth_Routes::register_url('https://digitalogic.test/wp-login.php?action=register');
+        $this->assertStringNotContainsString('redirect_to', $url);
     }
 
     public function test_recovery_identity_labels_match_the_wordpress_backend(): void {
