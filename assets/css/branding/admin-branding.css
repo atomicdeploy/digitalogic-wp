@@ -441,6 +441,30 @@ body.login .dg-digits-register-shell #dig_cs_password::before {
     content: "\f160";
 }
 
+/* Keep Digits' submitted country code separate from the editable number. */
+body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .digits_register .digits_phone_holder {
+    grid-column: 1 / -1;
+    width: 100%;
+}
+
+body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .digits_register #dig_cs_mobilenumber .digits-form_countrycode {
+    display: none !important;
+}
+
+body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .digits_register #dig_cs_mobilenumber > .digits-form_input:not(.digits-form_countrycode) {
+    width: 100%;
+}
+
+body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .digits_register #dig_cs_mobilenumber input[name="phone"] {
+    direction: ltr !important;
+    text-align: left;
+    padding: 0 46px 0 16px !important;
+}
+
+body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .digits_register #dig_cs_mobilenumber input[name="phone"]:placeholder-shown {
+    text-align: right;
+}
+
 body.login .dg-digits-register-shell :is(#dig_cs_name, #dig_cs_lastname, #dig_cs_username, #dig_cs_email, #dig_cs_password, .digits-form_input_row:has(input[name="phone"])) input {
     padding-inline-start: 46px !important;
 }
