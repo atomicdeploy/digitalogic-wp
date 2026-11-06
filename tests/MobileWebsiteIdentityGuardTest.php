@@ -138,7 +138,7 @@ namespace {
 			foreach ( array(
 				array(
 					'digits_phone'    => '+989123456789',
-					'digits_phone_no' => '9123456788',
+					'digits_phone_no' => '9120000001',
 				),
 				array(
 					'digits_phone'     => '+989123456789',

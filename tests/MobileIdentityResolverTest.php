@@ -49,7 +49,7 @@ final class MobileIdentityResolverTest extends TestCase {
 			),
 		);
 		self::assertSame( 7, MobileIdentityResolver::phoneOwnerFromRows( $rows, $phone ) );
-		self::assertSame( 0, MobileIdentityResolver::phoneOwnerFromRows( $rows, '+989123456788' ) );
+		self::assertSame( 0, MobileIdentityResolver::phoneOwnerFromRows( $rows, '+989120000001' ) );
 		self::assertSame(
 			-1,
 			MobileIdentityResolver::phoneOwnerFromRows(
@@ -75,7 +75,7 @@ final class MobileIdentityResolverTest extends TestCase {
 						array(
 							'user_id'    => 7,
 							'meta_key'   => 'digits_phone_no',
-							'meta_value' => '9123456788',
+							'meta_value' => '9120000001',
 						),
 					)
 				),
