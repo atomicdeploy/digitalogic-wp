@@ -9,6 +9,32 @@ use PHPUnit\Framework\TestCase;
 
 /** Regression coverage for the native adapter. */
 final class MobileRealtimeContractTest extends TestCase {
+	/** Private support invalidations never expose another owner's messages or content. */
+	public function test_support_events_are_owner_only_and_have_stable_transport_identity(): void {
+		$event = array(
+			'id'   => 100,
+			'name' => 'mobile.message.created',
+			'data' => array(
+				'user_id'   => 7,
+				'ticket_id' => 11,
+				'body'      => 'private text',
+				'email'     => 'private',
+			),
+		);
+		self::assertNull( Digitalogic_WebSocket_Server::project_shopper_event( $event, 0 ) );
+		self::assertNull( Digitalogic_WebSocket_Server::project_shopper_event( $event, 8 ) );
+		$projected = Digitalogic_WebSocket_Server::project_shopper_event( $event, 7 );
+		self::assertSame(
+			array(
+				'scope'     => 'messages',
+				'ticket_id' => 11,
+			),
+			$projected['data']
+		);
+		self::assertSame( 'message.created', $projected['name'] );
+		self::assertSame( 'wp-panel:100', $projected['event_id'] );
+		self::assertSame( 100, $projected['id'] );
+	}
 	/**
 	 * Verify public events never inherit panel payload or customer events.
 	 *

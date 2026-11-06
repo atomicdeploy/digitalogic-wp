@@ -36,6 +36,8 @@ final class MobileIdentityStore {
 			actor_user_id bigint(20) unsigned NOT NULL DEFAULT 0,
 			actor_session_id char(32) NOT NULL DEFAULT '',
 			result varchar(32) NOT NULL DEFAULT '',
+			resolution longtext DEFAULT NULL,
+			verified_at bigint(20) unsigned NOT NULL DEFAULT 0,
 			user_id bigint(20) NOT NULL DEFAULT 0,
 			code_hash char(64) NOT NULL,
 			attempts tinyint unsigned NOT NULL DEFAULT 0,
@@ -80,7 +82,7 @@ final class MobileIdentityStore {
 			}
 		}
 		foreach ( array(
-			$otp      => array( 'purpose', 'actor_user_id', 'actor_session_id', 'result', 'phone_ciphertext' ),
+			$otp      => array( 'purpose', 'actor_user_id', 'actor_session_id', 'result', 'phone_ciphertext', 'resolution', 'verified_at' ),
 			$sessions => array( 'auth_method', 'verified_at' ),
 		) as $table => $columns ) {
 			foreach ( $columns as $column ) {

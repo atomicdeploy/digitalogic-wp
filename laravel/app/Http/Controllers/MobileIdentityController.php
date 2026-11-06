@@ -14,6 +14,7 @@ namespace Digitalogic\Laravel\Http\Controllers;
 use Digitalogic\Laravel\Services\MobileIdentityStore as Store;
 use Digitalogic\Laravel\Services\MobileGoogleIdentity as Google;
 use Digitalogic\Laravel\Services\MobileGoogleChallenge as GoogleChallenge;
+use Digitalogic\Laravel\Services\MobilePhoneResolution as PhoneResolution;
 use Digitalogic\Laravel\Services\MobileRegistrationStore as Registration;
 use Digitalogic\Laravel\Services\MobileAddresses as Addresses;
 use Illuminate\Http\Request;
@@ -187,6 +188,41 @@ final class MobileIdentityController {
 	}
 
 	/**
+	 * Explain the current identity prerequisites before the user requests any SMS.
+	 *
+	 * @param Request $request Authenticated read-only native request.
+	 * @return Response Current-session proof eligibility, without contact values.
+	 */
+	public function phoneEligibility( Request $request ): Response {
+		$session = $this->session( $request );
+		if ( ! $session ) {
+			return $this->unauthorized();
+		}
+		$profile  = $this->profileData( (int) $session['user_id'] );
+		$verified = in_array( $session['auth_method'], array( 'google', 'otp' ), true ) ? (int) $session['verified_at'] : 0;
+		return $this->json(
+			array(
+				'reauthentication_required' => ! Store::freshProof( $session ),
+				'methods'                   => $profile['identity']['google_linked'] && self::googleEnabled() ? array( 'google' ) : array(),
+				'verified_until'            => $verified > 0 ? gmdate( 'c', $verified + 600 ) : null,
+				'phone_verified'            => $profile['identity']['phone_verified'],
+				'pending_resolution'        => PhoneResolution::pending( $session ),
+			)
+		);
+	}
+
+	/**
+	 * Recover the current session's previous phone outcome without sending another code.
+	 *
+	 * @param Request $request Authenticated native read.
+	 * @return Response Exact actor/session resolution only.
+	 */
+	public function phoneResolution( Request $request ): Response {
+		$session = $this->session( $request );
+		return $session ? $this->json( array( 'pending_resolution' => PhoneResolution::pending( $session ) ) ) : $this->unauthorized();
+	}
+
+	/**
 	 * Reauthenticate the current identity without switching accounts or issuing a browser cookie.
 	 *
 	 * @param Request $request Bounded native HTTP request.
@@ -311,7 +347,7 @@ final class MobileIdentityController {
 		}
 		$matches = hash_equals( $row['code_hash'], Store::hash( $id . ':' . $code . ':' . $row['phone_hash'] ) );
 		if ( 'used' === $row['state'] && $matches && in_array( $row['result'], array( 'linked', 'review_required' ), true ) ) {
-			return $this->phoneResult( $row['result'], $actor );
+			return $this->phoneResult( $row['result'], $actor, json_decode( $row['resolution'] ?? '', true ) );
 		}
 		$attempt = $wpdb->query( $wpdb->prepare( "UPDATE %i SET attempts=attempts+1 WHERE id=%s AND attempts<5 AND state IN ('pending','accepted') AND expires_at>%d", $table, $id, time() ) );
 		if ( 1 !== $attempt || ! $matches ) {
@@ -336,13 +372,14 @@ final class MobileIdentityController {
 			$current = $wpdb->get_row( $wpdb->prepare( 'SELECT * FROM %i WHERE id=%s FOR UPDATE', $table, $id ), ARRAY_A );
 			if ( 'used' === $current['state'] ) {
 				$wpdb->query( 'ROLLBACK' );
-				return $this->phoneResult( $current['result'], $actor );
+				return $this->phoneResult( $current['result'], $actor, json_decode( $current['resolution'] ?? '', true ) );
 			}
 			clean_user_cache( $actor );
 			$existing_phone = (string) get_user_meta( $actor, 'digits_phone', true );
 			$owner          = Store::ownerOfPhone( $phone );
 			// Never overwrite an existing different phone or transfer another account's identity.
-			$result = ( $owner < 0 || ( $owner > 0 && $owner !== $actor ) || ( '' !== $existing_phone && Store::phone( $existing_phone ) !== $phone ) ) ? 'review_required' : 'linked';
+			$result     = ( $owner < 0 || ( $owner > 0 && $owner !== $actor ) || ( '' !== $existing_phone && Store::phone( $existing_phone ) !== $phone ) ) ? 'review_required' : 'linked';
+			$resolution = 'review_required' === $result ? PhoneResolution::describe( $actor, $owner, $existing_phone, $phone ) : null;
 			if ( 'linked' === $result ) {
 				foreach ( array(
 					'digits_phone'     => $phone,
@@ -359,8 +396,10 @@ final class MobileIdentityController {
 			if ( 1 !== $wpdb->update(
 				$table,
 				array(
-					'state'  => 'used',
-					'result' => $result,
+					'state'       => 'used',
+					'result'      => $result,
+					'resolution'  => $resolution ? wp_json_encode( $resolution ) : null,
+					'verified_at' => time(),
 				),
 				array( 'id' => $id )
 			) ) {
@@ -370,7 +409,7 @@ final class MobileIdentityController {
 				throw new \RuntimeException( 'Phone verification commit failed.' );
 			}
 			clean_user_cache( $actor );
-			return $this->phoneResult( $result, $actor );
+			return $this->phoneResult( $result, $actor, $resolution );
 		} catch ( \Throwable $error ) {
 			$wpdb->query( 'ROLLBACK' );
 			clean_user_cache( $actor );
@@ -385,17 +424,19 @@ final class MobileIdentityController {
 	/**
 	 * Return the durable phone-link outcome while keeping automatic merging unavailable.
 	 *
-	 * @param string $status HTTP or durable operation status.
-	 * @param int    $actor Actor.
+	 * @param string     $status HTTP or durable operation status.
+	 * @param int        $actor Actor.
+	 * @param array|null $resolution Durable non-authorizing guidance.
 	 * @return Response Native adapter result.
 	 */
-	private function phoneResult( string $status, int $actor ): Response {
+	private function phoneResult( string $status, int $actor, ?array $resolution = null ): Response {
 		return $this->json(
 			array(
 				'status'                  => $status,
 				'profile'                 => $this->profileData( $actor ),
 				'message'                 => 'linked' === $status ? 'شماره موبایل تأیید و به حساب متصل شد.' : 'شماره تأیید شد؛ اتصال یا ادغام این حساب‌ها نیازمند بررسی است. اطلاعات حساب‌ها حفظ شده است.',
 				'account_merge_available' => false,
+				'resolution'              => 'review_required' === $status ? ( $resolution ?? PhoneResolution::explanation( 'review_required' ) ) : null,
 			)
 		);
 	}

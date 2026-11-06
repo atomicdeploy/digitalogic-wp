@@ -141,3 +141,34 @@ On2026-11-06, source tests and a no-send production metadata fixture verified no
 The exact private mirror is `root/digitalogic-wp`, with WIP PR1 tracking GitHub PR439 and issue437. Native adapter files pass the existing WordPress standard; the full repository scan remains inside its unchanged historical error/warning budget. Cleanup parameterizes adapter table identifiers and retains explicit narrowly documented exceptions only where WordPress filesystem/cache conventions do not represent transactional metadata or resumable private streams. Existing unrelated source is not broadly reformatted.
 
 Exact product-code media inspection found no thumbnail, gallery, or exact-SKU attachment filename for113001020,113004003,113003157,113004059. Images remain absent until an authoritative existing source establishes that mapping; similar names or appearance are not evidence.
+
+
+### Phone prerequisites and durable resolution
+
+`GET /account/phone/eligibility` returns `{reauthentication_required,methods,verified_until,phone_verified,pending_resolution}` before the app enables SMS requests. Fresh Google completion only refreshes this view; it never sends an SMS automatically. `methods` contains only working current-account proof methods. An expired or absent proof requires explicit reauthentication first.
+
+`pending_resolution` is null or `{status,challenge_id,phone,verified_at,resolution}` from the latest used phone-link outcome belonging to the exact current actor and native session. The phone is only that session's own previously submitted and verified input. No other account identifier, email, role list or history is exposed. `GET /account/phone/resolution` returns the same nested value. Older rows without a verification timestamp return null for that timestamp. Reading a resolution grants no authentication and renews no proof. Stable latest-result ordering prefers a completed linked result at equal timestamps; a currently resolved ownership clears stale guidance, and changed ownership is explained without rewriting historical proof metadata.
+
+New phone verification stores the conflict reason and verification timestamp atomically. Reasons are `protected_phone_account`, `phone_account_exists`, `ambiguous_phone_owner`, `current_phone_differs`, or `review_required`. The supported `sign_in_phone` action opens the existing native OTP login and preserves the current session until successful explicit login. It does not reuse a phone-link proof, transfer Google bindings, copy roles or merge/delete accounts. `try_another_phone` preserves the current identity. Ordinary customer merging and separately reviewed protected identity linking remain outstanding work; all provider histories and pending operations must be inventoried before either is enabled.
+
+The2026-11-06 no-send resolution fixture passed16 checks: purpose isolation, duplicate preservation, stored reason, same-session restart/replay, different-session and other-actor exclusion, failed-proof exclusion, revoked-session rejection, no orders and complete cleanup. The production handset subsequently completed fresh Google verification and phone proof; its protected conflict was assessed and represented as a durable resolution, without modifying any identity or role.
+
+### Fluent Support adapter checkpoint
+
+The source and gated deployment use existing `fs_persons`, `fs_tickets` and `fs_conversations` through Fluent Support models/services. `digitalogic_mobile_message_operations` holds only operation metadata. Customer ownership is exact WordPress `user_id`; email never claims or merges a provider identity. Read-only browsing creates no provider customer. Another owner's ticket remains inaccessible even when its provider privacy flag is public. Internal notes and attachment paths are excluded.
+
+| Route | Contract |
+| --- | --- |
+| `GET /account/messages/schema` | Canonical fields/statuses and upload capability |
+| `GET /account/messages?page=&search=` | `items`, `pagination:{page,has_more,next_page}`; unread count remains null |
+| `GET /account/messages/{id}?before_id=` | Initial `ticket.body` plus chronological visible responses; bounded ID cursor |
+| `POST /account/messages` | Explicit `{operation_id,subject,body,priority?,product_id?,attachments:[]}` |
+| `POST /account/messages/{id}/messages` | Explicit `{operation_id,body,attachments:[]}` |
+| `POST /account/messages/{id}/close` or `/reopen` | Existing provider status services, explicit operation UUID |
+| `GET /account/messages/operations/{uuid}` | Exact owner operation recovery without repeating provider writes |
+
+Results use flat `operation_id` and `operation_status`. Definitive rejection is persisted before reporting `rejected`; unknown404 never proves no prior write. Immutable payload changes conflict without overwriting the original operation. A plain provider `message_id` survives Fluent's sanitizer and supports exact create/reply crash recovery. Ambiguous interrupted close/reopen remains processing instead of automatically replaying provider hooks. Known UUID recovery bypasses the quota for new operations. New requests are rate limited before allocating operation metadata;429 retains the same pending client UUID for later retry.
+
+Current canonical schema has subject/body and optional normal/medium/critical priority. No support product configuration is invented. Required unsupported provider fields block creation. Attachments remain disabled until a canonical Fluent upload/ownership adapter is audited. The live no-send fixture passed12 checks covering empty reads, schema, ownership denial, durable invalid-payload/replay/conflict/unknown responses, zero provider customer/ticket creation and cleanup. Actual message submission/notifications were not exercised with a human contact. `native_messages` remains false at this checkpoint until the next authorized activation and acceptance stage.
+
+Owner-only WebSocket source projects `ticket.updated` and `message.created` metadata without content. Stable `event_id` is `wp-panel:<numeric canonical id>`; numeric `id` remains the separate replay cursor. This WebSocket source delta has not yet replaced the running service at the gated checkpoint.

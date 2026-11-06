@@ -148,18 +148,19 @@ final class MobileGoogleChallenge {
 				return new \WP_Error( 'invalid_reauth_challenge' );
 			}
 			$proof_hash = MobileIdentityStore::hash( 'google-proof:' . $token );
-			if ( (int) $row['verified_at'] > 0 ) {
-				return hash_equals( $row['proof_hash'], $proof_hash ) ? (int) $row['verified_at'] : new \WP_Error( 'reauth_challenge_used' );
-			}
 			if ( false === $wpdb->query( 'START TRANSACTION' ) ) {
 				return new \WP_Error( 'reauth_not_saved' );
 			}
 			$now = time();
 			// Lock and recheck so a concurrent logout cannot gain fresh authority.
 			$current = $wpdb->get_row( $wpdb->prepare( 'SELECT * FROM %i WHERE id=%s AND user_id=%d FOR UPDATE', $sessions, $session['id'], $session['user_id'] ), ARRAY_A );
-			if ( ! $current || (int) $current['expires_at'] <= $now || ! hash_equals( $current['token_hash'], $session['token_hash'] ) ) {
+			if ( ! $current || (int) $current['expires_at'] <= $now || ! hash_equals( $current['token_hash'], $session['token_hash'] ) || ! hash_equals( $current['auth_epoch'], $session['auth_epoch'] ) ) {
 				$wpdb->query( 'ROLLBACK' );
 				return new \WP_Error( 'invalid_reauth_challenge' );
+			}
+			if ( (int) $row['verified_at'] > 0 ) {
+				$wpdb->query( 'ROLLBACK' );
+				return hash_equals( $row['proof_hash'], $proof_hash ) ? (int) $row['verified_at'] : new \WP_Error( 'reauth_challenge_used' );
 			}
 			$saved_session = $wpdb->update(
 				$sessions,

@@ -682,14 +682,18 @@ class Digitalogic_WebSocket_Server {
 			return;
         }
 
-		$sent = $this->send_json($id, array(
-            'event' => isset($event['name']) ? $event['name'] : (isset($event['event']) ? $event['event'] : 'panel.event'),
-            'name' => isset($event['name']) ? $event['name'] : '',
-            'success' => true,
-            'data' => isset($event['data']) && is_array($event['data']) ? $event['data'] : array(),
-            'time' => isset($event['time']) ? $event['time'] : '',
-            'id' => $event_id,
-        ));
+		$sent = $this->send_json(
+			$id,
+			array(
+				'event'    => $event['name'] ?? $event['event'] ?? 'panel.event',
+				'name'     => $event['name'] ?? '',
+				'success'  => true,
+				'data'     => isset( $event['data'] ) && is_array( $event['data'] ) ? $event['data'] : array(),
+				'time'     => $event['time'] ?? '',
+				'id'       => $event_id,
+				'event_id' => $event['event_id'] ?? '',
+			)
+		);
 		if ( $sent && $event_id && isset($this->clients[ $id ]) ) {
 			$this->clients[ $id ]['last_event_id'] = max(absint($this->clients[ $id ]['last_event_id']), $event_id);
 		}
@@ -702,8 +706,31 @@ class Digitalogic_WebSocket_Server {
 	 * @param int $user_id Verified shopper owner or zero for public.
 	 */
 	public static function project_shopper_event( array $event, int $user_id ): ?array {
+		$projected = self::project_shopper_payload( $event, $user_id );
+		if ( null !== $projected ) {
+			$projected['event_id'] = 'wp-panel:' . absint( $event['id'] ?? 0 );
+		}
+		return $projected;
+	}
+
+	/**
+	 * Project only allowlisted public or exact-owner payload fields.
+	 *
+	 * @param array $event Canonical event envelope.
+	 * @param int   $user_id Verified native owner, or zero for public.
+	 * @return array|null Safe payload or rejection.
+	 */
+	private static function project_shopper_payload( array $event, int $user_id ): ?array {
 		$name = (string) ( $event['name'] ?? '' );
 		$data = is_array( $event['data'] ?? null ) ? $event['data'] : array();
+		if ( $user_id > 0 && in_array( $name, array( 'mobile.ticket.updated', 'mobile.message.created' ), true ) && (int) ( $data['user_id'] ?? 0 ) === $user_id ) {
+			return array(
+				'id'   => absint( $event['id'] ?? 0 ),
+				'name' => substr( $name, 7 ),
+				'time' => $event['time'] ?? '',
+				'data' => array( 'scope' => 'messages', 'ticket_id' => absint( $data['ticket_id'] ?? 0 ) ),
+			);
+		}
 		if ( $user_id > 0 && 'user.updated' === $name && (int) ( $data['id'] ?? 0 ) === $user_id ) {
 			return array(
 				'id'   => absint( $event['id'] ?? 0 ),

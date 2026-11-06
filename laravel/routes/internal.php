@@ -11,6 +11,13 @@ use Digitalogic\Laravel\Http\Controllers\MobileIdentityController;
 use Digitalogic\Laravel\Http\Controllers\MobileRequestController;
 use Digitalogic\Laravel\Http\Controllers\MobileCartController;
 use Digitalogic\Laravel\Http\Controllers\MobileCheckoutController;
+use Digitalogic\Laravel\Http\Controllers\MobileMessageController;
+
+Route::get( '/mobile/account/messages/schema', array( MobileMessageController::class, 'schema' ) );
+Route::get( '/mobile/account/messages/operations/{id}', array( MobileMessageController::class, 'lookup' ) );
+Route::match( array( 'GET', 'POST' ), '/mobile/account/messages', array( MobileMessageController::class, 'handle' ) );
+Route::get( '/mobile/account/messages/{id}', array( MobileMessageController::class, 'handle' ) )->whereNumber( 'id' );
+Route::post( '/mobile/account/messages/{id}/{action}', array( MobileMessageController::class, 'handle' ) )->whereNumber( 'id' )->where( 'action', 'messages|close|reopen' );
 
 Route::get( '/mobile/checkout', array( MobileCheckoutController::class, 'show' ) );
 Route::post( '/mobile/checkout', array( MobileCheckoutController::class, 'submit' ) );
@@ -27,6 +34,8 @@ Route::post( '/mobile/auth/register', array( MobileIdentityController::class, 'r
 Route::post( '/mobile/auth/google', array( MobileIdentityController::class, 'google' ) );
 Route::post( '/mobile/account/reauth/google', array( MobileIdentityController::class, 'reauthGoogle' ) );
 Route::post( '/mobile/account/reauth/google/challenge', array( MobileIdentityController::class, 'googleChallenge' ) );
+Route::get( '/mobile/account/phone/resolution', array( MobileIdentityController::class, 'phoneResolution' ) );
+Route::get( '/mobile/account/phone/eligibility', array( MobileIdentityController::class, 'phoneEligibility' ) );
 Route::post( '/mobile/account/phone/request', array( MobileIdentityController::class, 'requestPhone' ) );
 Route::post( '/mobile/account/phone/verify', array( MobileIdentityController::class, 'verifyPhone' ) );
 Route::get( '/mobile/auth/sessions', array( MobileIdentityController::class, 'sessions' ) );

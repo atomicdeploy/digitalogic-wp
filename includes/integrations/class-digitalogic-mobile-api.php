@@ -32,6 +32,47 @@ final class Digitalogic_Mobile_API {
 			add_action( $event, array( self::class, 'cart_changed' ), 90, 0 );}
 		// Woo session persistence runs at shutdown priority20. Notify after the website's save.
 		add_action( 'shutdown', array( self::class, 'flush_cart_changes' ), 40 );
+		foreach ( array( 'fluent_support/ticket_created', 'fluent_support/ticket_closed', 'fluent_support/ticket_reopen' ) as $event ) {
+			add_action( $event, array( self::class, 'ticket_changed' ), 90, 1 );
+		}
+		foreach ( array( 'fluent_support/response_added_by_customer', 'fluent_support/response_added_by_agent' ) as $event ) {
+			add_action( $event, array( self::class, 'message_created' ), 90, 2 );
+		}
+	}
+
+	/**
+	 * Publish an owner-only invalidation after a canonical Fluent ticket event.
+	 *
+	 * @param object $ticket Existing provider ticket.
+	 * @param string $kind Allowlisted event kind.
+	 */
+	public static function ticket_changed( $ticket, string $kind = 'ticket.updated' ): void {
+		if ( ! is_object( $ticket ) || ! class_exists( 'Digitalogic_Panel' ) || ! in_array( $kind, array( 'ticket.updated', 'message.created' ), true ) ) {
+			return;
+		}
+		$user_id = (int) ( $ticket->customer->user_id ?? 0 );
+		if ( $user_id > 0 ) {
+			Digitalogic_Panel::record_event(
+				'mobile.' . $kind,
+				array(
+					'user_id'   => $user_id,
+					'ticket_id' => (int) $ticket->id,
+					'audience'  => array( 'users' => array( $user_id ) ),
+				)
+			);
+		}
+	}
+
+	/**
+	 * Bridge only public-to-the-owner responses, never Fluent internal notes.
+	 *
+	 * @param object $message Existing provider response.
+	 * @param object $ticket Existing provider ticket.
+	 */
+	public static function message_created( $message, $ticket ): void {
+		if ( is_object( $message ) && 'response' === $message->conversation_type ) {
+			self::ticket_changed( $ticket, 'message.created' );
+		}
 	}
 
 	/**
@@ -98,7 +139,7 @@ final class Digitalogic_Mobile_API {
 	 * @return string|null Native adapter result.
 	 */
 	public static function route( string $path ): ?string {
-		if ( preg_match( '~^/app-api/(bootstrap|categories|links/resolve|forms|checkout(?:/quote|/operations/[A-Za-z0-9-]{16,64})?|cart(?:/claim)?|uploads(?:/[a-f0-9]{32})?|requests(?:/[A-Za-z0-9-]{16,64})?|products(?:/[1-9][0-9]{0,9})?|auth/(?:otp/request|otp/verify|google|register|sessions|logout)|account/(?:profile|orders|favorites|requests|phone/request|phone/verify|reauth/google(?:/challenge)?))/?$~D', $path, $matches ) ) {
+		if ( preg_match( '~^/app-api/(bootstrap|categories|links/resolve|forms|checkout(?:/quote|/operations/[A-Za-z0-9-]{16,64})?|cart(?:/claim)?|uploads(?:/[a-f0-9]{32})?|requests(?:/[A-Za-z0-9-]{16,64})?|products(?:/[1-9][0-9]{0,9})?|auth/(?:otp/request|otp/verify|google|register|sessions|logout)|account/(?:profile|orders|favorites|requests|messages(?:/schema|/operations/[A-Za-z0-9-]{16,64}|/[1-9][0-9]{0,9}(?:/messages|/close|/reopen)?)?|phone/request|phone/verify|phone/eligibility|phone/resolution|reauth/google(?:/challenge)?))/?$~D', $path, $matches ) ) {
 			return '/_digitalogic/mobile/' . $matches[1];
 		}
 		return null;
@@ -111,6 +152,12 @@ final class Digitalogic_Mobile_API {
 	 * @return array Native adapter result.
 	 */
 	public static function methods( string $route ): array {
+		if ( str_ends_with( $route, '/account/messages' ) ) {
+			return array( 'GET', 'HEAD', 'POST' );
+		}
+		if ( preg_match( '~/account/messages/[1-9][0-9]*/(?:messages|close|reopen)$~D', $route ) ) {
+			return array( 'POST' );
+		}
 		if ( str_ends_with( $route, '/mobile/checkout' ) ) {
 			return array( 'GET', 'HEAD', 'POST' );}
 		if ( str_ends_with( $route, '/checkout/quote' ) ) {

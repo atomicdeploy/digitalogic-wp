@@ -98,6 +98,7 @@ final class MobileCatalogController {
 						'native_checkout'           => MobileCheckoutController::enabled(),
 						'native_auth'               => MobileIdentityController::otpEnabled(),
 						'native_phone_verification' => MobileIdentityController::phoneEnabled(),
+						'native_messages'           => \Digitalogic\Laravel\Services\MobileMessages::enabled(),
 						'google_reauth_nonce'       => MobileIdentityController::googleEnabled() && '1' === get_option( 'digitalogic_mobile_google_challenge_schema' ),
 						'native_address_locations'  => true,
 						'account_merge'             => false,
