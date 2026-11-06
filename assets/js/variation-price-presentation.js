@@ -53,6 +53,14 @@
 		if (!payload || !payload.datetime || !payload.absolute || !payload.relative) {
 			target.hidden = true;
 			target.removeAttribute('data-price-updated-source');
+			var previousTime = target.querySelector('time');
+			if (previousTime) {
+				previousTime.removeAttribute('datetime');
+				previousTime.removeAttribute('title');
+			}
+			target.querySelectorAll('.digitalogic-price-updated__absolute, .digitalogic-price-updated__relative').forEach(function (part) {
+				part.textContent = '';
+			});
 			return;
 		}
 		var time = target.querySelector('time');

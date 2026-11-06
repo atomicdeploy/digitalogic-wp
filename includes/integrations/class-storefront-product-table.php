@@ -23,6 +23,7 @@ final class Digitalogic_Storefront_Product_Table {
 		add_shortcode( 'digitalogic_product_table', array( $this, 'render' ) );
 		add_shortcode( 'digitalogic_image_credits', array( $this, 'render_image_credits' ) );
 		add_filter( 'posts_orderby', array( $this, 'recommended_orderby' ), 10, 2 );
+		add_filter( 'posts_clauses', array( $this, 'public_price_order' ), 90, 2 );
 		add_filter( 'digitalogic_command_handlers', array( $this, 'register_commands' ), 10, 2 );
 		add_action( 'wp_enqueue_scripts', array( $this, 'maybe_enqueue_assets' ) );
 		add_action( 'wp_ajax_digitalogic_catalog_page', array( $this, 'ajax_catalog_page' ) );
@@ -469,14 +470,8 @@ final class Digitalogic_Storefront_Product_Table {
 				$args['order']   = 'ASC';
 				break;
 			case 'price-low':
-				$args['meta_key'] = '_price'; // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key
-				$args['orderby']  = 'meta_value_num';
-				$args['order']    = 'ASC';
-				break;
 			case 'price-high':
-				$args['meta_key'] = '_price'; // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key
-				$args['orderby']  = 'meta_value_num';
-				$args['order']    = 'DESC';
+				$args['digitalogic_catalog_price_order'] = 'price-low' === $filters['sort'] ? 'ASC' : 'DESC';
 				break;
 			default:
 				$args['meta_key'] = 'total_sales'; // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key
@@ -485,6 +480,21 @@ final class Digitalogic_Storefront_Product_Table {
 		}
 
 		return $args;
+	}
+
+	/** Sort the public catalog by its displayed starting price. */
+	public function public_price_order( $clauses, $query ) {
+		global $wpdb;
+		$order = $query->get( 'digitalogic_catalog_price_order' );
+		if ( ! in_array( $order, array( 'ASC', 'DESC' ), true ) ) {
+			return $clauses;
+		}
+		$bound = digitalogic_public_price_bound_sql( 'min_price', 'dgl_catalog_lookup' );
+
+		$clauses['join'] .= " LEFT JOIN {$wpdb->wc_product_meta_lookup} AS dgl_catalog_lookup ON dgl_catalog_lookup.product_id = {$wpdb->posts}.ID ";
+
+		$clauses['orderby'] = "({$bound} IS NULL) ASC, {$bound} {$order}, {$wpdb->posts}.ID {$order}";
+		return $clauses;
 	}
 
 	/**

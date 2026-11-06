@@ -12,7 +12,7 @@ final class FrontendSearchFreshnessTest extends TestCase {
 		$status = 1;
 		exec( escapeshellarg( PHP_BINARY ) . ' ' . escapeshellarg( __DIR__ . '/search-cache-regression.php' ), $output, $status );
 		$this->assertSame( 0, $status, implode( "\n", $output ) );
-		$this->assertContains( 'Search cache regression: 7 boundaries passed', $output );
+		$this->assertContains( 'Search cache regression: 8 boundaries passed', $output );
 	}
 
 	public function test_daemon_rejects_search_before_reusing_woocommerce_request_state(): void {
