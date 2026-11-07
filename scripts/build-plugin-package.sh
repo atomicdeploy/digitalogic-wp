@@ -100,7 +100,17 @@ for entry in "${runtime_entries[@]}"; do
     cp -a -- "$root/$entry" "$stage/"
 done
 
-for required in digitalogic.php vendor/autoload.php laravel/bootstrap/app.php laravel/bootstrap/integration.php templates/software-archive.php; do
+required_runtime_files=(
+    digitalogic.php
+    vendor/autoload.php
+    laravel/bootstrap/app.php
+    laravel/bootstrap/integration.php
+    templates/software-archive.php
+    includes/cli/class-digitalogic-chip-reference-cli.php
+    includes/cli/chip-references/enc28j60.php
+)
+
+for required in "${required_runtime_files[@]}"; do
     if [[ ! -f "$stage/$required" ]]; then
         printf 'Required runtime file is missing: %s\n' "$required" >&2
         exit 1

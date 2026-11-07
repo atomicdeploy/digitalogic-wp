@@ -9,7 +9,7 @@ A reviewed manifest stores a part, the public manufacturer document, and one row
 On a WordPress test site first, run from the WordPress root with the plugin active and an existing administrator:
 
 ```sh
-wp --user=<administrator-id> eval-file wp-content/plugins/digitalogic-wp/scripts/provision-chip-reference.php microchip-enc28j60
+wp --user=<administrator-id> digitalogic chip provision microchip-enc28j60
 ```
 
 This creates only the three chip reference tables if needed and atomically replaces the selected chip's manufacturer records. Repeat the command to verify that the chip still has ten rows and no duplicates. Back up the three chip tables before replacing existing production records.

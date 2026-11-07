@@ -236,6 +236,7 @@ final class Digitalogic {
             require_once DIGITALOGIC_PLUGIN_DIR . 'includes/cli/class-digitalogic-product-research-cli.php';
             require_once DIGITALOGIC_PLUGIN_DIR . 'includes/cli/class-digitalogic-seo-monitor-status-cli.php';
 			require_once DIGITALOGIC_PLUGIN_DIR . 'includes/cli/class-digitalogic-order-document-cli.php';
+			require_once DIGITALOGIC_PLUGIN_DIR . 'includes/cli/class-digitalogic-chip-reference-cli.php';
 			if ( ! class_exists( 'Digitalogic_Human_Contacts_CLI', false ) ) {
 				require_once DIGITALOGIC_PLUGIN_DIR . 'includes/cli/class-digitalogic-human-contacts-cli.php';
 			}

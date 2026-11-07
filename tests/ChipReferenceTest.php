@@ -22,7 +22,7 @@ final class ChipReferenceTest extends TestCase {
 
 	/** Preserve distinct conditions, exact decimals and datasheet locators. */
 	public function test_read_returns_conditional_specs_with_manufacturer_provenance(): void {
-		$manifest = require dirname( __DIR__ ) . '/scripts/enc28j60-chip-reference.php';
+		$manifest = require dirname( __DIR__ ) . '/includes/cli/chip-references/enc28j60.php';
 		$rows     = array();
 		foreach ( $manifest['specifications'] as $spec ) {
 			$spec['magnitude'] = number_format( (float) $spec['magnitude'], 6, '.', '' );
