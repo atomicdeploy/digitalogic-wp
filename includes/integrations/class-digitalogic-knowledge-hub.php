@@ -10,6 +10,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 require_once __DIR__ . '/class-digitalogic-hardware-reference.php';
+require_once __DIR__ . '/class-digitalogic-chip-reference.php';
 
 /**
  * Owns reusable software, topic, and operating-system content on the storefront.
@@ -42,6 +43,7 @@ final class Digitalogic_Knowledge_Hub {
 	/** Register hooks. */
 	private function __construct() {
 		Digitalogic_Hardware_Reference::boot();
+		add_action( 'rest_api_init', array( Digitalogic_Chip_Reference::class, 'routes' ) );
 		add_action( 'init', array( $this, 'register_content_types' ) );
 		add_action( 'wp_enqueue_scripts', array( $this, 'enqueue_assets' ) );
 		add_shortcode( 'dgl_software_library', array( $this, 'software_library_shortcode' ) );
