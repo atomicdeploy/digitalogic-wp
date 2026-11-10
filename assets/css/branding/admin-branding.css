@@ -2510,6 +2510,32 @@ body.wp-admin .digitalogic-panel-page .button-hero {
 }
 
 @media (max-width: 782px) {
+    /* The invoice notice ships with inline desktop column widths. */
+    body.wp-admin .banner_after_bulk_print_ipc.notice {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: start;
+        gap: 8px 12px;
+        overflow-wrap: anywhere;
+    }
+
+    body.wp-admin .banner_after_bulk_print_ipc.notice > div {
+        width: auto !important;
+        min-inline-size: 0;
+        text-align: start !important;
+    }
+
+    body.wp-admin .banner_after_bulk_print_ipc.notice > div:last-child {
+        grid-column: 2;
+        grid-row: 1;
+    }
+
+    body.wp-admin .banner_after_bulk_print_ipc.notice .banner_close_button {
+        max-inline-size: 100%;
+        margin: 0;
+        white-space: normal;
+    }
+
     body.login #login {
         width: min(100%, calc(100vw - 24px)) !important;
         max-width: calc(100vw - 24px) !important;
