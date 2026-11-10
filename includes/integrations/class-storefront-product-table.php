@@ -625,10 +625,12 @@ final class Digitalogic_Storefront_Product_Table {
 		} elseif ( ! empty( $child_codes ) ) {
 			$code_label = 'کدهای ثبت‌شده برای مدل‌ها';
 		}
-		$categories  = wc_get_product_category_list( $product->get_id(), '، ' );
-		$quantity    = $product->get_stock_quantity();
-		$stock_text  = $product->managing_stock() && null !== $quantity ? number_format_i18n( max( 0, $quantity ) ) . ' عدد' : 'موجود';
-		$can_add     = $product->is_type( 'simple' ) && empty( $child_codes ) && $product->is_purchasable() && $product->is_in_stock() && '' !== $product->get_price();
+		$categories   = wc_get_product_category_list( $product->get_id(), '، ' );
+		$quantity     = $product->get_stock_quantity();
+		$stock_format = get_option( 'woocommerce_stock_format', '' );
+		$show_amount  = '' === $stock_format || ( 'low_amount' === $stock_format && null !== $quantity && $quantity <= wc_get_low_stock_amount( $product ) );
+		$stock_text   = $show_amount && $product->managing_stock() && null !== $quantity ? number_format_i18n( max( 0, $quantity ) ) . ' عدد' : 'موجود';
+		$can_add      = $product->is_type( 'simple' ) && empty( $child_codes ) && $product->is_purchasable() && $product->is_in_stock() && '' !== $product->get_price();
 
 		ob_start();
 		?>
