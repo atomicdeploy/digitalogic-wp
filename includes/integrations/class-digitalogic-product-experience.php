@@ -251,7 +251,7 @@ final class Digitalogic_Product_Experience {
 		}
 
 		$items = array();
-		$model = self::source_identity_is_pending( $product ) || $product->is_type( 'variable' )
+		$model = $product->is_type( 'variable' ) || self::source_identity_is_pending( $product )
 			? ''
 			: trim( (string) get_post_meta( $product->get_id(), '_digitalogic_model', true ) );
 
@@ -395,7 +395,7 @@ final class Digitalogic_Product_Experience {
 		$physical         = array();
 		$sku              = trim( (string) $product->get_sku() );
 		$identity_pending = self::source_identity_is_pending( $product );
-		$model            = $identity_pending || $product->is_type( 'variable' )
+		$model            = $product->is_type( 'variable' ) || $identity_pending
 			? ''
 			: trim( (string) get_post_meta( $product->get_id(), '_digitalogic_model', true ) );
 		$technical_name   = $identity_pending ? '' : trim( (string) get_post_meta( $product->get_id(), '_digitalogic_patris_name', true ) );
