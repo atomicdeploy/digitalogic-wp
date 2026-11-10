@@ -22,6 +22,9 @@ function fakeClassList(values) {
         add(value) {
             classes.add(value);
         },
+        remove(value) {
+            classes.delete(value);
+        },
         contains(value) {
             return classes.has(value);
         }
@@ -114,7 +117,8 @@ function createHarness(options) {
     const context = {
         console,
         document,
-        navigator: { language: options.lang || 'en-US' },
+        MutationObserver: options.MutationObserver,
+        navigator: { language: options.lang || 'en-US', credentials: options.credentials },
         Set,
         URL,
         URLSearchParams,
@@ -126,6 +130,7 @@ function createHarness(options) {
 
     return {
         document,
+        window,
         hooks: config.testHooks,
         recoveryField,
         recoveryLabel
@@ -148,6 +153,239 @@ test('canonical login navigation labels follow href actions, not DOM position', 
 
     assert.equal(lostPassword.textContent, 'Reset password');
     assert.equal(register.textContent, 'Register');
+});
+
+test('native serialized Digits form requests are recognized without matching unrelated AJAX', () => {
+    const {hooks} = createHarness({});
+    assert.equal(hooks.isDigitsAjaxRequest({data:[{name:'action',value:'digits_forms_ajax'}]}),true);
+    assert.equal(hooks.isDigitsAjaxRequest({data:[{name:'digits',value:'1'}]}),true);
+    assert.equal(hooks.isDigitsAjaxRequest({data:[{name:'action',value:'unrelated'}]}),false);
+    assert.equal(hooks.isDigitsAjaxRequest({data:{action:'digits_forms_ajax'}}),true);
+    assert.equal(hooks.isDigitsAjaxRequest({data:'action=digits_forms_ajax'}),true);
+});
+
+test('a successful Digits login resumes its same-site OpenID request with the original parameters', () => {
+    const {document, window, hooks} = createHarness({});
+    const target = new URL('/wp-login.php', window.location.href);
+    target.searchParams.set('action', 'openid-authenticate');
+    target.searchParams.set('client_id', 'git-probe');
+    target.searchParams.set('response_type', 'code');
+    target.searchParams.set('state', 'probe+state/&=%');
+    const hidden = {value: target.href};
+    const form = {offsetWidth: 300, matches: () => true, closest: () => ({}), querySelector: () => hidden};
+    document.activeElement = {closest: () => form};
+    let guarded;
+    window.jQuery = {ajax(settings) { guarded = settings; }};
+    hooks.patchDigitsAjaxFailureGuard();
+    window.jQuery.ajax({data: [{name: 'action', value: 'digits_forms_ajax'}]});
+
+    const payload = {success: true, data: {process: true, process_type: 'login', redirect: '/'}};
+    guarded.success(payload);
+    assert.equal(payload.data.redirect, target.href);
+
+    payload.data.redirect = '/';
+    payload.success = false;
+    guarded.success(payload);
+    assert.equal(payload.data.redirect, '/');
+
+    payload.success = true;
+    hidden.value = target.href.replace('digitalogic.test', 'other.test');
+    guarded.success(payload);
+    assert.equal(payload.data.redirect, '/');
+});
+
+test('empty or non-JSON AJAX results cannot enter the native Digits callback', () => {
+    const {hooks} = createHarness({});
+    for(const payload of ['', '0', '<html>Unavailable</html>', null, {}, {success:true,data:{}}]) {
+        assert.equal(hooks.hasUsableDigitsPayload(payload),false);
+    }
+    assert.equal(hooks.hasUsableDigitsPayload({success:false,data:{message:'Invalid mobile'}}),true);
+    assert.equal(hooks.hasUsableDigitsPayload({success:true,data:{html:'<div>Next step</div>'}}),true);
+});
+
+test('client validation rejection does not schedule a misleading registration timeout', () => {
+    const harness=createHarness({});
+    const listeners={};
+    const timers=[];
+    const form={matches:()=>true,checkValidity:()=>true};
+    const button={closest:()=>form};
+    harness.document.addEventListener=(name,callback)=>{listeners[name]=callback;};
+    harness.window.addEventListener=()=>{};
+    harness.window.setTimeout=(callback)=>{timers.push(callback);};
+    harness.hooks.bindLoadingStates();
+    // HTML required fields are populated, but native strength/captcha validation
+    // may reject before AJAX. A click alone is not an in-flight request.
+    listeners.click({target:{closest:()=>button}});
+    assert.equal(timers.length,0);
+});
+
+test('skip password selects the native SMS tab without sending the typed password', () => {
+    let update;
+    const harness = createHarness({
+        labels: {skipPassword: 'ادامه بدون رمز عبور'},
+        MutationObserver: class {
+            constructor(callback) { update = callback; }
+            observe() {}
+        }
+    });
+    const listeners = {};
+    const skip = {addEventListener: (name, callback) => { listeners[name] = callback; }};
+    const wrapper = {};
+    let smsClicks = 0;
+    const otpTab = {click: () => { smsClicks++; }};
+    const step = {querySelector: (selector) => selector.includes('data-value') ? otpTab : {}};
+    const password = {value: 'test-input', offsetWidth: 0, getClientRects: () => [], closest: () => step};
+    const primary = {after: (button) => assert.equal(button, skip)};
+    const form = {
+        dataset: {},
+        querySelector: (selector) => selector === '.digits-form_tab_wrapper' ? wrapper : primary,
+        querySelectorAll: (selector) => selector.includes('sms_otp') ? [] : [password],
+        addEventListener() {}
+    };
+    harness.document.createElement = () => skip;
+    harness.window.addEventListener = () => {};
+    harness.document.querySelectorAll = (selector) => selector === '.dg-digits-login-shell form' ? [form] : [];
+    harness.hooks.normalizeAuthChrome();
+    assert.equal(skip.type, 'button');
+    assert.equal(skip.textContent, 'ادامه بدون رمز عبور');
+    assert.equal(skip.hidden, true);
+    password.offsetWidth = 200;
+    update();
+    assert.equal(skip.hidden, false);
+    listeners.click();
+    assert.equal(password.value, '');
+    assert.equal(smsClicks, 1);
+    password.disabled = true;
+    update();
+    assert.equal(skip.hidden, true);
+});
+
+test('WebOTP can receive the code before the SMS response and submits once the Digits field is ready', async () => {
+    let receive;
+    let submitted = 0;
+    let request;
+    let signal;
+    const harness = createHarness({credentials: {get(options) {
+        signal = options.signal;
+        return new Promise((resolve) => { receive = resolve; });
+    }}});
+    harness.window.OTPCredential = function () {};
+    harness.window.AbortController = AbortController;
+    harness.window.clearTimeout = () => {};
+    harness.document.body.classList.remove = () => {};
+    harness.window.jQuery = {ajax(settings) { request = settings; }};
+    const otp = {value: '', offsetWidth: 200};
+    const primary = {offsetWidth: 200, click: () => { submitted++; }};
+    const form = {
+        matches: () => true,
+        closest: () => ({}),
+        offsetWidth: 200,
+        querySelectorAll: (selector) => selector.includes('sms_otp') ? [otp] : [primary]
+    };
+    harness.document.activeElement = {closest: () => form};
+    harness.hooks.patchDigitsAjaxFailureGuard();
+    harness.window.jQuery.ajax({data: [{name: 'action', value: 'digits_forms_ajax'}, {name: 'sub_action', value: 'sms_otp'}]});
+    request.beforeSend();
+    const sendRequest = request;
+    harness.window.jQuery.ajax({data: [{name: 'action', value: 'digits_forms_ajax'}, {name: 'check_status', value: '1'}, {name: 'sms_otp', value: '123456'}]});
+    assert.equal(request.beforeSend, undefined);
+    assert.equal(request.data.find(field => field.name === 'sms_otp').value, '');
+    assert.equal(signal.aborted, false);
+    receive({code: '123456'});
+    await Promise.resolve();
+    assert.equal(submitted, 0);
+    const payload = {success: true, data: {auto_fill: true, check_remote_status: true}};
+    sendRequest.success(payload);
+    sendRequest.complete();
+    assert.equal(payload.data.auto_fill, false);
+    assert.equal(payload.data.check_remote_status, false);
+    assert.equal(otp.value, '123456');
+    assert.equal(submitted, 1);
+    assert.equal(signal.aborted, true);
+});
+
+test('carousel slide track uses the same left-to-right geometry in RTL', () => {
+    assert.match(brandingCss, /body\.login \.dg-hero-track\s*\{[^}]*\bdirection:\s*ltr;/);
+});
+
+test('ordinary Enter remains ordinary when a secondary SMS button exists', () => {
+    const harness=createHarness({});
+    const listeners={};
+    let skipClicks=0;
+    let validityChecks=0;
+    harness.window.addEventListener=()=>{};
+    harness.window.clearTimeout=()=>{};
+    harness.document.addEventListener=(name,callback)=>{listeners[name]=callback;};
+    const skip={click(){skipClicks++;}};
+    const form={dataset:{},matches:()=>true,querySelector:()=>skip,querySelectorAll:()=>[],checkValidity(){validityChecks++;return false;}};
+    harness.hooks.bindLoadingStates();
+    listeners.submit({target:form,submitter:{matches:()=>false},preventDefault(){}});
+    assert.equal(skipClicks,0);
+    assert.equal(validityChecks,1);
+});
+
+test('real requests start loading only in beforeSend and cancellation preserves native behavior', () => {
+    const harness=createHarness({});
+    let guarded;
+    let before=0;
+    let completed=0;
+    const timers=[];
+    harness.window.jQuery={ajax(settings){guarded=settings;return 'xhr';}};
+    harness.window.clearTimeout=()=>{};
+    harness.window.setTimeout=(callback,delay)=>{timers.push(delay);return 1;};
+    const attributes=new Map();
+    const form={
+        dataset:{},classList:fakeClassList(),offsetWidth:300,
+        matches:()=>true,
+        setAttribute:(k,v)=>attributes.set(k,v),
+        removeAttribute:(k)=>attributes.delete(k),
+        querySelectorAll:(s)=>s.includes('.digits-form_submit-btn')?[button]:[]
+    };
+    const button={
+        dataset:{},classList:fakeClassList(),offsetWidth:200,disabled:false,
+        closest:()=>form,setAttribute(){},removeAttribute(){},matches:()=>false
+    };
+    harness.document.activeElement={closest:()=>form};
+    harness.hooks.patchDigitsAjaxFailureGuard();
+    harness.window.jQuery.ajax({
+        data:[{name:'action',value:'digits_forms_ajax'}],
+        beforeSend(){before++;return false;},complete(){completed++;}
+    });
+    assert.equal(guarded.timeout,30000);
+    assert.equal(timers.length,0);
+    assert.equal(guarded.beforeSend(),false);
+    assert.equal(before,1);
+    assert.equal(timers.length,0);
+    guarded.complete();
+    assert.equal(completed,1);
+    harness.window.jQuery.ajax({data:[{name:'digits',value:'1'}]});
+    guarded.beforeSend();
+    assert.equal(button.dataset.dgLoading,'true');
+    assert.equal(form.dataset.dgPending,'true');
+    assert.deepEqual(timers,[35000]);
+});
+
+test('registration autofill identifies separate names and keeps already filled values intact', () => {
+    const harness=createHarness({});
+    const fields={};
+    for(const name of ['digits_reg_name','digits_reg_lastname','digits_reg_username','phone','digits_reg_password']){
+        const attrs=new Map();
+        fields[name]={id:name==='digits_reg_lastname'?'native-family-id':'',value:'already-filled',attrs,setAttribute:(k,v)=>attrs.set(k,v)};
+    }
+    const formAttrs=new Map();
+    const form={setAttribute:(k,v)=>formAttrs.set(k,v),querySelector:(s)=>fields[s.match(/name="([^"]+)"/)[1]]};
+    harness.document.querySelectorAll=()=>[form];
+    harness.document.getElementById=()=>null;
+    harness.hooks.prepareDigitsRegistrationAutofill();
+    harness.hooks.prepareDigitsRegistrationAutofill();
+    assert.equal(formAttrs.get('autocomplete'),'on');
+    assert.equal(fields.digits_reg_name.attrs.get('autocomplete'),'section-digitalogic-register given-name');
+    assert.equal(fields.digits_reg_lastname.attrs.get('autocomplete'),'section-digitalogic-register family-name');
+    assert.equal(fields.digits_reg_username.attrs.get('autocomplete'),'section-digitalogic-register username');
+    assert.equal(fields.phone.attrs.get('autocomplete'),'section-digitalogic-register tel-national');
+    assert.equal(fields.digits_reg_password.attrs.get('autocomplete'),'section-digitalogic-register new-password');
+    assert.equal(fields.digits_reg_lastname.id,'native-family-id');
+    for(const field of Object.values(fields)){assert.equal(field.value,'already-filled');assert.ok(field.id);}
 });
 
 test('lost-password navigation keeps login and registration meanings in either order', () => {
