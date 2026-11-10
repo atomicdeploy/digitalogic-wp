@@ -939,7 +939,7 @@
                 getLabel('requestTimeout', 'پاسخی از سرور دریافت نشد. اتصال یا افزونه ورود به‌موقع پاسخ نداد؛ دوباره تلاش کنید.'),
                 'error'
             );
-        }, 9000);
+        }, 35000);
     }
 
     function markLoading(button, disable, form) {
@@ -1377,6 +1377,13 @@
             return data.indexOf('digits_forms_ajax') !== -1 || data.indexOf('digits=1') !== -1;
         }
 
+        if (Array.isArray(data)) {
+            return data.some(function (field) {
+                return field && ((field.name === 'action' && field.value === 'digits_forms_ajax')
+                    || (field.name === 'digits' && String(field.value) === '1'));
+            });
+        }
+
         if (data && typeof data.get === 'function') {
             return data.get('action') === 'digits_forms_ajax' || data.get('digits') === '1';
         }
@@ -1391,15 +1398,23 @@
     function hasUsableDigitsPayload(payload) {
         var data = payload && payload.data !== undefined ? payload.data : payload;
 
-        if (!payload) {
+        if (!payload || typeof payload !== 'object' || typeof payload.success !== 'boolean') {
             return false;
         }
 
-        if (payload.success === true && (!data || (typeof data === 'object' && !Object.keys(data).length))) {
-            return false;
-        }
+        return !!(data && typeof data === 'object' && Object.keys(data).length);
+    }
 
-        return true;
+    function digitsRequestForm() {
+        var active = document.activeElement;
+        var focused = active && active.closest ? active.closest('form') : null;
+        if (isDigitsSecureForm(focused) && isVisibleElement(focused)) {
+            return focused;
+        }
+        return Array.prototype.find.call(
+            document.querySelectorAll('form.digits_form_index_section, form.digits-form, .digits-form_page form'),
+            isVisibleElement
+        ) || null;
     }
 
     function patchDigitsAjaxFailureGuard() {
@@ -1418,6 +1433,27 @@
                 var guardedSettings = Object.assign({}, settings);
                 var success = guardedSettings.success;
                 var errorHandler = guardedSettings.error;
+                var beforeSend = guardedSettings.beforeSend;
+                var complete = guardedSettings.complete;
+                var requestForm = digitsRequestForm();
+
+                if (!guardedSettings.timeout) {
+                    guardedSettings.timeout = 30000;
+                }
+
+                guardedSettings.beforeSend = function () {
+                    if (typeof beforeSend === 'function' && beforeSend.apply(this, arguments) === false) {
+                        return false;
+                    }
+                    markLoading(digitsSubmitButton(requestForm), false, requestForm);
+                };
+
+                guardedSettings.complete = function () {
+                    clearLoading();
+                    if (typeof complete === 'function') {
+                        return complete.apply(this, arguments);
+                    }
+                };
 
                 guardedSettings.success = function (payload) {
                     if (!hasUsableDigitsPayload(payload)) {
@@ -1575,11 +1611,11 @@
             return;
         }
 
-        markLoading(button, false, form);
-
         if (window.jQuery && typeof window.digitsSecureFormSubmit === 'function') {
             try {
-                window.digitsSecureFormSubmit(window.jQuery(form));
+                if (window.digitsSecureFormSubmit(window.jQuery(form)) === false) {
+                    clearLoading();
+                }
                 return;
             } catch (error) {
                 clearLoading();
@@ -1597,6 +1633,11 @@
             var target = event.target && event.target.closest ? event.target : null;
             var button = target && target.closest('.dg-digits-login-shell .digits-form_submit-btn, .dg-digits-login-shell .digits-form_submit, .dg-digits-login-shell .digits-form_button');
             if (!button) {
+                return;
+            }
+
+            // Digits 9.2.4.2 owns its passkey challenge and bypasses identity validation.
+            if (button.matches('.digits-form_passwordless_login')) {
                 return;
             }
 
@@ -1635,6 +1676,12 @@
                 return;
             }
 
+            if (event.submitter && event.submitter.matches('.digits-form_passwordless_login')) {
+                event.preventDefault();
+                event.submitter.click();
+                return;
+            }
+
             if (isDigitsSecureForm(form)) {
                 event.preventDefault();
                 submitDigitsSecureForm(form);
@@ -1658,6 +1705,12 @@
                 return;
             }
 
+            // Native Digits validation can reject before sending any request.
+            // Its AJAX beforeSend hook owns loading, so validation is not a timeout.
+            if (isDigitsSecureForm(button.closest('form'))) {
+                return;
+            }
+
             window.setTimeout(function () {
                 var form = button.closest('form');
                 if (form && typeof form.checkValidity === 'function' && !form.checkValidity()) {
@@ -1673,8 +1726,13 @@
         window.addEventListener('pageshow', clearLoading);
 
         if (window.jQuery) {
-            window.jQuery(document).ajaxComplete(clearLoading);
-            window.jQuery(document).ajaxError(clearLoading);
+            var finishDigitsRequest = function (event, request, settings) {
+                if (isDigitsAjaxRequest(settings)) {
+                    clearLoading();
+                }
+            };
+            window.jQuery(document).ajaxComplete(finishDigitsRequest);
+            window.jQuery(document).ajaxError(finishDigitsRequest);
         }
     }
 
@@ -2043,6 +2101,31 @@
             input.required = true;
             input.setAttribute('required', 'required');
             input.setAttribute('autocomplete', 'tel-national');
+        });
+    }
+
+    function prepareDigitsRegistrationAutofill() {
+        var tokens = {
+            digits_reg_name: 'given-name',
+            digits_reg_lastname: 'family-name',
+            digits_reg_username: 'username',
+            phone: 'tel-national',
+            digits_reg_mobile: 'tel-national',
+            digits_reg_password: 'new-password'
+        };
+        document.querySelectorAll(':is(.dg-digits-login-shell, .dg-digits-register-shell) form.digits_register').forEach(function (form) {
+            form.setAttribute('autocomplete', 'on');
+            Object.keys(tokens).forEach(function (name) {
+                var input = form.querySelector('input[name="' + name + '"]');
+                if (!input) {
+                    return;
+                }
+                input.setAttribute('autocomplete', 'section-digitalogic-register ' + tokens[name]);
+                var id = 'dg-register-' + name;
+                if (!input.id && !document.getElementById(id)) {
+                    input.id = id;
+                }
+            });
         });
     }
 
@@ -2650,6 +2733,7 @@
         normalizeAuthNavigation();
         normalizeDigitsLoginFallback();
         normalizeRecoveryIdentity();
+        prepareDigitsRegistrationAutofill();
     }
 
     function observeAuthChrome() {
@@ -2664,8 +2748,8 @@
             var shouldNormalize = mutations.some(function (mutation) {
                 return Array.prototype.some.call(mutation.addedNodes, function (node) {
                     return node.nodeType === 1 && (
-                        node.matches && node.matches('#nav, .altEmail_container, .dg-digits-login-shell, .digits-form_container, .digits-form_toggle_login_register') ||
-                        node.querySelector && node.querySelector('#nav, .altEmail_container, .dg-digits-login-shell, .digits-form_container, .digits-form_toggle_login_register')
+                        node.matches && node.matches('#nav, .altEmail_container, .dg-digits-login-shell, .digits_register, .digits-form_container, .digits-form_toggle_login_register') ||
+                        node.querySelector && node.querySelector('#nav, .altEmail_container, .dg-digits-login-shell, .digits_register, .digits-form_container, .digits-form_toggle_login_register')
                     );
                 });
             });
@@ -2682,6 +2766,11 @@
         config.testHooks.capturePasswordSelection = capturePasswordSelection;
         config.testHooks.classifyIdentity = classifyIdentity;
         config.testHooks.enhanceLoginLabels = enhanceLoginLabels;
+        config.testHooks.isDigitsAjaxRequest = isDigitsAjaxRequest;
+        config.testHooks.hasUsableDigitsPayload = hasUsableDigitsPayload;
+        config.testHooks.patchDigitsAjaxFailureGuard = patchDigitsAjaxFailureGuard;
+        config.testHooks.bindLoadingStates = bindLoadingStates;
+        config.testHooks.prepareDigitsRegistrationAutofill = prepareDigitsRegistrationAutofill;
         config.testHooks.normalizeDigits = normalizeDigits;
         config.testHooks.normalizeAuthChrome = normalizeAuthChrome;
         config.testHooks.phonePartsFromValue = phonePartsFromValue;
