@@ -488,7 +488,7 @@
             'body.login .dg-digits-login-shell.dg-digits-auto-identity .digits-form_tab_body.digits-tab_active{display:block!important;}',
             'body.login .dg-digits-login-shell.dg-digits-auto-identity:not([data-dg-identity="phone"]) .digits-form_countrycode{display:none!important;}',
             'body.login .dg-digits-login-shell :is(.digits-form_input_row, .digits-form_input){border-color:var(--dg-border)!important;border-radius:16px!important;color:var(--dg-text)!important;}',
-            'body.login .dg-digits-login-shell .digits-form_input_row{min-height:58px!important;margin-block:11px!important;padding-inline:14px!important;background:var(--dg-input-bg)!important;}',
+            'body.login .dg-digits-login-shell .digits-form_input_row:not(.dg-username-password-row,.digits-form_rememberme){min-height:58px!important;margin-block:11px!important;padding-inline:14px!important;background:var(--dg-input-bg)!important;}',
             'body.login .dg-digits-login-shell .digits-form_rememberme{display:flex!important;align-items:center!important;justify-content:flex-start!important;min-height:auto!important;height:auto!important;margin-block:4px 14px!important;padding:0!important;border:0!important;background:transparent!important;overflow:visible!important;}',
             'body.login .dg-digits-login-shell .digits-form_rememberme :is(.digits-form_input,.dig_opt_mult_con,.dig_opt_mult,label,.dig_input_wrapper,.dig_input_wrapper>div){display:inline-flex!important;align-items:center!important;justify-content:flex-start!important;gap:10px!important;width:auto!important;min-height:0!important;margin:0!important;padding:0!important;border:0!important;background:transparent!important;line-height:1.35!important;}',
             'body.login .dg-digits-login-shell .digits-form_rememberme .dig_input_wrapper::before,body.login .dg-digits-login-shell .digits-form_rememberme .dig_input_wrapper::after,body.login .dg-digits-login-shell .digits-form_input_row .digits-field-type_tac .dig_input_wrapper::before,body.login .dg-digits-login-shell .digits-form_input_row .digits-field-type_tac .dig_input_wrapper::after,html[dir="rtl"] body.login .dg-digits-login-shell .digits-form_input_row .digits-field-type_tac .dig_input_wrapper::before,html[dir="rtl"] body.login .dg-digits-login-shell .digits-form_input_row .digits-field-type_tac .dig_input_wrapper::after{content:none!important;display:none!important;opacity:0!important;visibility:hidden!important;}',
@@ -503,7 +503,7 @@
             'body.login .dg-digits-login-shell .digits-form_rememberme .digits_login_remember_me::after{content:none!important;display:none!important;}',
             'body.login .dg-digits-login-shell.dg-digits-auto-identity .digits-mobile_wrapper{direction:ltr!important;}',
             'body.login .dg-digits-login-shell.dg-digits-auto-identity:not([data-dg-identity="phone"]) .mobile_field{padding-inline-start:46px!important;padding-inline-end:16px!important;direction:ltr!important;text-align:left!important;}',
-            'body.login .dg-digits-login-shell.dg-digits-auto-identity[data-dg-identity="email"] .digits-form_tab_body.digits-tab_active .digits-form_input_row{direction:ltr!important;}',
+            'body.login .dg-digits-login-shell.dg-digits-auto-identity[data-dg-identity="email"] .digits-form_input_row:has(input[name="digits_email"]){direction:ltr!important;}',
             'body.login .dg-digits-login-shell.dg-digits-auto-identity[data-dg-identity="email"] input[name="digits_email"]{padding-inline-start:46px!important;padding-inline-end:16px!important;direction:ltr!important;text-align:left!important;}',
             'body.login .dg-digits-login-shell.dg-digits-auto-identity[data-dg-identity="phone"] .digits-mobile_wrapper{display:flex!important;align-items:center!important;gap:10px!important;width:100%!important;direction:ltr;}',
             'body.login .dg-digits-login-shell.dg-digits-auto-identity[data-dg-identity="phone"] .digits-mobile_wrapper:before{content:none!important;}',
@@ -511,7 +511,7 @@
             'body.login .dg-digits-login-shell.dg-digits-auto-identity[data-dg-identity="phone"] .digits-form_countrycode input{width:42px!important;min-height:0!important;height:auto!important;padding:0!important;line-height:1!important;text-align:left!important;}',
             'body.login .dg-digits-login-shell.dg-digits-auto-identity[data-dg-identity="phone"] .digits-mobile_wrapper>.digits-form_input:not(.digits-form_countrycode){flex:1 1 auto!important;min-width:0!important;width:auto!important;}',
             'body.login .dg-digits-login-shell.dg-digits-auto-identity[data-dg-identity="phone"] .mobile_field{flex:1 1 auto!important;min-width:0!important;width:100%!important;padding-inline:12px!important;direction:ltr!important;text-align:left!important;}',
-            'body.login .dg-digits-login-shell :is(.digits-form_button,.digits-form_submit-btn){min-height:56px!important;border:0!important;border-radius:18px!important;background:linear-gradient(135deg,var(--dg-accent),var(--dg-accent-strong))!important;color:#fff!important;font-family:var(--dg-font)!important;font-size:16px!important;font-weight:800!important;overflow:hidden!important;}',
+            'body.login .dg-digits-login-shell :is(.digits-form_button,.digits-form_submit-btn):not(.digits-form_passwordless_login){min-height:56px!important;border:0!important;border-radius:18px!important;background:linear-gradient(135deg,var(--dg-accent),var(--dg-accent-strong))!important;color:#fff!important;font-family:var(--dg-font)!important;font-size:16px!important;font-weight:800!important;overflow:hidden!important;}',
             'body.login .dg-digits-login-shell :is(.digits-form_button,.digits-form_submit,.digits-form_submit-btn).is-loading .digits-form_button_ic{display:none!important;inline-size:0!important;flex-basis:0!important;opacity:0!important;visibility:hidden!important;}',
             'body.login .dg-digits-login-shell .digits-social-logins-box{background:transparent!important;border-top:0!important;border-color:transparent!important;}',
             'body.login .dg-digits-login-shell .digits-social-btn{min-height:56px!important;padding:12px 18px!important;border-color:var(--dg-border)!important;border-radius:18px!important;background:var(--dg-panel)!important;color:var(--dg-text)!important;font-size:16px!important;}',
@@ -989,7 +989,7 @@
             return null;
         }
 
-        var buttons = Array.prototype.slice.call(form.querySelectorAll('.digits-form_submit-btn, .digits-form_submit, [type="submit"]'));
+        var buttons = Array.prototype.slice.call(form.querySelectorAll(':is(.digits-form_submit-btn, .digits-form_submit, [type="submit"]):not(.digits-form_passwordless_login)'));
         return buttons.find(function (button) {
             return isVisibleElement(button) && !button.hidden;
         }) || buttons[0] || null;
@@ -1097,6 +1097,40 @@
         }
     }
 
+    function visibleDigitsPassword(form) {
+        return Array.prototype.find.call(
+            form.querySelectorAll('.digits-form_tab_wrapper input:is([type="password"], [autocomplete="current-password"], .dg-password-visible)'),
+            function (input) { return !input.disabled && isVisibleElement(input); }
+        );
+    }
+
+    function prepareDigitsSkipPassword(form) {
+        var skip = form.querySelector('.digits-form_passwordless_login');
+        var wrapper = form.querySelector('.digits-form_tab_wrapper');
+
+        if (!skip || !wrapper || skip.dataset.dgSkipReady === 'true') {
+            return;
+        }
+
+        // Keep the original button so Digits still owns the passkey challenge.
+        skip.dataset.dgSkipReady = 'true';
+        skip.type = 'button';
+        (skip.querySelector('.digits-form_button-text') || skip).textContent = getLabel('skipPassword', 'Skip password');
+        skip.title = getLabel('skipPasswordHelp', 'Continue with a passkey');
+
+        function updateVisibility() {
+            skip.hidden = !visibleDigitsPassword(form);
+        }
+
+        updateVisibility();
+        new MutationObserver(updateVisibility).observe(wrapper, {
+            childList: true,
+            subtree: true,
+            attributes: true,
+            attributeFilter: ['class', 'style', 'hidden', 'type', 'disabled']
+        });
+    }
+
     function showDigitsUsernamePasswordStep(form, username) {
         var wrapper = form.querySelector('.digits-form_tab_wrapper') || form;
         var step = form.querySelector('.dg-username-password-step');
@@ -1107,9 +1141,9 @@
         form.classList.add('dg-username-step-active');
 
         if (!step) {
-            var backIcon = isPersianLocale() ? 'dashicons-arrow-right-alt' : 'dashicons-arrow-left-alt';
             var backLabel = getLabel('back', 'Back');
             var loginLabel = getLabel('login', 'Log in');
+            var passwordLabel = escapeHtml(getLabel('password', 'Password'));
             step = document.createElement('div');
             step.className = 'digits-form_tab_container dg-username-password-step';
             step.innerHTML = [
@@ -1117,16 +1151,16 @@
                 '<div class="digits-form_tab_body digits-tab_active">',
                 '<div class="dg-username-login-summary">',
                 '<span class="dashicons dashicons-admin-users" aria-hidden="true"></span>',
-                '<span class="dg-username-login-value"></span>',
+                '<bdi class="dg-username-login-value"></bdi>',
                 '</div>',
                 '<div class="digits-form_input_row dg-username-password-row">',
                 '<span class="dashicons dashicons-lock dg-digits-row-icon" aria-hidden="true"></span>',
+                '<input class="dg-username-password-input" type="password" autocomplete="current-password" required aria-label="' + passwordLabel + '" placeholder="' + passwordLabel + '">',
                 '<button type="button" class="button wp-hide-pw dg-username-password-toggle" aria-label="' + escapeHtml(getLabel('showPassword', 'Show password')) + '"><span class="dashicons dashicons-visibility" aria-hidden="true"></span></button>',
-                '<input class="dg-username-password-input" type="password" autocomplete="current-password" required placeholder="رمز عبور">',
                 '</div>',
                 '<div class="dg-username-login-actions">',
-                '<button type="button" class="button dg-username-login-back"><span class="dashicons ' + backIcon + '" aria-hidden="true"></span><span>' + escapeHtml(backLabel) + '</span></button>',
                 '<button type="submit" class="digits-form_button digits-form_submit digits-form_submit-btn dg-username-login-submit"><span>' + escapeHtml(loginLabel) + '</span></button>',
+                '<button type="button" class="button dg-username-login-back"><span class="dashicons dashicons-arrow-left-alt" aria-hidden="true"></span><span>' + escapeHtml(backLabel) + '</span></button>',
                 '</div>',
                 '</div>',
                 '</div>'
@@ -1135,13 +1169,18 @@
             bindPasswordToggle();
 
             step.querySelector('.dg-username-login-back').addEventListener('click', function () {
+                var password = step.querySelector('.dg-username-password-input');
+                password.value = '';
+                password.disabled = true;
+                password.type = 'password';
+                syncPasswordToggle(step.querySelector('.dg-username-password-toggle'), password);
                 step.hidden = true;
                 step.style.display = 'none';
                 delete form.dataset.dgUsernameStep;
                 form.classList.remove('dg-username-step-active');
                 showDigitsIdentityContainer(form);
 
-                var input = form.querySelector('input[name="digits_phone"]');
+                var input = form.querySelector('.digits-tab_active input[autocomplete="username"]');
                 if (input) {
                     input.focus({ preventScroll: true });
                 }
@@ -1151,14 +1190,9 @@
         step.hidden = false;
         step.style.display = '';
         step.querySelector('.dg-username-login-value').textContent = username;
-        step.querySelector('.dg-username-password-input').placeholder = getLabel('password', 'Password');
-
-        window.setTimeout(function () {
-            var password = step.querySelector('.dg-username-password-input');
-            if (password) {
-                password.focus({ preventScroll: true });
-            }
-        }, 0);
+        var password = step.querySelector('.dg-username-password-input');
+        password.disabled = false;
+        password.focus({ preventScroll: true });
     }
 
     function submitDigitsUsernameLogin(form) {
@@ -1636,13 +1670,20 @@
                 return;
             }
 
-            // Digits 9.2.4.2 owns its passkey challenge and bypasses identity validation.
-            if (button.matches('.digits-form_passwordless_login')) {
+            var form = button.closest('form');
+            if (!isDigitsSecureForm(form)) {
                 return;
             }
 
-            var form = button.closest('form');
-            if (!isDigitsSecureForm(form)) {
+            if (button.matches('.digits-form_passwordless_login')) {
+                var password = visibleDigitsPassword(form);
+                if (!password) {
+                    event.preventDefault();
+                    event.stopImmediatePropagation();
+                } else {
+                    // Digits serializes the form for passkeys. Omit any typed password.
+                    password.value = '';
+                }
                 return;
             }
 
@@ -1673,12 +1714,6 @@
         document.addEventListener('submit', function (event) {
             var form = event.target;
             if (!form || !form.matches('#loginform, #lostpasswordform, #registerform, .digits-form_page form, form.digits-form, form.digits_form_index_section')) {
-                return;
-            }
-
-            if (event.submitter && event.submitter.matches('.digits-form_passwordless_login')) {
-                event.preventDefault();
-                event.submitter.click();
                 return;
             }
 
@@ -1895,6 +1930,7 @@
         var chevron = document.createElement('button');
         chevron.type = 'button';
         chevron.className = 'dg-country-trigger';
+        chevron.setAttribute('aria-label', getLabel('chooseCountryCode', 'Choose country code'));
         chevron.setAttribute('aria-haspopup', 'listbox');
         chevron.setAttribute('aria-expanded', 'false');
         chevron.innerHTML = '<span class="dashicons dashicons-arrow-down-alt2" aria-hidden="true"></span>';
@@ -2013,6 +2049,8 @@
         emailInput.setAttribute('dir', 'auto');
         phoneInput.placeholder = getLabel('identityPlaceholder', 'Username, email, or mobile number');
         emailInput.placeholder = getLabel('identityPlaceholder', 'Username, email, or mobile number');
+        phoneInput.setAttribute('aria-label', phoneInput.placeholder);
+        emailInput.setAttribute('aria-label', emailInput.placeholder);
 
         function syncFrom(input, currentMode) {
             var original = input.value;
@@ -2731,6 +2769,13 @@
         });
 
         normalizeAuthNavigation();
+        document.querySelectorAll('body.login #backtoblog a').forEach(function (link) {
+            var label = link.textContent.replace(/^\s*[←→]\s*/, '');
+            if (label !== link.textContent) {
+                link.textContent = label;
+            }
+        });
+        document.querySelectorAll('.dg-digits-login-shell form').forEach(prepareDigitsSkipPassword);
         normalizeDigitsLoginFallback();
         normalizeRecoveryIdentity();
         prepareDigitsRegistrationAutofill();

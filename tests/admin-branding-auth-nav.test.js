@@ -117,6 +117,7 @@ function createHarness(options) {
     const context = {
         console,
         document,
+        MutationObserver: options.MutationObserver,
         navigator: { language: options.lang || 'en-US' },
         Set,
         URL,
@@ -188,28 +189,62 @@ test('client validation rejection does not schedule a misleading registration ti
     assert.equal(timers.length,0);
 });
 
-test('Digits passkey clicks reach the native handler without ordinary identity validation', () => {
-    const harness=createHarness({});
-    const windowListeners={};
-    harness.window.addEventListener=(name,callback)=>{windowListeners[name]=callback;};
-    const button={matches:(s)=>s==='.digits-form_passwordless_login',closest(){throw new Error('Ordinary form path must not run');}};
-    let prevented=0;
-    harness.hooks.bindLoadingStates();
-    windowListeners.click({target:{closest:()=>button},preventDefault(){prevented++;},stopPropagation(){prevented++;},stopImmediatePropagation(){prevented++;}});
-    assert.equal(prevented,0);
+test('skip password is a localized non-submit control shown only during the password step', () => {
+    let update;
+    const harness = createHarness({
+        labels: {skipPassword: 'ادامه بدون رمز عبور'},
+        MutationObserver: class {
+            constructor(callback) { update = callback; }
+            observe() {}
+        }
+    });
+    const label = {};
+    const skip = {dataset: {}, querySelector: () => label};
+    const wrapper = {};
+    const password = {offsetWidth: 0, getClientRects: () => []};
+    const form = {
+        querySelector: (selector) => selector === '.digits-form_passwordless_login' ? skip : wrapper,
+        querySelectorAll: () => [password]
+    };
+    harness.document.querySelectorAll = (selector) => selector === '.dg-digits-login-shell form' ? [form] : [];
+    harness.hooks.normalizeAuthChrome();
+    assert.equal(skip.type, 'button');
+    assert.equal(label.textContent, 'ادامه بدون رمز عبور');
+    assert.equal(skip.hidden, true);
+    password.offsetWidth = 200;
+    update();
+    assert.equal(skip.hidden, false);
+    password.disabled = true;
+    update();
+    assert.equal(skip.hidden, true);
 });
 
-test('explicit passkey submitter delegates once to its native click instead of an HTTP form POST', () => {
-    const harness=createHarness({});
-    const listeners={};
-    let clicks=0;
-    let prevented=0;
-    harness.window.addEventListener=()=>{};
-    harness.document.addEventListener=(name,callback)=>{listeners[name]=callback;};
+test('passkey click reaches Digits only at the password step and clears any typed password', () => {
+    const harness = createHarness({});
+    const listeners = {};
+    harness.window.addEventListener = (name, callback) => { listeners[name] = callback; };
+    const password = {value: 'test-input', offsetWidth: 200};
+    const form = {matches: () => true, querySelectorAll: () => [password]};
+    const button = {matches: (s) => s === '.digits-form_passwordless_login', closest: () => form};
+    let prevented = 0;
+    let stopped = 0;
+    const event = {
+        target: {closest: () => button},
+        preventDefault() { prevented++; },
+        stopImmediatePropagation() { stopped++; }
+    };
     harness.hooks.bindLoadingStates();
-    listeners.submit({target:{matches:()=>true},submitter:{matches:()=>true,click(){clicks++;}},preventDefault(){prevented++;}});
-    assert.equal(clicks,1);
-    assert.equal(prevented,1);
+    listeners.click(event);
+    assert.equal(prevented, 0);
+    assert.equal(password.value, '');
+    password.disabled = true;
+    listeners.click(event);
+    assert.equal(prevented, 1);
+    assert.equal(stopped, 1);
+});
+
+test('carousel slide track uses the same left-to-right geometry in RTL', () => {
+    assert.match(brandingCss, /body\.login \.dg-hero-track\s*\{[^}]*\bdirection:\s*ltr;/);
 });
 
 test('ordinary Enter remains ordinary when a secondary passkey button exists', () => {
