@@ -118,7 +118,7 @@ function createHarness(options) {
         console,
         document,
         MutationObserver: options.MutationObserver,
-        navigator: { language: options.lang || 'en-US' },
+        navigator: { language: options.lang || 'en-US', credentials: options.credentials },
         Set,
         URL,
         URLSearchParams,
@@ -189,7 +189,7 @@ test('client validation rejection does not schedule a misleading registration ti
     assert.equal(timers.length,0);
 });
 
-test('skip password is a localized non-submit control shown only during the password step', () => {
+test('skip password selects the native SMS tab without sending the typed password', () => {
     let update;
     const harness = createHarness({
         labels: {skipPassword: 'ادامه بدون رمز عبور'},
@@ -198,77 +198,100 @@ test('skip password is a localized non-submit control shown only during the pass
             observe() {}
         }
     });
-    const label = {};
-    const skip = {dataset: {}, querySelector: () => label};
+    const listeners = {};
+    const skip = {addEventListener: (name, callback) => { listeners[name] = callback; }};
     const wrapper = {};
-    const password = {offsetWidth: 0, getClientRects: () => []};
+    let smsClicks = 0;
+    const otpTab = {click: () => { smsClicks++; }};
+    const step = {querySelector: (selector) => selector.includes('data-value') ? otpTab : {}};
+    const password = {value: 'test-input', offsetWidth: 0, getClientRects: () => [], closest: () => step};
+    const primary = {after: (button) => assert.equal(button, skip)};
     const form = {
-        querySelector: (selector) => selector === '.digits-form_passwordless_login' ? skip : wrapper,
-        querySelectorAll: () => [password]
+        dataset: {},
+        querySelector: (selector) => selector === '.digits-form_tab_wrapper' ? wrapper : primary,
+        querySelectorAll: (selector) => selector.includes('sms_otp') ? [] : [password],
+        addEventListener() {}
     };
+    harness.document.createElement = () => skip;
+    harness.window.addEventListener = () => {};
     harness.document.querySelectorAll = (selector) => selector === '.dg-digits-login-shell form' ? [form] : [];
     harness.hooks.normalizeAuthChrome();
     assert.equal(skip.type, 'button');
-    assert.equal(label.textContent, 'ادامه بدون رمز عبور');
+    assert.equal(skip.textContent, 'ادامه بدون رمز عبور');
     assert.equal(skip.hidden, true);
     password.offsetWidth = 200;
     update();
     assert.equal(skip.hidden, false);
+    listeners.click();
+    assert.equal(password.value, '');
+    assert.equal(smsClicks, 1);
     password.disabled = true;
     update();
     assert.equal(skip.hidden, true);
 });
 
-test('passkey click reaches Digits only at the password step and clears any typed password', () => {
-    const harness = createHarness({});
-    const listeners = {};
-    harness.window.addEventListener = (name, callback) => { listeners[name] = callback; };
-    const password = {value: 'test-input', offsetWidth: 200};
-    const form = {matches: () => true, querySelectorAll: () => [password]};
-    const button = {matches: (s) => s === '.digits-form_passwordless_login', closest: () => form};
-    let prevented = 0;
-    let stopped = 0;
-    const event = {
-        target: {closest: () => button},
-        preventDefault() { prevented++; },
-        stopImmediatePropagation() { stopped++; }
+test('WebOTP can receive the code before the SMS response and submits once the Digits field is ready', async () => {
+    let receive;
+    let submitted = 0;
+    let request;
+    let signal;
+    const harness = createHarness({credentials: {get(options) {
+        signal = options.signal;
+        return new Promise((resolve) => { receive = resolve; });
+    }}});
+    harness.window.OTPCredential = function () {};
+    harness.window.AbortController = AbortController;
+    harness.window.clearTimeout = () => {};
+    harness.document.body.classList.remove = () => {};
+    harness.window.jQuery = {ajax(settings) { request = settings; }};
+    const otp = {value: '', offsetWidth: 200};
+    const primary = {offsetWidth: 200, click: () => { submitted++; }};
+    const form = {
+        matches: () => true,
+        closest: () => ({}),
+        offsetWidth: 200,
+        querySelectorAll: (selector) => selector.includes('sms_otp') ? [otp] : [primary]
     };
-    harness.hooks.bindLoadingStates();
-    listeners.click(event);
-    assert.equal(prevented, 0);
-    assert.equal(password.value, '');
-    password.disabled = true;
-    listeners.click(event);
-    assert.equal(prevented, 1);
-    assert.equal(stopped, 1);
+    harness.document.activeElement = {closest: () => form};
+    harness.hooks.patchDigitsAjaxFailureGuard();
+    harness.window.jQuery.ajax({data: [{name: 'action', value: 'digits_forms_ajax'}, {name: 'sub_action', value: 'sms_otp'}]});
+    request.beforeSend();
+    const sendRequest = request;
+    harness.window.jQuery.ajax({data: [{name: 'action', value: 'digits_forms_ajax'}, {name: 'check_status', value: '1'}, {name: 'sms_otp', value: '123456'}]});
+    assert.equal(request.beforeSend, undefined);
+    assert.equal(request.data.find(field => field.name === 'sms_otp').value, '');
+    assert.equal(signal.aborted, false);
+    receive({code: '123456'});
+    await Promise.resolve();
+    assert.equal(submitted, 0);
+    const payload = {success: true, data: {auto_fill: true, check_remote_status: true}};
+    sendRequest.success(payload);
+    sendRequest.complete();
+    assert.equal(payload.data.auto_fill, false);
+    assert.equal(payload.data.check_remote_status, false);
+    assert.equal(otp.value, '123456');
+    assert.equal(submitted, 1);
+    assert.equal(signal.aborted, true);
 });
 
 test('carousel slide track uses the same left-to-right geometry in RTL', () => {
     assert.match(brandingCss, /body\.login \.dg-hero-track\s*\{[^}]*\bdirection:\s*ltr;/);
 });
 
-test('ordinary Enter remains ordinary when a secondary passkey button exists', () => {
+test('ordinary Enter remains ordinary when a secondary SMS button exists', () => {
     const harness=createHarness({});
     const listeners={};
-    let passkeyClicks=0;
+    let skipClicks=0;
     let validityChecks=0;
     harness.window.addEventListener=()=>{};
     harness.window.clearTimeout=()=>{};
     harness.document.addEventListener=(name,callback)=>{listeners[name]=callback;};
-    const hiddenPasskey={click(){passkeyClicks++;}};
-    const form={matches:()=>true,querySelector:()=>hiddenPasskey,querySelectorAll:()=>[],checkValidity(){validityChecks++;return false;}};
+    const skip={click(){skipClicks++;}};
+    const form={dataset:{},matches:()=>true,querySelector:()=>skip,querySelectorAll:()=>[],checkValidity(){validityChecks++;return false;}};
     harness.hooks.bindLoadingStates();
     listeners.submit({target:form,submitter:{matches:()=>false},preventDefault(){}});
-    assert.equal(passkeyClicks,0);
+    assert.equal(skipClicks,0);
     assert.equal(validityChecks,1);
-});
-
-test('both native passkey request stages remain compatible with the AJAX guard', () => {
-    const {hooks}=createHarness({});
-    for(const stage of ['start_passwordless_login','complete_passwordless_login']){
-        assert.equal(hooks.isDigitsAjaxRequest({data:[{name:'action',value:'digits_forms_ajax'},{name:'sub_action',value:stage}]}),true);
-    }
-    assert.equal(hooks.hasUsableDigitsPayload({success:true,data:{token:'synthetic-challenge'}}),true);
 });
 
 test('real requests start loading only in beforeSend and cancellation preserves native behavior', () => {

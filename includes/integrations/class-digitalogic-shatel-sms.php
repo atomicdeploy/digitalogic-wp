@@ -56,7 +56,7 @@ final class Digitalogic_Shatel_SMS_Primary {
 			'/v1/send',
 			array(
 				'to'              => $mobile,
-				'text'            => "کد ورود دیجیتالاجیک: {$otp}\nاین کد را در اختیار دیگران قرار ندهید.",
+				'text'            => sprintf( "کد ورود دیجیتالاجیک: %1\$s\n\n@%2\$s #%1\$s", $otp, wp_parse_url( home_url(), PHP_URL_HOST ) ),
 				'idempotency_key' => 'wp:' . substr( hash( 'sha256', $mobile . "\0" . $otp . "\0" . floor( time() / 300 ) ), 0, 48 ),
 			)
 		);

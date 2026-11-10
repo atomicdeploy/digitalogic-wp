@@ -4,6 +4,7 @@
     var root = document.documentElement;
     var lastPersistedTheme = config.initialTheme === 'dark' ? 'dark' : 'light';
     var loadingFailSafeTimer = null;
+    var digitsSmsWaits = new WeakMap();
     var feedbackSelector = [
         '#login_error',
         '.notice-error',
@@ -1104,22 +1105,75 @@
         );
     }
 
-    function prepareDigitsSkipPassword(form) {
-        var skip = form.querySelector('.digits-form_passwordless_login');
-        var wrapper = form.querySelector('.digits-form_tab_wrapper');
+    function digitsSmsTab(password) {
+        var step = password && password.closest('.digits-form_tab_container');
+        if (step && step.querySelector('.digits-form_otp_selector[data-type="sms_otp"], input[name="sms_otp"]')) {
+            return step.querySelector('.digits-form_tab-item[data-value="otp"]');
+        }
+        return null;
+    }
 
-        if (!skip || !wrapper || skip.dataset.dgSkipReady === 'true') {
+    function startNativeDigitsSms(password, tab) {
+        password.value = '';
+        tab.click();
+    }
+
+    function showDigitsSmsIdentity(form) {
+        form.querySelector('.dg-username-login-back').click();
+        form.querySelector('[name="digits_email"]').value = '';
+        form.querySelector('[name="digits_phone"]').value = '';
+        form.dataset.dgSmsIdentity = 'true';
+        form.querySelector('.digits-form_login > .digits-form_submit-btn .digits-form_button-text').textContent = getLabel('sendSmsCode', 'Send SMS code');
+        selectDigitsMode('phone', true);
+        showDigitsInlineMessage(form, getLabel('smsIdentity', 'Enter the mobile number on your account to receive a code.'), 'success');
+    }
+
+    function prepareDigitsSkipPassword(form) {
+        var wrapper = form.querySelector('.digits-form_tab_wrapper');
+        var primary = form.querySelector('.digits-form_login > .digits-form_submit-btn');
+
+        if (!primary || !wrapper || form.dataset.dgSmsReady === 'true') {
             return;
         }
 
-        // Keep the original button so Digits still owns the passkey challenge.
-        skip.dataset.dgSkipReady = 'true';
+        form.dataset.dgSmsReady = 'true';
+        var skip = document.createElement('button');
+        skip.className = 'dg-skip-password';
         skip.type = 'button';
-        (skip.querySelector('.digits-form_button-text') || skip).textContent = getLabel('skipPassword', 'Skip password');
-        skip.title = getLabel('skipPasswordHelp', 'Continue with a passkey');
+        skip.textContent = getLabel('skipPassword', 'Skip password');
+        skip.title = getLabel('skipPasswordHelp', 'Sign in with an SMS code');
+        primary.after(skip);
+
+        skip.addEventListener('click', function () {
+            var password = visibleDigitsPassword(form);
+            var tab = digitsSmsTab(password);
+            if (tab && form.dataset.dgPending !== 'true') {
+                startNativeDigitsSms(password, tab);
+            }
+        });
 
         function updateVisibility() {
-            skip.hidden = !visibleDigitsPassword(form);
+            var password = visibleDigitsPassword(form);
+            var tab = digitsSmsTab(password);
+            var otp = visibleDigitsSmsInput(form);
+            skip.hidden = !tab;
+
+            if (form.dataset.dgSmsIdentity === 'true' && !form.classList.contains('digits_form_index_section')) {
+                delete form.dataset.dgSmsIdentity;
+                primary.querySelector('.digits-form_button-text').textContent = getLabel('continue', 'Continue');
+                if (tab) {
+                    startNativeDigitsSms(password, tab);
+                }
+            }
+
+            if (otp) {
+                // An SMS code has no remote approval step. Keep Digits from polling it on focus.
+                if (!otp.classList.contains('disable_auto_read')) {
+                    otp.classList.add('disable_auto_read');
+                }
+                otp.autocomplete = 'one-time-code';
+                otp.inputMode = 'numeric';
+            }
         }
 
         updateVisibility();
@@ -1129,6 +1183,17 @@
             attributes: true,
             attributeFilter: ['class', 'style', 'hidden', 'type', 'disabled']
         });
+        form.addEventListener('input', function (event) {
+            if (event.target.matches('input[name="sms_otp"]')) {
+                stopDigitsSmsWait(form);
+            }
+        });
+        form.addEventListener('click', function (event) {
+            if (event.target.closest('.digits_form_back')) {
+                stopDigitsSmsWait(form);
+            }
+        }, true);
+        window.addEventListener('pagehide', function () { stopDigitsSmsWait(form); });
     }
 
     function showDigitsUsernamePasswordStep(form, username) {
@@ -1161,12 +1226,17 @@
                 '<div class="dg-username-login-actions">',
                 '<button type="submit" class="digits-form_button digits-form_submit digits-form_submit-btn dg-username-login-submit"><span>' + escapeHtml(loginLabel) + '</span></button>',
                 '<button type="button" class="button dg-username-login-back"><span class="dashicons dashicons-arrow-left-alt" aria-hidden="true"></span><span>' + escapeHtml(backLabel) + '</span></button>',
+                '<button type="button" class="dg-skip-password" title="' + escapeHtml(getLabel('skipPasswordHelp', 'Sign in with an SMS code')) + '">' + escapeHtml(getLabel('skipPassword', 'Skip password')) + '</button>',
                 '</div>',
                 '</div>',
                 '</div>'
             ].join('');
             wrapper.appendChild(step);
             bindPasswordToggle();
+
+            step.querySelector('.dg-skip-password').addEventListener('click', function () {
+                showDigitsSmsIdentity(form);
+            });
 
             step.querySelector('.dg-username-login-back').addEventListener('click', function () {
                 var password = step.querySelector('.dg-username-password-input');
@@ -1248,6 +1318,10 @@
 
         if (form.dataset.dgUsernameStep === 'password') {
             return submitDigitsUsernameLogin(form);
+        }
+
+        if (form.dataset.dgSmsIdentity === 'true' || !form.classList.contains('digits_form_index_section')) {
+            return false;
         }
 
         var value = digitsIdentityValue(form);
@@ -1442,13 +1516,62 @@
     function digitsRequestForm() {
         var active = document.activeElement;
         var focused = active && active.closest ? active.closest('form') : null;
-        if (isDigitsSecureForm(focused) && isVisibleElement(focused)) {
+        if (isVisibleElement(focused) && (isDigitsSecureForm(focused) || focused.closest('.dg-digits-login-shell'))) {
             return focused;
         }
         return Array.prototype.find.call(
-            document.querySelectorAll('form.digits_form_index_section, form.digits-form, .digits-form_page form'),
+            document.querySelectorAll('.dg-digits-login-shell form, form.digits_form_index_section, form.digits-form, .digits-form_page form'),
             isVisibleElement
         ) || null;
+    }
+
+    function visibleDigitsSmsInput(form) {
+        return Array.prototype.find.call(form.querySelectorAll('input.otp_input[name="sms_otp"]'), isVisibleElement);
+    }
+
+    function stopDigitsSmsWait(form) {
+        var wait = digitsSmsWaits.get(form);
+        if (wait) {
+            digitsSmsWaits.delete(form);
+            wait.controller.abort();
+        }
+    }
+
+    function submitReceivedSmsCode(form, wait) {
+        if (digitsSmsWaits.get(form) !== wait || !wait.ready || !wait.code) {
+            return;
+        }
+
+        var input = visibleDigitsSmsInput(form);
+        var button = digitsSubmitButton(form);
+        stopDigitsSmsWait(form);
+        if (input && button && !input.value && !button.disabled) {
+            input.value = wait.code;
+            button.click();
+        }
+    }
+
+    function startDigitsSmsWait(form) {
+        stopDigitsSmsWait(form);
+        if (!('OTPCredential' in window) || !window.AbortController) {
+            return null;
+        }
+
+        var wait = { controller: new window.AbortController(), ready: false, code: '' };
+        digitsSmsWaits.set(form, wait);
+
+        // Register before the SMS request goes out, even if the carrier delivers immediately.
+        navigator.credentials.get({ otp: { transport: ['sms'] }, signal: wait.controller.signal }).then(function (credential) {
+            if (credential && /^[0-9]{4,8}$/.test(credential.code)) {
+                wait.code = credential.code;
+                submitReceivedSmsCode(form, wait);
+            }
+        }).catch(function () {
+            if (digitsSmsWaits.get(form) === wait) {
+                stopDigitsSmsWait(form);
+            }
+        });
+        return wait;
     }
 
     function patchDigitsAjaxFailureGuard() {
@@ -1470,6 +1593,22 @@
                 var beforeSend = guardedSettings.beforeSend;
                 var complete = guardedSettings.complete;
                 var requestForm = digitsRequestForm();
+                var brandedLogin = requestForm && requestForm.closest && requestForm.closest('.dg-digits-login-shell');
+                var fields = brandedLogin && Array.isArray(settings.data) ? settings.data : [];
+                var checksStatus = fields.some(function (field) { return field && field.name === 'check_status'; });
+                var sendsSms = fields.some(function (field) { return field && field.name === 'sub_action' && field.value === 'sms_otp'; });
+                if (sendsSms || checksStatus) {
+                    // Only the verification request may carry the current SMS code.
+                    guardedSettings.data = fields.map(function (field) {
+                        return field && field.name === 'sms_otp' ? { name: field.name, value: '' } : field;
+                    });
+                }
+                if (checksStatus) {
+                    args[settingsIndex] = guardedSettings;
+                    return originalAjax.apply(this, args);
+                }
+                var verifiesSms = fields.some(function (field) { return field && field.name === 'sms_otp' && field.value; });
+                var smsWait = null;
 
                 if (!guardedSettings.timeout) {
                     guardedSettings.timeout = 30000;
@@ -1479,11 +1618,29 @@
                     if (typeof beforeSend === 'function' && beforeSend.apply(this, arguments) === false) {
                         return false;
                     }
-                    markLoading(digitsSubmitButton(requestForm), false, requestForm);
+                    if (sendsSms) {
+                        var previousCode = visibleDigitsSmsInput(requestForm);
+                        if (previousCode) {
+                            previousCode.value = '';
+                        }
+                        smsWait = startDigitsSmsWait(requestForm);
+                    } else {
+                        if (verifiesSms) {
+                            stopDigitsSmsWait(requestForm);
+                        }
+                        markLoading(digitsSubmitButton(requestForm), false, requestForm);
+                    }
                 };
 
                 guardedSettings.complete = function () {
                     clearLoading();
+                    if (smsWait && digitsSmsWaits.get(requestForm) === smsWait) {
+                        if (smsWait.ready && visibleDigitsSmsInput(requestForm)) {
+                            submitReceivedSmsCode(requestForm, smsWait);
+                        } else {
+                            stopDigitsSmsWait(requestForm);
+                        }
+                    }
                     if (typeof complete === 'function') {
                         return complete.apply(this, arguments);
                     }
@@ -1501,6 +1658,14 @@
                     }
 
                     try {
+                        if (sendsSms && payload.success) {
+                            payload.data.check_remote_status = false;
+                        }
+                        if (smsWait && payload.success) {
+                            smsWait.ready = true;
+                            // This form already has a cancellable WebOTP request.
+                            payload.data.auto_fill = false;
+                        }
                         if (typeof success === 'function') {
                             return success.apply(this, arguments);
                         }
@@ -1631,6 +1796,11 @@
 
         prepareDigitsCaptchaProtection();
 
+        if (form.dataset.dgSmsIdentity === 'true' && form.closest('.dg-digits-login-shell').dataset.dgIdentity !== 'phone') {
+            showDigitsInlineMessage(form, getLabel('smsIdentity', 'Enter the mobile number on your account to receive a code.'), 'warning');
+            return;
+        }
+
         if (typeof form.checkValidity === 'function' && !form.checkValidity()) {
             clearLoading();
             return;
@@ -1671,25 +1841,18 @@
             }
 
             var form = button.closest('form');
-            if (!isDigitsSecureForm(form)) {
+            if (button.matches('.digits-form_passwordless_login')) {
+                event.preventDefault();
+                event.stopImmediatePropagation();
                 return;
             }
-
-            if (button.matches('.digits-form_passwordless_login')) {
-                var password = visibleDigitsPassword(form);
-                if (!password) {
-                    event.preventDefault();
-                    event.stopImmediatePropagation();
-                } else {
-                    // Digits serializes the form for passkeys. Omit any typed password.
-                    password.value = '';
-                }
+            if (!isDigitsSecureForm(form)) {
                 return;
             }
 
             var value = digitsIdentityValue(form);
             var identityType = classifyIdentity(value);
-            var isUsernameFlow = form.dataset.dgUsernameStep === 'password' || identityType === 'username' || identityType === 'email';
+            var isUsernameFlow = !form.dataset.dgSmsIdentity && (form.dataset.dgUsernameStep === 'password' || identityType === 'username' || identityType === 'email');
 
             event.preventDefault();
             event.stopPropagation();
@@ -2825,7 +2988,7 @@
     function enableRipples() {
         document.addEventListener('pointerdown', function (event) {
             var target = event.target.closest('button, .button, .page-title-action, #wpadminbar a, .digits-social-btn');
-            if (!target || target.disabled || target.classList.contains('ab-empty-item')) {
+            if (!target || target.disabled || target.matches('.ab-empty-item, .dg-skip-password')) {
                 return;
             }
 

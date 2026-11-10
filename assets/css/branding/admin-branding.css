@@ -1039,37 +1039,40 @@ body.login .dg-digits-login-shell form.dg-username-step-active .dg-username-pass
     display: inline-flex !important;
 }
 
-body.login .dg-digits-login-shell :is(.digits-form_login_separator, .digits-form_passwordless_login),
-body.login .dg-digits-login-shell .digits-form_passwordless_login .digits-form_button_ic {
+body.login .dg-digits-login-shell :is(.digits-form_login_separator, .digits-form_passwordless_login, .dg-skip-password[hidden]) {
     display: none !important;
 }
 
-body.login .dg-digits-login-shell button.digits-form_passwordless_login[data-dg-skip-ready]:not([hidden]) {
-    display: flex !important;
+body.login .dg-digits-login-shell .dg-skip-password {
+    display: flex;
     align-items: center;
     justify-content: center;
-    width: fit-content;
-    min-height: 44px;
-    height: auto;
-    margin: 6px auto 0;
-    padding: 4px 12px;
-    border: 0;
-    border-radius: 8px;
-    background: transparent;
+    box-sizing: border-box;
+    inline-size: 100%;
+    min-block-size: 56px;
+    margin: 10px 0 0;
+    padding: 6px 12px;
+    border: 1px solid var(--dg-border-strong);
+    border-radius: 18px;
+    background: var(--dg-panel);
     color: var(--dg-accent-strong);
-    font: inherit;
+    font: 16px/1.4 var(--dg-font);
     font-weight: 700;
-    text-decoration: underline;
-    text-underline-offset: 0.2em;
-    box-shadow: none;
+    text-decoration: none;
     cursor: pointer;
 }
 
-body.login .dg-digits-login-shell button.digits-form_passwordless_login:not([hidden]):hover {
-    color: var(--dg-accent);
+body.login .dg-username-login-actions .dg-skip-password {
+    grid-column: 1;
+    margin: 0;
 }
 
-body.login .dg-digits-login-shell button.digits-form_passwordless_login:focus-visible {
+body.login .dg-digits-login-shell .dg-skip-password:hover {
+    background: var(--dg-panel-strong);
+    border-color: var(--dg-accent);
+}
+
+body.login .dg-digits-login-shell .dg-skip-password:focus-visible {
     outline: 2px solid var(--dg-accent-strong);
     outline-offset: 2px;
 }
