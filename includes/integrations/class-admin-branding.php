@@ -33,8 +33,8 @@ final class Digitalogic_Plugin_Admin_Branding {
         add_action('login_head', [self::class, 'output_theme_bootstrap']);
         add_action('admin_enqueue_scripts', [self::class, 'enqueue_admin_assets']);
         add_action('login_enqueue_scripts', [self::class, 'enqueue_login_assets']);
-        add_action('wp_ajax_nopriv_digits_forms_ajax', [self::class, 'use_utc_for_digits_forms'], 0);
-        add_action('wp_ajax_digits_forms_ajax', [self::class, 'use_utc_for_digits_forms'], 0);
+		add_action( 'wp_ajax_nopriv_digits_forms_ajax', array( self::class, 'use_utc_for_digits_forms' ), 0 );
+		add_action( 'wp_ajax_digits_forms_ajax', array( self::class, 'use_utc_for_digits_forms' ), 0 );
         add_action('wp_ajax_digitalogic_set_admin_theme', [self::class, 'ajax_set_admin_theme']);
         add_action('admin_bar_menu', [self::class, 'admin_bar_menu'], 1);
         add_action('wp_dashboard_setup', [self::class, 'register_dashboard_widgets']);
@@ -87,10 +87,11 @@ HTML;
         self::enqueue_assets(true);
     }
 
-    /** Keep Digits' PHP clock aligned with the UTC timestamps it stores for OTPs. */
-    public static function use_utc_for_digits_forms(): void {
-        date_default_timezone_set('UTC');
-    }
+	/** Keep Digits' PHP clock aligned with the UTC timestamps it stores for OTPs. */
+	public static function use_utc_for_digits_forms(): void {
+		// phpcs:ignore WordPress.DateTime.RestrictedFunctions.timezone_change_date_default_timezone_set -- Digits compares its stored UTC timestamps using PHP's default timezone.
+		date_default_timezone_set( 'UTC' );
+	}
 
     public static function admin_body_class(string $classes): string {
         return trim($classes . ' digitalogic-admin-shell');
@@ -484,12 +485,12 @@ JS;
                 'usernameEmailPhone' => 'Username, email, or mobile number',
                 'identityPlaceholder' => 'Username, email, or mobile number',
                 'password' => 'Password',
-                'skipPassword' => 'Skip password',
-                'skipPasswordHelp' => 'Sign in with an SMS code',
-                'smsIdentity' => 'Enter the mobile number on your account to receive a code.',
-                'sendSmsCode' => 'Send SMS code',
-                'continue' => 'Continue',
-                'chooseCountryCode' => 'Choose country code',
+				'skipPassword'         => 'Skip password',
+				'skipPasswordHelp'     => 'Sign in with an SMS code',
+				'smsIdentity'          => 'Enter the mobile number on your account to receive a code.',
+				'sendSmsCode'          => 'Send SMS code',
+				'continue'             => 'Continue',
+				'chooseCountryCode'    => 'Choose country code',
                 'showPassword' => 'Show password',
                 'hidePassword' => 'Hide password',
                 'phoneIdentity' => 'Mobile',
@@ -519,12 +520,12 @@ JS;
             'usernameEmailPhone' => 'نام کاربری، ایمیل یا شماره موبایل',
             'identityPlaceholder' => 'نام کاربری، ایمیل یا شماره موبایل',
             'password' => 'رمز عبور',
-            'skipPassword' => 'ادامه بدون رمز عبور',
-            'skipPasswordHelp' => 'ورود با کد پیامکی',
-            'smsIdentity' => 'برای دریافت کد، شماره موبایل حساب خود را وارد کنید.',
-            'sendSmsCode' => 'ارسال کد پیامکی',
-            'continue' => 'ادامه',
-            'chooseCountryCode' => 'انتخاب پیش‌شماره کشور',
+			'skipPassword'         => 'ادامه بدون رمز عبور',
+			'skipPasswordHelp'     => 'ورود با کد پیامکی',
+			'smsIdentity'          => 'برای دریافت کد، شماره موبایل حساب خود را وارد کنید.',
+			'sendSmsCode'          => 'ارسال کد پیامکی',
+			'continue'             => 'ادامه',
+			'chooseCountryCode'    => 'انتخاب پیش‌شماره کشور',
             'showPassword' => 'نمایش رمز عبور',
             'hidePassword' => 'پنهان کردن رمز عبور',
             'phoneIdentity' => 'موبایل',
