@@ -16,6 +16,7 @@ defined( 'ABSPATH' ) || exit;
 
 final class Digitalogic_Product_Experience {
 	const VERSION = '2.3.2';
+	const SOURCE_IDENTITY_REVIEW_META = '_digitalogic_source_identity_review_state';
 
 	public static function init() {
 		add_filter( 'body_class', array( __CLASS__, 'body_classes' ) );
@@ -231,6 +232,18 @@ final class Digitalogic_Product_Experience {
 		return $rows;
 	}
 
+	/**
+	 * Source aliases can contain catalog shorthand that looks like an electrical
+	 * rating. Keep the aliases available to import and search, but omit them from
+	 * storefront identity widgets while the product is marked pending review.
+	 *
+	 * @param WC_Product $product Current product.
+	 * @return bool
+	 */
+	private static function source_identity_is_pending( WC_Product $product ): bool {
+		return 'pending' === get_post_meta( $product->get_id(), self::SOURCE_IDENTITY_REVIEW_META, true );
+	}
+
 	public static function shortcode_highlights() {
 		$product = self::product();
 		if ( ! $product ) {
@@ -238,7 +251,7 @@ final class Digitalogic_Product_Experience {
 		}
 
 		$items = array();
-		$model = $product->is_type( 'variable' )
+		$model = self::source_identity_is_pending( $product ) || $product->is_type( 'variable' )
 			? ''
 			: trim( (string) get_post_meta( $product->get_id(), '_digitalogic_model', true ) );
 
@@ -377,16 +390,17 @@ final class Digitalogic_Product_Experience {
 			return '';
 		}
 
-		$identity        = array();
-		$technical       = array();
-		$physical        = array();
-		$sku             = trim( (string) $product->get_sku() );
-		$model           = $product->is_type( 'variable' )
+		$identity         = array();
+		$technical        = array();
+		$physical         = array();
+		$sku              = trim( (string) $product->get_sku() );
+		$identity_pending = self::source_identity_is_pending( $product );
+		$model            = $identity_pending || $product->is_type( 'variable' )
 			? ''
 			: trim( (string) get_post_meta( $product->get_id(), '_digitalogic_model', true ) );
-		$technical_name  = trim( (string) get_post_meta( $product->get_id(), '_digitalogic_patris_name', true ) );
-		$part_number     = trim( (string) get_post_meta( $product->get_id(), '_digitalogic_part_number', true ) );
-		$normalized_name = preg_replace( '/-{2,}/', '-', $technical_name );
+		$technical_name   = $identity_pending ? '' : trim( (string) get_post_meta( $product->get_id(), '_digitalogic_patris_name', true ) );
+		$part_number      = $identity_pending ? '' : trim( (string) get_post_meta( $product->get_id(), '_digitalogic_part_number', true ) );
+		$normalized_name  = preg_replace( '/-{2,}/', '-', $technical_name );
 		if (
 			'' !== $part_number
 			&& is_string( $normalized_name )
