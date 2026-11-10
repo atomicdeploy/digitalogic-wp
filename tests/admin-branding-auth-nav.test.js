@@ -164,6 +164,36 @@ test('native serialized Digits form requests are recognized without matching unr
     assert.equal(hooks.isDigitsAjaxRequest({data:'action=digits_forms_ajax'}),true);
 });
 
+test('a successful Digits login resumes its same-site OpenID request with the original parameters', () => {
+    const {document, window, hooks} = createHarness({});
+    const target = new URL('/wp-login.php', window.location.href);
+    target.searchParams.set('action', 'openid-authenticate');
+    target.searchParams.set('client_id', 'git-probe');
+    target.searchParams.set('response_type', 'code');
+    target.searchParams.set('state', 'probe+state/&=%');
+    const hidden = {value: target.href};
+    const form = {offsetWidth: 300, matches: () => true, closest: () => ({}), querySelector: () => hidden};
+    document.activeElement = {closest: () => form};
+    let guarded;
+    window.jQuery = {ajax(settings) { guarded = settings; }};
+    hooks.patchDigitsAjaxFailureGuard();
+    window.jQuery.ajax({data: [{name: 'action', value: 'digits_forms_ajax'}]});
+
+    const payload = {success: true, data: {process: true, process_type: 'login', redirect: '/'}};
+    guarded.success(payload);
+    assert.equal(payload.data.redirect, target.href);
+
+    payload.data.redirect = '/';
+    payload.success = false;
+    guarded.success(payload);
+    assert.equal(payload.data.redirect, '/');
+
+    payload.success = true;
+    hidden.value = target.href.replace('digitalogic.test', 'other.test');
+    guarded.success(payload);
+    assert.equal(payload.data.redirect, '/');
+});
+
 test('empty or non-JSON AJAX results cannot enter the native Digits callback', () => {
     const {hooks} = createHarness({});
     for(const payload of ['', '0', '<html>Unavailable</html>', null, {}, {success:true,data:{}}]) {

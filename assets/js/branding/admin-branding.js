@@ -1078,6 +1078,24 @@
         return value || window.location.href;
     }
 
+    function restoreDigitsOpenIdReturn(form, data) {
+        if (!data || !data.process || data.process_type !== 'login' || !form || !form.closest || !form.closest('.dg-digits-login-shell')) {
+            return;
+        }
+
+        try {
+            var page = new window.URL(window.location.href);
+            var target = new window.URL(digitsLoginRedirect(form), page);
+            if (target.origin === page.origin && !target.username && !target.password && target.pathname === '/wp-login.php'
+                && target.searchParams.get('action') === 'openid-authenticate' && target.searchParams.get('client_id')
+                && target.searchParams.get('response_type') === 'code') {
+                data.redirect = target.href;
+            }
+        } catch (error) {
+            // Keep the native Digits redirect when the return URL is malformed.
+        }
+    }
+
     function hideDigitsIdentityContainer(form) {
         var phoneInput = form && form.querySelector('input[name="digits_phone"]');
         var container = phoneInput ? phoneInput.closest('.digits-form_tab_container') : null;
@@ -1396,6 +1414,10 @@
             return;
         }
 
+        if (payload && payload.success === true) {
+            restoreDigitsOpenIdReturn(form, data);
+        }
+
         if (data && data.reload) {
             window.location.reload();
             return;
@@ -1658,6 +1680,9 @@
                     }
 
                     try {
+                        if (payload.success) {
+                            restoreDigitsOpenIdReturn(requestForm, payload.data);
+                        }
                         if (sendsSms && payload.success) {
                             payload.data.check_remote_status = false;
                         }
