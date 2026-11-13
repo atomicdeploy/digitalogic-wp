@@ -35,6 +35,11 @@ final class Digitalogic_Plugin_Admin_Branding {
         add_action('login_enqueue_scripts', [self::class, 'enqueue_login_assets']);
 		add_action( 'wp_ajax_nopriv_digits_forms_ajax', array( self::class, 'use_utc_for_digits_forms' ), 0 );
 		add_action( 'wp_ajax_digits_forms_ajax', array( self::class, 'use_utc_for_digits_forms' ), 0 );
+		add_action( 'rest_api_init', array( self::class, 'register_login_slides_route' ) );
+		add_filter( 'digitalogic_command_handlers', array( self::class, 'auth_presentation_commands' ), 10, 2 );
+		add_filter( 'digitalogic_command_requires_auth', array( self::class, 'auth_presentation_permission' ), 10, 4 );
+		add_action( 'woocommerce_after_edit_account_form', array( self::class, 'render_passkey_settings' ) );
+		add_filter( 'gettext_digits', array( self::class, 'translate_digits_passkeys' ), 10, 2 );
         add_action('wp_ajax_digitalogic_set_admin_theme', [self::class, 'ajax_set_admin_theme']);
         add_action('admin_bar_menu', [self::class, 'admin_bar_menu'], 1);
         add_action('wp_dashboard_setup', [self::class, 'register_dashboard_widgets']);
@@ -91,6 +96,92 @@ HTML;
 	public static function use_utc_for_digits_forms(): void {
 		// phpcs:ignore WordPress.DateTime.RestrictedFunctions.timezone_change_date_default_timezone_set -- Digits compares its stored UTC timestamps using PHP's default timezone.
 		date_default_timezone_set( 'UTC' );
+	}
+
+	/** Register the public artwork feed for the login page. */
+	public static function register_login_slides_route(): void {
+		register_rest_route(
+			'digitalogic/v1',
+			'/login-slides',
+			array(
+				'methods'             => WP_REST_Server::READABLE,
+				'permission_callback' => '__return_true',
+				'callback'            => array( self::class, 'login_slides' ),
+			)
+		);
+	}
+
+	/** Return the artwork configured for the login page. */
+	public static function login_slides(): array {
+		return array( array( 'image' => DIGITALOGIC_PLUGIN_URL . 'assets/images/branding/login-hero.png' ) );
+	}
+
+	/**
+	 * Expose the same public presentation data on the login and signup socket.
+	 *
+	 * @param array  $commands  Existing commands.
+	 * @param string $transport Current transport.
+	 */
+	public static function auth_presentation_commands( array $commands, string $transport ): array {
+		if ( 'websocket' === $transport ) {
+			$commands['digitalogic_auth_presentation'] = static function (): array {
+				return array( 'slides' => self::login_slides() );
+			};
+		}
+		return $commands;
+	}
+
+	/**
+	 * Keep credentials and account lookup outside the public command surface.
+	 *
+	 * @param bool   $required  Current authorization requirement.
+	 * @param string $command   Requested command.
+	 * @param array  $payload   Command payload.
+	 * @param string $transport Current transport.
+	 */
+	public static function auth_presentation_permission( bool $required, string $command, array $payload, string $transport ): bool {
+		return 'websocket' === $transport && 'digitalogic_auth_presentation' === $command ? false : $required;
+	}
+
+	/** Offer enrollment from account settings, after sign-in has finished. */
+	public static function render_passkey_settings(): void {
+		if ( ! is_user_logged_in() || ! shortcode_exists( 'df-biometrics-setup' ) ) {
+			return;
+		}
+
+		$settings = do_shortcode( '[df-biometrics-setup]' );
+		if ( '' === trim( $settings ) ) {
+			return;
+		}
+
+		$persian = str_starts_with( strtolower( determine_locale() ), 'fa' );
+		echo '<details><summary>' . esc_html( $persian ? 'مدیریت کلیدهای عبور' : __( 'Manage passkeys', 'digitalogic' ) ) . '</summary>';
+		echo $settings; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Markup from the installed Digits account shortcode.
+		echo '</details>';
+	}
+
+	/**
+	 * Translate passkey strings missing from the Digits Persian catalog.
+	 *
+	 * @param string $translation Existing translation.
+	 * @param string $original Original Digits string.
+	 * @return string
+	 */
+	public static function translate_digits_passkeys( string $translation, string $original ): string {
+		if ( ! str_starts_with( strtolower( determine_locale() ), 'fa' ) ) {
+			return $translation;
+		}
+		$labels = array(
+			'Passkey'                       => 'کلید عبور',
+			'Passkeys'                      => 'کلیدهای عبور',
+			'Passwordless login'            => 'ورود با کلید عبور',
+			'Sign in with a passkey'        => 'ورود با کلید عبور',
+			'Set up a passkey'              => 'تنظیم کلید عبور',
+			'Create a passkey'              => 'ایجاد کلید عبور',
+			'Add a passkey'                 => 'افزودن کلید عبور',
+			'Passkey authentication failed' => 'ورود با کلید عبور انجام نشد.',
+		);
+		return $labels[ $original ] ?? $translation;
 	}
 
     public static function admin_body_class(string $classes): string {
@@ -463,6 +554,11 @@ JS;
         ];
 
         $config['labels'] = self::client_labels();
+		if ( $is_login ) {
+			$config['loginSlidesUrl']     = rest_url( 'digitalogic/v1/login-slides' );
+			$config['authWebSocket']      = class_exists( 'Digitalogic_WebSocket' ) ? Digitalogic_WebSocket::instance()->get_public_client_config() : array();
+			$config['rememberedAccount'] = Digitalogic_Plugin_Auth_Routes::remembered_account();
+		}
 
         return $config;
     }
@@ -485,7 +581,14 @@ JS;
                 'usernameEmailPhone' => 'Username, email, or mobile number',
                 'identityPlaceholder' => 'Username, email, or mobile number',
                 'password' => 'Password',
-				'skipPassword'         => 'Skip password',
+				'skipPassword'         => 'Sign in without a password',
+				'passkeyOptions'       => 'Other sign-in options',
+				'passkeyLogin'         => 'Sign in with a passkey',
+				'otpCode'              => 'Verification code',
+				'otpDigit'             => 'Digit %d',
+				'otpIncomplete'        => 'Enter the full verification code.',
+				'otpResend'            => 'Resend code',
+				'heroSlide'            => 'Show image %d',
 				'skipPasswordHelp'     => 'Sign in with an SMS code',
 				'smsIdentity'          => 'Enter the mobile number on your account to receive a code.',
 				'sendSmsCode'          => 'Send SMS code',
@@ -520,7 +623,14 @@ JS;
             'usernameEmailPhone' => 'نام کاربری، ایمیل یا شماره موبایل',
             'identityPlaceholder' => 'نام کاربری، ایمیل یا شماره موبایل',
             'password' => 'رمز عبور',
-			'skipPassword'         => 'ادامه بدون رمز عبور',
+			'skipPassword'         => 'ورود بدون رمز عبور',
+			'passkeyOptions'       => 'روش‌های دیگر ورود',
+			'passkeyLogin'         => 'ورود با کلید عبور',
+			'otpCode'              => 'کد تأیید',
+			'otpDigit'             => 'رقم %d',
+			'otpIncomplete'        => 'کد تأیید را کامل وارد کنید.',
+			'otpResend'            => 'ارسال مجدد کد',
+			'heroSlide'            => 'نمایش تصویر %d',
 			'skipPasswordHelp'     => 'ورود با کد پیامکی',
 			'smsIdentity'          => 'برای دریافت کد، شماره موبایل حساب خود را وارد کنید.',
 			'sendSmsCode'          => 'ارسال کد پیامکی',
@@ -550,6 +660,8 @@ JS;
         $yekan_bakh = content_url('/uploads/2025/09/YekanBakh-Regular.woff2');
         $logos = self::logo_urls();
 
+		$yekan_bakh_fanum = content_url( '/uploads/2026/07/yekanbakh-vf/YekanBakhFaNum-VF.woff2' );
+
         return <<<CSS
 @font-face {
     font-family: "DigitalogicFanum";
@@ -573,6 +685,13 @@ JS;
     font-display: swap;
 }
 @font-face {
+    font-family: "DigitalogicTabularFaNum";
+    src: url("{$yekan_bakh_fanum}") format("woff2");
+    font-style: normal;
+    font-weight: 100 900;
+    font-display: swap;
+}
+@font-face {
     font-family: "DigitalogicYekanBakh";
     src: url("{$yekan_bakh}") format("woff2");
     font-style: normal;
@@ -581,9 +700,13 @@ JS;
 }
 :root {
     --dg-font: "DigitalogicFanum", "IRANSans", system-ui, sans-serif;
+    --dg-auth-digits: "DigitalogicYekanBakh", system-ui, sans-serif;
     --dg-placeholder-font: "DigitalogicYekanBakh", "DigitalogicFanum", "IRANSans", system-ui, sans-serif;
     --dg-logo-light: url("{$logos['light']}");
     --dg-logo-dark: url("{$logos['dark']}");
+}
+:root:is(:lang(fa), :lang(ar), :lang(ur), :lang(ps), :lang(ckb), :lang(prs)) {
+    --dg-auth-digits: "DigitalogicTabularFaNum", var(--dg-font);
 }
 CSS;
     }

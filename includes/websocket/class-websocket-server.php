@@ -252,6 +252,12 @@ class Digitalogic_WebSocket_Server {
 		$this->clients[ $id ]['principal']              = (string) ( $auth['principal'] ?? '' );
 		$this->clients[ $id ]['source']                 = isset($auth['source']) && is_array($auth['source']) ? $auth['source'] : array();
 		$this->clients[ $id ]['credential_fingerprint'] = (string) ( $auth['credential_fingerprint'] ?? '' );
+		if ( 'public' === $this->clients[ $id ]['principal'] ) {
+			$this->clients[ $id ]['auth_origin'] = (string) ( $headers['origin'] ?? '' );
+			if ( preg_match( '/(?:^|;\s*)digitalogic_call_binding=([A-Za-z0-9_-]{43})(?:;|$)/', (string) ( $headers['cookie'] ?? '' ), $binding ) ) {
+				$this->clients[ $id ]['call_binding'] = $binding[1];
+			}
+		}
 		if ( ! empty( $auth['pricing_commands'] ) ) {
 			$this->clients[ $id ]['headers'] = '';
 			return; // Command sessions have responses only, no event-stream hello/replay.
@@ -402,6 +408,26 @@ class Digitalogic_WebSocket_Server {
 				return;
 			}
 			$this->send_error($id, $request_id, 'digitalogic_pricing_stream_read_only', __('The pricing event stream does not accept commands.', 'digitalogic'));
+			return;
+		}
+
+		if ( 'digitalogic_call_status' === $command ) {
+			$client = $this->clients[ $id ];
+			$result = 'public' === $client['principal'] && class_exists( 'Digitalogic_Call_Verification' )
+				? Digitalogic_Call_Verification::instance()->socket_challenge_status( $data, $client['auth_origin'], $client['call_binding'] ?? '' )
+				: new WP_Error( 'digitalogic_call_missing', __( 'Verification not found.', 'digitalogic' ) );
+			if ( is_wp_error( $result ) ) {
+				$this->send_error( $id, $request_id, $result->get_error_code(), $result->get_error_message() );
+				return;
+			}
+			$this->send_json(
+				$id,
+				array(
+					'id'      => $request_id,
+					'success' => true,
+					'data'    => $result->get_data(),
+				)
+			);
 			return;
 		}
 

@@ -74,7 +74,7 @@ test('cancelling aborts the active status request as well as invalidating its ge
 });
 
 test('cancel invalidates in-flight polling before it can consume a stale proof', () => {
-	const pollRequest = source.indexOf('const data = await request', source.indexOf('async function poll'));
+	const pollRequest = source.indexOf('data = await request', source.indexOf('async function poll'));
 	const postPollGuard = source.indexOf('expectedGeneration !== attemptGeneration', pollRequest);
 	const consumeCall = source.indexOf('await consume(expectedGeneration', pollRequest);
 	const cancelHandler = source.indexOf("cancel?.addEventListener('click'");

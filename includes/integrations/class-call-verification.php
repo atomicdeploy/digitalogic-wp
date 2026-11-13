@@ -538,10 +538,41 @@ final class Digitalogic_Call_Verification {
 	 * @return WP_REST_Response|WP_Error
 	 */
 	public function challenge_status( WP_REST_Request $request ) {
+		return $this->read_challenge_status(
+			(string) $request->get_param( 'id' ),
+			$this->browser_binding( false ),
+			(string) $request->get_header( self::CSRF_HEADER )
+		);
+	}
+
+	/**
+	 * Read status using the cookie from this connection's handshake.
+	 *
+	 * @param array  $data    Challenge ID and proof.
+	 * @param string $origin  WebSocket origin.
+	 * @param string $binding Browser binding from the handshake.
+	 */
+	public function socket_challenge_status( array $data, string $origin, string $binding ) {
+		if ( ! hash_equals( rtrim( home_url( '/' ), '/' ), $origin ) ) {
+			return new WP_Error( 'digitalogic_call_missing', __( 'Verification not found.', 'digitalogic' ) );
+		}
+		$id   = is_string( $data['challenge_id'] ?? null ) ? $data['challenge_id'] : '';
+		$csrf = is_string( $data['csrf_token'] ?? null ) ? $data['csrf_token'] : '';
+		return $this->read_challenge_status( $id, $binding, $csrf );
+	}
+
+	/**
+	 * Apply the same browser binding and rate limits on either transport.
+	 *
+	 * @param string $id      Challenge ID.
+	 * @param string $binding Browser binding.
+	 * @param string $csrf    Challenge proof.
+	 */
+	private function read_challenge_status( string $id, string $binding, string $csrf ) {
 		if ( ! self::is_schema_ready() ) {
 			return new WP_Error( 'digitalogic_pbx_schema', __( 'Call verification is temporarily unavailable.', 'digitalogic' ), array( 'status' => 503 ) );
 		}
-		$row = $this->bound_challenge( $request );
+		$row = $this->find_bound_challenge( $id, $binding, $csrf );
 		if ( is_wp_error( $row ) ) {
 			return $row;
 		}
@@ -704,7 +735,7 @@ final class Digitalogic_Call_Verification {
 				array(
 					'success'       => true,
 					'authenticated' => true,
-					'redirect_url'  => home_url( '/my-account/' ),
+					'redirect_url'  => self::login_destination( $request->get_param( 'redirect_to' ) ),
 				),
 				200
 			);
@@ -1530,7 +1561,7 @@ final class Digitalogic_Call_Verification {
 	 * Render the login alternative without modifying the Digits plugin.
 	 */
 	public function render_login_verification(): void {
-		if ( ! self::is_configured() ) {
+		if ( 'login' !== ( $GLOBALS['action'] ?? '' ) || ! self::is_configured() ) {
 			return;
 		}
 
@@ -2325,10 +2356,22 @@ final class Digitalogic_Call_Verification {
 	 * @return object|WP_Error
 	 */
 	private function bound_challenge( WP_REST_Request $request ) {
-		$id      = (string) $request->get_param( 'id' );
-		$binding = $this->browser_binding( false );
-		$csrf    = (string) $request->get_header( self::CSRF_HEADER );
-		if ( '' === $binding || 1 !== preg_match( '/^[A-Za-z0-9_-]{32,128}$/', $csrf ) ) {
+		return $this->find_bound_challenge(
+			(string) $request->get_param( 'id' ),
+			$this->browser_binding( false ),
+			(string) $request->get_header( self::CSRF_HEADER )
+		);
+	}
+
+	/**
+	 * Match both browser proofs before returning any challenge state.
+	 *
+	 * @param string $id      Challenge ID.
+	 * @param string $binding Browser binding.
+	 * @param string $csrf    Challenge proof.
+	 */
+	private function find_bound_challenge( string $id, string $binding, string $csrf ) {
+		if ( ! preg_match( '/\A[A-Za-z0-9_-]{43}\z/', $binding ) || ! preg_match( '/\A[A-Za-z0-9_-]{32,128}\z/', $csrf ) || ! preg_match( '/\A[A-Za-z0-9_-]{32,128}\z/', $id ) ) {
 			return new WP_Error( 'digitalogic_call_missing', __( 'Verification not found.', 'digitalogic' ), array( 'status' => 404 ) );
 		}
 		global $wpdb;
@@ -2342,6 +2385,29 @@ final class Digitalogic_Call_Verification {
 		}
 
 		return $row;
+	}
+
+	/**
+	 * Keep return URLs on this site, including the OpenID continuation.
+	 *
+	 * @param mixed $requested Requested return URL.
+	 */
+	public static function login_destination( $requested ): string {
+		$fallback = home_url( '/my-account/' );
+		$url      = is_string( $requested ) ? wp_validate_redirect( $requested, $fallback ) : $fallback;
+		$target   = wp_parse_url( $url );
+		$home     = wp_parse_url( home_url( '/' ) );
+		if ( ! is_array( $target ) || isset( $target['user'] ) || isset( $target['pass'] )
+			|| ( isset( $target['host'] ) && ( $target['host'] !== $home['host'] || ( $target['scheme'] ?? '' ) !== $home['scheme'] || ( $target['port'] ?? null ) !== ( $home['port'] ?? null ) ) ) ) {
+			return $fallback;
+		}
+		$path = untrailingslashit( (string) ( $target['path'] ?? '' ) );
+		if ( '/wp-login.php' === $path ) {
+			parse_str( (string) ( $target['query'] ?? '' ), $query );
+			return 'openid-authenticate' === ( $query['action'] ?? '' ) && 'code' === ( $query['response_type'] ?? '' )
+				&& is_string( $query['client_id'] ?? null ) && '' !== $query['client_id'] ? $url : $fallback;
+		}
+		return '/login' === $path || '' === $url ? $fallback : $url;
 	}
 
 	/**

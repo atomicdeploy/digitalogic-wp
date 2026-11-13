@@ -179,9 +179,12 @@ test('a successful Digits login resumes its same-site OpenID request with the or
     hooks.patchDigitsAjaxFailureGuard();
     window.jQuery.ajax({data: [{name: 'action', value: 'digits_forms_ajax'}]});
 
-    const payload = {success: true, data: {process: true, process_type: 'login', redirect: '/'}};
+    const payload = {success: true, data: {process: true, process_type: 'login', redirect: '/', setup_biometric: true, force_biometric: true, delay: 1000}};
     guarded.success(payload);
     assert.equal(payload.data.redirect, target.href);
+    assert.equal(payload.data.setup_biometric, false);
+    assert.equal(payload.data.force_biometric, false);
+    assert.equal(payload.data.delay, 0);
 
     payload.data.redirect = '/';
     payload.success = false;

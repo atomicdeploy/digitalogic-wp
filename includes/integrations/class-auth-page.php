@@ -12,6 +12,8 @@ final class Digitalogic_Plugin_Auth_Routes {
     private const DEFAULT_COUNTRY_CODE = '98';
     private const CANONICAL_LOGIN_PATH = '/login/';
 
+	private const ACCOUNT_HINT_COOKIE = 'digitalogic_account_hint';
+
     public static function init(): void {
         static $booted = false;
 
@@ -31,7 +33,82 @@ final class Digitalogic_Plugin_Auth_Routes {
         add_filter('login_url', [self::class, 'login_url'], 9999, 3);
         add_filter('authenticate', [self::class, 'authenticate_phone_user'], 30, 3);
         add_filter('wordfence_ls_require_captcha', [self::class, 'bypass_wordfence_captcha_for_digits'], 20);
+		add_filter( 'send_auth_cookies', array( self::class, 'remember_account' ), PHP_INT_MAX, 4 );
     }
+
+	/**
+	 * Remember an identity only when the browser opts into a persistent login.
+	 *
+	 * @param bool   $send       Whether WordPress will send authentication cookies.
+	 * @param int    $expire     Browser cookie expiration.
+	 * @param int    $expiration WordPress authentication expiration.
+	 * @param int    $user_id    Authenticated user ID.
+	 */
+	public static function remember_account( bool $send, int $expire, int $expiration, int $user_id ): bool {
+		if ( ! $send || $user_id < 1 || headers_sent() || ! is_ssl() ) {
+			return $send;
+		}
+		$expires = $expire > 0 ? min( $expiration, time() + 30 * DAY_IN_SECONDS ) : 0;
+		$value   = $user_id . '.' . $expires;
+		setcookie(
+			self::ACCOUNT_HINT_COOKIE,
+			$expires > time() ? $value . '.' . hash_hmac( 'sha256', $value, wp_salt( 'logged_in' ) ) : '',
+			array(
+				'expires'  => $expires > 0 ? $expires : time() - HOUR_IN_SECONDS,
+				'path'     => '/',
+				'secure'   => true,
+				'httponly' => true,
+				'samesite' => 'Strict',
+			)
+		);
+		return $send;
+	}
+
+	/** A signed, browser-local account hint; it cannot create a WordPress session. */
+	public static function remembered_account(): array {
+		if ( 'login' !== ( $GLOBALS['action'] ?? '' ) ) {
+			return array();
+		}
+		$address = isset( $_SERVER['REMOTE_ADDR'] ) ? sanitize_text_field( wp_unslash( $_SERVER['REMOTE_ADDR'] ) ) : '';
+		if ( str_starts_with( $address, '172.16.' ) && filter_var( $address, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4 ) ) {
+			// Only trust REMOTE_ADDR after the web server's trusted proxy handling.
+			$assignments = defined( 'DIGITALOGIC_LAN_LOGIN_ACCOUNTS' ) && is_array( DIGITALOGIC_LAN_LOGIN_ACCOUNTS ) ? DIGITALOGIC_LAN_LOGIN_ACCOUNTS : array();
+			$login       = $assignments[ $address ] ?? '';
+			if ( is_string( $login ) && '' !== $login ) {
+				$assigned = get_user_by( 'login', $login );
+				if ( $assigned instanceof WP_User ) {
+					return self::account_hint( $assigned, true );
+				}
+			}
+		}
+		$hint = isset( $_COOKIE[ self::ACCOUNT_HINT_COOKIE ] ) ? sanitize_text_field( wp_unslash( $_COOKIE[ self::ACCOUNT_HINT_COOKIE ] ) ) : '';
+		if ( ! preg_match( '/\A([1-9][0-9]{0,11})\.([0-9]{1,12})\.([a-f0-9]{64})\z/', $hint, $matches )
+			|| (int) $matches[2] <= time()
+			|| ! hash_equals( hash_hmac( 'sha256', $matches[1] . '.' . $matches[2], wp_salt( 'logged_in' ) ), $matches[3] ) ) {
+			return array();
+		}
+		$user = get_user_by( 'id', (int) $matches[1] );
+		if ( ! $user instanceof WP_User ) {
+			return array();
+		}
+		return self::account_hint( $user, false );
+	}
+
+	/**
+	 * Serialize only the account chosen for this browser or assigned workstation.
+	 *
+	 * @param WP_User $user     Account to show.
+	 * @param bool    $assigned Whether to preselect the account.
+	 */
+	private static function account_hint( WP_User $user, bool $assigned ): array {
+		$avatar = get_avatar_url( $user->ID, array( 'size' => 80 ) );
+		return array(
+			'login'    => $user->user_login,
+			'name'     => $user->display_name,
+			'avatar'   => is_string( $avatar ) && wp_parse_url( $avatar, PHP_URL_HOST ) === wp_parse_url( home_url(), PHP_URL_HOST ) ? esc_url_raw( $avatar ) : '',
+			'assigned' => $assigned,
+		);
+	}
 
     public static function redirect_legacy_login_page(): void {
         if (!self::is_legacy_login_page()) {
@@ -95,7 +172,8 @@ final class Digitalogic_Plugin_Auth_Routes {
 
         $redirect_to = isset($_REQUEST['redirect_to']) ? esc_url_raw(wp_unslash($_REQUEST['redirect_to'])) : '';
 
-        login_header(__('Log In'), '', null);
+		nocache_headers();
+		login_header( __( 'Log In' ), '', null );
 
         if (isset($_GET['login']) && sanitize_key(wp_unslash($_GET['login'])) === 'failed') {
             echo '<div id="login_error" class="notice notice-error"><p>';
@@ -103,7 +181,7 @@ final class Digitalogic_Plugin_Auth_Routes {
             echo '</p></div>';
         }
 
-        echo '<div class="dg-digits-login-shell">';
+		echo '<div class="dg-digits-login-shell dg-digits-auto-identity">';
         echo self::digits_login_form_html($redirect_to); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
         echo '</div>';
 
