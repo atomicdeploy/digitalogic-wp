@@ -89,6 +89,8 @@ final class AdminBrandingAuthTest extends TestCase {
         $config = $method->invoke(null, true, false);
 
         $this->assertSame('https://digitalogic.test/login/', $config['loginUrl']);
+        $this->assertSame('https://digitalogic.test/' . rest_get_url_prefix() . '/digitalogic/v1/login-slides', $config['loginSlidesUrl']);
+        $this->assertSame(array(), $config['rememberedAccount']);
     }
 
     public function test_recovery_identity_labels_match_the_wordpress_backend(): void {
