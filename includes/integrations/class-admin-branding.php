@@ -660,7 +660,7 @@ JS;
         $yekan_bakh = content_url('/uploads/2025/09/YekanBakh-Regular.woff2');
         $logos = self::logo_urls();
 
-		$latin_bold = get_template_directory_uri() . '/fonts/woff2/IRANSansWeb_Bold.woff2';
+		$yekan_bakh_fanum = content_url( '/uploads/2026/07/yekanbakh-vf/YekanBakhFaNum-VF.woff2' );
 
         return <<<CSS
 @font-face {
@@ -685,10 +685,10 @@ JS;
     font-display: swap;
 }
 @font-face {
-    font-family: "DigitalogicLatin";
-    src: url("{$latin_bold}") format("woff2");
+    font-family: "DigitalogicTabularFaNum";
+    src: url("{$yekan_bakh_fanum}") format("woff2");
     font-style: normal;
-    font-weight: 700;
+    font-weight: 100 900;
     font-display: swap;
 }
 @font-face {
@@ -700,13 +700,13 @@ JS;
 }
 :root {
     --dg-font: "DigitalogicFanum", "IRANSans", system-ui, sans-serif;
-    --dg-auth-digits: "DigitalogicLatin", system-ui, sans-serif;
+    --dg-auth-digits: "DigitalogicYekanBakh", system-ui, sans-serif;
     --dg-placeholder-font: "DigitalogicYekanBakh", "DigitalogicFanum", "IRANSans", system-ui, sans-serif;
     --dg-logo-light: url("{$logos['light']}");
     --dg-logo-dark: url("{$logos['dark']}");
 }
 :root:is(:lang(fa), :lang(ar), :lang(ur), :lang(ps), :lang(ckb), :lang(prs)) {
-    --dg-auth-digits: var(--dg-font);
+    --dg-auth-digits: "DigitalogicTabularFaNum", var(--dg-font);
 }
 CSS;
     }

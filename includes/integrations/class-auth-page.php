@@ -171,7 +171,8 @@ final class Digitalogic_Plugin_Auth_Routes {
 
         $redirect_to = isset($_REQUEST['redirect_to']) ? esc_url_raw(wp_unslash($_REQUEST['redirect_to'])) : '';
 
-        login_header(__('Log In'), '', null);
+		nocache_headers();
+		login_header( __( 'Log In' ), '', null );
 
         if (isset($_GET['login']) && sanitize_key(wp_unslash($_GET['login'])) === 'failed') {
             echo '<div id="login_error" class="notice notice-error"><p>';
