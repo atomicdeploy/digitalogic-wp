@@ -831,15 +831,13 @@
     }
 
     function enhanceLoginLabels() {
-        var identityLabel = authPageAction() === 'lostPassword'
-            ? getLabel('recoveryIdentity', 'Username or email address')
-            : getLabel('usernameEmailPhone', 'نام کاربری، ایمیل یا شماره موبایل');
-
-        setLabel(
-            document.querySelector('label[for="user_login"]'),
-            identityLabel,
-            'dashicons-id'
-        );
+        if (authPageAction() !== 'lostPassword') {
+            setLabel(
+                document.querySelector('label[for="user_login"]'),
+                getLabel('usernameEmailPhone', 'نام کاربری، ایمیل یا شماره موبایل'),
+                'dashicons-id'
+            );
+        }
         setLabel(
             document.querySelector('label[for="user_pass"]'),
             getLabel('password', 'رمز عبور'),
@@ -2696,7 +2694,9 @@
         var password = document.querySelector('#user_pass');
 
         enhanceLoginLabels();
-        enhanceIdentityField(username);
+        if (form && username) {
+            enhanceIdentityField(username);
+        }
         bindPasswordToggle();
         bindDigitsAutoIdentity();
 
@@ -3288,19 +3288,45 @@
         if (fieldLabel && cleanText(fieldLabel.textContent, '') !== label) {
             fieldLabel.textContent = label;
         }
-        putAuthIcon(fieldLabel, 'user');
-
         if (field) {
-            field.setAttribute('placeholder', label);
-            field.setAttribute('aria-label', label);
+            field.setAttribute('dir', 'auto');
         }
+
         var form = document.querySelector('#lostpasswordform');
-        if (form && !form.querySelector('.dg-recovery-title')) {
-            var heading = document.createElement('h2');
-            heading.className = 'dg-recovery-title';
-            heading.textContent = isPersianLocale() ? 'بازیابی رمز عبور' : 'Reset your password';
-            putAuthIcon(heading, 'lock');
-            form.prepend(heading);
+        if (!form || form.querySelector('.dg-recovery-title')) {
+            return;
+        }
+
+        var persian = isPersianLocale();
+        var heading = document.createElement('h2');
+        heading.className = 'dg-recovery-title';
+        heading.textContent = getLabel('lostPassword', 'Reset password');
+        putAuthIcon(heading, 'lock');
+        form.prepend(heading);
+
+        var notice = document.querySelector('#login > .notice-info.message');
+        if (notice) {
+            notice.classList.add('dg-recovery-instructions');
+            notice.id = notice.id || 'dg-recovery-instructions';
+            heading.after(notice);
+            if (field) {
+                var descriptions = (field.getAttribute('aria-describedby') || '').trim();
+                field.setAttribute('aria-describedby', [descriptions, notice.id].filter(Boolean).join(' '));
+            }
+        }
+
+        var submit = form.querySelector('#wp-submit');
+        if (submit) {
+            submit.value = persian ? 'ارسال پیوند بازیابی' : 'Send reset link';
+        }
+
+        var navigation = document.querySelector('body.login #nav');
+        if (navigation) {
+            Array.from(navigation.childNodes).forEach(function (node) {
+                if (node.nodeType === 3 && /^\s*\|\s*$/.test(node.textContent)) {
+                    node.remove();
+                }
+            });
         }
     }
 

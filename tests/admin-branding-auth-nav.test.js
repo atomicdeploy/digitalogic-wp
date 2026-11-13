@@ -457,8 +457,8 @@ test('WordPress recovery describes only its supported username or email identity
     harness.hooks.normalizeAuthChrome();
 
     assert.equal(harness.recoveryLabel.textContent, 'Username or email address');
-    assert.equal(harness.recoveryField.getAttribute('placeholder'), 'Username or email address');
-    assert.equal(harness.recoveryField.getAttribute('aria-label'), 'Username or email address');
+    assert.equal(harness.recoveryField.getAttribute('dir'), 'auto');
+    assert.equal(harness.recoveryField.getAttribute('placeholder'), undefined);
 });
 
 test('real startup order cannot restore mobile wording on WordPress recovery', () => {
@@ -474,12 +474,11 @@ test('real startup order cannot restore mobile wording on WordPress recovery', (
         }
     });
 
-    // DOMContentLoaded currently normalizes auth chrome before login labels.
-    harness.hooks.normalizeAuthChrome();
     harness.hooks.enhanceLoginLabels();
+    harness.hooks.normalizeAuthChrome();
 
-    assert.match(harness.recoveryLabel.innerHTML, /نام کاربری یا نشانی ایمیل/);
-    assert.doesNotMatch(harness.recoveryLabel.innerHTML, /موبایل/);
+    assert.equal(harness.recoveryLabel.textContent, 'نام کاربری یا نشانی ایمیل');
+    assert.equal(harness.recoveryLabel.dataset.dgLabelReady, undefined);
 });
 
 test('one canonical identity normalizer handles Persian and Arabic digits without spaces', () => {
