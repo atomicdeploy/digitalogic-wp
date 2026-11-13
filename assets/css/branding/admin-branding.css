@@ -1810,16 +1810,163 @@ body.login #login :is(#lostpasswordform, #resetpassform) {
 body.login #login .dg-recovery-title {
     display: flex;
     align-items: center;
-    gap: 10px;
-    margin-block-end: 18px;
+    gap: 12px;
+    margin: 0 0 12px;
     color: var(--dg-heading);
     font-size: 22px;
+    line-height: 1.5;
     font-weight: 700;
 }
-body.login #lostpasswordform label .dg-auth-icon {
-    margin-inline-end: 6px;
-    vertical-align: middle;
+body.login #login .dg-recovery-title > .dg-auth-icon {
+    box-sizing: content-box;
+    padding: 10px;
+    border-radius: 13px;
     color: var(--dg-accent-strong);
+    background: var(--dg-accent-soft);
+}
+body.login:has(#lostpasswordform) #login {
+    box-sizing: border-box;
+    width: min(460px, calc(100% - 32px)) !important;
+    min-inline-size: 0 !important;
+    max-width: min(460px, calc(100% - 32px)) !important;
+    margin-inline: auto !important;
+}
+body.login:has(#lostpasswordform) {
+    min-inline-size: 0;
+}
+body.login:has(#lostpasswordform) .language-switcher {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    box-sizing: border-box;
+    inline-size: min(286px, calc(100% - 32px));
+    min-inline-size: 0;
+    margin: 8px auto 18px;
+}
+body.login:has(#lostpasswordform) #language-switcher.dg-language-form {
+    display: block;
+    inline-size: 100%;
+    min-inline-size: 0;
+}
+body.login:has(#lostpasswordform) .dg-language-picker {
+    min-inline-size: 0;
+    max-inline-size: 100%;
+}
+body.login:has(#lostpasswordform) .language-switcher :is(.dg-theme-toggle-button, .dg-language-trigger) {
+    box-sizing: border-box;
+    inline-size: 100%;
+    min-inline-size: 0;
+    min-block-size: 44px;
+    padding-inline: 10px;
+    border: 1px solid var(--dg-border);
+    border-radius: 12px;
+    background: var(--dg-panel-strong);
+    color: var(--dg-text);
+    font: 600 14px/1.4 var(--dg-font, system-ui, sans-serif);
+    box-shadow: none;
+}
+body.login:has(#lostpasswordform) .dg-language-trigger {
+    justify-content: center;
+    gap: 6px;
+}
+body.login:has(#lostpasswordform) .dg-language-trigger .dg-select-text {
+    flex: 0 1 auto;
+}
+body.login:has(#lostpasswordform) .dg-language-trigger .dashicons-translation {
+    display: none;
+}
+body.login:has(#lostpasswordform) #login h1 {
+    margin-block-end: 20px;
+}
+body.login:has(#lostpasswordform) #login h1 a {
+    max-inline-size: 238px;
+    block-size: 68px;
+    filter: none;
+}
+body.login #login #lostpasswordform {
+    padding: clamp(20px, 6vw, 32px);
+    border-radius: 24px;
+    box-shadow: 0 12px 34px color-mix(in srgb, var(--dg-heading) 13%, transparent);
+}
+body.login #login #lostpasswordform .dg-recovery-instructions {
+    margin: 0 0 22px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+    color: var(--dg-text-soft);
+    font-size: 14px;
+    line-height: 1.8;
+}
+body.login #login #lostpasswordform .dg-recovery-instructions p {
+    margin: 0;
+    padding: 0;
+    font: inherit;
+}
+body.login #lostpasswordform label[for="user_login"] {
+    display: block;
+    margin: 0 0 7px;
+}
+body.login #lostpasswordform #user_login {
+    box-sizing: border-box;
+    inline-size: 100%;
+    min-block-size: 52px;
+    padding-inline: 13px;
+    font: 400 16px/1.45 var(--dg-font, system-ui, sans-serif);
+    text-align: start;
+}
+[data-dg-theme="dark"] body.login #lostpasswordform #user_login {
+    background: var(--dg-panel-soft);
+}
+body.login #lostpasswordform p:has(> #user_login) {
+    margin: 0 0 18px;
+}
+body.login #lostpasswordform p.submit {
+    margin: 0;
+    padding: 0;
+}
+body.login #lostpasswordform #wp-submit {
+    float: none;
+    min-block-size: 52px;
+    background: linear-gradient(135deg, #0876c3, #1055b5);
+    font-family: var(--dg-font, system-ui, sans-serif);
+    font-size: 15px;
+    box-shadow: 0 6px 16px color-mix(in srgb, var(--dg-accent-strong) 22%, transparent);
+}
+body.login #lostpasswordform #wp-submit:disabled {
+    background: var(--dg-panel-soft);
+}
+body.login:has(#lostpasswordform) #login :is(#nav, #backtoblog) {
+    padding: 0;
+    margin: 12px 0 0;
+}
+body.login:has(#lostpasswordform) #login #nav {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 8px;
+    margin-block-start: 16px;
+}
+body.login:has(#lostpasswordform) #login :is(#nav, #backtoblog) a {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-block-size: 44px;
+    padding-inline: 16px;
+    border-radius: 12px;
+    font-size: 14px;
+    font-weight: 600;
+    text-decoration: none;
+}
+body.login:has(#lostpasswordform) #login #nav a.wp-login-log-in {
+    border: 1px solid var(--dg-border);
+    background: var(--dg-panel-strong);
+}
+body.login:has(#lostpasswordform) #login #backtoblog a {
+    color: var(--dg-text-soft);
+}
+[data-dg-theme="dark"] body.login:has(#lostpasswordform) #login #nav a {
+    color: #6bc9ff;
 }
 body.login .digits-form_rememberme .digits_login_remember_me {
     transition: border-color .15s, box-shadow .15s !important;
