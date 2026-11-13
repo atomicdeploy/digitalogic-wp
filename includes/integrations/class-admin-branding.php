@@ -35,6 +35,9 @@ final class Digitalogic_Plugin_Admin_Branding {
         add_action('login_enqueue_scripts', [self::class, 'enqueue_login_assets']);
 		add_action( 'wp_ajax_nopriv_digits_forms_ajax', array( self::class, 'use_utc_for_digits_forms' ), 0 );
 		add_action( 'wp_ajax_digits_forms_ajax', array( self::class, 'use_utc_for_digits_forms' ), 0 );
+		add_action( 'rest_api_init', array( self::class, 'register_login_slides_route' ) );
+		add_action( 'woocommerce_after_edit_account_form', array( self::class, 'render_passkey_settings' ) );
+		add_filter( 'gettext_digits', array( self::class, 'translate_digits_passkeys' ), 10, 2 );
         add_action('wp_ajax_digitalogic_set_admin_theme', [self::class, 'ajax_set_admin_theme']);
         add_action('admin_bar_menu', [self::class, 'admin_bar_menu'], 1);
         add_action('wp_dashboard_setup', [self::class, 'register_dashboard_widgets']);
@@ -91,6 +94,65 @@ HTML;
 	public static function use_utc_for_digits_forms(): void {
 		// phpcs:ignore WordPress.DateTime.RestrictedFunctions.timezone_change_date_default_timezone_set -- Digits compares its stored UTC timestamps using PHP's default timezone.
 		date_default_timezone_set( 'UTC' );
+	}
+
+	/** Register the public artwork feed for the login page. */
+	public static function register_login_slides_route(): void {
+		register_rest_route(
+			'digitalogic/v1',
+			'/login-slides',
+			array(
+				'methods'             => WP_REST_Server::READABLE,
+				'permission_callback' => '__return_true',
+				'callback'            => array( self::class, 'login_slides' ),
+			)
+		);
+	}
+
+	/** Return the artwork configured for the login page. */
+	public static function login_slides(): array {
+		return array( array( 'image' => DIGITALOGIC_PLUGIN_URL . 'assets/images/branding/login-hero.png' ) );
+	}
+
+	/** Offer enrollment from account settings, after sign-in has finished. */
+	public static function render_passkey_settings(): void {
+		if ( ! is_user_logged_in() || ! shortcode_exists( 'df-biometrics-setup' ) ) {
+			return;
+		}
+
+		$settings = do_shortcode( '[df-biometrics-setup]' );
+		if ( '' === trim( $settings ) ) {
+			return;
+		}
+
+		$persian = str_starts_with( strtolower( determine_locale() ), 'fa' );
+		echo '<details><summary>' . esc_html( $persian ? 'مدیریت کلیدهای عبور' : __( 'Manage passkeys', 'digitalogic' ) ) . '</summary>';
+		echo $settings; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Markup from the installed Digits account shortcode.
+		echo '</details>';
+	}
+
+	/**
+	 * Translate passkey strings missing from the Digits Persian catalog.
+	 *
+	 * @param string $translation Existing translation.
+	 * @param string $original Original Digits string.
+	 * @return string
+	 */
+	public static function translate_digits_passkeys( string $translation, string $original ): string {
+		if ( ! str_starts_with( strtolower( determine_locale() ), 'fa' ) ) {
+			return $translation;
+		}
+		$labels = array(
+			'Passkey'                       => 'کلید عبور',
+			'Passkeys'                      => 'کلیدهای عبور',
+			'Passwordless login'            => 'ورود با کلید عبور',
+			'Sign in with a passkey'        => 'ورود با کلید عبور',
+			'Set up a passkey'              => 'تنظیم کلید عبور',
+			'Create a passkey'              => 'ایجاد کلید عبور',
+			'Add a passkey'                 => 'افزودن کلید عبور',
+			'Passkey authentication failed' => 'ورود با کلید عبور انجام نشد.',
+		);
+		return $labels[ $original ] ?? $translation;
 	}
 
     public static function admin_body_class(string $classes): string {
@@ -463,6 +525,9 @@ JS;
         ];
 
         $config['labels'] = self::client_labels();
+		if ( $is_login ) {
+			$config['loginSlidesUrl'] = rest_url( 'digitalogic/v1/login-slides' );
+		}
 
         return $config;
     }
@@ -485,7 +550,14 @@ JS;
                 'usernameEmailPhone' => 'Username, email, or mobile number',
                 'identityPlaceholder' => 'Username, email, or mobile number',
                 'password' => 'Password',
-				'skipPassword'         => 'Skip password',
+				'skipPassword'         => 'Sign in without a password',
+				'passkeyOptions'       => 'Other sign-in options',
+				'passkeyLogin'         => 'Sign in with a passkey',
+				'otpCode'              => 'Verification code',
+				'otpDigit'             => 'Digit %d',
+				'otpIncomplete'        => 'Enter the full verification code.',
+				'otpResend'            => 'Resend code',
+				'heroSlide'            => 'Show image %d',
 				'skipPasswordHelp'     => 'Sign in with an SMS code',
 				'smsIdentity'          => 'Enter the mobile number on your account to receive a code.',
 				'sendSmsCode'          => 'Send SMS code',
@@ -520,7 +592,14 @@ JS;
             'usernameEmailPhone' => 'نام کاربری، ایمیل یا شماره موبایل',
             'identityPlaceholder' => 'نام کاربری، ایمیل یا شماره موبایل',
             'password' => 'رمز عبور',
-			'skipPassword'         => 'ادامه بدون رمز عبور',
+			'skipPassword'         => 'ورود بدون رمز عبور',
+			'passkeyOptions'       => 'روش‌های دیگر ورود',
+			'passkeyLogin'         => 'ورود با کلید عبور',
+			'otpCode'              => 'کد تأیید',
+			'otpDigit'             => 'رقم %d',
+			'otpIncomplete'        => 'کد تأیید را کامل وارد کنید.',
+			'otpResend'            => 'ارسال مجدد کد',
+			'heroSlide'            => 'نمایش تصویر %d',
 			'skipPasswordHelp'     => 'ورود با کد پیامکی',
 			'smsIdentity'          => 'برای دریافت کد، شماره موبایل حساب خود را وارد کنید.',
 			'sendSmsCode'          => 'ارسال کد پیامکی',

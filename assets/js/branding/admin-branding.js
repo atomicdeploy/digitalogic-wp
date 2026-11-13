@@ -5,6 +5,8 @@
     var lastPersistedTheme = config.initialTheme === 'dark' ? 'dark' : 'light';
     var loadingFailSafeTimer = null;
     var digitsSmsWaits = new WeakMap();
+    var digitsOtpEditors = new WeakMap();
+    var digitsResendTimers = new WeakMap();
     var feedbackSelector = [
         '#login_error',
         '.notice-error',
@@ -1078,17 +1080,27 @@
         return value || window.location.href;
     }
 
-    function restoreDigitsOpenIdReturn(form, data) {
+    function finishBrandedDigitsLogin(form, data) {
         if (!data || !data.process || data.process_type !== 'login' || !form || !form.closest || !form.closest('.dg-digits-login-shell')) {
             return;
         }
 
+        // Digits has already authenticated the user. Enrollment is a separate action.
+        data.setup_biometric = false;
+        data.force_biometric = false;
+        data.login_reg_success_msg = 0;
+        data.delay = 0;
+
         try {
             var page = new window.URL(window.location.href);
-            var target = new window.URL(digitsLoginRedirect(form), page);
+            var destination = page.searchParams.get('redirect_to') || digitsLoginRedirect(form);
+            var target = new window.URL(destination, page);
             if (target.origin === page.origin && !target.username && !target.password && target.pathname === '/wp-login.php'
                 && target.searchParams.get('action') === 'openid-authenticate' && target.searchParams.get('client_id')
                 && target.searchParams.get('response_type') === 'code') {
+                data.redirect = target.href;
+            } else if (page.searchParams.has('redirect_to') && target.origin === page.origin && !target.username && !target.password
+                && !/^\/(?:login\/?|wp-login\.php)$/.test(target.pathname)) {
                 data.redirect = target.href;
             }
         } catch (error) {
@@ -1158,7 +1170,7 @@
         var skip = document.createElement('button');
         skip.className = 'dg-skip-password';
         skip.type = 'button';
-        skip.textContent = getLabel('skipPassword', 'Skip password');
+        skip.textContent = getLabel('skipPassword', 'Sign in without a password');
         skip.title = getLabel('skipPasswordHelp', 'Sign in with an SMS code');
         primary.after(skip);
 
@@ -1189,9 +1201,9 @@
                 if (!otp.classList.contains('disable_auto_read')) {
                     otp.classList.add('disable_auto_read');
                 }
-                otp.autocomplete = 'one-time-code';
-                otp.inputMode = 'numeric';
+                prepareDigitsOtpEditor(otp);
             }
+            updateDigitsResend(form);
         }
 
         updateVisibility();
@@ -1209,6 +1221,11 @@
         form.addEventListener('click', function (event) {
             if (event.target.closest('.digits_form_back')) {
                 stopDigitsSmsWait(form);
+            }
+            var resend = event.target.closest('.dg-otp-resend');
+            if (resend && resend.getAttribute('aria-disabled') === 'true') {
+                event.preventDefault();
+                event.stopImmediatePropagation();
             }
         }, true);
         window.addEventListener('pagehide', function () { stopDigitsSmsWait(form); });
@@ -1244,7 +1261,7 @@
                 '<div class="dg-username-login-actions">',
                 '<button type="submit" class="digits-form_button digits-form_submit digits-form_submit-btn dg-username-login-submit"><span>' + escapeHtml(loginLabel) + '</span></button>',
                 '<button type="button" class="button dg-username-login-back"><span class="dashicons dashicons-arrow-left-alt" aria-hidden="true"></span><span>' + escapeHtml(backLabel) + '</span></button>',
-                '<button type="button" class="dg-skip-password" title="' + escapeHtml(getLabel('skipPasswordHelp', 'Sign in with an SMS code')) + '">' + escapeHtml(getLabel('skipPassword', 'Skip password')) + '</button>',
+                '<button type="button" class="dg-skip-password" title="' + escapeHtml(getLabel('skipPasswordHelp', 'Sign in with an SMS code')) + '">' + escapeHtml(getLabel('skipPassword', 'Sign in without a password')) + '</button>',
                 '</div>',
                 '</div>',
                 '</div>'
@@ -1415,7 +1432,7 @@
         }
 
         if (payload && payload.success === true) {
-            restoreDigitsOpenIdReturn(form, data);
+            finishBrandedDigitsLogin(form, data);
         }
 
         if (data && data.reload) {
@@ -1551,6 +1568,180 @@
         return Array.prototype.find.call(form.querySelectorAll('input.otp_input[name="sms_otp"]'), isVisibleElement);
     }
 
+    function otpDigits(value) {
+        return normalizeDigits(value).replace(/[^0-9]/g, '');
+    }
+
+    function prepareDigitsOtpEditor(input) {
+        if (digitsOtpEditors.has(input)) {
+            return;
+        }
+
+        var count = input.maxLength >= 4 && input.maxLength <= 8 ? input.maxLength : 6;
+        var editor = document.createElement('div');
+        editor.className = 'dg-otp-editor';
+        editor.dir = 'ltr';
+        editor.style.setProperty('--dg-otp-count', String(count));
+        editor.setAttribute('role', 'group');
+        editor.setAttribute('aria-label', getLabel('otpCode', 'Verification code'));
+        var cells = [];
+
+        function syncCode() {
+            input.value = cells.every(function (cell) { return cell.value !== ''; })
+                ? cells.map(function (cell) { return cell.value; }).join('') : '';
+        }
+
+        function focusDigit(index) {
+            var cell = cells[Math.max(0, Math.min(index, count - 1))];
+            cell.focus();
+            cell.select();
+        }
+
+        function fillDigits(value, index, moveFocus) {
+            var digits = otpDigits(value);
+            var start = digits.length >= count ? 0 : index;
+            digits.slice(0, count - start).split('').forEach(function (digit, offset) {
+                cells[start + offset].value = digit;
+            });
+            syncCode();
+            if (moveFocus && digits.length) {
+                focusDigit(start + digits.length);
+            }
+        }
+
+        for (var index = 0; index < count; index++) {
+            var slot = document.createElement('span');
+            slot.className = 'dg-otp-slot';
+            var cell = document.createElement('input');
+            cell.type = 'text';
+            cell.inputMode = 'numeric';
+            cell.autocomplete = index === 0 ? 'one-time-code' : 'off';
+            cell.placeholder = ' ';
+            cell.setAttribute('aria-label', getLabel('otpDigit', 'Digit %d').replace('%d', String(index + 1)));
+            slot.appendChild(cell);
+            editor.appendChild(slot);
+            cells.push(cell);
+        }
+
+        cells.forEach(function (cell, index) {
+            cell.addEventListener('focus', function () { cell.select(); });
+            cell.addEventListener('click', function () { cell.select(); });
+            cell.addEventListener('select', function () {
+                if (document.activeElement === cell && cell.value && cell.selectionStart === cell.selectionEnd) {
+                    cell.select();
+                }
+            });
+            cell.addEventListener('beforeinput', function (event) {
+                if (event.inputType === 'insertText' && event.data !== null) {
+                    event.preventDefault();
+                    stopDigitsSmsWait(input.form);
+                    fillDigits(event.data, index, true);
+                }
+            });
+            cell.addEventListener('input', function () {
+                stopDigitsSmsWait(input.form);
+                var value = cell.value;
+                cell.value = '';
+                fillDigits(value, index, true);
+            });
+            cell.addEventListener('paste', function (event) {
+                if (!event.clipboardData) {
+                    return;
+                }
+                event.preventDefault();
+                stopDigitsSmsWait(input.form);
+                fillDigits(event.clipboardData.getData('text'), index, true);
+            });
+            cell.addEventListener('keydown', function (event) {
+                var key = event.key;
+                var target = { ArrowLeft: index - 1, ArrowRight: index + 1, Home: 0, End: count - 1 }[key];
+                if (typeof target === 'number') {
+                    event.preventDefault();
+                    focusDigit(target);
+                } else if (key === 'Backspace' || key === 'Delete') {
+                    event.preventDefault();
+                    stopDigitsSmsWait(input.form);
+                    if (key === 'Backspace' && !cell.value && index > 0) {
+                        cells[index - 1].value = '';
+                        focusDigit(index - 1);
+                    } else {
+                        cell.value = '';
+                    }
+                    syncCode();
+                } else if (key === 'Enter') {
+                    event.preventDefault();
+                    var button = digitsSubmitButton(input.form);
+                    if (button) {
+                        button.click();
+                    }
+                }
+            });
+        });
+
+        var hadFocus = document.activeElement === input;
+        digitsOtpEditors.set(input, {
+            fill: function (code) {
+                cells.forEach(function (cell) { cell.value = ''; });
+                fillDigits(code, 0, false);
+            },
+            focus: function () {
+                focusDigit(cells.findIndex(function (cell) { return !cell.value; }));
+            }
+        });
+        input.before(editor);
+        input.classList.add('dg-otp-native');
+        input.tabIndex = -1;
+        input.setAttribute('aria-hidden', 'true');
+        input.addEventListener('focus', function () { digitsOtpEditors.get(input).focus(); });
+        fillDigits(input.value, 0, false);
+        if (hadFocus) {
+            focusDigit(0);
+        }
+    }
+
+    function updateDigitsResend(form) {
+        var timer = digitsResendTimers.get(form);
+        if (!timer || timer.button) {
+            return;
+        }
+
+        var button = Array.prototype.find.call(form.querySelectorAll('.digits-form_resend_otp'), isVisibleElement);
+        if (!button) {
+            return;
+        }
+        timer.button = button;
+        button.classList.add('dg-otp-resend');
+        button.setAttribute('aria-label', getLabel('otpResend', 'Resend code'));
+        if (!button.matches('button, input') && !button.matches('a[href]')) {
+            button.setAttribute('role', 'button');
+            button.tabIndex = 0;
+        }
+        if (!button.matches('button, input') && !button.dataset.dgResendKeyboard) {
+            button.dataset.dgResendKeyboard = 'true';
+            button.addEventListener('keydown', function (event) {
+                if (event.key === ' ' || (event.key === 'Enter' && !button.matches('a[href]'))) {
+                    event.preventDefault();
+                    button.click();
+                }
+            });
+        }
+
+        function tick() {
+            if (!button.isConnected || digitsResendTimers.get(form) !== timer) {
+                return;
+            }
+            var remaining = Math.max(0, timer.until - Date.now());
+            button.style.setProperty('--dg-resend-progress', (100 * (1 - remaining / (timer.seconds * 1000))) + '%');
+            button.setAttribute('aria-disabled', remaining > 0 ? 'true' : 'false');
+            if (remaining > 0) {
+                window.setTimeout(tick, 100);
+            } else {
+                button.classList.remove('digits_resend_disabled');
+            }
+        }
+        tick();
+    }
+
     function stopDigitsSmsWait(form) {
         var wait = digitsSmsWaits.get(form);
         if (wait) {
@@ -1568,7 +1759,12 @@
         var button = digitsSubmitButton(form);
         stopDigitsSmsWait(form);
         if (input && button && !input.value && !button.disabled) {
-            input.value = wait.code;
+            var editor = digitsOtpEditors.get(input);
+            if (editor) {
+                editor.fill(wait.code);
+            } else {
+                input.value = wait.code;
+            }
             button.click();
         }
     }
@@ -1643,14 +1839,21 @@
                     if (sendsSms) {
                         var previousCode = visibleDigitsSmsInput(requestForm);
                         if (previousCode) {
-                            previousCode.value = '';
+                            var editor = digitsOtpEditors.get(previousCode);
+                            if (editor) {
+                                editor.fill('');
+                            } else {
+                                previousCode.value = '';
+                            }
                         }
                         smsWait = startDigitsSmsWait(requestForm);
                     } else {
                         if (verifiesSms) {
                             stopDigitsSmsWait(requestForm);
                         }
-                        markLoading(digitsSubmitButton(requestForm), false, requestForm);
+                        var action = document.activeElement;
+                        markLoading(action && action.matches && action.matches('.dg-passkey-options .digits-form_passwordless_login')
+                            ? action : digitsSubmitButton(requestForm), false, requestForm);
                     }
                 };
 
@@ -1681,10 +1884,14 @@
 
                     try {
                         if (payload.success) {
-                            restoreDigitsOpenIdReturn(requestForm, payload.data);
+                            finishBrandedDigitsLogin(requestForm, payload.data);
                         }
                         if (sendsSms && payload.success) {
                             payload.data.check_remote_status = false;
+                            var seconds = Number(payload.data.resend_timer);
+                            if (Number.isFinite(seconds) && seconds > 0) {
+                                digitsResendTimers.set(requestForm, { seconds: seconds, until: Date.now() + seconds * 1000 });
+                            }
                         }
                         if (smsWait && payload.success) {
                             smsWait.ready = true;
@@ -1692,7 +1899,11 @@
                             payload.data.auto_fill = false;
                         }
                         if (typeof success === 'function') {
-                            return success.apply(this, arguments);
+                            var result = success.apply(this, arguments);
+                            if (sendsSms && payload.success && digitsResendTimers.has(requestForm)) {
+                                updateDigitsResend(requestForm);
+                            }
+                            return result;
                         }
                     } catch (error) {
                         clearLoading();
@@ -1818,6 +2029,13 @@
 
     function submitDigitsSecureForm(form) {
         var button = digitsSubmitButton(form);
+        var otp = visibleDigitsSmsInput(form);
+
+        if (otp && digitsOtpEditors.has(otp) && !otp.value) {
+            showDigitsInlineMessage(form, getLabel('otpIncomplete', 'Enter the full verification code.'), 'warning');
+            digitsOtpEditors.get(otp).focus();
+            return;
+        }
 
         prepareDigitsCaptchaProtection();
 
@@ -1867,8 +2085,10 @@
 
             var form = button.closest('form');
             if (button.matches('.digits-form_passwordless_login')) {
-                event.preventDefault();
-                event.stopImmediatePropagation();
+                if (!button.closest('details.dg-passkey-options[open]')) {
+                    event.preventDefault();
+                    event.stopImmediatePropagation();
+                }
                 return;
             }
             if (!isDigitsSecureForm(form)) {
@@ -2452,40 +2672,66 @@
         });
     }
 
-    function buildLoginHeroCarousel() {
+    async function buildLoginHeroCarousel() {
         var shell = document.querySelector('.dg-digits-login-shell');
-        if (!shell) {
+        if (!shell || !config.loginSlidesUrl) {
             return;
         }
 
-        if (shell.querySelector('.dg-login-hero-carousel')) {
-            bindHeroCarousel(shell.querySelector('.dg-login-hero-carousel'));
+        var slides;
+        try {
+            var response = await window.fetch(config.loginSlidesUrl, { credentials: 'same-origin' });
+            slides = response.ok ? await response.json() : null;
+        } catch (error) {
             return;
         }
-
-        shell.classList.add('dg-has-hero-carousel');
+        if (!Array.isArray(slides)) {
+            return;
+        }
+        var images = slides.flatMap(function (slide) {
+            try {
+                var url = new window.URL(slide.image);
+                return /^https?:$/.test(url.protocol) ? [url.href] : [];
+            } catch (error) {
+                return [];
+            }
+        });
+        if (!images.length) {
+            return;
+        }
 
         var hero = document.createElement('div');
         hero.className = 'dg-login-hero-carousel';
         hero.dataset.dgSlide = '0';
-        hero.setAttribute('role', 'group');
-        hero.setAttribute('aria-label', 'تصاویر برند دیجیتالاجیک');
-        hero.innerHTML = [
-            '<span class="dg-hero-track">',
-            '<span class="dg-hero-slide dg-hero-slide--one"></span>',
-            '<span class="dg-hero-slide dg-hero-slide--two"></span>',
-            '<span class="dg-hero-slide dg-hero-slide--three"></span>',
-            '</span>',
-            '<span class="dg-hero-glow"></span>',
-            '<span class="dg-hero-dots">',
-            '<button type="button" data-dg-slide="0" aria-label="نمایش تصویر اول"></button>',
-            '<button type="button" data-dg-slide="1" aria-label="نمایش تصویر دوم"></button>',
-            '<button type="button" data-dg-slide="2" aria-label="نمایش تصویر سوم"></button>',
-            '</span>'
-        ].join('');
+        var track = document.createElement('span');
+        track.className = 'dg-hero-track';
+        track.setAttribute('aria-hidden', 'true');
+        hero.appendChild(track);
+        var dots = document.createElement('span');
+        dots.className = 'dg-hero-dots';
+        images.forEach(function (url, index) {
+            var slide = document.createElement('span');
+            slide.className = 'dg-hero-slide';
+            slide.style.backgroundImage = 'url("' + url.replace(/"/g, '%22') + '")';
+            track.appendChild(slide);
+            if (images.length > 1) {
+                var dot = document.createElement('button');
+                dot.type = 'button';
+                dot.dataset.dgSlide = String(index);
+                dot.setAttribute('aria-label', getLabel('heroSlide', 'Show image %d').replace('%d', String(index + 1)));
+                dots.appendChild(dot);
+            }
+        });
 
+        shell.classList.add('dg-has-hero-carousel');
         shell.insertBefore(hero, shell.firstElementChild);
-        bindHeroCarousel(hero);
+        if (images.length > 1) {
+            hero.appendChild(dots);
+            bindHeroCarousel(hero);
+        } else {
+            hero.classList.add('dg-hero-static');
+            hero.style.setProperty('--dg-track-index', '0');
+        }
     }
 
     function bindHeroCarousel(hero) {
@@ -2964,6 +3210,20 @@
             }
         });
         document.querySelectorAll('.dg-digits-login-shell form').forEach(prepareDigitsSkipPassword);
+        document.querySelectorAll('.dg-digits-login-shell .digits-form_passwordless_login').forEach(function (button) {
+            if (button.closest('.dg-passkey-options')) {
+                return;
+            }
+            var disclosure = document.createElement('details');
+            disclosure.className = 'dg-passkey-options';
+            var summary = document.createElement('summary');
+            summary.textContent = getLabel('passkeyOptions', 'Other sign-in options');
+            disclosure.appendChild(summary);
+            button.before(disclosure);
+            button.type = 'button';
+            button.textContent = getLabel('passkeyLogin', 'Sign in with a passkey');
+            disclosure.appendChild(button);
+        });
         normalizeDigitsLoginFallback();
         normalizeRecoveryIdentity();
         prepareDigitsRegistrationAutofill();
