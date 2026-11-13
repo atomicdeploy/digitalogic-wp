@@ -101,6 +101,10 @@ body.login:has(.dg-digits-login-shell, .dg-digits-register-shell, #lostpasswordf
     margin-block: auto;
     padding-block: clamp(16px, 3vh, 32px);
 }
+body.login:has(.dg-digits-login-shell) #login {
+    min-inline-size: 0 !important;
+    margin-inline: auto !important;
+}
 
 body.login::before,
 body.login::after,
