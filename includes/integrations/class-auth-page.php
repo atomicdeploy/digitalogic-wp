@@ -27,6 +27,11 @@ final class Digitalogic_Plugin_Auth_Routes {
         add_action('login_init', [self::class, 'redirect_wp_login_to_canonical'], 0);
         add_action('login_form_login', [self::class, 'render_digits_login'], 1);
         add_action('login_form_register', [self::class, 'render_digits_register'], 1);
+		add_action( 'login_form_lostpassword', array( self::class, 'redirect_recovery_entry' ), 1 );
+		add_action( 'login_form_retrievepassword', array( self::class, 'redirect_recovery_entry' ), 1 );
+		add_action( 'wp_ajax_digitalogic_recovery_nonce', array( self::class, 'recovery_nonce' ) );
+		add_action( 'wp_ajax_digitalogic_recovery_password', array( self::class, 'save_recovery_password' ) );
+		add_action( 'set_logged_in_cookie', array( self::class, 'record_recovery_session' ), 10, 6 );
         add_action('wp_login_failed', [self::class, 'redirect_failed_login'], 99);
         add_filter('register_url', [self::class, 'register_url'], 9999);
         add_filter('lostpassword_url', [self::class, 'lostpassword_url'], 9999, 2);
@@ -35,6 +40,90 @@ final class Digitalogic_Plugin_Auth_Routes {
         add_filter('wordfence_ls_require_captcha', [self::class, 'bypass_wordfence_captcha_for_digits'], 20);
 		add_filter( 'send_auth_cookies', array( self::class, 'remember_account' ), PHP_INT_MAX, 4 );
     }
+
+	/** Carry legacy recovery links into the normal sign-in flow. */
+	public static function redirect_recovery_entry(): void {
+		if ( 'GET' !== ( $_SERVER['REQUEST_METHOD'] ?? '' ) || ! function_exists( 'df_digits_form_login' ) ) {
+			return;
+		}
+		$redirect = isset( $_GET['redirect_to'] ) ? esc_url_raw( wp_unslash( $_GET['redirect_to'] ) ) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only navigation.
+		$locale   = isset( $_GET['wp_lang'] ) ? sanitize_text_field( wp_unslash( $_GET['wp_lang'] ) ) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only navigation.
+		$url      = self::lostpassword_url( '', $redirect );
+		wp_safe_redirect( $locale ? add_query_arg( 'wp_lang', $locale, $url ) : $url );
+		exit;
+	}
+
+	/**
+	 * Mark the new WordPress session after Digits accepts a recovery SMS.
+	 *
+	 * @param string $cookie     Generated cookie.
+	 * @param int    $expire     Browser expiration.
+	 * @param int    $expiration Session expiration.
+	 * @param int    $user_id    Authenticated account.
+	 * @param string $scheme     Cookie scheme.
+	 * @param string $token      New session token.
+	 */
+	public static function record_recovery_session( string $cookie, int $expire, int $expiration, int $user_id, string $scheme, string $token ): void {
+		// Digits owns OTP validation. This hook runs when it issues the authenticated session.
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- Digits validates the authentication request.
+		if ( ! wp_doing_ajax() || 'digits_forms_ajax' !== ( $_POST['action'] ?? '' )
+			|| '1' !== ( $_POST['dg_recovery'] ?? '' )
+			|| ! is_string( $_POST['sms_otp'] ?? null )
+			|| ! preg_match( '/\A[0-9]{4,8}\z/', sanitize_text_field( wp_unslash( $_POST['sms_otp'] ) ) )
+			|| ! empty( $_POST['password'] ) || ! empty( $_POST['pwd'] ) ) {
+			return;
+		}
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
+		set_transient( self::recovery_session_key( $token ), $user_id, 10 * MINUTE_IN_SECONDS );
+	}
+
+	/**
+	 * Bind recovery to one WordPress session.
+	 *
+	 * @param string $token WordPress session token.
+	 */
+	private static function recovery_session_key( string $token ): string {
+		return 'dg_recovery_' . hash( 'sha256', $token );
+	}
+
+	/** Issue a nonce only to the session established by the verified SMS. */
+	public static function recovery_nonce(): void {
+		$user_id = get_current_user_id();
+		if ( ! $user_id || $user_id !== (int) get_transient( self::recovery_session_key( wp_get_session_token() ) ) ) {
+			wp_send_json_error( null, 403 );
+		}
+		wp_send_json_success( array( 'nonce' => wp_create_nonce( 'digitalogic_recovery_password' ) ) );
+	}
+
+	/** Change the authenticated account's password and preserve its current session. */
+	public static function save_recovery_password(): void {
+		check_ajax_referer( 'digitalogic_recovery_password', 'nonce' );
+		$user_id = get_current_user_id();
+		$key     = self::recovery_session_key( wp_get_session_token() );
+		if ( ! $user_id || $user_id !== (int) get_transient( $key ) ) {
+			wp_send_json_error( null, 403 );
+		}
+		// Do not sanitize or trim a password supplied by the user.
+		$password = isset( $_POST['password'] ) && is_string( $_POST['password'] ) ? wp_unslash( $_POST['password'] ) : ''; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
+		if ( strlen( $password ) < 12 || strlen( $password ) > 4096 || trim( $password ) !== $password || str_contains( $password, "\0" ) ) {
+			wp_send_json_error( null, 400 );
+		}
+		if ( ! delete_transient( $key ) ) {
+			wp_send_json_error( null, 409 );
+		}
+		$result = wp_update_user(
+			array(
+				'ID'        => $user_id,
+				'user_pass' => $password,
+			)
+		);
+		if ( is_wp_error( $result ) ) {
+			set_transient( $key, $user_id, MINUTE_IN_SECONDS );
+			wp_send_json_error( null, 500 );
+		}
+		WP_Session_Tokens::get_instance( $user_id )->destroy_others( wp_get_session_token() );
+		wp_send_json_success();
+	}
 
 	/**
 	 * Remember an identity only when the browser opts into a persistent login.
@@ -185,16 +274,6 @@ final class Digitalogic_Plugin_Auth_Routes {
         echo self::digits_login_form_html($redirect_to); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
         echo '</div>';
 
-        echo '<p id="nav">';
-        echo '<a href="' . esc_url(self::register_url(wp_registration_url())) . '">';
-        echo esc_html__('ثبت نام', 'digitalogic');
-        echo '</a>';
-        echo '<span class="dg-nav-separator" aria-hidden="true">/</span>';
-        echo '<a href="' . esc_url(self::lostpassword_url(wp_lostpassword_url(), $redirect_to)) . '">';
-        echo esc_html__('بازیابی رمز عبور', 'digitalogic');
-        echo '</a>';
-        echo '</p>';
-
         self::render_login_footer();
         exit;
     }
@@ -301,29 +380,7 @@ final class Digitalogic_Plugin_Auth_Routes {
 // phpcs:enable
 
     public static function render_digits_register(): void {
-        $redirect_to = isset($_REQUEST['redirect_to']) ? esc_url_raw(wp_unslash($_REQUEST['redirect_to'])) : '';
-
-        login_header(__('Register'), '', null);
-
-        echo '<div class="dg-digits-register-shell">';
-
-        if (function_exists('df_digits_form_signup')) {
-            echo self::digits_register_form_html(); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
-        } else {
-            echo '<div id="login_error" class="notice notice-error"><p>';
-            esc_html_e('Digits registration is not available. Please check the Digits plugin configuration.', 'digitalogic');
-            echo '</p></div>';
-        }
-
-        echo '</div>';
-        echo '<p id="nav">';
-        echo '<a href="' . esc_url(self::login_url(wp_login_url($redirect_to), $redirect_to, false)) . '">';
-        echo esc_html__('ورود', 'digitalogic');
-        echo '</a>';
-        echo '</p>';
-
-        self::render_login_footer();
-        exit;
+		self::render_digits_login();
     }
 
     /**
@@ -351,7 +408,7 @@ final class Digitalogic_Plugin_Auth_Routes {
     }
 
     public static function lostpassword_url(string $url, string $redirect = ''): string {
-        $args = ['action' => 'lostpassword'];
+		$args = array( 'recover' => '1' );
 
         if ($redirect !== '') {
             $args['redirect_to'] = $redirect;
