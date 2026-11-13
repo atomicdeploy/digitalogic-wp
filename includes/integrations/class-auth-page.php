@@ -33,20 +33,20 @@ final class Digitalogic_Plugin_Auth_Routes {
         add_filter('login_url', [self::class, 'login_url'], 9999, 3);
         add_filter('authenticate', [self::class, 'authenticate_phone_user'], 30, 3);
         add_filter('wordfence_ls_require_captcha', [self::class, 'bypass_wordfence_captcha_for_digits'], 20);
-		add_action( 'set_logged_in_cookie', array( self::class, 'remember_account' ), 10, 4 );
+		add_filter( 'send_auth_cookies', array( self::class, 'remember_account' ), PHP_INT_MAX, 4 );
     }
 
 	/**
 	 * Remember an identity only when the browser opts into a persistent login.
 	 *
-	 * @param string $cookie     WordPress login cookie (not stored here).
+	 * @param bool   $send       Whether WordPress will send authentication cookies.
 	 * @param int    $expire     Browser cookie expiration.
 	 * @param int    $expiration WordPress authentication expiration.
 	 * @param int    $user_id    Authenticated user ID.
 	 */
-	public static function remember_account( string $cookie, int $expire, int $expiration, int $user_id ): void {
-		if ( headers_sent() || ! is_ssl() || ! apply_filters( 'send_auth_cookies', true ) ) {
-			return;
+	public static function remember_account( bool $send, int $expire, int $expiration, int $user_id ): bool {
+		if ( ! $send || $user_id < 1 || headers_sent() || ! is_ssl() ) {
+			return $send;
 		}
 		$expires = $expire > 0 ? min( $expiration, time() + 30 * DAY_IN_SECONDS ) : 0;
 		$value   = $user_id . '.' . $expires;
@@ -61,6 +61,7 @@ final class Digitalogic_Plugin_Auth_Routes {
 				'samesite' => 'Strict',
 			)
 		);
+		return $send;
 	}
 
 	/** A signed, browser-local account hint; it cannot create a WordPress session. */
