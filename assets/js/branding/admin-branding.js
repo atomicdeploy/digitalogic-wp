@@ -3483,11 +3483,14 @@
             pressed = event.target.closest(controls);
             if (!pressed || pressed.matches(':disabled,[aria-disabled="true"]')) { return; }
             pressed.classList.add('dg-touch-down');
-            if (event.pointerType === 'touch' && navigator.vibrate && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        }, { passive: true });
+        window.addEventListener('pointerup', function (event) {
+            if (pressed && event.pointerType === 'touch' && navigator.vibrate && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
                 navigator.vibrate(9);
             }
+            release();
         }, { passive: true });
-        ['pointerup', 'pointercancel', 'scroll'].forEach(function (name) {
+        ['pointercancel', 'scroll'].forEach(function (name) {
             window.addEventListener(name, release, { passive: true });
         });
     }
