@@ -57,6 +57,7 @@
 
 		widget.dataset.digitalogicCallInitialized = 'true';
 		const purpose = widget.dataset.purpose || 'login';
+		const isBrandedLogin = () => purpose === 'login' && !!widget.closest('.dg-digits-login-shell');
 		let challengeId = '';
 		let csrfToken = '';
 		let pollTimer = 0;
@@ -65,6 +66,7 @@
 		let stopped = false;
 		let attemptGeneration = 0;
 		let expiresAt = 0;
+		let useRealtime = false;
 		const pollInterval = Math.max(400, Math.min(750, Number(config.pollMs) || 500));
 
 		function showError(value) {
@@ -124,10 +126,11 @@
 		}
 
 		async function consume(expectedGeneration, expectedChallengeId, expectedCsrfToken) {
+			const redirect = isBrandedLogin() ? new URLSearchParams(window.location.search).get('redirect_to') : '';
 			const data = await request(`${config.challengeUrl}/${encodeURIComponent(expectedChallengeId)}/consume`, {
 				method: 'POST',
 				headers: headers(expectedCsrfToken, purpose === 'add_contact'),
-				body: '{}',
+				body: redirect ? JSON.stringify({ redirect_to: redirect }) : '{}',
 			});
 			if (
 				stopped
@@ -158,11 +161,19 @@
 			const expectedCsrfToken = csrfToken;
 			try {
 				pollController = new AbortController();
-				const data = await request(`${config.challengeUrl}/${encodeURIComponent(expectedChallengeId)}`, {
-					method: 'GET',
-					headers: headers(expectedCsrfToken),
-					signal: pollController.signal,
-				});
+				const realtime = useRealtime && window.DigitalogicAuthRealtime;
+				let data = realtime ? await realtime.callStatus(expectedChallengeId, expectedCsrfToken) : null;
+				if (stopped || expectedGeneration !== attemptGeneration || expectedChallengeId !== challengeId) {
+					return;
+				}
+				if (!data) {
+					useRealtime = false;
+					data = await request(`${config.challengeUrl}/${encodeURIComponent(expectedChallengeId)}`, {
+						method: 'GET',
+						headers: headers(expectedCsrfToken),
+						signal: pollController.signal,
+					});
+				}
 				pollController = null;
 				if (
 					stopped
@@ -265,6 +276,10 @@
 				}
 				challengeId = data.challenge_id;
 				csrfToken = data.csrf_token;
+				useRealtime = isBrandedLogin();
+				if (useRealtime) {
+					window.DigitalogicAuthRealtime?.refreshBinding();
+				}
 				code.textContent = data.code;
 				if (dial && data.dial) {
 					const display = String(data.dial.display || '');

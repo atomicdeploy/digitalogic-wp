@@ -7,6 +7,81 @@
     var digitsSmsWaits = new WeakMap();
     var digitsOtpEditors = new WeakMap();
     var digitsResendTimers = new WeakMap();
+    var authSocket = null;
+    var authSocketSequence = 0;
+    var authSocketPending = new Map();
+
+    function openAuthSocket() {
+        var settings = config.authWebSocket;
+        if (!settings || !settings.enabled || !window.WebSocket) {
+            return null;
+        }
+        if (authSocket && authSocket.readyState < 2) {
+            return authSocket;
+        }
+        var url = new window.URL(settings.url, window.location.href);
+        if (url.protocol !== 'wss:' || url.host !== window.location.host) {
+            return null;
+        }
+        url.searchParams.set(settings.token ? 'token' : 'nonce', settings.token || settings.nonce);
+        var socket = new window.WebSocket(url);
+        authSocket = socket;
+        socket.addEventListener('message', function (event) {
+            try {
+                var response = JSON.parse(event.data);
+                var pending = authSocketPending.get(response.id);
+                if (pending && pending.socket === socket) {
+                    pending.finish(response.success ? response.data : null);
+                }
+            } catch (error) { /* Other events are irrelevant to this request. */ }
+        });
+        socket.addEventListener('close', function () {
+            authSocketPending.forEach(function (pending) {
+                if (pending.socket === socket) {
+                    pending.finish(null);
+                }
+            });
+        });
+        return socket;
+    }
+
+    function authSocketRequest(command, data) {
+        return new Promise(function (resolve) {
+            var socket;
+            try { socket = openAuthSocket(); } catch (error) { resolve(null); return; }
+            if (!socket) {
+                resolve(null);
+                return;
+            }
+            var id = 'auth-' + (++authSocketSequence);
+            var timeout = window.setTimeout(function () { finish(null); }, 1500);
+            function finish(result) {
+                window.clearTimeout(timeout);
+                socket.removeEventListener('open', send);
+                authSocketPending.delete(id);
+                resolve(result);
+            }
+            function send() {
+                try { socket.send(JSON.stringify({ id: id, command: command, data: data })); }
+                catch (error) { finish(null); }
+            }
+            authSocketPending.set(id, { socket: socket, finish: finish });
+            if (socket.readyState === 1) {
+                send();
+            } else {
+                socket.addEventListener('open', send, { once: true });
+            }
+        });
+    }
+
+    // The first call challenge sets a new HttpOnly cookie. Reconnect so the
+    // server sees it in the handshake rather than sharing it with JavaScript.
+    window.DigitalogicAuthRealtime = {
+        refreshBinding: function () { if (authSocket) { authSocket.close(); authSocket = null; } },
+        callStatus: function (id, proof) {
+            return authSocketRequest('digitalogic_call_status', { challenge_id: id, csrf_token: proof });
+        }
+    };
     var feedbackSelector = [
         '#login_error',
         '.notice-error',
@@ -1589,6 +1664,7 @@
         function syncCode() {
             input.value = cells.every(function (cell) { return cell.value !== ''; })
                 ? cells.map(function (cell) { return cell.value; }).join('') : '';
+            editor.removeAttribute('aria-invalid');
         }
 
         function focusDigit(index) {
@@ -1697,6 +1773,35 @@
         if (hadFocus) {
             focusDigit(0);
         }
+    }
+
+    function prepareRegistrationOtp(form) {
+        if (form.dataset.dgRegistrationOtp) {
+            return;
+        }
+        form.dataset.dgRegistrationOtp = 'true';
+        function update() {
+            var otp = visibleDigitsSmsInput(form);
+            if (otp) {
+                if (!otp.classList.contains('disable_auto_read')) { otp.classList.add('disable_auto_read'); }
+                prepareDigitsOtpEditor(otp);
+            }
+            updateDigitsResend(form);
+        }
+        var observer = new MutationObserver(update);
+        observer.observe(form, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'hidden'] });
+        update();
+        form.addEventListener('click', function (event) {
+            var resend = event.target.closest('.dg-otp-resend[aria-disabled="true"]');
+            if (resend) {
+                event.preventDefault();
+                event.stopImmediatePropagation();
+            }
+            if (event.target.closest('.digits_form_back')) {
+                stopDigitsSmsWait(form);
+            }
+        }, true);
+        window.addEventListener('pagehide', function () { stopDigitsSmsWait(form); });
     }
 
     function updateDigitsResend(form) {
@@ -1811,8 +1916,8 @@
                 var beforeSend = guardedSettings.beforeSend;
                 var complete = guardedSettings.complete;
                 var requestForm = digitsRequestForm();
-                var brandedLogin = requestForm && requestForm.closest && requestForm.closest('.dg-digits-login-shell');
-                var fields = brandedLogin && Array.isArray(settings.data) ? settings.data : [];
+                var brandedAuth = requestForm && requestForm.closest && requestForm.closest('.dg-digits-login-shell, .dg-digits-register-shell');
+                var fields = brandedAuth && Array.isArray(settings.data) ? settings.data : [];
                 var checksStatus = fields.some(function (field) { return field && field.name === 'check_status'; });
                 var sendsSms = fields.some(function (field) { return field && field.name === 'sub_action' && field.value === 'sms_otp'; });
                 if (sendsSms || checksStatus) {
@@ -1885,6 +1990,12 @@
                     try {
                         if (payload.success) {
                             finishBrandedDigitsLogin(requestForm, payload.data);
+                        } else if (verifiesSms) {
+                            var rejected = visibleDigitsSmsInput(requestForm);
+                            var group = rejected && rejected.previousElementSibling;
+                            if (group && group.classList.contains('dg-otp-editor')) {
+                                group.setAttribute('aria-invalid', 'true');
+                            }
                         }
                         if (sendsSms && payload.success) {
                             payload.data.check_remote_status = false;
@@ -2673,19 +2784,24 @@
     }
 
     async function buildLoginHeroCarousel() {
-        var shell = document.querySelector('.dg-digits-login-shell');
-        if (!shell || !config.loginSlidesUrl) {
+        var shell = document.querySelector('.dg-digits-login-shell, .dg-digits-register-shell');
+        if (!config.loginSlidesUrl || !document.body.classList.contains('login')) {
             return;
         }
 
         var slides;
         try {
-            var response = await window.fetch(config.loginSlidesUrl, { credentials: 'same-origin' });
-            slides = response.ok ? await response.json() : null;
+            var presentation = await authSocketRequest('digitalogic_auth_presentation', {});
+            if (presentation && Array.isArray(presentation.slides)) {
+                slides = presentation.slides;
+            } else {
+                var response = await window.fetch(config.loginSlidesUrl, { credentials: 'same-origin' });
+                slides = response.ok ? await response.json() : null;
+            }
         } catch (error) {
             return;
         }
-        if (!Array.isArray(slides)) {
+        if (!shell || !Array.isArray(slides)) {
             return;
         }
         var images = slides.flatMap(function (slide) {
@@ -3172,10 +3288,19 @@
         if (fieldLabel && cleanText(fieldLabel.textContent, '') !== label) {
             fieldLabel.textContent = label;
         }
+        putAuthIcon(fieldLabel, 'user');
 
         if (field) {
             field.setAttribute('placeholder', label);
             field.setAttribute('aria-label', label);
+        }
+        var form = document.querySelector('#lostpasswordform');
+        if (form && !form.querySelector('.dg-recovery-title')) {
+            var heading = document.createElement('h2');
+            heading.className = 'dg-recovery-title';
+            heading.textContent = isPersianLocale() ? 'بازیابی رمز عبور' : 'Reset your password';
+            putAuthIcon(heading, 'lock');
+            form.prepend(heading);
         }
     }
 
@@ -3210,10 +3335,152 @@
             }
         });
         document.querySelectorAll('.dg-digits-login-shell form').forEach(prepareDigitsSkipPassword);
+        document.querySelectorAll('.dg-digits-register-shell form.digits_register').forEach(prepareRegistrationOtp);
         mountLoginAlternatives();
+        decorateAuthControls();
+        mountRememberedAccount();
         normalizeDigitsLoginFallback();
         normalizeRecoveryIdentity();
         prepareDigitsRegistrationAutofill();
+    }
+
+    var authIcons = {
+        user: 'M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2 M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0Z',
+        phone: 'M8 3h8a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z M10 17h4',
+        lock: 'M7 10V7a5 5 0 0 1 10 0v3 M5 10h14v11H5z M12 14v3',
+        key: 'M15 3a6 6 0 1 1-3 11L5 21H2v-3l7-7a6 6 0 0 1 6-8Z M16 8h.01',
+        sms: 'M4 4h16v12H9l-5 4z M8 9h8 M8 12h5',
+        arrow: 'M5 12h14m-6-6 6 6-6 6',
+        more: 'M4 7h16 M4 12h16 M4 17h16 M8 5v4 M15 10v4 M10 15v4'
+    };
+
+    function putAuthIcon(node, name) {
+        if (!node || node.querySelector(':scope > .dg-auth-icon')) { return; }
+        var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.setAttribute('viewBox', '0 0 24 24');
+        svg.setAttribute('aria-hidden', 'true');
+        svg.classList.add('dg-auth-icon', 'dg-auth-icon--' + name);
+        var path = document.createElementNS(svg.namespaceURI, 'path');
+        path.setAttribute('d', authIcons[name]);
+        svg.appendChild(path);
+        node.prepend(svg);
+    }
+
+    function decorateAuthControls() {
+        var selectors = {
+            '.digits-form_heading': 'user',
+            '.dg-passkey-options summary': 'more',
+            '.dg-passkey-options .digits-form_passwordless_login': 'key',
+            '.dg-passkey-options .digitalogic-call-toggle, [data-call-start]': 'phone',
+            '.dg-skip-password, .dg-otp-resend': 'sms',
+            '.digits-form_button_ic': 'arrow'
+        };
+        Object.keys(selectors).forEach(function (selector) {
+            document.querySelectorAll(selector).forEach(function (node) { putAuthIcon(node, selectors[selector]); });
+        });
+        document.querySelectorAll('.dg-digits-login-shell, .dg-digits-register-shell').forEach(function (shell) {
+            shell.querySelectorAll('input:is([name="digits_phone"],[name="digits_email"],[name="phone"],[name="password"],.dg-username-password-input)').forEach(function (input) {
+                var holder = input.closest('.digits-form_input') || input.parentElement;
+                holder.classList.add('dg-auth-input-icon');
+                putAuthIcon(holder, input.matches('[name="password"],.dg-username-password-input') ? 'lock' : (input.name === 'phone' ? 'phone' : 'user'));
+            });
+        });
+        document.querySelectorAll('#digits_google_login').forEach(function (button) {
+            if (button.dataset.dgGoogleReady) { return; }
+            button.dataset.dgGoogleReady = 'true';
+            button.setAttribute('role', 'button');
+            button.tabIndex = 0;
+            var label = button.querySelector('.digits-social-text');
+            if (label) { label.textContent = isPersianLocale() ? 'ادامه با گوگل' : 'Continue with Google'; }
+            var divider = button.closest('.digits-social-logins-box').querySelector('.digits-use_social-logins');
+            var list = button.closest('.digits-social-logins');
+            if (divider && list) { list.before(divider); }
+            if (divider && divider.firstElementChild) {
+                divider.firstElementChild.textContent = isPersianLocale() ? 'یا با حساب دیگری ادامه دهید' : 'Or continue with';
+            }
+            button.addEventListener('keydown', function (event) {
+                if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    button.click();
+                }
+            });
+        });
+    }
+
+    function mountRememberedAccount() {
+        var account = config.rememberedAccount;
+        var identity = document.querySelector('.dg-digits-login-shell input[name="digits_phone"]');
+        if (!account || !account.login || !identity || document.querySelector('.dg-account-hint')) { return; }
+        var hint = document.createElement('details');
+        hint.className = 'dg-account-hint';
+        var summary = document.createElement('summary');
+        summary.textContent = account.assigned ? (account.name || account.login)
+            : (isPersianLocale() ? 'حساب به‌خاطر سپرده‌شده' : 'Remembered account');
+        var choice = document.createElement('button');
+        choice.type = 'button';
+        choice.textContent = account.assigned ? (isPersianLocale() ? 'ورود با حساب دیگر' : 'Use another account') : (account.name || account.login);
+        var avatarTarget = account.assigned ? summary : choice;
+        if (account.avatar) {
+            var img = document.createElement('img');
+            img.alt = '';
+            img.src = account.avatar;
+            avatarTarget.prepend(img);
+        } else {
+            putAuthIcon(avatarTarget, 'user');
+        }
+        choice.addEventListener('click', function () {
+            identity.value = account.assigned ? '' : account.login;
+            identity.dispatchEvent(new Event('input', { bubbles: true }));
+            hint.open = false;
+            identity.focus();
+        });
+        hint.append(summary, choice);
+        var row = identity.closest('.digits-form_input_row');
+        if (row) {
+            row.before(hint);
+            if (account.assigned && !identity.value) {
+                identity.value = account.login;
+                identity.dispatchEvent(new Event('input', { bubbles: true }));
+            }
+        }
+    }
+
+    function prefetchAuthPages() {
+        var seen = new Set();
+        document.querySelectorAll('#nav a[href]').forEach(function (anchor) {
+            var target = new window.URL(anchor.href, window.location.href);
+            var keys = Array.from(target.searchParams.keys());
+            if (target.origin !== window.location.origin || target.pathname !== '/login/' || target.href === window.location.href
+                || keys.some(function (key) { return key !== 'action' && key !== 'wp_lang'; }) || seen.has(target.href)) {
+                return;
+            }
+            var action = target.searchParams.get('action');
+            if (action && action !== 'register' && action !== 'lostpassword') { return; }
+            seen.add(target.href);
+            var link = document.createElement('link');
+            link.rel = 'prefetch';
+            link.href = target.href;
+            document.head.appendChild(link);
+        });
+    }
+
+    function bindAuthPressFeedback() {
+        var controls = '#login :is(button, a[href], summary, [role="button"], label:has(input[type="checkbox"]))';
+        var pressed;
+        function release() {
+            if (pressed) { pressed.classList.remove('dg-touch-down'); pressed = null; }
+        }
+        document.addEventListener('pointerdown', function (event) {
+            release();
+            if (event.button !== 0 || !event.target.closest) { return; }
+            pressed = event.target.closest(controls);
+            if (!pressed || pressed.matches(':disabled,[aria-disabled="true"]')) { return; }
+            pressed.classList.add('dg-touch-down');
+            if (event.pointerType === 'touch' && navigator.vibrate) { navigator.vibrate(9); }
+        }, { passive: true });
+        ['pointerup', 'pointercancel', 'scroll'].forEach(function (name) {
+            window.addEventListener(name, release, { passive: true });
+        });
     }
 
     function mountLoginAlternatives() {
@@ -3245,6 +3512,10 @@
             var phone = widget.querySelector('[data-call-phone]');
             // The call controller submits this field independently of the Digits form.
             phone.setAttribute('form', 'digitalogic-call-verification-form');
+            call.addEventListener('click', function () {
+                var value = digitsIdentityValue(form);
+                if (!phone.value && /^[+0-9\s()-]{8,18}$/.test(value)) { phone.value = value; }
+            });
             widget.addEventListener('keydown', function (event) {
                 if (event.key === 'Enter' && event.target.matches('[data-call-phone]')) {
                     event.preventDefault();
@@ -3329,14 +3600,17 @@
         buildLanguageSwitcher();
         injectLateLoginOverrides();
         buildLoginHeroCarousel();
-        observeAuthChrome();
+        bindAuthPressFeedback();
+        window.addEventListener('pagehide', function () { if (authSocket) { authSocket.close(); } });
+        (window.requestIdleCallback || window.setTimeout)(prefetchAuthPages);
         bindLoginValidation();
         bindDigitsAutoIdentity();
+        observeAuthChrome();
         enforceDigitsRegisterMobile();
         scheduleDigitsAjaxFailureGuard();
         bindLoadingStates();
         observeInlineMessages();
         bindErrorHandling();
-        enableRipples();
+        if (!document.body.classList.contains('login')) { enableRipples(); }
     });
 })();

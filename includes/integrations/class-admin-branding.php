@@ -36,6 +36,8 @@ final class Digitalogic_Plugin_Admin_Branding {
 		add_action( 'wp_ajax_nopriv_digits_forms_ajax', array( self::class, 'use_utc_for_digits_forms' ), 0 );
 		add_action( 'wp_ajax_digits_forms_ajax', array( self::class, 'use_utc_for_digits_forms' ), 0 );
 		add_action( 'rest_api_init', array( self::class, 'register_login_slides_route' ) );
+		add_filter( 'digitalogic_command_handlers', array( self::class, 'auth_presentation_commands' ), 10, 2 );
+		add_filter( 'digitalogic_command_requires_auth', array( self::class, 'auth_presentation_permission' ), 10, 4 );
 		add_action( 'woocommerce_after_edit_account_form', array( self::class, 'render_passkey_settings' ) );
 		add_filter( 'gettext_digits', array( self::class, 'translate_digits_passkeys' ), 10, 2 );
         add_action('wp_ajax_digitalogic_set_admin_theme', [self::class, 'ajax_set_admin_theme']);
@@ -112,6 +114,21 @@ HTML;
 	/** Return the artwork configured for the login page. */
 	public static function login_slides(): array {
 		return array( array( 'image' => DIGITALOGIC_PLUGIN_URL . 'assets/images/branding/login-hero.png' ) );
+	}
+
+	/** Expose the same public presentation data on the login and signup socket. */
+	public static function auth_presentation_commands( array $commands, string $transport ): array {
+		if ( 'websocket' === $transport ) {
+			$commands['digitalogic_auth_presentation'] = static function (): array {
+				return array( 'slides' => self::login_slides() );
+			};
+		}
+		return $commands;
+	}
+
+	/** Keep credentials and account lookup outside the public command surface. */
+	public static function auth_presentation_permission( bool $required, string $command, array $payload, string $transport ): bool {
+		return 'websocket' === $transport && 'digitalogic_auth_presentation' === $command ? false : $required;
 	}
 
 	/** Offer enrollment from account settings, after sign-in has finished. */
@@ -527,6 +544,8 @@ JS;
         $config['labels'] = self::client_labels();
 		if ( $is_login ) {
 			$config['loginSlidesUrl'] = rest_url( 'digitalogic/v1/login-slides' );
+			$config['authWebSocket']  = class_exists( 'Digitalogic_WebSocket' ) ? Digitalogic_WebSocket::instance()->get_public_client_config() : array();
+			$config['rememberedAccount'] = Digitalogic_Plugin_Auth_Routes::remembered_account();
 		}
 
         return $config;
@@ -626,6 +645,7 @@ JS;
         $font_regular = $stylesheet_uri . '/fonts/woff2/' . rawurlencode('IRANSansWeb(FaNum).woff2');
         $font_medium = $stylesheet_uri . '/fonts/woff2/' . rawurlencode('IRANSansWeb(FaNum)_Medium.woff2');
         $font_bold = $stylesheet_uri . '/fonts/woff2/' . rawurlencode('IRANSansWeb(FaNum)_Bold.woff2');
+		$latin_bold = get_template_directory_uri() . '/fonts/woff2/IRANSansWeb_Bold.woff2';
         $yekan_bakh = content_url('/uploads/2025/09/YekanBakh-Regular.woff2');
         $logos = self::logo_urls();
 
@@ -652,6 +672,13 @@ JS;
     font-display: swap;
 }
 @font-face {
+    font-family: "DigitalogicLatin";
+    src: url("{$latin_bold}") format("woff2");
+    font-style: normal;
+    font-weight: 700;
+    font-display: swap;
+}
+@font-face {
     font-family: "DigitalogicYekanBakh";
     src: url("{$yekan_bakh}") format("woff2");
     font-style: normal;
@@ -660,9 +687,13 @@ JS;
 }
 :root {
     --dg-font: "DigitalogicFanum", "IRANSans", system-ui, sans-serif;
+    --dg-auth-digits: "DigitalogicLatin", system-ui, sans-serif;
     --dg-placeholder-font: "DigitalogicYekanBakh", "DigitalogicFanum", "IRANSans", system-ui, sans-serif;
     --dg-logo-light: url("{$logos['light']}");
     --dg-logo-dark: url("{$logos['dark']}");
+}
+:root:is(:lang(fa), :lang(ar), :lang(ur), :lang(ps), :lang(ckb), :lang(prs)) {
+    --dg-auth-digits: var(--dg-font);
 }
 CSS;
     }
