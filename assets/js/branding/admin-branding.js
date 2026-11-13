@@ -3355,7 +3355,7 @@
     };
 
     function putAuthIcon(node, name) {
-        if (!node || node.querySelector(':scope > .dg-auth-icon')) { return; }
+        if (!node || !node.querySelector || node.querySelector(':scope > .dg-auth-icon')) { return; }
         var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
         svg.setAttribute('viewBox', '0 0 24 24');
         svg.setAttribute('aria-hidden', 'true');
@@ -3367,6 +3367,13 @@
     }
 
     function decorateAuthControls() {
+        var signup = document.querySelector('.dg-digits-register-shell form.digits_register');
+        var google = document.querySelector('#digits_google_login');
+        var social = google && google.closest('.digits-social-logins-box');
+        if (signup && social && !signup.contains(social)) {
+            var signupFooter = signup.querySelector('.dig_login_signup_bar');
+            if (signupFooter) { signupFooter.before(social); }
+        }
         var selectors = {
             '.digits-form_heading': 'user',
             '.dg-passkey-options summary': 'more',
@@ -3396,7 +3403,7 @@
             var list = button.closest('.digits-social-logins');
             if (divider && list) { list.before(divider); }
             if (divider && divider.firstElementChild) {
-                divider.firstElementChild.textContent = isPersianLocale() ? 'یا با حساب دیگری ادامه دهید' : 'Or continue with';
+                divider.firstElementChild.textContent = isPersianLocale() ? 'یا ادامه با' : 'Or continue with';
             }
             button.addEventListener('keydown', function (event) {
                 if (event.key === 'Enter' || event.key === ' ') {
@@ -3476,7 +3483,9 @@
             pressed = event.target.closest(controls);
             if (!pressed || pressed.matches(':disabled,[aria-disabled="true"]')) { return; }
             pressed.classList.add('dg-touch-down');
-            if (event.pointerType === 'touch' && navigator.vibrate) { navigator.vibrate(9); }
+            if (event.pointerType === 'touch' && navigator.vibrate && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+                navigator.vibrate(9);
+            }
         }, { passive: true });
         ['pointerup', 'pointercancel', 'scroll'].forEach(function (name) {
             window.addEventListener(name, release, { passive: true });

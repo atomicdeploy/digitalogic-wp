@@ -545,7 +545,13 @@ final class Digitalogic_Call_Verification {
 		);
 	}
 
-	/** Read status using the cookie from this connection's handshake. */
+	/**
+	 * Read status using the cookie from this connection's handshake.
+	 *
+	 * @param array  $data    Challenge ID and proof.
+	 * @param string $origin  WebSocket origin.
+	 * @param string $binding Browser binding from the handshake.
+	 */
 	public function socket_challenge_status( array $data, string $origin, string $binding ) {
 		if ( ! hash_equals( rtrim( home_url( '/' ), '/' ), $origin ) ) {
 			return new WP_Error( 'digitalogic_call_missing', __( 'Verification not found.', 'digitalogic' ) );
@@ -555,7 +561,13 @@ final class Digitalogic_Call_Verification {
 		return $this->read_challenge_status( $id, $binding, $csrf );
 	}
 
-	/** Apply the same browser binding and rate limits on either transport. */
+	/**
+	 * Apply the same browser binding and rate limits on either transport.
+	 *
+	 * @param string $id      Challenge ID.
+	 * @param string $binding Browser binding.
+	 * @param string $csrf    Challenge proof.
+	 */
 	private function read_challenge_status( string $id, string $binding, string $csrf ) {
 		if ( ! self::is_schema_ready() ) {
 			return new WP_Error( 'digitalogic_pbx_schema', __( 'Call verification is temporarily unavailable.', 'digitalogic' ), array( 'status' => 503 ) );
@@ -2351,7 +2363,13 @@ final class Digitalogic_Call_Verification {
 		);
 	}
 
-	/** Match both browser proofs before returning any challenge state. */
+	/**
+	 * Match both browser proofs before returning any challenge state.
+	 *
+	 * @param string $id      Challenge ID.
+	 * @param string $binding Browser binding.
+	 * @param string $csrf    Challenge proof.
+	 */
 	private function find_bound_challenge( string $id, string $binding, string $csrf ) {
 		if ( ! preg_match( '/\A[A-Za-z0-9_-]{43}\z/', $binding ) || ! preg_match( '/\A[A-Za-z0-9_-]{32,128}\z/', $csrf ) || ! preg_match( '/\A[A-Za-z0-9_-]{32,128}\z/', $id ) ) {
 			return new WP_Error( 'digitalogic_call_missing', __( 'Verification not found.', 'digitalogic' ), array( 'status' => 404 ) );
@@ -2369,7 +2387,11 @@ final class Digitalogic_Call_Verification {
 		return $row;
 	}
 
-	/** Keep return URLs on this site, including the OpenID continuation. */
+	/**
+	 * Keep return URLs on this site, including the OpenID continuation.
+	 *
+	 * @param mixed $requested Requested return URL.
+	 */
 	public static function login_destination( $requested ): string {
 		$fallback = home_url( '/my-account/' );
 		$url      = is_string( $requested ) ? wp_validate_redirect( $requested, $fallback ) : $fallback;

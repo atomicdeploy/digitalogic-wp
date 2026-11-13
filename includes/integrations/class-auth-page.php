@@ -8,10 +8,11 @@ if (!defined('ABSPATH')) {
 }
 
 final class Digitalogic_Plugin_Auth_Routes {
-	private const ACCOUNT_HINT_COOKIE = 'digitalogic_account_hint';
     private const AUTH_PAGE_ID = 10512;
     private const DEFAULT_COUNTRY_CODE = '98';
     private const CANONICAL_LOGIN_PATH = '/login/';
+
+	private const ACCOUNT_HINT_COOKIE = 'digitalogic_account_hint';
 
     public static function init(): void {
         static $booted = false;
@@ -35,7 +36,14 @@ final class Digitalogic_Plugin_Auth_Routes {
 		add_action( 'set_logged_in_cookie', array( self::class, 'remember_account' ), 10, 4 );
     }
 
-	/** Remember an identity only when the browser opts into a persistent login. */
+	/**
+	 * Remember an identity only when the browser opts into a persistent login.
+	 *
+	 * @param string $cookie     WordPress login cookie (not stored here).
+	 * @param int    $expire     Browser cookie expiration.
+	 * @param int    $expiration WordPress authentication expiration.
+	 * @param int    $user_id    Authenticated user ID.
+	 */
 	public static function remember_account( string $cookie, int $expire, int $expiration, int $user_id ): void {
 		if ( headers_sent() || ! is_ssl() || ! apply_filters( 'send_auth_cookies', true ) ) {
 			return;
@@ -46,7 +54,7 @@ final class Digitalogic_Plugin_Auth_Routes {
 			self::ACCOUNT_HINT_COOKIE,
 			$expires > time() ? $value . '.' . hash_hmac( 'sha256', $value, wp_salt( 'logged_in' ) ) : '',
 			array(
-				'expires'  => $expires ?: time() - HOUR_IN_SECONDS,
+				'expires'  => $expires > 0 ? $expires : time() - HOUR_IN_SECONDS,
 				'path'     => '/',
 				'secure'   => true,
 				'httponly' => true,
@@ -60,7 +68,7 @@ final class Digitalogic_Plugin_Auth_Routes {
 		if ( 'login' !== ( $GLOBALS['action'] ?? '' ) ) {
 			return array();
 		}
-		$address = isset( $_SERVER['REMOTE_ADDR'] ) ? (string) wp_unslash( $_SERVER['REMOTE_ADDR'] ) : '';
+		$address = isset( $_SERVER['REMOTE_ADDR'] ) ? sanitize_text_field( wp_unslash( $_SERVER['REMOTE_ADDR'] ) ) : '';
 		if ( str_starts_with( $address, '172.16.' ) && filter_var( $address, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4 ) ) {
 			// Only trust REMOTE_ADDR after the web server's trusted proxy handling.
 			$assignments = defined( 'DIGITALOGIC_LAN_LOGIN_ACCOUNTS' ) && is_array( DIGITALOGIC_LAN_LOGIN_ACCOUNTS ) ? DIGITALOGIC_LAN_LOGIN_ACCOUNTS : array();
@@ -85,7 +93,12 @@ final class Digitalogic_Plugin_Auth_Routes {
 		return self::account_hint( $user, false );
 	}
 
-	/** Serialize only the account chosen for this browser or assigned workstation. */
+	/**
+	 * Serialize only the account chosen for this browser or assigned workstation.
+	 *
+	 * @param WP_User $user     Account to show.
+	 * @param bool    $assigned Whether to preselect the account.
+	 */
 	private static function account_hint( WP_User $user, bool $assigned ): array {
 		$avatar = get_avatar_url( $user->ID, array( 'size' => 80 ) );
 		return array(
@@ -166,7 +179,7 @@ final class Digitalogic_Plugin_Auth_Routes {
             echo '</p></div>';
         }
 
-        echo '<div class="dg-digits-login-shell dg-digits-auto-identity">';
+		echo '<div class="dg-digits-login-shell dg-digits-auto-identity">';
         echo self::digits_login_form_html($redirect_to); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
         echo '</div>';
 

@@ -116,7 +116,12 @@ HTML;
 		return array( array( 'image' => DIGITALOGIC_PLUGIN_URL . 'assets/images/branding/login-hero.png' ) );
 	}
 
-	/** Expose the same public presentation data on the login and signup socket. */
+	/**
+	 * Expose the same public presentation data on the login and signup socket.
+	 *
+	 * @param array  $commands  Existing commands.
+	 * @param string $transport Current transport.
+	 */
 	public static function auth_presentation_commands( array $commands, string $transport ): array {
 		if ( 'websocket' === $transport ) {
 			$commands['digitalogic_auth_presentation'] = static function (): array {
@@ -126,7 +131,14 @@ HTML;
 		return $commands;
 	}
 
-	/** Keep credentials and account lookup outside the public command surface. */
+	/**
+	 * Keep credentials and account lookup outside the public command surface.
+	 *
+	 * @param bool   $required  Current authorization requirement.
+	 * @param string $command   Requested command.
+	 * @param array  $payload   Command payload.
+	 * @param string $transport Current transport.
+	 */
 	public static function auth_presentation_permission( bool $required, string $command, array $payload, string $transport ): bool {
 		return 'websocket' === $transport && 'digitalogic_auth_presentation' === $command ? false : $required;
 	}
@@ -543,8 +555,8 @@ JS;
 
         $config['labels'] = self::client_labels();
 		if ( $is_login ) {
-			$config['loginSlidesUrl'] = rest_url( 'digitalogic/v1/login-slides' );
-			$config['authWebSocket']  = class_exists( 'Digitalogic_WebSocket' ) ? Digitalogic_WebSocket::instance()->get_public_client_config() : array();
+			$config['loginSlidesUrl']     = rest_url( 'digitalogic/v1/login-slides' );
+			$config['authWebSocket']      = class_exists( 'Digitalogic_WebSocket' ) ? Digitalogic_WebSocket::instance()->get_public_client_config() : array();
 			$config['rememberedAccount'] = Digitalogic_Plugin_Auth_Routes::remembered_account();
 		}
 
@@ -645,9 +657,10 @@ JS;
         $font_regular = $stylesheet_uri . '/fonts/woff2/' . rawurlencode('IRANSansWeb(FaNum).woff2');
         $font_medium = $stylesheet_uri . '/fonts/woff2/' . rawurlencode('IRANSansWeb(FaNum)_Medium.woff2');
         $font_bold = $stylesheet_uri . '/fonts/woff2/' . rawurlencode('IRANSansWeb(FaNum)_Bold.woff2');
-		$latin_bold = get_template_directory_uri() . '/fonts/woff2/IRANSansWeb_Bold.woff2';
         $yekan_bakh = content_url('/uploads/2025/09/YekanBakh-Regular.woff2');
         $logos = self::logo_urls();
+
+		$latin_bold = get_template_directory_uri() . '/fonts/woff2/IRANSansWeb_Bold.woff2';
 
         return <<<CSS
 @font-face {

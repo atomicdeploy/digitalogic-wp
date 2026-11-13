@@ -250,14 +250,14 @@ class Digitalogic_WebSocket_Server {
 		$this->clients[ $id ]['owner_read_fingerprint'] = (string) ( $auth['owner_read_fingerprint'] ?? '' );
 
 		$this->clients[ $id ]['principal']              = (string) ( $auth['principal'] ?? '' );
+		$this->clients[ $id ]['source']                 = isset($auth['source']) && is_array($auth['source']) ? $auth['source'] : array();
+		$this->clients[ $id ]['credential_fingerprint'] = (string) ( $auth['credential_fingerprint'] ?? '' );
 		if ( 'public' === $this->clients[ $id ]['principal'] ) {
 			$this->clients[ $id ]['auth_origin'] = (string) ( $headers['origin'] ?? '' );
 			if ( preg_match( '/(?:^|;\s*)digitalogic_call_binding=([A-Za-z0-9_-]{43})(?:;|$)/', (string) ( $headers['cookie'] ?? '' ), $binding ) ) {
 				$this->clients[ $id ]['call_binding'] = $binding[1];
 			}
 		}
-		$this->clients[ $id ]['source']                 = isset($auth['source']) && is_array($auth['source']) ? $auth['source'] : array();
-		$this->clients[ $id ]['credential_fingerprint'] = (string) ( $auth['credential_fingerprint'] ?? '' );
 		if ( ! empty( $auth['pricing_commands'] ) ) {
 			$this->clients[ $id ]['headers'] = '';
 			return; // Command sessions have responses only, no event-stream hello/replay.
@@ -420,7 +420,14 @@ class Digitalogic_WebSocket_Server {
 				$this->send_error( $id, $request_id, $result->get_error_code(), $result->get_error_message() );
 				return;
 			}
-			$this->send_json( $id, array( 'id' => $request_id, 'success' => true, 'data' => $result->get_data() ) );
+			$this->send_json(
+				$id,
+				array(
+					'id'      => $request_id,
+					'success' => true,
+					'data'    => $result->get_data(),
+				)
+			);
 			return;
 		}
 
